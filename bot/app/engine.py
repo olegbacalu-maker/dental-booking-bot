@@ -54,6 +54,22 @@ def allowed_doc_items(svc_key: str) -> list[tuple[str, str]]:
     keys = SERVICES.get(svc_key, {}).get("docs") or list(DOCTORS)
     return [(k, DOCTORS[k]) for k in keys if k in DOCTORS]
 
+
+def _price_avg(price) -> int:
+    """Средняя цена услуги в MDL из строки прайса ('1200–1800 MDL' → 1500)."""
+    if isinstance(price, dict):
+        price = price.get("ro", "")
+    nums = [int(n) for n in re.findall(r"\d+", str(price))]
+    return int(sum(nums) / len(nums)) if nums else 0
+
+
+# label (обоих языков) → средняя цена; для статистики «неявки в леях»
+SERVICE_PRICE: dict[str, int] = {}
+for _svc in CONFIG["services"]:
+    _avg = _price_avg(_svc.get("price", ""))
+    SERVICE_PRICE[_svc["ro"]] = _avg
+    SERVICE_PRICE[_svc["ru"]] = _avg
+
 RO_DOW = ["Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"]
 RU_DOW = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 

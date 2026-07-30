@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import hashlib
 import hmac
 import html
@@ -87,6 +88,10 @@ PANEL_CSS = """
  .nav a{display:inline-block;background:#fff;border:1px solid #cdd;border-radius:6px;
         padding:5px 12px;margin-right:6px;text-decoration:none;color:#075e54;font-size:14px}
  .nav a.primary{background:#075e54;color:#fff;border-color:#075e54}
+ .nav form.dpickf{display:inline-block;margin-right:6px}
+ .nav input.dpick{padding:4px 8px;border:1px solid #cdd;border-radius:6px;font-size:14px;background:#fff;color:#075e54}
+ .statbar{background:#e4eeec;border-radius:4px;height:8px;overflow:hidden}
+ .statbar div{background:#075e54;height:8px}
  .nav b{font-size:15px;margin-right:8px}
  .banner{padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:14px}
  .banner.ok{background:#dff3e3;color:#14632a}
@@ -195,12 +200,18 @@ def _parse_date(value: str) -> date:
 
 def _date_nav(d: date, base: str, extra: str = "") -> str:
     prev_d, next_d = d - timedelta(days=1), d + timedelta(days=1)
+    wk_prev, wk_next = d - timedelta(days=7), d + timedelta(days=7)
     lbl = eng.day_label(eng.Session(lang="ro"), d)
+    picker = (f"<form class='dpickf' method='get' action='{base}'>"
+              f"<input class='dpick' type='date' name='date' value='{d.isoformat()}' "
+              f"onchange='this.form.submit()' title='Alege data (calendar)'></form>")
     return (f"<div class='nav'><b>{lbl} {d.isoformat()}</b>"
+            f"<a href='{base}?date={wk_prev.isoformat()}' title='-7 zile'>◀◀</a>"
             f"<a href='{base}?date={prev_d.isoformat()}'>◀ {prev_d.strftime('%d.%m')}</a>"
             f"<a href='{base}'>Azi</a>"
             f"<a href='{base}?date={next_d.isoformat()}'>{next_d.strftime('%d.%m')} ▶</a>"
-            f"{extra}</div>")
+            f"<a href='{base}?date={wk_next.isoformat()}' title='+7 zile'>▶▶</a>"
+            f"{picker}{extra}</div>")
 
 
 def _banner(msg: str, d: date) -> str:
@@ -566,12 +577,151 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     cards.append("</div>")
 
     extra = (f"<a class='primary' href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a>"
+             f"<a href='/admin/stats'>📊 Statistici</a>"
              "<form class='searchf' method='get' action='/admin/search'>"
              "<input name='q' placeholder='Caută pacient: nume / telefon…'>"
              "<button>🔍</button></form>")
     body = _date_nav(d, "/admin", extra) + _banner(msg, d) + tiles + "".join(cards) + \
         "<p class='hint'>Click pe un medic — ziua lui. Programările prin bot apar automat (aceeași bază de date).</p>"
     return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat · demo, date sintetice")
+
+
+# ---------- статистика ----------
+
+def _fmt_mdl(x: int) -> str:
+    return f"{x:,}".replace(",", " ") + " MDL"
+
+
+@app.get("/admin/stats", response_class=HTMLResponse)
+async def admin_stats(
+    request: Request,
+    from_q: str = Query("", alias="from"),
+    to_q: str = Query("", alias="to"),
+):
+    if (deny := _guard(request)) is not None:
+        return deny
+    today = datetime.now(eng.TZ).date()
+    d1 = _parse_date(from_q) if from_q else today - timedelta(days=6)
+    d2 = _parse_date(to_q) if to_q else today
+    if d2 < d1:
+        d1, d2 = d2, d1
+    start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
+    end = datetime(d2.year, d2.month, d2.day, tzinfo=eng.TZ) + timedelta(days=1)
+    rows = await db.day_appointments(start, end)
+    appts = [r for r in rows if r["source"] != "note"]
+    act = [r for r in appts if r["status"] != "cancelled"]
+
+    n_bot = sum(1 for r in act if r["source"] == "bot")
+    n_man = len(act) - n_bot
+    n_done = sum(1 for r in act if r["status"] == "done")
+    n_noshow = sum(1 for r in act if r["status"] == "noshow")
+    n_cancel = len(appts) - len(act)
+    n_rem = sum(1 for r in appts if r["reminded_day"])
+    loss = sum(eng.SERVICE_PRICE.get(r["service"], 0) for r in act if r["status"] == "noshow")
+    bot_value = sum(eng.SERVICE_PRICE.get(r["service"], 0) for r in act if r["source"] == "bot")
+
+    tiles = (
+        "<div class='tiles'>"
+        f"<div class='tile'><b>{len(act)}</b><span>programări</span></div>"
+        f"<div class='tile'><b>{n_bot}</b><span>🤖 prin bot</span></div>"
+        f"<div class='tile'><b>{n_man}</b><span>✍️ recepție</span></div>"
+        f"<div class='tile'><b>{n_done}</b><span>🟦 au venit</span></div>"
+        f"<div class='tile bad'><b>{n_noshow}</b><span>neprezentări<br>≈ {_fmt_mdl(loss)}</span></div>"
+        f"<div class='tile'><b>{n_cancel}</b><span>anulate</span></div>"
+        f"<div class='tile'><b>{n_rem}</b><span>🔔 remindere</span></div>"
+        f"<div class='tile'><b>≈ {_fmt_mdl(bot_value)}</b><span>valoare adusă de bot</span></div>"
+        "</div>"
+    )
+
+    # загрузка врачей: занято / ёмкость периода
+    days = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
+    capacity = sum(len(eng.day_slots(day)) for day in days)
+    doc_rows = []
+    for name in eng.DOCTORS.values():
+        mine = [r for r in act if r["doctor"] == name]
+        ns = sum(1 for r in mine if r["status"] == "noshow")
+        pct = round(100 * len(mine) / capacity) if capacity else 0
+        doc_rows.append(
+            f"<tr><td>{html.escape(name)}</td><td>{len(mine)}</td><td>{ns}</td>"
+            f"<td style='min-width:160px'>{pct}%<div class='statbar'><div style='width:{min(pct,100)}%'></div></div></td></tr>"
+        )
+    doctors_tbl = ("<h2>Medici</h2><table class='list'>"
+                   "<tr><th>Medic</th><th>Programări</th><th>Neprezentări</th><th>Ocupare</th></tr>"
+                   + "".join(doc_rows) + "</table>")
+
+    svc_count: dict[str, int] = {}
+    for r in act:
+        svc_count[r["service"]] = svc_count.get(r["service"], 0) + 1
+    svc_rows = "".join(
+        f"<tr><td>{html.escape(sname)}</td><td>{cnt}</td>"
+        f"<td>≈ {_fmt_mdl(cnt * eng.SERVICE_PRICE.get(sname, 0))}</td></tr>"
+        for sname, cnt in sorted(svc_count.items(), key=lambda x: -x[1])[:8]
+    )
+    services_tbl = ("<h2>Servicii</h2><table class='list'>"
+                    "<tr><th>Serviciu</th><th>Programări</th><th>≈ Valoare</th></tr>"
+                    + svc_rows + "</table>")
+
+    q7 = (today - timedelta(days=6)).isoformat()
+    q30 = (today - timedelta(days=29)).isoformat()
+    m1 = today.replace(day=1).isoformat()
+    nav = (
+        "<div class='nav'>"
+        f"<b>{d1.strftime('%d.%m.%Y')} — {d2.strftime('%d.%m.%Y')}</b>"
+        f"<a href='/admin/stats?from={today.isoformat()}&to={today.isoformat()}'>Azi</a>"
+        f"<a href='/admin/stats?from={q7}&to={today.isoformat()}'>7 zile</a>"
+        f"<a href='/admin/stats?from={m1}&to={today.isoformat()}'>Luna asta</a>"
+        f"<a href='/admin/stats?from={q30}&to={today.isoformat()}'>30 zile</a>"
+        f"<form class='dpickf' method='get' action='/admin/stats' style='display:inline-flex;gap:4px'>"
+        f"<input class='dpick' type='date' name='from' value='{d1.isoformat()}'>"
+        f"<input class='dpick' type='date' name='to' value='{d2.isoformat()}'>"
+        f"<button class='searchf' style='background:#075e54;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer'>OK</button></form>"
+        f"<a href='/admin/export?from={d1.isoformat()}&to={d2.isoformat()}'>📥 Export CSV</a>"
+        f"<a href='/admin'>🏠 Panou</a></div>"
+    )
+    hint = ("<p class='hint'>Prețurile sunt medii orientative din lista clinicii; "
+            "neprezentările = venit pierdut estimat. Notițele nu se numără.</p>")
+    return _shell(nav + tiles + doctors_tbl + services_tbl + hint,
+                  "statistici · perioadă selectabilă · demo, date sintetice")
+
+
+# ---------- экспорт CSV ----------
+
+@app.get("/admin/export")
+async def admin_export(
+    request: Request,
+    from_q: str = Query("", alias="from"),
+    to_q: str = Query("", alias="to"),
+):
+    if (deny := _guard(request)) is not None:
+        return deny
+    d1 = _parse_date(from_q) if from_q else datetime.now(eng.TZ).date()
+    d2 = _parse_date(to_q) if to_q else d1
+    if d2 < d1:
+        d1, d2 = d2, d1
+    start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
+    end = datetime(d2.year, d2.month, d2.day, tzinfo=eng.TZ) + timedelta(days=1)
+    rows = await db.day_appointments(start, end)
+
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Data", "Ora", "Pacient", "An naștere", "Telefon", "Serviciu",
+                "Medic", "Sursă", "Status", "Reminder", "Comentariu"])
+    for r in rows:
+        dt = r["starts_at"].astimezone(eng.TZ)
+        w.writerow([
+            dt.strftime("%d.%m.%Y"), dt.strftime("%H:%M"),
+            r["name"] or ("— notiță —" if r["source"] == "note" else ""),
+            r["birth_year"] or "", r["phone"] or "", r["service"], r["doctor"],
+            r["source"], r["status"],
+            "da" if r["reminded_day"] else "", r["comment"] or "",
+        ])
+    csv_text = "\ufeff" + buf.getvalue()  # BOM: Excel открывает UTF-8 корректно
+    fname = f"programari_{d1.isoformat()}_{d2.isoformat()}.csv"
+    return Response(
+        csv_text.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 # ---------- поиск пациента ----------
@@ -650,7 +800,9 @@ async def admin_all(
         return f"/admin/all?date={d.isoformat()}&doctor={dk}&time_pre={h:02d}:00#addform"
 
     cards = _collect_cards(rows)
-    body = (_date_nav(d, "/admin/all", f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>")
+    body = (_date_nav(d, "/admin/all",
+                      f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
+                      f"<a href='/admin/export?from={d.isoformat()}&to={d.isoformat()}'>📥 CSV</a>")
             + _banner(msg, d)
             + _grid(d, items, active, href, cards)
             + _form(d, items, doctor, time_pre, back)
