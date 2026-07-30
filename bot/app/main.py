@@ -120,6 +120,8 @@ PANEL_CSS = """
  .appt.clickable{cursor:pointer}
  .appt.clickable:hover{filter:brightness(.97)}
  .appt .cmt{color:#7a6a00;font-size:12px;margin-top:2px}
+ a.plink{color:#075e54;text-decoration:none;border-bottom:1px dashed #9cc3bd}
+ a.plink:hover{border-bottom-style:solid}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
  .bstat{border:none;border-radius:5px;padding:8px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%}
@@ -219,14 +221,7 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                 cls = r["status"] + (" urgent" if urgent else "")
                 svc_txt = ("🆘 " if urgent else "") + html.escape(r["service"])
                 click = ""
-                if cards is not None:
-                    cards[r["id"]] = {
-                        "name": r["name"] or "—", "phone": r["phone"] or "",
-                        "service": r["service"], "doctor": r["doctor"],
-                        "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
-                        "comment": r["comment"] or "",
-                        "canAct": r["status"] == "confirmed",
-                    }
+                if cards is not None and r["id"] in cards:
                     cls += " clickable"
                     click = f" onclick=\"openCard({r['id']})\""
                 cmt = (f"<div class='cmt'>💬 {html.escape((r['comment'] or '')[:60])}</div>"
@@ -303,9 +298,13 @@ def _list(rows: list, back: str) -> str:
                 f"<button class='{cls}'>{label}</button></form>"
                 for to, cls, label in buttons
             )
+        name_html = html.escape(r["name"] or "")
+        if not is_note and name_html:
+            name_html = (f"<a class='plink' href='#' "
+                         f"onclick=\"openCard({r['id']});return false\">{name_html}</a>")
         items.append(
             f"<tr class='{r['status']}'><td>{r['id']}</td><td>{dt_txt}</td>"
-            f"<td>{html.escape(r['name'] or '')}</td><td>{html.escape(r['phone'] or '')}</td>"
+            f"<td>{name_html}</td><td>{html.escape(r['phone'] or '')}</td>"
             f"<td>{svc_txt}</td><td>{html.escape(r['doctor'])}</td>"
             f"<td>{src}</td><td>{STATUS_LABEL.get(r['status'], r['status'])}"
             f"{' 🔔' if r['reminded_day'] else ''}</td><td>{acts}</td></tr>"
@@ -367,6 +366,22 @@ function showTab(x) {{
   document.getElementById('tb_n').className = 'tabbtn' + (x === 'n' ? ' on' : '');
 }}
 </script>"""
+
+
+def _collect_cards(rows: list) -> dict:
+    """Данные карточек для модалки — по ВСЕМ записям дня (вкл. отменённые), кроме заметок."""
+    cards: dict = {}
+    for r in rows:
+        if r["source"] == "note":
+            continue
+        cards[r["id"]] = {
+            "name": r["name"] or "—", "phone": r["phone"] or "",
+            "service": r["service"], "doctor": r["doctor"],
+            "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
+            "comment": r["comment"] or "",
+            "canAct": r["status"] == "confirmed",
+        }
+    return cards
 
 
 def _card_modal(cards: dict, back: str) -> str:
@@ -554,7 +569,7 @@ async def admin_all(
     def href(dk, h):
         return f"/admin/all?date={d.isoformat()}&doctor={dk}&time_pre={h:02d}:00#addform"
 
-    cards: dict = {}
+    cards = _collect_cards(rows)
     body = (_date_nav(d, "/admin/all", f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>")
             + _banner(msg, d)
             + _grid(d, items, active, href, cards)
@@ -594,7 +609,7 @@ async def admin_doctor(
             f"<span style='color:#667'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</span> "
             f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
             f"<a href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a></div>")
-    cards: dict = {}
+    cards = _collect_cards(rows)
     body = (head + _date_nav(d, base) + _banner(msg, d)
             + _grid(d, items, active, href, cards)
             + _form(d, items, dk, time_pre, back)
