@@ -71,6 +71,9 @@ T = {
         "choose_time": "Ore libere pe {day}:",
         "day_full": "În această zi nu mai sunt locuri. Alegeți altă zi:",
         "ask_name": "Cum vă numiți? (nume și prenume)",
+        "ask_year": "Anul nașterii? (ex.: 1985)",
+        "bad_year": "Introduceți un an valid, ex. 1985 — sau apăsați «Omite»:",
+        "btn_skip": "⏭ Omite",
         "ask_phone": "Numărul dvs. de telefon? (ex.: 060 123 456)",
         "bad_phone": "Numărul nu pare corect. Introduceți un număr valid (min. 8 cifre):",
         "confirm": "Verificați programarea:\n\n🦷 {service}\n👨‍⚕️ {doctor}\n📅 {when}\n👤 {name}, {phone}\n\nConfirmați?",
@@ -111,6 +114,9 @@ T = {
         "choose_time": "Свободное время на {day}:",
         "day_full": "На этот день мест нет. Выберите другой день:",
         "ask_name": "Как вас зовут? (имя и фамилия)",
+        "ask_year": "Год рождения? (напр.: 1985)",
+        "bad_year": "Введите корректный год, напр. 1985 — или нажмите «Пропустить»:",
+        "btn_skip": "⏭ Пропустить",
         "ask_phone": "Ваш номер телефона? (напр.: 060 123 456)",
         "bad_phone": "Номер выглядит некорректно. Введите номер (мин. 8 цифр):",
         "confirm": "Проверьте запись:\n\n🦷 {service}\n👨‍⚕️ {doctor}\n📅 {when}\n👤 {name}, {phone}\n\nПодтверждаете?",
@@ -318,9 +324,9 @@ def build_seed_rows() -> list[tuple]:
     if not h:
         return []
     demo_people = [
-        ("Maria Exemplu", "060 111 222"), ("Ion Popescu", "069 222 333"),
-        ("Ana Balan", "061 333 444"), ("Vasile Rotaru", "068 444 555"),
-        ("Elena Cara", "062 555 666"), ("Mihai Donos", "067 666 777"),
+        ("Maria Exemplu", "060 111 222", 1978), ("Ion Popescu", "069 222 333", 1991),
+        ("Ana Balan", "061 333 444", 2001), ("Vasile Rotaru", "068 444 555", 1969),
+        ("Elena Cara", "062 555 666", 1985), ("Mihai Donos", "067 666 777", 1996),
     ]
     rows = []
     hour = h[0] + 1
@@ -328,9 +334,9 @@ def build_seed_rows() -> list[tuple]:
         if i >= len(demo_people) or hour >= h[1]:
             break
         doctor = allowed_doc_items(key)[0][1]
-        name, phone = demo_people[i]
+        name, phone, year = demo_people[i]
         rows.append((name, phone, svc["ro"], doctor,
-                     datetime(d.year, d.month, d.day, hour, 0, tzinfo=TZ)))
+                     datetime(d.year, d.month, d.day, hour, 0, tzinfo=TZ), year))
         hour += 1
     return rows
 
@@ -363,9 +369,12 @@ def confirm_text(s: Session) -> str:
     dt = datetime.fromisoformat(s.data["time"])
     when = f"{day_label(s, dt.date())} {dt.strftime('%H:%M')}"
     doc = t(s, "any_doctor") if s.data.get("doc") == "any" else DOCTORS[s.data["doc"]]
+    who = s.data["name"]
+    if s.data.get("year"):
+        who += f" ({s.data['year']})"
     return t(s, "confirm").format(
         service=SERVICES[s.data["svc"]][s.lang], doctor=doc, when=when,
-        name=s.data["name"], phone=s.data["phone"],
+        name=who, phone=s.data["phone"],
     )
 
 
@@ -390,6 +399,8 @@ async def fallback(s: Session):
         return [t(s, "day_full")], day_rows(s)
     if s.state == "name":
         return [t(s, "ask_name")], []
+    if s.state == "year":
+        return [t(s, "bad_year")], [[btn(t(s, "btn_skip"), "skip_year")]]
     if s.state == "phone":
         return [t(s, "bad_phone")], []
     if s.state == "confirm" and all(k in s.data for k in ("svc", "doc", "time", "name", "phone")):
@@ -422,7 +433,8 @@ async def do_book(s: Session, sid: str):
     # при гонке за слот пробуем всех свободных врачей, прежде чем сдаться
     for cand in candidates:
         r = await db.create_appointment(
-            sid, s.data["name"], s.data["phone"], s.lang, service, cand, dt
+            sid, s.data["name"], s.data["phone"], s.lang, service, cand, dt,
+            birth_year=s.data.get("year"),
         )
         if r == "dup":
             if is_urgent(s):
@@ -605,11 +617,23 @@ async def handle(s: Session, sid: str, msg: str):
     if msg == "contacts":
         return [t(s, "contacts")], [[btn(t(s, "btn_menu"), "menu")]]
 
-    # свободный текст: имя и телефон
-    if s.state == "name" and msg:
-        s.data["name"] = msg[:80]
+    if msg == "skip_year" and s.state == "year":
         s.state = "phone"
         return [t(s, "ask_phone")], []
+
+    # свободный текст: имя, год рождения, телефон
+    if s.state == "name" and msg:
+        s.data["name"] = msg[:80]
+        s.state = "year"
+        return [t(s, "ask_year")], [[btn(t(s, "btn_skip"), "skip_year")]]
+
+    if s.state == "year" and msg:
+        yr = msg.strip()
+        if yr.isdigit() and 1900 <= int(yr) <= datetime.now(TZ).year:
+            s.data["year"] = int(yr)
+            s.state = "phone"
+            return [t(s, "ask_phone")], []
+        return [t(s, "bad_year")], [[btn(t(s, "btn_skip"), "skip_year")]]
 
     if s.state == "phone" and msg:
         digits = re.sub(r"\D", "", msg)

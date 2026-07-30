@@ -36,6 +36,7 @@ ALTER TABLE appointments ALTER COLUMN patient_id DROP NOT NULL;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_day BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_2h BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS comment TEXT NOT NULL DEFAULT '';
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_year INT;
 """
 
 
@@ -65,8 +66,8 @@ async def seed(rows: list | None) -> None:
     async with POOL.acquire() as c:
         if await c.fetchval("SELECT count(*) FROM appointments"):
             return
-    for name, phone, service, doctor, ts in rows:
-        await admin_add(name, phone, service, doctor, ts)
+    for row in rows:
+        await admin_add(*row)
 
 
 async def booked(doctor: str, start: datetime, end: datetime) -> set[datetime]:
@@ -83,18 +84,19 @@ async def booked(doctor: str, start: datetime, end: datetime) -> set[datetime]:
 async def create_appointment(
     session_key: str, name: str, phone: str, lang: str,
     service: str, doctor: str, starts_at: datetime,
-    source: str = "bot",
+    source: str = "bot", birth_year: int | None = None,
 ) -> int | str | None:
     """id записи; None — слот занят у этого врача; 'dup' — у пациента
     уже есть своя запись на это время."""
     async with POOL.acquire() as c:
         pid = await c.fetchval(
-            """INSERT INTO patients(session_key, name, phone, lang)
-               VALUES($1, $2, $3, $4)
+            """INSERT INTO patients(session_key, name, phone, lang, birth_year)
+               VALUES($1, $2, $3, $4, $5)
                ON CONFLICT (session_key) DO UPDATE
-                 SET name = EXCLUDED.name, phone = EXCLUDED.phone, lang = EXCLUDED.lang
+                 SET name = EXCLUDED.name, phone = EXCLUDED.phone, lang = EXCLUDED.lang,
+                     birth_year = COALESCE(EXCLUDED.birth_year, patients.birth_year)
                RETURNING id""",
-            session_key, name, phone, lang,
+            session_key, name, phone, lang, birth_year,
         )
         try:
             return await c.fetchval(
@@ -110,12 +112,13 @@ async def create_appointment(
 
 async def admin_add(
     name: str, phone: str, service: str, doctor: str, starts_at: datetime,
+    birth_year: int | None = None,
 ) -> int | str | None:
     """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону."""
     digits = "".join(ch for ch in phone if ch.isdigit())
     return await create_appointment(
         f"manual:{digits}", name, phone, "ro", service, doctor, starts_at,
-        source="manual",
+        source="manual", birth_year=birth_year,
     )
 
 
@@ -154,7 +157,7 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     async with POOL.acquire() as c:
         return await c.fetch(
             """SELECT a.id, a.service, a.doctor, a.starts_at, a.status, a.source,
-                      a.reminded_day, a.comment, p.name, p.phone
+                      a.reminded_day, a.comment, p.name, p.phone, p.birth_year
                FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                WHERE a.starts_at >= $1 AND a.starts_at < $2
                ORDER BY a.starts_at, a.doctor""",
@@ -211,7 +214,7 @@ async def search_patients(q: str) -> list:
         return []
     async with POOL.acquire() as c:
         return await c.fetch(
-            r"""SELECT p.id, p.name, p.phone, p.session_key
+            r"""SELECT p.id, p.name, p.phone, p.session_key, p.birth_year
                FROM patients p
                WHERE (p.name ILIKE '%' || $1 || '%')
                   OR ($2 <> '' AND length($2) >= 3

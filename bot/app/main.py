@@ -180,6 +180,12 @@ def _shell(body: str, sub: str) -> str:
 {REFRESH_JS}</body></html>"""
 
 
+def _age(birth_year) -> int | None:
+    if not birth_year:
+        return None
+    return datetime.now(eng.TZ).year - int(birth_year)
+
+
 def _parse_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
@@ -233,8 +239,10 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                     click = f" onclick=\"openCard({r['id']})\""
                 cmt = (f"<div class='cmt'>💬 {html.escape((r['comment'] or '')[:60])}</div>"
                        if r["comment"] else "")
+                a = _age(r["birth_year"])
+                age_txt = f" <small style='color:#889'>{a} a.</small>" if a else ""
                 out.append(
-                    f"<td><div class='appt {cls}'{click}><b>{html.escape(r['name'] or '—')}</b> {src}"
+                    f"<td><div class='appt {cls}'{click}><b>{html.escape(r['name'] or '—')}</b>{age_txt} {src}"
                     f"<br>{svc_txt}<br><small>{html.escape(r['phone'] or '')}</small>{cmt}</div></td>"
                 )
             else:
@@ -276,6 +284,7 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
   <select name="aservice">{svc_opts}</select>
   <input name="aname" placeholder="Nume pacient" required>
   <input name="aphone" placeholder="Telefon" required>
+  <input name="ayear" type="number" min="1900" max="2026" placeholder="An naștere (opț.)" style="width:140px">
   <button>Adaugă</button>
 </form>"""
 
@@ -309,6 +318,9 @@ def _list(rows: list, back: str) -> str:
         if not is_note and name_html:
             name_html = (f"<a class='plink' href='#' "
                          f"onclick=\"openCard({r['id']});return false\">{name_html}</a>")
+            a = _age(r["birth_year"])
+            if a:
+                name_html += f" <small style='color:#889'>({a} ani)</small>"
         items.append(
             f"<tr class='{r['status']}'><td>{r['id']}</td><td>{dt_txt}</td>"
             f"<td>{name_html}</td><td>{html.escape(r['phone'] or '')}</td>"
@@ -345,6 +357,7 @@ def _slot_modal(d: date, back: str) -> str:
     <select name="aservice">{svc_opts}</select>
     <input name="aname" placeholder="Nume pacient" required>
     <input name="aphone" placeholder="Telefon" required>
+    <input name="ayear" type="number" min="1900" max="2026" placeholder="An naștere (opțional)">
     <button>Adaugă programarea</button>
   </form>
   <form id="tab_n" class="dlg-form" method="post" action="/admin/note" style="display:none">
@@ -386,6 +399,7 @@ def _collect_cards(rows: list) -> dict:
             "service": r["service"], "doctor": r["doctor"],
             "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
             "comment": r["comment"] or "",
+            "age": _age(r["birth_year"]),
             "canAct": r["status"] == "confirmed",
         }
     return cards
@@ -425,7 +439,8 @@ function openCard(id) {{
   if (!c) return;
   document.getElementById('c_title').textContent = c.time + ' — ' + c.name;
   document.getElementById('c_info').textContent =
-    c.service + ' · ' + c.doctor + (c.phone ? ' · 📞 ' + c.phone : '');
+    c.service + ' · ' + c.doctor + (c.phone ? ' · 📞 ' + c.phone : '')
+    + (c.age ? ' · ' + c.age + ' ani' : '');
   document.getElementById('c_text').value = c.comment;
   document.getElementById('c_form').action = '/admin/comment/' + id;
   document.getElementById('cs_done').action = '/admin/status/' + id;
@@ -594,9 +609,11 @@ async def admin_search(request: Request, q: str = ""):
                     f"<td>{STATUS_LABEL.get(v['status'], v['status'])}</td>"
                     f"<td><a href='{day_link}'>→ ziua</a></td></tr>"
                 )
+            pa = _age(p["birth_year"])
+            age_meta = f" · {pa} ani ({p['birth_year']})" if pa else ""
             blocks.append(
                 f"<div class='pcard'><h3>{html.escape(p['name'] or '—')}</h3>"
-                f"<div class='meta'>📞 {html.escape(p['phone'] or '—')} · {chan}"
+                f"<div class='meta'>📞 {html.escape(p['phone'] or '—')}{age_meta} · {chan}"
                 f" · {len(visits)} vizite, {upcoming} viitoare</div>"
                 f"<table class='list'><tr><th>Când</th><th>Serviciu</th><th>Medic</th>"
                 f"<th>Status</th><th></th></tr>{''.join(rows)}</table></div>"
@@ -695,7 +712,7 @@ async def admin_add(
     request: Request,
     adate: str = Form(...), atime: str = Form(...), adoctor: str = Form(...),
     aservice: str = Form(...), aname: str = Form(...), aphone: str = Form(...),
-    back: str = Form(""),
+    ayear: str = Form(""), back: str = Form(""),
 ):
     if (deny := _guard(request)) is not None:
         return deny
@@ -712,7 +729,8 @@ async def admin_add(
     digits = "".join(ch for ch in phone if ch.isdigit())
     if not doctor or not svc or not name or len(digits) < 8:
         return _back_redirect(back, adate, "bad")
-    r = await db.admin_add(name, phone, svc["ro"], doctor, dt)
+    year = int(ayear) if ayear.strip().isdigit() and 1900 <= int(ayear) <= 2026 else None
+    r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year)
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
     return _back_redirect(back, adate, msg)
 
