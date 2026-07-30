@@ -1,0 +1,47 @@
+{
+  "name": "DentArt Demo",
+  "phone": "+373 60 000 000",
+  "address": {
+    "ro": "str. Ștefan cel Mare 1, Cahul",
+    "ru": "ул. Штефан чел Маре 1, Кахул"
+  },
+  "contacts": {
+    "ro": "📍 str. Ștefan cel Mare 1, Cahul\n☎️ +373 60 000 000\n🕘 Lu–Vi 9:00–18:00, Sâ 9:00–14:00",
+    "ru": "📍 ул. Штефан чел Маре 1, Кахул\n☎️ +373 60 000 000\n🕘 Пн–Пт 9:00–18:00, Сб 9:00–14:00"
+  },
+  "hours": {
+    "mon": [9, 18],
+    "tue": [9, 18],
+    "wed": [9, 18],
+    "thu": [9, 18],
+    "fri": [9, 18],
+    "sat": [9, 14],
+    "sun": null
+  },
+  "doctors": [
+    { "id": "d1", "name": "Dr. Elena Rusu", "spec": "Terapie" },
+    { "id": "d2", "name": "Dr. Ion Munteanu", "spec": "Chirurgie · Implantologie" },
+    { "id": "d3", "name": "Dr. Ana Codreanu", "spec": "Igienă · Albire" },
+    { "id": "d4", "name": "Dr. Vasile Ciobanu", "spec": "Protetică" }
+  ],
+  "services": [
+    { "id": "pain", "ro": "Durere acută de dinte", "ru": "Острая зубная боль",
+      "urgent": true, "docs": ["d1", "d2"],
+      "price": { "ro": "vă primim în aceeași zi", "ru": "примем в тот же день" } },
+    { "id": "consult", "ro": "Consultație", "ru": "Консультация",
+      "price": { "ro": "gratuit", "ru": "бесплатно" } },
+    { "id": "hygiene", "ro": "Igienizare profesională", "ru": "Профессиональная гигиена",
+      "docs": ["d3", "d1"], "price": "1000–1200 MDL" },
+    { "id": "filling", "ro": "Tratament carie (plombă)", "ru": "Лечение кариеса (пломба)",
+      "docs": ["d1"], "price": "1200–1800 MDL" },
+    { "id": "extraction", "ro": "Extracție dinte", "ru": "Удаление зуба",
+      "docs": ["d2"], "price": "1000–1500 MDL" },
+    { "id": "crowns", "ro": "Coroane și proteze", "ru": "Коронки и протезы",
+      "docs": ["d4", "d2"], "price": "2500–4500 MDL" },
+    { "id": "whitening", "ro": "Albire dentară", "ru": "Отбеливание",
+      "docs": ["d3"], "price": { "ro": "de la 2500 MDL", "ru": "от 2500 MDL" } },
+    { "id": "implant", "ro": "Consult implantologie", "ru": "Консультация по имплантации",
+      "docs": ["d2"], "price": { "ro": "gratuit", "ru": "бесплатно" } }
+  ],
+  "seed_demo": true
+}

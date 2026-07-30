@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{CLINIC_NAME}} — asistent programări</title>
+<style>
+ *{box-sizing:border-box}
+ body{margin:0;font-family:system-ui,'Segoe UI',Roboto,sans-serif;background:#e5ddd5;display:flex;flex-direction:column;height:100vh}
+ header{background:#075e54;color:#fff;padding:12px 16px;font-weight:600}
+ header small{display:block;font-weight:400;opacity:.8;font-size:12px}
+ #chat{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:6px}
+ .msg{max-width:78%;padding:8px 12px;border-radius:10px;white-space:pre-wrap;line-height:1.35;box-shadow:0 1px 1px rgba(0,0,0,.15);font-size:15px}
+ .bot{background:#fff;align-self:flex-start;border-top-left-radius:2px}
+ .user{background:#dcf8c6;align-self:flex-end;border-top-right-radius:2px}
+ #btns{padding:6px 12px;display:flex;flex-wrap:wrap;gap:6px}
+ .chip{border:1px solid #075e54;color:#075e54;background:#fff;border-radius:16px;padding:7px 12px;cursor:pointer;font-size:14px}
+ .chip:hover{background:#d9f0ec}
+ #inp{display:flex;gap:6px;padding:8px;background:#f0f0f0}
+ #inp input{flex:1;border:none;border-radius:18px;padding:10px 14px;font-size:15px;outline:none}
+ #inp button{border:none;background:#075e54;color:#fff;border-radius:50%;width:42px;height:42px;font-size:17px;cursor:pointer}
+</style></head>
+<body>
+<header>🦷 {{CLINIC_NAME}} <small>asistent virtual de programări — sandbox, date sintetice</small></header>
+<div id="chat"></div>
+<div id="btns"></div>
+<div id="inp">
+  <input id="text" placeholder="Scrieți un mesaj… / Напишите сообщение…" autocomplete="off">
+  <button id="send" title="Trimite">➤</button>
+</div>
+<script>
+let sid = localStorage.getItem("dentart_sid");
+if (!sid) {
+  sid = (crypto.randomUUID ? crypto.randomUUID() : "s" + Date.now() + Math.random());
+  localStorage.setItem("dentart_sid", sid);
+}
+const chat = document.getElementById("chat");
+const btns = document.getElementById("btns");
+const inp = document.getElementById("text");
+
+function bubble(text, cls) {
+  const d = document.createElement("div");
+  d.className = "msg " + cls;
+  d.textContent = text;
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function send(value, label) {
+  if (label !== null) bubble(label ?? value, "user");
+  btns.innerHTML = "";
+  try {
+    const r = await fetch("/chat", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({session_id: sid, message: value})
+    });
+    const j = await r.json();
+    for (const m of j.messages) bubble(m.text, "bot");
+    for (const row of (j.buttons || [])) {
+      for (const b of row) {
+        const c = document.createElement("button");
+        c.className = "chip";
+        c.textContent = b.label;
+        c.onclick = () => send(b.value, b.label);
+        btns.appendChild(c);
+      }
+    }
+  } catch (e) {
+    bubble("⚠️ Server indisponibil / Сервер недоступен: " + e, "bot");
+  }
+}
+
+document.getElementById("send").onclick = () => {
+  const v = inp.value.trim();
+  if (v) { inp.value = ""; send(v, v); }
+};
+inp.addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("send").click();
+});
+send("/start", null);
+</script>
+</body></html>

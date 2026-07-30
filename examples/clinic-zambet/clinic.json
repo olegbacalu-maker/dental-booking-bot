@@ -1,0 +1,39 @@
+{
+  "name": "Clinica Zâmbet",
+  "phone": "+373 69 111 222",
+  "address": {
+    "ro": "str. Independenței 12, Cahul",
+    "ru": "ул. Индепенденцей 12, Кахул"
+  },
+  "contacts": {
+    "ro": "📍 str. Independenței 12, Cahul\n☎️ +373 69 111 222\n🕘 Lu–Vi 8:00–17:00",
+    "ru": "📍 ул. Индепенденцей 12, Кахул\n☎️ +373 69 111 222\n🕘 Пн–Пт 8:00–17:00"
+  },
+  "hours": {
+    "mon": [8, 17],
+    "tue": [8, 17],
+    "wed": [8, 17],
+    "thu": [8, 17],
+    "fri": [8, 17],
+    "sat": null,
+    "sun": null
+  },
+  "doctors": [
+    { "id": "d1", "name": "Dr. Olga Ceban", "spec": "Terapie" },
+    { "id": "d2", "name": "Dr. Radu Sturza", "spec": "Chirurgie" }
+  ],
+  "services": [
+    { "id": "pain", "ro": "Durere acută de dinte", "ru": "Острая зубная боль",
+      "urgent": true,
+      "price": { "ro": "vă primim în aceeași zi", "ru": "примем в тот же день" } },
+    { "id": "consult", "ro": "Consultație", "ru": "Консультация",
+      "price": { "ro": "100 MDL", "ru": "100 MDL" } },
+    { "id": "hygiene", "ro": "Igienizare", "ru": "Гигиена (чистка)",
+      "docs": ["d1"], "price": "900 MDL" },
+    { "id": "filling", "ro": "Plombă", "ru": "Пломба",
+      "docs": ["d1"], "price": "1100–1600 MDL" },
+    { "id": "extraction", "ro": "Extracție", "ru": "Удаление",
+      "docs": ["d2"], "price": "900–1400 MDL" }
+  ],
+  "seed_demo": true
+}

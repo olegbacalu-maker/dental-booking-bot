@@ -1,0 +1,40 @@
+name: dental-sandbox
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: dental_sandbox_db
+    environment:
+      POSTGRES_USER: dental
+      POSTGRES_PASSWORD: dental_demo_2026
+      POSTGRES_DB: dental
+    ports:
+      - "127.0.0.1:5544:5432"  # только loopback: БД не должна светиться в LAN
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dental -d dental"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+
+  bot:
+    build: ./bot
+    container_name: dental_sandbox_bot
+    environment:
+      DATABASE_URL: postgresql://dental:dental_demo_2026@db:5432/dental
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      CLINIC_CONFIG: /config/clinic.json
+      TZ: Europe/Chisinau
+    volumes:
+      - ./clinic.json:/config/clinic.json:ro
+    ports:
+      - "8088:8088"
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 256m
+
+volumes:
+  dbdata:

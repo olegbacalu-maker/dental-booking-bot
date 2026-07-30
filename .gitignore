@@ -1,0 +1,11 @@
+# secrets & local
+.env
+*.log
+
+# sales playbook & personal contacts — intentionally NOT public
+pitch/
+*.pdf
+
+# python
+__pycache__/
+*.pyc

@@ -1,0 +1,39 @@
+# Second clinic from the SAME image — only clinic.json differs.
+# Run from this folder: docker compose up -d --build
+name: clinic-zambet
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: zambet_db
+    environment:
+      POSTGRES_USER: dental
+      POSTGRES_PASSWORD: dental_demo_2026
+      POSTGRES_DB: dental
+    volumes:
+      - zambet_dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dental -d dental"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+
+  bot:
+    build: ../../bot
+    container_name: zambet_bot
+    environment:
+      DATABASE_URL: postgresql://dental:dental_demo_2026@db:5432/dental
+      CLINIC_CONFIG: /config/clinic.json
+      TZ: Europe/Chisinau
+    volumes:
+      - ./clinic.json:/config/clinic.json:ro
+    ports:
+      - "8089:8088"
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 256m
+
+volumes:
+  zambet_dbdata:
