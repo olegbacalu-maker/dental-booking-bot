@@ -23,6 +23,15 @@ block the slot in the bot.
 
 ![Dashboard](screenshots/admin-dashboard.png)
 
+**Owner stats** — no-shows priced in MDL from the clinic's own price list, value brought
+by the bot, per-doctor occupancy:
+
+![Stats](screenshots/stats.png)
+
+**Patient search** by name or phone digits, with visit history and comments:
+
+<img src="screenshots/patient-search.png" width="680" alt="Patient search">
+
 **Click "+" on any free slot** — book a patient or leave a note that blocks the slot for the bot too:
 
 <img src="screenshots/slot-modal.png" width="430" alt="Slot modal">
@@ -40,8 +49,12 @@ block the slot in the bot.
   if only one doctor performs a service, the bot skips the question entirely.
 - **🆘 Acute pain flow**: no doctor/day questions — the nearest free slots *including today*,
   with the clinic phone always visible. All retry paths return to the nearest-slots view.
-- "My appointments" with cancellation (ownership enforced), price list, contacts,
-  reminder preview (scheduled reminders are on the roadmap).
+- After the name the bot asks for the **birth year** (optional, skippable) — the doctor
+  sees the age, the clinic stores privacy-minimal data (a year, not a full DOB).
+- "My appointments" with cancellation (ownership enforced), price list, contacts.
+- **Automatic reminders** for Telegram bookings: 24h and 2h before the visit, in the
+  patient's language, with confirm/cancel buttons right in the message; sent ones are
+  marked 🔔 in the journal.
 - Race-safe: double-booking is impossible (partial unique indexes on doctor/slot and
   patient/slot); the "any doctor" flow retries the remaining doctors before giving up;
   stale same-day slots are re-checked at confirmation time.
@@ -57,7 +70,21 @@ Three levels:
 
 Clicking **"+"** on any free slot opens a modal: *book a patient* or *leave a note /
 block the slot* ("lunch break", "seminar") — notes visibly block the slot for the bot too.
-Statuses per visit (came / no-show / cancelled) accumulate the clinic's real no-show stats.
+Clicking **any appointment** (in the grid or the day list) opens its card: patient info
+with age, an editable **reception comment** (allergies, call-back notes — shown as a 💬
+line, never visible to patients) and came / no-show / cancel buttons.
+Statuses per visit accumulate the clinic's real no-show stats.
+
+More journal tools:
+
+- **Patient search** by name or phone digits (any format) with the full visit history.
+- **Owner stats** (`/admin/stats`): bookings by source, visits, **no-shows priced in MDL**
+  from the clinic's own price list, "value brought by the bot", per-doctor occupancy
+  bars, top services — over any period.
+- **CSV export** of a day or period (semicolon + UTF-8 BOM, opens cleanly in Excel).
+- Date navigation everywhere: a native month-calendar picker plus ±7-day jumps.
+- The journal is protected by a per-clinic password (`ADMIN_KEY` in `.env`, HMAC cookie);
+  patient pages stay public. Empty key = open demo mode with a visible warning.
 
 ## One file = one clinic
 
@@ -81,6 +108,8 @@ docker compose up -d --build
 
 Reset to a fresh demo dataset: `docker compose down -v && docker compose up -d`.
 DB credentials in compose are demo-only; Postgres is bound to loopback.
+`Backup-Db.ps1` / `Restore-Db.ps1` dump and restore the database (`--clean`, 14-backup
+retention) — the restore path is verified by a fire drill into a throwaway container.
 
 `Start-Demo.ps1` / `Start_Demo.bat` are Windows helpers used for live demos:
 they start the stack, open a temporary Cloudflare quick tunnel and a QR page (`/demo`)
@@ -100,9 +129,10 @@ so a clinic owner can scan and book from their own phone.
 
 ## Roadmap
 
-- Scheduled reminders (the −20–25% no-show lever).
-- Auth on `/admin`, backups, multi-tenant single instance.
+- Waitlist auto-fill: a cancelled slot is offered to waiting patients automatically.
+- Recall campaigns: "6 months since your cleaning" re-invites via Telegram.
 - Google Calendar per doctor (push first, free/busy second).
+- Multi-tenant single instance (today: one lightweight compose stack per clinic).
 
 ## Pe scurt / Кратко
 
