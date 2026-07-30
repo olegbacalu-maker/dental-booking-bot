@@ -35,6 +35,7 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '
 ALTER TABLE appointments ALTER COLUMN patient_id DROP NOT NULL;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_day BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_2h BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS comment TEXT NOT NULL DEFAULT '';
 """
 
 
@@ -153,7 +154,7 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     async with POOL.acquire() as c:
         return await c.fetch(
             """SELECT a.id, a.service, a.doctor, a.starts_at, a.status, a.source,
-                      a.reminded_day, p.name, p.phone
+                      a.reminded_day, a.comment, p.name, p.phone
                FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                WHERE a.starts_at >= $1 AND a.starts_at < $2
                ORDER BY a.starts_at, a.doctor""",
@@ -200,6 +201,13 @@ async def add_note(doctor: str, starts_at: datetime, text: str) -> int | None:
             )
         except asyncpg.UniqueViolationError:
             return None
+
+
+async def set_comment(appt_id: int, text: str) -> None:
+    async with POOL.acquire() as c:
+        await c.execute(
+            "UPDATE appointments SET comment = $2 WHERE id = $1", appt_id, text
+        )
 
 
 async def set_status(appt_id: int, status: str) -> None:

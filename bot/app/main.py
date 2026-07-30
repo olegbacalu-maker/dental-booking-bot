@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import html
 import io
+import json
 import os
 import pathlib
 import urllib.parse
@@ -73,6 +74,7 @@ MSG_BANNER = {
     "dup": ("err", "Pacientul are deja o programare la această oră"),
     "bad": ("err", "Date invalide — verificați câmpurile"),
     "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
+    "ok_comment": ("ok", "Comentariu salvat ✔"),
 }
 
 PANEL_CSS = """
@@ -115,6 +117,12 @@ PANEL_CSS = """
  .appt.noshow{background:#fdecec;border-left:3px solid #d23c3c}
  .appt.urgent{background:#fff1e0;border-left:3px solid #e8710a}
  .appt.note{background:#fffbe6;border-left:3px solid #d4b106;color:#5c4d00}
+ .appt.clickable{cursor:pointer}
+ .appt.clickable:hover{filter:brightness(.97)}
+ .appt .cmt{color:#7a6a00;font-size:12px;margin-top:2px}
+ .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
+ .dlg-status form{flex:1;margin:0}
+ .bstat{border:none;border-radius:5px;padding:8px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%}
  dialog{border:none;border-radius:10px;box-shadow:0 6px 30px rgba(0,0,0,.25);padding:0;width:430px;max-width:95vw}
  dialog::backdrop{background:rgba(0,0,0,.35)}
  .dlg-head{background:#075e54;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
@@ -190,7 +198,8 @@ def _banner(msg: str, d: date) -> str:
     return out
 
 
-def _grid(d: date, doctors_items: list, active: dict, href_fn) -> str:
+def _grid(d: date, doctors_items: list, active: dict, href_fn,
+          cards: dict | None = None) -> str:
     hours = [x.hour for x in eng.day_slots(d)]
     out = ["<table class='grid'><tr><th></th>"]
     for dk, name in doctors_items:
@@ -209,9 +218,22 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn) -> str:
                 urgent = r["service"] in URGENT_LABELS
                 cls = r["status"] + (" urgent" if urgent else "")
                 svc_txt = ("🆘 " if urgent else "") + html.escape(r["service"])
+                click = ""
+                if cards is not None:
+                    cards[r["id"]] = {
+                        "name": r["name"] or "—", "phone": r["phone"] or "",
+                        "service": r["service"], "doctor": r["doctor"],
+                        "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
+                        "comment": r["comment"] or "",
+                        "canAct": r["status"] == "confirmed",
+                    }
+                    cls += " clickable"
+                    click = f" onclick=\"openCard({r['id']})\""
+                cmt = (f"<div class='cmt'>💬 {html.escape((r['comment'] or '')[:60])}</div>"
+                       if r["comment"] else "")
                 out.append(
-                    f"<td><div class='appt {cls}'><b>{html.escape(r['name'] or '—')}</b> {src}"
-                    f"<br>{svc_txt}<br><small>{html.escape(r['phone'] or '')}</small></div></td>"
+                    f"<td><div class='appt {cls}'{click}><b>{html.escape(r['name'] or '—')}</b> {src}"
+                    f"<br>{svc_txt}<br><small>{html.escape(r['phone'] or '')}</small>{cmt}</div></td>"
                 )
             else:
                 out.append(
@@ -264,6 +286,9 @@ def _list(rows: list, back: str) -> str:
         src = "📝 notiță" if is_note else ("🤖 bot" if r["source"] == "bot" else "✍️ manual")
         svc_txt = (("📝 " if is_note else "🆘 " if r["service"] in URGENT_LABELS else "")
                    + html.escape(r["service"]))
+        if r["comment"]:
+            svc_txt += (f"<br><small style='color:#7a6a00'>💬 "
+                        f"{html.escape(r['comment'][:80])}</small>")
         acts = ""
         if r["status"] == "confirmed":
             buttons = ([("cancelled", "b-cancel", "Șterge")] if is_note else [
@@ -340,6 +365,52 @@ function showTab(x) {{
   document.getElementById('tab_n').style.display = (x === 'n') ? 'flex' : 'none';
   document.getElementById('tb_a').className = 'tabbtn' + (x === 'a' ? ' on' : '');
   document.getElementById('tb_n').className = 'tabbtn' + (x === 'n' ? ' on' : '');
+}}
+</script>"""
+
+
+def _card_modal(cards: dict, back: str) -> str:
+    """Карточка записи по клику: инфо + комментарий ресепшена + статусы."""
+    data = json.dumps(cards, ensure_ascii=True)
+    b = html.escape(back)
+    return f"""
+<dialog id="carddlg">
+  <div class="dlg-head"><span id="c_title">—</span>
+    <button type="button" onclick="document.getElementById('carddlg').close()">✕</button></div>
+  <div class="dlg-form">
+    <div id="c_info" style="font-size:14px;color:#334"></div>
+    <form id="c_form" method="post" style="display:flex;flex-direction:column;gap:8px">
+      <input type="hidden" name="back" value="{b}">
+      <textarea name="comment" id="c_text" rows="3" maxlength="300"
+        placeholder="Comentariu: alergii, preferințe, de sunat înapoi…"
+        style="padding:8px 10px;border:1px solid #ccd4d4;border-radius:6px;font-size:14px;font-family:inherit;resize:vertical"></textarea>
+      <button>💬 Salvează comentariul</button>
+    </form>
+  </div>
+  <div class="dlg-status" id="c_status">
+    <form method="post" id="cs_done"><input type="hidden" name="to" value="done">
+      <input type="hidden" name="back" value="{b}"><button class="bstat b-done">A venit</button></form>
+    <form method="post" id="cs_noshow"><input type="hidden" name="to" value="noshow">
+      <input type="hidden" name="back" value="{b}"><button class="bstat b-noshow">Nu a venit</button></form>
+    <form method="post" id="cs_cancel"><input type="hidden" name="to" value="cancelled">
+      <input type="hidden" name="back" value="{b}"><button class="bstat b-cancel">Anulează</button></form>
+  </div>
+</dialog>
+<script>
+const CARDS = {data};
+function openCard(id) {{
+  const c = CARDS[id];
+  if (!c) return;
+  document.getElementById('c_title').textContent = c.time + ' — ' + c.name;
+  document.getElementById('c_info').textContent =
+    c.service + ' · ' + c.doctor + (c.phone ? ' · 📞 ' + c.phone : '');
+  document.getElementById('c_text').value = c.comment;
+  document.getElementById('c_form').action = '/admin/comment/' + id;
+  document.getElementById('cs_done').action = '/admin/status/' + id;
+  document.getElementById('cs_noshow').action = '/admin/status/' + id;
+  document.getElementById('cs_cancel').action = '/admin/status/' + id;
+  document.getElementById('c_status').style.display = c.canAct ? 'flex' : 'none';
+  document.getElementById('carddlg').showModal();
 }}
 </script>"""
 
@@ -483,12 +554,14 @@ async def admin_all(
     def href(dk, h):
         return f"/admin/all?date={d.isoformat()}&doctor={dk}&time_pre={h:02d}:00#addform"
 
+    cards: dict = {}
     body = (_date_nav(d, "/admin/all", f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>")
             + _banner(msg, d)
-            + _grid(d, items, active, href)
+            + _grid(d, items, active, href, cards)
             + _form(d, items, doctor, time_pre, back)
             + _list(rows, back)
-            + _slot_modal(d, back))
+            + _slot_modal(d, back)
+            + _card_modal(cards, back))
     return _shell(body, "toți medicii · 🤖 bot / ✍️ recepție / 📝 notițe · demo, date sintetice")
 
 
@@ -521,11 +594,13 @@ async def admin_doctor(
             f"<span style='color:#667'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</span> "
             f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
             f"<a href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a></div>")
+    cards: dict = {}
     body = (head + _date_nav(d, base) + _banner(msg, d)
-            + _grid(d, items, active, href)
+            + _grid(d, items, active, href, cards)
             + _form(d, items, dk, time_pre, back)
             + _list(rows, back)
-            + _slot_modal(d, back))
+            + _slot_modal(d, back)
+            + _card_modal(cards, back))
     return _shell(body, "ziua unui medic · 🤖 bot / ✍️ recepție / 📝 notițe · demo, date sintetice")
 
 
@@ -584,6 +659,15 @@ async def admin_note(
         return _back_redirect(back, ndate, "bad")
     r = await db.add_note(doctor, dt, text)
     return _back_redirect(back, ndate, "ok_note" if r else "conflict")
+
+
+@app.post("/admin/comment/{appt_id}")
+async def admin_comment(request: Request, appt_id: int,
+                        comment: str = Form(""), back: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    await db.set_comment(appt_id, comment.strip()[:300])
+    return _back_redirect(back, "", "ok_comment")
 
 
 @app.post("/admin/status/{appt_id}")
