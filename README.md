@@ -9,6 +9,30 @@ block the slot in the bot.
 > Demo project with synthetic data. One `clinic.json` = one clinic; the same Docker image
 > serves any number of clinics.
 
+## Screenshots
+
+**Patient books from a phone** — opened via the QR page / a link in the clinic's Instagram bio:
+
+<img src="screenshots/patient-chat-mobile.png" width="300" alt="Patient chat on a phone">
+
+**Clinic journal — full day, every source in one grid** (🤖 bot · ✍️ reception · 📝 note blocking a slot · 🆘 urgent highlighted):
+
+![Journal grid](screenshots/admin-grid.png)
+
+**Dashboard** — day tiles and per-doctor cards with urgent badges and "free from":
+
+![Dashboard](screenshots/admin-dashboard.png)
+
+**Click "+" on any free slot** — book a patient or leave a note that blocks the slot for the bot too:
+
+<img src="screenshots/slot-modal.png" width="430" alt="Slot modal">
+
+**Per-doctor day view** and the **live-demo QR page** (temporary Cloudflare tunnel):
+
+![Doctor day](screenshots/doctor-day.png)
+
+<img src="screenshots/demo-qr.png" width="560" alt="QR demo page">
+
 ## Patient side (web chat, RO/RU)
 
 - Full booking dialog: service → doctor (or *any available*) → day → time → name/phone → confirm.
