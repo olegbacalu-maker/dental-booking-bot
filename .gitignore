@@ -1,6 +1,7 @@
 # secrets & local
 .env
 *.log
+backups/
 
 # sales playbook & personal contacts — intentionally NOT public
 pitch/

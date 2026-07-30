@@ -25,6 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql://dental:dental_demo_2026@db:5432/dental
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      ADMIN_KEY: ${ADMIN_KEY:-}
       CLINIC_CONFIG: /config/clinic.json
       TZ: Europe/Chisinau
     volumes:

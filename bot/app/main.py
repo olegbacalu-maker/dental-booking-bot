@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import html
 import io
 import os
@@ -7,7 +9,7 @@ import urllib.parse
 from datetime import date, datetime, timedelta
 
 import qrcode
-from fastapi import FastAPI, Form, Query
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import db
@@ -19,6 +21,45 @@ STATIC = pathlib.Path(__file__).parent / "static"
 
 URGENT_LABELS = {v[lang] for v in eng.SERVICES.values() if v.get("urgent")
                  for lang in ("ro", "ru")}
+
+# --- защита журнала: ADMIN_KEY в .env; пусто = открыто (режим демо) ---
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
+NO_KEY_WARN = "" if ADMIN_KEY else " · ⚠️ fără parolă — setați ADMIN_KEY în .env"
+
+
+def _cookie_sig() -> str:
+    return hmac.new(ADMIN_KEY.encode(), b"dentart-admin-v1", hashlib.sha256).hexdigest()
+
+
+def _guard(request: Request) -> RedirectResponse | None:
+    if not ADMIN_KEY:
+        return None
+    if hmac.compare_digest(request.cookies.get("admin_auth", ""), _cookie_sig()):
+        return None
+    q = str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
+    return RedirectResponse(
+        f"/admin/login?next={urllib.parse.quote(q, safe='')}", status_code=303)
+
+
+LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__CLINIC__ — acces</title><style>
+ body{font-family:system-ui,'Segoe UI',sans-serif;background:#f4f6f7;display:flex;
+      align-items:center;justify-content:center;height:100vh;margin:0}
+ form{background:#fff;padding:26px 30px;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.12);
+      display:flex;flex-direction:column;gap:10px;width:320px}
+ h1{font-size:17px;color:#075e54;margin:0 0 4px}
+ input{padding:10px 12px;border:1px solid #ccd4d4;border-radius:6px;font-size:15px}
+ button{background:#075e54;color:#fff;border:none;border-radius:6px;padding:10px;font-size:15px;cursor:pointer}
+ .err{color:#c62828;font-size:13px}
+</style></head><body>
+<form method="post" action="/admin/login">
+  <h1>🦷 __CLINIC__ — registrul clinicii</h1>
+  __ERR__
+  <input type="hidden" name="next" value="__NEXT__">
+  <input type="password" name="password" placeholder="Parola" autofocus required>
+  <button>Intră</button>
+</form></body></html>"""
 
 STATUS_LABEL = {
     "confirmed": "✅ confirmată",
@@ -117,7 +158,7 @@ def _shell(body: str, sub: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title><style>{PANEL_CSS}</style></head><body>
 <h1>🦷 <a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
-<div class="sub">{sub}</div>
+<div class="sub">{sub}{NO_KEY_WARN}</div>
 {body}
 {REFRESH_JS}</body></html>"""
 
@@ -354,8 +395,32 @@ async def chat(payload: dict):
 
 # ---------- домашняя страница журнала: сводка + карточки врачей ----------
 
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(next: str = "/admin", err: str = ""):
+    if not ADMIN_KEY:
+        return RedirectResponse("/admin", status_code=303)
+    err_html = "<div class='err'>Parolă greșită</div>" if err else ""
+    nxt = next if next.startswith("/admin") else "/admin"
+    return (LOGIN_TMPL.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
+            .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt)))
+
+
+@app.post("/admin/login")
+async def admin_login(password: str = Form(...), next_url: str = Form("/admin", alias="next")):
+    target = next_url if next_url.startswith("/admin") else "/admin"
+    if ADMIN_KEY and hmac.compare_digest(password.strip(), ADMIN_KEY):
+        resp = RedirectResponse(target, status_code=303)
+        resp.set_cookie("admin_auth", _cookie_sig(), max_age=60 * 60 * 24 * 30,
+                        httponly=True, samesite="lax")
+        return resp
+    return RedirectResponse(
+        f"/admin/login?err=1&next={urllib.parse.quote(target, safe='')}", status_code=303)
+
+
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_home(date_q: str = Query("", alias="date"), msg: str = "") -> str:
+async def admin_home(request: Request, date_q: str = Query("", alias="date"), msg: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
@@ -402,9 +467,12 @@ async def admin_home(date_q: str = Query("", alias="date"), msg: str = "") -> st
 
 @app.get("/admin/all", response_class=HTMLResponse)
 async def admin_all(
+    request: Request,
     date_q: str = Query("", alias="date"),
     doctor: str = "", time_pre: str = "", msg: str = "",
-) -> str:
+):
+    if (deny := _guard(request)) is not None:
+        return deny
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
@@ -428,9 +496,12 @@ async def admin_all(
 
 @app.get("/admin/doctor/{dk}", response_class=HTMLResponse)
 async def admin_doctor(
+    request: Request,
     dk: str, date_q: str = Query("", alias="date"),
     time_pre: str = "", msg: str = "",
-) -> str:
+):
+    if (deny := _guard(request)) is not None:
+        return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin")
     name = eng.DOCTORS[dk]
@@ -468,10 +539,13 @@ def _back_redirect(back: str, fallback_date: str, msg: str) -> RedirectResponse:
 
 @app.post("/admin/add")
 async def admin_add(
+    request: Request,
     adate: str = Form(...), atime: str = Form(...), adoctor: str = Form(...),
     aservice: str = Form(...), aname: str = Form(...), aphone: str = Form(...),
     back: str = Form(""),
 ):
+    if (deny := _guard(request)) is not None:
+        return deny
     try:
         d = date.fromisoformat(adate)
         hh, mm = atime.split(":")
@@ -492,9 +566,12 @@ async def admin_add(
 
 @app.post("/admin/note")
 async def admin_note(
+    request: Request,
     ndate: str = Form(...), ntime: str = Form(...), ndoctor: str = Form(...),
     ntext: str = Form(...), back: str = Form(""),
 ):
+    if (deny := _guard(request)) is not None:
+        return deny
     try:
         d = date.fromisoformat(ndate)
         hh, mm = ntime.split(":")
@@ -510,7 +587,9 @@ async def admin_note(
 
 
 @app.post("/admin/status/{appt_id}")
-async def admin_status(appt_id: int, to: str = Form(...), back: str = Form("")):
+async def admin_status(request: Request, appt_id: int, to: str = Form(...), back: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
     if to in {"done", "noshow", "cancelled", "confirmed"}:
         await db.set_status(appt_id, to)
     target = back if back.startswith("/admin") else "/admin"
