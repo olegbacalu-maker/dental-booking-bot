@@ -203,6 +203,38 @@ async def add_note(doctor: str, starts_at: datetime, text: str) -> int | None:
             return None
 
 
+async def search_patients(q: str) -> list:
+    """Поиск пациента по имени (ILIKE) или телефону (по цифрам, формат не важен)."""
+    q = q.strip()
+    digits = "".join(ch for ch in q if ch.isdigit())
+    if len(q) < 2:
+        return []
+    async with POOL.acquire() as c:
+        return await c.fetch(
+            r"""SELECT p.id, p.name, p.phone, p.session_key
+               FROM patients p
+               WHERE (p.name ILIKE '%' || $1 || '%')
+                  OR ($2 <> '' AND length($2) >= 3
+                      AND regexp_replace(coalesce(p.phone, ''), '\D', '', 'g')
+                          LIKE '%' || $2 || '%')
+               ORDER BY p.name
+               LIMIT 30""",
+            q, digits,
+        )
+
+
+async def patient_appointments(patient_id: int) -> list:
+    async with POOL.acquire() as c:
+        return await c.fetch(
+            """SELECT id, service, doctor, starts_at, status, source, comment
+               FROM appointments
+               WHERE patient_id = $1
+               ORDER BY starts_at DESC
+               LIMIT 20""",
+            patient_id,
+        )
+
+
 async def set_comment(appt_id: int, text: str) -> None:
     async with POOL.acquire() as c:
         await c.execute(

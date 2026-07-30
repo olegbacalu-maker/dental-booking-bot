@@ -122,6 +122,13 @@ PANEL_CSS = """
  .appt .cmt{color:#7a6a00;font-size:12px;margin-top:2px}
  a.plink{color:#075e54;text-decoration:none;border-bottom:1px dashed #9cc3bd}
  a.plink:hover{border-bottom-style:solid}
+ form.searchf{display:inline-flex;gap:6px;margin-left:8px;vertical-align:middle}
+ form.searchf input{padding:5px 10px;border:1px solid #cdd;border-radius:6px;font-size:14px;width:250px}
+ form.searchf button{background:#075e54;color:#fff;border:none;border-radius:6px;padding:5px 12px;cursor:pointer}
+ .pcard{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:12px 16px;margin-bottom:12px}
+ .pcard h3{margin:0 0 6px;font-size:15px;color:#075e54}
+ .pcard .meta{color:#667;font-size:13px;margin-bottom:8px}
+ .vpast{opacity:.55}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
  .bstat{border:none;border-radius:5px;padding:8px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%}
@@ -543,10 +550,66 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         )
     cards.append("</div>")
 
-    extra = f"<a class='primary' href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a>"
+    extra = (f"<a class='primary' href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a>"
+             "<form class='searchf' method='get' action='/admin/search'>"
+             "<input name='q' placeholder='Caută pacient: nume / telefon…'>"
+             "<button>🔍</button></form>")
     body = _date_nav(d, "/admin", extra) + _banner(msg, d) + tiles + "".join(cards) + \
         "<p class='hint'>Click pe un medic — ziua lui. Programările prin bot apar automat (aceeași bază de date).</p>"
     return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat · demo, date sintetice")
+
+
+# ---------- поиск пациента ----------
+
+@app.get("/admin/search", response_class=HTMLResponse)
+async def admin_search(request: Request, q: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
+    q = q.strip()[:60]
+    now = datetime.now(eng.TZ)
+    blocks = []
+    if q:
+        patients = await db.search_patients(q)
+        if not patients:
+            blocks.append("<div class='banner err'>Nimic găsit. Încercați alt nume sau telefon.</div>")
+        for p in patients:
+            visits = await db.patient_appointments(p["id"])
+            chan = ("📱 Telegram" if (p["session_key"] or "").startswith("tg:")
+                    else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
+                    else "🌐 web")
+            upcoming = sum(1 for v in visits
+                           if v["status"] == "confirmed" and v["starts_at"] > now)
+            rows = []
+            for v in visits:
+                dt = v["starts_at"].astimezone(eng.TZ)
+                future = v["starts_at"] > now
+                day_link = f"/admin/all?date={dt.date().isoformat()}"
+                cmt = (f"<br><small style='color:#7a6a00'>💬 {html.escape(v['comment'][:60])}</small>"
+                       if v["comment"] else "")
+                rows.append(
+                    f"<tr class='{'' if future else 'vpast'}'>"
+                    f"<td>{dt.strftime('%d.%m.%Y %H:%M')}</td>"
+                    f"<td>{html.escape(v['service'])}{cmt}</td>"
+                    f"<td>{html.escape(v['doctor'])}</td>"
+                    f"<td>{STATUS_LABEL.get(v['status'], v['status'])}</td>"
+                    f"<td><a href='{day_link}'>→ ziua</a></td></tr>"
+                )
+            blocks.append(
+                f"<div class='pcard'><h3>{html.escape(p['name'] or '—')}</h3>"
+                f"<div class='meta'>📞 {html.escape(p['phone'] or '—')} · {chan}"
+                f" · {len(visits)} vizite, {upcoming} viitoare</div>"
+                f"<table class='list'><tr><th>Când</th><th>Serviciu</th><th>Medic</th>"
+                f"<th>Status</th><th></th></tr>{''.join(rows)}</table></div>"
+            )
+    body = (
+        "<div class='nav'><a href='/admin'>🏠 Panou</a><a href='/admin/all'>📋 Toți medicii</a>"
+        f"<form class='searchf' method='get' action='/admin/search' style='margin-left:0'>"
+        f"<input name='q' value='{html.escape(q)}' placeholder='Nume sau telefon…' autofocus>"
+        f"<button>🔍 Caută</button></form></div>"
+        + "".join(blocks)
+        + ("" if q else "<p class='hint'>Căutați după nume (min. 2 litere) sau telefon (min. 3 cifre, orice format).</p>")
+    )
+    return _shell(body, "căutare pacient · istoric vizite · demo, date sintetice")
 
 
 # ---------- общая сетка: все врачи ----------
