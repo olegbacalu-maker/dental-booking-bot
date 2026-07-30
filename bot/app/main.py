@@ -1,5 +1,7 @@
+import asyncio
 import html
 import io
+import os
 import pathlib
 import urllib.parse
 from datetime import date, datetime, timedelta
@@ -311,6 +313,20 @@ def _active_map(rows: list) -> dict:
 @app.on_event("startup")
 async def startup() -> None:
     await db.init(eng.build_seed_rows())
+    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+    if token:
+        from . import telegram as tg
+
+        async def _tg_guard() -> None:
+            try:
+                await tg.run(token)
+            except Exception as e:  # noqa: BLE001 — веб-чат должен жить при любой ошибке TG
+                print(f"Telegram adapter FAILED: {e!r} — web chat keeps running")
+
+        asyncio.create_task(_tg_guard())
+        print("Telegram adapter: starting (token present)")
+    else:
+        print("TELEGRAM_TOKEN not set — Telegram adapter disabled (web chat only)")
 
 
 @app.get("/health")

@@ -1,6 +1,7 @@
-fastapi==0.141.0
+﻿fastapi==0.141.0
 uvicorn[standard]==0.52.0
 asyncpg==0.31.0
 tzdata==2026.3
 python-multipart==0.0.20
 qrcode[pil]==8.2
+aiogram==3.30.0

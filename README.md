@@ -89,8 +89,9 @@ so a clinic owner can scan and book from their own phone.
 ## Stack & design notes
 
 - FastAPI + asyncpg + PostgreSQL 16, single `docker compose`, ~256 MB per container.
-- The dialog engine is channel-agnostic (`engine.handle()`): the web chat is one adapter,
-  a Telegram adapter is the next one.
+- The dialog engine is channel-agnostic (`engine.handle()`): the web chat and the
+  **Telegram adapter** (aiogram, inline keyboards; enabled by setting `TELEGRAM_TOKEN`
+  in `.env`) are two thin adapters over the same engine and database.
 - The admin journal and the bot share one database by design — "integration" is a query,
   not a sync job.
 - Reviewed adversarially (multi-agent code review); found issues (mid-flow text ejection,
@@ -99,7 +100,7 @@ so a clinic owner can scan and book from their own phone.
 
 ## Roadmap
 
-- Scheduled reminders (the −20–25% no-show lever) + Telegram adapter.
+- Scheduled reminders (the −20–25% no-show lever).
 - Auth on `/admin`, backups, multi-tenant single instance.
 - Google Calendar per doctor (push first, free/busy second).
 
