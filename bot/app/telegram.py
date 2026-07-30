@@ -3,13 +3,16 @@
 Веб-чат и Telegram работают параллельно: сессии независимы, БД общая."""
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
 
+from . import db
 from . import engine as eng
 
 log = logging.getLogger("telegram")
@@ -31,6 +34,48 @@ async def _dialog(chat_id: int, text: str, send) -> None:
     kb = _keyboard(buttons)
     for i, t in enumerate(texts):
         await send(t, reply_markup=kb if i == len(texts) - 1 else None)
+
+
+async def _send_reminder(bot: Bot, r) -> None:
+    lang = r["lang"] if r["lang"] in eng.T else "ro"
+    s = eng.Session(lang=lang)
+    dt = r["starts_at"].astimezone(eng.TZ)
+    soon = dt - datetime.now(eng.TZ) <= timedelta(hours=2)
+    if soon and r["reminded_2h"]:
+        return
+    if not soon and r["reminded_day"]:
+        return
+    if soon:
+        text = eng.t(s, "reminder_soon").format(
+            time=dt.strftime("%H:%M"), doctor=r["doctor"], service=r["service"])
+    else:
+        when = f"{eng.day_label(s, dt.date())} {dt.strftime('%H:%M')}"
+        text = eng.t(s, "reminder").format(
+            when=when, doctor=r["doctor"], service=r["service"])
+    kb = _keyboard([
+        [eng.btn(eng.t(s, "btn_rem_ok"), "rem_ok")],
+        [eng.btn(f"{eng.t(s, 'btn_cancel_appt')} #{r['id']}", f"cancel:{r['id']}")],
+    ])
+    chat_id = int(r["session_key"][3:])
+    try:
+        await bot.send_message(chat_id, text, reply_markup=kb)
+        log.warning("Reminder sent: appt #%s -> chat %s (%s)",
+                    r["id"], chat_id, "2h" if soon else "24h")
+    except Exception as e:  # noqa: BLE001 — пациент мог заблокировать бота
+        log.warning("Reminder FAILED for appt #%s: %r", r["id"], e)
+    # помечаем в любом случае — ретрай-шторм хуже пропущенного напоминания
+    await db.mark_reminded(r["id"], day=True, soon=soon)
+
+
+async def _reminder_loop(bot: Bot) -> None:
+    log.warning("Reminder loop: started (tick 60s; T-24h and T-2h)")
+    while True:
+        try:
+            for r in await db.tg_due_reminders():
+                await _send_reminder(bot, r)
+        except Exception as e:  # noqa: BLE001 — цикл не должен умирать
+            log.warning("Reminder loop error: %r", e)
+        await asyncio.sleep(60)
 
 
 async def run(token: str) -> None:
@@ -57,4 +102,5 @@ async def run(token: str) -> None:
 
     me = await bot.get_me()
     log.warning("Telegram adapter: polling started as @%s", me.username)
+    asyncio.create_task(_reminder_loop(bot))
     await dp.start_polling(bot, handle_signals=False)

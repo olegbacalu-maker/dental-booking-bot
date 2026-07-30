@@ -241,7 +241,8 @@ def _list(rows: list, back: str) -> str:
             f"<tr class='{r['status']}'><td>{r['id']}</td><td>{dt_txt}</td>"
             f"<td>{html.escape(r['name'] or '')}</td><td>{html.escape(r['phone'] or '')}</td>"
             f"<td>{svc_txt}</td><td>{html.escape(r['doctor'])}</td>"
-            f"<td>{src}</td><td>{STATUS_LABEL.get(r['status'], r['status'])}</td><td>{acts}</td></tr>"
+            f"<td>{src}</td><td>{STATUS_LABEL.get(r['status'], r['status'])}"
+            f"{' 🔔' if r['reminded_day'] else ''}</td><td>{acts}</td></tr>"
         )
     return (
         "<h2>Lista zilei</h2><table class='list'>"

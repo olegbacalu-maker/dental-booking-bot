@@ -33,6 +33,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_patient_slot
   ON appointments(patient_id, starts_at) WHERE status = 'confirmed';
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'bot';
 ALTER TABLE appointments ALTER COLUMN patient_id DROP NOT NULL;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_day BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_2h BOOLEAN NOT NULL DEFAULT FALSE;
 """
 
 
@@ -151,11 +153,38 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     async with POOL.acquire() as c:
         return await c.fetch(
             """SELECT a.id, a.service, a.doctor, a.starts_at, a.status, a.source,
-                      p.name, p.phone
+                      a.reminded_day, p.name, p.phone
                FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                WHERE a.starts_at >= $1 AND a.starts_at < $2
                ORDER BY a.starts_at, a.doctor""",
             day_start, day_end,
+        )
+
+
+async def tg_due_reminders() -> list:
+    """Telegram-записи, которым пора напомнить (окно 24ч; свежесозданные не трогаем)."""
+    async with POOL.acquire() as c:
+        return await c.fetch(
+            """SELECT a.id, a.service, a.doctor, a.starts_at,
+                      a.reminded_day, a.reminded_2h, p.session_key, p.lang
+               FROM appointments a JOIN patients p ON p.id = a.patient_id
+               WHERE a.status = 'confirmed'
+                 AND p.session_key LIKE 'tg:%'
+                 AND a.starts_at > now()
+                 AND a.starts_at <= now() + interval '24 hours'
+                 AND a.created_at < now() - interval '30 minutes'
+                 AND (a.reminded_day = FALSE OR a.reminded_2h = FALSE)"""
+        )
+
+
+async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
+    async with POOL.acquire() as c:
+        await c.execute(
+            """UPDATE appointments
+               SET reminded_day = reminded_day OR $2,
+                   reminded_2h = reminded_2h OR $3
+               WHERE id = $1""",
+            appt_id, day, soon,
         )
 
 
