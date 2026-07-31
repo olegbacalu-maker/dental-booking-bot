@@ -138,6 +138,8 @@ MSG_BANNER = {
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
     "ok_pin": ("ok", "PIN schimbat ✔"),
     "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
+    "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
+    "ok_tok": ("ok", "Token salvat ✔ — reporniți programul pentru aplicare"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
 }
 
@@ -872,6 +874,19 @@ async def admin_settings(request: Request, msg: str = ""):
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 <tr><th>Acces jurnal</th><td>{"🔒 PIN setat" if _pin_rec() else ("🔒 parolă (ADMIN_KEY)" if ADMIN_KEY else "🔓 deschis")}</td></tr>
 </table>"""
+    if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
+        tok_set = bool(os.environ.get("TELEGRAM_TOKEN", "").strip())
+        ph = ("••• token setat — introduceți altul pentru schimbare" if tok_set
+              else "token de la @BotFather (ex. 123456789:AA...)")
+        status_tbl += f"""
+<h2>📱 Telegram — token bot</h2>
+<form class='add' method='post' action='/admin/telegram/save'
+      onsubmit="return confirm('Programul se va reporni pentru aplicare. Continuați?')">
+  <input type='password' name='token' placeholder="{ph}" style='width:430px'>
+  <button>💾 Salvează și repornește</button>
+</form>
+<p class='hint'>Creați botul clinicii la @BotFather (2 minute) și lipiți tokenul aici.
+Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
     if _pin_rec():
         status_tbl += """
 <h2>🔒 Schimbă PIN</h2>
@@ -1089,6 +1104,46 @@ def admin_update_run(request: Request):
 <h1>Se actualizează la {html.escape(upd.STATE['latest'])}…</h1>
 <p>Programul se închide și repornește singur.<br>
 Această pagină se va reîncărca automat în ~18 secunde.</p>
+</body></html>"""
+
+
+@app.post("/admin/telegram/save", response_class=HTMLResponse)
+async def admin_telegram_save(request: Request, token: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    env_file = os.environ.get("DENTART_ENV_FILE", "")
+    if not (db.IS_SQLITE and env_file):
+        return RedirectResponse("/admin/settings", status_code=303)
+    tok = token.strip()
+    if tok and not re.fullmatch(r"\d{6,12}:[\w-]{30,120}", tok):
+        return RedirectResponse("/admin/settings?msg=bad_tok", status_code=303)
+    p = pathlib.Path(env_file)
+    lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
+    out, done = [], False
+    for ln in lines:
+        if ln.strip().startswith("TELEGRAM_TOKEN="):
+            out.append(f"TELEGRAM_TOKEN={tok}")
+            done = True
+        else:
+            out.append(ln)
+    if not done:
+        out.append(f"TELEGRAM_TOKEN={tok}")
+    p.write_text("\r\n".join(out) + "\r\n", encoding="utf-8")
+    os.environ["TELEGRAM_TOKEN"] = tok
+    if upd.restart_app() is not None:
+        # dev-режим/тест-хук: перезапуск не случился — просто баннер
+        return RedirectResponse("/admin/settings?msg=ok_tok", status_code=303)
+    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="15;url=/admin/settings">
+<title>Repornire…</title><style>
+ body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;margin:0;background:#075e54;color:#fff;text-align:center}}
+ .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
+ @keyframes r{{to{{transform:rotate(360deg)}}}}
+</style></head><body>
+<div class="sp">🔄</div>
+<h1>Token salvat — programul repornește…</h1>
+<p>Fereastra se va redeschide singură în câteva secunde.</p>
 </body></html>"""
 
 

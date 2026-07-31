@@ -65,6 +65,37 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+# путь к env-файлу — для страницы настроек (правка токена из UI)
+os.environ["DENTART_ENV_FILE"] = str(env_path)
+
+
+def _auto_backup() -> None:
+    """Копия базы при каждом старте (через SQLite backup API — консистентно
+    даже после краха с WAL), храним последние 14 в data/backups."""
+    src = data_dir / "dental.db"
+    if not src.exists():
+        return
+    try:
+        import sqlite3
+        bdir = data_dir / "backups"
+        bdir.mkdir(exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        dst_path = bdir / f"dental_{stamp}.db"
+        src_c = sqlite3.connect(str(src))
+        dst_c = sqlite3.connect(str(dst_path))
+        with dst_c:
+            src_c.backup(dst_c)
+        src_c.close()
+        dst_c.close()
+        for f in sorted(bdir.glob("dental_*.db"))[:-14]:
+            f.unlink(missing_ok=True)
+        logging.warning("Auto-backup: %s", dst_path.name)
+    except Exception as e:  # noqa: BLE001 — бэкап не должен блокировать старт
+        logging.warning("Auto-backup FAILED: %r", e)
+
+
+_auto_backup()
+
 PORT = int(os.environ.get("DENTART_PORT", "8088"))
 URL = f"http://127.0.0.1:{PORT}/admin"
 

@@ -74,6 +74,48 @@ def check_async() -> None:
     threading.Thread(target=_check, daemon=True).start()
 
 
+def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> None:
+    """Запускает bat сервисом планировщика — вне нашего Job-объекта."""
+    no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.run(
+        ["schtasks", "/create", "/tn", task_name, "/tr", f'"{bat}"',
+         "/sc", "once", "/st", "23:59", "/f"],
+        creationflags=no_win, capture_output=True, check=False,
+    )
+    subprocess.run(["schtasks", "/run", "/tn", task_name],
+                   creationflags=no_win, capture_output=True, check=False)
+
+
+def _exit_soon() -> None:
+    def _die() -> None:
+        time.sleep(1.2)
+        os._exit(0)
+
+    threading.Thread(target=_die, daemon=True).start()
+
+
+def restart_app() -> str | None:
+    """Перезапуск программы (без замены exe) — для применения токена и т.п."""
+    if not is_desktop():
+        return "restart доступен только в desktop-версии"
+    if os.environ.get("DENTART_NO_RESTART") == "1":  # тест-хук
+        return None
+    exe = pathlib.Path(sys.executable).resolve()
+    bat = exe.with_name("dentart_restart.bat")
+    bat.write_text(
+        "@echo off\r\n"
+        'cd /d "%~dp0"\r\n'
+        "ping -n 3 127.0.0.1 >nul\r\n"
+        f'start "" /D "%~dp0" "{exe.name}"\r\n'
+        "schtasks /delete /tn DentArtRestart /f >nul 2>&1\r\n"
+        'del "%~f0"\r\n',
+        encoding="ascii",
+    )
+    _spawn_via_scheduler(bat, "DentArtRestart")
+    _exit_soon()
+    return None
+
+
 def self_update() -> str | None:
     """Скачивает новый exe и перезапускает программу. None = пошло, str = ошибка."""
     if not is_desktop():
@@ -106,22 +148,6 @@ def self_update() -> str | None:
         'del "%~f0"\r\n',
         encoding="ascii",
     )
-    # Перезапуск через Планировщик Windows: bat стартует сервисом Task Scheduler,
-    # ПОЛНОСТЬЮ вне нашего дерева процессов и Job-объектов — смерть старого
-    # процесса не задевает новый (прямой Popen наследовал Job и новый умирал).
-    no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    tn = "DentArtUpdate"
-    subprocess.run(
-        ["schtasks", "/create", "/tn", tn, "/tr", f'"{bat}"',
-         "/sc", "once", "/st", "23:59", "/f"],
-        creationflags=no_win, capture_output=True, check=False,
-    )
-    subprocess.run(["schtasks", "/run", "/tn", tn],
-                   creationflags=no_win, capture_output=True, check=False)
-
-    def _die() -> None:
-        time.sleep(1.2)
-        os._exit(0)
-
-    threading.Thread(target=_die, daemon=True).start()
+    _spawn_via_scheduler(bat, "DentArtUpdate")
+    _exit_soon()
     return None
