@@ -76,6 +76,7 @@ MSG_BANNER = {
     "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
     "ok_comment": ("ok", "Comentariu salvat ✔"),
     "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
+    "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
 }
 
@@ -695,7 +696,15 @@ async def admin_settings(request: Request, msg: str = ""):
         tg_line = f"⚠️ {html.escape(tg_status.get('error') or 'pornire…')}"
     else:
         tg_line = "— fără token (adăugați TELEGRAM_TOKEN în dental.env / .env)"
-    if upd.newer_available():
+    if upd.can_self_update():
+        up_line = (
+            f"🔄 disponibilă {html.escape(upd.STATE['latest'])} "
+            f"<form method='post' action='/admin/update/run' style='display:inline'>"
+            f"<button style='background:#e8710a;color:#fff;border:none;border-radius:6px;"
+            f"padding:6px 14px;cursor:pointer;font-size:14px;margin-left:8px'>"
+            f"⬆️ Actualizează acum</button></form>"
+        )
+    elif upd.newer_available():
         up_line = (f"<a href='{html.escape(upd.STATE['url'])}' target='_blank'>"
                    f"🔄 disponibilă {html.escape(upd.STATE['latest'])} — descărcați</a>")
     elif upd.STATE["checked"] and not upd.STATE["error"]:
@@ -897,6 +906,30 @@ def _build_config(data: dict) -> dict:
               + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ru')}",
     }
     return cfg
+
+
+@app.post("/admin/update/run", response_class=HTMLResponse)
+def admin_update_run(request: Request):
+    """Одним кликом: скачать новый exe, подменить себя, перезапуститься.
+    Синхронный def — FastAPI выполняет в threadpool (скачивание блокирует)."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    err = upd.self_update()
+    if err:
+        return RedirectResponse("/admin/settings?msg=upd_err", status_code=303)
+    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="18;url=/admin/settings">
+<title>Actualizare…</title><style>
+ body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;margin:0;background:#075e54;color:#fff;text-align:center}}
+ .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
+ @keyframes r{{to{{transform:rotate(360deg)}}}}
+</style></head><body>
+<div class="sp">🔄</div>
+<h1>Se actualizează la {html.escape(upd.STATE['latest'])}…</h1>
+<p>Programul se închide și repornește singur.<br>
+Această pagină se va reîncărca automat în ~18 secunde.</p>
+</body></html>"""
 
 
 @app.post("/admin/settings/save")

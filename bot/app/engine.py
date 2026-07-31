@@ -14,7 +14,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.1"
 
 
 def _load_config() -> dict:

@@ -5,3 +5,4 @@ aiogram==3.30.0
 tzdata==2026.3
 python-multipart==0.0.20
 qrcode[pil]==8.2
+pywebview>=5.3,<6

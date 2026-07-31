@@ -1,16 +1,20 @@
 """DentArt Desktop — лаунчер .exe-издания (без Docker и VPS).
 
-Рядом с exe живут: clinic.json (настройки клиники, редактируются в /admin/settings),
-dental.env (TELEGRAM_TOKEN и ADMIN_KEY), data/dental.db (SQLite).
-Закрытие окна консоли останавливает программу."""
+Рядом с exe живут: clinic.json (профиль клиники, правится в Setări),
+dental.env (TELEGRAM_TOKEN и ADMIN_KEY), data/dental.db (SQLite),
+data/dentart.log (лог). Обычный режим — собственное окно приложения
+(WebView2); закрытие окна останавливает программу.
+DENTART_BROWSER_MODE=1 — старый режим: консоль + системный браузер."""
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import shutil
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 
 
@@ -27,7 +31,6 @@ def bundle_dir() -> pathlib.Path:
 
 BASE = exe_dir()
 
-# первый запуск: конфиг клиники и файл секретов рядом с exe
 cfg_path = BASE / "clinic.json"
 if not cfg_path.exists():
     shutil.copy(bundle_dir() / "app" / "clinic.json", cfg_path)
@@ -50,28 +53,84 @@ data_dir.mkdir(exist_ok=True)
 os.environ.setdefault("CLINIC_CONFIG", str(cfg_path))
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{data_dir / 'dental.db'}")
 
+# noconsole-сборка: sys.stdout/stderr = None → uvicorn падает на isatty().
+# Подкладываем безопасные потоки; stderr пишем в файл (видны краши).
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+if sys.stderr is None:
+    sys.stderr = open(data_dir / "dentart.err.log", "a", encoding="utf-8")  # noqa: SIM115
+
+logging.basicConfig(
+    filename=str(data_dir / "dentart.log"), level=logging.WARNING,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 PORT = int(os.environ.get("DENTART_PORT", "8088"))
+URL = f"http://127.0.0.1:{PORT}/admin"
 
 
-def _open_browser() -> None:
-    time.sleep(2.5)
-    webbrowser.open(f"http://127.0.0.1:{PORT}/admin")
-
-
-def main() -> None:
-    print("=" * 62)
-    print("  DentArt Desktop - registrul clinicii")
-    print(f"  Jurnal:  http://127.0.0.1:{PORT}/admin")
-    print(f"  Setari:  clinic.json + dental.env (langa program)")
-    print("  NU inchideti aceasta fereastra cat timp lucrati.")
-    print("=" * 62)
-    if os.environ.get("DENTART_NO_BROWSER") != "1":
-        threading.Thread(target=_open_browser, daemon=True).start()
+def _run_server() -> None:
     import uvicorn
 
     from app.main import app  # noqa: E402 — env уже настроен
 
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    config = uvicorn.Config(app, host="127.0.0.1", port=PORT,
+                            log_level="warning", log_config=None)
+    uvicorn.Server(config).run()
+
+
+def _wait_ready(timeout: float = 25.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{PORT}/health", timeout=1):
+                return True
+        except Exception:  # noqa: BLE001
+            time.sleep(0.4)
+    return False
+
+
+def _browser_mode() -> None:
+    print("=" * 62)
+    print("  DentArt Desktop - registrul clinicii")
+    print(f"  Jurnal:  {URL}")
+    print("  NU inchideti aceasta fereastra cat timp lucrati.")
+    print("=" * 62)
+    if os.environ.get("DENTART_NO_BROWSER") != "1":
+        threading.Thread(
+            target=lambda: (time.sleep(2.5), webbrowser.open(URL)),
+            daemon=True).start()
+    _run_server()
+
+
+def main() -> None:
+    import atexit
+
+    from app.engine import APP_VERSION
+    logging.warning("DentArt start v%s port=%s mode=%s pid=%s", APP_VERSION, PORT,
+                    "browser" if os.environ.get("DENTART_BROWSER_MODE") == "1" else "window",
+                    os.getpid())
+    atexit.register(lambda: logging.warning("DentArt clean exit pid=%s", os.getpid()))
+    sys.excepthook = lambda *a: logging.error("UNCAUGHT", exc_info=a)
+    if os.environ.get("DENTART_BROWSER_MODE") == "1":
+        _browser_mode()
+        return
+    try:
+        import webview  # pywebview: собственное окно приложения
+    except Exception:  # noqa: BLE001 — нет WebView2? откат на браузер
+        logging.warning("pywebview indisponibil - browser mode")
+        _browser_mode()
+        return
+
+    threading.Thread(target=_run_server, daemon=True).start()
+    _wait_ready()
+    webview.create_window(
+        "DentArt — registrul clinicii", URL,
+        width=1280, height=860, min_size=(960, 640),
+    )
+    webview.start()
+    os._exit(0)  # окно закрыто = программа остановлена
 
 
 if __name__ == "__main__":
