@@ -14,6 +14,8 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
+APP_VERSION = "1.1.0"
+
 
 def _load_config() -> dict:
     """Вся клиника (врачи/услуги/часы/контакты) — из clinic.json.
@@ -615,7 +617,7 @@ async def handle(s: Session, sid: str, msg: str):
         return await do_book(s, sid)
 
     if msg == "my":
-        rows = await db.my_appointments(sid)
+        rows = await db.my_appointments(sid, datetime.now(TZ))
         if not rows:
             return [t(s, "no_appts")], menu_buttons(s)
         lines = [t(s, "my_header")]
@@ -642,7 +644,7 @@ async def handle(s: Session, sid: str, msg: str):
         return [t(s, "cancelled")], menu_buttons(s)
 
     if msg == "demo_reminder":
-        rows = await db.my_appointments(sid)
+        rows = await db.my_appointments(sid, datetime.now(TZ))
         if not rows:
             return [t(s, "no_appts")], menu_buttons(s)
         last = s.data.get("last_appt")

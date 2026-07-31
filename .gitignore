@@ -10,3 +10,11 @@ pitch/
 # python
 __pycache__/
 *.pyc
+
+# desktop build & runtime
+.venv-desktop/
+dist/
+build/
+data/
+dental.env
+*.bak

@@ -17,6 +17,9 @@ from . import engine as eng
 
 log = logging.getLogger("telegram")
 
+# статус канала для страницы настроек
+STATUS = {"running": False, "username": "", "error": ""}
+
 
 def _keyboard(buttons: list[list[dict]]) -> InlineKeyboardMarkup | None:
     if not buttons:
@@ -71,7 +74,7 @@ async def _reminder_loop(bot: Bot) -> None:
     log.warning("Reminder loop: started (tick 60s; T-24h and T-2h)")
     while True:
         try:
-            for r in await db.tg_due_reminders():
+            for r in await db.tg_due_reminders(datetime.now(eng.TZ)):
                 await _send_reminder(bot, r)
         except Exception as e:  # noqa: BLE001 — цикл не должен умирать
             log.warning("Reminder loop error: %r", e)
@@ -101,6 +104,10 @@ async def run(token: str) -> None:
                       lambda t, reply_markup=None: c.message.answer(t, reply_markup=reply_markup))
 
     me = await bot.get_me()
+    STATUS.update(running=True, username=me.username or "", error="")
     log.warning("Telegram adapter: polling started as @%s", me.username)
     asyncio.create_task(_reminder_loop(bot))
-    await dp.start_polling(bot, handle_signals=False)
+    try:
+        await dp.start_polling(bot, handle_signals=False)
+    finally:
+        STATUS["running"] = False

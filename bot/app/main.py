@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import db
 from . import engine as eng
+from . import update as upd
 
 app = FastAPI(title="DentArt Demo Bot")
 
@@ -183,12 +184,20 @@ setInterval(function(){
 """
 
 
+def _update_banner() -> str:
+    if upd.newer_available():
+        return (f" · <a href='{html.escape(upd.STATE['url'])}' target='_blank' "
+                f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
+                f"{html.escape(upd.STATE['latest'])}</a>")
+    return ""
+
+
 def _shell(body: str, sub: str) -> str:
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title><style>{PANEL_CSS}</style></head><body>
 <h1>🦷 <a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
-<div class="sub">{sub}{NO_KEY_WARN}</div>
+<div class="sub">{sub}{NO_KEY_WARN} · v{eng.APP_VERSION}{_update_banner()}</div>
 {body}
 {REFRESH_JS}</body></html>"""
 
@@ -482,6 +491,7 @@ def _active_map(rows: list) -> dict:
 @app.on_event("startup")
 async def startup() -> None:
     await db.init(eng.build_seed_rows())
+    upd.check_async()
     token = os.environ.get("TELEGRAM_TOKEN", "").strip()
     if token:
         from . import telegram as tg
@@ -674,9 +684,39 @@ async def admin_settings(request: Request, msg: str = ""):
         cls, text = MSG_BANNER[msg]
         banner = f"<div class='banner {cls}'>{text}</div>"
 
+    try:
+        from . import telegram as tgmod
+        tg_status = tgmod.STATUS
+    except Exception:  # noqa: BLE001
+        tg_status = {"running": False, "username": "", "error": ""}
+    if tg_status["running"]:
+        tg_line = f"✅ activ — @{html.escape(tg_status['username'])}"
+    elif os.environ.get("TELEGRAM_TOKEN", "").strip():
+        tg_line = f"⚠️ {html.escape(tg_status.get('error') or 'pornire…')}"
+    else:
+        tg_line = "— fără token (adăugați TELEGRAM_TOKEN în dental.env / .env)"
+    if upd.newer_available():
+        up_line = (f"<a href='{html.escape(upd.STATE['url'])}' target='_blank'>"
+                   f"🔄 disponibilă {html.escape(upd.STATE['latest'])} — descărcați</a>")
+    elif upd.STATE["checked"] and not upd.STATE["error"]:
+        up_line = "✅ la zi"
+    elif upd.STATE["error"]:
+        up_line = "— necunoscut (offline?)"
+    else:
+        up_line = "se verifică…"
+    status_tbl = f"""
+<h2>ℹ️ Stare sistem</h2>
+<table class='set'>
+<tr><th style='width:180px'>Versiune</th><td>v{eng.APP_VERSION}</td></tr>
+<tr><th>Bază de date</th><td>{"SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"}</td></tr>
+<tr><th>Canal Telegram</th><td>{tg_line}</td></tr>
+<tr><th>Actualizări</th><td>{up_line}</td></tr>
+</table>"""
+
     body = f"""
 <div class='nav'><a href='/admin'>🏠 Panou</a></div>
 {banner}
+{status_tbl}
 <form method='post' action='/admin/settings/save' onsubmit='return collectSettings()'>
 <input type='hidden' name='payload' id='payload'>
 
