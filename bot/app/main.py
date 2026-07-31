@@ -175,6 +175,8 @@ PANEL_CSS = """
  .tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
  .tile{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);
        padding:10px 16px;min-width:110px;text-align:center}
+ a.tile{display:block;text-decoration:none;cursor:pointer;transition:box-shadow .15s}
+ a.tile:hover{box-shadow:0 3px 8px rgba(0,0,0,.18)}
  .tile b{display:block;font-size:22px;color:#075e54}
  .tile.warn b{color:#e8710a}
  .tile.bad b{color:#d23c3c}
@@ -408,7 +410,7 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
 </form>"""
 
 
-def _list(rows: list, back: str) -> str:
+def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
     items = []
     for r in rows:
         dt_txt = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
@@ -447,8 +449,10 @@ def _list(rows: list, back: str) -> str:
             f"<td>{src}</td><td>{STATUS_LABEL.get(r['status'], r['status'])}"
             f"{' 🔔' if r['reminded_day'] else ''}</td><td>{acts}</td></tr>"
         )
+    if not items:
+        items = ["<tr><td colspan='9' style='color:#999'>— nicio programare —</td></tr>"]
     return (
-        "<h2>Lista zilei</h2><table class='list'>"
+        f"<h2>{title}</h2><table class='list'>"
         "<tr><th>#</th><th>Ora</th><th>Pacient</th><th>Telefon</th><th>Serviciu</th>"
         "<th>Medic</th><th>Sursă</th><th>Status</th><th>Acțiuni</th></tr>"
         + "".join(items) + "</table>"
@@ -759,13 +763,15 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     n_man = total - n_bot
     n_urg = sum(1 for r in act if r["service"] in eng.URGENT_LABELS)
     n_noshow = sum(1 for r in rows if r["status"] == "noshow")
+    # плитки кликабельны: ведут на /admin/all с фильтром — «цифра → сразу список»
+    day_url = f"/admin/all?date={d.isoformat()}"
     tiles = (
         f"<div class='tiles'>"
-        f"<div class='tile'><b>{total}</b><span>programări azi</span></div>"
-        f"<div class='tile'><b>{n_bot}</b><span>🤖 prin bot</span></div>"
-        f"<div class='tile'><b>{n_man}</b><span>✍️ recepție</span></div>"
-        f"<div class='tile warn'><b>{n_urg}</b><span>🆘 urgențe</span></div>"
-        f"<div class='tile bad'><b>{n_noshow}</b><span>neprezentări</span></div>"
+        f"<a class='tile' href='{day_url}'><b>{total}</b><span>programări azi</span></a>"
+        f"<a class='tile' href='{day_url}&f=bot'><b>{n_bot}</b><span>🤖 prin bot</span></a>"
+        f"<a class='tile' href='{day_url}&f=rec'><b>{n_man}</b><span>✍️ recepție</span></a>"
+        f"<a class='tile warn' href='{day_url}&f=urg'><b>{n_urg}</b><span>🆘 urgențe</span></a>"
+        f"<a class='tile bad' href='{day_url}&f=noshow'><b>{n_noshow}</b><span>neprezentări</span></a>"
         f"</div>"
     )
 
@@ -1452,11 +1458,24 @@ async def admin_search(request: Request, q: str = ""):
 
 # ---------- общая сетка: все врачи ----------
 
+# фильтры для клика по плиткам дашборда: цифра → сразу список этих записей
+_TILE_FILTERS = {
+    "bot": ("🤖 prin bot",
+            lambda r: r["source"] == "bot" and r["status"] != "cancelled"),
+    "rec": ("✍️ recepție",
+            lambda r: r["source"] == "manual" and r["status"] != "cancelled"),
+    "urg": ("🆘 urgențe",
+            lambda r: r["service"] in eng.URGENT_LABELS
+            and r["source"] != "note" and r["status"] != "cancelled"),
+    "noshow": ("neprezentări", lambda r: r["status"] == "noshow"),
+}
+
+
 @app.get("/admin/all", response_class=HTMLResponse)
 async def admin_all(
     request: Request,
     date_q: str = Query("", alias="date"),
-    doctor: str = "", time_pre: str = "", msg: str = "",
+    doctor: str = "", time_pre: str = "", msg: str = "", f: str = "",
 ):
     if (deny := _guard(request)) is not None:
         return deny
@@ -1465,19 +1484,29 @@ async def admin_all(
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
     active = _active_map(rows)
     items = list(eng.DOCTORS.items())
-    back = f"/admin/all?date={d.isoformat()}"
+    flt = _TILE_FILTERS.get(f)
+    back = f"/admin/all?date={d.isoformat()}" + (f"&f={f}" if flt else "")
 
     def href(dk, h):
         return f"/admin/all?date={d.isoformat()}&doctor={dk}&time_pre={h:02d}:00#addform"
 
     cards = _collect_cards(rows)
+    filter_chip, filtered_list = "", ""
+    if flt:
+        label, pred = flt
+        hits = [r for r in rows if pred(r)]
+        filter_chip = (
+            f"<div class='banner ok'>Filtru: <b>{label}</b> — {len(hits)} programări "
+            f"· <a href='/admin/all?date={d.isoformat()}'>arată tot ✕</a></div>")
+        filtered_list = _list(hits, back, title=f"{label} — {d.strftime('%d.%m.%Y')}")
     body = (_date_nav(d, "/admin/all",
                       f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
                       f"<a href='/admin/export?from={d.isoformat()}&to={d.isoformat()}'>📥 CSV</a>")
             + _banner(msg, d)
+            + filter_chip + filtered_list
             + _grid(d, items, active, href, cards)
             + _form(d, items, doctor, time_pre, back)
-            + _list(rows, back)
+            + ("" if flt else _list(rows, back))
             + _slot_modal(d, back)
             + _card_modal(cards, back))
     return _shell(body, "toți medicii · 🤖 bot / ✍️ recepție / 📝 notițe · demo, date sintetice")
