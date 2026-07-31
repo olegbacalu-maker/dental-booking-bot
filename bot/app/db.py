@@ -43,7 +43,26 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_day BOOLEAN NOT NULL 
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_2h BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS comment TEXT NOT NULL DEFAULT '';
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_year INT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_date TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS idnp TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS insurance TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS primary_doctor TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS file_no TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
 """
+
+# Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
+# по-прежнему вести только имя+телефон. SQLite не умеет ADD COLUMN IF NOT EXISTS,
+# поэтому колонки добавляются по одной с игнором «duplicate column».
+SQLITE_PATIENT_COLS = [
+    "birth_date TEXT", "gender TEXT", "idnp TEXT", "email TEXT", "address TEXT",
+    "insurance TEXT", "primary_doctor TEXT", "file_no TEXT", "notes TEXT",
+    "archived INTEGER NOT NULL DEFAULT 0",
+]
 
 SQLITE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients(
@@ -152,6 +171,14 @@ async def init(seed_rows: list | None = None) -> None:
         await _CONN.execute("PRAGMA journal_mode=WAL")
         await _CONN.execute("PRAGMA foreign_keys=ON")
         await _CONN.executescript(SQLITE_SCHEMA)
+        for coldef in SQLITE_PATIENT_COLS:
+            try:
+                await _CONN.execute(f"ALTER TABLE patients ADD COLUMN {coldef}")
+            except sqlite3.OperationalError as e:
+                # «duplicate column» = уже мигрировано; всё прочее (база залочена,
+                # I/O) НЕ глотаем — иначе колонка тихо пропадёт и всплывёт позже
+                if "duplicate column" not in str(e).lower():
+                    raise
         await _CONN.commit()
     else:
         import asyncpg
@@ -388,6 +415,17 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
            ORDER BY a.starts_at, a.doctor""",
         *((day_start, day_end) if not IS_SQLITE
           else (_iso(day_start), _iso(day_end))),
+    )
+
+
+async def recent_patients(limit: int = 20) -> list:
+    """Последние пациенты — стартовый вид страницы «Pacienți» без поискового запроса."""
+    return await _fetch(
+        """SELECT id, name, phone, session_key, birth_year, created_at
+           FROM patients ORDER BY created_at DESC, id DESC LIMIT $1""",
+        """SELECT id, name, phone, session_key, birth_year, created_at
+           FROM patients ORDER BY created_at DESC, id DESC LIMIT ?""",
+        limit,
     )
 
 

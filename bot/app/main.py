@@ -146,113 +146,258 @@ MSG_BANNER = {
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
 }
 
+# Дизайн-система v1.5.0 (референс: светлый SaaS-макет Олега 07-31):
+# фон #F8FAFC, текст #1F2937/#6B7280, один акцент Teal, тени вместо границ,
+# радиусы 12/16, отступы 8/16/24/32, типографика 600/400 без капса.
 PANEL_CSS = """
+ :root{--bg:#F8FAFC;--panel:#FFFFFF;--line:#E5E7EB;--line2:#F1F5F9;
+   --text:#1F2937;--text2:#6B7280;--text3:#9CA3AF;
+   --teal:#0D9488;--teal-d:#0F766E;--teal-soft:#F0FDFA;--teal-line:#CCFBF1;
+   --green:#059669;--green-soft:#ECFDF5;--blue:#3B82F6;--blue-soft:#EFF6FF;
+   --amber:#D97706;--amber-soft:#FFFBEB;--red:#DC2626;--red-soft:#FEF2F2;
+   --violet:#7C3AED;--violet-soft:#F5F3FF;
+   --sh:0 1px 3px rgba(16,24,40,.07),0 1px 2px rgba(16,24,40,.04);
+   --sh2:0 4px 12px rgba(16,24,40,.10)}
  *{box-sizing:border-box}
- body{font-family:system-ui,'Segoe UI',Roboto,sans-serif;background:#f4f6f7;margin:0;padding:18px}
- h1{font-size:19px;color:#075e54;margin:0 0 4px}
- h1 a{color:#075e54;text-decoration:none}
- .sub{color:#777;font-size:12px;margin-bottom:14px}
- .nav{margin-bottom:12px}
- .nav a{display:inline-block;background:#fff;border:1px solid #cdd;border-radius:6px;
-        padding:5px 12px;margin-right:6px;text-decoration:none;color:#075e54;font-size:14px}
- .nav a.primary{background:#075e54;color:#fff;border-color:#075e54}
- .nav form.dpickf{display:inline-block;margin-right:6px}
- .nav input.dpick{padding:4px 8px;border:1px solid #cdd;border-radius:6px;font-size:14px;background:#fff;color:#075e54}
- .statbar{background:#e4eeec;border-radius:4px;height:8px;overflow:hidden}
- .statbar div{background:#075e54;height:8px}
- table.set{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:8px}
- table.set th,table.set td{padding:6px 8px;border-bottom:1px solid #eef1f1;text-align:left;font-size:13px}
- table.set th{background:#f0f4f4}
- table.set input[type=text],table.set input[type=number]{width:100%;padding:6px 8px;border:1px solid #ccd4d4;border-radius:5px;font-size:13px}
- table.set select{padding:5px 6px;border:1px solid #ccd4d4;border-radius:5px;font-size:13px}
- .rowdel{background:#c62828;color:#fff;border:none;border-radius:4px;padding:3px 9px;cursor:pointer}
- .addrow{background:none;border:1px dashed #075e54;color:#075e54;border-radius:6px;padding:6px 14px;cursor:pointer;margin-bottom:16px}
- .savebtn{background:#075e54;color:#fff;border:none;border-radius:8px;padding:12px 26px;font-size:15px;cursor:pointer}
- .nav b{font-size:15px;margin-right:8px}
- .banner{padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:14px}
- .banner.ok{background:#dff3e3;color:#14632a}
- .banner.err{background:#fde2e2;color:#8f1d1d}
- .tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
- .tile{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);
-       padding:10px 16px;min-width:110px;text-align:center}
- a.tile{display:block;text-decoration:none;cursor:pointer;transition:box-shadow .15s}
- a.tile:hover{box-shadow:0 3px 8px rgba(0,0,0,.18)}
- .tile b{display:block;font-size:22px;color:#075e54}
- .tile.warn b{color:#e8710a}
- .tile.bad b{color:#d23c3c}
- .tile span{font-size:12px;color:#667}
- .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-bottom:16px}
- a.card{display:block;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);
-        padding:12px 14px;text-decoration:none;color:#1c2b33;border-left:4px solid #075e54}
- a.card:hover{box-shadow:0 2px 8px rgba(0,0,0,.15)}
- a.card b{font-size:15px}
- a.card .spec{color:#667;font-size:12px;margin:2px 0 8px}
- a.card .meta{font-size:13px;color:#334}
- a.card .meta .u{color:#e8710a;font-weight:600}
- table.grid{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:18px}
- table.grid th,table.grid td{border:1px solid #e4e8e9;padding:4px 6px;font-size:13px;vertical-align:top}
- table.grid th{background:#075e54;color:#fff;font-weight:600}
- table.grid th a{color:#fff}
- td.hour{width:52px;color:#555;font-weight:600;background:#fafbfb;text-align:center}
- .appt{border-radius:6px;padding:5px 7px;line-height:1.3}
- .appt.confirmed{background:#e5f6ec;border-left:3px solid #1d9e55}
- .appt.done{background:#e7eefc;border-left:3px solid #3466c4}
- .appt.noshow{background:#fdecec;border-left:3px solid #d23c3c}
- .appt.urgent{background:#fff1e0;border-left:3px solid #e8710a}
- .appt.note{background:#fffbe6;border-left:3px solid #d4b106;color:#5c4d00}
+ body{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
+   background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh}
+ a{color:var(--teal)}
+ /* ---------- каркас: сайдбар + топбар + контент ---------- */
+ .side{width:216px;flex:0 0 216px;background:var(--panel);border-right:1px solid var(--line);
+   display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+ .side .brand{display:flex;align-items:center;gap:10px;padding:18px 16px 14px}
+ .side .brand .logo{width:34px;height:34px;border-radius:10px;background:var(--teal);color:#fff;
+   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex:0 0 34px}
+ .side .brand b{font-size:15px;display:block;line-height:1.2}
+ .side .brand small{color:var(--text2);font-size:11.5px;display:block;white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis;max-width:130px}
+ .side .sec{font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--text3);
+   padding:14px 18px 6px;text-transform:uppercase}
+ .side nav a{display:flex;align-items:center;gap:10px;margin:2px 10px;padding:8px 10px;
+   border-radius:10px;text-decoration:none;color:var(--text2);font-size:13.5px;font-weight:500}
+ .side nav a svg{flex:0 0 16px}
+ .side nav a:hover{background:var(--line2);color:var(--text)}
+ .side nav a.on{background:var(--teal-soft);color:var(--teal-d);font-weight:600}
+ .side nav a .dot{width:7px;height:7px;border-radius:50%;margin-left:auto}
+ .side nav a .dot.ok{background:var(--green)}
+ .side nav a .dot.off{background:var(--text3)}
+ .side .sfoot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line);
+   font-size:11.5px;color:var(--text3)}
+ .main{flex:1;min-width:0;display:flex;flex-direction:column}
+ .top{height:58px;flex:0 0 58px;background:var(--panel);border-bottom:1px solid var(--line);
+   display:flex;align-items:center;gap:10px;padding:0 20px;position:sticky;top:0;z-index:20}
+ .top form.searchf{display:flex;gap:0;align-items:center;background:var(--bg);
+   border:1px solid var(--line);border-radius:10px;padding:0 6px 0 12px;height:36px;width:320px;margin:0}
+ .top form.searchf input{border:none;background:none;outline:none;font-size:13px;flex:1;color:var(--text)}
+ .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:4px 6px}
+ .top .kbd{font-size:10.5px;color:var(--text3);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+ .top .bell{position:relative;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;
+   justify-content:center;color:var(--text2);text-decoration:none;font-size:16px}
+ .top .bell:hover{background:var(--line2)}
+ .top .bell .n{position:absolute;top:2px;right:2px;min-width:15px;height:15px;border-radius:8px;
+   background:var(--red);color:#fff;font-size:9.5px;font-weight:600;line-height:15px;text-align:center;padding:0 3px}
+ .top .newbtn{display:flex;align-items:center;gap:7px;height:38px;padding:0 16px;border-radius:10px;
+   background:var(--teal);color:#fff;font-size:13.5px;font-weight:600;text-decoration:none}
+ .top .newbtn:hover{background:var(--teal-d)}
+ .content{padding:20px 24px 60px;max-width:1500px}
+ /* ---------- общие элементы ---------- */
+ h1{font-size:19px;margin:0 0 4px;font-weight:600}
+ h1 a{color:var(--text);text-decoration:none}
+ h2{font-size:15px;color:var(--text);margin:20px 0 10px;font-weight:600}
+ .sub{color:var(--text3);font-size:12px;margin-bottom:14px}
+ .nav{margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+ .nav b{font-size:15px;margin-right:6px;font-weight:600}
+ .nav a{display:inline-block;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:6px 13px;text-decoration:none;color:var(--text2);font-size:13px;font-weight:500}
+ .nav a:hover{border-color:var(--teal);color:var(--teal-d)}
+ .nav a.primary{background:var(--teal);color:#fff;border-color:var(--teal)}
+ .nav form.dpickf{display:inline-block;margin:0}
+ .nav input.dpick{padding:5px 8px;border:1px solid var(--line);border-radius:10px;font-size:13px;
+   background:var(--panel);color:var(--text2)}
+ .nav form.searchf{display:flex;gap:6px;align-items:center;margin:0}
+ .nav form.searchf input{padding:6px 11px;border:1px solid var(--line);border-radius:10px;
+   font-size:13px;width:240px;background:var(--panel);color:var(--text);outline:none}
+ .nav form.searchf input:focus{border-color:var(--teal)}
+ .nav form.searchf button{background:var(--teal);color:#fff;border:none;border-radius:10px;
+   padding:7px 13px;cursor:pointer;font-size:13px;font-weight:600}
+ .banner{padding:9px 14px;border-radius:10px;margin-bottom:12px;font-size:13.5px}
+ .banner.ok{background:var(--green-soft);color:#065F46}
+ .banner.err{background:var(--red-soft);color:#991B1B}
+ .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
+ .statbar div{background:var(--teal);height:8px}
+ /* ---------- KPI ---------- */
+ .tiles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+ .tile{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 16px;
+   min-width:170px;flex:1;display:flex;gap:12px;align-items:flex-start}
+ a.tile{text-decoration:none;color:inherit;transition:box-shadow .15s,transform .15s}
+ a.tile:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
+ .tile .ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;
+   justify-content:center;font-size:17px;flex:0 0 38px}
+ .tile b{display:block;font-size:24px;font-weight:600;line-height:1.1}
+ .tile span{font-size:12px;color:var(--text2);font-weight:500}
+ .tile .trend{display:block;font-size:11.5px;margin-top:3px;color:var(--text3)}
+ .tile .trend .up{color:var(--green);font-weight:600}
+ .tile .trend .dn{color:var(--red);font-weight:600}
+ .tile.warn b{color:var(--amber)}
+ .tile.bad b{color:var(--red)}
+ /* ---------- дневная сетка (canvas) ---------- */
+ .dash{display:flex;gap:16px;align-items:flex-start}
+ .dashmain{flex:1;min-width:0}
+ .rail{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
+ .gridcard{background:var(--panel);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
+ .gridhead{display:flex;border-bottom:1px solid var(--line)}
+ .gridhead .gh-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2)}
+ .gridhead .gh-doc{flex:1;min-width:0;padding:10px 12px;display:flex;gap:9px;align-items:center;
+   border-right:1px solid var(--line2)}
+ .gridhead .gh-doc:last-child{border-right:none}
+ .gh-doc .av{width:32px;height:32px;border-radius:9px;color:#fff;display:flex;align-items:center;
+   justify-content:center;font-size:12px;font-weight:600;flex:0 0 32px}
+ .gh-doc .nm{min-width:0}
+ .gh-doc .nm a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none;white-space:nowrap}
+ .gh-doc .nm a:hover{color:var(--teal-d)}
+ .gh-doc .nm small{display:block;font-size:11px;color:var(--text3);white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis}
+ .gh-doc .st{width:8px;height:8px;border-radius:50%;margin-left:auto;flex:0 0 8px}
+ .gridbody{display:flex;position:relative}
+ .gcol-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2);background:var(--bg)}
+ .gcol-time div{height:56px;font-size:11px;color:var(--text3);text-align:right;padding:4px 8px 0}
+ .gcol{flex:1;min-width:0;border-right:1px solid var(--line2);position:relative}
+ .gcol:last-child{border-right:none}
+ .gcell{height:56px;border-bottom:1px solid var(--line2);cursor:pointer;position:relative}
+ .gcell:hover{background:var(--teal-soft)}
+ .gcell:hover::after{content:'+';position:absolute;inset:0;display:flex;align-items:center;
+   justify-content:center;color:var(--teal);font-size:18px}
+ .gcell.off{cursor:default;background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
+ .gcell.off:hover{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
+ .gcell.off:hover::after{content:''}
+ .gappt{position:absolute;left:4px;right:4px;border-radius:9px;padding:5px 8px;overflow:hidden;
+   font-size:11.5px;line-height:1.35;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06);z-index:2}
+ .gappt:hover{box-shadow:var(--sh2)}
+ .gappt b{font-size:12px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .gappt small{color:inherit;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+ .gappt .stt{position:absolute;top:5px;right:7px;font-size:11px}
+ .gappt.noshow{text-decoration:line-through;opacity:.75}
+ .gappt.gnote{border:1px dashed var(--line);background:repeating-linear-gradient(135deg,var(--line2) 0 6px,transparent 6px 12px);color:var(--text2)}
+ .nowline{position:absolute;left:0;right:0;height:2px;background:var(--red);z-index:5;pointer-events:none}
+ .nowline::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red)}
+ /* ---------- правая колонка ---------- */
+ .mcal{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:12px 14px}
+ .mcal .mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+ .mcal .mhead b{font-size:13px;font-weight:600}
+ .mcal .mhead a{text-decoration:none;color:var(--text2);padding:2px 8px;border-radius:7px}
+ .mcal .mhead a:hover{background:var(--line2)}
+ .mcal table{width:100%;border-collapse:collapse}
+ .mcal th{font-size:10px;color:var(--text3);font-weight:500;padding:2px 0}
+ .mcal td{text-align:center;padding:1px 0}
+ .mcal td a{display:inline-flex;width:26px;height:26px;border-radius:8px;align-items:center;
+   justify-content:center;font-size:11.5px;color:var(--text2);text-decoration:none}
+ .mcal td a:hover{background:var(--line2)}
+ .mcal td a.oth{color:var(--text3);opacity:.5}
+ .mcal td a.tdy{box-shadow:inset 0 0 0 1.5px var(--teal);color:var(--teal-d);font-weight:600}
+ .mcal td a.seld{background:var(--teal);color:#fff;font-weight:600}
+ /* ---------- старые страницы (перекрашены) ---------- */
+ .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
+ a.card{display:block;background:var(--panel);border-radius:14px;box-shadow:var(--sh);
+        padding:14px 16px;text-decoration:none;color:var(--text)}
+ a.card:hover{box-shadow:var(--sh2)}
+ a.card b{font-size:14.5px}
+ a.card .spec{color:var(--text2);font-size:12px;margin:2px 0 8px}
+ a.card .meta{font-size:12.5px;color:var(--text2)}
+ a.card .meta .u{color:var(--amber);font-weight:600}
+ table.grid{border-collapse:separate;border-spacing:0;width:100%;background:var(--panel);
+   box-shadow:var(--sh);border-radius:14px;overflow:hidden;margin-bottom:18px}
+ table.grid th,table.grid td{border-bottom:1px solid var(--line2);border-right:1px solid var(--line2);
+   padding:5px 7px;font-size:12.5px;vertical-align:top}
+ table.grid th{background:var(--panel);color:var(--text);font-weight:600;border-bottom:1px solid var(--line)}
+ table.grid th a{color:var(--text);text-decoration:none}
+ table.grid th a:hover{color:var(--teal-d)}
+ td.hour{width:52px;color:var(--text3);font-weight:500;background:var(--bg);text-align:center;font-size:11.5px}
+ .appt{border-radius:9px;padding:5px 8px;line-height:1.35}
+ .appt.confirmed{background:var(--green-soft);border-left:3px solid var(--green)}
+ .appt.done{background:var(--blue-soft);border-left:3px solid var(--blue)}
+ .appt.noshow{background:var(--red-soft);border-left:3px solid var(--red)}
+ .appt.urgent{background:var(--amber-soft);border-left:3px solid var(--amber)}
+ .appt.note{background:var(--amber-soft);border-left:3px solid #EAB308;color:#713F12}
  .appt.clickable{cursor:pointer}
- .appt.clickable:hover{filter:brightness(.97)}
- .appt .cmt{color:#7a6a00;font-size:12px;margin-top:2px}
- a.plink{color:#075e54;text-decoration:none;border-bottom:1px dashed #9cc3bd}
+ .appt.clickable:hover{filter:brightness(.98)}
+ .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
+ a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
  a.plink:hover{border-bottom-style:solid}
- form.searchf{display:inline-flex;gap:6px;margin-left:8px;vertical-align:middle}
- form.searchf input{padding:5px 10px;border:1px solid #cdd;border-radius:6px;font-size:14px;width:250px}
- form.searchf button{background:#075e54;color:#fff;border:none;border-radius:6px;padding:5px 12px;cursor:pointer}
- .pcard{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:12px 16px;margin-bottom:12px}
- .pcard h3{margin:0 0 6px;font-size:15px;color:#075e54}
- .pcard .meta{color:#667;font-size:13px;margin-bottom:8px}
+ .pcard{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 18px;margin-bottom:12px}
+ .pcard h3{margin:0 0 6px;font-size:14.5px;color:var(--text)}
+ .pcard .meta{color:var(--text2);font-size:12.5px;margin-bottom:8px}
  .vpast{opacity:.55}
+ table.set{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
+   border-radius:14px;overflow:hidden;margin-bottom:10px}
+ table.set th,table.set td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
+ table.set th{background:var(--bg);color:var(--text2);font-weight:600}
+ table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px}
+ table.set select{padding:6px 7px;border:1px solid var(--line);border-radius:8px;font-size:13px}
+ .rowdel{background:var(--red-soft);color:var(--red);border:none;border-radius:7px;padding:4px 10px;cursor:pointer}
+ .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:10px;padding:7px 15px;cursor:pointer;margin-bottom:16px}
+ .savebtn{background:var(--teal);color:#fff;border:none;border-radius:10px;padding:12px 26px;font-size:14.5px;font-weight:600;cursor:pointer}
+ .savebtn:hover{background:var(--teal-d)}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
- .bstat{border:none;border-radius:5px;padding:8px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%}
- dialog{border:none;border-radius:10px;box-shadow:0 6px 30px rgba(0,0,0,.25);padding:0;width:430px;max-width:95vw}
- dialog::backdrop{background:rgba(0,0,0,.35)}
- .dlg-head{background:#075e54;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
- .dlg-head button{background:none;border:none;color:#fff;font-size:16px;cursor:pointer}
- .dlg-tabs{display:flex;gap:6px;padding:10px 14px 0}
- .tabbtn{flex:1;padding:7px;border:1px solid #ccd4d4;background:#f4f6f7;border-radius:6px;cursor:pointer;font-size:13px}
- .tabbtn.on{background:#075e54;color:#fff;border-color:#075e54}
- .dlg-form{display:flex;flex-direction:column;gap:8px;padding:12px 14px 14px}
- .dlg-form input,.dlg-form select{padding:8px 10px;border:1px solid #ccd4d4;border-radius:6px;font-size:14px}
- .dlg-form button{background:#075e54;color:#fff;border:none;border-radius:6px;padding:9px;cursor:pointer;font-size:14px}
- a.free{display:block;text-align:center;color:#b9c4c4;text-decoration:none;font-size:17px;padding:5px 0}
- a.free:hover{color:#075e54;background:#eef6f4;border-radius:6px}
- h2{font-size:15px;color:#075e54;margin:16px 0 8px}
- form.add{background:#fff;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);
+ .bstat{border:none;border-radius:8px;padding:9px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%;font-weight:500}
+ dialog{border:none;border-radius:16px;box-shadow:0 12px 40px rgba(16,24,40,.22);padding:0;width:430px;max-width:95vw}
+ dialog::backdrop{background:rgba(15,23,42,.4)}
+ .dlg-head{background:var(--panel);color:var(--text);padding:13px 16px;font-weight:600;font-size:14.5px;
+   display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
+ .dlg-head button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer}
+ .dlg-tabs{display:flex;gap:6px;padding:12px 16px 0}
+ .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:9px;cursor:pointer;font-size:13px;color:var(--text2)}
+ .tabbtn.on{background:var(--teal);color:#fff;border-color:var(--teal);font-weight:600}
+ .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
+ .dlg-form input,.dlg-form select,.dlg-form textarea{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px}
+ .dlg-form button{background:var(--teal);color:#fff;border:none;border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
+ a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;padding:4px 0;border-radius:8px}
+ a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
+ form.add{background:var(--panel);padding:14px;border-radius:14px;box-shadow:var(--sh);
           display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px}
- form.add input,form.add select{padding:7px 9px;border:1px solid #ccd4d4;border-radius:6px;font-size:14px}
- form.add button{background:#075e54;color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:14px}
- table.list{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
- table.list th,table.list td{padding:6px 10px;border-bottom:1px solid #eef1f1;text-align:left;font-size:13px}
- table.list th{background:#f0f4f4;color:#333}
+ form.add input,form.add select{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px}
+ form.add button{background:var(--teal);color:#fff;border:none;border-radius:9px;padding:9px 17px;cursor:pointer;font-size:13.5px;font-weight:600}
+ table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);border-radius:14px;overflow:hidden}
+ table.list th,table.list td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
+ table.list th{background:var(--bg);color:var(--text2);font-weight:600}
  tr.cancelled td{opacity:.45;text-decoration:line-through}
  .act{display:inline}
- .act button{border:none;border-radius:4px;padding:3px 8px;margin-right:4px;cursor:pointer;font-size:12px;color:#fff}
- .b-done{background:#3466c4}.b-noshow{background:#d23c3c}.b-cancel{background:#888}
- .hint{color:#999;font-size:12px;margin-top:10px}
- .botnew{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:10px 12px;margin-bottom:16px}
- .botnew h3{margin:0 0 4px;font-size:14px}
- .botnew a{display:block;padding:5px 0;font-size:13px;color:inherit;text-decoration:none;border-top:1px solid #f0f0f0}
- .botnew a:hover{background:#fafafa}
- .botnew .dt{color:#0a7d4f;font-weight:600}
- .botnew .crt{color:#999;font-size:12px}
- .botnew .nou{background:#e8710a;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:6px}
- .brandcorner{position:fixed;right:14px;bottom:10px;font-size:12px;color:#8a9;
-   background:rgba(255,255,255,.92);padding:5px 12px;border-radius:14px;
-   box-shadow:0 1px 4px rgba(0,0,0,.12);z-index:50}
- .brandcorner b{color:#075e54}
- .brandcorner a{color:#075e54;text-decoration:none;font-weight:600}
+ .act button{border:none;border-radius:7px;padding:4px 9px;margin-right:4px;cursor:pointer;font-size:12px;color:#fff}
+ .b-done{background:var(--blue)}.b-noshow{background:var(--red)}.b-cancel{background:#94A3B8}
+ .hint{color:var(--text3);font-size:12px;margin-top:10px}
+ .botnew{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:12px 14px;margin-bottom:14px}
+ .botnew h3{margin:0 0 4px;font-size:13.5px;font-weight:600}
+ .botnew a{display:block;padding:6px 0;font-size:12.5px;color:inherit;text-decoration:none;border-top:1px solid var(--line2)}
+ .botnew a:hover{background:var(--bg)}
+ .botnew .dt{color:var(--teal-d);font-weight:600}
+ .botnew .crt{color:var(--text3);font-size:11.5px}
+ .botnew .nou{background:var(--amber);color:#fff;border-radius:5px;padding:1px 6px;font-size:10.5px;margin-left:6px;font-weight:600}
+ .brandcorner{position:fixed;right:14px;bottom:10px;font-size:11.5px;color:var(--text3);
+   background:rgba(255,255,255,.94);padding:5px 12px;border-radius:14px;box-shadow:var(--sh);z-index:50}
+ .brandcorner b{color:var(--teal-d)}
+ .brandcorner a{color:var(--teal-d);text-decoration:none;font-weight:600}
  .brandcorner a:hover{text-decoration:underline}
+ /* ---------- недельный вид ---------- */
+ .week{display:flex;gap:12px;align-items:flex-start}
+ .wcol{flex:1;min-width:0;background:var(--panel);border-radius:14px;box-shadow:var(--sh);overflow:hidden}
+ .wcol .wh{padding:10px 12px;border-bottom:1px solid var(--line)}
+ .wcol .wh.tdy{background:var(--teal-soft)}
+ .wcol .wh a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none}
+ .wcol .wh a:hover{color:var(--teal-d)}
+ .wcol .wh small{display:block;font-size:11px;color:var(--text3);margin-top:1px}
+ .wcol .wb{padding:8px;display:flex;flex-direction:column;gap:5px;min-height:60px}
+ .wchip{border-radius:8px;padding:4px 8px;font-size:11.5px;line-height:1.4;overflow:hidden}
+ .wchip b{font-weight:600}
+ .wchip small{opacity:.75;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .wchip.noshow{text-decoration:line-through;opacity:.7}
+ @media (max-width:1280px){.dash{flex-wrap:wrap}.rail{width:100%;flex:1 1 100%}}
+ @media (max-width:1000px){
+   .side{width:56px;flex:0 0 56px}
+   .side .brand div,.side .sec,.side nav a span,.side nav a .dot,.side .sfoot{display:none}
+   .side .brand{justify-content:center;padding:14px 0}
+   .side nav a{justify-content:center;margin:2px 8px;padding:9px 0}
+   .week{flex-wrap:wrap}.wcol{flex:1 1 45%}
+ }
 """
 
 REFRESH_JS = """
@@ -279,19 +424,107 @@ def _update_banner() -> str:
     return ""
 
 
-def _shell(body: str, sub: str) -> str:
+def _tg_state() -> tuple[bool, str]:
+    try:
+        from . import telegram as tgmod
+        st = tgmod.STATUS
+        return bool(st["running"]), st.get("username", "")
+    except Exception:  # noqa: BLE001
+        return False, ""
+
+
+_I = {  # компактные stroke-иконки сайдбара
+    "home": "<path d='M3 10.5 12 3l9 7.5M5.5 9.5V21h13V9.5'/>",
+    "cal": "<rect x='3.5' y='5' width='17' height='16' rx='2.5'/><path d='M3.5 10h17M8.5 3v4M15.5 3v4'/>",
+    "pat": "<circle cx='12' cy='8' r='3.5'/><path d='M5 20.5c1.3-3.8 4-5.4 7-5.4s5.7 1.6 7 5.4'/>",
+    "stat": "<path d='M4 20h16M8 20v-6M13 20V7M18 20v-9'/>",
+    "set": "<circle cx='12' cy='12' r='3'/><path d='M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2'/>",
+    "bot": "<rect x='3.5' y='7.5' width='17' height='12' rx='3'/><path d='M12 7.5V4'/><circle cx='9' cy='13.5' r='1' fill='currentColor' stroke='none'/><circle cx='15' cy='13.5' r='1' fill='currentColor' stroke='none'/>",
+    "qr": "<rect x='4' y='4' width='6.5' height='6.5' rx='1'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1'/><path d='M13.5 13.5h6.5v6.5h-6.5z'/>",
+}
+
+
+def _ic(name: str) -> str:
+    return (f"<svg width='16' height='16' viewBox='0 0 24 24' fill='none' "
+            f"stroke='currentColor' stroke-width='1.8' stroke-linecap='round' "
+            f"stroke-linejoin='round'>{_I[name]}</svg>")
+
+
+def _sidebar(active: str) -> str:
+    def item(key: str, href: str, icon: str, label: str, extra: str = "") -> str:
+        on = " on" if key == active else ""
+        return (f"<a class='{on.strip()}' href='{href}' title='{label}'>{_ic(icon)}"
+                f"<span>{label}</span>{extra}</a>")
+
+    tg_on, tg_user = _tg_state()
+    tg_dot = "<span class='dot ok'></span>" if tg_on else "<span class='dot off'></span>"
+    tg_title = f"@{tg_user}" if tg_on else "neconectat"
+    return f"""<aside class="side">
+  <div class="brand"><div class="logo">DP</div>
+    <div><b>DentPilot</b><small title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</small></div>
+  </div>
+  <nav>
+    <div class="sec">Meniu</div>
+    {item('dash', '/admin', 'home', 'Dashboard')}
+    {item('prog', '/admin/all', 'cal', 'Programări')}
+    {item('pat', '/admin/search', 'pat', 'Pacienți')}
+    {item('stat', '/admin/stats', 'stat', 'Statistici')}
+    {item('set', '/admin/settings', 'set', 'Setări')}
+    <div class="sec">Sincronizări</div>
+    {item('tg', '/admin/settings', 'bot', 'Telegram Bot', tg_dot)}
+    {item('qr', '/admin/qr-print', 'qr', 'QR pacienți')}
+  </nav>
+  <div class="sfoot" title="Telegram: {html.escape(tg_title)}">v{eng.APP_VERSION} · <span id="sf_clock"></span></div>
+</aside>"""
+
+
+def _topbar(bell: int | None) -> str:
+    bell_html = ""
+    if bell is not None:
+        badge = f"<span class='n'>{bell}</span>" if bell else ""
+        # ведёт к блоку «Programări noi din bot» (по created_at) — а не к дневному
+        # фильтру: бронь на неделю вперёд должна быть в одном клике (урок демо 07-31)
+        bell_html = (f"<a class='bell' href='/admin#botnew' "
+                     f"title='Programări noi din bot'>🔔{badge}</a>")
+    today = datetime.now(eng.TZ).date().isoformat()
+    return f"""<div class="top">
+  <form class="searchf" method="get" action="/admin/search">
+    <input id="topq" name="q" placeholder="Caută pacient, telefon…" autocomplete="off">
+    <span class="kbd">Ctrl K</span><button>🔍</button>
+  </form>
+  <div style="flex:1"></div>
+  <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
+  {bell_html}
+  <a class="newbtn" href="/admin/all?date={today}#addform">＋ Programare nouă</a>
+</div>"""
+
+
+def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -> str:
     fb_subject = urllib.parse.quote(
         f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
     fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title><style>{PANEL_CSS}</style></head><body>
-<h1>🦷 <a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
-<div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}{_update_banner()}</div>
+{_sidebar(active)}
+<div class="main">
+{_topbar(bell)}
+<div class="content">
+<h1><a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
+<div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
 {body}
+</div></div>
 <div class="brandcorner">🦷 <b>DentPilot</b> ·
 <a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
    title="{FEEDBACK_EMAIL}">💬 Feedback</a></div>
+<script>
+document.addEventListener('keydown',function(e){{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){{
+    e.preventDefault();var q=document.getElementById('topq');if(q)q.focus();}}
+}});
+var sfc=document.getElementById('sf_clock');
+if(sfc){{var t=new Date();sfc.textContent=('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);}}
+</script>
 {REFRESH_JS}</body></html>"""
 
 
@@ -748,6 +981,192 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
     return _set_auth_cookie(RedirectResponse("/admin/settings?msg=ok_pin", status_code=303))
 
 
+# --- палитра врачей и цвет записи ПО ТИПУ процедуры (референс v2) ---
+_DOC_HUES = ["#0D9488", "#3B82F6", "#8B5CF6", "#D97706", "#DC2626", "#059669",
+             "#6366F1", "#DB2777"]
+
+_SVC_CAT = [
+    (re.compile(r"urgent|sos|durere|acut", re.I), ("var(--red-soft)", "var(--red)")),
+    (re.compile(r"implant|extract|chirur|sinus", re.I), ("var(--blue-soft)", "var(--blue)")),
+    (re.compile(r"hyg|igien|airflow|detartraj|fluor", re.I), ("var(--amber-soft)", "var(--amber)")),
+    (re.compile(r"whiten|albire|estet|fatet|venir", re.I), ("var(--violet-soft)", "var(--violet)")),
+]
+
+
+def _initials(name: str) -> str:
+    words = [w for w in re.split(r"[\s.]+", name) if w and w.lower() not in ("dr", "dr.")]
+    return "".join(w[0].upper() for w in words[:2]) or "?"
+
+
+def _svc_colors(r) -> tuple[str, str]:
+    """(фон, полоса) записи: статус важнее типа, тип — по id/названию услуги."""
+    if r["status"] == "noshow":
+        return "var(--red-soft)", "var(--red)"
+    label = r["service"]
+    if label in eng.URGENT_LABELS:
+        return "var(--red-soft)", "var(--red)"
+    key = next((k for k, v in eng.SERVICES.items()
+                if v.get("ro") == label or v.get("ru") == label), "") + " " + label
+    for rx, colors in _SVC_CAT:
+        if rx.search(key):
+            return colors
+    return "var(--green-soft)", "var(--green)"
+
+
+_STATUS_ICON = {"confirmed": "🕐", "done": "✅", "noshow": "❌"}
+
+_RO_MONTHS = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie",
+              "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"]
+
+
+def _mini_cal(sel: date, base: str = "/admin") -> str:
+    first = sel.replace(day=1)
+    prev_m = (first - timedelta(days=1)).replace(day=1)
+    next_m = (first + timedelta(days=32)).replace(day=1)
+    start = first - timedelta(days=first.weekday())
+    today = datetime.now(eng.TZ).date()
+    cells = []
+    cur = start
+    while cur.month == sel.month or cur <= first or len(cells) % 7 != 0:
+        cls = []
+        if cur.month != sel.month:
+            cls.append("oth")
+        if cur == today:
+            cls.append("tdy")
+        if cur == sel:
+            cls.append("seld")
+        cells.append(f"<td><a class='{' '.join(cls)}' "
+                     f"href='{base}?date={cur.isoformat()}'>{cur.day}</a></td>")
+        cur += timedelta(days=1)
+    weeks = ["<tr>" + "".join(cells[i:i + 7]) + "</tr>"
+             for i in range(0, len(cells), 7)]
+    return f"""<div class='mcal'>
+  <div class='mhead'><a href='{base}?date={prev_m.isoformat()}'>‹</a>
+    <b>{_RO_MONTHS[sel.month - 1]} {sel.year}</b>
+    <a href='{base}?date={next_m.isoformat()}'>›</a></div>
+  <table><tr><th>Lu</th><th>Ma</th><th>Mi</th><th>Jo</th><th>Vi</th><th>Sâ</th><th>Du</th></tr>
+  {''.join(weeks)}</table></div>"""
+
+
+def _day_canvas(d: date, rows: list, cards: dict) -> str:
+    """Дневная сетка-канва: колонки врачей, блоки записей цветом по типу, линия «сейчас».
+    Показывает ВСЁ не-отменённое: записи вне текущего графика (часы/обед поменяли
+    после брони) получают свою строку, переименованные врачи — свою колонку."""
+    live = [r for r in rows if r["status"] != "cancelled"]
+    sched = [x.hour for x in eng.day_slots(d)]
+    row_hours = {r["starts_at"].astimezone(eng.TZ).hour for r in live}
+    hours = sorted(set(sched) | row_hours)
+    if not hours:
+        return "<div class='gridcard' style='padding:28px;text-align:center;color:var(--text3)'>Zi liberă — clinica este închisă</div>"
+    idx = {h: i for i, h in enumerate(hours)}
+    cell = 56
+    active: dict = {}
+    for r in live:
+        key = (r["doctor"], r["starts_at"].astimezone(eng.TZ).hour)
+        active.setdefault(key, []).append(r)
+
+    def _blocks(name: str) -> str:
+        out = []
+        for (doc, h), rs in active.items():
+            if doc != name or h not in idx:
+                continue
+            top = idx[h] * cell + 3
+            n = len(rs)
+            # коллизия (done/noshow + новая бронь на тот же час) — делим ширину,
+            # confirmed рисуем последним (поверх/правее), ничего не теряем
+            for j, r in enumerate(sorted(rs, key=lambda x: x["status"] == "confirmed")):
+                pos = (f"top:{top}px;height:{cell - 8}px;"
+                       f"left:calc({j}*(100% - 8px)/{n} + 4px);"
+                       f"width:calc((100% - 8px)/{n} - 2px)")
+                if r["source"] == "note":
+                    out.append(f"<div class='gappt gnote' style='{pos}'>"
+                               f"<b>📝 {html.escape(r['service'][:40])}</b></div>")
+                    continue
+                bg, bar = _svc_colors(r)
+                ico = "❗" if r["service"] in eng.URGENT_LABELS and r["status"] == "confirmed" \
+                    else _STATUS_ICON.get(r["status"], "")
+                src = "🤖" if r["source"] == "bot" else "✍️"
+                ns = " noshow" if r["status"] == "noshow" else ""
+                click = f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else ""
+                out.append(
+                    f"<div class='gappt{ns}' style='{pos};"
+                    f"background:{bg};border-left:3px solid {bar}'{click}>"
+                    f"<span class='stt'>{ico}</span>"
+                    f"<b>{html.escape(r['name'] or '—')} {src}</b>"
+                    f"<small>{h:02d}:00 · {html.escape(r['service'])}</small></div>")
+        return "".join(out)
+
+    def _cells(dk: str | None, name: str) -> str:
+        out = []
+        for h in hours:
+            if dk is not None and h in sched:
+                # json+escape: имя врача с апострофом не ломает JS-обработчик
+                args = html.escape(json.dumps([dk, name, f"{h:02d}:00"]), quote=True)
+                out.append(f"<div class='gcell' onclick=\"openSlot.apply(null,{args})\"></div>")
+            else:
+                out.append("<div class='gcell off'></div>")
+        return "".join(out)
+
+    head = ["<div class='gridhead'><div class='gh-time'></div>"]
+    cols = []
+    for i, (dk, name) in enumerate(eng.DOCTORS.items()):
+        hue = _DOC_HUES[i % len(_DOC_HUES)]
+        mine = [r for r in live if r["doctor"] == name and r["source"] != "note"]
+        free_h = next((h for h in sched if (name, h) not in active), None)
+        dot = "var(--green)" if free_h is not None else "var(--text3)"
+        liber = f"liber {free_h:02d}:00" if free_h is not None else "complet"
+        head.append(
+            f"<div class='gh-doc'><span class='av' style='background:{hue}'>{_initials(name)}</span>"
+            f"<div class='nm'><a href='/admin/doctor/{dk}?date={d.isoformat()}'>{html.escape(name)}</a>"
+            f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))} · {len(mine)} prog. · {liber}</small></div>"
+            f"<span class='st' style='background:{dot}' title='{liber}'></span></div>")
+        cols.append(f"<div class='gcol'>{_cells(dk, name)}{_blocks(name)}</div>")
+
+    # «осиротевшие» имена (врача переименовали в Setări) — записи остаются видимыми
+    orphans = sorted({doc for (doc, _h) in active} - set(eng.DOCTORS.values()))
+    for name in orphans:
+        mine = [r for r in live if r["doctor"] == name and r["source"] != "note"]
+        head.append(
+            f"<div class='gh-doc'><span class='av' style='background:#94A3B8'>{_initials(name)}</span>"
+            f"<div class='nm'><a>{html.escape(name)}</a>"
+            f"<small>în afara listei · {len(mine)} prog.</small></div></div>")
+        cols.append(f"<div class='gcol'>{_cells(None, name)}{_blocks(name)}</div>")
+    head.append("</div>")
+
+    now = datetime.now(eng.TZ)
+    nowline = ""
+    if d == now.date() and now.hour in idx:
+        top = idx[now.hour] * cell + now.minute / 60 * cell
+        nowline = f"<div class='nowline' style='top:{top:.0f}px'></div>"
+    timecol = "".join(f"<div>{h:02d}:00</div>" for h in hours)
+    return (f"<div class='gridcard'>{''.join(head)}"
+            f"<div class='gridbody'><div class='gcol-time'>{timecol}</div>"
+            f"{''.join(cols)}{nowline}</div></div>")
+
+
+def _botnew_block(recent: list, now: datetime) -> str:
+    if not recent:
+        return ""
+    rev = {name: dk for dk, name in eng.DOCTORS.items()}
+    items = []
+    for r in recent:
+        visit = r["starts_at"].astimezone(eng.TZ)
+        created = r["created_at"].astimezone(eng.TZ)
+        dk = rev.get(r["doctor"])
+        href = (f"/admin/doctor/{dk}?date={visit.date().isoformat()}" if dk
+                else f"/admin/all?date={visit.date().isoformat()}")
+        nou = ("<span class='nou'>NOU</span>"
+               if now - created < timedelta(hours=24) else "")
+        items.append(
+            f"<a href='{href}'>"
+            f"<span class='dt'>{visit.strftime('%d.%m %H:%M')}</span> · "
+            f"{html.escape(r['doctor'])} · {html.escape(r['service'])} · "
+            f"<b>{html.escape(r['name'] or '')}</b> · {html.escape(r['phone'] or '')}"
+            f"{nou} <span class='crt'>— primită {created.strftime('%d.%m %H:%M')}</span></a>")
+    return ("<div class='botnew' id='botnew'><h3>🤖 Programări noi din bot (7 zile, ultimele 10)</h3>"
+            + "".join(items) + "</div>")
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_home(request: Request, date_q: str = Query("", alias="date"), msg: str = ""):
     if (deny := _guard(request)) is not None:
@@ -755,76 +1174,134 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
-    act = [r for r in rows
-           if r["status"] != "cancelled" and r["source"] != "note"]
+    yrows = await db.day_appointments(day_start - timedelta(days=1), day_start)
 
-    total = len(act)
-    n_bot = sum(1 for r in act if r["source"] == "bot")
-    n_man = total - n_bot
-    n_urg = sum(1 for r in act if r["service"] in eng.URGENT_LABELS)
-    n_noshow = sum(1 for r in rows if r["status"] == "noshow")
-    # плитки кликабельны: ведут на /admin/all с фильтром — «цифра → сразу список»
+    def _counts(rr: list) -> tuple[int, int, int, int, int]:
+        a = [r for r in rr if r["status"] != "cancelled" and r["source"] != "note"]
+        return (len(a), sum(1 for r in a if r["source"] == "bot"),
+                sum(1 for r in a if r["source"] == "manual"),
+                sum(1 for r in a if r["service"] in eng.URGENT_LABELS),
+                sum(1 for r in rr if r["status"] == "noshow"))
+
+    total, n_bot, n_man, n_urg, n_noshow = _counts(rows)
+    y_total, _yb, y_man, _yu, y_noshow = _counts(yrows)
+
+    def trend(cur: int, prev: int, bad_up: bool = False) -> str:
+        diff = cur - prev
+        if diff == 0:
+            return "<span class='trend'>la fel ca ieri</span>"
+        cls = ("dn" if bad_up else "up") if diff > 0 else ("up" if bad_up else "dn")
+        arrow = "▲" if diff > 0 else "▼"
+        return (f"<span class='trend'><span class='{cls}'>{arrow} {diff:+d}</span>"
+                f" față de ieri</span>")
+
+    now = datetime.now(eng.TZ)
+    recent = await db.recent_bot_appointments(now - timedelta(days=7))
+    new_today = sum(1 for r in recent
+                    if r["created_at"].astimezone(eng.TZ).date() == now.date())
+
     day_url = f"/admin/all?date={d.isoformat()}"
+    bot_sub = (f"<span class='trend'><span class='up'>{new_today} noi</span> azi</span>"
+               if new_today else "<span class='trend'>nimic nou azi</span>")
     tiles = (
         f"<div class='tiles'>"
-        f"<a class='tile' href='{day_url}'><b>{total}</b><span>programări azi</span></a>"
-        f"<a class='tile' href='{day_url}&f=bot'><b>{n_bot}</b><span>🤖 prin bot</span></a>"
-        f"<a class='tile' href='{day_url}&f=rec'><b>{n_man}</b><span>✍️ recepție</span></a>"
-        f"<a class='tile warn' href='{day_url}&f=urg'><b>{n_urg}</b><span>🆘 urgențe</span></a>"
-        f"<a class='tile bad' href='{day_url}&f=noshow'><b>{n_noshow}</b><span>neprezentări</span></a>"
+        f"<a class='tile' href='{day_url}'>"
+        f"<span class='ico' style='background:var(--green-soft);color:var(--green)'>📅</span>"
+        f"<div><b>{total}</b><span>Programări azi</span>{trend(total, y_total)}</div></a>"
+        f"<a class='tile' href='{day_url}&f=bot'>"
+        f"<span class='ico' style='background:var(--teal-soft);color:var(--teal-d)'>🤖</span>"
+        f"<div><b>{n_bot}</b><span>Prin bot</span>{bot_sub}</div></a>"
+        f"<a class='tile' href='{day_url}&f=rec'>"
+        f"<span class='ico' style='background:var(--blue-soft);color:var(--blue)'>🎧</span>"
+        f"<div><b>{n_man}</b><span>Recepție</span>{trend(n_man, y_man)}</div></a>"
+        f"<a class='tile warn' href='{day_url}&f=urg'>"
+        f"<span class='ico' style='background:var(--amber-soft);color:var(--amber)'>⏰</span>"
+        f"<div><b>{n_urg}</b><span>Urgențe</span>"
+        f"<span class='trend'>intercalate azi</span></div></a>"
+        f"<a class='tile bad' href='{day_url}&f=noshow'>"
+        f"<span class='ico' style='background:var(--red-soft);color:var(--red)'>🚫</span>"
+        f"<div><b>{n_noshow}</b><span>Neprezentări</span>"
+        f"{trend(n_noshow, y_noshow, bad_up=True)}</div></a>"
         f"</div>"
     )
 
-    # свежие бот-записи по времени СОЗДАНИЯ — видны даже если визит через месяц
-    # (урок демо 07-31: запись на неделю вперёд «пропала» из дневного вида)
-    now = datetime.now(eng.TZ)
-    recent = await db.recent_bot_appointments(now - timedelta(days=7))
-    newbot = ""
-    if recent:
-        rev = {name: dk for dk, name in eng.DOCTORS.items()}
-        items = []
-        for r in recent:
-            visit = r["starts_at"].astimezone(eng.TZ)
-            created = r["created_at"].astimezone(eng.TZ)
-            dk = rev.get(r["doctor"])
-            href = (f"/admin/doctor/{dk}?date={visit.date().isoformat()}" if dk
-                    else f"/admin/all?date={visit.date().isoformat()}")
-            nou = ("<span class='nou'>NOU</span>"
-                   if now - created < timedelta(hours=24) else "")
-            items.append(
-                f"<a href='{href}'>"
-                f"<span class='dt'>{visit.strftime('%d.%m %H:%M')}</span> · "
-                f"{html.escape(r['doctor'])} · {html.escape(r['service'])} · "
-                f"<b>{html.escape(r['name'] or '')}</b> · {html.escape(r['phone'] or '')}"
-                f"{nou} <span class='crt'>— primită {created.strftime('%d.%m %H:%M')}</span></a>")
-        newbot = ("<div class='botnew'><h3>🤖 Programări noi din bot (7 zile, ultimele 10)</h3>"
-                  + "".join(items) + "</div>")
+    cards = _collect_cards(rows)
+    back = f"/admin?date={d.isoformat()}"
+    tg_on, _u = _tg_state()
+    sync = ("<div style='display:flex;align-items:center;gap:7px;font-size:11.5px;"
+            "color:var(--text3);padding:0 4px'>"
+            f"<span style='width:7px;height:7px;border-radius:50%;background:"
+            f"{'var(--green)' if tg_on else 'var(--text3)'}'></span>"
+            f"{'Sincronizat cu botul Telegram' if tg_on else 'Bot Telegram neconectat'}</div>")
+    tabs = (f"<a class='primary' href='/admin?date={d.isoformat()}'>Zi</a>"
+            f"<a href='/admin/week?date={d.isoformat()}'>Săptămâna</a>")
+    body = (_date_nav(d, "/admin", tabs) + _banner(msg, d) + tiles
+            + "<div class='dash'><div class='dashmain'>"
+            + _day_canvas(d, rows, cards)
+            + "<p class='hint'>Click pe o programare — detalii și statusuri; click pe un slot liber — programare nouă sau notiță. Programările prin bot apar automat.</p>"
+            + "</div><div class='rail'>"
+            + _mini_cal(d) + _botnew_block(recent, now) + sync
+            + "</div></div>"
+            + _slot_modal(d, back) + _card_modal(cards, back))
+    return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat",
+                  active="dash", bell=new_today)
 
-    cards = ["<div class='cards'>"]
-    for dk, name in eng.DOCTORS.items():
-        mine = [r for r in act if r["doctor"] == name]
-        urg = sum(1 for r in mine if r["service"] in eng.URGENT_LABELS)
-        free = await eng.free_slots(dk, d)
-        nxt = free[0].astimezone(eng.TZ).strftime("%H:%M") if free else "—"
-        urg_txt = f" · <span class='u'>🆘 {urg}</span>" if urg else ""
-        cards.append(
-            f"<a class='card' href='/admin/doctor/{dk}?date={d.isoformat()}'>"
-            f"<b>{html.escape(name)}</b>"
-            f"<div class='spec'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</div>"
-            f"<div class='meta'>{len(mine)} programări{urg_txt} · liber de la {nxt}</div></a>"
-        )
-    cards.append("</div>")
 
-    extra = (f"<a class='primary' href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a>"
-             f"<a href='/admin/stats'>📊 Statistici</a>"
-             f"<a href='/admin/settings'>⚙️ Setări</a>"
-             f"<a href='/admin/qr-print'>🖨 QR pacienți</a>"
-             "<form class='searchf' method='get' action='/admin/search'>"
-             "<input name='q' placeholder='Caută pacient: nume / telefon…'>"
-             "<button>🔍</button></form>")
-    body = _date_nav(d, "/admin", extra) + _banner(msg, d) + tiles + newbot + "".join(cards) + \
-        "<p class='hint'>Click pe un medic — ziua lui. Programările prin bot apar automat (aceeași bază de date).</p>"
-    return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat · demo, date sintetice")
+@app.get("/admin/week", response_class=HTMLResponse)
+async def admin_week(request: Request, date_q: str = Query("", alias="date")):
+    """Недельный календарь: колонки рабочих дней, компактные чипы записей."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+    monday = d - timedelta(days=d.weekday())
+    today = datetime.now(eng.TZ).date()
+    cols, total_wk = [], 0
+    for i in range(7):
+        day = monday + timedelta(days=i)
+        day_start = datetime(day.year, day.month, day.day, tzinfo=eng.TZ)
+        rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
+        act = sorted((r for r in rows if r["status"] != "cancelled"),
+                     key=lambda r: r["starts_at"])
+        if not eng.hours_for(day) and not act:
+            continue  # выходной прячем, только если на нём НЕТ живых записей
+        n_real = sum(1 for r in act if r["source"] != "note")
+        total_wk += n_real
+        chips = []
+        for r in act:
+            hh = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
+            if r["source"] == "note":
+                chips.append(f"<div class='wchip gnote' style='border:1px dashed var(--line);"
+                             f"color:var(--text2)'>📝 {hh} {html.escape(r['service'][:30])}</div>")
+                continue
+            bg, bar = _svc_colors(r)
+            ns = " noshow" if r["status"] == "noshow" else ""
+            chips.append(
+                f"<div class='wchip{ns}' style='background:{bg};border-left:3px solid {bar}'>"
+                f"<b>{hh}</b> {html.escape(r['name'] or '—')}"
+                f"<small>{html.escape(r['service'])}</small></div>")
+        if not chips:
+            chips.append("<div style='font-size:11.5px;color:var(--text3);"
+                         "text-align:center;padding:12px 0'>— liber —</div>")
+        dow = eng.day_label(eng.Session(lang="ro"), day).split(",")[0].split()[0]
+        tdy = " tdy" if day == today else ""
+        cols.append(
+            f"<div class='wcol'><div class='wh{tdy}'>"
+            f"<a href='/admin?date={day.isoformat()}'>{dow} {day.strftime('%d.%m')}</a>"
+            f"<small>{n_real} programări</small></div>"
+            f"<div class='wb'>{''.join(chips)}</div></div>")
+    prev_w = (monday - timedelta(days=7)).isoformat()
+    next_w = (monday + timedelta(days=7)).isoformat()
+    sunday = monday + timedelta(days=6)
+    nav = (f"<div class='nav'><b>{monday.strftime('%d.%m')} – {sunday.strftime('%d.%m.%Y')}"
+           f" · {total_wk} programări</b>"
+           f"<a href='/admin/week?date={prev_w}'>◀ săpt.</a>"
+           f"<a href='/admin/week'>Azi</a>"
+           f"<a href='/admin/week?date={next_w}'>săpt. ▶</a>"
+           f"<a href='/admin?date={d.isoformat()}'>Zi</a>"
+           f"<a class='primary' href='/admin/week?date={d.isoformat()}'>Săptămâna</a></div>")
+    body = nav + f"<div class='week'>{''.join(cols)}</div>" + \
+        "<p class='hint'>Click pe ziua din antet — deschide programul zilei.</p>"
+    return _shell(body, "calendar săptămânal · culori după tipul procedurii", active="dash")
 
 
 # ---------- настройки клиники ----------
@@ -958,7 +1435,20 @@ async def admin_settings(request: Request, msg: str = ""):
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 <tr><th>Acces jurnal</th><td>{"🔒 PIN setat" if _pin_rec() else ("🔒 parolă (ADMIN_KEY)" if ADMIN_KEY else "🔓 deschis")}</td></tr>
 <tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
-</table>"""
+</table>
+
+<h2>🔐 Confidențialitate</h2>
+<div class='pcard' style='max-width:760px'>
+<p style='margin:0 0 8px;font-size:13px;line-height:1.55;color:var(--text2)'>
+<b style='color:var(--text)'>Programul funcționează local.</b> Datele personale ale pacienților
+nu sunt transmise dezvoltatorului și nu sunt stocate pe serverele acestuia.
+Actualizările descarcă doar fișierele programului. Baza de date, jurnalele și
+copiile de rezervă rămân pe acest calculator, în folderul programului.</p>
+<p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--text3)'>
+Программа работает локально. Персональные данные пациентов не передаются
+разработчику и не хранятся на его серверах. Обновления загружают только файлы
+программы. База данных, журналы и резервные копии остаются на этом компьютере.</p>
+</div>"""
     if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
         tok_set = bool(os.environ.get("TELEGRAM_TOKEN", "").strip())
         ph = ("••• token setat — introduceți altul pentru schimbare" if tok_set
@@ -1087,7 +1577,7 @@ function collectSettings() {{
   return true;
 }}
 </script>"""
-    return _shell(body, "setările clinicii · se aplică imediat, fără restart · demo")
+    return _shell(body, "setările clinicii · se aplică imediat, fără restart", active="set")
 
 
 def _build_config(data: dict) -> dict:
@@ -1358,7 +1848,7 @@ async def admin_stats(
     hint = ("<p class='hint'>Prețurile sunt medii orientative din lista clinicii; "
             "neprezentările = venit pierdut estimat. Notițele nu se numără.</p>")
     return _shell(nav + tiles + doctors_tbl + services_tbl + hint,
-                  "statistici · perioadă selectabilă · demo, date sintetice")
+                  "statistici · perioadă selectabilă", active="stat")
 
 
 # ---------- экспорт CSV ----------
@@ -1410,6 +1900,26 @@ async def admin_search(request: Request, q: str = ""):
     q = q.strip()[:60]
     now = datetime.now(eng.TZ)
     blocks = []
+    if not q:
+        # стартовый вид «Pacienți»: последние пациенты, без поискового запроса
+        rec = await db.recent_patients(20)
+        if rec:
+            rrows = []
+            for p in rec:
+                chan = ("📱 Telegram" if (p["session_key"] or "").startswith("tg:")
+                        else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
+                        else "🌐 web")
+                pa = _age(p["birth_year"])
+                rrows.append(
+                    f"<tr><td><a class='plink' href='/admin/search?q="
+                    f"{urllib.parse.quote(p['name'] or '')}'>{html.escape(p['name'] or '—')}</a></td>"
+                    f"<td>{html.escape(p['phone'] or '—')}</td>"
+                    f"<td>{pa or '—'}</td><td>{chan}</td>"
+                    f"<td>{p['created_at'].astimezone(eng.TZ).strftime('%d.%m.%Y')}</td></tr>")
+            blocks.append(
+                "<h2>Pacienți recenți</h2><table class='list'>"
+                "<tr><th>Nume</th><th>Telefon</th><th>Vârstă</th><th>Canal</th>"
+                "<th>Înregistrat</th></tr>" + "".join(rrows) + "</table>")
     if q:
         patients = await db.search_patients(q)
         if not patients:
@@ -1453,7 +1963,7 @@ async def admin_search(request: Request, q: str = ""):
         + "".join(blocks)
         + ("" if q else "<p class='hint'>Căutați după nume (min. 2 litere) sau telefon (min. 3 cifre, orice format).</p>")
     )
-    return _shell(body, "căutare pacient · istoric vizite · demo, date sintetice")
+    return _shell(body, "pacienți · căutare și istoric vizite", active="pat")
 
 
 # ---------- общая сетка: все врачи ----------
@@ -1509,7 +2019,7 @@ async def admin_all(
             + ("" if flt else _list(rows, back))
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, "toți medicii · 🤖 bot / ✍️ recepție / 📝 notițe · demo, date sintetice")
+    return _shell(body, "toți medicii · 🤖 bot / ✍️ recepție / 📝 notițe", active="prog")
 
 
 # ---------- страница одного врача ----------
@@ -1548,7 +2058,7 @@ async def admin_doctor(
             + _list(rows, back)
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, "ziua unui medic · 🤖 bot / ✍️ recepție / 📝 notițe · demo, date sintetice")
+    return _shell(body, "ziua unui medic · 🤖 bot / ✍️ recepție / 📝 notițe", active="prog")
 
 
 # ---------- действия ----------
@@ -1657,7 +2167,7 @@ async def admin_qr_print(request: Request):
         return _shell(
             "<div class='banner err'>Botul Telegram nu este activ — setați tokenul în "
             "<a href='/admin/settings'>Setări</a>, apoi reveniți aici pentru QR.</div>",
-            "QR pentru pacienți")
+            "QR pentru pacienți", active="qr")
     link = f"https://t.me/{username}"
     q = urllib.parse.quote(link, safe="")
     name = html.escape(eng.CLINIC_NAME)
