@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import CommandStart
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
@@ -30,13 +31,34 @@ def _keyboard(buttons: list[list[dict]]) -> InlineKeyboardMarkup | None:
     ])
 
 
+_ERR_TEXT = ("A apărut o eroare tehnică — încercați încă o dată 🙏 / "
+             "Техническая ошибка — попробуйте ещё раз 🙏")
+
+
 async def _dialog(chat_id: int, text: str, send) -> None:
     sid = f"tg:{chat_id}"
+    fresh = sid not in eng.SESSIONS
     s = eng.get_session(sid)
-    texts, buttons = await eng.handle(s, sid, text)
+    if fresh:
+        # после рестарта отвечаем возвращённому пациенту на ЕГО языке, не на ro
+        try:
+            lang = await db.patient_lang(sid)
+            if lang in eng.T:
+                s.lang = lang
+        except Exception as e:  # noqa: BLE001
+            log.warning("patient_lang lookup failed for chat %s: %r", chat_id, e)
+    try:
+        texts, buttons = await eng.handle(s, sid, text)
+    except Exception:  # noqa: BLE001 — юзер не должен получать молчание
+        log.exception("Dialog CRASHED: chat %s, state %s", chat_id, s.state)
+        texts, buttons = [_ERR_TEXT], []
     kb = _keyboard(buttons)
     for i, t in enumerate(texts):
-        await send(t, reply_markup=kb if i == len(texts) - 1 else None)
+        try:
+            await send(t, reply_markup=kb if i == len(texts) - 1 else None)
+        except Exception as e:  # noqa: BLE001 — flood-limit/блокировка и т.п.
+            log.warning("Send FAILED to chat %s: %r", chat_id, e)
+            break
 
 
 async def _send_reminder(bot: Bot, r) -> None:
@@ -64,10 +86,16 @@ async def _send_reminder(bot: Bot, r) -> None:
         await bot.send_message(chat_id, text, reply_markup=kb)
         log.warning("Reminder sent: appt #%s -> chat %s (%s)",
                     r["id"], chat_id, "2h" if soon else "24h")
-    except Exception as e:  # noqa: BLE001 — пациент мог заблокировать бота
-        log.warning("Reminder FAILED for appt #%s: %r", r["id"], e)
-    # помечаем в любом случае — ретрай-шторм хуже пропущенного напоминания
-    await db.mark_reminded(r["id"], day=True, soon=soon)
+    except (TelegramForbiddenError, TelegramBadRequest) as e:
+        # заблокировал бота / чат недоступен — ретраить бессмысленно, помечаем
+        log.warning("Reminder DROPPED for appt #%s: %r", r["id"], e)
+    except Exception as e:  # noqa: BLE001 — сеть моргнула: НЕ помечаем, ретрай через 60с
+        log.warning("Reminder send failed for appt #%s (will retry): %r", r["id"], e)
+        return
+    try:
+        await db.mark_reminded(r["id"], day=True, soon=soon)
+    except Exception as e:  # noqa: BLE001 — иначе один сбой БД пересылает всю пачку
+        log.warning("mark_reminded failed for appt #%s: %r", r["id"], e)
 
 
 async def _reminder_loop(bot: Bot) -> None:
@@ -95,12 +123,37 @@ async def run(token: str) -> None:
         await _dialog(m.chat.id, m.text or "",
                       lambda t, reply_markup=None: m.answer(t, reply_markup=reply_markup))
 
+    @dp.message(F.contact)
+    async def on_contact(m: Message) -> None:
+        # «поделиться контактом» скрепкой — естественный жест на шаге телефона
+        phone = (m.contact.phone_number or "") if m.contact else ""
+        await _dialog(m.chat.id, phone,
+                      lambda t, reply_markup=None: m.answer(t, reply_markup=reply_markup))
+
+    @dp.message()
+    async def on_other(m: Message) -> None:
+        # голос/фото/стикер: раньше бот молчал — неотличимо от «бот умер»
+        log.warning("Non-text message from chat %s: %s", m.chat.id, m.content_type)
+        await m.answer("Vă rog scrieți mesajul ca text 🙏 / "
+                       "Пожалуйста, напишите сообщение текстом 🙏")
+
     @dp.callback_query()
     async def on_callback(c: CallbackQuery) -> None:
         await c.answer()
         if c.message is None:
             return
-        await _dialog(c.message.chat.id, c.data or "",
+        chat_id = c.message.chat.id
+        data = c.data or ""
+        # рестарт стёр in-memory сессию: объясняем ТОЛЬКО если кнопка из середины
+        # флоу записи; rem_ok/cancel:/меню и т.п. стейтлесс — работают и так
+        _MIDFLOW = ("svc:", "doc:", "day:", "time:", "confirm", "change", "skip_year")
+        if f"tg:{chat_id}" not in eng.SESSIONS and data.startswith(_MIDFLOW):
+            try:
+                await c.message.answer("Sesiunea s-a întrerupt — să reluăm de la început 🙏 / "
+                                       "Сессия прервалась — начнём сначала 🙏")
+            except Exception as e:  # noqa: BLE001
+                log.warning("Send FAILED to chat %s: %r", chat_id, e)
+        await _dialog(chat_id, data,
                       lambda t, reply_markup=None: c.message.answer(t, reply_markup=reply_markup))
 
     me = await bot.get_me()

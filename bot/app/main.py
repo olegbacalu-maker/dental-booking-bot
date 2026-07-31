@@ -238,6 +238,13 @@ PANEL_CSS = """
  .act button{border:none;border-radius:4px;padding:3px 8px;margin-right:4px;cursor:pointer;font-size:12px;color:#fff}
  .b-done{background:#3466c4}.b-noshow{background:#d23c3c}.b-cancel{background:#888}
  .hint{color:#999;font-size:12px;margin-top:10px}
+ .botnew{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:10px 12px;margin-bottom:16px}
+ .botnew h3{margin:0 0 4px;font-size:14px}
+ .botnew a{display:block;padding:5px 0;font-size:13px;color:inherit;text-decoration:none;border-top:1px solid #f0f0f0}
+ .botnew a:hover{background:#fafafa}
+ .botnew .dt{color:#0a7d4f;font-weight:600}
+ .botnew .crt{color:#999;font-size:12px}
+ .botnew .nou{background:#e8710a;color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:6px}
  .brandcorner{position:fixed;right:14px;bottom:10px;font-size:12px;color:#8a9;
    background:rgba(255,255,255,.92);padding:5px 12px;border-radius:14px;
    box-shadow:0 1px 4px rgba(0,0,0,.12);z-index:50}
@@ -607,7 +614,9 @@ async def startup() -> None:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"ok": True}
+    # "app" = отпечаток для single-instance guard в desktop.py:
+    # чужой сервис с {"ok":true} на нашем порту не должен сойти за нас
+    return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -760,6 +769,31 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         f"</div>"
     )
 
+    # свежие бот-записи по времени СОЗДАНИЯ — видны даже если визит через месяц
+    # (урок демо 07-31: запись на неделю вперёд «пропала» из дневного вида)
+    now = datetime.now(eng.TZ)
+    recent = await db.recent_bot_appointments(now - timedelta(days=7))
+    newbot = ""
+    if recent:
+        rev = {name: dk for dk, name in eng.DOCTORS.items()}
+        items = []
+        for r in recent:
+            visit = r["starts_at"].astimezone(eng.TZ)
+            created = r["created_at"].astimezone(eng.TZ)
+            dk = rev.get(r["doctor"])
+            href = (f"/admin/doctor/{dk}?date={visit.date().isoformat()}" if dk
+                    else f"/admin/all?date={visit.date().isoformat()}")
+            nou = ("<span class='nou'>NOU</span>"
+                   if now - created < timedelta(hours=24) else "")
+            items.append(
+                f"<a href='{href}'>"
+                f"<span class='dt'>{visit.strftime('%d.%m %H:%M')}</span> · "
+                f"{html.escape(r['doctor'])} · {html.escape(r['service'])} · "
+                f"<b>{html.escape(r['name'] or '')}</b> · {html.escape(r['phone'] or '')}"
+                f"{nou} <span class='crt'>— primită {created.strftime('%d.%m %H:%M')}</span></a>")
+        newbot = ("<div class='botnew'><h3>🤖 Programări noi din bot (7 zile, ultimele 10)</h3>"
+                  + "".join(items) + "</div>")
+
     cards = ["<div class='cards'>"]
     for dk, name in eng.DOCTORS.items():
         mine = [r for r in act if r["doctor"] == name]
@@ -782,7 +816,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
              "<form class='searchf' method='get' action='/admin/search'>"
              "<input name='q' placeholder='Caută pacient: nume / telefon…'>"
              "<button>🔍</button></form>")
-    body = _date_nav(d, "/admin", extra) + _banner(msg, d) + tiles + "".join(cards) + \
+    body = _date_nav(d, "/admin", extra) + _banner(msg, d) + tiles + newbot + "".join(cards) + \
         "<p class='hint'>Click pe un medic — ziua lui. Programările prin bot apar automat (aceeași bază de date).</p>"
     return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat · demo, date sintetice")
 

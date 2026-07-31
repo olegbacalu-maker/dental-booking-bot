@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
 import re
@@ -14,7 +15,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 
 
 def _load_config() -> dict:
@@ -689,6 +690,11 @@ async def handle(s: Session, sid: str, msg: str):
     if s.state == "phone" and msg:
         digits = re.sub(r"\D", "", msg)
         if not (8 <= len(digits) <= 15) or not re.fullmatch(r"[+0-9 ()\-.]{6,25}", msg):
+            # след для форензики: без самого номера (PII), только форма ввода
+            logging.getLogger("engine").warning(
+                "bad_phone rejected: len=%d digits=%d channel=%s",
+                len(msg), len(digits),
+                sid.split(":", 1)[0] if ":" in sid else "web")
             return [t(s, "bad_phone")], []
         s.data["phone"] = msg
         s.state = "confirm"

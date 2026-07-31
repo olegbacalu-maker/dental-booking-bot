@@ -81,8 +81,9 @@ def _auto_backup() -> None:
         import sqlite3
         bdir = data_dir / "backups"
         bdir.mkdir(exist_ok=True)
+        # PID в имени: два одновременных старта не пишут в один файл бэкапа
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        dst_path = bdir / f"dental_{stamp}.db"
+        dst_path = bdir / f"dental_{stamp}_{os.getpid()}.db"
         src_c = sqlite3.connect(str(src))
         dst_c = sqlite3.connect(str(dst_path))
         with dst_c:
@@ -96,10 +97,37 @@ def _auto_backup() -> None:
         logging.warning("Auto-backup FAILED: %r", e)
 
 
-_auto_backup()
-
 PORT = int(os.environ.get("DENTART_PORT", "8088"))
 URL = f"http://127.0.0.1:{PORT}/admin"
+
+
+def _already_running() -> bool:
+    """Первый экземпляр уже слушает наш порт? (двойной клик по ярлыку —
+    норма в клинике; раньше второй экземпляр падал на bind и показывал
+    зомби-окно, подключённое к чужому серверу)."""
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{PORT}/health", timeout=1.5) as r:
+            return b'"dentpilot"' in r.read(200)  # отпечаток, не общий {"ok":true}
+    except Exception:  # noqa: BLE001 — порт свободен или занят не нами
+        return False
+
+
+def _port_free_probe() -> bool:
+    """Порт реально свободен? EXCLUSIVE-бинд пробой: uvicorn на Windows ставит
+    SO_REUSEADDR и «успешно» биндится ПОВЕРХ чужого reuse-сервера — коннекты
+    продолжают идти чужому (split-brain без единой ошибки, проверено тестом)."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        s.bind(("127.0.0.1", PORT))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
 
 
 def _run_server() -> None:
@@ -146,6 +174,41 @@ def main() -> None:
                     os.getpid())
     atexit.register(lambda: logging.warning("DentPilot clean exit pid=%s", os.getpid()))
     sys.excepthook = lambda *a: logging.error("UNCAUGHT", exc_info=a)
+
+    if _already_running():
+        # второй запуск: свой сервер не поднимаем, просто ещё одно окно к первому
+        logging.warning("Already running on port %s - opening extra window only", PORT)
+        if os.environ.get("DENTART_BROWSER_MODE") == "1":
+            print("DentPilot este deja pornit - deschid jurnalul in browser.")
+            if os.environ.get("DENTART_NO_BROWSER") != "1":
+                webbrowser.open(URL)
+            return
+        try:
+            import webview
+            webview.create_window("DentPilot — registrul clinicii", URL,
+                                  width=1280, height=860, min_size=(960, 640))
+            webview.start()
+        except Exception:  # noqa: BLE001
+            if os.environ.get("DENTART_NO_BROWSER") != "1":
+                webbrowser.open(URL)
+        return
+
+    if not _port_free_probe():
+        # порт занят, но /health не наш → чужая программа, честно говорим и выходим
+        logging.error("Port %s is occupied by a foreign program - not starting", PORT)
+        warn = (f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
+                f"Inchideti programul care ocupa portul sau setati DENTART_PORT in dental.env.")
+        if os.environ.get("DENTART_BROWSER_MODE") == "1":
+            print(warn)
+        else:
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)
+            except Exception:  # noqa: BLE001 — не-Windows/без user32
+                pass
+        return
+
+    _auto_backup()
     if os.environ.get("DENTART_BROWSER_MODE") == "1":
         _browser_mode()
         return
@@ -157,7 +220,20 @@ def main() -> None:
         return
 
     threading.Thread(target=_run_server, daemon=True).start()
-    _wait_ready()
+    if not _wait_ready() or not _already_running():
+        # порт занят чужой программой: bind умер в daemon-потоке —
+        # без этой проверки окно молча показало бы ЧУЖОЙ сервер
+        logging.error("Server failed to start on port %s (occupied by another app?)", PORT)
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
+                f"Închideți programul care ocupă portul sau setați DENTART_PORT în dental.env.",
+                "DentPilot", 0x10)
+        except Exception:  # noqa: BLE001 — не-Windows/без user32
+            pass
+        return
     webview.create_window(
         "DentPilot — registrul clinicii", URL,
         width=1280, height=860, min_size=(960, 640),

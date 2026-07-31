@@ -391,6 +391,33 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     )
 
 
+async def patient_lang(session_key: str) -> str | None:
+    """Язык пациента — чтобы после рестарта отвечать возвращённому на его языке."""
+    return await _fetchval(
+        "SELECT lang FROM patients WHERE session_key = $1",
+        "SELECT lang FROM patients WHERE session_key = ?",
+        session_key,
+    )
+
+
+async def recent_bot_appointments(since: datetime, limit: int = 10) -> list:
+    """Свежие записи ИЗ БОТА по времени создания — независимо от даты визита.
+    Урок полевого демо 07-31: запись на неделю вперёд невидима в дневных видах."""
+    return await _fetch(
+        """SELECT a.id, a.service, a.doctor, a.starts_at, a.created_at,
+                  p.name, p.phone
+           FROM appointments a JOIN patients p ON p.id = a.patient_id
+           WHERE a.source = 'bot' AND a.status = 'confirmed' AND a.created_at >= $1
+           ORDER BY a.created_at DESC LIMIT $2""",
+        """SELECT a.id, a.service, a.doctor, a.starts_at, a.created_at,
+                  p.name, p.phone
+           FROM appointments a JOIN patients p ON p.id = a.patient_id
+           WHERE a.source = 'bot' AND a.status = 'confirmed' AND a.created_at >= ?
+           ORDER BY a.created_at DESC LIMIT ?""",
+        *((since, limit) if not IS_SQLITE else (_iso(since), limit)),
+    )
+
+
 async def search_patients(q: str) -> list:
     """Поиск по имени (без регистра) или телефону (по цифрам)."""
     q = q.strip()
