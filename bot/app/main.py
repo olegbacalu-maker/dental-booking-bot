@@ -186,6 +186,11 @@ setInterval(function(){
 
 
 def _update_banner() -> str:
+    if upd.can_self_update():
+        # в desktop-версии баннер ведёт к кнопке «Actualizează acum», не на GitHub
+        return (f" · <a href='/admin/settings' "
+                f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
+                f"{html.escape(upd.STATE['latest'])} — click pentru actualizare</a>")
     if upd.newer_available():
         return (f" · <a href='{html.escape(upd.STATE['url'])}' target='_blank' "
                 f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
