@@ -764,6 +764,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     extra = (f"<a class='primary' href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a>"
              f"<a href='/admin/stats'>📊 Statistici</a>"
              f"<a href='/admin/settings'>⚙️ Setări</a>"
+             f"<a href='/admin/qr-print'>🖨 QR pacienți</a>"
              "<form class='searchf' method='get' action='/admin/search'>"
              "<input name='q' placeholder='Caută pacient: nume / telefon…'>"
              "<button>🔍</button></form>")
@@ -1561,6 +1562,62 @@ async def admin_status(request: Request, appt_id: int, to: str = Form(...), back
         await db.set_status(appt_id, to)
     target = back if back.startswith("/admin") else "/admin"
     return RedirectResponse(target, status_code=303)
+
+
+# ---------- печатный QR для пациентов ----------
+
+@app.get("/admin/qr-print", response_class=HTMLResponse)
+async def admin_qr_print(request: Request):
+    if (deny := _guard(request)) is not None:
+        return deny
+    try:
+        from . import telegram as tgmod
+        username = tgmod.STATUS.get("username", "") if tgmod.STATUS.get("running") else ""
+    except Exception:  # noqa: BLE001
+        username = ""
+    if not username:
+        return _shell(
+            "<div class='banner err'>Botul Telegram nu este activ — setați tokenul în "
+            "<a href='/admin/settings'>Setări</a>, apoi reveniți aici pentru QR.</div>",
+            "QR pentru pacienți")
+    link = f"https://t.me/{username}"
+    q = urllib.parse.quote(link, safe="")
+    name = html.escape(eng.CLINIC_NAME)
+    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{name} — QR pacienți</title><style>
+ *{{box-sizing:border-box;margin:0;padding:0}}
+ body{{font-family:'Segoe UI',system-ui,sans-serif;color:#1c2b33;display:flex;
+      flex-direction:column;align-items:center;padding:10mm;text-align:center}}
+ .noprint{{margin-bottom:8mm;display:flex;gap:10px}}
+ .noprint button{{background:#075e54;color:#fff;border:none;border-radius:8px;
+      padding:10px 22px;font-size:15px;cursor:pointer}}
+ .noprint a{{align-self:center;color:#075e54}}
+ .sheet{{border:2px dashed #ccd;border-radius:6mm;padding:12mm 16mm;max-width:150mm}}
+ h1{{font-size:26pt;color:#075e54}}
+ h2{{font-size:15pt;color:#334;margin:4mm 0 8mm;font-weight:600}}
+ img{{width:88mm;height:88mm}}
+ .user{{font-size:14pt;color:#075e54;font-weight:600;margin-top:4mm}}
+ .how{{font-size:11pt;color:#556;margin-top:6mm;line-height:1.5}}
+ .phone{{font-size:12pt;margin-top:6mm}}
+ .brand{{font-size:8pt;color:#aab;margin-top:8mm}}
+ @media print{{ .noprint{{display:none}} .sheet{{border:none}} body{{padding:0}} }}
+</style></head><body>
+<div class="noprint">
+  <button onclick="window.print()">🖨 Printează</button>
+  <a href="/admin">← Panou</a>
+</div>
+<div class="sheet">
+  <h1>🦷 {name}</h1>
+  <h2>Programare online — 24/7</h2>
+  <img src="/qr?data={q}" alt="QR">
+  <div class="user">Telegram: @{html.escape(username)}</div>
+  <div class="how">Scanați codul cu camera telefonului și programați-vă în 40 de secunde.<br>
+  Отсканируйте код камерой телефона — запись за 40 секунд.</div>
+  <div class="phone">📞 {html.escape(eng.CLINIC_PHONE)}</div>
+  <div class="brand">DentArt</div>
+</div>
+</body></html>"""
 
 
 # ---------- QR для демо ----------
