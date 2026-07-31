@@ -140,6 +140,7 @@ MSG_BANNER = {
     "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
     "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
     "ok_tok": ("ok", "Token salvat ✔ — reporniți programul pentru aplicare"),
+    "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
 }
 
@@ -463,16 +464,29 @@ def _slot_modal(d: date, back: str) -> str:
     <input type="hidden" name="ntime" id="m_time_n">
     <input type="hidden" name="ndoctor" id="m_doc_n">
     <input name="ntext" placeholder="ex.: pauză de masă, ședință, rezervat telefonic…" maxlength="120" required>
-    <button>Salvează notița (blochează slotul)</button>
+    <label style="font-size:13px;color:#556;display:flex;align-items:center;gap:8px">până la ora
+      <select name="nuntil" id="m_until" style="flex:1"></select></label>
+    <button>Salvează notița (blochează orele)</button>
   </form>
 </dialog>
 <script>
+const NOTE_ENDS = {json.dumps([x.hour + 1 for x in eng.day_slots(d)])};
 function openSlot(dk, dname, hh) {{
   document.getElementById('m_doc_a').value = dk;
   document.getElementById('m_doc_n').value = dk;
   document.getElementById('m_time_a').value = hh;
   document.getElementById('m_time_n').value = hh;
   document.getElementById('m_title').textContent = dname + ' — ' + hh;
+  const start = parseInt(hh);
+  const sel = document.getElementById('m_until');
+  sel.innerHTML = '';
+  for (const e of NOTE_ENDS) {{
+    if (e > start) {{
+      const o = document.createElement('option');
+      o.value = e; o.textContent = e + ':00';
+      sel.appendChild(o);
+    }}
+  }}
   showTab('a');
   document.getElementById('slotdlg').showModal();
 }}
@@ -1465,22 +1479,36 @@ async def admin_add(
 async def admin_note(
     request: Request,
     ndate: str = Form(...), ntime: str = Form(...), ndoctor: str = Form(...),
-    ntext: str = Form(...), back: str = Form(""),
+    ntext: str = Form(...), nuntil: str = Form(""), back: str = Form(""),
 ):
     if (deny := _guard(request)) is not None:
         return deny
     try:
         d = date.fromisoformat(ndate)
-        hh, mm = ntime.split(":")
-        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
+        start_h = int(ntime.split(":")[0])
+        until_h = int(nuntil) if nuntil.strip() else start_h + 1
     except (ValueError, AttributeError):
         return _back_redirect(back, ndate, "bad")
     doctor = eng.DOCTORS.get(ndoctor)
     text = ntext.strip()[:120]
-    if not doctor or not text:
+    day_hours = [x.hour for x in eng.day_slots(d)]
+    hours = [h for h in day_hours if start_h <= h < until_h]
+    if not doctor or not text or not hours or until_h <= start_h:
         return _back_redirect(back, ndate, "bad")
-    r = await db.add_note(doctor, dt, text)
-    return _back_redirect(back, ndate, "ok_note" if r else "conflict")
+    ok_cnt = fail_cnt = 0
+    for h in hours:
+        dt = datetime(d.year, d.month, d.day, h, 0, tzinfo=eng.TZ)
+        if await db.add_note(doctor, dt, text) is not None:
+            ok_cnt += 1
+        else:
+            fail_cnt += 1
+    if fail_cnt == 0:
+        msg = "ok_note"
+    elif ok_cnt:
+        msg = "part_note"
+    else:
+        msg = "conflict"
+    return _back_redirect(back, ndate, msg)
 
 
 @app.post("/admin/comment/{appt_id}")
