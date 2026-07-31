@@ -51,7 +51,7 @@ def _check() -> None:
     try:
         req = urllib.request.Request(
             f"https://api.github.com/repos/{REPO}/releases/latest",
-            headers={"User-Agent": "dentart-desktop"},
+            headers={"User-Agent": "dentpilot-desktop"},
         )
         with urllib.request.urlopen(req, timeout=10) as r:
             data = json.load(r)
@@ -101,17 +101,17 @@ def restart_app() -> str | None:
     if os.environ.get("DENTART_NO_RESTART") == "1":  # тест-хук
         return None
     exe = pathlib.Path(sys.executable).resolve()
-    bat = exe.with_name("dentart_restart.bat")
+    bat = exe.with_name("dentpilot_restart.bat")
     bat.write_text(
         "@echo off\r\n"
         'cd /d "%~dp0"\r\n'
         "ping -n 3 127.0.0.1 >nul\r\n"
         f'start "" /D "%~dp0" "{exe.name}"\r\n'
-        "schtasks /delete /tn DentArtRestart /f >nul 2>&1\r\n"
+        "schtasks /delete /tn DentPilotRestart /f >nul 2>&1\r\n"
         'del "%~f0"\r\n',
         encoding="ascii",
     )
-    _spawn_via_scheduler(bat, "DentArtRestart")
+    _spawn_via_scheduler(bat, "DentPilotRestart")
     _exit_soon()
     return None
 
@@ -123,10 +123,12 @@ def self_update() -> str | None:
     if not STATE["asset_url"]:
         return "в релизе нет exe-файла"
     exe = pathlib.Path(sys.executable).resolve()
-    new_path = exe.with_name("DentArt.new.exe")
+    # имя производное от текущего exe: у старых установок он DentArt.exe,
+    # у новых DentPilot.exe — bat в обоих случаях кладёт новый файл на место
+    new_path = exe.with_name(exe.stem + ".new.exe")
     try:
         req = urllib.request.Request(STATE["asset_url"],
-                                     headers={"User-Agent": "dentart-desktop"})
+                                     headers={"User-Agent": "dentpilot-desktop"})
         with urllib.request.urlopen(req, timeout=120) as r, open(new_path, "wb") as f:
             shutil.copyfileobj(r, f)
     except Exception as e:  # noqa: BLE001
@@ -134,7 +136,7 @@ def self_update() -> str | None:
     if new_path.stat().st_size < 5_000_000:
         new_path.unlink(missing_ok=True)
         return "fișier descărcat invalid (prea mic)"
-    bat = exe.with_name("dentart_update.bat")
+    bat = exe.with_name("dentpilot_update.bat")
     # ping вместо timeout (timeout требует консоль), CREATE_NO_WINDOW даёт cmd
     # скрытую консоль — start/ping работают, окна не мелькают
     bat.write_text(
@@ -144,10 +146,10 @@ def self_update() -> str | None:
         "ping -n 2 127.0.0.1 >nul\r\n"
         f'move /y "{new_path.name}" "{exe.name}" >nul 2>&1 || goto try\r\n'
         f'start "" /D "%~dp0" "{exe.name}"\r\n'
-        "schtasks /delete /tn DentArtUpdate /f >nul 2>&1\r\n"
+        "schtasks /delete /tn DentPilotUpdate /f >nul 2>&1\r\n"
         'del "%~f0"\r\n',
         encoding="ascii",
     )
-    _spawn_via_scheduler(bat, "DentArtUpdate")
+    _spawn_via_scheduler(bat, "DentPilotUpdate")
     _exit_soon()
     return None

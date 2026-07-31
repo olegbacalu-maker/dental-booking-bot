@@ -1,10 +1,12 @@
-"""DentArt Desktop — лаунчер .exe-издания (без Docker и VPS).
+"""DentPilot Desktop — лаунчер .exe-издания (без Docker и VPS).
 
 Рядом с exe живут: clinic.json (профиль клиники, правится в Setări),
 dental.env (TELEGRAM_TOKEN и ADMIN_KEY), data/dental.db (SQLite),
-data/dentart.log (лог). Обычный режим — собственное окно приложения
+data/dentpilot.log (лог). Обычный режим — собственное окно приложения
 (WebView2); закрытие окна останавливает программу.
-DENTART_BROWSER_MODE=1 — старый режим: консоль + системный браузер."""
+DENTART_BROWSER_MODE=1 — старый режим: консоль + системный браузер.
+(env-переменные исторически с префиксом DENTART_ — не трогаем ради
+совместимости с dental.env уже установленных клиник.)"""
 from __future__ import annotations
 
 import logging
@@ -58,10 +60,10 @@ os.environ.setdefault("DATABASE_URL", f"sqlite:///{data_dir / 'dental.db'}")
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
 if sys.stderr is None:
-    sys.stderr = open(data_dir / "dentart.err.log", "a", encoding="utf-8")  # noqa: SIM115
+    sys.stderr = open(data_dir / "dentpilot.err.log", "a", encoding="utf-8")  # noqa: SIM115
 
 logging.basicConfig(
-    filename=str(data_dir / "dentart.log"), level=logging.WARNING,
+    filename=str(data_dir / "dentpilot.log"), level=logging.WARNING,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
@@ -124,7 +126,7 @@ def _wait_ready(timeout: float = 25.0) -> bool:
 
 def _browser_mode() -> None:
     print("=" * 62)
-    print("  DentArt Desktop - registrul clinicii")
+    print("  DentPilot Desktop - registrul clinicii")
     print(f"  Jurnal:  {URL}")
     print("  NU inchideti aceasta fereastra cat timp lucrati.")
     print("=" * 62)
@@ -139,10 +141,10 @@ def main() -> None:
     import atexit
 
     from app.engine import APP_VERSION
-    logging.warning("DentArt start v%s port=%s mode=%s pid=%s", APP_VERSION, PORT,
+    logging.warning("DentPilot start v%s port=%s mode=%s pid=%s", APP_VERSION, PORT,
                     "browser" if os.environ.get("DENTART_BROWSER_MODE") == "1" else "window",
                     os.getpid())
-    atexit.register(lambda: logging.warning("DentArt clean exit pid=%s", os.getpid()))
+    atexit.register(lambda: logging.warning("DentPilot clean exit pid=%s", os.getpid()))
     sys.excepthook = lambda *a: logging.error("UNCAUGHT", exc_info=a)
     if os.environ.get("DENTART_BROWSER_MODE") == "1":
         _browser_mode()
@@ -157,7 +159,7 @@ def main() -> None:
     threading.Thread(target=_run_server, daemon=True).start()
     _wait_ready()
     webview.create_window(
-        "DentArt — registrul clinicii", URL,
+        "DentPilot — registrul clinicii", URL,
         width=1280, height=860, min_size=(960, 640),
     )
     webview.start()

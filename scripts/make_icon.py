@@ -1,4 +1,4 @@
-"""Генерирует icon.ico (зуб на бирюзовом фоне) для DentArt.exe."""
+"""Генерирует icon.ico (зуб на бирюзовом фоне) для DentPilot.exe."""
 import sys
 
 from PIL import Image, ImageDraw

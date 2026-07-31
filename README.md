@@ -101,7 +101,7 @@ services, prices and a Saturday off, zero code changes.
 ## Two editions, one codebase
 
 - **Cloud** (below): Docker compose with PostgreSQL — one VPS serves many clinics.
-- **Desktop**: a single `DentArt.exe` (PyInstaller, ~28 MB) for clinics that want
+- **Desktop**: a single `DentPilot.exe` (PyInstaller, ~28 MB) for clinics that want
   everything local — native app window (WebView2), SQLite next to the exe,
   **phone-style PIN** set on first launch, Telegram bot via long polling (no ports,
   no tunnel), and **one-click self-update** from GitHub Releases (download → swap

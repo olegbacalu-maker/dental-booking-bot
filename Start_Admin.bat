@@ -1,5 +1,5 @@
 @echo off
-title DentArt Admin
+title DentPilot Admin
 cd /d D:\bot-sandbox\dental-demo
 docker info >nul 2>&1
 if errorlevel 1 (

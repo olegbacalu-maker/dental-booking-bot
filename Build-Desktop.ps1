@@ -1,5 +1,5 @@
-# Build-Desktop.ps1 - sobiraet DentArt.exe (PyInstaller, onefile, okno bez konsoli).
-# Rezultat: dist\DentArt.exe
+# Build-Desktop.ps1 - sobiraet DentPilot.exe (PyInstaller, onefile, okno bez konsoli).
+# Rezultat: dist\DentPilot.exe
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -13,16 +13,16 @@ if (-not (Test-Path $venv)) {
 if (-not (Test-Path "build")) { New-Item -ItemType Directory "build" | Out-Null }
 & "$venv\Scripts\python.exe" scripts\make_icon.py build\icon.ico
 
-& "$venv\Scripts\pyinstaller.exe" --noconfirm --clean --onefile --noconsole --name DentArt `
+& "$venv\Scripts\pyinstaller.exe" --noconfirm --clean --onefile --noconsole --name DentPilot `
     --icon "$PSScriptRoot\build\icon.ico" `
     --distpath dist --workpath build --specpath build `
     --add-data "$PSScriptRoot\bot\app\static;app\static" `
     --add-data "$PSScriptRoot\bot\app\clinic.json;app" `
     "$PSScriptRoot\bot\desktop.py"
 
-if (Test-Path "dist\DentArt.exe") {
-    $size = [math]::Round((Get-Item "dist\DentArt.exe").Length / 1MB, 1)
-    Write-Host "OK: dist\DentArt.exe ($size MB)"
+if (Test-Path "dist\DentPilot.exe") {
+    $size = [math]::Round((Get-Item "dist\DentPilot.exe").Length / 1MB, 1)
+    Write-Host "OK: dist\DentPilot.exe ($size MB)"
 } else {
     Write-Host "BUILD FAILED"; exit 1
 }

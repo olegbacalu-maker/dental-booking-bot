@@ -20,7 +20,7 @@ from . import db
 from . import engine as eng
 from . import update as upd
 
-app = FastAPI(title="DentArt Demo Bot")
+app = FastAPI(title="DentPilot")
 
 STATIC = pathlib.Path(__file__).parent / "static"
 
@@ -30,6 +30,7 @@ STATIC = pathlib.Path(__file__).parent / "static"
 # Cloud (Postgres): по-прежнему ADMIN_KEY из .env.
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
 
+# TODO: заменить на новую почту DentPilot, как только Олег её заведёт
 FEEDBACK_EMAIL = "dentartpro@gmail.com"
 
 
@@ -272,7 +273,7 @@ def _update_banner() -> str:
 
 def _shell(body: str, sub: str) -> str:
     fb_subject = urllib.parse.quote(
-        f"Feedback DentArt — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
+        f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
     fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -280,7 +281,7 @@ def _shell(body: str, sub: str) -> str:
 <h1>🦷 <a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}{_update_banner()}</div>
 {body}
-<div class="brandcorner">🦷 <b>DentArt</b> ·
+<div class="brandcorner">🦷 <b>DentPilot</b> ·
 <a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
    title="{FEEDBACK_EMAIL}">💬 Feedback</a></div>
 {REFRESH_JS}</body></html>"""
@@ -1630,7 +1631,7 @@ async def admin_qr_print(request: Request):
   <div class="how">Scanați codul cu camera telefonului și programați-vă în 40 de secunde.<br>
   Отсканируйте код камерой телефона — запись за 40 секунд.</div>
   <div class="phone">📞 {html.escape(eng.CLINIC_PHONE)}</div>
-  <div class="brand">DentArt</div>
+  <div class="brand">DentPilot</div>
 </div>
 </body></html>"""
 
@@ -1649,7 +1650,7 @@ async def qr(data: str) -> Response:
 async def demo(url: str = "") -> str:
     target = (url or "http://localhost:8088").strip()[:500]
     q = urllib.parse.quote(target, safe="")
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>DentArt Demo — QR</title>
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>DentPilot Demo — QR</title>
 <style>body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
 justify-content:center;height:100vh;margin:0;background:#075e54;color:#fff}}
 img{{background:#fff;padding:18px;border-radius:12px;width:340px;height:340px}}
