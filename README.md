@@ -98,6 +98,16 @@ A second clinic = a folder with its own `clinic.json` + a compose file pointing 
 same image — see [`examples/clinic-zambet/`](examples/clinic-zambet/): different doctors,
 services, prices and a Saturday off, zero code changes.
 
+## Two editions, one codebase
+
+- **Cloud** (below): Docker compose with PostgreSQL — one VPS serves many clinics.
+- **Desktop**: a single `DentArt.exe` (PyInstaller, ~28 MB) for clinics that want
+  everything local — native app window (WebView2), SQLite next to the exe,
+  **phone-style PIN** set on first launch, Telegram bot via long polling (no ports,
+  no tunnel), and **one-click self-update** from GitHub Releases (download → swap
+  via a Task-Scheduler-relaunched script → restart; the clinic's data is untouched).
+  Build it with `Build-Desktop.ps1`.
+
 ## Quick start
 
 ```bash
