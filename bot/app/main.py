@@ -7,6 +7,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import urllib.parse
 from datetime import date, datetime, timedelta
 
@@ -20,9 +21,6 @@ from . import engine as eng
 app = FastAPI(title="DentArt Demo Bot")
 
 STATIC = pathlib.Path(__file__).parent / "static"
-
-URGENT_LABELS = {v[lang] for v in eng.SERVICES.values() if v.get("urgent")
-                 for lang in ("ro", "ru")}
 
 # --- защита журнала: ADMIN_KEY в .env; пусто = открыто (режим демо) ---
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
@@ -76,6 +74,8 @@ MSG_BANNER = {
     "bad": ("err", "Date invalide — verificați câmpurile"),
     "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
     "ok_comment": ("ok", "Comentariu salvat ✔"),
+    "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
+    "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
 }
 
 PANEL_CSS = """
@@ -92,6 +92,14 @@ PANEL_CSS = """
  .nav input.dpick{padding:4px 8px;border:1px solid #cdd;border-radius:6px;font-size:14px;background:#fff;color:#075e54}
  .statbar{background:#e4eeec;border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:#075e54;height:8px}
+ table.set{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:8px}
+ table.set th,table.set td{padding:6px 8px;border-bottom:1px solid #eef1f1;text-align:left;font-size:13px}
+ table.set th{background:#f0f4f4}
+ table.set input[type=text],table.set input[type=number]{width:100%;padding:6px 8px;border:1px solid #ccd4d4;border-radius:5px;font-size:13px}
+ table.set select{padding:5px 6px;border:1px solid #ccd4d4;border-radius:5px;font-size:13px}
+ .rowdel{background:#c62828;color:#fff;border:none;border-radius:4px;padding:3px 9px;cursor:pointer}
+ .addrow{background:none;border:1px dashed #075e54;color:#075e54;border-radius:6px;padding:6px 14px;cursor:pointer;margin-bottom:16px}
+ .savebtn{background:#075e54;color:#fff;border:none;border-radius:8px;padding:12px 26px;font-size:15px;cursor:pointer}
  .nav b{font-size:15px;margin-right:8px}
  .banner{padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:14px}
  .banner.ok{background:#dff3e3;color:#14632a}
@@ -241,7 +249,7 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                 out.append(f"<td><div class='appt note'>📝 {html.escape(r['service'])}</div></td>")
             elif r:
                 src = "🤖" if r["source"] == "bot" else "✍️"
-                urgent = r["service"] in URGENT_LABELS
+                urgent = r["service"] in eng.URGENT_LABELS
                 cls = r["status"] + (" urgent" if urgent else "")
                 svc_txt = ("🆘 " if urgent else "") + html.escape(r["service"])
                 click = ""
@@ -306,7 +314,7 @@ def _list(rows: list, back: str) -> str:
         dt_txt = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
         is_note = r["source"] == "note"
         src = "📝 notiță" if is_note else ("🤖 bot" if r["source"] == "bot" else "✍️ manual")
-        svc_txt = (("📝 " if is_note else "🆘 " if r["service"] in URGENT_LABELS else "")
+        svc_txt = (("📝 " if is_note else "🆘 " if r["service"] in eng.URGENT_LABELS else "")
                    + html.escape(r["service"]))
         if r["comment"]:
             svc_txt += (f"<br><small style='color:#7a6a00'>💬 "
@@ -549,7 +557,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     total = len(act)
     n_bot = sum(1 for r in act if r["source"] == "bot")
     n_man = total - n_bot
-    n_urg = sum(1 for r in act if r["service"] in URGENT_LABELS)
+    n_urg = sum(1 for r in act if r["service"] in eng.URGENT_LABELS)
     n_noshow = sum(1 for r in rows if r["status"] == "noshow")
     tiles = (
         f"<div class='tiles'>"
@@ -564,7 +572,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     cards = ["<div class='cards'>"]
     for dk, name in eng.DOCTORS.items():
         mine = [r for r in act if r["doctor"] == name]
-        urg = sum(1 for r in mine if r["service"] in URGENT_LABELS)
+        urg = sum(1 for r in mine if r["service"] in eng.URGENT_LABELS)
         free = await eng.free_slots(dk, d)
         nxt = free[0].astimezone(eng.TZ).strftime("%H:%M") if free else "—"
         urg_txt = f" · <span class='u'>🆘 {urg}</span>" if urg else ""
@@ -578,12 +586,290 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
 
     extra = (f"<a class='primary' href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a>"
              f"<a href='/admin/stats'>📊 Statistici</a>"
+             f"<a href='/admin/settings'>⚙️ Setări</a>"
              "<form class='searchf' method='get' action='/admin/search'>"
              "<input name='q' placeholder='Caută pacient: nume / telefon…'>"
              "<button>🔍</button></form>")
     body = _date_nav(d, "/admin", extra) + _banner(msg, d) + tiles + "".join(cards) + \
         "<p class='hint'>Click pe un medic — ziua lui. Programările prin bot apar automat (aceeași bază de date).</p>"
     return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat · demo, date sintetice")
+
+
+# ---------- настройки клиники ----------
+
+_DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+_DOW_FULL = {"mon": "Luni", "tue": "Marți", "wed": "Miercuri", "thu": "Joi",
+             "fri": "Vineri", "sat": "Sâmbătă", "sun": "Duminică"}
+_DOW_SHORT = {"ro": {"mon": "Lu", "tue": "Ma", "wed": "Mi", "thu": "Jo",
+                     "fri": "Vi", "sat": "Sâ", "sun": "Du"},
+              "ru": {"mon": "Пн", "tue": "Вт", "wed": "Ср", "thu": "Чт",
+                     "fri": "Пт", "sat": "Сб", "sun": "Вс"}}
+
+
+def _hours_summary(hours: dict, lang: str) -> str:
+    """'Lu–Vi 9:00–18:00, Sâ 9:00–14:00' из hours-словаря."""
+    names = _DOW_SHORT[lang]
+    parts = []
+    i = 0
+    while i < 7:
+        h = hours.get(_DOW_ORDER[i])
+        j = i
+        while j + 1 < 7 and hours.get(_DOW_ORDER[j + 1]) == h:
+            j += 1
+        if h:
+            rng = (names[_DOW_ORDER[i]] if i == j
+                   else f"{names[_DOW_ORDER[i]]}–{names[_DOW_ORDER[j]]}")
+            parts.append(f"{rng} {h[0]}:00–{h[1]}:00")
+        i = j + 1
+    return ", ".join(parts)
+
+
+def _hour_opts(sel: int, lo: int, hi: int) -> str:
+    return "".join(
+        f"<option value='{h}'{' selected' if h == sel else ''}>{h}:00</option>"
+        for h in range(lo, hi + 1)
+    )
+
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def admin_settings(request: Request, msg: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
+    cfg = eng.CONFIG
+    e = html.escape
+
+    hours_rows = []
+    for day in _DOW_ORDER:
+        h = cfg.get("hours", {}).get(day)
+        closed = h is None
+        f, t = (h if h else [9, 18])
+        hours_rows.append(
+            f"<tr><td>{_DOW_FULL[day]}</td>"
+            f"<td><input type='checkbox' id='hc_{day}'{' checked' if closed else ''}> închis</td>"
+            f"<td><select id='hf_{day}'>{_hour_opts(int(f), 0, 23)}</select></td>"
+            f"<td><select id='ht_{day}'>{_hour_opts(int(t), 1, 24)}</select></td></tr>"
+        )
+
+    doc_rows = "".join(
+        f"<tr><td><input type='hidden' class='d_id' value='{e(d['id'])}'>"
+        f"<input type='text' class='d_name' value='{e(d['name'])}'></td>"
+        f"<td><input type='text' class='d_spec' value='{e(d.get('spec', ''))}'></td>"
+        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>✖</button></td></tr>"
+        for d in cfg["doctors"]
+    )
+    svc_rows = "".join(
+        f"<tr><td><input type='hidden' class='s_id' value='{e(s['id'])}'>"
+        f"<input type='text' class='s_ro' value='{e(s['ro'])}'></td>"
+        f"<td><input type='text' class='s_ru' value='{e(s['ru'])}'></td>"
+        f"<td><input type='text' class='s_price' value='{e(str(s.get('price', '')) if not isinstance(s.get('price'), dict) else s['price'].get('ro', ''))}'></td>"
+        f"<td style='text-align:center'><input type='checkbox' class='s_urg'{' checked' if s.get('urgent') else ''}></td>"
+        f"<td><input type='text' class='s_docs' value='{e(' '.join(s.get('docs', [])))}' placeholder='gol = toți'></td>"
+        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>✖</button></td></tr>"
+        for s in cfg["services"]
+    )
+    doc_ids_hint = ", ".join(f"{d['id']}={e(d['name'])}" for d in cfg["doctors"])
+
+    banner = ""
+    if msg in MSG_BANNER:
+        cls, text = MSG_BANNER[msg]
+        banner = f"<div class='banner {cls}'>{text}</div>"
+
+    body = f"""
+<div class='nav'><a href='/admin'>🏠 Panou</a></div>
+{banner}
+<form method='post' action='/admin/settings/save' onsubmit='return collectSettings()'>
+<input type='hidden' name='payload' id='payload'>
+
+<h2>🏥 Clinica</h2>
+<table class='set'>
+<tr><th style='width:180px'>Nume</th><td><input type='text' id='cname' value='{e(cfg["name"])}'></td></tr>
+<tr><th>Telefon</th><td><input type='text' id='cphone' value='{e(cfg["phone"])}'></td></tr>
+<tr><th>Adresa (RO)</th><td><input type='text' id='caddr_ro' value='{e(cfg.get("address", {}).get("ro", ""))}'></td></tr>
+<tr><th>Adresa (RU)</th><td><input type='text' id='caddr_ru' value='{e(cfg.get("address", {}).get("ru", ""))}'></td></tr>
+</table>
+
+<h2>🕘 Program de lucru</h2>
+<table class='set'>
+<tr><th>Ziua</th><th>Închis</th><th>De la</th><th>Până la</th></tr>
+{''.join(hours_rows)}
+</table>
+
+<h2>👨‍⚕️ Medici</h2>
+<table class='set' id='docs_t'>
+<tr><th>Nume</th><th>Specializare</th><th></th></tr>
+<tbody id='docs_tb'>{doc_rows}</tbody>
+</table>
+<button type='button' class='addrow' onclick='addDoc()'>+ Adaugă medic</button>
+<p class='hint'>Redenumirea unui medic nu modifică programările din trecut (rămân pe numele vechi).</p>
+
+<h2>🦷 Servicii</h2>
+<table class='set' id='svc_t'>
+<tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:140px'>Preț</th>
+<th style='width:40px'>🆘</th><th style='width:150px'>Medici (id)</th><th></th></tr>
+<tbody id='svc_tb'>{svc_rows}</tbody>
+</table>
+<button type='button' class='addrow' onclick='addSvc()'>+ Adaugă serviciu</button>
+<p class='hint'>Coloana «Medici»: id-uri separate prin spațiu ({doc_ids_hint}); gol = toți medicii.
+🆘 = flux urgent (fără alegerea medicului, sloturi din ziua curentă).</p>
+
+<button class='savebtn'>💾 Salvează setările</button>
+</form>
+
+<script>
+function addDoc() {{
+  const tb = document.getElementById('docs_tb');
+  const tr = document.createElement('tr');
+  tr.innerHTML = "<td><input type='hidden' class='d_id' value=''>" +
+    "<input type='text' class='d_name' placeholder='Dr. ...'></td>" +
+    "<td><input type='text' class='d_spec' placeholder='Terapie'></td>" +
+    "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>✖</button></td>";
+  tb.appendChild(tr);
+}}
+function addSvc() {{
+  const tb = document.getElementById('svc_tb');
+  const tr = document.createElement('tr');
+  tr.innerHTML = "<td><input type='hidden' class='s_id' value=''>" +
+    "<input type='text' class='s_ro' placeholder='Serviciu'></td>" +
+    "<td><input type='text' class='s_ru' placeholder='Услуга'></td>" +
+    "<td><input type='text' class='s_price' placeholder='500 MDL'></td>" +
+    "<td style='text-align:center'><input type='checkbox' class='s_urg'></td>" +
+    "<td><input type='text' class='s_docs' placeholder='gol = toți'></td>" +
+    "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>✖</button></td>";
+  tb.appendChild(tr);
+}}
+function collectSettings() {{
+  const days = ['mon','tue','wed','thu','fri','sat','sun'];
+  const hours = {{}};
+  for (const d of days) {{
+    if (document.getElementById('hc_' + d).checked) hours[d] = null;
+    else hours[d] = [parseInt(document.getElementById('hf_' + d).value),
+                     parseInt(document.getElementById('ht_' + d).value)];
+  }}
+  const doctors = [];
+  document.querySelectorAll('#docs_tb tr').forEach(tr => {{
+    doctors.push({{ id: tr.querySelector('.d_id').value,
+                   name: tr.querySelector('.d_name').value,
+                   spec: tr.querySelector('.d_spec').value }});
+  }});
+  const services = [];
+  document.querySelectorAll('#svc_tb tr').forEach(tr => {{
+    services.push({{ id: tr.querySelector('.s_id').value,
+                    ro: tr.querySelector('.s_ro').value,
+                    ru: tr.querySelector('.s_ru').value,
+                    price: tr.querySelector('.s_price').value,
+                    urgent: tr.querySelector('.s_urg').checked,
+                    docs: tr.querySelector('.s_docs').value }});
+  }});
+  const payload = {{
+    name: document.getElementById('cname').value,
+    phone: document.getElementById('cphone').value,
+    address: {{ ro: document.getElementById('caddr_ro').value,
+               ru: document.getElementById('caddr_ru').value }},
+    hours: hours, doctors: doctors, services: services
+  }};
+  document.getElementById('payload').value = JSON.stringify(payload);
+  return true;
+}}
+</script>"""
+    return _shell(body, "setările clinicii · se aplică imediat, fără restart · demo")
+
+
+def _build_config(data: dict) -> dict:
+    name = str(data.get("name", "")).strip()[:80]
+    phone = str(data.get("phone", "")).strip()[:30]
+    if not name or not phone:
+        raise ValueError("name/phone")
+    addr_ro = str(data.get("address", {}).get("ro", "")).strip()[:120]
+    addr_ru = str(data.get("address", {}).get("ru", "")).strip()[:120]
+
+    hours = {}
+    for day in _DOW_ORDER:
+        h = data.get("hours", {}).get(day)
+        if h is None:
+            hours[day] = None
+            continue
+        f, t = int(h[0]), int(h[1])
+        if not (0 <= f < t <= 24):
+            raise ValueError("hours")
+        hours[day] = [f, t]
+    if all(v is None for v in hours.values()):
+        raise ValueError("all closed")
+
+    doctors = []
+    used: set[str] = set()
+    n = 0
+    for d in data.get("doctors", []):
+        dn = str(d.get("name", "")).strip()[:60]
+        if not dn:
+            continue
+        did = str(d.get("id", "")).strip()
+        if not re.fullmatch(r"d\d+", did) or did in used:
+            while True:
+                n += 1
+                did = f"d{n}"
+                if did not in used:
+                    break
+        used.add(did)
+        doctors.append({"id": did, "name": dn,
+                        "spec": str(d.get("spec", "")).strip()[:60]})
+    if not doctors:
+        raise ValueError("doctors")
+    doc_ids = {d["id"] for d in doctors}
+
+    services = []
+    sused: set[str] = set()
+    m = 0
+    for s in data.get("services", []):
+        ro = str(s.get("ro", "")).strip()[:60]
+        ru = str(s.get("ru", "")).strip()[:60] or ro
+        if not ro:
+            continue
+        sid = str(s.get("id", "")).strip()
+        if not re.fullmatch(r"[a-z0-9_]{1,20}", sid) or sid in sused:
+            while True:
+                m += 1
+                sid = f"s{m}"
+                if sid not in sused:
+                    break
+        sused.add(sid)
+        entry: dict = {"id": sid, "ro": ro, "ru": ru}
+        price = str(s.get("price", "")).strip()[:60]
+        if price:
+            entry["price"] = price
+        if s.get("urgent"):
+            entry["urgent"] = True
+        docs = [tok for tok in re.split(r"[,\s]+", str(s.get("docs", "")))
+                if tok in doc_ids]
+        if docs:
+            entry["docs"] = docs
+        services.append(entry)
+    if not services:
+        raise ValueError("services")
+
+    cfg = dict(eng.CONFIG)
+    cfg.update({"name": name, "phone": phone,
+                "address": {"ro": addr_ro, "ru": addr_ru},
+                "hours": hours, "doctors": doctors, "services": services})
+    cfg["contacts"] = {
+        "ro": (f"📍 {addr_ro}\n" if addr_ro else "")
+              + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ro')}",
+        "ru": (f"📍 {addr_ru}\n" if addr_ru else "")
+              + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ru')}",
+    }
+    return cfg
+
+
+@app.post("/admin/settings/save")
+async def admin_settings_save(request: Request, payload: str = Form(...)):
+    if (deny := _guard(request)) is not None:
+        return deny
+    try:
+        cfg = _build_config(json.loads(payload))
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return RedirectResponse("/admin/settings?msg=bad_set", status_code=303)
+    if eng.save_config(cfg) is not None:
+        return RedirectResponse("/admin/settings?msg=bad_set", status_code=303)
+    return RedirectResponse("/admin/settings?msg=ok_set", status_code=303)
 
 
 # ---------- статистика ----------

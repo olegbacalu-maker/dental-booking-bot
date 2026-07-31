@@ -32,22 +32,16 @@ def _load_config() -> dict:
     raise RuntimeError("clinic config not found/invalid: " + ", ".join(candidates))
 
 
-CONFIG = _load_config()
-CLINIC_NAME = CONFIG["name"]
-CLINIC_PHONE = CONFIG["phone"]
-
-DOCTORS = {d["id"]: d["name"] for d in CONFIG["doctors"]}
-DOCTOR_SPEC = {d["id"]: d.get("spec", "") for d in CONFIG["doctors"]}
-
+# все производные конфига заполняет apply_config() — hot-reload без рестарта
+CONFIG: dict = {}
+CLINIC_NAME = ""
+CLINIC_PHONE = ""
+DOCTORS: dict[str, str] = {}
+DOCTOR_SPEC: dict[str, str] = {}
 # docs = кто выполняет услугу (нет ключа = все); один врач → бот не спрашивает
 SERVICES: dict[str, dict] = {}
-for _svc in CONFIG["services"]:
-    _entry = {"ro": _svc["ro"], "ru": _svc["ru"]}
-    if _svc.get("urgent"):
-        _entry["urgent"] = True
-    if _svc.get("docs"):
-        _entry["docs"] = _svc["docs"]
-    SERVICES[_svc["id"]] = _entry
+SERVICE_PRICE: dict[str, int] = {}
+URGENT_LABELS: set[str] = set()
 
 
 def allowed_doc_items(svc_key: str) -> list[tuple[str, str]]:
@@ -63,17 +57,11 @@ def _price_avg(price) -> int:
     return int(sum(nums) / len(nums)) if nums else 0
 
 
-# label (обоих языков) → средняя цена; для статистики «неявки в леях»
-SERVICE_PRICE: dict[str, int] = {}
-for _svc in CONFIG["services"]:
-    _avg = _price_avg(_svc.get("price", ""))
-    SERVICE_PRICE[_svc["ro"]] = _avg
-    SERVICE_PRICE[_svc["ru"]] = _avg
 
 RO_DOW = ["Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"]
 RU_DOW = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
-T = {
+T_BASE = {
     "ro": {
         "menu": "Cu ce vă pot ajuta?",
         "btn_book": "📅 Programare",
@@ -162,7 +150,8 @@ T = {
     },
 }
 
-HELLO = f"🦷 {CLINIC_NAME} — asistent de programări / ассистент записи."
+T: dict = {}
+HELLO = ""
 CHOOSE_LANG = "Alegeți limba / Выберите язык:"
 
 
@@ -177,17 +166,62 @@ def _prices_text(lang: str) -> str:
     return "\n".join(lines)
 
 
-# подстановка данных клиники в тексты + цены/контакты из конфига
-for _lang in T:
-    _addr = CONFIG.get("address", {}).get(_lang, "")
-    for _key, _val in list(T[_lang].items()):
-        T[_lang][_key] = (_val.replace("{CLINIC}", CLINIC_NAME)
-                              .replace("{PHONE}", CLINIC_PHONE)
-                              .replace("{ADDRESS}", _addr))
-    T[_lang]["prices"] = _prices_text(_lang)
-    _contacts = CONFIG.get("contacts", {}).get(_lang)
-    if _contacts:
-        T[_lang]["contacts"] = _contacts
+def apply_config(cfg: dict) -> None:
+    """Применяет конфиг клиники на лету: справочники, цены, тексты, приветствие."""
+    global CONFIG, CLINIC_NAME, CLINIC_PHONE, HELLO
+    CONFIG = cfg
+    CLINIC_NAME = cfg["name"]
+    CLINIC_PHONE = cfg["phone"]
+    DOCTORS.clear()
+    DOCTOR_SPEC.clear()
+    for d in cfg["doctors"]:
+        DOCTORS[d["id"]] = d["name"]
+        DOCTOR_SPEC[d["id"]] = d.get("spec", "")
+    SERVICES.clear()
+    SERVICE_PRICE.clear()
+    URGENT_LABELS.clear()
+    for svc in cfg["services"]:
+        entry = {"ro": svc["ro"], "ru": svc["ru"]}
+        if svc.get("urgent"):
+            entry["urgent"] = True
+            URGENT_LABELS.add(svc["ro"])
+            URGENT_LABELS.add(svc["ru"])
+        if svc.get("docs"):
+            entry["docs"] = svc["docs"]
+        SERVICES[svc["id"]] = entry
+        avg = _price_avg(svc.get("price", ""))
+        SERVICE_PRICE[svc["ro"]] = avg
+        SERVICE_PRICE[svc["ru"]] = avg
+    T.clear()
+    for lang, msgs in T_BASE.items():
+        addr = cfg.get("address", {}).get(lang, "")
+        T[lang] = {
+            k: (v.replace("{CLINIC}", CLINIC_NAME)
+                 .replace("{PHONE}", CLINIC_PHONE)
+                 .replace("{ADDRESS}", addr))
+            for k, v in msgs.items()
+        }
+        T[lang]["prices"] = _prices_text(lang)
+        contacts = cfg.get("contacts", {}).get(lang)
+        if contacts:
+            T[lang]["contacts"] = contacts
+    HELLO = f"🦷 {CLINIC_NAME} — asistent de programări / ассистент записи."
+
+
+def save_config(cfg: dict) -> str | None:
+    """Пишет конфиг в файл и применяет на лету. Возвращает текст ошибки или None."""
+    path = os.environ.get("CLINIC_CONFIG") or str(
+        pathlib.Path(__file__).resolve().parent / "clinic.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        return f"nu pot scrie {path}: {e}"
+    apply_config(cfg)
+    return None
+
+
+apply_config(_load_config())
 
 
 @dataclass

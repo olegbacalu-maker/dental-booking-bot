@@ -29,7 +29,8 @@ services:
       CLINIC_CONFIG: /config/clinic.json
       TZ: Europe/Chisinau
     volumes:
-      - ./clinic.json:/config/clinic.json:ro
+      # rw: страница настроек пишет конфиг обратно в этот файл
+      - ./clinic.json:/config/clinic.json
     ports:
       - "8088:8088"
     depends_on:
