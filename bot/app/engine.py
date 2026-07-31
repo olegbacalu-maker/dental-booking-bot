@@ -14,7 +14,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.3.4"
+APP_VERSION = "1.3.5"
 
 
 def _load_config() -> dict:
@@ -268,10 +268,11 @@ def day_label(s: Session, d: date) -> str:
 _DOW = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
-def hours_for(d: date) -> tuple[int, int] | None:
-    """Рабочие часы дня из конфига клиники; None = выходной."""
+def hours_for(d: date) -> tuple | None:
+    """Рабочие часы дня из конфига; None = выходной.
+    Формат: [от, до] или [от, до, пауза_от, пауза_до] (обед)."""
     h = CONFIG.get("hours", {}).get(_DOW[d.weekday()])
-    return (int(h[0]), int(h[1])) if h else None
+    return tuple(int(x) for x in h) if h else None
 
 
 def next_days() -> list[date]:
@@ -290,7 +291,10 @@ def day_slots(d: date) -> list[datetime]:
     h = hours_for(d)
     if not h:
         return []
-    return [datetime(d.year, d.month, d.day, hour, 0, tzinfo=TZ) for hour in range(h[0], h[1])]
+    hours = list(range(h[0], h[1]))
+    if len(h) >= 4:  # обеденный перерыв выпадает из сетки
+        hours = [x for x in hours if not (h[2] <= x < h[3])]
+    return [datetime(d.year, d.month, d.day, hour, 0, tzinfo=TZ) for hour in hours]
 
 
 def day_rows(s: Session) -> list[list[dict]]:
@@ -372,24 +376,19 @@ def build_seed_rows() -> list[tuple]:
         if hours_for(d):
             break
         d += timedelta(days=1)
-    h = hours_for(d)
-    if not h:
-        return []
+    usable = day_slots(d)[1:]  # с 2-го слота дня, перерыв уже исключён
     demo_people = [
         ("Maria Exemplu", "060 111 222", 1978), ("Ion Popescu", "069 222 333", 1991),
         ("Ana Balan", "061 333 444", 2001), ("Vasile Rotaru", "068 444 555", 1969),
         ("Elena Cara", "062 555 666", 1985), ("Mihai Donos", "067 666 777", 1996),
     ]
     rows = []
-    hour = h[0] + 1
     for i, (key, svc) in enumerate(SERVICES.items()):
-        if i >= len(demo_people) or hour >= h[1]:
+        if i >= len(demo_people) or i >= len(usable):
             break
         doctor = allowed_doc_items(key)[0][1]
         name, phone, year = demo_people[i]
-        rows.append((name, phone, svc["ro"], doctor,
-                     datetime(d.year, d.month, d.day, hour, 0, tzinfo=TZ), year))
-        hour += 1
+        rows.append((name, phone, svc["ro"], doctor, usable[i], year))
     return rows
 
 

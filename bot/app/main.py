@@ -796,7 +796,11 @@ def _hours_summary(hours: dict, lang: str) -> str:
         if h:
             rng = (names[_DOW_ORDER[i]] if i == j
                    else f"{names[_DOW_ORDER[i]]}–{names[_DOW_ORDER[j]]}")
-            parts.append(f"{rng} {h[0]}:00–{h[1]}:00")
+            txt = f"{rng} {h[0]}:00–{h[1]}:00"
+            if len(h) >= 4:
+                txt += (f" (pauză {h[2]}:00–{h[3]}:00)" if lang == "ro"
+                        else f" (перерыв {h[2]}:00–{h[3]}:00)")
+            parts.append(txt)
         i = j + 1
     return ", ".join(parts)
 
@@ -815,16 +819,27 @@ async def admin_settings(request: Request, msg: str = ""):
     cfg = eng.CONFIG
     e = html.escape
 
+    def _break_opts(sel) -> str:
+        out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
+        for x in range(6, 22):
+            out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
+        return "".join(out)
+
     hours_rows = []
     for day in _DOW_ORDER:
         h = cfg.get("hours", {}).get(day)
         closed = h is None
-        f, t = (h if h else [9, 18])
+        hv = list(h) if h else [9, 18]
+        f, t = int(hv[0]), int(hv[1])
+        bf = int(hv[2]) if len(hv) >= 4 else None
+        bt = int(hv[3]) if len(hv) >= 4 else None
         hours_rows.append(
             f"<tr><td>{_DOW_FULL[day]}</td>"
             f"<td><input type='checkbox' id='hc_{day}'{' checked' if closed else ''}> închis</td>"
-            f"<td><select id='hf_{day}'>{_hour_opts(int(f), 0, 23)}</select></td>"
-            f"<td><select id='ht_{day}'>{_hour_opts(int(t), 1, 24)}</select></td></tr>"
+            f"<td><select id='hf_{day}'>{_hour_opts(f, 0, 23)}</select></td>"
+            f"<td><select id='ht_{day}'>{_hour_opts(t, 1, 24)}</select></td>"
+            f"<td><select id='hb_{day}'>{_break_opts(bf)}</select></td>"
+            f"<td><select id='he_{day}'>{_break_opts(bt)}</select></td></tr>"
         )
 
     doc_rows = "".join(
@@ -928,9 +943,12 @@ Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
 
 <h2>🕘 Program de lucru</h2>
 <table class='set'>
-<tr><th>Ziua</th><th>Închis</th><th>De la</th><th>Până la</th></tr>
+<tr><th>Ziua</th><th>Închis</th><th>De la</th><th>Până la</th>
+<th>Pauză de la</th><th>Pauză până la</th></tr>
 {''.join(hours_rows)}
 </table>
+<p class='hint'>Pauza (ex. prânz 13:00–14:00) dispare din calendarul botului și din registru.
+«—» = fără pauză.</p>
 
 <h2>👨‍⚕️ Medici</h2>
 <table class='set' id='docs_t'>
@@ -979,9 +997,13 @@ function collectSettings() {{
   const days = ['mon','tue','wed','thu','fri','sat','sun'];
   const hours = {{}};
   for (const d of days) {{
-    if (document.getElementById('hc_' + d).checked) hours[d] = null;
-    else hours[d] = [parseInt(document.getElementById('hf_' + d).value),
-                     parseInt(document.getElementById('ht_' + d).value)];
+    if (document.getElementById('hc_' + d).checked) {{ hours[d] = null; continue; }}
+    const f = parseInt(document.getElementById('hf_' + d).value);
+    const t = parseInt(document.getElementById('ht_' + d).value);
+    const bf = document.getElementById('hb_' + d).value;
+    const bt = document.getElementById('he_' + d).value;
+    if (bf !== '' && bt !== '') hours[d] = [f, t, parseInt(bf), parseInt(bt)];
+    else hours[d] = [f, t];
   }}
   const doctors = [];
   document.querySelectorAll('#docs_tb tr').forEach(tr => {{
@@ -1026,10 +1048,21 @@ def _build_config(data: dict) -> dict:
         if h is None:
             hours[day] = None
             continue
-        f, t = int(h[0]), int(h[1])
-        if not (0 <= f < t <= 24):
-            raise ValueError("hours")
-        hours[day] = [f, t]
+        vals = [int(x) for x in h]
+        if len(vals) == 2:
+            f, t = vals
+            if not (0 <= f < t <= 24):
+                raise ValueError("hours")
+            hours[day] = [f, t]
+        elif len(vals) == 4:
+            f, t, bf, bt = vals
+            if not (0 <= f < t <= 24 and f <= bf < bt <= t):
+                raise ValueError("break")
+            if bf <= f and bt >= t:
+                raise ValueError("break=whole day")
+            hours[day] = [f, t, bf, bt]
+        else:
+            raise ValueError("hours format")
     if all(v is None for v in hours.values()):
         raise ValueError("all closed")
 
