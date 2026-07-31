@@ -36,6 +36,8 @@
       "docs": ["d1"], "price": "1200–1800 MDL" },
     { "id": "extraction", "ro": "Extracție dinte", "ru": "Удаление зуба",
       "docs": ["d2"], "price": "1000–1500 MDL" },
+    { "id": "xray", "ro": "Radiografie dentară", "ru": "Рентген зуба",
+      "price": "150–250 MDL" },
     { "id": "crowns", "ro": "Coroane și proteze", "ru": "Коронки и протезы",
       "docs": ["d4", "d2"], "price": "2500–4500 MDL" },
     { "id": "whitening", "ro": "Albire dentară", "ru": "Отбеливание",
