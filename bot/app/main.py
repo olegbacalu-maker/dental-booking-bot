@@ -13,8 +13,9 @@ import urllib.parse
 from datetime import date, datetime, timedelta
 
 import qrcode
-from fastapi import FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
+                               Response)
 
 from . import db
 from . import engine as eng
@@ -23,6 +24,17 @@ from . import update as upd
 app = FastAPI(title="DentPilot")
 
 STATIC = pathlib.Path(__file__).parent / "static"
+
+
+@app.middleware("http")
+async def _limit_body_size(request: Request, call_next):
+    """Отсекает гигантские POST-тела ДО того, как Starlette спулит multipart
+    во временный файл (сам по себе роут-кап 25MB срабатывает уже после)."""
+    if request.method == "POST":
+        cl = request.headers.get("content-length", "")
+        if cl.isdigit() and int(cl) > (26) * 1024 * 1024:  # 25MB файла + запас
+            return Response("Payload too large", status_code=413)
+    return await call_next(request)
 
 # --- защита журнала ---
 # Desktop (SQLite): PIN 4–6 цифр, ставится в самом приложении (data/auth.json,
@@ -144,6 +156,10 @@ MSG_BANNER = {
     "ok_tok": ("ok", "Token salvat ✔ — reporniți programul pentru aplicare"),
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
+    "ok_card": ("ok", "Fișa pacientului a fost actualizată ✔"),
+    "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
+    "ok_doc": ("ok", "Document încărcat ✔ — rămâne local, în folderul programului"),
+    "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
 }
 
 # Дизайн-система v1.5.0 (референс: светлый SaaS-макет Олега 07-31):
@@ -377,6 +393,83 @@ PANEL_CSS = """
  .brandcorner b{color:var(--teal-d)}
  .brandcorner a{color:var(--teal-d);text-decoration:none;font-weight:600}
  .brandcorner a:hover{text-decoration:underline}
+ /* ---------- карточка пациента ---------- */
+ .fisa{display:flex;gap:16px;align-items:flex-start}
+ .fcol-l{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
+ .fcol-c{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
+ .fcol-r{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
+ .fcard{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 16px}
+ .fcard h3{margin:0 0 10px;font-size:13.5px;font-weight:600}
+ .fcard h3 small{color:var(--text3);font-weight:400;font-size:11.5px}
+ .fhead{display:flex;align-items:center;gap:12px}
+ .fhead .fav{width:48px;height:48px;border-radius:12px;background:var(--teal);color:#fff;
+   display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;flex:0 0 48px}
+ .fhead b{font-size:16px;display:block;line-height:1.25}
+ .fhead small{color:var(--text3);font-size:11.5px}
+ .frow{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:12.5px}
+ .frow span:first-child{color:var(--text3)}
+ .frow span:last-child{color:var(--text);font-weight:500;text-align:right;min-width:0;
+   overflow:hidden;text-overflow:ellipsis}
+ .alert{display:flex;align-items:center;gap:8px;border-radius:9px;padding:7px 10px;
+   font-size:12.5px;font-weight:600;margin-bottom:6px}
+ .alert form{margin-left:auto}
+ .alert button{background:none;border:none;cursor:pointer;color:inherit;opacity:.55;font-size:12px}
+ .alert.allergy{background:var(--red-soft);color:var(--red)}
+ .alert.medication{background:var(--amber-soft);color:var(--amber)}
+ .alert.warning{background:var(--amber-soft);color:var(--amber)}
+ .alert.info{background:var(--blue-soft);color:var(--blue)}
+ .teeth{display:flex;justify-content:center;gap:3px;flex-wrap:nowrap;overflow-x:auto;padding:2px 0}
+ .tooth{width:30px;height:38px;flex:0 0 30px;border-radius:7px;border:1px solid var(--line);
+   background:var(--panel);color:var(--text2);display:flex;align-items:center;justify-content:center;
+   font-size:11px;font-weight:600;cursor:pointer}
+ .tooth:hover{box-shadow:var(--sh2)}
+ .tooth.carie{background:var(--red-soft);border-color:var(--red);color:var(--red)}
+ .tooth.obturatie{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
+ .tooth.coroana{background:var(--amber-soft);border-color:var(--amber);color:var(--amber)}
+ .tooth.implant{background:var(--violet-soft);border-color:var(--violet);color:var(--violet)}
+ .tooth.extras{background:var(--line2);border-color:var(--line);color:var(--text3);text-decoration:line-through}
+ .tooth.tratament{background:var(--teal-soft);border-color:var(--teal);color:var(--teal-d)}
+ .tleg{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-top:10px}
+ .tleg i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px}
+ .plan-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line2);font-size:12.5px}
+ .plan-row:first-of-type{border-top:none}
+ .plan-row .pt{width:32px;flex:0 0 32px;font-weight:600;color:var(--text2)}
+ .plan-row .pp{flex:1;min-width:0;font-weight:500}
+ .plan-row .pd{width:120px;flex:0 0 120px;color:var(--text2);font-size:12px}
+ .plan-row .pm{width:90px;flex:0 0 90px;text-align:right;font-weight:600}
+ .pbadge{font-size:10px;font-weight:600;letter-spacing:.05em;padding:3px 7px;border-radius:5px;text-transform:uppercase}
+ .pbadge.planificat{border:1px solid var(--line);color:var(--text3)}
+ .pbadge.in_lucru{background:var(--teal);color:#fff}
+ .pbadge.finalizat{background:var(--line2);color:var(--text2)}
+ .plan-row form{margin:0}
+ .plan-row .pact button{background:none;border:1px solid var(--line);border-radius:6px;
+   padding:2px 7px;cursor:pointer;font-size:11px;color:var(--text2);margin-left:3px}
+ .plan-row .pact button:hover{border-color:var(--teal);color:var(--teal-d)}
+ .ptotal{display:flex;justify-content:flex-end;gap:12px;padding-top:10px;border-top:1px solid var(--line);
+   font-size:12.5px;color:var(--text3);align-items:baseline}
+ .ptotal b{font-size:15px;color:var(--text)}
+ .tline{display:flex;gap:10px;margin-bottom:10px}
+ .tline .tdot{width:7px;flex:0 0 7px;display:flex;flex-direction:column;align-items:center}
+ .tline .tdot i{width:7px;height:7px;border-radius:50%;background:var(--line);margin-top:4px}
+ .tline.next .tdot i{background:var(--teal)}
+ .tline .tb{min-width:0;font-size:12.5px}
+ .tline .tb small{display:block;color:var(--text3);font-size:11px}
+ .doc{display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid var(--line);
+   border-radius:9px;margin-bottom:6px;font-size:12px}
+ .doc a{font-weight:500;color:var(--text);text-decoration:none;min-width:0;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .doc a:hover{color:var(--teal-d)}
+ .doc small{color:var(--text3);white-space:nowrap}
+ .doc form{margin-left:auto}
+ .doc form button{background:none;border:none;color:var(--text3);cursor:pointer}
+ .doc form button:hover{color:var(--red)}
+ .fform{display:flex;flex-direction:column;gap:7px}
+ .fform input,.fform select,.fform textarea{padding:7px 10px;border:1px solid var(--line);
+   border-radius:8px;font-size:12.5px;font-family:inherit;width:100%}
+ .fform button{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:8px;
+   cursor:pointer;font-size:12.5px;font-weight:600}
+ .fform .r2{display:flex;gap:7px}
+ @media (max-width:1400px){.fisa{flex-wrap:wrap}.fcol-l,.fcol-r{width:100%;flex:1 1 100%}}
  /* ---------- недельный вид ---------- */
  .week{display:flex;gap:12px;align-items:flex-start}
  .wcol{flex:1;min-width:0;background:var(--panel);border-radius:14px;box-shadow:var(--sh);overflow:hidden}
@@ -404,8 +497,13 @@ REFRESH_JS = """
 <script>
 setInterval(function(){
   if(document.querySelector("dialog[open]"))return;
+  var pe=document.getElementById("pedit");
+  if(pe&&pe.style.display!=="none")return;            // открыта форма профиля
+  var fi=document.querySelector("input[type=file]");
+  if(fi&&fi.files&&fi.files.length)return;            // выбран файл — не терять
   var a=document.activeElement;
-  if(!a||(a.tagName!=="INPUT"&&a.tagName!=="SELECT"&&a.tagName!=="TEXTAREA"))location.reload();
+  if(a&&a.closest&&a.closest("form"))return;          // любой ввод в форме
+  if(!a||(a.tagName!=="INPUT"&&a.tagName!=="SELECT"&&a.tagName!=="TEXTAREA"&&a.tagName!=="BUTTON"))location.reload();
 },12000);
 </script>
 """
@@ -770,20 +868,23 @@ def _collect_cards(rows: list) -> dict:
             "comment": r["comment"] or "",
             "age": _age(r["birth_year"]),
             "canAct": r["status"] == "confirmed",
+            "pid": r.get("patient_id"),
         }
     return cards
 
 
 def _card_modal(cards: dict, back: str) -> str:
     """Карточка записи по клику: инфо + комментарий ресепшена + статусы."""
-    data = json.dumps(cards, ensure_ascii=True)
+    # .replace("</", ...) — комментарий "</script>…" не должен вырваться из тега
+    data = json.dumps(cards, ensure_ascii=True).replace("</", "<\\/")
     b = html.escape(back)
     return f"""
 <dialog id="carddlg">
   <div class="dlg-head"><span id="c_title">—</span>
     <button type="button" onclick="document.getElementById('carddlg').close()">✕</button></div>
   <div class="dlg-form">
-    <div id="c_info" style="font-size:14px;color:#334"></div>
+    <div id="c_info" style="font-size:14px;color:var(--text2)"></div>
+    <a id="c_fisa" href="#" style="font-size:12.5px;font-weight:600">📇 Deschide fișa pacientului →</a>
     <form id="c_form" method="post" style="display:flex;flex-direction:column;gap:8px">
       <input type="hidden" name="back" value="{b}">
       <textarea name="comment" id="c_text" rows="3" maxlength="300"
@@ -811,6 +912,9 @@ function openCard(id) {{
     c.service + ' · ' + c.doctor + (c.phone ? ' · 📞 ' + c.phone : '')
     + (c.age ? ' · ' + c.age + ' ani' : '');
   document.getElementById('c_text').value = c.comment;
+  const fl = document.getElementById('c_fisa');
+  if (c.pid) {{ fl.style.display = 'inline'; fl.href = '/admin/patient/' + c.pid; }}
+  else fl.style.display = 'none';
   document.getElementById('c_form').action = '/admin/comment/' + id;
   document.getElementById('cs_done').action = '/admin/status/' + id;
   document.getElementById('cs_noshow').action = '/admin/status/' + id;
@@ -831,6 +935,10 @@ def _active_map(rows: list) -> dict:
 
 @app.on_event("startup")
 async def startup() -> None:
+    if not db.IS_SQLITE and not ADMIN_KEY:
+        # Postgres = серверный режим: с v1.6.0 в журнале мед-данные и файлы,
+        # fail-open без ключа недопустим — падаем громко, а не открываемся тихо
+        raise RuntimeError("ADMIN_KEY is required for the Postgres edition — set it in .env")
     await db.init(eng.build_seed_rows())
     upd.check_async()
     token = os.environ.get("TELEGRAM_TOKEN", "").strip()
@@ -1911,8 +2019,8 @@ async def admin_search(request: Request, q: str = ""):
                         else "🌐 web")
                 pa = _age(p["birth_year"])
                 rrows.append(
-                    f"<tr><td><a class='plink' href='/admin/search?q="
-                    f"{urllib.parse.quote(p['name'] or '')}'>{html.escape(p['name'] or '—')}</a></td>"
+                    f"<tr><td><a class='plink' href='/admin/patient/{p['id']}'>"
+                    f"{html.escape(p['name'] or '—')}</a></td>"
                     f"<td>{html.escape(p['phone'] or '—')}</td>"
                     f"<td>{pa or '—'}</td><td>{chan}</td>"
                     f"<td>{p['created_at'].astimezone(eng.TZ).strftime('%d.%m.%Y')}</td></tr>")
@@ -1949,7 +2057,9 @@ async def admin_search(request: Request, q: str = ""):
             pa = _age(p["birth_year"])
             age_meta = f" · {pa} ani ({p['birth_year']})" if pa else ""
             blocks.append(
-                f"<div class='pcard'><h3>{html.escape(p['name'] or '—')}</h3>"
+                f"<div class='pcard'><h3><a class='plink' href='/admin/patient/{p['id']}'>"
+                f"{html.escape(p['name'] or '—')}</a> "
+                f"<a href='/admin/patient/{p['id']}' style='font-size:12px;font-weight:400'>📇 fișa →</a></h3>"
                 f"<div class='meta'>📞 {html.escape(p['phone'] or '—')}{age_meta} · {chan}"
                 f" · {len(visits)} vizite, {upcoming} viitoare</div>"
                 f"<table class='list'><tr><th>Când</th><th>Serviciu</th><th>Medic</th>"
@@ -1964,6 +2074,426 @@ async def admin_search(request: Request, q: str = ""):
         + ("" if q else "<p class='hint'>Căutați după nume (min. 2 litere) sau telefon (min. 3 cifre, orice format).</p>")
     )
     return _shell(body, "pacienți · căutare și istoric vizite", active="pat")
+
+
+# ---------- карточка пациента (v1.6.0) ----------
+
+TOOTH_STATES = {
+    "ok": "Sănătos", "carie": "Carie", "obturatie": "Obturație",
+    "coroana": "Coroană", "implant": "Implant", "extras": "Extras",
+    "tratament": "În tratament",
+}
+_FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
+_FDI_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
+_ALERT_KINDS = {"allergy": "⚠️ Alergie", "medication": "💊 Medicație",
+                "warning": "⏰ Atenție", "info": "ℹ️ Info"}
+_PLAN_NEXT = {"planificat": "in_lucru", "in_lucru": "finalizat", "finalizat": "planificat"}
+_PLAN_LABEL = {"planificat": "Planificat", "in_lucru": "În lucru", "finalizat": "Finalizat"}
+MAX_DOC_MB = 25
+
+
+def _files_dir(pid: int) -> pathlib.Path:
+    base = _data_dir() or pathlib.Path("data")
+    d = base / "files" / str(pid)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _p_age(p: dict) -> int | None:
+    if p.get("birth_date"):
+        try:
+            bd = date.fromisoformat(p["birth_date"])
+            t = datetime.now(eng.TZ).date()
+            return t.year - bd.year - ((t.month, t.day) < (bd.month, bd.day))
+        except ValueError:
+            pass
+    return _age(p.get("birth_year"))
+
+
+@app.get("/admin/patient/{pid}", response_class=HTMLResponse)
+async def admin_patient(request: Request, pid: int, msg: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    e = html.escape
+    alerts = await db.patient_alerts(pid)
+    tmap = await db.teeth_map(pid)
+    plan = await db.plan_items(pid)
+    docs = await db.documents(pid)
+    visits = await db.patient_appointments(pid)
+    now = datetime.now(eng.TZ)
+    base = f"/admin/patient/{pid}"
+
+    banner = ""
+    if msg in MSG_BANNER:
+        cls, text = MSG_BANNER[msg]
+        banner = f"<div class='banner {cls}'>{text}</div>"
+
+    # -- левая колонка: профиль --
+    age = _p_age(p)
+    chan = ("📱 Telegram" if (p["session_key"] or "").startswith("tg:")
+            else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
+            else "🌐 web")
+    meta = " · ".join(x for x in [f"{age} ani" if age else "", chan,
+                                  f"dosar {e(p['file_no'])}" if p.get("file_no") else ""] if x)
+
+    def frow(label: str, val) -> str:
+        return (f"<div class='frow'><span>{label}</span>"
+                f"<span>{e(str(val)) if val else '—'}</span></div>")
+
+    info_rows = (frow("Telefon", p.get("phone"))
+                 + frow("Data nașterii", p.get("birth_date") or p.get("birth_year"))
+                 + frow("Gen", {"m": "M", "f": "F"}.get(p.get("gender") or "", p.get("gender")))
+                 + frow("IDNP", p.get("idnp")) + frow("E-mail", p.get("email"))
+                 + frow("Adresă", p.get("address")) + frow("Asigurare", p.get("insurance"))
+                 + frow("Medic curant", p.get("primary_doctor"))
+                 + frow("Pacient din", p["created_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")))
+    notes_html = (f"<div style='font-size:12px;color:var(--text2);background:var(--bg);"
+                  f"border-radius:8px;padding:8px 10px;margin-top:8px'>📝 {e(p['notes'])}</div>"
+                  if p.get("notes") else "")
+
+    doc_opts = "".join(f"<option value='{e(n)}'"
+                       f"{' selected' if p.get('primary_doctor') == n else ''}>{e(n)}</option>"
+                       for n in eng.DOCTORS.values())
+    edit_form = f"""
+<form class='fform' id='pedit' method='post' action='{base}/save' style='display:none;margin-top:10px'>
+  <input name='name' value="{e(p['name'] or '')}" placeholder='Nume' required>
+  <input name='phone' value="{e(p['phone'] or '')}" placeholder='Telefon'>
+  <div class='r2'><input type='date' name='birth_date' value="{e(p.get('birth_date') or '')}">
+  <select name='gender'><option value=''>Gen —</option>
+    <option value='m'{" selected" if p.get('gender') == 'm' else ''}>M</option>
+    <option value='f'{" selected" if p.get('gender') == 'f' else ''}>F</option></select></div>
+  <input name='idnp' value="{e(p.get('idnp') or '')}" placeholder='IDNP (opțional)' maxlength='13'>
+  <input name='email' value="{e(p.get('email') or '')}" placeholder='E-mail'>
+  <input name='address' value="{e(p.get('address') or '')}" placeholder='Adresă'>
+  <input name='insurance' value="{e(p.get('insurance') or '')}" placeholder='Asigurare (ex. CNAM activă)'>
+  <div class='r2'><select name='primary_doctor'><option value=''>Medic curant —</option>{doc_opts}</select>
+  <input name='file_no' value="{e(p.get('file_no') or '')}" placeholder='Nr. dosar'></div>
+  <textarea name='notes' rows='2' placeholder='Notițe interne'>{e(p.get('notes') or '')}</textarea>
+  <button>💾 Salvează profilul</button>
+</form>"""
+
+    alerts_html = "".join(
+        f"<div class='alert {e(a['kind'])}'>{_ALERT_KINDS.get(a['kind'], 'ℹ️')} {e(a['text'])}"
+        f"<form method='post' action='{base}/alert/{a['id']}/del'>"
+        f"<button title='Șterge'>✕</button></form></div>"
+        for a in alerts) or "<p class='hint' style='margin:0'>— fără atenționări —</p>"
+    kind_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in _ALERT_KINDS.items())
+    alerts_card = f"""<div class='fcard'><h3>Atenționări medicale</h3>{alerts_html}
+<form class='fform' method='post' action='{base}/alert' style='margin-top:9px'>
+  <div class='r2'><select name='kind' style='width:130px'>{kind_opts}</select>
+  <input name='text' placeholder='ex. Alergie: Penicilină' maxlength='120' required></div>
+  <button>+ Adaugă</button></form></div>"""
+
+    # -- центр: формула FDI + план --
+    def tooth_div(n: int) -> str:
+        t = tmap.get(n)
+        st = t["state"] if t else "ok"
+        note = t["note"] if t else ""
+        title = f"{n} · {TOOTH_STATES.get(st, st)}" + (f" · {note}" if note else "")
+        return (f"<div class='tooth {e(st)}' title=\"{e(title)}\" "
+                f"onclick='openTooth({n})'>{n}</div>")
+
+    upper = "".join(tooth_div(n) for n in _FDI_UPPER)
+    lower = "".join(tooth_div(n) for n in _FDI_LOWER)
+    legend = "".join(
+        f"<span><i class='tooth {k}' style='width:9px;height:9px;padding:0;border-radius:3px;display:inline-block'></i> {v}</span>"
+        for k, v in TOOTH_STATES.items() if k != "ok")
+    # .replace("</", ...) — чтобы note вида "</script>..." не вырвался из тега
+    teeth_json = json.dumps({str(n): {"state": (tmap[n]["state"] if n in tmap else "ok"),
+                                      "note": (tmap[n]["note"] if n in tmap else "")}
+                             for n in _FDI_UPPER + _FDI_LOWER}).replace("</", "<\\/")
+    state_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in TOOTH_STATES.items())
+    teeth_card = f"""<div class='fcard'>
+<h3>Formula dentară <small>· notație FDI · click pe dinte</small></h3>
+<div class='teeth'>{upper}</div>
+<div style='height:1px;background:var(--line);margin:8px 30px'></div>
+<div class='teeth'>{lower}</div>
+<div class='tleg'>{legend}</div></div>
+<dialog id='toothdlg'>
+  <div class='dlg-head'><span id='t_title'>Dinte</span>
+    <button type='button' onclick="document.getElementById('toothdlg').close()">✕</button></div>
+  <form class='dlg-form' method='post' action='{base}/tooth'>
+    <input type='hidden' name='tooth' id='t_num'>
+    <select name='state' id='t_state'>{state_opts}</select>
+    <input name='note' id='t_note' placeholder='Notiță (opțional)' maxlength='120'>
+    <button>💾 Salvează</button>
+  </form>
+</dialog>
+<script>
+const TEETH = {teeth_json};
+function openTooth(n) {{
+  const t = TEETH[String(n)] || {{state: 'ok', note: ''}};
+  document.getElementById('t_title').textContent = 'Dinte ' + n;
+  document.getElementById('t_num').value = n;
+  document.getElementById('t_state').value = t.state;
+  document.getElementById('t_note').value = t.note;
+  document.getElementById('toothdlg').showModal();
+}}
+</script>"""
+
+    plan_rows = []
+    total = 0
+    for it in plan:
+        if it["price_mdl"] and it["status"] != "finalizat":
+            total += it["price_mdl"]
+        nxt = _PLAN_NEXT[it["status"] if it["status"] in _PLAN_NEXT else "planificat"]
+        plan_rows.append(
+            f"<div class='plan-row'><span class='pt'>{it['tooth'] or '—'}</span>"
+            f"<span class='pp'>{e(it['procedure'])}</span>"
+            f"<span class='pd'>{e(it['doctor'] or '—')}</span>"
+            f"<span class='pbadge {e(it['status'])}'>{_PLAN_LABEL.get(it['status'], it['status'])}</span>"
+            f"<span class='pm'>{f'{it['price_mdl']:,}'.replace(',', ' ') + ' MDL' if it['price_mdl'] else '—'}</span>"
+            f"<span class='pact'>"
+            f"<form style='display:inline' method='post' action='{base}/plan/{it['id']}/status'>"
+            f"<input type='hidden' name='to' value='{nxt}'>"
+            f"<button title='Următorul status'>→ {_PLAN_LABEL[nxt]}</button></form>"
+            f"<form style='display:inline' method='post' action='{base}/plan/{it['id']}/del' "
+            f"onsubmit=\"return confirm('Ștergeți poziția din plan?')\">"
+            f"<button title='Șterge'>✕</button></form></span></div>")
+    plan_html = "".join(plan_rows) or "<p class='hint' style='margin:6px 0'>— plan gol —</p>"
+    tooth_opts = "<option value=''>—</option>" + "".join(
+        f"<option value='{n}'>{n}</option>" for n in _FDI_UPPER + _FDI_LOWER)
+    plan_card = f"""<div class='fcard'>
+<h3>Plan de tratament <small>· plan activ (nefinalizat): {f'{total:,}'.replace(',', ' ')} MDL</small></h3>
+{plan_html}
+<div class='ptotal'><span>Total plan activ</span><b>{f'{total:,}'.replace(',', ' ')} MDL</b></div>
+<form class='fform' method='post' action='{base}/plan' style='margin-top:10px'>
+  <div class='r2'><select name='tooth' style='width:90px'>{tooth_opts}</select>
+  <input name='procedure' placeholder='Procedură (ex. Coroană zirconiu)' maxlength='120' required></div>
+  <div class='r2'><select name='doctor'><option value=''>Medic —</option>{doc_opts}</select>
+  <input name='price' type='number' min='0' max='1000000' placeholder='Preț MDL' style='width:130px'></div>
+  <button>+ Adaugă în plan</button>
+</form></div>"""
+
+    # -- правая колонка: визиты + документы --
+    future = [v for v in visits if v["status"] == "confirmed" and v["starts_at"] > now]
+    nextv = min(future, key=lambda v: v["starts_at"]) if future else None
+    next_html = ""
+    if nextv:
+        dtv = nextv["starts_at"].astimezone(eng.TZ)
+        next_html = (f"<div class='fcard' style='background:var(--teal-soft)'>"
+                     f"<h3 style='color:var(--teal-d)'>Următoarea vizită</h3>"
+                     f"<div style='font-size:13.5px;font-weight:600'>{dtv.strftime('%d.%m.%Y · %H:%M')}</div>"
+                     f"<div style='font-size:12px;color:var(--text2);margin-top:3px'>"
+                     f"{e(nextv['service'])} · {e(nextv['doctor'])}</div></div>")
+    hist = []
+    for v in visits[:8]:
+        dtv = v["starts_at"].astimezone(eng.TZ)
+        is_next = nextv is not None and v["id"] == nextv["id"]
+        hist.append(
+            f"<div class='tline{' next' if is_next else ''}'>"
+            f"<div class='tdot'><i></i></div><div class='tb'>"
+            f"<small>{dtv.strftime('%d.%m.%Y %H:%M')} · {STATUS_LABEL.get(v['status'], v['status'])}</small>"
+            f"<b style='font-size:12.5px'>{e(v['service'])}</b>"
+            f"<small>{e(v['doctor'])}</small></div></div>")
+    hist_card = (f"<div class='fcard'><h3>Istoric vizite <small>· ultimele {len(visits[:8])}</small></h3>"
+                 + ("".join(hist) or "<p class='hint' style='margin:0'>— încă fără vizite —</p>")
+                 + f"<a href='/admin/search?q={urllib.parse.quote(p['name'] or '')}' "
+                 f"style='font-size:12px'>Vezi tot istoricul →</a></div>")
+
+    docs_rows = "".join(
+        f"<div class='doc'>📄 <a href='/admin/doc/{dd['id']}' title='{e(dd['filename'])}'>{e(dd['filename'])}</a>"
+        f"<small>{dd['size'] // 1024} KB</small>"
+        f"<form method='post' action='{base}/doc/{dd['id']}/del' "
+        f"onsubmit=\"return confirm('Ștergeți documentul?')\"><button>✕</button></form></div>"
+        for dd in docs) or "<p class='hint' style='margin:0 0 8px'>— fără documente —</p>"
+    docs_card = f"""<div class='fcard'><h3>Documente și imagini <small>· max {MAX_DOC_MB} MB</small></h3>
+{docs_rows}
+<form class='fform' method='post' action='{base}/doc' enctype='multipart/form-data'>
+  <input type='file' name='file' required>
+  <button>⬆️ Încarcă document</button>
+</form>
+<p class='hint' style='margin-top:8px'>Fișierele rămân local, în folderul programului (data\\files).</p></div>"""
+
+    body = f"""{banner}
+<div class='nav'><a href='/admin/search'>← Pacienți</a>
+<a href='/admin/all'>📋 Programări</a></div>
+<div class='fisa'>
+  <div class='fcol-l'>
+    <div class='fcard'>
+      <div class='fhead'><div class='fav'>{e(_initials(p['name'] or '?'))}</div>
+        <div style='min-width:0'><b>{e(p['name'] or '—')}</b><small>{meta}</small></div></div>
+      <div style='margin-top:10px'>{info_rows}</div>{notes_html}
+      <button onclick="var f=document.getElementById('pedit');f.style.display=f.style.display==='none'?'flex':'none'"
+        style='margin-top:10px;background:none;border:1px solid var(--line);border-radius:8px;
+        padding:7px 12px;cursor:pointer;font-size:12.5px;color:var(--text2);width:100%'>✏️ Editează profilul</button>
+      {edit_form}
+    </div>
+    {alerts_card}
+  </div>
+  <div class='fcol-c'>{teeth_card}{plan_card}</div>
+  <div class='fcol-r'>{next_html}{hist_card}{docs_card}</div>
+</div>"""
+    return _shell(body, f"fișa pacientului · #{pid}", active="pat")
+
+
+def _card_redirect(pid: int, msg: str = "") -> RedirectResponse:
+    url = f"/admin/patient/{pid}" + (f"?msg={msg}" if msg else "")
+    return RedirectResponse(url, status_code=303)
+
+
+@app.post("/admin/patient/{pid}/save")
+async def patient_save(request: Request, pid: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    form = await request.form()
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    data = {}
+    for f in db.PATIENT_FIELDS:
+        v = str(form.get(f) or "").strip()[:200 if f != "notes" else 500]
+        data[f] = v or None
+    if not data.get("name"):
+        return _card_redirect(pid, "bad_card")
+    bd = data.get("birth_date")
+    bd_year = None
+    if bd:
+        try:
+            parsed = date.fromisoformat(bd)
+            data["birth_date"] = parsed.isoformat()
+            bd_year = parsed.year
+        except ValueError:
+            return _card_redirect(pid, "bad_card")
+    if data.get("idnp") and not re.fullmatch(r"[0-9]{13}", data["idnp"]):
+        return _card_redirect(pid, "bad_card")
+    await db.update_patient(pid, data)
+    if bd_year:
+        # возраст в поиске/сетке/CSV считается по birth_year — держим в синке
+        await db.set_birth_year(pid, bd_year)
+    return _card_redirect(pid, "ok_card")
+
+
+@app.post("/admin/patient/{pid}/alert")
+async def patient_alert_add(request: Request, pid: int,
+                            kind: str = Form(...), text: str = Form(...)):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    if kind not in _ALERT_KINDS or not text.strip():
+        return _card_redirect(pid, "bad_card")
+    await db.add_alert(pid, kind, text.strip()[:120])
+    return _card_redirect(pid, "ok_card")
+
+
+@app.post("/admin/patient/{pid}/alert/{aid}/del")
+async def patient_alert_del(request: Request, pid: int, aid: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    await db.delete_alert(aid, pid)
+    return _card_redirect(pid)
+
+
+@app.post("/admin/patient/{pid}/tooth")
+async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
+                        state: str = Form(...), note: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    if tooth not in _FDI_UPPER + _FDI_LOWER or state not in TOOTH_STATES:
+        return _card_redirect(pid, "bad_card")
+    await db.set_tooth(pid, tooth, state, note.strip()[:120])
+    return _card_redirect(pid, "ok_card")
+
+
+@app.post("/admin/patient/{pid}/plan")
+async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
+                           procedure: str = Form(...), doctor: str = Form(""),
+                           price: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    if not procedure.strip():
+        return _card_redirect(pid, "bad_card")
+    t = int(tooth) if tooth.strip().isdecimal() else None
+    if t is not None and t not in _FDI_UPPER + _FDI_LOWER:
+        t = None
+    pr = int(price) if price.strip().isdecimal() else None
+    if pr is not None:
+        pr = min(pr, 1_000_000)  # клиентский max дублируем на сервере (PG INT)
+    await db.add_plan_item(pid, t, procedure.strip()[:120], doctor.strip()[:80], pr)
+    return _card_redirect(pid, "ok_card")
+
+
+@app.post("/admin/patient/{pid}/plan/{item_id}/status")
+async def patient_plan_status(request: Request, pid: int, item_id: int,
+                              to: str = Form(...)):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if to not in _PLAN_LABEL:
+        return _card_redirect(pid, "bad_card")
+    await db.set_plan_status(item_id, pid, to)
+    return _card_redirect(pid)
+
+
+@app.post("/admin/patient/{pid}/plan/{item_id}/del")
+async def patient_plan_del(request: Request, pid: int, item_id: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    await db.delete_plan_item(item_id, pid)
+    return _card_redirect(pid)
+
+
+@app.post("/admin/patient/{pid}/doc")
+async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File(...)):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    orig = pathlib.Path(file.filename or "document").name[:120] or "document"
+    # whitelist расширения: ':' в имени = NTFS ADS (данные пропадут при копии
+    # на USB/в zip), '?<>|*' = OSError; хвост не из [a-z0-9] просто отбрасываем
+    ext = pathlib.Path(orig).suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,9}", ext):
+        ext = ""
+    stored = _files_dir(pid) / f"{secrets.token_hex(8)}{ext}"
+    size, cap = 0, MAX_DOC_MB * 1024 * 1024
+    try:
+        with open(stored, "wb") as out:
+            while chunk := await file.read(1024 * 256):
+                size += len(chunk)
+                if size > cap:
+                    out.close()
+                    stored.unlink(missing_ok=True)
+                    return _card_redirect(pid, "bad_doc")
+                out.write(chunk)
+    except OSError:
+        stored.unlink(missing_ok=True)  # диск полон и т.п. — не оставляем огрызок
+        return _card_redirect(pid, "bad_doc")
+    finally:
+        await file.close()
+    if size == 0:
+        stored.unlink(missing_ok=True)
+        return _card_redirect(pid, "bad_doc")
+    await db.add_document(pid, orig, str(stored), size, file.content_type or "")
+    return _card_redirect(pid, "ok_doc")
+
+
+@app.get("/admin/doc/{doc_id}")
+async def patient_doc_get(request: Request, doc_id: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    d = await db.get_document(doc_id)
+    if not d or not pathlib.Path(d["stored_path"]).exists():
+        return RedirectResponse("/admin/search", status_code=303)
+    return FileResponse(d["stored_path"], filename=d["filename"],
+                        media_type=d["mime"] or "application/octet-stream")
+
+
+@app.post("/admin/patient/{pid}/doc/{doc_id}/del")
+async def patient_doc_del(request: Request, pid: int, doc_id: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    d = await db.get_document(doc_id)
+    if d and d["patient_id"] == pid:
+        pathlib.Path(d["stored_path"]).unlink(missing_ok=True)
+        await db.delete_document(doc_id, pid)
+    return _card_redirect(pid)
 
 
 # ---------- общая сетка: все врачи ----------

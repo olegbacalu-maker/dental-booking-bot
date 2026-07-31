@@ -53,6 +53,80 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS primary_doctor TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS file_no TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS patient_alerts(
+  id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES patients(id),
+  kind TEXT NOT NULL DEFAULT 'warning',
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS teeth(
+  patient_id INT NOT NULL REFERENCES patients(id),
+  tooth INT NOT NULL,
+  state TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY(patient_id, tooth)
+);
+CREATE TABLE IF NOT EXISTS plan_items(
+  id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES patients(id),
+  tooth INT,
+  procedure TEXT NOT NULL,
+  doctor TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'planificat',
+  price_mdl INT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  done_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS documents(
+  id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES patients(id),
+  filename TEXT NOT NULL,
+  stored_path TEXT NOT NULL,
+  size INT NOT NULL,
+  mime TEXT NOT NULL DEFAULT '',
+  uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+"""
+
+# Этап A2+A4 (v1.6.0) — карточка пациента: алерты, формула FDI, план лечения, документы
+SQLITE_CARD_SCHEMA = """
+CREATE TABLE IF NOT EXISTS patient_alerts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  kind TEXT NOT NULL DEFAULT 'warning',
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS teeth(
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  tooth INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(patient_id, tooth)
+);
+CREATE TABLE IF NOT EXISTS plan_items(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  tooth INTEGER,
+  procedure TEXT NOT NULL,
+  doctor TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'planificat',
+  price_mdl INTEGER,
+  created_at TEXT NOT NULL,
+  done_at TEXT
+);
+CREATE TABLE IF NOT EXISTS documents(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  filename TEXT NOT NULL,
+  stored_path TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  mime TEXT NOT NULL DEFAULT '',
+  uploaded_at TEXT NOT NULL
+);
 """
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -108,7 +182,7 @@ def _parse_dt(value):
     return datetime.fromisoformat(value)
 
 
-_DT_COLS = {"starts_at", "created_at"}
+_DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at"}
 
 
 def _rowdict(row) -> dict:
@@ -179,6 +253,7 @@ async def init(seed_rows: list | None = None) -> None:
                 # I/O) НЕ глотаем — иначе колонка тихо пропадёт и всплывёт позже
                 if "duplicate column" not in str(e).lower():
                     raise
+        await _CONN.executescript(SQLITE_CARD_SCHEMA)
         await _CONN.commit()
     else:
         import asyncpg
@@ -403,12 +478,12 @@ async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
 
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     return await _fetch(
-        """SELECT a.id, a.service, a.doctor, a.starts_at, a.status, a.source,
+        """SELECT a.id, a.patient_id, a.service, a.doctor, a.starts_at, a.status, a.source,
                   a.reminded_day, a.comment, p.name, p.phone, p.birth_year
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.starts_at >= $1 AND a.starts_at < $2
            ORDER BY a.starts_at, a.doctor""",
-        """SELECT a.id, a.service, a.doctor, a.starts_at, a.status, a.source,
+        """SELECT a.id, a.patient_id, a.service, a.doctor, a.starts_at, a.status, a.source,
                   a.reminded_day, a.comment, p.name, p.phone, p.birth_year
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.starts_at >= ? AND a.starts_at < ?
@@ -497,6 +572,163 @@ async def patient_appointments(patient_id: int) -> list:
            ORDER BY starts_at DESC LIMIT 20""",
         patient_id,
     )
+
+
+# ---------- карточка пациента (v1.6.0: A2 зубы+план, A4 документы) ----------
+
+PATIENT_FIELDS = ["name", "phone", "birth_date", "gender", "idnp", "email",
+                  "address", "insurance", "primary_doctor", "file_no", "notes"]
+
+
+async def get_patient(pid: int) -> dict | None:
+    cols = ("id, session_key, name, phone, lang, birth_year, created_at, "
+            + ", ".join(PATIENT_FIELDS[2:]))
+    rows = await _fetch(
+        f"SELECT {cols} FROM patients WHERE id = $1",
+        f"SELECT {cols} FROM patients WHERE id = ?", pid)
+    return rows[0] if rows else None
+
+
+async def update_patient(pid: int, data: dict) -> None:
+    """Обновление профиля: только известные поля, явным списком колонок."""
+    sets_pg = ", ".join(f"{f} = ${i + 2}" for i, f in enumerate(PATIENT_FIELDS))
+    sets_lt = ", ".join(f"{f} = ?" for f in PATIENT_FIELDS)
+    vals = [data.get(f) for f in PATIENT_FIELDS]
+    await _execute(
+        f"UPDATE patients SET {sets_pg} WHERE id = $1",
+        f"UPDATE patients SET {sets_lt} WHERE id = ?",
+        *((pid, *vals) if not IS_SQLITE else (*vals, pid)),
+    )
+
+
+async def set_birth_year(pid: int, year: int) -> None:
+    """Синк года из birth_date: возраст в поиске/сетке считается по birth_year."""
+    await _execute(
+        "UPDATE patients SET birth_year = $2 WHERE id = $1",
+        "UPDATE patients SET birth_year = ? WHERE id = ?",
+        *((pid, year) if not IS_SQLITE else (year, pid)),
+    )
+
+
+async def patient_alerts(pid: int) -> list:
+    return await _fetch(
+        "SELECT id, kind, text FROM patient_alerts WHERE patient_id = $1 ORDER BY id",
+        "SELECT id, kind, text FROM patient_alerts WHERE patient_id = ? ORDER BY id", pid)
+
+
+async def add_alert(pid: int, kind: str, text: str) -> None:
+    await _execute(
+        "INSERT INTO patient_alerts(patient_id, kind, text) VALUES($1, $2, $3)",
+        "INSERT INTO patient_alerts(patient_id, kind, text, created_at) VALUES(?, ?, ?, ?)",
+        *((pid, kind, text) if not IS_SQLITE else (pid, kind, text, _utcnow_iso())),
+    )
+
+
+async def delete_alert(alert_id: int, pid: int) -> None:
+    await _execute(
+        "DELETE FROM patient_alerts WHERE id = $1 AND patient_id = $2",
+        "DELETE FROM patient_alerts WHERE id = ? AND patient_id = ?", alert_id, pid)
+
+
+async def teeth_map(pid: int) -> dict:
+    rows = await _fetch(
+        "SELECT tooth, state, note FROM teeth WHERE patient_id = $1",
+        "SELECT tooth, state, note FROM teeth WHERE patient_id = ?", pid)
+    return {r["tooth"]: r for r in rows}
+
+
+async def set_tooth(pid: int, tooth: int, state: str, note: str) -> None:
+    """'ok' без заметки = зуб здоров → строка удаляется (карта sparse)."""
+    if state == "ok" and not note:
+        await _execute("DELETE FROM teeth WHERE patient_id = $1 AND tooth = $2",
+                       "DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
+        return
+    pg = """INSERT INTO teeth(patient_id, tooth, state, note, updated_at)
+            VALUES($1, $2, $3, $4, now())
+            ON CONFLICT (patient_id, tooth) DO UPDATE
+              SET state = EXCLUDED.state, note = EXCLUDED.note, updated_at = now()"""
+    lt = """INSERT INTO teeth(patient_id, tooth, state, note, updated_at)
+            VALUES(?, ?, ?, ?, ?)
+            ON CONFLICT(patient_id, tooth) DO UPDATE
+              SET state = excluded.state, note = excluded.note, updated_at = excluded.updated_at"""
+    await _execute(pg, lt, *((pid, tooth, state, note) if not IS_SQLITE
+                             else (pid, tooth, state, note, _utcnow_iso())))
+
+
+async def plan_items(pid: int) -> list:
+    return await _fetch(
+        """SELECT id, tooth, procedure, doctor, status, price_mdl
+           FROM plan_items WHERE patient_id = $1 ORDER BY id""",
+        """SELECT id, tooth, procedure, doctor, status, price_mdl
+           FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
+
+
+async def add_plan_item(pid: int, tooth: int | None, procedure: str,
+                        doctor: str, price_mdl: int | None) -> None:
+    await _execute(
+        """INSERT INTO plan_items(patient_id, tooth, procedure, doctor, price_mdl)
+           VALUES($1, $2, $3, $4, $5)""",
+        """INSERT INTO plan_items(patient_id, tooth, procedure, doctor, price_mdl,
+                                  created_at) VALUES(?, ?, ?, ?, ?, ?)""",
+        *((pid, tooth, procedure, doctor, price_mdl) if not IS_SQLITE
+          else (pid, tooth, procedure, doctor, price_mdl, _utcnow_iso())),
+    )
+
+
+async def set_plan_status(item_id: int, pid: int, status: str) -> None:
+    done = status == "finalizat"
+    await _execute(
+        f"""UPDATE plan_items SET status = $1,
+              done_at = {'now()' if done else 'NULL'}
+            WHERE id = $2 AND patient_id = $3""",
+        f"""UPDATE plan_items SET status = ?,
+              done_at = {'?' if done else 'NULL'}
+            WHERE id = ? AND patient_id = ?""",
+        *((status, item_id, pid) if not IS_SQLITE
+          else ((status, _utcnow_iso(), item_id, pid) if done
+                else (status, item_id, pid))),
+    )
+
+
+async def delete_plan_item(item_id: int, pid: int) -> None:
+    await _execute(
+        "DELETE FROM plan_items WHERE id = $1 AND patient_id = $2",
+        "DELETE FROM plan_items WHERE id = ? AND patient_id = ?", item_id, pid)
+
+
+async def documents(pid: int) -> list:
+    return await _fetch(
+        """SELECT id, filename, size, mime, uploaded_at
+           FROM documents WHERE patient_id = $1 ORDER BY id DESC""",
+        """SELECT id, filename, size, mime, uploaded_at
+           FROM documents WHERE patient_id = ? ORDER BY id DESC""", pid)
+
+
+async def add_document(pid: int, filename: str, stored_path: str,
+                       size: int, mime: str) -> None:
+    await _execute(
+        """INSERT INTO documents(patient_id, filename, stored_path, size, mime)
+           VALUES($1, $2, $3, $4, $5)""",
+        """INSERT INTO documents(patient_id, filename, stored_path, size, mime,
+                                 uploaded_at) VALUES(?, ?, ?, ?, ?, ?)""",
+        *((pid, filename, stored_path, size, mime) if not IS_SQLITE
+          else (pid, filename, stored_path, size, mime, _utcnow_iso())),
+    )
+
+
+async def get_document(doc_id: int) -> dict | None:
+    rows = await _fetch(
+        """SELECT id, patient_id, filename, stored_path, size, mime
+           FROM documents WHERE id = $1""",
+        """SELECT id, patient_id, filename, stored_path, size, mime
+           FROM documents WHERE id = ?""", doc_id)
+    return rows[0] if rows else None
+
+
+async def delete_document(doc_id: int, pid: int) -> None:
+    await _execute(
+        "DELETE FROM documents WHERE id = $1 AND patient_id = $2",
+        "DELETE FROM documents WHERE id = ? AND patient_id = ?", doc_id, pid)
 
 
 async def set_comment(appt_id: int, text: str) -> None:
