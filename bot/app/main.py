@@ -30,8 +30,7 @@ STATIC = pathlib.Path(__file__).parent / "static"
 # Cloud (Postgres): по-прежнему ADMIN_KEY из .env.
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
 
-# TODO: заменить на новую почту DentPilot, как только Олег её заведёт
-FEEDBACK_EMAIL = "dentartpro@gmail.com"
+FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
 
 
 def _data_dir() -> pathlib.Path | None:
