@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import urllib.parse
 from datetime import date, datetime, timedelta
 
@@ -23,18 +24,68 @@ app = FastAPI(title="DentArt Demo Bot")
 
 STATIC = pathlib.Path(__file__).parent / "static"
 
-# --- защита журнала: ADMIN_KEY в .env; пусто = открыто (режим демо) ---
+# --- защита журнала ---
+# Desktop (SQLite): PIN 4–6 цифр, ставится в самом приложении (data/auth.json,
+# hash+salt); «забыл PIN» = удалить этот файл → снова экран установки.
+# Cloud (Postgres): по-прежнему ADMIN_KEY из .env.
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
-NO_KEY_WARN = "" if ADMIN_KEY else " · ⚠️ fără parolă — setați ADMIN_KEY în .env"
+
+
+def _data_dir() -> pathlib.Path | None:
+    if db.IS_SQLITE:
+        return pathlib.Path(db.DATABASE_URL.split("///", 1)[1]).parent
+    return None
+
+
+def _auth_path() -> pathlib.Path | None:
+    d = _data_dir()
+    return d / "auth.json" if d else None
+
+
+def _pin_rec() -> dict | None:
+    p = _auth_path()
+    if p and p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+    return None
+
+
+def _pin_hash(pin: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
+
+
+def _secret() -> str:
+    rec = _pin_rec()
+    if rec:
+        return rec.get("hash", "")
+    return ADMIN_KEY
+
+
+def _sec_warn() -> str:
+    if _secret() or db.IS_SQLITE:
+        return ""
+    return " · ⚠️ fără parolă — setați ADMIN_KEY în .env"
 
 
 def _cookie_sig() -> str:
-    return hmac.new(ADMIN_KEY.encode(), b"dentart-admin-v1", hashlib.sha256).hexdigest()
+    return hmac.new(_secret().encode(), b"dentart-admin-v1", hashlib.sha256).hexdigest()
+
+
+def _set_auth_cookie(resp: RedirectResponse) -> RedirectResponse:
+    resp.set_cookie("admin_auth", _cookie_sig(), max_age=60 * 60 * 24 * 30,
+                    httponly=True, samesite="lax")
+    return resp
 
 
 def _guard(request: Request) -> RedirectResponse | None:
-    if not ADMIN_KEY:
-        return None
+    sec = _secret()
+    if not sec:
+        if db.IS_SQLITE:
+            # desktop без PIN — принудительная первичная установка
+            return RedirectResponse("/admin/setup", status_code=303)
+        return None  # облачный демо-режим без ключа
     if hmac.compare_digest(request.cookies.get("admin_auth", ""), _cookie_sig()):
         return None
     q = str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
@@ -58,9 +109,17 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
   <h1>🦷 __CLINIC__ — registrul clinicii</h1>
   __ERR__
   <input type="hidden" name="next" value="__NEXT__">
-  <input type="password" name="password" placeholder="Parola" autofocus required>
+  __INPUT__
   <button>Intră</button>
+  __HINT__
 </form></body></html>"""
+
+PIN_INPUT = ("<input type='password' name='password' placeholder='PIN' autofocus required "
+             "inputmode='numeric' pattern='[0-9]*' maxlength='6' "
+             "style='text-align:center;font-size:28px;letter-spacing:12px'>")
+PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"
+PIN_HINT = ("<div style='color:#889;font-size:12px'>PIN uitat? Închideți programul și "
+            "ștergeți fișierul <b>data\\auth.json</b> — la pornire veți seta un PIN nou.</div>")
 
 STATUS_LABEL = {
     "confirmed": "✅ confirmată",
@@ -77,6 +136,8 @@ MSG_BANNER = {
     "ok_comment": ("ok", "Comentariu salvat ✔"),
     "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
+    "ok_pin": ("ok", "PIN schimbat ✔"),
+    "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
 }
 
@@ -203,7 +264,7 @@ def _shell(body: str, sub: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title><style>{PANEL_CSS}</style></head><body>
 <h1>🦷 <a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
-<div class="sub">{sub}{NO_KEY_WARN} · v{eng.APP_VERSION}{_update_banner()}</div>
+<div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}{_update_banner()}</div>
 {body}
 {REFRESH_JS}</body></html>"""
 
@@ -540,24 +601,108 @@ async def chat(payload: dict):
 
 @app.get("/admin/login", response_class=HTMLResponse)
 async def admin_login_page(next: str = "/admin", err: str = ""):
-    if not ADMIN_KEY:
+    if not _secret():
         return RedirectResponse("/admin", status_code=303)
-    err_html = "<div class='err'>Parolă greșită</div>" if err else ""
+    pin_mode = _pin_rec() is not None
+    err_html = ("<div class='err'>PIN greșit</div>" if pin_mode
+                else "<div class='err'>Parolă greșită</div>") if err else ""
     nxt = next if next.startswith("/admin") else "/admin"
     return (LOGIN_TMPL.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
-            .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt)))
+            .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
+            .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT)
+            .replace("__HINT__", PIN_HINT if pin_mode else ""))
 
 
 @app.post("/admin/login")
 async def admin_login(password: str = Form(...), next_url: str = Form("/admin", alias="next")):
     target = next_url if next_url.startswith("/admin") else "/admin"
-    if ADMIN_KEY and hmac.compare_digest(password.strip(), ADMIN_KEY):
-        resp = RedirectResponse(target, status_code=303)
-        resp.set_cookie("admin_auth", _cookie_sig(), max_age=60 * 60 * 24 * 30,
-                        httponly=True, samesite="lax")
-        return resp
+    pw = password.strip()
+    rec = _pin_rec()
+    if rec:
+        ok = hmac.compare_digest(_pin_hash(pw, rec.get("salt", "")), rec.get("hash", ""))
+    else:
+        ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
+    if ok:
+        return _set_auth_cookie(RedirectResponse(target, status_code=303))
     return RedirectResponse(
         f"/admin/login?err=1&next={urllib.parse.quote(target, safe='')}", status_code=303)
+
+
+SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__CLINIC__ — PIN</title><style>
+ body{font-family:system-ui,'Segoe UI',sans-serif;background:#075e54;display:flex;
+      align-items:center;justify-content:center;height:100vh;margin:0}
+ form{background:#fff;padding:28px 32px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.25);
+      display:flex;flex-direction:column;gap:12px;width:340px}
+ h1{font-size:17px;color:#075e54;margin:0}
+ p{color:#667;font-size:13px;margin:0}
+ input{padding:10px;border:1px solid #ccd4d4;border-radius:8px;font-size:26px;
+       text-align:center;letter-spacing:12px}
+ button{background:#075e54;color:#fff;border:none;border-radius:8px;padding:12px;
+        font-size:15px;cursor:pointer}
+ .err{color:#c62828;font-size:13px}
+</style></head><body>
+<form method="post" action="/admin/setup">
+  <h1>🦷 __CLINIC__</h1>
+  <p>Prima pornire: setați un PIN pentru registrul clinicii (4–6 cifre).</p>
+  __ERR__
+  <input type="password" name="pin1" placeholder="PIN" inputmode="numeric"
+         pattern="[0-9]*" maxlength="6" autofocus required>
+  <input type="password" name="pin2" placeholder="repetați PIN" inputmode="numeric"
+         pattern="[0-9]*" maxlength="6" required>
+  <button>Setează PIN</button>
+</form></body></html>"""
+
+
+def _setup_allowed() -> bool:
+    return db.IS_SQLITE and _pin_rec() is None and not ADMIN_KEY
+
+
+@app.get("/admin/setup", response_class=HTMLResponse)
+async def admin_setup_page(err: str = ""):
+    if not _setup_allowed():
+        return RedirectResponse("/admin", status_code=303)
+    err_html = "<div class='err'>PIN-urile nu coincid sau nu au 4–6 cifre</div>" if err else ""
+    return (SETUP_TMPL.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
+            .replace("__ERR__", err_html))
+
+
+def _write_pin(pin: str) -> None:
+    salt = secrets.token_hex(8)
+    _auth_path().write_text(
+        json.dumps({"salt": salt, "hash": _pin_hash(pin, salt)}),
+        encoding="utf-8",
+    )
+
+
+@app.post("/admin/setup")
+async def admin_setup(pin1: str = Form(...), pin2: str = Form(...)):
+    if not _setup_allowed():
+        return RedirectResponse("/admin", status_code=303)
+    p1, p2 = pin1.strip(), pin2.strip()
+    if p1 != p2 or not p1.isdigit() or not (4 <= len(p1) <= 6):
+        return RedirectResponse("/admin/setup?err=1", status_code=303)
+    _write_pin(p1)
+    return _set_auth_cookie(RedirectResponse("/admin", status_code=303))
+
+
+@app.post("/admin/pin/change")
+async def admin_pin_change(request: Request, old_pin: str = Form(...),
+                           new1: str = Form(...), new2: str = Form(...)):
+    if (deny := _guard(request)) is not None:
+        return deny
+    rec = _pin_rec()
+    if not rec:
+        return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
+    if not hmac.compare_digest(_pin_hash(old_pin.strip(), rec.get("salt", "")),
+                               rec.get("hash", "")):
+        return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
+    n1, n2 = new1.strip(), new2.strip()
+    if n1 != n2 or not n1.isdigit() or not (4 <= len(n1) <= 6):
+        return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
+    _write_pin(n1)
+    return _set_auth_cookie(RedirectResponse("/admin/settings?msg=ok_pin", status_code=303))
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -725,7 +870,17 @@ async def admin_settings(request: Request, msg: str = ""):
 <tr><th>Bază de date</th><td>{"SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"}</td></tr>
 <tr><th>Canal Telegram</th><td>{tg_line}</td></tr>
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
+<tr><th>Acces jurnal</th><td>{"🔒 PIN setat" if _pin_rec() else ("🔒 parolă (ADMIN_KEY)" if ADMIN_KEY else "🔓 deschis")}</td></tr>
 </table>"""
+    if _pin_rec():
+        status_tbl += """
+<h2>🔒 Schimbă PIN</h2>
+<form class='add' method='post' action='/admin/pin/change'>
+  <input type='password' name='old_pin' placeholder='PIN actual' inputmode='numeric' maxlength='6' required style='width:140px'>
+  <input type='password' name='new1' placeholder='PIN nou' inputmode='numeric' maxlength='6' required style='width:140px'>
+  <input type='password' name='new2' placeholder='repetați' inputmode='numeric' maxlength='6' required style='width:140px'>
+  <button>Schimbă</button>
+</form>"""
 
     body = f"""
 <div class='nav'><a href='/admin'>🏠 Panou</a></div>
