@@ -30,6 +30,8 @@ STATIC = pathlib.Path(__file__).parent / "static"
 # Cloud (Postgres): по-прежнему ADMIN_KEY из .env.
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
 
+FEEDBACK_EMAIL = "dentartpro@gmail.com"
+
 
 def _data_dir() -> pathlib.Path | None:
     if db.IS_SQLITE:
@@ -236,6 +238,12 @@ PANEL_CSS = """
  .act button{border:none;border-radius:4px;padding:3px 8px;margin-right:4px;cursor:pointer;font-size:12px;color:#fff}
  .b-done{background:#3466c4}.b-noshow{background:#d23c3c}.b-cancel{background:#888}
  .hint{color:#999;font-size:12px;margin-top:10px}
+ .brandcorner{position:fixed;right:14px;bottom:10px;font-size:12px;color:#8a9;
+   background:rgba(255,255,255,.92);padding:5px 12px;border-radius:14px;
+   box-shadow:0 1px 4px rgba(0,0,0,.12);z-index:50}
+ .brandcorner b{color:#075e54}
+ .brandcorner a{color:#075e54;text-decoration:none;font-weight:600}
+ .brandcorner a:hover{text-decoration:underline}
 """
 
 REFRESH_JS = """
@@ -263,12 +271,18 @@ def _update_banner() -> str:
 
 
 def _shell(body: str, sub: str) -> str:
+    fb_subject = urllib.parse.quote(
+        f"Feedback DentArt — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
+    fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title><style>{PANEL_CSS}</style></head><body>
 <h1>🦷 <a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}{_update_banner()}</div>
 {body}
+<div class="brandcorner">🦷 <b>DentArt</b> ·
+<a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
+   title="{FEEDBACK_EMAIL}">💬 Feedback</a></div>
 {REFRESH_JS}</body></html>"""
 
 
@@ -903,6 +917,7 @@ async def admin_settings(request: Request, msg: str = ""):
 <tr><th>Canal Telegram</th><td>{tg_line}</td></tr>
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 <tr><th>Acces jurnal</th><td>{"🔒 PIN setat" if _pin_rec() else ("🔒 parolă (ADMIN_KEY)" if ADMIN_KEY else "🔓 deschis")}</td></tr>
+<tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
 </table>"""
     if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
         tok_set = bool(os.environ.get("TELEGRAM_TOKEN", "").strip())
