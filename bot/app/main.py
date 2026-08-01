@@ -516,6 +516,10 @@ def _update_banner() -> str:
         return (f" · <a href='/admin/settings' "
                 f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
                 f"{html.escape(upd.STATE['latest'])} — click pentru actualizare</a>")
+    if upd.asset_pending() and upd.is_desktop():
+        # релиз есть, файла в нём ещё нет — честно говорим и НЕ шлём на GitHub
+        return (f" · <span style='color:var(--text3)'>🔄 {html.escape(upd.STATE['latest'])} "
+                f"se pregătește…</span>")
     if upd.newer_available():
         return (f" · <a href='{html.escape(upd.STATE['url'])}' target='_blank' "
                 f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
@@ -1540,6 +1544,10 @@ async def admin_settings(request: Request, msg: str = ""):
             f"padding:6px 14px;cursor:pointer;font-size:14px;margin-left:8px'>"
             f"⬆️ Actualizează acum</button></form>"
         )
+    elif upd.asset_pending() and upd.is_desktop():
+        up_line = (f"🕐 versiunea {html.escape(upd.STATE['latest'])} este anunțată, "
+                   f"dar fișierul programului încă nu e publicat — "
+                   f"reverificăm automat peste câteva minute")
     elif upd.newer_available():
         up_line = (f"<a href='{html.escape(upd.STATE['url'])}' target='_blank'>"
                    f"🔄 disponibilă {html.escape(upd.STATE['latest'])} — descărcați</a>")
@@ -1549,6 +1557,10 @@ async def admin_settings(request: Request, msg: str = ""):
         up_line = "— necunoscut (offline?)"
     else:
         up_line = "se verifică…"
+    up_line += ("<form method='post' action='/admin/update/check' style='display:inline'>"
+                "<button style='background:none;border:1px solid var(--line);border-radius:8px;"
+                "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"
+                "margin-left:10px'>🔄 Verifică acum</button></form>")
     status_tbl = f"""
 <h2>ℹ️ Stare sistem</h2>
 <table class='set'>
@@ -1797,6 +1809,16 @@ def _build_config(data: dict) -> dict:
               + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ru')}",
     }
     return cfg
+
+
+@app.post("/admin/update/check")
+def admin_update_check(request: Request):
+    """Проверить обновления прямо сейчас — не ждать следующего цикла.
+    Синхронный def → threadpool, сетевой запрос не блокирует сервер."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    upd.check_now()
+    return RedirectResponse("/admin/settings", status_code=303)
 
 
 @app.post("/admin/update/run", response_class=HTMLResponse)

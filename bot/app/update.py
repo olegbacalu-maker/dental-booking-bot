@@ -42,6 +42,11 @@ def can_self_update() -> bool:
     return is_desktop() and newer_available() and bool(STATE["asset_url"])
 
 
+def asset_pending() -> bool:
+    """Новая версия видна, но файла в релизе нет — обновиться нечем."""
+    return newer_available() and not STATE["asset_url"]
+
+
 def _check() -> None:
     fake = os.environ.get("DENTART_FAKE_UPDATE_URL", "").strip()
     if fake:
@@ -65,9 +70,18 @@ def _check() -> None:
     except Exception as e:  # noqa: BLE001 — оффлайн/404 не должны ничего ломать
         STATE.update(checked=True, error=str(e))
     finally:
-        t = threading.Timer(6 * 3600, _check)
+        # Релиз опубликован, но exe ещё не приложен (или как раз заливается,
+        # 28 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
+        # клиника полдня видит «новая версия», которую нельзя поставить.
+        delay = 300 if (newer_available() and not STATE["asset_url"]) else 6 * 3600
+        t = threading.Timer(delay, _check)
         t.daemon = True
         t.start()
+
+
+def check_now() -> None:
+    """Принудительная проверка из настроек (кнопка «Verifică acum»)."""
+    _check()
 
 
 def check_async() -> None:
