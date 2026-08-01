@@ -9,6 +9,7 @@ import os
 import pathlib
 import re
 import secrets
+import sys
 import urllib.parse
 from datetime import date, datetime, timedelta
 
@@ -274,12 +275,12 @@ PANEL_CSS = """
  .gh-doc .nm small{display:block;font-size:11px;color:var(--text3);white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
  .gh-doc .st{width:8px;height:8px;border-radius:50%;margin-left:auto;flex:0 0 8px}
- .gridbody{display:flex;position:relative}
+ .gridbody{display:flex;position:relative;--cell:56px}
  .gcol-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2);background:var(--bg)}
- .gcol-time div{height:56px;font-size:11px;color:var(--text3);text-align:right;padding:4px 8px 0}
+ .gcol-time div{height:var(--cell);font-size:11px;color:var(--text3);text-align:right;padding:4px 8px 0}
  .gcol{flex:1;min-width:0;border-right:1px solid var(--line2);position:relative}
  .gcol:last-child{border-right:none}
- .gcell{height:56px;border-bottom:1px solid var(--line2);cursor:pointer;position:relative}
+ .gcell{height:var(--cell);border-bottom:1px solid var(--line2);cursor:pointer;position:relative}
  .gcell:hover{background:var(--teal-soft)}
  .gcell:hover::after{content:'+';position:absolute;inset:0;display:flex;align-items:center;
    justify-content:center;color:var(--teal);font-size:18px}
@@ -523,12 +524,14 @@ def _update_banner() -> str:
 
 
 def _tg_state() -> tuple[bool, str]:
-    try:
-        from . import telegram as tgmod
-        st = tgmod.STATUS
-        return bool(st["running"]), st.get("username", "")
-    except Exception:  # noqa: BLE001
+    """Статус Telegram-канала БЕЗ импорта адаптера: import aiogram занимает
+    секунды, а это горячий путь (сайдбар на каждой странице). Модуль уже
+    импортирован в startup(), если токен задан — берём из sys.modules."""
+    mod = sys.modules.get(f"{__package__}.telegram")
+    if mod is None:
         return False, ""
+    st = mod.STATUS
+    return bool(st["running"]), st.get("username", "")
 
 
 _I = {  # компактные stroke-иконки сайдбара
@@ -1167,7 +1170,6 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     if not hours:
         return "<div class='gridcard' style='padding:28px;text-align:center;color:var(--text3)'>Zi liberă — clinica este închisă</div>"
     idx = {h: i for i, h in enumerate(hours)}
-    cell = 56
     active: dict = {}
     for r in live:
         key = (r["doctor"], r["starts_at"].astimezone(eng.TZ).hour)
@@ -1178,12 +1180,12 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         for (doc, h), rs in active.items():
             if doc != name or h not in idx:
                 continue
-            top = idx[h] * cell + 3
             n = len(rs)
             # коллизия (done/noshow + новая бронь на тот же час) — делим ширину,
             # confirmed рисуем последним (поверх/правее), ничего не теряем
             for j, r in enumerate(sorted(rs, key=lambda x: x["status"] == "confirmed")):
-                pos = (f"top:{top}px;height:{cell - 8}px;"
+                pos = (f"top:calc({idx[h]}*var(--cell) + 3px);"
+                       f"height:calc(var(--cell) - 8px);"
                        f"left:calc({j}*(100% - 8px)/{n} + 4px);"
                        f"width:calc((100% - 8px)/{n} - 2px)")
                 if r["source"] == "note":
@@ -1244,12 +1246,28 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     now = datetime.now(eng.TZ)
     nowline = ""
     if d == now.date() and now.hour in idx:
-        top = idx[now.hour] * cell + now.minute / 60 * cell
-        nowline = f"<div class='nowline' style='top:{top:.0f}px'></div>"
+        frac = idx[now.hour] + now.minute / 60
+        nowline = f"<div class='nowline' style='top:calc({frac:.3f}*var(--cell))'></div>"
     timecol = "".join(f"<div>{h:02d}:00</div>" for h in hours)
+    # fitGrid: день заполняет окно до низа — высота ячейки тянется под вьюпорт
+    # (короткая суббота не оставляет пустую страницу), минимум 56px + прокрутка
+    fit_js = f"""<script>
+function fitGrid() {{
+  var gb = document.querySelector('.gridbody'), n = {len(hours)};
+  if (!gb) return;
+  gb.style.setProperty('--cell', '56px');
+  var c = Math.max(56, Math.floor((window.innerHeight - gb.getBoundingClientRect().top - 24) / n));
+  gb.style.setProperty('--cell', c + 'px');
+  var over = document.documentElement.scrollHeight - window.innerHeight;
+  if (over > 0) gb.style.setProperty('--cell', Math.max(56, c - Math.ceil(over / n)) + 'px');
+}}
+fitGrid();                                  // сразу, чтобы не мигало
+document.addEventListener('DOMContentLoaded', fitGrid);  // и когда виден весь макет
+window.addEventListener('resize', fitGrid);
+</script>"""
     return (f"<div class='gridcard'>{''.join(head)}"
             f"<div class='gridbody'><div class='gcol-time'>{timecol}</div>"
-            f"{''.join(cols)}{nowline}</div></div>")
+            f"{''.join(cols)}{nowline}</div></div>{fit_js}")
 
 
 def _botnew_block(recent: list, now: datetime) -> str:
@@ -1506,11 +1524,8 @@ async def admin_settings(request: Request, msg: str = ""):
         cls, text = MSG_BANNER[msg]
         banner = f"<div class='banner {cls}'>{text}</div>"
 
-    try:
-        from . import telegram as tgmod
-        tg_status = tgmod.STATUS
-    except Exception:  # noqa: BLE001
-        tg_status = {"running": False, "username": "", "error": ""}
+    tgmod = sys.modules.get(f"{__package__}.telegram")
+    tg_status = tgmod.STATUS if tgmod else {"running": False, "username": "", "error": ""}
     if tg_status["running"]:
         tg_line = f"✅ activ — @{html.escape(tg_status['username'])}"
     elif os.environ.get("TELEGRAM_TOKEN", "").strip():
@@ -2688,11 +2703,7 @@ async def admin_status(request: Request, appt_id: int, to: str = Form(...), back
 async def admin_qr_print(request: Request):
     if (deny := _guard(request)) is not None:
         return deny
-    try:
-        from . import telegram as tgmod
-        username = tgmod.STATUS.get("username", "") if tgmod.STATUS.get("running") else ""
-    except Exception:  # noqa: BLE001
-        username = ""
+    _run, username = _tg_state()
     if not username:
         return _shell(
             "<div class='banner err'>Botul Telegram nu este activ — setați tokenul în "
