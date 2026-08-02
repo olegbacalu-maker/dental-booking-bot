@@ -1365,9 +1365,15 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 return h
         return None
 
+    # выключенный врач исчезает из расписания; если на этот день у него ещё
+    # остались записи — колонка держится с пометкой «inactiv», пока их не разберут
+    shown = [(dk, name) for dk, name in eng.DOCTORS.items()
+             if eng.DOCTOR_META.get(dk, {}).get("active", True)
+             or by_col.get(f"k:{dk}")]
+
     head = ["<div class='gridhead'><div class='gh-time'></div>"]
     cols = []
-    for i, (dk, name) in enumerate(eng.DOCTORS.items()):
+    for i, (dk, name) in enumerate(shown):
         col_key = f"k:{dk}"
         hue = eng.DOCTOR_META.get(dk, {}).get("color") or _DOC_HUES[i % len(_DOC_HUES)]
         mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
@@ -1388,8 +1394,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # легаси-строки без id со старым именем (переименовали ДО v1.7.1) —
     # видимы отдельной колонкой + инструмент «переприкрепить к врачу»:
     # без этого их будущие брони невидимы для проверки занятости
-    known = {f"k:{dk}" for dk in eng.DOCTORS}
-    orphans = sorted(set(by_col) - known)
+    known = {f"k:{dk}" for dk, _n in shown}
+    orphans = sorted(set(by_col) - known - {f"k:{dk}" for dk in eng.DOCTORS})
     for col_key in orphans:
         name = col_key[2:]
         mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
@@ -2268,12 +2274,17 @@ async def admin_stats(
         # по стабильному id (v1.7.1): переименование врача не обнуляет историю
         mine = [r for r in act if r.get("doctor_id") == dk
                 or (not r.get("doctor_id") and r["doctor"] == name)]
+        off = not eng.DOCTOR_META.get(dk, {}).get("active", True)
+        if off and not mine:
+            continue  # выключенный врач без записей за период — не мусорим нулями
         ns = sum(1 for r in mine if r["status"] == "noshow")
         cap_min = sum(eng.work_minutes(dk, day) for day in days)
         busy_min = sum(int(r.get("duration_min") or 60) for r in mine)
         pct = round(100 * busy_min / cap_min) if cap_min else 0
         doc_rows.append(
-            f"<tr><td>{html.escape(name)}</td><td>{len(mine)}</td><td>{ns}</td>"
+            f"<tr><td>{html.escape(name)}"
+            f"{' <small style=\"color:var(--text3)\">· inactiv</small>' if off else ''}</td>"
+            f"<td>{len(mine)}</td><td>{ns}</td>"
             f"<td style='min-width:160px'>{pct}%<div class='statbar'><div style='width:{min(pct,100)}%'></div></div></td></tr>"
         )
     doctors_tbl = ("<h2>Medici</h2><table class='list'>"
@@ -2916,7 +2927,12 @@ async def admin_all(
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
     active = _active_map(rows)
-    items = list(eng.DOCTORS.items())
+    # неактивный врач в сетке — только пока у него есть записи этого дня
+    busy_keys = {r.get("doctor_id") for r in rows if r["status"] != "cancelled"}
+    busy_names = {r["doctor"] for r in rows if r["status"] != "cancelled"}
+    items = [(dk, n) for dk, n in eng.DOCTORS.items()
+             if eng.DOCTOR_META.get(dk, {}).get("active", True)
+             or dk in busy_keys or n in busy_names]
     flt = _TILE_FILTERS.get(f)
     back = f"/admin/all?date={d.isoformat()}" + (f"&f={f}" if flt else "")
 
