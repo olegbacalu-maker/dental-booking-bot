@@ -221,16 +221,20 @@ def main() -> None:
 
     threading.Thread(target=_run_server, daemon=True).start()
     if not _wait_ready() or not _already_running():
-        # порт занят чужой программой: bind умер в daemon-потоке —
-        # без этой проверки окно молча показало бы ЧУЖОЙ сервер
-        logging.error("Server failed to start on port %s (occupied by another app?)", PORT)
+        # различаем ДВЕ разные беды: порт перехватили после нашей пробы ИЛИ
+        # сервер упал сам (раньше во втором случае врали про порт)
+        port_taken = not _port_free_probe() and not _already_running()
+        logging.error("Server did not start on port %s (port_taken=%s)", PORT, port_taken)
+        if port_taken:
+            warn = (f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
+                    f"Inchideti programul care ocupa portul sau setati DENTART_PORT in dental.env.")
+        else:
+            warn = ("DentPilot nu a putut porni din cauza unei erori interne.\n"
+                    "Detalii: data\\dentpilot.log (ultimele linii).\n"
+                    "Trimiteti fisierul la dentpilotpro@gmail.com — va ajutam.")
         try:
             import ctypes
-            ctypes.windll.user32.MessageBoxW(
-                None,
-                f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
-                f"Închideți programul care ocupă portul sau setați DENTART_PORT în dental.env.",
-                "DentPilot", 0x10)
+            ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)
         except Exception:  # noqa: BLE001 — не-Windows/без user32
             pass
         return

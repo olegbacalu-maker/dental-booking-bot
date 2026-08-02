@@ -15,7 +15,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.8.1"
 
 
 def _load_config() -> dict:
@@ -110,6 +110,7 @@ T_BASE = {
         "urgent_call": "⚠️ Dacă durerea e insuportabilă — sunați-ne chiar acum: {PHONE}",
         "btn_otherday": "📅 Altă zi",
         "one_doctor": "Acest serviciu îl face {doctor}.",
+        "svc_unavailable": "Acest serviciu nu este disponibil momentan. Sunați-ne: {PHONE}",
         "contacts": "📍 str. Ștefan cel Mare 1, Cahul\n☎️ +373 60 000 000\n🕘 Lu–Vi 9:00–18:00, Sâ 9:00–14:00",
         "btn_menu": "◀️ Meniu",
         "fallback": "Nu am înțeles 🙂 Folosiți butoanele de mai jos.",
@@ -153,6 +154,7 @@ T_BASE = {
         "urgent_call": "⚠️ Если боль очень сильная — позвоните нам прямо сейчас: {PHONE}",
         "btn_otherday": "📅 Другой день",
         "one_doctor": "Эту услугу выполняет {doctor}.",
+        "svc_unavailable": "Эта услуга сейчас недоступна. Позвоните нам: {PHONE}",
         "contacts": "📍 ул. Штефан чел Маре 1, Кахул\n☎️ +373 60 000 000\n🕘 Пн–Пт 9:00–18:00, Сб 9:00–14:00",
         "btn_menu": "◀️ Меню",
         "fallback": "Не понял 🙂 Пользуйтесь кнопками ниже.",
@@ -437,6 +439,8 @@ def day_rows(s: Session) -> list[list[dict]]:
 def service_rows(s: Session) -> list[list[dict]]:
     rows = []
     for k, v in SERVICES.items():
+        if not allowed_doc_items(k):
+            continue  # услугу временно некому выполнять — не предлагаем
         label = ("🆘 " + v[s.lang]) if v.get("urgent") else v[s.lang]
         rows.append([btn(label, f"svc:{k}")])
     return rows
@@ -511,14 +515,19 @@ def build_seed_rows() -> list[tuple]:
     # чтобы 90-минутные демо-записи не пересекались со следующими
     cursor = usable[0]
     day_end = usable[-1] + timedelta(hours=1)
-    for i, (key, svc) in enumerate(SERVICES.items()):
+    i = 0
+    for key, svc in SERVICES.items():
         if i >= len(demo_people):
             break
         dur = svc_duration(key)
         if cursor + timedelta(minutes=dur) > day_end:
             break
-        dk, doctor = allowed_doc_items(key)[0]
+        items = allowed_doc_items(key)
+        if not items:
+            continue  # услугу некому выполнять (врач выключен) — не падаем
+        dk, doctor = items[0]
         name, phone, year = demo_people[i]
+        i += 1
         rows.append((name, phone, svc["ro"], doctor, cursor, year, dk, key, dur))
         step = ((dur + 59) // 60) * 60  # следующий сид с чистого часа
         cursor += timedelta(minutes=step)
@@ -676,12 +685,16 @@ async def handle(s: Session, sid: str, msg: str):
         key = msg[4:]
         if key not in SERVICES:
             return await fallback(s)
+        allowed = allowed_doc_items(key)
+        if not allowed:
+            # все врачи услуги выключены — честно говорим и возвращаем в меню
+            s.state = "menu"
+            return [t(s, "svc_unavailable")], menu_buttons(s)
         s.data["svc"] = key
         if SERVICES[key].get("urgent"):
             # острая боль: без выбора врача, сразу ближайшие окна (включая сегодня)
             s.data["doc"] = "any"
             return await render_urgent(s)
-        allowed = allowed_doc_items(key)
         if len(allowed) == 1:
             # услугу делает один врач — не задаём лишний вопрос
             s.data["doc"] = allowed[0][0]

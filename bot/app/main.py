@@ -7,6 +7,7 @@ import io
 import json
 import os
 import pathlib
+import logging
 import re
 import secrets
 import sys
@@ -990,7 +991,12 @@ async def startup() -> None:
         # Postgres = серверный режим: с v1.6.0 в журнале мед-данные и файлы,
         # fail-open без ключа недопустим — падаем громко, а не открываемся тихо
         raise RuntimeError("ADMIN_KEY is required for the Postgres edition — set it in .env")
-    await db.init(eng.build_seed_rows())
+    try:
+        seed_rows = eng.build_seed_rows()
+    except Exception as e:  # noqa: BLE001 — демо-наполнение НЕ должно валить старт
+        logging.getLogger("startup").warning("build_seed_rows failed: %r", e)
+        seed_rows = []
+    await db.init(seed_rows)
     # v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
     # идемпотентно (только NULL), на каждом старте — дёшево и самозалечивается
     doc_map = {name: k for k, name in eng.DOCTORS.items()}
