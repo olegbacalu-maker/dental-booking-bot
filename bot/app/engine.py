@@ -15,7 +15,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.7.0"
 
 
 def _load_config() -> dict:
@@ -39,17 +39,22 @@ def _load_config() -> dict:
 CONFIG: dict = {}
 CLINIC_NAME = ""
 CLINIC_PHONE = ""
+# DOCTORS = ВСЕ врачи (в т.ч. выключенные) — чтобы история и журнал показывали
+# имя; ACTIVE_DOCTORS = те, кого предлагает бот и формы записи.
 DOCTORS: dict[str, str] = {}
+ACTIVE_DOCTORS: dict[str, str] = {}
 DOCTOR_SPEC: dict[str, str] = {}
+DOCTOR_META: dict[str, dict] = {}   # color / phone / room / active
 # docs = кто выполняет услугу (нет ключа = все); один врач → бот не спрашивает
 SERVICES: dict[str, dict] = {}
 SERVICE_PRICE: dict[str, int] = {}
+SERVICE_COLOR: dict[str, str] = {}  # id услуги → цвет из конфига
 URGENT_LABELS: set[str] = set()
 
 
 def allowed_doc_items(svc_key: str) -> list[tuple[str, str]]:
-    keys = SERVICES.get(svc_key, {}).get("docs") or list(DOCTORS)
-    return [(k, DOCTORS[k]) for k in keys if k in DOCTORS]
+    keys = SERVICES.get(svc_key, {}).get("docs") or list(ACTIVE_DOCTORS)
+    return [(k, ACTIVE_DOCTORS[k]) for k in keys if k in ACTIVE_DOCTORS]
 
 
 def _price_avg(price) -> int:
@@ -176,12 +181,20 @@ def apply_config(cfg: dict) -> None:
     CLINIC_NAME = cfg["name"]
     CLINIC_PHONE = cfg["phone"]
     DOCTORS.clear()
+    ACTIVE_DOCTORS.clear()
     DOCTOR_SPEC.clear()
+    DOCTOR_META.clear()
     for d in cfg["doctors"]:
         DOCTORS[d["id"]] = d["name"]
         DOCTOR_SPEC[d["id"]] = d.get("spec", "")
+        DOCTOR_META[d["id"]] = {"color": d.get("color", ""), "phone": d.get("phone", ""),
+                                "room": d.get("room", ""),
+                                "active": d.get("active", True)}
+        if d.get("active", True):
+            ACTIVE_DOCTORS[d["id"]] = d["name"]
     SERVICES.clear()
     SERVICE_PRICE.clear()
+    SERVICE_COLOR.clear()
     URGENT_LABELS.clear()
     for svc in cfg["services"]:
         entry = {"ro": svc["ro"], "ru": svc["ru"]}
@@ -191,6 +204,9 @@ def apply_config(cfg: dict) -> None:
             URGENT_LABELS.add(svc["ru"])
         if svc.get("docs"):
             entry["docs"] = svc["docs"]
+        if svc.get("color"):
+            entry["color"] = svc["color"]
+            SERVICE_COLOR[svc["id"]] = svc["color"]
         SERVICES[svc["id"]] = entry
         avg = _price_avg(svc.get("price", ""))
         SERVICE_PRICE[svc["ro"]] = avg
@@ -343,7 +359,7 @@ async def free_slots(
     now = datetime.now(TZ)
     slots = day_slots(d)
     if doc_key == "any":
-        names = allowed_names or list(DOCTORS.values())
+        names = allowed_names or list(ACTIVE_DOCTORS.values())
         free: set[datetime] = set()
         for name in names:
             b = await db.booked(name, start, end)
@@ -628,7 +644,11 @@ async def handle(s: Session, sid: str, msg: str):
                 f"• #{r['id']} {r['service']} — {day_label(s, dt.date())} "
                 f"{dt.strftime('%H:%M')} ({r['doctor']})"
             )
-            brows.append([btn(f"{t(s, 'btn_cancel_appt')} #{r['id']}", f"cancel:{r['id']}")])
+            # «в кабинете» (arrived) из бота не отменяется — кнопку не рисуем,
+            # иначе тап давал бы ложное «запись уже неактивна»
+            if r.get("status", "confirmed") == "confirmed":
+                brows.append([btn(f"{t(s, 'btn_cancel_appt')} #{r['id']}",
+                                  f"cancel:{r['id']}")])
         brows.append([btn(t(s, "btn_menu"), "menu")])
         return ["\n".join(lines)], brows
 

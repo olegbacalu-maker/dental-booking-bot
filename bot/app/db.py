@@ -6,11 +6,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+log = logging.getLogger("db")
+
+# Версия схемы: шаги применяются по одному и записываются в schema_meta,
+# поэтому по базе клиники всегда видно, докуда она домигрирована.
+SCHEMA_VERSION = 2
+
+# Записи, которые ЗАНИМАЮТ слот врача. 'arrived' (пациент в кабинете) обязан
+# быть здесь: иначе отметка «пришёл» освобождает час и бот сажает второго.
+ACTIVE_STATUSES = ("confirmed", "arrived")
+_ACT_SQL = "('confirmed','arrived')"
 
 POOL = None          # asyncpg pool
 _CONN = None         # aiosqlite connection
@@ -88,7 +100,50 @@ CREATE TABLE IF NOT EXISTS documents(
   mime TEXT NOT NULL DEFAULT '',
   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'alt';
+CREATE TABLE IF NOT EXISTS schema_meta(
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 """
+
+# Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
+# Уникальные индексы слота пересоздаются: предикат расширен на 'arrived' —
+# ИМЕНА обязаны остаться прежними (create_appointment ловит их в тексте ошибки).
+MIGRATIONS_PG = {
+    1: [
+        "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_patient ON appointments(patient_id, starts_at DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_created ON appointments(created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_plan_patient ON plan_items(patient_id)",
+        "CREATE INDEX IF NOT EXISTS ix_doc_patient ON documents(patient_id)",
+    ],
+    2: [
+        "DROP INDEX IF EXISTS uq_doctor_slot",
+        "DROP INDEX IF EXISTS uq_patient_slot",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
+            WHERE status IN {_ACT_SQL}""",
+        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
+            WHERE status IN {_ACT_SQL}""",
+    ],
+}
+MIGRATIONS_LITE = {
+    1: [
+        "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_patient ON appointments(patient_id, starts_at DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_created ON appointments(created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_plan_patient ON plan_items(patient_id)",
+        "CREATE INDEX IF NOT EXISTS ix_doc_patient ON documents(patient_id)",
+    ],
+    2: [
+        "DROP INDEX IF EXISTS uq_doctor_slot",
+        "DROP INDEX IF EXISTS uq_patient_slot",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
+            WHERE status IN {_ACT_SQL}""",
+        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
+            WHERE status IN {_ACT_SQL}""",
+    ],
+}
 
 # Этап A2+A4 (v1.6.0) — карточка пациента: алерты, формула FDI, план лечения, документы
 SQLITE_CARD_SCHEMA = """
@@ -127,7 +182,17 @@ CREATE TABLE IF NOT EXISTS documents(
   mime TEXT NOT NULL DEFAULT '',
   uploaded_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schema_meta(
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 """
+
+# Аддитивные колонки SQLite (нет ADD COLUMN IF NOT EXISTS) — по одной с игнором
+# «duplicate column»; всё остальное поднимаем наверх, чтобы не терять молча.
+SQLITE_EXTRA_COLS = [
+    ("documents", "category TEXT NOT NULL DEFAULT 'alt'"),
+]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
 # по-прежнему вести только имя+телефон. SQLite не умеет ADD COLUMN IF NOT EXISTS,
@@ -234,6 +299,52 @@ async def _execute(pg_sql: str, lite_sql: str, *args) -> int:
 
 # ---------- init ----------
 
+async def _schema_version() -> int:
+    try:
+        v = await _fetchval("SELECT value FROM schema_meta WHERE key = 'version'",
+                            "SELECT value FROM schema_meta WHERE key = 'version'")
+        return int(v) if v is not None else 0
+    except Exception as e:  # noqa: BLE001 — обычно «таблицы ещё нет» = версия 0
+        log.warning("schema_meta read failed (treating as v0): %r", e)
+        return 0
+
+
+async def _set_schema_version(v: int) -> None:
+    await _execute(
+        """INSERT INTO schema_meta(key, value) VALUES('version', $1)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""",
+        """INSERT INTO schema_meta(key, value) VALUES('version', ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+        str(v),
+    )
+
+
+async def _migrate() -> None:
+    """Пошаговые миграции: каждый шаг применяется один раз и фиксируется.
+    Раньше состояние базы можно было понять только по наличию колонок."""
+    have = await _schema_version()
+    if have >= SCHEMA_VERSION:
+        return
+    steps = MIGRATIONS_LITE if IS_SQLITE else MIGRATIONS_PG
+    for v in range(have + 1, SCHEMA_VERSION + 1):
+        if v not in steps:
+            # забытый список SQL = молчаливый no-op с записанной версией; лучше упасть
+            raise RuntimeError(f"missing migration step {v} for "
+                               f"{'sqlite' if IS_SQLITE else 'postgres'}")
+        if IS_SQLITE:
+            for sql in steps[v]:
+                await _CONN.execute(sql)
+            await _CONN.commit()
+        else:
+            # один шаг = одна транзакция: DROP и CREATE uq-индексов неразделимы,
+            # иначе краш между ними оставит базу без защиты от двойной брони
+            async with POOL.acquire() as c, c.transaction():
+                for sql in steps[v]:
+                    await c.execute(sql)
+        await _set_schema_version(v)
+    log.warning("DB migrated %s -> %s", have, SCHEMA_VERSION)
+
+
 async def init(seed_rows: list | None = None) -> None:
     global POOL, _CONN
     if IS_SQLITE:
@@ -254,6 +365,12 @@ async def init(seed_rows: list | None = None) -> None:
                 if "duplicate column" not in str(e).lower():
                     raise
         await _CONN.executescript(SQLITE_CARD_SCHEMA)
+        for table, coldef in SQLITE_EXTRA_COLS:
+            try:
+                await _CONN.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
         await _CONN.commit()
     else:
         import asyncpg
@@ -269,6 +386,7 @@ async def init(seed_rows: list | None = None) -> None:
             raise RuntimeError(f"DB unreachable: {last}")
         async with POOL.acquire() as c:
             await c.execute(PG_SCHEMA)
+    await _migrate()
     await seed(seed_rows)
 
 
@@ -393,11 +511,11 @@ async def add_note(doctor: str, starts_at: datetime, text: str) -> int | None:
 
 async def booked(doctor: str, start: datetime, end: datetime) -> set:
     rows = await _fetch(
-        """SELECT starts_at FROM appointments
-           WHERE doctor = $1 AND status = 'confirmed'
+        f"""SELECT starts_at FROM appointments
+           WHERE doctor = $1 AND status IN {_ACT_SQL}
              AND starts_at >= $2 AND starts_at < $3""",
-        """SELECT starts_at FROM appointments
-           WHERE doctor = ? AND status = 'confirmed'
+        f"""SELECT starts_at FROM appointments
+           WHERE doctor = ? AND status IN {_ACT_SQL}
              AND starts_at >= ? AND starts_at < ?""",
         *((doctor, start, end) if not IS_SQLITE
           else (doctor, _iso(start), _iso(end))),
@@ -406,14 +524,16 @@ async def booked(doctor: str, start: datetime, end: datetime) -> set:
 
 
 async def my_appointments(session_key: str, now: datetime) -> list:
+    # arrived тоже показываем: пациент «в кресле» не должен пропадать из «мои
+    # записи»; status нужен движку — у arrived НЕ рисуем кнопку отмены
     return await _fetch(
-        """SELECT a.id, a.service, a.doctor, a.starts_at
+        f"""SELECT a.id, a.service, a.doctor, a.starts_at, a.status
            FROM appointments a JOIN patients p ON p.id = a.patient_id
-           WHERE p.session_key = $1 AND a.status = 'confirmed' AND a.starts_at > $2
+           WHERE p.session_key = $1 AND a.status IN {_ACT_SQL} AND a.starts_at > $2
            ORDER BY a.starts_at""",
-        """SELECT a.id, a.service, a.doctor, a.starts_at
+        f"""SELECT a.id, a.service, a.doctor, a.starts_at, a.status
            FROM appointments a JOIN patients p ON p.id = a.patient_id
-           WHERE p.session_key = ? AND a.status = 'confirmed' AND a.starts_at > ?
+           WHERE p.session_key = ? AND a.status IN {_ACT_SQL} AND a.starts_at > ?
            ORDER BY a.starts_at""",
         *((session_key, now) if not IS_SQLITE else (session_key, _iso(now))),
     )
@@ -494,13 +614,24 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
 
 
 async def recent_patients(limit: int = 20) -> list:
-    """Последние пациенты — стартовый вид страницы «Pacienți» без поискового запроса."""
+    """Последние пациенты — стартовый вид «Pacienți»; архивные скрыты."""
     return await _fetch(
         """SELECT id, name, phone, session_key, birth_year, created_at
-           FROM patients ORDER BY created_at DESC, id DESC LIMIT $1""",
+           FROM patients WHERE COALESCE(archived, FALSE) = FALSE
+           ORDER BY created_at DESC, id DESC LIMIT $1""",
         """SELECT id, name, phone, session_key, birth_year, created_at
-           FROM patients ORDER BY created_at DESC, id DESC LIMIT ?""",
+           FROM patients WHERE COALESCE(archived, 0) = 0
+           ORDER BY created_at DESC, id DESC LIMIT ?""",
         limit,
+    )
+
+
+async def set_archived(pid: int, on: bool) -> None:
+    """Архивация пациента: скрывает из списков, историю не трогает."""
+    await _execute(
+        "UPDATE patients SET archived = $2 WHERE id = $1",
+        "UPDATE patients SET archived = ? WHERE id = ?",
+        *((pid, on) if not IS_SQLITE else (int(on), pid)),
     )
 
 
@@ -531,28 +662,54 @@ async def recent_bot_appointments(since: datetime, limit: int = 10) -> list:
     )
 
 
+# Диакритика румынского: поиск «Balan» должен находить «Bălan» и наоборот.
+_DIA = str.maketrans("ăâîșşțţĂÂÎȘŞȚŢ", "aaissttAAISSTT")
+
+
+def _fold(s: str) -> str:
+    return (s or "").translate(_DIA).lower()
+
+
 async def search_patients(q: str) -> list:
-    """Поиск по имени (без регистра) или телефону (по цифрам)."""
+    """Поиск по имени (регистр и диакритика неважны) или телефону (по цифрам)."""
     q = q.strip()
     digits = "".join(ch for ch in q if ch.isdigit())
     if len(q) < 2:
         return []
     if IS_SQLITE:
+        # фильтрация в SQL-движке (C-скан вместо цикла в Python; LIKE '%q%'
+        # индексом не ускоряется — на объёмах клиники это ок), диакритика и
+        # телефон добираются узким добором. %/_ экранируем — это метасимволы LIKE.
+        q_esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{q_esc}%"
         rows = await _fetch(
-            "", "SELECT id, name, phone, session_key, birth_year FROM patients")
-        ql = q.lower()
-        out = []
-        for r in rows:
-            nm = (r["name"] or "").lower()
-            ph = "".join(ch for ch in (r["phone"] or "") if ch.isdigit())
-            if ql in nm or (len(digits) >= 3 and digits in ph):
-                out.append(r)
-        out.sort(key=lambda r: r["name"] or "")
-        return out[:30]
+            "", """SELECT id, name, phone, session_key, birth_year FROM patients
+                   WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
+                   ORDER BY name LIMIT 30""", like)
+        if len(rows) < 30:
+            seen = {r["id"] for r in rows}
+            extra = await _fetch(
+                "", """SELECT id, name, phone, session_key, birth_year FROM patients
+                       WHERE id NOT IN (SELECT id FROM patients
+                                        WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE)
+                       LIMIT 2000""", like)
+            qf = _fold(q)
+            for r in extra:
+                if r["id"] in seen:
+                    continue
+                ph = "".join(ch for ch in (r["phone"] or "") if ch.isdigit())
+                if qf in _fold(r["name"]) or (len(digits) >= 3 and digits in ph):
+                    rows.append(r)
+                    if len(rows) >= 30:
+                        break
+            rows.sort(key=lambda r: r["name"] or "")
+        return rows[:30]
+    # translate() прямо в запросе — без расширений и без своих функций в схеме
+    fold = "translate({}, 'ăâîșşțţĂÂÎȘŞȚŢ', 'aaissttAAISSTT')"
     return await _fetch(
-        r"""SELECT p.id, p.name, p.phone, p.session_key, p.birth_year
+        rf"""SELECT p.id, p.name, p.phone, p.session_key, p.birth_year
            FROM patients p
-           WHERE (p.name ILIKE '%' || $1 || '%')
+           WHERE ({fold.format('p.name')} ILIKE '%' || {fold.format('$1')} || '%')
               OR ($2 <> '' AND length($2) >= 3
                   AND regexp_replace(coalesce(p.phone, ''), '\D', '', 'g')
                       LIKE '%' || $2 || '%')
@@ -581,7 +738,7 @@ PATIENT_FIELDS = ["name", "phone", "birth_date", "gender", "idnp", "email",
 
 
 async def get_patient(pid: int) -> dict | None:
-    cols = ("id, session_key, name, phone, lang, birth_year, created_at, "
+    cols = ("id, session_key, name, phone, lang, birth_year, created_at, archived, "
             + ", ".join(PATIENT_FIELDS[2:]))
     rows = await _fetch(
         f"SELECT {cols} FROM patients WHERE id = $1",
@@ -698,21 +855,21 @@ async def delete_plan_item(item_id: int, pid: int) -> None:
 
 async def documents(pid: int) -> list:
     return await _fetch(
-        """SELECT id, filename, size, mime, uploaded_at
+        """SELECT id, filename, size, mime, category, uploaded_at
            FROM documents WHERE patient_id = $1 ORDER BY id DESC""",
-        """SELECT id, filename, size, mime, uploaded_at
+        """SELECT id, filename, size, mime, category, uploaded_at
            FROM documents WHERE patient_id = ? ORDER BY id DESC""", pid)
 
 
 async def add_document(pid: int, filename: str, stored_path: str,
-                       size: int, mime: str) -> None:
+                       size: int, mime: str, category: str = "alt") -> None:
     await _execute(
-        """INSERT INTO documents(patient_id, filename, stored_path, size, mime)
-           VALUES($1, $2, $3, $4, $5)""",
+        """INSERT INTO documents(patient_id, filename, stored_path, size, mime, category)
+           VALUES($1, $2, $3, $4, $5, $6)""",
         """INSERT INTO documents(patient_id, filename, stored_path, size, mime,
-                                 uploaded_at) VALUES(?, ?, ?, ?, ?, ?)""",
-        *((pid, filename, stored_path, size, mime) if not IS_SQLITE
-          else (pid, filename, stored_path, size, mime, _utcnow_iso())),
+                                 category, uploaded_at) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+        *((pid, filename, stored_path, size, mime, category) if not IS_SQLITE
+          else (pid, filename, stored_path, size, mime, category, _utcnow_iso())),
     )
 
 
@@ -739,9 +896,19 @@ async def set_comment(appt_id: int, text: str) -> None:
     )
 
 
-async def set_status(appt_id: int, status: str) -> None:
-    await _execute(
-        "UPDATE appointments SET status = $2 WHERE id = $1",
-        "UPDATE appointments SET status = ? WHERE id = ?",
-        *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
-    )
+async def set_status(appt_id: int, status: str) -> bool:
+    """False = смена статуса нарушила бы уникальность слота (вернули confirmed,
+    а час уже занят новой записью) — журнал показывает «интервал занят»."""
+    try:
+        await _execute(
+            "UPDATE appointments SET status = $2 WHERE id = $1",
+            "UPDATE appointments SET status = ? WHERE id = ?",
+            *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
+        )
+        return True
+    except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
+        if "uq_" in str(e) or "unique" in str(e).lower():
+            if IS_SQLITE:
+                await _CONN.rollback()
+            return False
+        raise

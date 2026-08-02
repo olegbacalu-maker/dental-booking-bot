@@ -138,10 +138,13 @@ PIN_HINT = ("<div style='color:#889;font-size:12px'>PIN uitat? Închideți progr
 
 STATUS_LABEL = {
     "confirmed": "✅ confirmată",
+    "arrived": "🟢 în cabinet",
     "done": "🟦 a venit",
     "noshow": "🟥 nu a venit",
     "cancelled": "❌ anulată",
 }
+# статусы, при которых слот занят — единый источник правды в db.py
+LIVE_STATUSES = db.ACTIVE_STATUSES
 MSG_BANNER = {
     "ok": ("ok", "Programare adăugată ✔"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
@@ -331,6 +334,7 @@ PANEL_CSS = """
  td.hour{width:52px;color:var(--text3);font-weight:500;background:var(--bg);text-align:center;font-size:11.5px}
  .appt{border-radius:9px;padding:5px 8px;line-height:1.35}
  .appt.confirmed{background:var(--green-soft);border-left:3px solid var(--green)}
+ .appt.arrived{background:var(--teal-soft);border-left:3px solid var(--teal)}
  .appt.done{background:var(--blue-soft);border-left:3px solid var(--blue)}
  .appt.noshow{background:var(--red-soft);border-left:3px solid var(--red)}
  .appt.urgent{background:var(--amber-soft);border-left:3px solid var(--amber)}
@@ -380,6 +384,7 @@ PANEL_CSS = """
  tr.cancelled td{opacity:.45;text-decoration:line-through}
  .act{display:inline}
  .act button{border:none;border-radius:7px;padding:4px 9px;margin-right:4px;cursor:pointer;font-size:12px;color:#fff}
+ .b-arrived{background:var(--teal)}
  .b-done{background:var(--blue)}.b-noshow{background:var(--red)}.b-cancel{background:#94A3B8}
  .hint{color:var(--text3);font-size:12px;margin-top:10px}
  .botnew{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:12px 14px;margin-bottom:14px}
@@ -678,6 +683,8 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
     out = ["<table class='grid'><tr><th></th>"]
     for dk, name in doctors_items:
         spec = eng.DOCTOR_SPEC.get(dk, "")
+        if not eng.DOCTOR_META.get(dk, {}).get("active", True):
+            spec = (spec + " · inactiv").strip(" ·")
         out.append(f"<th><a href='/admin/doctor/{dk}?date={d.isoformat()}'>{html.escape(name)}</a>"
                    f"<br><small style='font-weight:400;opacity:.8'>{html.escape(spec)}</small></th>")
     out.append("</tr>")
@@ -760,9 +767,10 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             svc_txt += (f"<br><small style='color:#7a6a00'>💬 "
                         f"{html.escape(r['comment'][:80])}</small>")
         acts = ""
-        if r["status"] == "confirmed":
+        if r["status"] in LIVE_STATUSES:
             buttons = ([("cancelled", "b-cancel", "Șterge")] if is_note else [
-                ("done", "b-done", "A venit"),
+                ("arrived", "b-arrived", "A sosit"),
+                ("done", "b-done", "Finalizat"),
                 ("noshow", "b-noshow", "Nu a venit"),
                 ("cancelled", "b-cancel", "Anulează"),
             ])
@@ -874,7 +882,7 @@ def _collect_cards(rows: list) -> dict:
             "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
             "comment": r["comment"] or "",
             "age": _age(r["birth_year"]),
-            "canAct": r["status"] == "confirmed",
+            "canAct": r["status"] in LIVE_STATUSES,
             "pid": r.get("patient_id"),
         }
     return cards
@@ -901,8 +909,10 @@ def _card_modal(cards: dict, back: str) -> str:
     </form>
   </div>
   <div class="dlg-status" id="c_status">
+    <form method="post" id="cs_arrived"><input type="hidden" name="to" value="arrived">
+      <input type="hidden" name="back" value="{b}"><button class="bstat b-arrived">A sosit</button></form>
     <form method="post" id="cs_done"><input type="hidden" name="to" value="done">
-      <input type="hidden" name="back" value="{b}"><button class="bstat b-done">A venit</button></form>
+      <input type="hidden" name="back" value="{b}"><button class="bstat b-done">Finalizat</button></form>
     <form method="post" id="cs_noshow"><input type="hidden" name="to" value="noshow">
       <input type="hidden" name="back" value="{b}"><button class="bstat b-noshow">Nu a venit</button></form>
     <form method="post" id="cs_cancel"><input type="hidden" name="to" value="cancelled">
@@ -923,6 +933,7 @@ function openCard(id) {{
   if (c.pid) {{ fl.style.display = 'inline'; fl.href = '/admin/patient/' + c.pid; }}
   else fl.style.display = 'none';
   document.getElementById('c_form').action = '/admin/comment/' + id;
+  document.getElementById('cs_arrived').action = '/admin/status/' + id;
   document.getElementById('cs_done').action = '/admin/status/' + id;
   document.getElementById('cs_noshow').action = '/admin/status/' + id;
   document.getElementById('cs_cancel').action = '/admin/status/' + id;
@@ -1113,22 +1124,43 @@ def _initials(name: str) -> str:
     return "".join(w[0].upper() for w in words[:2]) or "?"
 
 
+# палитра для явного цвета услуги в Setări (значение → фон/полоса)
+SVC_PALETTE = {
+    "green": ("var(--green-soft)", "var(--green)"),
+    "blue": ("var(--blue-soft)", "var(--blue)"),
+    "amber": ("var(--amber-soft)", "var(--amber)"),
+    "violet": ("var(--violet-soft)", "var(--violet)"),
+    "red": ("var(--red-soft)", "var(--red)"),
+    "teal": ("var(--teal-soft)", "var(--teal)"),
+}
+_PALETTE_RO = {"green": "verde", "blue": "albastru", "amber": "portocaliu",
+               "violet": "violet", "red": "roșu", "teal": "turcoaz"}
+
+
 def _svc_colors(r) -> tuple[str, str]:
-    """(фон, полоса) записи: статус важнее типа, тип — по id/названию услуги."""
+    """(фон, полоса) записи: статус важнее типа; тип — цвет из конфига услуги,
+    а если он не задан — прежняя эвристика по названию."""
     if r["status"] == "noshow":
         return "var(--red-soft)", "var(--red)"
     label = r["service"]
     if label in eng.URGENT_LABELS:
         return "var(--red-soft)", "var(--red)"
-    key = next((k for k, v in eng.SERVICES.items()
-                if v.get("ro") == label or v.get("ru") == label), "") + " " + label
+    for sid, v in eng.SERVICES.items():
+        if v.get("ro") == label or v.get("ru") == label:
+            color = eng.SERVICE_COLOR.get(sid)
+            if color in SVC_PALETTE:
+                return SVC_PALETTE[color]
+            key = sid + " " + label
+            break
+    else:
+        key = label
     for rx, colors in _SVC_CAT:
         if rx.search(key):
             return colors
     return "var(--green-soft)", "var(--green)"
 
 
-_STATUS_ICON = {"confirmed": "🕐", "done": "✅", "noshow": "❌"}
+_STATUS_ICON = {"confirmed": "🕐", "arrived": "🟢", "done": "✅", "noshow": "❌"}
 
 _RO_MONTHS = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie",
               "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"]
@@ -1187,7 +1219,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
             n = len(rs)
             # коллизия (done/noshow + новая бронь на тот же час) — делим ширину,
             # confirmed рисуем последним (поверх/правее), ничего не теряем
-            for j, r in enumerate(sorted(rs, key=lambda x: x["status"] == "confirmed")):
+            for j, r in enumerate(sorted(rs, key=lambda x: x["status"] in LIVE_STATUSES)):
                 pos = (f"top:calc({idx[h]}*var(--cell) + 3px);"
                        f"height:calc(var(--cell) - 8px);"
                        f"left:calc({j}*(100% - 8px)/{n} + 4px);"
@@ -1197,7 +1229,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                                f"<b>📝 {html.escape(r['service'][:40])}</b></div>")
                     continue
                 bg, bar = _svc_colors(r)
-                ico = "❗" if r["service"] in eng.URGENT_LABELS and r["status"] == "confirmed" \
+                ico = "❗" if (r["service"] in eng.URGENT_LABELS
+                              and r["status"] == "confirmed") \
                     else _STATUS_ICON.get(r["status"], "")
                 src = "🤖" if r["source"] == "bot" else "✍️"
                 ns = " noshow" if r["status"] == "noshow" else ""
@@ -1224,15 +1257,19 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     head = ["<div class='gridhead'><div class='gh-time'></div>"]
     cols = []
     for i, (dk, name) in enumerate(eng.DOCTORS.items()):
-        hue = _DOC_HUES[i % len(_DOC_HUES)]
+        hue = eng.DOCTOR_META.get(dk, {}).get("color") or _DOC_HUES[i % len(_DOC_HUES)]
         mine = [r for r in live if r["doctor"] == name and r["source"] != "note"]
         free_h = next((h for h in sched if (name, h) not in active), None)
         dot = "var(--green)" if free_h is not None else "var(--text3)"
         liber = f"liber {free_h:02d}:00" if free_h is not None else "complet"
+        meta = eng.DOCTOR_META.get(dk, {})
+        extra = " · ".join(x for x in [meta.get("room", ""), meta.get("phone", "")] if x)
+        off = "" if meta.get("active", True) else " · inactiv"
         head.append(
             f"<div class='gh-doc'><span class='av' style='background:{hue}'>{_initials(name)}</span>"
-            f"<div class='nm'><a href='/admin/doctor/{dk}?date={d.isoformat()}'>{html.escape(name)}</a>"
-            f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))} · {len(mine)} prog. · {liber}</small></div>"
+            f"<div class='nm'><a href='/admin/doctor/{dk}?date={d.isoformat()}' "
+            f"title='{html.escape(extra)}'>{html.escape(name)}</a>"
+            f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}{off} · {len(mine)} prog. · {liber}</small></div>"
             f"<span class='st' style='background:{dot}' title='{liber}'></span></div>")
         cols.append(f"<div class='gcol'>{_cells(dk, name)}{_blocks(name)}</div>")
 
@@ -1504,11 +1541,26 @@ async def admin_settings(request: Request, msg: str = ""):
             f"<td><select id='he_{day}'>{_break_opts(bt)}</select></td></tr>"
         )
 
+    def _color_opts(sel: str) -> str:
+        out = [f"<option value=''{' selected' if not sel else ''}>auto</option>"]
+        for k, ro in _PALETTE_RO.items():
+            out.append(f"<option value='{k}'{' selected' if sel == k else ''}>{ro}</option>")
+        return "".join(out)
+
+    # ⚠️ Врача НЕ удаляем — гасим галочкой «activ». Иначе его id уходит в
+    # переиспользование и история достаётся новому врачу (баг найден 08-01).
     doc_rows = "".join(
         f"<tr><td><input type='hidden' class='d_id' value='{e(d['id'])}'>"
         f"<input type='text' class='d_name' value='{e(d['name'])}'></td>"
         f"<td><input type='text' class='d_spec' value='{e(d.get('spec', ''))}'></td>"
-        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>✖</button></td></tr>"
+        f"<td><input type='text' class='d_room' value='{e(d.get('room', ''))}' "
+        f"placeholder='Cab. 1' style='width:90px'></td>"
+        f"<td><input type='text' class='d_phone' value='{e(d.get('phone', ''))}' "
+        f"placeholder='intern' style='width:120px'></td>"
+        f"<td><input type='color' class='d_color' value='{e(d.get('color') or '#0D9488')}' "
+        f"style='width:44px;padding:2px;height:30px'></td>"
+        f"<td style='text-align:center'><input type='checkbox' class='d_active'"
+        f"{' checked' if d.get('active', True) else ''}></td></tr>"
         for d in cfg["doctors"]
     )
     svc_rows = "".join(
@@ -1516,6 +1568,7 @@ async def admin_settings(request: Request, msg: str = ""):
         f"<input type='text' class='s_ro' value='{e(s['ro'])}'></td>"
         f"<td><input type='text' class='s_ru' value='{e(s['ru'])}'></td>"
         f"<td><input type='text' class='s_price' value='{e(str(s.get('price', '')) if not isinstance(s.get('price'), dict) else s['price'].get('ro', ''))}'></td>"
+        f"<td><select class='s_color'>{_color_opts(s.get('color', ''))}</select></td>"
         f"<td style='text-align:center'><input type='checkbox' class='s_urg'{' checked' if s.get('urgent') else ''}></td>"
         f"<td><input type='text' class='s_docs' value='{e(' '.join(s.get('docs', [])))}' placeholder='gol = toți'></td>"
         f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>✖</button></td></tr>"
@@ -1633,15 +1686,21 @@ Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
 
 <h2>👨‍⚕️ Medici</h2>
 <table class='set' id='docs_t'>
-<tr><th>Nume</th><th>Specializare</th><th></th></tr>
+<tr><th>Nume</th><th>Specializare</th><th style='width:90px'>Cabinet</th>
+<th style='width:120px'>Telefon</th><th style='width:60px'>Culoare</th>
+<th style='width:60px'>Activ</th></tr>
 <tbody id='docs_tb'>{doc_rows}</tbody>
 </table>
 <button type='button' class='addrow' onclick='addDoc()'>+ Adaugă medic</button>
-<p class='hint'>Redenumirea unui medic nu modifică programările din trecut (rămân pe numele vechi).</p>
+<p class='hint'>Medicul care pleacă se <b>dezactivează</b> (bifa «Activ»), nu se șterge:
+programările lui rămân în istoric, iar botul și formularele nu îl mai propun.
+Culoarea se vede în grila zilei. Redenumirea nu modifică programările din trecut
+(rămân pe numele vechi).</p>
 
 <h2>🦷 Servicii</h2>
 <table class='set' id='svc_t'>
 <tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:140px'>Preț</th>
+<th style='width:110px'>Culoare</th>
 <th style='width:40px'>🆘</th><th style='width:150px'>Medici (id)</th><th></th></tr>
 <tbody id='svc_tb'>{svc_rows}</tbody>
 </table>
@@ -1659,16 +1718,23 @@ function addDoc() {{
   tr.innerHTML = "<td><input type='hidden' class='d_id' value=''>" +
     "<input type='text' class='d_name' placeholder='Dr. ...'></td>" +
     "<td><input type='text' class='d_spec' placeholder='Terapie'></td>" +
-    "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>✖</button></td>";
+    "<td><input type='text' class='d_room' placeholder='Cab. 1' style='width:90px'></td>" +
+    "<td><input type='text' class='d_phone' placeholder='intern' style='width:120px'></td>" +
+    "<td><input type='color' class='d_color' value='#0D9488' style='width:44px;padding:2px;height:30px'></td>" +
+    "<td style='text-align:center'><input type='checkbox' class='d_active' checked></td>";
   tb.appendChild(tr);
 }}
+const SVC_COLORS = {json.dumps(_PALETTE_RO)};
 function addSvc() {{
   const tb = document.getElementById('svc_tb');
   const tr = document.createElement('tr');
+  let opts = "<option value=''>auto</option>";
+  for (const k in SVC_COLORS) opts += "<option value='" + k + "'>" + SVC_COLORS[k] + "</option>";
   tr.innerHTML = "<td><input type='hidden' class='s_id' value=''>" +
     "<input type='text' class='s_ro' placeholder='Serviciu'></td>" +
     "<td><input type='text' class='s_ru' placeholder='Услуга'></td>" +
     "<td><input type='text' class='s_price' placeholder='500 MDL'></td>" +
+    "<td><select class='s_color'>" + opts + "</select></td>" +
     "<td style='text-align:center'><input type='checkbox' class='s_urg'></td>" +
     "<td><input type='text' class='s_docs' placeholder='gol = toți'></td>" +
     "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>✖</button></td>";
@@ -1690,7 +1756,11 @@ function collectSettings() {{
   document.querySelectorAll('#docs_tb tr').forEach(tr => {{
     doctors.push({{ id: tr.querySelector('.d_id').value,
                    name: tr.querySelector('.d_name').value,
-                   spec: tr.querySelector('.d_spec').value }});
+                   spec: tr.querySelector('.d_spec').value,
+                   room: tr.querySelector('.d_room').value,
+                   phone: tr.querySelector('.d_phone').value,
+                   color: tr.querySelector('.d_color').value,
+                   active: tr.querySelector('.d_active').checked }});
   }});
   const services = [];
   document.querySelectorAll('#svc_tb tr').forEach(tr => {{
@@ -1698,9 +1768,27 @@ function collectSettings() {{
                     ro: tr.querySelector('.s_ro').value,
                     ru: tr.querySelector('.s_ru').value,
                     price: tr.querySelector('.s_price').value,
+                    color: tr.querySelector('.s_color').value,
                     urgent: tr.querySelector('.s_urg').checked,
                     docs: tr.querySelector('.s_docs').value }});
   }});
+  // валидация ДО отправки: при серверной ошибке форма перерисуется из
+  // сохранённого конфига и все правки админа пропадут — не доводим до этого
+  if (!doctors.some(d => d.active && d.name.trim())) {{
+    alert('Trebuie să existe cel puțin un medic activ.');
+    return false;
+  }}
+  const seen = {{}};
+  for (const d of doctors) {{
+    const key = d.name.trim().toLowerCase();
+    if (!key) continue;
+    if (seen[key]) {{
+      alert('Două rânduri au același nume de medic: «' + d.name.trim() +
+            '». Redenumiți unul dintre ele.');
+      return false;
+    }}
+    seen[key] = true;
+  }}
   const payload = {{
     name: document.getElementById('cname').value,
     phone: document.getElementById('cphone').value,
@@ -1747,30 +1835,60 @@ def _build_config(data: dict) -> dict:
     if all(v is None for v in hours.values()):
         raise ValueError("all closed")
 
+    # ⭐ Счётчики id ПЕРСИСТЕНТНЫ (cfg["seq"]) и только растут. Раньше id искался
+    # как первый свободный d{n} среди текущего списка: удалили d2, добавили врача —
+    # он получал d2 и наследовал историю уволенного. Теперь id не переиспользуется.
+    seq = dict(eng.CONFIG.get("seq") or {})
+    seq_d = int(seq.get("doctor", 0))
+    seq_s = int(seq.get("service", 0))
+    for d in eng.CONFIG.get("doctors", []):
+        mnum = re.fullmatch(r"d(\d+)", str(d.get("id", "")))
+        if mnum:
+            seq_d = max(seq_d, int(mnum.group(1)))
+    for s in eng.CONFIG.get("services", []):
+        mnum = re.fullmatch(r"s(\d+)", str(s.get("id", "")))
+        if mnum:
+            seq_s = max(seq_s, int(mnum.group(1)))
+
     doctors = []
     used: set[str] = set()
-    n = 0
     for d in data.get("doctors", []):
         dn = str(d.get("name", "")).strip()[:60]
         if not dn:
             continue
         did = str(d.get("id", "")).strip()
         if not re.fullmatch(r"d\d+", did) or did in used:
-            while True:
-                n += 1
-                did = f"d{n}"
-                if did not in used:
-                    break
+            seq_d += 1
+            did = f"d{seq_d}"
         used.add(did)
-        doctors.append({"id": did, "name": dn,
-                        "spec": str(d.get("spec", "")).strip()[:60]})
+        entry_d: dict = {"id": did, "name": dn,
+                         "spec": str(d.get("spec", "")).strip()[:60],
+                         "active": bool(d.get("active", True))}
+        room = str(d.get("room", "")).strip()[:30]
+        phone_d = str(d.get("phone", "")).strip()[:30]
+        color_d = str(d.get("color", "")).strip()[:16]
+        if room:
+            entry_d["room"] = room
+        if phone_d:
+            entry_d["phone"] = phone_d
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", color_d):
+            entry_d["color"] = color_d
+        doctors.append(entry_d)
     if not doctors:
         raise ValueError("doctors")
+    if not any(d["active"] for d in doctors):
+        raise ValueError("no active doctor")
+    # записи связаны с врачом по ИМЕНИ — два одинаковых имени слили бы их истории
+    names_seen = set()
+    for d in doctors:
+        key = d["name"].casefold()
+        if key in names_seen:
+            raise ValueError("duplicate doctor name")
+        names_seen.add(key)
     doc_ids = {d["id"] for d in doctors}
 
     services = []
     sused: set[str] = set()
-    m = 0
     for s in data.get("services", []):
         ro = str(s.get("ro", "")).strip()[:60]
         ru = str(s.get("ru", "")).strip()[:60] or ro
@@ -1778,16 +1896,16 @@ def _build_config(data: dict) -> dict:
             continue
         sid = str(s.get("id", "")).strip()
         if not re.fullmatch(r"[a-z0-9_]{1,20}", sid) or sid in sused:
-            while True:
-                m += 1
-                sid = f"s{m}"
-                if sid not in sused:
-                    break
+            seq_s += 1
+            sid = f"s{seq_s}"
         sused.add(sid)
         entry: dict = {"id": sid, "ro": ro, "ru": ru}
         price = str(s.get("price", "")).strip()[:60]
         if price:
             entry["price"] = price
+        color_s = str(s.get("color", "")).strip()
+        if color_s in SVC_PALETTE:
+            entry["color"] = color_s
         if s.get("urgent"):
             entry["urgent"] = True
         docs = [tok for tok in re.split(r"[,\s]+", str(s.get("docs", "")))
@@ -1801,7 +1919,8 @@ def _build_config(data: dict) -> dict:
     cfg = dict(eng.CONFIG)
     cfg.update({"name": name, "phone": phone,
                 "address": {"ro": addr_ro, "ru": addr_ru},
-                "hours": hours, "doctors": doctors, "services": services})
+                "hours": hours, "doctors": doctors, "services": services,
+                "seq": {"doctor": seq_d, "service": seq_s}})
     cfg["contacts"] = {
         "ro": (f"📍 {addr_ro}\n" if addr_ro else "")
               + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ro')}",
@@ -1925,7 +2044,8 @@ async def admin_stats(
 
     n_bot = sum(1 for r in act if r["source"] == "bot")
     n_man = len(act) - n_bot
-    n_done = sum(1 for r in act if r["status"] == "done")
+    # «пришли» = завершённые + сидящие в кресле прямо сейчас
+    n_done = sum(1 for r in act if r["status"] in ("done", "arrived"))
     n_noshow = sum(1 for r in act if r["status"] == "noshow")
     n_cancel = len(appts) - len(act)
     n_rem = sum(1 for r in appts if r["reminded_day"])
@@ -2075,7 +2195,7 @@ async def admin_search(request: Request, q: str = ""):
                     else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
                     else "🌐 web")
             upcoming = sum(1 for v in visits
-                           if v["status"] == "confirmed" and v["starts_at"] > now)
+                           if v["status"] in LIVE_STATUSES and v["starts_at"] > now)
             rows = []
             for v in visits:
                 dt = v["starts_at"].astimezone(eng.TZ)
@@ -2124,6 +2244,8 @@ _FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 _FDI_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
 _ALERT_KINDS = {"allergy": "⚠️ Alergie", "medication": "💊 Medicație",
                 "warning": "⏰ Atenție", "info": "ℹ️ Info"}
+DOC_CATEGORIES = {"radiografie": "🩻 Radiografie", "acord": "📝 Acord / contract",
+                  "trimitere": "📨 Trimitere", "alt": "📄 Alt document"}
 _PLAN_NEXT = {"planificat": "in_lucru", "in_lucru": "finalizat", "finalizat": "planificat"}
 _PLAN_LABEL = {"planificat": "Planificat", "in_lucru": "În lucru", "finalizat": "Finalizat"}
 MAX_DOC_MB = 25
@@ -2174,7 +2296,8 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
             else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
             else "🌐 web")
     meta = " · ".join(x for x in [f"{age} ani" if age else "", chan,
-                                  f"dosar {e(p['file_no'])}" if p.get("file_no") else ""] if x)
+                                  f"dosar {e(p['file_no'])}" if p.get("file_no") else "",
+                                  "🗄 arhivat" if p.get("archived") else ""] if x)
 
     def frow(label: str, val) -> str:
         return (f"<div class='frow'><span>{label}</span>"
@@ -2306,7 +2429,7 @@ function openTooth(n) {{
 </form></div>"""
 
     # -- правая колонка: визиты + документы --
-    future = [v for v in visits if v["status"] == "confirmed" and v["starts_at"] > now]
+    future = [v for v in visits if v["status"] in LIVE_STATUSES and v["starts_at"] > now]
     nextv = min(future, key=lambda v: v["starts_at"]) if future else None
     next_html = ""
     if nextv:
@@ -2332,14 +2455,19 @@ function openTooth(n) {{
                  f"style='font-size:12px'>Vezi tot istoricul →</a></div>")
 
     docs_rows = "".join(
-        f"<div class='doc'>📄 <a href='/admin/doc/{dd['id']}' title='{e(dd['filename'])}'>{e(dd['filename'])}</a>"
+        f"<div class='doc'>{DOC_CATEGORIES.get(dd['category'], '📄')} "
+        f"<a href='/admin/doc/{dd['id']}' title='{e(dd['filename'])}'>{e(dd['filename'])}</a>"
         f"<small>{dd['size'] // 1024} KB</small>"
         f"<form method='post' action='{base}/doc/{dd['id']}/del' "
         f"onsubmit=\"return confirm('Ștergeți documentul?')\"><button>✕</button></form></div>"
         for dd in docs) or "<p class='hint' style='margin:0 0 8px'>— fără documente —</p>"
+    cat_opts = "".join(
+        f"<option value='{k}'{' selected' if k == 'alt' else ''}>{v}</option>"
+        for k, v in DOC_CATEGORIES.items())
     docs_card = f"""<div class='fcard'><h3>Documente și imagini <small>· max {MAX_DOC_MB} MB</small></h3>
 {docs_rows}
 <form class='fform' method='post' action='{base}/doc' enctype='multipart/form-data'>
+  <select name='category'>{cat_opts}</select>
   <input type='file' name='file' required>
   <button>⬆️ Încarcă document</button>
 </form>
@@ -2358,6 +2486,12 @@ function openTooth(n) {{
         style='margin-top:10px;background:none;border:1px solid var(--line);border-radius:8px;
         padding:7px 12px;cursor:pointer;font-size:12.5px;color:var(--text2);width:100%'>✏️ Editează profilul</button>
       {edit_form}
+      <form method='post' action='{base}/archive' style='margin-top:7px'>
+        <input type='hidden' name='on' value='{"0" if p.get("archived") else "1"}'>
+        <button style='background:none;border:1px solid var(--line);border-radius:8px;
+          padding:6px 12px;cursor:pointer;font-size:12px;color:var(--text3);width:100%'>
+          {"↩️ Scoate din arhivă" if p.get("archived") else "🗄 Arhivează pacientul"}</button>
+      </form>
     </div>
     {alerts_card}
   </div>
@@ -2400,6 +2534,17 @@ async def patient_save(request: Request, pid: int):
     if bd_year:
         # возраст в поиске/сетке/CSV считается по birth_year — держим в синке
         await db.set_birth_year(pid, bd_year)
+    return _card_redirect(pid, "ok_card")
+
+
+@app.post("/admin/patient/{pid}/archive")
+async def patient_archive(request: Request, pid: int, on: str = Form("1")):
+    """Архив = скрыть из списков; история и файлы остаются на месте."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    await db.set_archived(pid, on == "1")
     return _card_redirect(pid, "ok_card")
 
 
@@ -2477,11 +2622,14 @@ async def patient_plan_del(request: Request, pid: int, item_id: int):
 
 
 @app.post("/admin/patient/{pid}/doc")
-async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File(...)):
+async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File(...),
+                             category: str = Form("alt")):
     if (deny := _guard(request)) is not None:
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
+    if category not in DOC_CATEGORIES:
+        category = "alt"
     orig = pathlib.Path(file.filename or "document").name[:120] or "document"
     # whitelist расширения: ':' в имени = NTFS ADS (данные пропадут при копии
     # на USB/в zip), '?<>|*' = OSError; хвост не из [a-z0-9] просто отбрасываем
@@ -2507,7 +2655,7 @@ async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File
     if size == 0:
         stored.unlink(missing_ok=True)
         return _card_redirect(pid, "bad_doc")
-    await db.add_document(pid, orig, str(stored), size, file.content_type or "")
+    await db.add_document(pid, orig, str(stored), size, file.content_type or "", category)
     return _card_redirect(pid, "ok_doc")
 
 
@@ -2582,7 +2730,7 @@ async def admin_all(
             + _banner(msg, d)
             + filter_chip + filtered_list
             + _grid(d, items, active, href, cards)
-            + _form(d, items, doctor, time_pre, back)
+            + _form(d, list(eng.ACTIVE_DOCTORS.items()) or items, doctor, time_pre, back)
             + ("" if flt else _list(rows, back))
             + _slot_modal(d, back)
             + _card_modal(cards, back))
@@ -2614,14 +2762,17 @@ async def admin_doctor(
     def href(_dk, h):
         return f"{base}?date={d.isoformat()}&time_pre={h:02d}:00#addform"
 
-    head = (f"<div class='nav'><b>{html.escape(name)}</b> "
+    is_active = eng.DOCTOR_META.get(dk, {}).get("active", True)
+    off_badge = ("" if is_active
+                 else " <span style='color:var(--text3)'>· inactiv (istoric)</span>")
+    head = (f"<div class='nav'><b>{html.escape(name)}</b>{off_badge} "
             f"<span style='color:#667'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</span> "
             f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
             f"<a href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a></div>")
     cards = _collect_cards(rows)
     body = (head + _date_nav(d, base) + _banner(msg, d)
             + _grid(d, items, active, href, cards)
-            + _form(d, items, dk, time_pre, back)
+            + (_form(d, items, dk, time_pre, back) if is_active else "")
             + _list(rows, back)
             + _slot_modal(d, back)
             + _card_modal(cards, back))
@@ -2658,6 +2809,8 @@ async def admin_add(
     digits = "".join(ch for ch in phone if ch.isdigit())
     if not doctor or not svc or not name or len(digits) < 8:
         return _back_redirect(back, adate, "bad")
+    if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
+        return _back_redirect(back, adate, "bad")  # выключенному врачу не пишем
     year = int(ayear) if ayear.strip().isdigit() and 1900 <= int(ayear) <= 2026 else None
     r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year)
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
@@ -2683,6 +2836,8 @@ async def admin_note(
     day_hours = [x.hour for x in eng.day_slots(d)]
     hours = [h for h in day_hours if start_h <= h < until_h]
     if not doctor or not text or not hours or until_h <= start_h:
+        return _back_redirect(back, ndate, "bad")
+    if not eng.DOCTOR_META.get(ndoctor, {}).get("active", True):
         return _back_redirect(back, ndate, "bad")
     ok_cnt = fail_cnt = 0
     for h in hours:
@@ -2713,8 +2868,14 @@ async def admin_comment(request: Request, appt_id: int,
 async def admin_status(request: Request, appt_id: int, to: str = Form(...), back: str = Form("")):
     if (deny := _guard(request)) is not None:
         return deny
-    if to in {"done", "noshow", "cancelled", "confirmed"}:
-        await db.set_status(appt_id, to)
+    if to in {"arrived", "done", "noshow", "cancelled", "confirmed"}:
+        ok = await db.set_status(appt_id, to)
+        if not ok:
+            # возврат в confirmed/arrived, а слот уже занят новой записью
+            sep = "&" if "?" in back else "?"
+            target = (back + f"{sep}msg=conflict") if back.startswith("/admin") \
+                else "/admin?msg=conflict"
+            return RedirectResponse(target, status_code=303)
     target = back if back.startswith("/admin") else "/admin"
     return RedirectResponse(target, status_code=303)
 
