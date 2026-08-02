@@ -160,6 +160,7 @@ MSG_BANNER = {
     "ok_tok": ("ok", "Token salvat ✔ — reporniți programul pentru aplicare"),
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
+    "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
     "ok_card": ("ok", "Fișa pacientului a fost actualizată ✔"),
     "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
     "ok_doc": ("ok", "Document încărcat ✔ — rămâne local, în folderul programului"),
@@ -339,6 +340,8 @@ PANEL_CSS = """
  .appt.noshow{background:var(--red-soft);border-left:3px solid var(--red)}
  .appt.urgent{background:var(--amber-soft);border-left:3px solid var(--amber)}
  .appt.note{background:var(--amber-soft);border-left:3px solid #EAB308;color:#713F12}
+ .appt.busy{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px);
+   color:var(--text3);text-align:center;font-size:11.5px}
  .appt.clickable{cursor:pointer}
  .appt.clickable:hover{filter:brightness(.98)}
  .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
@@ -688,13 +691,28 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
         out.append(f"<th><a href='/admin/doctor/{dk}?date={d.isoformat()}'>{html.escape(name)}</a>"
                    f"<br><small style='font-weight:400;opacity:.8'>{html.escape(spec)}</small></th>")
     out.append("</tr>")
+    starts, covered = active
     for h in hours:
         out.append(f"<tr><td class='hour'>{h:02d}:00</td>")
         for dk, dname in doctors_items:
-            r = active.get((dk, h)) or active.get((dname, h))
-            if r and r["source"] == "note":
-                out.append(f"<td><div class='appt note'>📝 {html.escape(r['service'])}</div></td>")
-            elif r:
+            rs = starts.get((dk, h)) or starts.get((dname, h)) or []
+            if not rs:
+                if (dk, h) in covered or (dname, h) in covered:
+                    # час накрыт длинным визитом — «+» тут врал бы
+                    out.append("<td><div class='appt busy'>⏳ ocupat</div></td>")
+                else:
+                    args = html.escape(json.dumps([dk, dname, f"{h:02d}:00"]), quote=True)
+                    out.append(
+                        f"<td><a class='free' href='{href_fn(dk, h)}' "
+                        f"onclick=\"openSlot.apply(null,{args});return false\">+</a></td>")
+                continue
+            cell = []
+            for r in rs:   # в часе может быть две записи (10:00 и 10:30)
+                hhmm = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
+                dur = int(r.get("duration_min") or 60)
+                if r["source"] == "note":
+                    cell.append(f"<div class='appt note'>📝 {hhmm} {html.escape(r['service'])}</div>")
+                    continue
                 src = "🤖" if r["source"] == "bot" else "✍️"
                 urgent = r["service"] in eng.URGENT_LABELS
                 cls = r["status"] + (" urgent" if urgent else "")
@@ -707,25 +725,28 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                        if r["comment"] else "")
                 a = _age(r["birth_year"])
                 age_txt = f" <small style='color:#889'>{a} a.</small>" if a else ""
-                out.append(
-                    f"<td><div class='appt {cls}'{click}><b>{html.escape(r['name'] or '—')}</b>{age_txt} {src}"
-                    f"<br>{svc_txt}<br><small>{html.escape(r['phone'] or '')}</small>{cmt}</div></td>"
-                )
-            else:
-                out.append(
-                    f"<td><a class='free' href='{href_fn(dk, h)}' "
-                    f"onclick=\"openSlot('{dk}','{html.escape(dname)}','{h:02d}:00');return false\">+</a></td>"
-                )
+                cell.append(
+                    f"<div class='appt {cls}'{click}><b>{hhmm} · {html.escape(r['name'] or '—')}</b>"
+                    f"{age_txt} {src}<br>{svc_txt} <small>({dur}′)</small>"
+                    f"<br><small>{html.escape(r['phone'] or '')}</small>{cmt}</div>")
+            out.append("<td>" + "".join(cell) + "</td>")
         out.append("</tr>")
     out.append("</table>")
     return "".join(out)
 
 
 def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: str) -> str:
-    hours = [x.hour for x in eng.day_slots(d)]
+    # 30-мин шаг (v1.8.0), но только те старты, где помещается минимум 30 минут
+    # приёма внутри рабочего окна клиники (не предлагаем 17:30 при закрытии в 18)
+    half = []
+    for x in eng.day_slots(d):
+        for m in (0, 30):
+            st = x.replace(minute=m)
+            if eng.fits_clinic(st, 30):
+                half.append(st.strftime("%H:%M"))
     time_opts = "".join(
-        f"<option value='{h:02d}:00'{' selected' if sel_time == f'{h:02d}:00' else ''}>{h:02d}:00</option>"
-        for h in hours
+        f"<option value='{t}'{' selected' if sel_time == t else ''}>{t}</option>"
+        for t in half
     )
     if len(doctors_items) == 1:
         dk, dn = doctors_items[0]
@@ -943,15 +964,24 @@ function openCard(id) {{
 </script>"""
 
 
-def _active_map(rows: list) -> dict:
-    """Ключ: стабильный doctor_id (v1.7.1), легаси без id — имя-снапшот."""
-    out = {}
+def _active_map(rows: list) -> tuple[dict, set]:
+    """({(врач, час): [записи]}, {(врач, час) накрытые чужим интервалом}).
+    Ключ — стабильный doctor_id (v1.7.1), легаси без id — имя-снапшот.
+    Второе множество нужно, чтобы под 90-минутным визитом не рисовать «+»."""
+    starts: dict = {}
+    covered: set = set()
     for r in rows:
-        if r["status"] != "cancelled":
-            did = r.get("doctor_id")
-            key = did if did and did in eng.DOCTORS else r["doctor"]
-            out[(key, r["starts_at"].astimezone(eng.TZ).hour)] = r
-    return out
+        if r["status"] == "cancelled":
+            continue
+        did = r.get("doctor_id")
+        key = did if did and did in eng.DOCTORS else r["doctor"]
+        st = r["starts_at"].astimezone(eng.TZ)
+        starts.setdefault((key, st.hour), []).append(r)
+        dur = int(r.get("duration_min") or 60)
+        end_min = st.hour * 60 + st.minute + dur
+        for h in range(st.hour + 1, (end_min + 59) // 60):
+            covered.add((key, h))
+    return starts, covered
 
 
 @app.on_event("startup")
@@ -1214,11 +1244,27 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     после брони) получают свою строку, переименованные врачи — свою колонку."""
     live = [r for r in rows if r["status"] != "cancelled"]
     sched = [x.hour for x in eng.day_slots(d)]
-    row_hours = {r["starts_at"].astimezone(eng.TZ).hour for r in live}
-    hours = sorted(set(sched) | row_hours)
-    if not hours:
+    row_hours: set[int] = set()
+    for r in live:  # и старт, и КОНЕЦ визита — иначе хвост 120′ уходит за сетку
+        st = r["starts_at"].astimezone(eng.TZ)
+        end_min = st.hour * 60 + st.minute + int(r.get("duration_min") or 60)
+        row_hours.add(st.hour)
+        row_hours.add(max(st.hour, (end_min - 1) // 60))
+    all_hours = sorted(set(sched) | row_hours)
+    if not all_hours:
         return "<div class='gridcard' style='padding:28px;text-align:center;color:var(--text3)'>Zi liberă — clinica este închisă</div>"
+    # НЕПРЕРЫВНЫЙ диапазон часов (обед = off-строка): время на канве линейно,
+    # поэтому блоки могут быть пропорциональны длительности (v1.8.0)
+    hours = list(range(all_hours[0], all_hours[-1] + 1))
     idx = {h: i for i, h in enumerate(hours)}
+    base_min = hours[0] * 60
+
+    def _pos(r) -> tuple[float, float]:
+        """(top, height) в ячейках: старт и длительность в минутах."""
+        st = r["starts_at"].astimezone(eng.TZ)
+        dur = int(r.get("duration_min") or 60)
+        top = (st.hour * 60 + st.minute - base_min) / 60
+        return top, max(dur / 60, 0.4)
 
     def _row_col(r) -> str:
         """Ключ колонки: стабильный doctor_id; легаси без id — снапшот имени."""
@@ -1227,22 +1273,36 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
             return f"k:{did}"
         return f"n:{r['doctor']}"
 
-    active: dict = {}
+    # группировка коллизий по ПЕРЕСЕЧЕНИЮ интервалов внутри колонки
+    by_col: dict = {}
     for r in live:
-        key = (_row_col(r), r["starts_at"].astimezone(eng.TZ).hour)
-        active.setdefault(key, []).append(r)
+        by_col.setdefault(_row_col(r), []).append(r)
+
+    def _r_bounds(r) -> tuple[int, int]:
+        st = r["starts_at"].astimezone(eng.TZ)
+        s_min = st.hour * 60 + st.minute
+        return s_min, s_min + int(r.get("duration_min") or 60)
 
     def _blocks(col_key: str) -> str:
+        rs_all = sorted(by_col.get(col_key, []), key=_r_bounds)
+        # кластеры пересекающихся интервалов делят ширину (ничего не прячем)
+        clusters: list[list] = []
+        for r in rs_all:
+            s_min, e_min = _r_bounds(r)
+            if clusters and any(_r_bounds(x)[0] < e_min and s_min < _r_bounds(x)[1]
+                                for x in clusters[-1]):
+                clusters[-1].append(r)
+            else:
+                clusters.append([r])
         out = []
-        for (doc, h), rs in active.items():
-            if doc != col_key or h not in idx:
-                continue
-            n = len(rs)
-            # коллизия (done/noshow + новая бронь на тот же час) — делим ширину,
-            # confirmed рисуем последним (поверх/правее), ничего не теряем
-            for j, r in enumerate(sorted(rs, key=lambda x: x["status"] in LIVE_STATUSES)):
-                pos = (f"top:calc({idx[h]}*var(--cell) + 3px);"
-                       f"height:calc(var(--cell) - 8px);"
+        for cluster in clusters:
+            n = len(cluster)
+            for j, r in enumerate(sorted(cluster,
+                                         key=lambda x: x["status"] in LIVE_STATUSES)):
+                top_c, h_c = _pos(r)
+                st = r["starts_at"].astimezone(eng.TZ)
+                pos = (f"top:calc({top_c:.3f}*var(--cell) + 2px);"
+                       f"height:calc({h_c:.3f}*var(--cell) - 6px);"
                        f"left:calc({j}*(100% - 8px)/{n} + 4px);"
                        f"width:calc((100% - 8px)/{n} - 2px)")
                 if r["source"] == "note":
@@ -1256,18 +1316,28 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 src = "🤖" if r["source"] == "bot" else "✍️"
                 ns = " noshow" if r["status"] == "noshow" else ""
                 click = f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else ""
+                dur = int(r.get("duration_min") or 60)
                 out.append(
                     f"<div class='gappt{ns}' style='{pos};"
                     f"background:{bg};border-left:3px solid {bar}'{click}>"
                     f"<span class='stt'>{ico}</span>"
                     f"<b>{html.escape(r['name'] or '—')} {src}</b>"
-                    f"<small>{h:02d}:00 · {html.escape(r['service'])}</small></div>")
+                    f"<small>{st.strftime('%H:%M')} · {dur}′ · {html.escape(r['service'])}</small></div>")
         return "".join(out)
 
     def _cells(dk: str | None, name: str) -> str:
+        # рабочие часы КОНКРЕТНОГО врача (сужение work_from/work_to, v1.8.0)
+        if dk is not None:
+            b = eng.doctor_bounds(dk, d)
+            work = set()
+            if b:
+                f_h, to_h, bf_h, bt_h = b
+                work = {h for h in range(f_h, to_h) if not (bf_h <= h < bt_h)}
+        else:
+            work = set()
         out = []
         for h in hours:
-            if dk is not None and h in sched:
+            if dk is not None and h in work:
                 # json+escape: имя врача с апострофом не ломает JS-обработчик
                 args = html.escape(json.dumps([dk, name, f"{h:02d}:00"]), quote=True)
                 out.append(f"<div class='gcell' onclick=\"openSlot.apply(null,{args})\"></div>")
@@ -1275,13 +1345,27 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 out.append("<div class='gcell off'></div>")
         return "".join(out)
 
+    def _free_hour(dk: str, col_key: str) -> int | None:
+        """Первый рабочий час врача без пересечений с его занятыми интервалами."""
+        b = eng.doctor_bounds(dk, d)
+        if not b:
+            return None
+        f_h, to_h, bf_h, bt_h = b
+        taken = [_r_bounds(r) for r in by_col.get(col_key, [])]
+        for h in range(f_h, to_h):
+            if bf_h <= h < bt_h:
+                continue
+            if not any(s < (h + 1) * 60 and h * 60 < e for s, e in taken):
+                return h
+        return None
+
     head = ["<div class='gridhead'><div class='gh-time'></div>"]
     cols = []
     for i, (dk, name) in enumerate(eng.DOCTORS.items()):
         col_key = f"k:{dk}"
         hue = eng.DOCTOR_META.get(dk, {}).get("color") or _DOC_HUES[i % len(_DOC_HUES)]
         mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
-        free_h = next((h for h in sched if (col_key, h) not in active), None)
+        free_h = _free_hour(dk, col_key)
         dot = "var(--green)" if free_h is not None else "var(--text3)"
         liber = f"liber {free_h:02d}:00" if free_h is not None else "complet"
         meta = eng.DOCTOR_META.get(dk, {})
@@ -1299,7 +1383,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # видимы отдельной колонкой + инструмент «переприкрепить к врачу»:
     # без этого их будущие брони невидимы для проверки занятости
     known = {f"k:{dk}" for dk in eng.DOCTORS}
-    orphans = sorted({doc for (doc, _h) in active} - known)
+    orphans = sorted(set(by_col) - known)
     for col_key in orphans:
         name = col_key[2:]
         mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
@@ -1583,6 +1667,12 @@ async def admin_settings(request: Request, msg: str = ""):
             out.append(f"<option value='{k}'{' selected' if sel == k else ''}>{ro}</option>")
         return "".join(out)
 
+    def _wh_opts(sel, lo: int = 6, hi: int = 22) -> str:
+        out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
+        for x in range(lo, hi + 1):
+            out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
+        return "".join(out)
+
     # ⚠️ Врача НЕ удаляем — гасим галочкой «activ». Иначе его id уходит в
     # переиспользование и история достаётся новому врачу (баг найден 08-01).
     doc_rows = "".join(
@@ -1590,20 +1680,28 @@ async def admin_settings(request: Request, msg: str = ""):
         f"<input type='text' class='d_name' value='{e(d['name'])}'></td>"
         f"<td><input type='text' class='d_spec' value='{e(d.get('spec', ''))}'></td>"
         f"<td><input type='text' class='d_room' value='{e(d.get('room', ''))}' "
-        f"placeholder='Cab. 1' style='width:90px'></td>"
+        f"placeholder='Cab. 1' style='width:80px'></td>"
         f"<td><input type='text' class='d_phone' value='{e(d.get('phone', ''))}' "
-        f"placeholder='intern' style='width:120px'></td>"
+        f"placeholder='intern' style='width:100px'></td>"
+        f"<td><select class='d_wf'>{_wh_opts(d.get('work_from'))}</select>"
+        f"<select class='d_wt'>{_wh_opts(d.get('work_to'))}</select></td>"
         f"<td><input type='color' class='d_color' value='{e(d.get('color') or '#0D9488')}' "
         f"style='width:44px;padding:2px;height:30px'></td>"
         f"<td style='text-align:center'><input type='checkbox' class='d_active'"
         f"{' checked' if d.get('active', True) else ''}></td></tr>"
         for d in cfg["doctors"]
     )
+    def _dur_opts(sel) -> str:
+        cur = int(sel) if sel else 60
+        return "".join(f"<option value='{x}'{' selected' if cur == x else ''}>{x} min</option>"
+                       for x in (15, 30, 45, 60, 90, 120))
+
     svc_rows = "".join(
         f"<tr><td><input type='hidden' class='s_id' value='{e(s['id'])}'>"
         f"<input type='text' class='s_ro' value='{e(s['ro'])}'></td>"
         f"<td><input type='text' class='s_ru' value='{e(s['ru'])}'></td>"
         f"<td><input type='text' class='s_price' value='{e(str(s.get('price', '')) if not isinstance(s.get('price'), dict) else s['price'].get('ro', ''))}'></td>"
+        f"<td><select class='s_dur'>{_dur_opts(s.get('duration'))}</select></td>"
         f"<td><select class='s_color'>{_color_opts(s.get('color', ''))}</select></td>"
         f"<td style='text-align:center'><input type='checkbox' class='s_urg'{' checked' if s.get('urgent') else ''}></td>"
         f"<td><input type='text' class='s_docs' value='{e(' '.join(s.get('docs', [])))}' placeholder='gol = toți'></td>"
@@ -1722,22 +1820,22 @@ Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
 
 <h2>👨‍⚕️ Medici</h2>
 <table class='set' id='docs_t'>
-<tr><th>Nume</th><th>Specializare</th><th style='width:90px'>Cabinet</th>
-<th style='width:120px'>Telefon</th><th style='width:60px'>Culoare</th>
+<tr><th>Nume</th><th>Specializare</th><th style='width:80px'>Cabinet</th>
+<th style='width:100px'>Telefon</th><th style='width:140px'>Program (de la/până)</th>
+<th style='width:60px'>Culoare</th>
 <th style='width:60px'>Activ</th></tr>
 <tbody id='docs_tb'>{doc_rows}</tbody>
 </table>
 <button type='button' class='addrow' onclick='addDoc()'>+ Adaugă medic</button>
 <p class='hint'>Medicul care pleacă se <b>dezactivează</b> (bifa «Activ»), nu se șterge:
 programările lui rămân în istoric, iar botul și formularele nu îl mai propun.
-Culoarea se vede în grila zilei. Redenumirea nu modifică programările din trecut
-(rămân pe numele vechi).</p>
+«Program» = fereastra personală în cadrul orelor clinicii («—» = ca clinica).</p>
 
 <h2>🦷 Servicii</h2>
 <table class='set' id='svc_t'>
-<tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:140px'>Preț</th>
-<th style='width:110px'>Culoare</th>
-<th style='width:40px'>🆘</th><th style='width:150px'>Medici (id)</th><th></th></tr>
+<tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:120px'>Preț</th>
+<th style='width:90px'>Durată</th><th style='width:100px'>Culoare</th>
+<th style='width:40px'>🆘</th><th style='width:140px'>Medici (id)</th><th></th></tr>
 <tbody id='svc_tb'>{svc_rows}</tbody>
 </table>
 <button type='button' class='addrow' onclick='addSvc()'>+ Adaugă serviciu</button>
@@ -1751,11 +1849,14 @@ Culoarea se vede în grila zilei. Redenumirea nu modifică programările din tre
 function addDoc() {{
   const tb = document.getElementById('docs_tb');
   const tr = document.createElement('tr');
+  let wh = "<option value=''>—</option>";
+  for (let x = 6; x <= 22; x++) wh += "<option value='" + x + "'>" + x + ":00</option>";
   tr.innerHTML = "<td><input type='hidden' class='d_id' value=''>" +
     "<input type='text' class='d_name' placeholder='Dr. ...'></td>" +
     "<td><input type='text' class='d_spec' placeholder='Terapie'></td>" +
-    "<td><input type='text' class='d_room' placeholder='Cab. 1' style='width:90px'></td>" +
-    "<td><input type='text' class='d_phone' placeholder='intern' style='width:120px'></td>" +
+    "<td><input type='text' class='d_room' placeholder='Cab. 1' style='width:80px'></td>" +
+    "<td><input type='text' class='d_phone' placeholder='intern' style='width:100px'></td>" +
+    "<td><select class='d_wf'>" + wh + "</select><select class='d_wt'>" + wh + "</select></td>" +
     "<td><input type='color' class='d_color' value='#0D9488' style='width:44px;padding:2px;height:30px'></td>" +
     "<td style='text-align:center'><input type='checkbox' class='d_active' checked></td>";
   tb.appendChild(tr);
@@ -1766,10 +1867,14 @@ function addSvc() {{
   const tr = document.createElement('tr');
   let opts = "<option value=''>auto</option>";
   for (const k in SVC_COLORS) opts += "<option value='" + k + "'>" + SVC_COLORS[k] + "</option>";
+  let dopts = "";
+  for (const x of [15, 30, 45, 60, 90, 120])
+    dopts += "<option value='" + x + "'" + (x === 60 ? " selected" : "") + ">" + x + " min</option>";
   tr.innerHTML = "<td><input type='hidden' class='s_id' value=''>" +
     "<input type='text' class='s_ro' placeholder='Serviciu'></td>" +
     "<td><input type='text' class='s_ru' placeholder='Услуга'></td>" +
     "<td><input type='text' class='s_price' placeholder='500 MDL'></td>" +
+    "<td><select class='s_dur'>" + dopts + "</select></td>" +
     "<td><select class='s_color'>" + opts + "</select></td>" +
     "<td style='text-align:center'><input type='checkbox' class='s_urg'></td>" +
     "<td><input type='text' class='s_docs' placeholder='gol = toți'></td>" +
@@ -1795,6 +1900,8 @@ function collectSettings() {{
                    spec: tr.querySelector('.d_spec').value,
                    room: tr.querySelector('.d_room').value,
                    phone: tr.querySelector('.d_phone').value,
+                   work_from: tr.querySelector('.d_wf').value,
+                   work_to: tr.querySelector('.d_wt').value,
                    color: tr.querySelector('.d_color').value,
                    active: tr.querySelector('.d_active').checked }});
   }});
@@ -1804,6 +1911,7 @@ function collectSettings() {{
                     ro: tr.querySelector('.s_ro').value,
                     ru: tr.querySelector('.s_ru').value,
                     price: tr.querySelector('.s_price').value,
+                    duration: tr.querySelector('.s_dur').value,
                     color: tr.querySelector('.s_color').value,
                     urgent: tr.querySelector('.s_urg').checked,
                     docs: tr.querySelector('.s_docs').value }});
@@ -1909,6 +2017,17 @@ def _build_config(data: dict) -> dict:
             entry_d["phone"] = phone_d
         if re.fullmatch(r"#[0-9a-fA-F]{6}", color_d):
             entry_d["color"] = color_d
+        # персональное окно врача: пусто = как клиника; from < to обязательно
+        wf_raw = str(d.get("work_from", "") or "").strip()
+        wt_raw = str(d.get("work_to", "") or "").strip()
+        wf_v = int(wf_raw) if wf_raw.isdecimal() and 0 <= int(wf_raw) <= 23 else None
+        wt_v = int(wt_raw) if wt_raw.isdecimal() and 1 <= int(wt_raw) <= 24 else None
+        if wf_v is not None and wt_v is not None and wf_v >= wt_v:
+            raise ValueError("doctor hours")
+        if wf_v is not None:
+            entry_d["work_from"] = wf_v
+        if wt_v is not None:
+            entry_d["work_to"] = wt_v
         doctors.append(entry_d)
     if not doctors:
         raise ValueError("doctors")
@@ -1946,6 +2065,10 @@ def _build_config(data: dict) -> dict:
         price = str(s.get("price", "")).strip()[:60]
         if price:
             entry["price"] = price
+        dur_raw = str(s.get("duration", "") or "").strip()
+        if dur_raw.isdecimal() and int(dur_raw) in (15, 30, 45, 60, 90, 120):
+            if int(dur_raw) != 60:
+                entry["duration"] = int(dur_raw)  # 60 = дефолт, не пишем
         color_s = str(s.get("color", "")).strip()
         if color_s in SVC_PALETTE:
             entry["color"] = color_s
@@ -2131,16 +2254,18 @@ async def admin_stats(
         "</div>"
     )
 
-    # загрузка врачей: занято / ёмкость периода
+    # загрузка врачей: занятые МИНУТЫ / рабочие минуты врача за период (v1.8.0 —
+    # при разных длительностях считать «в штуках слотов» стало бессмысленно)
     days = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
-    capacity = sum(len(eng.day_slots(day)) for day in days)
     doc_rows = []
     for dk, name in eng.DOCTORS.items():
         # по стабильному id (v1.7.1): переименование врача не обнуляет историю
         mine = [r for r in act if r.get("doctor_id") == dk
                 or (not r.get("doctor_id") and r["doctor"] == name)]
         ns = sum(1 for r in mine if r["status"] == "noshow")
-        pct = round(100 * len(mine) / capacity) if capacity else 0
+        cap_min = sum(eng.work_minutes(dk, day) for day in days)
+        busy_min = sum(int(r.get("duration_min") or 60) for r in mine)
+        pct = round(100 * busy_min / cap_min) if cap_min else 0
         doc_rows.append(
             f"<tr><td>{html.escape(name)}</td><td>{len(mine)}</td><td>{ns}</td>"
             f"<td style='min-width:160px'>{pct}%<div class='statbar'><div style='width:{min(pct,100)}%'></div></div></td></tr>"
@@ -2889,9 +3014,15 @@ async def admin_add(
         return _back_redirect(back, adate, "bad")
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
         return _back_redirect(back, adate, "bad")  # выключенному врачу не пишем
+    if dt.minute not in (0, 30):
+        return _back_redirect(back, adate, "bad")  # 30-мин сетка стартов
+    if not eng.fits_clinic(dt, eng.svc_duration(aservice)):
+        # визит не помещается в рабочее окно клиники (закрытие/обед)
+        return _back_redirect(back, adate, "outside")
     year = int(ayear) if ayear.strip().isdigit() and 1900 <= int(ayear) <= 2026 else None
     r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year,
-                           doctor_id=adoctor, service_id=aservice)
+                           doctor_id=adoctor, service_id=aservice,
+                           duration_min=eng.svc_duration(aservice))
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
     return _back_redirect(back, adate, msg)
 

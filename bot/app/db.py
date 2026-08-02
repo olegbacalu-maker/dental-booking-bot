@@ -27,6 +27,12 @@ _ACT_SQL = "('confirmed','arrived')"
 POOL = None          # asyncpg pool
 _CONN = None         # aiosqlite connection
 
+# Сериализация бронирований: интервальное пересечение уникальным индексом не
+# ловится (индекс защищает только одинаковые старты), поэтому проверка
+# «пересекается ли» и INSERT идут под замком. Процесс один (single-instance
+# guard в desktop.py) — замка на уровне процесса достаточно.
+_BOOK_LOCK = asyncio.Lock()
+
 PG_SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients(
   id SERIAL PRIMARY KEY,
@@ -103,6 +109,7 @@ CREATE TABLE IF NOT EXISTS documents(
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'alt';
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS doctor_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_id TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_min INT;
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -211,6 +218,8 @@ SQLITE_EXTRA_COLS = [
     # момент записи (история, CSV, напоминания показывают то, что называли)
     ("appointments", "doctor_id TEXT"),
     ("appointments", "service_id TEXT"),
+    # v1.8.0: длительность визита в минутах; NULL = легаси-строка = 60
+    ("appointments", "duration_min INTEGER"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -503,58 +512,105 @@ async def create_appointment(
     service: str, doctor: str, starts_at: datetime,
     source: str = "bot", birth_year: int | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
+    duration_min: int = 60,
 ) -> int | str | None:
-    """id записи; None — слот занят у этого врача; 'dup' — у пациента
+    """id записи; None — интервал занят у этого врача; 'dup' — у пациента
     уже есть своя запись на это время. doctor/service = снапшоты подписи,
-    doctor_id/service_id = стабильные ключи конфига."""
+    doctor_id/service_id = стабильные ключи; duration_min = снапшот
+    длительности услуги на момент брони."""
+    from datetime import timedelta
     pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
-    if IS_SQLITE:
-        import sqlite3
-        try:
-            cur = await _CONN.execute(
-                """INSERT INTO appointments(patient_id, service, doctor, starts_at,
-                                            source, doctor_id, service_id, created_at)
-                   VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
-                (pid, service, doctor, _iso(starts_at), source,
-                 doctor_id, service_id, _utcnow_iso()),
-            )
-            await _CONN.commit()
-            appt_id = cur.lastrowid
-            await cur.close()
-            return appt_id
-        except sqlite3.IntegrityError as e:
-            await _CONN.rollback()
-            return "dup" if "uq_patient_slot" in str(e) else None
-    import asyncpg
-    async with POOL.acquire() as c:
-        try:
-            return await c.fetchval(
-                """INSERT INTO appointments(patient_id, service, doctor, starts_at,
-                                            source, doctor_id, service_id)
-                   VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
-                pid, service, doctor, starts_at, source, doctor_id, service_id,
-            )
-        except asyncpg.UniqueViolationError as e:
-            return "dup" if e.constraint_name == "uq_patient_slot" else None
+    async with _BOOK_LOCK:
+        # интервальная проверка: uq-индексы ловят только одинаковые старты,
+        # пересечение 10:00(60') с 10:30(60') обязано отсекаться здесь
+        if await _conflicts(doctor_id, doctor, starts_at, duration_min):
+            return None
+        if IS_SQLITE:
+            import sqlite3
+            try:
+                cur = await _CONN.execute(
+                    """INSERT INTO appointments(patient_id, service, doctor, starts_at,
+                                                source, doctor_id, service_id,
+                                                duration_min, created_at)
+                       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (pid, service, doctor, _iso(starts_at), source,
+                     doctor_id, service_id, duration_min, _utcnow_iso()),
+                )
+                await _CONN.commit()
+                appt_id = cur.lastrowid
+                await cur.close()
+                return appt_id
+            except sqlite3.IntegrityError as e:
+                await _CONN.rollback()
+                return "dup" if "uq_patient_slot" in str(e) else None
+        import asyncpg
+        async with POOL.acquire() as c:
+            try:
+                return await c.fetchval(
+                    """INSERT INTO appointments(patient_id, service, doctor, starts_at,
+                                                source, doctor_id, service_id, duration_min)
+                       VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
+                    pid, service, doctor, starts_at, source,
+                    doctor_id, service_id, duration_min,
+                )
+            except asyncpg.UniqueViolationError as e:
+                return "dup" if e.constraint_name == "uq_patient_slot" else None
 
 
 async def admin_add(
     name: str, phone: str, service: str, doctor: str, starts_at: datetime,
     birth_year: int | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
+    duration_min: int = 60,
 ) -> int | str | None:
     """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону."""
     digits = "".join(ch for ch in phone if ch.isdigit())
     return await create_appointment(
         f"manual:{digits}", name, phone, "ro", service, doctor, starts_at,
         source="manual", birth_year=birth_year,
-        doctor_id=doctor_id, service_id=service_id,
+        doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
     )
+
+
+async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
+                     duration_min: int, exclude_id: int | None = None) -> bool:
+    """Пересекается ли интервал с уже занятыми у этого врача. Вызывать ПОД
+    _BOOK_LOCK — уникальные индексы ловят только совпадающие старты."""
+    from datetime import timedelta
+    pad = timedelta(minutes=240)
+    rows = await _fetch(
+        f"""SELECT id, starts_at, duration_min FROM appointments
+           WHERE (doctor_id = $1 OR (doctor_id IS NULL AND doctor = $2))
+             AND status IN {_ACT_SQL} AND starts_at >= $3 AND starts_at < $4""",
+        f"""SELECT id, starts_at, duration_min FROM appointments
+           WHERE (doctor_id = ? OR (doctor_id IS NULL AND doctor = ?))
+             AND status IN {_ACT_SQL} AND starts_at >= ? AND starts_at < ?""",
+        *((doctor_id or "", doctor, starts_at - pad, starts_at + pad)
+          if not IS_SQLITE
+          else (doctor_id or "", doctor, _iso(starts_at - pad), _iso(starts_at + pad))),
+    )
+    end = starts_at + timedelta(minutes=duration_min)
+    for r in rows:
+        if exclude_id is not None and r["id"] == exclude_id:
+            continue
+        b_start = r["starts_at"]
+        if b_start < end and starts_at < b_start + timedelta(minutes=int(r["duration_min"] or 60)):
+            return True
+    return False
 
 
 async def add_note(doctor: str, starts_at: datetime, text: str,
                    doctor_id: str | None = None) -> int | None:
     """Заметка/блокировка слота: без пациента, но занимает слот врача."""
+    async with _BOOK_LOCK:
+        # заметка тоже обязана уважать интервалы (иначе ложится поверх визита)
+        if await _conflicts(doctor_id, doctor, starts_at, 60):
+            return None
+        return await _insert_note(doctor, starts_at, text, doctor_id)
+
+
+async def _insert_note(doctor: str, starts_at: datetime, text: str,
+                       doctor_id: str | None) -> int | None:
     if IS_SQLITE:
         import sqlite3
         try:
@@ -584,24 +640,24 @@ async def add_note(doctor: str, starts_at: datetime, text: str,
             return None
 
 
-async def booked(doctor_key: str, doctor_name: str,
-                 start: datetime, end: datetime) -> set:
-    """Занятые слоты врача. Матчим по СТАБИЛЬНОМУ doctor_id, а легаси-строки
-    без id (созданы до v1.7.1) — по снапшоту имени: иначе будущая бронь,
-    сделанная до обновления, стала бы невидимой для проверки занятости."""
+async def booked_intervals(doctor_key: str, doctor_name: str,
+                           start: datetime, end: datetime) -> list:
+    """Занятые ИНТЕРВАЛЫ врача: [(старт, длительность_мин)]. Матчим по
+    стабильному doctor_id, легаси-строки без id — по снапшоту имени.
+    NULL-длительность (записи до v1.8.0) считается 60 минутами."""
     rows = await _fetch(
-        f"""SELECT starts_at FROM appointments
+        f"""SELECT starts_at, duration_min FROM appointments
            WHERE (doctor_id = $1 OR (doctor_id IS NULL AND doctor = $2))
              AND status IN {_ACT_SQL}
              AND starts_at >= $3 AND starts_at < $4""",
-        f"""SELECT starts_at FROM appointments
+        f"""SELECT starts_at, duration_min FROM appointments
            WHERE (doctor_id = ? OR (doctor_id IS NULL AND doctor = ?))
              AND status IN {_ACT_SQL}
              AND starts_at >= ? AND starts_at < ?""",
         *((doctor_key, doctor_name, start, end) if not IS_SQLITE
           else (doctor_key, doctor_name, _iso(start), _iso(end))),
     )
-    return {r["starts_at"] for r in rows}
+    return [(r["starts_at"], int(r["duration_min"] or 60)) for r in rows]
 
 
 async def my_appointments(session_key: str, now: datetime) -> list:
@@ -680,13 +736,13 @@ async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     return await _fetch(
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
-                  a.starts_at, a.status, a.source,
+                  a.starts_at, a.duration_min, a.status, a.source,
                   a.reminded_day, a.comment, p.name, p.phone, p.birth_year
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.starts_at >= $1 AND a.starts_at < $2
            ORDER BY a.starts_at, a.doctor""",
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
-                  a.starts_at, a.status, a.source,
+                  a.starts_at, a.duration_min, a.status, a.source,
                   a.reminded_day, a.comment, p.name, p.phone, p.birth_year
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.starts_at >= ? AND a.starts_at < ?
@@ -980,18 +1036,33 @@ async def set_comment(appt_id: int, text: str) -> None:
 
 
 async def set_status(appt_id: int, status: str) -> bool:
-    """False = смена статуса нарушила бы уникальность слота (вернули confirmed,
-    а час уже занят новой записью) — журнал показывает «интервал занят»."""
-    try:
-        await _execute(
-            "UPDATE appointments SET status = $2 WHERE id = $1",
-            "UPDATE appointments SET status = ? WHERE id = ?",
-            *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
-        )
-        return True
-    except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
-        if "uq_" in str(e) or "unique" in str(e).lower():
-            if IS_SQLITE:
-                await _CONN.rollback()
-            return False
-        raise
+    """False = смена статуса нарушила бы занятость (вернули confirmed, а
+    интервал уже занят новой записью) — журнал показывает «интервал занят»."""
+    async with _BOOK_LOCK:
+        if status in ACTIVE_STATUSES:
+            # возврат в активный статус = та же интервальная проверка, что
+            # при новой брони: uq-индексы ловят лишь совпадающие старты
+            rows = await _fetch(
+                """SELECT doctor, doctor_id, starts_at, duration_min, status
+                   FROM appointments WHERE id = $1""",
+                """SELECT doctor, doctor_id, starts_at, duration_min, status
+                   FROM appointments WHERE id = ?""", appt_id)
+            if rows:
+                r = rows[0]
+                if r["status"] not in ACTIVE_STATUSES and await _conflicts(
+                        r["doctor_id"], r["doctor"], r["starts_at"],
+                        int(r["duration_min"] or 60), exclude_id=appt_id):
+                    return False
+        try:
+            await _execute(
+                "UPDATE appointments SET status = $2 WHERE id = $1",
+                "UPDATE appointments SET status = ? WHERE id = ?",
+                *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
+            )
+            return True
+        except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
+            if "uq_" in str(e) or "unique" in str(e).lower():
+                if IS_SQLITE:
+                    await _CONN.rollback()
+                return False
+            raise

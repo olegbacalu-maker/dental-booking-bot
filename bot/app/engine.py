@@ -15,7 +15,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.7.1"
+APP_VERSION = "1.8.0"
 
 
 def _load_config() -> dict:
@@ -190,7 +190,9 @@ def apply_config(cfg: dict) -> None:
         DOCTOR_SPEC[d["id"]] = d.get("spec", "")
         DOCTOR_META[d["id"]] = {"color": d.get("color", ""), "phone": d.get("phone", ""),
                                 "room": d.get("room", ""),
-                                "active": d.get("active", True)}
+                                "active": d.get("active", True),
+                                "work_from": d.get("work_from"),
+                                "work_to": d.get("work_to")}
         if d.get("active", True):
             ACTIVE_DOCTORS[d["id"]] = d["name"]
     SERVICES.clear()
@@ -209,6 +211,8 @@ def apply_config(cfg: dict) -> None:
         if svc.get("color"):
             entry["color"] = svc["color"]
             SERVICE_COLOR[svc["id"]] = svc["color"]
+        if svc.get("duration"):
+            entry["duration"] = svc["duration"]
         SERVICES[svc["id"]] = entry
         avg = _price_avg(svc.get("price", ""))
         SERVICE_PRICE[svc["ro"]] = avg
@@ -317,6 +321,113 @@ def day_slots(d: date) -> list[datetime]:
     return [datetime(d.year, d.month, d.day, hour, 0, tzinfo=TZ) for hour in hours]
 
 
+# ---------- длительности и интервалы (v1.8.0) ----------
+
+GRID_STEP = 30  # шаг сетки стартов, минут
+
+
+def svc_duration(svc_key: str) -> int:
+    """Длительность услуги в минутах (из конфига, дефолт 60)."""
+    try:
+        return max(15, min(240, int(SERVICES.get(svc_key, {}).get("duration", 60))))
+    except (TypeError, ValueError):
+        return 60
+
+
+def doctor_bounds(dk: str, d: date) -> tuple[int, int, int, int] | None:
+    """Рабочее окно врача в часах: часы клиники, суженные его work_from/work_to.
+    None = день закрыт (для клиники или для врача окно пустое)."""
+    h = hours_for(d)
+    if not h:
+        return None
+    f, to = int(h[0]), int(h[1])
+    bf, bt = (int(h[2]), int(h[3])) if len(h) >= 4 else (to, to)
+    meta = DOCTOR_META.get(dk, {})
+    wf, wt = meta.get("work_from"), meta.get("work_to")
+    if wf is not None:
+        f = max(f, int(wf))
+    if wt is not None:
+        to = min(to, int(wt))
+    if f >= to:
+        return None
+    return f, to, bf, bt
+
+
+def _windows(dk: str, d: date) -> list[tuple[datetime, datetime]]:
+    """Непрерывные рабочие интервалы врача за день (обед разрезает)."""
+    b = doctor_bounds(dk, d)
+    if not b:
+        return []
+    f, to, bf, bt = b
+
+    def _dt(hour: int) -> datetime:
+        return datetime(d.year, d.month, d.day, hour, 0, tzinfo=TZ)
+
+    if bf < bt and f < bt and bf < to:  # обед пересекает окно врача
+        out = []
+        if f < bf:
+            out.append((_dt(f), _dt(min(bf, to))))
+        if max(bt, f) < to:
+            out.append((_dt(max(bt, f)), _dt(to)))
+        return out
+    return [(_dt(f), _dt(to))]
+
+
+def _overlaps(start: datetime, dur: int,
+              busy: list[tuple[datetime, int]]) -> bool:
+    end = start + timedelta(minutes=dur)
+    for b_start, b_dur in busy:
+        if b_start < end and start < b_start + timedelta(minutes=b_dur):
+            return True
+    return False
+
+
+def fits_clinic(start: datetime, duration: int) -> bool:
+    """Интервал целиком внутри рабочего окна КЛИНИКИ (обед разрезает)."""
+    h = hours_for(start.date())
+    if not h:
+        return False
+    d0 = start.date()
+    f, to = int(h[0]), int(h[1])
+    bf, bt = (int(h[2]), int(h[3])) if len(h) >= 4 else (to, to)
+
+    def _dt(hour: int) -> datetime:
+        return datetime(d0.year, d0.month, d0.day, hour, 0, tzinfo=TZ)
+
+    wins = ([(_dt(f), _dt(bf)), (_dt(bt), _dt(to))] if bf < bt < to and f < bf
+            else [(_dt(f), _dt(to))])
+    end = start + timedelta(minutes=duration)
+    return any(w_s <= start and end <= w_e for w_s, w_e in wins)
+
+
+def work_minutes(dk: str, d: date) -> int:
+    """Рабочие минуты врача за день (для ёмкости в статистике)."""
+    return sum(int((e - s).total_seconds()) // 60 for s, e in _windows(dk, d))
+
+
+async def free_starts(
+    doc_key: str, d: date, duration: int,
+    allowed_keys: list[str] | None = None,
+) -> list[datetime]:
+    """Свободные СТАРТЫ для услуги данной длительности: 30-мин сетка внутри
+    рабочих окон врача, интервал влезает в окно и не пересекает занятые."""
+    now = datetime.now(TZ)
+    day_start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
+    day_end = day_start + timedelta(days=1)
+    keys = ([doc_key] if doc_key != "any"
+            else (allowed_keys or list(ACTIVE_DOCTORS)))
+    free: set[datetime] = set()
+    for k in keys:
+        busy = await db.booked_intervals(k, DOCTORS.get(k, ""), day_start, day_end)
+        for w_start, w_end in _windows(k, d):
+            t_cur = w_start
+            while t_cur + timedelta(minutes=duration) <= w_end:
+                if t_cur > now and not _overlaps(t_cur, duration, busy):
+                    free.add(t_cur)
+                t_cur += timedelta(minutes=GRID_STEP)
+    return sorted(free)
+
+
 def day_rows(s: Session) -> list[list[dict]]:
     rows = chunk([btn(day_label(s, d), "day:" + d.isoformat()) for d in next_days()], 3)
     rows.append([btn(t(s, "btn_menu"), "menu")])
@@ -344,7 +455,8 @@ def svc_allowed_keys(s: Session) -> list[str]:
 
 
 async def time_rows(s: Session, d: date) -> list[list[dict]] | None:
-    slots = await free_slots(s.data["doc"], d, svc_allowed_keys(s))
+    dur = svc_duration(s.data.get("svc", ""))
+    slots = await free_starts(s.data["doc"], d, dur, svc_allowed_keys(s))
     if not slots:
         return None
     rows = chunk(
@@ -357,30 +469,20 @@ async def time_rows(s: Session, d: date) -> list[list[dict]] | None:
 async def free_slots(
     doc_key: str, d: date, allowed_keys: list[str] | None = None
 ) -> list[datetime]:
-    start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
-    end = start + timedelta(days=1)
-    now = datetime.now(TZ)
-    slots = day_slots(d)
-    if doc_key == "any":
-        keys = allowed_keys or list(ACTIVE_DOCTORS)
-        free: set[datetime] = set()
-        for k in keys:
-            b = await db.booked(k, DOCTORS.get(k, ""), start, end)
-            free.update(x for x in slots if x not in b)
-        return sorted(x for x in free if x > now)
-    b = await db.booked(doc_key, DOCTORS.get(doc_key, ""), start, end)
-    return [x for x in slots if x not in b and x > now]
+    """Свободные часовые окна (для дашборда «liber de la»)."""
+    return await free_starts(doc_key, d, 60, allowed_keys)
 
 
 async def urgent_slots(
-    limit: int = 8, allowed_keys: list[str] | None = None
+    limit: int = 8, allowed_keys: list[str] | None = None,
+    duration: int = 60,
 ) -> list[datetime]:
     """Ближайшие свободные окна у допущенных врачей, начиная с СЕГОДНЯ."""
     out: list[datetime] = []
     d = datetime.now(TZ).date()
     for _ in range(4):
         if hours_for(d):
-            out += await free_slots("any", d, allowed_keys)
+            out += await free_starts("any", d, duration, allowed_keys)
         if len(out) >= limit:
             break
         d += timedelta(days=1)
@@ -403,12 +505,23 @@ def build_seed_rows() -> list[tuple]:
         ("Elena Cara", "062 555 666", 1985), ("Mihai Donos", "067 666 777", 1996),
     ]
     rows = []
+    if not usable:
+        return rows
+    # сид раскладывается последовательно с учётом длительности услуги,
+    # чтобы 90-минутные демо-записи не пересекались со следующими
+    cursor = usable[0]
+    day_end = usable[-1] + timedelta(hours=1)
     for i, (key, svc) in enumerate(SERVICES.items()):
-        if i >= len(demo_people) or i >= len(usable):
+        if i >= len(demo_people):
+            break
+        dur = svc_duration(key)
+        if cursor + timedelta(minutes=dur) > day_end:
             break
         dk, doctor = allowed_doc_items(key)[0]
         name, phone, year = demo_people[i]
-        rows.append((name, phone, svc["ro"], doctor, usable[i], year, dk, key))
+        rows.append((name, phone, svc["ro"], doctor, cursor, year, dk, key, dur))
+        step = ((dur + 59) // 60) * 60  # следующий сид с чистого часа
+        cursor += timedelta(minutes=step)
     return rows
 
 
@@ -419,7 +532,8 @@ def is_urgent(s: Session) -> bool:
 async def render_urgent(s: Session, prefix: str | None = None):
     """Экран «ближайшие окна» для острой боли — вход и ВСЕ возвраты в него.
     Телефон клиники показывается всегда, даже если окон нет."""
-    slots = await urgent_slots(allowed_keys=svc_allowed_keys(s))
+    slots = await urgent_slots(allowed_keys=svc_allowed_keys(s),
+                               duration=svc_duration(s.data.get("svc", "")))
     if slots:
         texts = ([prefix] if prefix else [t(s, "urgent_intro")]) + [t(s, "urgent_call")]
         s.data["day"] = slots[0].date().isoformat()
@@ -489,26 +603,30 @@ async def do_book(s: Session, sid: str):
             return await render_urgent(s, t(s, "slot_taken"))
         s.state = "day"
         return [t(s, "slot_taken")], day_rows(s)
+    svc_key = s.data["svc"]
+    dur = svc_duration(svc_key)
     doc_key = s.data.get("doc", "any")
     if doc_key == "any":
         candidates = []
         for k in svc_allowed_keys(s):
-            b = await db.booked(k, DOCTORS.get(k, ""), dt, dt + timedelta(hours=1))
-            if dt not in b:
+            day_start = dt.replace(hour=0, minute=0)
+            busy = await db.booked_intervals(k, DOCTORS.get(k, ""),
+                                             day_start, day_start + timedelta(days=1))
+            if not _overlaps(dt, dur, busy):
                 candidates.append(k)
     else:
         candidates = [doc_key]
-    svc_key = s.data["svc"]
     service = SERVICES[svc_key][s.lang]
     appt_id = None
     doctor = None
-    # при гонке за слот пробуем всех свободных врачей, прежде чем сдаться
+    # при гонке за слот пробуем всех свободных врачей, прежде чем сдаться;
+    # create_appointment перепроверяет пересечение атомарно (замок в db)
     for cand in candidates:
         r = await db.create_appointment(
             sid, s.data["name"], s.data["phone"], s.lang, service,
             DOCTORS.get(cand, cand), dt,
             birth_year=s.data.get("year"),
-            doctor_id=cand, service_id=svc_key,
+            doctor_id=cand, service_id=svc_key, duration_min=dur,
         )
         if r == "dup":
             if is_urgent(s):
@@ -607,8 +725,11 @@ async def handle(s: Session, sid: str, msg: str):
             return await fallback(s)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=TZ)
-        # только валидные слоты сетки и только будущее
-        if dt not in day_slots(dt.date()) or dt <= datetime.now(TZ):
+        # валидируем ТЕМ ЖЕ источником, что рисовал кнопки (30-мин сетка,
+        # окна врача, длительность услуги) — иначе :30-слоты были бы мертвы
+        offered = await free_starts(s.data["doc"], dt.date(),
+                                    svc_duration(s.data["svc"]), svc_allowed_keys(s))
+        if dt not in offered or dt <= datetime.now(TZ):
             return await fallback(s)
         s.data["time"] = dt.isoformat()
         if s.data.get("name") and s.data.get("phone"):
