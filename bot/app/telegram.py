@@ -70,13 +70,16 @@ async def _send_reminder(bot: Bot, r) -> None:
         return
     if not soon and r["reminded_day"]:
         return
+    # напоминание — про БУДУЩИЙ визит: имя врача берём АКТУАЛЬНОЕ (после
+    # переименования), снапшот из строки — только фолбэк для легаси
+    doctor = eng.DOCTORS.get(r.get("doctor_id") or "", "") or r["doctor"]
     if soon:
         text = eng.t(s, "reminder_soon").format(
-            time=dt.strftime("%H:%M"), doctor=r["doctor"], service=r["service"])
+            time=dt.strftime("%H:%M"), doctor=doctor, service=r["service"])
     else:
         when = f"{eng.day_label(s, dt.date())} {dt.strftime('%H:%M')}"
         text = eng.t(s, "reminder").format(
-            when=when, doctor=r["doctor"], service=r["service"])
+            when=when, doctor=doctor, service=r["service"])
     kb = _keyboard([
         [eng.btn(eng.t(s, "btn_rem_ok"), "rem_ok")],
         [eng.btn(f"{eng.t(s, 'btn_cancel_appt')} #{r['id']}", f"cancel:{r['id']}")],

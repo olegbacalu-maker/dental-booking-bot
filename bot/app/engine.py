@@ -15,7 +15,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.7.1"
 
 
 def _load_config() -> dict:
@@ -47,8 +47,9 @@ DOCTOR_SPEC: dict[str, str] = {}
 DOCTOR_META: dict[str, dict] = {}   # color / phone / room / active
 # docs = кто выполняет услугу (нет ключа = все); один врач → бот не спрашивает
 SERVICES: dict[str, dict] = {}
-SERVICE_PRICE: dict[str, int] = {}
-SERVICE_COLOR: dict[str, str] = {}  # id услуги → цвет из конфига
+SERVICE_PRICE: dict[str, int] = {}          # подпись (ro/ru) → средняя цена
+SERVICE_PRICE_BY_ID: dict[str, int] = {}    # id услуги → средняя цена
+SERVICE_COLOR: dict[str, str] = {}          # id услуги → цвет из конфига
 URGENT_LABELS: set[str] = set()
 
 
@@ -194,6 +195,7 @@ def apply_config(cfg: dict) -> None:
             ACTIVE_DOCTORS[d["id"]] = d["name"]
     SERVICES.clear()
     SERVICE_PRICE.clear()
+    SERVICE_PRICE_BY_ID.clear()
     SERVICE_COLOR.clear()
     URGENT_LABELS.clear()
     for svc in cfg["services"]:
@@ -211,6 +213,7 @@ def apply_config(cfg: dict) -> None:
         avg = _price_avg(svc.get("price", ""))
         SERVICE_PRICE[svc["ro"]] = avg
         SERVICE_PRICE[svc["ru"]] = avg
+        SERVICE_PRICE_BY_ID[svc["id"]] = avg
     T.clear()
     for lang, msgs in T_BASE.items():
         addr = cfg.get("address", {}).get(lang, "")
@@ -336,12 +339,12 @@ def doctor_rows(s: Session) -> list[list[dict]]:
     return rows
 
 
-def svc_allowed_names(s: Session) -> list[str]:
-    return [name for _, name in allowed_doc_items(s.data.get("svc", ""))]
+def svc_allowed_keys(s: Session) -> list[str]:
+    return [k for k, _name in allowed_doc_items(s.data.get("svc", ""))]
 
 
 async def time_rows(s: Session, d: date) -> list[list[dict]] | None:
-    slots = await free_slots(s.data["doc"], d, svc_allowed_names(s))
+    slots = await free_slots(s.data["doc"], d, svc_allowed_keys(s))
     if not slots:
         return None
     rows = chunk(
@@ -352,32 +355,32 @@ async def time_rows(s: Session, d: date) -> list[list[dict]] | None:
 
 
 async def free_slots(
-    doc_key: str, d: date, allowed_names: list[str] | None = None
+    doc_key: str, d: date, allowed_keys: list[str] | None = None
 ) -> list[datetime]:
     start = datetime(d.year, d.month, d.day, 0, 0, tzinfo=TZ)
     end = start + timedelta(days=1)
     now = datetime.now(TZ)
     slots = day_slots(d)
     if doc_key == "any":
-        names = allowed_names or list(ACTIVE_DOCTORS.values())
+        keys = allowed_keys or list(ACTIVE_DOCTORS)
         free: set[datetime] = set()
-        for name in names:
-            b = await db.booked(name, start, end)
+        for k in keys:
+            b = await db.booked(k, DOCTORS.get(k, ""), start, end)
             free.update(x for x in slots if x not in b)
         return sorted(x for x in free if x > now)
-    b = await db.booked(DOCTORS[doc_key], start, end)
+    b = await db.booked(doc_key, DOCTORS.get(doc_key, ""), start, end)
     return [x for x in slots if x not in b and x > now]
 
 
 async def urgent_slots(
-    limit: int = 8, allowed_names: list[str] | None = None
+    limit: int = 8, allowed_keys: list[str] | None = None
 ) -> list[datetime]:
     """Ближайшие свободные окна у допущенных врачей, начиная с СЕГОДНЯ."""
     out: list[datetime] = []
     d = datetime.now(TZ).date()
     for _ in range(4):
         if hours_for(d):
-            out += await free_slots("any", d, allowed_names)
+            out += await free_slots("any", d, allowed_keys)
         if len(out) >= limit:
             break
         d += timedelta(days=1)
@@ -403,9 +406,9 @@ def build_seed_rows() -> list[tuple]:
     for i, (key, svc) in enumerate(SERVICES.items()):
         if i >= len(demo_people) or i >= len(usable):
             break
-        doctor = allowed_doc_items(key)[0][1]
+        dk, doctor = allowed_doc_items(key)[0]
         name, phone, year = demo_people[i]
-        rows.append((name, phone, svc["ro"], doctor, usable[i], year))
+        rows.append((name, phone, svc["ro"], doctor, usable[i], year, dk, key))
     return rows
 
 
@@ -416,7 +419,7 @@ def is_urgent(s: Session) -> bool:
 async def render_urgent(s: Session, prefix: str | None = None):
     """Экран «ближайшие окна» для острой боли — вход и ВСЕ возвраты в него.
     Телефон клиники показывается всегда, даже если окон нет."""
-    slots = await urgent_slots(allowed_names=svc_allowed_names(s))
+    slots = await urgent_slots(allowed_keys=svc_allowed_keys(s))
     if slots:
         texts = ([prefix] if prefix else [t(s, "urgent_intro")]) + [t(s, "urgent_call")]
         s.data["day"] = slots[0].date().isoformat()
@@ -489,20 +492,23 @@ async def do_book(s: Session, sid: str):
     doc_key = s.data.get("doc", "any")
     if doc_key == "any":
         candidates = []
-        for name in svc_allowed_names(s):
-            b = await db.booked(name, dt, dt + timedelta(hours=1))
+        for k in svc_allowed_keys(s):
+            b = await db.booked(k, DOCTORS.get(k, ""), dt, dt + timedelta(hours=1))
             if dt not in b:
-                candidates.append(name)
+                candidates.append(k)
     else:
-        candidates = [DOCTORS[doc_key]]
-    service = SERVICES[s.data["svc"]][s.lang]
+        candidates = [doc_key]
+    svc_key = s.data["svc"]
+    service = SERVICES[svc_key][s.lang]
     appt_id = None
     doctor = None
     # при гонке за слот пробуем всех свободных врачей, прежде чем сдаться
     for cand in candidates:
         r = await db.create_appointment(
-            sid, s.data["name"], s.data["phone"], s.lang, service, cand, dt,
+            sid, s.data["name"], s.data["phone"], s.lang, service,
+            DOCTORS.get(cand, cand), dt,
             birth_year=s.data.get("year"),
+            doctor_id=cand, service_id=svc_key,
         )
         if r == "dup":
             if is_urgent(s):
@@ -510,7 +516,7 @@ async def do_book(s: Session, sid: str):
             s.state = "day"
             return [t(s, "own_slot")], day_rows(s)
         if r is not None:
-            appt_id, doctor = r, cand
+            appt_id, doctor = r, DOCTORS.get(cand, cand)
             break
     if appt_id is None:
         if is_urgent(s):
@@ -640,9 +646,11 @@ async def handle(s: Session, sid: str, msg: str):
         brows = []
         for r in rows:
             dt = r["starts_at"].astimezone(TZ)
+            # актуальное имя врача (после переименования), фолбэк — снапшот
+            doc_name = DOCTORS.get(r.get("doctor_id") or "", "") or r["doctor"]
             lines.append(
                 f"• #{r['id']} {r['service']} — {day_label(s, dt.date())} "
-                f"{dt.strftime('%H:%M')} ({r['doctor']})"
+                f"{dt.strftime('%H:%M')} ({doc_name})"
             )
             # «в кабинете» (arrived) из бота не отменяется — кнопку не рисуем,
             # иначе тап давал бы ложное «запись уже неактивна»
@@ -672,7 +680,8 @@ async def handle(s: Session, sid: str, msg: str):
         dt = row["starts_at"].astimezone(TZ)
         text = t(s, "reminder").format(
             when=f"{day_label(s, dt.date())} {dt.strftime('%H:%M')}",
-            doctor=row["doctor"], service=row["service"],
+            doctor=DOCTORS.get(row.get("doctor_id") or "", "") or row["doctor"],
+            service=row["service"],
         )
         return [text], [
             [btn(t(s, "btn_rem_ok"), "rem_ok")],

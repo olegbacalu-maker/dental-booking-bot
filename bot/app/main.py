@@ -691,7 +691,7 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
     for h in hours:
         out.append(f"<tr><td class='hour'>{h:02d}:00</td>")
         for dk, dname in doctors_items:
-            r = active.get((dname, h))
+            r = active.get((dk, h)) or active.get((dname, h))
             if r and r["source"] == "note":
                 out.append(f"<td><div class='appt note'>📝 {html.escape(r['service'])}</div></td>")
             elif r:
@@ -944,10 +944,13 @@ function openCard(id) {{
 
 
 def _active_map(rows: list) -> dict:
+    """Ключ: стабильный doctor_id (v1.7.1), легаси без id — имя-снапшот."""
     out = {}
     for r in rows:
         if r["status"] != "cancelled":
-            out[(r["doctor"], r["starts_at"].astimezone(eng.TZ).hour)] = r
+            did = r.get("doctor_id")
+            key = did if did and did in eng.DOCTORS else r["doctor"]
+            out[(key, r["starts_at"].astimezone(eng.TZ).hour)] = r
     return out
 
 
@@ -958,6 +961,14 @@ async def startup() -> None:
         # fail-open без ключа недопустим — падаем громко, а не открываемся тихо
         raise RuntimeError("ADMIN_KEY is required for the Postgres edition — set it in .env")
     await db.init(eng.build_seed_rows())
+    # v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
+    # идемпотентно (только NULL), на каждом старте — дёшево и самозалечивается
+    doc_map = {name: k for k, name in eng.DOCTORS.items()}
+    svc_map = {}
+    for k, v in eng.SERVICES.items():
+        svc_map[v["ro"]] = k
+        svc_map[v["ru"]] = k
+    await db.backfill_ids(doc_map, svc_map)
     upd.check_async()
     token = os.environ.get("TELEGRAM_TOKEN", "").strip()
     if token:
@@ -1138,20 +1149,22 @@ _PALETTE_RO = {"green": "verde", "blue": "albastru", "amber": "portocaliu",
 
 
 def _svc_colors(r) -> tuple[str, str]:
-    """(фон, полоса) записи: статус важнее типа; тип — цвет из конфига услуги,
-    а если он не задан — прежняя эвристика по названию."""
+    """(фон, полоса) записи: статус важнее типа; тип — по service_id (v1.7.1),
+    для легаси-строк без id — по подписи; явный цвет из конфига важнее эвристики."""
     if r["status"] == "noshow":
         return "var(--red-soft)", "var(--red)"
     label = r["service"]
     if label in eng.URGENT_LABELS:
         return "var(--red-soft)", "var(--red)"
-    for sid, v in eng.SERVICES.items():
-        if v.get("ro") == label or v.get("ru") == label:
-            color = eng.SERVICE_COLOR.get(sid)
-            if color in SVC_PALETTE:
-                return SVC_PALETTE[color]
-            key = sid + " " + label
-            break
+    sid = r.get("service_id")
+    if not sid or sid not in eng.SERVICES:
+        sid = next((k for k, v in eng.SERVICES.items()
+                    if v.get("ro") == label or v.get("ru") == label), None)
+    if sid:
+        color = eng.SERVICE_COLOR.get(sid)
+        if color in SVC_PALETTE:
+            return SVC_PALETTE[color]
+        key = sid + " " + label
     else:
         key = label
     for rx, colors in _SVC_CAT:
@@ -1206,15 +1219,23 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     if not hours:
         return "<div class='gridcard' style='padding:28px;text-align:center;color:var(--text3)'>Zi liberă — clinica este închisă</div>"
     idx = {h: i for i, h in enumerate(hours)}
+
+    def _row_col(r) -> str:
+        """Ключ колонки: стабильный doctor_id; легаси без id — снапшот имени."""
+        did = r.get("doctor_id")
+        if did and did in eng.DOCTORS:
+            return f"k:{did}"
+        return f"n:{r['doctor']}"
+
     active: dict = {}
     for r in live:
-        key = (r["doctor"], r["starts_at"].astimezone(eng.TZ).hour)
+        key = (_row_col(r), r["starts_at"].astimezone(eng.TZ).hour)
         active.setdefault(key, []).append(r)
 
-    def _blocks(name: str) -> str:
+    def _blocks(col_key: str) -> str:
         out = []
         for (doc, h), rs in active.items():
-            if doc != name or h not in idx:
+            if doc != col_key or h not in idx:
                 continue
             n = len(rs)
             # коллизия (done/noshow + новая бронь на тот же час) — делим ширину,
@@ -1257,9 +1278,10 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     head = ["<div class='gridhead'><div class='gh-time'></div>"]
     cols = []
     for i, (dk, name) in enumerate(eng.DOCTORS.items()):
+        col_key = f"k:{dk}"
         hue = eng.DOCTOR_META.get(dk, {}).get("color") or _DOC_HUES[i % len(_DOC_HUES)]
-        mine = [r for r in live if r["doctor"] == name and r["source"] != "note"]
-        free_h = next((h for h in sched if (name, h) not in active), None)
+        mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
+        free_h = next((h for h in sched if (col_key, h) not in active), None)
         dot = "var(--green)" if free_h is not None else "var(--text3)"
         liber = f"liber {free_h:02d}:00" if free_h is not None else "complet"
         meta = eng.DOCTOR_META.get(dk, {})
@@ -1271,17 +1293,29 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
             f"title='{html.escape(extra)}'>{html.escape(name)}</a>"
             f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}{off} · {len(mine)} prog. · {liber}</small></div>"
             f"<span class='st' style='background:{dot}' title='{liber}'></span></div>")
-        cols.append(f"<div class='gcol'>{_cells(dk, name)}{_blocks(name)}</div>")
+        cols.append(f"<div class='gcol'>{_cells(dk, name)}{_blocks(col_key)}</div>")
 
-    # «осиротевшие» имена (врача переименовали в Setări) — записи остаются видимыми
-    orphans = sorted({doc for (doc, _h) in active} - set(eng.DOCTORS.values()))
-    for name in orphans:
-        mine = [r for r in live if r["doctor"] == name and r["source"] != "note"]
+    # легаси-строки без id со старым именем (переименовали ДО v1.7.1) —
+    # видимы отдельной колонкой + инструмент «переприкрепить к врачу»:
+    # без этого их будущие брони невидимы для проверки занятости
+    known = {f"k:{dk}" for dk in eng.DOCTORS}
+    orphans = sorted({doc for (doc, _h) in active} - known)
+    for col_key in orphans:
+        name = col_key[2:]
+        mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
+        relink_opts = "".join(f"<option value='{dk}'>{html.escape(n)}</option>"
+                              for dk, n in eng.DOCTORS.items())
         head.append(
             f"<div class='gh-doc'><span class='av' style='background:#94A3B8'>{_initials(name)}</span>"
             f"<div class='nm'><a>{html.escape(name)}</a>"
-            f"<small>în afara listei · {len(mine)} prog.</small></div></div>")
-        cols.append(f"<div class='gcol'>{_cells(None, name)}{_blocks(name)}</div>")
+            f"<small>în afara listei · {len(mine)} prog.</small>"
+            f"<form method='post' action='/admin/relink' style='margin-top:3px;display:flex;gap:3px'>"
+            f"<input type='hidden' name='old_name' value=\"{html.escape(name)}\">"
+            f"<input type='hidden' name='back' value='/admin?date={d.isoformat()}'>"
+            f"<select name='dk' style='font-size:10.5px;max-width:110px'>{relink_opts}</select>"
+            f"<button style='font-size:10.5px;border:1px solid var(--line);background:none;"
+            f"border-radius:6px;cursor:pointer'>→</button></form></div></div>")
+        cols.append(f"<div class='gcol'>{_cells(None, name)}{_blocks(col_key)}</div>")
     head.append("</div>")
 
     now = datetime.now(eng.TZ)
@@ -1319,7 +1353,9 @@ def _botnew_block(recent: list, now: datetime) -> str:
     for r in recent:
         visit = r["starts_at"].astimezone(eng.TZ)
         created = r["created_at"].astimezone(eng.TZ)
-        dk = rev.get(r["doctor"])
+        dk = r.get("doctor_id") or rev.get(r["doctor"])
+        if dk not in eng.DOCTORS:
+            dk = None
         href = (f"/admin/doctor/{dk}?date={visit.date().isoformat()}" if dk
                 else f"/admin/all?date={visit.date().isoformat()}")
         nou = ("<span class='nou'>NOU</span>"
@@ -1886,6 +1922,8 @@ def _build_config(data: dict) -> dict:
             raise ValueError("duplicate doctor name")
         names_seen.add(key)
     doc_ids = {d["id"] for d in doctors}
+    # то же для услуг: одинаковые подписи ломали бы бэкфилл service_id и отчёты
+    labels_seen: set[str] = set()
 
     services = []
     sused: set[str] = set()
@@ -1894,6 +1932,11 @@ def _build_config(data: dict) -> dict:
         ru = str(s.get("ru", "")).strip()[:60] or ro
         if not ro:
             continue
+        if ro.casefold() in labels_seen or (ru.casefold() != ro.casefold()
+                                            and ru.casefold() in labels_seen):
+            raise ValueError("duplicate service label")
+        labels_seen.add(ro.casefold())
+        labels_seen.add(ru.casefold())
         sid = str(s.get("id", "")).strip()
         if not re.fullmatch(r"[a-z0-9_]{1,20}", sid) or sid in sused:
             seq_s += 1
@@ -1928,6 +1971,21 @@ def _build_config(data: dict) -> dict:
               + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ru')}",
     }
     return cfg
+
+
+@app.post("/admin/relink")
+async def admin_relink(request: Request, old_name: str = Form(...),
+                       dk: str = Form(...), back: str = Form("/admin")):
+    """Переприкрепить сиротские записи (старое имя, без doctor_id) к врачу."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return RedirectResponse("/admin", status_code=303)
+    n = await db.relink_doctor(old_name.strip()[:80], dk)
+    target = back if back.startswith("/admin") else "/admin"
+    sep = "&" if "?" in target else "?"
+    return RedirectResponse(f"{target}{sep}msg={'ok_set' if n >= 0 else 'bad'}",
+                            status_code=303)
 
 
 @app.post("/admin/update/check")
@@ -2049,8 +2107,16 @@ async def admin_stats(
     n_noshow = sum(1 for r in act if r["status"] == "noshow")
     n_cancel = len(appts) - len(act)
     n_rem = sum(1 for r in appts if r["reminded_day"])
-    loss = sum(eng.SERVICE_PRICE.get(r["service"], 0) for r in act if r["status"] == "noshow")
-    bot_value = sum(eng.SERVICE_PRICE.get(r["service"], 0) for r in act if r["source"] == "bot")
+    def _price(r) -> int:
+        """Цена: по стабильному service_id (не зависит от языка/переименований),
+        для легаси-строк — по подписи."""
+        sid = r.get("service_id")
+        if sid and sid in eng.SERVICE_PRICE_BY_ID:
+            return eng.SERVICE_PRICE_BY_ID[sid]
+        return eng.SERVICE_PRICE.get(r["service"], 0)
+
+    loss = sum(_price(r) for r in act if r["status"] == "noshow")
+    bot_value = sum(_price(r) for r in act if r["source"] == "bot")
 
     tiles = (
         "<div class='tiles'>"
@@ -2069,8 +2135,10 @@ async def admin_stats(
     days = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
     capacity = sum(len(eng.day_slots(day)) for day in days)
     doc_rows = []
-    for name in eng.DOCTORS.values():
-        mine = [r for r in act if r["doctor"] == name]
+    for dk, name in eng.DOCTORS.items():
+        # по стабильному id (v1.7.1): переименование врача не обнуляет историю
+        mine = [r for r in act if r.get("doctor_id") == dk
+                or (not r.get("doctor_id") and r["doctor"] == name)]
         ns = sum(1 for r in mine if r["status"] == "noshow")
         pct = round(100 * len(mine) / capacity) if capacity else 0
         doc_rows.append(
@@ -2081,13 +2149,22 @@ async def admin_stats(
                    "<tr><th>Medic</th><th>Programări</th><th>Neprezentări</th><th>Ocupare</th></tr>"
                    + "".join(doc_rows) + "</table>")
 
-    svc_count: dict[str, int] = {}
+    # группировка по service_id: RU- и RO-запись одной услуги = одна строка
+    # отчёта (раньше язык пациента раздваивал услугу и делил её выручку)
+    svc_count: dict[str, dict] = {}
     for r in act:
-        svc_count[r["service"]] = svc_count.get(r["service"], 0) + 1
+        sid = r.get("service_id")
+        if sid and sid in eng.SERVICES:
+            key, label = sid, eng.SERVICES[sid]["ro"]
+        else:
+            key, label = "lbl:" + r["service"], r["service"]
+        ent = svc_count.setdefault(key, {"label": label, "cnt": 0, "val": 0})
+        ent["cnt"] += 1
+        ent["val"] += _price(r)
     svc_rows = "".join(
-        f"<tr><td>{html.escape(sname)}</td><td>{cnt}</td>"
-        f"<td>≈ {_fmt_mdl(cnt * eng.SERVICE_PRICE.get(sname, 0))}</td></tr>"
-        for sname, cnt in sorted(svc_count.items(), key=lambda x: -x[1])[:8]
+        f"<tr><td>{html.escape(ent['label'])}</td><td>{ent['cnt']}</td>"
+        f"<td>≈ {_fmt_mdl(ent['val'])}</td></tr>"
+        for ent in sorted(svc_count.values(), key=lambda x: -x["cnt"])[:8]
     )
     services_tbl = ("<h2>Servicii</h2><table class='list'>"
                     "<tr><th>Serviciu</th><th>Programări</th><th>≈ Valoare</th></tr>"
@@ -2753,7 +2830,8 @@ async def admin_doctor(
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = [r for r in await db.day_appointments(day_start, day_start + timedelta(days=1))
-            if r["doctor"] == name]
+            if r.get("doctor_id") == dk
+            or (not r.get("doctor_id") and r["doctor"] == name)]
     active = _active_map(rows)
     items = [(dk, name)]
     base = f"/admin/doctor/{dk}"
@@ -2812,7 +2890,8 @@ async def admin_add(
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
         return _back_redirect(back, adate, "bad")  # выключенному врачу не пишем
     year = int(ayear) if ayear.strip().isdigit() and 1900 <= int(ayear) <= 2026 else None
-    r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year)
+    r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year,
+                           doctor_id=adoctor, service_id=aservice)
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
     return _back_redirect(back, adate, msg)
 
@@ -2842,7 +2921,7 @@ async def admin_note(
     ok_cnt = fail_cnt = 0
     for h in hours:
         dt = datetime(d.year, d.month, d.day, h, 0, tzinfo=eng.TZ)
-        if await db.add_note(doctor, dt, text) is not None:
+        if await db.add_note(doctor, dt, text, doctor_id=ndoctor) is not None:
             ok_cnt += 1
         else:
             fail_cnt += 1

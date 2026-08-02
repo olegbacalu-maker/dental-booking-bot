@@ -17,7 +17,7 @@ log = logging.getLogger("db")
 
 # Версия схемы: шаги применяются по одному и записываются в schema_meta,
 # поэтому по базе клиники всегда видно, докуда она домигрирована.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Записи, которые ЗАНИМАЮТ слот врача. 'arrived' (пациент в кабинете) обязан
 # быть здесь: иначе отметка «пришёл» освобождает час и бот сажает второго.
@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS documents(
   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'alt';
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS doctor_id TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_id TEXT;
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -126,6 +128,14 @@ MIGRATIONS_PG = {
         f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
             WHERE status IN {_ACT_SQL}""",
     ],
+    3: [
+        # уникальность по СТАБИЛЬНОМУ ключу: переименование врача больше не
+        # обходит защиту от двойной брони; NULL-ы (легаси до бэкфилла) не
+        # конфликтуют; индекс по имени остаётся вторым поясом
+        "DROP INDEX IF EXISTS uq_doctor_slot_id",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
+            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
+    ],
 }
 MIGRATIONS_LITE = {
     1: [
@@ -142,6 +152,11 @@ MIGRATIONS_LITE = {
             WHERE status IN {_ACT_SQL}""",
         f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
             WHERE status IN {_ACT_SQL}""",
+    ],
+    3: [
+        "DROP INDEX IF EXISTS uq_doctor_slot_id",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
+            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
     ],
 }
 
@@ -192,6 +207,10 @@ CREATE TABLE IF NOT EXISTS schema_meta(
 # «duplicate column»; всё остальное поднимаем наверх, чтобы не терять молча.
 SQLITE_EXTRA_COLS = [
     ("documents", "category TEXT NOT NULL DEFAULT 'alt'"),
+    # v1.7.1: стабильные ключи; doctor/service остаются СНАПШОТАМИ имени на
+    # момент записи (история, CSV, напоминания показывают то, что называли)
+    ("appointments", "doctor_id TEXT"),
+    ("appointments", "service_id TEXT"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -390,6 +409,54 @@ async def init(seed_rows: list | None = None) -> None:
     await seed(seed_rows)
 
 
+async def backfill_ids(doc_map: dict, svc_map: dict) -> None:
+    """Проставляет doctor_id/service_id старым записям по ТЕКУЩЕМУ конфигу
+    (имя→id, подпись ro/ru→id). Идемпотентно: трогает только NULL. Записи
+    врачей, переименованных ДО этого обновления, остаются с NULL — их
+    восстановить не по чему, канва показывает их отдельной колонкой."""
+    for name, did in doc_map.items():
+        try:
+            await _execute(
+                "UPDATE appointments SET doctor_id = $2 WHERE doctor_id IS NULL AND doctor = $1",
+                "UPDATE appointments SET doctor_id = ? WHERE doctor_id IS NULL AND doctor = ?",
+                *((name, did) if not IS_SQLITE else (did, name)),
+            )
+        except Exception as e:  # noqa: BLE001 — конфликт uq_doctor_slot_id на патологии
+            log.warning("backfill doctor_id failed for %r: %r", name, e)
+            if IS_SQLITE:
+                await _CONN.rollback()
+    for label, sid_ in svc_map.items():
+        try:
+            await _execute(
+                """UPDATE appointments SET service_id = $2
+                   WHERE service_id IS NULL AND service = $1 AND source != 'note'""",
+                """UPDATE appointments SET service_id = ?
+                   WHERE service_id IS NULL AND service = ? AND source != 'note'""",
+                *((label, sid_) if not IS_SQLITE else (sid_, label)),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("backfill service_id failed for %r: %r", label, e)
+            if IS_SQLITE:
+                await _CONN.rollback()
+
+
+async def relink_doctor(old_name: str, doctor_id: str) -> int:
+    """Переприкрепляет сиротские строки (doctor_id IS NULL, старое имя) к врачу.
+    Лечит записи, осиротевшие при переименовании ещё ДО v1.7.1 — включая
+    будущие брони, невидимые для проверки занятости."""
+    try:
+        return await _execute(
+            "UPDATE appointments SET doctor_id = $2 WHERE doctor_id IS NULL AND doctor = $1",
+            "UPDATE appointments SET doctor_id = ? WHERE doctor_id IS NULL AND doctor = ?",
+            *((old_name, doctor_id) if not IS_SQLITE else (doctor_id, old_name)),
+        )
+    except Exception as e:  # noqa: BLE001 — конфликт uq_doctor_slot_id (двойник часа)
+        log.warning("relink %r -> %s failed: %r", old_name, doctor_id, e)
+        if IS_SQLITE:
+            await _CONN.rollback()
+        return -1
+
+
 async def seed(rows: list | None) -> None:
     """Демо-записи (из конфига клиники) — только в пустую БД."""
     if not rows:
@@ -435,18 +502,21 @@ async def create_appointment(
     session_key: str, name: str, phone: str, lang: str,
     service: str, doctor: str, starts_at: datetime,
     source: str = "bot", birth_year: int | None = None,
+    doctor_id: str | None = None, service_id: str | None = None,
 ) -> int | str | None:
     """id записи; None — слот занят у этого врача; 'dup' — у пациента
-    уже есть своя запись на это время."""
+    уже есть своя запись на это время. doctor/service = снапшоты подписи,
+    doctor_id/service_id = стабильные ключи конфига."""
     pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
     if IS_SQLITE:
         import sqlite3
         try:
             cur = await _CONN.execute(
                 """INSERT INTO appointments(patient_id, service, doctor, starts_at,
-                                            source, created_at)
-                   VALUES(?, ?, ?, ?, ?, ?)""",
-                (pid, service, doctor, _iso(starts_at), source, _utcnow_iso()),
+                                            source, doctor_id, service_id, created_at)
+                   VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
+                (pid, service, doctor, _iso(starts_at), source,
+                 doctor_id, service_id, _utcnow_iso()),
             )
             await _CONN.commit()
             appt_id = cur.lastrowid
@@ -459,9 +529,10 @@ async def create_appointment(
     async with POOL.acquire() as c:
         try:
             return await c.fetchval(
-                """INSERT INTO appointments(patient_id, service, doctor, starts_at, source)
-                   VALUES($1, $2, $3, $4, $5) RETURNING id""",
-                pid, service, doctor, starts_at, source,
+                """INSERT INTO appointments(patient_id, service, doctor, starts_at,
+                                            source, doctor_id, service_id)
+                   VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
+                pid, service, doctor, starts_at, source, doctor_id, service_id,
             )
         except asyncpg.UniqueViolationError as e:
             return "dup" if e.constraint_name == "uq_patient_slot" else None
@@ -470,25 +541,28 @@ async def create_appointment(
 async def admin_add(
     name: str, phone: str, service: str, doctor: str, starts_at: datetime,
     birth_year: int | None = None,
+    doctor_id: str | None = None, service_id: str | None = None,
 ) -> int | str | None:
     """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону."""
     digits = "".join(ch for ch in phone if ch.isdigit())
     return await create_appointment(
         f"manual:{digits}", name, phone, "ro", service, doctor, starts_at,
         source="manual", birth_year=birth_year,
+        doctor_id=doctor_id, service_id=service_id,
     )
 
 
-async def add_note(doctor: str, starts_at: datetime, text: str) -> int | None:
+async def add_note(doctor: str, starts_at: datetime, text: str,
+                   doctor_id: str | None = None) -> int | None:
     """Заметка/блокировка слота: без пациента, но занимает слот врача."""
     if IS_SQLITE:
         import sqlite3
         try:
             cur = await _CONN.execute(
                 """INSERT INTO appointments(patient_id, service, doctor, starts_at,
-                                            source, created_at)
-                   VALUES(NULL, ?, ?, ?, 'note', ?)""",
-                (text, doctor, _iso(starts_at), _utcnow_iso()),
+                                            source, doctor_id, created_at)
+                   VALUES(NULL, ?, ?, ?, 'note', ?, ?)""",
+                (text, doctor, _iso(starts_at), doctor_id, _utcnow_iso()),
             )
             await _CONN.commit()
             note_id = cur.lastrowid
@@ -501,24 +575,31 @@ async def add_note(doctor: str, starts_at: datetime, text: str) -> int | None:
     async with POOL.acquire() as c:
         try:
             return await c.fetchval(
-                """INSERT INTO appointments(patient_id, service, doctor, starts_at, source)
-                   VALUES(NULL, $1, $2, $3, 'note') RETURNING id""",
-                text, doctor, starts_at,
+                """INSERT INTO appointments(patient_id, service, doctor, starts_at,
+                                            source, doctor_id)
+                   VALUES(NULL, $1, $2, $3, 'note', $4) RETURNING id""",
+                text, doctor, starts_at, doctor_id,
             )
         except asyncpg.UniqueViolationError:
             return None
 
 
-async def booked(doctor: str, start: datetime, end: datetime) -> set:
+async def booked(doctor_key: str, doctor_name: str,
+                 start: datetime, end: datetime) -> set:
+    """Занятые слоты врача. Матчим по СТАБИЛЬНОМУ doctor_id, а легаси-строки
+    без id (созданы до v1.7.1) — по снапшоту имени: иначе будущая бронь,
+    сделанная до обновления, стала бы невидимой для проверки занятости."""
     rows = await _fetch(
         f"""SELECT starts_at FROM appointments
-           WHERE doctor = $1 AND status IN {_ACT_SQL}
-             AND starts_at >= $2 AND starts_at < $3""",
+           WHERE (doctor_id = $1 OR (doctor_id IS NULL AND doctor = $2))
+             AND status IN {_ACT_SQL}
+             AND starts_at >= $3 AND starts_at < $4""",
         f"""SELECT starts_at FROM appointments
-           WHERE doctor = ? AND status IN {_ACT_SQL}
+           WHERE (doctor_id = ? OR (doctor_id IS NULL AND doctor = ?))
+             AND status IN {_ACT_SQL}
              AND starts_at >= ? AND starts_at < ?""",
-        *((doctor, start, end) if not IS_SQLITE
-          else (doctor, _iso(start), _iso(end))),
+        *((doctor_key, doctor_name, start, end) if not IS_SQLITE
+          else (doctor_key, doctor_name, _iso(start), _iso(end))),
     )
     return {r["starts_at"] for r in rows}
 
@@ -527,11 +608,11 @@ async def my_appointments(session_key: str, now: datetime) -> list:
     # arrived тоже показываем: пациент «в кресле» не должен пропадать из «мои
     # записи»; status нужен движку — у arrived НЕ рисуем кнопку отмены
     return await _fetch(
-        f"""SELECT a.id, a.service, a.doctor, a.starts_at, a.status
+        f"""SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at, a.status
            FROM appointments a JOIN patients p ON p.id = a.patient_id
            WHERE p.session_key = $1 AND a.status IN {_ACT_SQL} AND a.starts_at > $2
            ORDER BY a.starts_at""",
-        f"""SELECT a.id, a.service, a.doctor, a.starts_at, a.status
+        f"""SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at, a.status
            FROM appointments a JOIN patients p ON p.id = a.patient_id
            WHERE p.session_key = ? AND a.status IN {_ACT_SQL} AND a.starts_at > ?
            ORDER BY a.starts_at""",
@@ -560,7 +641,7 @@ async def tg_due_reminders(now: datetime) -> list:
     from datetime import timedelta
     h24, m30 = now + timedelta(hours=24), now - timedelta(minutes=30)
     return await _fetch(
-        """SELECT a.id, a.service, a.doctor, a.starts_at,
+        """SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at,
                   a.reminded_day, a.reminded_2h, p.session_key, p.lang
            FROM appointments a JOIN patients p ON p.id = a.patient_id
            WHERE a.status = 'confirmed'
@@ -568,7 +649,7 @@ async def tg_due_reminders(now: datetime) -> list:
              AND a.starts_at > $1 AND a.starts_at <= $2
              AND a.created_at < $3
              AND (a.reminded_day = FALSE OR a.reminded_2h = FALSE)""",
-        """SELECT a.id, a.service, a.doctor, a.starts_at,
+        """SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at,
                   a.reminded_day, a.reminded_2h, p.session_key, p.lang
            FROM appointments a JOIN patients p ON p.id = a.patient_id
            WHERE a.status = 'confirmed'
@@ -598,12 +679,14 @@ async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
 
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     return await _fetch(
-        """SELECT a.id, a.patient_id, a.service, a.doctor, a.starts_at, a.status, a.source,
+        """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
+                  a.starts_at, a.status, a.source,
                   a.reminded_day, a.comment, p.name, p.phone, p.birth_year
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.starts_at >= $1 AND a.starts_at < $2
            ORDER BY a.starts_at, a.doctor""",
-        """SELECT a.id, a.patient_id, a.service, a.doctor, a.starts_at, a.status, a.source,
+        """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
+                  a.starts_at, a.status, a.source,
                   a.reminded_day, a.comment, p.name, p.phone, p.birth_year
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
            WHERE a.starts_at >= ? AND a.starts_at < ?
@@ -648,12 +731,12 @@ async def recent_bot_appointments(since: datetime, limit: int = 10) -> list:
     """Свежие записи ИЗ БОТА по времени создания — независимо от даты визита.
     Урок полевого демо 07-31: запись на неделю вперёд невидима в дневных видах."""
     return await _fetch(
-        """SELECT a.id, a.service, a.doctor, a.starts_at, a.created_at,
+        """SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at, a.created_at,
                   p.name, p.phone
            FROM appointments a JOIN patients p ON p.id = a.patient_id
            WHERE a.source = 'bot' AND a.status = 'confirmed' AND a.created_at >= $1
            ORDER BY a.created_at DESC LIMIT $2""",
-        """SELECT a.id, a.service, a.doctor, a.starts_at, a.created_at,
+        """SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at, a.created_at,
                   p.name, p.phone
            FROM appointments a JOIN patients p ON p.id = a.patient_id
            WHERE a.source = 'bot' AND a.status = 'confirmed' AND a.created_at >= ?
