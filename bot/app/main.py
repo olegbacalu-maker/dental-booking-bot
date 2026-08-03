@@ -619,6 +619,89 @@ PANEL_CSS = """
    .fisa.med .fcol-r{width:280px;flex:0 0 280px}}
  @media (max-width:1150px){.fisa.med{flex-wrap:wrap}
    .fisa.med .fcol-l,.fisa.med .fcol-r{width:100%;flex:1 1 100%}}
+ /* ---------- фиша пациента V2 (макет 08-03): рабочее пространство врача ----------
+    Центр отдан одонтограмме и лечению, справа — липкая информационная панель. */
+ .pv2{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+ .pv2-main{min-width:0;display:flex;flex-direction:column;gap:16px}
+ .pv2-side{position:sticky;top:88px;display:flex;flex-direction:column;gap:16px}
+ /* Порог = ширина, при которой центру ещё хватает на одонтограмму:
+    16 зубов × 38px + 15 зазоров × 10px + поля карточки ≈ 794px.
+    1366 − сайдбар 216 − поля 48 − панель 320 − зазор 20 = 762 < 794 → на таком
+    экране правая панель уходит ВНИЗ, и дуга помещается целиком. */
+ @media (max-width:1400px){.pv2{grid-template-columns:minmax(0,1fr)}
+   .pv2-side{position:static}}
+ .hero{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;
+   background:var(--panel);border:1px solid var(--line);border-radius:22px;
+   padding:24px 28px;box-shadow:var(--sh);margin-bottom:16px}
+ .hero-av{width:92px;height:92px;flex:0 0 92px;border-radius:24px;background:var(--teal);
+   color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;
+   font-weight:600;box-shadow:0 12px 24px rgba(14,159,138,.22)}
+ .hero-id{flex:1;min-width:260px}
+ .hero-id h2{font-size:34px;font-weight:600;letter-spacing:-.03em;margin:0;line-height:1.15}
+ .hero-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--text2);margin-top:6px}
+ .hero-badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+ .pill{padding:6px 12px;border-radius:999px;font-size:13px;font-weight:500;white-space:nowrap}
+ .pill.orange{background:#FFF4E5;color:var(--amber-t)}
+ .pill.green{background:#ECFDF3;color:#15803D}
+ .pill.purple{background:#F3E8FF;color:#6D28D9}
+ .pill.red{background:#FEECEC;color:var(--red-t)}
+ .pill.grey{background:var(--line2);color:var(--text2)}
+ .hero-side{display:flex;gap:28px;flex-wrap:wrap}
+ .hero-side .hs{font-size:13px}
+ .hero-side .hs span{display:block;color:var(--text3);font-size:12px;margin-bottom:3px}
+ .hero-side .hs b{font-weight:600;font-size:14.5px}
+ .hero-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+ .hero-acts a{display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 14px;
+   border:1px solid var(--line);border-radius:var(--r-ctl);text-decoration:none;
+   color:var(--text2);font-size:13.5px;font-weight:500;background:var(--panel);
+   transition:border-color .2s ease,color .2s ease,transform .2s ease}
+ .hero-acts a:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(-1px)}
+ .kpi5{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;
+   margin-bottom:16px}
+ .kpi{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;
+   display:flex;gap:14px;align-items:center;
+   transition:transform .2s ease,box-shadow .2s ease}
+ .kpi:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(15,23,42,.08)}
+ .kpi .ki{width:42px;height:42px;flex:0 0 42px;border-radius:13px;display:flex;
+   align-items:center;justify-content:center;font-size:18px;background:var(--teal-soft)}
+ .kpi b{display:block;font-size:22px;font-weight:600;line-height:1.15}
+ .kpi span{font-size:12.5px;color:var(--text2)}
+ .kpi small{display:block;font-size:11.5px;color:var(--text3);margin-top:2px}
+ .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+ .tabs button{height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--line);
+   background:var(--panel);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;
+   transition:background-color .2s ease,border-color .2s ease,color .2s ease}
+ .tabs button:hover{border-color:var(--teal);color:var(--teal-d)}
+ .tabs button.on{background:var(--teal);border-color:var(--teal);color:#fff}
+ .docgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+ .doccard{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+   background:var(--panel);text-decoration:none;color:inherit;display:flex;
+   flex-direction:column;transition:transform .2s ease,box-shadow .2s ease}
+ .doccard:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(15,23,42,.10)}
+ .doccard .thumb{height:120px;background:var(--line2);display:flex;align-items:center;
+   justify-content:center;font-size:30px;overflow:hidden}
+ .doccard .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+ .doccard .dmeta{padding:9px 11px;font-size:12px;min-width:0}
+ .doccard .dmeta b{display:block;font-weight:600;font-size:12.5px;white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis}
+ .doccard .dmeta small{color:var(--text3);font-size:11px}
+ .doccard .del{position:absolute;top:8px;right:8px;opacity:0;transition:opacity .2s ease}
+ .doccard:hover .del{opacity:1}
+ .doccard .del button{border:none;background:rgba(255,255,255,.92);color:var(--red-t);
+   width:28px;height:28px;border-radius:9px;cursor:pointer;font-size:13px;box-shadow:var(--sh)}
+ .qa{display:flex;gap:12px;flex-wrap:wrap}
+ .qa a,.qa button{display:inline-flex;align-items:center;justify-content:center;gap:9px;
+   height:48px;min-width:140px;padding:0 18px;border:1px solid var(--line);
+   border-radius:14px;background:var(--panel);color:var(--text);font-size:14px;
+   font-weight:500;text-decoration:none;cursor:pointer;
+   transition:background-color .2s ease,transform .2s ease,border-color .2s ease}
+ .qa a:hover,.qa button:hover{background:#F3F8FC;border-color:var(--teal);transform:translateY(-1px)}
+ @media print{
+   .side,.top,.brandcorner,.qa,.tabs,.hero-acts,.doccard .del{display:none !important}
+   body{background:#fff}.content{padding:0;max-width:none}
+   .pv2{grid-template-columns:1fr}.pv2-side{position:static}
+   .fcard,.hero,.kpi{box-shadow:none;break-inside:avoid}
+ }
  /* ---------- раздел «Medici» (v1.9.0) ---------- */
  .medgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
  .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:16px 18px;
@@ -2763,7 +2846,8 @@ function openTooth(n) {{
             total += it["price_mdl"]
         nxt = _PLAN_NEXT[it["status"] if it["status"] in _PLAN_NEXT else "planificat"]
         plan_rows.append(
-            f"<div class='plan-row'><span class='pt'>{it['tooth'] or '—'}</span>"
+            f"<div class='plan-row' data-st='{e(it['status'])}'>"
+            f"<span class='pt'>{it['tooth'] or '—'}</span>"
             f"<span class='pp'>{e(it['procedure'])}</span>"
             f"<span class='pd'>{e(it['doctor'] or '—')}</span>"
             f"<span class='pbadge {e(it['status'])}'>{_PLAN_LABEL.get(it['status'], it['status'])}</span>"
@@ -2778,8 +2862,17 @@ function openTooth(n) {{
     plan_html = "".join(plan_rows) or "<p class='hint' style='margin:6px 0'>— plan gol —</p>"
     tooth_opts = "<option value=''>—</option>" + "".join(
         f"<option value='{n}'>{n}</option>" for n in _FDI_UPPER + _FDI_LOWER)
-    plan_card = f"""<div class='fcard'>
+    cnt = {k: sum(1 for it in plan if it["status"] == k)
+           for k in ("planificat", "in_lucru", "finalizat")}
+    tabs = ("<div class='tabs'>"
+            f"<button class='on' data-f='all' onclick='planTab(this)'>Toate ({len(plan)})</button>"
+            f"<button data-f='in_lucru' onclick='planTab(this)'>În lucru ({cnt['in_lucru']})</button>"
+            f"<button data-f='planificat' onclick='planTab(this)'>Planificate ({cnt['planificat']})</button>"
+            f"<button data-f='finalizat' onclick='planTab(this)'>Finalizate ({cnt['finalizat']})</button>"
+            "</div>")
+    plan_card = f"""<div class='fcard' id='plan'>
 <h3>Plan de tratament <small>· plan activ (nefinalizat): {f'{total:,}'.replace(',', ' ')} MDL</small></h3>
+{tabs}
 {plan_html}
 <div class='ptotal'><span>Total plan activ</span><b>{f'{total:,}'.replace(',', ' ')} MDL</b></div>
 <form class='fform' method='post' action='{base}/plan' style='margin-top:10px'>
@@ -2816,17 +2909,29 @@ function openTooth(n) {{
                  + f"<a href='/admin/search?q={urllib.parse.quote(p['name'] or '')}' "
                  f"style='font-size:12px'>Vezi tot istoricul →</a></div>")
 
-    docs_rows = "".join(
-        f"<div class='doc'>{DOC_CATEGORIES.get(dd['category'], '📄')} "
-        f"<a href='/admin/doc/{dd['id']}' title='{e(dd['filename'])}'>{e(dd['filename'])}</a>"
-        f"<small>{dd['size'] // 1024} KB</small>"
-        f"<form method='post' action='{base}/doc/{dd['id']}/del' "
-        f"onsubmit=\"return confirm('Ștergeți documentul?')\"><button>✕</button></form></div>"
-        for dd in docs) or "<p class='hint' style='margin:0 0 8px'>— fără documente —</p>"
+    def doc_card(dd) -> str:
+        # картинку показываем ею же: файлы лежат локально, отдельный рендер
+        # миниатюр — оптимизация следующего этапа, а не условие работы
+        is_img = (dd["mime"] or "").startswith("image/")
+        thumb = (f"<img src='/admin/doc/{dd['id']}?inline=1' alt='' loading='lazy'>" if is_img
+                 else (DOC_CATEGORIES.get(dd["category"], "📄").split()[0]))
+        when = dd["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
+        kb = dd["size"] // 1024
+        size = f"{kb} KB" if kb < 1024 else f"{kb / 1024:.1f} MB"
+        return (f"<div class='doccard'><a href='/admin/doc/{dd['id']}' target='_blank' "
+                f"title='{e(dd['filename'])}'><div class='thumb'>{thumb}</div>"
+                f"<div class='dmeta'><b>{e(dd['filename'])}</b>"
+                f"<small>{when} · {size}</small></div></a>"
+                f"<div class='del'><form method='post' action='{base}/doc/{dd['id']}/del' "
+                f"onsubmit=\"return confirm('Ștergeți documentul?')\">"
+                f"<button title='Șterge'>✕</button></form></div></div>")
+
+    docs_rows = ("<div class='docgrid'>" + "".join(doc_card(dd) for dd in docs) + "</div>"
+                 if docs else "<p class='hint' style='margin:0 0 8px'>— fără documente —</p>")
     cat_opts = "".join(
         f"<option value='{k}'{' selected' if k == 'alt' else ''}>{v}</option>"
         for k, v in DOC_CATEGORIES.items())
-    docs_card = f"""<div class='fcard'><h3>Documente și imagini <small>· max {MAX_DOC_MB} MB</small></h3>
+    docs_card = f"""<div class='fcard' id='docs'><h3>Documente și imagini <small>· max {MAX_DOC_MB} MB</small></h3>
 {docs_rows}
 <form class='fform' method='post' action='{base}/doc' enctype='multipart/form-data'>
   <select name='category'>{cat_opts}</select>
@@ -2835,31 +2940,134 @@ function openTooth(n) {{
 </form>
 <p class='hint' style='margin-top:8px'>Fișierele rămân local, în folderul programului (data\\files).</p></div>"""
 
+    # ---- hero: кто перед врачом, одним взглядом ----
+    # бейджи собираются из УЖЕ имеющихся данных: алерты, страховка, импланты
+    pills = []
+    if p.get("archived"):
+        pills.append("<span class='pill grey'>🗄 Arhivat</span>")
+    else:
+        pills.append("<span class='pill green'>✔ Pacient activ</span>")
+    for a in alerts[:3]:
+        tone = {"allergy": "orange", "medication": "orange",
+                "warning": "red"}.get(a["kind"], "grey")
+        icon = _ALERT_KINDS.get(a["kind"], "ℹ️").split()[0]
+        pills.append(f"<span class='pill {tone}'>{icon} {e(a['text'][:38])}</span>")
+    if p.get("insurance"):
+        pills.append(f"<span class='pill green'>🛡 {e(p['insurance'][:28])}</span>")
+    n_impl = sum(1 for t in tmap.values() if t["state"] == "implant")
+    if n_impl:
+        pills.append(f"<span class='pill purple'>⚙ {n_impl} implant"
+                     f"{'e' if n_impl > 1 else ''}</span>")
+
+    past = [v for v in visits if v["starts_at"] <= now and v["status"] != "cancelled"]
+    lastv = max(past, key=lambda v: v["starts_at"]) if past else None
+
+    def hs(label: str, val: str, sub: str = "") -> str:
+        tail = (f"<div style='color:var(--text3);font-size:12px'>{sub}</div>" if sub else "")
+        return f"<div class='hs'><span>{label}</span><b>{val}</b>{tail}</div>"
+
+    acts = []
+    if p.get("phone"):
+        acts.append(f"<a href='tel:{e(p['phone'])}'>{_ic('phone')} Sună</a>")
+    if p.get("email"):
+        acts.append(f"<a href='mailto:{e(p['email'])}'>{_ic('mail')} E-mail</a>")
+    acts.append(f"<a href='/admin/all?date={now.date().isoformat()}#addform'>"
+                f"{_ic('cal')} Programează</a>")
+
+    meta_bits = [f"{age} ani" if age else "", f"ID #{pid}", chan,
+                 f"dosar {e(p['file_no'])}" if p.get("file_no") else "",
+                 "Pacient din " + p["created_at"].astimezone(eng.TZ).strftime("%Y")]
+    hero = f"""<div class='hero'>
+  <div class='hero-av'>{e(_initials(p['name'] or '?'))}</div>
+  <div class='hero-id'>
+    <h2>{e(p['name'] or '—')}</h2>
+    <div class='hero-meta'>{''.join(f'<span>{x}</span>' for x in meta_bits if x)}</div>
+    <div class='hero-badges'>{''.join(pills)}</div>
+    <div class='hero-acts'>{''.join(acts)}</div>
+  </div>
+  <div class='hero-side'>
+    {hs('Ultima vizită',
+        lastv['starts_at'].astimezone(eng.TZ).strftime('%d.%m.%Y') if lastv else '—',
+        e(lastv['service']) if lastv else 'încă fără vizite')}
+    {hs('Medic curant', e(p.get('primary_doctor') or '—'),
+        'din fișa pacientului' if p.get('primary_doctor') else 'nesetat')}
+  </div>
+</div>"""
+
+    # ---- KPI: пять цифр, которые спрашивают первыми ----
+    n_active = sum(1 for it in plan if it["status"] != "finalizat")
+    n_done = sum(1 for it in plan if it["status"] == "finalizat")
+    days_ago = ((now.date() - lastv["starts_at"].astimezone(eng.TZ).date()).days
+                if lastv else None)
+    kpis = [
+        ("📋", len([v for v in visits if v["status"] != "cancelled"]), "Vizite în total",
+         "din " + p["created_at"].astimezone(eng.TZ).strftime("%Y")),
+        ("🦷", n_active, "Proceduri active", "în planul de tratament"),
+        ("🕐", (f"{days_ago} zile" if days_ago else "azi") if lastv else "—",
+         "Ultima vizită",
+         lastv["starts_at"].astimezone(eng.TZ).strftime("%d.%m.%Y") if lastv else "—"),
+        ("📅", nextv["starts_at"].astimezone(eng.TZ).strftime("%d.%m") if nextv else "—",
+         "Următoarea vizită",
+         nextv["starts_at"].astimezone(eng.TZ).strftime("%H:%M") if nextv else "neprogramat"),
+        ("✅", n_done, "Proceduri finalizate", "istoric complet"),
+    ]
+    kpi_html = "<div class='kpi5'>" + "".join(
+        f"<div class='kpi'><span class='ki'>{ic}</span><div style='min-width:0'>"
+        f"<b>{val}</b><span>{lbl}</span><small>{sub}</small></div></div>"
+        for ic, val, lbl, sub in kpis) + "</div>"
+
+    arch_label = ("↩️ Scoate din arhivă" if p.get("archived")
+                  else "🗄 Arhivează pacientul")
+    profile_card = f"""<div class='fcard'><h3>Date pacient</h3>
+{info_rows}{notes_html}
+<button style='width:100%;margin-top:12px;background:none;border:1px solid var(--line);
+  border-radius:var(--r-ctl);height:var(--h-ctl);cursor:pointer;font-size:14px;
+  font-weight:600;color:var(--text2)'
+  onclick="var f=document.getElementById('pedit');f.style.display=f.style.display==='none'?'flex':'none'">
+  ✏️ Editează profilul</button>
+{edit_form}
+<form method='post' action='{base}/archive' style='margin-top:8px'>
+  <input type='hidden' name='on' value='{"0" if p.get("archived") else "1"}'>
+  <button style='background:none;border:1px solid var(--line);border-radius:var(--r-ctl);
+    height:40px;cursor:pointer;font-size:13px;color:var(--text3);width:100%'>
+    {arch_label}</button>
+</form></div>"""
+
+    quick = f"""<div class='fcard'><h3>Acțiuni rapide</h3><div class='qa'>
+  <a href='/admin/all?date={now.date().isoformat()}#addform'>➕ Vizită nouă</a>
+  <a href='#plan'>🦷 Plan de tratament</a>
+  <a href='#docs'>📷 Încarcă document</a>
+  <button type='button' onclick="openNote()">📝 Notiță</button>
+  <button type='button' onclick="window.print()">🖨 Printează fișa</button>
+</div></div>"""
+
     body = f"""{banner}
 <div class='nav'><a href='/admin/search'>← Pacienți</a>
 <a href='/admin/all'>📋 Programări</a></div>
-<div class='fisa'>
-  <div class='fcol-l'>
-    <div class='fcard'>
-      <div class='fhead'><div class='fav'>{e(_initials(p['name'] or '?'))}</div>
-        <div style='min-width:0'><b>{e(p['name'] or '—')}</b><small>{meta}</small></div></div>
-      <div style='margin-top:10px'>{info_rows}</div>{notes_html}
-      <button onclick="var f=document.getElementById('pedit');f.style.display=f.style.display==='none'?'flex':'none'"
-        style='margin-top:10px;background:none;border:1px solid var(--line);border-radius:8px;
-        padding:7px 12px;cursor:pointer;font-size:12.5px;color:var(--text2);width:100%'>✏️ Editează profilul</button>
-      {edit_form}
-      <form method='post' action='{base}/archive' style='margin-top:7px'>
-        <input type='hidden' name='on' value='{"0" if p.get("archived") else "1"}'>
-        <button style='background:none;border:1px solid var(--line);border-radius:8px;
-          padding:6px 12px;cursor:pointer;font-size:12px;color:var(--text3);width:100%'>
-          {"↩️ Scoate din arhivă" if p.get("archived") else "🗄 Arhivează pacientul"}</button>
-      </form>
-    </div>
-    {alerts_card}
-  </div>
-  <div class='fcol-c'>{teeth_card}{plan_card}</div>
-  <div class='fcol-r'>{next_html}{hist_card}{docs_card}</div>
-</div>"""
+{hero}
+{kpi_html}
+<div class='pv2'>
+  <div class='pv2-main'>{teeth_card}{plan_card}{docs_card}{quick}</div>
+  <div class='pv2-side'>{next_html}{profile_card}{alerts_card}{hist_card}</div>
+</div>
+<script>
+function planTab(btn) {{
+  document.querySelectorAll('.tabs button').forEach(function (b) {{
+    b.classList.toggle('on', b === btn);
+  }});
+  var f = btn.dataset.f;
+  document.querySelectorAll('.plan-row').forEach(function (r) {{
+    r.style.display = (f === 'all' || r.dataset.st === f) ? '' : 'none';
+  }});
+}}
+function openNote() {{
+  var f = document.getElementById('pedit');
+  f.style.display = 'flex';
+  f.scrollIntoView({{behavior: 'smooth', block: 'center'}});
+  var t = f.querySelector('textarea[name=notes]');
+  if (t) t.focus();
+}}
+</script>"""
     return _shell(body, f"fișa pacientului · #{pid}", active="pat")
 
 
@@ -3021,15 +3229,25 @@ async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File
     return _card_redirect(pid, "ok_doc")
 
 
+# растровые картинки, которые безопасно отдавать inline (для превью в фише).
+# ⛔ SVG и HTML сюда НЕ входят: файл с того же origin, показанный inline, — это
+# чужой скрипт в нашем журнале.
+_INLINE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+
 @app.get("/admin/doc/{doc_id}")
-async def patient_doc_get(request: Request, doc_id: int):
+async def patient_doc_get(request: Request, doc_id: int, inline: str = ""):
     if (deny := _guard(request)) is not None:
         return deny
     d = await db.get_document(doc_id)
     if not d or not pathlib.Path(d["stored_path"]).exists():
         return RedirectResponse("/admin/search", status_code=303)
-    return FileResponse(d["stored_path"], filename=d["filename"],
-                        media_type=d["mime"] or "application/octet-stream")
+    mime = d["mime"] or "application/octet-stream"
+    if inline and mime in _INLINE_MIME:
+        # без filename= FileResponse ставит Content-Disposition: inline —
+        # иначе браузер считает файл вложением и <img> остаётся пустым
+        return FileResponse(d["stored_path"], media_type=mime)
+    return FileResponse(d["stored_path"], filename=d["filename"], media_type=mime)
 
 
 @app.post("/admin/patient/{pid}/doc/{doc_id}/del")
