@@ -703,6 +703,26 @@ PANEL_CSS = """
    .pv2{grid-template-columns:1fr}.pv2-side{position:static}
    .fcard,.hero,.kpi{box-shadow:none;break-inside:avoid}
  }
+ /* лента активности: что происходило с фишей */
+ .acti{display:flex;gap:12px;align-items:flex-start;padding:14px 0;
+   border-bottom:1px solid var(--line2);transition:background-color .2s ease}
+ .acti:last-of-type{border-bottom:none}
+ .acti:hover{background:#F9FBFD}
+ .acti .ai{width:44px;height:44px;flex:0 0 44px;border-radius:14px;display:flex;
+   align-items:center;justify-content:center;font-size:18px;background:var(--teal-soft)}
+ .acti .ab{min-width:0;flex:1}
+ .acti .ab b{display:block;font-size:13px;font-weight:500;line-height:1.4}
+ .acti .ab small{color:var(--text3);font-size:11.5px}
+ .acti .at{color:var(--text3);font-size:11.5px;white-space:nowrap}
+ .actmore{margin-top:12px;width:100%;height:40px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);background:none;color:var(--text2);font-size:13px;
+   cursor:pointer}
+ .actmore:hover{border-color:var(--teal);color:var(--teal-d)}
+ .thist{margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)}
+ .thist .th-t{font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+   color:var(--text3);font-weight:600;margin-bottom:8px}
+ .thist .th-r{font-size:12.5px;color:var(--text2);padding:4px 0;display:flex;gap:10px}
+ .thist .th-r span{color:var(--text3);flex:0 0 76px}
  /* подсказка зуба — одна на всю дугу, летает за курсором */
  .toothtip{display:none;position:absolute;z-index:60;width:220px;border-radius:16px;
    padding:16px 18px;background:var(--panel);border:1px solid var(--line);
@@ -2743,6 +2763,8 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
     plan = await db.plan_items(pid)
     docs = await db.documents(pid)
     visits = await db.patient_appointments(pid)
+    acts = await db.patient_activity(pid, 60)
+    tooth_acts = await db.tooth_activity(pid)
     now = datetime.now(eng.TZ)
     base = f"/admin/patient/{pid}"
 
@@ -2844,8 +2866,14 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
                 "at": t["updated_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
                       if t["updated_at"] else ""}
 
+    hist_by_tooth: dict[str, list] = {}
+    for a in tooth_acts:
+        at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
+        hist_by_tooth.setdefault(str(a["tooth"]), []).append(
+            {"at": at.strftime("%d.%m.%Y") if at else "", "text": a["text"]})
     teeth_json = json.dumps({str(n): _tinfo(n) for n in _FDI_UPPER + _FDI_LOWER},
                             ensure_ascii=False).replace("</", "<\\/")
+    thist_json = json.dumps(hist_by_tooth, ensure_ascii=False).replace("</", "<\\/")
     state_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in TOOTH_STATES.items())
     state_ro_json = json.dumps(TOOTH_STATES, ensure_ascii=False)
     teeth_card = f"""<div class='fcard'>
@@ -2868,10 +2896,12 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
     <input name='note' id='t_note' placeholder='Notiță (opțional)' maxlength='120'>
     <button>💾 Salvează</button>
   </form>
+  <div id='t_hist' class='thist'></div>
 </dialog>
 <script>
 const TEETH = {teeth_json};
 const STATE_RO = {state_ro_json};
+const THIST = {thist_json};
 function openTooth(n) {{
   const t = TEETH[String(n)] || {{state: 'ok', note: '', doctor: ''}};
   document.getElementById('t_title').textContent = 'Dinte ' + n;
@@ -2879,6 +2909,12 @@ function openTooth(n) {{
   document.getElementById('t_state').value = t.state;
   document.getElementById('t_doc').value = t.doctor || '';
   document.getElementById('t_note').value = t.note;
+  const h = THIST[String(n)] || [];
+  document.getElementById('t_hist').innerHTML = h.length
+    ? '<div class="th-t">Istoria dintelui</div>' + h.map(function (x) {{
+        return '<div class="th-r"><span>' + x.at + '</span>' + x.text + '</div>';
+      }}).join('')
+    : '';
   document.getElementById('toothdlg').showModal();
 }}
 // подсказка зуба: одна плавающая карточка на всю дугу, позиционируется у зуба
@@ -2992,6 +3028,31 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                 f"<div class='del'><form method='post' action='{base}/doc/{dd['id']}/del' "
                 f"onsubmit=\"return confirm('Ștergeți documentul?')\">"
                 f"<button title='Șterge'>✕</button></form></div></div>")
+
+    _ACT_ICON = {"appt_new": "📅", "appt_status": "✅", "appt_cancel": "❌",
+                 "tooth": "🦷", "plan_add": "➕", "plan_status": "🔄",
+                 "plan_del": "➖", "doc_add": "📎", "doc_del": "🗑",
+                 "alert_add": "⚠️", "profile": "✏️", "archive": "🗄"}
+    act_rows = []
+    for a in acts:
+        at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
+        when = at.strftime("%d.%m.%Y") if at else ""
+        hhmm = at.strftime("%H:%M") if at else ""
+        who = "🤖 bot" if a["actor"] == "bot" else "🎧 recepție"
+        act_rows.append(
+            f"<div class='acti'><span class='ai'>{_ACT_ICON.get(a['kind'], '•')}</span>"
+            f"<div class='ab'><b>{e(a['text'])}</b>"
+            f"<small>{when} · {who}</small></div><span class='at'>{hhmm}</span></div>")
+    shown, rest = act_rows[:10], act_rows[10:]
+    more = (f"<div id='actmore' style='display:none'>{''.join(rest)}</div>"
+            f"<button type='button' class='actmore' onclick=\"var m=document.getElementById('actmore');"
+            f"m.style.display='block';this.remove()\">Toate evenimentele ({len(acts)})</button>"
+            if rest else "")
+    act_card = (f"<div class='fcard'><h3>Istoric activitate "
+                f"<small>· ce s-a întâmplat cu fișa</small></h3>"
+                + ("".join(shown) + more if act_rows
+                   else "<p class='hint' style='margin:0'>— încă fără evenimente —</p>")
+                + "</div>")
 
     docs_rows = ("<div class='docgrid'>" + "".join(doc_card(dd) for dd in docs) + "</div>"
                  if docs else "<p class='hint' style='margin:0 0 8px'>— fără documente —</p>")
@@ -3115,7 +3176,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
 {kpi_html}
 <div class='pv2'>
   <div class='pv2-main'>{teeth_card}{plan_card}{docs_card}{quick}</div>
-  <div class='pv2-side'>{next_html}{profile_card}{alerts_card}{hist_card}</div>
+  <div class='pv2-side'>{next_html}{act_card}{profile_card}{alerts_card}{hist_card}</div>
 </div>
 <script>
 function planTab(btn) {{

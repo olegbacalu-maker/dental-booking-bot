@@ -113,10 +113,17 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_min INT;
 -- этап 2 фиши пациента: срок позиции плана и врач, поставивший состояние зуба
 ALTER TABLE plan_items ADD COLUMN IF NOT EXISTS due_date TEXT;
 ALTER TABLE teeth ADD COLUMN IF NOT EXISTS doctor TEXT NOT NULL DEFAULT '';
-CREATE TABLE IF NOT EXISTS schema_meta(
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS activity(
+  id SERIAL PRIMARY KEY,
+  patient_id INT REFERENCES patients(id),
+  at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actor TEXT NOT NULL DEFAULT 'recepție',
+  kind TEXT NOT NULL,
+  tooth INT,
+  text TEXT NOT NULL DEFAULT ''
 );
+CREATE INDEX IF NOT EXISTS ix_act_patient ON activity(patient_id, at DESC);
+CREATE INDEX IF NOT EXISTS ix_act_tooth ON activity(patient_id, tooth, at DESC);
 """
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -207,6 +214,17 @@ CREATE TABLE IF NOT EXISTS documents(
   mime TEXT NOT NULL DEFAULT '',
   uploaded_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS activity(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER REFERENCES patients(id),
+  at TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT 'recepție',
+  kind TEXT NOT NULL,
+  tooth INTEGER,
+  text TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_act_patient ON activity(patient_id, at DESC);
+CREATE INDEX IF NOT EXISTS ix_act_tooth ON activity(patient_id, tooth, at DESC);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -281,7 +299,10 @@ def _parse_dt(value):
     return datetime.fromisoformat(value)
 
 
-_DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at"}
+# колонки-даты: в SQLite это ISO-строки, наверх обязаны уходить datetime.
+# Забыть здесь новую колонку = дата молча исчезнет из интерфейса (так и
+# случилось с activity.at на первом прогоне).
+_DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at"}
 
 
 def _rowdict(row) -> dict:
@@ -421,6 +442,7 @@ async def init(seed_rows: list | None = None) -> None:
         async with POOL.acquire() as c:
             await c.execute(PG_SCHEMA)
     await _migrate()
+    await _backfill_activity()
     await seed(seed_rows)
 
 
@@ -545,6 +567,7 @@ async def create_appointment(
                 await _CONN.commit()
                 appt_id = cur.lastrowid
                 await cur.close()
+                await _log_booking(pid, service, doctor, starts_at, source)
                 return appt_id
             except sqlite3.IntegrityError as e:
                 await _CONN.rollback()
@@ -552,7 +575,7 @@ async def create_appointment(
         import asyncpg
         async with POOL.acquire() as c:
             try:
-                return await c.fetchval(
+                new_id = await c.fetchval(
                     """INSERT INTO appointments(patient_id, service, doctor, starts_at,
                                                 source, doctor_id, service_id, duration_min)
                        VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
@@ -561,6 +584,8 @@ async def create_appointment(
                 )
             except asyncpg.UniqueViolationError as e:
                 return "dup" if e.constraint_name == "uq_patient_slot" else None
+        await _log_booking(pid, service, doctor, starts_at, source)
+        return new_id
 
 
 async def admin_add(
@@ -789,6 +814,8 @@ async def recent_patients(limit: int = 20) -> list:
 
 async def set_archived(pid: int, on: bool) -> None:
     """Архивация пациента: скрывает из списков, историю не трогает."""
+    await log_event(pid, "archive",
+                    "Pacient arhivat" if on else "Pacient scos din arhivă")
     await _execute(
         "UPDATE patients SET archived = $2 WHERE id = $1",
         "UPDATE patients SET archived = ? WHERE id = ?",
@@ -908,6 +935,7 @@ async def get_patient(pid: int) -> dict | None:
 
 
 async def update_patient(pid: int, data: dict) -> None:
+    await log_event(pid, "profile", "Fișa pacientului a fost actualizată")
     """Обновление профиля: только известные поля, явным списком колонок."""
     sets_pg = ", ".join(f"{f} = ${i + 2}" for i, f in enumerate(PATIENT_FIELDS))
     sets_lt = ", ".join(f"{f} = ?" for f in PATIENT_FIELDS)
@@ -935,6 +963,7 @@ async def patient_alerts(pid: int) -> list:
 
 
 async def add_alert(pid: int, kind: str, text: str) -> None:
+    await log_event(pid, "alert_add", f"Atenționare adăugată: {text}")
     await _execute(
         "INSERT INTO patient_alerts(patient_id, kind, text) VALUES($1, $2, $3)",
         "INSERT INTO patient_alerts(patient_id, kind, text, created_at) VALUES(?, ?, ?, ?)",
@@ -946,6 +975,94 @@ async def delete_alert(alert_id: int, pid: int) -> None:
     await _execute(
         "DELETE FROM patient_alerts WHERE id = $1 AND patient_id = $2",
         "DELETE FROM patient_alerts WHERE id = ? AND patient_id = ?", alert_id, pid)
+
+
+async def log_event(patient_id: int | None, kind: str, text: str, *,
+                    actor: str = "recepție", tooth: int | None = None) -> None:
+    """Событие карты пациента. Никогда не роняет основную операцию: журнал —
+    это летопись, а не транзакция; потерянная строка хуже, чем упавшая запись
+    к врачу, только в одном случае — если из-за неё не состоялась сама запись."""
+    if patient_id is None:
+        return
+    try:
+        await _execute(
+            """INSERT INTO activity(patient_id, actor, kind, tooth, text)
+               VALUES($1, $2, $3, $4, $5)""",
+            """INSERT INTO activity(patient_id, at, actor, kind, tooth, text)
+               VALUES(?, ?, ?, ?, ?, ?)""",
+            *((patient_id, actor, kind, tooth, text[:200]) if not IS_SQLITE
+              else (patient_id, _utcnow_iso(), actor, kind, tooth, text[:200])),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("activity %s/%s failed: %r", patient_id, kind, e)
+
+
+async def _log_booking(pid: int, service: str, doctor: str,
+                       starts_at: datetime, source: str) -> None:
+    """Событие «записался» — одинаковое для обоих бэкендов, поэтому вынесено:
+    у SQLite и PG разные пути возврата id, и логика легко разъезжается."""
+    await log_event(pid, "appt_new",
+                    f"Programare: {service} · {doctor} · "
+                    f"{starts_at.strftime('%d.%m.%Y %H:%M')}",
+                    actor="bot" if source == "bot" else "recepție")
+
+
+async def patient_activity(pid: int, limit: int = 50) -> list:
+    return await _fetch(
+        """SELECT id, at, actor, kind, tooth, text FROM activity
+           WHERE patient_id = $1 ORDER BY at DESC, id DESC LIMIT $2""",
+        """SELECT id, at, actor, kind, tooth, text FROM activity
+           WHERE patient_id = ? ORDER BY at DESC, id DESC LIMIT ?""", pid, limit)
+
+
+async def tooth_activity(pid: int) -> list:
+    """События по зубам — для истории конкретного зуба в диалоге."""
+    return await _fetch(
+        """SELECT at, actor, tooth, text FROM activity
+           WHERE patient_id = $1 AND tooth IS NOT NULL ORDER BY at DESC, id DESC""",
+        """SELECT at, actor, tooth, text FROM activity
+           WHERE patient_id = ? AND tooth IS NOT NULL ORDER BY at DESC, id DESC""", pid)
+
+
+async def _backfill_activity() -> None:
+    """Разовый перенос уже существующих визитов в журнал: иначе у клиники,
+    которая работает полгода, таймлайн стартует с пустого места, хотя история
+    визитов у нас есть. Идемпотентно — отмечается флагом в schema_meta."""
+    done = await _fetchval("SELECT value FROM schema_meta WHERE key = 'act_backfill'",
+                           "SELECT value FROM schema_meta WHERE key = 'act_backfill'")
+    if done:
+        return
+    rows = await _fetch(
+        """SELECT id, patient_id, service, doctor, starts_at, created_at, source
+           FROM appointments WHERE patient_id IS NOT NULL ORDER BY created_at""",
+        """SELECT id, patient_id, service, doctor, starts_at, created_at, source
+           FROM appointments WHERE patient_id IS NOT NULL ORDER BY created_at""")
+    n = 0
+    for r in rows:
+        when = r["starts_at"]
+        txt = f"Programare: {r['service']} · {r['doctor']}"
+        if hasattr(when, "strftime"):
+            txt += " · " + when.strftime("%d.%m.%Y %H:%M")
+        await _execute(
+            """INSERT INTO activity(patient_id, at, actor, kind, text)
+               VALUES($1, $2, $3, $4, $5)""",
+            """INSERT INTO activity(patient_id, at, actor, kind, text)
+               VALUES(?, ?, ?, ?, ?)""",
+            *((r["patient_id"], r["created_at"],
+               "bot" if r["source"] == "bot" else "recepție", "appt_new", txt[:200])
+              if not IS_SQLITE else
+              (r["patient_id"], _iso(r["created_at"]) if hasattr(r["created_at"], "strftime")
+               else str(r["created_at"]),
+               "bot" if r["source"] == "bot" else "recepție", "appt_new", txt[:200])),
+        )
+        n += 1
+    await _execute(
+        """INSERT INTO schema_meta(key, value) VALUES('act_backfill', $1)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+        """INSERT INTO schema_meta(key, value) VALUES('act_backfill', ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value""", str(n))
+    if n:
+        log.warning("activity backfill: %s programări перенесены в журнал", n)
 
 
 async def teeth_map(pid: int) -> dict:
@@ -964,6 +1081,7 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     if state == "ok" and not note and not doctor:
         await _execute("DELETE FROM teeth WHERE patient_id = $1 AND tooth = $2",
                        "DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
+        await log_event(pid, "tooth", f"Dinte {tooth}: sănătos", tooth=tooth)
         return
     pg = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, updated_at)
             VALUES($1, $2, $3, $4, $5, now())
@@ -977,6 +1095,12 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
                   doctor = excluded.doctor, updated_at = excluded.updated_at"""
     await _execute(pg, lt, *((pid, tooth, state, note, doctor) if not IS_SQLITE
                              else (pid, tooth, state, note, doctor, _utcnow_iso())))
+    txt = f"Dinte {tooth}: {state}"
+    if doctor:
+        txt += f" · {doctor}"
+    if note:
+        txt += f" · {note}"
+    await log_event(pid, "tooth", txt, tooth=tooth)
 
 
 async def plan_items(pid: int) -> list:
@@ -999,10 +1123,20 @@ async def add_plan_item(pid: int, tooth: int | None, procedure: str,
           else (pid, tooth, procedure, doctor, price_mdl, due_date or None,
                 _utcnow_iso())),
     )
+    await log_event(pid, "plan_add",
+                    f"Plan: + {procedure}" + (f" (dinte {tooth})" if tooth else ""),
+                    tooth=tooth)
 
 
 async def set_plan_status(item_id: int, pid: int, status: str) -> None:
     done = status == "finalizat"
+    rows = await _fetch("SELECT procedure, tooth FROM plan_items WHERE id = $1 AND patient_id = $2",
+                        "SELECT procedure, tooth FROM plan_items WHERE id = ? AND patient_id = ?",
+                        item_id, pid)
+    if rows:
+        await log_event(pid, "plan_status",
+                        f"Plan: {rows[0]['procedure']} → {status}",
+                        tooth=rows[0]["tooth"])
     await _execute(
         f"""UPDATE plan_items SET status = $1,
               done_at = {'now()' if done else 'NULL'}
@@ -1017,6 +1151,12 @@ async def set_plan_status(item_id: int, pid: int, status: str) -> None:
 
 
 async def delete_plan_item(item_id: int, pid: int) -> None:
+    rows = await _fetch("SELECT procedure, tooth FROM plan_items WHERE id = $1 AND patient_id = $2",
+                        "SELECT procedure, tooth FROM plan_items WHERE id = ? AND patient_id = ?",
+                        item_id, pid)
+    if rows:
+        await log_event(pid, "plan_del", f"Plan: − {rows[0]['procedure']}",
+                        tooth=rows[0]["tooth"])
     await _execute(
         "DELETE FROM plan_items WHERE id = $1 AND patient_id = $2",
         "DELETE FROM plan_items WHERE id = ? AND patient_id = ?", item_id, pid)
@@ -1040,6 +1180,7 @@ async def add_document(pid: int, filename: str, stored_path: str,
         *((pid, filename, stored_path, size, mime, category) if not IS_SQLITE
           else (pid, filename, stored_path, size, mime, category, _utcnow_iso())),
     )
+    await log_event(pid, "doc_add", f"Document încărcat: {filename}")
 
 
 async def get_document(doc_id: int) -> dict | None:
@@ -1052,6 +1193,9 @@ async def get_document(doc_id: int) -> dict | None:
 
 
 async def delete_document(doc_id: int, pid: int) -> None:
+    d = await get_document(doc_id)
+    if d and d["patient_id"] == pid:
+        await log_event(pid, "doc_del", f"Document șters: {d['filename']}")
     await _execute(
         "DELETE FROM documents WHERE id = $1 AND patient_id = $2",
         "DELETE FROM documents WHERE id = ? AND patient_id = ?", doc_id, pid)
@@ -1063,6 +1207,11 @@ async def set_comment(appt_id: int, text: str) -> None:
         "UPDATE appointments SET comment = ? WHERE id = ?",
         *((appt_id, text) if not IS_SQLITE else (text, appt_id)),
     )
+
+
+_STATUS_RO = {"confirmed": "confirmată", "arrived": "în cabinet",
+              "done": "finalizată", "noshow": "neprezentare",
+              "cancelled": "anulată"}
 
 
 async def set_status(appt_id: int, status: str) -> bool:
@@ -1089,6 +1238,13 @@ async def set_status(appt_id: int, status: str) -> bool:
                 "UPDATE appointments SET status = ? WHERE id = ?",
                 *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
             )
+            own = await _fetch(
+                "SELECT patient_id, service FROM appointments WHERE id = $1",
+                "SELECT patient_id, service FROM appointments WHERE id = ?", appt_id)
+            if own and own[0]["patient_id"]:
+                await log_event(own[0]["patient_id"], "appt_status",
+                                f"Vizită {_STATUS_RO.get(status, status)}: "
+                                f"{own[0]['service']}")
             return True
         except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
             if "uq_" in str(e) or "unique" in str(e).lower():
