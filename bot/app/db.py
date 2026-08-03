@@ -110,6 +110,9 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'a
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS doctor_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_min INT;
+-- этап 2 фиши пациента: срок позиции плана и врач, поставивший состояние зуба
+ALTER TABLE plan_items ADD COLUMN IF NOT EXISTS due_date TEXT;
+ALTER TABLE teeth ADD COLUMN IF NOT EXISTS doctor TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -220,6 +223,9 @@ SQLITE_EXTRA_COLS = [
     ("appointments", "service_id TEXT"),
     # v1.8.0: длительность визита в минутах; NULL = легаси-строка = 60
     ("appointments", "duration_min INTEGER"),
+    # этап 2 фиши: срок позиции плана (ISO-дата) и врач-автор состояния зуба
+    ("plan_items", "due_date TEXT"),
+    ("teeth", "doctor TEXT NOT NULL DEFAULT ''"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -944,46 +950,54 @@ async def delete_alert(alert_id: int, pid: int) -> None:
 
 async def teeth_map(pid: int) -> dict:
     rows = await _fetch(
-        "SELECT tooth, state, note FROM teeth WHERE patient_id = $1",
-        "SELECT tooth, state, note FROM teeth WHERE patient_id = ?", pid)
+        "SELECT tooth, state, note, doctor, updated_at FROM teeth WHERE patient_id = $1",
+        "SELECT tooth, state, note, doctor, updated_at FROM teeth WHERE patient_id = ?",
+        pid)
     return {r["tooth"]: r for r in rows}
 
 
-async def set_tooth(pid: int, tooth: int, state: str, note: str) -> None:
-    """'ok' без заметки = зуб здоров → строка удаляется (карта sparse)."""
-    if state == "ok" and not note:
+async def set_tooth(pid: int, tooth: int, state: str, note: str,
+                    doctor: str = "") -> None:
+    """'ok' без заметки и без врача = зуб здоров → строка удаляется (карта sparse).
+    doctor — СНАПШОТ имени на момент записи, как в plan_items: переименование
+    врача не должно переписывать историю зуба."""
+    if state == "ok" and not note and not doctor:
         await _execute("DELETE FROM teeth WHERE patient_id = $1 AND tooth = $2",
                        "DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
         return
-    pg = """INSERT INTO teeth(patient_id, tooth, state, note, updated_at)
-            VALUES($1, $2, $3, $4, now())
+    pg = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, updated_at)
+            VALUES($1, $2, $3, $4, $5, now())
             ON CONFLICT (patient_id, tooth) DO UPDATE
-              SET state = EXCLUDED.state, note = EXCLUDED.note, updated_at = now()"""
-    lt = """INSERT INTO teeth(patient_id, tooth, state, note, updated_at)
-            VALUES(?, ?, ?, ?, ?)
+              SET state = EXCLUDED.state, note = EXCLUDED.note,
+                  doctor = EXCLUDED.doctor, updated_at = now()"""
+    lt = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, updated_at)
+            VALUES(?, ?, ?, ?, ?, ?)
             ON CONFLICT(patient_id, tooth) DO UPDATE
-              SET state = excluded.state, note = excluded.note, updated_at = excluded.updated_at"""
-    await _execute(pg, lt, *((pid, tooth, state, note) if not IS_SQLITE
-                             else (pid, tooth, state, note, _utcnow_iso())))
+              SET state = excluded.state, note = excluded.note,
+                  doctor = excluded.doctor, updated_at = excluded.updated_at"""
+    await _execute(pg, lt, *((pid, tooth, state, note, doctor) if not IS_SQLITE
+                             else (pid, tooth, state, note, doctor, _utcnow_iso())))
 
 
 async def plan_items(pid: int) -> list:
     return await _fetch(
-        """SELECT id, tooth, procedure, doctor, status, price_mdl
+        """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date
            FROM plan_items WHERE patient_id = $1 ORDER BY id""",
-        """SELECT id, tooth, procedure, doctor, status, price_mdl
+        """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date
            FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
 
 
 async def add_plan_item(pid: int, tooth: int | None, procedure: str,
-                        doctor: str, price_mdl: int | None) -> None:
+                        doctor: str, price_mdl: int | None,
+                        due_date: str = "") -> None:
     await _execute(
-        """INSERT INTO plan_items(patient_id, tooth, procedure, doctor, price_mdl)
-           VALUES($1, $2, $3, $4, $5)""",
         """INSERT INTO plan_items(patient_id, tooth, procedure, doctor, price_mdl,
-                                  created_at) VALUES(?, ?, ?, ?, ?, ?)""",
-        *((pid, tooth, procedure, doctor, price_mdl) if not IS_SQLITE
-          else (pid, tooth, procedure, doctor, price_mdl, _utcnow_iso())),
+                                  due_date) VALUES($1, $2, $3, $4, $5, $6)""",
+        """INSERT INTO plan_items(patient_id, tooth, procedure, doctor, price_mdl,
+                                  due_date, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+        *((pid, tooth, procedure, doctor, price_mdl, due_date or None) if not IS_SQLITE
+          else (pid, tooth, procedure, doctor, price_mdl, due_date or None,
+                _utcnow_iso())),
     )
 
 

@@ -25,6 +25,7 @@ from . import teeth_svg as tsvg
 from . import update as upd
 
 app = FastAPI(title="DentPilot")
+log = logging.getLogger("web")
 
 STATIC = pathlib.Path(__file__).parent / "static"
 
@@ -702,6 +703,17 @@ PANEL_CSS = """
    .pv2{grid-template-columns:1fr}.pv2-side{position:static}
    .fcard,.hero,.kpi{box-shadow:none;break-inside:avoid}
  }
+ /* подсказка зуба — одна на всю дугу, летает за курсором */
+ .toothtip{display:none;position:absolute;z-index:60;width:220px;border-radius:16px;
+   padding:16px 18px;background:var(--panel);border:1px solid var(--line);
+   box-shadow:0 18px 40px rgba(15,23,42,.12);font-size:13px;pointer-events:none}
+ .toothtip b.tt-n{font-size:14.5px;font-weight:600;display:block}
+ .toothtip .tt-s{color:var(--teal-d);font-weight:600;font-size:12.5px;margin:2px 0 8px}
+ .toothtip .tt-d{color:var(--text2);font-size:12.5px;line-height:1.65}
+ .toothtip .tt-d b{color:var(--text);font-weight:600}
+ .toothtip .tt-note{margin-top:8px;padding-top:8px;border-top:1px solid var(--line2);
+   color:var(--text2)}
+ .plan-row .pdue{width:104px;flex:0 0 104px;font-size:12px;color:var(--text2)}
  /* ---------- раздел «Medici» (v1.9.0) ---------- */
  .medgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
  .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:16px 18px;
@@ -1474,6 +1486,22 @@ def _svc_colors(r) -> tuple[str, str]:
         if rx.search(key):
             return colors
     return "var(--green-soft)", "var(--green)"
+
+
+def _due_html(due, status: str) -> str:
+    """Срок позиции плана. Просроченное незавершённое подсвечиваем — иначе
+    дата в таблице ничем не отличается от любой другой даты."""
+    if not due:
+        return "—"
+    try:
+        d = date.fromisoformat(str(due)[:10])
+    except ValueError:
+        return "—"
+    txt = d.strftime("%d.%m.%Y")
+    if status != "finalizat" and d < datetime.now(eng.TZ).date():
+        return (f"<span style='color:var(--red-t);font-weight:600' "
+                f"title='Termen depășit'>⚠ {txt}</span>")
+    return txt
 
 
 _STATUS_ICON = {"confirmed": "🕐", "arrived": "🟢", "done": "✅", "noshow": "❌"}
@@ -2795,7 +2823,9 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
         # номер всегда со стороны КОРНЕЙ: у верхней дуги сверху, у нижней снизу —
         # так цифры не лезут в межчелюстной зазор и читаются как в макете
         return (f"<button type='button' class='tooth-btn' title=\"{e(title)}\" "
-                f"onclick='openTooth({n})'>{svg + num if lower else num + svg}</button>")
+                f"onclick='openTooth({n})' onmouseenter='toothTip(event,{n})' "
+                f"onmouseleave='toothTipOff()' onfocus='toothTip(event,{n})' "
+                f"onblur='toothTipOff()'>{svg + num if lower else num + svg}</button>")
 
     upper = "".join(tooth_div(n) for n in _FDI_UPPER)
     lower = "".join(tooth_div(n, lower=True) for n in _FDI_LOWER)
@@ -2805,10 +2835,19 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
         f"<span class='lg'>{tsvg.tooth_svg(36, k, width=20)} {v}</span>"
         for k, v in TOOTH_STATES.items() if k != "ok")
     # .replace("</", ...) — чтобы note вида "</script>..." не вырвался из тега
-    teeth_json = json.dumps({str(n): {"state": (tmap[n]["state"] if n in tmap else "ok"),
-                                      "note": (tmap[n]["note"] if n in tmap else "")}
-                             for n in _FDI_UPPER + _FDI_LOWER}).replace("</", "<\\/")
+    def _tinfo(n: int) -> dict:
+        t = tmap.get(n)
+        if not t:
+            return {"state": "ok", "note": "", "doctor": "", "at": ""}
+        return {"state": t["state"], "note": t["note"] or "",
+                "doctor": t["doctor"] or "",
+                "at": t["updated_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
+                      if t["updated_at"] else ""}
+
+    teeth_json = json.dumps({str(n): _tinfo(n) for n in _FDI_UPPER + _FDI_LOWER},
+                            ensure_ascii=False).replace("</", "<\\/")
     state_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in TOOTH_STATES.items())
+    state_ro_json = json.dumps(TOOTH_STATES, ensure_ascii=False)
     teeth_card = f"""<div class='fcard'>
 <h3>Formula dentară <small>· notație FDI · click pe dinte</small></h3>
 <div class='arch-wrap'>
@@ -2817,26 +2856,51 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
   <div class='arch lower'>{lower}</div>
 </div>
 <div class='tleg'>{legend}</div></div>
+<div id='toothtip' class='toothtip'><b class='tt-n'></b><div class='tt-s'></div>
+  <div class='tt-d'></div></div>
 <dialog id='toothdlg'>
   <div class='dlg-head'><span id='t_title'>Dinte</span>
     <button type='button' onclick="document.getElementById('toothdlg').close()">✕</button></div>
   <form class='dlg-form' method='post' action='{base}/tooth'>
     <input type='hidden' name='tooth' id='t_num'>
     <select name='state' id='t_state'>{state_opts}</select>
+    <select name='doctor' id='t_doc'><option value=''>Medic —</option>{doc_opts}</select>
     <input name='note' id='t_note' placeholder='Notiță (opțional)' maxlength='120'>
     <button>💾 Salvează</button>
   </form>
 </dialog>
 <script>
 const TEETH = {teeth_json};
+const STATE_RO = {state_ro_json};
 function openTooth(n) {{
-  const t = TEETH[String(n)] || {{state: 'ok', note: ''}};
+  const t = TEETH[String(n)] || {{state: 'ok', note: '', doctor: ''}};
   document.getElementById('t_title').textContent = 'Dinte ' + n;
   document.getElementById('t_num').value = n;
   document.getElementById('t_state').value = t.state;
+  document.getElementById('t_doc').value = t.doctor || '';
   document.getElementById('t_note').value = t.note;
   document.getElementById('toothdlg').showModal();
 }}
+// подсказка зуба: одна плавающая карточка на всю дугу, позиционируется у зуба
+const TIP = document.getElementById('toothtip');
+function toothTip(ev, n) {{
+  const t = TEETH[String(n)];
+  if (!t || (t.state === 'ok' && !t.note && !t.doctor)) {{ TIP.style.display = 'none'; return; }}
+  TIP.querySelector('.tt-n').textContent = 'Dinte ' + n;
+  TIP.querySelector('.tt-s').textContent = STATE_RO[t.state] || t.state;
+  TIP.querySelector('.tt-d').innerHTML =
+    (t.at ? '<div>Actualizat: <b>' + t.at + '</b></div>' : '') +
+    (t.doctor ? '<div>Medic: <b>' + t.doctor + '</b></div>' : '') +
+    (t.note ? '<div class="tt-note">' + t.note + '</div>' : '');
+  const r = ev.currentTarget.getBoundingClientRect();
+  TIP.style.display = 'block';
+  const w = TIP.offsetWidth;
+  let left = r.left + r.width / 2 - w / 2 + window.scrollX;
+  left = Math.max(8, Math.min(left, document.documentElement.clientWidth - w - 8));
+  TIP.style.left = left + 'px';
+  TIP.style.top = (r.bottom + window.scrollY + 8) + 'px';
+}}
+function toothTipOff() {{ TIP.style.display = 'none'; }}
 </script>"""
 
     plan_rows = []
@@ -2850,6 +2914,7 @@ function openTooth(n) {{
             f"<span class='pt'>{it['tooth'] or '—'}</span>"
             f"<span class='pp'>{e(it['procedure'])}</span>"
             f"<span class='pd'>{e(it['doctor'] or '—')}</span>"
+            f"<span class='pdue'>{_due_html(it.get('due_date'), it['status'])}</span>"
             f"<span class='pbadge {e(it['status'])}'>{_PLAN_LABEL.get(it['status'], it['status'])}</span>"
             f"<span class='pm'>{f'{it['price_mdl']:,}'.replace(',', ' ') + ' MDL' if it['price_mdl'] else '—'}</span>"
             f"<span class='pact'>"
@@ -2880,6 +2945,8 @@ function openTooth(n) {{
   <input name='procedure' placeholder='Procedură (ex. Coroană zirconiu)' maxlength='120' required></div>
   <div class='r2'><select name='doctor'><option value=''>Medic —</option>{doc_opts}</select>
   <input name='price' type='number' min='0' max='1000000' placeholder='Preț MDL' style='width:130px'></div>
+  <div class='r2'><input type='date' name='due_date' title='Termen planificat'>
+  <span style='font-size:12px;color:var(--text3);align-self:center'>termen (opțional)</span></div>
   <button>+ Adaugă în plan</button>
 </form></div>"""
 
@@ -2913,7 +2980,7 @@ function openTooth(n) {{
         # картинку показываем ею же: файлы лежат локально, отдельный рендер
         # миниатюр — оптимизация следующего этапа, а не условие работы
         is_img = (dd["mime"] or "").startswith("image/")
-        thumb = (f"<img src='/admin/doc/{dd['id']}?inline=1' alt='' loading='lazy'>" if is_img
+        thumb = (f"<img src='/admin/doc/{dd['id']}?thumb=1' alt='' loading='lazy'>" if is_img
                  else (DOC_CATEGORIES.get(dd["category"], "📄").split()[0]))
         when = dd["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
         kb = dd["size"] // 1024
@@ -3141,21 +3208,25 @@ async def patient_alert_del(request: Request, pid: int, aid: int):
 
 @app.post("/admin/patient/{pid}/tooth")
 async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
-                        state: str = Form(...), note: str = Form("")):
+                        state: str = Form(...), note: str = Form(""),
+                        doctor: str = Form("")):
     if (deny := _guard(request)) is not None:
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
     if tooth not in _FDI_UPPER + _FDI_LOWER or state not in TOOTH_STATES:
         return _card_redirect(pid, "bad_card")
-    await db.set_tooth(pid, tooth, state, note.strip()[:120])
+    # врача принимаем только из справочника: свободный текст тут — будущий
+    # «Иванов»/«Иванова» в истории зуба
+    doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
+    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc)
     return _card_redirect(pid, "ok_card")
 
 
 @app.post("/admin/patient/{pid}/plan")
 async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
                            procedure: str = Form(...), doctor: str = Form(""),
-                           price: str = Form("")):
+                           price: str = Form(""), due_date: str = Form("")):
     if (deny := _guard(request)) is not None:
         return deny
     if not (await db.get_patient(pid)):
@@ -3168,7 +3239,13 @@ async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
     pr = int(price) if price.strip().isdecimal() else None
     if pr is not None:
         pr = min(pr, 1_000_000)  # клиентский max дублируем на сервере (PG INT)
-    await db.add_plan_item(pid, t, procedure.strip()[:120], doctor.strip()[:80], pr)
+    due = due_date.strip()[:10]
+    try:
+        date.fromisoformat(due) if due else None
+    except ValueError:
+        due = ""
+    await db.add_plan_item(pid, t, procedure.strip()[:120], doctor.strip()[:80],
+                           pr, due)
     return _card_redirect(pid, "ok_card")
 
 
@@ -3233,19 +3310,52 @@ async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File
 # ⛔ SVG и HTML сюда НЕ входят: файл с того же origin, показанный inline, — это
 # чужой скрипт в нашем журнале.
 _INLINE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+THUMB_PX = 320          # с запасом под ретину: карточка показывает 150x120
+
+
+def _thumb_path(stored: str) -> pathlib.Path:
+    return pathlib.Path(stored).with_suffix(pathlib.Path(stored).suffix + ".thumb.jpg")
+
+
+def _make_thumb(stored: str) -> pathlib.Path | None:
+    """Миниатюра рядом с оригиналом. Панорамный снимок бывает на 8 МБ — гонять
+    его в карточку целиком (а их там десяток) незачем. Не вышло — не беда:
+    вызывающий покажет оригинал."""
+    src = pathlib.Path(stored)
+    dst = _thumb_path(stored)
+    if dst.exists():
+        return dst
+    if not src.exists():
+        return None
+    try:
+        from PIL import Image
+        with Image.open(src) as im:
+            im.draft("RGB", (THUMB_PX * 2, THUMB_PX * 2))   # ускоряет JPEG вдвое
+            im = im.convert("RGB")
+            im.thumbnail((THUMB_PX, THUMB_PX))
+            im.save(dst, "JPEG", quality=82, optimize=True)
+        return dst
+    except Exception as e:                    # noqa: BLE001 — битый файл, экзотика
+        log.warning("thumb %s: %r", src.name, e)
+        return None
 
 
 @app.get("/admin/doc/{doc_id}")
-async def patient_doc_get(request: Request, doc_id: int, inline: str = ""):
+async def patient_doc_get(request: Request, doc_id: int, inline: str = "",
+                          thumb: str = ""):
     if (deny := _guard(request)) is not None:
         return deny
     d = await db.get_document(doc_id)
     if not d or not pathlib.Path(d["stored_path"]).exists():
         return RedirectResponse("/admin/search", status_code=303)
     mime = d["mime"] or "application/octet-stream"
+    if thumb and mime in _INLINE_MIME:
+        t = _make_thumb(d["stored_path"])
+        if t:
+            return FileResponse(t, media_type="image/jpeg")
+        return FileResponse(d["stored_path"], media_type=mime)   # откат
     if inline and mime in _INLINE_MIME:
-        # без filename= FileResponse ставит Content-Disposition: inline —
-        # иначе браузер считает файл вложением и <img> остаётся пустым
+        # без filename= отдаётся inline; с ним браузер считает файл вложением
         return FileResponse(d["stored_path"], media_type=mime)
     return FileResponse(d["stored_path"], filename=d["filename"], media_type=mime)
 
@@ -3257,6 +3367,7 @@ async def patient_doc_del(request: Request, pid: int, doc_id: int):
     d = await db.get_document(doc_id)
     if d and d["patient_id"] == pid:
         pathlib.Path(d["stored_path"]).unlink(missing_ok=True)
+        _thumb_path(d["stored_path"]).unlink(missing_ok=True)
         await db.delete_document(doc_id, pid)
     return _card_redirect(pid)
 
