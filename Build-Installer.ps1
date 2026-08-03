@@ -12,7 +12,11 @@
 #
 # Versiya artefakta beretsya NE iz engine.py, a iz samogo exe (/health):
 # imenno tak nevozmozhno vypustit "Setup-1.10.0.exe" s binarnikom 1.9.1.
-param([switch]$SkipApp)
+# -SetupDir: kuda polozhit gotovyi master ustanovki dlya klinik. Pustaya
+# stroka otklyuchaet kopirovanie. dist ostaetsya vyhodom sborki i
+# perezapisyvaetsya kazhdym bildom, poetomu "chto otdavat klinike" zhivet
+# otdelno i ne teryaetsya.
+param([switch]$SkipApp, [string]$SetupDir = "D:\DentPilot_Setup")
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -131,9 +135,34 @@ $zip = "dist\DentPilot-Setup-$version.zip"
 Remove-Item $zip -Force -EA SilentlyContinue
 Compress-Archive -Path $setup -DestinationPath $zip -CompressionLevel Fastest
 
+# --- 6. kopiya mastera v papku vydachi klinikam ---
+# Staraya versiya ryadom s novoi - eto vopros "kakoi iz nih otdavat", poetomu
+# na verhnem urovne ostaetsya ROVNO ODIN fail, a proshlye uezzhayut v arhiv.
+# Ne udalyaem: sborka ne dolzhna tihо unichtozhat to, chto uzhe komu-to otdano.
+$copied = ""
+if ($SetupDir) {
+    try {
+        if (-not (Test-Path $SetupDir)) { New-Item -ItemType Directory $SetupDir -Force | Out-Null }
+        $name = Split-Path $setup -Leaf
+        $old = Get-ChildItem $SetupDir -Filter "DentPilot-Setup-*.exe" -EA SilentlyContinue |
+               Where-Object { $_.Name -ne $name }
+        if ($old) {
+            $arh = Join-Path $SetupDir "arhiva"
+            if (-not (Test-Path $arh)) { New-Item -ItemType Directory $arh | Out-Null }
+            $old | ForEach-Object { Move-Item $_.FullName (Join-Path $arh $_.Name) -Force }
+            Write-Host ("   proshlye versii ubrany v arhiva\: " + (($old | ForEach-Object { $_.Name }) -join ", "))
+        }
+        Copy-Item $setup $SetupDir -Force
+        $copied = Join-Path $SetupDir $name
+    } catch {
+        Write-Host ("!! kopiya v $SetupDir ne polozhena: " + $_.Exception.Message) -ForegroundColor Yellow
+    }
+}
+
 $mb = { param($p) [math]::Round((Get-Item $p).Length / 1MB, 1) }
 Write-Host ""
 Write-Host "OK, versiya $version" -ForegroundColor Green
 Write-Host ("  dist\DentPilot.exe                 {0} MB  -> asset reliza (ego kachaet self-update)" -f (& $mb "dist\DentPilot.exe"))
 Write-Host ("  DentPilot-Setup-$version.exe" + (" " * [Math]::Max(1, 18 - $version.Length)) + "{0} MB  -> USB / pryamaya peredacha klinike" -f (& $mb $setup))
 Write-Host ("  DentPilot-Setup-$version.zip" + (" " * [Math]::Max(1, 18 - $version.Length)) + "{0} MB  -> asset reliza (zip, chtoby ne stalo dvuh .exe)" -f (& $mb $zip))
+if ($copied) { Write-Host ("  $copied" + (" " * 4) + "-> otdat klinike (odin fail, bez dist)") -ForegroundColor Cyan }
