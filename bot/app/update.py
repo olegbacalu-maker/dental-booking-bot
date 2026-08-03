@@ -41,8 +41,16 @@ STATE = {"latest": "", "url": "", "asset_url": "", "asset_size": 0,
 def _token() -> str:
     """Токен GitHub — ТОЛЬКО из окружения (dental.env машины разработчика).
     В сборку он не попадает и у клиник его нет, поэтому у них поведение
-    ровно прежнее: канал stable, черновики невидимы."""
-    return (os.environ.get("DENTART_UPDATE_TOKEN") or "").strip()
+    ровно прежнее: канал stable, черновики невидимы.
+
+    Токен приходит из файла, который правят руками, поэтому снимаем кавычки
+    (частая паста DENTART_UPDATE_TOKEN="ghp_...") и отбрасываем значение с
+    не-ASCII: в заголовок такое всё равно не влезет, а падало бы это невнятной
+    ошибкой кодека вместо честного «канал выключен»."""
+    t = (os.environ.get("DENTART_UPDATE_TOKEN") or "").strip().strip("\"'")
+    if not t or not t.isascii() or not t.isprintable():
+        return ""
+    return t
 
 
 def channel() -> str:
