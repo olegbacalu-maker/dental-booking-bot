@@ -1300,6 +1300,7 @@ async def startup() -> None:
         svc_map[v["ro"]] = k
         svc_map[v["ru"]] = k
     await db.backfill_ids(doc_map, svc_map)
+    upd.sync_uninstall_version()   # версия в «Программах и компонентах»
     upd.check_async()
     token = os.environ.get("TELEGRAM_TOKEN", "").strip()
     if token:
