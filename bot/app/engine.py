@@ -15,7 +15,7 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.8.2"
+APP_VERSION = "1.9.0"
 
 
 def _load_config() -> dict:
@@ -44,13 +44,33 @@ CLINIC_PHONE = ""
 DOCTORS: dict[str, str] = {}
 ACTIVE_DOCTORS: dict[str, str] = {}
 DOCTOR_SPEC: dict[str, str] = {}
-DOCTOR_META: dict[str, dict] = {}   # color / phone / room / active
+DOCTOR_META: dict[str, dict] = {}   # color / phone / room / email / photo / status / active
+# v1.9.0: галочка «активен» стала тремя состояниями. active = производное
+# (только «activ» предлагается ботом и формами) — все прежние проверки живут
+# на нём и не знают о новых состояниях.
+#   activ    — работает;
+#   concediu — временно не принимает (отпуск/болезнь), вернётся;
+#   arhivat  — ушёл насовсем; архивировать можно только без будущих записей.
+# Ни одно из состояний не прячет уже существующие записи: колонка врача
+# держится в сетке того дня, где у него есть приёмы (урок v1.8.2 — данные
+# не должны исчезать молча).
+DOCTOR_STATES = ("activ", "concediu", "arhivat")
 # docs = кто выполняет услугу (нет ключа = все); один врач → бот не спрашивает
 SERVICES: dict[str, dict] = {}
 SERVICE_PRICE: dict[str, int] = {}          # подпись (ro/ru) → средняя цена
 SERVICE_PRICE_BY_ID: dict[str, int] = {}    # id услуги → средняя цена
 SERVICE_COLOR: dict[str, str] = {}          # id услуги → цвет из конфига
 URGENT_LABELS: set[str] = set()
+
+
+def doctor_state(d: dict) -> str:
+    """Состояние врача из записи конфига. Старые конфиги знают только
+    active=true/false: выключенный превращается в «concediu» — обратимое
+    состояние, архивацию админ выбирает осознанно."""
+    st = str(d.get("status") or "").strip().lower()
+    if st in DOCTOR_STATES:
+        return st
+    return "activ" if d.get("active", True) else "concediu"
 
 
 def allowed_doc_items(svc_key: str) -> list[tuple[str, str]]:
@@ -192,10 +212,13 @@ def apply_config(cfg: dict) -> None:
         DOCTOR_SPEC[d["id"]] = d.get("spec", "")
         DOCTOR_META[d["id"]] = {"color": d.get("color", ""), "phone": d.get("phone", ""),
                                 "room": d.get("room", ""),
-                                "active": d.get("active", True),
+                                "email": d.get("email", ""),
+                                "photo": d.get("photo", ""),
+                                "status": doctor_state(d),
+                                "active": doctor_state(d) == "activ",
                                 "work_from": d.get("work_from"),
                                 "work_to": d.get("work_to")}
-        if d.get("active", True):
+        if doctor_state(d) == "activ":
             ACTIVE_DOCTORS[d["id"]] = d["name"]
     SERVICES.clear()
     SERVICE_PRICE.clear()

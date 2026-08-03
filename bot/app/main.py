@@ -166,6 +166,18 @@ MSG_BANNER = {
     "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
     "ok_doc": ("ok", "Document încărcat ✔ — rămâne local, în folderul programului"),
     "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
+    "ok_med": ("ok", "Datele medicului au fost salvate ✔"),
+    "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
+    "new_med": ("ok", "Medic adăugat ✔ — completați fișa lui"),
+    "dup_med": ("err", "Există deja un medic cu acest nume — numele trebuie să fie unic"),
+    "ok_photo": ("ok", "Fotografia a fost salvată ✔ — rămâne local, lângă program"),
+    "bad_photo": ("err", "Doar JPEG / PNG / WebP, până la 5 MB"),
+    "ok_svc_med": ("ok", "Serviciile medicului au fost actualizate ✔"),
+    "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic — "
+                         "bifați altul înainte de a-l scoate pe acesta"),
+    "arch_busy": ("err", "Medicul are programări viitoare — mutați-le la alt medic sau "
+                         "alegeți «în concediu» în loc de arhivare"),
+    "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
 }
 
 # Дизайн-система v1.5.0 (референс: светлый SaaS-макет Олега 07-31):
@@ -273,7 +285,8 @@ PANEL_CSS = """
    border-right:1px solid var(--line2)}
  .gridhead .gh-doc:last-child{border-right:none}
  .gh-doc .av{width:32px;height:32px;border-radius:9px;color:#fff;display:flex;align-items:center;
-   justify-content:center;font-size:12px;font-weight:600;flex:0 0 32px}
+   justify-content:center;font-size:12px;font-weight:600;flex:0 0 32px;overflow:hidden}
+ .gh-doc .av img{width:100%;height:100%;object-fit:cover;display:block}
  .gh-doc .nm{min-width:0}
  .gh-doc .nm a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none;white-space:nowrap}
  .gh-doc .nm a:hover{color:var(--teal-d)}
@@ -480,6 +493,43 @@ PANEL_CSS = """
    cursor:pointer;font-size:12.5px;font-weight:600}
  .fform .r2{display:flex;gap:7px}
  @media (max-width:1400px){.fisa{flex-wrap:wrap}.fcol-l,.fcol-r{width:100%;flex:1 1 100%}}
+ /* фиша медика уже карточки пациента (нет формулы зубов) — на 1366×768,
+    рабочем разрешении клиники, она остаётся в три колонки */
+ @media (max-width:1400px){.fisa.med{flex-wrap:nowrap}
+   .fisa.med .fcol-l{width:300px;flex:0 0 300px}
+   .fisa.med .fcol-r{width:280px;flex:0 0 280px}}
+ @media (max-width:1150px){.fisa.med{flex-wrap:wrap}
+   .fisa.med .fcol-l,.fisa.med .fcol-r{width:100%;flex:1 1 100%}}
+ /* ---------- раздел «Medici» (v1.9.0) ---------- */
+ .medgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+ .medcard{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 16px;
+   display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;
+   transition:box-shadow .15s,transform .15s}
+ a.medcard:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
+ .medcard.off{opacity:.72}
+ .medhead{display:flex;align-items:center;gap:12px}
+ .avatar{width:52px;height:52px;flex:0 0 52px;border-radius:14px;color:#fff;overflow:hidden;
+   display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600}
+ .avatar img{width:100%;height:100%;object-fit:cover;display:block}
+ .avatar.big{width:96px;height:96px;flex:0 0 96px;border-radius:18px;font-size:30px}
+ .medhead b{font-size:15px;display:block;line-height:1.25}
+ .medhead small{color:var(--text2);font-size:11.5px;display:block}
+ .medmeta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--text2)}
+ .medstats{display:flex;gap:10px;border-top:1px solid var(--line2);padding-top:9px}
+ .medstats div{flex:1;min-width:0}
+ .medstats b{display:block;font-size:16px;font-weight:600}
+ .medstats span{font-size:11px;color:var(--text3)}
+ .dbadge{font-size:10px;font-weight:600;letter-spacing:.04em;padding:3px 8px;border-radius:6px;
+   text-transform:uppercase;white-space:nowrap}
+ .dbadge.activ{background:var(--green-soft);color:var(--green)}
+ .dbadge.concediu{background:var(--amber-soft);color:var(--amber)}
+ .dbadge.arhivat{background:var(--line2);color:var(--text3)}
+ .svcpick{display:flex;flex-direction:column;gap:2px;max-height:320px;overflow:auto}
+ .svcpick label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;
+   border-radius:8px;cursor:pointer}
+ .svcpick label:hover{background:var(--bg)}
+ .svcpick input{margin:0}
+ .svcpick small{margin-left:auto;color:var(--text3);font-size:11px;white-space:nowrap}
  /* ---------- недельный вид ---------- */
  .week{display:flex;gap:12px;align-items:flex-start}
  .wcol{flex:1;min-width:0;background:var(--panel);border-radius:14px;box-shadow:var(--sh);overflow:hidden}
@@ -551,6 +601,8 @@ _I = {  # компактные stroke-иконки сайдбара
     "home": "<path d='M3 10.5 12 3l9 7.5M5.5 9.5V21h13V9.5'/>",
     "cal": "<rect x='3.5' y='5' width='17' height='16' rx='2.5'/><path d='M3.5 10h17M8.5 3v4M15.5 3v4'/>",
     "pat": "<circle cx='12' cy='8' r='3.5'/><path d='M5 20.5c1.3-3.8 4-5.4 7-5.4s5.7 1.6 7 5.4'/>",
+    "med": "<path d='M8 3v4a4 4 0 0 0 8 0V3'/><path d='M12 11v3a4.5 4.5 0 0 0 9 0v-1'/>"
+           "<circle cx='20.5' cy='11' r='1.6'/>",
     "stat": "<path d='M4 20h16M8 20v-6M13 20V7M18 20v-9'/>",
     "set": "<circle cx='12' cy='12' r='3'/><path d='M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2'/>",
     "bot": "<rect x='3.5' y='7.5' width='17' height='12' rx='3'/><path d='M12 7.5V4'/><circle cx='9' cy='13.5' r='1' fill='currentColor' stroke='none'/><circle cx='15' cy='13.5' r='1' fill='currentColor' stroke='none'/>",
@@ -582,6 +634,7 @@ def _sidebar(active: str) -> str:
     {item('dash', '/admin', 'home', 'Dashboard')}
     {item('prog', '/admin/all', 'cal', 'Programări')}
     {item('pat', '/admin/search', 'pat', 'Pacienți')}
+    {item('med', '/admin/medici', 'med', 'Medici')}
     {item('stat', '/admin/stats', 'stat', 'Statistici')}
     {item('set', '/admin/settings', 'set', 'Setări')}
     <div class="sec">Sincronizări</div>
@@ -1383,8 +1436,12 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         meta = eng.DOCTOR_META.get(dk, {})
         extra = " · ".join(x for x in [meta.get("room", ""), meta.get("phone", "")] if x)
         off = "" if meta.get("active", True) else " · inactiv"
+        # фото врача (если загружено в его фише) вместо инициалов — v1.9.0
+        pp = _photo_path(dk)
+        av = (f"<img src='/admin/doctor-photo/{urllib.parse.quote(dk)}"
+              f"?v={urllib.parse.quote(pp.name)}' alt=''>" if pp else _initials(name))
         head.append(
-            f"<div class='gh-doc'><span class='av' style='background:{hue}'>{_initials(name)}</span>"
+            f"<div class='gh-doc'><span class='av' style='background:{hue}'>{av}</span>"
             f"<div class='nm'><a href='/admin/doctor/{dk}?date={d.isoformat()}' "
             f"title='{html.escape(extra)}'>{html.escape(name)}</a>"
             f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}{off} · {len(mine)} prog. · {liber}</small></div>"
@@ -1679,28 +1736,15 @@ async def admin_settings(request: Request, msg: str = ""):
             out.append(f"<option value='{k}'{' selected' if sel == k else ''}>{ro}</option>")
         return "".join(out)
 
-    def _wh_opts(sel, lo: int = 6, hi: int = 22) -> str:
-        out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
-        for x in range(lo, hi + 1):
-            out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
-        return "".join(out)
-
-    # ⚠️ Врача НЕ удаляем — гасим галочкой «activ». Иначе его id уходит в
-    # переиспользование и история достаётся новому врачу (баг найден 08-01).
+    # v1.9.0: таблица врачей уехала в раздел «Medici» — здесь только сводка,
+    # чтобы у каталога врачей было ровно одно место правки
     doc_rows = "".join(
-        f"<tr><td><input type='hidden' class='d_id' value='{e(d['id'])}'>"
-        f"<input type='text' class='d_name' value='{e(d['name'])}'></td>"
-        f"<td><input type='text' class='d_spec' value='{e(d.get('spec', ''))}'></td>"
-        f"<td><input type='text' class='d_room' value='{e(d.get('room', ''))}' "
-        f"placeholder='Cab. 1' style='width:80px'></td>"
-        f"<td><input type='text' class='d_phone' value='{e(d.get('phone', ''))}' "
-        f"placeholder='intern' style='width:100px'></td>"
-        f"<td><select class='d_wf'>{_wh_opts(d.get('work_from'))}</select>"
-        f"<select class='d_wt'>{_wh_opts(d.get('work_to'))}</select></td>"
-        f"<td><input type='color' class='d_color' value='{e(d.get('color') or '#0D9488')}' "
-        f"style='width:44px;padding:2px;height:30px'></td>"
-        f"<td style='text-align:center'><input type='checkbox' class='d_active'"
-        f"{' checked' if d.get('active', True) else ''}></td></tr>"
+        f"<tr><td><a href='/admin/doctor-card/{e(d['id'])}'>{e(d['name'])}</a></td>"
+        f"<td>{e(d.get('spec', '')) or '—'}</td><td>{e(d.get('room', '')) or '—'}</td>"
+        f"<td>{e(d.get('phone', '')) or '—'}</td>"
+        f"<td>{e(_doc_hours_text(d['id']))}</td>"
+        f"<td><span class='dbadge {eng.doctor_state(d)}'>"
+        f"{_DOC_STATE_RO[eng.doctor_state(d)]}</span></td></tr>"
         for d in cfg["doctors"]
     )
     def _dur_opts(sel) -> str:
@@ -1831,17 +1875,16 @@ Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
 «—» = fără pauză.</p>
 
 <h2>👨‍⚕️ Medici</h2>
-<table class='set' id='docs_t'>
-<tr><th>Nume</th><th>Specializare</th><th style='width:80px'>Cabinet</th>
-<th style='width:100px'>Telefon</th><th style='width:140px'>Program (de la/până)</th>
-<th style='width:60px'>Culoare</th>
-<th style='width:60px'>Activ</th></tr>
-<tbody id='docs_tb'>{doc_rows}</tbody>
+<table class='set'>
+<tr><th>Nume</th><th>Specializare</th><th style='width:90px'>Cabinet</th>
+<th style='width:110px'>Telefon</th><th style='width:150px'>Program</th>
+<th style='width:110px'>Stare</th></tr>
+{doc_rows}
 </table>
-<button type='button' class='addrow' onclick='addDoc()'>+ Adaugă medic</button>
-<p class='hint'>Medicul care pleacă se <b>dezactivează</b> (bifa «Activ»), nu se șterge:
-programările lui rămân în istoric, iar botul și formularele nu îl mai propun.
-«Program» = fereastra personală în cadrul orelor clinicii («—» = ca clinica).</p>
+<p class='hint'>Medicii se editează în secțiunea
+<a href='/admin/medici'><b>👨‍⚕️ Medici</b></a> — acolo sunt fișa completă, fotografia,
+serviciile și starea (activ / în concediu / arhivat). Aici sunt afișați doar pentru
+verificare, ca datele lor să aibă un singur loc de modificare.</p>
 
 <h2>🦷 Servicii</h2>
 <table class='set' id='svc_t'>
@@ -1858,21 +1901,6 @@ programările lui rămân în istoric, iar botul și formularele nu îl mai prop
 </form>
 
 <script>
-function addDoc() {{
-  const tb = document.getElementById('docs_tb');
-  const tr = document.createElement('tr');
-  let wh = "<option value=''>—</option>";
-  for (let x = 6; x <= 22; x++) wh += "<option value='" + x + "'>" + x + ":00</option>";
-  tr.innerHTML = "<td><input type='hidden' class='d_id' value=''>" +
-    "<input type='text' class='d_name' placeholder='Dr. ...'></td>" +
-    "<td><input type='text' class='d_spec' placeholder='Terapie'></td>" +
-    "<td><input type='text' class='d_room' placeholder='Cab. 1' style='width:80px'></td>" +
-    "<td><input type='text' class='d_phone' placeholder='intern' style='width:100px'></td>" +
-    "<td><select class='d_wf'>" + wh + "</select><select class='d_wt'>" + wh + "</select></td>" +
-    "<td><input type='color' class='d_color' value='#0D9488' style='width:44px;padding:2px;height:30px'></td>" +
-    "<td style='text-align:center'><input type='checkbox' class='d_active' checked></td>";
-  tb.appendChild(tr);
-}}
 const SVC_COLORS = {json.dumps(_PALETTE_RO)};
 function addSvc() {{
   const tb = document.getElementById('svc_tb');
@@ -1905,18 +1933,6 @@ function collectSettings() {{
     if (bf !== '' && bt !== '') hours[d] = [f, t, parseInt(bf), parseInt(bt)];
     else hours[d] = [f, t];
   }}
-  const doctors = [];
-  document.querySelectorAll('#docs_tb tr').forEach(tr => {{
-    doctors.push({{ id: tr.querySelector('.d_id').value,
-                   name: tr.querySelector('.d_name').value,
-                   spec: tr.querySelector('.d_spec').value,
-                   room: tr.querySelector('.d_room').value,
-                   phone: tr.querySelector('.d_phone').value,
-                   work_from: tr.querySelector('.d_wf').value,
-                   work_to: tr.querySelector('.d_wt').value,
-                   color: tr.querySelector('.d_color').value,
-                   active: tr.querySelector('.d_active').checked }});
-  }});
   const services = [];
   document.querySelectorAll('#svc_tb tr').forEach(tr => {{
     services.push({{ id: tr.querySelector('.s_id').value,
@@ -1930,27 +1946,24 @@ function collectSettings() {{
   }});
   // валидация ДО отправки: при серверной ошибке форма перерисуется из
   // сохранённого конфига и все правки админа пропадут — не доводим до этого
-  if (!doctors.some(d => d.active && d.name.trim())) {{
-    alert('Trebuie să existe cel puțin un medic activ.');
-    return false;
-  }}
   const seen = {{}};
-  for (const d of doctors) {{
-    const key = d.name.trim().toLowerCase();
+  for (const s of services) {{
+    const key = s.ro.trim().toLowerCase();
     if (!key) continue;
     if (seen[key]) {{
-      alert('Două rânduri au același nume de medic: «' + d.name.trim() +
+      alert('Două rânduri au aceeași denumire de serviciu: «' + s.ro.trim() +
             '». Redenumiți unul dintre ele.');
       return false;
     }}
     seen[key] = true;
   }}
+  // медиков форма больше не отправляет — их каталог правится în «Medici»
   const payload = {{
     name: document.getElementById('cname').value,
     phone: document.getElementById('cphone').value,
     address: {{ ro: document.getElementById('caddr_ro').value,
                ru: document.getElementById('caddr_ru').value }},
-    hours: hours, doctors: doctors, services: services
+    hours: hours, services: services
   }};
   document.getElementById('payload').value = JSON.stringify(payload);
   return true;
@@ -2006,52 +2019,12 @@ def _build_config(data: dict) -> dict:
         if mnum:
             seq_s = max(seq_s, int(mnum.group(1)))
 
-    doctors = []
-    used: set[str] = set()
-    for d in data.get("doctors", []):
-        dn = str(d.get("name", "")).strip()[:60]
-        if not dn:
-            continue
-        did = str(d.get("id", "")).strip()
-        if not re.fullmatch(r"d\d+", did) or did in used:
-            seq_d += 1
-            did = f"d{seq_d}"
-        used.add(did)
-        entry_d: dict = {"id": did, "name": dn,
-                         "spec": str(d.get("spec", "")).strip()[:60],
-                         "active": bool(d.get("active", True))}
-        room = str(d.get("room", "")).strip()[:30]
-        phone_d = str(d.get("phone", "")).strip()[:30]
-        color_d = str(d.get("color", "")).strip()[:16]
-        if room:
-            entry_d["room"] = room
-        if phone_d:
-            entry_d["phone"] = phone_d
-        if re.fullmatch(r"#[0-9a-fA-F]{6}", color_d):
-            entry_d["color"] = color_d
-        # персональное окно врача: пусто = как клиника; from < to обязательно
-        wf_raw = str(d.get("work_from", "") or "").strip()
-        wt_raw = str(d.get("work_to", "") or "").strip()
-        wf_v = int(wf_raw) if wf_raw.isdecimal() and 0 <= int(wf_raw) <= 23 else None
-        wt_v = int(wt_raw) if wt_raw.isdecimal() and 1 <= int(wt_raw) <= 24 else None
-        if wf_v is not None and wt_v is not None and wf_v >= wt_v:
-            raise ValueError("doctor hours")
-        if wf_v is not None:
-            entry_d["work_from"] = wf_v
-        if wt_v is not None:
-            entry_d["work_to"] = wt_v
-        doctors.append(entry_d)
+    # v1.9.0: врачей эта форма больше не присылает — их каталог правится только
+    # в разделе «Medici», поэтому переносим список как есть (фото/e-mail/статус
+    # не должны теряться из-за сохранения настроек клиники)
+    doctors = [dict(d) for d in eng.CONFIG.get("doctors", [])]
     if not doctors:
         raise ValueError("doctors")
-    if not any(d["active"] for d in doctors):
-        raise ValueError("no active doctor")
-    # записи связаны с врачом по ИМЕНИ — два одинаковых имени слили бы их истории
-    names_seen = set()
-    for d in doctors:
-        key = d["name"].casefold()
-        if key in names_seen:
-            raise ValueError("duplicate doctor name")
-        names_seen.add(key)
     doc_ids = {d["id"] for d in doctors}
     # то же для услуг: одинаковые подписи ломали бы бэкфилл service_id и отчёты
     labels_seen: set[str] = set()
@@ -2992,6 +2965,7 @@ async def admin_doctor(
                  else " <span style='color:var(--text3)'>· inactiv (istoric)</span>")
     head = (f"<div class='nav'><b>{html.escape(name)}</b>{off_badge} "
             f"<span style='color:#667'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</span> "
+            f"<a href='/admin/doctor-card/{dk}'>👤 Fișa medicului</a>"
             f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
             f"<a href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a></div>")
     cards = _collect_cards(rows)
@@ -3002,6 +2976,521 @@ async def admin_doctor(
             + _slot_modal(d, back)
             + _card_modal(cards, back))
     return _shell(body, "ziua unui medic · 🤖 bot / ✍️ recepție / 📝 notițe", active="prog")
+
+
+# ---------- раздел «Medici»: карточка врача (v1.9.0) ----------
+#
+# Каталог врачей живёт в clinic.json (Setări + hot-reload), в БД — только
+# doctor_id и снапшот имени (решение PLAN_DB_V17). Этот раздел = единственное
+# место правки врачей: таблица из Setări убрана, чтобы не было двух источников.
+
+MAX_PHOTO_MB = 5
+_DOC_STATE_RO = {"activ": "Activ", "concediu": "În concediu", "arhivat": "Arhivat"}
+_DOC_STATE_HINT = {
+    "activ": "botul și formularele îl propun",
+    "concediu": "temporar nu primește; programările existente rămân",
+    "arhivat": "a plecat din clinică; istoricul rămâne",
+}
+_PHOTO_MIME = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+
+
+def _doctors_dir() -> pathlib.Path:
+    base = _data_dir() or pathlib.Path("data")
+    d = base / "files" / "doctors"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _sniff_photo(head: bytes) -> tuple[str, str] | None:
+    """(расширение, mime) по СОДЕРЖИМОМУ файла — имени и content-type не верим."""
+    if head.startswith(b"\xff\xd8\xff"):
+        return ".jpg", "image/jpeg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png", "image/png"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
+
+
+def _photo_path(dk: str) -> pathlib.Path | None:
+    """Файл фото врача. Имя приходит из clinic.json — а его правят и руками,
+    поэтому проверяем, что путь действительно внутри папки фотографий."""
+    fn = str(eng.DOCTOR_META.get(dk, {}).get("photo") or "")
+    if not fn or fn != pathlib.Path(fn).name:
+        return None
+    base = _doctors_dir()
+    p = base / fn
+    try:
+        if p.resolve().parent != base.resolve() or not p.is_file():
+            return None
+    except OSError:
+        return None
+    return p
+
+
+def _doc_hue(dk: str) -> str:
+    meta = eng.DOCTOR_META.get(dk, {})
+    if meta.get("color"):
+        return meta["color"]
+    keys = list(eng.DOCTORS)
+    idx = keys.index(dk) if dk in keys else 0
+    return _DOC_HUES[idx % len(_DOC_HUES)]
+
+
+def _avatar(dk: str, name: str, big: bool = False) -> str:
+    # файл проверяем на месте: конфиг может указывать на удалённое фото —
+    # инициалы честнее «сломанной картинки»
+    photo = _photo_path(dk).name if _photo_path(dk) else ""
+    inner = _initials(name)
+    if photo:
+        # ?v= — имя файла меняется при замене, значит кэш браузера сам сбросится
+        src = (f"/admin/doctor-photo/{urllib.parse.quote(dk)}"
+               f"?v={urllib.parse.quote(str(photo))}")
+        inner = f"<img src='{src}' alt=''>"
+    return (f"<span class='avatar{' big' if big else ''}' "
+            f"style='background:{html.escape(_doc_hue(dk))}'>{inner}</span>")
+
+
+def _doc_hours_text(dk: str) -> str:
+    meta = eng.DOCTOR_META.get(dk, {})
+    wf, wt = meta.get("work_from"), meta.get("work_to")
+    if wf is None and wt is None:
+        return "ca clinica"
+    a = f"{int(wf):02d}:00" if wf is not None else "deschidere"
+    b = f"{int(wt):02d}:00" if wt is not None else "închidere"
+    return f"{a}–{b}"
+
+
+def _doc_rows(dk: str, name: str, rows: list) -> list:
+    """Записи врача среди строк периода: по стабильному id, легаси — по имени."""
+    return [r for r in rows
+            if r.get("doctor_id") == dk or (not r.get("doctor_id") and r["doctor"] == name)]
+
+
+def _doc_stats(dk: str, name: str, rows: list, days: list) -> dict:
+    live = [r for r in _doc_rows(dk, name, rows)
+            if r["source"] != "note" and r["status"] != "cancelled"]
+    cap = sum(eng.work_minutes(dk, day) for day in days)
+    busy = sum(int(r.get("duration_min") or 60) for r in live)
+    return {"n": len(live), "pct": round(100 * busy / cap) if cap else 0,
+            "noshow": sum(1 for r in live if r["status"] == "noshow")}
+
+
+def _med_redirect(dk: str, msg: str = "") -> RedirectResponse:
+    q = f"?msg={msg}" if msg else ""
+    return RedirectResponse(f"/admin/doctor-card/{dk}{q}", status_code=303)
+
+
+def _save_cfg(**changes) -> str | None:
+    cfg = dict(eng.CONFIG)
+    cfg.update(changes)
+    return eng.save_config(cfg)
+
+
+def _doctor_entry(prev: dict, **fields) -> dict:
+    """Запись врача для конфига: правим поля, ничего чужого не теряем."""
+    entry = dict(prev)
+    entry.update(fields)
+    for k in ("spec", "room", "phone", "email", "color", "photo"):
+        if not entry.get(k):
+            entry.pop(k, None)
+    for k in ("work_from", "work_to"):
+        if entry.get(k) is None:
+            entry.pop(k, None)
+    entry["status"] = eng.doctor_state(entry)
+    # active остаётся в файле ради совместимости: старая версия программы
+    # (откат) читает только его и поймёт «в отпуске / в архиве» как выключенного
+    entry["active"] = entry["status"] == "activ"
+    return entry
+
+
+def _patch_doctor(dk: str, **fields) -> str | None:
+    docs = [(_doctor_entry(d, **fields) if d["id"] == dk else d)
+            for d in eng.CONFIG["doctors"]]
+    return _save_cfg(doctors=docs)
+
+
+def _med_card_html(dk: str, name: str, rows: list, days: list) -> str:
+    e = html.escape
+    meta = eng.DOCTOR_META.get(dk, {})
+    st = meta.get("status", "activ")
+    s = _doc_stats(dk, name, rows, days)
+    bits = [f"🚪 {e(meta['room'])}" if meta.get("room") else "",
+            f"☎️ {e(meta['phone'])}" if meta.get("phone") else "",
+            f"🕘 {e(_doc_hours_text(dk))}"]
+    return f"""<a class="medcard{'' if st == 'activ' else ' off'}" href="/admin/doctor-card/{dk}">
+  <div class="medhead">{_avatar(dk, name)}
+    <div style="min-width:0"><b>{e(name)}</b>
+      <small>{e(eng.DOCTOR_SPEC.get(dk, '') or '—')}</small></div>
+    <span class="dbadge {st}" style="margin-left:auto">{_DOC_STATE_RO[st]}</span>
+  </div>
+  <div class="medmeta">{''.join(f'<span>{b}</span>' for b in bits if b)}</div>
+  <div class="medstats">
+    <div><b>{s['n']}</b><span>programări · 30 zile</span></div>
+    <div><b>{s['pct']}%</b><span>ocupare</span></div>
+    <div><b>{s['noshow']}</b><span>neprezentări</span></div>
+  </div>
+</a>"""
+
+
+@app.get("/admin/medici", response_class=HTMLResponse)
+async def admin_medici(request: Request, msg: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
+    today = datetime.now(eng.TZ).date()
+    d1 = today - timedelta(days=29)
+    start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
+    end = datetime(today.year, today.month, today.day, tzinfo=eng.TZ) + timedelta(days=1)
+    rows = await db.day_appointments(start, end)
+    days = [d1 + timedelta(days=i) for i in range(30)]
+
+    live, arch = [], []
+    for dk, name in eng.DOCTORS.items():
+        card = _med_card_html(dk, name, rows, days)
+        (arch if eng.DOCTOR_META.get(dk, {}).get("status") == "arhivat" else live).append(card)
+
+    banner = ""
+    if msg in MSG_BANNER:
+        cls, text = MSG_BANNER[msg]
+        banner = f"<div class='banner {cls}'>{text}</div>"
+    arch_block = (f"<h2>🗄 Arhivă <small style='font-weight:400;color:var(--text3)'>"
+                  f"· medici care nu mai lucrează; istoricul lor rămâne</small></h2>"
+                  f"<div class='medgrid'>{''.join(arch)}</div>") if arch else ""
+    body = f"""
+<div class='nav'><a href='/admin'>🏠 Panou</a><a href='/admin/settings'>⚙️ Setările clinicii</a></div>
+{banner}
+<div class='medgrid'>{''.join(live)}</div>
+<h2>➕ Medic nou</h2>
+<form class='add' method='post' action='/admin/medici/add'>
+  <input type='text' name='name' placeholder='Dr. Nume Prenume' required style='width:260px'>
+  <input type='text' name='spec' placeholder='Specializare (ex. Terapie)' style='width:220px'>
+  <button>+ Adaugă medic</button>
+</form>
+<p class='hint'>Medicul nu se șterge niciodată: programările lui păstrează legătura cu el.
+«În concediu» = pauză temporară, «Arhivat» = a plecat (posibil doar fără programări viitoare).</p>
+{arch_block}"""
+    return _shell(body, "medicii clinicii · fișă, program, servicii", active="med")
+
+
+@app.post("/admin/medici/add")
+async def admin_medici_add(request: Request, name: str = Form(...), spec: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    nm = name.strip()[:60]
+    if not nm:
+        return RedirectResponse("/admin/medici?msg=bad_med", status_code=303)
+    # тёзки слили бы истории (легаси-строки матчатся по имени) — запрещаем
+    if any(d["name"].casefold() == nm.casefold() for d in eng.CONFIG["doctors"]):
+        return RedirectResponse("/admin/medici?msg=dup_med", status_code=303)
+    seq = dict(eng.CONFIG.get("seq") or {})
+    n = int(seq.get("doctor", 0))
+    for d in eng.CONFIG.get("doctors", []):
+        mnum = re.fullmatch(r"d(\d+)", str(d.get("id", "")))
+        if mnum:
+            n = max(n, int(mnum.group(1)))
+    n += 1                      # id не переиспользуются (урок 08-01)
+    seq["doctor"] = n
+    did = f"d{n}"
+    entry = _doctor_entry({"id": did, "name": nm}, spec=spec.strip()[:60], status="activ")
+    err = _save_cfg(doctors=list(eng.CONFIG["doctors"]) + [entry], seq=seq)
+    if err:
+        return RedirectResponse("/admin/medici?msg=bad_med", status_code=303)
+    return _med_redirect(did, "new_med")
+
+
+@app.get("/admin/doctor-card/{dk}", response_class=HTMLResponse)
+async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return RedirectResponse("/admin/medici", status_code=303)
+    e = html.escape
+    name = eng.DOCTORS[dk]
+    meta = eng.DOCTOR_META.get(dk, {})
+    st = meta.get("status", "activ")
+    today = datetime.now(eng.TZ).date()
+
+    # один запрос на всё: сегодняшний список + ближайшие 7 дней
+    wk_start = datetime(today.year, today.month, today.day, tzinfo=eng.TZ)
+    wk_rows = await db.day_appointments(wk_start, wk_start + timedelta(days=7))
+    mine_wk = _doc_rows(dk, name, wk_rows)
+    today_rows = [r for r in mine_wk if r["starts_at"].astimezone(eng.TZ).date() == today]
+
+    d1 = today - timedelta(days=29)
+    m_start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
+    stat_rows = await db.day_appointments(m_start, wk_start + timedelta(days=1))
+    stats = _doc_stats(dk, name, stat_rows, [d1 + timedelta(days=i) for i in range(30)])
+    future = await db.doctor_future_count(dk, name, datetime.now(eng.TZ))
+
+    banner = ""
+    if msg in MSG_BANNER:
+        cls, text = MSG_BANNER[msg]
+        banner = f"<div class='banner {cls}'>{text}</div>"
+
+    # услуги, которые остались бы без единого активного врача, если убрать этого:
+    # бот тогда честно скажет «недоступна» (v1.8.1), но админ должен знать заранее
+    orphan_svc = [sv["ro"] for sid, sv in eng.SERVICES.items()
+                  if (sv.get("docs") or []) and dk in sv["docs"]
+                  and not [k for k in sv["docs"]
+                           if k != dk and eng.DOCTOR_META.get(k, {}).get("active")]]
+    warn = ""
+    if st == "activ" and orphan_svc:
+        warn = (f"<div class='banner err'>Atenție: dacă acest medic nu mai e activ, "
+                f"serviciile <b>{e(', '.join(orphan_svc))}</b> rămân fără medic și "
+                f"botul le va marca indisponibile.</div>")
+
+    def _wh_opts(sel, lo: int = 6, hi: int = 22) -> str:
+        out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
+        for x in range(lo, hi + 1):
+            out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
+        return "".join(out)
+
+    st_opts = "".join(
+        f"<option value='{k}'{' selected' if st == k else ''}>{v} — {_DOC_STATE_HINT[k]}</option>"
+        for k, v in _DOC_STATE_RO.items())
+    photo_form = f"""
+<form class='fform' method='post' action='/admin/doctor-card/{dk}/photo'
+      enctype='multipart/form-data' style='margin-top:10px'>
+  <input type='file' name='file' accept='image/jpeg,image/png,image/webp' required>
+  <button>📷 Încarcă fotografia</button>
+</form>
+<p class='hint' style='margin:6px 0 0'>JPEG / PNG / WebP, max {MAX_PHOTO_MB} MB.
+Rămâne local, în folderul programului; pacienții nu o văd.</p>"""
+    if meta.get("photo"):
+        photo_form += (f"<form method='post' action='/admin/doctor-card/{dk}/photo/del' "
+                       f"style='margin-top:6px' onsubmit=\"return confirm('Ștergeți fotografia?')\">"
+                       f"<button class='rowdel' style='background:none;border:1px solid var(--line);"
+                       f"border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;"
+                       f"color:var(--text2)'>🗑 Șterge fotografia</button></form>")
+
+    left = f"""<div class='fcard'>
+  <div class='fhead'>{_avatar(dk, name, big=True)}
+    <div style='min-width:0'><b>{e(name)}</b>
+      <small>{e(eng.DOCTOR_SPEC.get(dk, '') or '—')}</small>
+      <span class='dbadge {st}' style='display:inline-block;margin-top:6px'>{_DOC_STATE_RO[st]}</span>
+    </div>
+  </div>
+  {photo_form}
+</div>
+<div class='fcard'><h3>Date de contact și program</h3>
+<form class='fform' method='post' action='/admin/doctor-card/{dk}/save'>
+  <input name='name' value="{e(name)}" placeholder='Nume' maxlength='60' required>
+  <input name='spec' value="{e(eng.DOCTOR_SPEC.get(dk, ''))}" placeholder='Specializare' maxlength='60'>
+  <div class='r2'><input name='room' value="{e(meta.get('room', ''))}" placeholder='Cabinet'>
+  <input name='phone' value="{e(meta.get('phone', ''))}" placeholder='Telefon intern'></div>
+  <input name='email' value="{e(meta.get('email', ''))}" placeholder='E-mail (opțional)' maxlength='80'>
+  <div style='font-size:11.5px;color:var(--text3);margin-top:2px'>Program personal (de la / până la)</div>
+  <div class='r2'><select name='work_from'>{_wh_opts(meta.get('work_from'))}</select>
+  <select name='work_to'>{_wh_opts(meta.get('work_to'), 7, 23)}</select></div>
+  <div style='font-size:11.5px;color:var(--text3);margin-top:2px'>Culoare în calendar</div>
+  <div class='r2' style='align-items:center'>
+    <input type='color' name='color' value="{e(meta.get('color') or _doc_hue(dk))}"
+           style='width:52px;padding:2px;height:32px'>
+    <label style='font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px'>
+      <input type='checkbox' name='auto_color' value='1'
+             {'checked' if not meta.get('color') else ''} style='width:auto'> automată</label>
+  </div>
+  <div style='font-size:11.5px;color:var(--text3);margin-top:2px'>Starea medicului</div>
+  <select name='status'>{st_opts}</select>
+  <button>💾 Salvează</button>
+</form>
+<p class='hint' style='margin:8px 0 0'>Programul «—» = ca al clinicii. Culoarea se
+folosește în calendarul zilei. Arhivarea e posibilă doar fără programări viitoare
+(acum: <b>{future}</b>).</p>
+</div>"""
+
+    # центр: сегодня + ближайшая неделя (заметки не в счёт — это не приёмы)
+    wk_cells = []
+    for i in range(7):
+        day = today + timedelta(days=i)
+        cnt = sum(1 for r in mine_wk
+                  if r["starts_at"].astimezone(eng.TZ).date() == day
+                  and r["source"] != "note" and r["status"] != "cancelled")
+        cap = eng.work_minutes(dk, day)
+        lbl = ("Azi" if i == 0 else _DOW_FULL[_DOW_ORDER[day.weekday()]][:2])
+        tone = ("var(--teal-soft)" if cnt else "var(--bg)") if cap else "var(--line2)"
+        wk_cells.append(
+            f"<a href='/admin/doctor/{dk}?date={day.isoformat()}' style='flex:1;min-width:0;"
+            f"text-decoration:none;color:inherit;background:{tone};border-radius:10px;"
+            f"padding:8px 6px;text-align:center'>"
+            f"<div style='font-size:11px;color:var(--text3)'>{lbl} {day.day:02d}.{day.month:02d}</div>"
+            f"<div style='font-size:16px;font-weight:600'>{cnt if cap else '—'}</div></a>")
+    back = f"/admin/doctor-card/{dk}"
+    cards = _collect_cards(today_rows)
+    # 9 колонок в узкой средней колонке — таблица скроллится сама, страница нет
+    day_list = _list(today_rows, back,
+                     title=f"Astăzi, {today.strftime('%d.%m.%Y')}").replace(
+        "<table class='list'>", "<div style='overflow-x:auto'><table class='list'>", 1).replace(
+        "</table>", "</table></div>", 1).replace(
+        "</h2>", f" <small style='font-size:12px;font-weight:400'>"
+                 f"<a href='/admin/doctor/{dk}?date={today.isoformat()}'>grila zilei ↗</a>"
+                 f"</small></h2>", 1)
+    center = f"""<div class='fcard'><h3>Următoarele 7 zile <small>· click = ziua completă</small></h3>
+<div style='display:flex;gap:6px'>{''.join(wk_cells)}</div></div>
+<div class='fcard' style='padding-top:4px'>{day_list}</div>"""
+
+    # справа: услуги галочками + цифры за 30 дней
+    svc_lines = []
+    for sid, sv in eng.SERVICES.items():
+        docs = sv.get("docs") or []
+        checked = (not docs) or dk in docs
+        note = ("toți medicii" if not docs
+                else "1 medic" if len(docs) == 1 else f"{len(docs)} medici")
+        svc_lines.append(
+            f"<label><input type='checkbox' name='svc' value='{e(sid)}'"
+            f"{' checked' if checked else ''}> {e(sv['ro'])}<small>{note}</small></label>")
+    right = f"""<div class='fcard'><h3>Servicii pe care le face</h3>
+<form method='post' action='/admin/doctor-card/{dk}/services'>
+  <div class='svcpick'>{''.join(svc_lines)}</div>
+  <button class='savebtn' style='margin-top:10px'>💾 Salvează serviciile</button>
+</form>
+<p class='hint' style='margin:8px 0 0'>Serviciul fără bife explicite se oferă la
+<b>toți</b> medicii activi. Dacă scoateți bifa de la un astfel de serviciu, lista lui
+devine explicită — un medic nou va trebui bifat manual.</p>
+</div>
+<div class='fcard'><h3>Ultimele 30 de zile</h3>
+{"".join(f"<div class='frow'><span>{lbl}</span><span>{val}</span></div>" for lbl, val in
+         [("Programări", stats['n']), ("Ocupare", f"{stats['pct']}%"),
+          ("Neprezentări", stats['noshow']), ("Programări viitoare", future)])}
+<p class='hint' style='margin:8px 0 0'><a href='/admin/stats'>Statistica întregii clinici ↗</a></p>
+</div>"""
+
+    body = (f"<div class='nav'><a href='/admin/medici'>👨‍⚕️ Toți medicii</a>"
+            f"<a href='/admin/doctor/{dk}'>📅 Ziua medicului</a>"
+            f"<a href='/admin'>🏠 Panou</a></div>{banner}{warn}"
+            f"<div class='fisa med'><div class='fcol-l'>{left}</div>"
+            f"<div class='fcol-c'>{center}</div><div class='fcol-r'>{right}</div></div>"
+            + _card_modal(cards, back))
+    return _shell(body, f"fișa medicului · {html.escape(name)}", active="med")
+
+
+@app.post("/admin/doctor-card/{dk}/save")
+async def doctor_card_save(request: Request, dk: str, name: str = Form(...),
+                           spec: str = Form(""), room: str = Form(""),
+                           phone: str = Form(""), email: str = Form(""),
+                           color: str = Form(""), auto_color: str = Form(""),
+                           work_from: str = Form(""), work_to: str = Form(""),
+                           status: str = Form("activ")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return RedirectResponse("/admin/medici", status_code=303)
+    nm = name.strip()[:60]
+    if not nm:
+        return _med_redirect(dk, "bad_med")
+    if any(d["id"] != dk and d["name"].casefold() == nm.casefold()
+           for d in eng.CONFIG["doctors"]):
+        return _med_redirect(dk, "dup_med")
+    st = status if status in eng.DOCTOR_STATES else "activ"
+    if st != "activ" and not any(d["id"] != dk and eng.doctor_state(d) == "activ"
+                                 for d in eng.CONFIG["doctors"]):
+        return _med_redirect(dk, "last_med")
+    if st == "arhivat":
+        # архив = «его больше нет в расписании»; с живыми будущими бронями это
+        # тихо оставило бы пациентов без врача — только «в отпуске»
+        if await db.doctor_future_count(dk, eng.DOCTORS[dk], datetime.now(eng.TZ)):
+            return _med_redirect(dk, "arch_busy")
+    wf = int(work_from) if work_from.isdecimal() and 0 <= int(work_from) <= 23 else None
+    wt = int(work_to) if work_to.isdecimal() and 1 <= int(work_to) <= 24 else None
+    if wf is not None and wt is not None and wf >= wt:
+        return _med_redirect(dk, "bad_med")
+    col = "" if auto_color else color.strip()[:16]
+    if col and not re.fullmatch(r"#[0-9a-fA-F]{6}", col):
+        return _med_redirect(dk, "bad_med")
+    err = _patch_doctor(dk, name=nm, spec=spec.strip()[:60], room=room.strip()[:30],
+                        phone=phone.strip()[:30], email=email.strip()[:80],
+                        color=col, work_from=wf, work_to=wt, status=st)
+    return _med_redirect(dk, "bad_med" if err else "ok_med")
+
+
+@app.post("/admin/doctor-card/{dk}/services")
+async def doctor_card_services(request: Request, dk: str):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return RedirectResponse("/admin/medici", status_code=303)
+    form = await request.form()
+    picked = set(form.getlist("svc"))
+    all_ids = [d["id"] for d in eng.CONFIG["doctors"]]
+    services = []
+    for s in eng.CONFIG["services"]:
+        sid = s["id"]
+        docs = list(s.get("docs") or [])
+        entry = dict(s)
+        if sid in picked:
+            if docs and dk not in docs:
+                docs.append(dk)
+            # пустой docs = «все медики», этот тоже входит — менять нечего
+        else:
+            # «все врачи» → материализуем список, иначе бифу не снять
+            docs = ([k for k in all_ids if k != dk] if not docs
+                    else [k for k in docs if k != dk])
+            if not docs:
+                # услуга без исполнителя = тупик в боте, такого не сохраняем
+                return _med_redirect(dk, "svc_empty")
+        if docs:
+            entry["docs"] = docs
+        else:
+            entry.pop("docs", None)
+        services.append(entry)
+    err = _save_cfg(services=services)
+    return _med_redirect(dk, "bad_med" if err else "ok_svc_med")
+
+
+@app.post("/admin/doctor-card/{dk}/photo")
+async def doctor_card_photo(request: Request, dk: str, file: UploadFile = File(...)):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return RedirectResponse("/admin/medici", status_code=303)
+    cap, buf = MAX_PHOTO_MB * 1024 * 1024, bytearray()
+    try:
+        while chunk := await file.read(1024 * 256):
+            buf += chunk
+            if len(buf) > cap:
+                return _med_redirect(dk, "bad_photo")
+    finally:
+        await file.close()
+    kind = _sniff_photo(bytes(buf[:16]))
+    if not buf or not kind:
+        return _med_redirect(dk, "bad_photo")
+    old = _photo_path(dk)
+    stored = _doctors_dir() / f"{dk}_{secrets.token_hex(6)}{kind[0]}"
+    try:
+        stored.write_bytes(bytes(buf))
+    except OSError:
+        stored.unlink(missing_ok=True)
+        return _med_redirect(dk, "bad_photo")
+    if _patch_doctor(dk, photo=stored.name):
+        stored.unlink(missing_ok=True)      # конфиг не записался — файл не нужен
+        return _med_redirect(dk, "bad_photo")
+    if old and old != stored:
+        old.unlink(missing_ok=True)
+    return _med_redirect(dk, "ok_photo")
+
+
+@app.post("/admin/doctor-card/{dk}/photo/del")
+async def doctor_card_photo_del(request: Request, dk: str):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if dk not in eng.DOCTORS:
+        return RedirectResponse("/admin/medici", status_code=303)
+    old = _photo_path(dk)
+    if _patch_doctor(dk, photo=""):
+        return _med_redirect(dk, "bad_med")   # конфиг не записался — файл храним
+    if old:
+        old.unlink(missing_ok=True)
+    return _med_redirect(dk, "ok_med")
+
+
+@app.get("/admin/doctor-photo/{dk}")
+async def doctor_photo_get(request: Request, dk: str, v: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = _photo_path(dk)
+    if not p:
+        return Response(status_code=404)
+    return FileResponse(p, media_type=_PHOTO_MIME.get(p.suffix.lower(), "image/jpeg"))
 
 
 # ---------- действия ----------

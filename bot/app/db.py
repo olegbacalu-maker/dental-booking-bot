@@ -660,6 +660,22 @@ async def booked_intervals(doctor_key: str, doctor_name: str,
     return [(r["starts_at"], int(r["duration_min"] or 60)) for r in rows]
 
 
+async def doctor_future_count(doctor_key: str, doctor_name: str,
+                              now: datetime) -> int:
+    """Сколько живых записей у врача впереди — замок на архивацию (v1.9.0).
+    Матчинг тот же, что в booked_intervals: id, легаси-строки — по имени."""
+    return await _fetchval(
+        f"""SELECT COUNT(*) FROM appointments
+           WHERE (doctor_id = $1 OR (doctor_id IS NULL AND doctor = $2))
+             AND status IN {_ACT_SQL} AND starts_at >= $3""",
+        f"""SELECT COUNT(*) FROM appointments
+           WHERE (doctor_id = ? OR (doctor_id IS NULL AND doctor = ?))
+             AND status IN {_ACT_SQL} AND starts_at >= ?""",
+        *((doctor_key, doctor_name, now) if not IS_SQLITE
+          else (doctor_key, doctor_name, _iso(now))),
+    ) or 0
+
+
 async def my_appointments(session_key: str, now: datetime) -> list:
     # arrived тоже показываем: пациент «в кресле» не должен пропадать из «мои
     # записи»; status нужен движку — у arrived НЕ рисуем кнопку отмены

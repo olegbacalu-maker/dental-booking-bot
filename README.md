@@ -77,6 +77,11 @@ Statuses per visit accumulate the clinic's real no-show stats.
 
 More journal tools:
 
+- **Doctors section** (`/admin/medici`): one card per doctor — photo (stored locally,
+  never shown to patients), room, internal phone, personal working window, calendar
+  colour, services performed (checkboxes) and 30-day figures. Three states instead of an
+  on/off switch: *active* / *on leave* / *archived*; a doctor is never deleted (their
+  appointments keep the link) and archiving is refused while future bookings exist.
 - **Patient search** by name or phone digits (any format) with the full visit history.
 - **Owner stats** (`/admin/stats`): bookings by source, visits, **no-shows priced in MDL**
   from the clinic's own price list, "value brought by the bot", per-doctor occupancy
@@ -89,8 +94,8 @@ More journal tools:
 ## One file = one clinic
 
 Everything clinic-specific lives in [`clinic.json`](clinic.json): name, phone, address,
-contacts, **working hours per weekday** (incl. days off), doctors with specialties,
-services with prices and allowed doctors, demo-seed flag. The engine loads it at startup
+contacts, **working hours per weekday** (incl. days off), doctors with specialties and
+state, services with prices and allowed doctors, demo-seed flag. The engine loads it at startup
 (`CLINIC_CONFIG` env, mounted read-only in compose). Editing data = `docker compose restart bot`,
 no rebuild.
 
