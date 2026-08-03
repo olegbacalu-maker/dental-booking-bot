@@ -112,6 +112,23 @@ services, prices and a Saturday off, zero code changes.
   no tunnel), and **one-click self-update** from GitHub Releases (download → swap
   via a Task-Scheduler-relaunched script → restart; the clinic's data is untouched).
   Build it with `Build-Desktop.ps1`.
+- **Installer**: `Build-Installer.ps1` wraps that exe into a single
+  `dist\DentPilot-Setup-<version>.exe` (Inno Setup, [`installer/DentPilot.iss`](installer/DentPilot.iss)) —
+  a normal Windows wizard: folder picker, desktop shortcut and autostart checkboxes,
+  Start Menu entry, an uninstaller in *Apps & features*. DentPilot keeps
+  `clinic.json`, `dental.env` and `data\dental.db` next to the exe, which decides
+  where it may be installed: the wizard probes the chosen folder for writability
+  (Program Files is rejected outright), and the default is the **shared**
+  `C:\Users\Public\DentPilot` rather than a user profile — a clinic where two
+  shifts log in under different Windows accounts must not end up with two separate
+  databases. Demo appointments are an unchecked box, off for real clinics.
+  Upgrades reuse the existing folder — the database is never touched, and uninstalling
+  removes only the program, its shortcuts and the update leftovers, never the
+  clinic's data.
+  (`Install-DentPilot.ps1` is the older two-file USB flow, kept for reference.)
+- **Releasing**: see [RELEASE.md](RELEASE.md). The self-updater and the installer
+  consume different artifacts from the same release, so the release layout is
+  load-bearing — `Build-Installer.ps1` and `scripts/check_release.py` enforce it.
 
 ## Quick start
 
