@@ -283,20 +283,49 @@ PANEL_CSS = """
  .dashmain{flex:1;min-width:0}
  .rail{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
  .gridcard{background:var(--panel);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
- .gridhead{display:flex;border-bottom:1px solid var(--line)}
- .gridhead .gh-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2)}
- .gridhead .gh-doc{flex:1;min-width:0;padding:10px 12px;display:flex;gap:9px;align-items:center;
-   border-right:1px solid var(--line2)}
- .gridhead .gh-doc:last-child{border-right:none}
- .gh-doc .av{width:32px;height:32px;border-radius:9px;color:#fff;display:flex;align-items:center;
-   justify-content:center;font-size:12px;font-weight:600;flex:0 0 32px;overflow:hidden}
+ /* полоса карточек врачей над расписанием (макет Олега 08-03): каждая ячейка
+    остаётся flex:1 и стоит над своей колонкой, а сама карточка живёт ВНУТРИ неё
+    с отступом — так вид «плавающих карточек» не ломает выравнивание с сеткой */
+ .gridhead{display:flex;margin-bottom:14px;align-items:stretch}
+ .gridhead .gh-time{width:56px;flex:0 0 56px}
+ .gridhead .gh-doc{flex:1;min-width:0;padding:0 5px;display:flex}
+ .gh-doc .dcard{flex:1;min-width:0;display:flex;gap:10px;align-items:center;
+   background:var(--panel);border-radius:16px;padding:12px;box-shadow:var(--sh);
+   border-left:4px solid var(--teal);transition:transform .18s ease,box-shadow .18s ease}
+ .gh-doc .dcard:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
+ .gh-doc .dcard.off{opacity:.72}
+ .gh-doc .av{width:44px;height:44px;border-radius:50%;color:#fff;display:flex;align-items:center;
+   justify-content:center;font-size:15px;font-weight:600;flex:0 0 44px;overflow:hidden}
  .gh-doc .av img{width:100%;height:100%;object-fit:cover;display:block}
- .gh-doc .nm{min-width:0}
- .gh-doc .nm a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none;white-space:nowrap}
+ .gh-doc .nm{min-width:0;flex:1}
+ .gh-doc .nm a{font-size:14px;font-weight:600;color:var(--text);text-decoration:none;
+   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
  .gh-doc .nm a:hover{color:var(--teal-d)}
- .gh-doc .nm small{display:block;font-size:11px;color:var(--text3);white-space:nowrap;
+ .gh-doc .nm small{display:block;font-size:11.5px;color:var(--text2);white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
- .gh-doc .st{width:8px;height:8px;border-radius:50%;margin-left:auto;flex:0 0 8px}
+ .gh-doc .nm small.mt{color:var(--text3);font-size:11px}
+ .gh-doc .st{width:8px;height:8px;border-radius:50%;flex:0 0 8px;align-self:flex-start;
+   margin-top:3px}
+ /* Плотный режим — когда карточка становится узкой: >4 врачей (класс ставит
+    сервер, он один знает их число) или окно уже 1440px (у клиники это 1366×768,
+    там на карточку остаётся ~170px). Специализация уходит первой — её роль берёт
+    на себя цвет карточки; имя вместо многоточия переносится на вторую строку,
+    место под неё в карточке есть. */
+ .gridhead.tight .gh-doc{padding:0 3px}
+ .gridhead.tight .dcard{gap:8px;padding:9px;border-radius:12px}
+ .gridhead.tight .av{width:34px;height:34px;flex:0 0 34px;font-size:12px}
+ .gridhead.tight .nm a{font-size:12.5px;white-space:normal;line-height:1.22;
+   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+ .gridhead.tight .nm small{display:none}
+ .gridhead.tight .nm small.mt{display:block;font-size:10.5px;margin-top:1px}
+ @media (max-width:1440px){
+   .gh-doc .dcard{gap:8px;padding:9px;border-radius:12px}
+   .gh-doc .av{width:34px;height:34px;flex:0 0 34px;font-size:12px}
+   .gh-doc .nm a{font-size:12.5px;white-space:normal;line-height:1.22;
+     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+   .gh-doc .nm small{display:none}
+   .gh-doc .nm small.mt{display:block;font-size:10.5px;margin-top:1px}
+ }
  .gridbody{display:flex;position:relative;--cell:56px}
  .gcol-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2);background:var(--bg)}
  .gcol-time div{height:var(--cell);font-size:11px;color:var(--text3);text-align:right;padding:4px 8px 0}
@@ -1212,7 +1241,9 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
 
 
 # --- палитра врачей и цвет записи ПО ТИПУ процедуры (референс v2) ---
-_DOC_HUES = ["#0D9488", "#3B82F6", "#8B5CF6", "#D97706", "#DC2626", "#059669",
+# палитра карточек врача (макет 08-03): зелёный / синий / фиолетовый / янтарный —
+# первые четыре цвета намеренно максимально различимы, дальше по кругу
+_DOC_HUES = ["#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#DC2626", "#0D9488",
              "#6366F1", "#DB2777"]
 
 _SVC_CAT = [
@@ -1428,6 +1459,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
              if eng.DOCTOR_META.get(dk, {}).get("active", True)
              or by_col.get(f"k:{dk}")]
 
+    # класс дописываем в конце: полное число колонок известно только после сирот
     head = ["<div class='gridhead'><div class='gh-time'></div>"]
     cols = []
     for i, (dk, name) in enumerate(shown):
@@ -1438,7 +1470,9 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         dot = "var(--green)" if free_h is not None else "var(--text3)"
         liber = f"liber {free_h:02d}:00" if free_h is not None else "complet"
         meta = eng.DOCTOR_META.get(dk, {})
-        extra = " · ".join(x for x in [meta.get("room", ""), meta.get("phone", "")] if x)
+        # имя в title тоже: у длинных имён карточка обрезает его многоточием
+        extra = " · ".join(x for x in [name, meta.get("room", ""),
+                                       meta.get("phone", "")] if x)
         off = "" if meta.get("active", True) else " · inactiv"
         # фото врача (если загружено в его фише) вместо инициалов — v1.9.0
         pp = _photo_path(dk)
@@ -1446,11 +1480,14 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
               f"?v={urllib.parse.quote(pp.name)}' alt=''>" if pp
               else html.escape(_initials(name)))
         head.append(
-            f"<div class='gh-doc'><span class='av' style='background:{hue}'>{av}</span>"
+            f"<div class='gh-doc'><div class='dcard{'' if not off else ' off'}' "
+            f"style='border-left-color:{hue}'>"
+            f"<span class='av' style='background:{hue}'>{av}</span>"
             f"<div class='nm'><a href='/admin/doctor/{dk}?date={d.isoformat()}' "
             f"title='{html.escape(extra)}'>{html.escape(name)}</a>"
-            f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}{off} · {len(mine)} prog. · {liber}</small></div>"
-            f"<span class='st' style='background:{dot}' title='{liber}'></span></div>")
+            f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, '')) or '&nbsp;'}{off}</small>"
+            f"<small class='mt'>{len(mine)} prog. · {liber}</small></div>"
+            f"<span class='st' style='background:{dot}' title='{liber}'></span></div></div>")
         cols.append(f"<div class='gcol'>{_cells(dk, name)}{_blocks(col_key)}</div>")
 
     # легаси-строки без id со старым именем (переименовали ДО v1.7.1) —
@@ -1464,7 +1501,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         relink_opts = "".join(f"<option value='{dk}'>{html.escape(n)}</option>"
                               for dk, n in eng.DOCTORS.items())
         head.append(
-            f"<div class='gh-doc'><span class='av' style='background:#94A3B8'>"
+            f"<div class='gh-doc'><div class='dcard off' style='border-left-color:#94A3B8'>"
+            f"<span class='av' style='background:#94A3B8'>"
             f"{html.escape(_initials(name))}</span>"
             f"<div class='nm'><a>{html.escape(name)}</a>"
             f"<small>în afara listei · {len(mine)} prog.</small>"
@@ -1473,8 +1511,12 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
             f"<input type='hidden' name='back' value='/admin?date={d.isoformat()}'>"
             f"<select name='dk' style='font-size:10.5px;max-width:110px'>{relink_opts}</select>"
             f"<button style='font-size:10.5px;border:1px solid var(--line);background:none;"
-            f"border-radius:6px;cursor:pointer'>→</button></form></div></div>")
+            f"border-radius:6px;cursor:pointer'>→</button></form></div></div></div>")
         cols.append(f"<div class='gcol'>{_cells(None, name)}{_blocks(col_key)}</div>")
+    # больше четырёх колонок — карточка ужимается (аватар меньше, специализация
+    # прячется): у клиники на 6 врачей полноразмерная карточка режет имена
+    if len(cols) > 4:
+        head[0] = head[0].replace("class='gridhead'", "class='gridhead tight'", 1)
     head.append("</div>")
 
     now = datetime.now(eng.TZ)
@@ -1499,7 +1541,11 @@ fitGrid();                                  // сразу, чтобы не ми�
 document.addEventListener('DOMContentLoaded', fitGrid);  // и когда виден весь макет
 window.addEventListener('resize', fitGrid);
 </script>"""
-    return (f"<div class='gridcard'>{''.join(head)}"
+    # шапка врачей вынесена ИЗ белой карточки сетки (макет Олега 08-03):
+    # это отдельная полоса карточек над расписанием. Ширины те же (56px под
+    # колонку времени + flex:1 на врача), поэтому карточка стоит ровно над
+    # своей колонкой — выравнивание держится само.
+    return (f"{''.join(head)}<div class='gridcard'>"
             f"<div class='gridbody'><div class='gcol-time'>{timecol}</div>"
             f"{''.join(cols)}{nowline}</div></div>{fit_js}")
 
@@ -3159,12 +3205,25 @@ async def admin_medici(request: Request, msg: str = ""):
     if msg in MSG_BANNER:
         cls, text = MSG_BANNER[msg]
         banner = f"<div class='banner {cls}'>{text}</div>"
+
+    # ⚠️ старая таблица в Setări подставляла КАЖДОМУ врачу один и тот же цвет по
+    # умолчанию — на таком конфиге карточки в расписании неразличимы. Молча
+    # переписывать чужой выбор нельзя, поэтому просто предлагаем сброс.
+    set_colors = {(d.get("color") or "").lower() for d in eng.CONFIG["doctors"]}
+    same_color = len(eng.CONFIG["doctors"]) > 1 and len(set_colors) == 1 and "" not in set_colors
+    color_hint = (
+        "<div class='banner err'>Toți medicii au aceeași culoare, deci cardurile lor "
+        "din programul zilei nu se disting. "
+        "<form method='post' action='/admin/medici/colors' style='display:inline'>"
+        "<button style='background:var(--teal);color:#fff;border:none;border-radius:8px;"
+        "padding:5px 12px;cursor:pointer;font-size:12.5px;margin-left:8px'>"
+        "🎨 Culori automate</button></form></div>") if same_color else ""
     arch_block = (f"<h2>🗄 Arhivă <small style='font-weight:400;color:var(--text3)'>"
                   f"· medici care nu mai lucrează; istoricul lor rămâne</small></h2>"
                   f"<div class='medgrid'>{''.join(arch)}</div>") if arch else ""
     body = f"""
 <div class='nav'><a href='/admin'>🏠 Panou</a><a href='/admin/settings'>⚙️ Setările clinicii</a></div>
-{banner}
+{banner}{color_hint}
 <div class='medgrid'>{''.join(live)}</div>
 <h2>➕ Medic nou</h2>
 <form class='add' method='post' action='/admin/medici/add'>
@@ -3202,6 +3261,17 @@ async def admin_medici_add(request: Request, name: str = Form(...), spec: str = 
     if err:
         return RedirectResponse("/admin/medici?msg=save_err", status_code=303)
     return _med_redirect(did, "new_med")
+
+
+@app.post("/admin/medici/colors")
+async def admin_medici_colors(request: Request):
+    """Сброс цветов врачей на автоматические (различимые по палитре)."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    docs = [_doctor_entry(d, color="") for d in eng.CONFIG["doctors"]]
+    err = _save_cfg(doctors=docs)
+    return RedirectResponse(f"/admin/medici?msg={'save_err' if err else 'ok_med'}",
+                            status_code=303)
 
 
 @app.get("/admin/doctor-card/{dk}", response_class=HTMLResponse)
