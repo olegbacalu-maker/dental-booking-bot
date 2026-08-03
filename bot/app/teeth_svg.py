@@ -14,8 +14,23 @@
 """
 from __future__ import annotations
 
-VB_W, VB_H = 44.0, 104.0
+VB_W, VB_H = 44.0, 90.0
 CX = VB_W / 2
+
+# Длина корня — ОДИН параметр на всю систему. Контуры описаны в «длинной»
+# сетке (шейка 42, кончик 96/100), а _ry() сжимает всё, что ниже шейки, до
+# нужной длины: правится один коэффициент, а не тридцать две кривые.
+NECK_Y = 42.0
+ROOT_END, ROOT_END_CANINE = 82.0, 86.0
+_K_ROOT = (ROOT_END - NECK_Y) / (96.0 - NECK_Y)
+_K_ROOT_C = (ROOT_END_CANINE - NECK_Y) / (100.0 - NECK_Y)
+
+
+def _ry(y: float, canine: bool = False) -> float:
+    """Коронку не трогаем, корень сжимаем."""
+    if y <= NECK_Y:
+        return y
+    return NECK_Y + (y - NECK_Y) * (_K_ROOT_C if canine else _K_ROOT)
 
 # --- палитра состояний (макет «Odontogram System v1.0») ---
 LINE = "#64748B"          # обводка здорового зуба
@@ -134,34 +149,44 @@ def root_paths(fdi: int) -> list[str]:
     n = root_count(fdi)
     cls = tooth_class(fdi)
     k = _width_k(fdi)
-    s = lambda x: _sx(x, k)  # noqa: E731
-    tip = 100.0 if cls == "canine" else 96.0
+    can = cls == "canine"
+    s = lambda x: _sx(x, k)          # noqa: E731
+    y = lambda v: _ry(v, can)        # noqa: E731
+    tip = 100.0 if can else 96.0
 
     if n == 1:
-        neck_l, neck_r = (11, 33) if cls == "canine" else (12.5, 31.5)
-        return [f"M {_p(s(neck_l), 42)} C {_p(s(neck_l + 1), 64, s(neck_l + 4), 84, s(20), tip - 4)} "
-                f"Q {_p(s(22), tip, s(24), tip - 4)} "
-                f"C {_p(s(neck_r - 4), 84, s(neck_r - 1), 64, s(neck_r), 42)}"]
+        neck_l, neck_r = (11, 33) if can else (12.5, 31.5)
+        return [f"M {_p(s(neck_l), y(42))} "
+                f"C {_p(s(neck_l + 1), y(64), s(neck_l + 4), y(84), s(20), y(tip - 4))} "
+                f"Q {_p(s(22), y(tip), s(24), y(tip - 4))} "
+                f"C {_p(s(neck_r - 4), y(84), s(neck_r - 1), y(64), s(neck_r), y(42))}"]
     if n == 2:
         # два расходящихся корня (нижние моляры, верхний первый премоляр)
-        left = (f"M {_p(s(8), 42)} C {_p(s(8), 62, s(9), 78, s(11), 90)} "
-                f"Q {_p(s(13), 95, s(15), 90)} C {_p(s(17), 76, s(18), 60, s(18), 42)}")
-        right = (f"M {_p(s(26), 42)} C {_p(s(26), 60, s(27), 76, s(29), 90)} "
-                 f"Q {_p(s(31), 95, s(33), 90)} C {_p(s(35), 78, s(36), 62, s(36), 42)}")
+        left = (f"M {_p(s(8), y(42))} C {_p(s(8), y(62), s(9), y(78), s(11), y(90))} "
+                f"Q {_p(s(13), y(95), s(15), y(90))} "
+                f"C {_p(s(17), y(76), s(18), y(60), s(18), y(42))}")
+        right = (f"M {_p(s(26), y(42))} C {_p(s(26), y(60), s(27), y(76), s(29), y(90))} "
+                 f"Q {_p(s(31), y(95), s(33), y(90))} "
+                 f"C {_p(s(35), y(78), s(36), y(62), s(36), y(42))}")
         if cls == "premolar":       # у премоляра корни ближе друг к другу
-            left = (f"M {_p(s(12), 42)} C {_p(s(12), 62, s(13), 80, s(15), 91)} "
-                    f"Q {_p(s(17), 96, s(18.5), 91)} C {_p(s(20), 76, s(20.5), 60, s(20.5), 42)}")
-            right = (f"M {_p(s(23.5), 42)} C {_p(s(23.5), 60, s(24), 76, s(25.5), 91)} "
-                     f"Q {_p(s(27), 96, s(29), 91)} C {_p(s(31), 80, s(32), 62, s(32), 42)}")
+            left = (f"M {_p(s(12), y(42))} C {_p(s(12), y(62), s(13), y(80), s(15), y(91))} "
+                    f"Q {_p(s(17), y(96), s(18.5), y(91))} "
+                    f"C {_p(s(20), y(76), s(20.5), y(60), s(20.5), y(42))}")
+            right = (f"M {_p(s(23.5), y(42))} C {_p(s(23.5), y(60), s(24), y(76), s(25.5), y(91))} "
+                     f"Q {_p(s(27), y(96), s(29), y(91))} "
+                     f"C {_p(s(31), y(80), s(32), y(62), s(32), y(42))}")
         return [left, right]
     # три корня (верхние моляры): два щёчных + один нёбный по центру
     return [
-        f"M {_p(s(7), 42)} C {_p(s(7), 60, s(8), 74, s(10), 86)} "
-        f"Q {_p(s(12), 91, s(14), 86)} C {_p(s(15.5), 72, s(16), 58, s(16), 42)}",
-        f"M {_p(s(18), 42)} C {_p(s(18), 62, s(19), 80, s(20.5), 92)} "
-        f"Q {_p(s(22), 97, s(23.5), 92)} C {_p(s(25), 80, s(26), 62, s(26), 42)}",
-        f"M {_p(s(28), 42)} C {_p(s(28), 58, s(28.5), 72, s(30), 86)} "
-        f"Q {_p(s(32), 91, s(34), 86)} C {_p(s(36), 74, s(37), 60, s(37), 42)}",
+        f"M {_p(s(7), y(42))} C {_p(s(7), y(60), s(8), y(74), s(10), y(86))} "
+        f"Q {_p(s(12), y(91), s(14), y(86))} "
+        f"C {_p(s(15.5), y(72), s(16), y(58), s(16), y(42))}",
+        f"M {_p(s(18), y(42))} C {_p(s(18), y(62), s(19), y(80), s(20.5), y(92))} "
+        f"Q {_p(s(22), y(97), s(23.5), y(92))} "
+        f"C {_p(s(25), y(80), s(26), y(62), s(26), y(42))}",
+        f"M {_p(s(28), y(42))} C {_p(s(28), y(58), s(28.5), y(72), s(30), y(86))} "
+        f"Q {_p(s(32), y(91), s(34), y(86))} "
+        f"C {_p(s(36), y(74), s(37), y(60), s(37), y(42))}",
     ]
 
 
@@ -169,19 +194,21 @@ def _canal_lines(fdi: int) -> list[str]:
     """Осевые линии корневых каналов — для состояния «эндодонтия»."""
     n = root_count(fdi)
     k = _width_k(fdi)
-    s = lambda x: _sx(x, k)  # noqa: E731
-    tip = 96.0 if tooth_class(fdi) != "canine" else 99.0
+    can = tooth_class(fdi) == "canine"
+    s = lambda x: _sx(x, k)          # noqa: E731
+    y = lambda v: _ry(v, can)        # noqa: E731
+    tip = 99.0 if can else 96.0
     if n == 1:
-        return [f"M {_p(s(22), 34)} L {_p(s(22), tip - 5)}"]
+        return [f"M {_p(s(22), 34)} L {_p(s(22), y(tip - 5))}"]
     if n == 2:
         if tooth_class(fdi) == "premolar":
-            return [f"M {_p(s(20), 34)} L {_p(s(16.5), tip - 6)}",
-                    f"M {_p(s(24), 34)} L {_p(s(27.5), tip - 6)}"]
-        return [f"M {_p(s(19), 34)} L {_p(s(13), tip - 8)}",
-                f"M {_p(s(25), 34)} L {_p(s(31), tip - 8)}"]
-    return [f"M {_p(s(18), 34)} L {_p(s(12), tip - 12)}",
-            f"M {_p(s(22), 34)} L {_p(s(22), tip - 3)}",
-            f"M {_p(s(26), 34)} L {_p(s(32), tip - 12)}"]
+            return [f"M {_p(s(20), 34)} L {_p(s(16.5), y(tip - 6))}",
+                    f"M {_p(s(24), 34)} L {_p(s(27.5), y(tip - 6))}"]
+        return [f"M {_p(s(19), 34)} L {_p(s(13), y(tip - 8))}",
+                f"M {_p(s(25), 34)} L {_p(s(31), y(tip - 8))}"]
+    return [f"M {_p(s(18), 34)} L {_p(s(12), y(tip - 12))}",
+            f"M {_p(s(22), 34)} L {_p(s(22), y(tip - 3))}",
+            f"M {_p(s(26), 34)} L {_p(s(32), y(tip - 12))}"]
 
 
 # ---------------------------------------------------------------- детали
@@ -206,13 +233,13 @@ def _implant_screw(fdi: int) -> str:
     """Резьбовой имплант вместо корня: ствол + витки."""
     k = _width_k(fdi)
     s = lambda x: _sx(x, k)  # noqa: E731
-    body = (f"M {_p(s(16), 40)} L {_p(s(18.5), 88)} Q {_p(s(22), 95, s(25.5), 88)} "
+    body = (f"M {_p(s(16), 40)} L {_p(s(18.5), _ry(88))} Q {_p(s(22), _ry(95), s(25.5), _ry(88))} "
             f"L {_p(s(28), 40)} Z")
     threads = []
-    for i in range(7):
-        y = 46 + i * 7
-        half = 5.8 - i * 0.45
-        threads.append(f"M {_p(s(22 - half), y)} L {_p(s(22 + half), y + 2.4)}")
+    for i in range(6):
+        yy = _ry(46 + i * 8)
+        half = 5.8 - i * 0.5
+        threads.append(f"M {_p(s(22 - half), yy)} L {_p(s(22 + half), yy + 1.8)}")
     return body, threads
 
 

@@ -21,6 +21,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
 
 from . import db
 from . import engine as eng
+from . import teeth_svg as tsvg
 from . import update as upd
 
 app = FastAPI(title="DentPilot")
@@ -539,25 +540,27 @@ PANEL_CSS = """
  .alert.info{background:var(--blue-soft);color:var(--blue)}
  /* зубы — кнопки 40x44 (панель 9 макета): состояние показывает РАМКА, а не
     заливка, поэтому крупная сетка не рябит цветом */
- /* 16 колонок с ПОТОЛКОМ 40px: где места хватает — зуб ровно как в макете,
-    где нет (1366 в клинике) — сжимается, но формула целиком видна без
-    горизонтальной прокрутки внутри карточки */
- .teeth{display:grid;grid-template-columns:repeat(16,minmax(0,40px));
-   justify-content:center;gap:6px;padding:4px 0}
- .tooth{width:100%;height:44px;border-radius:10px;border:1px solid var(--line);
-   background:var(--panel);color:var(--text);display:flex;align-items:center;justify-content:center;
-   font-size:13px;font-weight:600;cursor:pointer;
-   transition:background-color .2s ease,border-color .2s ease,transform .2s ease}
- .teeth .tooth:hover{background:#F4FBF9;border-color:var(--teal);transform:translateY(-1px)}
- .tooth.carie{border-color:var(--red);color:var(--red-t)}
- .tooth.obturatie{border-color:var(--blue);color:var(--blue)}
- .tooth.coroana{border-color:var(--amber);color:var(--amber-t)}
- .tooth.implant{border-color:var(--violet);color:var(--violet)}
- .tooth.extras{background:var(--line2);border-color:var(--line);color:var(--text3);text-decoration:line-through}
- .tooth.tratament{background:var(--teal);border-color:var(--teal);color:#fff}
- .tleg{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);margin-top:14px}
- .tleg i{display:inline-block;width:11px;height:11px;border-radius:4px;margin-right:6px;
-   border:1.5px solid currentColor;background:none}
+ /* одонтограмма: параметрические SVG-зубы (bot/app/teeth_svg.py) */
+ .tooth-svg{display:block;overflow:visible}
+ .tooth-btn{background:none;border:none;padding:4px 2px;cursor:pointer;border-radius:12px;
+   display:flex;flex-direction:column;align-items:center;gap:4px;
+   transition:transform .2s ease,background-color .2s ease,box-shadow .2s ease}
+ .tooth-btn .num{font-size:11.5px;font-weight:600;color:var(--text2);
+   transition:color .2s ease}
+ .tooth-btn:hover{background:var(--teal-soft);transform:translateY(-3px) scale(1.04);
+   box-shadow:0 10px 24px rgba(15,23,42,.10)}
+ .tooth-btn:hover .num{color:var(--teal-d)}
+ .tooth-btn.sel{background:var(--teal-soft);box-shadow:inset 0 0 0 2px var(--teal)}
+ .tooth-btn.sel .num{color:var(--teal-d)}
+ .arch{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:var(--tooth-gap,10px);
+   align-items:end}
+ .arch.lower{align-items:start}
+ .arch-wrap{display:flex;flex-direction:column;gap:10px}
+ .arch-mid{height:1px;background:var(--line);margin:2px 0}
+ .tleg{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);
+   margin-top:16px;align-items:center}
+ .tleg .lg{display:inline-flex;align-items:center;gap:6px}
+
  .plan-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line2);font-size:12.5px}
  .plan-row:first-of-type{border-top:none}
  .plan-row .pt{width:32px;flex:0 0 32px;font-weight:600;color:var(--text2)}
@@ -2584,8 +2587,8 @@ async def admin_search(request: Request, q: str = ""):
 
 TOOTH_STATES = {
     "ok": "Sănătos", "carie": "Carie", "obturatie": "Obturație",
-    "coroana": "Coroană", "implant": "Implant", "extras": "Extras",
-    "tratament": "În tratament",
+    "coroana": "Coroană", "implant": "Implant", "tratament": "În tratament",
+    "extras": "Extras", "lipsa": "Lipsă",
 }
 _FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 _FDI_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
@@ -2699,21 +2702,24 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
   <button>+ Adaugă</button></form></div>"""
 
     # -- центр: формула FDI + план --
-    def tooth_div(n: int) -> str:
+    def tooth_div(n: int, lower: bool = False) -> str:
         t = tmap.get(n)
         st = t["state"] if t else "ok"
         note = t["note"] if t else ""
         title = f"{n} · {TOOTH_STATES.get(st, st)}" + (f" · {note}" if note else "")
-        return (f"<div class='tooth {e(st)}' title=\"{e(title)}\" "
-                f"onclick='openTooth({n})'>{n}</div>")
+        num = f"<span class='num'>{n}</span>"
+        svg = tsvg.tooth_svg(n, st, width=38, interactive=True)
+        # номер всегда со стороны КОРНЕЙ: у верхней дуги сверху, у нижней снизу —
+        # так цифры не лезут в межчелюстной зазор и читаются как в макете
+        return (f"<button type='button' class='tooth-btn' title=\"{e(title)}\" "
+                f"onclick='openTooth({n})'>{svg + num if lower else num + svg}</button>")
 
     upper = "".join(tooth_div(n) for n in _FDI_UPPER)
-    lower = "".join(tooth_div(n) for n in _FDI_LOWER)
-    # квадратик легенды — тот же класс состояния (цвет берётся из него), но
-    # размеры задаём здесь: иначе он унаследует 40x44 от кнопки-зуба
+    lower = "".join(tooth_div(n, lower=True) for n in _FDI_LOWER)
+    # легенда показывает НАСТОЯЩИЙ зуб в каждом состоянии, а не цветной квадрат:
+    # так видно, чем «коронка» отличается от «пломбы», без словаря
     legend = "".join(
-        f"<span><i class='tooth {k}' style='width:11px;height:11px;flex:none;padding:0;"
-        f"border-radius:4px;display:inline-block;vertical-align:-1px'></i> {v}</span>"
+        f"<span class='lg'>{tsvg.tooth_svg(36, k, width=20)} {v}</span>"
         for k, v in TOOTH_STATES.items() if k != "ok")
     # .replace("</", ...) — чтобы note вида "</script>..." не вырвался из тега
     teeth_json = json.dumps({str(n): {"state": (tmap[n]["state"] if n in tmap else "ok"),
@@ -2722,9 +2728,11 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
     state_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in TOOTH_STATES.items())
     teeth_card = f"""<div class='fcard'>
 <h3>Formula dentară <small>· notație FDI · click pe dinte</small></h3>
-<div class='teeth'>{upper}</div>
-<div style='height:1px;background:var(--line);margin:8px 30px'></div>
-<div class='teeth'>{lower}</div>
+<div class='arch-wrap'>
+  <div class='arch'>{upper}</div>
+  <div class='arch-mid'></div>
+  <div class='arch lower'>{lower}</div>
+</div>
 <div class='tleg'>{legend}</div></div>
 <dialog id='toothdlg'>
   <div class='dlg-head'><span id='t_title'>Dinte</span>
