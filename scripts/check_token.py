@@ -97,7 +97,9 @@ def main() -> int:
     # источника, который врёт.
     gql = None
     try:
-        q = ('{ repository(owner:"%s", name:"%s") { releases(first:20, '
+        # first:100 — потолок GraphQL. С first:20 хвост обрезался (релизов уже 23),
+        # и черновик, попавший в этот хвост, был бы невидим.
+        q = ('{ repository(owner:"%s", name:"%s") { releases(first:100, '
              'orderBy:{field:CREATED_AT, direction:DESC}) { nodes '
              '{ tagName isDraft isPrerelease releaseAssets(first:5)'
              '{ nodes { name } } } } } }' % tuple(REPO.split("/")))
@@ -125,7 +127,9 @@ def main() -> int:
                   "значит он не сохранился.")
 
     try:
-        rels = api("/releases?per_page=20", token)
+        # per_page=100 — чтобы сравнивать с GraphQL честно: при 20 в «пропажи»
+        # попадал бы просто хвост страницы.
+        rels = api("/releases?per_page=100", token)
     except urllib.error.HTTPError as e:
         print(f"\n✗ GitHub отказал: HTTP {e.code}")
         if e.code == 401:
@@ -167,7 +171,7 @@ def main() -> int:
 
     # контрольный вопрос: а без токена этот же черновик виден?
     try:
-        anon = api("/releases?per_page=20", "")
+        anon = api("/releases?per_page=100", "")
         if drafts and not [r for r in anon if r.get("draft")]:
             print("\n✓ Проверено с другой стороны: без токена черновики не видны — "
                   "клиники их не получат.")

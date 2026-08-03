@@ -153,7 +153,7 @@ def _api(path: str) -> object:
 
 _GQL = """
 { repository(owner:"%s", name:"%s") {
-    releases(first:20, orderBy:{field:CREATED_AT, direction:DESC}) {
+    releases(first:100, orderBy:{field:CREATED_AT, direction:DESC}) {
       nodes { databaseId tagName isDraft isPrerelease } } } }
 """ % tuple(REPO.split("/"))
 
