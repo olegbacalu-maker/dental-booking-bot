@@ -57,6 +57,14 @@ def channel() -> str:
     return "draft" if _token() else "stable"
 
 
+def _scrub(text: str) -> str:
+    """Текст ошибки GitHub может содержать сам токен (он бывает в URL запроса).
+    Вычищаем ВЕЗДЕ, где текст покидает функцию: и в интерфейс, и в лог —
+    файл лога уезжает вместе с папкой программы при любом переносе."""
+    tok = _token()
+    return text.replace(tok, "***") if tok else text
+
+
 def _ver(tag: str) -> tuple:
     parts = []
     for p in tag.lstrip("vV").split("."):
@@ -169,13 +177,28 @@ def _check() -> None:
         return
     try:
         if _token():
-            # Канал «черновик»: берём САМЫЙ СВЕЖИЙ по версии из всего списка,
-            # включая неопубликованные. Так эта машина видит выпуск раньше
-            # клиник и служит канарейкой.
-            rels = [r for r in _api("/releases?per_page=20") if not r.get("prerelease")]
-            if not rels:
+            # Канал «черновик»: берём самый свежий по версии из ДВУХ источников.
+            # Ни один из них не полон: в /releases/latest нет черновиков (by
+            # design), а /releases на живом репозитории отставал и не показывал
+            # уже опубликованный релиз. Полагаться на один — терять обновления.
+            cand = []
+            try:
+                cand += [r for r in _api("/releases?per_page=20")
+                         if not r.get("prerelease")]
+            except Exception as e:  # noqa: BLE001 — список отвалился, latest ещё нет
+                log.warning("список релизов недоступен: %s", _scrub(repr(e)))
+            try:
+                cand.append(_api("/releases/latest"))
+            except Exception as e:  # noqa: BLE001
+                log.warning("latest недоступен: %s", _scrub(repr(e)))
+            cand = [r for r in cand if r.get("tag_name")]
+            if not cand:
                 raise RuntimeError("релизов нет")
-            data = max(rels, key=lambda r: _ver(str(r.get("tag_name", ""))))
+            # при равной версии предпочитаем запись С ФАЙЛОМ: один и тот же
+            # релиз приходит из двух источников, и у списка ассеты бывают
+            # свежее (или наоборот) — берём ту, которой можно обновиться
+            data = max(cand, key=lambda r: (_ver(str(r.get("tag_name", ""))),
+                                            1 if _pick_asset(r)[0] else 0))
         else:
             data = _api("/releases/latest")
         asset_url, asset_size, asset_digest = _pick_asset(data)
@@ -185,11 +208,7 @@ def _check() -> None:
                      channel=channel(), draft=bool(data.get("draft")))
     except Exception as e:  # noqa: BLE001 — оффлайн/404 не должны ничего ломать
         # ⚠️ текст ошибки уходит в интерфейс и лог — токен туда попасть не должен
-        msg = str(e)
-        tok = _token()
-        if tok:
-            msg = msg.replace(tok, "***")
-        STATE.update(checked=True, error=msg, channel=channel())
+        STATE.update(checked=True, error=_scrub(str(e)), channel=channel())
     finally:
         # Релиз опубликован, но exe ещё не приложен (или как раз заливается,
         # 28 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
