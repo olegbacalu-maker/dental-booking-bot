@@ -151,6 +151,40 @@ def _api(path: str) -> object:
         return json.load(r)
 
 
+_GQL = """
+{ repository(owner:"%s", name:"%s") {
+    releases(first:20, orderBy:{field:CREATED_AT, direction:DESC}) {
+      nodes { databaseId tagName isDraft isPrerelease } } } }
+""" % tuple(REPO.split("/"))
+
+
+def _releases_graphql() -> list[dict]:
+    """[{id, tag, draft}] — независимый от REST-списка источник.
+
+    Нужен потому, что REST `/releases` на этом репозитории теряет релизы
+    (измерено: опубликованная версия отсутствует в выдаче per_page=100 часами).
+    GraphQL — другой бэкенд и ту же версию отдаёт. Возвращаем только то, что
+    нужно для выбора; сам релиз потом берём по REST /releases/{id}."""
+    req = urllib.request.Request(
+        "https://api.github.com/graphql",
+        data=json.dumps({"query": _GQL}).encode(),
+        headers={"User-Agent": "dentpilot-desktop",
+                 "Content-Type": "application/json",
+                 "Authorization": f"Bearer {_token()}"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.load(r)
+    if data.get("errors"):
+        raise RuntimeError(str(data["errors"])[:200])
+    out = []
+    for n in data["data"]["repository"]["releases"]["nodes"]:
+        if n.get("isPrerelease") or not n.get("databaseId"):
+            continue
+        out.append({"id": n["databaseId"], "tag": n.get("tagName") or "",
+                    "draft": bool(n.get("isDraft"))})
+    return out
+
+
 def _pick_asset(rel: dict) -> tuple[str, int, str]:
     """URL/размер/хеш программы в релизе. У ЧЕРНОВИКА публичной ссылки нет —
     качать можно только через API самого ассета, поэтому для него отдаём
@@ -182,11 +216,21 @@ def _check() -> None:
             # design), а /releases на живом репозитории отставал и не показывал
             # уже опубликованный релиз. Полагаться на один — терять обновления.
             cand = []
+            # 1) GraphQL — единственный источник, где ЧЕРНОВИКИ видны надёжно
+            try:
+                best = max(_releases_graphql(), key=lambda r: _ver(r["tag"]),
+                           default=None)
+                if best:
+                    cand.append(_api(f"/releases/{best['id']}"))
+            except Exception as e:  # noqa: BLE001 — нет прав на GraphQL и т.п.
+                log.warning("GraphQL недоступен: %s", _scrub(repr(e)))
+            # 2) REST-список — запасной путь, если GraphQL закрыт
             try:
                 cand += [r for r in _api("/releases?per_page=20")
                          if not r.get("prerelease")]
             except Exception as e:  # noqa: BLE001 — список отвалился, latest ещё нет
                 log.warning("список релизов недоступен: %s", _scrub(repr(e)))
+            # 3) latest — он же и страховка: список бывает неполон
             try:
                 cand.append(_api("/releases/latest"))
             except Exception as e:  # noqa: BLE001

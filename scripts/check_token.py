@@ -91,6 +91,39 @@ def main() -> int:
         print("  Строка должна быть ровно такой:  DENTART_UPDATE_TOKEN=github_pat_...")
         return 1
 
+    # ⚠️ REST-список на этом репозитории ТЕРЯЕТ релизы (измерено: опубликованная
+    # версия отсутствует в выдаче per_page=100 часами). Спрашиваем GraphQL —
+    # другой бэкенд, — иначе скрипт уверенно скажет «черновиков нет» на основе
+    # источника, который врёт.
+    gql = None
+    try:
+        q = ('{ repository(owner:"%s", name:"%s") { releases(first:20, '
+             'orderBy:{field:CREATED_AT, direction:DESC}) { nodes '
+             '{ tagName isDraft isPrerelease releaseAssets(first:5)'
+             '{ nodes { name } } } } } }' % tuple(REPO.split("/")))
+        req = urllib.request.Request(
+            "https://api.github.com/graphql", data=json.dumps({"query": q}).encode(),
+            headers={"User-Agent": "dentpilot-release-check",
+                     "Content-Type": "application/json",
+                     "Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.load(r)
+        if not d.get("errors"):
+            gql = d["data"]["repository"]["releases"]["nodes"]
+    except Exception:  # noqa: BLE001 — GraphQL закрыт для этого токена
+        gql = None
+
+    if gql is not None:
+        gd = [n for n in gql if n["isDraft"]]
+        print(f"\nGraphQL (надёжный источник): релизов {len(gql)}, черновиков {len(gd)}")
+        for n in gd:
+            files = [a["name"] for a in n["releaseAssets"]["nodes"]]
+            print(f"  🧪 черновик {n['tagName'] or '(тег появится при публикации)'} — "
+                  f"файлы: {', '.join(files) if files else 'НЕТ (обновляться нечем)'}")
+        if not gd:
+            print("  Черновиков нет. Если вы только что нажимали «Save draft» — "
+                  "значит он не сохранился.")
+
     try:
         rels = api("/releases?per_page=20", token)
     except urllib.error.HTTPError as e:
@@ -107,6 +140,14 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         print(f"\n✗ Не удалось обратиться к GitHub: {e}")
         return 1
+
+    if gql is not None:
+        gtags = {n["tagName"] for n in gql if n["tagName"]}
+        rtags = {r.get("tag_name") for r in rels}
+        lost = gtags - rtags
+        if lost:
+            print(f"\n(!) REST-список неполон: не показывает {', '.join(sorted(lost))}. "
+                  f"Это сторона GitHub; программа поэтому спрашивает и GraphQL.")
 
     drafts = [r for r in rels if r.get("draft")]
     public = [r for r in rels if not r.get("draft")]
