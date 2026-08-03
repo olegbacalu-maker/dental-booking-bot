@@ -35,7 +35,17 @@ BASE = exe_dir()
 
 cfg_path = BASE / "clinic.json"
 if not cfg_path.exists():
-    shutil.copy(bundle_dir() / "app" / "clinic.json", cfg_path)
+    # Первый запуск: конфиг берём из вшитого, но демо-наполнение включаем ТОЛЬКО
+    # по явной метке demo.flag (её кладёт установщик, если поставить галочку
+    # «для показа»). Реальная клиника иначе увидит в своём журнале шесть чужих
+    # фамилий и название «DentPilot Demo», и удалять их придётся по одной.
+    import json as _json
+    cfg = _json.loads((bundle_dir() / "app" / "clinic.json").read_text(encoding="utf-8"))
+    if not (BASE / "demo.flag").exists():
+        cfg["seed_demo"] = False
+        if str(cfg.get("name", "")).lower().endswith("demo"):
+            cfg["name"] = "Clinica mea"      # видно, что это надо заполнить в Setări
+    cfg_path.write_text(_json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 env_path = BASE / "dental.env"
 if not env_path.exists():
