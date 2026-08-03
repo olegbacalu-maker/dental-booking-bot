@@ -690,6 +690,20 @@ PANEL_CSS = """
  .doccard:hover .del{opacity:1}
  .doccard .del button{border:none;background:rgba(255,255,255,.92);color:var(--red-t);
    width:28px;height:28px;border-radius:9px;cursor:pointer;font-size:13px;box-shadow:var(--sh)}
+ /* свой выбор файла: системный input рисует ОС на языке Windows */
+ .filepick{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+ .filepick input[type=file]{position:absolute;width:1px;height:1px;opacity:0;
+   overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+ .filepick label{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);
+   padding:0 16px;border:1px solid var(--line);border-radius:var(--r-ctl);
+   background:var(--panel);color:var(--text2);font-size:13.5px;font-weight:500;
+   cursor:pointer;transition:border-color .2s ease,color .2s ease}
+ .filepick label:hover{border-color:var(--teal);color:var(--teal-d)}
+ .filepick input[type=file]:focus-visible + label{border-color:var(--teal);
+   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ .filepick .fname{font-size:12.5px;color:var(--text3);min-width:0;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+ .filepick .fname.on{color:var(--text)}
  .qa{display:flex;gap:12px;flex-wrap:wrap}
  .qa a,.qa button{display:inline-flex;align-items:center;justify-content:center;gap:9px;
    height:48px;min-width:140px;padding:0 18px;border:1px solid var(--line);
@@ -931,6 +945,13 @@ document.addEventListener('keydown',function(e){{
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){{
     e.preventDefault();var q=document.getElementById('topq');if(q)q.focus();}}
 }});
+function pickName(inp){{
+  var out=document.getElementById(inp.id+'_n');
+  if(!out) return;
+  var f=inp.files&&inp.files[0];
+  out.textContent=f?f.name:'niciun fișier ales';
+  out.classList.toggle('on',!!f);
+}}
 var sfc=document.getElementById('sf_clock');
 if(sfc){{var t=new Date();sfc.textContent=('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);}}
 </script>
@@ -1973,7 +1994,15 @@ def _hours_summary(hours: dict, lang: str) -> str:
     return ", ".join(parts)
 
 
-def _hour_opts(sel: int, lo: int, hi: int) -> str:
+# Единый диапазон часов для ВСЕХ выпадающих списков: часы клиники, обед,
+# личное окно врача. Раньше их было три разных (0-23 / 6-21 / 7-23) — клиника
+# видела в соседних полях разные наборы без всякой причины.
+# 07:00 — самая ранняя разумная смена; потолок 21:00 намеренно выше вечерних
+# 19-20, чтобы кабинет с поздним приёмом мог себя настроить.
+HOUR_MIN, HOUR_MAX = 7, 21
+
+
+def _hour_opts(sel: int, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
     return "".join(
         f"<option value='{h}'{' selected' if h == sel else ''}>{h}:00</option>"
         for h in range(lo, hi + 1)
@@ -1989,7 +2018,7 @@ async def admin_settings(request: Request, msg: str = ""):
 
     def _break_opts(sel) -> str:
         out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
-        for x in range(6, 22):
+        for x in range(HOUR_MIN, HOUR_MAX + 1):
             out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
         return "".join(out)
 
@@ -2004,8 +2033,8 @@ async def admin_settings(request: Request, msg: str = ""):
         hours_rows.append(
             f"<tr><td>{_DOW_FULL[day]}</td>"
             f"<td><input type='checkbox' id='hc_{day}'{' checked' if closed else ''}> închis</td>"
-            f"<td><select id='hf_{day}'>{_hour_opts(f, 0, 23)}</select></td>"
-            f"<td><select id='ht_{day}'>{_hour_opts(t, 1, 24)}</select></td>"
+            f"<td><select id='hf_{day}'>{_hour_opts(f)}</select></td>"
+            f"<td><select id='ht_{day}'>{_hour_opts(t, HOUR_MIN + 1, HOUR_MAX)}</select></td>"
             f"<td><select id='hb_{day}'>{_break_opts(bf)}</select></td>"
             f"<td><select id='he_{day}'>{_break_opts(bt)}</select></td></tr>"
         )
@@ -3075,7 +3104,11 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
 {docs_rows}
 <form class='fform' method='post' action='{base}/doc' enctype='multipart/form-data'>
   <select name='category'>{cat_opts}</select>
-  <input type='file' name='file' required>
+  <div class='filepick'>
+    <input type='file' name='file' id='docfile' required onchange='pickName(this)'>
+    <label for='docfile'>📎 Alege fișierul</label>
+    <span class='fname' id='docfile_n'>niciun fișier ales</span>
+  </div>
   <button>⬆️ Încarcă document</button>
 </form>
 <p class='hint' style='margin-top:8px'>Fișierele rămân local, în folderul programului (data\\files).</p></div>"""
@@ -3852,7 +3885,7 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
                 f"nu le mai propune. Bifați-le la alt medic sau readuceți-l în "
                 f"activitate.</div>")
 
-    def _wh_opts(sel, lo: int = 6, hi: int = 22) -> str:
+    def _wh_opts(sel, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
         out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
         for x in range(lo, hi + 1):
             out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
@@ -3864,7 +3897,12 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
     photo_form = f"""
 <form class='fform' method='post' action='/admin/doctor-card/{dk}/photo'
       enctype='multipart/form-data' style='margin-top:10px'>
-  <input type='file' name='file' accept='image/jpeg,image/png,image/webp' required>
+  <div class='filepick'>
+    <input type='file' name='file' id='docphoto' accept='image/jpeg,image/png,image/webp'
+           required onchange='pickName(this)'>
+    <label for='docphoto'>📎 Alege fotografia</label>
+    <span class='fname' id='docphoto_n'>niciun fișier ales</span>
+  </div>
   <button>📷 Încarcă fotografia</button>
 </form>
 <p class='hint' style='margin:6px 0 0'>JPEG / PNG / WebP, max {MAX_PHOTO_MB} MB.
@@ -3894,7 +3932,7 @@ Rămâne local, în folderul programului; pacienții nu o văd.</p>"""
   <input name='email' value="{e(meta.get('email', ''))}" placeholder='E-mail (opțional)' maxlength='80'>
   <div style='font-size:11.5px;color:var(--text3);margin-top:2px'>Program personal (de la / până la)</div>
   <div class='r2'><select name='work_from'>{_wh_opts(meta.get('work_from'))}</select>
-  <select name='work_to'>{_wh_opts(meta.get('work_to'), 7, 23)}</select></div>
+  <select name='work_to'>{_wh_opts(meta.get('work_to'), HOUR_MIN + 1, HOUR_MAX)}</select></div>
   <div style='font-size:11.5px;color:var(--text3);margin-top:2px'>Culoare în calendar</div>
   <div class='r2' style='align-items:center'>
     <input type='color' name='color' value="{e(meta.get('color') or _doc_hue(dk))}"

@@ -54,27 +54,73 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 
+; Один язык — румынский, как и сам продукт. Inno показывает окно выбора языка
+; ТОЛЬКО когда языков больше одного, поэтому здесь оно исчезает само.
+; Готового Romanian.isl в поставке Inno нет, поэтому берём английскую базу и
+; переводим надписи, которые клиника реально видит.
 [Languages]
-Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "ro"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+SetupAppTitle=Instalare
+SetupWindowTitle=Instalare — %1
+ExitSetupTitle=Ieșire din instalare
+ExitSetupMessage=Instalarea nu este terminată. Dacă ieșiți acum, programul nu va fi instalat.%n%nSigur doriți să ieșiți?
+ButtonBack=< Îna&poi
+ButtonNext=&Înainte >
+ButtonInstall=&Instalează
+ButtonCancel=Anulează
+ButtonFinish=&Gata
+ButtonBrowse=&Răsfoiește...
+ButtonWizardBrowse=Răs&foiește...
+ButtonYes=&Da
+ButtonNo=&Nu
+ButtonOK=OK
+ClickNext=Apăsați «Înainte» pentru a continua sau «Anulează» pentru a ieși.
+WizardSelectDir=Alegeți folderul de instalare
+SelectDirDesc=Unde să fie instalat DentPilot?
+SelectDirLabel3=Programul va fi instalat în folderul de mai jos. Baza de date a clinicii se păstrează chiar lângă program, deci folderul trebuie să permită scrierea.
+SelectDirBrowseLabel=Apăsați «Înainte» pentru a continua. Pentru alt folder apăsați «Răsfoiește».
+DiskSpaceGBLabel=Este nevoie de cel puțin [gb] GB spațiu liber.
+DiskSpaceMBLabel=Este nevoie de cel puțin [mb] MB spațiu liber.
+WizardSelectTasks=Acțiuni suplimentare
+SelectTasksDesc=Ce trebuie făcut în plus?
+SelectTasksLabel2=Alegeți ce doriți, apoi apăsați «Înainte».
+WizardReady=Totul este pregătit
+ReadyLabel1=Instalarea poate începe.
+ReadyLabel2a=Apăsați «Instalează» pentru a continua sau «Înapoi» pentru a schimba ceva.
+ReadyLabel2b=Apăsați «Instalează» pentru a continua.
+ReadyMemoDir=Folder:
+ReadyMemoTasks=Acțiuni suplimentare:
+WizardPreparing=Se pregătește
+PreparingDesc=Se pregătește instalarea...
+WizardInstalling=Se instalează
+InstallingLabel=Vă rugăm să așteptați...
+StatusExtractFiles=Se copiază fișierele...
+StatusCreateIcons=Se creează scurtăturile...
+StatusUninstalling=Se dezinstalează...
+FinishedHeadingLabel=Instalare terminată
+FinishedLabel=DentPilot a fost instalat. La prima pornire veți seta un PIN pentru registru.
+FinishedLabelNoIcons=DentPilot a fost instalat.
+ClickFinish=Apăsați «Gata» pentru a închide.
+RunEntryExec=Pornește %1
+ConfirmUninstall=Sigur doriți să ștergeți DentPilot?
+UninstallStatusLabel=Vă rugăm să așteptați, se șterge programul...
+UninstalledAll=DentPilot a fost șters.
 
 [CustomMessages]
-russian.AutostartTask=Запускать DentPilot при включении компьютера
-russian.DemoDataTask=Заполнить журнал демонстрационными записями (для показа, не для работы)
-russian.NoWriteTitle=В эту папку нельзя писать
-russian.NoWriteText=В папку «%1» не удалось записать файл.%n%nDentPilot хранит базу клиники рядом с программой, поэтому папка должна быть доступна для записи. Возможно, она создана другим пользователем Windows.%n%nВыберите другую папку (например, предложенную по умолчанию).
-russian.DataKeptTitle=Данные клиники сохранены
-russian.DataKeptText=Программа удалена, но данные клиники НЕ удалены:%n%n%1%n%nТам остались база (data\dental.db), настройки (clinic.json) и токен бота (dental.env). Удалите папку вручную, если данные больше не нужны.
-russian.PfWarnTitle=Эта папка не подойдёт
-russian.PfWarnText=Папка «%1» находится внутри Program Files.%n%nDentPilot хранит базу клиники рядом с программой, а в Program Files обычному пользователю запись запрещена — программа не сможет создать базу.%n%nВыберите другую папку (например, предложенную по умолчанию).
-english.AutostartTask=Start DentPilot when the computer turns on
-english.DemoDataTask=Fill the journal with demo appointments (for a demo, not for real work)
-english.NoWriteTitle=This folder is not writable
-english.NoWriteText=Could not write a file into "%1".%n%nDentPilot keeps the clinic database next to the program, so the folder must be writable. It may have been created by another Windows user.%n%nPlease choose another folder (for example, the suggested default).
-english.DataKeptTitle=Clinic data kept
-english.DataKeptText=The program was removed, but the clinic data was NOT deleted:%n%n%1%n%nThe database (data\dental.db), settings (clinic.json) and bot token (dental.env) are still there. Delete the folder manually if you no longer need the data.
-english.PfWarnTitle=This folder will not work
-english.PfWarnText=The folder "%1" is inside Program Files.%n%nDentPilot keeps the clinic database next to the program, and Program Files is not writable for a regular user — the program would fail to create its database.%n%nPlease choose another folder (for example, the suggested default).
+; CreateDesktopIcon/AdditionalIcons — встроенные сообщения Inno, живут именно
+; здесь (в [Messages] компилятор их не признаёт)
+ro.CreateDesktopIcon=Scurtătură pe desktop
+ro.AdditionalIcons=Scurtături:
+ro.AutostartTask=Pornește DentPilot la pornirea calculatorului
+ro.DemoDataTask=Umple registrul cu programări demonstrative (DOAR pentru prezentare, nu pentru lucru)
+ro.NoWriteTitle=În acest folder nu se poate scrie
+ro.NoWriteText=Nu am putut scrie un fișier în «%1».%n%nDentPilot ține baza de date a clinicii lângă program, deci folderul trebuie să permită scrierea. Se poate să fi fost creat de alt utilizator Windows.%n%nAlegeți alt folder (de exemplu cel propus implicit).
+ro.DataKeptTitle=Datele clinicii au rămas
+ro.DataKeptText=Programul a fost șters, dar datele clinicii NU au fost șterse:%n%n%1%n%nAcolo au rămas baza de date (data\dental.db), setările (clinic.json) și tokenul botului (dental.env). Ștergeți folderul manual dacă datele nu mai sunt necesare.
+ro.PfWarnTitle=Acest folder nu este potrivit
+ro.PfWarnText=Folderul «%1» este în Program Files.%n%nDentPilot ține baza de date a clinicii lângă program, iar în Program Files un utilizator obișnuit nu poate scrie — programul nu ar putea crea baza de date.%n%nAlegeți alt folder (de exemplu cel propus implicit).
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
