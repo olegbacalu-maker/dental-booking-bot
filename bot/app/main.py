@@ -173,8 +173,12 @@ MSG_BANNER = {
     "ok_photo": ("ok", "Fotografia a fost salvată ✔ — rămâne local, lângă program"),
     "bad_photo": ("err", "Doar JPEG / PNG / WebP, până la 5 MB"),
     "ok_svc_med": ("ok", "Serviciile medicului au fost actualizate ✔"),
-    "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic — "
-                         "bifați altul înainte de a-l scoate pe acesta"),
+    "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic "
+                         "ACTIV — altfel dispare din meniul botului. Bifați alt medic "
+                         "(sau readuceți unul din concediu) înainte de a-l scoate pe acesta"),
+    "save_err": ("err", "Nu am putut scrie fișierul clinicii (clinic.json) — datele NU "
+                        "au fost salvate. Verificați spațiul pe disc și drepturile la "
+                        "folderul programului; detalii în data\\dentpilot.log"),
     "arch_busy": ("err", "Medicul are programări viitoare — mutați-le la alt medic sau "
                          "alegeți «în concediu» în loc de arhivare"),
     "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
@@ -1439,7 +1443,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         # фото врача (если загружено в его фише) вместо инициалов — v1.9.0
         pp = _photo_path(dk)
         av = (f"<img src='/admin/doctor-photo/{urllib.parse.quote(dk)}"
-              f"?v={urllib.parse.quote(pp.name)}' alt=''>" if pp else _initials(name))
+              f"?v={urllib.parse.quote(pp.name)}' alt=''>" if pp
+              else html.escape(_initials(name)))
         head.append(
             f"<div class='gh-doc'><span class='av' style='background:{hue}'>{av}</span>"
             f"<div class='nm'><a href='/admin/doctor/{dk}?date={d.isoformat()}' "
@@ -1459,7 +1464,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         relink_opts = "".join(f"<option value='{dk}'>{html.escape(n)}</option>"
                               for dk, n in eng.DOCTORS.items())
         head.append(
-            f"<div class='gh-doc'><span class='av' style='background:#94A3B8'>{_initials(name)}</span>"
+            f"<div class='gh-doc'><span class='av' style='background:#94A3B8'>"
+            f"{html.escape(_initials(name))}</span>"
             f"<div class='nm'><a>{html.escape(name)}</a>"
             f"<small>în afara listei · {len(mine)} prog.</small>"
             f"<form method='post' action='/admin/relink' style='margin-top:3px;display:flex;gap:3px'>"
@@ -3041,7 +3047,7 @@ def _avatar(dk: str, name: str, big: bool = False) -> str:
     # файл проверяем на месте: конфиг может указывать на удалённое фото —
     # инициалы честнее «сломанной картинки»
     photo = _photo_path(dk).name if _photo_path(dk) else ""
-    inner = _initials(name)
+    inner = html.escape(_initials(name))   # имя врача правит человек: «<» бывает
     if photo:
         # ?v= — имя файла меняется при замене, значит кэш браузера сам сбросится
         src = (f"/admin/doctor-photo/{urllib.parse.quote(dk)}"
@@ -3194,7 +3200,7 @@ async def admin_medici_add(request: Request, name: str = Form(...), spec: str = 
     entry = _doctor_entry({"id": did, "name": nm}, spec=spec.strip()[:60], status="activ")
     err = _save_cfg(doctors=list(eng.CONFIG["doctors"]) + [entry], seq=seq)
     if err:
-        return RedirectResponse("/admin/medici?msg=bad_med", status_code=303)
+        return RedirectResponse("/admin/medici?msg=save_err", status_code=303)
     return _med_redirect(did, "new_med")
 
 
@@ -3227,17 +3233,34 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
         cls, text = MSG_BANNER[msg]
         banner = f"<div class='banner {cls}'>{text}</div>"
 
-    # услуги, которые остались бы без единого активного врача, если убрать этого:
-    # бот тогда честно скажет «недоступна» (v1.8.1), но админ должен знать заранее
-    orphan_svc = [sv["ro"] for sid, sv in eng.SERVICES.items()
-                  if (sv.get("docs") or []) and dk in sv["docs"]
-                  and not [k for k in sv["docs"]
-                           if k != dk and eng.DOCTOR_META.get(k, {}).get("active")]]
+    # услуги, которые останутся (или уже остались) без единого активного врача:
+    # бот тогда честно скажет «недоступна» (v1.8.1), но админ должен это ВИДЕТЬ.
+    # ⚠️ v1.9.1: раньше предупреждение показывалось только пока врач активен —
+    # то есть исчезало ровно в тот момент, когда становилось правдой.
+    def _orphans(*, without: bool) -> list[str]:
+        out = []
+        for sv in eng.SERVICES.values():
+            docs = sv.get("docs") or []
+            if not docs or (without and dk not in docs):
+                continue
+            others = [k for k in docs
+                      if (k != dk if without else True)
+                      and eng.DOCTOR_META.get(k, {}).get("active")]
+            if not others:
+                out.append(sv["ro"])
+        return out
+
     warn = ""
-    if st == "activ" and orphan_svc:
-        warn = (f"<div class='banner err'>Atenție: dacă acest medic nu mai e activ, "
-                f"serviciile <b>{e(', '.join(orphan_svc))}</b> rămân fără medic și "
-                f"botul le va marca indisponibile.</div>")
+    if st == "activ":
+        if (soon := _orphans(without=True)):
+            warn = (f"<div class='banner err'>Atenție: dacă acest medic nu mai e activ, "
+                    f"serviciile <b>{e(', '.join(soon))}</b> rămân fără medic și "
+                    f"botul le va marca indisponibile.</div>")
+    elif (now_orphan := _orphans(without=False)):
+        warn = (f"<div class='banner err'>Cât timp acest medic nu e activ, serviciile "
+                f"<b>{e(', '.join(now_orphan))}</b> nu au niciun medic activ — botul "
+                f"nu le mai propune. Bifați-le la alt medic sau readuceți-l în "
+                f"activitate.</div>")
 
     def _wh_opts(sel, lo: int = 6, hi: int = 22) -> str:
         out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
@@ -3400,7 +3423,7 @@ async def doctor_card_save(request: Request, dk: str, name: str = Form(...),
     err = _patch_doctor(dk, name=nm, spec=spec.strip()[:60], room=room.strip()[:30],
                         phone=phone.strip()[:30], email=email.strip()[:80],
                         color=col, work_from=wf, work_to=wt, status=st)
-    return _med_redirect(dk, "bad_med" if err else "ok_med")
+    return _med_redirect(dk, "save_err" if err else "ok_med")
 
 
 @app.post("/admin/doctor-card/{dk}/services")
@@ -3422,11 +3445,16 @@ async def doctor_card_services(request: Request, dk: str):
                 docs.append(dk)
             # пустой docs = «все медики», этот тоже входит — менять нечего
         else:
-            # «все врачи» → материализуем список, иначе бифу не снять
+            # «все врачи» → материализуем список, иначе бифу не снять.
+            # Список берём ПОЛНЫЙ (с отпускниками): вернётся из отпуска —
+            # снова будет выполнять услугу, забывать это нельзя.
             docs = ([k for k in all_ids if k != dk] if not docs
                     else [k for k in docs if k != dk])
-            if not docs:
-                # услуга без исполнителя = тупик в боте, такого не сохраняем
+            # ⚠️ v1.9.1: проверять НЕПУСТОТУ мало. Список из одних отпускников/
+            # архивных непуст, но allowed_doc_items() пересекает его с
+            # ACTIVE_DOCTORS → пусто → услуга ПРОПАДАЕТ из меню бота, а админ
+            # видит зелёный баннер. Гейт считает только активных.
+            if not any(eng.DOCTOR_META.get(k, {}).get("active") for k in docs):
                 return _med_redirect(dk, "svc_empty")
         if docs:
             entry["docs"] = docs
@@ -3434,7 +3462,7 @@ async def doctor_card_services(request: Request, dk: str):
             entry.pop("docs", None)
         services.append(entry)
     err = _save_cfg(services=services)
-    return _med_redirect(dk, "bad_med" if err else "ok_svc_med")
+    return _med_redirect(dk, "save_err" if err else "ok_svc_med")
 
 
 @app.post("/admin/doctor-card/{dk}/photo")
@@ -3463,7 +3491,7 @@ async def doctor_card_photo(request: Request, dk: str, file: UploadFile = File(.
         return _med_redirect(dk, "bad_photo")
     if _patch_doctor(dk, photo=stored.name):
         stored.unlink(missing_ok=True)      # конфиг не записался — файл не нужен
-        return _med_redirect(dk, "bad_photo")
+        return _med_redirect(dk, "save_err")
     if old and old != stored:
         old.unlink(missing_ok=True)
     return _med_redirect(dk, "ok_photo")
@@ -3477,7 +3505,7 @@ async def doctor_card_photo_del(request: Request, dk: str):
         return RedirectResponse("/admin/medici", status_code=303)
     old = _photo_path(dk)
     if _patch_doctor(dk, photo=""):
-        return _med_redirect(dk, "bad_med")   # конфиг не записался — файл храним
+        return _med_redirect(dk, "save_err")  # конфиг не записался — файл храним
     if old:
         old.unlink(missing_ok=True)
     return _med_redirect(dk, "ok_med")

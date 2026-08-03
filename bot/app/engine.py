@@ -7,6 +7,7 @@ import logging
 import os
 import pathlib
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -15,22 +16,37 @@ from . import db
 
 TZ = ZoneInfo("Europe/Chisinau")
 
-APP_VERSION = "1.9.0"
+log = logging.getLogger("engine")
+
+APP_VERSION = "1.9.1"
 
 
 def _load_config() -> dict:
     """Вся клиника (врачи/услуги/часы/контакты) — из clinic.json.
-    Порядок: $CLINIC_CONFIG (маунт в compose) → копия в образе."""
+    Порядок: $CLINIC_CONFIG (маунт в compose) → его .bak → копия в образе.
+
+    Последний кандидат — ДЕМО-клиника, вшитая в exe. Раньше падение на первом
+    (битый файл) молча приводило к ней: клиника стартовала с чужими врачами и
+    не понимала почему. Теперь между ними стоит .bak прошлого удачного
+    сохранения, а каждое падение кандидата громко пишется в лог."""
     candidates = []
     env_path = os.environ.get("CLINIC_CONFIG")
     if env_path:
         candidates.append(env_path)
+        candidates.append(env_path + ".bak")
     candidates.append(str(pathlib.Path(__file__).resolve().parent / "clinic.json"))
-    for p in candidates:
+    for i, p in enumerate(candidates):
         try:
             with open(p, encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
+                cfg = json.load(f)
+            if i:
+                log.warning("clinic config: взят запасной кандидат %s "
+                            "(предыдущие нечитаемы)", p)
+            return cfg
+        except FileNotFoundError:
+            continue
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("clinic config: %s не читается (%r) — пробую дальше", p, e)
             continue
     raise RuntimeError("clinic config not found/invalid: " + ", ".join(candidates))
 
@@ -260,13 +276,33 @@ def apply_config(cfg: dict) -> None:
 
 
 def save_config(cfg: dict) -> str | None:
-    """Пишет конфиг в файл и применяет на лету. Возвращает текст ошибки или None."""
+    """Пишет конфиг в файл и применяет на лету. Возвращает текст ошибки или None.
+
+    ⚠️ Запись АТОМАРНАЯ (tmp + os.replace) и с резервной копией. Прямая запись
+    в clinic.json открывала его на "w" (обрезание) ДО сериализации: диск полон,
+    антивирус, выдернутая вилка — и на диске оставался обрубок. Такой файл не
+    парсится, а _load_config() молча берёт следующего кандидата — копию ДЕМО-
+    клиники в самом exe, и клиника стартует с чужими врачами."""
     path = os.environ.get("CLINIC_CONFIG") or str(
         pathlib.Path(__file__).resolve().parent / "clinic.json")
+    p = pathlib.Path(path)
+    tmp = p.with_name(p.name + ".tmp")
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())     # без этого замена может опередить данные
+        # ⚠️ бэкап — ТОЛЬКО попытка: копия унаследовала read-only от главного
+        # файла и потом навсегда блокировала сохранение (поймано тестом v1.9.1).
+        # Страховка не имеет права мешать основной операции.
+        if p.exists():
+            try:
+                shutil.copy2(p, p.with_name(p.name + ".bak"))
+            except OSError as e:
+                log.warning("clinic config: копия .bak не сделана (%r)", e)
+        os.replace(tmp, p)           # атомарно: старый файл живёт до последнего
     except OSError as e:
+        pathlib.Path(tmp).unlink(missing_ok=True)
         return f"nu pot scrie {path}: {e}"
     apply_config(cfg)
     return None
