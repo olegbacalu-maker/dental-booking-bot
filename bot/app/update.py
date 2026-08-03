@@ -35,7 +35,7 @@ APP_ASSETS = ("dentpilot.exe", "dentart.exe")
 
 STATE = {"latest": "", "url": "", "asset_url": "", "asset_size": 0,
          "asset_digest": "", "checked": False, "error": "",
-         "channel": "stable", "draft": False}
+         "channel": "stable", "draft": False, "prerelease": False}
 
 
 def _token() -> str:
@@ -53,8 +53,28 @@ def _token() -> str:
     return t
 
 
+def _beta() -> bool:
+    """Канал канарейки БЕЗ ключа: DENTART_CHANNEL=beta в dental.env.
+
+    Пре-релиз публичен, поэтому виден без токена, — а клиника его и так
+    пропускает (см. ниже: stable спрашивает только /releases/latest, а он
+    пре-релизы не отдаёт). Значит канал перестаёт быть секретом: это местный
+    переключатель, а не ключ, который иначе пришлось бы держать в файле рядом
+    с программой — читаемом всеми учётными записями машины."""
+    v = (os.environ.get("DENTART_CHANNEL") or "").strip().strip("\"'").lower()
+    return v in ("beta", "test", "canary")
+
+
 def channel() -> str:
-    return "draft" if _token() else "stable"
+    """stable — клиника; beta — видит пре-релизы; draft — ещё и черновики.
+
+    draft требует токен с правом ЗАПИСИ: черновики GitHub не показывает никому
+    без доступа на запись (измерено — read-only токен видит их ровно как аноним,
+    то есть никак). Поэтому draft — самый дорогой по риску вариант, и beta
+    существует именно чтобы им не пользоваться."""
+    if _token():
+        return "draft"
+    return "beta" if _beta() else "stable"
 
 
 def _scrub(text: str) -> str:
@@ -159,12 +179,14 @@ _GQL = """
 
 
 def _releases_graphql() -> list[dict]:
-    """[{id, tag, draft}] — независимый от REST-списка источник.
+    """[{id, tag, draft}] — всё, что канарейка может увидеть впереди клиник.
 
-    Нужен потому, что REST `/releases` на этом репозитории теряет релизы
-    (измерено: опубликованная версия отсутствует в выдаче per_page=100 часами).
-    GraphQL — другой бэкенд и ту же версию отдаёт. Возвращаем только то, что
-    нужно для выбора; сам релиз потом берём по REST /releases/{id}."""
+    Нужен потому, что REST-список на этом репозитории неполон: замер показал
+    22 записи против 24 опубликованных (v1.10.1 и v1.8.1 отсутствуют, хотя
+    /releases/tags/ их отдаёт). GraphQL — другой бэкенд и отдаёт всё.
+    Пре-релизы здесь НЕ отсеиваются: канарейка по определению смотрит вперёд,
+    а клиника до этой ветки не доходит вовсе. Возвращаем только нужное для
+    выбора; сам релиз потом берём по REST /releases/{id} — там ссылки на файлы."""
     req = urllib.request.Request(
         "https://api.github.com/graphql",
         data=json.dumps({"query": _GQL}).encode(),
@@ -178,7 +200,7 @@ def _releases_graphql() -> list[dict]:
         raise RuntimeError(str(data["errors"])[:200])
     out = []
     for n in data["data"]["repository"]["releases"]["nodes"]:
-        if n.get("isPrerelease") or not n.get("databaseId"):
+        if not n.get("databaseId"):
             continue
         out.append({"id": n["databaseId"], "tag": n.get("tagName") or "",
                     "draft": bool(n.get("isDraft"))})
@@ -207,31 +229,38 @@ def _check() -> None:
         # тест-хук: размера и контрольной суммы нет — проверка их пропускает
         STATE.update(latest="v9.9.9", asset_url=fake, asset_size=0, asset_digest="",
                      url=f"https://github.com/{REPO}/releases", checked=True, error="",
-                     channel=channel(), draft=False)
+                     channel=channel(), draft=False, prerelease=False)
         return
     try:
-        if _token():
-            # Канал «черновик»: берём самый свежий по версии из ДВУХ источников.
-            # Ни один из них не полон: в /releases/latest нет черновиков (by
-            # design), а /releases на живом репозитории отставал и не показывал
-            # уже опубликованный релиз. Полагаться на один — терять обновления.
+        ch = channel()
+        if ch == "stable":
+            # КЛИНИКА. Ровно один запрос, и именно тот, который по устройству
+            # GitHub не отдаёт ни черновики, ни пре-релизы. Это и есть защита:
+            # не фильтр, который можно случайно ослабить, а эндпоинт, которому
+            # нечего показать лишнего.
+            data = _api("/releases/latest")
+        else:
+            # КАНАРЕЙКА. Берём самый свежий по версии из нескольких источников:
+            # ни один не полон. В /releases/latest нет ни черновиков, ни
+            # пре-релизов (by design), а список на этом репозитории неполон
+            # (22 из 24 опубликованных). Полагаться на один — терять обновления.
             cand = []
-            # 1) GraphQL — единственный источник, где ЧЕРНОВИКИ видны надёжно
+            if ch == "draft":
+                # черновики видны ТОЛЬКО здесь и только с токеном на запись
+                try:
+                    best = max(_releases_graphql(), key=lambda r: _ver(r["tag"]),
+                               default=None)
+                    if best:
+                        cand.append(_api(f"/releases/{best['id']}"))
+                except Exception as e:  # noqa: BLE001 — нет прав на GraphQL и т.п.
+                    log.warning("GraphQL недоступен: %s", _scrub(repr(e)))
             try:
-                best = max(_releases_graphql(), key=lambda r: _ver(r["tag"]),
-                           default=None)
-                if best:
-                    cand.append(_api(f"/releases/{best['id']}"))
-            except Exception as e:  # noqa: BLE001 — нет прав на GraphQL и т.п.
-                log.warning("GraphQL недоступен: %s", _scrub(repr(e)))
-            # 2) REST-список — запасной путь, если GraphQL закрыт
-            try:
-                cand += [r for r in _api("/releases?per_page=20")
-                         if not r.get("prerelease")]
+                # пре-релизы НЕ отсеиваем: ради них канал beta и заведён
+                cand += _api("/releases?per_page=100")
             except Exception as e:  # noqa: BLE001 — список отвалился, latest ещё нет
                 log.warning("список релизов недоступен: %s", _scrub(repr(e)))
-            # 3) latest — он же и страховка: список бывает неполон
             try:
+                # нижняя граница: даже если список неполон, стабильное не потеряем
                 cand.append(_api("/releases/latest"))
             except Exception as e:  # noqa: BLE001
                 log.warning("latest недоступен: %s", _scrub(repr(e)))
@@ -243,13 +272,12 @@ def _check() -> None:
             # свежее (или наоборот) — берём ту, которой можно обновиться
             data = max(cand, key=lambda r: (_ver(str(r.get("tag_name", ""))),
                                             1 if _pick_asset(r)[0] else 0))
-        else:
-            data = _api("/releases/latest")
         asset_url, asset_size, asset_digest = _pick_asset(data)
         STATE.update(latest=data.get("tag_name", ""), url=data.get("html_url", ""),
                      asset_url=asset_url, asset_size=asset_size,
                      asset_digest=asset_digest, checked=True, error="",
-                     channel=channel(), draft=bool(data.get("draft")))
+                     channel=ch, draft=bool(data.get("draft")),
+                     prerelease=bool(data.get("prerelease")))
     except Exception as e:  # noqa: BLE001 — оффлайн/404 не должны ничего ломать
         # ⚠️ текст ошибки уходит в интерфейс и лог — токен туда попасть не должен
         STATE.update(checked=True, error=_scrub(str(e)), channel=channel())

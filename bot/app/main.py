@@ -2139,13 +2139,21 @@ async def admin_settings(request: Request, msg: str = ""):
     # Канал виден в интерфейсе намеренно: на этой машине обновление приходит
     # РАНЬШЕ, чем клиникам, и перепутать её с боевой установкой нельзя.
     chan_row = ""
-    if upd.channel() != "stable":
-        chan_row = ("<tr><th>Canal actualizări</th><td>"
-                    "<b style='color:var(--amber-t)'>🧪 draft (test)</b> — "
+    ch = upd.channel()
+    if ch != "stable":
+        # beta — публичные пре-релизы, ключ не нужен; draft — ещё и черновики,
+        # но для них нужен токен с правом записи. Названия разные намеренно:
+        # риск у этих двух режимов разный, и путать их нельзя.
+        name = "🧪 draft (test)" if ch == "draft" else "🧪 beta (pre-lansări)"
+        note = ""
+        if upd.STATE.get("draft"):
+            note = " · versiunea curentă din canal este nepublicată"
+        elif upd.STATE.get("prerelease"):
+            note = " · versiunea curentă din canal este pre-lansare"
+        chan_row = (f"<tr><th>Canal actualizări</th><td>"
+                    f"<b style='color:var(--amber-t)'>{name}</b> — "
                     "acest calculator vede versiunile ÎNAINTE de clinici"
-                    + (" · versiunea curentă din canal este nepublicată"
-                       if upd.STATE.get("draft") else "")
-                    + "</td></tr>")
+                    + note + "</td></tr>")
     up_line += ("<form method='post' action='/admin/update/check' style='display:inline'>"
                 "<button style='background:none;border:1px solid var(--line);border-radius:8px;"
                 "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"

@@ -72,7 +72,14 @@ def api(path: str, token: str):
 def main() -> int:
     token, where = find_token()
     if not token:
-        print("Токен не найден — машина работает в обычном канале (как клиника).")
+        print("Токен не найден — черновики этой машине не видны.")
+        ch = (os.environ.get("DENTART_CHANNEL") or "").strip().strip("\"'").lower()
+        if ch in ("beta", "test", "canary"):
+            print(f"НО канал = {ch}: машина видит ПРЕ-РЕЛИЗЫ, и токен для этого "
+                  "не нужен. Для канарейки этого обычно достаточно.")
+        else:
+            print("Канал beta (пре-релизы, без всякого ключа) включается строкой "
+                  "DENTART_CHANNEL=beta в dental.env.")
         print("Проверенные места:")
         print("  · переменная окружения DENTART_UPDATE_TOKEN")
         for d in CANDIDATES:
@@ -135,8 +142,9 @@ def main() -> int:
         if e.code == 401:
             print("  Токен недействителен или отозван — создайте новый.")
         elif e.code == 403:
-            print("  Токен есть, но прав не хватает. Нужно Contents: Read "
-                  "для репозитория dental-booking-bot.")
+            print("  Токен есть, но прав не хватает. Для ЧЕРНОВИКОВ нужно "
+                  "Contents: Read and write — только чтения недостаточно: "
+                  "GitHub показывает черновики лишь по доступу на запись.")
         elif e.code == 404:
             print("  Репозиторий не виден этим токеном. В fine-grained проверьте, "
                   "что в «Only select repositories» выбран dental-booking-bot.")
