@@ -34,7 +34,19 @@ REPO = "olegbacalu-maker/dental-booking-bot"
 APP_ASSETS = ("dentpilot.exe", "dentart.exe")
 
 STATE = {"latest": "", "url": "", "asset_url": "", "asset_size": 0,
-         "asset_digest": "", "checked": False, "error": ""}
+         "asset_digest": "", "checked": False, "error": "",
+         "channel": "stable", "draft": False}
+
+
+def _token() -> str:
+    """Токен GitHub — ТОЛЬКО из окружения (dental.env машины разработчика).
+    В сборку он не попадает и у клиник его нет, поэтому у них поведение
+    ровно прежнее: канал stable, черновики невидимы."""
+    return (os.environ.get("DENTART_UPDATE_TOKEN") or "").strip()
+
+
+def channel() -> str:
+    return "draft" if _token() else "stable"
 
 
 def _ver(tag: str) -> tuple:
@@ -110,36 +122,66 @@ def asset_pending() -> bool:
     return newer_available() and not STATE["asset_url"]
 
 
+def _api(path: str) -> object:
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{REPO}{path}",
+        headers={"User-Agent": "dentpilot-desktop",
+                 "Accept": "application/vnd.github+json"},
+    )
+    tok = _token()
+    if tok:
+        req.add_header("Authorization", f"Bearer {tok}")
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)
+
+
+def _pick_asset(rel: dict) -> tuple[str, int, str]:
+    """URL/размер/хеш программы в релизе. У ЧЕРНОВИКА публичной ссылки нет —
+    качать можно только через API самого ассета, поэтому для него отдаём
+    api-url, а не browser_download_url (иначе скачается страница 404)."""
+    for a in rel.get("assets", []):
+        if str(a.get("name", "")).strip().lower() not in APP_ASSETS:
+            continue
+        # ассет ещё заливается (или залился с ошибкой) — он нам не годится
+        if str(a.get("state", "uploaded")) != "uploaded":
+            continue
+        url = (a.get("url", "") if rel.get("draft")
+               else a.get("browser_download_url", ""))
+        return url, int(a.get("size") or 0), str(a.get("digest") or "")
+    return "", 0, ""
+
+
 def _check() -> None:
     fake = os.environ.get("DENTART_FAKE_UPDATE_URL", "").strip()
     if fake:
         # тест-хук: размера и контрольной суммы нет — проверка их пропускает
         STATE.update(latest="v9.9.9", asset_url=fake, asset_size=0, asset_digest="",
-                     url=f"https://github.com/{REPO}/releases", checked=True, error="")
+                     url=f"https://github.com/{REPO}/releases", checked=True, error="",
+                     channel=channel(), draft=False)
         return
     try:
-        req = urllib.request.Request(
-            f"https://api.github.com/repos/{REPO}/releases/latest",
-            headers={"User-Agent": "dentpilot-desktop"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.load(r)
-        asset_url, asset_size, asset_digest = "", 0, ""
-        for a in data.get("assets", []):
-            if str(a.get("name", "")).strip().lower() not in APP_ASSETS:
-                continue
-            # ассет ещё заливается (или залился с ошибкой) — он нам не годится
-            if str(a.get("state", "uploaded")) != "uploaded":
-                continue
-            asset_url = a.get("browser_download_url", "")
-            asset_size = int(a.get("size") or 0)
-            asset_digest = str(a.get("digest") or "")
-            break
+        if _token():
+            # Канал «черновик»: берём САМЫЙ СВЕЖИЙ по версии из всего списка,
+            # включая неопубликованные. Так эта машина видит выпуск раньше
+            # клиник и служит канарейкой.
+            rels = [r for r in _api("/releases?per_page=20") if not r.get("prerelease")]
+            if not rels:
+                raise RuntimeError("релизов нет")
+            data = max(rels, key=lambda r: _ver(str(r.get("tag_name", ""))))
+        else:
+            data = _api("/releases/latest")
+        asset_url, asset_size, asset_digest = _pick_asset(data)
         STATE.update(latest=data.get("tag_name", ""), url=data.get("html_url", ""),
                      asset_url=asset_url, asset_size=asset_size,
-                     asset_digest=asset_digest, checked=True, error="")
+                     asset_digest=asset_digest, checked=True, error="",
+                     channel=channel(), draft=bool(data.get("draft")))
     except Exception as e:  # noqa: BLE001 — оффлайн/404 не должны ничего ломать
-        STATE.update(checked=True, error=str(e))
+        # ⚠️ текст ошибки уходит в интерфейс и лог — токен туда попасть не должен
+        msg = str(e)
+        tok = _token()
+        if tok:
+            msg = msg.replace(tok, "***")
+        STATE.update(checked=True, error=msg, channel=channel())
     finally:
         # Релиз опубликован, но exe ещё не приложен (или как раз заливается,
         # 28 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
@@ -236,8 +278,13 @@ def self_update() -> str | None:
     # у новых DentPilot.exe — bat в обоих случаях кладёт новый файл на место
     new_path = exe.with_name(exe.stem + ".new.exe")
     try:
-        req = urllib.request.Request(STATE["asset_url"],
-                                     headers={"User-Agent": "dentpilot-desktop"})
+        headers = {"User-Agent": "dentpilot-desktop"}
+        tok = _token()
+        if tok and STATE["asset_url"].startswith("https://api.github.com/"):
+            # ассет черновика отдаётся только по API и только как поток байт
+            headers["Accept"] = "application/octet-stream"
+            headers["Authorization"] = f"Bearer {tok}"
+        req = urllib.request.Request(STATE["asset_url"], headers=headers)
         with urllib.request.urlopen(req, timeout=120) as r, open(new_path, "wb") as f:
             shutil.copyfileobj(r, f)
     except Exception as e:  # noqa: BLE001

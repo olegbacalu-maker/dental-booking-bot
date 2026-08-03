@@ -2080,6 +2080,16 @@ async def admin_settings(request: Request, msg: str = ""):
         up_line = "— necunoscut (offline?)"
     else:
         up_line = "se verifică…"
+    # Канал виден в интерфейсе намеренно: на этой машине обновление приходит
+    # РАНЬШЕ, чем клиникам, и перепутать её с боевой установкой нельзя.
+    chan_row = ""
+    if upd.channel() != "stable":
+        chan_row = ("<tr><th>Canal actualizări</th><td>"
+                    "<b style='color:var(--amber-t)'>🧪 draft (test)</b> — "
+                    "acest calculator vede versiunile ÎNAINTE de clinici"
+                    + (" · versiunea curentă din canal este nepublicată"
+                       if upd.STATE.get("draft") else "")
+                    + "</td></tr>")
     up_line += ("<form method='post' action='/admin/update/check' style='display:inline'>"
                 "<button style='background:none;border:1px solid var(--line);border-radius:8px;"
                 "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"
@@ -2091,6 +2101,7 @@ async def admin_settings(request: Request, msg: str = ""):
 <tr><th>Bază de date</th><td>{"SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"}</td></tr>
 <tr><th>Canal Telegram</th><td>{tg_line}</td></tr>
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
+{chan_row}
 <tr><th>Acces jurnal</th><td>{"🔒 PIN setat" if _pin_rec() else ("🔒 parolă (ADMIN_KEY)" if ADMIN_KEY else "🔓 deschis")}</td></tr>
 <tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
 </table>
