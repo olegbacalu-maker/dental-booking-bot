@@ -19,6 +19,7 @@ from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
                                Response)
 
+from . import brand
 from . import db
 from . import engine as eng
 from . import teeth_svg as tsvg
@@ -221,8 +222,9 @@ PANEL_CSS = """
  .side{width:216px;flex:0 0 216px;background:var(--panel);border-right:1px solid var(--line);
    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
  .side .brand{display:flex;align-items:center;gap:10px;padding:18px 16px 14px}
- .side .brand .logo{width:34px;height:34px;border-radius:10px;background:var(--teal);color:#fff;
-   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex:0 0 34px}
+ /* знак — тот же, что на иконке рабочего стола (bot/app/brand.py): фон и
+    скругление нарисованы внутри самой картинки, CSS их не дублирует */
+ .side .brand .logo{width:34px;height:34px;flex:0 0 34px;display:block}
  .side .brand b{font-size:15px;display:block;line-height:1.2}
  .side .brand small{color:var(--text2);font-size:11.5px;display:block;white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis;max-width:130px}
@@ -795,7 +797,9 @@ PANEL_CSS = """
  @media (max-width:1280px){.dash{flex-wrap:wrap}.rail{width:100%;flex:1 1 100%}}
  @media (max-width:1000px){
    .side{width:56px;flex:0 0 56px}
-   .side .brand div,.side .sec,.side nav a span,.side nav a .dot,.side .sfoot{display:none}
+   /* прячем ПОДПИСЬ, но не знак: раньше селектор бил по всем div внутри
+      .brand и в узком окне (min_size 960) шапка оставалась пустой */
+   .side .brand .txt,.side .sec,.side nav a span,.side nav a .dot,.side .sfoot{display:none}
    .side .brand{justify-content:center;padding:14px 0}
    .side nav a{justify-content:center;margin:2px 8px;padding:9px 0}
    .week{flex-wrap:wrap}.wcol{flex:1 1 45%}
@@ -882,8 +886,8 @@ def _sidebar(active: str) -> str:
     tg_dot = "<span class='dot ok'></span>" if tg_on else "<span class='dot off'></span>"
     tg_title = f"@{tg_user}" if tg_on else "neconectat"
     return f"""<aside class="side">
-  <div class="brand"><div class="logo">DP</div>
-    <div><b>DentPilot</b><small title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</small></div>
+  <div class="brand">{brand.mark_svg(34, 'logo')}
+    <div class="txt"><b>DentPilot</b><small title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</small></div>
   </div>
   <nav>
     <div class="sec">Meniu</div>
@@ -941,6 +945,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
     fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.ico">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title><style>{PANEL_CSS}</style></head><body>
 {_sidebar(active)}
 <div class="main">
@@ -1358,6 +1363,14 @@ async def health() -> dict:
     # "app" = отпечаток для single-instance guard в desktop.py:
     # чужой сервис с {"ok":true} на нашем порту не должен сойти за нас
     return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
+
+
+@app.get("/favicon.ico")
+async def favicon() -> Response:
+    """Тот же знак во вкладке браузера. Браузер сам просит /favicon.ico, поэтому
+    один роут закрывает все страницы, включая печатные."""
+    return Response(brand.mark_svg(None), media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/", response_class=HTMLResponse)
