@@ -22,6 +22,7 @@ Remove-Item "dist\DentPilot.exe" -Force -EA SilentlyContinue
     --distpath dist --workpath build --specpath build `
     --add-data "$PSScriptRoot\bot\app\static;app\static" `
     --add-data "$PSScriptRoot\bot\app\clinic.json;app" `
+    --add-data "$PSScriptRoot\bot\app\clinic_new.json;app" `
     "$PSScriptRoot\bot\desktop.py"
 if ($LASTEXITCODE -ne 0) { Write-Host "PyInstaller exit $LASTEXITCODE"; exit 1 }
 

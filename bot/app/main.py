@@ -922,6 +922,19 @@ def _topbar(bell: int | None) -> str:
 </div>"""
 
 
+def _setup_hint() -> str:
+    """Пока профиль клиники — нетронутый шаблон, об этом надо говорить прямо.
+    Иначе «Clinica mea» и «Medic 1» тихо доживают до первого пациента, а бот
+    называет их вслух."""
+    if not eng.CONFIG.get("template"):
+        return ""
+    return ("<div class='banner err' style='margin-bottom:14px'>"
+            "Programul încă are datele de exemplu. "
+            "<a href='/admin/settings'><b>Completați datele clinicii</b></a> — "
+            "denumire, telefon, medici, servicii și program de lucru. "
+            "Până atunci botul le spune pacienților exact ce scrie aici.</div>")
+
+
 def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -> str:
     fb_subject = urllib.parse.quote(
         f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
@@ -935,6 +948,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
 <div class="content">
 <h1><a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
+{_setup_hint()}
 {body}
 </div></div>
 <div class="brandcorner">🦷 <b>DentPilot</b> ·
@@ -2388,6 +2402,8 @@ def _build_config(data: dict) -> dict:
         raise ValueError("services")
 
     cfg = dict(eng.CONFIG)
+    cfg.pop("template", None)      # клинику заполнили — подсказка больше не нужна
+    cfg.pop("_comment", None)
     cfg.update({"name": name, "phone": phone,
                 "address": {"ro": addr_ro, "ru": addr_ru},
                 "hours": hours, "doctors": doctors, "services": services,

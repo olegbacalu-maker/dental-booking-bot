@@ -1,0 +1,31 @@
+{
+  "_comment": "Стартовый профиль НОВОЙ клиники: заполняется в Setări. Здесь нет ни выдуманных врачей, ни чужих цен — только минимум, без которого программа не запустится (один врач, несколько услуг). Демо-профиль лежит в clinic.json и подставляется только при наличии demo.flag.",
+  "template": true,
+  "name": "Clinica mea",
+  "phone": "+373 ",
+  "address": {
+    "ro": "",
+    "ru": ""
+  },
+  "hours": {
+    "mon": [7, 18],
+    "tue": [7, 18],
+    "wed": [7, 18],
+    "thu": [7, 18],
+    "fri": [7, 18],
+    "sat": [7, 14],
+    "sun": null
+  },
+  "doctors": [
+    { "id": "d1", "name": "Medic 1", "spec": "", "status": "activ", "active": true }
+  ],
+  "services": [
+    { "id": "pain", "ro": "Durere acută de dinte", "ru": "Острая зубная боль", "urgent": true },
+    { "id": "consult", "ro": "Consultație", "ru": "Консультация" },
+    { "id": "hygiene", "ro": "Igienizare profesională", "ru": "Профессиональная гигиена" },
+    { "id": "filling", "ro": "Tratament carie (plombă)", "ru": "Лечение кариеса (пломба)" },
+    { "id": "extraction", "ro": "Extracție dinte", "ru": "Удаление зуба" },
+    { "id": "xray", "ro": "Radiografie dentară", "ru": "Рентген зуба" }
+  ],
+  "seed_demo": false
+}
