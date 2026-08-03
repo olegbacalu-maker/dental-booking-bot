@@ -112,14 +112,19 @@ def _guard(request: Request) -> RedirectResponse | None:
 LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — acces</title><style>
- body{font-family:system-ui,'Segoe UI',sans-serif;background:#f4f6f7;display:flex;
-      align-items:center;justify-content:center;height:100vh;margin:0}
- form{background:#fff;padding:26px 30px;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.12);
-      display:flex;flex-direction:column;gap:10px;width:320px}
- h1{font-size:17px;color:#075e54;margin:0 0 4px}
- input{padding:10px 12px;border:1px solid #ccd4d4;border-radius:6px;font-size:15px}
- button{background:#075e54;color:#fff;border:none;border-radius:6px;padding:10px;font-size:15px;cursor:pointer}
- .err{color:#c62828;font-size:13px}
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#F6FBF8;display:flex;
+      align-items:center;justify-content:center;height:100vh;margin:0;color:#162033}
+ form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
+      box-shadow:0 18px 40px rgba(15,23,42,.08);
+      display:flex;flex-direction:column;gap:12px;width:340px}
+ h1{font-size:19px;color:#162033;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
+ input{height:44px;padding:0 14px;border:1px solid #E7EDF5;border-radius:12px;font-size:15px;
+       outline:none;color:#162033}
+ input:focus{border-color:#0E9F8A;box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ button{background:#0E9F8A;color:#fff;border:none;border-radius:12px;height:44px;
+        font-size:15px;font-weight:600;cursor:pointer;transition:background-color .2s ease}
+ button:hover{background:#0B7E6D}
+ .err{color:#B91C1C;font-size:13px}
 </style></head><body>
 <form method="post" action="/admin/login">
   <h1>🦷 __CLINIC__ — registrul clinicii</h1>
@@ -184,21 +189,31 @@ MSG_BANNER = {
     "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
 }
 
-# Дизайн-система v1.5.0 (референс: светлый SaaS-макет Олега 07-31):
-# фон #F8FAFC, текст #1F2937/#6B7280, один акцент Teal, тени вместо границ,
-# радиусы 12/16, отступы 8/16/24/32, типографика 600/400 без капса.
+# Дизайн-система v1.10.0 (макет Олега 08-03, панели 1-11) — развитие светлого
+# SaaS-референса v1.5.0: тот же акцент teal, но крупнее типографика, выше
+# контролы (44px), радиусы 12/16, мягкие многослойные тени, фон с зелёным
+# подтоном. ⭐ Имена переменных СОХРАНЕНЫ (--teal/--bg/--line/--sh): меняются
+# значения, поэтому вся система перекрашивается разом, без правки сотен мест.
+# Соответствие макету: --teal=--primary, --bg=--background, --line=--border,
+# --text2=--text-secondary, --sh/--sh2/--sh3=--shadow-sm/md/lg.
 PANEL_CSS = """
- :root{--bg:#F8FAFC;--panel:#FFFFFF;--line:#E5E7EB;--line2:#F1F5F9;
-   --text:#1F2937;--text2:#6B7280;--text3:#9CA3AF;
-   --teal:#0D9488;--teal-d:#0F766E;--teal-soft:#F0FDFA;--teal-line:#CCFBF1;
-   --green:#059669;--green-soft:#ECFDF5;--blue:#3B82F6;--blue-soft:#EFF6FF;
-   --amber:#D97706;--amber-soft:#FFFBEB;--red:#DC2626;--red-soft:#FEF2F2;
+ :root{--bg:#F6FBF8;--panel:#FFFFFF;--line:#E7EDF5;--line2:#F1F6FA;
+   --text:#162033;--text2:#7E8B9C;--text3:#A0AAB8;
+   --teal:#0E9F8A;--teal-d:#0B7E6D;--teal-soft:#EAFBF5;--teal-line:#CCF0E7;
+   --green:#10B981;--green-soft:#ECFDF5;--blue:#3B82F6;--blue-soft:#EFF6FF;
+   --amber:#F59E0B;--amber-soft:#FFFBEB;--red:#EF4444;--red-soft:#FEF2F2;
    --violet:#7C3AED;--violet-soft:#F5F3FF;
-   --sh:0 1px 3px rgba(16,24,40,.07),0 1px 2px rgba(16,24,40,.04);
-   --sh2:0 4px 12px rgba(16,24,40,.10)}
+   /* текстовые варианты акцентных цветов: макетные #F59E0B/#EF4444 хороши для
+      рамок и иконок, но как ТЕКСТ на белом дают ~2:1 — читаемость важнее */
+   --amber-t:#B45309;--red-t:#B91C1C;--green-t:#047857;
+   --r-card:18px;--r-ctl:12px;--h-ctl:44px;
+   --sh:0 2px 6px rgba(15,23,42,.04);
+   --sh2:0 8px 24px rgba(15,23,42,.06);
+   --sh3:0 18px 40px rgba(15,23,42,.08)}
  *{box-sizing:border-box}
- body{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
-   background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh}
+ body{font-family:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
+   background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh;
+   line-height:1.5}
  a{color:var(--teal)}
  /* ---------- каркас: сайдбар + топбар + контент ---------- */
  .side{width:216px;flex:0 0 216px;background:var(--panel);border-right:1px solid var(--line);
@@ -211,78 +226,94 @@ PANEL_CSS = """
    overflow:hidden;text-overflow:ellipsis;max-width:130px}
  .side .sec{font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--text3);
    padding:14px 18px 6px;text-transform:uppercase}
- .side nav a{display:flex;align-items:center;gap:10px;margin:2px 10px;padding:8px 10px;
-   border-radius:10px;text-decoration:none;color:var(--text2);font-size:13.5px;font-weight:500}
+ .side nav a{display:flex;align-items:center;gap:12px;margin:2px 10px;padding:0 12px;
+   height:44px;border-radius:var(--r-ctl);text-decoration:none;color:var(--text2);
+   font-size:14px;font-weight:500;transition:background-color .2s ease,color .2s ease}
  .side nav a svg{flex:0 0 16px}
  .side nav a:hover{background:var(--line2);color:var(--text)}
- .side nav a.on{background:var(--teal-soft);color:var(--teal-d);font-weight:600}
+ .side nav a.on{background:var(--teal-soft);color:var(--teal);font-weight:600}
  .side nav a .dot{width:7px;height:7px;border-radius:50%;margin-left:auto}
  .side nav a .dot.ok{background:var(--green)}
  .side nav a .dot.off{background:var(--text3)}
  .side .sfoot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line);
    font-size:11.5px;color:var(--text3)}
  .main{flex:1;min-width:0;display:flex;flex-direction:column}
- .top{height:58px;flex:0 0 58px;background:var(--panel);border-bottom:1px solid var(--line);
-   display:flex;align-items:center;gap:10px;padding:0 20px;position:sticky;top:0;z-index:20}
- .top form.searchf{display:flex;gap:0;align-items:center;background:var(--bg);
-   border:1px solid var(--line);border-radius:10px;padding:0 6px 0 12px;height:36px;width:320px;margin:0}
- .top form.searchf input{border:none;background:none;outline:none;font-size:13px;flex:1;color:var(--text)}
- .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:4px 6px}
- .top .kbd{font-size:10.5px;color:var(--text3);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
- .top .bell{position:relative;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;
-   justify-content:center;color:var(--text2);text-decoration:none;font-size:16px}
+ .top{height:72px;flex:0 0 72px;background:var(--panel);border-bottom:1px solid var(--line);
+   display:flex;align-items:center;gap:12px;padding:0 24px;position:sticky;top:0;z-index:20}
+ .top form.searchf{display:flex;gap:0;align-items:center;background:#FBFDFE;
+   border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 8px 0 14px;
+   height:var(--h-ctl);width:320px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
+ .top form.searchf:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ .top form.searchf input{border:none;background:none;outline:none;font-size:14px;flex:1;color:var(--text)}
+ .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;padding:4px 6px}
+ .top .kbd{font-size:11px;color:var(--text3);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+ .top .bell{position:relative;width:var(--h-ctl);height:var(--h-ctl);border-radius:var(--r-ctl);
+   display:flex;align-items:center;justify-content:center;color:var(--text2);
+   text-decoration:none;font-size:17px;transition:background-color .2s ease}
  .top .bell:hover{background:var(--line2)}
- .top .bell .n{position:absolute;top:2px;right:2px;min-width:15px;height:15px;border-radius:8px;
-   background:var(--red);color:#fff;font-size:9.5px;font-weight:600;line-height:15px;text-align:center;padding:0 3px}
- .top .newbtn{display:flex;align-items:center;gap:7px;height:38px;padding:0 16px;border-radius:10px;
-   background:var(--teal);color:#fff;font-size:13.5px;font-weight:600;text-decoration:none}
- .top .newbtn:hover{background:var(--teal-d)}
- .content{padding:20px 24px 60px;max-width:1500px}
+ .top .bell .n{position:absolute;top:5px;right:5px;min-width:16px;height:16px;border-radius:8px;
+   background:var(--red);color:#fff;font-size:10px;font-weight:600;line-height:16px;text-align:center;padding:0 4px}
+ .top .newbtn{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 18px;
+   border-radius:var(--r-ctl);background:var(--teal);color:#fff;font-size:14px;font-weight:600;
+   text-decoration:none;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .top .newbtn:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+   transform:translateY(-1px)}
+ .top .newbtn:active{transform:translateY(0)}
+ .content{padding:24px 24px 60px;max-width:1500px}
  /* ---------- общие элементы ---------- */
- h1{font-size:19px;margin:0 0 4px;font-weight:600}
+ h1{font-size:32px;margin:0 0 4px;font-weight:600;letter-spacing:-.03em;line-height:1.2}
  h1 a{color:var(--text);text-decoration:none}
- h2{font-size:15px;color:var(--text);margin:20px 0 10px;font-weight:600}
- .sub{color:var(--text3);font-size:12px;margin-bottom:14px}
- .nav{margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
- .nav b{font-size:15px;margin-right:6px;font-weight:600}
- .nav a{display:inline-block;background:var(--panel);border:1px solid var(--line);border-radius:10px;
-        padding:6px 13px;text-decoration:none;color:var(--text2);font-size:13px;font-weight:500}
- .nav a:hover{border-color:var(--teal);color:var(--teal-d)}
+ h2{font-size:18px;color:var(--text);margin:24px 0 12px;font-weight:600}
+ .sub{color:var(--text2);font-size:13px;margin-bottom:18px}
+ .nav{margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+ .nav b{font-size:16px;margin-right:6px;font-weight:600}
+ .nav a{display:inline-flex;align-items:center;height:var(--h-ctl);background:var(--panel);
+        border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 16px;text-decoration:none;
+        color:var(--text2);font-size:14px;font-weight:500;
+        transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .nav a:hover{border-color:var(--teal);color:var(--teal-d);
+   box-shadow:0 4px 12px rgba(14,159,138,.12);transform:translateY(-1px)}
+ .nav a:active{transform:translateY(0)}
  .nav a.primary{background:var(--teal);color:#fff;border-color:var(--teal)}
- .nav form.dpickf{display:inline-block;margin:0}
- .nav input.dpick{padding:5px 8px;border:1px solid var(--line);border-radius:10px;font-size:13px;
-   background:var(--panel);color:var(--text2)}
- .nav form.searchf{display:flex;gap:6px;align-items:center;margin:0}
- .nav form.searchf input{padding:6px 11px;border:1px solid var(--line);border-radius:10px;
-   font-size:13px;width:240px;background:var(--panel);color:var(--text);outline:none}
- .nav form.searchf input:focus{border-color:var(--teal)}
- .nav form.searchf button{background:var(--teal);color:#fff;border:none;border-radius:10px;
-   padding:7px 13px;cursor:pointer;font-size:13px;font-weight:600}
- .banner{padding:9px 14px;border-radius:10px;margin-bottom:12px;font-size:13.5px}
+ .nav form.dpickf{display:inline-flex;margin:0}
+ .nav input.dpick{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text2)}
+ .nav form.searchf{display:flex;gap:8px;align-items:center;margin:0}
+ .nav form.searchf input{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);font-size:14px;width:240px;background:var(--panel);
+   color:var(--text);outline:none}
+ .nav form.searchf input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ .nav form.searchf button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+   height:var(--h-ctl);padding:0 16px;cursor:pointer;font-size:14px;font-weight:600}
+ .banner{padding:12px 16px;border-radius:var(--r-ctl);margin-bottom:14px;font-size:14px}
  .banner.ok{background:var(--green-soft);color:#065F46}
  .banner.err{background:var(--red-soft);color:#991B1B}
  .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:var(--teal);height:8px}
  /* ---------- KPI ---------- */
- .tiles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
- .tile{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 16px;
-   min-width:170px;flex:1;display:flex;gap:12px;align-items:flex-start}
- a.tile{text-decoration:none;color:inherit;transition:box-shadow .15s,transform .15s}
- a.tile:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
- .tile .ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;
-   justify-content:center;font-size:17px;flex:0 0 38px}
- .tile b{display:block;font-size:24px;font-weight:600;line-height:1.1}
- .tile span{font-size:12px;color:var(--text2);font-weight:500}
- .tile .trend{display:block;font-size:11.5px;margin-top:3px;color:var(--text3)}
+ .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+   gap:14px;margin-bottom:22px}
+ .tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);padding:16px;min-width:0;display:flex;gap:14px;
+   align-items:flex-start}
+ a.tile{text-decoration:none;color:inherit;
+   transition:box-shadow .25s ease,transform .25s ease,border-color .2s ease}
+ a.tile:hover{box-shadow:0 12px 32px rgba(15,23,42,.08);transform:translateY(-2px)}
+ .tile .ico{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;
+   justify-content:center;font-size:18px;flex:0 0 44px}
+ .tile b{display:block;font-size:26px;font-weight:600;line-height:1.1}
+ .tile span{font-size:13px;color:var(--text2);font-weight:500}
+ .tile .trend{display:block;font-size:12px;margin-top:4px;color:var(--text3)}
  .tile .trend .up{color:var(--green);font-weight:600}
- .tile .trend .dn{color:var(--red);font-weight:600}
- .tile.warn b{color:var(--amber)}
- .tile.bad b{color:var(--red)}
+ .tile .trend .dn{color:var(--red-t);font-weight:600}
+ .tile.warn b{color:var(--amber-t)}
+ .tile.bad b{color:var(--red-t)}
  /* ---------- дневная сетка (canvas) ---------- */
  .dash{display:flex;gap:16px;align-items:flex-start}
  .dashmain{flex:1;min-width:0}
  .rail{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
- .gridcard{background:var(--panel);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
+ .gridcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);overflow:hidden}
  /* полоса карточек врачей над расписанием (макет Олега 08-03): каждая ячейка
     остаётся flex:1 и стоит над своей колонкой, а сама карточка живёт ВНУТРИ неё
     с отступом — так вид «плавающих карточек» не ломает выравнивание с сеткой */
@@ -349,7 +380,8 @@ PANEL_CSS = """
  .nowline{position:absolute;left:0;right:0;height:2px;background:var(--red);z-index:5;pointer-events:none}
  .nowline::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red)}
  /* ---------- правая колонка ---------- */
- .mcal{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:12px 14px}
+ .mcal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);padding:14px 16px}
  .mcal .mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
  .mcal .mhead b{font-size:13px;font-weight:600}
  .mcal .mhead a{text-decoration:none;color:var(--text2);padding:2px 8px;border-radius:7px}
@@ -365,7 +397,7 @@ PANEL_CSS = """
  .mcal td a.seld{background:var(--teal);color:#fff;font-weight:600}
  /* ---------- старые страницы (перекрашены) ---------- */
  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
- a.card{display:block;background:var(--panel);border-radius:14px;box-shadow:var(--sh);
+ a.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
         padding:14px 16px;text-decoration:none;color:var(--text)}
  a.card:hover{box-shadow:var(--sh2)}
  a.card b{font-size:14.5px}
@@ -394,7 +426,8 @@ PANEL_CSS = """
  .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
  a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
  a.plink:hover{border-bottom-style:solid}
- .pcard{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 18px;margin-bottom:12px}
+ .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);padding:16px 18px;margin-bottom:14px}
  .pcard h3{margin:0 0 6px;font-size:14.5px;color:var(--text)}
  .pcard .meta{color:var(--text2);font-size:12.5px;margin-bottom:8px}
  .vpast{opacity:.55}
@@ -404,9 +437,13 @@ PANEL_CSS = """
  table.set th{background:var(--bg);color:var(--text2);font-weight:600}
  table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px}
  table.set select{padding:6px 7px;border:1px solid var(--line);border-radius:8px;font-size:13px}
- .rowdel{background:var(--red-soft);color:var(--red);border:none;border-radius:7px;padding:4px 10px;cursor:pointer}
+ .rowdel{background:var(--red-soft);color:var(--red-t);border:none;border-radius:7px;padding:4px 10px;cursor:pointer}
  .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:10px;padding:7px 15px;cursor:pointer;margin-bottom:16px}
- .savebtn{background:var(--teal);color:#fff;border:none;border-radius:10px;padding:12px 26px;font-size:14.5px;font-weight:600;cursor:pointer}
+ .savebtn{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+   height:var(--h-ctl);padding:0 26px;font-size:14px;font-weight:600;cursor:pointer;
+   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .savebtn:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+   transform:translateY(-1px)}
  .savebtn:hover{background:var(--teal-d)}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
@@ -420,30 +457,50 @@ PANEL_CSS = """
  .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:9px;cursor:pointer;font-size:13px;color:var(--text2)}
  .tabbtn.on{background:var(--teal);color:#fff;border-color:var(--teal);font-weight:600}
  .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
- .dlg-form input,.dlg-form select,.dlg-form textarea{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px}
+ .dlg-form input,.dlg-form select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none}
+ .dlg-form textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
+   font-size:14px;font-family:inherit;background:var(--panel);color:var(--text);outline:none}
+ .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--teal);
+   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
  .dlg-form button{background:var(--teal);color:#fff;border:none;border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
  a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;padding:4px 0;border-radius:8px}
  a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
- form.add{background:var(--panel);padding:14px;border-radius:14px;box-shadow:var(--sh);
+ form.add{background:var(--panel);padding:16px;border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
           display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px}
- form.add input,form.add select{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px}
- form.add button{background:var(--teal);color:#fff;border:none;border-radius:9px;padding:9px 17px;cursor:pointer;font-size:13.5px;font-weight:600}
- table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);border-radius:14px;overflow:hidden}
- table.list th,table.list td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
+ form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none;
+   transition:border-color .2s ease,box-shadow .2s ease}
+ form.add input:focus,form.add select:focus{border-color:var(--teal);
+   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ form.add input::placeholder{color:var(--text3)}
+ form.add button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+   height:var(--h-ctl);padding:0 20px;cursor:pointer;font-size:14px;font-weight:600;
+   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+ form.add button:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+   transform:translateY(-1px)}
+ form.add button:active{transform:translateY(0)}
+ table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
+   border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+ table.list th,table.list td{padding:11px 14px;border-bottom:1px solid var(--line2);
+   text-align:left;font-size:13.5px}
  table.list th{background:var(--bg);color:var(--text2);font-weight:600}
  tr.cancelled td{opacity:.45;text-decoration:line-through}
  .act{display:inline}
- .act button{border:none;border-radius:7px;padding:4px 9px;margin-right:4px;cursor:pointer;font-size:12px;color:#fff}
- .b-arrived{background:var(--teal)}
- .b-done{background:var(--blue)}.b-noshow{background:var(--red)}.b-cancel{background:#94A3B8}
- .hint{color:var(--text3);font-size:12px;margin-top:10px}
- .botnew{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:12px 14px;margin-bottom:14px}
+ .act button{border:none;border-radius:8px;padding:5px 10px;margin-right:4px;cursor:pointer;
+   font-size:12px;color:#fff;transition:filter .2s ease}
+ .act button:hover{filter:brightness(1.08)}
+ .b-arrived{background:var(--teal-d)}
+ .b-done{background:#2563EB}.b-noshow{background:var(--red-t)}.b-cancel{background:#64748B}
+ .hint{color:var(--text2);font-size:12.5px;margin-top:10px;line-height:1.55}
+ .botnew{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);padding:14px 16px;margin-bottom:14px}
  .botnew h3{margin:0 0 4px;font-size:13.5px;font-weight:600}
  .botnew a{display:block;padding:6px 0;font-size:12.5px;color:inherit;text-decoration:none;border-top:1px solid var(--line2)}
  .botnew a:hover{background:var(--bg)}
  .botnew .dt{color:var(--teal-d);font-weight:600}
  .botnew .crt{color:var(--text3);font-size:11.5px}
- .botnew .nou{background:var(--amber);color:#fff;border-radius:5px;padding:1px 6px;font-size:10.5px;margin-left:6px;font-weight:600}
+ .botnew .nou{background:var(--amber-t);color:#fff;border-radius:5px;padding:1px 6px;font-size:10.5px;margin-left:6px;font-weight:600}
  .brandcorner{position:fixed;right:14px;bottom:10px;font-size:11.5px;color:var(--text3);
    background:rgba(255,255,255,.94);padding:5px 12px;border-radius:14px;box-shadow:var(--sh);z-index:50}
  .brandcorner b{color:var(--teal-d)}
@@ -454,39 +511,53 @@ PANEL_CSS = """
  .fcol-l{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
  .fcol-c{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
  .fcol-r{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
- .fcard{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 16px}
- .fcard h3{margin:0 0 10px;font-size:13.5px;font-weight:600}
- .fcard h3 small{color:var(--text3);font-weight:400;font-size:11.5px}
- .fhead{display:flex;align-items:center;gap:12px}
- .fhead .fav{width:48px;height:48px;border-radius:12px;background:var(--teal);color:#fff;
-   display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;flex:0 0 48px}
- .fhead b{font-size:16px;display:block;line-height:1.25}
- .fhead small{color:var(--text3);font-size:11.5px}
- .frow{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:12.5px}
- .frow span:first-child{color:var(--text3)}
- .frow span:last-child{color:var(--text);font-weight:500;text-align:right;min-width:0;
-   overflow:hidden;text-overflow:ellipsis}
- .alert{display:flex;align-items:center;gap:8px;border-radius:9px;padding:7px 10px;
-   font-size:12.5px;font-weight:600;margin-bottom:6px}
+ .fcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);padding:18px}
+ .fcard h3{margin:0 0 14px;font-size:18px;font-weight:600}
+ .fcard h3 small{color:var(--text2);font-weight:400;font-size:13px}
+ .fhead{display:flex;align-items:center;gap:14px}
+ .fhead .fav{width:56px;height:56px;border-radius:16px;background:var(--teal);color:#fff;
+   display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex:0 0 56px}
+ .fhead b{font-size:20px;display:block;line-height:1.25;font-weight:600}
+ .fhead small{color:var(--text2);font-size:13px}
+ /* строка профиля: подпись слева, значение справа, иконка-якорь в конце
+    (панель «Card» макета) */
+ .frow{display:flex;justify-content:space-between;align-items:center;gap:10px;
+   padding:9px 0;font-size:13.5px;border-top:1px solid var(--line2)}
+ .frow:first-of-type{border-top:none}
+ .frow span:first-child{color:var(--text2);flex:0 0 auto}
+ .frow .v{color:var(--text);font-weight:500;text-align:right;min-width:0;flex:1;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .frow .ic{flex:0 0 16px;color:var(--text3);display:flex;align-items:center}
+ .alert{display:flex;align-items:center;gap:9px;border-radius:var(--r-ctl);padding:10px 12px;
+   font-size:13px;font-weight:600;margin-bottom:8px}
  .alert form{margin-left:auto}
- .alert button{background:none;border:none;cursor:pointer;color:inherit;opacity:.55;font-size:12px}
- .alert.allergy{background:var(--red-soft);color:var(--red)}
- .alert.medication{background:var(--amber-soft);color:var(--amber)}
- .alert.warning{background:var(--amber-soft);color:var(--amber)}
+ .alert button{background:none;border:none;cursor:pointer;color:inherit;opacity:.55;font-size:13px}
+ .alert.allergy{background:var(--red-soft);color:var(--red-t)}
+ .alert.medication{background:var(--amber-soft);color:var(--amber-t)}
+ .alert.warning{background:var(--amber-soft);color:var(--amber-t)}
  .alert.info{background:var(--blue-soft);color:var(--blue)}
- .teeth{display:flex;justify-content:center;gap:3px;flex-wrap:nowrap;overflow-x:auto;padding:2px 0}
- .tooth{width:30px;height:38px;flex:0 0 30px;border-radius:7px;border:1px solid var(--line);
-   background:var(--panel);color:var(--text2);display:flex;align-items:center;justify-content:center;
-   font-size:11px;font-weight:600;cursor:pointer}
- .tooth:hover{box-shadow:var(--sh2)}
- .tooth.carie{background:var(--red-soft);border-color:var(--red);color:var(--red)}
- .tooth.obturatie{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
- .tooth.coroana{background:var(--amber-soft);border-color:var(--amber);color:var(--amber)}
- .tooth.implant{background:var(--violet-soft);border-color:var(--violet);color:var(--violet)}
+ /* зубы — кнопки 40x44 (панель 9 макета): состояние показывает РАМКА, а не
+    заливка, поэтому крупная сетка не рябит цветом */
+ /* 16 колонок с ПОТОЛКОМ 40px: где места хватает — зуб ровно как в макете,
+    где нет (1366 в клинике) — сжимается, но формула целиком видна без
+    горизонтальной прокрутки внутри карточки */
+ .teeth{display:grid;grid-template-columns:repeat(16,minmax(0,40px));
+   justify-content:center;gap:6px;padding:4px 0}
+ .tooth{width:100%;height:44px;border-radius:10px;border:1px solid var(--line);
+   background:var(--panel);color:var(--text);display:flex;align-items:center;justify-content:center;
+   font-size:13px;font-weight:600;cursor:pointer;
+   transition:background-color .2s ease,border-color .2s ease,transform .2s ease}
+ .teeth .tooth:hover{background:#F4FBF9;border-color:var(--teal);transform:translateY(-1px)}
+ .tooth.carie{border-color:var(--red);color:var(--red-t)}
+ .tooth.obturatie{border-color:var(--blue);color:var(--blue)}
+ .tooth.coroana{border-color:var(--amber);color:var(--amber-t)}
+ .tooth.implant{border-color:var(--violet);color:var(--violet)}
  .tooth.extras{background:var(--line2);border-color:var(--line);color:var(--text3);text-decoration:line-through}
- .tooth.tratament{background:var(--teal-soft);border-color:var(--teal);color:var(--teal-d)}
- .tleg{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-top:10px}
- .tleg i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px}
+ .tooth.tratament{background:var(--teal);border-color:var(--teal);color:#fff}
+ .tleg{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);margin-top:14px}
+ .tleg i{display:inline-block;width:11px;height:11px;border-radius:4px;margin-right:6px;
+   border:1.5px solid currentColor;background:none}
  .plan-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line2);font-size:12.5px}
  .plan-row:first-of-type{border-top:none}
  .plan-row .pt{width:32px;flex:0 0 32px;font-weight:600;color:var(--text2)}
@@ -519,12 +590,24 @@ PANEL_CSS = """
  .doc form{margin-left:auto}
  .doc form button{background:none;border:none;color:var(--text3);cursor:pointer}
  .doc form button:hover{color:var(--red)}
- .fform{display:flex;flex-direction:column;gap:7px}
- .fform input,.fform select,.fform textarea{padding:7px 10px;border:1px solid var(--line);
-   border-radius:8px;font-size:12.5px;font-family:inherit;width:100%}
- .fform button{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:8px;
-   cursor:pointer;font-size:12.5px;font-weight:600}
- .fform .r2{display:flex;gap:7px}
+ .fform{display:flex;flex-direction:column;gap:9px}
+ .fform input,.fform select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);font-size:14px;font-family:inherit;width:100%;
+   background:var(--panel);color:var(--text);outline:none;
+   transition:border-color .2s ease,box-shadow .2s ease}
+ .fform textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
+   font-size:14px;font-family:inherit;width:100%;background:var(--panel);color:var(--text);
+   outline:none;transition:border-color .2s ease,box-shadow .2s ease}
+ .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--teal);
+   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ .fform input::placeholder,.fform textarea::placeholder{color:var(--text3)}
+ .fform button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+   height:var(--h-ctl);cursor:pointer;font-size:14px;font-weight:600;
+   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .fform button:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+   transform:translateY(-1px)}
+ .fform button:active{transform:translateY(0)}
+ .fform .r2{display:flex;gap:9px}
  @media (max-width:1400px){.fisa{flex-wrap:wrap}.fcol-l,.fcol-r{width:100%;flex:1 1 100%}}
  /* фиша медика уже карточки пациента (нет формулы зубов) — на 1366×768,
     рабочем разрешении клиники, она остаётся в три колонки */
@@ -535,7 +618,7 @@ PANEL_CSS = """
    .fisa.med .fcol-l,.fisa.med .fcol-r{width:100%;flex:1 1 100%}}
  /* ---------- раздел «Medici» (v1.9.0) ---------- */
  .medgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
- .medcard{background:var(--panel);border-radius:14px;box-shadow:var(--sh);padding:14px 16px;
+ .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:16px 18px;
    display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;
    transition:box-shadow .15s,transform .15s}
  a.medcard:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
@@ -554,8 +637,8 @@ PANEL_CSS = """
  .medstats span{font-size:11px;color:var(--text3)}
  .dbadge{font-size:10px;font-weight:600;letter-spacing:.04em;padding:3px 8px;border-radius:6px;
    text-transform:uppercase;white-space:nowrap}
- .dbadge.activ{background:var(--green-soft);color:var(--green)}
- .dbadge.concediu{background:var(--amber-soft);color:var(--amber)}
+ .dbadge.activ{background:var(--green-soft);color:var(--green-t)}
+ .dbadge.concediu{background:var(--amber-soft);color:var(--amber-t)}
  .dbadge.arhivat{background:var(--line2);color:var(--text3)}
  .svcpick{display:flex;flex-direction:column;gap:2px;max-height:320px;overflow:auto}
  .svcpick label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;
@@ -565,7 +648,8 @@ PANEL_CSS = """
  .svcpick small{margin-left:auto;color:var(--text3);font-size:11px;white-space:nowrap}
  /* ---------- недельный вид ---------- */
  .week{display:flex;gap:12px;align-items:flex-start}
- .wcol{flex:1;min-width:0;background:var(--panel);border-radius:14px;box-shadow:var(--sh);overflow:hidden}
+ .wcol{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);
+   border-radius:var(--r-card);box-shadow:var(--sh);overflow:hidden}
  .wcol .wh{padding:10px 12px;border-bottom:1px solid var(--line)}
  .wcol .wh.tdy{background:var(--teal-soft)}
  .wcol .wh a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none}
@@ -640,6 +724,13 @@ _I = {  # компактные stroke-иконки сайдбара
     "set": "<circle cx='12' cy='12' r='3'/><path d='M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2'/>",
     "bot": "<rect x='3.5' y='7.5' width='17' height='12' rx='3'/><path d='M12 7.5V4'/><circle cx='9' cy='13.5' r='1' fill='currentColor' stroke='none'/><circle cx='15' cy='13.5' r='1' fill='currentColor' stroke='none'/>",
     "qr": "<rect x='4' y='4' width='6.5' height='6.5' rx='1'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1'/><path d='M13.5 13.5h6.5v6.5h-6.5z'/>",
+    # якоря строк профиля пациента (макет 08-03)
+    "phone": "<path d='M6.5 3.5h3l1.5 4-2 1.2a12 12 0 0 0 5.3 5.3l1.2-2 4 1.5v3a1.5 1.5 0 0 1-1.7 1.5C10.6 17.4 6.6 13.4 5 5.2A1.5 1.5 0 0 1 6.5 3.5z'/>",
+    "mail": "<rect x='3' y='5.5' width='18' height='13' rx='2.5'/><path d='m3.8 7 8.2 6 8.2-6'/>",
+    "pin": "<path d='M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z'/><circle cx='12' cy='10' r='2.6'/>",
+    "id": "<rect x='2.8' y='5' width='18.4' height='14' rx='2.5'/><circle cx='9' cy='11' r='2'/>"
+          "<path d='M5.6 16.2c.7-1.6 2-2.3 3.4-2.3s2.7.7 3.4 2.3M15 10h4M15 13.5h4'/>",
+    "shield": "<path d='M12 3l7 3v5.5c0 4.3-3 7.6-7 9.5-4-1.9-7-5.2-7-9.5V6z'/>",
 }
 
 
@@ -904,7 +995,7 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             f"{' 🔔' if r['reminded_day'] else ''}</td><td>{acts}</td></tr>"
         )
     if not items:
-        items = ["<tr><td colspan='9' style='color:#999'>— nicio programare —</td></tr>"]
+        items = ["<tr><td colspan='9' style='color:var(--text3)'>— nicio programare —</td></tr>"]
     return (
         f"<h2>{title}</h2><table class='list'>"
         "<tr><th>#</th><th>Ora</th><th>Pacient</th><th>Telefon</th><th>Serviciu</th>"
@@ -1012,7 +1103,7 @@ def _card_modal(cards: dict, back: str) -> str:
       <input type="hidden" name="back" value="{b}">
       <textarea name="comment" id="c_text" rows="3" maxlength="300"
         placeholder="Comentariu: alergii, preferințe, de sunat înapoi…"
-        style="padding:8px 10px;border:1px solid #ccd4d4;border-radius:6px;font-size:14px;font-family:inherit;resize:vertical"></textarea>
+        style="resize:vertical"></textarea>
       <button>💬 Salvează comentariul</button>
     </form>
   </div>
@@ -1166,17 +1257,19 @@ async def admin_login(password: str = Form(...), next_url: str = Form("/admin", 
 SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — PIN</title><style>
- body{font-family:system-ui,'Segoe UI',sans-serif;background:#075e54;display:flex;
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#0E9F8A;display:flex;
       align-items:center;justify-content:center;height:100vh;margin:0}
- form{background:#fff;padding:28px 32px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.25);
+ form{background:#fff;padding:30px 32px;border-radius:18px;box-shadow:0 18px 40px rgba(15,23,42,.25);
       display:flex;flex-direction:column;gap:12px;width:340px}
- h1{font-size:17px;color:#075e54;margin:0}
- p{color:#667;font-size:13px;margin:0}
- input{padding:10px;border:1px solid #ccd4d4;border-radius:8px;font-size:26px;
-       text-align:center;letter-spacing:12px}
- button{background:#075e54;color:#fff;border:none;border-radius:8px;padding:12px;
-        font-size:15px;cursor:pointer}
- .err{color:#c62828;font-size:13px}
+ h1{font-size:19px;color:#162033;margin:0;font-weight:600;letter-spacing:-.02em}
+ p{color:#7E8B9C;font-size:13px;margin:0;line-height:1.5}
+ input{padding:12px;border:1px solid #E7EDF5;border-radius:12px;font-size:26px;
+       text-align:center;letter-spacing:12px;outline:none;color:#162033}
+ input:focus{border-color:#0E9F8A;box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ button{background:#0E9F8A;color:#fff;border:none;border-radius:12px;height:48px;
+        font-size:15px;font-weight:600;cursor:pointer;transition:background-color .2s ease}
+ button:hover{background:#0B7E6D}
+ .err{color:#B91C1C;font-size:13px}
 </style></head><body>
 <form method="post" action="/admin/setup">
   <h1>🦷 __CLINIC__</h1>
@@ -1243,7 +1336,7 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
 # --- палитра врачей и цвет записи ПО ТИПУ процедуры (референс v2) ---
 # палитра карточек врача (макет 08-03): зелёный / синий / фиолетовый / янтарный —
 # первые четыре цвета намеренно максимально различимы, дальше по кругу
-_DOC_HUES = ["#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#DC2626", "#0D9488",
+_DOC_HUES = ["#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#DC2626", "#0891B2",
              "#6366F1", "#DB2777"]
 
 _SVC_CAT = [
@@ -2171,7 +2264,7 @@ def admin_update_run(request: Request):
 <meta http-equiv="refresh" content="18;url=/admin/settings">
 <title>Actualizare…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;background:#075e54;color:#fff;text-align:center}}
+      justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff;text-align:center}}
  .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
  @keyframes r{{to{{transform:rotate(360deg)}}}}
 </style></head><body>
@@ -2212,7 +2305,7 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
 <meta http-equiv="refresh" content="15;url=/admin/settings">
 <title>Repornire…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;background:#075e54;color:#fff;text-align:center}}
+      justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff;text-align:center}}
  .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
  @keyframes r{{to{{transform:rotate(360deg)}}}}
 </style></head><body>
@@ -2278,17 +2371,25 @@ async def admin_stats(
     loss = sum(_price(r) for r in act if r["status"] == "noshow")
     bot_value = sum(_price(r) for r in act if r["source"] == "bot")
 
+    def _tile(val, label: str, cls: str = "", ico: str = "") -> str:
+        """Плитка периода. Структура ТА ЖЕ, что на дашборде: иначе flex кладёт
+        подпись сбоку от числа, а не под ним (долг разметки с v1.5.0)."""
+        icon = (f"<span class='ico' style='background:var(--teal-soft)'>{ico}</span>"
+                if ico else "")
+        return (f"<div class='tile {cls}'>{icon}"
+                f"<div><b>{val}</b><span>{label}</span></div></div>")
+
     tiles = (
         "<div class='tiles'>"
-        f"<div class='tile'><b>{len(act)}</b><span>programări</span></div>"
-        f"<div class='tile'><b>{n_bot}</b><span>🤖 prin bot</span></div>"
-        f"<div class='tile'><b>{n_man}</b><span>✍️ recepție</span></div>"
-        f"<div class='tile'><b>{n_done}</b><span>🟦 au venit</span></div>"
-        f"<div class='tile bad'><b>{n_noshow}</b><span>neprezentări<br>≈ {_fmt_mdl(loss)}</span></div>"
-        f"<div class='tile'><b>{n_cancel}</b><span>anulate</span></div>"
-        f"<div class='tile'><b>{n_rem}</b><span>🔔 remindere</span></div>"
-        f"<div class='tile'><b>≈ {_fmt_mdl(bot_value)}</b><span>valoare adusă de bot</span></div>"
-        "</div>"
+        + _tile(len(act), "programări", ico="📅")
+        + _tile(n_bot, "🤖 prin bot")
+        + _tile(n_man, "✍️ recepție")
+        + _tile(n_done, "🟦 au venit")
+        + _tile(n_noshow, f"neprezentări<br>≈ {_fmt_mdl(loss)}", cls="bad")
+        + _tile(n_cancel, "anulate")
+        + _tile(n_rem, "🔔 remindere")
+        + _tile(f"≈ {_fmt_mdl(bot_value)}", "valoare adusă de bot")
+        + "</div>"
     )
 
     # загрузка врачей: занятые МИНУТЫ / рабочие минуты врача за период (v1.8.0 —
@@ -2350,7 +2451,9 @@ async def admin_stats(
         f"<form class='dpickf' method='get' action='/admin/stats' style='display:inline-flex;gap:4px'>"
         f"<input class='dpick' type='date' name='from' value='{d1.isoformat()}'>"
         f"<input class='dpick' type='date' name='to' value='{d2.isoformat()}'>"
-        f"<button class='searchf' style='background:#075e54;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer'>OK</button></form>"
+        f"<button class='searchf' style='background:var(--teal);color:#fff;border:none;"
+        f"border-radius:var(--r-ctl);height:var(--h-ctl);padding:0 18px;cursor:pointer;"
+        f"font-size:14px;font-weight:600'>OK</button></form>"
         f"<a href='/admin/export?from={d1.isoformat()}&to={d2.isoformat()}'>📥 Export CSV</a>"
         f"<a href='/admin'>🏠 Panou</a></div>"
     )
@@ -2543,17 +2646,21 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
                                   f"dosar {e(p['file_no'])}" if p.get("file_no") else "",
                                   "🗄 arhivat" if p.get("archived") else ""] if x)
 
-    def frow(label: str, val) -> str:
+    def frow(label: str, val, icon: str = "") -> str:
+        ic = f"<span class='ic'>{_ic(icon)}</span>" if icon else "<span class='ic'></span>"
         return (f"<div class='frow'><span>{label}</span>"
-                f"<span>{e(str(val)) if val else '—'}</span></div>")
+                f"<span class='v'>{e(str(val)) if val else '—'}</span>{ic}</div>")
 
-    info_rows = (frow("Telefon", p.get("phone"))
-                 + frow("Data nașterii", p.get("birth_date") or p.get("birth_year"))
-                 + frow("Gen", {"m": "M", "f": "F"}.get(p.get("gender") or "", p.get("gender")))
-                 + frow("IDNP", p.get("idnp")) + frow("E-mail", p.get("email"))
-                 + frow("Adresă", p.get("address")) + frow("Asigurare", p.get("insurance"))
-                 + frow("Medic curant", p.get("primary_doctor"))
-                 + frow("Pacient din", p["created_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")))
+    info_rows = (frow("Telefon", p.get("phone"), "phone")
+                 + frow("Data nașterii", p.get("birth_date") or p.get("birth_year"), "cal")
+                 + frow("Gen", {"m": "M", "f": "F"}.get(p.get("gender") or "", p.get("gender")), "pat")
+                 + frow("IDNP", p.get("idnp"), "id")
+                 + frow("E-mail", p.get("email"), "mail")
+                 + frow("Adresă", p.get("address"), "pin")
+                 + frow("Asigurare", p.get("insurance"), "shield")
+                 + frow("Medic curant", p.get("primary_doctor"), "med")
+                 + frow("Pacient din",
+                        p["created_at"].astimezone(eng.TZ).strftime("%d.%m.%Y"), "cal"))
     notes_html = (f"<div style='font-size:12px;color:var(--text2);background:var(--bg);"
                   f"border-radius:8px;padding:8px 10px;margin-top:8px'>📝 {e(p['notes'])}</div>"
                   if p.get("notes") else "")
@@ -2602,8 +2709,11 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
 
     upper = "".join(tooth_div(n) for n in _FDI_UPPER)
     lower = "".join(tooth_div(n) for n in _FDI_LOWER)
+    # квадратик легенды — тот же класс состояния (цвет берётся из него), но
+    # размеры задаём здесь: иначе он унаследует 40x44 от кнопки-зуба
     legend = "".join(
-        f"<span><i class='tooth {k}' style='width:9px;height:9px;padding:0;border-radius:3px;display:inline-block'></i> {v}</span>"
+        f"<span><i class='tooth {k}' style='width:11px;height:11px;flex:none;padding:0;"
+        f"border-radius:4px;display:inline-block;vertical-align:-1px'></i> {v}</span>"
         for k, v in TOOTH_STATES.items() if k != "ok")
     # .replace("</", ...) — чтобы note вида "</script>..." не вырвался из тега
     teeth_json = json.dumps({str(n): {"state": (tmap[n]["state"] if n in tmap else "ok"),
@@ -3378,7 +3488,7 @@ Rămâne local, în folderul programului; pacienții nu o văd.</p>"""
   <div style='font-size:11.5px;color:var(--text3);margin-top:2px'>Culoare în calendar</div>
   <div class='r2' style='align-items:center'>
     <input type='color' name='color' value="{e(meta.get('color') or _doc_hue(dk))}"
-           style='width:52px;padding:2px;height:32px'>
+           style='width:56px;padding:3px;height:var(--h-ctl);flex:0 0 56px'>
     <label style='font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px'>
       <input type='checkbox' name='auto_color' value='1'
              {'checked' if not meta.get('color') else ''} style='width:auto'> automată</label>
@@ -3442,7 +3552,7 @@ folosește în calendarul zilei. Arhivarea e posibilă doar fără programări v
 devine explicită — un medic nou va trebui bifat manual.</p>
 </div>
 <div class='fcard'><h3>Ultimele 30 de zile</h3>
-{"".join(f"<div class='frow'><span>{lbl}</span><span>{val}</span></div>" for lbl, val in
+{"".join(f"<div class='frow'><span>{lbl}</span><span class='v'>{val}</span></div>" for lbl, val in
          [("Programări", stats['n']), ("Ocupare", f"{stats['pct']}%"),
           ("Neprezentări", stats['noshow']), ("Programări viitoare", future)])}
 <p class='hint' style='margin:8px 0 0'><a href='/admin/stats'>Statistica întregii clinici ↗</a></p>
@@ -3721,14 +3831,14 @@ async def admin_qr_print(request: Request):
  body{{font-family:'Segoe UI',system-ui,sans-serif;color:#1c2b33;display:flex;
       flex-direction:column;align-items:center;padding:10mm;text-align:center}}
  .noprint{{margin-bottom:8mm;display:flex;gap:10px}}
- .noprint button{{background:#075e54;color:#fff;border:none;border-radius:8px;
+ .noprint button{{background:#0E9F8A;color:#fff;border:none;border-radius:8px;
       padding:10px 22px;font-size:15px;cursor:pointer}}
- .noprint a{{align-self:center;color:#075e54}}
+ .noprint a{{align-self:center;color:#0E9F8A}}
  .sheet{{border:2px dashed #ccd;border-radius:6mm;padding:12mm 16mm;max-width:150mm}}
- h1{{font-size:26pt;color:#075e54}}
+ h1{{font-size:26pt;color:#0E9F8A}}
  h2{{font-size:15pt;color:#334;margin:4mm 0 8mm;font-weight:600}}
  img{{width:88mm;height:88mm}}
- .user{{font-size:14pt;color:#075e54;font-weight:600;margin-top:4mm}}
+ .user{{font-size:14pt;color:#0E9F8A;font-weight:600;margin-top:4mm}}
  .how{{font-size:11pt;color:#556;margin-top:6mm;line-height:1.5}}
  .phone{{font-size:12pt;margin-top:6mm}}
  .brand{{font-size:8pt;color:#aab;margin-top:8mm}}
@@ -3767,7 +3877,7 @@ async def demo(url: str = "") -> str:
     q = urllib.parse.quote(target, safe="")
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>DentPilot Demo — QR</title>
 <style>body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-justify-content:center;height:100vh;margin:0;background:#075e54;color:#fff}}
+justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff}}
 img{{background:#fff;padding:18px;border-radius:12px;width:340px;height:340px}}
 h1{{font-weight:600;font-size:22px}}p{{font-size:14px;opacity:.85}}</style></head><body>
 <h1>🦷 Scanați pentru programare / Сканируйте для записи</h1>
