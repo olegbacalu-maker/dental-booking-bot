@@ -557,6 +557,14 @@ async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
     """Вставка визита пациенту, который УЖЕ известен по id. Контракт возврата
     тот же, что у create_appointment (id / None / 'dup')."""
     async with _BOOK_LOCK:
+        # ⚠️ «у пациента уже есть запись» спрашиваем ЗАРАНЕЕ, а не ловим по
+        # тексту IntegrityError: SQLite называет в нём колонки, а не индекс, и
+        # проверка на 'uq_patient_slot' не срабатывала никогда — дубль пациента
+        # показывался регистратуре как «интервал занят у этого врача».
+        # Проверка идёт первой: она точнее, чем конфликт врача, и под _BOOK_LOCK
+        # так же надёжна, как индекс.
+        if await _patient_busy_at(pid, starts_at):
+            return "dup"
         # интервальная проверка: uq-индексы ловят только одинаковые старты,
         # пересечение 10:00(60') с 10:30(60') обязано отсекаться здесь
         if await _conflicts(doctor_id, doctor, starts_at, duration_min):
@@ -579,7 +587,10 @@ async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
                 return appt_id
             except sqlite3.IntegrityError as e:
                 await _CONN.rollback()
-                return "dup" if "uq_patient_slot" in str(e) else None
+                # страховка на случай гонки мимо замка. Текст SQLite —
+                # «UNIQUE constraint failed: appointments.patient_id,
+                # appointments.starts_at», имени индекса в нём НЕТ.
+                return "dup" if "patient_id" in str(e) else None
         import asyncpg
         async with POOL.acquire() as c:
             try:
@@ -622,6 +633,23 @@ async def add_visit_for_patient(
     уехал бы новому пациенту-двойнику или соседу с тем же семейным номером."""
     return await _book(pid, service, doctor, starts_at, "manual",
                        doctor_id, service_id, duration_min)
+
+
+async def _patient_busy_at(pid: int, starts_at: datetime) -> bool:
+    """Есть ли у пациента активная запись РОВНО на этот старт — то же, что
+    стережёт uq_patient_slot, но ответом, а не исключением. Вызывать под
+    _BOOK_LOCK. Пересечения по длительности здесь намеренно не ищем: индекс их
+    тоже не запрещает, а регистратура ставит пациента к двум врачам подряд."""
+    rows = await _fetch(
+        f"""SELECT id FROM appointments
+           WHERE patient_id = $1 AND starts_at = $2 AND status IN {_ACT_SQL}
+           LIMIT 1""",
+        f"""SELECT id FROM appointments
+           WHERE patient_id = ? AND starts_at = ? AND status IN {_ACT_SQL}
+           LIMIT 1""",
+        pid, (starts_at if not IS_SQLITE else _iso(starts_at)),
+    )
+    return bool(rows)
 
 
 async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
