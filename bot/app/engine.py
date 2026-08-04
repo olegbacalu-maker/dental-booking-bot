@@ -466,6 +466,23 @@ def work_minutes(dk: str, d: date) -> int:
     return sum(int((e - s).total_seconds()) // 60 for s, e in _windows(dk, d))
 
 
+def is_past(dt: datetime) -> bool:
+    """Старт уже прошёл. Одна граница на всех: free_starts предлагает только
+    t > now, и всё, что принимает выбранный час, обязано отказывать по тому же
+    правилу — иначе форма показывает будущее, а POST принимает прошлое."""
+    return dt <= datetime.now(TZ)
+
+
+def is_past_day(d: date) -> bool:
+    """День закрыт. ⚠️ Для ЗАПРЕТА берётся is_past (мгновенная граница), а для
+    предупреждения — эта, дневная. Разница не косметическая: пациента без
+    записи регистратура вносит в идущий час, и на мгновенной границе такой
+    визит — «в прошлом». Жёлтый баннер по нескольку раз в день на нормальной
+    работе приучает не читать баннеры вовсе, и настоящая опечатка в дате
+    проходит незамеченной."""
+    return d < datetime.now(TZ).date()
+
+
 async def free_starts(
     doc_key: str, d: date, duration: int,
     allowed_keys: list[str] | None = None,
@@ -666,7 +683,7 @@ async def fallback(s: Session):
 async def do_book(s: Session, sid: str):
     dt = datetime.fromisoformat(s.data["time"])
     # слот мог пройти, пока вводили имя/телефон (актуально для окон «сегодня»)
-    if dt <= datetime.now(TZ):
+    if is_past(dt):
         if is_urgent(s):
             return await render_urgent(s, t(s, "slot_taken"))
         s.state = "day"

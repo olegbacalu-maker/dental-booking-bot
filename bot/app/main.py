@@ -159,6 +159,9 @@ MSG_BANNER = {
     "ok": ("ok", "Programare adăugată ✔"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),
+    "past": ("err", "Ora aleasă a trecut deja — reîmprospătați lista orelor libere"),
+    "ok_past": ("warn", "Programare adăugată ✔ — atenție: este pe o zi trecută. "
+                        "Verificați data dacă nu ați vrut asta"),
     "bad": ("err", "Date invalide — verificați câmpurile"),
     "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
     "ok_comment": ("ok", "Comentariu salvat ✔"),
@@ -293,6 +296,7 @@ PANEL_CSS = """
  .banner{padding:12px 16px;border-radius:var(--r-ctl);margin-bottom:14px;font-size:14px}
  .banner.ok{background:var(--green-soft);color:#065F46}
  .banner.err{background:var(--red-soft);color:#991B1B}
+ .banner.warn{background:var(--amber-soft);color:var(--amber-t)}
  .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:var(--teal);height:8px}
  /* ---------- KPI ---------- */
@@ -3616,6 +3620,10 @@ async def patient_appoint(request: Request, pid: int,
         return _card_redirect(pid, "bad")   # выключенному врачу не пишем
     if adoctor not in [k for k, _n in eng.allowed_doc_items(aservice)]:
         return _card_redirect(pid, "bad")
+    # окно даёт только свободные будущие часы, но вкладку могли открыть утром:
+    # к обеду её список устарел и без этой проверки визит уехал бы в прошлое
+    if eng.is_past(dt):
+        return _card_redirect(pid, "past")
     dur = eng.svc_duration(aservice)
     if not eng.fits_clinic(dt, dur):
         return _card_redirect(pid, "outside")
@@ -4613,6 +4621,12 @@ async def admin_add(
                            doctor_id=adoctor, service_id=aservice,
                            duration_min=eng.svc_duration(aservice))
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
+    # ручную запись задним числом НЕ запрещаем (визит вносят постфактум), но и
+    # молчать нельзя: запись на закрытый день чаще всего опечатка, а она просто
+    # исчезает из журнала — её никто больше не увидит. Граница ДНЕВНАЯ: визит в
+    # уже прошедший час сегодня — обычная работа регистратуры, а не ошибка
+    if msg == "ok" and eng.is_past_day(dt.date()):
+        msg = "ok_past"
     return _back_redirect(back, adate, msg)
 
 
