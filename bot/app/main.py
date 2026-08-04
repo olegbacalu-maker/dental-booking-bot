@@ -10,14 +10,15 @@ import pathlib
 import logging
 import re
 import secrets
+import shutil
 import sys
 import urllib.parse
 from datetime import date, datetime, timedelta
 
 import qrcode
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
-from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
-                               Response)
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse, Response)
 
 from . import brand
 from . import db
@@ -654,11 +655,16 @@ PANEL_CSS = """
  .hero-side .hs span{display:block;color:var(--text3);font-size:12px;margin-bottom:3px}
  .hero-side .hs b{font-weight:600;font-size:14.5px}
  .hero-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
- .hero-acts a{display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 14px;
-   border:1px solid var(--line);border-radius:var(--r-ctl);text-decoration:none;
+ .hero-acts a,.hero-acts button{display:inline-flex;align-items:center;gap:7px;height:40px;
+   padding:0 14px;border:1px solid var(--line);border-radius:var(--r-ctl);text-decoration:none;
    color:var(--text2);font-size:13.5px;font-weight:500;background:var(--panel);
+   font-family:inherit;cursor:pointer;
    transition:border-color .2s ease,color .2s ease,transform .2s ease}
- .hero-acts a:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(-1px)}
+ .hero-acts a:hover,.hero-acts button:hover{border-color:var(--teal);color:var(--teal-d);
+   transform:translateY(-1px)}
+ /* внутренний номер фиши: справочная мелочь, копируется кликом */
+ .idchip{cursor:pointer;border-bottom:1px dashed var(--line);color:var(--text3)}
+ .idchip:hover{color:var(--teal-d);border-bottom-color:var(--teal)}
  .kpi5{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;
    margin-bottom:16px}
  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;
@@ -670,6 +676,36 @@ PANEL_CSS = """
  .kpi b{display:block;font-size:22px;font-weight:600;line-height:1.15}
  .kpi span{font-size:12.5px;color:var(--text2)}
  .kpi small{display:block;font-size:11.5px;color:var(--text3);margin-top:2px}
+ /* цифра кликабельна: за ней открывается список, из которого она посчитана */
+ button.kpi{width:100%;text-align:left;font-family:inherit;color:inherit;cursor:pointer}
+ button.kpi:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+ /* список за цифрой + просмотрщик документов */
+ dialog.wide{width:660px}
+ .lbody{padding:4px 16px 16px;max-height:62vh;overflow:auto}
+ .lrow{display:flex;flex-direction:column;gap:2px;padding:10px 0;
+   border-bottom:1px solid var(--line2)}
+ .lrow:last-of-type{border-bottom:none}
+ .lrow .lk{font-size:11.5px;color:var(--text3)}
+ .lrow b{font-size:13.5px;font-weight:600}
+ .lrow small{font-size:12px;color:var(--text2)}
+ .lmore{display:inline-block;margin-top:12px;font-size:12.5px;font-weight:600}
+ .lbtn{margin-top:12px;width:100%;height:42px;border:none;border-radius:var(--r-ctl);
+   background:var(--teal);color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;
+   font-family:inherit}
+ .dlg-form .dlab{display:flex;flex-direction:column;gap:4px;font-size:11.5px;
+   font-weight:600;color:var(--text3)}
+ .dlg-form .dlab select,.dlg-form .dlab input{width:100%}
+ .dlg-form button[disabled]{opacity:.5;cursor:not-allowed}
+ .dvbody{background:var(--line2);display:flex;align-items:center;justify-content:center;
+   min-height:280px;max-height:70vh;overflow:auto}
+ .dvbody img{max-width:100%;max-height:70vh;display:block}
+ .dvbody iframe{width:100%;height:70vh;border:none;background:#fff}
+ .dvacts{display:flex;gap:10px;padding:12px 16px;flex-wrap:wrap}
+ .dvacts button,.dvacts a{height:38px;padding:0 14px;display:inline-flex;align-items:center;
+   gap:7px;border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
+   color:var(--text2);font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;
+   text-decoration:none}
+ .dvacts button:hover,.dvacts a:hover{border-color:var(--teal);color:var(--teal-d)}
  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
  .tabs button{height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--line);
    background:var(--panel);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;
@@ -3098,16 +3134,27 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                  + f"<a href='/admin/search?q={urllib.parse.quote(p['name'] or '')}' "
                  f"style='font-size:12px'>Vezi tot istoricul →</a></div>")
 
+    doc_meta: dict = {}
+
     def doc_card(dd) -> str:
         # картинку показываем ею же: файлы лежат локально, отдельный рендер
         # миниатюр — оптимизация следующего этапа, а не условие работы
-        is_img = (dd["mime"] or "").startswith("image/")
+        mime = dd["mime"] or ""
+        is_img = mime.startswith("image/")
         thumb = (f"<img src='/admin/doc/{dd['id']}?thumb=1' alt='' loading='lazy'>" if is_img
                  else (DOC_CATEGORIES.get(dd["category"], "📄").split()[0]))
         when = dd["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
         kb = dd["size"] // 1024
         size = f"{kb} KB" if kb < 1024 else f"{kb / 1024:.1f} MB"
-        return (f"<div class='doccard'><a href='/admin/doc/{dd['id']}' target='_blank' "
+        # чем открывать файл: свой просмотрщик (растр, PDF) или программа
+        # Windows. href остаётся прежним — без JS карточка просто скачает файл
+        doc_meta[dd["id"]] = {
+            "name": dd["filename"],
+            "view": ("img" if mime in _INLINE_MIME
+                     else "pdf" if mime in _PDF_MIME else "ext"),
+        }
+        return (f"<div class='doccard'><a href='/admin/doc/{dd['id']}' "
+                f"onclick='return openDoc({dd['id']})' "
                 f"title='{e(dd['filename'])}'><div class='thumb'>{thumb}</div>"
                 f"<div class='dmeta'><b>{e(dd['filename'])}</b>"
                 f"<small>{when} · {size}</small></div></a>"
@@ -3156,7 +3203,9 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
   </div>
   <button>⬆️ Încarcă document</button>
 </form>
-<p class='hint' style='margin-top:8px'>Fișierele rămân local, în folderul programului (data\\files).</p></div>"""
+<p class='hint' style='margin-top:8px'>Click pe fișier — pozele și PDF-urile se deschid aici,
+restul în programul potrivit (Word, Excel). Fișierele rămân local, în folderul
+programului (data\\files).</p></div>"""
 
     # ---- hero: кто перед врачом, одним взглядом ----
     # бейджи собираются из УЖЕ имеющихся данных: алерты, страховка, импланты
@@ -3189,12 +3238,21 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         acts.append(f"<a href='tel:{e(p['phone'])}'>{_ic('phone')} Sună</a>")
     if p.get("email"):
         acts.append(f"<a href='mailto:{e(p['email'])}'>{_ic('mail')} E-mail</a>")
-    acts.append(f"<a href='/admin/all?date={now.date().isoformat()}#addform'>"
-                f"{_ic('cal')} Programează</a>")
+    # запись делается ДЛЯ ЭТОГО пациента и прямо здесь: прежняя ссылка вела в
+    # общий журнал дня, где имя и телефон надо было вбивать заново
+    acts.append(f"<button type='button' onclick='openAppt()'>"
+                f"{_ic('cal')} Programează</button>")
 
-    meta_bits = [f"{age} ani" if age else "", f"ID #{pid}", chan,
+    # ID — внутренний номер фиши в программе (адрес страницы, бэкап, обращение
+    # в поддержку). Клинике он нужен редко, поэтому уходит в конец строки и
+    # копируется одним кликом, а не переспрашивается голосом.
+    id_chip = (f"<span class='idchip' onclick='copyId(this)' data-id='{pid}' "
+               f"title='Numărul intern al fișei în program (adresa paginii, "
+               f"copiile de siguranță, suport). Click = copiază'>ID #{pid}</span>")
+    meta_bits = [f"{age} ani" if age else "", chan,
                  f"dosar {e(p['file_no'])}" if p.get("file_no") else "",
-                 "Pacient din " + p["created_at"].astimezone(eng.TZ).strftime("%Y")]
+                 "Pacient din " + p["created_at"].astimezone(eng.TZ).strftime("%Y"),
+                 id_chip]
     hero = f"""<div class='hero'>
   <div class='hero-av'>{e(_initials(p['name'] or '?'))}</div>
   <div class='hero-id'>
@@ -3217,22 +3275,69 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
     n_done = sum(1 for it in plan if it["status"] == "finalizat")
     days_ago = ((now.date() - lastv["starts_at"].astimezone(eng.TZ).date()).days
                 if lastv else None)
+    # каждая цифра кликабельна и открывает ТОТ САМЫЙ список, из которого она
+    # посчитана: цифра без расшифровки заставляет верить журналу на слово
+    def _vrow(v) -> str:
+        dtv = v["starts_at"].astimezone(eng.TZ)
+        return (f"<div class='lrow'><span class='lk'>{dtv.strftime('%d.%m.%Y · %H:%M')}</span>"
+                f"<b>{e(v['service'])}</b><small>{e(v['doctor'])} · "
+                f"{STATUS_LABEL.get(v['status'], v['status'])}</small></div>")
+
+    def _prow(it) -> str:
+        price = (f"{it['price_mdl']:,}".replace(",", " ") + " MDL") if it["price_mdl"] else "—"
+        return (f"<div class='lrow'><span class='lk'>"
+                f"{('dinte ' + str(it['tooth'])) if it['tooth'] else '—'}</span>"
+                f"<b>{e(it['procedure'])}</b><small>{e(it['doctor'] or '—')} · "
+                f"{_PLAN_LABEL.get(it['status'], it['status'])} · {price}</small></div>")
+
+    def _empty(txt: str) -> str:
+        return f"<p class='hint' style='margin:0'>— {txt} —</p>"
+
+    def _lmore(href: str, txt: str) -> str:
+        return f"<a class='lmore' href='{href}' onclick='closeKpi()'>{txt} →</a>"
+
+    live_visits = [v for v in visits if v["status"] != "cancelled"]
+    canc = len(visits) - len(live_visits)
+    act_items = [it for it in plan if it["status"] != "finalizat"]
+    done_items = [it for it in plan if it["status"] == "finalizat"]
+    kpi_panels = {
+        "visits": ("Toate vizitele",
+                   ("".join(_vrow(v) for v in live_visits) or _empty("încă fără vizite"))
+                   + (f"<p class='hint'>+ {canc} anulate (nu se numără)</p>" if canc else "")),
+        "active": ("Proceduri active",
+                   ("".join(_prow(it) for it in act_items) or _empty("planul este gol"))
+                   + _lmore("#plan", "Deschide planul de tratament")),
+        "last": ("Ultima vizită",
+                 (_vrow(lastv) + (f"<p class='hint'>acum {days_ago} zile</p>"
+                                  if days_ago else "<p class='hint'>astăzi</p>"))
+                 if lastv else _empty("încă fără vizite")),
+        "next": ("Următoarea vizită",
+                 _vrow(nextv) if nextv else
+                 (_empty("nicio vizită programată")
+                  + "<button type='button' class='lbtn' "
+                    "onclick='closeKpi();openAppt()'>📅 Programează acum</button>")),
+        "done": ("Proceduri finalizate",
+                 "".join(_prow(it) for it in done_items)
+                 or _empty("încă nimic finalizat")),
+    }
     kpis = [
-        ("📋", len([v for v in visits if v["status"] != "cancelled"]), "Vizite în total",
+        ("visits", "📋", len(live_visits), "Vizite în total",
          "din " + p["created_at"].astimezone(eng.TZ).strftime("%Y")),
-        ("🦷", n_active, "Proceduri active", "în planul de tratament"),
-        ("🕐", (f"{days_ago} zile" if days_ago else "azi") if lastv else "—",
+        ("active", "🦷", n_active, "Proceduri active", "în planul de tratament"),
+        ("last", "🕐", (f"{days_ago} zile" if days_ago else "azi") if lastv else "—",
          "Ultima vizită",
          lastv["starts_at"].astimezone(eng.TZ).strftime("%d.%m.%Y") if lastv else "—"),
-        ("📅", nextv["starts_at"].astimezone(eng.TZ).strftime("%d.%m") if nextv else "—",
+        ("next", "📅", nextv["starts_at"].astimezone(eng.TZ).strftime("%d.%m") if nextv else "—",
          "Următoarea vizită",
          nextv["starts_at"].astimezone(eng.TZ).strftime("%H:%M") if nextv else "neprogramat"),
-        ("✅", n_done, "Proceduri finalizate", "istoric complet"),
+        ("done", "✅", n_done, "Proceduri finalizate", "istoric complet"),
     ]
     kpi_html = "<div class='kpi5'>" + "".join(
-        f"<div class='kpi'><span class='ki'>{ic}</span><div style='min-width:0'>"
-        f"<b>{val}</b><span>{lbl}</span><small>{sub}</small></div></div>"
-        for ic, val, lbl, sub in kpis) + "</div>"
+        f"<button type='button' class='kpi' onclick=\"openKpi('{key}')\" "
+        f"title='{lbl} — click pentru detalii'>"
+        f"<span class='ki'>{ic}</span><div style='min-width:0'>"
+        f"<b>{val}</b><span>{lbl}</span><small>{sub}</small></div></button>"
+        for key, ic, val, lbl, sub in kpis) + "</div>"
 
     arch_label = ("↩️ Scoate din arhivă" if p.get("archived")
                   else "🗄 Arhivează pacientul")
@@ -3252,12 +3357,55 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
 </form></div>"""
 
     quick = f"""<div class='fcard'><h3>Acțiuni rapide</h3><div class='qa'>
-  <a href='/admin/all?date={now.date().isoformat()}#addform'>➕ Vizită nouă</a>
+  <button type='button' onclick='openAppt()'>➕ Vizită nouă</button>
   <a href='#plan'>🦷 Plan de tratament</a>
   <a href='#docs'>📷 Încarcă document</a>
   <button type='button' onclick="openNote()">📝 Notiță</button>
   <button type='button' onclick="window.print()">🖨 Printează fișa</button>
 </div></div>"""
+
+    # ---- окно записи ДЛЯ ЭТОГО пациента ----
+    # услуга решает, кто из врачей её выполняет; дата и врач решают, какие часы
+    # свободны — часы тянем у того же движка, что обслуживает бота
+    ap_svc_docs = {k: [dk for dk, _n in eng.allowed_doc_items(k)] for k in eng.SERVICES}
+    ap_prim = next((dk for dk, n in eng.ACTIVE_DOCTORS.items()
+                    if n == (p.get("primary_doctor") or "")), "")
+    ap_svc_opts = "".join(f"<option value='{k}'>{e(v['ro'])}</option>"
+                          for k, v in eng.SERVICES.items())
+    today_iso = now.date().isoformat()
+    kpi_json = json.dumps(kpi_panels, ensure_ascii=True).replace("</", "<\\/")
+    docs_json = json.dumps(doc_meta, ensure_ascii=True).replace("</", "<\\/")
+    dialogs = f"""<dialog id='apptdlg'>
+  <div class='dlg-head'><span>📅 Programare — {e(p['name'] or '—')}</span>
+    <button type='button' onclick="document.getElementById('apptdlg').close()">✕</button></div>
+  <form class='dlg-form' method='post' action='{base}/appoint'>
+    <label class='dlab'>Serviciu
+      <select name='aservice' id='ap_svc' onchange='apRefresh(1)'>{ap_svc_opts}</select></label>
+    <label class='dlab'>Medic
+      <select name='adoctor' id='ap_doc' onchange='apRefresh(0)'></select></label>
+    <label class='dlab'>Data
+      <input type='date' name='adate' id='ap_date' value='{today_iso}'
+        min='{today_iso}' onchange='apRefresh(0)'></label>
+    <label class='dlab'>Ora — doar intervalele libere
+      <select name='atime' id='ap_time' required></select></label>
+    <p class='hint' id='ap_hint' style='margin:0'></p>
+    <button id='ap_go'>Adaugă programarea</button>
+  </form>
+</dialog>
+<dialog id='kpidlg' class='wide'>
+  <div class='dlg-head'><span id='kpi_t'>—</span>
+    <button type='button' onclick='closeKpi()'>✕</button></div>
+  <div class='lbody' id='kpi_b'></div>
+</dialog>
+<dialog id='docdlg' class='wide'>
+  <div class='dlg-head'><span id='dv_t'>—</span>
+    <button type='button' onclick="document.getElementById('docdlg').close()">✕</button></div>
+  <div class='dvbody' id='dv_b'></div>
+  <div class='dvacts'>
+    <button type='button' onclick='sysOpen(DV_ID)'>🖥 Deschide în alt program</button>
+    <a id='dv_dl' href='#'>⬇️ Salvează pe disc</a>
+  </div>
+</dialog>"""
 
     body = f"""{banner}
 <div class='nav'><a href='/admin/search'>← Pacienți</a>
@@ -3268,7 +3416,94 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
   <div class='pv2-main'>{teeth_card}{plan_card}{docs_card}{quick}</div>
   <div class='pv2-side'>{next_html}{act_card}{profile_card}{alerts_card}{hist_card}</div>
 </div>
+{dialogs}
 <script>
+const BASE = "{base}";
+const AP_DOCS = {json.dumps(ap_svc_docs, ensure_ascii=True)};
+const AP_NAMES = {json.dumps(dict(eng.ACTIVE_DOCTORS), ensure_ascii=True)};
+const AP_PRIM = "{ap_prim}";
+const KPI = {kpi_json};
+const DOCS = {docs_json};
+let DV_ID = 0;
+// ---- запись прямо из фиши: пациент известен, спрашиваем только визит ----
+function openAppt() {{
+  document.getElementById('apptdlg').showModal();
+  apRefresh(1);
+}}
+function apRefresh(rebuild) {{
+  var svc = document.getElementById('ap_svc').value;
+  var sel = document.getElementById('ap_doc');
+  if (rebuild) {{
+    var keep = sel.value, list = AP_DOCS[svc] || [];
+    sel.innerHTML = '';
+    list.forEach(function (k) {{
+      var o = document.createElement('option');
+      o.value = k; o.textContent = AP_NAMES[k] || k; sel.appendChild(o);
+    }});
+    if (list.indexOf(keep) >= 0) sel.value = keep;
+    else if (list.indexOf(AP_PRIM) >= 0) sel.value = AP_PRIM;
+  }}
+  var t = document.getElementById('ap_time'), hint = document.getElementById('ap_hint');
+  var go = document.getElementById('ap_go'), d = document.getElementById('ap_date').value;
+  t.innerHTML = ''; go.disabled = true;
+  if (!sel.value) {{ hint.textContent = 'Niciun medic activ pentru acest serviciu.'; return; }}
+  hint.textContent = 'Caut orele libere…';
+  fetch(BASE + '/slots?date=' + encodeURIComponent(d) + '&doctor=' +
+        encodeURIComponent(sel.value) + '&service=' + encodeURIComponent(svc))
+    .then(function (r) {{ return r.json(); }})
+    .then(function (j) {{
+      var s = j.slots || [];
+      s.forEach(function (x) {{
+        var o = document.createElement('option');
+        o.value = x; o.textContent = x; t.appendChild(o);
+      }});
+      hint.textContent = s.length
+        ? s.length + ' intervale libere în această zi'
+        : 'Nicio oră liberă — alegeți altă zi sau alt medic.';
+      go.disabled = !s.length;
+    }})
+    .catch(function () {{ hint.textContent = 'Nu am putut încărca orele libere.'; }});
+}}
+// ---- цифра → список, из которого она посчитана ----
+function openKpi(k) {{
+  var p = KPI[k];
+  if (!p) return;
+  document.getElementById('kpi_t').textContent = p[0];
+  document.getElementById('kpi_b').innerHTML = p[1];
+  document.getElementById('kpidlg').showModal();
+}}
+function closeKpi() {{ document.getElementById('kpidlg').close(); }}
+function copyId(el) {{
+  if (navigator.clipboard) navigator.clipboard.writeText(el.dataset.id);
+  var was = el.textContent;
+  el.textContent = 'copiat ✔';
+  setTimeout(function () {{ el.textContent = was; }}, 1200);
+}}
+// ---- документ открываем, а не скачиваем ----
+function openDoc(id) {{
+  var d = DOCS[id];
+  if (!d) return true;                     // нет данных — пусть сработает ссылка
+  if (d.view === 'ext') {{ sysOpen(id); return false; }}
+  DV_ID = id;
+  document.getElementById('dv_t').textContent = d.name;
+  document.getElementById('dv_dl').href = '/admin/doc/' + id;
+  document.getElementById('dv_b').innerHTML = (d.view === 'img')
+    ? '<img src="/admin/doc/' + id + '?inline=1" alt="">'
+    : '<iframe src="/admin/doc/' + id + '?inline=1"></iframe>';
+  document.getElementById('docdlg').showModal();
+  return false;
+}}
+// Word/Excel и прочее открывает Windows; облачный журнал так не умеет —
+// там честно откатываемся на скачивание
+function sysOpen(id) {{
+  fetch('/admin/doc/' + id + '/open', {{method: 'POST'}})
+    .then(function (r) {{ return r.json(); }})
+    .then(function (j) {{ if (!j.ok) location.href = '/admin/doc/' + id; }})
+    .catch(function () {{ location.href = '/admin/doc/' + id; }});
+}}
+document.getElementById('docdlg').addEventListener('close', function () {{
+  document.getElementById('dv_b').innerHTML = '';
+}});
 function planTab(btn) {{
   document.querySelectorAll('.tabs button').forEach(function (b) {{
     b.classList.toggle('on', b === btn);
@@ -3323,6 +3558,61 @@ async def patient_save(request: Request, pid: int):
         # возраст в поиске/сетке/CSV считается по birth_year — держим в синке
         await db.set_birth_year(pid, bd_year)
     return _card_redirect(pid, "ok_card")
+
+
+@app.get("/admin/patient/{pid}/slots")
+async def patient_slots(request: Request, pid: int,
+                        date_q: str = Query("", alias="date"),
+                        doctor: str = "", service: str = ""):
+    """Свободные старты у врача на дату — для окна записи прямо из фиши.
+    Тот же eng.free_starts, что у бота: одна правда о занятости на всех."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if doctor not in eng.DOCTORS or service not in eng.SERVICES:
+        return JSONResponse({"slots": []})
+    try:
+        d = date.fromisoformat(date_q)
+    except ValueError:
+        return JSONResponse({"slots": []})
+    allowed = [k for k, _n in eng.allowed_doc_items(service)]
+    if doctor not in allowed:
+        return JSONResponse({"slots": []})  # услугу этот врач не выполняет
+    free = await eng.free_starts(doctor, d, eng.svc_duration(service), allowed)
+    return JSONResponse({"slots": [x.strftime("%H:%M") for x in free]})
+
+
+@app.post("/admin/patient/{pid}/appoint")
+async def patient_appoint(request: Request, pid: int,
+                          adate: str = Form(...), atime: str = Form(...),
+                          adoctor: str = Form(...), aservice: str = Form(...)):
+    """Запись из фиши: пациент берётся по id страницы, а не по имени/телефону
+    из формы — визит физически не может уехать однофамильцу."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    try:
+        d = date.fromisoformat(adate)
+        hh, mm = atime.split(":")
+        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
+    except (ValueError, AttributeError):
+        return _card_redirect(pid, "bad")
+    doctor = eng.DOCTORS.get(adoctor)
+    svc = eng.SERVICES.get(aservice)
+    if not doctor or not svc or dt.minute not in (0, 30):
+        return _card_redirect(pid, "bad")
+    if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
+        return _card_redirect(pid, "bad")   # выключенному врачу не пишем
+    if adoctor not in [k for k, _n in eng.allowed_doc_items(aservice)]:
+        return _card_redirect(pid, "bad")
+    dur = eng.svc_duration(aservice)
+    if not eng.fits_clinic(dt, dur):
+        return _card_redirect(pid, "outside")
+    r = await db.add_visit_for_patient(pid, svc["ro"], doctor, dt,
+                                       doctor_id=adoctor, service_id=aservice,
+                                       duration_min=dur)
+    return _card_redirect(pid, "ok" if isinstance(r, int)
+                          else ("dup" if r == "dup" else "conflict"))
 
 
 @app.post("/admin/patient/{pid}/archive")
@@ -3461,6 +3751,9 @@ async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File
 # ⛔ SVG и HTML сюда НЕ входят: файл с того же origin, показанный inline, — это
 # чужой скрипт в нашем журнале.
 _INLINE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+# PDF смотрим внутри программы (в WebView2 свой просмотрщик), но множество
+# отдельное: миниатюры и <img> остаются только у растра.
+_PDF_MIME = {"application/pdf"}
 THUMB_PX = 320          # с запасом под ретину: карточка показывает 150x120
 
 
@@ -3505,10 +3798,58 @@ async def patient_doc_get(request: Request, doc_id: int, inline: str = "",
         if t:
             return FileResponse(t, media_type="image/jpeg")
         return FileResponse(d["stored_path"], media_type=mime)   # откат
-    if inline and mime in _INLINE_MIME:
-        # без filename= отдаётся inline; с ним браузер считает файл вложением
-        return FileResponse(d["stored_path"], media_type=mime)
+    if inline and mime in _INLINE_MIME | _PDF_MIME:
+        # без filename= отдаётся inline; с ним браузер считает файл вложением.
+        # nosniff: mime приходит от клиента при загрузке, и без запрета браузер
+        # волен «передумать» и исполнить .html, залитый как application/pdf
+        return FileResponse(d["stored_path"], media_type=mime,
+                            headers={"X-Content-Type-Options": "nosniff"})
     return FileResponse(d["stored_path"], filename=d["filename"], media_type=mime)
+
+
+def _open_copy(src: pathlib.Path, filename: str) -> pathlib.Path:
+    """Копия документа под ЧИТАЕМЫМ именем — для открытия внешней программой.
+    На диске файлы лежат под случайным hex (a1b2c3.docx), и Word показал бы
+    клинике именно его. Это кэш, а не второе хранилище: копии старше суток
+    удаляем, оригинал остаётся единственным."""
+    room = (_data_dir() or pathlib.Path("data")) / "open"
+    room.mkdir(parents=True, exist_ok=True)
+    now = datetime.now().timestamp()
+    for old in room.iterdir():
+        try:
+            if old.is_dir() and now - old.stat().st_mtime > 86400:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:
+            pass
+    safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_",
+                  pathlib.Path(filename or "document").name)[:120] or "document"
+    dst_dir = room / src.stem            # stem = случайный hex, уже уникален
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / safe
+    if not dst.exists() or dst.stat().st_size != src.stat().st_size:
+        shutil.copyfile(src, dst)
+    return dst
+
+
+@app.post("/admin/doc/{doc_id}/open")
+async def patient_doc_open(request: Request, doc_id: int):
+    """Открыть документ программой этого же компьютера (Word, Excel, просмотр
+    фото). Только настольное издание и только локальный запрос: журнал не
+    должен запускать программы на компьютере клиники по команде из сети."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    host = request.client.host if request.client else ""
+    if os.name != "nt" or host not in ("127.0.0.1", "::1"):
+        return JSONResponse({"ok": False, "err": "not_local"})
+    d = await db.get_document(doc_id)
+    if not d or not pathlib.Path(d["stored_path"]).exists():
+        return JSONResponse({"ok": False, "err": "missing"})
+    try:
+        os.startfile(_open_copy(pathlib.Path(d["stored_path"]), d["filename"]))
+    except OSError as ex:                     # нет ассоциации у расширения и т.п.
+        log.warning("startfile doc=%s: %r", doc_id, ex)
+        return JSONResponse({"ok": False, "err": "os"})
+    return JSONResponse({"ok": True})
 
 
 @app.post("/admin/patient/{pid}/doc/{doc_id}/del")

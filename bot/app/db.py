@@ -546,8 +546,16 @@ async def create_appointment(
     уже есть своя запись на это время. doctor/service = снапшоты подписи,
     doctor_id/service_id = стабильные ключи; duration_min = снапшот
     длительности услуги на момент брони."""
-    from datetime import timedelta
     pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
+    return await _book(pid, service, doctor, starts_at, source,
+                       doctor_id, service_id, duration_min)
+
+
+async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
+                source: str, doctor_id: str | None, service_id: str | None,
+                duration_min: int) -> int | str | None:
+    """Вставка визита пациенту, который УЖЕ известен по id. Контракт возврата
+    тот же, что у create_appointment (id / None / 'dup')."""
     async with _BOOK_LOCK:
         # интервальная проверка: uq-индексы ловят только одинаковые старты,
         # пересечение 10:00(60') с 10:30(60') обязано отсекаться здесь
@@ -601,6 +609,19 @@ async def admin_add(
         source="manual", birth_year=birth_year,
         doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
     )
+
+
+async def add_visit_for_patient(
+    pid: int, service: str, doctor: str, starts_at: datetime,
+    doctor_id: str | None = None, service_id: str | None = None,
+    duration_min: int = 60,
+) -> int | str | None:
+    """Запись ИЗ ФИШИ: пациент уже известен по id, дедупликация по телефону
+    здесь была бы вредна. Общий путь (`manual:{цифры}`) склеивает пациентов по
+    номеру, а у телеграм-пациента session_key 'tg:…' — визит из его же фиши
+    уехал бы новому пациенту-двойнику или соседу с тем же семейным номером."""
+    return await _book(pid, service, doctor, starts_at, "manual",
+                       doctor_id, service_id, duration_min)
 
 
 async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
