@@ -10,13 +10,20 @@ Two editions from one codebase: a **desktop app** (`DentPilot.exe`, SQLite next 
 exe, one clinic, one Windows machine) and a **cloud** stack (Docker + PostgreSQL, one VPS
 serving many clinics). The desktop edition is the one clinics actually install.
 
-> Screenshots and `clinic.json` in this repo use synthetic data. One `clinic.json` =
-> one clinic.
+> Screenshots and `clinic.json` in this repo use synthetic data — invented patients,
+> invented doctors. One `clinic.json` = one clinic.
 
 ## Screenshots
 
-> ⚠️ These are from an earlier release, before the interface redesign and the patient
-> card. They still show the structure correctly, but not the current look.
+**Patient card** — odontogram, treatment plan and the activity feed, with allergies and
+implant count pinned in the header:
+
+![Patient card](screenshots/patient-card.png)
+
+**Dashboard** — the day timeline: one column per doctor, blocks drawn to scale by duration,
+the "now" line, tiles with a trend against yesterday, and the "new from the bot" rail:
+
+![Dashboard](screenshots/admin-dashboard.png)
 
 **Patient books from a phone** — opened via the QR page / a link in the clinic's Instagram bio:
 
@@ -26,28 +33,32 @@ serving many clinics). The desktop edition is the one clinics actually install.
 
 ![Journal grid](screenshots/admin-grid.png)
 
-**Dashboard** — the day timeline with per-doctor columns:
+**Week view** — seven columns of chips with a per-week total:
 
-![Dashboard](screenshots/admin-dashboard.png)
+![Week view](screenshots/admin-week.png)
+
+**Doctors** — one card per doctor with state, load and 30-day figures:
+
+![Doctors](screenshots/doctors.png)
+
+**Click "+" on any free slot** — book a patient or leave a note that blocks the slot for the bot too:
+
+<img src="screenshots/slot-modal.png" width="620" alt="Slot modal">
 
 **Owner stats** — no-shows priced in MDL from the clinic's own price list, value brought
 by the bot, per-doctor occupancy:
 
 ![Stats](screenshots/stats.png)
 
-**Patient search** by name or phone digits, with visit history and comments:
+**Patient search** by name or phone digits, ignoring diacritics, with recent visits:
 
 <img src="screenshots/patient-search.png" width="680" alt="Patient search">
-
-**Click "+" on any free slot** — book a patient or leave a note that blocks the slot for the bot too:
-
-<img src="screenshots/slot-modal.png" width="430" alt="Slot modal">
 
 **Per-doctor day view** and the **live-demo QR page** (temporary Cloudflare tunnel):
 
 ![Doctor day](screenshots/doctor-day.png)
 
-<img src="screenshots/demo-qr.png" width="560" alt="QR demo page">
+<img src="screenshots/demo-qr.png" width="500" alt="QR demo page">
 
 ## Patient side (web chat + Telegram, RO/RU)
 
@@ -133,7 +144,7 @@ then a two-column workspace.
 - **Odontogram** — 32 teeth in FDI notation (upper 18→28, lower 48→38), each drawn as an
   actual tooth in SVG rather than a coloured box: roots follow anatomy (three on upper
   molars, two on lower ones and on the upper first premolar), an implant replaces the root
-  with a threaded screw, endodontic treatment shows canal lines, an extraction a cross, a
+  with a threaded screw, *in treatment* draws the root-canal axes, an extraction a cross, a
   missing tooth a dashed ghost. Clicking a tooth sets one of eight states (healthy, caries,
   filling, crown, implant, in treatment, extracted, missing) with the doctor and a short
   note; the dialog lists that tooth's own history. All 32 teeth come from one parametric
