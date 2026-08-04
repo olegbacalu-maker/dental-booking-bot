@@ -2501,6 +2501,9 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
     lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
     out, done = [], False
     for ln in lines:
+        # пустые не переносим: у уже раздутых файлов это лечит прошлые сохранения
+        if not ln.strip():
+            continue
         if ln.strip().startswith("TELEGRAM_TOKEN="):
             out.append(f"TELEGRAM_TOKEN={tok}")
             done = True
@@ -2508,7 +2511,12 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
             out.append(ln)
     if not done:
         out.append(f"TELEGRAM_TOKEN={tok}")
-    p.write_text("\r\n".join(out) + "\r\n", encoding="utf-8")
+    # \n, а НЕ \r\n: write_text открывает файл с newline=None и сам переводит \n
+    # в os.linesep. Явный \r\n давал \r\r\n — а splitlines() видит в этом два
+    # перевода строки, поэтому файл РОС ВДВОЕ на каждом сохранении (замерено:
+    # 2 строки -> 8 -> 16 -> 32). Прочие ключи при этом уцелевали, но файл,
+    # который клиника правит руками, становился нечитаемым.
+    p.write_text("\n".join(out) + "\n", encoding="utf-8")
     os.environ["TELEGRAM_TOKEN"] = tok
     if upd.restart_app() is not None:
         # dev-режим/тест-хук: перезапуск не случился — просто баннер
