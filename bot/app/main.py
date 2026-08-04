@@ -163,6 +163,11 @@ MSG_BANNER = {
     "ok_past": ("warn", "Programare adăugată ✔ — atenție: este pe o zi trecută. "
                         "Verificați data dacă nu ați vrut asta"),
     "bad": ("err", "Date invalide — verificați câmpurile"),
+    "bad_name": ("err", "Lipsește numele pacientului"),
+    "bad_phone": ("err", "Telefonul are mai puțin de 8 cifre — verificați numărul"),
+    "bad_off": ("err", "Medicul nu este activ (concediu sau arhivat) — "
+                       "alegeți alt medic sau readuceți-l din concediu în Medici"),
+    "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
     "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
     "ok_comment": ("ok", "Comentariu salvat ✔"),
     "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
@@ -1068,6 +1073,11 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                    f"<br><small style='font-weight:400;opacity:.8'>{html.escape(spec)}</small></th>")
     out.append("</tr>")
     starts, covered = active
+    # ⚠️ выключенному врачу писать нельзя (проверка в /admin/add), а «+» у него
+    # рисовался наравне со всеми: клик открывал модалку, и любая отправка
+    # возвращалась с «Date invalide» — тупик без единого намёка на причину.
+    off = {dk for dk, _n in doctors_items
+           if not eng.DOCTOR_META.get(dk, {}).get("active", True)}
     for h in hours:
         out.append(f"<tr><td class='hour'>{h:02d}:00</td>")
         for dk, dname in doctors_items:
@@ -1076,6 +1086,8 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                 if (dk, h) in covered or (dname, h) in covered:
                     # час накрыт длинным визитом — «+» тут врал бы
                     out.append("<td><div class='appt busy'>⏳ ocupat</div></td>")
+                elif dk in off:
+                    out.append("<td></td>")
                 else:
                     args = html.escape(json.dumps([dk, dname, f"{h:02d}:00"]), quote=True)
                     out.append(
@@ -3617,7 +3629,7 @@ async def patient_appoint(request: Request, pid: int,
     if not doctor or not svc or dt.minute not in (0, 30):
         return _card_redirect(pid, "bad")
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
-        return _card_redirect(pid, "bad")   # выключенному врачу не пишем
+        return _card_redirect(pid, "bad_off")   # выключенному врачу не пишем
     if adoctor not in [k for k, _n in eng.allowed_doc_items(aservice)]:
         return _card_redirect(pid, "bad")
     # окно даёт только свободные будущие часы, но вкладку могли открыть утром:
@@ -4607,12 +4619,19 @@ async def admin_add(
     name = aname.strip()[:80]
     phone = aphone.strip()[:25]
     digits = "".join(ch for ch in phone if ch.isdigit())
-    if not doctor or not svc or not name or len(digits) < 8:
+    # ⚠️ пять разных причин отвечали одним «Date invalide — verificați
+    # câmpurile». По такому баннеру не видно, какое поле чинить, и отказ
+    # читается как «программа не работает». Каждая причина называет себя.
+    if not doctor or not svc:
         return _back_redirect(back, adate, "bad")
+    if not name:
+        return _back_redirect(back, adate, "bad_name")
+    if len(digits) < 8:
+        return _back_redirect(back, adate, "bad_phone")
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
-        return _back_redirect(back, adate, "bad")  # выключенному врачу не пишем
+        return _back_redirect(back, adate, "bad_off")  # выключенному не пишем
     if dt.minute not in (0, 30):
-        return _back_redirect(back, adate, "bad")  # 30-мин сетка стартов
+        return _back_redirect(back, adate, "bad_time")  # 30-мин сетка стартов
     if not eng.fits_clinic(dt, eng.svc_duration(aservice)):
         # визит не помещается в рабочее окно клиники (закрытие/обед)
         return _back_redirect(back, adate, "outside")
