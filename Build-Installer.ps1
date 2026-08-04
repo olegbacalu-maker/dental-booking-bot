@@ -48,11 +48,17 @@ if ($SkipApp) {
     # esli lokalnye kommity ne uehali - teg lyazhet na STARYI kod, a binarnik
     # budet sobran iz novogo. Imenno tot razryv, ot kotorogo zashchishchaet
     # proverka vyshe, tolko na odin shag dalshe.
-    git fetch --quiet origin 2>$null
+    # Windows PowerShell prevrashchaet LYUBOI stderr native-komandy v oshibku, a
+    # pri $ErrorActionPreference=Stop - v terminiruyushchuyu. Poetomu "net seti"
+    # i "net upstream" ubivali sborku vmesto predupreghdenii nizhe: obe vetki
+    # byli nedostizhimy, i sobrat s vetki bez upstream bylo nelzya voobshche.
+    # try/catch vozvrashchaet im zadumannoe povedenie, ne oslablyaya Fail nizhe.
+    try { git fetch --quiet origin 2>$null } catch { $global:LASTEXITCODE = 1 }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "!! git fetch ne udalsya (net seti?) - sravnivayu s tem, chto est lokalno" -ForegroundColor Yellow
     }
-    $upstream = git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>$null
+    $upstream = $null
+    try { $upstream = git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>$null } catch { }
     if (-not $upstream) {
         Write-Host "!! u vetki net upstream - proverit, zapushen li kommit, nechem" -ForegroundColor Yellow
     } else {
