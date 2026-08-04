@@ -1,11 +1,16 @@
-"""Проверка канала «черновик» — работает ли токен и видит ли машина черновики.
+"""Какой канал обновлений у этой машины и видит ли она то, что должна.
 
     python scripts/check_token.py
 
-Токен НЕ печатается и никуда не отправляется, кроме api.github.com. Скрипт
-ищет его сам: сначала в переменной окружения, потом в dental.env установленной
-программы. Нужен, чтобы не выяснять «а почему обновление не приходит» уже во
-время выпуска.
+Обычный ответ сегодня — канал `beta`: машина берёт пре-релизы раньше клиник, и
+ключ для этого не нужен. Канал `draft` (черновики) остался для редкого случая
+и требует токен с правом ЗАПИСИ — чтения GitHub для черновиков НЕ хватает.
+
+Настройки ищутся тем же порядком, что и в самой программе: переменная
+окружения, затем dental.env установленной копии. Токен, если он есть, не
+печатается и никуда не отправляется, кроме api.github.com.
+
+Нужен, чтобы не выяснять «а почему обновление не приходит» уже во время выпуска.
 """
 from __future__ import annotations
 
@@ -30,22 +35,32 @@ CANDIDATES = [
 ]
 
 
-def find_token() -> tuple[str, str]:
-    """(токен, откуда взят). Пустой токен = канал stable."""
-    env = (os.environ.get("DENTART_UPDATE_TOKEN") or "").strip()
+def find_setting(key: str) -> tuple[str, str]:
+    """(значение, откуда взято) — ровно тем же порядком, что и сама программа:
+    сперва окружение, потом dental.env установленной копии.
+
+    Искать в dental.env нужно ЛЮБУЮ настройку, а не только токен: канал тоже
+    живёт там, и проверка, смотревшая на него лишь в переменных окружения,
+    советовала вписать строку, которая уже вписана."""
+    env = (os.environ.get(key) or "").strip().strip("\"'")
     if env:
-        return env, "переменная окружения DENTART_UPDATE_TOKEN"
+        return env, f"переменная окружения {key}"
     for d in CANDIDATES:
         f = d / "dental.env"
         if not f.exists():
             continue
         for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
-            if line.startswith("DENTART_UPDATE_TOKEN=") and not line.startswith("#"):
+            if line.startswith(f"{key}=") and not line.startswith("#"):
                 val = line.split("=", 1)[1].strip().strip("\"'")
                 if val:
                     return val, str(f)
     return "", ""
+
+
+def find_token() -> tuple[str, str]:
+    """(токен, откуда взят). Пустой токен = черновики не видны."""
+    return find_setting("DENTART_UPDATE_TOKEN")
 
 
 def bad_chars(token: str) -> str:
@@ -69,24 +84,51 @@ def api(path: str, token: str):
         return json.load(r)
 
 
+def show_prereleases() -> int:
+    """Что канал beta реально возьмёт и что при этом достанется клинике.
+
+    Обе строки печатаем всегда: канарейка ценна не тем, что видит новое, а тем,
+    что клиника в тот же момент видит СТАРОЕ. Одну цифру без второй читать
+    бессмысленно."""
+    try:
+        rels = api("/releases?per_page=100", "")     # без токена — как клиника
+        latest = api("/releases/latest", "")
+    except Exception as e:  # noqa: BLE001
+        print(f"\n✗ Не удалось спросить GitHub: {e}")
+        return 1
+    pre = [r for r in rels if r.get("prerelease")]
+    print(f"\nКлиника сейчас получает: {latest.get('tag_name')}")
+    if not pre:
+        print("Пре-релизов нет — канал beta пока показывает то же самое.")
+        print("Чтобы проверить его: выпустите релиз с галочкой "
+              "«Set as a pre-release» (именно Publish, не Save draft).")
+        return 0
+    for r in pre:
+        files = [a.get("name") for a in r.get("assets", [])]
+        print(f"  🧪 пре-релиз {r.get('tag_name')} — файлы: "
+              f"{', '.join(files) if files else 'НЕТ (обновляться нечем)'}")
+    print("Эти версии ваша машина видит, а клиники — нет.")
+    return 0
+
+
 def main() -> int:
     token, where = find_token()
     if not token:
-        print("Токен не найден — черновики этой машине не видны.")
-        ch = (os.environ.get("DENTART_CHANNEL") or "").strip().strip("\"'").lower()
-        if ch in ("beta", "test", "canary"):
-            print(f"НО канал = {ch}: машина видит ПРЕ-РЕЛИЗЫ, и токен для этого "
-                  "не нужен. Для канарейки этого обычно достаточно.")
-        else:
-            print("Канал beta (пре-релизы, без всякого ключа) включается строкой "
-                  "DENTART_CHANNEL=beta в dental.env.")
-        print("Проверенные места:")
-        print("  · переменная окружения DENTART_UPDATE_TOKEN")
+        ch_val, ch_where = find_setting("DENTART_CHANNEL")
+        if ch_val.lower() in ("beta", "test", "canary"):
+            print(f"✓ Канал = {ch_val} ({ch_where})")
+            print("  Машина видит ПРЕ-РЕЛИЗЫ раньше клиник, и ключ для этого "
+                  "не нужен — это рабочее состояние канарейки.")
+            print("  Черновики так не видны (для них нужен токен с правом "
+                  "записи), но они и не требуются.")
+            return show_prereleases()
+        print("Канал = stable: эта машина обновляется как клиника.")
+        print("  Канарейка без всякого ключа включается строкой "
+              "DENTART_CHANNEL=beta в dental.env:")
         for d in CANDIDATES:
-            print(f"  · {d / 'dental.env'}" + ("" if (d / "dental.env").exists()
-                                               else "   (файла нет)"))
-        print("\nЭто НЕ ошибка: без токена программа обновляется только с "
-              "опубликованных релизов.")
+            if (d / "dental.env").exists():
+                print(f"    {d / 'dental.env'}")
+        print("  Токена нет тоже — значит и черновики не видны. Это НЕ ошибка.")
         return 0
 
     print(f"Токен найден: {where}")
