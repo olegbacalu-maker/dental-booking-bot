@@ -21,10 +21,12 @@ import sys
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from bot.app.repo import REPO  # noqa: E402 — один адрес на весь проект
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-REPO = "olegbacalu-maker/dental-booking-bot"
 API = f"https://api.github.com/repos/{REPO}"
 
 # где программа может стоять: общая папка (с v1.10.0), старый путь, профиль

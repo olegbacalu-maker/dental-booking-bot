@@ -18,10 +18,11 @@ import time
 import urllib.request
 
 from . import engine as eng
+from . import repo
 
 log = logging.getLogger("update")
 
-REPO = "olegbacalu-maker/dental-booking-bot"
+REPO = repo.REPO
 
 # Имена ассетов, которые ЯВЛЯЮТСЯ самой программой. Рядом в релизе может лежать
 # инсталлятор для новых клиник — его качать нельзя: bat подменил бы им работающую
