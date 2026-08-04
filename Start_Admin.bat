@@ -1,6 +1,7 @@
 @echo off
 title DentPilot Admin
-cd /d D:\bot-sandbox\dental-demo
+rem %~dp0 = papka etogo faila: ne lomaetsya pri pereezde proekta
+cd /d %~dp0
 docker info >nul 2>&1
 if errorlevel 1 (
   echo Docker ne zapushchen. Zapusti: wscript D:\Docker\start-docker.vbs i podozhdi ikonku kita, potom povtori.

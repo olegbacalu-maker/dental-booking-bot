@@ -16,7 +16,7 @@
 # stroka otklyuchaet kopirovanie. dist ostaetsya vyhodom sborki i
 # perezapisyvaetsya kazhdym bildom, poetomu "chto otdavat klinike" zhivet
 # otdelno i ne teryaetsya.
-param([switch]$SkipApp, [string]$SetupDir = "D:\DentPilot_Setup")
+param([switch]$SkipApp, [string]$SetupDir = "D:\DentProject\releases")
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 

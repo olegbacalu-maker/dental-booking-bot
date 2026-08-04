@@ -7,8 +7,12 @@ $venv = ".venv-desktop"
 if (-not (Test-Path $venv)) {
     py -3 -m venv $venv
 }
+# ⚠️ Vyzyvaem CHEREZ MODUL, a ne pip.exe/pyinstaller.exe. Eti obolochki - exe s
+# VSHITYM putem k interpretatoru: posle pereezda papki proekta oni molcha
+# vozvrashchayut kod 1 s pustym vyvodom (proveryeno pri pereezde v D:\DentProject).
+# python.exe zhe nahodit svoi venv po sobstvennomu raspolozheniyu i perezzhaet.
 & "$venv\Scripts\python.exe" -m pip install --quiet --upgrade pip
-& "$venv\Scripts\pip.exe" install --quiet -r bot\requirements-desktop.txt pyinstaller
+& "$venv\Scripts\python.exe" -m pip install --quiet -r bot\requirements-desktop.txt pyinstaller
 
 if (-not (Test-Path "build")) { New-Item -ItemType Directory "build" | Out-Null }
 & "$venv\Scripts\python.exe" scripts\make_icon.py build\icon.ico
@@ -17,7 +21,7 @@ if (-not (Test-Path "build")) { New-Item -ItemType Directory "build" | Out-Null 
 # proshluyu versiyu na meste i Test-Path nizhe rapportuet "OK" o chuzhom faile.
 Remove-Item "dist\DentPilot.exe" -Force -EA SilentlyContinue
 
-& "$venv\Scripts\pyinstaller.exe" --noconfirm --clean --onefile --noconsole --name DentPilot `
+& "$venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --noconsole --name DentPilot `
     --icon "$PSScriptRoot\build\icon.ico" `
     --distpath dist --workpath build --specpath build `
     --add-data "$PSScriptRoot\bot\app\static;app\static" `
