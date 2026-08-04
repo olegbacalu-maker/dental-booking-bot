@@ -2884,7 +2884,7 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
     tmap = await db.teeth_map(pid)
     plan = await db.plan_items(pid)
     docs = await db.documents(pid)
-    visits = await db.patient_appointments(pid)
+    visits = await db.patient_appointments(pid, 1000)
     acts = await db.patient_activity(pid, 60)
     tooth_acts = await db.tooth_activity(pid)
     now = datetime.now(eng.TZ)
@@ -3425,6 +3425,7 @@ const AP_PRIM = "{ap_prim}";
 const KPI = {kpi_json};
 const DOCS = {docs_json};
 let DV_ID = 0;
+let AP_SEQ = 0;
 // ---- запись прямо из фиши: пациент известен, спрашиваем только визит ----
 function openAppt() {{
   document.getElementById('apptdlg').showModal();
@@ -3448,11 +3449,18 @@ function apRefresh(rebuild) {{
   t.innerHTML = ''; go.disabled = true;
   if (!sel.value) {{ hint.textContent = 'Niciun medic activ pentru acest serviciu.'; return; }}
   hint.textContent = 'Caut orele libere…';
+  // Меняя услугу/врача/дату подряд, легко оставить два запроса в полёте. Оба
+  // писали в один список, и он склеивался из ЛЮБЫХ двух ответов независимо от
+  // порядка прихода: список с подписью «только свободные часы» показывал часы
+  // чужого дня или чужого врача. Пишет только самый свежий запрос.
+  var seq = ++AP_SEQ;
   fetch(BASE + '/slots?date=' + encodeURIComponent(d) + '&doctor=' +
         encodeURIComponent(sel.value) + '&service=' + encodeURIComponent(svc))
     .then(function (r) {{ return r.json(); }})
     .then(function (j) {{
+      if (seq !== AP_SEQ) return;
       var s = j.slots || [];
+      t.innerHTML = '';
       s.forEach(function (x) {{
         var o = document.createElement('option');
         o.value = x; o.textContent = x; t.appendChild(o);
@@ -3462,7 +3470,10 @@ function apRefresh(rebuild) {{
         : 'Nicio oră liberă — alegeți altă zi sau alt medic.';
       go.disabled = !s.length;
     }})
-    .catch(function () {{ hint.textContent = 'Nu am putut încărca orele libere.'; }});
+    .catch(function () {{
+      if (seq !== AP_SEQ) return;
+      hint.textContent = 'Nu am putut încărca orele libere.';
+    }});
 }}
 // ---- цифра → список, из которого она посчитана ----
 function openKpi(k) {{
@@ -3826,9 +3837,29 @@ def _open_copy(src: pathlib.Path, filename: str) -> pathlib.Path:
     dst_dir = room / src.stem            # stem = случайный hex, уже уникален
     dst_dir.mkdir(parents=True, exist_ok=True)
     dst = dst_dir / safe
-    if not dst.exists() or dst.stat().st_size != src.stat().st_size:
+    # Копию НЕ обновляем, если она уже есть. Оригинал пишется ровно один раз
+    # (при загрузке) и больше не меняется — значит разойтись копия с ним может
+    # только по одной причине: врач открыл её в Word и что-то дописал. Прежняя
+    # проверка «размер не совпал → перезалить» затирала бы ровно эту работу.
+    # Обрывок недокопированного файла тут тоже возможен, но он сам исчезнет на
+    # суточной уборке выше, а стёртая правка не возвращается ничем.
+    if not dst.exists():
         shutil.copyfile(src, dst)
     return dst
+
+
+# Что разрешено отдавать чужой программе одним кликом: документы, изображения,
+# снимки. Загрузка документов пропускает ЛЮБОЕ расширение (regex .[a-z0-9]{1,9}),
+# то есть .exe/.bat/.ps1 ложатся в фишу наравне с .pdf. Пока по файлу кликали
+# ради скачивания, это была просто копия на диске; открытие через Windows
+# превратило бы один клик в запуск принесённой программы. Всё, чего нет в
+# списке, уезжает в скачивание — файл клинике доступен, но не исполняется.
+_OPEN_EXT = {
+    ".pdf", ".txt", ".rtf", ".csv",
+    ".doc", ".docx", ".odt", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp",
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic",
+    ".dcm", ".stl", ".ply", ".obj",          # снимки КЛКТ и модели сканера
+}
 
 
 @app.post("/admin/doc/{doc_id}/open")
@@ -3844,8 +3875,13 @@ async def patient_doc_open(request: Request, doc_id: int):
     d = await db.get_document(doc_id)
     if not d or not pathlib.Path(d["stored_path"]).exists():
         return JSONResponse({"ok": False, "err": "missing"})
+    src = pathlib.Path(d["stored_path"])
+    if src.suffix.lower() not in _OPEN_EXT:
+        return JSONResponse({"ok": False, "err": "ext"})
     try:
-        os.startfile(_open_copy(pathlib.Path(d["stored_path"]), d["filename"]))
+        # startfile не блокирует: ShellExecute возвращает управление сразу,
+        # не дожидаясь, пока Word нарисует окно
+        os.startfile(_open_copy(src, d["filename"]))
     except OSError as ex:                     # нет ассоциации у расширения и т.п.
         log.warning("startfile doc=%s: %r", doc_id, ex)
         return JSONResponse({"ok": False, "err": "os"})

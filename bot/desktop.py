@@ -192,6 +192,7 @@ def main() -> None:
             return
         try:
             import webview
+            webview.settings["ALLOW_DOWNLOADS"] = True   # см. комментарий ниже
             webview.create_window("DentPilot — registrul clinicii", URL,
                                   width=1280, height=860, min_size=(960, 640))
             webview.start()
@@ -245,6 +246,11 @@ def main() -> None:
         except Exception:  # noqa: BLE001 — не-Windows/без user32
             pass
         return
+    # pywebview по умолчанию ставит ALLOW_DOWNLOADS=False и ОТМЕНЯЕТ любое
+    # скачивание молча: ни диалога сохранения, ни ошибки, ни следа в окне.
+    # Из-за этого «Salvează pe disc» в фише и «📥 Export CSV» в журнале были
+    # мёртвыми кнопками — в браузерном режиме работали, в окне программы нет.
+    webview.settings["ALLOW_DOWNLOADS"] = True
     webview.create_window(
         "DentPilot — registrul clinicii", URL,
         width=1280, height=860, min_size=(960, 640),

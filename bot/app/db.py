@@ -928,15 +928,19 @@ async def search_patients(q: str) -> list:
     )
 
 
-async def patient_appointments(patient_id: int) -> list:
+async def patient_appointments(patient_id: int, limit: int = 20) -> list:
+    """Визиты пациента, свежие первыми. Предел по умолчанию — 20: столько
+    показывает страница поиска, которая рисует ЭТОТ список целиком для каждого
+    найденного пациента. Фише нужен весь список: на нём стоит цифра «визитов
+    всего», и с двадцаткой она врала бы у давнего пациента."""
     return await _fetch(
         """SELECT id, service, doctor, starts_at, status, source, comment
            FROM appointments WHERE patient_id = $1
-           ORDER BY starts_at DESC LIMIT 20""",
+           ORDER BY starts_at DESC LIMIT $2""",
         """SELECT id, service, doctor, starts_at, status, source, comment
            FROM appointments WHERE patient_id = ?
-           ORDER BY starts_at DESC LIMIT 20""",
-        patient_id,
+           ORDER BY starts_at DESC LIMIT ?""",
+        patient_id, limit,
     )
 
 
