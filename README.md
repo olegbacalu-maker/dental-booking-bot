@@ -147,10 +147,9 @@ then a two-column workspace.
   with a threaded screw, *in treatment* draws the root-canal axes, an extraction a cross, a
   missing tooth a dashed ghost. Clicking a tooth sets one of eight states (healthy, caries,
   filling, crown, implant, in treatment, extracted, missing) with the doctor and a short
-  note; the dialog lists that tooth's own history. All 32 teeth come from one parametric
-  generator ([`bot/app/teeth_svg.py`](bot/app/teeth_svg.py)) — a contour per tooth class, a
-  width coefficient and a root-count rule — so a change to the shape applies everywhere at
-  once instead of to 32 hand-drawn files.
+  note; the dialog lists that tooth's own history. The doctor's name is stored as a
+  snapshot, so renaming a doctor never rewrites tooth history. All 32 teeth are generated
+  from one description rather than drawn — see *Design decisions*.
 - **Treatment plan** — tooth, procedure, doctor, price in MDL, due date. Three statuses
   (planned → in progress → done) cycle with one button, tabs filter by status with counts,
   the total of the *unfinished* plan is shown in MDL, and an overdue item is flagged red.
@@ -225,13 +224,8 @@ to the exe, Telegram via long polling (no ports, no tunnel). Build with `Build-D
 - **Automatic backup on every start** into `data\backups\` through the SQLite backup API —
   consistent even after a crash with WAL — keeping the last 14. Point-in-time rollback
   without anyone running a script.
-- **One-click self-update** from GitHub Releases. The download is verified against the
-  release's byte size and SHA-256 before anything is swapped (a truncated download raises
-  no exception in `urllib` and used to overwrite the working program silently); the swap
-  script moves the running exe aside and restores it if the new one does not land, so a
-  failed update is distinguishable from a deleted program. The asset name is matched
-  exactly, so the setup exe sitting next to it in the same release can never be pulled in
-  as the program.
+- **One-click self-update** from GitHub Releases, verified before the swap and reversible
+  if it fails — see *Design decisions*.
 
 **Installer**: `Build-Installer.ps1` wraps that exe into a single
 `DentPilot-Setup-<version>.exe` (Inno Setup, [`installer/DentPilot.iss`](installer/DentPilot.iss))
@@ -244,14 +238,12 @@ end up with two separate databases. Upgrades reuse the existing folder: the data
 never touched, and uninstalling removes only the program, its shortcuts and the update
 leftovers.
 
-**Update channels.** Clinics stay on `stable`, which asks only `/releases/latest` — an
-endpoint that by construction has neither drafts nor pre-releases to leak, so the guard is
-the endpoint having nothing extra to show, not a filter that can be loosened by accident.
+**Update channels.** Clinics stay on `stable` and see only published releases.
 `DENTART_CHANNEL=beta` in `dental.env` makes one machine see pre-releases ahead of the
-clinics **with no credential at all**; `draft` additionally needs a GitHub token with write
-access (read is not enough — GitHub shows drafts only to callers who can write). A
-non-stable machine says so in Settings, so a canary box cannot be mistaken for a clinic's
-install. Release procedure: [RELEASE.md](RELEASE.md).
+clinics, **with no credential at all**; `draft` additionally needs a GitHub token with
+write access. A non-stable machine says so in Settings, so a canary box cannot be mistaken
+for a clinic's install. Why it is built this way: *Design decisions*. Release procedure:
+[RELEASE.md](RELEASE.md).
 
 ## Cloud edition — quick start
 
@@ -287,7 +279,7 @@ Access: the desktop journal is behind the PIN, and an empty `ADMIN_KEY` does not
 open journal — the setup screen appears instead. The cloud edition refuses to start
 without `ADMIN_KEY` (HMAC cookie); patient pages stay public by design.
 
-## Stack & design notes
+## Stack
 
 - FastAPI + Uvicorn; PostgreSQL 16 + asyncpg in the cloud, SQLite + aiosqlite on the
   desktop — one schema, two dialects, additive migrations.
@@ -296,19 +288,92 @@ without `ADMIN_KEY` (HMAC cookie); patient pages stay public by design.
   are two thin adapters over the same engine and database.
 - The admin journal and the bot share one database by design — "integration" is a query,
   not a sync job.
-- **Booking serialization**: unique indexes on `(doctor, starts_at)` and
-  `(patient_id, starts_at)` only catch *identical* starts, which stopped being sufficient
-  once appointments had durations — 10:00 for 60 min and 10:30 for 60 min collide without
-  sharing a start. So the overlap test and the insert run together under one lock. That
-  lock is per process: both editions run a single worker today (the desktop app has a
-  single-instance guard), and scaling the cloud edition past one worker would need the
-  check moved into the database.
-- The program's mark is defined once as geometry ([`bot/app/brand.py`](bot/app/brand.py))
-  and drawn two ways — PIL for the `.ico`, SVG for the interface — so the desktop icon and
-  the mark in the app cannot drift apart.
 - Reviewed adversarially (multi-agent code review); found issues (mid-flow text ejection,
   any-doctor race, DB exposed beyond loopback, stale-slot TOCTOU) are fixed and covered by
   regression scripts.
+
+## Design decisions
+
+The parts that were not obvious, and what each one cost to get right.
+
+### The odontogram is generated, not drawn
+
+32 teeth, eight states each, and the two arches are mirror images. Drawing that by hand is
+32 files that drift apart the first time the shape changes. Instead there is one contour
+per tooth class, a width coefficient and a root-count rule — upper molars three roots,
+lower molars and the upper first premolar two, everything else one — and the upper arch is
+the same code flipped ([`bot/app/teeth_svg.py`](bot/app/teeth_svg.py)).
+
+The same idea covers the brand: the program's mark exists once as geometry
+([`bot/app/brand.py`](bot/app/brand.py)) and is rendered two ways — PIL for the `.ico`
+Windows shows on the desktop, SVG for the interface. They cannot drift apart because there
+is nothing to keep in sync.
+
+### The canary channel carries no secret
+
+Before a release reaches clinics it runs for a day on one machine. The first version did
+that with GitHub **draft** releases, which are invisible without a token — so the canary
+machine had to keep a token that could push code, in a file next to the exe, in a folder
+every Windows account on that machine can read. That is a large payment for hiding a build
+from people who are not looking for it.
+
+**Pre-releases** cost nothing. They are public, so no key is involved, and a clinic still
+cannot reach one: on `stable` the updater asks exactly one endpoint, `/releases/latest`,
+which by construction serves neither drafts nor pre-releases. The guard is an endpoint
+with nothing extra to show, not a filter someone can loosen by accident later.
+
+Getting there cost an evening to a wrong conclusion. A read-only token reports *zero
+drafts* — not "access denied", just zero — because GitHub shows drafts only to callers who
+can write. Three sources agreed there was no draft; all three were blind for the same
+reason, which makes them one source. The lesson that stuck: a negative result needs proof
+that the instrument could have seen the thing at all.
+
+### Double-booking outlived its own defence
+
+Unique indexes on `(doctor, starts_at)` and `(patient_id, starts_at)` made overlapping
+bookings impossible — until appointments got durations. 10:00 for sixty minutes and 10:30
+for sixty minutes collide without sharing a start, and an index on the start column cannot
+see it. The real guard is an interval test and the insert under one lock.
+
+That lock is per process. Both editions run a single worker today (the desktop app has a
+single-instance guard), so it holds — and it is written down as a limit rather than left
+as an assumption for whoever scales the cloud edition past one worker.
+
+### A new clinic starts empty
+
+First launch writes a blank profile: one placeholder doctor, six generic services, no
+prices borrowed from someone else's list. The demo clinic is a second bundled profile,
+used only when the installer's demo checkbox left a flag next to the exe.
+
+This was a bug first. An early version left the demo doctors in a real clinic's journal,
+and a real patient can be booked to a doctor who does not exist — which is worse than a
+demo patient, because it looks like data rather than like a sample.
+
+### Updating without breaking the clinic
+
+One click, and the risk is that the clinic ends up with no working program at all. So the
+download is checked against the release's byte size and SHA-256 before anything is
+touched: a truncated 30 MB download raises no exception in `urllib` and used to overwrite
+the working exe in silence. The swap moves the running program aside and puts it back if
+the new file does not land, so a failed update is distinguishable from a deleted one. The
+asset name is matched exactly, because the installer sitting next to it in the same
+release would otherwise be pulled in as the program.
+
+Migrations are additive by rule — new columns, never a rewrite — because the desktop
+edition upgrades in place on a machine nobody administers, and there is no way to roll a
+clinic back at 9am on a Monday.
+
+### Guardrails that assume a tired receptionist
+
+The catalogue refuses edits that would silently empty the bot's menu: the last active
+doctor cannot be put on leave, and a service may not lose its last *active* performer — a
+list of doctors who are all on holiday does not count. That rule exists because it once
+did not: a service quietly vanished from the bot while the journal showed a green
+"saved" banner.
+
+In the same spirit, *arrived* keeps the slot occupied rather than freeing the hour, and
+returning a cancelled visit to an active status is refused if the interval has meanwhile
+been taken.
 
 ## Roadmap
 
@@ -327,4 +392,10 @@ date. O clinică nouă = un singur fișier `clinic.json`. / Система за�
 
 ## License
 
-MIT © Oleg Bacalu
+**Source-available, not open source.** © 2026 Oleg Bacalu, all rights reserved. The code
+is here to be read; using it in a product, redistributing it or building on it needs
+written permission — see [LICENSE](LICENSE). Versions published before 2026-08-04 went out
+under MIT, and that grant is not withdrawn for them.
+
+Compiled releases are licensed to the clinic that installs them, for its own use.
+Permissions: dentpilotpro@gmail.com
