@@ -23,13 +23,16 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 from . import brand
 from . import db
 from . import engine as eng
+from . import paths
 from . import teeth_svg as tsvg
 from . import update as upd
 
 app = FastAPI(title="DentPilot")
 log = logging.getLogger("web")
 
-STATIC = pathlib.Path(__file__).parent / "static"
+# путь считается от корня пакета, а не от расположения ЭТОГО файла: main.py
+# однажды разъедется по модулям, а статика останется на месте (см. paths.py)
+STATIC = paths.resource("static")
 
 
 @app.middleware("http")

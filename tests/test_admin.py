@@ -139,8 +139,14 @@ import json, sys
 sys.path.insert(0, r"%s")
 from datetime import datetime, timedelta, date
 from app import engine as eng
+from app import paths
 now = datetime.now(eng.TZ)
 out = {
+ "res_clinic":     paths.resource("clinic.json").exists(),
+ "res_clinic_new": paths.resource("clinic_new.json").exists(),
+ "res_static":     paths.resource("static").is_dir(),
+ "res_index":      paths.resource("static", "index.html").exists(),
+ "runtime_is_pkg": paths.runtime_dir() == paths.PKG_ROOT,
  "past_hour":      eng.is_past(now - timedelta(hours=1)),
  "future_hour":    eng.is_past(now + timedelta(hours=1)),
  "past_day":       eng.is_past_day(date.today() - timedelta(days=1)),
@@ -164,6 +170,13 @@ print(json.dumps(out))
         res.failed.append(("чистые функции: запуск", p.stderr[-500:]))
         return
     v = json.loads(p.stdout)
+    # якоря путей: то, из-за чего собранный exe не стартовал бы после переезда
+    res.check("демо-профиль клиники находится", v["res_clinic"], True)
+    res.check("пустой профиль клиники находится", v["res_clinic_new"], True)
+    res.check("папка static находится", v["res_static"], True)
+    res.check("страница пациента находится", v["res_index"], True)
+    res.check("вне сборки писать некуда, кроме корня пакета",
+              v["runtime_is_pkg"], True)
     res.check("прошедший час — в прошлом", v["past_hour"], True)
     res.check("будущий час — не в прошлом", v["future_hour"], False)
     res.check("вчерашний день закрыт", v["past_day"], True)

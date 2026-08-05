@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import db
+from . import db, paths
 
 TZ = ZoneInfo("Europe/Chisinau")
 
@@ -34,7 +34,7 @@ def _load_config() -> dict:
     if env_path:
         candidates.append(env_path)
         candidates.append(env_path + ".bak")
-    candidates.append(str(pathlib.Path(__file__).resolve().parent / "clinic.json"))
+    candidates.append(str(paths.resource("clinic.json")))
     for i, p in enumerate(candidates):
         try:
             with open(p, encoding="utf-8") as f:
@@ -283,8 +283,13 @@ def save_config(cfg: dict) -> str | None:
     антивирус, выдернутая вилка — и на диске оставался обрубок. Такой файл не
     парсится, а _load_config() молча берёт следующего кандидата — копию ДЕМО-
     клиники в самом exe, и клиника стартует с чужими врачами."""
+    # ⚠️ ПИШЕМ в runtime_dir, а не в resource(): у собранной программы вшитые
+    # файлы лежат во временной распаковке, и сохранённые настройки исчезли бы
+    # вместе с ней при закрытии. Настольный запуск всегда задаёт $CLINIC_CONFIG,
+    # так что до этой ветки дело не доходит — но подстраховка не должна вести
+    # в никуда.
     path = os.environ.get("CLINIC_CONFIG") or str(
-        pathlib.Path(__file__).resolve().parent / "clinic.json")
+        paths.runtime_dir() / "clinic.json")
     p = pathlib.Path(path)
     tmp = p.with_name(p.name + ".tmp")
     try:
