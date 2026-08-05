@@ -67,6 +67,15 @@ def main(base: str, password: str) -> int:
           "immutable" in r.header("Cache-Control"),
           f"Cache-Control: {r.header('Cache-Control')!r}")
 
+    # Маршруты вынесенных модулей. Если подпакет не попал в сборку, роутер не
+    # подключится и адрес ответит 404 — а страницы выше при этом будут целы,
+    # то есть без такой проверки потеря целого модуля выглядела бы как успех.
+    r = c.get("/admin/patient/999999")
+    check("маршруты модуля «пациенты» подключены",
+          r.status in (200, 303), f"код {r.status} (404 = модуль не в сборке)")
+    r = c.get("/admin/patient/999999/slots?date=2026-01-01&doctor=d1&service=consult")
+    check("действия карточки подключены", r.status == 200, f"код {r.status}")
+
     # бот-диалог: конфиг клиники прочитан из бандла
     r = c.post_json("/chat", {"session_id": "smoke", "message": "/start"})
     check("бот отвечает на /start",
