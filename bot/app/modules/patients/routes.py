@@ -29,7 +29,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse, Response)
+                               RedirectResponse)
 
 from ... import db
 from ... import engine as eng
@@ -1143,3 +1143,78 @@ async def patient_doc_del(request: Request, pid: int, doc_id: int):
         _thumb_path(d["stored_path"]).unlink(missing_ok=True)
         await db.delete_document(doc_id, pid)
     return _card_redirect(pid)
+
+
+@router.get("/admin/search", response_class=HTMLResponse)
+async def admin_search(request: Request, q: str = ""):
+    if (deny := _guard(request)) is not None:
+        return deny
+    q = q.strip()[:60]
+    now = datetime.now(eng.TZ)
+    blocks = []
+    if not q:
+        # стартовый вид «Pacienți»: последние пациенты, без поискового запроса
+        rec = await db.recent_patients(20)
+        if rec:
+            rrows = []
+            for p in rec:
+                chan = ("📱 Telegram" if (p["session_key"] or "").startswith("tg:")
+                        else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
+                        else "🌐 web")
+                pa = _age(p["birth_year"])
+                rrows.append(
+                    f"<tr><td><a class='plink' href='/admin/patient/{p['id']}'>"
+                    f"{html.escape(p['name'] or '—')}</a></td>"
+                    f"<td>{html.escape(p['phone'] or '—')}</td>"
+                    f"<td>{pa or '—'}</td><td>{chan}</td>"
+                    f"<td>{p['created_at'].astimezone(eng.TZ).strftime('%d.%m.%Y')}</td></tr>")
+            blocks.append(
+                "<h2>Pacienți recenți</h2><table class='list'>"
+                "<tr><th>Nume</th><th>Telefon</th><th>Vârstă</th><th>Canal</th>"
+                "<th>Înregistrat</th></tr>" + "".join(rrows) + "</table>")
+    if q:
+        patients = await db.search_patients(q)
+        if not patients:
+            blocks.append("<div class='banner err'>Nimic găsit. Încercați alt nume sau telefon.</div>")
+        for p in patients:
+            visits = await db.patient_appointments(p["id"])
+            chan = ("📱 Telegram" if (p["session_key"] or "").startswith("tg:")
+                    else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
+                    else "🌐 web")
+            upcoming = sum(1 for v in visits
+                           if v["status"] in LIVE_STATUSES and v["starts_at"] > now)
+            rows = []
+            for v in visits:
+                dt = v["starts_at"].astimezone(eng.TZ)
+                future = v["starts_at"] > now
+                day_link = f"/admin/all?date={dt.date().isoformat()}"
+                cmt = (f"<br><small style='color:#7a6a00'>💬 {html.escape(v['comment'][:60])}</small>"
+                       if v["comment"] else "")
+                rows.append(
+                    f"<tr class='{'' if future else 'vpast'}'>"
+                    f"<td>{dt.strftime('%d.%m.%Y %H:%M')}</td>"
+                    f"<td>{html.escape(v['service'])}{cmt}</td>"
+                    f"<td>{html.escape(v['doctor'])}</td>"
+                    f"<td>{STATUS_LABEL.get(v['status'], v['status'])}</td>"
+                    f"<td><a href='{day_link}'>→ ziua</a></td></tr>"
+                )
+            pa = _age(p["birth_year"])
+            age_meta = f" · {pa} ani ({p['birth_year']})" if pa else ""
+            blocks.append(
+                f"<div class='pcard'><h3><a class='plink' href='/admin/patient/{p['id']}'>"
+                f"{html.escape(p['name'] or '—')}</a> "
+                f"<a href='/admin/patient/{p['id']}' style='font-size:12px;font-weight:400'>📇 fișa →</a></h3>"
+                f"<div class='meta'>📞 {html.escape(p['phone'] or '—')}{age_meta} · {chan}"
+                f" · {len(visits)} vizite, {upcoming} viitoare</div>"
+                f"<table class='list'><tr><th>Când</th><th>Serviciu</th><th>Medic</th>"
+                f"<th>Status</th><th></th></tr>{''.join(rows)}</table></div>"
+            )
+    body = (
+        "<div class='nav'><a href='/admin'>🏠 Panou</a><a href='/admin/all'>📋 Toți medicii</a>"
+        f"<form class='searchf' method='get' action='/admin/search' style='margin-left:0'>"
+        f"<input name='q' value='{html.escape(q)}' placeholder='Nume sau telefon…' autofocus>"
+        f"<button>🔍 Caută</button></form></div>"
+        + "".join(blocks)
+        + ("" if q else "<p class='hint'>Căutați după nume (min. 2 litere) sau telefon (min. 3 cifre, orice format).</p>")
+    )
+    return _shell(body, "pacienți · căutare și istoric vizite", active="pat")
