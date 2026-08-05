@@ -204,6 +204,35 @@ A second clinic = a folder with its own `clinic.json` + a compose file pointing 
 same image — see [`examples/clinic-zambet/`](examples/clinic-zambet/): different doctors,
 services, prices and a Saturday off, zero code changes.
 
+## Tests
+
+```
+.venv-desktop\Scripts\python.exe tests\run_tests.py            # everything, ~12 s
+.venv-desktop\Scripts\python.exe tests\run_tests.py журнал     # one suite by name
+```
+
+Standard library only — no pytest, no httpx. `.venv-desktop` is the *build*
+environment, and whatever is installed there eventually ends up inside the exe;
+tests must also run where nobody can install packages.
+
+Each suite starts **its own server on a free port with its own temporary
+database** (Windows happily lets a second process bind a busy port and then
+routes requests to the first one, so a fixed port would silently test the wrong
+server). The clinic used is `tests/fixtures/clinic_test.json`: open every day
+07:00–21:00 so a Sunday-evening run fails on real breakage rather than on
+"clinic closed", one archived doctor, and one service nobody can perform.
+
+What is covered: the booking core (interval overlap, the patient's own hour,
+both past boundaries, every named refusal), booking from the patient card, visit
+statuses and slot notes, the bot dialogue end to end, page rendering, patient
+card, and settings hot-reload.
+
+`tests/smoke_exe.py` is separate and answers a different question — does the
+**built** program open its pages. `/health` replies without a single file on
+disk, so it never notices a lost `--add-data` or a broken path to `static`;
+those break only in the exe, at the clinic. `Build-Installer.ps1` runs it and
+refuses to package a binary whose pages do not open.
+
 ## Desktop edition
 
 A single `DentPilot.exe` (PyInstaller, ~29 MB): native app window (WebView2), SQLite next

@@ -91,11 +91,22 @@ if (Test-Path $lab) { Remove-Item $lab -Recurse -Force }
 New-Item -ItemType Directory -Force $lab | Out-Null
 Copy-Item "dist\DentPilot.exe" $lab
 $env:DENTART_BROWSER_MODE = "1"; $env:DENTART_NO_BROWSER = "1"; $env:DENTART_PORT = "$port"
+# ADMIN_KEY zadan, chtoby dymovoi test mog otkryt STRANICY, a ne tolko /health:
+# bez nego pustaya papka trebuet ekrana ustanovki PIN.
+$env:ADMIN_KEY = "smoke1234"
 $proc = Start-Process (Join-Path $lab "DentPilot.exe") -WorkingDirectory $lab -PassThru -WindowStyle Hidden
 $health = $null
 foreach ($i in 1..45) {
     try { $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 2; break }
     catch { Start-Sleep -Milliseconds 700 }
+}
+# /health otvechaet BEZ edinogo faila na diske, poetomu poteryannyi --add-data
+# (static, clinic.json) on ne lovit. Otkryvaem realnye stranicy.
+$smokeOut = ""
+$smokeCode = 1
+if ($health) {
+    $smokeOut = & ".venv-desktop\Scripts\python.exe" "tests\smoke_exe.py" "http://127.0.0.1:$port" "smoke1234" 2>&1 | Out-String
+    $smokeCode = $LASTEXITCODE
 }
 # Ubivaem DEREVO: onefile-sborka PyInstaller raspakovyvaetsya i zapuskaet
 # DOCHERNII process. Stop-Process po roditelyu ostavlyal ego zhit - on derzhal
@@ -104,10 +115,13 @@ foreach ($i in 1..45) {
 Start-Sleep -Milliseconds 800
 Remove-Item $lab -Recurse -Force -EA SilentlyContinue
 $env:DENTART_BROWSER_MODE = $null; $env:DENTART_NO_BROWSER = $null; $env:DENTART_PORT = $null
+$env:ADMIN_KEY = $null
 
 if (-not $health) { Fail "sobrannyi exe ne otvechaet na /health - on ne zapuskaetsya (proverte hidden-imports)" }
 $version = "$($health.version)"
 Write-Host "   exe zhivet i predstavlyaetsya kak $version"
+if ($smokeOut) { Write-Host $smokeOut.TrimEnd() }
+if ($smokeCode -ne 0) { Fail "stranicy sobrannoi programmy ne otkryvayutsya - sm. vyshe (poteryan --add-data? sbit put k static?)" }
 
 if (-not $SkipApp -and $version -ne $srcVersion) {
     Fail "exe soobshchaet $version, a v engine.py $srcVersion - sborka vzyala staryi binarnik"

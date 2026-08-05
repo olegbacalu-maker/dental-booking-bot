@@ -1,0 +1,63 @@
+{
+  "_comment": "Клиника для тестов. Без выходных НАМЕРЕННО: иначе прогон в воскресенье падал бы на 'клиника закрыта', а не на настоящей поломке. Часы 7-21 — это весь диапазон, который допускает экран настроек (HOUR_MIN/HOUR_MAX); шире ставить нельзя, engine.fits_clinic не умеет час 24. seed_demo=false — база стартует пустой, чтобы сценарии были воспроизводимы. d1 в архиве: на нём проверяется отказ выключенному врачу и услуга, которую некому выполнять.",
+  "name": "Clinica Test",
+  "phone": "+373 60 000 000",
+  "address": {
+    "ro": "str. Test 1, Cahul",
+    "ru": "ул. Тест 1, Кахул"
+  },
+  "hours": {
+    "mon": [7, 21],
+    "tue": [7, 21],
+    "wed": [7, 21],
+    "thu": [7, 21],
+    "fri": [7, 21],
+    "sat": [7, 21],
+    "sun": [7, 21]
+  },
+  "doctors": [
+    { "id": "d1", "name": "Dr. Arhivat Unu", "spec": "Terapie", "status": "arhivat" },
+    { "id": "d2", "name": "Dr. Activ Doi", "spec": "Chirurgie" },
+    { "id": "d3", "name": "Dr. Activ Trei", "spec": "Igienă" },
+    { "id": "d4", "name": "Dr. Activ Patru", "spec": "Protetică" }
+  ],
+  "services": [
+    {
+      "id": "consult",
+      "ro": "Consultație",
+      "ru": "Консультация",
+      "price": { "ro": "gratuit", "ru": "бесплатно" }
+    },
+    {
+      "id": "pain",
+      "ro": "Durere acută",
+      "ru": "Острая боль",
+      "urgent": true,
+      "docs": ["d1", "d2"],
+      "price": { "ro": "în aceeași zi", "ru": "в тот же день" }
+    },
+    {
+      "id": "hygiene",
+      "ro": "Igienizare",
+      "ru": "Гигиена",
+      "docs": ["d3"],
+      "price": "1000 MDL"
+    },
+    {
+      "id": "orphan",
+      "ro": "Serviciu fără medic",
+      "ru": "Услуга без врача",
+      "docs": ["d1"],
+      "price": "500 MDL"
+    },
+    {
+      "id": "long",
+      "ro": "Tratament lung",
+      "ru": "Долгое лечение",
+      "docs": ["d2"],
+      "duration": 120,
+      "price": "2000 MDL"
+    }
+  ],
+  "seed_demo": false
+}
