@@ -20,6 +20,13 @@ from .auth import _sec_warn
 
 FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
 
+# Единый диапазон часов для ВСЕХ выпадающих списков: часы клиники, обед,
+# личное окно врача. Раньше их было три разных (0-23 / 6-21 / 7-23) — клиника
+# видела в соседних полях разные наборы без всякой причины.
+# 07:00 — самая ранняя разумная смена; потолок 21:00 намеренно выше вечерних
+# 19-20, чтобы кабинет с поздним приёмом мог себя настроить.
+HOUR_MIN, HOUR_MAX = 7, 21
+
 
 # путь считается от корня пакета, а не от расположения ЭТОГО файла: main.py
 # однажды разъедется по модулям, а статика останется на месте (см. paths.py)
@@ -362,3 +369,26 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
          pattern="[0-9]*" maxlength="6" required>
   <button>Setează PIN</button>
 </form></body></html>"""
+
+
+_DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+_DOW_FULL = {"mon": "Luni", "tue": "Marți", "wed": "Miercuri", "thu": "Joi",
+             "fri": "Vineri", "sat": "Sâmbătă", "sun": "Duminică"}
+
+
+_DOC_STATE_RO = {"activ": "Activ", "concediu": "În concediu", "arhivat": "Arhivat"}
+
+
+def _doc_hours_text(dk: str) -> str:
+    meta = eng.DOCTOR_META.get(dk, {})
+    wf, wt = meta.get("work_from"), meta.get("work_to")
+    if wf is None and wt is None:
+        return "ca clinica"
+    a = f"{int(wf):02d}:00" if wf is not None else "deschidere"
+    b = f"{int(wt):02d}:00" if wt is not None else "închidere"
+    return f"{a}–{b}"
+
+
+
