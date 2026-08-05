@@ -119,22 +119,6 @@ def _banner(msg: str, d: date) -> str:
     return out
 
 
-REFRESH_JS = """
-<script>
-setInterval(function(){
-  if(document.querySelector("dialog[open]"))return;
-  var pe=document.getElementById("pedit");
-  if(pe&&pe.style.display!=="none")return;            // открыта форма профиля
-  var fi=document.querySelector("input[type=file]");
-  if(fi&&fi.files&&fi.files.length)return;            // выбран файл — не терять
-  var a=document.activeElement;
-  if(a&&a.closest&&a.closest("form"))return;          // любой ввод в форме
-  if(!a||(a.tagName!=="INPUT"&&a.tagName!=="SELECT"&&a.tagName!=="TEXTAREA"&&a.tagName!=="BUTTON"))location.reload();
-},12000);
-</script>
-"""
-
-
 _I = {  # компактные stroke-иконки сайдбара
     "home": "<path d='M3 10.5 12 3l9 7.5M5.5 9.5V21h13V9.5'/>",
     "cal": "<rect x='3.5' y='5' width='17' height='16' rx='2.5'/><path d='M3.5 10h17M8.5 3v4M15.5 3v4'/>",
@@ -278,22 +262,8 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
 <div class="brandcorner">🦷 <b>DentPilot</b> ·
 <a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
    title="{FEEDBACK_EMAIL}">💬 Feedback</a></div>
-<script>
-document.addEventListener('keydown',function(e){{
-  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){{
-    e.preventDefault();var q=document.getElementById('topq');if(q)q.focus();}}
-}});
-function pickName(inp){{
-  var out=document.getElementById(inp.id+'_n');
-  if(!out) return;
-  var f=inp.files&&inp.files[0];
-  out.textContent=f?f.name:'niciun fișier ales';
-  out.classList.toggle('on',!!f);
-}}
-var sfc=document.getElementById('sf_clock');
-if(sfc){{var t=new Date();sfc.textContent=('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);}}
-</script>
-{REFRESH_JS}</body></html>"""
+<script src="/static/js/panel.js?v={_asset_ver('js', 'panel.js')}"></script>
+</body></html>"""
 
 
 STATUS_LABEL = {

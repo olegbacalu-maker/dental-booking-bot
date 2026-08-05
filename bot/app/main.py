@@ -177,22 +177,30 @@ async def health() -> dict:
     return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
 
 
-@app.get("/static/css/{name}")
-async def static_css(name: str) -> Response:
-    """Оформление журнала. Кеш вечный намеренно: адрес несёт версию программы
-    (?v=…), поэтому после обновления браузер запросит новый файл, а между
-    обновлениями не будет тянуть 45 КБ на каждую автоперезагрузку страницы —
-    а она происходит раз в 12 секунд на каждом открытом экране."""
-    if not re.fullmatch(r"[a-z0-9_-]+\.css", name):
+_ASSET_MIME = {"css": "text/css", "js": "application/javascript"}
+
+
+@app.get("/static/{kind}/{name}")
+async def static_asset(kind: str, name: str) -> Response:
+    """Оформление и поведение журнала. Кеш вечный намеренно: адрес несёт версию
+    программы (?v=…), поэтому после обновления браузер запросит новый файл, а
+    между обновлениями не будет тянуть их на каждую автоперезагрузку страницы —
+    а она происходит раз в 12 секунд на каждом открытом экране.
+
+    Отдаём только css и js по строгому шаблону имени: каталог статики лежит
+    внутри сборки рядом с профилем клиники, и вытащить оттуда что-то ещё через
+    этот адрес быть не должно."""
+    mime = _ASSET_MIME.get(kind)
+    if not mime or not re.fullmatch(rf"[a-z0-9_-]+\.{kind}", name):
         return Response(status_code=404)
     try:
-        text = _asset("css", name)
+        text = _asset(kind, name)
     except OSError:
-        log.error("не читается стиль %s — интерфейс останется без оформления", name)
+        log.error("не читается %s/%s — страница останется без него", kind, name)
         return Response(status_code=404)
     cache = ("public, max-age=31536000, immutable" if paths.is_frozen()
              else "no-cache")
-    return Response(text, media_type="text/css",
+    return Response(text, media_type=mime,
                     headers={"Cache-Control": cache})
 
 

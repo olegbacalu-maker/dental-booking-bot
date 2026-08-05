@@ -86,6 +86,19 @@ def suite_pages(res: Result) -> None:
         res.ok("несуществующий стиль — 404",
                c.get("/static/css/nope.css").status == 404, "не 404")
 
+        # поведение страниц вынесено тем же приёмом, что и оформление
+        res.ok("страница подключает общий скрипт",
+               "/static/js/panel.js?v=" in page, "нет <script src> на panel.js")
+        js = c.get("/static/js/panel.js")
+        res.ok("скрипт отдаётся",
+               js.status == 200 and "setInterval" in js.body
+               and "pickName" in js.body, f"код {js.status}, {len(js.body)} б")
+        res.ok("скрипт отдаётся как javascript",
+               "javascript" in js.header("Content-Type"),
+               f"Content-Type: {js.header('Content-Type')!r}")
+        res.ok("чужой тип статики не отдаётся",
+               c.get("/static/txt/panel.txt").status == 404, "отдал не css/js")
+
 
 def suite_patient_card(res: Result) -> None:
     """Фиша: профиль, зубная формула, план лечения, алерты, архив."""

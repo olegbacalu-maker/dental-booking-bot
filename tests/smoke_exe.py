@@ -66,6 +66,10 @@ def main(base: str, password: str) -> int:
     check("стили кешируются у клиники",
           "immutable" in r.header("Cache-Control"),
           f"Cache-Control: {r.header('Cache-Control')!r}")
+    r = c.get("/static/js/panel.js")
+    check("общий скрипт отдаётся из сборки",
+          r.status == 200 and "setInterval" in r.body,
+          f"код {r.status}, {len(r.body)} б")
 
     # Маршруты вынесенных модулей. Если подпакет не попал в сборку, роутер не
     # подключится и адрес ответит 404 — а страницы выше при этом будут целы,
