@@ -34,6 +34,34 @@ log = logging.getLogger("web")
 # однажды разъедется по модулям, а статика останется на месте (см. paths.py)
 STATIC = paths.resource("static")
 
+_CSS_CACHE: dict[str, str] = {}
+
+
+def _asset(*parts: str) -> str:
+    """Текст файла из static/. В собранной программе читается один раз, при
+    запуске из исходников — каждый раз: правка стилей видна по F5, без
+    перезапуска сервера. Оформление правят чаще, чем код."""
+    key = "/".join(parts)
+    if paths.is_frozen() and key in _CSS_CACHE:
+        return _CSS_CACHE[key]
+    text = (STATIC.joinpath(*parts)).read_text(encoding="utf-8")
+    _CSS_CACHE[key] = text
+    return text
+
+
+def _asset_ver(*parts: str) -> str:
+    """Метка версии в адресе файла — ею сбрасывается кеш браузера.
+
+    У клиники это версия программы: адрес меняется ровно тогда, когда приехало
+    обновление. При запуске из исходников — время правки файла, иначе работа
+    над оформлением превращается в борьбу с кешем: версия-то не менялась."""
+    if paths.is_frozen():
+        return eng.APP_VERSION
+    try:
+        return str(int(STATIC.joinpath(*parts).stat().st_mtime))
+    except OSError:
+        return eng.APP_VERSION
+
 
 @app.middleware("http")
 async def _limit_body_size(request: Request, call_next):
@@ -204,656 +232,6 @@ MSG_BANNER = {
     "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
 }
 
-# Дизайн-система v1.10.0 (макет Олега 08-03, панели 1-11) — развитие светлого
-# SaaS-референса v1.5.0: тот же акцент teal, но крупнее типографика, выше
-# контролы (44px), радиусы 12/16, мягкие многослойные тени, фон с зелёным
-# подтоном. ⭐ Имена переменных СОХРАНЕНЫ (--teal/--bg/--line/--sh): меняются
-# значения, поэтому вся система перекрашивается разом, без правки сотен мест.
-# Соответствие макету: --teal=--primary, --bg=--background, --line=--border,
-# --text2=--text-secondary, --sh/--sh2/--sh3=--shadow-sm/md/lg.
-PANEL_CSS = """
- :root{--bg:#F6FBF8;--panel:#FFFFFF;--line:#E7EDF5;--line2:#F1F6FA;
-   --text:#162033;--text2:#7E8B9C;--text3:#A0AAB8;
-   --teal:#0E9F8A;--teal-d:#0B7E6D;--teal-soft:#EAFBF5;--teal-line:#CCF0E7;
-   --green:#10B981;--green-soft:#ECFDF5;--blue:#3B82F6;--blue-soft:#EFF6FF;
-   --amber:#F59E0B;--amber-soft:#FFFBEB;--red:#EF4444;--red-soft:#FEF2F2;
-   --violet:#7C3AED;--violet-soft:#F5F3FF;
-   /* текстовые варианты акцентных цветов: макетные #F59E0B/#EF4444 хороши для
-      рамок и иконок, но как ТЕКСТ на белом дают ~2:1 — читаемость важнее */
-   --amber-t:#B45309;--red-t:#B91C1C;--green-t:#047857;
-   --r-card:18px;--r-ctl:12px;--h-ctl:44px;
-   --sh:0 2px 6px rgba(15,23,42,.04);
-   --sh2:0 8px 24px rgba(15,23,42,.06);
-   --sh3:0 18px 40px rgba(15,23,42,.08)}
- *{box-sizing:border-box}
- body{font-family:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
-   background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh;
-   line-height:1.5}
- a{color:var(--teal)}
- /* ---------- каркас: сайдбар + топбар + контент ---------- */
- .side{width:216px;flex:0 0 216px;background:var(--panel);border-right:1px solid var(--line);
-   display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
- .side .brand{display:flex;align-items:center;gap:10px;padding:18px 16px 14px}
- /* знак — тот же, что на иконке рабочего стола (bot/app/brand.py): фон и
-    скругление нарисованы внутри самой картинки, CSS их не дублирует */
- .side .brand .logo{width:34px;height:34px;flex:0 0 34px;display:block}
- .side .brand b{font-size:15px;display:block;line-height:1.2}
- .side .brand small{color:var(--text2);font-size:11.5px;display:block;white-space:nowrap;
-   overflow:hidden;text-overflow:ellipsis;max-width:130px}
- .side .sec{font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--text3);
-   padding:14px 18px 6px;text-transform:uppercase}
- .side nav a{display:flex;align-items:center;gap:12px;margin:2px 10px;padding:0 12px;
-   height:44px;border-radius:var(--r-ctl);text-decoration:none;color:var(--text2);
-   font-size:14px;font-weight:500;transition:background-color .2s ease,color .2s ease}
- .side nav a svg{flex:0 0 16px}
- .side nav a:hover{background:var(--line2);color:var(--text)}
- .side nav a.on{background:var(--teal-soft);color:var(--teal);font-weight:600}
- .side nav a .dot{width:7px;height:7px;border-radius:50%;margin-left:auto}
- .side nav a .dot.ok{background:var(--green)}
- .side nav a .dot.off{background:var(--text3)}
- .side .sfoot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line);
-   font-size:11.5px;color:var(--text3)}
- .main{flex:1;min-width:0;display:flex;flex-direction:column}
- .top{height:72px;flex:0 0 72px;background:var(--panel);border-bottom:1px solid var(--line);
-   display:flex;align-items:center;gap:12px;padding:0 24px;position:sticky;top:0;z-index:20}
- .top form.searchf{display:flex;gap:0;align-items:center;background:#FBFDFE;
-   border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 8px 0 14px;
-   height:var(--h-ctl);width:320px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
- .top form.searchf:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- .top form.searchf input{border:none;background:none;outline:none;font-size:14px;flex:1;color:var(--text)}
- .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;padding:4px 6px}
- .top .kbd{font-size:11px;color:var(--text3);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
- .top .bell{position:relative;width:var(--h-ctl);height:var(--h-ctl);border-radius:var(--r-ctl);
-   display:flex;align-items:center;justify-content:center;color:var(--text2);
-   text-decoration:none;font-size:17px;transition:background-color .2s ease}
- .top .bell:hover{background:var(--line2)}
- .top .bell .n{position:absolute;top:5px;right:5px;min-width:16px;height:16px;border-radius:8px;
-   background:var(--red);color:#fff;font-size:10px;font-weight:600;line-height:16px;text-align:center;padding:0 4px}
- .top .newbtn{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 18px;
-   border-radius:var(--r-ctl);background:var(--teal);color:#fff;font-size:14px;font-weight:600;
-   text-decoration:none;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .top .newbtn:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
-   transform:translateY(-1px)}
- .top .newbtn:active{transform:translateY(0)}
- .content{padding:24px 24px 60px;max-width:1500px}
- /* ---------- общие элементы ---------- */
- h1{font-size:32px;margin:0 0 4px;font-weight:600;letter-spacing:-.03em;line-height:1.2}
- h1 a{color:var(--text);text-decoration:none}
- h2{font-size:18px;color:var(--text);margin:24px 0 12px;font-weight:600}
- .sub{color:var(--text2);font-size:13px;margin-bottom:18px}
- .nav{margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
- .nav b{font-size:16px;margin-right:6px;font-weight:600}
- .nav a{display:inline-flex;align-items:center;height:var(--h-ctl);background:var(--panel);
-        border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 16px;text-decoration:none;
-        color:var(--text2);font-size:14px;font-weight:500;
-        transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
- .nav a:hover{border-color:var(--teal);color:var(--teal-d);
-   box-shadow:0 4px 12px rgba(14,159,138,.12);transform:translateY(-1px)}
- .nav a:active{transform:translateY(0)}
- .nav a.primary{background:var(--teal);color:#fff;border-color:var(--teal)}
- .nav form.dpickf{display:inline-flex;margin:0}
- .nav input.dpick{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);
-   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text2)}
- .nav form.searchf{display:flex;gap:8px;align-items:center;margin:0}
- .nav form.searchf input{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
-   border-radius:var(--r-ctl);font-size:14px;width:240px;background:var(--panel);
-   color:var(--text);outline:none}
- .nav form.searchf input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- .nav form.searchf button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);padding:0 16px;cursor:pointer;font-size:14px;font-weight:600}
- .banner{padding:12px 16px;border-radius:var(--r-ctl);margin-bottom:14px;font-size:14px}
- .banner.ok{background:var(--green-soft);color:#065F46}
- .banner.err{background:var(--red-soft);color:#991B1B}
- .banner.warn{background:var(--amber-soft);color:var(--amber-t)}
- .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
- .statbar div{background:var(--teal);height:8px}
- /* ---------- KPI ---------- */
- .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
-   gap:14px;margin-bottom:22px}
- .tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:16px;min-width:0;display:flex;gap:14px;
-   align-items:flex-start}
- a.tile{text-decoration:none;color:inherit;
-   transition:box-shadow .25s ease,transform .25s ease,border-color .2s ease}
- a.tile:hover{box-shadow:0 12px 32px rgba(15,23,42,.08);transform:translateY(-2px)}
- .tile .ico{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;
-   justify-content:center;font-size:18px;flex:0 0 44px}
- .tile b{display:block;font-size:26px;font-weight:600;line-height:1.1}
- .tile span{font-size:13px;color:var(--text2);font-weight:500}
- .tile .trend{display:block;font-size:12px;margin-top:4px;color:var(--text3)}
- .tile .trend .up{color:var(--green);font-weight:600}
- .tile .trend .dn{color:var(--red-t);font-weight:600}
- .tile.warn b{color:var(--amber-t)}
- .tile.bad b{color:var(--red-t)}
- /* ---------- дневная сетка (canvas) ---------- */
- .dash{display:flex;gap:16px;align-items:flex-start}
- .dashmain{flex:1;min-width:0}
- .rail{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
- .gridcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);overflow:hidden}
- /* полоса карточек врачей над расписанием (макет Олега 08-03): каждая ячейка
-    остаётся flex:1 и стоит над своей колонкой, а сама карточка живёт ВНУТРИ неё
-    с отступом — так вид «плавающих карточек» не ломает выравнивание с сеткой */
- .gridhead{display:flex;margin-bottom:14px;align-items:stretch}
- .gridhead .gh-time{width:56px;flex:0 0 56px}
- .gridhead .gh-doc{flex:1;min-width:0;padding:0 5px;display:flex}
- .gh-doc .dcard{flex:1;min-width:0;display:flex;gap:10px;align-items:center;
-   background:var(--panel);border-radius:16px;padding:12px;box-shadow:var(--sh);
-   border-left:4px solid var(--teal);transition:transform .18s ease,box-shadow .18s ease}
- .gh-doc .dcard:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
- .gh-doc .dcard.off{opacity:.72}
- .gh-doc .av{width:44px;height:44px;border-radius:50%;color:#fff;display:flex;align-items:center;
-   justify-content:center;font-size:15px;font-weight:600;flex:0 0 44px;overflow:hidden}
- .gh-doc .av img{width:100%;height:100%;object-fit:cover;display:block}
- .gh-doc .nm{min-width:0;flex:1}
- .gh-doc .nm a{font-size:14px;font-weight:600;color:var(--text);text-decoration:none;
-   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
- .gh-doc .nm a:hover{color:var(--teal-d)}
- .gh-doc .nm small{display:block;font-size:11.5px;color:var(--text2);white-space:nowrap;
-   overflow:hidden;text-overflow:ellipsis}
- .gh-doc .nm small.mt{color:var(--text3);font-size:11px}
- .gh-doc .st{width:8px;height:8px;border-radius:50%;flex:0 0 8px;align-self:flex-start;
-   margin-top:3px}
- /* Плотный режим — когда карточка становится узкой: >4 врачей (класс ставит
-    сервер, он один знает их число) или окно уже 1440px (у клиники это 1366×768,
-    там на карточку остаётся ~170px). Специализация уходит первой — её роль берёт
-    на себя цвет карточки; имя вместо многоточия переносится на вторую строку,
-    место под неё в карточке есть. */
- .gridhead.tight .gh-doc{padding:0 3px}
- .gridhead.tight .dcard{gap:8px;padding:9px;border-radius:12px}
- .gridhead.tight .av{width:34px;height:34px;flex:0 0 34px;font-size:12px}
- .gridhead.tight .nm a{font-size:12.5px;white-space:normal;line-height:1.22;
-   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
- .gridhead.tight .nm small{display:none}
- .gridhead.tight .nm small.mt{display:block;font-size:10.5px;margin-top:1px}
- @media (max-width:1440px){
-   .gh-doc .dcard{gap:8px;padding:9px;border-radius:12px}
-   .gh-doc .av{width:34px;height:34px;flex:0 0 34px;font-size:12px}
-   .gh-doc .nm a{font-size:12.5px;white-space:normal;line-height:1.22;
-     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-   .gh-doc .nm small{display:none}
-   .gh-doc .nm small.mt{display:block;font-size:10.5px;margin-top:1px}
- }
- .gridbody{display:flex;position:relative;--cell:56px}
- .gcol-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2);background:var(--bg)}
- .gcol-time div{height:var(--cell);font-size:11px;color:var(--text3);text-align:right;padding:4px 8px 0}
- .gcol{flex:1;min-width:0;border-right:1px solid var(--line2);position:relative}
- .gcol:last-child{border-right:none}
- .gcell{height:var(--cell);border-bottom:1px solid var(--line2);cursor:pointer;position:relative}
- .gcell:hover{background:var(--teal-soft)}
- .gcell:hover::after{content:'+';position:absolute;inset:0;display:flex;align-items:center;
-   justify-content:center;color:var(--teal);font-size:18px}
- .gcell.off{cursor:default;background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
- .gcell.off:hover{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
- .gcell.off:hover::after{content:''}
- .gappt{position:absolute;left:4px;right:4px;border-radius:9px;padding:5px 8px;overflow:hidden;
-   font-size:11.5px;line-height:1.35;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06);z-index:2}
- .gappt:hover{box-shadow:var(--sh2)}
- .gappt b{font-size:12px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- .gappt small{color:inherit;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
- .gappt .stt{position:absolute;top:5px;right:7px;font-size:11px}
- .gappt.noshow{text-decoration:line-through;opacity:.75}
- .gappt.gnote{border:1px dashed var(--line);background:repeating-linear-gradient(135deg,var(--line2) 0 6px,transparent 6px 12px);color:var(--text2)}
- .nowline{position:absolute;left:0;right:0;height:2px;background:var(--red);z-index:5;pointer-events:none}
- .nowline::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red)}
- /* ---------- правая колонка ---------- */
- .mcal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:14px 16px}
- .mcal .mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
- .mcal .mhead b{font-size:13px;font-weight:600}
- .mcal .mhead a{text-decoration:none;color:var(--text2);padding:2px 8px;border-radius:7px}
- .mcal .mhead a:hover{background:var(--line2)}
- .mcal table{width:100%;border-collapse:collapse}
- .mcal th{font-size:10px;color:var(--text3);font-weight:500;padding:2px 0}
- .mcal td{text-align:center;padding:1px 0}
- .mcal td a{display:inline-flex;width:26px;height:26px;border-radius:8px;align-items:center;
-   justify-content:center;font-size:11.5px;color:var(--text2);text-decoration:none}
- .mcal td a:hover{background:var(--line2)}
- .mcal td a.oth{color:var(--text3);opacity:.5}
- .mcal td a.tdy{box-shadow:inset 0 0 0 1.5px var(--teal);color:var(--teal-d);font-weight:600}
- .mcal td a.seld{background:var(--teal);color:#fff;font-weight:600}
- /* ---------- старые страницы (перекрашены) ---------- */
- .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
- a.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
-        padding:14px 16px;text-decoration:none;color:var(--text)}
- a.card:hover{box-shadow:var(--sh2)}
- a.card b{font-size:14.5px}
- a.card .spec{color:var(--text2);font-size:12px;margin:2px 0 8px}
- a.card .meta{font-size:12.5px;color:var(--text2)}
- a.card .meta .u{color:var(--amber);font-weight:600}
- table.grid{border-collapse:separate;border-spacing:0;width:100%;background:var(--panel);
-   box-shadow:var(--sh);border-radius:14px;overflow:hidden;margin-bottom:18px}
- table.grid th,table.grid td{border-bottom:1px solid var(--line2);border-right:1px solid var(--line2);
-   padding:5px 7px;font-size:12.5px;vertical-align:top}
- table.grid th{background:var(--panel);color:var(--text);font-weight:600;border-bottom:1px solid var(--line)}
- table.grid th a{color:var(--text);text-decoration:none}
- table.grid th a:hover{color:var(--teal-d)}
- td.hour{width:52px;color:var(--text3);font-weight:500;background:var(--bg);text-align:center;font-size:11.5px}
- .appt{border-radius:9px;padding:5px 8px;line-height:1.35}
- .appt.confirmed{background:var(--green-soft);border-left:3px solid var(--green)}
- .appt.arrived{background:var(--teal-soft);border-left:3px solid var(--teal)}
- .appt.done{background:var(--blue-soft);border-left:3px solid var(--blue)}
- .appt.noshow{background:var(--red-soft);border-left:3px solid var(--red)}
- .appt.urgent{background:var(--amber-soft);border-left:3px solid var(--amber)}
- .appt.note{background:var(--amber-soft);border-left:3px solid #EAB308;color:#713F12}
- .appt.busy{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px);
-   color:var(--text3);text-align:center;font-size:11.5px}
- .appt.clickable{cursor:pointer}
- .appt.clickable:hover{filter:brightness(.98)}
- .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
- a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
- a.plink:hover{border-bottom-style:solid}
- .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:16px 18px;margin-bottom:14px}
- .pcard h3{margin:0 0 6px;font-size:14.5px;color:var(--text)}
- .pcard .meta{color:var(--text2);font-size:12.5px;margin-bottom:8px}
- .vpast{opacity:.55}
- table.set{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
-   border-radius:14px;overflow:hidden;margin-bottom:10px}
- table.set th,table.set td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
- table.set th{background:var(--bg);color:var(--text2);font-weight:600}
- table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px}
- table.set select{padding:6px 7px;border:1px solid var(--line);border-radius:8px;font-size:13px}
- .rowdel{background:var(--red-soft);color:var(--red-t);border:none;border-radius:7px;padding:4px 10px;cursor:pointer}
- .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:10px;padding:7px 15px;cursor:pointer;margin-bottom:16px}
- .savebtn{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);padding:0 26px;font-size:14px;font-weight:600;cursor:pointer;
-   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .savebtn:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
-   transform:translateY(-1px)}
- .savebtn:hover{background:var(--teal-d)}
- .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
- .dlg-status form{flex:1;margin:0}
- .bstat{border:none;border-radius:8px;padding:9px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%;font-weight:500}
- dialog{border:none;border-radius:16px;box-shadow:0 12px 40px rgba(16,24,40,.22);padding:0;width:430px;max-width:95vw}
- dialog::backdrop{background:rgba(15,23,42,.4)}
- .dlg-head{background:var(--panel);color:var(--text);padding:13px 16px;font-weight:600;font-size:14.5px;
-   display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
- .dlg-head button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer}
- .dlg-tabs{display:flex;gap:6px;padding:12px 16px 0}
- .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:9px;cursor:pointer;font-size:13px;color:var(--text2)}
- .tabbtn.on{background:var(--teal);color:#fff;border-color:var(--teal);font-weight:600}
- .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
- .dlg-form input,.dlg-form select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
-   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none}
- .dlg-form textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
-   font-size:14px;font-family:inherit;background:var(--panel);color:var(--text);outline:none}
- .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- .dlg-form button{background:var(--teal);color:#fff;border:none;border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
- a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;padding:4px 0;border-radius:8px}
- a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
- form.add{background:var(--panel);padding:16px;border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
-          display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px}
- form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
-   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none;
-   transition:border-color .2s ease,box-shadow .2s ease}
- form.add input:focus,form.add select:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- form.add input::placeholder{color:var(--text3)}
- form.add button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);padding:0 20px;cursor:pointer;font-size:14px;font-weight:600;
-   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- form.add button:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
-   transform:translateY(-1px)}
- form.add button:active{transform:translateY(0)}
- table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
-   border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
- table.list th,table.list td{padding:11px 14px;border-bottom:1px solid var(--line2);
-   text-align:left;font-size:13.5px}
- table.list th{background:var(--bg);color:var(--text2);font-weight:600}
- tr.cancelled td{opacity:.45;text-decoration:line-through}
- .act{display:inline}
- .act button{border:none;border-radius:8px;padding:5px 10px;margin-right:4px;cursor:pointer;
-   font-size:12px;color:#fff;transition:filter .2s ease}
- .act button:hover{filter:brightness(1.08)}
- .b-arrived{background:var(--teal-d)}
- .b-done{background:#2563EB}.b-noshow{background:var(--red-t)}.b-cancel{background:#64748B}
- .hint{color:var(--text2);font-size:12.5px;margin-top:10px;line-height:1.55}
- .botnew{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:14px 16px;margin-bottom:14px}
- .botnew h3{margin:0 0 4px;font-size:13.5px;font-weight:600}
- .botnew a{display:block;padding:6px 0;font-size:12.5px;color:inherit;text-decoration:none;border-top:1px solid var(--line2)}
- .botnew a:hover{background:var(--bg)}
- .botnew .dt{color:var(--teal-d);font-weight:600}
- .botnew .crt{color:var(--text3);font-size:11.5px}
- .botnew .nou{background:var(--amber-t);color:#fff;border-radius:5px;padding:1px 6px;font-size:10.5px;margin-left:6px;font-weight:600}
- .brandcorner{position:fixed;right:14px;bottom:10px;font-size:11.5px;color:var(--text3);
-   background:rgba(255,255,255,.94);padding:5px 12px;border-radius:14px;box-shadow:var(--sh);z-index:50}
- .brandcorner b{color:var(--teal-d)}
- .brandcorner a{color:var(--teal-d);text-decoration:none;font-weight:600}
- .brandcorner a:hover{text-decoration:underline}
- /* ---------- карточка пациента ---------- */
- .fisa{display:flex;gap:16px;align-items:flex-start}
- .fcol-l{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
- .fcol-c{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
- .fcol-r{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
- .fcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:18px}
- .fcard h3{margin:0 0 14px;font-size:18px;font-weight:600}
- .fcard h3 small{color:var(--text2);font-weight:400;font-size:13px}
- .fhead{display:flex;align-items:center;gap:14px}
- .fhead .fav{width:56px;height:56px;border-radius:16px;background:var(--teal);color:#fff;
-   display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex:0 0 56px}
- .fhead b{font-size:20px;display:block;line-height:1.25;font-weight:600}
- .fhead small{color:var(--text2);font-size:13px}
- /* строка профиля: подпись слева, значение справа, иконка-якорь в конце
-    (панель «Card» макета) */
- .frow{display:flex;justify-content:space-between;align-items:center;gap:10px;
-   padding:9px 0;font-size:13.5px;border-top:1px solid var(--line2)}
- .frow:first-of-type{border-top:none}
- .frow span:first-child{color:var(--text2);flex:0 0 auto}
- .frow .v{color:var(--text);font-weight:500;text-align:right;min-width:0;flex:1;
-   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .frow .ic{flex:0 0 16px;color:var(--text3);display:flex;align-items:center}
- .alert{display:flex;align-items:center;gap:9px;border-radius:var(--r-ctl);padding:10px 12px;
-   font-size:13px;font-weight:600;margin-bottom:8px}
- .alert form{margin-left:auto}
- .alert button{background:none;border:none;cursor:pointer;color:inherit;opacity:.55;font-size:13px}
- .alert.allergy{background:var(--red-soft);color:var(--red-t)}
- .alert.medication{background:var(--amber-soft);color:var(--amber-t)}
- .alert.warning{background:var(--amber-soft);color:var(--amber-t)}
- .alert.info{background:var(--blue-soft);color:var(--blue)}
- /* зубы — кнопки 40x44 (панель 9 макета): состояние показывает РАМКА, а не
-    заливка, поэтому крупная сетка не рябит цветом */
- /* одонтограмма: параметрические SVG-зубы (bot/app/teeth_svg.py) */
- .tooth-svg{display:block;overflow:visible}
- .tooth-btn{background:none;border:none;padding:4px 2px;cursor:pointer;border-radius:12px;
-   display:flex;flex-direction:column;align-items:center;gap:4px;
-   transition:transform .2s ease,background-color .2s ease,box-shadow .2s ease}
- .tooth-btn .num{font-size:11.5px;font-weight:600;color:var(--text2);
-   transition:color .2s ease}
- .tooth-btn:hover{background:var(--teal-soft);transform:translateY(-3px) scale(1.04);
-   box-shadow:0 10px 24px rgba(15,23,42,.10)}
- .tooth-btn:hover .num{color:var(--teal-d)}
- .tooth-btn.sel{background:var(--teal-soft);box-shadow:inset 0 0 0 2px var(--teal)}
- .tooth-btn.sel .num{color:var(--teal-d)}
- .arch{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:var(--tooth-gap,10px);
-   align-items:end}
- .arch.lower{align-items:start}
- .arch-wrap{display:flex;flex-direction:column;gap:10px}
- .arch-mid{height:1px;background:var(--line);margin:2px 0}
- .tleg{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);
-   margin-top:16px;align-items:center}
- .tleg .lg{display:inline-flex;align-items:center;gap:6px}
-
- .plan-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line2);font-size:12.5px}
- .plan-row:first-of-type{border-top:none}
- .plan-row .pt{width:32px;flex:0 0 32px;font-weight:600;color:var(--text2)}
- .plan-row .pp{flex:1;min-width:0;font-weight:500}
- .plan-row .pd{width:120px;flex:0 0 120px;color:var(--text2);font-size:12px}
- .plan-row .pm{width:90px;flex:0 0 90px;text-align:right;font-weight:600}
- .pbadge{font-size:10px;font-weight:600;letter-spacing:.05em;padding:3px 7px;border-radius:5px;text-transform:uppercase}
- .pbadge.planificat{border:1px solid var(--line);color:var(--text3)}
- .pbadge.in_lucru{background:var(--teal);color:#fff}
- .pbadge.finalizat{background:var(--line2);color:var(--text2)}
- .plan-row form{margin:0}
- .plan-row .pact button{background:none;border:1px solid var(--line);border-radius:6px;
-   padding:2px 7px;cursor:pointer;font-size:11px;color:var(--text2);margin-left:3px}
- .plan-row .pact button:hover{border-color:var(--teal);color:var(--teal-d)}
- .ptotal{display:flex;justify-content:flex-end;gap:12px;padding-top:10px;border-top:1px solid var(--line);
-   font-size:12.5px;color:var(--text3);align-items:baseline}
- .ptotal b{font-size:15px;color:var(--text)}
- .tline{display:flex;gap:10px;margin-bottom:10px}
- .tline .tdot{width:7px;flex:0 0 7px;display:flex;flex-direction:column;align-items:center}
- .tline .tdot i{width:7px;height:7px;border-radius:50%;background:var(--line);margin-top:4px}
- .tline.next .tdot i{background:var(--teal)}
- .tline .tb{min-width:0;font-size:12.5px}
- .tline .tb small{display:block;color:var(--text3);font-size:11px}
- .doc{display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid var(--line);
-   border-radius:9px;margin-bottom:6px;font-size:12px}
- .doc a{font-weight:500;color:var(--text);text-decoration:none;min-width:0;
-   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .doc a:hover{color:var(--teal-d)}
- .doc small{color:var(--text3);white-space:nowrap}
- .doc form{margin-left:auto}
- .doc form button{background:none;border:none;color:var(--text3);cursor:pointer}
- .doc form button:hover{color:var(--red)}
- .fform{display:flex;flex-direction:column;gap:9px}
- .fform input,.fform select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
-   border-radius:var(--r-ctl);font-size:14px;font-family:inherit;width:100%;
-   background:var(--panel);color:var(--text);outline:none;
-   transition:border-color .2s ease,box-shadow .2s ease}
- .fform textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
-   font-size:14px;font-family:inherit;width:100%;background:var(--panel);color:var(--text);
-   outline:none;transition:border-color .2s ease,box-shadow .2s ease}
- .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- .fform input::placeholder,.fform textarea::placeholder{color:var(--text3)}
- .fform button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);cursor:pointer;font-size:14px;font-weight:600;
-   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .fform button:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
-   transform:translateY(-1px)}
- .fform button:active{transform:translateY(0)}
- .fform .r2{display:flex;gap:9px}
- @media (max-width:1400px){.fisa{flex-wrap:wrap}.fcol-l,.fcol-r{width:100%;flex:1 1 100%}}
- /* фиша медика уже карточки пациента (нет формулы зубов) — на 1366×768,
-    рабочем разрешении клиники, она остаётся в три колонки */
- @media (max-width:1400px){.fisa.med{flex-wrap:nowrap}
-   .fisa.med .fcol-l{width:300px;flex:0 0 300px}
-   .fisa.med .fcol-r{width:280px;flex:0 0 280px}}
- @media (max-width:1150px){.fisa.med{flex-wrap:wrap}
-   .fisa.med .fcol-l,.fisa.med .fcol-r{width:100%;flex:1 1 100%}}
- /* ---------- фиша пациента V2 (макет 08-03): рабочее пространство врача ----------
-    Центр отдан одонтограмме и лечению, справа — липкая информационная панель. */
- .pv2{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
- .pv2-main{min-width:0;display:flex;flex-direction:column;gap:16px}
- .pv2-side{position:sticky;top:88px;display:flex;flex-direction:column;gap:16px}
- /* Порог = ширина, при которой центру ещё хватает на одонтограмму:
-    16 зубов × 38px + 15 зазоров × 10px + поля карточки ≈ 794px.
-    1366 − сайдбар 216 − поля 48 − панель 320 − зазор 20 = 762 < 794 → на таком
-    экране правая панель уходит ВНИЗ, и дуга помещается целиком. */
- @media (max-width:1400px){.pv2{grid-template-columns:minmax(0,1fr)}
-   .pv2-side{position:static}}
- .hero{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;
-   background:var(--panel);border:1px solid var(--line);border-radius:22px;
-   padding:24px 28px;box-shadow:var(--sh);margin-bottom:16px}
- .hero-av{width:92px;height:92px;flex:0 0 92px;border-radius:24px;background:var(--teal);
-   color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;
-   font-weight:600;box-shadow:0 12px 24px rgba(14,159,138,.22)}
- .hero-id{flex:1;min-width:260px}
- .hero-id h2{font-size:34px;font-weight:600;letter-spacing:-.03em;margin:0;line-height:1.15}
- .hero-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--text2);margin-top:6px}
- .hero-badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
- .pill{padding:6px 12px;border-radius:999px;font-size:13px;font-weight:500;white-space:nowrap}
- .pill.orange{background:#FFF4E5;color:var(--amber-t)}
- .pill.green{background:#ECFDF3;color:#15803D}
- .pill.purple{background:#F3E8FF;color:#6D28D9}
- .pill.red{background:#FEECEC;color:var(--red-t)}
- .pill.grey{background:var(--line2);color:var(--text2)}
- .hero-side{display:flex;gap:28px;flex-wrap:wrap}
- .hero-side .hs{font-size:13px}
- .hero-side .hs span{display:block;color:var(--text3);font-size:12px;margin-bottom:3px}
- .hero-side .hs b{font-weight:600;font-size:14.5px}
- .hero-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
- .hero-acts a,.hero-acts button{display:inline-flex;align-items:center;gap:7px;height:40px;
-   padding:0 14px;border:1px solid var(--line);border-radius:var(--r-ctl);text-decoration:none;
-   color:var(--text2);font-size:13.5px;font-weight:500;background:var(--panel);
-   font-family:inherit;cursor:pointer;
-   transition:border-color .2s ease,color .2s ease,transform .2s ease}
- .hero-acts a:hover,.hero-acts button:hover{border-color:var(--teal);color:var(--teal-d);
-   transform:translateY(-1px)}
- /* внутренний номер фиши: справочная мелочь, копируется кликом */
- .idchip{cursor:pointer;border-bottom:1px dashed var(--line);color:var(--text3)}
- .idchip:hover{color:var(--teal-d);border-bottom-color:var(--teal)}
- .kpi5{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;
-   margin-bottom:16px}
- .kpi{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;
-   display:flex;gap:14px;align-items:center;
-   transition:transform .2s ease,box-shadow .2s ease}
- .kpi:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(15,23,42,.08)}
- .kpi .ki{width:42px;height:42px;flex:0 0 42px;border-radius:13px;display:flex;
-   align-items:center;justify-content:center;font-size:18px;background:var(--teal-soft)}
- .kpi b{display:block;font-size:22px;font-weight:600;line-height:1.15}
- .kpi span{font-size:12.5px;color:var(--text2)}
- .kpi small{display:block;font-size:11.5px;color:var(--text3);margin-top:2px}
- /* цифра кликабельна: за ней открывается список, из которого она посчитана */
- button.kpi{width:100%;text-align:left;font-family:inherit;color:inherit;cursor:pointer}
- button.kpi:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
- /* список за цифрой + просмотрщик документов */
- dialog.wide{width:660px}
- .lbody{padding:4px 16px 16px;max-height:62vh;overflow:auto}
- .lrow{display:flex;flex-direction:column;gap:2px;padding:10px 0;
-   border-bottom:1px solid var(--line2)}
- .lrow:last-of-type{border-bottom:none}
- .lrow .lk{font-size:11.5px;color:var(--text3)}
- .lrow b{font-size:13.5px;font-weight:600}
- .lrow small{font-size:12px;color:var(--text2)}
- .lmore{display:inline-block;margin-top:12px;font-size:12.5px;font-weight:600}
- .lbtn{margin-top:12px;width:100%;height:42px;border:none;border-radius:var(--r-ctl);
-   background:var(--teal);color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;
-   font-family:inherit}
- .dlg-form .dlab{display:flex;flex-direction:column;gap:4px;font-size:11.5px;
-   font-weight:600;color:var(--text3)}
- .dlg-form .dlab select,.dlg-form .dlab input{width:100%}
- .dlg-form button[disabled]{opacity:.5;cursor:not-allowed}
- .dvbody{background:var(--line2);display:flex;align-items:center;justify-content:center;
-   min-height:280px;max-height:70vh;overflow:auto}
- .dvbody img{max-width:100%;max-height:70vh;display:block}
- .dvbody iframe{width:100%;height:70vh;border:none;background:#fff}
- .dvacts{display:flex;gap:10px;padding:12px 16px;flex-wrap:wrap}
- .dvacts button,.dvacts a{height:38px;padding:0 14px;display:inline-flex;align-items:center;
-   gap:7px;border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
-   color:var(--text2);font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;
-   text-decoration:none}
- .dvacts button:hover,.dvacts a:hover{border-color:var(--teal);color:var(--teal-d)}
- .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
- .tabs button{height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--line);
-   background:var(--panel);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;
-   transition:background-color .2s ease,border-color .2s ease,color .2s ease}
- .tabs button:hover{border-color:var(--teal);color:var(--teal-d)}
- .tabs button.on{background:var(--teal);border-color:var(--teal);color:#fff}
- .docgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
- .doccard{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
-   background:var(--panel);text-decoration:none;color:inherit;display:flex;
-   flex-direction:column;transition:transform .2s ease,box-shadow .2s ease}
- .doccard:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(15,23,42,.10)}
- .doccard .thumb{height:120px;background:var(--line2);display:flex;align-items:center;
-   justify-content:center;font-size:30px;overflow:hidden}
- .doccard .thumb img{width:100%;height:100%;object-fit:cover;display:block}
- .doccard .dmeta{padding:9px 11px;font-size:12px;min-width:0}
- .doccard .dmeta b{display:block;font-weight:600;font-size:12.5px;white-space:nowrap;
-   overflow:hidden;text-overflow:ellipsis}
- .doccard .dmeta small{color:var(--text3);font-size:11px}
- .doccard .del{position:absolute;top:8px;right:8px;opacity:0;transition:opacity .2s ease}
- .doccard:hover .del{opacity:1}
- .doccard .del button{border:none;background:rgba(255,255,255,.92);color:var(--red-t);
-   width:28px;height:28px;border-radius:9px;cursor:pointer;font-size:13px;box-shadow:var(--sh)}
- /* свой выбор файла: системный input рисует ОС на языке Windows */
- .filepick{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
- .filepick input[type=file]{position:absolute;width:1px;height:1px;opacity:0;
-   overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
- .filepick label{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);
-   padding:0 16px;border:1px solid var(--line);border-radius:var(--r-ctl);
-   background:var(--panel);color:var(--text2);font-size:13.5px;font-weight:500;
-   cursor:pointer;transition:border-color .2s ease,color .2s ease}
- .filepick label:hover{border-color:var(--teal);color:var(--teal-d)}
- .filepick input[type=file]:focus-visible + label{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- .filepick .fname{font-size:12.5px;color:var(--text3);min-width:0;
-   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
- .filepick .fname.on{color:var(--text)}
- .qa{display:flex;gap:12px;flex-wrap:wrap}
- .qa a,.qa button{display:inline-flex;align-items:center;justify-content:center;gap:9px;
-   height:48px;min-width:140px;padding:0 18px;border:1px solid var(--line);
-   border-radius:14px;background:var(--panel);color:var(--text);font-size:14px;
-   font-weight:500;text-decoration:none;cursor:pointer;
-   transition:background-color .2s ease,transform .2s ease,border-color .2s ease}
- .qa a:hover,.qa button:hover{background:#F3F8FC;border-color:var(--teal);transform:translateY(-1px)}
- @media print{
-   .side,.top,.brandcorner,.qa,.tabs,.hero-acts,.doccard .del{display:none !important}
-   body{background:#fff}.content{padding:0;max-width:none}
-   .pv2{grid-template-columns:1fr}.pv2-side{position:static}
-   .fcard,.hero,.kpi{box-shadow:none;break-inside:avoid}
- }
- /* лента активности: что происходило с фишей */
- .acti{display:flex;gap:12px;align-items:flex-start;padding:14px 0;
-   border-bottom:1px solid var(--line2);transition:background-color .2s ease}
- .acti:last-of-type{border-bottom:none}
- .acti:hover{background:#F9FBFD}
- .acti .ai{width:44px;height:44px;flex:0 0 44px;border-radius:14px;display:flex;
-   align-items:center;justify-content:center;font-size:18px;background:var(--teal-soft)}
- .acti .ab{min-width:0;flex:1}
- .acti .ab b{display:block;font-size:13px;font-weight:500;line-height:1.4}
- .acti .ab small{color:var(--text3);font-size:11.5px}
- .acti .at{color:var(--text3);font-size:11.5px;white-space:nowrap}
- .actmore{margin-top:12px;width:100%;height:40px;border:1px solid var(--line);
-   border-radius:var(--r-ctl);background:none;color:var(--text2);font-size:13px;
-   cursor:pointer}
- .actmore:hover{border-color:var(--teal);color:var(--teal-d)}
- .thist{margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)}
- .thist .th-t{font-size:11px;letter-spacing:.06em;text-transform:uppercase;
-   color:var(--text3);font-weight:600;margin-bottom:8px}
- .thist .th-r{font-size:12.5px;color:var(--text2);padding:4px 0;display:flex;gap:10px}
- .thist .th-r span{color:var(--text3);flex:0 0 76px}
- /* подсказка зуба — одна на всю дугу, летает за курсором */
- .toothtip{display:none;position:absolute;z-index:60;width:220px;border-radius:16px;
-   padding:16px 18px;background:var(--panel);border:1px solid var(--line);
-   box-shadow:0 18px 40px rgba(15,23,42,.12);font-size:13px;pointer-events:none}
- .toothtip b.tt-n{font-size:14.5px;font-weight:600;display:block}
- .toothtip .tt-s{color:var(--teal-d);font-weight:600;font-size:12.5px;margin:2px 0 8px}
- .toothtip .tt-d{color:var(--text2);font-size:12.5px;line-height:1.65}
- .toothtip .tt-d b{color:var(--text);font-weight:600}
- .toothtip .tt-note{margin-top:8px;padding-top:8px;border-top:1px solid var(--line2);
-   color:var(--text2)}
- .plan-row .pdue{width:104px;flex:0 0 104px;font-size:12px;color:var(--text2)}
- /* ---------- раздел «Medici» (v1.9.0) ---------- */
- .medgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
- .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:16px 18px;
-   display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;
-   transition:box-shadow .15s,transform .15s}
- a.medcard:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
- .medcard.off{opacity:.72}
- .medhead{display:flex;align-items:center;gap:12px}
- .avatar{width:52px;height:52px;flex:0 0 52px;border-radius:14px;color:#fff;overflow:hidden;
-   display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600}
- .avatar img{width:100%;height:100%;object-fit:cover;display:block}
- .avatar.big{width:96px;height:96px;flex:0 0 96px;border-radius:18px;font-size:30px}
- .medhead b{font-size:15px;display:block;line-height:1.25}
- .medhead small{color:var(--text2);font-size:11.5px;display:block}
- .medmeta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--text2)}
- .medstats{display:flex;gap:10px;border-top:1px solid var(--line2);padding-top:9px}
- .medstats div{flex:1;min-width:0}
- .medstats b{display:block;font-size:16px;font-weight:600}
- .medstats span{font-size:11px;color:var(--text3)}
- .dbadge{font-size:10px;font-weight:600;letter-spacing:.04em;padding:3px 8px;border-radius:6px;
-   text-transform:uppercase;white-space:nowrap}
- .dbadge.activ{background:var(--green-soft);color:var(--green-t)}
- .dbadge.concediu{background:var(--amber-soft);color:var(--amber-t)}
- .dbadge.arhivat{background:var(--line2);color:var(--text3)}
- .svcpick{display:flex;flex-direction:column;gap:2px;max-height:320px;overflow:auto}
- .svcpick label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;
-   border-radius:8px;cursor:pointer}
- .svcpick label:hover{background:var(--bg)}
- .svcpick input{margin:0}
- .svcpick small{margin-left:auto;color:var(--text3);font-size:11px;white-space:nowrap}
- /* ---------- недельный вид ---------- */
- .week{display:flex;gap:12px;align-items:flex-start}
- .wcol{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);
-   border-radius:var(--r-card);box-shadow:var(--sh);overflow:hidden}
- .wcol .wh{padding:10px 12px;border-bottom:1px solid var(--line)}
- .wcol .wh.tdy{background:var(--teal-soft)}
- .wcol .wh a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none}
- .wcol .wh a:hover{color:var(--teal-d)}
- .wcol .wh small{display:block;font-size:11px;color:var(--text3);margin-top:1px}
- .wcol .wb{padding:8px;display:flex;flex-direction:column;gap:5px;min-height:60px}
- .wchip{border-radius:8px;padding:4px 8px;font-size:11.5px;line-height:1.4;overflow:hidden}
- .wchip b{font-weight:600}
- .wchip small{opacity:.75;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- .wchip.noshow{text-decoration:line-through;opacity:.7}
- @media (max-width:1280px){.dash{flex-wrap:wrap}.rail{width:100%;flex:1 1 100%}}
- @media (max-width:1000px){
-   .side{width:56px;flex:0 0 56px}
-   /* прячем ПОДПИСЬ, но не знак: раньше селектор бил по всем div внутри
-      .brand и в узком окне (min_size 960) шапка оставалась пустой */
-   .side .brand .txt,.side .sec,.side nav a span,.side nav a .dot,.side .sfoot{display:none}
-   .side .brand{justify-content:center;padding:14px 0}
-   .side nav a{justify-content:center;margin:2px 8px;padding:9px 0}
-   .week{flex-wrap:wrap}.wcol{flex:1 1 45%}
- }
-"""
-
 REFRESH_JS = """
 <script>
 setInterval(function(){
@@ -994,7 +372,8 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">
-<title>{html.escape(eng.CLINIC_NAME)} — registru</title><style>{PANEL_CSS}</style></head><body>
+<title>{html.escape(eng.CLINIC_NAME)} — registru</title>
+<link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}"></head><body>
 {_sidebar(active)}
 <div class="main">
 {_topbar(bell)}
@@ -1418,6 +797,25 @@ async def health() -> dict:
     # "app" = отпечаток для single-instance guard в desktop.py:
     # чужой сервис с {"ok":true} на нашем порту не должен сойти за нас
     return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
+
+
+@app.get("/static/css/{name}")
+async def static_css(name: str) -> Response:
+    """Оформление журнала. Кеш вечный намеренно: адрес несёт версию программы
+    (?v=…), поэтому после обновления браузер запросит новый файл, а между
+    обновлениями не будет тянуть 45 КБ на каждую автоперезагрузку страницы —
+    а она происходит раз в 12 секунд на каждом открытом экране."""
+    if not re.fullmatch(r"[a-z0-9_-]+\.css", name):
+        return Response(status_code=404)
+    try:
+        text = _asset("css", name)
+    except OSError:
+        log.error("не читается стиль %s — интерфейс останется без оформления", name)
+        return Response(status_code=404)
+    cache = ("public, max-age=31536000, immutable" if paths.is_frozen()
+             else "no-cache")
+    return Response(text, media_type="text/css",
+                    headers={"Cache-Control": cache})
 
 
 @app.get("/favicon.ico")

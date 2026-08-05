@@ -54,10 +54,18 @@ def main(base: str, password: str) -> int:
         check(f"{path} открывается",
               r.status == 200 and len(r.body) > 1000, f"код {r.status}, {len(r.body)} б")
 
-    # CSS живёт строкой в коде: если он исчезнет, страница откроется «голой»
+    # Оформление — отдельный файл внутри бандла. Если он не попал в сборку,
+    # страницы откроются «голыми», а /health об этом не скажет ни слова.
     r = c.get("/admin")
-    check("стили на странице", ".banner" in r.body and "--teal" in r.body,
-          "нет разметки стилей")
+    check("страница ссылается на таблицу стилей",
+          "/static/css/panel.css?v=" in r.body, "нет <link> на panel.css")
+    r = c.get("/static/css/panel.css")
+    check("таблица стилей отдаётся из сборки",
+          r.status == 200 and ".banner" in r.body and len(r.body) > 10000,
+          f"код {r.status}, {len(r.body)} б")
+    check("стили кешируются у клиники",
+          "immutable" in r.header("Cache-Control"),
+          f"Cache-Control: {r.header('Cache-Control')!r}")
 
     # бот-диалог: конфиг клиники прочитан из бандла
     r = c.post_json("/chat", {"session_id": "smoke", "message": "/start"})

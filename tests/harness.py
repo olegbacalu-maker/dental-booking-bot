@@ -98,10 +98,18 @@ class Server:
 class Reply:
     """Ответ сервера в удобном для проверок виде."""
 
-    def __init__(self, status: int, location: str, body: str):
+    def __init__(self, status: int, location: str, body: str,
+                 headers: dict | None = None):
         self.status = status
         self.location = location
         self.body = body
+        self.headers = headers or {}
+
+    def header(self, name: str) -> str:
+        for k, v in self.headers.items():
+            if k.lower() == name.lower():
+                return v
+        return ""
 
     @property
     def msg(self) -> str:
@@ -135,10 +143,10 @@ class Client:
         try:
             with self.opener.open(req, timeout=30) as r:
                 return Reply(r.status, r.headers.get("Location", ""),
-                             r.read().decode("utf-8", "replace"))
+                             r.read().decode("utf-8", "replace"), dict(r.headers))
         except urllib.error.HTTPError as e:
             return Reply(e.code, e.headers.get("Location", ""),
-                         e.read().decode("utf-8", "replace"))
+                         e.read().decode("utf-8", "replace"), dict(e.headers))
 
     def get(self, path: str) -> Reply:
         return self._do(path)

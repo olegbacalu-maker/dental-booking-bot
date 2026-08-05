@@ -65,8 +65,26 @@ def suite_pages(res: Result) -> None:
         res.ok("экспорт CSV отдаётся", csv.status == 200 and "Pagina Test" in csv.body,
                f"код {csv.status}")
 
-        css = c.get("/admin").body
-        res.ok("стили на странице есть", ".banner" in css, "CSS не подключён")
+        # оформление вынесено в файл: страница ссылается, файл отдаётся
+        page = c.get("/admin").body
+        res.ok("страница ссылается на таблицу стилей",
+               "/static/css/panel.css?v=" in page, "нет <link> на panel.css")
+        css = c.get("/static/css/panel.css")
+        res.ok("таблица стилей отдаётся",
+               css.status == 200 and ".banner" in css.body and "--teal" in css.body,
+               f"код {css.status}, {len(css.body)} б")
+        # вне сборки стили НЕ кешируются: иначе правка оформления не видна по F5
+        res.ok("при работе из исходников кеш отключён",
+               "no-cache" in css.header("Cache-Control"),
+               f"Cache-Control: {css.header('Cache-Control')!r}")
+        res.ok("метка версии в адресе — время правки файла",
+               "?v=1" in page and "?v=1.11" not in page,
+               "в адресе версия программы, а не время файла")
+        res.ok("чужой файл через стили не вытащить",
+               c.get("/static/css/..%2F..%2Fmain.py").status == 404,
+               "отдал что-то постороннее")
+        res.ok("несуществующий стиль — 404",
+               c.get("/static/css/nope.css").status == 404, "не 404")
 
 
 def suite_patient_card(res: Result) -> None:
