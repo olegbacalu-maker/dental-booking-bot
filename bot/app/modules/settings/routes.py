@@ -25,7 +25,7 @@ from ... import update as upd
 from ...core.auth import ADMIN_KEY, _guard, _pin_rec
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
-                            _doc_hours_text, _shell)
+                            _doc_hours_text, _shell, tg_status)
 from ...core.visits import SVC_PALETTE
 
 router = APIRouter()
@@ -140,12 +140,13 @@ async def admin_settings(request: Request, msg: str = ""):
         cls, text = MSG_BANNER[msg]
         banner = f"<div class='banner {cls}'>{text}</div>"
 
-    tgmod = sys.modules.get(f"{__package__}.telegram")
-    tg_status = tgmod.STATUS if tgmod else {"running": False, "username": "", "error": ""}
-    if tg_status["running"]:
-        tg_line = f"✅ activ — @{html.escape(tg_status['username'])}"
+    # статус спрашиваем у core, а не повторяем трюк с sys.modules: имя пакета
+    # зависит от того, где лежит файл, и своя копия уже один раз соврала
+    tg = tg_status()
+    if tg["running"]:
+        tg_line = f"✅ activ — @{html.escape(tg['username'])}"
     elif os.environ.get("TELEGRAM_TOKEN", "").strip():
-        tg_line = f"⚠️ {html.escape(tg_status.get('error') or 'pornire…')}"
+        tg_line = f"⚠️ {html.escape(tg.get('error') or 'pornire…')}"
     else:
         tg_line = "— fără token (adăugați TELEGRAM_TOKEN în dental.env / .env)"
     if upd.can_self_update():

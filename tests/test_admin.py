@@ -171,8 +171,20 @@ sys.path.insert(0, r"%s")
 from datetime import datetime, timedelta, date
 from app import engine as eng
 from app import paths
+# ⚠️ статус бота ищется в sys.modules по имени пакета. Когда имя считалось от
+# __package__ текущего файла, переезд файла в подпапку тихо ломал показ:
+# адаптер работает, а интерфейс рисует его выключенным. Подкладываем модуль
+# под НАСТОЯЩИМ именем и проверяем, что его находят из core.
+import types
+_fake = types.ModuleType("app.telegram")
+_fake.STATUS = {"running": True, "username": "bot_de_test", "error": ""}
+sys.modules["app.telegram"] = _fake
+from app.core.layout import _tg_state, tg_status
 now = datetime.now(eng.TZ)
 out = {
+ "tg_user":        tg_status().get("username"),
+ "tg_running":     tg_status().get("running"),
+ "tg_state_tuple": list(_tg_state()),
  "res_clinic":     paths.resource("clinic.json").exists(),
  "res_clinic_new": paths.resource("clinic_new.json").exists(),
  "res_static":     paths.resource("static").is_dir(),
@@ -201,6 +213,11 @@ print(json.dumps(out))
         res.failed.append(("чистые функции: запуск", p.stderr[-500:]))
         return
     v = json.loads(p.stdout)
+    # статус бота: ищется по имени пакета, а не по расположению файла
+    res.check("статус бота виден из core", v["tg_user"], "bot_de_test")
+    res.check("бот показан работающим", v["tg_running"], True)
+    res.check("короткий статус для сайдбара", v["tg_state_tuple"],
+              [True, "bot_de_test"])
     # якоря путей: то, из-за чего собранный exe не стартовал бы после переезда
     res.check("демо-профиль клиники находится", v["res_clinic"], True)
     res.check("пустой профиль клиники находится", v["res_clinic_new"], True)

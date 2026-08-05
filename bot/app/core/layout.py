@@ -150,14 +150,28 @@ def _initials(name: str) -> str:
     return "".join(w[0].upper() for w in words[:2]) or "?"
 
 
-def _tg_state() -> tuple[bool, str]:
-    """Статус Telegram-канала БЕЗ импорта адаптера: import aiogram занимает
-    секунды, а это горячий путь (сайдбар на каждой странице). Модуль уже
-    импортирован в startup(), если токен задан — берём из sys.modules."""
-    mod = sys.modules.get(f"{__package__}.telegram")
+# Корень пакета приложения — «app», как бы глубоко ни лежал текущий модуль.
+# ⚠️ Раньше здесь стояло f"{__package__}.telegram", и это работало ровно до
+# переезда файла: из core/ строка стала искать app.core.telegram, из модуля
+# настроек — app.modules.settings.telegram. Адаптер при этом жив и опрашивает
+# Telegram, а интерфейс показывает бота выключенным — поломка, которую не видно
+# ни в логе, ни в тестах, потому что HTTP-ответ остаётся успешным.
+_APP_PKG = (__package__ or "app").split(".")[0]
+
+
+def tg_status() -> dict:
+    """Статус Telegram-адаптера БЕЗ импорта адаптера: `import aiogram` занимает
+    секунды, а это горячий путь (сайдбар рисуется на каждой странице). Модуль
+    уже импортирован в startup(), если токен задан — берём его из sys.modules."""
+    mod = sys.modules.get(f"{_APP_PKG}.telegram")
     if mod is None:
-        return False, ""
-    st = mod.STATUS
+        return {"running": False, "username": "", "error": ""}
+    return dict(mod.STATUS)
+
+
+def _tg_state() -> tuple[bool, str]:
+    """Короткий ответ для сайдбара: (работает ли, username)."""
+    st = tg_status()
     return bool(st["running"]), st.get("username", "")
 
 
