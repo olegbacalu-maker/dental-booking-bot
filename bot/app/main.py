@@ -1,6 +1,5 @@
 import asyncio
 import csv
-import hashlib
 import hmac
 import html
 import io
@@ -26,41 +25,24 @@ from . import engine as eng
 from . import paths
 from . import teeth_svg as tsvg
 from . import update as upd
+# Общий слой. Имена оставлены прежними намеренно: переезжают ОПРЕДЕЛЕНИЯ, а
+# места использования (их больше сотни) остаются нетронутыми — так видно, что
+# перенос ничего не переписал по дороге.
+from .core.auth import (ADMIN_KEY, _guard, _pin_hash, _pin_rec, _secret,
+                        _set_auth_cookie, _setup_allowed, _write_pin)
+from .core.layout import (FEEDBACK_EMAIL, LIVE_STATUSES, LOGIN_TMPL,
+                          MSG_BANNER, SETUP_TMPL, STATIC, STATUS_LABEL, _age,
+                          _asset, _banner, _ic, _initials, _shell, _tg_state)
+from .core.storage import _data_dir
 
 app = FastAPI(title="DentPilot")
 log = logging.getLogger("web")
 
-# путь считается от корня пакета, а не от расположения ЭТОГО файла: main.py
-# однажды разъедется по модулям, а статика останется на месте (см. paths.py)
-STATIC = paths.resource("static")
-
-_CSS_CACHE: dict[str, str] = {}
 
 
-def _asset(*parts: str) -> str:
-    """Текст файла из static/. В собранной программе читается один раз, при
-    запуске из исходников — каждый раз: правка стилей видна по F5, без
-    перезапуска сервера. Оформление правят чаще, чем код."""
-    key = "/".join(parts)
-    if paths.is_frozen() and key in _CSS_CACHE:
-        return _CSS_CACHE[key]
-    text = (STATIC.joinpath(*parts)).read_text(encoding="utf-8")
-    _CSS_CACHE[key] = text
-    return text
 
 
-def _asset_ver(*parts: str) -> str:
-    """Метка версии в адресе файла — ею сбрасывается кеш браузера.
 
-    У клиники это версия программы: адрес меняется ровно тогда, когда приехало
-    обновление. При запуске из исходников — время правки файла, иначе работа
-    над оформлением превращается в борьбу с кешем: версия-то не менялась."""
-    if paths.is_frozen():
-        return eng.APP_VERSION
-    try:
-        return str(int(STATIC.joinpath(*parts).stat().st_mtime))
-    except OSError:
-        return eng.APP_VERSION
 
 
 @app.middleware("http")
@@ -73,102 +55,27 @@ async def _limit_body_size(request: Request, call_next):
             return Response("Payload too large", status_code=413)
     return await call_next(request)
 
-# --- защита журнала ---
-# Desktop (SQLite): PIN 4–6 цифр, ставится в самом приложении (data/auth.json,
-# hash+salt); «забыл PIN» = удалить этот файл → снова экран установки.
-# Cloud (Postgres): по-прежнему ADMIN_KEY из .env.
-ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
-
-FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
 
 
-def _data_dir() -> pathlib.Path | None:
-    if db.IS_SQLITE:
-        return pathlib.Path(db.DATABASE_URL.split("///", 1)[1]).parent
-    return None
 
 
-def _auth_path() -> pathlib.Path | None:
-    d = _data_dir()
-    return d / "auth.json" if d else None
 
 
-def _pin_rec() -> dict | None:
-    p = _auth_path()
-    if p and p.exists():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-    return None
 
 
-def _pin_hash(pin: str, salt: str) -> str:
-    return hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
 
 
-def _secret() -> str:
-    rec = _pin_rec()
-    if rec:
-        return rec.get("hash", "")
-    return ADMIN_KEY
 
 
-def _sec_warn() -> str:
-    if _secret() or db.IS_SQLITE:
-        return ""
-    return " · ⚠️ fără parolă — setați ADMIN_KEY în .env"
 
 
-def _cookie_sig() -> str:
-    return hmac.new(_secret().encode(), b"dentart-admin-v1", hashlib.sha256).hexdigest()
 
 
-def _set_auth_cookie(resp: RedirectResponse) -> RedirectResponse:
-    resp.set_cookie("admin_auth", _cookie_sig(), max_age=60 * 60 * 24 * 30,
-                    httponly=True, samesite="lax")
-    return resp
 
 
-def _guard(request: Request) -> RedirectResponse | None:
-    sec = _secret()
-    if not sec:
-        if db.IS_SQLITE:
-            # desktop без PIN — принудительная первичная установка
-            return RedirectResponse("/admin/setup", status_code=303)
-        return None  # облачный демо-режим без ключа
-    if hmac.compare_digest(request.cookies.get("admin_auth", ""), _cookie_sig()):
-        return None
-    q = str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
-    return RedirectResponse(
-        f"/admin/login?next={urllib.parse.quote(q, safe='')}", status_code=303)
 
 
-LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__CLINIC__ — acces</title><style>
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#F6FBF8;display:flex;
-      align-items:center;justify-content:center;height:100vh;margin:0;color:#162033}
- form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
-      box-shadow:0 18px 40px rgba(15,23,42,.08);
-      display:flex;flex-direction:column;gap:12px;width:340px}
- h1{font-size:19px;color:#162033;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
- input{height:44px;padding:0 14px;border:1px solid #E7EDF5;border-radius:12px;font-size:15px;
-       outline:none;color:#162033}
- input:focus{border-color:#0E9F8A;box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- button{background:#0E9F8A;color:#fff;border:none;border-radius:12px;height:44px;
-        font-size:15px;font-weight:600;cursor:pointer;transition:background-color .2s ease}
- button:hover{background:#0B7E6D}
- .err{color:#B91C1C;font-size:13px}
-</style></head><body>
-<form method="post" action="/admin/login">
-  <h1>🦷 __CLINIC__ — registrul clinicii</h1>
-  __ERR__
-  <input type="hidden" name="next" value="__NEXT__">
-  __INPUT__
-  <button>Intră</button>
-  __HINT__
-</form></body></html>"""
+
 
 PIN_INPUT = ("<input type='password' name='password' placeholder='PIN' autofocus required "
              "inputmode='numeric' pattern='[0-9]*' maxlength='6' "
@@ -177,237 +84,25 @@ PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofo
 PIN_HINT = ("<div style='color:#889;font-size:12px'>PIN uitat? Închideți programul și "
             "ștergeți fișierul <b>data\\auth.json</b> — la pornire veți seta un PIN nou.</div>")
 
-STATUS_LABEL = {
-    "confirmed": "✅ confirmată",
-    "arrived": "🟢 în cabinet",
-    "done": "🟦 a venit",
-    "noshow": "🟥 nu a venit",
-    "cancelled": "❌ anulată",
-}
-# статусы, при которых слот занят — единый источник правды в db.py
-LIVE_STATUSES = db.ACTIVE_STATUSES
-MSG_BANNER = {
-    "ok": ("ok", "Programare adăugată ✔"),
-    "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
-    "dup": ("err", "Pacientul are deja o programare la această oră"),
-    "past": ("err", "Ora aleasă a trecut deja — reîmprospătați lista orelor libere"),
-    "ok_past": ("warn", "Programare adăugată ✔ — atenție: este pe o zi trecută. "
-                        "Verificați data dacă nu ați vrut asta"),
-    "bad": ("err", "Date invalide — verificați câmpurile"),
-    "bad_name": ("err", "Lipsește numele pacientului"),
-    "bad_phone": ("err", "Telefonul are mai puțin de 8 cifre — verificați numărul"),
-    "bad_off": ("err", "Medicul nu este activ (concediu sau arhivat) — "
-                       "alegeți alt medic sau readuceți-l din concediu în Medici"),
-    "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
-    "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
-    "ok_comment": ("ok", "Comentariu salvat ✔"),
-    "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
-    "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
-    "ok_pin": ("ok", "PIN schimbat ✔"),
-    "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
-    "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
-    "ok_tok": ("ok", "Token salvat ✔ — reporniți programul pentru aplicare"),
-    "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
-    "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
-    "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
-    "ok_card": ("ok", "Fișa pacientului a fost actualizată ✔"),
-    "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
-    "ok_doc": ("ok", "Document încărcat ✔ — rămâne local, în folderul programului"),
-    "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
-    "ok_med": ("ok", "Datele medicului au fost salvate ✔"),
-    "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
-    "new_med": ("ok", "Medic adăugat ✔ — completați fișa lui"),
-    "dup_med": ("err", "Există deja un medic cu acest nume — numele trebuie să fie unic"),
-    "ok_photo": ("ok", "Fotografia a fost salvată ✔ — rămâne local, lângă program"),
-    "bad_photo": ("err", "Doar JPEG / PNG / WebP, până la 5 MB"),
-    "ok_svc_med": ("ok", "Serviciile medicului au fost actualizate ✔"),
-    "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic "
-                         "ACTIV — altfel dispare din meniul botului. Bifați alt medic "
-                         "(sau readuceți unul din concediu) înainte de a-l scoate pe acesta"),
-    "save_err": ("err", "Nu am putut scrie fișierul clinicii (clinic.json) — datele NU "
-                        "au fost salvate. Verificați spațiul pe disc și drepturile la "
-                        "folderul programului; detalii în data\\dentpilot.log"),
-    "arch_busy": ("err", "Medicul are programări viitoare — mutați-le la alt medic sau "
-                         "alegeți «în concediu» în loc de arhivare"),
-    "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
-}
-
-REFRESH_JS = """
-<script>
-setInterval(function(){
-  if(document.querySelector("dialog[open]"))return;
-  var pe=document.getElementById("pedit");
-  if(pe&&pe.style.display!=="none")return;            // открыта форма профиля
-  var fi=document.querySelector("input[type=file]");
-  if(fi&&fi.files&&fi.files.length)return;            // выбран файл — не терять
-  var a=document.activeElement;
-  if(a&&a.closest&&a.closest("form"))return;          // любой ввод в форме
-  if(!a||(a.tagName!=="INPUT"&&a.tagName!=="SELECT"&&a.tagName!=="TEXTAREA"&&a.tagName!=="BUTTON"))location.reload();
-},12000);
-</script>
-"""
 
 
-def _update_banner() -> str:
-    if upd.can_self_update():
-        # в desktop-версии баннер ведёт к кнопке «Actualizează acum», не на GitHub
-        return (f" · <a href='/admin/settings' "
-                f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
-                f"{html.escape(upd.STATE['latest'])} — click pentru actualizare</a>")
-    if upd.asset_pending() and upd.is_desktop():
-        # релиз есть, файла в нём ещё нет — честно говорим и НЕ шлём на GitHub
-        return (f" · <span style='color:var(--text3)'>🔄 {html.escape(upd.STATE['latest'])} "
-                f"se pregătește…</span>")
-    if upd.newer_available():
-        return (f" · <a href='{html.escape(upd.STATE['url'])}' target='_blank' "
-                f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
-                f"{html.escape(upd.STATE['latest'])}</a>")
-    return ""
 
 
-def _tg_state() -> tuple[bool, str]:
-    """Статус Telegram-канала БЕЗ импорта адаптера: import aiogram занимает
-    секунды, а это горячий путь (сайдбар на каждой странице). Модуль уже
-    импортирован в startup(), если токен задан — берём из sys.modules."""
-    mod = sys.modules.get(f"{__package__}.telegram")
-    if mod is None:
-        return False, ""
-    st = mod.STATUS
-    return bool(st["running"]), st.get("username", "")
 
 
-_I = {  # компактные stroke-иконки сайдбара
-    "home": "<path d='M3 10.5 12 3l9 7.5M5.5 9.5V21h13V9.5'/>",
-    "cal": "<rect x='3.5' y='5' width='17' height='16' rx='2.5'/><path d='M3.5 10h17M8.5 3v4M15.5 3v4'/>",
-    "pat": "<circle cx='12' cy='8' r='3.5'/><path d='M5 20.5c1.3-3.8 4-5.4 7-5.4s5.7 1.6 7 5.4'/>",
-    "med": "<path d='M8 3v4a4 4 0 0 0 8 0V3'/><path d='M12 11v3a4.5 4.5 0 0 0 9 0v-1'/>"
-           "<circle cx='20.5' cy='11' r='1.6'/>",
-    "stat": "<path d='M4 20h16M8 20v-6M13 20V7M18 20v-9'/>",
-    "set": "<circle cx='12' cy='12' r='3'/><path d='M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2'/>",
-    "bot": "<rect x='3.5' y='7.5' width='17' height='12' rx='3'/><path d='M12 7.5V4'/><circle cx='9' cy='13.5' r='1' fill='currentColor' stroke='none'/><circle cx='15' cy='13.5' r='1' fill='currentColor' stroke='none'/>",
-    "qr": "<rect x='4' y='4' width='6.5' height='6.5' rx='1'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1'/><path d='M13.5 13.5h6.5v6.5h-6.5z'/>",
-    # якоря строк профиля пациента (макет 08-03)
-    "phone": "<path d='M6.5 3.5h3l1.5 4-2 1.2a12 12 0 0 0 5.3 5.3l1.2-2 4 1.5v3a1.5 1.5 0 0 1-1.7 1.5C10.6 17.4 6.6 13.4 5 5.2A1.5 1.5 0 0 1 6.5 3.5z'/>",
-    "mail": "<rect x='3' y='5.5' width='18' height='13' rx='2.5'/><path d='m3.8 7 8.2 6 8.2-6'/>",
-    "pin": "<path d='M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z'/><circle cx='12' cy='10' r='2.6'/>",
-    "id": "<rect x='2.8' y='5' width='18.4' height='14' rx='2.5'/><circle cx='9' cy='11' r='2'/>"
-          "<path d='M5.6 16.2c.7-1.6 2-2.3 3.4-2.3s2.7.7 3.4 2.3M15 10h4M15 13.5h4'/>",
-    "shield": "<path d='M12 3l7 3v5.5c0 4.3-3 7.6-7 9.5-4-1.9-7-5.2-7-9.5V6z'/>",
-}
 
 
-def _ic(name: str) -> str:
-    return (f"<svg width='16' height='16' viewBox='0 0 24 24' fill='none' "
-            f"stroke='currentColor' stroke-width='1.8' stroke-linecap='round' "
-            f"stroke-linejoin='round'>{_I[name]}</svg>")
 
 
-def _sidebar(active: str) -> str:
-    def item(key: str, href: str, icon: str, label: str, extra: str = "") -> str:
-        on = " on" if key == active else ""
-        return (f"<a class='{on.strip()}' href='{href}' title='{label}'>{_ic(icon)}"
-                f"<span>{label}</span>{extra}</a>")
-
-    tg_on, tg_user = _tg_state()
-    tg_dot = "<span class='dot ok'></span>" if tg_on else "<span class='dot off'></span>"
-    tg_title = f"@{tg_user}" if tg_on else "neconectat"
-    return f"""<aside class="side">
-  <div class="brand">{brand.mark_svg(34, 'logo')}
-    <div class="txt"><b>DentPilot</b><small title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</small></div>
-  </div>
-  <nav>
-    <div class="sec">Meniu</div>
-    {item('dash', '/admin', 'home', 'Dashboard')}
-    {item('prog', '/admin/all', 'cal', 'Programări')}
-    {item('pat', '/admin/search', 'pat', 'Pacienți')}
-    {item('med', '/admin/medici', 'med', 'Medici')}
-    {item('stat', '/admin/stats', 'stat', 'Statistici')}
-    {item('set', '/admin/settings', 'set', 'Setări')}
-    <div class="sec">Sincronizări</div>
-    {item('tg', '/admin/settings', 'bot', 'Telegram Bot', tg_dot)}
-    {item('qr', '/admin/qr-print', 'qr', 'QR pacienți')}
-  </nav>
-  <div class="sfoot" title="Telegram: {html.escape(tg_title)}">v{eng.APP_VERSION} · <span id="sf_clock"></span></div>
-</aside>"""
 
 
-def _topbar(bell: int | None) -> str:
-    bell_html = ""
-    if bell is not None:
-        badge = f"<span class='n'>{bell}</span>" if bell else ""
-        # ведёт к блоку «Programări noi din bot» (по created_at) — а не к дневному
-        # фильтру: бронь на неделю вперёд должна быть в одном клике (урок демо 07-31)
-        bell_html = (f"<a class='bell' href='/admin#botnew' "
-                     f"title='Programări noi din bot'>🔔{badge}</a>")
-    today = datetime.now(eng.TZ).date().isoformat()
-    return f"""<div class="top">
-  <form class="searchf" method="get" action="/admin/search">
-    <input id="topq" name="q" placeholder="Caută pacient, telefon…" autocomplete="off">
-    <span class="kbd">Ctrl K</span><button>🔍</button>
-  </form>
-  <div style="flex:1"></div>
-  <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
-  {bell_html}
-  <a class="newbtn" href="/admin/all?date={today}#addform">＋ Programare nouă</a>
-</div>"""
 
 
-def _setup_hint() -> str:
-    """Пока профиль клиники — нетронутый шаблон, об этом надо говорить прямо.
-    Иначе «Clinica mea» и «Medic 1» тихо доживают до первого пациента, а бот
-    называет их вслух."""
-    if not eng.CONFIG.get("template"):
-        return ""
-    return ("<div class='banner err' style='margin-bottom:14px'>"
-            "Programul încă are datele de exemplu. "
-            "<a href='/admin/settings'><b>Completați datele clinicii</b></a> — "
-            "denumire, telefon, medici, servicii și program de lucru. "
-            "Până atunci botul le spune pacienților exact ce scrie aici.</div>")
 
 
-def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -> str:
-    fb_subject = urllib.parse.quote(
-        f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
-    fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
-    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/svg+xml" href="/favicon.ico">
-<title>{html.escape(eng.CLINIC_NAME)} — registru</title>
-<link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}"></head><body>
-{_sidebar(active)}
-<div class="main">
-{_topbar(bell)}
-<div class="content">
-<h1><a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
-<div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
-{_setup_hint()}
-{body}
-</div></div>
-<div class="brandcorner">🦷 <b>DentPilot</b> ·
-<a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
-   title="{FEEDBACK_EMAIL}">💬 Feedback</a></div>
-<script>
-document.addEventListener('keydown',function(e){{
-  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){{
-    e.preventDefault();var q=document.getElementById('topq');if(q)q.focus();}}
-}});
-function pickName(inp){{
-  var out=document.getElementById(inp.id+'_n');
-  if(!out) return;
-  var f=inp.files&&inp.files[0];
-  out.textContent=f?f.name:'niciun fișier ales';
-  out.classList.toggle('on',!!f);
-}}
-var sfc=document.getElementById('sf_clock');
-if(sfc){{var t=new Date();sfc.textContent=('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);}}
-</script>
-{REFRESH_JS}</body></html>"""
 
 
-def _age(birth_year) -> int | None:
-    if not birth_year:
-        return None
-    return datetime.now(eng.TZ).year - int(birth_year)
+
 
 
 def _parse_date(value: str) -> date:
@@ -433,14 +128,6 @@ def _date_nav(d: date, base: str, extra: str = "") -> str:
             f"{picker}{extra}</div>")
 
 
-def _banner(msg: str, d: date) -> str:
-    out = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        out += f"<div class='banner {cls}'>{text}</div>"
-    if not eng.hours_for(d):
-        out += "<div class='banner err'>Zi liberă — clinica este închisă (bot-ul nu oferă această zi)</div>"
-    return out
 
 
 def _grid(d: date, doctors_items: list, active: dict, href_fn,
@@ -874,37 +561,8 @@ async def admin_login(password: str = Form(...), next_url: str = Form("/admin", 
         f"/admin/login?err=1&next={urllib.parse.quote(target, safe='')}", status_code=303)
 
 
-SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__CLINIC__ — PIN</title><style>
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#0E9F8A;display:flex;
-      align-items:center;justify-content:center;height:100vh;margin:0}
- form{background:#fff;padding:30px 32px;border-radius:18px;box-shadow:0 18px 40px rgba(15,23,42,.25);
-      display:flex;flex-direction:column;gap:12px;width:340px}
- h1{font-size:19px;color:#162033;margin:0;font-weight:600;letter-spacing:-.02em}
- p{color:#7E8B9C;font-size:13px;margin:0;line-height:1.5}
- input{padding:12px;border:1px solid #E7EDF5;border-radius:12px;font-size:26px;
-       text-align:center;letter-spacing:12px;outline:none;color:#162033}
- input:focus{border-color:#0E9F8A;box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- button{background:#0E9F8A;color:#fff;border:none;border-radius:12px;height:48px;
-        font-size:15px;font-weight:600;cursor:pointer;transition:background-color .2s ease}
- button:hover{background:#0B7E6D}
- .err{color:#B91C1C;font-size:13px}
-</style></head><body>
-<form method="post" action="/admin/setup">
-  <h1>🦷 __CLINIC__</h1>
-  <p>Prima pornire: setați un PIN pentru registrul clinicii (4–6 cifre).</p>
-  __ERR__
-  <input type="password" name="pin1" placeholder="PIN" inputmode="numeric"
-         pattern="[0-9]*" maxlength="6" autofocus required>
-  <input type="password" name="pin2" placeholder="repetați PIN" inputmode="numeric"
-         pattern="[0-9]*" maxlength="6" required>
-  <button>Setează PIN</button>
-</form></body></html>"""
 
 
-def _setup_allowed() -> bool:
-    return db.IS_SQLITE and _pin_rec() is None and not ADMIN_KEY
 
 
 @app.get("/admin/setup", response_class=HTMLResponse)
@@ -916,12 +574,6 @@ async def admin_setup_page(err: str = ""):
             .replace("__ERR__", err_html))
 
 
-def _write_pin(pin: str) -> None:
-    salt = secrets.token_hex(8)
-    _auth_path().write_text(
-        json.dumps({"salt": salt, "hash": _pin_hash(pin, salt)}),
-        encoding="utf-8",
-    )
 
 
 @app.post("/admin/setup")
@@ -967,9 +619,6 @@ _SVC_CAT = [
 ]
 
 
-def _initials(name: str) -> str:
-    words = [w for w in re.split(r"[\s.]+", name) if w and w.lower() not in ("dr", "dr.")]
-    return "".join(w[0].upper() for w in words[:2]) or "?"
 
 
 # палитра для явного цвета услуги в Setări (значение → фон/полоса)
