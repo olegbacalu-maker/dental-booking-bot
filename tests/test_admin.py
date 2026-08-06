@@ -218,6 +218,9 @@ def suite_dashboard(res: Result) -> None:
         res.ok("процент загрузки честный: 240 из 2520 минут = 10",
                "data-count='10' data-suffix='%'>10%<" in page,
                "цифра загрузки не сходится с минутами")
+        res.ok("тренд загрузки — двумя значениями, без «pp»",
+               "0% → " in page and "10%</span>" in page,
+               "нет формы «ieri X% → azi Y%»")
         res.ok("метки текущего часа нет в чужом дне", "nowh" not in page,
                "завтрашний день подсвечен как «сейчас»")
         res.ok("день помечен ключом подсветки", f"data-day='{day}'" in page,

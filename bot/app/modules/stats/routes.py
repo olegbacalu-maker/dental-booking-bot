@@ -203,10 +203,13 @@ async def admin_stats(
         pres = round(100 * came / len(mine)) if mine else 0
         doc_rows.append((name, off, len(mine), came, pres, pct))
     avg_pct = round(100 * busy_all / cap_all) if cap_all else 0
+    # период называется ЦИФРАМИ прямо на карточке: «media pe perioadă» без дат
+    # уже озадачила Олега — 3% за неделю выглядят ошибкой рядом с 86% за день
     gauge_card = (f"<div class='fcard an-gauge'><h3>Grad de ocupare</h3>"
                   f"{gauge(avg_pct, 'var(--teal)')}"
-                  f"<small>media clinicii pe perioadă · minute ocupate din "
-                  f"minutele de lucru</small></div>")
+                  f"<small>media {d1.strftime('%d.%m')}–{d2.strftime('%d.%m')} "
+                  f"({len(days)} zile) · minute ocupate din minutele de lucru "
+                  f"ale medicilor activi</small></div>")
     money_card = (f"<div class='fcard an-money'><h3>Venituri estimate</h3>"
                   f"<b data-count='{cur['value']}'>{_fmt_mdl(cur['value'])}</b>"
                   f"{_trend(cur['value'], prev['value'])}"

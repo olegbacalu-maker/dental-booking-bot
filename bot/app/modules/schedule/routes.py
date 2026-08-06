@@ -690,10 +690,19 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         return min(round(100 * busy / cap), 100)
 
     occ = _occ_pct(d, rows)
-    occ_diff = occ - _occ_pct(d - timedelta(days=1), by_day[d - timedelta(days=1)])
-    occ_sub = ("<span class='trend'>la fel ca ieri</span>" if occ_diff == 0 else
-               f"<span class='trend'><span class='{'up' if occ_diff > 0 else 'dn'}'>"
-               f"{'▲' if occ_diff > 0 else '▼'} {occ_diff:+d} pp</span> față de ieri</span>")
+    prev_day = d - timedelta(days=1)
+    occ_prev = _occ_pct(prev_day, by_day[prev_day])
+    # тренд ДВУМЯ значениями («ieri 70% → azi 86%»), а не разницей «+16 pp»:
+    # процентные пункты пришлось объяснять даже Олегу — регистратура не обязана
+    # знать эту единицу. Слова «ieri/azi» только на СЕГОДНЯШНЕЙ странице:
+    # журнал умеет показывать любой день, и там честнее даты.
+    a_lbl, b_lbl = (("ieri", "azi") if d == now.date()
+                    else (prev_day.strftime("%d.%m"), d.strftime("%d.%m")))
+    prev_open = any(eng.work_minutes(dk, prev_day) for dk in active_dks)
+    left = f"{occ_prev}%" if prev_open else "închis"
+    arrow = ("<span class='up'>▲</span> " if occ > occ_prev else
+             "<span class='dn'>▼</span> " if occ < occ_prev else "")
+    occ_sub = (f"<span class='trend'>{arrow}{a_lbl} {left} → {b_lbl} {occ}%</span>")
     occ_tile = (f"<div class='tile sp'>"
                 f"<span class='ico' style='background:var(--violet-soft);"
                 f"color:var(--violet)'>📈</span>"
