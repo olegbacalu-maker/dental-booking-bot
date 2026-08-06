@@ -1664,9 +1664,28 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
   </form>
 </dialog>
 <script>
+/* Предпросмотр обязан ПЕРЕЖИВАТЬ автоперезагрузку журнала (12 с, panel.js):
+   выбранный пациент лежит в sessionStorage, после обновления панель
+   открывается снова и тянет свежие данные, а кеш прошлой разметки убирает
+   мигание «Se încarcă…». Глушить само обновление было бы хуже: у панели на
+   широком экране нет кнопки «закрыть», и журнал протухал бы навсегда. */
 var PEEK = 0;
-function peek(id) {{
+function peekLoad(id) {{
   var body = document.getElementById('pp_body');
+  var seq = ++PEEK;
+  fetch('/admin/patient/' + id + '/peek')
+    .then(function (r) {{ return r.text(); }})
+    .then(function (t) {{
+      if (seq !== PEEK) return;
+      body.innerHTML = t;
+      try {{ sessionStorage.setItem('dp_peek_html', t); }} catch (e) {{}}
+    }})
+    .catch(function () {{
+      if (seq === PEEK) body.innerHTML =
+        '<div class="pp-empty"><span>Nu am putut încărca fișa.</span></div>';
+    }});
+}}
+function peekShow(id) {{
   document.querySelectorAll('.pl-tbl tr.on').forEach(function (r) {{
     r.classList.remove('on');
   }});
@@ -1674,15 +1693,13 @@ function peek(id) {{
   if (row) row.classList.add('on');
   document.getElementById('ppanel').classList.add('open');
   document.getElementById('pp_veil').classList.add('on');
-  body.innerHTML = '<div class="pp-empty"><span>Se încarcă…</span></div>';
-  var seq = ++PEEK;
-  fetch('/admin/patient/' + id + '/peek')
-    .then(function (r) {{ return r.text(); }})
-    .then(function (t) {{ if (seq === PEEK) body.innerHTML = t; }})
-    .catch(function () {{
-      if (seq === PEEK) body.innerHTML =
-        '<div class="pp-empty"><span>Nu am putut încărca fișa.</span></div>';
-    }});
+}}
+function peek(id) {{
+  try {{ sessionStorage.setItem('dp_peek', String(id)); }} catch (e) {{}}
+  peekShow(id);
+  document.getElementById('pp_body').innerHTML =
+    '<div class="pp-empty"><span>Se încarcă…</span></div>';
+  peekLoad(id);
 }}
 function peekOff() {{
   document.getElementById('ppanel').classList.remove('open');
@@ -1690,7 +1707,28 @@ function peekOff() {{
   document.querySelectorAll('.pl-tbl tr.on').forEach(function (r) {{
     r.classList.remove('on');
   }});
+  try {{
+    sessionStorage.removeItem('dp_peek');
+    sessionStorage.removeItem('dp_peek_html');
+  }} catch (e) {{}}
 }}
+(function () {{
+  var id = null, cached = null;
+  try {{
+    id = sessionStorage.getItem('dp_peek');
+    cached = sessionStorage.getItem('dp_peek_html');
+  }} catch (e) {{}}
+  if (!id) return;
+  /* скрипт стоит в конце body и выполняется ДО первой отрисовки, но выезд
+     панели на узком экране — transition, его глушим на один кадр: иначе
+     каждые 12 секунд панель заново выезжала бы сбоку */
+  var p = document.getElementById('ppanel');
+  p.style.transition = 'none';
+  peekShow(id);
+  requestAnimationFrame(function () {{ p.style.transition = ''; }});
+  if (cached) document.getElementById('pp_body').innerHTML = cached;
+  peekLoad(id);
+}})();
 function newPat() {{ document.getElementById('npdlg').showModal(); }}
 document.addEventListener('keydown', function (ev) {{
   if (ev.key === 'Escape') peekOff();

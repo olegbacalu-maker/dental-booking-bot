@@ -390,6 +390,12 @@ def suite_patients_list(res: Result) -> None:
         res.ok("предпросмотр отдаёт кусок разметки, не страницу",
                peek.status == 200 and "Plan de tratament" in peek.body
                and "<html" not in peek.body, f"код {peek.status}")
+        # ⚠️ журнал перезагружает себя каждые 12 с — панель обязана переживать
+        # это через sessionStorage, иначе она «исчезает» на глазах (жалоба 08-06)
+        page_js = c.get("/admin/search").body
+        res.ok("панель переживает автоперезагрузку",
+               "dp_peek" in page_js and "dp_peek_html" in page_js,
+               "нет восстановления предпросмотра после обновления страницы")
         res.ok("предпросмотр показывает аллергию",
                "Penicilină" in c.get(f"/admin/patient/{alerg}/peek").body,
                "алерта нет в панели")
