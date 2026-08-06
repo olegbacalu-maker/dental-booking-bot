@@ -326,6 +326,16 @@ def suite_backup(res: Result) -> None:
         res.ok("и без пароля стандартный zipfile тоже не читает", not opened,
                "содержимое доступно без пароля")
 
+        # ⚠️ инструкция «чем открыть» обязана читаться БЕЗ пароля: Проводник
+        # Windows не умеет AES-zip, и запертый readme не существует — человек
+        # на чужой машине видит «архив не извлекается» и тупик (случай 08-06)
+        try:
+            note = plain.read("CITESTE-MA.txt").decode("utf-8", "replace")
+        except RuntimeError:
+            note = ""
+        res.ok("CITESTE-MA читается без пароля", "7-Zip" in note,
+               "инструкция по открытию заперта внутри шифра — её никто не увидит")
+
 
 def suite_export_names(res: Result) -> None:
     """Имена файлов внутри архива. Имя пришло от пользователя при загрузке,

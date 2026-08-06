@@ -77,10 +77,19 @@ def write_encrypted(data_dir: pathlib.Path, clinic_json: pathlib.Path | None,
                 files.append((f, f"data/files/{f.relative_to(fdir).as_posix()}"))
 
     try:
-        with pyzipper.AESZipFile(dest, "w", compression=pyzipper.ZIP_DEFLATED,
+        # ⚠️ Архив собирается ДВУМЯ заходами, и это не причуда. CITESTE-MA.txt
+        # обязан лежать БЕЗ шифра: Проводник Windows не умеет WinZip-AES, и
+        # если инструкция «откройте 7-Zip/WinRAR» заперта тем же паролем, она
+        # не существует — человек на чужой машине видит архив, который «не
+        # извлекается», и всё (найдено на первом же живом экспорте 08-06).
+        # Секретов в readme нет; одним заходом не выйдет — AESZipFile с
+        # encryption=WZ_AES требует пароль на КАЖДУЮ запись.
+        with pyzipper.AESZipFile(dest, "w",
+                                 compression=pyzipper.ZIP_DEFLATED) as z:
+            z.writestr("CITESTE-MA.txt", _readme())
+        with pyzipper.AESZipFile(dest, "a", compression=pyzipper.ZIP_DEFLATED,
                                  encryption=pyzipper.WZ_AES) as z:
             z.setpassword(password.encode("utf-8"))
-            z.writestr("CITESTE-MA.txt", _readme())
             for src, arc in files:
                 z.write(src, arc)
     finally:
@@ -92,8 +101,13 @@ def _readme() -> str:
     return (
         "COPIE DE REZERVA DENTPILOT (criptata AES-256)\r\n"
         "=============================================\r\n\r\n"
-        "Deschidere: 7-Zip / WinRAR + parola stabilita la export.\r\n"
-        "Parola NU este salvata nicaieri - fara ea arhiva nu poate fi citita.\r\n\r\n"
+        "ACEST fisier se deschide fara parola - restul fisierelor sunt criptate.\r\n\r\n"
+        "IMPORTANT: Windows (Explorer) NU poate extrage aceasta arhiva -\r\n"
+        "va afisa o eroare. Folositi un program gratuit:\r\n"
+        "  * 7-Zip  (www.7-zip.org)  - click dreapta -> 7-Zip -> Extract...\r\n"
+        "  * WinRAR - click dreapta -> Extract...\r\n"
+        "La extragere introduceti parola stabilita la export.\r\n"
+        "Parola NU este salvata nicaieri - fara ea datele nu pot fi citite.\r\n\r\n"
         "Restaurare pe un calculator nou:\r\n"
         "  1. Instalati DentPilot si porniti-l o data (se creeaza folderul).\r\n"
         "  2. Inchideti programul.\r\n"
