@@ -405,25 +405,25 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
     if (deny := _guard(request)) is not None:
         return deny
     if not _pin_rec():
-        return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
+        return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
     # своё сообщение, а не bad_pin: «старый PIN неверен» при блокировке — ровно
     # тот случай, когда экран врёт, и человек начинает перебирать верный PIN
     if lock_left() > 0:
-        return RedirectResponse("/admin/settings?msg=lock_pin", status_code=303)
+        return RedirectResponse("/admin/settings/security?msg=lock_pin", status_code=303)
     # форма смены — второй оракул для того же PIN, поэтому считает те же неудачи
     if (who := verify_pin(old_pin.strip())) is None:
         note_fail()
         await asyncio.sleep(FAIL_DELAY)
-        return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
+        return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
     note_ok()
     n1, n2 = new1.strip(), new2.strip()
     if n1 != n2 or not n1.isdigit() or not (4 <= len(n1) <= 6):
-        return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
+        return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
     # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
     _write_pin(n1, role=who.get("role", "director"), uid=who.get("id", "clinic"))
     await remember_auth_file()
     return _set_auth_cookie(
-        RedirectResponse("/admin/settings?msg=ok_pin", status_code=303),
+        RedirectResponse("/admin/settings/security?msg=ok_pin", status_code=303),
         find_user(who.get("id", "clinic")))
 
 

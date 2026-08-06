@@ -443,9 +443,87 @@ def suite_patients_list(res: Result) -> None:
 
 
 def suite_settings(res: Result) -> None:
-    """Настройки клиники применяются на лету — без перезапуска программы."""
+    """Настройки: хаб из плиток, страницы-секции, сохранение по кускам.
+
+    ⭐ Главное, что здесь стережётся, — слияние: клиника/часы/услуги живут в
+    ОДНОМ clinic.json, и сохранение одной секции обязано не трогать соседние.
+    Наивная нарезка на вкладки затирала бы услуги при сохранении часов — молча.
+    """
     with Server() as s:
         c = Client(s.url).login()
+
+        hub = c.get("/admin/settings").body
+        res.ok("хаб — плитки, а не простыня",
+               "pl-tile" in hub and hub.count("/admin/settings/") >= 4,
+               "нет плиток секций")
+        for path, needle in {"/admin/settings/system": "Stare sistem",
+                             "/admin/settings/clinic": "Clinica Test",
+                             "/admin/settings/hours": "Luni",
+                             "/admin/settings/services": "Igienizare"}.items():
+            b = c.get(path)
+            res.ok(f"секция {path} открывается",
+                   b.status == 200 and needle in b.body,
+                   f"код {b.status}, нет {needle!r}")
+            res.ok(f"из секции {path} есть путь назад",
+                   "← Setări" in b.body, "нет навигации на хаб")
+
+        # ---- сохранение по кускам: сосед не должен пострадать ----
+        # (идёт ДО цельного payload: тот прогоняет услуги через разбор формы и
+        # по своей природе плющит двуязычную цену — куски так делать не должны)
+        r = c.post("/admin/settings/save", part="clinic", name="Clinica Parțială",
+                   phone="+373 60 111 222", addr_ro="str. Nouă 2", addr_ru="")
+        res.check("кусок «клиника» сохраняется", r.msg, "ok_set")
+        res.ok("возврат на ту же секцию", "/admin/settings/clinic" in r.location,
+               f"увёл на {r.location!r}")
+        after = json.loads(s.clinic.read_text(encoding="utf-8"))
+        res.check("имя обновилось", after["name"], "Clinica Parțială")
+        res.ok("услуги пережили сохранение клиники",
+               len(after["services"]) >= 4 and any(
+                   sv.get("id") == "hygiene" for sv in after["services"]),
+               "services затёрты куском clinic")
+        res.ok("двуязычная цена из профиля не изуродована",
+               isinstance(next(sv.get("price") for sv in after["services"]
+                               if sv.get("id") == "consult"), dict),
+               "price {'ro','ru'} перемолот в строку")
+
+        r = c.post("/admin/settings/save", part="hours",
+                   payload=json.dumps({"hours": {
+                       "mon": [9, 18], "tue": [9, 18], "wed": None,
+                       "thu": [9, 18], "fri": [9, 18, 13, 14],
+                       "sat": None, "sun": None}}))
+        res.check("кусок «часы» сохраняется", r.msg, "ok_set")
+        after = json.loads(s.clinic.read_text(encoding="utf-8"))
+        res.ok("имя пережило сохранение часов",
+               after["name"] == "Clinica Parțială", "часы затёрли клинику")
+        res.ok("среда закрыта, обед пятницы записан",
+               after["hours"]["wed"] is None and after["hours"]["fri"] == [9, 18, 13, 14],
+               f"часы не те: {after['hours']}")
+        res.ok("строка контактов боту пересобрана",
+               "13" in after.get("contacts", {}).get("ro", ""),
+               "contacts не отражает новый обед")
+
+        r = c.post("/admin/settings/save", part="services",
+                   payload=json.dumps({"services": [
+                       {"id": "consult", "ro": "Consultație", "ru": "Консультация",
+                        "price": "300 MDL", "duration": "30", "docs": ""}]}))
+        res.check("кусок «услуги» сохраняется", r.msg, "ok_set")
+        after = json.loads(s.clinic.read_text(encoding="utf-8"))
+        res.check("услуг стало ровно столько, сколько прислали",
+                  len(after["services"]), 1)
+        res.ok("врачи пережили сохранение услуг",
+               len(after["doctors"]) == 4, "услуги затёрли врачей")
+        res.ok("часы пережили сохранение услуг",
+               after["hours"]["wed"] is None, "услуги затёрли часы")
+
+        r = c.post("/admin/settings/save", part="hours",
+                   payload=json.dumps({"hours": {d: None for d in
+                                                 ("mon", "tue", "wed", "thu",
+                                                  "fri", "sat", "sun")}}))
+        res.check("вся неделя закрыта — отбито", r.msg, "bad_set")
+        res.ok("ошибка вернула на страницу часов",
+               "/admin/settings/hours" in r.location, f"{r.location!r}")
+
+        # старый цельный payload остаётся рабочим (горячая перезагрузка)
         cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
         cfg["name"] = "Clinica Redenumită"
         r = c.post("/admin/settings/save",

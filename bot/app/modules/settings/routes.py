@@ -18,6 +18,7 @@ import re
 import shutil
 import sys
 import tempfile
+from datetime import datetime
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -46,7 +47,8 @@ _UID_RE = re.compile(r"[a-z0-9_-]{2,20}")
 
 
 def _set_back(msg: str) -> RedirectResponse:
-    return RedirectResponse(f"/admin/settings?msg={msg}", status_code=303)
+    # учётки живут на странице «Securitate» — туда и возвращаем
+    return RedirectResponse(f"/admin/settings/security?msg={msg}", status_code=303)
 
 
 def _users_block() -> str:
@@ -146,91 +148,108 @@ def _hour_opts(sel: int, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
     )
 
 
+# ---------- раздел «Setări»: хаб + страницы-секции (просьба Олега 08-06) ----------
+#
+# Раньше всё лежало одной страницей и путалось; теперь /admin/settings — хаб из
+# плиток (те же .pl-tile, что в «Pacienți»: раздел не должен выглядеть чужим),
+# а каждая секция — своя страница. ⚠️ Клиника/часы/услуги по-прежнему ОДИН
+# clinic.json: каждая страница шлёт только свой кусок (part=...), сервер
+# сливает его с остальным конфигом. Прислать всё и тут было бы проще, но тогда
+# устаревшая вкладка «Program» затирала бы услуги, сохранённые из соседней.
+
+
+def _tg_line(tg: dict) -> str:
+    if tg["running"]:
+        return f"✅ activ — @{html.escape(tg['username'])}"
+    if os.environ.get("DENTART_TOKEN_UNREADABLE") == "1":
+        # шифротекст не с этой машины (см. dpapi.py). Молчаливое «fără token»
+        # отправило бы клинику чинить настройки бота, которые в порядке
+        return ("🔑 tokenul nu poate fi citit pe acest calculator — "
+                "reintroduceți-l în secțiunea Telegram")
+    if os.environ.get("TELEGRAM_TOKEN", "").strip():
+        return f"⚠️ {html.escape(tg.get('error') or 'pornire…')}"
+    return "— fără token (secțiunea Telegram Bot)"
+
+
+def _banner_html(msg: str) -> str:
+    if msg in MSG_BANNER:
+        cls, text = MSG_BANNER[msg]
+        return f"<div class='banner {cls}'>{text}</div>"
+    return ""
+
+
+def _sec_page(body: str, sub: str, msg: str) -> str:
+    nav = ("<div class='nav'><a href='/admin/settings'>← Setări</a>"
+           "<a href='/admin'>🏠 Panou</a></div>")
+    return _shell(nav + _banner_html(msg) + body, sub, active="set")
+
+
 @router.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings(request: Request, msg: str = ""):
+    """Хаб настроек: по плитке на секцию, на каждой — живая строка состояния."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     cfg = eng.CONFIG
     e = html.escape
 
-    def _break_opts(sel) -> str:
-        out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
-        for x in range(HOUR_MIN, HOUR_MAX + 1):
-            out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
-        return "".join(out)
+    def tile(href: str, ico: str, tone: str, label: str, hint: str) -> str:
+        return (f"<a class='pl-tile' href='{href}'>"
+                f"<span class='ico {tone}'>{ico}</span><div class='pl-tv'>"
+                f"<span>{label}</span><small>{hint}</small></div></a>")
 
-    hours_rows = []
-    for day in _DOW_ORDER:
-        h = cfg.get("hours", {}).get(day)
-        closed = h is None
-        hv = list(h) if h else [9, 18]
-        f, t = int(hv[0]), int(hv[1])
-        bf = int(hv[2]) if len(hv) >= 4 else None
-        bt = int(hv[3]) if len(hv) >= 4 else None
-        hours_rows.append(
-            f"<tr><td>{_DOW_FULL[day]}</td>"
-            f"<td><input type='checkbox' id='hc_{day}'{' checked' if closed else ''}> închis</td>"
-            f"<td><select id='hf_{day}'>{_hour_opts(f)}</select></td>"
-            f"<td><select id='ht_{day}'>{_hour_opts(t, HOUR_MIN + 1, HOUR_MAX)}</select></td>"
-            f"<td><select id='hb_{day}'>{_break_opts(bf)}</select></td>"
-            f"<td><select id='he_{day}'>{_break_opts(bt)}</select></td></tr>"
-        )
+    # короткое состояние обновления — подробности на странице «Stare sistem»
+    if upd.can_self_update() or upd.newer_available():
+        up_short = (f"<b style='color:var(--amber-t)'>🔄 disponibilă "
+                    f"{e(upd.STATE['latest'])}</b>")
+    elif upd.STATE["checked"] and not upd.STATE["error"]:
+        up_short = "✅ la zi"
+    else:
+        up_short = "stare necunoscută"
+    tg = tg_status()
+    tg_short = (f"✅ @{e(tg['username'])}" if tg["running"] else "neconectat")
+    today_h = cfg.get("hours", {}).get(_DOW_ORDER[datetime.now(eng.TZ).weekday()])
+    hours_short = (f"azi {int(today_h[0])}:00–{int(today_h[1])}:00" if today_h
+                   else "azi închis")
+    n_docs = sum(1 for d in cfg["doctors"] if eng.doctor_state(d) == "activ")
 
-    def _color_opts(sel: str) -> str:
-        out = [f"<option value=''{' selected' if not sel else ''}>auto</option>"]
-        for k, ro in _PALETTE_RO.items():
-            out.append(f"<option value='{k}'{' selected' if sel == k else ''}>{ro}</option>")
-        return "".join(out)
+    tiles = [tile("/admin/settings/system", "ℹ️", "b", "Stare sistem",
+                  f"v{eng.APP_VERSION} · {up_short}"),
+             tile("/admin/settings/clinic", "🏥", "g", "Clinica",
+                  e(cfg["name"])),
+             tile("/admin/settings/hours", "🕘", "v", "Program de lucru",
+                  hours_short),
+             tile("/admin/settings/services", "🦷", "g", "Servicii",
+                  f"{len(cfg['services'])} servicii"),
+             tile("/admin/medici", "👨‍⚕️", "b", "Medici",
+                  f"{n_docs} activi · se editează în secțiunea Medici")]
+    if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
+        tiles.append(tile("/admin/settings/telegram", "📱", "v", "Telegram Bot",
+                          tg_short))
+    if db.IS_SQLITE and bkp.available():
+        tiles.append(tile("/admin/settings/backup", "💾", "b", "Copie de rezervă",
+                          "arhivă criptată AES-256"))
+    if _pin_rec():
+        tiles.append(tile("/admin/settings/security", "🔒", "g",
+                          "Securitate și utilizatori",
+                          f"{len(all_users())} utilizatori"))
 
-    # v1.9.0: таблица врачей уехала в раздел «Medici» — здесь только сводка,
-    # чтобы у каталога врачей было ровно одно место правки
-    doc_rows = "".join(
-        f"<tr><td><a href='/admin/doctor-card/{e(d['id'])}'>{e(d['name'])}</a></td>"
-        f"<td>{e(d.get('spec', '')) or '—'}</td><td>{e(d.get('room', '')) or '—'}</td>"
-        f"<td>{e(d.get('phone', '')) or '—'}</td>"
-        f"<td>{e(_doc_hours_text(d['id']))}</td>"
-        f"<td><span class='dbadge {eng.doctor_state(d)}'>"
-        f"{_DOC_STATE_RO[eng.doctor_state(d)]}</span></td></tr>"
-        for d in cfg["doctors"]
-    )
-    def _dur_opts(sel) -> str:
-        cur = int(sel) if sel else 60
-        return "".join(f"<option value='{x}'{' selected' if cur == x else ''}>{x} min</option>"
-                       for x in (15, 30, 45, 60, 90, 120))
+    body = (f"<div class='pl-head'><div><h2>Setări</h2>"
+            f"<p>Alegeți o secțiune — modificările se aplică imediat, "
+            f"fără repornire</p></div></div>"
+            f"<div class='pl-tiles set-hub'>{''.join(tiles)}</div>")
+    return _shell("<div class='nav'><a href='/admin'>🏠 Panou</a></div>"
+                  + _banner_html(msg) + body,
+                  "setările clinicii · pe secțiuni", active="set")
 
-    svc_rows = "".join(
-        f"<tr><td><input type='hidden' class='s_id' value='{e(s['id'])}'>"
-        f"<input type='text' class='s_ro' value='{e(s['ro'])}'></td>"
-        f"<td><input type='text' class='s_ru' value='{e(s['ru'])}'></td>"
-        f"<td><input type='text' class='s_price' value='{e(str(s.get('price', '')) if not isinstance(s.get('price'), dict) else s['price'].get('ro', ''))}'></td>"
-        f"<td><select class='s_dur'>{_dur_opts(s.get('duration'))}</select></td>"
-        f"<td><select class='s_color'>{_color_opts(s.get('color', ''))}</select></td>"
-        f"<td style='text-align:center'><input type='checkbox' class='s_urg'{' checked' if s.get('urgent') else ''}></td>"
-        f"<td><input type='text' class='s_docs' value='{e(' '.join(s.get('docs', [])))}' placeholder='gol = toți'></td>"
-        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>✖</button></td></tr>"
-        for s in cfg["services"]
-    )
-    doc_ids_hint = ", ".join(f"{d['id']}={e(d['name'])}" for d in cfg["doctors"])
 
-    banner = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        banner = f"<div class='banner {cls}'>{text}</div>"
-
+@router.get("/admin/settings/system", response_class=HTMLResponse)
+async def settings_system(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
     # статус спрашиваем у core, а не повторяем трюк с sys.modules: имя пакета
     # зависит от того, где лежит файл, и своя копия уже один раз соврала
     tg = tg_status()
-    if tg["running"]:
-        tg_line = f"✅ activ — @{html.escape(tg['username'])}"
-    elif os.environ.get("DENTART_TOKEN_UNREADABLE") == "1":
-        # шифротекст не с этой машины (см. dpapi.py). Молчаливое «fără token»
-        # отправило бы клинику чинить настройки бота, которые в порядке
-        tg_line = ("🔑 tokenul nu poate fi citit pe acest calculator — "
-                   "reintroduceți-l mai jos")
-    elif os.environ.get("TELEGRAM_TOKEN", "").strip():
-        tg_line = f"⚠️ {html.escape(tg.get('error') or 'pornire…')}"
-    else:
-        tg_line = "— fără token (adăugați TELEGRAM_TOKEN în dental.env / .env)"
+    tg_line = _tg_line(tg)
     if upd.can_self_update():
         up_line = (
             f"🔄 disponibilă {html.escape(upd.STATE['latest'])} "
@@ -274,7 +293,7 @@ async def admin_settings(request: Request, msg: str = ""):
                 "<button style='background:none;border:1px solid var(--line);border-radius:8px;"
                 "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"
                 "margin-left:10px'>🔄 Verifică acum</button></form>")
-    status_tbl = f"""
+    body = f"""
 <h2>ℹ️ Stare sistem</h2>
 <table class='set'>
 <tr><th style='width:180px'>Versiune</th><td>v{eng.APP_VERSION}</td></tr>
@@ -298,12 +317,21 @@ copiile de rezervă rămân pe acest calculator, în folderul programului.</p>
 разработчику и не хранятся на его серверах. Обновления загружают только файлы
 программы. База данных, журналы и резервные копии остаются на этом компьютере.</p>
 </div>"""
-    if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
-        tok_set = bool(os.environ.get("TELEGRAM_TOKEN", "").strip())
-        ph = ("••• token setat — introduceți altul pentru schimbare" if tok_set
-              else "token de la @BotFather (ex. 123456789:AA...)")
-        status_tbl += f"""
+    return _sec_page(body, "setări · stare sistem", msg)
+
+
+@router.get("/admin/settings/telegram", response_class=HTMLResponse)
+async def settings_telegram(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not (db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE")):
+        return RedirectResponse("/admin/settings", status_code=303)
+    tok_set = bool(os.environ.get("TELEGRAM_TOKEN", "").strip())
+    ph = ("••• token setat — introduceți altul pentru schimbare" if tok_set
+          else "token de la @BotFather (ex. 123456789:AA...)")
+    body = f"""
 <h2>📱 Telegram — token bot</h2>
+<p class='hint' style='margin-top:0'>Stare: {_tg_line(tg_status())}</p>
 <form class='add' method='post' action='/admin/telegram/save'
       onsubmit="return confirm('Programul se va reporni pentru aplicare. Continuați?')">
   <input type='password' name='token' placeholder="{ph}" style='width:430px'>
@@ -311,8 +339,16 @@ copiile de rezervă rămân pe acest calculator, în folderul programului.</p>
 </form>
 <p class='hint'>Creați botul clinicii la @BotFather (2 minute) și lipiți tokenul aici.
 Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
-    if db.IS_SQLITE and bkp.available():
-        status_tbl += f"""
+    return _sec_page(body, "setări · Telegram Bot", msg)
+
+
+@router.get("/admin/settings/backup", response_class=HTMLResponse)
+async def settings_backup(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not (db.IS_SQLITE and bkp.available()):
+        return RedirectResponse("/admin/settings", status_code=303)
+    body = f"""
 <h2>💾 Copie de rezervă criptată</h2>
 <form class='add' method='post' action='/admin/backup/export'>
   <input type='password' name='parola' placeholder='parolă (min. {bkp.MIN_PASS} caractere)'
@@ -323,54 +359,148 @@ Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
 documentele pacienților — pentru stick USB sau alt calculator. Se deschide cu 7-Zip
 prin parola aleasă. <b>Parola nu se salvează nicăieri</b> — fără ea arhiva nu poate
 fi citită de nimeni, nici de noi.</p>"""
-    if _pin_rec():
-        status_tbl += """
+    return _sec_page(body, "setări · copie de rezervă", msg)
+
+
+@router.get("/admin/settings/security", response_class=HTMLResponse)
+async def settings_security(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not _pin_rec():
+        return RedirectResponse("/admin/settings", status_code=303)
+    body = """
 <h2>🔒 Schimbă PIN</h2>
 <form class='add' method='post' action='/admin/pin/change'>
   <input type='password' name='old_pin' placeholder='PIN actual' inputmode='numeric' maxlength='6' required style='width:140px'>
   <input type='password' name='new1' placeholder='PIN nou' inputmode='numeric' maxlength='6' required style='width:140px'>
   <input type='password' name='new2' placeholder='repetați' inputmode='numeric' maxlength='6' required style='width:140px'>
   <button>Schimbă</button>
-</form>"""
-        status_tbl += _users_block()
+</form>""" + _users_block()
+    return _sec_page(body, "setări · securitate și utilizatori", msg)
 
+
+@router.get("/admin/settings/clinic", response_class=HTMLResponse)
+async def settings_clinic(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    cfg = eng.CONFIG
+    e = html.escape
     body = f"""
-<div class='nav'><a href='/admin'>🏠 Panou</a></div>
-{banner}
-{status_tbl}
-<form method='post' action='/admin/settings/save' onsubmit='return collectSettings()'>
-<input type='hidden' name='payload' id='payload'>
-
 <h2>🏥 Clinica</h2>
+<form method='post' action='/admin/settings/save'>
+<input type='hidden' name='part' value='clinic'>
 <table class='set'>
-<tr><th style='width:180px'>Nume</th><td><input type='text' id='cname' value='{e(cfg["name"])}'></td></tr>
-<tr><th>Telefon</th><td><input type='text' id='cphone' value='{e(cfg["phone"])}'></td></tr>
-<tr><th>Adresa (RO)</th><td><input type='text' id='caddr_ro' value='{e(cfg.get("address", {}).get("ro", ""))}'></td></tr>
-<tr><th>Adresa (RU)</th><td><input type='text' id='caddr_ru' value='{e(cfg.get("address", {}).get("ru", ""))}'></td></tr>
+<tr><th style='width:180px'>Nume</th><td><input type='text' name='name' value='{e(cfg["name"])}'></td></tr>
+<tr><th>Telefon</th><td><input type='text' name='phone' value='{e(cfg["phone"])}'></td></tr>
+<tr><th>Adresa (RO)</th><td><input type='text' name='addr_ro' value='{e(cfg.get("address", {}).get("ro", ""))}'></td></tr>
+<tr><th>Adresa (RU)</th><td><input type='text' name='addr_ru' value='{e(cfg.get("address", {}).get("ru", ""))}'></td></tr>
 </table>
+<p class='hint'>Numele, telefonul și adresa apar în bot (📞 contacte) și în antetul
+registrului. Restul secțiunilor nu sunt atinse la salvare.</p>
+<button class='savebtn'>💾 Salvează</button>
+</form>"""
+    return _sec_page(body, "setări · clinica", msg)
 
+
+@router.get("/admin/settings/hours", response_class=HTMLResponse)
+async def settings_hours(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    cfg = eng.CONFIG
+
+    def _break_opts(sel) -> str:
+        out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
+        for x in range(HOUR_MIN, HOUR_MAX + 1):
+            out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
+        return "".join(out)
+
+    hours_rows = []
+    for day in _DOW_ORDER:
+        h = cfg.get("hours", {}).get(day)
+        closed = h is None
+        hv = list(h) if h else [9, 18]
+        f, t = int(hv[0]), int(hv[1])
+        bf = int(hv[2]) if len(hv) >= 4 else None
+        bt = int(hv[3]) if len(hv) >= 4 else None
+        hours_rows.append(
+            f"<tr><td>{_DOW_FULL[day]}</td>"
+            f"<td><input type='checkbox' id='hc_{day}'{' checked' if closed else ''}> închis</td>"
+            f"<td><select id='hf_{day}'>{_hour_opts(f)}</select></td>"
+            f"<td><select id='ht_{day}'>{_hour_opts(t, HOUR_MIN + 1, HOUR_MAX)}</select></td>"
+            f"<td><select id='hb_{day}'>{_break_opts(bf)}</select></td>"
+            f"<td><select id='he_{day}'>{_break_opts(bt)}</select></td></tr>"
+        )
+    body = f"""
 <h2>🕘 Program de lucru</h2>
+<form method='post' action='/admin/settings/save' onsubmit='return collectHours()'>
+<input type='hidden' name='part' value='hours'>
+<input type='hidden' name='payload' id='payload'>
 <table class='set'>
 <tr><th>Ziua</th><th>Închis</th><th>De la</th><th>Până la</th>
 <th>Pauză de la</th><th>Pauză până la</th></tr>
 {''.join(hours_rows)}
 </table>
 <p class='hint'>Pauza (ex. prânz 13:00–14:00) dispare din calendarul botului și din registru.
-«—» = fără pauză.</p>
+«—» = fără pauză. Medicul își poate îngusta orele în fișa lui, dar nu le poate lărgi
+peste programul clinicii.</p>
+<button class='savebtn'>💾 Salvează programul</button>
+</form>
+<script>
+function collectHours() {{
+  const days = ['mon','tue','wed','thu','fri','sat','sun'];
+  const hours = {{}};
+  for (const d of days) {{
+    if (document.getElementById('hc_' + d).checked) {{ hours[d] = null; continue; }}
+    const f = parseInt(document.getElementById('hf_' + d).value);
+    const t = parseInt(document.getElementById('ht_' + d).value);
+    const bf = document.getElementById('hb_' + d).value;
+    const bt = document.getElementById('he_' + d).value;
+    if (bf !== '' && bt !== '') hours[d] = [f, t, parseInt(bf), parseInt(bt)];
+    else hours[d] = [f, t];
+  }}
+  document.getElementById('payload').value = JSON.stringify({{hours: hours}});
+  return true;
+}}
+</script>"""
+    return _sec_page(body, "setări · program de lucru", msg)
 
-<h2>👨‍⚕️ Medici</h2>
-<table class='set'>
-<tr><th>Nume</th><th>Specializare</th><th style='width:90px'>Cabinet</th>
-<th style='width:110px'>Telefon</th><th style='width:150px'>Program</th>
-<th style='width:110px'>Stare</th></tr>
-{doc_rows}
-</table>
-<p class='hint'>Medicii se editează în secțiunea
-<a href='/admin/medici'><b>👨‍⚕️ Medici</b></a> — acolo sunt fișa completă, fotografia,
-serviciile și starea (activ / în concediu / arhivat). Aici sunt afișați doar pentru
-verificare, ca datele lor să aibă un singur loc de modificare.</p>
 
+@router.get("/admin/settings/services", response_class=HTMLResponse)
+async def settings_services(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    cfg = eng.CONFIG
+    e = html.escape
+
+    def _color_opts(sel: str) -> str:
+        out = [f"<option value=''{' selected' if not sel else ''}>auto</option>"]
+        for k, ro in _PALETTE_RO.items():
+            out.append(f"<option value='{k}'{' selected' if sel == k else ''}>{ro}</option>")
+        return "".join(out)
+
+    def _dur_opts(sel) -> str:
+        cur = int(sel) if sel else 60
+        return "".join(f"<option value='{x}'{' selected' if cur == x else ''}>{x} min</option>"
+                       for x in (15, 30, 45, 60, 90, 120))
+
+    svc_rows = "".join(
+        f"<tr><td><input type='hidden' class='s_id' value='{e(s['id'])}'>"
+        f"<input type='text' class='s_ro' value='{e(s['ro'])}'></td>"
+        f"<td><input type='text' class='s_ru' value='{e(s['ru'])}'></td>"
+        f"<td><input type='text' class='s_price' value='{e(str(s.get('price', '')) if not isinstance(s.get('price'), dict) else s['price'].get('ro', ''))}'></td>"
+        f"<td><select class='s_dur'>{_dur_opts(s.get('duration'))}</select></td>"
+        f"<td><select class='s_color'>{_color_opts(s.get('color', ''))}</select></td>"
+        f"<td style='text-align:center'><input type='checkbox' class='s_urg'{' checked' if s.get('urgent') else ''}></td>"
+        f"<td><input type='text' class='s_docs' value='{e(' '.join(s.get('docs', [])))}' placeholder='gol = toți'></td>"
+        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>✖</button></td></tr>"
+        for s in cfg["services"]
+    )
+    doc_ids_hint = ", ".join(f"{d['id']}={e(d['name'])}" for d in cfg["doctors"])
+    body = f"""
 <h2>🦷 Servicii</h2>
+<form method='post' action='/admin/settings/save' onsubmit='return collectServices()'>
+<input type='hidden' name='part' value='services'>
+<input type='hidden' name='payload' id='payload'>
 <table class='set' id='svc_t'>
 <tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:120px'>Preț</th>
 <th style='width:90px'>Durată</th><th style='width:100px'>Culoare</th>
@@ -380,8 +510,7 @@ verificare, ca datele lor să aibă un singur loc de modificare.</p>
 <button type='button' class='addrow' onclick='addSvc()'>+ Adaugă serviciu</button>
 <p class='hint'>Coloana «Medici»: id-uri separate prin spațiu ({doc_ids_hint}); gol = toți medicii.
 🆘 = flux urgent (fără alegerea medicului, sloturi din ziua curentă).</p>
-
-<button class='savebtn'>💾 Salvează setările</button>
+<button class='savebtn'>💾 Salvează serviciile</button>
 </form>
 
 <script>
@@ -405,18 +534,7 @@ function addSvc() {{
     "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>✖</button></td>";
   tb.appendChild(tr);
 }}
-function collectSettings() {{
-  const days = ['mon','tue','wed','thu','fri','sat','sun'];
-  const hours = {{}};
-  for (const d of days) {{
-    if (document.getElementById('hc_' + d).checked) {{ hours[d] = null; continue; }}
-    const f = parseInt(document.getElementById('hf_' + d).value);
-    const t = parseInt(document.getElementById('ht_' + d).value);
-    const bf = document.getElementById('hb_' + d).value;
-    const bt = document.getElementById('he_' + d).value;
-    if (bf !== '' && bt !== '') hours[d] = [f, t, parseInt(bf), parseInt(bt)];
-    else hours[d] = [f, t];
-  }}
+function collectServices() {{
   const services = [];
   document.querySelectorAll('#svc_tb tr').forEach(tr => {{
     services.push({{ id: tr.querySelector('.s_id').value,
@@ -441,29 +559,31 @@ function collectSettings() {{
     }}
     seen[key] = true;
   }}
-  // медиков форма больше не отправляет — их каталог правится în «Medici»
-  const payload = {{
-    name: document.getElementById('cname').value,
-    phone: document.getElementById('cphone').value,
-    address: {{ ro: document.getElementById('caddr_ro').value,
-               ru: document.getElementById('caddr_ru').value }},
-    hours: hours, services: services
-  }};
-  document.getElementById('payload').value = JSON.stringify(payload);
+  document.getElementById('payload').value = JSON.stringify({{services: services}});
   return true;
 }}
 </script>"""
-    return _shell(body, "setările clinicii · se aplică imediat, fără restart", active="set")
+    return _sec_page(body, "setări · servicii", msg)
 
 
-def _build_config(data: dict) -> dict:
+# Валидаторы по секциям: каждая страница присылает свой кусок, и проверяется
+# ровно он. Слияние с остальным конфигом делает _finish_cfg — нетронутые
+# секции переезжают КАК ЕСТЬ, без повторного разбора: прогон услуг через
+# разбор формы превратил бы двуязычную цену {"ro","ru"} из демо-профиля в
+# строку-огрызок.
+
+def _val_clinic(data: dict) -> dict:
     name = str(data.get("name", "")).strip()[:80]
     phone = str(data.get("phone", "")).strip()[:30]
     if not name or not phone:
         raise ValueError("name/phone")
     addr_ro = str(data.get("address", {}).get("ro", "")).strip()[:120]
     addr_ru = str(data.get("address", {}).get("ru", "")).strip()[:120]
+    return {"name": name, "phone": phone,
+            "address": {"ro": addr_ro, "ru": addr_ru}}
 
+
+def _val_hours(data: dict) -> dict:
     hours = {}
     for day in _DOW_ORDER:
         h = data.get("hours", {}).get(day)
@@ -487,7 +607,10 @@ def _build_config(data: dict) -> dict:
             raise ValueError("hours format")
     if all(v is None for v in hours.values()):
         raise ValueError("all closed")
+    return hours
 
+
+def _val_services(data: dict) -> tuple[list, dict]:
     # ⭐ Счётчики id ПЕРСИСТЕНТНЫ (cfg["seq"]) и только растут. Раньше id искался
     # как первый свободный d{n} среди текущего списка: удалили d2, добавили врача —
     # он получал d2 и наследовал историю уволенного. Теперь id не переиспользуется.
@@ -503,14 +626,8 @@ def _build_config(data: dict) -> dict:
         if mnum:
             seq_s = max(seq_s, int(mnum.group(1)))
 
-    # v1.9.0: врачей эта форма больше не присылает — их каталог правится только
-    # в разделе «Medici», поэтому переносим список как есть (фото/e-mail/статус
-    # не должны теряться из-за сохранения настроек клиники)
-    doctors = [dict(d) for d in eng.CONFIG.get("doctors", [])]
-    if not doctors:
-        raise ValueError("doctors")
-    doc_ids = {d["id"] for d in doctors}
-    # то же для услуг: одинаковые подписи ломали бы бэкфилл service_id и отчёты
+    doc_ids = {d["id"] for d in eng.CONFIG.get("doctors", [])}
+    # одинаковые подписи услуг ломали бы бэкфилл service_id и отчёты
     labels_seen: set[str] = set()
 
     services = []
@@ -550,14 +667,26 @@ def _build_config(data: dict) -> dict:
         services.append(entry)
     if not services:
         raise ValueError("services")
+    return services, {"doctor": seq_d, "service": seq_s}
 
+
+def _finish_cfg(**updates) -> dict:
+    """Слить проверенный кусок с текущим конфигом и доснарядить производное.
+
+    Врачи всегда переезжают как есть: их каталог правится только в «Medici»
+    (фото/e-mail/статус не должны теряться из-за сохранения настроек).
+    `contacts` пересобирается из ИТОГОВЫХ значений — бот показывает адрес и
+    часы одной строкой, и она обязана отражать любой сохранённый кусок.
+    """
     cfg = dict(eng.CONFIG)
     cfg.pop("template", None)      # клинику заполнили — подсказка больше не нужна
     cfg.pop("_comment", None)
-    cfg.update({"name": name, "phone": phone,
-                "address": {"ro": addr_ro, "ru": addr_ru},
-                "hours": hours, "doctors": doctors, "services": services,
-                "seq": {"doctor": seq_d, "service": seq_s}})
+    cfg.update(updates)
+    if not cfg.get("doctors"):
+        raise ValueError("doctors")
+    phone, hours = cfg["phone"], cfg["hours"]
+    addr_ro = cfg.get("address", {}).get("ro", "")
+    addr_ru = cfg.get("address", {}).get("ru", "")
     cfg["contacts"] = {
         "ro": (f"📍 {addr_ro}\n" if addr_ro else "")
               + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ro')}",
@@ -567,6 +696,15 @@ def _build_config(data: dict) -> dict:
     return cfg
 
 
+def _build_config(data: dict) -> dict:
+    """Полный payload одним куском — путь старой цельной формы. Живёт как
+    рабочий: на нём тесты горячей перезагрузки, и им же может пользоваться
+    что-то внешнее, собирающее конфиг целиком."""
+    services, seq = _val_services(data)
+    return _finish_cfg(**_val_clinic(data), hours=_val_hours(data),
+                       services=services, seq=seq)
+
+
 @router.post("/admin/update/check")
 def admin_update_check(request: Request):
     """Проверить обновления прямо сейчас — не ждать следующего цикла.
@@ -574,7 +712,7 @@ def admin_update_check(request: Request):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     upd.check_now()
-    return RedirectResponse("/admin/settings", status_code=303)
+    return RedirectResponse("/admin/settings/system", status_code=303)
 
 
 @router.post("/admin/update/run", response_class=HTMLResponse)
@@ -585,9 +723,9 @@ def admin_update_run(request: Request):
         return deny
     err = upd.self_update()
     if err:
-        return RedirectResponse("/admin/settings?msg=upd_err", status_code=303)
+        return RedirectResponse("/admin/settings/system?msg=upd_err", status_code=303)
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="18;url=/admin/settings">
+<meta http-equiv="refresh" content="18;url=/admin/settings/system">
 <title>Actualizare…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
       justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff;text-align:center}}
@@ -660,7 +798,8 @@ async def admin_backup_export(request: Request, parola: str = Form(...)):
     if d is None or not bkp.available():
         return RedirectResponse("/admin/settings", status_code=303)
     if len(parola) < bkp.MIN_PASS:
-        return RedirectResponse("/admin/settings?msg=bad_bkp_pass", status_code=303)
+        return RedirectResponse("/admin/settings/backup?msg=bad_bkp_pass",
+                                status_code=303)
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_backup_"))
     dest = tmp / "backup.zip"
     clinic = os.environ.get("CLINIC_CONFIG", "")
@@ -670,7 +809,7 @@ async def admin_backup_export(request: Request, parola: str = Form(...)):
     except OSError as ex:
         logging.getLogger("settings").warning("backup export: %r", ex)
         shutil.rmtree(tmp, ignore_errors=True)
-        return RedirectResponse("/admin/settings?msg=bad_bkp", status_code=303)
+        return RedirectResponse("/admin/settings/backup?msg=bad_bkp", status_code=303)
     logging.getLogger("settings").warning("encrypted backup exported (%d files)", n)
     return FileResponse(
         dest, filename=bkp.archive_name(), media_type="application/zip",
@@ -686,7 +825,8 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
         return RedirectResponse("/admin/settings", status_code=303)
     tok = token.strip()
     if tok and not re.fullmatch(r"\d{6,12}:[\w-]{30,120}", tok):
-        return RedirectResponse("/admin/settings?msg=bad_tok", status_code=303)
+        return RedirectResponse("/admin/settings/telegram?msg=bad_tok",
+                                status_code=303)
     # в файл — шифротекст (dpapi), в окружение — открытый токен: им дальше
     # пользуются и бот, и статус на этой же странице. Если DPAPI недоступен
     # (запуск из исходников не под Windows), пишем как раньше — иначе правка
@@ -697,9 +837,10 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
     os.environ.pop("DENTART_TOKEN_UNREADABLE", None)
     if upd.restart_app() is not None:
         # dev-режим/тест-хук: перезапуск не случился — просто баннер
-        return RedirectResponse("/admin/settings?msg=ok_tok", status_code=303)
+        return RedirectResponse("/admin/settings/telegram?msg=ok_tok",
+                                status_code=303)
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="15;url=/admin/settings">
+<meta http-equiv="refresh" content="15;url=/admin/settings/telegram">
 <title>Repornire…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
       justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff;text-align:center}}
@@ -713,13 +854,31 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
 
 
 @router.post("/admin/settings/save")
-async def admin_settings_save(request: Request, payload: str = Form(...)):
+async def admin_settings_save(request: Request, payload: str = Form(""),
+                              part: str = Form("")):
+    """Сохранение настроек. `part` говорит, КАКОЙ кусок пришёл; без него —
+    старый цельный payload. Ошибка возвращает на ТУ ЖЕ страницу-секцию:
+    человек правил часы — там и должен увидеть, что не так."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    back = {"clinic": "/admin/settings/clinic", "hours": "/admin/settings/hours",
+            "services": "/admin/settings/services"}.get(part, "/admin/settings")
     try:
-        cfg = _build_config(json.loads(payload))
+        if part == "clinic":
+            form = await request.form()
+            cfg = _finish_cfg(**_val_clinic({
+                "name": form.get("name", ""), "phone": form.get("phone", ""),
+                "address": {"ro": form.get("addr_ro", ""),
+                            "ru": form.get("addr_ru", "")}}))
+        elif part == "hours":
+            cfg = _finish_cfg(hours=_val_hours(json.loads(payload)))
+        elif part == "services":
+            services, seq = _val_services(json.loads(payload))
+            cfg = _finish_cfg(services=services, seq=seq)
+        else:
+            cfg = _build_config(json.loads(payload))
     except (ValueError, KeyError, TypeError, json.JSONDecodeError):
-        return RedirectResponse("/admin/settings?msg=bad_set", status_code=303)
+        return RedirectResponse(f"{back}?msg=bad_set", status_code=303)
     if eng.save_config(cfg) is not None:
-        return RedirectResponse("/admin/settings?msg=bad_set", status_code=303)
-    return RedirectResponse("/admin/settings?msg=ok_set", status_code=303)
+        return RedirectResponse(f"{back}?msg=save_err", status_code=303)
+    return RedirectResponse(f"{back}?msg=ok_set", status_code=303)

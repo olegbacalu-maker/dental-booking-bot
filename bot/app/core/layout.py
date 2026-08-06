@@ -205,7 +205,7 @@ def _tg_state() -> tuple[bool, str]:
 def _update_banner() -> str:
     if upd.can_self_update():
         # в desktop-версии баннер ведёт к кнопке «Actualizează acum», не на GitHub
-        return (f" · <a href='/admin/settings' "
+        return (f" · <a href='/admin/settings/system' "
                 f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
                 f"{html.escape(upd.STATE['latest'])} — click pentru actualizare</a>")
     if upd.asset_pending() and upd.is_desktop():
@@ -227,7 +227,7 @@ def _setup_hint() -> str:
         return ""
     return ("<div class='banner err' style='margin-bottom:14px'>"
             "Programul încă are datele de exemplu. "
-            "<a href='/admin/settings'><b>Completați datele clinicii</b></a> — "
+            "<a href='/admin/settings/clinic'><b>Completați datele clinicii</b></a> — "
             "denumire, telefon, medici, servicii și program de lucru. "
             "Până atunci botul le spune pacienților exact ce scrie aici.</div>")
 
@@ -287,7 +287,7 @@ def _sidebar(active: str) -> str:
     {item('stat', '/admin/stats', 'stat', 'Statistici') if show_money else ''}
     {item('set', '/admin/settings', 'set', 'Setări') if show_set else ''}
     <div class="sec">Sincronizări</div>
-    {item('tg', '/admin/settings' if show_set else '', 'bot', 'Telegram Bot', tg_dot)}
+    {item('tg', '/admin/settings/telegram' if show_set else '', 'bot', 'Telegram Bot', tg_dot)}
     {item('qr', '/admin/qr-print', 'qr', 'QR pacienți')}
   </nav>
   <div class="sfoot" title="Telegram: {html.escape(tg_title)}">v{eng.APP_VERSION} · <span id="sf_clock"></span></div>

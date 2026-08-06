@@ -29,7 +29,8 @@ async def admin_qr_print(request: Request):
     if not username:
         return _shell(
             "<div class='banner err'>Botul Telegram nu este activ — setați tokenul în "
-            "<a href='/admin/settings'>Setări</a>, apoi reveniți aici pentru QR.</div>",
+            "<a href='/admin/settings/telegram'>Setări → Telegram Bot</a>, "
+            "apoi reveniți aici pentru QR.</div>",
             "QR pentru pacienți", active="qr")
     link = f"https://t.me/{username}"
     q = urllib.parse.quote(link, safe="")
