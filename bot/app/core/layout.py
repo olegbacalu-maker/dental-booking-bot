@@ -16,7 +16,8 @@ from datetime import date, datetime
 from .. import brand, db, paths
 from .. import engine as eng
 from .. import update as upd
-from .auth import PERM_MONEY, PERM_SETTINGS, ROLE_LABEL, _sec_warn, can, request_user
+from .auth import (PERM_MONEY, PERM_SETTINGS, ROLE_LABEL, _sec_warn, can,
+                   request_user, tamper_alert)
 
 FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
 
@@ -231,6 +232,27 @@ def _setup_hint() -> str:
             "Până atunci botul le spune pacienților exact ce scrie aici.</div>")
 
 
+def _tamper_banner() -> str:
+    """Предупреждение «auth.json трогали вне программы» — только директору:
+    остальные не могут ни оценить «это был техник», ни сменить PIN-ы, и для
+    них баннер был бы просто страшилкой без кнопки действия."""
+    txt = tamper_alert()
+    if not txt:
+        return ""
+    me = request_user()
+    if me is not None and not can(me, PERM_SETTINGS):
+        return ""
+    return (f"<div class='banner err' style='margin-bottom:14px'>🛡 {html.escape(txt)}. "
+            "Dacă nu a fost o intervenție cunoscută (resetarea unui PIN uitat, "
+            "tehnicianul clinicii), schimbați PIN-urile în Setări → Utilizatori "
+            "și verificați jurnalul de acces."
+            "<form method='post' action='/admin/security/ack' "
+            "style='display:inline;margin-left:12px'>"
+            "<button style='background:none;border:1px solid currentColor;"
+            "border-radius:8px;padding:4px 12px;cursor:pointer;color:inherit;"
+            "font-size:13px'>Am luat la cunoștință</button></form></div>")
+
+
 def _sidebar(active: str) -> str:
     # Пункт, которого человеку нельзя, не рисуется. ⚠️ Это удобство, а НЕ
     # защита: отказ выдаёт require() в самом маршруте, потому что адрес
@@ -339,7 +361,7 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 <div class="content">
 <h1><a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
-{_setup_hint()}
+{_tamper_banner()}{_setup_hint()}
 {body}
 </div></div>
 <div class="brandcorner">🦷 <b>DentPilot</b> ·

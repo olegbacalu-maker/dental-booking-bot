@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import urllib.parse
+from datetime import datetime
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -23,10 +24,11 @@ from . import db
 from . import engine as eng
 from . import paths
 from . import update as upd
-from .core.auth import (ADMIN_KEY, FAIL_DELAY, _guard, _pin_rec, _secret,
-                        _set_auth_cookie, _setup_allowed, _write_pin, find_user,
-                        current_user, request_user, set_request_user,
-                        lock_left, note_fail, note_ok, verify_pin)
+from .core.auth import (ADMIN_KEY, FAIL_DELAY, PERM_SETTINGS, _guard, _pin_rec,
+                        _secret, _set_auth_cookie, _setup_allowed, _write_pin,
+                        auth_file_fp, current_user, find_user, lock_left,
+                        note_fail, note_ok, remember_auth_file, request_user,
+                        require, set_request_user, set_tamper_alert, verify_pin)
 from .core.layout import LOGIN_TMPL, SETUP_TMPL, STATIC, _asset
 from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
@@ -170,6 +172,7 @@ async def startup() -> None:
         logging.getLogger("startup").warning("build_seed_rows failed: %r", e)
         seed_rows = []
     await db.init(seed_rows)
+    await _check_auth_file()
     # v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
     # идемпотентно (только NULL), на каждом старте — дёшево и самозалечивается
     doc_map = {name: k for k, name in eng.DOCTORS.items()}
@@ -302,6 +305,10 @@ async def admin_login(password: str = Form(...), uid: str = Form(""),
         ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
     if ok:
         note_ok()
+        if who is not None:
+            # verify_pin мог молча переписать файл (миграция v1→v2, доливка
+            # sid) — обновляем отпечаток, иначе следующий старт увидит «взлом»
+            await remember_auth_file()
         # кука ставится ПОСЛЕ verify_pin: миграция v1→v2 меняет ключ подписи,
         # а запись пользователя — свой sid
         return _set_auth_cookie(RedirectResponse(target, status_code=303), who)
@@ -315,6 +322,48 @@ async def admin_login(password: str = Form(...), uid: str = Form(""),
 
 
 
+
+
+async def _check_auth_file() -> None:
+    """Сигнализация auth.json: файл переписали или удалили ВНЕ программы.
+
+    Это след, а не замок (см. пояснение в core/auth.py): отпечаток файла живёт
+    в базе, расхождение при старте попадает в ленту и висит баннером у
+    директора, пока тот не подтвердит. Ложная тревога недопустима — поэтому
+    каждый маршрут, пишущий файл сам, обязан звать remember_auth_file().
+    """
+    if not db.IS_SQLITE:
+        return                       # у облачного издания файла PIN нет
+    if (alert := await db.get_meta("auth_alert")):
+        set_tamper_alert(alert)      # непогашенное предупреждение живёт и после рестарта
+    now_fp = auth_file_fp()
+    stored = await db.get_meta("auth_fp")
+    if stored is None:
+        # первый запуск с этой проверкой: судить прошлое не по чему
+        await db.set_meta("auth_fp", now_fp)
+        return
+    if stored == now_fp:
+        return
+    when = datetime.now(eng.TZ).strftime("%d.%m.%Y %H:%M")
+    what = ("șters" if not now_fp else "modificat")
+    text = (f"Fișierul de acces (auth.json) a fost {what} în afara programului "
+            f"— sesizat la pornirea din {when}")
+    await db.log_clinic_event("auth_tamper", text)
+    await db.set_meta("auth_alert", text)
+    await db.set_meta("auth_fp", now_fp)   # один сигнал на одно вмешательство
+    set_tamper_alert(text)
+    logging.getLogger("auth").warning("auth.json tampered: %s", what)
+
+
+@app.post("/admin/security/ack")
+async def security_ack(request: Request):
+    """Погасить предупреждение. Только директор: остальные не могут ни оценить
+    «это был техник», ни сменить PIN-ы — им баннер и не показывается."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    await db.del_meta("auth_alert")
+    set_tamper_alert("")
+    return RedirectResponse("/admin", status_code=303)
 
 
 @app.get("/admin/logout")
@@ -345,6 +394,7 @@ async def admin_setup(pin1: str = Form(...), pin2: str = Form(...)):
     if p1 != p2 or not p1.isdigit() or not (4 <= len(p1) <= 6):
         return RedirectResponse("/admin/setup?err=1", status_code=303)
     _write_pin(p1)
+    await remember_auth_file()
     return _set_auth_cookie(RedirectResponse("/admin", status_code=303),
                             find_user("clinic"))
 
@@ -371,6 +421,7 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
         return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
     # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
     _write_pin(n1, role=who.get("role", "director"), uid=who.get("id", "clinic"))
+    await remember_auth_file()
     return _set_auth_cookie(
         RedirectResponse("/admin/settings?msg=ok_pin", status_code=303),
         find_user(who.get("id", "clinic")))

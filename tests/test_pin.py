@@ -217,6 +217,72 @@ def suite_roles(res: Result) -> None:
                "событие подписано каналом, а не человеком")
 
 
+def suite_tamper(res: Result) -> None:
+    """Сигнализация auth.json: подмена или удаление файла вне программы видны.
+
+    Это след, а не замок — у кого файл, у того рядом и база. Стережётся два
+    свойства: чужое вмешательство оставляет баннер и строку в ленте, а СВОИ
+    записи (setup, смена PIN, учётки) при следующем старте тревогу НЕ дают —
+    ложный «взлом» напугал бы клинику сильнее настоящего.
+    """
+    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_tamper_"))
+    try:
+        marker = "în afara programului"
+        with Server(env=NO_KEY, dir_=base) as s:
+            c = Client(s.url)
+            c.post("/admin/setup", pin1="1111", pin2="1111")
+            c.post("/admin/users/save", uid="ana", name="Ana R",
+                   role="receptie", pin="3333")
+            res.ok("после своих правок баннера нет",
+                   marker not in c.get("/admin").body, "тревога на свою запись")
+        # рестарт без изменений — тихо (свои записи запомнены отпечатком)
+        with Server(env=NO_KEY, dir_=base) as s:
+            c = Client(s.url).login("1111")
+            res.ok("рестарт после своих правок тих",
+                   marker not in c.get("/admin").body,
+                   "ложная тревога после рестарта")
+        # подмена файла руками между запусками
+        p = base / "auth.json"
+        p.write_text(p.read_text(encoding="utf-8") + " ", encoding="utf-8")
+        with Server(env=NO_KEY, dir_=base) as s:
+            c = Client(s.url).login("1111")
+            body = c.get("/admin").body
+            res.ok("директор видит предупреждение о подмене",
+                   marker in body and "modificat" in body, "баннера нет")
+            res.ok("событие попало в ленту аналитики",
+                   "auth.json" in c.get("/admin/stats").body,
+                   "в ленте нет следа")
+            a = Client(s.url)
+            a.post("/admin/login", password="3333", next="/admin")
+            res.ok("регистратуре баннер не показывается",
+                   marker not in a.get("/admin").body,
+                   "страшилка без кнопки действия")
+            r = a.post("/admin/security/ack")
+            res.ok("погасить может только директор",
+                   r.status == 303 and "no_access" in r.location,
+                   f"location {r.location!r}")
+            c.post("/admin/security/ack")
+            res.ok("после подтверждения баннер снят",
+                   marker not in c.get("/admin").body, "баннер остался")
+        with Server(env=NO_KEY, dir_=base) as s:
+            c = Client(s.url).login("1111")
+            res.ok("подтверждение переживает рестарт",
+                   marker not in c.get("/admin").body,
+                   "погашенная тревога вернулась")
+        # удаление файла — наш же путь «забыл PIN», но теперь он оставляет след
+        p.unlink()
+        with Server(env=NO_KEY, dir_=base) as s:
+            c = Client(s.url)
+            res.ok("без файла — снова экран установки",
+                   "/admin/setup" in c.get("/admin").location, "не увёл на setup")
+            c.post("/admin/setup", pin1="2222", pin2="2222")
+            body = c.get("/admin").body
+            res.ok("сброс через удаление файла виден",
+                   marker in body and "șters" in body, "тихий сброс остался тихим")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
 def suite_change(res: Result) -> None:
     with Server(env=NO_KEY) as s:
         c = Client(s.url)

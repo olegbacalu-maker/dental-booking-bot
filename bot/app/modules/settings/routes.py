@@ -30,7 +30,7 @@ from ... import update as upd
 from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
                           ROLE_LABEL, ROLE_MEDIC, _pin_rec, all_users,
                           current_user, delete_user, find_user, n_directors,
-                          pin_free, require, save_user)
+                          pin_free, remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
                             _doc_hours_text, _shell, tg_status)
@@ -628,6 +628,7 @@ async def users_save(request: Request, uid: str = Form(...), name: str = Form(""
     save_user(uid, name=name or (existing or {}).get("name") or uid, role=role,
               doctor_id=doctor_id if doctor_id in eng.DOCTORS else "",
               pin=pin or None)
+    await remember_auth_file()      # своя запись — не «взлом» при след. старте
     return _set_back("ok_user")
 
 
@@ -641,6 +642,7 @@ async def users_delete(request: Request, uid: str = Form(...)):
     if n_directors(excluding=uid) == 0:
         return _set_back("last_dir")
     delete_user(uid)
+    await remember_auth_file()
     return _set_back("ok_user")
 
 

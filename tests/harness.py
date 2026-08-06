@@ -46,11 +46,18 @@ class Server:
     процессу — поэтому порт берётся свободный, а не фиксированный.
     """
 
-    def __init__(self, clinic: str = "clinic_test.json", env: dict | None = None):
+    def __init__(self, clinic: str = "clinic_test.json", env: dict | None = None,
+                 dir_: pathlib.Path | None = None):
+        """dir_ — переиспользовать папку данных ПРЕЖНЕГО сервера: так
+        проверяется то, что живёт через рестарт (сигнализация auth.json,
+        миграции). Чужую папку не удаляем — прибирает тот, кто её создал."""
         self.port = free_port()
-        self.dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_test_"))
+        self._own_dir = dir_ is None
+        self.dir = pathlib.Path(dir_) if dir_ else pathlib.Path(
+            tempfile.mkdtemp(prefix="dp_test_"))
         self.clinic = self.dir / "clinic.json"
-        shutil.copy(FIXTURES / clinic, self.clinic)
+        if not self.clinic.exists():
+            shutil.copy(FIXTURES / clinic, self.clinic)
         self.extra_env = env or {}
         self.proc: subprocess.Popen | None = None
 
@@ -93,7 +100,8 @@ class Server:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        shutil.rmtree(self.dir, ignore_errors=True)
+        if self._own_dir:
+            shutil.rmtree(self.dir, ignore_errors=True)
 
 
 class Reply:

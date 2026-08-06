@@ -377,6 +377,35 @@ async def _set_schema_version(v: int) -> None:
     )
 
 
+# Служебные пары ключ-значение ЖИВУТ В schema_meta намеренно: таблица есть у
+# каждой клиники с первой версии, значит новой миграции не нужно. Ключи не
+# пересекаются с 'version' — он занят номером схемы.
+
+async def get_meta(key: str) -> str | None:
+    try:
+        return await _fetchval(
+            "SELECT value FROM schema_meta WHERE key = $1",
+            "SELECT value FROM schema_meta WHERE key = ?", key)
+    except Exception as e:  # noqa: BLE001 — служебное значение не роняет старт
+        log.warning("get_meta(%s) failed: %r", key, e)
+        return None
+
+
+async def set_meta(key: str, value: str) -> None:
+    await _execute(
+        """INSERT INTO schema_meta(key, value) VALUES($1, $2)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""",
+        """INSERT INTO schema_meta(key, value) VALUES(?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+        key, value,
+    )
+
+
+async def del_meta(key: str) -> None:
+    await _execute("DELETE FROM schema_meta WHERE key = $1",
+                   "DELETE FROM schema_meta WHERE key = ?", key)
+
+
 async def _migrate() -> None:
     """Пошаговые миграции: каждый шаг применяется один раз и фиксируется.
     Раньше состояние базы можно было понять только по наличию колонок."""
@@ -1106,6 +1135,23 @@ async def log_event(patient_id: int | None, kind: str, text: str, *,
         )
     except Exception as e:  # noqa: BLE001
         log.warning("activity %s/%s failed: %r", patient_id, kind, e)
+
+
+async def log_clinic_event(kind: str, text: str, actor: str = "sistem") -> None:
+    """Событие УРОВНЯ КЛИНИКИ — patient_id NULL. Попадает в ленту «Activitate
+    recentă» (её LEFT JOIN такие строки переживает), но ни в одну фишу:
+    фишам чужие события не принадлежат."""
+    try:
+        await _execute(
+            """INSERT INTO activity(patient_id, actor, kind, text)
+               VALUES(NULL, $1, $2, $3)""",
+            """INSERT INTO activity(patient_id, at, actor, kind, text)
+               VALUES(NULL, ?, ?, ?, ?)""",
+            *((actor, kind, text[:200]) if not IS_SQLITE
+              else (_utcnow_iso(), actor, kind, text[:200])),
+        )
+    except Exception as e:  # noqa: BLE001 — летопись не роняет операцию
+        log.warning("clinic event %s failed: %r", kind, e)
 
 
 async def _log_booking(pid: int, service: str, doctor: str,
