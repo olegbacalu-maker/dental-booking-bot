@@ -175,10 +175,10 @@ def suite_dashboard(res: Result) -> None:
                    back="/admin/all")
         page = c.get(f"/admin?date={day}").body
 
-        res.check("мини-график в каждой из пяти плиток",
-                  page.count("class='spark'"), 5)
+        res.check("мини-график в каждой из шести плиток",
+                  page.count("class='spark'"), 6)
         res.ok("график рисуется и там, где две недели нулей",
-               c.get(f"/admin?date={_d(60)}").body.count("class='spark'") == 5,
+               c.get(f"/admin?date={_d(60)}").body.count("class='spark'") == 6,
                "плитка без данных осталась без графика — ряд плиток порябит")
         res.ok("ряд графика — ровно две недели",
                all(len(p.split()) == 14 for p in
@@ -211,6 +211,15 @@ def suite_dashboard(res: Result) -> None:
         res.check("отменённый уходит из повестки",
                   c.get(f"/admin?date={day}").body.count("class='ag-i"), 2)
 
+        # ⭐ 60′+120′+60′ занятых из 3×840 рабочих (d1 в архиве, активны d2-d4)
+        res.ok("плитка загрузки на месте и с процентом",
+               "Grad de ocupare" in page and "data-suffix='%'" in page,
+               "нет шестой плитки")
+        res.ok("процент загрузки честный: 240 из 2520 минут = 10",
+               "data-count='10' data-suffix='%'>10%<" in page,
+               "цифра загрузки не сходится с минутами")
+        res.ok("метки текущего часа нет в чужом дне", "nowh" not in page,
+               "завтрашний день подсвечен как «сейчас»")
         res.ok("день помечен ключом подсветки", f"data-day='{day}'" in page,
                "без data-day завтрашний день подсветится весь как новый")
         res.ok("у записей есть метки для сравнения", page.count("data-appt=") >= 6,

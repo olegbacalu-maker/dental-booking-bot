@@ -66,12 +66,15 @@ setInterval(function () {
     (function (el) {
       var to = parseInt(el.getAttribute('data-count'), 10);
       if (!to || to < 2) return;               // нулю и единице расти неоткуда
+      /* суффикс («%» у загрузки) едет с каждым кадром: иначе последний кадр
+         показал бы «86» вместо «86%» — счётчик пишет textContent целиком */
+      var suf = el.getAttribute('data-suffix') || '';
       var t0 = 0;
-      el.textContent = '0';
+      el.textContent = '0' + suf;
       requestAnimationFrame(function step(ts) {
         if (!t0) t0 = ts;
         var p = Math.min((ts - t0) / 620, 1);
-        el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3)));
+        el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3))) + suf;
         if (p < 1) requestAnimationFrame(step);
       });
     })(els[i]);

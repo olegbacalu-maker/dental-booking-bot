@@ -440,7 +440,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 dur = int(r.get("duration_min") or 60)
                 out.append(
                     f"<div class='gappt{ns}' data-appt='{r['id']}' style='{pos};"
-                    f"background:{bg};border-left:3px solid {bar}'{click}>"
+                    f"background:{bg};border-left:5px solid {bar}'{click}>"
                     f"<span class='stt'>{ico}</span>"
                     f"<b>{html.escape(r['name'] or '—')} {src}</b>"
                     f"<small>{st.strftime('%H:%M')} · {dur}′ · {html.escape(r['service'])}</small></div>")
@@ -561,7 +561,12 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     if d == now.date() and now.hour in idx:
         frac = idx[now.hour] + now.minute / 60
         nowline = f"<div class='nowline' style='top:calc({frac:.3f}*var(--cell))'></div>"
-    timecol = "".join(f"<div>{h:02d}:00</div>" for h in hours)
+    # метка ТЕКУЩЕГО часа выделена: красная линия показывает точный момент, а
+    # подсветка часа читается боковым зрением с другого конца стойки
+    timecol = "".join(
+        f"<div class='nowh'>{h:02d}:00</div>"
+        if d == now.date() and h == now.hour else f"<div>{h:02d}:00</div>"
+        for h in hours)
     # fitGrid: день заполняет окно до низа — высота ячейки тянется под вьюпорт
     # (короткая суббота не оставляет пустую страницу), минимум 56px + прокрутка
     fit_js = f"""<script>
@@ -670,6 +675,33 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                 f"<div><b data-count='{val}'>{val}</b><span>{label}</span>{sub}</div>"
                 f"{_spark(list(ser), tone)}</a>")
 
+    # Загрузка кресел за день: занятые минуты всех записей / рабочие минуты
+    # АКТИВНЫХ врачей — та же формула, что на карточке врача и в «Statistici»,
+    # чтобы три места не могли назвать три разных процента.
+    active_dks = [dk for dk in eng.DOCTORS
+                  if eng.DOCTOR_META.get(dk, {}).get("active", True)]
+
+    def _occ_pct(day: date, rr: list) -> int:
+        cap = sum(eng.work_minutes(dk, day) for dk in active_dks)
+        if not cap:
+            return 0
+        busy = sum(int(r.get("duration_min") or 60) for r in rr
+                   if r["status"] != "cancelled" and r["source"] != "note")
+        return min(round(100 * busy / cap), 100)
+
+    occ = _occ_pct(d, rows)
+    occ_diff = occ - _occ_pct(d - timedelta(days=1), by_day[d - timedelta(days=1)])
+    occ_sub = ("<span class='trend'>la fel ca ieri</span>" if occ_diff == 0 else
+               f"<span class='trend'><span class='{'up' if occ_diff > 0 else 'dn'}'>"
+               f"{'▲' if occ_diff > 0 else '▼'} {occ_diff:+d} pp</span> față de ieri</span>")
+    occ_tile = (f"<div class='tile sp'>"
+                f"<span class='ico' style='background:var(--violet-soft);"
+                f"color:var(--violet)'>📈</span>"
+                f"<div><b data-count='{occ}' data-suffix='%'>{occ}%</b>"
+                f"<span>Grad de ocupare</span>{occ_sub}</div>"
+                f"{_spark([_occ_pct(x, by_day[x]) for x in span], 'var(--violet)')}"
+                f"</div>")
+
     tiles = ("<div class='tiles'>"
              + _kpi(day_url, "📅", "var(--green-soft)", "var(--green)",
                     total, "Programări azi", trend(total, y_total), series[0])
@@ -683,6 +715,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
              + _kpi(f"{day_url}&amp;f=noshow", "🚫", "var(--red-soft)", "var(--red)",
                     n_noshow, "Neprezentări", trend(n_noshow, y_noshow, bad_up=True),
                     series[4], cls=" bad")
+             + occ_tile
              + "</div>")
 
     cards = _collect_cards(rows)
@@ -737,7 +770,7 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
             bg, bar = _svc_colors(r)
             ns = " noshow" if r["status"] == "noshow" else ""
             chips.append(
-                f"<div class='wchip{ns}' style='background:{bg};border-left:3px solid {bar}'>"
+                f"<div class='wchip{ns}' style='background:{bg};border-left:5px solid {bar}'>"
                 f"<b>{hh}</b> {html.escape(r['name'] or '—')}"
                 f"<small>{html.escape(r['service'])}</small></div>")
         if not chips:

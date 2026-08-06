@@ -311,7 +311,7 @@ def _topbar(bell: int | None) -> str:
   <div style="flex:1"></div>
   <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
   {bell_html}
-  <a class="newbtn" href="/admin/all?date={today}#addform">＋ Programare nouă</a>
+  <a class="newbtn" href="/admin/all?date={today}#addform"><span class="plus">+</span>Programare nouă</a>
   {_who_chip()}
 </div>"""
 
@@ -327,10 +327,13 @@ def _who_chip() -> str:
     if not me:
         return ""
     role = ROLE_LABEL.get(me["role"], me["role"])
+    # вторая строка: роль · клиника. Точки «Online» тут НЕТ намеренно — в
+    # локальной программе нет системы присутствия, и зелёная точка обещала бы
+    # то, чего не существует; живой индикатор есть у бота, где он настоящий
     return (f"<div class='who' title='{html.escape(me['name'])} · {role}'>"
             f"<span class='who-av'>{html.escape(_initials(me['name']))}</span>"
             f"<div class='who-n'><b>{html.escape(me['name'])}</b>"
-            f"<small>{role}</small></div>"
+            f"<small>{role} · {html.escape(eng.CLINIC_NAME)}</small></div>"
             f"<a class='who-out' href='/admin/logout' title='Ieșire din cont'>⏻</a>"
             f"</div>")
 

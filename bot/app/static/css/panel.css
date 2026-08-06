@@ -30,7 +30,7 @@
       ⭐ Держать их ЗДЕСЬ, а не по месту: пока половина теней была зашита в
       правила, «поднятая» карточка оставалась однослойной и на глаз падала
       обратно в плоскость ровно в тот момент, когда должна была всплыть. */
-   --sh:0 1px 2px rgba(15,23,42,.05),0 3px 10px rgba(15,23,42,.04);
+   --sh:0 1px 2px rgba(15,23,42,.05),0 6px 18px rgba(15,23,42,.05);
    --sh2:0 2px 4px rgba(15,23,42,.05),0 10px 26px rgba(15,23,42,.07);
    --sh3:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
    --sh-t:0 1px 2px rgba(15,23,42,.10),0 8px 20px rgba(14,159,138,.26)}
@@ -84,16 +84,20 @@
  .top .newbtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
    transform:translateY(-1px)}
  .top .newbtn:active{transform:translateY(0)}
+ .top .newbtn .plus{width:20px;height:20px;flex:0 0 20px;border-radius:50%;
+   background:rgba(255,255,255,.24);display:flex;align-items:center;
+   justify-content:center;font-size:14px;font-weight:700;line-height:1}
  /* кто за журналом — правый верхний угол (08-06, вместе с учётками) */
  .who{display:flex;align-items:center;gap:9px;padding:5px 6px 5px 5px;margin-left:4px;
    border-left:1px solid var(--line)}
- .who-av{width:34px;height:34px;flex:0 0 34px;border-radius:50%;display:flex;
-   align-items:center;justify-content:center;color:#fff;font-size:12.5px;
+ .who-av{width:40px;height:40px;flex:0 0 40px;border-radius:50%;display:flex;
+   align-items:center;justify-content:center;color:#fff;font-size:14px;
    font-weight:600;background:linear-gradient(135deg,var(--teal),var(--teal-d))}
- .who-n{min-width:0;line-height:1.2}
- .who-n b{display:block;font-size:13px;font-weight:600;white-space:nowrap;
-   overflow:hidden;text-overflow:ellipsis;max-width:130px}
- .who-n small{display:block;font-size:11px;color:var(--text3)}
+ .who-n{min-width:0;line-height:1.25}
+ .who-n b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis;max-width:170px}
+ .who-n small{display:block;font-size:11px;color:var(--text3);white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis;max-width:170px}
  .who-out{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;
    justify-content:center;color:var(--text3);text-decoration:none;font-size:14px;
    transition:background-color .2s ease,color .2s ease}
@@ -215,6 +219,7 @@
  .gridbody{display:flex;position:relative;--cell:56px}
  .gcol-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2);background:var(--bg)}
  .gcol-time div{height:var(--cell);font-size:11px;color:var(--text3);text-align:right;padding:4px 8px 0}
+ .gcol-time div.nowh{color:var(--teal-d);font-weight:700}
  .gcol{flex:1;min-width:0;border-right:1px solid var(--line2);position:relative}
  .gcol:last-child{border-right:none}
  .gcell{height:var(--cell);border-bottom:1px solid var(--line2);cursor:pointer;position:relative}
@@ -272,12 +277,12 @@
  table.grid th a:hover{color:var(--teal-d)}
  td.hour{width:52px;color:var(--text3);font-weight:500;background:var(--bg);text-align:center;font-size:11.5px}
  .appt{border-radius:9px;padding:5px 8px;line-height:1.35}
- .appt.confirmed{background:var(--green-soft);border-left:3px solid var(--green)}
- .appt.arrived{background:var(--teal-soft);border-left:3px solid var(--teal)}
- .appt.done{background:var(--blue-soft);border-left:3px solid var(--blue)}
- .appt.noshow{background:var(--red-soft);border-left:3px solid var(--red)}
- .appt.urgent{background:var(--amber-soft);border-left:3px solid var(--amber)}
- .appt.note{background:var(--amber-soft);border-left:3px solid #EAB308;color:#713F12}
+ .appt.confirmed{background:var(--green-soft);border-left:5px solid var(--green)}
+ .appt.arrived{background:var(--teal-soft);border-left:5px solid var(--teal)}
+ .appt.done{background:var(--blue-soft);border-left:5px solid var(--blue)}
+ .appt.noshow{background:var(--red-soft);border-left:5px solid var(--red)}
+ .appt.urgent{background:var(--amber-soft);border-left:5px solid var(--amber)}
+ .appt.note{background:var(--amber-soft);border-left:5px solid #EAB308;color:#713F12}
  .appt.busy{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px);
    color:var(--text3);text-align:center;font-size:11.5px}
  .appt.clickable{cursor:pointer}
