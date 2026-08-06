@@ -302,7 +302,10 @@ def _parse_dt(value):
 # колонки-даты: в SQLite это ISO-строки, наверх обязаны уходить datetime.
 # Забыть здесь новую колонку = дата молча исчезнет из интерфейса (так и
 # случилось с activity.at на первом прогоне).
-_DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at"}
+# last_at/next_at — вычисляемые псевдонимы (MAX/MIN по starts_at) из
+# patients_visits: в PG они приходят datetime, в SQLite остались бы строкой.
+_DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at",
+            "last_at", "next_at"}
 
 
 def _rowdict(row) -> dict:
@@ -848,17 +851,98 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     )
 
 
-async def recent_patients(limit: int = 20) -> list:
-    """Последние пациенты — стартовый вид «Pacienți»; архивные скрыты."""
+_PLIST_COLS = ("id, name, phone, email, session_key, birth_year, birth_date, "
+               "gender, insurance, primary_doctor, file_no, notes, created_at, "
+               "archived")
+
+
+async def all_patients(include_archived: bool = False) -> list:
+    """Все пациенты клиники — основа списка «Pacienți» с фильтрами и страницами.
+
+    Отдаёт только СТРОКИ. Сколько у кого визитов, планов и предупреждений,
+    добирают соседние выборки (`patients_visits`, `patients_alert_counts`,
+    `patients_plan_counts`), а сводит их модуль. LIMIT/OFFSET здесь был бы
+    неверен: страница сортируется и фильтруется по этим самым агрегатам, и
+    база отрезала бы не тех. База клиники — тысячи строк, не миллионы.
+    """
+    if include_archived:
+        return await _fetch(f"SELECT {_PLIST_COLS} FROM patients ORDER BY id",
+                            f"SELECT {_PLIST_COLS} FROM patients ORDER BY id")
     return await _fetch(
-        """SELECT id, name, phone, session_key, birth_year, created_at
-           FROM patients WHERE COALESCE(archived, FALSE) = FALSE
-           ORDER BY created_at DESC, id DESC LIMIT $1""",
-        """SELECT id, name, phone, session_key, birth_year, created_at
-           FROM patients WHERE COALESCE(archived, 0) = 0
-           ORDER BY created_at DESC, id DESC LIMIT ?""",
-        limit,
+        f"""SELECT {_PLIST_COLS} FROM patients
+            WHERE COALESCE(archived, FALSE) = FALSE ORDER BY id""",
+        f"""SELECT {_PLIST_COLS} FROM patients
+            WHERE COALESCE(archived, 0) = 0 ORDER BY id""")
+
+
+async def patients_visits(now: datetime) -> list:
+    """По пациенту: последний прошедший визит, ближайший будущий и сколько
+    всего (отменённые не в счёт). Один проход по таблице вместо запроса на
+    каждую строку списка — иначе страница пациентов стоила бы сотню запросов.
+    Заметки-блокировки сюда не попадают: у них patient_id = NULL."""
+    return await _fetch(
+        f"""SELECT patient_id,
+                   MAX(CASE WHEN starts_at <= $1 THEN starts_at END) AS last_at,
+                   MIN(CASE WHEN starts_at > $1 AND status IN {_ACT_SQL}
+                            THEN starts_at END) AS next_at,
+                   COUNT(*) AS n_visits
+              FROM appointments
+             WHERE patient_id IS NOT NULL AND status <> 'cancelled'
+             GROUP BY patient_id""",
+        f"""SELECT patient_id,
+                   MAX(CASE WHEN starts_at <= ? THEN starts_at END) AS last_at,
+                   MIN(CASE WHEN starts_at > ? AND status IN {_ACT_SQL}
+                            THEN starts_at END) AS next_at,
+                   COUNT(*) AS n_visits
+              FROM appointments
+             WHERE patient_id IS NOT NULL AND status <> 'cancelled'
+             GROUP BY patient_id""",
+        *((now,) if not IS_SQLITE else (_iso(now), _iso(now))),
     )
+
+
+async def patients_last_doctor() -> list:
+    """Кто вёл ПОСЛЕДНИЙ визит — по пациенту. Колонка «Medic» в списке иначе
+    пуста почти у всех: `primary_doctor` в фише проставляют руками, а врач у
+    пациента фактически есть — тот, к кому он ходит. Оконная функция здесь
+    одна на оба движка (PG и SQLite с 3.25), поэтому SQL-текст один."""
+    sql = """SELECT patient_id, doctor FROM (
+               SELECT patient_id, doctor,
+                      ROW_NUMBER() OVER (PARTITION BY patient_id
+                                         ORDER BY starts_at DESC) AS rn
+                 FROM appointments
+                WHERE patient_id IS NOT NULL AND status <> 'cancelled') t
+             WHERE rn = 1"""
+    return await _fetch(sql, sql)
+
+
+async def patients_alert_counts() -> list:
+    """Сколько медицинских предупреждений у каждого пациента (аллергии и т.п.)."""
+    sql = "SELECT patient_id, COUNT(*) AS n FROM patient_alerts GROUP BY patient_id"
+    return await _fetch(sql, sql)
+
+
+async def patients_plan_counts() -> list:
+    """Незавершённые пункты плана — по ним пациент считается «в лечении»."""
+    sql = ("SELECT patient_id, COUNT(*) AS n FROM plan_items "
+           "WHERE status <> 'finalizat' GROUP BY patient_id")
+    return await _fetch(sql, sql)
+
+
+async def patient_id_by_key(session_key: str) -> int | None:
+    """Есть ли уже пациент с таким ключом. Нужен до создания карточки вручную:
+    `_upsert_patient` при совпадении ПЕРЕЗАПИСАЛ бы имя существующего, и
+    «Ion Popescu» тихо стал бы «Ion P.» из-за общего семейного номера."""
+    return await _fetchval(
+        "SELECT id FROM patients WHERE session_key = $1",
+        "SELECT id FROM patients WHERE session_key = ?", session_key)
+
+
+async def create_patient(session_key: str, name: str, phone: str,
+                         birth_year: int | None = None) -> int:
+    """Карточка без визита: регистратура завела пациента заранее (звонок,
+    первичный приём без времени). Остальные поля дописывает update_patient."""
+    return await _upsert_patient(session_key, name, phone, "ro", birth_year)
 
 
 async def set_archived(pid: int, on: bool) -> None:
@@ -907,60 +991,16 @@ def _fold(s: str) -> str:
     return (s or "").translate(_DIA).lower()
 
 
-async def search_patients(q: str) -> list:
-    """Поиск по имени (регистр и диакритика неважны) или телефону (по цифрам)."""
-    q = q.strip()
-    digits = "".join(ch for ch in q if ch.isdigit())
-    if len(q) < 2:
-        return []
-    if IS_SQLITE:
-        # фильтрация в SQL-движке (C-скан вместо цикла в Python; LIKE '%q%'
-        # индексом не ускоряется — на объёмах клиники это ок), диакритика и
-        # телефон добираются узким добором. %/_ экранируем — это метасимволы LIKE.
-        q_esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        like = f"%{q_esc}%"
-        rows = await _fetch(
-            "", """SELECT id, name, phone, session_key, birth_year FROM patients
-                   WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
-                   ORDER BY name LIMIT 30""", like)
-        if len(rows) < 30:
-            seen = {r["id"] for r in rows}
-            extra = await _fetch(
-                "", """SELECT id, name, phone, session_key, birth_year FROM patients
-                       WHERE id NOT IN (SELECT id FROM patients
-                                        WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE)
-                       LIMIT 2000""", like)
-            qf = _fold(q)
-            for r in extra:
-                if r["id"] in seen:
-                    continue
-                ph = "".join(ch for ch in (r["phone"] or "") if ch.isdigit())
-                if qf in _fold(r["name"]) or (len(digits) >= 3 and digits in ph):
-                    rows.append(r)
-                    if len(rows) >= 30:
-                        break
-            rows.sort(key=lambda r: r["name"] or "")
-        return rows[:30]
-    # translate() прямо в запросе — без расширений и без своих функций в схеме
-    fold = "translate({}, 'ăâîșşțţĂÂÎȘŞȚŢ', 'aaissttAAISSTT')"
-    return await _fetch(
-        rf"""SELECT p.id, p.name, p.phone, p.session_key, p.birth_year
-           FROM patients p
-           WHERE ({fold.format('p.name')} ILIKE '%' || {fold.format('$1')} || '%')
-              OR ($2 <> '' AND length($2) >= 3
-                  AND regexp_replace(coalesce(p.phone, ''), '\D', '', 'g')
-                      LIKE '%' || $2 || '%')
-           ORDER BY p.name
-           LIMIT 30""",
-        "", q, digits,
-    )
+# публичное имя для модулей: таблица диакритики обязана быть ОДНА на программу,
+# иначе список пациентов и поиск разойдутся в том, что считать «Bălan»
+fold = _fold
 
 
 async def patient_appointments(patient_id: int, limit: int = 20) -> list:
     """Визиты пациента, свежие первыми. Предел по умолчанию — 20: столько
-    показывает страница поиска, которая рисует ЭТОТ список целиком для каждого
-    найденного пациента. Фише нужен весь список: на нём стоит цифра «визитов
-    всего», и с двадцаткой она врала бы у давнего пациента."""
+    хватает боковому предпросмотру списка. Фише нужен ВЕСЬ список (она зовёт с
+    limit=1000): на ней стоит цифра «визитов всего», и с двадцаткой она врала
+    бы у давнего пациента."""
     return await _fetch(
         """SELECT id, service, doctor, starts_at, status, source, comment
            FROM appointments WHERE patient_id = $1
@@ -1060,12 +1100,27 @@ async def _log_booking(pid: int, service: str, doctor: str,
                     actor="bot" if source == "bot" else "recepție")
 
 
-async def patient_activity(pid: int, limit: int = 50) -> list:
+async def patient_activity(pid: int, limit: int = 50, *,
+                           include_views: bool = False) -> list:
+    """История фиши. По умолчанию БЕЗ просмотров: журнал доступа (кто открывал
+    карточку — требование закона 195) пишется в ту же таблицу, но в ленте фиши
+    ему не место — рецепция открывает карточку по многу раз на дню, и лента из
+    «Fișa deschisă» перестала бы читаться. Выгрузка данных пациента зовёт с
+    include_views=True: в КОПИИ обязаны быть и просмотры — это тоже обработка."""
+    if include_views:
+        return await _fetch(
+            """SELECT id, at, actor, kind, tooth, text FROM activity
+               WHERE patient_id = $1 ORDER BY at DESC, id DESC LIMIT $2""",
+            """SELECT id, at, actor, kind, tooth, text FROM activity
+               WHERE patient_id = ? ORDER BY at DESC, id DESC LIMIT ?""",
+            pid, limit)
     return await _fetch(
         """SELECT id, at, actor, kind, tooth, text FROM activity
-           WHERE patient_id = $1 ORDER BY at DESC, id DESC LIMIT $2""",
+           WHERE patient_id = $1 AND kind NOT IN ('view','doc_view')
+           ORDER BY at DESC, id DESC LIMIT $2""",
         """SELECT id, at, actor, kind, tooth, text FROM activity
-           WHERE patient_id = ? ORDER BY at DESC, id DESC LIMIT ?""", pid, limit)
+           WHERE patient_id = ? AND kind NOT IN ('view','doc_view')
+           ORDER BY at DESC, id DESC LIMIT ?""", pid, limit)
 
 
 async def tooth_activity(pid: int) -> list:
@@ -1221,6 +1276,116 @@ async def documents(pid: int) -> list:
            FROM documents WHERE patient_id = $1 ORDER BY id DESC""",
         """SELECT id, filename, size, mime, category, uploaded_at
            FROM documents WHERE patient_id = ? ORDER BY id DESC""", pid)
+
+
+# ---------- право на стирание (закон 195) ----------
+# Веток ДВЕ, и это не перестраховка. Право пациента на стирание не отменяет
+# обязанность клиники хранить медицинскую документацию, поэтому:
+#   * контакт БЕЗ лечения (записался и не пришёл, отменил) — удаляется физически;
+#   * пациент С лечением — ОБЕЗЛИЧИВАЕТСЯ: личность стирается, клиническая
+#     часть остаётся под номером фиши.
+# ⚠️ Состав таблиц здесь обязан совпадать с modules/patients/export.py: обе
+# стороны отвечают на вопрос «где в базе лежит этот человек». Разойдутся —
+# получится либо неполная выдача, либо неполное удаление, и заметить неоткуда.
+
+async def erasure_kind(pid: int) -> str:
+    """'delete' — можно физически, 'anon' — только обезличивание.
+
+    Лечением считается: запись о зубе, план, документ, визит со статусом
+    done/arrived ЛИБО подтверждённый визит в прошлом (раз не отменён и не
+    отмечен «не пришёл» — приём, скорее всего, состоялся, и вычеркнуть его —
+    значит переписать медицинскую историю задним числом).
+    """
+    async def _n(pg: str, lt: str, *a) -> int:
+        return int(await _fetchval(pg, lt, *a) or 0)
+
+    teeth = await _n("SELECT COUNT(*) FROM teeth WHERE patient_id = $1",
+                     "SELECT COUNT(*) FROM teeth WHERE patient_id = ?", pid)
+    plan = await _n("SELECT COUNT(*) FROM plan_items WHERE patient_id = $1",
+                    "SELECT COUNT(*) FROM plan_items WHERE patient_id = ?", pid)
+    docs = await _n("SELECT COUNT(*) FROM documents WHERE patient_id = $1",
+                    "SELECT COUNT(*) FROM documents WHERE patient_id = ?", pid)
+    now = datetime.now(timezone.utc)
+    happened = await _n(
+        """SELECT COUNT(*) FROM appointments WHERE patient_id = $1
+           AND (status IN ('done','arrived')
+                OR (status = 'confirmed' AND starts_at < $2))""",
+        """SELECT COUNT(*) FROM appointments WHERE patient_id = ?
+           AND (status IN ('done','arrived')
+                OR (status = 'confirmed' AND starts_at < ?))""",
+        *((pid, now) if not IS_SQLITE else (pid, _iso(now))))
+    return "anon" if (teeth or plan or docs or happened) else "delete"
+
+
+async def delete_patient_fully(pid: int) -> None:
+    """Физическое удаление: строка пациента и ВСЁ, что на неё ссылается.
+
+    Порядок — дети раньше родителя: в PG внешние ключи иначе откажут, а SQLite
+    молча оставил бы сирот, которых потом нашла бы только выгрузка чужого id.
+    Файлы документов на диске удаляет ВЫЗЫВАЮЩИЙ (маршрут): db не знает про
+    раскладку файлов, и это его единственная граница.
+    """
+    for pg, lt in (
+        ("DELETE FROM activity WHERE patient_id = $1",
+         "DELETE FROM activity WHERE patient_id = ?"),
+        ("DELETE FROM patient_alerts WHERE patient_id = $1",
+         "DELETE FROM patient_alerts WHERE patient_id = ?"),
+        ("DELETE FROM teeth WHERE patient_id = $1",
+         "DELETE FROM teeth WHERE patient_id = ?"),
+        ("DELETE FROM plan_items WHERE patient_id = $1",
+         "DELETE FROM plan_items WHERE patient_id = ?"),
+        ("DELETE FROM documents WHERE patient_id = $1",
+         "DELETE FROM documents WHERE patient_id = ?"),
+        ("DELETE FROM appointments WHERE patient_id = $1",
+         "DELETE FROM appointments WHERE patient_id = ?"),
+        ("DELETE FROM patients WHERE id = $1",
+         "DELETE FROM patients WHERE id = ?"),
+    ):
+        await _execute(pg, lt, pid)
+    log.warning("patient %s deleted (erasure request, no medical records)", pid)
+
+
+async def anonymize_patient(pid: int) -> None:
+    """Обезличивание: стереть, КТО это, оставив, ЧТО лечили.
+
+    Стираются поля личности; клиника (зубы, план, визиты, документы-снимки)
+    остаётся под номером фиши. session_key получает вид 'anon:<id>' —
+    колонка UNIQUE NOT NULL, а прежний ключ содержит телефон или tg-id, то
+    есть сам по себе личность. archived ставится тут же: обезличенная фиша
+    не должна показываться в живых списках.
+
+    ⚠️ Комментарии визитов и заметки стираются тоже: это свободный текст, и
+    рецепция пишет туда что угодно — вплоть до «сестра Иона Попеску».
+    """
+    await _execute(
+        """UPDATE patients SET name = $2, phone = NULL, email = NULL,
+             birth_date = NULL, birth_year = NULL, gender = NULL, idnp = NULL,
+             address = NULL, insurance = NULL, notes = NULL,
+             session_key = $3, archived = TRUE WHERE id = $1""",
+        """UPDATE patients SET name = ?, phone = NULL, email = NULL,
+             birth_date = NULL, birth_year = NULL, gender = NULL, idnp = NULL,
+             address = NULL, insurance = NULL, notes = NULL,
+             session_key = ?, archived = 1 WHERE id = ?""",
+        *((pid, f"Pacient anonimizat #{pid}", f"anon:{pid}") if not IS_SQLITE
+          else (f"Pacient anonimizat #{pid}", f"anon:{pid}", pid)))
+    await _execute(
+        "UPDATE appointments SET comment = '' WHERE patient_id = $1",
+        "UPDATE appointments SET comment = '' WHERE patient_id = ?", pid)
+    log.warning("patient %s anonymized (erasure request, has medical records)", pid)
+
+
+async def documents_with_paths(pid: int) -> list:
+    """То же, что documents(), но с путём к файлу на диске.
+
+    Отдельной функцией, а не полем в documents(): путь нужен ровно двум местам —
+    выгрузке данных пациента и удалению — и не должен попадать на страницы,
+    откуда его видно в исходном коде HTML.
+    """
+    return await _fetch(
+        """SELECT id, filename, stored_path, size, mime, category, uploaded_at
+           FROM documents WHERE patient_id = $1 ORDER BY id""",
+        """SELECT id, filename, stored_path, size, mime, category, uploaded_at
+           FROM documents WHERE patient_id = ? ORDER BY id""", pid)
 
 
 async def add_document(pid: int, filename: str, stored_path: str,

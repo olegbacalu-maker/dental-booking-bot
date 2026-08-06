@@ -1,0 +1,280 @@
+"""Выгрузка ВСЕХ данных одного пациента — право на доступ и переносимость.
+
+Закон 195/2024 (в силе с 23.08.2026) даёт пациенту право получить копию своих
+данных, а клинике — обязанность её выдать. До этого модуля выдавать было
+нечем: данные одного человека разбросаны по семи таблицам и папке с файлами, и
+собрать их вручную означало открыть базу SQL-клиентом.
+
+В архиве ДВА представления одних и тех же данных, и это не дублирование:
+  * `date-pacient.json` — машиночитаемое, для переноса в другую программу
+    (переносимость требует «структурированный, общеупотребимый формат»);
+  * `fisa-pacient.html` — читаемое человеком, для самого пациента.
+Одного мало: JSON пациенту не объяснить, а HTML никуда не перенести.
+
+⚠️ Сама выдача копии — тоже событие обработки, и при проверке спросят именно
+её. Поэтому маршрут пишет `log_event`; здесь этого нет намеренно, чтобы сборку
+архива можно было позвать из теста, ничего не записывая в летопись.
+"""
+from __future__ import annotations
+
+import html
+import json
+import pathlib
+import re
+import zipfile
+from datetime import date, datetime
+
+from ... import db
+from ... import engine as eng
+
+# Пределы выборок сняты намеренно. У карточки они есть и уместны (боковому
+# предпросмотру хватает двадцати визитов), но копия с отрезанным хвостом не
+# выполняет право на доступ, а молча его нарушает.
+_ALL = 1_000_000
+
+# Имена внутри архива — БЕЗ диакритики. Архив уезжает на чужой компьютер и
+# открывается чем попало; ZIP хранит имена в UTF-8 только с выставленным
+# флагом, и старые распаковщики показывают «fi?a-pacient».
+_README = "CITESTE-MA.txt"
+_JSON = "date-pacient.json"
+_HTML = "fisa-pacient.html"
+_DOCDIR = "documente"
+
+
+def _plain(value):
+    """datetime → ISO. Без этого json.dumps падает на колонках-датах: `_fetch`
+    возвращает их объектами (см. `_DT_COLS` в db.py), а не строками."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    raise TypeError(f"не умею сериализовать {type(value).__name__}")
+
+
+async def collect(pid: int) -> dict | None:
+    """Все данные пациента из ВСЕХ таблиц, где он упомянут.
+
+    ⚠️ Состав этого словаря обязан совпадать с тем, что вычищает удаление
+    пациента: обе функции отвечают на один вопрос «где в базе лежит этот
+    человек». Разойдясь, они дадут либо неполную выдачу, либо неполное
+    удаление — и то и другое нарушение, а заметить его неоткуда.
+    """
+    p = await db.get_patient(pid)
+    if not p:
+        return None
+    teeth = await db.teeth_map(pid)
+    return {
+        "generat_la": datetime.now(eng.TZ).isoformat(timespec="seconds"),
+        # кто оператор данных — первое, что должно быть видно в копии
+        "clinica": {"nume": eng.CLINIC_NAME, "telefon": eng.CLINIC_PHONE,
+                    "adresa": (eng.CONFIG or {}).get("address", {})},
+        "pacient": p,
+        "programari": await db.patient_appointments(pid, _ALL),
+        "atentionari": await db.patient_alerts(pid),
+        "dinti": [teeth[t] for t in sorted(teeth)],
+        "plan_tratament": await db.plan_items(pid),
+        "documente": await db.documents_with_paths(pid),
+        # include_views: в КОПИЮ входят и просмотры — «кто открывал карту»
+        # такая же обработка данных, как «кто менял», и пациент вправе её видеть
+        "istoric": await db.patient_activity(pid, _ALL, include_views=True),
+    }
+
+
+# ---------- читаемое человеком представление ----------
+
+def _dt(value, with_time: bool = True) -> str:
+    if not value:
+        return "—"
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return html.escape(value)
+    # ⚠️ в базе время в UTC, а читает копию пациент — в своём местном. Без
+    # перевода визит, назначенный на 09:00, печатается как 06:00, и ошибка
+    # ничем себя не выдаёт: дата правильная, формат правильный, час чужой.
+    # Проверять tzinfo обязательно: due_date — голая дата без пояса, и
+    # astimezone на наивном значении подставил бы пояс машины и сдвинул день.
+    if getattr(value, "tzinfo", None) is not None:
+        value = value.astimezone(eng.TZ)
+    return value.strftime("%d.%m.%Y %H:%M" if with_time else "%d.%m.%Y")
+
+
+def _esc(value) -> str:
+    return html.escape("" if value is None else str(value))
+
+
+_PROFILE_RO = [
+    ("name", "Nume"), ("phone", "Telefon"), ("email", "E-mail"),
+    ("birth_date", "Data nașterii"), ("gender", "Sex"), ("idnp", "IDNP"),
+    ("address", "Adresa"), ("insurance", "Asigurare"),
+    ("primary_doctor", "Medic curant"), ("file_no", "Nr. fișă"),
+    ("notes", "Note"), ("session_key", "Identificator canal"),
+]
+
+
+def _table(headers: list[str], rows: list[list[str]]) -> str:
+    if not rows:
+        return "<p class='gol'>— nu există înregistrări —</p>"
+    head = "".join(f"<th>{h}</th>" for h in headers)
+    body = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>"
+                   for r in rows)
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def render_html(data: dict) -> str:
+    """Страница для самого пациента. Самодостаточная: открывается двойным
+    кликом на любом компьютере, без интернета и без нашей программы."""
+    p = data["pacient"]
+    cl = data["clinica"]
+    addr = cl["adresa"]
+    addr = addr.get("ro") or next(iter(addr.values()), "") if isinstance(addr, dict) else addr
+
+    profil = _table(["Câmp", "Valoare"],
+                    [[_esc(lbl), _esc(p.get(key)) or "—"] for key, lbl in _PROFILE_RO])
+    programari = _table(
+        ["Data", "Serviciu", "Medic", "Stare", "Sursa", "Comentariu"],
+        [[_dt(v["starts_at"]), _esc(v["service"]), _esc(v["doctor"]),
+          _esc(v["status"]), _esc(v["source"]), _esc(v["comment"]) or "—"]
+         for v in data["programari"]])
+    atentionari = _table(
+        ["Tip", "Text"],
+        [[_esc(a["kind"]), _esc(a["text"])] for a in data["atentionari"]])
+    dinti = _table(
+        ["Dinte", "Stare", "Medic", "Notă", "Actualizat"],
+        [[_esc(t["tooth"]), _esc(t["state"]), _esc(t["doctor"]) or "—",
+          _esc(t["note"]) or "—", _dt(t["updated_at"])] for t in data["dinti"]])
+    plan = _table(
+        ["Dinte", "Procedură", "Medic", "Stare", "Preț (MDL)", "Termen"],
+        [[_esc(i["tooth"]) or "—", _esc(i["procedure"]), _esc(i["doctor"]),
+          _esc(i["status"]), _esc(i["price_mdl"]) or "—",
+          _dt(i["due_date"], with_time=False)] for i in data["plan_tratament"]])
+    documente = _table(
+        ["Fișier", "Categorie", "Mărime", "Încărcat"],
+        [[_esc(d["filename"]), _esc(d["category"]),
+          f"{round((d['size'] or 0) / 1024)} KB", _dt(d["uploaded_at"])]
+         for d in data["documente"]])
+    istoric = _table(
+        ["Data", "Autor", "Eveniment"],
+        [[_dt(e["at"]), _esc(e["actor"]), _esc(e["text"])]
+         for e in data["istoric"]])
+
+    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Date personale — {_esc(p.get('name'))}</title><style>
+ body{{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:32px;
+      background:#F6FBF8;color:#162033;line-height:1.5}}
+ .wrap{{max-width:960px;margin:0 auto}}
+ h1{{font-size:22px;margin:0 0 4px}}
+ h2{{font-size:16px;margin:28px 0 8px;padding-top:14px;border-top:1px solid #E7EDF5}}
+ .sub{{color:#7E8B9C;font-size:13px;margin:0 0 6px}}
+ table{{border-collapse:collapse;width:100%;font-size:14px;background:#fff;
+       border:1px solid #E7EDF5;border-radius:10px;overflow:hidden}}
+ th,td{{text-align:left;padding:8px 10px;border-bottom:1px solid #EEF3F8;
+       vertical-align:top}}
+ th{{background:#F2F7FB;font-weight:600;font-size:13px}}
+ tr:last-child td{{border-bottom:none}}
+ .gol{{color:#7E8B9C;font-size:14px;margin:4px 0}}
+ .nota{{background:#fff;border:1px solid #E7EDF5;border-radius:10px;
+       padding:14px 16px;font-size:13px;color:#4A5768;margin-top:28px}}
+</style></head><body><div class="wrap">
+<h1>Date cu caracter personal</h1>
+<p class="sub">Operator: <b>{_esc(cl['nume'])}</b>{f' · {_esc(addr)}' if addr else ''}
+{f' · {_esc(cl["telefon"])}' if cl.get('telefon') else ''}</p>
+<p class="sub">Copie generată la {_dt(data['generat_la'])}</p>
+
+<h2>Fișa pacientului</h2>{profil}
+<h2>Programări ({len(data['programari'])})</h2>{programari}
+<h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
+<h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
+<h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
+<h2>Documente ({len(data['documente'])})</h2>{documente}
+<h2>Istoricul fișei ({len(data['istoric'])})</h2>{istoric}
+
+<div class="nota">Acest fișier conține <b>date despre sănătate</b> — o categorie
+specială de date personale. Păstrați-l într-un loc sigur și nu îl transmiteți
+persoanelor neautorizate. Fișierele atașate se află în folderul
+<code>{_DOCDIR}/</code>, iar aceleași date în format prelucrabil — în
+<code>{_JSON}</code>.</div>
+</div></body></html>"""
+
+
+# ---------- упаковка ----------
+
+_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_name(filename: str, used: set[str]) -> str:
+    """Имя файла, безопасное ВНУТРИ архива.
+
+    Имя пришло от пользователя при загрузке, то есть может содержать `..`,
+    слэши и что угодно ещё. Распаковщик, честно повторяющий такой путь, пишет
+    файл мимо папки назначения (zip-slip) — поэтому от исходного имени берётся
+    только основа, а всё небезопасное заменяется. Совпадения разводятся
+    номером: два «radiografie.jpg» иначе затрут друг друга при распаковке.
+    """
+    base = pathlib.PurePosixPath(filename.replace("\\", "/")).name or "fisier"
+    stem, dot, ext = base.rpartition(".")
+    stem = _SAFE.sub("_", stem or base)[:60] or "fisier"
+    ext = _SAFE.sub("", ext)[:10] if dot else ""
+    name = f"{stem}.{ext}" if ext else stem
+    n = 2
+    while name.lower() in used:
+        name = f"{stem}_{n}.{ext}" if ext else f"{stem}_{n}"
+        n += 1
+    used.add(name.lower())
+    return name
+
+
+def _readme(data: dict) -> str:
+    p = data["pacient"]
+    return (
+        "DATE CU CARACTER PERSONAL\r\n"
+        "=========================\r\n\r\n"
+        f"Pacient: {p.get('name') or '—'} (fisa nr. {p.get('id')})\r\n"
+        f"Operator: {data['clinica']['nume']}\r\n"
+        f"Copie generata la: {_dt(data['generat_la'])}\r\n\r\n"
+        "Ce contine arhiva:\r\n"
+        f"  {_HTML}  - toate datele intr-o forma citibila (deschideti in browser)\r\n"
+        f"  {_JSON}  - aceleasi date in format prelucrabil, pentru transfer\r\n"
+        f"  {_DOCDIR}/ - fisierele atasate fisei (radiografii, acorduri, alte documente)\r\n\r\n"
+        "ATENTIE: arhiva contine date despre sanatate - o categorie speciala de\r\n"
+        "date personale. Pastrati-o intr-un loc sigur.\r\n")
+
+
+async def write_archive(pid: int, dest: pathlib.Path) -> dict | None:
+    """Собрать архив по пути `dest`. Возвращает собранные данные (для журнала
+    и имени файла) или None, если пациента нет."""
+    data = await collect(pid)
+    if data is None:
+        return None
+    used: set[str] = set()
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(_README, _readme(data))
+        z.writestr(_HTML, render_html(data))
+        for d in data["documente"]:
+            src = pathlib.Path(d["stored_path"])
+            inner = _safe_name(d["filename"], used)
+            # имя внутри архива уходит и в JSON: иначе список документов
+            # ссылается на файлы, которых под такими именами в архиве нет
+            d["fisier_in_arhiva"] = f"{_DOCDIR}/{inner}"
+            if src.is_file():
+                z.write(src, f"{_DOCDIR}/{inner}")
+            else:
+                # файл потерян на диске — молчать нельзя: в копии обязано быть
+                # видно, что документ существовал, но выдать его не смогли
+                d["fisier_in_arhiva"] = None
+                d["eroare"] = "fisierul lipseste pe disc"
+        # stored_path наружу не отдаём: это раскладка компьютера клиники,
+        # к данным пациента она не относится
+        for d in data["documente"]:
+            d.pop("stored_path", None)
+        z.writestr(_JSON, json.dumps(data, ensure_ascii=False, indent=1,
+                                     default=_plain))
+    return data
+
+
+def archive_name(data: dict) -> str:
+    """Имя файла для скачивания: узнаваемое и без диакритики."""
+    p = data["pacient"]
+    who = _SAFE.sub("_", (p.get("name") or "pacient").strip())[:40].strip("_")
+    stamp = datetime.now(eng.TZ).strftime("%Y%m%d")
+    return f"date-{who or 'pacient'}-{p.get('id')}-{stamp}.zip"

@@ -13,6 +13,7 @@ import http.cookiejar
 import json
 import os
 import pathlib
+import secrets
 import shutil
 import socket
 import subprocess
@@ -99,10 +100,13 @@ class Reply:
     """Ответ сервера в удобном для проверок виде."""
 
     def __init__(self, status: int, location: str, body: str,
-                 headers: dict | None = None):
+                 headers: dict | None = None, raw: bytes = b""):
         self.status = status
         self.location = location
         self.body = body
+        # тело до декодирования: у выгрузки данных пациента ответ — zip, и
+        # `body` его гарантированно портит (decode с "replace")
+        self.raw = raw
         self.headers = headers or {}
 
     def header(self, name: str) -> str:
@@ -142,11 +146,13 @@ class Client:
                                      headers=headers or {})
         try:
             with self.opener.open(req, timeout=30) as r:
+                data = r.read()
                 return Reply(r.status, r.headers.get("Location", ""),
-                             r.read().decode("utf-8", "replace"), dict(r.headers))
+                             data.decode("utf-8", "replace"), dict(r.headers), data)
         except urllib.error.HTTPError as e:
+            data = e.read()
             return Reply(e.code, e.headers.get("Location", ""),
-                         e.read().decode("utf-8", "replace"), dict(e.headers))
+                         data.decode("utf-8", "replace"), dict(e.headers), data)
 
     def get(self, path: str) -> Reply:
         return self._do(path)
@@ -157,6 +163,28 @@ class Client:
     def post_json(self, path: str, payload: dict) -> Reply:
         return self._do(path, json.dumps(payload).encode(),
                         {"Content-Type": "application/json"})
+
+    def post_file(self, path: str, field: str, filename: str, content: bytes,
+                  **fields) -> Reply:
+        """multipart/form-data — загрузка документа в фишу пациента.
+
+        Собирается руками: в стандартной библиотеке кодировщика multipart нет,
+        а тянуть requests в тесты нельзя (см. шапку файла — только stdlib).
+        Имя файла НЕ экранируется намеренно: тесты подсовывают сюда `../`, и
+        экранирование здесь спрятало бы ровно то, что проверяется.
+        """
+        bnd = "----dp" + secrets.token_hex(8)
+        parts = []
+        for k, v in fields.items():
+            parts.append(f"--{bnd}\r\nContent-Disposition: form-data; "
+                         f'name="{k}"\r\n\r\n{v}\r\n'.encode())
+        parts.append(f"--{bnd}\r\nContent-Disposition: form-data; "
+                     f'name="{field}"; filename="{filename}"\r\n'
+                     f"Content-Type: application/octet-stream\r\n\r\n".encode())
+        parts.append(content + b"\r\n")
+        parts.append(f"--{bnd}--\r\n".encode())
+        return self._do(path, b"".join(parts),
+                        {"Content-Type": f"multipart/form-data; boundary={bnd}"})
 
     def login(self, password: str = PIN) -> "Client":
         self.post("/admin/login", password=password, next="/admin")

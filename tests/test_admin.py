@@ -3,6 +3,7 @@
 """
 import json
 import os
+import re
 import subprocess
 from datetime import date, timedelta
 
@@ -117,9 +118,15 @@ def suite_patient_card(res: Result) -> None:
                "Card Test Nou" in c.get(f"/admin/patient/{pid}").body,
                "имя не обновилось")
 
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="caries",
+        # ⚠️ проверять msg, а не код: отказ «bad_card» — тоже 303, и с кодом
+        # эта проверка была пустой. Состояние звалось "caries" (в справочнике
+        # "carie"), зуб не сохранялся НИКОГДА, а тест был зелёным.
+        r = c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie",
                    note="test", doctor="d2")
-        res.ok("зуб отмечается", r.status == 303, f"код {r.status}")
+        res.check("зуб отмечается", r.msg, "ok_card")
+        res.ok("состояние зуба видно в формуле",
+               "11 · Carie · test" in c.get(f"/admin/patient/{pid}").body,
+               "зуб не сохранился")
 
         r = c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11",
                    tooth="11", price="1200")
@@ -144,6 +151,148 @@ def suite_patient_card(res: Result) -> None:
         res.ok("архивный находится по явному поиску",
                "Card Test Nou" in c.get("/admin/search?q=Card+Test").body,
                "архивный потерялся совсем")
+
+
+def suite_patients_list(res: Result) -> None:
+    """Раздел «Pacienți»: фильтры, страницы, предпросмотр, экспорт, новая фиша.
+
+    Статуса пациента в базе НЕТ — он выводится из алертов, плана и давности
+    визита. Именно это здесь и стережётся: выведенная цифра ломается молча,
+    страница остаётся кодом 200 и выглядит нормально.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+
+        def add(name: str, phone: str, day: int, time: str, doc: str) -> str:
+            c.post("/admin/add", adate=_d(day), atime=time, adoctor=doc,
+                   aservice="consult", aname=name, aphone=phone, back="/admin/all")
+            body = c.get(f"/admin/search?q={phone}").body
+            return body.split("/admin/patient/", 1)[1].split("'")[0]
+
+        vechi = add("Elena Bălan", "068111222", -400, "10:00", "d2")
+        alerg = add("Dumitru Ganea", "069222444", -5, "11:00", "d3")
+        plan = add("Maria Ionescu", "069987654", -10, "12:00", "d2")
+        arh = add("Svetlana Ciobanu", "078333555", -12, "13:00", "d4")
+        add("Radu Marin", "079444666", 2, "14:00", "d2")
+
+        c.post(f"/admin/patient/{alerg}/alert", kind="allergy", text="Penicilină")
+        c.post(f"/admin/patient/{plan}/plan", procedure="Coroană", price="1200")
+        c.post(f"/admin/patient/{arh}/archive", on="1")
+        c.post(f"/admin/patient/{vechi}/save", name="Elena Bălan",
+               phone="068111222", email="elena@example.com")
+        # добор до второй страницы: пагинацию нечем проверить на пяти строках
+        for i in range(8):
+            c.post("/admin/patients/new", name=f"Pacient Masiv {i}",
+                   phone=f"0611000{i:02d}")
+
+        page = c.get("/admin/search").body
+        res.ok("список рисуется таблицей", "pl-tbl" in page and "pl-tiles" in page,
+               "нет разметки списка")
+        res.ok("три числа над списком",
+               all(x in page for x in ("Total pacienți", "Pacienți noi",
+                                       "Programări (luna aceasta)")),
+               "не все карточки на месте")
+        res.ok("денежной карточки в разделе нет", "Venituri" not in page,
+               "«Venituri» вернулась на страницу пациентов")
+
+        def rows(path: str) -> int:
+            return c.get(path).body.count("<tr id='plr")
+
+        res.check("в списке все неархивные", rows("/admin/search"), 12)
+        res.ok("архивный скрыт по умолчанию", "Svetlana" not in page,
+               "архивный виден без запроса")
+        res.ok("архивный находится явным поиском",
+               "Svetlana" in c.get("/admin/search?q=Svetlana").body,
+               "архивный потерялся совсем")
+
+        # статусы выводятся, а не хранятся — проверяем каждую ветку
+        res.ok("аллергия даёт «Necesită atenție»",
+               "Necesită atenție" in page, "нет бейджа внимания")
+        res.check("фильтр «внимание» — только он", rows("/admin/search?st=atentie"), 1)
+        res.check("фильтр «в лечении» — только план",
+                  rows("/admin/search?st=tratament"), 1)
+        res.ok("год без визита = «Inactiv»", "Inactiv" in page, "нет бейджа неактивности")
+        res.check("фильтр «архив» показывает архивного",
+                  rows("/admin/search?st=arhivat"), 1)
+
+        res.check("фильтр по врачу", rows("/admin/search?med=Dr.+Activ+Trei"), 1)
+        res.check("фильтр по каналу «recepție»", rows("/admin/search?ch=manual"), 12)
+        res.check("фильтр по каналу «telegram»", rows("/admin/search?ch=tg"), 0)
+        res.ok("поиск не замечает диакритику",
+               "Bălan" in c.get("/admin/search?q=balan").body, "«balan» не нашёл «Bălan»")
+        res.ok("поиск по e-mail",
+               "Bălan" in c.get("/admin/search?q=elena@example").body, "e-mail не ищется")
+        res.ok("поиск по телефону в любом формате",
+               "Radu Marin" in c.get("/admin/search?q=444+666").body,
+               "пробел в номере ломает поиск")
+        res.ok("ничего не найдено — не пустая страница",
+               "Nimic găsit" in c.get("/admin/search?q=zzzzz").body, "нет пустого вида")
+
+        res.check("страница ограничена per", rows("/admin/search?per=10"), 10)
+        res.ok("подпись страницы честная",
+               "Afișare 1–10 din 12" in c.get("/admin/search?per=10").body,
+               "не та подпись под списком")
+        res.check("вторая страница — остаток",
+                  rows("/admin/search?per=10&page=2"), 2)
+        res.ok("страница за пределом схлопывается на последнюю",
+               "Afișare 11–12 din 12" in c.get("/admin/search?per=10&page=99").body,
+               "page=99 отдал пустоту")
+        res.ok("чужое per отбрасывается, а не ломает страницу",
+               "Afișare 1–12 din 12" in c.get("/admin/search?per=7").body,
+               "per=7 не откатился к 20")
+        names = re.findall(r"<div class='pl-nm'><b>([^<]+)</b>",
+                           c.get("/admin/search?sort=name").body)
+        res.ok("сортировка по имени", names == sorted(names, key=str.lower),
+               f"порядок {names}")
+
+        peek = c.get(f"/admin/patient/{plan}/peek")
+        res.ok("предпросмотр отдаёт кусок разметки, не страницу",
+               peek.status == 200 and "Plan de tratament" in peek.body
+               and "<html" not in peek.body, f"код {peek.status}")
+        res.ok("предпросмотр показывает аллергию",
+               "Penicilină" in c.get(f"/admin/patient/{alerg}/peek").body,
+               "алерта нет в панели")
+        res.check("предпросмотр несуществующего", c.get("/admin/patient/9999/peek").status,
+                  404)
+
+        csv_r = c.get("/admin/patients.csv")
+        res.ok("экспорт отдаётся файлом",
+               csv_r.status == 200 and "attachment" in csv_r.header("Content-Disposition")
+               and csv_r.body.startswith("﻿"), f"код {csv_r.status}")
+        res.check("экспорт слушается фильтров (шапка + одна строка)",
+                  len(c.get("/admin/patients.csv?st=atentie").body.strip().split("\r\n")),
+                  2)
+
+        r = c.post("/admin/patients/new", name="Grigore Nou", phone="060777888",
+                   birth_date="1978-02-02", email="gn@example.com")
+        res.check("новая фиша заводится", r.msg, "new_pat")
+        new_id = r.location.split("/admin/patient/")[1].split("?")[0]
+        res.ok("новый пациент попал в список",
+               "Grigore Nou" in c.get("/admin/search").body, "нет в списке")
+        # ⭐ ключ manual:{цифры} склеивает по телефону: повтор обязан ОТКРЫТЬ
+        # существующую фишу, а не переписать в ней имя
+        r = c.post("/admin/patients/new", name="Alt Nume", phone="060 777 888")
+        res.check("тот же телефон — не новый пациент", r.msg, "dup_pat")
+        res.ok("повтор ведёт в ту же фишу", f"/admin/patient/{new_id}" in r.location,
+               f"увёл на {r.location!r}")
+        res.ok("имя существующего не перезаписано",
+               "Grigore Nou" in c.get(f"/admin/patient/{new_id}").body,
+               "имя затёрлось повтором")
+        r = c.post("/admin/patients/new", name="Fara Telefon")
+        res.check("без телефона тоже заводится", r.msg, "new_pat")
+        res.ok("заведённый на рецепции — канал «recepție»",
+               "Fara Telefon" in c.get("/admin/search?ch=manual").body,
+               "канал определился неверно")
+        res.check("без имени не заводится",
+                  c.post("/admin/patients/new", name="  ").msg, "bad_pat")
+
+        anon = Client(s.url)
+        for path in ("/admin/search", "/admin/patients.csv", "/admin/patient/1/peek"):
+            res.ok(f"без входа {path} не отдаётся", anon.get(path).status == 303,
+                   "отдал без входа")
+        res.ok("без входа пациент не заводится",
+               anon.post("/admin/patients/new", name="X").status == 303,
+               "завёл без входа")
 
 
 def suite_settings(res: Result) -> None:

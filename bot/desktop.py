@@ -51,11 +51,15 @@ if not env_path.exists():
         "# Parola jurnalului /admin (gol = deschis):\nADMIN_KEY=\n",
         encoding="utf-8",
     )
-for line in env_path.read_text(encoding="utf-8").splitlines():
-    line = line.strip()
-    if line and not line.startswith("#") and "=" in line:
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip())
+from app import dpapi, envfile  # noqa: E402 — путь к env вычислен строкой выше
+
+for k, v in envfile.read_all(env_path).items():
+    os.environ.setdefault(k, v)
+
+# Токен бота лежит в dental.env зашифрованным средствами Windows: файл,
+# унесённый с этой машины, бесполезен. Расшифровать надо ЗДЕСЬ, до старта
+# приложения — дальше TELEGRAM_TOKEN читается из окружения как обычная строка.
+dpapi.unlock_env_token(env_path)
 
 data_dir = BASE / "data"
 data_dir.mkdir(exist_ok=True)

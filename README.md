@@ -50,9 +50,9 @@ by the bot, per-doctor occupancy:
 
 ![Stats](screenshots/stats.png)
 
-**Patient search** by name or phone digits, ignoring diacritics, with recent visits:
+**Patient list** — filters, derived statuses, a side preview and CSV export:
 
-<img src="screenshots/patient-search.png" width="680" alt="Patient search">
+<img src="screenshots/patient-search.png" width="680" alt="Patient list">
 
 **Per-doctor day view** and the **live-demo QR page** (temporary Cloudflare tunnel):
 
@@ -122,9 +122,24 @@ More journal tools:
 - Journal pages **refresh themselves every 12 seconds**, so a bot booking appears without
   touching F5 — the reload is skipped while a dialog is open, a file is picked or the
   cursor is in a form, so nothing half-typed is lost.
-- **Patient search** by name or phone digits (any format), ignoring Romanian diacritics
-  and case ("Balan" finds "Bălan"); results show the most recent visits (last 20).
-  Available from the header of any page, or with Ctrl+K.
+- **Patient list** (`/admin/search`) — the clinic's whole base in one working table:
+  avatar and name, phone, birth date, doctor, last visit (with the next one flagged in
+  green), status, pages. Filters by doctor, status and channel; sorting by name or by
+  last visit; the current selection can be exported to CSV or previewed in a side panel
+  that shows the treatment-plan progress, alerts and documents without leaving the list.
+  Search by name or phone digits (any format), e-mail or file number, ignoring Romanian
+  diacritics and case ("Balan" finds "Bălan"). Available from the header of any page, or
+  with Ctrl+K. Three counters sit above the table (total patients, new this month,
+  appointments this month) — money deliberately stays in *Stats*, not here.
+  **Patient status is derived, not stored**: archived → medical alert → unfinished plan →
+  no visit for a year → active. Nothing to keep in sync, and no status that says "in
+  treatment" about a patient whose plan was finished last spring. The *Medic* column falls
+  back to the doctor of the last visit when nobody filled the primary doctor in the card —
+  dimmed, so a fallback never reads as an assignment.
+- **Add patient** without an appointment (reception registers a walk-in or a phone call).
+  The `manual:{digits}` key merges patients by phone on purpose, so a repeated number
+  *opens the existing card* instead of overwriting its name — a shared family number would
+  otherwise quietly rename a parent into their child.
 - **Owner stats** (`/admin/stats`): bookings by source, visits, **no-shows priced in MDL**
   from the clinic's own price list, "value brought by the bot", per-doctor occupancy
   (busy minutes over working minutes, not a count of slots), top services — over any period.

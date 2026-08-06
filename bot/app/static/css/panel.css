@@ -642,6 +642,194 @@
  .wchip b{font-weight:600}
  .wchip small{opacity:.75;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .wchip.noshow{text-decoration:line-through;opacity:.7}
+ /* ---------- раздел «Pacienți»: список клиники (макет Олега 08-06) ----------
+    Значения берутся из :root, а не из макета напрямую: смена акцента должна
+    перекрашивать программу целиком, иначе список пациентов останется
+    бирюзовым островом на следующем же ребрендинге. Из макета сюда пришла
+    ГЕОМЕТРИЯ (строка 66px, панель 20px, бейдж-таблетка, аватар-градиент) —
+    её в переменных нет и держать негде. */
+ .pl-head{margin-bottom:16px}
+ .pl-head h2{margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em}
+ .pl-head p{margin:2px 0 0;color:var(--text2);font-size:13.5px}
+ .pl-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+ .pl-search{display:flex;align-items:center;gap:9px;height:42px;padding:0 14px;
+   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-ctl);
+   color:var(--text3);flex:0 1 320px;min-width:220px;
+   transition:border-color .2s ease,box-shadow .2s ease}
+ .pl-search:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ .pl-search input{border:none;outline:none;background:none;font-size:14px;flex:1;
+   min-width:0;color:var(--text);font-family:inherit}
+ .pl-bar select{height:42px;padding:0 12px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);background:var(--panel);color:var(--text2);
+   font-size:13.5px;font-family:inherit;cursor:pointer;
+   transition:border-color .2s ease,color .2s ease}
+ .pl-bar select:hover{border-color:var(--teal);color:var(--text)}
+ .pl-btn{display:inline-flex;align-items:center;gap:7px;height:42px;padding:0 16px;
+   border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
+   color:var(--text2);font-size:13.5px;font-weight:500;font-family:inherit;
+   text-decoration:none;cursor:pointer;white-space:nowrap;
+   transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .pl-btn:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(-1px)}
+ .pl-btn.primary{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:600}
+ .pl-btn.primary:hover{background:var(--teal-d);color:#fff;
+   box-shadow:0 8px 20px rgba(14,159,138,.24)}
+ /* три числа над списком; денежной карточки в этом разделе нет намеренно */
+ .pl-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+   gap:14px;margin-bottom:18px}
+ .pl-tile{display:flex;gap:16px;align-items:center;background:var(--panel);
+   border:1px solid var(--line);border-radius:var(--r-card);padding:20px 22px;
+   box-shadow:var(--sh);text-decoration:none;color:inherit;min-width:0;
+   transition:box-shadow .25s ease,transform .25s ease}
+ a.pl-tile:hover{transform:translateY(-3px);box-shadow:var(--sh3)}
+ .pl-tile .ico{width:52px;height:52px;flex:0 0 52px;border-radius:16px;display:flex;
+   align-items:center;justify-content:center;font-size:21px}
+ .pl-tile .ico.g{background:var(--teal-soft)}
+ .pl-tile .ico.b{background:var(--blue-soft)}
+ .pl-tile .ico.v{background:var(--violet-soft)}
+ .pl-tv{min-width:0}
+ .pl-tv span{display:block;font-size:13px;color:var(--text2);font-weight:500}
+ .pl-tv b{display:block;font-size:30px;font-weight:600;line-height:1.2;letter-spacing:-.02em}
+ .pl-tv small{display:block;font-size:12px;color:var(--text3);margin-top:2px}
+ .pl-tv .up{color:var(--green-t);font-weight:600}
+ .pl-tv .dn{color:var(--red-t);font-weight:600}
+ /* список + боковой предпросмотр */
+ .pl-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
+ .pl-card{background:var(--panel);border:1px solid var(--line);border-radius:20px;
+   box-shadow:var(--sh2);overflow:hidden;min-width:0}
+ .pl-scroll{overflow-x:auto}
+ .pl-tbl{width:100%;border-collapse:collapse}
+ .pl-tbl th{height:52px;background:#FAFBFD;font-size:12.5px;font-weight:600;
+   color:var(--text2);text-align:left;padding:0 14px;white-space:nowrap;
+   border-bottom:1px solid var(--line)}
+ .pl-tbl th a{color:inherit;text-decoration:none}
+ .pl-tbl th a:hover{color:var(--teal-d)}
+ .pl-tbl td{height:66px;padding:8px 14px;font-size:13.5px;color:var(--text2);
+   border-bottom:1px solid var(--line2);white-space:nowrap}
+ .pl-tbl tbody tr{cursor:pointer;transition:background-color .18s ease}
+ .pl-tbl tbody tr:hover{background:#FAFCFE}
+ .pl-tbl tbody tr.on{background:var(--teal-soft)}
+ .pl-tbl tbody tr:last-child td{border-bottom:none}
+ .pl-tbl td small{color:var(--text3);font-size:12px}
+ .pl-tbl .dim{color:var(--text3)}
+ .pl-tbl td small.nx{display:block;color:var(--teal-d);font-weight:600}
+ .pl-who{display:flex;align-items:center;gap:11px;min-width:0}
+ .pl-av{width:40px;height:40px;flex:0 0 40px;border-radius:50%;display:flex;
+   align-items:center;justify-content:center;font-size:13.5px;font-weight:600;
+   color:#fff;background:linear-gradient(135deg,var(--teal),var(--teal-d))}
+ .pl-nm{min-width:0}
+ .pl-nm b{display:block;font-size:14px;font-weight:600;color:var(--text);
+   overflow:hidden;text-overflow:ellipsis;max-width:230px}
+ .pl-nm small{display:block;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+ .pl-badge{display:inline-block;padding:6px 12px;border-radius:30px;font-size:12px;
+   font-weight:600;white-space:nowrap}
+ .pl-badge.act{background:var(--green-soft);color:var(--green-t)}
+ .pl-badge.trt{background:var(--blue-soft);color:#1D4ED8}
+ .pl-badge.att{background:var(--amber-soft);color:var(--amber-t)}
+ .pl-badge.off{background:var(--line2);color:var(--text2)}
+ .pl-badge.arh{background:var(--line2);color:var(--text3)}
+ .pl-acts{text-align:right}
+ .pl-acts button,.pl-acts a{display:inline-flex;align-items:center;justify-content:center;
+   width:36px;height:36px;border-radius:10px;border:1px solid var(--line);
+   background:var(--panel);color:var(--text2);font-size:14px;cursor:pointer;
+   text-decoration:none;margin-left:5px;
+   transition:border-color .2s ease,background-color .2s ease,transform .2s ease}
+ .pl-acts button:hover,.pl-acts a:hover{border-color:var(--teal);
+   background:var(--teal-soft);transform:scale(1.06)}
+ .pl-pag{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;
+   border-top:1px solid var(--line);font-size:12.5px;color:var(--text2)}
+ .pl-pgs{display:flex;gap:6px;margin-left:auto}
+ .pl-pg{display:inline-flex;align-items:center;justify-content:center;min-width:36px;
+   height:36px;padding:0 8px;border:1px solid var(--line);border-radius:10px;
+   background:var(--panel);color:var(--text2);text-decoration:none;font-size:13px;
+   transition:border-color .2s ease,background-color .2s ease,color .2s ease}
+ .pl-pg:hover{border-color:var(--teal);color:var(--teal-d)}
+ .pl-pg.on{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:600;
+   box-shadow:0 6px 16px rgba(14,159,138,.24)}
+ .pl-pg.off{opacity:.4;pointer-events:none}
+ .pl-gap{color:var(--text3);align-self:center}
+ .pl-pag form{margin:0}
+ .pl-pag select{height:36px;padding:0 8px;border:1px solid var(--line);border-radius:10px;
+   background:var(--panel);color:var(--text2);font-size:12.5px;font-family:inherit;
+   cursor:pointer}
+ .pl-empty{display:flex;flex-direction:column;align-items:center;gap:8px;
+   padding:56px 24px;text-align:center;font-size:32px;color:var(--text3)}
+ .pl-empty b{font-size:16px;color:var(--text);font-weight:600}
+ .pl-empty span{font-size:13px;color:var(--text2);max-width:380px;line-height:1.6}
+ .pl-empty .pl-btn{margin-top:6px}
+ /* правая панель: та же фиша, но без ухода со списка */
+ .ppanel{position:sticky;top:88px;background:var(--panel);border:1px solid var(--line);
+   border-radius:20px;box-shadow:var(--sh2);padding:22px;min-width:0;
+   max-height:calc(100vh - 108px);overflow-y:auto}
+ .pp-x,.pp-veil{display:none}
+ .pp-empty{display:flex;flex-direction:column;align-items:center;gap:10px;
+   padding:40px 8px;text-align:center;font-size:26px;color:var(--text3)}
+ .pp-empty span{font-size:13px;line-height:1.6;color:var(--text2)}
+ .pp-head{display:flex;align-items:center;gap:13px;margin-bottom:14px}
+ .pp-av{width:52px;height:52px;flex:0 0 52px;border-radius:50%;display:flex;
+   align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:600;
+   background:linear-gradient(135deg,var(--teal),var(--teal-d))}
+ .pp-id{min-width:0}
+ .pp-id b{display:block;font-size:19px;font-weight:600;letter-spacing:-.02em;line-height:1.25}
+ .pp-id .pl-badge{margin-top:5px}
+ .pp-row{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;
+   color:var(--text2);min-width:0}
+ .pp-row .ic{flex:0 0 16px;color:var(--text3);display:flex}
+ .pp-row a{color:var(--text2);text-decoration:none;overflow:hidden;
+   text-overflow:ellipsis;white-space:nowrap}
+ .pp-row a:hover{color:var(--teal-d)}
+ .pp-info{margin-bottom:12px}
+ .ppanel>.pl-btn{width:100%;justify-content:center}
+ .pp-b{border-top:1px solid var(--line2);padding:14px 0}
+ .pp-b.next{border:none;border-radius:14px;background:var(--teal-soft);
+   padding:12px 14px;margin-top:14px}
+ .pp-t{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+   font-size:13px;font-weight:600;margin-bottom:6px}
+ .pp-t span{font-size:12px;font-weight:500;color:var(--text3)}
+ .pp-t a{font-size:12px;font-weight:600;color:var(--teal-d);text-decoration:none}
+ .pp-b b{display:block;font-size:13.5px;font-weight:500}
+ .pp-b small{display:block;font-size:12px;color:var(--text2);margin-top:2px}
+ .pp-b .statbar{margin:8px 0 6px;border-radius:999px}
+ .pp-b .statbar div{background:linear-gradient(90deg,var(--teal),var(--green));
+   border-radius:999px}
+ .pp-note{border-radius:12px;padding:11px 13px;font-size:12.5px;line-height:1.5;
+   margin-bottom:6px;border-left:4px solid var(--amber);background:#FFF8ED;
+   color:var(--amber-t)}
+ .pp-note.allergy{border-left-color:var(--red);background:var(--red-soft);color:var(--red-t)}
+ .pp-note.info{border-left-color:var(--blue);background:var(--blue-soft);color:var(--text2)}
+ .pp-doc{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:12px;
+   background:#FAFBFD;margin-bottom:6px;text-decoration:none;color:inherit;
+   transition:background-color .2s ease,box-shadow .2s ease}
+ .pp-doc:hover{background:var(--panel);box-shadow:var(--sh2)}
+ .pp-doc b{display:block;font-size:12.5px;font-weight:500;white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis;max-width:210px}
+ .pp-doc small{display:block;font-size:11px;color:var(--text3)}
+ .pp-foot{border-top:1px solid var(--line);margin-top:14px;padding-top:14px;
+   display:flex;flex-direction:column;gap:9px;font-size:12px;color:var(--text3)}
+ .pp-foot .pl-btn{width:100%;justify-content:center}
+ /* 1366×768 — рабочий экран клиники: на пристыкованную панель ширины не
+    хватает (таблице осталось бы ~740px из семи колонок), поэтому ниже 1400
+    она выезжает поверх списка, как ящик. Разметка одна и та же. */
+ @media (max-width:1400px){
+   .pl-grid{grid-template-columns:minmax(0,1fr)}
+   .ppanel{position:fixed;top:0;right:0;bottom:0;width:380px;max-width:92vw;z-index:60;
+     border:none;border-left:1px solid var(--line);border-radius:0;max-height:none;
+     padding-top:52px;box-shadow:-14px 0 36px rgba(15,23,42,.14);
+     transform:translateX(102%);transition:transform .28s ease}
+   .ppanel.open{transform:none}
+   .pp-x{display:flex;position:absolute;top:12px;right:14px;width:36px;height:36px;
+     align-items:center;justify-content:center;border:1px solid var(--line);
+     border-radius:10px;background:var(--panel);color:var(--text2);cursor:pointer;
+     font-size:14px;font-family:inherit}
+   .pp-x:hover{border-color:var(--teal);color:var(--teal-d)}
+   .pp-veil{display:block;position:fixed;inset:0;background:rgba(15,23,42,.28);
+     z-index:55;opacity:0;pointer-events:none;transition:opacity .28s ease}
+   .pp-veil.on{opacity:1;pointer-events:auto}
+ }
+ @media (max-width:1150px){.pl-hide{display:none}}
+ @media print{
+   .pl-bar,.pl-pag,.ppanel,.pp-veil,.pl-acts{display:none !important}
+   .pl-grid{grid-template-columns:1fr}.pl-card{box-shadow:none}
+ }
  @media (max-width:1280px){.dash{flex-wrap:wrap}.rail{width:100%;flex:1 1 100%}}
  @media (max-width:1000px){
    .side{width:56px;flex:0 0 56px}

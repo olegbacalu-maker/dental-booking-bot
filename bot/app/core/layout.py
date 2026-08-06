@@ -81,13 +81,28 @@ MSG_BANNER = {
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
     "ok_pin": ("ok", "PIN schimbat ✔"),
     "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
+    "lock_pin": ("warn", "Prea multe încercări greșite — așteptați câteva minute"),
     "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
     "ok_tok": ("ok", "Token salvat ✔ — reporniți programul pentru aplicare"),
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
     "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
     "ok_card": ("ok", "Fișa pacientului a fost actualizată ✔"),
+    "bad_export": ("err", "Nu am putut pregăti arhiva cu datele pacientului — "
+                          "verificați spațiul pe disc; detalii în data\\dentpilot.log"),
+    "ok_del": ("ok", "Fișa pacientului a fost ștearsă definitiv ✔"),
+    "ok_anon": ("ok", "Datele de identitate au fost șterse ✔ — înregistrările "
+                      "medicale rămân sub numărul fișei"),
+    "bad_erase": ("err", "Pentru ștergere scrieți STERG în câmpul de confirmare"),
+    "bad_bkp_pass": ("err", "Parola arhivei trebuie să aibă cel puțin 10 caractere"),
+    "bad_bkp": ("err", "Nu am putut crea arhiva de rezervă — verificați spațiul "
+                       "pe disc; detalii în data\\dentpilot.log"),
     "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
+    "new_pat": ("ok", "Pacient adăugat ✔ — completați fișa (dinți, plan, documente)"),
+    "dup_pat": ("warn", "Există deja un pacient cu acest telefon — am deschis fișa lui. "
+                        "Dacă este altă persoană (numărul familiei), adăugați-o cu alt "
+                        "număr sau fără număr"),
+    "bad_pat": ("err", "Lipsește numele pacientului"),
     "ok_doc": ("ok", "Document încărcat ✔ — rămâne local, în folderul programului"),
     "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
     "ok_med": ("ok", "Datele medicului au fost salvate ✔"),
@@ -129,6 +144,7 @@ _I = {  # компактные stroke-иконки сайдбара
     "set": "<circle cx='12' cy='12' r='3'/><path d='M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2'/>",
     "bot": "<rect x='3.5' y='7.5' width='17' height='12' rx='3'/><path d='M12 7.5V4'/><circle cx='9' cy='13.5' r='1' fill='currentColor' stroke='none'/><circle cx='15' cy='13.5' r='1' fill='currentColor' stroke='none'/>",
     "qr": "<rect x='4' y='4' width='6.5' height='6.5' rx='1'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1'/><path d='M13.5 13.5h6.5v6.5h-6.5z'/>",
+    "search": "<circle cx='11' cy='11' r='7'/><path d='m20 20-3.6-3.6'/>",
     # якоря строк профиля пациента (макет 08-03)
     "phone": "<path d='M6.5 3.5h3l1.5 4-2 1.2a12 12 0 0 0 5.3 5.3l1.2-2 4 1.5v3a1.5 1.5 0 0 1-1.7 1.5C10.6 17.4 6.6 13.4 5 5.2A1.5 1.5 0 0 1 6.5 3.5z'/>",
     "mail": "<rect x='3' y='5.5' width='18' height='13' rx='2.5'/><path d='m3.8 7 8.2 6 8.2-6'/>",

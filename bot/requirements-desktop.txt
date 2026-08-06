@@ -6,3 +6,5 @@ tzdata==2026.3
 python-multipart==0.0.20
 qrcode[pil]==8.2
 pywebview>=5.3,<6
+pyzipper==0.4.0
+

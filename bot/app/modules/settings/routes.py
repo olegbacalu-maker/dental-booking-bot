@@ -11,22 +11,29 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import os
 import pathlib
 import re
+import shutil
 import sys
+import tempfile
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from starlette.background import BackgroundTask
 
 from ... import db
+from ... import dpapi, envfile
 from ... import engine as eng
 from ... import update as upd
 from ...core.auth import ADMIN_KEY, _guard, _pin_rec
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
                             _doc_hours_text, _shell, tg_status)
+from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
+from . import backup as bkp
 
 router = APIRouter()
 
@@ -145,6 +152,11 @@ async def admin_settings(request: Request, msg: str = ""):
     tg = tg_status()
     if tg["running"]:
         tg_line = f"✅ activ — @{html.escape(tg['username'])}"
+    elif os.environ.get("DENTART_TOKEN_UNREADABLE") == "1":
+        # шифротекст не с этой машины (см. dpapi.py). Молчаливое «fără token»
+        # отправило бы клинику чинить настройки бота, которые в порядке
+        tg_line = ("🔑 tokenul nu poate fi citit pe acest calculator — "
+                   "reintroduceți-l mai jos")
     elif os.environ.get("TELEGRAM_TOKEN", "").strip():
         tg_line = f"⚠️ {html.escape(tg.get('error') or 'pornire…')}"
     else:
@@ -229,6 +241,18 @@ copiile de rezervă rămân pe acest calculator, în folderul programului.</p>
 </form>
 <p class='hint'>Creați botul clinicii la @BotFather (2 minute) și lipiți tokenul aici.
 Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
+    if db.IS_SQLITE and bkp.available():
+        status_tbl += f"""
+<h2>💾 Copie de rezervă criptată</h2>
+<form class='add' method='post' action='/admin/backup/export'>
+  <input type='password' name='parola' placeholder='parolă (min. {bkp.MIN_PASS} caractere)'
+         minlength='{bkp.MIN_PASS}' required style='width:280px' autocomplete='new-password'>
+  <button>📦 Exportă arhiva</button>
+</form>
+<p class='hint'>Arhivă ZIP criptată (AES-256) cu baza de date, profilul clinicii și
+documentele pacienților — pentru stick USB sau alt calculator. Se deschide cu 7-Zip
+prin parola aleasă. <b>Parola nu se salvează nicăieri</b> — fără ea arhiva nu poate
+fi citită de nimeni, nici de noi.</p>"""
     if _pin_rec():
         status_tbl += """
 <h2>🔒 Schimbă PIN</h2>
@@ -506,6 +530,37 @@ Această pagină se va reîncărca automat în ~18 secunde.</p>
 </body></html>"""
 
 
+@router.post("/admin/backup/export")
+async def admin_backup_export(request: Request, parola: str = Form(...)):
+    """Зашифрованный архив клиники — целиком, для флешки или переезда.
+
+    Пишется во временную папку и отдаётся файлом; временное подчищает фоновая
+    задача после отдачи (как у выгрузки данных пациента). minlength в форме —
+    вежливость, настоящая проверка тут: форму можно послать и без браузера.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    d = _data_dir()
+    if d is None or not bkp.available():
+        return RedirectResponse("/admin/settings", status_code=303)
+    if len(parola) < bkp.MIN_PASS:
+        return RedirectResponse("/admin/settings?msg=bad_bkp_pass", status_code=303)
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_backup_"))
+    dest = tmp / "backup.zip"
+    clinic = os.environ.get("CLINIC_CONFIG", "")
+    try:
+        n = bkp.write_encrypted(d, pathlib.Path(clinic) if clinic else None,
+                                parola, dest)
+    except OSError as ex:
+        logging.getLogger("settings").warning("backup export: %r", ex)
+        shutil.rmtree(tmp, ignore_errors=True)
+        return RedirectResponse("/admin/settings?msg=bad_bkp", status_code=303)
+    logging.getLogger("settings").warning("encrypted backup exported (%d files)", n)
+    return FileResponse(
+        dest, filename=bkp.archive_name(), media_type="application/zip",
+        background=BackgroundTask(shutil.rmtree, tmp, ignore_errors=True))
+
+
 @router.post("/admin/telegram/save", response_class=HTMLResponse)
 async def admin_telegram_save(request: Request, token: str = Form("")):
     if (deny := _guard(request)) is not None:
@@ -516,27 +571,14 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
     tok = token.strip()
     if tok and not re.fullmatch(r"\d{6,12}:[\w-]{30,120}", tok):
         return RedirectResponse("/admin/settings?msg=bad_tok", status_code=303)
-    p = pathlib.Path(env_file)
-    lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
-    out, done = [], False
-    for ln in lines:
-        # пустые не переносим: у уже раздутых файлов это лечит прошлые сохранения
-        if not ln.strip():
-            continue
-        if ln.strip().startswith("TELEGRAM_TOKEN="):
-            out.append(f"TELEGRAM_TOKEN={tok}")
-            done = True
-        else:
-            out.append(ln)
-    if not done:
-        out.append(f"TELEGRAM_TOKEN={tok}")
-    # \n, а НЕ \r\n: write_text открывает файл с newline=None и сам переводит \n
-    # в os.linesep. Явный \r\n давал \r\r\n — а splitlines() видит в этом два
-    # перевода строки, поэтому файл РОС ВДВОЕ на каждом сохранении (замерено:
-    # 2 строки -> 8 -> 16 -> 32). Прочие ключи при этом уцелевали, но файл,
-    # который клиника правит руками, становился нечитаемым.
-    p.write_text("\n".join(out) + "\n", encoding="utf-8")
+    # в файл — шифротекст (dpapi), в окружение — открытый токен: им дальше
+    # пользуются и бот, и статус на этой же странице. Если DPAPI недоступен
+    # (запуск из исходников не под Windows), пишем как раньше — иначе правка
+    # токена перестала бы работать у разработчика вовсе.
+    envfile.set_value(pathlib.Path(env_file), "TELEGRAM_TOKEN",
+                      (dpapi.protect(tok) or tok) if tok else "")
     os.environ["TELEGRAM_TOKEN"] = tok
+    os.environ.pop("DENTART_TOKEN_UNREADABLE", None)
     if upd.restart_app() is not None:
         # dev-режим/тест-хук: перезапуск не случился — просто баннер
         return RedirectResponse("/admin/settings?msg=ok_tok", status_code=303)

@@ -1,0 +1,227 @@
+"""PIN клиники: хранение, переезд старого файла и защита от подбора.
+
+Отдельный файл, потому что все прочие наборы входят по ADMIN_KEY — это ветка
+ОБЛАЧНОГО издания, и ветка PIN-файла ими не проверялась вовсе. А именно она
+несёт то, что клиника получает на свой компьютер: стойкость хеша и счётчик
+попыток. Поэтому сервер здесь поднимается с пустым ADMIN_KEY.
+"""
+import hashlib
+import json
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
+import time
+
+from harness import BOT, Client, Result, Server
+
+NO_KEY = {"ADMIN_KEY": ""}          # без него издание уходит веткой ADMIN_KEY
+
+
+def _v1_file(server: Server, pin: str) -> None:
+    """Положить auth.json СТАРОГО формата — так выглядят установленные клиники."""
+    salt = "0123456789abcdef"
+    (server.dir / "auth.json").write_text(json.dumps(
+        {"salt": salt,
+         "hash": hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()}),
+        encoding="utf-8")
+
+
+def _rec(server: Server) -> dict:
+    return json.loads((server.dir / "auth.json").read_text(encoding="utf-8"))
+
+
+def suite_store(res: Result) -> None:
+    """Что именно ложится на диск при первой установке PIN."""
+    with Server(env=NO_KEY) as s:
+        c = Client(s.url)
+        r = c.get("/admin")
+        res.ok("без PIN журнал ведёт на установку",
+               r.status == 303 and "/admin/setup" in r.location,
+               f"код {r.status}, location {r.location!r}")
+
+        c.post("/admin/setup", pin1="4321", pin2="4321")
+        rec = _rec(s)
+        u = (rec.get("users") or [{}])[0]
+        res.check("PIN пишется в формате v2", rec.get("v"), 2)
+        res.check("хеш считается pbkdf2", u.get("kdf"), "pbkdf2-sha256")
+        res.ok("итераций не меньше 600 000", int(u.get("iter", 0)) >= 600_000,
+               f"iter={u.get('iter')!r}")
+        res.ok("сам PIN в файл не попадает", "4321" not in json.dumps(rec),
+               "PIN виден в auth.json")
+        res.ok("подпись сессии отдельна от хеша PIN",
+               bool(rec.get("cookie_key")) and rec["cookie_key"] != u.get("hash"),
+               "подпись привязана к хешу — второго пользователя не добавить")
+        res.ok("список пользователей, а не один",
+               isinstance(rec.get("users"), list), "users не список")
+        res.ok("после установки журнал открыт", c.get("/admin").status == 200,
+               "не пустил сразу после установки PIN")
+
+
+def suite_migrate(res: Result) -> None:
+    """Клиника, обновившаяся с прошлой версии, входит своим прежним PIN."""
+    s = Server(env=NO_KEY)
+    _v1_file(s, "4321")
+    with s:
+        bad = Client(s.url)
+        bad.post("/admin/login", password="1111", next="/admin")
+        res.ok("неверный PIN не пускает", bad.get("/admin").status == 303,
+               "пустил по неверному PIN")
+        res.ok("неудачная попытка файл не трогает", "v" not in _rec(s),
+               "файл переписан при НЕверном PIN")
+
+        c = Client(s.url)
+        c.post("/admin/login", password="4321", next="/admin")
+        # ⚠️ главная проверка набора: переезд меняет ключ подписи, и если кука
+        # выдана до него — вход «удался» и тут же отваливается на первой странице
+        res.ok("прежний PIN пускает, и сессия переживает переезд",
+               c.get("/admin").status == 200,
+               "клиника с прошлой версии осталась за дверью")
+        res.check("файл переехал в v2", _rec(s).get("v"), 2)
+        res.check("и на pbkdf2", _rec(s)["users"][0].get("kdf"), "pbkdf2-sha256")
+        res.ok("старый одноитерационный хеш с диска убран",
+               "0123456789abcdef" not in json.dumps(_rec(s)),
+               "прежняя соль осталась в файле")
+
+
+def suite_throttle(res: Result) -> None:
+    """Перебор через форму. Стойкость хеша тут ни при чём — считает счётчик."""
+    s = Server(env=NO_KEY)
+    _v1_file(s, "4321")
+    with s:
+        c = Client(s.url)
+        t0 = time.time()
+        c.post("/admin/login", password="1111", next="/admin")
+        spent = time.time() - t0
+        res.ok("неудача стоит заметной паузы", spent >= 0.5,
+               f"ответ за {spent:.2f} с — скрипт переберёт 10 000 вариантов")
+
+        for _ in range(4):                    # 5 подряд — первая ступень лестницы
+            c.post("/admin/login", password="1111", next="/admin")
+        r = c.post("/admin/login", password="4321", next="/admin")
+        res.ok("после серии неудач не пускает даже ВЕРНЫЙ PIN",
+               "err=lock" in r.location, f"location {r.location!r}")
+        res.ok("и журнал остаётся закрыт", c.get("/admin").status == 303,
+               "пустил в журнал во время блокировки")
+        res.ok("счётчик переживает перезагрузку страницы входа",
+               "err=lock" in Client(s.url).post(
+                   "/admin/login", password="4321", next="/admin").location,
+               "новая сессия обходит блокировку")
+        res.ok("экран объясняет блокировку, а не врёт про неверный PIN",
+               "încercări" in c.get("/admin/login?err=lock&s=30").body,
+               "нет текста о превышении попыток")
+
+
+def suite_change(res: Result) -> None:
+    with Server(env=NO_KEY) as s:
+        c = Client(s.url)
+        c.post("/admin/setup", pin1="4321", pin2="4321")
+        key_before = _rec(s)["cookie_key"]
+
+        r = c.post("/admin/pin/change", old_pin="9999", new1="5678", new2="5678")
+        res.check("смена по неверному старому PIN отбита", r.msg, "bad_pin")
+        r = c.post("/admin/pin/change", old_pin="4321", new1="5678", new2="5678")
+        res.check("смена по верному PIN принята", r.msg, "ok_pin")
+        res.ok("подпись сессии обновлена",
+               _rec(s)["cookie_key"] != key_before,
+               "чужие открытые вкладки пережили смену PIN")
+
+        old = Client(s.url)
+        old.post("/admin/login", password="4321", next="/admin")
+        res.ok("старый PIN больше не пускает", old.get("/admin").status == 303,
+               "старый PIN всё ещё работает")
+        new = Client(s.url)
+        new.post("/admin/login", password="5678", next="/admin")
+        res.ok("новый PIN пускает", new.get("/admin").status == 200,
+               "не пустил по новому PIN")
+
+        # Блокировка на форме смены обязана говорить о блокировке. «PIN-ul vechi
+        # e greșit» здесь — вранья того же рода, что и погашенный бот: человек
+        # начинает перебирать заведомо ВЕРНЫЙ PIN и множит неудачи.
+        burn = Client(s.url)
+        for _ in range(5):
+            burn.post("/admin/login", password="1111", next="/admin")
+        r = new.post("/admin/pin/change", old_pin="5678", new1="4321", new2="4321")
+        res.check("во время блокировки форма смены не врёт про старый PIN",
+                  r.msg, "lock_pin")
+
+
+def suite_secret(res: Result) -> None:
+    """Шифрование токена бота. Сервер тут не нужен — важен сам модуль, и
+    прежде всего то, что он отличает «не расшифровалось» от «пусто»."""
+    sys.path.insert(0, str(BOT))
+    from app import dpapi
+
+    if not dpapi.available():
+        res.ok("DPAPI доступен", False, "не Windows — проверки неприменимы")
+        return
+    tok = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
+    enc = dpapi.protect(tok)
+    res.ok("шифротекст помечен префиксом", (enc or "").startswith(dpapi.PREFIX),
+           f"получено {enc!r}")
+    res.ok("токен в шифротексте не читается", tok not in (enc or ""),
+           "токен виден как есть")
+    res.check("расшифровка возвращает исходный токен", dpapi.unprotect(enc), tok)
+    res.check("открытый токен прежней установки читается как есть",
+              dpapi.unprotect(tok), tok)
+    res.check("пусто остаётся пустым", dpapi.unprotect(""), "")
+    res.ok("шифротекст с чужой машины даёт None, а не пустую строку",
+           dpapi.unprotect(dpapi.PREFIX + "bm90LW1pbmU=") is None,
+           "«чужая машина» неотличима от «токена нет» — клиника пойдёт "
+           "чинить настройки бота, которые в порядке")
+
+
+def suite_env_token(res: Result) -> None:
+    """Жизнь токена в dental.env: то, что исполняется при КАЖДОМ старте у
+    клиники. Проверяется именно функция из dpapi, а не её пересказ: код в теле
+    desktop.py вызвать из теста нельзя, и раньше эта часть не проверялась никак.
+    """
+    sys.path.insert(0, str(BOT))
+    from app import dpapi
+
+    if not dpapi.available():
+        res.ok("DPAPI доступен", False, "не Windows — проверки неприменимы")
+        return
+
+    tok = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
+    keep = {k: os.environ.get(k)
+            for k in (dpapi.TOKEN_KEY, dpapi.UNREADABLE_FLAG)}
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_env_"))
+    env_path = tmp / "dental.env"
+    try:
+        # так выглядит уже установленная клиника: токен вписан открытым
+        env_path.write_text(f"# Token botului Telegram:\nTELEGRAM_TOKEN={tok}\n",
+                            encoding="utf-8")
+        os.environ[dpapi.TOKEN_KEY] = tok
+        dpapi.unlock_env_token(env_path)
+        on_disk = env_path.read_text(encoding="utf-8")
+        res.check("бот получает открытый токен", os.environ[dpapi.TOKEN_KEY], tok)
+        res.ok("на диске токен больше не читается", tok not in on_disk,
+               "открытый токен остался в файле")
+        res.ok("комментарии клиники в файле уцелели", "@BotFather" in on_disk
+               or on_disk.startswith("#"), "файл переписан без комментариев")
+
+        # следующий старт: в окружение попадает уже шифротекст из файла
+        os.environ[dpapi.TOKEN_KEY] = dict(
+            ln.split("=", 1) for ln in on_disk.splitlines()
+            if "=" in ln and not ln.startswith("#"))["TELEGRAM_TOKEN"]
+        dpapi.unlock_env_token(env_path)
+        res.check("повторный старт снова отдаёт открытый токен",
+                  os.environ[dpapi.TOKEN_KEY], tok)
+        res.ok("флаг нечитаемости не выставлен",
+               dpapi.UNREADABLE_FLAG not in os.environ, "ложная тревога")
+
+        # переустановка Windows / другой компьютер
+        os.environ[dpapi.TOKEN_KEY] = dpapi.PREFIX + "bm90LW1pbmU="
+        dpapi.unlock_env_token(env_path)
+        res.check("чужой шифротекст гасит бота", os.environ[dpapi.TOKEN_KEY], "")
+        res.check("и поднимает флаг, чтобы интерфейс объяснил причину",
+                  os.environ.get(dpapi.UNREADABLE_FLAG), "1")
+    finally:
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(tmp, ignore_errors=True)

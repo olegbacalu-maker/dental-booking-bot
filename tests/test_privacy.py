@@ -1,0 +1,355 @@
+"""Права пациента на свои данные — то, что спрашивает закон 195/2024.
+
+Проверяется не «страница открылась», а ПОЛНОТА и безопасность выдачи. Копия с
+отрезанным хвостом выглядит рабочей и молча нарушает право на доступ, поэтому
+пациенту здесь заводится по записи каждого вида, и каждая ищется в архиве.
+"""
+import io
+import json
+import sys
+import zipfile
+from datetime import date, timedelta
+
+from harness import BOT, Client, Result, Server
+
+
+def _d(offset: int) -> str:
+    return (date.today() + timedelta(days=offset)).isoformat()
+
+
+def _pid(c: Client, phone: str) -> str:
+    return c.get(f"/admin/search?q={phone}").body.split(
+        "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+
+
+def _seed(c: Client) -> str:
+    """Пациент со ВСЕМИ видами данных: визит, профиль, зуб, план, алерт, файл."""
+    c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
+           aservice="consult", aname="Export Test", aphone="022778899",
+           back="/admin/all")
+    pid = _pid(c, "022778899")
+    c.post(f"/admin/patient/{pid}/save", name="Export Test", phone="022778899",
+           email="ex@example.com", idnp="2000000000000",
+           address="str. Testului 1")
+    c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie",
+           note="carie distală", doctor="d2")
+    c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11", tooth="11",
+           price="1200")
+    c.post(f"/admin/patient/{pid}/alert", kind="allergy",
+           text="Alergie la penicilină")
+    c.post_file(f"/admin/patient/{pid}/doc", "file", "radiografie.png",
+                b"\x89PNG\r\n\x1a\n" + b"x" * 64, category="radiografie")
+    return pid
+
+
+def suite_export(res: Result) -> None:
+    with Server() as s:
+        c = Client(s.url).login()
+        pid = _seed(c)
+
+        anon = Client(s.url)
+        res.ok("без входа копия данных не отдаётся",
+               anon.get(f"/admin/patient/{pid}/export").status == 303,
+               "персональные данные ушли без входа в журнал")
+
+        r = c.get(f"/admin/patient/{pid}/export")
+        res.check("выгрузка отдаётся", r.status, 200)
+        res.ok("отдаётся именно архивом", r.raw[:2] == b"PK",
+               f"первые байты {r.raw[:8]!r}")
+        res.ok("имя файла узнаваемо",
+               "Export_Test" in r.header("Content-Disposition"),
+               f"disposition {r.header('Content-Disposition')!r}")
+
+        z = zipfile.ZipFile(io.BytesIO(r.raw))
+        names = z.namelist()
+        for want in ("CITESTE-MA.txt", "date-pacient.json", "fisa-pacient.html"):
+            res.ok(f"в архиве есть {want}", want in names, f"состав: {names}")
+
+        raw_json = z.read("date-pacient.json").decode("utf-8")
+        data = json.loads(raw_json)
+        res.check("профиль в выгрузке", data["pacient"]["name"], "Export Test")
+        res.check("IDNP в выгрузке", data["pacient"]["idnp"], "2000000000000")
+        res.check("визит в выгрузке", len(data["programari"]), 1)
+        res.check("предупреждение в выгрузке", len(data["atentionari"]), 1)
+        res.check("зуб в выгрузке", len(data["dinti"]), 1)
+        res.check("план лечения в выгрузке", len(data["plan_tratament"]), 1)
+        res.check("документ в выгрузке", len(data["documente"]), 1)
+        res.ok("история фиши не пуста", len(data["istoric"]) > 0, "летопись пуста")
+
+        res.ok("раскладка диска клиники наружу НЕ уходит",
+               "stored_path" not in raw_json,
+               "в копию попал путь к файлу на компьютере клиники")
+
+        docs = [n for n in names if n.startswith("documente/")]
+        res.check("файл документа лежит в архиве", len(docs), 1)
+        res.ok("содержимое файла настоящее",
+               z.read(docs[0]).startswith(b"\x89PNG"), "файл пуст или подменён")
+        res.check("JSON ссылается на то имя, под которым файл реально лежит",
+                  data["documente"][0]["fisier_in_arhiva"], docs[0])
+
+        page = z.read("fisa-pacient.html").decode("utf-8")
+        res.ok("читаемая копия называет оператора данных", "Operator" in page,
+               "в HTML не сказано, кто оператор")
+        res.ok("читаемая копия содержит сами данные",
+               "Export Test" in page and "penicilină" in page,
+               "в HTML нет данных пациента")
+        # ⚠️ в базе время в UTC. Без перевода в пояс клиники визит на 09:00
+        # печатается как 06:00 — дата верна, формат верен, час чужой, и понять
+        # это по виду документа нельзя
+        want = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y") + " 09:00"
+        res.ok("время визита в местном поясе клиники, а не в UTC", want in page,
+               f"нет строки {want!r} — пациенту показали чужой час")
+
+        res.ok("выдача копии записана в летопись фиши",
+               "Copie a datelor personale" in c.get(f"/admin/patient/{pid}").body,
+               "выдача копии не попала в историю — на проверке спросят именно её")
+        res.ok("несуществующий пациент не роняет журнал",
+               c.get("/admin/patient/999999/export").status == 303,
+               "должно вести на список, а не отдавать пустой архив")
+
+
+def suite_export_full(res: Result) -> None:
+    """Полнота: копия не должна обрезаться на пределе выборки.
+
+    У карточки предел есть и уместен — боковому предпросмотру хватает двадцати
+    визитов. У выгрузки его быть не может, и это единственная проверка, которая
+    отличит одно от другого: обрезанный архив выглядит совершенно рабочим.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
+               aservice="consult", aname="Multi Vizite", aphone="022445566",
+               back="/admin/all")
+        pid = _pid(c, "022445566")
+        added = 1
+        for i in range(2, 32):
+            # день может оказаться выходным — считаем ПРИНЯТЫЕ, а не посланные,
+            # иначе проверка зависит от того, на какой день недели её запустили
+            if c.post("/admin/add", adate=_d(i), atime="09:00", adoctor="d2",
+                      aservice="consult", aname="Multi Vizite",
+                      aphone="022445566", back="/admin/all").msg in ("ok", "ok_past"):
+                added += 1
+        res.ok("для проверки набралось больше 20 визитов", added > 20,
+               f"принято только {added} — проверка ничего не докажет")
+
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        data = json.loads(z.read("date-pacient.json"))
+        res.check("в выгрузке ВСЕ визиты, а не первые 20",
+                  len(data["programari"]), added)
+
+
+def suite_erase(res: Result) -> None:
+    """Право на стирание: ветку выбирает состояние фиши, не рецепция."""
+    with Server() as s:
+        c = Client(s.url).login()
+
+        # --- ветка 1: контакт без лечения -> физическое удаление ---
+        c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
+               aservice="consult", aname="Doar Contact", aphone="022111222",
+               back="/admin/all")
+        pid = _pid(c, "022111222")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("фиша без лечения предлагает полное удаление",
+               "ștearsă definitiv" in page, "не та ветка в фише")
+
+        r = c.post(f"/admin/patient/{pid}/erase", confirm="greșit")
+        res.check("без слова подтверждения — отказ", r.msg, "bad_erase")
+        res.ok("пациент на месте после отказа",
+               c.get(f"/admin/patient/{pid}").status == 200, "удалён без подтверждения")
+
+        r = c.post(f"/admin/patient/{pid}/erase", confirm="STERG")
+        res.check("с подтверждением — удалён", r.msg, "ok_del")
+        res.ok("фиша больше не открывается",
+               c.get(f"/admin/patient/{pid}").status == 303, "фиша осталась")
+        # искать по ссылке на фишу, не по имени: имя эхом возвращается в поле
+        # поиска, и проверка по нему ловила бы собственный запрос
+        res.ok("из поиска пациент исчез",
+               f"/admin/patient/{pid}" not in
+               c.get("/admin/search?q=Doar+Contact").body,
+               "остался в поиске")
+        res.ok("вместе с пациентом ушёл и его визит из журнала",
+               "Doar Contact" not in c.get(f"/admin/all?date={_d(1)}").body,
+               "визит-сирота остался в журнале дня")
+
+        # --- ветка 2: пациент с лечением -> обезличивание ---
+        pid2 = _seed(c)   # визит + профиль с IDNP + зуб + план + алерт + файл
+        page = c.get(f"/admin/patient/{pid2}").body
+        res.ok("фиша с лечением предлагает только обезличивание",
+               "datele de identitate" in page, "не та ветка в фише")
+
+        r = c.post(f"/admin/patient/{pid2}/erase", confirm="sterg")
+        res.check("подтверждение принимается и строчными", r.msg, "ok_anon")
+        page = c.get(f"/admin/patient/{pid2}").body
+        res.ok("личность стёрта со страницы",
+               "Export Test" not in page and "2000000000000" not in page
+               and "022778899" not in page,
+               "имя, IDNP или телефон видны после обезличивания")
+        res.ok("фиша живёт под обезличенным именем",
+               f"Pacient anonimizat #{pid2}" in page, "нет обезличенного имени")
+        res.ok("клиника осталась: план лечения на месте", "Plombă 11" in page,
+               "медзаписи пропали вместе с личностью")
+        res.ok("алерт остался (медицинское)", "penicilină" in page,
+               "алерт стёрт")
+
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid2}/export").raw))
+        data = json.loads(z.read("date-pacient.json"))
+        res.check("в выгрузке после стирания нет телефона",
+                  data["pacient"]["phone"], None)
+        res.check("нет IDNP", data["pacient"]["idnp"], None)
+        res.check("ключ канала обезличен", data["pacient"]["session_key"],
+                  f"anon:{pid2}")
+        res.ok("событие стирания записано",
+               any(e["kind"] == "erase" for e in data["istoric"]),
+               "стирание не оставило следа в летописи")
+
+        # обезличенный скрыт из списков, как архивный
+        res.ok("обезличенный не показывается в живом списке",
+               f"Pacient anonimizat #{pid2}" not in c.get("/admin/search").body,
+               "обезличенный висит в списке")
+
+
+def suite_access_log(res: Result) -> None:
+    """Журнал доступа: просмотры пишутся, но ленту фиши не засоряют."""
+    with Server() as s:
+        c = Client(s.url).login()
+        pid = _seed(c)
+        c.get(f"/admin/patient/{pid}")            # ещё один просмотр
+
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("лента фиши БЕЗ строк «Fișa deschisă»",
+               "Fișa deschisă" not in page,
+               "просмотры засоряют ленту — рецепция откроет карту 30 раз в день")
+
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        data = json.loads(z.read("date-pacient.json"))
+        views = [e for e in data["istoric"] if e["kind"] == "view"]
+        res.ok("а в выгрузке просмотры ЕСТЬ", len(views) >= 2,
+               f"просмотров в копии {len(views)} — журнал доступа не пишется")
+
+        # просмотр документа — отдельное событие
+        docs = [n for n in zipfile.ZipFile(io.BytesIO(
+            c.get(f"/admin/patient/{pid}/export").raw)).namelist()]
+        doc_id = data["documente"][0]["id"]
+        c.get(f"/admin/doc/{doc_id}")
+        z2 = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        data2 = json.loads(z2.read("date-pacient.json"))
+        res.ok("открытие документа записано",
+               any(e["kind"] == "doc_view" for e in data2["istoric"]),
+               "скачивание снимка не оставило следа")
+
+
+def suite_bot_notice(res: Result) -> None:
+    """Уведомление об обработке — в момент, когда бот впервые просит имя."""
+    from harness import Bot
+    with Server() as s:
+        c = Client(s.url)
+        bot = Bot(c, "privacy-notice-test")
+        bot.say("start")
+        _, buttons = bot.say("📅 Programare")
+        texts, buttons = bot.say(buttons[0])          # услуга -> врач/день
+        # доходим до вопроса об имени: жмём первую кнопку, пока он не появится
+        for _ in range(6):
+            if "numiți" in texts:
+                break
+            if not buttons:
+                break
+            texts, buttons = bot.say(buttons[0])
+        res.ok("бот дошёл до вопроса об имени", "numiți" in texts,
+               f"диалог застрял: {texts[:120]!r}")
+        res.ok("в вопросе есть уведомление об обработке",
+               "prelucrate" in texts and "🔒" in texts,
+               "нет уведомления в момент сбора данных")
+        res.ok("уведомление называет клинику по имени",
+               "Clinica Test" in texts, "вместо клиники — {CLINIC} или пусто")
+
+
+def suite_backup(res: Result) -> None:
+    """Зашифрованный бэкап клиники: полнота и круг «закрыл-открыл».
+
+    Проверяется тем же pyzipper, которым архив создан, — но проверка «неверный
+    пароль НЕ открывает» от этого не слабеет: она о формате, не о библиотеке.
+    """
+    sys.path.insert(0, str(BOT))
+    try:
+        import pyzipper
+    except ImportError:
+        res.ok("pyzipper установлен в .venv-desktop", False,
+               "нет pyzipper — зашифрованный бэкап мёртв и в сборке")
+        return
+
+    with Server() as s:
+        c = Client(s.url).login()
+        pid = _seed(c)                     # чтобы в базе и файлах что-то было
+
+        r = c.post("/admin/backup/export", parola="scurt")
+        res.check("короткий пароль отбит", r.msg, "bad_bkp_pass")
+
+        anon = Client(s.url)
+        res.ok("без входа бэкап не отдаётся",
+               anon.post("/admin/backup/export",
+                         parola="parola-foarte-buna").status == 303,
+               "вся база клиники ушла без входа")
+
+        r = c.post("/admin/backup/export", parola="parola-foarte-buna")
+        res.check("бэкап отдаётся", r.status, 200)
+        res.ok("это zip", r.raw[:2] == b"PK", f"байты {r.raw[:4]!r}")
+
+        z = pyzipper.AESZipFile(io.BytesIO(r.raw))
+        z.setpassword(b"parola-foarte-buna")
+        names = z.namelist()
+        for want in ("CITESTE-MA.txt", "data/dental.db", "clinic.json"):
+            res.ok(f"в бэкапе есть {want}", want in names, f"состав: {names}")
+        res.ok("файлы пациентов в бэкапе",
+               any(n.startswith("data/files/") for n in names),
+               f"нет data/files/: {names}")
+
+        head = z.read("data/dental.db")[:16]
+        res.ok("база читается верным паролем и это SQLite",
+               head.startswith(b"SQLite format 3"), f"заголовок {head!r}")
+
+        z2 = pyzipper.AESZipFile(io.BytesIO(r.raw))
+        z2.setpassword(b"parola-gresita!!")
+        try:
+            z2.read("data/dental.db")
+            opened = True
+        except RuntimeError:
+            opened = False
+        res.ok("неверный пароль НЕ открывает", not opened,
+               "архив читается любым паролем — шифрования нет")
+
+        plain = zipfile.ZipFile(io.BytesIO(r.raw))
+        try:
+            plain.read("data/dental.db")
+            opened = True
+        except RuntimeError:
+            opened = False
+        res.ok("и без пароля стандартный zipfile тоже не читает", not opened,
+               "содержимое доступно без пароля")
+
+
+def suite_export_names(res: Result) -> None:
+    """Имена файлов внутри архива. Имя пришло от пользователя при загрузке,
+    значит распаковщик, честно повторяющий путь, может писать мимо папки."""
+    sys.path.insert(0, str(BOT))
+    from app.modules.patients import export
+
+    used: set[str] = set()
+    cases = [
+        ("../../../evil.txt", "выход вверх по дереву"),
+        ("..\\..\\evil.txt", "то же через обратный слэш (Linux-издание)"),
+        ("/etc/passwd", "абсолютный путь"),
+        ("..", "только точки"),
+        ("", "пустое имя"),
+        ("C:\\Windows\\System32\\x.dll", "путь с буквой диска"),
+    ]
+    for name, why in cases:
+        got = export._safe_name(name, used)
+        res.ok(f"обезврежено: {why}",
+               "/" not in got and "\\" not in got and ".." not in got and got,
+               f"{name!r} -> {got!r}")
+
+    dup: set[str] = set()
+    a = export._safe_name("radiografie.png", dup)
+    b = export._safe_name("radiografie.png", dup)
+    res.ok("одинаковые имена разводятся, а не затирают друг друга", a != b,
+           f"оба файла легли как {a!r}")

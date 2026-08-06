@@ -1,0 +1,109 @@
+"""Зашифрованная копия ВСЕЙ клиники — то, что уезжает с компьютера.
+
+Зачем шифровать именно здесь, а не `data/backups/`: автокопии при старте лежат
+рядом с открытой живой базой, шифровать их — театр. Осмысленна защита того,
+что ПОКИДАЕТ машину: флешка в ящике регистратуры, архив в почте. Для этого
+архив закрыт AES-256 в формате обычного ZIP: клиника откроет его 7-Zip'ом на
+любом компьютере, БЕЗ DentPilot и без нас. Это условие честного бэкапа для
+продукта соло-вендора: копия, которую может открыть только программа, которая
+может не запуститься, — не копия, а обязательство.
+
+Пароль вводится при каждом экспорте и НИГДЕ не хранится. Хранить его — значит
+привязать копию к этой машине (DPAPI) и потерять весь смысл выездного архива.
+Забытый пароль убивает один архив, живая база остаётся читаемой — этим экспорт
+безопаснее шифрования самой базы, где забытый ключ = потерянная картотека.
+
+⚠️ pyzipper есть только в настольном издании (requirements-desktop). Облако
+живёт без него, поэтому импорт ленивый, а `available()` — часть договора.
+"""
+from __future__ import annotations
+
+import pathlib
+import sqlite3
+from datetime import datetime
+
+MIN_PASS = 10   # 4–6 цифр PIN здесь не годятся: архив уезжает с машины,
+                # то есть попадает ровно туда, где офлайн-перебор возможен
+
+
+def available() -> bool:
+    try:
+        import pyzipper  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _db_snapshot(src: pathlib.Path, dst: pathlib.Path) -> None:
+    """Копия базы через backup API, а не copyfile: у живой базы WAL, и копия
+    файла на ходу может поймать середину транзакции. Тот же приём, что в
+    автобэкапе desktop.py."""
+    a = sqlite3.connect(str(src))
+    b = sqlite3.connect(str(dst))
+    try:
+        with b:
+            a.backup(b)
+    finally:
+        a.close()
+        b.close()
+
+
+def write_encrypted(data_dir: pathlib.Path, clinic_json: pathlib.Path | None,
+                    password: str, dest: pathlib.Path) -> int:
+    """Собрать зашифрованный архив клиники. Возвращает число файлов внутри.
+
+    Внутрь идёт всё, из чего клиника восстанавливается НА ЛЮБОЙ машине:
+    база, профиль клиники, документы пациентов. Не идут: dental.env (токен там
+    зашифрован DPAPI этой машины — на другой он мусор, а класть его открытым
+    значило бы ронять секрет в архив), логи и автокопии (это уже копии).
+    """
+    import pyzipper
+
+    files: list[tuple[pathlib.Path, str]] = []
+    snap = dest.with_suffix(".db_snapshot")
+    db_file = data_dir / "dental.db"
+    if db_file.exists():
+        _db_snapshot(db_file, snap)
+        files.append((snap, "data/dental.db"))
+    if clinic_json and clinic_json.exists():
+        files.append((clinic_json, "clinic.json"))
+    auth = data_dir / "auth.json"
+    if auth.exists():                     # хеши PIN, не сам PIN — можно
+        files.append((auth, "data/auth.json"))
+    fdir = data_dir / "files"
+    if fdir.is_dir():
+        for f in sorted(fdir.rglob("*")):
+            if f.is_file() and not f.name.endswith(".thumb.jpg"):
+                files.append((f, f"data/files/{f.relative_to(fdir).as_posix()}"))
+
+    try:
+        with pyzipper.AESZipFile(dest, "w", compression=pyzipper.ZIP_DEFLATED,
+                                 encryption=pyzipper.WZ_AES) as z:
+            z.setpassword(password.encode("utf-8"))
+            z.writestr("CITESTE-MA.txt", _readme())
+            for src, arc in files:
+                z.write(src, arc)
+    finally:
+        snap.unlink(missing_ok=True)
+    return len(files)
+
+
+def _readme() -> str:
+    return (
+        "COPIE DE REZERVA DENTPILOT (criptata AES-256)\r\n"
+        "=============================================\r\n\r\n"
+        "Deschidere: 7-Zip / WinRAR + parola stabilita la export.\r\n"
+        "Parola NU este salvata nicaieri - fara ea arhiva nu poate fi citita.\r\n\r\n"
+        "Restaurare pe un calculator nou:\r\n"
+        "  1. Instalati DentPilot si porniti-l o data (se creeaza folderul).\r\n"
+        "  2. Inchideti programul.\r\n"
+        "  3. Dezarhivati continutul PESTE folderul programului\r\n"
+        "     (clinic.json langa DentPilot.exe, folderul data\\ peste data\\).\r\n"
+        "  4. Porniti programul - pacientii, programarile si documentele sunt la loc.\r\n"
+        "  5. Reintroduceti tokenul botului Telegram in Setari (tokenul nu se\r\n"
+        "     copiaza intre calculatoare, din motive de securitate).\r\n\r\n"
+        "Arhiva contine date despre sanatate. Pastrati-o intr-un loc sigur.\r\n")
+
+
+def archive_name() -> str:
+    return f"dentpilot-backup-{datetime.now().strftime('%Y%m%d_%H%M')}.zip"

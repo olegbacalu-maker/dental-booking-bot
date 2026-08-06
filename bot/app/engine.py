@@ -119,7 +119,12 @@ T_BASE = {
         "choose_day": "Alegeți ziua:",
         "choose_time": "Ore libere pe {day}:",
         "day_full": "În această zi nu mai sunt locuri. Alegeți altă zi:",
-        "ask_name": "Cum vă numiți? (nume și prenume)",
+        # 🔒 закон 195: уведомление стоит РОВНО в момент, когда бот впервые
+        # просит персональные данные, — не в приветствии (его пролистывают) и
+        # не отдельным экраном (лишний шаг убивает конверсию записи)
+        "ask_name": "Cum vă numiți? (nume și prenume)\n\n"
+                    "🔒 Datele (nume, telefon) sunt prelucrate de {CLINIC} doar "
+                    "pentru programare. Le puteți șterge oricând — la recepție.",
         "ask_year": "Anul nașterii? (ex.: 1985)",
         "bad_year": "Introduceți un an valid, ex. 1985 — sau apăsați «Omite»:",
         "btn_skip": "⏭ Omite",
@@ -163,7 +168,9 @@ T_BASE = {
         "choose_day": "Выберите день:",
         "choose_time": "Свободное время на {day}:",
         "day_full": "На этот день мест нет. Выберите другой день:",
-        "ask_name": "Как вас зовут? (имя и фамилия)",
+        "ask_name": "Как вас зовут? (имя и фамилия)\n\n"
+                    "🔒 Данные (имя, телефон) обрабатывает {CLINIC} только для "
+                    "записи. Их можно удалить в любой момент — на рецепции.",
         "ask_year": "Год рождения? (напр.: 1985)",
         "bad_year": "Введите корректный год, напр. 1985 — или нажмите «Пропустить»:",
         "btn_skip": "⏭ Пропустить",

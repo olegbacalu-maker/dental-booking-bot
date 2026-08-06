@@ -23,8 +23,9 @@ from . import db
 from . import engine as eng
 from . import paths
 from . import update as upd
-from .core.auth import (ADMIN_KEY, _guard, _pin_hash, _pin_rec, _secret,
-                        _set_auth_cookie, _setup_allowed, _write_pin)
+from .core.auth import (ADMIN_KEY, FAIL_DELAY, _guard, _pin_rec, _secret,
+                        _set_auth_cookie, _setup_allowed, _write_pin,
+                        lock_left, note_fail, note_ok, verify_pin)
 from .core.layout import LOGIN_TMPL, SETUP_TMPL, STATIC, _asset
 from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
@@ -232,12 +233,22 @@ async def chat(payload: dict):
 # ---------- домашняя страница журнала: сводка + карточки врачей ----------
 
 @app.get("/admin/login", response_class=HTMLResponse)
-async def admin_login_page(next: str = "/admin", err: str = ""):
+async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
     if not _secret():
         return RedirectResponse("/admin", status_code=303)
     pin_mode = _pin_rec() is not None
-    err_html = ("<div class='err'>PIN greșit</div>" if pin_mode
-                else "<div class='err'>Parolă greșită</div>") if err else ""
+    if err == "lock":
+        # `s` — срок из редиректа сразу после неудачи; lock_left() свежее, но
+        # к моменту перезагрузки страницы уже мог утечь до нуля
+        left = lock_left() or (int(s) if s.isdigit() else 0)
+        wait = f"{left} sec." if left < 60 else f"{(left + 59) // 60} min."
+        err_html = ("<div class='err'>Prea multe încercări greșite. "
+                    f"Încercați peste {wait}</div>")
+    elif err:
+        err_html = ("<div class='err'>PIN greșit</div>" if pin_mode
+                    else "<div class='err'>Parolă greșită</div>")
+    else:
+        err_html = ""
     nxt = next if next.startswith("/admin") else "/admin"
     return (LOGIN_TMPL.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
             .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
@@ -248,16 +259,25 @@ async def admin_login_page(next: str = "/admin", err: str = ""):
 @app.post("/admin/login")
 async def admin_login(password: str = Form(...), next_url: str = Form("/admin", alias="next")):
     target = next_url if next_url.startswith("/admin") else "/admin"
+    nxt = urllib.parse.quote(target, safe="")
+    if (left := lock_left()) > 0:
+        return RedirectResponse(
+            f"/admin/login?err=lock&s={left}&next={nxt}", status_code=303)
     pw = password.strip()
-    rec = _pin_rec()
-    if rec:
-        ok = hmac.compare_digest(_pin_hash(pw, rec.get("salt", "")), rec.get("hash", ""))
+    if _pin_rec():
+        ok = verify_pin(pw) is not None
     else:
         ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
     if ok:
+        note_ok()
+        # кука ставится ПОСЛЕ verify_pin: миграция v1→v2 меняет ключ подписи
         return _set_auth_cookie(RedirectResponse(target, status_code=303))
-    return RedirectResponse(
-        f"/admin/login?err=1&next={urllib.parse.quote(target, safe='')}", status_code=303)
+    lock = note_fail()
+    # asyncio.sleep, а не time.sleep: у настольного издания один процесс на всю
+    # клинику, и блокирующая пауза заморозила бы журнал остальным
+    await asyncio.sleep(FAIL_DELAY)
+    q = f"err=lock&s={lock}" if lock else "err=1"
+    return RedirectResponse(f"/admin/login?{q}&next={nxt}", status_code=303)
 
 
 
@@ -291,16 +311,23 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
                            new1: str = Form(...), new2: str = Form(...)):
     if (deny := _guard(request)) is not None:
         return deny
-    rec = _pin_rec()
-    if not rec:
+    if not _pin_rec():
         return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
-    if not hmac.compare_digest(_pin_hash(old_pin.strip(), rec.get("salt", "")),
-                               rec.get("hash", "")):
+    # своё сообщение, а не bad_pin: «старый PIN неверен» при блокировке — ровно
+    # тот случай, когда экран врёт, и человек начинает перебирать верный PIN
+    if lock_left() > 0:
+        return RedirectResponse("/admin/settings?msg=lock_pin", status_code=303)
+    # форма смены — второй оракул для того же PIN, поэтому считает те же неудачи
+    if (who := verify_pin(old_pin.strip())) is None:
+        note_fail()
+        await asyncio.sleep(FAIL_DELAY)
         return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
+    note_ok()
     n1, n2 = new1.strip(), new2.strip()
     if n1 != n2 or not n1.isdigit() or not (4 <= len(n1) <= 6):
         return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
-    _write_pin(n1)
+    # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
+    _write_pin(n1, role=who.get("role", "director"), uid=who.get("id", "clinic"))
     return _set_auth_cookie(RedirectResponse("/admin/settings?msg=ok_pin", status_code=303))
 
 
