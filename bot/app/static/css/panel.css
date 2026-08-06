@@ -84,6 +84,21 @@
  .top .newbtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
    transform:translateY(-1px)}
  .top .newbtn:active{transform:translateY(0)}
+ /* кто за журналом — правый верхний угол (08-06, вместе с учётками) */
+ .who{display:flex;align-items:center;gap:9px;padding:5px 6px 5px 5px;margin-left:4px;
+   border-left:1px solid var(--line)}
+ .who-av{width:34px;height:34px;flex:0 0 34px;border-radius:50%;display:flex;
+   align-items:center;justify-content:center;color:#fff;font-size:12.5px;
+   font-weight:600;background:linear-gradient(135deg,var(--teal),var(--teal-d))}
+ .who-n{min-width:0;line-height:1.2}
+ .who-n b{display:block;font-size:13px;font-weight:600;white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis;max-width:130px}
+ .who-n small{display:block;font-size:11px;color:var(--text3)}
+ .who-out{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;
+   justify-content:center;color:var(--text3);text-decoration:none;font-size:14px;
+   transition:background-color .2s ease,color .2s ease}
+ .who-out:hover{background:var(--red-soft);color:var(--red-t)}
+ @media (max-width:1100px){.who-n{display:none}}
  .content{padding:24px 24px 60px;max-width:1500px}
  /* ---------- общие элементы ---------- */
  h1{font-size:32px;margin:0 0 4px;font-weight:600;letter-spacing:-.03em;line-height:1.2}
@@ -886,6 +901,72 @@
  .ag-all{display:block;margin-top:8px;font-size:12px;font-weight:600;
    color:var(--teal-d);text-decoration:none}
  .ag-all:hover{text-decoration:underline}
+ /* ---------- аналитика (макет Олега 08-06) ----------
+    Сетка 2:1 как у панели дня; на 1366×768 колонки складываются. Все фигуры —
+    инлайновый SVG из core/charts.py: программа работает без интернета, и
+    графиковая библиотека уехала бы целиком внутрь exe. */
+ .an-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);
+   gap:16px;margin-bottom:16px;align-items:start}
+ .an-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+   gap:16px;margin-bottom:8px}
+ .an-main,.an-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+ @media (max-width:1280px){.an-grid{grid-template-columns:minmax(0,1fr)}}
+ /* большой график */
+ .linechart{display:block}
+ .lc-grid line{stroke:var(--line2);stroke-width:1}
+ .lc-ax text{font-size:10px;fill:var(--text3)}
+ .lc-a{opacity:.10}
+ .lc-l{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+ .lc-d circle{stroke:var(--panel);stroke-width:2}
+ .ld-v{font-size:10.5px;font-weight:600;fill:var(--text2)}
+ .an-foot{display:flex;gap:22px;flex-wrap:wrap;border-top:1px solid var(--line2);
+   margin-top:12px;padding-top:12px}
+ .an-foot>div{flex:1;min-width:130px}
+ .an-foot span{display:block;font-size:12px;color:var(--text2)}
+ .an-foot b{display:block;font-size:20px;font-weight:600;margin:2px 0}
+ .an-foot small{color:var(--text3);font-size:11.5px}
+ .an-foot .statbar{margin-top:6px}
+ /* кольцо источников */
+ .an-donut{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+ .dn-v{font-size:22px;font-weight:600;fill:var(--text)}
+ .dn-l{font-size:10.5px;fill:var(--text3)}
+ .an-legend{flex:1;min-width:150px}
+ .an-src{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text2);
+   padding:5px 0}
+ .an-src i{width:9px;height:9px;border-radius:3px;flex:0 0 9px}
+ .an-src b{margin-left:auto;font-size:13px;color:var(--text)}
+ .an-src small{color:var(--text3);width:34px;text-align:right}
+ /* полукруг и деньги */
+ .an-gauge{text-align:center}
+ .an-gauge small{display:block;color:var(--text3);font-size:11.5px;line-height:1.5}
+ .gg-bg{fill:none;stroke:var(--line2);stroke-width:13;stroke-linecap:round}
+ .gg-v{fill:none;stroke-width:13;stroke-linecap:round}
+ .gg-t{font-size:26px;font-weight:600;fill:var(--text)}
+ .an-money b{display:block;font-size:27px;font-weight:600;letter-spacing:-.02em;
+   margin:2px 0 4px}
+ .an-money small{display:block;color:var(--text3);font-size:11.5px;margin-top:6px;
+   line-height:1.5}
+ /* врачи и услуги */
+ .an-tbl th{white-space:nowrap}
+ .an-bar{display:flex;align-items:center;gap:8px;min-width:120px}
+ .an-bar span{font-size:12px;font-weight:600;color:var(--text2);width:36px;flex:0 0 36px}
+ .an-bar .statbar{flex:1}
+ .an-svc{padding:7px 0;border-top:1px solid var(--line2)}
+ .an-svc:first-of-type{border-top:none}
+ .an-svc-t{display:flex;justify-content:space-between;gap:10px;font-size:13px;
+   margin-bottom:5px}
+ .an-svc-t b{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;
+   white-space:nowrap}
+ .an-svc-t span{color:var(--text3);font-size:12px;white-space:nowrap}
+ .an-act{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+   padding:8px 0;border-top:1px solid var(--line2)}
+ .an-act:first-of-type{border-top:none}
+ .an-act-b{min-width:0}
+ .an-act-b b{display:block;font-size:12.5px;font-weight:500;overflow:hidden;
+   text-overflow:ellipsis;white-space:nowrap}
+ .an-act-b small{color:var(--text3);font-size:11.5px}
+ .an-act-b small a{color:var(--teal-d);text-decoration:none}
+ .an-act>span{color:var(--text3);font-size:11px;white-space:nowrap}
  /* ---------- движение ----------
     ВСЁ привязано к классу `anim` на <html>. Его выдаёт скрипт в шапке страницы
     и только при осмысленном открытии: журнал перезагружает себя каждые 12
@@ -898,6 +979,11 @@
  @keyframes dp-fade{from{opacity:0}}
  @keyframes dp-in{from{opacity:0;transform:translateY(9px)}}
  .anim .statbar>div{animation:dp-bar .55s cubic-bezier(.22,.61,.36,1) both}
+ /* дуга полукруга «заполняется»: анимируется только dashoffset одного пути.
+    196 = чуть больше длины дуги (π·62), см. charts.gauge про зазор 2×длина */
+ @keyframes dp-arc{from{stroke-dashoffset:196}}
+ .anim .gg-v{animation:dp-arc .7s cubic-bezier(.22,.61,.36,1) both}
+ .anim .linechart,.anim .donut{animation:dp-fade .5s ease both}
  /* график проявляется слева направо обрезкой, а не рисованием по длине пути:
     длина ломаной зависит от данных, и любая дистанция в dasharray однажды
     оказалась бы короче линии — та осталась бы с дырой посередине */
@@ -932,4 +1018,26 @@
    .side .brand{justify-content:center;padding:14px 0}
    .side nav a{justify-content:center;margin:2px 8px;padding:9px 0}
    .week{flex-wrap:wrap}.wcol{flex:1 1 45%}
+ }
+ /* ---------- стекло (этап 3, 08-06) ----------
+    Только НЕПОДВИЖНОЕ, под которым контент реально ПРОЕЗЖАЕТ: липкая шапка,
+    уголок бренда, затемнение модалки, вуаль панели предпросмотра. ⛔ Не дневная
+    сетка и не карточки в потоке: blur пересчитывается на каждом кадре
+    прокрутки (сетка к тому же перерисовывается каждые 12 секунд), а за
+    карточкой в потоке просвечивать нечему — там ровный фон страницы.
+    Через @supports: без поддержки остаётся нынешний непрозрачный вид, а не
+    полупрозрачная шапка без блюра, сквозь которую читается текст.
+    ⚠️ Блок обязан стоять В КОНЦЕ файла: он перекрашивает фоны, объявленные
+    выше, а специфичность у правил равная — решает порядок. */
+ @supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+   .top{background:rgba(255,255,255,.78);
+     -webkit-backdrop-filter:blur(12px) saturate(1.5);
+     backdrop-filter:blur(12px) saturate(1.5)}
+   .brandcorner{background:rgba(255,255,255,.72);
+     -webkit-backdrop-filter:blur(10px) saturate(1.4);
+     backdrop-filter:blur(10px) saturate(1.4)}
+   dialog::backdrop{background:rgba(15,23,42,.32);
+     -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+   .pp-veil{background:rgba(15,23,42,.22);
+     -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
  }

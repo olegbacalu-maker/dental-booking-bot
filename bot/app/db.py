@@ -1070,13 +1070,31 @@ async def delete_alert(alert_id: int, pid: int) -> None:
         "DELETE FROM patient_alerts WHERE id = ? AND patient_id = ?", alert_id, pid)
 
 
+# Кто сейчас за журналом. Ставится приложением при старте (main.py), потому что
+# db лежит НИЖЕ слоя доступа и импортировать его не может — иначе получился бы
+# круг db → core.auth → db. Без хука всё работает как раньше: «recepție».
+ACTOR_HOOK = None
+
+
+def _actor_now(default: str = "recepție") -> str:
+    """Имя вошедшего для летописи. Любая осечка молча даёт прежнюю подпись:
+    журнал не имеет права уронить саму операцию."""
+    try:
+        return (ACTOR_HOOK() if ACTOR_HOOK else None) or default
+    except Exception:                                   # noqa: BLE001
+        return default
+
+
 async def log_event(patient_id: int | None, kind: str, text: str, *,
-                    actor: str = "recepție", tooth: int | None = None) -> None:
+                    actor: str = "", tooth: int | None = None) -> None:
     """Событие карты пациента. Никогда не роняет основную операцию: журнал —
     это летопись, а не транзакция; потерянная строка хуже, чем упавшая запись
     к врачу, только в одном случае — если из-за неё не состоялась сама запись."""
     if patient_id is None:
         return
+    # подпись по умолчанию — ИМЯ вошедшего, а не канал: закон 195 спрашивает
+    # «кто именно открыл фишу», и «recepție» на этот вопрос не отвечает
+    actor = actor or _actor_now()
     try:
         await _execute(
             """INSERT INTO activity(patient_id, actor, kind, tooth, text)
@@ -1121,6 +1139,22 @@ async def patient_activity(pid: int, limit: int = 50, *,
         """SELECT id, at, actor, kind, tooth, text FROM activity
            WHERE patient_id = ? AND kind NOT IN ('view','doc_view')
            ORDER BY at DESC, id DESC LIMIT ?""", pid, limit)
+
+
+async def recent_activity(limit: int = 10) -> list:
+    """Последние события ПО ВСЕЙ клинике — лента «Activitate recentă» в
+    аналитике. Просмотры отфильтрованы по той же причине, что в ленте фиши:
+    рецепция открывает карточки десятки раз на дню, и лента из «Fișa deschisă»
+    перестала бы читаться (журнал доступа живёт своей страницей)."""
+    return await _fetch(
+        """SELECT a.id, a.at, a.actor, a.kind, a.text, a.patient_id, p.name
+           FROM activity a LEFT JOIN patients p ON p.id = a.patient_id
+           WHERE a.kind NOT IN ('view','doc_view')
+           ORDER BY a.at DESC, a.id DESC LIMIT $1""",
+        """SELECT a.id, a.at, a.actor, a.kind, a.text, a.patient_id, p.name
+           FROM activity a LEFT JOIN patients p ON p.id = a.patient_id
+           WHERE a.kind NOT IN ('view','doc_view')
+           ORDER BY a.at DESC, a.id DESC LIMIT ?""", limit)
 
 
 async def tooth_activity(pid: int) -> list:

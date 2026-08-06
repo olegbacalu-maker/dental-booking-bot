@@ -113,6 +113,110 @@ def suite_throttle(res: Result) -> None:
                "нет текста о превышении попыток")
 
 
+def suite_roles(res: Result) -> None:
+    """Роли: директор / регистратура / медик (08-06, просьба первой клиники).
+
+    ⭐ Главное, что стережётся здесь, — что запрет живёт В МАРШРУТЕ, а не в
+    меню. Спрятанный пункт защищает ровно до первого набранного вручную адреса
+    и не защищает POST вообще; проверка «страница не в меню» без проверки
+    «страница не открывается» дала бы зелёный прогон при настежь открытых
+    деньгах.
+    """
+    with Server(env=NO_KEY) as s:
+        boss = Client(s.url)
+        boss.post("/admin/setup", pin1="1111", pin2="1111")
+        res.check("врач заводится",
+                  boss.post("/admin/users/save", uid="d2", name="Dr. Liviu",
+                            role="medic", doctor_id="d2", pin="2222").msg, "ok_user")
+        res.check("регистратура заводится",
+                  boss.post("/admin/users/save", uid="ana", name="Ana R",
+                            role="receptie", pin="3333").msg, "ok_user")
+
+        # вход возможен по ОДНОМУ паролю, значит одинаковых быть не должно —
+        # иначе журнал доступа однажды назовёт не того человека
+        res.check("чужой пароль повторить нельзя",
+                  boss.post("/admin/users/save", uid="x1", name="X", role="medic",
+                            pin="2222").msg, "dup_user")
+        res.check("id только из безопасных символов",
+                  boss.post("/admin/users/save", uid="Ана!", name="X", role="medic",
+                            pin="4444").msg, "bad_user")
+        res.check("новому нужен пароль",
+                  boss.post("/admin/users/save", uid="x2", name="X",
+                            role="medic").msg, "bad_user")
+        # ⭐ последний директор запер бы настройки НАВСЕГДА: вернуть право некому
+        res.check("последний директор не снимает с себя роль",
+                  boss.post("/admin/users/save", uid="clinic", name="D",
+                            role="medic").msg, "last_dir")
+        res.check("и не удаляет сам себя",
+                  boss.post("/admin/users/delete", uid="clinic").msg, "self_user")
+
+        med = Client(s.url)
+        med.post("/admin/login", password="2222", next="/admin")
+        res.ok("врач входит своим паролем", med.get("/admin").status == 200,
+               "не пустило по личному паролю")
+        for path in ("/admin/all", "/admin/search", "/admin/medici"):
+            res.ok(f"врачу открыто {path}", med.get(path).status == 200,
+                   "закрыли лишнее")
+        for path in ("/admin/stats", "/admin/settings"):
+            r = med.get(path)
+            res.ok(f"врачу закрыто {path}",
+                   r.status == 303 and "no_access" in r.location,
+                   f"код {r.status}, location {r.location!r}")
+        # ⚠️ POST закрыт отдельно: форму отправляют не только из меню
+        for path, kw in (("/admin/settings/save", {"payload": "{}"}),
+                         ("/admin/users/save", {"uid": "z1", "name": "Z",
+                                                "role": "director", "pin": "9999"}),
+                         ("/admin/backup/export", {"parola": "x"})):
+            r = med.post(path, **kw)
+            res.ok(f"врачу закрыт POST {path}",
+                   r.status == 303 and "no_access" in r.location,
+                   f"код {r.status}, location {r.location!r}")
+        res.ok("врач не смог завести себе директора",
+               all(u.get("id") != "z1" for u in _rec(s)["users"]),
+               "чужой POST создал учётку")
+
+        page = med.get("/admin").body
+        res.ok("в меню врача нет денег и настроек",
+               "/admin/stats" not in page and "/admin/settings" not in page,
+               "закрытый раздел остался в меню")
+        res.ok("врач подписан в углу", "Dr. Liviu" in page and "Medic" in page,
+               "нет имени вошедшего")
+        boss_page = boss.get("/admin").body
+        res.ok("у директора разделы на месте",
+               "/admin/stats" in boss_page and "/admin/settings" in boss_page,
+               "директор потерял свои разделы")
+
+        # смена пароля закрывает вкладки ИМЕННО этого человека
+        boss.post("/admin/users/save", uid="d2", name="Dr. Liviu", role="medic",
+                  doctor_id="d2", pin="5555")
+        res.ok("после смены пароля старая сессия врача закрыта",
+               med.get("/admin").status == 303, "старая кука ещё пускает")
+        res.ok("а директора — нет", boss.get("/admin").status == 200,
+               "правка чужой учётки выкинула директора")
+        med2 = Client(s.url)
+        med2.post("/admin/login", password="5555", next="/admin")
+        res.ok("новый пароль пускает", med2.get("/admin").status == 200, "не пустило")
+        boss.post("/admin/users/delete", uid="d2")
+        res.ok("удалённая учётка перестаёт пускать НЕМЕДЛЕННО",
+               med2.get("/admin").status == 303, "уволенный остался внутри")
+
+        a = Client(s.url)
+        a.post("/admin/login", password="3333", uid="ana", next="/admin")
+        res.ok("вход с указанием своего id", a.get("/admin").status == 200,
+               "не пустило по id+паролю")
+        b = Client(s.url)
+        b.post("/admin/login", password="3333", uid="clinic", next="/admin")
+        res.ok("свой пароль под чужим id не пускает",
+               b.get("/admin").status == 303, "пустило под чужим именем")
+
+        # закон 195 спрашивает «кто именно», а не «канал»
+        r = a.post("/admin/patients/new", name="Pacient Jurnal", phone="069000111")
+        pid = r.location.split("/admin/patient/")[1].split("?")[0]
+        res.ok("в летописи стоит имя вошедшего",
+               "Ana R" in a.get(f"/admin/patient/{pid}").body,
+               "событие подписано каналом, а не человеком")
+
+
 def suite_change(res: Result) -> None:
     with Server(env=NO_KEY) as s:
         c = Client(s.url)

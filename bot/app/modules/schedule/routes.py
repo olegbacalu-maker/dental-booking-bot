@@ -26,6 +26,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from ... import db
 from ... import engine as eng
 from ...core.auth import _guard
+from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, _age, _banner, _initials, _shell,
                             _tg_state)
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
@@ -305,35 +306,6 @@ def _mini_cal(sel: date, base: str = "/admin") -> str:
 
 
 SPARK_DAYS = 14
-
-
-def _spark(series: list[int], tone: str) -> str:
-    """Мини-график за две недели прямо в плитке KPI.
-
-    Без осей, подписей и библиотек: у него ровно одна задача — отличить тренд
-    от случайного дня. Нормируется по СВОЕМУ максимуму, а не по общему на все
-    плитки: 24 записи и 2 неявки на одной шкале дали бы прямую под потолком и
-    прямую по полу, то есть ничего.
-
-    Ширина 100% + preserveAspectRatio='none' — график тянется под плитку; чтобы
-    линию при этом не растягивало в кисель, у неё non-scaling-stroke.
-    """
-    if not series:
-        return ""
-    w, h, pad = 100.0, 26.0, 3.0
-    # две недели нулей — это ПРЯМАЯ ПО ПОЛУ, а не пустое место: иначе плитка
-    # «Urgențe» в спокойной клинике вечно ниже соседних, и ряд плиток рябит
-    top = max(series) or 1
-    step = w / max(len(series) - 1, 1)
-    pts = " ".join(
-        f"{i * step:.1f},{h - pad - (h - 2 * pad) * (v / top):.1f}"
-        for i, v in enumerate(series))
-    return (f"<svg class='spark' viewBox='0 0 {w:.0f} {h:.0f}' width='100%' height='{h:.0f}' "
-            f"preserveAspectRatio='none' aria-hidden='true'>"
-            f"<polygon class='sp-a' points='0,{h:.0f} {pts} {w:.0f},{h:.0f}' "
-            f"style='fill:{tone}'/>"
-            f"<polyline class='sp-l' points='{pts}' vector-effect='non-scaling-stroke' "
-            f"style='stroke:{tone}'/></svg>")
 
 
 # бейдж строки повестки: тот же компонент, что в списке пациентов (.pl-badge) —

@@ -1,21 +1,35 @@
-"""Статистика клиники: визиты, неявки, загрузка кресел, деньги за период.
+"""Аналитика клиники: KPI со сравнением периодов, график по дням, источники,
+загрузка, врачи, услуги, последние события. Раздел директора (PERM_MONEY).
 
 ⚠️ Считается здесь, а не в базе: в `db.py` нет ни одного агрегата. Цифры
 собираются из дневных выборок и прайса из `clinic.json`, поэтому «выручка» —
 это оценка по прайсу, а не бухгалтерия. Когда появятся настоящие деньги
 (оплаты, долги), у модуля появится свой repository, и вот тогда SQL.
+
+Пересобран 08-06 по макету Олега. Чего из макета тут НЕТ и почему:
+- «Surse: Google / Instagram» — программа не знает таких источников; пациент
+  приходит из Telegram, от регистратуры или через веб-чат. Рисовать Google —
+  показать директору выдуманное число, по которому он решит про рекламу.
+- «Ocuparea cabinetelor» — кабинетов в модели нет, `room` у врача — подпись.
+- «Bună ziua, Liviu!» — приветствие живёт в топбаре (чип вошедшего), а не в
+  заголовке раздела.
+
+Каждый период сравнивается С ТАКИМ ЖЕ ПО ДЛИНЕ куском сразу перед ним: у
+недели это прошлая неделя, у «сегодня» — вчера. Сравнение с «прошлым месяцем»
+для произвольного периода врало бы — периоды разной длины несравнимы.
 """
 from __future__ import annotations
 
 import html
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 from ... import db
 from ... import engine as eng
-from ...core.auth import _guard
+from ...core.auth import PERM_MONEY, require
+from ...core.charts import donut, gauge, line_days, spark
 from ...core.layout import _shell
 from ...core.visits import _parse_date
 
@@ -26,93 +40,199 @@ def _fmt_mdl(x: int) -> str:
     return f"{x:,}".replace(",", " ") + " MDL"
 
 
+def _price(r) -> int:
+    """Цена: по стабильному service_id (не зависит от языка/переименований),
+    для легаси-строк — по подписи."""
+    sid = r.get("service_id")
+    if sid and sid in eng.SERVICE_PRICE_BY_ID:
+        return eng.SERVICE_PRICE_BY_ID[sid]
+    return eng.SERVICE_PRICE.get(r["service"], 0)
+
+
+def _agg(rows: list) -> dict:
+    """Все цифры одного периода — из одной выборки, одним проходом."""
+    appts = [r for r in rows if r["source"] != "note"]
+    act = [r for r in appts if r["status"] != "cancelled"]
+    return {
+        "total": len(act),
+        "bot": sum(1 for r in act if r["source"] == "bot"),
+        "man": sum(1 for r in act if r["source"] == "manual"),
+        "web": sum(1 for r in act if r["source"] not in ("bot", "manual")),
+        # «пришли» = завершённые + сидящие в кресле прямо сейчас
+        "done": sum(1 for r in act if r["status"] in ("done", "arrived")),
+        "noshow": sum(1 for r in act if r["status"] == "noshow"),
+        "cancel": len(appts) - len(act),
+        "rem": sum(1 for r in appts if r["reminded_day"]),
+        "value": sum(_price(r) for r in act if r["status"] != "noshow"),
+        "loss": sum(_price(r) for r in act if r["status"] == "noshow"),
+        "bot_value": sum(_price(r) for r in act if r["source"] == "bot"),
+        "act": act,
+    }
+
+
+def _trend(cur: int, prev: int, bad_up: bool = False) -> str:
+    """Сравнение с предыдущим периодом той же длины. От нуля процентов нет:
+    «+∞%» — не цифра, а шум."""
+    if cur == prev:
+        return "<span class='trend'>la fel ca perioada trecută</span>"
+    if not prev:
+        cls = "dn" if bad_up else "up"
+        return (f"<span class='trend'><span class='{cls}'>+{cur}</span>"
+                f" vs. perioada trecută (0)</span>")
+    pct = (cur - prev) * 100 / prev
+    cls = ("dn" if bad_up else "up") if pct > 0 else ("up" if bad_up else "dn")
+    arrow = "▲" if pct > 0 else "▼"
+    return (f"<span class='trend'><span class='{cls}'>{arrow} {abs(pct):.0f}%</span>"
+            f" vs. perioada trecută</span>")
+
+
 @router.get("/admin/stats", response_class=HTMLResponse)
 async def admin_stats(
     request: Request,
     from_q: str = Query("", alias="from"),
     to_q: str = Query("", alias="to"),
 ):
-    if (deny := _guard(request)) is not None:
+    # деньги — единственное, что закрыто от врача и регистратуры (решение
+    # Олега 08-06); проверка ЗДЕСЬ, а не только в меню: адрес набирается руками
+    if (deny := require(request, PERM_MONEY)) is not None:
         return deny
+    e = html.escape
     today = datetime.now(eng.TZ).date()
     d1 = _parse_date(from_q) if from_q else today - timedelta(days=6)
     d2 = _parse_date(to_q) if to_q else today
     if d2 < d1:
         d1, d2 = d2, d1
-    start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
-    end = datetime(d2.year, d2.month, d2.day, tzinfo=eng.TZ) + timedelta(days=1)
-    rows = await db.day_appointments(start, end)
-    appts = [r for r in rows if r["source"] != "note"]
-    act = [r for r in appts if r["status"] != "cancelled"]
-
-    n_bot = sum(1 for r in act if r["source"] == "bot")
-    n_man = len(act) - n_bot
-    # «пришли» = завершённые + сидящие в кресле прямо сейчас
-    n_done = sum(1 for r in act if r["status"] in ("done", "arrived"))
-    n_noshow = sum(1 for r in act if r["status"] == "noshow")
-    n_cancel = len(appts) - len(act)
-    n_rem = sum(1 for r in appts if r["reminded_day"])
-    def _price(r) -> int:
-        """Цена: по стабильному service_id (не зависит от языка/переименований),
-        для легаси-строк — по подписи."""
-        sid = r.get("service_id")
-        if sid and sid in eng.SERVICE_PRICE_BY_ID:
-            return eng.SERVICE_PRICE_BY_ID[sid]
-        return eng.SERVICE_PRICE.get(r["service"], 0)
-
-    loss = sum(_price(r) for r in act if r["status"] == "noshow")
-    bot_value = sum(_price(r) for r in act if r["source"] == "bot")
-
-    def _tile(val, label: str, cls: str = "", ico: str = "") -> str:
-        """Плитка периода. Структура ТА ЖЕ, что на дашборде: иначе flex кладёт
-        подпись сбоку от числа, а не под ним (долг разметки с v1.5.0)."""
-        icon = (f"<span class='ico' style='background:var(--teal-soft)'>{ico}</span>"
-                if ico else "")
-        return (f"<div class='tile {cls}'>{icon}"
-                f"<div><b>{val}</b><span>{label}</span></div></div>")
-
-    tiles = (
-        "<div class='tiles'>"
-        + _tile(len(act), "programări", ico="📅")
-        + _tile(n_bot, "🤖 prin bot")
-        + _tile(n_man, "✍️ recepție")
-        + _tile(n_done, "🟦 au venit")
-        + _tile(n_noshow, f"neprezentări<br>≈ {_fmt_mdl(loss)}", cls="bad")
-        + _tile(n_cancel, "anulate")
-        + _tile(n_rem, "🔔 remindere")
-        + _tile(f"≈ {_fmt_mdl(bot_value)}", "valoare adusă de bot")
-        + "</div>"
-    )
-
-    # загрузка врачей: занятые МИНУТЫ / рабочие минуты врача за период (v1.8.0 —
-    # при разных длительностях считать «в штуках слотов» стало бессмысленно)
     days = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
+    span = len(days)
+
+    # период + такой же по длине кусок ПЕРЕД ним — одним запросом
+    p1 = d1 - timedelta(days=span)
+    start_all = datetime(p1.year, p1.month, p1.day, tzinfo=eng.TZ)
+    end = datetime(d2.year, d2.month, d2.day, tzinfo=eng.TZ) + timedelta(days=1)
+    all_rows = await db.day_appointments(start_all, end)
+    split = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
+    cur = _agg([r for r in all_rows if r["starts_at"] >= split])
+    prev = _agg([r for r in all_rows if r["starts_at"] < split])
+
+    by_day: dict[date, int] = {x: 0 for x in days}
+    for r in cur["act"]:
+        by_day[r["starts_at"].astimezone(eng.TZ).date()] += 1
+    day_vals = [by_day[x] for x in days]
+
+    # ---- шесть KPI макета + деньги (label, cur, prev, ico, tone, bad_up) ----
+    kpis = [
+        ("Programări", cur["total"], prev["total"], "📅", "var(--green)", False),
+        ("Prin bot", cur["bot"], prev["bot"], "🤖", "var(--teal-d)", False),
+        ("Recepție", cur["man"], prev["man"], "🎧", "var(--blue)", False),
+        ("Au venit", cur["done"], prev["done"], "🟦", "var(--violet)", False),
+        ("Anulate", cur["cancel"], prev["cancel"], "🚫", "var(--red)", True),
+        ("Remindere", cur["rem"], prev["rem"], "🔔", "var(--amber)", False),
+    ]
+    # спарклайн каждой плитки — её же ряд по дням текущего периода
+    per_day: dict[str, list[int]] = {k: [0] * span for k, *_ in kpis}
+    idx = {x: i for i, x in enumerate(days)}
+    for r in cur["act"]:
+        i = idx[r["starts_at"].astimezone(eng.TZ).date()]
+        per_day["Programări"][i] += 1
+        if r["source"] == "bot":
+            per_day["Prin bot"][i] += 1
+        elif r["source"] == "manual":
+            per_day["Recepție"][i] += 1
+        if r["status"] in ("done", "arrived"):
+            per_day["Au venit"][i] += 1
+        if r["reminded_day"]:
+            per_day["Remindere"][i] += 1
+    canc = [r for r in all_rows if r["starts_at"] >= split
+            and r["source"] != "note" and r["status"] == "cancelled"]
+    for r in canc:
+        per_day["Anulate"][idx[r["starts_at"].astimezone(eng.TZ).date()]] += 1
+
+    soft = {"var(--green)": "var(--green-soft)", "var(--teal-d)": "var(--teal-soft)",
+            "var(--blue)": "var(--blue-soft)", "var(--violet)": "var(--violet-soft)",
+            "var(--red)": "var(--red-soft)", "var(--amber)": "var(--amber-soft)"}
+    tiles = "<div class='tiles'>" + "".join(
+        f"<div class='tile sp{' bad' if lbl == 'Anulate' else ''}'>"
+        f"<span class='ico' style='background:{soft[tone]};color:{tone}'>{ico}</span>"
+        f"<div><b data-count='{val}'>{val}</b><span>{lbl}</span>"
+        f"{_trend(val, pv, bad)}</div>{spark(per_day[lbl], tone)}</div>"
+        for lbl, val, pv, ico, tone, bad in kpis) + "</div>"
+
+    # ---- график по дням ----
+    lbl_days = [x.strftime("%d.%m") for x in days]
+    present_pct = round(100 * cur["done"] / cur["total"]) if cur["total"] else 0
+    chart_card = f"""<div class='fcard an-chart'>
+<h3>Programări pe zile <small>· {d1.strftime('%d.%m')} — {d2.strftime('%d.%m.%Y')}</small></h3>
+{line_days(lbl_days, day_vals, 'var(--teal)')}
+<div class='an-foot'>
+  <div><span>Total programări</span><b>{cur['total']}</b>{_trend(cur['total'], prev['total'])}</div>
+  <div><span>Rata de prezență</span><b>{present_pct}%</b>
+    <div class='statbar'><div style='width:{present_pct}%'></div></div></div>
+  <div><span>Neprezentări</span><b>{cur['noshow']}</b>
+    <small>≈ {_fmt_mdl(cur['loss'])} pierdut</small></div>
+</div></div>"""
+
+    # ---- источники: только те, что программа ЗНАЕТ ----
+    src_parts = [("📱 Telegram", cur["bot"], "var(--teal)"),
+                 ("✍️ Recepție", cur["man"], "var(--blue)"),
+                 ("🌐 Web-chat", cur["web"], "var(--violet)")]
+    legend = "".join(
+        f"<div class='an-src'><i style='background:{color}'></i>{e(lbl)}"
+        f"<b>{val}</b><small>{round(100 * val / cur['total']) if cur['total'] else 0}%</small></div>"
+        for lbl, val, color in src_parts)
+    src_card = (f"<div class='fcard'><h3>Surse programări</h3><div class='an-donut'>"
+                f"{donut([(l, v, c) for l, v, c in src_parts], 'Total')}"
+                f"<div class='an-legend'>{legend}</div></div></div>")
+
+    # ---- средняя загрузка + деньги ----
+    cap_all = busy_all = 0
     doc_rows = []
     for dk, name in eng.DOCTORS.items():
-        # по стабильному id (v1.7.1): переименование врача не обнуляет историю
-        mine = [r for r in act if r.get("doctor_id") == dk
+        mine = [r for r in cur["act"] if r.get("doctor_id") == dk
                 or (not r.get("doctor_id") and r["doctor"] == name)]
         off = not eng.DOCTOR_META.get(dk, {}).get("active", True)
         if off and not mine:
-            continue  # выключенный врач без записей за период — не мусорим нулями
+            continue   # выключенный врач без записей за период — не мусорим нулями
         ns = sum(1 for r in mine if r["status"] == "noshow")
-        cap_min = sum(eng.work_minutes(dk, day) for day in days)
-        busy_min = sum(int(r.get("duration_min") or 60) for r in mine)
-        pct = round(100 * busy_min / cap_min) if cap_min else 0
-        doc_rows.append(
-            f"<tr><td>{html.escape(name)}"
-            f"{' <small style=\"color:var(--text3)\">· inactiv</small>' if off else ''}</td>"
-            f"<td>{len(mine)}</td><td>{ns}</td>"
-            f"<td style='min-width:160px'>{pct}%<div class='statbar'><div style='width:{min(pct,100)}%'></div></div></td></tr>"
-        )
-    doctors_tbl = ("<h2>Medici</h2><table class='list'>"
-                   "<tr><th>Medic</th><th>Programări</th><th>Neprezentări</th><th>Ocupare</th></tr>"
-                   + "".join(doc_rows) + "</table>")
+        came = sum(1 for r in mine if r["status"] in ("done", "arrived"))
+        cap = sum(eng.work_minutes(dk, day) for day in days)
+        busy = sum(int(r.get("duration_min") or 60) for r in mine)
+        pct = round(100 * busy / cap) if cap else 0
+        if not off:
+            cap_all += cap
+            busy_all += busy
+        pres = round(100 * came / len(mine)) if mine else 0
+        doc_rows.append((name, off, len(mine), came, pres, pct))
+    avg_pct = round(100 * busy_all / cap_all) if cap_all else 0
+    gauge_card = (f"<div class='fcard an-gauge'><h3>Grad de ocupare</h3>"
+                  f"{gauge(avg_pct, 'var(--teal)')}"
+                  f"<small>media clinicii pe perioadă · minute ocupate din "
+                  f"minutele de lucru</small></div>")
+    money_card = (f"<div class='fcard an-money'><h3>Venituri estimate</h3>"
+                  f"<b data-count='{cur['value']}'>{_fmt_mdl(cur['value'])}</b>"
+                  f"{_trend(cur['value'], prev['value'])}"
+                  f"<small>după lista de prețuri · nu e contabilitate · "
+                  f"botul a adus ≈ {_fmt_mdl(cur['bot_value'])}</small></div>")
 
-    # группировка по service_id: RU- и RO-запись одной услуги = одна строка
-    # отчёта (раньше язык пациента раздваивал услугу и делил её выручку)
+    # ---- врачи ----
+    rows_html = "".join(
+        f"<tr><td>{e(name)}"
+        + (" <small style='color:var(--text3)'>· inactiv</small>" if off else "")
+        + f"</td><td>{n}</td><td>{came}</td>"
+        f"<td><div class='an-bar'><span>{pres}%</span>"
+        f"<div class='statbar'><div style='width:{pres}%'></div></div></div></td>"
+        f"<td><div class='an-bar'><span>{pct}%</span>"
+        f"<div class='statbar'><div style='width:{min(pct, 100)}%'></div></div></div></td></tr>"
+        for name, off, n, came, pres, pct in
+        sorted(doc_rows, key=lambda x: -x[5]))
+    doctors_tbl = ("<div class='fcard'><h3>Performanța medicilor</h3>"
+                   "<table class='list an-tbl'>"
+                   "<tr><th>Medic</th><th>Programări</th><th>Au venit</th>"
+                   "<th>Rata prezenței</th><th>Ocupare</th></tr>"
+                   + rows_html + "</table></div>")
+
+    # ---- услуги: группировка по service_id, RU и RO — одна строка ----
     svc_count: dict[str, dict] = {}
-    for r in act:
+    for r in cur["act"]:
         sid = r.get("service_id")
         if sid and sid in eng.SERVICES:
             key, label = sid, eng.SERVICES[sid]["ro"]
@@ -121,15 +241,32 @@ async def admin_stats(
         ent = svc_count.setdefault(key, {"label": label, "cnt": 0, "val": 0})
         ent["cnt"] += 1
         ent["val"] += _price(r)
+    top_svc = sorted(svc_count.values(), key=lambda x: -x["cnt"])[:8]
+    max_cnt = top_svc[0]["cnt"] if top_svc else 1
     svc_rows = "".join(
-        f"<tr><td>{html.escape(ent['label'])}</td><td>{ent['cnt']}</td>"
-        f"<td>≈ {_fmt_mdl(ent['val'])}</td></tr>"
-        for ent in sorted(svc_count.values(), key=lambda x: -x["cnt"])[:8]
-    )
-    services_tbl = ("<h2>Servicii</h2><table class='list'>"
-                    "<tr><th>Serviciu</th><th>Programări</th><th>≈ Valoare</th></tr>"
-                    + svc_rows + "</table>")
+        f"<div class='an-svc'><div class='an-svc-t'><b>{e(s['label'])}</b>"
+        f"<span>{s['cnt']} prog. · ≈ {_fmt_mdl(s['val'])}</span></div>"
+        f"<div class='statbar'><div style='width:{round(100 * s['cnt'] / max_cnt)}%'></div></div></div>"
+        for s in top_svc) or "<p class='hint'>— încă fără programări —</p>"
+    services_card = f"<div class='fcard'><h3>Top servicii</h3>{svc_rows}</div>"
 
+    # ---- последние события картотеки (журнал уже пишет ИМЯ вошедшего) ----
+    acts = await db.recent_activity(10)
+    act_rows = []
+    for a in acts:
+        at = a["at"].astimezone(eng.TZ) if a["at"] else None
+        who = "🤖 bot" if a["actor"] == "bot" else f"🎧 {e(a['actor'] or 'recepție')}"
+        link = (f"<a href='/admin/patient/{a['patient_id']}'>{e(a['name'] or '—')}</a>"
+                if a["patient_id"] else e(a["name"] or "—"))
+        act_rows.append(
+            f"<div class='an-act'><div class='an-act-b'><b>{e(a['text'])}</b>"
+            f"<small>{link} · {who}</small></div>"
+            f"<span>{at.strftime('%d.%m %H:%M') if at else ''}</span></div>")
+    activity_card = ("<div class='fcard'><h3>Activitate recentă</h3>"
+                     + ("".join(act_rows) or "<p class='hint'>— încă nimic —</p>")
+                     + "</div>")
+
+    # ---- периоды ----
     q7 = (today - timedelta(days=6)).isoformat()
     q30 = (today - timedelta(days=29)).isoformat()
     m1 = today.replace(day=1).isoformat()
@@ -150,6 +287,16 @@ async def admin_stats(
         f"<a href='/admin'>🏠 Panou</a></div>"
     )
     hint = ("<p class='hint'>Prețurile sunt medii orientative din lista clinicii; "
-            "neprezentările = venit pierdut estimat. Notițele nu se numără.</p>")
-    return _shell(nav + tiles + doctors_tbl + services_tbl + hint,
-                  "statistici · perioadă selectabilă", active="stat")
+            "neprezentările = venit pierdut estimat. Notițele nu se numără. "
+            "Secțiunea este vizibilă doar directorului.</p>")
+    body = (nav + tiles
+            + "<div class='an-grid'>"
+            + f"<div class='an-main'>{chart_card}{doctors_tbl}</div>"
+            + f"<div class='an-side'>{src_card}{gauge_card}{money_card}</div>"
+            + "</div>"
+            + "<div class='an-grid2'>"
+            + services_card + activity_card
+            + "</div>"
+            + hint)
+    return _shell(body, "statistici · perioadă selectabilă · doar director",
+                  active="stat")

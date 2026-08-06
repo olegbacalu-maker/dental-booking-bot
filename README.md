@@ -154,13 +154,50 @@ More journal tools:
   The `manual:{digits}` key merges patients by phone on purpose, so a repeated number
   *opens the existing card* instead of overwriting its name — a shared family number would
   otherwise quietly rename a parent into their child.
-- **Owner stats** (`/admin/stats`): bookings by source, visits, **no-shows priced in MDL**
-  from the clinic's own price list, "value brought by the bot", per-doctor occupancy
-  (busy minutes over working minutes, not a count of slots), top services — over any period.
+- **Analytics** (`/admin/stats`, director-only): six KPI tiles, each with a 14-day-style
+  sparkline of its own series and a trend **against the preceding period of the same
+  length** (a week compares to the previous week, a day to yesterday — "vs. last month"
+  for an arbitrary range would be a lie); a day-by-day line chart with axis labels that
+  thin out on long ranges; booking sources as a donut — only the three channels the
+  program actually knows (Telegram / reception / web chat), nothing invented; average
+  chair occupancy as a half-circle gauge plus a per-doctor table (bookings, arrivals,
+  show-up rate, occupancy — busy minutes over working minutes, same formula the
+  dashboard cards use); estimated revenue **explicitly labelled as a price-list
+  estimate, not accounting**; top services with value bars; and a recent-activity feed
+  signed with the *name* of the logged-in employee. All charts are inline SVG from
+  `core/charts.py` — the program works offline, so a chart library would have to be
+  bundled into the exe wholesale.
 - **CSV export** of a day or period (semicolon + UTF-8 BOM, opens cleanly in Excel).
 - A **printable A4 sheet with a QR code** to the clinic's Telegram bot (`/admin/qr-print`).
 - A visit whose doctor no longer exists in the config keeps a separate "în afara listei"
   column with a form to reassign it — renaming or removing a doctor never hides a booking.
+
+### Accounts and roles
+
+Asked for by the first pilot clinic, added in 1.12.x. Three roles: **director**
+(money, settings, accounts), **reception** and **doctor** — the latter two get
+everything except the money and the settings. A role is a *set of permissions* in
+one table, not a string compared at each route, so "the senior administrator needs
+reports too" is one line rather than a hunt through every comparison.
+
+- Login takes **the password alone**; the user id is optional. Reception types it
+  dozens of times a day, and demanding an id as well is friction for nothing — so
+  passwords must be unique, which the app enforces when an account is created.
+- The session cookie signs `uid|role|sid`. That `sid` changes when *that person's*
+  password changes, so the director can reset one employee's password without
+  logging out everyone else — and without leaving the old tab alive.
+- The role is read **from the file by id**, never from the cookie: a demotion takes
+  effect immediately, and a deleted account stops working on the very next request.
+- Hiding a menu entry is not protection: every restricted route — GET *and* POST —
+  refuses on its own, because a URL can be typed and a form can be posted from
+  anywhere.
+- At least one director always has to remain. Otherwise the settings lock shut
+  permanently: there would be nobody left who could hand the rights back.
+- The activity log now records **who**, not just *what channel* — the answer Law 195
+  actually asks for.
+- Roles do **not** open the program to the network. Everything still binds to
+  127.0.0.1; a phone-facing PWA for doctors is a separate step that brings TLS and
+  a secure cookie with it.
 
 ### Patient card
 

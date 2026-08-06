@@ -427,7 +427,10 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
         when = at.strftime("%d.%m.%Y") if at else ""
         hhmm = at.strftime("%H:%M") if at else ""
-        who = "🤖 bot" if a["actor"] == "bot" else "🎧 recepție"
+        # с ролями подпись — это ИМЯ вошедшего; «recepție» осталось у событий,
+        # записанных до учёток, и у фоновых задач, где человека нет
+        who = ("🤖 bot" if a["actor"] == "bot"
+               else f"🎧 {e(a['actor'] or 'recepție')}")
         act_rows.append(
             f"<div class='acti'><span class='ai'>{_ACT_ICON.get(a['kind'], '•')}</span>"
             f"<div class='ab'><b>{e(a['text'])}</b>"

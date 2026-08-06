@@ -195,9 +195,10 @@ def suite_dashboard(res: Result) -> None:
                   next((p for b, _c, p in occ if b == "180"), None), "21")
         st = c.get(f"/admin/stats?from={day}&to={day}").body
         res.ok("тот же процент в «Statistici» за тот же день",
-               "21" in re.findall(r"<td style='min-width:160px'>(\d+)%", st),
+               "<span>21%</span>" in st,
                "дашборд и статистика разошлись в загрузке врача")
-        res.check("плитки статистики не тронуты модификатором", st.count("'tile sp"), 0)
+        res.check("аналитика несёт свои шесть мини-графиков",
+                  st.count("class='spark'"), 6)
 
         res.check("в повестке все три визита", page.count("class='ag-i"), 3)
         res.check("повестка отсортирована по времени",
@@ -229,6 +230,68 @@ def suite_dashboard(res: Result) -> None:
         css = c.get("/static/css/panel.css").body
         res.ok("движение выключается системной настройкой",
                "prefers-reduced-motion" in css, "нет уважения к настройке ОС")
+
+
+def suite_analytics(res: Result) -> None:
+    """Аналитика: сравнение периодов, график по дням, источники, полукруг,
+    деньги, лента событий. Всё выведенное — ломается молча, страница 200.
+
+    День завтрашний, как в suite_dashboard: сегодняшний зависит от часа прогона.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(1)
+        for time, doc, svc, name, phone in (
+                ("09:00", "d2", "consult", "Stat Unu", "069000001"),
+                ("11:00", "d2", "long", "Stat Doi", "069000002"),
+                ("10:00", "d3", "hygiene", "Stat Trei", "069000003")):
+            c.post("/admin/add", adate=day, atime=time, adoctor=doc, aservice=svc,
+                   aname=name, aphone=phone, back="/admin/all")
+        # прошлый период той же длины: одна запись «сегодня» для сравнения
+        # (08:00 — /admin/add намеренно принимает прошедший час текущего дня)
+        c.post("/admin/add", adate=_d(0), atime="08:00", adoctor="d4",
+               aservice="consult", aname="Stat Ieri", aphone="069000004",
+               back="/admin/all")
+
+        page = c.get(f"/admin/stats?from={day}&to={day}").body
+        # «la fel ca perioada trecută» — тоже тренд: нулевые плитки равны нулю
+        res.ok("шесть KPI с трендом к прошлому периоду",
+               page.count("perioada trecută") >= 8,   # 6 плиток + график + деньги
+               f"трендов {page.count('perioada trecută')}")
+        res.ok("график по дням на месте", "linechart" in page, "нет графика")
+        res.ok("точки графика подписаны значениями", "class='ld-v'" in page,
+               "нет значений на точках")
+        res.ok("источники — только настоящие три",
+               "Telegram" in page and "Recepție" in page and "Web-chat" in page
+               and "Google" not in page and "Instagram" not in page,
+               "в источниках выдуманные каналы")
+        res.ok("кольцо источников рисуется", "class='donut'" in page, "нет кольца")
+        res.ok("полукруг загрузки рисуется", "class='gauge'" in page, "нет полукруга")
+        # 3 визита (60+120+60=240′) на 3 активных врача × 840′ = 240/2520 ≈ 10%
+        res.ok("средняя загрузка считается по активным врачам",
+               ">10%</text>" in page, "среднее не сходится (ждали 10%)")
+        res.ok("деньги подписаны как оценка по прайсу",
+               "nu e contabilitate" in page, "оценка выдаётся за бухгалтерию")
+        res.ok("лента событий с именем и пациентом",
+               "Activitate recentă" in page and "/admin/patient/" in page,
+               "нет ленты или ссылок на фиши")
+        res.ok("врачи отсортированы по загрузке",
+               page.find("Dr. Activ Doi") < page.find("Dr. Activ Trei"),
+               "врач с большей загрузкой не первый")
+
+        # пустой период: график рисует линию по полу (не «нет данных» — период
+        # существовал, записей ноль), кольцо честно говорит «fără date», среднее 0%
+        empty = c.get(f"/admin/stats?from={_d(40)}&to={_d(46)}").body
+        res.ok("пустой период не роняет страницу",
+               "linechart" in empty and ">0%</text>" in empty
+               and "fără date" in empty,
+               "пустой период сломал графики")
+
+        # у периода «сегодня» прошлый кусок той же длины — вчера (он пуст), и
+        # сегодняшний визит 08:00 обязан дать «+1 vs. (0)», а не «la fel»
+        tdy = c.get(f"/admin/stats?from={_d(0)}&to={_d(0)}").body
+        res.ok("у «сегодня» прошлый период — вчера",
+               "vs. perioada trecută (0)" in tdy, "нет сравнения на дне")
 
 
 def suite_patients_list(res: Result) -> None:

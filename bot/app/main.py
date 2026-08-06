@@ -24,7 +24,8 @@ from . import engine as eng
 from . import paths
 from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, _guard, _pin_rec, _secret,
-                        _set_auth_cookie, _setup_allowed, _write_pin,
+                        _set_auth_cookie, _setup_allowed, _write_pin, find_user,
+                        current_user, request_user, set_request_user,
                         lock_left, note_fail, note_ok, verify_pin)
 from .core.layout import LOGIN_TMPL, SETUP_TMPL, STATIC, _asset
 from .modules.doctors import routes as doctors
@@ -64,6 +65,18 @@ async def _limit_body_size(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def _identify(request: Request, call_next):
+    """Кто в этом запросе — один раз, для каркаса страницы.
+
+    Сайдбар и верхний угол рисуются глубоко внутри `_shell`, куда запрос не
+    приходит. Считаем здесь и кладём в контекст запроса; решение «пускать или
+    нет» это НЕ подменяет — его принимает require() в самом маршруте.
+    Только для /admin: статике опознание не нужно, а auth.json читается с диска.
+    """
+    set_request_user(current_user(request)
+                     if request.url.path.startswith("/admin") else None)
+    return await call_next(request)
 
 
 
@@ -85,7 +98,16 @@ async def _limit_body_size(request: Request, call_next):
 
 
 
-PIN_INPUT = ("<input type='password' name='password' placeholder='PIN' autofocus required "
+
+
+# Логин НЕОБЯЗАТЕЛЕН: пароль у каждого свой (это стережёт pin_free), и
+# заставлять регистратуру набирать ещё и id — трение десятки раз в день. Поле
+# всё же есть: врачу с телефона вход по одному паролю неочевиден, а в клинике
+# с одинаковыми привычками кто-нибудь однажды захочет войти именно «как я».
+PIN_INPUT = ("<input type='text' name='uid' placeholder='ID (opțional)' "
+             "autocomplete='username' maxlength='20' "
+             "style='text-align:center;font-size:15px'>"
+             "<input type='password' name='password' placeholder='PIN' autofocus required "
              "inputmode='numeric' pattern='[0-9]*' maxlength='6' "
              "style='text-align:center;font-size:28px;letter-spacing:12px'>")
 PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"
@@ -139,6 +161,9 @@ async def startup() -> None:
         # Postgres = серверный режим: с v1.6.0 в журнале мед-данные и файлы,
         # fail-open без ключа недопустим — падаем громко, а не открываемся тихо
         raise RuntimeError("ADMIN_KEY is required for the Postgres edition — set it in .env")
+    # летопись подписывается ИМЕНЕМ вошедшего. Хук, а не импорт: db лежит ниже
+    # слоя доступа, и прямой импорт замкнул бы круг db → core.auth → db
+    db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
     try:
         seed_rows = eng.build_seed_rows()
     except Exception as e:  # noqa: BLE001 — демо-наполнение НЕ должно валить старт
@@ -257,21 +282,29 @@ async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
 
 
 @app.post("/admin/login")
-async def admin_login(password: str = Form(...), next_url: str = Form("/admin", alias="next")):
+async def admin_login(password: str = Form(...), uid: str = Form(""),
+                      next_url: str = Form("/admin", alias="next")):
     target = next_url if next_url.startswith("/admin") else "/admin"
     nxt = urllib.parse.quote(target, safe="")
     if (left := lock_left()) > 0:
         return RedirectResponse(
             f"/admin/login?err=lock&s={left}&next={nxt}", status_code=303)
     pw = password.strip()
+    who = None
     if _pin_rec():
-        ok = verify_pin(pw) is not None
+        # логин необязателен: пароль у каждого свой (pin_free это стережёт), и
+        # заставлять регистратуру набирать ещё и id — трение на ровном месте.
+        # Указан явно — сверяем только с ним: так на телефоне у врача вход
+        # предсказуем, даже если однажды пароли всё-таки совпадут.
+        who = verify_pin(pw, uid=uid.strip()[:32])
+        ok = who is not None
     else:
         ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
     if ok:
         note_ok()
-        # кука ставится ПОСЛЕ verify_pin: миграция v1→v2 меняет ключ подписи
-        return _set_auth_cookie(RedirectResponse(target, status_code=303))
+        # кука ставится ПОСЛЕ verify_pin: миграция v1→v2 меняет ключ подписи,
+        # а запись пользователя — свой sid
+        return _set_auth_cookie(RedirectResponse(target, status_code=303), who)
     lock = note_fail()
     # asyncio.sleep, а не time.sleep: у настольного издания один процесс на всю
     # клинику, и блокирующая пауза заморозила бы журнал остальным
@@ -282,6 +315,15 @@ async def admin_login(password: str = Form(...), next_url: str = Form("/admin", 
 
 
 
+
+
+@app.get("/admin/logout")
+async def admin_logout():
+    """Выход. Кука снимается у браузера; серверных сессий у нас нет, поэтому
+    больше ничего гасить не нужно."""
+    resp = RedirectResponse("/admin/login", status_code=303)
+    resp.delete_cookie("admin_auth")
+    return resp
 
 
 @app.get("/admin/setup", response_class=HTMLResponse)
@@ -303,7 +345,8 @@ async def admin_setup(pin1: str = Form(...), pin2: str = Form(...)):
     if p1 != p2 or not p1.isdigit() or not (4 <= len(p1) <= 6):
         return RedirectResponse("/admin/setup?err=1", status_code=303)
     _write_pin(p1)
-    return _set_auth_cookie(RedirectResponse("/admin", status_code=303))
+    return _set_auth_cookie(RedirectResponse("/admin", status_code=303),
+                            find_user("clinic"))
 
 
 @app.post("/admin/pin/change")
@@ -328,7 +371,9 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
         return RedirectResponse("/admin/settings?msg=bad_pin", status_code=303)
     # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
     _write_pin(n1, role=who.get("role", "director"), uid=who.get("id", "clinic"))
-    return _set_auth_cookie(RedirectResponse("/admin/settings?msg=ok_pin", status_code=303))
+    return _set_auth_cookie(
+        RedirectResponse("/admin/settings?msg=ok_pin", status_code=303),
+        find_user(who.get("id", "clinic")))
 
 
 

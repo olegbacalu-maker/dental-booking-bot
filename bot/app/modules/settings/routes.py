@@ -27,7 +27,10 @@ from ... import db
 from ... import dpapi, envfile
 from ... import engine as eng
 from ... import update as upd
-from ...core.auth import ADMIN_KEY, _guard, _pin_rec
+from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
+                          ROLE_LABEL, ROLE_MEDIC, _pin_rec, all_users,
+                          current_user, delete_user, find_user, n_directors,
+                          pin_free, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
                             _doc_hours_text, _shell, tg_status)
@@ -36,6 +39,73 @@ from ...core.visits import SVC_PALETTE
 from . import backup as bkp
 
 router = APIRouter()
+
+# id сотрудника: он попадает в подпись куки и в журнал доступа, поэтому только
+# безопасные символы — точка в нём разделила бы куку не там, где надо
+_UID_RE = re.compile(r"[a-z0-9_-]{2,20}")
+
+
+def _set_back(msg: str) -> RedirectResponse:
+    return RedirectResponse(f"/admin/settings?msg={msg}", status_code=303)
+
+
+def _users_block() -> str:
+    """Сотрудники клиники: кто входит и что ему можно.
+
+    Вход идёт по ОДНОМУ паролю, без логина: регистратура набирает его десятки
+    раз в день, и требовать ещё и id — трение на ровном месте. Отсюда правило,
+    которое стережёт `pin_free`: пароли обязаны быть разными, иначе журнал
+    доступа начнёт называть чужое имя. Id при этом есть у каждого — он нужен
+    журналу и врачу на телефоне, где вход по одному паролю неочевиден.
+    """
+    e = html.escape
+    doc_opts = "".join(f"<option value='{e(k)}'>{e(v)}</option>"
+                       for k, v in eng.DOCTORS.items())
+    rows = []
+    for u in all_users():
+        sel_role = "".join(
+            f"<option value='{k}'{' selected' if k == u['role'] else ''}>{v}</option>"
+            for k, v in ROLE_LABEL.items())
+        sel_doc = "".join(
+            f"<option value='{e(k)}'{' selected' if k == u['doctor_id'] else ''}>"
+            f"{e(v)}</option>" for k, v in eng.DOCTORS.items())
+        rows.append(
+            f"<tr><td><b>{e(u['name'])}</b><br>"
+            f"<small style='color:var(--text3)'>id: {e(u['id'])}</small></td>"
+            f"<td><form method='post' action='/admin/users/save' "
+            f"style='display:flex;gap:6px;flex-wrap:wrap;align-items:center'>"
+            f"<input type='hidden' name='uid' value='{e(u['id'])}'>"
+            f"<input type='hidden' name='name' value=\"{e(u['name'])}\">"
+            f"<select name='role'>{sel_role}</select>"
+            f"<select name='doctor_id'><option value=''>— nu e medic —</option>"
+            f"{sel_doc}</select>"
+            f"<input type='password' name='pin' placeholder='PIN nou (opțional)' "
+            f"inputmode='numeric' maxlength='6' style='width:150px'>"
+            f"<button>Salvează</button></form></td>"
+            f"<td><form method='post' action='/admin/users/delete' "
+            f"onsubmit=\"return confirm('Ștergeți contul {e(u['name'])}?')\">"
+            f"<input type='hidden' name='uid' value='{e(u['id'])}'>"
+            f"<button class='rowdel'>Șterge</button></form></td></tr>")
+    role_opts = "".join(f"<option value='{k}'"
+                        f"{' selected' if k == ROLE_MEDIC else ''}>{v}</option>"
+                        for k, v in ROLE_LABEL.items())
+    return f"""
+<h2>👥 Utilizatori</h2>
+<table class='set'><tr><th style='width:220px'>Persoana</th><th>Acces</th><th></th></tr>
+{''.join(rows)}</table>
+<form class='add' method='post' action='/admin/users/save'>
+  <input name='name' placeholder='Nume și prenume' maxlength='60' required style='width:200px'>
+  <input name='uid' placeholder='id (ex. d2, ana)' maxlength='20' required style='width:130px'>
+  <select name='role'>{role_opts}</select>
+  <select name='doctor_id'><option value=''>— nu e medic —</option>{doc_opts}</select>
+  <input type='password' name='pin' placeholder='PIN 4–6 cifre' inputmode='numeric'
+         maxlength='6' required style='width:150px'>
+  <button>+ Adaugă utilizator</button>
+</form>
+<p class='hint'>Intrarea se face cu PIN-ul personal, fără nume de utilizator —
+de aceea PIN-ul trebuie să fie unic în clinică. <b>Director</b> vede banii și
+setările, <b>Recepție</b> și <b>Medic</b> — tot restul. Legătura cu un medic
+face ca jurnalul să scrie numele lui la fiecare deschidere de fișă.</p>"""
 
 _PALETTE_RO = {"green": "verde", "blue": "albastru", "amber": "portocaliu",
                "violet": "violet", "red": "roșu", "teal": "turcoaz"}
@@ -78,7 +148,7 @@ def _hour_opts(sel: int, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
 
 @router.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings(request: Request, msg: str = ""):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     cfg = eng.CONFIG
     e = html.escape
@@ -262,6 +332,7 @@ fi citită de nimeni, nici de noi.</p>"""
   <input type='password' name='new2' placeholder='repetați' inputmode='numeric' maxlength='6' required style='width:140px'>
   <button>Schimbă</button>
 </form>"""
+        status_tbl += _users_block()
 
     body = f"""
 <div class='nav'><a href='/admin'>🏠 Panou</a></div>
@@ -500,7 +571,7 @@ def _build_config(data: dict) -> dict:
 def admin_update_check(request: Request):
     """Проверить обновления прямо сейчас — не ждать следующего цикла.
     Синхронный def → threadpool, сетевой запрос не блокирует сервер."""
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     upd.check_now()
     return RedirectResponse("/admin/settings", status_code=303)
@@ -510,7 +581,7 @@ def admin_update_check(request: Request):
 def admin_update_run(request: Request):
     """Одним кликом: скачать новый exe, подменить себя, перезапуститься.
     Синхронный def — FastAPI выполняет в threadpool (скачивание блокирует)."""
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     err = upd.self_update()
     if err:
@@ -530,6 +601,49 @@ Această pagină se va reîncărca automat în ~18 secunde.</p>
 </body></html>"""
 
 
+@router.post("/admin/users/save")
+async def users_save(request: Request, uid: str = Form(...), name: str = Form(""),
+                     role: str = Form(ROLE_MEDIC), doctor_id: str = Form(""),
+                     pin: str = Form("")):
+    """Завести сотрудника или поправить его доступ."""
+    if (deny := require(request, PERM_USERS)) is not None:
+        return deny
+    uid, name, pin = uid.strip().lower()[:20], name.strip()[:60], pin.strip()
+    if not _UID_RE.fullmatch(uid) or role not in ROLE_LABEL:
+        return _set_back("bad_user")
+    existing = find_user(uid)
+    if not existing and not pin:
+        return _set_back("bad_user")           # новому нужен пароль
+    if pin and (not pin.isdigit() or not (4 <= len(pin) <= 6)):
+        return _set_back("bad_user")
+    # ⚠️ проверка ДО записи: вход идёт по одному лишь паролю, и два одинаковых
+    # означают, что журнал доступа однажды назовёт не того человека
+    if pin and not pin_free(pin, except_uid=uid):
+        return _set_back("dup_user")
+    # директор, снимающий с себя роль последним, запирает настройки НАВСЕГДА:
+    # вернуть право станет некому
+    if (existing and (existing.get("role") or ROLE_DIRECTOR) == ROLE_DIRECTOR
+            and role != ROLE_DIRECTOR and n_directors(excluding=uid) == 0):
+        return _set_back("last_dir")
+    save_user(uid, name=name or (existing or {}).get("name") or uid, role=role,
+              doctor_id=doctor_id if doctor_id in eng.DOCTORS else "",
+              pin=pin or None)
+    return _set_back("ok_user")
+
+
+@router.post("/admin/users/delete")
+async def users_delete(request: Request, uid: str = Form(...)):
+    if (deny := require(request, PERM_USERS)) is not None:
+        return deny
+    me = current_user(request)
+    if me and me.get("id") == uid:
+        return _set_back("self_user")
+    if n_directors(excluding=uid) == 0:
+        return _set_back("last_dir")
+    delete_user(uid)
+    return _set_back("ok_user")
+
+
 @router.post("/admin/backup/export")
 async def admin_backup_export(request: Request, parola: str = Form(...)):
     """Зашифрованный архив клиники — целиком, для флешки или переезда.
@@ -538,7 +652,7 @@ async def admin_backup_export(request: Request, parola: str = Form(...)):
     задача после отдачи (как у выгрузки данных пациента). minlength в форме —
     вежливость, настоящая проверка тут: форму можно послать и без браузера.
     """
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     d = _data_dir()
     if d is None or not bkp.available():
@@ -563,7 +677,7 @@ async def admin_backup_export(request: Request, parola: str = Form(...)):
 
 @router.post("/admin/telegram/save", response_class=HTMLResponse)
 async def admin_telegram_save(request: Request, token: str = Form("")):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     env_file = os.environ.get("DENTART_ENV_FILE", "")
     if not (db.IS_SQLITE and env_file):
@@ -598,7 +712,7 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
 
 @router.post("/admin/settings/save")
 async def admin_settings_save(request: Request, payload: str = Form(...)):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     try:
         cfg = _build_config(json.loads(payload))

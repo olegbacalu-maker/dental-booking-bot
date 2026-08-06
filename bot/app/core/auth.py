@@ -22,6 +22,7 @@ PIN короткий по замыслу — регистратура набир
 """
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import hmac
 import json
@@ -56,7 +57,38 @@ ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
 KDF = "pbkdf2-sha256"
 KDF_ITER = 600_000
 KDF_LEGACY = "sha256-1"
+
+# --- роли (08-06, по просьбе первой клиники) ---
+# Роль — это НАБОР РАЗРЕШЕНИЙ, а не строка, которую сравнивают по месту:
+# сравнение `role == "director"` расползлось бы по маршрутам, и первая же
+# просьба «старшему администратору тоже нужны отчёты» потребовала бы найти их
+# все. Здесь одна таблица, и новая роль — это новая строка в ней.
 ROLE_DIRECTOR = "director"
+ROLE_RECEPTIE = "receptie"
+ROLE_MEDIC = "medic"
+
+ROLE_LABEL = {ROLE_DIRECTOR: "Director", ROLE_RECEPTIE: "Recepție",
+              ROLE_MEDIC: "Medic"}
+
+# Что роль умеет. Всё, чего в наборе НЕТ, закрыто — список разрешает, а не
+# запрещает: забытое право означает «нельзя», а не «можно всем».
+PERM_MONEY = "money"        # выручка, статистика, отчёты
+PERM_SETTINGS = "settings"  # настройки клиники, токен бота, бэкап, обновление
+PERM_USERS = "users"        # учётные записи сотрудников
+
+PERMS = {
+    ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS},
+    ROLE_RECEPTIE: set(),
+    ROLE_MEDIC: set(),
+}
+
+
+def can(user: dict | None, perm: str) -> bool:
+    """Разрешено ли. Неизвестная роль не получает НИЧЕГО — если однажды в файле
+    окажется роль из будущей версии, она не должна открыть деньги по умолчанию."""
+    if not user:
+        return False
+    return perm in PERMS.get(user.get("role", ""), set())
 
 
 def _auth_path() -> pathlib.Path | None:
@@ -108,14 +140,95 @@ def _sec_warn() -> str:
     return " · ⚠️ fără parolă — setați ADMIN_KEY în .env"
 
 
-def _cookie_sig() -> str:
-    return hmac.new(_secret().encode(), b"dentart-admin-v1", hashlib.sha256).hexdigest()
+def _cookie_sig(uid: str = "", role: str = "", sid: str = "") -> str:
+    """Подпись сессии.
+
+    Без аргументов — СТАРАЯ форма, одна на всю клинику (до ролей). Её мы больше
+    не выдаём, но продолжаем принимать: обновление не должно выкидывать клинику
+    из журнала посреди приёма.
+
+    Именная форма подписывает ещё и `sid` — случайную метку, которая меняется
+    при смене пароля ИМЕННО этого человека. Без неё у директора был бы выбор из
+    двух плохих: либо смена чужого пароля не закрывает чужие открытые вкладки,
+    либо она разлогинивает заодно всех остальных.
+    """
+    msg = f"{uid}|{role}|{sid}".encode() if uid else b"dentart-admin-v1"
+    return hmac.new(_secret().encode(), msg, hashlib.sha256).hexdigest()
 
 
-def _set_auth_cookie(resp: RedirectResponse) -> RedirectResponse:
-    resp.set_cookie("admin_auth", _cookie_sig(), max_age=60 * 60 * 24 * 30,
-                    httponly=True, samesite="lax")
+def _set_auth_cookie(resp: RedirectResponse,
+                     user: dict | None = None) -> RedirectResponse:
+    u = user or {}
+    uid = str(u.get("id") or "clinic")
+    role = str(u.get("role") or ROLE_DIRECTOR)
+    sid = str(u.get("sid") or "")
+    resp.set_cookie("admin_auth", f"{uid}.{role}.{sid}.{_cookie_sig(uid, role, sid)}",
+                    max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax")
     return resp
+
+
+def current_user(request: Request) -> dict | None:
+    """Кто в этой сессии. None — не вошёл.
+
+    ⚠️ Роль берётся ИЗ ФАЙЛА по id, а не из куки: иначе понижение сотрудника
+    не действовало бы до тех пор, пока он сам не выйдет. По той же причине
+    исчезнувшая учётка немедленно перестаёт пускать.
+    """
+    # ⚠️ Ни одна ветка ниже не выдаёт человека без ПРОВЕРЕННОЙ подписи. Первая
+    # версия этой функции возвращала директора сразу, когда auth.json нет
+    # (облачный режим по ADMIN_KEY), — и открывала журнал вообще всем, потому
+    # что _guard спрашивает именно её. Поймали тесты «без входа не отдаётся».
+    if not _secret():
+        return None                    # проверять нечем — решение за _guard
+    raw = request.cookies.get("admin_auth", "")
+    if not raw:
+        return None
+    rec = _pin_rec()
+    users = _users(rec)
+    parts = raw.split(".")
+    if len(parts) == 4:
+        uid, role, sid, sig = parts
+        if not hmac.compare_digest(sig, _cookie_sig(uid, role, sid)):
+            return None
+        if rec is None:
+            return _as_user({"id": uid, "role": role})   # облако: людей нет
+        found = next((u for u in users if u.get("id") == uid), None)
+        if found is None or str(found.get("sid") or "") != sid:
+            return None            # учётку удалили или сменили ей пароль
+        return _as_user(found)
+    # старая кука без имени: она могла появиться только у того, кто знал PIN
+    # единственного тогда пользователя. Как только их стало больше, она уже не
+    # говорит, КТО это, и перестаёт годиться — человек перевойдёт один раз.
+    if hmac.compare_digest(raw, _cookie_sig()):
+        if rec is None:
+            return _as_user({"id": "admin", "role": ROLE_DIRECTOR})
+        if len(users) == 1:
+            return _as_user(users[0])
+    return None
+
+
+# Кто в ЭТОМ запросе — на время запроса. Каркас страницы (сайдбар, верхний
+# угол) рисуется глубоко внутри и запроса не видит, а протаскивать пользователя
+# через полтора десятка вызовов `_shell` значило бы, что забытый вызов молча
+# покажет врачу чужое меню. Ставится один раз посредником в main.py.
+# ⚠️ Это ТОЛЬКО для показа. Решение «пускать или нет» принимает require(),
+# которому запрос передан явно.
+_REQ_USER: contextvars.ContextVar = contextvars.ContextVar("dp_user", default=None)
+
+
+def set_request_user(u: dict | None) -> None:
+    _REQ_USER.set(u)
+
+
+def request_user() -> dict | None:
+    return _REQ_USER.get()
+
+
+def _as_user(u: dict) -> dict:
+    role = u.get("role") or ROLE_DIRECTOR
+    return {"id": u.get("id", "clinic"), "role": role,
+            "name": u.get("name") or ROLE_LABEL.get(role, u.get("id", "")),
+            "doctor_id": u.get("doctor_id", "")}
 
 
 def _guard(request: Request) -> RedirectResponse | None:
@@ -125,14 +238,103 @@ def _guard(request: Request) -> RedirectResponse | None:
             # desktop без PIN — принудительная первичная установка
             return RedirectResponse("/admin/setup", status_code=303)
         return None  # облачный демо-режим без ключа
-    if hmac.compare_digest(request.cookies.get("admin_auth", ""), _cookie_sig()):
+    if current_user(request) is not None:
         return None
     q = str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
     return RedirectResponse(
         f"/admin/login?next={urllib.parse.quote(q, safe='')}", status_code=303)
 
 
-def verify_pin(pin: str) -> dict | None:
+def require(request: Request, perm: str) -> RedirectResponse | None:
+    """Охрана раздела по праву: сперва вход, потом разрешение.
+
+    ⚠️ Звать в КАЖДОМ маршруте раздела, включая POST-ы. Спрятанный пункт меню —
+    это не защита: адрес набирается руками, а форма отправляется из чего угодно.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    if can(current_user(request), perm):
+        return None
+    return RedirectResponse("/admin?msg=no_access", status_code=303)
+
+
+def _secret_fields(pin: str) -> dict:
+    """Хеш пароля + новая метка сессий: смена пароля обязана закрывать открытые
+    вкладки ИМЕННО этого человека."""
+    salt = secrets.token_hex(16)
+    return {"kdf": KDF, "iter": KDF_ITER, "salt": salt,
+            "hash": _derive(pin, salt), "sid": secrets.token_hex(8)}
+
+
+def _save_users(users: list[dict], *, rotate: bool) -> None:
+    rec = _pin_rec() or {}
+    key = rec.get("cookie_key") or ""
+    if rotate or not key:
+        key = secrets.token_hex(32)
+    _auth_path().write_text(
+        json.dumps({"v": 2, "cookie_key": key, "users": users}, indent=1),
+        encoding="utf-8")
+
+
+def all_users() -> list[dict]:
+    return [_as_user(u) for u in _users(_pin_rec())]
+
+
+def find_user(uid: str) -> dict | None:
+    """СЫРАЯ запись сотрудника — вместе с `sid`, который нужен _set_auth_cookie.
+    Наружу для показа берут all_users(): там уже без секретов."""
+    return next((u for u in _users(_pin_rec()) if u.get("id") == uid), None)
+
+
+def n_directors(excluding: str = "") -> int:
+    """Сколько директоров останется, если не считать этого. Клиника обязана
+    сохранить хотя бы одного: иначе настройки и деньги закроются НАВСЕГДА —
+    некому будет выдать право обратно."""
+    return sum(1 for u in _users(_pin_rec())
+               if (u.get("role") or ROLE_DIRECTOR) == ROLE_DIRECTOR
+               and u.get("id") != excluding)
+
+
+def pin_free(pin: str, except_uid: str = "") -> bool:
+    """Не занят ли пароль другим сотрудником.
+
+    Вход возможен по одному лишь паролю (регистратура набирает его десятки раз
+    в день, и требовать ещё и логин — это трение на ровном месте). Значит
+    пароль ОБЯЗАН определять человека однозначно: два одинаковых, и журнал
+    доступа начнёт называть чужое имя.
+    """
+    for u in _users(_pin_rec()):
+        if u.get("id") == except_uid:
+            continue
+        got = _derive(pin, u.get("salt", ""), u.get("kdf", KDF),
+                      int(u.get("iter") or KDF_ITER))
+        if u.get("hash") and hmac.compare_digest(got, u["hash"]):
+            return False
+    return True
+
+
+def save_user(uid: str, *, name: str, role: str, doctor_id: str = "",
+              pin: str | None = None) -> None:
+    """Завести или поправить сотрудника. Ключ подписи НЕ вращаем: правка одной
+    учётки не должна выкидывать из журнала всех остальных посреди приёма."""
+    rec = _pin_rec()
+    old = next((u for u in _users(rec) if u.get("id") == uid), {})
+    rest = [u for u in _users(rec) if u.get("id") != uid]
+    u = {**old, "id": uid, "role": role, "name": name, "doctor_id": doctor_id}
+    if pin:
+        u.update(_secret_fields(pin))
+    _save_users(rest + [u], rotate=False)
+
+
+def delete_user(uid: str) -> bool:
+    rest = [u for u in _users(_pin_rec()) if u.get("id") != uid]
+    if len(rest) == len(_users(_pin_rec())):
+        return False
+    _save_users(rest, rotate=False)
+    return True
+
+
+def verify_pin(pin: str, uid: str = "") -> dict | None:
     """Проверить PIN, вернуть запись вошедшего (None — не подошёл).
 
     Файл v1 при удачной проверке молча переписывается в v2 — другого момента
@@ -143,29 +345,34 @@ def verify_pin(pin: str) -> dict | None:
     """
     rec = _pin_rec()
     for u in _users(rec):
+        if uid and u.get("id") != uid:
+            continue          # логин указан явно — сверяем только с ним
         want = u.get("hash", "")
         got = _derive(pin, u.get("salt", ""), u.get("kdf", KDF),
                       int(u.get("iter") or KDF_ITER))
         if want and hmac.compare_digest(got, want):
-            if u.get("kdf") != KDF:
+            if u.get("kdf") != KDF or not u.get("sid"):
+                # заодно чиним запись без sid: до ролей его не было, а без него
+                # именная кука не отличит «пароль сменили» от «не меняли»
                 _write_pin(pin, role=u.get("role", ROLE_DIRECTOR),
                            uid=u.get("id", "clinic"))
+                return next((x for x in _users(_pin_rec())
+                             if x.get("id") == u.get("id", "clinic")), u)
             return u
     return None
 
 
 def _write_pin(pin: str, role: str = ROLE_DIRECTOR, uid: str = "clinic") -> None:
-    salt = secrets.token_hex(16)
-    users = [u for u in _users(_pin_rec()) if u.get("id") != uid]
-    users.append({"id": uid, "role": role, "kdf": KDF, "iter": KDF_ITER,
-                  "salt": salt, "hash": _derive(pin, salt)})
-    _auth_path().write_text(json.dumps({
-        "v": 2,
-        # ключ подписи меняется вместе с PIN: смена PIN обязана разлогинивать
-        # чужие открытые вкладки, иначе она не защищает ровно ни от чего
-        "cookie_key": secrets.token_hex(32),
-        "users": users,
-    }, indent=1), encoding="utf-8")
+    """Смена СВОЕГО пароля: пишет хеш и ВРАЩАЕТ ключ подписи, то есть закрывает
+    все открытые сессии клиники. Для смены PIN это правильно — его меняют
+    тогда, когда он утёк. Заведение и правку чужих учёток делает save_user,
+    она чужую работу не прерывает."""
+    rec = _pin_rec()
+    old = next((u for u in _users(rec) if u.get("id") == uid), {})
+    rest = [u for u in _users(rec) if u.get("id") != uid]
+    # {**old, ...} — чтобы смена пароля не стирала имя, роль и привязку к врачу
+    _save_users(rest + [{**old, **_secret_fields(pin), "id": uid, "role": role}],
+                rotate=True)
 
 
 def _setup_allowed() -> bool:

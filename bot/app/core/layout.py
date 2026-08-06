@@ -16,7 +16,7 @@ from datetime import date, datetime
 from .. import brand, db, paths
 from .. import engine as eng
 from .. import update as upd
-from .auth import _sec_warn
+from .auth import PERM_MONEY, PERM_SETTINGS, ROLE_LABEL, _sec_warn, can, request_user
 
 FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
 
@@ -103,6 +103,16 @@ MSG_BANNER = {
                         "Dacă este altă persoană (numărul familiei), adăugați-o cu alt "
                         "număr sau fără număr"),
     "bad_pat": ("err", "Lipsește numele pacientului"),
+    "no_access": ("err", "Secțiunea este rezervată directorului clinicii. "
+                         "Dacă aveți nevoie de acces, cereți-i să vă schimbe rolul "
+                         "în Setări → Utilizatori"),
+    "ok_user": ("ok", "Utilizator salvat ✔"),
+    "bad_user": ("err", "Date invalide — verificați numele, rolul și parola (4–6 cifre)"),
+    "dup_user": ("err", "Parola este deja folosită de alt utilizator — alegeți alta. "
+                        "Intrarea se face doar cu parola, deci ea trebuie să fie unică"),
+    "last_dir": ("err", "Trebuie să rămână cel puțin un director — altfel nimeni nu mai "
+                        "poate deschide Setările și nu are cine să dea drepturi înapoi"),
+    "self_user": ("err", "Nu vă puteți șterge propriul cont — cereți altui director"),
     "ok_doc": ("ok", "Document încărcat ✔ — rămâne local, în folderul programului"),
     "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
     "ok_med": ("ok", "Datele medicului au fost salvate ✔"),
@@ -222,9 +232,21 @@ def _setup_hint() -> str:
 
 
 def _sidebar(active: str) -> str:
+    # Пункт, которого человеку нельзя, не рисуется. ⚠️ Это удобство, а НЕ
+    # защита: отказ выдаёт require() в самом маршруте, потому что адрес
+    # набирается руками, а форма отправляется откуда угодно.
+    me = request_user()
+    show_money = can(me, PERM_MONEY) or me is None
+    show_set = can(me, PERM_SETTINGS) or me is None
+
     def item(key: str, href: str, icon: str, label: str, extra: str = "") -> str:
         on = " on" if key == active else ""
-        return (f"<a class='{on.strip()}' href='{href}' title='{label}'>{_ic(icon)}"
+        # href='' — строка без ссылки: так «Telegram Bot» остаётся у того, кому
+        # настройки закрыты. Точка «бот жив» нужна и регистратуре (перестал
+        # работать — перестали приходить записи), а вот сама страница ей
+        # запрещена, и кнопка в отказ хуже, чем просто индикатор.
+        link = f" href='{href}'" if href else ""
+        return (f"<a class='{on.strip()}'{link} title='{label}'>{_ic(icon)}"
                 f"<span>{label}</span>{extra}</a>")
 
     tg_on, tg_user = _tg_state()
@@ -240,10 +262,10 @@ def _sidebar(active: str) -> str:
     {item('prog', '/admin/all', 'cal', 'Programări')}
     {item('pat', '/admin/search', 'pat', 'Pacienți')}
     {item('med', '/admin/medici', 'med', 'Medici')}
-    {item('stat', '/admin/stats', 'stat', 'Statistici')}
-    {item('set', '/admin/settings', 'set', 'Setări')}
+    {item('stat', '/admin/stats', 'stat', 'Statistici') if show_money else ''}
+    {item('set', '/admin/settings', 'set', 'Setări') if show_set else ''}
     <div class="sec">Sincronizări</div>
-    {item('tg', '/admin/settings', 'bot', 'Telegram Bot', tg_dot)}
+    {item('tg', '/admin/settings' if show_set else '', 'bot', 'Telegram Bot', tg_dot)}
     {item('qr', '/admin/qr-print', 'qr', 'QR pacienți')}
   </nav>
   <div class="sfoot" title="Telegram: {html.escape(tg_title)}">v{eng.APP_VERSION} · <span id="sf_clock"></span></div>
@@ -268,7 +290,27 @@ def _topbar(bell: int | None) -> str:
   <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
   {bell_html}
   <a class="newbtn" href="/admin/all?date={today}#addform">＋ Programare nouă</a>
+  {_who_chip()}
 </div>"""
+
+
+def _who_chip() -> str:
+    """Кто сидит за журналом — правый верхний угол.
+
+    Появился только вместе с настоящими учётками (08-06). До них аватар с
+    должностью был бы витриной: за ним не стояло ни одного пользователя, и
+    «Director» на экране означал ровно ничего.
+    """
+    me = request_user()
+    if not me:
+        return ""
+    role = ROLE_LABEL.get(me["role"], me["role"])
+    return (f"<div class='who' title='{html.escape(me['name'])} · {role}'>"
+            f"<span class='who-av'>{html.escape(_initials(me['name']))}</span>"
+            f"<div class='who-n'><b>{html.escape(me['name'])}</b>"
+            f"<small>{role}</small></div>"
+            f"<a class='who-out' href='/admin/logout' title='Ieșire din cont'>⏻</a>"
+            f"</div>")
 
 
 def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -> str:
