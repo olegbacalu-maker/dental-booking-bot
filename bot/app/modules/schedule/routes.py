@@ -304,6 +304,88 @@ def _mini_cal(sel: date, base: str = "/admin") -> str:
   {''.join(weeks)}</table></div>"""
 
 
+SPARK_DAYS = 14
+
+
+def _spark(series: list[int], tone: str) -> str:
+    """Мини-график за две недели прямо в плитке KPI.
+
+    Без осей, подписей и библиотек: у него ровно одна задача — отличить тренд
+    от случайного дня. Нормируется по СВОЕМУ максимуму, а не по общему на все
+    плитки: 24 записи и 2 неявки на одной шкале дали бы прямую под потолком и
+    прямую по полу, то есть ничего.
+
+    Ширина 100% + preserveAspectRatio='none' — график тянется под плитку; чтобы
+    линию при этом не растягивало в кисель, у неё non-scaling-stroke.
+    """
+    if not series:
+        return ""
+    w, h, pad = 100.0, 26.0, 3.0
+    # две недели нулей — это ПРЯМАЯ ПО ПОЛУ, а не пустое место: иначе плитка
+    # «Urgențe» в спокойной клинике вечно ниже соседних, и ряд плиток рябит
+    top = max(series) or 1
+    step = w / max(len(series) - 1, 1)
+    pts = " ".join(
+        f"{i * step:.1f},{h - pad - (h - 2 * pad) * (v / top):.1f}"
+        for i, v in enumerate(series))
+    return (f"<svg class='spark' viewBox='0 0 {w:.0f} {h:.0f}' width='100%' height='{h:.0f}' "
+            f"preserveAspectRatio='none' aria-hidden='true'>"
+            f"<polygon class='sp-a' points='0,{h:.0f} {pts} {w:.0f},{h:.0f}' "
+            f"style='fill:{tone}'/>"
+            f"<polyline class='sp-l' points='{pts}' vector-effect='non-scaling-stroke' "
+            f"style='stroke:{tone}'/></svg>")
+
+
+# бейдж строки повестки: тот же компонент, что в списке пациентов (.pl-badge) —
+# один вид состояния на всю программу, а не свой значок на каждом экране
+_AG_BADGE = {
+    "confirmed": ("act", "Confirmat"),
+    "arrived": ("trt", "În cabinet"),
+    "done": ("off", "Finalizat"),
+    "noshow": ("bad", "Absent"),
+}
+
+
+def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
+    """«Agenda de azi» — тот же день, но списком и по времени.
+
+    Сетка отвечает «кто когда свободен», список — «что дальше». Соседний блок
+    «Programări noi din bot» её НЕ заменяет и не заменяется ею: тот отсортирован
+    по времени СОЗДАНИЯ и ловит бронь на неделю вперёд, невидимую в дневных
+    видах (урок полевого демо 07-31).
+    """
+    items = sorted((r for r in rows
+                    if r["status"] != "cancelled" and r["source"] != "note"),
+                   key=lambda r: r["starts_at"])
+    if not items:
+        return ("<div class='agenda'><div class='ag-h'><b>Agenda zilei</b></div>"
+                "<p class='hint' style='margin:0'>— nicio programare —</p></div>")
+    out = []
+    for r in items:
+        st = r["starts_at"].astimezone(eng.TZ)
+        end = st + timedelta(minutes=int(r.get("duration_min") or 60))
+        urgent = r["service"] in eng.URGENT_LABELS and r["status"] == "confirmed"
+        cls, label = ("bad", "Urgent") if urgent else _AG_BADGE.get(
+            r["status"], ("off", r["status"]))
+        _bg, bar = _svc_colors(r)
+        # прошедшее приглушается только на СЕГОДНЯ: в чужом дне «прошло» не
+        # значит ничего, а тусклый список читался бы как отменённый
+        past = " past" if d == now.date() and end <= now else ""
+        click = (f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else "")
+        out.append(
+            f"<div class='ag-i{past}' data-appt='{r['id']}' "
+            f"style='border-left-color:{bar}'{click}>"
+            f"<span class='ag-t'>{st.strftime('%H:%M')}</span>"
+            f"<div class='ag-b'><b>{html.escape(r['name'] or '—')}</b>"
+            f"<small>{html.escape(r['service'])}</small></div>"
+            f"<span class='pl-badge {cls}'>{label}</span></div>")
+    return (f"<div class='agenda'><div class='ag-h'><b>Agenda zilei</b>"
+            f"<span>{len(items)} programări</span></div>"
+            f"<div class='ag-l'>{''.join(out)}</div>"
+            f"<a class='ag-all' href='/admin/all?date={d.isoformat()}'>"
+            f"Vezi toate programările →</a></div>")
+
+
 def _day_canvas(d: date, rows: list, cards: dict) -> str:
     """Дневная сетка-канва: колонки врачей, блоки записей цветом по типу, линия «сейчас».
     Показывает ВСЁ не-отменённое: записи вне текущего графика (часы/обед поменяли
@@ -372,7 +454,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                        f"left:calc({j}*(100% - 8px)/{n} + 4px);"
                        f"width:calc((100% - 8px)/{n} - 2px)")
                 if r["source"] == "note":
-                    out.append(f"<div class='gappt gnote' style='{pos}'>"
+                    out.append(f"<div class='gappt gnote' data-appt='{r['id']}' "
+                               f"style='{pos}'>"
                                f"<b>📝 {html.escape(r['service'][:40])}</b></div>")
                     continue
                 bg, bar = _svc_colors(r)
@@ -384,7 +467,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 click = f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else ""
                 dur = int(r.get("duration_min") or 60)
                 out.append(
-                    f"<div class='gappt{ns}' style='{pos};"
+                    f"<div class='gappt{ns}' data-appt='{r['id']}' style='{pos};"
                     f"background:{bg};border-left:3px solid {bar}'{click}>"
                     f"<span class='stt'>{ico}</span>"
                     f"<b>{html.escape(r['name'] or '—')} {src}</b>"
@@ -451,6 +534,16 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         av = (f"<img src='/admin/doctor-photo/{urllib.parse.quote(dk)}"
               f"?v={urllib.parse.quote(pp.name)}' alt=''>" if pp
               else html.escape(_initials(name)))
+        # Загрузка кресла: занятые минуты / рабочие минуты врача В ЭТОТ ДЕНЬ.
+        # Формула ровно та же, что в статистике за период, и ёмкость берётся у
+        # того же eng.work_minutes — иначе дашборд и раздел «Statistici»
+        # показывали бы разный процент про одного и того же врача.
+        cap = eng.work_minutes(dk, d)
+        busy = sum(int(r.get("duration_min") or 60) for r in mine)
+        pct = round(100 * busy / cap) if cap else 0
+        occ = (f"<div class='occ' title='{busy} din {cap} minute de lucru'>"
+               f"<div class='statbar'><div style='width:{min(pct, 100)}%'></div></div>"
+               f"<b>{pct}%</b></div>" if cap else "")
         head.append(
             f"<div class='gh-doc'><div class='dcard{'' if not off else ' off'}' "
             f"style='border-left-color:{hue}'>"
@@ -458,7 +551,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
             f"<div class='nm'><a href='/admin/doctor/{dk}?date={d.isoformat()}' "
             f"title='{html.escape(extra)}'>{html.escape(name)}</a>"
             f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, '')) or '&nbsp;'}{off}</small>"
-            f"<small class='mt'>{len(mine)} prog. · {liber}</small></div>"
+            f"<small class='mt'>{len(mine)} prog. · {liber}</small>{occ}</div>"
             f"<span class='st' style='background:{dot}' title='{liber}'></span></div></div>")
         cols.append(f"<div class='gcol'>{_cells(dk, name)}{_blocks(col_key)}</div>")
 
@@ -517,8 +610,11 @@ window.addEventListener('resize', fitGrid);
     # это отдельная полоса карточек над расписанием. Ширины те же (56px под
     # колонку времени + flex:1 на врача), поэтому карточка стоит ровно над
     # своей колонкой — выравнивание держится само.
+    # data-day — ключ, по которому panel.js помнит, какие записи уже видели:
+    # без него переход на завтра подсветил бы весь день как «только что пришло»
     return (f"{''.join(head)}<div class='gridcard'>"
-            f"<div class='gridbody'><div class='gcol-time'>{timecol}</div>"
+            f"<div class='gridbody' data-day='{d.isoformat()}'>"
+            f"<div class='gcol-time'>{timecol}</div>"
             f"{''.join(cols)}{nowline}</div></div>{fit_js}")
 
 
@@ -553,8 +649,15 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         return deny
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
-    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
-    yrows = await db.day_appointments(day_start - timedelta(days=1), day_start)
+    # Две недели одним запросом вместо «сегодня» + «вчера» двумя: из этой же
+    # выборки берутся и день, и вчера, и ряды для мини-графиков в плитках.
+    span = [d - timedelta(days=SPARK_DAYS - 1 - i) for i in range(SPARK_DAYS)]
+    all_rows = await db.day_appointments(
+        day_start - timedelta(days=SPARK_DAYS - 1), day_start + timedelta(days=1))
+    by_day: dict = {x: [] for x in span}
+    for r in all_rows:
+        by_day.setdefault(r["starts_at"].astimezone(eng.TZ).date(), []).append(r)
+    rows = by_day[d]
 
     def _counts(rr: list) -> tuple[int, int, int, int, int]:
         a = [r for r in rr if r["status"] != "cancelled" and r["source"] != "note"]
@@ -564,7 +667,8 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                 sum(1 for r in rr if r["status"] == "noshow"))
 
     total, n_bot, n_man, n_urg, n_noshow = _counts(rows)
-    y_total, _yb, y_man, _yu, y_noshow = _counts(yrows)
+    y_total, _yb, y_man, _yu, y_noshow = _counts(by_day[d - timedelta(days=1)])
+    series = list(zip(*(_counts(by_day[x]) for x in span)))
 
     def trend(cur: int, prev: int, bad_up: bool = False) -> str:
         diff = cur - prev
@@ -583,27 +687,31 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     day_url = f"/admin/all?date={d.isoformat()}"
     bot_sub = (f"<span class='trend'><span class='up'>{new_today} noi</span> azi</span>"
                if new_today else "<span class='trend'>nimic nou azi</span>")
-    tiles = (
-        f"<div class='tiles'>"
-        f"<a class='tile' href='{day_url}'>"
-        f"<span class='ico' style='background:var(--green-soft);color:var(--green)'>📅</span>"
-        f"<div><b>{total}</b><span>Programări azi</span>{trend(total, y_total)}</div></a>"
-        f"<a class='tile' href='{day_url}&f=bot'>"
-        f"<span class='ico' style='background:var(--teal-soft);color:var(--teal-d)'>🤖</span>"
-        f"<div><b>{n_bot}</b><span>Prin bot</span>{bot_sub}</div></a>"
-        f"<a class='tile' href='{day_url}&f=rec'>"
-        f"<span class='ico' style='background:var(--blue-soft);color:var(--blue)'>🎧</span>"
-        f"<div><b>{n_man}</b><span>Recepție</span>{trend(n_man, y_man)}</div></a>"
-        f"<a class='tile warn' href='{day_url}&f=urg'>"
-        f"<span class='ico' style='background:var(--amber-soft);color:var(--amber)'>⏰</span>"
-        f"<div><b>{n_urg}</b><span>Urgențe</span>"
-        f"<span class='trend'>intercalate azi</span></div></a>"
-        f"<a class='tile bad' href='{day_url}&f=noshow'>"
-        f"<span class='ico' style='background:var(--red-soft);color:var(--red)'>🚫</span>"
-        f"<div><b>{n_noshow}</b><span>Neprezentări</span>"
-        f"{trend(n_noshow, y_noshow, bad_up=True)}</div></a>"
-        f"</div>"
-    )
+    def _kpi(href: str, ico: str, soft: str, tone: str, val: int, label: str,
+             sub: str, ser, cls: str = "") -> str:
+        """Плитка KPI. data-count оживляет цифру при открытии (panel.js), ряд за
+        две недели рисуется тут же мини-графиком. Класс `sp` включает второй
+        ряд внутри плитки — БЕЗ него разметка та же, что была, и плитки
+        статистики, у которых графика нет, остаются нетронутыми."""
+        return (f"<a class='tile sp{cls}' href='{href}'>"
+                f"<span class='ico' style='background:{soft};color:{tone}'>{ico}</span>"
+                f"<div><b data-count='{val}'>{val}</b><span>{label}</span>{sub}</div>"
+                f"{_spark(list(ser), tone)}</a>")
+
+    tiles = ("<div class='tiles'>"
+             + _kpi(day_url, "📅", "var(--green-soft)", "var(--green)",
+                    total, "Programări azi", trend(total, y_total), series[0])
+             + _kpi(f"{day_url}&amp;f=bot", "🤖", "var(--teal-soft)", "var(--teal-d)",
+                    n_bot, "Prin bot", bot_sub, series[1])
+             + _kpi(f"{day_url}&amp;f=rec", "🎧", "var(--blue-soft)", "var(--blue)",
+                    n_man, "Recepție", trend(n_man, y_man), series[2])
+             + _kpi(f"{day_url}&amp;f=urg", "⏰", "var(--amber-soft)", "var(--amber)",
+                    n_urg, "Urgențe", "<span class='trend'>intercalate azi</span>",
+                    series[3], cls=" warn")
+             + _kpi(f"{day_url}&amp;f=noshow", "🚫", "var(--red-soft)", "var(--red)",
+                    n_noshow, "Neprezentări", trend(n_noshow, y_noshow, bad_up=True),
+                    series[4], cls=" bad")
+             + "</div>")
 
     cards = _collect_cards(rows)
     back = f"/admin?date={d.isoformat()}"
@@ -620,7 +728,8 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
             + _day_canvas(d, rows, cards)
             + "<p class='hint'>Click pe o programare — detalii și statusuri; click pe un slot liber — programare nouă sau notiță. Programările prin bot apar automat.</p>"
             + "</div><div class='rail'>"
-            + _mini_cal(d) + _botnew_block(recent, now) + sync
+            + _mini_cal(d) + _agenda_block(d, rows, cards, now)
+            + _botnew_block(recent, now) + sync
             + "</div></div>"
             + _slot_modal(d, back) + _card_modal(cards, back))
     return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat",

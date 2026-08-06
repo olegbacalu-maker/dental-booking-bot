@@ -48,6 +48,56 @@ setInterval(function () {
   if (a && a.closest && a.closest('form')) return;    // любой ввод в форме
   if (!a || (a.tagName !== 'INPUT' && a.tagName !== 'SELECT' &&
              a.tagName !== 'TEXTAREA' && a.tagName !== 'BUTTON')) {
+    /* метка для скрипта в шапке: следующая загрузка — НЕ приход человека, а
+       наш собственный опрос. Иначе цифры оживали бы каждые 12 секунд. */
+    try { sessionStorage.setItem('dp_auto', '1'); } catch (e) { /* приватный режим */ }
     location.reload();
   }
 }, 12000);
+
+/* KPI: цифра не появляется готовой, а вырастает от нуля.
+   Оформление уже держит её невидимой первые 0.3 с (.anim ... dp-fade), поэтому
+   подмена текста на «0» не мигает; если скрипт почему-то не отработал, цифра
+   просто проявится настоящей — экран не остаётся пустым. */
+(function () {
+  if (!document.documentElement.classList.contains('anim')) return;
+  var els = document.querySelectorAll('[data-count]');
+  for (var i = 0; i < els.length; i++) {
+    (function (el) {
+      var to = parseInt(el.getAttribute('data-count'), 10);
+      if (!to || to < 2) return;               // нулю и единице расти неоткуда
+      var t0 = 0;
+      el.textContent = '0';
+      requestAnimationFrame(function step(ts) {
+        if (!t0) t0 = ts;
+        var p = Math.min((ts - t0) / 620, 1);
+        el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3)));
+        if (p < 1) requestAnimationFrame(step);
+      });
+    })(els[i]);
+  }
+})();
+
+/* Запись, приехавшая ПОКА СМОТРЯТ НА ЭКРАН, подсвечивается.
+   Это единственная анимация, которая живёт как раз на автоперезагрузке: если
+   бронь из бота просто появляется между двумя кадрами, её никто не замечает —
+   а это ровно то событие, ради которого журнал висит открытым на стойке.
+   Сравниваем по id с тем, что было видно в прошлый раз; набор помним ПО ДНЮ,
+   иначе переход на завтра красит весь день как новый. */
+(function () {
+  var grid = document.querySelector('[data-day]');
+  if (!grid) return;
+  var key = 'dp_seen_' + grid.getAttribute('data-day');
+  var now = [];
+  var items = document.querySelectorAll('[data-appt]');
+  for (var i = 0; i < items.length; i++) now.push(items[i].getAttribute('data-appt'));
+  var seen = null;
+  try { seen = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (e) { seen = null; }
+  try { sessionStorage.setItem(key, JSON.stringify(now)); } catch (e) { /* приватный режим */ }
+  if (!seen) return;              // первый показ дня: новым является всё — не мигаем
+  for (var j = 0; j < items.length; j++) {
+    if (seen.indexOf(items[j].getAttribute('data-appt')) < 0) {
+      items[j].classList.add('fresh');
+    }
+  }
+})();

@@ -22,9 +22,18 @@
       рамок и иконок, но как ТЕКСТ на белом дают ~2:1 — читаемость важнее */
    --amber-t:#B45309;--red-t:#B91C1C;--green-t:#047857;
    --r-card:18px;--r-ctl:12px;--h-ctl:44px;
-   --sh:0 2px 6px rgba(15,23,42,.04);
-   --sh2:0 8px 24px rgba(15,23,42,.06);
-   --sh3:0 18px 40px rgba(15,23,42,.08)}
+   /* Тени ДВУХСЛОЙНЫЕ (08-06, приём Stripe): ближний слой в 1-3px ставит
+      карточку на фон и рисует кромку, дальний даёт глубину. Одним слоем то же
+      самое выходит либо грязным (тёмный ореол вокруг светлой карточки), либо
+      плоским. Уровни: --sh покой, --sh2 наведение на мелкое, --sh3 поднятая
+      карточка и всплывающее, --sh-t фирменная кнопка (контакт + свечение).
+      ⭐ Держать их ЗДЕСЬ, а не по месту: пока половина теней была зашита в
+      правила, «поднятая» карточка оставалась однослойной и на глаз падала
+      обратно в плоскость ровно в тот момент, когда должна была всплыть. */
+   --sh:0 1px 2px rgba(15,23,42,.05),0 3px 10px rgba(15,23,42,.04);
+   --sh2:0 2px 4px rgba(15,23,42,.05),0 10px 26px rgba(15,23,42,.07);
+   --sh3:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
+   --sh-t:0 1px 2px rgba(15,23,42,.10),0 8px 20px rgba(14,159,138,.26)}
  *{box-sizing:border-box}
  body{font-family:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
    background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh;
@@ -72,7 +81,7 @@
  .top .newbtn{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 18px;
    border-radius:var(--r-ctl);background:var(--teal);color:#fff;font-size:14px;font-weight:600;
    text-decoration:none;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .top .newbtn:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+ .top .newbtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
    transform:translateY(-1px)}
  .top .newbtn:active{transform:translateY(0)}
  .content{padding:24px 24px 60px;max-width:1500px}
@@ -115,7 +124,7 @@
    align-items:flex-start}
  a.tile{text-decoration:none;color:inherit;
    transition:box-shadow .25s ease,transform .25s ease,border-color .2s ease}
- a.tile:hover{box-shadow:0 12px 32px rgba(15,23,42,.08);transform:translateY(-2px)}
+ a.tile:hover{box-shadow:var(--sh3);transform:translateY(-2px)}
  .tile .ico{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;
    justify-content:center;font-size:18px;flex:0 0 44px}
  .tile b{display:block;font-size:26px;font-weight:600;line-height:1.1}
@@ -125,6 +134,14 @@
  .tile .trend .dn{color:var(--red-t);font-weight:600}
  .tile.warn b{color:var(--amber-t)}
  .tile.bad b{color:var(--red-t)}
+ /* Плитка с мини-графиком. Модификатор, а НЕ правка .tile: те же плитки стоят
+    в «Statistici» без графика, и смена базовой раскладки положила бы там
+    подпись сбоку от числа (долг разметки, уже словленный однажды). */
+ .tile.sp{flex-wrap:wrap;row-gap:9px}
+ .tile.sp .spark{flex:0 0 100%;margin-bottom:-4px}
+ .spark{display:block;overflow:visible}
+ .spark .sp-a{opacity:.13}
+ .spark .sp-l{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
  /* ---------- дневная сетка (canvas) ---------- */
  .dash{display:flex;gap:16px;align-items:flex-start}
  .dashmain{flex:1;min-width:0}
@@ -154,6 +171,12 @@
  .gh-doc .nm small.mt{color:var(--text3);font-size:11px}
  .gh-doc .st{width:8px;height:8px;border-radius:50%;flex:0 0 8px;align-self:flex-start;
    margin-top:3px}
+ /* загрузка кресла: та же .statbar, что в «Statistici» — один компонент на
+    программу, поэтому процент на дашборде и в отчёте нельзя развести случайно */
+ .gh-doc .occ{display:flex;align-items:center;gap:7px;margin-top:5px}
+ .gh-doc .occ .statbar{flex:1;min-width:0;height:6px}
+ .gh-doc .occ .statbar div{height:6px}
+ .gh-doc .occ b{font-size:11px;font-weight:600;color:var(--text2);flex:0 0 auto}
  /* Плотный режим — когда карточка становится узкой: >4 врачей (класс ставит
     сервер, он один знает их число) или окно уже 1440px (у клиники это 1366×768,
     там на карточку остаётся ~170px). Специализация уходит первой — её роль берёт
@@ -186,6 +209,10 @@
  .gcell.off{cursor:default;background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
  .gcell.off:hover{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
  .gcell.off:hover::after{content:''}
+ /* ⚠️ блок записи — единственная тень, намеренно ОСТАВЛЕННАЯ однослойной:
+    их на дневной сетке бывает под тридцать, и страница перерисовывается каждые
+    12 секунд. Двухслойная тень здесь стоит кадров, а не выглядит дороже.
+    Всплытие при наведении честное — там уже --sh2. */
  .gappt{position:absolute;left:4px;right:4px;border-radius:9px;padding:5px 8px;overflow:hidden;
    font-size:11.5px;line-height:1.35;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06);z-index:2}
  .gappt:hover{box-shadow:var(--sh2)}
@@ -259,13 +286,16 @@
  .savebtn{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 26px;font-size:14px;font-weight:600;cursor:pointer;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .savebtn:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+ .savebtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
    transform:translateY(-1px)}
  .savebtn:hover{background:var(--teal-d)}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
  .bstat{border:none;border-radius:8px;padding:9px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%;font-weight:500}
- dialog{border:none;border-radius:16px;box-shadow:0 12px 40px rgba(16,24,40,.22);padding:0;width:430px;max-width:95vw}
+ /* модалка стоит над затемнением, поэтому её тень намеренно сильнее --sh3:
+    на приглушённом фоне слабая тень не читается вовсе */
+ dialog{border:none;border-radius:16px;padding:0;width:430px;max-width:95vw;
+   box-shadow:0 4px 8px rgba(16,24,40,.10),0 24px 56px rgba(16,24,40,.24)}
  dialog::backdrop{background:rgba(15,23,42,.4)}
  .dlg-head{background:var(--panel);color:var(--text);padding:13px 16px;font-weight:600;font-size:14.5px;
    display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
@@ -294,7 +324,7 @@
  form.add button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 20px;cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- form.add button:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+ form.add button:hover{background:var(--teal-d);box-shadow:var(--sh-t);
    transform:translateY(-1px)}
  form.add button:active{transform:translateY(0)}
  table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
@@ -364,7 +394,7 @@
  .tooth-btn .num{font-size:11.5px;font-weight:600;color:var(--text2);
    transition:color .2s ease}
  .tooth-btn:hover{background:var(--teal-soft);transform:translateY(-3px) scale(1.04);
-   box-shadow:0 10px 24px rgba(15,23,42,.10)}
+   box-shadow:var(--sh3)}
  .tooth-btn:hover .num{color:var(--teal-d)}
  .tooth-btn.sel{background:var(--teal-soft);box-shadow:inset 0 0 0 2px var(--teal)}
  .tooth-btn.sel .num{color:var(--teal-d)}
@@ -423,7 +453,7 @@
  .fform button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .fform button:hover{background:var(--teal-d);box-shadow:0 6px 16px rgba(14,159,138,.22);
+ .fform button:hover{background:var(--teal-d);box-shadow:var(--sh-t);
    transform:translateY(-1px)}
  .fform button:active{transform:translateY(0)}
  .fform .r2{display:flex;gap:9px}
@@ -451,7 +481,8 @@
    padding:24px 28px;box-shadow:var(--sh);margin-bottom:16px}
  .hero-av{width:92px;height:92px;flex:0 0 92px;border-radius:24px;background:var(--teal);
    color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;
-   font-weight:600;box-shadow:0 12px 24px rgba(14,159,138,.22)}
+   /* аватар 92px — свечение шире кнопочного --sh-t, иначе теряется под ним */
+   font-weight:600;box-shadow:0 2px 4px rgba(15,23,42,.10),0 14px 30px rgba(14,159,138,.26)}
  .hero-id{flex:1;min-width:260px}
  .hero-id h2{font-size:34px;font-weight:600;letter-spacing:-.03em;margin:0;line-height:1.15}
  .hero-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--text2);margin-top:6px}
@@ -482,7 +513,7 @@
  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;
    display:flex;gap:14px;align-items:center;
    transition:transform .2s ease,box-shadow .2s ease}
- .kpi:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(15,23,42,.08)}
+ .kpi:hover{transform:translateY(-2px);box-shadow:var(--sh3)}
  .kpi .ki{width:42px;height:42px;flex:0 0 42px;border-radius:13px;display:flex;
    align-items:center;justify-content:center;font-size:18px;background:var(--teal-soft)}
  .kpi b{display:block;font-size:22px;font-weight:600;line-height:1.15}
@@ -528,7 +559,7 @@
  .doccard{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
    background:var(--panel);text-decoration:none;color:inherit;display:flex;
    flex-direction:column;transition:transform .2s ease,box-shadow .2s ease}
- .doccard:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(15,23,42,.10)}
+ .doccard:hover{transform:translateY(-3px);box-shadow:var(--sh3)}
  .doccard .thumb{height:120px;background:var(--line2);display:flex;align-items:center;
    justify-content:center;font-size:30px;overflow:hidden}
  .doccard .thumb img{width:100%;height:100%;object-fit:cover;display:block}
@@ -590,7 +621,7 @@
  /* подсказка зуба — одна на всю дугу, летает за курсором */
  .toothtip{display:none;position:absolute;z-index:60;width:220px;border-radius:16px;
    padding:16px 18px;background:var(--panel);border:1px solid var(--line);
-   box-shadow:0 18px 40px rgba(15,23,42,.12);font-size:13px;pointer-events:none}
+   box-shadow:var(--sh3);font-size:13px;pointer-events:none}
  .toothtip b.tt-n{font-size:14.5px;font-weight:600;display:block}
  .toothtip .tt-s{color:var(--teal-d);font-weight:600;font-size:12.5px;margin:2px 0 8px}
  .toothtip .tt-d{color:var(--text2);font-size:12.5px;line-height:1.65}
@@ -671,8 +702,7 @@
    transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
  .pl-btn:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(-1px)}
  .pl-btn.primary{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:600}
- .pl-btn.primary:hover{background:var(--teal-d);color:#fff;
-   box-shadow:0 8px 20px rgba(14,159,138,.24)}
+ .pl-btn.primary:hover{background:var(--teal-d);color:#fff;box-shadow:var(--sh-t)}
  /* три числа над списком; денежной карточки в этом разделе нет намеренно */
  .pl-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
    gap:14px;margin-bottom:18px}
@@ -744,7 +774,7 @@
    transition:border-color .2s ease,background-color .2s ease,color .2s ease}
  .pl-pg:hover{border-color:var(--teal);color:var(--teal-d)}
  .pl-pg.on{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:600;
-   box-shadow:0 6px 16px rgba(14,159,138,.24)}
+   box-shadow:var(--sh-t)}
  .pl-pg.off{opacity:.4;pointer-events:none}
  .pl-gap{color:var(--text3);align-self:center}
  .pl-pag form{margin:0}
@@ -829,6 +859,69 @@
  @media print{
    .pl-bar,.pl-pag,.ppanel,.pp-veil,.pl-acts{display:none !important}
    .pl-grid{grid-template-columns:1fr}.pl-card{box-shadow:none}
+ }
+ /* ---------- «Agenda zilei»: день списком, рядом с сеткой ----------
+    Сетка отвечает «кто когда свободен», список — «что дальше». Высота
+    ограничена и прокручивается внутри: правая колонка не должна расти вслед
+    за загруженным днём и уводить календарь с экрана. */
+ .agenda{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);padding:14px 16px}
+ .ag-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+ .ag-h b{font-size:13px;font-weight:600}
+ .ag-h span{font-size:11.5px;color:var(--text3)}
+ .ag-l{max-height:320px;overflow-y:auto;margin:0 -4px;padding:0 4px}
+ .ag-i{display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:5px;
+   border-left:3px solid var(--line);border-radius:10px;background:#FAFBFD;
+   cursor:pointer;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .ag-i:hover{background:var(--panel);box-shadow:var(--sh2);transform:translateX(2px)}
+ .ag-i.past{opacity:.5}
+ .ag-t{font-size:12px;font-weight:600;color:var(--text2);flex:0 0 auto}
+ .ag-b{min-width:0;flex:1}
+ .ag-b b{display:block;font-size:12.5px;font-weight:600;white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis}
+ .ag-b small{display:block;font-size:11px;color:var(--text3);white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis}
+ .ag-i .pl-badge{font-size:10.5px;padding:4px 9px;flex:0 0 auto}
+ .pl-badge.bad{background:var(--red-soft);color:var(--red-t)}
+ .ag-all{display:block;margin-top:8px;font-size:12px;font-weight:600;
+   color:var(--teal-d);text-decoration:none}
+ .ag-all:hover{text-decoration:underline}
+ /* ---------- движение ----------
+    ВСЁ привязано к классу `anim` на <html>. Его выдаёт скрипт в шапке страницы
+    и только при осмысленном открытии: журнал перезагружает себя каждые 12
+    секунд, и без этого выключателя цифры росли бы от нуля весь рабочий день, а
+    полосы загрузки заполнялись бы заново на глазах у регистратуры.
+    ⚠️ Значит, статичная страница — это НОРМА, а не поломка: правило без .anim
+    обязано оставлять элемент в конечном виде. */
+ @keyframes dp-bar{from{width:0}}
+ @keyframes dp-wipe{from{clip-path:inset(0 100% 0 0)}}
+ @keyframes dp-fade{from{opacity:0}}
+ @keyframes dp-in{from{opacity:0;transform:translateY(9px)}}
+ .anim .statbar>div{animation:dp-bar .55s cubic-bezier(.22,.61,.36,1) both}
+ /* график проявляется слева направо обрезкой, а не рисованием по длине пути:
+    длина ломаной зависит от данных, и любая дистанция в dasharray однажды
+    оказалась бы короче линии — та осталась бы с дырой посередине */
+ .anim .spark{animation:dp-wipe .75s ease both}
+ .anim .tile b[data-count]{animation:dp-fade .3s ease both}
+ .anim .ag-i{animation:dp-in .38s ease both}
+ .anim .ag-i:nth-child(2){animation-delay:.04s}
+ .anim .ag-i:nth-child(3){animation-delay:.08s}
+ .anim .ag-i:nth-child(4){animation-delay:.12s}
+ .anim .ag-i:nth-child(5){animation-delay:.16s}
+ .anim .ag-i:nth-child(n+6){animation-delay:.2s}
+ /* Запись, приехавшая при открытом журнале. Единственная анимация, которая
+    живёт КАК РАЗ на автоперезагрузке (класс ставит panel.js по сравнению id),
+    поэтому она вне .anim. Без fill-mode: доиграв, элемент возвращается к своему
+    обычному виду, а не застывает с кольцом. */
+ @keyframes dp-fresh{
+   0%{opacity:0;transform:translateY(10px);box-shadow:0 0 0 3px var(--teal-line)}
+   30%{opacity:1;transform:none;box-shadow:0 0 0 3px var(--teal-line)}
+   100%{opacity:1;transform:none;box-shadow:0 0 0 0 rgba(14,159,138,0)}}
+ .gappt.fresh,.ag-i.fresh{animation:dp-fresh 1.6s ease}
+ /* Уважать системную настройку: у части людей движение вызывает тошноту, и
+    Windows отдаёт это флагом. Отключаем всё разом, страница остаётся рабочей. */
+ @media (prefers-reduced-motion:reduce){
+   .anim *,.gappt.fresh,.ag-i.fresh{animation:none !important;transition:none !important}
  }
  @media (max-width:1280px){.dash{flex-wrap:wrap}.rail{width:100%;flex:1 1 100%}}
  @media (max-width:1000px){

@@ -153,6 +153,84 @@ def suite_patient_card(res: Result) -> None:
                "архивный потерялся совсем")
 
 
+def suite_dashboard(res: Result) -> None:
+    """Панель: мини-графики, загрузка кресел, повестка дня, метки подсветки.
+
+    Всё перечисленное ломается МОЛЧА — страница остаётся кодом 200 и выглядит
+    целой. Отдельная ценность у процента загрузки: он обязан совпадать с тем,
+    что за тот же день показывает раздел «Statistici», иначе клиника увидит два
+    разных числа про одного врача и перестанет верить обоим.
+
+    День берётся завтрашний намеренно: сегодняшний зависит от часа прогона —
+    к вечеру вся повестка «прошедшая», и проверки стали бы плавающими.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(1)
+        for time, doc, svc, name in (("09:00", "d2", "consult", "Ana Test"),
+                                     ("11:00", "d2", "long", "Vlad Test"),
+                                     ("10:00", "d3", "hygiene", "Marian Test")):
+            c.post("/admin/add", adate=day, atime=time, adoctor=doc, aservice=svc,
+                   aname=name, aphone="0691" + time.replace(":", ""),
+                   back="/admin/all")
+        page = c.get(f"/admin?date={day}").body
+
+        res.check("мини-график в каждой из пяти плиток",
+                  page.count("class='spark'"), 5)
+        res.ok("график рисуется и там, где две недели нулей",
+               c.get(f"/admin?date={_d(60)}").body.count("class='spark'") == 5,
+               "плитка без данных осталась без графика — ряд плиток порябит")
+        res.ok("ряд графика — ровно две недели",
+               all(len(p.split()) == 14 for p in
+                   re.findall(r"<polyline class='sp-l' points='([^']+)'", page)),
+               "точек не 14")
+
+        # ⭐ 60′ + 120′ = 180 занятых из 840 рабочих (клиника фикстуры 07–21)
+        occ = re.findall(r"title='(\d+) din (\d+) minute de lucru'.*?<b>(\d+)%</b>",
+                         page, re.S)
+        res.ok("минуты сходятся с процентом на карточке",
+               bool(occ) and all(round(100 * int(b) / int(cap)) == int(p)
+                                 for b, cap, p in occ), f"{occ}")
+        res.check("врач с визитами 60′+120′ — это 21% от 840",
+                  next((p for b, _c, p in occ if b == "180"), None), "21")
+        st = c.get(f"/admin/stats?from={day}&to={day}").body
+        res.ok("тот же процент в «Statistici» за тот же день",
+               "21" in re.findall(r"<td style='min-width:160px'>(\d+)%", st),
+               "дашборд и статистика разошлись в загрузке врача")
+        res.check("плитки статистики не тронуты модификатором", st.count("'tile sp"), 0)
+
+        res.check("в повестке все три визита", page.count("class='ag-i"), 3)
+        res.check("повестка отсортирована по времени",
+                  re.findall(r"<span class='ag-t'>([^<]+)</span>", page),
+                  ["09:00", "10:00", "11:00"])
+        res.ok("завтрашний день не приглушён как прошедший",
+               "ag-i past" not in page, "будущее показано серым")
+        aid = re.search(r"openCard\((\d+)\)", page).group(1)
+        c.post(f"/admin/status/{aid}", to="cancelled", back=f"/admin?date={day}")
+        res.check("отменённый уходит из повестки",
+                  c.get(f"/admin?date={day}").body.count("class='ag-i"), 2)
+
+        res.ok("день помечен ключом подсветки", f"data-day='{day}'" in page,
+               "без data-day завтрашний день подсветится весь как новый")
+        res.ok("у записей есть метки для сравнения", page.count("data-appt=") >= 6,
+               f"меток {page.count('data-appt=')} (ждём и в сетке, и в повестке)")
+
+        # ⚠️ выключатель анимаций обязан стоять В ШАПКЕ: уедет в конец body —
+        # успеет отрисоваться конечный кадр, и анимация пойдёт рывком назад
+        head = page.split("<body>")[0]
+        res.ok("выключатель анимаций стоит в <head>",
+               "dp_auto" in head and "classList.add('anim')" in head,
+               "скрипт не в шапке")
+        js = c.get("/static/js/panel.js").body
+        res.ok("автоперезагрузка помечает себя", "dp_auto" in js,
+               "цифры будут оживать каждые 12 секунд")
+        res.ok("подсветка пришедших записей на месте", "dp_seen_" in js,
+               "нет сравнения по id")
+        css = c.get("/static/css/panel.css").body
+        res.ok("движение выключается системной настройкой",
+               "prefers-reduced-motion" in css, "нет уважения к настройке ОС")
+
+
 def suite_patients_list(res: Result) -> None:
     """Раздел «Pacienți»: фильтры, страницы, предпросмотр, экспорт, новая фиша.
 

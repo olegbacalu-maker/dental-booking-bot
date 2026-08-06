@@ -95,8 +95,22 @@ Four views of the schedule:
 1. **Dashboard** — the day timeline: one column per doctor, every visit drawn to scale by
    its duration, a red "now" line on today, and overlapping visits split side by side so
    nothing hides behind anything. Above it, day tiles (total / via bot 🤖 / by reception ✍️ /
-   🆘 urgent / no-shows) with a trend against yesterday; each tile is clickable and opens
+   🆘 urgent / no-shows) with a trend against yesterday and a **14-day sparkline** each, so a
+   number reads as a trend rather than as today's accident; each tile is clickable and opens
    the filtered list. Hours that a long visit runs through show *⏳ ocupat* instead of a "+".
+   Each doctor's card carries a **chair-occupancy bar** — busy minutes over that doctor's
+   working minutes, the same formula and the same `work_minutes()` the *Stats* page uses, so
+   the two screens can never quote different percentages for the same doctor. The right rail
+   holds the month calendar, **today's agenda** (the day as a time-ordered list, past entries
+   dimmed) and the "new from the bot" block — the agenda answers *what's next*, the bot block
+   answers *what just arrived*, and neither replaces the other.
+   Motion is deliberate rather than decorative: numbers count up, occupancy bars fill and
+   the agenda slides in **only on a real page open**. The journal reloads itself every 12
+   seconds, so entry animations are gated behind a flag the reloader sets — otherwise the
+   KPI row would re-animate all day long. The one animation that *does* live on the
+   auto-reload is a booking that arrived while someone was watching: it is detected by
+   comparing appointment ids with the previous render and gets a brief teal ring. All of it
+   yields to `prefers-reduced-motion`.
 2. **Doctor day view** — single-column schedule, add-form locked to that doctor.
 3. **Full grid** — all doctors side by side.
 4. **Week view** (`/admin/week`) — seven columns of compact chips with a per-week total.

@@ -35,6 +35,7 @@ SUITES = [
     ("Статусы и заметки", test_booking.suite_status),
     ("Бот записи", test_bot.suite),
     ("Страницы журнала", test_admin.suite_pages),
+    ("Панель дня", test_admin.suite_dashboard),
     ("Карточка пациента", test_admin.suite_patient_card),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),

@@ -279,7 +279,18 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title>
-<link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}"></head><body>
+<link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
+<script>/* Оживлять цифры и полосы можно только при ОСМЫСЛЕННОМ открытии страницы.
+Журнал перезагружает себя каждые 12 секунд (panel.js), и без этого выключателя
+KPI пересчитывались бы на глазах весь рабочий день, а регистратура читала бы
+бегущие цифры вместо расписания. panel.js перед автоперезагрузкой ставит флаг,
+здесь он снимается — и класс `anim` не выдаётся.
+⚠️ Скрипт обязан стоять В ШАПКЕ: класс нужен ДО первой отрисовки, иначе виден
+кадр с конечным состоянием, и анимация выглядит рывком назад. Всё оформление
+привязано к `.anim`, поэтому без JS страница просто статична — не пуста. */
+try{{if(sessionStorage.getItem('dp_auto')==='1'){{sessionStorage.removeItem('dp_auto');}}
+else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.documentElement.classList.add('anim');}}
+</script></head><body>
 {_sidebar(active)}
 <div class="main">
 {_topbar(bell)}
@@ -321,7 +332,10 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#F6FBF8;display:flex;
       align-items:center;justify-content:center;height:100vh;margin:0;color:#162033}
  form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
-      box-shadow:0 18px 40px rgba(15,23,42,.08);
+      /* двухслойная, как --sh3 в panel.css: экран входа — первое, что видит
+         клиника, а своей таблицы стилей у него нет (он обязан открываться,
+         даже если статика не отдалась) */
+      box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
       display:flex;flex-direction:column;gap:12px;width:340px}
  h1{font-size:19px;color:#162033;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
  input{height:44px;padding:0 14px;border:1px solid #E7EDF5;border-radius:12px;font-size:15px;
@@ -347,7 +361,8 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <title>__CLINIC__ — PIN</title><style>
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#0E9F8A;display:flex;
       align-items:center;justify-content:center;height:100vh;margin:0}
- form{background:#fff;padding:30px 32px;border-radius:18px;box-shadow:0 18px 40px rgba(15,23,42,.25);
+ form{background:#fff;padding:30px 32px;border-radius:18px;
+      box-shadow:0 4px 8px rgba(15,23,42,.12),0 22px 50px rgba(15,23,42,.26);
       display:flex;flex-direction:column;gap:12px;width:340px}
  h1{font-size:19px;color:#162033;margin:0;font-weight:600;letter-spacing:-.02em}
  p{color:#7E8B9C;font-size:13px;margin:0;line-height:1.5}

@@ -331,21 +331,9 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
             f"aria-label='{fdi}'>{inner}</svg>")
 
 
-ODONTO_CSS = """
- .tooth-svg{display:block;overflow:visible}
- .tooth-btn{background:none;border:none;padding:4px 2px;cursor:pointer;border-radius:12px;
-   display:flex;flex-direction:column;align-items:center;gap:4px;
-   transition:transform .2s ease,background-color .2s ease,box-shadow .2s ease}
- .tooth-btn .num{font-size:11.5px;font-weight:600;color:var(--text2);
-   transition:color .2s ease}
- .tooth-btn:hover{background:var(--teal-soft);transform:translateY(-3px) scale(1.04);
-   box-shadow:0 10px 24px rgba(15,23,42,.10)}
- .tooth-btn:hover .num{color:var(--teal-d)}
- .tooth-btn.sel{background:var(--teal-soft);box-shadow:inset 0 0 0 2px var(--teal)}
- .tooth-btn.sel .num{color:var(--teal-d)}
- .arch{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:var(--tooth-gap,10px);
-   align-items:end}
- .arch.lower{align-items:start}
- .arch-wrap{display:flex;flex-direction:column;gap:10px}
- .arch-mid{height:1px;background:var(--line);margin:2px 0}
-"""
+# ⚠️ Здесь лежала ODONTO_CSS — копия блока одонтограммы, дословно повторявшая
+# static/css/panel.css. Её никто не импортировал с переезда оформления в файл
+# (08-04), и копия успела разойтись с оригиналом: при переводе теней на
+# двухслойные (08-06) в ней осталась старая однослойная. Мёртвый стиль опаснее
+# отсутствующего — он выглядит действующим, и правку внесут в него.
+# Оформление зубов живёт ТОЛЬКО в panel.css.
