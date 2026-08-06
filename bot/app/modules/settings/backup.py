@@ -90,11 +90,79 @@ def write_encrypted(data_dir: pathlib.Path, clinic_json: pathlib.Path | None,
         with pyzipper.AESZipFile(dest, "a", compression=pyzipper.ZIP_DEFLATED,
                                  encryption=pyzipper.WZ_AES) as z:
             z.setpassword(password.encode("utf-8"))
+            # опись — в ШИФРОВАННУЮ часть: в ней имена пациентов
+            z.writestr("CONTINUT.txt", _manifest(snap, files))
             for src, arc in files:
                 z.write(src, arc)
     finally:
         snap.unlink(missing_ok=True)
     return len(files)
+
+
+def _manifest(snap: pathlib.Path, files: list[tuple[pathlib.Path, str]]) -> str:
+    """Опись архива человеческим языком — ответ на «а мои данные вообще тут?».
+
+    Родилась из первого живого экспорта (08-06): Олег распаковал архив и увидел
+    базу-кирпич да файлы с шестнадцатеричными именами — «ни имён, ничего, пара
+    фотографий». Данные там БЫЛИ все, но проверить это человеку было нечем, а
+    бэкап, которому нельзя поверить глазами, клиника делать перестанет.
+
+    Имена файлов на диске технические НАМЕРЕННО (их связывает база, и при
+    восстановлении они обязаны совпасть) — поэтому опись, а не переименование.
+    Читается СНИМОК базы, не живая база: снимок уже сделан, консистентен и
+    никого не блокирует. Любая ошибка описи не должна валить сам бэкап —
+    опись украшает архив, а спасает его содержимое.
+    """
+    arc_by_name = {src.name: arc for src, arc in files}
+    pat, appt, docs, rows = "?", "?", "?", []
+    if snap.exists():
+        try:
+            c = sqlite3.connect(str(snap))
+            try:
+                pat = c.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
+                appt = c.execute("SELECT COUNT(*) FROM appointments").fetchone()[0]
+                docs = c.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+                rows = c.execute(
+                    """SELECT d.stored_path, d.filename, COALESCE(p.name, '')
+                       FROM documents d LEFT JOIN patients p ON p.id = d.patient_id
+                       ORDER BY d.patient_id, d.id""").fetchall()
+            finally:
+                c.close()
+        except sqlite3.Error:
+            pass
+    lines = [
+        "CE CONTINE ACEASTA ARHIVA",
+        "=========================",
+        "",
+        f"Pacienti: {pat} · Programari: {appt} · Documente: {docs}",
+        "",
+        "data/dental.db - TOATA evidenta clinicii: pacientii cu fisele lor,",
+        "    programarile, planurile de tratament, istoricul. Fisierul se",
+        "    citeste DOAR prin programul DentPilot (restaurarea - in",
+        "    CITESTE-MA.txt). Numele pacientilor sunt inauntru, nu in numele",
+        "    fisierelor.",
+        "clinic.json - profilul clinicii: medici, servicii, program de lucru.",
+        "data/auth.json - PIN-ul jurnalului (pastrat ca hash).",
+        "data/files/doctors/ - fotografiile medicilor.",
+        "data/files/<nr>/ - documentele pacientilor. Numele de pe disc sunt",
+        "    tehnice (asa le leaga baza de date); corespondenta reala:",
+        "",
+    ]
+    for stored, fname, pname in rows:
+        arc = arc_by_name.get(pathlib.PurePath(stored).name)
+        who = f" ({pname})" if pname else ""
+        mark = "" if arc else "  [!] lipseste pe disc"
+        lines.append(f"  {arc or '—':42} <- {fname}{who}{mark}")
+    if not rows:
+        lines.append("  — nu exista documente incarcate —")
+    lines += [
+        "",
+        "Pentru o copie LIZIBILA a unui singur pacient (HTML + documentele",
+        "lui cu nume reale) folositi butonul «Descarca datele pacientului»",
+        "din fisa pacientului, in program.",
+        "",
+    ]
+    return "\r\n".join(lines)
 
 
 def _readme() -> str:
@@ -108,6 +176,8 @@ def _readme() -> str:
         "  * WinRAR - click dreapta -> Extract...\r\n"
         "La extragere introduceti parola stabilita la export.\r\n"
         "Parola NU este salvata nicaieri - fara ea datele nu pot fi citite.\r\n\r\n"
+        "Ce este inauntru - vezi CONTINUT.txt dupa dezarhivare: cati pacienti,\r\n"
+        "cate programari si care fisier tehnic este care document real.\r\n\r\n"
         "Restaurare pe un calculator nou:\r\n"
         "  1. Instalati DentPilot si porniti-l o data (se creeaza folderul).\r\n"
         "  2. Inchideti programul.\r\n"

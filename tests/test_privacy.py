@@ -336,6 +336,24 @@ def suite_backup(res: Result) -> None:
         res.ok("CITESTE-MA читается без пароля", "7-Zip" in note,
                "инструкция по открытию заперта внутри шифра — её никто не увидит")
 
+        # опись: распакованный бэкап — база-кирпич и hex-имена; без описи
+        # человек не может проверить, что его данные вообще внутри (случай
+        # 08-06: «ни имён, ничего, пара фотографий»)
+        cont = z.read("CONTINUT.txt").decode("utf-8", "replace")
+        res.ok("опись называет документ настоящим именем",
+               "radiografie.png" in cont, "в описи нет имени документа")
+        res.ok("опись связывает документ с пациентом", "Export Test" in cont,
+               "в описи нет имени пациента")
+        res.ok("опись считает пациентов", "Pacienti: " in cont
+               and "Pacienti: ?" not in cont, f"счётчики пусты: {cont[:200]!r}")
+        try:
+            plain.read("CONTINUT.txt")
+            cont_open = True
+        except RuntimeError:
+            cont_open = False
+        res.ok("опись (с именами пациентов) БЕЗ пароля не читается",
+               not cont_open, "имена пациентов легли в открытую часть архива")
+
 
 def suite_export_names(res: Result) -> None:
     """Имена файлов внутри архива. Имя пришло от пользователя при загрузке,
