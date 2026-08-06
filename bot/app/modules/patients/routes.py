@@ -115,7 +115,7 @@ def _p_age(p: dict) -> int | None:
 
 
 @router.get("/admin/patient/{pid}", response_class=HTMLResponse)
-async def admin_patient(request: Request, pid: int, msg: str = ""):
+async def admin_patient(request: Request, pid: int, msg: str = "", views: str = ""):
     if (deny := _guard(request)) is not None:
         return deny
     p = await db.get_patient(pid)
@@ -131,7 +131,12 @@ async def admin_patient(request: Request, pid: int, msg: str = ""):
     plan = await db.plan_items(pid)
     docs = await db.documents(pid)
     visits = await db.patient_appointments(pid, 1000)
-    acts = await db.patient_activity(pid, 60)
+    # ?views=1 — журнал доступа НА ЭКРАНЕ: лента дополняется просмотрами
+    # (view/doc_view). По умолчанию их нет — рецепция открывает фишу десятки
+    # раз в день; но по клику журнал обязан показываться, иначе «программа
+    # ведёт журнал доступа» — заявление, которое нечем предъявить проверке.
+    show_views = views == "1"
+    acts = await db.patient_activity(pid, 60, include_views=show_views)
     tooth_acts = await db.tooth_activity(pid)
     erasure = await db.erasure_kind(pid)
     now = datetime.now(eng.TZ)
@@ -415,7 +420,8 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                  "alert_add": "⚠️", "profile": "✏️", "archive": "🗄",
                  # выдача копии данных — событие, о котором спросят на проверке;
                  # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
-                 "export": "📦"}
+                 "export": "📦",
+                 "view": "👁", "doc_view": "👁", "erase": "🧹"}
     act_rows = []
     for a in acts:
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
@@ -431,8 +437,14 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
             f"<button type='button' class='actmore' onclick=\"var m=document.getElementById('actmore');"
             f"m.style.display='block';this.remove()\">Toate evenimentele ({len(acts)})</button>"
             if rest else "")
+    views_link = (
+        f"<a href='{base}' style='font-size:12px;font-weight:400'>"
+        f"ascunde accesările</a>" if show_views else
+        f"<a href='{base}?views=1' style='font-size:12px;font-weight:400' "
+        f"title='Jurnalul accesărilor — cine și când a deschis fișa (Legea 195)'>"
+        f"👁 accesările</a>")
     act_card = (f"<div class='fcard'><h3>Istoric activitate "
-                f"<small>· ce s-a întâmplat cu fișa</small></h3>"
+                f"<small>· ce s-a întâmplat cu fișa</small> · {views_link}</h3>"
                 + ("".join(shown) + more if act_rows
                    else "<p class='hint' style='margin:0'>— încă fără evenimente —</p>")
                 + "</div>")
