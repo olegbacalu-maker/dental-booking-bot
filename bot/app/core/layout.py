@@ -72,7 +72,12 @@ MSG_BANNER = {
                         "Verificați data dacă nu ați vrut asta"),
     "bad": ("err", "Date invalide — verificați câmpurile"),
     "bad_name": ("err", "Lipsește numele pacientului"),
-    "bad_phone": ("err", "Telefonul are mai puțin de 8 cifre — verificați numărul"),
+    "bad_phone": ("err", "Numărul de telefon pare incomplet — sunt necesare "
+                         "minim 6 cifre (numerele străine sunt acceptate)"),
+    "bad_bd": ("err", "Data nașterii nu este validă — verificați ziua, luna și "
+                      "anul (nu poate fi în viitor)"),
+    "bad_idnp": ("err", "IDNP trebuie să aibă exact 13 cifre — verificați "
+                        "câmpul evidențiat"),
     "bad_off": ("err", "Medicul nu este activ (concediu sau arhivat) — "
                        "alegeți alt medic sau readuceți-l din concediu în Medici"),
     "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),

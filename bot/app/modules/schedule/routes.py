@@ -149,7 +149,9 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
   <select name="aservice">{svc_opts}</select>
   <input name="aname" placeholder="Nume pacient" required>
   <input name="aphone" placeholder="Telefon" required>
-  <input name="ayear" type="number" min="1900" max="2026" placeholder="An naștere (opț.)" style="width:140px">
+  <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;
+    color:var(--text3)">Naștere (opț.)
+    <input type="date" name="abirth" max="{date.today().isoformat()}"></label>
   <button>Adaugă</button>
 </form>"""
 
@@ -175,7 +177,9 @@ def _slot_modal(d: date, back: str) -> str:
     <select name="aservice">{svc_opts}</select>
     <input name="aname" placeholder="Nume pacient" required>
     <input name="aphone" placeholder="Telefon" required>
-    <input name="ayear" type="number" min="1900" max="2026" placeholder="An naștere (opțional)">
+    <label style="font-size:13px;color:#556;display:flex;align-items:center;gap:8px">
+      Data nașterii (opț.)
+      <input type="date" name="abirth" max="{date.today().isoformat()}" style="flex:1"></label>
     <button>Adaugă programarea</button>
   </form>
   <form id="tab_n" class="dlg-form" method="post" action="/admin/note" style="display:none">
@@ -957,7 +961,7 @@ async def admin_add(
     request: Request,
     adate: str = Form(...), atime: str = Form(...), adoctor: str = Form(...),
     aservice: str = Form(...), aname: str = Form(...), aphone: str = Form(...),
-    ayear: str = Form(""), back: str = Form(""),
+    abirth: str = Form(""), ayear: str = Form(""), back: str = Form(""),
 ):
     if (deny := _guard(request)) is not None:
         return deny
@@ -979,7 +983,9 @@ async def admin_add(
         return _back_redirect(back, adate, "bad")
     if not name:
         return _back_redirect(back, adate, "bad_name")
-    if len(digits) < 8:
+    # 6–15 цифр: у стран номера от 6 национальных цифр, E.164 даёт максимум 15.
+    # Жёсткий молдавский формат отверг бы иностранца у стойки (просьба 08-07)
+    if not 6 <= len(digits) <= 15:
         return _back_redirect(back, adate, "bad_phone")
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
         return _back_redirect(back, adate, "bad_off")  # выключенному не пишем
@@ -988,8 +994,21 @@ async def admin_add(
     if not eng.fits_clinic(dt, eng.svc_duration(aservice)):
         # визит не помещается в рабочее окно клиники (закрытие/обед)
         return _back_redirect(back, adate, "outside")
-    year = int(ayear) if ayear.strip().isdigit() and 1900 <= int(ayear) <= 2026 else None
+    # полная дата рождения (просьба 08-07: был только год); ayear принимаем
+    # ради вкладки, открытой до обновления, — форма шлёт уже только abirth
+    year, bdate = None, None
+    if abirth.strip():
+        try:
+            parsed = date.fromisoformat(abirth.strip()[:10])
+        except ValueError:
+            return _back_redirect(back, adate, "bad_bd")
+        if not (1900 <= parsed.year and parsed <= date.today()):
+            return _back_redirect(back, adate, "bad_bd")
+        year, bdate = parsed.year, parsed.isoformat()
+    elif ayear.strip().isdigit() and 1900 <= int(ayear) <= datetime.now(eng.TZ).year:
+        year = int(ayear)
     r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year,
+                           birth_date=bdate,
                            doctor_id=adoctor, service_id=aservice,
                            duration_min=eng.svc_duration(aservice))
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")

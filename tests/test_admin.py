@@ -118,6 +118,29 @@ def suite_patient_card(res: Result) -> None:
                "Card Test Nou" in c.get(f"/admin/patient/{pid}").body,
                "имя не обновилось")
 
+        # отказ обязан НАЗВАТЬ поле и подсветить его в раскрытой форме —
+        # «Date invalide» без адреса читалось как «программа не работает»
+        r = c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
+                   idnp="123")
+        res.check("кривой IDNP — именованный отказ", r.msg, "bad_idnp")
+        page = c.get(f"/admin/patient/{pid}?msg=bad_idnp").body
+        res.ok("поле IDNP подсвечено красным",
+               "border-color:var(--red-t" in page, "подсветки нет")
+        res.ok("форма профиля раскрыта сама",
+               "id='pedit' method='post' action" in page
+               and "style='display:block" in page,
+               "форму с ошибкой надо открывать руками")
+        res.check("дата рождения в будущем — именованный отказ",
+                  c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
+                         birth_date="2222-01-01").msg, "bad_bd")
+        res.check("нормальная дата сохраняется",
+                  c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
+                         phone="022654654", birth_date="1985-03-07").msg,
+                  "ok_card")
+        res.ok("в фише дата целиком, по-человечески",
+               "07.03.1985" in c.get(f"/admin/patient/{pid}").body,
+               "дата не видна или сырой ISO")
+
         # ⚠️ проверять msg, а не код: отказ «bad_card» — тоже 303, и с кодом
         # эта проверка была пустой. Состояние звалось "caries" (в справочнике
         # "carie"), зуб не сохранялся НИКОГДА, а тест был зелёным.

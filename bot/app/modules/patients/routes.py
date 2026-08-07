@@ -171,8 +171,11 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         return (f"<div class='frow'><span>{label}</span>"
                 f"<span class='v'>{e(str(val)) if val else '—'}</span>{ic}</div>")
 
+    # дата рождения человеку — dd.mm.yyyy, а не сырой ISO из базы
+    bd_h = (_pl_dmy(p["birth_date"]) if p.get("birth_date")
+            else p.get("birth_year"))
     info_rows = (frow("Telefon", p.get("phone"), "phone")
-                 + frow("Data nașterii", p.get("birth_date") or p.get("birth_year"), "cal")
+                 + frow("Data nașterii", bd_h, "cal")
                  + frow("Gen", {"m": "M", "f": "F"}.get(p.get("gender") or "", p.get("gender")), "pat")
                  + frow("IDNP", p.get("idnp"), "id")
                  + frow("E-mail", p.get("email"), "mail")
@@ -188,15 +191,27 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     doc_opts = "".join(f"<option value='{e(n)}'"
                        f"{' selected' if p.get('primary_doctor') == n else ''}>{e(n)}</option>"
                        for n in eng.DOCTORS.values())
+    # отказ сохранения ПОКАЗЫВАЕТ виноватое поле: форма раскрыта, поле красное.
+    # Баннер «Date invalide» без этого заставлял искать ошибку перебором
+    bad_field = {"bad_card": "name", "bad_bd": "birth_date",
+                 "bad_idnp": "idnp"}.get(msg, "")
+
+    def _inv(field: str) -> str:
+        return (" style='border-color:var(--red-t,#B91C1C);"
+                "box-shadow:0 0 0 3px rgba(185,28,28,.12)'"
+                if field == bad_field else "")
+
     edit_form = f"""
-<form class='fform' id='pedit' method='post' action='{base}/save' style='display:none;margin-top:10px'>
-  <input name='name' value="{e(p['name'] or '')}" placeholder='Nume' required>
+<form class='fform' id='pedit' method='post' action='{base}/save' style='display:{"block" if bad_field else "none"};margin-top:10px'>
+  <input name='name' value="{e(p['name'] or '')}" placeholder='Nume' required{_inv('name')}>
   <input name='phone' value="{e(p['phone'] or '')}" placeholder='Telefon'>
-  <div class='r2'><input type='date' name='birth_date' value="{e(p.get('birth_date') or '')}">
+  <div class='r2'><input type='date' name='birth_date' value="{e(p.get('birth_date') or '')}"
+    max='{date.today().isoformat()}'{_inv('birth_date')}>
   <select name='gender'><option value=''>Gen —</option>
     <option value='m'{" selected" if p.get('gender') == 'm' else ''}>M</option>
     <option value='f'{" selected" if p.get('gender') == 'f' else ''}>F</option></select></div>
-  <input name='idnp' value="{e(p.get('idnp') or '')}" placeholder='IDNP (opțional)' maxlength='13'>
+  <input name='idnp' value="{e(p.get('idnp') or '')}" placeholder='IDNP (opțional)'
+    maxlength='13' inputmode='numeric'{_inv('idnp')}>
   <input name='email' value="{e(p.get('email') or '')}" placeholder='E-mail'>
   <input name='address' value="{e(p.get('address') or '')}" placeholder='Adresă'>
   <input name='insurance' value="{e(p.get('insurance') or '')}" placeholder='Asigurare (ex. CNAM activă)'>
@@ -988,6 +1003,9 @@ async def patient_save(request: Request, pid: int):
     for f in db.PATIENT_FIELDS:
         v = str(form.get(f) or "").strip()[:200 if f != "notes" else 500]
         data[f] = v or None
+    # каждая причина отказа называет себя И подсвечивает своё поле в форме
+    # (msg → поле, см. _BAD_FIELD): «Date invalide» без указания куда смотреть
+    # читалось как «программа не работает» (Олег, 08-07)
     if not data.get("name"):
         return _card_redirect(pid, "bad_card")
     bd = data.get("birth_date")
@@ -995,12 +1013,14 @@ async def patient_save(request: Request, pid: int):
     if bd:
         try:
             parsed = date.fromisoformat(bd)
-            data["birth_date"] = parsed.isoformat()
-            bd_year = parsed.year
         except ValueError:
-            return _card_redirect(pid, "bad_card")
+            return _card_redirect(pid, "bad_bd")
+        if not (1900 <= parsed.year and parsed <= date.today()):
+            return _card_redirect(pid, "bad_bd")
+        data["birth_date"] = parsed.isoformat()
+        bd_year = parsed.year
     if data.get("idnp") and not re.fullmatch(r"[0-9]{13}", data["idnp"]):
-        return _card_redirect(pid, "bad_card")
+        return _card_redirect(pid, "bad_idnp")
     await db.update_patient(pid, data)
     if bd_year:
         # возраст в поиске/сетке/CSV считается по birth_year — держим в синке

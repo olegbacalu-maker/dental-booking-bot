@@ -663,17 +663,28 @@ async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
 
 async def admin_add(
     name: str, phone: str, service: str, doctor: str, starts_at: datetime,
-    birth_year: int | None = None,
+    birth_year: int | None = None, birth_date: str | None = None,
     doctor_id: str | None = None, service_id: str | None = None,
     duration_min: int = 60,
 ) -> int | str | None:
     """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону."""
     digits = "".join(ch for ch in phone if ch.isdigit())
-    return await create_appointment(
+    r = await create_appointment(
         f"manual:{digits}", name, phone, "ro", service, doctor, starts_at,
         source="manual", birth_year=birth_year,
         doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
     )
+    if birth_date:
+        # полная дата пишется ПОСЛЕ upsert-а тем же правилом, что год в нём:
+        # новое значение, если оно задано. Пишем и при dup/conflict — пациент
+        # уже существует, а дату регистратура ввела про него же
+        pid = await patient_id_by_key(f"manual:{digits}")
+        if pid is not None:
+            await _execute(
+                "UPDATE patients SET birth_date = $2 WHERE id = $1",
+                "UPDATE patients SET birth_date = ? WHERE id = ?",
+                *((pid, birth_date) if not IS_SQLITE else (birth_date, pid)))
+    return r
 
 
 async def add_visit_for_patient(

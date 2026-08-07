@@ -16,10 +16,10 @@ def _d(offset: int) -> str:
 
 def add(c: Client, day: str, time: str, doctor: str = "d2",
         service: str = "consult", name: str = "Ion Testescu",
-        phone: str = PHONE, year: str = "") -> str:
+        phone: str = PHONE, year: str = "", birth: str = "") -> str:
     return c.post("/admin/add", adate=day, atime=time, adoctor=doctor,
                   aservice=service, aname=name, aphone=phone, ayear=year,
-                  back="/admin/all").msg
+                  abirth=birth, back="/admin/all").msg
 
 
 def suite(res: Result) -> None:
@@ -66,9 +66,36 @@ def suite(res: Result) -> None:
                       add(c, _d(0), f"{now.hour - 2:02d}:00", doctor="d4",
                           name="Walk In", phone="022700600"), "ok")
 
-        # --- отказы, каждый со своим текстом ---
-        res.check("телефон короче 8 цифр",
+        # --- телефон: 6–15 цифр, иностранные номера принимаются (08-07) ---
+        res.check("телефон короче 6 цифр",
                   add(c, _d(3), "10:00", phone="060"), "bad_phone")
+        res.check("телефон длиннее 15 цифр",
+                  add(c, _d(3), "10:00", phone="+00 1234567890123456"),
+                  "bad_phone")
+        res.check("немецкий номер проходит",
+                  add(c, _d(3), "10:00", name="Hans Weber",
+                      phone="+49 151 2345678"), "ok")
+        res.check("короткий европейский (6 цифр) проходит",
+                  add(c, _d(3), "13:00", name="Kort Nummer",
+                      phone="123456"), "ok")
+
+        # --- полная дата рождения из формы записи (была только год, 08-07) ---
+        res.check("запись с датой рождения проходит",
+                  add(c, _d(3), "14:00", name="Cu Data", phone="022700700",
+                      birth="1990-05-15"), "ok")
+        pid = c.get("/admin/search?q=022700700").body.split(
+            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        card = c.get(f"/admin/patient/{pid}").body
+        res.ok("дата рождения видна в фише целиком (dd.mm.yyyy)",
+               "15.05.1990" in card, "в фише нет дня и месяца")
+        res.check("дата рождения в будущем — именованный отказ",
+                  add(c, _d(3), "14:30", name="Viitor", phone="022700800",
+                      birth=_d(30)), "bad_bd")
+        res.check("год отдельным полем (устаревшая вкладка) ещё принимается",
+                  add(c, _d(3), "15:00", name="Doar An", phone="022700900",
+                      year="1980"), "ok")
+
+        # --- прочие отказы, каждый со своим текстом ---
         res.check("пустое имя", add(c, _d(3), "10:30", name="   "), "bad_name")
         res.check("врач в архиве", add(c, _d(3), "11:00", doctor="d1"), "bad_off")
         res.check("время не по получасовой сетке",
