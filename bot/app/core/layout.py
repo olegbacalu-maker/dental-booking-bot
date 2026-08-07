@@ -346,10 +346,21 @@ def _who_chip() -> str:
             f"</div>")
 
 
+# Кто перезагружает себя сам — СЕКУНДЫ в data-reload на <body>, panel.js
+# слушается атрибута. Живым обязано быть только расписание (панель, день,
+# неделя, день врача): бронь из бота должна появиться, пока журнал висит
+# открытым на стойке. Остальным страницам перезагрузка не даёт НИЧЕГО и
+# отнимает состояние — раскрытые <details> FAQ, позицию прокрутки (находка
+# Олега 08-07: «вкладка закрывается сама» — третий случай одной болезни после
+# предпросмотра 1.13.2 и анимаций). Новая страница расписания = её active сюда.
+LIVE_RELOAD = {"dash", "prog"}
+
+
 def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -> str:
     fb_subject = urllib.parse.quote(
         f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
     fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
+    reload_attr = ' data-reload="12"' if active in LIVE_RELOAD else ""
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">
@@ -365,7 +376,7 @@ KPI пересчитывались бы на глазах весь рабочи�
 привязано к `.anim`, поэтому без JS страница просто статична — не пуста. */
 try{{if(sessionStorage.getItem('dp_auto')==='1'){{sessionStorage.removeItem('dp_auto');}}
 else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.documentElement.classList.add('anim');}}
-</script></head><body>
+</script></head><body{reload_attr}>
 {_sidebar(active)}
 <div class="main">
 {_topbar(bell)}

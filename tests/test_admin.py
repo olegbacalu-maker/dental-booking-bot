@@ -62,6 +62,21 @@ def suite_pages(res: Result) -> None:
                 res.ok(f"страница {path} содержит нужное", needle in r.body,
                        f"нет {needle!r}")
 
+        # автоперезагрузка — ТОЛЬКО у живого расписания (data-reload на body):
+        # остальным она не даёт ничего и отнимает раскрытые <details> и
+        # позицию прокрутки — «вкладка FAQ закрывается сама» (Олег, 08-07)
+        for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
+                     "/admin/doctor/d2"):
+            res.ok(f"{path} перезагружает себя",
+                   'data-reload="12"' in c.get(path).body,
+                   "живая страница расписания без метки автообновления")
+        for path in ("/admin/settings", "/admin/settings/faq", "/admin/stats",
+                     "/admin/medici", "/admin/search"):
+            res.ok(f"{path} НЕ перезагружает себя",
+                   "data-reload" not in c.get(path).body,
+                   "неживой странице выдана автоперезагрузка — она снова "
+                   "будет терять раскрытые details")
+
         csv = c.get(f"/admin/export?from={_d(1)}&to={_d(1)}")
         res.ok("экспорт CSV отдаётся", csv.status == 200 and "Pagina Test" in csv.body,
                f"код {csv.status}")

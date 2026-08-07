@@ -34,26 +34,33 @@ function pickName(inp) {
   }
 })();
 
-/* Автообновление страницы. Журнал должен показывать сегодняшний день, а не
-   тот, что открыли утром — но перезагрузка НЕ должна отнимать работу:
-   открытый диалог, начатое редактирование, выбранный файл и любой ввод в
-   форме её отменяют. */
-setInterval(function () {
-  if (document.querySelector('dialog[open]')) return;
-  var pe = document.getElementById('pedit');
-  if (pe && pe.style.display !== 'none') return;      // открыта форма профиля
-  var fi = document.querySelector('input[type=file]');
-  if (fi && fi.files && fi.files.length) return;      // выбран файл — не терять
-  var a = document.activeElement;
-  if (a && a.closest && a.closest('form')) return;    // любой ввод в форме
-  if (!a || (a.tagName !== 'INPUT' && a.tagName !== 'SELECT' &&
-             a.tagName !== 'TEXTAREA' && a.tagName !== 'BUTTON')) {
-    /* метка для скрипта в шапке: следующая загрузка — НЕ приход человека, а
-       наш собственный опрос. Иначе цифры оживали бы каждые 12 секунд. */
-    try { sessionStorage.setItem('dp_auto', '1'); } catch (e) { /* приватный режим */ }
-    location.reload();
-  }
-}, 12000);
+/* Автообновление страницы — ТОЛЬКО там, где сервер его попросил: <body
+   data-reload="секунды"> (layout.LIVE_RELOAD, это живое расписание). Раньше
+   перезагружались ВСЕ страницы, и каждая теряла своё: раскрытые <details>
+   FAQ, позицию прокрутки, предпросмотр пациента — чинилось по одному месту,
+   пока не стало ясно, что болеет сама всеобщность. Даже на живой странице
+   перезагрузка НЕ должна отнимать работу: открытый диалог, начатое
+   редактирование, выбранный файл и любой ввод в форме её отменяют. */
+(function () {
+  var iv = parseInt(document.body.getAttribute('data-reload') || '', 10);
+  if (!iv) return;
+  setInterval(function () {
+    if (document.querySelector('dialog[open]')) return;
+    var pe = document.getElementById('pedit');
+    if (pe && pe.style.display !== 'none') return;    // открыта форма профиля
+    var fi = document.querySelector('input[type=file]');
+    if (fi && fi.files && fi.files.length) return;    // выбран файл — не терять
+    var a = document.activeElement;
+    if (a && a.closest && a.closest('form')) return;  // любой ввод в форме
+    if (!a || (a.tagName !== 'INPUT' && a.tagName !== 'SELECT' &&
+               a.tagName !== 'TEXTAREA' && a.tagName !== 'BUTTON')) {
+      /* метка для скрипта в шапке: следующая загрузка — НЕ приход человека, а
+         наш собственный опрос. Иначе цифры оживали бы каждые 12 секунд. */
+      try { sessionStorage.setItem('dp_auto', '1'); } catch (e) { /* приватный режим */ }
+      location.reload();
+    }
+  }, iv * 1000);
+})();
 
 /* KPI: цифра не появляется готовой, а вырастает от нуля.
    Оформление уже держит её невидимой первые 0.3 с (.anim ... dp-fade), поэтому
