@@ -87,7 +87,14 @@ DOC_CATEGORIES = {"radiografie": "🩻 Radiografie", "acord": "📝 Acord / cont
                   "trimitere": "📨 Trimitere", "alt": "📄 Alt document"}
 
 
-_PLAN_NEXT = {"planificat": "in_lucru", "in_lucru": "finalizat", "finalizat": "planificat"}
+# Переходы плана НАПРАВЛЕННЫЕ, а не по кругу (просьба Олега 08-07: кнопка
+# «следующий статус» гоняла процедуру по кольцу, и финал воскресал в
+# «Planificat» одним случайным кликом). Из финала есть ровно один тихий выход —
+# «Redeschide» обратно в работу, для исправления ошибки; пути «финал →
+# запланировано» не существует. Охрана в маршруте смотрит на пару (откуда,
+# куда): устаревшая вкладка не пришлёт запрещённое ребро.
+_PLAN_EDGES = {("planificat", "in_lucru"), ("in_lucru", "finalizat"),
+               ("finalizat", "in_lucru")}
 
 
 _PLAN_LABEL = {"planificat": "Planificat", "in_lucru": "În lucru", "finalizat": "Finalizat"}
@@ -313,43 +320,100 @@ function toothTip(ev, n) {{
 function toothTipOff() {{ TIP.style.display = 'none'; }}
 </script>"""
 
+    # порядок осмысленный, а не «как добавляли»: работа сверху, запланированное
+    # по сроку, законченное свежим вперёд
+    def _plan_key(it):
+        st = it["status"]
+        if st == "in_lucru":
+            return (0, 0.0, it["id"])
+        if st == "planificat":
+            return (1, str(it.get("due_date") or "9999-99-99"), it["id"])
+        da = it.get("done_at")
+        return (2, -(da.timestamp() if hasattr(da, "timestamp") else 0.0),
+                -it["id"])
+
+    cnt = {k: sum(1 for it in plan if it["status"] == k)
+           for k in ("planificat", "in_lucru", "finalizat")}
+    n_act = cnt["planificat"] + cnt["in_lucru"]
+    # законченное по умолчанию спрятано; если активного не осталось —
+    # открываем сразу «Finalizate», а не пустой экран
+    default_tab = "act" if n_act or not plan else "finalizat"
     plan_rows = []
-    total = 0
-    for it in plan:
-        if it["price_mdl"] and it["status"] != "finalizat":
-            total += it["price_mdl"]
-        nxt = _PLAN_NEXT[it["status"] if it["status"] in _PLAN_NEXT else "planificat"]
+    total = total_done = 0
+    for it in sorted(plan, key=_plan_key):
+        st = it["status"]
+        if it["price_mdl"]:
+            if st != "finalizat":
+                total += it["price_mdl"]
+            else:
+                total_done += it["price_mdl"]
+        if st == "planificat":
+            act = (f"<form method='post' action='{base}/plan/{it['id']}/status'>"
+                   f"<input type='hidden' name='to' value='in_lucru'>"
+                   f"<button class='pgo' title='Trece procedura în lucru'>"
+                   f"▶ Începe</button></form>")
+        elif st == "in_lucru":
+            act = (f"<form method='post' action='{base}/plan/{it['id']}/status'>"
+                   f"<input type='hidden' name='to' value='finalizat'>"
+                   f"<button class='pgo fin' title='Marchează ca finalizată'>"
+                   f"✓ Finalizează</button></form>")
+        else:
+            act = (f"<form method='post' action='{base}/plan/{it['id']}/status' "
+                   f"onsubmit=\"return confirm('Redeschideți procedura "
+                   f"(înapoi în lucru)?')\">"
+                   f"<input type='hidden' name='to' value='in_lucru'>"
+                   f"<button class='pre' title='Redeschide — înapoi în lucru'>"
+                   f"↩ Redeschide</button></form>")
+        da = it.get("done_at")
+        if st == "finalizat" and hasattr(da, "astimezone"):
+            due_html = (f"<span class='pdone' title='Data finalizării'>"
+                        f"✔ {da.astimezone(eng.TZ).strftime('%d.%m.%Y')}</span>")
+        else:
+            due_html = f"<span class='pdue'>{_due_html(it.get('due_date'), st)}</span>"
+        tooth_html = (f"<button type='button' class='pt' onclick='openTooth({it['tooth']})' "
+                      f"title='Deschide dintele în formulă'>{it['tooth']}</button>"
+                      if it["tooth"] else "<span class='pt'>—</span>")
+        hidden = ("" if default_tab == "all"
+                  else " style='display:none'" if (default_tab == "act") == (st == "finalizat")
+                  else "")
         plan_rows.append(
-            f"<div class='plan-row' data-st='{e(it['status'])}'>"
-            f"<span class='pt'>{it['tooth'] or '—'}</span>"
+            f"<div class='plan-row{' done' if st == 'finalizat' else ''}' "
+            f"data-st='{e(st)}'{hidden}>"
+            f"{tooth_html}"
             f"<span class='pp'>{e(it['procedure'])}</span>"
             f"<span class='pd'>{e(it['doctor'] or '—')}</span>"
-            f"<span class='pdue'>{_due_html(it.get('due_date'), it['status'])}</span>"
-            f"<span class='pbadge {e(it['status'])}'>{_PLAN_LABEL.get(it['status'], it['status'])}</span>"
+            f"{due_html}"
+            f"<span class='pbadge {e(st)}'>{_PLAN_LABEL.get(st, st)}</span>"
             f"<span class='pm'>{f'{it['price_mdl']:,}'.replace(',', ' ') + ' MDL' if it['price_mdl'] else '—'}</span>"
-            f"<span class='pact'>"
-            f"<form style='display:inline' method='post' action='{base}/plan/{it['id']}/status'>"
-            f"<input type='hidden' name='to' value='{nxt}'>"
-            f"<button title='Următorul status'>→ {_PLAN_LABEL[nxt]}</button></form>"
-            f"<form style='display:inline' method='post' action='{base}/plan/{it['id']}/del' "
+            f"<span class='pact'>{act}"
+            f"<form method='post' action='{base}/plan/{it['id']}/del' "
             f"onsubmit=\"return confirm('Ștergeți poziția din plan?')\">"
-            f"<button title='Șterge'>✕</button></form></span></div>")
+            f"<button class='pdel' title='Șterge'>✕</button></form></span></div>")
     plan_html = "".join(plan_rows) or "<p class='hint' style='margin:6px 0'>— plan gol —</p>"
     tooth_opts = "<option value=''>—</option>" + "".join(
         f"<option value='{n}'>{n}</option>" for n in _FDI_UPPER + _FDI_LOWER)
-    cnt = {k: sum(1 for it in plan if it["status"] == k)
-           for k in ("planificat", "in_lucru", "finalizat")}
+    on_act = " class='on'" if default_tab == "act" else ""
+    on_fin = " class='on'" if default_tab == "finalizat" else ""
     tabs = ("<div class='tabs'>"
-            f"<button class='on' data-f='all' onclick='planTab(this)'>Toate ({len(plan)})</button>"
-            f"<button data-f='in_lucru' onclick='planTab(this)'>În lucru ({cnt['in_lucru']})</button>"
-            f"<button data-f='planificat' onclick='planTab(this)'>Planificate ({cnt['planificat']})</button>"
-            f"<button data-f='finalizat' onclick='planTab(this)'>Finalizate ({cnt['finalizat']})</button>"
+            f"<button{on_act} data-f='act' onclick='planTab(this)'>"
+            f"Active ({n_act})</button>"
+            f"<button{on_fin} data-f='finalizat' onclick='planTab(this)'>"
+            f"Finalizate ({cnt['finalizat']})</button>"
+            f"<button data-f='all' onclick='planTab(this)'>Toate ({len(plan)})</button>"
             "</div>")
+    pct_done = round(100 * cnt["finalizat"] / len(plan)) if plan else 0
+    prog = (f"<div class='plan-prog'><div class='statbar'>"
+            f"<div style='width:{pct_done}%'></div></div>"
+            f"<small>{cnt['finalizat']}/{len(plan)} finalizate</small></div>"
+            if plan else "")
+    done_total_html = (f"<span class='pt-done'> · finalizate: "
+                       f"{f'{total_done:,}'.replace(',', ' ')} MDL</span>"
+                       if total_done else "")
     plan_card = f"""<div class='fcard' id='plan'>
-<h3>Plan de tratament <small>· plan activ (nefinalizat): {f'{total:,}'.replace(',', ' ')} MDL</small></h3>
-{tabs}
+<h3>Plan de tratament <small>· plan activ: {f'{total:,}'.replace(',', ' ')} MDL</small></h3>
+{prog}{tabs}
 {plan_html}
-<div class='ptotal'><span>Total plan activ</span><b>{f'{total:,}'.replace(',', ' ')} MDL</b></div>
+<div class='ptotal'><span>Total plan activ</span><b>{f'{total:,}'.replace(',', ' ')} MDL</b>{done_total_html}</div>
 <form class='fform' method='post' action='{base}/plan' style='margin-top:10px'>
   <div class='r2'><select name='tooth' style='width:90px'>{tooth_opts}</select>
   <input name='procedure' placeholder='Procedură (ex. Coroană zirconiu)' maxlength='120' required></div>
@@ -792,7 +856,9 @@ function planTab(btn) {{
   }});
   var f = btn.dataset.f;
   document.querySelectorAll('.plan-row').forEach(function (r) {{
-    r.style.display = (f === 'all' || r.dataset.st === f) ? '' : 'none';
+    var show = f === 'all' || (f === 'act' ? r.dataset.st !== 'finalizat'
+                                           : r.dataset.st === f);
+    r.style.display = show ? '' : 'none';
   }});
 }}
 function openNote() {{
@@ -1012,7 +1078,10 @@ async def patient_plan_status(request: Request, pid: int, item_id: int,
                               to: str = Form(...)):
     if (deny := _guard(request)) is not None:
         return deny
-    if to not in _PLAN_LABEL:
+    # проверяем РЕБРО (откуда → куда), а не только цель: направление — правило
+    # сервера, а не рисунок кнопок; устаревшая вкладка не воскресит финал
+    cur = await db.plan_item_status(item_id, pid)
+    if cur is None or (cur, to) not in _PLAN_EDGES:
         return _card_redirect(pid, "bad_card")
     await db.set_plan_status(item_id, pid, to)
     return _card_redirect(pid)

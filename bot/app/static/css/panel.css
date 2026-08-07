@@ -427,23 +427,51 @@
    margin-top:16px;align-items:center}
  .tleg .lg{display:inline-flex;align-items:center;gap:6px}
 
- .plan-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line2);font-size:12.5px}
+ /* план лечения: типографика системного уровня (08-07 — было 10-12.5px при
+    базе 13.5-14, и вкладка читалась «дешевле» соседних экранов) */
+ .plan-row{display:flex;align-items:center;gap:12px;padding:11px 0;
+   border-top:1px solid var(--line2);font-size:13.5px}
  .plan-row:first-of-type{border-top:none}
- .plan-row .pt{width:32px;flex:0 0 32px;font-weight:600;color:var(--text2)}
- .plan-row .pp{flex:1;min-width:0;font-weight:500}
- .plan-row .pd{width:120px;flex:0 0 120px;color:var(--text2);font-size:12px}
- .plan-row .pm{width:90px;flex:0 0 90px;text-align:right;font-weight:600}
- .pbadge{font-size:10px;font-weight:600;letter-spacing:.05em;padding:3px 7px;border-radius:5px;text-transform:uppercase}
+ .plan-row .pt{width:34px;flex:0 0 34px;font-weight:600;color:var(--text2)}
+ button.pt{background:none;border:none;padding:0;cursor:pointer;font-family:inherit;
+   font-size:inherit;text-align:left;color:var(--teal-d);
+   border-bottom:1px dashed var(--teal-line)}
+ button.pt:hover{border-bottom-style:solid}
+ .plan-row .pp{flex:1;min-width:0;font-weight:600;font-size:14px}
+ .plan-row .pd{width:130px;flex:0 0 130px;color:var(--text2);font-size:13px}
+ .plan-row.done{opacity:.6}
+ .plan-row.done .pp{font-weight:500}
+ .pdone{width:110px;flex:0 0 110px;font-size:12.5px;font-weight:600;
+   color:var(--green-t)}
+ .pbadge{font-size:11px;font-weight:600;letter-spacing:.05em;padding:4px 9px;
+   border-radius:6px;text-transform:uppercase}
  .pbadge.planificat{border:1px solid var(--line);color:var(--text3)}
  .pbadge.in_lucru{background:var(--teal);color:#fff}
  .pbadge.finalizat{background:var(--line2);color:var(--text2)}
+ .plan-row .pm{width:96px;flex:0 0 96px;text-align:right;font-weight:600}
  .plan-row form{margin:0}
- .plan-row .pact button{background:none;border:1px solid var(--line);border-radius:6px;
-   padding:2px 7px;cursor:pointer;font-size:11px;color:var(--text2);margin-left:3px}
- .plan-row .pact button:hover{border-color:var(--teal);color:var(--teal-d)}
+ .plan-row .pact{display:flex;gap:6px;align-items:center}
+ .plan-row .pact button{height:30px;padding:0 12px;border-radius:8px;cursor:pointer;
+   font-size:12.5px;font-weight:600;font-family:inherit;
+   transition:background-color .2s ease,border-color .2s ease,color .2s ease}
+ .plan-row .pact .pgo{background:none;border:1px solid var(--teal);color:var(--teal-d)}
+ .plan-row .pact .pgo:hover{background:var(--teal);color:#fff}
+ .plan-row .pact .pgo.fin{border-color:var(--green);color:var(--green-t)}
+ .plan-row .pact .pgo.fin:hover{background:var(--green);color:#fff}
+ .plan-row .pact .pre{background:none;border:1px solid var(--line);color:var(--text3)}
+ .plan-row .pact .pre:hover{border-color:var(--amber);color:var(--amber-t)}
+ .plan-row .pact .pdel{background:none;border:1px solid var(--line);color:var(--text3);
+   padding:0 9px}
+ .plan-row .pact .pdel:hover{border-color:var(--red);color:var(--red-t)}
+ .plan-prog{display:flex;align-items:center;gap:10px;margin:2px 0 12px}
+ .plan-prog .statbar{flex:1;height:7px;border-radius:999px}
+ .plan-prog .statbar div{height:7px;border-radius:999px;
+   background:linear-gradient(90deg,var(--teal),var(--green))}
+ .plan-prog small{font-size:12.5px;color:var(--text2);font-weight:600;flex:0 0 auto}
  .ptotal{display:flex;justify-content:flex-end;gap:12px;padding-top:10px;border-top:1px solid var(--line);
-   font-size:12.5px;color:var(--text3);align-items:baseline}
- .ptotal b{font-size:15px;color:var(--text)}
+   font-size:13px;color:var(--text3);align-items:baseline}
+ .ptotal b{font-size:16px;color:var(--text)}
+ .ptotal .pt-done{font-size:12.5px;color:var(--text3)}
  .tline{display:flex;gap:10px;margin-bottom:10px}
  .tline .tdot{width:7px;flex:0 0 7px;display:flex;flex-direction:column;align-items:center}
  .tline .tdot i{width:7px;height:7px;border-radius:50%;background:var(--line);margin-top:4px}

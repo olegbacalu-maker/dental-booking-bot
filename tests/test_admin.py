@@ -131,9 +131,52 @@ def suite_patient_card(res: Result) -> None:
         r = c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11",
                    tooth="11", price="1200")
         res.ok("пункт плана добавляется", r.status == 303, f"код {r.status}")
-        res.ok("пункт плана виден в карточке",
-               "Plombă 11" in c.get(f"/admin/patient/{pid}").body,
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("пункт плана виден в карточке", "Plombă 11" in page,
                "плана нет на странице")
+
+        # ---- статусы плана: НАПРАВЛЕННЫЕ рёбра, а не кольцо (08-07) ----
+        iid = re.search(r"/plan/(\d+)/status", page).group(1)
+
+        def flip(to: str) -> str:
+            return c.post(f"/admin/patient/{pid}/plan/{iid}/status", to=to).msg
+
+        res.check("из Planificat сразу в финал нельзя", flip("finalizat"), "bad_card")
+        res.check("Începe: в работу — можно", flip("in_lucru"), "")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("у работы кнопка «Finalizează»", "Finalizează" in page,
+               "нет глагола завершения")
+        res.check("из работы назад в Planificat нельзя", flip("planificat"),
+                  "bad_card")
+        res.check("Finalizează — можно", flip("finalizat"), "")
+        page = c.get(f"/admin/patient/{pid}").body
+        today_ro = date.today().strftime("%d.%m.%Y")
+        res.ok("дата завершения видна", f"✔ {today_ro}" in page,
+               "done_at не показан")
+        # активного не осталось — вкладка по умолчанию сама «Finalizate»,
+        # а не пустой экран
+        res.ok("без активных открыта вкладка Finalizate",
+               "class='on' data-f='finalizat'" in page
+               and "style='display:none'" not in page,
+               "показали пустую вкладку Active")
+        res.ok("прогресс честный", "1/1 finalizate" in page, "нет прогресса")
+        # появился новый активный пункт — финал уходит с глаз по умолчанию
+        c.post(f"/admin/patient/{pid}/plan", procedure="Detartraj", price="500")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("законченное спрятано, когда есть активное",
+               "data-st='finalizat' style='display:none'" in page
+               and "class='on' data-f='act'" in page,
+               "финал остался в активной вкладке")
+        res.ok("активный пункт видим", "Detartraj" in page
+               and "data-st='planificat' style='display:none'" not in page,
+               "активное спрятали заодно")
+        fin_row = page.split("data-st='finalizat'", 1)[1][:700]
+        res.ok("у финала только «Redeschide», не «Începe»",
+               "Redeschide" in fin_row and "Începe" not in fin_row,
+               "строка финала предлагает лишние переходы")
+        res.check("воскресить финал в Planificat нельзя", flip("planificat"),
+                  "bad_card")
+        res.check("Redeschide: назад в работу — можно", flip("in_lucru"), "")
 
         r = c.post(f"/admin/patient/{pid}/alert", kind="allergy",
                    text="Alergie la penicilină")

@@ -305,7 +305,7 @@ def _parse_dt(value):
 # last_at/next_at — вычисляемые псевдонимы (MAX/MIN по starts_at) из
 # patients_visits: в PG они приходят datetime, в SQLite остались бы строкой.
 _DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at",
-            "last_at", "next_at"}
+            "last_at", "next_at", "done_at"}
 
 
 def _rowdict(row) -> dict:
@@ -1293,10 +1293,22 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
 
 async def plan_items(pid: int) -> list:
     return await _fetch(
-        """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date
+        """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
+                  done_at
            FROM plan_items WHERE patient_id = $1 ORDER BY id""",
-        """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date
+        """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
+                  done_at
            FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
+
+
+async def plan_item_status(item_id: int, pid: int) -> str | None:
+    """Текущий статус позиции — для проверки, что переход допустим. Стрелки
+    статусов НАПРАВЛЕННЫЕ (см. _PLAN_EDGES в модуле пациентов), и охрана
+    обязана смотреть на «откуда», а не только на «куда»."""
+    return await _fetchval(
+        "SELECT status FROM plan_items WHERE id = $1 AND patient_id = $2",
+        "SELECT status FROM plan_items WHERE id = ? AND patient_id = ?",
+        item_id, pid)
 
 
 async def add_plan_item(pid: int, tooth: int | None, procedure: str,
