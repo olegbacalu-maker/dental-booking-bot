@@ -39,6 +39,7 @@ from ...core import bitlocker
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
+from . import faq
 
 router = APIRouter()
 
@@ -252,6 +253,9 @@ async def admin_settings(request: Request, msg: str = ""):
         tiles.append(tile("/admin/settings/security", "🔒", "g",
                           "Securitate și utilizatori",
                           f"{len(all_users())} utilizatori"))
+    # FAQ безусловно и последней: справка в конце списка — привычное место
+    tiles.append(tile("/admin/settings/faq", "❓", "v", "Întrebări frecvente",
+                      "copii de rezervă, mutare, Legea 195"))
 
     body = (f"<div class='pl-head'><div><h2>Setări</h2>"
             f"<p>Alegeți o secțiune — modificările se aplică imediat, "
@@ -398,6 +402,15 @@ async def settings_security(request: Request, msg: str = ""):
   <button>Schimbă</button>
 </form>""" + _users_block()
     return _sec_page(body, "setări · securitate și utilizatori", msg)
+
+
+@router.get("/admin/settings/faq", response_class=HTMLResponse)
+async def settings_faq(request: Request, msg: str = ""):
+    # под PERM_SETTINGS, как весь раздел: темы директорские (бэкап, перенос,
+    # закон 195). Подсказки регистратуре — в самих экранах, не здесь.
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    return _sec_page(faq.render(), "setări · întrebări frecvente", msg)
 
 
 @router.get("/admin/settings/clinic", response_class=HTMLResponse)

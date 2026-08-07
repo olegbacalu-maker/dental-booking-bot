@@ -47,6 +47,7 @@ SUITES = [
     ("Закон 195: имена файлов в архиве", test_privacy.suite_export_names),
     ("Закон 195: право на стирание", test_privacy.suite_erase),
     ("Закон 195: журнал доступа", test_privacy.suite_access_log),
+    ("Закон 195: формуляр информирования", test_privacy.suite_acord),
     ("Зашифрованный бэкап клиники", test_privacy.suite_backup),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]

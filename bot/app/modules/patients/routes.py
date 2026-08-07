@@ -38,6 +38,7 @@ from starlette.background import BackgroundTask
 from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
+from . import acord as pacord
 from . import export as pexport
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, _age, _ic,
@@ -486,7 +487,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                  "alert_add": "⚠️", "profile": "✏️", "archive": "🗄",
                  # выдача копии данных — событие, о котором спросят на проверке;
                  # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
-                 "export": "📦",
+                 "export": "📦", "acord": "📋",
                  "view": "👁", "doc_view": "👁", "erase": "🧹"}
     act_rows = []
     for a in acts:
@@ -700,6 +701,11 @@ programului (data\\files).</p></div>"""
   font-size:13px;color:var(--text3);text-decoration:none'
   title='Copie completă a datelor — pentru cererea pacientului (Legea 195)'>
   📦 Descarcă datele pacientului</a>
+<a href='{base}/acord' style='display:block;margin-top:8px;text-align:center;
+  border:1px solid var(--line);border-radius:var(--r-ctl);height:40px;line-height:40px;
+  font-size:13px;color:var(--text3);text-decoration:none'
+  title='Formular de informare cu datele pacientului, pentru semnare (Legea 195)'>
+  📋 Informare / acord — tipărire</a>
 {_erase_block(base, erasure)}</div>"""
 
     # ---- платежи и баланс (08-07, модуль финансов, шаг 1) ----
@@ -1396,6 +1402,25 @@ async def patient_erase(request: Request, pid: int, confirm: str = Form("")):
     # видно, что стирание состоялось и когда
     await db.log_event(pid, "erase", "Date personale șterse (anonimizare)")
     return _card_redirect(pid, "ok_anon")
+
+
+@router.get("/admin/patient/{pid}/acord", response_class=HTMLResponse)
+async def patient_acord(request: Request, pid: int):
+    """Печатный «Informare și acord» с данными этого пациента (закон 195).
+
+    Генерация формы пишется в летопись: выдача листа с персональными данными —
+    само по себе событие обработки, как и выдача копии. Подписанный экземпляр
+    регистратура сканирует и грузит в документы пациента — так факт подписи
+    остаётся в фише и уезжает в выгрузку по 195-му.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    await db.log_event(pid, "acord",
+                       "Formular «Informare și acord» generat pentru tipărire")
+    return pacord.render(p)
 
 
 @router.get("/admin/patient/{pid}/export")

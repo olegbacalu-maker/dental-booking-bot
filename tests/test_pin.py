@@ -158,7 +158,8 @@ def suite_roles(res: Result) -> None:
             res.ok(f"врачу открыто {path}", med.get(path).status == 200,
                    "закрыли лишнее")
         for path in ("/admin/stats", "/admin/settings",
-                     "/admin/settings/security", "/admin/settings/system"):
+                     "/admin/settings/security", "/admin/settings/system",
+                     "/admin/settings/faq"):
             r = med.get(path)
             res.ok(f"врачу закрыто {path}",
                    r.status == 303 and "no_access" in r.location,

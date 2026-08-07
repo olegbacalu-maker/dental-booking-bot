@@ -273,6 +273,53 @@ def suite_access_log(res: Result) -> None:
                "к журналу нет пути с фиши")
 
 
+def suite_acord(res: Result) -> None:
+    """Печатный «Informare și acord» из фиши: автозаполнение и след в летописи.
+
+    ⭐ Главное, что стережётся, — незаполненное поле обязано остаться ВИДИМЫМ
+    пропуском (жёлтый `fill`), а не пустым местом: лист подписывается на бумаге,
+    и пробел, который не видно, так и уйдёт неподписанным. И второе — генерация
+    формы пишется в летопись: лист с персональными данными — событие обработки.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
+               aservice="consult", aname="Acord Test", aphone="022556677",
+               back="/admin/all")
+        pid = _pid(c, "022556677")
+        # профиль с IDNP и адресом, но БЕЗ даты рождения — она должна
+        # напечататься жёлтым пропуском
+        c.post(f"/admin/patient/{pid}/save", name="Acord Test",
+               phone="022556677", idnp="2011111111111", address="str. Acord 5")
+
+        anon = Client(s.url)
+        res.ok("без входа формуляр не отдаётся",
+               anon.get(f"/admin/patient/{pid}/acord").status == 303,
+               "лист с персональными данными ушёл без входа")
+
+        r = c.get(f"/admin/patient/{pid}/acord")
+        res.check("формуляр отдаётся", r.status, 200)
+        for want in ("Acord Test", "2011111111111", "str. Acord 5",
+                     "Clinica Test", "nr. 195/2024"):
+            res.ok(f"в формуляре есть {want!r}", want in r.body,
+                   "автозаполнение потеряло поле")
+        res.ok("пустая дата рождения — видимый жёлтый пропуск",
+               "class='fill'" in r.body, "незаполненное поле не видно на бумаге")
+        res.ok("основание — договор и закон, не согласие",
+               "contractului de servicii medicale" in r.body
+               and "obligație legală" in r.body,
+               "формуляр строит лечение на отзываемом согласии")
+        res.ok("согласия-галочки только про необязательное",
+               "marketing" in r.body, "нет блока опциональных согласий")
+
+        res.ok("ссылка на формуляр есть в фише",
+               f"/admin/patient/{pid}/acord" in c.get(f"/admin/patient/{pid}").body,
+               "к формуляру нет пути с фиши")
+        res.ok("генерация формуляра оставила след в летописи",
+               "Formular «Informare și acord»" in c.get(f"/admin/patient/{pid}").body,
+               "выдача листа не записана")
+
+
 def suite_bot_notice(res: Result) -> None:
     """Уведомление об обработке — в момент, когда бот впервые просит имя."""
     from harness import Bot

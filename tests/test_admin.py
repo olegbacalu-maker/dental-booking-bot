@@ -566,10 +566,17 @@ def suite_settings(res: Result) -> None:
         res.ok("хаб — плитки, а не простыня",
                "pl-tile" in hub and hub.count("/admin/settings/") >= 4,
                "нет плиток секций")
+        # страница без плитки для клиники не существует — маршрут проверен ниже,
+        # а здесь стережётся именно вход с хаба
+        res.ok("плитка FAQ на хабе", "/admin/settings/faq" in hub,
+               "FAQ не находима с хаба")
         for path, needle in {"/admin/settings/system": "Stare sistem",
                              "/admin/settings/clinic": "Clinica Test",
                              "/admin/settings/hours": "Luni",
-                             "/admin/settings/services": "Igienizare"}.items():
+                             "/admin/settings/services": "Igienizare",
+                             # FAQ обязан называть 7-Zip: бэкап открывается им,
+                             # и это единственное место, где клиника об этом узнаёт
+                             "/admin/settings/faq": "7-Zip"}.items():
             b = c.get(path)
             res.ok(f"секция {path} открывается",
                    b.status == 200 and needle in b.body,
