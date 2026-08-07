@@ -21,6 +21,67 @@ log = logging.getLogger("telegram")
 # статус канала для страницы настроек
 STATUS = {"running": False, "username": "", "error": ""}
 
+# ---- визитка бота (описание в профиле и в пустом чате) --------------------
+# Description хранится на серверах Telegram, поэтому виден и тогда, когда
+# программа клиники ВЫКЛЮЧЕНА и бот молчит. Это единственный канал сказать
+# пациенту, почему нет ответа и куда звонить, — потому тексты не выдумываются
+# здесь, а собираются из clinic.json (contacts пересобирают настройки при
+# каждом сохранении: адрес + телефон + орар одной строкой).
+_DESC_MAX, _SHORT_MAX = 512, 120   # лимиты Bot API на тексты визитки
+_BOT: Bot | None = None            # живой бот — для refresh_meta() из настроек
+_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _meta_texts() -> dict[str, dict[str, str]]:
+    name = str(eng.CONFIG.get("name", "")).strip()
+    phone = str(eng.CONFIG.get("phone", "")).strip()
+    contacts = eng.CONFIG.get("contacts") or {}
+    out: dict[str, dict[str, str]] = {}
+    for lang, head, hint in (
+            ("ro", f"Programări online — {name}",
+             "Dacă botul nu răspunde, încercați în orele de lucru ale "
+             "clinicii sau sunați:"),
+            ("ru", f"Онлайн-запись — {name}",
+             "Если бот не отвечает, попробуйте в часы работы клиники "
+             "или позвоните:")):
+        c = str(contacts.get(lang, "")).strip()
+        out[lang] = {
+            "desc": "\n".join(x for x in (head + ".", hint, c) if x)[:_DESC_MAX],
+            "short": (f"{head} · ☎️ {phone}" if phone else head)[:_SHORT_MAX],
+        }
+    return out
+
+
+async def _apply_meta(bot: Bot) -> None:
+    """Догнать визитку бота до текущего clinic.json. Сравниваем с тем, что
+    уже у Telegram, — ежедневный старт программы не шлёт одно и то же."""
+    if eng.CONFIG.get("template"):
+        return  # клиника ещё не заполнена — заглушку в профиль не публикуем
+    try:
+        texts = _meta_texts()
+        cur_d = (await bot.get_my_description()).description
+        cur_s = (await bot.get_my_short_description()).short_description
+        if cur_d == texts["ro"]["desc"] and cur_s == texts["ro"]["short"]:
+            return
+        await bot.set_my_description(description=texts["ro"]["desc"])
+        await bot.set_my_description(description=texts["ru"]["desc"],
+                                     language_code="ru")
+        await bot.set_my_short_description(short_description=texts["ro"]["short"])
+        await bot.set_my_short_description(short_description=texts["ru"]["short"],
+                                           language_code="ru")
+        log.warning("Bot profile updated (description + short)")
+    except Exception as e:  # noqa: BLE001 — визитка не смеет мешать боту
+        log.warning("Bot profile update failed: %r", e)
+
+
+def refresh_meta() -> None:
+    """Зовётся после сохранения настроек (через core.layout.tg_refresh_meta):
+    имя/телефон/орар в профиле бота должны догнать clinic.json. Потокобезопасно
+    (роуты могут жить в threadpool); без запущенного бота — no-op: _apply_meta
+    при следующем старте сам увидит расхождение и дошлёт."""
+    if _BOT is not None and _LOOP is not None:
+        asyncio.run_coroutine_threadsafe(_apply_meta(_BOT), _LOOP)
+
 
 def _keyboard(buttons: list[list[dict]]) -> InlineKeyboardMarkup | None:
     if not buttons:
@@ -162,8 +223,12 @@ async def run(token: str) -> None:
     me = await bot.get_me()
     STATUS.update(running=True, username=me.username or "", error="")
     log.warning("Telegram adapter: polling started as @%s", me.username)
+    global _BOT, _LOOP
+    _BOT, _LOOP = bot, asyncio.get_running_loop()
+    asyncio.create_task(_apply_meta(bot))   # визитка — не задерживая поллинг
     asyncio.create_task(_reminder_loop(bot))
     try:
         await dp.start_polling(bot, handle_signals=False)
     finally:
         STATUS["running"] = False
+        _BOT = None

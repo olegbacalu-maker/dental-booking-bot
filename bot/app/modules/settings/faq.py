@@ -91,6 +91,24 @@ def render() -> str:
            f"<b>Setări → Telegram Bot</b> (vezi întrebarea despre mutare)."
            f"{end}"),
 
+        _q("🌙", "Botul primește programări noaptea și în weekend?",
+           f"{p}<b>Da.</b> Botul răspunde non-stop cât timp programul "
+           f"rulează — pacienții se pot programa seara, noaptea, în weekend. "
+           f"Orarul clinicii din Setări limitează doar <b>orele propuse</b> "
+           f"pentru vizită, nu momentul în care botul răspunde: un pacient "
+           f"scrie duminică și primește locuri pentru luni.{end}"
+           f"{p}Condiția e una singură: calculatorul rămâne <b>pornit</b>, "
+           f"cu programul deschis. Concret: nu opriți calculatorul vineri "
+           f"seara; dezactivați somnul (Setări Windows → System → Power → "
+           f"Sleep: <b>Never</b>) — stingerea <b>ecranului</b> nu încurcă; "
+           f"fereastra DentPilot se <b>minimizează</b>, nu se închide — la "
+           f"închidere programul se oprește de tot (întreabă înainte).{end}"
+           f"{p}⚠️ După actualizări, Windows se poate reporni singur noaptea, "
+           f"iar programul pornește din nou abia după ce cineva intră în "
+           f"Windows. Luni dimineața verificați rândul «Canal Telegram» în "
+           f"<b>Setări → Stare sistem</b> — sau scrieți botului de pe "
+           f"telefon.{end}"),
+
         _q("🔄", "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "
            f"programului; baza de date, documentele și setările rămân "

@@ -204,6 +204,15 @@ def tg_status() -> dict:
     return dict(mod.STATUS)
 
 
+def tg_refresh_meta() -> None:
+    """Пнуть визитку бота (описание в профиле Telegram) после сохранения
+    настроек — имя/телефон/орар должны догнать clinic.json. Тот же принцип,
+    что tg_status: без импорта адаптера; бот не запущен — no-op."""
+    mod = sys.modules.get(f"{_APP_PKG}.telegram")
+    if mod is not None:
+        mod.refresh_meta()
+
+
 def _tg_state() -> tuple[bool, str]:
     """Короткий ответ для сайдбара: (работает ли, username)."""
     st = tg_status()

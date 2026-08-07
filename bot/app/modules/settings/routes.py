@@ -34,7 +34,8 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
                           pin_free, remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
-                            _doc_hours_text, _shell, tg_status)
+                            _doc_hours_text, _shell, tg_refresh_meta,
+                            tg_status)
 from ...core import bitlocker
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
@@ -915,4 +916,5 @@ async def admin_settings_save(request: Request, payload: str = Form(""),
         return RedirectResponse(f"{back}?msg=bad_set", status_code=303)
     if eng.save_config(cfg) is not None:
         return RedirectResponse(f"{back}?msg=save_err", status_code=303)
+    tg_refresh_meta()   # имя/телефон/орар уезжают и в профиль бота
     return RedirectResponse(f"{back}?msg=ok_set", status_code=303)

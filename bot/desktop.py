@@ -197,6 +197,8 @@ def main() -> None:
         try:
             import webview
             webview.settings["ALLOW_DOWNLOADS"] = True   # см. комментарий ниже
+            # БЕЗ confirm_close: закрытие доп-окна не гасит сервер первого
+            # экземпляра, переспрашивать здесь — ложная тревога
             webview.create_window("DentPilot — registrul clinicii", URL,
                                   width=1280, height=860, min_size=(960, 640))
             webview.start()
@@ -255,9 +257,21 @@ def main() -> None:
     # Из-за этого «Salvează pe disc» в фише и «📥 Export CSV» в журнале были
     # мёртвыми кнопками — в браузерном режиме работали, в окне программы нет.
     webview.settings["ALLOW_DOWNLOADS"] = True
+    # Закрытие ЭТОГО окна гасит всю программу вместе с Telegram-ботом
+    # (os._exit ниже) — привычное «закрыть все окна в конце смены» оставляло
+    # бота немым до следующего запуска, и в выходные этого никто не замечал.
+    # Поэтому окно переспрашивает. Кнопки диалога рисует сама Windows на
+    # языке системы, наш только текст.
     webview.create_window(
         "DentPilot — registrul clinicii", URL,
         width=1280, height=860, min_size=(960, 640),
+        confirm_close=True,
+        localization={
+            "global.quitConfirmation":
+                "Închideți DentPilot? Programul se oprește complet, iar botul "
+                "Telegram nu va mai răspunde pacienților până la următoarea "
+                "pornire.",
+        },
     )
     webview.start()
     os._exit(0)  # окно закрыто = программа остановлена

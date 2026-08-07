@@ -622,6 +622,13 @@ def suite_settings(res: Result) -> None:
             res.ok(f"из секции {path} есть путь назад",
                    "← Setări" in b.body, "нет навигации на хаб")
 
+        # FAQ обязан объяснять «бот и ночью/в выходные»: главный ответ на
+        # вопрос клиники «а если компьютер выключен» — иначе она узнаёт об
+        # этом от молчащего бота в понедельник
+        faq = c.get("/admin/settings/faq").body
+        res.ok("FAQ говорит про бот в weekend", "weekend" in faq,
+               "нет пункта про ночь/выходные")
+
         # ---- сохранение по кускам: сосед не должен пострадать ----
         # (идёт ДО цельного payload: тот прогоняет услуги через разбор формы и
         # по своей природе плющит двуязычную цену — куски так делать не должны)
@@ -705,10 +712,21 @@ from app import paths
 # адаптер работает, а интерфейс рисует его выключенным. Подкладываем модуль
 # под НАСТОЯЩИМ именем и проверяем, что его находят из core.
 import types
+# настоящий адаптер — ради текстов визитки (_meta_texts); импортируем ДО
+# подделки, дальше имя в sys.modules перекрывает фейк
+from app import telegram as _tg_real
 _fake = types.ModuleType("app.telegram")
 _fake.STATUS = {"running": True, "username": "bot_de_test", "error": ""}
+_fake.meta_pings = 0
+def _ping():
+    _fake.meta_pings = _fake.meta_pings + 1
+_fake.refresh_meta = _ping
 sys.modules["app.telegram"] = _fake
-from app.core.layout import _tg_state, tg_status
+from app.core.layout import _tg_state, tg_refresh_meta, tg_status
+tg_refresh_meta()   # обязан дозвониться до модуля под НАСТОЯЩИМ именем
+_meta = _tg_real._meta_texts()          # фикстура без contacts
+eng.CONFIG["contacts"] = {"ro": "str. Test 1 / tel"}
+_meta_c = _tg_real._meta_texts()        # и с contacts-строкой
 # фолбэк обновлятора: чистые разборщики веб-ответов GitHub. Сеть в этих
 # проверках не участвует — кормим текстами, снятыми с настоящих ответов.
 from app import update as upd
@@ -736,6 +754,14 @@ out = {
  "tg_user":        tg_status().get("username"),
  "tg_running":     tg_status().get("running"),
  "tg_state_tuple": list(_tg_state()),
+ "meta_pinged":    _fake.meta_pings,
+ "meta_short_ro":  _meta["ro"]["short"],
+ "meta_desc_head": _meta["ro"]["desc"].startswith("Programări online — Clinica Test."),
+ "meta_hint_ro":   "orele de lucru" in _meta["ro"]["desc"],
+ "meta_hint_ru":   "часы работы" in _meta["ru"]["desc"],
+ "meta_contacts":  "str. Test 1 / tel" in _meta_c["ro"]["desc"],
+ "meta_lens_ok":   all(len(t["desc"]) <= 512 and len(t["short"]) <= 120
+                       for m in (_meta, _meta_c) for t in m.values()),
  "res_clinic":     paths.resource("clinic.json").exists(),
  "res_clinic_new": paths.resource("clinic_new.json").exists(),
  "res_static":     paths.resource("static").is_dir(),
@@ -784,6 +810,16 @@ print(json.dumps(out))
     res.check("бот показан работающим", v["tg_running"], True)
     res.check("короткий статус для сайдбара", v["tg_state_tuple"],
               [True, "bot_de_test"])
+    # визитка бота: описание в профиле Telegram собирается из конфига клиники
+    # и живёт у Telegram — единственный текст, видимый при ВЫКЛЮЧЕННОЙ программе
+    res.check("пинок визитки доходит до адаптера", v["meta_pinged"], 1)
+    res.check("short-описание: имя клиники и телефон", v["meta_short_ro"],
+              "Programări online — Clinica Test · ☎️ +373 60 000 000")
+    res.check("описание начинается с имени клиники", v["meta_desc_head"], True)
+    res.check("описание объясняет молчание (RO)", v["meta_hint_ro"], True)
+    res.check("описание объясняет молчание (RU)", v["meta_hint_ru"], True)
+    res.check("contacts-строка попадает в описание", v["meta_contacts"], True)
+    res.check("лимиты Bot API соблюдены", v["meta_lens_ok"], True)
     # якоря путей: то, из-за чего собранный exe не стартовал бы после переезда
     res.check("демо-профиль клиники находится", v["res_clinic"], True)
     res.check("пустой профиль клиники находится", v["res_clinic_new"], True)
