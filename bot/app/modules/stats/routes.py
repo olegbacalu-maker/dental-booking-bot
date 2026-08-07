@@ -70,20 +70,45 @@ def _agg(rows: list) -> dict:
     }
 
 
-def _trend(cur: int, prev: int, bad_up: bool = False) -> str:
+def _period_label(span: int) -> str:
+    """Прошлый период — ПО ИМЕНИ, а не «perioada trecută»: безымянное сравнение
+    уже дважды озадачивало Олега (загрузка 3%, «vs. perioada trecută (0)»)."""
+    if span == 1:
+        return "față de ziua precedentă"
+    if span == 7:
+        return "față de săptămâna trecută"
+    if 28 <= span <= 31:
+        return "față de luna trecută"
+    return f"față de precedentele {span} zile"
+
+
+def _trend(cur: int, prev: int, bad_up: bool = False,
+           label: str = "față de perioada trecută") -> str:
     """Сравнение с предыдущим периодом той же длины. От нуля процентов нет:
     «+∞%» — не цифра, а шум."""
     if cur == prev:
-        return "<span class='trend'>la fel ca perioada trecută</span>"
+        return f"<span class='trend'>neschimbat {label}</span>"
     if not prev:
         cls = "dn" if bad_up else "up"
         return (f"<span class='trend'><span class='{cls}'>+{cur}</span>"
-                f" vs. perioada trecută (0)</span>")
+                f" {label} (atunci 0)</span>")
     pct = (cur - prev) * 100 / prev
     cls = ("dn" if bad_up else "up") if pct > 0 else ("up" if bad_up else "dn")
     arrow = "▲" if pct > 0 else "▼"
     return (f"<span class='trend'><span class='{cls}'>{arrow} {abs(pct):.0f}%</span>"
-            f" vs. perioada trecută</span>")
+            f" {label}</span>")
+
+
+def _trend_money(cur: int, prev: int, label: str) -> str:
+    """Деньги сравниваем В ДЕНЬГАХ, не в процентах: директору «+2 550 MDL»
+    говорит больше, чем «+100%», а нулевая прошлая неделя не ломает формулу."""
+    if cur == prev:
+        return f"<span class='trend'>neschimbat {label}</span>"
+    diff = cur - prev
+    cls, arrow = ("up", "▲") if diff > 0 else ("dn", "▼")
+    sign = "+" if diff > 0 else "−"
+    return (f"<span class='trend'><span class='{cls}'>{arrow} {sign}"
+            f"{_fmt_mdl(abs(diff))}</span> {label}</span>")
 
 
 @router.get("/admin/stats", response_class=HTMLResponse)
@@ -113,6 +138,7 @@ async def admin_stats(
     split = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
     cur = _agg([r for r in all_rows if r["starts_at"] >= split])
     prev = _agg([r for r in all_rows if r["starts_at"] < split])
+    plabel = _period_label(span)
 
     by_day: dict[date, int] = {x: 0 for x in days}
     for r in cur["act"]:
@@ -154,7 +180,7 @@ async def admin_stats(
         f"<div class='tile sp{' bad' if lbl == 'Anulate' else ''}'>"
         f"<span class='ico' style='background:{soft[tone]};color:{tone}'>{ico}</span>"
         f"<div><b data-count='{val}'>{val}</b><span>{lbl}</span>"
-        f"{_trend(val, pv, bad)}</div>{spark(per_day[lbl], tone)}</div>"
+        f"{_trend(val, pv, bad, plabel)}</div>{spark(per_day[lbl], tone)}</div>"
         for lbl, val, pv, ico, tone, bad in kpis) + "</div>"
 
     # ---- график по дням ----
@@ -164,7 +190,7 @@ async def admin_stats(
 <h3>Programări pe zile <small>· {d1.strftime('%d.%m')} — {d2.strftime('%d.%m.%Y')}</small></h3>
 {line_days(lbl_days, day_vals, 'var(--teal)')}
 <div class='an-foot'>
-  <div><span>Total programări</span><b>{cur['total']}</b>{_trend(cur['total'], prev['total'])}</div>
+  <div><span>Total programări</span><b>{cur['total']}</b>{_trend(cur['total'], prev['total'], label=plabel)}</div>
   <div><span>Rata de prezență</span><b>{present_pct}%</b>
     <div class='statbar'><div style='width:{present_pct}%'></div></div></div>
   <div><span>Neprezentări</span><b>{cur['noshow']}</b>
@@ -210,11 +236,32 @@ async def admin_stats(
                   f"<small>media {d1.strftime('%d.%m')}–{d2.strftime('%d.%m')} "
                   f"({len(days)} zile) · minute ocupate din minutele de lucru "
                   f"ale medicilor activi</small></div>")
-    money_card = (f"<div class='fcard an-money'><h3>Venituri estimate</h3>"
-                  f"<b data-count='{cur['value']}'>{_fmt_mdl(cur['value'])}</b>"
-                  f"{_trend(cur['value'], prev['value'])}"
+    # деньги: период в заголовке, суффикс « MDL» едет с каждым кадром счётчика
+    # (без data-suffix последний кадр показывал голое «2550» — скрин Олега 08-07)
+    money_card = (f"<div class='fcard an-money'>"
+                  f"<h3>Venituri estimate <small>· {d1.strftime('%d.%m')}–"
+                  f"{d2.strftime('%d.%m')}</small></h3>"
+                  f"<b data-count='{cur['value']}' data-suffix=' MDL'>"
+                  f"{_fmt_mdl(cur['value'])}</b>"
+                  f"{_trend_money(cur['value'], prev['value'], plabel)}"
                   f"<small>după lista de prețuri · nu e contabilitate · "
                   f"botul a adus ≈ {_fmt_mdl(cur['bot_value'])}</small></div>")
+    # выручка ЗА СЕГОДНЯ — всегда про сегодня, какой бы период ни был выбран
+    # сверху (идея Олега 08-07: пустое место под карточкой периода)
+    y0 = today - timedelta(days=1)
+    t_rows = await db.day_appointments(
+        datetime(y0.year, y0.month, y0.day, tzinfo=eng.TZ),
+        datetime(today.year, today.month, today.day, tzinfo=eng.TZ)
+        + timedelta(days=1))
+    t_split = datetime(today.year, today.month, today.day, tzinfo=eng.TZ)
+    tv = _agg([r for r in t_rows if r["starts_at"] >= t_split])["value"]
+    yv = _agg([r for r in t_rows if r["starts_at"] < t_split])["value"]
+    azi_card = (f"<div class='fcard an-money'>"
+                f"<h3>Venituri azi <small>· {today.strftime('%d.%m')}</small></h3>"
+                f"<b data-count='{tv}' data-suffix=' MDL'>{_fmt_mdl(tv)}</b>"
+                f"{_trend_money(tv, yv, 'față de ieri')}"
+                f"<small>estimare pe ziua curentă · după lista de prețuri</small>"
+                f"</div>")
 
     # ---- врачи ----
     rows_html = "".join(
@@ -295,7 +342,7 @@ async def admin_stats(
     body = (nav + tiles
             + "<div class='an-grid'>"
             + f"<div class='an-main'>{chart_card}{doctors_tbl}</div>"
-            + f"<div class='an-side'>{src_card}{gauge_card}{money_card}</div>"
+            + f"<div class='an-side'>{src_card}{gauge_card}{money_card}{azi_card}</div>"
             + "</div>"
             + "<div class='an-grid2'>"
             + services_card + activity_card

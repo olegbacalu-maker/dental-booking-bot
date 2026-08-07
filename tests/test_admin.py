@@ -240,6 +240,18 @@ def suite_dashboard(res: Result) -> None:
         res.ok("тот же процент в «Statistici» за тот же день",
                "<span>21%</span>" in st,
                "дашборд и статистика разошлись в загрузке врача")
+        # деньги: период назван, суффикс MDL у счётчика, карточка «за сегодня»
+        res.ok("прошлый период назван по имени (день)",
+               "față de ziua precedentă" in st, "безымянное сравнение")
+        res.ok("карточка «Venituri azi» на месте",
+               "Venituri azi" in st and st.count("data-suffix=' MDL'") >= 2,
+               "нет дневной выручки или суффикса MDL")
+        res.ok("у недельного периода имя недели",
+               "față de săptămâna trecută" in c.get("/admin/stats").body,
+               "7 дней не названы неделей")
+        res.ok("счётчик группирует тысячи",
+               "(\\d{3})" in c.get("/static/js/panel.js").body,
+               "цифры без разделителя тысяч")
         res.check("аналитика несёт свои шесть мини-графиков",
                   st.count("class='spark'"), 6)
 
@@ -309,10 +321,12 @@ def suite_analytics(res: Result) -> None:
                back="/admin/all")
 
         page = c.get(f"/admin/stats?from={day}&to={day}").body
-        # «la fel ca perioada trecută» — тоже тренд: нулевые плитки равны нулю
+        # «neschimbat …» — тоже тренд: нулевые плитки равны нулю. С 08-07
+        # прошлый период называется ПО ИМЕНИ (день/неделя/месяц), а не
+        # безымянной «perioada trecută»
         res.ok("шесть KPI с трендом к прошлому периоду",
-               page.count("perioada trecută") >= 8,   # 6 плиток + график + деньги
-               f"трендов {page.count('perioada trecută')}")
+               page.count("față de ziua precedentă") >= 8,  # 6 плиток + график + деньги
+               f"трендов {page.count('față de ziua precedentă')}")
         res.ok("график по дням на месте", "linechart" in page, "нет графика")
         res.ok("точки графика подписаны значениями", "class='ld-v'" in page,
                "нет значений на точках")
@@ -343,10 +357,11 @@ def suite_analytics(res: Result) -> None:
                "пустой период сломал графики")
 
         # у периода «сегодня» прошлый кусок той же длины — вчера (он пуст), и
-        # сегодняшний визит 08:00 обязан дать «+1 vs. (0)», а не «la fel»
+        # сегодняшний визит 08:00 обязан дать «+1 … (atunci 0)», а не «neschimbat»
         tdy = c.get(f"/admin/stats?from={_d(0)}&to={_d(0)}").body
         res.ok("у «сегодня» прошлый период — вчера",
-               "vs. perioada trecută (0)" in tdy, "нет сравнения на дне")
+               "față de ziua precedentă (atunci 0)" in tdy,
+               "нет сравнения на дне")
 
 
 def suite_patients_list(res: Result) -> None:
