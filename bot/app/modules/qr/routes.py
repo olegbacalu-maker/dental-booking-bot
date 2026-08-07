@@ -61,7 +61,10 @@ async def admin_qr_print(request: Request):
 </div>
 <div class="sheet">
   <h1>🦷 {name}</h1>
-  <h2>Programare online — 24/7</h2>
+  <!-- ⛔ не обещать здесь «24/7»/«non-stop»: бот отвечает, только пока
+       программа запущена, а выключает ли клиника ПК на ночь — мы не знаем.
+       Печатка врать не имеет права, выгода — «без звонка», не «всегда». -->
+  <h2>Programare online — fără să sunați</h2>
   <img src="/qr?data={q}" alt="QR">
   <div class="user">Telegram: @{html.escape(username)}</div>
   <div class="how">Scanați codul cu camera telefonului și programați-vă în 40 de secunde.<br>
