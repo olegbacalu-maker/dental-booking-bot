@@ -39,7 +39,7 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from . import export as pexport
-from ...core.auth import _guard
+from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, _age, _ic,
                             _initials, _shell)
 from ...core.storage import _data_dir
@@ -136,6 +136,8 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     alerts = await db.patient_alerts(pid)
     tmap = await db.teeth_map(pid)
     plan = await db.plan_items(pid)
+    pays = await db.payments(pid)
+    fin = await db.patient_finance(pid)
     docs = await db.documents(pid)
     visits = await db.patient_appointments(pid, 1000)
     # ?views=1 — журнал доступа НА ЭКРАНЕ: лента дополняется просмотрами
@@ -550,6 +552,15 @@ programului (data\\files).</p></div>"""
         pills.append(f"<span class='pill {tone}'>{icon} {e(a['text'][:38])}</span>")
     if p.get("insurance"):
         pills.append(f"<span class='pill green'>🛡 {e(p['insurance'][:28])}</span>")
+    # долг видит и рецепция — ей его и взыскивать; сводные суммы по клинике
+    # остаются за директором (PERM_MONEY в статистике)
+    debt = fin["charged"] - fin["paid"]
+    if debt > 0:
+        pills.append(f"<span class='pill red'>💰 De achitat: "
+                     f"{f'{debt:,}'.replace(',', ' ')} MDL</span>")
+    elif debt < 0:
+        pills.append(f"<span class='pill green'>💰 Avans: "
+                     f"{f'{-debt:,}'.replace(',', ' ')} MDL</span>")
     n_impl = sum(1 for t in tmap.values() if t["state"] == "implant")
     if n_impl:
         pills.append(f"<span class='pill purple'>⚙ {n_impl} implant"
@@ -691,6 +702,58 @@ programului (data\\files).</p></div>"""
   📦 Descarcă datele pacientului</a>
 {_erase_block(base, erasure)}</div>"""
 
+    # ---- платежи и баланс (08-07, модуль финансов, шаг 1) ----
+    _PAY_ICO = {"numerar": "💵", "card": "💳", "transfer": "🏦"}
+    can_del_pay = can(request_user(), PERM_MONEY)
+    chg = f"{fin['charged']:,}".replace(",", " ")
+    pd_s = f"{fin['paid']:,}".replace(",", " ")
+    if debt > 0:
+        sold = (f"<div class='sold bad'><span>De achitat</span>"
+                f"<b>{f'{debt:,}'.replace(',', ' ')} MDL</b></div>")
+    elif debt < 0:
+        sold = (f"<div class='sold plus'><span>Avans</span>"
+                f"<b>{f'{-debt:,}'.replace(',', ' ')} MDL</b></div>")
+    elif fin["charged"]:
+        sold = "<div class='sold ok'><span>Sold</span><b>achitat integral ✔</b></div>"
+    else:
+        sold = ""
+    pay_rows = []
+    for pl in pays:
+        when = (pl["at"].astimezone(eng.TZ).strftime("%d.%m.%Y %H:%M")
+                if hasattr(pl["at"], "astimezone") else "")
+        amt = f"{abs(pl['amount_mdl']):,}".replace(",", " ")
+        neg = pl["amount_mdl"] < 0
+        who = f" · {e(pl['taken_by'])}" if pl["taken_by"] else ""
+        del_f = (f"<form method='post' action='{base}/pay/{pl['id']}/del' "
+                 f"onsubmit=\"return confirm('Ștergeți plata? Rămâne urmă în "
+                 f"istoricul fișei.')\">"
+                 f"<button title='Șterge plata (doar director)'>✕</button></form>"
+                 if can_del_pay else "")
+        pay_rows.append(
+            f"<div class='pay-row{' neg' if neg else ''}'>"
+            f"<span class='pw'>{when}</span>"
+            f"<span class='pi' title='{e(pl['method'])}'>"
+            f"{_PAY_ICO.get(pl['method'], '💵')}</span>"
+            f"<b class='pa'>{'− ' if neg else ''}{amt} MDL</b>"
+            f"<span class='pn'>{e(pl['note'] or '')}{who}</span>{del_f}</div>")
+    method_opts = "".join(f"<option value='{m}'>{_PAY_ICO[m]} {m}</option>"
+                          for m in db.PAY_METHODS)
+    fin_card = f"""<div class='fcard' id='plati'>
+<h3>Plăți și sold <small>· lucrări finalizate: {chg} MDL · plătit: {pd_s} MDL</small></h3>
+{sold}
+{''.join(pay_rows) or "<p class='hint' style='margin:6px 0'>— încă fără plăți —</p>"}
+<form class='fform' method='post' action='{base}/pay' style='margin-top:10px'>
+  <div class='r2'>
+    <input name='amount' type='number' required min='-1000000' max='1000000'
+           placeholder='Suma MDL (cu minus = restituire)'>
+    <select name='method' style='width:160px'>{method_opts}</select></div>
+  <input name='note' placeholder='Notă (opțional, ex. avans coroană)' maxlength='120'>
+  <button>＋ Înregistrează plata</button>
+</form>
+<p class='hint' style='margin-top:8px'>Soldul = lucrările <b>finalizate</b> din plan
+(cu preț) minus plățile. Plata nu se leagă de o procedură anume — banii acoperă
+soldul fișei.</p></div>"""
+
     quick = f"""<div class='fcard'><h3>Acțiuni rapide</h3><div class='qa'>
   <button type='button' onclick='openAppt()'>➕ Vizită nouă</button>
   <a href='#plan'>🦷 Plan de tratament</a>
@@ -748,7 +811,7 @@ programului (data\\files).</p></div>"""
 {hero}
 {kpi_html}
 <div class='pv2'>
-  <div class='pv2-main'>{teeth_card}{plan_card}{docs_card}{quick}</div>
+  <div class='pv2-main'>{teeth_card}{plan_card}{fin_card}{docs_card}{quick}</div>
   <div class='pv2-side'>{next_html}{act_card}{profile_card}{alerts_card}{hist_card}</div>
 </div>
 {dialogs}
@@ -1071,6 +1134,33 @@ async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
     await db.add_plan_item(pid, t, procedure.strip()[:120], doctor.strip()[:80],
                            pr, due)
     return _card_redirect(pid, "ok_card")
+
+
+@router.post("/admin/patient/{pid}/pay")
+async def patient_pay(request: Request, pid: int, amount: str = Form(...),
+                      method: str = Form("numerar"), note: str = Form("")):
+    """Платёж записывает ЛЮБАЯ роль: деньги физически берёт рецепция (решение
+    Олега 08-07). Минус — возврат. Удаление — только директор, ниже."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    try:
+        amt = int(amount.strip())
+    except (ValueError, AttributeError):
+        return _card_redirect(pid, "bad_pay")
+    if amt == 0 or abs(amt) > 1_000_000 or method not in db.PAY_METHODS:
+        return _card_redirect(pid, "bad_pay")
+    await db.add_payment(pid, amt, method, note.strip()[:120])
+    return _card_redirect(pid, "ok_pay")
+
+
+@router.post("/admin/patient/{pid}/pay/{pay_id}/del")
+async def patient_pay_del(request: Request, pid: int, pay_id: int):
+    if (deny := require(request, PERM_MONEY)) is not None:
+        return deny
+    await db.delete_payment(pay_id, pid)
+    return _card_redirect(pid, "pay_del")
 
 
 @router.post("/admin/patient/{pid}/plan/{item_id}/status")

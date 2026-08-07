@@ -71,6 +71,7 @@ async def collect(pid: int) -> dict | None:
         "atentionari": await db.patient_alerts(pid),
         "dinti": [teeth[t] for t in sorted(teeth)],
         "plan_tratament": await db.plan_items(pid),
+        "plati": await db.payments(pid),
         "documente": await db.documents_with_paths(pid),
         # include_views: в КОПИЮ входят и просмотры — «кто открывал карту»
         # такая же обработка данных, как «кто менял», и пациент вправе её видеть
@@ -152,6 +153,11 @@ def render_html(data: dict) -> str:
         [[_esc(d["filename"]), _esc(d["category"]),
           f"{round((d['size'] or 0) / 1024)} KB", _dt(d["uploaded_at"])]
          for d in data["documente"]])
+    plati = _table(
+        ["Data", "Suma (MDL)", "Metoda", "Notă", "Încasat de"],
+        [[_dt(pl["at"]), _esc(pl["amount_mdl"]), _esc(pl["method"]),
+          _esc(pl["note"]) or "—", _esc(pl["taken_by"]) or "—"]
+         for pl in data["plati"]])
     istoric = _table(
         ["Data", "Autor", "Eveniment"],
         [[_dt(e["at"]), _esc(e["actor"]), _esc(e["text"])]
@@ -186,6 +192,7 @@ def render_html(data: dict) -> str:
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
 <h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
+<h2>Plăți ({len(data['plati'])})</h2>{plati}
 <h2>Documente ({len(data['documente'])})</h2>{documente}
 <h2>Istoricul fișei ({len(data['istoric'])})</h2>{istoric}
 

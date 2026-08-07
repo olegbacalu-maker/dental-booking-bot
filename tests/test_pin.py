@@ -217,6 +217,22 @@ def suite_roles(res: Result) -> None:
                "Ana R" in a.get(f"/admin/patient/{pid}").body,
                "событие подписано каналом, а не человеком")
 
+        # деньги: рецепция ПРИНИМАЕТ платёж (она их физически берёт), но не
+        # удаляет и не видит сводных сумм — это директорское
+        res.check("рецепция записывает платёж",
+                  a.post(f"/admin/patient/{pid}/pay", amount="200",
+                         method="numerar").msg, "ok_pay")
+        page = a.get(f"/admin/patient/{pid}").body
+        res.ok("рецепция видит платёж и аванс на фише",
+               "200 MDL" in page and "Avans" in page, "платёж не виден")
+        res.ok("кнопки удаления платежа у рецепции нет",
+               "/pay/" not in page.replace(f"{pid}/pay'", ""),
+               "рецепции нарисовали директорскую кнопку")
+        r = a.post(f"/admin/patient/{pid}/pay/1/del")
+        res.ok("удаление платежа рецепции запрещено",
+               r.status == 303 and "no_access" in r.location,
+               f"location {r.location!r}")
+
 
 def suite_tamper(res: Result) -> None:
     """Сигнализация auth.json: подмена или удаление файла вне программы видны.

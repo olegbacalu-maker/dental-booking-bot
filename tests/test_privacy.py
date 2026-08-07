@@ -35,6 +35,8 @@ def _seed(c: Client) -> str:
            note="carie distală", doctor="d2")
     c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11", tooth="11",
            price="1200")
+    c.post(f"/admin/patient/{pid}/pay", amount="500", method="numerar",
+           note="avans plombă")
     c.post(f"/admin/patient/{pid}/alert", kind="allergy",
            text="Alergie la penicilină")
     c.post_file(f"/admin/patient/{pid}/doc", "file", "radiografie.png",
@@ -73,6 +75,12 @@ def suite_export(res: Result) -> None:
         res.check("предупреждение в выгрузке", len(data["atentionari"]), 1)
         res.check("зуб в выгрузке", len(data["dinti"]), 1)
         res.check("план лечения в выгрузке", len(data["plan_tratament"]), 1)
+        # деньги — тоже персональные данные: платежи входят в копию
+        res.check("платёж в выгрузке", len(data["plati"]), 1)
+        res.check("сумма платежа в выгрузке", data["plati"][0]["amount_mdl"], 500)
+        res.ok("платёж виден и в читаемой фише",
+               "Plăți (1)" in z.read("fisa-pacient.html").decode("utf-8"),
+               "HTML-копия без платежей")
         res.check("документ в выгрузке", len(data["documente"]), 1)
         res.ok("история фиши не пуста", len(data["istoric"]) > 0, "летопись пуста")
 
@@ -201,6 +209,22 @@ def suite_erase(res: Result) -> None:
         res.ok("событие стирания записано",
                any(e["kind"] == "erase" for e in data["istoric"]),
                "стирание не оставило следа в летописи")
+        # деньги переживают обезличивание (касса клиники под номером фиши),
+        # но записка платежа — свободный текст рецепции — стёрта
+        res.check("платёж остался под анонимной фишей", len(data["plati"]), 1)
+        res.check("сумма платежа цела", data["plati"][0]["amount_mdl"], 500)
+        res.check("записка платежа стёрта", data["plati"][0]["note"], "")
+
+        # --- ветка 3: платёж БЕЗ лечения тоже запирает полное удаление ---
+        # (вычеркнуть деньги = переписать кассу задним числом)
+        c.post("/admin/add", adate=_d(1), atime="11:00", adoctor="d3",
+               aservice="consult", aname="Doar Plata", aphone="022555777",
+               back="/admin/all")
+        pid3 = _pid(c, "022555777")
+        c.post(f"/admin/patient/{pid3}/pay", amount="300", method="card")
+        res.ok("фиша с платежом предлагает только обезличивание",
+               "datele de identitate" in c.get(f"/admin/patient/{pid3}").body,
+               "платёж не удержал фишу от полного удаления")
 
         # обезличенный скрыт из списков, как архивный
         res.ok("обезличенный не показывается в живом списке",

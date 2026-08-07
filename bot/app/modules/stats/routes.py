@@ -262,6 +262,25 @@ async def admin_stats(
                 f"{_trend_money(tv, yv, 'față de ieri')}"
                 f"<small>estimare pe ziua curentă · după lista de prețuri</small>"
                 f"</div>")
+    # ---- Încasări: НАСТОЯЩИЕ деньги (модуль финансов, 08-07) ----
+    # оценка по прайсу выше — прогноз; здесь — что реально записала рецепция
+    pays_period = await db.payments_range(start_all, end)
+    inc_cur = sum(p["amount_mdl"] for p in pays_period if p["at"] >= split)
+    inc_prev = sum(p["amount_mdl"] for p in pays_period if p["at"] < split)
+    by_m = {m: sum(p["amount_mdl"] for p in pays_period
+                   if p["at"] >= split and p["method"] == m)
+            for m in db.PAY_METHODS}
+    inc_azi = sum(p["amount_mdl"] for p in await db.payments_range(
+        t_split, t_split + timedelta(days=1)))
+    incasari_card = (
+        f"<div class='fcard an-money'><h3>Încasări "
+        f"<small>· bani reali, {d1.strftime('%d.%m')}–{d2.strftime('%d.%m')}"
+        f"</small></h3>"
+        f"<b data-count='{inc_cur}' data-suffix=' MDL'>{_fmt_mdl(inc_cur)}</b>"
+        f"{_trend_money(inc_cur, inc_prev, plabel)}"
+        f"<small>azi: {_fmt_mdl(inc_azi)} · 💵 {_fmt_mdl(by_m['numerar'])} · "
+        f"💳 {_fmt_mdl(by_m['card'])} · 🏦 {_fmt_mdl(by_m['transfer'])} · "
+        f"plăți înregistrate la recepție</small></div>")
 
     # ---- врачи ----
     rows_html = "".join(
@@ -342,7 +361,8 @@ async def admin_stats(
     body = (nav + tiles
             + "<div class='an-grid'>"
             + f"<div class='an-main'>{chart_card}{doctors_tbl}</div>"
-            + f"<div class='an-side'>{src_card}{gauge_card}{money_card}{azi_card}</div>"
+            + f"<div class='an-side'>{src_card}{gauge_card}{incasari_card}"
+              f"{money_card}{azi_card}</div>"
             + "</div>"
             + "<div class='an-grid2'>"
             + services_card + activity_card

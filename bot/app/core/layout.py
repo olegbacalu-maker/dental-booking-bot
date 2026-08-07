@@ -89,6 +89,9 @@ MSG_BANNER = {
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
     "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
     "ok_card": ("ok", "Fișa pacientului a fost actualizată ✔"),
+    "ok_pay": ("ok", "Plata a fost înregistrată ✔"),
+    "bad_pay": ("err", "Sumă sau metodă invalidă — verificați plata"),
+    "pay_del": ("ok", "Plata a fost ștearsă — urma rămâne în istoricul fișei"),
     "bad_export": ("err", "Nu am putut pregăti arhiva cu datele pacientului — "
                           "verificați spațiul pe disc; detalii în data\\dentpilot.log"),
     "ok_del": ("ok", "Fișa pacientului a fost ștearsă definitiv ✔"),

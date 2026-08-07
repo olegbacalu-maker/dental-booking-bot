@@ -178,6 +178,42 @@ def suite_patient_card(res: Result) -> None:
                   "bad_card")
         res.check("Redeschide: назад в работу — можно", flip("in_lucru"), "")
 
+        # ---- платежи и баланс (08-07): долг = финализированное − оплачено ----
+        res.check("довершаем Plombă обратно", flip("finalizat"), "")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("долг равен цене финализированного",
+               "De achitat" in page and "1 200 MDL" in page,
+               "нет долга 1 200 после финализации")
+        res.check("платёж записывается",
+                  c.post(f"/admin/patient/{pid}/pay", amount="500",
+                         method="numerar", note="avans").msg, "ok_pay")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("долг уменьшился до 700", "700 MDL" in page, "баланс не пересчитан")
+        res.check("оплата остатка картой",
+                  c.post(f"/admin/patient/{pid}/pay", amount="700",
+                         method="card").msg, "ok_pay")
+        res.ok("после полной оплаты — achitat integral",
+               "achitat integral" in c.get(f"/admin/patient/{pid}").body,
+               "нет отметки полной оплаты")
+        c.post(f"/admin/patient/{pid}/pay", amount="300", method="numerar")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("переплата показана авансом", "Avans" in page and "300 MDL" in page,
+               "аванс не считается")
+        res.check("нулевая сумма отбита",
+                  c.post(f"/admin/patient/{pid}/pay", amount="0",
+                         method="numerar").msg, "bad_pay")
+        res.check("выдуманный метод отбит",
+                  c.post(f"/admin/patient/{pid}/pay", amount="100",
+                         method="crypto").msg, "bad_pay")
+        pay_id = re.search(r"/pay/(\d+)/del", page).group(1)
+        res.check("директор удаляет платёж",
+                  c.post(f"/admin/patient/{pid}/pay/{pay_id}/del").msg, "pay_del")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("после удаления снова полная оплата",
+               "achitat integral" in page, "баланс не вернулся")
+        res.ok("удаление оставило след в летописи",
+               "Plată ștearsă" in page, "летопись молчит про удаление")
+
         r = c.post(f"/admin/patient/{pid}/alert", kind="allergy",
                    text="Alergie la penicilină")
         res.ok("предупреждение добавляется", r.status == 303, f"код {r.status}")
@@ -246,6 +282,10 @@ def suite_dashboard(res: Result) -> None:
         res.ok("карточка «Venituri azi» на месте",
                "Venituri azi" in st and st.count("data-suffix=' MDL'") >= 2,
                "нет дневной выручки или суффикса MDL")
+        res.ok("«Încasări» — настоящие деньги отдельно от оценки",
+               "Încasări" in st and "bani reali" in st
+               and "plăți înregistrate la recepție" in st,
+               "нет карточки реальных денег")
         res.ok("у недельного периода имя недели",
                "față de săptămâna trecută" in c.get("/admin/stats").body,
                "7 дней не названы неделей")

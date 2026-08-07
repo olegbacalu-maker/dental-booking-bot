@@ -124,6 +124,17 @@ CREATE TABLE IF NOT EXISTS activity(
 );
 CREATE INDEX IF NOT EXISTS ix_act_patient ON activity(patient_id, at DESC);
 CREATE INDEX IF NOT EXISTS ix_act_tooth ON activity(patient_id, tooth, at DESC);
+CREATE TABLE IF NOT EXISTS payments(
+  id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES patients(id),
+  amount_mdl INT NOT NULL,
+  method TEXT NOT NULL DEFAULT 'numerar',
+  note TEXT NOT NULL DEFAULT '',
+  taken_by TEXT NOT NULL DEFAULT '',
+  at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_pay_patient ON payments(patient_id, at DESC);
+CREATE INDEX IF NOT EXISTS ix_pay_at ON payments(at DESC);
 """
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -225,6 +236,17 @@ CREATE TABLE IF NOT EXISTS activity(
 );
 CREATE INDEX IF NOT EXISTS ix_act_patient ON activity(patient_id, at DESC);
 CREATE INDEX IF NOT EXISTS ix_act_tooth ON activity(patient_id, tooth, at DESC);
+CREATE TABLE IF NOT EXISTS payments(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  amount_mdl INTEGER NOT NULL,
+  method TEXT NOT NULL DEFAULT 'numerar',
+  note TEXT NOT NULL DEFAULT '',
+  taken_by TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_pay_patient ON payments(patient_id, at DESC);
+CREATE INDEX IF NOT EXISTS ix_pay_at ON payments(at DESC);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -1380,6 +1402,87 @@ async def documents(pid: int) -> list:
 # стороны отвечают на вопрос «где в базе лежит этот человек». Разойдутся —
 # получится либо неполная выдача, либо неполное удаление, и заметить неоткуда.
 
+# ---------- платежи (08-07, модуль финансов, шаг 1) ----------
+# Модель по решению Олега: долг = завершённые позиции плана с ценой минус
+# платежи; платёж — сумма НА ПАЦИЕНТА, без привязки к конкретной процедуре
+# (наличные так не делятся). Переплата = аванс. Записывает рецепция (деньги
+# физически берёт она), удаляет только директор, всё поимённо в летописи.
+
+PAY_METHODS = ("numerar", "card", "transfer")
+
+
+async def payments(pid: int) -> list:
+    return await _fetch(
+        """SELECT id, amount_mdl, method, note, taken_by, at
+           FROM payments WHERE patient_id = $1 ORDER BY at DESC, id DESC""",
+        """SELECT id, amount_mdl, method, note, taken_by, at
+           FROM payments WHERE patient_id = ? ORDER BY at DESC, id DESC""", pid)
+
+
+async def add_payment(pid: int, amount: int, method: str, note: str) -> None:
+    actor = _actor_now()
+    await _execute(
+        """INSERT INTO payments(patient_id, amount_mdl, method, note, taken_by)
+           VALUES($1, $2, $3, $4, $5)""",
+        """INSERT INTO payments(patient_id, amount_mdl, method, note, taken_by, at)
+           VALUES(?, ?, ?, ?, ?, ?)""",
+        *((pid, amount, method, note, actor) if not IS_SQLITE
+          else (pid, amount, method, note, actor, _utcnow_iso())),
+    )
+    verb = "Plată" if amount > 0 else "Restituire"
+    await log_event(pid, "pay", f"{verb} {abs(amount)} MDL ({method})"
+                    + (f" — {note}" if note else ""))
+
+
+async def get_payment(pay_id: int, pid: int) -> dict | None:
+    rows = await _fetch(
+        """SELECT id, amount_mdl, method, note FROM payments
+           WHERE id = $1 AND patient_id = $2""",
+        """SELECT id, amount_mdl, method, note FROM payments
+           WHERE id = ? AND patient_id = ?""", pay_id, pid)
+    return rows[0] if rows else None
+
+
+async def delete_payment(pay_id: int, pid: int) -> bool:
+    """Удаление платежа — исправление ошибки ввода, не бухгалтерская операция.
+    Право на него только у директора (маршрут), а след остаётся в летописи."""
+    p = await get_payment(pay_id, pid)
+    if p is None:
+        return False
+    await log_event(pid, "pay_del",
+                    f"Plată ștearsă: {p['amount_mdl']} MDL ({p['method']})")
+    await _execute("DELETE FROM payments WHERE id = $1 AND patient_id = $2",
+                   "DELETE FROM payments WHERE id = ? AND patient_id = ?",
+                   pay_id, pid)
+    return True
+
+
+async def patient_finance(pid: int) -> dict:
+    """Начислено (завершённые позиции плана с ценой) и оплачено. Долг считает
+    вызывающий: charged − paid; минус = аванс."""
+    charged = await _fetchval(
+        """SELECT COALESCE(SUM(price_mdl), 0) FROM plan_items
+           WHERE patient_id = $1 AND status = 'finalizat'""",
+        """SELECT COALESCE(SUM(price_mdl), 0) FROM plan_items
+           WHERE patient_id = ? AND status = 'finalizat'""", pid)
+    paid = await _fetchval(
+        "SELECT COALESCE(SUM(amount_mdl), 0) FROM payments WHERE patient_id = $1",
+        "SELECT COALESCE(SUM(amount_mdl), 0) FROM payments WHERE patient_id = ?",
+        pid)
+    return {"charged": int(charged or 0), "paid": int(paid or 0)}
+
+
+async def payments_range(start: datetime, end: datetime) -> list:
+    """Платежи за окно времени — для «Încasări» в статистике."""
+    return await _fetch(
+        """SELECT amount_mdl, method, at FROM payments
+           WHERE at >= $1 AND at < $2""",
+        """SELECT amount_mdl, method, at FROM payments
+           WHERE at >= ? AND at < ?""",
+        *((start, end) if not IS_SQLITE else (_iso(start), _iso(end))),
+    )
+
+
 async def erasure_kind(pid: int) -> str:
     """'delete' — можно физически, 'anon' — только обезличивание.
 
@@ -1387,10 +1490,14 @@ async def erasure_kind(pid: int) -> str:
     done/arrived ЛИБО подтверждённый визит в прошлом (раз не отменён и не
     отмечен «не пришёл» — приём, скорее всего, состоялся, и вычеркнуть его —
     значит переписать медицинскую историю задним числом).
+    ПЛАТЁЖ тоже держит фишу от физического удаления: деньги — финансовый след
+    клиники, и вычеркнуть его — значит переписать кассу задним числом.
     """
     async def _n(pg: str, lt: str, *a) -> int:
         return int(await _fetchval(pg, lt, *a) or 0)
 
+    pays = await _n("SELECT COUNT(*) FROM payments WHERE patient_id = $1",
+                    "SELECT COUNT(*) FROM payments WHERE patient_id = ?", pid)
     teeth = await _n("SELECT COUNT(*) FROM teeth WHERE patient_id = $1",
                      "SELECT COUNT(*) FROM teeth WHERE patient_id = ?", pid)
     plan = await _n("SELECT COUNT(*) FROM plan_items WHERE patient_id = $1",
@@ -1406,7 +1513,7 @@ async def erasure_kind(pid: int) -> str:
            AND (status IN ('done','arrived')
                 OR (status = 'confirmed' AND starts_at < ?))""",
         *((pid, now) if not IS_SQLITE else (pid, _iso(now))))
-    return "anon" if (teeth or plan or docs or happened) else "delete"
+    return "anon" if (teeth or plan or docs or happened or pays) else "delete"
 
 
 async def delete_patient_fully(pid: int) -> None:
@@ -1418,6 +1525,8 @@ async def delete_patient_fully(pid: int) -> None:
     раскладку файлов, и это его единственная граница.
     """
     for pg, lt in (
+        ("DELETE FROM payments WHERE patient_id = $1",
+         "DELETE FROM payments WHERE patient_id = ?"),
         ("DELETE FROM activity WHERE patient_id = $1",
          "DELETE FROM activity WHERE patient_id = ?"),
         ("DELETE FROM patient_alerts WHERE patient_id = $1",
@@ -1460,6 +1569,10 @@ async def anonymize_patient(pid: int) -> None:
              session_key = ?, archived = 1 WHERE id = ?""",
         *((pid, f"Pacient anonimizat #{pid}", f"anon:{pid}") if not IS_SQLITE
           else (f"Pacient anonimizat #{pid}", f"anon:{pid}", pid)))
+    # платежи остаются (касса клиники под номером фиши), но заметка платежа —
+    # свободный текст рецепции, то есть потенциально личность: стираем
+    await _execute("UPDATE payments SET note = '' WHERE patient_id = $1",
+                   "UPDATE payments SET note = '' WHERE patient_id = ?", pid)
     await _execute(
         "UPDATE appointments SET comment = '' WHERE patient_id = $1",
         "UPDATE appointments SET comment = '' WHERE patient_id = ?", pid)
