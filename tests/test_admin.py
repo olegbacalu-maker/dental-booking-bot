@@ -566,8 +566,24 @@ _fake = types.ModuleType("app.telegram")
 _fake.STATUS = {"running": True, "username": "bot_de_test", "error": ""}
 sys.modules["app.telegram"] = _fake
 from app.core.layout import _tg_state, tg_status
+# фолбэк обновлятора: чистые разборщики веб-ответов GitHub. Сеть в этих
+# проверках не участвует — кормим текстами, снятыми с настоящих ответов.
+from app import update as upd
+ATOM = '''<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+ <entry><link rel="alternate" href="https://github.com/o/r/releases/tag/v1.9.1"/></entry>
+ <entry><link rel="alternate" href="https://github.com/o/r/releases/tag/v1.13.5"/></entry>
+ <entry><link rel="alternate" href="https://github.com/o/r/releases/tag/v1.13.0"/></entry>
+</feed>'''
 now = datetime.now(eng.TZ)
 out = {
+ "atom_tags":      upd._tags_from_atom(ATOM),
+ "atom_best":      max(upd._tags_from_atom(ATOM), key=upd._ver, default=""),
+ "latest_tag":     upd._tag_from_latest_url(
+                       "https://github.com/o/r/releases/tag/v1.13.5"),
+ "latest_encoded": upd._tag_from_latest_url(
+                       "https://github.com/o/r/releases/tag/v1.13.5%%2Brc?x=1"),
+ "latest_none":    upd._tag_from_latest_url("https://github.com/o/r/releases"),
  "tg_user":        tg_status().get("username"),
  "tg_running":     tg_status().get("running"),
  "tg_state_tuple": list(_tg_state()),
@@ -599,6 +615,14 @@ print(json.dumps(out))
         res.failed.append(("чистые функции: запуск", p.stderr[-500:]))
         return
     v = json.loads(p.stdout)
+    # фолбэк обновлятора: то, что программа поймёт из веба при выеденном API
+    res.check("атом-фид разобран на теги", v["atom_tags"],
+              ["v1.9.1", "v1.13.5", "v1.13.0"])
+    res.check("лучший тег — по версии, а не по порядку в фиде",
+              v["atom_best"], "v1.13.5")
+    res.check("тег из редиректа /releases/latest", v["latest_tag"], "v1.13.5")
+    res.check("процентная кодировка тега снимается", v["latest_encoded"], "v1.13.5+rc")
+    res.check("без релизов редирект не выдумывает тег", v["latest_none"], "")
     # статус бота: ищется по имени пакета, а не по расположению файла
     res.check("статус бота виден из core", v["tg_user"], "bot_de_test")
     res.check("бот показан работающим", v["tg_running"], True)

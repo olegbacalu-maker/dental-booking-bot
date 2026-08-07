@@ -10,11 +10,13 @@ import json
 import logging
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 from . import engine as eng
@@ -224,6 +226,66 @@ def _pick_asset(rel: dict) -> tuple[str, int, str]:
     return "", 0, ""
 
 
+# ---------- запасной путь БЕЗ api.github.com ----------
+# У анонимного API лимит 60 запросов в час С АДРЕСА. Клиника за провайдерским
+# NAT делит адрес с чужими программами, и её квоту может выесть кто угодно —
+# тогда проверка «не видит» вышедший релиз до 6 часов (дважды случилось на
+# машине разработчика 08-06). Веб-адреса лимитом не связаны и отдают то же:
+# редирект /releases/latest называет тег (ровно то, что видит stable), атом-фид
+# перечисляет ВСЕ опубликованные релизы вместе с пре- (ровно то, что видит
+# beta), а HEAD на /releases/download/… говорит, приложен ли файл, и его размер.
+# Чего веб-путь НЕ знает: sha256 ассета (проверка суммы при обновлении честно
+# пропускается — остаются размер и минимальный порог) и флаг prerelease у тега.
+
+def _tags_from_atom(xml: str) -> list[str]:
+    """Теги релизов из releases.atom — по ссылкам /releases/tag/…"""
+    return [urllib.parse.unquote(t)
+            for t in re.findall(r"/releases/tag/([^\"'<>&?#]+)", xml)]
+
+
+def _tag_from_latest_url(final_url: str) -> str:
+    """Тег из адреса, куда привёл редирект /releases/latest. Без релизов GitHub
+    не делает редиректа на /tag/… — тогда честно отдаём пусто."""
+    m = re.search(r"/releases/tag/([^/?#]+)", final_url)
+    return urllib.parse.unquote(m.group(1)) if m else ""
+
+
+def _http(url: str, method: str = "GET"):
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "dentpilot-desktop"}, method=method)
+    return urllib.request.urlopen(req, timeout=10)
+
+
+def _web_fallback(ch: str) -> dict | None:
+    """Свежий релиз веб-путём. None — не нашли (сеть, пустой репозиторий).
+    Черновики так не видны в принципе, поэтому draft-канал получает здесь то же,
+    что beta, — лучше опубликованное, чем слепота."""
+    if ch == "stable":
+        with _http(f"https://github.com/{REPO}/releases/latest",
+                   method="HEAD") as r:
+            tag = _tag_from_latest_url(r.geturl())
+    else:
+        with _http(f"https://github.com/{REPO}/releases.atom") as r:
+            xml = r.read(512 * 1024).decode("utf-8", "replace")
+        tag = max(_tags_from_atom(xml), key=_ver, default="")
+    if not tag:
+        return None
+    asset_url, size = "", 0
+    # имена точные, как в APP_ASSETS, но с настоящим регистром файла в релизе
+    for name in ("DentPilot.exe", "DentArt.exe"):
+        u = (f"https://github.com/{REPO}/releases/download/"
+             f"{urllib.parse.quote(tag)}/{name}")
+        try:
+            with _http(u, method="HEAD") as r:
+                asset_url = u
+                size = int(r.headers.get("Content-Length") or 0)
+            break
+        except Exception:  # noqa: BLE001 — 404 = файла нет, пробуем следующее имя
+            continue
+    return {"tag": tag, "url": f"https://github.com/{REPO}/releases/tag/{tag}",
+            "asset_url": asset_url, "asset_size": size}
+
+
 def _check() -> None:
     fake = os.environ.get("DENTART_FAKE_UPDATE_URL", "").strip()
     if fake:
@@ -281,7 +343,24 @@ def _check() -> None:
                      prerelease=bool(data.get("prerelease")))
     except Exception as e:  # noqa: BLE001 — оффлайн/404 не должны ничего ломать
         # ⚠️ текст ошибки уходит в интерфейс и лог — токен туда попасть не должен
-        STATE.update(checked=True, error=_scrub(str(e)), channel=channel())
+        err = _scrub(str(e))
+        fb = None
+        try:
+            fb = _web_fallback(channel())
+        except Exception as e2:  # noqa: BLE001 — совсем оффлайн
+            log.warning("web-фолбэк тоже недоступен: %s", _scrub(repr(e2)))
+        if fb:
+            # API отказал (обычно лимит 60/час на адрес), веб-путь ответил:
+            # сведения полны настолько, чтобы и показать версию, и обновиться —
+            # без sha256 (его знает только API), проверка суммы пропускается
+            log.warning("API GitHub недоступен (%s) — релиз найден веб-путём: %s",
+                        err, fb["tag"])
+            STATE.update(latest=fb["tag"], url=fb["url"],
+                         asset_url=fb["asset_url"], asset_size=fb["asset_size"],
+                         asset_digest="", checked=True, error="",
+                         channel=channel(), draft=False, prerelease=False)
+        else:
+            STATE.update(checked=True, error=err, channel=channel())
     finally:
         # Релиз опубликован, но exe ещё не приложен (или как раз заливается,
         # 28 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
