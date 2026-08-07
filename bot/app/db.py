@@ -600,9 +600,19 @@ async def create_appointment(
     уже есть своя запись на это время. doctor/service = снапшоты подписи,
     doctor_id/service_id = стабильные ключи; duration_min = снапшот
     длительности услуги на момент брони."""
-    pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
-    return await _book(pid, service, doctor, starts_at, source,
-                       doctor_id, service_id, duration_min)
+    async with _BOOK_LOCK:
+        if await patient_id_by_key(session_key) is None:
+            # ⚠️ НОВОГО человека не заводим, пока слот не подтверждён: upsert
+            # до проверки оставлял при отказе «интервал занят» карточку-сироту
+            # без единого визита (всплывало в аудитах 08-04, починено 08-07).
+            # Для СУЩЕСТВУЮЩЕГО порядок прежний: upsert обновляет имя/телефон
+            # даже при отказе — пациент сам их продиктовал. Всё под ОДНИМ
+            # замком: проверка вне его снова открыла бы окно для сироты.
+            if await _conflicts(doctor_id, doctor, starts_at, duration_min):
+                return None
+        pid = await _upsert_patient(session_key, name, phone, lang, birth_year)
+        return await _book_locked(pid, service, doctor, starts_at, source,
+                                  doctor_id, service_id, duration_min)
 
 
 async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
@@ -611,54 +621,78 @@ async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
     """Вставка визита пациенту, который УЖЕ известен по id. Контракт возврата
     тот же, что у create_appointment (id / None / 'dup')."""
     async with _BOOK_LOCK:
-        # ⚠️ «у пациента уже есть запись» спрашиваем ЗАРАНЕЕ, а не ловим по
-        # тексту IntegrityError: SQLite называет в нём колонки, а не индекс, и
-        # проверка на 'uq_patient_slot' не срабатывала никогда — дубль пациента
-        # показывался регистратуре как «интервал занят у этого врача».
-        # Проверка идёт первой: она точнее, чем конфликт врача, и под _BOOK_LOCK
-        # так же надёжна, как индекс.
-        if await _patient_busy_at(pid, starts_at):
-            return "dup"
-        # интервальная проверка: uq-индексы ловят только одинаковые старты,
-        # пересечение 10:00(60') с 10:30(60') обязано отсекаться здесь
-        if await _conflicts(doctor_id, doctor, starts_at, duration_min):
-            return None
-        if IS_SQLITE:
-            import sqlite3
-            try:
-                cur = await _CONN.execute(
-                    """INSERT INTO appointments(patient_id, service, doctor, starts_at,
-                                                source, doctor_id, service_id,
-                                                duration_min, created_at)
-                       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (pid, service, doctor, _iso(starts_at), source,
-                     doctor_id, service_id, duration_min, _utcnow_iso()),
-                )
-                await _CONN.commit()
-                appt_id = cur.lastrowid
-                await cur.close()
-                await _log_booking(pid, service, doctor, starts_at, source)
-                return appt_id
-            except sqlite3.IntegrityError as e:
-                await _CONN.rollback()
-                # страховка на случай гонки мимо замка. Текст SQLite —
-                # «UNIQUE constraint failed: appointments.patient_id,
-                # appointments.starts_at», имени индекса в нём НЕТ.
-                return "dup" if "patient_id" in str(e) else None
-        import asyncpg
-        async with POOL.acquire() as c:
-            try:
-                new_id = await c.fetchval(
-                    """INSERT INTO appointments(patient_id, service, doctor, starts_at,
-                                                source, doctor_id, service_id, duration_min)
-                       VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
-                    pid, service, doctor, starts_at, source,
-                    doctor_id, service_id, duration_min,
-                )
-            except asyncpg.UniqueViolationError as e:
-                return "dup" if e.constraint_name == "uq_patient_slot" else None
-        await _log_booking(pid, service, doctor, starts_at, source)
-        return new_id
+        return await _book_locked(pid, service, doctor, starts_at, source,
+                                  doctor_id, service_id, duration_min)
+
+
+async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
+                       source: str, doctor_id: str | None,
+                       service_id: str | None,
+                       duration_min: int) -> int | str | None:
+    """Тело брони. Звать ТОЛЬКО под _BOOK_LOCK: asyncio.Lock не реентерабелен,
+    и create_appointment, которому замок нужен раньше (проверка до создания
+    пациента), иначе повис бы на самом себе."""
+    # ⚠️ «у пациента уже есть запись» спрашиваем ЗАРАНЕЕ, а не ловим по
+    # тексту IntegrityError: SQLite называет в нём колонки, а не индекс, и
+    # проверка на 'uq_patient_slot' не срабатывала никогда — дубль пациента
+    # показывался регистратуре как «интервал занят у этого врача».
+    # Проверка идёт первой: она точнее, чем конфликт врача, и под _BOOK_LOCK
+    # так же надёжна, как индекс.
+    if await _patient_busy_at(pid, starts_at):
+        return "dup"
+    # интервальная проверка: uq-индексы ловят только одинаковые старты,
+    # пересечение 10:00(60') с 10:30(60') обязано отсекаться здесь
+    if await _conflicts(doctor_id, doctor, starts_at, duration_min):
+        return None
+    if IS_SQLITE:
+        import sqlite3
+        try:
+            cur = await _CONN.execute(
+                """INSERT INTO appointments(patient_id, service, doctor, starts_at,
+                                            source, doctor_id, service_id,
+                                            duration_min, created_at)
+                   VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (pid, service, doctor, _iso(starts_at), source,
+                 doctor_id, service_id, duration_min, _utcnow_iso()),
+            )
+            await _CONN.commit()
+            appt_id = cur.lastrowid
+            await cur.close()
+            await _log_booking(pid, service, doctor, starts_at, source)
+            return appt_id
+        except sqlite3.IntegrityError as e:
+            await _CONN.rollback()
+            # страховка на случай гонки мимо замка. Текст SQLite —
+            # «UNIQUE constraint failed: appointments.patient_id,
+            # appointments.starts_at», имени индекса в нём НЕТ.
+            return "dup" if "patient_id" in str(e) else None
+    import asyncpg
+    async with POOL.acquire() as c:
+        try:
+            new_id = await c.fetchval(
+                """INSERT INTO appointments(patient_id, service, doctor, starts_at,
+                                            source, doctor_id, service_id, duration_min)
+                   VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
+                pid, service, doctor, starts_at, source,
+                doctor_id, service_id, duration_min,
+            )
+        except asyncpg.UniqueViolationError as e:
+            return "dup" if e.constraint_name == "uq_patient_slot" else None
+    await _log_booking(pid, service, doctor, starts_at, source)
+    return new_id
+
+
+async def _patient_ids_by_digits(digits: str) -> list[int]:
+    """Пациенты, чей телефон совпадает ПО ЦИФРАМ — независимо от того, каким
+    путём человек заведён (tg:… из бота, manual:… с рецепции). Телефон не
+    ключ: семья делит номер, поэтому список, а решает вызывающий. Фильтр в
+    Python, не в SQL: у SQLite нет regexp, а пациентов у клиники тысячи, не
+    миллионы."""
+    rows = await _fetch(
+        "SELECT id, phone FROM patients WHERE phone IS NOT NULL",
+        "SELECT id, phone FROM patients WHERE phone IS NOT NULL")
+    return [r["id"] for r in rows
+            if "".join(ch for ch in (r["phone"] or "") if ch.isdigit()) == digits]
 
 
 async def admin_add(
@@ -669,21 +703,39 @@ async def admin_add(
 ) -> int | str | None:
     """Ручная запись из журнала клиники. Пациент дедуплицируется по телефону."""
     digits = "".join(ch for ch in phone if ch.isdigit())
-    r = await create_appointment(
-        f"manual:{digits}", name, phone, "ro", service, doctor, starts_at,
-        source="manual", birth_year=birth_year,
-        doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
-    )
-    if birth_date:
-        # полная дата пишется ПОСЛЕ upsert-а тем же правилом, что год в нём:
-        # новое значение, если оно задано. Пишем и при dup/conflict — пациент
-        # уже существует, а дату регистратура ввела про него же
+    # Пациента ищем по НОМЕРУ среди существующих, а не по ключу manual:<цифры>
+    # (08-07): у пациента из Telegram ключ tg:…, и путь по ключу заводил
+    # карточку-двойника — визит задним числом уезжал не тому человеку.
+    # Ровно одно совпадение цифр → пишем визит по id; попутно это перестало
+    # переименовывать существующего («Ion P.» из формы журнала больше не
+    # затирает «Ion Popescu» в фише). Ноль совпадений → новый manual-пациент,
+    # как раньше. Несколько (семейный номер) → прежняя склейка по ключу:
+    # выбрать «правильного» из двоих тут не из чего.
+    ids = await _patient_ids_by_digits(digits)
+    if len(ids) == 1:
+        pid = ids[0]
+        r = await _book(pid, service, doctor, starts_at, "manual",
+                        doctor_id, service_id, duration_min)
+    else:
+        r = await create_appointment(
+            f"manual:{digits}", name, phone, "ro", service, doctor, starts_at,
+            source="manual", birth_year=birth_year,
+            doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
+        )
         pid = await patient_id_by_key(f"manual:{digits}")
-        if pid is not None:
+    # дата рождения — тем же правилом, что год в upsert: новое значение, если
+    # оно задано. Пишем и при dup/conflict — пациент уже существует, а дату
+    # регистратура ввела про него же. В ветке по id upsert не выполнялся,
+    # поэтому одиночный год (устаревшая вкладка) дописывается здесь же
+    if pid is not None:
+        if birth_date:
             await _execute(
-                "UPDATE patients SET birth_date = $2 WHERE id = $1",
-                "UPDATE patients SET birth_date = ? WHERE id = ?",
-                *((pid, birth_date) if not IS_SQLITE else (birth_date, pid)))
+                "UPDATE patients SET birth_date = $2, birth_year = $3 WHERE id = $1",
+                "UPDATE patients SET birth_date = ?, birth_year = ? WHERE id = ?",
+                *((pid, birth_date, birth_year) if not IS_SQLITE
+                  else (birth_date, birth_year, pid)))
+        elif birth_year and len(ids) == 1:
+            await set_birth_year(pid, birth_year)
     return r
 
 

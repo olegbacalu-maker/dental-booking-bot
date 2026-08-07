@@ -3,9 +3,10 @@
 Это ядро продукта — если что-то из этого молча изменится, клиника посадит двух
 пациентов в одно кресло или потеряет визит в прошлом.
 """
+import re
 from datetime import date, datetime, timedelta
 
-from harness import Client, Result, Server
+from harness import Bot, Client, Result, Server
 
 PHONE = "022111222"
 
@@ -34,6 +35,16 @@ def suite(res: Result) -> None:
         res.check("тот же час у другого врача — свободен",
                   add(c, _d(1), "10:00", doctor="d3", name="Alt Pacient",
                       phone="022999888"), "ok")
+
+        # --- отказ не заводит пациента-сироту (08-07) ---
+        # upsert шёл ДО проверки занятости, и «интервал занят» оставлял
+        # карточку без единого визита — она копилась в списке пациентов
+        res.check("занятый час — отказ", add(c, _d(1), "10:00",
+                  name="Orfan Test", phone="022808080"), "conflict")
+        res.ok("отказ НЕ завёл карточку-сироту",
+               not re.findall(r"/admin/patient/(\d+)",
+                              c.get("/admin/search?q=022808080").body),
+               "пациент без визита появился в списке")
 
         # --- дубль пациента: тот же человек на тот же час ---
         # ⚠️ ловилось по тексту ошибки SQLite и не срабатывало никогда (1.11.1)
@@ -94,6 +105,28 @@ def suite(res: Result) -> None:
         res.check("год отдельным полем (устаревшая вкладка) ещё принимается",
                   add(c, _d(3), "15:00", name="Doar An", phone="022700900",
                       year="1980"), "ok")
+
+        # --- визит задним числом пациенту из БОТА (08-07) ---
+        # раньше /admin/add искал по ключу manual:<цифры>, у tg-пациента ключ
+        # tg:… — и вчерашний визит уезжал КАРТОЧКЕ-ДВОЙНИКУ. Теперь пациент
+        # ищется по цифрам номера среди всех существующих.
+        tgb = Bot(Client(s.url), "t-tg-past")
+        tgb.say("/start"); tgb.say("lang:ro"); tgb.say("book")
+        tgb.say("svc:consult"); tgb.say("doc:d2"); tgb.say(f"day:{_d(4)}")
+        tgb.say(f"time:{_d(4)}T09:00"); tgb.say("Ion Telegram")
+        tgb.say("skip_year"); tgb.say("069010203"); tgb.say("confirm")
+        res.check("вчерашний визит tg-пациенту принимается (др. формат номера)",
+                  add(c, _d(-2), "12:00", name="Ion T.",
+                      phone="069 010 203"), "ok_past")
+        found = set(re.findall(r"/admin/patient/(\d+)",
+                               c.get("/admin/search?q=069010203").body))
+        res.ok("карточка ОДНА — двойник не завёлся", len(found) == 1,
+               f"нашлось {len(found)} карточек")
+        card = c.get(f"/admin/patient/{sorted(found)[0]}").body
+        res.ok("визит задним числом лёг в ту же карточку", "12:00" in card,
+               "вчерашнего визита нет в фише tg-пациента")
+        res.ok("имя из формы журнала не переименовало пациента",
+               "Ion Telegram" in card, "«Ion T.» затёр имя из бота")
 
         # --- прочие отказы, каждый со своим текстом ---
         res.check("пустое имя", add(c, _d(3), "10:30", name="   "), "bad_name")
