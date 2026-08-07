@@ -35,6 +35,7 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
                             _doc_hours_text, _shell, tg_status)
+from ...core import bitlocker
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
@@ -158,6 +159,19 @@ def _hour_opts(sel: int, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
 # устаревшая вкладка «Program» затирала бы услуги, сохранённые из соседней.
 
 
+def _bl_row() -> str:
+    """Строка BitLocker в «Stare sistem». Только desktop: у облака диск не наш."""
+    if not db.IS_SQLITE:
+        return ""
+    tone, txt = bitlocker.describe(bitlocker.STATE["code"],
+                                   bitlocker.STATE["drive"])
+    ico = {"ok": "✅", "warn": "⚠️", "alarm": "⛔"}.get(tone, "—")
+    style = (" style='color:var(--red-t);font-weight:600'" if tone == "alarm"
+             else " style='color:var(--amber-t)'" if tone == "warn" else "")
+    return (f"<tr><th>Criptare disc (BitLocker)</th>"
+            f"<td{style}>{ico} {html.escape(txt)}</td></tr>")
+
+
 def _tg_line(tg: dict) -> str:
     if tg["running"]:
         return f"✅ activ — @{html.escape(tg['username'])}"
@@ -212,8 +226,14 @@ async def admin_settings(request: Request, msg: str = ""):
                    else "azi închis")
     n_docs = sum(1 for d in cfg["doctors"] if eng.doctor_state(d) == "activ")
 
+    bl_tone, _bl_txt = bitlocker.describe(bitlocker.STATE["code"],
+                                          bitlocker.STATE["drive"])
+    bl_flag = ("" if bl_tone in ("ok", "unknown") or not db.IS_SQLITE
+               else " · <b style='color:var(--red-t)'>⛔ disc necriptat</b>"
+               if bl_tone == "alarm"
+               else " · <b style='color:var(--amber-t)'>⚠️ BitLocker</b>")
     tiles = [tile("/admin/settings/system", "ℹ️", "b", "Stare sistem",
-                  f"v{eng.APP_VERSION} · {up_short}"),
+                  f"v{eng.APP_VERSION} · {up_short}{bl_flag}"),
              tile("/admin/settings/clinic", "🏥", "g", "Clinica",
                   e(cfg["name"])),
              tile("/admin/settings/hours", "🕘", "v", "Program de lucru",
@@ -302,6 +322,7 @@ async def settings_system(request: Request, msg: str = ""):
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 {chan_row}
 <tr><th>Acces jurnal</th><td>{"🔒 PIN setat" if _pin_rec() else ("🔒 parolă (ADMIN_KEY)" if ADMIN_KEY else "🔓 deschis")}</td></tr>
+{_bl_row()}
 <tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
 </table>
 

@@ -183,6 +183,12 @@ async def startup() -> None:
     await db.backfill_ids(doc_map, svc_map)
     upd.sync_uninstall_version()   # версия в «Программах и компонентах»
     upd.check_async()
+    if db.IS_SQLITE:
+        # закон 195: диск с картотекой обязан быть зашифрован — программа
+        # проверяет сама, а не верит подписанному акту (core/bitlocker.py)
+        from .core import bitlocker
+        from .core.storage import _data_dir
+        bitlocker.check_async(_data_dir())
     token = os.environ.get("TELEGRAM_TOKEN", "").strip()
     if token:
         from . import telegram as tg

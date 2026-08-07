@@ -584,6 +584,12 @@ out = {
  "latest_encoded": upd._tag_from_latest_url(
                        "https://github.com/o/r/releases/tag/v1.13.5%%2Brc?x=1"),
  "latest_none":    upd._tag_from_latest_url("https://github.com/o/r/releases"),
+ # BitLocker: тона по кодам Shell COM (сверены с живой машиной 08-06)
+ "bl_ok":     __import__("app.core.bitlocker", fromlist=["x"]).describe(1, "C:")[0],
+ "bl_trap":   __import__("app.core.bitlocker", fromlist=["x"]).describe(8, "C:")[0],
+ "bl_plain":  __import__("app.core.bitlocker", fromlist=["x"]).describe(2, "C:")[0],
+ "bl_none":   __import__("app.core.bitlocker", fromlist=["x"]).describe(None)[0],
+ "bl_c_in":   "C:" in __import__("app.core.bitlocker", fromlist=["x"]).describe(8, "C:")[1],
  "tg_user":        tg_status().get("username"),
  "tg_running":     tg_status().get("running"),
  "tg_state_tuple": list(_tg_state()),
@@ -623,6 +629,13 @@ print(json.dumps(out))
     res.check("тег из редиректа /releases/latest", v["latest_tag"], "v1.13.5")
     res.check("процентная кодировка тега снимается", v["latest_encoded"], "v1.13.5+rc")
     res.check("без релизов редирект не выдумывает тег", v["latest_none"], "")
+    # BitLocker: код 8 («зашифрован, защита выключена») — ТРЕВОГА, не норма
+    res.check("BitLocker включён — ок", v["bl_ok"], "ok")
+    res.check("ловушка новых ПК (код 8) — тревога", v["bl_trap"], "alarm")
+    res.check("незашифрованный диск — предупреждение", v["bl_plain"], "warn")
+    res.check("не смогли проверить — честное unknown, не паника",
+              v["bl_none"], "unknown")
+    res.check("в тексте назван сам диск", v["bl_c_in"], True)
     # статус бота: ищется по имени пакета, а не по расположению файла
     res.check("статус бота виден из core", v["tg_user"], "bot_de_test")
     res.check("бот показан работающим", v["tg_running"], True)
