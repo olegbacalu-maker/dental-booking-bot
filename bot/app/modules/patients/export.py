@@ -71,6 +71,7 @@ async def collect(pid: int) -> dict | None:
         "atentionari": await db.patient_alerts(pid),
         "dinti": [teeth[t] for t in sorted(teeth)],
         "plan_tratament": await db.plan_items(pid),
+        "consultatii": await db.patient_visit_records(pid),
         "plati": await db.payments(pid),
         "documente": await db.documents_with_paths(pid),
         # include_views: в КОПИЮ входят и просмотры — «кто открывал карту»
@@ -158,6 +159,22 @@ def render_html(data: dict) -> str:
         [[_dt(pl["at"]), _esc(pl["amount_mdl"]), _esc(pl["method"]),
           _esc(pl["note"]) or "—", _esc(pl["taken_by"]) or "—"]
          for pl in data["plati"]])
+
+    # четыре текстовых графы дневника — одной ячейкой: девять колонок
+    # в 960px нечитаемы, а пустые графы просто не печатаются
+    def _consemnari(c: dict) -> str:
+        parts = [f"<b>{lbl}:</b> {_esc(c[key])}"
+                 for key, lbl in (("acuze", "Acuze"), ("examen", "Examen"),
+                                  ("tratament", "Tratament"),
+                                  ("recomandari", "Recomandări"))
+                 if (c.get(key) or "").strip()]
+        return "<br>".join(parts) or "—"
+
+    consultatii = _table(
+        ["Data vizitei", "Serviciu", "Medic", "Diagnostic", "Consemnări"],
+        [[_dt(c["starts_at"]), _esc(c["service"]), _esc(c["doctor"]) or "—",
+          _esc(c["diagnostic"]) or "—", _consemnari(c)]
+         for c in data["consultatii"]])
     istoric = _table(
         ["Data", "Autor", "Eveniment"],
         [[_dt(e["at"]), _esc(e["actor"]), _esc(e["text"])]
@@ -192,6 +209,7 @@ def render_html(data: dict) -> str:
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
 <h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
+<h2>Consultații ({len(data['consultatii'])})</h2>{consultatii}
 <h2>Plăți ({len(data['plati'])})</h2>{plati}
 <h2>Documente ({len(data['documente'])})</h2>{documente}
 <h2>Istoricul fișei ({len(data['istoric'])})</h2>{istoric}

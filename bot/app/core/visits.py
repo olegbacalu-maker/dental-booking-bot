@@ -66,7 +66,8 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             f"<td>{name_html}</td><td>{html.escape(r['phone'] or '')}</td>"
             f"<td>{svc_txt}</td><td>{html.escape(r['doctor'])}</td>"
             f"<td>{src}</td><td>{STATUS_LABEL.get(r['status'], r['status'])}"
-            f"{' 🔔' if r['reminded_day'] else ''}</td><td>{acts}</td></tr>"
+            f"{' 🔔' if r['reminded_day'] else ''}"
+            f"{' 🩺' if r.get('has_rec') else ''}</td><td>{acts}</td></tr>"
         )
     if not items:
         items = ["<tr><td colspan='9' style='color:var(--text3)'>— nicio programare —</td></tr>"]
@@ -92,6 +93,8 @@ def _collect_cards(rows: list) -> dict:
             "age": _age(r["birth_year"]),
             "canAct": r["status"] in LIVE_STATUSES,
             "pid": r.get("patient_id"),
+            # .get: не всякий вызывающий тянет флаг дневника из day_appointments
+            "rec": bool(r.get("has_rec")),
         }
     return cards
 
@@ -108,6 +111,7 @@ def _card_modal(cards: dict, back: str) -> str:
   <div class="dlg-form">
     <div id="c_info" style="font-size:14px;color:var(--text2)"></div>
     <a id="c_fisa" href="#" style="font-size:12.5px;font-weight:600">📇 Deschide fișa pacientului →</a>
+    <a id="c_visit" href="#" style="font-size:12.5px;font-weight:600">🩺 Consultația vizitei →</a>
     <form id="c_form" method="post" style="display:flex;flex-direction:column;gap:8px">
       <input type="hidden" name="back" value="{b}">
       <textarea name="comment" id="c_text" rows="3" maxlength="300"
@@ -140,6 +144,12 @@ function openCard(id) {{
   const fl = document.getElementById('c_fisa');
   if (c.pid) {{ fl.style.display = 'inline'; fl.href = '/admin/patient/' + c.pid; }}
   else fl.style.display = 'none';
+  const vl = document.getElementById('c_visit');
+  if (c.pid) {{
+    vl.style.display = 'inline';
+    vl.href = '/admin/visit/' + id + '?back={urllib.parse.quote(back, safe='')}';
+    vl.textContent = c.rec ? '🩺 Vezi consultația →' : '🩺 Completează consultația →';
+  }} else vl.style.display = 'none';
   document.getElementById('c_form').action = '/admin/comment/' + id;
   document.getElementById('cs_arrived').action = '/admin/status/' + id;
   document.getElementById('cs_done').action = '/admin/status/' + id;

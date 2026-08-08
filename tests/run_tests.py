@@ -19,6 +19,7 @@ import test_booking  # noqa: E402
 import test_bot  # noqa: E402
 import test_pin  # noqa: E402
 import test_privacy  # noqa: E402
+import test_visit  # noqa: E402
 from harness import run  # noqa: E402
 
 SUITES = [
@@ -40,6 +41,9 @@ SUITES = [
     ("Панель дня", test_admin.suite_dashboard),
     ("Аналитика", test_admin.suite_analytics),
     ("Карточка пациента", test_admin.suite_patient_card),
+    ("Дневник визита", test_visit.suite),
+    ("Дневник визита: план и статусы", test_visit.suite_plan),
+    ("Дневник визита: закон 195", test_visit.suite_195),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),
     ("Доступ с телефона (LAN)", test_admin.suite_lan),

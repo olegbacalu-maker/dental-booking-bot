@@ -22,8 +22,11 @@ from harness import Client  # noqa: E402
 
 def main(base: str, password: str) -> int:
     bad: list[str] = []
+    total = 0
 
     def check(label: str, cond: bool, detail: str = "") -> None:
+        nonlocal total
+        total += 1
         print(f"   {'OK  ' if cond else 'FAIL'} {label}" + (f" — {detail}" if not cond else ""))
         if not cond:
             bad.append(label)
@@ -79,6 +82,9 @@ def main(base: str, password: str) -> int:
           r.status in (200, 303), f"код {r.status} (404 = модуль не в сборке)")
     r = c.get("/admin/patient/999999/slots?date=2026-01-01&doctor=d1&service=consult")
     check("действия карточки подключены", r.status == 200, f"код {r.status}")
+    r = c.get("/admin/visit/999999")
+    check("дневник визита (consultația) подключён", r.status in (200, 303),
+          f"код {r.status} (404 = visit.py не попал в сборку)")
 
     # бот-диалог: конфиг клиники прочитан из бандла
     r = c.post_json("/chat", {"session_id": "smoke", "message": "/start"})
@@ -86,7 +92,7 @@ def main(base: str, password: str) -> int:
           r.status == 200 and "lang:ro" in r.body, f"код {r.status}")
 
     print(f"\n   дымовой тест: {'ПРОВАЛ' if bad else 'OK'} ({len(bad)} из "
-          f"{len(pages) + 6} проверок красные)" if bad
+          f"{total} проверок красные)" if bad
           else f"\n   дымовой тест собранной программы: OK, версия {ver}")
     return 1 if bad else 0
 

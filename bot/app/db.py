@@ -135,6 +135,25 @@ CREATE TABLE IF NOT EXISTS payments(
 );
 CREATE INDEX IF NOT EXISTS ix_pay_patient ON payments(patient_id, at DESC);
 CREATE INDEX IF NOT EXISTS ix_pay_at ON payments(at DESC);
+-- Дневник визита (consultația): запись приёма 1:1 к appointments — будущая
+-- дневниковая часть формы 043/e. doctor — снапшот имени на момент приёма.
+CREATE TABLE IF NOT EXISTS visit_records(
+  id SERIAL PRIMARY KEY,
+  appointment_id INT NOT NULL UNIQUE REFERENCES appointments(id),
+  patient_id INT NOT NULL REFERENCES patients(id),
+  doctor TEXT NOT NULL DEFAULT '',
+  acuze TEXT NOT NULL DEFAULT '',
+  examen TEXT NOT NULL DEFAULT '',
+  diagnostic TEXT NOT NULL DEFAULT '',
+  tratament TEXT NOT NULL DEFAULT '',
+  recomandari TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS ix_visit_patient ON visit_records(patient_id);
+-- на каком приёме позиция плана была выполнена (NULL = финал без визита/не финал)
+ALTER TABLE plan_items ADD COLUMN IF NOT EXISTS appointment_id INT;
 """
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -247,6 +266,21 @@ CREATE TABLE IF NOT EXISTS payments(
 );
 CREATE INDEX IF NOT EXISTS ix_pay_patient ON payments(patient_id, at DESC);
 CREATE INDEX IF NOT EXISTS ix_pay_at ON payments(at DESC);
+CREATE TABLE IF NOT EXISTS visit_records(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appointment_id INTEGER NOT NULL UNIQUE REFERENCES appointments(id),
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  doctor TEXT NOT NULL DEFAULT '',
+  acuze TEXT NOT NULL DEFAULT '',
+  examen TEXT NOT NULL DEFAULT '',
+  diagnostic TEXT NOT NULL DEFAULT '',
+  tratament TEXT NOT NULL DEFAULT '',
+  recomandari TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_visit_patient ON visit_records(patient_id);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -266,6 +300,8 @@ SQLITE_EXTRA_COLS = [
     # этап 2 фиши: срок позиции плана (ISO-дата) и врач-автор состояния зуба
     ("plan_items", "due_date TEXT"),
     ("teeth", "doctor TEXT NOT NULL DEFAULT ''"),
+    # дневник визита: на каком приёме позиция плана была выполнена
+    ("plan_items", "appointment_id INTEGER"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -947,17 +983,22 @@ async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
 # ---------- журнал/поиск/статусы ----------
 
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
+    # has_rec — «консультация записана»: не дата, в _DT_COLS ему не место
     return await _fetch(
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
-                  a.reminded_day, a.comment, p.name, p.phone, p.birth_year
+                  a.reminded_day, a.comment, p.name, p.phone, p.birth_year,
+                  (vr.id IS NOT NULL) AS has_rec
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
+                LEFT JOIN visit_records vr ON vr.appointment_id = a.id
            WHERE a.starts_at >= $1 AND a.starts_at < $2
            ORDER BY a.starts_at, a.doctor""",
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
-                  a.reminded_day, a.comment, p.name, p.phone, p.birth_year
+                  a.reminded_day, a.comment, p.name, p.phone, p.birth_year,
+                  (vr.id IS NOT NULL) AS has_rec
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
+                LEFT JOIN visit_records vr ON vr.appointment_id = a.id
            WHERE a.starts_at >= ? AND a.starts_at < ?
            ORDER BY a.starts_at, a.doctor""",
         *((day_start, day_end) if not IS_SQLITE
@@ -1379,10 +1420,10 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
 async def plan_items(pid: int) -> list:
     return await _fetch(
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
-                  done_at
+                  done_at, appointment_id
            FROM plan_items WHERE patient_id = $1 ORDER BY id""",
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
-                  done_at
+                  done_at, appointment_id
            FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
 
 
@@ -1413,7 +1454,11 @@ async def add_plan_item(pid: int, tooth: int | None, procedure: str,
                     tooth=tooth)
 
 
-async def set_plan_status(item_id: int, pid: int, status: str) -> None:
+async def set_plan_status(item_id: int, pid: int, status: str,
+                          appt_id: int | None = None) -> None:
+    """appt_id — визит, НА котором позицию выполнили (страница консультации).
+    Привязка живёт только у финализированной позиции: «Redeschide» означает
+    «на самом деле не сделано», и ссылка на визит снимается вместе с done_at."""
     done = status == "finalizat"
     rows = await _fetch("SELECT procedure, tooth FROM plan_items WHERE id = $1 AND patient_id = $2",
                         "SELECT procedure, tooth FROM plan_items WHERE id = ? AND patient_id = ?",
@@ -1422,17 +1467,27 @@ async def set_plan_status(item_id: int, pid: int, status: str) -> None:
         await log_event(pid, "plan_status",
                         f"Plan: {rows[0]['procedure']} → {status}",
                         tooth=rows[0]["tooth"])
-    await _execute(
-        f"""UPDATE plan_items SET status = $1,
-              done_at = {'now()' if done else 'NULL'}
-            WHERE id = $2 AND patient_id = $3""",
-        f"""UPDATE plan_items SET status = ?,
-              done_at = {'?' if done else 'NULL'}
-            WHERE id = ? AND patient_id = ?""",
-        *((status, item_id, pid) if not IS_SQLITE
-          else ((status, _utcnow_iso(), item_id, pid) if done
-                else (status, item_id, pid))),
-    )
+    if done:
+        await _execute(
+            """UPDATE plan_items SET status = $1, done_at = now(),
+                  appointment_id = $4
+                WHERE id = $2 AND patient_id = $3""",
+            """UPDATE plan_items SET status = ?, done_at = ?,
+                  appointment_id = ?
+                WHERE id = ? AND patient_id = ?""",
+            *((status, item_id, pid, appt_id) if not IS_SQLITE
+              else (status, _utcnow_iso(), appt_id, item_id, pid)),
+        )
+    else:
+        await _execute(
+            """UPDATE plan_items SET status = $1, done_at = NULL,
+                  appointment_id = NULL
+                WHERE id = $2 AND patient_id = $3""",
+            """UPDATE plan_items SET status = ?, done_at = NULL,
+                  appointment_id = NULL
+                WHERE id = ? AND patient_id = ?""",
+            status, item_id, pid,
+        )
 
 
 async def delete_plan_item(item_id: int, pid: int) -> None:
@@ -1445,6 +1500,116 @@ async def delete_plan_item(item_id: int, pid: int) -> None:
     await _execute(
         "DELETE FROM plan_items WHERE id = $1 AND patient_id = $2",
         "DELETE FROM plan_items WHERE id = ? AND patient_id = ?", item_id, pid)
+
+
+# ---------- дневник визита (consultația) ----------
+# Запись приёма 1:1 к визиту: acuze / examen / diagnostic / tratament /
+# recomandari — графы дневника формы 043/e. Кнопки удаления НЕТ намеренно:
+# медзапись правится (updated_at + author), но не исчезает; обе версии
+# события остаются в летописи.
+
+VISIT_FIELDS = ("acuze", "examen", "diagnostic", "tratament", "recomandari")
+
+
+async def appointment_brief(appt_id: int) -> dict | None:
+    """Один визит с именем пациента — шапка страницы консультации.
+    patient_id отсюда — источник истины «чей визит»: маршруты обязаны брать
+    его из этой выборки, а не из формы."""
+    rows = await _fetch(
+        """SELECT a.id, a.patient_id, a.service, a.doctor, a.starts_at,
+                  a.duration_min, a.status, a.source, a.comment, p.name
+           FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
+           WHERE a.id = $1""",
+        """SELECT a.id, a.patient_id, a.service, a.doctor, a.starts_at,
+                  a.duration_min, a.status, a.source, a.comment, p.name
+           FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
+           WHERE a.id = ?""", appt_id)
+    return rows[0] if rows else None
+
+
+async def visit_record(appt_id: int) -> dict | None:
+    rows = await _fetch(
+        """SELECT id, appointment_id, patient_id, doctor, acuze, examen,
+                  diagnostic, tratament, recomandari, author, created_at,
+                  updated_at
+           FROM visit_records WHERE appointment_id = $1""",
+        """SELECT id, appointment_id, patient_id, doctor, acuze, examen,
+                  diagnostic, tratament, recomandari, author, created_at,
+                  updated_at
+           FROM visit_records WHERE appointment_id = ?""", appt_id)
+    return rows[0] if rows else None
+
+
+async def save_visit_record(appt_id: int, pid: int, doctor: str,
+                            fields: dict) -> str:
+    """Upsert записи приёма; возвращает 'created' | 'updated'.
+    author — последний редактировавший; кто вписал первым, видно в летописи."""
+    vals = tuple((fields.get(k) or "").strip() for k in VISIT_FIELDS)
+    actor = _actor_now()
+    existing = await _fetchval(
+        "SELECT id FROM visit_records WHERE appointment_id = $1",
+        "SELECT id FROM visit_records WHERE appointment_id = ?", appt_id)
+    result = "created" if existing is None else "updated"
+    # один upsert, а не SELECT+ветка: два открытых окна консультации иначе
+    # вставляют наперегонки, и второе падает на UNIQUE(appointment_id).
+    # ON CONFLICT одинаков в PG и SQLite; created_at при обновлении не трогаем
+    # (в SET его нет), гонка может лишь перепутать глагол в летописи
+    await _execute(
+        """INSERT INTO visit_records(appointment_id, patient_id, doctor,
+             acuze, examen, diagnostic, tratament, recomandari, author)
+           VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT(appointment_id) DO UPDATE SET
+             doctor = EXCLUDED.doctor, acuze = EXCLUDED.acuze,
+             examen = EXCLUDED.examen, diagnostic = EXCLUDED.diagnostic,
+             tratament = EXCLUDED.tratament,
+             recomandari = EXCLUDED.recomandari,
+             author = EXCLUDED.author, updated_at = now()""",
+        """INSERT INTO visit_records(appointment_id, patient_id, doctor,
+             acuze, examen, diagnostic, tratament, recomandari, author,
+             created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(appointment_id) DO UPDATE SET
+             doctor = excluded.doctor, acuze = excluded.acuze,
+             examen = excluded.examen, diagnostic = excluded.diagnostic,
+             tratament = excluded.tratament,
+             recomandari = excluded.recomandari,
+             author = excluded.author, updated_at = ?""",
+        *((appt_id, pid, doctor, *vals, actor) if not IS_SQLITE
+          else (appt_id, pid, doctor, *vals, actor, _utcnow_iso(),
+                _utcnow_iso())),
+    )
+    # в летопись — самое информативное из заполненного: диагноз, лечение, жалобы
+    snippet = next((v for v in (vals[2], vals[3], vals[0]) if v), "")
+    verb = "Consultație" if result == "created" else "Consultație actualizată"
+    await log_event(pid, "consult", f"{verb}: {snippet[:120] or '—'}")
+    return result
+
+
+async def visit_records_map(pid: int) -> dict[int, dict]:
+    """appointment_id → запись приёма: фиша красит историю визитов одним
+    запросом, а не по одному на строку."""
+    rows = await _fetch(
+        """SELECT appointment_id, doctor, acuze, examen, diagnostic, tratament,
+                  recomandari, author, created_at, updated_at
+           FROM visit_records WHERE patient_id = $1""",
+        """SELECT appointment_id, doctor, acuze, examen, diagnostic, tratament,
+                  recomandari, author, created_at, updated_at
+           FROM visit_records WHERE patient_id = ?""", pid)
+    return {r["appointment_id"]: r for r in rows}
+
+
+async def patient_visit_records(pid: int) -> list:
+    """Записи приёмов с датой и услугой визита — для выгрузки данных пациента."""
+    return await _fetch(
+        """SELECT a.starts_at, a.service, v.doctor, v.acuze, v.examen,
+                  v.diagnostic, v.tratament, v.recomandari, v.author,
+                  v.created_at, v.updated_at
+           FROM visit_records v JOIN appointments a ON a.id = v.appointment_id
+           WHERE v.patient_id = $1 ORDER BY a.starts_at DESC""",
+        """SELECT a.starts_at, a.service, v.doctor, v.acuze, v.examen,
+                  v.diagnostic, v.tratament, v.recomandari, v.author,
+                  v.created_at, v.updated_at
+           FROM visit_records v JOIN appointments a ON a.id = v.appointment_id
+           WHERE v.patient_id = ? ORDER BY a.starts_at DESC""", pid)
 
 
 async def documents(pid: int) -> list:
@@ -1567,6 +1732,11 @@ async def erasure_kind(pid: int) -> str:
                     "SELECT COUNT(*) FROM plan_items WHERE patient_id = ?", pid)
     docs = await _n("SELECT COUNT(*) FROM documents WHERE patient_id = $1",
                     "SELECT COUNT(*) FROM documents WHERE patient_id = ?", pid)
+    # запись приёма — лечение по определению, даже если визит формально
+    # будущий/отменённый: врач уже вписал клинический текст
+    consult = await _n("SELECT COUNT(*) FROM visit_records WHERE patient_id = $1",
+                       "SELECT COUNT(*) FROM visit_records WHERE patient_id = ?",
+                       pid)
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = $1
@@ -1576,7 +1746,8 @@ async def erasure_kind(pid: int) -> str:
            AND (status IN ('done','arrived')
                 OR (status = 'confirmed' AND starts_at < ?))""",
         *((pid, now) if not IS_SQLITE else (pid, _iso(now))))
-    return "anon" if (teeth or plan or docs or happened or pays) else "delete"
+    return ("anon" if (teeth or plan or docs or happened or pays or consult)
+            else "delete")
 
 
 async def delete_patient_fully(pid: int) -> None:
@@ -1600,6 +1771,9 @@ async def delete_patient_fully(pid: int) -> None:
          "DELETE FROM plan_items WHERE patient_id = ?"),
         ("DELETE FROM documents WHERE patient_id = $1",
          "DELETE FROM documents WHERE patient_id = ?"),
+        # дневники приёмов раньше визитов: FK на appointments
+        ("DELETE FROM visit_records WHERE patient_id = $1",
+         "DELETE FROM visit_records WHERE patient_id = ?"),
         ("DELETE FROM appointments WHERE patient_id = $1",
          "DELETE FROM appointments WHERE patient_id = ?"),
         ("DELETE FROM patients WHERE id = $1",
@@ -1620,6 +1794,8 @@ async def anonymize_patient(pid: int) -> None:
 
     ⚠️ Комментарии визитов и заметки стираются тоже: это свободный текст, и
     рецепция пишет туда что угодно — вплоть до «сестра Иона Попеску».
+    Дневник приёма (visit_records) НЕ трогаем: acuze/diagnostic/tratament —
+    та самая клиническая запись, ради которой фиша и хранится под номером.
     """
     await _execute(
         """UPDATE patients SET name = $2, phone = NULL, email = NULL,

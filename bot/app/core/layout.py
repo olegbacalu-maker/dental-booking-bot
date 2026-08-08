@@ -142,6 +142,11 @@ MSG_BANNER = {
     "arch_busy": ("err", "Medicul are programări viitoare — mutați-le la alt medic sau "
                          "alegeți «în concediu» în loc de arhivare"),
     "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
+    "ok_visit": ("ok", "Consultația a fost salvată ✔"),
+    "bad_visit": ("err", "Consultația nu a fost salvată — completați cel puțin "
+                         "un câmp"),
+    "bad_vst": ("err", "Vizita anulată sau neprezentată nu poate avea "
+                       "consultație — schimbați mai întâi statusul vizitei"),
 }
 
 

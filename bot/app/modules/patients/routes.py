@@ -40,6 +40,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from . import acord as pacord
 from . import export as pexport
+from . import visit as pvisit
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, _age, _ic,
                             _initials, _shell)
@@ -141,6 +142,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     fin = await db.patient_finance(pid)
     docs = await db.documents(pid)
     visits = await db.patient_appointments(pid, 1000)
+    recs = await db.visit_records_map(pid)
     # ?views=1 — журнал доступа НА ЭКРАНЕ: лента дополняется просмотрами
     # (view/doc_view). По умолчанию их нет — рецепция открывает фишу десятки
     # раз в день; но по клику журнал обязан показываться, иначе «программа
@@ -457,12 +459,27 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
     for v in visits[:8]:
         dtv = v["starts_at"].astimezone(eng.TZ)
         is_next = nextv is not None and v["id"] == nextv["id"]
+        # дневник приёма: у заполненного визита — диагноз и ссылка, у
+        # состоявшегося пустого — приглашение заполнить (будущие не зовём:
+        # писать «лечение» вперёд — ошибка данных)
+        vurl = f"/admin/visit/{v['id']}?back={urllib.parse.quote(base)}"
+        r = recs.get(v["id"])
+        if r:
+            diag = (r["diagnostic"] or r["tratament"] or r["acuze"] or "").strip()
+            consult = (f"<small style='overflow-wrap:anywhere'>🩺 "
+                       f"<a href='{vurl}'>Consultație</a>"
+                       + (f": {e(diag[:60])}" if diag else "") + "</small>")
+        elif (v["status"] in ("done", "arrived")
+              or (v["status"] == "confirmed" and v["starts_at"] <= now)):
+            consult = f"<small><a href='{vurl}'>+ Consultație</a></small>"
+        else:
+            consult = ""
         hist.append(
             f"<div class='tline{' next' if is_next else ''}'>"
             f"<div class='tdot'><i></i></div><div class='tb'>"
             f"<small>{dtv.strftime('%d.%m.%Y %H:%M')} · {STATUS_LABEL.get(v['status'], v['status'])}</small>"
             f"<b style='font-size:12.5px'>{e(v['service'])}</b>"
-            f"<small>{e(v['doctor'])}</small></div></div>")
+            f"<small>{e(v['doctor'])}</small>{consult}</div></div>")
     hist_card = (f"<div class='fcard'><h3>Istoric vizite <small>· ultimele {len(visits[:8])}</small></h3>"
                  + ("".join(hist) or "<p class='hint' style='margin:0'>— încă fără vizite —</p>")
                  + f"<a href='/admin/search?q={urllib.parse.quote(p['name'] or '')}' "
@@ -502,7 +519,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                  "alert_add": "⚠️", "profile": "✏️", "archive": "🗄",
                  # выдача копии данных — событие, о котором спросят на проверке;
                  # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
-                 "export": "📦", "acord": "📋",
+                 "export": "📦", "acord": "📋", "consult": "🩺",
                  "view": "👁", "doc_view": "👁", "erase": "🧹"}
     act_rows = []
     for a in acts:
@@ -1441,6 +1458,59 @@ async def patient_acord(request: Request, pid: int):
     await db.log_event(pid, "acord",
                        "Formular «Informare și acord» generat pentru tipărire")
     return pacord.render(p)
+
+
+# ---------- дневник визита (consultația) ----------
+
+@router.get("/admin/visit/{appt_id}", response_class=HTMLResponse)
+async def visit_page(request: Request, appt_id: int, back: str = "",
+                     msg: str = ""):
+    """Страница «Consultație»: запись приёма 1:1 к визиту (см. visit.py).
+    Доступна любому вошедшему, как и остальные операции фиши: приём пишет
+    врач, но постфактум вносит и рецепция."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    a = await db.appointment_brief(appt_id)
+    if not a or not a.get("patient_id") or a.get("source") == "note":
+        return RedirectResponse("/admin", status_code=303)
+    rec = await db.visit_record(appt_id)
+    items = await db.plan_items(a["patient_id"])
+    if not back.startswith("/admin"):
+        back = f"/admin/patient/{a['patient_id']}"
+    return HTMLResponse(pvisit.page(a, rec, items, back, msg))
+
+
+@router.post("/admin/visit/{appt_id}")
+async def visit_save(request: Request, appt_id: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    a = await db.appointment_brief(appt_id)
+    if not a or not a.get("patient_id") or a.get("source") == "note":
+        return RedirectResponse("/admin", status_code=303)
+    pid = a["patient_id"]
+    form = await request.form()
+    back = str(form.get("back") or "")
+    if not back.startswith("/admin"):
+        back = f"/admin/patient/{pid}"
+    dest = f"/admin/visit/{appt_id}?back={urllib.parse.quote(back)}"
+    if a["status"] in pvisit.NO_FORM_STATUSES:
+        return RedirectResponse(dest + "&msg=bad_vst", status_code=303)
+    fields = {k: str(form.get(k) or "")[:2000] for k in db.VISIT_FIELDS}
+    if not any(v.strip() for v in fields.values()):
+        return RedirectResponse(dest + "&msg=bad_visit", status_code=303)
+    await db.save_visit_record(appt_id, pid, a["doctor"], fields)
+    # отмеченные позиции плана выполнены НА этом визите: финализируем из
+    # любого нефинального статуса (дневник фиксирует факт, церемония
+    # in_lucru тут ни при чём) и привязываем к визиту
+    for raw in form.getlist("done"):
+        try:
+            iid = int(raw)
+        except ValueError:
+            continue
+        cur = await db.plan_item_status(iid, pid)
+        if cur is not None and cur != "finalizat":
+            await db.set_plan_status(iid, pid, "finalizat", appt_id)
+    return RedirectResponse(dest + "&msg=ok_visit", status_code=303)
 
 
 @router.get("/admin/patient/{pid}/export")
