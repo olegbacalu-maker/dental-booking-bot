@@ -298,3 +298,48 @@ def suite_review(res: Result) -> None:
         # 7. все состояния рисуются на всех номерах (легенда падала на extras)
         res.check("страница фиши цела на всех состояниях",
                   c.get(f"/admin/patient/{pid}").status, 200)
+
+
+def suite_form(res: Result) -> None:
+    """Бумажный бланк опросника и место 043/e наверху фиши."""
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post("/admin/patients/new", name="Formular Test", phone="022202020")
+        pid = _pid(c, "022202020")
+        c.post(f"/admin/patient/{pid}/save", name="Formular Test",
+               phone="022202020", birth_date="1990-04-04")
+
+        card = c.get(f"/admin/patient/{pid}").body
+        # 043/e — в шапке фиши, а не в конце страницы
+        hero = card.split("hero-acts", 1)[1].split("</div>", 1)[0]
+        res.ok("043/e стоит в шапке фиши", "/fisa043" in hero,
+               "документ спрятан внизу — за ним придётся скроллить")
+        res.ok("ссылка на бумажный бланк есть в секции анамнеза",
+               "/anamneza/print" in card, "нет печатного опросника")
+
+        r = c.get(f"/admin/patient/{pid}/anamneza/print")
+        res.check("бланк отдаётся", r.status, 200)
+        page = r.body
+        res.ok("бланк называет себя анкетой пациента",
+               "CHESTIONAR MEDICAL AL PACIENTULUI" in page, "нет заголовка")
+        res.ok("имя и дата рождения подставлены",
+               "Formular Test" in page and "1990-04-04" in page,
+               "шапка бланка пустая")
+        res.ok("все двенадцать вопросов на листе",
+               page.count("DA &nbsp;&nbsp;") == 12, "вопросов не 12")
+        res.ok("есть строки под свободный текст и подпись",
+               "class='ln'" in page and "Semnătura pacientului" in page,
+               "нечем заполнить и негде подписать")
+        res.ok("закон назван", "195/2024" in page, "нет основания обработки")
+
+        ru = c.get(f"/admin/patient/{pid}/anamneza/print?lang=ru").body
+        res.ok("русская версия бланка",
+               "МЕДИЦИНСКАЯ АНКЕТА ПАЦИЕНТА" in ru and "Сахарный диабет" in ru,
+               "бланк не переведён")
+        res.ok("в русской версии закон назван и по-румынски",
+               "Legea nr. 195/2024" in ru, "потеряно имя закона")
+
+        anon = Client(s.url)
+        res.ok("без входа бланк не отдаётся",
+               anon.get(f"/admin/patient/{pid}/anamneza/print").status == 303,
+               "лист с именем пациента ушёл без входа")

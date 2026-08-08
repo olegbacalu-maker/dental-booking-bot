@@ -48,6 +48,7 @@ SUITES = [
     ("Анамнез: закон 195", test_anamneza.suite_195),
     ("Печать на языке пациента", test_anamneza.suite_lang),
     ("Находки ревью 08-08", test_anamneza.suite_review),
+    ("Анамнез: бумажный бланк", test_anamneza.suite_form),
     ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
     ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Дневник визита", test_visit.suite),

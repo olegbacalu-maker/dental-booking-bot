@@ -291,6 +291,8 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
                if an_chips else "")
     anam_card = f"""<div class='fcard' id='anamneza'>
 <h3>Anamneză {an_head}</h3>{an_list}{an_sum}
+<a class='anprint' href='{base}/anamneza/print' target='_blank'>🖨 Formular
+  pentru pacient</a>
 <details class='anform'{' open' if not anam else ''}>
   <summary>✏️ Chestionar</summary>
   <form class='fform' method='post' action='{base}/anamneza'>
@@ -741,6 +743,10 @@ programului (data\\files).</p></div>"""
     # общий журнал дня, где имя и телефон надо было вбивать заново
     acts.append(f"<button type='button' onclick='openAppt()'>"
                 f"{_ic('cal')} Programează</button>")
+    # 043/e — документ, за которым тянутся чаще всего (проверка, выписка,
+    # передача пациента): его место наверху, а не в конце страницы среди
+    # быстрых действий, куда надо доскроллить
+    acts.append(f"<a href='{base}/fisa043'>📄 Fișa 043/e</a>")
 
     # ID — внутренний номер фиши в программе (адрес страницы, бэкап, обращение
     # в поддержку). Клинике он нужен редко, поэтому уходит в конец строки и
@@ -923,7 +929,6 @@ soldul fișei.</p></div>"""
   <a href='#plan'>🦷 Plan de tratament</a>
   <a href='#docs'>📷 Încarcă document</a>
   <button type='button' onclick="openNote()">📝 Notiță</button>
-  <a href='{base}/fisa043'>📄 Fișa 043/e</a>
   <button type='button' onclick="window.print()">🖨 Printează fișa</button>
 </div></div>"""
 
@@ -1256,6 +1261,19 @@ async def patient_alert_add(request: Request, pid: int,
         return _card_redirect(pid, "bad_card")
     await db.add_alert(pid, kind, text.strip()[:120])
     return _card_redirect(pid, "ok_card")
+
+
+@router.get("/admin/patient/{pid}/anamneza/print", response_class=HTMLResponse)
+async def patient_anamneza_print(request: Request, pid: int, lang: str = ""):
+    """Пустой бланк опросника пациенту на руки. Спрашивать двенадцать пунктов
+    голосом через стойку долго и неловко: пациент заполняет лист, пока ждёт,
+    рецепция переносит ответы в фишу."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    return panam.render_form(p, _doc_lang(p, lang))
 
 
 @router.post("/admin/patient/{pid}/anamneza")

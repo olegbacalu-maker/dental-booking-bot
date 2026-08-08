@@ -438,20 +438,32 @@
  .sfrow{display:flex;flex-wrap:wrap;gap:8px}
  .sfrow label{display:flex;align-items:center;gap:4px;font-size:12.5px;
    color:var(--text2);cursor:pointer}
- .sfrow input{width:auto;height:auto;accent-color:var(--teal)}
+ /* ⚠️ селектор с [type=checkbox] специфичнее, чем «.fform input» ниже
+    по файлу: без него флажок получал height:var(--h-ctl) и width:100%,
+    растягивался на всю строку и выдавливал подпись вбок */
+ .sfrow input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
+   accent-color:var(--teal);margin:0}
  .sfrow small{color:var(--text3)}
  /* анамнез: опросник раскрывается по клику, отметки видно и свёрнутым */
  .anlist{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
  .anlist span{background:var(--amber-soft);color:var(--amber-t);border-radius:7px;
    padding:3px 8px;font-size:12px;font-weight:600}
+ .anprint{display:inline-block;margin:8px 0 0;font-size:12.5px;color:var(--teal-d);
+   text-decoration:none;font-weight:600}
+ .anprint:hover{text-decoration:underline}
  details.anform{margin-top:10px}
  details.anform>summary{cursor:pointer;font-size:12.5px;color:var(--teal-d);
    padding:6px 0;list-style:none;font-weight:600}
  details.anform>summary::-webkit-details-marker{display:none}
- .anbox{display:flex;flex-direction:column;gap:5px;margin-bottom:4px}
+ /* колонок столько, сколько влезет: карточка живёт в боковой колонке
+    320px (одна колонка), а на узком экране разъезжается на всю ширину
+    (две-три) — фиксированные «две колонки» на 320px рвали подписи */
+ .anbox{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+   gap:2px 12px;margin-bottom:8px}
  .anbox label{display:flex;align-items:center;gap:7px;font-size:12.5px;
-   color:var(--text2);cursor:pointer}
- .anbox input{width:auto;height:auto;accent-color:var(--teal);flex:0 0 auto}
+   color:var(--text2);cursor:pointer;line-height:1.25;padding:3px 0}
+ .anbox input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
+   accent-color:var(--teal);margin:0}
  .arch-wrap{display:flex;flex-direction:column;gap:10px}
  .arch-mid{height:1px;background:var(--line);margin:2px 0}
  .tleg{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);
