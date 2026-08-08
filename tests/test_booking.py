@@ -6,7 +6,7 @@
 import re
 from datetime import date, datetime, timedelta
 
-from harness import Bot, Client, Result, Server
+from harness import TG_ON, Bot, Client, Result, Server
 
 PHONE = "022111222"
 
@@ -24,7 +24,9 @@ def add(c: Client, day: str, time: str, doctor: str = "d2",
 
 
 def suite(res: Result) -> None:
-    with Server() as s:
+    # grandfather-клиника: в середине набора идёт проверка «визит задним числом
+    # tg-пациенту», а канал бота живёт только за tg_configured (заморозка 08-08)
+    with Server(env=TG_ON) as s:
         c = Client(s.url).login()
 
         # --- обычная запись ---

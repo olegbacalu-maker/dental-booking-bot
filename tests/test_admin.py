@@ -969,6 +969,19 @@ def suite_bot_ui(res: Result) -> None:
         res.ok("нет «botul a adus»", "botul a adus" not in stats,
                "оценка вклада бота без бота")
 
+        # самозапись через веб — тот же канал, что бот: заморожена вместе с ним
+        res.check("лендинг самозаписи закрыт", c.get("/").status, 404)
+        res.check("веб-чат закрыт",
+                  c.post_json("/chat", {"session_id": "x", "message": "/start"}).status,
+                  404)
+        res.check("выставочный экран закрыт", c.get("/demo").status, 404)
+        # ⚠️ соседи по корню обязаны выжить: на /health держится single-instance
+        # guard лаунчера, на /static — всё оформление журнала
+        res.check("/health не пострадал", c.get("/health").status, 200)
+        res.check("оформление отдаётся",
+                  c.get("/static/css/panel.css").status, 200)
+        res.check("значок отдаётся", c.get("/favicon.ico").status, 200)
+
     # grandfather: у клиники токен настроен — интерфейс остаётся полным
     with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
         c = Client(s.url).login()
@@ -985,3 +998,7 @@ def suite_bot_ui(res: Result) -> None:
         res.ok("grandfather: источники в статистике",
                "Surse programări" in stats and "Prin bot" in stats,
                "статистика урезана у grandfather")
+        res.check("grandfather: лендинг самозаписи открыт", c.get("/").status, 200)
+        res.check("grandfather: веб-чат отвечает",
+                  c.post_json("/chat", {"session_id": "g", "message": "/start"}).status,
+                  200)

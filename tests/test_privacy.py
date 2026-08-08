@@ -10,7 +10,7 @@ import sys
 import zipfile
 from datetime import date, timedelta
 
-from harness import BOT, Client, Result, Server
+from harness import BOT, TG_ON, Client, Result, Server
 
 
 def _d(offset: int) -> str:
@@ -323,7 +323,7 @@ def suite_acord(res: Result) -> None:
 def suite_bot_notice(res: Result) -> None:
     """Уведомление об обработке — в момент, когда бот впервые просит имя."""
     from harness import Bot
-    with Server() as s:
+    with Server(env=TG_ON) as s:
         c = Client(s.url)
         bot = Bot(c, "privacy-notice-test")
         bot.say("start")

@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, Response
 
 from ... import engine as eng
 from ...core.auth import _guard
-from ...core.layout import _shell, _tg_state
+from ...core.layout import _shell, _tg_state, tg_configured
 
 router = APIRouter()
 
@@ -84,14 +84,17 @@ async def qr(data: str) -> Response:
 
 
 @router.get("/demo", response_class=HTMLResponse)
-async def demo(url: str = "") -> str:
+async def demo(url: str = "") -> Response:
+    # выставочный экран ведёт на самозапись — исчезает вместе с ней (08-08)
+    if not tg_configured():
+        return Response(status_code=404)
     target = (url or "http://localhost:8088").strip()[:500]
     q = urllib.parse.quote(target, safe="")
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>DentPilot Demo — QR</title>
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>DentPilot Demo — QR</title>
 <style>body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
 justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff}}
 img{{background:#fff;padding:18px;border-radius:12px;width:340px;height:340px}}
 h1{{font-weight:600;font-size:22px}}p{{font-size:14px;opacity:.85}}</style></head><body>
 <h1>🦷 Scanați pentru programare / Сканируйте для записи</h1>
 <img src="/qr?data={q}" alt="QR">
-<p>{html.escape(target)}</p></body></html>"""
+<p>{html.escape(target)}</p></body></html>""")

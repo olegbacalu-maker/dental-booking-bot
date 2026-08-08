@@ -30,6 +30,14 @@ PYTHON = ROOT / ".venv-desktop" / "Scripts" / "python.exe"
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 PIN = "test1234"
 
+# Клиника, у которой бот УЖЕ настроен (grandfather). Telegram и веб-чат
+# заморожены 08-08 и живут только за layout.tg_configured(), поэтому набор,
+# который проверяет САМ канал (диалог бота, лендинг, /chat), обязан подниматься
+# с этим окружением — иначе он стучится в дверь, которой у клиники нет.
+# Флаг честный: dpapi ставит его, когда токен есть, но не расшифровывается, —
+# интерфейс включён, живой адаптер Telegram при этом не стартует.
+TG_ON = {"DENTART_TOKEN_UNREADABLE": "1"}
+
 
 def free_port() -> int:
     s = socket.socket()
@@ -166,7 +174,9 @@ class Client:
         return self._do(path)
 
     def post(self, path: str, **fields) -> Reply:
-        return self._do(path, urllib.parse.urlencode(fields).encode())
+        # doseq: список значений = ПОВТОРЯЮЩЕЕСЯ поле формы (галочки), а не
+        # строка «['O', 'M']» — так браузер шлёт несколько отмеченных чекбоксов
+        return self._do(path, urllib.parse.urlencode(fields, doseq=True).encode())
 
     def post_json(self, path: str, payload: dict) -> Reply:
         return self._do(path, json.dumps(payload).encode(),

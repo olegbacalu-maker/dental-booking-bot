@@ -94,6 +94,22 @@ $env:DENTART_BROWSER_MODE = "1"; $env:DENTART_NO_BROWSER = "1"; $env:DENTART_POR
 # ADMIN_KEY zadan, chtoby dymovoi test mog otkryt STRANICY, a ne tolko /health:
 # bez nego pustaya papka trebuet ekrana ustanovki PIN.
 $env:ADMIN_KEY = "smoke1234"
+# Klinika s NASTROENNYM botom (grandfather): samozapis (lending i /chat) i
+# interfeis bota zamorozheny 08-08 i zhivut tolko za tg_configured. Bez etogo
+# dymovoi test proveryal by otsutstvuyushchii kanal, a index.html poteryannyi
+# iz sborki ostalsya by nezamechennym. Vetku "bez bota" sterezhet nabor
+# "Zamorozka bota" v run_tests.py.
+# ⚠️ Peremennaya okruzheniya DENTART_TOKEN_UNREADABLE zdes NE rabotaet:
+# launcher zovet dpapi.unlock_env_token, i tot SNIMAET flag, kogda token
+# prochitan (pustoi token = uspeshno prochitan). Poetomu daem laboratorii
+# CHESTNOE sostoyanie grandfather - token v dental.env, kotoryi ne
+# rasshifrovyvaetsya: dpapi sam vystavit flag, a adapter Telegram ne startuet
+# (token pri etom pustoi), znachit seti vo vremya sborki net.
+Set-Content -Path (Join-Path $lab "dental.env") -Encoding utf8 -Value @(
+    "# smoke: token prisutstvuet, no ne rasshifrovyvaetsya -> grandfather",
+    "TELEGRAM_TOKEN=dpapi:smoke-nu-rasshifruesh",
+    "ADMIN_KEY=smoke1234"
+)
 $proc = Start-Process (Join-Path $lab "DentPilot.exe") -WorkingDirectory $lab -PassThru -WindowStyle Hidden
 $health = $null
 foreach ($i in 1..45) {

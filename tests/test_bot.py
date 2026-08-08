@@ -6,7 +6,7 @@
 import re
 from datetime import date, timedelta
 
-from harness import Bot, Client, Result, Server
+from harness import TG_ON, Bot, Client, Result, Server
 
 
 def _book(bot: Bot, day: str, hhmm: str, name: str, phone: str,
@@ -27,7 +27,7 @@ def _book(bot: Bot, day: str, hhmm: str, name: str, phone: str,
 
 
 def suite(res: Result) -> None:
-    with Server() as s:
+    with Server(env=TG_ON) as s:
         c = Client(s.url)
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
 

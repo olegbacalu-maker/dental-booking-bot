@@ -29,7 +29,8 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, PERM_SETTINGS, _guard, _pin_rec,
                         auth_file_fp, current_user, find_user, lock_left,
                         note_fail, note_ok, remember_auth_file, request_user,
                         require, set_request_user, set_tamper_alert, verify_pin)
-from .core.layout import LOGIN_TMPL, SETUP_TMPL, STATIC, _asset
+from .core.layout import (LOGIN_TMPL, SETUP_TMPL, STATIC, _asset,
+                          tg_configured)
 from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
 from .modules.qr import routes as qr
@@ -247,14 +248,26 @@ async def favicon() -> Response:
                     headers={"Cache-Control": "public, max-age=86400"})
 
 
+# ---------- самозапись пациента (лендинг + веб-чат) ----------
+# ЗАМОРОЖЕНА вместе с Telegram (08-08): это тот же канал «пациент записывает
+# себя сам», от которого клиники отказались. Живёт ровно у тех, у кого настроен
+# бот (tg_configured) — интерфейс журнала и так весь под этим выключателем.
+# 404, а не заглушка: канала у этой клиники нет, и страница-извинение только
+# сбивала бы с толку того, кто открыл старую ссылку.
+
 @app.get("/", response_class=HTMLResponse)
-async def index() -> str:
+async def index() -> Response:
+    if not tg_configured():
+        return Response(status_code=404)
     page = (STATIC / "index.html").read_text(encoding="utf-8")
-    return page.replace("{{CLINIC_NAME}}", html.escape(eng.CLINIC_NAME))
+    return HTMLResponse(page.replace("{{CLINIC_NAME}}",
+                                     html.escape(eng.CLINIC_NAME)))
 
 
 @app.post("/chat")
 async def chat(payload: dict):
+    if not tg_configured():
+        return Response(status_code=404)
     sid = str(payload.get("session_id") or "").strip()[:64]
     if not sid:
         return {"messages": [{"text": "session_id required"}], "buttons": []}

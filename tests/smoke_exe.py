@@ -85,6 +85,14 @@ def main(base: str, password: str) -> int:
     r = c.get("/admin/visit/999999")
     check("дневник визита (consultația) подключён", r.status in (200, 303),
           f"код {r.status} (404 = visit.py не попал в сборку)")
+    # печатные листы — отдельные файлы модуля: их пропажа из сборки не видна
+    # ни по /health, ни по страницам журнала
+    r = c.get("/admin/patient/999999/fisa043")
+    check("печатная 043/e подключена", r.status in (200, 303),
+          f"код {r.status} (404 = fisa043.py не попал в сборку)")
+    r = c.get("/admin/patient/999999/acord")
+    check("формуляр informare/acord подключён", r.status in (200, 303),
+          f"код {r.status} (404 = acord.py не попал в сборку)")
 
     # бот-диалог: конфиг клиники прочитан из бандла
     r = c.post_json("/chat", {"session_id": "smoke", "message": "/start"})
