@@ -156,7 +156,9 @@ def _banner(msg: str, d: date) -> str:
         cls, text = MSG_BANNER[msg]
         out += f"<div class='banner {cls}'>{text}</div>"
     if not eng.hours_for(d):
-        out += "<div class='banner err'>Zi liberă — clinica este închisă (bot-ul nu oferă această zi)</div>"
+        # у клиники без бота упоминание бота в баннере — загадка, не подсказка
+        tail = " (bot-ul nu oferă această zi)" if tg_configured() else ""
+        out += f"<div class='banner err'>Zi liberă — clinica este închisă{tail}</div>"
     return out
 
 

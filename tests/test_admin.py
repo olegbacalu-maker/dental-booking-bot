@@ -283,8 +283,12 @@ def suite_dashboard(res: Result) -> None:
 
     День берётся завтрашний намеренно: сегодняшний зависит от часа прогона —
     к вечеру вся повестка «прошедшая», и проверки стали бы плавающими.
+
+    Сервер — grandfather-клиника (флаг «токен нечитаем» = tg_configured):
+    шесть плиток с бот-каналом видит только клиника с ботом; ветку «без
+    бота» (пять плиток, без блока noi din bot) стережёт suite_bot_ui.
     """
-    with Server() as s:
+    with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
         c = Client(s.url).login()
         day = _d(1)
         for time, doc, svc, name in (("09:00", "d2", "consult", "Ana Test"),
@@ -385,8 +389,12 @@ def suite_analytics(res: Result) -> None:
     деньги, лента событий. Всё выведенное — ломается молча, страница 200.
 
     День завтрашний, как в suite_dashboard: сегодняшний зависит от часа прогона.
+
+    Сервер — grandfather-клиника (флаг «токен нечитаем» = tg_configured):
+    полная раскладка статистики с бот-плитками и донатом живёт только у
+    клиник с ботом; ветку «без бота» стережёт suite_bot_ui.
     """
-    with Server() as s:
+    with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
         c = Client(s.url).login()
         day = _d(1)
         for time, doc, svc, name, phone in (
@@ -923,3 +931,57 @@ print(json.dumps(out))
 def _fixture():
     from harness import FIXTURES
     return FIXTURES / "clinic_test.json"
+
+
+def suite_bot_ui(res: Result) -> None:
+    """Telegram заморожен (08-08): панель и статистика клиники БЕЗ бота молчат
+    о нём; grandfather-клиника (токен настроен) видит всё как раньше.
+    Вторая ветка поднимается с DENTART_TOKEN_UNREADABLE=1 — это честный флаг
+    dpapi «токен есть, но нечитаем»: tg_configured() истинен, а живой бот
+    не нужен."""
+    with Server() as s:  # токена нет — так выглядит новая клиника
+        c = Client(s.url).login()
+        dash = c.get("/admin").body
+        res.ok("плиток дашборда — без «Prin bot»", "Prin bot" not in dash,
+               "плитка бота у клиники без бота")
+        # зеркало проверки suite_dashboard «шесть плиток»: без бота их пять
+        res.check("плиток-графиков — пять", dash.count("class='spark'"), 5)
+        res.ok("подзаголовок без бота", "🤖 bot" not in dash,
+               "шапка продаёт замороженный канал")
+        res.ok("нет блока «Programări noi din bot»",
+               "Programări noi din bot" not in dash, "блок бота остался")
+        res.ok("нет строки статуса бота", "Bot Telegram" not in dash
+               and "Sincronizat cu botul" not in dash, "строка статуса висит")
+        res.ok("нет колокольчика новых из бота", "class='bell'" not in dash,
+               "колокольчик ведёт к пустому блоку")
+        res.ok("подсказка канвы без бота", "prin bot apar automat" not in dash,
+               "подсказка обещает бот-записи")
+        day = c.get(f"/admin/all?date={_d(1)}").body
+        res.ok("список дня без бот-легенды в шапке", "🤖 bot" not in day,
+               "легенда с ботом на /admin/all")
+        stats = c.get("/admin/stats").body
+        res.ok("статистика без «Prin bot» и «Remindere»",
+               "Prin bot" not in stats and "Remindere" not in stats,
+               "бот-плитки в статистике")
+        res.ok("нет доната «Surse programări»",
+               "Surse programări" not in stats,
+               "донат из одного источника — тавтология")
+        res.ok("нет «botul a adus»", "botul a adus" not in stats,
+               "оценка вклада бота без бота")
+
+    # grandfather: у клиники токен настроен — интерфейс остаётся полным
+    with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
+        c = Client(s.url).login()
+        dash = c.get("/admin").body
+        res.ok("grandfather: плитка «Prin bot» на месте", "Prin bot" in dash,
+               "заморозка отняла интерфейс у клиники с ботом")
+        res.ok("grandfather: блок новых из бота жив",
+               "Programări noi din bot" in dash, "блок пропал у grandfather")
+        res.ok("grandfather: колокольчик на месте", "class='bell'" in dash,
+               "колокольчик пропал у grandfather")
+        res.ok("grandfather: Sincronizări в сайдбаре", "Sincronizări" in dash,
+               "секция пропала у grandfather")
+        stats = c.get("/admin/stats").body
+        res.ok("grandfather: источники в статистике",
+               "Surse programări" in stats and "Prin bot" in stats,
+               "статистика урезана у grandfather")

@@ -30,7 +30,7 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, require
 from ...core.charts import donut, gauge, line_days, spark
-from ...core.layout import _shell
+from ...core.layout import _shell, tg_configured
 from ...core.visits import _parse_date
 
 router = APIRouter()
@@ -173,6 +173,14 @@ async def admin_stats(
     for r in canc:
         per_day["Anulate"][idx[r["starts_at"].astimezone(eng.TZ).date()]] += 1
 
+    # Telegram заморожен (tg_configured): у клиники без бота нет ни канала
+    # «Prin bot», ни напоминаний — плитки и донат источников прячутся.
+    # per_day выше собирается по ПОЛНОМУ списку намеренно: у клиники со
+    # снятым токеном исторические бот-записи не должны ронять цикл KeyError-ом
+    tg_ui = tg_configured()
+    if not tg_ui:
+        kpis = [k for k in kpis if k[0] not in ("Prin bot", "Remindere")]
+
     soft = {"var(--green)": "var(--green-soft)", "var(--teal-d)": "var(--teal-soft)",
             "var(--blue)": "var(--blue-soft)", "var(--violet)": "var(--violet-soft)",
             "var(--red)": "var(--red-soft)", "var(--amber)": "var(--amber-soft)"}
@@ -205,9 +213,10 @@ async def admin_stats(
         f"<div class='an-src'><i style='background:{color}'></i>{e(lbl)}"
         f"<b>{val}</b><small>{round(100 * val / cur['total']) if cur['total'] else 0}%</small></div>"
         for lbl, val, color in src_parts)
-    src_card = (f"<div class='fcard'><h3>Surse programări</h3><div class='an-donut'>"
-                f"{donut([(l, v, c) for l, v, c in src_parts], 'Total')}"
-                f"<div class='an-legend'>{legend}</div></div></div>")
+    src_card = ((f"<div class='fcard'><h3>Surse programări</h3><div class='an-donut'>"
+                 f"{donut([(l, v, c) for l, v, c in src_parts], 'Total')}"
+                 f"<div class='an-legend'>{legend}</div></div></div>")
+                if tg_ui else "")  # один источник — не разбивка, а тавтология
 
     # ---- средняя загрузка + деньги ----
     cap_all = busy_all = 0
@@ -244,8 +253,10 @@ async def admin_stats(
                   f"<b data-count='{cur['value']}' data-suffix=' MDL'>"
                   f"{_fmt_mdl(cur['value'])}</b>"
                   f"{_trend_money(cur['value'], prev['value'], plabel)}"
-                  f"<small>după lista de prețuri · nu e contabilitate · "
-                  f"botul a adus ≈ {_fmt_mdl(cur['bot_value'])}</small></div>")
+                  f"<small>după lista de prețuri · nu e contabilitate"
+                  + (f" · botul a adus ≈ {_fmt_mdl(cur['bot_value'])}"
+                     if tg_ui else "")
+                  + "</small></div>")
     # выручка ЗА СЕГОДНЯ — всегда про сегодня, какой бы период ни был выбран
     # сверху (идея Олега 08-07: пустое место под карточкой периода)
     y0 = today - timedelta(days=1)

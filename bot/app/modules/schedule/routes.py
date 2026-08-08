@@ -28,7 +28,7 @@ from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, can, request_user
 from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, _age, _banner, _initials, _shell,
-                            _tg_state)
+                            _tg_state, tg_configured)
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
                             _collect_cards, _list, _parse_date, _photo_path)
 
@@ -715,11 +715,15 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                 f"{_spark([_occ_pct(x, by_day[x]) for x in span], 'var(--violet)')}"
                 f"</div>")
 
+    # Telegram заморожен (tg_configured): клинике без бота панель не смеет
+    # рассказывать про канал, которого у неё нет, — плитка, блок «noi din
+    # bot», колокольчик и строка статуса живут только у grandfather-клиник
+    tg_ui = tg_configured()
     tiles = ("<div class='tiles'>"
              + _kpi(day_url, "📅", "var(--green-soft)", "var(--green)",
                     total, "Programări azi", trend(total, y_total), series[0])
-             + _kpi(f"{day_url}&amp;f=bot", "🤖", "var(--teal-soft)", "var(--teal-d)",
-                    n_bot, "Prin bot", bot_sub, series[1])
+             + (_kpi(f"{day_url}&amp;f=bot", "🤖", "var(--teal-soft)", "var(--teal-d)",
+                     n_bot, "Prin bot", bot_sub, series[1]) if tg_ui else "")
              + _kpi(f"{day_url}&amp;f=rec", "🎧", "var(--blue-soft)", "var(--blue)",
                     n_man, "Recepție", trend(n_man, y_man), series[2])
              + _kpi(f"{day_url}&amp;f=urg", "⏰", "var(--amber-soft)", "var(--amber)",
@@ -733,25 +737,32 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
 
     cards = _collect_cards(rows)
     back = f"/admin?date={d.isoformat()}"
-    tg_on, _u = _tg_state()
-    sync = ("<div style='display:flex;align-items:center;gap:7px;font-size:11.5px;"
-            "color:var(--text3);padding:0 4px'>"
-            f"<span style='width:7px;height:7px;border-radius:50%;background:"
-            f"{'var(--green)' if tg_on else 'var(--text3)'}'></span>"
-            f"{'Sincronizat cu botul Telegram' if tg_on else 'Bot Telegram neconectat'}</div>")
+    sync = ""
+    if tg_ui:
+        tg_on, _u = _tg_state()
+        sync = ("<div style='display:flex;align-items:center;gap:7px;font-size:11.5px;"
+                "color:var(--text3);padding:0 4px'>"
+                f"<span style='width:7px;height:7px;border-radius:50%;background:"
+                f"{'var(--green)' if tg_on else 'var(--text3)'}'></span>"
+                f"{'Sincronizat cu botul Telegram' if tg_on else 'Bot Telegram neconectat'}</div>")
     tabs = (f"<a class='primary' href='/admin?date={d.isoformat()}'>Zi</a>"
             f"<a href='/admin/week?date={d.isoformat()}'>Săptămâna</a>")
     body = (_date_nav(d, "/admin", tabs) + _banner(msg, d) + tiles
             + "<div class='dash'><div class='dashmain'>"
             + _day_canvas(d, rows, cards)
-            + "<p class='hint'>Click pe o programare — detalii și statusuri; click pe un slot liber — programare nouă sau notiță. Programările prin bot apar automat.</p>"
+            + "<p class='hint'>Click pe o programare — detalii și statusuri; "
+              "click pe un slot liber — programare nouă sau notiță."
+            + (" Programările prin bot apar automat." if tg_ui else "")
+            + "</p>"
             + "</div><div class='rail'>"
             + _mini_cal(d) + _agenda_block(d, rows, cards, now)
-            + _botnew_block(recent, now) + sync
+            + (_botnew_block(recent, now) if tg_ui else "") + sync
             + "</div></div>"
             + _slot_modal(d, back) + _card_modal(cards, back))
-    return _shell(body, "panou principal · 🤖 bot / ✍️ recepție · se actualizează automat",
-                  active="dash", bell=new_today)
+    sub = ("panou principal · 🤖 bot / ✍️ recepție · se actualizează automat"
+           if tg_ui else "panou principal · se actualizează automat")
+    return _shell(body, sub, active="dash",
+                  bell=new_today if tg_ui else None)
 
 
 @router.get("/admin/week", response_class=HTMLResponse)
@@ -905,7 +916,10 @@ async def admin_all(
             + ("" if flt else _list(rows, back))
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, "toți medicii · 🤖 bot / ✍️ recepție / 📝 notițe", active="prog")
+    return _shell(body, ("toți medicii · 🤖 bot / ✍️ recepție / 📝 notițe"
+                         if tg_configured()
+                         else "toți medicii · ✍️ recepție / 📝 notițe"),
+                  active="prog")
 
 
 @router.get("/admin/doctor/{dk}", response_class=HTMLResponse)
@@ -952,7 +966,10 @@ async def admin_doctor(
             + _list(rows, back)
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, "ziua unui medic · 🤖 bot / ✍️ recepție / 📝 notițe", active="prog")
+    return _shell(body, ("ziua unui medic · 🤖 bot / ✍️ recepție / 📝 notițe"
+                         if tg_configured()
+                         else "ziua unui medic · ✍️ recepție / 📝 notițe"),
+                  active="prog")
 
 
 def _back_redirect(back: str, fallback_date: str, msg: str) -> RedirectResponse:
