@@ -41,6 +41,7 @@ from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
 from . import faq
+from . import lan
 
 router = APIRouter()
 
@@ -247,6 +248,10 @@ async def admin_settings(request: Request, msg: str = ""):
     if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
         tiles.append(tile("/admin/settings/telegram", "📱", "v", "Telegram Bot",
                           tg_short))
+        lan_short = ("✅ activ în rețeaua clinicii" if lan.enabled()
+                     else "doar pe acest calculator")
+        tiles.append(tile("/admin/settings/lan", "📶", "b",
+                          "Acces de pe telefon", lan_short))
     if db.IS_SQLITE and bkp.available():
         tiles.append(tile("/admin/settings/backup", "💾", "b", "Copie de rezervă",
                           "arhivă criptată AES-256"))
@@ -366,6 +371,48 @@ async def settings_telegram(request: Request, msg: str = ""):
 <p class='hint'>Creați botul clinicii la @BotFather (2 minute) și lipiți tokenul aici.
 Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
     return _sec_page(body, "setări · Telegram Bot", msg)
+
+
+@router.get("/admin/settings/lan", response_class=HTMLResponse)
+async def settings_lan(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not (db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE")):
+        return RedirectResponse("/admin/settings", status_code=303)
+    return _sec_page(lan.render(), "setări · acces de pe telefon", msg)
+
+
+@router.post("/admin/lan/save", response_class=HTMLResponse)
+async def admin_lan_save(request: Request, mode: str = Form("")):
+    """Переключить доступ из сети клиники. Слушающий адрес выбирает ЛАУНЧЕР
+    при старте (bot/desktop.py), поэтому применение = перезапуск программы —
+    тот же путь, что смена токена бота."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    env_file = os.environ.get("DENTART_ENV_FILE", "")
+    if not (db.IS_SQLITE and env_file):
+        return RedirectResponse("/admin/settings", status_code=303)
+    val = "1" if mode == "on" else ""
+    envfile.set_value(pathlib.Path(env_file), "DENTART_LAN", val)
+    os.environ["DENTART_LAN"] = val
+    logging.getLogger("settings").warning(
+        "LAN access %s", "ENABLED" if val else "disabled")
+    if upd.restart_app() is not None:
+        # dev-режим/тест-хук: перезапуск не случился — просто баннер
+        return RedirectResponse("/admin/settings/lan?msg=ok_set", status_code=303)
+    return _restart_page("Setare salvată", "/admin/settings/lan")
+
+
+@router.post("/admin/lan/firewall")
+async def admin_lan_firewall(request: Request):
+    """Кнопка «создай правило firewall»: UAC-запрос на ЭКРАНЕ ПК клиники —
+    доступ включают с этого компьютера, так что директор его и видит."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not (db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE")):
+        return RedirectResponse("/admin/settings", status_code=303)
+    lan.request_firewall_rule()
+    return RedirectResponse("/admin/settings/lan", status_code=303)
 
 
 @router.get("/admin/settings/backup", response_class=HTMLResponse)
@@ -874,8 +921,14 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
         # dev-режим/тест-хук: перезапуск не случился — просто баннер
         return RedirectResponse("/admin/settings/telegram?msg=ok_tok",
                                 status_code=303)
+    return _restart_page("Token salvat", "/admin/settings/telegram")
+
+
+def _restart_page(done: str, back_url: str) -> str:
+    """Экран «программа перезапускается» — для настроек, которые читает
+    лаунчер до старта приложения (токен бота, сетевой доступ)."""
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="15;url=/admin/settings/telegram">
+<meta http-equiv="refresh" content="15;url={back_url}">
 <title>Repornire…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
       justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff;text-align:center}}
@@ -883,7 +936,7 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
  @keyframes r{{to{{transform:rotate(360deg)}}}}
 </style></head><body>
 <div class="sp">🔄</div>
-<h1>Token salvat — programul repornește…</h1>
+<h1>{done} — programul repornește…</h1>
 <p>Fereastra se va redeschide singură în câteva secunde.</p>
 </body></html>"""
 

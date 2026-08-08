@@ -3,8 +3,11 @@
 """
 import json
 import os
+import pathlib
 import re
+import shutil
 import subprocess
+import tempfile
 from datetime import date, timedelta
 
 from harness import BOT, PIN, PYTHON, Client, Result, Server
@@ -697,6 +700,63 @@ def suite_settings(res: Result) -> None:
         res.ok("название записано в файл клиники",
                "Clinica Redenumită" in s.clinic.read_text(encoding="utf-8"),
                "clinic.json не переписан")
+
+
+def suite_lan(res: Result) -> None:
+    """Доступ с телефона (LAN, слой 2 PWA): секция живёт в dental.env, потому
+    что слушающий адрес выбирает лаунчер до старта приложения. В тестах
+    DENTART_NO_RESTART=1 — переключение отвечает баннером, а не перезапуском."""
+    with Server() as s0:
+        c0 = Client(s0.url).login()
+        res.ok("без dental.env плитки НЕТ на хабе",
+               "/admin/settings/lan" not in c0.get("/admin/settings").body,
+               "плитка видна без env-файла (облачное издание)")
+        res.ok("без dental.env страница уводит на хаб",
+               c0.get("/admin/settings/lan").status == 303,
+               "страница открылась без env-файла")
+
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_lan_"))
+    env_path = tmp / "dental.env"
+    env_path.write_text("TELEGRAM_TOKEN=\n", encoding="utf-8")
+    try:
+        with Server(env={"DENTART_ENV_FILE": str(env_path)}) as s:
+            anon = Client(s.url)
+            r = anon.get("/admin/settings/lan")
+            res.ok("без входа секция не отдаётся",
+                   r.status == 303 and "/admin/login" in r.location,
+                   f"код {r.status}, location {r.location!r}")
+
+            c = Client(s.url).login()
+            res.ok("плитка на хабе",
+                   "/admin/settings/lan" in c.get("/admin/settings").body,
+                   "нет плитки при живом env-файле")
+            b = c.get("/admin/settings/lan")
+            res.ok("страница открывается",
+                   b.status == 200 and "Acces de pe telefon" in b.body,
+                   f"код {b.status}")
+            res.ok("по умолчанию доступ выключен", "Activează accesul" in b.body,
+                   "нет кнопки включения — состояние не «выключено»")
+
+            r = c.post("/admin/lan/save", mode="on")
+            res.check("включение сохраняется", r.msg, "ok_set")
+            res.ok("dental.env получил DENTART_LAN=1",
+                   "DENTART_LAN=1" in env_path.read_text(encoding="utf-8"),
+                   "флага нет в файле — лаунчер не узнает о включении")
+            b2 = c.get("/admin/settings/lan").body
+            res.ok("страница показывает активный режим",
+                   "Dezactivează accesul" in b2, "после включения нет кнопки "
+                   "выключения")
+
+            r = c.post("/admin/lan/save", mode="off")
+            res.check("выключение сохраняется", r.msg, "ok_set")
+            res.ok("флаг в файле погашен",
+                   "DENTART_LAN=1" not in env_path.read_text(encoding="utf-8"),
+                   "выключение не дошло до dental.env")
+            res.ok("комментарии клиники в env-файле уцелели",
+                   "TELEGRAM_TOKEN=" in env_path.read_text(encoding="utf-8"),
+                   "переключение затёрло соседние ключи")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def suite_pure(res: Result) -> None:

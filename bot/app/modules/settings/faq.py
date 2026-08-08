@@ -109,6 +109,22 @@ def render() -> str:
            f"<b>Setări → Stare sistem</b> — sau scrieți botului de pe "
            f"telefon.{end}"),
 
+        _q("📶", "Pot deschide registrul de pe telefon?",
+           f"{p}Da, în rețeaua clinicii: <b>Setări → Acces de pe telefon → "
+           f"Activează accesul</b> (programul repornește), apoi scanați "
+           f"codul QR de pe pagină cu telefonul conectat la Wi-Fi-ul "
+           f"clinicii. Fiecare intră cu parola lui; din meniul browserului "
+           f"alegeți «Adaugă pe ecranul principal» — registrul devine o "
+           f"aplicație pe telefon.{end}"
+           f"{p}Funcționează <b>doar în rețeaua clinicii</b> — de acasă nu "
+           f"se deschide, iar asta e o protecție, nu un defect. Folosiți "
+           f"rețeaua protejată a clinicii, nu cea pentru pacienți.{end}"
+           f"{p}Dacă telefonul nu se conectează: pe pagina «Acces de pe "
+           f"telefon» apăsați <b>«Creează regula de firewall»</b> și "
+           f"confirmați în fereastra Windows; verificați și ca rețeaua "
+           f"calculatorului să fie de tip «Private» în setările Windows."
+           f"{end}"),
+
         _q("🔄", "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "
            f"programului; baza de date, documentele și setările rămân "

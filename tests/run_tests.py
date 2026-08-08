@@ -42,6 +42,7 @@ SUITES = [
     ("Карточка пациента", test_admin.suite_patient_card),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),
+    ("Доступ с телефона (LAN)", test_admin.suite_lan),
     ("Закон 195: выгрузка данных пациента", test_privacy.suite_export),
     ("Закон 195: полнота выгрузки", test_privacy.suite_export_full),
     ("Закон 195: имена файлов в архиве", test_privacy.suite_export_names),

@@ -109,6 +109,10 @@ def _auto_backup() -> None:
 
 
 PORT = int(os.environ.get("DENTART_PORT", "8088"))
+# Доступ с телефона (Setări → Acces de pe telefon): 0.0.0.0 ТОЛЬКО по явному
+# DENTART_LAN=1 из dental.env. По умолчанию — 127.0.0.1, сетевого доступа НЕТ.
+# Окно программы и single-instance guard ходят через loopback в обоих режимах.
+HOST = "0.0.0.0" if os.environ.get("DENTART_LAN", "").strip() == "1" else "127.0.0.1"
 URL = f"http://127.0.0.1:{PORT}/admin"
 
 
@@ -146,7 +150,7 @@ def _run_server() -> None:
 
     from app.main import app  # noqa: E402 — env уже настроен
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=PORT,
+    config = uvicorn.Config(app, host=HOST, port=PORT,
                             log_level="warning", log_config=None)
     uvicorn.Server(config).run()
 
