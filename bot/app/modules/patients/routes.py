@@ -40,6 +40,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from . import acord as pacord
 from . import export as pexport
+from . import fisa043 as pfisa
 from . import visit as pvisit
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, _age, _ic,
@@ -520,6 +521,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                  # выдача копии данных — событие, о котором спросят на проверке;
                  # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
                  "export": "📦", "acord": "📋", "consult": "🩺",
+                 "fisa043": "🖨",
                  "view": "👁", "doc_view": "👁", "erase": "🧹"}
     act_rows = []
     for a in acts:
@@ -797,6 +799,7 @@ soldul fișei.</p></div>"""
   <a href='#plan'>🦷 Plan de tratament</a>
   <a href='#docs'>📷 Încarcă document</a>
   <button type='button' onclick="openNote()">📝 Notiță</button>
+  <a href='{base}/fisa043'>📄 Fișa 043/e</a>
   <button type='button' onclick="window.print()">🖨 Printează fișa</button>
 </div></div>"""
 
@@ -1511,6 +1514,28 @@ async def visit_save(request: Request, appt_id: int):
         if cur is not None and cur != "finalizat":
             await db.set_plan_status(iid, pid, "finalizat", appt_id)
     return RedirectResponse(dest + "&msg=ok_visit", status_code=303)
+
+
+@router.get("/admin/patient/{pid}/fisa043", response_class=HTMLResponse)
+async def patient_fisa043(request: Request, pid: int):
+    """Печатная «Fișa medicală a bolnavului stomatologic» (formular 043/e).
+
+    Генерация листа с меддокументацией — событие обработки, как и acord:
+    пишется в летопись. Дневник — хронологически (recs приходят DESC)."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    alerts = await db.patient_alerts(pid)
+    teeth = await db.teeth_map(pid)
+    plan = await db.plan_items(pid)
+    recs = await db.patient_visit_records(pid)
+    docs = await db.documents(pid)
+    rx = sum(1 for d in docs if d["category"] == "radiografie")
+    await db.log_event(pid, "fisa043", "Fișa 043/e generată pentru tipărire")
+    return pfisa.render(p, alerts, teeth, plan, list(reversed(recs)), rx,
+                        _p_age(p))
 
 
 @router.get("/admin/patient/{pid}/export")

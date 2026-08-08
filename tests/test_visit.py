@@ -222,3 +222,86 @@ def suite_195(res: Result) -> None:
         res.ok("личность стёрта, клиника осталась",
                "Pacient anonimizat" in page and "Gingivită catarală" in page,
                "обезличивание тронуло медзапись или оставило имя")
+
+
+def suite_043(res: Result) -> None:
+    """Печатная «Fișa 043/e»: титул, одонтограмма, план, дневник, следы."""
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
+               aservice="consult", aname="Fisa Print", aphone="022777888",
+               back="/admin/all")
+        pid = _pid(c, "022777888")
+        aid = _aid(c, _d(1))
+        c.post(f"/admin/patient/{pid}/save", name="Fisa Print",
+               phone="022777888", idnp="2001100223344",
+               birth_date="1990-05-05", address="str. Formularului 43")
+        c.post(f"/admin/patient/{pid}/tooth", tooth="26", state="carie",
+               note="carie distală", doctor="d2")
+        c.post(f"/admin/patient/{pid}/alert", kind="allergy",
+               text="Alergie la lidocaină")
+        c.post(f"/admin/patient/{pid}/plan",
+               procedure="Ob<script>alert(1)</script>", tooth="26",
+               price="700")
+        c.post(f"/admin/visit/{aid}", acuze="Durere la 26",
+               diagnostic="Carie profundă 26",
+               tratament="Obturație fotopolimerizabilă")
+        c.post_file(f"/admin/patient/{pid}/doc", "file", "rx.png",
+                    b"\x89PNG\r\n\x1a\n" + b"x" * 64, category="radiografie")
+
+        anon = Client(s.url)
+        res.ok("без входа форма не отдаётся",
+               anon.get(f"/admin/patient/{pid}/fisa043").status == 303,
+               "медформа ушла без входа")
+
+        r = c.get(f"/admin/patient/{pid}/fisa043")
+        res.check("форма отдаётся", r.status, 200)
+        page = r.body
+        res.ok("это 043/e с шапкой приказа",
+               "FIȘA MEDICALĂ A BOLNAVULUI STOMATOLOGIC" in page
+               and "043/e" in page and "828 din 31.10.2011" in page,
+               "нет заголовка формуляра")
+        res.ok("паспортная часть заполнена",
+               "Fisa Print" in page and "2001100223344" in page
+               and "05.05.1990" in page, "титул без данных фиши")
+        res.ok("одонтограмма: решётка и буква статуса",
+               ">18</td>" in page and ">48</td>" in page
+               and ">C</td>" in page, "решётки или кода C нет")
+        res.ok("легенда напечатана на листе",
+               "Cor — coroană" in page and "neexaminat" in page,
+               "легенды нет — коды нечитаемы")
+        res.ok("заметка зуба в списке", "carie distală" in page,
+               "note зуба не печатаются")
+        res.ok("аллергия в анамнезе", "Alergie la lidocaină" in page,
+               "аллергии нет на титуле")
+        res.ok("диагноз дневника поднят на титул",
+               page.count("Carie profundă 26") >= 2,
+               "титульный «Diagnostic» пуст при заполненном дневнике")
+        # ⚠️ время в базе UTC: дневник обязан печатать час клиники
+        want = _d(1).split("-")
+        want = f"{want[2]}.{want[1]}.{want[0]} 09:00"
+        res.ok("час дневника — местный, не UTC", want in page,
+               f"нет строки {want!r}")
+        res.ok("подпись — имя врача и место под роспись",
+               "Medicul (semnătura)" in page, "нет колонки подписи")
+        res.ok("пустые строки под ручку", page.count("class='empty'") == 3,
+               "лист не продолжается ручкой")
+        res.ok("рентген-счётчик упомянут", "radiografii atașate" in page,
+               "нет отметки о снимках в программе")
+        res.ok("жёлтые пропуски для рукописного", "class='fill'" in page
+               and "Bolile suportate" in page, "нет дозаполняемых полей")
+        res.ok("XSS в процедуре плана экранирован",
+               "<script>alert" not in page, "сырой скрипт в печатной форме")
+
+        res.ok("генерация оставила след в летописи",
+               "Fișa 043/e generată" in c.get(f"/admin/patient/{pid}").body,
+               "летопись молчит про выдачу формы")
+
+        # пустая фиша: форма печатается и без единой записи
+        c.post("/admin/patients/new", name="Gol Fisa", phone="")
+        pid2 = c.get("/admin/search?q=Gol+Fisa").body.split(
+            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        r = c.get(f"/admin/patient/{pid2}/fisa043")
+        res.ok("пустая фиша тоже печатается",
+               r.status == 200 and "class='empty'" in r.body,
+               f"код {r.status} на фише без данных")
