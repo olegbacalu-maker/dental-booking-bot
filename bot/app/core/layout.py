@@ -328,7 +328,7 @@ def _topbar(bell: int | None) -> str:
   <div style="flex:1"></div>
   <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
   {bell_html}
-  <a class="newbtn" href="/admin/all?date={today}#addform"><span class="plus">+</span>Programare nouă</a>
+  <a class="newbtn" href="/admin/all?date={today}#addform"><span class="plus">+</span><span class="nb-t">Programare nouă</span></a>
   {_who_chip()}
 </div>"""
 
@@ -372,6 +372,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
     reload_attr = ' data-reload="12"' if active in LIVE_RELOAD else ""
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#F6FBF8">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title>
 <link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
@@ -425,15 +426,17 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — acces</title><style>
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#F6FBF8;display:flex;
-      align-items:center;justify-content:center;height:100vh;margin:0;color:#162033}
+      align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
+      padding:16px;box-sizing:border-box}
  form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
       /* двухслойная, как --sh3 в panel.css: экран входа — первое, что видит
          клиника, а своей таблицы стилей у него нет (он обязан открываться,
          даже если статика не отдалась) */
       box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
-      display:flex;flex-direction:column;gap:12px;width:340px}
+      display:flex;flex-direction:column;gap:12px;width:min(340px,100%)}
  h1{font-size:19px;color:#162033;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
- input{height:44px;padding:0 14px;border:1px solid #E7EDF5;border-radius:12px;font-size:15px;
+ /* 16px — не «дизайн», а защита: поле мельче 16px iOS зумит при фокусе */
+ input{height:44px;padding:0 14px;border:1px solid #E7EDF5;border-radius:12px;font-size:16px;
        outline:none;color:#162033}
  input:focus{border-color:#0E9F8A;box-shadow:0 0 0 3px rgba(14,159,138,.12)}
  button{background:#0E9F8A;color:#fff;border:none;border-radius:12px;height:44px;
@@ -458,7 +461,7 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
       align-items:center;justify-content:center;height:100vh;margin:0}
  form{background:#fff;padding:30px 32px;border-radius:18px;
       box-shadow:0 4px 8px rgba(15,23,42,.12),0 22px 50px rgba(15,23,42,.26);
-      display:flex;flex-direction:column;gap:12px;width:340px}
+      display:flex;flex-direction:column;gap:12px;width:min(340px,100%)}
  h1{font-size:19px;color:#162033;margin:0;font-weight:600;letter-spacing:-.02em}
  p{color:#7E8B9C;font-size:13px;margin:0;line-height:1.5}
  input{padding:12px;border:1px solid #E7EDF5;border-radius:12px;font-size:26px;

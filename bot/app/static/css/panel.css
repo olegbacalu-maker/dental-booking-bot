@@ -1082,6 +1082,60 @@
    .side nav a{justify-content:center;margin:2px 8px;padding:9px 0}
    .week{flex-wrap:wrap}.wcol{flex:1 1 45%}
  }
+ /* ---------- телефон (≤640px): PWA, слой 1 (08-07) ----------
+    Врач открывает журнал с телефона (сетевой доступ — слои 2-3). Каркас:
+    сайдбар уезжает вниз ТАБ-БАРОМ (подписи уже спрятаны правилами ≤1000px),
+    топбар сжимается, контент на всю ширину, сетка дня плотнее. Настольное
+    окно программы (min-width 960) в этот брейкпоинт не попадает НИКОГДА —
+    на ПК клиники эти правила мертвы. Блок стоит ПЕРЕД стеклом: тому положено
+    быть последним (перекрашивает фоны), здесь — только геометрия. */
+ @media (max-width:640px){
+   /* сайдбар → нижний таб-бар */
+   .side{position:fixed;left:0;right:0;bottom:0;top:auto;width:100%;
+     height:calc(56px + env(safe-area-inset-bottom));flex:none;
+     flex-direction:row;border-right:none;border-top:1px solid var(--line);
+     padding-bottom:env(safe-area-inset-bottom);z-index:40;overflow:visible}
+   .side nav{display:flex;width:100%;align-items:center}
+   .side nav a{flex:1 1 0;min-width:0;justify-content:center;margin:6px 3px;height:44px}
+   /* топбар: поиск на всю ширину, кнопка — только «+», лента апдейта скрыта */
+   .top{height:56px;flex:0 0 56px;padding:0 10px;gap:8px}
+   .top .kbd{display:none}
+   .top>span{display:none}
+   .top form.searchf{width:auto;flex:1;min-width:0;padding:0 6px 0 10px}
+   .top .newbtn{padding:0 13px}
+   .top .newbtn .nb-t{display:none}
+   .who{gap:0;padding:2px;margin-left:0}
+   /* контент во всю ширину; нижний отступ — чтобы не нырять под таб-бар */
+   .content{padding:14px 12px calc(84px + env(safe-area-inset-bottom))}
+   h1{font-size:21px}
+   h2{font-size:16px;margin:18px 0 10px}
+   .sub{font-size:12px}
+   .brandcorner{display:none}
+   .nav{gap:6px}
+   .nav a{height:40px;padding:0 12px;font-size:13px}
+   /* сетка дня: узкая колонка времени, подписи мельче */
+   .gridbody{--cell:52px}
+   .gcol-time,.gridhead .gh-time{width:42px;flex:0 0 42px}
+   .gcol-time div{font-size:10px;padding:3px 5px 0}
+   .gappt{padding:4px 6px;border-radius:8px}
+   .gappt b{font-size:11.5px}
+   .gappt small{font-size:10.5px}
+   /* неделя и KPI — в одну/две колонки */
+   .wcol{flex:1 1 100%}
+   .kpi5{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+   .kpi{padding:12px;gap:10px}
+   .kpi .ki{width:34px;height:34px;flex:0 0 34px;font-size:15px}
+   .kpi b{font-size:18px}
+   /* широкая таблица скроллится ВНУТРИ себя, не распирая страницу: контент
+      шире экрана растягивает layout viewport (было 584px на дне врача), а за
+      ним «едут» fixed таб-бар и вся геометрия — скролл обязан быть локальным */
+   table.list,table.set{display:block;overflow-x:auto}
+   /* модалки на всю ширину; поля 16px — iOS не зумит на фокусе */
+   dialog{width:calc(100vw - 20px)}
+   dialog.wide{width:calc(100vw - 20px)}
+   .dlg-form input,.dlg-form select,.dlg-form textarea,
+   .top form.searchf input{font-size:16px}
+ }
  /* ---------- стекло (этап 3, 08-06) ----------
     Только НЕПОДВИЖНОЕ, под которым контент реально ПРОЕЗЖАЕТ: липкая шапка,
     уголок бренда, затемнение модалки, вуаль панели предпросмотра. ⛔ Не дневная
