@@ -39,6 +39,7 @@ from ... import db
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from . import acord as pacord
+from . import anamneza as panam
 from . import export as pexport
 from . import fisa043 as pfisa
 from . import visit as pvisit
@@ -82,8 +83,30 @@ _FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 _FDI_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
 
 
+# молочный прикус: те же квадранты, что и постоянный, но по пять зубов
+_FDI_MILK_UPPER = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65]
+
+
+_FDI_MILK_LOWER = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
+
+
+_FDI_ALL = _FDI_UPPER + _FDI_LOWER + _FDI_MILK_UPPER + _FDI_MILK_LOWER
+
+
+# поверхности зуба: буква → румынское название. Порядок как в записи «MOD»,
+# принятой в карте: медиальная, окклюзионная, дистальная, потом щёчная и нёбная
+TOOTH_SURFACES = {"M": "mezial", "O": "ocluzal", "D": "distal",
+                  "V": "vestibular", "L": "lingual"}
+
+
 _ALERT_KINDS = {"allergy": "⚠️ Alergie", "medication": "💊 Medicație",
                 "warning": "⏰ Atenție", "info": "ℹ️ Info"}
+
+
+# справочник вопросов — в modules/patients/anamneza.py (его читают ещё печать
+# и выгрузка; см. докстринг там про то, почему он не здесь)
+ANAMNEZA_FLAGS = panam.FLAGS["ro"]
+ANAMNEZA_TEXTS = panam.TEXTS
 
 
 DOC_CATEGORIES = {"radiografie": "🩻 Radiografie", "acord": "📝 Acord / contract",
@@ -144,6 +167,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     docs = await db.documents(pid)
     visits = await db.patient_appointments(pid, 1000)
     recs = await db.visit_records_map(pid)
+    anam = await db.anamneza(pid)
     # ?views=1 — журнал доступа НА ЭКРАНЕ: лента дополняется просмотрами
     # (view/doc_view). По умолчанию их нет — рецепция открывает фишу десятки
     # раз в день; но по клику журнал обязан показываться, иначе «программа
@@ -220,9 +244,61 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <input name='insurance' value="{e(p.get('insurance') or '')}" placeholder='Asigurare (ex. CNAM activă)'>
   <div class='r2'><select name='primary_doctor'><option value=''>Medic curant —</option>{doc_opts}</select>
   <input name='file_no' value="{e(p.get('file_no') or '')}" placeholder='Nr. dosar'></div>
+  <select name='lang' title='Limba documentelor tipărite'>
+    <option value='ro'{" selected" if (p.get('lang') or 'ro') != 'ru' else ''}>Documente în română</option>
+    <option value='ru'{" selected" if p.get('lang') == 'ru' else ''}>Документы по-русски</option>
+  </select>
   <textarea name='notes' rows='2' placeholder='Notițe interne'>{e(p.get('notes') or '')}</textarea>
   <button>💾 Salvează profilul</button>
 </form>"""
+
+    # -- анамнез: опросник, раскрывается по клику (заполняется один раз) --
+    an_flags = set((anam.get("flags") or "").split(",")) if anam else set()
+    an_boxes = "".join(
+        f"<label><input type='checkbox' name='fl' value='{k}'"
+        f"{' checked' if k in an_flags else ''}> {e(v)}</label>"
+        for k, v in ANAMNEZA_FLAGS.items())
+    an_texts = "".join(
+        f"<label class='dlab'>{e(lab)}"
+        f"<textarea name='{k}' rows='2' maxlength='500' placeholder='{e(ph)}'>"
+        f"{e((anam.get(k) if anam else '') or '')}</textarea></label>"
+        for k, lab, ph in ANAMNEZA_TEXTS)
+    an_marked = [v for k, v in ANAMNEZA_FLAGS.items() if k in an_flags]
+    # ⚠️ свободный текст — ТОЖЕ риск, и чаще всего именно там аллергия и
+    # реакция на анестезию. Считать риски по одним галочкам значит показать
+    # «fără riscuri» над записанной пенициллиновой аллергией
+    an_free = [(lab, (anam.get(k) or "").strip())
+               for k, lab, _ph in ANAMNEZA_TEXTS
+               if anam and (anam.get(k) or "").strip()]
+    if anam:
+        an_when = (anam.get("updated_at") or anam.get("created_at"))
+        an_sum = (f"<small class='hint' style='margin:0'>Completat: "
+                  f"{an_when.astimezone(eng.TZ).strftime('%d.%m.%Y')} · "
+                  f"{e(anam.get('author') or '—')}</small>")
+        n_risk = len(an_marked) + len(an_free)
+        an_head = (f"<span class='pill orange'>{n_risk} de reținut</span>"
+                   if n_risk else "<span class='pill green'>fără riscuri</span>")
+    else:
+        an_sum = ("<small class='hint' style='margin:0'>Nu a fost completată — "
+                  "întrebați pacientul înainte de tratament</small>")
+        an_head = "<span class='pill red'>necompletată</span>"
+    # свёрнутая секция обязана показывать САМО содержимое: врач смотрит на неё
+    # перед анестезией и раскрывать «Chestionar» не будет
+    an_chips = ([f"<span>⚠️ {e(x)}</span>" for x in an_marked]
+                + [f"<span>📝 {e(lab)}: {e(val[:70])}</span>"
+                   for lab, val in an_free])
+    an_list = (f"<div class='anlist'>{''.join(an_chips)}</div>"
+               if an_chips else "")
+    anam_card = f"""<div class='fcard' id='anamneza'>
+<h3>Anamneză {an_head}</h3>{an_list}{an_sum}
+<details class='anform'{' open' if not anam else ''}>
+  <summary>✏️ Chestionar</summary>
+  <form class='fform' method='post' action='{base}/anamneza'>
+    <div class='anbox'>{an_boxes}</div>
+    {an_texts}
+    <button>💾 Salvează anamneza</button>
+  </form>
+</details></div>"""
 
     alerts_html = "".join(
         f"<div class='alert {e(a['kind'])}'>{_ALERT_KINDS.get(a['kind'], 'ℹ️')} {e(a['text'])}"
@@ -237,13 +313,18 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <button>+ Adaugă</button></form></div>"""
 
     # -- центр: формула FDI + план --
-    def tooth_div(n: int, lower: bool = False) -> str:
+    def tooth_div(n: int, lower: bool = False, milk: bool = False) -> str:
         t = tmap.get(n)
         st = t["state"] if t else "ok"
         note = t["note"] if t else ""
-        title = f"{n} · {TOOTH_STATES.get(st, st)}" + (f" · {note}" if note else "")
+        sf = (t["surfaces"] if t else "") or ""
+        # поверхности дописываются ПОСЛЕ заметки: подпись «11 · Carie · test»
+        # читают и человек, и проверка, и её формат менять незачем
+        title = (f"{n} · {TOOTH_STATES.get(st, st)}"
+                 + (f" · {note}" if note else "")
+                 + (f" · {sf}" if sf else ""))
         num = f"<span class='num'>{n}</span>"
-        svg = tsvg.tooth_svg(n, st, width=38, interactive=True)
+        svg = tsvg.tooth_svg(n, st, width=28 if milk else 38, interactive=True)
         # номер всегда со стороны КОРНЕЙ: у верхней дуги сверху, у нижней снизу —
         # так цифры не лезут в межчелюстной зазор и читаются как в макете
         return (f"<button type='button' class='tooth-btn' title=\"{e(title)}\" "
@@ -253,6 +334,11 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 
     upper = "".join(tooth_div(n) for n in _FDI_UPPER)
     lower = "".join(tooth_div(n, lower=True) for n in _FDI_LOWER)
+    milk_up = "".join(tooth_div(n, milk=True) for n in _FDI_MILK_UPPER)
+    milk_lo = "".join(tooth_div(n, lower=True, milk=True) for n in _FDI_MILK_LOWER)
+    # молочный прикус раскрывается сам, если по нему уже есть записи: детская
+    # фиша не должна требовать лишнего клика, взрослая — видеть лишний ряд
+    milk_open = any(n in tmap for n in _FDI_MILK_UPPER + _FDI_MILK_LOWER)
     # легенда показывает НАСТОЯЩИЙ зуб в каждом состоянии, а не цветной квадрат:
     # так видно, чем «коронка» отличается от «пломбы», без словаря
     legend = "".join(
@@ -262,9 +348,9 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     def _tinfo(n: int) -> dict:
         t = tmap.get(n)
         if not t:
-            return {"state": "ok", "note": "", "doctor": "", "at": ""}
+            return {"state": "ok", "note": "", "doctor": "", "at": "", "sf": ""}
         return {"state": t["state"], "note": t["note"] or "",
-                "doctor": t["doctor"] or "",
+                "doctor": t["doctor"] or "", "sf": t["surfaces"] or "",
                 "at": t["updated_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
                       if t["updated_at"] else ""}
 
@@ -273,11 +359,16 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
         hist_by_tooth.setdefault(str(a["tooth"]), []).append(
             {"at": at.strftime("%d.%m.%Y") if at else "", "text": a["text"]})
-    teeth_json = json.dumps({str(n): _tinfo(n) for n in _FDI_UPPER + _FDI_LOWER},
-                            ensure_ascii=False).replace("</", "<\\/")
+    teeth_json = json.dumps(
+        {str(n): _tinfo(n) for n in
+         _FDI_UPPER + _FDI_LOWER + _FDI_MILK_UPPER + _FDI_MILK_LOWER},
+        ensure_ascii=False).replace("</", "<\\/")
     thist_json = json.dumps(hist_by_tooth, ensure_ascii=False).replace("</", "<\\/")
     state_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in TOOTH_STATES.items())
     state_ro_json = json.dumps(TOOTH_STATES, ensure_ascii=False)
+    sf_boxes = "".join(
+        f"<label><input type='checkbox' name='sf' value='{k}'>{k} <small>{v}</small></label>"
+        for k, v in TOOTH_SURFACES.items())
     teeth_card = f"""<div class='fcard'>
 <h3>Formula dentară <small>· notație FDI · click pe dinte</small></h3>
 <div class='arch-wrap'>
@@ -285,6 +376,14 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <div class='arch-mid'></div>
   <div class='arch lower'>{lower}</div>
 </div>
+<details class='milk'{' open' if milk_open else ''}>
+  <summary>🍼 Dentiție temporară (dinți de lapte)</summary>
+  <div class='arch-wrap'>
+    <div class='arch milk-arch'>{milk_up}</div>
+    <div class='arch-mid'></div>
+    <div class='arch lower milk-arch'>{milk_lo}</div>
+  </div>
+</details>
 <div class='tleg'>{legend}</div></div>
 <div id='toothtip' class='toothtip'><b class='tt-n'></b><div class='tt-s'></div>
   <div class='tt-d'></div></div>
@@ -295,6 +394,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     <input type='hidden' name='tooth' id='t_num'>
     <select name='state' id='t_state'>{state_opts}</select>
     <select name='doctor' id='t_doc'><option value=''>Medic —</option>{doc_opts}</select>
+    <div class='sfrow' id='t_sf'>{sf_boxes}</div>
     <input name='note' id='t_note' placeholder='Notiță (opțional)' maxlength='120'>
     <button>💾 Salvează</button>
   </form>
@@ -304,6 +404,17 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 const TEETH = {teeth_json};
 const STATE_RO = {state_ro_json};
 const THIST = {thist_json};
+// ⚠️ заметку зуба и строку истории пишет ЧЕЛОВЕК, а ниже они уезжают в
+// innerHTML. Экранирование в JSON (замена "</") спасает только сам тег
+// <script>, но не HTML-парсер innerHTML: "<img src=x onerror=…>" выполнялся
+// бы при наведении на зуб. textContent тут не подходит — в разметке рядом
+// есть свои теги, поэтому экранируем значения
+function tesc(s) {{
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {{
+    return {{'&': '&amp;', '<': '&lt;', '>': '&gt;',
+             '\"': '&quot;', \"'\": '&#39;'}}[c];
+  }});
+}}
 function openTooth(n) {{
   const t = TEETH[String(n)] || {{state: 'ok', note: '', doctor: ''}};
   document.getElementById('t_title').textContent = 'Dinte ' + n;
@@ -311,10 +422,15 @@ function openTooth(n) {{
   document.getElementById('t_state').value = t.state;
   document.getElementById('t_doc').value = t.doctor || '';
   document.getElementById('t_note').value = t.note;
+  const sf = (t.sf || '');
+  document.querySelectorAll('#t_sf input').forEach(function (b) {{
+    b.checked = sf.indexOf(b.value) >= 0;
+  }});
   const h = THIST[String(n)] || [];
   document.getElementById('t_hist').innerHTML = h.length
     ? '<div class="th-t">Istoria dintelui</div>' + h.map(function (x) {{
-        return '<div class="th-r"><span>' + x.at + '</span>' + x.text + '</div>';
+        return '<div class="th-r"><span>' + tesc(x.at) + '</span>'
+               + tesc(x.text) + '</div>';
       }}).join('')
     : '';
   document.getElementById('toothdlg').showModal();
@@ -327,9 +443,10 @@ function toothTip(ev, n) {{
   TIP.querySelector('.tt-n').textContent = 'Dinte ' + n;
   TIP.querySelector('.tt-s').textContent = STATE_RO[t.state] || t.state;
   TIP.querySelector('.tt-d').innerHTML =
-    (t.at ? '<div>Actualizat: <b>' + t.at + '</b></div>' : '') +
-    (t.doctor ? '<div>Medic: <b>' + t.doctor + '</b></div>' : '') +
-    (t.note ? '<div class="tt-note">' + t.note + '</div>' : '');
+    (t.at ? '<div>Actualizat: <b>' + tesc(t.at) + '</b></div>' : '') +
+    (t.doctor ? '<div>Medic: <b>' + tesc(t.doctor) + '</b></div>' : '') +
+    (t.sf ? '<div>Suprafețe: <b>' + tesc(t.sf) + '</b></div>' : '') +
+    (t.note ? '<div class="tt-note">' + tesc(t.note) + '</div>' : '');
   const r = ev.currentTarget.getBoundingClientRect();
   TIP.style.display = 'block';
   const w = TIP.offsetWidth;
@@ -411,8 +528,15 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
             f"onsubmit=\"return confirm('Ștergeți poziția din plan?')\">"
             f"<button class='pdel' title='Șterge'>✕</button></form></span></div>")
     plan_html = "".join(plan_rows) or "<p class='hint' style='margin:6px 0'>— plan gol —</p>"
-    tooth_opts = "<option value=''>—</option>" + "".join(
-        f"<option value='{n}'>{n}</option>" for n in _FDI_UPPER + _FDI_LOWER)
+    # молочные — отдельной группой, иначе список из 52 номеров нечитаем
+    tooth_opts = (
+        "<option value=''>—</option>"
+        + "".join(f"<option value='{n}'>{n}</option>"
+                  for n in _FDI_UPPER + _FDI_LOWER)
+        + "<optgroup label='Dinți de lapte'>"
+        + "".join(f"<option value='{n}'>{n}</option>"
+                  for n in _FDI_MILK_UPPER + _FDI_MILK_LOWER)
+        + "</optgroup>")
     on_act = " class='on'" if default_tab == "act" else ""
     on_fin = " class='on'" if default_tab == "finalizat" else ""
     tabs = ("<div class='tabs'>"
@@ -521,7 +645,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                  # выдача копии данных — событие, о котором спросят на проверке;
                  # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
                  "export": "📦", "acord": "📋", "consult": "🩺",
-                 "fisa043": "🖨",
+                 "fisa043": "🖨", "anamneza": "📝",
                  "view": "👁", "doc_view": "👁", "erase": "🧹"}
     act_rows = []
     for a in acts:
@@ -853,7 +977,7 @@ soldul fișei.</p></div>"""
 {kpi_html}
 <div class='pv2'>
   <div class='pv2-main'>{teeth_card}{plan_card}{fin_card}{docs_card}{quick}</div>
-  <div class='pv2-side'>{next_html}{act_card}{profile_card}{alerts_card}{hist_card}</div>
+  <div class='pv2-side'>{next_html}{act_card}{profile_card}{alerts_card}{anam_card}{hist_card}</div>
 </div>
 {dialogs}
 <script>
@@ -1045,6 +1169,9 @@ async def patient_save(request: Request, pid: int):
     if bd_year:
         # возраст в поиске/сетке/CSV считается по birth_year — держим в синке
         await db.set_birth_year(pid, bd_year)
+    # язык печатных документов — мимо PATIENT_FIELDS: колонка NOT NULL, а там
+    # пустое поле превращается в NULL
+    await db.set_patient_lang(pid, str(form.get("lang") or ""))
     return _card_redirect(pid, "ok_card")
 
 
@@ -1131,6 +1258,30 @@ async def patient_alert_add(request: Request, pid: int,
     return _card_redirect(pid, "ok_card")
 
 
+@router.post("/admin/patient/{pid}/anamneza")
+async def patient_anamneza(request: Request, pid: int):
+    """Опросник анамнеза. Пустой не сохраняем: «фиша с пустым анамнезом» и
+    «анамнез не собирали» — разные вещи, и вторая обязана быть видна."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    form = await request.form()
+    flags = ",".join(k for k in ANAMNEZA_FLAGS
+                     if k in {str(x) for x in form.getlist("fl")})
+    fields = {k: str(form.get(k) or "") for k, *_ in ANAMNEZA_TEXTS}
+    if not flags and not any(v.strip() for v in fields.values()):
+        # пустая форма на ПУСТОМ опроснике — промах, а не ответ: «фиша с
+        # пустым анамнезом» и «анамнез не собирали» это разные вещи.
+        # Но если опросник УЖЕ есть, пустое сохранение — законное снятие
+        # ошибочной отметки (поставили «HIV» не тому), и запретить его
+        # значит оставить неверную запись в первичной документации
+        if not (await db.anamneza(pid)):
+            return _card_redirect(pid, "bad_anam")
+    await db.save_anamneza(pid, flags, fields)
+    return _card_redirect(pid, "ok_anam")
+
+
 @router.post("/admin/patient/{pid}/alert/{aid}/del")
 async def patient_alert_del(request: Request, pid: int, aid: int):
     if (deny := _guard(request)) is not None:
@@ -1147,12 +1298,17 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    if tooth not in _FDI_UPPER + _FDI_LOWER or state not in TOOTH_STATES:
+    if tooth not in _FDI_ALL or state not in TOOTH_STATES:
         return _card_redirect(pid, "bad_card")
     # врача принимаем только из справочника: свободный текст тут — будущий
     # «Иванов»/«Иванова» в истории зуба
     doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
-    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc)
+    # поверхности — только известные буквы и в каноническом порядке MODVL:
+    # «OM» и «MO» это одно и то же, а в карте и на печати должно читаться одинаково
+    form = await request.form()
+    sf = "".join(k for k in TOOTH_SURFACES
+                 if k in {str(x).strip().upper() for x in form.getlist("sf")})
+    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc, sf)
     return _card_redirect(pid, "ok_card")
 
 
@@ -1167,7 +1323,7 @@ async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
     if not procedure.strip():
         return _card_redirect(pid, "bad_card")
     t = int(tooth) if tooth.strip().isdecimal() else None
-    if t is not None and t not in _FDI_UPPER + _FDI_LOWER:
+    if t is not None and t not in _FDI_ALL:
         t = None
     pr = int(price) if price.strip().isdecimal() else None
     if pr is not None:
@@ -1444,8 +1600,17 @@ async def patient_erase(request: Request, pid: int, confirm: str = Form("")):
     return _card_redirect(pid, "ok_anon")
 
 
+def _doc_lang(p: dict, lang: str) -> str:
+    """Язык печатного листа: явный выбор в адресе, иначе язык пациента.
+    Русский заполнен осмысленно только у пришедших из бота — остальным его
+    ставит рецепция в профиле; дефолт остаётся румынским."""
+    if lang in pacord.LANGS:
+        return lang
+    return (p.get("lang") or "ro") if (p.get("lang") in pacord.LANGS) else "ro"
+
+
 @router.get("/admin/patient/{pid}/acord", response_class=HTMLResponse)
-async def patient_acord(request: Request, pid: int):
+async def patient_acord(request: Request, pid: int, lang: str = ""):
     """Печатный «Informare și acord» с данными этого пациента (закон 195).
 
     Генерация формы пишется в летопись: выдача листа с персональными данными —
@@ -1460,7 +1625,7 @@ async def patient_acord(request: Request, pid: int):
         return RedirectResponse("/admin/search", status_code=303)
     await db.log_event(pid, "acord",
                        "Formular «Informare și acord» generat pentru tipărire")
-    return pacord.render(p)
+    return pacord.render(p, _doc_lang(p, lang))
 
 
 # ---------- дневник визита (consultația) ----------
@@ -1517,7 +1682,7 @@ async def visit_save(request: Request, appt_id: int):
 
 
 @router.get("/admin/patient/{pid}/fisa043", response_class=HTMLResponse)
-async def patient_fisa043(request: Request, pid: int):
+async def patient_fisa043(request: Request, pid: int, lang: str = ""):
     """Печатная «Fișa medicală a bolnavului stomatologic» (formular 043/e).
 
     Генерация листа с меддокументацией — событие обработки, как и acord:
@@ -1533,9 +1698,13 @@ async def patient_fisa043(request: Request, pid: int):
     recs = await db.patient_visit_records(pid)
     docs = await db.documents(pid)
     rx = sum(1 for d in docs if d["category"] == "radiografie")
+    anam = await db.anamneza(pid)
     await db.log_event(pid, "fisa043", "Fișa 043/e generată pentru tipărire")
+    doc_lang = _doc_lang(p, lang)
+    # подписи отметок — на языке ЛИСТА: иначе русский бланк печатал бы
+    # «Diabet zaharat» в русской же строке «Перенесённые заболевания»
     return pfisa.render(p, alerts, teeth, plan, list(reversed(recs)), rx,
-                        _p_age(p))
+                        _p_age(p), anam, panam.labels(doc_lang), doc_lang)
 
 
 @router.get("/admin/patient/{pid}/export")

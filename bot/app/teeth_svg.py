@@ -60,8 +60,27 @@ _INCISOR_L = {12, 22, 32, 42}
 _CANINE = {13, 23, 33, 43}
 _PREMOLAR = {14, 15, 24, 25, 34, 35, 44, 45}
 
+# Молочный прикус — квадранты 5-8 (55-51, 61-65, 85-81, 71-75), по 5 зубов.
+# ⚠️ Позиции 4 и 5 у молочных — МОЛЯРЫ, а не премоляры: премоляров в молочном
+# прикусе не существует, и «отобразить 54 на 14» дало бы неверную морфологию
+# ровно там, где её видно (два бугра вместо трёх).
+_MILK_QUADRANTS = (5, 6, 7, 8)
+
+
+def is_milk(fdi: int) -> bool:
+    return fdi // 10 in _MILK_QUADRANTS
+
 
 def tooth_class(fdi: int) -> str:
+    if is_milk(fdi):
+        pos = fdi % 10
+        if pos == 1:
+            return "incisor_c"
+        if pos == 2:
+            return "incisor_l"
+        if pos == 3:
+            return "canine"
+        return "molar"          # 4 и 5 — молочные моляры
     if fdi in _INCISOR_C:
         return "incisor_c"
     if fdi in _INCISOR_L:
@@ -74,7 +93,9 @@ def tooth_class(fdi: int) -> str:
 
 
 def is_upper(fdi: int) -> bool:
-    return fdi // 10 in (1, 2)
+    """Верхняя дуга: постоянные 1-2 и молочные 5-6. Без молочных квадрантов
+    верхний молочный ряд рисовался бы корнями вверх."""
+    return fdi // 10 in (1, 2, 5, 6)
 
 
 def root_count(fdi: int) -> int:
@@ -133,6 +154,9 @@ def _width_k(fdi: int) -> float:
     мельче первого. Одна геометрия, разные пропорции."""
     cls = tooth_class(fdi)
     pos = fdi % 10
+    if is_milk(fdi):
+        # молочные мельче постоянных; первый молочный моляр уже второго
+        return {1: 0.72, 2: 0.66, 3: 0.72, 4: 0.86, 5: 0.92}.get(pos, 0.8)
     if cls == "incisor_l":
         return 0.82
     if cls == "premolar":
@@ -317,8 +341,14 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
                 body.append(f"<path d='{c}' fill='none' stroke='{col}' stroke-width='2' "
                             f"stroke-linecap='round' opacity='.9'/>")
         elif state == "extras":
-            body.append(f"<path d='M 12,30 L 32,66 M 32,30 L 12,66' stroke='{col}' "
-                        f"stroke-width='3' stroke-linecap='round'/>")
+            # крест «удалён» — по ширине КОНКРЕТНОГО зуба: у молочного бокового
+            # резца (k=0.66) фиксированные 12…32 вылезали за коронку.
+            # k считается ЗДЕСЬ: соседние ветки заводят его каждая себе, и
+            # в этой его не было — страница фиши падала на легенде состояний
+            k = _width_k(fdi)
+            body.append(f"<path d='M {_p(_sx(12, k), 30)} L {_p(_sx(32, k), 66)} "
+                        f"M {_p(_sx(32, k), 30)} L {_p(_sx(12, k), 66)}' "
+                        f"stroke='{col}' stroke-width='3' stroke-linecap='round'/>")
 
     inner = "".join(body)
     if is_upper(fdi):                       # верхняя дуга смотрит вниз

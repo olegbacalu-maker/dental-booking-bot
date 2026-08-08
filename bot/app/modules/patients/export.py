@@ -26,6 +26,7 @@ from datetime import date, datetime
 
 from ... import db
 from ... import engine as eng
+from . import anamneza as panam
 
 # Пределы выборок сняты намеренно. У карточки они есть и уместны (боковому
 # предпросмотру хватает двадцати визитов), но копия с отрезанным хвостом не
@@ -71,6 +72,7 @@ async def collect(pid: int) -> dict | None:
         "atentionari": await db.patient_alerts(pid),
         "dinti": [teeth[t] for t in sorted(teeth)],
         "plan_tratament": await db.plan_items(pid),
+        "anamneza": await db.anamneza(pid),
         "consultatii": await db.patient_visit_records(pid),
         "plati": await db.payments(pid),
         "documente": await db.documents_with_paths(pid),
@@ -141,8 +143,9 @@ def render_html(data: dict) -> str:
         ["Tip", "Text"],
         [[_esc(a["kind"]), _esc(a["text"])] for a in data["atentionari"]])
     dinti = _table(
-        ["Dinte", "Stare", "Medic", "Notă", "Actualizat"],
-        [[_esc(t["tooth"]), _esc(t["state"]), _esc(t["doctor"]) or "—",
+        ["Dinte", "Stare", "Suprafețe", "Medic", "Notă", "Actualizat"],
+        [[_esc(t["tooth"]), _esc(t["state"]), _esc(t.get("surfaces")) or "—",
+          _esc(t["doctor"]) or "—",
           _esc(t["note"]) or "—", _dt(t["updated_at"])] for t in data["dinti"]])
     plan = _table(
         ["Dinte", "Procedură", "Medic", "Stare", "Preț (MDL)", "Termen"],
@@ -159,6 +162,24 @@ def render_html(data: dict) -> str:
         [[_dt(pl["at"]), _esc(pl["amount_mdl"]), _esc(pl["method"]),
           _esc(pl["note"]) or "—", _esc(pl["taken_by"]) or "—"]
          for pl in data["plati"]])
+
+    an = dict(data.get("anamneza") or {})
+    # ⚠️ копия по 195-му обязана быть В ПОНЯТНОЙ ФОРМЕ: слаги «coagulare,
+    # tiroida» этого не дают. В JSON ключи остаются как есть (машинный формат),
+    # а в читаемой фише разворачиваются в вопросы
+    if an:
+        an["flags"] = ", ".join(panam.marked(an.get("flags") or ""))
+    anamneza = _table(
+        ["Câmp", "Valoare"],
+        [[_esc(lbl), _esc(an.get(key)) or "—"] for key, lbl in (
+            ("flags", "Afecțiuni bifate"),
+            ("boli", "Alte boli"),
+            ("medicamente", "Medicamente"),
+            ("alergii", "Alergii"),
+            ("anestezie", "Reacții la anestezice"),
+        )] + [["Completată", _dt(an.get("updated_at") or an.get("created_at"))],
+              ["Înregistrată de", _esc(an.get("author")) or "—"]]
+    ) if an else "<p class='gol'>— nu există înregistrări —</p>"
 
     # четыре текстовых графы дневника — одной ячейкой: девять колонок
     # в 960px нечитаемы, а пустые графы просто не печатаются
@@ -207,6 +228,7 @@ def render_html(data: dict) -> str:
 <h2>Fișa pacientului</h2>{profil}
 <h2>Programări ({len(data['programari'])})</h2>{programari}
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
+<h2>Anamneză</h2>{anamneza}
 <h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
 <h2>Consultații ({len(data['consultatii'])})</h2>{consultatii}

@@ -15,10 +15,12 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_admin  # noqa: E402
+import test_anamneza  # noqa: E402
 import test_booking  # noqa: E402
 import test_bot  # noqa: E402
 import test_pin  # noqa: E402
 import test_privacy  # noqa: E402
+import test_teeth  # noqa: E402
 import test_visit  # noqa: E402
 from harness import run  # noqa: E402
 
@@ -42,6 +44,12 @@ SUITES = [
     ("Аналитика", test_admin.suite_analytics),
     ("Заморозка бота: интерфейс", test_admin.suite_bot_ui),
     ("Карточка пациента", test_admin.suite_patient_card),
+    ("Анамнез: опросник", test_anamneza.suite),
+    ("Анамнез: закон 195", test_anamneza.suite_195),
+    ("Печать на языке пациента", test_anamneza.suite_lang),
+    ("Находки ревью 08-08", test_anamneza.suite_review),
+    ("Одонтограмма: поверхности", test_teeth.suite_surfaces),
+    ("Одонтограмма: молочный прикус", test_teeth.suite_milk),
     ("Дневник визита", test_visit.suite),
     ("Дневник визита: план и статусы", test_visit.suite_plan),
     ("Дневник визита: закон 195", test_visit.suite_195),

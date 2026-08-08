@@ -113,6 +113,9 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_min INT;
 -- этап 2 фиши пациента: срок позиции плана и врач, поставивший состояние зуба
 ALTER TABLE plan_items ADD COLUMN IF NOT EXISTS due_date TEXT;
 ALTER TABLE teeth ADD COLUMN IF NOT EXISTS doctor TEXT NOT NULL DEFAULT '';
+-- поверхности зуба (M/O/D/V/L) одной строкой: у состояния зуба их может быть
+-- несколько сразу («MOD»), но состояние остаётся ОДНО на зуб
+ALTER TABLE teeth ADD COLUMN IF NOT EXISTS surfaces TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS activity(
   id SERIAL PRIMARY KEY,
   patient_id INT REFERENCES patients(id),
@@ -154,6 +157,20 @@ CREATE TABLE IF NOT EXISTS visit_records(
 CREATE INDEX IF NOT EXISTS ix_visit_patient ON visit_records(patient_id);
 -- на каком приёме позиция плана была выполнена (NULL = финал без визита/не финал)
 ALTER TABLE plan_items ADD COLUMN IF NOT EXISTS appointment_id INT;
+-- Анамнез: опросник «до кресла», один на пациента. Заполняет раздел 2 формы
+-- 043/e. flags — отмеченные состояния одной строкой ('diabet,hepatita'),
+-- чтобы добавление вопроса не требовало миграции у клиники.
+CREATE TABLE IF NOT EXISTS anamneza(
+  patient_id INT PRIMARY KEY REFERENCES patients(id),
+  flags TEXT NOT NULL DEFAULT '',
+  boli TEXT NOT NULL DEFAULT '',
+  medicamente TEXT NOT NULL DEFAULT '',
+  alergii TEXT NOT NULL DEFAULT '',
+  anestezie TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ
+);
 """
 
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
@@ -281,6 +298,17 @@ CREATE TABLE IF NOT EXISTS visit_records(
   updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_visit_patient ON visit_records(patient_id);
+CREATE TABLE IF NOT EXISTS anamneza(
+  patient_id INTEGER PRIMARY KEY REFERENCES patients(id),
+  flags TEXT NOT NULL DEFAULT '',
+  boli TEXT NOT NULL DEFAULT '',
+  medicamente TEXT NOT NULL DEFAULT '',
+  alergii TEXT NOT NULL DEFAULT '',
+  anestezie TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -302,6 +330,8 @@ SQLITE_EXTRA_COLS = [
     ("teeth", "doctor TEXT NOT NULL DEFAULT ''"),
     # дневник визита: на каком приёме позиция плана была выполнена
     ("plan_items", "appointment_id INTEGER"),
+    # поверхности зуба (M/O/D/V/L), см. PG-схему
+    ("teeth", "surfaces TEXT NOT NULL DEFAULT ''"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -1381,35 +1411,46 @@ async def _backfill_activity() -> None:
 
 async def teeth_map(pid: int) -> dict:
     rows = await _fetch(
-        "SELECT tooth, state, note, doctor, updated_at FROM teeth WHERE patient_id = $1",
-        "SELECT tooth, state, note, doctor, updated_at FROM teeth WHERE patient_id = ?",
+        """SELECT tooth, state, note, doctor, surfaces, updated_at
+           FROM teeth WHERE patient_id = $1""",
+        """SELECT tooth, state, note, doctor, surfaces, updated_at
+           FROM teeth WHERE patient_id = ?""",
         pid)
     return {r["tooth"]: r for r in rows}
 
 
 async def set_tooth(pid: int, tooth: int, state: str, note: str,
-                    doctor: str = "") -> None:
+                    doctor: str = "", surfaces: str = "") -> None:
     """'ok' без заметки и без врача = зуб здоров → строка удаляется (карта sparse).
     doctor — СНАПШОТ имени на момент записи, как в plan_items: переименование
-    врача не должно переписывать историю зуба."""
+    врача не должно переписывать историю зуба.
+    surfaces — буквы поверхностей одной строкой («MOD»); проверяет маршрут."""
     if state == "ok" and not note and not doctor:
         await _execute("DELETE FROM teeth WHERE patient_id = $1 AND tooth = $2",
                        "DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
         await log_event(pid, "tooth", f"Dinte {tooth}: sănătos", tooth=tooth)
         return
-    pg = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, updated_at)
-            VALUES($1, $2, $3, $4, $5, now())
+    pg = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
+                              updated_at)
+            VALUES($1, $2, $3, $4, $5, $6, now())
             ON CONFLICT (patient_id, tooth) DO UPDATE
               SET state = EXCLUDED.state, note = EXCLUDED.note,
-                  doctor = EXCLUDED.doctor, updated_at = now()"""
-    lt = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, updated_at)
-            VALUES(?, ?, ?, ?, ?, ?)
+                  doctor = EXCLUDED.doctor, surfaces = EXCLUDED.surfaces,
+                  updated_at = now()"""
+    lt = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
+                              updated_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(patient_id, tooth) DO UPDATE
               SET state = excluded.state, note = excluded.note,
-                  doctor = excluded.doctor, updated_at = excluded.updated_at"""
-    await _execute(pg, lt, *((pid, tooth, state, note, doctor) if not IS_SQLITE
-                             else (pid, tooth, state, note, doctor, _utcnow_iso())))
+                  doctor = excluded.doctor, surfaces = excluded.surfaces,
+                  updated_at = excluded.updated_at"""
+    await _execute(pg, lt,
+                   *((pid, tooth, state, note, doctor, surfaces) if not IS_SQLITE
+                     else (pid, tooth, state, note, doctor, surfaces,
+                           _utcnow_iso())))
     txt = f"Dinte {tooth}: {state}"
+    if surfaces:
+        txt += f" ({surfaces})"
     if doctor:
         txt += f" · {doctor}"
     if note:
@@ -1584,6 +1625,67 @@ async def save_visit_record(appt_id: int, pid: int, doctor: str,
     return result
 
 
+# ---------- анамнез (опросник пациента) ----------
+# Один на пациента, правится, не удаляется — как дневник визита. Это МЕДДАННЫЕ:
+# держит фишу от физического стирания и переживает обезличивание под номером
+# фиши (см. erasure_kind / anonymize_patient).
+
+ANAMNEZA_FIELDS = ("boli", "medicamente", "alergii", "anestezie")
+
+
+async def set_patient_lang(pid: int, lang: str) -> None:
+    """Язык пациента — отдельным маршрутом, а НЕ через PATIENT_FIELDS:
+    там пустое поле превращается в NULL, а колонка NOT NULL DEFAULT 'ro'."""
+    if lang not in ("ro", "ru"):
+        return
+    await _execute("UPDATE patients SET lang = $2 WHERE id = $1",
+                   "UPDATE patients SET lang = ? WHERE id = ?",
+                   *((pid, lang) if not IS_SQLITE else (lang, pid)))
+
+
+async def anamneza(pid: int) -> dict | None:
+    rows = await _fetch(
+        """SELECT patient_id, flags, boli, medicamente, alergii, anestezie,
+                  author, created_at, updated_at
+           FROM anamneza WHERE patient_id = $1""",
+        """SELECT patient_id, flags, boli, medicamente, alergii, anestezie,
+                  author, created_at, updated_at
+           FROM anamneza WHERE patient_id = ?""", pid)
+    return rows[0] if rows else None
+
+
+async def save_anamneza(pid: int, flags: str, fields: dict) -> str:
+    """Upsert опросника; возвращает 'created' | 'updated'."""
+    vals = tuple((fields.get(k) or "").strip()[:500] for k in ANAMNEZA_FIELDS)
+    actor = _actor_now()
+    existed = await _fetchval(
+        "SELECT 1 FROM anamneza WHERE patient_id = $1",
+        "SELECT 1 FROM anamneza WHERE patient_id = ?", pid)
+    await _execute(
+        """INSERT INTO anamneza(patient_id, flags, boli, medicamente, alergii,
+             anestezie, author)
+           VALUES($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT(patient_id) DO UPDATE SET
+             flags = EXCLUDED.flags, boli = EXCLUDED.boli,
+             medicamente = EXCLUDED.medicamente, alergii = EXCLUDED.alergii,
+             anestezie = EXCLUDED.anestezie, author = EXCLUDED.author,
+             updated_at = now()""",
+        """INSERT INTO anamneza(patient_id, flags, boli, medicamente, alergii,
+             anestezie, author, created_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(patient_id) DO UPDATE SET
+             flags = excluded.flags, boli = excluded.boli,
+             medicamente = excluded.medicamente, alergii = excluded.alergii,
+             anestezie = excluded.anestezie, author = excluded.author,
+             updated_at = ?""",
+        *((pid, flags, *vals, actor) if not IS_SQLITE
+          else (pid, flags, *vals, actor, _utcnow_iso(), _utcnow_iso())),
+    )
+    await log_event(pid, "anamneza",
+                    "Anamneza actualizată" if existed else "Anamneza completată")
+    return "updated" if existed else "created"
+
+
 async def visit_records_map(pid: int) -> dict[int, dict]:
     """appointment_id → запись приёма: фиша красит историю визитов одним
     запросом, а не по одному на строку."""
@@ -1737,6 +1839,10 @@ async def erasure_kind(pid: int) -> str:
     consult = await _n("SELECT COUNT(*) FROM visit_records WHERE patient_id = $1",
                        "SELECT COUNT(*) FROM visit_records WHERE patient_id = ?",
                        pid)
+    # анамнез — медицинская запись: фиша с одним опросником обезличивается,
+    # а не стирается физически
+    anam = await _n("SELECT COUNT(*) FROM anamneza WHERE patient_id = $1",
+                    "SELECT COUNT(*) FROM anamneza WHERE patient_id = ?", pid)
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = $1
@@ -1746,8 +1852,8 @@ async def erasure_kind(pid: int) -> str:
            AND (status IN ('done','arrived')
                 OR (status = 'confirmed' AND starts_at < ?))""",
         *((pid, now) if not IS_SQLITE else (pid, _iso(now))))
-    return ("anon" if (teeth or plan or docs or happened or pays or consult)
-            else "delete")
+    return ("anon" if (teeth or plan or docs or happened or pays or consult
+                       or anam) else "delete")
 
 
 async def delete_patient_fully(pid: int) -> None:
@@ -1771,6 +1877,8 @@ async def delete_patient_fully(pid: int) -> None:
          "DELETE FROM plan_items WHERE patient_id = ?"),
         ("DELETE FROM documents WHERE patient_id = $1",
          "DELETE FROM documents WHERE patient_id = ?"),
+        ("DELETE FROM anamneza WHERE patient_id = $1",
+         "DELETE FROM anamneza WHERE patient_id = ?"),
         # дневники приёмов раньше визитов: FK на appointments
         ("DELETE FROM visit_records WHERE patient_id = $1",
          "DELETE FROM visit_records WHERE patient_id = ?"),
