@@ -625,12 +625,12 @@ def suite_settings(res: Result) -> None:
             res.ok(f"из секции {path} есть путь назад",
                    "← Setări" in b.body, "нет навигации на хаб")
 
-        # FAQ обязан объяснять «бот и ночью/в выходные»: главный ответ на
-        # вопрос клиники «а если компьютер выключен» — иначе она узнаёт об
-        # этом от молчащего бота в понедельник
+        # Telegram заморожен (08-08): FAQ не продаёт бота — пункты про
+        # «бот ночью/в выходные» изъяты вместе с интерфейсом бота
         faq = c.get("/admin/settings/faq").body
-        res.ok("FAQ говорит про бот в weekend", "weekend" in faq,
-               "нет пункта про ночь/выходные")
+        res.ok("FAQ не продаёт замороженного бота",
+               "Botul primește programări" not in faq,
+               "пункт про бот в выходные вернулся в FAQ")
 
         # ---- сохранение по кускам: сосед не должен пострадать ----
         # (идёт ДО цельного payload: тот прогоняет услуги через разбор формы и
@@ -755,6 +755,26 @@ def suite_lan(res: Result) -> None:
             res.ok("комментарии клиники в env-файле уцелели",
                    "TELEGRAM_TOKEN=" in env_path.read_text(encoding="utf-8"),
                    "переключение затёрло соседние ключи")
+
+            # --- Telegram заморожен (08-08): интерфейс бота видит только
+            # клиника с УЖЕ настроенным токеном (grandfather) ---
+            page = c.get("/admin").body
+            res.ok("без токена секции «Sincronizări» нет",
+                   "Sincronizări" not in page and "Telegram Bot" not in page,
+                   "интерфейс замороженного бота виден клинике без токена")
+            res.ok("без токена нет плитки Telegram на хабе",
+                   "/admin/settings/telegram" not in c.get("/admin/settings").body,
+                   "плитка бота предлагается клинике без токена")
+
+        # UNREADABLE-флаг = токен был (переезд ПК): раздел обязан ВЕРНУТЬСЯ,
+        # иначе клинике после переезда некуда ввести токен заново
+        with Server(env={"DENTART_ENV_FILE": str(env_path),
+                         "DENTART_TOKEN_UNREADABLE": "1"}) as s2:
+            c2 = Client(s2.url).login()
+            page = c2.get("/admin").body
+            res.ok("настроенный бот остаётся в меню (grandfather)",
+                   "Sincronizări" in page and "Telegram Bot" in page,
+                   "у клиники с ботом пропал раздел из меню")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

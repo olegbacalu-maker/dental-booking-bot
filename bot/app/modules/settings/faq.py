@@ -78,37 +78,6 @@ def render() -> str:
            f"Asta e o protecție, nu o defecțiune: un fișier copiat sau furat "
            f"nu dezvăluie tokenul clinicii.{end}"),
 
-        _q("🤖", "Botul Telegram nu răspunde pacienților — ce verific?",
-           f"{p}Botul funcționează <b>doar cât timp programul e pornit</b> pe "
-           f"acest calculator. Calculator oprit sau în somn = pacienții nu "
-           f"pot programa. Pentru un bot mereu disponibil, calculatorul "
-           f"trebuie să rămână pornit.{end}"
-           f"{p}Verificați în ordine: programul e deschis? calculatorul are "
-           f"internet? apoi <b>Setări → Stare sistem</b> — rândul «Canal "
-           f"Telegram» arată starea reală a botului.{end}"
-           f"{p}Mesajul «tokenul nu poate fi citit pe acest calculator» "
-           f"apare după mutarea pe alt calculator — reintroduceți tokenul în "
-           f"<b>Setări → Telegram Bot</b> (vezi întrebarea despre mutare)."
-           f"{end}"),
-
-        _q("🌙", "Botul primește programări noaptea și în weekend?",
-           f"{p}<b>Da.</b> Botul răspunde non-stop cât timp programul "
-           f"rulează — pacienții se pot programa seara, noaptea, în weekend. "
-           f"Orarul clinicii din Setări limitează doar <b>orele propuse</b> "
-           f"pentru vizită, nu momentul în care botul răspunde: un pacient "
-           f"scrie duminică și primește locuri pentru luni.{end}"
-           f"{p}Condiția e una singură: calculatorul rămâne <b>pornit</b>, "
-           f"cu programul deschis. Concret: nu opriți calculatorul vineri "
-           f"seara; dezactivați somnul (Setări Windows → System → Power → "
-           f"Sleep: <b>Never</b>) — stingerea <b>ecranului</b> nu încurcă; "
-           f"fereastra DentPilot se <b>minimizează</b>, nu se închide — la "
-           f"închidere programul se oprește de tot (întreabă înainte).{end}"
-           f"{p}⚠️ După actualizări, Windows se poate reporni singur noaptea, "
-           f"iar programul pornește din nou abia după ce cineva intră în "
-           f"Windows. Luni dimineața verificați rândul «Canal Telegram» în "
-           f"<b>Setări → Stare sistem</b> — sau scrieți botului de pe "
-           f"telefon.{end}"),
-
         _q("📶", "Pot deschide registrul de pe telefon?",
            f"{p}Da, în rețeaua clinicii: <b>Setări → Acces de pe telefon → "
            f"Activează accesul</b> (programul repornește), apoi scanați "

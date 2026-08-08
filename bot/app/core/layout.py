@@ -8,12 +8,13 @@
 from __future__ import annotations
 
 import html
+import os
 import re
 import sys
 import urllib.parse
 from datetime import date, datetime
 
-from .. import brand, db, paths
+from .. import brand, db, dpapi, paths
 from .. import engine as eng
 from .. import update as upd
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, ROLE_LABEL,
@@ -220,6 +221,17 @@ def _tg_state() -> tuple[bool, str]:
     return bool(st["running"]), st.get("username", "")
 
 
+def tg_configured() -> bool:
+    """Telegram ЗАМОРОЖЕН (08-08, фидбек клиник: «QR на двери = запись для
+    любого» — канал не продаёт; курс на SMS-пакет). Интерфейс бота видят
+    только клиники, у которых токен УЖЕ настроен: работающее не отнимаем,
+    новым не предлагаем. UNREADABLE-флаг тоже считается «настроен» — после
+    переезда на другой ПК клиника должна ВИДЕТЬ раздел, чтобы ввести токен
+    заново, а не гадать, куда он делся."""
+    return bool(os.environ.get("TELEGRAM_TOKEN", "").strip()) \
+        or dpapi.UNREADABLE_FLAG in os.environ
+
+
 def _update_banner() -> str:
     if upd.can_self_update():
         # в desktop-версии баннер ведёт к кнопке «Actualizează acum», не на GitHub
@@ -293,6 +305,17 @@ def _sidebar(active: str) -> str:
     tg_on, tg_user = _tg_state()
     tg_dot = "<span class='dot ok'></span>" if tg_on else "<span class='dot off'></span>"
     tg_title = f"@{tg_user}" if tg_on else "neconectat"
+    # Секция «Sincronizări» — только у клиник с уже настроенным ботом
+    # (grandfather): Telegram заморожен, см. tg_configured. Прямой адрес
+    # /admin/settings/telegram остаётся живым — включить бота вручную можно.
+    sync = ""
+    foot_title = ""
+    if tg_configured():
+        sync = ('<div class="sec">Sincronizări</div>'
+                + item('tg', '/admin/settings/telegram' if show_set else '',
+                       'bot', 'Telegram Bot', tg_dot)
+                + item('qr', '/admin/qr-print', 'qr', 'QR pacienți'))
+        foot_title = f' title="Telegram: {html.escape(tg_title)}"'
     return f"""<aside class="side">
   <div class="brand">{brand.mark_svg(34, 'logo')}
     <div class="txt"><b>DentPilot</b><small title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</small></div>
@@ -305,11 +328,9 @@ def _sidebar(active: str) -> str:
     {item('med', '/admin/medici', 'med', 'Medici') if show_docs else ''}
     {item('stat', '/admin/stats', 'stat', 'Statistici') if show_money else ''}
     {item('set', '/admin/settings', 'set', 'Setări') if show_set else ''}
-    <div class="sec">Sincronizări</div>
-    {item('tg', '/admin/settings/telegram' if show_set else '', 'bot', 'Telegram Bot', tg_dot)}
-    {item('qr', '/admin/qr-print', 'qr', 'QR pacienți')}
+    {sync}
   </nav>
-  <div class="sfoot" title="Telegram: {html.escape(tg_title)}">v{eng.APP_VERSION} · <span id="sf_clock"></span></div>
+  <div class="sfoot"{foot_title}>v{eng.APP_VERSION} · <span id="sf_clock"></span></div>
 </aside>"""
 
 

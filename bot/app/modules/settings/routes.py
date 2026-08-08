@@ -34,8 +34,8 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
                           pin_free, remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
-                            _doc_hours_text, _shell, tg_refresh_meta,
-                            tg_status)
+                            _doc_hours_text, _shell, tg_configured,
+                            tg_refresh_meta, tg_status)
 from ...core import bitlocker
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
@@ -246,8 +246,12 @@ async def admin_settings(request: Request, msg: str = ""):
              tile("/admin/medici", "👨‍⚕️", "b", "Medici",
                   f"{n_docs} activi · se editează în secțiunea Medici")]
     if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
-        tiles.append(tile("/admin/settings/telegram", "📱", "v", "Telegram Bot",
-                          tg_short))
+        # Telegram заморожен (08-08): плитку видят только клиники с уже
+        # настроенным токеном — grandfather, как секция в сайдбаре.
+        # Прямой адрес /admin/settings/telegram жив для ручного включения.
+        if tg_configured():
+            tiles.append(tile("/admin/settings/telegram", "📱", "v",
+                              "Telegram Bot", tg_short))
         lan_short = ("✅ activ în rețeaua clinicii" if lan.enabled()
                      else "doar pe acest calculator")
         tiles.append(tile("/admin/settings/lan", "📶", "b",
