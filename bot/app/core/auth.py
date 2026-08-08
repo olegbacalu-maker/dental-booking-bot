@@ -75,10 +75,16 @@ ROLE_LABEL = {ROLE_DIRECTOR: "Director", ROLE_RECEPTIE: "Recepție",
 PERM_MONEY = "money"        # выручка, статистика, отчёты
 PERM_SETTINGS = "settings"  # настройки клиники, токен бота, бэкап, обновление
 PERM_USERS = "users"        # учётные записи сотрудников
+PERM_DOCTORS = "doctors"    # каталог врачей: карточки, фото, услуги, часы
 
 PERMS = {
-    ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS},
-    ROLE_RECEPTIE: set(),
+    ROLE_DIRECTOR: {PERM_MONEY, PERM_SETTINGS, PERM_USERS, PERM_DOCTORS},
+    # Регистратуре каталог врачей НУЖЕН: отметить отпуск, сузить часы приёма,
+    # поправить услуги — операционка стойки, иначе любой чих требует директора.
+    ROLE_RECEPTIE: {PERM_DOCTORS},
+    # Врачу — нет (канарейка 1.15.0, Олег): с телефона в LAN врач открывал
+    # ЧУЖИЕ карточки и мог менять фото. Врачу — пациенты и записи; просмотр
+    # своего расписания живёт в журнале, не в каталоге.
     ROLE_MEDIC: set(),
 }
 

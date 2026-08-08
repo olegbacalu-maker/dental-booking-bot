@@ -21,7 +21,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
 
 from ... import db
 from ... import engine as eng
-from ...core.auth import _guard
+from ...core.auth import PERM_DOCTORS, _guard, require
 from ...core.layout import (HOUR_MAX, HOUR_MIN, MSG_BANNER, _DOC_STATE_RO,
                             _DOW_FULL, _DOW_ORDER, _doc_hours_text, _shell)
 from ...core.visits import (_avatar, _card_modal, _collect_cards, _doc_hue,
@@ -34,7 +34,7 @@ router = APIRouter()
 async def admin_relink(request: Request, old_name: str = Form(...),
                        dk: str = Form(...), back: str = Form("/admin")):
     """Переприкрепить сиротские записи (старое имя, без doctor_id) к врачу."""
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin", status_code=303)
@@ -143,7 +143,7 @@ def _med_card_html(dk: str, name: str, rows: list, days: list) -> str:
 
 @router.get("/admin/medici", response_class=HTMLResponse)
 async def admin_medici(request: Request, msg: str = ""):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     today = datetime.now(eng.TZ).date()
     d1 = today - timedelta(days=29)
@@ -195,7 +195,7 @@ async def admin_medici(request: Request, msg: str = ""):
 
 @router.post("/admin/medici/add")
 async def admin_medici_add(request: Request, name: str = Form(...), spec: str = Form("")):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     nm = name.strip()[:60]
     if not nm:
@@ -222,7 +222,7 @@ async def admin_medici_add(request: Request, name: str = Form(...), spec: str = 
 @router.post("/admin/medici/colors")
 async def admin_medici_colors(request: Request):
     """Сброс цветов врачей на автоматические (различимые по палитре)."""
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     docs = [_doctor_entry(d, color="") for d in eng.CONFIG["doctors"]]
     err = _save_cfg(doctors=docs)
@@ -232,7 +232,7 @@ async def admin_medici_colors(request: Request):
 
 @router.get("/admin/doctor-card/{dk}", response_class=HTMLResponse)
 async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
@@ -425,7 +425,7 @@ async def doctor_card_save(request: Request, dk: str, name: str = Form(...),
                            color: str = Form(""), auto_color: str = Form(""),
                            work_from: str = Form(""), work_to: str = Form(""),
                            status: str = Form("activ")):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
@@ -459,7 +459,7 @@ async def doctor_card_save(request: Request, dk: str, name: str = Form(...),
 
 @router.post("/admin/doctor-card/{dk}/services")
 async def doctor_card_services(request: Request, dk: str):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
@@ -498,7 +498,7 @@ async def doctor_card_services(request: Request, dk: str):
 
 @router.post("/admin/doctor-card/{dk}/photo")
 async def doctor_card_photo(request: Request, dk: str, file: UploadFile = File(...)):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
@@ -530,7 +530,7 @@ async def doctor_card_photo(request: Request, dk: str, file: UploadFile = File(.
 
 @router.post("/admin/doctor-card/{dk}/photo/del")
 async def doctor_card_photo_del(request: Request, dk: str):
-    if (deny := _guard(request)) is not None:
+    if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
@@ -544,6 +544,8 @@ async def doctor_card_photo_del(request: Request, dk: str):
 
 @router.get("/admin/doctor-photo/{dk}")
 async def doctor_photo_get(request: Request, dk: str, v: str = ""):
+    # НАМЕРЕННО _guard, а не PERM_DOCTORS: фото тянет журнал (аватары в сетке
+    # и в модалке визита) — закрыть правом значило бы отнять аватары у врача
     if (deny := _guard(request)) is not None:
         return deny
     p = _photo_path(dk)

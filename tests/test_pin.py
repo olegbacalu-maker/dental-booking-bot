@@ -154,12 +154,16 @@ def suite_roles(res: Result) -> None:
         med.post("/admin/login", password="2222", next="/admin")
         res.ok("врач входит своим паролем", med.get("/admin").status == 200,
                "не пустило по личному паролю")
-        for path in ("/admin/all", "/admin/search", "/admin/medici"):
+        for path in ("/admin/all", "/admin/search", "/admin/doctor/d2"):
             res.ok(f"врачу открыто {path}", med.get(path).status == 200,
                    "закрыли лишнее")
+        # каталог врачей врачу закрыт с 1.15.1 (канарейка 1.15.0: врач с
+        # телефона открывал ЧУЖИЕ карточки и мог менять фото) — журнал и
+        # пациенты открыты, карточки врачей нет
         for path in ("/admin/stats", "/admin/settings",
                      "/admin/settings/security", "/admin/settings/system",
-                     "/admin/settings/faq"):
+                     "/admin/settings/faq", "/admin/medici",
+                     "/admin/doctor-card/d2"):
             r = med.get(path)
             res.ok(f"врачу закрыто {path}",
                    r.status == 303 and "no_access" in r.location,
@@ -168,7 +172,9 @@ def suite_roles(res: Result) -> None:
         for path, kw in (("/admin/settings/save", {"payload": "{}"}),
                          ("/admin/users/save", {"uid": "z1", "name": "Z",
                                                 "role": "director", "pin": "9999"}),
-                         ("/admin/backup/export", {"parola": "x"})):
+                         ("/admin/backup/export", {"parola": "x"}),
+                         ("/admin/doctor-card/d2/photo/del", {}),
+                         ("/admin/doctor-card/d2/save", {"name": "Dr. Hack"})):
             r = med.post(path, **kw)
             res.ok(f"врачу закрыт POST {path}",
                    r.status == 303 and "no_access" in r.location,
@@ -181,6 +187,21 @@ def suite_roles(res: Result) -> None:
         res.ok("в меню врача нет денег и настроек",
                "/admin/stats" not in page and "/admin/settings" not in page,
                "закрытый раздел остался в меню")
+        res.ok("в меню врача нет раздела Medici",
+               "/admin/medici" not in page, "закрытый каталог остался в меню")
+        res.ok("день врача не зовёт в закрытую фишу",
+               "doctor-card" not in med.get("/admin/doctor/d2").body,
+               "ссылка «Fișa medicului» видна врачу — поведёт в отказ")
+
+        # регистратуре каталог врачей ОСТАВЛЕН: отпуск/часы/услуги — операционка
+        rec_c = Client(s.url)
+        rec_c.post("/admin/login", password="3333", next="/admin")
+        res.ok("регистратуре каталог врачей открыт",
+               rec_c.get("/admin/medici").status == 200,
+               "у стойки отняли врачей — отпуск теперь только через директора")
+        res.ok("регистратуре открыта и карточка врача",
+               rec_c.get("/admin/doctor-card/d2").status == 200,
+               "карточка врача закрылась и для стойки")
         res.ok("врач подписан в углу", "Dr. Liviu" in page and "Medic" in page,
                "нет имени вошедшего")
         boss_page = boss.get("/admin").body

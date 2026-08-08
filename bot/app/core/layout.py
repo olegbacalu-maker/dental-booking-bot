@@ -16,7 +16,8 @@ from datetime import date, datetime
 from .. import brand, db, paths
 from .. import engine as eng
 from .. import update as upd
-from .auth import (PERM_MONEY, PERM_SETTINGS, ROLE_LABEL, _sec_warn, can,
+from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, ROLE_LABEL,
+                   _sec_warn, can,
                    request_user, tamper_alert)
 
 FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
@@ -277,6 +278,7 @@ def _sidebar(active: str) -> str:
     me = request_user()
     show_money = can(me, PERM_MONEY) or me is None
     show_set = can(me, PERM_SETTINGS) or me is None
+    show_docs = can(me, PERM_DOCTORS) or me is None
 
     def item(key: str, href: str, icon: str, label: str, extra: str = "") -> str:
         on = " on" if key == active else ""
@@ -300,7 +302,7 @@ def _sidebar(active: str) -> str:
     {item('dash', '/admin', 'home', 'Dashboard')}
     {item('prog', '/admin/all', 'cal', 'Programări')}
     {item('pat', '/admin/search', 'pat', 'Pacienți')}
-    {item('med', '/admin/medici', 'med', 'Medici')}
+    {item('med', '/admin/medici', 'med', 'Medici') if show_docs else ''}
     {item('stat', '/admin/stats', 'stat', 'Statistici') if show_money else ''}
     {item('set', '/admin/settings', 'set', 'Setări') if show_set else ''}
     <div class="sec">Sincronizări</div>

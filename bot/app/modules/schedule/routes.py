@@ -25,7 +25,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ... import db
 from ... import engine as eng
-from ...core.auth import _guard
+from ...core.auth import PERM_DOCTORS, _guard, can, request_user
 from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, _age, _banner, _initials, _shell,
                             _tg_state)
@@ -935,9 +935,14 @@ async def admin_doctor(
     is_active = eng.DOCTOR_META.get(dk, {}).get("active", True)
     off_badge = ("" if is_active
                  else " <span style='color:var(--text3)'>· inactiv (istoric)</span>")
+    # ссылка на карточку — только тем, кому карточка открыта (PERM_DOCTORS):
+    # это удобство, а не защита — отказ выдаёт require() в самом маршруте
+    me = request_user()
+    fisa = (f"<a href='/admin/doctor-card/{dk}'>👤 Fișa medicului</a>"
+            if can(me, PERM_DOCTORS) or me is None else "")
     head = (f"<div class='nav'><b>{html.escape(name)}</b>{off_badge} "
             f"<span style='color:#667'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</span> "
-            f"<a href='/admin/doctor-card/{dk}'>👤 Fișa medicului</a>"
+            f"{fisa}"
             f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
             f"<a href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a></div>")
     cards = _collect_cards(rows)
