@@ -48,7 +48,17 @@ def suite_store(res: Result) -> None:
         res.check("хеш считается pbkdf2", u.get("kdf"), "pbkdf2-sha256")
         res.ok("итераций не меньше 600 000", int(u.get("iter", 0)) >= 600_000,
                f"iter={u.get('iter')!r}")
-        res.ok("сам PIN в файл не попадает", "4321" not in json.dumps(rec),
+        # ⭐ 08-08: проверка была флаки — «4321» искался подстрокой во ВСЁМ
+        # json, а случайная соль/хеш в base64 изредка содержит эти цифры
+        # (поймано на живом прогоне). Случайные блобы вычитаем, остальное —
+        # любое поле с PIN открытым текстом — по-прежнему ловится.
+        blob = json.dumps(rec)
+        for rand in [rec.get("cookie_key")] + [
+                x for usr in (rec.get("users") or [])
+                for x in (usr.get("salt"), usr.get("hash"), usr.get("sid"))]:
+            if isinstance(rand, str) and rand:
+                blob = blob.replace(rand, "")
+        res.ok("сам PIN в файл не попадает", "4321" not in blob,
                "PIN виден в auth.json")
         res.ok("подпись сессии отдельна от хеша PIN",
                bool(rec.get("cookie_key")) and rec["cookie_key"] != u.get("hash"),
