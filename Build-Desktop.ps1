@@ -17,6 +17,13 @@ if (-not (Test-Path $venv)) {
 if (-not (Test-Path "build")) { New-Item -ItemType Directory "build" | Out-Null }
 & "$venv\Scripts\python.exe" scripts\make_icon.py build\icon.ico
 
+# SQLCipher importiruetsya VNUTRI funkcii (db._sqlite_driver): modul nuzhen
+# tolko klinike s shifrovaniem. Bez --hidden-import PyInstaller mozhet ego ne
+# zametit - exe soberetsya, dymovoi test proidet, a shifrovanie otkazhet u toi
+# kliniki, kotoraya ego vklyuchit. Storozhit proverka v tests\test_dbcrypt.py.
+# WARNING: kommentarii vnutri komandy s perenosami (`) lomayut razbor - tolko
+# zdes, nad komandoi.
+#
 # Staryi exe udalyaem DO sborki: inache upavshii PyInstaller ostavlyaet
 # proshluyu versiyu na meste i Test-Path nizhe rapportuet "OK" o chuzhom faile.
 Remove-Item "dist\DentPilot.exe" -Force -EA SilentlyContinue
@@ -27,10 +34,6 @@ Remove-Item "dist\DentPilot.exe" -Force -EA SilentlyContinue
     --add-data "$PSScriptRoot\bot\app\static;app\static" `
     --add-data "$PSScriptRoot\bot\app\clinic.json;app" `
     --add-data "$PSScriptRoot\bot\app\clinic_new.json;app" `
-    # SQLCipher importiruetsya VNUTRI funkcii (db._sqlite_driver): modul nuzhen
-    # tolko klinike s shifrovaniem. Bez etoi stroki PyInstaller mozhet ego ne
-    # zametit - exe soberetsya, dymovoi test proidet, a shifrovanie ne zarabotaet
-    # tam, gde ego vklyuchat. Storozhit proverka v tests\test_dbcrypt.py.
     --hidden-import sqlcipher3 --hidden-import sqlcipher3.dbapi2 `
     "$PSScriptRoot\bot\desktop.py"
 if ($LASTEXITCODE -ne 0) { Write-Host "PyInstaller exit $LASTEXITCODE"; exit 1 }
