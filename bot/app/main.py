@@ -12,6 +12,7 @@ import hmac
 import html
 import logging
 import os
+import pathlib
 import re
 import urllib.parse
 from datetime import datetime
@@ -29,9 +30,9 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, PERM_SETTINGS, _guard, _pin_rec,
                         auth_file_fp, current_user, find_user, lock_left,
                         note_fail, note_ok, remember_auth_file, request_user,
                         require, set_request_user, set_tamper_alert, verify_pin)
-from .core import theme
-from .core.layout import (LOGIN_TMPL, SETUP_TMPL, STATIC, _asset, standalone,
-                          tg_configured)
+from .core import dbkey, theme
+from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
+                          standalone, tg_configured)
 from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
 from .modules.qr import routes as qr
@@ -41,6 +42,9 @@ from .modules.stats import routes as stats
 
 app = FastAPI(title="DentPilot")
 log = logging.getLogger("web")
+
+# Ключ картотеки не читается — работает ОДИН экран (см. startup и _recovery_gate).
+RECOVERY = False
 
 # Модули подключаются здесь и только здесь. Модуль знает про core, db и engine,
 # но ничего не знает про main.py — иначе импорт замкнулся бы в круг.
@@ -173,6 +177,17 @@ async def startup() -> None:
     except Exception as e:  # noqa: BLE001 — демо-наполнение НЕ должно валить старт
         logging.getLogger("startup").warning("build_seed_rows failed: %r", e)
         seed_rows = []
+    # ⭐ Ключ картотеки не читается (новый ПК, переустановка Windows, другая
+    # учётка). Падать нельзя: у клиники не осталось бы НИ ОДНОГО экрана, чтобы
+    # ввести код с листа восстановления, — программа просто не открывалась бы.
+    # Поэтому поднимаемся в режиме восстановления: база не тронута, работает
+    # ровно один экран, и все прочие адреса ведут на него.
+    if db.IS_SQLITE and dbkey.state() == dbkey.UNREADABLE:
+        global RECOVERY
+        RECOVERY = True
+        logging.getLogger("startup").error(
+            "ключ базы не читается на этой учётке Windows — режим восстановления")
+        return
     await db.init(seed_rows)
     await _check_auth_file()
     # v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
@@ -247,6 +262,63 @@ async def favicon() -> Response:
     один роут закрывает все страницы, включая печатные."""
     return Response(brand.mark_svg(None), media_type="image/svg+xml",
                     headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.middleware("http")
+async def _recovery_gate(request: Request, call_next):
+    """В режиме восстановления живёт ровно один экран.
+
+    ⚠️ Отсекать надо ВСЕ адреса журнала, а не только главную: база не открыта
+    вовсе, и любой маршрут упал бы пятисотой с невнятным следом в логе. Здесь
+    же он получает внятный экран с полем для кода.
+    ⚠️ `/health` намеренно НЕ трогаем: по нему лаунчер понимает, что сервер
+    поднялся, — иначе окно программы не откроется и вводить код будет негде.
+    """
+    p = request.url.path
+    if RECOVERY and p.startswith("/admin") and not p.startswith("/admin/recover"):
+        return RedirectResponse("/admin/recover", status_code=303)
+    return await call_next(request)
+
+
+@app.get("/admin/recover", response_class=HTMLResponse)
+async def recover_page(err: str = "") -> Response:
+    if not RECOVERY:
+        return RedirectResponse("/admin", status_code=303)
+    msg = ("<div class='err'>Codul nu este valid sau nu se potrivește cu "
+           "această bază de date</div>") if err else ""
+    return HTMLResponse(standalone(RECOVER_TMPL).replace("__ERR__", msg))
+
+
+@app.post("/admin/recover")
+async def recover_apply(code: str = Form("")) -> Response:
+    """Код с бумаги → ключ → ПЕРЕЗАВОРАЧИВАНИЕ под текущую учётку Windows.
+
+    ⭐ Ключ проверяется НА САМОЙ БАЗЕ, а не «похож ли он на код»: иначе опечатка
+    сохранилась бы как рабочий ключ, и следующий запуск снова упал бы в
+    восстановление — уже без подсказки, что виноват ввод.
+    """
+    if not RECOVERY:
+        return RedirectResponse("/admin", status_code=303)
+    key = dbkey.parse_recovery(code)
+    path = pathlib.Path(db.DATABASE_URL.split("///", 1)[1])
+    if key is None or not dbkey.opens_with(path, key) or not dbkey.store(key):
+        return RedirectResponse("/admin/recover?err=1", status_code=303)
+    log.warning("ключ базы восстановлен с листа — требуется перезапуск")
+    return HTMLResponse(standalone(RECOVER_DONE))
+
+
+RECOVER_DONE = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<title>__CLINIC__ — recuperare</title><style>
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;
+      color:__ON__;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
+ p{max-width:520px;line-height:1.55}
+</style></head><body>
+<h1>✅ Cheia a fost restabilită</h1>
+<p>Închideți programul și porniți-l din nou — evidența se va deschide normal.
+Cheia a fost legată din nou de acest calculator, așa că data viitoare codul nu
+va mai fi necesar. Păstrați foaia de recuperare mai departe.</p>
+</body></html>"""
 
 
 @app.get("/clinic-logo")

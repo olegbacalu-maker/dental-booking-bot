@@ -37,7 +37,7 @@ from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
                             _doc_hours_text, _shell, standalone, tg_configured,
                             tg_refresh_meta, tg_status)
-from ...core import bitlocker, theme
+from ...core import bitlocker, dbkey, theme
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
@@ -263,6 +263,12 @@ async def admin_settings(request: Request, msg: str = ""):
                      else "doar pe acest calculator")
         tiles.append(tile("/admin/settings/lan", "📶", "b",
                           "Acces de pe telefon", lan_short))
+    if db.IS_SQLITE:
+        _cs = dbkey.state()
+        tiles.append(tile("/admin/settings/crypt", "🔒", "g", "Criptarea evidenței",
+                          {dbkey.OK: "✅ activă",
+                           dbkey.UNREADABLE: "<b style='color:var(--red-t)'>⛔ cheia nu "
+                                             "se citește</b>"}.get(_cs, "oprită")))
     if db.IS_SQLITE and bkp.available():
         tiles.append(tile("/admin/settings/backup", "💾", "b", "Copie de rezervă",
                           "arhivă criptată AES-256"))
@@ -494,6 +500,160 @@ Restul secțiunilor nu sunt atinse la salvare.</p>
 <button class='savebtn'>💾 Salvează</button>
 </form>"""
     return _sec_page(body, "setări · clinica", msg)
+
+
+@router.get("/admin/settings/crypt", response_class=HTMLResponse)
+async def settings_crypt(request: Request, msg: str = ""):
+    """Шифрование картотеки: состояние и включение.
+
+    ⭐ Включение идёт в ДВА шага через отдельную страницу с листом, и это не
+    вежливость. Лист восстановления — единственное, что стоит между клиникой и
+    полной потерей данных при смене ПК, а единственный момент, когда его точно
+    прочитают, — сейчас. Кнопки «включить» одним нажатием здесь нет намеренно.
+    """
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not db.IS_SQLITE:
+        return _sec_page("<p class='hint'>Ediția cloud folosește PostgreSQL — "
+                         "criptarea fișierului nu se aplică.</p>",
+                         "setări · criptare", msg)
+    d = _data_dir()
+    st = dbkey.state()
+    pending = bool(d and (d / dbkey.PENDING_FILE).exists())
+
+    if pending:
+        body = ("<h2>🔒 Criptarea evidenței</h2>"
+                "<div class='banner warn'>Criptarea este pregătită și se aplică "
+                "la următoarea pornire a programului.</div>"
+                "<div class='nav'><a class='primary' href='/admin/settings/crypt/sheet'>"
+                "🖨 Deschide foaia de recuperare</a></div>")
+    elif st == dbkey.OK:
+        body = f"""
+<h2>🔒 Criptarea evidenței</h2>
+<div class='banner ok'>Evidența este criptată. Fișierul <b>dental.db</b> nu poate
+fi citit pe alt calculator sau de pe alt cont Windows.</div>
+<p class='hint'>Copiile zilnice din <code>data\\backups</code> sunt și ele
+criptate. Arhiva de rezervă (Setări → Copie de rezervă) rămâne independentă:
+înăuntru baza este necriptată, protejată de parola arhivei — ca să nu depindă
+de aceeași cheie.</p>
+<div class='nav'><a href='/admin/settings/crypt/sheet'>🖨 Foaia de recuperare</a></div>
+<form method='post' action='/admin/settings/crypt/off'
+      onsubmit="return confirm('Evidența va fi decriptată la următoarea pornire. Continuați?')">
+  <button class='rowdel'>Oprește criptarea</button>
+</form>"""
+    else:
+        body = """
+<h2>🔒 Criptarea evidenței</h2>
+<p class='hint'>Acum fișierul <b>data\\dental.db</b> este un SQLite obișnuit:
+cine îl copiază de pe calculator îl poate deschide cu orice program. Criptarea
+îl face inutilizabil în afara acestui calculator.</p>
+<p class='hint'><b>Ce trebuie știut dinainte.</b> Cheia este legată de contul
+Windows de pe acest calculator. La reinstalarea Windows sau la schimbarea
+calculatorului evidența se deschide <b>numai</b> cu codul de pe foaia de
+recuperare — de aceea pasul următor este tipărirea ei.</p>
+<form method='post' action='/admin/settings/crypt/prepare'>
+  <button class='savebtn'>Pregătește criptarea →</button>
+</form>"""
+    return _sec_page(body, "setări · criptare", msg)
+
+
+@router.post("/admin/settings/crypt/prepare")
+async def settings_crypt_prepare(request: Request):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    d = _data_dir()
+    if not d or not dbkey.request_encrypt(d, dbkey.generate()):
+        return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
+    return RedirectResponse("/admin/settings/crypt/sheet", status_code=303)
+
+
+@router.get("/admin/settings/crypt/sheet", response_class=HTMLResponse)
+async def settings_crypt_sheet(request: Request):
+    """Печатный лист восстановления. Вид намеренно как у листа BitLocker:
+    клиника этот ритуал уже прошла и знает, что такую бумагу кладут в папку."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    d = _data_dir()
+    key = None
+    if d and (d / dbkey.PENDING_FILE).exists():
+        key = dbkey.load_pending(d)
+    if key is None:
+        key = dbkey.load()
+    if key is None:
+        return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
+    pending = bool(d and (d / dbkey.PENDING_FILE).exists())
+    e = html.escape
+    confirm = ("""
+<form class='noprint' method='post' action='/admin/settings/crypt/confirm'>
+  <label class='ack'><input type='checkbox' name='ack' value='1' required>
+  Am tipărit foaia și am pus-o în mapa clinicii</label>
+  <button class='savebtn'>Activează criptarea și repornește</button>
+</form>""" if pending else "")
+    return HTMLResponse(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<title>{e(eng.CLINIC_NAME)} — foaie de recuperare</title><style>
+ body{{font-family:'Segoe UI',system-ui,sans-serif;color:#111;max-width:170mm;
+      margin:0 auto;padding:12mm}}
+ h1{{font-size:19pt;margin:0 0 2mm}}
+ .sub{{color:#555;font-size:10pt;margin-bottom:6mm}}
+ .code{{font-family:ui-monospace,Consolas,monospace;font-size:15pt;line-height:1.9;
+       letter-spacing:.06em;border:2px solid #111;border-radius:3mm;padding:6mm;
+       word-break:break-all;text-align:center;margin-bottom:6mm}}
+ .box{{border:1px solid #999;border-radius:2mm;padding:5mm;font-size:10.5pt;
+      line-height:1.6;margin-bottom:5mm}}
+ .warn{{border-color:#B45309;background:#FFFBEB}}
+ .sign{{margin-top:10mm;display:flex;justify-content:space-between;font-size:10pt}}
+ .noprint{{margin:8mm 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
+ .ack{{display:flex;gap:8px;align-items:center;font-size:11pt}}
+ button{{background:#0E9F8A;color:#fff;border:none;border-radius:8px;
+        padding:10px 22px;font-size:14px;cursor:pointer;font-family:inherit}}
+ @media print{{.noprint{{display:none}}body{{padding:0}}}}
+</style></head><body>
+<div class="noprint"><button onclick="window.print()">🖨 Tipărește</button>
+<a href="/admin/settings/crypt">← Înapoi</a></div>
+<h1>Foaie de recuperare — evidența clinicii</h1>
+<div class="sub">{e(eng.CLINIC_NAME)} · DentPilot · generată {datetime.now(eng.TZ).strftime('%d.%m.%Y')}</div>
+<div class="code">{e(dbkey.format_recovery(key))}</div>
+<div class="box warn"><b>Fără acest cod evidența nu poate fi deschisă de nimeni —
+nici de furnizorul programului.</b> Nu există copie de rezervă a lui: codul
+există doar pe această foaie.</div>
+<div class="box">
+<b>Când este nevoie de el:</b> după reinstalarea Windows, la mutarea programului
+pe alt calculator, la schimbarea contului Windows sau a discului.<br>
+<b>Când NU este nevoie:</b> niciodată în lucrul obișnuit — nici la pornire, nici
+la actualizare. Programul îl cere doar în situațiile de mai sus.<br><br>
+<b>Unde se păstrează:</b> în mapa „Legea 195”, lângă actul BitLocker — adică nu
+în calculator. O copie poate fi ținută în alt loc (seif, altă adresă).
+</div>
+<div class="box">Litera „O” din cod este întotdeauna literă: cifrele 0, 1, 8 și 9
+nu apar în el. Codul poate fi introdus cu litere mici și cu spații.</div>
+<div class="sign"><span>Predat: ____________________</span>
+<span>Data: ____________</span></div>
+{confirm}
+</body></html>""")
+
+
+@router.post("/admin/settings/crypt/confirm")
+async def settings_crypt_confirm(request: Request, ack: str = Form("")):
+    """Подтверждение и перезапуск. Сам переезд делает ЛАУНЧЕР до старта
+    приложения: базу нельзя подменять под открытым соединением."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if ack != "1":
+        return RedirectResponse("/admin/settings/crypt/sheet", status_code=303)
+    return HTMLResponse(_restart_page("Criptarea a fost activată",
+                                      "/admin/settings/crypt"))
+
+
+@router.post("/admin/settings/crypt/off")
+async def settings_crypt_off(request: Request):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    d = _data_dir()
+    if not d:
+        return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
+    dbkey.request_decrypt(d)
+    return HTMLResponse(_restart_page("Criptarea va fi oprită",
+                                      "/admin/settings/crypt"))
 
 
 @router.get("/admin/settings/theme", response_class=HTMLResponse)

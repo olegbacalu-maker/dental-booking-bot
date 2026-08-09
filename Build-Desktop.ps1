@@ -27,6 +27,11 @@ Remove-Item "dist\DentPilot.exe" -Force -EA SilentlyContinue
     --add-data "$PSScriptRoot\bot\app\static;app\static" `
     --add-data "$PSScriptRoot\bot\app\clinic.json;app" `
     --add-data "$PSScriptRoot\bot\app\clinic_new.json;app" `
+    # SQLCipher importiruetsya VNUTRI funkcii (db._sqlite_driver): modul nuzhen
+    # tolko klinike s shifrovaniem. Bez etoi stroki PyInstaller mozhet ego ne
+    # zametit - exe soberetsya, dymovoi test proidet, a shifrovanie ne zarabotaet
+    # tam, gde ego vklyuchat. Storozhit proverka v tests\test_dbcrypt.py.
+    --hidden-import sqlcipher3 --hidden-import sqlcipher3.dbapi2 `
     "$PSScriptRoot\bot\desktop.py"
 if ($LASTEXITCODE -ne 0) { Write-Host "PyInstaller exit $LASTEXITCODE"; exit 1 }
 

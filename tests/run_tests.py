@@ -17,6 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import test_admin  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_booking  # noqa: E402
+import test_dbcrypt  # noqa: E402
 import test_bot  # noqa: E402
 import test_pin  # noqa: E402
 import test_privacy  # noqa: E402
@@ -74,7 +75,12 @@ SUITES = [
     ("Закон 195: право на стирание", test_privacy.suite_erase),
     ("Закон 195: журнал доступа", test_privacy.suite_access_log),
     ("Закон 195: формуляр информирования", test_privacy.suite_acord),
-    ("Зашифрованный бэкап клиники", test_privacy.suite_backup),
+    ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),
+    ("Шифрование базы: переезд", test_dbcrypt.suite_convert),
+    ("Шифрование базы: программа на шифре", test_dbcrypt.suite_live),
+    ("Шифрование базы: отложенный переезд", test_dbcrypt.suite_pending),
+    ("Шифрование базы: восстановление по листу", test_dbcrypt.suite_recover),
+    ("Зашифрованный бэкап клиники",test_privacy.suite_backup),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]
 

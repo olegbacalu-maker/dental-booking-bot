@@ -88,6 +88,8 @@ MSG_BANNER = {
     "ok_comment": ("ok", "Comentariu salvat ✔"),
     "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
     "ok_theme": ("ok", "Aspectul clinicii a fost salvat ✔"),
+    "bad_crypt": ("err", "Nu am putut pregăti criptarea — cheia nu a fost salvată. "
+                         "Detalii în data\\dentpilot.log"),
     "ok_logo": ("ok", "Logo actualizat ✔ — apare la intrare și pe documentele tipărite"),
     "no_logo": ("ok", "Logo șters ✔"),
     # ⚠️ Текст называет ПРИЧИНУ отказа: «logo invalid» отправило бы директора
@@ -558,6 +560,43 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
   <input type="password" name="pin2" placeholder="repetați PIN" inputmode="numeric"
          pattern="[0-9]*" maxlength="6" required>
   <button>Setează PIN</button>
+</form></body></html>"""
+
+
+RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__CLINIC__ — recuperare</title><style>
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__BG__;display:flex;
+      align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
+      padding:16px;box-sizing:border-box}
+ form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
+      box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
+      display:flex;flex-direction:column;gap:12px;width:min(560px,100%)}
+ h1{font-size:19px;margin:0;font-weight:600;letter-spacing:-.02em}
+ p{color:#5A6875;font-size:13.5px;margin:0;line-height:1.55}
+ /* моноширинный и крупный: код переписывают с бумаги, и группы должны
+    читаться так же, как они там напечатаны */
+ input{font-family:ui-monospace,Consolas,monospace;font-size:16px;letter-spacing:.06em;
+       padding:12px 14px;border:1px solid #E7EDF5;border-radius:12px;outline:none;color:#162033}
+ input:focus{border-color:__ACCENT__;box-shadow:0 0 0 3px __RING__}
+ button{background:__ACCENT__;color:__ON__;border:none;border-radius:12px;height:44px;
+        font-size:15px;font-weight:600;cursor:pointer}
+ .err{color:#B91C1C;font-size:13px}
+ .warn{background:#FFFBEB;color:#B45309;font-size:13px;padding:10px 12px;border-radius:10px}
+</style></head><body>
+<form method="post" action="/admin/recover">
+  <h1>🔑 Recuperarea evidenței</h1>
+  <p>Baza de date a clinicii este criptată, iar cheia de pe acest calculator nu
+  poate fi citită. Se întâmplă după reinstalarea Windows, la schimbarea
+  calculatorului sau când programul este pornit de pe alt cont Windows.</p>
+  <p><b>Introduceți codul de pe foaia de recuperare</b> — cea tipărită la
+  activarea criptării (o găsiți în mapa „Legea 195”, lângă actul BitLocker).</p>
+  __ERR__
+  <input name="code" placeholder="XXXXXX-XXXXXX-XXXXXX-…" autofocus required
+         autocomplete="off" spellcheck="false">
+  <button>Deblochează evidența</button>
+  <div class="warn">Datele nu au fost modificate. Fără acest cod evidența nu
+  poate fi deschisă de nimeni — nici de noi.</div>
 </form></body></html>"""
 
 

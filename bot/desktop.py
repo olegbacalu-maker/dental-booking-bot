@@ -84,7 +84,17 @@ os.environ["DENTART_ENV_FILE"] = str(env_path)
 
 def _auto_backup() -> None:
     """Копия базы при каждом старте (через SQLite backup API — консистентно
-    даже после краха с WAL), храним последние 14 в data/backups."""
+    даже после краха с WAL), храним последние 14 в data/backups.
+
+    ⭐ Если картотека зашифрована, копии тоже пишутся ПОД КЛЮЧОМ — в отличие от
+    вывозимого архива, который остаётся самодостаточным. Логика обратная той,
+    что была записана до шифрования («шифровать копии на месте — театр, они
+    лежат рядом с открытой базой»): теперь открытая копия рядом с зашифрованной
+    базой и есть дыра, ради которой всё затевалось. Роли разошлись: эти 14
+    файлов — откат на этой же машине, архив — переезд и беда.
+    ⚠️ Импорт `app.core.dbkey` тут возможен ровно потому, что тот не тянет
+    `storage`/`db`: лаунчер работает до сборки приложения.
+    """
     src = data_dir / "dental.db"
     if not src.exists():
         return
@@ -95,12 +105,28 @@ def _auto_backup() -> None:
         # PID в имени: два одновременных старта не пишут в один файл бэкапа
         stamp = time.strftime("%Y%m%d_%H%M%S")
         dst_path = bdir / f"dental_{stamp}_{os.getpid()}.db"
-        src_c = sqlite3.connect(str(src))
-        dst_c = sqlite3.connect(str(dst_path))
-        with dst_c:
-            src_c.backup(dst_c)
-        src_c.close()
-        dst_c.close()
+        from app.core import dbkey
+        key = dbkey.load(data_dir) if dbkey.enabled(data_dir) else None
+        if dbkey.enabled(data_dir) and key is None:
+            # ключ не читается — копия штатным sqlite3 сделала бы мусорный
+            # файл, который выглядит как бэкап. Лучше громко ничего не сделать.
+            raise RuntimeError("cheia bazei nu poate fi citită")
+        if key is not None:
+            import sqlcipher3.dbapi2 as sqlcipher
+            pragma = dbkey.pragma_value(key)
+            src_c = sqlcipher.connect(str(src))
+            src_c.execute(f"PRAGMA key = {pragma}")
+            src_c.execute(f"ATTACH DATABASE ? AS bk KEY {pragma}", (str(dst_path),))
+            src_c.execute("SELECT sqlcipher_export('bk')")
+            src_c.execute("DETACH DATABASE bk")
+            src_c.close()
+        else:
+            src_c = sqlite3.connect(str(src))
+            dst_c = sqlite3.connect(str(dst_path))
+            with dst_c:
+                src_c.backup(dst_c)
+            src_c.close()
+            dst_c.close()
         for f in sorted(bdir.glob("dental_*.db"))[:-14]:
             f.unlink(missing_ok=True)
         logging.warning("Auto-backup: %s", dst_path.name)
@@ -226,6 +252,14 @@ def main() -> None:
                 pass
         return
 
+    # ⚠️ ПЕРЕД автобэкапом и перед стартом приложения: базу нельзя переводить,
+    # пока её кто-то держит открытой. Здесь этого не делает ещё никто.
+    try:
+        from app.core import dbkey
+        if (done := dbkey.apply_pending(data_dir)):
+            logging.warning("DB crypt: %s", done)
+    except Exception as e:  # noqa: BLE001 — переезд не должен блокировать старт
+        logging.error("DB crypt FAILED: %r", e)
     _auto_backup()
     if os.environ.get("DENTART_BROWSER_MODE") == "1":
         _browser_mode()

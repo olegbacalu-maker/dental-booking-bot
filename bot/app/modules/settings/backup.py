@@ -37,15 +37,49 @@ def available() -> bool:
 def _db_snapshot(src: pathlib.Path, dst: pathlib.Path) -> None:
     """Копия базы через backup API, а не copyfile: у живой базы WAL, и копия
     файла на ходу может поймать середину транзакции. Тот же приём, что в
-    автобэкапе desktop.py."""
-    a = sqlite3.connect(str(src))
-    b = sqlite3.connect(str(dst))
+    автобэкапе desktop.py.
+
+    ⭐ Если картотека зашифрована, снимок кладётся в архив ВСЁ РАВНО ОТКРЫТЫМ —
+    и это решение, а не недосмотр. Архив уже заперт своим паролем (AES-256), а
+    самодостаточным он обязан остаться: положи внутрь шифр SQLCipher, и
+    клиника, потерявшая лист восстановления, лишится разом и живой базы, и ВСЕХ
+    копий. Единая точка отказа страшнее второго замка. Заодно уцелеет обещание
+    «архив открывается 7-Zip'ом без DentPilot» — иначе оно стало бы ложью.
+    ⚠️ Отсюда следует, что пароль архива — это и есть защита картотеки в нём.
+    Требование «не короче 10 знаков» после шифрования базы стало важнее, а не
+    наоборот.
+    """
+    from ...core import dbkey
+
+    if not dbkey.enabled():
+        a = sqlite3.connect(str(src))
+        b = sqlite3.connect(str(dst))
+        try:
+            with b:
+                a.backup(b)
+        finally:
+            a.close()
+            b.close()
+        return
+
+    key = dbkey.load()
+    if key is None:
+        # ключ есть, но не читается — молча сделать пустой архив нельзя:
+        # клиника узнала бы об этом в день, когда архив понадобился
+        raise RuntimeError("cheia bazei de date nu poate fi citită — "
+                           "copia de rezervă nu a fost creată")
+    import sqlcipher3.dbapi2 as sqlcipher
+    con = sqlcipher.connect(str(src))
     try:
-        with b:
-            a.backup(b)
+        con.execute(f"PRAGMA key = {dbkey.pragma_value(key)}")
+        # KEY '' = приёмник без шифрования; sqlcipher_export переписывает в него
+        # всю базу постранично — это штатный способ снять шифр, а не backup(),
+        # который между разными состояниями шифрования не определён
+        con.execute("ATTACH DATABASE ? AS plain KEY ''", (str(dst),))
+        con.execute("SELECT sqlcipher_export('plain')")
+        con.execute("DETACH DATABASE plain")
     finally:
-        a.close()
-        b.close()
+        con.close()
 
 
 def write_encrypted(data_dir: pathlib.Path, clinic_json: pathlib.Path | None,

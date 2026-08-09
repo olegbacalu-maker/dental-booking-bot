@@ -26,6 +26,12 @@ _ACT_SQL = "('confirmed','arrived')"
 
 POOL = None          # asyncpg pool
 _CONN = None         # aiosqlite connection
+# Модуль DBAPI, которым ОТКРЫТА картотека: штатный sqlite3 или sqlcipher3.
+# ⚠️ Ловить исключения обязательно ЧЕРЕЗ него. У sqlcipher3 своя иерархия, и
+# `except sqlite3.IntegrityError` на зашифрованной базе не поймает ничего —
+# защита от двойной записи отвалилась бы молча и только у той клиники, которая
+# включила шифрование. Ставится в init(), до него значения нет.
+_SQ = None
 
 # Сериализация бронирований: интервальное пересечение уникальным индексом не
 # ловится (индекс защищает только одинаковые старты), поэтому проверка
@@ -520,13 +526,61 @@ async def _migrate() -> None:
     log.warning("DB migrated %s -> %s", have, SCHEMA_VERSION)
 
 
+def _sqlite_driver(path: str):
+    """(модуль DBAPI, функция открытия соединения) для картотеки на диске.
+
+    Зашифрованную базу открывает sqlcipher3, обычную — штатный sqlite3, и
+    решает это НАЛИЧИЕ ключа, а не настройка: флаг и файл однажды разошлись бы,
+    и программа полезла бы читать шифр как открытый файл.
+
+    ⚠️ Возвращается САМ МОДУЛЬ, а не только коннектор. У sqlcipher3 своя
+    иерархия исключений и свой `Row`: `except sqlite3.OperationalError` ниже
+    по коду перестал бы ловить ровно тогда, когда база зашифрована, — то есть
+    у клиники и молча.
+    ⚠️ `PRAGMA key` ставится ВНУТРИ коннектора, потому что она обязана быть
+    первой операцией соединения; вынеси её наружу — и между открытием и ключом
+    успеет пройти чужой запрос, а SQLCipher ответит «file is not a database».
+    """
+    # импорт здесь, а не в шапке: core.storage тянет за собой db, и на уровне
+    # модуля это замкнуло бы круг
+    from .core import dbkey
+
+    key = dbkey.load()
+    if key is None:
+        if dbkey.enabled():
+            # Ключ ЕСТЬ, но не читается: чужая учётка Windows или новый ПК.
+            # Открывать базу штатным sqlite3 нельзя — он увидит мусор и решит,
+            # что файл битый, а «битая база» толкает на восстановление из
+            # бэкапа поверх целых данных. Падаем внятно.
+            raise RuntimeError(
+                "cheia bazei de date nu poate fi citită pe acest cont Windows "
+                "— folosiți foaia de recuperare (Setări → Securitate)")
+        import sqlite3
+        return sqlite3, lambda: sqlite3.connect(path)
+
+    import sqlcipher3.dbapi2 as sqlcipher
+    pragma = dbkey.pragma_value(key)
+
+    def _open():
+        con = sqlcipher.connect(path)
+        con.execute(f"PRAGMA key = {pragma}")
+        return con
+
+    return sqlcipher, _open
+
+
 async def init(seed_rows: list | None = None) -> None:
-    global POOL, _CONN
+    global POOL, _CONN, _SQ
     if IS_SQLITE:
         import aiosqlite
-        import sqlite3
         path = DATABASE_URL.split("///", 1)[1]
-        _CONN = await aiosqlite.connect(path)
+        # ⚠️ Локальное имя `sqlite3` — не описка: ниже в этой же функции стоят
+        # `except sqlite3.OperationalError`, и они обязаны смотреть на ТОТ
+        # драйвер, которым база открыта. Назови переменную иначе — и следующий
+        # написанный здесь except снова возьмёт стандартный модуль.
+        sqlite3, connector = _sqlite_driver(path)
+        _SQ = sqlite3
+        _CONN = await aiosqlite.Connection(connector, 64)
         _CONN.row_factory = sqlite3.Row
         await _CONN.execute("PRAGMA journal_mode=WAL")
         await _CONN.execute("PRAGMA foreign_keys=ON")
@@ -711,7 +765,6 @@ async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
     if await _conflicts(doctor_id, doctor, starts_at, duration_min):
         return None
     if IS_SQLITE:
-        import sqlite3
         try:
             cur = await _CONN.execute(
                 """INSERT INTO appointments(patient_id, service, doctor, starts_at,
@@ -726,7 +779,7 @@ async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
             await cur.close()
             await _log_booking(pid, service, doctor, starts_at, source)
             return appt_id
-        except sqlite3.IntegrityError as e:
+        except _SQ.IntegrityError as e:
             await _CONN.rollback()
             # страховка на случай гонки мимо замка. Текст SQLite —
             # «UNIQUE constraint failed: appointments.patient_id,
@@ -875,7 +928,6 @@ async def add_note(doctor: str, starts_at: datetime, text: str,
 async def _insert_note(doctor: str, starts_at: datetime, text: str,
                        doctor_id: str | None) -> int | None:
     if IS_SQLITE:
-        import sqlite3
         try:
             cur = await _CONN.execute(
                 """INSERT INTO appointments(patient_id, service, doctor, starts_at,
@@ -887,7 +939,7 @@ async def _insert_note(doctor: str, starts_at: datetime, text: str,
             note_id = cur.lastrowid
             await cur.close()
             return note_id
-        except sqlite3.IntegrityError:
+        except _SQ.IntegrityError:
             await _CONN.rollback()
             return None
     import asyncpg
