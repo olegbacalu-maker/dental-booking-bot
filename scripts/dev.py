@@ -19,6 +19,7 @@ r"""Рутина разработки одной командой. Звать ч
 
 Только стандартная библиотека — как и тесты.
 """
+import errno
 import os
 import pathlib
 import re
@@ -366,4 +367,16 @@ def main(argv: list) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except BrokenPipeError:
+        os._exit(0)
+    except OSError as e:
+        # `dev check | head -4` закрывает трубу, не дочитав, и Windows отвечает
+        # на запись EINVAL вместо BrokenPipeError. Инструмент при этом исправен,
+        # а трейсбек читается как его поломка — гасим ровно этот случай.
+        # os._exit, а не sys.exit: обычный выход снова попробует слить stdout
+        # в ту же закрытую трубу и напечатает вторую ошибку поверх первой.
+        if e.errno != errno.EINVAL:
+            raise
+        os._exit(0)
