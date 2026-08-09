@@ -137,16 +137,21 @@ def suite_patient_card(res: Result) -> None:
         res.ok("новое имя видно в карточке", "Card Test Nou" in page,
                "имя не обновилось")
 
-        # Порядок правой колонки (1.19.0): врач открывает фишу перед тем, как
-        # посадить пациента в кресло, и в этот момент ему нужны аллергии и
-        # анамнез, а не паспортные данные. Проверяем ВНУТРИ pv2-side: те же
-        # слова встречаются в модалках и скриптах страницы.
+        # Порядок правой колонки (1.19.0, по живому экрану Олега): кто это →
+        # чем опасен приём → журнал доступа. «Istoric activitate» нужен для
+        # 195-го и обязан быть виден, но наверху он занимал место у того, ради
+        # чего фишу вообще открывают. Проверяем ВНУТРИ pv2-side: те же слова
+        # встречаются в модалках и скриптах страницы.
         side = page.split("class='pv2-side'", 1)[-1]
-        at, an, dp = (side.find("Atenționări medicale"), side.find("id='anamneza'"),
-                      side.find("Date pacient"))
-        res.ok("безопасность приёма выше профиля в правой колонке",
-               min(at, an, dp) >= 0 and max(at, an) < dp,
-               f"позиции alerts={at} anamneza={an} profil={dp}")
+        dp, at, an, ac = (side.find("Date pacient"),
+                          side.find("Atenționări medicale"),
+                          side.find("id='anamneza'"),
+                          side.find("Istoric activitate"))
+        res.ok("журнал доступа ниже профиля и медицины",
+               min(dp, at, an, ac) >= 0 and max(dp, at, an) < ac,
+               f"позиции profil={dp} alerts={at} anamneza={an} activitate={ac}")
+        res.ok("профиль выше медицинских карточек", dp < min(at, an),
+               f"позиции profil={dp} alerts={at} anamneza={an}")
 
         # отказ обязан НАЗВАТЬ поле и подсветить его в раскрытой форме —
         # «Date invalide» без адреса читалось как «программа не работает»
@@ -723,6 +728,33 @@ def suite_money(res: Result) -> None:
         res.ok("день без платежей говорит об этом прямо",
                "nu au fost înregistrate" in empty.body,
                "пустой день выглядит как поломка")
+
+        # ---- архив: куда девается пациент (вопрос Олега 08-09) ----
+        # Архивация УБИРАЕТ фишу из списка. Пока это происходило молча, человек
+        # возвращался в список, никого не находил и решал, что потерял запись.
+        r = c.post(f"/admin/patient/{avn}/archive", on="1")
+        res.check("архивация называет себя отдельным сообщением", r.msg, "ok_arh")
+        # проверяем ТЕКСТ на странице, а не словарь: «Arhivat» само по себе есть
+        # и в плашке статуса архивной фиши — по нему проверка была бы пустой
+        res.ok("баннер объясняет, что фиша ушла из списка",
+               "nu mai apare în listă" in c.get(
+                   f"/admin/patient/{avn}?msg=ok_arh").body,
+               "баннер не объясняет исчезновение")
+        page = c.get("/admin/search").body
+        res.ok("архивный ушёл из списка", row(page, avn) == "", "остался в списке")
+        res.ok("список признаётся, что кого-то прячет",
+               "arhivat" in page and "st=arhivat" in page,
+               "скрытые есть, а двери к ним нет")
+        arh = c.get("/admin/search?st=arhivat").body
+        res.ok("фильтр «Arhivat» показывает архивного", row(arh, avn) != "",
+               "по фильтру архив пуст")
+        res.ok("поиск по имени находит архивного",
+               row(c.get("/admin/search?q=Avansat").body, avn) != "",
+               "архивного нельзя найти поиском")
+        r = c.post(f"/admin/patient/{avn}/archive", on="0")
+        res.check("возврат из архива — своё сообщение", r.msg, "ok_unarh")
+        res.ok("вернулся в список", row(c.get("/admin/search").body, avn) != "",
+               "не вернулся")
 
 
 def suite_settings(res: Result) -> None:

@@ -96,6 +96,13 @@ MSG_BANNER = {
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
     "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
     "ok_card": ("ok", "Fișa pacientului a fost actualizată ✔"),
+    # ⚠️ Архивация УБИРАЕТ пациента из списка, и общее «фиша обновлена» об этом
+    # молчит: человек возвращается в список, никого там не находит и решает,
+    # что запись пропала. Сообщение обязано назвать, где искать.
+    "ok_arh": ("ok", "Pacient trecut în arhivă ✔ — nu mai apare în listă. "
+                     "Îl găsiți prin filtrul de status «Arhivat» sau "
+                     "căutându-l după nume"),
+    "ok_unarh": ("ok", "Pacient scos din arhivă ✔ — apare din nou în listă"),
     "ok_pay": ("ok", "Plata a fost înregistrată ✔"),
     "bad_pay": ("err", "Sumă sau metodă invalidă — verificați plata"),
     "pay_del": ("ok", "Plata a fost ștearsă — urma rămâne în istoricul fișei"),

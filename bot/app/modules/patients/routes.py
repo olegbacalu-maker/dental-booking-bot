@@ -982,11 +982,11 @@ soldul fișei.</p></div>"""
 {kpi_html}
 <div class='pv2'>
   <div class='pv2-main'>{teeth_card}{plan_card}{fin_card}{docs_card}{quick}</div>
-  <!-- Порядок правой колонки: сперва ближайший визит, затем то, что решает
-       БЕЗОПАСНОСТЬ приёма (аллергии и анамнез), и только потом профиль. Врач
-       смотрит фишу перед тем, как посадить пациента в кресло, — паспортные
-       данные в этот момент не нужны, а «Alergii» нужны. -->
-  <div class='pv2-side'>{next_html}{act_card}{alerts_card}{anam_card}{profile_card}{hist_card}</div>
+  <!-- Порядок правой колонки (Олег, 08-09, по живому экрану): ближайший визит,
+       кто это, чем опасен приём, что было. «Istoric activitate» — журнал
+       доступа по 195-му: он обязан быть виден, но наверху занимал место у
+       того, ради чего фишу открывают, и уехал вниз, к истории визитов. -->
+  <div class='pv2-side'>{next_html}{profile_card}{alerts_card}{anam_card}{act_card}{hist_card}</div>
 </div>
 {dialogs}
 <script>
@@ -1251,7 +1251,7 @@ async def patient_archive(request: Request, pid: int, on: str = Form("1")):
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
     await db.set_archived(pid, on == "1")
-    return _card_redirect(pid, "ok_card")
+    return _card_redirect(pid, "ok_arh" if on == "1" else "ok_unarh")
 
 
 @router.post("/admin/patient/{pid}/alert")
@@ -2005,6 +2005,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
     n_appt = sum(1 for r in appts if r["starts_at"] >= month_start)
     n_appt_prev = len(appts) - n_appt
     n_total = sum(1 for p in everyone if not p["archived"])
+    n_arh = sum(1 for p in everyone if p["archived"])
     n_new = sum(1 for p in everyone if p["created_at"] >= month_start)
     n_new_prev = sum(1 for p in everyone if prev_start <= p["created_at"] < month_start)
 
@@ -2115,16 +2116,33 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
                  f"{head('last', 'Ultima vizită')}{head('debt', 'Sold')}"
                  f"<th>Status</th><th></th>"
                  f"</tr></thead><tbody>{''.join(trs)}</tbody></table></div>")
-    elif q or med or st or ch:
+    elif q or med or st or ch or dat:
         table = ("<div class='pl-empty'>🔍<b>Nimic găsit</b>"
                  "<span>Încercați alt nume, telefon sau scoateți filtrele.</span>"
                  f"<a class='pl-btn' href='/admin/search'>Vezi toți pacienții</a></div>")
+    elif n_arh:
+        # все живые фиши в архиве. Без этой ветки экран говорил бы «Încă niciun
+        # pacient» — то есть «картотека пуста» там, где она просто спрятана
+        table = (f"<div class='pl-empty'>🗄<b>Toți pacienții sunt în arhivă</b>"
+                 f"<span>În listă nu rămâne nimeni: {n_arh} "
+                 f"{'fișă arhivată' if n_arh == 1 else 'fișe arhivate'}.</span>"
+                 f"<a class='pl-btn' href='{url(st='arhivat', page=0)}'>"
+                 f"Arată arhiva</a></div>")
     else:
         table = ("<div class='pl-empty'>👥<b>Încă niciun pacient</b>"
                  "<span>Fișele apar aici odată cu prima programare — "
                  "din registru sau din bot.</span>"
                  "<button type='button' class='pl-btn primary' onclick='newPat()'>"
                  "＋ Adaugă primul pacient</button></div>")
+
+    # Архивные скрыты из списка намеренно, но молча — и человек, только что
+    # отправивший фишу в архив, не находит её и решает, что потерял. Список
+    # обязан признаться, что кого-то прячет, и дать дверь.
+    hidden_arh = n_arh if not (q or st == "arhivat") else 0
+    arh_hint = (f" · 🗄 {hidden_arh} "
+                f"{'arhivat' if hidden_arh == 1 else 'arhivați'} "
+                f"<a href='{url(st='arhivat', page=0)}'>arată</a>"
+                if hidden_arh else "")
 
     first = (page - 1) * per + 1 if total else 0
     nums = []
@@ -2142,7 +2160,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
                        f"{n} / pagină</option>" for n in _PL_PER)
     # у пустого списка «Afișare 0–0 din 0» и стрелки листания — только шум
     pager = (f"<div class='pl-pag'><span>Afișare {first}–{min(page * per, total)} "
-             f"din {total} pacienți</span>"
+             f"din {total} pacienți{arh_hint}</span>"
              f"<div class='pl-pgs'>{prev_a}{''.join(nums)}{next_a}</div>"
              f"<form method='get' action='/admin/search'>"
              + "".join(f"<input type='hidden' name='{k}' value=\"{e(str(v))}\">"
