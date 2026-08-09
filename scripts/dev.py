@@ -4,6 +4,7 @@ r"""Рутина разработки одной командой. Звать ч
     .\dev mutate          проверка сторожей test_structure на слом
     .\dev up [порт]       песочница из исходников на своей базе (по умолчанию 8099)
     .\dev check           готов ли к релизу: дерево, пуш, версия, тег
+    .\dev memory          сколько памяти грузится в КАЖДУЮ сессию и не пора ли резать
 
 Зачем скрипт, если команды и так известны. Инструкция «в такой ситуации запусти
 это, в такой другое» — спецификация программы, а не документ для человека:
@@ -219,10 +220,127 @@ def cmd_check(argv: list) -> int:
     return 0 if ok else 1
 
 
+# ---------- memory ----------
+
+# Потолок на то, что грузится БЕЗУСЛОВНО. Размер всего корпуса значения не
+# имеет: хроника вчетверо больше карты и не стоит ничего, потому что её читают
+# грепом. Тратит бюджет ровно то, что приезжает в каждую сессию независимо от
+# темы, и только это надо стеречь.
+MEMORY_BUDGET = 10_000
+
+# Кириллица — примерно 2.6 символа на токен. Оценка грубая и точной быть не
+# обязана: решение принимается по порядку величины, а не по сотням.
+_CHARS_PER_TOKEN = 2.6
+
+# Факты, которые сегодня уже протухали в памяти. Все до одного — вычислимые:
+# их знает команда, и записанные руками они расходятся с реальностью в тот же
+# день. Проверка СОВЕТУЕТ, а не запрещает: у исторической записи о выпущенной
+# версии свои основания.
+_DERIVABLE = (
+    (r"latest\s*=\s*v?\d+\.\d+", "версию latest знает `release.py check`"),
+    (r"впереди origin на \d+", "счётчик коммитов знает `dev check`"),
+    # ⚠️ Одно и то же число по обе стороны, а не «\d+/\d+»: иначе сюда попадают
+    # номера законов — 195/2024, 828/2011, 133/2011 — и подсказка тонет в шуме.
+    (r"\b(\d{3,4})/\1\b", "число проверок знает `dev test`"),
+    (r"тег\s+v?\d+\.\d+\.\d+\s+(на|стоит)", "положение тега знает `dev check`"),
+)
+
+
+def _tok(text: str) -> int:
+    return int(len(text) / _CHARS_PER_TOKEN)
+
+
+def _memory_dir() -> pathlib.Path | None:
+    """Папка памяти сессии. Имя проекта — путь, где всё не буквенно-цифровое
+    заменено дефисом: `D:\\DentProject` → `D--DentProject`. Если раскладка
+    однажды поменяется, ищем по индексу, а не гадаем дальше."""
+    base = pathlib.Path.home() / ".claude" / "projects"
+    d = base / re.sub(r"[^A-Za-z0-9]", "-", str(ROOT.parent)) / "memory"
+    if d.is_dir():
+        return d
+    hits = list(base.glob("*/memory/MEMORY.md"))
+    return hits[0].parent if len(hits) == 1 else None
+
+
+def cmd_memory(argv: list) -> int:
+    mem = _memory_dir()
+    if mem is None:
+        return say(False, "папка памяти не найдена — раскладка изменилась?") or 2
+
+    card, index = ROOT.parent / "CLAUDE.md", mem / "MEMORY.md"
+    always = _tok(card.read_text(encoding="utf-8")) + _tok(
+        index.read_text(encoding="utf-8"))
+
+    rest = sorted(((_tok(p.read_text(encoding="utf-8")), p.name)
+                   for p in mem.glob("*.md") if p.name != "MEMORY.md"),
+                  reverse=True)
+    grep = [(t, n) for t, n in rest if "chronicle" in n or "archive" in n]
+    recall = [(t, n) for t, n in rest if (t, n) not in grep]
+    detail = _tok((ROOT.parent / "map-modules.md").read_text(encoding="utf-8")) \
+        if (ROOT.parent / "map-modules.md").exists() else 0
+
+    print("Что сколько стоит (оценка, ~2.6 симв./токен)\n")
+    print(f"  ГРУЗИТСЯ ВСЕГДА                    ~{always:6}"
+          f"   потолок {MEMORY_BUDGET}")
+    print(f"    CLAUDE.md                        ~{_tok(card.read_text('utf-8')):6}")
+    print(f"    MEMORY.md (индекс)               ~{_tok(index.read_text('utf-8')):6}")
+    print(f"  по релевантности ({len(recall)} файлов){'':7}~{sum(t for t, _ in recall):6}")
+    print(f"  по ссылке из карты: map-modules    ~{detail:6}")
+    print(f"  только грепом ({len(grep)}){'':18}~{sum(t for t, _ in grep):6}"
+          f"   бюджет не тратит")
+    print()
+
+    # Полоса, а не порог. Настоящая беда здесь — дрейф за месяцы, а не два
+    # процента сверху сегодня: красное на 10 194 против 10 000 горело бы почти
+    # всегда, и его перестали бы читать (ровно как с тегом позади HEAD).
+    hard = int(MEMORY_BUDGET * 1.25)
+    ok = always <= hard
+    if always <= MEMORY_BUDGET:
+        say(True, f"всегда-загружаемое в бюджете: {always} ≤ {MEMORY_BUDGET}")
+    elif ok:
+        say(True, f"всегда-загружаемое {always} — у потолка ({MEMORY_BUDGET}). "
+                  f"Не срочно, но присматривай, что увести в map-modules.md")
+    else:
+        say(False, f"всегда-загружаемое {always} > {hard}: пора резать. Уводить "
+                   f"СПРАВКУ (её посмотрят в коде), прайоры оставлять")
+
+    # Индекс — таблица маршрутизации, а не конспект: дорожает он от длины
+    # строк, а не от числа файлов. Сорок файлов по одному хуку дешевле
+    # тринадцати по три предложения.
+    lines = [l for l in index.read_text(encoding="utf-8").splitlines()
+             if l.startswith("- [")]
+    idx_tok = _tok(index.read_text(encoding="utf-8"))
+    if lines and idx_tok > MEMORY_BUDGET // 4:
+        say(False, f"индекс раздулся до {idx_tok} на {len(lines)} строк — "
+                   f"строка должна быть хуком, а не конспектом. Самые длинные:")
+        for l in sorted(lines, key=len, reverse=True)[:3]:
+            print(f"          {l[:96]}…")
+
+    # Подсказка, а не приговор: см. комментарий к _DERIVABLE
+    hints = []
+    for p in sorted(mem.glob("*.md")):
+        if "chronicle" in p.name or "archive" in p.name:
+            continue        # архив — снимок дня, устаревшее там уместно
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            for pat, why in _DERIVABLE:
+                if re.search(pat, line):
+                    hints.append(f"{p.name}:{i} — {why}")
+                    break
+    if hints:
+        print(f"\n  Похоже на вычислимое ({len(hints)}) — такие записи протухают "
+              f"в тот же день:")
+        for h in hints[:8]:
+            print(f"    · {h}")
+        if len(hints) > 8:
+            print(f"    · … ещё {len(hints) - 8}")
+
+    return 0 if ok else 1
+
+
 # ---------- точка входа ----------
 
 COMMANDS = {"test": cmd_test, "mutate": cmd_mutate, "up": cmd_up,
-            "check": cmd_check}
+            "check": cmd_check, "memory": cmd_memory}
 
 
 def main(argv: list) -> int:
