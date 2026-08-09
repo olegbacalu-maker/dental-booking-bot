@@ -542,15 +542,29 @@ de aceeași cheie.</p>
   <button class='rowdel'>Oprește criptarea</button>
 </form>"""
     else:
+        # ⚠️ Тон здесь — РЕШЕНИЕ Олега (08-09): шифрование это ОПЦИЯ, а не
+        # рекомендация. Требование закона 195 закрывает BitLocker, и программа
+        # его проверяет сама; клинике, которая включит шифрование, достаётся
+        # обязанность хранить лист восстановления. Уговаривать её взять эту
+        # обязанность не за что — экран обязан честно назвать и то, что оно
+        # даёт, и то, чего стоит, а выбор оставить директору.
         body = """
 <h2>🔒 Criptarea evidenței</h2>
-<p class='hint'>Acum fișierul <b>data\\dental.db</b> este un SQLite obișnuit:
-cine îl copiază de pe calculator îl poate deschide cu orice program. Criptarea
-îl face inutilizabil în afara acestui calculator.</p>
-<p class='hint'><b>Ce trebuie știut dinainte.</b> Cheia este legată de contul
-Windows de pe acest calculator. La reinstalarea Windows sau la schimbarea
-calculatorului evidența se deschide <b>numai</b> cu codul de pe foaia de
-recuperare — de aceea pasul următor este tipărirea ei.</p>
+<div class='banner ok'>Nu este obligatorie. Cerința Legii 195 este acoperită de
+criptarea discului (BitLocker) — starea ei o verifică programul singur, în
+<b>Stare sistem</b>. Aceasta este o măsură în plus, pentru cine o dorește.</div>
+<p class='hint'><b>Ce face.</b> Acum <b>data\\dental.db</b> este o bază SQLite
+obișnuită: copiată de pe calculator, se deschide cu orice program. Criptarea o
+face inutilizabilă în afara acestui calculator. Are sens mai ales dacă
+programul stă pe un laptop care iese din clinică.</p>
+<p class='hint'><b>Ce cere în schimb.</b> Cheia este legată de contul Windows de
+pe acest calculator. După reinstalarea Windows sau la schimbarea calculatorului
+evidența se deschide <b>numai</b> cu codul de pe foaia de recuperare — foaia
+devine responsabilitatea clinicii, iar pierderea ei nu poate fi reparată de
+nimeni, nici de noi. De aceea pasul următor este tipărirea ei.</p>
+<p class='hint'><b>Ce NU face.</b> Nu vă apără de cineva care lucrează la acest
+calculator sub acest cont Windows. Acolo lucrează parola de intrare și blocarea
+ecranului (Win+L).</p>
 <form method='post' action='/admin/settings/crypt/prepare'>
   <button class='savebtn'>Pregătește criptarea →</button>
 </form>"""
