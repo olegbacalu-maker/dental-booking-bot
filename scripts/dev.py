@@ -160,6 +160,12 @@ def cmd_check(argv: list) -> int:
     ok &= say(three, f"APP_VERSION = {ver}" if three else
               f"APP_VERSION = {ver!r} — нужны ровно три числа")
 
+    # ⚠️ Тег ПОЗАДИ HEAD — нормальное состояние между релизами, а не поломка:
+    # выпустили версию, работа пошла дальше. Красить это в [!!] значит завести
+    # баннер, который горит каждый день, — его перестанут читать ровно к тому
+    # разу, когда он прав (та же грабля, что с жёлтым `ok_past`). Красное здесь
+    # только на настоящем расхождении: тег на ветке, которой в HEAD нет.
+    bump = False
     if three:
         tag = f"v{ver}"
         at = git("rev-list", "-n", "1", tag).strip()
@@ -167,18 +173,26 @@ def cmd_check(argv: list) -> int:
         if not at:
             say(True, f"тега {tag} ещё нет — создать после сборки, "
                       f"на тот коммит, из которого собрано")
+        elif at == head:
+            say(True, f"тег {tag} на HEAD — собрано будет ровно это")
+        elif git("rev-list", "--count", f"HEAD..{tag}").strip() == "0":
+            n = git("rev-list", "--count", f"{tag}..HEAD").strip()
+            bump = True
+            say(True, f"{ver} уже выпущена, сверху коммитов: {n}")
         else:
-            ok &= say(at == head, f"тег {tag} на HEAD" if at == head else
-                      f"тег {tag} стоит на {at[:7]}, а HEAD — {head[:7]}: "
-                      f"тег описывает не этот код")
+            ok &= say(False, f"тег {tag} стоит на {at[:7]}, и этого коммита нет "
+                             f"в HEAD {head[:7]} — тег описывает другую ветку")
 
     print()
-    if ok:
-        print("Можно собирать:  powershell -File Build-Installer.ps1")
-        print("Прогон перед этим:  .\\dev test")
-    else:
+    if not ok:
         print("Сначала закрыть отмеченное [!!] — иначе лестница сломается "
               "на середине.")
+    elif bump:
+        print(f"К работе готов. Перед РЕЛИЗОМ поднять APP_VERSION: {ver} уже "
+              f"выпущена, и сборка из этого кода назвалась бы её именем.")
+    else:
+        print("Можно собирать:  powershell -File Build-Installer.ps1")
+        print("Прогон перед этим:  .\\dev test")
     return 0 if ok else 1
 
 
