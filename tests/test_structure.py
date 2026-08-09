@@ -1,0 +1,207 @@
+"""Правила раскладки кода из карты проекта — синтаксисом, а не прозой.
+
+Единственный набор, который НЕ поднимает сервер: он читает исходники модулем
+`ast`. Проверяет то, чего не видит ни один HTTP-запрос: где лежит файл, кто
+кого импортирует, кто забыл позвать соседа. Такие поломки молчаливы — запрос
+успешен, лог чист, а собранная у клиники программа либо не стартует, либо
+показывает не то (грабли `__file__` 08-04 и `__package__` 08-05).
+
+Каждое правило здесь уже записано прозой в CLAUDE.md и уже соблюдается. Набор
+ничего не чинит: он не даёт правилу тихо отмереть при следующем переезде файла.
+"""
+import ast
+
+from harness import BOT, Result
+
+# Файлы, которые `desktop.py` зовёт ДО того, как собрано приложение: импортов
+# проекта в них нет и быть не может, и лежать они обязаны в корне app/.
+# Переезд любого из них в подпапку ломает запуск у клиники, не тронув запуск
+# из исходников — то есть ни один прогон этого не заметит.
+_PRELOAD = ("app/paths.py", "app/dpapi.py", "app/envfile.py")
+
+# Друг друга им знать можно — это один слой, живущий до сборки приложения
+# (dpapi правит токен в dental.env, то есть зовёт envfile). Нельзя всё
+# остальное: db, engine, core, модули — любой из них тянет за собой FastAPI.
+_PRELOAD_MOD = {p.rsplit("/", 1)[-1][:-3] for p in _PRELOAD}
+
+# `__file__` законен ровно там, где кто-то обязан знать, где лежит он сам:
+# paths.py — единственный, кто знает раскладку; desktop.py — лаунчер, который
+# зовут раньше paths. Везде ещё «путь рядом с собой» переживёт переезд файла
+# в исходниках и умрёт внутри exe, где раскладка другая.
+_FILE_OK = {"app/paths.py", "desktop.py"}
+
+# Все, кто в итоге зовёт `_save_users`, то есть переписывает auth.json.
+# verify_pin здесь не по недосмотру: при входе он молча мигрирует файл v1→v2.
+# Забытый рядом remember_auth_file() = ложный «взлом» при следующем старте, а
+# это хуже настоящего — клиника перестанет верить баннеру.
+_AUTH_WRITERS = {"save_user", "delete_user", "_write_pin", "verify_pin"}
+
+# Роль — НАБОР ПРАВ в таблице PERMS, а не строка, которую сравнивают по месту.
+# Ловим и литерал, и константу: `role == "director"` и `role == ROLE_DIRECTOR`.
+_ROLES = {"director", "receptie", "medic"}
+
+# Законные сравнения роли: код, который ролями УПРАВЛЯЕТ, а не который решает
+# по роли, что человеку можно. Экран учёток обязан знать, что такое директор,
+# и через PERMS этого не выразить:
+#   _users_block — какая роль выбрана в <option> по умолчанию;
+#   users_save   — «последний директор снимает с себя роль» запер бы настройки
+#                  навсегда: вернуть право станет некому.
+# Список именной, а не по файлу: settings/routes.py длиной под тысячу строк, и
+# разрешение на весь файл спрятало бы в нём будущую проверку доступа по роли.
+# Переименуют функцию — набор покраснеет, и это правильно: повод посмотреть.
+_ROLE_OK = {"app/modules/settings/routes.py": {"_users_block", "users_save"}}
+
+# Владелец правила: внутри него сравнивать роли и переписывать auth.json можно,
+# на то он и один на всю программу.
+_AUTH_MODULE = "app/core/auth.py"
+
+
+def _sources() -> list[tuple[str, ast.Module]]:
+    """Все модули программы: (путь от bot/ через `/`, разобранное дерево)."""
+    out = []
+    for p in sorted(BOT.rglob("*.py")):
+        rel = p.relative_to(BOT).as_posix()
+        out.append((rel, ast.parse(p.read_text(encoding="utf-8"), filename=rel)))
+    return out
+
+
+def _calls(node: ast.AST) -> set[str]:
+    """Имена функций, вызванных внутри узла. `await f()` тоже считается: Await
+    оборачивает Call, а walk доходит до него."""
+    return {n.func.id for n in ast.walk(node)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+
+
+def _enclosing(tree: ast.Module, lineno: int) -> set[str]:
+    """Имена всех функций, внутри которых лежит строка (вложенные — тоже)."""
+    return {fn.name for fn in ast.walk(tree)
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and fn.lineno <= lineno <= (fn.end_lineno or fn.lineno)}
+
+
+def _imported(node: ast.AST) -> list[str]:
+    """Что импортирует один узел import/from-import — модуль и имена вместе."""
+    if isinstance(node, ast.ImportFrom):
+        return [node.module or ""] + [a.name for a in node.names]
+    if isinstance(node, ast.Import):
+        return [a.name for a in node.names]
+    return []
+
+
+def suite(res: Result) -> None:
+    src = _sources()
+    by_path = dict(src)
+
+    # Сторож за сторожами. Все проверки ниже устроены как «нарушителей не
+    # нашлось», и пустой список файлов делает их все зелёными разом. Если
+    # раскладка репозитория однажды переедет, упасть должно здесь, а не
+    # притвориться успехом.
+    res.ok("исходники нашлись", len(src) > 20,
+           f"под {BOT} разобрано файлов: {len(src)}")
+
+    bad = [f"{rel}:{n.lineno}" for rel, tree in src if rel not in _FILE_OK
+           for n in ast.walk(tree)
+           if isinstance(n, ast.Name) and n.id == "__file__"]
+    res.ok("__file__ только в paths.py и desktop.py", not bad,
+           "путь «рядом с собой» вне разрешённых мест: " + ", ".join(bad))
+
+    # Правильно — `(__package__ or "app").split(".")[0]`. Голый __package__ в
+    # имени модуля после переезда файла в подпапку начинает означать другое, и
+    # никакой ошибки при этом не всплывает: статус живого бота показывался
+    # выключенным при чистом логе и успешном запросе.
+    bad = []
+    for rel, tree in src:
+        safe = set()
+        for n in ast.walk(tree):
+            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "split"):
+                safe.update(id(x) for x in ast.walk(n)
+                            if isinstance(x, ast.Name) and x.id == "__package__")
+        bad += [f"{rel}:{n.lineno}" for n in ast.walk(tree)
+                if isinstance(n, ast.Name) and n.id == "__package__"
+                and id(n) not in safe]
+    res.ok("__package__ только через .split('.')[0]", not bad,
+           "имя модуля считается от __package__ целиком: " + ", ".join(bad))
+
+    bad = []
+    for rel, tree in src:
+        if rel == _AUTH_MODULE:
+            continue
+        allowed = _ROLE_OK.get(rel, set())
+        for n in ast.walk(tree):
+            if not isinstance(n, ast.Compare):
+                continue
+            if not all(isinstance(o, (ast.Eq, ast.NotEq)) for o in n.ops):
+                continue        # `in ("director", …)` — это проверка ввода
+            for side in [n.left, *n.comparators]:
+                lit = isinstance(side, ast.Constant) and side.value in _ROLES
+                const = isinstance(side, ast.Name) and side.id.startswith("ROLE_")
+                # белый список спрашиваем ПОСЛЕ совпадения: _enclosing обходит
+                # дерево целиком, и на каждое сравнение подряд это секунды
+                if (lit or const) and not allowed & _enclosing(tree, n.lineno):
+                    bad.append(f"{rel}:{n.lineno}")
+                    break
+    res.ok("роль не сравнивается по месту", not bad,
+           "доступ решается сравнением роли, а не PERMS: " + ", ".join(bad))
+
+    # Полярность правила ниже опасная: `_AUTH_WRITERS` — список имён, которые
+    # ВКЛЮЧАЮТ требование. Переименуют `save_user` — правило станет искать
+    # несуществующее имя, найдёт ноль нарушителей и позеленеет НАВСЕГДА. Мутация
+    # этого не ловит: она ломает сторожа тем же устаревшим именем. Поэтому имена
+    # сверяются с определениями в самом auth.py. (Остальные списки — обратной
+    # полярности и краснеют сами: пропал `paths.py` — не нашёлся файл; переехал
+    # `users_save` — сравнение роли в нём перестало быть разрешённым.)
+    defined = {fn.name for fn in ast.walk(by_path.get(_AUTH_MODULE) or ast.Module(
+        body=[], type_ignores=[]))
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    gone = sorted(_AUTH_WRITERS - defined)
+    res.ok("список пишущих auth.json не протух", not gone,
+           f"нет в {_AUTH_MODULE}: {', '.join(gone)} — правило ищет то, чего "
+           f"больше нет, и молчит")
+
+    # Внутри auth.py пломбу ставить не надо: модуль владеет файлом, и там
+    # writers свободно зовут друг друга (verify_pin → _write_pin → _save_users).
+    # Обязанность возникает у ЧУЖОГО кода, который тронул auth.json.
+    bad = []
+    for rel, tree in src:
+        if rel == _AUTH_MODULE:
+            continue
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            called = _calls(fn)
+            if called & _AUTH_WRITERS and "remember_auth_file" not in called:
+                who = ", ".join(sorted(called & _AUTH_WRITERS))
+                bad.append(f"{rel}:{fn.lineno} {fn.name}() зовёт {who}")
+    res.ok("кто пишет auth.json — обновляет отпечаток", not bad,
+           "забыт remember_auth_file(): " + "; ".join(bad))
+
+    bad = []
+    for rel in _PRELOAD:
+        if rel not in by_path:
+            bad.append(f"{rel} — нет по этому пути")
+            continue
+        for n in ast.walk(by_path[rel]):
+            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+                continue
+            targets = [m for m in _imported(n) if m]
+            own = getattr(n, "level", 0) or any(
+                m.split(".")[0] == "app" for m in targets)
+            if not own:
+                continue                    # стандартная библиотека — можно
+            outside = [m for m in targets
+                       if m.split(".")[-1] not in _PRELOAD_MOD]
+            if outside:
+                bad.append(f"{rel}:{n.lineno} → {', '.join(outside)}")
+    res.ok("paths/dpapi/envfile в корне app/ и без импортов проекта", not bad,
+           "лаунчер зовёт их до сборки приложения: " + "; ".join(bad))
+
+    # main.py подключает роутеры модулей; обратный импорт замкнул бы круг.
+    # Сегодня это упало бы и так, громко, — правило стоит здесь ради того, чтобы
+    # его нельзя было «починить» отложенным импортом внутри функции.
+    bad = [f"{rel}:{n.lineno}" for rel, tree in src
+           if rel.startswith(("app/modules/", "app/core/"))
+           for n in ast.walk(tree)
+           if any(m.split(".")[-1] == "main" for m in _imported(n) if m)]
+    res.ok("модуль не импортирует main", not bad,
+           "модуль знает про main.py: " + ", ".join(bad))

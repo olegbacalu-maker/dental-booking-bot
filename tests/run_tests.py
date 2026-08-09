@@ -20,11 +20,16 @@ import test_booking  # noqa: E402
 import test_bot  # noqa: E402
 import test_pin  # noqa: E402
 import test_privacy  # noqa: E402
+import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_visit  # noqa: E402
 from harness import run  # noqa: E402
 
 SUITES = [
+    # Первым: сервера не поднимает, идёт доли секунды, и ломается ровно там,
+    # где переезд файла убил бы собранную программу. Ждать этого 60 секунд,
+    # пока прогоняются наборы с сервером, незачем.
+    ("Раскладка кода: правила карты", test_structure.suite),
     ("Чистая логика расписания", test_admin.suite_pure),
     ("Вход и охрана доступа", test_admin.suite_auth),
     ("PIN: хранение и переезд", test_pin.suite_store),
