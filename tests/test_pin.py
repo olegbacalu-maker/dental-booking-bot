@@ -170,7 +170,10 @@ def suite_roles(res: Result) -> None:
         # каталог врачей врачу закрыт с 1.15.1 (канарейка 1.15.0: врач с
         # телефона открывал ЧУЖИЕ карточки и мог менять фото) — журнал и
         # пациенты открыты, карточки врачей нет
-        for path in ("/admin/stats", "/admin/settings",
+        # /admin/casa — печатный отчёт кассы: это ВЫРУЧКА клиники, дверь та же,
+        # что у статистики. Долг отдельного пациента врач по-прежнему видит —
+        # он в фише и в списке, и это операционка, а не деньги клиники
+        for path in ("/admin/stats", "/admin/casa", "/admin/settings",
                      "/admin/settings/security", "/admin/settings/system",
                      "/admin/settings/faq", "/admin/medici",
                      "/admin/doctor-card/d2"):

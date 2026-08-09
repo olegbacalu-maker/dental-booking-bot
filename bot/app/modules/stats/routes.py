@@ -32,6 +32,7 @@ from ...core.auth import PERM_MONEY, require
 from ...core.charts import donut, gauge, line_days, spark
 from ...core.layout import _shell, tg_configured
 from ...core.visits import _parse_date
+from . import casa
 
 router = APIRouter()
 
@@ -291,7 +292,11 @@ async def admin_stats(
         f"{_trend_money(inc_cur, inc_prev, plabel)}"
         f"<small>azi: {_fmt_mdl(inc_azi)} · 💵 {_fmt_mdl(by_m['numerar'])} · "
         f"💳 {_fmt_mdl(by_m['card'])} · 🏦 {_fmt_mdl(by_m['transfer'])} · "
-        f"plăți înregistrate la recepție</small></div>")
+        f"plăți înregistrate la recepție</small>"
+        # лист для сверки ящика в конце смены; ведёт на СЕГОДНЯ, а не на конец
+        # выбранного периода: касса сходится за смену, а не за произвольное окно
+        f"<a class='ag-all' href='/admin/casa'>🖨 Raport de casă (azi) →</a>"
+        f"</div>")
 
     # ---- врачи ----
     rows_html = "".join(
@@ -381,3 +386,19 @@ async def admin_stats(
             + hint)
     return _shell(body, "statistici · perioadă selectabilă · doar director",
                   active="stat")
+
+
+@router.get("/admin/casa", response_class=HTMLResponse)
+async def admin_casa(request: Request, d: str = ""):
+    """Печатный отчёт кассы за день. `?d=YYYY-MM-DD`, по умолчанию сегодня.
+
+    За `PERM_MONEY`, как и вся страница статистики: это выручка клиники, а не
+    долг конкретного пациента (тот виден любой роли — и в фише, и в списке).
+    Проверка здесь, а не только в ссылке: адрес набирается руками.
+    """
+    if (deny := require(request, PERM_MONEY)) is not None:
+        return deny
+    day = _parse_date(d) if d else datetime.now(eng.TZ).date()
+    start = datetime(day.year, day.month, day.day, tzinfo=eng.TZ)
+    rows = await db.payments_day(start, start + timedelta(days=1))
+    return HTMLResponse(casa.render(day, rows))

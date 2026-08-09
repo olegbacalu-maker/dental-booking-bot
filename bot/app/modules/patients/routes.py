@@ -982,7 +982,11 @@ soldul fișei.</p></div>"""
 {kpi_html}
 <div class='pv2'>
   <div class='pv2-main'>{teeth_card}{plan_card}{fin_card}{docs_card}{quick}</div>
-  <div class='pv2-side'>{next_html}{act_card}{profile_card}{alerts_card}{anam_card}{hist_card}</div>
+  <!-- Порядок правой колонки: сперва ближайший визит, затем то, что решает
+       БЕЗОПАСНОСТЬ приёма (аллергии и анамнез), и только потом профиль. Врач
+       смотрит фишу перед тем, как посадить пациента в кресло, — паспортные
+       данные в этот момент не нужны, а «Alergii» нужны. -->
+  <div class='pv2-side'>{next_html}{act_card}{alerts_card}{anam_card}{profile_card}{hist_card}</div>
 </div>
 {dialogs}
 <script>
@@ -1866,6 +1870,22 @@ def _pl_doc(p: dict) -> str:
             f"setat un medic curant'>{name}</span>")
 
 
+def _pl_money(n: int) -> str:
+    """2550 → «2 550». Разделитель тысяч — просьба Олега: без него четырёх- и
+    пятизначные суммы читаются с запинкой."""
+    return f"{n:,}".replace(",", " ")
+
+
+def _pl_sold(debt: int) -> str:
+    """Ячейка «Sold»: долг красным, аванс зелёным, рассчитавшийся — прочерком.
+    Бейджи те же, что у статуса (bad/act) — своих классов не заводим."""
+    if not debt:
+        return "<span class='dim'>—</span>"
+    if debt > 0:
+        return f"<span class='pl-badge bad'>{_pl_money(debt)} MDL</span>"
+    return f"<span class='pl-badge act'>avans {_pl_money(-debt)}</span>"
+
+
 def _pl_dmy(v) -> str:
     """dd.mm.yyyy из datetime или из ISO-строки (birth_date хранится текстом)."""
     if not v:
@@ -1879,13 +1899,14 @@ def _pl_dmy(v) -> str:
 
 
 async def _pl_rows(now: datetime) -> list[dict]:
-    """Все пациенты клиники со сведёнными агрегатами. Четыре запроса на
+    """Все пациенты клиники со сведёнными агрегатами. Шесть запросов на
     страницу — независимо от того, десять в списке строк или тысяча."""
     people = await db.all_patients(include_archived=True)
     vis = {r["patient_id"]: r for r in await db.patients_visits(now)}
     alerts = {r["patient_id"]: r["n"] for r in await db.patients_alert_counts()}
     plans = {r["patient_id"]: r["n"] for r in await db.patients_plan_counts()}
     docs = {r["patient_id"]: r["doctor"] for r in await db.patients_last_doctor()}
+    debts = await db.patients_debt()
     out = []
     for p in people:
         v = vis.get(p["id"]) or {}
@@ -1893,7 +1914,11 @@ async def _pl_rows(now: datetime) -> list[dict]:
         row.update({"last_at": v.get("last_at"), "next_at": v.get("next_at"),
                     "n_visits": v.get("n_visits") or 0,
                     "n_alerts": alerts.get(p["id"], 0),
-                    "n_plan": plans.get(p["id"], 0)})
+                    "n_plan": plans.get(p["id"], 0),
+                    # долг = финализированный план − оплачено, минус = аванс.
+                    # Та же формула, что в фише, и считается там же (db), чтобы
+                    # список и карточка не разошлись в цифре
+                    "debt": debts.get(p["id"], 0)})
         # «Medic» = врач из фиши, а если его не проставили — тот, кто вёл
         # последний визит. doctor_own отличает одно от другого: выведенного
         # врача показываем приглушённо, чтобы он не читался как назначение.
@@ -1905,7 +1930,7 @@ async def _pl_rows(now: datetime) -> list[dict]:
 
 
 def _pl_filter(rows: list[dict], now: datetime, q: str, med: str, st: str,
-               ch: str, sort: str) -> list[dict]:
+               ch: str, sort: str, dat: str = "") -> list[dict]:
     """Отбор и порядок. Архивные скрыты, пока их не спросили явно — поиском
     или фильтром: фишу с историей лечения нельзя терять, её именно прячут."""
     out = []
@@ -1922,11 +1947,20 @@ def _pl_filter(rows: list[dict], now: datetime, q: str, med: str, st: str,
             continue
         if ch and _pl_canal(p) != ch:
             continue
+        # «Datorie» — только должники, «Avans» — только переплатившие. Ноль не
+        # попадает ни туда, ни туда: рассчитавшийся пациент не должен всплывать
+        # в списке, который регистратура открывает, чтобы кому-то позвонить.
+        if dat == "da" and p["debt"] <= 0:
+            continue
+        if dat == "avans" and p["debt"] >= 0:
+            continue
         out.append(p)
     if sort == "name":
         out.sort(key=lambda p: db.fold(p["name"]))
     elif sort == "new":
         out.sort(key=lambda p: p["created_at"], reverse=True)
+    elif sort == "debt":    # самый крупный долг сверху, авансы в самом конце
+        out.sort(key=lambda p: p["debt"], reverse=True)
     else:   # по последнему визиту, кто ещё не был — в конце
         out.sort(key=lambda p: (p["last_at"] is not None, p["last_at"] or _PL_NEVER),
                  reverse=True)
@@ -1949,17 +1983,18 @@ def _pl_trend(cur: int, prev: int) -> str:
 @router.get("/admin/search", response_class=HTMLResponse)
 async def admin_search(request: Request, q: str = "", med: str = "", st: str = "",
                        ch: str = "", sort: str = "last", page: int = 1,
-                       per: int = 20, msg: str = ""):
+                       per: int = 20, msg: str = "", dat: str = ""):
     if (deny := _guard(request)) is not None:
         return deny
     e = html.escape
     q = q.strip()[:60]
-    sort = sort if sort in ("last", "name", "new") else "last"
+    sort = sort if sort in ("last", "name", "new", "debt") else "last"
+    dat = dat if dat in ("da", "avans") else ""
     per = per if per in _PL_PER else 20
     now = datetime.now(eng.TZ)
 
     everyone = await _pl_rows(now)
-    rows = _pl_filter(everyone, now, q, med, st, ch, sort)
+    rows = _pl_filter(everyone, now, q, med, st, ch, sort, dat)
 
     # ---- три числа над списком (карточки макета; денежной среди них нет) ----
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -2000,7 +2035,8 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
             out.append(f"<option value='{e(val)}'{sel}>{e(label)}</option>")
         return "".join(out)
 
-    base = {"q": q, "med": med, "st": st, "ch": ch, "sort": sort, "per": per}
+    base = {"q": q, "med": med, "st": st, "ch": ch, "sort": sort, "per": per,
+            "dat": dat}
 
     def url(**over) -> str:
         d = {k: v for k, v in {**base, **over}.items()
@@ -2011,7 +2047,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
         # иначе браузер вправе прочитать хвост как имя сущности
         return "/admin/search" + (f"?{qs.replace('&', '&amp;')}" if qs else "")
 
-    dirty = any([q, med, st, ch]) or sort != "last" or per != 20
+    dirty = any([q, med, st, ch, dat]) or sort != "last" or per != 20
     reset = (f"<a class='pl-btn' href='/admin/search' title='Scoate toate filtrele'>"
              f"✕ Resetează</a>" if dirty else "")
     csv_url = "/admin/patients.csv" + url()[len("/admin/search"):]
@@ -2024,6 +2060,9 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
     {opts([(k, v[0]) for k, v in _PL_BADGE.items()], st, "Toate statusurile")}</select>
   <select name='ch' onchange='this.form.submit()'>
     {opts(list(_PL_CANAL.items()), ch, "Toate canalele")}</select>
+  <select name='dat' onchange='this.form.submit()'>
+    {opts([("da", "Doar cu datorie"), ("avans", "Doar cu avans")], dat,
+          "Orice sold")}</select>
   <input type='hidden' name='sort' value='{sort}'>
   <input type='hidden' name='per' value='{per}'>
   <button class='pl-btn'>Caută</button>{reset}
@@ -2061,6 +2100,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
             f"{f'<small> · {age} ani</small>' if age else ''}</td>"
             f"<td>{_pl_doc(p)}</td>"
             f"<td>{_pl_dmy(p['last_at'])}{nxt}</td>"
+            f"<td>{_pl_sold(p['debt'])}</td>"
             f"<td><span class='pl-badge {cls}'>{label}</span></td>"
             f"<td class='pl-acts'>"
             f"<button type='button' title='Previzualizare' "
@@ -2072,7 +2112,8 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
         table = (f"<div class='pl-scroll'><table class='pl-tbl'><thead><tr>"
                  f"{head('name', 'Pacient')}<th>Telefon</th>"
                  f"<th class='pl-hide'>Data nașterii</th><th>Medic</th>"
-                 f"{head('last', 'Ultima vizită')}<th>Status</th><th></th>"
+                 f"{head('last', 'Ultima vizită')}{head('debt', 'Sold')}"
+                 f"<th>Status</th><th></th>"
                  f"</tr></thead><tbody>{''.join(trs)}</tbody></table></div>")
     elif q or med or st or ch:
         table = ("<div class='pl-empty'>🔍<b>Nimic găsit</b>"
@@ -2330,19 +2371,23 @@ async def patient_peek(request: Request, pid: int):
 @router.get("/admin/patients.csv")
 async def patients_csv(request: Request, q: str = "", med: str = "", st: str = "",
                        ch: str = "", sort: str = "last", per: int = 20,
-                       page: int = 1):
+                       page: int = 1, dat: str = ""):
     """Тот же список, что на экране, теми же фильтрами — файлом для Excel.
     Страницы намеренно игнорируются: выгружают ВЫБОРКУ, а не её первую сотню."""
     if (deny := _guard(request)) is not None:
         return deny
     now = datetime.now(eng.TZ)
-    rows = _pl_filter(await _pl_rows(now), now, q.strip()[:60], med, st, ch, sort)
+    rows = _pl_filter(await _pl_rows(now), now, q.strip()[:60], med, st, ch, sort,
+                      dat if dat in ("da", "avans") else "")
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
+    # «Sold» числом со знаком, а не «1 200 MDL»: файл открывают в Excel, и
+    # разделитель тысяч с валютой превратили бы колонку в текст — по ней не
+    # просуммировать и не отсортировать. Минус здесь означает аванс.
     w.writerow(["Nume", "Telefon", "E-mail", "Data nașterii", "Vârstă", "Gen",
                 "Medic", "Nr. dosar", "Canal", "Status", "Ultima vizită",
-                "Următoarea vizită", "Vizite", "Înregistrat"])
+                "Următoarea vizită", "Vizite", "Sold (MDL)", "Înregistrat"])
     for p in rows:
         w.writerow([
             p["name"] or "", p["phone"] or "", p["email"] or "",
@@ -2350,7 +2395,7 @@ async def patients_csv(request: Request, q: str = "", med: str = "", st: str = "
             (p["gender"] or "").upper(), p["doctor"],
             p["file_no"] or "", _PL_CANAL[_pl_canal(p)].split()[-1],
             _PL_BADGE[p["status"]][0], _pl_dmy(p["last_at"]).replace("—", ""),
-            _pl_dmy(p["next_at"]).replace("—", ""), p["n_visits"],
+            _pl_dmy(p["next_at"]).replace("—", ""), p["n_visits"], p["debt"],
             _pl_dmy(p["created_at"]),
         ])
     csv_text = "﻿" + buf.getvalue()   # BOM: иначе Excel ломает диакритику

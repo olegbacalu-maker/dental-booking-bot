@@ -1114,6 +1114,43 @@ async def patients_plan_counts() -> list:
     return await _fetch(sql, sql)
 
 
+async def patients_debt() -> dict:
+    """Долг каждого пациента: финализированный план − оплачено. Минус = аванс.
+
+    Та же формула, что в `patient_finance`, но на всю картотеку двумя запросами
+    вместо двух НА ПАЦИЕНТА: список зовёт это один раз на страницу.
+    Полного внешнего соединения в SQLite нет, поэтому две выборки сводятся в
+    Python — заодно не приходится писать двум диалектам разный SQL.
+    """
+    chg = ("SELECT patient_id, COALESCE(SUM(price_mdl), 0) AS n FROM plan_items "
+           "WHERE status = 'finalizat' GROUP BY patient_id")
+    pay = ("SELECT patient_id, COALESCE(SUM(amount_mdl), 0) AS n FROM payments "
+           "GROUP BY patient_id")
+    out: dict[int, int] = {}
+    for r in await _fetch(chg, chg):
+        out[r["patient_id"]] = int(r["n"] or 0)
+    for r in await _fetch(pay, pay):
+        out[r["patient_id"]] = out.get(r["patient_id"], 0) - int(r["n"] or 0)
+    return out
+
+
+async def payments_day(start: datetime, end: datetime) -> list:
+    """Платежи за окно, с именем пациента — для печатного отчёта кассы.
+
+    ⚠️ `at` возвращается в UTC, как все даты (`_DT_COLS`). Печать читает
+    человек, поэтому переводить в `eng.TZ` обязан вызывающий: иначе платёж,
+    принятый в 09:00, встанет в отчёт как 06:00 — дата верна, час чужой.
+    """
+    sql = ("SELECT pm.amount_mdl, pm.method, pm.at, pm.note, pm.taken_by, "
+           "       pm.patient_id, p.name AS patient "
+           "FROM payments pm LEFT JOIN patients p ON p.id = pm.patient_id "
+           "WHERE pm.at >= {0} AND pm.at < {1} ORDER BY pm.at")
+    return await _fetch(
+        sql.format("$1", "$2"), sql.format("?", "?"),
+        *((start, end) if not IS_SQLITE else (_iso(start), _iso(end))),
+    )
+
+
 async def patient_id_by_key(session_key: str) -> int | None:
     """Есть ли уже пациент с таким ключом. Нужен до создания карточки вручную:
     `_upsert_patient` при совпадении ПЕРЕЗАПИСАЛ бы имя существующего, и

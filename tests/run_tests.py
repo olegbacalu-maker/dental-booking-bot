@@ -61,6 +61,7 @@ SUITES = [
     ("Дневник визита: закон 195", test_visit.suite_195),
     ("Форма 043/e: печать", test_visit.suite_043),
     ("Список пациентов", test_admin.suite_patients_list),
+    ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),
     ("Доступ с телефона (LAN)", test_admin.suite_lan),
     ("Закон 195: выгрузка данных пациента", test_privacy.suite_export),

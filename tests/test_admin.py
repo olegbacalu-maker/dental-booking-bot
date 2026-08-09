@@ -8,7 +8,8 @@ import re
 import shutil
 import subprocess
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from harness import BOT, PIN, PYTHON, Client, Result, Server
 
@@ -132,9 +133,20 @@ def suite_patient_card(res: Result) -> None:
         r = c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
                    phone="022654654", email="test@example.com")
         res.check("профиль сохраняется", r.msg, "ok_card")
-        res.ok("новое имя видно в карточке",
-               "Card Test Nou" in c.get(f"/admin/patient/{pid}").body,
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("новое имя видно в карточке", "Card Test Nou" in page,
                "имя не обновилось")
+
+        # Порядок правой колонки (1.19.0): врач открывает фишу перед тем, как
+        # посадить пациента в кресло, и в этот момент ему нужны аллергии и
+        # анамнез, а не паспортные данные. Проверяем ВНУТРИ pv2-side: те же
+        # слова встречаются в модалках и скриптах страницы.
+        side = page.split("class='pv2-side'", 1)[-1]
+        at, an, dp = (side.find("Atenționări medicale"), side.find("id='anamneza'"),
+                      side.find("Date pacient"))
+        res.ok("безопасность приёма выше профиля в правой колонке",
+               min(at, an, dp) >= 0 and max(at, an) < dp,
+               f"позиции alerts={at} anamneza={an} profil={dp}")
 
         # отказ обязан НАЗВАТЬ поле и подсветить его в раскрытой форме —
         # «Date invalide» без адреса читалось как «программа не работает»
@@ -599,6 +611,118 @@ def suite_patients_list(res: Result) -> None:
         res.ok("без входа пациент не заводится",
                anon.post("/admin/patients/new", name="X").status == 303,
                "завёл без входа")
+
+
+def suite_money(res: Result) -> None:
+    """Колонка «Sold» в списке пациентов и печатный отчёт кассы (1.19.0).
+
+    Долг конкретного пациента видит ЛЮБАЯ роль — это операционка стойки, кому
+    звонить. Касса за день это выручка клиники, и она за `PERM_MONEY`; что врача
+    туда не пускают, проверяет `test_pin.suite_roles`.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+
+        def add(name: str, phone: str, at: str) -> str:
+            c.post("/admin/add", adate=_d(1), atime=at, adoctor="d2",
+                   aservice="consult", aname=name, aphone=phone,
+                   back="/admin/all")
+            return c.get(f"/admin/search?q={phone}").body.split(
+                "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+
+        def charge(pid: str, price: int) -> None:
+            """Начислить: пункт плана с ценой и довести его до finalizat —
+            долг считается ТОЛЬКО по финализированным (как в фише)."""
+            c.post(f"/admin/patient/{pid}/plan", procedure="Plombă",
+                   tooth="11", price=str(price))
+            iid = re.findall(r"/plan/(\d+)/status",
+                             c.get(f"/admin/patient/{pid}").body)[-1]
+            c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="in_lucru")
+            c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="finalizat")
+
+        def row(page: str, pid: str) -> str:
+            """Строка ИМЕННО этого пациента. Искать сумму по всей странице
+            нельзя: она встретится у соседа, и проверка станет пустой."""
+            mark = f"id='plr{pid}'"
+            return page.split(mark, 1)[1].split("</tr>", 1)[0] if mark in page else ""
+
+        dat = add("Datornic Unu", "022110011", "09:00")
+        avn = add("Avansat Doi", "022220022", "10:00")
+        charge(dat, 1200)
+        charge(avn, 500)
+        res.check("аванс записывается",
+                  c.post(f"/admin/patient/{avn}/pay", amount="800",
+                         method="card").msg, "ok_pay")
+
+        page = c.get("/admin/search").body
+        res.ok("колонка Sold есть в шапке", ">Sold<" in page, "нет заголовка")
+        res.ok("долг показан в строке должника", "1 200 MDL" in row(page, dat),
+               f"строка: {row(page, dat)[-160:]!r}")
+        res.ok("аванс показан зелёным", "avans 300" in row(page, avn),
+               f"строка: {row(page, avn)[-160:]!r}")
+
+        only_debt = c.get("/admin/search?dat=da").body
+        res.ok("фильтр «с долгом» оставил должника", row(only_debt, dat) != "",
+               "должник пропал")
+        res.ok("фильтр «с долгом» убрал переплатившего",
+               row(only_debt, avn) == "", "аванс попал в должники")
+        only_adv = c.get("/admin/search?dat=avans").body
+        res.ok("фильтр «с авансом» оставил переплатившего",
+               row(only_adv, avn) != "", "аванс пропал")
+        res.ok("фильтр «с авансом» убрал должника", row(only_adv, dat) == "",
+               "должник попал в авансы")
+
+        sorted_page = c.get("/admin/search?sort=debt").body
+        res.ok("сортировка по долгу: должник выше аванса",
+               sorted_page.index(f"plr{dat}") < sorted_page.index(f"plr{avn}"),
+               "порядок не по сумме")
+
+        csv_body = c.get("/admin/patients.csv").body
+        res.ok("в CSV есть колонка Sold", "Sold (MDL)" in csv_body,
+               "выгрузка отстала от экрана")
+        # число со знаком, без пробелов и валюты: иначе Excel читает колонку
+        # как текст, и по ней нельзя ни просуммировать, ни отсортировать
+        res.ok("в CSV долг числом", ";1200;" in csv_body, "долг не числом")
+        res.ok("в CSV аванс отрицательным", ";-300;" in csv_body,
+               "аванс не отличается от долга знаком")
+
+        # ---- печатный отчёт кассы ----
+        casa = c.get("/admin/casa")
+        res.ok("отчёт кассы открывается", casa.status == 200, f"код {casa.status}")
+        res.ok("в отчёте есть плательщик", "Avansat Doi" in casa.body,
+               "платёж не попал в лист")
+        res.ok("в отчёте видна сумма", "800" in casa.body, "нет суммы")
+        res.ok("в отчёте есть итог по методам", "Total încasat" in casa.body,
+               "нет сведения по способам оплаты")
+        res.ok("метод без платежей всё равно строкой",
+               "Numerar" in casa.body and "Transfer" in casa.body,
+               "«сегодня не платили» неотличимо от «строку забыли»")
+        res.ok("лист несёт место для подписи", "Semnătura" in casa.body,
+               "лист нельзя подписать")
+
+        # ⚠️ Час в базе UTC, лист читает человек. Ошибка не выдаёт себя ничем:
+        # дата верна, формат верен, час чужой — и касса не сойдётся с ящиком.
+        # ⚠️ Смотреть ТОЛЬКО в таблицу платежей: в подвале листа стоит «Tipărit»
+        # с местным временем, и по всей странице проверка проходила бы вхолостую
+        # даже с выброшенным astimezone (поймано мутацией).
+        tbl = (casa.body.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+               if "<tbody>" in casa.body else "")
+        res.ok("таблица платежей найдена", "800" in tbl, "строки платежа нет")
+        ro = ZoneInfo("Europe/Chisinau")
+        local = {(datetime.now(ro) - timedelta(minutes=m)).strftime("%H:%M")
+                 for m in (0, 1)}
+        utc = {(datetime.now(timezone.utc) - timedelta(minutes=m)).strftime("%H:%M")
+               for m in (0, 1)}
+        res.ok("час платежа местный", any(t in tbl for t in local),
+               f"ни одного из {sorted(local)} в строке платежа")
+        if not (local & utc):       # у Кишинёва сдвиг есть и зимой, и летом
+            res.ok("час UTC в строку не уехал", not any(t in tbl for t in utc),
+                   f"в строке час UTC {sorted(utc)} — забыт astimezone(eng.TZ)")
+
+        empty = c.get(f"/admin/casa?d={_d(1)}")
+        res.ok("день без платежей говорит об этом прямо",
+               "nu au fost înregistrate" in empty.body,
+               "пустой день выглядит как поломка")
 
 
 def suite_settings(res: Result) -> None:
