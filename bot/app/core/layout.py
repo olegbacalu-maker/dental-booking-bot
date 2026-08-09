@@ -343,8 +343,8 @@ def _sidebar(active: str) -> str:
                 + item('qr', '/admin/qr-print', 'qr', 'QR pacienți'))
         foot_title = f' title="Telegram: {html.escape(tg_title)}"'
     return f"""<aside class="side">
-  <div class="brand">{brand.mark_svg(34, 'logo')}
-    <div class="txt"><b>DentPilot</b><small title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</small></div>
+  <div class="brand">{brand.mark_svg(32, 'logo', flat=True)}
+    <div class="txt"><b title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</b><small>DentPilot</small></div>
   </div>
   <nav>
     <div class="sec">Meniu</div>

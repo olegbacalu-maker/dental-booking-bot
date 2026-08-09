@@ -25,6 +25,7 @@
    --teal-ring:rgba(14,159,138,.12);   /* кольцо фокуса */
    --teal-glow:rgba(14,159,138,.26);   /* свечение фирменной кнопки */
    --on-teal:#FFFFFF;                  /* чем писать НА фирменном фоне */
+   --on-teal-d:#FFFFFF;                /* то же для ТЁМНОГО фирменного (шапка) */
    --green:#10B981;--green-soft:#ECFDF5;--blue:#3B82F6;--blue-soft:#EFF6FF;
    --amber:#F59E0B;--amber-soft:#FFFBEB;--red:#EF4444;--red-soft:#FEF2F2;
    --violet:#7C3AED;--violet-soft:#F5F3FF;
@@ -52,13 +53,24 @@
  /* ---------- каркас: сайдбар + топбар + контент ---------- */
  .side{width:216px;flex:0 0 216px;background:var(--panel);border-right:1px solid var(--line);
    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
- .side .brand{display:flex;align-items:center;gap:10px;padding:18px 16px 14px}
- /* знак — тот же, что на иконке рабочего стола (bot/app/brand.py): фон и
-    скругление нарисованы внутри самой картинки, CSS их не дублирует */
- .side .brand .logo{width:34px;height:34px;flex:0 0 34px;display:block}
- .side .brand b{font-size:15px;display:block;line-height:1.2}
- .side .brand small{color:var(--text2);font-size:11.5px;display:block;white-space:nowrap;
-   overflow:hidden;text-overflow:ellipsis;max-width:130px}
+ /* Шапка залита фирменным цветом клиники, и её имя — самое крупное слово в
+    программе; «DentPilot» уходит в подпись (наш знак остаётся в заголовке
+    окна, в уголке справа внизу и на экране входа).
+    ⛔ Текст на этом фоне — ТОЛЬКО var(--on-teal-d), не var(--on-teal): второй
+    подобран под светлый --teal и при жёлтом выборе клиники даёт тёмный текст,
+    который на тёмной шапке нечитаем (3.3:1). Считает core/theme.py. */
+ .side .brand{display:flex;align-items:center;gap:10px;padding:16px 14px;
+   background:var(--teal-d);color:var(--on-teal-d)}
+ /* знак идёт flat=True (bot/app/brand.py): своя тёмно-зелёная подложка тут
+    была бы пятном на синей теме, поэтому фигуры берут currentColor */
+ .side .brand .logo{width:32px;height:32px;flex:0 0 32px;display:block}
+ .side .brand .txt{min-width:0}
+ /* имя клиники бывает длинным ("Clinica Stomatologică ..."): две строки и
+    обрезка, а не многоточие в середине первого слова */
+ .side .brand b{font-size:15px;font-weight:600;line-height:1.22;overflow:hidden;
+   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+ .side .brand small{font-size:10.5px;font-weight:600;letter-spacing:.06em;display:block;
+   opacity:.72;margin-top:3px;text-transform:uppercase}
  .side .sec{font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--text3);
    padding:14px 18px 6px;text-transform:uppercase}
  .side nav a{display:flex;align-items:center;gap:12px;margin:2px 10px;padding:0 12px;

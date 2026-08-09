@@ -29,25 +29,43 @@ def hexc(rgb: tuple[int, int, int]) -> str:
     return "#%02X%02X%02X" % rgb
 
 
-def mark_svg(px: int | None = 34, cls: str = "", label: str = "DentPilot") -> str:
+def _shape(kind: str, x0: int, y0: int, x1: int, y1: int, r: int, fill: str) -> str:
+    if kind == "rect":
+        return (f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" '
+                f'height="{y1 - y0}" rx="{r}" fill="{fill}"/>')
+    return (f'<ellipse cx="{(x0 + x1) / 2:g}" cy="{(y0 + y1) / 2:g}" '
+            f'rx="{(x1 - x0) / 2:g}" ry="{(y1 - y0) / 2:g}" fill="{fill}"/>')
+
+
+def mark_svg(px: int | None = 34, cls: str = "", label: str = "DentPilot",
+             flat: bool = False) -> str:
     """Знак как встроенный SVG. px=None — тянется по контейнеру (для favicon).
 
     Внутри картинки нет ни ссылок, ни шрифтов: она одинаково работает в окне
     программы, в браузере и в data-URI.
+
+    ⭐ `flat=True` — знак БЕЗ собственной подложки: фигуры рисуются
+    `currentColor`, а выемка между корнями остаётся по-настоящему прозрачной
+    (маска, а не заливка цветом фона — иначе выемку пришлось бы красить в цвет
+    подложки, и она разъехалась бы с темой). Нужен там, где знак лежит НА
+    фирменном цвете клиники: своя тёмно-зелёная подложка — тот самый зашитый
+    хекс, который тема не перекрашивает, и на синей шапке она стала бы пятном.
     """
     size = "" if px is None else f' width="{px}" height="{px}"'
-    parts = []
-    for kind, x0, y0, x1, y1, r, rgb in SHAPES:
-        fill = hexc(rgb)
-        if kind == "rect":
-            parts.append(f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" '
-                         f'height="{y1 - y0}" rx="{r}" fill="{fill}"/>')
-        else:
-            parts.append(f'<ellipse cx="{(x0 + x1) / 2:g}" cy="{(y0 + y1) / 2:g}" '
-                         f'rx="{(x1 - x0) / 2:g}" ry="{(y1 - y0) / 2:g}" fill="{fill}"/>')
     klass = f' class="{cls}"' if cls else ""
-    return (f'<svg{klass} viewBox="0 0 {VB} {VB}"{size} xmlns="http://www.w3.org/2000/svg" '
-            f'role="img" aria-label="{label}">{"".join(parts)}</svg>')
+    head = (f'<svg{klass} viewBox="0 0 {VB} {VB}"{size} '
+            f'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{label}">')
+    if not flat:
+        return head + "".join(_shape(*s[:6], hexc(s[6])) for s in SHAPES) + "</svg>"
+    # В маске белое видно, чёрное прозрачно: фигуры знака — белым, выемка —
+    # чёрным. Подложка (первая фигура) не рисуется вовсе.
+    mid = "dpm" + (cls or "mark")
+    cut = "".join(_shape(*s[:6], "#FFF" if s[6] == WHITE else "#000")
+                  for s in SHAPES[1:])
+    return (f'{head}<mask id="{mid}" maskUnits="userSpaceOnUse" x="0" y="0" '
+            f'width="{VB}" height="{VB}"><rect width="{VB}" height="{VB}" fill="#000"/>'
+            f'{cut}</mask><rect width="{VB}" height="{VB}" fill="currentColor" '
+            f'mask="url(#{mid})"/></svg>')
 
 
 def draw_pil(size: int):

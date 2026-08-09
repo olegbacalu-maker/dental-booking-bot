@@ -79,6 +79,19 @@ for hexv, _name in t.PRESETS:
             weak.append([hexv, st, round(c, 2)])
 out["weak"] = weak
 
+# текст ШАПКИ сайдбара лежит на --teal-d, и цвет ему даёт --on-teal-d.
+# Проверяются и предустановки, и крайние светлые выборы: именно на них
+# --on-teal (подобранный под светлый --teal) даёт тёмный текст, который на
+# тёмной шапке нечитаем. Порог 4.5 — в шапке мелкий текст, не кнопка.
+weak_head = []
+for hexv in [h for h, _n in t.PRESETS] + ["#FFFFFF", "#F5D90A", "#A3E635", "#22D3EE"]:
+    for st in t.STYLES:
+        pal = t.palette(hexv, st)
+        c = t.contrast(t.parse_hex(pal["--on-teal-d"]), t.parse_hex(pal["--teal-d"]))
+        if c < 4.5:
+            weak_head.append([hexv, st, round(c, 2)])
+out["weak_head"] = weak_head
+
 # наведение обязано ОТЛИЧАТЬСЯ от покоя, иначе кнопка не отзывается на мышь
 out["same_hover"] = [h for h, _ in t.PRESETS
                      if t.palette(h, "modern")["--teal-d"] == h]
@@ -124,6 +137,8 @@ def suite_palette(res: Result) -> None:
     res.check("кромка совпадает с вшитой", line, "#CCF0E7")
     res.check("текст на фирменной кнопке остался белым", on, "#FFFFFF")
 
+    res.ok("текст шапки читаем на тёмном фирменном при любом выборе",
+           not out["weak_head"], f"слабый контраст: {out['weak_head']}")
     res.ok("тёмный оттенок читаем при любом выборе и стиле", not out["weak"],
            f"контраст ниже 4.5: {out['weak']}")
     res.ok("наведение отличается от покоя", not out["same_hover"],
@@ -146,6 +161,18 @@ def suite_palette(res: Result) -> None:
            "display:none" not in out["fallback_css"]
            and "}" not in out["fallback_css"][:-1],
            f"в таблицу стилей уехало: {out['fallback_css'][:200]!r}")
+
+    # Шапка сайдбара залита фирменным цветом, и её текст обязан брать цвет,
+    # посчитанный ПОД ЭТОТ фон. Проверка смотрит в сам panel.css: расчёт выше
+    # останется верным, даже если правило вернут на --on-teal, и тогда жёлтая
+    # клиника получит тёмный текст на тёмной шапке, а тесты промолчат.
+    css = CSS.read_text(encoding="utf-8")
+    m = re.search(r"\.side \.brand\{([^}]*)\}", css)
+    head = m.group(1) if m else ""
+    res.ok("шапка сайдбара красится фирменным цветом",
+           "background:var(--teal-d)" in head, f"правило: {head!r}")
+    res.ok("текст шапки берёт цвет, посчитанный под тёмный фон",
+           "color:var(--on-teal-d)" in head, f"правило: {head!r}")
 
     # «Modern» = то, что клиника видит сегодня. Сверяем с самим panel.css.
     block = _root_block()
