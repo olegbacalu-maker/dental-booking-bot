@@ -51,7 +51,13 @@ def render() -> str:
            f"dispare împreună cu el (defectarea discului, furt, viruși).{end}"
            f"{p}⚠️ Parola arhivei <b>nu se salvează nicăieri</b> — notați-o "
            f"într-un loc sigur. Fără ea, arhiva nu poate fi deschisă de "
-           f"nimeni, nici de noi.{end}"),
+           f"nimeni, nici de noi.{end}"
+           f"{p}Arhiva este <b>de sine stătătoare</b>: chiar dacă evidența de "
+           f"pe calculator este criptată, baza dinăuntru nu este — o apără "
+           f"parola arhivei. Așa o restaurați oriunde, fără foaia de "
+           f"recuperare. Este și motivul pentru care parola arhivei contează "
+           f"mai mult decât pare: ea singură ține toată evidența clinicii."
+           f"{end}"),
 
         _q("📦", "Cum deschid arhiva de rezervă fără DentPilot?",
            f"{p}Intenționat simplu: arhiva este un ZIP obișnuit, criptat "
@@ -72,11 +78,42 @@ def render() -> str:
            f"<b>întreg</b> pe calculatorul nou — sau restaurați din arhiva de "
            f"rezervă (pașii sunt în CITESTE-MA.txt din arhivă). Pacienții, "
            f"programările, documentele și PIN-urile de intrare rămân.{end}"
-           f"{p}⚠️ Singurul lucru care trebuie reintrodus: <b>tokenul botului "
-           f"Telegram</b> (Setări → Telegram Bot). Tokenul e criptat cu cheia "
-           f"Windows a calculatorului vechi și pe altul nu poate fi citit. "
-           f"Asta e o protecție, nu o defecțiune: un fișier copiat sau furat "
-           f"nu dezvăluie tokenul clinicii.{end}"),
+           f"{p}⚠️ <b>Dacă evidența este criptată</b> (Setări → Criptarea "
+           f"evidenței), pe calculatorul nou programul vă va cere codul de pe "
+           f"<b>foaia de recuperare</b> — cea tipărită la activarea criptării. "
+           f"Luați-o cu dumneavoastră odată cu folderul: cheia este legată de "
+           f"contul Windows vechi și pe altul nu poate fi citită. Fără foaie, "
+           f"evidența copiată nu se deschide nici de noi.{end}"
+           f"{p}⚠️ Trebuie reintrodus și <b>tokenul botului Telegram</b> "
+           f"(Setări → Telegram Bot), din același motiv. Aici însă nu se pierde "
+           f"nimic: tokenul se ia din nou de la @BotFather.{end}"
+           f"{p}Ambele sunt protecții, nu defecțiuni: un folder copiat sau "
+           f"furat nu dezvăluie nici evidența, nici tokenul clinicii.{end}"),
+
+        _q("🔒", "Ce este criptarea evidenței și merită activată?",
+           f"{p}Fără ea, fișierul <b>data\\dental.db</b> este o bază SQLite "
+           f"obișnuită: cine o copiază de pe calculator o poate deschide cu "
+           f"orice program. Criptarea o face inutilizabilă în afara acestui "
+           f"calculator. Se activează din <b>Setări → Criptarea evidenței</b>."
+           f"{end}"
+           f"{p}Activarea are un singur pas care contează: programul tipărește "
+           f"o <b>foaie de recuperare</b> cu un cod. Confirmarea se află chiar "
+           f"pe foaia tipărită — intenționat, pentru că foaia este singurul "
+           f"lucru care vă salvează evidența la schimbarea calculatorului. "
+           f"Păstrați-o în mapa «Legea 195», lângă actul BitLocker — adică "
+           f"<b>nu în calculator</b>.{end}"
+           f"{p}Codul <b>nu se cere niciodată</b> în lucrul obișnuit: nici la "
+           f"pornire, nici la actualizare. Programul îl cere doar după "
+           f"reinstalarea Windows, la mutarea pe alt calculator, la schimbarea "
+           f"contului Windows sau a discului — atunci apare un singur ecran "
+           f"care îl întreabă.{end}"
+           f"{p}Ce NU face criptarea: nu vă apără de cineva care stă la acest "
+           f"calculator, sub acest cont Windows — programul lucrează sub el, "
+           f"deci tot ce descifrează programul descifrează și acea persoană. "
+           f"Împotriva asta lucrează parola de intrare și blocarea ecranului "
+           f"(Win+L), nu criptarea.{end}"
+           f"{p}Se poate opri oricând: <b>«Oprește criptarea»</b> pe aceeași "
+           f"pagină, cu o repornire. Datele nu se pierd.{end}"),
 
         _q("📶", "Pot deschide registrul de pe telefon?",
            f"{p}Da, în rețeaua clinicii: <b>Setări → Acces de pe telefon → "
@@ -111,7 +148,24 @@ def render() -> str:
            f"procedură de deblocare; datele clinicii <b>nu se pierd</b>.{end}"
            f"{p}După mai multe încercări greșite, intrarea se blochează "
            f"temporar (de la 30 de secunde la 15 minute) — e o protecție "
-           f"împotriva ghicirii; așteptați și încercați din nou.{end}"),
+           f"împotriva ghicirii; așteptați și încercați din nou.{end}"
+           f"{p}⚠️ A nu se confunda cu <b>foaia de recuperare</b> a criptării: "
+           f"sunt lucruri diferite. Parola de intrare spune cine deschide "
+           f"programul și se poate schimba; codul de pe foaie deschide baza "
+           f"însăși și nu poate fi schimbat sau recuperat de nimeni.{end}"),
+
+        _q("🎨", "Pot pune culoarea și logoul clinicii în program?",
+           f"{p}Da: <b>Setări → Aspectul clinicii</b>. Alegeți unul din trei "
+           f"stiluri, culoarea clinicii (șase gata alese sau a dumneavoastră) "
+           f"și încărcați logoul. Culoarea se aplică butoanelor, meniului și "
+           f"accentelor; logoul apare la intrare și în antetul documentelor "
+           f"tipărite (043/e, acord, raport de casă).{end}"
+           f"{p}Roșul urgențelor, galbenul avertismentelor și verdele "
+           f"«confirmat» <b>nu se schimbă</b> — acolo culoarea înseamnă ceva, "
+           f"nu decorează.{end}"
+           f"{p}Logoul se acceptă doar ca <b>PNG sau JPEG</b>, cel mult 2 MB. "
+           f"Fișierele SVG nu se acceptă din motive de securitate — nu sunt "
+           f"imagini, ci documente care pot conține cod.{end}"),
 
         _q("⚖️", "Ce cere Legea 195 și cu ce mă ajută programul?",
            f"{p}Legea 195/2024 (protecția datelor personale) dă pacientului "
@@ -127,13 +181,23 @@ def render() -> str:
            f"{p}Datele stau <b>doar pe acest calculator</b> — nimic nu pleacă "
            f"pe servere străine. Documentele generale (informarea de la "
            f"recepție, registrul de evidență) le primiți de la furnizor.{end}"
-           f"{p}Recomandat: criptarea discului (BitLocker) — starea ei se "
-           f"vede în <b>Setări → Stare sistem</b>.{end}"),
+           f"{p}Măsura tehnică cerută de lege o acoperă <b>criptarea "
+           f"discului (BitLocker)</b> — starea ei o verifică programul singur "
+           f"și o arată în <b>Setări → Stare sistem</b>, ca să nu depindeți de "
+           f"un act semnat. Peste ea puteți cripta și evidența propriu-zisă "
+           f"(<b>Setări → Criptarea evidenței</b>): BitLocker apără discul "
+           f"scos din calculator, criptarea evidenței apără fișierul copiat de "
+           f"pe el.{end}"),
 
         _q("📁", "Unde sunt datele clinicii și ce nu trebuie atins?",
            f"{p}Totul e în folderul programului: <b>data\\dental.db</b> — "
            f"toată evidența; <b>data\\files\\</b> — documentele pacienților; "
            f"<b>clinic.json</b> — profilul clinicii.{end}"
+           f"{p}Dacă evidența este criptată, tot acolo apare "
+           f"<b>data\\db.key</b> — cheia. ⛔ Acest fișier <b>nu se șterge "
+           f"niciodată</b>: fără el evidența se deschide doar cu codul de pe "
+           f"foaia de recuperare. Se copiază împreună cu folderul, dar pe alt "
+           f"calculator nu poate fi citit — de aceea foaia.{end}"
            f"{p}⚠️ Nu ștergeți, nu redenumiți și nu «faceți curat» în aceste "
            f"fișiere din Windows — programul le leagă între ele, iar orice "
            f"ștergere se face din program. Pentru orice nelămurire: "
