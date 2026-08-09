@@ -14,7 +14,17 @@
    обновления клиника не осталась на старом оформлении из кеша браузера. */
  :root{--bg:#F6FBF8;--panel:#FFFFFF;--line:#E7EDF5;--line2:#F1F6FA;
    --text:#162033;--text2:#7E8B9C;--text3:#A0AAB8;
+   /* Фирменная группа — ЕДИНСТВЕННОЕ, что перекрашивает клиника (core/theme.py
+      кладёт свои значения строкой в <head> и перебивает эти). Поэтому цвета
+      акцента не имеют права стоять по месту: до 08-09 полупрозрачный teal был
+      зашит в 11 правилах ниже (кольца фокуса, свечение кнопки, тень, анимация),
+      и клиника, выбравшая синий, получила бы синий журнал с зелёными кольцами.
+      ⛔ Цвета СМЫСЛА ниже (green/amber/red/blue) теме не отдаются: там цвет
+      значит «подтверждено», «срочно», «отказ», а не вкус директора. */
    --teal:#0E9F8A;--teal-d:#0B7E6D;--teal-soft:#EAFBF5;--teal-line:#CCF0E7;
+   --teal-ring:rgba(14,159,138,.12);   /* кольцо фокуса */
+   --teal-glow:rgba(14,159,138,.26);   /* свечение фирменной кнопки */
+   --on-teal:#FFFFFF;                  /* чем писать НА фирменном фоне */
    --green:#10B981;--green-soft:#ECFDF5;--blue:#3B82F6;--blue-soft:#EFF6FF;
    --amber:#F59E0B;--amber-soft:#FFFBEB;--red:#EF4444;--red-soft:#FEF2F2;
    --violet:#7C3AED;--violet-soft:#F5F3FF;
@@ -33,7 +43,7 @@
    --sh:0 1px 2px rgba(15,23,42,.05),0 6px 18px rgba(15,23,42,.05);
    --sh2:0 2px 4px rgba(15,23,42,.05),0 10px 26px rgba(15,23,42,.07);
    --sh3:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
-   --sh-t:0 1px 2px rgba(15,23,42,.10),0 8px 20px rgba(14,159,138,.26)}
+   --sh-t:0 1px 2px rgba(15,23,42,.10),0 8px 20px var(--teal-glow)}
  *{box-sizing:border-box}
  body{font-family:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
    background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh;
@@ -68,7 +78,7 @@
  .top form.searchf{display:flex;gap:0;align-items:center;background:#FBFDFE;
    border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 8px 0 14px;
    height:var(--h-ctl);width:320px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
- .top form.searchf:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ .top form.searchf:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
  .top form.searchf input{border:none;background:none;outline:none;font-size:14px;flex:1;color:var(--text)}
  .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;padding:4px 6px}
  .top .kbd{font-size:11px;color:var(--text3);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
@@ -79,7 +89,7 @@
  .top .bell .n{position:absolute;top:5px;right:5px;min-width:16px;height:16px;border-radius:8px;
    background:var(--red);color:#fff;font-size:10px;font-weight:600;line-height:16px;text-align:center;padding:0 4px}
  .top .newbtn{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 18px;
-   border-radius:var(--r-ctl);background:var(--teal);color:#fff;font-size:14px;font-weight:600;
+   border-radius:var(--r-ctl);background:var(--teal);color:var(--on-teal);font-size:14px;font-weight:600;
    text-decoration:none;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  .top .newbtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
    transform:translateY(-1px)}
@@ -91,7 +101,7 @@
  .who{display:flex;align-items:center;gap:9px;padding:5px 6px 5px 5px;margin-left:4px;
    border-left:1px solid var(--line)}
  .who-av{width:40px;height:40px;flex:0 0 40px;border-radius:50%;display:flex;
-   align-items:center;justify-content:center;color:#fff;font-size:14px;
+   align-items:center;justify-content:center;color:var(--on-teal);font-size:14px;
    font-weight:600;background:linear-gradient(135deg,var(--teal),var(--teal-d))}
  .who-n{min-width:0;line-height:1.25}
  .who-n b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;
@@ -105,20 +115,40 @@
  @media (max-width:1100px){.who-n{display:none}}
  .content{padding:24px 24px 60px;max-width:1500px}
  /* ---------- общие элементы ---------- */
- h1{font-size:32px;margin:0 0 4px;font-weight:600;letter-spacing:-.03em;line-height:1.2}
- h1 a{color:var(--text);text-decoration:none}
+ h1{font-size:32px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em;line-height:1.2;
+   display:flex;align-items:center;gap:.44em}
+ /* Акцент — ПЛАНКА слева, а не заливка всего заголовка: 32px насыщенного teal
+    на светлом фоне читаются декоративным баннером, а не шапкой раздела.
+    ⚠️ Размеры в em, а не px: на телефоне h1 ужимается до 21px (блок ≤640px), и
+    планка обязана ужаться вместе с ним — иначе торчит выше строки.
+    ⚠️ Цвета — ПЕРЕМЕННЫЕ: смысл --teal/--teal-d в том, что смена акцента
+    перекрашивает систему разом; зашитый хекс тихо останется старым. Текст берёт
+    --teal-d (4.8:1), а не --teal: тот на фоне даёт 3.2:1 — впритык к порогу для
+    крупного и мало для чего угодно мельче. */
+ h1::before{content:"";flex:0 0 4px;height:1em;border-radius:4px;background:var(--teal)}
+ h1 a{color:var(--teal-d);text-decoration:none;transition:color .2s ease}
+ h1 a:hover{color:var(--teal)}
  h2{font-size:18px;color:var(--text);margin:24px 0 12px;font-weight:600}
  .sub{color:var(--text2);font-size:13px;margin-bottom:18px}
  .nav{margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
- .nav b{font-size:16px;margin-right:6px;font-weight:600}
+ /* Дата — не подпись, а ПЕРВЫЙ элемент панели: рядом с ней шесть кнопок
+    перехода, и голый жирный текст в этом ряду читался как их продолжение.
+    Плашка того же роста, что кнопки, но фирменного цвета — она отвечает
+    «какой день открыт», а кнопки «куда уйти». */
+ .nav b{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);
+   padding:0 16px;margin-right:2px;border:1px solid var(--teal-line);
+   border-radius:var(--r-ctl);background:var(--panel);color:var(--teal-d);
+   font-size:14px;font-weight:700;white-space:nowrap;box-shadow:var(--sh)}
+ .nav b::before{content:"";width:7px;height:7px;border-radius:50%;
+   background:var(--teal);flex:0 0 7px}
  .nav a{display:inline-flex;align-items:center;height:var(--h-ctl);background:var(--panel);
         border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 16px;text-decoration:none;
         color:var(--text2);font-size:14px;font-weight:500;
         transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
  .nav a:hover{border-color:var(--teal);color:var(--teal-d);
-   box-shadow:0 4px 12px rgba(14,159,138,.12);transform:translateY(-1px)}
+   box-shadow:0 4px 12px var(--teal-ring);transform:translateY(-1px)}
  .nav a:active{transform:translateY(0)}
- .nav a.primary{background:var(--teal);color:#fff;border-color:var(--teal)}
+ .nav a.primary{background:var(--teal);color:var(--on-teal);border-color:var(--teal)}
  .nav form.dpickf{display:inline-flex;margin:0}
  .nav input.dpick{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text2)}
@@ -126,8 +156,8 @@
  .nav form.searchf input{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;width:240px;background:var(--panel);
    color:var(--text);outline:none}
- .nav form.searchf input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- .nav form.searchf button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+ .nav form.searchf input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
+ .nav form.searchf button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 16px;cursor:pointer;font-size:14px;font-weight:600}
  .banner{padding:12px 16px;border-radius:var(--r-ctl);margin-bottom:14px;font-size:14px}
  .banner.ok{background:var(--green-soft);color:#065F46}
@@ -258,7 +288,7 @@
  .mcal td a:hover{background:var(--line2)}
  .mcal td a.oth{color:var(--text3);opacity:.5}
  .mcal td a.tdy{box-shadow:inset 0 0 0 1.5px var(--teal);color:var(--teal-d);font-weight:600}
- .mcal td a.seld{background:var(--teal);color:#fff;font-weight:600}
+ .mcal td a.seld{background:var(--teal);color:var(--on-teal);font-weight:600}
  /* ---------- старые страницы (перекрашены) ---------- */
  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
  a.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
@@ -268,15 +298,39 @@
  a.card .spec{color:var(--text2);font-size:12px;margin:2px 0 8px}
  a.card .meta{font-size:12.5px;color:var(--text2)}
  a.card .meta .u{color:var(--amber);font-weight:600}
+ /* Сетка дня (/admin/all и карточка врача). ⚠️ Это ТАБЛИЦА, а не холст панели
+    (.gridcard): она проще, её колонки считает браузер, и переписывать её на
+    холст ради вида не стоит — у таблицы бесплатно работает то, что на холсте
+    пришлось бы держать руками (любое число врачей, перенос текста, печать). */
+ .gridwrap{overflow-x:auto;margin-bottom:18px}
+ .gridwrap table.grid{min-width:620px}
  table.grid{border-collapse:separate;border-spacing:0;width:100%;background:var(--panel);
-   box-shadow:var(--sh);border-radius:14px;overflow:hidden;margin-bottom:18px}
+   box-shadow:var(--sh);border-radius:var(--r-card);overflow:hidden;
+   border:1px solid var(--line)}
  table.grid th,table.grid td{border-bottom:1px solid var(--line2);border-right:1px solid var(--line2);
    padding:5px 7px;font-size:12.5px;vertical-align:top}
- table.grid th{background:var(--panel);color:var(--text);font-weight:600;border-bottom:1px solid var(--line)}
- table.grid th a{color:var(--text);text-decoration:none}
- table.grid th a:hover{color:var(--teal-d)}
- td.hour{width:52px;color:var(--text3);font-weight:500;background:var(--bg);text-align:center;font-size:11.5px}
- .appt{border-radius:9px;padding:5px 8px;line-height:1.35}
+ /* последняя колонка и последняя строка без кромки: рамка таблицы её уже
+    нарисовала, а вторая линия поверх первой даёт грязный двойной край */
+ table.grid tr>:last-child{border-right:none}
+ table.grid tr:last-child>*{border-bottom:none}
+ table.grid th{background:var(--panel);color:var(--text);font-weight:600;
+   border-bottom:1px solid var(--line);text-align:center;padding:11px 7px}
+ .dh-n{display:block;color:var(--text);text-decoration:none;font-size:13px;font-weight:600}
+ .dh-n:hover{color:var(--teal-d)}
+ .dh-s{display:block;margin-top:2px;color:var(--text3);font-size:11px;font-weight:500}
+ th.gh-t{width:58px}
+ td.hour{width:58px;color:var(--text3);font-weight:600;background:var(--bg);
+   text-align:center;font-size:11.5px;white-space:nowrap}
+ /* «сейчас»: строка текущего часа. Отдельной линии поверх сетки нет — см.
+    комментарий в _grid: линию пришлось бы позиционировать над строками, и она
+    разъезжалась бы с ними. Подсветка строки не может разъехаться с самой
+    строкой, а отвечает на тот же вопрос. Только на СЕГОДНЯШНЕМ дне. */
+ tr.hrow.now>td{background:var(--teal-soft)}
+ td.hour.now{color:var(--teal-d);font-weight:700;background:var(--teal-line)}
+ td.hour.now::before{content:"";display:inline-block;width:5px;height:5px;
+   border-radius:50%;background:var(--teal);margin:0 4px 1px 0}
+ .appt{border-radius:9px;padding:6px 9px;line-height:1.35;
+   transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
  .appt.confirmed{background:var(--green-soft);border-left:5px solid var(--green)}
  .appt.arrived{background:var(--teal-soft);border-left:5px solid var(--teal)}
  .appt.done{background:var(--blue-soft);border-left:5px solid var(--blue)}
@@ -286,7 +340,7 @@
  .appt.busy{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px);
    color:var(--text3);text-align:center;font-size:11.5px}
  .appt.clickable{cursor:pointer}
- .appt.clickable:hover{filter:brightness(.98)}
+ .appt.clickable:hover{filter:brightness(.985);transform:translateY(-1px);box-shadow:var(--sh)}
  .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
  a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
  a.plink:hover{border-bottom-style:solid}
@@ -303,7 +357,7 @@
  table.set select{padding:6px 7px;border:1px solid var(--line);border-radius:8px;font-size:13px}
  .rowdel{background:var(--red-soft);color:var(--red-t);border:none;border-radius:7px;padding:4px 10px;cursor:pointer}
  .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:10px;padding:7px 15px;cursor:pointer;margin-bottom:16px}
- .savebtn{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+ .savebtn{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 26px;font-size:14px;font-weight:600;cursor:pointer;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  .savebtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
@@ -322,26 +376,38 @@
  .dlg-head button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer}
  .dlg-tabs{display:flex;gap:6px;padding:12px 16px 0}
  .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:9px;cursor:pointer;font-size:13px;color:var(--text2)}
- .tabbtn.on{background:var(--teal);color:#fff;border-color:var(--teal);font-weight:600}
+ .tabbtn.on{background:var(--teal);color:var(--on-teal);border-color:var(--teal);font-weight:600}
  .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
  .dlg-form input,.dlg-form select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none}
  .dlg-form textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
    font-size:14px;font-family:inherit;background:var(--panel);color:var(--text);outline:none}
  .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- .dlg-form button{background:var(--teal);color:#fff;border:none;border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
- a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;padding:4px 0;border-radius:8px}
+   box-shadow:0 0 0 3px var(--teal-ring)}
+ .dlg-form button{background:var(--teal);color:var(--on-teal);border:none;border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
+ a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;
+   padding:4px 0;border-radius:8px;transition:opacity .15s ease,color .15s ease,background-color .15s ease}
  a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
+ /* «+» в свободном часе гасится до наведения: сетка на весь день это сотня
+    плюсов, и все вместе они перекрикивают то немногое, что в ней есть, —
+    записи. ⚠️ ТОЛЬКО там, где наведение существует: на телефоне (слой 1 PWA,
+    врач смотрит день с телефона) hover не наступает никогда, и спрятанный «+»
+    означал бы, что записать пациента нельзя вовсе.
+    ⚠️ :focus-visible обязателен — иначе плюс пропадает и для клавиатуры. */
+ @media (hover:hover) and (pointer:fine){
+   table.grid td a.free{opacity:.28}
+   table.grid td:hover a.free,table.grid td a.free:focus-visible{opacity:1}
+   table.grid td a.free:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+ }
  form.add{background:var(--panel);padding:16px;border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
           display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px}
  form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none;
    transition:border-color .2s ease,box-shadow .2s ease}
  form.add input:focus,form.add select:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+   box-shadow:0 0 0 3px var(--teal-ring)}
  form.add input::placeholder{color:var(--text3)}
- form.add button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+ form.add button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 20px;cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  form.add button:hover{background:var(--teal-d);box-shadow:var(--sh-t);
@@ -351,12 +417,32 @@
    border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
  table.list th,table.list td{padding:11px 14px;border-bottom:1px solid var(--line2);
    text-align:left;font-size:13.5px}
- table.list th{background:var(--bg);color:var(--text2);font-weight:600}
+ table.list th{background:var(--bg);color:var(--text3);font-weight:600;font-size:11.5px;
+   text-transform:uppercase;letter-spacing:.05em}
+ table.list tr:last-child td{border-bottom:none}
+ /* наведение ведёт палец по строке из девяти колонок — без него на «Acțiuni»
+    справа легко нажать кнопку соседнего пациента */
+ table.list tr:hover td{background:var(--line2)}
  tr.cancelled td{opacity:.45;text-decoration:line-through}
+ /* Статус — плашка, а не строчка текста: в ряду из девяти колонок «confirmată»
+    ничем не отличалась от телефона и услуги, хотя читают в списке именно её. */
+ .stat{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
+   font-size:12px;font-weight:600;white-space:nowrap;background:var(--line2);color:var(--text2)}
+ .stat.s-confirmed{background:var(--green-soft);color:var(--green-t)}
+ .stat.s-arrived{background:var(--teal-soft);color:var(--teal-d)}
+ .stat.s-done{background:var(--blue-soft);color:#1D4ED8}
+ .stat.s-noshow{background:var(--red-soft);color:var(--red-t)}
  .act{display:inline}
- .act button{border:none;border-radius:8px;padding:5px 10px;margin-right:4px;cursor:pointer;
-   font-size:12px;color:#fff;transition:filter .2s ease}
- .act button:hover{filter:brightness(1.08)}
+ .act button{border:none;border-radius:8px;height:30px;padding:0 11px;margin-right:4px;cursor:pointer;
+   font-size:12px;font-weight:600;color:#fff;font-family:inherit;
+   transition:filter .2s ease,transform .15s ease,box-shadow .15s ease}
+ .act button:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:var(--sh)}
+ .act button:active{transform:translateY(0)}
+ /* ⚠️ Четыре исхода визита — четыре РАЗНЫХ цвета, и «A sosit» берёт фирменный
+    намеренно: это единственная кнопка, которую регистратура жмёт весь день.
+    Остальные три — цвета смысла, теме они не отдаются (синий «сделано»,
+    красный «не пришёл», серый «отмена»): клиника с фиолетовым акцентом не
+    должна получить фиолетовое «Nu a venit». */
  .b-arrived{background:var(--teal-d)}
  .b-done{background:#2563EB}.b-noshow{background:var(--red-t)}.b-cancel{background:#64748B}
  .hint{color:var(--text2);font-size:12.5px;margin-top:10px;line-height:1.55}
@@ -383,7 +469,7 @@
  .fcard h3{margin:0 0 14px;font-size:18px;font-weight:600}
  .fcard h3 small{color:var(--text2);font-weight:400;font-size:13px}
  .fhead{display:flex;align-items:center;gap:14px}
- .fhead .fav{width:56px;height:56px;border-radius:16px;background:var(--teal);color:#fff;
+ .fhead .fav{width:56px;height:56px;border-radius:16px;background:var(--teal);color:var(--on-teal);
    display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex:0 0 56px}
  .fhead b{font-size:20px;display:block;line-height:1.25;font-weight:600}
  .fhead small{color:var(--text2);font-size:13px}
@@ -489,7 +575,7 @@
  .pbadge{font-size:11px;font-weight:600;letter-spacing:.05em;padding:4px 9px;
    border-radius:6px;text-transform:uppercase}
  .pbadge.planificat{border:1px solid var(--line);color:var(--text3)}
- .pbadge.in_lucru{background:var(--teal);color:#fff}
+ .pbadge.in_lucru{background:var(--teal);color:var(--on-teal)}
  .pbadge.finalizat{background:var(--line2);color:var(--text2)}
  .plan-row .pm{width:96px;flex:0 0 96px;text-align:right;font-weight:600}
  .plan-row form{margin:0}
@@ -498,7 +584,7 @@
    font-size:12.5px;font-weight:600;font-family:inherit;
    transition:background-color .2s ease,border-color .2s ease,color .2s ease}
  .plan-row .pact .pgo{background:none;border:1px solid var(--teal);color:var(--teal-d)}
- .plan-row .pact .pgo:hover{background:var(--teal);color:#fff}
+ .plan-row .pact .pgo:hover{background:var(--teal);color:var(--on-teal)}
  .plan-row .pact .pgo.fin{border-color:var(--green);color:var(--green-t)}
  .plan-row .pact .pgo.fin:hover{background:var(--green);color:#fff}
  .plan-row .pact .pre{background:none;border:1px solid var(--line);color:var(--text3)}
@@ -565,9 +651,9 @@
    font-size:14px;font-family:inherit;width:100%;background:var(--panel);color:var(--text);
    outline:none;transition:border-color .2s ease,box-shadow .2s ease}
  .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+   box-shadow:0 0 0 3px var(--teal-ring)}
  .fform input::placeholder,.fform textarea::placeholder{color:var(--text3)}
- .fform button{background:var(--teal);color:#fff;border:none;border-radius:var(--r-ctl);
+ .fform button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  .fform button:hover{background:var(--teal-d);box-shadow:var(--sh-t);
@@ -597,9 +683,9 @@
    background:var(--panel);border:1px solid var(--line);border-radius:22px;
    padding:24px 28px;box-shadow:var(--sh);margin-bottom:16px}
  .hero-av{width:92px;height:92px;flex:0 0 92px;border-radius:24px;background:var(--teal);
-   color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;
+   color:var(--on-teal);display:flex;align-items:center;justify-content:center;font-size:32px;
    /* аватар 92px — свечение шире кнопочного --sh-t, иначе теряется под ним */
-   font-weight:600;box-shadow:0 2px 4px rgba(15,23,42,.10),0 14px 30px rgba(14,159,138,.26)}
+   font-weight:600;box-shadow:0 2px 4px rgba(15,23,42,.10),0 14px 30px var(--teal-glow)}
  .hero-id{flex:1;min-width:260px}
  .hero-id h2{font-size:34px;font-weight:600;letter-spacing:-.03em;margin:0;line-height:1.15}
  .hero-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--text2);margin-top:6px}
@@ -650,7 +736,7 @@
  .lrow small{font-size:12px;color:var(--text2)}
  .lmore{display:inline-block;margin-top:12px;font-size:12.5px;font-weight:600}
  .lbtn{margin-top:12px;width:100%;height:42px;border:none;border-radius:var(--r-ctl);
-   background:var(--teal);color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;
+   background:var(--teal);color:var(--on-teal);font-size:13.5px;font-weight:600;cursor:pointer;
    font-family:inherit}
  .dlg-form .dlab{display:flex;flex-direction:column;gap:4px;font-size:11.5px;
    font-weight:600;color:var(--text3)}
@@ -671,7 +757,7 @@
    background:var(--panel);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;
    transition:background-color .2s ease,border-color .2s ease,color .2s ease}
  .tabs button:hover{border-color:var(--teal);color:var(--teal-d)}
- .tabs button.on{background:var(--teal);border-color:var(--teal);color:#fff}
+ .tabs button.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal)}
  .docgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
  .doccard{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
    background:var(--panel);text-decoration:none;color:inherit;display:flex;
@@ -698,7 +784,7 @@
    cursor:pointer;transition:border-color .2s ease,color .2s ease}
  .filepick label:hover{border-color:var(--teal);color:var(--teal-d)}
  .filepick input[type=file]:focus-visible + label{border-color:var(--teal);
-   box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+   box-shadow:0 0 0 3px var(--teal-ring)}
  .filepick .fname{font-size:12.5px;color:var(--text3);min-width:0;
    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
  .filepick .fname.on{color:var(--text)}
@@ -714,6 +800,13 @@
    body{background:#fff}.content{padding:0;max-width:none}
    .pv2{grid-template-columns:1fr}.pv2-side{position:static}
    .fcard,.hero,.kpi{box-shadow:none;break-inside:avoid}
+   /* ⚠️ обёртка сетки со скроллом на бумаге ОБРЕЗАЛА бы колонки: у листа нет
+      полосы прокрутки, и всё, что не влезло, просто не печатается.
+      Регистратура печатает день целиком — распускаем. */
+   .gridwrap{overflow:visible}
+   .gridwrap table.grid{min-width:0}
+   /* «+» на печати смысла не имеет, а без наведения он всё равно бледный */
+   a.free{display:none}
  }
  /* лента активности: что происходило с фишей */
  .acti{display:flex;gap:12px;align-items:flex-start;padding:14px 0;
@@ -804,7 +897,7 @@
    background:var(--panel);border:1px solid var(--line);border-radius:var(--r-ctl);
    color:var(--text3);flex:0 1 320px;min-width:220px;
    transition:border-color .2s ease,box-shadow .2s ease}
- .pl-search:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.12)}
+ .pl-search:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
  .pl-search input{border:none;outline:none;background:none;font-size:14px;flex:1;
    min-width:0;color:var(--text);font-family:inherit}
  .pl-bar select{height:42px;padding:0 12px;border:1px solid var(--line);
@@ -818,8 +911,8 @@
    text-decoration:none;cursor:pointer;white-space:nowrap;
    transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
  .pl-btn:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(-1px)}
- .pl-btn.primary{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:600}
- .pl-btn.primary:hover{background:var(--teal-d);color:#fff;box-shadow:var(--sh-t)}
+ .pl-btn.primary{background:var(--teal);border-color:var(--teal);color:var(--on-teal);font-weight:600}
+ .pl-btn.primary:hover{background:var(--teal-d);color:var(--on-teal);box-shadow:var(--sh-t)}
  /* три числа над списком; денежной карточки в этом разделе нет намеренно */
  .pl-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
    gap:14px;margin-bottom:18px}
@@ -866,7 +959,7 @@
  .pl-who{display:flex;align-items:center;gap:11px;min-width:0}
  .pl-av{width:40px;height:40px;flex:0 0 40px;border-radius:50%;display:flex;
    align-items:center;justify-content:center;font-size:13.5px;font-weight:600;
-   color:#fff;background:linear-gradient(135deg,var(--teal),var(--teal-d))}
+   color:var(--on-teal);background:linear-gradient(135deg,var(--teal),var(--teal-d))}
  .pl-nm{min-width:0}
  .pl-nm b{display:block;font-size:14px;font-weight:600;color:var(--text);
    overflow:hidden;text-overflow:ellipsis;max-width:230px}
@@ -894,7 +987,7 @@
    background:var(--panel);color:var(--text2);text-decoration:none;font-size:13px;
    transition:border-color .2s ease,background-color .2s ease,color .2s ease}
  .pl-pg:hover{border-color:var(--teal);color:var(--teal-d)}
- .pl-pg.on{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:600;
+ .pl-pg.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal);font-weight:600;
    box-shadow:var(--sh-t)}
  .pl-pg.off{opacity:.4;pointer-events:none}
  .pl-gap{color:var(--text3);align-self:center}
@@ -917,7 +1010,7 @@
  .pp-empty span{font-size:13px;line-height:1.6;color:var(--text2)}
  .pp-head{display:flex;align-items:center;gap:13px;margin-bottom:14px}
  .pp-av{width:52px;height:52px;flex:0 0 52px;border-radius:50%;display:flex;
-   align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:600;
+   align-items:center;justify-content:center;color:var(--on-teal);font-size:17px;font-weight:600;
    background:linear-gradient(135deg,var(--teal),var(--teal-d))}
  .pp-id{min-width:0}
  .pp-id b{display:block;font-size:19px;font-weight:600;letter-spacing:-.02em;line-height:1.25}
@@ -1073,6 +1166,48 @@
  .an-act-b small{color:var(--text3);font-size:11.5px}
  .an-act-b small a{color:var(--teal-d);text-decoration:none}
  .an-act>span{color:var(--text3);font-size:11px;white-space:nowrap}
+ /* ---------- «Aspectul clinicii»: стиль, цвет, логотип (08-09) ----------
+    Экран выбора сам нарисован ВЫБИРАЕМЫМИ переменными: карточка стиля берёт
+    свой радиус и тень из значений этого стиля, кружок цвета — сам цвет. Так
+    предпросмотр не может разойтись с результатом, потому что он и есть
+    результат, только в миниатюре. */
+ .th-h{font-size:14px;color:var(--text2);font-weight:600;margin:22px 0 10px}
+ .th-styles{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+ .th-style{flex:1 1 190px;max-width:260px;cursor:pointer;display:block}
+ .th-style input{position:absolute;opacity:0;pointer-events:none}
+ .th-style .th-card{display:block;height:78px;padding:12px;border:1px solid;
+   position:relative;transition:transform .18s ease}
+ .th-style .th-card i{display:block;width:52px;height:15px;background:var(--teal)}
+ .th-style .th-card u{display:block;height:7px;border-radius:4px;background:var(--line);
+   margin-top:9px;width:100%}
+ .th-style .th-card u.sh{width:62%;margin-top:6px}
+ .th-style b{display:block;font-size:14px;margin-top:9px;font-weight:600}
+ .th-style small{color:var(--text3);font-size:12px;line-height:1.4;display:block}
+ .th-style:hover .th-card{transform:translateY(-2px)}
+ /* выбранное отмечено ОБВОДКОЙ, а не только галочкой: карточки стилей похожи
+    между собой, и без явной рамки «какой сейчас» читается не с первого взгляда */
+ .th-style input:checked + .th-card{outline:2.5px solid var(--teal);outline-offset:2px}
+ .th-style input:focus-visible + .th-card{box-shadow:0 0 0 3px var(--teal-ring)}
+ .th-colors{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+ .th-c{cursor:pointer;line-height:0}
+ .th-c input{position:absolute;opacity:0;pointer-events:none}
+ .th-c span{display:block;width:34px;height:34px;border-radius:50%;
+   box-shadow:inset 0 0 0 1px rgba(15,23,42,.10);transition:transform .18s ease}
+ .th-c:hover span{transform:scale(1.1)}
+ .th-c input:checked + span{outline:2.5px solid var(--text);outline-offset:3px}
+ .th-c input:focus-visible + span{box-shadow:0 0 0 3px var(--teal-ring)}
+ .th-c .pick{background:conic-gradient(#EF4444,#F59E0B,#10B981,#3B82F6,#7C3AED,#EF4444);
+   display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1}
+ .th-colors input[type=color]{width:44px;height:34px;padding:0;border:1px solid var(--line);
+   border-radius:9px;background:var(--panel);cursor:pointer}
+ .th-dot{display:inline-block;width:9px;height:9px;border-radius:50%;
+   margin:0 4px -1px 0;box-shadow:inset 0 0 0 1px rgba(15,23,42,.12)}
+ .th-logowrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+ .th-logo{max-height:64px;max-width:200px;object-fit:contain;
+   border:1px solid var(--line);border-radius:var(--r-ctl);padding:8px;background:var(--panel)}
+ .th-logo.none{display:flex;align-items:center;justify-content:center;width:140px;
+   height:64px;color:var(--text3);font-size:12.5px;border-style:dashed}
+ .th-logof{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0}
  /* ---------- движение ----------
     ВСЁ привязано к классу `anim` на <html>. Его выдаёт скрипт в шапке страницы
     и только при осмысленном открытии: журнал перезагружает себя каждые 12
@@ -1108,7 +1243,7 @@
  @keyframes dp-fresh{
    0%{opacity:0;transform:translateY(10px);box-shadow:0 0 0 3px var(--teal-line)}
    30%{opacity:1;transform:none;box-shadow:0 0 0 3px var(--teal-line)}
-   100%{opacity:1;transform:none;box-shadow:0 0 0 0 rgba(14,159,138,0)}}
+   100%{opacity:1;transform:none;box-shadow:0 0 0 0 transparent}}
  .gappt.fresh,.ag-i.fresh{animation:dp-fresh 1.6s ease}
  /* Уважать системную настройку: у части людей движение вызывает тошноту, и
     Windows отдаёт это флагом. Отключаем всё разом, страница остаётся рабочей. */
@@ -1173,6 +1308,12 @@
       шире экрана растягивает layout viewport (было 584px на дне врача), а за
       ним «едут» fixed таб-бар и вся геометрия — скролл обязан быть локальным */
    table.list,table.set{display:block;overflow-x:auto}
+   /* сетка дня уже скроллится своей обёрткой (.gridwrap) — здесь только
+      сужаем минимум, чтобы на телефоне ехало меньше */
+   .gridwrap table.grid{min-width:520px}
+   /* дата — отдельной строкой над кнопками перехода: в один ряд с шестью
+      кнопками она на телефоне не помещается и рвёт панель посередине */
+   .nav b{width:100%;justify-content:center}
    /* модалки на всю ширину; поля 16px — iOS не зумит на фокусе */
    dialog{width:calc(100vw - 20px)}
    dialog.wide{width:calc(100vw - 20px)}

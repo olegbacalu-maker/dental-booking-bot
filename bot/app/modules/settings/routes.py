@@ -20,8 +20,9 @@ import sys
 import tempfile
 from datetime import datetime
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse)
 from starlette.background import BackgroundTask
 
 from ... import db
@@ -34,9 +35,9 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
                           pin_free, remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
-                            _doc_hours_text, _shell, tg_configured,
+                            _doc_hours_text, _shell, standalone, tg_configured,
                             tg_refresh_meta, tg_status)
-from ...core import bitlocker
+from ...core import bitlocker, theme
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
@@ -228,6 +229,7 @@ async def admin_settings(request: Request, msg: str = ""):
     hours_short = (f"azi {int(today_h[0])}:00–{int(today_h[1])}:00" if today_h
                    else "azi închis")
     n_docs = sum(1 for d in cfg["doctors"] if eng.doctor_state(d) == "activ")
+    _th = theme.current()
 
     bl_tone, _bl_txt = bitlocker.describe(bitlocker.STATE["code"],
                                           bitlocker.STATE["drive"])
@@ -239,6 +241,11 @@ async def admin_settings(request: Request, msg: str = ""):
                   f"v{eng.APP_VERSION} · {up_short}{bl_flag}"),
              tile("/admin/settings/clinic", "🏥", "g", "Clinica",
                   e(cfg["name"])),
+             tile("/admin/settings/theme", "🎨", "v", "Aspectul clinicii",
+                  f"{e(theme.STYLE_LABEL[_th['style']][0])} · "
+                  f"<span class='th-dot' style='background:{e(_th['primary'])}'></span>"
+                  f"{e(_th['primary'])}"
+                  + (" · logo ✔" if theme.logo_url() else "")),
              tile("/admin/settings/hours", "🕘", "v", "Program de lucru",
                   hours_short),
              tile("/admin/settings/services", "🦷", "g", "Servicii",
@@ -481,11 +488,181 @@ async def settings_clinic(request: Request, msg: str = ""):
 <tr><th>Adresa (RO)</th><td><input type='text' name='addr_ro' value='{e(cfg.get("address", {}).get("ro", ""))}'></td></tr>
 <tr><th>Adresa (RU)</th><td><input type='text' name='addr_ru' value='{e(cfg.get("address", {}).get("ru", ""))}'></td></tr>
 </table>
-<p class='hint'>Numele, telefonul și adresa apar în bot (📞 contacte) și în antetul
-registrului. Restul secțiunilor nu sunt atinse la salvare.</p>
+<p class='hint'>Numele, telefonul și adresa apar în bot (📞 contacte), în bara laterală
+a registrului și pe documentele tipărite (043/e, acord, raport de casă).
+Restul secțiunilor nu sunt atinse la salvare.</p>
 <button class='savebtn'>💾 Salvează</button>
 </form>"""
     return _sec_page(body, "setări · clinica", msg)
+
+
+@router.get("/admin/settings/theme", response_class=HTMLResponse)
+async def settings_theme(request: Request, msg: str = ""):
+    """Как клиника выглядит: стиль, фирменный цвет, логотип.
+
+    ⭐ Выбор здесь НАРОЧНО короткий — три стиля и шесть цветов плюс свой. Полсотни
+    ползунков превратили бы программу в конструктор CSS: каждая клиника собрала
+    бы себе нечитаемое, а поддержка получила бы столько же разных экранов,
+    сколько установок. Стиль и цвет — ровно те две вещи, по которым люди узнают
+    «своё», всё остальное держит дизайн-система.
+    """
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    th = theme.current()
+    e = html.escape
+    preset_hex = [c for c, _ in theme.PRESETS]
+    custom = th["primary"] not in preset_hex
+
+    # ⭐ Палитры считает СЕРВЕР и отдаёт готовыми. Живому предпросмотру нельзя
+    # повторять арифметику из core/theme.py: два расчёта неизбежно разойдутся, и
+    # клиника увидит при выборе один цвет, а после сохранения другой. Своего
+    # цвета в наборе нет — за ним предпросмотр сходит на /theme/palette.
+    pal_js = json.dumps({st: {c: theme.palette(c, st) for c in preset_hex}
+                         for st in theme.STYLES}).replace("</", "<\\/")
+    sty_js = json.dumps(theme.STYLES).replace("</", "<\\/")
+
+    styles = "".join(
+        f"<label class='th-style'>"
+        f"<input type='radio' name='style' value='{e(key)}'"
+        f"{' checked' if key == th['style'] else ''}>"
+        f"<span class='th-card' style=\"border-radius:{v['--r-card']};"
+        f"background:{v['--bg']};border-color:{v['--line']};box-shadow:{v['--sh']}\">"
+        f"<i style=\"border-radius:{v['--r-ctl']}\"></i><u></u><u class='sh'></u></span>"
+        f"<b>{e(theme.STYLE_LABEL[key][0])}</b>"
+        f"<small>{e(theme.STYLE_LABEL[key][1])}</small></label>"
+        for key, v in theme.STYLES.items())
+
+    colors = "".join(
+        f"<label class='th-c' title='{e(name)}'>"
+        f"<input type='radio' name='primary' value='{e(hexv)}'"
+        f"{' checked' if hexv == th['primary'] else ''}>"
+        f"<span style='background:{e(hexv)}'></span></label>"
+        for hexv, name in theme.PRESETS)
+
+    logo = theme.logo_url()
+    logo_box = (f"<img class='th-logo' src='{e(logo)}' alt='logo'>" if logo
+                else "<div class='th-logo none'>fără logo</div>")
+    logo_del = ("<button name='act' value='del' class='pl-btn'>🗑 Șterge</button>"
+                if logo else "")
+
+    body = f"""
+<h2>🎨 Aspectul clinicii</h2>
+<form method='post' action='/admin/settings/save' id='thf'>
+<input type='hidden' name='part' value='theme'>
+
+<h3 class='th-h'>Stil interfață</h3>
+<div class='th-styles'>{styles}</div>
+
+<h3 class='th-h'>Culoare principală</h3>
+<div class='th-colors'>{colors}
+  <label class='th-c th-custom' title='Culoare personalizată'>
+    <input type='radio' name='primary' value='custom'{' checked' if custom else ''}>
+    <span class='pick'>🎨</span>
+  </label>
+  <input type='color' name='custom' id='thcustom' value='{e(th["primary"])}'>
+</div>
+<p class='hint'>Culoarea se aplică butoanelor, meniului și accentelor.
+Roșu pentru urgențe, galben pentru avertismente și verde pentru „confirmat”
+rămân neschimbate — acolo culoarea înseamnă ceva, nu decorează.</p>
+<button class='savebtn'>💾 Salvează</button>
+</form>
+
+<h3 class='th-h'>Logo</h3>
+<div class='th-logowrap'>
+  {logo_box}
+  <form method='post' action='/admin/settings/theme/logo'
+        enctype='multipart/form-data' class='th-logof'>
+    <div class='filepick'>
+      <input type='file' name='file' id='thlogo' accept='image/png,image/jpeg'>
+      <label for='thlogo'>📎 Alege fișier…</label>
+    </div>
+    <button class='pl-btn primary'>Încarcă</button>
+    {logo_del}
+  </form>
+</div>
+<p class='hint'>PNG sau JPEG, cel mult 2 MB. Apare pe ecranul de intrare și în
+antetul documentelor tipărite (043/e, acord, raport de casă). Logoul rămâne la
+actualizarea programului — se păstrează lângă profilul clinicii.</p>
+
+<script>
+(function(){{
+  var PAL = {pal_js}, STY = {sty_js};
+  var f = document.getElementById('thf'), root = document.documentElement;
+  function put(o){{ for (var k in o) root.style.setProperty(k, o[k]); }}
+  function style(){{ var r = f.querySelector('input[name=style]:checked');
+                     return r ? r.value : 'modern'; }}
+  function color(){{ var r = f.querySelector('input[name=primary]:checked');
+                     if (!r) return null;
+                     return r.value === 'custom'
+                       ? document.getElementById('thcustom').value : r.value; }}
+  function apply(){{
+    var st = style(), c = color();
+    put(STY[st] || {{}});
+    if (!c) return;
+    if (PAL[st] && PAL[st][c.toUpperCase()]) {{ put(PAL[st][c.toUpperCase()]); return; }}
+    /* своего цвета в наборе нет — палитру считает сервер, здесь её не выводят */
+    fetch('/admin/settings/theme/palette?c=' + encodeURIComponent(c)
+          + '&style=' + encodeURIComponent(st))
+      .then(function(r){{ return r.ok ? r.json() : null; }})
+      .then(function(p){{ if (p) put(p); }})
+      .catch(function(){{}});
+  }}
+  f.addEventListener('change', function(ev){{
+    if (ev.target.name === 'custom') {{
+      f.querySelector('input[name=primary][value=custom]').checked = true;
+    }}
+    apply();
+  }});
+  document.getElementById('thcustom').addEventListener('input', apply);
+}})();
+</script>"""
+    return _sec_page(body, "setări · aspectul clinicii", msg)
+
+
+@router.get("/admin/settings/theme/palette")
+async def settings_theme_palette(request: Request, c: str = "", style: str = ""):
+    """Палитра для своего цвета — единственный способ показать предпросмотр,
+    не переписывая расчёт на JavaScript. Отдаёт то же, что уедет в CSS при
+    сохранении, поэтому «увидел одно, получил другое» здесь невозможно."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    rgb = theme.parse_hex(c)
+    if rgb is None:
+        return JSONResponse({}, status_code=400)
+    st = style if style in theme.STYLES else theme.DEFAULT_STYLE
+    return JSONResponse(theme.palette(theme.to_hex(rgb), st))
+
+
+@router.post("/admin/settings/theme/logo")
+async def settings_theme_logo(request: Request, file: UploadFile = File(None),
+                              act: str = Form("")):
+    """Логотип клиники. Отдельным маршрутом, а не полем общей формы: файл идёт
+    multipart, и сваливать его в тот же обработчик, что правит профиль, значит
+    гонять картинку через разбор настроек на каждое сохранение цвета."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    back = "/admin/settings/theme"
+    th = theme.current()
+    if act == "del":
+        theme.clear_logo()
+        name = None
+        msg = "no_logo"
+    else:
+        data = await file.read(theme.LOGO_MAX + 1) if file is not None else b""
+        if file is not None:
+            await file.close()
+        try:
+            name = theme.save_logo(data)
+        except (ValueError, OSError):
+            return RedirectResponse(f"{back}?msg=bad_logo", status_code=303)
+        msg = "ok_logo"
+    # ⚠️ Стиль и цвет переносим ЯВНО: _finish_cfg заменяет секцию целиком, и
+    # сохранение логотипа сбросило бы выбранный цвет на фирменный зелёный.
+    cfg = _finish_cfg(theme={"style": th["style"], "primary": th["primary"],
+                             "logo": name})
+    if eng.save_config(cfg) is not None:
+        return RedirectResponse(f"{back}?msg=save_err", status_code=303)
+    return RedirectResponse(f"{back}?msg={msg}", status_code=303)
 
 
 @router.get("/admin/settings/hours", response_class=HTMLResponse)
@@ -669,6 +846,24 @@ def _val_clinic(data: dict) -> dict:
             "address": {"ro": addr_ro, "ru": addr_ru}}
 
 
+def _val_theme(data: dict) -> dict:
+    """Стиль и фирменный цвет. Логотип сюда не приходит — он меняется своим
+    маршрутом, но обязан ПЕРЕЖИТЬ сохранение цвета, поэтому переносится из
+    текущего профиля: `_finish_cfg` кладёт секцию целиком, и забытое поле
+    означало бы «поменял цвет — пропал логотип»."""
+    style = data.get("style")
+    if style not in theme.STYLES:
+        raise ValueError("style")
+    choice = str(data.get("primary", ""))
+    rgb = theme.parse_hex(str(data.get("custom", "")) if choice == "custom"
+                          else choice)
+    if rgb is None:
+        raise ValueError("primary")
+    keep = (eng.CONFIG.get("theme") or {}).get("logo")
+    return {"style": style, "primary": theme.to_hex(rgb),
+            "logo": keep if keep in theme.LOGO_NAMES.values() else None}
+
+
 def _val_hours(data: dict) -> dict:
     hours = {}
     for day in _DOW_ORDER:
@@ -810,11 +1005,11 @@ def admin_update_run(request: Request):
     err = upd.self_update()
     if err:
         return RedirectResponse("/admin/settings/system?msg=upd_err", status_code=303)
-    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+    return standalone(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="18;url=/admin/settings/system">
 <title>Actualizare…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff;text-align:center}}
+      justify-content:center;height:100vh;margin:0;background:__ACCENT__;color:__ON__;text-align:center}}
  .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
  @keyframes r{{to{{transform:rotate(360deg)}}}}
 </style></head><body>
@@ -822,7 +1017,7 @@ def admin_update_run(request: Request):
 <h1>Se actualizează la {html.escape(upd.STATE['latest'])}…</h1>
 <p>Programul se închide și repornește singur.<br>
 Această pagină se va reîncărca automat în ~18 secunde.</p>
-</body></html>"""
+</body></html>""")
 
 
 @router.post("/admin/users/save")
@@ -931,18 +1126,18 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
 def _restart_page(done: str, back_url: str) -> str:
     """Экран «программа перезапускается» — для настроек, которые читает
     лаунчер до старта приложения (токен бота, сетевой доступ)."""
-    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+    return standalone(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="15;url={back_url}">
 <title>Repornire…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff;text-align:center}}
+      justify-content:center;height:100vh;margin:0;background:__ACCENT__;color:__ON__;text-align:center}}
  .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
  @keyframes r{{to{{transform:rotate(360deg)}}}}
 </style></head><body>
 <div class="sp">🔄</div>
 <h1>{done} — programul repornește…</h1>
 <p>Fereastra se va redeschide singură în câteva secunde.</p>
-</body></html>"""
+</body></html>""")
 
 
 @router.post("/admin/settings/save")
@@ -954,9 +1149,16 @@ async def admin_settings_save(request: Request, payload: str = Form(""),
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     back = {"clinic": "/admin/settings/clinic", "hours": "/admin/settings/hours",
-            "services": "/admin/settings/services"}.get(part, "/admin/settings")
+            "services": "/admin/settings/services",
+            "theme": "/admin/settings/theme"}.get(part, "/admin/settings")
     try:
-        if part == "clinic":
+        if part == "theme":
+            form = await request.form()
+            cfg = _finish_cfg(theme=_val_theme({
+                "style": form.get("style", ""),
+                "primary": form.get("primary", ""),
+                "custom": form.get("custom", "")}))
+        elif part == "clinic":
             form = await request.form()
             cfg = _finish_cfg(**_val_clinic({
                 "name": form.get("name", ""), "phone": form.get("phone", ""),
@@ -974,4 +1176,5 @@ async def admin_settings_save(request: Request, payload: str = Form(""),
     if eng.save_config(cfg) is not None:
         return RedirectResponse(f"{back}?msg=save_err", status_code=303)
     tg_refresh_meta()   # имя/телефон/орар уезжают и в профиль бота
-    return RedirectResponse(f"{back}?msg=ok_set", status_code=303)
+    ok = "ok_theme" if part == "theme" else "ok_set"
+    return RedirectResponse(f"{back}?msg={ok}", status_code=303)

@@ -22,6 +22,7 @@ import test_pin  # noqa: E402
 import test_privacy  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
+import test_theme  # noqa: E402
 import test_visit  # noqa: E402
 from harness import run  # noqa: E402
 
@@ -63,6 +64,9 @@ SUITES = [
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),
+    ("Вид клиники: палитра и отказы", test_theme.suite_palette),
+    ("Вид клиники: цвет на страницах", test_theme.suite_pages),
+    ("Вид клиники: логотип", test_theme.suite_logo),
     ("Доступ с телефона (LAN)", test_admin.suite_lan),
     ("Закон 195: выгрузка данных пациента", test_privacy.suite_export),
     ("Закон 195: полнота выгрузки", test_privacy.suite_export_full),

@@ -54,13 +54,21 @@ def _date_nav(d: date, base: str, extra: str = "") -> str:
 def _grid(d: date, doctors_items: list, active: dict, href_fn,
           cards: dict | None = None) -> str:
     hours = [x.hour for x in eng.day_slots(d)]
-    out = ["<table class='grid'><tr><th></th>"]
+    # Текущий час подсвечивается ТОЛЬКО на сегодняшнем дне. Отдельной линии
+    # «сейчас» поперёк сетки здесь нет намеренно: таблица — не холст, линию
+    # пришлось бы позиционировать поверх строк, и она разъезжалась бы с ними
+    # при любой ширине. Подсветка строки отвечает на тот же вопрос («где мы
+    # сейчас») и не может разъехаться, потому что она и есть строка.
+    now = datetime.now(eng.TZ)
+    now_hour = now.hour if now.date() == d else None
+    out = ["<div class='gridwrap'><table class='grid'><tr><th class='gh-t'></th>"]
     for dk, name in doctors_items:
         spec = eng.DOCTOR_SPEC.get(dk, "")
         if not eng.DOCTOR_META.get(dk, {}).get("active", True):
             spec = (spec + " · inactiv").strip(" ·")
-        out.append(f"<th><a href='/admin/doctor/{dk}?date={d.isoformat()}'>{html.escape(name)}</a>"
-                   f"<br><small style='font-weight:400;opacity:.8'>{html.escape(spec)}</small></th>")
+        out.append(f"<th><a class='dh-n' href='/admin/doctor/{dk}?date={d.isoformat()}'>"
+                   f"{html.escape(name)}</a>"
+                   f"<span class='dh-s'>{html.escape(spec)}</span></th>")
     out.append("</tr>")
     starts, covered = active
     # ⚠️ выключенному врачу писать нельзя (проверка в /admin/add), а «+» у него
@@ -69,7 +77,8 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
     off = {dk for dk, _n in doctors_items
            if not eng.DOCTOR_META.get(dk, {}).get("active", True)}
     for h in hours:
-        out.append(f"<tr><td class='hour'>{h:02d}:00</td>")
+        nowcls = " now" if h == now_hour else ""
+        out.append(f"<tr class='hrow{nowcls}'><td class='hour{nowcls}'>{h:02d}:00</td>")
         for dk, dname in doctors_items:
             rs = starts.get((dk, h)) or starts.get((dname, h)) or []
             if not rs:
@@ -109,7 +118,7 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                     f"<br><small>{html.escape(r['phone'] or '')}</small>{cmt}</div>")
             out.append("<td>" + "".join(cell) + "</td>")
         out.append("</tr>")
-    out.append("</table>")
+    out.append("</table></div>")
     return "".join(out)
 
 

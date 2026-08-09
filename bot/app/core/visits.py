@@ -65,7 +65,9 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             f"<tr class='{r['status']}'><td>{r['id']}</td><td>{dt_txt}</td>"
             f"<td>{name_html}</td><td>{html.escape(r['phone'] or '')}</td>"
             f"<td>{svc_txt}</td><td>{html.escape(r['doctor'])}</td>"
-            f"<td>{src}</td><td>{STATUS_LABEL.get(r['status'], r['status'])}"
+            f"<td>{src}</td>"
+            f"<td><span class='stat s-{r['status']}'>"
+            f"{STATUS_LABEL.get(r['status'], r['status'])}</span>"
             f"{' 🔔' if r['reminded_day'] else ''}"
             f"{' 🩺' if r.get('has_rec') else ''}</td><td>{acts}</td></tr>"
         )

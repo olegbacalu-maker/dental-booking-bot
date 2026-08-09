@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
 from ... import engine as eng
+from ...core import theme
 from ...core.auth import _guard
 from ...core.layout import _shell, _tg_state, tg_configured
 
@@ -35,6 +36,7 @@ async def admin_qr_print(request: Request):
     link = f"https://t.me/{username}"
     q = urllib.parse.quote(link, safe="")
     name = html.escape(eng.CLINIC_NAME)
+    acc, on = theme.accent(), theme.on_accent()
     return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{name} — QR pacienți</title><style>
@@ -42,14 +44,15 @@ async def admin_qr_print(request: Request):
  body{{font-family:'Segoe UI',system-ui,sans-serif;color:#1c2b33;display:flex;
       flex-direction:column;align-items:center;padding:10mm;text-align:center}}
  .noprint{{margin-bottom:8mm;display:flex;gap:10px}}
- .noprint button{{background:#0E9F8A;color:#fff;border:none;border-radius:8px;
+ .noprint button{{background:{acc};color:{on};border:none;border-radius:8px;
       padding:10px 22px;font-size:15px;cursor:pointer}}
- .noprint a{{align-self:center;color:#0E9F8A}}
+ .noprint a{{align-self:center;color:{acc}}}
  .sheet{{border:2px dashed #ccd;border-radius:6mm;padding:12mm 16mm;max-width:150mm}}
- h1{{font-size:26pt;color:#0E9F8A}}
+ .clogo{{display:block;margin:0 auto 4mm;max-height:20mm;max-width:60mm;object-fit:contain}}
+ h1{{font-size:26pt;color:{acc}}}
  h2{{font-size:15pt;color:#334;margin:4mm 0 8mm;font-weight:600}}
  img{{width:88mm;height:88mm}}
- .user{{font-size:14pt;color:#0E9F8A;font-weight:600;margin-top:4mm}}
+ .user{{font-size:14pt;color:{acc};font-weight:600;margin-top:4mm}}
  .how{{font-size:11pt;color:#556;margin-top:6mm;line-height:1.5}}
  .phone{{font-size:12pt;margin-top:6mm}}
  .brand{{font-size:8pt;color:#aab;margin-top:8mm}}
@@ -60,6 +63,7 @@ async def admin_qr_print(request: Request):
   <a href="/admin">← Panou</a>
 </div>
 <div class="sheet">
+  {theme.print_logo()}
   <h1>🦷 {name}</h1>
   <!-- ⛔ не обещать здесь «24/7»/«non-stop»: бот отвечает, только пока
        программа запущена, а выключает ли клиника ПК на ночь — мы не знаем.
@@ -92,7 +96,7 @@ async def demo(url: str = "") -> Response:
     q = urllib.parse.quote(target, safe="")
     return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>DentPilot Demo — QR</title>
 <style>body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-justify-content:center;height:100vh;margin:0;background:#0E9F8A;color:#fff}}
+justify-content:center;height:100vh;margin:0;background:{theme.accent()};color:{theme.on_accent()}}}
 img{{background:#fff;padding:18px;border-radius:12px;width:340px;height:340px}}
 h1{{font-weight:600;font-size:22px}}p{{font-size:14px;opacity:.85}}</style></head><body>
 <h1>🦷 Scanați pentru programare / Сканируйте для записи</h1>

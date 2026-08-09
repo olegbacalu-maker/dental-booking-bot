@@ -17,6 +17,7 @@ from datetime import date, datetime
 from .. import brand, db, dpapi, paths
 from .. import engine as eng
 from .. import update as upd
+from . import theme
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, ROLE_LABEL,
                    _sec_warn, can,
                    request_user, tamper_alert)
@@ -86,6 +87,14 @@ MSG_BANNER = {
     "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
     "ok_comment": ("ok", "Comentariu salvat ✔"),
     "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
+    "ok_theme": ("ok", "Aspectul clinicii a fost salvat ✔"),
+    "ok_logo": ("ok", "Logo actualizat ✔ — apare la intrare și pe documentele tipărite"),
+    "no_logo": ("ok", "Logo șters ✔"),
+    # ⚠️ Текст называет ПРИЧИНУ отказа: «logo invalid» отправило бы директора
+    # искать ошибку в картинке, которая на вид открывается — а отказали ей за
+    # формат (SVG) или за размер.
+    "bad_logo": ("err", "Logo neacceptat — doar PNG sau JPEG, cel mult 2 MB. "
+                        "SVG nu se acceptă din motive de securitate."),
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
     "ok_pin": ("ok", "PIN schimbat ✔"),
     "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
@@ -410,12 +419,28 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
         f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
     fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
     reload_attr = ' data-reload="12"' if active in LIVE_RELOAD else ""
-    return f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
+    # Тема клиники приезжает СТРОКОЙ в шапке, а не переписывает panel.css:
+    # таблица вшита в exe (только чтение), отдаётся с вечным кешем и одна на
+    # все клиники. Порядок обязателен — <style> ПОСЛЕ ссылки, иначе он не
+    # перебьёт :root. Цвет полосы браузера берётся из того же стиля: на
+    # телефоне врача она занимает верх экрана и осталась бы от прежней темы.
+    th = theme.current()
+    th_css = theme.vars_css()
+    th_bg = theme.STYLES[th["style"]]["--bg"]
+    # ⚠️ В <h1> имени клиники НЕТ намеренно (08-09): оно и так на экране дважды —
+    # в подписи сайдбара и в чипе вошедшего («роль · клиника»), а строка
+    # «Clinica mea — registrul clinicii» съедала ширину ради третьего повтора.
+    # Заголовок один на ВСЕ страницы (имя раздела живёт в .sub, см. _sec_page),
+    # поэтому он называет ПРОГРАММУ, а не страницу — и обязан быть коротким.
+    # В <title> окна имя клиники остаётся: там оно различает установки в панели
+    # задач, а не повторяет соседний элемент.
+    return f"""<!doctype html><html lang="ro" data-style="{th['style']}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#F6FBF8">
+<meta name="theme-color" content="{th_bg}">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title>
 <link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
+<style>{th_css}</style>
 <script>/* Оживлять цифры и полосы можно только при ОСМЫСЛЕННОМ открытии страницы.
 Журнал перезагружает себя каждые 12 секунд (panel.js), и без этого выключателя
 KPI пересчитывались бы на глазах весь рабочий день, а регистратура читала бы
@@ -431,7 +456,7 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 <div class="main">
 {_topbar(bell)}
 <div class="content">
-<h1><a href="/admin">{html.escape(eng.CLINIC_NAME)} — registrul clinicii</a></h1>
+<h1><a href="/admin">Registrul Clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
 {_tamper_banner()}{_setup_hint()}
 {body}
@@ -462,10 +487,16 @@ def _age(birth_year) -> int | None:
     return datetime.now(eng.TZ).year - int(birth_year)
 
 
+# ⚠️ Страницы ниже НЕ подключают panel.css и не будут. Экран входа — первое,
+# что видит клиника, и он обязан открыться, даже если статика не отдалась;
+# экран установки PIN показывается там, где журнала ещё нет вовсе. Значит
+# переменных CSS у них нет, и цвет клиники приезжает сюда ГОТОВЫМИ значениями
+# через standalone() — заполнителями __ACCENT__/__ON__/__RING__/__BG__/__LOGO__.
+
 LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — acces</title><style>
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#F6FBF8;display:flex;
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__BG__;display:flex;
       align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
       padding:16px;box-sizing:border-box}
  form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
@@ -475,16 +506,20 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
       box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
       display:flex;flex-direction:column;gap:12px;width:min(340px,100%)}
  h1{font-size:19px;color:#162033;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
+ /* логотип клиники — только если она его загрузила; высота ограничена здесь,
+    потому что разбирать картинку нечем (Pillow в сборку не едет) */
+ .clogo{align-self:center;max-height:64px;max-width:220px;object-fit:contain;margin-bottom:4px}
  /* 16px — не «дизайн», а защита: поле мельче 16px iOS зумит при фокусе */
  input{height:44px;padding:0 14px;border:1px solid #E7EDF5;border-radius:12px;font-size:16px;
        outline:none;color:#162033}
- input:focus{border-color:#0E9F8A;box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- button{background:#0E9F8A;color:#fff;border:none;border-radius:12px;height:44px;
+ input:focus{border-color:__ACCENT__;box-shadow:0 0 0 3px __RING__}
+ button{background:__ACCENT__;color:__ON__;border:none;border-radius:12px;height:44px;
         font-size:15px;font-weight:600;cursor:pointer;transition:background-color .2s ease}
- button:hover{background:#0B7E6D}
+ button:hover{background:__ACCENT_D__}
  .err{color:#B91C1C;font-size:13px}
 </style></head><body>
 <form method="post" action="/admin/login">
+  __LOGO__
   <h1>🦷 __CLINIC__ — registrul clinicii</h1>
   __ERR__
   <input type="hidden" name="next" value="__NEXT__">
@@ -497,22 +532,24 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — PIN</title><style>
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#0E9F8A;display:flex;
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;display:flex;
       align-items:center;justify-content:center;height:100vh;margin:0}
  form{background:#fff;padding:30px 32px;border-radius:18px;
       box-shadow:0 4px 8px rgba(15,23,42,.12),0 22px 50px rgba(15,23,42,.26);
       display:flex;flex-direction:column;gap:12px;width:min(340px,100%)}
  h1{font-size:19px;color:#162033;margin:0;font-weight:600;letter-spacing:-.02em}
  p{color:#7E8B9C;font-size:13px;margin:0;line-height:1.5}
+ .clogo{align-self:center;max-height:64px;max-width:220px;object-fit:contain}
  input{padding:12px;border:1px solid #E7EDF5;border-radius:12px;font-size:26px;
        text-align:center;letter-spacing:12px;outline:none;color:#162033}
- input:focus{border-color:#0E9F8A;box-shadow:0 0 0 3px rgba(14,159,138,.12)}
- button{background:#0E9F8A;color:#fff;border:none;border-radius:12px;height:48px;
+ input:focus{border-color:__ACCENT__;box-shadow:0 0 0 3px __RING__}
+ button{background:__ACCENT__;color:__ON__;border:none;border-radius:12px;height:48px;
         font-size:15px;font-weight:600;cursor:pointer;transition:background-color .2s ease}
- button:hover{background:#0B7E6D}
+ button:hover{background:__ACCENT_D__}
  .err{color:#B91C1C;font-size:13px}
 </style></head><body>
 <form method="post" action="/admin/setup">
+  __LOGO__
   <h1>🦷 __CLINIC__</h1>
   <p>Prima pornire: setați un PIN pentru registrul clinicii (4–6 cifre).</p>
   __ERR__
@@ -522,6 +559,28 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
          pattern="[0-9]*" maxlength="6" required>
   <button>Setează PIN</button>
 </form></body></html>"""
+
+
+def standalone(tmpl: str) -> str:
+    """Подставить в страницу СО СВОЕЙ вёрсткой имя клиники, её цвет и логотип.
+
+    Одна точка на все такие страницы намеренно: их четыре (вход, установка
+    PIN, обновление, перезапуск), они разбросаны по двум модулям, и стоит
+    завести подстановку по месту — очередной экран забудут перекрасить, а
+    заметит это клиника, у которой единственная зелёная страница посреди
+    синей программы.
+    """
+    th = theme.current()
+    pal = theme.palette(th["primary"], th["style"])
+    logo = theme.logo_url()
+    return (tmpl.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
+            .replace("__ACCENT_D__", pal["--teal-d"])
+            .replace("__ACCENT__", pal["--teal"])
+            .replace("__RING__", pal["--teal-ring"])
+            .replace("__ON__", pal["--on-teal"])
+            .replace("__BG__", theme.STYLES[th["style"]]["--bg"])
+            .replace("__LOGO__",
+                     f"<img class='clogo' src='{logo}' alt=''>" if logo else ""))
 
 
 _DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]

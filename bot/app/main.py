@@ -29,7 +29,8 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, PERM_SETTINGS, _guard, _pin_rec,
                         auth_file_fp, current_user, find_user, lock_left,
                         note_fail, note_ok, remember_auth_file, request_user,
                         require, set_request_user, set_tamper_alert, verify_pin)
-from .core.layout import (LOGIN_TMPL, SETUP_TMPL, STATIC, _asset,
+from .core import theme
+from .core.layout import (LOGIN_TMPL, SETUP_TMPL, STATIC, _asset, standalone,
                           tg_configured)
 from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
@@ -248,6 +249,29 @@ async def favicon() -> Response:
                     headers={"Cache-Control": "public, max-age=86400"})
 
 
+@app.get("/clinic-logo")
+async def clinic_logo() -> Response:
+    """Логотип клиники. Отдаётся БЕЗ входа намеренно: он нужен экрану входа,
+    а сам по себе это та же картинка, что висит у клиники на двери и печатается
+    на бланке, — скрывать в нём нечего.
+
+    ⭐ Имя файла не приходит из запроса ВООБЩЕ: путь собирает theme из двух
+    разрешённых имён. Поэтому здесь нет ни разбора имени, ни проверки на «..» —
+    подставить сюда чужой путь нечем."""
+    p = theme.logo_path()
+    if p is None:
+        return Response(status_code=404)
+    try:
+        data = p.read_bytes()
+    except OSError:
+        log.warning("логотип клиники не читается: %s", p)
+        return Response(status_code=404)
+    # адрес несёт отпечаток времени правки (theme.logo_url), поэтому кеш можно
+    # держать долго: замена логотипа меняет адрес и доезжает сразу
+    return Response(data, media_type=theme.logo_mime(p.name),
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 # ---------- самозапись пациента (лендинг + веб-чат) ----------
 # ЗАМОРОЖЕНА вместе с Telegram (08-08): это тот же канал «пациент записывает
 # себя сам», от которого клиники отказались. Живёт ровно у тех, у кого настроен
@@ -297,7 +321,7 @@ async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
     else:
         err_html = ""
     nxt = next if next.startswith("/admin") else "/admin"
-    return (LOGIN_TMPL.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
+    return (standalone(LOGIN_TMPL)
             .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
             .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT)
             .replace("__HINT__", PIN_HINT if pin_mode else ""))
@@ -399,8 +423,7 @@ async def admin_setup_page(err: str = ""):
     if not _setup_allowed():
         return RedirectResponse("/admin", status_code=303)
     err_html = "<div class='err'>PIN-urile nu coincid sau nu au 4–6 cifre</div>" if err else ""
-    return (SETUP_TMPL.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
-            .replace("__ERR__", err_html))
+    return standalone(SETUP_TMPL).replace("__ERR__", err_html)
 
 
 

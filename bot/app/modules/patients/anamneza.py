@@ -13,6 +13,8 @@
 """
 from __future__ import annotations
 
+from ...core import theme
+
 FLAGS = {
     "ro": {
         "cardio": "Boli cardiovasculare / hipertensiune",
@@ -123,9 +125,11 @@ _FORM_CSS = """
  .small{font-size:11px;color:#444;margin-top:8px}
  .foot{margin-top:14px;font-size:10px;color:#777;text-align:center}
  .noprint{display:flex;gap:10px;justify-content:center;margin:0 0 14px}
- .noprint button{background:#0E9F8A;color:#fff;border:none;border-radius:8px;
+ .noprint button{background:__ACCENT__;color:__ON__;border:none;border-radius:8px;
       padding:9px 20px;font-size:14px;cursor:pointer;font-family:system-ui,sans-serif}
- .noprint a{align-self:center;color:#0E9F8A;font-family:system-ui,sans-serif;font-size:14px}
+ .noprint a{align-self:center;color:__ACCENT__;font-family:system-ui,sans-serif;font-size:14px}
+ .clogo{display:block;max-height:16mm;max-width:45mm;object-fit:contain;margin-bottom:2mm}
+ .clogo.c{margin:0 auto 3mm}
  @media print{.noprint{display:none}body{margin:0 auto}}
 """
 
@@ -154,7 +158,7 @@ def render_form(p: dict, lang: str = "ro") -> str:
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{t["title"]} — {e(p.get("name") or "")}</title>
-<style>{_FORM_CSS}</style></head><body>
+<style>{theme.paint(_FORM_CSS)}</style></head><body>
 
 <div class="noprint">
   <button onclick="window.print()">🖨 {t["title"]}</button>
@@ -163,6 +167,7 @@ def render_form(p: dict, lang: str = "ro") -> str:
   <a href="/admin/patient/{p["id"]}">← {e(eng.CLINIC_NAME)}</a>
 </div>
 
+{theme.print_logo("clogo c")}
 <h1>{t["h1"]}</h1>
 <p class="lead">{t["lead"]}</p>
 
