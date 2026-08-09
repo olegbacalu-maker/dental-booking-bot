@@ -93,6 +93,11 @@ def main(base: str, password: str) -> int:
     r = c.get("/admin/patient/999999/acord")
     check("формуляр informare/acord подключён", r.status in (200, 303),
           f"код {r.status} (404 = acord.py не попал в сборку)")
+    # касса живёт в другом модуле (stats), но по той же причине: отдельный
+    # файл, который может не уехать в бандл, и по /health этого не видно
+    r = c.get("/admin/casa")
+    check("отчёт кассы подключён", r.status in (200, 303),
+          f"код {r.status} (404 = casa.py не попал в сборку)")
 
     # бот-диалог: конфиг клиники прочитан из бандла
     r = c.post_json("/chat", {"session_id": "smoke", "message": "/start"})
