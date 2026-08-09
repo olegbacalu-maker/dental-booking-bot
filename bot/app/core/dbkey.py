@@ -286,17 +286,43 @@ def apply_pending(data_dir: pathlib.Path, db_name: str = "dental.db") -> str | N
             return "pending-unreadable"
         if not opens_with(src, key):          # ещё не переезжали
             convert(src, key)
+        # ⛔ Прежние ежедневные копии — это ПОЛНАЯ картотека открытым текстом,
+        # и лежат они рядом с только что зашифрованной базой. Оставить их —
+        # ровно тот театр, за который программа ругает BitLocker кодом 8, да
+        # ещё и экран настроек утверждает, что копии зашифрованы. Переводим их
+        # тем же ключом, а не удаляем: это откат клиники на вчера, терять его
+        # ради чистоты нельзя. Не переехавшую копию оставляем и говорим о ней.
+        stale = []
+        for old in sorted((data_dir / "backups").glob("dental_*.db")):
+            if opens_with(old, key):
+                continue
+            try:
+                convert(old, key)
+            except Exception:                            # noqa: BLE001
+                stale.append(old.name)
         os.replace(pending, data_dir / KEY_FILE)
         decrypt.unlink(missing_ok=True)
-        return "encrypted"
+        return "encrypted" + (f" (копии не переехали: {', '.join(stale)})"
+                              if stale else "")
 
     if decrypt.exists():
         key = load(data_dir)
         if key is not None and not opens_with(src, None):
             convert(src, None, was=key)
-        (data_dir / KEY_FILE).unlink(missing_ok=True)
+        # ⛔ Ключ удаляем ТОЛЬКО убедившись, что база и правда открытая.
+        # Безусловный unlink здесь был дырой на потерю картотеки (найдено
+        # враждебным ревью 08-09): если DPAPI перестал отдавать ключ — сброс
+        # пароля Windows, другой ПК, — расшифровка не происходит, а файл ключа
+        # исчезал. Дальше `enabled()` говорит «шифрования нет», программа лезет
+        # в зашифрованный файл штатным sqlite3, падает на старте, и экран
+        # восстановления недостижим: его включает как раз наличие db.key.
+        # Клиника с ПРАВИЛЬНЫМ листом на руках оставалась без входа.
+        if opens_with(src, None):
+            (data_dir / KEY_FILE).unlink(missing_ok=True)
+            decrypt.unlink(missing_ok=True)
+            return "decrypted"
         decrypt.unlink(missing_ok=True)
-        return "decrypted"
+        return "decrypt-failed"
     return None
 
 

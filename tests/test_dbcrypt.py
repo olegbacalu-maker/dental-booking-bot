@@ -81,6 +81,15 @@ def suite_key(res: Result) -> None:
     res.ok("sqlcipher3 явно назван сборке hidden-import'ом",
            "--hidden-import sqlcipher3" in build,
            "PyInstaller может не положить модуль в exe")
+    # ⛔ И его обязан СТАВИТЬ файл зависимостей. Найдено ревью 08-09: модуль
+    # стоял в окружении руками, а `--hidden-import` отсутствующего модуля
+    # PyInstaller ошибкой не считает. Чистая машина собрала бы программу без
+    # шифрования, дымовой тест (обычная база) прошёл бы, и обнаружилось бы это
+    # у той клиники, которая шифрование включит.
+    reqs = (pathlib.Path(__file__).resolve().parents[1] / "bot"
+            / "requirements-desktop.txt").read_text(encoding="utf-8")
+    res.ok("sqlcipher3 стоит в requirements-desktop.txt", "sqlcipher3" in reqs,
+           "чистое окружение сборки соберёт exe БЕЗ шифрования")
 
     val = dbkey.pragma_value(key)
     # ⚠️ Двойные кавычки снаружи — не украшение: без них ATTACH … KEY падает с
@@ -178,6 +187,19 @@ def suite_live(res: Result) -> None:
             res.ok("и находится поиском", MARK in c.get(f"/admin/search?q={MARK}").body,
                    "поиск не нашёл только что созданного пациента")
 
+            # ⛔ Находка ревью 08-09: «Pregătește criptarea» при уже включённом
+            # шифровании заводило ВТОРОЙ ключ. Переезд под него не мог
+            # выполниться никогда, экран навсегда застревал на «подготовлено»,
+            # а лист печатался с ключом, который не открывает ничего. Открытая
+            # в соседней вкладке страница — обычное дело в регистратуре.
+            again = c.post("/admin/settings/crypt/prepare")
+            res.check("повторная подготовка при живом шифровании отклонена",
+                      again.msg, "crypt_on")
+            res.ok("второй ключ не заведён",
+                   not (tmp / dbkey.PENDING_FILE).exists(),
+                   "ожидающий ключ создан поверх рабочего — лист станет ложным")
+            res.check("рабочий ключ не тронут", dbkey.state(tmp), dbkey.OK)
+
         raw = (tmp / "dental.db").read_bytes()
         res.ok("имя пациента в файле базы не лежит открытым",
                MARK.encode() not in raw,
@@ -209,7 +231,22 @@ def suite_pending(res: Result) -> None:
         res.check("лист печатается из ожидающего ключа",
                   dbkey.load_pending(tmp), key)
 
-        res.check("лаунчер выполнил переезд", dbkey.apply_pending(tmp), "encrypted")
+        # ⛔ Прежние ежедневные копии — полная картотека открытым текстом рядом
+        # с зашифрованной базой (находка ревью 08-09). Оставить их значит и
+        # свести шифрование к нулю, и соврать на экране настроек, где написано,
+        # что копии зашифрованы.
+        (tmp / "backups").mkdir()
+        old_copy = tmp / "backups" / "dental_20260101_1.db"
+        _plain_db(old_copy, rows=2)
+        res.ok("до переезда старая копия лежит открытой",
+               MARK.encode() in old_copy.read_bytes(), "копия и так не читается")
+
+        res.ok("лаунчер выполнил переезд",
+               (dbkey.apply_pending(tmp) or "").startswith("encrypted"),
+               "переезд не выполнен")
+        res.ok("прежние ежедневные копии переехали под ключ",
+               MARK.encode() not in old_copy.read_bytes(),
+               "полная картотека осталась открытой рядом с зашифрованной базой")
         res.check("ключ встал на место", dbkey.state(tmp), dbkey.OK)
         res.ok("данных в открытом виде нет", MARK.encode() not in db.read_bytes(),
                "база осталась открытой")
@@ -230,6 +267,24 @@ def suite_pending(res: Result) -> None:
         got = con.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
         con.close()
         res.check("картотека цела после доводки", got, 4)
+
+        # ⛔ Находка враждебного ревью 08-09, класс «потеря картотеки».
+        # Заказ на выключение + переставший читаться ключ (сброс пароля
+        # Windows, другой ПК). Безусловный unlink стирал db.key, база
+        # оставалась зашифрованной, `enabled()` говорил «шифрования нет», и
+        # экран восстановления становился недостижим — при ПРАВИЛЬНОМ листе
+        # на руках. Ключ имеет право исчезнуть только после того, как база
+        # действительно открылась без него.
+        good = (tmp / dbkey.KEY_FILE).read_text(encoding="utf-8")
+        (tmp / dbkey.KEY_FILE).write_text("dpapi:AAAA", encoding="utf-8")
+        dbkey.request_decrypt(tmp)
+        res.check("нечитаемый ключ не даёт соврать про расшифровку",
+                  dbkey.apply_pending(tmp), "decrypt-failed")
+        res.ok("файл ключа на месте — путь в восстановление сохранён",
+               (tmp / dbkey.KEY_FILE).exists(),
+               "ключ стёрт: база зашифрована, а войти нечем")
+        res.check("состояние честное", dbkey.state(tmp), dbkey.UNREADABLE)
+        (tmp / dbkey.KEY_FILE).write_text(good, encoding="utf-8")
 
         dbkey.request_decrypt(tmp)
         res.check("обратный заказ выполнен", dbkey.apply_pending(tmp), "decrypted")

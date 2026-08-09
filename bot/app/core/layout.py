@@ -90,6 +90,8 @@ MSG_BANNER = {
     "ok_theme": ("ok", "Aspectul clinicii a fost salvat ✔"),
     "bad_crypt": ("err", "Nu am putut pregăti criptarea — cheia nu a fost salvată. "
                          "Detalii în data\\dentpilot.log"),
+    "crypt_on": ("warn", "Criptarea este deja activă. Pentru a o reface, opriți-o "
+                         "mai întâi — altfel foaia tipărită nu ar mai deschide baza"),
     "ok_logo": ("ok", "Logo actualizat ✔ — apare la intrare și pe documentele tipărite"),
     "no_logo": ("ok", "Logo șters ✔"),
     # ⚠️ Текст называет ПРИЧИНУ отказа: «logo invalid» отправило бы директора

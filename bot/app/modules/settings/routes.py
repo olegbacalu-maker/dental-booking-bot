@@ -562,7 +562,19 @@ async def settings_crypt_prepare(request: Request):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     d = _data_dir()
-    if not d or not dbkey.request_encrypt(d, dbkey.generate()):
+    if not d:
+        return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
+    # ⛔ Второе нажатие НЕ создаёт новый ключ (найдено враждебным ревью 08-09).
+    # Раньше оно перезаписывало ожидающий ключ, и напечатанный лист переставал
+    # подходить; а нажатие при УЖЕ включённом шифровании было хуже вдвойне:
+    # заказ на переезд не мог выполниться никогда (база под старым ключом),
+    # экран навсегда застревал на «криптование подготовлено», а лист печатался
+    # с ключом, который не открывает ничего. Прежний ключ при этом становился
+    # недоступен для печати. Открытая в соседней вкладке страница — обычное
+    # дело в регистратуре, так что это не теоретический случай.
+    if dbkey.enabled(d):
+        return RedirectResponse("/admin/settings/crypt?msg=crypt_on", status_code=303)
+    if dbkey.load_pending(d) is None and not dbkey.request_encrypt(d, dbkey.generate()):
         return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
     return RedirectResponse("/admin/settings/crypt/sheet", status_code=303)
 
