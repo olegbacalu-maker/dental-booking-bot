@@ -301,17 +301,50 @@ def main() -> None:
     # переспрашивает. Текст НЕЙТРАЛЬНЫЙ намеренно: Telegram заморожен 08-08
     # (фидбек клиник) и в текстах продукта не упоминается. Кнопки диалога
     # рисует сама Windows на языке системы, наш только текст.
-    webview.create_window(
-        "DentPilot — registrul clinicii", URL,
-        width=1280, height=860, min_size=(960, 640),
-        confirm_close=True,
-        localization={
-            "global.quitConfirmation":
-                "Închideți DentPilot? Programul se oprește complet până la "
-                "următoarea pornire.",
-        },
-    )
-    webview.start()
+    # ⛔ Окно может не открыться ВООВСЕ: WebView2 Runtime есть не на каждой
+    # Windows 10 (обновления выключены, LTSC, свежая машина без Edge). Раньше
+    # исключение отсюда улетало в никуда: сборка --noconsole, значит ни окна,
+    # ни консоли, ни сообщения — клиника кликала по ярлыку, и НЕ ПРОИСХОДИЛО
+    # НИЧЕГО. Неотличимо от «программа сломана», и позвонить с этим нельзя.
+    # ⭐ Сервер к этому моменту уже поднят и отвечает, то есть программа
+    # работает целиком — не хватает только окна. Поэтому отказ окна переводит
+    # в браузер, а не гасит: клиника работает сегодня, а WebView2 ставится
+    # потом. Модальное окно Windows тут и присутствие обозначает, и даёт
+    # единственный способ остановить программу — своей кнопкой (иначе процесс
+    # без окна нечем закрыть, кроме диспетчера задач).
+    try:
+        webview.create_window(
+            "DentPilot — registrul clinicii", URL,
+            width=1280, height=860, min_size=(960, 640),
+            confirm_close=True,
+            localization={
+                "global.quitConfirmation":
+                    "Închideți DentPilot? Programul se oprește complet până la "
+                    "următoarea pornire.",
+            },
+        )
+        webview.start()
+    except Exception as e:  # noqa: BLE001 — что угодно вместо окна = браузер
+        logging.error("Окно не открылось (%r) — переходим в браузер", e)
+        try:
+            webbrowser.open(URL)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                "DentPilot funcționează, dar fereastra programului nu a putut "
+                "fi deschisă pe acest calculator.\n\n"
+                f"Registrul s-a deschis în browser: {URL}\n"
+                "Dacă nu s-a deschis, copiați adresa în Chrome sau Edge.\n\n"
+                "NU închideți această fereastră cât timp lucrați — programul "
+                "se oprește odată cu ea.\n\n"
+                "Pentru fereastra proprie instalați «Microsoft Edge WebView2 "
+                "Runtime» (gratuit, de la Microsoft) și porniți din nou.",
+                "DentPilot", 0x40)
+        except Exception:  # noqa: BLE001 — не-Windows/без user32
+            pass
     os._exit(0)  # окно закрыто = программа остановлена
 
 
