@@ -28,7 +28,7 @@ from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, can, request_user
 from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, _age, _banner, _initials, _shell,
-                            _tg_state, tg_configured)
+                            _tg_state, js_json, tg_configured)
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
                             _collect_cards, _list, _parse_date, _photo_path)
 
@@ -203,7 +203,7 @@ def _slot_modal(d: date, back: str) -> str:
   </form>
 </dialog>
 <script>
-const NOTE_ENDS = {json.dumps([x.hour + 1 for x in eng.day_slots(d)])};
+const NOTE_ENDS = {js_json([x.hour + 1 for x in eng.day_slots(d)])};
 function openSlot(dk, dname, hh) {{
   document.getElementById('m_doc_a').value = dk;
   document.getElementById('m_doc_n').value = dk;

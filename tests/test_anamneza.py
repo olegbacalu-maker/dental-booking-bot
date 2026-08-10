@@ -10,7 +10,9 @@ import json
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server
+import subprocess
+
+from harness import BOT, PYTHON, Client, Result, Server
 
 
 def _d(offset: int) -> str:
@@ -298,6 +300,85 @@ def suite_review(res: Result) -> None:
         # 7. все состояния рисуются на всех номерах (легенда падала на extras)
         res.check("страница фиши цела на всех состояниях",
                   c.get(f"/admin/patient/{pid}").status, 200)
+
+    # ---------- находки аудита 08-10 ----------
+
+    # ⛔ Встраивание JSON в <script> — ТОЛЬКО через core.layout.js_json.
+    # Аудит нашёл, что на карточке пациента четыре площадки экранировали `</`,
+    # а две нет, и незащищённым оказалось имя врача — поле, которое правит
+    # регистратура, то есть МЛАДШАЯ роль. Скрипт оттуда выполнялся в сессии
+    # директора. Правило по месту не удержалось; проверка ищет нарушителей во
+    # ВСЕХ файлах, печатающих <script>, поэтому пятую площадку так не заведут.
+    bad = []
+    for f in (BOT / "app").rglob("*.py"):
+        # ⚠️ layout.py пропускается ОСОЗНАННО: там живёт сам js_json, и его
+        # определение вместе с объясняющей документацией — единственное место,
+        # где `json.dumps` рядом со словом <script> обязано встречаться.
+        if f.name == "layout.py":
+            continue
+        txt = f.read_text(encoding="utf-8", errors="replace")
+        if "<script" not in txt:
+            continue
+        for i, line in enumerate(txt.splitlines(), 1):
+            if "json.dumps" in line and not any(
+                    ok in line for ok in ("js_json", "html.escape")):
+                bad.append(f"{f.relative_to(BOT)}:{i}")
+    res.ok("JSON в <script> идёт только через js_json", not bad,
+           f"незащищённые площадки: {bad}")
+
+    esc = subprocess.run(
+        [str(PYTHON), "-c",
+         "import sys;sys.path.insert(0,r'%s');"
+         "from app.core.layout import js_json;"
+         "print(js_json({'d':'Ana</script><img src=x>'}))" % str(BOT)],
+        capture_output=True, text=True, encoding="utf-8")
+    res.ok("js_json разрывает закрывающий тег",
+           "</script>" not in esc.stdout and "<\\/script>" in esc.stdout,
+           f"вывод: {esc.stdout.strip()[:120]} {esc.stderr[-200:]}")
+
+    # ⛔ Демо-строки едут в admin_add ПО ИМЕНАМ. Позиционная распаковка через
+    # границу модуля уже разъехалась молча: 08-07 в admin_add вставили
+    # birth_date седьмым, и ключ врача уехал в дату рождения, ключ услуги — в
+    # id врача. Типов у SQLite нет, поэтому не упало ничего. Проверка связывает
+    # то, что отдаёт engine, с настоящей подписью — следующая вставка параметра
+    # покраснеет здесь, а не у клиники.
+    bind = subprocess.run(
+        [str(PYTHON), "-c",
+         "import sys,inspect,json;sys.path.insert(0,r'%s');"
+         "from app import db, engine as eng;"
+         "r=eng.build_seed_rows();"
+         "b=inspect.signature(db.admin_add).bind(**r[0]);"
+         "print(json.dumps({'doctor_id':b.arguments.get('doctor_id'),"
+         "'service_id':b.arguments.get('service_id'),"
+         "'birth_date':b.arguments.get('birth_date'),"
+         "'dur':b.arguments.get('duration_min')}))" % str(BOT)],
+        capture_output=True, text=True, encoding="utf-8")
+    try:
+        got = json.loads(bind.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {}
+        res.failed.append(("демо-строки не связались с admin_add",
+                           bind.stderr[-400:]))
+    if got:
+        res.ok("ключ врача попал в doctor_id",
+               str(got.get("doctor_id", "")).startswith("d"),
+               f"в doctor_id уехало {got.get('doctor_id')!r}")
+        res.ok("дата рождения не занята ключом врача",
+               got.get("birth_date") in (None, ""),
+               f"в birth_date уехало {got.get('birth_date')!r}")
+        res.ok("длительность услуги доехала",
+               isinstance(got.get("dur"), int) and got["dur"] > 0,
+               f"duration_min = {got.get('dur')!r}")
+
+    # ⛔ Инструкция восстановления обязана требовать удаления -wal. Забытый
+    # хвост от прежней базы накатывается поверх восстановленной, и картотека
+    # возвращается к состоянию «до» — БЕЗ ошибки, `integrity_check` говорит ok.
+    # Воспроизведено: 500 пациентов превратились в 1.
+    readme = (BOT / "app" / "modules" / "settings" / "backup.py").read_text(
+        encoding="utf-8", errors="replace")
+    res.ok("инструкция восстановления велит удалить -wal и -shm",
+           "dental.db-wal" in readme and "dental.db-shm" in readme,
+           "без этого шага восстановление молча откатывается на прежнюю базу")
 
 
 def suite_form(res: Result) -> None:

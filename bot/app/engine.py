@@ -627,7 +627,17 @@ def build_seed_rows() -> list[tuple]:
         dk, doctor = items[0]
         name, phone, year = demo_people[i]
         i += 1
-        rows.append((name, phone, svc["ro"], doctor, cursor, year, dk, key, dur))
+        # ⛔ СЛОВАРЁМ, а не кортежем (08-10, находка аудита). Раньше здесь был
+        # кортеж из девяти значений, который `db.seed` распаковывал позиционно
+        # через `admin_add(*row)`. 08-07 в `admin_add` добавили `birth_date`
+        # седьмым параметром — и всё правое поехало на одну позицию: ключ врача
+        # уехал в дату рождения, ключ услуги в id врача, длительность в id
+        # услуги. Ни одна проверка не покраснела, потому что типов у SQLite
+        # нет, а демо-визиты просто вставали «вне списка» с нулевой загрузкой
+        # кресел. Именованные аргументы ломаются ГРОМКО при следующей вставке.
+        rows.append({"name": name, "phone": phone, "service": svc["ro"],
+                     "doctor": doctor, "starts_at": cursor, "birth_year": year,
+                     "doctor_id": dk, "service_id": key, "duration_min": dur})
         step = ((dur + 59) // 60) * 60  # следующий сид с чистого часа
         cursor += timedelta(minutes=step)
     return rows

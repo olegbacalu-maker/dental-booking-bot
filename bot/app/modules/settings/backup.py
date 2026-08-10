@@ -215,11 +215,18 @@ def _readme() -> str:
         "Restaurare pe un calculator nou:\r\n"
         "  1. Instalati DentPilot si porniti-l o data (se creeaza folderul).\r\n"
         "  2. Inchideti programul.\r\n"
-        "  3. Dezarhivati continutul PESTE folderul programului\r\n"
+        "  3. STERGETI fisierele data\\dental.db-wal si data\\dental.db-shm,\r\n"
+        "     daca exista. ACEST PAS NU SE SARE: ele apartin bazei create la\r\n"
+        "     pasul 1, iar daca raman, Windows le aplica peste baza restaurata\r\n"
+        "     si evidenta revine goala - fara nicio eroare, ca si cum arhiva ar\r\n"
+        "     fi fost goala.\r\n"
+        "  4. Dezarhivati continutul PESTE folderul programului\r\n"
         "     (clinic.json langa DentPilot.exe, folderul data\\ peste data\\).\r\n"
-        "  4. Porniti programul - pacientii, programarile si documentele sunt la loc.\r\n"
-        "  5. Reintroduceti tokenul botului Telegram in Setari (tokenul nu se\r\n"
+        "  5. Porniti programul - pacientii, programarile si documentele sunt la loc.\r\n"
+        "  6. Reintroduceti tokenul botului Telegram in Setari (tokenul nu se\r\n"
         "     copiaza intre calculatoare, din motive de securitate).\r\n\r\n"
+        "ACELASI PAS 3 se aplica si cand copiati o singura copie zilnica din\r\n"
+        "data\\backups peste data\\dental.db: stergeti intai -wal si -shm.\r\n\r\n"
         "Arhiva contine date despre sanatate. Pastrati-o intr-un loc sigur.\r\n")
 
 

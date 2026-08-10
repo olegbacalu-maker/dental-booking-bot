@@ -31,7 +31,7 @@ import html
 import json
 
 from ... import engine as eng
-from ...core.layout import MSG_BANNER, STATUS_LABEL, _shell
+from ...core.layout import MSG_BANNER, STATUS_LABEL, _shell, js_json
 
 # статусы визита, которым консультацию НЕ пишут
 NO_FORM_STATUSES = ("cancelled", "noshow")
@@ -253,9 +253,7 @@ def page(appt: dict, rec: dict | None, items: list, back: str,
   </form>
 </div>"""
 
-    tpl_json = json.dumps(
-        {k: {f: t[f] for f, *_ in _FIELDS} for k, t in _TEMPLATES.items()},
-        ensure_ascii=True).replace("</", "<\\/")
+    tpl_json = js_json({k: {f: t[f] for f, *_ in _FIELDS} for k, t in _TEMPLATES.items()})
     body = (
         _CSS + banner
         + f"<p style='margin:0 0 12px'><a href='{e(back)}'>← Înapoi</a>"

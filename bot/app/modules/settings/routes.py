@@ -33,7 +33,7 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
                           ROLE_LABEL, ROLE_MEDIC, _pin_rec, all_users,
                           current_user, delete_user, find_user, n_directors,
                           pin_free, remember_auth_file, require, save_user)
-from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER,
+from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER, js_json,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
                             _doc_hours_text, _shell, standalone, tg_configured,
                             tg_refresh_meta, tg_status)
@@ -703,9 +703,9 @@ async def settings_theme(request: Request, msg: str = ""):
     # повторять арифметику из core/theme.py: два расчёта неизбежно разойдутся, и
     # клиника увидит при выборе один цвет, а после сохранения другой. Своего
     # цвета в наборе нет — за ним предпросмотр сходит на /theme/palette.
-    pal_js = json.dumps({st: {c: theme.palette(c, st) for c in preset_hex}
-                         for st in theme.STYLES}).replace("</", "<\\/")
-    sty_js = json.dumps(theme.STYLES).replace("</", "<\\/")
+    pal_js = js_json({st: {c: theme.palette(c, st) for c in preset_hex}
+                     for st in theme.STYLES})
+    sty_js = js_json(theme.STYLES)
 
     styles = "".join(
         f"<label class='th-style'>"
@@ -963,7 +963,7 @@ async def settings_services(request: Request, msg: str = ""):
 </form>
 
 <script>
-const SVC_COLORS = {json.dumps(_PALETTE_RO)};
+const SVC_COLORS = {js_json(_PALETTE_RO)};
 function addSvc() {{
   const tb = document.getElementById('svc_tb');
   const tr = document.createElement('tr');

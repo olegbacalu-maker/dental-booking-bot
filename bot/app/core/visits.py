@@ -17,7 +17,7 @@ import urllib.parse
 from datetime import date, datetime
 
 from .. import engine as eng
-from .layout import LIVE_STATUSES, STATUS_LABEL, _age, _initials
+from .layout import (LIVE_STATUSES, STATUS_LABEL, _age, _initials, js_json)
 from .storage import _data_dir
 
 
@@ -103,8 +103,9 @@ def _collect_cards(rows: list) -> dict:
 
 def _card_modal(cards: dict, back: str) -> str:
     """Карточка записи по клику: инфо + комментарий ресепшена + статусы."""
-    # .replace("</", ...) — комментарий "</script>…" не должен вырваться из тега
-    data = json.dumps(cards, ensure_ascii=True).replace("</", "<\\/")
+    # js_json, а не json.dumps: комментарий вида "</script>…" не имеет права
+    # вырваться из тега (см. core/layout.js_json)
+    data = js_json(cards)
     b = html.escape(back)
     return f"""
 <dialog id="carddlg">

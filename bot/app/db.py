@@ -677,7 +677,9 @@ async def seed(rows: list | None) -> None:
     if n:
         return
     for row in rows:
-        await admin_add(*row)
+        # ⛔ по именам: позиционная распаковка через границу модуля уже
+        # разъехалась однажды, молча (см. engine.build_seed_rows)
+        await admin_add(**row)
 
 
 # ---------- пациенты и записи ----------
@@ -831,8 +833,15 @@ async def admin_add(
     # как раньше. Несколько (семейный номер) → прежняя склейка по ключу:
     # выбрать «правильного» из двоих тут не из чего.
     ids = await _patient_ids_by_digits(digits)
+    existing_name, has_bd = None, False
     if len(ids) == 1:
         pid = ids[0]
+        rows_p = await _fetch(
+            "SELECT name, birth_date FROM patients WHERE id = $1",
+            "SELECT name, birth_date FROM patients WHERE id = ?", pid)
+        if rows_p:
+            existing_name = rows_p[0]["name"]
+            has_bd = bool(rows_p[0]["birth_date"])
         r = await _book(pid, service, doctor, starts_at, "manual",
                         doctor_id, service_id, duration_min)
     else:
@@ -846,8 +855,18 @@ async def admin_add(
     # оно задано. Пишем и при dup/conflict — пациент уже существует, а дату
     # регистратура ввела про него же. В ветке по id upsert не выполнялся,
     # поэтому одиночный год (устаревшая вкладка) дописывается здесь же
+    # ⛔ Дату рождения НЕ писать поверх чужой карточки (08-10, находка аудита).
+    # Семейный номер — норма: ребёнка записывают на телефон родителя. Ветка
+    # `len(ids) == 1` находит родителя по цифрам и пишет визит ему, а дальше
+    # сюда приходила дата рождения РЕБЁНКА и затирала родительскую — без
+    # истории и без предупреждения, зелёным баннером «ok». Год рождения уже
+    # был осторожнее (`elif ... len(ids) == 1`), у полной даты этой оглядки не
+    # было. Теперь дату принимает только карточка, у которой её ещё нет, либо
+    # та, чьё имя совпало с набранным.
+    same_person = (not name) or not existing_name or \
+        existing_name.strip().lower() == name.strip().lower()
     if pid is not None:
-        if birth_date:
+        if birth_date and (same_person or not has_bd):
             await _execute(
                 "UPDATE patients SET birth_date = $2, birth_year = $3 WHERE id = $1",
                 "UPDATE patients SET birth_date = ?, birth_year = ? WHERE id = ?",

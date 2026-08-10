@@ -44,7 +44,7 @@ from . import export as pexport
 from . import fisa043 as pfisa
 from . import visit as pvisit
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
-from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, _age, _ic,
+from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, js_json, _age, _ic,
                             _initials, _shell)
 from ...core.storage import _data_dir
 
@@ -361,13 +361,12 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
         hist_by_tooth.setdefault(str(a["tooth"]), []).append(
             {"at": at.strftime("%d.%m.%Y") if at else "", "text": a["text"]})
-    teeth_json = json.dumps(
+    teeth_json = js_json(
         {str(n): _tinfo(n) for n in
-         _FDI_UPPER + _FDI_LOWER + _FDI_MILK_UPPER + _FDI_MILK_LOWER},
-        ensure_ascii=False).replace("</", "<\\/")
-    thist_json = json.dumps(hist_by_tooth, ensure_ascii=False).replace("</", "<\\/")
+         _FDI_UPPER + _FDI_LOWER + _FDI_MILK_UPPER + _FDI_MILK_LOWER})
+    thist_json = js_json(hist_by_tooth)
     state_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in TOOTH_STATES.items())
-    state_ro_json = json.dumps(TOOTH_STATES, ensure_ascii=False)
+    state_ro_json = js_json(TOOTH_STATES)
     sf_boxes = "".join(
         f"<label><input type='checkbox' name='sf' value='{k}'>{k} <small>{v}</small></label>"
         for k, v in TOOTH_SURFACES.items())
@@ -941,8 +940,8 @@ soldul fișei.</p></div>"""
     ap_svc_opts = "".join(f"<option value='{k}'>{e(v['ro'])}</option>"
                           for k, v in eng.SERVICES.items())
     today_iso = now.date().isoformat()
-    kpi_json = json.dumps(kpi_panels, ensure_ascii=True).replace("</", "<\\/")
-    docs_json = json.dumps(doc_meta, ensure_ascii=True).replace("</", "<\\/")
+    kpi_json = js_json(kpi_panels)
+    docs_json = js_json(doc_meta)
     dialogs = f"""<dialog id='apptdlg'>
   <div class='dlg-head'><span>📅 Programare — {e(p['name'] or '—')}</span>
     <button type='button' onclick="document.getElementById('apptdlg').close()">✕</button></div>
@@ -991,8 +990,8 @@ soldul fișei.</p></div>"""
 {dialogs}
 <script>
 const BASE = "{base}";
-const AP_DOCS = {json.dumps(ap_svc_docs, ensure_ascii=True)};
-const AP_NAMES = {json.dumps(dict(eng.ACTIVE_DOCTORS), ensure_ascii=True)};
+const AP_DOCS = {js_json(ap_svc_docs)};
+const AP_NAMES = {js_json(dict(eng.ACTIVE_DOCTORS))};
 const AP_PRIM = "{ap_prim}";
 const KPI = {kpi_json};
 const DOCS = {docs_json};

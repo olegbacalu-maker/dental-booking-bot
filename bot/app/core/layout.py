@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import sys
@@ -38,6 +39,23 @@ STATIC = paths.resource("static")
 
 
 _CSS_CACHE: dict[str, str] = {}
+
+
+def js_json(obj) -> str:
+    """JSON для вставки в <script>. ЕДИНСТВЕННЫЙ допустимый способ.
+
+    ⭐ `json.dumps` безопасен для JavaScript, но не для HTML: строка
+    `</script>` внутри значения закрывает тег, и всё, что за ней, браузер
+    читает как разметку. `ensure_ascii` тут не спасает — он трогает только
+    не-ASCII, а `<` и `/` пропускает.
+
+    Помощник появился 08-10 после аудита: на одной странице четыре места
+    экранировали правильно, а два — нет, и мимо прошло имя врача, то есть
+    поле, которое правит регистратура. Тот же класс, что нашло ревью 08-08 в
+    подсказке зуба. ⛔ Не писать `json.dumps` в f-строке со `<script` — пятое
+    место забудут снова.
+    """
+    return json.dumps(obj, ensure_ascii=True).replace("</", "<\\/")
 
 
 def _asset(*parts: str) -> str:
