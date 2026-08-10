@@ -54,6 +54,13 @@
    /* текстовые варианты акцентных цветов: макетные #F59E0B/#EF4444 хороши для
       рамок и иконок, но как ТЕКСТ на белом дают ~2:1 — читаемость важнее */
    --amber-t:#B45309;--red-t:#B91C1C;--green-t:#047857;
+   /* Отступы карточек — ТРИ ступени, а не свободное число (08-10). Их и было
+      три: 16/18 у крупных карточек, 14/16 у блоков в колонке, 16 у плиток —
+      разнобоя не было. Но и правила не было тоже, поэтому следующий экран мог
+      изобрести 17px, и через десяток экранов ступеней стало бы семь. ⛔ Новую
+      карточку верстать ступенью, а не числом; нужна четвёртая — заводить её
+      здесь и объяснять, чем она отличается от этих. */
+   --pad-card:16px 18px;--pad-block:14px 16px;--pad-tile:16px;
    --r-card:18px;--r-ctl:12px;--h-ctl:44px;
    /* Тени ДВУХСЛОЙНЫЕ (08-06, приём Stripe): ближний слой в 1-3px ставит
       карточку на фон и рисует кромку, дальний даёт глубину. Одним слоем то же
@@ -309,7 +316,7 @@
  .nowline::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red)}
  /* ---------- правая колонка ---------- */
  .mcal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:14px 16px}
+   box-shadow:var(--sh);padding:var(--pad-block)}
  .mcal .mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
  .mcal .mhead b{font-size:13px;font-weight:600}
  .mcal .mhead a{text-decoration:none;color:var(--text2);padding:2px 8px;border-radius:7px}
@@ -326,7 +333,7 @@
  /* ---------- старые страницы (перекрашены) ---------- */
  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
  a.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
-        padding:14px 16px;text-decoration:none;color:var(--text)}
+        padding:var(--pad-block);text-decoration:none;color:var(--text)}
  a.card:hover{box-shadow:var(--sh2)}
  a.card b{font-size:14.5px}
  a.card .spec{color:var(--text2);font-size:12px;margin:2px 0 8px}
@@ -379,7 +386,7 @@
  a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
  a.plink:hover{border-bottom-style:solid}
  .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:16px 18px;margin-bottom:14px}
+   box-shadow:var(--sh);padding:var(--pad-card);margin-bottom:14px}
  .pcard h3{margin:0 0 6px;font-size:14.5px;color:var(--text)}
  .pcard .meta{color:var(--text2);font-size:12.5px;margin-bottom:8px}
  .vpast{opacity:.55}
@@ -481,7 +488,7 @@
  .b-done{background:#2563EB}.b-noshow{background:var(--red-t)}.b-cancel{background:#64748B}
  .hint{color:var(--text2);font-size:12.5px;margin-top:10px;line-height:1.55}
  .botnew{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:14px 16px;margin-bottom:14px}
+   box-shadow:var(--sh);padding:var(--pad-block);margin-bottom:14px}
  .botnew h3{margin:0 0 4px;font-size:13.5px;font-weight:600}
  .botnew a{display:block;padding:6px 0;font-size:12.5px;color:inherit;text-decoration:none;border-top:1px solid var(--line2)}
  .botnew a:hover{background:var(--bg)}
@@ -864,7 +871,7 @@
  .thist .th-r span{color:var(--text3);flex:0 0 76px}
  /* подсказка зуба — одна на всю дугу, летает за курсором */
  .toothtip{display:none;position:absolute;z-index:60;width:220px;border-radius:16px;
-   padding:16px 18px;background:var(--panel);border:1px solid var(--line);
+   padding:var(--pad-card);background:var(--panel);border:1px solid var(--line);
    box-shadow:var(--sh3);font-size:13px;pointer-events:none}
  .toothtip b.tt-n{font-size:14.5px;font-weight:600;display:block}
  .toothtip .tt-s{color:var(--teal-d);font-weight:600;font-size:12.5px;margin:2px 0 8px}
@@ -875,7 +882,7 @@
  .plan-row .pdue{width:104px;flex:0 0 104px;font-size:12px;color:var(--text2)}
  /* ---------- раздел «Medici» (v1.9.0) ---------- */
  .medgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
- .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:16px 18px;
+ .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:var(--pad-card);
    display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;
    transition:box-shadow .15s,transform .15s}
  a.medcard:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
@@ -1017,7 +1024,7 @@
    transition:border-color .2s ease,background-color .2s ease,transform .2s ease}
  .pl-acts button:hover,.pl-acts a:hover{border-color:var(--teal);
    background:var(--teal-soft);transform:scale(1.06)}
- .pl-pag{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;
+ .pl-pag{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:var(--pad-block);
    border-top:1px solid var(--line);font-size:12.5px;color:var(--text2)}
  .pl-pgs{display:flex;gap:6px;margin-left:auto}
  .pl-pg{display:inline-flex;align-items:center;justify-content:center;min-width:36px;
@@ -1117,7 +1124,7 @@
     ограничена и прокручивается внутри: правая колонка не должна расти вслед
     за загруженным днём и уводить календарь с экрана. */
  .agenda{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);padding:14px 16px}
+   box-shadow:var(--sh);padding:var(--pad-block)}
  .ag-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
  .ag-h b{font-size:13px;font-weight:600}
  .ag-h span{font-size:11.5px;color:var(--text3)}
