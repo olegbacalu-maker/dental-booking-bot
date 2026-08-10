@@ -14,6 +14,7 @@ import logging
 import os
 import pathlib
 import re
+import sys
 import urllib.parse
 from datetime import datetime
 
@@ -198,6 +199,24 @@ async def startup() -> None:
         svc_map[v["ro"]] = k
         svc_map[v["ru"]] = k
     await db.backfill_ids(doc_map, svc_map)
+    # ⭐ Прошлая версия убирается ЗДЕСЬ, а не батником обновления (08-10,
+    # находка аудита). Батник стирал `.old.exe`, как только новый файл ПОЯВЛЯЛСЯ
+    # на диске, — а появиться и запуститься разное: битая докачка, прошедшая
+    # проверку; антивирус, съевший exe после подмены; несовместимый бинарник. На
+    # диске не оставалось ни одной рабочей копии, и клиника получала мёртвые
+    # ярлыки в начале смены. Теперь удаление — доказательство работоспособности:
+    # сюда доходят, только когда модули загрузились и база ОТКРЫЛАСЬ.
+    # ⚠️ Именно в startup приложения, а не в лаунчере: у лаунчера две ветки
+    # (окно и браузерный режим), и уборка в одной из них не работала во второй —
+    # поймано проверкой на собранном exe, тесты исходников эту ветку не видят
+    # вовсе (`frozen` там ложь).
+    if paths.is_frozen():
+        try:
+            for old in pathlib.Path(sys.executable).resolve().parent.glob("*.old.exe"):
+                old.unlink(missing_ok=True)
+                log.warning("прошлая версия убрана: %s", old.name)
+        except OSError as e:  # noqa: BLE001 — уборка не имеет права ронять старт
+            log.warning("прошлая версия не убрана (%r)", e)
     upd.sync_uninstall_version()   # версия в «Программах и компонентах»
     upd.check_async()
     if db.IS_SQLITE:
