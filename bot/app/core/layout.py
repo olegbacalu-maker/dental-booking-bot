@@ -102,9 +102,9 @@ MSG_BANNER = {
     "bad_off": ("err", "Medicul nu este activ (concediu sau arhivat) — "
                        "alegeți alt medic sau readuceți-l din concediu în Medici"),
     "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
-    "ok_note": ("ok", "Notiță adăugată — slotul este blocat pentru bot ✔"),
+    "ok_note": ("ok", "Notiță adăugată — ora este blocată ✔"),
     "ok_comment": ("ok", "Comentariu salvat ✔"),
-    "ok_set": ("ok", "Setări salvate ✔ — botul folosește deja noile date"),
+    "ok_set": ("ok", "Setări salvate ✔"),
     "ok_theme": ("ok", "Aspectul clinicii a fost salvat ✔"),
     "bad_crypt": ("err", "Nu am putut pregăti criptarea — cheia nu a fost salvată. "
                          "Detalii în data\\dentpilot.log"),
@@ -172,7 +172,7 @@ MSG_BANNER = {
     "bad_photo": ("err", "Doar JPEG / PNG / WebP, până la 5 MB"),
     "ok_svc_med": ("ok", "Serviciile medicului au fost actualizate ✔"),
     "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic "
-                         "ACTIV — altfel dispare din meniul botului. Bifați alt medic "
+                         "ACTIV — altfel nu mai poate fi ales la programare. Bifați alt medic "
                          "(sau readuceți unul din concediu) înainte de a-l scoate pe acesta"),
     "save_err": ("err", "Nu am putut scrie fișierul clinicii (clinic.json) — datele NU "
                         "au fost salvate. Verificați spațiul pe disc și drepturile la "
@@ -343,7 +343,7 @@ def _setup_hint() -> str:
             "Programul încă are datele de exemplu. "
             "<a href='/admin/settings/clinic'><b>Completați datele clinicii</b></a> — "
             "denumire, telefon, medici, servicii și program de lucru. "
-            "Până atunci botul le spune pacienților exact ce scrie aici.</div>")
+            "Ele apar în programul de lucru, în formulare și pe documentele tipărite.</div>")
 
 
 def _tamper_banner() -> str:

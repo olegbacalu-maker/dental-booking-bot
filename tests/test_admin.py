@@ -1124,6 +1124,26 @@ def suite_bot_ui(res: Result) -> None:
         dash = c.get("/admin").body
         res.ok("плиток дашборда — без «Prin bot»", "Prin bot" not in dash,
                "плитка бота у клиники без бота")
+
+        # ⛔ Заморозка прячет ЭКРАНЫ, но тексты про бота протекали мимо неё:
+        # 08-10 Олег увидел в карточке врача «Activ — botul și formularele îl
+        # propun» у клиники, у которой бота нет и не будет. Нашлось ещё шесть
+        # таких же — в баннере сохранения настроек, в подсказке про перерыв, в
+        # предупреждениях об услугах без врача. Каждое поодиночке мелочь, все
+        # вместе — программа рассказывает про функцию, которой у клиники нет.
+        # ⚠️ Проверка обходит СТРАНИЦЫ, а не исходники: строки собираются в
+        # f-строках из кусков, и поиск по коду их не ловит.
+        leaks = []
+        for path in ("/admin", "/admin/all", "/admin/medici", "/admin/settings",
+                     "/admin/settings/clinic", "/admin/settings/hours",
+                     "/admin/settings/services", "/admin/stats",
+                     "/admin/doctor-card/d2", "/admin/search"):
+            body = c.get(path).body
+            for word in ("botul", "botului", "prin bot", "🤖"):
+                if word in body:
+                    leaks.append(f"{path}: {word}")
+        res.ok("клинике без бота о боте не рассказывают", not leaks,
+               f"утечки заморозки: {leaks}")
         # зеркало проверки suite_dashboard «шесть плиток»: без бота их пять
         res.check("плиток-графиков — пять", dash.count("class='spark'"), 5)
         res.ok("подзаголовок без бота", "🤖 bot" not in dash,

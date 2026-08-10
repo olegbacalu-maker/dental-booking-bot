@@ -889,7 +889,7 @@ async def settings_hours(request: Request, msg: str = ""):
 <th>Pauză de la</th><th>Pauză până la</th></tr>
 {''.join(hours_rows)}
 </table>
-<p class='hint'>Pauza (ex. prânz 13:00–14:00) dispare din calendarul botului și din registru.
+<p class='hint'>Pauza (ex. prânz 13:00–14:00) dispare din calendarul zilei și din registru.
 «—» = fără pauză. Medicul își poate îngusta orele în fișa lui, dar nu le poate lărgi
 peste programul clinicii.</p>
 <button class='savebtn'>💾 Salvează programul</button>

@@ -49,7 +49,7 @@ MAX_PHOTO_MB = 5
 
 
 _DOC_STATE_HINT = {
-    "activ": "botul și formularele îl propun",
+    "activ": "apare în programări și în formulare",
     "concediu": "temporar nu primește; programările existente rămân",
     "arhivat": "a plecat din clinică; istoricul rămâne",
 }
@@ -281,11 +281,11 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
         if (soon := _orphans(without=True)):
             warn = (f"<div class='banner err'>Atenție: dacă acest medic nu mai e activ, "
                     f"serviciile <b>{e(', '.join(soon))}</b> rămân fără medic și "
-                    f"botul le va marca indisponibile.</div>")
+                    f"nu vor mai putea fi programate.</div>")
     elif (now_orphan := _orphans(without=False)):
         warn = (f"<div class='banner err'>Cât timp acest medic nu e activ, serviciile "
-                f"<b>{e(', '.join(now_orphan))}</b> nu au niciun medic activ — botul "
-                f"nu le mai propune. Bifați-le la alt medic sau readuceți-l în "
+                f"<b>{e(', '.join(now_orphan))}</b> nu au niciun medic activ și "
+                f"nu pot fi programate. Bifați-le la alt medic sau readuceți-l în "
                 f"activitate.</div>")
 
     def _wh_opts(sel, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
