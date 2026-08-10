@@ -1038,11 +1038,28 @@ async def admin_add(
         year, bdate = parsed.year, parsed.isoformat()
     elif ayear.strip().isdigit() and 1900 <= int(ayear) <= datetime.now(eng.TZ).year:
         year = int(ayear)
+    # ⚠️ Спрашиваем ДО записи: после неё карточка уже может быть создана этой же
+    # записью, и «существующий пациент» перестанет отличаться от нового.
+    existing = await db.patient_name_by_phone(phone)
     r = await db.admin_add(name, phone, svc["ro"], doctor, dt, birth_year=year,
                            birth_date=bdate,
                            doctor_id=adoctor, service_id=aservice,
                            duration_min=eng.svc_duration(aservice))
     msg = "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
+    # ⛔ Визит лёг в ЧУЖУЮ карточку — по номеру нашёлся пациент с другим именем
+    # (08-10). Чаще всего это ребёнок на телефоне родителя, и это норма; но
+    # молча приклеивать к родителю нельзя: дальше туда пойдут одонтограмма,
+    # дневник и 043/e, и обнаружится это на распечатанном бланке. Запись
+    # проходит — регистратуре нужна скорость, — но она названа вслух.
+    # ⚠️ Сравниваем ЛИЧНОЕ ИМЯ, а не строку целиком. Целиком не годится: тот же
+    # человек записан в боте как «Ion», а регистратура пишет «Ion Popescu» —
+    # предупреждение загоралось бы на обычной работе, и его перестали бы
+    # читать раньше, чем оно окажется право (та же болезнь, что у ok_past на
+    # мгновенной границе). Разные ЛИЧНЫЕ имена — уже другой человек.
+    if msg == "ok" and existing and name.strip():
+        was, now = existing.strip().lower().split(), name.strip().lower().split()
+        if was and now and was[0] != now[0]:
+            msg = "ok_other"
     # ручную запись задним числом НЕ запрещаем (визит вносят постфактум), но и
     # молчать нельзя: запись на закрытый день чаще всего опечатка, а она просто
     # исчезает из журнала — её никто больше не увидит. Граница ДНЕВНАЯ: визит в

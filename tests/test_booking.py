@@ -42,9 +42,14 @@ def suite(res: Result) -> None:
         FAM = "069777111"
         res.check("мать записана", add(c, _d(6), "11:00", name="Maria Popescu",
                                        phone=FAM, birth="1984-03-05"), "ok")
-        res.check("ребёнка записывают на тот же номер",
+        # ⛔ Визит проходит, но регистратуре ГОВОРЯТ, что он лёг в чужую
+        # карточку: молчаливое «ok» здесь и есть способ потерять историю
+        # ребёнка внутри карточки матери.
+        res.check("чужое имя на том же номере — предупреждение, а не тихое ok",
                   add(c, _d(6), "12:00", name="Andrei Popescu",
-                      phone=FAM, birth="2016-07-19"), "ok")
+                      phone=FAM, birth="2016-07-19"), "ok_other")
+        res.check("то же имя на том же номере проходит молча",
+                  add(c, _d(6), "13:00", name="Maria Popescu", phone=FAM), "ok")
         card = c.get(f"/admin/search?q={FAM}").body
         res.ok("дата рождения матери уцелела",
                "1984" in card and "2016" not in card,

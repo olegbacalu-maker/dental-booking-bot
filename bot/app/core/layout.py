@@ -103,6 +103,14 @@ MSG_BANNER = {
                        "alegeți alt medic sau readuceți-l din concediu în Medici"),
     "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
     "ok_note": ("ok", "Notiță adăugată — ora este blocată ✔"),
+    # ⚠️ Текст обязан сказать, ЧТО делать, а не только что случилось: иначе
+    # регистратура прочтёт «добавлено ✔» и пойдёт дальше, а визит останется в
+    # чужой карточке.
+    "ok_other": ("warn", "Programare adăugată ✔ — dar la fișa unui pacient care "
+                         "există deja cu acest telefon și are alt nume. Dacă "
+                         "este altă persoană (numărul familiei), deschideți "
+                         "fișa și mutați programarea, sau adăugați pacientul "
+                         "separat din Pacienți"),
     "ok_comment": ("ok", "Comentariu salvat ✔"),
     "ok_set": ("ok", "Setări salvate ✔"),
     "ok_theme": ("ok", "Aspectul clinicii a fost salvat ✔"),

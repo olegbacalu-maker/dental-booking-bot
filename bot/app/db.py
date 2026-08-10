@@ -816,6 +816,25 @@ async def _patient_ids_by_digits(digits: str) -> list[int]:
             if "".join(ch for ch in (r["phone"] or "") if ch.isdigit()) == digits]
 
 
+async def patient_name_by_phone(phone: str) -> str | None:
+    """Имя ЕДИНСТВЕННОГО пациента с этим номером. None — ноль или несколько.
+
+    Нужна журналу, чтобы предупредить регистратуру: визит ляжет в чужую
+    карточку (08-10). Семейный номер — норма, ребёнка записывают на телефон
+    родителя, и `admin_add` в этом случае пишет визит РОДИТЕЛЮ, молча выбрасывая
+    набранное имя. Запретить нельзя — по телефону записывают десятки раз в день;
+    значит надо сказать, в чью карточку легло."""
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if not digits:
+        return None
+    ids = await _patient_ids_by_digits(digits)
+    if len(ids) != 1:
+        return None
+    rows = await _fetch("SELECT name FROM patients WHERE id = $1",
+                        "SELECT name FROM patients WHERE id = ?", ids[0])
+    return rows[0]["name"] if rows else None
+
+
 async def admin_add(
     name: str, phone: str, service: str, doctor: str, starts_at: datetime,
     birth_year: int | None = None, birth_date: str | None = None,

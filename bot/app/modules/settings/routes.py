@@ -1315,18 +1315,19 @@ def _restart_page(done: str, back_url: str) -> str:
     Для настроек, которые читает ЛАУНЧЕР до старта приложения: токен бота,
     сетевой доступ, шифрование картотеки.
 
-    ⛔ Программа себя НЕ перезапускает, и этот экран больше не делает вид, что
-    перезапускает (08-10, находка аудита). Раньше здесь было «programul
-    repornește…» и «окно откроется само», а механизма нет вовсе: единственный
-    самоперезапуск живёт в `update.py` (планировщик + `_exit_soon`) и сюда не
-    подключён. Через 15 секунд человека просто возвращало назад — настройка не
-    применена, окно не закрывалось, и выглядело это как сломанная программа.
-    Особенно больно било по шифрованию: директор жал «Activează criptarea»,
-    досматривал вращающийся значок и оставался с открытой базой.
-    ⭐ Если когда-нибудь заводить настоящий перезапуск — брать его из
-    `update.py`, а не писать второй; но текст обязан оставаться правдой в любом
-    случае, и чинить надо было сначала его.
+    ⭐ Перезапуск НАСТОЯЩИЙ (08-10). Экран раньше обещал его и не делал:
+    механизм всё это время лежал готовым в `update.py` — `restart_app()`,
+    написанный «для применения токена и т.п.», — и просто не был подключён.
+    Второй такой писать не стали, взяли этот.
+    ⚠️ Формулировка обязана оставаться правдой и тогда, когда перезапуск не
+    состоялся: планировщик Windows может не отработать, а в облачном издании
+    его нет вовсе. Поэтому текст говорит «закрываемся сейчас» и сразу даёт
+    запасной ход — открыть с ярлыка. Обещать «окно вернётся само» без оговорки
+    и было прошлой ошибкой.
+    ⚠️ `restart_app()` гасит процесс через ~1.2 с (`_exit_soon`), поэтому
+    страницу отдаём ПЕРВОЙ, а гасимся уже после ответа.
     """
+    auto = upd.restart_app() is None
     return standalone(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <title>Repornire…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
@@ -1335,10 +1336,12 @@ def _restart_page(done: str, back_url: str) -> str:
  a{{color:__ON__;font-weight:600;font-size:14px;margin-top:18px;display:inline-block}}
 </style></head><body>
 <h1>✅ {done}</h1>
-<p><b>Închideți programul și porniți-l din nou</b> — setarea se aplică la
-următoarea pornire. Programul nu se repornește singur.</p>
-<p style="opacity:.85;font-size:13.5px">Datele clinicii nu sunt afectate:
-închiderea ferestrei oprește doar programul, nu șterge nimic.</p>
+<p>{"<b>Programul se închide acum și pornește din nou</b> — setarea se aplică la pornire."
+   if auto else
+   "<b>Închideți programul și porniți-l din nou</b> — setarea se aplică la pornire."}</p>
+<p style="opacity:.85;font-size:13.5px">Dacă fereastra nu revine în câteva
+secunde, deschideți DentPilot de pe scurtătura de pe desktop. Datele clinicii nu
+sunt afectate: oprirea programului nu șterge nimic.</p>
 <a href="{back_url}">← Înapoi în setări</a>
 </body></html>""")
 
