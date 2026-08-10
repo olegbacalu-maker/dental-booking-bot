@@ -229,7 +229,10 @@ async def health() -> dict:
     return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
 
 
-_ASSET_MIME = {"css": "text/css", "js": "application/javascript"}
+_ASSET_MIME = {"css": "text/css", "js": "application/javascript",
+               # ⚠️ woff2 читается БАЙТАМИ, а не текстом (см. ветку ниже):
+               # _asset() декодирует utf-8 и на шрифте падает
+               "fonts": "font/woff2"}
 
 
 @app.get("/static/{kind}/{name}")
@@ -243,10 +246,17 @@ async def static_asset(kind: str, name: str) -> Response:
     внутри сборки рядом с профилем клиники, и вытащить оттуда что-то ещё через
     этот адрес быть не должно."""
     mime = _ASSET_MIME.get(kind)
-    if not mime or not re.fullmatch(rf"[a-z0-9_-]+\.{kind}", name):
+    # шрифты лежат в fonts/ и называются .woff2, остальное — имя.<папка>
+    ext = "woff2" if kind == "fonts" else kind
+    if not mime or not re.fullmatch(rf"[a-z0-9_-]+\.{ext}", name):
         return Response(status_code=404)
     try:
-        text = _asset(kind, name)
+        # ⚠️ Шрифт — ДВОИЧНЫЙ файл. _asset() отдаёт текст (utf-8) и на woff2
+        # падает с UnicodeDecodeError, поэтому читаем байтами и мимо кеша
+        # текстов: класть 500 КБ шрифта в _CSS_CACHE незачем, его и так
+        # закеширует браузер на год.
+        text = (STATIC / kind / name).read_bytes() if kind == "fonts" \
+            else _asset(kind, name)
     except OSError:
         log.error("не читается %s/%s — страница останется без него", kind, name)
         return Response(status_code=404)
