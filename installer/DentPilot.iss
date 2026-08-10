@@ -115,6 +115,7 @@ ro.CreateDesktopIcon=Scurtătură pe desktop
 ro.AdditionalIcons=Scurtături:
 ro.AutostartTask=Pornește DentPilot la pornirea calculatorului
 ro.DemoDataTask=Umple registrul cu programări demonstrative (DOAR pentru prezentare, nu pentru lucru)
+ro.InstallingWebView2=Se instalează componenta Microsoft pentru afișare (WebView2)…
 ro.NoWriteTitle=În acest folder nu se poate scrie
 ro.NoWriteText=Nu am putut scrie un fișier în «%1».%n%nDentPilot ține baza de date a clinicii lângă program, deci folderul trebuie să permită scrierea. Se poate să fi fost creat de alt utilizator Windows.%n%nAlegeți alt folder (de exemplu cel propus implicit).
 ro.DataKeptTitle=Datele clinicii au rămas
@@ -134,6 +135,10 @@ Source: "..\dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; Метка для программы: заполнять ли журнал демо-записями при первом запуске.
 ; Файла нет = чистый старт у реальной клиники.
 Source: "demo.flag"; DestDir: "{app}"; Tasks: demodata; Flags: ignoreversion
+; Runtime, на котором рисуется окно программы. Кладём ТОЛЬКО если его нет:
+; на обновляемой Windows он есть всегда, и лишние 1.6 МБ возить незачем.
+Source: "MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; \
+    Flags: deleteafterinstall; Check: WebView2Missing
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
@@ -141,6 +146,15 @@ Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; WorkingDir: 
 Name: "{userstartup}\{#AppName}";  Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: autostart
 
 [Run]
+; ⛔ ДО запуска программы: без WebView2 окно не открывается, и до этой правки
+; клиника видела ровно ничего — сборка --noconsole, исключение уходило в пустоту.
+; Программа с 1.19.12 умеет уйти в браузер, но это утешение, а не решение;
+; решение — поставить Runtime здесь. Молча и без перезагрузки.
+; ⚠️ Отказ НЕ валит установку (`runasoriginaluser` не ставим, код возврата не
+; проверяем): нет интернета — программа всё равно поставится и откроется в
+; браузере. Установщик, падающий из-за необязательного компонента, хуже.
+Filename: "{tmp}\MicrosoftEdgeWebView2Setup.exe"; Parameters: "/silent /install"; \
+    StatusMsg: "{cm:InstallingWebView2}"; Check: WebView2Missing; Flags: waituntilterminated
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 ; Данные клиники деинсталлятор НЕ трогает: clinic.json, dental.env и data\
@@ -155,6 +169,41 @@ Type: files; Name: "{app}\dentpilot_restart.bat"
 Type: files; Name: "{app}\demo.flag"
 
 [Code]
+
+{ Есть ли на машине WebView2 Runtime — тот движок, на котором рисуется окно.
+
+  Спрашиваем реестр, а не ищем файлы: Microsoft ставит Runtime в трёх видах
+  (per-machine x64, per-machine x86, per-user), и общий у них ровно один —
+  запись Клиента обновлений с этим GUID. Пустое `pv` или «0.0.0.0» означают
+  «запись есть, Runtime снесён» — это НЕ установленный Runtime.
+
+  ⚠️ Проверка нужна и на новых машинах тоже: на Windows 11 и обновляемой
+  Windows 10 Runtime есть всегда, и тогда мы просто ничего не делаем — 1.6 МБ
+  бутстрэппера в этом случае даже не распаковываются (Check стоит и в [Files]).
+
+  Зачем вообще: без Runtime окно программы не открывалось, а сборка --noconsole
+  не показывала ни ошибки, ни окна — клиника кликала по ярлыку и не видела
+  НИЧЕГО. С 1.19.12 программа в этом случае уходит в браузер, но это утешение;
+  правильное место починки — здесь, до первого запуска. }
+function WebView2Missing: Boolean;
+var
+  Version: String;
+  Client: String;
+begin
+  Client := 'Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  Result := True;
+  if RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\' + Client, 'pv', Version) then
+    if (Version <> '') and (Version <> '0.0.0.0') then
+      Result := False;
+  if Result then
+    if RegQueryStringValue(HKLM, 'SOFTWARE\' + Client, 'pv', Version) then
+      if (Version <> '') and (Version <> '0.0.0.0') then
+        Result := False;
+  if Result then
+    if RegQueryStringValue(HKCU, 'SOFTWARE\' + Client, 'pv', Version) then
+      if (Version <> '') and (Version <> '0.0.0.0') then
+        Result := False;
+end;
 
 { Папка по умолчанию.
 
