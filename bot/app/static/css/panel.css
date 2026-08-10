@@ -935,6 +935,10 @@
  a.pl-tile:hover{transform:translateY(-3px);box-shadow:var(--sh3)}
  .pl-tile .ico{width:52px;height:52px;flex:0 0 52px;border-radius:16px;display:flex;
    align-items:center;justify-content:center;font-size:21px}
+ /* иконка рисуется stroke-контуром 24×24 (layout._ic отдаёт её 16px): в кружке
+    52px это теряется, поэтому размер задаётся здесь, а не в самом svg — он
+    один на сайдбар, плитки и кнопки, и у каждого места свой масштаб */
+ .pl-tile .ico svg{width:23px;height:23px}
  .pl-tile .ico.g{background:var(--teal-soft)}
  .pl-tile .ico.b{background:var(--blue-soft)}
  .pl-tile .ico.v{background:var(--violet-soft)}

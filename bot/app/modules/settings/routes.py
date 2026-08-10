@@ -34,7 +34,7 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
                           current_user, delete_user, find_user, n_directors,
                           pin_free, remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER, js_json,
-                            _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER,
+                            _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
                             _doc_hours_text, _shell, standalone, tg_configured,
                             tg_refresh_meta, tg_status)
 from ...core import bitlocker, dbkey, theme
@@ -237,47 +237,47 @@ async def admin_settings(request: Request, msg: str = ""):
                else " · <b style='color:var(--red-t)'>⛔ disc necriptat</b>"
                if bl_tone == "alarm"
                else " · <b style='color:var(--amber-t)'>⚠️ BitLocker</b>")
-    tiles = [tile("/admin/settings/system", "ℹ️", "b", "Stare sistem",
+    tiles = [tile("/admin/settings/system", _ic("info"), "b", "Stare sistem",
                   f"v{eng.APP_VERSION} · {up_short}{bl_flag}"),
-             tile("/admin/settings/clinic", "🏥", "g", "Clinica",
+             tile("/admin/settings/clinic", _ic("clinic"), "g", "Clinica",
                   e(cfg["name"])),
-             tile("/admin/settings/theme", "🎨", "v", "Aspectul clinicii",
+             tile("/admin/settings/theme", _ic("palette"), "v", "Aspectul clinicii",
                   f"{e(theme.STYLE_LABEL[_th['style']][0])} · "
                   f"<span class='th-dot' style='background:{e(_th['primary'])}'></span>"
                   f"{e(_th['primary'])}"
                   + (" · logo ✔" if theme.logo_url() else "")),
-             tile("/admin/settings/hours", "🕘", "v", "Program de lucru",
+             tile("/admin/settings/hours", _ic("clock"), "v", "Program de lucru",
                   hours_short),
-             tile("/admin/settings/services", "🦷", "g", "Servicii",
+             tile("/admin/settings/services", _ic("tooth"), "g", "Servicii",
                   f"{len(cfg['services'])} servicii"),
-             tile("/admin/medici", "👨‍⚕️", "b", "Medici",
+             tile("/admin/medici", _ic("med"), "b", "Medici",
                   f"{n_docs} activi · se editează în secțiunea Medici")]
     if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
         # Telegram заморожен (08-08): плитку видят только клиники с уже
         # настроенным токеном — grandfather, как секция в сайдбаре.
         # Прямой адрес /admin/settings/telegram жив для ручного включения.
         if tg_configured():
-            tiles.append(tile("/admin/settings/telegram", "📱", "v",
+            tiles.append(tile("/admin/settings/telegram", _ic("bot"), "v",
                               "Telegram Bot", tg_short))
         lan_short = ("✅ activ în rețeaua clinicii" if lan.enabled()
                      else "doar pe acest calculator")
-        tiles.append(tile("/admin/settings/lan", "📶", "b",
+        tiles.append(tile("/admin/settings/lan", _ic("wifi"), "b",
                           "Acces de pe telefon", lan_short))
     if db.IS_SQLITE:
         _cs = dbkey.state()
-        tiles.append(tile("/admin/settings/crypt", "🔒", "g", "Criptarea evidenței",
+        tiles.append(tile("/admin/settings/crypt", _ic("lock"), "g", "Criptarea evidenței",
                           {dbkey.OK: "✅ activă",
                            dbkey.UNREADABLE: "<b style='color:var(--red-t)'>⛔ cheia nu "
                                              "se citește</b>"}.get(_cs, "oprită")))
     if db.IS_SQLITE and bkp.available():
-        tiles.append(tile("/admin/settings/backup", "💾", "b", "Copie de rezervă",
+        tiles.append(tile("/admin/settings/backup", _ic("save"), "b", "Copie de rezervă",
                           "arhivă criptată AES-256"))
     if _pin_rec():
-        tiles.append(tile("/admin/settings/security", "🔒", "g",
+        tiles.append(tile("/admin/settings/security", _ic("users"), "g",
                           "Securitate și utilizatori",
                           f"{len(all_users())} utilizatori"))
     # FAQ безусловно и последней: справка в конце списка — привычное место
-    tiles.append(tile("/admin/settings/faq", "❓", "v", "Întrebări frecvente",
+    tiles.append(tile("/admin/settings/faq", _ic("help"), "v", "Întrebări frecvente",
                       "copii de rezervă, mutare, Legea 195"))
 
     body = (f"<div class='pl-head'><div><h2>Setări</h2>"
