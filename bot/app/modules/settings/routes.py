@@ -383,7 +383,7 @@ async def settings_telegram(request: Request, msg: str = ""):
 <form class='add' method='post' action='/admin/telegram/save'
       onsubmit="return confirm('Programul se va reporni pentru aplicare. Continuați?')">
   <input type='password' name='token' placeholder="{ph}" style='width:430px'>
-  <button>💾 Salvează și repornește</button>
+  <button>💾 Salvează</button>
 </form>
 <p class='hint'>Creați botul clinicii la @BotFather (2 minute) și lipiți tokenul aici.
 Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
@@ -613,7 +613,7 @@ async def settings_crypt_sheet(request: Request):
 <form class='noprint' method='post' action='/admin/settings/crypt/confirm'>
   <label class='ack'><input type='checkbox' name='ack' value='1' required>
   Am tipărit foaia și am pus-o în mapa clinicii</label>
-  <button class='savebtn'>Activează criptarea și repornește</button>
+  <button class='savebtn'>Activează criptarea</button>
 </form>""" if pending else "")
     return HTMLResponse(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <title>{e(eng.CLINIC_NAME)} — foaie de recuperare</title><style>
@@ -1310,19 +1310,36 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
 
 
 def _restart_page(done: str, back_url: str) -> str:
-    """Экран «программа перезапускается» — для настроек, которые читает
-    лаунчер до старта приложения (токен бота, сетевой доступ)."""
+    """Экран «настройка применится при следующем запуске».
+
+    Для настроек, которые читает ЛАУНЧЕР до старта приложения: токен бота,
+    сетевой доступ, шифрование картотеки.
+
+    ⛔ Программа себя НЕ перезапускает, и этот экран больше не делает вид, что
+    перезапускает (08-10, находка аудита). Раньше здесь было «programul
+    repornește…» и «окно откроется само», а механизма нет вовсе: единственный
+    самоперезапуск живёт в `update.py` (планировщик + `_exit_soon`) и сюда не
+    подключён. Через 15 секунд человека просто возвращало назад — настройка не
+    применена, окно не закрывалось, и выглядело это как сломанная программа.
+    Особенно больно било по шифрованию: директор жал «Activează criptarea»,
+    досматривал вращающийся значок и оставался с открытой базой.
+    ⭐ Если когда-нибудь заводить настоящий перезапуск — брать его из
+    `update.py`, а не писать второй; но текст обязан оставаться правдой в любом
+    случае, и чинить надо было сначала его.
+    """
     return standalone(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="15;url={back_url}">
 <title>Repornire…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
       justify-content:center;height:100vh;margin:0;background:__ACCENT__;color:__ON__;text-align:center}}
- .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
- @keyframes r{{to{{transform:rotate(360deg)}}}}
+ p{{max-width:520px;line-height:1.55;font-size:15px}}
+ a{{color:__ON__;font-weight:600;font-size:14px;margin-top:18px;display:inline-block}}
 </style></head><body>
-<div class="sp">🔄</div>
-<h1>{done} — programul repornește…</h1>
-<p>Fereastra se va redeschide singură în câteva secunde.</p>
+<h1>✅ {done}</h1>
+<p><b>Închideți programul și porniți-l din nou</b> — setarea se aplică la
+următoarea pornire. Programul nu se repornește singur.</p>
+<p style="opacity:.85;font-size:13.5px">Datele clinicii nu sunt afectate:
+închiderea ferestrei oprește doar programul, nu șterge nimic.</p>
+<a href="{back_url}">← Înapoi în setări</a>
 </body></html>""")
 
 
