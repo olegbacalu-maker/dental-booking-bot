@@ -22,7 +22,7 @@ dpapi.py; ступени блокировки входа — auth._LOCK_STEPS (3
 """
 from __future__ import annotations
 
-from ...core.layout import FEEDBACK_EMAIL
+from ...core.layout import FEEDBACK_EMAIL, _ic
 from . import backup as bkp
 
 _CARD = ("style='border:1px solid var(--line);border-radius:var(--r-card);"
@@ -41,7 +41,7 @@ def render() -> str:
     p = "<p style='margin:0 0 8px'>"
     end = "</p>"
     items = [
-        _q("💾", "Cât de des fac copii de rezervă și unde le păstrez?",
+        _q(_ic("save"), "Cât de des fac copii de rezervă și unde le păstrez?",
            f"{p}Recomandăm o copie <b>pe săptămână</b> — sau după orice zi cu "
            f"multe modificări. Se face din <b>Setări → Copie de rezervă</b>: "
            f"alegeți o parolă (minim {bkp.MIN_PASS} caractere) și salvați "
@@ -59,7 +59,7 @@ def render() -> str:
            f"mai mult decât pare: ea singură ține toată evidența clinicii."
            f"{end}"),
 
-        _q("📦", "Cum deschid arhiva de rezervă fără DentPilot?",
+        _q(_ic("box"), "Cum deschid arhiva de rezervă fără DentPilot?",
            f"{p}Intenționat simplu: arhiva este un ZIP obișnuit, criptat "
            f"AES-256. Se deschide pe orice calculator cu <b>7-Zip</b> "
            f"(gratuit, www.7-zip.org) sau <b>WinRAR</b>, cu parola aleasă la "
@@ -79,7 +79,7 @@ def render() -> str:
            f"tot ce conține arhiva: câți pacienți, câte programări, care "
            f"fișier este care document.{end}"),
 
-        _q("🖥️", "Mutăm programul pe alt calculator sau reinstalăm Windows — "
+        _q(_ic("home"), "Mutăm programul pe alt calculator sau reinstalăm Windows — "
                   "ce se întâmplă cu datele?",
            f"{p}Toate datele stau în folderul programului. Copiați folderul "
            f"<b>întreg</b> pe calculatorul nou — sau restaurați din arhiva de "
@@ -97,7 +97,7 @@ def render() -> str:
            f"{p}Ambele sunt protecții, nu defecțiuni: un folder copiat sau "
            f"furat nu dezvăluie nici evidența, nici tokenul clinicii.{end}"),
 
-        _q("🔒", "Ce este criptarea evidenței?",
+        _q(_ic("lock"), "Ce este criptarea evidenței?",
            f"{p}<b>O opțiune, nu o obligație.</b> Pentru Legea 195 măsura "
            f"tehnică este criptarea discului (BitLocker) — programul o verifică "
            f"singur și o arată în <b>Stare sistem</b>. Criptarea evidenței este "
@@ -131,7 +131,7 @@ def render() -> str:
            f"{p}Se poate opri oricând: <b>«Oprește criptarea»</b> pe aceeași "
            f"pagină, cu o repornire. Datele nu se pierd.{end}"),
 
-        _q("📶", "Pot deschide registrul de pe telefon?",
+        _q(_ic("wifi"), "Pot deschide registrul de pe telefon?",
            f"{p}Da, în rețeaua clinicii: <b>Setări → Acces de pe telefon → "
            f"Activează accesul</b> (programul repornește), apoi scanați "
            f"codul QR de pe pagină cu telefonul conectat la Wi-Fi-ul "
@@ -147,7 +147,7 @@ def render() -> str:
            f"calculatorului să fie de tip «Private» în setările Windows."
            f"{end}"),
 
-        _q("🔄", "Actualizarea programului șterge datele?",
+        _q(_ic("refresh"), "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "
            f"programului; baza de date, documentele și setările rămân "
            f"neatinse. Programul verifică singur dacă există o versiune nouă "
@@ -155,7 +155,7 @@ def render() -> str:
            f"{p}Nu e nevoie de o copie de rezervă specială înainte de "
            f"actualizare — dar o copie recentă e oricum o idee bună.{end}"),
 
-        _q("🔑", "Am uitat parola de intrare — ce fac?",
+        _q(_ic("key"), "Am uitat parola de intrare — ce fac?",
            f"{p}Dacă în clinică există alt <b>director</b>, el poate seta o "
            f"parolă nouă pentru oricine: <b>Setări → Securitate și "
            f"utilizatori</b>.{end}"
@@ -170,7 +170,7 @@ def render() -> str:
            f"programul și se poate schimba; codul de pe foaie deschide baza "
            f"însăși și nu poate fi schimbat sau recuperat de nimeni.{end}"),
 
-        _q("🎨", "Pot pune culoarea și logoul clinicii în program?",
+        _q(_ic("palette"), "Pot pune culoarea și logoul clinicii în program?",
            f"{p}Da: <b>Setări → Aspectul clinicii</b>. Alegeți unul din trei "
            f"stiluri, culoarea clinicii (șase gata alese sau a dumneavoastră) "
            f"și încărcați logoul. Culoarea se aplică butoanelor, meniului și "
@@ -183,7 +183,7 @@ def render() -> str:
            f"Fișierele SVG nu se acceptă din motive de securitate — nu sunt "
            f"imagini, ci documente care pot conține cod.{end}"),
 
-        _q("⚖️", "Ce cere Legea 195 și cu ce mă ajută programul?",
+        _q(_ic("scales"), "Ce cere Legea 195 și cu ce mă ajută programul?",
            f"{p}Legea 195/2024 (protecția datelor personale) dă pacientului "
            f"dreptul la o copie a datelor lui și dreptul la ștergere. "
            f"Ambele sunt în fișa pacientului: <b>«Descarcă datele "
@@ -205,7 +205,7 @@ def render() -> str:
            f"scos din calculator, criptarea evidenței apără fișierul copiat de "
            f"pe el.{end}"),
 
-        _q("📁", "Unde sunt datele clinicii și ce nu trebuie atins?",
+        _q(_ic("folder"), "Unde sunt datele clinicii și ce nu trebuie atins?",
            f"{p}Totul e în folderul programului: <b>data\\dental.db</b> — "
            f"toată evidența; <b>data\\files\\</b> — documentele pacienților; "
            f"<b>clinic.json</b> — profilul clinicii.{end}"

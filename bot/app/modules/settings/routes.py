@@ -97,7 +97,7 @@ def _users_block() -> str:
                         f"{' selected' if k == ROLE_MEDIC else ''}>{v}</option>"
                         for k, v in ROLE_LABEL.items())
     return f"""
-<h2>👥 Utilizatori</h2>
+<h2>{_ic("users")} Utilizatori</h2>
 <table class='set'><tr><th style='width:220px'>Persoana</th><th>Acces</th><th></th></tr>
 {''.join(rows)}</table>
 <form class='add' method='post' action='/admin/users/save'>
@@ -341,7 +341,7 @@ async def settings_system(request: Request, msg: str = ""):
                 "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"
                 "margin-left:10px'>🔄 Verifică acum</button></form>")
     body = f"""
-<h2>ℹ️ Stare sistem</h2>
+<h2>{_ic("info")} Stare sistem</h2>
 <table class='set'>
 <tr><th style='width:180px'>Versiune</th><td>v{eng.APP_VERSION}</td></tr>
 <tr><th>Bază de date</th><td>{"SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"}</td></tr>
@@ -353,7 +353,7 @@ async def settings_system(request: Request, msg: str = ""):
 <tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
 </table>
 
-<h2>🔐 Confidențialitate</h2>
+<h2>{_ic("shield")} Confidențialitate</h2>
 <div class='pcard' style='max-width:760px'>
 <p style='margin:0 0 8px;font-size:13px;line-height:1.55;color:var(--text2)'>
 <b style='color:var(--text)'>Programul funcționează local.</b> Datele personale ale pacienților
@@ -378,7 +378,7 @@ async def settings_telegram(request: Request, msg: str = ""):
     ph = ("••• token setat — introduceți altul pentru schimbare" if tok_set
           else "token de la @BotFather (ex. 123456789:AA...)")
     body = f"""
-<h2>📱 Telegram — token bot</h2>
+<h2>{_ic("bot")} Telegram — token bot</h2>
 <p class='hint' style='margin-top:0'>Stare: {_tg_line(tg_status())}</p>
 <form class='add' method='post' action='/admin/telegram/save'
       onsubmit="return confirm('Programul se va reporni pentru aplicare. Continuați?')">
@@ -439,7 +439,7 @@ async def settings_backup(request: Request, msg: str = ""):
     if not (db.IS_SQLITE and bkp.available()):
         return RedirectResponse("/admin/settings", status_code=303)
     body = f"""
-<h2>💾 Copie de rezervă criptată</h2>
+<h2>{_ic("save")} Copie de rezervă criptată</h2>
 <form class='add' method='post' action='/admin/backup/export'>
   <input type='password' name='parola' placeholder='parolă (min. {bkp.MIN_PASS} caractere)'
          minlength='{bkp.MIN_PASS}' required style='width:280px' autocomplete='new-password'>
@@ -458,8 +458,8 @@ async def settings_security(request: Request, msg: str = ""):
         return deny
     if not _pin_rec():
         return RedirectResponse("/admin/settings", status_code=303)
-    body = """
-<h2>🔒 Schimbă PIN</h2>
+    body = f"""
+<h2>{_ic("key")} Schimbă PIN</h2>
 <form class='add' method='post' action='/admin/pin/change'>
   <input type='password' name='old_pin' placeholder='PIN actual' inputmode='numeric' maxlength='6' required style='width:140px'>
   <input type='password' name='new1' placeholder='PIN nou' inputmode='numeric' maxlength='6' required style='width:140px'>
@@ -485,7 +485,7 @@ async def settings_clinic(request: Request, msg: str = ""):
     cfg = eng.CONFIG
     e = html.escape
     body = f"""
-<h2>🏥 Clinica</h2>
+<h2>{_ic("clinic")} Clinica</h2>
 <form method='post' action='/admin/settings/save'>
 <input type='hidden' name='part' value='clinic'>
 <table class='set'>
@@ -522,14 +522,14 @@ async def settings_crypt(request: Request, msg: str = ""):
     pending = bool(d and (d / dbkey.PENDING_FILE).exists())
 
     if pending:
-        body = ("<h2>🔒 Criptarea evidenței</h2>"
+        body = (f"<h2>{_ic('lock')} Criptarea evidenței</h2>"
                 "<div class='banner warn'>Criptarea este pregătită și se aplică "
                 "la următoarea pornire a programului.</div>"
                 "<div class='nav'><a class='primary' href='/admin/settings/crypt/sheet'>"
                 "🖨 Deschide foaia de recuperare</a></div>")
     elif st == dbkey.OK:
         body = f"""
-<h2>🔒 Criptarea evidenței</h2>
+<h2>{_ic('lock')} Criptarea evidenței</h2>
 <div class='banner ok'>Evidența este criptată. Fișierul <b>dental.db</b> nu poate
 fi citit pe alt calculator sau de pe alt cont Windows.</div>
 <p class='hint'>Copiile zilnice din <code>data\\backups</code> sunt și ele
@@ -548,8 +548,8 @@ de aceeași cheie.</p>
         # обязанность хранить лист восстановления. Уговаривать её взять эту
         # обязанность не за что — экран обязан честно назвать и то, что оно
         # даёт, и то, чего стоит, а выбор оставить директору.
-        body = """
-<h2>🔒 Criptarea evidenței</h2>
+        body = f"""
+<h2>{_ic('lock')} Criptarea evidenței</h2>
 <div class='banner ok'>Nu este obligatorie. Cerința Legii 195 este acoperită de
 criptarea discului (BitLocker) — starea ei o verifică programul singur, în
 <b>Stare sistem</b>. Aceasta este o măsură în plus, pentru cine o dorește.</div>
@@ -732,7 +732,7 @@ async def settings_theme(request: Request, msg: str = ""):
                 if logo else "")
 
     body = f"""
-<h2>🎨 Aspectul clinicii</h2>
+<h2>{_ic("palette")} Aspectul clinicii</h2>
 <form method='post' action='/admin/settings/save' id='thf'>
 <input type='hidden' name='part' value='theme'>
 
@@ -880,7 +880,7 @@ async def settings_hours(request: Request, msg: str = ""):
             f"<td><select id='he_{day}'>{_break_opts(bt)}</select></td></tr>"
         )
     body = f"""
-<h2>🕘 Program de lucru</h2>
+<h2>{_ic("clock")} Program de lucru</h2>
 <form method='post' action='/admin/settings/save' onsubmit='return collectHours()'>
 <input type='hidden' name='part' value='hours'>
 <input type='hidden' name='payload' id='payload'>
@@ -946,7 +946,7 @@ async def settings_services(request: Request, msg: str = ""):
     )
     doc_ids_hint = ", ".join(f"{d['id']}={e(d['name'])}" for d in cfg["doctors"])
     body = f"""
-<h2>🦷 Servicii</h2>
+<h2>{_ic("tooth")} Servicii</h2>
 <form method='post' action='/admin/settings/save' onsubmit='return collectServices()'>
 <input type='hidden' name='part' value='services'>
 <input type='hidden' name='payload' id='payload'>
