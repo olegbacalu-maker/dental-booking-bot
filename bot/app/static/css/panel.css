@@ -250,6 +250,49 @@
  .spark{display:block;overflow:visible}
  .spark .sp-a{opacity:.13}
  .spark .sp-l{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+ /* Плотный ряд плиток на НИЗКОМ экране (08-11). У клиники 1366×768, в окне
+    остаётся ~696px, и замер показал: топбар 72 + заголовок + панель дат + ряд
+    плиток (196 + 22) уводят начало сетки на 556-й пиксель — от рабочего дня
+    видно 2.5 часа из 11. Порог по ВЫСОТЕ, а не по ширине: в одну строку ряд
+    помещается и на 1366, мешает он именно вертикали. 900px делит экраны
+    клиники (696/828 в окне) и 1080p (1008) — на большом мониторе плитки
+    остаются прежними.
+    ⚠️ Высоту ряда задаёт САМАЯ высокая плитка: grid тянет остальные под неё, а
+    высота берётся от ПЕРЕНОСА — при иконке 44px текстовой колонке остаётся
+    98px, и «Grad de ocupare» с «ieri 70% › azi 86%» ложатся в две строки
+    каждая. Поэтому здесь ужимается ИКОНКА: она отдаёт ширину тексту, и
+    экономия берётся с переносов, а не с кегля цифры.
+    ⭐ И ровно поэтому плитка тут становится GRID, а не остаётся flex. У flex
+    есть тихий обрыв: как только иконка + текстовая колонка перестают влезать
+    в строку, `flex-wrap:wrap` уводит ВЕСЬ текст под иконку третьей строкой, а
+    `align-content:stretch` растягивает под неё все плитки ряда — замер на
+    шести плитках дал 118 → 156px из-за ОДНОЙ строки «Grad de ocupare».
+    Обрыв срабатывает от длины румынской фразы, то есть от данных, и на экране
+    выглядит как «плитки почему-то выросли». В grid текст остаётся в своей
+    колонке (`minmax(0,1fr)`) и в худшем случае переносится сам — цена
+    удлинившейся подписи 15px вместо 38, и она не зависит от соседей.
+    ⛔ auto-fit, а не auto-fill: минимум опущен до 168px, иначе шесть плиток
+    grandfather-клиники (та, у которой есть «Prin bot») срываются во вторую
+    строку и съедают вдвое больше, чем сэкономлено. А при пяти плитках
+    auto-fill оставил бы пустую шестую колонку — дыру справа. */
+ @media (max-height:900px){
+   .tiles{grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px;
+     margin-bottom:14px}
+   .tile{display:grid;grid-template-columns:32px minmax(0,1fr);gap:6px 10px;
+     align-items:start;align-content:start;padding:12px 13px;border-radius:14px}
+   .tile .ico{width:32px;height:32px;border-radius:10px}
+   .tile .ico svg{width:17px;height:17px}
+   .tile b{font-size:21px}
+   .tile span{font-size:12.5px}
+   .tile .trend{font-size:11px;margin-top:3px}
+   /* row-gap повторён для `.tile.sp`: у базового правила специфичность выше,
+      и одиночный longhand перебил бы row-gap из моего shorthand `gap`. */
+   .tile.sp{row-gap:6px}
+   /* SVG отдан с height='26' и preserveAspectRatio='none', поэтому CSS-высота
+      его просто сплющивает; линия не размазывается — на ней уже стоит
+      non-scaling-stroke (см. core/charts.spark). */
+   .tile.sp .spark{grid-column:1/-1;height:18px}
+ }
  /* ---------- дневная сетка (canvas) ---------- */
  .dash{display:flex;gap:16px;align-items:flex-start}
  .dashmain{flex:1;min-width:0}
