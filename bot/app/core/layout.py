@@ -3,7 +3,7 @@
 
 Здесь же словарь MSG_BANNER: коды, которыми маршруты отвечают друг другу и
 пользователю. Он общий намеренно — как только каждый модуль заведёт свои
-тексты, «Programare adăugată ✔» начнёт звучать в трёх вариантах.
+тексты, «Programare adăugată» начнёт звучать в трёх вариантах.
 """
 from __future__ import annotations
 
@@ -116,11 +116,11 @@ def _asset_ver(*parts: str) -> str:
 
 
 MSG_BANNER = {
-    "ok": ("ok", "Programare adăugată ✔"),
+    "ok": ("ok", "Programare adăugată"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),
     "past": ("err", "Ora aleasă a trecut deja — reîmprospătați lista orelor libere"),
-    "ok_past": ("warn", "Programare adăugată ✔ — atenție: este pe o zi trecută. "
+    "ok_past": ("warn", "Programare adăugată — atenție: este pe o zi trecută. "
                         "Verificați data dacă nu ați vrut asta"),
     "bad": ("err", "Date invalide — verificați câmpurile"),
     "bad_name": ("err", "Lipsește numele pacientului"),
@@ -133,83 +133,83 @@ MSG_BANNER = {
     "bad_off": ("err", "Medicul nu este activ (concediu sau arhivat) — "
                        "alegeți alt medic sau readuceți-l din concediu în Medici"),
     "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
-    "ok_note": ("ok", "Notiță adăugată — ora este blocată ✔"),
+    "ok_note": ("ok", "Notiță adăugată — ora este blocată"),
     # ⚠️ Текст обязан сказать, ЧТО делать, а не только что случилось: иначе
-    # регистратура прочтёт «добавлено ✔» и пойдёт дальше, а визит останется в
+    # регистратура прочтёт «добавлено» и пойдёт дальше, а визит останется в
     # чужой карточке.
-    "ok_other": ("warn", "Programare adăugată ✔ — dar la fișa unui pacient care "
+    "ok_other": ("warn", "Programare adăugată — dar la fișa unui pacient care "
                          "există deja cu acest telefon și are alt nume. Dacă "
                          "este altă persoană (numărul familiei), deschideți "
                          "fișa și mutați programarea, sau adăugați pacientul "
                          "separat din Pacienți"),
-    "ok_comment": ("ok", "Comentariu salvat ✔"),
-    "ok_set": ("ok", "Setări salvate ✔"),
-    "ok_theme": ("ok", "Aspectul clinicii a fost salvat ✔"),
+    "ok_comment": ("ok", "Comentariu salvat"),
+    "ok_set": ("ok", "Setări salvate"),
+    "ok_theme": ("ok", "Aspectul clinicii a fost salvat"),
     "bad_crypt": ("err", "Nu am putut pregăti criptarea — cheia nu a fost salvată. "
                          "Detalii în data\\dentpilot.log"),
     "crypt_on": ("warn", "Criptarea este deja activă. Pentru a o reface, opriți-o "
                          "mai întâi — altfel foaia tipărită nu ar mai deschide baza"),
-    "ok_logo": ("ok", "Logo actualizat ✔ — apare la intrare și pe documentele tipărite"),
-    "no_logo": ("ok", "Logo șters ✔"),
+    "ok_logo": ("ok", "Logo actualizat — apare la intrare și pe documentele tipărite"),
+    "no_logo": ("ok", "Logo șters"),
     # ⚠️ Текст называет ПРИЧИНУ отказа: «logo invalid» отправило бы директора
     # искать ошибку в картинке, которая на вид открывается — а отказали ей за
     # формат (SVG) или за размер.
     "bad_logo": ("err", "Logo neacceptat — doar PNG sau JPEG, cel mult 2 MB. "
                         "SVG nu se acceptă din motive de securitate."),
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
-    "ok_pin": ("ok", "PIN schimbat ✔"),
+    "ok_pin": ("ok", "PIN schimbat"),
     "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
     "lock_pin": ("warn", "Prea multe încercări greșite — așteptați câteva minute"),
     "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
-    "ok_tok": ("ok", "Token salvat ✔ — reporniți programul pentru aplicare"),
+    "ok_tok": ("ok", "Token salvat — reporniți programul pentru aplicare"),
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
     "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
-    "ok_card": ("ok", "Fișa pacientului a fost actualizată ✔"),
+    "ok_card": ("ok", "Fișa pacientului a fost actualizată"),
     # ⚠️ Архивация УБИРАЕТ пациента из списка, и общее «фиша обновлена» об этом
     # молчит: человек возвращается в список, никого там не находит и решает,
     # что запись пропала. Сообщение обязано назвать, где искать.
-    "ok_arh": ("ok", "Pacient trecut în arhivă ✔ — nu mai apare în listă. "
+    "ok_arh": ("ok", "Pacient trecut în arhivă — nu mai apare în listă. "
                      "Îl găsiți prin filtrul de status «Arhivat» sau "
                      "căutându-l după nume"),
-    "ok_unarh": ("ok", "Pacient scos din arhivă ✔ — apare din nou în listă"),
-    "ok_pay": ("ok", "Plata a fost înregistrată ✔"),
+    "ok_unarh": ("ok", "Pacient scos din arhivă — apare din nou în listă"),
+    "ok_pay": ("ok", "Plata a fost înregistrată"),
     "bad_pay": ("err", "Sumă sau metodă invalidă — verificați plata"),
     "pay_del": ("ok", "Plata a fost ștearsă — urma rămâne în istoricul fișei"),
     "bad_export": ("err", "Nu am putut pregăti arhiva cu datele pacientului — "
                           "verificați spațiul pe disc; detalii în data\\dentpilot.log"),
-    "ok_del": ("ok", "Fișa pacientului a fost ștearsă definitiv ✔"),
-    "ok_anon": ("ok", "Datele de identitate au fost șterse ✔ — înregistrările "
+    "ok_del": ("ok", "Fișa pacientului a fost ștearsă definitiv"),
+    "ok_anon": ("ok", "Datele de identitate au fost șterse — înregistrările "
                       "medicale rămân sub numărul fișei"),
     "bad_erase": ("err", "Pentru ștergere scrieți STERG în câmpul de confirmare"),
     "bad_bkp_pass": ("err", "Parola arhivei trebuie să aibă cel puțin 10 caractere"),
     "bad_bkp": ("err", "Nu am putut crea arhiva de rezervă — verificați spațiul "
                        "pe disc; detalii în data\\dentpilot.log"),
     "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
-    "new_pat": ("ok", "Pacient adăugat ✔ — completați fișa (dinți, plan, documente)"),
+    "new_pat": ("ok", "Pacient adăugat — completați fișa (dinți, plan, documente)"),
     "dup_pat": ("warn", "Există deja un pacient cu acest telefon — am deschis fișa lui. "
                         "Dacă este altă persoană (numărul familiei), adăugați-o cu alt "
                         "număr sau fără număr"),
     "bad_pat": ("err", "Lipsește numele pacientului"),
     "no_access": ("err", "Secțiunea este rezervată directorului clinicii. "
                          "Dacă aveți nevoie de acces, cereți-i să vă schimbe rolul "
-                         "în Setări → Utilizatori"),
-    "ok_user": ("ok", "Utilizator salvat ✔"),
+                         "în Setări › Utilizatori"),
+    "ok_user": ("ok", "Utilizator salvat"),
     "bad_user": ("err", "Date invalide — verificați numele, rolul și parola (4–6 cifre)"),
     "dup_user": ("err", "Parola este deja folosită de alt utilizator — alegeți alta. "
                         "Intrarea se face doar cu parola, deci ea trebuie să fie unică"),
     "last_dir": ("err", "Trebuie să rămână cel puțin un director — altfel nimeni nu mai "
                         "poate deschide Setările și nu are cine să dea drepturi înapoi"),
     "self_user": ("err", "Nu vă puteți șterge propriul cont — cereți altui director"),
-    "ok_doc": ("ok", "Document încărcat ✔ — rămâne local, în folderul programului"),
+    "ok_doc": ("ok", "Document încărcat — rămâne local, în folderul programului"),
     "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
-    "ok_med": ("ok", "Datele medicului au fost salvate ✔"),
+    "ok_med": ("ok", "Datele medicului au fost salvate"),
     "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
-    "new_med": ("ok", "Medic adăugat ✔ — completați fișa lui"),
+    "new_med": ("ok", "Medic adăugat — completați fișa lui"),
     "dup_med": ("err", "Există deja un medic cu acest nume — numele trebuie să fie unic"),
-    "ok_photo": ("ok", "Fotografia a fost salvată ✔ — rămâne local, lângă program"),
+    "ok_photo": ("ok", "Fotografia a fost salvată — rămâne local, lângă program"),
     "bad_photo": ("err", "Doar JPEG / PNG / WebP, până la 5 MB"),
-    "ok_svc_med": ("ok", "Serviciile medicului au fost actualizate ✔"),
+    "ok_svc_med": ("ok", "Serviciile medicului au fost actualizate"),
     "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic "
                          "ACTIV — altfel nu mai poate fi ales la programare. Bifați alt medic "
                          "(sau readuceți unul din concediu) înainte de a-l scoate pe acesta"),
@@ -219,10 +219,10 @@ MSG_BANNER = {
     "arch_busy": ("err", "Medicul are programări viitoare — mutați-le la alt medic sau "
                          "alegeți «în concediu» în loc de arhivare"),
     "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
-    "ok_anam": ("ok", "Anamneza a fost salvată ✔"),
+    "ok_anam": ("ok", "Anamneza a fost salvată"),
     "bad_anam": ("err", "Anamneza nu a fost salvată — bifați ce se potrivește "
                         "sau completați cel puțin un câmp"),
-    "ok_visit": ("ok", "Consultația a fost salvată ✔"),
+    "ok_visit": ("ok", "Consultația a fost salvată"),
     "bad_visit": ("err", "Consultația nu a fost salvată — completați cel puțin "
                          "un câmp"),
     "bad_vst": ("err", "Vizita anulată sau neprezentată nu poate avea "
@@ -296,6 +296,44 @@ _I = {  # компактные stroke-иконки сайдбара
               "<path d='M2.5 13.2 5 8.6l2.5 4.6a2.6 2.6 0 0 1-5 0z'/>"
               "<path d='M16.5 13.2 19 8.6l2.5 4.6a2.6 2.6 0 0 1-5 0z'/>",
     "folder": "<path d='M3.5 6.5a1.5 1.5 0 0 1 1.5-1.5h4l2 2.5h8a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5z'/>",
+    # Плитки сводки и статистики (08-11). Раньше тут стояли эмодзи, а их рисует
+    # САМА Windows: своим шрифтом, по-разному на 10 и 11, всегда цветными и мимо
+    # выбранного клиникой цвета. Подложка плитки уже задаёт `color`, поэтому
+    # stroke-иконка на currentColor окрашивается сама — эмодзи так не умел.
+    "headset": "<path d='M4 14v-2.5a8 8 0 0 1 16 0V14'/>"
+               "<rect x='2.5' y='13' width='4.5' height='6.5' rx='2.2'/>"
+               "<rect x='17' y='13' width='4.5' height='6.5' rx='2.2'/>",
+    "alarm": "<circle cx='12' cy='13.5' r='7.5'/><path d='M12 9.5v4l2.5 1.5'/>"
+             "<path d='M5 4.5 2.5 7M19 4.5 21.5 7'/>",
+    "ban": "<circle cx='12' cy='12' r='8.5'/><path d='m6 6 12 12'/>",
+    "trend": "<path d='M3.5 16.5 9 11l3.5 3.5 8-8'/><path d='M15.5 6.5h5v5'/>",
+    "bell": "<path d='M18 16.5V11a6 6 0 1 0-12 0v5.5L4.5 19h15z'/>"
+            "<path d='M10 19.5a2 2 0 0 0 4 0'/>",
+    "checkin": "<circle cx='12' cy='12' r='8.5'/><path d='m8 12 2.8 2.8L16.2 9.4'/>",
+    "power": "<path d='M12 3.5v8'/><path d='M7.2 6.6a8 8 0 1 0 9.6 0'/>",
+    "chat": "<path d='M20.5 12.2c0 3.9-3.8 7-8.5 7-1 0-2-.15-2.9-.42L4 20.5l1.4-3.7"
+            "A6.6 6.6 0 0 1 3.5 12.2c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7z'/>",
+    # ◀ ▶ ▲ ▼ навигации и трендов: те же системные знаки, что и эмодзи —
+    # U+25B2…25C0 не входят ни в одно вшитое подмножество Inter.
+    "chev-l": "<path d='m14.5 5.5-7 6.5 7 6.5'/>",
+    "chev-r": "<path d='m9.5 5.5 7 6.5-7 6.5'/>",
+    "chevs-l": "<path d='m11 6-6 6 6 6M18.5 6l-6 6 6 6'/>",
+    "chevs-r": "<path d='m13 6 6 6-6 6M5.5 6l6 6-6 6'/>",
+    "caret-u": "<path d='m5.5 15 6.5-7 6.5 7' fill='currentColor'/>",
+    "caret-d": "<path d='m5.5 9 6.5 7 6.5-7' fill='currentColor'/>",
+    # маркеры записей в сетке журнала и подписи под ней
+    "note": "<path d='M4.5 4.5h11l4 4v11h-15z'/><path d='M15 4.5v4.5h4.5M8 13h8M8 16.5h5'/>",
+    "pen": "<path d='M4 20h4L19.2 8.8a2.1 2.1 0 0 0-3-3L5 17v3z'/><path d='M14.8 6.2l3 3'/>",
+    "sos": "<path d='M12 3.2 21 19.4H3z'/><path d='M12 9.4v4.2M12 16.6h.01'/>",
+    "hourglass": "<path d='M7 3.5h10M7 20.5h10'/><path d='M8 3.5c0 4 4 5.2 4 8.5s-4 4.5-4 8.5'/>"
+                 "<path d='M16 3.5c0 4-4 5.2-4 8.5s4 4.5 4 8.5'/>",
+    "excl": "<path d='M12 5.5v9'/><path d='M12 18.5h.01'/>",
+    "user": "<circle cx='12' cy='8' r='3.5'/><path d='M5 20.5c1.3-3.8 4-5.4 7-5.4s5.7 1.6 7 5.4'/>",
+    "download": "<path d='M12 3.5v11'/><path d='m7.5 10.5 4.5 4.5 4.5-4.5'/><path d='M4.5 20h15'/>",
+    "clipboard": "<rect x='5' y='4.5' width='14' height='16' rx='2.5'/>"
+                 "<path d='M9 4.5V3.2h6v1.3'/><path d='M8.5 11h7M8.5 15h5'/>",
+    "close": "<path d='m6 6 12 12M18 6 6 18'/>",
+    "check": "<path d='M20 6 9 17l-5-5'/>",
 }
 
 
@@ -359,11 +397,11 @@ def _update_banner() -> str:
     if upd.can_self_update():
         # в desktop-версии баннер ведёт к кнопке «Actualizează acum», не на GitHub
         return (f" · <a href='/admin/settings/system' "
-                f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
+                f"style='color:#e8710a;font-weight:600'>{_ic('refresh')} versiune nouă "
                 f"{html.escape(upd.STATE['latest'])} — click pentru actualizare</a>")
     if upd.asset_pending() and upd.is_desktop():
         # релиз есть, файла в нём ещё нет — честно говорим и НЕ шлём на GitHub
-        return (f" · <span style='color:var(--text3)'>🔄 {html.escape(upd.STATE['latest'])} "
+        return (f" · <span style='color:var(--text3)'>{_ic('refresh')} {html.escape(upd.STATE['latest'])} "
                 f"se pregătește…</span>")
     if upd.newer_available():
         return (f" · <a href='{html.escape(upd.STATE['url'])}' target='_blank' "
@@ -395,9 +433,9 @@ def _tamper_banner() -> str:
     me = request_user()
     if me is not None and not can(me, PERM_SETTINGS):
         return ""
-    return (f"<div class='banner err' style='margin-bottom:14px'>🛡 {html.escape(txt)}. "
+    return (f"<div class='banner err' style='margin-bottom:14px'>{_ic('shield')} {html.escape(txt)}. "
             "Dacă nu a fost o intervenție cunoscută (resetarea unui PIN uitat, "
-            "tehnicianul clinicii), schimbați PIN-urile în Setări → Utilizatori "
+            "tehnicianul clinicii), schimbați PIN-urile în Setări › Utilizatori "
             "și verificați jurnalul de acces."
             "<form method='post' action='/admin/security/ack' "
             "style='display:inline;margin-left:12px'>"
@@ -469,7 +507,7 @@ def _topbar(bell: int | None) -> str:
     return f"""<div class="top">
   <form class="searchf" method="get" action="/admin/search">
     <input id="topq" name="q" placeholder="Caută pacient, telefon…" autocomplete="off">
-    <span class="kbd">Ctrl K</span><button>🔍</button>
+    <span class="kbd">Ctrl K</span><button>{_ic('search')}</button>
   </form>
   <div style="flex:1"></div>
   <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
@@ -497,7 +535,7 @@ def _who_chip() -> str:
             f"<span class='who-av'>{html.escape(_initials(me['name']))}</span>"
             f"<div class='who-n'><b>{html.escape(me['name'])}</b>"
             f"<small>{role} · {html.escape(eng.CLINIC_NAME)}</small></div>"
-            f"<a class='who-out' href='/admin/logout' title='Ieșire din cont'>⏻</a>"
+            f"<a class='who-out' href='/admin/logout' title='Ieșire din cont'>{_ic('power')}</a>"
             f"</div>")
 
 
@@ -559,19 +597,19 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 {_tamper_banner()}{_setup_hint()}
 {body}
 </div></div>
-<div class="brandcorner">🦷 <b>DentPilot</b> ·
+<div class="brandcorner">{_ic('tooth')} <b>DentPilot</b> ·
 <a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
-   title="{FEEDBACK_EMAIL}">💬 Feedback</a></div>
+   title="{FEEDBACK_EMAIL}">{_ic('chat')} Feedback</a></div>
 <script src="/static/js/panel.js?v={_asset_ver('js', 'panel.js')}"></script>
 </body></html>"""
 
 
 STATUS_LABEL = {
-    "confirmed": "✅ confirmată",
-    "arrived": "🟢 în cabinet",
-    "done": "🟦 a venit",
-    "noshow": "🟥 nu a venit",
-    "cancelled": "❌ anulată",
+    "confirmed": "confirmată",
+    "arrived": "în cabinet",
+    "done": "a venit",
+    "noshow": "nu a venit",
+    "cancelled": "anulată",
 }
 
 

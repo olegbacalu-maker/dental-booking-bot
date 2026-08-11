@@ -30,7 +30,7 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, require
 from ...core.charts import donut, gauge, line_days, spark
-from ...core.layout import _shell, tg_configured
+from ...core.layout import _ic, _shell, tg_configured
 from ...core.visits import _parse_date
 from . import casa
 
@@ -148,12 +148,12 @@ async def admin_stats(
 
     # ---- шесть KPI макета + деньги (label, cur, prev, ico, tone, bad_up) ----
     kpis = [
-        ("Programări", cur["total"], prev["total"], "📅", "var(--green)", False),
-        ("Prin bot", cur["bot"], prev["bot"], "🤖", "var(--teal-d)", False),
-        ("Recepție", cur["man"], prev["man"], "🎧", "var(--blue)", False),
-        ("Au venit", cur["done"], prev["done"], "🟦", "var(--violet)", False),
-        ("Anulate", cur["cancel"], prev["cancel"], "🚫", "var(--red)", True),
-        ("Remindere", cur["rem"], prev["rem"], "🔔", "var(--amber)", False),
+        ("Programări", cur["total"], prev["total"], _ic("cal"), "var(--green)", False),
+        ("Prin bot", cur["bot"], prev["bot"], _ic("bot"), "var(--teal-d)", False),
+        ("Recepție", cur["man"], prev["man"], _ic("headset"), "var(--blue)", False),
+        ("Au venit", cur["done"], prev["done"], _ic("checkin"), "var(--violet)", False),
+        ("Anulate", cur["cancel"], prev["cancel"], _ic("ban"), "var(--red)", True),
+        ("Remindere", cur["rem"], prev["rem"], _ic("bell"), "var(--amber)", False),
     ]
     # спарклайн каждой плитки — её же ряд по дням текущего периода
     per_day: dict[str, list[int]] = {k: [0] * span for k, *_ in kpis}

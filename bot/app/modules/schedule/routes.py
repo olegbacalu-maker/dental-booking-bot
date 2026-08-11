@@ -27,8 +27,8 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, can, request_user
 from ...core.charts import spark as _spark
-from ...core.layout import (LIVE_STATUSES, _age, _banner, _initials, _shell,
-                            _tg_state, js_json, tg_configured)
+from ...core.layout import (LIVE_STATUSES, _age, _banner, _ic, _initials,
+                            _shell, _tg_state, js_json, tg_configured)
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
                             _collect_cards, _list, _parse_date, _photo_path)
 
@@ -42,12 +42,17 @@ def _date_nav(d: date, base: str, extra: str = "") -> str:
     picker = (f"<form class='dpickf' method='get' action='{base}'>"
               f"<input class='dpick' type='date' name='date' value='{d.isoformat()}' "
               f"onchange='this.form.submit()' title='Alege data (calendar)'></form>")
-    return (f"<div class='nav'><b>{lbl} {d.isoformat()}</b>"
-            f"<a href='{base}?date={wk_prev.isoformat()}' title='-7 zile'>◀◀</a>"
-            f"<a href='{base}?date={prev_d.isoformat()}'>◀ {prev_d.strftime('%d.%m')}</a>"
+    # ⚠️ Дата ОДИН раз. До 08-11 тут стояло `{lbl} {d.isoformat()}`, то есть
+    # «Ma 11.08 2026-08-11» — один и тот же день двумя записями подряд и без
+    # разделителя, а следом поле выбора рисует его же третий раз («11.08.2026»).
+    # Год берётся из `d.year`, а не из ISO: day_label даёт только день с месяцем,
+    # и без года шапка не сказала бы, какой это август.
+    return (f"<div class='nav'><b>{lbl}.{d.year}</b>"
+            f"<a href='{base}?date={wk_prev.isoformat()}' title='-7 zile'>{_ic('chevs-l')}</a>"
+            f"<a href='{base}?date={prev_d.isoformat()}'>{_ic('chev-l')} {prev_d.strftime('%d.%m')}</a>"
             f"<a href='{base}'>Azi</a>"
-            f"<a href='{base}?date={next_d.isoformat()}'>{next_d.strftime('%d.%m')} ▶</a>"
-            f"<a href='{base}?date={wk_next.isoformat()}' title='+7 zile'>▶▶</a>"
+            f"<a href='{base}?date={next_d.isoformat()}'>{next_d.strftime('%d.%m')} {_ic('chev-r')}</a>"
+            f"<a href='{base}?date={wk_next.isoformat()}' title='+7 zile'>{_ic('chevs-r')}</a>"
             f"{picker}{extra}</div>")
 
 
@@ -84,7 +89,7 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
             if not rs:
                 if (dk, h) in covered or (dname, h) in covered:
                     # час накрыт длинным визитом — «+» тут врал бы
-                    out.append("<td><div class='appt busy'>⏳ ocupat</div></td>")
+                    out.append(f"<td><div class='appt busy'>{_ic('hourglass')} ocupat</div></td>")
                 elif dk in off:
                     out.append("<td></td>")
                 else:
@@ -98,17 +103,17 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                 hhmm = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
                 dur = int(r.get("duration_min") or 60)
                 if r["source"] == "note":
-                    cell.append(f"<div class='appt note'>📝 {hhmm} {html.escape(r['service'])}</div>")
+                    cell.append(f"<div class='appt note'>{_ic('note')} {hhmm} {html.escape(r['service'])}</div>")
                     continue
-                src = "🤖" if r["source"] == "bot" else "✍️"
+                src = "🤖" if r["source"] == "bot" else _ic("pen")
                 urgent = r["service"] in eng.URGENT_LABELS
                 cls = r["status"] + (" urgent" if urgent else "")
-                svc_txt = ("🆘 " if urgent else "") + html.escape(r["service"])
+                svc_txt = (_ic("sos") + " " if urgent else "") + html.escape(r["service"])
                 click = ""
                 if cards is not None and r["id"] in cards:
                     cls += " clickable"
                     click = f" onclick=\"openCard({r['id']})\""
-                cmt = (f"<div class='cmt'>💬 {html.escape((r['comment'] or '')[:60])}</div>"
+                cmt = (f"<div class='cmt'>{_ic('chat')} {html.escape((r['comment'] or '')[:60])}</div>"
                        if r["comment"] else "")
                 a = _age(r["birth_year"])
                 age_txt = f" <small style='color:#889'>{a} a.</small>" if a else ""
@@ -149,7 +154,7 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
         f"<option value='{k}'>{html.escape(v['ro'])}</option>" for k, v in eng.SERVICES.items()
     )
     return f"""
-<h2 id="addform">✍️ Adaugă programare manual (telefon / recepție)</h2>
+<h2 id="addform">{_ic("pen")} Adaugă programare manual (telefon / recepție)</h2>
 <form class="add" method="post" action="/admin/add">
   <input type="hidden" name="back" value="{html.escape(back)}">
   <input type="date" name="adate" value="{d.isoformat()}" required>
@@ -173,10 +178,10 @@ def _slot_modal(d: date, back: str) -> str:
     return f"""
 <dialog id="slotdlg">
   <div class="dlg-head"><span id="m_title">—</span>
-    <button type="button" onclick="document.getElementById('slotdlg').close()">✕</button></div>
+    <button type="button" onclick="document.getElementById('slotdlg').close()">{_ic('close')}</button></div>
   <div class="dlg-tabs">
-    <button type="button" id="tb_a" class="tabbtn on" onclick="showTab('a')">👤 Programare</button>
-    <button type="button" id="tb_n" class="tabbtn" onclick="showTab('n')">📝 Notiță / blocare</button>
+    <button type="button" id="tb_a" class="tabbtn on" onclick="showTab('a')">{_ic('user')} Programare</button>
+    <button type="button" id="tb_n" class="tabbtn" onclick="showTab('n')">{_ic('note')} Notiță / blocare</button>
   </div>
   <form id="tab_a" class="dlg-form" method="post" action="/admin/add">
     <input type="hidden" name="back" value="{html.escape(back)}">
@@ -368,7 +373,7 @@ def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
             f"<span>{len(items)} programări</span></div>"
             f"<div class='ag-l'>{''.join(out)}</div>"
             f"<a class='ag-all' href='/admin/all?date={d.isoformat()}'>"
-            f"Vezi toate programările →</a></div>")
+            f"Vezi toate programările ›</a></div>")
 
 
 def _day_canvas(d: date, rows: list, cards: dict) -> str:
@@ -441,13 +446,13 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 if r["source"] == "note":
                     out.append(f"<div class='gappt gnote' data-appt='{r['id']}' "
                                f"style='{pos}'>"
-                               f"<b>📝 {html.escape(r['service'][:40])}</b></div>")
+                               f"<b>{_ic('note')} {html.escape(r['service'][:40])}</b></div>")
                     continue
                 bg, bar = _svc_colors(r)
-                ico = "❗" if (r["service"] in eng.URGENT_LABELS
+                ico = _ic("excl") if (r["service"] in eng.URGENT_LABELS
                               and r["status"] == "confirmed") \
                     else _STATUS_ICON.get(r["status"], "")
-                src = "🤖" if r["source"] == "bot" else "✍️"
+                src = "🤖" if r["source"] == "bot" else _ic("pen")
                 ns = " noshow" if r["status"] == "noshow" else ""
                 click = f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else ""
                 dur = int(r.get("duration_min") or 60)
@@ -561,7 +566,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
             f"<input type='hidden' name='back' value='/admin?date={d.isoformat()}'>"
             f"<select name='dk' style='font-size:10.5px;max-width:110px'>{relink_opts}</select>"
             f"<button style='font-size:10.5px;border:1px solid var(--line);background:none;"
-            f"border-radius:6px;cursor:pointer'>→</button></form></div></div></div>")
+            f"border-radius:6px;cursor:pointer'>{_ic('chev-r')}</button></form></div></div></div>")
         cols.append(f"<div class='gcol'>{_cells(None, name)}{_blocks(col_key)}</div>")
     # больше четырёх колонок — карточка ужимается (аватар меньше, специализация
     # прячется): у клиники на 6 врачей полноразмерная карточка режет имена
@@ -665,7 +670,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         if diff == 0:
             return "<span class='trend'>la fel ca ieri</span>"
         cls = ("dn" if bad_up else "up") if diff > 0 else ("up" if bad_up else "dn")
-        arrow = "▲" if diff > 0 else "▼"
+        arrow = _ic("caret-u") if diff > 0 else _ic("caret-d")
         return (f"<span class='trend'><span class='{cls}'>{arrow} {diff:+d}</span>"
                 f" față de ieri</span>")
 
@@ -713,12 +718,12 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                     else (prev_day.strftime("%d.%m"), d.strftime("%d.%m")))
     prev_open = any(eng.work_minutes(dk, prev_day) for dk in active_dks)
     left = f"{occ_prev}%" if prev_open else "închis"
-    arrow = ("<span class='up'>▲</span> " if occ > occ_prev else
-             "<span class='dn'>▼</span> " if occ < occ_prev else "")
-    occ_sub = (f"<span class='trend'>{arrow}{a_lbl} {left} → {b_lbl} {occ}%</span>")
+    arrow = (f"<span class='up'>{_ic('caret-u')}</span> " if occ > occ_prev else
+             f"<span class='dn'>{_ic('caret-d')}</span> " if occ < occ_prev else "")
+    occ_sub = (f"<span class='trend'>{arrow}{a_lbl} {left} › {b_lbl} {occ}%</span>")
     occ_tile = (f"<div class='tile sp'>"
                 f"<span class='ico' style='background:var(--violet-soft);"
-                f"color:var(--violet)'>📈</span>"
+                f"color:var(--violet)'>{_ic('trend')}</span>"
                 f"<div><b data-count='{occ}' data-suffix='%'>{occ}%</b>"
                 f"<span>Grad de ocupare</span>{occ_sub}</div>"
                 f"{_spark([_occ_pct(x, by_day[x]) for x in span], 'var(--violet)')}"
@@ -729,16 +734,16 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     # bot», колокольчик и строка статуса живут только у grandfather-клиник
     tg_ui = tg_configured()
     tiles = ("<div class='tiles'>"
-             + _kpi(day_url, "📅", "var(--green-soft)", "var(--green)",
+             + _kpi(day_url, _ic("cal"), "var(--green-soft)", "var(--green)",
                     total, "Programări azi", trend(total, y_total), series[0])
-             + (_kpi(f"{day_url}&amp;f=bot", "🤖", "var(--teal-soft)", "var(--teal-d)",
+             + (_kpi(f"{day_url}&amp;f=bot", _ic("bot"), "var(--teal-soft)", "var(--teal-d)",
                      n_bot, "Prin bot", bot_sub, series[1]) if tg_ui else "")
-             + _kpi(f"{day_url}&amp;f=rec", "🎧", "var(--blue-soft)", "var(--blue)",
+             + _kpi(f"{day_url}&amp;f=rec", _ic("headset"), "var(--blue-soft)", "var(--blue)",
                     n_man, "Recepție", trend(n_man, y_man), series[2])
-             + _kpi(f"{day_url}&amp;f=urg", "⏰", "var(--amber-soft)", "var(--amber)",
+             + _kpi(f"{day_url}&amp;f=urg", _ic("alarm"), "var(--amber-soft)", "var(--amber)",
                     n_urg, "Urgențe", "<span class='trend'>intercalate azi</span>",
                     series[3], cls=" warn")
-             + _kpi(f"{day_url}&amp;f=noshow", "🚫", "var(--red-soft)", "var(--red)",
+             + _kpi(f"{day_url}&amp;f=noshow", _ic("ban"), "var(--red-soft)", "var(--red)",
                     n_noshow, "Neprezentări", trend(n_noshow, y_noshow, bad_up=True),
                     series[4], cls=" bad")
              + occ_tile
@@ -768,7 +773,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
             + (_botnew_block(recent, now) if tg_ui else "") + sync
             + "</div></div>"
             + _slot_modal(d, back) + _card_modal(cards, back))
-    sub = ("panou principal · 🤖 bot / ✍️ recepție · se actualizează automat"
+    sub = (f"panou principal · 🤖 bot / {_ic('pen')} recepție · se actualizează automat"
            if tg_ui else "panou principal · se actualizează automat")
     return _shell(body, sub, active="dash",
                   bell=new_today if tg_ui else None)
@@ -798,7 +803,7 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
             hh = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
             if r["source"] == "note":
                 chips.append(f"<div class='wchip gnote' style='border:1px dashed var(--line);"
-                             f"color:var(--text2)'>📝 {hh} {html.escape(r['service'][:30])}</div>")
+                             f"color:var(--text2)'>{_ic('note')} {hh} {html.escape(r['service'][:30])}</div>")
                 continue
             bg, bar = _svc_colors(r)
             ns = " noshow" if r["status"] == "noshow" else ""
@@ -873,9 +878,9 @@ async def admin_export(
 _TILE_FILTERS = {
     "bot": ("🤖 prin bot",
             lambda r: r["source"] == "bot" and r["status"] != "cancelled"),
-    "rec": ("✍️ recepție",
+    "rec": ("recepție",
             lambda r: r["source"] == "manual" and r["status"] != "cancelled"),
-    "urg": ("🆘 urgențe",
+    "urg": ("urgențe",
             lambda r: r["service"] in eng.URGENT_LABELS
             and r["source"] != "note" and r["status"] != "cancelled"),
     "noshow": ("neprezentări", lambda r: r["status"] == "noshow"),
@@ -913,11 +918,11 @@ async def admin_all(
         hits = [r for r in rows if pred(r)]
         filter_chip = (
             f"<div class='banner ok'>Filtru: <b>{label}</b> — {len(hits)} programări "
-            f"· <a href='/admin/all?date={d.isoformat()}'>arată tot ✕</a></div>")
+            f"· <a href='/admin/all?date={d.isoformat()}'>arată tot {_ic('close')}</a></div>")
         filtered_list = _list(hits, back, title=f"{label} — {d.strftime('%d.%m.%Y')}")
     body = (_date_nav(d, "/admin/all",
-                      f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
-                      f"<a href='/admin/export?from={d.isoformat()}&to={d.isoformat()}'>📥 CSV</a>")
+                      f"<a href='/admin?date={d.isoformat()}'>{_ic('home')} Panou</a>"
+                      f"<a href='/admin/export?from={d.isoformat()}&to={d.isoformat()}'>{_ic('download')} CSV</a>")
             + _banner(msg, d)
             + filter_chip + filtered_list
             + _grid(d, items, active, href, cards)
@@ -925,9 +930,9 @@ async def admin_all(
             + ("" if flt else _list(rows, back))
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, ("toți medicii · 🤖 bot / ✍️ recepție / 📝 notițe"
+    return _shell(body, (f"toți medicii · 🤖 bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
-                         else "toți medicii · ✍️ recepție / 📝 notițe"),
+                         else f"toți medicii · {_ic('pen')} recepție / {_ic('note')} notițe"),
                   active="prog")
 
 
@@ -961,13 +966,13 @@ async def admin_doctor(
     # ссылка на карточку — только тем, кому карточка открыта (PERM_DOCTORS):
     # это удобство, а не защита — отказ выдаёт require() в самом маршруте
     me = request_user()
-    fisa = (f"<a href='/admin/doctor-card/{dk}'>👤 Fișa medicului</a>"
+    fisa = (f"<a href='/admin/doctor-card/{dk}'>{_ic('user')} Fișa medicului</a>"
             if can(me, PERM_DOCTORS) or me is None else "")
     head = (f"<div class='nav'><b>{html.escape(name)}</b>{off_badge} "
             f"<span style='color:#667'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</span> "
             f"{fisa}"
             f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
-            f"<a href='/admin/all?date={d.isoformat()}'>📋 Toți medicii</a></div>")
+            f"<a href='/admin/all?date={d.isoformat()}'>{_ic('clipboard')} Toți medicii</a></div>")
     cards = _collect_cards(rows)
     body = (head + _date_nav(d, base) + _banner(msg, d)
             + _grid(d, items, active, href, cards)
@@ -975,9 +980,9 @@ async def admin_doctor(
             + _list(rows, back)
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, ("ziua unui medic · 🤖 bot / ✍️ recepție / 📝 notițe"
+    return _shell(body, (f"ziua unui medic · 🤖 bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
-                         else "ziua unui medic · ✍️ recepție / 📝 notițe"),
+                         else f"ziua unui medic · {_ic('pen')} recepție / {_ic('note')} notițe"),
                   active="prog")
 
 

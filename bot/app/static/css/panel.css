@@ -203,6 +203,21 @@
  .banner.ok{background:var(--green-soft);color:#065F46}
  .banner.err{background:var(--red-soft);color:#991B1B}
  .banner.warn{background:var(--amber-soft);color:var(--amber-t)}
+ /* ---------- знак баннера (08-11) ----------
+    Раньше в КАЖДОМ тексте MSG_BANNER стояла «✔» — 25 сообщений с одним и тем
+    же символом, а рисовала его Windows: U+2714 не входит ни в одно вшитое
+    подмножество Inter, значит шрифт брался системный. Теперь знак ставит само
+    правило, и текст сообщения — только текст.
+    ⭐ Через mask, а не background-image: цвет берётся из `currentColor`, то
+    есть у каждого класса баннера свой, и три копии картинки не нужны.
+    ⚠️ ::before, а не flex на самом баннере: внутри баннера бывают <b> и <a>,
+    и flex разложил бы их в колонки, разорвав строку. */
+ .banner::before{content:"";display:inline-block;width:17px;height:17px;
+   margin-right:8px;vertical-align:-3.5px;background:currentColor;
+   -webkit-mask:var(--bico) center/17px no-repeat;mask:var(--bico) center/17px no-repeat}
+ .banner.ok{--bico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")}
+ .banner.err{--bico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='m15 9-6 6M9 9l6 6'/%3E%3C/svg%3E")}
+ .banner.warn{--bico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.6 21.2 19.5H2.8z'/%3E%3Cpath d='M12 10v4M12 16.8h.01'/%3E%3C/svg%3E")}
  .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:var(--teal);height:8px}
  /* ---------- KPI ---------- */
@@ -216,6 +231,10 @@
  a.tile:hover{box-shadow:var(--sh3);transform:translateY(-2px)}
  .tile .ico{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;
    justify-content:center;font-size:18px;flex:0 0 44px}
+ /* Иконка плитки крупнее базовых 16px: _ic() отдаёт один размер на весь набор,
+    а подложка тут 44px, и шестнадцатый пиксель в ней тонет. Цвет не задаём —
+    его ставит сама плитка (`color:{tone}`), а stroke идёт currentColor. */
+ .tile .ico svg{width:22px;height:22px}
  .tile b{display:block;font-size:26px;font-weight:600;line-height:1.1}
  .tile span{font-size:13px;color:var(--text2);font-weight:500}
  .tile .trend{display:block;font-size:12px;margin-top:4px;color:var(--text3)}

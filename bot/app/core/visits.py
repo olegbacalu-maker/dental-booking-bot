@@ -17,7 +17,7 @@ import urllib.parse
 from datetime import date, datetime
 
 from .. import engine as eng
-from .layout import (LIVE_STATUSES, STATUS_LABEL, _age, _initials, js_json)
+from .layout import (LIVE_STATUSES, STATUS_LABEL, _age, _ic, _initials, js_json)
 from .storage import _data_dir
 
 
@@ -37,7 +37,7 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
         svc_txt = (("📝 " if is_note else "🆘 " if r["service"] in eng.URGENT_LABELS else "")
                    + html.escape(r["service"]))
         if r["comment"]:
-            svc_txt += (f"<br><small style='color:#7a6a00'>💬 "
+            svc_txt += (f"<br><small style='color:#7a6a00'>{_ic('chat')} "
                         f"{html.escape(r['comment'][:80])}</small>")
         acts = ""
         if r["status"] in LIVE_STATUSES:
@@ -69,7 +69,7 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             f"<td><span class='stat s-{r['status']}'>"
             f"{STATUS_LABEL.get(r['status'], r['status'])}</span>"
             f"{' 🔔' if r['reminded_day'] else ''}"
-            f"{' 🩺' if r.get('has_rec') else ''}</td><td>{acts}</td></tr>"
+            f"{_REC_MARK if r.get('has_rec') else ''}</td><td>{acts}</td></tr>"
         )
     if not items:
         items = ["<tr><td colspan='9' style='color:var(--text3)'>— nicio programare —</td></tr>"]
@@ -110,17 +110,17 @@ def _card_modal(cards: dict, back: str) -> str:
     return f"""
 <dialog id="carddlg">
   <div class="dlg-head"><span id="c_title">—</span>
-    <button type="button" onclick="document.getElementById('carddlg').close()">✕</button></div>
+    <button type="button" onclick="document.getElementById('carddlg').close()">{_ic('close')}</button></div>
   <div class="dlg-form">
     <div id="c_info" style="font-size:14px;color:var(--text2)"></div>
-    <a id="c_fisa" href="#" style="font-size:12.5px;font-weight:600">📇 Deschide fișa pacientului →</a>
-    <a id="c_visit" href="#" style="font-size:12.5px;font-weight:600">🩺 Consultația vizitei →</a>
+    <a id="c_fisa" href="#" style="font-size:12.5px;font-weight:600">{_ic('id')} Deschide fișa pacientului ›</a>
+    <a id="c_visit" href="#" style="font-size:12.5px;font-weight:600">{_ic('med')} Consultația vizitei ›</a>
     <form id="c_form" method="post" style="display:flex;flex-direction:column;gap:8px">
       <input type="hidden" name="back" value="{b}">
       <textarea name="comment" id="c_text" rows="3" maxlength="300"
         placeholder="Comentariu: alergii, preferințe, de sunat înapoi…"
         style="resize:vertical"></textarea>
-      <button>💬 Salvează comentariul</button>
+      <button>{_ic('chat')} Salvează comentariul</button>
     </form>
   </div>
   <div class="dlg-status" id="c_status">
@@ -141,7 +141,7 @@ function openCard(id) {{
   if (!c) return;
   document.getElementById('c_title').textContent = c.time + ' — ' + c.name;
   document.getElementById('c_info').textContent =
-    c.service + ' · ' + c.doctor + (c.phone ? ' · 📞 ' + c.phone : '')
+    c.service + ' · ' + c.doctor + (c.phone ? ' · ' + c.phone : '')
     + (c.age ? ' · ' + c.age + ' ani' : '');
   document.getElementById('c_text').value = c.comment;
   const fl = document.getElementById('c_fisa');
@@ -151,7 +151,7 @@ function openCard(id) {{
   if (c.pid) {{
     vl.style.display = 'inline';
     vl.href = '/admin/visit/' + id + '?back={urllib.parse.quote(back, safe='')}';
-    vl.textContent = c.rec ? '🩺 Vezi consultația →' : '🩺 Completează consultația →';
+    vl.textContent = c.rec ? 'Vezi consultația ›' : 'Completează consultația ›';
   }} else vl.style.display = 'none';
   document.getElementById('c_form').action = '/admin/comment/' + id;
   document.getElementById('cs_arrived').action = '/admin/status/' + id;
@@ -182,7 +182,14 @@ SVC_PALETTE = {
 }
 
 
-_STATUS_ICON = {"confirmed": "🕐", "arrived": "🟢", "done": "✅", "noshow": "❌"}
+# Пометка «визит записан в дневник» — со своим классом: по нему её
+# находит и стиль, и проверка в test_visit. Без класса единственным
+# признаком был бы сам значок, а он есть и в меню («Medici»).
+_REC_MARK = (" <span class='rec-mark' title='Consultație completată'>"
+             + _ic("med") + "</span>")
+
+_STATUS_ICON = {"confirmed": _ic("clock"), "arrived": _ic("checkin"),
+                "done": _ic("check"), "noshow": _ic("ban")}
 
 
 def _doctors_dir() -> pathlib.Path:
