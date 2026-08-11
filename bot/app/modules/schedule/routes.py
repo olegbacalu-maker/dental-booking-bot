@@ -445,7 +445,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                        f"width:calc((100% - 8px)/{n} - 2px)")
                 if r["source"] == "note":
                     out.append(f"<div class='gappt gnote' data-appt='{r['id']}' "
-                               f"style='{pos}'>"
+                               f"style='{pos}' "
+                               f"title='{html.escape(r['service'][:80])}'>"
                                f"<b>{_ic('note')} {html.escape(r['service'][:40])}</b></div>")
                     continue
                 bg, bar = _svc_colors(r)
@@ -456,9 +457,15 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 ns = " noshow" if r["status"] == "noshow" else ""
                 click = f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else ""
                 dur = int(r.get("duration_min") or 60)
+                # ⚠️ title несёт ВСЁ, что есть в блоке. Он не украшение: у короткой
+                # записи fitAppts сжимает текст в строку с многоточием, а у совсем
+                # короткой убирает совсем — и тогда подсказка единственное, что
+                # отвечает «кто это», не открывая карточку.
+                tip = html.escape(f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
+                                  f" · {r['name'] or '—'}")
                 out.append(
                     f"<div class='gappt{ns}' data-appt='{r['id']}' style='{pos};"
-                    f"background:{bg};border-left:5px solid {bar}'{click}>"
+                    f"background:{bg};border-left:5px solid {bar}' title='{tip}'{click}>"
                     f"<span class='stt'>{ico}</span>"
                     f"<b>{html.escape(r['name'] or '—')} {src}</b>"
                     f"<small>{st.strftime('%H:%M')} · {dur}′ · {html.escape(r['service'])}</small></div>")
@@ -503,6 +510,47 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     shown = [(dk, name) for dk, name in eng.DOCTORS.items()
              if eng.DOCTOR_META.get(dk, {}).get("active", True)
              or by_col.get(f"k:{dk}")]
+
+    # ---- крайние ПОЛНОСТЬЮ закрытые часы — полоской, а не рядом (08-11) ----
+    # Час, закрытый у ВСЕХ колонок и без единой записи, не сообщает ничего, кроме
+    # «клиника закрыта», а стоит целый ряд var(--cell). Полоска в 10px говорит то
+    # же самое: граница дня видна, а часы читаются в подсказке. На дне из 11 рядов
+    # с двумя закрытыми краями это отдаёт 2×56 − 2×10 = 92px.
+    # ⚠️ Срезаются ТОЛЬКО края. Закрытый час в СЕРЕДИНЕ — это обед, и он обязан
+    # остаться рядом: время на канве линейно, блоки стоят множителями var(--cell)
+    # от base_min, и выкинутый средний час сдвинул бы всё, что после него.
+    # ⚠️ «Закрыто» спрашивается у doctor_bounds — ровно там, где его спрашивает
+    # _cells для класса .off. Свой второй признак развёл бы полоску и штриховку.
+    # ⚠️ Час, в котором ЕСТЬ запись, не срезается никогда (row_hours): визит вне
+    # графика — как раз то, что сетка обязана показывать.
+    open_h: set[int] = set()
+    for _dk, _nm in shown:
+        _b = eng.doctor_bounds(_dk, d)
+        if _b:
+            _f, _to, _bf, _bt = _b
+            open_h |= {h for h in range(_f, _to) if not (_bf <= h < _bt)}
+    keep_h = open_h | row_hours
+    lead, tail = 0, len(hours)
+    while lead < tail - 1 and hours[lead] not in keep_h:
+        lead += 1
+    while tail - 1 > lead and hours[tail - 1] not in keep_h:
+        tail -= 1
+    band_l, band_r = hours[:lead], hours[tail:]
+    # хотя бы один ряд остаётся всегда (условия циклов), иначе день без графика
+    # и без записей отдал бы пустую карточку вместо сетки
+    hours = hours[lead:tail]
+    idx = {h: i for i, h in enumerate(hours)}
+    base_min = hours[0] * 60
+
+    def _band(hs: list[int], side: str) -> str:
+        """Полоска «закрыто» вместо срезанных рядов. Стоит СНАРУЖИ .gridbody:
+        внутри она сдвинула бы начало координат, от которого .gappt считает top.
+        ⚠️ side — `gb-top`/`gb-bot` с префиксом: `.top` уже занят липкой шапкой,
+        и её «стеклянное» правило перекрашивало полоску (подробности в panel.css)."""
+        if not hs:
+            return ""
+        return (f"<div class='gband {side}' "
+                f"title='Închis · {hs[0]:02d}:00 - {hs[-1] + 1:02d}:00'></div>")
 
     # класс дописываем в конце: полное число колонок известно только после сирот
     head = ["<div class='gridhead'><div class='gh-time'></div>"]
@@ -587,7 +635,24 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         for h in hours)
     # fitGrid: день заполняет окно до низа — высота ячейки тянется под вьюпорт
     # (короткая суббота не оставляет пустую страницу), минимум 56px + прокрутка
+    # fitAppts: блок записи сам говорит, влез ли он. Классы ставятся ПО ЗАМЕРУ
+    # (scrollHeight > clientHeight), а не по порогу длительности, и это здесь
+    # единственный честный способ: высоту ряда решает fitGrid из окна, поэтому
+    # получасовая запись на ноутбуке клиники и на большом мониторе — разные
+    # пиксели. Порог числом («короче 55 минут») врал бы на одном из двух.
+    # ⭐ Побочная выгода: ни одной магической цифры. Поменяются кегль, padding
+    # или line-height внутри .gappt — правило подстроится само, потому что
+    # спрашивает браузер, а не таблицу констант.
+    # Два прохода: сначала одна строка (slim), и если ДАЖЕ она не влезла —
+    # текст убирается совсем (tiny), всё уезжает в title и в карточку по клику.
     fit_js = f"""<script>
+function fitAppts() {{
+  document.querySelectorAll('.gappt').forEach(function (a) {{
+    a.classList.remove('slim', 'tiny');
+    if (a.scrollHeight > a.clientHeight) a.classList.add('slim');
+    if (a.scrollHeight > a.clientHeight) a.classList.add('tiny');
+  }});
+}}
 function fitGrid() {{
   var gb = document.querySelector('.gridbody'), n = {len(hours)};
   if (!gb) return;
@@ -596,6 +661,7 @@ function fitGrid() {{
   gb.style.setProperty('--cell', c + 'px');
   var over = document.documentElement.scrollHeight - window.innerHeight;
   if (over > 0) gb.style.setProperty('--cell', Math.max(56, c - Math.ceil(over / n)) + 'px');
+  fitAppts();
 }}
 fitGrid();                                  // сразу, чтобы не мигало
 document.addEventListener('DOMContentLoaded', fitGrid);  // и когда виден весь макет
@@ -608,9 +674,11 @@ window.addEventListener('resize', fitGrid);
     # data-day — ключ, по которому panel.js помнит, какие записи уже видели:
     # без него переход на завтра подсветил бы весь день как «только что пришло»
     return (f"{''.join(head)}<div class='gridcard'>"
+            f"{_band(band_l, 'gb-top')}"
             f"<div class='gridbody' data-day='{d.isoformat()}'>"
             f"<div class='gcol-time'>{timecol}</div>"
-            f"{''.join(cols)}{nowline}</div></div>{fit_js}")
+            f"{''.join(cols)}{nowline}</div>"
+            f"{_band(band_r, 'gb-bot')}</div>{fit_js}")
 
 
 def _botnew_block(recent: list, now: datetime) -> str:

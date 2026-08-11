@@ -415,8 +415,45 @@
  .gappt b{font-size:12px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .gappt small{color:inherit;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
  .gappt .stt{position:absolute;top:5px;right:7px;font-size:11px}
+ /* Компактные виды блока. Класс ставит fitAppts ПО ЗАМЕРУ, а не по длительности:
+    высоту ряда решает fitGrid из окна (см. _day_canvas), поэтому одна и та же
+    получасовая запись у клиники 22px, а на большом мониторе — сорок.
+    ⭐ slim тратит ШИРИНУ, которой в колонке врача вдоволь (~350px), вместо
+    высоты, которой нет: имя и услуга уезжают в одну строку с многоточием.
+    Поэтому внутренние b/small становятся строчными и СВОЁ многоточие отдают
+    наружу — иначе оно сработало бы у них раньше, чем у контейнера. */
+ .gappt.slim{padding:2px 24px 2px 7px;line-height:1.2;white-space:nowrap;
+   text-overflow:ellipsis}
+ .gappt.slim b,.gappt.slim small{display:inline;overflow:visible;text-overflow:clip}
+ .gappt.slim small::before{content:' · '}
+ .gappt.slim .stt{top:2px}
+ /* ⚠️ Значки ужимаются ВМЕСТЕ с текстом, иначе всё насмарку: _ic() отдаёт 16px,
+    а строчный значок стоит на базовой линии и тянет строку вниз на свой выносной
+    элемент — строка выходит ~20px вместо 14, и получасовая запись (22px у клиники)
+    не влезала даже одной строкой, то есть fitAppts уводил её в tiny и текст
+    исчезал совсем. Замерено: с 12px влезает, с 16px нет. */
+ .gappt.slim b svg,.gappt.slim .stt svg{width:12px;height:12px;vertical-align:-2px}
+ /* tiny — когда не влезла и одна строка: остаются цвет и полоса слева, то есть
+    «кресло занято» и «какая работа». Кто и что именно — в подсказке и в карточке
+    по клику; обрезанный текст не сказал бы и этого. */
+ .gappt.tiny{padding:0}
+ .gappt.tiny b,.gappt.tiny small,.gappt.tiny .stt{display:none}
  .gappt.noshow{text-decoration:line-through;opacity:.75}
  .gappt.gnote{border:1px dashed var(--line);background:repeating-linear-gradient(135deg,var(--line2) 0 6px,transparent 6px 12px);color:var(--text2)}
+ /* Полоска вместо срезанных крайних закрытых рядов (08-11). Штриховка та же, что
+    у .gcell.off, — это один и тот же смысл «клиника закрыта», и расходиться им
+    нельзя. Отступ слева 56px повторяет колонку времени (как .gh-time в шапке):
+    полоска обязана начинаться там же, где колонки врачей.
+    ⛔ Модификаторы с ПРЕФИКСОМ, а не `.top`/`.bot`. Первая версия называлась
+    `.gband.top` — и «стеклянный» блок в конце файла (`.top{background:rgba(255,
+    255,255,.78)}`, липкая шапка) перекрасил полоску полупрозрачным белым с
+    блюром: специфичность у обоих правил одна, а он ниже по файлу и стоит там
+    НАМЕРЕННО. Штриховка исчезла молча — в исходнике правило выглядело верным,
+    поймалось только замером backgroundImage в DOM. Тесты такое не видят. */
+ .gband{height:10px;margin-left:56px;
+   background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
+ .gband.gb-top{border-bottom:1px solid var(--line2)}
+ .gband.gb-bot{border-top:1px solid var(--line2)}
  .nowline{position:absolute;left:0;right:0;height:2px;background:var(--red);z-index:5;pointer-events:none}
  .nowline::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red)}
  /* ---------- правая колонка ---------- */

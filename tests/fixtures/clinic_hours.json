@@ -1,0 +1,144 @@
+{
+  "_comment": "Клиника, у которой часы ШИРЕ часов врачей: 07-21 против 09-17. Нужна для крайних полностью закрытых рядов сетки (полоска .gband) — в clinic_test.json врачи наследуют часы клиники, и закрытых рядов не бывает. Обед 13-14 задан у КЛИНИКИ (hours[2:4]) и обязан остаться отдельным рядом.",
+  "name": "Test Hours SRL",
+  "phone": "+373 60 000 000",
+  "address": {
+    "ro": "str. Test 1, Cahul",
+    "ru": "ул. Тест 1, Кахул"
+  },
+  "hours": {
+    "mon": [
+      7,
+      21,
+      13,
+      14
+    ],
+    "tue": [
+      7,
+      21,
+      13,
+      14
+    ],
+    "wed": [
+      7,
+      21,
+      13,
+      14
+    ],
+    "thu": [
+      7,
+      21,
+      13,
+      14
+    ],
+    "fri": [
+      7,
+      21,
+      13,
+      14
+    ],
+    "sat": [
+      7,
+      21,
+      13,
+      14
+    ],
+    "sun": [
+      7,
+      21,
+      13,
+      14
+    ]
+  },
+  "doctors": [
+    {
+      "id": "d1",
+      "name": "Dr. Arhivat Unu",
+      "spec": "Terapie",
+      "status": "arhivat",
+      "work_from": 9,
+      "work_to": 17
+    },
+    {
+      "id": "d2",
+      "name": "Dr. Activ Doi",
+      "spec": "Chirurgie",
+      "work_from": 9,
+      "work_to": 17
+    },
+    {
+      "id": "d3",
+      "name": "Dr. Activ Trei",
+      "spec": "Igienă",
+      "work_from": 9,
+      "work_to": 17
+    },
+    {
+      "id": "d4",
+      "name": "Dr. Activ Patru",
+      "spec": "Protetică",
+      "work_from": 9,
+      "work_to": 17
+    }
+  ],
+  "services": [
+    {
+      "id": "consult",
+      "ro": "Consultație",
+      "ru": "Консультация",
+      "price": {
+        "ro": "gratuit",
+        "ru": "бесплатно"
+      }
+    },
+    {
+      "id": "pain",
+      "ro": "Durere acută",
+      "ru": "Острая боль",
+      "urgent": true,
+      "docs": [
+        "d1",
+        "d2"
+      ],
+      "price": {
+        "ro": "în aceeași zi",
+        "ru": "в тот же день"
+      }
+    },
+    {
+      "id": "hygiene",
+      "ro": "Igienizare",
+      "ru": "Гигиена",
+      "docs": [
+        "d3"
+      ],
+      "price": "1000 MDL"
+    },
+    {
+      "id": "orphan",
+      "ro": "Serviciu fără medic",
+      "ru": "Услуга без врача",
+      "docs": [
+        "d1"
+      ],
+      "price": "500 MDL"
+    },
+    {
+      "id": "long",
+      "ro": "Tratament lung",
+      "ru": "Долгое лечение",
+      "docs": [
+        "d2"
+      ],
+      "duration": 120,
+      "price": "2000 MDL"
+    },
+    {
+      "id": "short",
+      "ro": "Control scurt",
+      "ru": "Kratkiy osmotr",
+      "duration": 30
+    }
+  ],
+  "seed_demo": false
+}

@@ -49,6 +49,7 @@ SUITES = [
     ("Бот записи", test_bot.suite),
     ("Страницы журнала", test_admin.suite_pages),
     ("Панель дня", test_admin.suite_dashboard),
+    ("Края дневной сетки", test_admin.suite_grid_edges),
     ("Аналитика", test_admin.suite_analytics),
     ("Заморозка бота: интерфейс", test_admin.suite_bot_ui),
     ("Карточка пациента", test_admin.suite_patient_card),
