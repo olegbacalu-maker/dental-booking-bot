@@ -18,7 +18,7 @@ TZ = ZoneInfo("Europe/Chisinau")
 
 log = logging.getLogger("engine")
 
-APP_VERSION = "1.19.14"
+APP_VERSION = "1.19.15"
 
 
 def _load_config() -> dict:
