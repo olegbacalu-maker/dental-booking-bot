@@ -374,8 +374,19 @@ def suite_dashboard(res: Result) -> None:
         res.ok("подсказка блока несёт время, длительность, услугу и имя",
                any("Ana Test" in t for t in tips), f"подсказки: {tips[:3]}")
         res.ok("блок записи подгоняется под высоту ряда",
-               "fitAppts" in page and "'slim'" in page and "'tiny'" in page,
+               "fitAppts" in page and "'slim'" in page and "'tiny'" in page
+               and "'bare'" in page,
                "нет подгонки — короткая запись снова обрежет текст молча")
+        # ⚠️ Ступень «только имя» уже терялась однажды: короткая запись
+        # проваливалась мимо неё сразу в «текста нет» и стояла в журнале
+        # безымянным цветным пятном. Имя прячет ТОЛЬКО последняя ступень.
+        gcss = c.get("/static/css/panel.css").body
+        tiny = gcss.split(".gappt.tiny b{")[1].split("}")[0] if ".gappt.tiny b{" in gcss else ""
+        res.ok("имя прячет только последняя ступень лестницы",
+               ".gappt.tiny small{display:none}" in gcss
+               and ".gappt.bare b,.gappt.bare small" in gcss
+               and tiny and "display:none" not in tiny,
+               "у короткой записи спрятано имя — в журнале останется пятно без имени")
         res.ok("ряд графика — ровно две недели",
                all(len(p.split()) == 14 for p in
                    re.findall(r"<polyline class='sp-l' points='([^']+)'", page)),

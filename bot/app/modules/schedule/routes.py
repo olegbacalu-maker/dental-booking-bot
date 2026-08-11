@@ -643,14 +643,19 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # ⭐ Побочная выгода: ни одной магической цифры. Поменяются кегль, padding
     # или line-height внутри .gappt — правило подстроится само, потому что
     # спрашивает браузер, а не таблицу констант.
-    # Два прохода: сначала одна строка (slim), и если ДАЖЕ она не влезла —
-    # текст убирается совсем (tiny), всё уезжает в title и в карточку по клику.
+    # Лестница в ТРИ ступени, каждая следующая — только если предыдущая не влезла:
+    # slim (имя и услуга одной строкой) → tiny (только имя) → bare (цвет и полоса).
+    # ⚠️ Ступень «только имя» появилась не сразу, и её отсутствие стоило релиза:
+    # блок в 0.4 ячейки (пол в `_pos`, 16px при --cell:56) проваливался мимо slim
+    # прямо в «текста нет», и короткая запись стояла в журнале безымянным пятном.
+    # Имя туда помещается — см. .gappt.tiny в panel.css.
     fit_js = f"""<script>
 function fitAppts() {{
   document.querySelectorAll('.gappt').forEach(function (a) {{
-    a.classList.remove('slim', 'tiny');
+    a.classList.remove('slim', 'tiny', 'bare');
     if (a.scrollHeight > a.clientHeight) a.classList.add('slim');
     if (a.scrollHeight > a.clientHeight) a.classList.add('tiny');
+    if (a.scrollHeight > a.clientHeight) a.classList.add('bare');
   }});
 }}
 function fitGrid() {{
