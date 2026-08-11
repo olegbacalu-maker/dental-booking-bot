@@ -120,8 +120,6 @@ PIN_INPUT = ("<input type='text' name='uid' placeholder='ID (opțional)' "
              "inputmode='numeric' pattern='[0-9]*' maxlength='6' "
              "style='text-align:center;font-size:28px;letter-spacing:12px'>")
 PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"
-PIN_HINT = ("<div style='color:#889;font-size:12px'>PIN uitat? Închideți programul și "
-            "ștergeți fișierul <b>data\\auth.json</b> — la pornire veți seta un PIN nou.</div>")
 
 
 
@@ -424,8 +422,7 @@ async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
     nxt = next if next.startswith("/admin") else "/admin"
     return (standalone(LOGIN_TMPL)
             .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
-            .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT)
-            .replace("__HINT__", PIN_HINT if pin_mode else ""))
+            .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT))
 
 
 @app.post("/admin/login")

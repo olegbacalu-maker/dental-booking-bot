@@ -594,6 +594,19 @@ def _age(birth_year) -> int | None:
 # объявления шрифта у них своего нет, а panel.css, где оно живёт, не подключена.
 # Забытый заполнитель = системный Segoe UI, и это невидимо даже разработчику
 # (Inter не установлен ни у кого, страница выглядит «как всегда»).
+#
+# ⛔ На входе НЕ пишем, как сбросить забытый PIN (было до 08-11: «закройте
+# программу и удалите data\\auth.json»). Совет расходился с FAQ, и расходился в
+# опасную сторону: FAQ отвечает «пусть второй директор задаст новый пароль, а
+# если директор один — напишите нам», а удаление файла сносит ВСЕ учётки и роли
+# разом и вдобавок поднимает сигнализацию подмены auth.json — директор получает
+# баннер о взломе за то, что выполнил инструкцию с нашего же экрана. Ответ
+# живёт в одном месте: Setări → FAQ, «Am uitat parola de intrare».
+#
+# Заголовок входа — имя клиники и больше ничего. «— registrul clinicii» было
+# третьим повтором одного и того же: то же слово стоит в заголовке окна, а над
+# формой уже висит знак. Ровно от этого повтора избавились в шапке журнала (см.
+# комментарий у топбара выше), здесь он просто дожил дольше.
 
 LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -607,7 +620,12 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
          даже если статика не отдалась) */
       box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
       display:flex;flex-direction:column;gap:12px;width:min(340px,100%)}
- h1{font-size:19px;color:#162033;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
+ /* ⛔ Цвет заголовка — __ACCENT_D__, не __ACCENT__: чистый фирменный даёт на
+    белой карточке 3.3:1 даже у зелёного по умолчанию, а при светлом выборе
+    клиники (жёлтый, голубой) заголовок пропал бы вовсе. Тёмный оттенок
+    дотемняется циклом до 4.5 к фону страницы, а карточка ещё светлее фона —
+    значит порог выдержан тем более. */
+ h1{font-size:19px;color:__ACCENT_D__;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
  /* логотип клиники — только если она его загрузила; высота ограничена здесь,
     потому что разбирать картинку нечем (Pillow в сборку не едет) */
  .clogo{align-self:center;max-height:64px;max-width:220px;object-fit:contain;margin-bottom:4px}
@@ -622,12 +640,11 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 </style></head><body>
 <form method="post" action="/admin/login">
   __LOGO__
-  <h1>🦷 __CLINIC__ — registrul clinicii</h1>
+  <h1>__CLINIC__</h1>
   __ERR__
   <input type="hidden" name="next" value="__NEXT__">
   __INPUT__
   <button>Intră</button>
-  __HINT__
 </form></body></html>"""
 
 
