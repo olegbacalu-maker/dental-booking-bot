@@ -153,6 +153,11 @@ Name: "{userstartup}\{#AppName}";  Filename: "{app}\{#AppExeName}"; WorkingDir: 
 ; ⚠️ Отказ НЕ валит установку (`runasoriginaluser` не ставим, код возврата не
 ; проверяем): нет интернета — программа всё равно поставится и откроется в
 ; браузере. Установщик, падающий из-за необязательного компонента, хуже.
+; Сначала автономный установщик с флешки, если он там лежит (OfflineWv2Ready) —
+; он работает без интернета. Разбор и почему условие бутстрэппера ниже НЕ
+; тронуто — в комментарии к OfflineWv2Ready.
+Filename: "{src}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; \
+    StatusMsg: "{cm:InstallingWebView2}"; Check: OfflineWv2Ready; Flags: waituntilterminated
 Filename: "{tmp}\MicrosoftEdgeWebView2Setup.exe"; Parameters: "/silent /install"; \
     StatusMsg: "{cm:InstallingWebView2}"; Check: WebView2Missing; Flags: waituntilterminated
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
@@ -203,6 +208,37 @@ begin
     if RegQueryStringValue(HKCU, 'SOFTWARE\' + Client, 'pv', Version) then
       if (Version <> '') and (Version <> '0.0.0.0') then
         Result := False;
+end;
+
+{ Автономный установщик Runtime, положенный РЯДОМ с мастером — выездной кит на
+  флешке (`usb\`, 200 МБ). Нужен ровно для одного случая: на машине нет WebView2
+  И нет интернета. Вшитый в мастер бутстрэппер там бессилен — он не несёт
+  Runtime, а скачивает его.
+
+  ⚠️ Константа src — папка, из которой ЗАПУЩЕН мастер. Скопировали на рабочий
+  стол один мастер, а флешку вынули — файла рядом нет, и всё честно откатывается
+  на бутстрэппер. Это не ошибка, а нормальный путь для клиники с интернетом.
+
+  ⛔ Фигурных скобок в этом комментарии быть НЕ МОЖЕТ: в Pascal Script скобка
+  открывает и закрывает комментарий, поэтому написанное здесь как константа в
+  скобках обрывает комментарий на середине, и остаток текста уезжает в код —
+  ISCC падает «Syntax error» на строке, где ничего не написано. Наступил при
+  первой версии этой функции.
+
+  ⭐ В git этот файл не попадает и попасть не может: GitHub отклоняет push с
+  файлом больше 100 МБ. Он живёт только в `usb\` и в релиз не уезжает — иначе
+  каждый пре-релиз возил бы 200 МБ ради случая, который бывает раз в жизни на
+  одну машину. Обновление у клиники качает DentPilot.exe, а не мастер.
+
+  ⚠️ Порядок в [Run] важен, и подстраховка получается сама: этот шаг идёт
+  ПЕРВЫМ, после него реестр уже содержит Runtime, и `Check: WebView2Missing` у
+  бутстрэппера возвращает False — он не запускается. А если автономный
+  установщик СЛОМАЛСЯ, реестр остался пустым, и бутстрэппер отработает вторым
+  как запасной путь. Поэтому у него условие не тронуто. }
+function OfflineWv2Ready: Boolean;
+begin
+  Result := WebView2Missing and FileExists(
+    ExpandConstant('{src}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe'));
 end;
 
 { Папка по умолчанию.
