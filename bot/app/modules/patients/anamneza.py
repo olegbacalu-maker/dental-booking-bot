@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from ...core import theme
+from ...core.layout import _ic
 
 FLAGS = {
     "ro": {
@@ -116,6 +117,9 @@ _FORM_CSS = """
  h2{font-size:13.5px;margin:14px 0 6px}
  table.q{border-collapse:collapse;width:100%}
  table.q td{padding:6px 4px;border-bottom:1px dotted #bbb;font-size:13px}
+ /* см. acord.py: квадратик — рамка, а не знак U+2610 из системного шрифта */
+ .chk{display:inline-block;width:11px;height:11px;border:1.2px solid #111;
+      vertical-align:-1px;margin-right:2px}
  table.q td.a{width:130px;white-space:nowrap;text-align:right;
       font-family:'Segoe UI Symbol',sans-serif}
  .fl{margin:10px 0 0;font-size:13px}
@@ -146,7 +150,7 @@ def render_form(p: dict, lang: str = "ro") -> str:
     other = "ru" if lang == "ro" else "ro"
     e = html.escape
     today = datetime.now(eng.TZ).strftime("%d.%m.%Y")
-    chk = "<span style='font-family:Segoe UI Symbol,sans-serif'>☐</span>"
+    chk = "<span class='chk'></span>"
     rows = "".join(
         f"<tr><td>{e(v)}</td>"
         f"<td class='a'>{chk} {t['yes']} &nbsp;&nbsp; {chk} {t['no']}</td></tr>"
@@ -161,10 +165,10 @@ def render_form(p: dict, lang: str = "ro") -> str:
 <style>{theme.paint(_FORM_CSS)}</style></head><body>
 
 <div class="noprint">
-  <button onclick="window.print()">🖨 {t["title"]}</button>
+  <button onclick="window.print()">{_ic('print')} {t["title"]}</button>
   <a href="/admin/patient/{p["id"]}/anamneza/print?lang={other}">
     {"Русская версия" if lang == "ro" else "Versiunea română"}</a>
-  <a href="/admin/patient/{p["id"]}">← {e(eng.CLINIC_NAME)}</a>
+  <a href="/admin/patient/{p["id"]}">{_ic('chev-l')} {e(eng.CLINIC_NAME)}</a>
 </div>
 
 {theme.print_logo("clogo c")}

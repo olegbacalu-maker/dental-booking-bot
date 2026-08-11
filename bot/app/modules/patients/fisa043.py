@@ -24,6 +24,7 @@ from datetime import datetime
 
 from ... import engine as eng
 from ...core import theme
+from ...core.layout import _ic
 
 # буквенные коды одонтограммы; пустая клетка = sănătos / neexaminat.
 # Легенда печатается НА листе — расшифровка всегда перед глазами читающего
@@ -63,8 +64,8 @@ _PLAN_RU = {"planificat": "запланировано", "in_lucru": "в рабо
 # коды одонтограммы (C/O/T/…), потому что они производные от румынских слов.
 _T = {
     "ro": {
-        "title": "Fișa 043/e", "print": "🖨 Printează",
-        "back": "← Fișa pacientului", "other": "Русская версия",
+        "title": "Fișa 043/e", "print": _ic("print") + " Printează",
+        "back": _ic("chev-l") + " Fișa pacientului", "other": "Русская версия",
         "h1": "FIȘA MEDICALĂ A BOLNAVULUI STOMATOLOGIC",
         "nr": "nr.", "opened": "deschisă la",
         "s1": "1. Date generale", "name": "Nume, prenume", "sex": "Sex",
@@ -96,8 +97,8 @@ _T = {
                  "(Ordinul MS nr. 828/2011)"),
     },
     "ru": {
-        "title": "Карта 043/e", "print": "🖨 Печать",
-        "back": "← Карта пациента", "other": "Versiunea română",
+        "title": "Карта 043/e", "print": _ic("print") + " Печать",
+        "back": _ic("chev-l") + " Карта пациента", "other": "Versiunea română",
         "h1": "МЕДИЦИНСКАЯ КАРТА СТОМАТОЛОГИЧЕСКОГО БОЛЬНОГО",
         "nr": "№", "opened": "открыта",
         "s1": "1. Общие данные", "name": "Фамилия, имя", "sex": "Пол",

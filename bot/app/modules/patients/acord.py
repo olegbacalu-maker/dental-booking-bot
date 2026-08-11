@@ -37,6 +37,7 @@ from datetime import datetime
 
 from ... import engine as eng
 from ...core import theme
+from ...core.layout import _ic
 
 _CSS = """
  *{box-sizing:border-box}
@@ -54,7 +55,13 @@ _CSS = """
  .sign{margin:10px 0 0;display:flex;justify-content:space-between;font-size:13px}
  .cons{border:1px solid #999;padding:8px 12px;margin:12px 0}
  .cons .row{margin:6px 0}
- .chk{font-family:'Segoe UI Symbol',sans-serif}
+ /* Квадратик согласия рисуется РАМКОЙ, а не знаком U+2610 (08-11). Прежде тут
+    стоял U+2610 и просил 'Segoe UI Symbol' — то есть печатный бланк,
+    который клиника отдаёт пациенту, зависел от шрифта чужой машины: нет
+    шрифта или другая его версия — и квадратик уезжает в размере или
+    подменяется. Рамка печатается одинаково всегда. */
+ .chk{display:inline-block;width:11px;height:11px;border:1.2px solid #111;
+      vertical-align:-1px;margin-right:2px}
  .small{font-size:11px;color:#444}
  .foot{margin-top:14px;font-size:10px;color:#777;text-align:center}
  .noprint{display:flex;gap:10px;justify-content:center;margin:0 0 14px}
@@ -72,8 +79,8 @@ _CSS = """
 _T = {
     "ro": {
         "title": "Informare și acord",
-        "print": "🖨 Printează",
-        "back": "← Fișa pacientului",
+        "print": _ic("print") + " Printează",
+        "back": _ic("chev-l") + " Fișa pacientului",
         "other": "Русская версия",
         "h1": ("Informare privind prelucrarea datelor cu caracter personal<br>"
                "și acordul pacientului"),
@@ -126,8 +133,8 @@ _T = {
     },
     "ru": {
         "title": "Информирование и согласие",
-        "print": "🖨 Печать",
-        "back": "← Карта пациента",
+        "print": _ic("print") + " Печать",
+        "back": _ic("chev-l") + " Карта пациента",
         "other": "Versiunea română",
         "h1": ("Информирование об обработке персональных данных<br>"
                "и согласие пациента"),
@@ -205,7 +212,7 @@ def render(p: dict, lang: str = "ro") -> str:
              or (eng.CONFIG or {}).get("address", {}).get("ro", ""))
     file_no = (p.get("file_no") or "").strip() or str(p["id"])
     today = datetime.now(eng.TZ).strftime("%d.%m.%Y")
-    chk = "<span class='chk'>☐</span>"
+    chk = "<span class='chk'></span>"
     ref = f"<p class='small' style='text-align:center'>{t['ref']}</p>" if t["ref"] else ""
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

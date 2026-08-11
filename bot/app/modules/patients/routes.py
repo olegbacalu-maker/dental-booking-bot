@@ -99,8 +99,14 @@ TOOTH_SURFACES = {"M": "mezial", "O": "ocluzal", "D": "distal",
                   "V": "vestibular", "L": "lingual"}
 
 
-_ALERT_KINDS = {"allergy": "⚠️ Alergie", "medication": "💊 Medicație",
-                "warning": "⏰ Atenție", "info": "ℹ️ Info"}
+# ⛔ Значения уходят в <option>, куда разметку положить нельзя, поэтому знак не
+# заменён иконкой, а вынесен в СОСЕДНИЙ словарь. Раньше значок доставали из этой
+# же строки через .split()[0] — приём держался на том, что первым словом стоит
+# эмодзи, и молча сломался бы от любой правки текста.
+_ALERT_KINDS = {"allergy": "Alergie", "medication": "Medicație",
+                "warning": "Atenție", "info": "Info"}
+_ALERT_ICON = {"allergy": _ic("sos"), "medication": _ic("pill"),
+               "warning": _ic("alarm"), "info": _ic("info")}
 
 
 # справочник вопросов — в modules/patients/anamneza.py (его читают ещё печать
@@ -109,8 +115,10 @@ ANAMNEZA_FLAGS = panam.FLAGS["ro"]
 ANAMNEZA_TEXTS = panam.TEXTS
 
 
-DOC_CATEGORIES = {"radiografie": "🩻 Radiografie", "acord": "📝 Acord / contract",
-                  "trimitere": "📨 Trimitere", "alt": "📄 Alt document"}
+DOC_CATEGORIES = {"radiografie": "Radiografie", "acord": "Acord / contract",
+                  "trimitere": "Trimitere", "alt": "Alt document"}
+_DOC_ICON = {"radiografie": _ic("xray"), "acord": _ic("note"),
+             "trimitere": _ic("mail"), "alt": _ic("file")}
 
 
 # Переходы плана НАПРАВЛЕННЫЕ, а не по кругу (просьба Олега 08-07: кнопка
@@ -303,7 +311,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 </details></div>"""
 
     alerts_html = "".join(
-        f"<div class='alert {e(a['kind'])}'>{_ALERT_KINDS.get(a['kind'], 'ℹ️')} {e(a['text'])}"
+        f"<div class='alert {e(a['kind'])}'>{_ALERT_ICON.get(a['kind'], _ic('info'))} {_ALERT_KINDS.get(a['kind'], '')} {e(a['text'])}"
         f"<form method='post' action='{base}/alert/{a['id']}/del'>"
         f"<button title='Șterge'>✕</button></form></div>"
         for a in alerts) or "<p class='hint' style='margin:0'>— fără atenționări —</p>"
@@ -619,7 +627,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         mime = dd["mime"] or ""
         is_img = mime.startswith("image/")
         thumb = (f"<img src='/admin/doc/{dd['id']}?thumb=1' alt='' loading='lazy'>" if is_img
-                 else (DOC_CATEGORIES.get(dd["category"], "📄").split()[0]))
+                 else _DOC_ICON.get(dd["category"], _ic("file")))
         when = dd["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
         kb = dd["size"] // 1024
         size = f"{kb} KB" if kb < 1024 else f"{kb / 1024:.1f} MB"
@@ -639,15 +647,18 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                 f"onsubmit=\"return confirm('Ștergeți documentul?')\">"
                 f"<button title='Șterge'>✕</button></form></div></div>")
 
-    _ACT_ICON = {"appt_new": "📅", "appt_status": "✅", "appt_cancel": "❌",
-                 "tooth": "🦷", "plan_add": "➕", "plan_status": "🔄",
-                 "plan_del": "➖", "doc_add": "📎", "doc_del": "🗑",
-                 "alert_add": "⚠️", "profile": "✏️", "archive": "🗄",
+    _ACT_ICON = {"appt_new": _ic("cal"), "appt_status": _ic("check"),
+                 "appt_cancel": _ic("ban"), "tooth": _ic("tooth"),
+                 "plan_add": _ic("plus"), "plan_status": _ic("refresh"),
+                 "plan_del": _ic("minus"), "doc_add": _ic("clip"),
+                 "doc_del": _ic("trash"), "alert_add": _ic("sos"),
+                 "profile": _ic("pen"), "archive": _ic("box"),
                  # выдача копии данных — событие, о котором спросят на проверке;
                  # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
-                 "export": "📦", "acord": "📋", "consult": "🩺",
-                 "fisa043": "🖨", "anamneza": "📝",
-                 "view": "👁", "doc_view": "👁", "erase": "🧹"}
+                 "export": _ic("download"), "acord": _ic("clipboard"),
+                 "consult": _ic("med"), "fisa043": _ic("print"),
+                 "anamneza": _ic("note"), "view": _ic("eye"),
+                 "doc_view": _ic("eye"), "erase": _ic("erase")}
     act_rows = []
     for a in acts:
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
@@ -708,7 +719,7 @@ programului (data\\files).</p></div>"""
     for a in alerts[:3]:
         tone = {"allergy": "orange", "medication": "orange",
                 "warning": "red"}.get(a["kind"], "grey")
-        icon = _ALERT_KINDS.get(a["kind"], "ℹ️").split()[0]
+        icon = _ALERT_ICON.get(a["kind"], _ic("info"))
         pills.append(f"<span class='pill {tone}'>{icon} {e(a['text'][:38])}</span>")
     if p.get("insurance"):
         pills.append(f"<span class='pill green'>🛡 {e(p['insurance'][:28])}</span>")
