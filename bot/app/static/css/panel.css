@@ -65,6 +65,19 @@
    background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh;
    line-height:1.5}
  a{color:var(--teal)}
+ /* ---------- табличные цифры (08-11) ----------
+    В Inter цифры по умолчанию РАЗНОЙ ширины (единица уже семёрки), и это верно
+    для текста, но ломает два места. Первое — счётчик директора: panel.js
+    переписывает textContent КАЖДЫЙ кадр (`data-count`), и «1 250» → «2 480»
+    меняет ширину числа, из-за чего соседняя подпись дёргается всю анимацию.
+    Второе — колонки: суммы платежей и часы в журнале стоят друг под другом, и
+    без общей ширины цифры разряды не выстраиваются в столбик.
+    ⭐ Критерий, по которому добавлять сюда новое: цифра либо МЕНЯЕТСЯ на месте,
+    либо стоит В СТОЛБИК под другой цифрой. Обычному тексту это не нужно —
+    пропорциональные цифры в строке читаются лучше, поэтому на body не вешаем.
+    Для разовой верстки есть класс .tnum, чтобы не расширять этот список. */
+ [data-count],.kpi b,.sold b,.pay-row .pa,td.hour,.gcol-time div,.tnum{
+   font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1}
  /* ---------- каркас: сайдбар + топбар + контент ---------- */
  .side{width:216px;flex:0 0 216px;background:var(--panel);border-right:1px solid var(--line);
    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
