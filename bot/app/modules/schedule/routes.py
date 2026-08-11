@@ -684,13 +684,23 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                if new_today else "<span class='trend'>nimic nou azi</span>")
     def _kpi(href: str, ico: str, soft: str, tone: str, val: int, label: str,
              sub: str, ser, cls: str = "") -> str:
-        """Плитка KPI. data-count оживляет цифру при открытии (panel.js), ряд за
-        две недели рисуется тут же мини-графиком. Класс `sp` включает второй
-        ряд внутри плитки — БЕЗ него разметка та же, что была, и плитки
-        статистики, у которых графика нет, остаются нетронутыми."""
-        return (f"<a class='tile sp{cls}' href='{href}'>"
+        """Строка карточки «Azi» в правой колонке (макет Олега 08-11). Цифру
+        оживляет `data-count` (panel.js), сама строка ведёт в тот список, из
+        которого она посчитана, а под ней — ряд за две недели.
+
+        ⚠️ Мини-график тут НЕ украшение, и выбрасывать его при переезде из ряда
+        наверху было нельзя: я попробовал, и три проверки «Панели дня» упали —
+        включая ту, что требует график даже на двух неделях нулей. Причина
+        записана в `core/charts.spark`: без него спокойная клиника видит пустое
+        место вместо ровной линии по полу. В колонке график идёт ВТОРОЙ строкой
+        на всю ширину карточки — так же, как у загрузки кресел, — потому что
+        рядом с цифрой в 300px ему остаётся 40px, где семь точек уже шум.
+        ⚠️ Подпись без «azi»: его один раз говорит заголовок карточки, иначе
+        слово повторилось бы пять раз подряд."""
+        return (f"<a class='rk-i{cls}' href='{href}'>"
                 f"<span class='ico' style='background:{soft};color:{tone}'>{ico}</span>"
-                f"<div><b data-count='{val}'>{val}</b><span>{label}</span>{sub}</div>"
+                f"<b data-count='{val}'>{val}</b>"
+                f"<span class='rk-l'>{label}</span>{sub}"
                 f"{_spark(list(ser), tone)}</a>")
 
     # Загрузка кресел за день: занятые минуты всех записей / рабочие минуты
@@ -721,33 +731,38 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     arrow = (f"<span class='up'>{_ic('caret-u')}</span> " if occ > occ_prev else
              f"<span class='dn'>{_ic('caret-d')}</span> " if occ < occ_prev else "")
     occ_sub = (f"<span class='trend'>{arrow}{a_lbl} {left} › {b_lbl} {occ}%</span>")
-    occ_tile = (f"<div class='tile sp'>"
-                f"<span class='ico' style='background:var(--violet-soft);"
-                f"color:var(--violet)'>{_ic('trend')}</span>"
-                f"<div><b data-count='{occ}' data-suffix='%'>{occ}%</b>"
-                f"<span>Grad de ocupare</span>{occ_sub}</div>"
-                f"{_spark([_occ_pct(x, by_day[x]) for x in span], 'var(--violet)')}"
-                f"</div>")
+    # Загрузка кресел стоит ПОСЛЕДНЕЙ и устроена иначе остальных строк: у неё
+    # своя строка под цифру и мини-график на всю ширину карточки. Причина не в
+    # красоте — это единственная величина, у которой нет списка за спиной
+    # (кликать не во что), зато есть форма за две недели.
+    occ_row = (f"<div class='rk-occ'>"
+               f"<span class='ico' style='background:var(--violet-soft);"
+               f"color:var(--violet)'>{_ic('trend')}</span>"
+               f"<span class='rk-l'>Grad de ocupare</span>{occ_sub}"
+               f"<b data-count='{occ}' data-suffix='%'>{occ}%</b>"
+               f"{_spark([_occ_pct(x, by_day[x]) for x in span], 'var(--violet)')}"
+               f"</div>")
 
     # Telegram заморожен (tg_configured): клинике без бота панель не смеет
     # рассказывать про канал, которого у неё нет, — плитка, блок «noi din
     # bot», колокольчик и строка статуса живут только у grandfather-клиник
     tg_ui = tg_configured()
-    tiles = ("<div class='tiles'>"
-             + _kpi(day_url, _ic("cal"), "var(--green-soft)", "var(--green)",
-                    total, "Programări azi", trend(total, y_total), series[0])
-             + (_kpi(f"{day_url}&amp;f=bot", _ic("bot"), "var(--teal-soft)", "var(--teal-d)",
-                     n_bot, "Prin bot", bot_sub, series[1]) if tg_ui else "")
-             + _kpi(f"{day_url}&amp;f=rec", _ic("headset"), "var(--blue-soft)", "var(--blue)",
-                    n_man, "Recepție", trend(n_man, y_man), series[2])
-             + _kpi(f"{day_url}&amp;f=urg", _ic("alarm"), "var(--amber-soft)", "var(--amber)",
-                    n_urg, "Urgențe", "<span class='trend'>intercalate azi</span>",
-                    series[3], cls=" warn")
-             + _kpi(f"{day_url}&amp;f=noshow", _ic("ban"), "var(--red-soft)", "var(--red)",
-                    n_noshow, "Neprezentări", trend(n_noshow, y_noshow, bad_up=True),
-                    series[4], cls=" bad")
-             + occ_tile
-             + "</div>")
+    kpi_card = ("<div class='rkpi'><div class='rk-h'><b>Azi</b></div>"
+                + _kpi(day_url, _ic("cal"), "var(--green-soft)", "var(--green)",
+                       total, "Programări", trend(total, y_total), series[0])
+                + (_kpi(f"{day_url}&amp;f=bot", _ic("bot"), "var(--teal-soft)",
+                        "var(--teal-d)", n_bot, "Prin bot", bot_sub,
+                        series[1]) if tg_ui else "")
+                + _kpi(f"{day_url}&amp;f=rec", _ic("headset"), "var(--blue-soft)",
+                       "var(--blue)", n_man, "Recepție", trend(n_man, y_man), series[2])
+                + _kpi(f"{day_url}&amp;f=urg", _ic("alarm"), "var(--amber-soft)",
+                       "var(--amber)", n_urg, "Urgențe",
+                       "<span class='trend'>intercalate azi</span>", series[3], cls=" warn")
+                + _kpi(f"{day_url}&amp;f=noshow", _ic("ban"), "var(--red-soft)",
+                       "var(--red)", n_noshow, "Neprezentări",
+                       trend(n_noshow, y_noshow, bad_up=True), series[4], cls=" bad")
+                + occ_row
+                + "</div>")
 
     cards = _collect_cards(rows)
     back = f"/admin?date={d.isoformat()}"
@@ -761,7 +776,12 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                 f"{'Sincronizat cu botul Telegram' if tg_on else 'Bot Telegram neconectat'}</div>")
     tabs = (f"<a class='primary' href='/admin?date={d.isoformat()}'>Zi</a>"
             f"<a href='/admin/week?date={d.isoformat()}'>Săptămâna</a>")
-    body = (_date_nav(d, "/admin", tabs) + _banner(msg, d) + tiles
+    # ⭐ KPI живут в ПРАВОЙ колонке, а не полноширинным рядом над журналом
+    # (макет Олега 08-11). Ряд наверху стоил 218px и уводил начало сетки на
+    # 556-й пиксель: на рабочем экране клиники (1366×768, окно ~696px) от дня
+    # было видно 2.5 часа из 11. Порядок в колонке — календарь, агенда, «Azi»:
+    # сверху то, чем регистратура пользуется, ниже то, на что смотрят.
+    body = (_date_nav(d, "/admin", tabs) + _banner(msg, d)
             + "<div class='dash'><div class='dashmain'>"
             + _day_canvas(d, rows, cards)
             + "<p class='hint'>Click pe o programare — detalii și statusuri; "
@@ -769,7 +789,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
             + (" Programările prin bot apar automat." if tg_ui else "")
             + "</p>"
             + "</div><div class='rail'>"
-            + _mini_cal(d) + _agenda_block(d, rows, cards, now)
+            + _mini_cal(d) + _agenda_block(d, rows, cards, now) + kpi_card
             + (_botnew_block(recent, now) if tg_ui else "") + sync
             + "</div></div>"
             + _slot_modal(d, back) + _card_modal(cards, back))

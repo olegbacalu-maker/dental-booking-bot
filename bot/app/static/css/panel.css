@@ -251,12 +251,15 @@
  .spark .sp-a{opacity:.13}
  .spark .sp-l{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
  /* Плотный ряд плиток на НИЗКОМ экране (08-11). У клиники 1366×768, в окне
-    остаётся ~696px, и замер показал: топбар 72 + заголовок + панель дат + ряд
-    плиток (196 + 22) уводят начало сетки на 556-й пиксель — от рабочего дня
-    видно 2.5 часа из 11. Порог по ВЫСОТЕ, а не по ширине: в одну строку ряд
-    помещается и на 1366, мешает он именно вертикали. 900px делит экраны
-    клиники (696/828 в окне) и 1080p (1008) — на большом мониторе плитки
-    остаются прежними.
+    остаётся ~696px, и ряд плиток стоил 218px из них.
+    ⚠️ Правило теперь работает ТОЛЬКО на «Statistici»: журнал свои KPI отдал в
+    правую колонку (`.rkpi` ниже), и `.tiles` там больше нет. Оставлено потому,
+    что на отчёте ряд стоял так же высоко (замер 234 → 145px) и так же съедал
+    первый экран — просто под ним не расписание, а график по дням. Если `.tiles`
+    когда-нибудь исчезнут и оттуда, правило умирает вместе с ними.
+    Порог по ВЫСОТЕ, а не по ширине: в одну строку ряд помещается и на 1366,
+    мешает он именно вертикали. 900px делит экраны клиники (696/828 в окне) и
+    1080p (1008) — на большом мониторе плитки остаются прежними.
     ⚠️ Высоту ряда задаёт САМАЯ высокая плитка: grid тянет остальные под неё, а
     высота берётся от ПЕРЕНОСА — при иконке 44px текстовой колонке остаётся
     98px, и «Grad de ocupare» с «ieri 70% › azi 86%» ложатся в две строки
@@ -293,6 +296,47 @@
       non-scaling-stroke (см. core/charts.spark). */
    .tile.sp .spark{grid-column:1/-1;height:18px}
  }
+ /* ---------- «Azi»: KPI в правой колонке (макет Олега 08-11) ----------
+    Отдельный компонент, а НЕ модификатор `.tile`: те же плитки стоят в
+    «Statistici» полноширинным рядом, и общая разметка означала бы, что правка
+    формы в колонке 300px тихо переезжает в отчёт (долг, уже словленный на
+    `.tile.sp`). Общего у них ровно столько, сколько видно: цвета подложки
+    иконки приходят инлайном из того же места, что и раньше.
+    ⚠️ Колонки `34px auto auto minmax(0,1fr)` — гибкая ПОСЛЕДНЯЯ, то есть
+    тренд. Сделать гибкой подпись нельзя: при трёхзначном числе и длинном
+    «▲ +12 față de ieri» обрезалось бы «Neprezentări», то есть само название
+    величины. Тренд — справка, его многоточие ничего не стоит. */
+ .rkpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);padding:13px 15px}
+ .rkpi .rk-h{font-size:13px;font-weight:600;margin-bottom:2px}
+ .rkpi .ico{width:34px;height:34px;border-radius:11px;display:flex;
+   align-items:center;justify-content:center}
+ .rkpi .ico svg{width:18px;height:18px}
+ .rk-i{display:grid;grid-template-columns:34px auto auto minmax(0,1fr);gap:2px 10px;
+   align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);
+   text-decoration:none;color:inherit;transition:transform .18s ease}
+ /* Мини-график ВТОРОЙ строкой, на всю ширину карточки: рядом с цифрой ему в
+    колонке 300px остаётся ~40px, а `preserveAspectRatio='none'` растянул бы по
+    ним те же семь точек — из формы получился бы шум. Высота 16px против 26 в
+    ряду плиток: тут он подпись к цифре, а не сама плитка. */
+ .rk-i .spark{grid-column:1/-1;height:16px}
+ .rk-i:hover{transform:translateX(2px)}
+ .rk-i:focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:10px}
+ .rk-i b{font-size:21px;font-weight:600;line-height:1.1}
+ .rk-i.warn b{color:var(--amber-t)}
+ .rk-i.bad b{color:var(--red-t)}
+ .rkpi .rk-l{font-size:13px;font-weight:500;color:var(--text2);white-space:nowrap}
+ /* Тренд повторён для обеих строк: `.tile .trend` привязан к плитке, и без
+    своего правила стрелка приехала бы в 16px из `_ic()` рядом с текстом 11px. */
+ .rk-i .trend,.rk-occ .trend{font-size:11px;color:var(--text3);text-align:right;
+   min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .rk-i .trend svg,.rk-occ .trend svg{width:12px;height:12px;vertical-align:-2px}
+ .rk-i .trend .up,.rk-occ .trend .up{color:var(--green);font-weight:600}
+ .rk-i .trend .dn,.rk-occ .trend .dn{color:var(--red-t);font-weight:600}
+ .rk-occ{display:grid;grid-template-columns:34px auto minmax(0,1fr);gap:3px 10px;
+   align-items:center;padding-top:11px;border-top:1px solid var(--line2)}
+ .rk-occ b{grid-column:2/-1;font-size:24px;font-weight:600;line-height:1.15}
+ .rk-occ .spark{grid-column:1/-1;margin-top:1px}
  /* ---------- дневная сетка (canvas) ---------- */
  .dash{display:flex;gap:16px;align-items:flex-start}
  .dashmain{flex:1;min-width:0}
