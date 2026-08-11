@@ -53,10 +53,10 @@ _FDI_MILK_UPPER = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65]
 _FDI_MILK_LOWER = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
 
 _PLAN_RO = {"planificat": "planificat", "in_lucru": "în lucru",
-            "finalizat": "finalizat"}
+            "finalizat": "finalizat", "refuzat": "REFUZAT"}
 
 _PLAN_RU = {"planificat": "запланировано", "in_lucru": "в работе",
-            "finalizat": "выполнено"}
+            "finalizat": "выполнено", "refuzat": "ОТКАЗ"}
 
 # Двуязычные ПОДПИСИ бланка. ⚠️ Не переводятся и в русской версии остаются
 # как есть: номер формуляра (043/e), приказ МЗ, название министерства — это
@@ -84,6 +84,7 @@ _T = {
         "s5": "5. Planul de tratament",
         "p_tooth": "Dinte", "p_proc": "Procedură", "p_doc": "Medic",
         "p_state": "Stare", "p_price": "Preț (MDL)",
+        "p_refuz": "Refuz, consecințe explicate",
         "s6": "6. Jurnalul vizitelor",
         "j_date": "Data",
         "j_left": "Acuze, statusul obiectiv, diagnosticul",
@@ -117,6 +118,7 @@ _T = {
         "s5": "5. План лечения",
         "p_tooth": "Зуб", "p_proc": "Процедура", "p_doc": "Врач",
         "p_state": "Статус", "p_price": "Цена (MDL)",
+        "p_refuz": "Отказ, разъяснённые последствия",
         "s6": "6. Дневник визитов",
         "j_date": "Дата",
         "j_left": "Жалобы, объективный статус, диагноз",
@@ -293,9 +295,15 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
     has_milk = (any(50 < t < 90 for t in teeth)
                 or (age is not None and age < 14))
 
+    # ⚠️ Причина отказа печатается В ТОЙ ЖЕ строке, под процедурой, а не
+    # отдельной колонкой: ст.13(5) требует, чтобы отказ и объяснённые
+    # последствия стояли вместе — колонка «motiv» на листе А5 схлопнулась бы
+    # в нечитаемый столбик, и запись перестала бы читаться как одно целое
     plan_rows = "".join(
-        f"<tr><td>{it['tooth'] or '—'}</td><td>{e(it['procedure'])}</td>"
-        f"<td>{e(it['doctor']) or '—'}</td>"
+        f"<tr><td>{it['tooth'] or '—'}</td><td>{e(it['procedure'])}"
+        + (f"<br><small>{e(t['p_refuz'])}: {e(it['refuz_motiv'])}</small>"
+           if it["status"] == "refuzat" and it.get("refuz_motiv") else "")
+        + f"</td><td>{e(it['doctor']) or '—'}</td>"
         f"<td>{plan_ro.get(it['status'], it['status'])}</td>"
         f"<td>{it['price_mdl'] or '—'}</td></tr>"
         for it in plan)

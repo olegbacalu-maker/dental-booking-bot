@@ -186,6 +186,19 @@ MSG_BANNER = {
     "bad_bkp": ("err", "Nu am putut crea arhiva de rezervă — verificați spațiul "
                        "pe disc; detalii în data\\dentpilot.log"),
     "bad_card": ("err", "Date invalide — verificați câmpurile fișei"),
+    # ⚠️ Отказ подтверждается ТЕКСТОМ, поэтому и сообщение говорит, что делать
+    # дальше с бумагой: без подписи запись по ст.13(5) неполна, а регистратура
+    # об этом не знает — «refuz înregistrat» она прочла бы как «готово»
+    "ok_refuz": ("ok", "Refuzul a fost consemnat în fișă — tipăriți acordul "
+                       "informat și dați-l la semnat pacientului și medicului"),
+    "bad_refuz": ("err", "Scrieți motivul refuzului și consecințele explicate "
+                         "pacientului — legea cere ca acestea să fie "
+                         "consemnate, nu doar bifat refuzul"),
+    # ⛔ Удаление позиции, которую уже начали, закончили или от которой пациент
+    # отказался, — стирание меддокументации. Текст обязан назвать выход
+    "bad_pdel": ("err", "Se poate șterge doar o poziție neîncepută. Procedura "
+                        "începută, finalizată sau refuzată rămâne în fișă — "
+                        "închideți-o prin statut"),
     "new_pat": ("ok", "Pacient adăugat — completați fișa (dinți, plan, documente)"),
     "dup_pat": ("warn", "Există deja un pacient cu acest telefon — am deschis fișa lui. "
                         "Dacă este altă persoană (numărul familiei), adăugați-o cu alt "
@@ -350,6 +363,29 @@ _I = {  # компактные stroke-иконки сайдбара
              "<path d='M7 14h10v6.5H7z'/>",
     "erase": "<path d='m9 20.5-5-5a1.8 1.8 0 0 1 0-2.6l8-8a1.8 1.8 0 0 1 2.6 0l5 5"
              "a1.8 1.8 0 0 1 0 2.6l-8 8z'/><path d='M9 20.5h11M7 12.5l7 7'/>",
+    # карточка пациента: деньги, документы, действия плана
+    "money": "<circle cx='12' cy='12' r='8.5'/><path d='M12 7.5v9M14.4 9.8c-.5-.8-1.4-1.2"
+             "-2.4-1.2-1.4 0-2.4.8-2.4 1.9s1 1.6 2.4 1.9 2.4.8 2.4 1.9-1 1.9-2.4 1.9"
+             "c-1 0-1.9-.4-2.4-1.2'/>",
+    "cash": "<rect x='2.5' y='6' width='19' height='12' rx='2'/><circle cx='12' cy='12' r='2.6'/>"
+            "<path d='M6 9.5v5M18 9.5v5'/>",
+    "card": "<rect x='2.5' y='5.5' width='19' height='13' rx='2.5'/><path d='M2.5 10h19'/>"
+            "<path d='M6 14.5h3'/>",
+    "bank": "<path d='M3.5 9.5 12 4l8.5 5.5'/><path d='M5.5 9.5v8M10 9.5v8M14 9.5v8M18.5 9.5v8'/>"
+            "<path d='M3.5 20.5h17'/>",
+    "camera": "<rect x='3' y='7' width='18' height='13' rx='2.5'/><circle cx='12' cy='13.5' r='3.4'/>"
+              "<path d='M8.5 7 10 4.5h4L15.5 7'/>",
+    "monitor": "<rect x='2.8' y='4' width='18.4' height='12.5' rx='2'/>"
+               "<path d='M9 20.5h6M12 16.5v4'/>",
+    "upload": "<path d='M12 20.5v-11'/><path d='m7.5 13.5 4.5-4.5 4.5 4.5'/><path d='M4.5 4h15'/>",
+    "play": "<path d='M8 5.5 18.5 12 8 18.5z'/>",
+    "undo": "<path d='M4 9.5h10a5 5 0 0 1 0 10h-4'/><path d='m8 5.5-4 4 4 4'/>",
+    # молочный прикус: бутылочка — тот же знак, что был эмодзи 🍼
+    "door": "<path d='M6 3.5h12v17H6z'/><circle cx='14.5' cy='12' r='1' fill='currentColor' stroke='none'/>",
+    "out": "<path d='M14 4.5h5.5V10'/><path d='m19.5 4.5-8 8'/>"
+           "<path d='M18 14v5.5H4.5V6H10'/>",
+    "milk": "<path d='M8.5 8.5h7l.8 11a1.8 1.8 0 0 1-1.8 2h-5a1.8 1.8 0 0 1-1.8-2z'/>"
+            "<path d='M9.5 5.5h5l-.5 3h-4z'/><path d='M8.8 13h6.4'/>",
 }
 
 
@@ -421,7 +457,7 @@ def _update_banner() -> str:
                 f"se pregătește…</span>")
     if upd.newer_available():
         return (f" · <a href='{html.escape(upd.STATE['url'])}' target='_blank' "
-                f"style='color:#e8710a;font-weight:600'>🔄 versiune nouă "
+                f"style='color:#e8710a;font-weight:600'>{_ic('refresh')} versiune nouă "
                 f"{html.escape(upd.STATE['latest'])}</a>")
     return ""
 
@@ -518,7 +554,7 @@ def _topbar(bell: int | None) -> str:
         # ведёт к блоку «Programări noi din bot» (по created_at) — а не к дневному
         # фильтру: бронь на неделю вперёд должна быть в одном клике (урок демо 07-31)
         bell_html = (f"<a class='bell' href='/admin#botnew' "
-                     f"title='Programări noi din bot'>🔔{badge}</a>")
+                     f"title='Programări noi din bot'>{_ic('bell')}{badge}</a>")
     today = datetime.now(eng.TZ).date().isoformat()
     return f"""<div class="top">
   <form class="searchf" method="get" action="/admin/search">
@@ -598,7 +634,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
 KPI пересчитывались бы на глазах весь рабочий день, а регистратура читала бы
 бегущие цифры вместо расписания. panel.js перед автоперезагрузкой ставит флаг,
 здесь он снимается — и класс `anim` не выдаётся.
-⚠️ Скрипт обязан стоять В ШАПКЕ: класс нужен ДО первой отрисовки, иначе виден
+ВАЖНО: скрипт обязан стоять В ШАПКЕ — класс нужен ДО первой отрисовки, иначе виден
 кадр с конечным состоянием, и анимация выглядит рывком назад. Всё оформление
 привязано к `.anim`, поэтому без JS страница просто статична — не пуста. */
 try{{if(sessionStorage.getItem('dp_auto')==='1'){{sessionStorage.removeItem('dp_auto');}}
@@ -674,7 +710,7 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
          даже если статика не отдалась) */
       box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
       display:flex;flex-direction:column;gap:12px;width:min(340px,100%)}
- /* ⛔ Цвет заголовка — __ACCENT_D__, не __ACCENT__: чистый фирменный даёт на
+ /* ВАЖНО: цвет заголовка — __ACCENT_D__, не __ACCENT__: чистый фирменный даёт на
     белой карточке 3.3:1 даже у зелёного по умолчанию, а при светлом выборе
     клиники (жёлтый, голубой) заголовок пропал бы вовсе. Тёмный оттенок
     дотемняется циклом до 4.5 к фону страницы, а карточка ещё светлее фона —
@@ -723,7 +759,7 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 </style></head><body>
 <form method="post" action="/admin/setup">
   __LOGO__
-  <h1>🦷 __CLINIC__</h1>
+  <h1>__CLINIC__</h1>
   <p>Prima pornire: setați un PIN pentru registrul clinicii (4–6 cifre).</p>
   __ERR__
   <input type="password" name="pin1" placeholder="PIN" inputmode="numeric"
@@ -756,7 +792,7 @@ RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  .warn{background:#FFFBEB;color:#B45309;font-size:13px;padding:10px 12px;border-radius:10px}
 </style></head><body>
 <form method="post" action="/admin/recover">
-  <h1>🔑 Recuperarea evidenței</h1>
+  <h1>{_ic('key')} Recuperarea evidenței</h1>
   <p>Baza de date a clinicii este criptată, iar cheia de pe acest calculator nu
   poate fi citită. Se întâmplă după reinstalarea Windows, la schimbarea
   calculatorului sau când programul este pornit de pe alt cont Windows.</p>

@@ -42,6 +42,7 @@ from . import acord as pacord
 from . import anamneza as panam
 from . import export as pexport
 from . import fisa043 as pfisa
+from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, js_json, _age, _ic,
@@ -64,7 +65,7 @@ def _due_html(due, status: str) -> str:
     txt = d.strftime("%d.%m.%Y")
     if status != "finalizat" and d < datetime.now(eng.TZ).date():
         return (f"<span style='color:var(--red-t);font-weight:600' "
-                f"title='Termen depășit'>⚠ {txt}</span>")
+                f"title='Termen depășit'>{_ic('sos')} {txt}</span>")
     return txt
 
 
@@ -127,11 +128,25 @@ _DOC_ICON = {"radiografie": _ic("xray"), "acord": _ic("note"),
 # «Redeschide» обратно в работу, для исправления ошибки; пути «финал →
 # запланировано» не существует. Охрана в маршруте смотрит на пару (откуда,
 # куда): устаревшая вкладка не пришлёт запрещённое ребро.
+# ОТКАЗ (08-11) — не четвёртая ступень, а боковой выход: ст.13(5) Legea
+# 263/2005 требует, чтобы отказ пациента остался В МЕДДОКУМЕНТАЦИИ с указанием
+# возможных последствий, а не был вычеркнут. Поэтому отказаться можно и от
+# запланированного, и из работы, а вернуться — только в «Planificat»: заново
+# начатая после отказа процедура это новое решение пациента, а не продолжение
+# старого. ⛔ Из «Finalizat» в «Refuzat» ребра нет: отказаться от сделанного
+# нельзя, ошибку исправляет «Redeschide».
 _PLAN_EDGES = {("planificat", "in_lucru"), ("in_lucru", "finalizat"),
-               ("finalizat", "in_lucru")}
+               ("finalizat", "in_lucru"),
+               ("planificat", "refuzat"), ("in_lucru", "refuzat"),
+               ("refuzat", "planificat")}
+
+# переход, у которого причина ОБЯЗАТЕЛЬНА: «отказался» без «от чего именно
+# предупредили» — это не запись по ст.13(5), а пустая отметка
+_PLAN_NEEDS_MOTIV = ("refuzat",)
 
 
-_PLAN_LABEL = {"planificat": "Planificat", "in_lucru": "În lucru", "finalizat": "Finalizat"}
+_PLAN_LABEL = {"planificat": "Planificat", "in_lucru": "În lucru",
+               "finalizat": "Finalizat", "refuzat": "Refuzat"}
 
 
 MAX_DOC_MB = 25
@@ -194,12 +209,12 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 
     # -- левая колонка: профиль --
     age = _p_age(p)
-    chan = ("📱 Telegram" if (p["session_key"] or "").startswith("tg:")
-            else "✍️ recepție" if (p["session_key"] or "").startswith("manual:")
-            else "🌐 web")
+    chan = ("Telegram" if (p["session_key"] or "").startswith("tg:")
+            else "recepție" if (p["session_key"] or "").startswith("manual:")
+            else "web")
     meta = " · ".join(x for x in [f"{age} ani" if age else "", chan,
                                   f"dosar {e(p['file_no'])}" if p.get("file_no") else "",
-                                  "🗄 arhivat" if p.get("archived") else ""] if x)
+                                  "arhivat" if p.get("archived") else ""] if x)
 
     def frow(label: str, val, icon: str = "") -> str:
         ic = f"<span class='ic'>{_ic(icon)}</span>" if icon else "<span class='ic'></span>"
@@ -220,7 +235,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
                  + frow("Pacient din",
                         p["created_at"].astimezone(eng.TZ).strftime("%d.%m.%Y"), "cal"))
     notes_html = (f"<div style='font-size:12px;color:var(--text2);background:var(--bg);"
-                  f"border-radius:8px;padding:8px 10px;margin-top:8px'>📝 {e(p['notes'])}</div>"
+                  f"border-radius:8px;padding:8px 10px;margin-top:8px'>{_ic('note')} {e(p['notes'])}</div>"
                   if p.get("notes") else "")
 
     doc_opts = "".join(f"<option value='{e(n)}'"
@@ -257,7 +272,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     <option value='ru'{" selected" if p.get('lang') == 'ru' else ''}>Документы по-русски</option>
   </select>
   <textarea name='notes' rows='2' placeholder='Notițe interne'>{e(p.get('notes') or '')}</textarea>
-  <button>💾 Salvează profilul</button>
+  <button>{_ic('save')} Salvează profilul</button>
 </form>"""
 
     # -- анамнез: опросник, раскрывается по клику (заполняется один раз) --
@@ -292,28 +307,28 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         an_head = "<span class='pill red'>necompletată</span>"
     # свёрнутая секция обязана показывать САМО содержимое: врач смотрит на неё
     # перед анестезией и раскрывать «Chestionar» не будет
-    an_chips = ([f"<span>⚠️ {e(x)}</span>" for x in an_marked]
-                + [f"<span>📝 {e(lab)}: {e(val[:70])}</span>"
+    an_chips = ([f"<span>{_ic('sos')} {e(x)}</span>" for x in an_marked]
+                + [f"<span>{_ic('note')} {e(lab)}: {e(val[:70])}</span>"
                    for lab, val in an_free])
     an_list = (f"<div class='anlist'>{''.join(an_chips)}</div>"
                if an_chips else "")
     anam_card = f"""<div class='fcard' id='anamneza'>
 <h3>Anamneză {an_head}</h3>{an_list}{an_sum}
-<a class='anprint' href='{base}/anamneza/print' target='_blank'>🖨 Formular
+<a class='anprint' href='{base}/anamneza/print' target='_blank'>{_ic('print')} Formular
   pentru pacient</a>
 <details class='anform'{' open' if not anam else ''}>
-  <summary>✏️ Chestionar</summary>
+  <summary>{_ic('pen')} Chestionar</summary>
   <form class='fform' method='post' action='{base}/anamneza'>
     <div class='anbox'>{an_boxes}</div>
     {an_texts}
-    <button>💾 Salvează anamneza</button>
+    <button>{_ic('save')} Salvează anamneza</button>
   </form>
 </details></div>"""
 
     alerts_html = "".join(
         f"<div class='alert {e(a['kind'])}'>{_ALERT_ICON.get(a['kind'], _ic('info'))} {_ALERT_KINDS.get(a['kind'], '')} {e(a['text'])}"
         f"<form method='post' action='{base}/alert/{a['id']}/del'>"
-        f"<button title='Șterge'>✕</button></form></div>"
+        f"<button title='Șterge'>{_ic('close')}</button></form></div>"
         for a in alerts) or "<p class='hint' style='margin:0'>— fără atenționări —</p>"
     kind_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in _ALERT_KINDS.items())
     alerts_card = f"""<div class='fcard'><h3>Atenționări medicale</h3>{alerts_html}
@@ -386,7 +401,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <div class='arch lower'>{lower}</div>
 </div>
 <details class='milk'{' open' if milk_open else ''}>
-  <summary>🍼 Dentiție temporară (dinți de lapte)</summary>
+  <summary>{_ic('milk')} Dentiție temporară (dinți de lapte)</summary>
   <div class='arch-wrap'>
     <div class='arch milk-arch'>{milk_up}</div>
     <div class='arch-mid'></div>
@@ -398,14 +413,14 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <div class='tt-d'></div></div>
 <dialog id='toothdlg'>
   <div class='dlg-head'><span id='t_title'>Dinte</span>
-    <button type='button' onclick="document.getElementById('toothdlg').close()">✕</button></div>
+    <button type='button' onclick="document.getElementById('toothdlg').close()">{_ic('close')}</button></div>
   <form class='dlg-form' method='post' action='{base}/tooth'>
     <input type='hidden' name='tooth' id='t_num'>
     <select name='state' id='t_state'>{state_opts}</select>
     <select name='doctor' id='t_doc'><option value=''>Medic —</option>{doc_opts}</select>
     <div class='sfrow' id='t_sf'>{sf_boxes}</div>
     <input name='note' id='t_note' placeholder='Notiță (opțional)' maxlength='120'>
-    <button>💾 Salvează</button>
+    <button>{_ic('save')} Salvează</button>
   </form>
   <div id='t_hist' class='thist'></div>
 </dialog>
@@ -413,7 +428,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 const TEETH = {teeth_json};
 const STATE_RO = {state_ro_json};
 const THIST = {thist_json};
-// ⚠️ заметку зуба и строку истории пишет ЧЕЛОВЕК, а ниже они уезжают в
+// ВАЖНО: заметку зуба и строку истории пишет ЧЕЛОВЕК, а ниже они уезжают в
 // innerHTML. Экранирование в JSON (замена "</") спасает только сам тег
 // <script>, но не HTML-парсер innerHTML: "<img src=x onerror=…>" выполнялся
 // бы при наведении на зуб. textContent тут не подходит — в разметке рядом
@@ -468,7 +483,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
 </script>"""
 
     # порядок осмысленный, а не «как добавляли»: работа сверху, запланированное
-    # по сроку, законченное свежим вперёд
+    # по сроку, законченное свежим вперёд, отказы последними
     def _plan_key(it):
         st = it["status"]
         if st == "in_lucru":
@@ -476,66 +491,99 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         if st == "planificat":
             return (1, str(it.get("due_date") or "9999-99-99"), it["id"])
         da = it.get("done_at")
-        return (2, -(da.timestamp() if hasattr(da, "timestamp") else 0.0),
+        return (2 if st == "finalizat" else 3,
+                -(da.timestamp() if hasattr(da, "timestamp") else 0.0),
                 -it["id"])
 
     cnt = {k: sum(1 for it in plan if it["status"] == k)
-           for k in ("planificat", "in_lucru", "finalizat")}
+           for k in ("planificat", "in_lucru", "finalizat", "refuzat")}
     n_act = cnt["planificat"] + cnt["in_lucru"]
-    # законченное по умолчанию спрятано; если активного не осталось —
-    # открываем сразу «Finalizate», а не пустой экран
-    default_tab = "act" if n_act or not plan else "finalizat"
+    # законченное по умолчанию спрятано; если активного не осталось — открываем
+    # первую НЕПУСТУЮ вкладку, а не пустой экран. ⚠️ Раньше запасной была
+    # «Finalizate»; с появлением отказов план из одних отказов открывался
+    # пустым — вкладка есть, записи есть, а на экране ничего
+    default_tab = ("act" if n_act or not plan
+                   else "finalizat" if cnt["finalizat"] else "refuzat")
+    # какие статусы показывает каждая вкладка — ОДИН словарь на сервер и на
+    # planTab(); пока правило жило выражением «не finalizat», отказ попадал в
+    # «Active» молча
+    tab_states = {"act": db.PLAN_ACTIVE, "finalizat": ("finalizat",),
+                  "refuzat": ("refuzat",)}
     plan_rows = []
     total = total_done = 0
     for it in sorted(plan, key=_plan_key):
         st = it["status"]
         if it["price_mdl"]:
-            if st != "finalizat":
+            # ⚠️ отказ не деньги НИ В ОДНОЙ из двух сумм: он не ждёт оплаты
+            # (не «plan activ») и не выполнен (не «finalizate»)
+            if st in db.PLAN_ACTIVE:
                 total += it["price_mdl"]
-            else:
+            elif st == "finalizat":
                 total_done += it["price_mdl"]
+        refuz = (f"<button type='button' class='pref' data-id='{it['id']}' "
+                 f"data-p='{e(it['procedure'])}' onclick='openRefuz(this)' "
+                 f"title='Pacientul refuză procedura — se consemnează în fișă'>"
+                 f"{_ic('ban')} Refuz</button>")
         if st == "planificat":
             act = (f"<form method='post' action='{base}/plan/{it['id']}/status'>"
                    f"<input type='hidden' name='to' value='in_lucru'>"
                    f"<button class='pgo' title='Trece procedura în lucru'>"
-                   f"▶ Începe</button></form>")
+                   f"{_ic('play')} Începe</button></form>{refuz}")
         elif st == "in_lucru":
             act = (f"<form method='post' action='{base}/plan/{it['id']}/status'>"
                    f"<input type='hidden' name='to' value='finalizat'>"
                    f"<button class='pgo fin' title='Marchează ca finalizată'>"
-                   f"✓ Finalizează</button></form>")
+                   f"{_ic('check')} Finalizează</button></form>{refuz}")
+        elif st == "refuzat":
+            # возврат идёт в «Planificat», а не в работу: после отказа лечение
+            # начинается заново, с нового согласия пациента
+            act = (f"<form method='post' action='{base}/plan/{it['id']}/status' "
+                   f"onsubmit=\"return confirm('Pacientul a revenit asupra "
+                   f"refuzului? Procedura se întoarce în plan.')\">"
+                   f"<input type='hidden' name='to' value='planificat'>"
+                   f"<button class='pre' title='Pacientul a revenit — înapoi în plan'>"
+                   f"{_ic('undo')} Reia</button></form>")
         else:
             act = (f"<form method='post' action='{base}/plan/{it['id']}/status' "
                    f"onsubmit=\"return confirm('Redeschideți procedura "
                    f"(înapoi în lucru)?')\">"
                    f"<input type='hidden' name='to' value='in_lucru'>"
                    f"<button class='pre' title='Redeschide — înapoi în lucru'>"
-                   f"↩ Redeschide</button></form>")
+                   f"{_ic('undo')} Redeschide</button></form>")
         da = it.get("done_at")
-        if st == "finalizat" and hasattr(da, "astimezone"):
-            due_html = (f"<span class='pdone' title='Data finalizării'>"
-                        f"✔ {da.astimezone(eng.TZ).strftime('%d.%m.%Y')}</span>")
+        if st in db.PLAN_CLOSED and hasattr(da, "astimezone"):
+            mark, ttl = ((_ic("check"), "Data finalizării") if st == "finalizat"
+                         else (_ic("ban"), "Data refuzului"))
+            due_html = (f"<span class='pdone' title='{ttl}'>"
+                        f"{mark} {da.astimezone(eng.TZ).strftime('%d.%m.%Y')}</span>")
         else:
             due_html = f"<span class='pdue'>{_due_html(it.get('due_date'), st)}</span>"
         tooth_html = (f"<button type='button' class='pt' onclick='openTooth({it['tooth']})' "
                       f"title='Deschide dintele în formulă'>{it['tooth']}</button>"
                       if it["tooth"] else "<span class='pt'>—</span>")
-        hidden = ("" if default_tab == "all"
-                  else " style='display:none'" if (default_tab == "act") == (st == "finalizat")
-                  else "")
+        hidden = "" if st in tab_states[default_tab] else " style='display:none'"
+        # причина отказа стоит ПОД процедурой, а не в подсказке: это и есть
+        # запись по ст.13(5), и она обязана читаться с листа, а не с наведения
+        motiv = (f"<em class='pmotiv'>{e(it.get('refuz_motiv') or '')}</em>"
+                 if st == "refuzat" and it.get("refuz_motiv") else "")
+        # ⛔ удалять можно только НЕТРОНУТОЕ: начатая, выполненная или
+        # отказанная позиция — клинический факт, и закрывается статусом.
+        # Кнопка «Șterge» тут стирала бы ровно то, что закон велит хранить
+        pdel = (f"<form method='post' action='{base}/plan/{it['id']}/del' "
+                f"onsubmit=\"return confirm('Ștergeți poziția din plan?')\">"
+                f"<button class='pdel' title='Șterge poziția (doar cât nu a "
+                f"fost începută)'>{_ic('close')}</button></form>"
+                if st == "planificat" else "")
         plan_rows.append(
-            f"<div class='plan-row{' done' if st == 'finalizat' else ''}' "
+            f"<div class='plan-row{' done' if st in db.PLAN_CLOSED else ''}' "
             f"data-st='{e(st)}'{hidden}>"
             f"{tooth_html}"
-            f"<span class='pp'>{e(it['procedure'])}</span>"
+            f"<span class='pp'>{e(it['procedure'])}{motiv}</span>"
             f"<span class='pd'>{e(it['doctor'] or '—')}</span>"
             f"{due_html}"
             f"<span class='pbadge {e(st)}'>{_PLAN_LABEL.get(st, st)}</span>"
             f"<span class='pm'>{f'{it['price_mdl']:,}'.replace(',', ' ') + ' MDL' if it['price_mdl'] else '—'}</span>"
-            f"<span class='pact'>{act}"
-            f"<form method='post' action='{base}/plan/{it['id']}/del' "
-            f"onsubmit=\"return confirm('Ștergeți poziția din plan?')\">"
-            f"<button class='pdel' title='Șterge'>✕</button></form></span></div>")
+            f"<span class='pact'>{act}{pdel}</span></div>")
     plan_html = "".join(plan_rows) or "<p class='hint' style='margin:6px 0'>— plan gol —</p>"
     # молочные — отдельной группой, иначе список из 52 номеров нечитаем
     tooth_opts = (
@@ -546,25 +594,41 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         + "".join(f"<option value='{n}'>{n}</option>"
                   for n in _FDI_MILK_UPPER + _FDI_MILK_LOWER)
         + "</optgroup>")
-    on_act = " class='on'" if default_tab == "act" else ""
-    on_fin = " class='on'" if default_tab == "finalizat" else ""
+    def _tab(key: str, label: str, n: int) -> str:
+        on = " class='on'" if default_tab == key else ""
+        return (f"<button{on} data-f='{key}' onclick='planTab(this)'>"
+                f"{label} ({n})</button>")
+
+    # вкладка отказов появляется, только когда отказы есть: пустая «Refuzate
+    # (0)» на каждой фише — обещание проблемы, которой у клиники нет
     tabs = ("<div class='tabs'>"
-            f"<button{on_act} data-f='act' onclick='planTab(this)'>"
-            f"Active ({n_act})</button>"
-            f"<button{on_fin} data-f='finalizat' onclick='planTab(this)'>"
-            f"Finalizate ({cnt['finalizat']})</button>"
-            f"<button data-f='all' onclick='planTab(this)'>Toate ({len(plan)})</button>"
+            + _tab("act", "Active", n_act)
+            + _tab("finalizat", "Finalizate", cnt["finalizat"])
+            + (_tab("refuzat", "Refuzate", cnt["refuzat"]) if cnt["refuzat"] else "")
+            + f"<button data-f='all' onclick='planTab(this)'>Toate ({len(plan)})</button>"
             "</div>")
-    pct_done = round(100 * cnt["finalizat"] / len(plan)) if plan else 0
+    # ⚠️ прогресс считается от того, что клиника ещё может сделать: отказ из
+    # знаменателя выпадает, иначе план из трёх процедур, одну из которых
+    # пациент отверг, навсегда застревает на 66% «выполнено»
+    n_track = len(plan) - cnt["refuzat"]
+    pct_done = round(100 * cnt["finalizat"] / n_track) if n_track else 0
     prog = (f"<div class='plan-prog'><div class='statbar'>"
             f"<div style='width:{pct_done}%'></div></div>"
-            f"<small>{cnt['finalizat']}/{len(plan)} finalizate</small></div>"
-            if plan else "")
+            f"<small>{cnt['finalizat']}/{n_track} finalizate"
+            + (f" · {cnt['refuzat']} refuzate" if cnt["refuzat"] else "")
+            + "</small></div>" if plan else "")
     done_total_html = (f"<span class='pt-done'> · finalizate: "
                        f"{f'{total_done:,}'.replace(',', ' ')} MDL</span>"
                        if total_done else "")
+    # ⭐ Лист согласия стоит В ШАПКЕ плана, а не среди быстрых действий внизу:
+    # ст.13(2) Legea 263/2005 требует подписи ДО вмешательства, то есть ровно в
+    # тот момент, когда план на экране и обсуждается с пациентом
+    acord_link = (f"<a class='pacord' href='{base}/plan-acord' "
+                  f"title='Acord informat la plan — pentru semnătura pacientului "
+                  f"și a medicului (art. 13 Legea nr. 263/2005)'>"
+                  f"{_ic('clipboard')} Acord informat</a>" if plan else "")
     plan_card = f"""<div class='fcard' id='plan'>
-<h3>Plan de tratament <small>· plan activ: {f'{total:,}'.replace(',', ' ')} MDL</small></h3>
+<h3>Plan de tratament <small>· plan activ: {f'{total:,}'.replace(',', ' ')} MDL</small>{acord_link}</h3>
 {prog}{tabs}
 {plan_html}
 <div class='ptotal'><span>Total plan activ</span><b>{f'{total:,}'.replace(',', ' ')} MDL</b>{done_total_html}</div>
@@ -600,7 +664,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         r = recs.get(v["id"])
         if r:
             diag = (r["diagnostic"] or r["tratament"] or r["acuze"] or "").strip()
-            consult = (f"<small style='overflow-wrap:anywhere'>🩺 "
+            consult = (f"<small style='overflow-wrap:anywhere'>{_ic('med')} "
                        f"<a href='{vurl}'>Consultație</a>"
                        + (f": {e(diag[:60])}" if diag else "") + "</small>")
         elif (v["status"] in ("done", "arrived")
@@ -617,7 +681,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
     hist_card = (f"<div class='fcard'><h3>Istoric vizite <small>· ultimele {len(visits[:8])}</small></h3>"
                  + ("".join(hist) or "<p class='hint' style='margin:0'>— încă fără vizite —</p>")
                  + f"<a href='/admin/search?q={urllib.parse.quote(p['name'] or '')}' "
-                 f"style='font-size:12px'>Vezi tot istoricul →</a></div>")
+                 f"style='font-size:12px'>Vezi tot istoricul ›</a></div>")
 
     doc_meta: dict = {}
 
@@ -645,7 +709,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                 f"<small>{when} · {size}</small></div></a>"
                 f"<div class='del'><form method='post' action='{base}/doc/{dd['id']}/del' "
                 f"onsubmit=\"return confirm('Ștergeți documentul?')\">"
-                f"<button title='Șterge'>✕</button></form></div></div>")
+                f"<button title='Șterge'>{_ic('close')}</button></form></div></div>")
 
     _ACT_ICON = {"appt_new": _ic("cal"), "appt_status": _ic("check"),
                  "appt_cancel": _ic("ban"), "tooth": _ic("tooth"),
@@ -656,6 +720,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
                  # выдача копии данных — событие, о котором спросят на проверке;
                  # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
                  "export": _ic("download"), "acord": _ic("clipboard"),
+                 "plan_acord": _ic("clipboard"),
                  "consult": _ic("med"), "fisa043": _ic("print"),
                  "anamneza": _ic("note"), "view": _ic("eye"),
                  "doc_view": _ic("eye"), "erase": _ic("erase")}
@@ -666,8 +731,8 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         hhmm = at.strftime("%H:%M") if at else ""
         # с ролями подпись — это ИМЯ вошедшего; «recepție» осталось у событий,
         # записанных до учёток, и у фоновых задач, где человека нет
-        who = ("🤖 bot" if a["actor"] == "bot"
-               else f"🎧 {e(a['actor'] or 'recepție')}")
+        who = ("bot" if a["actor"] == "bot"
+               else f"{e(a['actor'] or 'recepție')}")
         act_rows.append(
             f"<div class='acti'><span class='ai'>{_ACT_ICON.get(a['kind'], '•')}</span>"
             f"<div class='ab'><b>{e(a['text'])}</b>"
@@ -682,7 +747,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
         f"ascunde accesările</a>" if show_views else
         f"<a href='{base}?views=1' style='font-size:12px;font-weight:400' "
         f"title='Jurnalul accesărilor — cine și când a deschis fișa (Legea 195)'>"
-        f"👁 accesările</a>")
+        f"{_ic('eye')} accesările</a>")
     act_card = (f"<div class='fcard'><h3>Istoric activitate "
                 f"<small>· ce s-a întâmplat cu fișa</small> · {views_link}</h3>"
                 + ("".join(shown) + more if act_rows
@@ -700,10 +765,10 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
   <select name='category'>{cat_opts}</select>
   <div class='filepick'>
     <input type='file' name='file' id='docfile' required onchange='pickName(this)'>
-    <label for='docfile'>📎 Alege fișierul</label>
+    <label for='docfile'>{_ic('clip')} Alege fișierul</label>
     <span class='fname' id='docfile_n'>niciun fișier ales</span>
   </div>
-  <button>⬆️ Încarcă document</button>
+  <button>{_ic('upload')} Încarcă document</button>
 </form>
 <p class='hint' style='margin-top:8px'>Click pe fișier — pozele și PDF-urile se deschid aici,
 restul în programul potrivit (Word, Excel). Fișierele rămân local, în folderul
@@ -713,28 +778,28 @@ programului (data\\files).</p></div>"""
     # бейджи собираются из УЖЕ имеющихся данных: алерты, страховка, импланты
     pills = []
     if p.get("archived"):
-        pills.append("<span class='pill grey'>🗄 Arhivat</span>")
+        pills.append(f"<span class='pill grey'>{_ic('box')} Arhivat</span>")
     else:
-        pills.append("<span class='pill green'>✔ Pacient activ</span>")
+        pills.append(f"<span class='pill green'>{_ic('check')} Pacient activ</span>")
     for a in alerts[:3]:
         tone = {"allergy": "orange", "medication": "orange",
                 "warning": "red"}.get(a["kind"], "grey")
         icon = _ALERT_ICON.get(a["kind"], _ic("info"))
         pills.append(f"<span class='pill {tone}'>{icon} {e(a['text'][:38])}</span>")
     if p.get("insurance"):
-        pills.append(f"<span class='pill green'>🛡 {e(p['insurance'][:28])}</span>")
+        pills.append(f"<span class='pill green'>{_ic('shield')} {e(p['insurance'][:28])}</span>")
     # долг видит и рецепция — ей его и взыскивать; сводные суммы по клинике
     # остаются за директором (PERM_MONEY в статистике)
     debt = fin["charged"] - fin["paid"]
     if debt > 0:
-        pills.append(f"<span class='pill red'>💰 De achitat: "
+        pills.append(f"<span class='pill red'>{_ic('money')} De achitat: "
                      f"{f'{debt:,}'.replace(',', ' ')} MDL</span>")
     elif debt < 0:
-        pills.append(f"<span class='pill green'>💰 Avans: "
+        pills.append(f"<span class='pill green'>{_ic('money')} Avans: "
                      f"{f'{-debt:,}'.replace(',', ' ')} MDL</span>")
     n_impl = sum(1 for t in tmap.values() if t["state"] == "implant")
     if n_impl:
-        pills.append(f"<span class='pill purple'>⚙ {n_impl} implant"
+        pills.append(f"<span class='pill purple'>{_ic('set')} {n_impl} implant"
                      f"{'e' if n_impl > 1 else ''}</span>")
 
     past = [v for v in visits if v["starts_at"] <= now and v["status"] != "cancelled"]
@@ -756,7 +821,7 @@ programului (data\\files).</p></div>"""
     # 043/e — документ, за которым тянутся чаще всего (проверка, выписка,
     # передача пациента): его место наверху, а не в конце страницы среди
     # быстрых действий, куда надо доскроллить
-    acts.append(f"<a href='{base}/fisa043'>📄 Fișa 043/e</a>")
+    acts.append(f"<a href='{base}/fisa043'>{_ic('file')} Fișa 043/e</a>")
 
     # ID — внутренний номер фиши в программе (адрес страницы, бэкап, обращение
     # в поддержку). Клинике он нужен редко, поэтому уходит в конец строки и
@@ -786,7 +851,7 @@ programului (data\\files).</p></div>"""
 </div>"""
 
     # ---- KPI: пять цифр, которые спрашивают первыми ----
-    n_active = sum(1 for it in plan if it["status"] != "finalizat")
+    n_active = sum(1 for it in plan if it["status"] in db.PLAN_ACTIVE)
     n_done = sum(1 for it in plan if it["status"] == "finalizat")
     days_ago = ((now.date() - lastv["starts_at"].astimezone(eng.TZ).date()).days
                 if lastv else None)
@@ -809,11 +874,11 @@ programului (data\\files).</p></div>"""
         return f"<p class='hint' style='margin:0'>— {txt} —</p>"
 
     def _lmore(href: str, txt: str) -> str:
-        return f"<a class='lmore' href='{href}' onclick='closeKpi()'>{txt} →</a>"
+        return f"<a class='lmore' href='{href}' onclick='closeKpi()'>{txt} ›</a>"
 
     live_visits = [v for v in visits if v["status"] != "cancelled"]
     canc = len(visits) - len(live_visits)
-    act_items = [it for it in plan if it["status"] != "finalizat"]
+    act_items = [it for it in plan if it["status"] in db.PLAN_ACTIVE]
     done_items = [it for it in plan if it["status"] == "finalizat"]
     kpi_panels = {
         "visits": ("Toate vizitele",
@@ -830,22 +895,22 @@ programului (data\\files).</p></div>"""
                  _vrow(nextv) if nextv else
                  (_empty("nicio vizită programată")
                   + "<button type='button' class='lbtn' "
-                    "onclick='closeKpi();openAppt()'>📅 Programează acum</button>")),
+                    f"onclick='closeKpi();openAppt()'>{_ic('cal')} Programează acum</button>")),
         "done": ("Proceduri finalizate",
                  "".join(_prow(it) for it in done_items)
                  or _empty("încă nimic finalizat")),
     }
     kpis = [
-        ("visits", "📋", len(live_visits), "Vizite în total",
+        ("visits", _ic("clipboard"), len(live_visits), "Vizite în total",
          "din " + p["created_at"].astimezone(eng.TZ).strftime("%Y")),
-        ("active", "🦷", n_active, "Proceduri active", "în planul de tratament"),
-        ("last", "🕐", (f"{days_ago} zile" if days_ago else "azi") if lastv else "—",
+        ("active", _ic("tooth"), n_active, "Proceduri active", "în planul de tratament"),
+        ("last", _ic("clock"), (f"{days_ago} zile" if days_ago else "azi") if lastv else "—",
          "Ultima vizită",
          lastv["starts_at"].astimezone(eng.TZ).strftime("%d.%m.%Y") if lastv else "—"),
-        ("next", "📅", nextv["starts_at"].astimezone(eng.TZ).strftime("%d.%m") if nextv else "—",
+        ("next", _ic("cal"), nextv["starts_at"].astimezone(eng.TZ).strftime("%d.%m") if nextv else "—",
          "Următoarea vizită",
          nextv["starts_at"].astimezone(eng.TZ).strftime("%H:%M") if nextv else "neprogramat"),
-        ("done", "✅", n_done, "Proceduri finalizate", "istoric complet"),
+        ("done", _ic("check"), n_done, "Proceduri finalizate", "istoric complet"),
     ]
     kpi_html = "<div class='kpi5'>" + "".join(
         f"<button type='button' class='kpi' onclick=\"openKpi('{key}')\" "
@@ -854,15 +919,15 @@ programului (data\\files).</p></div>"""
         f"<b>{val}</b><span>{lbl}</span><small>{sub}</small></div></button>"
         for key, ic, val, lbl, sub in kpis) + "</div>"
 
-    arch_label = ("↩️ Scoate din arhivă" if p.get("archived")
-                  else "🗄 Arhivează pacientul")
+    arch_label = (_ic("undo") + " Scoate din arhivă" if p.get("archived")
+                  else _ic("box") + " Arhivează pacientul")
     profile_card = f"""<div class='fcard'><h3>Date pacient</h3>
 {info_rows}{notes_html}
 <button style='width:100%;margin-top:12px;background:none;border:1px solid var(--line);
   border-radius:var(--r-ctl);height:var(--h-ctl);cursor:pointer;font-size:14px;
   font-weight:600;color:var(--text2)'
   onclick="var f=document.getElementById('pedit');f.style.display=f.style.display==='none'?'flex':'none'">
-  ✏️ Editează profilul</button>
+  {_ic('pen')} Editează profilul</button>
 {edit_form}
 <form method='post' action='{base}/archive' style='margin-top:8px'>
   <input type='hidden' name='on' value='{"0" if p.get("archived") else "1"}'>
@@ -874,16 +939,16 @@ programului (data\\files).</p></div>"""
   border:1px solid var(--line);border-radius:var(--r-ctl);height:40px;line-height:40px;
   font-size:13px;color:var(--text3);text-decoration:none'
   title='Copie completă a datelor — pentru cererea pacientului (Legea 195)'>
-  📦 Descarcă datele pacientului</a>
+  {_ic('download')} Descarcă datele pacientului</a>
 <a href='{base}/acord' style='display:block;margin-top:8px;text-align:center;
   border:1px solid var(--line);border-radius:var(--r-ctl);height:40px;line-height:40px;
   font-size:13px;color:var(--text3);text-decoration:none'
   title='Formular de informare cu datele pacientului, pentru semnare (Legea 195)'>
-  📋 Informare / acord — tipărire</a>
+  {_ic('clipboard')} Informare / acord — tipărire</a>
 {_erase_block(base, erasure)}</div>"""
 
     # ---- платежи и баланс (08-07, модуль финансов, шаг 1) ----
-    _PAY_ICO = {"numerar": "💵", "card": "💳", "transfer": "🏦"}
+    _PAY_ICO = {"numerar": _ic("cash"), "card": _ic("card"), "transfer": _ic("bank")}
     can_del_pay = can(request_user(), PERM_MONEY)
     chg = f"{fin['charged']:,}".replace(",", " ")
     pd_s = f"{fin['paid']:,}".replace(",", " ")
@@ -894,7 +959,7 @@ programului (data\\files).</p></div>"""
         sold = (f"<div class='sold plus'><span>Avans</span>"
                 f"<b>{f'{-debt:,}'.replace(',', ' ')} MDL</b></div>")
     elif fin["charged"]:
-        sold = "<div class='sold ok'><span>Sold</span><b>achitat integral ✔</b></div>"
+        sold = "<div class='sold ok'><span>Sold</span><b>achitat integral</b></div>"
     else:
         sold = ""
     pay_rows = []
@@ -907,13 +972,13 @@ programului (data\\files).</p></div>"""
         del_f = (f"<form method='post' action='{base}/pay/{pl['id']}/del' "
                  f"onsubmit=\"return confirm('Ștergeți plata? Rămâne urmă în "
                  f"istoricul fișei.')\">"
-                 f"<button title='Șterge plata (doar director)'>✕</button></form>"
+                 f"<button title='Șterge plata (doar director)'>{_ic('close')}</button></form>"
                  if can_del_pay else "")
         pay_rows.append(
             f"<div class='pay-row{' neg' if neg else ''}'>"
             f"<span class='pw'>{when}</span>"
             f"<span class='pi' title='{e(pl['method'])}'>"
-            f"{_PAY_ICO.get(pl['method'], '💵')}</span>"
+            f"{_PAY_ICO.get(pl['method'], _ic('cash'))}</span>"
             f"<b class='pa'>{'− ' if neg else ''}{amt} MDL</b>"
             f"<span class='pn'>{e(pl['note'] or '')}{who}</span>{del_f}</div>")
     method_opts = "".join(f"<option value='{m}'>{_PAY_ICO[m]} {m}</option>"
@@ -935,11 +1000,11 @@ programului (data\\files).</p></div>"""
 soldul fișei.</p></div>"""
 
     quick = f"""<div class='fcard'><h3>Acțiuni rapide</h3><div class='qa'>
-  <button type='button' onclick='openAppt()'>➕ Vizită nouă</button>
-  <a href='#plan'>🦷 Plan de tratament</a>
-  <a href='#docs'>📷 Încarcă document</a>
-  <button type='button' onclick="openNote()">📝 Notiță</button>
-  <button type='button' onclick="window.print()">🖨 Printează fișa</button>
+  <button type='button' onclick='openAppt()'>{_ic('plus')} Vizită nouă</button>
+  <a href='#plan'>{_ic('tooth')} Plan de tratament</a>
+  <a href='#docs'>{_ic('camera')} Încarcă document</a>
+  <button type='button' onclick="openNote()">{_ic('note')} Notiță</button>
+  <button type='button' onclick="window.print()">{_ic('print')} Printează fișa</button>
 </div></div>"""
 
     # ---- окно записи ДЛЯ ЭТОГО пациента ----
@@ -953,9 +1018,11 @@ soldul fișei.</p></div>"""
     today_iso = now.date().isoformat()
     kpi_json = js_json(kpi_panels)
     docs_json = js_json(doc_meta)
+    tabs_json = js_json({k: list(v) for k, v in tab_states.items()})
+    base_json = js_json(base)
     dialogs = f"""<dialog id='apptdlg'>
-  <div class='dlg-head'><span>📅 Programare — {e(p['name'] or '—')}</span>
-    <button type='button' onclick="document.getElementById('apptdlg').close()">✕</button></div>
+  <div class='dlg-head'><span>{_ic('cal')} Programare — {e(p['name'] or '—')}</span>
+    <button type='button' onclick="document.getElementById('apptdlg').close()">{_ic('close')}</button></div>
   <form class='dlg-form' method='post' action='{base}/appoint'>
     <label class='dlab'>Serviciu
       <select name='aservice' id='ap_svc' onchange='apRefresh(1)'>{ap_svc_opts}</select></label>
@@ -972,22 +1039,37 @@ soldul fișei.</p></div>"""
 </dialog>
 <dialog id='kpidlg' class='wide'>
   <div class='dlg-head'><span id='kpi_t'>—</span>
-    <button type='button' onclick='closeKpi()'>✕</button></div>
+    <button type='button' onclick='closeKpi()'>{_ic('close')}</button></div>
   <div class='lbody' id='kpi_b'></div>
 </dialog>
 <dialog id='docdlg' class='wide'>
   <div class='dlg-head'><span id='dv_t'>—</span>
-    <button type='button' onclick="document.getElementById('docdlg').close()">✕</button></div>
+    <button type='button' onclick="document.getElementById('docdlg').close()">{_ic('close')}</button></div>
   <div class='dvbody' id='dv_b'></div>
   <div class='dvacts'>
-    <button type='button' onclick='sysOpen(DV_ID)'>🖥 Deschide în alt program</button>
-    <a id='dv_dl' href='#'>⬇️ Salvează pe disc</a>
+    <button type='button' onclick='sysOpen(DV_ID)'>{_ic('monitor')} Deschide în alt program</button>
+    <a id='dv_dl' href='#'>{_ic('download')} Salvează pe disc</a>
   </div>
+</dialog>
+<dialog id='refuzdlg'>
+  <div class='dlg-head'><span>{_ic('ban')} Refuzul pacientului</span>
+    <button type='button' onclick="document.getElementById('refuzdlg').close()">{_ic('close')}</button></div>
+  <form class='dlg-form' method='post' id='refuzform'>
+    <input type='hidden' name='to' value='refuzat'>
+    <p class='hint' style='margin:0'>Procedura: <b id='rf_p'>—</b></p>
+    <label class='dlab'>Motivul refuzului și consecințele explicate pacientului
+      <textarea name='motiv' id='rf_m' rows='3' maxlength='300' required
+        placeholder='Ex.: pacientul refuză extracția; i s-au explicat riscul de infecție și pierderea dinților vecini'></textarea></label>
+    <p class='hint' style='margin:0'>Se consemnează în fișă și apare în Fișa
+      043/e și în acordul informat, conform art. 13 alin. (5) din Legea
+      nr. 263/2005. Foaia tipărită se semnează de pacient și de medic.</p>
+    <button>{_ic('ban')} Înregistrează refuzul</button>
+  </form>
 </dialog>"""
 
     body = f"""{banner}
-<div class='nav'><a href='/admin/search'>← Pacienți</a>
-<a href='/admin/all'>📋 Programări</a></div>
+<div class='nav'><a href='/admin/search'>{_ic('chev-l')} Pacienți</a>
+<a href='/admin/all'>{_ic('clipboard')} Programări</a></div>
 {hero}
 {kpi_html}
 <div class='pv2'>
@@ -1057,7 +1139,7 @@ function apRefresh(rebuild) {{
       hint.textContent = 'Nu am putut încărca orele libere.';
     }});
 }}
-// ---- цифра → список, из которого она посчитана ----
+// ---- цифра -> список, из которого она посчитана ----
 function openKpi(k) {{
   var p = KPI[k];
   if (!p) return;
@@ -1069,7 +1151,7 @@ function closeKpi() {{ document.getElementById('kpidlg').close(); }}
 function copyId(el) {{
   if (navigator.clipboard) navigator.clipboard.writeText(el.dataset.id);
   var was = el.textContent;
-  el.textContent = 'copiat ✔';
+  el.textContent = 'copiat';
   setTimeout(function () {{ el.textContent = was; }}, 1200);
 }}
 // ---- документ открываем, а не скачиваем ----
@@ -1097,16 +1179,30 @@ function sysOpen(id) {{
 document.getElementById('docdlg').addEventListener('close', function () {{
   document.getElementById('dv_b').innerHTML = '';
 }});
+// какие статусы показывает вкладка — приезжает С СЕРВЕРА (tab_states), тем же
+// словарём, которым посчитаны скрытые строки при отрисовке. Раньше правило
+// жило здесь выражением «не finalizat», и появление отказа развело серверную
+// и браузерную версии одного фильтра
+const PLAN_TABS = {tabs_json};
 function planTab(btn) {{
   document.querySelectorAll('.tabs button').forEach(function (b) {{
     b.classList.toggle('on', b === btn);
   }});
   var f = btn.dataset.f;
   document.querySelectorAll('.plan-row').forEach(function (r) {{
-    var show = f === 'all' || (f === 'act' ? r.dataset.st !== 'finalizat'
-                                           : r.dataset.st === f);
+    var show = f === 'all' || (PLAN_TABS[f] || []).indexOf(r.dataset.st) >= 0;
     r.style.display = show ? '' : 'none';
   }});
+}}
+// отказ — единственное действие плана, которому нужен ТЕКСТ: ст.13(5) требует
+// записать не только сам отказ, но и объяснённые пациенту последствия
+function openRefuz(btn) {{
+  const f = document.getElementById('refuzform');
+  f.action = {base_json} + '/plan/' + btn.dataset.id + '/status';
+  document.getElementById('rf_p').textContent = btn.dataset.p;
+  document.getElementById('rf_m').value = '';
+  document.getElementById('refuzdlg').showModal();
+  document.getElementById('rf_m').focus();
 }}
 function openNote() {{
   var f = document.getElementById('pedit');
@@ -1399,7 +1495,7 @@ async def patient_pay_del(request: Request, pid: int, pay_id: int):
 
 @router.post("/admin/patient/{pid}/plan/{item_id}/status")
 async def patient_plan_status(request: Request, pid: int, item_id: int,
-                              to: str = Form(...)):
+                              to: str = Form(...), motiv: str = Form("")):
     if (deny := _guard(request)) is not None:
         return deny
     # проверяем РЕБРО (откуда → куда), а не только цель: направление — правило
@@ -1407,14 +1503,32 @@ async def patient_plan_status(request: Request, pid: int, item_id: int,
     cur = await db.plan_item_status(item_id, pid)
     if cur is None or (cur, to) not in _PLAN_EDGES:
         return _card_redirect(pid, "bad_card")
-    await db.set_plan_status(item_id, pid, to)
-    return _card_redirect(pid)
+    why = motiv.strip()[:300]
+    # ⭐ Причина требуется СЕРВЕРОМ, а не только атрибутом required в форме:
+    # без неё отказ не является записью по ст.13(5) Legea 263/2005 («cu
+    # indicarea consecinţelor posibile»), а браузерная проверка обходится
+    # любым запросом мимо страницы
+    if to in _PLAN_NEEDS_MOTIV and not why:
+        return _card_redirect(pid, "bad_refuz")
+    await db.set_plan_status(item_id, pid, to, motiv=why)
+    return _card_redirect(pid, "ok_refuz" if to == "refuzat" else "")
 
 
 @router.post("/admin/patient/{pid}/plan/{item_id}/del")
 async def patient_plan_del(request: Request, pid: int, item_id: int):
+    """Удалить можно ТОЛЬКО нетронутую позицию.
+
+    Начатая, выполненная или отказанная — уже медицинская запись: закон велит
+    её хранить (043/e — 5 лет), а отказ ст.13(5) прямо требует оставить в
+    документации. Опечатку в свежедобавленной строке чинит удаление, всё
+    остальное — статус. ⛔ Проверять здесь, а не только прятать кнопку:
+    страница живёт в открытой вкладке дольше, чем позиция в «Planificat».
+    """
     if (deny := _guard(request)) is not None:
         return deny
+    cur = await db.plan_item_status(item_id, pid)
+    if cur is not None and cur != "planificat":
+        return _card_redirect(pid, "bad_pdel")
     await db.delete_plan_item(item_id, pid)
     return _card_redirect(pid)
 
@@ -1660,6 +1774,33 @@ async def patient_acord(request: Request, pid: int, lang: str = ""):
     return pacord.render(p, _doc_lang(p, lang))
 
 
+@router.get("/admin/patient/{pid}/plan-acord", response_class=HTMLResponse)
+async def patient_plan_acord(request: Request, pid: int, lang: str = ""):
+    """Печатный «Acord informat» к плану лечения (ст. 13 Legea 263/2005).
+
+    ⚠️ Не путать с `/acord`: тот — информирование по 195-му (персональные
+    данные), этот — согласие на само вмешательство. Разные основания, разные
+    подписи, и один другого не заменяет.
+
+    Диагноз берём из ПОСЛЕДНЕЙ записи приёма, где он заполнен, — той же
+    формулой, что 043/e: другого места для диагноза в фише нет, а лист без
+    него начинался бы с пустой строки в самом верху.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    plan = await db.plan_items(pid)
+    recs = await db.patient_visit_records(pid)
+    diag = next((r["diagnostic"].strip() for r in recs
+                 if (r.get("diagnostic") or "").strip()), "")
+    await db.log_event(pid, "plan_acord",
+                       "Acord informat la planul de tratament generat "
+                       "pentru tipărire")
+    return pplan.render(p, plan, diag, _doc_lang(p, lang))
+
+
 # ---------- дневник визита (consultația) ----------
 
 @router.get("/admin/visit/{appt_id}", response_class=HTMLResponse)
@@ -1708,7 +1849,10 @@ async def visit_save(request: Request, appt_id: int):
         except ValueError:
             continue
         cur = await db.plan_item_status(iid, pid)
-        if cur is not None and cur != "finalizat":
+        # ⚠️ финализируем только АКТИВНОЕ: отказ (refuzat) в списке галочек не
+        # показывается, но устаревшая вкладка прислала бы его id — и запись по
+        # ст.13(5) молча превратилась бы в «выполнено»
+        if cur in db.PLAN_ACTIVE:
             await db.set_plan_status(iid, pid, "finalizat", appt_id)
     return RedirectResponse(dest + "&msg=ok_visit", status_code=303)
 
@@ -1812,7 +1956,7 @@ _PL_BADGE = {
 }
 
 
-_PL_CANAL = {"tg": "📱 Telegram", "manual": "✍️ recepție", "web": "🌐 web"}
+_PL_CANAL = {"tg": "Telegram", "manual": "recepție", "web": "web"}
 
 
 def _pl_canal(p: dict) -> str:
@@ -1986,7 +2130,7 @@ def _pl_trend(cur: int, prev: int) -> str:
     pct = (cur - prev) * 100 / prev
     if abs(pct) < 0.5:
         return "la fel ca luna trecută"
-    cls, arrow = ("up", "↑") if pct > 0 else ("dn", "↓")
+    cls, arrow = ("up", _ic("caret-u")) if pct > 0 else ("dn", _ic("caret-d"))
     return f"<span class='{cls}'>{arrow} {abs(pct):.0f}%</span> față de luna trecută"
 
 
@@ -2026,12 +2170,12 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
                 else f"<div class='pl-tile'>{inner}</div>")
 
     tiles = ("<div class='pl-tiles'>"
-             + tile("👥", "g", f"{n_total:,}".replace(",", " "), "Total pacienți",
+             + tile(_ic("users"), "g", f"{n_total:,}".replace(",", " "), "Total pacienți",
                     (f"<span class='up'>+{n_new}</span> luna aceasta" if n_new
                      else "niciun pacient nou luna aceasta"))
-             + tile("🧑‍⚕️", "b", n_new, "Pacienți noi (luna aceasta)",
+             + tile(_ic("med"), "b", n_new, "Pacienți noi (luna aceasta)",
                     _pl_trend(n_new, n_new_prev))
-             + tile("📅", "v", n_appt, "Programări (luna aceasta)",
+             + tile(_ic("cal"), "v", n_appt, "Programări (luna aceasta)",
                     _pl_trend(n_appt, n_appt_prev), href="/admin/stats")
              + "</div>")
 
@@ -2060,7 +2204,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
 
     dirty = any([q, med, st, ch, dat]) or sort != "last" or per != 20
     reset = (f"<a class='pl-btn' href='/admin/search' title='Scoate toate filtrele'>"
-             f"✕ Resetează</a>" if dirty else "")
+             f"{_ic('close')} Resetează</a>" if dirty else "")
     csv_url = "/admin/patients.csv" + url()[len("/admin/search"):]
     bar = f"""<form class='pl-bar' method='get' action='/admin/search'>
   <label class='pl-search'>{_ic('search')}
@@ -2079,7 +2223,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
   <button class='pl-btn'>Caută</button>{reset}
   <span style='flex:1'></span>
   <a class='pl-btn' href='{csv_url}' title='Lista filtrată, ca fișier pentru Excel'>
-    ⬇ Exportă</a>
+    {_ic('download')} Exportă</a>
   <button type='button' class='pl-btn primary' onclick='newPat()'>＋ Adaugă pacient</button>
 </form>"""
 
@@ -2090,7 +2234,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
     shown = rows[(page - 1) * per: page * per]
 
     def head(key: str, label: str) -> str:
-        arrow = " ↓" if sort == key else ""
+        arrow = " " + _ic("caret-d") if sort == key else ""
         return f"<th><a href='{url(sort=key, page=0)}'>{label}{arrow}</a></th>"
 
     trs = []
@@ -2099,7 +2243,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
         age = _p_age(p)
         mail = (f"<small>{e(p['email'])}</small>" if p["email"]
                 else f"<small class='dim'>{_PL_CANAL[_pl_canal(p)]}</small>")
-        nxt = (f"<small class='nx' title='Următoarea vizită'>→ "
+        nxt = (f"<small class='nx' title='Următoarea vizită'>› "
                f"{p['next_at'].astimezone(eng.TZ).strftime('%d.%m %H:%M')}</small>"
                if p["next_at"] else "")
         trs.append(
@@ -2115,9 +2259,9 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
             f"<td><span class='pl-badge {cls}'>{label}</span></td>"
             f"<td class='pl-acts'>"
             f"<button type='button' title='Previzualizare' "
-            f"onclick='event.stopPropagation();peek({p['id']})'>👁</button>"
+            f"onclick='event.stopPropagation();peek({p['id']})'>{_ic('eye')}</button>"
             f"<a href='/admin/patient/{p['id']}' title='Deschide fișa' "
-            f"onclick='event.stopPropagation()'>📇</a></td></tr>")
+            f"onclick='event.stopPropagation()'>{_ic('id')}</a></td></tr>")
 
     if shown:
         table = (f"<div class='pl-scroll'><table class='pl-tbl'><thead><tr>"
@@ -2127,19 +2271,19 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
                  f"<th>Status</th><th></th>"
                  f"</tr></thead><tbody>{''.join(trs)}</tbody></table></div>")
     elif q or med or st or ch or dat:
-        table = ("<div class='pl-empty'>🔍<b>Nimic găsit</b>"
+        table = (f"<div class='pl-empty'>{_ic('search')}<b>Nimic găsit</b>"
                  "<span>Încercați alt nume, telefon sau scoateți filtrele.</span>"
                  f"<a class='pl-btn' href='/admin/search'>Vezi toți pacienții</a></div>")
     elif n_arh:
         # все живые фиши в архиве. Без этой ветки экран говорил бы «Încă niciun
         # pacient» — то есть «картотека пуста» там, где она просто спрятана
-        table = (f"<div class='pl-empty'>🗄<b>Toți pacienții sunt în arhivă</b>"
+        table = (f"<div class='pl-empty'>{_ic('box')}<b>Toți pacienții sunt în arhivă</b>"
                  f"<span>În listă nu rămâne nimeni: {n_arh} "
                  f"{'fișă arhivată' if n_arh == 1 else 'fișe arhivate'}.</span>"
                  f"<a class='pl-btn' href='{url(st='arhivat', page=0)}'>"
                  f"Arată arhiva</a></div>")
     else:
-        table = ("<div class='pl-empty'>👥<b>Încă niciun pacient</b>"
+        table = (f"<div class='pl-empty'>{_ic('users')}<b>Încă niciun pacient</b>"
                  "<span>Fișele apar aici odată cu prima programare — "
                  "din registru sau din bot.</span>"
                  "<button type='button' class='pl-btn primary' onclick='newPat()'>"
@@ -2149,7 +2293,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
     # отправивший фишу в архив, не находит её и решает, что потерял. Список
     # обязан признаться, что кого-то прячет, и дать дверь.
     hidden_arh = n_arh if not (q or st == "arhivat") else 0
-    arh_hint = (f" · 🗄 {hidden_arh} "
+    arh_hint = (f" · {_ic('box')} {hidden_arh} "
                 f"{'arhivat' if hidden_arh == 1 else 'arhivați'} "
                 f"<a href='{url(st='arhivat', page=0)}'>arată</a>"
                 if hidden_arh else "")
@@ -2191,15 +2335,15 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
 <div class='pl-grid'>
   <div class='pl-card'>{table}{pager}</div>
   <aside class='ppanel' id='ppanel'>
-    <button type='button' class='pp-x' onclick='peekOff()' title='Închide'>✕</button>
-    <div id='pp_body'><div class='pp-empty'>👁<span>Alegeți un pacient din listă
+    <button type='button' class='pp-x' onclick='peekOff()' title='Închide'>{_ic('close')}</button>
+    <div id='pp_body'><div class='pp-empty'>{_ic('eye')}<span>Alegeți un pacient din listă
       pentru previzualizare — fără să părăsiți lista</span></div></div>
   </aside>
 </div>
 <div class='pp-veil' id='pp_veil' onclick='peekOff()'></div>
 <dialog id='npdlg'>
   <div class='dlg-head'><span>＋ Pacient nou</span>
-    <button type='button' onclick="document.getElementById('npdlg').close()">✕</button></div>
+    <button type='button' onclick="document.getElementById('npdlg').close()">{_ic('close')}</button></div>
   <form class='dlg-form' method='post' action='/admin/patients/new'>
     <label class='dlab'>Nume și prenume
       <input name='name' maxlength='120' required autofocus></label>
@@ -2318,7 +2462,7 @@ async def patient_peek(request: Request, pid: int):
     nextv = min(future, key=lambda v: v["starts_at"]) if future else None
 
     row = {**p, "n_alerts": len(alerts),
-           "n_plan": sum(1 for it in plan if it["status"] != "finalizat"),
+           "n_plan": sum(1 for it in plan if it["status"] in db.PLAN_ACTIVE),
            "last_at": lastv["starts_at"] if lastv else None}
     label, cls = _PL_BADGE[_pl_status(row, now)]
     age = _p_age(p)
@@ -2366,7 +2510,7 @@ async def patient_peek(request: Request, pid: int):
                     f"{_ALERT_KINDS.get(a['kind'], 'ℹ️')} {e(a['text'])}</div>"
                     for a in alerts)
     if p.get("notes"):
-        notes += f"<div class='pp-note info'>📝 {e(p['notes'])}</div>"
+        notes += f"<div class='pp-note info'>{_ic('note')} {e(p['notes'])}</div>"
     notes_block = (f"<div class='pp-b'><div class='pp-t'>Notițe</div>{notes}</div>"
                    if notes else "")
 
@@ -2377,7 +2521,7 @@ async def patient_peek(request: Request, pid: int):
             kb = d["size"] // 1024
             size = f"{kb} KB" if kb < 1024 else f"{kb / 1024:.1f} MB"
             items.append(f"<a class='pp-doc' href='/admin/doc/{d['id']}'>"
-                         f"<span>📄</span><div><b>{e(d['filename'])}</b>"
+                         f"<span>{_ic('file')}</span><div><b>{e(d['filename'])}</b>"
                          f"<small>{_pl_dmy(d['uploaded_at'])} · {size}</small></div></a>")
         more = (f"<a class='pp-all' href='/admin/patient/{pid}#docs'>Vezi toate "
                 f"({len(docs)})</a>" if len(docs) > 3 else "")
@@ -2390,10 +2534,10 @@ async def patient_peek(request: Request, pid: int):
     <span class='pl-badge {cls}'>{label}</span></div>
 </div>
 <div class='pp-info'>{info}</div>
-<a class='pl-btn' href='/admin/patient/{pid}'>✏️ Editează fișa</a>
+<a class='pl-btn' href='/admin/patient/{pid}'>{_ic('pen')} Editează fișa</a>
 {next_block}{last_block}{plan_block}{notes_block}{docs_block}
 <div class='pp-foot'><span>{len(live)} vizite în total</span>
-  <a class='pl-btn primary' href='/admin/patient/{pid}'>Vezi profilul complet →</a></div>""")
+  <a class='pl-btn primary' href='/admin/patient/{pid}'>Vezi profilul complet ›</a></div>""")
 
 
 @router.get("/admin/patients.csv")

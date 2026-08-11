@@ -147,11 +147,16 @@ def render_html(data: dict) -> str:
         [[_esc(t["tooth"]), _esc(t["state"]), _esc(t.get("surfaces")) or "—",
           _esc(t["doctor"]) or "—",
           _esc(t["note"]) or "—", _dt(t["updated_at"])] for t in data["dinti"]])
+    # ⚠️ Причина отказа входит в копию по 195-му наравне с остальным: это
+    # данные о пациенте, которые клиника о нём хранит, и «право на доступ»
+    # означает в том числе увидеть, как записан собственный отказ
     plan = _table(
-        ["Dinte", "Procedură", "Medic", "Stare", "Preț (MDL)", "Termen"],
+        ["Dinte", "Procedură", "Medic", "Stare", "Preț (MDL)", "Termen",
+         "Motivul refuzului"],
         [[_esc(i["tooth"]) or "—", _esc(i["procedure"]), _esc(i["doctor"]),
           _esc(i["status"]), _esc(i["price_mdl"]) or "—",
-          _dt(i["due_date"], with_time=False)] for i in data["plan_tratament"]])
+          _dt(i["due_date"], with_time=False),
+          _esc(i.get("refuz_motiv")) or "—"] for i in data["plan_tratament"]])
     documente = _table(
         ["Fișier", "Categorie", "Mărime", "Încărcat"],
         [[_esc(d["filename"]), _esc(d["category"]),

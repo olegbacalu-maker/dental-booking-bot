@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, Response
 from ... import engine as eng
 from ...core import theme
 from ...core.auth import _guard
-from ...core.layout import _shell, _tg_state, tg_configured
+from ...core.layout import _ic, _shell, _tg_state, tg_configured
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ async def admin_qr_print(request: Request):
     if not username:
         return _shell(
             "<div class='banner err'>Botul Telegram nu este activ — setați tokenul în "
-            "<a href='/admin/settings/telegram'>Setări → Telegram Bot</a>, "
+            "<a href='/admin/settings/telegram'>Setări › Telegram Bot</a>, "
             "apoi reveniți aici pentru QR.</div>",
             "QR pentru pacienți", active="qr")
     link = f"https://t.me/{username}"
@@ -59,13 +59,13 @@ async def admin_qr_print(request: Request):
  @media print{{ .noprint{{display:none}} .sheet{{border:none}} body{{padding:0}} }}
 </style></head><body>
 <div class="noprint">
-  <button onclick="window.print()">🖨 Printează</button>
-  <a href="/admin">← Panou</a>
+  <button onclick="window.print()">{_ic('print')} Printează</button>
+  <a href="/admin">{_ic('chev-l')} Panou</a>
 </div>
 <div class="sheet">
   {theme.print_logo()}
-  <h1>🦷 {name}</h1>
-  <!-- ⛔ не обещать здесь «24/7»/«non-stop»: бот отвечает, только пока
+  <h1>{_ic('tooth')} {name}</h1>
+  <!-- {_ic('ban')} не обещать здесь «24/7»/«non-stop»: бот отвечает, только пока
        программа запущена, а выключает ли клиника ПК на ночь — мы не знаем.
        Печатка врать не имеет права, выгода — «без звонка», не «всегда». -->
   <h2>Programare online — fără să sunați</h2>
@@ -73,7 +73,7 @@ async def admin_qr_print(request: Request):
   <div class="user">Telegram: @{html.escape(username)}</div>
   <div class="how">Scanați codul cu camera telefonului și programați-vă în 40 de secunde.<br>
   Отсканируйте код камерой телефона — запись за 40 секунд.</div>
-  <div class="phone">📞 {html.escape(eng.CLINIC_PHONE)}</div>
+  <div class="phone">{_ic('phone')} {html.escape(eng.CLINIC_PHONE)}</div>
   <div class="brand">DentPilot</div>
 </div>
 </body></html>"""
@@ -99,6 +99,6 @@ async def demo(url: str = "") -> Response:
 justify-content:center;height:100vh;margin:0;background:{theme.accent()};color:{theme.on_accent()}}}
 img{{background:#fff;padding:18px;border-radius:12px;width:340px;height:340px}}
 h1{{font-weight:600;font-size:22px}}p{{font-size:14px;opacity:.85}}</style></head><body>
-<h1>🦷 Scanați pentru programare / Сканируйте для записи</h1>
+<h1>{_ic('tooth')} Scanați pentru programare / Сканируйте для записи</h1>
 <img src="/qr?data={q}" alt="QR">
 <p>{html.escape(target)}</p></body></html>""")

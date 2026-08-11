@@ -33,8 +33,9 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
     for r in rows:
         dt_txt = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
         is_note = r["source"] == "note"
-        src = "📝 notiță" if is_note else ("🤖 bot" if r["source"] == "bot" else "✍️ manual")
-        svc_txt = (("📝 " if is_note else "🆘 " if r["service"] in eng.URGENT_LABELS else "")
+        src = _ic("note") + " notiță" if is_note else (_ic("bot") + " bot" if r["source"] == "bot" else _ic("pen") + " manual")
+        svc_txt = ((_ic("note") + " " if is_note else _ic("sos") + " "
+                    if r["service"] in eng.URGENT_LABELS else "")
                    + html.escape(r["service"]))
         if r["comment"]:
             svc_txt += (f"<br><small style='color:#7a6a00'>{_ic('chat')} "
@@ -68,7 +69,7 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             f"<td>{src}</td>"
             f"<td><span class='stat s-{r['status']}'>"
             f"{STATUS_LABEL.get(r['status'], r['status'])}</span>"
-            f"{' 🔔' if r['reminded_day'] else ''}"
+            f"{_REM_MARK if r['reminded_day'] else ''}"
             f"{_REC_MARK if r.get('has_rec') else ''}</td><td>{acts}</td></tr>"
         )
     if not items:
@@ -185,6 +186,8 @@ SVC_PALETTE = {
 # Пометка «визит записан в дневник» — со своим классом: по нему её
 # находит и стиль, и проверка в test_visit. Без класса единственным
 # признаком был бы сам значок, а он есть и в меню («Medici»).
+_REM_MARK = (" <span class='rem-mark' title='Reminder trimis'>"
+             + _ic("bell") + "</span>")
 _REC_MARK = (" <span class='rec-mark' title='Consultație completată'>"
              + _ic("med") + "</span>")
 

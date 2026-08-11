@@ -143,7 +143,7 @@ def _secret() -> str:
 def _sec_warn() -> str:
     if _secret() or db.IS_SQLITE:
         return ""
-    return " · ⚠️ fără parolă — setați ADMIN_KEY în .env"
+    return " · fără parolă — setați ADMIN_KEY în .env"
 
 
 def _cookie_sig(uid: str = "", role: str = "", sid: str = "") -> str:

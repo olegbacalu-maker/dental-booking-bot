@@ -43,13 +43,13 @@ def render() -> str:
     items = [
         _q(_ic("save"), "Cât de des fac copii de rezervă și unde le păstrez?",
            f"{p}Recomandăm o copie <b>pe săptămână</b> — sau după orice zi cu "
-           f"multe modificări. Se face din <b>Setări → Copie de rezervă</b>: "
+           f"multe modificări. Se face din <b>Setări › Copie de rezervă</b>: "
            f"alegeți o parolă (minim {bkp.MIN_PASS} caractere) și salvați "
            f"arhiva.{end}"
            f"{p}Păstrați arhiva <b>în afara acestui calculator</b> — pe un "
            f"stick USB sau pe alt calculator. O copie păstrată lângă original "
            f"dispare împreună cu el (defectarea discului, furt, viruși).{end}"
-           f"{p}⚠️ Parola arhivei <b>nu se salvează nicăieri</b> — notați-o "
+           f"{p}{_ic('sos')} Parola arhivei <b>nu se salvează nicăieri</b> — notați-o "
            f"într-un loc sigur. Fără ea, arhiva nu poate fi deschisă de "
            f"nimeni, nici de noi.{end}"
            f"{p}Arhiva este <b>de sine stătătoare</b>: chiar dacă evidența de "
@@ -64,10 +64,10 @@ def render() -> str:
            f"AES-256. Se deschide pe orice calculator cu <b>7-Zip</b> "
            f"(gratuit, www.7-zip.org) sau <b>WinRAR</b>, cu parola aleasă la "
            f"export — nu depindeți nici de DentPilot, nici de noi.{end}"
-           f"{p}⚠️ Windows (Explorer) <b>nu poate</b> extrage acest tip de "
+           f"{p}{_ic('sos')} Windows (Explorer) <b>nu poate</b> extrage acest tip de "
            f"arhivă și afișează o eroare — nu înseamnă că arhiva e stricată; "
            f"folosiți 7-Zip.{end}"
-           f"{p}⛔ <b>Când restaurați</b> — din arhivă sau copiind o copie "
+           f"{p}{_ic('ban')} <b>Când restaurați</b> — din arhivă sau copiind o copie "
            f"zilnică din <b>data\\backups</b> — ștergeți întâi fișierele "
            f"<b>data\\dental.db-wal</b> și <b>data\\dental.db-shm</b>, dacă "
            f"există. Ele aparțin bazei vechi și, rămase pe loc, se aplică peste "
@@ -85,14 +85,14 @@ def render() -> str:
            f"<b>întreg</b> pe calculatorul nou — sau restaurați din arhiva de "
            f"rezervă (pașii sunt în CITESTE-MA.txt din arhivă). Pacienții, "
            f"programările, documentele și PIN-urile de intrare rămân.{end}"
-           f"{p}⚠️ <b>Dacă evidența este criptată</b> (Setări → Criptarea "
+           f"{p}{_ic('sos')} <b>Dacă evidența este criptată</b> (Setări › Criptarea "
            f"evidenței), pe calculatorul nou programul vă va cere codul de pe "
            f"<b>foaia de recuperare</b> — cea tipărită la activarea criptării. "
            f"Luați-o cu dumneavoastră odată cu folderul: cheia este legată de "
            f"contul Windows vechi și pe altul nu poate fi citită. Fără foaie, "
            f"evidența copiată nu se deschide nici de noi.{end}"
-           f"{p}⚠️ Trebuie reintrodus și <b>tokenul botului Telegram</b> "
-           f"(Setări → Telegram Bot), din același motiv. Aici însă nu se pierde "
+           f"{p}{_ic('sos')} Trebuie reintrodus și <b>tokenul botului Telegram</b> "
+           f"(Setări › Telegram Bot), din același motiv. Aici însă nu se pierde "
            f"nimic: tokenul se ia din nou de la @BotFather.{end}"
            f"{p}Ambele sunt protecții, nu defecțiuni: un folder copiat sau "
            f"furat nu dezvăluie nici evidența, nici tokenul clinicii.{end}"),
@@ -107,7 +107,7 @@ def render() -> str:
            f"SQLite obișnuită și, copiată de pe calculator, se deschide cu "
            f"orice program. Criptarea o face inutilizabilă în afara acestui "
            f"calculator. Are sens mai ales dacă programul stă pe un laptop "
-           f"care iese din clinică. Se activează din <b>Setări → Criptarea "
+           f"care iese din clinică. Se activează din <b>Setări › Criptarea "
            f"evidenței</b>.{end}"
            f"{p}Ce cere în schimb: activarea tipărește o <b>foaie de "
            f"recuperare</b> cu un cod, iar foaia devine responsabilitatea "
@@ -132,7 +132,7 @@ def render() -> str:
            f"pagină, cu o repornire. Datele nu se pierd.{end}"),
 
         _q(_ic("wifi"), "Pot deschide registrul de pe telefon?",
-           f"{p}Da, în rețeaua clinicii: <b>Setări → Acces de pe telefon → "
+           f"{p}Da, în rețeaua clinicii: <b>Setări › Acces de pe telefon › "
            f"Activează accesul</b> (programul repornește), apoi scanați "
            f"codul QR de pe pagină cu telefonul conectat la Wi-Fi-ul "
            f"clinicii. Fiecare intră cu parola lui; din meniul browserului "
@@ -151,13 +151,13 @@ def render() -> str:
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "
            f"programului; baza de date, documentele și setările rămân "
            f"neatinse. Programul verifică singur dacă există o versiune nouă "
-           f"— instalarea e un click în <b>Setări → Stare sistem</b>.{end}"
+           f"— instalarea e un click în <b>Setări › Stare sistem</b>.{end}"
            f"{p}Nu e nevoie de o copie de rezervă specială înainte de "
            f"actualizare — dar o copie recentă e oricum o idee bună.{end}"),
 
         _q(_ic("key"), "Am uitat parola de intrare — ce fac?",
            f"{p}Dacă în clinică există alt <b>director</b>, el poate seta o "
-           f"parolă nouă pentru oricine: <b>Setări → Securitate și "
+           f"parolă nouă pentru oricine: <b>Setări › Securitate și "
            f"utilizatori</b>.{end}"
            f"{p}Dacă parola uitată e a singurului director — scrieți-ne la "
            f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>. Există o "
@@ -165,13 +165,13 @@ def render() -> str:
            f"{p}După mai multe încercări greșite, intrarea se blochează "
            f"temporar (de la 30 de secunde la 15 minute) — e o protecție "
            f"împotriva ghicirii; așteptați și încercați din nou.{end}"
-           f"{p}⚠️ A nu se confunda cu <b>foaia de recuperare</b> a criptării: "
+           f"{p}{_ic('sos')} A nu se confunda cu <b>foaia de recuperare</b> a criptării: "
            f"sunt lucruri diferite. Parola de intrare spune cine deschide "
            f"programul și se poate schimba; codul de pe foaie deschide baza "
            f"însăși și nu poate fi schimbat sau recuperat de nimeni.{end}"),
 
         _q(_ic("palette"), "Pot pune culoarea și logoul clinicii în program?",
-           f"{p}Da: <b>Setări → Aspectul clinicii</b>. Alegeți unul din trei "
+           f"{p}Da: <b>Setări › Aspectul clinicii</b>. Alegeți unul din trei "
            f"stiluri, culoarea clinicii (șase gata alese sau a dumneavoastră) "
            f"și încărcați logoul. Culoarea se aplică butoanelor, meniului și "
            f"accentelor; logoul apare la intrare și în antetul documentelor "
@@ -199,9 +199,9 @@ def render() -> str:
            f"recepție, registrul de evidență) le primiți de la furnizor.{end}"
            f"{p}Măsura tehnică cerută de lege o acoperă <b>criptarea "
            f"discului (BitLocker)</b> — starea ei o verifică programul singur "
-           f"și o arată în <b>Setări → Stare sistem</b>, ca să nu depindeți de "
+           f"și o arată în <b>Setări › Stare sistem</b>, ca să nu depindeți de "
            f"un act semnat. Peste ea puteți cripta și evidența propriu-zisă "
-           f"(<b>Setări → Criptarea evidenței</b>): BitLocker apără discul "
+           f"(<b>Setări › Criptarea evidenței</b>): BitLocker apără discul "
            f"scos din calculator, criptarea evidenței apără fișierul copiat de "
            f"pe el.{end}"),
 
@@ -210,16 +210,16 @@ def render() -> str:
            f"toată evidența; <b>data\\files\\</b> — documentele pacienților; "
            f"<b>clinic.json</b> — profilul clinicii.{end}"
            f"{p}Dacă evidența este criptată, tot acolo apare "
-           f"<b>data\\db.key</b> — cheia. ⛔ Acest fișier <b>nu se șterge "
+           f"<b>data\\db.key</b> — cheia. {_ic('ban')} Acest fișier <b>nu se șterge "
            f"niciodată</b>: fără el evidența se deschide doar cu codul de pe "
            f"foaia de recuperare. Se copiază împreună cu folderul, dar pe alt "
            f"calculator nu poate fi citit — de aceea foaia.{end}"
-           f"{p}⚠️ Nu ștergeți, nu redenumiți și nu «faceți curat» în aceste "
+           f"{p}{_ic('sos')} Nu ștergeți, nu redenumiți și nu «faceți curat» în aceste "
            f"fișiere din Windows — programul le leagă între ele, iar orice "
            f"ștergere se face din program. Pentru orice nelămurire: "
            f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.{end}"),
     ]
-    return ("<h2>❓ Întrebări frecvente</h2>"
+    return (f"<h2>{_ic('help')} Întrebări frecvente</h2>"
             "<p class='hint' style='margin-top:0'>Apăsați pe o întrebare "
             "pentru răspuns. Nu găsiți răspunsul? Scrieți-ne la "
             f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.</p>"

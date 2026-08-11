@@ -626,16 +626,27 @@
    border-bottom:1px dashed var(--teal-line)}
  button.pt:hover{border-bottom-style:solid}
  .plan-row .pp{flex:1;min-width:0;font-weight:600;font-size:14px}
+ /* причина отказа — ВТОРОЙ строкой под процедурой: она часть медзаписи
+    (ст.13(5)), и прятать её в подсказку значит не показывать вовсе */
+ .plan-row .pmotiv{display:block;font-weight:400;font-size:12.5px;
+   color:var(--text2);font-style:normal;margin-top:2px}
  .plan-row .pd{width:130px;flex:0 0 130px;color:var(--text2);font-size:13px}
  .plan-row.done{opacity:.6}
  .plan-row.done .pp{font-weight:500}
+ /* отказ гасится слабее выполненного: выполненное отработано и уходит с
+    глаз, а отказ читают — с ним ещё предстоит разговор */
+ .plan-row.done[data-st="refuzat"]{opacity:.85}
  .pdone{width:110px;flex:0 0 110px;font-size:12.5px;font-weight:600;
    color:var(--green-t)}
+ .plan-row[data-st="refuzat"] .pdone{color:var(--red-t)}
  .pbadge{font-size:11px;font-weight:600;letter-spacing:.05em;padding:4px 9px;
    border-radius:6px;text-transform:uppercase}
  .pbadge.planificat{border:1px solid var(--line);color:var(--text3)}
  .pbadge.in_lucru{background:var(--teal);color:var(--on-teal)}
  .pbadge.finalizat{background:var(--line2);color:var(--text2)}
+ /* ⛔ Отказ — не ошибка программы, а право пациента: рамка, а не заливка
+    красным. Заливка кричала бы на регистратуру за чужое решение */
+ .pbadge.refuzat{border:1px solid var(--red);color:var(--red-t)}
  .plan-row .pm{width:96px;flex:0 0 96px;text-align:right;font-weight:600}
  .plan-row form{margin:0}
  .plan-row .pact{display:flex;gap:6px;align-items:center}
@@ -648,9 +659,17 @@
  .plan-row .pact .pgo.fin:hover{background:var(--green);color:#fff}
  .plan-row .pact .pre{background:none;border:1px solid var(--line);color:var(--text3)}
  .plan-row .pact .pre:hover{border-color:var(--amber);color:var(--amber-t)}
+ .plan-row .pact .pref{background:none;border:1px solid var(--line);color:var(--text3)}
+ .plan-row .pact .pref:hover{border-color:var(--red);color:var(--red-t)}
  .plan-row .pact .pdel{background:none;border:1px solid var(--line);color:var(--text3);
    padding:0 9px}
  .plan-row .pact .pdel:hover{border-color:var(--red);color:var(--red-t)}
+ /* ссылка на лист согласия живёт В ЗАГОЛОВКЕ плана и прижата вправо: план
+    обсуждают с пациентом сверху вниз, подписывают — в конце разговора */
+ .pacord{margin-left:auto;font-size:13px;font-weight:600;color:var(--teal-d);
+   display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+ .pacord:hover{text-decoration:underline}
+ .fcard h3:has(.pacord){display:flex;align-items:center;gap:8px}
  .plan-prog{display:flex;align-items:center;gap:10px;margin:2px 0 12px}
  .plan-prog .statbar{flex:1;height:7px;border-radius:999px}
  .plan-prog .statbar div{height:7px;border-radius:999px;

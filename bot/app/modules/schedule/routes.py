@@ -105,7 +105,7 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                 if r["source"] == "note":
                     cell.append(f"<div class='appt note'>{_ic('note')} {hhmm} {html.escape(r['service'])}</div>")
                     continue
-                src = "🤖" if r["source"] == "bot" else _ic("pen")
+                src = _ic("bot") if r["source"] == "bot" else _ic("pen")
                 urgent = r["service"] in eng.URGENT_LABELS
                 cls = r["status"] + (" urgent" if urgent else "")
                 svc_txt = (_ic("sos") + " " if urgent else "") + html.escape(r["service"])
@@ -452,7 +452,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 ico = _ic("excl") if (r["service"] in eng.URGENT_LABELS
                               and r["status"] == "confirmed") \
                     else _STATUS_ICON.get(r["status"], "")
-                src = "🤖" if r["source"] == "bot" else _ic("pen")
+                src = _ic("bot") if r["source"] == "bot" else _ic("pen")
                 ns = " noshow" if r["status"] == "noshow" else ""
                 click = f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else ""
                 dur = int(r.get("duration_min") or 60)
@@ -634,7 +634,7 @@ def _botnew_block(recent: list, now: datetime) -> str:
             f"{html.escape(r['doctor'])} · {html.escape(r['service'])} · "
             f"<b>{html.escape(r['name'] or '')}</b> · {html.escape(r['phone'] or '')}"
             f"{nou} <span class='crt'>— primită {created.strftime('%d.%m %H:%M')}</span></a>")
-    return ("<div class='botnew' id='botnew'><h3>🤖 Programări noi din bot (7 zile, ultimele 10)</h3>"
+    return ("<div class='botnew' id='botnew'><h3>{_ic('bot')} Programări noi din bot (7 zile, ultimele 10)</h3>"
             + "".join(items) + "</div>")
 
 
@@ -773,7 +773,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
             + (_botnew_block(recent, now) if tg_ui else "") + sync
             + "</div></div>"
             + _slot_modal(d, back) + _card_modal(cards, back))
-    sub = (f"panou principal · 🤖 bot / {_ic('pen')} recepție · se actualizează automat"
+    sub = (f"panou principal · {_ic('bot')} bot / {_ic('pen')} recepție · se actualizează automat"
            if tg_ui else "panou principal · se actualizează automat")
     return _shell(body, sub, active="dash",
                   bell=new_today if tg_ui else None)
@@ -826,9 +826,9 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
     sunday = monday + timedelta(days=6)
     nav = (f"<div class='nav'><b>{monday.strftime('%d.%m')} – {sunday.strftime('%d.%m.%Y')}"
            f" · {total_wk} programări</b>"
-           f"<a href='/admin/week?date={prev_w}'>◀ săpt.</a>"
+           f"<a href='/admin/week?date={prev_w}'>{_ic('chev-l')} săpt.</a>"
            f"<a href='/admin/week'>Azi</a>"
-           f"<a href='/admin/week?date={next_w}'>săpt. ▶</a>"
+           f"<a href='/admin/week?date={next_w}'>săpt. {_ic('chev-r')}</a>"
            f"<a href='/admin?date={d.isoformat()}'>Zi</a>"
            f"<a class='primary' href='/admin/week?date={d.isoformat()}'>Săptămâna</a></div>")
     body = nav + f"<div class='week'>{''.join(cols)}</div>" + \
@@ -876,7 +876,7 @@ async def admin_export(
 
 # фильтры для клика по плиткам дашборда: цифра → сразу список этих записей
 _TILE_FILTERS = {
-    "bot": ("🤖 prin bot",
+    "bot": ("prin bot",
             lambda r: r["source"] == "bot" and r["status"] != "cancelled"),
     "rec": ("recepție",
             lambda r: r["source"] == "manual" and r["status"] != "cancelled"),
@@ -930,7 +930,7 @@ async def admin_all(
             + ("" if flt else _list(rows, back))
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, (f"toți medicii · 🤖 bot / {_ic('pen')} recepție / {_ic('note')} notițe"
+    return _shell(body, (f"toți medicii · {_ic('bot')} bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
                          else f"toți medicii · {_ic('pen')} recepție / {_ic('note')} notițe"),
                   active="prog")
@@ -971,7 +971,7 @@ async def admin_doctor(
     head = (f"<div class='nav'><b>{html.escape(name)}</b>{off_badge} "
             f"<span style='color:#667'>{html.escape(eng.DOCTOR_SPEC.get(dk, ''))}</span> "
             f"{fisa}"
-            f"<a href='/admin?date={d.isoformat()}'>🏠 Panou</a>"
+            f"<a href='/admin?date={d.isoformat()}'>{_ic('home')} Panou</a>"
             f"<a href='/admin/all?date={d.isoformat()}'>{_ic('clipboard')} Toți medicii</a></div>")
     cards = _collect_cards(rows)
     body = (head + _date_nav(d, base) + _banner(msg, d)
@@ -980,7 +980,7 @@ async def admin_doctor(
             + _list(rows, back)
             + _slot_modal(d, back)
             + _card_modal(cards, back))
-    return _shell(body, (f"ziua unui medic · 🤖 bot / {_ic('pen')} recepție / {_ic('note')} notițe"
+    return _shell(body, (f"ziua unui medic · {_ic('bot')} bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
                          else f"ziua unui medic · {_ic('pen')} recepție / {_ic('note')} notițe"),
                   active="prog")

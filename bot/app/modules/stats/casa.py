@@ -21,6 +21,7 @@ from datetime import date, datetime
 
 from ... import engine as eng
 from ...core import theme
+from ...core.layout import _ic
 
 # Порядок фиксированный, а не по данным: пустая строка «Card — 0 MDL» это тоже
 # сведение кассы. «Сегодня картой не платили» и «строку забыли» — разные вещи,
@@ -105,8 +106,8 @@ def render(day: date, rows: list) -> str:
 <style>{theme.paint(_CSS)}</style></head><body>
 
 <div class="noprint">
-  <button onclick="window.print()">🖨 Printează</button>
-  <a href="/admin/stats">← Statistici</a>
+  <button onclick="window.print()">{_ic('print')} Printează</button>
+  <a href="/admin/stats">{_ic('chev-l')} Statistici</a>
 </div>
 
 {theme.print_logo("clogo c")}

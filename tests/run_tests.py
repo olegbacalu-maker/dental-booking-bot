@@ -20,6 +20,7 @@ import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_bot  # noqa: E402
 import test_pin  # noqa: E402
+import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
@@ -62,6 +63,11 @@ SUITES = [
     ("Дневник визита: план и статусы", test_visit.suite_plan),
     ("Дневник визита: закон 195", test_visit.suite_195),
     ("Форма 043/e: печать", test_visit.suite_043),
+    ("Отказ пациента: статус и охрана", test_plan_acord.suite_refuz),
+    ("Отказ пациента: не считается активным",
+     test_plan_acord.suite_refuz_not_active),
+    ("Acord informat: печатный лист", test_plan_acord.suite_acord),
+    ("Отказ пациента: 043/e и выгрузка", test_plan_acord.suite_refuz_docs),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),

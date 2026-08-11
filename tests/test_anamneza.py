@@ -53,7 +53,7 @@ def suite(res: Result) -> None:
 
         page = c.get(f"/admin/patient/{pid}").body
         res.ok("отметки видны без раскрытия",
-               "de reținut" in page and "⚠️ Diabet zaharat" in page,
+               "de reținut" in page and "</svg> Diabet zaharat</span>" in page,
                "риски не видны в свёрнутом виде")
         res.ok("свободный текст вернулся в форму",
                "ulcer gastric operat 2019" in page, "текст не сохранился")
@@ -97,8 +97,8 @@ def suite(res: Result) -> None:
         res.check("опросник правится", r.msg, "ok_anam")
         page = c.get(f"/admin/patient/{pid}").body
         res.ok("снятая галочка снялась",
-               "⚠️ Boli cardiovasculare" not in page
-               and "⚠️ Diabet zaharat" in page, "отметка не снялась")
+               "</svg> Boli cardiovasculare</span>" not in page
+               and "</svg> Diabet zaharat</span>" in page, "отметка не снялась")
         res.ok("правка отмечена в летописи", "Anamneza actualizată" in page,
                "правка не отличается от первого заполнения")
 

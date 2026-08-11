@@ -163,6 +163,9 @@ CREATE TABLE IF NOT EXISTS visit_records(
 CREATE INDEX IF NOT EXISTS ix_visit_patient ON visit_records(patient_id);
 -- на каком приёме позиция плана была выполнена (NULL = финал без визита/не финал)
 ALTER TABLE plan_items ADD COLUMN IF NOT EXISTS appointment_id INT;
+-- отказ пациента от процедуры: ст.13(5) Legea 263/2005 требует, чтобы отказ
+-- ОСТАЛСЯ в меддокументации с указанием возможных последствий, а не исчез
+ALTER TABLE plan_items ADD COLUMN IF NOT EXISTS refuz_motiv TEXT NOT NULL DEFAULT '';
 -- Анамнез: опросник «до кресла», один на пациента. Заполняет раздел 2 формы
 -- 043/e. flags — отмеченные состояния одной строкой ('diabet,hepatita'),
 -- чтобы добавление вопроса не требовало миграции у клиники.
@@ -336,6 +339,8 @@ SQLITE_EXTRA_COLS = [
     ("teeth", "doctor TEXT NOT NULL DEFAULT ''"),
     # дневник визита: на каком приёме позиция плана была выполнена
     ("plan_items", "appointment_id INTEGER"),
+    # отказ пациента от позиции плана — причина и последствия (ст.13(5))
+    ("plan_items", "refuz_motiv TEXT NOT NULL DEFAULT ''"),
     # поверхности зуба (M/O/D/V/L), см. PG-схему
     ("teeth", "surfaces TEXT NOT NULL DEFAULT ''"),
 ]
@@ -1198,9 +1203,12 @@ async def patients_alert_counts() -> list:
 
 
 async def patients_plan_counts() -> list:
-    """Незавершённые пункты плана — по ним пациент считается «в лечении»."""
+    """Незавершённые пункты плана — по ним пациент считается «в лечении».
+
+    ⚠️ Перечисляем активные статусы ПОИМЁННО, а не «<> finalizat»: отказанная
+    позиция закрыта, и пациент с одним отказом не находится в лечении."""
     sql = ("SELECT patient_id, COUNT(*) AS n FROM plan_items "
-           "WHERE status <> 'finalizat' GROUP BY patient_id")
+           "WHERE status IN ('planificat', 'in_lucru') GROUP BY patient_id")
     return await _fetch(sql, sql)
 
 
@@ -1585,13 +1593,23 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     await log_event(pid, "tooth", txt, tooth=tooth)
 
 
+# ⭐ «Активная» позиция плана — это planificat|in_lucru, а НЕ «всё, что не
+# finalizat». Пока статусов было три, две формулировки совпадали; с появлением
+# ОТКАЗА (refuzat, ст.13(5) Legea 263/2005) вторая стала враньём: отказанная
+# процедура навсегда осталась бы «в лечении» — в KPI фиши, в колонке списка и
+# в сумме активного плана. Считать активность только через этот кортеж.
+PLAN_ACTIVE = ("planificat", "in_lucru")
+# закрытые: у них проставлен done_at и они не ждут работы
+PLAN_CLOSED = ("finalizat", "refuzat")
+
+
 async def plan_items(pid: int) -> list:
     return await _fetch(
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
-                  done_at, appointment_id
+                  done_at, appointment_id, refuz_motiv
            FROM plan_items WHERE patient_id = $1 ORDER BY id""",
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
-                  done_at, appointment_id
+                  done_at, appointment_id, refuz_motiv
            FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
 
 
@@ -1623,36 +1641,49 @@ async def add_plan_item(pid: int, tooth: int | None, procedure: str,
 
 
 async def set_plan_status(item_id: int, pid: int, status: str,
-                          appt_id: int | None = None) -> None:
+                          appt_id: int | None = None, motiv: str = "") -> None:
     """appt_id — визит, НА котором позицию выполнили (страница консультации).
     Привязка живёт только у финализированной позиции: «Redeschide» означает
-    «на самом деле не сделано», и ссылка на визит снимается вместе с done_at."""
-    done = status == "finalizat"
+    «на самом деле не сделано», и ссылка на визит снимается вместе с done_at.
+
+    ⚠️ `done_at` — дата ЗАКРЫТИЯ позиции, а не «выполнения»: её получает и
+    отказ (refuzat). Иначе пришлось бы завести пятую колонку-дату ради того же
+    смысла, а лист согласия и 043/e спрашивают у отказа ровно дату и причину.
+    Возврат в работу (Redeschide / Reia) чистит и дату, и причину: позиция
+    снова ждёт работы, и старая причина отказа врала бы о ней.
+    """
     rows = await _fetch("SELECT procedure, tooth FROM plan_items WHERE id = $1 AND patient_id = $2",
                         "SELECT procedure, tooth FROM plan_items WHERE id = ? AND patient_id = ?",
                         item_id, pid)
     if rows:
+        # причина отказа уходит в летопись ВМЕСТЕ с переходом: лента —
+        # единственное место, где видно, кто и когда отказ оформил
+        tail = f" ({motiv})" if status == "refuzat" and motiv else ""
         await log_event(pid, "plan_status",
-                        f"Plan: {rows[0]['procedure']} → {status}",
+                        f"Plan: {rows[0]['procedure']} → {status}{tail}",
                         tooth=rows[0]["tooth"])
-    if done:
+    if status in PLAN_CLOSED:
+        # к визиту привязывается только ВЫПОЛНЕННОЕ: отказ ни на каком приёме
+        # не «сделан», и appointment_id у него обязан остаться пустым
+        appt = appt_id if status == "finalizat" else None
+        why = motiv if status == "refuzat" else ""
         await _execute(
             """UPDATE plan_items SET status = $1, done_at = now(),
-                  appointment_id = $4
+                  appointment_id = $4, refuz_motiv = $5
                 WHERE id = $2 AND patient_id = $3""",
             """UPDATE plan_items SET status = ?, done_at = ?,
-                  appointment_id = ?
+                  appointment_id = ?, refuz_motiv = ?
                 WHERE id = ? AND patient_id = ?""",
-            *((status, item_id, pid, appt_id) if not IS_SQLITE
-              else (status, _utcnow_iso(), appt_id, item_id, pid)),
+            *((status, item_id, pid, appt, why) if not IS_SQLITE
+              else (status, _utcnow_iso(), appt, why, item_id, pid)),
         )
     else:
         await _execute(
             """UPDATE plan_items SET status = $1, done_at = NULL,
-                  appointment_id = NULL
+                  appointment_id = NULL, refuz_motiv = ''
                 WHERE id = $2 AND patient_id = $3""",
             """UPDATE plan_items SET status = ?, done_at = NULL,
-                  appointment_id = NULL
+                  appointment_id = NULL, refuz_motiv = ''
                 WHERE id = ? AND patient_id = ?""",
             status, item_id, pid,
         )

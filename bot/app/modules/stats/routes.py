@@ -95,7 +95,7 @@ def _trend(cur: int, prev: int, bad_up: bool = False,
                 f" {label} (atunci 0)</span>")
     pct = (cur - prev) * 100 / prev
     cls = ("dn" if bad_up else "up") if pct > 0 else ("up" if bad_up else "dn")
-    arrow = "▲" if pct > 0 else "▼"
+    arrow = _ic("caret-u") if pct > 0 else _ic("caret-d")
     return (f"<span class='trend'><span class='{cls}'>{arrow} {abs(pct):.0f}%</span>"
             f" {label}</span>")
 
@@ -106,7 +106,7 @@ def _trend_money(cur: int, prev: int, label: str) -> str:
     if cur == prev:
         return f"<span class='trend'>neschimbat {label}</span>"
     diff = cur - prev
-    cls, arrow = ("up", "▲") if diff > 0 else ("dn", "▼")
+    cls, arrow = ("up", _ic("caret-u")) if diff > 0 else ("dn", _ic("caret-d"))
     sign = "+" if diff > 0 else "−"
     return (f"<span class='trend'><span class='{cls}'>{arrow} {sign}"
             f"{_fmt_mdl(abs(diff))}</span> {label}</span>")
@@ -207,9 +207,9 @@ async def admin_stats(
 </div></div>"""
 
     # ---- источники: только те, что программа ЗНАЕТ ----
-    src_parts = [("📱 Telegram", cur["bot"], "var(--teal)"),
-                 ("✍️ Recepție", cur["man"], "var(--blue)"),
-                 ("🌐 Web-chat", cur["web"], "var(--violet)")]
+    src_parts = [("Telegram", cur["bot"], "var(--teal)"),
+                 ("Recepție", cur["man"], "var(--blue)"),
+                 ("Web-chat", cur["web"], "var(--violet)")]
     legend = "".join(
         f"<div class='an-src'><i style='background:{color}'></i>{e(lbl)}"
         f"<b>{val}</b><small>{round(100 * val / cur['total']) if cur['total'] else 0}%</small></div>"
@@ -290,12 +290,12 @@ async def admin_stats(
         f"</small></h3>"
         f"<b data-count='{inc_cur}' data-suffix=' MDL'>{_fmt_mdl(inc_cur)}</b>"
         f"{_trend_money(inc_cur, inc_prev, plabel)}"
-        f"<small>azi: {_fmt_mdl(inc_azi)} · 💵 {_fmt_mdl(by_m['numerar'])} · "
-        f"💳 {_fmt_mdl(by_m['card'])} · 🏦 {_fmt_mdl(by_m['transfer'])} · "
+        f"<small>azi: {_fmt_mdl(inc_azi)} · {_ic('cash')} {_fmt_mdl(by_m['numerar'])} · "
+        f"{_ic('card')} {_fmt_mdl(by_m['card'])} · {_ic('bank')} {_fmt_mdl(by_m['transfer'])} · "
         f"plăți înregistrate la recepție</small>"
         # лист для сверки ящика в конце смены; ведёт на СЕГОДНЯ, а не на конец
         # выбранного периода: касса сходится за смену, а не за произвольное окно
-        f"<a class='ag-all' href='/admin/casa'>🖨 Raport de casă (azi) →</a>"
+        f"<a class='ag-all' href='/admin/casa'>{_ic('print')} Raport de casă (azi) ›</a>"
         f"</div>")
 
     # ---- врачи ----
@@ -340,7 +340,7 @@ async def admin_stats(
     act_rows = []
     for a in acts:
         at = a["at"].astimezone(eng.TZ) if a["at"] else None
-        who = "🤖 bot" if a["actor"] == "bot" else f"🎧 {e(a['actor'] or 'recepție')}"
+        who = "bot" if a["actor"] == "bot" else f"{e(a['actor'] or 'recepție')}"
         link = (f"<a href='/admin/patient/{a['patient_id']}'>{e(a['name'] or '—')}</a>"
                 if a["patient_id"] else e(a["name"] or "—"))
         act_rows.append(
@@ -368,8 +368,8 @@ async def admin_stats(
         f"<button class='searchf' style='background:var(--teal);color:#fff;border:none;"
         f"border-radius:var(--r-ctl);height:var(--h-ctl);padding:0 18px;cursor:pointer;"
         f"font-size:14px;font-weight:600'>OK</button></form>"
-        f"<a href='/admin/export?from={d1.isoformat()}&to={d2.isoformat()}'>📥 Export CSV</a>"
-        f"<a href='/admin'>🏠 Panou</a></div>"
+        f"<a href='/admin/export?from={d1.isoformat()}&to={d2.isoformat()}'>{_ic('download')} Export CSV</a>"
+        f"<a href='/admin'>{_ic('home')} Panou</a></div>"
     )
     hint = ("<p class='hint'>Prețurile sunt medii orientative din lista clinicii; "
             "neprezentările = venit pierdut estimat. Notițele nu se numără. "

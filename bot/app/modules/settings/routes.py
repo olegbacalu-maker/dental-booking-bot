@@ -169,7 +169,7 @@ def _bl_row() -> str:
         return ""
     tone, txt = bitlocker.describe(bitlocker.STATE["code"],
                                    bitlocker.STATE["drive"])
-    ico = {"ok": "✅", "warn": "⚠️", "alarm": "⛔"}.get(tone, "—")
+    ico = {"ok": _ic("check"), "warn": _ic("sos"), "alarm": _ic("ban")}.get(tone, "")
     style = (" style='color:var(--red-t);font-weight:600'" if tone == "alarm"
              else " style='color:var(--amber-t)'" if tone == "warn" else "")
     return (f"<tr><th>Criptare disc (BitLocker)</th>"
@@ -178,14 +178,14 @@ def _bl_row() -> str:
 
 def _tg_line(tg: dict) -> str:
     if tg["running"]:
-        return f"✅ activ — @{html.escape(tg['username'])}"
+        return f"{_ic('check')} activ — @{html.escape(tg['username'])}"
     if os.environ.get("DENTART_TOKEN_UNREADABLE") == "1":
         # шифротекст не с этой машины (см. dpapi.py). Молчаливое «fără token»
         # отправило бы клинику чинить настройки бота, которые в порядке
-        return ("🔑 tokenul nu poate fi citit pe acest calculator — "
+        return (_ic("key") + " tokenul nu poate fi citit pe acest calculator — "
                 "reintroduceți-l în secțiunea Telegram")
     if os.environ.get("TELEGRAM_TOKEN", "").strip():
-        return f"⚠️ {html.escape(tg.get('error') or 'pornire…')}"
+        return f"{_ic('sos')} {html.escape(tg.get('error') or 'pornire…')}"
     return "— fără token (secțiunea Telegram Bot)"
 
 
@@ -197,8 +197,8 @@ def _banner_html(msg: str) -> str:
 
 
 def _sec_page(body: str, sub: str, msg: str) -> str:
-    nav = ("<div class='nav'><a href='/admin/settings'>← Setări</a>"
-           "<a href='/admin'>🏠 Panou</a></div>")
+    nav = (f"<div class='nav'><a href='/admin/settings'>{_ic('chev-l')} Setări</a>"
+           f"<a href='/admin'>{_ic('home')} Panou</a></div>")
     return _shell(nav + _banner_html(msg) + body, sub, active="set")
 
 
@@ -217,14 +217,14 @@ async def admin_settings(request: Request, msg: str = ""):
 
     # короткое состояние обновления — подробности на странице «Stare sistem»
     if upd.can_self_update() or upd.newer_available():
-        up_short = (f"<b style='color:var(--amber-t)'>🔄 disponibilă "
+        up_short = (f"<b style='color:var(--amber-t)'>{_ic('refresh')} disponibilă "
                     f"{e(upd.STATE['latest'])}</b>")
     elif upd.STATE["checked"] and not upd.STATE["error"]:
-        up_short = "✅ la zi"
+        up_short = _ic("check") + " la zi"
     else:
         up_short = "stare necunoscută"
     tg = tg_status()
-    tg_short = (f"✅ @{e(tg['username'])}" if tg["running"] else "neconectat")
+    tg_short = (f"{_ic('check')} @{e(tg['username'])}" if tg["running"] else "neconectat")
     today_h = cfg.get("hours", {}).get(_DOW_ORDER[datetime.now(eng.TZ).weekday()])
     hours_short = (f"azi {int(today_h[0])}:00–{int(today_h[1])}:00" if today_h
                    else "azi închis")
@@ -234,9 +234,9 @@ async def admin_settings(request: Request, msg: str = ""):
     bl_tone, _bl_txt = bitlocker.describe(bitlocker.STATE["code"],
                                           bitlocker.STATE["drive"])
     bl_flag = ("" if bl_tone in ("ok", "unknown") or not db.IS_SQLITE
-               else " · <b style='color:var(--red-t)'>⛔ disc necriptat</b>"
+               else f" · <b style='color:var(--red-t)'>{_ic('ban')} disc necriptat</b>"
                if bl_tone == "alarm"
-               else " · <b style='color:var(--amber-t)'>⚠️ BitLocker</b>")
+               else f" · <b style='color:var(--amber-t)'>{_ic('sos')} BitLocker</b>")
     tiles = [tile("/admin/settings/system", _ic("info"), "b", "Stare sistem",
                   f"v{eng.APP_VERSION} · {up_short}{bl_flag}"),
              tile("/admin/settings/clinic", _ic("clinic"), "g", "Clinica",
@@ -245,7 +245,7 @@ async def admin_settings(request: Request, msg: str = ""):
                   f"{e(theme.STYLE_LABEL[_th['style']][0])} · "
                   f"<span class='th-dot' style='background:{e(_th['primary'])}'></span>"
                   f"{e(_th['primary'])}"
-                  + (" · logo ✔" if theme.logo_url() else "")),
+                  + (" · logo" if theme.logo_url() else "")),
              tile("/admin/settings/hours", _ic("clock"), "v", "Program de lucru",
                   hours_short),
              tile("/admin/settings/services", _ic("tooth"), "g", "Servicii",
@@ -259,15 +259,15 @@ async def admin_settings(request: Request, msg: str = ""):
         if tg_configured():
             tiles.append(tile("/admin/settings/telegram", _ic("bot"), "v",
                               "Telegram Bot", tg_short))
-        lan_short = ("✅ activ în rețeaua clinicii" if lan.enabled()
+        lan_short = (_ic("check") + " activ în rețeaua clinicii" if lan.enabled()
                      else "doar pe acest calculator")
         tiles.append(tile("/admin/settings/lan", _ic("wifi"), "b",
                           "Acces de pe telefon", lan_short))
     if db.IS_SQLITE:
         _cs = dbkey.state()
         tiles.append(tile("/admin/settings/crypt", _ic("lock"), "g", "Criptarea evidenței",
-                          {dbkey.OK: "✅ activă",
-                           dbkey.UNREADABLE: "<b style='color:var(--red-t)'>⛔ cheia nu "
+                          {dbkey.OK: _ic("check") + " activă",
+                           dbkey.UNREADABLE: "<b style='color:var(--red-t)'>" + _ic("ban") + " cheia nu "
                                              "se citește</b>"}.get(_cs, "oprită")))
     if db.IS_SQLITE and bkp.available():
         tiles.append(tile("/admin/settings/backup", _ic("save"), "b", "Copie de rezervă",
@@ -284,7 +284,7 @@ async def admin_settings(request: Request, msg: str = ""):
             f"<p>Alegeți o secțiune — modificările se aplică imediat, "
             f"fără repornire</p></div></div>"
             f"<div class='pl-tiles set-hub'>{''.join(tiles)}</div>")
-    return _shell("<div class='nav'><a href='/admin'>🏠 Panou</a></div>"
+    return _shell(f"<div class='nav'><a href='/admin'>{_ic('home')} Panou</a></div>"
                   + _banner_html(msg) + body,
                   "setările clinicii · pe secțiuni", active="set")
 
@@ -299,21 +299,21 @@ async def settings_system(request: Request, msg: str = ""):
     tg_line = _tg_line(tg)
     if upd.can_self_update():
         up_line = (
-            f"🔄 disponibilă {html.escape(upd.STATE['latest'])} "
+            f"{_ic('refresh')} disponibilă {html.escape(upd.STATE['latest'])} "
             f"<form method='post' action='/admin/update/run' style='display:inline'>"
             f"<button style='background:#e8710a;color:#fff;border:none;border-radius:6px;"
             f"padding:6px 14px;cursor:pointer;font-size:14px;margin-left:8px'>"
-            f"⬆️ Actualizează acum</button></form>"
+            f"{_ic('upload')} Actualizează acum</button></form>"
         )
     elif upd.asset_pending() and upd.is_desktop():
-        up_line = (f"🕐 versiunea {html.escape(upd.STATE['latest'])} este anunțată, "
+        up_line = (f"{_ic('clock')} versiunea {html.escape(upd.STATE['latest'])} este anunțată, "
                    f"dar fișierul programului încă nu e publicat — "
                    f"reverificăm automat peste câteva minute")
     elif upd.newer_available():
         up_line = (f"<a href='{html.escape(upd.STATE['url'])}' target='_blank'>"
-                   f"🔄 disponibilă {html.escape(upd.STATE['latest'])} — descărcați</a>")
+                   f"{_ic('refresh')} disponibilă {html.escape(upd.STATE['latest'])} — descărcați</a>")
     elif upd.STATE["checked"] and not upd.STATE["error"]:
-        up_line = "✅ la zi"
+        up_line = "{_ic('check')} la zi"
     elif upd.STATE["error"]:
         up_line = "— necunoscut (offline?)"
     else:
@@ -326,7 +326,7 @@ async def settings_system(request: Request, msg: str = ""):
         # beta — публичные пре-релизы, ключ не нужен; draft — ещё и черновики,
         # но для них нужен токен с правом записи. Названия разные намеренно:
         # риск у этих двух режимов разный, и путать их нельзя.
-        name = "🧪 draft (test)" if ch == "draft" else "🧪 beta (pre-lansări)"
+        name = "draft (test)" if ch == "draft" else "beta (pre-lansări)"
         note = ""
         if upd.STATE.get("draft"):
             note = " · versiunea curentă din canal este nepublicată"
@@ -339,7 +339,7 @@ async def settings_system(request: Request, msg: str = ""):
     up_line += ("<form method='post' action='/admin/update/check' style='display:inline'>"
                 "<button style='background:none;border:1px solid var(--line);border-radius:8px;"
                 "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"
-                "margin-left:10px'>🔄 Verifică acum</button></form>")
+                "margin-left:10px'>{_ic('refresh')} Verifică acum</button></form>")
     body = f"""
 <h2>{_ic("info")} Stare sistem</h2>
 <table class='set'>
@@ -348,7 +348,7 @@ async def settings_system(request: Request, msg: str = ""):
 <tr><th>Canal Telegram</th><td>{tg_line}</td></tr>
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 {chan_row}
-<tr><th>Acces jurnal</th><td>{"🔒 PIN setat" if _pin_rec() else ("🔒 parolă (ADMIN_KEY)" if ADMIN_KEY else "🔓 deschis")}</td></tr>
+<tr><th>Acces jurnal</th><td>{"{_ic('lock')} PIN setat" if _pin_rec() else ("{_ic('lock')} parolă (ADMIN_KEY)" if ADMIN_KEY else "{_ic('lock')} deschis")}</td></tr>
 {_bl_row()}
 <tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
 </table>
@@ -383,7 +383,7 @@ async def settings_telegram(request: Request, msg: str = ""):
 <form class='add' method='post' action='/admin/telegram/save'
       onsubmit="return confirm('Programul se va reporni pentru aplicare. Continuați?')">
   <input type='password' name='token' placeholder="{ph}" style='width:430px'>
-  <button>💾 Salvează</button>
+  <button>{_ic('save')} Salvează</button>
 </form>
 <p class='hint'>Creați botul clinicii la @BotFather (2 minute) și lipiți tokenul aici.
 Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
@@ -443,7 +443,7 @@ async def settings_backup(request: Request, msg: str = ""):
 <form class='add' method='post' action='/admin/backup/export'>
   <input type='password' name='parola' placeholder='parolă (min. {bkp.MIN_PASS} caractere)'
          minlength='{bkp.MIN_PASS}' required style='width:280px' autocomplete='new-password'>
-  <button>📦 Exportă arhiva</button>
+  <button>{_ic('download')} Exportă arhiva</button>
 </form>
 <p class='hint'>Arhivă ZIP criptată (AES-256) cu baza de date, profilul clinicii și
 documentele pacienților — pentru stick USB sau alt calculator. Se deschide cu 7-Zip
@@ -494,10 +494,10 @@ async def settings_clinic(request: Request, msg: str = ""):
 <tr><th>Adresa (RO)</th><td><input type='text' name='addr_ro' value='{e(cfg.get("address", {}).get("ro", ""))}'></td></tr>
 <tr><th>Adresa (RU)</th><td><input type='text' name='addr_ru' value='{e(cfg.get("address", {}).get("ru", ""))}'></td></tr>
 </table>
-<p class='hint'>Numele, telefonul și adresa apar în bot (📞 contacte), în bara laterală
+<p class='hint'>Numele, telefonul și adresa apar în bot ({_ic('phone')} contacte), în bara laterală
 a registrului și pe documentele tipărite (043/e, acord, raport de casă).
 Restul secțiunilor nu sunt atinse la salvare.</p>
-<button class='savebtn'>💾 Salvează</button>
+<button class='savebtn'>{_ic('save')} Salvează</button>
 </form>"""
     return _sec_page(body, "setări · clinica", msg)
 
@@ -526,17 +526,17 @@ async def settings_crypt(request: Request, msg: str = ""):
                 "<div class='banner warn'>Criptarea este pregătită și se aplică "
                 "la următoarea pornire a programului.</div>"
                 "<div class='nav'><a class='primary' href='/admin/settings/crypt/sheet'>"
-                "🖨 Deschide foaia de recuperare</a></div>")
+                "{_ic('print')} Deschide foaia de recuperare</a></div>")
     elif st == dbkey.OK:
         body = f"""
 <h2>{_ic('lock')} Criptarea evidenței</h2>
 <div class='banner ok'>Evidența este criptată. Fișierul <b>dental.db</b> nu poate
 fi citit pe alt calculator sau de pe alt cont Windows.</div>
 <p class='hint'>Copiile zilnice din <code>data\\backups</code> sunt și ele
-criptate. Arhiva de rezervă (Setări → Copie de rezervă) rămâne independentă:
+criptate. Arhiva de rezervă (Setări › Copie de rezervă) rămâne independentă:
 înăuntru baza este necriptată, protejată de parola arhivei — ca să nu depindă
 de aceeași cheie.</p>
-<div class='nav'><a href='/admin/settings/crypt/sheet'>🖨 Foaia de recuperare</a></div>
+<div class='nav'><a href='/admin/settings/crypt/sheet'>{_ic('print')} Foaia de recuperare</a></div>
 <form method='post' action='/admin/settings/crypt/off'
       onsubmit="return confirm('Evidența va fi decriptată la următoarea pornire. Continuați?')">
   <button class='rowdel'>Oprește criptarea</button>
@@ -566,7 +566,7 @@ nimeni, nici de noi. De aceea pasul următor este tipărirea ei.</p>
 calculator sub acest cont Windows. Acolo lucrează parola de intrare și blocarea
 ecranului (Win+L).</p>
 <form method='post' action='/admin/settings/crypt/prepare'>
-  <button class='savebtn'>Pregătește criptarea →</button>
+  <button class='savebtn'>Pregătește criptarea ›</button>
 </form>"""
     return _sec_page(body, "setări · criptare", msg)
 
@@ -634,8 +634,8 @@ async def settings_crypt_sheet(request: Request):
         padding:10px 22px;font-size:14px;cursor:pointer;font-family:inherit}}
  @media print{{.noprint{{display:none}}body{{padding:0}}}}
 </style></head><body>
-<div class="noprint"><button onclick="window.print()">🖨 Tipărește</button>
-<a href="/admin/settings/crypt">← Înapoi</a></div>
+<div class="noprint"><button onclick="window.print()">{_ic('print')} Tipărește</button>
+<a href="/admin/settings/crypt">{_ic('chev-l')} Înapoi</a></div>
 <h1>Foaie de recuperare — evidența clinicii</h1>
 <div class="sub">{e(eng.CLINIC_NAME)} · DentPilot · generată {datetime.now(eng.TZ).strftime('%d.%m.%Y')}</div>
 <div class="code">{e(dbkey.format_recovery(key))}</div>
@@ -728,7 +728,7 @@ async def settings_theme(request: Request, msg: str = ""):
     logo = theme.logo_url()
     logo_box = (f"<img class='th-logo' src='{e(logo)}' alt='logo'>" if logo
                 else "<div class='th-logo none'>fără logo</div>")
-    logo_del = ("<button name='act' value='del' class='pl-btn'>🗑 Șterge</button>"
+    logo_del = ("<button name='act' value='del' class='pl-btn'>{_ic('trash')} Șterge</button>"
                 if logo else "")
 
     body = f"""
@@ -743,14 +743,14 @@ async def settings_theme(request: Request, msg: str = ""):
 <div class='th-colors'>{colors}
   <label class='th-c th-custom' title='Culoare personalizată'>
     <input type='radio' name='primary' value='custom'{' checked' if custom else ''}>
-    <span class='pick'>🎨</span>
+    <span class='pick'>{_ic('palette')}</span>
   </label>
   <input type='color' name='custom' id='thcustom' value='{e(th["primary"])}'>
 </div>
 <p class='hint'>Culoarea se aplică butoanelor, meniului și accentelor.
 Roșu pentru urgențe, galben pentru avertismente și verde pentru „confirmat”
 rămân neschimbate — acolo culoarea înseamnă ceva, nu decorează.</p>
-<button class='savebtn'>💾 Salvează</button>
+<button class='savebtn'>{_ic('save')} Salvează</button>
 </form>
 
 <h3 class='th-h'>Logo</h3>
@@ -760,7 +760,7 @@ rămân neschimbate — acolo culoarea înseamnă ceva, nu decorează.</p>
         enctype='multipart/form-data' class='th-logof'>
     <div class='filepick'>
       <input type='file' name='file' id='thlogo' accept='image/png,image/jpeg'>
-      <label for='thlogo'>📎 Alege fișier…</label>
+      <label for='thlogo'>{_ic('clip')} Alege fișier…</label>
     </div>
     <button class='pl-btn primary'>Încarcă</button>
     {logo_del}
@@ -892,7 +892,7 @@ async def settings_hours(request: Request, msg: str = ""):
 <p class='hint'>Pauza (ex. prânz 13:00–14:00) dispare din calendarul zilei și din registru.
 «—» = fără pauză. Medicul își poate îngusta orele în fișa lui, dar nu le poate lărgi
 peste programul clinicii.</p>
-<button class='savebtn'>💾 Salvează programul</button>
+<button class='savebtn'>{_ic('save')} Salvează programul</button>
 </form>
 <script>
 function collectHours() {{
@@ -941,7 +941,7 @@ async def settings_services(request: Request, msg: str = ""):
         f"<td><select class='s_color'>{_color_opts(s.get('color', ''))}</select></td>"
         f"<td style='text-align:center'><input type='checkbox' class='s_urg'{' checked' if s.get('urgent') else ''}></td>"
         f"<td><input type='text' class='s_docs' value='{e(' '.join(s.get('docs', [])))}' placeholder='gol = toți'></td>"
-        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>✖</button></td></tr>"
+        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>{_ic('close')}</button></td></tr>"
         for s in cfg["services"]
     )
     doc_ids_hint = ", ".join(f"{d['id']}={e(d['name'])}" for d in cfg["doctors"])
@@ -953,13 +953,13 @@ async def settings_services(request: Request, msg: str = ""):
 <table class='set' id='svc_t'>
 <tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:120px'>Preț</th>
 <th style='width:90px'>Durată</th><th style='width:100px'>Culoare</th>
-<th style='width:40px'>🆘</th><th style='width:140px'>Medici (id)</th><th></th></tr>
+<th style='width:40px'>{_ic('sos')}</th><th style='width:140px'>Medici (id)</th><th></th></tr>
 <tbody id='svc_tb'>{svc_rows}</tbody>
 </table>
 <button type='button' class='addrow' onclick='addSvc()'>+ Adaugă serviciu</button>
 <p class='hint'>Coloana «Medici»: id-uri separate prin spațiu ({doc_ids_hint}); gol = toți medicii.
-🆘 = flux urgent (fără alegerea medicului, sloturi din ziua curentă).</p>
-<button class='savebtn'>💾 Salvează serviciile</button>
+{_ic('sos')} = flux urgent (fără alegerea medicului, sloturi din ziua curentă).</p>
+<button class='savebtn'>{_ic('save')} Salvează serviciile</button>
 </form>
 
 <script>
@@ -980,7 +980,7 @@ function addSvc() {{
     "<td><select class='s_color'>" + opts + "</select></td>" +
     "<td style='text-align:center'><input type='checkbox' class='s_urg'></td>" +
     "<td><input type='text' class='s_docs' placeholder='gol = toți'></td>" +
-    "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>✖</button></td>";
+    "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>{_ic('close')}</button></td>";
   tb.appendChild(tr);
 }}
 function collectServices() {{
@@ -1155,10 +1155,10 @@ def _finish_cfg(**updates) -> dict:
     addr_ro = cfg.get("address", {}).get("ro", "")
     addr_ru = cfg.get("address", {}).get("ru", "")
     cfg["contacts"] = {
-        "ro": (f"📍 {addr_ro}\n" if addr_ro else "")
-              + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ro')}",
-        "ru": (f"📍 {addr_ru}\n" if addr_ru else "")
-              + f"☎️ {phone}\n🕘 {_hours_summary(hours, 'ru')}",
+        "ro": (f"{_ic('pin')} {addr_ro}\n" if addr_ro else "")
+              + f"{_ic('phone')} {phone}\n{_ic('clock')} {_hours_summary(hours, 'ro')}",
+        "ru": (f"{_ic('pin')} {addr_ru}\n" if addr_ru else "")
+              + f"{_ic('phone')} {phone}\n{_ic('clock')} {_hours_summary(hours, 'ru')}",
     }
     return cfg
 
@@ -1175,7 +1175,7 @@ def _build_config(data: dict) -> dict:
 @router.post("/admin/update/check")
 def admin_update_check(request: Request):
     """Проверить обновления прямо сейчас — не ждать следующего цикла.
-    Синхронный def → threadpool, сетевой запрос не блокирует сервер."""
+    Синхронный def › threadpool, сетевой запрос не блокирует сервер."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     upd.check_now()
@@ -1199,7 +1199,7 @@ def admin_update_run(request: Request):
  .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
  @keyframes r{{to{{transform:rotate(360deg)}}}}
 </style></head><body>
-<div class="sp">🔄</div>
+<div class="sp">{_ic('refresh')}</div>
 <h1>Se actualizează la {html.escape(upd.STATE['latest'])}…</h1>
 <p>Programul se închide și repornește singur.<br>
 Această pagină se va reîncărca automat în ~18 secunde.</p>
@@ -1319,12 +1319,12 @@ def _restart_page(done: str, back_url: str) -> str:
     механизм всё это время лежал готовым в `update.py` — `restart_app()`,
     написанный «для применения токена и т.п.», — и просто не был подключён.
     Второй такой писать не стали, взяли этот.
-    ⚠️ Формулировка обязана оставаться правдой и тогда, когда перезапуск не
+    {_ic('sos')} Формулировка обязана оставаться правдой и тогда, когда перезапуск не
     состоялся: планировщик Windows может не отработать, а в облачном издании
     его нет вовсе. Поэтому текст говорит «закрываемся сейчас» и сразу даёт
     запасной ход — открыть с ярлыка. Обещать «окно вернётся само» без оговорки
     и было прошлой ошибкой.
-    ⚠️ `restart_app()` гасит процесс через ~1.2 с (`_exit_soon`), поэтому
+    {_ic('sos')} `restart_app()` гасит процесс через ~1.2 с (`_exit_soon`), поэтому
     страницу отдаём ПЕРВОЙ, а гасимся уже после ответа.
     """
     auto = upd.restart_app() is None
@@ -1335,14 +1335,14 @@ def _restart_page(done: str, back_url: str) -> str:
  p{{max-width:520px;line-height:1.55;font-size:15px}}
  a{{color:__ON__;font-weight:600;font-size:14px;margin-top:18px;display:inline-block}}
 </style></head><body>
-<h1>✅ {done}</h1>
+<h1>{_ic('check')} {done}</h1>
 <p>{"<b>Programul se închide acum și pornește din nou</b> — setarea se aplică la pornire."
    if auto else
    "<b>Închideți programul și porniți-l din nou</b> — setarea se aplică la pornire."}</p>
 <p style="opacity:.85;font-size:13.5px">Dacă fereastra nu revine în câteva
 secunde, deschideți DentPilot de pe scurtătura de pe desktop. Datele clinicii nu
 sunt afectate: oprirea programului nu șterge nimic.</p>
-<a href="{back_url}">← Înapoi în setări</a>
+<a href="{back_url}">{_ic('chev-l')} Înapoi în setări</a>
 </body></html>""")
 
 

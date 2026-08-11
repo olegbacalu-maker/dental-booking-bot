@@ -250,7 +250,9 @@ def suite_patient_card(res: Result) -> None:
         res.check("Finalizează — можно", flip("finalizat"), "")
         page = c.get(f"/admin/patient/{pid}").body
         today_ro = date.today().strftime("%d.%m.%Y")
-        res.ok("дата завершения видна", f"✔ {today_ro}" in page,
+        # 08-11: галочка стала иконкой набора, поэтому дата идёт сразу за
+        # закрывающим </svg>. Проверяется по-прежнему ДАТА, а не знак.
+        res.ok("дата завершения видна", f"</svg> {today_ro}" in page,
                "done_at не показан")
         # активного не осталось — вкладка по умолчанию сама «Finalizate»,
         # а не пустой экран
@@ -829,8 +831,11 @@ def suite_settings(res: Result) -> None:
             res.ok(f"секция {path} открывается",
                    b.status == 200 and needle in b.body,
                    f"код {b.status}, нет {needle!r}")
+            # 08-11: стрелка стала иконкой набора — U+2190 рисовала Windows.
+            # Проверяется сама ссылка на хаб, а не то, чем нарисован значок.
             res.ok(f"из секции {path} есть путь назад",
-                   "← Setări" in b.body, "нет навигации на хаб")
+                   "href='/admin/settings'>" in b.body and "Setări</a>" in b.body,
+                   "нет навигации на хаб")
 
         # Telegram заморожен (08-08): FAQ не продаёт бота — пункты про
         # «бот ночью/в выходные» изъяты вместе с интерфейсом бота

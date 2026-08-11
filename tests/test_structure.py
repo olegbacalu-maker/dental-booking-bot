@@ -62,8 +62,44 @@ _AUTH_MODULE = "app/core/auth.py"
 # такая страница цела, просто нарисована системным шрифтом, — а Inter не
 # установлен и у разработчика, поэтому «выглядит как всегда» и у него. Так
 # экран входа полгода жил в Segoe UI, пока panel.css показывала задуманный вид.
+# Знаки, которые рисует система: эмодзи, стрелки, дингбаты, геометрия.
+_SYSGLYPH = re.compile("[🀀-🫿←-⇿⌀-⏿"
+                       "■-➿⬀-⯿]")
+_BOT_TEXTS = ("app/engine.py", "app/telegram.py")
+
 _INTER = re.compile(r"font-family\s*:\s*['\"]?Inter")
 _DECLARED = ("__FONTS__", "@font-face")
+
+
+def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
+    """Строковые литералы модуля БЕЗ docstring'ов, каждый одним куском.
+
+    Пояснения в проекте написаны со знаками ⚠/⭐/⛔ по стилю, и до экрана они
+    не доезжают — запрещать их незачем, а с ними правило краснело бы всегда.
+    Отсев по САМОМУ узлу, а не по номеру строки: у многострочного литерала
+    номер зависит от версии Python, и сверка номеров тихо перестала бы ловить."""
+    inner = {id(x) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr)
+             for x in ast.walk(n) if x is not n}
+    docs = set()
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                          ast.ClassDef)) and n.body:
+            first = n.body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                docs.add(id(first.value))
+    out = []
+    for n in ast.walk(tree):
+        if id(n) in inner or id(n) in docs:
+            continue
+        if isinstance(n, ast.JoinedStr):
+            out.append((n.lineno, "".join(v.value for v in ast.walk(n)
+                                          if isinstance(v, ast.Constant)
+                                          and isinstance(v.value, str))))
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str):
+            out.append((n.lineno, n.value))
+    return out
 
 
 def _sources() -> list[tuple[str, ast.Module]]:
@@ -246,3 +282,42 @@ def suite(res: Result) -> None:
     res.ok("страница со своей вёрсткой объявляет шрифт", not bad,
            "просит 'Inter', не объявив его (__FONTS__ в <style>): "
            + ", ".join(bad))
+
+
+    # ---- ничего графического от Windows (08-11) ----
+    # Эмодзи, стрелки, галочки и геометрию рисует ОПЕРАЦИОННАЯ СИСТЕМА своим
+    # шрифтом: по-разному на 10 и 11, всегда цветными посреди сдержанного
+    # экрана и мимо выбранного клиникой цвета. Вшитый Inter покрывает четыре
+    # подмножества, и ни в одно из них не входят U+2192, U+25B2..U+25C0,
+    # U+2714/U+2715, U+23F3 — то есть «не эмодзи» тут ничего не значит.
+    # ⭐ Правило смотрит в СТРОКОВЫЕ ЛИТЕРАЛЫ, а не в файл: комментарии и
+    # docstring'и до экрана не доезжают, и запрещать их незачем.
+    # ⛔ Тексты бота (engine.py, telegram.py) исключены намеренно: их рисует
+    # Telegram на телефоне пациента, а не Windows на машине клиники.
+    bad = []
+    for rel, tree in src:
+        if not rel.startswith(("app/modules/", "app/core/")) or rel in _BOT_TEXTS:
+            continue
+        for ln, text in _ui_texts(tree):
+            found = "".join(dict.fromkeys(_SYSGLYPH.findall(text)))
+            if found:
+                bad.append(f"{rel}:{ln} {found}")
+    res.ok("интерфейс не просит знаки у Windows", not bad,
+           "рисует системным шрифтом (нужна иконка из layout._I): "
+           + "; ".join(bad[:8]))
+
+    # ⚠️ Забытый импорт `_ic` не виден ни глазами, ни этим набором иначе:
+    # вызов в ветке `if meta.get("room")` на демо-профиле просто не исполняется,
+    # страница открывается, а у клиники с заполненным кабинетом падает. Ровно
+    # так и случилось 08-11 со списком врачей.
+    bad = []
+    for rel, tree in src:
+        text = (BOT / rel).read_text(encoding="utf-8")
+        if not re.search(r"(?<![A-Za-z_])_ic\(", text) or "def _ic(" in text:
+            continue
+        names = {a.asname or a.name for n in ast.walk(tree)
+                 if isinstance(n, ast.ImportFrom) for a in n.names}
+        if "_ic" not in names:
+            bad.append(rel)
+    res.ok("кто зовёт _ic — тот его импортирует", not bad,
+           "вызывает _ic без импорта: " + ", ".join(bad))

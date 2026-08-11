@@ -35,6 +35,8 @@ import subprocess
 import sys
 import urllib.parse
 
+from ...core.layout import _ic
+
 FIREWALL_RULE = "DentPilot"
 
 
@@ -106,7 +108,7 @@ _WARN = ("style='border:1px solid var(--line);border-radius:var(--r-card);"
 def render() -> str:
     on = enabled()
     p_num = port()
-    body = ["<h2>📶 Acces de pe telefon</h2>",
+    body = ["<h2>{_ic('wifi')} Acces de pe telefon</h2>",
             "<p class='hint' style='margin-top:0;max-width:640px'>"
             "Registrul se deschide pe telefonul medicului — în rețeaua "
             "clinicii (același Wi-Fi). Fiecare intră cu parola lui; "
@@ -118,22 +120,22 @@ def render() -> str:
             url = f"http://{ip}:{p_num}/admin"
             q = urllib.parse.quote(url, safe="")
             body.append(
-                f"<div {_WARN}><b style='color:var(--green-t)'>✅ Activ.</b> "
+                f"<div {_WARN}><b style='color:var(--green-t)'>{_ic('check')} Activ.</b> "
                 f"Scanați codul de pe telefon (conectat la Wi-Fi-ul clinicii):"
                 f"<div style='margin:10px 0'><img src='/qr?data={q}' "
                 f"style='width:180px;height:180px'></div>"
                 f"Adresa: <b>{html.escape(url)}</b><br>"
-                f"Pe telefon: meniul browserului → «Adaugă pe ecranul "
+                f"Pe telefon: meniul browserului › «Adaugă pe ecranul "
                 f"principal» — registrul devine o aplicație.</div>")
         else:
             body.append(
-                f"<div {_WARN}>⚠️ Accesul e pornit, dar calculatorul nu pare "
+                f"<div {_WARN}>{_ic('sos')} Accesul e pornit, dar calculatorul nu pare "
                 f"conectat la vreo rețea — verificați conexiunea și "
                 f"redeschideți pagina.</div>")
         fw = firewall_rule_ok()
         if fw is False:
             body.append(
-                f"<div {_WARN}>⚠️ <b>Regula de firewall lipsește</b> — "
+                f"<div {_WARN}>{_ic('sos')} <b>Regula de firewall lipsește</b> — "
                 f"telefonul nu va putea intra. Apăsați butonul și confirmați "
                 f"în fereastra Windows (UAC):"
                 f"<form method='post' action='/admin/lan/firewall' "
@@ -141,7 +143,7 @@ def render() -> str:
                 f"<button style='background:var(--teal);color:#fff;"
                 f"border:none;border-radius:var(--r-ctl);height:40px;"
                 f"padding:0 18px;font-size:13.5px;font-weight:600;"
-                f"cursor:pointer'>🛡 Creează regula de firewall</button>"
+                f"cursor:pointer'>{_ic('shield')} Creează regula de firewall</button>"
                 f"</form>"
                 f"<small style='color:var(--text3)'>Fereastra de confirmare "
                 f"apare pe ecranul acestui calculator. După confirmare, "

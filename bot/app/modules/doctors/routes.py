@@ -23,7 +23,8 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, require
 from ...core.layout import (HOUR_MAX, HOUR_MIN, MSG_BANNER, _DOC_STATE_RO,
-                            _DOW_FULL, _DOW_ORDER, _doc_hours_text, _shell)
+                            _DOW_FULL, _DOW_ORDER, _doc_hours_text, _ic,
+                            _shell)
 from ...core.visits import (_avatar, _card_modal, _collect_cards, _doc_hue,
                             _doctors_dir, _list, _photo_path)
 
@@ -123,9 +124,9 @@ def _med_card_html(dk: str, name: str, rows: list, days: list) -> str:
     meta = eng.DOCTOR_META.get(dk, {})
     st = meta.get("status", "activ")
     s = _doc_stats(dk, name, rows, days)
-    bits = [f"🚪 {e(meta['room'])}" if meta.get("room") else "",
-            f"☎️ {e(meta['phone'])}" if meta.get("phone") else "",
-            f"🕘 {e(_doc_hours_text(dk))}"]
+    bits = [f"{_ic('door')} {e(meta['room'])}" if meta.get("room") else "",
+            f"{_ic('phone')} {e(meta['phone'])}" if meta.get("phone") else "",
+            f"{_ic('clock')} {e(_doc_hours_text(dk))}"]
     return f"""<a class="medcard{'' if st == 'activ' else ' off'}" href="/admin/doctor-card/{dk}">
   <div class="medhead">{_avatar(dk, name)}
     <div style="min-width:0"><b>{e(name)}</b>
@@ -173,15 +174,15 @@ async def admin_medici(request: Request, msg: str = ""):
         "<form method='post' action='/admin/medici/colors' style='display:inline'>"
         "<button style='background:var(--teal);color:#fff;border:none;border-radius:8px;"
         "padding:5px 12px;cursor:pointer;font-size:12.5px;margin-left:8px'>"
-        "🎨 Culori automate</button></form></div>") if same_color else ""
-    arch_block = (f"<h2>🗄 Arhivă <small style='font-weight:400;color:var(--text3)'>"
+        f"{_ic('palette')} Culori automate</button></form></div>") if same_color else ""
+    arch_block = (f"<h2>{_ic('box')} Arhivă <small style='font-weight:400;color:var(--text3)'>"
                   f"· medici care nu mai lucrează; istoricul lor rămâne</small></h2>"
                   f"<div class='medgrid'>{''.join(arch)}</div>") if arch else ""
     body = f"""
-<div class='nav'><a href='/admin'>🏠 Panou</a><a href='/admin/settings'>⚙️ Setările clinicii</a></div>
+<div class='nav'><a href='/admin'>{_ic('home')} Panou</a><a href='/admin/settings'>{_ic('set')} Setările clinicii</a></div>
 {banner}{color_hint}
 <div class='medgrid'>{''.join(live)}</div>
-<h2>➕ Medic nou</h2>
+<h2>{_ic('plus')} Medic nou</h2>
 <form class='add' method='post' action='/admin/medici/add'>
   <input type='text' name='name' placeholder='Dr. Nume Prenume' required style='width:260px'>
   <input type='text' name='spec' placeholder='Specializare (ex. Terapie)' style='width:220px'>
@@ -303,10 +304,10 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
   <div class='filepick'>
     <input type='file' name='file' id='docphoto' accept='image/jpeg,image/png,image/webp'
            required onchange='pickName(this)'>
-    <label for='docphoto'>📎 Alege fotografia</label>
+    <label for='docphoto'>{_ic('clip')} Alege fotografia</label>
     <span class='fname' id='docphoto_n'>niciun fișier ales</span>
   </div>
-  <button>📷 Încarcă fotografia</button>
+  <button>{_ic('camera')} Încarcă fotografia</button>
 </form>
 <p class='hint' style='margin:6px 0 0'>JPEG / PNG / WebP, max {MAX_PHOTO_MB} MB.
 Rămâne local, în folderul programului; pacienții nu o văd.</p>"""
@@ -315,7 +316,7 @@ Rămâne local, în folderul programului; pacienții nu o văd.</p>"""
                        f"style='margin-top:6px' onsubmit=\"return confirm('Ștergeți fotografia?')\">"
                        f"<button class='rowdel' style='background:none;border:1px solid var(--line);"
                        f"border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;"
-                       f"color:var(--text2)'>🗑 Șterge fotografia</button></form>")
+                       f"color:var(--text2)'>{_ic('trash')} Șterge fotografia</button></form>")
 
     left = f"""<div class='fcard'>
   <div class='fhead'>{_avatar(dk, name, big=True)}
@@ -346,7 +347,7 @@ Rămâne local, în folderul programului; pacienții nu o văd.</p>"""
   </div>
   <div style='font-size:11.5px;color:var(--text3);margin-top:2px'>Starea medicului</div>
   <select name='status'>{st_opts}</select>
-  <button>💾 Salvează</button>
+  <button>{_ic('save')} Salvează</button>
 </form>
 <p class='hint' style='margin:8px 0 0'>Programul «—» = ca al clinicii. Culoarea se
 folosește în calendarul zilei. Arhivarea e posibilă doar fără programări viitoare
@@ -377,7 +378,7 @@ folosește în calendarul zilei. Arhivarea e posibilă doar fără programări v
         "<table class='list'>", "<div style='overflow-x:auto'><table class='list'>", 1).replace(
         "</table>", "</table></div>", 1).replace(
         "</h2>", f" <small style='font-size:12px;font-weight:400'>"
-                 f"<a href='/admin/doctor/{dk}?date={today.isoformat()}'>grila zilei ↗</a>"
+                 f"<a href='/admin/doctor/{dk}?date={today.isoformat()}'>grila zilei {_ic('out')}</a>"
                  f"</small></h2>", 1)
     center = f"""<div class='fcard'><h3>Următoarele 7 zile <small>· click = ziua completă</small></h3>
 <div style='display:flex;gap:6px'>{''.join(wk_cells)}</div></div>
@@ -396,7 +397,7 @@ folosește în calendarul zilei. Arhivarea e posibilă doar fără programări v
     right = f"""<div class='fcard'><h3>Servicii pe care le face</h3>
 <form method='post' action='/admin/doctor-card/{dk}/services'>
   <div class='svcpick'>{''.join(svc_lines)}</div>
-  <button class='savebtn' style='margin-top:10px'>💾 Salvează serviciile</button>
+  <button class='savebtn' style='margin-top:10px'>{_ic('save')} Salvează serviciile</button>
 </form>
 <p class='hint' style='margin:8px 0 0'>Serviciul fără bife explicite se oferă la
 <b>toți</b> medicii activi. Dacă scoateți bifa de la un astfel de serviciu, lista lui
@@ -406,12 +407,12 @@ devine explicită — un medic nou va trebui bifat manual.</p>
 {"".join(f"<div class='frow'><span>{lbl}</span><span class='v'>{val}</span></div>" for lbl, val in
          [("Programări", stats['n']), ("Ocupare", f"{stats['pct']}%"),
           ("Neprezentări", stats['noshow']), ("Programări viitoare", future)])}
-<p class='hint' style='margin:8px 0 0'><a href='/admin/stats'>Statistica întregii clinici ↗</a></p>
+<p class='hint' style='margin:8px 0 0'><a href='/admin/stats'>Statistica întregii clinici {_ic('out')}</a></p>
 </div>"""
 
-    body = (f"<div class='nav'><a href='/admin/medici'>👨‍⚕️ Toți medicii</a>"
-            f"<a href='/admin/doctor/{dk}'>📅 Ziua medicului</a>"
-            f"<a href='/admin'>🏠 Panou</a></div>{banner}{warn}"
+    body = (f"<div class='nav'><a href='/admin/medici'>{_ic('med')} Toți medicii</a>"
+            f"<a href='/admin/doctor/{dk}'>{_ic('cal')} Ziua medicului</a>"
+            f"<a href='/admin'>{_ic('home')} Panou</a></div>{banner}{warn}"
             f"<div class='fisa med'><div class='fcol-l'>{left}</div>"
             f"<div class='fcol-c'>{center}</div><div class='fcol-r'>{right}</div></div>"
             + _card_modal(cards, back))

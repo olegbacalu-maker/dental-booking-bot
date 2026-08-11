@@ -22,16 +22,19 @@ recomandari — ровно графы дневника «Fișa medicală a bolna
 нём было бы ошибкой данных): POST отвечает bad_vst, страница показывает
 запись только для чтения, если она успела появиться до отмены.
 
-Рендер без db: данные приносит маршрут (паттерн acord.py). Список полей
-обязан совпадать с db.VISIT_FIELDS — POST собирает форму по нему.
+Рендер без ЗАПРОСОВ к db: данные приносит маршрут (паттерн acord.py). Сам
+модуль db импортируется — за словарями статусов (`db.PLAN_ACTIVE`), которые
+обязаны совпадать со схемой, а не быть переписаны здесь по памяти. Список
+полей обязан совпадать с db.VISIT_FIELDS — POST собирает форму по нему.
 """
 from __future__ import annotations
 
 import html
 import json
 
+from ... import db
 from ... import engine as eng
-from ...core.layout import MSG_BANNER, STATUS_LABEL, _shell, js_json
+from ...core.layout import MSG_BANNER, STATUS_LABEL, _ic, _shell, js_json
 
 # статусы визита, которым консультацию НЕ пишут
 NO_FORM_STATUSES = ("cancelled", "noshow")
@@ -178,7 +181,7 @@ def page(appt: dict, rec: dict | None, items: list, back: str,
     comment_row = ""
     if appt.get("comment"):
         comment_row = (f"<div class='frow'><span>Comentariu recepție</span>"
-                       f"<span class='v'>💬 {e(appt['comment'])}</span></div>")
+                       f"<span class='v'>{_ic('chat')} {e(appt['comment'])}</span></div>")
     head = f"""
 <div class='fcard'>
   <h3>Consultație <small>· {dt.strftime("%d.%m.%Y %H:%M")} · vizita #{appt["id"]}</small></h3>
@@ -219,12 +222,16 @@ def page(appt: dict, rec: dict | None, items: list, back: str,
             f"placeholder='{ph}'>{e(vals[k])}</textarea>"
             for k, lab, rows, ph in _FIELDS)
 
-        open_items = [it for it in items if it["status"] != "finalizat"]
+        # ⚠️ Отмечают «выполнено» только АКТИВНОЕ. Позиция, от которой пациент
+        # отказался (refuzat), стоит в плане как запись по ст.13(5) — она не
+        # ждёт работы, и галочка рядом с ней означала бы «сделали то, от чего
+        # отказались». Раньше здесь было «не finalizat», и отказ бы попал сюда
+        open_items = [it for it in items if it["status"] in db.PLAN_ACTIVE]
         linked = [it for it in items if it.get("appointment_id") == appt["id"]]
         plan_html = ""
         if linked:
             plan_html += ("<div class='vsec'><b>Efectuate la această vizită</b></div>"
-                          + "".join(f"<div class='vdone'>✔ {_item_label(it)}</div>"
+                          + "".join(f"<div class='vdone'>{_ic('check')} {_item_label(it)}</div>"
                                     for it in linked))
         if open_items:
             boxes = "".join(
@@ -248,7 +255,7 @@ def page(appt: dict, rec: dict | None, items: list, back: str,
     <input type='hidden' name='back' value='{e(back)}'>
     {fields_html}
     {plan_html}
-    <button class='savebtn'>💾 Salvează consultația</button>
+    <button class='savebtn'>{_ic('save')} Salvează consultația</button>
     {f"<div class='vmeta'>{meta}</div>" if meta else ""}
   </form>
 </div>"""
@@ -256,8 +263,8 @@ def page(appt: dict, rec: dict | None, items: list, back: str,
     tpl_json = js_json({k: {f: t[f] for f, *_ in _FIELDS} for k, t in _TEMPLATES.items()})
     body = (
         _CSS + banner
-        + f"<p style='margin:0 0 12px'><a href='{e(back)}'>← Înapoi</a>"
-          f" &nbsp;·&nbsp; <a href='/admin/patient/{pid}'>📇 Fișa pacientului</a></p>"
+        + f"<p style='margin:0 0 12px'><a href='{e(back)}'>{_ic('chev-l')} Înapoi</a>"
+          f" &nbsp;·&nbsp; <a href='/admin/patient/{pid}'>{_ic('id')} Fișa pacientului</a></p>"
         + f"<div class='vwrap'>{head}{body_card}</div>"
         + _SCRIPT.replace("__TPL__", tpl_json)
     )
