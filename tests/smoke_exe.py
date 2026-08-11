@@ -79,9 +79,22 @@ def main(base: str, password: str) -> int:
     # просто рисуется системным Segoe UI, ровно как до вшивания Inter. То есть
     # потеря выглядит как «ну да, так и было» и не замечается никогда.
     # Проверяем сигнатуру, а не код ответа: 200 с HTML-ошибкой внутри тоже 200.
-    check("шрифт объявлен в таблице стилей", "@font-face" in c.get(
-        "/static/css/panel.css").body, "panel.css без @font-face")
-    r = c.get("/static/fonts/inter-400-latin.woff2")
+    # ⚠️ Считается `@font-face{`, а не слово: оно есть и в пояснениях файла.
+    r = c.get("/static/css/fonts.css")
+    check("объявление шрифта отдаётся из сборки",
+          r.status == 200 and r.body.count("@font-face{") == 4,
+          f"код {r.status}, правил {r.body.count('@font-face{')} — ждём 4")
+    check("журнал подключает объявление шрифта",
+          "/static/css/fonts.css?v=" in c.get("/admin").body,
+          "нет <link> на fonts.css")
+    # Вход panel.css не подключает НАМЕРЕННО, поэтому объявление у него своё,
+    # вставленное прямо в <style> (layout.fonts_css). Ровно этот угол и уцелел
+    # до 08-11: первый экран клиники рисовался системным шрифтом.
+    r = c.get("/admin/login")
+    check("экран входа несёт объявление шрифта",
+          r.status == 200 and "@font-face{" in r.body,
+          f"код {r.status}, @font-face нет — вход уедет на Segoe UI")
+    r = c.get("/static/fonts/inter-latin.woff2")
     check("шрифт отдаётся из сборки",
           r.status == 200 and r.raw[:4] == b"wOF2",
           f"код {r.status}, начало {r.raw[:8]!r}")

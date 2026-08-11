@@ -10,6 +10,7 @@
 ничего не чинит: он не даёт правилу тихо отмереть при следующем переезде файла.
 """
 import ast
+import re
 
 from harness import BOT, Result
 
@@ -55,6 +56,15 @@ _ROLE_OK = {"app/modules/settings/routes.py": {"_users_block", "users_save"}}
 # на то он и один на всю программу.
 _AUTH_MODULE = "app/core/auth.py"
 
+# Страница со своей вёрсткой, просящая 'Inter', обязана его и ОБЪЯВИТЬ: либо
+# заполнителем __FONTS__ (его заполняет layout.standalone текстом fonts.css),
+# либо своими @font-face. Правило нужно ровно потому, что нарушение невидимо:
+# такая страница цела, просто нарисована системным шрифтом, — а Inter не
+# установлен и у разработчика, поэтому «выглядит как всегда» и у него. Так
+# экран входа полгода жил в Segoe UI, пока panel.css показывала задуманный вид.
+_INTER = re.compile(r"font-family\s*:\s*['\"]?Inter")
+_DECLARED = ("__FONTS__", "@font-face")
+
 
 def _sources() -> list[tuple[str, ast.Module]]:
     """Все модули программы: (путь от bot/ через `/`, разобранное дерево)."""
@@ -77,6 +87,31 @@ def _enclosing(tree: ast.Module, lineno: int) -> set[str]:
     return {fn.name for fn in ast.walk(tree)
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
             and fn.lineno <= lineno <= (fn.end_lineno or fn.lineno)}
+
+
+def _templates(tree: ast.Module) -> list[tuple[int, str]]:
+    """Строковые литералы модуля — каждый ОДНИМ куском: (строка, текст).
+
+    f-строка разобрана на части, и заполнитель вполне может лежать в другой
+    части, чем `font-family` (`<style>__FONTS__ … {color}` — уже две). Поэтому
+    части одного литерала склеиваются, а вложенные в него узлы вторым разом не
+    разбираются: иначе один шаблон дал бы десяток «нарушителей»."""
+    inner = {id(x) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr)
+             for x in ast.walk(n) if x is not n}
+    out = []
+    for n in ast.walk(tree):
+        if id(n) in inner:
+            continue
+        if isinstance(n, ast.JoinedStr):
+            text = "".join(v.value for v in ast.walk(n)
+                           if isinstance(v, ast.Constant)
+                           and isinstance(v.value, str))
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str):
+            text = n.value
+        else:
+            continue
+        out.append((n.lineno, text))
+    return out
 
 
 def _imported(node: ast.AST) -> list[str]:
@@ -205,3 +240,9 @@ def suite(res: Result) -> None:
            if any(m.split(".")[-1] == "main" for m in _imported(n) if m)]
     res.ok("модуль не импортирует main", not bad,
            "модуль знает про main.py: " + ", ".join(bad))
+
+    bad = [f"{rel}:{ln}" for rel, tree in src for ln, text in _templates(tree)
+           if _INTER.search(text) and not any(d in text for d in _DECLARED)]
+    res.ok("страница со своей вёрсткой объявляет шрифт", not bad,
+           "просит 'Inter', не объявив его (__FONTS__ в <style>): "
+           + ", ".join(bad))

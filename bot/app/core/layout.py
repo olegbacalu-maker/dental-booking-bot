@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import os
 import re
 import sys
@@ -68,6 +69,36 @@ def _asset(*parts: str) -> str:
     text = (STATIC.joinpath(*parts)).read_text(encoding="utf-8")
     _CSS_CACHE[key] = text
     return text
+
+
+def fonts_css() -> str:
+    """Правила @font-face для страниц СО СВОЕЙ вёрсткой — ТЕМ ЖЕ файлом,
+    который панель подключает ссылкой.
+
+    Журнал получает `fonts.css` ссылкой: он кешируется, адрес несёт версию, а
+    страница журнала перезагружает себя раз в 12 секунд — возить текст шрифта
+    в разметке было бы расточительно. Вход, установка PIN и восстановление
+    берут его СОДЕРЖИМЫМ, внутрь своего <style>: подключать таблицу стилей им
+    нельзя по замыслу (они обязаны открыться, даже если статика не отдалась), а
+    лишний запрос на первом экране клиники — ровно то, чего они избегают.
+    Источник при этом один, поэтому объявление не задваивается.
+
+    Внутрь страницы едут ТОЛЬКО правила: пояснения из шапки файла — три
+    четверти его веса, и на первом экране клиники им делать нечего. Заодно это
+    убирает из разметки слово `__FONTS__`, которое в тех пояснениях помянуто:
+    иначе заполнитель «оставался» бы в готовой странице и проверка на забытую
+    подстановку не значила бы ничего.
+
+    ⚠️ Пропажа файла не имеет права уронить вход: без правил страница
+    нарисуется системным шрифтом — тем же, что до 08-11. Поэтому OSError здесь
+    не поднимается, а остаётся строкой в логе."""
+    try:
+        return re.sub(r"/\*.*?\*/", "", _asset("css", "fonts.css"),
+                      flags=re.S).strip()
+    except OSError:
+        logging.getLogger("layout").error(
+            "не читается fonts.css — страница останется на системном шрифте")
+        return ""
 
 
 def _asset_ver(*parts: str) -> str:
@@ -505,6 +536,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
 <meta name="theme-color" content="{th_bg}">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title>
+<link rel="stylesheet" href="/static/css/fonts.css?v={_asset_ver('css', 'fonts.css')}">
 <link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
 <style>{th_css}</style>
 <script>/* Оживлять цифры и полосы можно только при ОСМЫСЛЕННОМ открытии страницы.
@@ -558,10 +590,14 @@ def _age(birth_year) -> int | None:
 # экран установки PIN показывается там, где журнала ещё нет вовсе. Значит
 # переменных CSS у них нет, и цвет клиники приезжает сюда ГОТОВЫМИ значениями
 # через standalone() — заполнителями __ACCENT__/__ON__/__RING__/__BG__/__LOGO__.
+# ⛔ Оттуда же __FONTS__, и он обязателен для каждой страницы, просящей 'Inter':
+# объявления шрифта у них своего нет, а panel.css, где оно живёт, не подключена.
+# Забытый заполнитель = системный Segoe UI, и это невидимо даже разработчику
+# (Inter не установлен ни у кого, страница выглядит «как всегда»).
 
 LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__CLINIC__ — acces</title><style>
+<title>__CLINIC__ — acces</title><style>__FONTS__
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__BG__;display:flex;
       align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
       padding:16px;box-sizing:border-box}
@@ -597,7 +633,7 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 
 SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__CLINIC__ — PIN</title><style>
+<title>__CLINIC__ — PIN</title><style>__FONTS__
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;display:flex;
       align-items:center;justify-content:center;height:100vh;margin:0}
  form{background:#fff;padding:30px 32px;border-radius:18px;
@@ -629,7 +665,7 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 
 RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__CLINIC__ — recuperare</title><style>
+<title>__CLINIC__ — recuperare</title><style>__FONTS__
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__BG__;display:flex;
       align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
       padding:16px;box-sizing:border-box}
@@ -665,14 +701,19 @@ RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 
 
 def standalone(tmpl: str) -> str:
-    """Подставить в страницу СО СВОЕЙ вёрсткой имя клиники, её цвет и логотип.
+    """Подставить в страницу СО СВОЕЙ вёрсткой имя клиники, её цвет, логотип и
+    объявление шрифта.
 
     Одна точка на все такие страницы намеренно: их четыре (вход, установка
     PIN, обновление, перезапуск), они разбросаны по двум модулям, и стоит
     завести подстановку по месту — очередной экран забудут перекрасить, а
     заметит это клиника, у которой единственная зелёная страница посреди
-    синей программы.
-    """
+    синей программы. С 08-11 через ту же точку приезжает и `__FONTS__`: ровно
+    так эти страницы и разошлись с журналом — шрифт объявлен в panel.css,
+    которую они не подключают, и экран входа рисовался системным Segoe UI.
+
+    ⚠️ `__FONTS__` подставляется ПОСЛЕДНИМ: это чужой текст (файл со стилями),
+    и попади в него однажды `__ACCENT__`, он не должен быть истолкован."""
     th = theme.current()
     pal = theme.palette(th["primary"], th["style"])
     logo = theme.logo_url()
@@ -683,7 +724,8 @@ def standalone(tmpl: str) -> str:
             .replace("__ON__", pal["--on-teal"])
             .replace("__BG__", theme.STYLES[th["style"]]["--bg"])
             .replace("__LOGO__",
-                     f"<img class='clogo' src='{logo}' alt=''>" if logo else ""))
+                     f"<img class='clogo' src='{logo}' alt=''>" if logo else "")
+            .replace("__FONTS__", fonts_css()))
 
 
 _DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]

@@ -58,6 +58,11 @@ MUTATIONS = [
      "\nfrom . import db  # noqa\n"),
     ("не импортирует main", "app/core/visits.py",
      "\nfrom app import main  # noqa\n"),
+    # Очередная страница со своей вёрсткой, забывшая заполнитель шрифта. Ровно
+    # так и выглядела бы поломка: страница на месте, разметка цела, шрифт не
+    # тот — и никакой запрос этого не отличит.
+    ("объявляет шрифт", "app/modules/qr/routes.py",
+     "\n_MUT = \"\"\"<style>body{font-family:'Inter',sans-serif}</style>\"\"\"\n"),
 ]
 
 

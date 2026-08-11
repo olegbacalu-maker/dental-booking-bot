@@ -337,7 +337,7 @@ async def recover_apply(code: str = Form("")) -> Response:
 
 
 RECOVER_DONE = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<title>__CLINIC__ — recuperare</title><style>
+<title>__CLINIC__ — recuperare</title><style>__FONTS__
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;
       color:__ON__;display:flex;flex-direction:column;align-items:center;
       justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}

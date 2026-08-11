@@ -41,7 +41,25 @@ def suite_store(res: Result) -> None:
                r.status == 303 and "/admin/setup" in r.location,
                f"код {r.status}, location {r.location!r}")
 
+        # ⚠️ Экраны установки PIN и входа panel.css не подключают по замыслу,
+        # значит объявление шрифта у них своё — заполнитель __FONTS__ в <style>
+        # (layout.standalone подставляет туда текст fonts.css). Забытый
+        # заполнитель ничем себя не выдаёт: страница цела, просто нарисована
+        # системным шрифтом — и это первое, что видит клиника.
+        # ⭐ Вход проверяется ПОСЛЕ установки: без PIN и без ADMIN_KEY
+        # /admin/login отвечает редиректом, и проверка смотрела бы в пустоту.
+        setup_page = c.get("/admin/setup").body
+        res.ok("экран установки PIN несёт объявление шрифта",
+               "@font-face{" in setup_page and "__FONTS__" not in setup_page,
+               "нет @font-face — страница уедет на системный шрифт")
+
         c.post("/admin/setup", pin1="4321", pin2="4321")
+        login_page = c.get("/admin/login")
+        res.ok("экран входа несёт объявление шрифта",
+               login_page.status == 200 and "@font-face{" in login_page.body
+               and "__FONTS__" not in login_page.body,
+               f"код {login_page.status}, @font-face нет — вход уедет на "
+               f"системный шрифт")
         rec = _rec(s)
         u = (rec.get("users") or [{}])[0]
         res.check("PIN пишется в формате v2", rec.get("v"), 2)
