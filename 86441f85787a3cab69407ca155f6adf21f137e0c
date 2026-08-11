@@ -1,0 +1,16 @@
+Attribution: this commit also carries work it does not describe.
+
+Besides the icon sweep in its message, it contains the informed-consent sheet
+for the treatment plan - bot/app/modules/patients/plan_acord.py and
+tests/test_plan_acord.py, plus the link in the plan card header and the
+plan_acord event in the patient's activity log. That is a separate feature by
+Oleg (art. 13 Legea nr. 263/2005), written in parallel; it landed in the working
+tree between two commits of the icon work and was swept in by `git add -A`.
+
+It is recorded here rather than fixed by rewriting history: this commit is an
+ancestor of f1176c2, which tag v1.19.15 points at and which the published binary
+was built from. Rebasing would have left that tag on a commit outside the branch
+- the exact failure the project's release rules exist to prevent - and would have
+required deleting and recreating a tag a live release depends on.
+
+The feature itself is described in the v1.19.15 tag message.
