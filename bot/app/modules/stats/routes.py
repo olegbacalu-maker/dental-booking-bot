@@ -368,7 +368,7 @@ async def admin_stats(
         f"<button class='searchf' style='background:var(--teal);color:#fff;border:none;"
         f"border-radius:var(--r-ctl);height:var(--h-ctl);padding:0 18px;cursor:pointer;"
         f"font-size:14px;font-weight:600'>OK</button></form>"
-        f"<a href='/admin/export?from={d1.isoformat()}&to={d2.isoformat()}'>{_ic('download')} Export CSV</a>"
+        f"<a href='/admin/export.xlsx?from={d1.isoformat()}&to={d2.isoformat()}'>{_ic('download')} Export Excel</a>"
         f"<a href='/admin'>{_ic('home')} Panou</a></div>"
     )
     hint = ("<p class='hint'>Prețurile sunt medii orientative din lista clinicii; "

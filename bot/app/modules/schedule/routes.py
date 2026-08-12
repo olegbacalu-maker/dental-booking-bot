@@ -26,6 +26,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, can, request_user
+from ...core import xlsx
 from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
                             _initials, _shell, _tg_state, js_json, tg_configured)
@@ -1042,6 +1043,55 @@ async def admin_export(
     )
 
 
+# ⭐ Та же выгрузка, но с ТИПАМИ. CSV их не несёт, и Excel угадывает: телефон
+# `022447788` он считает числом и роняет ведущий ноль (в Молдове все номера с
+# нуля — по такой таблице не позвонить), а дату не вмещает в колонку по
+# умолчанию и рисует `########`. Второе кричит, первое молчит — потому эта
+# кнопка и стала основной.
+# ⚠️ CSV-маршрут остаётся живым намеренно: он мог уехать в чью-то закладку или
+# скрипт, а исчезнувшая ссылка — это 404 у клиники на ровном месте.
+@router.get("/admin/export.xlsx")
+async def admin_export_xlsx(
+    request: Request,
+    from_q: str = Query("", alias="from"),
+    to_q: str = Query("", alias="to"),
+):
+    if (deny := _guard(request)) is not None:
+        return deny
+    d1 = _parse_date(from_q) if from_q else datetime.now(eng.TZ).date()
+    d2 = _parse_date(to_q) if to_q else d1
+    if d2 < d1:
+        d1, d2 = d2, d1
+    start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
+    end = datetime(d2.year, d2.month, d2.day, tzinfo=eng.TZ) + timedelta(days=1)
+    rows = await db.day_appointments(start, end)
+
+    data = []
+    for r in rows:
+        dt = r["starts_at"].astimezone(eng.TZ)
+        data.append([
+            dt.date(), dt.strftime("%H:%M"),
+            r["name"] or ("— notiță —" if r["source"] == "note" else ""),
+            int(r["birth_year"]) if r["birth_year"] else "",
+            r["phone"] or "", r["service"], r["doctor"], r["source"], r["status"],
+            "da" if r["reminded_day"] else "", r["comment"] or "",
+        ])
+    blob = xlsx.book(
+        ["Data", "Ora", "Pacient", "An naștere", "Telefon", "Serviciu",
+         "Medic", "Sursă", "Status", "Reminder", "Comentariu"],
+        data,
+        # ширины в знаках — под самое длинное, что в колонке реально бывает:
+        # это и есть вторая половина ответа на «дата не влезает»
+        widths=[11, 7, 22, 11, 14, 26, 22, 9, 12, 10, 34],
+    )
+    fname = f"programari_{d1.isoformat()}_{d2.isoformat()}.xlsx"
+    return Response(
+        blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 # фильтры для клика по плиткам дашборда: цифра → сразу список этих записей
 _TILE_FILTERS = {
     "bot": ("prin bot",
@@ -1090,7 +1140,7 @@ async def admin_all(
         filtered_list = _list(hits, back, title=f"{label} — {d.strftime('%d.%m.%Y')}")
     body = (_date_nav(d, "/admin/all",
                       f"<a href='/admin?date={d.isoformat()}'>{_ic('home')} Panou</a>"
-                      f"<a href='/admin/export?from={d.isoformat()}&to={d.isoformat()}'>{_ic('download')} CSV</a>")
+                      f"<a href='/admin/export.xlsx?from={d.isoformat()}&to={d.isoformat()}'>{_ic('download')} Excel</a>")
             + _banner(msg, d)
             + filter_chip + filtered_list
             + _grid(d, items, active, href, cards)

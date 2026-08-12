@@ -1,6 +1,7 @@
 """Охрана доступа, страницы журнала, настройки с горячей перезагрузкой,
 карточка пациента и чистые функции расписания.
 """
+import io
 import json
 import os
 import pathlib
@@ -8,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -122,6 +124,43 @@ def suite_pages(res: Result) -> None:
         csv = c.get(f"/admin/export?from={_d(1)}&to={_d(1)}")
         res.ok("экспорт CSV отдаётся", csv.status == 200 and "Pagina Test" in csv.body,
                f"код {csv.status}")
+
+        # ---- выгрузка в Excel: проверяем ТИПЫ, а не код ответа (08-12) ----
+        # ⛔ CSV типов не несёт, и Excel угадывает: телефон `022447788` он
+        # считает числом и роняет ведущий ноль. Файл при этом верен, испорчен
+        # только экран — и заметить это нельзя, в отличие от `########` у даты.
+        # Поэтому xlsx проверяется РАЗБОРОМ: телефон обязан лежать строкой,
+        # дата — числом-датой со своим форматом, ширины — быть.
+        # ⚠️ .raw, а не .body: тело декодируется с "replace", и zip после
+        # этого — мусор (та же грабля, что у выгрузки данных пациента)
+        xl = c.get(f"/admin/export.xlsx?from={_d(1)}&to={_d(1)}")
+        res.ok("выгрузка Excel отдаётся",
+               xl.status == 200 and xl.raw[:2] == b"PK",
+               f"код {xl.status}, первые байты {xl.raw[:4]!r}")
+        with zipfile.ZipFile(io.BytesIO(xl.raw)) as z:
+            names = set(z.namelist())
+            sheet = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            styles = z.read("xl/styles.xml").decode("utf-8")
+        res.ok("книга собрана из положенных частей",
+               {"[Content_Types].xml", "xl/workbook.xml", "xl/styles.xml",
+                "xl/worksheets/sheet1.xml"} <= names, f"внутри: {sorted(names)}")
+        res.ok("телефон остался ТЕКСТОМ с ведущим нулём",
+               '<t xml:space="preserve">022321321</t>' in sheet,
+               "телефон ушёл числом — Excel съест ноль, и по таблице не позвонить")
+        res.ok("дата ушла датой, а не строкой",
+               '<c r="A2" s="2">' in sheet,
+               "дата не получила формат даты — в Excel это текст или число")
+        res.ok("у даты свой формат dd.mm.yyyy",
+               "dd\\.mm\\.yyyy" in styles and 'numFmtId="164"' in styles,
+               "формат даты не объявлен — Excel покажет серийное число")
+        res.ok("ширины колонок заданы",
+               "<cols>" in sheet and 'customWidth="1"' in sheet,
+               "без ширин дата снова выйдет как ########")
+        res.ok("шапка закреплена и есть автофильтр",
+               'state="frozen"' in sheet and "<autoFilter" in sheet,
+               "выгрузка на сотню строк без закреплённой шапки нечитаема")
+        res.ok("имя пациента внутри книги",
+               "Pagina Test" in sheet, "строк нет вовсе")
 
         # оформление вынесено в файл: страница ссылается, файл отдаётся
         page = c.get("/admin").body

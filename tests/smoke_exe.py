@@ -57,6 +57,14 @@ def main(base: str, password: str) -> int:
         check(f"{path} открывается",
               r.status == 200 and len(r.body) > 1000, f"код {r.status}, {len(r.body)} б")
 
+    # Выгрузка в Excel собирается zip'ом на лету (core/xlsx). В СОБРАННОЙ
+    # программе это стоит проверить отдельно: страницы её не задевают, а
+    # сжатие живёт в модуле, который PyInstaller тянет неявно.
+    r = c.get("/admin/export.xlsx")
+    check("выгрузка Excel собирается в сборке",
+          r.status == 200 and r.raw[:2] == b"PK" and len(r.raw) > 800,
+          f"код {r.status}, {len(r.raw)} б, первые байты {r.raw[:4]!r}")
+
     # Оформление — отдельный файл внутри бандла. Если он не попал в сборку,
     # страницы откроются «голыми», а /health об этом не скажет ни слова.
     r = c.get("/admin")
