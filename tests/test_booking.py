@@ -201,6 +201,122 @@ def suite_card(res: Result) -> None:
                "пациент пропал из поиска")
 
 
+def _row_of(page: str, name: str) -> str:
+    """Строка «Lista zilei» с этим пациентом — чтобы читать врача и час.
+
+    ⚠️ Ищем ПОСЛЕ заголовка списка: выше на странице стоит сетка дня, её ряды
+    тоже `<tr>` и тоже содержат имя пациента — но без кнопок статуса.
+    """
+    page = page.split("Lista zilei", 1)[-1]
+    for m in re.finditer(r"<tr class='[^']*'>.*?</tr>", page, re.S):
+        if name in m.group(0):
+            return m.group(0)
+    return ""
+
+
+def suite_move(res: Result) -> None:
+    """Перенос визита перетаскиванием: /admin/move и разметка обеих страниц.
+
+    ⚠️ Проверять надо СЕРВЕР, а не мышь: браузерное перетаскивание живёт в
+    panel.js, но решение принимает маршрут. Он же — единственная защита от
+    устаревшей вкладки: пока визит тянули, час мог занять бот.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(1)
+        add(c, day, "10:00", doctor="d2", name="Mutat Unu", phone="022700111")
+        page = c.get(f"/admin/all?date={day}").body
+        aid = _row_of(page, "Mutat Unu").split("/admin/status/", 1)[1].split("'")[0]
+
+        def move(to_time: str, to_doc: str = "d3", appt: str = "") -> str:
+            return c.post(f"/admin/move/{appt or aid}", mdate=day, mtime=to_time,
+                          mdoctor=to_doc, back=f"/admin/all?date={day}").msg
+
+        # --- перенос к другому врачу НА ТОТ ЖЕ ЧАС ---
+        # ⛔ Тот самый случай, ради которого _patient_busy_at получил exclude_id:
+        # визит находит САМ СЕБЯ на этом старте и без исключения отказал бы
+        # «у пациента уже есть запись» — то есть из-за себя же.
+        res.check("перенос к другому врачу на тот же час", move("10:00"), "ok_move")
+        page = c.get(f"/admin/all?date={day}").body
+        res.ok("визит переехал в колонку нового врача",
+               "Activ Trei" in _row_of(page, "Mutat Unu"),
+               "врач в списке не сменился")
+
+        # ⚠️ Перенос — событие фиши, а не только сетки: закон 195 спрашивает
+        # «кто именно двигал визит», и без строки в летописи ответить нечем.
+        pid = c.get("/admin/search?q=022700111").body.split(
+            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        card = c.get(f"/admin/patient/{pid}").body
+        res.ok("перенос записан в летопись пациента",
+               "Vizită mutată" in card and "Activ Trei" in card,
+               "фиша не помнит переноса — по журналу доступа не восстановить, кто двигал")
+
+        # --- полчаса и час ---
+        res.check("перенос на полчаса вперёд", move("10:30"), "ok_move")
+        res.ok("новый час виден в списке",
+               "10:30" in _row_of(c.get(f"/admin/all?date={day}").body, "Mutat Unu"),
+               "час в списке прежний")
+        res.check("четверть часа не принимается", move("10:15"), "bad_time")
+        res.check("выключенному врачу не переносим", move("11:00", "d1"), "bad_off")
+
+        # --- занятый интервал ---
+        add(c, day, "12:00", doctor="d2", name="Ocupa Ora", phone="022700222")
+        res.check("перенос в занятый интервал отбит", move("12:00", "d2"), "conflict")
+        page = c.get(f"/admin/all?date={day}").body
+        res.ok("отбитый визит остался на месте",
+               "10:30" in _row_of(page, "Mutat Unu"),
+               "визит уехал, хотя перенос отклонён")
+
+        # --- у ПАЦИЕНТА уже есть визит на этот час ---
+        add(c, day, "15:00", doctor="d2", name="Mutat Unu", phone="022700111")
+        res.check("двойник у пациента отбит", move("15:00", "d3"), "dup")
+
+        # --- закрытые записи не двигаются ---
+        c.post(f"/admin/status/{aid}", to="done", back=f"/admin/all?date={day}")
+        res.check("завершённый визит не переносится", move("16:00"), "mv_closed")
+        res.check("несуществующая запись", move("16:00", appt="999999"), "mv_gone")
+
+        # --- разметка перетаскивания: договор один на ОБЕ страницы ---
+        for path in (f"/admin?date={day}", f"/admin/all?date={day}"):
+            body = c.get(path).body
+            live = re.search(r"<div class='[^']*'[^>]*data-appt='\d+'[^>]*"
+                             r"data-nm=\"Ocupa Ora\"[^>]*>", body)
+            res.ok(f"{path}: активный визит можно тащить",
+                   bool(live) and "data-mv='1'" in live.group(0)
+                   and "draggable='true'" in live.group(0)
+                   and "data-busy='1'" in live.group(0),
+                   f"блок без атрибутов переноса: {live.group(0)[:120] if live else 'не найден'}")
+            done = re.search(r"<div class='[^']*'[^>]*data-appt='" + aid
+                             + r"'[^>]*data-nm=\"Mutat Unu\"[^>]*>", body)
+            res.ok(f"{path}: завершённый визит не тащится и не занимает час",
+                   bool(done) and "data-mv" not in done.group(0)
+                   and "data-busy" not in done.group(0),
+                   "закрытый визит остался перетаскиваемым")
+            res.ok(f"{path}: подсказка про перетаскивание на месте",
+                   "trageți o programare" in body.lower(),
+                   "страница не говорит, что визит можно перетащить")
+
+    # закрытый час не принимает бросок — ни на канве, ни в таблице
+    # (клиника 07-21, врачи 09-17, обед 13-14)
+    with Server(clinic="clinic_hours.json") as s:
+        c = Client(s.url).login()
+        day = _d(1)
+        add(c, day, "10:00", doctor="d2", name="Pauza Drop", phone="022700333")
+        res.check("перенос в обеденный час отбит",
+                  c.post(f"/admin/move/{_row_of(c.get(f'/admin/all?date={day}').body, 'Pauza Drop').split('/admin/status/', 1)[1].split(chr(39))[0]}",
+                         mdate=day, mtime="13:00", mdoctor="d2",
+                         back=f"/admin/all?date={day}").msg, "outside")
+        canvas = c.get(f"/admin?date={day}").body
+        res.ok("закрытая ячейка канвы не мишень",
+               "class='gcell off' data-h" not in canvas
+               and "<div class='gcell off'></div>" in canvas,
+               "закрытый час канвы принимает бросок")
+        grid = c.get(f"/admin/all?date={day}").body
+        res.ok("закрытая ячейка таблицы не мишень",
+               "<td class='goff'></td>" in grid and "goff' data-dk" not in grid,
+               "закрытый час таблицы принимает бросок")
+
+
 def suite_status(res: Result) -> None:
     """Статусы визита и заметки-блокировки слота."""
     with Server() as s:
@@ -218,6 +334,55 @@ def suite_status(res: Result) -> None:
         res.check("после отмены час снова свободен",
                   add(c, _d(1), "10:00", name="Dupa Anulare", phone="022555222"),
                   "ok")
+
+        # ⛔ переоткрыть в занятый час нельзя: слот 10:00 уже держит «Dupa
+        # Anulare», и возврат обязан ответить «intervalul e ocupat», а не
+        # посадить двоих в одно кресло
+        res.check("возврат в занятый час отбит",
+                  c.post(f"/admin/status/{appt_id}", to="confirmed",
+                         back="/admin/all").msg, "conflict")
+
+        # --- кнопки исхода зависят от СОСТОЯНИЯ записи (08-12) ---
+        # ⚠️ Ищем `class='b-…'` в одинарных кавычках — это список дня; у
+        # модалки карточки те же кнопки идут как class="bstat b-…", и без
+        # различия проверка была бы зелёной всегда.
+        add(c, _d(2), "10:00", name="Buton Test", phone="022555444")
+        day2 = f"/admin/all?date={_d(2)}"
+        page = c.get(day2).body
+        bid = page.split("/admin/status/", 1)[1].split("'")[0].split('"')[0]
+        res.ok("подтверждённой записи предложены все четыре исхода",
+               all(f"class='{k}'" in page
+                   for k in ("b-arrived", "b-done", "b-noshow", "b-cancel")),
+               "в списке дня не хватает кнопок исхода")
+
+        c.post(f"/admin/status/{bid}", to="arrived", back=day2)
+        page = c.get(day2).body
+        res.ok("тому, кто уже в кресле, «A sosit» и «Nu a venit» не предлагают",
+               "class='b-arrived'" not in page and "class='b-noshow'" not in page
+               and "class='b-done'" in page,
+               "кнопки в кресле не сузились — предлагаем записать неправду")
+
+        c.post(f"/admin/status/{bid}", to="done", back=day2)
+        page = c.get(day2).body
+        res.ok("у закрытой записи остаётся ровно возврат",
+               "class='b-reopen'" in page and "class='b-done'" not in page,
+               "закрытая запись без кнопки возврата — промах неисправим")
+        # плашка обязана звать статус словом кнопки, а не «a venit»
+        badge = re.search(r"class='stat s-done'>(.*?)</span>", page, re.S)
+        res.ok("плашка статуса — «finalizată» со значком",
+               bool(badge) and "finalizat" in badge.group(1)
+               and "<svg" in badge.group(1),
+               f"плашка: {badge.group(1)[:80] if badge else 'нет'!r}")
+        res.ok("та же отметка стоит и в сетке «Programări»",
+               "class='appt done" in page and "class='stt'" in page,
+               "в сетке дня статус виден только фоном — на панели значок есть")
+
+        res.check("возврат открывает запись заново",
+                  c.post(f"/admin/status/{bid}", to="confirmed", back=day2).msg, "")
+        page = c.get(day2).body
+        res.ok("после возврата исходы снова доступны",
+               "class='b-arrived'" in page and "class='b-reopen'" not in page,
+               "возврат не вернул запись в работу")
 
         # заметка занимает слот врача
         r = c.post("/admin/note", ndate=_d(1), ntime="14:00", ndoctor="d3",

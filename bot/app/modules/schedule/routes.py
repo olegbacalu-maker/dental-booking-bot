@@ -27,10 +27,11 @@ from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, can, request_user
 from ...core.charts import spark as _spark
-from ...core.layout import (LIVE_STATUSES, _age, _banner, _ic, _initials,
-                            _shell, _tg_state, js_json, tg_configured)
+from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
+                            _initials, _shell, _tg_state, js_json, tg_configured)
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
-                            _collect_cards, _list, _parse_date, _photo_path)
+                            _collect_cards, _list, _move_attrs, _move_modal,
+                            _parse_date, _photo_path)
 
 router = APIRouter()
 
@@ -58,7 +59,23 @@ def _date_nav(d: date, base: str, extra: str = "") -> str:
 
 def _grid(d: date, doctors_items: list, active: dict, href_fn,
           cards: dict | None = None) -> str:
-    hours = [x.hour for x in eng.day_slots(d)]
+    starts, covered = active
+    # ⚠️ Ряды — НЕПРЕРЫВНЫЙ диапазон часов, а не только открытые (08-12).
+    # `day_slots` выбрасывает обеденный час совсем, и в таблице 12:00 сменялось
+    # на 14:00 без единого следа паузы, тогда как канва панели дня показывает её
+    # штриховкой: две страницы про один и тот же день говорили разное.
+    # ⛔ Хуже была вторая половина: запись, оказавшаяся в ЗАКРЫТОМ часу (обед
+    # или график поменяли ПОСЛЕ брони), исчезала из сетки целиком — час не
+    # рисовался, значит и `starts` по нему никто не спрашивал. В списке дня и на
+    # канве визит есть, здесь его нет. Отсюда часы записей в диапазоне наравне с
+    # рабочими — ровно так же, как это делает `_day_canvas`.
+    open_h = {x.hour for x in eng.day_slots(d)}
+    known = sorted(open_h | {h for _k, h in starts} | {h for _k, h in covered})
+    hours = list(range(known[0], known[-1] + 1)) if known else []
+    # закрытый час называет СЕБЯ: обед клиники — «pauză», всё остальное —
+    # «închis» (день ещё не начался / уже кончился, а запись тут есть)
+    _hf = eng.hours_for(d)
+    br_f, br_t = (int(_hf[2]), int(_hf[3])) if _hf and len(_hf) >= 4 else (0, 0)
     # Текущий час подсвечивается ТОЛЬКО на сегодняшнем дне. Отдельной линии
     # «сейчас» поперёк сетки здесь нет намеренно: таблица — не холст, линию
     # пришлось бы позиционировать поверх строк, и она разъезжалась бы с ними
@@ -75,35 +92,52 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                    f"{html.escape(name)}</a>"
                    f"<span class='dh-s'>{html.escape(spec)}</span></th>")
     out.append("</tr>")
-    starts, covered = active
-    # ⚠️ выключенному врачу писать нельзя (проверка в /admin/add), а «+» у него
-    # рисовался наравне со всеми: клик открывал модалку, и любая отправка
-    # возвращалась с «Date invalide» — тупик без единого намёка на причину.
-    off = {dk for dk, _n in doctors_items
-           if not eng.DOCTOR_META.get(dk, {}).get("active", True)}
+    # ⭐ «Принимает ли ЭТОТ врач в ЭТОТ час» — один ответ на обе дневные
+    # страницы (eng.doctor_hours). Он же закрывает три случая разом: обед и
+    # закрытые часы клиники, суженные часы врача в его фише и выключенного
+    # врача, которому /admin/add всё равно ответит `bad_off`. Прежний набор
+    # `off` знал только про последний, и таблица предлагала «+» там, где канва
+    # рисовала штриховку.
+    work = {dk: eng.doctor_hours(dk, d) for dk, _n in doctors_items}
     for h in hours:
         nowcls = " now" if h == now_hour else ""
-        out.append(f"<tr class='hrow{nowcls}'><td class='hour{nowcls}'>{h:02d}:00</td>")
+        closed = h not in open_h
+        note = (f"<small>{'pauză' if br_f <= h < br_t else 'închis'}</small>"
+                if closed else "")
+        out.append(f"<tr class='hrow{' off' if closed else ''}{nowcls}'>"
+                   f"<td class='hour{' off' if closed else ''}{nowcls}'>"
+                   f"{h:02d}:00{note}</td>")
         for dk, dname in doctors_items:
             rs = starts.get((dk, h)) or starts.get((dname, h)) or []
+            # приёмный час = мишень для перетаскивания, ЗАНЯТ он или нет:
+            # в 10:00 стоит визит, а 10:30 у того же часа свободно, и отказать
+            # в половине часа только потому, что ячейка не пуста, нельзя
+            drop = (f" data-dk='{html.escape(dk, quote=True)}' data-h='{h}'"
+                    if h in work.get(dk, set()) else "")
             if not rs:
                 if (dk, h) in covered or (dname, h) in covered:
                     # час накрыт длинным визитом — «+» тут врал бы
-                    out.append(f"<td><div class='appt busy'>{_ic('hourglass')} ocupat</div></td>")
-                elif dk in off:
-                    out.append("<td></td>")
+                    out.append(f"<td{drop}><div class='appt busy'>"
+                               f"{_ic('hourglass')} ocupat</div></td>")
+                elif h not in work.get(dk, set()):
+                    # врач не принимает: «+» тут врал бы так же, как в обед —
+                    # запись либо отобьётся, либо назначит визит в пустой кабинет
+                    out.append("<td class='goff'></td>")
                 else:
                     args = html.escape(json.dumps([dk, dname, f"{h:02d}:00"]), quote=True)
                     out.append(
-                        f"<td><a class='free' href='{href_fn(dk, h)}' "
+                        f"<td{drop}><a class='free' href='{href_fn(dk, h)}' "
                         f"onclick=\"openSlot.apply(null,{args});return false\">+</a></td>")
                 continue
             cell = []
             for r in rs:   # в часе может быть две записи (10:00 и 10:30)
-                hhmm = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
+                stl = r["starts_at"].astimezone(eng.TZ)
+                hhmm = stl.strftime("%H:%M")
                 dur = int(r.get("duration_min") or 60)
                 if r["source"] == "note":
-                    cell.append(f"<div class='appt note'>{_ic('note')} {hhmm} {html.escape(r['service'])}</div>")
+                    cell.append(f"<div class='appt note' data-appt='{r['id']}'"
+                                f"{_move_attrs(r, dk, stl)}>"
+                                f"{_ic('note')} {hhmm} {html.escape(r['service'])}</div>")
                     continue
                 src = _ic("bot") if r["source"] == "bot" else _ic("pen")
                 urgent = r["service"] in eng.URGENT_LABELS
@@ -117,13 +151,28 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                        if r["comment"] else "")
                 a = _age(r["birth_year"])
                 age_txt = f" <small style='color:#889'>{a} a.</small>" if a else ""
+                # ⚠️ Значок статуса тот же и на том же месте, что в блоке канвы
+                # (_day_canvas): до 08-12 «Finalizat» помечал запись ТОЛЬКО на
+                # панели дня, а в сетке «Programări» менялся один фон — на
+                # голубом «выполнено» и сером «отменено» это разница, которую
+                # регистратура не видит, пока не откроет карточку.
+                sic = (f"<span class='stt'>{_STATUS_ICON[r['status']]}</span>"
+                       if r["status"] in _STATUS_ICON else "")
                 cell.append(
-                    f"<div class='appt {cls}'{click}><b>{hhmm} · {html.escape(r['name'] or '—')}</b>"
+                    f"<div class='appt {cls}' data-appt='{r['id']}'"
+                    f"{_move_attrs(r, dk, stl)}{click}>"
+                    f"<b>{sic}{hhmm} · {html.escape(r['name'] or '—')}</b>"
                     f"{age_txt} {src}<br>{svc_txt} <small>({dur}′)</small>"
                     f"<br><small>{html.escape(r['phone'] or '')}</small>{cmt}</div>")
             out.append("<td>" + "".join(cell) + "</td>")
         out.append("</tr>")
     out.append("</table></div>")
+    # ⚠️ Подсказка обязана быть и здесь. Перетаскивание ничем себя не выдаёт:
+    # ни курсора-подсказки на пустом месте, ни кнопки. На панели дня про него
+    # написано под канвой — таблица без своей строки выглядела бы страницей,
+    # где переносить нельзя, хотя можно ровно так же.
+    out.append("<p class='hint'>Trageți o programare pentru a o muta la altă "
+               "oră sau alt medic; click pe «+» — programare nouă sau notiță.</p>")
     return "".join(out)
 
 
@@ -328,12 +377,12 @@ SPARK_DAYS = 14
 
 # бейдж строки повестки: тот же компонент, что в списке пациентов (.pl-badge) —
 # один вид состояния на всю программу, а не свой значок на каждом экране
-_AG_BADGE = {
-    "confirmed": ("act", "Confirmat"),
-    "arrived": ("trt", "În cabinet"),
-    "done": ("off", "Finalizat"),
-    "noshow": ("bad", "Absent"),
-}
+# Плашка повестки: ЦВЕТ здесь, а ТЕКСТ — из layout.STATUS_LABEL. Своя пара
+# «класс + слово» держалась ровно до тех пор, пока слова совпадали: 08-12
+# оказалось, что один статус зовут «Finalizat» в повестке, «a venit» в списке
+# дня и «finalizată» в летописи пациента — три имени одного состояния на
+# соседних экранах.
+_AG_CLS = {"confirmed": "act", "arrived": "trt", "done": "off", "noshow": "bad"}
 
 
 def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
@@ -355,8 +404,9 @@ def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
         st = r["starts_at"].astimezone(eng.TZ)
         end = st + timedelta(minutes=int(r.get("duration_min") or 60))
         urgent = r["service"] in eng.URGENT_LABELS and r["status"] == "confirmed"
-        cls, label = ("bad", "Urgent") if urgent else _AG_BADGE.get(
-            r["status"], ("off", r["status"]))
+        cls, label = (("bad", "Urgent") if urgent else
+                      (_AG_CLS.get(r["status"], "off"),
+                       STATUS_LABEL.get(r["status"], r["status"]).capitalize()))
         _bg, bar = _svc_colors(r)
         # прошедшее приглушается только на СЕГОДНЯ: в чужом дне «прошло» не
         # значит ничего, а тусклый список читался бы как отменённый
@@ -422,6 +472,9 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         return s_min, s_min + int(r.get("duration_min") or 60)
 
     def _blocks(col_key: str) -> str:
+        # ключ врача для перетаскивания: у колонки-сироты (легаси-имя без id)
+        # его нет, и она намеренно остаётся неподвижной — см. _move_attrs
+        col_dk = col_key[2:] if col_key.startswith("k:") else ""
         rs_all = sorted(by_col.get(col_key, []), key=_r_bounds)
         # кластеры пересекающихся интервалов делят ширину (ничего не прячем)
         clusters: list[list] = []
@@ -444,7 +497,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                        f"left:calc({j}*(100% - 8px)/{n} + 4px);"
                        f"width:calc((100% - 8px)/{n} - 2px)")
                 if r["source"] == "note":
-                    out.append(f"<div class='gappt gnote' data-appt='{r['id']}' "
+                    out.append(f"<div class='gappt gnote' data-appt='{r['id']}'"
+                               f"{_move_attrs(r, col_dk, st)} "
                                f"style='{pos}' "
                                f"title='{html.escape(r['service'][:80])}'>"
                                f"<b>{_ic('note')} {html.escape(r['service'][:40])}</b></div>")
@@ -464,7 +518,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 tip = html.escape(f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
                                   f" · {r['name'] or '—'}")
                 out.append(
-                    f"<div class='gappt{ns}' data-appt='{r['id']}' style='{pos};"
+                    f"<div class='gappt{ns}' data-appt='{r['id']}'"
+                    f"{_move_attrs(r, col_dk, st)} style='{pos};"
                     f"background:{bg};border-left:5px solid {bar}' title='{tip}'{click}>"
                     f"<span class='stt'>{ico}</span>"
                     f"<b>{html.escape(r['name'] or '—')} {src}</b>"
@@ -472,21 +527,22 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         return "".join(out)
 
     def _cells(dk: str | None, name: str) -> str:
-        # рабочие часы КОНКРЕТНОГО врача (сужение work_from/work_to, v1.8.0)
-        if dk is not None:
-            b = eng.doctor_bounds(dk, d)
-            work = set()
-            if b:
-                f_h, to_h, bf_h, bt_h = b
-                work = {h for h in range(f_h, to_h) if not (bf_h <= h < bt_h)}
-        else:
-            work = set()
+        # рабочие часы КОНКРЕТНОГО врача (сужение work_from/work_to, v1.8.0).
+        # Формула живёт в eng.doctor_hours — её же спрашивает таблица
+        # «Programări», иначе две страницы разойдутся в том, где можно писать
+        # (08-12). Колонка-сирота (dk=None) не принимает: врача с таким именем
+        # в списке уже нет, писать ему некуда.
+        work = eng.doctor_hours(dk, d) if dk is not None else set()
         out = []
         for h in hours:
             if dk is not None and h in work:
                 # json+escape: имя врача с апострофом не ломает JS-обработчик
                 args = html.escape(json.dumps([dk, name, f"{h:02d}:00"]), quote=True)
-                out.append(f"<div class='gcell' onclick=\"openSlot.apply(null,{args})\"></div>")
+                # data-h: та же ячейка принимает и клик (новая запись), и
+                # перетащенный визит. Закрытая (.off) не принимает ни того, ни
+                # другого — «куда нельзя записать, туда нельзя и перенести».
+                out.append(f"<div class='gcell' data-h='{h}' "
+                           f"onclick=\"openSlot.apply(null,{args})\"></div>")
             else:
                 out.append("<div class='gcell off'></div>")
         return "".join(out)
@@ -591,7 +647,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
             f"<small>{html.escape(eng.DOCTOR_SPEC.get(dk, '')) or '&nbsp;'}{off}</small>"
             f"<small class='mt'>{len(mine)} prog. · {liber}</small>{occ}</div>"
             f"<span class='st' style='background:{dot}' title='{liber}'></span></div></div>")
-        cols.append(f"<div class='gcol'>{_cells(dk, name)}{_blocks(col_key)}</div>")
+        cols.append(f"<div class='gcol' data-dk='{html.escape(dk, quote=True)}'>"
+                    f"{_cells(dk, name)}{_blocks(col_key)}</div>")
 
     # легаси-строки без id со старым именем (переименовали ДО v1.7.1) —
     # видимы отдельной колонкой + инструмент «переприкрепить к врачу»:
@@ -858,14 +915,16 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
             + "<div class='dash'><div class='dashmain'>"
             + _day_canvas(d, rows, cards)
             + "<p class='hint'>Click pe o programare — detalii și statusuri; "
-              "click pe un slot liber — programare nouă sau notiță."
+              "click pe un slot liber — programare nouă sau notiță; "
+              "trageți o programare pentru a o muta la altă oră sau alt medic."
             + (" Programările prin bot apar automat." if tg_ui else "")
             + "</p>"
             + "</div><div class='rail'>"
             + _mini_cal(d) + _agenda_block(d, rows, cards, now) + kpi_card
             + (_botnew_block(recent, now) if tg_ui else "") + sync
             + "</div></div>"
-            + _slot_modal(d, back) + _card_modal(cards, back))
+            + _slot_modal(d, back) + _card_modal(cards, back)
+            + _move_modal(d, back))
     sub = (f"panou principal · {_ic('bot')} bot / {_ic('pen')} recepție · se actualizează automat"
            if tg_ui else "panou principal · se actualizează automat")
     return _shell(body, sub, active="dash",
@@ -1022,7 +1081,8 @@ async def admin_all(
             + _form(d, list(eng.ACTIVE_DOCTORS.items()) or items, doctor, time_pre, back)
             + ("" if flt else _list(rows, back))
             + _slot_modal(d, back)
-            + _card_modal(cards, back))
+            + _card_modal(cards, back)
+            + _move_modal(d, back))
     return _shell(body, (f"toți medicii · {_ic('bot')} bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
                          else f"toți medicii · {_ic('pen')} recepție / {_ic('note')} notițe"),
@@ -1072,7 +1132,8 @@ async def admin_doctor(
             + (_form(d, items, dk, time_pre, back) if is_active else "")
             + _list(rows, back)
             + _slot_modal(d, back)
-            + _card_modal(cards, back))
+            + _card_modal(cards, back)
+            + _move_modal(d, back))
     return _shell(body, (f"ziua unui medic · {_ic('bot')} bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
                          else f"ziua unui medic · {_ic('pen')} recepție / {_ic('note')} notițe"),
@@ -1212,6 +1273,47 @@ async def admin_comment(request: Request, appt_id: int,
         return deny
     await db.set_comment(appt_id, comment.strip()[:300])
     return _back_redirect(back, "", "ok_comment")
+
+
+@router.post("/admin/move/{appt_id}")
+async def admin_move(
+    request: Request, appt_id: int,
+    mdate: str = Form(...), mtime: str = Form(...), mdoctor: str = Form(...),
+    back: str = Form(""),
+):
+    """Перенос визита перетаскиванием: другой час и/или другой врач.
+
+    ⚠️ Проверки те же, что у ручной записи, и по той же причине: перетащить —
+    это назначить визит на новое место, а не «подвинуть картинку». Браузер
+    отказывается класть блок в закрытую ячейку ещё до отправки, но верить ему
+    нельзя: вкладка живёт с автообновлением 12 с, а часы клиники и график
+    врача меняются на другом экране.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    try:
+        d = date.fromisoformat(mdate)
+        hh, mm = mtime.split(":")
+        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
+    except (ValueError, AttributeError):
+        return _back_redirect(back, mdate, "bad")
+    doctor = eng.DOCTORS.get(mdoctor)
+    if not doctor:
+        return _back_redirect(back, mdate, "bad")
+    if not eng.DOCTOR_META.get(mdoctor, {}).get("active", True):
+        return _back_redirect(back, mdate, "bad_off")
+    if dt.minute not in (0, 30):
+        return _back_redirect(back, mdate, "bad_time")
+    if not eng.fits_clinic(dt, 30):
+        # 30 минут, а не полная длительность: визит УЖЕ существует, и требовать
+        # от него влезть в окно целиком значило бы отказывать в переносе тем,
+        # кого клиника принимает внахлёст с закрытием (так их и записали).
+        return _back_redirect(back, mdate, "outside")
+    code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
+                                     when=dt.strftime("%H:%M"))
+    return _back_redirect(back, mdate,
+                          {"": "ok_move", "gone": "mv_gone",
+                           "closed": "mv_closed"}.get(code, code))
 
 
 @router.post("/admin/status/{appt_id}")

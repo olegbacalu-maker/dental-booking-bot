@@ -46,6 +46,8 @@ function pickName(inp) {
   if (!iv) return;
   setInterval(function () {
     if (document.querySelector('dialog[open]')) return;
+    /* идёт перетаскивание — страница не имеет права исчезнуть из-под мыши */
+    if (document.documentElement.classList.contains('dragging')) return;
     var pe = document.getElementById('pedit');
     if (pe && pe.style.display !== 'none') return;    // открыта форма профиля
     var fi = document.querySelector('input[type=file]');
@@ -60,6 +62,191 @@ function pickName(inp) {
       location.reload();
     }
   }, iv * 1000);
+})();
+
+/* Перенос визита перетаскиванием (08-12, просьба Олега).
+
+   Работает ОДИНАКОВО на канве панели дня и в таблице «Programări»: разметку
+   обеим страницам печатает один `core/visits._move_attrs`, а различие форм
+   (блок поверх колонки против ячейки таблицы) прячется в targetAt().
+
+   ⚠️ Полчаса берутся из МЕСТА броска внутри ячейки, а не из её номера: сетка
+   стартов 30-минутная (engine.GRID_STEP), и «09:30 → 10:00» обязано отличаться
+   от «09:30 → 10:30». Верх ячейки — :00, низ — :30.
+   ⚠️ Проверка занятости здесь — ТОЛЬКО подсказка. Правду говорит сервер под
+   _BOOK_LOCK: страница живёт с автообновлением 12 с, и за это время бронь мог
+   поставить бот или вторая регистратура.
+   ⛔ Никакого «перенеслось молча»: визит — это человек, которому уже назвали
+   время, а мышь соскакивает. Между броском и запросом стоит диалог. */
+(function () {
+  var dlg = document.getElementById('movedlg');
+  if (!dlg) return;                       // страница без дневного вида
+  var drag = null, hover = null;
+
+  var DOC = {};                           // ключ врача → имя, из ссылок шапки
+  var links = document.querySelectorAll('a[href]');
+  for (var i = 0; i < links.length; i++) {
+    var m = links[i].getAttribute('href').match(/\/admin\/doctor\/([^?#/]+)/);
+    if (m) DOC[decodeURIComponent(m[1])] = links[i].textContent.trim();
+  }
+
+  function hhmm(min) {
+    return ('0' + Math.floor(min / 60)).slice(-2) + ':' + ('0' + (min % 60)).slice(-2);
+  }
+
+  function clearHover() {
+    if (hover) hover.classList.remove('dropzone');
+    hover = null;
+  }
+
+  function slot(cell, y, rect, col) {
+    var h = parseInt(cell.getAttribute('data-h'), 10);
+    var half = (y - rect.top) >= rect.height / 2 ? 30 : 0;
+    return {dk: cell.getAttribute('data-dk') || (col && col.getAttribute('data-dk')),
+            min: h * 60 + half, cell: cell};
+  }
+
+  function targetAt(e) {
+    if (!e.target || !e.target.closest) return null;
+    var td = e.target.closest('td[data-h]');           // таблица «Programări»
+    if (td) return slot(td, e.clientY, td.getBoundingClientRect());
+    var col = e.target.closest('.gcol[data-dk]');      // канва панели дня
+    if (!col) return null;
+    /* ячейку ищем ПО КООРДИНАТЕ, а не по e.target: блоки визитов лежат ПОВЕРХ
+       ячеек, и бросок на соседний визит обязан попадать в его час, а не в никуда */
+    var cells = col.querySelectorAll('.gcell[data-h]');
+    for (var k = 0; k < cells.length; k++) {
+      var r = cells[k].getBoundingClientRect();
+      if (e.clientY >= r.top && e.clientY < r.bottom)
+        return slot(cells[k], e.clientY, r, col);
+    }
+    return null;                                       // закрытый час: не мишень
+  }
+
+  /* Занят ли интервал у ЭТОГО врача — теми же статусами, что считает
+     db._conflicts (data-busy ставит _move_attrs). Возвращает минуту помехи. */
+  function clash(dk, min, dur, id) {
+    var els = document.querySelectorAll('[data-busy]');
+    for (var k = 0; k < els.length; k++) {
+      if (els[k].getAttribute('data-dk') !== dk) continue;
+      if (els[k].getAttribute('data-appt') === id) continue;
+      var s = parseInt(els[k].getAttribute('data-min'), 10);
+      var e2 = s + (parseInt(els[k].getAttribute('data-dur'), 10) || 60);
+      if (s < min + dur && min < e2) return s;
+    }
+    return -1;
+  }
+
+  document.addEventListener('dragstart', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-mv]') : null;
+    if (!el) return;
+    drag = {el: el, id: el.getAttribute('data-appt'),
+            dk: el.getAttribute('data-dk'),
+            min: parseInt(el.getAttribute('data-min'), 10),
+            dur: parseInt(el.getAttribute('data-dur'), 10) || 60,
+            nm: el.getAttribute('data-nm') || ''};
+    el.classList.add('dragging');
+    /* метка для автообновления: перезагрузка посреди перетаскивания уронила бы
+       блок в никуда — страница исчезает из-под мыши */
+    document.documentElement.classList.add('dragging');
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', drag.id); } catch (err) { /* IE-наследие */ }
+    }
+  });
+
+  document.addEventListener('dragend', function () {
+    if (drag) drag.el.classList.remove('dragging');
+    document.documentElement.classList.remove('dragging');
+    clearHover();
+    drag = null;
+  });
+
+  document.addEventListener('dragover', function (e) {
+    if (!drag) return;
+    var t = targetAt(e);
+    if (!t || !t.dk) { clearHover(); return; }
+    e.preventDefault();                    // без этого браузер не даст бросить
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    if (t.cell !== hover) {
+      clearHover();
+      hover = t.cell;
+      hover.classList.add('dropzone');
+    }
+  });
+
+  document.addEventListener('drop', function (e) {
+    if (!drag) return;
+    var t = targetAt(e);
+    if (!t || !t.dk) return;
+    e.preventDefault();
+    var d = drag;                          // dragend обнулит drag сразу после
+    clearHover();
+    if (t.dk === d.dk && t.min === d.min) return;   // бросок на своё место
+    var busy = clash(t.dk, t.min, d.dur, d.id);
+    document.getElementById('mv_nm').textContent = d.nm;
+    document.getElementById('mv_from').textContent =
+      (DOC[d.dk] || '—') + ' · ' + hhmm(d.min);
+    document.getElementById('mv_to').textContent =
+      (DOC[t.dk] || '—') + ' · ' + hhmm(t.min);
+    document.getElementById('mv_time').value = hhmm(t.min);
+    document.getElementById('mv_doc').value = t.dk;
+    document.getElementById('mv_form').action = '/admin/move/' + d.id;
+    var warn = document.getElementById('mv_warn'), yes = document.getElementById('mv_yes');
+    if (busy >= 0) {
+      warn.textContent = 'Medicul are deja o programare la ' + hhmm(busy) + '.';
+      warn.style.display = '';
+      yes.disabled = true;
+    } else {
+      warn.style.display = 'none';
+      yes.disabled = false;
+    }
+    dlg.showModal();
+  });
+})();
+
+/* Смена статуса — POST и 303 на ТУ ЖЕ страницу: браузер открывает её заново, и
+   прокрутка встаёт в ноль. У регистратуры список дня длиннее экрана, поэтому
+   каждое нажатие «Finalizat» на нижней строке отбрасывало журнал в начало —
+   и место приходилось искать глазами (жалоба Олега 08-12). Запоминаем
+   положение перед отправкой и возвращаем, вернувшись НА ТОТ ЖЕ путь.
+   ⚠️ Не возвращаем, если в адресе есть msg: сообщение («intervalul e ocupat»)
+   висит баннером НАВЕРХУ, и восстановленная прокрутка спрятала бы ровно тот
+   ответ, ради которого стоило смотреть. */
+(function () {
+  var KEY = 'dp_pos';
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!f || !f.action || !/\/admin\/status\//.test(String(f.action))) return;
+    try {
+      sessionStorage.setItem(KEY, location.pathname + '|' + (window.pageYOffset | 0));
+      /* та же метка, что у автообновления: это не приход человека на страницу,
+         а её же повтор — заново играть появление блоков незачем */
+      sessionStorage.setItem('dp_auto', '1');
+    } catch (err) { /* приватный режим */ }
+  }, true);
+  var saved = null;
+  try {
+    saved = sessionStorage.getItem(KEY);
+    sessionStorage.removeItem(KEY);
+  } catch (err) { saved = null; }
+  if (!saved || /[?&]msg=/.test(location.search)) return;
+  var parts = saved.split('|');
+  var y = parseInt(parts[1], 10);
+  if (parts[0] !== location.pathname || !y) return;
+  window.scrollTo(0, y);
+  /* второй заход после полной загрузки: страница к этому моменту ещё растёт
+     (шрифт, вписывание блоков канвы), и первый scrollTo упирается в тогдашний
+     предел прокрутки. Свою прокрутку человека не трогаем — если он успел
+     покрутить сам, метка снята. */
+  var mine = true;
+  var drop = function () { mine = false; };
+  window.addEventListener('wheel', drop);
+  window.addEventListener('touchmove', drop);
+  window.addEventListener('keydown', drop);
+  window.addEventListener('load', function () {
+    if (mine && Math.abs((window.pageYOffset | 0) - y) > 2) window.scrollTo(0, y);
+  });
 })();
 
 /* KPI: цифра не появляется готовой, а вырастает от нуля.

@@ -134,6 +134,14 @@ MSG_BANNER = {
                        "alegeți alt medic sau readuceți-l din concediu în Medici"),
     "bad_time": ("err", "Ora poate fi doar fixă sau la jumătate (ex. 10:00, 10:30)"),
     "ok_note": ("ok", "Notiță adăugată — ora este blocată"),
+    "ok_move": ("ok", "Programare mutată"),
+    # ⚠️ Оба отказа переноса говорят, ЧТО делать дальше. Перетаскивают с
+    # открытого журнала, а он живёт с автообновлением: пока тянули, соседняя
+    # вкладка могла и отменить визит, и завершить его.
+    "mv_gone": ("err", "Programarea nu mai există — reîmprospătați pagina"),
+    "mv_closed": ("err", "Se mută doar programările active — cea finalizată, "
+                         "anulată sau neprezentată rămâne pe loc (redeschideți-o "
+                         "dacă chiar trebuie mutată)"),
     # ⚠️ Текст обязан сказать, ЧТО делать, а не только что случилось: иначе
     # регистратура прочтёт «добавлено» и пойдёт дальше, а визит останется в
     # чужой карточке.
@@ -600,6 +608,17 @@ def _who_chip() -> str:
 # предпросмотра 1.13.2 и анимаций). Новая страница расписания = её active сюда.
 LIVE_RELOAD = {"dash", "prog"}
 
+# Страницы, которым отдаётся ВСЯ ширина окна (08-12, просьба Олега на четырёх
+# врачах). `.content` ограничена 1500px — на широком мониторе это оставляло
+# ~200px пустыми справа, и они уходили не абы куда, а из колонки врача: сетка
+# делит остаток между врачами, поэтому четвёртый врач сузил все четыре.
+# ⚠️ Снимать потолок ВЕЗДЕ нельзя: на странице текста (настройки, FAQ, фиша)
+# строка в 1700px не читается — 1500 стоит там ровно за этим.
+# ⛔ Набор совпадает с LIVE_RELOAD случайно, а не по правилу: одно про «страница
+# живая», другое про «странице нужна ширина». Сливать их нельзя — новая живая
+# страница молча стала бы широкой.
+WIDE_PAGES = {"dash", "prog"}
+
 
 def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -> str:
     fb_subject = urllib.parse.quote(
@@ -643,7 +662,7 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 {_sidebar(active)}
 <div class="main">
 {_topbar(bell)}
-<div class="content">
+<div class="content{' wide' if active in WIDE_PAGES else ''}">
 <h1><a href="/admin">Registrul Clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
 {_tamper_banner()}{_setup_hint()}
@@ -656,10 +675,18 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 </body></html>"""
 
 
+# ⭐ Плашка обязана называть статус ТЕМ ЖЕ словом, что и кнопка, которая его
+# ставит. До 08-12 «Finalizat» переводил запись в «a venit» — это словарь
+# СТАТИСТИКИ, где «Au venit» = пришли и считаются done ВМЕСТЕ с arrived. В
+# журнале он отвечал не на тот вопрос: рядом с нажатой кнопкой «Finalizat»
+# стояло «a venit», в повестке та же запись звалась «Finalizat», а в летописи
+# пациента (db._STATUS_RO) — «finalizată». Одно состояние, три имени.
+# ⚠️ Отсюда же берёт текст повестка дня (_AG_CLS в schedule/routes.py): новый
+# статус называется ЗДЕСЬ и нигде больше.
 STATUS_LABEL = {
     "confirmed": "confirmată",
     "arrived": "în cabinet",
-    "done": "a venit",
+    "done": "finalizată",
     "noshow": "nu a venit",
     "cancelled": "anulată",
 }

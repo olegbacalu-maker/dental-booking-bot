@@ -914,21 +914,26 @@ async def add_visit_for_patient(
                        doctor_id, service_id, duration_min)
 
 
-async def _patient_busy_at(pid: int, starts_at: datetime) -> bool:
+async def _patient_busy_at(pid: int, starts_at: datetime,
+                           exclude_id: int | None = None) -> bool:
     """Есть ли у пациента активная запись РОВНО на этот старт — то же, что
     стережёт uq_patient_slot, но ответом, а не исключением. Вызывать под
     _BOOK_LOCK. Пересечения по длительности здесь намеренно не ищем: индекс их
-    тоже не запрещает, а регистратура ставит пациента к двум врачам подряд."""
+    тоже не запрещает, а регистратура ставит пациента к двум врачам подряд.
+
+    ⚠️ `exclude_id` обязателен для ПЕРЕНОСА: визит, переезжающий к другому врачу
+    на тот же час, находит сам себя и без него получил бы «у пациента уже есть
+    запись на это время» — то есть отказ из-за себя самого."""
     rows = await _fetch(
         f"""SELECT id FROM appointments
            WHERE patient_id = $1 AND starts_at = $2 AND status IN {_ACT_SQL}
-           LIMIT 1""",
+           LIMIT 2""",
         f"""SELECT id FROM appointments
            WHERE patient_id = ? AND starts_at = ? AND status IN {_ACT_SQL}
-           LIMIT 1""",
+           LIMIT 2""",
         pid, (starts_at if not IS_SQLITE else _iso(starts_at)),
     )
-    return bool(rows)
+    return any(r["id"] != exclude_id for r in rows)
 
 
 async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
@@ -2140,6 +2145,60 @@ async def set_comment(appt_id: int, text: str) -> None:
 _STATUS_RO = {"confirmed": "confirmată", "arrived": "în cabinet",
               "done": "finalizată", "noshow": "neprezentare",
               "cancelled": "anulată"}
+
+
+async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
+                           starts_at: datetime, when: str = "") -> str:
+    """Перенос визита на другое время и/или к другому врачу (перетаскивание).
+
+    Ответ — КОД, а не bool: у переноса четыре разных отказа, и один «False» на
+    все заставил бы журнал гадать, что показать регистратуре.
+    `''` — перенесено; `conflict` — интервал занят у врача; `dup` — у пациента
+    уже есть запись ровно на этот час; `gone` — записи больше нет;
+    `closed` — визит не активен (завершён/отменён), такие не двигаем.
+
+    ⚠️ Проверки те же и в том же порядке, что у новой брони, и обязательно ПОД
+    `_BOOK_LOCK`: уникальные индексы ловят только совпадающие старты, а
+    пересечение 10:00(60′) с 10:30(60′) — нет.
+    ⚠️ `when` — время НОВОГО старта в часах клиники, уже строкой: db не знает
+    про часовой пояс (в базе UTC), а летопись читает человек.
+    """
+    async with _BOOK_LOCK:
+        rows = await _fetch(
+            """SELECT patient_id, duration_min, status, service
+               FROM appointments WHERE id = $1""",
+            """SELECT patient_id, duration_min, status, service
+               FROM appointments WHERE id = ?""", appt_id)
+        if not rows:
+            return "gone"
+        r = rows[0]
+        if r["status"] not in ACTIVE_STATUSES:
+            return "closed"
+        dur = int(r["duration_min"] or 60)
+        if await _conflicts(doctor_id, doctor, starts_at, dur, exclude_id=appt_id):
+            return "conflict"
+        if r["patient_id"] and await _patient_busy_at(r["patient_id"], starts_at,
+                                                      exclude_id=appt_id):
+            return "dup"
+        try:
+            await _execute(
+                """UPDATE appointments SET doctor = $2, doctor_id = $3,
+                   starts_at = $4 WHERE id = $1""",
+                """UPDATE appointments SET doctor = ?, doctor_id = ?,
+                   starts_at = ? WHERE id = ?""",
+                *((appt_id, doctor, doctor_id, starts_at) if not IS_SQLITE
+                  else (doctor, doctor_id, _iso(starts_at), appt_id)),
+            )
+        except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
+            if "uq_" in str(e) or "unique" in str(e).lower():
+                if IS_SQLITE:
+                    await _CONN.rollback()
+                return "conflict"
+            raise
+        if r["patient_id"]:
+            await log_event(r["patient_id"], "appt_move",
+                            f"Vizită mutată: {when} · {doctor} — {r['service']}")
+        return ""
 
 
 async def set_status(appt_id: int, status: str) -> bool:

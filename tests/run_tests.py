@@ -46,6 +46,7 @@ SUITES = [
     ("Запись из журнала", test_booking.suite),
     ("Запись из фиши пациента", test_booking.suite_card),
     ("Статусы и заметки", test_booking.suite_status),
+    ("Перенос визита (drag & drop)", test_booking.suite_move),
     ("Бот записи", test_bot.suite),
     ("Страницы журнала", test_admin.suite_pages),
     ("Панель дня", test_admin.suite_dashboard),

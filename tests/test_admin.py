@@ -98,6 +98,20 @@ def suite_pages(res: Result) -> None:
             res.ok(f"{path} перезагружает себя",
                    'data-reload="12"' in c.get(path).body,
                    "живая страница расписания без метки автообновления")
+
+        # Ширина (08-12): дневной вид занимает ВСЁ окно, страница текста — нет.
+        # ⚠️ Проверяются ОБА конца набора. Сторожить только «кто входит» мало:
+        # снятый потолок расползётся на настройки и фишу, и никто не заметит —
+        # строка в 1700px читается плохо, но выглядит «просто широкой».
+        for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
+                     "/admin/doctor/d2"):
+            res.ok(f"{path} занимает всю ширину окна",
+                   'class="content wide"' in c.get(path).body,
+                   "дневной вид упёрся в потолок 1500px — колонки врачей у́же")
+        for path in ("/admin/settings", "/admin/search", "/admin/stats"):
+            res.ok(f"{path} остаётся в колонке чтения",
+                   'class="content"' in c.get(path).body,
+                   "страница текста растянулась на всё окно")
         for path in ("/admin/settings", "/admin/settings/faq", "/admin/stats",
                      "/admin/medici", "/admin/search"):
             res.ok(f"{path} НЕ перезагружает себя",
@@ -519,6 +533,72 @@ def suite_grid_edges(res: Result) -> None:
                "полоска осталась при непустом крайнем часе")
         res.ok("08:00 остался рядом — он больше не край",
                "08" in times2, f"часы: {times2}")
+
+        # ---- та же пауза в таблице «Programări» (08-12) ----
+        # На канве обед виден штриховкой, а сетка-таблица строилась по
+        # day_slots и обеденный час выбрасывала совсем: 12:00 сменялось на
+        # 14:00 без следа. Два экрана про один день говорили разное.
+        grid = c.get(f"/admin/all?date={day}").body
+        ghours = re.findall(r"<td class='hour[^']*'>(\d\d):00", grid)
+        res.ok("часы таблицы идут непрерывно, обед не выпадает",
+               ghours == [f"{h:02d}" for h in range(7, 21)], f"часы: {ghours}")
+        pause_row = re.search(r"<tr class='hrow off'><td class='hour off'>13:00.*?</tr>",
+                              grid, re.S)
+        res.ok("обеденный ряд назван «pauză»",
+               bool(pause_row) and "<small>pauză</small>" in pause_row.group(0),
+               "ряд обеда не помечен — дырка в часах без объяснения")
+        res.ok("в обеденный ряд не предлагают записать",
+               bool(pause_row) and "class='free'" not in pause_row.group(0)
+               and "class='goff'" in pause_row.group(0),
+               "«+» в закрытый час: /admin/add отобьёт его через fits_clinic")
+        early = re.search(r"<tr class='hrow off'><td class='hour off'>07:00.*?</tr>",
+                          grid, re.S)
+        res.ok("час вне графика ВРАЧЕЙ закрытым не считается",
+               early is None and "Devreme Test" in grid,
+               "клиника открыта в 07:00 — закрывать час нельзя, там уже визит")
+
+        # ⭐ Час вне окна ВРАЧА: клиника открыта, но принимать некому. Канва
+        # штрихует такие ячейки и не даёт по ним кликнуть — таблица обязана
+        # говорить то же самое, иначе одна страница зовёт записать туда, где
+        # другая запрещает (и пациент приходит в пустой кабинет).
+        row7 = re.search(r"<tr class='hrow'><td class='hour'>07:00.*?</tr>", grid, re.S)
+        res.ok("вне графика врача «+» не предлагают — как на канве",
+               bool(row7) and "class='free'" not in row7.group(0)
+               and "class='goff'" in row7.group(0)
+               and "Devreme Test" in row7.group(0),
+               "таблица зовёт записать туда, где канва рисует штриховку")
+        row9 = re.search(r"<tr class='hrow'><td class='hour'>09:00.*?</tr>", grid, re.S)
+        res.ok("в рабочий час врача «+» на месте",
+               bool(row9) and "class='free'" in row9.group(0),
+               "рабочий час перестал принимать записи")
+
+    # ---- запись, которую обед накрыл ПОСЛЕ брони ----
+    # ⛔ Главная опасность этого набора в таблице: час без ряда никто не
+    # спрашивает у `starts`, поэтому вместе с рядом исчезал и визит. В списке
+    # дня он остаётся, слот занят — а сетка показывает пустоту, и регистратура
+    # сажает на это время второго пациента.
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(1)
+        c.post("/admin/add", adate=day, atime="13:00", adoctor="d2",
+               aservice="consult", aname="Pauza Test", aphone="0690713",
+               back="/admin/all")
+        before = c.get(f"/admin/all?date={day}").body
+        res.ok("у клиники без обеда закрытых рядов нет вовсе",
+               "class='hrow off'" not in before,
+               "штриховка появилась там, где клиника работает весь день")
+
+        r = c.post("/admin/settings/save", part="hours",
+                   payload=json.dumps({"hours": {d: [7, 21, 13, 14] for d in
+                                                 ("mon", "tue", "wed", "thu",
+                                                  "fri", "sat", "sun")}}))
+        res.check("обед введён задним числом", r.msg, "ok_set")
+        after = c.get(f"/admin/all?date={day}").body
+        res.ok("визит, накрытый новым обедом, остался в сетке",
+               "Pauza Test" in after, "визит исчез из сетки вместе с рядом")
+        res.ok("его ряд помечен паузой",
+               "<td class='hour off'>13:00<small>pauză</small>" in after,
+               "час выглядит рабочим, хотя клиника на обеде")
 
 
 def suite_analytics(res: Result) -> None:
@@ -1142,6 +1222,9 @@ out = {
  "dur_long":       eng.svc_duration("long"),
  "dur_unknown":    eng.svc_duration("nope"),
  "fits_noon":      eng.fits_clinic(now.replace(hour=12, minute=0), 60),
+ # часы приёма врача — ОДИН ответ на обе дневные страницы (канва и таблица)
+ "doc_hours":      sorted(eng.doctor_hours("d2", date.today() + timedelta(days=1))),
+ "doc_hours_off":  sorted(eng.doctor_hours("d1", date.today() + timedelta(days=1))),
  "orphan_docs":    eng.allowed_doc_items("orphan"),
  "consult_docs":   len(eng.allowed_doc_items("consult")),
 }
@@ -1202,6 +1285,11 @@ print(json.dumps(out))
     res.check("длительность из конфига", v["dur_long"], 120)
     res.check("неизвестная услуга — дефолт", v["dur_unknown"], 60)
     res.check("полдень в графике", v["fits_noon"], True)
+    # ⛔ Формула «когда врач принимает» обязана быть ОДНА: пока её копия жила в
+    # канве, а таблица «Programări» не спрашивала её вовсе, страницы разошлись —
+    # там штриховка, тут «+» про одного и того же врача в один и тот же час.
+    res.check("часы приёма врача = окно клиники", v["doc_hours"], list(range(7, 21)))
+    res.check("выключенный врач не принимает вовсе", v["doc_hours_off"], [])
     res.check("услугу без активных врачей выполнять некому",
               v["orphan_docs"], [])
     res.check("консультацию выполняют все активные", v["consult_docs"], 3)

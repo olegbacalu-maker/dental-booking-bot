@@ -154,6 +154,11 @@
  .who-out:hover{background:var(--red-soft);color:var(--red-t)}
  @media (max-width:1100px){.who-n{display:none}}
  .content{padding:24px 24px 60px;max-width:1500px}
+ /* Дневным видам (layout.WIDE_PAGES) отдаётся вся ширина окна: у сетки ширина
+    — это ширина колонки врача, и на четырёх врачах потолок в 1500px забирал
+    по ~50px у каждого, оставляя справа пустое поле. На рабочем экране клиники
+    (1366) потолок и так не срабатывал — правило меняет только большой монитор. */
+ .content.wide{max-width:none}
  /* ---------- общие элементы ---------- */
  h1{font-size:32px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em;line-height:1.2;
    display:flex;align-items:center;gap:.44em}
@@ -532,6 +537,14 @@
     разъезжалась бы с ними. Подсветка строки не может разъехаться с самой
     строкой, а отвечает на тот же вопрос. Только на СЕГОДНЯШНЕМ дне. */
  tr.hrow.now>td{background:var(--teal-soft)}
+ /* Час, в который здесь не принимают: обед клиники, время вне её графика или
+    вне окна самого врача. Та же штриховка под тем же углом, что у .gcell.off
+    на канве панели дня, — это один смысл, и расходиться им нельзя.
+    ⚠️ Селектор тяжёлый намеренно: `tr.hrow.now>td` весит (0,2,2), и лёгкая
+    `td.goff` проиграла бы ему — закрытая ячейка в текущий час залилась бы
+    фирменным «сейчас» и выглядела бы открытой. */
+ tr.hrow>td.goff{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
+ td.hour.off small{display:block;font-size:9.5px;font-weight:500;line-height:1.3}
  td.hour.now{color:var(--teal-d);font-weight:700;background:var(--teal-line)}
  td.hour.now::before{content:"";display:inline-block;width:5px;height:5px;
    border-radius:50%;background:var(--teal);margin:0 4px 1px 0}
@@ -545,6 +558,10 @@
  .appt.note{background:var(--amber-soft);border-left:5px solid #EAB308;color:#713F12}
  .appt.busy{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px);
    color:var(--text3);text-align:center;font-size:11.5px}
+ /* значок статуса в ячейке сетки — тот же, что в блоке канвы (.gappt .stt),
+    но в строке, а не в углу: у ячейки таблицы своей высоты нет, и
+    абсолютное позиционирование пришлось бы держать вручную */
+ .appt .stt svg{width:13px;height:13px;vertical-align:-2px;margin-right:3px}
  .appt.clickable{cursor:pointer}
  .appt.clickable:hover{filter:brightness(.985);transform:translateY(-1px);box-shadow:var(--sh)}
  .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
@@ -638,6 +655,26 @@
  .stat.s-arrived{background:var(--teal-soft);color:var(--teal-d)}
  .stat.s-done{background:var(--blue-soft);color:#1D4ED8}
  .stat.s-noshow{background:var(--red-soft);color:var(--red-t)}
+ /* ---- перенос визита перетаскиванием ---- */
+ /* Тянущийся блок гасим, а не прячем: пустое место на прежнем часе читается
+    как «уже перенесли», хотя решение ещё не принято. */
+ [data-mv]{cursor:grab}
+ [data-mv].dragging{opacity:.45;cursor:grabbing}
+ /* Мишень под курсором. Рамка ВНУТРЬ (inset), иначе на канве она ложится на
+    соседний час и подсвеченными выглядят два. */
+ .dropzone{box-shadow:inset 0 0 0 2px var(--teal);background:var(--teal-soft)}
+ td.dropzone{box-shadow:inset 0 0 0 2px var(--teal)}
+ .mv-rows{display:flex;flex-direction:column;gap:7px;font-size:13.5px}
+ .mv-rows>div{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+ .mv-rows span{color:var(--text3);font-size:12px}
+ .mv-rows b{text-align:right;min-width:0}
+ .mv-act{display:flex;gap:8px}
+ .mv-act button{flex:1}
+ /* «Anulează» — вторичное действие, и оно СЛЕВА: подтверждение переноса стоит
+    там же, где у остальных диалогов, — справа под большим пальцем. */
+ .dlg-form .mv-no{background:none;border:1px solid var(--line);color:var(--text2)}
+ .dlg-form .mv-no:hover{border-color:var(--text3)}
+ .dlg-form button:disabled{background:var(--line2);color:var(--text3);cursor:not-allowed}
  .act{display:inline}
  .act button{border:none;border-radius:8px;height:30px;padding:0 11px;margin-right:4px;cursor:pointer;
    font-size:12px;font-weight:600;color:#fff;font-family:inherit;
@@ -651,6 +688,18 @@
     должна получить фиолетовое «Nu a venit». */
  .b-arrived{background:var(--teal-d)}
  .b-done{background:#2563EB}.b-noshow{background:var(--red-t)}.b-cancel{background:#64748B}
+ /* «Redeschide» — исправление промаха, а не пятый исход визита: приглушённая
+    обводка, чтобы не спорить с четырьмя цветными кнопками (тот же приём, что
+    у .pre в плане лечения).
+    ⚠️ Селектор с .act/.bstat намеренно: одинокая `.b-reopen` весит (0,1,0) и
+    проигрывает `.act button` (0,1,1) — кнопка осталась бы белой на белом. */
+ .act .b-reopen,.bstat.b-reopen{background:none;border:1px solid var(--line);
+   color:var(--text3);font-weight:600}
+ .act .b-reopen:hover,.bstat.b-reopen:hover{border-color:var(--amber);color:var(--amber-t)}
+ .act .b-reopen svg,.bstat.b-reopen svg{width:13px;height:13px;vertical-align:-2px}
+ /* значок статуса в плашке списка: 16px _ic() распирал бы пилюлю в 12px —
+    gap:5px у .stat как раз под него и заводился */
+ .stat svg{width:13px;height:13px}
  .hint{color:var(--text2);font-size:12.5px;margin-top:10px;line-height:1.55}
  .botnew{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    box-shadow:var(--sh);padding:var(--pad-block);margin-bottom:14px}

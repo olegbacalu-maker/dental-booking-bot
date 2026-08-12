@@ -17,7 +17,7 @@ import urllib.parse
 from datetime import date, datetime
 
 from .. import engine as eng
-from .layout import (LIVE_STATUSES, STATUS_LABEL, _age, _ic, _initials, js_json)
+from .layout import LIVE_STATUSES, STATUS_LABEL, _age, _ic, _initials, js_json
 from .storage import _data_dir
 
 
@@ -26,6 +26,34 @@ def _parse_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError:
         return datetime.now(eng.TZ).date()
+
+
+# Кнопки исхода — ПО СОСТОЯНИЮ записи, а не один набор на все живые статусы.
+# Пациенту, который уже в кресле, «A sosit» повторяет сделанное, а «Nu a venit»
+# рядом с ним предлагает записать неправду.
+# ⭐ Закрытая запись получает ОДНУ кнопку — возврат в «confirmată». До 08-12
+# промах по «Finalizat» был из журнала неисправим совсем: столбец «Acțiuni»
+# просто пустел, а маршрут `to=confirmed` при этом существовал и работал —
+# нажать его было нечем.
+# ⛔ Статусы перечислены ПОИМЁННО. Правило «всё, что не живое, — переоткрыть»
+# молча раздало бы свои кнопки новому статусу, и он получил бы чужое поведение
+# без единой строки о себе (тот же урок, что PLAN_ACTIVE в db.py).
+_REOPEN = ("confirmed", "b-reopen", "Redeschide")
+_ACT_BUTTONS = {
+    "confirmed": (("arrived", "b-arrived", "A sosit"),
+                  ("done", "b-done", "Finalizat"),
+                  ("noshow", "b-noshow", "Nu a venit"),
+                  ("cancelled", "b-cancel", "Anulează")),
+    "arrived": (("done", "b-done", "Finalizat"),
+                ("cancelled", "b-cancel", "Anulează")),
+    "done": (_REOPEN,), "noshow": (_REOPEN,), "cancelled": (_REOPEN,),
+}
+# заметка — не визит: прихода и исхода у неё нет, есть «убрать» и «вернуть»
+# (блокировка слота снимается и ставится обратно тем же статусом)
+_NOTE_BUTTONS = {
+    "confirmed": (("cancelled", "b-cancel", "Șterge"),),
+    "cancelled": (("confirmed", "b-reopen", "Restabilește"),),
+}
 
 
 def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
@@ -40,21 +68,21 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
         if r["comment"]:
             svc_txt += (f"<br><small style='color:#7a6a00'>{_ic('chat')} "
                         f"{html.escape(r['comment'][:80])}</small>")
-        acts = ""
-        if r["status"] in LIVE_STATUSES:
-            buttons = ([("cancelled", "b-cancel", "Șterge")] if is_note else [
-                ("arrived", "b-arrived", "A sosit"),
-                ("done", "b-done", "Finalizat"),
-                ("noshow", "b-noshow", "Nu a venit"),
-                ("cancelled", "b-cancel", "Anulează"),
-            ])
-            acts = "".join(
-                f"<form class='act' method='post' action='/admin/status/{r['id']}'>"
-                f"<input type='hidden' name='to' value='{to}'>"
-                f"<input type='hidden' name='back' value='{html.escape(back)}'>"
-                f"<button class='{cls}'>{label}</button></form>"
-                for to, cls, label in buttons
-            )
+        buttons = ((_NOTE_BUTTONS if is_note else _ACT_BUTTONS)
+                   .get(r["status"], ()))
+        # возврат спрашивают подтверждением: это отмена уже записанного факта,
+        # а не следующий шаг приёма (так же ведёт себя «Redeschide» в плане)
+        ask = ("Restabiliți notița?" if is_note
+               else "Redeschideți programarea (înapoi la «confirmată»)?")
+        acts = "".join(
+            f"<form class='act' method='post' action='/admin/status/{r['id']}'"
+            + (f" onsubmit=\"return confirm('{ask}')\"" if cls == "b-reopen" else "")
+            + f"><input type='hidden' name='to' value='{to}'>"
+            f"<input type='hidden' name='back' value='{html.escape(back)}'>"
+            f"<button class='{cls}'>"
+            f"{_ic('undo') + ' ' if cls == 'b-reopen' else ''}{label}</button></form>"
+            for to, cls, label in buttons
+        )
         name_html = html.escape(r["name"] or "")
         if not is_note and name_html:
             name_html = (f"<a class='plink' href='#' "
@@ -68,6 +96,7 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             f"<td>{svc_txt}</td><td>{html.escape(r['doctor'])}</td>"
             f"<td>{src}</td>"
             f"<td><span class='stat s-{r['status']}'>"
+            f"{_STATUS_ICON.get(r['status'], '')}"
             f"{STATUS_LABEL.get(r['status'], r['status'])}</span>"
             f"{_REM_MARK if r['reminded_day'] else ''}"
             f"{_REC_MARK if r.get('has_rec') else ''}</td><td>{acts}</td></tr>"
@@ -82,6 +111,68 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
     )
 
 
+def _move_attrs(r: dict, dk: str, st: datetime) -> str:
+    """`data-*` для перетаскивания — ОДНА разметка на обе дневные страницы.
+
+    Канва и таблица рисуют визит по-разному, но перетаскивание у них общее, и
+    договор с `panel.js` обязан быть один: разойдись он — на одной странице
+    перенос молча перестал бы работать, а поймать это можно только руками.
+
+    `data-busy` — «этот визит занимает интервал», ровно те статусы, что считает
+    `db._conflicts`. По ним браузер предупреждает о столкновении ДО отправки;
+    завершённый и отменённый визит места не занимают и сюда не попадают.
+    ⛔ Тащить можно только активный визит и только из колонки НАСТОЯЩЕГО врача:
+    колонка-сирота (легаси-имя без id) — не адрес, переносить оттуда некуда.
+    """
+    live = r["status"] in LIVE_STATUSES
+    name = r["service"] if r["source"] == "note" else (r["name"] or "—")
+    a = (f" data-min='{st.hour * 60 + st.minute}'"
+         f" data-dur='{int(r.get('duration_min') or 60)}'"
+         f" data-nm=\"{html.escape(str(name)[:40], quote=True)}\"")
+    if dk:
+        a += f" data-dk='{html.escape(dk, quote=True)}'"
+    if live:
+        a += " data-busy='1'"
+        if dk:
+            a += " draggable='true' data-mv='1'"
+    return a
+
+
+def _move_modal(d: date, back: str) -> str:
+    """Подтверждение переноса: что, откуда, куда — и предупреждение о занятости.
+
+    ⚠️ Диалог обязателен: перетащить мышью легко случайно, а визит — это
+    человек, которому уже назвали время. Отдельная строка «de la» стоит здесь
+    не для красоты: если блок уехал не туда, вернуть его можно только зная,
+    откуда он.
+    """
+    b = html.escape(back)
+    return f"""
+<dialog id="movedlg">
+  <div class="dlg-head"><span>Mutare programare</span>
+    <button type="button" onclick="document.getElementById('movedlg').close()">{_ic('close')}</button></div>
+  <div class="dlg-form">
+    <div class="mv-rows">
+      <div><span>Pacient</span><b id="mv_nm">—</b></div>
+      <div><span>De la</span><b id="mv_from">—</b></div>
+      <div><span>La</span><b id="mv_to">—</b></div>
+    </div>
+    <div class="banner err" id="mv_warn" style="display:none"></div>
+    <form method="post" id="mv_form">
+      <input type="hidden" name="back" value="{b}">
+      <input type="hidden" name="mdate" value="{d.isoformat()}">
+      <input type="hidden" name="mtime" id="mv_time">
+      <input type="hidden" name="mdoctor" id="mv_doc">
+      <div class="mv-act">
+        <button type="button" class="mv-no"
+          onclick="document.getElementById('movedlg').close()">Anulează</button>
+        <button id="mv_yes">Da, mută</button>
+      </div>
+    </form>
+  </div>
+</dialog>"""
+
+
 def _collect_cards(rows: list) -> dict:
     """Данные карточек для модалки — по ВСЕМ записям дня (вкл. отменённые), кроме заметок."""
     cards: dict = {}
@@ -94,7 +185,10 @@ def _collect_cards(rows: list) -> dict:
             "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
             "comment": r["comment"] or "",
             "age": _age(r["birth_year"]),
-            "canAct": r["status"] in LIVE_STATUSES,
+            # состояние, а не «можно ли действовать»: набор кнопок в модалке
+            # зависит от статуса так же, как в списке дня, и одним «да/нет»
+            # его больше не выразить
+            "st": r["status"],
             "pid": r.get("patient_id"),
             # .get: не всякий вызывающий тянет флаг дневника из day_appointments
             "rec": bool(r.get("has_rec")),
@@ -133,10 +227,18 @@ def _card_modal(cards: dict, back: str) -> str:
       <input type="hidden" name="back" value="{b}"><button class="bstat b-noshow">Nu a venit</button></form>
     <form method="post" id="cs_cancel"><input type="hidden" name="to" value="cancelled">
       <input type="hidden" name="back" value="{b}"><button class="bstat b-cancel">Anulează</button></form>
+    <form method="post" id="cs_reopen"
+      onsubmit="return confirm('Redeschideți programarea (înapoi la «confirmată»)?')">
+      <input type="hidden" name="to" value="confirmed">
+      <input type="hidden" name="back" value="{b}">
+      <button class="bstat b-reopen">{_ic('undo')} Redeschide</button></form>
   </div>
 </dialog>
 <script>
 const CARDS = {data};
+const CS_SHOW = {{arrived: ['confirmed'], done: ['confirmed', 'arrived'],
+                  noshow: ['confirmed'], cancel: ['confirmed', 'arrived'],
+                  reopen: ['done', 'noshow', 'cancelled']}};
 function openCard(id) {{
   const c = CARDS[id];
   if (!c) return;
@@ -155,11 +257,15 @@ function openCard(id) {{
     vl.textContent = c.rec ? 'Vezi consultația ›' : 'Completează consultația ›';
   }} else vl.style.display = 'none';
   document.getElementById('c_form').action = '/admin/comment/' + id;
-  document.getElementById('cs_arrived').action = '/admin/status/' + id;
-  document.getElementById('cs_done').action = '/admin/status/' + id;
-  document.getElementById('cs_noshow').action = '/admin/status/' + id;
-  document.getElementById('cs_cancel').action = '/admin/status/' + id;
-  document.getElementById('c_status').style.display = c.canAct ? 'flex' : 'none';
+  // какие кнопки исхода показывать — ТОТ ЖЕ разбор, что в списке дня
+  // (_ACT_BUTTONS): в кресле не предлагаем «A sosit» и «Nu a venit», у
+  // закрытой записи остаётся только возврат. Раньше здесь стоял один флаг
+  // canAct, и закрытая запись теряла ВСЕ кнопки разом.
+  for (const k in CS_SHOW) {{
+    const f = document.getElementById('cs_' + k);
+    f.action = '/admin/status/' + id;
+    f.style.display = CS_SHOW[k].indexOf(c.st) < 0 ? 'none' : '';
+  }}
   document.getElementById('carddlg').showModal();
 }}
 </script>"""
