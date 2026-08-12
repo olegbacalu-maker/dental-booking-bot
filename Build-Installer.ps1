@@ -127,7 +127,13 @@ if ($health) {
 # Ubivaem DEREVO: onefile-sborka PyInstaller raspakovyvaetsya i zapuskaet
 # DOCHERNII process. Stop-Process po roditelyu ostavlyal ego zhit - on derzhal
 # port i vremennuyu papku, i kazhdaya sborka ostavlyala visyachii DentPilot.exe.
-& taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
+# ⚠️ try/catch obyazatelen (08-12). Dochernii process chasto umiraet SAM vsled
+# za roditelem, i togda taskkill pishet v stderr "could not be terminated" - a
+# "2>&1" pri $ErrorActionPreference=Stop delaet iz etogo TERMINIRUYUSHCHUYU
+# oshibku. Sborka padala na poslednem shage, uzhe posle uspeshnogo dymovogo
+# testa: exe sobran, stranicy otkryvayutsya, a operator vidit krasnoe i ne
+# ponimaet, chto vsyo horosho. Eto ta zhe grablya, chto opisana v karte pro git.
+try { & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null } catch { }
 Start-Sleep -Milliseconds 800
 Remove-Item $lab -Recurse -Force -EA SilentlyContinue
 $env:DENTART_BROWSER_MODE = $null; $env:DENTART_NO_BROWSER = $null; $env:DENTART_PORT = $null
