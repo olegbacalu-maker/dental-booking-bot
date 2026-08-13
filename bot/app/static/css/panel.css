@@ -587,6 +587,13 @@
     но в строке, а не в углу: у ячейки таблицы своей высоты нет, и
     абсолютное позиционирование пришлось бы держать вручную */
  .appt .stt svg{width:13px;height:13px;vertical-align:-2px;margin-right:3px}
+ /* выбор получаса в модалке слота (08-13): клик по ячейке — час, запись — и
+    на его половину. Чипы, а не select: два значения, видны оба сразу */
+ .halfpick{display:flex;gap:8px}
+ .halfpick .hp{flex:1;height:36px;border:1px solid var(--line);border-radius:var(--r-ctl);
+   background:var(--panel);color:var(--text2);font-size:13.5px;font-weight:600;
+   cursor:pointer;font-variant-numeric:tabular-nums}
+ .halfpick .hp.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal)}
  /* статус СЛОВОМ на карточке (08-13): тот же .stat-бейдж, что в списке дня,
     строкой под телефоном; у confirmed бейджа нет — базовое состояние */
  .appt .stw{margin-top:4px}

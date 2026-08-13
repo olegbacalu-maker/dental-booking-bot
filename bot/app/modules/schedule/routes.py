@@ -246,6 +246,10 @@ def _slot_modal(d: date, back: str) -> str:
     <input type="hidden" name="adate" value="{d.isoformat()}">
     <input type="hidden" name="atime" id="m_time_a">
     <input type="hidden" name="adoctor" id="m_doc_a">
+    <div class="halfpick" role="group" aria-label="Ora">
+      <button type="button" id="hp_00" class="hp on" onclick="pickHalf(0)">—</button>
+      <button type="button" id="hp_30" class="hp" onclick="pickHalf(30)">—</button>
+    </div>
     <select name="aservice">{svc_opts}</select>
     <input name="aname" placeholder="Nume pacient" required>
     <input name="aphone" placeholder="Telefon" required>
@@ -267,12 +271,28 @@ def _slot_modal(d: date, back: str) -> str:
 </dialog>
 <script>
 const NOTE_ENDS = {js_json([x.hour + 1 for x in eng.day_slots(d)])};
+/* Клик по ячейке — это ЧАС, а запись бывает и на его половину (08-13, Олег):
+   раньше 10:30 из модалки было не выбрать вовсе — только нижней формой.
+   Выбор получаса меняет ТОЛЬКО время записи (atime) и заголовок; заметка
+   (ntime) остаётся почасовой — блокировки живут часами, как и ячейки. */
+let SLOT_H = '';
+let SLOT_NAME = '';
+function pickHalf(mm) {{
+  const t = SLOT_H + ':' + (mm ? '30' : '00');
+  document.getElementById('m_time_a').value = t;
+  document.getElementById('m_title').textContent = SLOT_NAME + ' — ' + t;
+  document.getElementById('hp_00').className = 'hp' + (mm ? '' : ' on');
+  document.getElementById('hp_30').className = 'hp' + (mm ? ' on' : '');
+}}
 function openSlot(dk, dname, hh) {{
   document.getElementById('m_doc_a').value = dk;
   document.getElementById('m_doc_n').value = dk;
-  document.getElementById('m_time_a').value = hh;
   document.getElementById('m_time_n').value = hh;
-  document.getElementById('m_title').textContent = dname + ' — ' + hh;
+  SLOT_H = hh.split(':')[0];
+  SLOT_NAME = dname;
+  document.getElementById('hp_00').textContent = SLOT_H + ':00';
+  document.getElementById('hp_30').textContent = SLOT_H + ':30';
+  pickHalf(0);
   const start = parseInt(hh);
   const sel = document.getElementById('m_until');
   sel.innerHTML = '';
