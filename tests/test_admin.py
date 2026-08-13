@@ -1108,6 +1108,99 @@ def suite_settings(res: Result) -> None:
                "clinic.json не переписан")
 
 
+def suite_pwa(res: Result) -> None:
+    """Значок на домашнем экране: манифест, иконки, теги в шапке.
+
+    Манифест собирается НА ЛЕТУ, и обе причины проверяются здесь: имя и цвет
+    принадлежат клинике (файл в сборке заморозил бы зелёный DentPilot на синем
+    интерфейсе), а адреса внутри обязаны быть ОТНОСИТЕЛЬНЫМИ — одна и та же
+    программа открывается как 127.0.0.1 и как 192.168.x.y из сети клиники."""
+    with Server() as s:
+        c = Client(s.url).login()
+
+        m = c.get("/manifest.webmanifest")
+        res.check("манифест отдаётся", m.status, 200)
+        res.ok("манифест объявлен манифестом",
+               "application/manifest+json" in m.header("content-type"),
+               f"content-type: {m.header('content-type')!r}")
+        try:
+            man = json.loads(m.body)
+            res.ok("манифест — валидный JSON", True, "")
+        except json.JSONDecodeError as e:
+            man = {}
+            res.ok("манифест — валидный JSON", False, str(e))
+
+        res.check("открывается журнал, а не витрина пациента",
+                  man.get("start_url"), "/admin")
+        res.check("запускается отдельным окном", man.get("display"), "standalone")
+        icons = man.get("icons") or []
+        res.ok("объявлены оба размера значка",
+               {i.get("sizes") for i in icons} == {"192x192", "512x512"},
+               f"размеры: {[i.get('sizes') for i in icons]}")
+
+        # ⭐ Самая дорогая ошибка манифеста — АБСОЛЮТНЫЙ адрес. Значок
+        # установится молча и будет открывать 127.0.0.1 с телефона, то есть сам
+        # телефон: у клиники это выглядит как «программа не работает», а не как
+        # «неверная ссылка». Проверяем весь набор адресов разом.
+        addrs = ([man.get("start_url", ""), man.get("scope", "")]
+                 + [i.get("src", "") for i in icons])
+        res.ok("все адреса внутри относительные",
+               all(a.startswith("/") for a in addrs), f"адреса: {addrs}")
+
+        for px in (180, 192, 512):
+            r = c.get(f"/icon-{px}.png")
+            res.ok(f"значок {px} отдаётся PNG-ом",
+                   r.status == 200 and r.raw[:8] == b"\x89PNG\r\n\x1a\n",
+                   f"код {r.status}, первые байты {r.raw[:8]!r}")
+            # ширина лежит в IHDR: 8 байт подписи + 8 байт заголовка чанка
+            width = int.from_bytes(r.raw[16:20], "big") if len(r.raw) > 20 else 0
+            res.check(f"значок {px} нарисован в свой размер", width, px)
+            # ⚠️ Тип цвета из того же IHDR (байт 25): 6 = RGBA. Значку iPhone
+            # (180) прозрачность ЗАПРЕЩЕНА — iOS заливает её чёрным, и знак
+            # приезжает на домашний экран в чёрной рамке. Видно это только на
+            # самом айфоне, поэтому проверяем байтом.
+            color_type = r.raw[25] if len(r.raw) > 25 else -1
+            if px == 180:
+                res.ok("значок iPhone без прозрачности", color_type != 6,
+                       "RGBA — на айфоне углы станут чёрными")
+            else:
+                res.ok(f"значок {px} с прозрачными углами", color_type == 6,
+                       f"тип цвета {color_type}, ожидался RGBA")
+        res.check("произвольный размер не рисуется",
+                  c.get("/icon-9000.png").status, 404)
+
+        page = c.get("/admin").body
+        res.ok("журнал подключает манифест", '<link rel="manifest"' in page,
+               "нет ссылки на манифест — телефон не узнает про приложение")
+        res.ok("журнал объявляет значок для iPhone",
+               'rel="apple-touch-icon"' in page, "нет apple-touch-icon")
+
+        # ⚠️ На страницы со своей вёрсткой теги вставляются ПО ЯКОРЮ (charset),
+        # а не заполнителем: заполнитель в новом экране забудут. Если якорь
+        # однажды перепишут — эта проверка и покажет.
+        login = Client(s.url).get("/admin/login").body
+        res.ok("экран входа тоже несёт манифест",
+               '<link rel="manifest"' in login,
+               "с телефона устанавливают как раз с экрана входа")
+        res.ok("теги стоят ПОСЛЕ объявления кодировки",
+               login.index("charset") < login.index('rel="manifest"'),
+               "имя клиники поедет в браузер раньше, чем тот узнает кодировку")
+
+        # цвет и имя принадлежат клинике: смена темы обязана дойти до манифеста
+        c.post("/admin/settings/save", part="theme", style="calm",
+               primary="#7C3AED", custom="")
+        cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
+        cfg["name"] = "Clinica Redenumită"
+        c.post("/admin/settings/save", payload=json.dumps(cfg, ensure_ascii=False))
+        man2 = json.loads(c.get("/manifest.webmanifest").body)
+        res.ok("цвет в манифесте едет за темой клиники",
+               man2.get("theme_color") != man.get("theme_color"),
+               f"остался {man2.get('theme_color')!r} — цвет зашит, а не взят у темы")
+        res.ok("имя клиники в манифесте",
+               man2.get("short_name") == "Clinica Redenumită",
+               f"short_name: {man2.get('short_name')!r}")
+
+
 def suite_lan(res: Result) -> None:
     """Доступ с телефона (LAN, слой 2 PWA): секция живёт в dental.env, потому
     что слушающий адрес выбирает лаунчер до старта приложения. В тестах

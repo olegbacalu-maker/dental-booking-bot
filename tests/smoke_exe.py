@@ -45,6 +45,18 @@ def main(base: str, password: str) -> int:
     r = c.get("/favicon.ico")
     check("значок отдаётся", r.status == 200 and len(r.body) > 50, f"код {r.status}")
 
+    # Значок приложения РИСУЕТСЯ через PIL, а тот попадает в сборку только
+    # потому, что его просит загрузка снимков в фише. Пропади он — телефон
+    # получит 500 на иконку и поставит на домашний экран серый квадрат;
+    # ни одна страница об этом не скажет, и прогон по исходникам тоже.
+    r = c.get("/icon-192.png")
+    check("значок приложения рисуется в сборке",
+          r.status == 200 and r.raw[:8] == b"\x89PNG\r\n\x1a\n",
+          f"код {r.status}, первые байты {r.raw[:8]!r}")
+    r = c.get("/manifest.webmanifest")
+    check("манифест отдаётся из сборки",
+          r.status == 200 and '"standalone"' in r.body, f"код {r.status}")
+
     r = c.get("/admin")
     check("журнал закрыт без входа",
           r.status == 303 and "login" in r.location, f"код {r.status}")

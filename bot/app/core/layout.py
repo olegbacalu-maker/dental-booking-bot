@@ -643,7 +643,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -
     return f"""<!doctype html><html lang="ro" data-style="{th['style']}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="{th_bg}">
-<link rel="icon" type="image/svg+xml" href="/favicon.ico">
+<link rel="icon" type="image/svg+xml" href="/favicon.ico">{pwa_head()}
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title>
 <link rel="stylesheet" href="/static/css/fonts.css?v={_asset_ver('css', 'fonts.css')}">
 <link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
@@ -839,6 +839,31 @@ RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 RECOVER_TMPL = RECOVER_TMPL.replace("__ICON__", _ic("key"))
 
 
+_PWA_ANCHOR = '<meta charset="utf-8">'
+
+
+def pwa_head() -> str:
+    """Теги, которые превращают страницу в «приложение» на телефоне.
+
+    ⚠️ Что здесь правда и что нет, чтобы не обещать лишнего в интерфейсе:
+    на iPhone `apple-mobile-web-app-capable` даёт настоящий полноэкранный
+    запуск с домашнего экрана и работает ПО HTTP — то есть в сети клиники уже
+    сегодня. На Android полноценная установка (WebAPK) требует service worker,
+    а тот живёт только в защищённом контексте (https или localhost); в сети
+    клиники у нас голый http НАМЕРЕННО, поэтому там значок остаётся ярлыком —
+    но с нашим именем и знаком, а не с обрезанным снимком страницы. На
+    настольном браузере «установить как приложение» работает независимо от
+    всего этого. ⭐ Появится https (туннель, слой 3) — Android доберёт своё
+    без единой правки здесь.
+    """
+    name = html.escape(eng.CLINIC_NAME)
+    return ('<link rel="manifest" href="/manifest.webmanifest">'
+            '<link rel="apple-touch-icon" href="/icon-180.png">'
+            '<meta name="apple-mobile-web-app-capable" content="yes">'
+            '<meta name="apple-mobile-web-app-status-bar-style" content="default">'
+            f'<meta name="apple-mobile-web-app-title" content="{name}">')
+
+
 def standalone(tmpl: str) -> str:
     """Подставить в страницу СО СВОЕЙ вёрсткой имя клиники, её цвет, логотип и
     объявление шрифта.
@@ -856,6 +881,11 @@ def standalone(tmpl: str) -> str:
     th = theme.current()
     pal = theme.palette(th["primary"], th["style"])
     logo = theme.logo_url()
+    # ⚠️ Теги приложения вставляются ПОСЛЕ объявления кодировки, а не в начало
+    # <head>: в них едет имя клиники, а браузер обязан узнать кодировку раньше,
+    # чем встретит первую не-ASCII букву. Вставка по якорю, а не заполнителем:
+    # заполнитель в новом экране просто забудут — ровно то, о чём docstring.
+    tmpl = tmpl.replace(_PWA_ANCHOR, _PWA_ANCHOR + pwa_head(), 1)
     return (tmpl.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
             .replace("__ACCENT_D__", pal["--teal-d"])
             .replace("__ACCENT__", pal["--teal"])

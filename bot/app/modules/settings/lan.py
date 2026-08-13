@@ -152,7 +152,9 @@ def render() -> str:
                 f"fără bara de adrese."
                 f"<div style='margin:12px 0 4px'><b>Pe telefon:</b> scanați "
                 f"codul (telefonul — pe Wi-Fi-ul clinicii), apoi meniul "
-                f"browserului › «Adaugă pe ecranul principal».</div>"
+                f"browserului › «Adaugă pe ecranul principal». Pe iPhone "
+                f"registrul se deschide apoi ca aplicație, pe tot ecranul; pe "
+                f"Android rămâne o scurtătură către browser.</div>"
                 f"<img src='/qr?data={q}' "
                 f"style='width:180px;height:180px'></div>")
         else:

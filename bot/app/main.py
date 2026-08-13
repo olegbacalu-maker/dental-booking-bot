@@ -10,6 +10,7 @@ Telegram), вход в журнал, отдача статики и эндпои
 import asyncio
 import hmac
 import html
+import json
 import logging
 import os
 import pathlib
@@ -289,6 +290,57 @@ async def favicon() -> Response:
     один роут закрывает все страницы, включая печатные."""
     return Response(brand.mark_svg(None), media_type="image/svg+xml",
                     headers={"Cache-Control": "public, max-age=86400"})
+
+
+ICON_PX = (180, 192, 512)  # apple-touch-icon; манифест просит 192 и 512
+
+
+@app.get("/icon-{px}.png")
+async def app_icon(px: int) -> Response:
+    """Знак значком приложения. Размеры перечислены намеренно: адрес открыт без
+    входа, а `brand.png` РИСУЕТ картинку — свободный размер дал бы любому в сети
+    клиники дешёвый способ занять процессор запросами вида /icon-9000.png."""
+    if px not in ICON_PX:
+        return Response(status_code=404)
+    # 180 — тот, что забирает iPhone (apple-touch-icon), и ему нужен знак БЕЗ
+    # прозрачности: см. brand.png. Остальные два берёт манифест, там прозрачные
+    # углы — норма, значок ложится на подложку системы.
+    return Response(brand.png(px, opaque=px == 180), media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/manifest.webmanifest")
+async def manifest() -> Response:
+    """Паспорт «приложения» для телефона: имя, значок, цвет, стартовый адрес.
+
+    Собирается на лету, а не лежит файлом, по двум причинам, и обе тихие:
+    ⛔ цвет и имя принадлежат КЛИНИКЕ (`theme.current`, `clinic.json`) — файл
+    в сборке заморозил бы зелёный DentPilot на синем интерфейсе;
+    ⛔ адреса внутри обязаны быть ОТНОСИТЕЛЬНЫМИ: одна и та же программа
+    открывается как 127.0.0.1, как 192.168.x.y из сети клиники и через будущий
+    туннель — записанный хост сделал бы значок нерабочим на всех адресах, кроме
+    одного.
+
+    `start_url` — журнал, а не «/»: «/» это витрина записи для пациента, и
+    установленное приложение обязано открываться там, где работают.
+    """
+    th = theme.current()
+    bg = theme.STYLES[th["style"]]["--bg"]  # тот же цвет, что <meta theme-color>
+    body = json.dumps({
+        "id": "/admin",
+        "name": f"{eng.CLINIC_NAME} — registru",
+        "short_name": eng.CLINIC_NAME,
+        "lang": "ro",
+        "start_url": "/admin",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": bg,
+        "theme_color": bg,
+        "icons": [{"src": f"/icon-{px}.png", "sizes": f"{px}x{px}",
+                   "type": "image/png"} for px in (192, 512)],
+    }, ensure_ascii=False)
+    return Response(body, media_type="application/manifest+json",
+                    headers={"Cache-Control": "no-cache"})
 
 
 @app.middleware("http")
