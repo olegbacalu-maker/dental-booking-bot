@@ -29,10 +29,11 @@ from ... import db
 from ... import dpapi, envfile
 from ... import engine as eng
 from ... import update as upd
-from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, ROLE_DIRECTOR,
-                          ROLE_LABEL, ROLE_MEDIC, _pin_rec, all_users,
-                          current_user, delete_user, find_user, n_directors,
-                          pin_free, remember_auth_file, require, save_user)
+from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, PIN_MAX,
+                          ROLE_DIRECTOR, ROLE_LABEL, ROLE_MEDIC, _pin_rec,
+                          all_users, current_user, delete_user, find_user,
+                          n_directors, pin_free, pin_len_ok,
+                          remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER, js_json,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
                             _doc_hours_text, _shell, standalone, tg_configured,
@@ -56,7 +57,7 @@ def _set_back(msg: str) -> RedirectResponse:
     return RedirectResponse(f"/admin/settings/security?msg={msg}", status_code=303)
 
 
-def _users_block() -> str:
+def _users_block(last_login: dict[str, str]) -> str:
     """Сотрудники клиники: кто входит и что ему можно.
 
     Вход идёт по ОДНОМУ паролю, без логина: регистратура набирает его десятки
@@ -64,6 +65,10 @@ def _users_block() -> str:
     которое стережёт `pin_free`: пароли обязаны быть разными, иначе журнал
     доступа начнёт называть чужое имя. Id при этом есть у каждого — он нужен
     журналу и врачу на телефоне, где вход по одному паролю неочевиден.
+
+    `last_login` (uid → «13.08.2026 14:02») — гигиена доступа: учётка, в
+    которую не входили месяцами, — это либо уволенный, либо пароль, которым
+    никто не пользуется; и то и другое директор должен ВИДЕТЬ, а не помнить.
     """
     e = html.escape
     doc_opts = "".join(f"<option value='{e(k)}'>{e(v)}</option>"
@@ -78,7 +83,9 @@ def _users_block() -> str:
             f"{e(v)}</option>" for k, v in eng.DOCTORS.items())
         rows.append(
             f"<tr><td><b>{e(u['name'])}</b><br>"
-            f"<small style='color:var(--text3)'>id: {e(u['id'])}</small></td>"
+            f"<small style='color:var(--text3)'>id: {e(u['id'])}</small><br>"
+            f"<small style='color:var(--text3)'>ultima intrare: "
+            f"{e(last_login.get(u['id'], '—'))}</small></td>"
             f"<td><form method='post' action='/admin/users/save' "
             f"style='display:flex;gap:6px;flex-wrap:wrap;align-items:center'>"
             f"<input type='hidden' name='uid' value='{e(u['id'])}'>"
@@ -87,7 +94,7 @@ def _users_block() -> str:
             f"<select name='doctor_id'><option value=''>— nu e medic —</option>"
             f"{sel_doc}</select>"
             f"<input type='password' name='pin' placeholder='PIN nou (opțional)' "
-            f"inputmode='numeric' maxlength='6' style='width:150px'>"
+            f"inputmode='numeric' maxlength='{PIN_MAX}' style='width:150px'>"
             f"<button>Salvează</button></form></td>"
             f"<td><form method='post' action='/admin/users/delete' "
             f"onsubmit=\"return confirm('Ștergeți contul {e(u['name'])}?')\">"
@@ -105,14 +112,16 @@ def _users_block() -> str:
   <input name='uid' placeholder='id (ex. d2, ana)' maxlength='20' required style='width:130px'>
   <select name='role'>{role_opts}</select>
   <select name='doctor_id'><option value=''>— nu e medic —</option>{doc_opts}</select>
-  <input type='password' name='pin' placeholder='PIN 4–6 cifre' inputmode='numeric'
-         maxlength='6' required style='width:150px'>
+  <input type='password' name='pin' placeholder='PIN 4–8 cifre' inputmode='numeric'
+         maxlength='{PIN_MAX}' required style='width:150px'>
   <button>+ Adaugă utilizator</button>
 </form>
 <p class='hint'>Intrarea se face cu PIN-ul personal, fără nume de utilizator —
 de aceea PIN-ul trebuie să fie unic în clinică. <b>Director</b> vede banii și
 setările, <b>Recepție</b> și <b>Medic</b> — tot restul. Legătura cu un medic
-face ca jurnalul să scrie numele lui la fiecare deschidere de fișă.</p>"""
+face ca jurnalul să scrie numele lui la fiecare deschidere de fișă.
+Pentru <b>director</b> recomandăm un PIN de 6+ cifre — el vede banii și
+setările; intrările în program se văd în «Activitate recentă» (Statistici).</p>"""
 
 _PALETTE_RO = {"green": "verde", "blue": "albastru", "amber": "portocaliu",
                "violet": "violet", "red": "roșu", "teal": "turcoaz"}
@@ -464,14 +473,26 @@ async def settings_security(request: Request, msg: str = ""):
         return deny
     if not _pin_rec():
         return RedirectResponse("/admin/settings", status_code=303)
+    # последний вход каждого — из meta (пишет /admin/login), НЕ из auth.json:
+    # файл под сигнализацией отпечатка, и запись «когда входил» при каждом
+    # входе дёргала бы её на ровном месте
+    last = {}
+    for u in all_users():
+        v = await db.get_meta(f"last_login:{u['id']}")
+        if v:
+            try:
+                last[u["id"]] = (datetime.fromisoformat(v).astimezone(eng.TZ)
+                                 .strftime("%d.%m.%Y %H:%M"))
+            except ValueError:
+                pass
     body = f"""
 <h2>{_ic("key")} Schimbă PIN</h2>
 <form class='add' method='post' action='/admin/pin/change'>
-  <input type='password' name='old_pin' placeholder='PIN actual' inputmode='numeric' maxlength='6' required style='width:140px'>
-  <input type='password' name='new1' placeholder='PIN nou' inputmode='numeric' maxlength='6' required style='width:140px'>
-  <input type='password' name='new2' placeholder='repetați' inputmode='numeric' maxlength='6' required style='width:140px'>
+  <input type='password' name='old_pin' placeholder='PIN actual' inputmode='numeric' maxlength='{PIN_MAX}' required style='width:140px'>
+  <input type='password' name='new1' placeholder='PIN nou' inputmode='numeric' maxlength='{PIN_MAX}' required style='width:140px'>
+  <input type='password' name='new2' placeholder='repetați' inputmode='numeric' maxlength='{PIN_MAX}' required style='width:140px'>
   <button>Schimbă</button>
-</form>""" + _users_block()
+</form>""" + _users_block(last)
     return _sec_page(body, "setări · securitate și utilizatori", msg)
 
 
@@ -1225,7 +1246,7 @@ async def users_save(request: Request, uid: str = Form(...), name: str = Form(""
     existing = find_user(uid)
     if not existing and not pin:
         return _set_back("bad_user")           # новому нужен пароль
-    if pin and (not pin.isdigit() or not (4 <= len(pin) <= 6)):
+    if pin and not pin_len_ok(pin):
         return _set_back("bad_user")
     # ⚠️ проверка ДО записи: вход идёт по одному лишь паролю, и два одинаковых
     # означают, что журнал доступа однажды назовёт не того человека

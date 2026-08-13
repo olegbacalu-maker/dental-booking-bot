@@ -787,12 +787,12 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <form method="post" action="/admin/setup">
   __LOGO__
   <h1>__CLINIC__</h1>
-  <p>Prima pornire: setați un PIN pentru registrul clinicii (4–6 cifre).</p>
+  <p>Prima pornire: setați un PIN pentru registrul clinicii (4–8 cifre).</p>
   __ERR__
   <input type="password" name="pin1" placeholder="PIN" inputmode="numeric"
-         pattern="[0-9]*" maxlength="6" autofocus required>
+         pattern="[0-9]*" maxlength="8" autofocus required>
   <input type="password" name="pin2" placeholder="repetați PIN" inputmode="numeric"
-         pattern="[0-9]*" maxlength="6" required>
+         pattern="[0-9]*" maxlength="8" required>
   <button>Setează PIN</button>
 </form></body></html>"""
 

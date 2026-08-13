@@ -136,9 +136,25 @@ def suite_throttle(res: Result) -> None:
                "err=lock" in Client(s.url).post(
                    "/admin/login", password="4321", next="/admin").location,
                "новая сессия обходит блокировку")
+        lock_page = c.get("/admin/login?err=lock&s=30").body
         res.ok("экран объясняет блокировку, а не врёт про неверный PIN",
-               "încercări" in c.get("/admin/login?err=lock&s=30").body,
-               "нет текста о превышении попыток")
+               "încercări" in lock_page, "нет текста о превышении попыток")
+        # вторая фраза — выход: после смены пароля коллегой человек попадает
+        # сюда с «верным» по его памяти PIN-ом и не знает, что делать (08-13)
+        res.ok("экран блокировки подсказывает про директора",
+               "director" in lock_page,
+               "запертый не знает, что PIN может сменить директор")
+
+        # всплеск подбора обязан остаться в ленте ПОСЛЕ удачного входа: сам
+        # счётчик обнуляется, и без записи серия исчезла бы бесследно (08-13).
+        # Блокировку снимаем нашим же файлом состояния — ждать 30 с незачем.
+        (s.dir / "auth_fail.json").write_text('{"fails": 0, "until": 0}',
+                                              encoding="utf-8")
+        ok = Client(s.url)
+        ok.post("/admin/login", password="4321", next="/admin")
+        res.ok("серия неудач записана в ленту клиники",
+               "încercări greșite la intrare" in ok.get("/admin/stats").body,
+               "подбор PIN у стойки не оставил следа")
 
 
 def suite_roles(res: Result) -> None:
@@ -165,6 +181,12 @@ def suite_roles(res: Result) -> None:
         res.check("чужой пароль повторить нельзя",
                   boss.post("/admin/users/save", uid="x1", name="X", role="medic",
                             pin="2222").msg, "dup_user")
+        res.check("8-значный PIN сотрудника принимается",
+                  boss.post("/admin/users/save", uid="opt8", name="Opt C",
+                            role="receptie", pin="44445555").msg, "ok_user")
+        res.check("9 цифр — отбой",
+                  boss.post("/admin/users/save", uid="n9", name="N",
+                            role="receptie", pin="444455556").msg, "bad_user")
         res.check("id только из безопасных символов",
                   boss.post("/admin/users/save", uid="Ана!", name="X", role="medic",
                             pin="4444").msg, "bad_user")
@@ -375,6 +397,36 @@ def suite_change(res: Result) -> None:
         new.post("/admin/login", password="5678", next="/admin")
         res.ok("новый PIN пускает", new.get("/admin").status == 200,
                "не пустил по новому PIN")
+
+        # --- журнал входов (08-13): вход перестал быть бесследным ---
+        res.ok("вход записан в ленту клиники",
+               "A intrat în registru" in new.get("/admin/stats").body,
+               "входа нет в «Activitate recentă» — «кто входил вчера вечером» "
+               "снова без ответа")
+        res.ok("у сотрудника видна последняя интрare",
+               "ultima intrare:" in new.get("/admin/settings/security").body,
+               "колонки последнего входа нет на «Securitate»")
+
+        # --- потолок длины поднят до 8 (08-13, LAN) ---
+        r = new.post("/admin/pin/change", old_pin="5678",
+                     new1="123456789", new2="123456789")
+        res.check("9 цифр не принимаются", r.msg, "bad_pin")
+        r = new.post("/admin/pin/change", old_pin="5678",
+                     new1="87654321", new2="87654321")
+        res.check("8 цифр принимаются", r.msg, "ok_pin")
+        eight = Client(s.url)
+        eight.post("/admin/login", password="87654321", next="/admin")
+        res.ok("вход по 8-значному PIN работает",
+               eight.get("/admin").status == 200, "8 цифр не пускают")
+        res.ok("форма входа не режет восьмую цифру на вводе",
+               "maxlength='8'" in eight.get("/admin/login").body,
+               "maxlength остался 6 — восьмая цифра молча не наберётся")
+        # дальше суита живёт с PIN 87654321 — вернуть 5678 для читаемости низа
+        new = eight
+        new.post("/admin/pin/change", old_pin="87654321",
+                 new1="5678", new2="5678")
+        new = Client(s.url)
+        new.post("/admin/login", password="5678", next="/admin")
 
         # Блокировка на форме смены обязана говорить о блокировке. «PIN-ul vechi
         # e greșit» здесь — вранья того же рода, что и погашенный бот: человек

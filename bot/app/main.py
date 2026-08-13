@@ -27,11 +27,13 @@ from . import db
 from . import engine as eng
 from . import paths
 from . import update as upd
-from .core.auth import (ADMIN_KEY, FAIL_DELAY, PERM_SETTINGS, _guard, _pin_rec,
-                        _secret, _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_file_fp, current_user, find_user, lock_left,
-                        note_fail, note_ok, remember_auth_file, request_user,
-                        require, set_request_user, set_tamper_alert, verify_pin)
+from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
+                        PERM_SETTINGS, _as_user, _guard, _pin_rec, _secret,
+                        _set_auth_cookie, _setup_allowed, _write_pin,
+                        auth_file_fp, current_user, fail_count, find_user,
+                        lock_left, note_fail, note_ok, pin_len_ok,
+                        remember_auth_file, request_user, require,
+                        set_request_user, set_tamper_alert, verify_pin)
 from .core import dbkey, theme
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
                           standalone, tg_configured)
@@ -118,7 +120,7 @@ PIN_INPUT = ("<input type='text' name='uid' placeholder='ID (opțional)' "
              "autocomplete='username' maxlength='20' "
              "style='text-align:center;font-size:15px'>"
              "<input type='password' name='password' placeholder='PIN' autofocus required "
-             "inputmode='numeric' pattern='[0-9]*' maxlength='6' "
+             f"inputmode='numeric' pattern='[0-9]*' maxlength='{PIN_MAX}' "
              "style='text-align:center;font-size:28px;letter-spacing:12px'>")
 PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"
 
@@ -464,8 +466,12 @@ async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
         # к моменту перезагрузки страницы уже мог утечь до нуля
         left = lock_left() or (int(s) if s.isdigit() else 0)
         wait = f"{left} sec." if left < 60 else f"{(left + 59) // 60} min."
+        # вторая фраза — выход, а не упрёк: после смены пароля коллегой человек
+        # попадает сюда с ВЕРНЫМ по его памяти PIN-ом и не знает, что делать
         err_html = ("<div class='err'>Prea multe încercări greșite. "
-                    f"Încercați peste {wait}</div>")
+                    f"Încercați peste {wait}<br><small>Ați uitat PIN-ul? "
+                    "Un director îl poate schimba din Setări › Securitate "
+                    "și utilizatori.</small></div>")
     elif err:
         err_html = ("<div class='err'>PIN greșit</div>" if pin_mode
                     else "<div class='err'>Parolă greșită</div>")
@@ -502,10 +508,27 @@ async def admin_login(password: str = Form(...), uid: str = Form(""),
             # verify_pin мог молча переписать файл (миграция v1→v2, доливка
             # sid) — обновляем отпечаток, иначе следующий старт увидит «взлом»
             await remember_auth_file()
+            # Журнал входов (08-13): «кто входил вчера вечером» — вопрос, на
+            # который раньше отвечать было нечем: вход не оставлял следа
+            # нигде. Облачная ветка (ADMIN_KEY) не пишет: там нет людей, и
+            # строка «cineva a intrat» ничего бы не говорила.
+            await db.log_clinic_event("login", "A intrat în registru",
+                                      actor=_as_user(who)["name"])
+            await db.set_meta(f"last_login:{who.get('id', 'clinic')}",
+                              datetime.now(eng.TZ).isoformat())
         # кука ставится ПОСЛЕ verify_pin: миграция v1→v2 меняет ключ подписи,
         # а запись пользователя — свой sid
         return _set_auth_cookie(RedirectResponse(target, status_code=303), who)
     lock = note_fail()
+    if lock and fail_count() in LOCK_STEP_COUNTS:
+        # Всплеск подбора — строкой в ленту, на СТУПЕНЯХ лестницы, а не на
+        # каждой неудаче (иначе спам). Удачный вход обнулит счётчик, но строка
+        # останется: серия «кто-то тыкал PIN у стойки» перестаёт быть тихой.
+        wait = f"{lock // 60} min." if lock >= 60 else f"{lock} s"
+        await db.log_clinic_event(
+            "login_fail",
+            f"{fail_count()} încercări greșite la intrare — blocat {wait}",
+            actor="necunoscut")
     # asyncio.sleep, а не time.sleep: у настольного издания один процесс на всю
     # клинику, и блокирующая пауза заморозила бы журнал остальным
     await asyncio.sleep(FAIL_DELAY)
@@ -583,7 +606,7 @@ async def admin_setup(pin1: str = Form(...), pin2: str = Form(...)):
     if not _setup_allowed():
         return RedirectResponse("/admin", status_code=303)
     p1, p2 = pin1.strip(), pin2.strip()
-    if p1 != p2 or not p1.isdigit() or not (4 <= len(p1) <= 6):
+    if p1 != p2 or not pin_len_ok(p1):
         return RedirectResponse("/admin/setup?err=1", status_code=303)
     _write_pin(p1)
     await remember_auth_file()
@@ -609,7 +632,7 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
         return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
     note_ok()
     n1, n2 = new1.strip(), new2.strip()
-    if n1 != n2 or not n1.isdigit() or not (4 <= len(n1) <= 6):
+    if n1 != n2 or not pin_len_ok(n1):
         return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
     # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
     _write_pin(n1, role=who.get("role", "director"), uid=who.get("id", "clinic"))
