@@ -59,8 +59,9 @@ def _agg(rows: list) -> dict:
         "bot": sum(1 for r in act if r["source"] == "bot"),
         "man": sum(1 for r in act if r["source"] == "manual"),
         "web": sum(1 for r in act if r["source"] not in ("bot", "manual")),
-        # «пришли» = завершённые + сидящие в кресле прямо сейчас
-        "done": sum(1 for r in act if r["status"] in ("done", "arrived")),
+        # «пришли» = завершённые + в кабинете + ждущие в приёмной (waiting):
+        # человек физически в клинике, для «Au venit» это уже факт
+        "done": sum(1 for r in act if r["status"] in ("done", "arrived", "waiting")),
         "noshow": sum(1 for r in act if r["status"] == "noshow"),
         "cancel": len(appts) - len(act),
         "rem": sum(1 for r in appts if r["reminded_day"]),
@@ -165,7 +166,7 @@ async def admin_stats(
             per_day["Prin bot"][i] += 1
         elif r["source"] == "manual":
             per_day["Recepție"][i] += 1
-        if r["status"] in ("done", "arrived"):
+        if r["status"] in ("done", "arrived", "waiting"):
             per_day["Au venit"][i] += 1
         if r["reminded_day"]:
             per_day["Remindere"][i] += 1
@@ -229,7 +230,7 @@ async def admin_stats(
         if off and not mine:
             continue   # выключенный врач без записей за период — не мусорим нулями
         ns = sum(1 for r in mine if r["status"] == "noshow")
-        came = sum(1 for r in mine if r["status"] in ("done", "arrived"))
+        came = sum(1 for r in mine if r["status"] in ("done", "arrived", "waiting"))
         cap = sum(eng.work_minutes(dk, day) for day in days)
         busy = sum(int(r.get("duration_min") or 60) for r in mine)
         pct = round(100 * busy / cap) if cap else 0

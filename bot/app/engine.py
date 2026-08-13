@@ -919,8 +919,10 @@ async def handle(s: Session, sid: str, msg: str):
                 f"• #{r['id']} {r['service']} — {day_label(s, dt.date())} "
                 f"{dt.strftime('%H:%M')} ({doc_name})"
             )
-            # «в кабинете» (arrived) из бота не отменяется — кнопку не рисуем,
-            # иначе тап давал бы ложное «запись уже неактивна»
+            # «пришёл» (waiting) и «в кабинете» (arrived) из бота не
+            # отменяются — человек уже в клинике; кнопку не рисуем, иначе тап
+            # давал бы ложное «запись уже неактивна». Нижний пояс — сама
+            # cancel_appointment: она меняет ТОЛЬКО confirmed.
             if r.get("status", "confirmed") == "confirmed":
                 brows.append([btn(f"{t(s, 'btn_cancel_appt')} #{r['id']}",
                                   f"cancel:{r['id']}")])

@@ -350,9 +350,10 @@ def suite_status(res: Result) -> None:
         day2 = f"/admin/all?date={_d(2)}"
         page = c.get(day2).body
         bid = page.split("/admin/status/", 1)[1].split("'")[0].split('"')[0]
-        res.ok("подтверждённой записи предложены все четыре исхода",
+        res.ok("подтверждённой записи предложены все пять исходов",
                all(f"class='{k}'" in page
-                   for k in ("b-arrived", "b-done", "b-noshow", "b-cancel")),
+                   for k in ("b-waiting", "b-arrived", "b-done", "b-noshow",
+                             "b-cancel")),
                "в списке дня не хватает кнопок исхода")
 
         c.post(f"/admin/status/{bid}", to="arrived", back=day2)
@@ -383,6 +384,31 @@ def suite_status(res: Result) -> None:
         res.ok("после возврата исходы снова доступны",
                "class='b-arrived'" in page and "class='b-reopen'" not in page,
                "возврат не вернул запись в работу")
+
+        # --- «A venit» (waiting, 08-13): пациент пришёл и ждёт в приёмной ---
+        r = c.post(f"/admin/status/{bid}", to="waiting", back=day2)
+        res.ok("статус → waiting принят", r.status == 303, f"код {r.status}")
+        page = c.get(day2).body
+        res.ok("пришедшему не предлагают «Nu a venit», но дают ход дальше",
+               "class='b-noshow'" not in page and "class='b-arrived'" in page
+               and "class='b-done'" in page,
+               "кнопки waiting предлагают неправду или прячут следующий шаг")
+        badge = re.search(r"class='stat s-waiting'>(.*?)</span>", page, re.S)
+        res.ok("плашка «a venit» стоит словом на карточке сетки",
+               "class='appt waiting" in page and bool(badge)
+               and "a venit" in badge.group(1),
+               f"плашка waiting: {badge.group(1)[:60] if badge else 'нет'!r}")
+        # слот пришедшего ЗАНЯТ: ACTIVE_STATUSES и предикаты uq-индексов
+        # обязаны знать waiting, иначе двойная бронь проходит молча
+        res.check("час пришедшего занят для новой записи",
+                  add(c, _d(2), "10:00", name="Peste Waiting", phone="022555666"),
+                  "conflict")
+        # второй шаг конвейера необязателен: из приёмной можно сразу в финал
+        c.post(f"/admin/status/{bid}", to="done", back=day2)
+        res.ok("из «a venit» можно сразу в «finalizată»",
+               "class='b-reopen'" in c.get(day2).body,
+               "перескок waiting→done не сработал")
+        c.post(f"/admin/status/{bid}", to="confirmed", back=day2)
 
         # заметка занимает слот врача
         r = c.post("/admin/note", ndate=_d(1), ntime="14:00", ndoctor="d3",

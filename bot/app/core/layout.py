@@ -685,6 +685,12 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 # статус называется ЗДЕСЬ и нигде больше.
 STATUS_LABEL = {
     "confirmed": "confirmată",
+    # 08-13, вопрос Олега: «a sosit» ставили в момент ПРИХОДА, а называлось
+    # это «în cabinet» — статус десять минут утверждал то, чего ещё нет.
+    # Теперь конвейер честный: пришёл (waiting) → в кабинете (arrived).
+    # ⚠️ «a venit» и «nu a venit» — соседи-близнецы: слово нигде не выводится
+    # без цвета/иконки (waiting — фиолетовый, noshow — красный).
+    "waiting": "a venit",
     "arrived": "în cabinet",
     "done": "finalizată",
     "noshow": "nu a venit",

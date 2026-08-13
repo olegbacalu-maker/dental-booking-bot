@@ -668,7 +668,7 @@ function toothTipOff() {{ TIP.style.display = 'none'; }}
             consult = (f"<small style='overflow-wrap:anywhere'>{_ic('med')} "
                        f"<a href='{vurl}'>Consultație</a>"
                        + (f": {e(diag[:60])}" if diag else "") + "</small>")
-        elif (v["status"] in ("done", "arrived")
+        elif (v["status"] in ("done", "arrived", "waiting")
               or (v["status"] == "confirmed" and v["starts_at"] <= now)):
             consult = f"<small><a href='{vurl}'>+ Consultație</a></small>"
         else:

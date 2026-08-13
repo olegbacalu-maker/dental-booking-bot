@@ -159,12 +159,20 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                 # регистратура не видит, пока не откроет карточку.
                 sic = (f"<span class='stt'>{_STATUS_ICON[r['status']]}</span>"
                        if r["status"] in _STATUS_ICON else "")
+                # 08-13, просьба Олега: статус — СЛОВОМ на самой карточке, тем
+                # же бейджем, что в списке дня (.stat s-*), а не только цветом
+                # фона. confirmed — базовое состояние: его бейдж на каждой
+                # зелёной карточке был бы шумом, который прячет остальные.
+                stw = (f"<div class='stw'><span class='stat s-{r['status']}'>"
+                       f"{_STATUS_ICON.get(r['status'], '')}"
+                       f"{STATUS_LABEL.get(r['status'], r['status'])}</span></div>"
+                       if r["status"] != "confirmed" else "")
                 cell.append(
                     f"<div class='appt {cls}' data-appt='{r['id']}'"
                     f"{_move_attrs(r, dk, stl)}{click}>"
                     f"<b>{sic}{hhmm} · {html.escape(r['name'] or '—')}</b>"
                     f"{age_txt} {src}<br>{svc_txt} <small>({dur}′)</small>"
-                    f"<br><small>{html.escape(r['phone'] or '')}</small>{cmt}</div>")
+                    f"<br><small>{html.escape(r['phone'] or '')}</small>{stw}{cmt}</div>")
             out.append("<td>" + "".join(cell) + "</td>")
         out.append("</tr>")
     out.append("</table></div>")
@@ -383,7 +391,10 @@ SPARK_DAYS = 14
 # оказалось, что один статус зовут «Finalizat» в повестке, «a venit» в списке
 # дня и «finalizată» в летописи пациента — три имени одного состояния на
 # соседних экранах.
-_AG_CLS = {"confirmed": "act", "arrived": "trt", "done": "off", "noshow": "bad"}
+# waiting — свой класс «wai» (фиолетовый), а не жёлтый «att»: цвет статуса
+# обязан совпадать со .stat s-waiting в списке дня — один статус, один цвет
+_AG_CLS = {"confirmed": "act", "waiting": "wai", "arrived": "trt",
+           "done": "off", "noshow": "bad"}
 
 
 def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
@@ -516,15 +527,25 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 # записи fitAppts сжимает текст в строку с многоточием, а у совсем
                 # короткой убирает совсем — и тогда подсказка единственное, что
                 # отвечает «кто это», не открывая карточку.
+                # статус словом — и в title (у сжатой карточки он единственный
+                # ответ «что с визитом»), и бейджем на самой карточке; бейдж
+                # прячут .slim/.tiny — там нет места и для имени
+                st_word = (STATUS_LABEL.get(r["status"], r["status"])
+                           if r["status"] != "confirmed" else "")
                 tip = html.escape(f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
-                                  f" · {r['name'] or '—'}")
+                                  f" · {r['name'] or '—'}"
+                                  + (f" · {st_word}" if st_word else ""))
+                stw = (f"<small class='stw'><span class='stat s-{r['status']}'>"
+                       f"{STATUS_LABEL.get(r['status'], r['status'])}</span></small>"
+                       if st_word else "")
                 out.append(
                     f"<div class='gappt{ns}' data-appt='{r['id']}'"
                     f"{_move_attrs(r, col_dk, st)} style='{pos};"
                     f"background:{bg};border-left:5px solid {bar}' title='{tip}'{click}>"
                     f"<span class='stt'>{ico}</span>"
                     f"<b>{html.escape(r['name'] or '—')} {src}</b>"
-                    f"<small>{st.strftime('%H:%M')} · {dur}′ · {html.escape(r['service'])}</small></div>")
+                    f"<small>{st.strftime('%H:%M')} · {dur}′ · {html.escape(r['service'])}</small>"
+                    f"{stw}</div>")
         return "".join(out)
 
     def _cells(dk: str | None, name: str) -> str:
@@ -1386,7 +1407,7 @@ async def admin_move(
 async def admin_status(request: Request, appt_id: int, to: str = Form(...), back: str = Form("")):
     if (deny := _guard(request)) is not None:
         return deny
-    if to in {"arrived", "done", "noshow", "cancelled", "confirmed"}:
+    if to in {"waiting", "arrived", "done", "noshow", "cancelled", "confirmed"}:
         ok = await db.set_status(appt_id, to)
         if not ok:
             # возврат в confirmed/arrived, а слот уже занят новой записью

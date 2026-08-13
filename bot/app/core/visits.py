@@ -39,11 +39,23 @@ def _parse_date(value: str) -> date:
 # молча раздало бы свои кнопки новому статусу, и он получил бы чужое поведение
 # без единой строки о себе (тот же урок, что PLAN_ACTIVE в db.py).
 _REOPEN = ("confirmed", "b-reopen", "Redeschide")
+# 08-13: конвейер приёма честный — «A venit» (waiting, пациент в приёмной) →
+# «În cabinet» (arrived). Второй шаг НЕОБЯЗАТЕЛЕН намеренно: «Finalizat»
+# доступен и из waiting, и прямиком из confirmed — иначе регистратура
+# прокликивала бы статусы ради галочки, и «în cabinet» стал бы ритуалом, а не
+# фактом. Кнопка зовётся словом статуса, который она ставит (STATUS_LABEL) —
+# бывшая «A sosit» ставила arrived и потому теперь называется «În cabinet».
+# ⚠️ «Nu a venit» у waiting НЕ предлагается: пациент пришёл, кнопка рядом
+# предлагала бы записать неправду (тот же принцип, что у arrived).
 _ACT_BUTTONS = {
-    "confirmed": (("arrived", "b-arrived", "A sosit"),
+    "confirmed": (("waiting", "b-waiting", "A venit"),
+                  ("arrived", "b-arrived", "În cabinet"),
                   ("done", "b-done", "Finalizat"),
                   ("noshow", "b-noshow", "Nu a venit"),
                   ("cancelled", "b-cancel", "Anulează")),
+    "waiting": (("arrived", "b-arrived", "În cabinet"),
+                ("done", "b-done", "Finalizat"),
+                ("cancelled", "b-cancel", "Anulează")),
     "arrived": (("done", "b-done", "Finalizat"),
                 ("cancelled", "b-cancel", "Anulează")),
     "done": (_REOPEN,), "noshow": (_REOPEN,), "cancelled": (_REOPEN,),
@@ -219,8 +231,10 @@ def _card_modal(cards: dict, back: str) -> str:
     </form>
   </div>
   <div class="dlg-status" id="c_status">
+    <form method="post" id="cs_waiting"><input type="hidden" name="to" value="waiting">
+      <input type="hidden" name="back" value="{b}"><button class="bstat b-waiting">A venit</button></form>
     <form method="post" id="cs_arrived"><input type="hidden" name="to" value="arrived">
-      <input type="hidden" name="back" value="{b}"><button class="bstat b-arrived">A sosit</button></form>
+      <input type="hidden" name="back" value="{b}"><button class="bstat b-arrived">În cabinet</button></form>
     <form method="post" id="cs_done"><input type="hidden" name="to" value="done">
       <input type="hidden" name="back" value="{b}"><button class="bstat b-done">Finalizat</button></form>
     <form method="post" id="cs_noshow"><input type="hidden" name="to" value="noshow">
@@ -236,8 +250,10 @@ def _card_modal(cards: dict, back: str) -> str:
 </dialog>
 <script>
 const CARDS = {data};
-const CS_SHOW = {{arrived: ['confirmed'], done: ['confirmed', 'arrived'],
-                  noshow: ['confirmed'], cancel: ['confirmed', 'arrived'],
+const CS_SHOW = {{waiting: ['confirmed'], arrived: ['confirmed', 'waiting'],
+                  done: ['confirmed', 'waiting', 'arrived'],
+                  noshow: ['confirmed'],
+                  cancel: ['confirmed', 'waiting', 'arrived'],
                   reopen: ['done', 'noshow', 'cancelled']}};
 function openCard(id) {{
   const c = CARDS[id];
@@ -297,8 +313,9 @@ _REM_MARK = (" <span class='rem-mark' title='Reminder trimis'>"
 _REC_MARK = (" <span class='rec-mark' title='Consultație completată'>"
              + _ic("med") + "</span>")
 
-_STATUS_ICON = {"confirmed": _ic("clock"), "arrived": _ic("checkin"),
-                "done": _ic("check"), "noshow": _ic("ban")}
+_STATUS_ICON = {"confirmed": _ic("clock"), "waiting": _ic("hourglass"),
+                "arrived": _ic("checkin"), "done": _ic("check"),
+                "noshow": _ic("ban")}
 
 
 def _doctors_dir() -> pathlib.Path:

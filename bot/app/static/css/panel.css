@@ -485,6 +485,11 @@
     было НИ ПРИ КАКОЙ высоте, а не потому, что мы её ждём. */
  .gappt.bare{padding:0}
  .gappt.bare b,.gappt.bare small,.gappt.bare .stt{display:none}
+ /* слово статуса на блоке канвы (08-13): в сжатых видах места нет и для
+    имени — бейдж уходит первым, title остаётся единственным словом */
+ .gappt .stw{display:block;margin-top:2px}
+ .gappt .stw .stat{font-size:10px;padding:1px 7px}
+ .gappt.slim .stw,.gappt.tiny .stw,.gappt.bare .stw{display:none}
  .gappt.noshow{text-decoration:line-through;opacity:.75}
  .gappt.gnote{border:1px dashed var(--line);background:repeating-linear-gradient(135deg,var(--line2) 0 6px,transparent 6px 12px);color:var(--text2)}
  /* Полоска вместо срезанных крайних закрытых рядов (08-11). Штриховка та же, что
@@ -570,6 +575,7 @@
  .appt{border-radius:9px;padding:6px 9px;line-height:1.35;
    transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
  .appt.confirmed{background:var(--green-soft);border-left:5px solid var(--green)}
+ .appt.waiting{background:var(--violet-soft);border-left:5px solid #7C3AED}
  .appt.arrived{background:var(--teal-soft);border-left:5px solid var(--teal)}
  .appt.done{background:var(--blue-soft);border-left:5px solid var(--blue)}
  .appt.noshow{background:var(--red-soft);border-left:5px solid var(--red)}
@@ -581,6 +587,10 @@
     но в строке, а не в углу: у ячейки таблицы своей высоты нет, и
     абсолютное позиционирование пришлось бы держать вручную */
  .appt .stt svg{width:13px;height:13px;vertical-align:-2px;margin-right:3px}
+ /* статус СЛОВОМ на карточке (08-13): тот же .stat-бейдж, что в списке дня,
+    строкой под телефоном; у confirmed бейджа нет — базовое состояние */
+ .appt .stw{margin-top:4px}
+ .appt .stw .stat{font-size:11px;padding:2px 8px}
  .appt.clickable{cursor:pointer}
  .appt.clickable:hover{filter:brightness(.985);transform:translateY(-1px);box-shadow:var(--sh)}
  .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
@@ -671,6 +681,10 @@
  .stat{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
    font-size:12px;font-weight:600;white-space:nowrap;background:var(--line2);color:var(--text2)}
  .stat.s-confirmed{background:var(--green-soft);color:var(--green-t)}
+ /* waiting — фиолетовый, а НЕ янтарный: янтарь занят срочными и долгами, и
+    «пациент в приёмной» в цвете тревоги читался бы как проблема. Фиолетовый
+    статуса един на всех экранах: бейдж, карточка сетки, агенда (.pl-badge.wai) */
+ .stat.s-waiting{background:var(--violet-soft);color:#6D28D9}
  .stat.s-arrived{background:var(--teal-soft);color:var(--teal-d)}
  .stat.s-done{background:var(--blue-soft);color:#1D4ED8}
  .stat.s-noshow{background:var(--red-soft);color:var(--red-t)}
@@ -700,11 +714,13 @@
    transition:filter .2s ease,transform .15s ease,box-shadow .15s ease}
  .act button:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:var(--sh)}
  .act button:active{transform:translateY(0)}
- /* ⚠️ Четыре исхода визита — четыре РАЗНЫХ цвета, и «A sosit» берёт фирменный
-    намеренно: это единственная кнопка, которую регистратура жмёт весь день.
-    Остальные три — цвета смысла, теме они не отдаются (синий «сделано»,
-    красный «не пришёл», серый «отмена»): клиника с фиолетовым акцентом не
-    должна получить фиолетовое «Nu a venit». */
+ /* ⚠️ Исходы визита — РАЗНЫЕ цвета. С 08-13 самую частую кнопку дня жмут
+    ДВАЖДЫ: «A venit» (фиолетовый, пациент в приёмной) и «În cabinet»
+    (фирменный, бывшая «A sosit»). Остальные — цвета смысла, теме они не
+    отдаются (синий «сделано», красный «не пришёл», серый «отмена»): клиника
+    с фиолетовым акцентом не должна получить фиолетовое «Nu a venit».
+    Фиолетовый waiting — тоже смысловой, №7C3AED зашит как #2563EB у done. */
+ .b-waiting{background:#7C3AED}
  .b-arrived{background:var(--teal-d)}
  .b-done{background:#2563EB}.b-noshow{background:var(--red-t)}.b-cancel{background:#64748B}
  /* «Redeschide» — исправление промаха, а не пятый исход визита: приглушённая
@@ -1266,6 +1282,7 @@
  .pl-badge.act{background:var(--green-soft);color:var(--green-t)}
  .pl-badge.trt{background:var(--blue-soft);color:#1D4ED8}
  .pl-badge.att{background:var(--amber-soft);color:var(--amber-t)}
+ .pl-badge.wai{background:var(--violet-soft);color:#6D28D9}
  .pl-badge.off{background:var(--line2);color:var(--text2)}
  .pl-badge.arh{background:var(--line2);color:var(--text3)}
  .pl-acts{text-align:right}

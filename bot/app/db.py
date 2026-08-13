@@ -19,10 +19,12 @@ log = logging.getLogger("db")
 # поэтому по базе клиники всегда видно, докуда она домигрирована.
 SCHEMA_VERSION = 3
 
-# Записи, которые ЗАНИМАЮТ слот врача. 'arrived' (пациент в кабинете) обязан
+# Записи, которые ЗАНИМАЮТ слот врача. 'waiting' (пациент пришёл, ждёт в
+# приёмной, 08-13) стоит между confirmed и arrived: физически человек уже в
+# клинике, и слот его. 'arrived' (пациент в кабинете) обязан
 # быть здесь: иначе отметка «пришёл» освобождает час и бот сажает второго.
-ACTIVE_STATUSES = ("confirmed", "arrived")
-_ACT_SQL = "('confirmed','arrived')"
+ACTIVE_STATUSES = ("confirmed", "waiting", "arrived")
+_ACT_SQL = "('confirmed','waiting','arrived')"
 
 POOL = None          # asyncpg pool
 _CONN = None         # aiosqlite connection
@@ -209,6 +211,22 @@ MIGRATIONS_PG = {
         f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
             WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
     ],
+    # 4 (08-13): статус 'waiting' вошёл в ACTIVE_STATUSES, а предикаты
+    # уникальных индексов У УСТАНОВЛЕННЫХ клиник остались со старым списком —
+    # waiting-визит выпал бы из защиты от двойной брони МОЛЧА. Шаги 2–3 выше
+    # интерполируют _ACT_SQL при импорте, но у клиник они уже отработали и не
+    # перезапустятся — поэтому пересоздание здесь, тем же текстом.
+    4: [
+        "DROP INDEX IF EXISTS uq_doctor_slot",
+        "DROP INDEX IF EXISTS uq_patient_slot",
+        "DROP INDEX IF EXISTS uq_doctor_slot_id",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
+            WHERE status IN {_ACT_SQL}""",
+        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
+            WHERE status IN {_ACT_SQL}""",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
+            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
+    ],
 }
 MIGRATIONS_LITE = {
     1: [
@@ -228,6 +246,18 @@ MIGRATIONS_LITE = {
     ],
     3: [
         "DROP INDEX IF EXISTS uq_doctor_slot_id",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
+            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
+    ],
+    # см. комментарий к шагу 4 в MIGRATIONS_PG
+    4: [
+        "DROP INDEX IF EXISTS uq_doctor_slot",
+        "DROP INDEX IF EXISTS uq_patient_slot",
+        "DROP INDEX IF EXISTS uq_doctor_slot_id",
+        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
+            WHERE status IN {_ACT_SQL}""",
+        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
+            WHERE status IN {_ACT_SQL}""",
         f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
             WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
     ],
@@ -2009,10 +2039,10 @@ async def erasure_kind(pid: int) -> str:
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = $1
-           AND (status IN ('done','arrived')
+           AND (status IN ('done','arrived','waiting')
                 OR (status = 'confirmed' AND starts_at < $2))""",
         """SELECT COUNT(*) FROM appointments WHERE patient_id = ?
-           AND (status IN ('done','arrived')
+           AND (status IN ('done','arrived','waiting')
                 OR (status = 'confirmed' AND starts_at < ?))""",
         *((pid, now) if not IS_SQLITE else (pid, _iso(now))))
     return ("anon" if (teeth or plan or docs or happened or pays or consult
@@ -2142,9 +2172,9 @@ async def set_comment(appt_id: int, text: str) -> None:
     )
 
 
-_STATUS_RO = {"confirmed": "confirmată", "arrived": "în cabinet",
-              "done": "finalizată", "noshow": "neprezentare",
-              "cancelled": "anulată"}
+_STATUS_RO = {"confirmed": "confirmată", "waiting": "a venit",
+              "arrived": "în cabinet", "done": "finalizată",
+              "noshow": "neprezentare", "cancelled": "anulată"}
 
 
 async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
