@@ -781,7 +781,7 @@ def _botnew_block(recent: list, now: datetime) -> str:
             f"{html.escape(r['doctor'])} · {html.escape(r['service'])} · "
             f"<b>{html.escape(r['name'] or '')}</b> · {html.escape(r['phone'] or '')}"
             f"{nou} <span class='crt'>— primită {created.strftime('%d.%m %H:%M')}</span></a>")
-    return ("<div class='botnew' id='botnew'><h3>{_ic('bot')} Programări noi din bot (7 zile, ultimele 10)</h3>"
+    return (f"<div class='botnew' id='botnew'><h3>{_ic('bot')} Programări noi din bot (7 zile, ultimele 10)</h3>"
             + "".join(items) + "</div>")
 
 

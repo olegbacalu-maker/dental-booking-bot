@@ -259,10 +259,12 @@ async def admin_settings(request: Request, msg: str = ""):
         if tg_configured():
             tiles.append(tile("/admin/settings/telegram", _ic("bot"), "v",
                               "Telegram Bot", tg_short))
+        # Подпись выключенного состояния называет ВЕЩИ, а не режим: директор
+        # ищет на хабе «второй компьютер», а не «сетевой доступ» (08-13).
         lan_short = (_ic("check") + " activ în rețeaua clinicii" if lan.enabled()
-                     else "doar pe acest calculator")
+                     else "al doilea calculator, telefon — oprit")
         tiles.append(tile("/admin/settings/lan", _ic("wifi"), "b",
-                          "Acces de pe telefon", lan_short))
+                          "Acces din rețea", lan_short))
     if db.IS_SQLITE:
         _cs = dbkey.state()
         tiles.append(tile("/admin/settings/crypt", _ic("lock"), "g", "Criptarea evidenței",
@@ -313,7 +315,7 @@ async def settings_system(request: Request, msg: str = ""):
         up_line = (f"<a href='{html.escape(upd.STATE['url'])}' target='_blank'>"
                    f"{_ic('refresh')} disponibilă {html.escape(upd.STATE['latest'])} — descărcați</a>")
     elif upd.STATE["checked"] and not upd.STATE["error"]:
-        up_line = "{_ic('check')} la zi"
+        up_line = f"{_ic('check')} la zi"
     elif upd.STATE["error"]:
         up_line = "— necunoscut (offline?)"
     else:
@@ -339,7 +341,7 @@ async def settings_system(request: Request, msg: str = ""):
     up_line += ("<form method='post' action='/admin/update/check' style='display:inline'>"
                 "<button style='background:none;border:1px solid var(--line);border-radius:8px;"
                 "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"
-                "margin-left:10px'>{_ic('refresh')} Verifică acum</button></form>")
+                f"margin-left:10px'>{_ic('refresh')} Verifică acum</button></form>")
     body = f"""
 <h2>{_ic("info")} Stare sistem</h2>
 <table class='set'>
@@ -348,7 +350,7 @@ async def settings_system(request: Request, msg: str = ""):
 <tr><th>Canal Telegram</th><td>{tg_line}</td></tr>
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 {chan_row}
-<tr><th>Acces jurnal</th><td>{"{_ic('lock')} PIN setat" if _pin_rec() else ("{_ic('lock')} parolă (ADMIN_KEY)" if ADMIN_KEY else "{_ic('lock')} deschis")}</td></tr>
+<tr><th>Acces jurnal</th><td>{_ic('lock')} {"PIN setat" if _pin_rec() else ("parolă (ADMIN_KEY)" if ADMIN_KEY else "deschis")}</td></tr>
 {_bl_row()}
 <tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
 </table>
@@ -396,7 +398,7 @@ async def settings_lan(request: Request, msg: str = ""):
         return deny
     if not (db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE")):
         return RedirectResponse("/admin/settings", status_code=303)
-    return _sec_page(lan.render(), "setări · acces de pe telefon", msg)
+    return _sec_page(lan.render(), "setări · acces din rețea", msg)
 
 
 @router.post("/admin/lan/save", response_class=HTMLResponse)
@@ -526,7 +528,7 @@ async def settings_crypt(request: Request, msg: str = ""):
                 "<div class='banner warn'>Criptarea este pregătită și se aplică "
                 "la următoarea pornire a programului.</div>"
                 "<div class='nav'><a class='primary' href='/admin/settings/crypt/sheet'>"
-                "{_ic('print')} Deschide foaia de recuperare</a></div>")
+                f"{_ic('print')} Deschide foaia de recuperare</a></div>")
     elif st == dbkey.OK:
         body = f"""
 <h2>{_ic('lock')} Criptarea evidenței</h2>
@@ -728,7 +730,7 @@ async def settings_theme(request: Request, msg: str = ""):
     logo = theme.logo_url()
     logo_box = (f"<img class='th-logo' src='{e(logo)}' alt='logo'>" if logo
                 else "<div class='th-logo none'>fără logo</div>")
-    logo_del = ("<button name='act' value='del' class='pl-btn'>{_ic('trash')} Șterge</button>"
+    logo_del = (f"<button name='act' value='del' class='pl-btn'>{_ic('trash')} Șterge</button>"
                 if logo else "")
 
     body = f"""

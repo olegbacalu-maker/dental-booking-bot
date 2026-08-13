@@ -205,12 +205,16 @@ than a hunt through every comparison.
 - At least one director always has to remain. Otherwise the settings lock shut permanently:
   there would be nobody left who could hand the rights back.
 
-### Access from a phone
+### Access from the clinic's network
 
-By default everything binds to `127.0.0.1`. **Acces de pe telefon** in the settings writes
+By default everything binds to `127.0.0.1`. **Acces din rețea** in the settings writes
 one line into `dental.env`, and the launcher then binds `0.0.0.0` so other machines, phones
 and tablets on the clinic's own network open the same journal in a browser; the app window
-and the single-instance guard stay on loopback. The page shows a QR to `http://<lan-ip>:port`
+and the single-instance guard stay on loopback. This is how a clinic runs two workstations —
+reception and surgery — off one installation, and the page insists on that word *one*: a
+second copy of the program would come up with a second, empty database, and both would look
+perfectly healthy while the appointment booked at reception failed to appear in the surgery.
+The page shows a QR to `http://<lan-ip>:port`
 and says plainly what this is not: it does not reach the clinic from home. The firewall rule
 is created by the program itself through a UAC prompt, because the installer is deliberately
 per-user and cannot run `netsh`; its result is read from the **exit code**, never by parsing

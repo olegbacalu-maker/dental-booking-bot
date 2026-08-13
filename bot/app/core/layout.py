@@ -819,7 +819,7 @@ RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  .warn{background:#FFFBEB;color:#B45309;font-size:13px;padding:10px 12px;border-radius:10px}
 </style></head><body>
 <form method="post" action="/admin/recover">
-  <h1>{_ic('key')} Recuperarea evidenței</h1>
+  <h1>__ICON__ Recuperarea evidenței</h1>
   <p>Baza de date a clinicii este criptată, iar cheia de pe acest calculator nu
   poate fi citită. Se întâmplă după reinstalarea Windows, la schimbarea
   calculatorului sau când programul este pornit de pe alt cont Windows.</p>
@@ -832,6 +832,11 @@ RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
   <div class="warn">Datele nu au fost modificate. Fără acest cod evidența nu
   poate fi deschisă de nimeni — nici de noi.</div>
 </form></body></html>"""
+# Иконка подставляется ЗДЕСЬ, а не в шаблоне: у страницы своя вёрстка, поэтому
+# шаблон — обычная строка с __ЗАПОЛНИТЕЛЯМИ__, и f-строкой её не сделать (в CSS
+# выше фигурных скобок больше, чем текста). `standalone` для этого не годится:
+# он общий на три страницы, а ключ нужен одной.
+RECOVER_TMPL = RECOVER_TMPL.replace("__ICON__", _ic("key"))
 
 
 def standalone(tmpl: str) -> str:
