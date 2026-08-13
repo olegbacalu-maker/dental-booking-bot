@@ -196,6 +196,16 @@ async def admin_stats(
     # ---- график по дням ----
     lbl_days = [x.strftime("%d.%m") for x in days]
     present_pct = round(100 * cur["done"] / cur["total"]) if cur["total"] else 0
+    # Время ожидания в приёмной (08-13): пары штампов waiting_at → arrived_at.
+    # Считаются только визиты, где регистратура отметила ОБА шага — перескок
+    # confirmed→arrived пары не даёт, и это честно: мерить там нечего.
+    waits = [(r["arrived_at"] - r["waiting_at"]).total_seconds() / 60
+             for r in cur["act"]
+             if r.get("waiting_at") and r.get("arrived_at")
+             and r["arrived_at"] >= r["waiting_at"]]
+    wait_txt = f"{round(sum(waits) / len(waits))} min" if waits else "—"
+    wait_sub = (f"{len(waits)} vizite măsurate" if waits
+                else "se măsoară din «A venit» › «În cabinet»")
     chart_card = f"""<div class='fcard an-chart'>
 <h3>Programări pe zile <small>· {d1.strftime('%d.%m')} — {d2.strftime('%d.%m.%Y')}</small></h3>
 {line_days(lbl_days, day_vals, 'var(--teal)')}
@@ -205,6 +215,8 @@ async def admin_stats(
     <div class='statbar'><div style='width:{present_pct}%'></div></div></div>
   <div><span>Neprezentări</span><b>{cur['noshow']}</b>
     <small>≈ {_fmt_mdl(cur['loss'])} pierdut</small></div>
+  <div><span>Așteptare medie</span><b data-wait>{wait_txt}</b>
+    <small>{wait_sub}</small></div>
 </div></div>"""
 
     # ---- источники: только те, что программа ЗНАЕТ ----

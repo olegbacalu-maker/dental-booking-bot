@@ -410,6 +410,28 @@ def suite_status(res: Result) -> None:
                "перескок waiting→done не сработал")
         c.post(f"/admin/status/{bid}", to="confirmed", back=day2)
 
+        # --- время ожидания (08-13): пара штампов waiting_at→arrived_at ---
+        # полный конвейер на отдельном визите; секунды между кликами дают
+        # ~0 минут — важно, что метрика ИЗМЕРЕНА, а не «—»
+        add(c, _d(3), "11:00", name="Metrica Wait", phone="022555777")
+        page3 = c.get(f"/admin/all?date={_d(3)}").body
+        wid = page3.split("/admin/status/", 1)[1].split("'")[0].split('"')[0]
+        c.post(f"/admin/status/{wid}", to="waiting", back="/admin/all")
+        c.post(f"/admin/status/{wid}", to="arrived", back="/admin/all")
+        st_page = c.get(f"/admin/stats?from={_d(3)}&to={_d(3)}").body
+        m = re.search(r"data-wait>([^<]*)<", st_page)
+        res.ok("«Așteptare medie» измерена, а не прочерк",
+               bool(m) and "min" in m.group(1),
+               f"ячейка ожидания: {m.group(1) if m else 'нет'!r}")
+        # возврат в confirmed стирает ОБА штампа: исправленный промах «A venit»
+        # не имеет права оставить мусорную пару в среднем
+        c.post(f"/admin/status/{wid}", to="confirmed", back="/admin/all")
+        st_page = c.get(f"/admin/stats?from={_d(3)}&to={_d(3)}").body
+        m = re.search(r"data-wait>([^<]*)<", st_page)
+        res.ok("возврат в confirmed стирает измерение",
+               bool(m) and m.group(1).strip() == "—",
+               f"после reopen: {m.group(1) if m else 'нет'!r}")
+
         # заметка занимает слот врача
         r = c.post("/admin/note", ndate=_d(1), ntime="14:00", ndoctor="d3",
                    ntext="Pauză tehnică", back="/admin/all")

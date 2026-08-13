@@ -68,6 +68,8 @@ ALTER TABLE appointments ALTER COLUMN patient_id DROP NOT NULL;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_day BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_2h BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS comment TEXT NOT NULL DEFAULT '';
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS waiting_at TIMESTAMPTZ;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS arrived_at TIMESTAMPTZ;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_year INT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS birth_date TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender TEXT;
@@ -373,6 +375,10 @@ SQLITE_EXTRA_COLS = [
     ("plan_items", "refuz_motiv TEXT NOT NULL DEFAULT ''"),
     # поверхности зуба (M/O/D/V/L), см. PG-схему
     ("teeth", "surfaces TEXT NOT NULL DEFAULT ''"),
+    # 08-13: штампы конвейера приёма — «пришёл» и «зашёл в кабинет».
+    # Разница пар = время ожидания в приёмной (метрика в Statistici)
+    ("appointments", "waiting_at TEXT"),
+    ("appointments", "arrived_at TEXT"),
 ]
 
 # Этап A1 (v1.5.0): полный профиль пациента. Все поля опциональны — клиника может
@@ -434,7 +440,7 @@ def _parse_dt(value):
 # last_at/next_at — вычисляемые псевдонимы (MAX/MIN по starts_at) из
 # patients_visits: в PG они приходят datetime, в SQLite остались бы строкой.
 _DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at",
-            "last_at", "next_at", "done_at"}
+            "last_at", "next_at", "done_at", "waiting_at", "arrived_at"}
 
 
 def _rowdict(row) -> dict:
@@ -1147,7 +1153,8 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     return await _fetch(
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
-                  a.reminded_day, a.comment, p.name, p.phone, p.birth_year,
+                  a.reminded_day, a.comment, a.waiting_at, a.arrived_at,
+                  p.name, p.phone, p.birth_year,
                   (vr.id IS NOT NULL) AS has_rec
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
@@ -1155,7 +1162,8 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
            ORDER BY a.starts_at, a.doctor""",
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
-                  a.reminded_day, a.comment, p.name, p.phone, p.birth_year,
+                  a.reminded_day, a.comment, a.waiting_at, a.arrived_at,
+                  p.name, p.phone, p.birth_year,
                   (vr.id IS NOT NULL) AS has_rec
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
@@ -2250,11 +2258,38 @@ async def set_status(appt_id: int, status: str) -> bool:
                         int(r["duration_min"] or 60), exclude_id=appt_id):
                     return False
         try:
-            await _execute(
-                "UPDATE appointments SET status = $2 WHERE id = $1",
-                "UPDATE appointments SET status = ? WHERE id = ?",
-                *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
-            )
+            # Штампы конвейера (08-13): «пришёл» и «зашёл в кабинет» пишутся в
+            # сам визит — разница пары даёт время ожидания в приёмной.
+            # ⚠️ Возврат в confirmed (reopen/промах «A venit») сбрасывает ОБА:
+            # иначе мусорная пара от исправленного клика попала бы в среднее.
+            if status == "waiting":
+                await _execute(
+                    "UPDATE appointments SET status = $2, waiting_at = now() WHERE id = $1",
+                    "UPDATE appointments SET status = ?, waiting_at = ? WHERE id = ?",
+                    *((appt_id, status) if not IS_SQLITE
+                      else (status, _utcnow_iso(), appt_id)),
+                )
+            elif status == "arrived":
+                await _execute(
+                    "UPDATE appointments SET status = $2, arrived_at = now() WHERE id = $1",
+                    "UPDATE appointments SET status = ?, arrived_at = ? WHERE id = ?",
+                    *((appt_id, status) if not IS_SQLITE
+                      else (status, _utcnow_iso(), appt_id)),
+                )
+            elif status == "confirmed":
+                await _execute(
+                    """UPDATE appointments SET status = $2,
+                       waiting_at = NULL, arrived_at = NULL WHERE id = $1""",
+                    """UPDATE appointments SET status = ?,
+                       waiting_at = NULL, arrived_at = NULL WHERE id = ?""",
+                    *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
+                )
+            else:
+                await _execute(
+                    "UPDATE appointments SET status = $2 WHERE id = $1",
+                    "UPDATE appointments SET status = ? WHERE id = ?",
+                    *((appt_id, status) if not IS_SQLITE else (status, appt_id)),
+                )
             own = await _fetch(
                 "SELECT patient_id, service FROM appointments WHERE id = $1",
                 "SELECT patient_id, service FROM appointments WHERE id = ?", appt_id)
