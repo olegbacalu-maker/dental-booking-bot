@@ -22,7 +22,7 @@ dpapi.py; ступени блокировки входа — auth._LOCK_STEPS (3
 """
 from __future__ import annotations
 
-from ...core.layout import FEEDBACK_EMAIL, _ic
+from ...core.layout import FEEDBACK_EMAIL, _ic, tg_configured
 from . import backup as bkp
 
 _CARD = ("style='border:1px solid var(--line);border-radius:var(--r-card);"
@@ -40,6 +40,20 @@ def _q(icon: str, question: str, answer: str) -> str:
 def render() -> str:
     p = "<p style='margin:0 0 8px'>"
     end = "</p>"
+    # Telegram заморожен (08-08): абзац про токен — только клинике, у которой
+    # бот настроен (grandfather). Остальным он рассказывал бы про раздел,
+    # которого у них нет (08-13). Следующий абзац меняет число вместе с ним:
+    # «Ambele» опирается на два предмета — лист восстановления И токен.
+    if tg_configured():
+        tok = (f"{p}{_ic('sos')} Trebuie reintrodus și <b>tokenul botului "
+               f"Telegram</b> (Setări › Telegram Bot), din același motiv. Aici "
+               f"însă nu se pierde nimic: tokenul se ia din nou de la "
+               f"@BotFather.{end}"
+               f"{p}Ambele sunt protecții, nu defecțiuni: un folder copiat sau "
+               f"furat nu dezvăluie nici evidența, nici tokenul clinicii.{end}")
+    else:
+        tok = (f"{p}Este o protecție, nu o defecțiune: un folder copiat sau "
+               f"furat nu dezvăluie evidența clinicii.{end}")
     items = [
         _q(_ic("save"), "Cât de des fac copii de rezervă și unde le păstrez?",
            f"{p}Recomandăm o copie <b>pe săptămână</b> — sau după orice zi cu "
@@ -91,11 +105,7 @@ def render() -> str:
            f"Luați-o cu dumneavoastră odată cu folderul: cheia este legată de "
            f"contul Windows vechi și pe altul nu poate fi citită. Fără foaie, "
            f"evidența copiată nu se deschide nici de noi.{end}"
-           f"{p}{_ic('sos')} Trebuie reintrodus și <b>tokenul botului Telegram</b> "
-           f"(Setări › Telegram Bot), din același motiv. Aici însă nu se pierde "
-           f"nimic: tokenul se ia din nou de la @BotFather.{end}"
-           f"{p}Ambele sunt protecții, nu defecțiuni: un folder copiat sau "
-           f"furat nu dezvăluie nici evidența, nici tokenul clinicii.{end}"),
+           + tok),
 
         _q(_ic("lock"), "Ce este criptarea evidenței?",
            f"{p}<b>O opțiune, nu o obligație.</b> Pentru Legea 195 măsura "

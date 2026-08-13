@@ -298,7 +298,11 @@ async def settings_system(request: Request, msg: str = ""):
     # статус спрашиваем у core, а не повторяем трюк с sys.modules: имя пакета
     # зависит от того, где лежит файл, и своя копия уже один раз соврала
     tg = tg_status()
-    tg_line = _tg_line(tg)
+    # Telegram заморожен (08-08): строка канала — только клинике с настроенным
+    # ботом. Остальным она писала «— fără token (secțiunea Telegram Bot)» —
+    # отправляла искать раздел, который заморозка как раз спрятала (08-13).
+    tg_row = (f"<tr><th>Canal Telegram</th><td>{_tg_line(tg)}</td></tr>"
+              if tg_configured() else "")
     if upd.can_self_update():
         up_line = (
             f"{_ic('refresh')} disponibilă {html.escape(upd.STATE['latest'])} "
@@ -347,7 +351,7 @@ async def settings_system(request: Request, msg: str = ""):
 <table class='set'>
 <tr><th style='width:180px'>Versiune</th><td>v{eng.APP_VERSION}</td></tr>
 <tr><th>Bază de date</th><td>{"SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"}</td></tr>
-<tr><th>Canal Telegram</th><td>{tg_line}</td></tr>
+{tg_row}
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 {chan_row}
 <tr><th>Acces jurnal</th><td>{_ic('lock')} {"PIN setat" if _pin_rec() else ("parolă (ADMIN_KEY)" if ADMIN_KEY else "deschis")}</td></tr>

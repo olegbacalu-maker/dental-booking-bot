@@ -848,8 +848,32 @@ def suite_patients_list(res: Result) -> None:
         res.check("без имени не заводится",
                   c.post("/admin/patients/new", name="  ").msg, "bad_pat")
 
+        # ⭐ 08-13, скриншот Олега: «Exportă» отдавал CSV, и Excel съедал
+        # ведущий ноль телефона, а даты показывал решёткой — та же беда, что
+        # у выгрузки дня до 1.19.23. Кнопка теперь ведёт на книгу.
+        res.ok("кнопка «Exportă» ведёт на книгу, не на CSV",
+               "/admin/patients.xlsx" in c.get("/admin/search").body,
+               "кнопка всё ещё отдаёт CSV")
+        xls = c.get("/admin/patients.xlsx")
+        res.ok("экспорт-книга отдаётся",
+               xls.status == 200 and xls.raw[:2] == b"PK",
+               f"код {xls.status}, первые байты {xls.raw[:4]!r}")
+        sheet = zipfile.ZipFile(io.BytesIO(xls.raw)).read(
+            "xl/worksheets/sheet1.xml").decode("utf-8")
+        res.ok("телефон в книге — строкой, с ведущим нулём",
+               ">060777888<" in sheet,
+               "060777888 не строкой — Excel снова съест ноль")
+        # дата рождения — ДАТОЙ (серийным числом Excel), не текстом
+        serial = str((date(1978, 2, 2) - date(1899, 12, 30)).days)
+        res.ok("дата рождения — датой, а не текстом",
+               f"<v>{serial}</v>" in sheet,
+               "1978-02-02 не серийным числом — в Excel это текст")
+        res.check("экспорт-книга слушается фильтров",
+                  c.get("/admin/patients.xlsx?st=atentie").status, 200)
+
         anon = Client(s.url)
-        for path in ("/admin/search", "/admin/patients.csv", "/admin/patient/1/peek"):
+        for path in ("/admin/search", "/admin/patients.csv",
+                     "/admin/patients.xlsx", "/admin/patient/1/peek"):
             res.ok(f"без входа {path} не отдаётся", anon.get(path).status == 303,
                    "отдал без входа")
         res.ok("без входа пациент не заводится",
@@ -1461,13 +1485,19 @@ def suite_bot_ui(res: Result) -> None:
         # вместе — программа рассказывает про функцию, которой у клиники нет.
         # ⚠️ Проверка обходит СТРАНИЦЫ, а не исходники: строки собираются в
         # f-строках из кусков, и поиск по коду их не ловит.
+        # ⚠️ 08-13 Олег увидел «Telegram» в фильтре каналов списка пациентов:
+        # страница построена ПОЗЖЕ заморозки, а слова «Telegram» в этом списке
+        # не было — три дырки (фильтр, строка «Canal Telegram» в Stare sistem,
+        # абзац токена в FAQ) прожили незамеченными. Слово и обе страницы
+        # теперь в обходе.
         leaks = []
         for path in ("/admin", "/admin/all", "/admin/medici", "/admin/settings",
                      "/admin/settings/clinic", "/admin/settings/hours",
-                     "/admin/settings/services", "/admin/stats",
+                     "/admin/settings/services", "/admin/settings/system",
+                     "/admin/settings/faq", "/admin/stats",
                      "/admin/doctor-card/d2", "/admin/search"):
             body = c.get(path).body
-            for word in ("botul", "botului", "prin bot", "🤖"):
+            for word in ("botul", "botului", "prin bot", "🤖", "Telegram"):
                 if word in body:
                     leaks.append(f"{path}: {word}")
         res.ok("клинике без бота о боте не рассказывают", not leaks,
@@ -1526,6 +1556,20 @@ def suite_bot_ui(res: Result) -> None:
         res.ok("grandfather: источники в статистике",
                "Surse programări" in stats and "Prin bot" in stats,
                "статистика урезана у grandfather")
+        res.ok("grandfather: строка «Canal Telegram» в Stare sistem",
+               "Canal Telegram" in c.get("/admin/settings/system").body,
+               "строка канала пропала у клиники с ботом")
+        res.ok("grandfather: FAQ говорит про токен при переезде",
+               "tokenul botului Telegram" in c.get("/admin/settings/faq").body,
+               "клиника с ботом потеряет токен при переезде и не узнает об этом")
+        # ⭐ Опция канала в фильтре — по ДАННЫМ, не по токену: grandfather БЕЗ
+        # tg-пациентов её тоже не видит (канарейка-демо — ровно этот случай;
+        # фильтр по пустому множеству продавал бы замороженный канал на демо).
+        # Обратная сторона — в test_bot: у клиники с bot-пациентом опция есть.
+        res.ok("grandfather без tg-пациентов: фильтр каналов без Telegram",
+               "<option value='tg'>Telegram</option>"
+               not in c.get("/admin/search").body,
+               "опция Telegram при нуле tg-пациентов")
         res.check("grandfather: лендинг самозаписи открыт", c.get("/").status, 200)
         res.check("grandfather: веб-чат отвечает",
                   c.post_json("/chat", {"session_id": "g", "message": "/start"}).status,

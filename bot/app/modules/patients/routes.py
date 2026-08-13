@@ -44,6 +44,7 @@ from . import export as pexport
 from . import fisa043 as pfisa
 from . import plan_acord as pplan
 from . import visit as pvisit
+from ...core import xlsx
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, js_json, _age, _ic,
                             _initials, _shell)
@@ -2205,7 +2206,16 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
     dirty = any([q, med, st, ch, dat]) or sort != "last" or per != 20
     reset = (f"<a class='pl-btn' href='/admin/search' title='Scoate toate filtrele'>"
              f"{_ic('close')} Resetează</a>" if dirty else "")
-    csv_url = "/admin/patients.csv" + url()[len("/admin/search"):]
+    xlsx_url = "/admin/patients.xlsx" + url()[len("/admin/search"):]
+    # Telegram заморожен (08-08), и опция канала здесь идёт ПО ДАННЫМ, а не по
+    # tg_configured(): у канарейки-демо токен настроен (grandfather), но
+    # пациентов из бота нет — и «Telegram» в фильтре продавал бы замороженный
+    # канал на каждом показе программы (08-13, увидел Олег). Клинике, у которой
+    # tg-пациенты ЕСТЬ, фильтр остаётся: происхождение пациента — данные, а
+    # данные заморозка не прячет (подпись канала в строке и в CSV — та же
+    # логика: появляются только у настоящих tg-пациентов).
+    canal_items = [(k, v) for k, v in _PL_CANAL.items()
+                   if k != "tg" or any(_pl_canal(x) == "tg" for x in everyone)]
     bar = f"""<form class='pl-bar' method='get' action='/admin/search'>
   <label class='pl-search'>{_ic('search')}
     <input name='q' value="{e(q)}" placeholder='Caută pacient, telefon, e-mail…'></label>
@@ -2214,7 +2224,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
   <select name='st' onchange='this.form.submit()'>
     {opts([(k, v[0]) for k, v in _PL_BADGE.items()], st, "Toate statusurile")}</select>
   <select name='ch' onchange='this.form.submit()'>
-    {opts(list(_PL_CANAL.items()), ch, "Toate canalele")}</select>
+    {opts(canal_items, ch, "Toate canalele")}</select>
   <select name='dat' onchange='this.form.submit()'>
     {opts([("da", "Doar cu datorie"), ("avans", "Doar cu avans")], dat,
           "Orice sold")}</select>
@@ -2222,7 +2232,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
   <input type='hidden' name='per' value='{per}'>
   <button class='pl-btn'>Caută</button>{reset}
   <span style='flex:1'></span>
-  <a class='pl-btn' href='{csv_url}' title='Lista filtrată, ca fișier pentru Excel'>
+  <a class='pl-btn' href='{xlsx_url}' title='Lista filtrată, ca registru Excel'>
     {_ic('download')} Exportă</a>
   <button type='button' class='pl-btn primary' onclick='newPat()'>＋ Adaugă pacient</button>
 </form>"""
@@ -2575,6 +2585,57 @@ async def patients_csv(request: Request, q: str = "", med: str = "", st: str = "
     return Response(csv_text.encode("utf-8"),
                     media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@router.get("/admin/patients.xlsx")
+async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = "",
+                        ch: str = "", sort: str = "last", per: int = 20,
+                        page: int = 1, dat: str = ""):
+    """Тот же список — КНИГОЙ Excel; кнопка «Exportă» ведёт сюда. CSV не несёт
+    типов, и Excel съедал ведущий ноль телефона, а даты показывал решёткой —
+    та же беда, что у выгрузки дня до 1.19.23 (скриншот Олега 08-13, разбор в
+    хронике). CSV-маршрут жив: его читают интеграции, у которых типы свои.
+    Страницы намеренно игнорируются: выгружают ВЫБОРКУ, а не её первую сотню."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    now = datetime.now(eng.TZ)
+    rows = _pl_filter(await _pl_rows(now), now, q.strip()[:60], med, st, ch, sort,
+                      dat if dat in ("da", "avans") else "")
+
+    def _d(v):
+        """Дата для книги. ⚠️ Значение С поясом — в eng.TZ до взятия даты;
+        голую birth_date (ISO-текст) НЕ трогать: astimezone на наивном
+        подставил бы пояс машины и сдвинул день (грабля «время в базе UTC»)."""
+        if isinstance(v, datetime):
+            return v.astimezone(eng.TZ).date()
+        try:
+            return date.fromisoformat(str(v)[:10]) if v else ""
+        except ValueError:
+            return ""
+
+    data = [[
+        p["name"] or "", p["phone"] or "", p["email"] or "",
+        _d(p["birth_date"]), _p_age(p) or "",
+        (p["gender"] or "").upper(), p["doctor"], p["file_no"] or "",
+        _PL_CANAL[_pl_canal(p)].split()[-1], _PL_BADGE[p["status"]][0],
+        _d(p["last_at"]), _d(p["next_at"]), p["n_visits"], p["debt"],
+        _d(p["created_at"]),
+    ] for p in rows]
+    blob = xlsx.book(
+        ["Nume", "Telefon", "E-mail", "Data nașterii", "Vârstă", "Gen",
+         "Medic", "Nr. dosar", "Canal", "Status", "Ultima vizită",
+         "Următoarea vizită", "Vizite", "Sold (MDL)", "Înregistrat"],
+        data,
+        # ширины в знаках — под самое длинное, что в колонке реально бывает
+        widths=[24, 14, 26, 13, 8, 6, 22, 10, 10, 16, 13, 13, 8, 11, 12],
+        sheet_name="Pacienti",
+    )
+    fname = f"pacienti_{now.date().isoformat()}.xlsx"
+    return Response(
+        blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @router.post("/admin/patients/new")

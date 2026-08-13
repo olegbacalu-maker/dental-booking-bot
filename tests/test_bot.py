@@ -66,6 +66,15 @@ def suite(res: Result) -> None:
                not re.findall(r"/admin/patient/(\d+)",
                               adm.get("/admin/search?q=069333444").body),
                "пациент без визита появился в списке")
+        # опция канала в фильтре списка идёт ПО ДАННЫМ (см. suite_bot_ui), и
+        # tg-пациента здесь делает сессия «tg:…»: /chat передаёт session_id в
+        # session_key как есть, живой адаптер шлёт ровно `tg:<chat_id>`
+        # (telegram.py) — записи выше ушли под «web» и опцию дать не обязаны
+        _book(Bot(c, "tg:900001"), tomorrow, "16:00", "Din Telegram", "069900111")
+        res.ok("фильтр каналов предлагает Telegram — tg-пациенты есть",
+               "<option value='tg'>Telegram</option>"
+               in adm.get("/admin/search").body,
+               "опция пропала у клиники с настоящим tg-пациентом")
 
         # --- свой же час: сообщение должно быть про ПАЦИЕНТА, не про врача ---
         # ⚠️ до 1.11.1 здесь врали: «интервалul este ocupat»
