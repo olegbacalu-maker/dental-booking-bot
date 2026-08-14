@@ -251,11 +251,37 @@ MSG_BANNER = {
 }
 
 
+def msg_banner(msg: str) -> str:
+    """Ответ на действие (?msg=… из 303) — плавающей плашкой поверх окна.
+
+    Жалоба клиники (08-14): форма записи стоит ВНИЗУ страницы, редирект
+    открывает её заново с нулевой прокруткой, и баннер в потоке оставался за
+    кадром — регистратура прочла «ничего не произошло» там, где журнал ответил
+    «интервал занят». Плашка позиционируется фиксированно (panel.css,
+    .toastbox), поэтому видна с любой прокрутки; panel.js вешает крестик,
+    автозакрытие успеха и убирает msg из адреса, чтобы F5 и автообновление
+    не показывали тот же ответ заново.
+
+    ⭐ Единственное место, где код из MSG_BANNER становится разметкой (держит
+    test_structure): модуль, собравший баннер сам, вернул бы сообщение в поток
+    — и на коротких страницах разработчика это невидимо. Баннеры-СОСТОЯНИЯ
+    («Zi liberă», шаблонные данные, сигнализация auth.json) остаются в потоке
+    намеренно: они описывают страницу, а не отвечают на действие, и висеть
+    поверх расписания весь день им нельзя.
+    """
+    if msg not in MSG_BANNER:
+        return ""
+    cls, text = MSG_BANNER[msg]
+    # err — role=alert: экранный диктор объявляет отказ сразу, остальное — status
+    role = "alert" if cls == "err" else "status"
+    return (f"<div class='toastbox' id='dp_toast' data-kind='{cls}' role='{role}'>"
+            f"<div class='banner {cls}'>{text}"
+            f"<button class='t-x' type='button' aria-label='Închide'>"
+            f"{_ic('close')}</button></div></div>")
+
+
 def _banner(msg: str, d: date) -> str:
-    out = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        out += f"<div class='banner {cls}'>{text}</div>"
+    out = msg_banner(msg)
     if not eng.hours_for(d):
         # у клиники без бота упоминание бота в баннере — загадка, не подсказка
         tail = " (bot-ul nu oferă această zi)" if tg_configured() else ""

@@ -34,7 +34,7 @@ import json
 
 from ... import db
 from ... import engine as eng
-from ...core.layout import MSG_BANNER, STATUS_LABEL, _ic, _shell, js_json
+from ...core.layout import STATUS_LABEL, _ic, msg_banner, _shell, js_json
 
 # статусы визита, которым консультацию НЕ пишут
 NO_FORM_STATUSES = ("cancelled", "noshow")
@@ -173,10 +173,7 @@ def page(appt: dict, rec: dict | None, items: list, back: str,
     status = appt.get("status") or ""
     vals = {k: (rec.get(k) if rec else "") or "" for k, *_ in _FIELDS}
 
-    banner = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        banner = f"<div class='banner {cls}'>{text}</div>"
+    banner = msg_banner(msg)
 
     comment_row = ""
     if appt.get("comment"):

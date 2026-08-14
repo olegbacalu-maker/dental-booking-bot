@@ -46,8 +46,8 @@ from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core import xlsx
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
-from ...core.layout import (LIVE_STATUSES, MSG_BANNER, STATUS_LABEL, js_json, _age, _ic,
-                            _initials, _shell)
+from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, js_json, _age, _ic,
+                            _initials, msg_banner, _shell)
 from ...core.storage import _data_dir
 
 log = logging.getLogger("patients")
@@ -203,10 +203,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     now = datetime.now(eng.TZ)
     base = f"/admin/patient/{pid}"
 
-    banner = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        banner = f"<div class='banner {cls}'>{text}</div>"
+    banner = msg_banner(msg)
 
     # -- левая колонка: профиль --
     age = _p_age(p)
@@ -2332,10 +2329,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
              + f"<select name='per' onchange='this.form.submit()'>{per_opts}</select>"
              f"</form></div>") if total else ""
 
-    banner = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        banner = f"<div class='banner {cls}'>{text}</div>"
+    banner = msg_banner(msg)
 
     body = f"""{banner}
 <div class='pl-head'><div><h2>Pacienți</h2>

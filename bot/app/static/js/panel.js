@@ -44,10 +44,19 @@ function pickName(inp) {
 (function () {
   var iv = parseInt(document.body.getAttribute('data-reload') || '', 10);
   if (!iv) return;
+  var held = 0;
   setInterval(function () {
     if (document.querySelector('dialog[open]')) return;
     /* идёт перетаскивание — страница не имеет права исчезнуть из-под мыши */
     if (document.documentElement.classList.contains('dragging')) return;
+    /* непрочитанный ответ на действие (плашка ошибки) опрос не стирает:
+       msg из адреса уже вычищен, и перезагрузка унесла бы сообщение раньше,
+       чем его прочли. Потолок в 5 тиков — чтобы экран, забытый на стойке с
+       ошибкой, не замер навсегда: журнал живёт ради приезжающих броней.
+       Успех сюда почти не попадает — он сам закрывается через 6 секунд. */
+    if (document.getElementById('dp_toast')) {
+      if (held < 5) { held++; return; }
+    } else { held = 0; }
     var pe = document.getElementById('pedit');
     if (pe && pe.style.display !== 'none') return;    // открыта форма профиля
     var fi = document.querySelector('input[type=file]');
@@ -205,24 +214,34 @@ function pickName(inp) {
   });
 })();
 
-/* Смена статуса — POST и 303 на ТУ ЖЕ страницу: браузер открывает её заново, и
-   прокрутка встаёт в ноль. У регистратуры список дня длиннее экрана, поэтому
-   каждое нажатие «Finalizat» на нижней строке отбрасывало журнал в начало —
-   и место приходилось искать глазами (жалоба Олега 08-12). Запоминаем
-   положение перед отправкой и возвращаем, вернувшись НА ТОТ ЖЕ путь.
-   ⚠️ Не возвращаем, если в адресе есть msg: сообщение («intervalul e ocupat»)
-   висит баннером НАВЕРХУ, и восстановленная прокрутка спрятала бы ровно тот
-   ответ, ради которого стоило смотреть. */
+/* POST из журнала — 303 на ТУ ЖЕ страницу: браузер открывает её заново, и
+   прокрутка встаёт в ноль. Формы стоят и внизу длинных страниц (запись,
+   платежи, документы), поэтому каждое действие отбрасывало журнал в начало —
+   место приходилось искать глазами (жалоба Олега 08-12 про статусы; жалоба
+   клиники 08-14 про запись: «сказали ок, а что случилось — не поняли»).
+   Запоминаем положение перед отправкой и возвращаем, вернувшись НА ТОТ ЖЕ
+   путь. Ответ (?msg=…) с 08-14 ПЛАВАЕТ поверх окна (toastbox), поэтому
+   восстановленная прокрутка его больше не прячет — прежнее исключение
+   «с msg не возвращаем» снято вместе с причиной.
+   ⚠️ Только POST: GET-формы (поиск) уводят на другую страницу со своим верхом.
+   Редирект на ДРУГОЙ путь (новая фиша) прокрутку не получает — пути не
+   совпадут. dp_auto остаётся только у смены статуса: там страница повторяет
+   саму себя; у записи же новая строка обязана подсветиться как приехавшая. */
 (function () {
   var KEY = 'dp_pos';
   document.addEventListener('submit', function (e) {
     var f = e.target;
-    if (!f || !f.action || !/\/admin\/status\//.test(String(f.action))) return;
+    if (!f || !f.getAttribute) return;
+    /* атрибуты, а не свойства: поле формы с name="action" подменяет f.action */
+    var act = f.getAttribute('action') || location.pathname;
+    var method = (f.getAttribute('method') || 'get').toLowerCase();
+    if (method !== 'post' || act.indexOf('/admin/') !== 0) return;
     try {
-      sessionStorage.setItem(KEY, location.pathname + '|' + (window.pageYOffset | 0));
+      sessionStorage.setItem(KEY, location.pathname + '|' + (window.pageYOffset | 0)
+        + '|' + Date.now());
       /* та же метка, что у автообновления: это не приход человека на страницу,
          а её же повтор — заново играть появление блоков незачем */
-      sessionStorage.setItem('dp_auto', '1');
+      if (/^\/admin\/status\//.test(act)) sessionStorage.setItem('dp_auto', '1');
     } catch (err) { /* приватный режим */ }
   }, true);
   var saved = null;
@@ -230,10 +249,14 @@ function pickName(inp) {
     saved = sessionStorage.getItem(KEY);
     sessionStorage.removeItem(KEY);
   } catch (err) { saved = null; }
-  if (!saved || /[?&]msg=/.test(location.search)) return;
+  if (!saved) return;
   var parts = saved.split('|');
   var y = parseInt(parts[1], 10);
   if (parts[0] !== location.pathname || !y) return;
+  /* метка живёт полминуты: POST, отвечающий ФАЙЛОМ (выгрузка, бэкап), не ведёт
+     к перезагрузке, и без срока годности его позиция всплыла бы при следующем
+     заходе на ту же страницу совсем по другому поводу */
+  if (Date.now() - (parseInt(parts[2], 10) || 0) > 30000) return;
   window.scrollTo(0, y);
   /* второй заход после полной загрузки: страница к этому моменту ещё растёт
      (шрифт, вписывание блоков канвы), и первый scrollTo упирается в тогдашний
@@ -301,4 +324,30 @@ function pickName(inp) {
       items[j].classList.add('fresh');
     }
   }
+})();
+
+/* Плавающий ответ на действие (?msg=… из редиректа, layout.msg_banner).
+   Здесь три обязанности: крестик; автозакрытие УСПЕХА через 6 секунд (ошибки
+   и предупреждения висят, пока их не закроют — их читают, а «Programare
+   adăugată» достаточно увидеть краем глаза); и чистка адреса — replaceState
+   убирает msg, чтобы F5, автообновление (12 с) и кнопка «назад» не показывали
+   тот же ответ заново как свежий. */
+(function () {
+  var box = document.getElementById('dp_toast');
+  if (!box) return;
+  try {
+    if (/[?&]msg=/.test(location.search)) {
+      var q = location.search.replace(/([?&])msg=[^&]*&?/, '$1').replace(/[?&]$/, '');
+      history.replaceState(null, '', location.pathname + q + location.hash);
+    }
+  } catch (e) { /* старый WebView — ответ покажется при F5 ещё раз, не страшно */ }
+  var hide = function () {
+    box.classList.add('out');
+    setTimeout(function () {
+      if (box.parentNode) box.parentNode.removeChild(box);
+    }, 240);
+  };
+  var x = box.querySelector('.t-x');
+  if (x) x.addEventListener('click', hide);
+  if (box.getAttribute('data-kind') === 'ok') setTimeout(hide, 6000);
 })();

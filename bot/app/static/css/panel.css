@@ -242,6 +242,27 @@
  .banner.ok{--bico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")}
  .banner.err{--bico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='m15 9-6 6M9 9l6 6'/%3E%3C/svg%3E")}
  .banner.warn{--bico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.6 21.2 19.5H2.8z'/%3E%3Cpath d='M12 10v4M12 16.8h.01'/%3E%3C/svg%3E")}
+ /* ---------- плавающий ответ на действие (08-14) ----------
+    Ответ на POST (?msg=… из 303, layout.msg_banner) висит ПОВЕРХ окна: форма
+    записи стоит внизу страницы, редирект открывает её с нулевой прокруткой, и
+    баннер в потоке оставался за кадром — клиника прочла «ничего не произошло»
+    там, где журнал ответил «интервал занят». Баннеры-СОСТОЯНИЯ (Zi liberă,
+    шаблонные данные, сигнализация) остаются в потоке — им и место в странице.
+    z-index 80: над панелью предпросмотра (.ppanel 60); <dialog> живёт в top
+    layer и остаётся выше без всяких чисел. Появление — в разделе «движение»;
+    крестик и автозакрытие успеха вешает panel.js. */
+ .toastbox{position:fixed;top:88px;left:0;right:0;z-index:80;display:flex;
+   justify-content:center;padding:0 16px;pointer-events:none;
+   transition:opacity .22s ease}
+ .toastbox.out{opacity:0}
+ .toastbox .banner{pointer-events:auto;margin:0;max-width:600px;min-width:0;
+   position:relative;padding-right:46px;border:1px solid rgba(15,23,42,.08);
+   box-shadow:0 4px 10px rgba(15,23,42,.08),0 20px 44px rgba(15,23,42,.16)}
+ .toastbox .t-x{position:absolute;top:50%;right:7px;transform:translateY(-50%);
+   width:30px;height:30px;padding:0;border:none;border-radius:9px;
+   background:none;color:inherit;opacity:.6;cursor:pointer;
+   display:flex;align-items:center;justify-content:center}
+ .toastbox .t-x:hover{opacity:1;background:rgba(15,23,42,.07)}
  .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:var(--teal);height:8px}
  /* ---------- KPI ---------- */
@@ -1112,7 +1133,8 @@
    transition:background-color .2s ease,transform .2s ease,border-color .2s ease}
  .qa a:hover,.qa button:hover{background:#F3F8FC;border-color:var(--teal);transform:translateY(-1px)}
  @media print{
-   .side,.top,.brandcorner,.qa,.tabs,.hero-acts,.doccard .del{display:none !important}
+   .side,.top,.brandcorner,.qa,.tabs,.hero-acts,.doccard .del,
+   .toastbox{display:none !important}
    body{background:#fff}.content{padding:0;max-width:none}
    .pv2{grid-template-columns:1fr}.pv2-side{position:static}
    .fcard,.hero,.kpi{box-shadow:none;break-inside:avoid}
@@ -1557,6 +1579,11 @@
  .anim .ag-i:nth-child(4){animation-delay:.12s}
  .anim .ag-i:nth-child(5){animation-delay:.16s}
  .anim .ag-i:nth-child(n+6){animation-delay:.2s}
+ /* плавающий ответ на действие въезжает сверху; без .anim просто стоит на
+    месте. Анимация на ВНУТРЕННЕМ .banner, а не на .toastbox: у обёртки живёт
+    transition для закрытия, и filled-анимация спорила бы с ним за opacity. */
+ @keyframes dp-toast{from{opacity:0;transform:translateY(-10px)}}
+ .anim .toastbox .banner{animation:dp-toast .3s ease both}
  /* Запись, приехавшая при открытом журнале. Единственная анимация, которая
     живёт КАК РАЗ на автоперезагрузке (класс ставит panel.js по сравнению id),
     поэтому она вне .anim. Без fill-mode: доиграв, элемент возвращается к своему
@@ -1598,6 +1625,7 @@
    .side nav a{flex:1 1 0;min-width:0;justify-content:center;margin:6px 3px;height:44px}
    /* топбар: поиск на всю ширину, кнопка — только «+», лента апдейта скрыта */
    .top{height:56px;flex:0 0 56px;padding:0 10px;gap:8px}
+   .toastbox{top:64px}
    .top .kbd{display:none}
    .top>span{display:none}
    .top form.searchf{width:auto;flex:1;min-width:0;padding:0 6px 0 10px}

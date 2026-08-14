@@ -335,3 +335,28 @@ def suite(res: Result) -> None:
     res.ok("вызов _ic не остаётся текстом", not bad,
            "строка без f-префикса — знак уедет на экран как есть: "
            + ", ".join(bad))
+
+    # ---- ответ на действие строит только layout (08-14) ----
+    # msg_banner в layout — единственное место, где код из ?msg= становится
+    # разметкой: плашка ПЛАВАЕТ поверх окна, потому что форма записи стоит
+    # внизу страницы, а 303 открывает её с нулевой прокруткой — баннер в потоке
+    # клиника не увидела («сказали ок, а что случилось — не поняли»). Модуль,
+    # собравший баннер из словаря сам, вернул бы сообщение в поток, и на
+    # коротких страницах разработчика это невидимо.
+    # ⚠️ Полярность опасная: правило ищет ИМЯ, и после переименования словаря
+    # оно позеленело бы навсегда — поэтому сперва якорь «словарь ещё есть».
+    layout_tree = by_path.get("app/core/layout.py")
+    has_dict = layout_tree is not None and any(
+        isinstance(n, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "MSG_BANNER" for t in n.targets)
+        for n in ast.walk(layout_tree))
+    bad = [] if has_dict else ["app/core/layout.py: словарь MSG_BANNER не найден"]
+    bad += [f"{rel}:{n.lineno}" for rel, tree in src
+            if rel != "app/core/layout.py"
+            for n in ast.walk(tree)
+            if (isinstance(n, ast.Name) and n.id == "MSG_BANNER")
+            or (isinstance(n, ast.ImportFrom)
+                and any(a.name == "MSG_BANNER" for a in n.names))]
+    res.ok("ответ на действие строит только layout", not bad,
+           "MSG_BANNER вне layout.msg_banner — сообщение вернётся строкой в "
+           "поток, и внизу страницы его опять не видно: " + ", ".join(bad))

@@ -22,9 +22,9 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
 from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, require
-from ...core.layout import (HOUR_MAX, HOUR_MIN, MSG_BANNER, _DOC_STATE_RO,
+from ...core.layout import (HOUR_MAX, HOUR_MIN, _DOC_STATE_RO,
                             _DOW_FULL, _DOW_ORDER, _doc_hours_text, _ic,
-                            _shell)
+                            msg_banner, _shell)
 from ...core.visits import (_avatar, _card_modal, _collect_cards, _doc_hue,
                             _doctors_dir, _list, _photo_path)
 
@@ -158,10 +158,7 @@ async def admin_medici(request: Request, msg: str = ""):
         card = _med_card_html(dk, name, rows, days)
         (arch if eng.DOCTOR_META.get(dk, {}).get("status") == "arhivat" else live).append(card)
 
-    banner = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        banner = f"<div class='banner {cls}'>{text}</div>"
+    banner = msg_banner(msg)
 
     # ⚠️ старая таблица в Setări подставляла КАЖДОМУ врачу один и тот же цвет по
     # умолчанию — на таком конфиге карточки в расписании неразличимы. Молча
@@ -255,10 +252,7 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
     stats = _doc_stats(dk, name, stat_rows, [d1 + timedelta(days=i) for i in range(30)])
     future = await db.doctor_future_count(dk, name, datetime.now(eng.TZ))
 
-    banner = ""
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        banner = f"<div class='banner {cls}'>{text}</div>"
+    banner = msg_banner(msg)
 
     # услуги, которые останутся (или уже остались) без единого активного врача:
     # бот тогда честно скажет «недоступна» (v1.8.1), но админ должен это ВИДЕТЬ.

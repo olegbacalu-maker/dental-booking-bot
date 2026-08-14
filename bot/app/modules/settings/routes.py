@@ -34,10 +34,10 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, PIN_MAX,
                           all_users, current_user, delete_user, find_user,
                           n_directors, pin_free, pin_len_ok,
                           remember_auth_file, require, save_user)
-from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, MSG_BANNER, js_json,
+from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
-                            _doc_hours_text, _shell, standalone, tg_configured,
-                            tg_refresh_meta, tg_status)
+                            _doc_hours_text, msg_banner, _shell, standalone,
+                            tg_configured, tg_refresh_meta, tg_status)
 from ...core import bitlocker, dbkey, theme
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
@@ -198,17 +198,10 @@ def _tg_line(tg: dict) -> str:
     return "— fără token (secțiunea Telegram Bot)"
 
 
-def _banner_html(msg: str) -> str:
-    if msg in MSG_BANNER:
-        cls, text = MSG_BANNER[msg]
-        return f"<div class='banner {cls}'>{text}</div>"
-    return ""
-
-
 def _sec_page(body: str, sub: str, msg: str) -> str:
     nav = (f"<div class='nav'><a href='/admin/settings'>{_ic('chev-l')} Setări</a>"
            f"<a href='/admin'>{_ic('home')} Panou</a></div>")
-    return _shell(nav + _banner_html(msg) + body, sub, active="set")
+    return _shell(nav + msg_banner(msg) + body, sub, active="set")
 
 
 @router.get("/admin/settings", response_class=HTMLResponse)
@@ -296,7 +289,7 @@ async def admin_settings(request: Request, msg: str = ""):
             f"fără repornire</p></div></div>"
             f"<div class='pl-tiles set-hub'>{''.join(tiles)}</div>")
     return _shell(f"<div class='nav'><a href='/admin'>{_ic('home')} Panou</a></div>"
-                  + _banner_html(msg) + body,
+                  + msg_banner(msg) + body,
                   "setările clinicii · pe secțiuni", active="set")
 
 
