@@ -25,6 +25,7 @@ import test_bot  # noqa: E402
 import test_pin  # noqa: E402
 import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
+import test_review2  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
@@ -80,6 +81,10 @@ SUITES = [
      test_plan_acord.suite_refuz_not_active),
     ("Acord informat: печатный лист", test_plan_acord.suite_acord),
     ("Отказ пациента: 043/e и выгрузка", test_plan_acord.suite_refuz_docs),
+    ("Ревью-2: предпросмотр и план", test_review2.suite_peek_plan),
+    ("Ревью-2: очистка даты рождения", test_review2.suite_birth_clear),
+    ("Ревью-2: Pacient nou без двойника", test_review2.suite_new_dup),
+    ("Ревью-2: настройки (confirm и услуги)", test_review2.suite_settings_ui),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),

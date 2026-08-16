@@ -1254,7 +1254,8 @@ async def patient_save(request: Request, pid: int):
     if (deny := _guard(request)) is not None:
         return deny
     form = await request.form()
-    if not (await db.get_patient(pid)):
+    prev = await db.get_patient(pid)
+    if not prev:
         return RedirectResponse("/admin/search", status_code=303)
     data = {}
     for f in db.PATIENT_FIELDS:
@@ -1282,6 +1283,12 @@ async def patient_save(request: Request, pid: int):
     if bd_year:
         # возраст в поиске/сетке/CSV считается по birth_year — держим в синке
         await db.set_birth_year(pid, bd_year)
+    elif prev.get("birth_date"):
+        # дату ОЧИСТИЛИ — год из неё больше не правда: несброшенный birth_year
+        # продолжал бы показывать возраст от удалённой даты в фише, списке и
+        # выгрузках. ⚠️ Только когда дата БЫЛА: у пациента из бота год живёт
+        # без даты, и обнулять его за пустое поле формы нельзя
+        await db.set_birth_year(pid, None)
     # язык печатных документов — мимо PATIENT_FIELDS: колонка NOT NULL, а там
     # пустое поле превращается в NULL
     await db.set_patient_lang(pid, str(form.get("lang") or ""))
@@ -2499,14 +2506,20 @@ async def patient_peek(request: Request, pid: int):
 
     plan_block = ""
     if plan:
+        # ⚠️ Тот же счёт, что в фише: отказ (refuzat) не входит ни в сумму, ни
+        # в знаменатель прогресса — иначе предпросмотр показывал бы «1/2, 50%»
+        # там, где фиша говорит «1/1, 100%», и пациент навсегда «в лечении».
+        # Статусы — ПЕРЕЧИСЛЕНИЕМ (db.PLAN_ACTIVE), не «всё, что не …».
         done = sum(1 for it in plan if it["status"] == "finalizat")
+        n_track = done + sum(1 for it in plan if it["status"] in db.PLAN_ACTIVE)
         paid = sum(it["price_mdl"] or 0 for it in plan if it["status"] == "finalizat")
-        tot = sum(it["price_mdl"] or 0 for it in plan)
-        pct = round(done * 100 / len(plan))
+        tot = paid + sum(it["price_mdl"] or 0 for it in plan
+                         if it["status"] in db.PLAN_ACTIVE)
+        pct = round(done * 100 / n_track) if n_track else 0
         money = (f"<small>{f'{paid:,}'.replace(',', ' ')} MDL / "
                  f"{f'{tot:,}'.replace(',', ' ')} MDL</small>" if tot else "")
         plan_block = (f"<div class='pp-b'><div class='pp-t'>Plan de tratament"
-                      f"<span>{done} / {len(plan)} finalizate</span></div>"
+                      f"<span>{done} / {n_track} finalizate</span></div>"
                       f"<div class='statbar'><div style='width:{pct}%'></div></div>"
                       f"{money}</div>")
 
@@ -2652,7 +2665,16 @@ async def patient_new(request: Request, name: str = Form(""), phone: str = Form(
     digits = _pl_digits(phone)
     if len(digits) >= 3:
         key = f"manual:{digits}"
-        if (exist := await db.patient_id_by_key(key)) is not None:
+        # Дубликат ищется по ЦИФРАМ среди ВСЕХ пациентов, а не только по ключу
+        # manual:{digits} (та же починка, что в /admin/add 08-07): у пациента
+        # из бота ключ tg:…, и путь по ключу заводил ему фишу-двойника —
+        # вопреки обещанию формы «nu se dublează». Сначала manual-ключ (прежнее
+        # поведение при семейном номере), затем любое совпадение цифр.
+        exist = await db.patient_id_by_key(key)
+        if exist is None:
+            ids = await db._patient_ids_by_digits(digits)
+            exist = ids[0] if ids else None
+        if exist is not None:
             return _card_redirect(exist, "dup_pat")
     else:
         # без телефона склеивать не по чему — ключ уникальный, но того же вида:

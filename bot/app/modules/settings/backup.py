@@ -22,7 +22,7 @@ import pathlib
 import sqlite3
 from datetime import datetime
 
-MIN_PASS = 10   # 4–6 цифр PIN здесь не годятся: архив уезжает с машины,
+MIN_PASS = 10   # 4–8 цифр PIN здесь не годятся: архив уезжает с машины,
                 # то есть попадает ровно туда, где офлайн-перебор возможен
 
 

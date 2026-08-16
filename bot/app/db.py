@@ -1411,8 +1411,9 @@ async def update_patient(pid: int, data: dict) -> None:
     )
 
 
-async def set_birth_year(pid: int, year: int) -> None:
-    """Синк года из birth_date: возраст в поиске/сетке считается по birth_year."""
+async def set_birth_year(pid: int, year: int | None) -> None:
+    """Синк года из birth_date: возраст в поиске/сетке считается по birth_year.
+    None стирает год — так очищенная дата рождения забирает с собой и возраст."""
     await _execute(
         "UPDATE patients SET birth_year = $2 WHERE id = $1",
         "UPDATE patients SET birth_year = ? WHERE id = ?",

@@ -96,8 +96,13 @@ def _users_block(last_login: dict[str, str]) -> str:
             f"<input type='password' name='pin' placeholder='PIN nou (opțional)' "
             f"inputmode='numeric' maxlength='{PIN_MAX}' style='width:150px'>"
             f"<button>Salvează</button></form></td>"
+            # ⚠️ имя — только в HTML-атрибуте, НЕ внутри JS-литерала: браузер
+            # декодирует &#x27; обратно в апостроф ДО компиляции onsubmit, и
+            # «O'Brien» рвал строку confirm('…') — форма уходила БЕЗ
+            # подтверждения, а подобранное имя исполнялось как JS
             f"<td><form method='post' action='/admin/users/delete' "
-            f"onsubmit=\"return confirm('Ștergeți contul {e(u['name'])}?')\">"
+            f"data-msg=\"Ștergeți contul {e(u['name'])}?\" "
+            f"onsubmit=\"return confirm(this.dataset.msg)\">"
             f"<input type='hidden' name='uid' value='{e(u['id'])}'>"
             f"<button class='rowdel'>Șterge</button></form></td></tr>")
     role_opts = "".join(f"<option value='{k}'"
@@ -1051,17 +1056,25 @@ function collectServices() {{
                     docs: tr.querySelector('.s_docs').value }});
   }});
   // валидация ДО отправки: при серверной ошибке форма перерисуется из
-  // сохранённого конфига и все правки админа пропадут — не доводим до этого
+  // сохранённого конфига и все правки админа пропадут — не доводим до этого.
+  // Правила — ТЕ ЖЕ, что у сервера (_val_services): дубликат по RO, по RU и
+  // перекрёстный ro/ru, причём пустой RU наследует RO; иначе payload проходил
+  // клиента, бился об сервер — и правки таблицы всё равно терялись
   const seen = {{}};
   for (const s of services) {{
-    const key = s.ro.trim().toLowerCase();
-    if (!key) continue;
-    if (seen[key]) {{
-      alert('Două rânduri au aceeași denumire de serviciu: «' + s.ro.trim() +
-            '». Redenumiți unul dintre ele.');
+    const roRaw = s.ro.trim().slice(0, 60);
+    if (!roRaw) continue;
+    const ruRaw = s.ru.trim().slice(0, 60) || roRaw;
+    const ro = roRaw.toLowerCase(), ru = ruRaw.toLowerCase();
+    const clash = seen[ro] === true ? roRaw
+                : (ru !== ro && seen[ru] === true) ? ruRaw : null;
+    if (clash !== null) {{
+      alert('Două rânduri au aceeași denumire de serviciu (RO sau RU): «' +
+            clash + '». Redenumiți unul dintre ele.');
       return false;
     }}
-    seen[key] = true;
+    seen[ro] = true;
+    seen[ru] = true;
   }}
   document.getElementById('payload').value = JSON.stringify({{services: services}});
   return true;

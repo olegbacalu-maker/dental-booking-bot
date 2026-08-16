@@ -20,8 +20,8 @@ from .. import brand, db, dpapi, paths
 from .. import engine as eng
 from .. import update as upd
 from . import theme
-from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, ROLE_LABEL,
-                   _sec_warn, can,
+from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
+                   ROLE_LABEL, _sec_warn, can,
                    request_user, tamper_alert)
 
 FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
@@ -166,7 +166,10 @@ MSG_BANNER = {
                         "SVG nu se acceptă din motive de securitate."),
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
     "ok_pin": ("ok", "PIN schimbat"),
-    "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
+    # ⚠️ границы — из констант, не числами: «4–6» пережило подъём потолка до 8
+    # (08-13) и отговаривало от разрешённых 7–8 цифр
+    "bad_pin": ("err", f"PIN-ul vechi e greșit sau cel nou nu are "
+                       f"{PIN_MIN}–{PIN_MAX} cifre identice"),
     "lock_pin": ("warn", "Prea multe încercări greșite — așteptați câteva minute"),
     "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
     # ⚠️ dental.env не удалось ПРОЧИТАТЬ (придержан антивирусом/OneDrive или
@@ -225,7 +228,8 @@ MSG_BANNER = {
                          "Dacă aveți nevoie de acces, cereți-i să vă schimbe rolul "
                          "în Setări › Utilizatori"),
     "ok_user": ("ok", "Utilizator salvat"),
-    "bad_user": ("err", "Date invalide — verificați numele, rolul și parola (4–6 cifre)"),
+    "bad_user": ("err", f"Date invalide — verificați numele, rolul și parola "
+                        f"({PIN_MIN}–{PIN_MAX} cifre)"),
     "dup_user": ("err", "Parola este deja folosită de alt utilizator — alegeți alta. "
                         "Intrarea se face doar cu parola, deci ea trebuie să fie unică"),
     "last_dir": ("err", "Trebuie să rămână cel puțin un director — altfel nimeni nu mai "

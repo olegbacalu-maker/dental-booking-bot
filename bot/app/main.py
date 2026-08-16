@@ -28,8 +28,8 @@ from . import engine as eng
 from . import paths
 from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
-                        PERM_SETTINGS, _as_user, _guard, _pin_rec, _secret,
-                        _set_auth_cookie, _setup_allowed, _write_pin,
+                        PIN_MIN, PERM_SETTINGS, _as_user, _guard, _pin_rec,
+                        _secret, _set_auth_cookie, _setup_allowed, _write_pin,
                         auth_blocked, auth_file_fp, current_user, fail_count,
                         find_user, lock_left, note_fail, note_ok, pin_len_ok,
                         remember_auth_file, request_user, require,
@@ -612,7 +612,10 @@ async def admin_logout():
 async def admin_setup_page(err: str = ""):
     if not _setup_allowed():
         return RedirectResponse("/admin", status_code=303)
-    err_html = "<div class='err'>PIN-urile nu coincid sau nu au 4–6 cifre</div>" if err else ""
+    # границы из констант: «4–6» здесь пережило подъём потолка до 8 (08-13),
+    # и экран установки противоречил собственному «4–8 cifre» строкой ниже
+    err_html = (f"<div class='err'>PIN-urile nu coincid sau nu au "
+                f"{PIN_MIN}–{PIN_MAX} cifre</div>" if err else "")
     return standalone(SETUP_TMPL).replace("__ERR__", err_html)
 
 
