@@ -1489,12 +1489,15 @@ async def admin_status(request: Request, appt_id: int, to: str = Form(...), back
     if (deny := _guard(request)) is not None:
         return deny
     if to in {"waiting", "arrived", "done", "noshow", "cancelled", "confirmed"}:
-        ok = await db.set_status(appt_id, to)
-        if not ok:
-            # возврат в confirmed/arrived, а слот уже занят новой записью
+        # код отказа, а не «не получилось»: «занято у медика» и «у пациента уже
+        # есть запись на этот час» чинятся по-разному, и регистратуре нужно
+        # знать, ЧТО именно занято (см. db.set_status)
+        code = await db.set_status(appt_id, to)
+        if code:
+            msg = code if code in {"conflict", "dup"} else "conflict"
             sep = "&" if "?" in back else "?"
-            target = (back + f"{sep}msg=conflict") if back.startswith("/admin") \
-                else "/admin?msg=conflict"
+            target = (back + f"{sep}msg={msg}") if back.startswith("/admin") \
+                else f"/admin?msg={msg}"
             return RedirectResponse(target, status_code=303)
     target = back if back.startswith("/admin") else "/admin"
     return RedirectResponse(target, status_code=303)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -63,10 +64,11 @@ CREATE TABLE IF NOT EXISTS appointments(
   status TEXT NOT NULL DEFAULT 'confirmed',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_doctor_slot
-  ON appointments(doctor, starts_at) WHERE status = 'confirmed';
-CREATE UNIQUE INDEX IF NOT EXISTS uq_patient_slot
-  ON appointments(patient_id, starts_at) WHERE status = 'confirmed';
+-- ВНИМАНИЕ: уникальных индексов слота здесь НЕТ намеренно (08-16). У них ОДИН
+-- владелец — _slot_guard_apply, и он единственный, кто перед CREATE UNIQUE
+-- INDEX спрашивает ДАННЫЕ. Эта схема исполняется при КАЖДОМ старте и ДО
+-- миграций: оставленный тут CREATE падал бы у клиники с двойной бронью раньше,
+-- чем сторож успеет хоть что-то сделать, и программа не открывалась бы вовсе.
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'bot';
 ALTER TABLE appointments ALTER COLUMN patient_id DROP NOT NULL;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminded_day BOOLEAN NOT NULL DEFAULT FALSE;
@@ -194,9 +196,76 @@ CREATE TABLE IF NOT EXISTS schema_meta(
 );
 """
 
+# Предикат, который стоял у клиник ДО 08-13 (его ставили шаги 2–3). Это
+# ЗАПАСНОЙ вариант шага 4: если развести двойную бронь может только человек,
+# защита обязана остаться прежней, а не исчезнуть.
+_OLD_ACT_SQL = "('confirmed','arrived')"
+
+# ЛЕСТНИЦА предикатов, от самого широкого к запасному. Ступень выбирается ПО
+# КАЖДОМУ индексу отдельно: берётся первая, под которой нет конфликтов ИМЕННО
+# этого индекса; не подходит ни одна — этот индекс не трогается вовсе.
+# ⛔ И сверх того: индекс НИКОГДА не заменяется на более УЗКИЙ. Существующий
+# широкий индекс сам, своими данными, доказал, что широкий предикат выполним, —
+# и спорить с ним подсчётом конфликтов соседнего индекса значит своими руками
+# ослабить работающую защиту (08-16, измерено «отбито» → «прошло»).
+# ⛔ Одной ступени мало, и это проверено опытом (08-16): база старше v1.7.0
+# несёт пару confirmed+arrived в одном слоте — её пропускал ТОГДАШНИЙ базовый
+# индекс (WHERE status='confirmed'), но не пропускает узкий предикат. Одна
+# ступень означала «узкий тоже не лёг», а DROP при этом уже случился: работавшая
+# защита снималась и не возвращалась НИКОГДА (каждый следующий старт повторял ту
+# же неудачу). Отсюда правило: сначала выяснить, ляжет ли, и только потом сносить.
+_UQ_LADDER = (_ACT_SQL, _OLD_ACT_SQL)
+
+# Шаг миграции, который кладёт страховочные индексы. Именной, потому что он
+# единственный, кому НЕЛЬЗЯ ронять старт (см. _slot_guard_apply).
+UQ_GUARD_STEP = 4
+# Метка незавершённости в schema_meta: широкие индексы не легли, стоит узкая
+# страховка. Пока метка есть, КАЖДЫЙ старт пробует доложить широкие заново.
+UQ_PENDING_KEY = "uq_waiting_pending"
+# Почему сработало самолечение. ⚠️ Два РАЗНЫХ события, и текст в летописи у них
+# разный: индексов не было вовсе / индексы были, но с более узким предикатом.
+UQ_REPAIR_GONE = "gone"
+UQ_REPAIR_NARROW = "narrow"
+
+
+def _uq_slot_sql(act_sql: str, names: tuple = ()) -> list[str]:
+    """Пересоздание слотовых уникальных индексов под заданный предикат.
+
+    ⚠️ ИМЕНА индексов обязаны остаться прежними: по ним же ловятся конфликты
+    выше по коду.
+    ⛔ Порядок «DROP и сразу CREATE, по одному индексу» — не вкус. У SQLite DDL
+    идёт вне транзакции, и отказ одного CREATE (диск, блокировка, чужой объект с
+    тем же именем) не имеет права уносить с собой индексы, которых он не
+    касался. Снести все три и только потом класть значило бы, что первая же
+    неудача оставляет картотеку вообще без защиты слота (08-16).
+    ⭐ `names` — не украшение: ступень лестницы выбирается ПО КАЖДОМУ индексу
+    отдельно, поэтому и перекладывается ровно тот, кому это нужно, и ровно под
+    своим предикатом (08-16, см. _slot_guard_apply).
+    """
+    body = {
+        "uq_doctor_slot":
+            f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
+                WHERE status IN {act_sql}""",
+        "uq_patient_slot":
+            f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
+                WHERE status IN {act_sql}""",
+        "uq_doctor_slot_id":
+            f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
+                WHERE status IN {act_sql} AND doctor_id IS NOT NULL""",
+    }
+    out: list[str] = []
+    for name in (names or tuple(body)):
+        out.append(f"DROP INDEX IF EXISTS {name}")
+        out.append(body[name])
+    return out
+
+
 # Индексы под горячие пути (день, история пациента, «новые из бота», карточка).
-# Уникальные индексы слота пересоздаются: предикат расширен на 'arrived' —
-# ИМЕНА обязаны остаться прежними (create_appointment ловит их в тексте ошибки).
+# ⛔ Уникальные индексы слота НЕ кладёт ни один обычный шаг: их владелец —
+# _slot_guard_apply (см. UQ_GUARD_STEP). Обычный шаг исполняется циклом
+# _migrate и обязан упасть, если не сделал своё дело; для CREATE UNIQUE INDEX
+# «упасть» значит «клиника больше не открывает программу», а развести двойную
+# бронь может только человек.
 MIGRATIONS_PG = {
     1: [
         "CREATE INDEX IF NOT EXISTS ix_appt_starts ON appointments(starts_at)",
@@ -205,38 +274,28 @@ MIGRATIONS_PG = {
         "CREATE INDEX IF NOT EXISTS ix_plan_patient ON plan_items(patient_id)",
         "CREATE INDEX IF NOT EXISTS ix_doc_patient ON documents(patient_id)",
     ],
-    2: [
-        "DROP INDEX IF EXISTS uq_doctor_slot",
-        "DROP INDEX IF EXISTS uq_patient_slot",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-    ],
-    3: [
-        # уникальность по СТАБИЛЬНОМУ ключу: переименование врача больше не
-        # обходит защиту от двойной брони; NULL-ы (легаси до бэкфилла) не
-        # конфликтуют; индекс по имени остаётся вторым поясом
-        "DROP INDEX IF EXISTS uq_doctor_slot_id",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
-            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
-    ],
+    # 2 и 3 ПУСТЫ намеренно (08-16). Оба клали те же три уникальных индекса
+    # слота — шаг 2 по имени врача и по пациенту, шаг 3 по doctor_id, — и оба
+    # роняли старт НАВСЕГДА у клиники, чьи данные этим индексам противоречат
+    # (переименованный врач = два визита в один час с одним doctor_id). Теперь у
+    # слотовых индексов ОДИН владелец — _slot_guard_apply на шаге UQ_GUARD_STEP,
+    # и он кладёт сразу нужный предикат: догонять шагами нечего.
+    # ⚠️ Ключи остаются: по ним считается «версия схемы = последний шаг», и
+    # клиника на версии 1 обязана дойти до 4, а не застрять на «шага нет».
+    2: [],
+    3: [],
     # 4 (08-13): статус 'waiting' вошёл в ACTIVE_STATUSES, а предикаты
     # уникальных индексов У УСТАНОВЛЕННЫХ клиник остались со старым списком —
-    # waiting-визит выпал бы из защиты от двойной брони МОЛЧА. Шаги 2–3 выше
-    # интерполируют _ACT_SQL при импорте, но у клиник они уже отработали и не
-    # перезапустятся — поэтому пересоздание здесь, тем же текстом.
-    4: [
-        "DROP INDEX IF EXISTS uq_doctor_slot",
-        "DROP INDEX IF EXISTS uq_patient_slot",
-        "DROP INDEX IF EXISTS uq_doctor_slot_id",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
-            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
-    ],
+    # waiting-визит выпал бы из защиты от двойной брони МОЛЧА. Саму работу
+    # делает _slot_guard_apply (см. UQ_GUARD_STEP): расширение предиката
+    # упирается в ЖИВЫЕ данные, и прямое исполнение роняло бы старт (08-16).
+    # ⚠️ Список ПУСТ, но НЕ мёртв: _migrate исполняет его и на этом шаге, после
+    # сторожа. Иначе дописанный сюда через месяц оператор молча не выполнился бы,
+    # а версия схемы записалась бы как выполненная — то самое, ради чего рядом
+    # стоит `raise RuntimeError('missing migration step')`.
+    # ⛔ Ключ — ЧИСЛО, а не UQ_GUARD_STEP: сторож раскладки читает исходник
+    # модулем ast и видит только литералы, с именем правило ослепло бы молча.
+    4: [],
 }
 MIGRATIONS_LITE = {
     1: [
@@ -246,31 +305,10 @@ MIGRATIONS_LITE = {
         "CREATE INDEX IF NOT EXISTS ix_plan_patient ON plan_items(patient_id)",
         "CREATE INDEX IF NOT EXISTS ix_doc_patient ON documents(patient_id)",
     ],
-    2: [
-        "DROP INDEX IF EXISTS uq_doctor_slot",
-        "DROP INDEX IF EXISTS uq_patient_slot",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-    ],
-    3: [
-        "DROP INDEX IF EXISTS uq_doctor_slot_id",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
-            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
-    ],
-    # см. комментарий к шагу 4 в MIGRATIONS_PG
-    4: [
-        "DROP INDEX IF EXISTS uq_doctor_slot",
-        "DROP INDEX IF EXISTS uq_patient_slot",
-        "DROP INDEX IF EXISTS uq_doctor_slot_id",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot ON appointments(doctor, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-        f"""CREATE UNIQUE INDEX uq_patient_slot ON appointments(patient_id, starts_at)
-            WHERE status IN {_ACT_SQL}""",
-        f"""CREATE UNIQUE INDEX uq_doctor_slot_id ON appointments(doctor_id, starts_at)
-            WHERE status IN {_ACT_SQL} AND doctor_id IS NOT NULL""",
-    ],
+    # см. комментарий к шагам 2–4 в MIGRATIONS_PG
+    2: [],
+    3: [],
+    4: [],
 }
 
 # Этап A2+A4 (v1.6.0) — карточка пациента: алерты, формула FDI, план лечения, документы
@@ -421,10 +459,8 @@ CREATE TABLE IF NOT EXISTS appointments(
   comment TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_doctor_slot
-  ON appointments(doctor, starts_at) WHERE status = 'confirmed';
-CREATE UNIQUE INDEX IF NOT EXISTS uq_patient_slot
-  ON appointments(patient_id, starts_at) WHERE status = 'confirmed';
+-- ВНИМАНИЕ: уникальных индексов слота здесь НЕТ — тот же комментарий в PG_SCHEMA:
+-- их кладёт _slot_guard_apply, единственный, кто сначала спрашивает данные.
 """
 
 
@@ -549,6 +585,417 @@ async def del_meta(key: str) -> None:
                    "DELETE FROM schema_meta WHERE key = ?", key)
 
 
+# ---------- страховочные индексы слота ----------
+
+# Три уникальных индекса, которые И ЕСТЬ защита от двойной брони. ⚠️ Владелец у
+# них ОДИН — _slot_guard_apply: ни базовая схема, ни обычные шаги миграций их
+# больше не создают. Причина в том, что CREATE UNIQUE INDEX — операция НАД
+# ЖИВЫМИ ДАННЫМИ: у клиники с двойной бронью он падает, а падение в базовой
+# схеме или в обычном шаге = «после обновления программа не открывается», и
+# навсегда (08-16).
+_UQ_SLOT = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
+
+# Состояние страховки в ЭТОМ процессе: баннер рисует layout синхронно, а
+# спросить базу он не может. Устроено как TAMPER_ALERT у auth — тем же приёмом
+# (метка в schema_meta + баннер директору), а не вторым механизмом.
+#   pending — полная защита не встала, директору есть что сказать;
+#   level   — 'narrow' все три проверки в базе есть, но какая-то уже ожидаемой;
+#             'broken' какой-то проверки в базе НЕТ (это разные новости, и текст
+#             у них разный). ⛔ Ни то, ни другое не значит «защиты нет»: такого
+#             код не проверяет и утверждать не вправе;
+#   gone    — ИМЕННО те проверки, которых в базе нет (для честного текста);
+#   rows    — что именно развести (тип, кто, час, сколько записей);
+#   ran     — шаг уже отработал в этом запуске (миграция), второй раз не надо.
+_SLOT_GUARD: dict = {"pending": False, "level": "", "rows": [], "gone": [],
+                     "ran": False}
+
+
+def slot_guard() -> dict:
+    """Состояние страховки от двойной брони — для баннера директору."""
+    return _SLOT_GUARD
+
+
+# Слоты, в которых под ЗАДАННЫМ предикатом больше одной живой записи, то есть
+# ровно то, обо что разбивается CREATE UNIQUE INDEX. Спрашиваем ДАННЫЕ заранее,
+# а не ловим исключение постфактум: у SQLite DDL идёт вне транзакции, и упавший
+# CREATE после трёх DROP оставил бы картотеку вообще без защиты слота.
+# ⚠️ Предикат — АРГУМЕНТ, а не вшитый _ACT_SQL: спрашивать надо про КАЖДУЮ
+# ступень лестницы, иначе «широкий не лёг» молча означало бы «узкий тоже», и
+# запасной путь сносил бы работающую защиту вслепую (08-16, проверено опытом).
+# ⚠️ min(...) вместо голой колонки не для красоты: в PG колонка не из GROUP BY
+# в списке выбора — ошибка, и запрос отвалился бы только у облачного издания.
+# ⚠️ Тип пары («medic»/«pacient») едет из запроса, а не угадывается по имени:
+# смешать в одном списке имена врачей и пациентов значит дать директору совет,
+# который для половины строк неверен (см. _slot_banner).
+# ⭐ Первый элемент — ИМЯ ИНДЕКСА, к которому относится запрос. Связь была и
+# раньше, но жила в голове (порядок кортежей), а нужна в коде: ступень лестницы
+# выбирается по каждому индексу отдельно, и «под чьим предикатом конфликт»
+# перестало быть риторическим вопросом (08-16).
+def _slot_conflict_sql(act_sql: str) -> tuple[tuple[str, str, str], ...]:
+    return (
+        ("uq_doctor_slot", "medic",
+         f"""SELECT a.doctor AS who, a.starts_at AS starts_at, count(*) AS n
+               FROM appointments a
+              WHERE a.status IN {act_sql}
+              GROUP BY a.doctor, a.starts_at HAVING count(*) > 1"""),
+        ("uq_doctor_slot_id", "medic",
+         f"""SELECT min(a.doctor) AS who, a.starts_at AS starts_at, count(*) AS n
+               FROM appointments a
+              WHERE a.status IN {act_sql} AND a.doctor_id IS NOT NULL
+              GROUP BY a.doctor_id, a.starts_at HAVING count(*) > 1"""),
+        ("uq_patient_slot", "pacient",
+         f"""SELECT min(p.name) AS who, a.starts_at AS starts_at, count(*) AS n
+               FROM appointments a JOIN patients p ON p.id = a.patient_id
+              WHERE a.status IN {act_sql} AND a.patient_id IS NOT NULL
+              GROUP BY a.patient_id, a.starts_at HAVING count(*) > 1"""),
+    )
+
+# Что реально лежит в базе. ⭐ Спрашивать СУБД, а не помнить, что мы сделали:
+# без этого «прежняя защита осталась» — обещание, которое баннер печатает
+# директору, а код нигде не проверял.
+_UQ_STATE_PG = ("SELECT indexname AS name, indexdef AS sql FROM pg_indexes "
+                "WHERE indexname IN ('uq_doctor_slot','uq_patient_slot',"
+                "'uq_doctor_slot_id')")
+_UQ_STATE_LITE = ("SELECT name AS name, COALESCE(sql,'') AS sql "
+                  "FROM sqlite_master WHERE type='index' AND name IN "
+                  "('uq_doctor_slot','uq_patient_slot','uq_doctor_slot_id')")
+
+
+async def _slot_conflicts(act_sql: str = _ACT_SQL) -> dict[str, list[dict]]:
+    """Конфликтующие слоты ПОД ЗАДАННЫМ предикатом, ПО КАЖДОМУ индексу.
+
+    Ответ разложен по именам индексов, а не сведён в один список, потому что
+    решение принимается по каждому индексу своё: конфликт под широким предикатом
+    у `uq_doctor_slot_id` (переименованный врач) ничего не говорит о том, ляжет
+    ли широкий `uq_patient_slot`. Свести их в одну кучу значит опустить на
+    запасную ступень все три — и уменьшить защиту, которая работала.
+    Директорский список собирает `_slot_rows` — он же и схлопывает повторы.
+    """
+    out: dict[str, list[dict]] = {}
+    for name, kind, sql in _slot_conflict_sql(act_sql):
+        out[name] = [{"kind": kind, "who": r.get("who") or "",
+                      "when": r["starts_at"], "n": int(r["n"])}
+                     for r in await _fetch(sql, sql)]
+    return out
+
+
+def _slot_rows(by_index: dict[str, list[dict]]) -> list[dict]:
+    """Один список для директора: что именно развести.
+
+    Врач по имени и врач по id почти всегда называют ОДИН и тот же слот, поэтому
+    пары схлопываются: директор должен увидеть список того, что разводить, а не
+    тройной пересчёт одного часа. Пациент НЕ схлопывается с врачом даже при
+    совпадении часа — это разные конфликты, и чинятся они по-разному.
+    """
+    seen: dict[tuple, dict] = {}
+    for rows in by_index.values():
+        for r in rows:
+            key = (r["kind"], r["who"], r["when"])
+            prev = seen.get(key)
+            if prev is None or r["n"] > prev["n"]:
+                seen[key] = dict(r)
+    return sorted(seen.values(),
+                  key=lambda x: (str(x["when"]), x["kind"], x["who"]))
+
+
+async def _uq_index_state() -> dict[str, str]:
+    """Имя слотового индекса → текст его определения, ПО ФАКТУ в базе."""
+    return {r["name"]: str(r["sql"] or "")
+            for r in await _fetch(_UQ_STATE_PG, _UQ_STATE_LITE)}
+
+
+# Статусы из текста предиката или из определения индекса. ⭐ Сверяется НАБОР,
+# а не одно слово-различитель: ступеней у лестницы больше двух не будет только
+# до первой правки, а «есть ли в тексте 'waiting'» перестаёт различать предикаты
+# ровно тогда, когда ступеней станет три, — и сломалось бы это тихо (индексы
+# перекладывались бы каждый старт, потому что «не совпадает никогда»).
+# У клиники старше v1.7.0 предикат вообще был `status='confirmed'`, и по одному
+# слову он неотличим от запасного — набор различает их сразу.
+_UQ_WORD = re.compile(r"'([a-z_]+)'")
+
+
+def _uq_statuses(sql: str) -> frozenset:
+    return frozenset(_UQ_WORD.findall(sql or ""))
+
+
+def _uq_matches(state: dict[str, str], act_sql: str) -> bool:
+    """Все три индекса на месте и ровно с тем предикатом, который заказан.
+
+    Сверять побайтово нельзя — текст пишет сама СУБД (SQLite отдаёт наш CREATE,
+    Postgres — свой разбор с ARRAY[...]::text), и равенство не сошлось бы
+    никогда именно у облачного издания. Поэтому сверяется набор статусов: в
+    определении слотового индекса других строк в кавычках нет ни у одного из
+    бэкендов.
+    """
+    want = _uq_statuses(act_sql)
+    return all(name in state and _uq_statuses(state[name]) == want
+               for name in _UQ_SLOT)
+
+
+# Как назвать проверку человеку. ⚠️ Имена индексов директору не показываются:
+# «uq_doctor_slot_id» — это разговор с базой, а не с клиникой. Словарь живёт
+# здесь, рядом с _UQ_SLOT: разъедься они, баннер назвал бы не ту проверку.
+_UQ_RO = {
+    "uq_doctor_slot": "aceeași oră la același medic",
+    "uq_patient_slot": "aceeași oră la același pacient",
+    "uq_doctor_slot_id": "aceeași oră la medicul redenumit",
+}
+
+
+def _uq_gone(state: dict[str, str]) -> list[str]:
+    """Слотовые индексы, которых в базе НЕТ ВООБЩЕ.
+
+    ⭐ Это единственное, что код про страховку знает наверняка, и потому
+    единственное, о чём он имеет право говорить директору. «Предикат уже
+    ожидаемого» — не «защиты нет»: такая проверка стоит и работает, просто не
+    покрывает waiting-визиты.
+    """
+    return [name for name in _UQ_SLOT if name not in state]
+
+
+def uq_gone_ro(gone: list[str]) -> str:
+    """Пропавшие проверки словами, для летописи и баннера."""
+    return ", ".join(_UQ_RO.get(name, name) for name in gone)
+
+
+def _uq_at_least(state: dict[str, str], name: str, act_sql: str) -> bool:
+    """Индекс `name` в базе НЕ УЖЕ предиката act_sql.
+
+    ⛔ Это и есть запрет «заменять существующий индекс на более узкий». Индекс,
+    который в базе стоит с более широким набором статусов, СВОИМИ ДАННЫМИ
+    доказал, что широкий предикат выполним; снести его и положить узкий значит
+    ослабить работающую защиту. Так и случалось: v1.20.0 клала «три DROP, потом
+    три CREATE», у клиники с переименованным врачом первые два индекса легли
+    ШИРОКИМИ, а третий не лёг, — и одна ступень на все три увела бы такую базу
+    с трёх широких на три узких (08-16, измерено «отбито» → «прошло»).
+    """
+    return name in state and _uq_statuses(state[name]) >= _uq_statuses(act_sql)
+
+
+async def _apply_uq_indexes(plan: dict[str, str]) -> None:
+    """Переложить слотовые индексы ПО ОДНОМУ, каждый под СВОИМ предикатом.
+
+    ⛔ Отказ на одном не имеет права уносить остальные — ни соседний индекс, ни
+    старт программы: каждый идёт своей парой DROP+CREATE и своим try. Сказать,
+    что в итоге лежит в базе, — не наше дело: базу спрашивает
+    `_slot_guard_verdict`, и только её ответ считается правдой.
+    """
+    for name, act_sql in plan.items():
+        steps = _uq_slot_sql(act_sql, (name,))
+        try:
+            if IS_SQLITE:
+                for sql in steps:
+                    await _CONN.execute(sql)
+                await _CONN.commit()
+            else:
+                # одна транзакция на ПАРУ: DROP и CREATE неразделимы, иначе краш
+                # между ними оставит базу без этой проверки слота
+                async with POOL.acquire() as c, c.transaction():
+                    for sql in steps:
+                        await c.execute(sql)
+        except Exception as e:  # noqa: BLE001 — соседей это не касается
+            log.error("uq-индекс %s (%s) не лёг: %r", name, act_sql, e)
+
+
+async def _slot_guard_apply(repair: str = "") -> None:
+    """Положить страховочные индексы, не рискуя стартом программы.
+
+    Предикат выбирается ЛЕСТНИЦЕЙ (_UQ_LADDER) и ПО КАЖДОМУ ИНДЕКСУ ОТДЕЛЬНО:
+    берётся самая широкая ступень, под которой нет конфликтов ИМЕННО этого
+    индекса. Ни одна не подходит → этот индекс не трогаем вовсе: у клиники
+    старше v1.7.0 там работающие индексы с ещё более узким предикатом, и снести
+    их значило бы снять защиту, которая была, — навсегда, потому что следующий
+    старт повторит ту же неудачу.
+    ⛔ И отдельно: индекс, который в базе УЖЕ не уже выбранной ступени, не
+    трогается совсем (`_uq_at_least`). Одна ступень на все три уводила базу,
+    пришедшую от v1.20.0 с двумя широкими индексами, на три узких.
+    ⛔ Разводить или удалять визиты автоматически нельзя ни при каких условиях:
+    это записи клиники, и решает, кого перенести, человек.
+    """
+    _SLOT_GUARD["ran"] = True
+    try:
+        was_pending = await get_meta(UQ_PENDING_KEY) is not None
+    except Exception as e:  # noqa: BLE001 — база не отвечает; старт важнее
+        log.error("метка %s не прочитана: %r", UQ_PENDING_KEY, e)
+        was_pending = False
+    # ⭐ Метка ставится ДО работы и снимается ПОСЛЕ подтверждённого успеха.
+    # Тогда падение ГДЕ УГОДНО — включая отказ самого set_meta и убитый процесс
+    # между DROP и CREATE — оставляет метку, и следующий старт всё доделает.
+    # Обратный порядок оставлял бы базу без защиты и без единого следа об этом.
+    try:
+        await set_meta(UQ_PENDING_KEY, "1")
+    except Exception as e:  # noqa: BLE001
+        log.error("метка %s не поставлена: %r", UQ_PENDING_KEY, e)
+    rows: list[dict] = []
+    try:
+        state = await _uq_index_state()
+        choice: dict[str, str] = {}
+        left = list(_UQ_SLOT)
+        for i, step in enumerate(_UQ_LADDER):
+            if not left:
+                break                # всем троим ступень нашлась на верхних
+            conflicts = await _slot_conflicts(step)
+            if i == 0:
+                # Директору показываем конфликты ШИРОКОЙ ступени: их разведение
+                # возвращает полную защиту, и они включают в себя конфликты всех
+                # ступеней ниже. Список того, что чинить, обязан быть один.
+                rows = _slot_rows(conflicts)
+            for name in list(left):
+                if not conflicts.get(name):
+                    choice[name] = step
+                    left.remove(name)
+        if left:
+            # ⛔ Именно здесь НЕ делается DROP: выполнимость CREATE для этих
+            # индексов не установлена ни на одной ступени, а DDL в SQLite идёт
+            # вне транзакции — снесённое не вернётся до следующего удачного
+            # старта. Соседей это не касается: они кладутся своим предикатом.
+            log.error("не кладутся ни на одной ступени: %s (%d конфликтных "
+                      "слотов) — прежние оставлены как есть", ", ".join(left),
+                      len(rows))
+        # ⭐ Уже правильные и уже более ШИРОКИЕ индексы не трогаем. DROP+CREATE —
+        # это окно, в котором защиты нет; открывать его ради работы, которой не
+        # требуется (а то и ради сужения), значит повторять риск впустую.
+        plan = {name: act for name, act in choice.items()
+                if not _uq_at_least(state, name, act)}
+        if plan:
+            await _apply_uq_indexes(plan)
+    except Exception as e:  # noqa: BLE001 — этот шаг НИКОГДА не роняет старт
+        log.exception("страховочные uq-индексы: шаг не выполнен (%r)", e)
+    await _slot_guard_verdict(rows, was_pending, repair)
+
+
+async def _slot_guard_verdict(rows: list[dict], was_pending: bool,
+                              repair: str = "") -> None:
+    """Сказать ПРАВДУ о том, что в итоге лежит в базе, — спросив базу.
+
+    ⛔ Не «мы выполнили CREATE, значит защита есть»: отказ CREATE после DROP
+    оставляет картотеку без индексов, и ровно в этом состоянии баннер обязан
+    звать чинить немедленно, а не сообщать, что всё под контролем.
+    ⛔ И обратное: «broken» — это ровно «такого-то индекса в базе НЕТ», а не
+    «защиты нет». Кода, который проверил бы, что защиты нет, не существует и не
+    может существовать: у базы версии ≤2 индекса uq_doctor_slot_id нет ПО
+    ОПРЕДЕЛЕНИЮ, а два остальных при этом целы и работают. Летопись хранит
+    готовую строку навсегда, поэтому она обязана называть проверенное — что
+    стоит и чего не хватает, — а не выносить приговор всей страховке (08-16).
+    """
+    try:
+        state = await _uq_index_state()
+    except Exception as e:  # noqa: BLE001 — не знаем состояния = говорим об этом
+        log.error("состояние uq-индексов не прочитано: %r", e)
+        state = {}
+    if not rows and _uq_matches(state, _ACT_SQL):
+        await _slot_guard_clear(was_pending, repair)
+        return
+    gone = _uq_gone(state)
+    level = "broken" if gone else "narrow"
+    _SLOT_GUARD.update(pending=True, level=level, rows=rows, gone=gone)
+    if level == "narrow":
+        log.error("полная защита слота не встала: конфликтных слотов %d", len(rows))
+    else:
+        log.error("СЛОТОВЫХ ИНДЕКСОВ НЕТ В БАЗЕ: %r (на месте: %r)",
+                  gone, sorted(state))
+    try:
+        await set_meta(UQ_PENDING_KEY, f"{level}:{len(rows)}")
+    except Exception as e:  # noqa: BLE001 — метка уже стоит с «1», это уточнение
+        log.error("метка %s не уточнена: %r", UQ_PENDING_KEY, e)
+    if was_pending:
+        # ⚠️ Строка в ленту — ОДИН раз на одно вмешательство, как у auth_alert:
+        # баннер висит и так, а перезапуски не должны пополнять летопись.
+        return
+    if level == "broken":
+        # Названы ОБЕ половины: сколько проверок в силе и какой именно не хватает.
+        # «Защиты нет» здесь было бы утверждением, которого никто не проверял.
+        await log_clinic_event(
+            "uq_guard", f"Actualizare: {len(_UQ_SLOT) - len(gone)} din "
+                        f"{len(_UQ_SLOT)} verificări împotriva programărilor "
+                        f"duble sunt în evidență; lipsește protecția pentru: "
+                        f"{uq_gone_ro(gone)} — este nevoie de suport tehnic")
+        return
+    if not rows:
+        # ⛔ Причина НЕ в данных: конфликтных часов код не нашёл ни одного (шаг
+        # упёрся во что-то ещё — это в логе). Летопись хранит готовую строку
+        # НАВСЕГДА, и «0 ore au mai multe programări active» осталось бы в ней
+        # враньём про картотеку, которое нечем переписать.
+        await log_clinic_event(
+            "uq_guard", "Actualizare: protecția extinsă nu a putut fi aplicată "
+                        "— protecția de dinainte a rămas activă")
+        return
+    # ⚠️ Число и существительное в румынском согласуются: «1 ore» читается как
+    # машинный текст, а летопись хранит ГОТОВУЮ строку навсегда.
+    what = f"{len(rows)} ore au" if len(rows) != 1 else "O oră are"
+    await log_clinic_event(
+        "uq_guard", f"Actualizare: {what} mai multe programări active — "
+                    f"protecția extinsă nu a putut fi aplicată")
+
+
+async def _slot_guard_clear(was_pending: bool, repair: str = "") -> None:
+    """Широкие индексы легли и ПРОВЕРЕНЫ. Если метка стояла с прошлого старта —
+    клиника развела записи руками, и страховка встала сама."""
+    _SLOT_GUARD.update(pending=False, level="", rows=[], gone=[])
+    try:
+        await del_meta(UQ_PENDING_KEY)
+    except Exception as e:  # noqa: BLE001 — метка переживёт до следующего старта
+        log.error("метка %s не снята: %r", UQ_PENDING_KEY, e)
+        return
+    if repair:
+        # Самолечение без метки (внешняя правка базы, подмена файла, чужая
+        # копия). Баннера тут нет и не нужно: страховка уже на месте. Но СЛЕД
+        # обязан быть — иначе картотека однажды осталась бы без главной защиты,
+        # и об этом не узнал бы никто.
+        # ⚠️ Событий ДВА, и путать их нельзя: «индексов не было» и «индексы были,
+        # но уже ожидаемого». Разницу знает тот, кто читал состояние базы, —
+        # поэтому она и приезжает сюда причиной, а не додумывается здесь. Летопись
+        # хранит готовую строку навсегда, и одна на два события всегда врёт про
+        # одно из них (08-16).
+        log.warning("слотовые индексы восстановлены на старте (%s)", repair)
+        await log_clinic_event(
+            "uq_guard",
+            "Verificările împotriva programărilor duble lipseau din evidență "
+            "și au fost restabilite" if repair == UQ_REPAIR_GONE else
+            "Verificările împotriva programărilor duble erau mai restrânse "
+            "decât trebuie și au fost extinse")
+        return
+    if not was_pending:
+        return                       # обычная миграция, рассказывать нечего
+    log.warning("двойные брони разведены — полная защита слота восстановлена")
+    await log_clinic_event(
+        "uq_guard", "Orele duble au fost separate — protecția programărilor "
+                    "este completă din nou")
+
+
+async def _slot_guard_startup() -> None:
+    """Состояние страховки читается на КАЖДОМ старте, а не только по метке.
+
+    ⭐ Метка — СЛЕД для баннера, а не единственное условие повтора. Пока
+    уникальные индексы стояли в базовой схеме, у них было самолечение: `CREATE
+    UNIQUE INDEX IF NOT EXISTS` шёл при каждом старте и возвращал пропавшее. У
+    единственного владельца этого нет — и база версии 4 без индексов и без метки
+    стартовала бы МОЛЧА: ни баннера, ни следа, а слот не стережёт никто.
+    Цена — один запрос к sqlite_master / pg_indexes (на 60 000 визитов ~0.03 с).
+    """
+    if _SLOT_GUARD["ran"]:
+        return                       # шаг 4 уже отработал в этом запуске
+    if await get_meta(UQ_PENDING_KEY) is not None:
+        # Метка с прошлого старта: клиника могла развести записи руками, и тогда
+        # широкие индексы встанут сами.
+        await _slot_guard_apply()
+        return
+    try:
+        state = await _uq_index_state()
+    except Exception as e:  # noqa: BLE001 — состояние не прочиталось; старт важнее
+        log.error("состояние uq-индексов на старте не прочитано: %r", e)
+        return
+    if _uq_matches(state, _ACT_SQL):
+        return                       # всё на месте — обычный старт
+    # ⚠️ Причина едет ОТСЮДА: только здесь ещё видно, чего не хватало ДО работы.
+    # После _slot_guard_apply состояние уже другое, и различить «пропали» и
+    # «были уже ожидаемого» будет нечем — а летопись пишет строку навсегда.
+    why = UQ_REPAIR_GONE if _uq_gone(state) else UQ_REPAIR_NARROW
+    log.error("слотовые индексы не на месте (%r, %s) — восстанавливаю",
+              sorted(state), why)
+    await _slot_guard_apply(repair=why)
+
+
 async def _migrate() -> None:
     """Пошаговые миграции: каждый шаг применяется один раз и фиксируется.
     Раньше состояние базы можно было понять только по наличию колонок."""
@@ -561,16 +1008,30 @@ async def _migrate() -> None:
             # забытый список SQL = молчаливый no-op с записанной версией; лучше упасть
             raise RuntimeError(f"missing migration step {v} for "
                                f"{'sqlite' if IS_SQLITE else 'postgres'}")
-        if IS_SQLITE:
-            for sql in steps[v]:
-                await _CONN.execute(sql)
-            await _CONN.commit()
-        else:
-            # один шаг = одна транзакция: DROP и CREATE uq-индексов неразделимы,
-            # иначе краш между ними оставит базу без защиты от двойной брони
-            async with POOL.acquire() as c, c.transaction():
+        if v == UQ_GUARD_STEP:
+            # ⛔ Единственный шаг, который НЕ имеет права уронить старт: он про
+            # страховочный индекс, а не про данные, и расширение предиката
+            # упирается в живые записи клиники. Упавший — оставлял бы версию
+            # схемы прежней, то есть падал бы при КАЖДОМ запуске: у клиники это
+            # «после обновления программа не открывается» (08-16).
+            await _slot_guard_apply()
+        # ⚠️ Список шага исполняется ВСЕГДА, в том числе у UQ_GUARD_STEP (там он
+        # сегодня пуст). Пропустить его значило бы завести МЁРТВЫЙ список:
+        # дописанный туда через месяц оператор молча не выполнился бы, а версия
+        # схемы записалась бы как выполненная — ровно то, ради чего выше стоит
+        # `raise RuntimeError('missing migration step')`. Строгость тут своя и
+        # правильная: этот список меняет схему или данные, и падение уместно.
+        if steps[v]:
+            if IS_SQLITE:
                 for sql in steps[v]:
-                    await c.execute(sql)
+                    await _CONN.execute(sql)
+                await _CONN.commit()
+            else:
+                # один шаг = одна транзакция: половина применённого шага хуже
+                # неприменённого — версия схемы описывала бы не то состояние
+                async with POOL.acquire() as c, c.transaction():
+                    for sql in steps[v]:
+                        await c.execute(sql)
         await _set_schema_version(v)
     log.warning("DB migrated %s -> %s", have, SCHEMA_VERSION)
 
@@ -665,6 +1126,7 @@ async def init(seed_rows: list | None = None) -> None:
         async with POOL.acquire() as c:
             await c.execute(PG_SCHEMA)
     await _migrate()
+    await _slot_guard_startup()
     await _backfill_activity()
     await seed(seed_rows)
 
@@ -2305,24 +2767,36 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         return ""
 
 
-async def set_status(appt_id: int, status: str) -> bool:
-    """False = смена статуса нарушила бы занятость (вернули confirmed, а
-    интервал уже занят новой записью) — журнал показывает «интервал занят»."""
+async def set_status(appt_id: int, status: str) -> str:
+    """'' = получилось. Иначе КОД отказа, и их два разных:
+
+    * 'conflict' — час занят У ВРАЧА (вернули визит, а слот уже отдан другому);
+    * 'dup' — у ПАЦИЕНТА уже есть активная запись на этот час.
+
+    ⚠️ Разница не косметическая. Регистратура, прочитавшая «интервал занят у
+    этого медика» про час, который у медика свободен, чинить ничего не может:
+    занят он у пациента, и переносить надо ЧАС. Ровно эта подмена уже записана
+    в грабли для _book.
+    ⚠️ Причину спрашиваем У ДАННЫХ (`_patient_busy_at`, как это делает _book), а
+    не разбираем текст исключения: два бэкенда пишут его по-разному, и ветка
+    сообщения отмерла бы молча.
+    """
     async with _BOOK_LOCK:
-        if status in ACTIVE_STATUSES:
-            # возврат в активный статус = та же интервальная проверка, что
-            # при новой брони: uq-индексы ловят лишь совпадающие старты
-            rows = await _fetch(
-                """SELECT doctor, doctor_id, starts_at, duration_min, status
-                   FROM appointments WHERE id = $1""",
-                """SELECT doctor, doctor_id, starts_at, duration_min, status
-                   FROM appointments WHERE id = ?""", appt_id)
-            if rows:
-                r = rows[0]
-                if r["status"] not in ACTIVE_STATUSES and await _conflicts(
-                        r["doctor_id"], r["doctor"], r["starts_at"],
-                        int(r["duration_min"] or 60), exclude_id=appt_id):
-                    return False
+        rows = await _fetch(
+            """SELECT patient_id, doctor, doctor_id, starts_at, duration_min, status
+               FROM appointments WHERE id = $1""",
+            """SELECT patient_id, doctor, doctor_id, starts_at, duration_min, status
+               FROM appointments WHERE id = ?""", appt_id)
+        r = rows[0] if rows else None
+        if r and status in ACTIVE_STATUSES and r["status"] not in ACTIVE_STATUSES:
+            # возврат в активный статус = та же пара проверок, что при новой
+            # брони: uq-индексы ловят лишь совпадающие старты
+            if await _conflicts(r["doctor_id"], r["doctor"], r["starts_at"],
+                                int(r["duration_min"] or 60), exclude_id=appt_id):
+                return "conflict"
+            if r["patient_id"] and await _patient_busy_at(
+                    r["patient_id"], r["starts_at"], exclude_id=appt_id):
+                return "dup"
         try:
             # Штампы конвейера (08-13): «пришёл» и «зашёл в кабинет» пишутся в
             # сам визит — разница пары даёт время ожидания в приёмной.
@@ -2367,10 +2841,16 @@ async def set_status(appt_id: int, status: str) -> bool:
                 await log_event(own[0]["patient_id"], "appt_status",
                                 f"Vizită {STATUS_LABEL.get(status, status)}: "
                                 f"{own[0]['service']}")
-            return True
+            return ""
         except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
             if "uq_" in str(e) or "unique" in str(e).lower():
                 if IS_SQLITE:
                     await _CONN.rollback()
-                return False
+                # ⚠️ КАКОЙ индекс сработал, движок в тексте не называет —
+                # спрашиваем данные. Под УЗКОЙ страховкой (шаг 4 не доложен)
+                # сюда доходит и переход между активными статусами.
+                if r and r["patient_id"] and await _patient_busy_at(
+                        r["patient_id"], r["starts_at"], exclude_id=appt_id):
+                    return "dup"
+                return "conflict"
             raise

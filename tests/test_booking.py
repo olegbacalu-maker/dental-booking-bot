@@ -433,6 +433,27 @@ def suite_status(res: Result) -> None:
                bool(m) and m.group(1).strip() == "—",
                f"после reopen: {m.group(1) if m else 'нет'!r}")
 
+        # --- возврат визита, когда занят ПАЦИЕНТ, а не врач (08-16) ---
+        # ⛔ Отказ у смены статуса ОДИН, а причин две, и они чинятся
+        # по-разному. Здесь час у Dr. Activ Doi свободен, занят пациент —
+        # регистратура, прочитавшая «intervalul e ocupat la acest medic»,
+        # смотрит на пустой час врача и сделать не может ничего.
+        # ⚠️ Причину спрашивают у ДАННЫХ: текст исключения у двух бэкендов
+        # разный, и ветка сообщения отмерла бы молча (грабли _book).
+        d4 = _d(4)
+        res.check("визит к первому врачу заведён",
+                  add(c, d4, "12:00", doctor="d2", name="Dubla Pacient",
+                      phone="022555999"), "ok")
+        did = c.get(f"/admin/all?date={d4}").body.split(
+            "/admin/status/", 1)[1].split("'")[0].split('"')[0]
+        c.post(f"/admin/status/{did}", to="cancelled", back=f"/admin/all?date={d4}")
+        res.check("тот же пациент записан на тот же час к другому врачу",
+                  add(c, d4, "12:00", doctor="d3", name="Dubla Pacient",
+                      phone="022555999"), "ok")
+        res.check("возврат отбит словами про ПАЦИЕНТА, а не про медика",
+                  c.post(f"/admin/status/{did}", to="confirmed",
+                         back=f"/admin/all?date={d4}").msg, "dup")
+
         # заметка занимает слот врача
         r = c.post("/admin/note", ndate=_d(1), ntime="14:00", ndoctor="d3",
                    ntext="Pauză tehnică", back="/admin/all")

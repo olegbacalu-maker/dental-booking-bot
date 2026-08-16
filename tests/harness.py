@@ -55,11 +55,19 @@ class Server:
     """
 
     def __init__(self, clinic: str = "clinic_test.json", env: dict | None = None,
-                 dir_: pathlib.Path | None = None):
+                 dir_: pathlib.Path | None = None,
+                 bot: pathlib.Path | None = None):
         """dir_ — переиспользовать папку данных ПРЕЖНЕГО сервера: так
         проверяется то, что живёт через рестарт (сигнализация auth.json,
-        миграции). Чужую папку не удаляем — прибирает тот, кто её создал."""
+        миграции). Чужую папку не удаляем — прибирает тот, кто её создал.
+
+        bot — поднять сервер из КОПИИ дерева `bot\\` (тот же приём, что в
+        mutate.py). Нужен там, где проверяется поведение, которое иначе не
+        вызвать снаружи: исполняется ли список шага миграции, что говорит
+        программа, когда отказал не CREATE, а сам подсчёт конфликтов. ⚠️ Правка
+        вносится в КОПИЮ; настоящее дерево не трогается никогда."""
         self.port = free_port()
+        self.bot = pathlib.Path(bot) if bot else BOT
         self._own_dir = dir_ is None
         self.dir = pathlib.Path(dir_) if dir_ else pathlib.Path(
             tempfile.mkdtemp(prefix="dp_test_"))
@@ -86,7 +94,7 @@ class Server:
         self.proc = subprocess.Popen(
             [str(PYTHON), "-m", "uvicorn", "app.main:app", "--port", str(self.port),
              "--log-level", "warning"],
-            cwd=str(BOT), env=env,
+            cwd=str(self.bot), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         deadline = time.time() + 40

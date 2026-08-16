@@ -549,6 +549,116 @@ def _tamper_banner() -> str:
             "font-size:13px'>Am luat la cunoștință</button></form></div>")
 
 
+def _slot_banner() -> str:
+    """Страховка от двойной брони встала не полностью — что именно развести.
+
+    Тем же приёмом, что и сигнализация auth.json: метка в schema_meta, состояние
+    в процессе, баннер директору. Разница одна — гасить его вручную нечем и не
+    нужно: как только записи разведены, ближайший старт кладёт широкие индексы
+    и баннер исчезает сам (кнопка «понятно» тут врала бы, что вопрос закрыт).
+    ⛔ Молчать нельзя: программа стартовала, экраны целы, и без этой строки
+    клиника узнала бы о неполной защите только второй записью на тот же час.
+    """
+    g = db.slot_guard()
+    if not g.get("pending"):
+        return ""
+    me = request_user()
+    if me is not None and not can(me, PERM_SETTINGS):
+        return ""
+    rows = g.get("rows") or []
+    # ⚠️ Типы считаются по ВСЕМУ списку, а не по восьми показанным: совет для
+    # пациента нужен и тогда, когда пациентские строки не влезли в обрезку —
+    # иначе директор чинил бы девятую строку по инструкции для первой.
+    kinds = {"pacient" if r.get("kind") == "pacient" else "medic" for r in rows}
+    items = []
+    for r in rows[:8]:
+        when = r.get("when")
+        # час в базе UTC, читает его человек: без astimezone визит на 09:00
+        # напечатался бы как 06:00 — и директор искал бы не тот слот
+        if hasattr(when, "strftime"):
+            if getattr(when, "tzinfo", None) is not None:
+                when = when.astimezone(eng.TZ)
+            stamp = when.strftime("%d.%m.%Y %H:%M")
+        else:
+            stamp = str(when or "")
+        kind = "pacient" if r.get("kind") == "pacient" else "medic"
+        # ⛔ Без пометки типа список врёт: имя пациента, стоящее в одном столбце
+        # с именами врачей, читается как ещё один врач, и директор идёт чинить
+        # не то. Тип приезжает из запроса (db._slot_conflict_sql).
+        items.append(f"<li><b>{'Pacient' if kind == 'pacient' else 'Medic'}:</b> "
+                     f"{html.escape(str(r.get('who') or ''))} · "
+                     f"{html.escape(stamp)} · "
+                     f"{int(r.get('n') or 0)} programări</li>")
+    if len(rows) > 8:
+        items.append(f"<li>și încă {len(rows) - 8}</li>")
+    # список может быть и пуст — тогда шаг упёрся не в данные, а во что-то ещё
+    # (это записано в лог). Пустой <ul> выглядел бы как «баннер сломался»,
+    # поэтому его просто нет, а сама строка остаётся: молчать нельзя.
+    lst = f"<ul style='margin:8px 0 0 18px'>{''.join(items)}</ul>" if items else ""
+    # ⛔ Совет обязан быть РАЗНЫМ по типу конфликта. Для врача годится и перенос
+    # к другому медику, и другой час; для пациента перенос к другому медику НЕ
+    # помогает — та же пара «пациент + час» остаётся, и менять надо ЧАС.
+    how = ""
+    if "medic" in kinds:
+        how += (" La <b>medic</b>: mutați una dintre programări la alt medic "
+                "sau la altă oră.")
+    if "pacient" in kinds:
+        how += (" La <b>pacient</b>: schimbați <b>ora</b> uneia dintre "
+                "programări — mutarea la alt medic nu ajută, pacientul rămâne "
+                "programat de două ori la aceeași oră.")
+    broken = g.get("level") != "narrow"
+    if broken:
+        # ⛔ Говорим ТОЛЬКО проверенное: каких проверок нет в базе и сколько
+        # осталось. «Защиты нет» — приговор, которого код не выносил: у базы
+        # версии ≤2 uq_doctor_slot_id нет по определению, а два остальных целы и
+        # работают. Прежний текст посылал в поддержку директора, которому надо
+        # было развести час, напечатанный строкой ниже (08-16).
+        gone = list(g.get("gone") or [])
+        left = 3 - len(gone)
+        # ⚠️ Согласование числа с существительным — не косметика: «lipsesc 1
+        # verificări» читается как машинный текст ровно там, где от строки
+        # требуется доверие директора.
+        if not left:
+            what = ("niciuna dintre cele 3 verificări nu este în evidență, "
+                    "aceeași oră poate fi ocupată de două ori fără avertisment")
+        else:
+            miss = (f"lipsește din evidență o verificare ({db.uq_gone_ro(gone)})"
+                    if len(gone) == 1 else
+                    f"lipsesc din evidență {len(gone)} verificări "
+                    f"({db.uq_gone_ro(gone)})")
+            rest = ("cealaltă verificare lucrează" if left == 1
+                    else f"celelalte {left} verificări lucrează")
+            what = f"{miss}, {rest}"
+        head = ("<b>Protecția împotriva programărilor duble nu este completă</b>"
+                f" — {what}.")
+    else:
+        # ⛔ Причину называем ту, которая есть. Список конфликтов может быть и
+        # пуст — тогда шаг упёрся не в данные (это в логе), и фраза «există ore
+        # cu mai multe programări active» была бы выдумкой про картотеку.
+        # ⚠️ «Проверено» относится ровно к тому, что прочитано в базе: все три
+        # проверки на месте. Обещать «защита та же, что была» код не вправе —
+        # он сравнивает не с прошлым состоянием, а с текущим (08-16).
+        head = ("Protecția împotriva programărilor duble nu a putut fi extinsă: "
+                + ("în evidență există ore cu mai multe programări active"
+                   if rows else "operația nu s-a încheiat") +
+                ". Programul lucrează normal, iar toate cele 3 verificări sunt "
+                "în evidență (verificat).")
+    # ⛔ Совет нужен В ОБОИХ состояниях, и в broken он нужнее: недостающая
+    # проверка не ложится как раз из-за тех часов, которые напечатаны строкой
+    # ниже, и их разведение возвращает её на ближайшем старте само. Без совета
+    # директор перезапускает программу (безрезультатно), звонит в поддержку и
+    # работает день с неполной страховкой слота.
+    tail = (" Reporniți programul; dacă mesajul revine, contactați suportul "
+            "astăzi." if broken or not rows else
+            " După aceea reporniți programul — restul se face singur.")
+    if not broken and not rows:
+        how = ""                     # советовать нечего: разводить нечего
+    elif not how:
+        how = " Verificați jurnalul programului."
+    return (f"<div class='banner err' style='margin-bottom:14px'>{_ic('clock')} "
+            f"{head}{how}{tail}{lst}</div>")
+
+
 def _sidebar(active: str) -> str:
     # Пункт, которого человеку нельзя, не рисуется. ⚠️ Это удобство, а НЕ
     # защита: отказ выдаёт require() в самом маршруте, потому что адрес
@@ -710,7 +820,7 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 <div class="content{' wide' if active in WIDE_PAGES else ''}">
 <h1><a href="/admin">Registrul Clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
-{_tamper_banner()}{_setup_hint()}
+{_tamper_banner()}{_slot_banner()}{_setup_hint()}
 {body}
 </div></div>
 <div class="brandcorner">{_ic('tooth')} <b>DentPilot</b> ·
