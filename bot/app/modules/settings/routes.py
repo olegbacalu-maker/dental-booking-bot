@@ -433,10 +433,7 @@ async def admin_lan_save(request: Request, mode: str = Form("")):
     os.environ["DENTART_LAN"] = val
     logging.getLogger("settings").warning(
         "LAN access %s", "ENABLED" if val else "disabled")
-    if upd.restart_app() is not None:
-        # dev-режим/тест-хук: перезапуск не случился — просто баннер
-        return RedirectResponse("/admin/settings/lan?msg=ok_set", status_code=303)
-    return _restart_page("Setare salvată", "/admin/settings/lan")
+    return _restart_now("Setare salvată", "/admin/settings/lan", "ok_set")
 
 
 @router.post("/admin/lan/firewall")
@@ -726,8 +723,7 @@ async def settings_crypt_confirm(request: Request, ack: str = Form("")):
             return RedirectResponse("/admin/settings/crypt?msg=bad_crypt",
                                     status_code=303)
     _SHEET_KEY = None
-    return HTMLResponse(_restart_page("Criptarea a fost activată",
-                                      "/admin/settings/crypt"))
+    return _restart_now("Criptarea a fost activată", "/admin/settings/crypt")
 
 
 @router.post("/admin/settings/crypt/off")
@@ -738,8 +734,7 @@ async def settings_crypt_off(request: Request):
     if not d:
         return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
     dbkey.request_decrypt(d)
-    return HTMLResponse(_restart_page("Criptarea va fi oprită",
-                                      "/admin/settings/crypt"))
+    return _restart_now("Criptarea va fi oprită", "/admin/settings/crypt")
 
 
 @router.get("/admin/settings/theme", response_class=HTMLResponse)
@@ -1388,14 +1383,34 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
                                 status_code=303)
     os.environ["TELEGRAM_TOKEN"] = tok
     os.environ.pop("DENTART_TOKEN_UNREADABLE", None)
-    if upd.restart_app() is not None:
-        # dev-режим/тест-хук: перезапуск не случился — просто баннер
-        return RedirectResponse("/admin/settings/telegram?msg=ok_tok",
-                                status_code=303)
-    return _restart_page("Token salvat", "/admin/settings/telegram")
+    return _restart_now("Token salvat", "/admin/settings/telegram", "ok_tok")
 
 
-def _restart_page(done: str, back_url: str) -> str:
+def _restart_now(done: str, back_url: str,
+                 fallback: str = "") -> HTMLResponse | RedirectResponse:
+    """Сохранили настройку, которую читает лаунчер, — перезапускаем программу.
+
+    ⛔ ЕДИНСТВЕННАЯ точка запуска. Раньше маршрут звал `restart_app()` сам, а
+    потом отдавал `_restart_page()`, который звал его ВТОРОЙ раз: задача
+    планировщика заводилась дважды подряд, и спасал только `/f` в `/create`.
+    Теперь запуск ровно один, а страница только рассказывает, чем он кончился.
+
+    ⚠️ Отказ планировщика (политика домена, урезанные права, отключённая
+    служба) — НЕ то же самое, что издание без перезапуска. В первом случае
+    настройка сохранена, но не применится, пока программу не закроют и не
+    откроют руками, — и это ровно то, что говорит страница при `auto=False`.
+    Отдельного баннера для этого не заводим: тот же факт вторым текстом во
+    втором месте разошёлся бы с этим при первой же правке (так уже было со
+    STATUS_LABEL). `fallback` — для второго случая: запуск из исходников и
+    облако, где закрывать и открывать нечего, а сообщить «сохранено» надо.
+    """
+    err = upd.restart_app()
+    if err is not None and fallback and not upd.is_desktop():
+        return RedirectResponse(f"{back_url}?msg={fallback}", status_code=303)
+    return HTMLResponse(_restart_page(done, back_url, auto=err is None))
+
+
+def _restart_page(done: str, back_url: str, auto: bool) -> str:
     """Экран «настройка применится при следующем запуске».
 
     Для настроек, которые читает ЛАУНЧЕР до старта приложения: токен бота,
@@ -1411,9 +1426,10 @@ def _restart_page(done: str, back_url: str) -> str:
     запасной ход — открыть с ярлыка. Обещать «окно вернётся само» без оговорки
     и было прошлой ошибкой.
     {_ic('sos')} `restart_app()` гасит процесс через ~1.2 с (`_exit_soon`), поэтому
-    страницу отдаём ПЕРВОЙ, а гасимся уже после ответа.
+    страницу отдаём ПЕРВОЙ, а гасимся уже после ответа. Сам запуск сюда НЕ
+    входит — он в `_restart_now`, иначе страница заводила бы вторую задачу
+    планировщика поверх той, что уже запустил маршрут.
     """
-    auto = upd.restart_app() is None
     return standalone(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <title>Repornire…</title><style>
  body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;

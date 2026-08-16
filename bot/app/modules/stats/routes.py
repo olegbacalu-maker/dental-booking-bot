@@ -113,7 +113,7 @@ def _trend_money(cur: int, prev: int, label: str) -> str:
         return f"<span class='trend'>neschimbat {label}</span>"
     diff = cur - prev
     cls, arrow = ("up", _ic("caret-u")) if diff > 0 else ("dn", _ic("caret-d"))
-    sign = "+" if diff > 0 else "−"
+    sign = "+" if diff > 0 else "-"
     return (f"<span class='trend'><span class='{cls}'>{arrow} {sign}"
             f"{_fmt_mdl(abs(diff))}</span> {label}</span>")
 
@@ -237,7 +237,7 @@ async def admin_stats(
   <div><span>Rata de prezență</span><b>{present_pct}%</b>
     <div class='statbar'><div style='width:{present_pct}%'></div></div></div>
   <div><span>Neprezentări</span><b>{cur['noshow']}</b>
-    <small>≈ {_fmt_mdl(cur['loss'])} pierdut</small></div>
+    <small>cca {_fmt_mdl(cur['loss'])} pierdut</small></div>
   <div><span>Așteptare medie</span><b data-wait>{wait_txt}</b>
     <small>{wait_sub}</small></div>
 </div></div>"""
@@ -291,7 +291,7 @@ async def admin_stats(
                   f"{_fmt_mdl(cur['value'])}</b>"
                   f"{_trend_money(cur['value'], prev['value'], plabel)}"
                   f"<small>după lista de prețuri · nu e contabilitate"
-                  + (f" · botul a adus ≈ {_fmt_mdl(cur['bot_value'])}"
+                  + (f" · botul a adus cca {_fmt_mdl(cur['bot_value'])}"
                      if tg_ui else "")
                   + "</small></div>")
     # выручка ЗА СЕГОДНЯ — всегда про сегодня, какой бы период ни был выбран
@@ -366,7 +366,7 @@ async def admin_stats(
     max_cnt = top_svc[0]["cnt"] if top_svc else 1
     svc_rows = "".join(
         f"<div class='an-svc'><div class='an-svc-t'><b>{e(s['label'])}</b>"
-        f"<span>{s['cnt']} prog. · ≈ {_fmt_mdl(s['val'])}</span></div>"
+        f"<span>{s['cnt']} prog. · cca {_fmt_mdl(s['val'])}</span></div>"
         f"<div class='statbar'><div style='width:{round(100 * s['cnt'] / max_cnt)}%'></div></div></div>"
         for s in top_svc) or "<p class='hint'>— încă fără programări —</p>"
     services_card = f"<div class='fcard'><h3>Top servicii</h3>{svc_rows}</div>"

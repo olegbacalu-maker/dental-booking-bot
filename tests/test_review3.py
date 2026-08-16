@@ -32,8 +32,8 @@ JS = BOT / "app" / "static" / "js" / "panel.js"
 # Знаки, которые рисует система: те же диапазоны, что стережёт
 # test_structure._SYSGLYPH в питоновских литералах. Вшитый Inter их не
 # покрывает, поэтому в CSS-свойстве content им тоже не место.
-_SYSGLYPH = re.compile("[\U0001F000-\U0001FAFF\u2190-\u21FF\u2300-\u23FF"
-                       "\u25A0-\u27BF\u2B00-\u2BFF]")
+_SYSGLYPH = re.compile("[\U0001F000-\U0001FAFF\u2190-\u21FF\u2200-\u22FF"
+                       "\u2300-\u23FF\u25A0-\u27BF\u2B00-\u2BFF]")
 
 _RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 
@@ -183,7 +183,7 @@ def suite_stats_bot(res: Result) -> None:
                "data-count='100'" in card,
                "число карточки изменилось — проверка потеряла опору")
         res.ok("подпись «botul a adus» считает тем же правилом",
-               "botul a adus ≈ 100 MDL" in card,
+               "botul a adus cca 100 MDL" in card,
                "подпись включает неявку и превышает саму выручку: "
                + card[card.find("botul a adus"):][:40])
 

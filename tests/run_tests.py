@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import test_activity  # noqa: E402
 import test_admin  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_booking  # noqa: E402
@@ -30,6 +31,7 @@ import test_review2  # noqa: E402
 import test_review3  # noqa: E402
 import test_review3_auth  # noqa: E402
 import test_review3_bot  # noqa: E402
+import test_restart  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
@@ -45,6 +47,7 @@ SUITES = [
     # список имён без якоря. Мутация о таком промахе сказать не может.
     ("Сторожа: область правила о знаках", test_guards.suite_glyph_scope),
     ("Сторожа: отпечаток auth.json и форма вызова", test_guards.suite_auth_fp),
+    ("Сторожа: знаки математики в текстах", test_guards.suite_glyph_math),
     ("Сторожа: якорь списка ролей", test_guards.suite_roles_anchor),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Чистая логика расписания", test_admin.suite_pure),
@@ -115,6 +118,9 @@ SUITES = [
      test_review3_auth.suite_broken_with_key),
     ("Ревью-3: обновление (таймеры, планировщик, версия)",
      test_review3_auth.suite_update),
+    ("Перезапуск: один заказ планировщику", test_restart.suite_once),
+    ("Перезапуск: отказ планировщика на экране", test_restart.suite_failed),
+    ("Перезапуск: издания без перезапуска", test_restart.suite_dev_banner),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),
@@ -135,6 +141,7 @@ SUITES = [
      test_privacy.suite_erase_marker_delete),
     ("Закон 195: журнал доступа", test_privacy.suite_access_log),
     ("Закон 195: формуляр информирования", test_privacy.suite_acord),
+    ("Летопись: событие словом, а не кодом", test_activity.suite_words),
     ("Миграции базы: шаг 4 у клиники с версии 3", test_migrate.suite_v4),
     ("Летопись: backfill в часах клиники", test_migrate.suite_backfill_tz),
     ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),

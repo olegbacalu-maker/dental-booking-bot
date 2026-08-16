@@ -72,11 +72,11 @@ def _due_html(due, status: str) -> str:
 
 # ---------- карточка пациента (v1.6.0) ----------
 
-TOOTH_STATES = {
-    "ok": "Sănătos", "carie": "Carie", "obturatie": "Obturație",
-    "coroana": "Coroană", "implant": "Implant", "tratament": "În tratament",
-    "extras": "Extras", "lipsa": "Lipsă",
-}
+# ⚠️ Имена состояний зуба — ОДИН словарь на программу, как STATUS_LABEL у
+# статусов визита: дословная копия жила здесь и в teeth_svg, а с 08-16 те же
+# слова пишет в летопись db.set_tooth. Три копии разошлись бы молча — на
+# соседних экранах у одного состояния завелось бы три имени.
+TOOTH_STATES = tsvg.STATE_RO
 
 
 _FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
@@ -978,7 +978,7 @@ programului (data\\files).</p></div>"""
             f"<span class='pw'>{when}</span>"
             f"<span class='pi' title='{e(pl['method'])}'>"
             f"{_PAY_ICO.get(pl['method'], _ic('cash'))}</span>"
-            f"<b class='pa'>{'− ' if neg else ''}{amt} MDL</b>"
+            f"<b class='pa'>{'- ' if neg else ''}{amt} MDL</b>"
             f"<span class='pn'>{e(pl['note'] or '')}{who}</span>{del_f}</div>")
     method_opts = "".join(f"<option value='{m}'>{_PAY_ICO[m]} {m}</option>"
                           for m in db.PAY_METHODS)

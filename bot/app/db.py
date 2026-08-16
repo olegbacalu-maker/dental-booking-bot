@@ -1461,7 +1461,17 @@ async def log_event(patient_id: int | None, kind: str, text: str, *,
                     actor: str = "", tooth: int | None = None) -> None:
     """Событие карты пациента. Никогда не роняет основную операцию: журнал —
     это летопись, а не транзакция; потерянная строка хуже, чем упавшая запись
-    к врачу, только в одном случае — если из-за неё не состоялась сама запись."""
+    к врачу, только в одном случае — если из-за неё не состоялась сама запись.
+
+    ⚠️ Хранится ГОТОВАЯ строка, и переписывать её потом нельзя: летопись
+    отвечает на вопрос «кто что сделал», а не «как это выглядит сегодня».
+    Отсюда правило для вызывающих: внутренний код (`in_lucru`, `noshow`,
+    `obturatie`) разворачивается в СЛОВО здесь и сейчас — ту же строку читает
+    и лента фиши, и выгрузка по 195-му, где она обязана быть «в понятной
+    форме». Словари слов лежат по месту их смысла (`core.layout.STATUS_LABEL`,
+    `fisa043.PLAN_RO`, `teeth_svg.STATE_RO`) и берутся ОТЛОЖЕННЫМ импортом:
+    db лежит ниже слоя интерфейса, и на уровне модуля это замкнуло бы круг.
+    """
     if patient_id is None:
         return
     # подпись по умолчанию — ИМЯ вошедшего, а не канал: закон 195 спрашивает
@@ -1622,10 +1632,14 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     doctor — СНАПШОТ имени на момент записи, как в plan_items: переименование
     врача не должно переписывать историю зуба.
     surfaces — буквы поверхностей одной строкой («MOD»); проверяет маршрут."""
+    # состояние в летопись — СЛОВОМ (см. log_event): «obturatie» и «lipsa» это
+    # ключи одонтограммы, а строку читают регистратура и пациент в выгрузке
+    from .teeth_svg import STATE_RO
     if state == "ok" and not note and not doctor:
         await _execute("DELETE FROM teeth WHERE patient_id = $1 AND tooth = $2",
                        "DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
-        await log_event(pid, "tooth", f"Dinte {tooth}: sănătos", tooth=tooth)
+        await log_event(pid, "tooth", f"Dinte {tooth}: {STATE_RO['ok']}",
+                        tooth=tooth)
         return
     pg = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
                               updated_at)
@@ -1645,7 +1659,7 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
                    *((pid, tooth, state, note, doctor, surfaces) if not IS_SQLITE
                      else (pid, tooth, state, note, doctor, surfaces,
                            _utcnow_iso())))
-    txt = f"Dinte {tooth}: {state}"
+    txt = f"Dinte {tooth}: {STATE_RO.get(state, state)}"
     if surfaces:
         txt += f" ({surfaces})"
     if doctor:
@@ -1721,8 +1735,12 @@ async def set_plan_status(item_id: int, pid: int, status: str,
         # причина отказа уходит в летопись ВМЕСТЕ с переходом: лента —
         # единственное место, где видно, кто и когда отказ оформил
         tail = f" ({motiv})" if status == "refuzat" and motiv else ""
+        # статус позиции — СЛОВОМ (см. log_event): тем же словарём, каким его
+        # называют бумажный бланк 043/e и выгрузка по 195-му
+        from .modules.patients.fisa043 import PLAN_RO
         await log_event(pid, "plan_status",
-                        f"Plan: {rows[0]['procedure']} › {status}{tail}",
+                        f"Plan: {rows[0]['procedure']} › "
+                        f"{PLAN_RO.get(status, status)}{tail}",
                         tooth=rows[0]["tooth"])
     if status in PLAN_CLOSED:
         # к визиту привязывается только ВЫПОЛНЕННОЕ: отказ ни на каком приёме
@@ -1756,7 +1774,7 @@ async def delete_plan_item(item_id: int, pid: int) -> None:
                         "SELECT procedure, tooth FROM plan_items WHERE id = ? AND patient_id = ?",
                         item_id, pid)
     if rows:
-        await log_event(pid, "plan_del", f"Plan: − {rows[0]['procedure']}",
+        await log_event(pid, "plan_del", f"Plan: - {rows[0]['procedure']}",
                         tooth=rows[0]["tooth"])
     await _execute(
         "DELETE FROM plan_items WHERE id = $1 AND patient_id = $2",
@@ -2223,11 +2241,6 @@ async def set_comment(appt_id: int, text: str) -> None:
     )
 
 
-_STATUS_RO = {"confirmed": "confirmată", "waiting": "a venit",
-              "arrived": "în cabinet", "done": "finalizată",
-              "noshow": "neprezentare", "cancelled": "anulată"}
-
-
 async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
                            starts_at: datetime, when: str = "") -> str:
     """Перенос визита на другое время и/или к другому врачу (перетаскивание).
@@ -2347,8 +2360,12 @@ async def set_status(appt_id: int, status: str) -> bool:
                 "SELECT patient_id, service FROM appointments WHERE id = $1",
                 "SELECT patient_id, service FROM appointments WHERE id = ?", appt_id)
             if own and own[0]["patient_id"]:
+                # статус визита зовётся ОДНИМ словом на всю программу
+                # (см. log_event): свой словарь тут уже расходился с журналом —
+                # кнопка ставила «nu a venit», а летопись писала «neprezentare»
+                from .core.layout import STATUS_LABEL
                 await log_event(own[0]["patient_id"], "appt_status",
-                                f"Vizită {_STATUS_RO.get(status, status)}: "
+                                f"Vizită {STATUS_LABEL.get(status, status)}: "
                                 f"{own[0]['service']}")
             return True
         except Exception as e:  # noqa: BLE001 — uq_doctor_slot/uq_patient_slot
