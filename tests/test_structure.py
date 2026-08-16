@@ -113,9 +113,17 @@ def _sources() -> list[tuple[str, ast.Module]]:
 
 def _calls(node: ast.AST) -> set[str]:
     """Имена функций, вызванных внутри узла. `await f()` тоже считается: Await
-    оборачивает Call, а walk доходит до него."""
-    return {n.func.id for n in ast.walk(node)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    оборачивает Call, а walk доходит до него.
+
+    ⚠️ Последнее имя берётся и у вызова ЧЕРЕЗ МОДУЛЬ (`auth.save_user(...)` —
+    это ast.Attribute, у него нет `.id`). Правило про отпечаток auth.json
+    включающее: не увидев вызова, оно молчит, а не краснеет, — то есть чужой
+    стиль импорта выключал бы его целиком. А модулем-объектом здесь ходят
+    почти все (`from ...core import theme`), и сегодня правило работает лишь
+    потому, что писателей auth.json импортируют поимённо."""
+    return {n.func.id if isinstance(n.func, ast.Name) else n.func.attr
+            for n in ast.walk(node) if isinstance(n, ast.Call)
+            and isinstance(n.func, (ast.Name, ast.Attribute))}
 
 
 def _enclosing(tree: ast.Module, lineno: int) -> set[str]:
@@ -215,6 +223,31 @@ def suite(res: Result) -> None:
     res.ok("роль не сравнивается по месту", not bad,
            "доступ решается сравнением роли, а не PERMS: " + ", ".join(bad))
 
+    # Якорь к правилу выше. `_ROLES` — список ВКЛЮЧАЮЩИЙ: четвёртая роль в
+    # PERMS выключила бы правило для себя молча, потому что её литерала в
+    # списке нет (ветка `ROLE_*` спасает только тех, кто пишет сравнение
+    # константой). Источник истины один — ключи PERMS; расхождение в ЛЮБУЮ
+    # сторону красное: лишнее имя тут так же слепо, как недостающее.
+    auth_mod = by_path.get(_AUTH_MODULE) or ast.Module(body=[], type_ignores=[])
+    role_const = {n.targets[0].id: n.value.value for n in ast.walk(auth_mod)
+                  if isinstance(n, ast.Assign) and len(n.targets) == 1
+                  and isinstance(n.targets[0], ast.Name)
+                  and n.targets[0].id.startswith("ROLE_")
+                  and isinstance(n.value, ast.Constant)}
+    perms_keys = None
+    for n in ast.walk(auth_mod):
+        if (isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "PERMS"
+                        for t in n.targets)
+                and isinstance(n.value, ast.Dict)):
+            perms_keys = {k.value if isinstance(k, ast.Constant)
+                          else role_const.get(k.id) if isinstance(k, ast.Name)
+                          else None for k in n.value.keys}
+    res.ok("список ролей совпадает с PERMS", perms_keys == _ROLES,
+           f"_ROLES={sorted(_ROLES)}, ключи PERMS="
+           f"{sorted(map(str, perms_keys)) if perms_keys is not None else None}"
+           f" — правило ловит сравнение по месту только для перечисленных имён")
+
     # Полярность правила ниже опасная: `_AUTH_WRITERS` — список имён, которые
     # ВКЛЮЧАЮТ требование. Переименуют `save_user` — правило станет искать
     # несуществующее имя, найдёт ноль нарушителей и позеленеет НАВСЕГДА. Мутация
@@ -294,9 +327,16 @@ def suite(res: Result) -> None:
     # docstring'и до экрана не доезжают, и запрещать их незачем.
     # ⛔ Тексты бота (engine.py, telegram.py) исключены намеренно: их рисует
     # Telegram на телефоне пациента, а не Windows на машине клиники.
+    # ⚠️ Область — ВЕСЬ bot/, а не только modules/ и core/: экраны живут и в
+    # main.py (вход, установка PIN, весь режим восстановления), а тексты для
+    # человека — ещё и в db.py (летопись пациента). Префиксный фильтр держался
+    # тут не по решению, и под ним пережили все релизы ✅ на экране
+    # восстановления и две стрелки → в текстах db.py. Заодно в область попадают
+    # строки лога: знак в них безвреден, но и не нужен, а исключение по «это
+    # лог» пришлось бы угадывать по имени функции.
     bad = []
     for rel, tree in src:
-        if not rel.startswith(("app/modules/", "app/core/")) or rel in _BOT_TEXTS:
+        if rel in _BOT_TEXTS:
             continue
         for ln, text in _ui_texts(tree):
             found = "".join(dict.fromkeys(_SYSGLYPH.findall(text)))

@@ -603,7 +603,7 @@ def _sqlite_driver(path: str):
             # бэкапа поверх целых данных. Падаем внятно.
             raise RuntimeError(
                 "cheia bazei de date nu poate fi citită pe acest cont Windows "
-                "— folosiți foaia de recuperare (Setări → Securitate)")
+                "— folosiți foaia de recuperare (Setări › Securitate)")
         import sqlite3
         return sqlite3, lambda: sqlite3.connect(path)
 
@@ -1722,7 +1722,7 @@ async def set_plan_status(item_id: int, pid: int, status: str,
         # единственное место, где видно, кто и когда отказ оформил
         tail = f" ({motiv})" if status == "refuzat" and motiv else ""
         await log_event(pid, "plan_status",
-                        f"Plan: {rows[0]['procedure']} → {status}{tail}",
+                        f"Plan: {rows[0]['procedure']} › {status}{tail}",
                         tooth=rows[0]["tooth"])
     if status in PLAN_CLOSED:
         # к визиту привязывается только ВЫПОЛНЕННОЕ: отказ ни на каком приёме

@@ -396,7 +396,7 @@ RECOVER_DONE = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
       justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
  p{max-width:520px;line-height:1.55}
 </style></head><body>
-<h1>✅ Cheia a fost restabilită</h1>
+<h1>Cheia a fost restabilită</h1>
 <p>Închideți programul și porniți-l din nou — evidența se va deschide normal.
 Cheia a fost legată din nou de acest calculator, așa că data viitoare codul nu
 va mai fi necesar. Păstrați foaia de recuperare mai departe.</p>

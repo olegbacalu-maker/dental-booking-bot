@@ -48,12 +48,23 @@ MUTATIONS = [
      "\n_mut = __package__ + '.telegram'\n"),
     ("роль не сравнивается", "app/modules/stats/routes.py",
      "\ndef _mut(u):\n    return u.get('role') == 'director'\n"),
+    # Четвёртая роль в PERMS: правило выше ловит сравнение по месту по СПИСКУ
+    # имён, и новая роль выключила бы его для себя молча. Ломается там же, где
+    # роль и появится, — в самой таблице прав.
+    ("список ролей совпадает с PERMS", "app/core/auth.py",
+     ("    ROLE_MEDIC: set(),", "    ROLE_MEDIC: set(),\n    \"asistent\": set(),")),
     # Переименование того, за чем правило следит. Единственная мутация-замена:
     # приписать сюда нечего, нарушение — в ИСЧЕЗНОВЕНИИ имени `save_user`.
     ("не протух", "app/core/auth.py",
      ("def save_user(", "def store_user(")),
     ("отпечаток", "app/modules/schedule/routes.py",
      "\nasync def _mut(uid):\n    save_user(uid, name='x', role='medic')\n"),
+    # Тот же забытый отпечаток, но вызов ЧЕРЕЗ МОДУЛЬ — преобладающий в этом
+    # дереве стиль (`from ...core import theme`). До 08-16 такой вызов правило
+    # не включал вовсе: `ast.Attribute` мимо `.id`, пересечение пусто, сторож
+    # молчит. Две строки на одну проверку намеренно: обе формы вызова.
+    ("отпечаток", "app/modules/patients/routes.py",
+     "\nasync def _mut_attr(uid):\n    auth.save_user(uid, name='x', role='medic')\n"),
     ("paths/dpapi/envfile", "app/paths.py",
      "\nfrom . import db  # noqa\n"),
     ("не импортирует main", "app/core/visits.py",
@@ -67,7 +78,11 @@ MUTATIONS = [
     # интерфейса, а не комментарием: комментарии и docstring'и правило
     # пропускает намеренно, и мутация комментарием позеленела бы, ничего
     # не проверив.
-    ("не просит знаки у Windows", "app/modules/qr/routes.py",
+    # ⚠️ Ломается в main.py, а не в модуле: до 08-16 область правила кончалась
+    # на modules/ и core/, и мутация внутри неё зеленела бы ровно тогда, когда
+    # область снова сузят, — а экраны входа, установки PIN и восстановления
+    # живут как раз в main.py.
+    ("не просит знаки у Windows", "app/main.py",
      "\n_MUT_GLYPH = \"<button>\\U0001f5a8 Printeaza</button>\"\n"),
     # Вызов _ic без импорта. Ловится только так: на демо-профиле такой вызов
     # часто стоит в ветке, которая не исполняется (`if meta.get('room')`),

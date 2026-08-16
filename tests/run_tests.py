@@ -19,6 +19,7 @@ import test_anamneza  # noqa: E402
 import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_doctor_windows  # noqa: E402
+import test_guards  # noqa: E402
 import test_launcher  # noqa: E402
 import test_migrate  # noqa: E402
 import test_bot  # noqa: E402
@@ -40,6 +41,12 @@ SUITES = [
     # где переезд файла убил бы собранную программу. Ждать этого 60 секунд,
     # пока прогоняются наборы с сервером, незачем.
     ("Раскладка кода: правила карты", test_structure.suite),
+    # Сразу за ним: те же правила, но на СЛЕПЫЕ ЗОНЫ — область, форма вызова,
+    # список имён без якоря. Мутация о таком промахе сказать не может.
+    ("Сторожа: область правила о знаках", test_guards.suite_glyph_scope),
+    ("Сторожа: отпечаток auth.json и форма вызова", test_guards.suite_auth_fp),
+    ("Сторожа: якорь списка ролей", test_guards.suite_roles_anchor),
+    ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Чистая логика расписания", test_admin.suite_pure),
     ("Вход и охрана доступа", test_admin.suite_auth),
     ("PIN: хранение и переезд", test_pin.suite_store),
