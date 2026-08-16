@@ -2246,9 +2246,9 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
     """
     async with _BOOK_LOCK:
         rows = await _fetch(
-            """SELECT patient_id, duration_min, status, service
+            """SELECT patient_id, duration_min, status, service, starts_at
                FROM appointments WHERE id = $1""",
-            """SELECT patient_id, duration_min, status, service
+            """SELECT patient_id, duration_min, status, service, starts_at
                FROM appointments WHERE id = ?""", appt_id)
         if not rows:
             return "gone"
@@ -2261,12 +2261,22 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
         if r["patient_id"] and await _patient_busy_at(r["patient_id"], starts_at,
                                                       exclude_id=appt_id):
             return "dup"
+        # ⚠️ Перенос ВРЕМЕНИ снимает отметки напоминаний. Флаг значит «пациенту
+        # уже сказали про ЭТОТ час», а час стал другим: без сброса суточное
+        # напоминание с новым временем не уходит вовсе (telegram._send_reminder
+        # выходит по reminded_day), и пациент приезжает к прежнему часу — а
+        # журнал рядом с визитом продолжает показывать «Reminder trimis».
+        # Переезд к другому врачу в тот же час отметку не трогает: про час
+        # сказано верно, а имя врача напоминание берёт актуальное.
+        moved = rows[0]["starts_at"] != starts_at
+        rem = ", reminded_day = FALSE, reminded_2h = FALSE" if moved else ""
+        rem_lite = ", reminded_day = 0, reminded_2h = 0" if moved else ""
         try:
             await _execute(
-                """UPDATE appointments SET doctor = $2, doctor_id = $3,
-                   starts_at = $4 WHERE id = $1""",
-                """UPDATE appointments SET doctor = ?, doctor_id = ?,
-                   starts_at = ? WHERE id = ?""",
+                f"""UPDATE appointments SET doctor = $2, doctor_id = $3,
+                   starts_at = $4{rem} WHERE id = $1""",
+                f"""UPDATE appointments SET doctor = ?, doctor_id = ?,
+                   starts_at = ?{rem_lite} WHERE id = ?""",
                 *((appt_id, doctor, doctor_id, starts_at) if not IS_SQLITE
                   else (doctor, doctor_id, _iso(starts_at), appt_id)),
             )

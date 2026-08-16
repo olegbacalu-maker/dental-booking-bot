@@ -145,7 +145,8 @@ def main(base: str, password: str) -> int:
           f"код {r.status} (404 = casa.py не попал в сборку)")
 
     # бот-диалог: конфиг клиники прочитан из бандла
-    r = c.post_json("/chat", {"session_id": "smoke", "message": "/start"})
+    # ключ сессии выдаёт сам сервер (core.auth.chat_session) — клиент его не шлёт
+    r = c.post_json("/chat", {"message": "/start"})
     check("бот отвечает на /start",
           r.status == 200 and "lang:ro" in r.body, f"код {r.status}")
 

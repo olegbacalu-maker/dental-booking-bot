@@ -3,10 +3,13 @@
 Бот и журнал делят один путь бронирования, поэтому здесь проверяется не диалог
 ради диалога, а что оба входа отвечают одинаково на одну и ту же занятость.
 """
+import os
 import re
-from datetime import date, timedelta
+import subprocess
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from harness import TG_ON, Bot, Client, Result, Server
+from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server
 
 
 def _book(bot: Bot, day: str, hhmm: str, name: str, phone: str,
@@ -24,6 +27,42 @@ def _book(bot: Bot, day: str, hhmm: str, name: str, phone: str,
     bot.say(phone)
     texts, _ = bot.say("confirm")
     return texts
+
+
+_TG_CODE = """
+import asyncio, sys
+from datetime import datetime
+sys.path.insert(0, %r)
+from app import db
+
+
+async def main():
+    await db.init()
+    print(await db.create_appointment(
+        "tg:900001", "Din Telegram", "069900111", "ro",
+        "Consultatie", "Dr. Activ Doi", datetime.fromisoformat(%r),
+        source="bot", doctor_id="d2", service_id="consult"))
+    await db._CONN.close()   # иначе поток aiosqlite не даёт процессу выйти
+
+asyncio.run(main())
+"""
+
+
+def _tg_patient(s: Server, when: datetime) -> str:
+    """Завести пациента ИЗ ЖИВОГО Telegram.
+
+    Через /chat его больше не подделать, и это правильно: ключ `tg:<chat_id>`
+    собирает сам адаптер из поля апдейта, а /chat выдаёт СВОЙ подписанный ключ
+    (иначе присланный `manual:<цифры>` открывал бы чужую фишу). Поэтому зовём
+    тот же db.create_appointment, что и адаптер, — отдельным процессом, чтобы
+    не тащить app.db в прогон.
+    """
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{s.dir / 'dental.db'}"
+    env["CLINIC_CONFIG"] = str(s.clinic)
+    p = subprocess.run([str(PYTHON), "-c", _TG_CODE % (str(BOT), when.isoformat())],
+                       cwd=str(BOT), text=True, capture_output=True, env=env)
+    return p.stdout.strip() if p.returncode == 0 else f"FAIL: {p.stderr[-400:]}"
 
 
 def suite(res: Result) -> None:
@@ -66,11 +105,14 @@ def suite(res: Result) -> None:
                not re.findall(r"/admin/patient/(\d+)",
                               adm.get("/admin/search?q=069333444").body),
                "пациент без визита появился в списке")
-        # опция канала в фильтре списка идёт ПО ДАННЫМ (см. suite_bot_ui), и
-        # tg-пациента здесь делает сессия «tg:…»: /chat передаёт session_id в
-        # session_key как есть, живой адаптер шлёт ровно `tg:<chat_id>`
-        # (telegram.py) — записи выше ушли под «web» и опцию дать не обязаны
-        _book(Bot(c, "tg:900001"), tomorrow, "16:00", "Din Telegram", "069900111")
+        # опция канала в фильтре списка идёт ПО ДАННЫМ (см. suite_bot_ui), а
+        # tg-пациент рождается только у живого адаптера — /chat свой ключ
+        # подписывает сам и чужой префикс не примет (записи выше ушли под «web»
+        # и опцию дать не обязаны)
+        made = _tg_patient(s, datetime.combine(
+            date.today() + timedelta(days=1), time(16, 0),
+            tzinfo=ZoneInfo("Europe/Chisinau")))
+        res.ok("tg-пациент заведён как адаптером", made.isdigit(), made)
         res.ok("фильтр каналов предлагает Telegram — tg-пациенты есть",
                "<option value='tg'>Telegram</option>"
                in adm.get("/admin/search").body,

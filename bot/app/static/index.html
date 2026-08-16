@@ -27,11 +27,11 @@
   <button id="send" title="Trimite">➤</button>
 </div>
 <script>
-let sid = localStorage.getItem("dentpilot_sid");
-if (!sid) {
-  sid = (crypto.randomUUID ? crypto.randomUUID() : "s" + Date.now() + Math.random());
-  localStorage.setItem("dentpilot_sid", sid);
-}
+// Ключ сессии выдаёт СЕРВЕР и подписывает своим секретом: по нему пациент
+// видит и отменяет свои записи, поэтому придуманный здесь ключ открывал бы
+// чужие. Тут только хранение выданного — чтобы «мои записи» пережили
+// перезагрузку страницы.
+let sess = localStorage.getItem("dentpilot_session") || "";
 const chat = document.getElementById("chat");
 const btns = document.getElementById("btns");
 const inp = document.getElementById("text");
@@ -51,9 +51,10 @@ async function send(value, label) {
     const r = await fetch("/chat", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({session_id: sid, message: value})
+      body: JSON.stringify({session: sess, message: value})
     });
     const j = await r.json();
+    if (j.session) { sess = j.session; localStorage.setItem("dentpilot_session", sess); }
     for (const m of j.messages) bubble(m.text, "bot");
     for (const row of (j.buttons || [])) {
       for (const b of row) {

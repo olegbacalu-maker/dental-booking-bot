@@ -8,7 +8,8 @@ import logging
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import (TelegramBadRequest, TelegramForbiddenError,
+                                TelegramUnauthorizedError)
 from aiogram.filters import CommandStart
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
@@ -20,6 +21,29 @@ log = logging.getLogger("telegram")
 
 # статус канала для страницы настроек
 STATUS = {"running": False, "username": "", "error": ""}
+
+# Как часто переспрашивать Telegram, жив ли канал (см. _watch).
+_WATCH_TICK = 300
+
+
+def _note_fail(e: Exception) -> None:
+    """Отказ канала — в STATUS, а не только в лог.
+
+    Страница «Stare sistem» читает ровно эти два поля (settings/routes._tg_line),
+    и без записи она врала дважды: при ОТОЗВАННОМ токене показывала «activ»
+    (aiogram ретраит getUpdates вечно, поллинг не завершается, running остаётся
+    True), а при НЕВЕРНОМ — вечное «pornire…», потому что get_me падал до
+    единственной записи STATUS. Причина при этом уезжала в print, которого в
+    собранной программе нет вовсе (--noconsole).
+    """
+    STATUS.update(
+        running=False,
+        error=("tokenul a fost respins de Telegram — reintroduceți-l în "
+               "secțiunea Telegram Bot"
+               if isinstance(e, TelegramUnauthorizedError)
+               else f"canalul nu răspunde ({type(e).__name__})"))
+    log.warning("Telegram channel DOWN: %r", e)
+
 
 # ---- визитка бота (описание в профиле и в пустом чате) --------------------
 # Description хранится на серверах Telegram, поэтому виден и тогда, когда
@@ -122,6 +146,22 @@ async def _dialog(chat_id: int, text: str, send) -> None:
             break
 
 
+async def _ack(c: CallbackQuery) -> None:
+    """Погасить «часики» на кнопке — и НЕ уронить на этом обработчик.
+
+    answerCallbackQuery отвечает 400 «query is too old», если нажатие пролежало
+    в очереди Telegram, пока программа была выключена (настольное издание
+    закрывают на ночь, а апдейты Telegram держит до суток). Голый вызов уносил
+    весь обработчик: aiogram гасит исключение строкой в логе и берётся за
+    следующий апдейт — то есть отмена визита из напоминания пропадала молча,
+    и пациент оставался уверен, что записи больше нет.
+    """
+    try:
+        await c.answer()
+    except Exception as e:  # noqa: BLE001 — «часики» не смеют отменить действие
+        log.warning("Callback ack failed (%s): %r", c.data, e)
+
+
 async def _send_reminder(bot: Bot, r) -> None:
     lang = r["lang"] if r["lang"] in eng.T else "ro"
     s = eng.Session(lang=lang)
@@ -173,6 +213,21 @@ async def _reminder_loop(bot: Bot) -> None:
         await asyncio.sleep(60)
 
 
+async def _watch(bot: Bot) -> None:
+    """Канал мог умереть ПОСЛЕ старта: отозванный в @BotFather токен aiogram
+    переживает молча — getUpdates падает, диспетчер ретраит вечно, поллинг не
+    завершается. Раз в несколько минут спрашиваем Telegram, кто мы: это
+    единственное место, где такой отказ становится видимым клинике."""
+    while True:
+        await asyncio.sleep(_WATCH_TICK)
+        try:
+            me = await bot.get_me()
+        except Exception as e:  # noqa: BLE001 — сторож не имеет права падать
+            _note_fail(e)
+        else:
+            STATUS.update(running=True, username=me.username or "", error="")
+
+
 async def run(token: str) -> None:
     bot = Bot(token=token)
     dp = Dispatcher()
@@ -203,7 +258,7 @@ async def run(token: str) -> None:
 
     @dp.callback_query()
     async def on_callback(c: CallbackQuery) -> None:
-        await c.answer()
+        await _ack(c)
         if c.message is None:
             return
         chat_id = c.message.chat.id
@@ -220,15 +275,23 @@ async def run(token: str) -> None:
         await _dialog(chat_id, data,
                       lambda t, reply_markup=None: c.message.answer(t, reply_markup=reply_markup))
 
-    me = await bot.get_me()
+    try:
+        me = await bot.get_me()
+    except Exception as e:  # noqa: BLE001 — токен с опечаткой: сказать, а не молчать
+        _note_fail(e)
+        raise
     STATUS.update(running=True, username=me.username or "", error="")
     log.warning("Telegram adapter: polling started as @%s", me.username)
     global _BOT, _LOOP
     _BOT, _LOOP = bot, asyncio.get_running_loop()
     asyncio.create_task(_apply_meta(bot))   # визитка — не задерживая поллинг
     asyncio.create_task(_reminder_loop(bot))
+    asyncio.create_task(_watch(bot))        # канал жив? — иначе экран врёт
     try:
         await dp.start_polling(bot, handle_signals=False)
+    except Exception as e:  # noqa: BLE001 — поллинг всё-таки упал: это отказ
+        _note_fail(e)
+        raise
     finally:
         STATUS["running"] = False
         _BOT = None

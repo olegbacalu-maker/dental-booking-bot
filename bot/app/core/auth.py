@@ -217,6 +217,45 @@ def _set_auth_cookie(resp: RedirectResponse,
     return resp
 
 
+# --- сессия веб-чата (/chat) ---
+# Пациент в журнал не входит, но ключ его сессии — это ЕДИНСТВЕННОЕ, чем он
+# удостоверяется в движке: по `session_key` показываются «мои записи»,
+# отменяется СВОЯ запись (db.cancel_appointment) и обновляется фиша
+# (_upsert_patient). Значит выдавать его обязан сервер. Раньше /chat брал
+# session_id прямо из тела запроса — а ключи рецепции строятся по угадываемому
+# правилу `manual:<цифры телефона>` (db.admin_add, patients/routes), поэтому
+# посторонний видел и отменял чужие визиты и переписывал имя в чужой фише.
+# Приём тот же, что у куки журнала (_cookie_sig): значение подписывается
+# секретом клиники, подделать его снаружи нечем.
+# ⚠️ Telegram сюда не ходит: ключ `tg:<chat_id>` собирает сам адаптер на
+# сервере из доверенного поля апдейта — это законное удостоверение.
+CHAT_PREFIX = "web:"
+# Облачное демо без ADMIN_KEY подписывать нечем: там _secret() пуст, и общий
+# ключ был бы известен всем. Случайный ключ процесса честнее — сессии живут до
+# перезапуска, ровно как сам диалог (engine.SESSIONS тоже в памяти).
+_CHAT_FALLBACK = secrets.token_hex(32)
+
+
+def _chat_sig(token: str) -> str:
+    return hmac.new((_secret() or _CHAT_FALLBACK).encode(),
+                    f"chat|{token}".encode(), hashlib.sha256).hexdigest()
+
+
+def chat_session(raw: str) -> tuple[str, str]:
+    """(session_key, что вернуть клиенту) по тому, что прислал браузер.
+
+    Подпись не сошлась — это не отказ, а НОВАЯ сессия: так выглядит первый
+    заход, чужая вкладка и смена пароля клиники (секрет подписи один). Пациенту
+    незачем видеть ошибку — он просто начинает разговор сначала.
+    """
+    token, _, sig = (raw or "").partition(".")
+    if not (token.isalnum() and len(token) <= 64 and sig
+            and hmac.compare_digest(sig, _chat_sig(token))):
+        token = secrets.token_hex(16)
+        sig = _chat_sig(token)
+    return CHAT_PREFIX + token, f"{token}.{sig}"
+
+
 def current_user(request: Request) -> dict | None:
     """Кто в этой сессии. None — не вошёл.
 

@@ -210,15 +210,23 @@ class Client:
 
 
 class Bot:
-    """Диалог бота через /chat. Возвращает (тексты, значения кнопок)."""
+    """Диалог бота через /chat. Возвращает (тексты, значения кнопок).
 
-    def __init__(self, client: Client, sid: str):
+    ⚠️ Ключ сессии больше НЕ приходит от клиента: /chat выдаёт подписанный
+    токен, а session_key собирает сервер (присланный `manual:<цифры>` открывал
+    бы чужую фишу — находка ревью 08-15). Метка нужна только для читаемости
+    теста; разные сессии дают разные токены, а не разные метки.
+    """
+
+    def __init__(self, client: Client, label: str = ""):
         self.c = client
-        self.sid = sid
+        self.label = label
+        self.token = ""
 
     def say(self, message: str) -> tuple[str, list[str]]:
-        r = self.c.post_json("/chat", {"session_id": self.sid, "message": message})
+        r = self.c.post_json("/chat", {"session": self.token, "message": message})
         data = json.loads(r.body)
+        self.token = data.get("session") or self.token
         texts = " | ".join(m["text"] for m in data["messages"])
         buttons = [b["value"] for row in data["buttons"] for b in row]
         return texts, buttons

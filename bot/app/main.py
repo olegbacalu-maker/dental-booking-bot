@@ -30,8 +30,9 @@ from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         PIN_MIN, PERM_SETTINGS, _as_user, _guard, _pin_rec,
                         _secret, _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_blocked, auth_file_fp, current_user, fail_count,
-                        find_user, lock_left, note_fail, note_ok, pin_len_ok,
+                        auth_blocked, auth_file_fp, chat_session, current_user,
+                        fail_count, find_user, lock_left, note_fail, note_ok,
+                        pin_len_ok,
                         remember_auth_file, request_user, require,
                         set_request_user, set_tamper_alert, verify_pin)
 from .core import dbkey, theme
@@ -443,15 +444,18 @@ async def index() -> Response:
 
 @app.post("/chat")
 async def chat(payload: dict):
+    """⛔ Ключ сессии НЕ приходит от клиента (см. core.auth.chat_session): для
+    движка session_key — это удостоверение пациента, и присланный `manual:…`
+    открывал бы чужие записи. Сервер выдаёт свой, подписанный; клиент только
+    возвращает его следующим запросом."""
     if not tg_configured():
         return Response(status_code=404)
-    sid = str(payload.get("session_id") or "").strip()[:64]
-    if not sid:
-        return {"messages": [{"text": "session_id required"}], "buttons": []}
+    sid, token = chat_session(str(payload.get("session") or ""))
     msg = str(payload.get("message") or "/start")[:500]
     s = eng.get_session(sid)
     texts, buttons = await eng.handle(s, sid, msg)
-    return {"messages": [{"text": x} for x in texts], "buttons": buttons}
+    return {"messages": [{"text": x} for x in texts], "buttons": buttons,
+            "session": token}
 
 
 # ---------- домашняя страница журнала: сводка + карточки врачей ----------

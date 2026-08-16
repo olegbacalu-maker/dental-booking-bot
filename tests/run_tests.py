@@ -27,6 +27,7 @@ import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
 import test_review2  # noqa: E402
 import test_review3  # noqa: E402
+import test_review3_bot  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
@@ -93,6 +94,13 @@ SUITES = [
     ("Ревью-3: границы периода в аналитике", test_review3.suite_stats_period),
     ("Ревью-3: «botul a adus» без неявок", test_review3.suite_stats_bot),
     ("Ревью-3: часы формы по графику врача", test_review3.suite_form_hours),
+    ("Ревью-3: веб-чат выдаёт ключ сессии сам",
+     test_review3_bot.suite_chat_session),
+    ("Ревью-3: кнопка из вчерашнего напоминания",
+     test_review3_bot.suite_callback_ack),
+    ("Ревью-3: перенос визита и напоминание",
+     test_review3_bot.suite_move_reminder),
+    ("Ревью-3: состояние канала Telegram", test_review3_bot.suite_tg_status),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),
