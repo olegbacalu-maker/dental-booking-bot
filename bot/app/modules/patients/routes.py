@@ -42,6 +42,7 @@ from . import acord as pacord
 from . import anamneza as panam
 from . import export as pexport
 from . import fisa043 as pfisa
+from . import odontogram as podo
 from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core import xlsx
@@ -79,26 +80,15 @@ def _due_html(due, status: str) -> str:
 TOOTH_STATES = tsvg.STATE_RO
 
 
-_FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
-
-
-_FDI_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
-
-
-# молочный прикус: те же квадранты, что и постоянный, но по пять зубов
-_FDI_MILK_UPPER = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65]
-
-
-_FDI_MILK_LOWER = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
-
-
-_FDI_ALL = _FDI_UPPER + _FDI_LOWER + _FDI_MILK_UPPER + _FDI_MILK_LOWER
-
-
-# поверхности зуба: буква → румынское название. Порядок как в записи «MOD»,
-# принятой в карте: медиальная, окклюзионная, дистальная, потом щёчная и нёбная
-TOOTH_SURFACES = {"M": "mezial", "O": "ocluzal", "D": "distal",
-                  "V": "vestibular", "L": "lingual"}
+# Номера и поверхности переехали в `odontogram.py` вместе с рисованием (08-16):
+# их спрашивает и он, а импорт возможен только В ОДНУ сторону (routes → odo),
+# иначе круг. Имена здесь сохранены — на них смотрит вся проверка форм ниже.
+_FDI_UPPER = podo.FDI_UPPER
+_FDI_LOWER = podo.FDI_LOWER
+_FDI_MILK_UPPER = podo.FDI_MILK_UPPER
+_FDI_MILK_LOWER = podo.FDI_MILK_LOWER
+_FDI_ALL = podo.FDI_ALL
+TOOTH_SURFACES = podo.TOOTH_SURFACES
 
 
 # ⛔ Значения уходят в <option>, куда разметку положить нельзя, поэтому знак не
@@ -337,149 +327,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <button>+ Adaugă</button></form></div>"""
 
     # -- центр: формула FDI + план --
-    def tooth_div(n: int, lower: bool = False, milk: bool = False) -> str:
-        t = tmap.get(n)
-        st = t["state"] if t else "ok"
-        note = t["note"] if t else ""
-        sf = (t["surfaces"] if t else "") or ""
-        # поверхности дописываются ПОСЛЕ заметки: подпись «11 · Carie · test»
-        # читают и человек, и проверка, и её формат менять незачем
-        title = (f"{n} · {TOOTH_STATES.get(st, st)}"
-                 + (f" · {note}" if note else "")
-                 + (f" · {sf}" if sf else ""))
-        num = f"<span class='num'>{n}</span>"
-        svg = tsvg.tooth_svg(n, st, width=28 if milk else 38, interactive=True)
-        # номер всегда со стороны КОРНЕЙ: у верхней дуги сверху, у нижней снизу —
-        # так цифры не лезут в межчелюстной зазор и читаются как в макете
-        return (f"<button type='button' class='tooth-btn' title=\"{e(title)}\" "
-                f"onclick='openTooth({n})' onmouseenter='toothTip(event,{n})' "
-                f"onmouseleave='toothTipOff()' onfocus='toothTip(event,{n})' "
-                f"onblur='toothTipOff()'>{svg + num if lower else num + svg}</button>")
-
-    upper = "".join(tooth_div(n) for n in _FDI_UPPER)
-    lower = "".join(tooth_div(n, lower=True) for n in _FDI_LOWER)
-    milk_up = "".join(tooth_div(n, milk=True) for n in _FDI_MILK_UPPER)
-    milk_lo = "".join(tooth_div(n, lower=True, milk=True) for n in _FDI_MILK_LOWER)
-    # молочный прикус раскрывается сам, если по нему уже есть записи: детская
-    # фиша не должна требовать лишнего клика, взрослая — видеть лишний ряд
-    milk_open = any(n in tmap for n in _FDI_MILK_UPPER + _FDI_MILK_LOWER)
-    # легенда показывает НАСТОЯЩИЙ зуб в каждом состоянии, а не цветной квадрат:
-    # так видно, чем «коронка» отличается от «пломбы», без словаря
-    legend = "".join(
-        f"<span class='lg'>{tsvg.tooth_svg(36, k, width=20)} {v}</span>"
-        for k, v in TOOTH_STATES.items() if k != "ok")
-    # .replace("</", ...) — чтобы note вида "</script>..." не вырвался из тега
-    def _tinfo(n: int) -> dict:
-        t = tmap.get(n)
-        if not t:
-            return {"state": "ok", "note": "", "doctor": "", "at": "", "sf": ""}
-        return {"state": t["state"], "note": t["note"] or "",
-                "doctor": t["doctor"] or "", "sf": t["surfaces"] or "",
-                "at": t["updated_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
-                      if t["updated_at"] else ""}
-
-    hist_by_tooth: dict[str, list] = {}
-    for a in tooth_acts:
-        at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
-        hist_by_tooth.setdefault(str(a["tooth"]), []).append(
-            {"at": at.strftime("%d.%m.%Y") if at else "", "text": a["text"]})
-    teeth_json = js_json(
-        {str(n): _tinfo(n) for n in
-         _FDI_UPPER + _FDI_LOWER + _FDI_MILK_UPPER + _FDI_MILK_LOWER})
-    thist_json = js_json(hist_by_tooth)
-    state_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in TOOTH_STATES.items())
-    state_ro_json = js_json(TOOTH_STATES)
-    sf_boxes = "".join(
-        f"<label><input type='checkbox' name='sf' value='{k}'>{k} <small>{v}</small></label>"
-        for k, v in TOOTH_SURFACES.items())
-    teeth_card = f"""<div class='fcard'>
-<h3>Formula dentară <small>· notație FDI · click pe dinte</small></h3>
-<div class='arch-wrap'>
-  <div class='arch'>{upper}</div>
-  <div class='arch-mid'></div>
-  <div class='arch lower'>{lower}</div>
-</div>
-<details class='milk'{' open' if milk_open else ''}>
-  <summary>{_ic('milk')} Dentiție temporară (dinți de lapte)</summary>
-  <div class='arch-wrap'>
-    <div class='arch milk-arch'>{milk_up}</div>
-    <div class='arch-mid'></div>
-    <div class='arch lower milk-arch'>{milk_lo}</div>
-  </div>
-</details>
-<div class='tleg'>{legend}</div></div>
-<div id='toothtip' class='toothtip'><b class='tt-n'></b><div class='tt-s'></div>
-  <div class='tt-d'></div></div>
-<dialog id='toothdlg'>
-  <div class='dlg-head'><span id='t_title'>Dinte</span>
-    <button type='button' onclick="document.getElementById('toothdlg').close()">{_ic('close')}</button></div>
-  <form class='dlg-form' method='post' action='{base}/tooth'>
-    <input type='hidden' name='tooth' id='t_num'>
-    <select name='state' id='t_state'>{state_opts}</select>
-    <select name='doctor' id='t_doc'><option value=''>Medic —</option>{doc_opts}</select>
-    <div class='sfrow' id='t_sf'>{sf_boxes}</div>
-    <input name='note' id='t_note' placeholder='Notiță (opțional)' maxlength='120'>
-    <button>{_ic('save')} Salvează</button>
-  </form>
-  <div id='t_hist' class='thist'></div>
-</dialog>
-<script>
-const TEETH = {teeth_json};
-const STATE_RO = {state_ro_json};
-const THIST = {thist_json};
-// ВАЖНО: заметку зуба и строку истории пишет ЧЕЛОВЕК, а ниже они уезжают в
-// innerHTML. Экранирование в JSON (замена "</") спасает только сам тег
-// <script>, но не HTML-парсер innerHTML: "<img src=x onerror=…>" выполнялся
-// бы при наведении на зуб. textContent тут не подходит — в разметке рядом
-// есть свои теги, поэтому экранируем значения
-function tesc(s) {{
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {{
-    return {{'&': '&amp;', '<': '&lt;', '>': '&gt;',
-             '\"': '&quot;', \"'\": '&#39;'}}[c];
-  }});
-}}
-function openTooth(n) {{
-  const t = TEETH[String(n)] || {{state: 'ok', note: '', doctor: ''}};
-  document.getElementById('t_title').textContent = 'Dinte ' + n;
-  document.getElementById('t_num').value = n;
-  document.getElementById('t_state').value = t.state;
-  document.getElementById('t_doc').value = t.doctor || '';
-  document.getElementById('t_note').value = t.note;
-  const sf = (t.sf || '');
-  document.querySelectorAll('#t_sf input').forEach(function (b) {{
-    b.checked = sf.indexOf(b.value) >= 0;
-  }});
-  const h = THIST[String(n)] || [];
-  document.getElementById('t_hist').innerHTML = h.length
-    ? '<div class="th-t">Istoria dintelui</div>' + h.map(function (x) {{
-        return '<div class="th-r"><span>' + tesc(x.at) + '</span>'
-               + tesc(x.text) + '</div>';
-      }}).join('')
-    : '';
-  document.getElementById('toothdlg').showModal();
-}}
-// подсказка зуба: одна плавающая карточка на всю дугу, позиционируется у зуба
-const TIP = document.getElementById('toothtip');
-function toothTip(ev, n) {{
-  const t = TEETH[String(n)];
-  if (!t || (t.state === 'ok' && !t.note && !t.doctor)) {{ TIP.style.display = 'none'; return; }}
-  TIP.querySelector('.tt-n').textContent = 'Dinte ' + n;
-  TIP.querySelector('.tt-s').textContent = STATE_RO[t.state] || t.state;
-  TIP.querySelector('.tt-d').innerHTML =
-    (t.at ? '<div>Actualizat: <b>' + tesc(t.at) + '</b></div>' : '') +
-    (t.doctor ? '<div>Medic: <b>' + tesc(t.doctor) + '</b></div>' : '') +
-    (t.sf ? '<div>Suprafețe: <b>' + tesc(t.sf) + '</b></div>' : '') +
-    (t.note ? '<div class="tt-note">' + tesc(t.note) + '</div>' : '');
-  const r = ev.currentTarget.getBoundingClientRect();
-  TIP.style.display = 'block';
-  const w = TIP.offsetWidth;
-  let left = r.left + r.width / 2 - w / 2 + window.scrollX;
-  left = Math.max(8, Math.min(left, document.documentElement.clientWidth - w - 8));
-  TIP.style.left = left + 'px';
-  TIP.style.top = (r.bottom + window.scrollY + 8) + 'px';
-}}
-function toothTipOff() {{ TIP.style.display = 'none'; }}
-</script>"""
+    teeth_card = podo.card(tmap, tooth_acts, doc_opts, base)
 
     # порядок осмысленный, а не «как добавляли»: работа сверху, запланированное
     # по сроку, законченное свежим вперёд, отказы последними
@@ -1424,26 +1272,93 @@ async def patient_alert_del(request: Request, pid: int, aid: int):
     return _card_redirect(pid)
 
 
+@router.get("/admin/patient/{pid}/odontograma", response_class=HTMLResponse)
+async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
+                             msg: str = Query("")):
+    """Детальная одонтограмма отдельной страницей.
+
+    ⚠️ Сайдбар здесь СВОРАЧИВАЕТСЯ (`rail=True`). Причина арифметическая, а не
+    вкусовая: дуге нужно 16×38 + 15×10 + поля ≈ 794px, а на 1366 при обычном
+    сайдбаре и панели 320 остаётся 762 — тот же расчёт, что записан в panel.css
+    над медиазапросом `.pv2`. Со свёрнутым сайдбаром остаётся 922.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    tmap = await db.teeth_map(pid)
+    tooth_acts = await db.tooth_activity(pid)
+    # ⚠️ Врачи ВСЕ, как в фише, а не только активные: `doctor` у зуба —
+    # СНАПШОТ имени на момент записи, и если врача перевели в архив или в
+    # отпуск, его опции в списке не окажется. Тогда браузер отдаёт пустое, и
+    # правка поверхности молча стирает, кто поставил диагноз.
+    doc_opts = "".join(f"<option value='{html.escape(v)}'>{html.escape(v)}</option>"
+                       for v in eng.DOCTORS.values())
+    sel = int(t) if t.strip().isdecimal() and int(t) in _FDI_ALL else None
+    body = msg_banner(msg) + podo.page(p, tmap, tooth_acts, doc_opts,
+                                       f"/admin/patient/{pid}", sel)
+    return _shell(body, f"odontogramă · #{pid}", active="pat", rail=True)
+
+
 @router.post("/admin/patient/{pid}/tooth")
 async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
                         state: str = Form(...), note: str = Form(""),
-                        doctor: str = Form("")):
+                        doctor: str = Form(""), back: str = Form("")):
+    """⚠️ `back` — ТОЛЬКО выбор из двух известных экранов, а не адрес: принять
+    сюда чужую строку значит завести открытый редирект на маршруте, который
+    вызывается формой из браузера."""
     if (deny := _guard(request)) is not None:
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
+
+    def done(msg: str) -> RedirectResponse:
+        if back == "odontograma":
+            return RedirectResponse(
+                f"/admin/patient/{pid}/odontograma?t={tooth}&msg={msg}",
+                status_code=303)
+        return _card_redirect(pid, msg)
+
     if tooth not in _FDI_ALL or state not in TOOTH_STATES:
-        return _card_redirect(pid, "bad_card")
+        return done("bad_card")
     # врача принимаем только из справочника: свободный текст тут — будущий
     # «Иванов»/«Иванова» в истории зуба
     doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
     # поверхности — только известные буквы и в каноническом порядке MODVL:
     # «OM» и «MO» это одно и то же, а в карте и на печати должно читаться одинаково
     form = await request.form()
-    sf = "".join(k for k in TOOTH_SURFACES
-                 if k in {str(x).strip().upper() for x in form.getlist("sf")})
-    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc, sf)
-    return _card_redirect(pid, "ok_card")
+    # ⚠️ Сюда шлют ДВЕ формы, и знают они РАЗНОЕ: диалог фиши — буквы флажками
+    # (`sf`), инспектор детальной страницы — карту состояний (`sfst`), букв у
+    # него нет вовсе. Поэтому «поля нет» ≠ «пусто»: пустой список от инспектора,
+    # принятый за «врач снял все галочки», стирал бы колонку surfaces, которую
+    # печатает 043/e. Не сообщённое едет как None — что с ним делать, знает
+    # db.set_tooth, там же, где согласуются все три колонки.
+    packed = form.get("sfst")
+    sf = None if packed is not None else "".join(
+        k for k in TOOTH_SURFACES
+        if k in {str(x).strip().upper() for x in form.getlist("sf")})
+    # ⚠️ Состояние на поверхность приходит ОДНОЙ строкой «M:carie,O:obturatie»
+    # и разбирается здесь по белым спискам — буквы из TOOTH_SURFACES, состояния
+    # из tsvg.SURFACE_STATES. Пять отдельных полей формы дали бы пять мест, где
+    # проверку можно забыть, а формат хранения всё равно один.
+    sfmap = None
+    if packed is not None:
+        sfmap = {}
+        for part in str(packed).split(","):
+            k, _, v = part.partition(":")
+            k, v = k.strip().upper(), v.strip()
+            if k in TOOTH_SURFACES and v in tsvg.SURFACE_STATES:
+                sfmap[k] = v
+    # ⚠️ Диалог фиши сообщает состояние, КАК ЕГО ПОКАЗАЛ (`state0`): по нему
+    # db отличает «врач сменил состояние» от «врач его не трогал». Признак —
+    # факт формы, а не догадка по базе. Белый список тот же, что у `state`;
+    # поля нет (старая вкладка) → None, и db ведёт себя как раньше.
+    st0 = form.get("state0")
+    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc, sf,
+                       sfmap=sfmap,
+                       state0=str(st0) if st0 in TOOTH_STATES else None)
+    return done("ok_card")
 
 
 @router.post("/admin/patient/{pid}/plan")

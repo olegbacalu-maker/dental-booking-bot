@@ -27,6 +27,7 @@ from datetime import date, datetime
 
 from ... import db
 from ... import engine as eng
+from ... import teeth_svg as tsvg
 from ...core.layout import ALERT_KINDS, SOURCE_LABEL, STATUS_LABEL
 from . import anamneza as panam
 from . import fisa043 as pfisa
@@ -164,9 +165,28 @@ def render_html(data: dict) -> str:
         ["Tip", "Text"],
         [[_word(ALERT_KINDS, a["kind"]), _esc(a["text"])]
          for a in data["atentionari"]])
+    def _surfaces_ro(t: dict) -> str:
+        """Поверхности для ЧЕЛОВЕКА: буквы, а при разных состояниях — словами.
+
+        Право на доступ по 195-му означает увидеть то, что клиника хранит, а
+        хранит она теперь состояние КАЖДОЙ поверхности. Голое «MO» рядом с
+        колонкой «Stare: Carie» скрыло бы пломбу, которая там же и записана.
+        (Машинная копия в date-pacient.json несёт колонку `surface_states` как
+        есть — она уходит из строки таблицы `teeth` целиком.)"""
+        sf = t.get("surfaces") or ""
+        parts = tsvg.surface_summary(tsvg.surface_map(
+            t.get("state", "ok"), sf, t.get("surface_states") or ""))
+        if len(parts) > 1:
+            return " · ".join(f"{ls}: {tsvg.STATE_RO[st]}" for st, ls in parts)
+        return sf
+
     dinti = _table(
         ["Dinte", "Stare", "Suprafețe", "Medic", "Notă", "Actualizat"],
-        [[_esc(t["tooth"]), _esc(t["state"]), _esc(t.get("surfaces")) or "—",
+        # ⚠️ Состояние зуба — СЛОВОМ, как и всё остальное в этой копии: «lipsa»
+        # рядом с колонкой, развёрнутой в «M: Carie», это второе имя одного
+        # состояния в одном документе (та же болезнь, что STATUS_LABEL)
+        [[_esc(t["tooth"]), _word(tsvg.STATE_RO, t["state"]),
+          _esc(_surfaces_ro(t)) or "—",
           _esc(t["doctor"]) or "—",
           _esc(t["note"]) or "—", _dt(t["updated_at"])] for t in data["dinti"]])
     # ⚠️ Причина отказа входит в копию по 195-му наравне с остальным: это

@@ -674,7 +674,11 @@ def _slot_banner() -> str:
             f"{head}{how}{tail}{lst}</div>")
 
 
-def _sidebar(active: str) -> str:
+# ⚠️ Узкий сайдбар — ПАРАМЕТР, а не набор страниц рядом с LIVE_RELOAD и
+# WIDE_PAGES. Те два ключуются по `active`, а `active` отвечает ещё и за
+# подсветку пункта меню: детальная одонтограмма обязана держать «Pacienți»
+# подсвеченным и при этом быть узкой, и своим ключом она бы подсветку потеряла.
+def _sidebar(active: str, rail: bool = False) -> str:
     # Пункт, которого человеку нельзя, не рисуется. ⚠️ Это удобство, а НЕ
     # защита: отказ выдаёт require() в самом маршруте, потому что адрес
     # набирается руками, а форма отправляется откуда угодно.
@@ -707,7 +711,7 @@ def _sidebar(active: str) -> str:
                        'bot', 'Telegram Bot', tg_dot)
                 + item('qr', '/admin/qr-print', 'qr', 'QR pacienți'))
         foot_title = f' title="Telegram: {html.escape(tg_title)}"'
-    return f"""<aside class="side">
+    return f"""<aside class="side{' side-rail' if rail else ''}">
   <div class="brand">{brand.mark_svg(32, 'logo', flat=True)}
     <div class="txt"><b title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</b><small>DentPilot</small></div>
   </div>
@@ -790,7 +794,8 @@ LIVE_RELOAD = {"dash", "prog"}
 WIDE_PAGES = {"dash", "prog"}
 
 
-def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None) -> str:
+def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
+           rail: bool = False) -> str:
     fb_subject = urllib.parse.quote(
         f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
     fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
@@ -829,7 +834,7 @@ KPI пересчитывались бы на глазах весь рабочи�
 try{{if(sessionStorage.getItem('dp_auto')==='1'){{sessionStorage.removeItem('dp_auto');}}
 else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.documentElement.classList.add('anim');}}
 </script></head><body{reload_attr}>
-{_sidebar(active)}
+{_sidebar(active, rail)}
 <div class="main">
 {_topbar(bell)}
 <div class="content{' wide' if active in WIDE_PAGES else ''}">

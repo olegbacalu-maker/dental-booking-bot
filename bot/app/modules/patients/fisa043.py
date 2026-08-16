@@ -23,6 +23,7 @@ import html
 from datetime import datetime
 
 from ... import engine as eng
+from ... import teeth_svg as tsvg
 from ...core import theme
 from ...core.layout import _ic
 from . import visit as pvisit
@@ -204,7 +205,17 @@ def _od_rows(teeth: dict, milk: bool = False) -> str:
                 t = teeth.get(n) or {}
                 txt = _STATE_ABBR.get(t.get("state", "ok"), "")
                 sf = (t.get("surfaces") or "").strip()
-                if sf:                       # и при «ok»: данные есть — печатаем
+                # ⚠️ У поверхностей МОГУТ быть разные состояния, и клетка обязана
+                # это показать: «C MO» на зубе с кариесом мезиально и пломбой
+                # окклюзионно — не сокращение, а неправда, причём на бланке,
+                # который подписывают. Смесь печатается перечислением «C M, O O»;
+                # однородный зуб даёт ровно прежнюю клетку
+                parts = tsvg.surface_summary(tsvg.surface_map(
+                    t.get("state", "ok"), sf, t.get("surface_states") or ""))
+                if len(parts) > 1:
+                    txt = ", ".join(f"{_STATE_ABBR.get(st, '')} {ls}".strip()
+                                    for st, ls in parts)
+                elif sf:                     # и при «ok»: данные есть — печатаем
                     txt = f"{txt} {sf}".strip()
                 out.append(f"<td class='st{mid}'>{html.escape(txt)}</td>")
         out += ["<td></td>"] * pad

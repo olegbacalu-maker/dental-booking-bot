@@ -820,17 +820,161 @@
  /* зубы — кнопки 40x44 (панель 9 макета): состояние показывает РАМКА, а не
     заливка, поэтому крупная сетка не рябит цветом */
  /* одонтограмма: параметрические SVG-зубы (bot/app/teeth_svg.py) */
- .tooth-svg{display:block;overflow:visible}
+ /* Тень у зуба СВОЯ, не карточная: --sh даёт холодный слоистый ореол под
+    прямоугольник, а тут её отбрасывает силуэт (drop-shadow идёт по альфе), и
+    тон у неё тёплый — под цвет эмали. Ближний слой ставит зуб на бумагу,
+    дальний отрывает от неё. ⚠️ Без transition: наведение уже двигает кнопку
+    целиком, и вторая анимация на 64 фильтрах — это заметный рывок. */
+ /* max-width/height:auto — чтобы на узком окне зуб СЖИМАЛСЯ внутри своей
+    колонки, а не наползал на соседний: ширина у <svg> задана атрибутом, и без
+    этих двух строк колонка уже зуба просто обрезала бы ряд внахлёст */
+ .tooth-svg{display:block;overflow:visible;max-width:100%;height:auto;
+   filter:drop-shadow(0 1px 1px rgba(72,63,48,.13)) drop-shadow(0 4px 6px rgba(72,63,48,.07))}
+ /* отсутствующий зуб тени не отбрасывает — иначе призрак выглядит объёмным */
+ .tooth-svg.tooth-lipsa{filter:none}
+ /* --arc — подъём зуба в изогнутой дуге (вид сверху, ставит сервер).
+    ⚠️ Наведение обязано СКЛАДЫВАТЬСЯ с ним, а не заменять: правило ниже пишет
+    transform целиком, и без calc() зуб на наведении прыгал бы из дуги в
+    линейку. Проверять глазом бесполезно — прыжок длится 0.2 с. */
  .tooth-btn{background:none;border:none;padding:4px 2px;cursor:pointer;border-radius:12px;
    display:flex;flex-direction:column;align-items:center;gap:4px;
+   transform:translateY(var(--arc,0));
    transition:transform .2s ease,background-color .2s ease,box-shadow .2s ease}
  .tooth-btn .num{font-size:11.5px;font-weight:600;color:var(--text2);
    transition:color .2s ease}
- .tooth-btn:hover{background:var(--teal-soft);transform:translateY(-3px) scale(1.04);
-   box-shadow:var(--sh3)}
+ .tooth-btn:hover{background:var(--teal-soft);box-shadow:var(--sh3);
+   transform:translateY(calc(var(--arc,0px) - 3px)) scale(1.04)}
  .tooth-btn:hover .num{color:var(--teal-d)}
  .tooth-btn.sel{background:var(--teal-soft);box-shadow:inset 0 0 0 2px var(--teal)}
  .tooth-btn.sel .num{color:var(--teal-d)}
+ /* ---------- детальная одонтограмма отдельной страницей (08-16) ----------
+    Компактная карточка в фише остаётся: регистратуре нужен обзор, а не
+    рабочее место. Здесь наоборот — дуга крупно и постоянный инспектор справа
+    ВМЕСТО модалки: модалка закрывает собой соседние зубы, а весь смысл экрана
+    в том, чтобы видеть зуб и соседей одновременно. */
+ .odop-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+ .odop-top h2{margin:0;font-size:20px;font-weight:600}
+ .odop-top h2 small{color:var(--text2);font-weight:400;font-size:13px}
+ .odop-top .odo-actions{margin-left:auto}
+ .odop-back{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);
+   padding:0 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
+   background:var(--panel);color:var(--text);text-decoration:none;font-weight:600;
+   font-size:13.5px;transition:border-color .18s ease,box-shadow .18s ease}
+ .odop-back:hover{border-color:var(--teal);box-shadow:var(--sh)}
+ /* 340px, а не 320: сайдбар свёрнут, ширины хватает, а инспектор несёт пять
+    кнопок поверхностей в ряд — на 320 они переносились по две на строку */
+ .odop-grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;
+   align-items:start}
+ .odop-side{position:sticky;top:88px}
+ /* ⭐ Здесь зуб РАСТЯГИВАЕТСЯ по своей колонке, а не стоит фиксированной
+    ширины из атрибута. Причина: ради этой страницы сайдбар и сворачивали, а
+    при фиксированных 52px вид сверху на 1366 упирался в колонку 44px и
+    оказывался МЕЛЬЧЕ, чем в компактной карточке фиши, — ровно наоборот
+    задуманному. Потолок нужен, иначе на широком мониторе шестнадцатая доля
+    строки превращает моляр в лопату. */
+ .odop .tooth-svg{width:100%;max-width:54px}
+ .odop .milk-arch .tooth-svg{max-width:40px}
+ /* Порог тот же по смыслу, что у .pv2: ниже него дуге не хватает места рядом
+    с панелью, и панель уходит ВНИЗ, а не сжимает дугу */
+ @media (max-width:1100px){.odop-grid{grid-template-columns:minmax(0,1fr)}
+   .odop-side{position:static}}
+ .insp .insp-t{font-size:11.5px;font-weight:700;letter-spacing:.4px;
+   text-transform:uppercase;color:var(--text3);margin:16px 0 8px}
+ .insp .insp-t:first-child{margin-top:0}
+ .insp-n{display:flex;align-items:baseline;gap:10px}
+ .insp-n b{font-size:30px;font-weight:600;line-height:1}
+ .insp-n span{color:var(--text2);font-size:13px}
+ /* рамка под рисунок зуба: высота фиксирована, иначе панель прыгает при
+    выборе резца после моляра */
+ .insp-pic{position:relative;height:150px;display:flex;align-items:center;
+   justify-content:center;margin-top:12px;border:1px solid var(--line2);
+   border-radius:var(--r-ctl);background:var(--bg)}
+ .insp-pic svg{width:auto;height:118px;max-width:88%}
+ .insp-pic .lb{position:absolute;font-size:11px;font-weight:700;color:var(--text3)}
+ /* Подписи сторон ставятся ОТ ДАННЫХ зуба: щёчная сторона у верхней челюсти
+    вверху, у нижней внизу (рисунок перевёрнут), мезиальная — со стороны
+    средней линии. И то, и другое считает сервер и кладёт в data-атрибуты:
+    повторять правило в CSS-логике нечем, а в JS — нельзя, разойдётся. */
+ .insp-pic[data-jaw=sus] .lb-v,.insp-pic[data-jaw=jos] .lb-l{top:8px;left:50%;
+   transform:translateX(-50%)}
+ .insp-pic[data-jaw=sus] .lb-l,.insp-pic[data-jaw=jos] .lb-v{bottom:8px;left:50%;
+   transform:translateX(-50%)}
+ .insp-pic[data-mez=right] .lb-m,.insp-pic[data-mez=left] .lb-d{right:10px;top:50%;
+   transform:translateY(-50%)}
+ .insp-pic[data-mez=right] .lb-d,.insp-pic[data-mez=left] .lb-m{left:10px;top:50%;
+   transform:translateY(-50%)}
+ /* в лицевой проекции язычной стороны не видно, а мезиальная и дистальная
+    сжаты в кромку — подписи там обещали бы точность, которой нет */
+ .odo[data-view=frontal] .insp-pic .lb{display:none}
+ .insp-pic:not([data-jaw]) .lb{display:none}
+ .sfbtns{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+ .sfbtns .sfbtn{display:flex;flex-direction:column;align-items:center;gap:1px;
+   height:46px;justify-content:center;border:1px solid var(--line);
+   border-radius:10px;font-size:13px;font-weight:700;color:var(--text2);
+   cursor:pointer;transition:border-color .15s ease,background-color .15s ease,
+   color .15s ease}
+ .sfbtns .sfbtn small{font-size:9px;font-weight:500;color:var(--text3);
+   letter-spacing:.2px}
+ .sfbtns .sfbtn:hover{border-color:var(--teal-line);background:var(--teal-soft)}
+ /* ⚠️ Поверхность здесь не флажок, а <button aria-pressed> (см. _sf_btns):
+    флажок отвечает «затронута или нет», а вопрос экрана — «чем именно».
+    Значит и видимое состояние рисуется классом от JS, а не :has() по вводу;
+    правило ниже только снимает с кнопки её фон и шрифт по умолчанию. */
+ .sfbtns .sfbtn{background:none;font:inherit}
+ /* Кнопка поверхности красится ЕЁ состоянием, а не фирменным цветом: рядом
+    лежит зуб, где та же поверхность залита тем же смыслом, и «выбрано» и
+    «кариес» обязаны читаться разными признаками — цветом и рамкой выбора */
+ .sfbtns .sfbtn.sf-carie{border-color:var(--red);background:var(--red-soft);color:var(--red-t)}
+ .sfbtns .sfbtn.sf-obturatie{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
+ .sfbtns .sfbtn.sel{box-shadow:0 0 0 3px var(--teal-ring);border-color:var(--teal)}
+ .sfbtns .sfbtn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--teal-ring)}
+ .sfstate{display:none;margin-top:10px}
+ .sfstate label{display:block;font-size:12px;color:var(--text2);margin-bottom:5px}
+ .sfstate label b{color:var(--text);font-weight:700}
+ .insp-f{margin-top:0}
+ .insp-f button[disabled]{opacity:.45;cursor:default}
+ .odo-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+ .odo-more{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 13px;
+   border:1px solid var(--line);border-radius:10px;background:var(--panel);
+   color:var(--teal-d);text-decoration:none;font-size:12.5px;font-weight:600;
+   cursor:pointer;transition:border-color .18s ease,box-shadow .18s ease}
+ .odo-more:hover{border-color:var(--teal);box-shadow:var(--sh)}
+ /* печать: на лист уходит только формула — ни сайдбара, ни инспектора */
+ @media print{
+   .odop-top .odo-actions,.odop-side,.odop-back{display:none}
+   .odop-grid{grid-template-columns:minmax(0,1fr)}
+ }
+
+ /* ---------- переключатель вида: лицевой / сверху ----------
+    Вид сверху нужен ради поверхностей: в лицевой проекции язычной стороны не
+    видно, и метка на ней — условность. Оба вида лежат в разметке ВСЕГДА,
+    видимость решает атрибут на карточке.
+    ⚠️ Скрывать классом на самих блоках нельзя: скрипт восстанавливает
+    сохранённый вид ДО первой отрисовки, и снимать пришлось бы с шести
+    элементов вместо одного атрибута — забытый шестой даёт две дуги подряд. */
+ .odo-head{display:flex;align-items:center;justify-content:space-between;
+   gap:14px;flex-wrap:wrap;margin-bottom:14px}
+ .odo-head h3{margin:0}
+ .viewsw{display:inline-flex;gap:3px;padding:3px;border:1px solid var(--line);
+   border-radius:11px;background:var(--line2)}
+ .viewsw button{border:none;background:none;font:inherit;font-size:12.5px;
+   font-weight:600;color:var(--text2);padding:7px 14px;border-radius:8px;
+   cursor:pointer;transition:background-color .18s ease,color .18s ease}
+ .viewsw button:hover{color:var(--teal-d)}
+ .viewsw button.on{background:var(--panel);color:var(--teal-d);box-shadow:var(--sh)}
+ .odo[data-view=frontal] .v-ocluzal{display:none}
+ .odo[data-view=ocluzal] .v-frontal{display:none}
+ /* сверху у зуба нет «стороны корня», поэтому ряд выравнивается по центру,
+    а не по кромке коронки, как в лицевом */
+ /* Место под изгиб — СНАРУЖИ дуги: середина уходит от разделителя, значит
+    верхнему ряду нужен запас сверху, нижнему снизу. Без него поднятые резцы
+    залезли бы на номера соседней строки */
+ .arch.occ{align-items:center}
+ .arch.occ:not(.lower){padding-top:24px}
+ .arch.occ.lower{padding-bottom:24px}
+ .arch.occ.milk-arch:not(.lower){padding-top:17px}
+ .arch.occ.milk-arch.lower{padding-bottom:17px}
+ .occ-hint{margin:14px 0 0}
  .arch{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:var(--tooth-gap,10px);
    align-items:end}
  .arch.lower{align-items:start}
@@ -887,7 +1031,10 @@
  .anbox input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
    accent-color:var(--teal);margin:0}
  .arch-wrap{display:flex;flex-direction:column;gap:10px}
- .arch-mid{height:1px;background:var(--line);margin:2px 0}
+ .arch-mid{display:flex;flex-direction:column;align-items:center;margin:2px 0}
+ .arch-mid i{display:block;width:100%;height:1px;background:var(--line);margin:4px 0}
+ .arch-mid b{font-size:9.5px;font-weight:700;letter-spacing:.7px;
+   text-transform:uppercase;color:var(--text3)}
  .tleg{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);
    margin-top:16px;align-items:center}
  .tleg .lg{display:inline-flex;align-items:center;gap:6px}
@@ -1617,6 +1764,20 @@
    .anim *,.gappt.fresh,.ag-i.fresh{animation:none !important;transition:none !important}
  }
  @media (max-width:1280px){.dash{flex-wrap:wrap}.rail{width:100%;flex:1 1 100%}}
+ /* ---------- узкий сайдбар (08-16) ----------
+    Поводов ДВА и они разные: тесное окно (медиазапрос ниже) и страница,
+    которой нужна ширина, — детальная одонтограмма (класс `side-rail` от сервера).
+    Вид один и тот же, а объединить блоки нельзя: медиазапрос не умеет навесить
+    класс, а класс не умеет сработать по ширине окна.
+    ⛔ Значит здесь КОПИЯ, и копия — это риск: правку внесут в один блок, и
+    узкий сайдбар на странице станет отличаться от узкого сайдбара в окне.
+    Держит их вместе проверка `суженный сайдбар совпадает с оконным` в
+    tests\test_teeth.py — она сверяет объявления двух блоков дословно. */
+ .side.side-rail{width:56px;flex:0 0 56px}
+ .side.side-rail .brand .txt,.side.side-rail .sec,.side.side-rail nav a span,.side.side-rail nav a .dot,.side.side-rail .sfoot{display:none}
+ .side.side-rail .brand{justify-content:center;padding:14px 0}
+ .side.side-rail nav a{justify-content:center;margin:2px 8px;padding:9px 0}
+
  @media (max-width:1000px){
    .side{width:56px;flex:0 0 56px}
    /* прячем ПОДПИСЬ, но не знак: раньше селектор бил по всем div внутри

@@ -132,6 +132,11 @@ ALTER TABLE teeth ADD COLUMN IF NOT EXISTS doctor TEXT NOT NULL DEFAULT '';
 -- поверхности зуба (M/O/D/V/L) одной строкой: у состояния зуба их может быть
 -- несколько сразу («MOD»), но состояние остаётся ОДНО на зуб
 ALTER TABLE teeth ADD COLUMN IF NOT EXISTS surfaces TEXT NOT NULL DEFAULT '';
+-- 08-16: у поверхностей могут быть РАЗНЫЕ состояния («M:carie,O:obturatie»).
+-- Колонка добавляется пустой и НЕ переносит старые записи: пустая означает
+-- ровно то, что означала прежняя пара state+surfaces (см. teeth_svg.surface_map),
+-- поэтому шага миграции с UPDATE тут нет и падать нечему.
+ALTER TABLE teeth ADD COLUMN IF NOT EXISTS surface_states TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS activity(
   id SERIAL PRIMARY KEY,
   patient_id INT REFERENCES patients(id),
@@ -432,6 +437,8 @@ SQLITE_EXTRA_COLS = [
     ("plan_items", "refuz_motiv TEXT NOT NULL DEFAULT ''"),
     # поверхности зуба (M/O/D/V/L), см. PG-схему
     ("teeth", "surfaces TEXT NOT NULL DEFAULT ''"),
+    # разные состояния на разных поверхностях одного зуба, см. PG-схему
+    ("teeth", "surface_states TEXT NOT NULL DEFAULT ''"),
     # 08-13: штампы конвейера приёма — «пришёл» и «зашёл в кабинет».
     # Разница пар = время ожидания в приёмной (метрика в Statistici)
     ("appointments", "waiting_at TEXT"),
@@ -2160,49 +2167,143 @@ async def _backfill_activity() -> None:
 
 async def teeth_map(pid: int) -> dict:
     rows = await _fetch(
-        """SELECT tooth, state, note, doctor, surfaces, updated_at
+        """SELECT tooth, state, note, doctor, surfaces, surface_states, updated_at
            FROM teeth WHERE patient_id = $1""",
-        """SELECT tooth, state, note, doctor, surfaces, updated_at
+        """SELECT tooth, state, note, doctor, surfaces, surface_states, updated_at
            FROM teeth WHERE patient_id = ?""",
         pid)
     return {r["tooth"]: r for r in rows}
 
 
 async def set_tooth(pid: int, tooth: int, state: str, note: str,
-                    doctor: str = "", surfaces: str = "") -> None:
+                    doctor: str = "", surfaces: str | None = None,
+                    sfmap: dict | None = None, state0: str | None = None) -> None:
     """'ok' без заметки и без врача = зуб здоров → строка удаляется (карта sparse).
     doctor — СНАПШОТ имени на момент записи, как в plan_items: переименование
     врача не должно переписывать историю зуба.
-    surfaces — буквы поверхностей одной строкой («MOD»); проверяет маршрут."""
+    surfaces — буквы поверхностей одной строкой («MOD»); проверяет маршрут.
+    sfmap — {поверхность: состояние}, когда они РАЗНЫЕ.
+    state0 — состояние в том виде, В КАКОМ ЕГО ПОКАЗАЛА ФОРМА; None = не
+    сообщала (открытая вкладка со старой разметкой).
+
+    ⭐ Три колонки (`state`, `surfaces`, `surface_states`) описывают одно и то
+    же, поэтому согласует их ОДНО место — это. `surfaces` и `state` при
+    непустом sfmap ВЫЧИСЛЯЮТСЯ из него: иначе печатная 043/e и выгрузка по
+    195-му рано или поздно показали бы «Carie», когда кариеса на зубе уже нет,
+    и заметить это было бы нечем — обе читают только `state`.
+
+    ⚠️ `None` у `surfaces` и `sfmap` значит «форма об этом НЕ СООБЩАЛА», а не
+    «пусто». Зуб правят две формы, и знают они разное: диалог фиши шлёт буквы
+    флажками и про состояния поверхностей не знает, инспектор детальной
+    страницы шлёт карту и про буквы не знает. Принять молчание одной за
+    стирание — значит терять клинику на сохранении, в котором врач ничего не
+    менял: так пломба уходила с подписываемой 043/e. Поэтому не сообщённое
+    берётся ИЗ ЗАПИСИ, и решается это здесь же, где сходятся все три колонки.
+    """
     # состояние в летопись — СЛОВОМ (см. log_event): «obturatie» и «lipsa» это
     # ключи одонтограммы, а строку читают регистратура и пациент в выгрузке
-    from .teeth_svg import STATE_RO
+    from .teeth_svg import (STATE_RO, SURFACE_ORDER, SURFACE_STATES,
+                            pack_surfaces, surface_map, surface_summary,
+                            tooth_state_of)
+    rows = await _fetch(
+        """SELECT state, surfaces, surface_states FROM teeth
+           WHERE patient_id = $1 AND tooth = $2""",
+        """SELECT state, surfaces, surface_states FROM teeth
+           WHERE patient_id = ? AND tooth = ?""", pid, tooth)
+    prev = rows[0] if rows else None
+    if surfaces is None:
+        surfaces = (prev["surfaces"] or "") if prev else ""
+    if sfmap is None:
+        # Форма флажков о состояниях не сообщала. Сохранённые — держим, а
+        # буква, отмеченная ВПЕРВЫЕ, получает состояние зуба: «одно состояние
+        # на все отмеченные» и есть смысл флажков.
+        # ⚠️ Смена состояния В ДИАЛОГЕ — это и есть сообщение: тогда прежняя
+        # смесь не держится, иначе выбор врача молча пропал бы. Отличаем по
+        # тому, пришло ли состояние тем же, каким диалог его и ПОКАЗАЛ, —
+        # и говорит это сама форма (`state0`).
+        # ⭐ Сравнение с БАЗОЙ делало один и тот же ввод то правкой, то
+        # пустышкой: на зубе, где показанное совпало с сохранённым, «отметить
+        # кариес на обеих поверхностях» молча не срабатывало, а на соседнем
+        # срабатывало. Врач видит форму, а не колонку, поэтому «форма сообщила»
+        # обязано быть фактом ФОРМЫ. Запрос без `state0` (открытая вкладка,
+        # старая разметка) остаётся при прежнем сравнении — иначе у уже
+        # отправляемых запросов молча сменился бы смысл.
+        was = state0 if state0 is not None else (prev["state"] if prev else "")
+        keep = (surface_map(prev["state"], prev["surfaces"] or "",
+                            prev["surface_states"] or "")
+                if prev is not None and state == was else {})
+        sfmap = {k: keep.get(k, state) for k in SURFACE_ORDER if k in surfaces}
+    sfmap = {k: v for k, v in sfmap.items()
+             if k in SURFACE_ORDER and v in SURFACE_STATES}
+    # ⭐ «Sănătos» — не утверждение о зубе, а значение списка ПО УМОЛЧАНИЮ:
+    # инспектор его не поднимает, когда врач размечает поверхность, и «ok +
+    # M:carie» значит «кариес мезиально», а не «зуб здоров». Коронка, имплант,
+    # удаление — наоборот, сказаны про ВЕСЬ зуб и карту отменяют.
+    if state not in SURFACE_STATES and state != "ok":
+        # у состояний ЗУБА поверхностей нет, но буквы записи остаются как есть,
+        # их печатает 043/e
+        # ⭐ Форма, сообщившая карту, буквы этим и НАЗНАЧАЕТ: «какие поверхности
+        # под коронкой» иначе вводилось бы только флажками фиши, а инспектор
+        # принимал бы ввод, который сам же подсветил, и не сохранял.
+        if sfmap:
+            surfaces = "".join(k for k in SURFACE_ORDER if k in sfmap)
+        sfmap = {}
+    elif (state in SURFACE_STATES and not sfmap and surfaces
+            and prev is not None and prev["state"] not in SURFACE_STATES):
+        # Обратный переход: буквы пережили коронку/имплант/лечение, а карты под
+        # ними нет и быть не могло — у состояний ЗУБА она пуста по замыслу,
+        # поэтому инспектор кнопок не зажигает и прислать их не может. Считать
+        # его молчание стиранием значило бы терять с подписываемой 043/e то,
+        # какие поверхности поражены; новое состояние ложится на прежние буквы
+        # ровно так же, как это делают флажки фиши.
+        sfmap = {k: state for k in SURFACE_ORDER if k in surfaces}
+    if sfmap:
+        # ⚠️ ДО ветки удаления: иначе отмеченная поверхность исчезала бы вместе
+        # со строкой зуба, а экран отвечал бы «сохранено» (грабля карты «303 не
+        # отличает успех от отказа»)
+        state = tooth_state_of(sfmap, state)
     if state == "ok" and not note and not doctor:
         await _execute("DELETE FROM teeth WHERE patient_id = $1 AND tooth = $2",
                        "DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
         await log_event(pid, "tooth", f"Dinte {tooth}: {STATE_RO['ok']}",
                         tooth=tooth)
         return
+    if state in SURFACE_STATES:
+        # у поверхностного состояния буквы и карта — одно знание, поэтому буквы
+        # ВЫЧИСЛЯЮТСЯ: сняли поражение с поверхности — ушла и буква
+        surfaces = "".join(k for k in SURFACE_ORDER if k in sfmap)
+    packed = pack_surfaces(sfmap)
+
     pg = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
-                              updated_at)
-            VALUES($1, $2, $3, $4, $5, $6, now())
+                              surface_states, updated_at)
+            VALUES($1, $2, $3, $4, $5, $6, $7, now())
             ON CONFLICT (patient_id, tooth) DO UPDATE
               SET state = EXCLUDED.state, note = EXCLUDED.note,
                   doctor = EXCLUDED.doctor, surfaces = EXCLUDED.surfaces,
+                  surface_states = EXCLUDED.surface_states,
                   updated_at = now()"""
     lt = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
-                              updated_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?)
+                              surface_states, updated_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(patient_id, tooth) DO UPDATE
               SET state = excluded.state, note = excluded.note,
                   doctor = excluded.doctor, surfaces = excluded.surfaces,
+                  surface_states = excluded.surface_states,
                   updated_at = excluded.updated_at"""
     await _execute(pg, lt,
-                   *((pid, tooth, state, note, doctor, surfaces) if not IS_SQLITE
-                     else (pid, tooth, state, note, doctor, surfaces,
+                   *((pid, tooth, state, note, doctor, surfaces, packed)
+                     if not IS_SQLITE
+                     else (pid, tooth, state, note, doctor, surfaces, packed,
                            _utcnow_iso())))
     txt = f"Dinte {tooth}: {STATE_RO.get(state, state)}"
-    if surfaces:
+    # ⚠️ Летопись хранит ГОТОВУЮ строку, поэтому смесь разворачивается СЕЙЧАС:
+    # «Carie (M), Obturație (OD)». Однородный случай даёт ровно прежний вид —
+    # «Carie (MO)», и старые записи с новыми читаются одинаково
+    parts = surface_summary(sfmap)
+    if len(parts) > 1:
+        txt = (f"Dinte {tooth}: "
+               + ", ".join(f"{STATE_RO[st]} ({ls})" for st, ls in parts))
+    elif surfaces:
         txt += f" ({surfaces})"
     if doctor:
         txt += f" · {doctor}"
