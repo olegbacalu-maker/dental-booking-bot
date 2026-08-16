@@ -190,15 +190,30 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
 def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: str) -> str:
     # 30-мин шаг (v1.8.0), но только те старты, где помещается минимум 30 минут
     # приёма внутри рабочего окна клиники (не предлагаем 17:30 при закрытии в 18)
-    half = []
-    for x in eng.day_slots(d):
-        for m in (0, 30):
-            st = x.replace(minute=m)
-            if eng.fits_clinic(st, 30):
-                half.append(st.strftime("%H:%M"))
+    def _starts(fits) -> list[str]:
+        out = []
+        for x in eng.day_slots(d):
+            for m in (0, 30):
+                st = x.replace(minute=m)
+                if fits(st):
+                    out.append(st.strftime("%H:%M"))
+        return out
+
+    half = _starts(lambda st: eng.fits_clinic(st, 30))
+    # ⭐ Часы ВРАЧА, а не только клиники. /admin/add отказывает `outside_doc` по
+    # личному графику (work_from/work_to), и список, знающий одну лишь клинику,
+    # предлагал 15:00 утреннему врачу — форма подсказывала час, который сервер
+    # тут же отвергал. Окна те же, из которых free_starts берёт слоты.
+    # ⚠️ Пустой список (у врача в этот день окна нет) заменяется часами клиники:
+    # <select> без единого option не отправил бы поле вовсе, и вместо внятного
+    # «Medicul nu lucrează la ora aleasă» вышла бы ошибка разбора формы.
+    doc_times = {dk: _starts(lambda st, k=dk: eng.fits_doctor(k, st, 30)) or half
+                 for dk, _n in doctors_items}
+    cur_doc = (sel_doctor if sel_doctor in doc_times
+               else (doctors_items[0][0] if doctors_items else ""))
     time_opts = "".join(
         f"<option value='{t}'{' selected' if sel_time == t else ''}>{t}</option>"
-        for t in half
+        for t in doc_times.get(cur_doc, half)
     )
     if len(doctors_items) == 1:
         dk, dn = doctors_items[0]
@@ -213,6 +228,33 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
     svc_opts = "".join(
         f"<option value='{k}'>{html.escape(v['ro'])}</option>" for k, v in eng.SERVICES.items()
     )
+    # Врача в этой форме меняют без перезагрузки, поэтому список часов
+    # переписывается на месте — данные для этого печатаются в саму страницу
+    # (panel.js данных из Python не знает намеренно, см. его шапку).
+    doc_js = "" if len(doctors_items) < 2 else f"""
+<script>
+const DOC_TIMES = {js_json(doc_times)};
+(function () {{
+  const f = document.querySelector('form.add');
+  if (!f) return;
+  const doc = f.querySelector('[name=adoctor]');
+  const tim = f.querySelector('[name=atime]');
+  if (!doc || !tim) return;
+  doc.addEventListener('change', function () {{
+    const list = DOC_TIMES[doc.value];
+    if (!list || !list.length) return;
+    const keep = tim.value;
+    tim.innerHTML = '';
+    for (const t of list) {{
+      const o = document.createElement('option');
+      o.value = t;
+      o.textContent = t;
+      if (t === keep) o.selected = true;
+      tim.appendChild(o);
+    }}
+  }});
+}})();
+</script>"""
     return f"""
 <h2 id="addform">{_ic("pen")} Adaugă programare manual (telefon / recepție)</h2>
 <form class="add" method="post" action="/admin/add">
@@ -227,7 +269,7 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
     color:var(--text3)">Naștere (opț.)
     <input type="date" name="abirth" max="{date.today().isoformat()}"></label>
   <button>Adaugă</button>
-</form>"""
+</form>{doc_js}"""
 
 
 def _slot_modal(d: date, back: str) -> str:

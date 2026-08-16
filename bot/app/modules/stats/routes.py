@@ -24,13 +24,13 @@ import html
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, require
 from ...core.charts import donut, gauge, line_days, spark
-from ...core.layout import _ic, _shell, tg_configured
+from ...core.layout import _ic, _shell, msg_banner, tg_configured
 from ...core.visits import _parse_date
 from . import casa
 
@@ -67,7 +67,12 @@ def _agg(rows: list) -> dict:
         "rem": sum(1 for r in appts if r["reminded_day"]),
         "value": sum(_price(r) for r in act if r["status"] != "noshow"),
         "loss": sum(_price(r) for r in act if r["status"] == "noshow"),
-        "bot_value": sum(_price(r) for r in act if r["source"] == "bot"),
+        # ⚠️ ТОТ ЖЕ фильтр, что у "value": подпись «botul a adus» печатается на
+        # карточке «Venituri estimate», и неявка, оставленная в ней, объявляла
+        # часть больше целого — та же 1000 MDL шла и в выручку бота, и в
+        # «pierdut» соседнего блока
+        "bot_value": sum(_price(r) for r in act
+                         if r["source"] == "bot" and r["status"] != "noshow"),
         "act": act,
     }
 
@@ -113,11 +118,24 @@ def _trend_money(cur: int, prev: int, label: str) -> str:
             f"{_fmt_mdl(abs(diff))}</span> {label}</span>")
 
 
+# Границы периода. `_parse_date` проверяет только СИНТАКСИС даты, а
+# `<input type=date>` отдаёт и «0012-08-15»: промах по сегменту года — законная
+# ISO-дата. Без границ из неё выходил период в 735 000 дней, и вычитание такого
+# срока падало OverflowError прямо в маршруте: под BaseHTTPMiddleware это не
+# 500, а страница, которая не отвечает вовсе. Мягкий вариант той же дыры —
+# «1900-01-01»: арифметика проходит, а график рисует 46 000 точек на спарклайн.
+# ⛔ Верхняя граница считается от СЕГОДНЯ, а не по календарю: будущие записи
+# смотрят вперёд, и год запаса им хватает.
+STATS_FIRST_DAY = date(2000, 1, 1)
+STATS_MAX_DAYS = 366                    # год — самый длинный осмысленный период
+
+
 @router.get("/admin/stats", response_class=HTMLResponse)
 async def admin_stats(
     request: Request,
     from_q: str = Query("", alias="from"),
     to_q: str = Query("", alias="to"),
+    msg: str = "",
 ):
     # деньги — единственное, что закрыто от врача и регистратуры (решение
     # Олега 08-06); проверка ЗДЕСЬ, а не только в меню: адрес набирается руками
@@ -129,6 +147,11 @@ async def admin_stats(
     d2 = _parse_date(to_q) if to_q else today
     if d2 < d1:
         d1, d2 = d2, d1
+    # проверка ДО построения days: список на 735 000 дней собирается раньше,
+    # чем падает арифметика, и память он занимает уже настоящую
+    if (d1 < STATS_FIRST_DAY or d2 > today + timedelta(days=STATS_MAX_DAYS)
+            or (d2 - d1).days + 1 > STATS_MAX_DAYS):
+        return RedirectResponse("/admin/stats?msg=bad_period", status_code=303)
     days = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
     span = len(days)
 
@@ -387,7 +410,7 @@ async def admin_stats(
     hint = ("<p class='hint'>Prețurile sunt medii orientative din lista clinicii; "
             "neprezentările = venit pierdut estimat. Notițele nu se numără. "
             "Secțiunea este vizibilă doar directorului.</p>")
-    body = (nav + tiles
+    body = (msg_banner(msg) + nav + tiles
             + "<div class='an-grid'>"
             + f"<div class='an-main'>{chart_card}{doctors_tbl}</div>"
             + f"<div class='an-side'>{src_card}{gauge_card}{incasari_card}"

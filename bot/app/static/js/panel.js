@@ -24,14 +24,32 @@ function pickName(inp) {
   out.classList.toggle('on', !!f);
 }
 
-/* часы в подвале сайдбара */
+/* Часы в подвале сайдбара. ⚠️ Идут ПО ТАЙМЕРУ, а не пишутся один раз при
+   загрузке: автоперезагрузку сервер выдаёт только живому расписанию
+   (layout.LIVE_RELOAD), поэтому на «Pacienți», «Setări» и фише пациента
+   сайдбар весь день показывал бы время ОТКРЫТИЯ страницы. Ошибка ничем себя
+   не выдаёт — цифры правдоподобные, формат верный, час чужой.
+   ⚠️ Пояс берётся из разметки (data-tz), а не у устройства: в облаке через
+   туннель браузер стоит в своём поясе, а весь остальной экран размечен
+   часами клиники (eng.TZ). */
 (function () {
   var sfc = document.getElementById('sf_clock');
-  if (sfc) {
+  if (!sfc) return;
+  var tz = sfc.getAttribute('data-tz') || '';
+  function tick() {
     var t = new Date();
-    sfc.textContent = ('0' + t.getHours()).slice(-2) + ':' +
-                      ('0' + t.getMinutes()).slice(-2);
+    var txt;
+    try {
+      txt = t.toLocaleTimeString('ro-RO',
+        { timeZone: tz, hour: '2-digit', minute: '2-digit' });
+    } catch (e) {   /* пояс не знаком движку — часы устройства лучше пустоты */
+      txt = ('0' + t.getHours()).slice(-2) + ':' +
+            ('0' + t.getMinutes()).slice(-2);
+    }
+    sfc.textContent = txt;
   }
+  tick();
+  setInterval(tick, 20000);
 })();
 
 /* Автообновление страницы — ТОЛЬКО там, где сервер его попросил: <body

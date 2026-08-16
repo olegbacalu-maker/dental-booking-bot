@@ -131,8 +131,14 @@
  .top .newbtn{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 18px;
    border-radius:var(--r-ctl);background:var(--teal);color:var(--on-teal);font-size:14px;font-weight:600;
    text-decoration:none;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .top .newbtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
-   transform:translateY(-1px)}
+ /* ⚠️ Фон стал ТЁМНЫМ фирменным — значит и текст берёт цвет, посчитанный под
+    него (--on-teal-d, порог 4.5), а не --on-teal: тот подобран под светлый
+    --teal и при светлом выборе клиники даёт тёмный текст на тёмном фоне
+    (3.1:1). На зелёном по умолчанию обе переменные белые — глазами не видно.
+    То же правило у .savebtn, form.add button, .fform button, .pl-btn.primary,
+    .b-arrived и шапки сайдбара. */
+ .top .newbtn:hover{background:var(--teal-d);color:var(--on-teal-d);
+   box-shadow:var(--sh-t);transform:translateY(-1px)}
  .top .newbtn:active{transform:translateY(0)}
  .top .newbtn .plus{width:20px;height:20px;flex:0 0 20px;border-radius:50%;
    background:rgba(255,255,255,.24);display:flex;align-items:center;
@@ -640,9 +646,8 @@
  .savebtn{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 26px;font-size:14px;font-weight:600;cursor:pointer;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .savebtn:hover{background:var(--teal-d);box-shadow:var(--sh-t);
-   transform:translateY(-1px)}
- .savebtn:hover{background:var(--teal-d)}
+ .savebtn:hover{background:var(--teal-d);color:var(--on-teal-d);
+   box-shadow:var(--sh-t);transform:translateY(-1px)}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
  .bstat{border:none;border-radius:8px;padding:9px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%;font-weight:500}
@@ -690,8 +695,8 @@
  form.add button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 20px;cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- form.add button:hover{background:var(--teal-d);box-shadow:var(--sh-t);
-   transform:translateY(-1px)}
+ form.add button:hover{background:var(--teal-d);color:var(--on-teal-d);
+   box-shadow:var(--sh-t);transform:translateY(-1px)}
  form.add button:active{transform:translateY(0)}
  table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
    border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
@@ -749,7 +754,11 @@
     с фиолетовым акцентом не должна получить фиолетовое «Nu a venit».
     Фиолетовый waiting — тоже смысловой, №7C3AED зашит как #2563EB у done. */
  .b-waiting{background:#7C3AED}
- .b-arrived{background:var(--teal-d)}
+ /* единственный исход, который красит ТЕМА, — значит и текст ему нужен
+    посчитанный под тёмный фирменный фон, а не зашитый #fff из .act button.
+    ⚠️ Селектор с .act/.bstat намеренно, как у .b-reopen ниже: одинокая
+    `.b-arrived` весит (0,1,0) и проиграла бы `.act button` (0,1,1). */
+ .act .b-arrived,.bstat.b-arrived{background:var(--teal-d);color:var(--on-teal-d)}
  .b-done{background:#2563EB}.b-noshow{background:var(--red-t)}.b-cancel{background:#64748B}
  /* «Redeschide» — исправление промаха, а не пятый исход визита: приглушённая
     обводка, чтобы не спорить с четырьмя цветными кнопками (тот же приём, что
@@ -834,8 +843,17 @@
  details.milk>summary{cursor:pointer;font-size:12.5px;color:var(--text2);
    padding:6px 0;list-style:none}
  details.milk>summary::-webkit-details-marker{display:none}
- details.milk>summary::before{content:'▸ ';color:var(--text3)}
- details.milk[open]>summary::before{content:'▾ '}
+ /* ⛔ Указатель — ЧИСТЫЙ CSS, а не знак: U+25B8/U+25BE лежат в U+25B2..U+25C0,
+    и вшитый Inter их не покрывает — рисовал бы их системный шрифт Windows,
+    своей метрикой и мимо выбранного клиникой цвета (правило карты 08-11).
+    Родной маркер снят выше, поэтому заменить знак нечем — он и есть указатель.
+    Цвет идёт currentColor через border-color, значит наведение (--teal-d)
+    забирает и стрелку; правило статично — без класса .anim вид конечный. */
+ details.milk>summary::before{content:'';display:inline-block;width:0;height:0;
+   margin-right:8px;vertical-align:1px;border-style:solid;
+   border-width:4px 0 4px 6px;border-color:transparent transparent transparent currentColor}
+ details.milk[open]>summary::before{margin-right:6px;vertical-align:2px;
+   border-width:6px 4px 0 4px;border-color:currentColor transparent transparent transparent}
  details.milk>summary:hover{color:var(--teal-d)}
  /* поверхности зуба в диалоге: .dlg-form растягивает контроли на всю ширину,
     флажкам это не нужно */
@@ -993,8 +1011,8 @@
  .fform button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .fform button:hover{background:var(--teal-d);box-shadow:var(--sh-t);
-   transform:translateY(-1px)}
+ .fform button:hover{background:var(--teal-d);color:var(--on-teal-d);
+   box-shadow:var(--sh-t);transform:translateY(-1px)}
  .fform button:active{transform:translateY(0)}
  .fform .r2{display:flex;gap:9px}
  @media (max-width:1400px){.fisa{flex-wrap:wrap}.fcol-l,.fcol-r{width:100%;flex:1 1 100%}}
@@ -1250,7 +1268,7 @@
    transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
  .pl-btn:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(-1px)}
  .pl-btn.primary{background:var(--teal);border-color:var(--teal);color:var(--on-teal);font-weight:600}
- .pl-btn.primary:hover{background:var(--teal-d);color:var(--on-teal);box-shadow:var(--sh-t)}
+ .pl-btn.primary:hover{background:var(--teal-d);color:var(--on-teal-d);box-shadow:var(--sh-t)}
  /* три числа над списком; денежной карточки в этом разделе нет намеренно */
  .pl-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
    gap:14px;margin-bottom:18px}

@@ -185,6 +185,12 @@ MSG_BANNER = {
     # клиника открыта, но у ЭТОГО врача график уже кончился (work_from/work_to)
     "outside_doc": ("err", "Medicul nu lucrează la ora aleasă — verificați "
                            "programul lui în pagina Medici sau alegeți alt medic"),
+    # ⚠️ <input type=date> отдаёт и «0012-08-15» — промах по сегменту года
+    # выглядит законной ISO-датой, а период из неё выходит в 735 000 дней.
+    # Текст обязан назвать ПОЛЕ, иначе директор ищет ошибку не там.
+    "bad_period": ("err", "Perioada aleasă nu este validă — verificați anul în "
+                          "câmpurile de date; intervalul poate fi de cel mult "
+                          "un an și nu mai vechi de anul 2000"),
     "ok_card": ("ok", "Fișa pacientului a fost actualizată"),
     # ⚠️ Архивация УБИРАЕТ пациента из списка, и общее «фиша обновлена» об этом
     # молчит: человек возвращается в список, никого там не находит и решает,
@@ -590,7 +596,7 @@ def _sidebar(active: str) -> str:
     {item('set', '/admin/settings', 'set', 'Setări') if show_set else ''}
     {sync}
   </nav>
-  <div class="sfoot"{foot_title}>v{eng.APP_VERSION} · <span id="sf_clock"></span></div>
+  <div class="sfoot"{foot_title}>v{eng.APP_VERSION} · <span id="sf_clock" data-tz="{eng.TZ.key}"></span></div>
 </aside>"""
 
 

@@ -26,6 +26,7 @@ import test_pin  # noqa: E402
 import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
 import test_review2  # noqa: E402
+import test_review3  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
@@ -86,6 +87,12 @@ SUITES = [
     ("Ревью-2: очистка даты рождения", test_review2.suite_birth_clear),
     ("Ревью-2: Pacient nou без двойника", test_review2.suite_new_dup),
     ("Ревью-2: настройки (confirm и услуги)", test_review2.suite_settings_ui),
+    ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
+    ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
+    ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),
+    ("Ревью-3: границы периода в аналитике", test_review3.suite_stats_period),
+    ("Ревью-3: «botul a adus» без неявок", test_review3.suite_stats_bot),
+    ("Ревью-3: часы формы по графику врача", test_review3.suite_form_hours),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),
