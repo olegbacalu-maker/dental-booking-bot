@@ -1437,6 +1437,11 @@
  .pl-tv span{display:block;font-size:13px;color:var(--text2);font-weight:500}
  .pl-tv b{display:block;font-size:30px;font-weight:600;line-height:1.2;letter-spacing:-.02em}
  .pl-tv small{display:block;font-size:12px;color:var(--text3);margin-top:2px}
+ /* ⚠️ В плитке <b> — это КРУПНОЕ ЗНАЧЕНИЕ (30px блоком), а в подписи им красят
+    слово: «disponibilă v1.20.2» и предупреждения BitLocker выезжали из карточки
+    втрое крупнее соседей. Внутри подписи <b> остаётся подписью. */
+ .pl-tv small b{display:inline;font-size:inherit;line-height:inherit;
+                letter-spacing:normal;font-weight:600}
  .pl-tv .up{color:var(--green-t);font-weight:600}
  .pl-tv .dn{color:var(--red-t);font-weight:600}
  /* хаб настроек: та же плитка, но имя секции — заголовок, а не подпись
