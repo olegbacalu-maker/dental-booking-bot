@@ -848,6 +848,34 @@ UQ_REPAIR_TEXT = {
 }
 UQ_CLEARED_TEXT = ("Orele duble au fost separate — protecția programărilor "
                    "este completă din nou")
+# ⛔ Вторая строка на ВТОРОЙ исход, и разъединять их обязательно. Метка
+# снимается не только там, где двойные часы были и клиника их развела: она
+# снимается и после исхода, где конфликтных часов не было НИ ОДНОГО (`unknown:0`
+# — состояние не прочиталось; `broken:0`/`narrow:0` — шаг упёрся не в данные).
+# Одна строка на оба случая записывает клинике, у которой двойной брони не было
+# ни дня, что её разводили, — отчёт о работе, которой не было, и летопись
+# хранит его НАВСЕГДА (08-16). Сколько часов насчитал прошлый старт, знает сама
+# метка: она стоит как `level:rows`, и спрашивать об этом больше некого — к
+# моменту снятия конфликтов уже нет по определению.
+UQ_COMPLETE_TEXT = ("Protecția programărilor împotriva orelor duble este "
+                    "completă din nou")
+
+
+def _uq_mark_rows(mark: str | None) -> int:
+    """Сколько конфликтных часов насчитал ПРОШЛЫЙ старт — из самой метки.
+
+    ⚠️ Ответ -1 значит «счётчика в метке нет», и это НЕ ноль. Так выглядит метка
+    «1», поставленная ДО работы: процесс не дожил до вердикта, и о конфликтах
+    неизвестно ничего. Утверждать «разводить было нечего» тут так же нельзя, как
+    и «часы разведены», — поэтому обе ветки текста читают именно «> 0».
+    """
+    text = str(mark or "")
+    if ":" not in text:
+        return -1
+    try:
+        return int(text.rsplit(":", 1)[1])
+    except ValueError:
+        return -1
 
 
 def _uq_at_least(state: dict[str, str], name: str, act_sql: str) -> bool:
@@ -906,10 +934,13 @@ async def _slot_guard_apply(repair: str = "") -> None:
     """
     _SLOT_GUARD["ran"] = True
     try:
-        was_pending = await get_meta(UQ_PENDING_KEY) is not None
+        # ⭐ Едет дальше ЗНАЧЕНИЕ метки, а не «она была». В значении лежит
+        # счётчик конфликтных часов прошлого старта, и без него строка о снятии
+        # метки не может отличить «часы развели» от «разводить было нечего».
+        mark = await get_meta(UQ_PENDING_KEY)
     except Exception as e:  # noqa: BLE001 — база не отвечает; старт важнее
         log.error("метка %s не прочитана: %r", UQ_PENDING_KEY, e)
-        was_pending = False
+        mark = None
     # ⭐ Метка ставится ДО работы и снимается ПОСЛЕ подтверждённого успеха.
     # Тогда падение ГДЕ УГОДНО — включая отказ самого set_meta и убитый процесс
     # между DROP и CREATE — оставляет метку, и следующий старт всё доделает.
@@ -953,10 +984,10 @@ async def _slot_guard_apply(repair: str = "") -> None:
             await _apply_uq_indexes(plan)
     except Exception as e:  # noqa: BLE001 — этот шаг НИКОГДА не роняет старт
         log.exception("страховочные uq-индексы: шаг не выполнен (%r)", e)
-    await _slot_guard_verdict(rows, was_pending, repair)
+    await _slot_guard_verdict(rows, mark, repair)
 
 
-async def _slot_guard_verdict(rows: list[dict], was_pending: bool,
+async def _slot_guard_verdict(rows: list[dict], mark: str | None,
                               repair: str = "") -> None:
     """Сказать ПРАВДУ о том, что в итоге лежит в базе, — спросив базу.
 
@@ -987,7 +1018,7 @@ async def _slot_guard_verdict(rows: list[dict], was_pending: bool,
     # состояние и так не совпадёт: правило важнее, чем сегодняшняя реализация
     # `_uq_matches`.
     if not unknown and not rows and _uq_matches(state, _ACT_SQL):
-        await _slot_guard_clear(was_pending, repair)
+        await _slot_guard_clear(mark, repair)
         return
     gone = [] if unknown else _uq_gone(state)
     level = UQ_UNKNOWN if unknown else (UQ_BROKEN if gone else UQ_NARROW)
@@ -1003,7 +1034,7 @@ async def _slot_guard_verdict(rows: list[dict], was_pending: bool,
         await set_meta(UQ_PENDING_KEY, f"{level}:{len(rows)}")
     except Exception as e:  # noqa: BLE001 — метка уже стоит с «1», это уточнение
         log.error("метка %s не уточнена: %r", UQ_PENDING_KEY, e)
-    if was_pending:
+    if mark is not None:
         # ⚠️ Строка в ленту — ОДИН раз на одно вмешательство, как у auth_alert:
         # баннер висит и так, а перезапуски не должны пополнять летопись.
         return
@@ -1012,9 +1043,14 @@ async def _slot_guard_verdict(rows: list[dict], was_pending: bool,
     await log_clinic_event("uq_guard", uq_event_text(level, gone, len(rows)))
 
 
-async def _slot_guard_clear(was_pending: bool, repair: str = "") -> None:
-    """Широкие индексы легли и ПРОВЕРЕНЫ. Если метка стояла с прошлого старта —
-    клиника развела записи руками, и страховка встала сама."""
+async def _slot_guard_clear(mark: str | None, repair: str = "") -> None:
+    """Широкие индексы легли и ПРОВЕРЕНЫ.
+
+    ⚠️ Метка с прошлого старта — это ещё не «клиника развела записи»: тем же
+    путём снимаются метки исходов, где конфликтных часов не было вовсе. Что
+    именно случилось, говорит счётчик В САМОЙ МЕТКЕ (`level:rows`), поэтому сюда
+    приезжает её ЗНАЧЕНИЕ, а не «она была».
+    """
     _SLOT_GUARD.update(pending=False, level="", rows=[], gone=[])
     try:
         await del_meta(UQ_PENDING_KEY)
@@ -1034,10 +1070,17 @@ async def _slot_guard_clear(was_pending: bool, repair: str = "") -> None:
         log.warning("слотовые индексы восстановлены на старте (%s)", repair)
         await log_clinic_event("uq_guard", UQ_REPAIR_TEXT[repair])
         return
-    if not was_pending:
+    if mark is None:
         return                       # обычная миграция, рассказывать нечего
-    log.warning("двойные брони разведены — полная защита слота восстановлена")
-    await log_clinic_event("uq_guard", UQ_CLEARED_TEXT)
+    # ⛔ «Часы разведены» говорится ТОЛЬКО там, где часы были: счётчик в метке и
+    # есть то, что прошлый старт про них знал. Ноль (и метка без счётчика —
+    # оборванный старт) значит, что разводить было нечего, и рассказ о
+    # разведении был бы отчётом о работе, которой не было (08-16).
+    n = _uq_mark_rows(mark)
+    log.warning("полная защита слота восстановлена (конфликтных часов было: %s)",
+                n if n >= 0 else "неизвестно")
+    await log_clinic_event("uq_guard",
+                           UQ_CLEARED_TEXT if n > 0 else UQ_COMPLETE_TEXT)
 
 
 async def _slot_guard_startup() -> None:

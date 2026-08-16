@@ -119,6 +119,24 @@ def _schema_tables(sql: str) -> dict[str, set]:
     return out
 
 
+def _step_cols(node) -> dict[str, set]:
+    """{таблица: {колонки}} из ОПЕРАТОРОВ внутри шагов миграции.
+
+    Шаги — обычные строковые литералы, и `ALTER TABLE … ADD COLUMN` в них значит
+    для базы ровно то же, что строка в самой схеме: колонка есть. Правило,
+    которое разбирает только тексты схем, бьёт мимо в ОБЕ стороны — честно
+    дописанная шагом колонка даёт ложное красное, а дописанная шагом в одно
+    издание проходит молча, хотя закрывать оно бралось весь класс расхождений
+    (08-16). Добавление колонки шагом — обычный способ, которым эта база и росла.
+    """
+    out: dict[str, set] = {}
+    for n in (ast.walk(node) if node is not None else ()):
+        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            for table, col in _SQL_ADD_COL.findall(n.value):
+                out.setdefault(table.lower(), set()).add(col.lower())
+    return out
+
+
 def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
     """Строковые литералы модуля БЕЗ docstring'ов, каждый одним куском.
 
@@ -459,7 +477,7 @@ def suite(res: Result) -> None:
     # ⚠️ Полярность опасная: правило ищет ИМЕНА. Переименуют SCHEMA_VERSION или
     # словарь — искать станет нечего, поэтому «не нашлось» здесь тоже красное.
     db_tree = by_path.get("app/db.py")
-    consts, dictkeys, listvals = {}, {}, {}
+    consts, dictkeys, listvals, dictnodes = {}, {}, {}, {}
     for n in ast.walk(db_tree or ast.Module(body=[], type_ignores=[])):
         if not (isinstance(n, ast.Assign) and len(n.targets) == 1
                 and isinstance(n.targets[0], ast.Name)):
@@ -470,6 +488,7 @@ def suite(res: Result) -> None:
         elif isinstance(n.value, ast.Dict):
             dictkeys[name] = [k.value for k in n.value.keys
                               if isinstance(k, ast.Constant)]
+            dictnodes[name] = n.value        # тела шагов, а не только ключи
         elif isinstance(n.value, ast.List):
             listvals[name] = n.value
     ver = consts.get("SCHEMA_VERSION")
@@ -596,6 +615,17 @@ def suite(res: Result) -> None:
         if isinstance(el, ast.Constant):
             lite_t.setdefault(_LITE_PATIENT_TABLE, set()).add(
                 el.value.split()[0].lower())
+    # ⚠️ И колонки, дописанные оператором ВНУТРИ шага миграции: до 08-16
+    # сверялись только КЛЮЧИ шагов, а тела не разбирались вовсе. Правило било
+    # мимо в обе стороны — колонка, честно дописанная шагом в оба издания, шла
+    # ложным красным, а дописанная шагом только в одно проходила молча.
+    # ⭐ Имена словарей уже под якорем: проверка «версия схемы равна последнему
+    # шагу миграций» требует, чтобы MIGRATIONS_PG/MIGRATIONS_LITE НАШЛИСЬ, —
+    # переименование краснеет там, а не зеленит эту сверку молча.
+    for tbl, cols in _step_cols(dictnodes.get("MIGRATIONS_PG")).items():
+        pg_t.setdefault(tbl, set()).update(cols)
+    for tbl, cols in _step_cols(dictnodes.get("MIGRATIONS_LITE")).items():
+        lite_t.setdefault(tbl, set()).update(cols)
 
     bad = []
     if len(pg_t) < 8 or len(lite_t) < 8:

@@ -20,6 +20,11 @@
 
 Добавил правило в `test_structure` — добавь сюда строку. Если забудешь, скрипт
 скажет об этом сам: он сверяет список мутаций со списком проверок в обе стороны.
+
+⭐ Рядом с `MUTATIONS` живёт `LEGAL` — правки ЗАКОННЫЕ, на которых правило
+обязано остаться зелёным. Сторож, краснеющий на ровном месте, опаснее молчащего:
+его сообщение читается как поломка правила, и отключают правило целиком —
+вместе с настоящей проверкой.
 """
 import pathlib
 import shutil
@@ -143,7 +148,57 @@ MUTATIONS = [
      ('("appointments", "waiting_at TEXT"),',
       '("appointments", "waiting_at TEXT"),\n'
       '    ("appointments", "loyalty_note TEXT"),')),
+    # Та же колонка в одно издание, но дописанная ОПЕРАТОРОМ ВНУТРИ ШАГА
+    # миграции — обычный способ, которым эта база и росла. До 08-16 правило
+    # разбирало только тексты схем и ключи шагов, поэтому такая односторонняя
+    # колонка проходила МОЛЧА: сторож зелен, свежая облачная база — с лишней
+    # колонкой, а SQLite-клиника без неё. Замена ПЕРВОГО вхождения: literal тот
+    # же в обоих словарях, и первый лежит в MIGRATIONS_PG.
+    ("описывают одну базу", "app/db.py",
+     ('        "CREATE INDEX IF NOT EXISTS ix_appt_starts ON '
+      'appointments(starts_at)",',
+      '        "CREATE INDEX IF NOT EXISTS ix_appt_starts ON '
+      'appointments(starts_at)",\n'
+      '        "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sms_sent INT",')),
 ]
+
+# Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
+# ЗЕЛЁНЫМ. ⭐ Половина, которой у мутаций не бывает, и она не менее важна:
+# красное «на ровном месте» читается как поломка правила, а не как находка, —
+# и отключают такое правило целиком, вместе с настоящей проверкой. Формат тот
+# же, что у MUTATIONS, только ожидание обратное.
+LEGAL = [
+    # Колонка, дописанная в ОБА издания разными, но законными способами: в PG —
+    # оператором внутри шага миграции, у SQLite — парой в SQLITE_EXTRA_COLS
+    # (ADD COLUMN IF NOT EXISTS там не бывает, и аддитивные колонки живут
+    # списком). Расхождения нет ни в одном движке; правило, не разбирающее тела
+    # шагов, кричало тут «колонки только у SQLite — sms_sent» (08-16).
+    ("описывают одну базу", "app/db.py", [
+        ('        "CREATE INDEX IF NOT EXISTS ix_appt_starts ON '
+         'appointments(starts_at)",',
+         '        "CREATE INDEX IF NOT EXISTS ix_appt_starts ON '
+         'appointments(starts_at)",\n'
+         '        "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS '
+         'sms_sent INT",'),
+        ('("appointments", "waiting_at TEXT"),',
+         '("appointments", "waiting_at TEXT"),\n'
+         '    ("appointments", "sms_sent INT"),'),
+    ]),
+]
+
+
+def _apply(text: str, patch, rel: str, label: str, bad: list) -> str:
+    """Строка — ДОПИСАТЬ в конец; пара (или список пар) — ЗАМЕНИТЬ первое
+    вхождение каждой. Список нужен там, где законная правка по устройству
+    двусторонняя: колонка в PG кладётся шагом, а у SQLite — списком."""
+    if isinstance(patch, str):
+        return text + patch
+    for was, now in (patch if isinstance(patch, list) else [patch]):
+        if was not in text:
+            # правка описывает код, которого уже нет: сама протухла
+            bad.append(f"«{label}»: в {rel} нет {was!r}")
+        text = text.replace(was, now, 1)
+    return text
 
 
 def _run(bot: pathlib.Path) -> Result:
@@ -188,22 +243,28 @@ def main() -> int:
                 work.mkdir()                    # особый случай: пустое дерево
             else:
                 f = _copy(work) / rel
-                text = f.read_text(encoding="utf-8")
-                if isinstance(patch, tuple):
-                    was, now = patch
-                    if was not in text:
-                        # мутация описывает код, которого уже нет: сама протухла
-                        bad.append(f"мутация «{expect}»: в {rel} нет {was!r}")
-                    text = text.replace(was, now, 1)
-                else:
-                    text += patch
-                f.write_text(text, encoding="utf-8")
+                f.write_text(_apply(f.read_text(encoding="utf-8"), patch, rel,
+                                    f"мутация {expect}", bad), encoding="utf-8")
             got = [label for label, _ in _run(work).failed]
             hit = [g for g in got if expect in g]
             print(f"{'  сломано: ' + expect:<34} "
                   f"{'красное — ' + hit[0] if hit else 'ЗЕЛЁНОЕ (сторож молчит)'}")
             if not hit:
                 bad.append(f"правило «{expect}» не заметило нарушения")
+
+        # 4. Законная правка обязана остаться ЗЕЛЁНОЙ. Ложное красное отключают
+        #    первым — оно читается как поломка правила, а не как находка.
+        for i, (expect, rel, patch) in enumerate(LEGAL):
+            work = base / f"L{i}"
+            f = _copy(work) / rel
+            f.write_text(_apply(f.read_text(encoding="utf-8"), patch, rel,
+                                f"законная правка {expect}", bad),
+                         encoding="utf-8")
+            hit = [label for label, _ in _run(work).failed if expect in label]
+            print(f"{'  законно: ' + expect:<34} "
+                  f"{'КРАСНОЕ НА РОВНОМ МЕСТЕ — ' + hit[0] if hit else 'зелено'}")
+            if hit:
+                bad.append(f"правило «{expect}» краснеет на законной правке")
     finally:
         shutil.rmtree(base, ignore_errors=True)
         test_structure.BOT = BOT                # вернуть на настоящее дерево

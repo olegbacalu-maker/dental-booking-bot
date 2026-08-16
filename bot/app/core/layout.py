@@ -624,9 +624,19 @@ def _slot_banner() -> str:
         # verificări» читается как машинный текст ровно там, где от строки
         # требуется доверие директора.
         if not left:
+            # ⛔ «Тот же час можно занять дважды» — утверждение, которого код не
+            # проверял, и программа его ОПРОВЕРГАЕТ: вторую запись в занятый час
+            # отбивает прикладная проверка под `db._BOOK_LOCK`, а уникальные
+            # индексы — ВТОРОЙ пояс. Измерено на базе без единого индекса: журнал
+            # ответил «conflict» на второго пациента в занятый час врача и «dup»
+            # на того же пациента у другого врача — ни одна двойная запись не
+            # прошла (08-16). Пугать сильнее, чем есть, — тот же класс, что и
+            # «защиты нет»: директор читает про свою программу неправду ровно
+            # там, где от строки требуется доверие. Говорим проверенное.
             what = (f"niciuna dintre cele {db.UQ_SLOT_COUNT} verificări nu este "
-                    "în evidență, aceeași oră poate fi ocupată de două ori "
-                    "fără avertisment")
+                    "în evidență — programul refuză în continuare a doua "
+                    "programare la aceeași oră, dar verificarea de rezervă din "
+                    "baza de date lipsește")
         else:
             miss = (f"lipsește din evidență o verificare ({db.uq_gone_ro(gone)})"
                     if len(gone) == 1 else

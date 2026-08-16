@@ -48,6 +48,12 @@
   самый тревожный случай — тот, где в конце стояло «позовите поддержку».
 * `suite_uq_all_gone` — в базе не осталось НИ ОДНОЙ проверки: этот текст и не
   влезал. Здесь он меряется на живой базе, а не арифметикой.
+* `suite_uq_cleared_no_conflict` — метка снялась там, где двойных часов не было
+  ни одного. Строка «Orele duble au fost separate» стала бы отчётом о работе,
+  которой не было, — и хранится он навсегда.
+* `suite_uq_gone_still_blocks` — в базе нет ни одной проверки, а запись в
+  занятый час всё равно отбивается: уникальные индексы это ВТОРОЙ пояс. Отказ
+  меряется журналом, а не сверкой текстов.
 * `suite_uq_state_unreadable` — состояние индексов прочитать НЕ УДАЛОСЬ. Третий
   исход: пустой ответ прежде читался как «в базе нет ничего», и директор получал
   приговор всей защите на картотеке, где все три индекса целы и работают.
@@ -67,7 +73,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
@@ -86,6 +92,12 @@ _OLD_ACT = "('confirmed','arrived')"
 _WIDE_ACT = "('confirmed','waiting','arrived')"
 
 _UQ = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
+
+# Сколько символов обязано ОСТАВАТЬСЯ свободными в самой длинной строке
+# летописи. Не косметика: строка, влезающая впритык, обрезается посреди слова от
+# первой же правки формулировки — молча и навсегда. Двадцать — это примерно
+# слово со знаками препинания, то есть цена одной обычной редактуры текста.
+_EVENT_RESERVE = 20
 
 _APPT_SQL = ("INSERT INTO appointments(patient_id, service, doctor, starts_at, "
              "status, source, created_at, doctor_id) "
@@ -448,8 +460,13 @@ def suite_v4_conflict(res: Result) -> None:
                   _meta(dbfile, "uq_waiting_pending"), None)
         res.ok("баннер исчез", "Dr. Activ Doi · 12.01.2026 09:00" not in body,
                "предупреждение висит после того, как разводить нечего")
-        res.check("возврат защиты записан в летопись",
-                  len(_activity(dbfile, "uq_guard")), 2)
+        events = _activity(dbfile, "uq_guard")
+        res.check("возврат защиты записан в летопись", len(events), 2)
+        # ⭐ Пара к suite_uq_cleared_no_conflict: здесь двойные часы БЫЛИ и их
+        # развели, поэтому строка про разведение — правда. Разъединение двух
+        # событий не имеет права стереть верную половину.
+        res.check("летопись называет то, что случилось: часы развели",
+                  events[1] if len(events) > 1 else "", appdb.UQ_CLEARED_TEXT)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -1034,14 +1051,44 @@ def suite_uq_event_len(res: Result) -> None:
     for n in (0, 1, 2, 12, 999):
         cases.append((f"narrow rows={n}",
                       appdb.uq_event_text(appdb.UQ_NARROW, [], n)))
-    for why, text in appdb.UQ_REPAIR_TEXT.items():
-        cases.append((f"самолечение {why}", text))
-    cases.append(("метка снята", appdb.UQ_CLEARED_TEXT))
+    # ⭐ Готовые строки собираются ПЕРЕБОРОМ модуля, а не списком в тесте. Их
+    # уже не две: снятие метки разошлось на два события (08-16), и список,
+    # переписанный руками, отстал бы МОЛЧА — а меряется тут ровно то, что
+    # уезжает в летопись навсегда. Полярность закрыта ниже: перебор обязан
+    # что-то найти, иначе правило сторожит пустоту.
+    named = 0
+    for name in sorted(dir(appdb)):
+        if not (name.startswith("UQ_") and name.endswith("_TEXT")):
+            continue
+        val = getattr(appdb, name)
+        if isinstance(val, str):
+            cases.append((name, val))
+            named += 1
+        elif isinstance(val, dict):
+            for key, text in val.items():
+                if isinstance(text, str):
+                    cases.append((f"{name}[{key}]", text))
+                    named += 1
+    res.ok("готовые строки найдены перебором", named >= 4,
+           f"константы UQ_*_TEXT не нашлись ({named}) — набор мерил бы только "
+           f"собранные строки, а в летопись уезжают и эти")
 
     limit = appdb.EVENT_TEXT_MAX
     long = [(what, len(t)) for what, t in cases if len(t) > limit]
     res.ok("ни одна строка не длиннее потолка летописи", not long,
            f"потолок {limit}, обрезка идёт посреди слова и навсегда: {long!r}")
+    # ⭐ Не «влезла», а «влезла С ЗАПАСОМ». Строка в двух символах от потолка
+    # обрежется от первой же правки формулировки — а обрезка идёт посреди слова
+    # и навсегда, и заметить её нечем: ошибки нет, лог чист. ⛔ Ушёл запас —
+    # сокращать ФОРМУЛИРОВКУ, а не поднимать потолок: в колонке уже лежат
+    # строки старых клиник, и новый потолок к ним не относится.
+    worst, worst_len = max(cases, key=lambda c: len(c[1]))[0], max(
+        len(t) for _, t in cases)
+    res.ok(f"у самой длинной строки остался запас (сейчас {limit - worst_len})",
+           limit - worst_len >= _EVENT_RESERVE,
+           f"самая длинная — «{worst}», {worst_len} из {limit}: запас меньше "
+           f"{_EVENT_RESERVE} символов значит, что следующая правка слова "
+           f"обрежет строку молча; сокращайте текст, а не поднимайте потолок")
     # ⭐ Не только «влезла», но и «осталась самодостаточной»: в состоянии, где
     # директору нужно позвать поддержку, эти слова обязаны доехать до базы.
     need = [what for what, t in cases
@@ -1164,6 +1211,144 @@ def suite_uq_state_unreadable(res: Result) -> None:
                f"событие не описано вовсе: {text!r}")
         res.ok("строка летописи не обрезана", len(text) < appdb.EVENT_TEXT_MAX,
                f"{len(text)} символов при потолке {appdb.EVENT_TEXT_MAX}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def suite_uq_cleared_no_conflict(res: Result) -> None:
+    """Метка снялась там, где конфликтных часов НЕ БЫЛО НИ ОДНОГО.
+
+    Метка снимается двумя разными путями, и рассказ о них обязан быть разным.
+    Первый — клиника развела двойные часы руками, и широкие индексы встали сами
+    («Orele duble au fost separate»). Второй — часов не было вовсе: шаг упёрся не
+    в данные (`unknown:0`, `broken:0`), а на следующем старте всё легло. Одна
+    строка на оба случая записывает клинике, у которой двойной брони не было ни
+    дня, что её РАЗВОДИЛИ, — отчёт о работе, которой не было. Летопись хранит
+    его навсегда, переписать нечем.
+
+    ⭐ Счётчик лежит прямо в метке (`level:rows`), поэтому спрашивать некого:
+    к моменту снятия конфликтов уже нет по определению.
+    ⚠️ Первый старт — из КОПИИ дерева, где чтение состояния индексов бросает
+    исключение: только так получается исход с меткой и с нулём конфликтов, а
+    данными его не подделать.
+    """
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_clr_"))
+    try:
+        bot = _patched_bot(work, "\n# тест: состояние индексов не читается\n"
+                                 "async def _uq_index_state():\n"
+                                 "    raise RuntimeError('база не ответила')\n")
+        data = work / "data"
+        data.mkdir()
+        dbfile = data / "dental.db"
+        con = _v3_db(dbfile)                     # три УЗКИХ рабочих индекса
+        _patients(con, "Ion Test", "Maria Test")
+        # ⚠️ Один-единственный визит: в картотеке НЕТ ни одного часа с двумя
+        # активными записями — ровно то состояние, про которое летопись потом и
+        # рассказывает. Без этой строки набор проверял бы пустую базу.
+        at = datetime(2026, 1, 20, 9, 0, tzinfo=ZoneInfo("Europe/Chisinau")
+                      ).astimezone(timezone.utc).isoformat(timespec="seconds")
+        con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "confirmed", "d2"))
+        con.commit()
+        con.close()
+
+        con = sqlite3.connect(str(dbfile))
+        try:
+            doubles = con.execute(
+                "SELECT count(*) FROM (SELECT 1 FROM appointments "
+                "WHERE status IN ('confirmed','waiting','arrived') "
+                "GROUP BY doctor, starts_at HAVING count(*) > 1)").fetchone()[0]
+        finally:
+            con.close()
+        res.check("в картотеке нет ни одного двойного часа", doubles, 0)
+
+        with Server(dir_=data, bot=bot):
+            pass                                 # старт 1: состояние не прочлось
+        res.check("метка встала со счётчиком «конфликтов ноль»",
+                  _meta(dbfile, "uq_waiting_pending"), "unknown:0")
+        res.check("первый исход описан в летописи",
+                  len(_activity(dbfile, "uq_guard")), 1)
+
+        with Server(dir_=data) as s:             # старт 2: настоящее дерево
+            body = Client(s.url).login().get("/admin").body
+
+        res.check("метка снялась", _meta(dbfile, "uq_waiting_pending"), None)
+        idx = _index_sql(dbfile)
+        res.ok("страховка стала полной",
+               all("waiting" in idx.get(n, "") for n in _UQ),
+               f"фикстура не дошла до снятия метки: {idx!r}")
+        res.ok("баннера больше нет",
+               "Protecția împotriva programărilor duble" not in body,
+               "предупреждение висит после того, как всё легло")
+
+        events = _activity(dbfile, "uq_guard")
+        res.check("снятие метки описано в летописи", len(events), 2)
+        text = events[1] if len(events) > 1 else ""
+        res.ok("летопись НЕ объявляет разведёнными часы, которых не было",
+               "Orele duble au fost separate" not in text,
+               f"в картотеке без единой двойной брони навсегда записано, что "
+               f"её разводили: {text!r}")
+        res.check("летопись называет то, что случилось на самом деле",
+                  text, appdb.UQ_COMPLETE_TEXT)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def suite_uq_gone_still_blocks(res: Result) -> None:
+    """В базе НЕТ НИ ОДНОЙ проверки — что при этом обещано директору.
+
+    Баннер говорил «aceeași oră poate fi ocupată de două ori fără avertisment».
+    Утверждение неверное: уникальные индексы — ВТОРОЙ пояс, а первый (прикладная
+    проверка под `db._BOOK_LOCK`) на месте и вторую запись в занятый час
+    отбивает. Тревога в безопасную сторону — но директор читает про свою
+    программу неправду ровно там, где от строки требуется доверие.
+
+    ⭐ Поэтому набор не сверяет тексты: он ЗАПИСЫВАЕТ через журнал, как это
+    делает регистратура, и смотрит, что ответил сервер. Отказ, измеренный
+    поведением, и есть то единственное, о чём баннер вправе говорить.
+    """
+    day = (date.today() + timedelta(days=1)).isoformat()
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_noguard_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _v3_db(dbfile)
+        # тот же приём, что в suite_uq_all_gone: ТАБЛИЦЫ с именами индексов —
+        # CREATE UNIQUE INDEX падает на каждой, и в базе не остаётся ни одной
+        for name in _UQ:
+            con.execute(f"DROP INDEX {name}")
+            con.execute(f"CREATE TABLE {name}(x)")
+        con.commit()
+        con.close()
+
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            body = c.get("/admin").body
+
+            def add(time: str, doctor: str, name: str, phone: str) -> str:
+                return c.post("/admin/add", adate=day, atime=time,
+                              adoctor=doctor, aservice="consult", aname=name,
+                              aphone=phone, ayear="", abirth="",
+                              back="/admin/all").msg
+
+            res.check("первая запись проходит",
+                      add("10:00", "d2", "Ion Testescu", "022111222"), "ok")
+            res.check("час занят у врача — вторая запись ОТБИТА",
+                      add("10:00", "d2", "Alt Pacient", "022999888"),
+                      "conflict")
+            res.check("тот же пациент к другому врачу в тот же час — ОТБИТ",
+                      add("10:00", "d3", "Ion Testescu", "022111222"), "dup")
+
+        res.ok("подделка сработала: индексов в базе нет", not _index_sql(dbfile),
+               f"набор проверяет не то состояние, о котором говорит: "
+               f"{_index_sql(dbfile)!r}")
+        res.ok("баннер НЕ обещает двойную запись",
+               "poate fi ocupată de două ori" not in body,
+               "директору обещано то, чего программа не допускает: обе попытки "
+               "записать час дважды только что получили отказ")
+        res.ok("баннер называет проверенное: отказ работает, проверки в базе нет",
+               "refuză în continuare" in body
+               and f"niciuna dintre cele {appdb.UQ_SLOT_COUNT}" in body,
+               "состояние названо, но про первый пояс не сказано ничего — "
+               "директор читает это как «записывать нельзя»")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
