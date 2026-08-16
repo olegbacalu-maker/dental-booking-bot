@@ -17,7 +17,11 @@ log = logging.getLogger("db")
 
 # Версия схемы: шаги применяются по одному и записываются в schema_meta,
 # поэтому по базе клиники всегда видно, докуда она домигрирована.
-SCHEMA_VERSION = 3
+# ⚠️ Новый шаг в MIGRATIONS_* без поднятия версии — МЁРТВЫЙ код: цикл _migrate
+# идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
+# 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
+# test_structure).
+SCHEMA_VERSION = 4
 
 # Записи, которые ЗАНИМАЮТ слот врача. 'waiting' (пациент пришёл, ждёт в
 # приёмной, 08-13) стоит между confirmed и arrived: физически человек уже в
@@ -183,6 +187,10 @@ CREATE TABLE IF NOT EXISTS anamneza(
   author TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS schema_meta(
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 """
 
@@ -1559,11 +1567,21 @@ async def _backfill_activity() -> None:
            FROM appointments WHERE patient_id IS NOT NULL ORDER BY created_at""",
         """SELECT id, patient_id, service, doctor, starts_at, created_at, source
            FROM appointments WHERE patient_id IS NOT NULL ORDER BY created_at""")
+    # Летопись читает человек: час обязан быть часом КЛИНИКИ, как в живом пути
+    # (_log_booking печатает дату, построенную в eng.TZ), а _fetch отдаёт
+    # starts_at в UTC — без перевода перенесённый визит на 09:00 записался бы
+    # «06:00» навсегда, текст события строка и не пересчитывается.
+    # Импорт отложенный: engine импортирует db, на уровне модуля был бы круг.
+    from . import engine as eng
     n = 0
     for r in rows:
         when = r["starts_at"]
         txt = f"Programare: {r['service']} · {r['doctor']}"
         if hasattr(when, "strftime"):
+            if getattr(when, "tzinfo", None) is not None:
+                # переводить только значения С поясом: astimezone на наивном
+                # подставил бы пояс машины и мог сдвинуть день
+                when = when.astimezone(eng.TZ)
             txt += " · " + when.strftime("%d.%m.%Y %H:%M")
         await _execute(
             """INSERT INTO activity(patient_id, at, actor, kind, text)

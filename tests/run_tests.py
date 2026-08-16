@@ -18,6 +18,7 @@ import test_admin  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
+import test_migrate  # noqa: E402
 import test_bot  # noqa: E402
 import test_pin  # noqa: E402
 import test_plan_acord  # noqa: E402
@@ -84,6 +85,8 @@ SUITES = [
     ("Закон 195: право на стирание", test_privacy.suite_erase),
     ("Закон 195: журнал доступа", test_privacy.suite_access_log),
     ("Закон 195: формуляр информирования", test_privacy.suite_acord),
+    ("Миграции базы: шаг 4 у клиники с версии 3", test_migrate.suite_v4),
+    ("Летопись: backfill в часах клиники", test_migrate.suite_backfill_tz),
     ("Шифрование базы: код восстановления", test_dbcrypt.suite_key),
     ("Шифрование базы: переезд", test_dbcrypt.suite_convert),
     ("Шифрование базы: программа на шифре", test_dbcrypt.suite_live),

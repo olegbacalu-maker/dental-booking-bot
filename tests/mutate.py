@@ -88,6 +88,17 @@ MUTATIONS = [
     # правило разбирает синтаксис, дописанный код не исполняется.
     ("строит только layout", "app/modules/qr/routes.py",
      "\n_MUT_BANNER = MSG_BANNER\n"),
+    # Ровно тот дефект, что жил с 08-13: шаг 4 есть в обоих словарях миграций,
+    # версия осталась 3 — цикл _migrate до шага не доходит, и «missing
+    # migration step» молчит (он ловит отсутствующие шаги, не лишние).
+    ("последнему шагу миграций", "app/db.py",
+     ("SCHEMA_VERSION = 4", "SCHEMA_VERSION = 3")),
+    # Исчезновение schema_meta из PG_SCHEMA — так её и удалили случайно
+    # (434513c). Замена ПЕРВОГО вхождения: оно лежит в PG_SCHEMA, SQLite-схема
+    # ниже по файлу остаётся целой — краснеть обязана именно PG-половина.
+    ("schema_meta создаётся", "app/db.py",
+     ("CREATE TABLE IF NOT EXISTS schema_meta(",
+      "CREATE TABLE IF NOT EXISTS schema_meta_gone(")),
 ]
 
 

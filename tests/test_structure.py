@@ -360,3 +360,51 @@ def suite(res: Result) -> None:
     res.ok("ответ на действие строит только layout", not bad,
            "MSG_BANNER вне layout.msg_banner — сообщение вернётся строкой в "
            "поток, и внизу страницы его опять не видно: " + ", ".join(bad))
+
+    # ---- миграции db: версия схемы и schema_meta (08-15) ----
+    # Шаг, добавленный в словари миграций без поднятия SCHEMA_VERSION, — мёртвый
+    # код: цикл _migrate идёт range(have+1, SCHEMA_VERSION+1) и до него не
+    # доходит, а страж «missing migration step» ловит только отсутствующие
+    # шаги, не лишние. Ровно так шаг 4 ('waiting' в предикатах uq-индексов) не
+    # исполнялся ни у одной клиники с 08-13 — молча: база «домигрирована»,
+    # лог чист, страховки от двойной брони на waiting-визите нет.
+    # ⚠️ Полярность опасная: правило ищет ИМЕНА. Переименуют SCHEMA_VERSION или
+    # словарь — искать станет нечего, поэтому «не нашлось» здесь тоже красное.
+    db_tree = by_path.get("app/db.py")
+    consts, dictkeys = {}, {}
+    for n in ast.walk(db_tree or ast.Module(body=[], type_ignores=[])):
+        if not (isinstance(n, ast.Assign) and len(n.targets) == 1
+                and isinstance(n.targets[0], ast.Name)):
+            continue
+        name = n.targets[0].id
+        if isinstance(n.value, ast.Constant):
+            consts[name] = n.value.value
+        elif isinstance(n.value, ast.Dict):
+            dictkeys[name] = [k.value for k in n.value.keys
+                              if isinstance(k, ast.Constant)]
+    ver = consts.get("SCHEMA_VERSION")
+    pg = dictkeys.get("MIGRATIONS_PG")
+    lite = dictkeys.get("MIGRATIONS_LITE")
+    res.ok("версия схемы равна последнему шагу миграций",
+           isinstance(ver, int) and bool(pg) and bool(lite)
+           and max(pg) == max(lite) == ver,
+           f"SCHEMA_VERSION={ver!r}, max(MIGRATIONS_PG)="
+           f"{max(pg) if pg else None}, max(MIGRATIONS_LITE)="
+           f"{max(lite) if lite else None} — лишний шаг не исполнится ни у "
+           f"одной клиники, недостающий уронит _migrate")
+
+    # В schema_meta безусловно пишут _set_schema_version, set_meta и backfill —
+    # таблица обязана создаваться В ОБЕИХ схемах. Из PG_SCHEMA её однажды
+    # удалили случайно (434513c), и облако переставало стартовать на свежем
+    # Postgres; прогон этого не видит — все наборы гоняют SQLite-ветку.
+
+    need = "CREATE TABLE IF NOT EXISTS schema_meta("
+    bad = [what for what, ok in (
+        ("PG_SCHEMA", need in str(consts.get("PG_SCHEMA", ""))),
+        ("SQLITE_SCHEMA/SQLITE_CARD_SCHEMA",
+         any(need in str(consts.get(v, ""))
+             for v in ("SQLITE_SCHEMA", "SQLITE_CARD_SCHEMA"))),
+    ) if not ok]
+    res.ok("schema_meta создаётся в обеих схемах", not bad,
+           "нет CREATE TABLE schema_meta в: " + ", ".join(bad)
+           + " — издание на этой схеме не стартует на пустой базе")
