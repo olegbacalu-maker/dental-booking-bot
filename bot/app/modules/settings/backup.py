@@ -222,11 +222,20 @@ def _readme() -> str:
         "     fi fost goala.\r\n"
         "  4. Dezarhivati continutul PESTE folderul programului\r\n"
         "     (clinic.json langa DentPilot.exe, folderul data\\ peste data\\).\r\n"
-        "  5. Porniti programul - pacientii, programarile si documentele sunt la loc.\r\n"
-        "  6. Reintroduceti tokenul botului Telegram in Setari (tokenul nu se\r\n"
+        "  5. DACA exista fisierul data\\db.key (criptarea evidentei era\r\n"
+        "     activata pe acest calculator) - STERGETI data\\db.key. Baza din\r\n"
+        "     arhiva NU este criptata, iar cu cheia ramasa pe loc programul ar\r\n"
+        "     deschide-o ca pe una criptata si ar da eroare la pornire\r\n"
+        "     (\"file is not a database\"). Dupa restaurare criptarea se\r\n"
+        "     activeaza din nou din Setari - Criptarea evidentei. Este singura\r\n"
+        "     situatie in care acest fisier se sterge.\r\n"
+        "  6. Porniti programul - pacientii, programarile si documentele sunt la loc.\r\n"
+        "  7. Reintroduceti tokenul botului Telegram in Setari (tokenul nu se\r\n"
         "     copiaza intre calculatoare, din motive de securitate).\r\n\r\n"
         "ACELASI PAS 3 se aplica si cand copiati o singura copie zilnica din\r\n"
-        "data\\backups peste data\\dental.db: stergeti intai -wal si -shm.\r\n\r\n"
+        "data\\backups peste data\\dental.db: stergeti intai -wal si -shm.\r\n"
+        "(Pasul 5 NU se aplica la copiile zilnice: ele sunt criptate cu aceeasi\r\n"
+        "cheie ca baza, deci db.key ramane pe loc.)\r\n\r\n"
         "Arhiva contine date despre sanatate. Pastrati-o intr-un loc sigur.\r\n")
 
 

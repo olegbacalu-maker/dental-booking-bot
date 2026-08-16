@@ -307,8 +307,32 @@ def apply_pending(data_dir: pathlib.Path, db_name: str = "dental.db") -> str | N
 
     if decrypt.exists():
         key = load(data_dir)
-        if key is not None and not opens_with(src, None):
-            convert(src, None, was=key)
+        if key is not None:
+            # ⛔ Копии data/backups расшифровываются ПЕРВЫМИ — зеркало ветки
+            # encrypt, которая их специально переводила под ключ. Раньше они
+            # оставались под SQLCipher, а единственная машинная копия ключа
+            # удалялась строкой ниже: откат «на вчера» подкладывал программе
+            # зашифрованный файл, ключа к которому больше нет, — «file is not
+            # a database» на старте, и экран восстановления недостижим (его
+            # включает наличие db.key). Копия, что не открывается ни ключом,
+            # ни как открытая, — чужая: наш ключ ей не нужен, её не трогаем.
+            stale = []
+            for old in sorted((data_dir / "backups").glob("dental_*.db")):
+                if not opens_with(old, key):
+                    continue
+                try:
+                    convert(old, None, was=key)
+                except Exception:                        # noqa: BLE001
+                    stale.append(old.name)
+            if stale:
+                # ключ обязан пережить сбой: пока хоть одна копия под ним,
+                # удалить его значит потерять её. База остаётся зашифрованной,
+                # состояние цельное; след уходит в лог лаунчера этой строкой.
+                decrypt.unlink(missing_ok=True)
+                return ("decrypt-failed (копии не расшифровались: "
+                        + ", ".join(stale) + ")")
+            if not opens_with(src, None):
+                convert(src, None, was=key)
         # ⛔ Ключ удаляем ТОЛЬКО убедившись, что база и правда открытая.
         # Безусловный unlink здесь был дырой на потерю картотеки (найдено
         # враждебным ревью 08-09): если DPAPI перестал отдавать ключ — сброс

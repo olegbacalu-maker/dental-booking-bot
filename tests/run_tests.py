@@ -18,6 +18,7 @@ import test_admin  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
+import test_launcher  # noqa: E402
 import test_migrate  # noqa: E402
 import test_bot  # noqa: E402
 import test_pin  # noqa: E402
@@ -91,7 +92,13 @@ SUITES = [
     ("Шифрование базы: переезд", test_dbcrypt.suite_convert),
     ("Шифрование базы: программа на шифре", test_dbcrypt.suite_live),
     ("Шифрование базы: отложенный переезд", test_dbcrypt.suite_pending),
+    ("Шифрование базы: выключение и копии", test_dbcrypt.suite_off_backups),
+    ("Шифрование базы: заказ по галочке", test_dbcrypt.suite_confirm),
     ("Шифрование базы: восстановление по листу", test_dbcrypt.suite_recover),
+    ("Бэкап: отказ экспорта и инструкции db.key", test_dbcrypt.suite_export_err),
+    ("Лаунчер: dental.env из Блокнота", test_launcher.suite_envfile),
+    ("Лаунчер: DENTART_PORT", test_launcher.suite_port),
+    ("Лаунчер: автокопия базы", test_launcher.suite_autobackup),
     ("Зашифрованный бэкап клиники",test_privacy.suite_backup),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]

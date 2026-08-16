@@ -169,6 +169,12 @@ MSG_BANNER = {
     "bad_pin": ("err", "PIN-ul vechi e greșit sau cel nou nu are 4–6 cifre identice"),
     "lock_pin": ("warn", "Prea multe încercări greșite — așteptați câteva minute"),
     "bad_tok": ("err", "Token invalid — copiați exact tokenul de la @BotFather"),
+    # ⚠️ dental.env не удалось ПРОЧИТАТЬ (придержан антивирусом/OneDrive или
+    # сохранён в нечитаемой кодировке) — запись отменена, файл не тронут.
+    "bad_env": ("err", "Nu am putut salva: fișierul dental.env nu a putut fi "
+                       "citit (poate fi blocat de alt program). Închideți "
+                       "programele care îl folosesc și încercați din nou; "
+                       "detalii în data\\dentpilot.log"),
     "ok_tok": ("ok", "Token salvat — reporniți programul pentru aplicare"),
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),

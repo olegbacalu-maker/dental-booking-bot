@@ -11,8 +11,11 @@
 набор был бы зелёным и при выключенном шифровании: библиотека подключается и
 молча пишет обычный SQLite, если `PRAGMA key` не была первой операцией.
 """
+import os
 import pathlib
+import re
 import shutil
+import stat
 import sys
 import tempfile
 
@@ -349,5 +352,168 @@ def suite_recover(res: Result) -> None:
         with Server(dir_=tmp) as s:          # после перезапуска — обычная работа
             res.check("после перезапуска журнал открывается",
                       Client(s.url).login().get("/admin").status, 200)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ---------- 6. выключение шифрования и ежедневные копии ----------
+
+def suite_off_backups(res: Result) -> None:
+    """Ветка decrypt обязана зеркалить ветку encrypt: копии data/backups
+    переехали под ключ при включении — при выключении обязаны вернуться в
+    открытый вид ДО того, как исчезнет db.key. Иначе откат «на вчера» после
+    выключения подкладывает зашифрованный файл машине, у которой ключа уже
+    нет, — и восстановиться нечем (находка волны 1)."""
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dbcrypt_off_"))
+    try:
+        db = tmp / "dental.db"
+        _plain_db(db, rows=3)
+        (tmp / "backups").mkdir()
+        c1 = tmp / "backups" / "dental_20260101_1.db"
+        c2 = tmp / "backups" / "dental_20260102_1.db"
+        _plain_db(c1, rows=2)
+        _plain_db(c2, rows=1)
+
+        key = dbkey.generate()
+        dbkey.request_encrypt(tmp, key)
+        res.ok("включение переехало вместе с копиями",
+               (dbkey.apply_pending(tmp) or "").startswith("encrypted")
+               and MARK.encode() not in c1.read_bytes(),
+               "включение не прошло — проверять выключение не на чем")
+
+        dbkey.request_decrypt(tmp)
+        res.check("выключение выполнено", dbkey.apply_pending(tmp), "decrypted")
+        res.ok("основная база открыта", MARK.encode() in db.read_bytes(),
+               "dental.db не расшифровалась")
+        for copy in (c1, c2):
+            res.ok(f"копия {copy.name} расшифрована",
+                   MARK.encode() in copy.read_bytes(),
+                   "копия осталась под SQLCipher, а единственный ключ удалён — "
+                   "откат на вчера станет «file is not a database»")
+        res.ok("ключ удалён после расшифровки всего", not dbkey.enabled(tmp),
+               "db.key остался при открытой базе")
+
+        # -- копия, которую расшифровать не вышло: ключ обязан уцелеть --
+        dbkey.request_encrypt(tmp, key)
+        dbkey.apply_pending(tmp)
+        os.chmod(c1, stat.S_IREAD)           # замена файла откажет (Windows)
+        try:
+            dbkey.request_decrypt(tmp)
+            out = dbkey.apply_pending(tmp)
+            res.ok("операция не завершена при застрявшей копии",
+                   out != "decrypted", f"вернулось {out!r}")
+            res.ok("ключ на месте — копию ещё можно спасти",
+                   (tmp / dbkey.KEY_FILE).exists(),
+                   "db.key удалён, а копия осталась под ключом")
+            res.ok("основная база не расшифрована раньше копий",
+                   MARK.encode() not in db.read_bytes(),
+                   "dental.db открыта, ключ жив — но копии под ключом: "
+                   "полудоделанное состояние")
+        finally:
+            os.chmod(c1, stat.S_IREAD | stat.S_IWRITE)
+        dbkey.request_decrypt(tmp)
+        res.check("после снятия помехи выключение доводится до конца",
+                  dbkey.apply_pending(tmp), "decrypted")
+        res.ok("и застрявшая копия расшифрована",
+               MARK.encode() in c1.read_bytes(), "копия так и не вернулась")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ---------- 7. заказ на шифрование — только после подтверждения листа ----------
+
+def suite_confirm(res: Result) -> None:
+    """Включение ТРЕБУЕТ подтверждения, что лист сохранён (докстринг dbkey) —
+    значит заказ (pending-файл) имеет право появиться только на галочке
+    «Am tipărit foaia». Раньше его создавал сам /crypt/prepare: директор
+    закрывал страницу листа, не печатая, а следующий старт молча шифровал
+    картотеку — без листа на бумаге это потеря базы при первой смене ПК."""
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dbcrypt_conf_"))
+    try:
+        shutil.copy(FIXTURES / "clinic_test.json", tmp / "clinic.json")
+        with Server(dir_=tmp) as s:
+            c = Client(s.url).login()
+            r = c.post("/admin/settings/crypt/prepare")
+            res.ok("подготовка ведёт на лист",
+                   r.status == 303 and "sheet" in r.location, f"{r!r}")
+            res.ok("закрытая страница листа не оставляет заказа",
+                   not (tmp / dbkey.PENDING_FILE).exists(),
+                   "pending создан ДО подтверждения — следующий старт "
+                   "зашифрует без листа на бумаге")
+            if not (tmp / dbkey.PENDING_FILE).exists():
+                res.ok("лаунчеру нечего применять",
+                       dbkey.apply_pending(tmp) is None,
+                       "переезд заказан без галочки")
+
+            sheet = c.get("/admin/settings/crypt/sheet")
+            res.check("лист открывается", sheet.status, 200)
+            m = re.search(r'class="code">([A-Z2-7\-]+)<', sheet.body)
+            code = m.group(1) if m else ""
+            res.ok("на листе напечатан код", bool(m), "кода нет в разметке")
+
+            c.post("/admin/settings/crypt/confirm", ack="")
+            res.ok("без галочки заказа по-прежнему нет",
+                   not (tmp / dbkey.PENDING_FILE).exists(),
+                   "заказ создан без подтверждения")
+
+            c.post("/admin/settings/crypt/confirm", ack="1")
+            res.ok("после подтверждения заказ лежит",
+                   (tmp / dbkey.PENDING_FILE).exists(),
+                   "галочка не создала заказ — шифрование не включится")
+            res.check("заказан ровно тот ключ, что на листе",
+                      dbkey.load_pending(tmp), dbkey.parse_recovery(code))
+
+            # повторная подготовка не перевыпускает ключ (находка 08-09)
+            c.post("/admin/settings/crypt/prepare")
+            sheet2 = c.get("/admin/settings/crypt/sheet")
+            res.ok("код на листе не изменился от второго нажатия",
+                   code in sheet2.body,
+                   "второй ключ поверх — напечатанный лист стал ложным")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ---------- 8. экспорт бэкапа при нечитаемом ключе + инструкции про db.key ----
+
+def suite_export_err(res: Result) -> None:
+    """Отказ экспорта — баннером, не голым 500; и без незашифрованного снимка
+    базы, забытого в %TEMP% (находка волны 2). Заодно: обе инструкции
+    восстановления обязаны называть db.key — плоская база из архива на машине
+    с включённым шифрованием иначе открывается ключом и выглядит битой."""
+    from app.modules.settings import backup as bkp_mod
+
+    res.ok("CITESTE-MA.txt называет db.key", "db.key" in bkp_mod._readme(),
+           "восстановление из архива при включённом шифровании даст "
+           "«file is not a database» без единой подсказки")
+
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dbcrypt_exp_"))
+    try:
+        shutil.copy(FIXTURES / "clinic_test.json", tmp / "clinic.json")
+        key = dbkey.generate()
+        if not dbkey.store(key, tmp):
+            res.failed.append(("ключ не сохранился под DPAPI",
+                               "не Windows или DPAPI отказал"))
+            return
+        with Server(dir_=tmp) as s:
+            c = Client(s.url).login()
+
+            faq = c.get("/admin/settings/faq").body
+            seg = (faq.split("Cum deschid arhiva", 1)[1].split("<details", 1)[0]
+                   if "Cum deschid arhiva" in faq else "")
+            res.ok("FAQ про восстановление архива называет db.key",
+                   "db.key" in seg,
+                   "инструкция молчит про ключ — восстановленная база "
+                   "выглядит битой")
+
+            # ключ «унесли» посреди работы (переезд учётки) — база живёт на
+            # соединении, открытом при старте, а экспорт читает ключ заново
+            (tmp / dbkey.KEY_FILE).write_text("dpapi:мусор", encoding="utf-8")
+            troot = pathlib.Path(tempfile.gettempdir())
+            before = {p.name for p in troot.glob("dp_backup_*")}
+            r = c.post("/admin/backup/export", parola="parola-foarte-buna")
+            res.check("отказ показан баннером, а не 500", r.msg, "bad_bkp")
+            after = {p.name for p in troot.glob("dp_backup_*")}
+            res.ok("снимок базы не остался в %TEMP%", after == before,
+                   f"остались: {sorted(after - before)}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

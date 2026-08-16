@@ -418,7 +418,13 @@ async def admin_lan_save(request: Request, mode: str = Form("")):
     if not (db.IS_SQLITE and env_file):
         return RedirectResponse("/admin/settings", status_code=303)
     val = "1" if mode == "on" else ""
-    envfile.set_value(pathlib.Path(env_file), "DENTART_LAN", val)
+    try:
+        envfile.set_value(pathlib.Path(env_file), "DENTART_LAN", val)
+    except OSError as ex:
+        # dental.env не читается/не пишется (придержан, чужая кодировка) —
+        # set_value отказывается, а не переписывает файл; говорим честно
+        logging.getLogger("settings").warning("env write: %r", ex)
+        return RedirectResponse("/admin/settings/lan?msg=bad_env", status_code=303)
     os.environ["DENTART_LAN"] = val
     logging.getLogger("settings").warning(
         "LAN access %s", "ENABLED" if val else "disabled")
@@ -591,8 +597,19 @@ ecranului (Win+L).</p>
     return _sec_page(body, "setări · criptare", msg)
 
 
+# Ключ, показанный на листе, но ещё НЕ заказанный. Заказ (pending-файл на
+# диске) появляется только на галочке «Am tipărit foaia»: докстринг dbkey
+# обещает, что включение ТРЕБУЕТ подтверждения листа, а раньше pending клал
+# уже /crypt/prepare — директор закрывал страницу листа, не печатая, и
+# следующий старт молча шифровал картотеку. Без листа на бумаге это потеря
+# базы при первой же смене ПК. Память процесса — правильное место ровно
+# потому, что перезапуск её стирает: не подтверждено = не заказано.
+_SHEET_KEY: bytes | None = None
+
+
 @router.post("/admin/settings/crypt/prepare")
 async def settings_crypt_prepare(request: Request):
+    global _SHEET_KEY
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     d = _data_dir()
@@ -608,8 +625,8 @@ async def settings_crypt_prepare(request: Request):
     # дело в регистратуре, так что это не теоретический случай.
     if dbkey.enabled(d):
         return RedirectResponse("/admin/settings/crypt?msg=crypt_on", status_code=303)
-    if dbkey.load_pending(d) is None and not dbkey.request_encrypt(d, dbkey.generate()):
-        return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
+    if dbkey.load_pending(d) is None and _SHEET_KEY is None:
+        _SHEET_KEY = dbkey.generate()
     return RedirectResponse("/admin/settings/crypt/sheet", status_code=303)
 
 
@@ -623,11 +640,15 @@ async def settings_crypt_sheet(request: Request):
     key = None
     if d and (d / dbkey.PENDING_FILE).exists():
         key = dbkey.load_pending(d)
+    if key is None and not dbkey.enabled(d):
+        key = _SHEET_KEY                 # показан, но ещё не подтверждён
     if key is None:
         key = dbkey.load()
     if key is None:
         return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
-    pending = bool(d and (d / dbkey.PENDING_FILE).exists())
+    # подтверждение нужно и ожидающему заказу, и ещё не заказанному листу
+    pending = bool(d and ((d / dbkey.PENDING_FILE).exists()
+                          or (_SHEET_KEY is not None and not dbkey.enabled(d))))
     e = html.escape
     confirm = ("""
 <form class='noprint' method='post' action='/admin/settings/crypt/confirm'>
@@ -681,11 +702,25 @@ nu apar în el. Codul poate fi introdus cu litere mici și cu spații.</div>
 @router.post("/admin/settings/crypt/confirm")
 async def settings_crypt_confirm(request: Request, ack: str = Form("")):
     """Подтверждение и перезапуск. Сам переезд делает ЛАУНЧЕР до старта
-    приложения: базу нельзя подменять под открытым соединением."""
+    приложения: базу нельзя подменять под открытым соединением.
+
+    ⭐ Заказ (pending-файл) кладётся ИМЕННО ЗДЕСЬ, на галочке «лист напечатан»,
+    а не в /prepare: закрытая без подтверждения страница листа не должна
+    оставлять на диске ничего, что следующий старт исполнит как приказ
+    шифровать. Ключ заказа — ровно тот, что напечатан на листе (_SHEET_KEY)."""
+    global _SHEET_KEY
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if ack != "1":
         return RedirectResponse("/admin/settings/crypt/sheet", status_code=303)
+    d = _data_dir()
+    if not d:
+        return RedirectResponse("/admin/settings/crypt?msg=bad_crypt", status_code=303)
+    if not dbkey.enabled(d) and dbkey.load_pending(d) is None:
+        if _SHEET_KEY is None or not dbkey.request_encrypt(d, _SHEET_KEY):
+            return RedirectResponse("/admin/settings/crypt?msg=bad_crypt",
+                                    status_code=303)
+    _SHEET_KEY = None
     return HTMLResponse(_restart_page("Criptarea a fost activată",
                                       "/admin/settings/crypt"))
 
@@ -1290,13 +1325,24 @@ async def admin_backup_export(request: Request, parola: str = Form(...)):
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_backup_"))
     dest = tmp / "backup.zip"
     clinic = os.environ.get("CLINIC_CONFIG", "")
+    # ⚠️ Не только OSError: _db_snapshot нарочно бросает RuntimeError (ключ
+    # шифрования не читается), а у драйвера базы свои классы (залоченная база,
+    # сбой sqlcipher_export) — ловить их через db._SQ, второй бэкенд пишет
+    # иначе. Раньше всё это уходило голым 500, а во временной папке навсегда
+    # оставался НЕЗАШИФРОВАННЫЙ снимок картотеки — подчистка стояла только в
+    # ветке OSError. Теперь прибирает finally: любой исход без готового архива
+    # не оставляет в %TEMP% ничего.
+    ok = False
     try:
         n = bkp.write_encrypted(d, pathlib.Path(clinic) if clinic else None,
                                 parola, dest)
-    except OSError as ex:
+        ok = True
+    except (OSError, RuntimeError, db._SQ.Error if db._SQ else ()) as ex:
         logging.getLogger("settings").warning("backup export: %r", ex)
-        shutil.rmtree(tmp, ignore_errors=True)
         return RedirectResponse("/admin/settings/backup?msg=bad_bkp", status_code=303)
+    finally:
+        if not ok:
+            shutil.rmtree(tmp, ignore_errors=True)
     logging.getLogger("settings").warning("encrypted backup exported (%d files)", n)
     return FileResponse(
         dest, filename=bkp.archive_name(), media_type="application/zip",
@@ -1318,8 +1364,15 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
     # пользуются и бот, и статус на этой же странице. Если DPAPI недоступен
     # (запуск из исходников не под Windows), пишем как раньше — иначе правка
     # токена перестала бы работать у разработчика вовсе.
-    envfile.set_value(pathlib.Path(env_file), "TELEGRAM_TOKEN",
-                      (dpapi.protect(tok) or tok) if tok else "")
+    try:
+        envfile.set_value(pathlib.Path(env_file), "TELEGRAM_TOKEN",
+                          (dpapi.protect(tok) or tok) if tok else "")
+    except OSError as ex:
+        # dental.env не читается — set_value отказывается, а не переписывает
+        # файл одной строкой; окружение тоже не трогаем: файл и env едины
+        logging.getLogger("settings").warning("env write: %r", ex)
+        return RedirectResponse("/admin/settings/telegram?msg=bad_env",
+                                status_code=303)
     os.environ["TELEGRAM_TOKEN"] = tok
     os.environ.pop("DENTART_TOKEN_UNREADABLE", None)
     if upd.restart_app() is not None:

@@ -33,6 +33,24 @@ def bundle_dir() -> pathlib.Path:
 
 BASE = exe_dir()
 
+data_dir = BASE / "data"
+data_dir.mkdir(exist_ok=True)
+
+# noconsole-сборка: sys.stdout/stderr = None → uvicorn падает на isatty().
+# Подкладываем безопасные потоки; stderr пишем в файл (видны краши).
+# ⚠️ Стоит ВЫШЕ первого чтения файлов намеренно: dental.env правит сама
+# клиника, и падение на его разборе иначе гибло бы молча — stderr ещё None,
+# лога ещё нет, двойной клик по ярлыку «не делает ничего».
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+if sys.stderr is None:
+    sys.stderr = open(data_dir / "dentpilot.err.log", "a", encoding="utf-8")  # noqa: SIM115
+
+logging.basicConfig(
+    filename=str(data_dir / "dentpilot.log"), level=logging.WARNING,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 cfg_path = BASE / "clinic.json"
 if not cfg_path.exists():
     # Первый запуск. Два РАЗНЫХ вшитых профиля, а не один с подчистками:
@@ -61,80 +79,49 @@ for k, v in envfile.read_all(env_path).items():
 # приложения — дальше TELEGRAM_TOKEN читается из окружения как обычная строка.
 dpapi.unlock_env_token(env_path)
 
-data_dir = BASE / "data"
-data_dir.mkdir(exist_ok=True)
 os.environ.setdefault("CLINIC_CONFIG", str(cfg_path))
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{data_dir / 'dental.db'}")
-
-# noconsole-сборка: sys.stdout/stderr = None → uvicorn падает на isatty().
-# Подкладываем безопасные потоки; stderr пишем в файл (видны краши).
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
-if sys.stderr is None:
-    sys.stderr = open(data_dir / "dentpilot.err.log", "a", encoding="utf-8")  # noqa: SIM115
-
-logging.basicConfig(
-    filename=str(data_dir / "dentpilot.log"), level=logging.WARNING,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
 
 # путь к env-файлу — для страницы настроек (правка токена из UI)
 os.environ["DENTART_ENV_FILE"] = str(env_path)
 
 
 def _auto_backup() -> None:
-    """Копия базы при каждом старте (через SQLite backup API — консистентно
-    даже после краха с WAL), храним последние 14 в data/backups.
-
-    ⭐ Если картотека зашифрована, копии тоже пишутся ПОД КЛЮЧОМ — в отличие от
-    вывозимого архива, который остаётся самодостаточным. Логика обратная той,
-    что была записана до шифрования («шифровать копии на месте — театр, они
-    лежат рядом с открытой базой»): теперь открытая копия рядом с зашифрованной
-    базой и есть дыра, ради которой всё затевалось. Роли разошлись: эти 14
-    файлов — откат на этой же машине, архив — переезд и беда.
-    ⚠️ Импорт `app.core.dbkey` тут возможен ровно потому, что тот не тянет
-    `storage`/`db`: лаунчер работает до сборки приложения.
+    """Копия базы при каждом старте. Сама логика (шифрованные копии, ротация,
+    временное имя против битых файлов-обманок) — в `app.core.autobackup`:
+    тело desktop.py тестами неимпортируемо, а упавший на середине бэкап уже
+    однажды оставлял мусор, который ротация считала новейшей копией.
+    ⚠️ Импорт `app.core.autobackup` тут возможен ровно потому, что тот не
+    тянет `storage`/`db`: лаунчер работает до сборки приложения.
     """
-    src = data_dir / "dental.db"
-    if not src.exists():
-        return
     try:
-        import sqlite3
-        bdir = data_dir / "backups"
-        bdir.mkdir(exist_ok=True)
-        # PID в имени: два одновременных старта не пишут в один файл бэкапа
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        dst_path = bdir / f"dental_{stamp}_{os.getpid()}.db"
-        from app.core import dbkey
-        key = dbkey.load(data_dir) if dbkey.enabled(data_dir) else None
-        if dbkey.enabled(data_dir) and key is None:
-            # ключ не читается — копия штатным sqlite3 сделала бы мусорный
-            # файл, который выглядит как бэкап. Лучше громко ничего не сделать.
-            raise RuntimeError("cheia bazei nu poate fi citită")
-        if key is not None:
-            import sqlcipher3.dbapi2 as sqlcipher
-            pragma = dbkey.pragma_value(key)
-            src_c = sqlcipher.connect(str(src))
-            src_c.execute(f"PRAGMA key = {pragma}")
-            src_c.execute(f"ATTACH DATABASE ? AS bk KEY {pragma}", (str(dst_path),))
-            src_c.execute("SELECT sqlcipher_export('bk')")
-            src_c.execute("DETACH DATABASE bk")
-            src_c.close()
-        else:
-            src_c = sqlite3.connect(str(src))
-            dst_c = sqlite3.connect(str(dst_path))
-            with dst_c:
-                src_c.backup(dst_c)
-            src_c.close()
-            dst_c.close()
-        for f in sorted(bdir.glob("dental_*.db"))[:-14]:
-            f.unlink(missing_ok=True)
-        logging.warning("Auto-backup: %s", dst_path.name)
+        from app.core import autobackup
+        done = autobackup.make_backup(data_dir)
+        if done is not None:
+            logging.warning("Auto-backup: %s", done.name)
     except Exception as e:  # noqa: BLE001 — бэкап не должен блокировать старт
         logging.warning("Auto-backup FAILED: %r", e)
 
 
-PORT = int(os.environ.get("DENTART_PORT", "8088"))
+# DENTART_PORT правит сама клиника — диалог «портул e ocupat» это прямо
+# советует, — поэтому мусор в нём ожидаем. Раньше голый int() падал ЗДЕСЬ, на
+# верхнем уровне модуля, до excepthook и до любого MessageBox: двойной клик по
+# ярлыку «не делал ничего», а клинику только что попросили править этот ключ.
+_port_raw = os.environ.get("DENTART_PORT", "").strip()
+PORT = envfile.parse_port(_port_raw) or 8088
+if _port_raw and envfile.parse_port(_port_raw) is None:
+    logging.error("DENTART_PORT invalid: %r - folosim 8088", _port_raw)
+    _port_warn = (f'DENTART_PORT invalid: "{_port_raw}" — se folosește portul '
+                  f"8088.\nCorectați valoarea în dental.env "
+                  f"(un număr între 1 și 65535).")
+    if os.environ.get("DENTART_BROWSER_MODE") == "1":
+        print(_port_warn)
+    else:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, _port_warn, "DentPilot", 0x30)
+        except Exception:  # noqa: BLE001 — не-Windows/без user32
+            pass
 # Доступ с телефона (Setări → Acces de pe telefon): 0.0.0.0 ТОЛЬКО по явному
 # DENTART_LAN=1 из dental.env. По умолчанию — 127.0.0.1, сетевого доступа НЕТ.
 # Окно программы и single-instance guard ходят через loopback в обоих режимах.

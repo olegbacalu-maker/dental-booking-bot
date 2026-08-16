@@ -119,4 +119,10 @@ def unlock_env_token(env_path: pathlib.Path) -> None:
     # установленная база так и осталась бы с токеном в блокноте: страницу
     # настроек после обновления открывают не все.
     if tok and not stored.startswith(PREFIX) and (enc := protect(tok)):
-        envfile.set_value(env_path, TOKEN_KEY, enc)
+        try:
+            envfile.set_value(env_path, TOKEN_KEY, enc)
+        except OSError:
+            # файл придержан (антивирус, OneDrive) — перешифровка подождёт
+            # следующего старта; токен уже в окружении, бот работает. Падать
+            # здесь нельзя: это до подмены stderr, смерть была бы без следа.
+            pass
