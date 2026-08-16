@@ -263,8 +263,14 @@ def suite_roles(res: Result) -> None:
                "директор потерял свои разделы")
 
         # смена пароля закрывает вкладки ИМЕННО этого человека
+        key_before = _rec(s)["cookie_key"]
         boss.post("/admin/users/save", uid="d2", name="Dr. Liviu", role="medic",
                   doctor_id="d2", pin="5555")
+        # ⭐ замок на политику из карты: правка ЧУЖОЙ учётки не вращает ключ
+        # подписи — иначе смена пароля врачу разлогинила бы всю клинику
+        res.ok("правка чужой учётки не вращает ключ подписи",
+               _rec(s)["cookie_key"] == key_before,
+               "cookie_key сменился — правка одной учётки закрыла сессии всех")
         res.ok("после смены пароля старая сессия врача закрыта",
                med.get("/admin").status == 303, "старая кука ещё пускает")
         res.ok("а директора — нет", boss.get("/admin").status == 200,
@@ -373,6 +379,92 @@ def suite_tamper(res: Result) -> None:
                    marker in body and "șters" in body, "тихий сброс остался тихим")
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def suite_broken(res: Result) -> None:
+    """Битый auth.json ≠ «PIN не установлен».
+
+    Усечённый обрывом записи файл раньше был неотличим от отсутствующего:
+    _pin_rec() давал None, и программа предлагала ПЕРВИЧНУЮ установку PIN
+    поверх живых учёток — любой за компьютером становился единственным
+    директором. Стережётся: setup закрыт, вход объясняет беду по-румынски,
+    и сам файл ни разу не переписан (учётки восстановимы только из копии).
+    """
+    s = Server(env=NO_KEY)
+    # так выглядит auth.json после обрыва питания посреди записи
+    broken = '{"v": 2, "cookie_key": "abc", "users": [{"id": "cl'
+    (s.dir / "auth.json").write_text(broken, encoding="utf-8")
+    with s:
+        c = Client(s.url)
+        r = c.get("/admin")
+        res.ok("битый файл не ведёт на первичную установку",
+               r.status == 303 and "/admin/setup" not in r.location,
+               f"код {r.status}, location {r.location!r} — установка поверх "
+               f"живых учёток")
+        res.ok("экран установки PIN закрыт",
+               c.get("/admin/setup").status == 303,
+               "setup отдал страницу — новый PIN сотрёт все учётки")
+        c.post("/admin/setup", pin1="9999", pin2="9999")
+        res.check("POST мимо экрана файл не переписывает",
+                  (s.dir / "auth.json").read_text(encoding="utf-8"), broken)
+        page = c.get("/admin/login")
+        res.ok("вход объясняет, что файл повреждён",
+               page.status == 200 and "deteriorat" in page.body,
+               f"код {page.status}, на входе нет слова о битом файле")
+        res.ok("и говорит, откуда восстановить",
+               "auth.json" in page.body and "rezerv" in page.body,
+               "нет подсказки про копию — клиника не знает, что делать")
+        r = c.post("/admin/login", password="9999", next="/admin")
+        res.ok("форма входа не врёт про неверный PIN",
+               "err=broken" in r.location, f"location {r.location!r}")
+        res.check("и после попытки входа файл цел",
+                  (s.dir / "auth.json").read_text(encoding="utf-8"), broken)
+
+
+def suite_atomic(res: Result) -> None:
+    """auth.json пишется атомарно: обрыв посреди записи (питание, убитый
+    процесс) не должен оставлять усечённый файл. Сервер не нужен — проверяется
+    сам модуль: «обрыв» имитируется прямой записью, оборванной на середине."""
+    sys.path.insert(0, str(BOT))
+    from app.core import auth
+
+    tmp_dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_auth_"))
+    p = tmp_dir / "auth.json"
+    orig_path, orig_write = auth._auth_path, pathlib.Path.write_text
+    try:
+        auth._auth_path = lambda: p
+        auth._save_users([{"id": "clinic", "role": "director", "kdf": auth.KDF,
+                           "iter": 1, "salt": "s", "hash": "h", "sid": "x"}],
+                         rotate=True)
+        before = json.loads(p.read_text(encoding="utf-8"))
+        res.check("файл записан и читается", before.get("v"), 2)
+
+        def cut(self, data, *a, **kw):
+            """Обрыв питания: на диск доезжает половина, дальше — тьма."""
+            with open(self, "w", encoding="utf-8") as f:
+                f.write(data[: len(data) // 2])
+            raise OSError("simulated power loss")
+
+        pathlib.Path.write_text = cut
+        try:
+            auth._save_users(before["users"] + [{"id": "ana"}], rotate=False)
+        except OSError:
+            pass
+        finally:
+            pathlib.Path.write_text = orig_write
+        try:
+            after = json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            after = None
+        res.ok("обрыв записи не оставляет битый файл", after is not None,
+               "auth.json усечён — при следующем старте все учётки пропадут")
+        res.ok("в файле либо старое, либо новое содержимое целиком",
+               after is not None and len(after.get("users") or []) in (1, 2),
+               f"получено {after!r}")
+    finally:
+        auth._auth_path = orig_path
+        pathlib.Path.write_text = orig_write
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def suite_change(res: Result) -> None:

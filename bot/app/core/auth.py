@@ -126,6 +126,37 @@ def _pin_rec() -> dict | None:
     return None
 
 
+def _auth_broken() -> bool:
+    """Файл ЕСТЬ, но не читается, — это состояние ошибки, а не «PIN не
+    установлен». Различие принципиально: усечённый обрывом записи auth.json
+    иначе неотличим от отсутствующего, и программа предложила бы ПЕРВИЧНУЮ
+    установку PIN поверх живых учёток — любой за компьютером стал бы
+    единственным директором, а сотрудники клиники молча пропали бы.
+    Битый файл не перезаписываем и не удаляем: учётки восстановимы только из
+    копии, и след для сигнализации auth_fp обязан остаться на диске."""
+    p = _auth_path()
+    if not p or not p.exists():
+        return False
+    try:
+        json.loads(p.read_text(encoding="utf-8"))
+        return False
+    except (OSError, json.JSONDecodeError):
+        return True
+
+
+def auth_blocked() -> bool:
+    """Битый auth.json ЗАКРЫВАЕТ вход — но только там, где войти иначе нечем.
+
+    ⚠️ Условие обязано быть одним на всю программу, и списывать его по месту
+    нельзя. У битого файла `_pin_rec()` тоже None, поэтому `_secret()` отдаёт
+    ADMIN_KEY: там, где ключ заполнен (песочница, весь харнесс, клиника, которой
+    его вписали руками), вход по ключу исправен и auth.json в нём не участвует
+    ни одной строкой. Безусловный отказ запирал бы такую установку наглухо —
+    с советом восстановить копию, которая этой беде не помогает.
+    """
+    return not _secret() and db.IS_SQLITE and _auth_broken()
+
+
 def _derive(pin: str, salt: str, kdf: str = KDF, iters: int = KDF_ITER) -> str:
     if kdf == KDF_LEGACY:
         return hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
@@ -253,6 +284,10 @@ def _as_user(u: dict) -> dict:
 def _guard(request: Request) -> RedirectResponse | None:
     sec = _secret()
     if not sec:
+        if auth_blocked():
+            # файл есть, но битый: НЕ первичная установка (она бы молча
+            # стёрла учётки) — экран входа объяснит, что делать
+            return RedirectResponse("/admin/login?err=broken", status_code=303)
         if db.IS_SQLITE:
             # desktop без PIN — принудительная первичная установка
             return RedirectResponse("/admin/setup", status_code=303)
@@ -290,9 +325,22 @@ def _save_users(users: list[dict], *, rotate: bool) -> None:
     key = rec.get("cookie_key") or ""
     if rotate or not key:
         key = secrets.token_hex(32)
-    _auth_path().write_text(
-        json.dumps({"v": 2, "cookie_key": key, "users": users}, indent=1),
-        encoding="utf-8")
+    # Запись атомарная, как dbkey.store: обрыв посреди прямого write_text
+    # оставил бы усечённый auth.json — а он раньше был неотличим от «PIN не
+    # установлен», и все учётки клиники молча пропадали. tmp — в ТОЙ ЖЕ папке:
+    # os.replace атомарен только в пределах одного тома.
+    p = _auth_path()
+    tmp = p.with_name(p.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"v": 2, "cookie_key": key, "users": users},
+                               indent=1))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, p)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def all_users() -> list[dict]:
@@ -395,7 +443,10 @@ def _write_pin(pin: str, role: str = ROLE_DIRECTOR, uid: str = "clinic") -> None
 
 
 def _setup_allowed() -> bool:
-    return db.IS_SQLITE and _pin_rec() is None and not ADMIN_KEY
+    # _auth_broken отдельно: для _pin_rec битый файл тоже None, но предлагать
+    # первичную установку поверх него нельзя — она бы стёрла живые учётки
+    return (db.IS_SQLITE and _pin_rec() is None and not ADMIN_KEY
+            and not _auth_broken())
 
 
 # --- сигнализация auth.json (08-06) ---

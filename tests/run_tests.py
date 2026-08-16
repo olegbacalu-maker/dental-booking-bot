@@ -42,6 +42,8 @@ SUITES = [
     ("PIN: защита от подбора", test_pin.suite_throttle),
     ("PIN: смена", test_pin.suite_change),
     ("Роли и права доступа", test_pin.suite_roles),
+    ("PIN: битый auth.json", test_pin.suite_broken),
+    ("PIN: атомарная запись auth.json", test_pin.suite_atomic),
     ("Сигнализация auth.json", test_pin.suite_tamper),
     ("Секреты: шифрование токена", test_pin.suite_secret),
     ("Секреты: токен в dental.env", test_pin.suite_env_token),

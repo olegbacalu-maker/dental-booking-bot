@@ -30,8 +30,8 @@ from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         PERM_SETTINGS, _as_user, _guard, _pin_rec, _secret,
                         _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_file_fp, current_user, fail_count, find_user,
-                        lock_left, note_fail, note_ok, pin_len_ok,
+                        auth_blocked, auth_file_fp, current_user, fail_count,
+                        find_user, lock_left, note_fail, note_ok, pin_len_ok,
                         remember_auth_file, request_user, require,
                         set_request_user, set_tamper_alert, verify_pin)
 from .core import dbkey, theme
@@ -458,10 +458,20 @@ async def chat(payload: dict):
 
 @app.get("/admin/login", response_class=HTMLResponse)
 async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
-    if not _secret():
+    # ⚠️ auth_blocked, а не _auth_broken: то же условие, что в _guard. При
+    # заполненном ADMIN_KEY вход по ключу исправен, и разговор про битый файл
+    # увёл бы человека чинить то, что его беде не мешает.
+    broken = auth_blocked()
+    if not _secret() and not broken:
         return RedirectResponse("/admin", status_code=303)
     pin_mode = _pin_rec() is not None
-    if err == "lock":
+    if broken:
+        # битый auth.json: состояние ошибки, а не «PIN не установлен» — setup
+        # закрыт (_setup_allowed), и человеку важно знать, ЧТО делать. Файл
+        # не трогаем: учётки восстановимы только из копии.
+        err_html = ("<div class='err'>Fișierul de acces e deteriorat — "
+                    "restaurați data\\auth.json din copia de rezervă.</div>")
+    elif err == "lock":
         # `s` — срок из редиректа сразу после неудачи; lock_left() свежее, но
         # к моменту перезагрузки страницы уже мог утечь до нуля
         left = lock_left() or (int(s) if s.isdigit() else 0)
@@ -488,6 +498,13 @@ async def admin_login(password: str = Form(...), uid: str = Form(""),
                       next_url: str = Form("/admin", alias="next")):
     target = next_url if next_url.startswith("/admin") else "/admin"
     nxt = urllib.parse.quote(target, safe="")
+    if auth_blocked():
+        # проверять ввод не по чему — «PIN greșit» тут враньё, а счётчик
+        # неудач наказал бы человека за наш же битый файл. Вложенность та же,
+        # что в _guard: при заполненном ADMIN_KEY проверять ЕСТЬ по чему, и
+        # безусловный отказ запер бы исправный вход
+        return RedirectResponse(f"/admin/login?err=broken&next={nxt}",
+                                status_code=303)
     if (left := lock_left()) > 0:
         return RedirectResponse(
             f"/admin/login?err=lock&s={left}&next={nxt}", status_code=303)
