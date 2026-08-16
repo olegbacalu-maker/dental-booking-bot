@@ -27,6 +27,7 @@ import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
 import test_review2  # noqa: E402
 import test_review3  # noqa: E402
+import test_review3_auth  # noqa: E402
 import test_review3_bot  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
@@ -101,6 +102,12 @@ SUITES = [
     ("Ревью-3: перенос визита и напоминание",
      test_review3_bot.suite_move_reminder),
     ("Ревью-3: состояние канала Telegram", test_review3_bot.suite_tg_status),
+    ("Ревью-3: смена PIN на чужой", test_review3_auth.suite_pin_dup),
+    ("Ревью-3: ID при входе и регистр", test_review3_auth.suite_login_uid_case),
+    ("Ревью-3: битый auth.json при ADMIN_KEY",
+     test_review3_auth.suite_broken_with_key),
+    ("Ревью-3: обновление (таймеры, планировщик, версия)",
+     test_review3_auth.suite_update),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),

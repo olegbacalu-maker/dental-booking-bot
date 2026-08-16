@@ -286,6 +286,27 @@ def _web_fallback(ch: str) -> dict | None:
             "asset_url": asset_url, "asset_size": size}
 
 
+# ⛔ Цепочка проверок — ОДНА на процесс. Таймер заводился в finally
+# безусловно, и каждое нажатие «Verifică acum» (а оно зовёт тот же _check)
+# добавляло вечную вторую цепочку: они не гаснут никогда и складываются. В
+# режиме ожидания файла шаг всего 5 минут, поэтому десяток нажатий за день
+# выедает анонимный лимит GitHub 60 запросов в час — и клиника перестаёт
+# видеть обновления вовсе, молча и надолго (лимит уже выбивался своим же
+# темпом, 08-11).
+_TIMER: threading.Timer | None = None
+_TIMER_LOCK = threading.Lock()
+
+
+def _schedule(delay: float) -> None:
+    global _TIMER
+    with _TIMER_LOCK:
+        if _TIMER is not None:
+            _TIMER.cancel()          # на отработавшем таймере это ничего не стоит
+        _TIMER = threading.Timer(delay, _check)
+        _TIMER.daemon = True
+        _TIMER.start()
+
+
 def _check() -> None:
     fake = os.environ.get("DENTART_FAKE_UPDATE_URL", "").strip()
     if fake:
@@ -365,10 +386,8 @@ def _check() -> None:
         # Релиз опубликован, но exe ещё не приложен (или как раз заливается,
         # 28 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
         # клиника полдня видит «новая версия», которую нельзя поставить.
-        delay = 300 if (newer_available() and not STATE["asset_url"]) else 6 * 3600
-        t = threading.Timer(delay, _check)
-        t.daemon = True
-        t.start()
+        _schedule(300 if (newer_available() and not STATE["asset_url"])
+                  else 6 * 3600)
 
 
 def check_now() -> None:
@@ -380,16 +399,29 @@ def check_async() -> None:
     threading.Thread(target=_check, daemon=True).start()
 
 
-def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> None:
-    """Запускает bat сервисом планировщика — вне нашего Job-объекта."""
+def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
+    """Запускает bat сервисом планировщика — вне нашего Job-объекта.
+    None = задача создана и запущена, str = не вышло.
+
+    ⛔ Код возврата обязателен. Вызывающие сразу после этого гасят процесс
+    (`_exit_soon`), и проглоченный отказ schtasks (политика домена, урезанные
+    права, отключённая служба) значил бы, что программа закрылась НАВСЕГДА, а
+    экран пообещал, что она сейчас вернётся. Отказ должен остаться отказом:
+    программа не гасится, а человек читает, что запустить её надо руками."""
     no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.run(
-        ["schtasks", "/create", "/tn", task_name, "/tr", f'"{bat}"',
-         "/sc", "once", "/st", "23:59", "/f"],
-        creationflags=no_win, capture_output=True, check=False,
-    )
-    subprocess.run(["schtasks", "/run", "/tn", task_name],
-                   creationflags=no_win, capture_output=True, check=False)
+    for args in (["/create", "/tn", task_name, "/tr", f'"{bat}"',
+                  "/sc", "once", "/st", "23:59", "/f"],
+                 ["/run", "/tn", task_name]):
+        p = subprocess.run(["schtasks"] + args, creationflags=no_win,
+                           capture_output=True, check=False)
+        if p.returncode != 0:
+            # вывод schtasks — в кодировке консоли; лог важнее точных букв
+            why = (p.stderr or p.stdout or b"")
+            log.warning("schtasks %s — код %s: %s", args[0], p.returncode,
+                        why.decode("utf-8", "replace").strip()[:200])
+            return (f"planificatorul Windows nu a putut porni programul "
+                    f"(schtasks {args[0]}, cod {p.returncode})")
+    return None
 
 
 def _exit_soon() -> None:
@@ -417,7 +449,10 @@ def restart_app() -> str | None:
         'del "%~f0"\r\n',
         encoding="ascii",
     )
-    _spawn_via_scheduler(bat, "DentPilotRestart")
+    if err := _spawn_via_scheduler(bat, "DentPilotRestart"):
+        # планировщик не отработал: гасить процесс нельзя — вернуть его будет
+        # некому, а экран уже умеет сказать «закройте и откройте сами»
+        return err
     _exit_soon()
     return None
 
@@ -450,8 +485,14 @@ def self_update() -> str | None:
     """Скачивает новый exe и перезапускает программу. None = пошло, str = ошибка."""
     if not is_desktop():
         return "self-update доступен только в desktop-версии"
-    if not STATE["asset_url"]:
-        return "в релизе нет exe-файла"
+    # ⛔ Гейт СЕРВЕРНЫЙ, а не «кнопки не видно»: кнопку рисует can_self_update,
+    # но POST шире кнопки. Страница-результат прошлого обновления живёт в
+    # истории браузера второго рабочего места, и повторная отправка формы
+    # ставила бы ту же версию — то есть закрывала журнал всей клинике посреди
+    # приёма ради ничего (а на машине, обогнавшей канал, ещё и откатывала бы
+    # программу назад поверх уже мигрированной базы).
+    if not can_self_update():
+        return "обновляться нечем: в релизе нет exe-файла новее текущего"
     exe = pathlib.Path(sys.executable).resolve()
     # имя производное от текущего exe: у старых установок он DentArt.exe,
     # у новых DentPilot.exe — bat в обоих случаях кладёт новый файл на место
@@ -514,6 +555,10 @@ def self_update() -> str | None:
         'del "%~f0"\r\n',
         encoding="ascii",
     )
-    _spawn_via_scheduler(bat, "DentPilotUpdate")
+    if err := _spawn_via_scheduler(bat, "DentPilotUpdate"):
+        # exe скачан и bat написан, но запустить их некому: программа обязана
+        # остаться живой. Новый файл не трогаем — следующая попытка перезапишет
+        # его, а рабочая программа на месте и продолжает приём.
+        return err
     _exit_soon()
     return None

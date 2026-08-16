@@ -32,7 +32,7 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         _secret, _set_auth_cookie, _setup_allowed, _write_pin,
                         auth_blocked, auth_file_fp, chat_session, current_user,
                         fail_count, find_user, lock_left, note_fail, note_ok,
-                        pin_len_ok,
+                        pin_free, pin_len_ok,
                         remember_auth_file, request_user, require,
                         set_request_user, set_tamper_alert, verify_pin)
 from .core import dbkey, theme
@@ -519,7 +519,11 @@ async def admin_login(password: str = Form(...), uid: str = Form(""),
         # заставлять регистратуру набирать ещё и id — трение на ровном месте.
         # Указан явно — сверяем только с ним: так на телефоне у врача вход
         # предсказуем, даже если однажды пароли всё-таки совпадут.
-        who = verify_pin(pw, uid=uid.strip()[:32])
+        # ⚠️ .lower() — как в users/save: учётки заводятся ТОЛЬКО в нижнем
+        # регистре, а поле ID на телефоне получает автозаглавную букву. Без
+        # него врач с верным паролем видит «PIN greșit» и накручивает счётчик
+        # блокировки собственным телефоном.
+        who = verify_pin(pw, uid=uid.strip().lower()[:32])
         ok = who is not None
     else:
         ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
@@ -658,6 +662,14 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
     n1, n2 = new1.strip(), new2.strip()
     if n1 != n2 or not pin_len_ok(n1):
         return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
+    # ⚠️ та же проверка, что в users/save, и по той же причине: вход идёт по
+    # ОДНОМУ паролю, и совпавший с чужим означает молчаливую смену роли.
+    # verify_pin отдаёт ПЕРВОГО совпавшего, а сменивший пароль ложится в конец
+    # списка — проигрывает всегда именно он: директор со следующего входа
+    # получает куку регистратуры и вернуть себе роль уже не может.
+    if not pin_free(n1, except_uid=who.get("id", "clinic")):
+        return RedirectResponse("/admin/settings/security?msg=dup_user",
+                                status_code=303)
     # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
     _write_pin(n1, role=who.get("role", "director"), uid=who.get("id", "clinic"))
     await remember_auth_file()
