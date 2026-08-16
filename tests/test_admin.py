@@ -588,10 +588,18 @@ def suite_grid_edges(res: Result) -> None:
                "Închis · 07:00 - 09:00" in page,
                "нет title у полоски — часы негде прочитать")
 
-        # запись вне графика: 07:00 у врача, который работает с 09:00
-        c.post("/admin/add", adate=day, atime="07:00", adoctor="d2",
+        # запись вне графика: 07:00 у врача, который работает с 09:00.
+        # ⚠️ /admin/add такую больше НЕ принимает — сервер проверяет график
+        # врача (outside_doc, 08-15). Реальный путь появления такой записи —
+        # часы врача сузили ПОСЛЕ брони; сеем её маршрутом фиши, который
+        # график врача не перепроверяет, — сетке всё равно, откуда визит.
+        c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
                aservice="consult", aname="Devreme Test", aphone="0690700",
                back="/admin/all")
+        pid_e = c.get("/admin/search?q=0690700").body.split(
+            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        c.post(f"/admin/patient/{pid_e}/appoint", adate=day, atime="07:00",
+               adoctor="d2", aservice="consult")
         page2 = c.get(f"/admin?date={day}").body
         times2 = re.findall(r"<div(?: class='nowh')?>(\d\d):00</div>", page2)
         res.ok("запись вне графика ДЕРЖИТ свой ряд", "07" in times2,

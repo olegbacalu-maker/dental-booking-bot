@@ -1,0 +1,31 @@
+{
+  "_comment": "Два врача с РАЗНЫМИ личными окнами при клинике 8-18: da принимает утром (9-13), db вечером (14-18). На этой разнице проверяется, что 'Oricare disponibil' и серверные маршруты (/admin/add, /admin/move) не сажают визит врачу вне его графика: da стоит ПЕРВЫМ намеренно — сломанный отбор кандидатов взял бы именно его. Без выходных, как в clinic_test.json.",
+  "name": "Clinica Test",
+  "phone": "+373 60 000 000",
+  "address": {
+    "ro": "str. Test 1, Cahul",
+    "ru": "ул. Тест 1, Кахул"
+  },
+  "hours": {
+    "mon": [8, 18],
+    "tue": [8, 18],
+    "wed": [8, 18],
+    "thu": [8, 18],
+    "fri": [8, 18],
+    "sat": [8, 18],
+    "sun": [8, 18]
+  },
+  "doctors": [
+    { "id": "da", "name": "Dr. Zi Dimineata", "spec": "Terapie", "work_from": 9, "work_to": 13 },
+    { "id": "db", "name": "Dr. Zi Seara", "spec": "Terapie", "work_from": 14, "work_to": 18 }
+  ],
+  "services": [
+    {
+      "id": "consult",
+      "ro": "Consultație",
+      "ru": "Консультация",
+      "price": "100 MDL"
+    }
+  ],
+  "seed_demo": false
+}

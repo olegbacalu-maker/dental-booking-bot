@@ -2142,6 +2142,24 @@ async def anonymize_patient(pid: int) -> None:
     await _execute(
         "UPDATE appointments SET comment = '' WHERE patient_id = $1",
         "UPDATE appointments SET comment = '' WHERE patient_id = ?", pid)
+    # летопись — тот же свободный текст ЭХОМ: log_event дублирует туда заметку
+    # платежа («Plată 500 MDL — transfer de la fratele …») и имя загруженного
+    # файла. Строки пациента удаляются целиком, как в delete_patient_fully;
+    # платёжные данные живут в payments и остаются. Событие «erase» пишет
+    # вызывающий маршрут ПОСЛЕ — след стирания в летописи сохраняется.
+    await _execute("DELETE FROM activity WHERE patient_id = $1",
+                   "DELETE FROM activity WHERE patient_id = ?", pid)
+    # имя документа дал человек («radiografie-popescu.png») — это личность;
+    # сам снимок остаётся (это ЧТО лечили), скрытое имя на диске и так hex.
+    # Расширение сохраняем: по нему работает белый список открытия (_OPEN_EXT)
+    for d in await _fetch(
+            "SELECT id, stored_path FROM documents WHERE patient_id = $1",
+            "SELECT id, stored_path FROM documents WHERE patient_id = ?", pid):
+        neutral = f"document-{d['id']}{os.path.splitext(d['stored_path'])[1]}"
+        await _execute(
+            "UPDATE documents SET filename = $2 WHERE id = $1",
+            "UPDATE documents SET filename = ? WHERE id = ?",
+            *((d["id"], neutral) if not IS_SQLITE else (neutral, d["id"])))
     log.warning("patient %s anonymized (erasure request, has medical records)", pid)
 
 

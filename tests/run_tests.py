@@ -18,6 +18,7 @@ import test_admin  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
+import test_doctor_windows  # noqa: E402
 import test_launcher  # noqa: E402
 import test_migrate  # noqa: E402
 import test_bot  # noqa: E402
@@ -47,6 +48,11 @@ SUITES = [
     ("Сигнализация auth.json", test_pin.suite_tamper),
     ("Секреты: шифрование токена", test_pin.suite_secret),
     ("Секреты: токен в dental.env", test_pin.suite_env_token),
+    ("Окна расписания: обед впритык к краю", test_doctor_windows.suite_fits),
+    ("Окна расписания: «Oricare disponibil»", test_doctor_windows.suite_any),
+    ("Окна расписания: график врача на сервере",
+     test_doctor_windows.suite_routes),
+    ("Окна расписания: бросок на занятый час", test_doctor_windows.suite_drop),
     ("Запись из журнала", test_booking.suite),
     ("Запись из фиши пациента", test_booking.suite_card),
     ("Статусы и заметки", test_booking.suite_status),
@@ -86,6 +92,9 @@ SUITES = [
     ("Закон 195: полнота выгрузки", test_privacy.suite_export_full),
     ("Закон 195: имена файлов в архиве", test_privacy.suite_export_names),
     ("Закон 195: право на стирание", test_privacy.suite_erase),
+    ("Закон 195: стирание по маркеру", test_privacy.suite_erase_marker),
+    ("Закон 195: маркер и полное удаление",
+     test_privacy.suite_erase_marker_delete),
     ("Закон 195: журнал доступа", test_privacy.suite_access_log),
     ("Закон 195: формуляр информирования", test_privacy.suite_acord),
     ("Миграции базы: шаг 4 у клиники с версии 3", test_migrate.suite_v4),

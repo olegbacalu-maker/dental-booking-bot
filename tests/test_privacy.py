@@ -6,7 +6,11 @@
 """
 import io
 import json
+import pathlib
+import shutil
+import sqlite3
 import sys
+import tempfile
 import zipfile
 from datetime import date, timedelta
 
@@ -230,6 +234,118 @@ def suite_erase(res: Result) -> None:
         res.ok("обезличенный не показывается в живом списке",
                f"Pacient anonimizat #{pid2}" not in c.get("/admin/search").body,
                "обезличенный висит в списке")
+
+
+def _scan_marker(work: pathlib.Path, needles: tuple[str, ...]) -> list[str]:
+    """Где маркер пережил стирание: ВСЕ таблицы базы (по sqlite_master) плюс
+    имена файлов пациентов на диске. Тест-сторона читает базу сырым sqlite3
+    (как test_migrate): сервер уже погашен, шифрования в тестах нет."""
+    found: list[str] = []
+    con = sqlite3.connect(str(work / "dental.db"))
+    try:
+        tables = [r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")]
+        for t in tables:
+            for row in con.execute(f'SELECT * FROM "{t}"'):
+                blob = " · ".join(str(v) for v in row)
+                for n in needles:
+                    if n in blob:
+                        found.append(f"{t}: {blob[:150]}")
+    finally:
+        con.close()
+    files = work / "files"
+    if files.exists():
+        for p in files.rglob("*"):
+            for n in needles:
+                if n in p.name:
+                    found.append(f"файл: {p}")
+    return found
+
+
+# маркер-«личность»: буквы вне hex-алфавита, чтобы случайные совпадения с
+# отпечатками/токенами были невозможны; телефон длинный по той же причине
+_MARK = "Zqmarcaj"
+_MARK_PHONE = "07100230045"
+
+
+def suite_erase_marker(res: Result) -> None:
+    """Стирание по маркеру: уникальная строка-личность прогоняется по всем
+    местам, куда её может вписать рецепция, и после обезличивания не должна
+    находиться НИ В ОДНОЙ таблице базы и ни в одном имени файла.
+
+    ⚠️ Медицинский текст (план, зуб, анамнез, дневник) остаётся ПО ЗАМЫСЛУ —
+    это «ЧТО лечили», маркер-личность в него не кладётся. Но сами действия
+    прогоняются: их эхо в летописи (log_event дублирует заметку платежа и имя
+    файла) носит маркер — именно летопись и имя документа переживали
+    обезличивание до 08-15.
+    """
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_test_"))
+    try:
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
+                   aservice="consult", aname=f"Ion {_MARK}",
+                   aphone=_MARK_PHONE, back="/admin/all")
+            pid = _pid(c, _MARK_PHONE)
+            c.post(f"/admin/patient/{pid}/save", name=f"Ion {_MARK}",
+                   phone=_MARK_PHONE, email=f"{_MARK}@exemplu.md",
+                   address=f"str. {_MARK} 7", notes=f"vecin cu {_MARK}")
+            # комментарий визита — свободный текст рецепции
+            aid = c.get(f"/admin/all?date={_d(1)}").body.split(
+                "/admin/status/", 1)[1].split("'")[0].split('"')[0]
+            c.post(f"/admin/comment/{aid}", comment=f"vine cu {_MARK}",
+                   back="/admin/all")
+            # платёж с заметкой: note дублируется летописью («… — {note}»)
+            c.post(f"/admin/patient/{pid}/pay", amount="500", method="numerar",
+                   note=f"transfer de la {_MARK}")
+            # медзаписи БЕЗ маркера — держат фишу в ветке обезличивания
+            c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie",
+                   note="carie distală", doctor="d2")
+            c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11",
+                   tooth="11", price="800")
+            c.post(f"/admin/patient/{pid}/anamneza", fl=["diabet"])
+            # документ с маркером в ИМЕНИ (содержимое — снимок, остаётся)
+            c.post_file(f"/admin/patient/{pid}/doc", "file",
+                        f"radiografie-{_MARK}.png",
+                        b"\x89PNG\r\n\x1a\n" + b"x" * 64,
+                        category="radiografie")
+            r = c.post(f"/admin/patient/{pid}/erase", confirm="STERG")
+            res.check("фиша с лечением обезличена", r.msg, "ok_anon")
+            page = c.get(f"/admin/patient/{pid}").body
+            res.ok("клиника уцелела: план на месте", "Plombă 11" in page,
+                   "медзаписи пропали вместе с личностью")
+        found = _scan_marker(work, (_MARK, _MARK_PHONE))
+        res.ok("маркер не пережил обезличивание нигде",
+               not found, f"уцелевшие следы: {found}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def suite_erase_marker_delete(res: Result) -> None:
+    """То же для ветки физического удаления: контакт без лечения, но с
+    комментарием визита и заметками — после «șters definitiv» маркер не должен
+    находиться ни в одной таблице (включая летопись и журнал доступа)."""
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_test_"))
+    try:
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d3",
+                   aservice="consult", aname=f"Doar {_MARK}",
+                   aphone=_MARK_PHONE, back="/admin/all")
+            pid = _pid(c, _MARK_PHONE)
+            c.post(f"/admin/patient/{pid}/save", name=f"Doar {_MARK}",
+                   phone=_MARK_PHONE, notes=f"ruda lui {_MARK}")
+            aid = c.get(f"/admin/all?date={_d(1)}").body.split(
+                "/admin/status/", 1)[1].split("'")[0].split('"')[0]
+            c.post(f"/admin/comment/{aid}", comment=f"suna {_MARK}",
+                   back="/admin/all")
+            r = c.post(f"/admin/patient/{pid}/erase", confirm="STERG")
+            res.check("контакт без лечения удалён физически", r.msg, "ok_del")
+        found = _scan_marker(work, (_MARK, _MARK_PHONE))
+        res.ok("после полного удаления маркера нет нигде",
+               not found, f"уцелевшие следы: {found}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def suite_access_log(res: Result) -> None:

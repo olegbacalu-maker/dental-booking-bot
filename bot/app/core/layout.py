@@ -179,6 +179,9 @@ MSG_BANNER = {
     "part_note": ("ok", "Pauza a fost salvată parțial — unele ore erau deja ocupate"),
     "bad_set": ("err", "Setări invalide — verificați câmpurile (nume/telefon, ore, minim un medic și un serviciu)"),
     "outside": ("err", "Vizita nu încape în programul clinicii (închidere sau pauză)"),
+    # клиника открыта, но у ЭТОГО врача график уже кончился (work_from/work_to)
+    "outside_doc": ("err", "Medicul nu lucrează la ora aleasă — verificați "
+                           "programul lui în pagina Medici sau alegeți alt medic"),
     "ok_card": ("ok", "Fișa pacientului a fost actualizată"),
     # ⚠️ Архивация УБИРАЕТ пациента из списка, и общее «фиша обновлена» об этом
     # молчит: человек возвращается в список, никого там не находит и решает,

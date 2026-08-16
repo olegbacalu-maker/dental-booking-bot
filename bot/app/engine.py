@@ -502,10 +502,30 @@ def fits_clinic(start: datetime, duration: int) -> bool:
     def _dt(hour: int) -> datetime:
         return datetime(d0.year, d0.month, d0.day, hour, 0, tzinfo=TZ)
 
-    wins = ([(_dt(f), _dt(bf)), (_dt(bt), _dt(to))] if bf < bt < to and f < bf
-            else [(_dt(f), _dt(to))])
+    # ⚠️ разрез тем же условием, что в _windows: настройки допускают обед
+    # ВПРИТЫК к открытию или закрытию (f == bf или bt == to), и строгое
+    # «bf < bt < to and f < bf» на таком дне схлопывало окно в одно целое —
+    # запись в перерыв принималась, хотя канва и free_starts его исключают
+    if bf < bt and f < bt and bf < to:
+        wins = []
+        if f < bf:
+            wins.append((_dt(f), _dt(min(bf, to))))
+        if max(bt, f) < to:
+            wins.append((_dt(max(bt, f)), _dt(to)))
+    else:
+        wins = [(_dt(f), _dt(to))]
     end = start + timedelta(minutes=duration)
     return any(w_s <= start and end <= w_e for w_s, w_e in wins)
+
+
+def fits_doctor(dk: str, start: datetime, duration: int) -> bool:
+    """Интервал целиком внутри рабочего окна ВРАЧА — те самые окна (_windows),
+    из которых free_starts предлагает слоты: часы клиники, суженные его
+    work_from/work_to, обед разрезает. Занятость сюда не входит — её атомарно
+    перепроверяет db при вставке."""
+    end = start + timedelta(minutes=duration)
+    return any(w_s <= start and end <= w_e
+               for w_s, w_e in _windows(dk, start.date()))
 
 
 def work_minutes(dk: str, d: date) -> int:
@@ -751,6 +771,11 @@ async def do_book(s: Session, sid: str):
     if doc_key == "any":
         candidates = []
         for k in svc_allowed_keys(s):
+            # слот предложен free_starts из окна КОНКРЕТНОГО врача — кандидат
+            # обязан проходить ту же проверку окон, а не только занятость:
+            # незанятый ≠ работающий (врач утренний, слот вечерний)
+            if not fits_doctor(k, dt, dur):
+                continue
             day_start = dt.replace(hour=0, minute=0)
             busy = await db.booked_intervals(k, DOCTORS.get(k, ""),
                                              day_start, day_start + timedelta(days=1))

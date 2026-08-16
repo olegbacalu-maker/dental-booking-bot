@@ -173,7 +173,9 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
                     f"<b>{sic}{hhmm} · {html.escape(r['name'] or '—')}</b>"
                     f"{age_txt} {src}<br>{svc_txt} <small>({dur}′)</small>"
                     f"<br><small>{html.escape(r['phone'] or '')}</small>{stw}{cmt}</div>")
-            out.append("<td>" + "".join(cell) + "</td>")
+            # мишень переноса и у ЗАНЯТОЙ ячейки — ровно то, что обещает
+            # комментарий у drop выше: в 10:00 стоит визит, а 10:30 свободно
+            out.append(f"<td{drop}>" + "".join(cell) + "</td>")
         out.append("</tr>")
     out.append("</table></div>")
     # ⚠️ Подсказка обязана быть и здесь. Перетаскивание ничем себя не выдаёт:
@@ -1291,6 +1293,11 @@ async def admin_add(
     if not eng.fits_clinic(dt, eng.svc_duration(aservice)):
         # визит не помещается в рабочее окно клиники (закрытие/обед)
         return _back_redirect(back, adate, "outside")
+    # личный график врача (work_from/work_to) — той же проверкой окон, из
+    # которой free_starts предлагает слоты. ⚠️ Прошлые ДНИ форма принимает
+    # намеренно (постфактум) — это правило про ЧАСЫ врача, не про прошлое
+    if not eng.fits_doctor(adoctor, dt, eng.svc_duration(aservice)):
+        return _back_redirect(back, adate, "outside_doc")
     # полная дата рождения (просьба 08-07: был только год); ayear принимаем
     # ради вкладки, открытой до обновления, — форма шлёт уже только abirth
     year, bdate = None, None
@@ -1416,6 +1423,10 @@ async def admin_move(
         # от него влезть в окно целиком значило бы отказывать в переносе тем,
         # кого клиника принимает внахлёст с закрытием (так их и записали).
         return _back_redirect(back, mdate, "outside")
+    # график врача — та причина серверной перепроверки, которую называет
+    # докстринг: часы врача меняются на другом экране, а вкладка устаревает
+    if not eng.fits_doctor(mdoctor, dt, 30):
+        return _back_redirect(back, mdate, "outside_doc")
     code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
                                      when=dt.strftime("%H:%M"))
     return _back_redirect(back, mdate,
