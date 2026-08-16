@@ -268,13 +268,30 @@ def blocked(db: pathlib.Path, pid, doctor, starts_at, status, did) -> bool:
         con.close()
 
 
-def stop(proc) -> None:
+def stop(proc, port: int) -> None:
+    """Погасить ВСЁ дерево и дождаться, пока порт освободится.
+
+    ⛔ terminate() родителя недостаточно: exe собран PyInstaller onefile, и
+    работающее приложение — это ДОЧЕРНИЙ процесс распаковщика. Убитый родитель
+    оставляет его жить и держать порт, а следующий запуск в этой же лаборатории
+    молча разговаривает со СТАРЫМ процессом: база не перечитывается, и шаг про
+    «после разведения записей защита встаёт сама» проваливается на ровном месте,
+    хотя программа исправна. Ровно так эта проверка и соврала 08-16.
+    """
     if proc.poll() is None:
-        proc.terminate()
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
         try:
-            proc.wait(timeout=15)
+            proc.wait(timeout=20)
         except Exception:
             proc.kill()
+    import socket
+    for _ in range(40):                      # порт освобождается не мгновенно
+        with socket.socket() as s:
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return
+        time.sleep(0.5)
+    print(f"      ⚠️ порт {port} всё ещё занят — следующий шаг может соврать")
 
 
 def main() -> int:
@@ -319,7 +336,7 @@ def main() -> int:
             "страховка осталась узкой, а не расширилась мимо данных",
             f"индексы: {sorted(idx)}")
         say(banner_visible(base), "директор видит баннер про неразведённые часы")
-    stop(proc)
+    stop(proc, port)
 
     print("\nШАГ 2. Конфликт разведён, запуск снова")
     sql(db, f"DELETE FROM appointments WHERE comment = '{MARK}'")
@@ -332,7 +349,7 @@ def main() -> int:
         say(all("waiting" in idx.get(n, "") for n in UQ),
             "широкие индексы легли сами", f"индексы: {sorted(idx)}")
         say(not banner_visible(base), "баннер исчез")
-    stop(proc)
+    stop(proc, port)
 
     # ---- ШАГ 3: база, пришедшая от опубликованной 1.20.0 ----
     # ⛔ Обновление не имеет права уменьшить защиту, которая у клиники РАБОТАЛА.
@@ -372,7 +389,7 @@ def main() -> int:
             say("uq_doctor_slot_id" in idx,
                 "недостающая проверка положена (пусть и узкой)",
                 f"индексы: {sorted(idx)}")
-        stop(proc)
+        stop(proc, port)
 
     print()
     if fails:
