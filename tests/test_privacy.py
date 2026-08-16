@@ -34,7 +34,7 @@ def _seed(c: Client) -> str:
     pid = _pid(c, "022778899")
     c.post(f"/admin/patient/{pid}/save", name="Export Test", phone="022778899",
            email="ex@example.com", idnp="2000000000000",
-           address="str. Testului 1")
+           address="str. Testului 1", birth_date="1985-03-09")
     c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie",
            note="carie distală", doctor="d2")
     c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11", tooth="11",
@@ -102,6 +102,14 @@ def suite_export(res: Result) -> None:
         page = z.read("fisa-pacient.html").decode("utf-8")
         res.ok("читаемая копия называет оператора данных", "Operator" in page,
                "в HTML не сказано, кто оператор")
+        # ⚠️ читает копию ЧЕЛОВЕК: дата рождения на том же листе, где визиты в
+        # dd.mm.yyyy, обязана быть в том же виде, а не сырым ISO из базы
+        res.ok("дата рождения в копии — dd.mm.yyyy",
+               "09.03.1985" in page and "1985-03-09" not in page,
+               "в читаемой копии сырой ISO")
+        # без имени внутри архива строку таблицы не сопоставить с папкой
+        res.ok("читаемая копия называет файл в папке архива",
+               docs[0] in page, f"нет {docs[0]!r} в таблице документов")
         res.ok("читаемая копия содержит сами данные",
                "Export Test" in page and "penicilină" in page,
                "в HTML нет данных пациента")
@@ -435,6 +443,16 @@ def suite_acord(res: Result) -> None:
                "Formular «Informare și acord»" in c.get(f"/admin/patient/{pid}").body,
                "выдача листа не записана")
 
+        # заполненная дата рождения печатается ТЕМ ЖЕ форматом, что дата
+        # подписи внизу листа: два формата на одном подписываемом бланке
+        c.post(f"/admin/patient/{pid}/save", name="Acord Test",
+               phone="022556677", idnp="2011111111111", address="str. Acord 5",
+               birth_date="1990-05-06")
+        b = c.get(f"/admin/patient/{pid}/acord").body
+        res.ok("дата рождения на формуляре — dd.mm.yyyy",
+               "06.05.1990" in b and "1990-05-06" not in b,
+               "в шапке формуляра сырой ISO из базы")
+
 
 def suite_bot_notice(res: Result) -> None:
     """Уведомление об обработке — в момент, когда бот впервые просит имя."""
@@ -579,3 +597,95 @@ def suite_export_names(res: Result) -> None:
     b = export._safe_name("radiografie.png", dup)
     res.ok("одинаковые имена разводятся, а не затирают друг друга", a != b,
            f"оба файла легли как {a!r}")
+
+    # ⚠️ «Безопасно» не значит «неразличимо». Половина регистратур в Молдове
+    # называет файлы по-русски, и правило, чистившее ВСЁ, кроме латиницы,
+    # оставляло от такого имени один знак подчёркивания: в папке архива три
+    # разных документа ложились как «_.jpg», «_2.jpg», «_3.jpg», и связать их
+    # с таблицей «Documente» в читаемой копии было нечем. Проверяем каждое имя
+    # со СВОИМ пустым `used`: иначе различие даёт счётчик дубликатов, а не имя.
+    solo = [export._safe_name(n, set())
+            for n in ("снимок.jpg", "рентген.jpg", "согласие.jpg")]
+    res.ok("кириллические имена остаются различимыми", len(set(solo)) == 3,
+           f"три разных документа легли как {solo}")
+    res.ok("и расширение при этом цело",
+           all(n.endswith(".jpg") for n in solo), f"{solo}")
+    # диакритика по-прежнему снимается: имена уезжают на чужой компьютер
+    res.ok("румынская диакритика снята",
+           export._safe_name("fișă radiografie.png", set()) == "fisa_radiografie.png",
+           export._safe_name("fișă radiografie.png", set()))
+
+
+def _html_of(c: Client, pid: str) -> str:
+    z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+    return z.read("fisa-pacient.html").decode("utf-8")
+
+
+def suite_export_words(res: Result) -> None:
+    """Копия «в понятной форме»: внутренних кодов базы в ней быть не должно.
+
+    Тот же класс уже был осознан для анамнеза (слаги flags разворачиваются в
+    вопросы), но на статусы визитов, позиции плана, источник записи и вид
+    предупреждения правило не распространили — и пациент читал «noshow»,
+    «manual», «in_lucru», «allergy» в документе, который клиника выдаёт как
+    исполнение права на доступ.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        pid = _seed(c)
+        # позиция плана в работе: у «planificat» код и слово совпадают, и
+        # проверка на нём ничего бы не доказала
+        iid = c.get(f"/admin/patient/{pid}").body.split(
+            "/plan/", 1)[1].split("/status", 1)[0]
+        c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="in_lucru")
+
+        # ⚠️ Смотрим на ЯЧЕЙКУ целиком, а не на вхождение подстроки в страницу:
+        # «manual:022778899» — это идентификатор канала, законное значение
+        # поля, а «→ in_lucru» в летописи пишет db.log_event и переписывать
+        # задним числом уже записанное событие нельзя.
+        page = _html_of(c, pid)
+        for code, word in (("confirmed", "confirmată"), ("manual", "recepție"),
+                           ("in_lucru", "în lucru"), ("allergy", "Alergie")):
+            res.ok(f"вместо кода {code!r} в копии стоит {word!r}",
+                   f"<td>{word}</td>" in page and f"<td>{code}</td>" not in page,
+                   f"колонка осталась машинной: {code!r}")
+
+        aid = c.get(f"/admin/all?date={_d(1)}").body.split(
+            "/admin/status/", 1)[1].split("'")[0]
+        c.post(f"/admin/status/{aid}", to="noshow", back="/admin/all")
+        page = _html_of(c, pid)
+        res.ok("и «неявка» названа словом журнала",
+               "<td>nu a venit</td>" in page and "<td>noshow</td>" not in page,
+               "статус визита остался кодом noshow")
+
+
+def suite_export_lost_doc(res: Result) -> None:
+    """Документ, потерянный на диске, обязан быть помечен и в ЧИТАЕМОЙ копии.
+
+    Код это знал и раньше («молчать нельзя»), но HTML собирался ДО обхода
+    документов, и пометка доезжала только до машинного JSON — того файла,
+    который пациенту как раз и не предлагают открывать.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        pid = _seed(c)
+        gone = 0
+        for f in (s.dir / "files" / str(pid)).iterdir():
+            f.unlink()
+            gone += 1
+        res.ok("файл документа удалось убрать с диска", gone == 1,
+               f"убрано файлов: {gone}")
+
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        data = json.loads(z.read("date-pacient.json"))
+        res.ok("в машинной копии документ помечен потерянным",
+               data["documente"][0].get("eroare")
+               and data["documente"][0]["fisier_in_arhiva"] is None,
+               f"пометки нет: {data['documente'][0]}")
+        res.ok("самого файла в архиве нет",
+               not [n for n in z.namelist() if n.startswith("documente/")],
+               "потерянный файл всё-таки лёг в архив")
+        page = z.read("fisa-pacient.html").decode("utf-8")
+        res.ok("и в читаемой копии видно, что выдать его не смогли",
+               "lipseste" in page or "lipsește" in page,
+               "в HTML документ выглядит выданным")

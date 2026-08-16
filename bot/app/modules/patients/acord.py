@@ -37,7 +37,7 @@ from datetime import datetime
 
 from ... import engine as eng
 from ...core import theme
-from ...core.layout import _ic
+from ...core.layout import _ic, dmy
 
 _CSS = """
  *{box-sizing:border-box}
@@ -231,7 +231,7 @@ def render(p: dict, lang: str = "ro") -> str:
 
 <div class="pbox">
 <b>{_fill(p.get("name"), t["name_blank"])}</b><br>
-{t["birth"]}: {_fill(p.get("birth_date"))} · IDNP: {_fill(p.get("idnp"))} ·
+{t["birth"]}: {_fill(dmy(p.get("birth_date")))} · IDNP: {_fill(p.get("idnp"))} ·
 {t["phone"]}: {_fill(p.get("phone"))}<br>
 {t["addr"]}: {_fill(p.get("address"), "________________________________________")}
 </div>

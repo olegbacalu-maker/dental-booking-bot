@@ -25,6 +25,7 @@ from datetime import datetime
 from ... import engine as eng
 from ...core import theme
 from ...core.layout import _ic
+from . import visit as pvisit
 
 # буквенные коды одонтограммы; пустая клетка = sănătos / neexaminat.
 # Легенда печатается НА листе — расшифровка всегда перед глазами читающего
@@ -52,11 +53,15 @@ _FDI_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
 _FDI_MILK_UPPER = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65]
 _FDI_MILK_LOWER = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
 
-_PLAN_RO = {"planificat": "planificat", "in_lucru": "în lucru",
-            "finalizat": "finalizat", "refuzat": "REFUZAT"}
+# ⚠️ Имена статусов плана НА БУМАГЕ — здесь и нигде больше: те же слова берёт
+# выгрузка по 195-му (export.py), иначе у одного состояния завелось бы второе
+# имя ровно там, где документ читает пациент. Отсюда и без подчёркивания:
+# словарь публичный, его импортирует сосед.
+PLAN_RO = {"planificat": "planificat", "in_lucru": "în lucru",
+           "finalizat": "finalizat", "refuzat": "REFUZAT"}
 
-_PLAN_RU = {"planificat": "запланировано", "in_lucru": "в работе",
-            "finalizat": "выполнено", "refuzat": "ОТКАЗ"}
+PLAN_RU = {"planificat": "запланировано", "in_lucru": "в работе",
+           "finalizat": "выполнено", "refuzat": "ОТКАЗ"}
 
 # Двуязычные ПОДПИСИ бланка. ⚠️ Не переводятся и в русской версии остаются
 # как есть: номер формуляра (043/e), приказ МЗ, название министерства — это
@@ -244,10 +249,17 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
     """`recs` — записи приёмов ХРОНОЛОГИЧЕСКИ (дневник читается сверху вниз).
     `anam` — опросник анамнеза, `flag_labels` — подписи его отметок."""
     e = html.escape
+    # ⛔ Приём, чей визит отменён или отмечен «неявка», в дневник не идёт: сама
+    # программа такую консультацию заполнять отказывается (visit.py), а здесь
+    # строка читалась бы как проведённое лечение — с датой, услугой и местом
+    # под подпись врача, в первичной меддокументации со сроком хранения 5 лет.
+    # Статусы берём ОТТУДА ЖЕ (NO_FORM_STATUSES), второе перечисление разошлось
+    # бы с первым молча. ⚠️ Из выгрузки по 195-му запись при этом не исчезает.
+    recs = [r for r in recs if r.get("status") not in pvisit.NO_FORM_STATUSES]
     lang = lang if lang in LANGS else "ro"
     t = _T[lang]
     other = "ru" if lang == "ro" else "ro"
-    plan_ro = _PLAN_RO if lang == "ro" else _PLAN_RU
+    plan_ro = PLAN_RO if lang == "ro" else PLAN_RU
     clinic = e(eng.CLINIC_NAME)
     addr = e((eng.CONFIG or {}).get("address", {}).get(lang, "")
              or (eng.CONFIG or {}).get("address", {}).get("ro", ""))

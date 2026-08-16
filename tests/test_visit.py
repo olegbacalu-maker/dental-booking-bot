@@ -299,6 +299,26 @@ def suite_043(res: Result) -> None:
                "Fișa 043/e generată" in c.get(f"/admin/patient/{pid}").body,
                "летопись молчит про выдачу формы")
 
+        # ⚠️ Запись, чей визит отменён или отмечен «неявка», в дневник не
+        # идёт: сама программа такую консультацию заполнять отказывается
+        # (visit.NO_FORM_STATUSES), а 043/e — первичная меддокументация со
+        # сроком хранения 5 лет, и строка в ней читается как проведённое
+        # лечение с подписью врача. Бумага не имеет права спорить с журналом.
+        c.post(f"/admin/status/{aid}", to="noshow", back="/admin/all")
+        page = c.get(f"/admin/patient/{pid}/fisa043").body
+        res.ok("запись отменённого визита ушла из дневника",
+               "Durere la 26" not in page,
+               "043/e печатает приём, которого не было")
+        res.ok("и её диагноз не поднят на титул",
+               "Carie profundă 26" not in page,
+               "диагноз неявки уехал в титульную часть карты")
+        # …но из ВЫГРУЗКИ по 195-му она никуда не делась: это данные о
+        # пациенте, которые клиника о нём хранит
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
+        res.ok("в копии по 195-му запись осталась",
+               "Durere la 26" in z.read("date-pacient.json").decode("utf-8"),
+               "выгрузка потеряла запись вместе с бланком")
+
         # пустая фиша: форма печатается и без единой записи
         c.post("/admin/patients/new", name="Gol Fisa", phone="")
         pid2 = c.get("/admin/search?q=Gol+Fisa").body.split(

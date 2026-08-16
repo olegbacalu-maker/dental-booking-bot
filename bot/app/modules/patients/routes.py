@@ -46,8 +46,8 @@ from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core import xlsx
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
-from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, js_json, _age, _ic,
-                            _initials, msg_banner, _shell)
+from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, STATUS_LABEL, js_json,
+                            _age, _ic, _initials, msg_banner, _shell)
 from ...core.storage import _data_dir
 
 log = logging.getLogger("patients")
@@ -105,8 +105,9 @@ TOOTH_SURFACES = {"M": "mezial", "O": "ocluzal", "D": "distal",
 # заменён иконкой, а вынесен в СОСЕДНИЙ словарь. Раньше значок доставали из этой
 # же строки через .split()[0] — приём держался на том, что первым словом стоит
 # эмодзи, и молча сломался бы от любой правки текста.
-_ALERT_KINDS = {"allergy": "Alergie", "medication": "Medicație",
-                "warning": "Atenție", "info": "Info"}
+# ⚠️ Сами подписи (ALERT_KINDS) живут в core/layout.py: те же слова нужны
+# выгрузке по 195-му, а она routes.py импортировать не может — routes.py
+# импортирует её. Здесь остаётся только словарь значков.
 _ALERT_ICON = {"allergy": _ic("sos"), "medication": _ic("pill"),
                "warning": _ic("alarm"), "info": _ic("info")}
 
@@ -324,11 +325,11 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 </details></div>"""
 
     alerts_html = "".join(
-        f"<div class='alert {e(a['kind'])}'>{_ALERT_ICON.get(a['kind'], _ic('info'))} {_ALERT_KINDS.get(a['kind'], '')} {e(a['text'])}"
+        f"<div class='alert {e(a['kind'])}'>{_ALERT_ICON.get(a['kind'], _ic('info'))} {ALERT_KINDS.get(a['kind'], '')} {e(a['text'])}"
         f"<form method='post' action='{base}/alert/{a['id']}/del'>"
         f"<button title='Șterge'>{_ic('close')}</button></form></div>"
         for a in alerts) or "<p class='hint' style='margin:0'>— fără atenționări —</p>"
-    kind_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in _ALERT_KINDS.items())
+    kind_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in ALERT_KINDS.items())
     alerts_card = f"""<div class='fcard'><h3>Atenționări medicale</h3>{alerts_html}
 <form class='fform' method='post' action='{base}/alert' style='margin-top:9px'>
   <div class='r2'><select name='kind' style='width:130px'>{kind_opts}</select>
@@ -1372,7 +1373,7 @@ async def patient_alert_add(request: Request, pid: int,
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    if kind not in _ALERT_KINDS or not text.strip():
+    if kind not in ALERT_KINDS or not text.strip():
         return _card_redirect(pid, "bad_card")
     await db.add_alert(pid, kind, text.strip()[:120])
     return _card_redirect(pid, "ok_card")
@@ -2524,7 +2525,7 @@ async def patient_peek(request: Request, pid: int):
                       f"{money}</div>")
 
     notes = "".join(f"<div class='pp-note {e(a['kind'])}'>"
-                    f"{_ALERT_KINDS.get(a['kind'], 'ℹ️')} {e(a['text'])}</div>"
+                    f"{ALERT_KINDS.get(a['kind'], 'ℹ️')} {e(a['text'])}</div>"
                     for a in alerts)
     if p.get("notes"):
         notes += f"<div class='pp-note info'>{_ic('note')} {e(p['notes'])}</div>"

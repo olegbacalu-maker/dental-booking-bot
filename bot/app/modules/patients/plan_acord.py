@@ -42,9 +42,10 @@ from __future__ import annotations
 import html
 from datetime import datetime, timedelta
 
+from ... import db
 from ... import engine as eng
 from ...core import theme
-from ...core.layout import _ic
+from ...core.layout import _ic, dmy
 
 # сколько дней держится смета. Не настройка: 30 дней — обычный срок оферты, а
 # лишний переключатель в настройках клиники стоит дороже, чем правка тут
@@ -259,9 +260,15 @@ def medic_name(plan: list, patient: dict) -> str:
     разным. Один врач на все активные позиции — печатаем его; иначе берём
     `primary_doctor` из фиши; если и его нет — жёлтый пропуск. ⛔ Не выбирать
     «первого попавшегося»: подпись под чужим именем хуже пустой строки.
+
+    ⚠️ Активные — это db.PLAN_ACTIVE, ПЕРЕЧИСЛЕНИЕМ. Имя из закрытой позиции
+    (finalizat, refuzat) сюда не годится: подписывает тот, кто выполняет
+    согласуемое вмешательство, — под этой строкой стоит «Confirm că am
+    explicat pacientului…» по ст. 13(2) Legea 263/2005.
     """
     names = {(it.get("doctor") or "").strip()
-             for it in plan if (it.get("doctor") or "").strip()}
+             for it in plan if it.get("status") in db.PLAN_ACTIVE
+             and (it.get("doctor") or "").strip()}
     if len(names) == 1:
         return names.pop()
     return (patient.get("primary_doctor") or "").strip()
@@ -286,14 +293,17 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro") -> str:
     today = now.strftime("%d.%m.%Y")
     until = (now + timedelta(days=OFFER_DAYS)).strftime("%d.%m.%Y")
 
-    active = [it for it in plan if it["status"] in ("planificat", "in_lucru")]
+    # ⚠️ статусы — ПЕРЕЧИСЛЕНИЕМ из db, не литералами по месту: «активное» уже
+    # разъезжалось по шести местам, и с появлением отказа каждое соврало
+    # по-своему (прайор 08-11)
+    active = [it for it in plan if it["status"] in db.PLAN_ACTIVE]
     refused = [it for it in plan if it["status"] == "refuzat"]
 
     total = sum(it["price_mdl"] or 0 for it in active)
     rows = "".join(
         f"<tr><td>{it['tooth'] or '—'}</td><td>{e(it['procedure'])}</td>"
         f"<td>{e(it['doctor'] or '—')}</td>"
-        f"<td>{e(str(it.get('due_date') or '')[:10]) or '—'}</td>"
+        f"<td>{e(dmy(it.get('due_date'))) or '—'}</td>"
         f"<td class='n'>{it['price_mdl'] or '—'}</td></tr>" for it in active)
     if active:
         plan_html = (
@@ -346,7 +356,7 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro") -> str:
 
 <div class="pbox">
 <b>{_fill(p.get("name"), t["name_blank"])}</b><br>
-{t["birth"]}: {_fill(p.get("birth_date"))} · IDNP: {_fill(p.get("idnp"))} ·
+{t["birth"]}: {_fill(dmy(p.get("birth_date")))} · IDNP: {_fill(p.get("idnp"))} ·
 {t["phone"]}: {_fill(p.get("phone"))} · {t["file"]} {e(file_no)}<br>
 {t["clinic_h"]}: <b>{clinic}</b>{(", " + addr) if addr else ""}, {phone}
 </div>

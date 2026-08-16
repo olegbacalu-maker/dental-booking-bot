@@ -741,6 +741,38 @@ STATUS_LABEL = {
 LIVE_STATUSES = db.ACTIVE_STATUSES
 
 
+# Тот же приём, что у STATUS_LABEL, для остальных кодов, которые видит человек.
+# Оба словаря переехали сюда из modules/patients/routes.py, когда выгрузке по
+# 195-му понадобились те же слова: копия данных обязана быть «в понятной
+# форме», а импортировать routes.py она не может — routes.py импортирует её.
+# ⚠️ Новый вид предупреждения или новый источник записи называется ЗДЕСЬ.
+ALERT_KINDS = {"allergy": "Alergie", "medication": "Medicație",
+               "warning": "Atenție", "info": "Info"}
+# источник визита: рецепция завела руками или пациент записался сам
+SOURCE_LABEL = {"manual": "recepție", "bot": "online", "note": "notă"}
+
+
+def dmy(value) -> str:
+    """Дата человеку — dd.mm.yyyy, а не сырой ISO из базы.
+
+    ⚠️ Переводится в пояс клиники только значение С поясом: `birth_date` и
+    `due_date` лежат ГОЛЫМИ датами (текст «1990-05-06»), и astimezone на
+    наивном значении подставил бы пояс машины и сдвинул ДЕНЬ.
+    Пустое остаётся пустым: печатные листы рисуют на этом месте жёлтый
+    пропуск под ручку, а таблицы — прочерк, и решают это они, не эта функция.
+    """
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(eng.TZ)
+        return value.strftime("%d.%m.%Y")
+    try:
+        return date.fromisoformat(str(value)[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return str(value)
+
+
 def _age(birth_year) -> int | None:
     if not birth_year:
         return None

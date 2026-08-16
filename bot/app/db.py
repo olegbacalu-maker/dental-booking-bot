@@ -1920,14 +1920,20 @@ async def visit_records_map(pid: int) -> dict[int, dict]:
 
 
 async def patient_visit_records(pid: int) -> list:
-    """Записи приёмов с датой и услугой визита — для выгрузки данных пациента."""
+    """Записи приёмов с датой и услугой визита — для выгрузки данных пациента.
+
+    ⚠️ `a.status` отдаётся вместе с записью и НЕ фильтруется здесь: копия по
+    195-му обязана содержать всё, что клиника о пациенте хранит. Отсеивает
+    отменённое и неявки печатный бланк 043/e — там строка читается как
+    проведённое лечение (см. fisa043.render).
+    """
     return await _fetch(
-        """SELECT a.starts_at, a.service, v.doctor, v.acuze, v.examen,
+        """SELECT a.starts_at, a.service, a.status, v.doctor, v.acuze, v.examen,
                   v.diagnostic, v.tratament, v.recomandari, v.author,
                   v.created_at, v.updated_at
            FROM visit_records v JOIN appointments a ON a.id = v.appointment_id
            WHERE v.patient_id = $1 ORDER BY a.starts_at DESC""",
-        """SELECT a.starts_at, a.service, v.doctor, v.acuze, v.examen,
+        """SELECT a.starts_at, a.service, a.status, v.doctor, v.acuze, v.examen,
                   v.diagnostic, v.tratament, v.recomandari, v.author,
                   v.created_at, v.updated_at
            FROM visit_records v JOIN appointments a ON a.id = v.appointment_id

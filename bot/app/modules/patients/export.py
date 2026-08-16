@@ -21,21 +21,27 @@ import html
 import json
 import pathlib
 import re
+import unicodedata
 import zipfile
 from datetime import date, datetime
 
 from ... import db
 from ... import engine as eng
+from ...core.layout import ALERT_KINDS, SOURCE_LABEL, STATUS_LABEL
 from . import anamneza as panam
+from . import fisa043 as pfisa
 
 # Пределы выборок сняты намеренно. У карточки они есть и уместны (боковому
 # предпросмотру хватает двадцати визитов), но копия с отрезанным хвостом не
 # выполняет право на доступ, а молча его нарушает.
 _ALL = 1_000_000
 
-# Имена внутри архива — БЕЗ диакритики. Архив уезжает на чужой компьютер и
-# открывается чем попало; ZIP хранит имена в UTF-8 только с выставленным
+# НАШИ имена внутри архива — БЕЗ диакритики. Архив уезжает на чужой компьютер
+# и открывается чем попало; ZIP хранит имена в UTF-8 только с выставленным
 # флагом, и старые распаковщики показывают «fi?a-pacient».
+# ⚠️ На имена ЗАГРУЖЕННЫХ документов это правило не распространяется (см.
+# `_safe_name`): там выбор другой — либо чужой алфавит в имени, либо три
+# разных документа под именами «_.jpg», «_2.jpg», «_3.jpg».
 _README = "CITESTE-MA.txt"
 _JSON = "date-pacient.json"
 _HTML = "fisa-pacient.html"
@@ -106,6 +112,14 @@ def _esc(value) -> str:
     return html.escape("" if value is None else str(value))
 
 
+def _word(labels: dict, code) -> str:
+    """Код базы — словом. ⚠️ Словари здесь НЕ заводятся: статус визита живёт в
+    core.layout.STATUS_LABEL, статус позиции плана — в fisa043.PLAN_RO. Копия
+    по 195-му обязана быть «в понятной форме», а второе имя того же состояния
+    — это ровно то, из-за чего словарь статусов и стал единственным."""
+    return _esc(labels.get(code, code)) or "—"
+
+
 _PROFILE_RO = [
     ("name", "Nume"), ("phone", "Telefon"), ("email", "E-mail"),
     ("birth_date", "Data nașterii"), ("gender", "Sex"), ("idnp", "IDNP"),
@@ -132,16 +146,24 @@ def render_html(data: dict) -> str:
     addr = cl["adresa"]
     addr = addr.get("ro") or next(iter(addr.values()), "") if isinstance(addr, dict) else addr
 
+    def _field(key: str) -> str:
+        # дата рождения человеку — dd.mm.yyyy, как остальные даты этого листа
+        if key == "birth_date":
+            return _dt(p.get(key), with_time=False)
+        return _esc(p.get(key)) or "—"
+
     profil = _table(["Câmp", "Valoare"],
-                    [[_esc(lbl), _esc(p.get(key)) or "—"] for key, lbl in _PROFILE_RO])
+                    [[_esc(lbl), _field(key)] for key, lbl in _PROFILE_RO])
     programari = _table(
         ["Data", "Serviciu", "Medic", "Stare", "Sursa", "Comentariu"],
         [[_dt(v["starts_at"]), _esc(v["service"]), _esc(v["doctor"]),
-          _esc(v["status"]), _esc(v["source"]), _esc(v["comment"]) or "—"]
+          _word(STATUS_LABEL, v["status"]), _word(SOURCE_LABEL, v["source"]),
+          _esc(v["comment"]) or "—"]
          for v in data["programari"]])
     atentionari = _table(
         ["Tip", "Text"],
-        [[_esc(a["kind"]), _esc(a["text"])] for a in data["atentionari"]])
+        [[_word(ALERT_KINDS, a["kind"]), _esc(a["text"])]
+         for a in data["atentionari"]])
     dinti = _table(
         ["Dinte", "Stare", "Suprafețe", "Medic", "Notă", "Actualizat"],
         [[_esc(t["tooth"]), _esc(t["state"]), _esc(t.get("surfaces")) or "—",
@@ -154,13 +176,18 @@ def render_html(data: dict) -> str:
         ["Dinte", "Procedură", "Medic", "Stare", "Preț (MDL)", "Termen",
          "Motivul refuzului"],
         [[_esc(i["tooth"]) or "—", _esc(i["procedure"]), _esc(i["doctor"]),
-          _esc(i["status"]), _esc(i["price_mdl"]) or "—",
+          _word(pfisa.PLAN_RO, i["status"]), _esc(i["price_mdl"]) or "—",
           _dt(i["due_date"], with_time=False),
           _esc(i.get("refuz_motiv")) or "—"] for i in data["plan_tratament"]])
+    # ⚠️ Колонка «În arhivă» — не украшение: без неё строку таблицы не с чем
+    # сопоставить в папке `documente/` (имена там обезврежены), а потерянный
+    # на диске файл выглядит выданным. Заполняется она в write_archive, ДО
+    # рендера этой страницы, — иначе пометка доехала бы только до JSON.
     documente = _table(
-        ["Fișier", "Categorie", "Mărime", "Încărcat"],
+        ["Fișier", "Categorie", "Mărime", "Încărcat", "În arhivă"],
         [[_esc(d["filename"]), _esc(d["category"]),
-          f"{round((d['size'] or 0) / 1024)} KB", _dt(d["uploaded_at"])]
+          f"{round((d['size'] or 0) / 1024)} KB", _dt(d["uploaded_at"]),
+          _esc(d.get("fisier_in_arhiva") or d.get("eroare")) or "—"]
          for d in data["documente"]])
     plati = _table(
         ["Data", "Suma (MDL)", "Metoda", "Notă", "Încasat de"],
@@ -253,20 +280,57 @@ persoanelor neautorizate. Fișierele atașate se află în folderul
 
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
+# Что в имени файла ОПАСНО — и ничего сверх того: разделители путей, знаки,
+# которые Windows в имени не заводит, управляющие символы и пробелы.
+# ⚠️ Прежде здесь стоял `_SAFE`, то есть «всё, кроме латиницы», — и от
+# кириллического имени не оставалось ни одного знака: «снимок.jpg» ложился в
+# архив как «_.jpg», а три таких документа — как «_.jpg», «_2.jpg», «_3.jpg».
+# Половина регистратур в Молдове называет файлы по-русски, и связать строку
+# таблицы «Documente» с папкой архива было уже нечем.
+_UNSAFE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*\s]+')
+# имена, которые Windows не заводит НИ С КАКИМ расширением
+_WIN_RESERVED = ({"CON", "PRN", "AUX", "NUL"}
+                 | {f"COM{i}" for i in range(1, 10)}
+                 | {f"LPT{i}" for i in range(1, 10)})
+
+
+def _deaccent(text: str) -> str:
+    """Снять диакритику там, где под ней латиница: «fișă» → «fisa».
+
+    Архив уезжает на чужой компьютер, и румынские надстрочные там читаются
+    как повезёт — поэтому имена без них. ⛔ Другие письменности НЕ трогать:
+    «й» разложилось бы в «и», и два разных имени слиплись бы в одно.
+    """
+    out = []
+    for ch in text:
+        if ch.isascii():
+            out.append(ch)
+            continue
+        bare = "".join(c for c in unicodedata.normalize("NFKD", ch)
+                       if not unicodedata.combining(c))
+        out.append(bare if bare and bare.isascii() else ch)
+    return "".join(out)
+
 
 def _safe_name(filename: str, used: set[str]) -> str:
-    """Имя файла, безопасное ВНУТРИ архива.
+    """Имя файла, безопасное ВНУТРИ архива — и по-прежнему узнаваемое.
 
     Имя пришло от пользователя при загрузке, то есть может содержать `..`,
     слэши и что угодно ещё. Распаковщик, честно повторяющий такой путь, пишет
     файл мимо папки назначения (zip-slip) — поэтому от исходного имени берётся
     только основа, а всё небезопасное заменяется. Совпадения разводятся
     номером: два «radiografie.jpg» иначе затрут друг друга при распаковке.
+    ⭐ «Безопасно» не значит «неразличимо»: вычищается опасное, а не всё
+    незнакомое (нелатинские имена ZIP хранит в UTF-8 с выставленным флагом).
+    Расширение остаётся строго латинским — по нему файл открывают, и белый
+    список `_OPEN_EXT` в фише тоже латинский.
     """
     base = pathlib.PurePosixPath(filename.replace("\\", "/")).name or "fisier"
     stem, dot, ext = base.rpartition(".")
-    stem = _SAFE.sub("_", stem or base)[:60] or "fisier"
-    ext = _SAFE.sub("", ext)[:10] if dot else ""
+    stem = _UNSAFE.sub("_", _deaccent(stem or base)).strip(" ._")[:60] or "fisier"
+    if stem.upper() in _WIN_RESERVED:
+        stem = "_" + stem
+    ext = _SAFE.sub("", _deaccent(ext))[:10] if dot else ""
     name = f"{stem}.{ext}" if ext else stem
     n = 2
     while name.lower() in used:
@@ -301,7 +365,11 @@ async def write_archive(pid: int, dest: pathlib.Path) -> dict | None:
     used: set[str] = set()
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(_README, _readme(data))
-        z.writestr(_HTML, render_html(data))
+        # ⚠️ Сначала СУДЬБА документов, и только потом читаемая страница: она
+        # печатает и имя файла в архиве, и пометку о потерянном. Пока порядок
+        # был обратным, «выдать не смогли» доезжало только до машинного JSON —
+        # то есть до файла, который пациенту как раз и не предлагают открывать,
+        # а в fisa-pacient.html пропавший документ выглядел обычным.
         for d in data["documente"]:
             src = pathlib.Path(d["stored_path"])
             inner = _safe_name(d["filename"], used)
@@ -319,6 +387,7 @@ async def write_archive(pid: int, dest: pathlib.Path) -> dict | None:
         # к данным пациента она не относится
         for d in data["documente"]:
             d.pop("stored_path", None)
+        z.writestr(_HTML, render_html(data))
         z.writestr(_JSON, json.dumps(data, ensure_ascii=False, indent=1,
                                      default=_plain))
     return data

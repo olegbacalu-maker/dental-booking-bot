@@ -15,10 +15,11 @@ CLAUDE.md про _card_redirect).
 """
 import io
 import re
+import sys
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server
+from harness import BOT, Client, Result, Server
 
 
 def _pid(c: Client, phone: str) -> str:
@@ -189,11 +190,42 @@ def suite_refuz_not_active(res: Result) -> None:
                "отказ молча стал выполненным")
 
 
+def suite_acord_medic(res: Result) -> None:
+    """Кто подписывает лист как лечащий врач (ст. 13(2) Legea 263/2005).
+
+    Позиции несут СНАПШОТ имени врача, и у закрытых позиций он свой. Согласие
+    же дают на АКТИВНЫЕ вмешательства — значит и «Confirm că am explicat»
+    подписывает тот, кто их выполняет. Сервера здесь не нужно: вопрос целиком
+    в одной функции, а спор про имена решается кортежем db.PLAN_ACTIVE.
+    """
+    sys.path.insert(0, str(BOT))
+    from app.modules.patients import plan_acord
+
+    res.check("врач закрытой позиции не подписывает согласие",
+              plan_acord.medic_name(
+                  [{"doctor": "Dr. Vechi", "status": "finalizat"},
+                   {"doctor": "", "status": "planificat"}],
+                  {"primary_doctor": "Dr. Curent"}), "Dr. Curent")
+    res.check("отказ тоже не даёт имени подписи",
+              plan_acord.medic_name(
+                  [{"doctor": "Dr. Vechi", "status": "refuzat"},
+                   {"doctor": "", "status": "planificat"}],
+                  {"primary_doctor": "Dr. Curent"}), "Dr. Curent")
+    # зеркальный случай: имён по всему плану два, по активным — одно, и при
+    # пустом primary_doctor старая формула стирала имя с листа вовсе
+    res.check("подписывает врач согласуемой позиции",
+              plan_acord.medic_name(
+                  [{"doctor": "Dr. A", "status": "finalizat"},
+                   {"doctor": "Dr. B", "status": "planificat"}], {}), "Dr. B")
+
+
 def suite_acord(res: Result) -> None:
     """Печатный лист согласия: состав по ст.13(3) и обе подписи по ст.13(2)."""
     with Server() as s:
         c = Client(s.url).login()
         pid = _setup(c)
+        c.post(f"/admin/patient/{pid}/save", name="Refuz Test",
+               phone="022777888", birth_date="1990-05-06")
         i1 = _iids(c.get(f"/admin/patient/{pid}").body)[0]
         c.post(f"/admin/patient/{pid}/plan/{i1}/status", to="refuzat",
                motiv="teama de intervenție; consecințe explicate")
@@ -204,6 +236,12 @@ def suite_acord(res: Result) -> None:
         res.ok("лист называет закон и приказ",
                "Legea nr. 263/2005" in b and "303" in b,
                "нет ссылки на норму — по ней лист опознают на проверке")
+        # ⚠️ на подписываемом листе даты одного формата: ниже стоит «Data:
+        # dd.mm.yyyy», и сырой ISO из базы рядом с ней читается как чужая
+        # запись, а на экране регистратуры та же дата показана dd.mm.yyyy
+        res.ok("дата рождения — dd.mm.yyyy, как остальные даты листа",
+               "06.05.1990" in b and "1990-05-06" not in b,
+               "в шапке согласия сырой ISO из базы")
         # ⭐ состав по ч.(3): цель, методы, риск, экономика, альтернативы
         for needle, what in (("Diagnosticul", "диагноз"),
                              ("Obturație 26", "методы = позиции плана"),
