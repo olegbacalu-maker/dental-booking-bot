@@ -48,6 +48,19 @@
       здесь и объяснять, чем она отличается от этих. */
    --pad-card:16px 18px;--pad-block:14px 16px;--pad-tile:16px;
    --r-card:18px;--r-ctl:12px;--h-ctl:44px;
+   /* Потолок СТРОКИ, а не страницы (08-16). Страница теперь во всю ширину окна
+      (.content ниже), и без этого числа абзац подсказки растянулся бы на 2152px:
+      глаз, дочитав строку до конца, не находит начало следующей. ⭐ Число не
+      выдумано — оно уже дважды выбрано по месту в самой программе: 760px у
+      блока «Confidențialitate» (Stare sistem) и 720px у ответов FAQ. Здесь оно
+      названо один раз, чтобы третий абзац не завёл третье число.
+      ⚠️ Это потолок ТЕКСТА. Таблицам, сеткам и спискам его не давать: там
+      ширина — это колонки, и урезать их значит вернуть пустое поле справа.
+      Второе число — потолок РЯДА ФОРМЫ (подпись + поле, table.set): текста в
+      нём нет, но и данных тоже, а поле ввода в 1500px под номер телефона так
+      же бессмысленно, как строка в 2000px. Оно шире текстового ровно потому,
+      что у формы бывает до шести колонок. */
+   --measure:760px;--measure-form:1000px;
    /* Тени ДВУХСЛОЙНЫЕ (08-06, приём Stripe): ближний слой в 1-3px ставит
       карточку на фон и рисует кромку, дальний даёт глубину. Одним слоем то же
       самое выходит либо грязным (тёмный ореол вокруг светлой карточки), либо
@@ -159,11 +172,15 @@
    transition:background-color .2s ease,color .2s ease}
  .who-out:hover{background:var(--red-soft);color:var(--red-t)}
  @media (max-width:1100px){.who-n{display:none}}
- .content{padding:24px 24px 60px;max-width:1500px}
- /* Дневным видам (layout.WIDE_PAGES) отдаётся ширина окна: у сетки ширина —
-    это ширина колонки врача, и на четырёх врачах потолок в 1500px забирал по
-    ~50px у каждого, оставляя справа пустое поле. На рабочем экране клиники
-    (1366) потолок и так не срабатывал — правило меняет только большой монитор.
+ /* Ширина окна отдаётся ВСЕМ разделам (08-16, просьба Олега: «на каждом экране
+    справа много места»). До этого широкими были только дневные виды (список
+    layout.WIDE_PAGES), а остальным доставался потолок 1500px БЕЗ центрирования,
+    и весь остаток окна уходил одним пустым полем справа: замер на 2560 давал
+    844px пустоты у пациентов, врачей, статистики и настроек (на 1366 потолок не
+    срабатывал вовсе — поэтому на рабочем экране разработчика этого не видно).
+    ⭐ Список «кому широко» снят целиком, а не дополнен ещё пятью ключами:
+    страница ключуется по `active`, ключ ставится в модуле, и следующая страница
+    молча родилась бы узкой — а заметил бы это только клиент с большим монитором.
     ⚠️ Свой потолок всё-таки есть, и он ВЫШЕ прежнего вдвое: без него на 27"
     (2560) колонка врача уходила в 481px, а на 4K без масштабирования — в 801,
     и часовой визит раздувался в блок 790×149 под три строки текста. Глаз ездит
@@ -182,8 +199,11 @@
     колоночного `.main`, и тянется он на всю ширину ровно до тех пор, пока не
     появятся авто-поля. С ними элемент переходит на свою «естественную» ширину —
     журнал схлопнулся с 2200 до 1337 по ширине содержимого. Явная ширина
-    возвращает растяжение, а поля делят только остаток сверх потолка. */
- .content.wide{width:100%;max-width:2200px;margin-inline:auto}
+    возвращает растяжение, а поля делят только остаток сверх потолка.
+    ⛔ Ширина окна хороша ТАБЛИЦАМ и сеткам и вредна СПЛОШНОМУ ТЕКСТУ. Потолок
+    строки живёт у самого текста (--measure), а не у страницы: страница остаётся
+    во всю ширину, а абзац в ней не растягивается. */
+ .content{padding:24px 24px 60px;width:100%;max-width:2200px;margin-inline:auto}
  /* ---------- общие элементы ---------- */
  h1{font-size:32px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em;line-height:1.2;
    display:flex;align-items:center;gap:.44em}
@@ -229,7 +249,12 @@
  .nav form.searchf input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
  .nav form.searchf button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 16px;cursor:pointer;font-size:14px;font-weight:600}
- .banner{padding:12px 16px;border-radius:var(--r-ctl);margin-bottom:14px;font-size:14px}
+ /* Баннер — сплошной текст, и на широкой странице он вырастал в строку через
+    весь монитор: «Protecția împotriva programărilor duble…» шло одной строкой
+    на 2152px. Потолок тот же, что у остальной прозы. ⚠️ Плавающий ответ ниже
+    (.toastbox .banner) переопределяет его на 600px — там своя причина. */
+ .banner{padding:12px 16px;border-radius:var(--r-ctl);margin-bottom:14px;font-size:14px;
+   max-width:var(--measure)}
  .banner.ok{background:var(--green-soft);color:#065F46}
  .banner.err{background:var(--red-soft);color:#991B1B}
  .banner.warn{background:var(--amber-soft);color:var(--amber-t)}
@@ -272,7 +297,21 @@
  .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:var(--teal);height:8px}
  /* ---------- KPI ---------- */
- .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+ /* ⚠️ auto-FIT, а не auto-fill (08-16). Разница видна только на широком экране,
+    и ровно она оставляла пустое поле справа ВНУТРИ страницы: auto-fill заводит
+    столько колонок по 180px, сколько влезло (на 2560 — одиннадцать), и четыре
+    плитки статистики жались слева, а семь пустых колонок держали остаток. Фит
+    схлопывает пустые колонки, и четыре плитки делят ширину поровну. Соседний
+    `.pl-tiles` (список пациентов, узел настроек) так и написан — здесь просто
+    осталось старое слово.
+    ⭐ Правило шире плиток, и по нему решается КАЖДАЯ сетка файла. Сетка
+    КАРТОЧЕК, которые делят ряд (KPI, врачи), пишется на auto-fit: карточка
+    тянется, и лишняя колонка не держит остаток ширины пустым. Сетка ПРЕДМЕТОВ
+    СВОЕГО РАЗМЕРА (миниатюра документа, флажок анамнеза) остаётся на auto-fill:
+    там растяжение — не польза, а порча (замер 08-16: три миниатюры под auto-fit
+    превращаются в полосы 582×120 при неизменной высоте превью). У каждой такой
+    сетки причина записана по месту — .docgrid и .anbox. */
+ .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
    gap:14px;margin-bottom:22px}
  .tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    box-shadow:var(--sh);padding:16px;min-width:0;display:flex;gap:14px;
@@ -552,7 +591,12 @@
  .mcal td a.tdy{box-shadow:inset 0 0 0 1.5px var(--teal);color:var(--teal-d);font-weight:600}
  .mcal td a.seld{background:var(--teal);color:var(--on-teal);font-weight:600}
  /* ---------- старые страницы (перекрашены) ---------- */
- .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
+ /* ⚠️ Разметки с этим классом в программе НЕТ (проверено грепом по .py, .js и
+    .html 08-16) — правило пережило страницу, которую оформляло. Оставлено, но
+    переведено на auto-fit по общему правилу у .tiles: пока оно мёртвое, слово
+    ничего не меняет, а ожившее с auto-fill повторило бы дефект .medgrid —
+    мёртвую колонку справа, видимую только на большом мониторе. */
+ .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:16px}
  a.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
         padding:var(--pad-block);text-decoration:none;color:var(--text)}
  a.card:hover{box-shadow:var(--sh2)}
@@ -635,8 +679,35 @@
  .pcard h3{margin:0 0 6px;font-size:14.5px;color:var(--text)}
  .pcard .meta{color:var(--text2);font-size:12.5px;margin-bottom:8px}
  .vpast{opacity:.55}
- table.set{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
+ /* ⚠️ table.set — это ДВА разных предмета под одним классом, и ширина окна их
+    развела (08-16). Настройки клиники, «Stare sistem», программа работы и
+    список учёток — ФОРМА: подпись слева, поле справа. На 2560 без потолка поле
+    «Telefon» становилось 1500px под девять цифр, а в программе работы шесть
+    выпадающих списков разъезжались по 350px каждый: от «Luni» до «De la» глаз
+    ехал через полстраницы. Это та же болезнь, из-за которой у страницы есть
+    потолок 2200, только внутри таблицы.
+    ⭐ Потолок стоит ПО УМОЛЧАНИЮ, а снимается модификатором, а не наоборот:
+    забытый модификатор даёт читаемую форму (безобидно), забытый потолок —
+    поле в полтора экрана (и заметит это клиника, а не разработчик на 1366).
+    ⛔ Услуги (svc_t) — единственная НАСТОЯЩАЯ таблица данных здесь: восемь
+    колонок, и две из них — свободные названия услуги, румынское и русское.
+    Держит их `set-wide`, и вот замер, ради которого он существует (08-16):
+    при потолке 1000px на колонку названия остаётся 206px, то есть 182px поля,
+    а «Консультация по имплантации» — это 185px текста, и она обрезается. Без
+    потолка та же колонка получает 251px уже на рабочем 1366 клиники. То есть
+    потолок отнял бы у услуг ширину, которая у них ЕСТЬ на самом узком экране,
+    где программа работает, — вот почему модификатор здесь, а не «на всякий».
+    ⚠️ Ширина, которую он выдаёт, уходит именно в названия: остальные колонки
+    заданы числом в разметке. Чего он НЕ чинит — узкую колонку «Preț»: она была
+    120px, обрезала «1000–1200 MDL» одинаково на 1366 и на 2560, и лечится это
+    своим числом в `settings/routes.py`, а не шириной таблицы (08-16: обоснова-
+    ние модификатора ссылалось на «Preț» и обещало то, чего он не делает).
+    Имя с префиксом класса-хозяина — иначе модификатор схлопнется с чужим
+    `wide` (грабля 08-11). */
+ table.set{border-collapse:collapse;width:100%;max-width:var(--measure-form);
+   background:var(--panel);box-shadow:var(--sh);
    border-radius:14px;overflow:hidden;margin-bottom:10px}
+ table.set.set-wide{max-width:none}
  table.set th,table.set td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
  table.set th{background:var(--bg);color:var(--text2);font-weight:600}
  table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px}
@@ -684,8 +755,19 @@
    table.grid td:hover a.free,table.grid td a.free:focus-visible{opacity:1}
    table.grid td a.free:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
  }
+ /* ⭐ Панель обнимает СВОЁ содержимое, а не окно (08-16). Здесь потолок не
+    годится: все поля этой формы заданы шириной в разметке (ни одно не тянется),
+    поэтому растянутая панель просто дорисовывает белое справа от последней
+    кнопки — «Medic nou» на 2560 выходил белым полем 2152px с контролами в
+    левых 643px и читался как пустой экран, хотя замер края чернил показывал
+    страницу заполненной. Число тут было бы враньём: у формы журнала контролов
+    на 1371px, у формы медиков — на 643px, и правильная ширина у каждой своя.
+    `fit-content` берёт её у содержимого, а `max-width:100%` возвращает перенос
+    на узком экране — на 1366 форма журнала как занимала всю строку, так и
+    занимает. */
  form.add{background:var(--panel);padding:16px;border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
-          display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px}
+          display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px;
+          width:fit-content;max-width:100%}
  form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none;
    transition:border-color .2s ease,box-shadow .2s ease}
@@ -772,7 +854,14 @@
  /* значок статуса в плашке списка: 16px _ic() распирал бы пилюлю в 12px —
     gap:5px у .stat как раз под него и заводился */
  .stat svg{width:13px;height:13px}
- .hint{color:var(--text2);font-size:12.5px;margin-top:10px;line-height:1.55}
+ /* .hint — главный носитель сплошного текста в журнале (сорок с лишним мест),
+    поэтому потолок строки стоит ЗДЕСЬ, а не у каждой страницы. Замер до него:
+    подсказка тянулась на 1452px на 27" и на 1102px даже на рабочих 1366 —
+    то есть строка была слишком длинной ещё до расширения страниц.
+    ⚠️ Потолок, а не ширина: в узкой колонке (.fcol-l, .rail) подсказка
+    по-прежнему берёт ширину колонки. */
+ .hint{color:var(--text2);font-size:12.5px;margin-top:10px;line-height:1.55;
+   max-width:var(--measure)}
  .botnew{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    box-shadow:var(--sh);padding:var(--pad-block);margin-bottom:14px}
  .botnew h3{margin:0 0 4px;font-size:13.5px;font-weight:600}
@@ -1023,7 +1112,12 @@
  details.anform>summary::-webkit-details-marker{display:none}
  /* колонок столько, сколько влезет: карточка живёт в боковой колонке
     320px (одна колонка), а на узком экране разъезжается на всю ширину
-    (две-три) — фиксированные «две колонки» на 320px рвали подписи */
+    (две-три) — фиксированные «две колонки» на 320px рвали подписи.
+    ⛔ auto-FILL намеренно (08-16). Во-первых, здесь fill и fit не могут
+    разойтись: колонок максимум десять (самое широкое место — 2116px), а
+    вопросов двенадцать, и пустой колонки не бывает по построению. Во-вторых,
+    если бы разошлись, права была бы именно fill: флажок с подписью — предмет
+    своего размера, а растянутый ряд развёл бы квадратик и его вопрос. */
  .anbox{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
    gap:2px 12px;margin-bottom:8px}
  .anbox label{display:flex;align-items:center;gap:7px;font-size:12.5px;
@@ -1144,7 +1238,16 @@
  .doc form{margin-left:auto}
  .doc form button{background:none;border:none;color:var(--text3);cursor:pointer}
  .doc form button:hover{color:var(--red)}
- .fform{display:flex;flex-direction:column;gap:9px}
+ /* ⚠️ Тот же потолок ряда, что у table.set, и по той же причине (08-16). Фиша
+    таблицей не размечена, поэтому её формы не ограничивало НИЧТО: на 2560
+    главная колонка 1812px, и «Notă (opțional, ex. avans coroană)» становилось
+    полем в 1780px под запись в три слова, а «+ Adaugă în plan» — зелёной
+    полосой во всю ширину с подписью посередине. Потолок ОДИН на оба места:
+    заведи здесь своё число — и поле платежа разойдётся с полем настроек, хотя
+    это одна и та же строка «подпись + ввод».
+    ⚠️ Потолок, а не ширина: в боковой колонке фиши (300px) форма по-прежнему
+    берёт ширину колонки. */
+ .fform{display:flex;flex-direction:column;gap:9px;max-width:var(--measure-form)}
  .fform input,.fform select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;font-family:inherit;width:100%;
    background:var(--panel);color:var(--text);outline:none;
@@ -1260,6 +1363,12 @@
    transition:background-color .2s ease,border-color .2s ease,color .2s ease}
  .tabs button:hover{border-color:var(--teal);color:var(--teal-d)}
  .tabs button.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal)}
+ /* ⛔ Здесь auto-FILL, и это НЕ забытое слово (проверено 08-16 при переводе
+    остальных сеток на fit). Плитка документа — предмет своего размера: превью
+    ростом ровно 120px и `object-fit:cover`. Под auto-fit три снимка в фише на
+    2560 растянулись бы в полосы 582×120 — из фотографии осталась бы горизонталь-
+    ная нарезка, а из галереи лента. Пустое место справа от маленьких плиток —
+    нормальный вид галереи, а не дыра в раскладке. */
  .docgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
  .doccard{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
    background:var(--panel);text-decoration:none;color:inherit;display:flex;
@@ -1343,7 +1452,18 @@
    color:var(--text2)}
  .plan-row .pdue{width:104px;flex:0 0 104px;font-size:12px;color:var(--text2)}
  /* ---------- раздел «Medici» (v1.9.0) ---------- */
- .medgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+ /* ⚠️ auto-FIT по правилу у .tiles: карточка врача — карточка, делящая ряд.
+    На auto-fill эта сетка ЗАВЕЛА пустое поле справа ровно тогда, когда странице
+    отдали ширину окна (08-16): пока .content был зажат 1500px, четыре врача
+    занимали все четыре колонки, а на 2152px сетка стала заводить шесть колонок
+    по 347px и держать 746px мёртвого столбца справа от последней карточки
+    (на 1920 — 358px). Замер на 1366 показывал, что дыры там не было и нет:
+    три колонки, четвёртая карточка переносится. То есть дефект был виден
+    ТОЛЬКО на большом мониторе — как и всё в этом файле.
+    ⚠️ Обратная сторона fit принята сознательно: у клиники с одним врачом
+    единственная карточка растянется на всю ширину. Это карточка, а не
+    миниатюра — она остаётся читаемой, и пустое поле хуже. */
+ .medgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
  .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:var(--pad-card);
    display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;
    transition:box-shadow .15s,transform .15s}

@@ -367,7 +367,7 @@ async def settings_system(request: Request, msg: str = ""):
 </table>
 
 <h2>{_ic("shield")} Confidențialitate</h2>
-<div class='pcard' style='max-width:760px'>
+<div class='pcard' style='max-width:var(--measure)'>
 <p style='margin:0 0 8px;font-size:13px;line-height:1.55;color:var(--text2)'>
 <b style='color:var(--text)'>Programul funcționează local.</b> Datele personale ale pacienților
 nu sunt transmise dezvoltatorului și nu sunt stocate pe serverele acestuia.
@@ -1000,13 +1000,22 @@ async def settings_services(request: Request, msg: str = ""):
         for s in cfg["services"]
     )
     doc_ids_hint = ", ".join(f"{d['id']}={e(d['name'])}" for d in cfg["doctors"])
+    # ⚠️ Ширины колонок ниже набраны числом в разметке, и «Preț» — та самая,
+    # из-за которой это важно: цена здесь не число, а строка от руки
+    # («1000–1200 MDL», «de la 2500 MDL», «gratuit»). При 120px поле показывало
+    # 78px текста и резало ЛЮБУЮ вилку цен — одинаково на 2560 и на рабочем
+    # 1366 (замер 08-16), то есть ширина ТАБЛИЦЫ тут ни при чём и `set-wide`
+    # этого не лечит. 150px — это 106px текста при самой длинной настоящей цене
+    # в 97px. Больше не берём: каждое число этой строки отнимает ширину у
+    # названий, а «Denumire (RU)» на 1366 и так впритык (185px текста при
+    # 192px поля). Держит tests\test_review3.suite_svc_table.
     body = f"""
 <h2>{_ic("tooth")} Servicii</h2>
 <form method='post' action='/admin/settings/save' onsubmit='return collectServices()'>
 <input type='hidden' name='part' value='services'>
 <input type='hidden' name='payload' id='payload'>
-<table class='set' id='svc_t'>
-<tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:120px'>Preț</th>
+<table class='set set-wide' id='svc_t'>
+<tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:150px'>Preț</th>
 <th style='width:90px'>Durată</th><th style='width:100px'>Culoare</th>
 <th style='width:40px'>{_ic('sos')}</th><th style='width:140px'>Medici (id)</th><th></th></tr>
 <tbody id='svc_tb'>{svc_rows}</tbody>

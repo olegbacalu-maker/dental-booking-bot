@@ -25,11 +25,18 @@ from __future__ import annotations
 from ...core.layout import FEEDBACK_EMAIL, _ic, tg_configured
 from . import backup as bkp
 
+# ⚠️ Потолок ширины — у КАРТОЧКИ, а не у текста внутри неё (08-16, когда
+# страницы стали во всю ширину окна). Своё число 720px стояло на <div> ответа, и
+# карточка вокруг него растягивалась на весь монитор: рамка через 2100px, а
+# текст в её левой трети. Потолок --measure (panel.css) держит и рамку, и
+# строку, и он один на всю программу — иначе следующий абзац заведёт третье
+# число рядом с 720 и 760.
 _CARD = ("style='border:1px solid var(--line);border-radius:var(--r-card);"
-         "background:var(--panel);padding:12px 16px;margin:10px 0'")
+         "background:var(--panel);padding:12px 16px;margin:10px 0;"
+         "max-width:var(--measure)'")
 _SUM = "style='cursor:pointer;font-weight:600;font-size:14px;color:var(--text)'"
 _BODY = ("style='margin-top:10px;font-size:13px;line-height:1.6;"
-         "color:var(--text2);max-width:720px'")
+         "color:var(--text2)'")
 
 
 def _q(icon: str, question: str, answer: str) -> str:
