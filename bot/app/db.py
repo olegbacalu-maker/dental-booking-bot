@@ -227,6 +227,17 @@ UQ_PENDING_KEY = "uq_waiting_pending"
 UQ_REPAIR_GONE = "gone"
 UQ_REPAIR_NARROW = "narrow"
 
+# ИСХОДЫ вердикта о страховке — ровно три, и смешивать их нельзя.
+# ⭐ Третий заведён 08-16: неудачное чтение состояния давало пустой словарь, а
+# пустой словарь читался как «в базе нет ни одной проверки» — и директору
+# печаталось, что тот же час можно занять дважды без предупреждения. Это
+# утверждение, которого никто не проверял: мы не ЗНАЕМ состояния, а не знаем,
+# что его нет. Говорить только проверенное — то самое правило, ради которого
+# переписывался и сам баннер.
+UQ_NARROW = "narrow"      # все проверки в базе ЕСТЬ, но предикат уже нужного
+UQ_BROKEN = "broken"      # каких-то проверок в базе НЕТ — прочитано
+UQ_UNKNOWN = "unknown"    # состояние прочитать НЕ УДАЛОСЬ — не знаем ничего
+
 
 def _uq_slot_sql(act_sql: str, names: tuple = ()) -> list[str]:
     """Пересоздание слотовых уникальных индексов под заданный предикат.
@@ -595,14 +606,20 @@ async def del_meta(key: str) -> None:
 # навсегда (08-16).
 _UQ_SLOT = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
 
+# Сколько всего проверок — числом. ⚠️ Литерал «3» в текстах живёт ровно до
+# четвёртого индекса и расходится с _UQ_SLOT МОЛЧА: баннер начнёт считать
+# «minus один», а строка летописи уедет неверной навсегда.
+UQ_SLOT_COUNT = len(_UQ_SLOT)
+
 # Состояние страховки в ЭТОМ процессе: баннер рисует layout синхронно, а
 # спросить базу он не может. Устроено как TAMPER_ALERT у auth — тем же приёмом
 # (метка в schema_meta + баннер директору), а не вторым механизмом.
 #   pending — полная защита не встала, директору есть что сказать;
-#   level   — 'narrow' все три проверки в базе есть, но какая-то уже ожидаемой;
-#             'broken' какой-то проверки в базе НЕТ (это разные новости, и текст
-#             у них разный). ⛔ Ни то, ни другое не значит «защиты нет»: такого
-#             код не проверяет и утверждать не вправе;
+#   level   — UQ_NARROW все проверки в базе есть, но какая-то уже ожидаемой;
+#             UQ_BROKEN какой-то проверки в базе НЕТ; UQ_UNKNOWN состояние
+#             прочитать не удалось (это три разные новости, и текст у них
+#             разный). ⛔ Ни одно из них не значит «защиты нет»: такого код не
+#             проверяет и утверждать не вправе;
 #   gone    — ИМЕННО те проверки, которых в базе нет (для честного текста);
 #   rows    — что именно развести (тип, кто, час, сколько записей);
 #   ran     — шаг уже отработал в этом запуске (миграция), второй раз не надо.
@@ -758,6 +775,74 @@ def uq_gone_ro(gone: list[str]) -> str:
     return ", ".join(_UQ_RO.get(name, name) for name in gone)
 
 
+# Числительные словами: «lipsesc 2 verificări» читается как машинный текст ровно
+# там, где от строки требуется доверие директора.
+_RO_COUNT = {1: "una", 2: "două", 3: "trei", 4: "patru", 5: "cinci"}
+
+
+def uq_event_text(level: str, gone: list[str], rows_n: int) -> str:
+    """Строка ЛЕТОПИСИ о состоянии страховки — одна на все три исхода.
+
+    ⚠️ Летопись режет текст по `EVENT_TEXT_MAX` и хранит его НАВСЕГДА:
+    не влезшая строка обрезается посреди слова, переписать её нечем, а не влезал
+    ровно самый тревожный случай — тот, где единственное важное слово
+    («позвать поддержку») стояло в конце (08-16, измерено: 232 символа против
+    потолка в 200). Поэтому строка собирается КОРОТКОЙ, а не режется: потолок
+    поднимать нельзя (в колонке уже лежат строки старых клиник, и новый потолок
+    к ним не относится), и полагаться на запас в пару символов тоже — имена
+    проверок длиннее, чем кажется. Перечисление имён — единственная растущая
+    часть, и она же первой уходит, когда строка перестаёт помещаться.
+    ⭐ Здесь же и правило круга: сказано ровно то, что код ПРОВЕРИЛ. «Не
+    прочитали состояние» — свой исход со своим текстом, а не «защиты нет».
+    """
+    tail = " — este nevoie de suport tehnic"
+    if level == UQ_UNKNOWN:
+        # ⛔ Ни одного утверждения о самих проверках: их состояние не прочитано.
+        # Поддержка здесь не первый совет — причина бывает разовой (база занята,
+        # диск), и следующий старт всё скажет сам.
+        return ("Actualizare: starea verificărilor împotriva programărilor "
+                "duble nu a putut fi citită — reporniți programul, iar dacă "
+                "mesajul revine, este nevoie de suport tehnic")
+    if level == UQ_BROKEN:
+        n = len(gone)
+        if n >= UQ_SLOT_COUNT:
+            # Единственный случай, где имена не нужны: не хватает ВСЕХ.
+            return (f"Actualizare: niciuna dintre cele {UQ_SLOT_COUNT} "
+                    f"verificări împotriva programărilor duble nu este în "
+                    f"evidență{tail}")
+        head = (f"Actualizare: din {UQ_SLOT_COUNT} verificări împotriva "
+                f"programărilor duble "
+                f"{'lipsește' if n == 1 else 'lipsesc'} "
+                f"{_RO_COUNT.get(n, n)}")
+        full = f"{head}: {uq_gone_ro(gone)}{tail}"
+        # ⚠️ Страховка на будущее, а не мёртвая ветка: четвёртая проверка или
+        # более длинное имя однажды сделают перечисление длиннее потолка, и
+        # тогда строка обязана остаться самодостаточной, а не обрезанной.
+        return full if len(full) <= EVENT_TEXT_MAX else head + tail
+    if not rows_n:
+        # ⛔ Причина НЕ в данных: конфликтных часов код не нашёл ни одного (шаг
+        # упёрся во что-то ещё — это в логе). Летопись хранит готовую строку
+        # НАВСЕГДА, и «0 ore au mai multe programări active» осталось бы в ней
+        # враньём про картотеку, которое нечем переписать.
+        return ("Actualizare: protecția extinsă nu a putut fi aplicată — "
+                "protecția de dinainte a rămas activă")
+    what = f"{rows_n} ore au" if rows_n != 1 else "O oră are"
+    return (f"Actualizare: {what} mai multe programări active — "
+            f"protecția extinsă nu a putut fi aplicată")
+
+
+# Строки самолечения и снятия метки — рядом с `uq_event_text` и по той же
+# причине: у них общий потолок длины, и мерить их нужно всем списком сразу.
+UQ_REPAIR_TEXT = {
+    UQ_REPAIR_GONE: "Verificările împotriva programărilor duble lipseau din "
+                    "evidență și au fost restabilite",
+    UQ_REPAIR_NARROW: "Verificările împotriva programărilor duble erau mai "
+                      "restrânse decât trebuie și au fost extinse",
+}
+UQ_CLEARED_TEXT = ("Orele duble au fost separate — protecția programărilor "
+                   "este completă din nou")
+
+
 def _uq_at_least(state: dict[str, str], name: str, act_sql: str) -> bool:
     """Индекс `name` в базе НЕ УЖЕ предиката act_sql.
 
@@ -877,23 +962,36 @@ async def _slot_guard_verdict(rows: list[dict], was_pending: bool,
     ОПРЕДЕЛЕНИЮ, а два остальных при этом целы и работают. Летопись хранит
     готовую строку навсегда, поэтому она обязана называть проверенное — что
     стоит и чего не хватает, — а не выносить приговор всей страховке (08-16).
+    ⛔ И третье, из того же правила: НЕ ПРОЧИТАЛИ состояние — это свой исход
+    (UQ_UNKNOWN), а не «в базе нет ничего». Пустой словарь после неудачного
+    чтения читался как «нет ни одной проверки», и директор получал самый
+    страшный текст («тот же час можно занять дважды без предупреждения») на
+    базе, где все три индекса целы и работают (08-16).
     """
+    unknown = False
     try:
         state = await _uq_index_state()
     except Exception as e:  # noqa: BLE001 — не знаем состояния = говорим об этом
         log.error("состояние uq-индексов не прочитано: %r", e)
-        state = {}
-    if not rows and _uq_matches(state, _ACT_SQL):
+        state, unknown = {}, True
+    # ⚠️ «Не прочитали» не имеет права стать и УСПЕХОМ: молчание тут значило бы
+    # снятую метку и погашенный баннер — то же необоснованное утверждение,
+    # только в обратную сторону. Условие оставлено явным намеренно, хотя пустое
+    # состояние и так не совпадёт: правило важнее, чем сегодняшняя реализация
+    # `_uq_matches`.
+    if not unknown and not rows and _uq_matches(state, _ACT_SQL):
         await _slot_guard_clear(was_pending, repair)
         return
-    gone = _uq_gone(state)
-    level = "broken" if gone else "narrow"
+    gone = [] if unknown else _uq_gone(state)
+    level = UQ_UNKNOWN if unknown else (UQ_BROKEN if gone else UQ_NARROW)
     _SLOT_GUARD.update(pending=True, level=level, rows=rows, gone=gone)
-    if level == "narrow":
+    if level == UQ_NARROW:
         log.error("полная защита слота не встала: конфликтных слотов %d", len(rows))
-    else:
+    elif level == UQ_BROKEN:
         log.error("СЛОТОВЫХ ИНДЕКСОВ НЕТ В БАЗЕ: %r (на месте: %r)",
                   gone, sorted(state))
+    else:
+        log.error("состояние слотовых индексов НЕИЗВЕСТНО: база не ответила")
     try:
         await set_meta(UQ_PENDING_KEY, f"{level}:{len(rows)}")
     except Exception as e:  # noqa: BLE001 — метка уже стоит с «1», это уточнение
@@ -902,30 +1000,9 @@ async def _slot_guard_verdict(rows: list[dict], was_pending: bool,
         # ⚠️ Строка в ленту — ОДИН раз на одно вмешательство, как у auth_alert:
         # баннер висит и так, а перезапуски не должны пополнять летопись.
         return
-    if level == "broken":
-        # Названы ОБЕ половины: сколько проверок в силе и какой именно не хватает.
-        # «Защиты нет» здесь было бы утверждением, которого никто не проверял.
-        await log_clinic_event(
-            "uq_guard", f"Actualizare: {len(_UQ_SLOT) - len(gone)} din "
-                        f"{len(_UQ_SLOT)} verificări împotriva programărilor "
-                        f"duble sunt în evidență; lipsește protecția pentru: "
-                        f"{uq_gone_ro(gone)} — este nevoie de suport tehnic")
-        return
-    if not rows:
-        # ⛔ Причина НЕ в данных: конфликтных часов код не нашёл ни одного (шаг
-        # упёрся во что-то ещё — это в логе). Летопись хранит готовую строку
-        # НАВСЕГДА, и «0 ore au mai multe programări active» осталось бы в ней
-        # враньём про картотеку, которое нечем переписать.
-        await log_clinic_event(
-            "uq_guard", "Actualizare: protecția extinsă nu a putut fi aplicată "
-                        "— protecția de dinainte a rămas activă")
-        return
-    # ⚠️ Число и существительное в румынском согласуются: «1 ore» читается как
-    # машинный текст, а летопись хранит ГОТОВУЮ строку навсегда.
-    what = f"{len(rows)} ore au" if len(rows) != 1 else "O oră are"
-    await log_clinic_event(
-        "uq_guard", f"Actualizare: {what} mai multe programări active — "
-                    f"protecția extinsă nu a putut fi aplicată")
+    # Текст — в `uq_event_text`, одним куском на все исходы: он же и единственное
+    # место, где видно, что строка обязана уместиться в потолок летописи.
+    await log_clinic_event("uq_guard", uq_event_text(level, gone, len(rows)))
 
 
 async def _slot_guard_clear(was_pending: bool, repair: str = "") -> None:
@@ -948,19 +1025,12 @@ async def _slot_guard_clear(was_pending: bool, repair: str = "") -> None:
         # хранит готовую строку навсегда, и одна на два события всегда врёт про
         # одно из них (08-16).
         log.warning("слотовые индексы восстановлены на старте (%s)", repair)
-        await log_clinic_event(
-            "uq_guard",
-            "Verificările împotriva programărilor duble lipseau din evidență "
-            "și au fost restabilite" if repair == UQ_REPAIR_GONE else
-            "Verificările împotriva programărilor duble erau mai restrânse "
-            "decât trebuie și au fost extinse")
+        await log_clinic_event("uq_guard", UQ_REPAIR_TEXT[repair])
         return
     if not was_pending:
         return                       # обычная миграция, рассказывать нечего
     log.warning("двойные брони разведены — полная защита слота восстановлена")
-    await log_clinic_event(
-        "uq_guard", "Orele duble au fost separate — protecția programărilor "
-                    "este completă din nou")
+    await log_clinic_event("uq_guard", UQ_CLEARED_TEXT)
 
 
 async def _slot_guard_startup() -> None:
@@ -1919,6 +1989,14 @@ def _actor_now(default: str = "recepție") -> str:
         return default
 
 
+# ПОТОЛОК текста события. ⚠️ Обрезка ЖЁСТКАЯ и посреди слова, а строка хранится
+# навсегда — переписать её нечем. ⛔ Поднимать это число «чтобы влезло» нельзя:
+# в колонке уже лежат строки, обрезанные прежним потолком, и новый к ним не
+# относится — картотека станет разноформатной, а обрезанное не вернётся. Строку
+# сокращают, а не потолок поднимают (08-16, `uq_event_text`).
+EVENT_TEXT_MAX = 200
+
+
 async def log_event(patient_id: int | None, kind: str, text: str, *,
                     actor: str = "", tooth: int | None = None) -> None:
     """Событие карты пациента. Никогда не роняет основную операцию: журнал —
@@ -1945,8 +2023,10 @@ async def log_event(patient_id: int | None, kind: str, text: str, *,
                VALUES($1, $2, $3, $4, $5)""",
             """INSERT INTO activity(patient_id, at, actor, kind, tooth, text)
                VALUES(?, ?, ?, ?, ?, ?)""",
-            *((patient_id, actor, kind, tooth, text[:200]) if not IS_SQLITE
-              else (patient_id, _utcnow_iso(), actor, kind, tooth, text[:200])),
+            *((patient_id, actor, kind, tooth, text[:EVENT_TEXT_MAX])
+              if not IS_SQLITE else
+              (patient_id, _utcnow_iso(), actor, kind, tooth,
+               text[:EVENT_TEXT_MAX])),
         )
     except Exception as e:  # noqa: BLE001
         log.warning("activity %s/%s failed: %r", patient_id, kind, e)
@@ -1962,8 +2042,8 @@ async def log_clinic_event(kind: str, text: str, actor: str = "sistem") -> None:
                VALUES(NULL, $1, $2, $3)""",
             """INSERT INTO activity(patient_id, at, actor, kind, text)
                VALUES(NULL, ?, ?, ?, ?)""",
-            *((actor, kind, text[:200]) if not IS_SQLITE
-              else (_utcnow_iso(), actor, kind, text[:200])),
+            *((actor, kind, text[:EVENT_TEXT_MAX]) if not IS_SQLITE
+              else (_utcnow_iso(), actor, kind, text[:EVENT_TEXT_MAX])),
         )
     except Exception as e:  # noqa: BLE001 — летопись не роняет операцию
         log.warning("clinic event %s failed: %r", kind, e)

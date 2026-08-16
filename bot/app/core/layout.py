@@ -606,7 +606,12 @@ def _slot_banner() -> str:
         how += (" La <b>pacient</b>: schimbați <b>ora</b> uneia dintre "
                 "programări — mutarea la alt medic nu ajută, pacientul rămâne "
                 "programat de două ori la aceeași oră.")
-    broken = g.get("level") != "narrow"
+    # ⭐ Исходов ТРИ, и они не сводятся к «narrow или всё плохо». Безымянный
+    # уровень читается как «не знаем», а не как «всё на месте»: ошибиться в
+    # сторону лишнего вопроса можно, в сторону ложного «всё хорошо» — нет.
+    level = g.get("level") or db.UQ_UNKNOWN
+    narrow = level == db.UQ_NARROW
+    broken = level == db.UQ_BROKEN
     if broken:
         # ⛔ Говорим ТОЛЬКО проверенное: каких проверок нет в базе и сколько
         # осталось. «Защиты нет» — приговор, которого код не выносил: у базы
@@ -614,13 +619,14 @@ def _slot_banner() -> str:
         # работают. Прежний текст посылал в поддержку директора, которому надо
         # было развести час, напечатанный строкой ниже (08-16).
         gone = list(g.get("gone") or [])
-        left = 3 - len(gone)
+        left = db.UQ_SLOT_COUNT - len(gone)
         # ⚠️ Согласование числа с существительным — не косметика: «lipsesc 1
         # verificări» читается как машинный текст ровно там, где от строки
         # требуется доверие директора.
         if not left:
-            what = ("niciuna dintre cele 3 verificări nu este în evidență, "
-                    "aceeași oră poate fi ocupată de două ori fără avertisment")
+            what = (f"niciuna dintre cele {db.UQ_SLOT_COUNT} verificări nu este "
+                    "în evidență, aceeași oră poate fi ocupată de două ori "
+                    "fără avertisment")
         else:
             miss = (f"lipsește din evidență o verificare ({db.uq_gone_ro(gone)})"
                     if len(gone) == 1 else
@@ -631,6 +637,15 @@ def _slot_banner() -> str:
             what = f"{miss}, {rest}"
         head = ("<b>Protecția împotriva programărilor duble nu este completă</b>"
                 f" — {what}.")
+    elif not narrow:
+        # ⛔ Состояние ПРОЧИТАТЬ НЕ УДАЛОСЬ — и это всё, что можно сказать.
+        # Пустой ответ базы прежде считался за «в базе нет ни одной проверки», и
+        # директор читал самый страшный текст на картотеке, где все проверки
+        # целы и работают. Разница не в тоне: «нет защиты» — утверждение,
+        # которое кто-то должен был проверить, а тут его никто не проверял.
+        head = ("<b>Starea protecției împotriva programărilor duble nu a putut "
+                "fi citită</b> — programul nu știe câte verificări sunt în "
+                "evidență. Programările se fac ca de obicei.")
     else:
         # ⛔ Причину называем ту, которая есть. Список конфликтов может быть и
         # пуст — тогда шаг упёрся не в данные (это в логе), и фраза «există ore
@@ -641,17 +656,17 @@ def _slot_banner() -> str:
         head = ("Protecția împotriva programărilor duble nu a putut fi extinsă: "
                 + ("în evidență există ore cu mai multe programări active"
                    if rows else "operația nu s-a încheiat") +
-                ". Programul lucrează normal, iar toate cele 3 verificări sunt "
-                "în evidență (verificat).")
-    # ⛔ Совет нужен В ОБОИХ состояниях, и в broken он нужнее: недостающая
+                ". Programul lucrează normal, iar toate cele "
+                f"{db.UQ_SLOT_COUNT} verificări sunt în evidență (verificat).")
+    # ⛔ Совет нужен ВО ВСЕХ состояниях, и в broken он нужнее: недостающая
     # проверка не ложится как раз из-за тех часов, которые напечатаны строкой
     # ниже, и их разведение возвращает её на ближайшем старте само. Без совета
     # директор перезапускает программу (безрезультатно), звонит в поддержку и
     # работает день с неполной страховкой слота.
     tail = (" Reporniți programul; dacă mesajul revine, contactați suportul "
-            "astăzi." if broken or not rows else
+            "astăzi." if not narrow or not rows else
             " După aceea reporniți programul — restul se face singur.")
-    if not broken and not rows:
+    if narrow and not rows:
         how = ""                     # советовать нечего: разводить нечего
     elif not how:
         how = " Verificați jurnalul programului."

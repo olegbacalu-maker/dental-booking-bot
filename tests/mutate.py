@@ -133,6 +133,16 @@ MUTATIONS = [
     ("schema_meta создаётся", "app/db.py",
      ("CREATE TABLE IF NOT EXISTS schema_meta(",
       "CREATE TABLE IF NOT EXISTS schema_meta_gone(")),
+    # Колонка, доехавшая только до ОДНОГО издания. Ломается на стороне SQLite —
+    # той, которую гоняет прогон: у клиники всё сойдётся, а свежая облачная база
+    # поднимется без колонки, и первый же запрос к ней упадёт. Ровно этого класса
+    # была пропажа schema_meta из PG_SCHEMA, только та выглядела как отказ старта.
+    # ⚠️ Замена, а не дописывание: список — литерал, и в конец файла его не
+    # продолжить.
+    ("описывают одну базу", "app/db.py",
+     ('("appointments", "waiting_at TEXT"),',
+      '("appointments", "waiting_at TEXT"),\n'
+      '    ("appointments", "loyalty_note TEXT"),')),
 ]
 
 

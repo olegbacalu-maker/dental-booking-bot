@@ -75,6 +75,49 @@ _BOT_TEXTS = ("app/engine.py", "app/telegram.py")
 _INTER = re.compile(r"font-family\s*:\s*['\"]?Inter")
 _DECLARED = ("__FONTS__", "@font-face")
 
+# ---- разбор схем двух изданий ----
+# Сверяются ТОЛЬКО имена таблиц и колонок. Тип (`SERIAL` против `INTEGER
+# PRIMARY KEY AUTOINCREMENT`, `TIMESTAMPTZ` против `TEXT`), значения по
+# умолчанию и синтаксис ON CONFLICT у движков законно разные — это не
+# расхождение, и правило, лезущее в них, краснело бы на ровном месте.
+_SQL_COMMENT = re.compile(r"--[^\n]*")
+_SQL_CREATE = re.compile(
+    r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\((.*?)\n\);", re.S | re.I)
+_SQL_ADD_COL = re.compile(
+    r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", re.I)
+# Строка тела CREATE TABLE, которая объявляет не колонку, а ограничение.
+# ⚠️ Сюда же ПРОДОЛЖЕНИЯ определения колонки, перенесённые на вторую строку
+# (`patient_id INT` ⏎ `REFERENCES …`): без них правило считает продолжение
+# отдельной колонкой и краснеет на обычном форматировании SQL. Красное, которое
+# читается как поломка правила, отключают первым — и вместе с ним настоящую
+# проверку.
+_SQL_CONSTRAINT = re.compile(
+    r"^(PRIMARY|FOREIGN|UNIQUE|CONSTRAINT|CHECK"
+    r"|REFERENCES|ON|NOT|NULL|DEFAULT|COLLATE|GENERATED|DEFERRABLE)\b", re.I)
+
+# Куда идут аддитивные колонки SQLite. У `SQLITE_EXTRA_COLS` таблица лежит в
+# самой паре, а у `SQLITE_PATIENT_COLS` она вшита в код (`ALTER TABLE patients
+# ADD COLUMN {coldef}`), поэтому названа здесь — и рядом стоит якорь: этот
+# литерал в db.py обязан существовать, иначе правило сверяет вымысел.
+_LITE_PATIENT_TABLE = "patients"
+_LITE_PATIENT_ALTER = f"ALTER TABLE {_LITE_PATIENT_TABLE} ADD COLUMN"
+
+
+def _schema_tables(sql: str) -> dict[str, set]:
+    """{таблица: {имена колонок}} из текста схемы."""
+    sql = _SQL_COMMENT.sub("", sql)
+    out: dict[str, set] = {}
+    for name, body in _SQL_CREATE.findall(sql):
+        cols = set()
+        for line in body.split("\n"):
+            line = line.strip().rstrip(",").strip()
+            if line and not _SQL_CONSTRAINT.match(line):
+                cols.add(line.split()[0].lower())
+        out[name.lower()] = cols
+    for table, col in _SQL_ADD_COL.findall(sql):
+        out.setdefault(table.lower(), set()).add(col.lower())
+    return out
+
 
 def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
     """Строковые литералы модуля БЕЗ docstring'ов, каждый одним куском.
@@ -416,7 +459,7 @@ def suite(res: Result) -> None:
     # ⚠️ Полярность опасная: правило ищет ИМЕНА. Переименуют SCHEMA_VERSION или
     # словарь — искать станет нечего, поэтому «не нашлось» здесь тоже красное.
     db_tree = by_path.get("app/db.py")
-    consts, dictkeys = {}, {}
+    consts, dictkeys, listvals = {}, {}, {}
     for n in ast.walk(db_tree or ast.Module(body=[], type_ignores=[])):
         if not (isinstance(n, ast.Assign) and len(n.targets) == 1
                 and isinstance(n.targets[0], ast.Name)):
@@ -427,6 +470,8 @@ def suite(res: Result) -> None:
         elif isinstance(n.value, ast.Dict):
             dictkeys[name] = [k.value for k in n.value.keys
                               if isinstance(k, ast.Constant)]
+        elif isinstance(n.value, ast.List):
+            listvals[name] = n.value
     ver = consts.get("SCHEMA_VERSION")
     pg = dictkeys.get("MIGRATIONS_PG")
     lite = dictkeys.get("MIGRATIONS_LITE")
@@ -519,3 +564,72 @@ def suite(res: Result) -> None:
     res.ok("schema_meta создаётся в обеих схемах", not bad,
            "нет CREATE TABLE schema_meta в: " + ", ".join(bad)
            + " — издание на этой схеме не стартует на пустой базе")
+
+    # ---- две схемы описывают ОДНУ базу (08-16) ----
+    # Ветку Postgres не исполняет НИ ОДИН набор: все харнессы поднимают sqlite.
+    # Поэтому расхождение схем — единственный класс ошибок в этом файле, который
+    # не увидит ни прогон, ни ревью: правка «для клиники» уезжает и в облако, а
+    # проверяется только клиника. Ровно так из PG_SCHEMA случайно пропала
+    # schema_meta (434513c): облако перестало стартовать на свежей базе, прогон
+    # остался зелёным. Проверка выше сторожит ТОТ случай; эта — весь класс.
+    # ⚠️ Сверяются только ИМЕНА таблиц и колонок. Тип, автоинкремент, значения
+    # по умолчанию и ON CONFLICT у движков законно разные, и правило, лезущее
+    # в них, краснело бы на каждой строке.
+    # ⚠️ Полярность опасная: правило ищет ИМЕНА словарей и списков. Переименуют
+    # PG_SCHEMA или SQLITE_EXTRA_COLS — сверять станет нечего и оно позеленеет
+    # навсегда, поэтому «не нашлось» и «нашлось подозрительно мало» здесь тоже
+    # красное.
+    pg_t = _schema_tables(str(consts.get("PG_SCHEMA", "")))
+    lite_t = _schema_tables(str(consts.get("SQLITE_SCHEMA", "")) + "\n"
+                            + str(consts.get("SQLITE_CARD_SCHEMA", "")))
+    # Колонки, дописанные позже: у SQLite нет ADD COLUMN IF NOT EXISTS, и они
+    # живут списками, а не текстом схемы. В PG те же колонки стоят прямо в
+    # PG_SCHEMA строкой ALTER TABLE — их уже забрал _schema_tables.
+    extra = listvals.get("SQLITE_EXTRA_COLS")
+    pat = listvals.get("SQLITE_PATIENT_COLS")
+    for el in (extra.elts if extra is not None else []):
+        if (isinstance(el, ast.Tuple) and len(el.elts) == 2
+                and all(isinstance(x, ast.Constant) for x in el.elts)):
+            lite_t.setdefault(el.elts[0].value.lower(), set()).add(
+                el.elts[1].value.split()[0].lower())
+    for el in (pat.elts if pat is not None else []):
+        if isinstance(el, ast.Constant):
+            lite_t.setdefault(_LITE_PATIENT_TABLE, set()).add(
+                el.value.split()[0].lower())
+
+    bad = []
+    if len(pg_t) < 8 or len(lite_t) < 8:
+        bad.append(f"схемы разобрались подозрительно бедно (PG {len(pg_t)} "
+                   f"таблиц, SQLite {len(lite_t)}) — якорь правила пропал")
+    if not extra or not extra.elts or not pat or not pat.elts:
+        bad.append("SQLITE_EXTRA_COLS/SQLITE_PATIENT_COLS не найдены или пусты "
+                   "— половина колонок SQLite правилу не видна")
+    # Якорь ищется в ЛИТЕРАЛАХ, а не в файле: пустое дерево обязано давать
+    # красное, а не FileNotFoundError (см. первую проверку набора).
+    if not any(_LITE_PATIENT_ALTER in text
+               for _, text in _templates(db_tree
+                                         or ast.Module(body=[], type_ignores=[]))):
+        bad.append(f"в db.py нет «{_LITE_PATIENT_ALTER}» — SQLITE_PATIENT_COLS "
+                   f"кладутся не в ту таблицу, правило сверяет вымысел")
+    only_pg = sorted(set(pg_t) - set(lite_t))
+    only_lite = sorted(set(lite_t) - set(pg_t))
+    if only_pg:
+        bad.append("таблицы только в PG_SCHEMA: " + ", ".join(only_pg))
+    if only_lite:
+        bad.append("таблицы только у SQLite: " + ", ".join(only_lite))
+    for table in sorted(set(pg_t) & set(lite_t)):
+        miss_lite = sorted(pg_t[table] - lite_t[table])
+        miss_pg = sorted(lite_t[table] - pg_t[table])
+        if miss_lite:
+            bad.append(f"{table}: колонки только в PG — " + ", ".join(miss_lite))
+        if miss_pg:
+            bad.append(f"{table}: колонки только у SQLite — " + ", ".join(miss_pg))
+    # Шаг, заведённый в одном словаре: у SQLite это громкое «missing migration
+    # step» на первом же старте, у PG — то же самое, но у клиники его нет, а
+    # облако разворачивают раз в полгода.
+    if set(pg or []) != set(lite or []):
+        bad.append(f"шаги миграций разошлись: PG {sorted(pg or [])}, "
+                   f"SQLite {sorted(lite or [])}")
+    res.ok("схемы двух изданий описывают одну базу", not bad,
+           "; ".join(bad) + " — ветку Postgres не исполняет ни один набор, "
+           "и на свежей облачной базе это всплывёт отказом старта")

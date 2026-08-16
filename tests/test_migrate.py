@@ -43,6 +43,14 @@
 * `suite_uq_apply_fails` — раскладка индексов ОТКАЗАЛА. Единственный вопрос:
   говорит ли баннер правду. Обещание «прежняя защита цела» без проверки хуже
   молчания: директор читает, что всё под контролем, а двойная запись проходит.
+* `suite_uq_event_len` — ни одна строка летописи про страховку не упирается в
+  потолок колонки. Обрезка идёт посреди слова и навсегда, и не влезал ровно
+  самый тревожный случай — тот, где в конце стояло «позовите поддержку».
+* `suite_uq_all_gone` — в базе не осталось НИ ОДНОЙ проверки: этот текст и не
+  влезал. Здесь он меряется на живой базе, а не арифметикой.
+* `suite_uq_state_unreadable` — состояние индексов прочитать НЕ УДАЛОСЬ. Третий
+  исход: пустой ответ прежде читался как «в базе нет ничего», и директор получал
+  приговор всей защите на картотеке, где все три индекса целы и работают.
 * `suite_slot_banner_roles` — кому этот баннер виден. Он про устройство базы, а
   не про работу стойки: регистратура и врач починить это не могут, и строка,
   которую нельзя погасить, у них превратилась бы в фон.
@@ -950,8 +958,14 @@ def suite_uq_apply_fails(res: Result) -> None:
                events and "nu este activă" not in events[0],
                f"два индекса из трёх работают, а записано, что защиты нет: "
                f"{events!r}")
-        res.ok("летопись называет, сколько проверок в силе и какой нет",
-               events and "2 din 3" in events[0]
+        # ⚠️ Формулировка считает НЕДОСТАЮЩИЕ, а не оставшиеся: «din 3 … lipsește
+        # una» короче, чем «2 din 3 … sunt în evidență; lipsește protecția
+        # pentru», и обе половины по-прежнему названы. Длина тут не косметика —
+        # у колонки летописи есть потолок, и прежняя формулировка в него не
+        # влезала ровно в самом тревожном состоянии (08-16, suite_uq_all_gone).
+        res.ok("летопись называет, скольких проверок нет и какой именно",
+               events and f"din {appdb.UQ_SLOT_COUNT}" in events[0]
+               and "lipsește una" in events[0]
                and "aceeași oră la medicul redenumit" in events[0],
                f"строка не описывает проверенное: {events!r}")
 
@@ -993,6 +1007,163 @@ def suite_uq_apply_fails(res: Result) -> None:
                _blocked(dbfile, 1, "Dr. Altul", at, "confirmed", "dX"),
                "второй визит того же пациента на тот же час прошёл — "
                "картотека осталась без страховки, которой отказ не касался")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def suite_uq_event_len(res: Result) -> None:
+    """Ни одна строка летописи про страховку не упирается в потолок колонки.
+
+    ⚠️ Летопись режет текст по `db.EVENT_TEXT_MAX` ЖЁСТКО — посреди слова — и
+    хранит его навсегда. Не влезал ровно самый тревожный случай: «нет ни одной
+    проверки» перечисляла все три имени и на 232-м символе теряла хвост
+    «— este nevoie de suport tehnic», то есть единственное, ради чего в этом
+    состоянии летопись и пишется. Сервер тут не нужен: строка собирается чистой
+    функцией, и проверить её можно ВО ВСЕХ состояниях сразу, а не в тех, до
+    которых довели фикстуры.
+    """
+    names = list(appdb._UQ_SLOT)
+    cases: list[tuple[str, str]] = []
+    for n in range(1, len(names) + 1):
+        for i in range(len(names) - n + 1):
+            gone = names[i:i + n]
+            cases.append((f"broken {len(gone)}/{len(names)}",
+                          appdb.uq_event_text(appdb.UQ_BROKEN, gone, 0)))
+    cases.append(("broken все", appdb.uq_event_text(appdb.UQ_BROKEN, names, 3)))
+    cases.append(("unknown", appdb.uq_event_text(appdb.UQ_UNKNOWN, [], 0)))
+    for n in (0, 1, 2, 12, 999):
+        cases.append((f"narrow rows={n}",
+                      appdb.uq_event_text(appdb.UQ_NARROW, [], n)))
+    for why, text in appdb.UQ_REPAIR_TEXT.items():
+        cases.append((f"самолечение {why}", text))
+    cases.append(("метка снята", appdb.UQ_CLEARED_TEXT))
+
+    limit = appdb.EVENT_TEXT_MAX
+    long = [(what, len(t)) for what, t in cases if len(t) > limit]
+    res.ok("ни одна строка не длиннее потолка летописи", not long,
+           f"потолок {limit}, обрезка идёт посреди слова и навсегда: {long!r}")
+    # ⭐ Не только «влезла», но и «осталась самодостаточной»: в состоянии, где
+    # директору нужно позвать поддержку, эти слова обязаны доехать до базы.
+    need = [what for what, t in cases
+            if what.startswith(("broken", "unknown"))
+            and "suport tehnic" not in t]
+    res.ok("зовущие поддержку строки не теряют этих слов", not need,
+           f"строка обрезана до совета: {need!r}")
+    res.ok("проверено больше одного состояния", len(cases) > 8,
+           f"набор сторожит пустоту: состояний {len(cases)}")
+
+
+def suite_uq_all_gone(res: Result) -> None:
+    """Самое тревожное состояние: в базе НЕ ОСТАЛОСЬ ни одной проверки.
+
+    Ровно тут строка летописи и не влезала в колонку: 232 символа против
+    потолка в 200, и обрезка съедала «— este nevoie de suport tehnic» — то
+    единственное, ради чего в этом состоянии строка и пишется. Хранится она
+    навсегда, переписать её нечем.
+
+    Отказ подделан тем же способом, что в `suite_uq_apply_fails`, но на ВСЕХ
+    трёх индексах: в базе лежат ТАБЛИЦЫ с их именами, и CREATE UNIQUE INDEX
+    падает на каждом.
+    """
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_allgone_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _v3_db(dbfile)
+        for name in _UQ:
+            con.execute(f"DROP INDEX {name}")
+            con.execute(f"CREATE TABLE {name}(x)")
+        _patients(con, "Ion Test")
+        con.commit()
+        con.close()
+
+        with Server(dir_=work) as s:
+            res.ok("отказ на всех трёх не роняет старт", True)
+            body = Client(s.url).login().get("/admin").body
+
+        res.ok("подделка сработала: индексов не осталось", not _index_sql(dbfile),
+               f"набор ничего не проверяет: {_index_sql(dbfile)!r}")
+        res.ok("баннер называет состояние своим именем",
+               f"niciuna dintre cele {appdb.UQ_SLOT_COUNT}" in body,
+               "директору не сказано, что в базе нет ни одной проверки")
+        events = _activity(dbfile, "uq_guard")
+        res.check("состояние описано в летописи один раз", len(events), 1)
+        text = events[0] if events else ""
+        res.ok("строка летописи не обрезана", len(text) < appdb.EVENT_TEXT_MAX,
+               f"в колонку уехало {len(text)} символов при потолке "
+               f"{appdb.EVENT_TEXT_MAX} — конец строки потерян навсегда: "
+               f"{text!r}")
+        res.ok("летопись зовёт поддержку", "suport tehnic" in text,
+               f"в самом тревожном состоянии совет не доехал до базы: {text!r}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def suite_uq_state_unreadable(res: Result) -> None:
+    """Состояние индексов ПРОЧИТАТЬ НЕ УДАЛОСЬ — третий исход, а не приговор.
+
+    Неудачное чтение давало пустой словарь, а пустой словарь читался как «в базе
+    нет ни одной проверки»: директор получал самый страшный текст («aceeași oră
+    poate fi ocupată de două ori fără avertisment») на картотеке, где все три
+    индекса целы и работают. Утверждение, которого никто не проверял, — тот же
+    класс, что и «защиты нет» в соседней ветке: мы не ЗНАЕМ состояния, а не
+    знаем, что его нет.
+
+    ⚠️ Отказ подделан правкой КОПИИ дерева: данными его не подделать — запрос к
+    sqlite_master валиден на любой картотеке.
+    """
+    tz = ZoneInfo("Europe/Chisinau")
+    at = datetime(2026, 1, 22, 9, 0, tzinfo=tz).astimezone(
+        timezone.utc).isoformat(timespec="seconds")
+
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_unread_"))
+    try:
+        bot = _patched_bot(work, "\n# тест: состояние индексов не читается\n"
+                                 "async def _uq_index_state():\n"
+                                 "    raise RuntimeError('база не ответила')\n")
+        data = work / "data"
+        data.mkdir()
+        dbfile = data / "dental.db"
+        con = _v3_db(dbfile)                    # три УЗКИХ индекса, все рабочие
+        _patients(con, "Ion Test", "Maria Test")
+        con.execute(_APPT_SQL, (1, "Dr. Activ Doi", at, "confirmed", "d2"))
+        con.commit()
+        con.close()
+
+        with Server(dir_=data, bot=bot) as s:
+            res.ok("неудачное чтение не роняет старт", True)
+            body = Client(s.url).login().get("/admin").body
+
+        idx = _index_sql(dbfile)
+        res.ok("индексы на месте — подделка ничего не сломала",
+               all(n in idx for n in _UQ),
+               f"набор проверяет не то состояние, о котором говорит: {idx!r}")
+        res.ok("защита в базе РАБОТАЕТ",
+               _blocked(dbfile, 2, "Dr. Activ Doi", at, "confirmed", "dX"),
+               "фикстура собрана неверно: слот не стережёт никто, и тогда "
+               "тревожный текст был бы правдой")
+        res.ok("баннер НЕ объявляет проверки отсутствующими",
+               "niciuna dintre cele" not in body,
+               "код не прочитал состояние, а директору сказано, что защиты "
+               "нет ни одной — все три индекса при этом целы")
+        res.ok("баннер НЕ обещает двойную запись",
+               "poate fi ocupată de două ori" not in body,
+               "директору обещано то, чего база не допускает")
+        res.ok("баннер называет то, что есть: состояние не прочитано",
+               "nu a putut fi citită" in body,
+               "третьего исхода нет — «не знаем» слито с «сломано»")
+        res.check("метка незавершённости стоит",
+                  _meta(dbfile, "uq_waiting_pending") is not None, True)
+        events = _activity(dbfile, "uq_guard")
+        res.check("исход описан в летописи один раз", len(events), 1)
+        text = events[0] if events else ""
+        res.ok("летопись НЕ считает проверки отсутствующими",
+               "nu este în evidență" not in text and "din 3" not in text,
+               f"строка хранится навсегда, а описывает не то, что было: {text!r}")
+        res.ok("летопись называет причину: состояние не прочитано",
+               "nu a putut fi citită" in text,
+               f"событие не описано вовсе: {text!r}")
+        res.ok("строка летописи не обрезана", len(text) < appdb.EVENT_TEXT_MAX,
+               f"{len(text)} символов при потолке {appdb.EVENT_TEXT_MAX}")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
