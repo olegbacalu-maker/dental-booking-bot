@@ -1099,6 +1099,19 @@
  .sfrow input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
    accent-color:var(--teal);margin:0}
  .sfrow small{color:var(--text3)}
+ /* отметки зуба («în tratament») — тот же флажок, но ЗЕЛЁНЫЙ и рядом со
+    списком состояния, а не среди поверхностей: это второй вопрос о зубе
+    («что с ним делают»), и одинаковый вид с поверхностями снова читался бы
+    как «ещё одно состояние» — ровно то недоразумение, из-за которого кариес
+    и лечение вытесняли друг друга (08-17).
+    ⛔ accent-color здесь НЕ из темы клиники: зелёный тут цвет смысла, и на
+    фиолетовом интерфейсе «в работе» обязано остаться зелёным. */
+ .mkrow{display:flex;flex-wrap:wrap;gap:10px}
+ .mkrow .mkbox{display:flex;align-items:center;gap:6px;font-size:12.5px;
+   font-weight:600;color:var(--green-t);cursor:pointer;
+   background:var(--green-soft);border-radius:9px;padding:5px 10px}
+ .mkrow input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
+   accent-color:var(--green);margin:0}
  /* анамнез: опросник раскрывается по клику, отметки видно и свёрнутым */
  .anlist{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
  .anlist span{background:var(--amber-soft);color:var(--amber-t);border-radius:7px;
@@ -1132,6 +1145,9 @@
  .tleg{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);
    margin-top:16px;align-items:center}
  .tleg .lg{display:inline-flex;align-items:center;gap:6px}
+ /* отметки в легенде отделены чертой: они не восьмое состояние, а другой
+    вопрос о зубе — «что с ним делают» поверх «что с ним» */
+ .tleg .lg-sep{width:1px;align-self:stretch;background:var(--line2)}
 
  /* план лечения: типографика системного уровня (08-07 — было 10-12.5px при
     базе 13.5-14, и вкладка читалась «дешевле» соседних экранов) */
@@ -1450,6 +1466,9 @@
  .toothtip .tt-d b{color:var(--text);font-weight:600}
  .toothtip .tt-note{margin-top:8px;padding-top:8px;border-top:1px solid var(--line2);
    color:var(--text2)}
+ /* отметка в подсказке — зелёная и ПЕРЕД остальными строками: «в работе»
+    отвечает на вопрос, ради которого в дугу и смотрят с утра */
+ .toothtip .tt-mk{color:var(--green-t);font-weight:600;margin-bottom:4px}
  .plan-row .pdue{width:104px;flex:0 0 104px;font-size:12px;color:var(--text2)}
  /* ---------- раздел «Medici» (v1.9.0) ---------- */
  /* ⚠️ auto-FIT по правилу у .tiles: карточка врача — карточка, делящая ряд.

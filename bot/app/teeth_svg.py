@@ -59,7 +59,6 @@ COLORS = {
     "obturatie": "#3B82F6",
     "coroana": "#F59E0B",
     "implant": "#8B5CF6",
-    "tratament": "#16A34A",
     "extras": "#64748B",
     "lipsa": "#CBD5E1",
 }
@@ -68,7 +67,6 @@ FILLS = {          # мягкая заливка под цвет состоян�
     "obturatie": "#EFF6FF",
     "coroana": "#FFF7ED",
     "implant": "#F5F3FF",
-    "tratament": "#F0FDF4",
     "extras": "#E2E8F0",
 }
 # Заливка МЕТКИ поверхности — тот же цвет смысла, разбавленный до 45%: метка
@@ -76,6 +74,13 @@ FILLS = {          # мягкая заливка под цвет состоян�
 # контур на таком размере не читается вовсе. Значение цвета не меняется —
 # меняется насыщенность, поэтому легенда остаётся верна.
 MARK_FILL = {"carie": "#F6A6A3", "obturatie": "#9CBEF6"}
+
+# Цвет ОТМЕТКИ (см. TOOTH_MARKS ниже). Зелёный тот же, каким «в лечении»
+# рисовалось состоянием: смысл цвета не менялся, менялось только то, что
+# отметка теперь ложится ПОВЕРХ находки, а не вместо неё.
+# ⛔ Не из темы клиники: это цвет смысла, и на фиолетовом интерфейсе «в работе»
+# обязано оставаться зелёным (правило карты про --red/--amber/--green).
+MARK_COLORS = {"tratament": "#16A34A"}
 
 # --- морфология по FDI ---
 _INCISOR_C = {11, 21, 31, 41}
@@ -290,27 +295,12 @@ def root_paths(fdi: int) -> list[str]:
     ]
 
 
-def _canal_lines(fdi: int) -> list[str]:
-    """Осевые линии корневых каналов — для состояния «эндодонтия»."""
-    n = root_count(fdi)
-    k = _width_k(fdi)
-    can = tooth_class(fdi) == "canine"
-    s = lambda x: _sx(x, k)          # noqa: E731
-    y = lambda v: _ry(v, can)        # noqa: E731
-    tip = 99.0 if can else 96.0
-    # ⚠️ Начало — ШЕЙКА (44), не середина коронки: канал идёт по корню, и
-    # запущенный из коронки он рисует пломбированный зуб там, где её нет.
-    if n == 1:
-        return [f"M {_p(s(22), 44)} L {_p(s(22), y(tip - 5))}"]
-    if n == 2:
-        if tooth_class(fdi) == "premolar":
-            return [f"M {_p(s(17), 44)} L {_p(s(18), y(tip - 6))}",
-                    f"M {_p(s(27), 44)} L {_p(s(26.2), y(tip - 6))}"]
-        return [f"M {_p(s(14.5), 44)} L {_p(s(14.5), y(tip - 8))}",
-                f"M {_p(s(29.5), 44)} L {_p(s(29.5), y(tip - 8))}"]
-    return [f"M {_p(s(13.8), 44)} L {_p(s(14.2), y(tip - 12))}",
-            f"M {_p(s(22), 44)} L {_p(s(22), y(tip - 3))}",
-            f"M {_p(s(30.2), 44)} L {_p(s(30), y(tip - 12))}"]
+# ⛔ `_canal_lines` (осевые линии каналов) убраны 08-17 вместе с состоянием
+# «în tratament»: рисунок описывал ПРОЛЕЧЕННЫЕ каналы, а слово означало «сейчас
+# в работе» — два разных смысла под одним ключом. Отметка «в работе» рисуется
+# ореолом (`_mark_halo`), он ложится на любое состояние. Понадобится настоящая
+# находка «tratat endodontic» — линии лежат в истории git (08-17), возвращать
+# их надо СОСТОЯНИЕМ, а не отметкой.
 
 
 # ---------------------------------------------------------------- детали
@@ -604,7 +594,7 @@ def _occ_wrap(fdi: int, state: str, defs: str, body: list, width: int,
 
 def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
                  interactive: bool = False, extra_class: str = "",
-                 surfaces="") -> str:
+                 surfaces="", marks=()) -> str:
     """Готовый <svg> зуба СВЕРХУ. Рамка квадратная: жевательная поверхность
     примерно так же глубока, как широка, и вытянутая рамка лицевого вида тут
     оставила бы половину пустой."""
@@ -616,6 +606,10 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
     cx = cy = OCC_C
     defs = f"<clipPath id='{cid}'><path d='{outline}'/></clipPath>"
     body: list = []
+    # ⚠️ ДО ветки «lipsă»: она уходит из функции своим return, и ореол,
+    # добавленный ниже, у отсутствующего зуба просто не нарисовался бы —
+    # молча, потому что состояние и отметка теперь независимы
+    body.extend(_mark_halo(outline, marks))
 
     if state == "lipsa":
         body.append(f"<path d='{outline}' fill='none' stroke='{COLORS['lipsa']}' "
@@ -633,7 +627,7 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
         # зазорах между дольками и работает бороздой. Поставь сюда градиент —
         # и борозды исчезнут, поверхность станет плоской заливкой
         fill = ENAMEL[2]
-        line = col if state in ("carie", "obturatie", "tratament", "implant") else LINE
+        line = col if state in ("carie", "obturatie", "implant") else LINE
     body.append(f"<path d='{outline}' fill='{fill}'/>")
 
     # ⚠️ Дольки бугров — СРАЗУ после подложки и ДО цветных полей. Нарисованные
@@ -679,24 +673,12 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
         # ⛔ У боковых зубов линий борозд БОЛЬШЕ НЕТ: их рисуют зазоры между
         # дольками. Вернуть линии поверх долек — значит получить и то, и другое
         # разом, а это уже не поверхность, а штриховка
-        det = col if state in ("carie", "obturatie", "tratament") else LINE_SOFT
+        det = col if state in ("carie", "obturatie") else LINE_SOFT
         for f in _occ_fissures(fdi):
             body.append(f"<path d='{f}' fill='none' stroke='{det}' stroke-width='1.2' "
                         f"opacity='.55'/>")
 
-    if state == "tratament":
-        # устья каналов — столько, сколько у этого зуба корней
-        n = root_count(fdi)
-        if n == 1:
-            pts = [(cx, cy)]
-        elif n == 2:
-            pts = [(cx - hw * 0.42, cy), (cx + hw * 0.42, cy)]
-        else:
-            pts = [(cx - hw * 0.4, cy - hd * 0.3), (cx + hw * 0.4, cy - hd * 0.3),
-                   (cx, cy + hd * 0.35)]
-        for px, py in pts:
-            body.append(f"<circle cx='{px:.1f}' cy='{py:.1f}' r='2.4' fill='{col}'/>")
-    elif state == "extras":
+    if state == "extras":
         body.append(f"<path d='M {_p(cx - hw * 0.62, cy - hd * 0.62)} "
                     f"L {_p(cx + hw * 0.62, cy + hd * 0.62)} "
                     f"M {_p(cx + hw * 0.62, cy - hd * 0.62)} "
@@ -719,9 +701,62 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
 # импортов проекта в нём нет вовсе: тянуть его может кто угодно, включая db.
 STATE_RO = {
     "ok": "Sănătos", "carie": "Carie", "obturatie": "Obturație",
-    "coroana": "Coroană", "implant": "Implant", "tratament": "În tratament",
+    "coroana": "Coroană", "implant": "Implant",
     "extras": "Extras", "lipsa": "Lipsă",
 }
+
+# ------------------------------------------------------------- отметки
+
+# Отметка — то, что живёт ПОВЕРХ находки. Состояние отвечает на вопрос «что с
+# зубом», отметка — «что с ним делают», и это РАЗНЫЕ вопросы: зуб бывает
+# кариозным и одновременно в работе.
+# ⚠️ Пока «în tratament» стояло восьмым значением STATE_RO, второй выбор молча
+# вытеснял первый: врач ставил кариес, потом лечение — и кариес исчезал с фиши
+# и с подписываемой 043/e (08-17, вопрос Олега). Колонка одна, значение одно,
+# и «совместить» было нечем.
+# ⭐ Набор, а не флаг: вторая отметка («под наблюдением», «направлен к
+# специалисту») ложится сюда же и не требует ни колонки, ни миграции — в базе
+# лежит СПИСОК. Полярность списка безопасная: незнакомое имя отбрасывается, а
+# не принимается «всем, кроме».
+TOOTH_MARKS = ("tratament",)
+MARK_RO = {"tratament": "În tratament"}
+
+
+def pack_marks(marks) -> str:
+    """Набор отметок → строка в каноническом порядке TOOTH_MARKS.
+
+    Строкой по той же причине, что и поверхности (`pack_surfaces`): их единицы,
+    читает их всегда сам зуб целиком, и отдельная таблица потребовала бы своей
+    миграции и своего каскада удаления пациента ради одной пары."""
+    got = set(marks or ())
+    return ",".join(m for m in TOOTH_MARKS if m in got)
+
+
+def mark_list(packed) -> list:
+    """Строка (или готовый список) → отметки в каноническом порядке.
+
+    Принимает и то, и другое НАМЕРЕННО: из базы приходит строка, из формы —
+    список, а порядок и белый список должны быть одни на оба пути."""
+    got = set(packed.split(",") if isinstance(packed, str) else (packed or ()))
+    return [m for m in TOOTH_MARKS if m in got]
+
+
+def _mark_halo(path: str, marks) -> list:
+    """Ореол по контуру — рисунок отметки.
+
+    ⭐ Рисуется ПЕРВЫМ, под самим зубом: наружу выходит только ободок, а всё,
+    что внутри силуэта, закрывает сам зуб. Отсюда главное свойство — отметка
+    НИЧЕГО не закрывает: ни поле поражённой поверхности, ни крест удаления, ни
+    винт импланта. Значок поверх зуба пришлось бы уводить от каждого из них по
+    отдельности, и на каком-нибудь состоянии он всё равно сел бы на смысл.
+    ⚠️ И по той же причине ободок годится ДЛЯ ЛЮБОГО состояния, включая
+    «lipsă»: силуэт рисуется всегда, даже призраком.
+    """
+    out = []
+    for m in mark_list(marks):
+        out.append(f"<path d='{path}' fill='none' stroke='{MARK_COLORS[m]}' "
+                   f"stroke-width='6' stroke-linejoin='round' opacity='.85'/>")
+    return out
 
 # ---------------------------------------------------------- поверхности
 
@@ -806,7 +841,7 @@ def _as_map(state: str, surfaces) -> dict:
 
 def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
               interactive: bool = False, extra_class: str = "",
-              surfaces="") -> str:
+              surfaces="", marks=()) -> str:
     """Готовый <svg> одного зуба. Всё рисование — в канонической ориентации,
     верхняя челюсть переворачивается обёрткой."""
     state = state if state in STATE_RO else "ok"
@@ -819,6 +854,12 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
     roots = root_paths(fdi)
     gid = f"dpg-{fdi}-{state}"
     defs = ""
+    # ⚠️ Ореол — по КОРОНКЕ, не по всему силуэту: корни у импланта заменены
+    # винтом, и ободок по несуществующему корню висел бы в воздухе. Коронку
+    # рисуют ВСЕ состояния, включая призрак «lipsă», — отметка видна всегда.
+    # ⚠️ Кладётся первым: корни и коронка идут после и закрывают внутреннюю
+    # половину ободка, наружу выходит ровно рант.
+    body.extend(_mark_halo(crown, marks))
 
     if state == "lipsa":
         # «отсутствует» — только призрак контура, пунктиром
@@ -839,7 +880,7 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
         for f in _fissures(fdi):
             body.append(f"<path d='{f}' fill='none' stroke='{col}' stroke-width='1.2' opacity='.5'/>")
     else:
-        root_col = col if state in ("tratament", "extras") else LINE
+        root_col = col if state == "extras" else LINE
         for r in roots:
             body.append(f"<path d='{r}' fill='{fill if state == 'extras' else ROOT_FILL}' "
                         f"stroke='{root_col}' stroke-width='1.8'/>")
@@ -851,21 +892,24 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
         elif state == "extras":
             # удалённый зуб — не эмаль, а след от неё: плоская серая заливка
             crown_fill, crown_col, defs = FILLS["extras"], col, ""
-        elif state in ("carie", "obturatie", "tratament"):
+        elif state in ("carie", "obturatie"):
             crown_col = col
         body.append(f"<path d='{crown}' fill='{crown_fill}' stroke='{crown_col}' "
                     f"stroke-width='1.8'/>")
 
         if state != "coroana":
-            det = crown_col if state in ("carie", "obturatie", "tratament") else LINE_SOFT
+            det = crown_col if state in ("carie", "obturatie") else LINE_SOFT
             for f in _fissures(fdi):
                 body.append(f"<path d='{f}' fill='none' stroke='{det}' stroke-width='1.2' "
                             f"opacity='.55'/>")
         # поверхности отмечены — метки идут по НИМ; не отмечены (и в легенде,
         # где зуб рисуется без пациента) — прежнее пятно по центру коронки
-        marks = _surface_marks(fdi, _as_map(state, surfaces))
-        if marks:
-            body.extend(marks)
+        # ⚠️ Имя НЕ `marks`: так звался этот список до 08-17, а теперь `marks` —
+        # аргумент функции (отметки зуба). Затирание сошло бы с рук молча:
+        # ореол уже нарисован выше, и падать было бы нечему
+        sf_marks = _surface_marks(fdi, _as_map(state, surfaces))
+        if sf_marks:
+            body.extend(sf_marks)
         elif state == "carie":
             k = _width_k(fdi)
             body.append(f"<path d='M {_p(_sx(18, k), 16)} Q {_p(_sx(22, k), 10, _sx(26, k), 16)} "
@@ -876,10 +920,6 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
             body.append(f"<path d='M {_p(_sx(16.5, k), 15)} Q {_p(_sx(22, k), 11, _sx(27.5, k), 15)} "
                         f"Q {_p(_sx(29, k), 21, _sx(22, k), 23.5)} "
                         f"Q {_p(_sx(15, k), 21, _sx(16.5, k), 15)} Z' fill='{col}'/>")
-        elif state == "tratament":
-            for c in _canal_lines(fdi):
-                body.append(f"<path d='{c}' fill='none' stroke='{col}' stroke-width='2' "
-                            f"stroke-linecap='round' opacity='.9'/>")
         elif state == "extras":
             # крест «удалён» — по ширине КОНКРЕТНОГО зуба: у молочного бокового
             # резца (k=0.66) фиксированные 12…32 вылезали за коронку.

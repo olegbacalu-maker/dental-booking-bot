@@ -1320,6 +1320,15 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
                 status_code=303)
         return _card_redirect(pid, msg)
 
+    form = await request.form()
+    # ⚠️ Совместимость с вкладкой, открытой ДО 08-17: там «tratament» ещё было
+    # значением списка состояний. Отказать ей («bad_card») значило бы потерять
+    # ввод врача на ровном месте; принять как есть нельзя — состояния с таким
+    # именем больше нет. Переводим в отметку — ровно то же, что сделала
+    # миграция 5 с уже записанными зубами.
+    legacy_mark = state == "tratament"
+    if legacy_mark:
+        state = "ok"
     if tooth not in _FDI_ALL or state not in TOOTH_STATES:
         return done("bad_card")
     # врача принимаем только из справочника: свободный текст тут — будущий
@@ -1327,7 +1336,6 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
     doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
     # поверхности — только известные буквы и в каноническом порядке MODVL:
     # «OM» и «MO» это одно и то же, а в карте и на печати должно читаться одинаково
-    form = await request.form()
     # ⚠️ Сюда шлют ДВЕ формы, и знают они РАЗНОЕ: диалог фиши — буквы флажками
     # (`sf`), инспектор детальной страницы — карту состояний (`sfst`), букв у
     # него нет вовсе. Поэтому «поля нет» ≠ «пусто»: пустой список от инспектора,
@@ -1355,9 +1363,21 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
     # факт формы, а не догадка по базе. Белый список тот же, что у `state`;
     # поля нет (старая вкладка) → None, и db ведёт себя как раньше.
     st0 = form.get("state0")
+    if st0 == "tratament":      # та же вкладка из-до 08-17, см. legacy_mark
+        st0 = "ok"
+    # ⚠️ Отметки — тот же приём, но по другой причине: СНЯТАЯ галочка не шлёт
+    # ничего, и «поля нет» само по себе не отличает «сняли» от «форма не
+    # знает». Поэтому форма сообщает о факте отдельным полем `mk0`; без него
+    # сохранение из старой вкладки снимало бы «în tratament» молча.
+    marks = None
+    if form.get("mk0") is not None:
+        marks = [str(x) for x in form.getlist("mk")]
+    if legacy_mark:
+        marks = list(marks or []) + ["tratament"]
     await db.set_tooth(pid, tooth, state, note.strip()[:120], doc, sf,
                        sfmap=sfmap,
-                       state0=str(st0) if st0 in TOOTH_STATES else None)
+                       state0=str(st0) if st0 in TOOTH_STATES else None,
+                       marks=marks)
     return done("ok_card")
 
 

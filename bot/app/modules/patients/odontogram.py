@@ -39,6 +39,9 @@ TOOTH_SURFACES = {"M": "mezial", "O": "ocluzal", "D": "distal",
 # Имя состояния берётся из `teeth_svg.STATE_RO` — там же, откуда его берёт
 # летопись `db.set_tooth`. Своего словаря здесь нет НАМЕРЕННО.
 STATES = tsvg.STATE_RO
+# Отметки — второй вопрос о зубе («что с ним делают»), см. teeth_svg.TOOTH_MARKS.
+# Словарь тот же по той же причине: имя состояния уже расходилось дважды.
+MARKS = tsvg.MARK_RO
 
 
 # Подъём середины дуги в виде СВЕРХУ. Сверху челюсть — подкова, и ряд по
@@ -96,19 +99,21 @@ def _btn(n: int, tmap: dict, *, lower: bool = False, milk: bool = False,
     note = t["note"] if t else ""
     sf = (t["surfaces"] if t else "") or ""
     sfmap = tsvg.surface_map(st, sf, (t["surface_states"] if t else "") or "")
+    mk = tsvg.mark_list((t["marks"] if t else "") or "")
     # поверхности дописываются ПОСЛЕ заметки: подпись «11 · Carie · test»
     # читают и человек, и проверка, и её формат менять незачем.
     sf_txt = sf_text(sfmap, sf)
     title = (f"{n} · {STATES.get(st, st)}"
+             + "".join(f" · {MARKS[m]}" for m in mk)
              + (f" · {note}" if note else "")
              + (f" · {sf_txt}" if sf_txt else ""))
     num = f"<span class='num'>{n}</span>"
     if occ:
         svg = tsvg.occlusal_svg(n, st, width=38 if milk else 52,
-                                interactive=True, surfaces=sfmap)
+                                interactive=True, surfaces=sfmap, marks=mk)
     else:
         svg = tsvg.tooth_svg(n, st, width=28 if milk else 38, interactive=True,
-                             surfaces=sfmap)
+                             surfaces=sfmap, marks=mk)
     hover = (f" onmouseenter='toothTip(event,{n})' onmouseleave='toothTipOff()'"
              f" onfocus='toothTip(event,{n})' onblur='toothTipOff()'" if tip else "")
     # номер всегда со стороны КОРНЕЙ: у верхней дуги сверху, у нижней снизу —
@@ -154,11 +159,19 @@ def _milk_wrap(tmap: dict, occ: bool, *, tip: bool, click: str) -> str:
 
 def _legend(occ: bool) -> str:
     """Легенда показывает НАСТОЯЩИЙ зуб в каждом состоянии, а не цветной
-    квадрат: так видно, чем «коронка» отличается от «пломбы», без словаря."""
-    draw = ((lambda k: tsvg.occlusal_svg(36, k, width=26)) if occ
-            else (lambda k: tsvg.tooth_svg(36, k, width=20)))
-    return "".join(f"<span class='lg'>{draw(k)} {v}</span>"
-                   for k, v in STATES.items() if k != "ok")
+    квадрат: так видно, чем «коронка» отличается от «пломбы», без словаря.
+
+    ⚠️ Отметки идут ТЕМ ЖЕ рядом, но на здоровом зубе: иначе «в лечении»
+    выглядело бы восьмым состоянием — ровно тем недоразумением, из-за которого
+    кариес и лечение вытесняли друг друга (08-17). Разделитель показывает, что
+    это другой вопрос о зубе."""
+    draw = ((lambda k, m=(): tsvg.occlusal_svg(36, k, width=26, marks=m)) if occ
+            else (lambda k, m=(): tsvg.tooth_svg(36, k, width=20, marks=m)))
+    return ("".join(f"<span class='lg'>{draw(k)} {v}</span>"
+                    for k, v in STATES.items() if k != "ok")
+            + "<span class='lg-sep'></span>"
+            + "".join(f"<span class='lg'>{draw('ok', (k,))} {v}</span>"
+                      for k, v in MARKS.items()))
 
 
 def view_switch() -> str:
@@ -215,12 +228,16 @@ def tooth_data(tmap: dict, tooth_acts: list) -> tuple:
                 "mez": "right" if tsvg.mesial_right(n) else "left"}
         if not t:
             return {**base, "state": "ok", "note": "", "doctor": "", "at": "",
-                    "sf": "", "sfx": "", "sfst": {}}
+                    "sf": "", "sfx": "", "sfst": {}, "mk": [], "mkx": ""}
         sfmap = tsvg.surface_map(t["state"], t["surfaces"] or "",
                                  (t["surface_states"] or ""))
+        mk = tsvg.mark_list(t["marks"] or "")
         return {**base, "state": t["state"], "note": t["note"] or "",
                 "doctor": t["doctor"] or "", "sf": t["surfaces"] or "",
-                "sfst": sfmap,
+                "sfst": sfmap, "mk": mk,
+                # готовая подпись отметок — по той же причине, что и `sfx`:
+                # слова живут в MARK_RO, второй копии в JS быть не должно
+                "mkx": ", ".join(MARKS[m] for m in mk),
                 # ⚠️ Готовая подпись, а не голые буквы: плавающая подсказка
                 # печатает её как есть. Собирает её СЕРВЕР (`sf_text`) — порядок
                 # тяжести и слова живут в одном месте, второй копии в JS нет
@@ -278,6 +295,18 @@ def _state_opts() -> str:
     return "".join(f"<option value='{k}'>{v}</option>" for k, v in STATES.items())
 
 
+def _mk_boxes() -> str:
+    """Отметки зуба — флажками РЯДОМ со списком состояния, а не в нём.
+
+    ⚠️ Скрытое `mk0` обязательно: снятый флажок не шлёт ничего, и без него
+    сервер не отличил бы «сняли отметку» от «форма о ней не знает» (открытая
+    вкладка со старой разметкой). Ровно та же болезнь, что у поверхностей,
+    и лечится тем же — форма сообщает о САМОМ ФАКТЕ, что она в курсе."""
+    return ("<input type='hidden' name='mk0' value='1'>"
+            + "".join(f"<label class='mkbox'><input type='checkbox' name='mk' "
+                      f"value='{k}'>{v}</label>" for k, v in MARKS.items()))
+
+
 def card(tmap: dict, tooth_acts: list, doc_opts: str, base: str) -> str:
     """Компактная одонтограмма в фише: обе дуги, оба вида, диалог по клику.
 
@@ -316,6 +345,7 @@ def card(tmap: dict, tooth_acts: list, doc_opts: str, base: str) -> str:
     <input type='hidden' name='tooth' id='t_num'>
     <input type='hidden' name='state0' id='t_state0'>
     <select name='state' id='t_state'>{_state_opts()}</select>
+    <div class='mkrow' id='t_mk'>{_mk_boxes()}</div>
     <select name='doctor' id='t_doc'><option value=''>Medic —</option>{doc_opts}</select>
     <div class='sfrow' id='t_sf'>{_sf_boxes()}</div>
     <input name='note' id='t_note' placeholder='Notiță (opțional)' maxlength='120'>
@@ -343,6 +373,10 @@ function openTooth(n) {{
   document.querySelectorAll('#t_sf input').forEach(function (b) {{
     b.checked = sf.indexOf(b.value) >= 0;
   }});
+  const mk = (t.mk || []);
+  document.querySelectorAll('#t_mk input[type=checkbox]').forEach(function (b) {{
+    b.checked = mk.indexOf(b.value) >= 0;
+  }});
   const h = THIST[String(n)] || [];
   document.getElementById('t_hist').innerHTML = h.length
     ? '<div class="th-t">Istoria dintelui</div>' + h.map(function (x) {{
@@ -356,10 +390,15 @@ function openTooth(n) {{
 const TIP = document.getElementById('toothtip');
 function toothTip(ev, n) {{
   const t = TEETH[String(n)];
-  if (!t || (t.state === 'ok' && !t.note && !t.doctor)) {{ TIP.style.display = 'none'; return; }}
+  // ВАЖНО: отметка держит подсказку наравне с заметкой — здоровый зуб В РАБОТЕ
+  // это законная запись, и без неё в условии подсказка молча не показывалась бы
+  if (!t || (t.state === 'ok' && !t.note && !t.doctor && !(t.mk || []).length)) {{
+    TIP.style.display = 'none'; return;
+  }}
   TIP.querySelector('.tt-n').textContent = 'Dinte ' + n;
   TIP.querySelector('.tt-s').textContent = STATE_RO[t.state] || t.state;
   TIP.querySelector('.tt-d').innerHTML =
+    (t.mkx ? '<div class="tt-mk">' + tesc(t.mkx) + '</div>' : '') +
     (t.at ? '<div>Actualizat: <b>' + tesc(t.at) + '</b></div>' : '') +
     (t.doctor ? '<div>Medic: <b>' + tesc(t.doctor) + '</b></div>' : '') +
     (t.sfx ? '<div>Suprafețe: <b>' + tesc(t.sfx) + '</b></div>' : '') +
@@ -442,6 +481,7 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
         </div>
         <div class='insp-t'>Starea dintelui</div>
         <select name='state' id='i_state'>{_state_opts()}</select>
+        <div class='mkrow' id='i_mk'>{_mk_boxes()}</div>
         <select name='doctor' id='i_doc'><option value=''>Medic —</option>{doc_opts}</select>
         <input name='note' id='i_note' placeholder='Notiță (opțional)' maxlength='120'>
         <button id='i_save' disabled>{_ic('save')} Salvează</button>
@@ -513,6 +553,10 @@ function selTooth(n) {{
   pic.dataset.mez = t.mez;
   document.getElementById('i_tooth').value = n;
   document.getElementById('i_state').value = t.state;
+  const mk = (t.mk || []);
+  document.querySelectorAll('#i_mk input[type=checkbox]').forEach(function (b) {{
+    b.checked = mk.indexOf(b.value) >= 0;
+  }});
   document.getElementById('i_doc').value = t.doctor || '';
   document.getElementById('i_note').value = t.note;
   document.getElementById('i_save').disabled = false;

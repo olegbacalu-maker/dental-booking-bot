@@ -50,6 +50,15 @@ MARK = "CANARY-SLOT-GUARD"          # по нему находим и убира
 NARROW = "('confirmed','arrived')"  # предикат, каким он был до 1.20.0
 WIDE = "('confirmed','waiting','arrived')"   # предикат, к которому ведёт шаг 4
 UQ = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
+
+# Куда обязана доехать база после старта. Из константы ИСХОДНИКОВ, а не числом:
+# бинарник собран из этого же дерева, а записанное число отставало бы при каждом
+# новом шаге миграции — и канарейка краснела бы ровно на той правке, ради
+# которой её и зовут (RELEASE.md шаг 3a). Так она отстала на шаге 5, 08-17.
+sys.path.insert(0, str(ROOT / "bot"))
+from app.db import SCHEMA_VERSION  # noqa: E402 — только константа, не соединение
+
+SCHEMA_TARGET = str(SCHEMA_VERSION)
 OK, BAD = "  [ок] ", "  [!!] "
 fails = 0
 
@@ -326,7 +335,8 @@ def main() -> int:
     say(alive, "программа запустилась", "не ответила на /health — это ТОТ САМЫЙ дефект")
     if alive:
         meta = dict(rows(db, "SELECT key, value FROM schema_meta"))
-        say(meta.get("version") == "4", "версия схемы поднялась до 4",
+        say(meta.get("version") == SCHEMA_TARGET,
+            f"версия схемы поднялась до {SCHEMA_TARGET}",
             f"версия {meta.get('version')!r}")
         say(bool(meta.get("uq_waiting_pending")), "метка незавершённости стоит")
         idx = index_state(db)

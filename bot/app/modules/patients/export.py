@@ -181,12 +181,17 @@ def render_html(data: dict) -> str:
         return sf
 
     dinti = _table(
-        ["Dinte", "Stare", "Suprafețe", "Medic", "Notă", "Actualizat"],
+        ["Dinte", "Stare", "Suprafețe", "Marcaje", "Medic", "Notă", "Actualizat"],
         # ⚠️ Состояние зуба — СЛОВОМ, как и всё остальное в этой копии: «lipsa»
         # рядом с колонкой, развёрнутой в «M: Carie», это второе имя одного
         # состояния в одном документе (та же болезнь, что STATUS_LABEL)
+        # ⚠️ Отметки — СВОЯ колонка, а не приписка к состоянию: с 08-17 это
+        # независимое знание о зубе, и слитая колонка снова читалась бы как
+        # «одно из состояний». Машинная копия несёт `marks` строкой как есть.
         [[_esc(t["tooth"]), _word(tsvg.STATE_RO, t["state"]),
           _esc(_surfaces_ro(t)) or "—",
+          _esc(", ".join(tsvg.MARK_RO[m]
+                         for m in tsvg.mark_list(t.get("marks") or ""))) or "—",
           _esc(t["doctor"]) or "—",
           _esc(t["note"]) or "—", _dt(t["updated_at"])] for t in data["dinti"]])
     # ⚠️ Причина отказа входит в копию по 195-му наравне с остальным: это

@@ -93,6 +93,14 @@ _WIDE_ACT = "('confirmed','waiting','arrived')"
 
 _UQ = ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id")
 
+# Куда обязана доехать ЛЮБАЯ база после старта. Из константы, а не числом:
+# число здесь пришлось бы править при каждом новом шаге миграции, и правка
+# «поднять версию» падала бы семью красными в чужом наборе (так и случилось на
+# шаге 5, 08-17). ⚠️ Фикстуры, которые СТАВЯТ version='4', остаются числами
+# намеренно: они описывают состояние, которое у клиники БЫЛО, и уехать вслед за
+# константой не имеют права — та же причина, что у _WIDE_ACT выше.
+_VER = str(appdb.SCHEMA_VERSION)
+
 # Сколько символов обязано ОСТАВАТЬСЯ свободными в самой длинной строке
 # летописи. Не косметика: строка, влезающая впритык, обрезается посреди слова от
 # первой же правки формулировки — молча и навсегда. Двадцать — это примерно
@@ -282,7 +290,7 @@ def suite_v4(res: Result) -> None:
         ver = con.execute(
             "SELECT value FROM schema_meta WHERE key='version'").fetchone()[0]
         con.close()
-        res.check("база с версии 3 домигрирована до 4", ver, "4")
+        res.check(f"база с версии 3 домигрирована до {_VER}", ver, _VER)
 
         idx = _index_sql(dbfile)
         for name in ("uq_doctor_slot", "uq_patient_slot", "uq_doctor_slot_id"):
@@ -306,7 +314,7 @@ def suite_v4(res: Result) -> None:
         ver = con.execute(
             "SELECT value FROM schema_meta WHERE key='version'").fetchone()[0]
         con.close()
-        res.check("повторный старт ничего не ломает (версия та же)", ver, "4")
+        res.check("повторный старт ничего не ломает (версия та же)", ver, _VER)
         idx = _index_sql(dbfile)
         res.ok("повторный старт не откатывает предикат",
                all("waiting" in idx.get(n, "")
@@ -371,8 +379,8 @@ def suite_v4_conflict(res: Result) -> None:
             res.ok("программа стартует, несмотря на конфликт", True)
             body = Client(s.url).login().get("/admin").body
 
-        res.check("версия схемы всё равно поднята до 4",
-                  _meta(dbfile, "version"), "4")
+        res.check(f"версия схемы всё равно поднята до {_VER}",
+                  _meta(dbfile, "version"), _VER)
         res.check("метка незавершённости стоит",
                   _meta(dbfile, "uq_waiting_pending") is not None, True)
 
@@ -502,7 +510,7 @@ def suite_v2_conflict(res: Result) -> None:
             res.ok("клиника с версии 2 стартует, несмотря на конфликт", True)
             body = Client(s.url).login().get("/admin").body
 
-        res.check("версия схемы доведена до 4", _meta(dbfile, "version"), "4")
+        res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
         idx = _index_sql(dbfile)
         for name in ("uq_doctor_slot", "uq_patient_slot"):
             sql = idx.get(name, "")
@@ -569,7 +577,7 @@ def suite_v0_conflict(res: Result) -> None:
             res.ok("доверсионная база стартует", True)
             body = Client(s.url).login().get("/admin").body
 
-        res.check("версия схемы доведена до 4", _meta(dbfile, "version"), "4")
+        res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
 
         # ЗАМЕР ПОСЛЕ: то же самое, тем же способом
         res.ok("обновление НЕ сняло защиту врача",
@@ -668,7 +676,7 @@ def suite_from_1200(res: Result) -> None:
             res.ok("база от 1.20.0 стартует", True)
             body = Client(s.url).login().get("/admin").body
 
-        res.check("версия схемы доведена до 4", _meta(dbfile, "version"), "4")
+        res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
 
         # ЗАМЕР ПОСЛЕ: тем же способом, теми же вставками
         res.ok("обновление НЕ сузило защиту врача", _blocked(dbfile, *doc_dup),
@@ -859,7 +867,7 @@ def suite_step4_list(res: Result) -> None:
             pass                              # чистая установка: 0 → 4
 
         dbfile = data / "dental.db"
-        res.check("версия схемы 4", _meta(dbfile, "version"), "4")
+        res.check(f"версия схемы {_VER}", _meta(dbfile, "version"), _VER)
         con = sqlite3.connect(str(dbfile))
         try:
             got = con.execute("SELECT count(*) FROM sqlite_master "
@@ -1430,5 +1438,90 @@ def suite_backfill_tz(res: Result) -> None:
                "09:00" in text,
                f"визит на 09:00 Кишинёва записан как {text!r} "
                f"(UTC был бы {utc_hhmm})")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def suite_v5_marks(res: Result) -> None:
+    """Шаг 5: «în tratament» было СОСТОЯНИЕМ, стало отметкой (08-17).
+
+    Клиника, обновившаяся с 1.20.x, приносит зубы с state='tratament'. Имени
+    с таким значением в STATE_RO больше нет, а рисование и печать берут имя
+    оттуда — без этого шага такой зуб на первом же старте показался бы
+    «Sănătos»: молча, в фише, в бланке 043/e и в выгрузке по 195-му. Вопрос
+    набора один — переживает ли обновление то, что врач уже записал.
+
+    ⚠️ Фикстура собирается СЫРЫМ sqlite (как весь этот файл): база до шага 5 —
+    ровно та, где колонки `marks` ещё нет, и добавляет её init, а не тест.
+    """
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_marks_"))
+    try:
+        dbfile = work / "dental.db"
+        con = _base_db(dbfile)
+        _patients(con, "Ion Test")
+        # Колонки зуба, которые у клиники на 1.20.x УЖЕ есть: они живут в
+        # SQLITE_EXTRA_COLS, а не в тексте схемы, поэтому в фикстуре их надо
+        # поставить руками.
+        # ⚠️ А `marks` тут нет и быть не должно — её добавляет init при
+        # обновлении, и набор проверяет ровно этот путь
+        for coldef in ("doctor TEXT NOT NULL DEFAULT ''",
+                       "surfaces TEXT NOT NULL DEFAULT ''",
+                       "surface_states TEXT NOT NULL DEFAULT ''"):
+            con.execute(f"ALTER TABLE teeth ADD COLUMN {coldef}")
+        for tooth, state, sf in ((16, "tratament", "MO"), (26, "tratament", ""),
+                                 (36, "carie", "O")):
+            con.execute("INSERT INTO teeth(patient_id, tooth, state, note, "
+                        "surfaces, updated_at) VALUES(1, ?, ?, 'canal', ?, ?)",
+                        (tooth, state, sf, "2026-08-16T09:00:00+00:00"))
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('version', '4')")
+        con.execute("INSERT INTO schema_meta(key, value) VALUES('act_backfill', '1')")
+        con.commit()
+        con.close()
+
+        with Server(dir_=work) as s:
+            c = Client(s.url).login()
+            body = c.get("/admin/patient/1").body
+            f043 = c.get("/admin/patient/1/fisa043").body
+
+        res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
+
+        con = sqlite3.connect(str(dbfile))
+        try:
+            rows = {t: (st, mk, sf) for t, st, mk, sf in con.execute(
+                "SELECT tooth, state, marks, surfaces FROM teeth").fetchall()}
+        finally:
+            con.close()
+        res.check("зуб «в лечении» стал здоровым с отметкой", rows.get(16),
+                  ("ok", "tratament", "MO"))
+        res.check("и без поверхностей — тоже", rows.get(26),
+                  ("ok", "tratament", ""))
+        res.check("чужое состояние шаг не трогает", rows.get(36),
+                  ("carie", "", "O"))
+        # ⚠️ Главное: то, что врач записал, ВИДНО. Колонка, доехавшая до базы,
+        # но не до экрана, — ровно тот молчаливый исход, ради которого шаг и
+        # заводился
+        res.ok("отметка доехала до фиши",
+               'title="16 · Sănătos · În tratament · canal · MO"' in body,
+               "после обновления зуб на экране больше не в лечении")
+        # ⛔ И главное про бланк: 043/e ПОДПИСЫВАЮТ, поэтому обновление не имеет
+        # права поменять то, что на нём написано. До миграции клетка зуба 16
+        # печаталась «T MO» (код состояния, потом буквы); после обязана печататься
+        # так же. Обратный порядок («MO T») начинал бы клетку буквой поверхности,
+        # а «O» в легенде ЭТОГО ЖЕ листа значит ещё и obturație — зуб без единой
+        # пломбы читался бы пломбированным, и сделала бы это сама миграция.
+        res.ok("клетка бланка 043/e не изменилась от обновления",
+               ">T MO</td>" in f043 and ">MO T</td>" not in f043,
+               f"клетка зуба 16 на бланке выглядит иначе, чем до обновления")
+
+        # идемпотентность: второй старт не трогает уже переведённые записи
+        with Server(dir_=work):
+            pass
+        con = sqlite3.connect(str(dbfile))
+        try:
+            again = con.execute("SELECT count(*) FROM teeth "
+                                "WHERE state = 'tratament'").fetchone()[0]
+        finally:
+            con.close()
+        res.check("повторный старт ничего не переводит заново", again, 0)
     finally:
         shutil.rmtree(work, ignore_errors=True)

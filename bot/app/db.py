@@ -22,7 +22,7 @@ log = logging.getLogger("db")
 # идёт range(have+1, SCHEMA_VERSION+1) и до него не дойдёт (так шаг 4 с
 # 'waiting' в uq-индексах не исполнялся ни у одной клиники; держит
 # test_structure).
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Записи, которые ЗАНИМАЮТ слот врача. 'waiting' (пациент пришёл, ждёт в
 # приёмной, 08-13) стоит между confirmed и arrived: физически человек уже в
@@ -137,6 +137,12 @@ ALTER TABLE teeth ADD COLUMN IF NOT EXISTS surfaces TEXT NOT NULL DEFAULT '';
 -- ровно то, что означала прежняя пара state+surfaces (см. teeth_svg.surface_map),
 -- поэтому шага миграции с UPDATE тут нет и падать нечему.
 ALTER TABLE teeth ADD COLUMN IF NOT EXISTS surface_states TEXT NOT NULL DEFAULT '';
+-- 08-17: отметки зуба («tratament») — то, что живёт ПОВЕРХ находки, см.
+-- teeth_svg.TOOTH_MARKS. Список строкой: вторая отметка не потребует колонки.
+-- ВАЖНО: в отличие от surface_states, эта колонка ТРЕБУЕТ шага миграции (5):
+-- «în tratament» было состоянием, и записи клиник надо перевести в отметку —
+-- иначе они молча стали бы «Sănătos» (состояния с таким именем больше нет).
+ALTER TABLE teeth ADD COLUMN IF NOT EXISTS marks TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS activity(
   id SERIAL PRIMARY KEY,
   patient_id INT REFERENCES patients(id),
@@ -312,6 +318,17 @@ MIGRATIONS_PG = {
     # ⛔ Ключ — ЧИСЛО, а не UQ_GUARD_STEP: сторож раскладки читает исходник
     # модулем ast и видит только литералы, с именем правило ослепло бы молча.
     4: [],
+    # 5 (08-17): «în tratament» перестало быть состоянием и стало ОТМЕТКОЙ
+    # поверх находки (teeth_svg.TOOTH_MARKS). У клиник такие зубы уже записаны
+    # состоянием, а имени 'tratament' в STATE_RO больше нет — без этого шага
+    # `state if state in STATE_RO else "ok"` показал бы их «Sănătos»: молча, и
+    # на подписываемой 043/e тоже.
+    # ⚠️ Строгость тут своя и правильная (шаг меняет ДАННЫЕ): не сработавший
+    # UPDATE обязан уронить старт, а не записать версию схемы как выполненную.
+    # Уронить он может только отсутствием колонки — а она добавляется выше, в
+    # init, до _migrate.
+    5: ["UPDATE teeth SET marks = 'tratament', state = 'ok' "
+        "WHERE state = 'tratament'"],
 }
 MIGRATIONS_LITE = {
     1: [
@@ -321,10 +338,12 @@ MIGRATIONS_LITE = {
         "CREATE INDEX IF NOT EXISTS ix_plan_patient ON plan_items(patient_id)",
         "CREATE INDEX IF NOT EXISTS ix_doc_patient ON documents(patient_id)",
     ],
-    # см. комментарий к шагам 2–4 в MIGRATIONS_PG
+    # см. комментарий к шагам 2–5 в MIGRATIONS_PG
     2: [],
     3: [],
     4: [],
+    5: ["UPDATE teeth SET marks = 'tratament', state = 'ok' "
+        "WHERE state = 'tratament'"],
 }
 
 # Этап A2+A4 (v1.6.0) — карточка пациента: алерты, формула FDI, план лечения, документы
@@ -439,6 +458,8 @@ SQLITE_EXTRA_COLS = [
     ("teeth", "surfaces TEXT NOT NULL DEFAULT ''"),
     # разные состояния на разных поверхностях одного зуба, см. PG-схему
     ("teeth", "surface_states TEXT NOT NULL DEFAULT ''"),
+    # отметки поверх находки («tratament»), см. PG-схему и шаг миграции 5
+    ("teeth", "marks TEXT NOT NULL DEFAULT ''"),
     # 08-13: штампы конвейера приёма — «пришёл» и «зашёл в кабинет».
     # Разница пар = время ожидания в приёмной (метрика в Statistici)
     ("appointments", "waiting_at TEXT"),
@@ -2210,17 +2231,18 @@ async def _backfill_activity() -> None:
 
 async def teeth_map(pid: int) -> dict:
     rows = await _fetch(
-        """SELECT tooth, state, note, doctor, surfaces, surface_states, updated_at
-           FROM teeth WHERE patient_id = $1""",
-        """SELECT tooth, state, note, doctor, surfaces, surface_states, updated_at
-           FROM teeth WHERE patient_id = ?""",
+        """SELECT tooth, state, note, doctor, surfaces, surface_states, marks,
+                  updated_at FROM teeth WHERE patient_id = $1""",
+        """SELECT tooth, state, note, doctor, surfaces, surface_states, marks,
+                  updated_at FROM teeth WHERE patient_id = ?""",
         pid)
     return {r["tooth"]: r for r in rows}
 
 
 async def set_tooth(pid: int, tooth: int, state: str, note: str,
                     doctor: str = "", surfaces: str | None = None,
-                    sfmap: dict | None = None, state0: str | None = None) -> None:
+                    sfmap: dict | None = None, state0: str | None = None,
+                    marks: list | None = None) -> None:
     """'ok' без заметки и без врача = зуб здоров → строка удаляется (карта sparse).
     doctor — СНАПШОТ имени на момент записи, как в plan_items: переименование
     врача не должно переписывать историю зуба.
@@ -2228,6 +2250,8 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     sfmap — {поверхность: состояние}, когда они РАЗНЫЕ.
     state0 — состояние в том виде, В КАКОМ ЕГО ПОКАЗАЛА ФОРМА; None = не
     сообщала (открытая вкладка со старой разметкой).
+    marks — отметки ПОВЕРХ находки («tratament»), см. teeth_svg.TOOTH_MARKS;
+    None = форма о них не сообщала.
 
     ⭐ Три колонки (`state`, `surfaces`, `surface_states`) описывают одно и то
     же, поэтому согласует их ОДНО место — это. `surfaces` и `state` при
@@ -2245,17 +2269,24 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     """
     # состояние в летопись — СЛОВОМ (см. log_event): «obturatie» и «lipsa» это
     # ключи одонтограммы, а строку читают регистратура и пациент в выгрузке
-    from .teeth_svg import (STATE_RO, SURFACE_ORDER, SURFACE_STATES,
-                            pack_surfaces, surface_map, surface_summary,
-                            tooth_state_of)
+    from .teeth_svg import (MARK_RO, STATE_RO, SURFACE_ORDER, SURFACE_STATES,
+                            mark_list, pack_marks, pack_surfaces, surface_map,
+                            surface_summary, tooth_state_of)
     rows = await _fetch(
-        """SELECT state, surfaces, surface_states FROM teeth
+        """SELECT state, surfaces, surface_states, marks FROM teeth
            WHERE patient_id = $1 AND tooth = $2""",
-        """SELECT state, surfaces, surface_states FROM teeth
+        """SELECT state, surfaces, surface_states, marks FROM teeth
            WHERE patient_id = ? AND tooth = ?""", pid, tooth)
     prev = rows[0] if rows else None
     if surfaces is None:
         surfaces = (prev["surfaces"] or "") if prev else ""
+    # ⚠️ То же правило, что у поверхностей: «поля нет» ≠ «снято». Форма, не
+    # знающая про отметки (открытая вкладка со старой разметкой), молчит — и
+    # молчание обязано СОХРАНИТЬ отметку, а не снять её. Снятая галочка тоже
+    # ничего не шлёт, поэтому обе формы сообщают о самом факте отдельно (`mk0`);
+    # без этого «сохранить фишу» тихо снимало бы «в лечении» с каждого зуба.
+    marks = mark_list(marks if marks is not None
+                      else (prev["marks"] or "") if prev else "")
     if sfmap is None:
         # Форма флажков о состояниях не сообщала. Сохранённые — держим, а
         # буква, отмеченная ВПЕРВЫЕ, получает состояние зуба: «одно состояние
@@ -2305,7 +2336,11 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
         # со строкой зуба, а экран отвечал бы «сохранено» (грабля карты «303 не
         # отличает успех от отказа»)
         state = tooth_state_of(sfmap, state)
-    if state == "ok" and not note and not doctor:
+    # ⚠️ Отметка держит строку наравне с заметкой и врачом: «здоровый зуб, но
+    # сейчас в работе» — законная запись, а без этого условия она удалялась бы
+    # сразу после сохранения, и экран отвечал бы «сохранено» (грабля карты
+    # «303 не отличает успех от отказа»).
+    if state == "ok" and not note and not doctor and not marks:
         await _execute("DELETE FROM teeth WHERE patient_id = $1 AND tooth = $2",
                        "DELETE FROM teeth WHERE patient_id = ? AND tooth = ?", pid, tooth)
         await log_event(pid, "tooth", f"Dinte {tooth}: {STATE_RO['ok']}",
@@ -2316,27 +2351,30 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
         # ВЫЧИСЛЯЮТСЯ: сняли поражение с поверхности — ушла и буква
         surfaces = "".join(k for k in SURFACE_ORDER if k in sfmap)
     packed = pack_surfaces(sfmap)
+    mk = pack_marks(marks)
 
     pg = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
-                              surface_states, updated_at)
-            VALUES($1, $2, $3, $4, $5, $6, $7, now())
+                              surface_states, marks, updated_at)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8, now())
             ON CONFLICT (patient_id, tooth) DO UPDATE
               SET state = EXCLUDED.state, note = EXCLUDED.note,
                   doctor = EXCLUDED.doctor, surfaces = EXCLUDED.surfaces,
                   surface_states = EXCLUDED.surface_states,
+                  marks = EXCLUDED.marks,
                   updated_at = now()"""
     lt = """INSERT INTO teeth(patient_id, tooth, state, note, doctor, surfaces,
-                              surface_states, updated_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                              surface_states, marks, updated_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(patient_id, tooth) DO UPDATE
               SET state = excluded.state, note = excluded.note,
                   doctor = excluded.doctor, surfaces = excluded.surfaces,
                   surface_states = excluded.surface_states,
+                  marks = excluded.marks,
                   updated_at = excluded.updated_at"""
     await _execute(pg, lt,
-                   *((pid, tooth, state, note, doctor, surfaces, packed)
+                   *((pid, tooth, state, note, doctor, surfaces, packed, mk)
                      if not IS_SQLITE
-                     else (pid, tooth, state, note, doctor, surfaces, packed,
+                     else (pid, tooth, state, note, doctor, surfaces, packed, mk,
                            _utcnow_iso())))
     txt = f"Dinte {tooth}: {STATE_RO.get(state, state)}"
     # ⚠️ Летопись хранит ГОТОВУЮ строку, поэтому смесь разворачивается СЕЙЧАС:
@@ -2348,6 +2386,11 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
                + ", ".join(f"{STATE_RO[st]} ({ls})" for st, ls in parts))
     elif surfaces:
         txt += f" ({surfaces})"
+    # Отметка — отдельным словом ПОСЛЕ находки: «Carie (MO) · În tratament».
+    # Так строка отвечает на оба вопроса разом, а прежние записи (у которых
+    # отметок нет) выглядят ровно как выглядели.
+    for m in marks:
+        txt += f" · {MARK_RO[m]}"
     if doctor:
         txt += f" · {doctor}"
     if note:
