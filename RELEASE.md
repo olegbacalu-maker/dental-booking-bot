@@ -44,8 +44,14 @@ powershell -File Build-Installer.ps1
 #     SCHEMA_VERSION, слотовые индексы) — канарейка на СОБРАННОМ бинарнике:
 python scripts/check_slot_guard.py
 
-# 4. только теперь тег — на тот коммит, из которого собрано
-git tag v1.11.0 && git push origin main --tags
+# 4. только теперь тег — на тот коммит, из которого собрано.
+#    ⛔ Тег отправлять ПОИМЁННО, а не «--tags»: у репозитория лежат старые
+#    локальные теги БЕЗ «v» (наследство веб-формы, 08-06), и «--tags» утаскивает
+#    их на origin заодно — 08-17 так уехал 1.13.0, указывающий на другой коммит,
+#    чем v1.13.0. Релиза на таком теге нет, поэтому клиникам он не виден, но в
+#    списке тегов он и есть та самая ловушка «тег без v».
+git tag -a v1.11.0 -F <файл-с-описанием>
+git push origin main && git push origin v1.11.0
 
 # 5. pre-release с двумя правильными ассетами — скриптом, НЕ веб-формой
 python scripts/release.py prerelease 1.11.0
@@ -173,8 +179,10 @@ DENTART_UPDATE_TOKEN=github_pat_...
 # 1. собрать
 powershell -File Build-Installer.ps1
 
-# 2. тег (создаёт git!) и pre-release скриптом
-git tag v1.11.0 && git push origin --tags
+# 2. тег (создаёт git!) и pre-release скриптом.
+#    ⛔ Поимённо, не «--tags» — см. шаг 4 выше
+git tag -a v1.11.0 -F <файл-с-описанием>
+git push origin v1.11.0
 python scripts/release.py prerelease 1.11.0
 
 # 3. своя машина: «Verifică acum» в Setări -> кнопка обновления ->
