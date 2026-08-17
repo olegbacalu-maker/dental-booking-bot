@@ -243,6 +243,19 @@ def _tags_from_atom(xml: str) -> list[str]:
             for t in re.findall(r"/releases/tag/([^\"'<>&?#]+)", xml)]
 
 
+def _newest_tag_atom() -> str:
+    """Самый свежий тег из releases.atom. Пусто — не нашли.
+
+    ⭐ Второй источник для канарейки, и знание о нём живёт ЗДЕСЬ одно: тот же
+    вызов делает `_web_fallback`, и две копии разошлись бы первой же правкой.
+    Атом отдаёт веб GitHub, а не API: ключа не требует, в лимит не упирается и
+    отвечает, когда `/releases` лежит.
+    """
+    with _http(f"https://github.com/{REPO}/releases.atom") as r:
+        xml = r.read(512 * 1024).decode("utf-8", "replace")
+    return max(_tags_from_atom(xml), key=_ver, default="")
+
+
 def _tag_from_latest_url(final_url: str) -> str:
     """Тег из адреса, куда привёл редирект /releases/latest. Без релизов GitHub
     не делает редиректа на /tag/… — тогда честно отдаём пусто."""
@@ -265,9 +278,7 @@ def _web_fallback(ch: str) -> dict | None:
                    method="HEAD") as r:
             tag = _tag_from_latest_url(r.geturl())
     else:
-        with _http(f"https://github.com/{REPO}/releases.atom") as r:
-            xml = r.read(512 * 1024).decode("utf-8", "replace")
-        tag = max(_tags_from_atom(xml), key=_ver, default="")
+        tag = _newest_tag_atom()
     if not tag:
         return None
     asset_url, size = "", 0
@@ -338,11 +349,30 @@ def _check() -> None:
                         cand.append(_api(f"/releases/{best['id']}"))
                 except Exception as e:  # noqa: BLE001 — нет прав на GraphQL и т.п.
                     log.warning("GraphQL недоступен: %s", _scrub(repr(e)))
+            listed: list = []
             try:
                 # пре-релизы НЕ отсеиваем: ради них канал beta и заведён
-                cand += _api("/releases?per_page=100")
+                listed = _api("/releases?per_page=100") or []
             except Exception as e:  # noqa: BLE001 — список отвалился, latest ещё нет
                 log.warning("список релизов недоступен: %s", _scrub(repr(e)))
+            cand += listed
+            if not listed:
+                # ⛔ ПУСТОЙ СПИСОК — НЕ доказательство, что релизов больше нет.
+                # У репозитория с девятью десятками релизов `/releases` отвечает
+                # `200` и пустым массивом чаще, чем данными (08-17: 4 раза из 5,
+                # плюс отдельные 504). Исключения при этом НЕТ — и канарейка
+                # молча оставалась с `/releases/latest`, то есть со своей же
+                # версией: «обновлений нет» при живом пре-релизе.
+                # ⚠️ Клиник это не касалось (stable ходит только в latest), но
+                # слепла ровно та ступень, которая страхует выпуск клиникам.
+                # Спрашиваем атом (веб, без ключа, живёт когда API лежит), а сам
+                # релиз берём точечно по тегу — этот эндпоинт тоже надёжен.
+                try:
+                    tag = _newest_tag_atom()
+                    if tag:
+                        cand.append(_api(f"/releases/tags/{urllib.parse.quote(tag)}"))
+                except Exception as e:  # noqa: BLE001 — совсем без сети
+                    log.warning("атом-фид не помог: %s", _scrub(repr(e)))
             try:
                 # нижняя граница: даже если список неполон, стабильное не потеряем
                 cand.append(_api("/releases/latest"))

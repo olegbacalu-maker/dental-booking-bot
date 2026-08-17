@@ -204,6 +204,39 @@ try:
     out["same_err"] = upd.self_update()
     out["same_downloads"] = len(got)
     out["same_exits"] = len(exits)
+    # --- 4. пустой список релизов НЕ означает «обновлений нет» ---
+    # Дефект, уехавший клиентам (08-17): на канале beta кандидаты берутся из
+    # /releases?per_page=100, а у репозитория с девятью десятками релизов он
+    # отвечает `200` и ПУСТЫМ массивом чаще, чем данными. Исключения нет,
+    # поэтому канарейка молча оставалась с /releases/latest — то есть со своей
+    # же версией, при живом пре-релизе. Замер на живом GitHub: 1 успех из 5.
+    # Здесь список пуст ВСЕГДА, и вопрос ровно один: найдёт ли beta пре-релиз
+    # вторым источником (атом + точечный /releases/tags/).
+    calls = []
+    def fake_api(path):
+        calls.append(path)
+        if path.startswith("/releases?"):
+            return []                      # тот самый пустой ответ
+        if path.startswith("/releases/tags/"):
+            return {"tag_name": "v9.9.9", "html_url": "u", "assets": [
+                {"name": "DentPilot.exe", "browser_download_url": "http://x/e",
+                 "size": 33_000_000, "state": "uploaded"}]}
+        if path == "/releases/latest":
+            return {"tag_name": "v" + eng.APP_VERSION, "html_url": "u", "assets": []}
+        raise AssertionError(path)
+    real_api, real_atom, real_beta = upd._api, upd._newest_tag_atom, upd._beta
+    try:
+        upd._api = fake_api
+        upd._newest_tag_atom = lambda: "v9.9.9"
+        upd._beta = lambda: True           # канал канарейки
+        upd.STATE.update(latest="", asset_url="")
+        upd._check()
+        out["blind_latest"] = upd.STATE["latest"]
+        out["blind_asked_tag"] = any(c.startswith("/releases/tags/") for c in calls)
+        out["blind_err"] = upd.STATE.get("error", "")
+    finally:
+        upd._api, upd._newest_tag_atom, upd._beta = real_api, real_atom, real_beta
+
 finally:
     sys.executable, subprocess.run = real_exec, real_run
     urllib.request.urlopen = real_open
@@ -247,3 +280,12 @@ def suite_update(res: Result) -> None:
            f"новее установленной")
     res.check("и файл не скачивается", v["same_downloads"], 0)
     res.check("и журнал клиники не закрывается", v["same_exits"], 0)
+
+    # ⛔ Сторож на класс «молчание принято за отсутствие». Ломается снятием
+    # ветки атома в update._check: канарейка тут же остаётся на своей версии.
+    res.check("пустой список не оставляет канарейку на своей версии",
+              v["blind_latest"], "v9.9.9")
+    res.ok("за релизом сходили точечно по тегу", v["blind_asked_tag"],
+           "второй источник не спросили — beta слепа, когда /releases молчит")
+    res.check("и это не считается ошибкой связи", v["blind_err"], "")
+
