@@ -488,12 +488,23 @@ def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
         # значит ничего, а тусклый список читался бы как отменённый
         past = " past" if d == now.date() and end <= now else ""
         click = (f" onclick=\"openCard({r['id']})\"" if r["id"] in cards else "")
+        # ⭐ Одонтограмма прямо из повестки дня (08-17, просьба Олега): путь
+        # «посмотреть зубы» шёл через фишу пациента, а врачу с утра нужен ровно
+        # он, и по списку дня видно, к кому идти.
+        # ⚠️ Всплытие останавливается: строка целиком кликабельна (openCard), и
+        # без этого нажатие на кнопку открывало бы ЗАОДНО карточку визита —
+        # экран сделал бы два действия на один клик.
+        # ⚠️ Визит без пациента (запись-заметка, легаси-строка) кнопки не
+        # получает: ссылка вела бы на /admin/patient/None/odontograma.
+        odo = (f"<a class='ag-odo' href='/admin/patient/{r['patient_id']}/odontograma'"
+               f" onclick='event.stopPropagation()'>{_ic('tooth')}Odontogramă</a>"
+               if r.get("patient_id") else "")
         out.append(
             f"<div class='ag-i{past}' data-appt='{r['id']}' "
             f"style='border-left-color:{bar}'{click}>"
             f"<span class='ag-t'>{st.strftime('%H:%M')}</span>"
             f"<div class='ag-b'><b>{html.escape(r['name'] or '—')}</b>"
-            f"<small>{html.escape(r['service'])}</small></div>"
+            f"<small>{html.escape(r['service'])}</small>{odo}</div>"
             f"<span class='pl-badge {cls}'>{label}</span></div>")
     return (f"<div class='agenda'><div class='ag-h'><b>Agenda zilei</b>"
             f"<span>{len(items)} programări</span></div>"
@@ -802,7 +813,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # Лестница в ТРИ ступени, каждая следующая — только если предыдущая не влезла:
     # slim (имя и услуга одной строкой) → tiny (только имя) → bare (цвет и полоса).
     # ⚠️ Ступень «только имя» появилась не сразу, и её отсутствие стоило релиза:
-    # блок в 0.4 ячейки (пол в `_pos`, 16px при --cell:56) проваливался мимо slim
+    # блок в 0.4 ячейки (пол в `_pos`, 26px при нынешнем --cell:66) проваливался мимо slim
     # прямо в «текста нет», и короткая запись стояла в журнале безымянным пятном.
     # Имя туда помещается — см. .gappt.tiny в panel.css.
     fit_js = f"""<script>
@@ -817,14 +828,25 @@ function fitAppts() {{
 function fitGrid() {{
   var gb = document.querySelector('.gridbody'), n = {len(hours)};
   if (!gb) return;
-  gb.style.setProperty('--cell', '56px');
-  var c = Math.max(56, Math.floor((window.innerHeight - gb.getBoundingClientRect().top - 24) / n));
+  /* ВАЖНО: пол 66px, а не 56 (08-17). Он задаёт ВЫСОТУ БЛОКА (пол минус 6), а
+     от неё зависит, останется ли визит двустрочным: при 56 блок 50px, а имени,
+     строке «время · услуга» и бейджу статуса нужно 57 — fitAppts схлопывал их
+     в одну строку, и услуга читалась приписанной к имени. Замерено браузером
+     на 1920/1600/1366, не посчитано.
+     Цена названа честно: на 1600 и 1366 без прокрутки видно на час меньше
+     (8 часов вместо 9 и 6 вместо 7). На 1920 не меняется ничего: там час и так
+     выходил 64px. */
+  gb.style.setProperty('--cell', '66px');
+  var c = Math.max(66, Math.floor((window.innerHeight - gb.getBoundingClientRect().top - 24) / n));
   gb.style.setProperty('--cell', c + 'px');
   var over = document.documentElement.scrollHeight - window.innerHeight;
   /* ужимать час имеет смысл, только если страницу распирает сама сетка */
   var rail = document.querySelector('.rail');
   if (rail && rail.getBoundingClientRect().bottom > gb.getBoundingClientRect().bottom) over = 0;
-  if (over > 0) gb.style.setProperty('--cell', Math.max(56, c - Math.ceil(over / n)) + 'px');
+  /* ВАЖНО: тот же пол и здесь. Ужимая час под распирающую страницу, легко уйти
+     ниже 66, и двустрочный блок молча схлопнется обратно ровно у той клиники,
+     у которой день длиннее */
+  if (over > 0) gb.style.setProperty('--cell', Math.max(66, c - Math.ceil(over / n)) + 'px');
   fitAppts();
 }}
 fitGrid();                                  // сразу, чтобы не мигало
