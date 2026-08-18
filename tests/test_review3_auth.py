@@ -139,7 +139,7 @@ def suite_broken_with_key(res: Result) -> None:
 # threading.Timer, urlopen) не переживают проверку и не задевают соседей.
 
 _CODE = r'''
-import io, json, os, pathlib, subprocess, sys, tempfile, threading, urllib.request
+import io, json, os, pathlib, subprocess, sys, tempfile, threading, urllib.request, shutil
 sys.path.insert(0, r"%s")
 os.environ.pop("DENTART_FAKE_UPDATE_URL", None)   # иначе _check уходит тест-веткой
 os.environ.pop("DENTART_NO_RESTART", None)        # иначе restart_app выйдет раньше
@@ -237,6 +237,48 @@ try:
     finally:
         upd._api, upd._newest_tag_atom, upd._beta = real_api, real_atom, real_beta
 
+    # --- 5. schtasks ответил НОЛЁМ, но скрипт не пошёл ---
+    # Ровно то, что случилось у Олега 08-17 на ноутбуке ОТ БАТАРЕИ: у задачи,
+    # созданной ключами schtasks, по умолчанию стоит «не запускать при питании
+    # от батареи», поэтому /create и /run возвращают 0, задача уходит в очередь
+    # и НЕ исполняется. Программа считала нули успехом и гасилась — а подменить
+    # exe или запустить себя обратно становилось некому: журнал клиники исчезал
+    # до самой ночи. Здесь schtasks подменён заглушкой, которая всегда отвечает
+    # нулём и не делает НИЧЕГО. Вопрос один: останется ли программа жива.
+    import subprocess as _sp
+    real_run2 = _sp.run
+    class _Zero:
+        returncode = 0
+        stdout = b""
+        stderr = b""
+    calls = []
+    def fake_run(args, *a, **kw):
+        if args and str(args[0]) == "schtasks":
+            calls.append(list(args))
+            return _Zero()
+        return real_run2(args, *a, **kw)
+    exits2 = []
+    real_exit2 = os._exit
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    real_exe2 = sys.executable
+    try:
+        _sp.run = fake_run
+        upd.subprocess.run = fake_run
+        os._exit = lambda code=0: exits2.append(code)
+        upd.os._exit = os._exit
+        sys.executable = str(tmp / "DentPilot.exe")
+        upd._SPAWN_PROOF_WAIT = 1.0          # ждать десять секунд в тесте незачем
+        out["spawn_err"] = upd.restart_app()
+        out["spawn_exits"] = len(exits2)
+        out["spawn_asked_run"] = any("/run" in c for c in calls)
+        out["spawn_left_files"] = sorted(x.name for x in tmp.iterdir())
+    finally:
+        _sp.run = upd.subprocess.run = real_run2
+        os._exit = upd.os._exit = real_exit2
+        sys.executable = real_exe2
+        upd._SPAWN_PROOF_WAIT = 10.0
+        shutil.rmtree(tmp, ignore_errors=True)
+
 finally:
     sys.executable, subprocess.run = real_exec, real_run
     urllib.request.urlopen = real_open
@@ -288,4 +330,15 @@ def suite_update(res: Result) -> None:
     res.ok("за релизом сходили точечно по тегу", v["blind_asked_tag"],
            "второй источник не спросили — beta слепа, когда /releases молчит")
     res.check("и это не считается ошибкой связи", v["blind_err"], "")
+
+    # ⛔ Сторож на «ноль не доказывает, что работа пошла». Ломается снятием
+    # ожидания метки в update._spawn_via_scheduler: программа снова гаснет.
+    res.ok("ноль от schtasks без запуска скрипта — это ОШИБКА",
+           isinstance(v["spawn_err"], str) and v["spawn_err"],
+           f"_spawn_via_scheduler вернул {v['spawn_err']!r}: планировщик принял "
+           f"задачу и не запустил её, а программа считает это успехом")
+    res.check("и программа НЕ гасится", v["spawn_exits"], 0)
+    res.ok("запуск задачи всё же запрашивался", v["spawn_asked_run"],
+           "до schtasks /run дело не дошло — проверка мерит не тот путь")
+
 

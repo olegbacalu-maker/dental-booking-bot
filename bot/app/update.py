@@ -429,29 +429,148 @@ def check_async() -> None:
     threading.Thread(target=_check, daemon=True).start()
 
 
+# Задача заводится ОПИСАНИЕМ, а не ключами `schtasks /create`, ради одной
+# строки — `DisallowStartIfOnBatteries`. У задачи, созданной ключами, она стоит
+# `true` ПО УМОЛЧАНИЮ, и ключа, чтобы её снять, у schtasks нет вовсе.
+# ⛔ Что это значило (08-17, поймано у Олега): на ноутбуке ОТ БАТАРЕИ `/create`
+# и `/run` возвращают 0, задача уходит в состояние «поставлена в очередь» и НЕ
+# ИСПОЛНЯЕТСЯ. Программа считала нули успехом и гасилась — а подменить exe или
+# запустить себя обратно становилось некому. Журнал клиники просто исчезал, без
+# отказа и без сообщения, до 23:59 (времени следующего триггера).
+# ⚠️ Подключение зарядки УЖЕ поставленную в очередь задачу не оживляет.
+# ⚠️ Триггеров нет намеренно: задача нужна ровно один раз и прямо сейчас
+# (`AllowStartOnDemand`), а ночной триггер как раз и создавал сюрприз «подмена
+# файла в 23:59 посреди работы».
+_TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>DentPilot</Description></RegistrationInfo>
+  <Triggers />
+  <Principals><Principal id="Author">
+    <LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel>
+  </Principal></Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>{cmd}</Command></Exec></Actions>
+</Task>"""
+
+# Сколько ждать доказательства, что скрипт ПОШЁЛ. Планировщик отвечает раньше,
+# чем запускает, поэтому пары секунд мало; десять — потолок, за который ждать
+# уже неприлично: человек смотрит на экран «сейчас перезапустимся».
+_SPAWN_PROOF_WAIT = 10.0
+
+
 def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
     """Запускает bat сервисом планировщика — вне нашего Job-объекта.
-    None = задача создана и запущена, str = не вышло.
+    None = скрипт ТОЧНО пошёл, str = не вышло.
 
     ⛔ Код возврата обязателен. Вызывающие сразу после этого гасят процесс
     (`_exit_soon`), и проглоченный отказ schtasks (политика домена, урезанные
     права, отключённая служба) значил бы, что программа закрылась НАВСЕГДА, а
     экран пообещал, что она сейчас вернётся. Отказ должен остаться отказом:
-    программа не гасится, а человек читает, что запустить её надо руками."""
+    программа не гасится, а человек читает, что запустить её надо руками.
+
+    ⭐ И главное: НОЛЬ ОТ schtasks НЕ ДОКАЗЫВАЕТ, что скрипт исполняется. Он
+    означает «просьба принята». Поэтому скрипт первым делом создаёт файл-метку,
+    а мы ждём её появления — гасимся только увидев, что работа реально пошла.
+    ⚠️ Состояние задачи для этого не годится: `schtasks /query` печатает его
+    СЛОВАМИ на языке системы («Поставлена в очередь»), и разбор такого текста
+    отмер бы молча на любой другой локали (грабля карты про формулировку
+    движка). Файл на диске одинаков на всех языках.
+    """
     no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    for args in (["/create", "/tn", task_name, "/tr", f'"{bat}"',
-                  "/sc", "once", "/st", "23:59", "/f"],
-                 ["/run", "/tn", task_name]):
-        p = subprocess.run(["schtasks"] + args, creationflags=no_win,
-                           capture_output=True, check=False)
+    proof = bat.with_name(bat.stem + ".run")
+    proof.unlink(missing_ok=True)
+    # метку ставит САМ скрипт, первой же строкой после «@echo off»: так «пошёл»
+    # значит именно «cmd дошёл до нашего кода», а не «процесс создан»
+    # ⚠️ Уборка метки дописывается к строке, которой скрипт удаляет САМ СЕБЯ, —
+    # у неё один вид в обоих скриптах и она стоит на всех путях выхода. Иначе
+    # в папке клиники навсегда оставался бы файл-огрызок.
+    # ⛔ Путь метки — АБСОЛЮТНЫЙ. Строка встаёт первой, ДО `cd /d "%~dp0"`, и
+    # относительное имя ушло бы в рабочий каталог задачи (у планировщика это
+    # system32), а не в папку программы. Метка тогда не находится никогда:
+    # скрипт честно работает, а программа сообщает, что он не пошёл, и остаётся
+    # висеть. Поймано пробой на живом планировщике 08-17.
+    # ⛔ Правка идёт ПОБАЙТНО, и это не педантизм. Скрипты пишутся `write_text`,
+    # а он переводит перевод строки: заданное `\r\n` ложится на диск как
+    # `\r\r\n`, обратное чтение отдаёт `\n\n` — и поиск `\r\n` не находит НИЧЕГО.
+    # Первая попытка так и промахнулась: метка дописывалась в самый конец, ПОСЛЕ
+    # строки, которой скрипт удаляет сам себя, и не появлялась никогда. Снаружи
+    # это выглядело как «планировщик не запустил задачу», хотя он запускал.
+    # Байты одинаковы при любом переводе строк (08-17, поймано пробой).
+    try:
+        raw = bat.read_bytes()
+        cut = raw.find(b"\n")
+        if cut < 0:
+            return "scriptul de repornire este gol"
+        mark = f'> "{proof}" echo .\r\n'.encode("ascii")
+        tail = raw[cut + 1:].replace(
+            b'del "%~f0"', f'del "{proof}" 2>nul\r\ndel "%~f0"'.encode("ascii"))
+        bat.write_bytes(raw[:cut + 1] + mark + tail)
+    except OSError as e:
+        return f"nu s-a putut pregăti scriptul ({e})"
+
+    xml = bat.with_name(bat.stem + ".xml")
+    cmd = str(bat).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    created = False
+    try:
+        # ⚠️ UTF-16 с BOM — требование schtasks к файлу описания. Это НЕ тот
+        # случай, когда BOM вредит: он тут обязателен, а файл временный.
+        xml.write_text(_TASK_XML.format(cmd=cmd), encoding="utf-16")
+        p = subprocess.run(["schtasks", "/create", "/tn", task_name,
+                            "/xml", str(xml), "/f"],
+                           creationflags=no_win, capture_output=True, check=False)
+        created = p.returncode == 0
+        if not created:
+            why = (p.stderr or p.stdout or b"").decode("utf-8", "replace")
+            log.warning("schtasks /create /xml — код %s: %s", p.returncode,
+                        why.strip()[:200])
+    except OSError as e:
+        log.warning("описание задачи не записалось: %r", e)
+    finally:
+        xml.unlink(missing_ok=True)
+
+    if not created:
+        # Описание не приняли (старая Windows, политика) — заводим как раньше.
+        # Хуже, но лучше отказа: на сетевом питании такая задача работает, а
+        # на батарее сработает ожидание метки ниже и программа останется жива.
+        p = subprocess.run(["schtasks", "/create", "/tn", task_name, "/tr",
+                            f'"{bat}"', "/sc", "once", "/st", "23:59", "/f"],
+                           creationflags=no_win, capture_output=True, check=False)
         if p.returncode != 0:
-            # вывод schtasks — в кодировке консоли; лог важнее точных букв
-            why = (p.stderr or p.stdout or b"")
-            log.warning("schtasks %s — код %s: %s", args[0], p.returncode,
-                        why.decode("utf-8", "replace").strip()[:200])
+            why = (p.stderr or p.stdout or b"").decode("utf-8", "replace")
+            log.warning("schtasks /create — код %s: %s", p.returncode,
+                        why.strip()[:200])
             return (f"planificatorul Windows nu a putut porni programul "
-                    f"(schtasks {args[0]}, cod {p.returncode})")
-    return None
+                    f"(schtasks /create, cod {p.returncode})")
+
+    p = subprocess.run(["schtasks", "/run", "/tn", task_name],
+                       creationflags=no_win, capture_output=True, check=False)
+    if p.returncode != 0:
+        why = (p.stderr or p.stdout or b"").decode("utf-8", "replace")
+        log.warning("schtasks /run — код %s: %s", p.returncode, why.strip()[:200])
+        return (f"planificatorul Windows nu a putut porni programul "
+                f"(schtasks /run, cod {p.returncode})")
+
+    end = time.time() + _SPAWN_PROOF_WAIT
+    while time.time() < end:
+        if proof.exists():
+            return None
+        time.sleep(0.25)
+    # Задача принята и «запущена», но скрипт не начался. Гасить процесс здесь
+    # нельзя ни в коем случае — вернуть его будет некому.
+    log.warning("задача %s принята, но скрипт не стартовал за %.0f с",
+                task_name, _SPAWN_PROOF_WAIT)
+    subprocess.run(["schtasks", "/delete", "/tn", task_name, "/f"],
+                   creationflags=no_win, capture_output=True, check=False)
+    return ("Windows a acceptat sarcina, dar nu a pornit-o "
+            "(programul rămâne deschis; reporniți-l manual)")
 
 
 def _exit_soon() -> None:
