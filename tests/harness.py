@@ -181,10 +181,12 @@ class Client:
     def get(self, path: str, headers: dict | None = None) -> Reply:
         return self._do(path, headers=headers)
 
-    def post(self, path: str, **fields) -> Reply:
+    def post(self, path: str, headers: dict | None = None, **fields) -> Reply:
         # doseq: список значений = ПОВТОРЯЮЩЕЕСЯ поле формы (галочки), а не
-        # строка «['O', 'M']» — так браузер шлёт несколько отмеченных чекбоксов
-        return self._do(path, urllib.parse.urlencode(fields, doseq=True).encode())
+        # строка «['O', 'M']» — так браузер шлёт несколько отмеченных чекбоксов.
+        # headers — именованный, не поле формы: нужен проверкам Origin (CSRF)
+        return self._do(path, urllib.parse.urlencode(fields, doseq=True).encode(),
+                        headers)
 
     def post_json(self, path: str, payload: dict) -> Reply:
         return self._do(path, json.dumps(payload).encode(),

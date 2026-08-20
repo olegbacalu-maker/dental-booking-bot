@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -43,9 +44,46 @@ _SQ = None
 
 # Сериализация бронирований: интервальное пересечение уникальным индексом не
 # ловится (индекс защищает только одинаковые старты), поэтому проверка
-# «пересекается ли» и INSERT идут под замком. Процесс один (single-instance
-# guard в desktop.py) — замка на уровне процесса достаточно.
+# «пересекается ли» и INSERT идут под замком. Для настольного издания процесс
+# один (single-instance guard в desktop.py) — процессного замка достаточно.
+# ⛔ Напрямую _BOOK_LOCK не брать — только через _slot_lock(): у Postgres-
+# издания процессный замок не гарантия (правило держит test_structure).
 _BOOK_LOCK = asyncio.Lock()
+
+# Ключ advisory-замка брони в Postgres. Один на всю бронь, произвольная
+# константа: та же ширина, что у _BOOK_LOCK, — узкий ключ «по врачу» тут
+# ничего не ускорил бы (бронь клиники — единицы в минуту), а промах в выборе
+# ключа (врач переименован, id NULL) молча вернул бы гонку.
+_PG_LOCK_KEY = 823_054_001
+
+
+@contextlib.asynccontextmanager
+async def _slot_lock():
+    """Замок всех записей, занимающих слот (бронь, заметка, перенос, возврат
+    статуса). Двухслойный:
+
+    * `_BOOK_LOCK` — asyncio, на процесс: настольному изданию достаточно.
+    * На Postgres поверх него — advisory-замок В САМОЙ БАЗЕ: воркеров или
+      контейнеров может стать несколько, у каждого СВОЙ `_BOOK_LOCK`, и два
+      процесса одновременно видели бы «свободно» (аудит 08-20). Замок
+      сессионный, на своём соединении: обрыв процесса отпускает его вместе с
+      соединением, а вставка коммитится ДО выхода отсюда — следующий владелец
+      замка уже видит её в `_conflicts`.
+
+    ⚠️ Облачную ветку не исполняет ни один набор (прайор карты): advisory-путь
+    проверен только чтением. Сторож класса — правило раскладки «замок брони
+    берётся только через _slot_lock» + якорь на pg_advisory_lock.
+    """
+    async with _BOOK_LOCK:
+        if IS_SQLITE:
+            yield
+            return
+        async with POOL.acquire() as c:
+            await c.execute("SELECT pg_advisory_lock($1)", _PG_LOCK_KEY)
+            try:
+                yield
+            finally:
+                await c.execute("SELECT pg_advisory_unlock($1)", _PG_LOCK_KEY)
 
 PG_SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients(
@@ -1379,7 +1417,7 @@ async def create_appointment(
     уже есть своя запись на это время. doctor/service = снапшоты подписи,
     doctor_id/service_id = стабильные ключи; duration_min = снапшот
     длительности услуги на момент брони."""
-    async with _BOOK_LOCK:
+    async with _slot_lock():
         if await patient_id_by_key(session_key) is None:
             # ⚠️ НОВОГО человека не заводим, пока слот не подтверждён: upsert
             # до проверки оставлял при отказе «интервал занят» карточку-сироту
@@ -1399,7 +1437,7 @@ async def _book(pid: int, service: str, doctor: str, starts_at: datetime,
                 duration_min: int) -> int | str | None:
     """Вставка визита пациенту, который УЖЕ известен по id. Контракт возврата
     тот же, что у create_appointment (id / None / 'dup')."""
-    async with _BOOK_LOCK:
+    async with _slot_lock():
         return await _book_locked(pid, service, doctor, starts_at, source,
                                   doctor_id, service_id, duration_min)
 
@@ -1408,14 +1446,14 @@ async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
                        source: str, doctor_id: str | None,
                        service_id: str | None,
                        duration_min: int) -> int | str | None:
-    """Тело брони. Звать ТОЛЬКО под _BOOK_LOCK: asyncio.Lock не реентерабелен,
+    """Тело брони. Звать ТОЛЬКО под _slot_lock: asyncio.Lock не реентерабелен,
     и create_appointment, которому замок нужен раньше (проверка до создания
     пациента), иначе повис бы на самом себе."""
     # ⚠️ «у пациента уже есть запись» спрашиваем ЗАРАНЕЕ, а не ловим по
     # тексту IntegrityError: SQLite называет в нём колонки, а не индекс, и
     # проверка на 'uq_patient_slot' не срабатывала никогда — дубль пациента
     # показывался регистратуре как «интервал занят у этого врача».
-    # Проверка идёт первой: она точнее, чем конфликт врача, и под _BOOK_LOCK
+    # Проверка идёт первой: она точнее, чем конфликт врача, и под _slot_lock
     # так же надёжна, как индекс.
     if await _patient_busy_at(pid, starts_at):
         return "dup"
@@ -1591,7 +1629,7 @@ async def _patient_busy_at(pid: int, starts_at: datetime,
                            exclude_id: int | None = None) -> bool:
     """Есть ли у пациента активная запись РОВНО на этот старт — то же, что
     стережёт uq_patient_slot, но ответом, а не исключением. Вызывать под
-    _BOOK_LOCK. Пересечения по длительности здесь намеренно не ищем: индекс их
+    _slot_lock. Пересечения по длительности здесь намеренно не ищем: индекс их
     тоже не запрещает, а регистратура ставит пациента к двум врачам подряд.
 
     ⚠️ `exclude_id` обязателен для ПЕРЕНОСА: визит, переезжающий к другому врачу
@@ -1612,7 +1650,7 @@ async def _patient_busy_at(pid: int, starts_at: datetime,
 async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
                      duration_min: int, exclude_id: int | None = None) -> bool:
     """Пересекается ли интервал с уже занятыми у этого врача. Вызывать ПОД
-    _BOOK_LOCK — уникальные индексы ловят только совпадающие старты."""
+    _slot_lock — уникальные индексы ловят только совпадающие старты."""
     from datetime import timedelta
     pad = timedelta(minutes=240)
     rows = await _fetch(
@@ -1639,7 +1677,7 @@ async def _conflicts(doctor_id: str | None, doctor: str, starts_at: datetime,
 async def add_note(doctor: str, starts_at: datetime, text: str,
                    doctor_id: str | None = None) -> int | None:
     """Заметка/блокировка слота: без пациента, но занимает слот врача."""
-    async with _BOOK_LOCK:
+    async with _slot_lock():
         # заметка тоже обязана уважать интервалы (иначе ложится поверх визита)
         if await _conflicts(doctor_id, doctor, starts_at, 60):
             return None
@@ -2855,38 +2893,49 @@ async def erasure_kind(pid: int) -> str:
                        or anam) else "delete")
 
 
+# Таблицы, ссылающиеся на пациента, — в порядке удаления: дети раньше родителя
+# (в PG внешние ключи иначе откажут, SQLite молча оставил бы сирот). Дневники
+# приёмов стоят раньше визитов: FK на appointments. ⚠️ Состав обязан совпадать
+# с export.py — обе стороны отвечают «где в базе лежит этот человек».
+_PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
+                         "plan_items", "documents", "anamneza",
+                         "visit_records", "appointments")
+
+
 async def delete_patient_fully(pid: int) -> None:
     """Физическое удаление: строка пациента и ВСЁ, что на неё ссылается.
 
-    Порядок — дети раньше родителя: в PG внешние ключи иначе откажут, а SQLite
-    молча оставил бы сирот, которых потом нашла бы только выгрузка чужого id.
     Файлы документов на диске удаляет ВЫЗЫВАЮЩИЙ (маршрут): db не знает про
     раскладку файлов, и это его единственная граница.
+
+    ⭐ АТОМАРНО (аудит 08-20). Раньше десять DELETE шли каждый со своим
+    COMMIT, и обрыв посреди (питание, убитый процесс, залоченная база)
+    оставлял ПОЛУпациента: платежи стёрты, фиша на месте — выглядит как
+    «программа сама что-то удалила», а довершить нечем. Теперь либо целиком,
+    либо ничего. У SQLite — executescript ОДНИМ вызовом: очередь aiosqlite
+    исполняет его как одну операцию, чужой запрос не вклинится в середину и
+    не закоммитит половину (у общего соединения commit общий). Параметров
+    executescript не принимает, поэтому pid подставляется в текст — он int
+    по построению, и int() рядом это закрепляет.
     """
-    for pg, lt in (
-        ("DELETE FROM payments WHERE patient_id = $1",
-         "DELETE FROM payments WHERE patient_id = ?"),
-        ("DELETE FROM activity WHERE patient_id = $1",
-         "DELETE FROM activity WHERE patient_id = ?"),
-        ("DELETE FROM patient_alerts WHERE patient_id = $1",
-         "DELETE FROM patient_alerts WHERE patient_id = ?"),
-        ("DELETE FROM teeth WHERE patient_id = $1",
-         "DELETE FROM teeth WHERE patient_id = ?"),
-        ("DELETE FROM plan_items WHERE patient_id = $1",
-         "DELETE FROM plan_items WHERE patient_id = ?"),
-        ("DELETE FROM documents WHERE patient_id = $1",
-         "DELETE FROM documents WHERE patient_id = ?"),
-        ("DELETE FROM anamneza WHERE patient_id = $1",
-         "DELETE FROM anamneza WHERE patient_id = ?"),
-        # дневники приёмов раньше визитов: FK на appointments
-        ("DELETE FROM visit_records WHERE patient_id = $1",
-         "DELETE FROM visit_records WHERE patient_id = ?"),
-        ("DELETE FROM appointments WHERE patient_id = $1",
-         "DELETE FROM appointments WHERE patient_id = ?"),
-        ("DELETE FROM patients WHERE id = $1",
-         "DELETE FROM patients WHERE id = ?"),
-    ):
-        await _execute(pg, lt, pid)
+    pid = int(pid)
+    if IS_SQLITE:
+        script = "BEGIN IMMEDIATE;\n" + "\n".join(
+            f"DELETE FROM {t} WHERE patient_id = {pid};"
+            for t in _PATIENT_CHILD_TABLES
+        ) + f"\nDELETE FROM patients WHERE id = {pid};\nCOMMIT;"
+        try:
+            await _CONN.executescript(script)
+        except Exception:
+            # обрыв посреди скрипта оставляет транзакцию открытой — вернуть
+            # базу в исходное; вне транзакции rollback безвреден
+            await _CONN.rollback()
+            raise
+    else:
+        async with POOL.acquire() as c, c.transaction():
+            for t in _PATIENT_CHILD_TABLES:
+                await c.execute(f"DELETE FROM {t} WHERE patient_id = $1", pid)
+            await c.execute("DELETE FROM patients WHERE id = $1", pid)
     log.warning("patient %s deleted (erasure request, no medical records)", pid)
 
 
@@ -3007,12 +3056,12 @@ async def move_appointment(appt_id: int, doctor_id: str, doctor: str,
     `closed` — визит не активен (завершён/отменён), такие не двигаем.
 
     ⚠️ Проверки те же и в том же порядке, что у новой брони, и обязательно ПОД
-    `_BOOK_LOCK`: уникальные индексы ловят только совпадающие старты, а
+    `_slot_lock`: уникальные индексы ловят только совпадающие старты, а
     пересечение 10:00(60′) с 10:30(60′) — нет.
     ⚠️ `when` — время НОВОГО старта в часах клиники, уже строкой: db не знает
     про часовой пояс (в базе UTC), а летопись читает человек.
     """
-    async with _BOOK_LOCK:
+    async with _slot_lock():
         rows = await _fetch(
             """SELECT patient_id, duration_min, status, service, starts_at
                FROM appointments WHERE id = $1""",
@@ -3074,7 +3123,7 @@ async def set_status(appt_id: int, status: str) -> str:
     не разбираем текст исключения: два бэкенда пишут его по-разному, и ветка
     сообщения отмерла бы молча.
     """
-    async with _BOOK_LOCK:
+    async with _slot_lock():
         rows = await _fetch(
             """SELECT patient_id, doctor, doctor_id, starts_at, duration_min, status
                FROM appointments WHERE id = $1""",

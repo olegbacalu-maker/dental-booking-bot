@@ -532,6 +532,51 @@ def suite(res: Result) -> None:
            + " — этот CREATE упадёт у клиники с двойной бронью там, куда "
              "сторож не доживает, и программа больше не откроется")
 
+    # ---- замок брони: только через _slot_lock (08-20, аудит) ----
+    # _BOOK_LOCK — процессный asyncio.Lock, и у Postgres-издания он не
+    # гарантия: у каждого воркера СВОЙ. Поэтому _slot_lock поверх него берёт
+    # advisory-замок в самой базе, и каждый, кто пишет слоты, обязан идти через
+    # _slot_lock. Новый путь брони, взявший _BOOK_LOCK напрямую, у SQLite-
+    # клиники работал бы неотличимо, а облако вернул бы к гонке — молча: ветку
+    # Postgres не исполняет ни один набор.
+    # ⚠️ Полярность опасная: правило ищет ИМЕНА, поэтому якорей два — сам
+    # _slot_lock существует, и внутри него есть pg_advisory_lock (замок БД,
+    # ради которого обёртка и заведена: без него она снова только процессная).
+    bad = []
+    slot_fn = next((n for n in ast.walk(db_tree
+                                        or ast.Module(body=[], type_ignores=[]))
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and n.name == "_slot_lock"), None)
+    if slot_fn is None:
+        bad.append("app/db.py: _slot_lock не найден — якорь правила пропал")
+    else:
+        # ⚠️ docstring исключается: он сам называет pg_advisory_lock словами,
+        # и якорь позеленел бы на функции, из которой замок БД вычистили
+        doc_id = None
+        first = slot_fn.body[0] if slot_fn.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+            doc_id = id(first.value)
+        if not any(isinstance(x, ast.Constant) and isinstance(x.value, str)
+                   and id(x) != doc_id and "pg_advisory_lock" in x.value
+                   for x in ast.walk(slot_fn)):
+            bad.append("в _slot_lock нет pg_advisory_lock — у Postgres замок "
+                       "снова только процессный")
+    for rel, tree in src:
+        for n in ast.walk(tree):
+            if not isinstance(n, (ast.With, ast.AsyncWith)):
+                continue
+            uses = any((isinstance(x, ast.Name) and x.id == "_BOOK_LOCK")
+                       or (isinstance(x, ast.Attribute)
+                           and x.attr == "_BOOK_LOCK")
+                       for item in n.items
+                       for x in ast.walk(item.context_expr))
+            if uses and not (rel == "app/db.py"
+                             and "_slot_lock" in _enclosing(tree, n.lineno)):
+                bad.append(f"{rel}:{n.lineno}")
+    res.ok("замок брони берётся только через _slot_lock", not bad,
+           "_BOOK_LOCK взят напрямую — у Postgres-издания это гонка двух "
+           "воркеров за один слот: " + "; ".join(bad))
+
     # В schema_meta безусловно пишут _set_schema_version, set_meta и backfill —
     # таблица обязана создаваться В ОБЕИХ схемах. Из PG_SCHEMA её однажды
     # удалили случайно (434513c), и облако переставало стартовать на свежем

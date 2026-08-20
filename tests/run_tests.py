@@ -28,6 +28,7 @@ import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_doctor_windows  # noqa: E402
 import test_guards  # noqa: E402
+import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
 import test_migrate  # noqa: E402
 import test_bot  # noqa: E402
@@ -65,6 +66,18 @@ SUITES = [
     ("PIN: смена", test_pin.suite_change),
     ("Роли и права доступа", test_pin.suite_roles),
     ("PIN: битый auth.json", test_pin.suite_broken),
+    ("Hardening: установка PIN только локально", test_hardening.suite_setup_local),
+    ("Hardening: битый clinic.json не подменяется демо",
+     test_hardening.suite_config_fallback),
+    ("Hardening: гонка за один слот", test_hardening.suite_booking_race),
+    ("Hardening: сессия переживает hot-reload конфига",
+     test_hardening.suite_stale_session),
+    ("Hardening: стирание пациента атомарно",
+     test_hardening.suite_delete_rollback),
+    ("Hardening: сессии — TTL и очистка PII", test_hardening.suite_session_pii),
+    ("Hardening: CSRF на маршрутах без куки", test_hardening.suite_csrf_origin),
+    ("Hardening: auth_fail.json атомарен", test_hardening.suite_authfail_atomic),
+    ("Hardening: документы — только своим", test_hardening.suite_doc_ownership),
     ("PIN: атомарная запись auth.json", test_pin.suite_atomic),
     ("Сигнализация auth.json", test_pin.suite_tamper),
     ("Секреты: шифрование токена", test_pin.suite_secret),

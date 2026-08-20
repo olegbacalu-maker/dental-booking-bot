@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -27,14 +28,25 @@ def _load_config() -> dict:
 
     Последний кандидат — ДЕМО-клиника, вшитая в exe. Раньше падение на первом
     (битый файл) молча приводило к ней: клиника стартовала с чужими врачами и
-    не понимала почему. Теперь между ними стоит .bak прошлого удачного
-    сохранения, а каждое падение кандидата громко пишется в лог."""
+    не понимала почему. Между ними стоит .bak прошлого удачного сохранения, а
+    каждое падение кандидата громко пишется в лог.
+
+    ⛔ С 08-20 (аудит) до демо-клиники БИТЫЙ профиль больше не доезжает как
+    рабочий: если clinic.json СУЩЕСТВУЕТ, но не читается, и .bak его не спас —
+    ставится CONFIG_BROKEN, и main.py поднимает экран ошибки вместо журнала.
+    Демо-профиль при этом всё равно возвращается, но только как каркас для
+    самого экрана ошибки (standalone/theme без конфига не рисуются) — до
+    записи, бота и любых страниц журнала дело не доходит.
+    ⚠️ Ветка «файлов НЕТ ВОВСЕ» остаётся тихой намеренно: это законный путь
+    запуска из исходников без $CLINIC_CONFIG; у клиники clinic.json кладёт
+    лаунчер до старта приложения (desktop.py), и отсутствовать он не может."""
+    global CONFIG_BROKEN
     candidates = []
     env_path = os.environ.get("CLINIC_CONFIG")
     if env_path:
         candidates.append(env_path)
         candidates.append(env_path + ".bak")
-    candidates.append(str(paths.resource("clinic.json")))
+    broken: list[str] = []
     for i, p in enumerate(candidates):
         try:
             with open(p, encoding="utf-8") as f:
@@ -47,14 +59,30 @@ def _load_config() -> dict:
             continue
         except (OSError, json.JSONDecodeError) as e:
             log.warning("clinic config: %s не читается (%r) — пробую дальше", p, e)
-            continue
-    raise RuntimeError("clinic config not found/invalid: " + ", ".join(candidates))
+            broken.append(f"{p}: {e}")
+    if broken:
+        CONFIG_BROKEN = "; ".join(broken)
+        log.error("clinic config: профиль клиники не читается, запасного нет — "
+                  "журнал поднимется экраном ошибки, не демо-клиникой (%s)",
+                  CONFIG_BROKEN)
+    demo = str(paths.resource("clinic.json"))
+    try:
+        with open(demo, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"clinic config not found/invalid: "
+                           f"{', '.join([*candidates, demo])} ({e!r})") from e
 
 
 # все производные конфига заполняет apply_config() — hot-reload без рестарта
 CONFIG: dict = {}
 CLINIC_NAME = ""
 CLINIC_PHONE = ""
+# Профиль клиники не прочитался, и запасной .bak тоже ('' = конфиг живой).
+# Ставит _load_config при старте; main.py по этому флагу НЕ открывает базу и
+# поднимает экран ошибки вместо журнала — работать на вшитой демо-клинике
+# поверх настоящей картотеки нельзя (чужие врачи, чужой прайс).
+CONFIG_BROKEN = ""
 # DOCTORS = ВСЕ врачи (в т.ч. выключенные) — чтобы история и журнал показывали
 # имя; ACTIVE_DOCTORS = те, кого предлагает бот и формы записи.
 DOCTORS: dict[str, str] = {}
@@ -146,6 +174,8 @@ T_BASE = {
         "cancelled": "Programarea a fost anulată.",
         "cancel_gone": "Această programare nu mai este activă.",
         "own_slot": "Aveți deja o programare la această oră. Alegeți alt interval:",
+        "doc_unavailable": "Acest medic nu mai este disponibil. Alegeți alt medic:",
+        "stale_config": "Între timp lista clinicii s-a actualizat. Să reluăm alegerea:",
         "prices": "Prețuri orientative:\n• Consultație — gratuit\n• Igienizare profesională — 1000–1200 MDL\n• Plombă compozit — 1200–1800 MDL\n• Extracție dinte — 1000–1500 MDL\n• Coroană — 2500–4500 MDL\n• Albire dentară — de la 2500 MDL\n• Consult implantologie — gratuit\n• Durere acută — vă primim în aceeași zi",
         "urgent_intro": "Ne pare rău că vă doare! Iată cele mai apropiate ore libere:",
         "urgent_call": "⚠️ Dacă durerea e insuportabilă — sunați-ne chiar acum: {PHONE}",
@@ -192,6 +222,8 @@ T_BASE = {
         "cancelled": "Запись отменена.",
         "cancel_gone": "Эта запись уже неактивна.",
         "own_slot": "У вас уже есть запись на это время. Выберите другое:",
+        "doc_unavailable": "Этот врач сейчас недоступен. Выберите другого врача:",
+        "stale_config": "Данные клиники обновились. Давайте выберем заново:",
         "prices": "Ориентировочные цены:\n• Консультация — бесплатно\n• Проф. гигиена — 1000–1200 MDL\n• Пломба (композит) — 1200–1800 MDL\n• Удаление зуба — 1000–1500 MDL\n• Коронка — 2500–4500 MDL\n• Отбеливание — от 2500 MDL\n• Консультация по имплантации — бесплатно\n• Острая боль — примем в тот же день",
         "urgent_intro": "Сочувствуем — зубная боль не ждёт! Ближайшие свободные окна:",
         "urgent_call": "⚠️ Если боль очень сильная — позвоните нам прямо сейчас: {PHONE}",
@@ -339,13 +371,33 @@ class Session:
     lang: str = "ro"
     state: str = "lang"
     data: dict = field(default_factory=dict)
+    last_seen: float = 0.0
 
 
 SESSIONS: dict[str, Session] = {}
 
+# Сколько живёт МОЛЧАЩАЯ сессия диалога (аудит 08-20: SESSIONS рос вечно, и
+# имя с телефоном лежали в ОЗУ бессрочно). Сессия — НЕ удостоверение пациента:
+# удостоверение — подписанный токен браузера / tg-chat_id, а записи лежат в
+# базе. Протухшая сессия значит ровно «диалог начнётся с меню» — кнопки
+# вчерашнего напоминания (rem_ok, cancel:N) от состояния не зависят и работают
+# как работали. Шести часов хватает любому диалогу записи с запасом.
+SESSION_TTL = 6 * 3600
+_SWEEP_EVERY = 300           # чаще подметать незачем: диалогов — единицы
+_last_sweep = 0.0
+
 
 def get_session(sid: str) -> Session:
-    return SESSIONS.setdefault(sid, Session())
+    global _last_sweep
+    now = time.time()
+    if now - _last_sweep > _SWEEP_EVERY:
+        _last_sweep = now
+        for k in [k for k, v in SESSIONS.items()
+                  if now - v.last_seen > SESSION_TTL]:
+            del SESSIONS[k]
+    s = SESSIONS.setdefault(sid, Session())
+    s.last_seen = now
+    return s
 
 
 def t(s: Session, key: str) -> str:
@@ -712,6 +764,29 @@ async def render_urgent(s: Session, prefix: str | None = None):
     return texts, day_rows(s)
 
 
+def _flow_valid(s: Session) -> bool:
+    """Выбранное в сессии всё ещё существует в ТЕКУЩЕМ конфиге.
+
+    Сессия переживает hot-reload настроек (услугу удалили, врача выключили или
+    переименовали id), и верить ей нельзя: `SERVICES[s.data['svc']]` на мёртвом
+    ключе — это трейсбек пациенту в чат (аудит 08-20). Проверка одна на все
+    места, где сессии предстоит верить; занятость слота сюда не входит — её
+    атомарно перепроверяет db при вставке."""
+    svc = s.data.get("svc")
+    if svc not in SERVICES:
+        return False
+    doc = s.data.get("doc", "any")
+    return doc == "any" or doc in {k for k, _n in allowed_doc_items(svc)}
+
+
+def _stale_reset(s: Session):
+    """Выбранного больше нет — начать выбор заново, словами, а не ошибкой."""
+    s.state = "svc"
+    for k in ("svc", "doc", "day", "time"):
+        s.data.pop(k, None)
+    return [t(s, "stale_config"), t(s, "choose_service")], service_rows(s)
+
+
 def confirm_text(s: Session) -> str:
     dt = datetime.fromisoformat(s.data["time"])
     when = f"{day_label(s, dt.date())} {dt.strftime('%H:%M')}"
@@ -727,6 +802,10 @@ def confirm_text(s: Session) -> str:
 
 async def fallback(s: Session):
     """Непонятый ввод НЕ выбрасывает из флоу — перерисовывает текущий шаг."""
+    # шаг может быть неперерисовываем: выбранного в конфиге больше нет
+    # (hot-reload) — тогда честный сброс к выбору, а не KeyError в confirm_text
+    if s.state in ("doc", "day", "time", "confirm") and not _flow_valid(s):
+        return _stale_reset(s)
     if s.state == "lang":
         return [HELLO, CHOOSE_LANG], [[btn("Română", "lang:ro"), btn("Русский", "lang:ru")]]
     if s.state == "svc":
@@ -758,6 +837,30 @@ async def fallback(s: Session):
 
 
 async def do_book(s: Session, sid: str):
+    # ⭐ Сессии НЕ верим (аудит 08-20): между выбором и подтверждением конфиг
+    # мог смениться hot-reload'ом — услугу удалили, врача выключили, окно
+    # сузили. Всё перепроверяется по ТЕКУЩЕМУ конфигу здесь, у последней двери
+    # перед db, и несостыковка отвечает словами, а не трейсбеком; занятость
+    # слота дальше атомарно перепроверяет сам db (_slot_lock).
+    svc_key = s.data.get("svc", "")
+    doc_key = s.data.get("doc", "any")
+    if "time" not in s.data:
+        return await fallback(s)
+    if svc_key not in SERVICES:
+        return _stale_reset(s)
+    allowed = svc_allowed_keys(s)
+    if not allowed:
+        # услугу больше некому выполнять — как на входе в «svc:»
+        s.state = "menu"
+        for k in ("svc", "doc", "day", "time"):
+            s.data.pop(k, None)
+        return [t(s, "svc_unavailable")], menu_buttons(s)
+    if doc_key != "any" and doc_key not in allowed:
+        # врач выключен/удалён после выбора — предложить выбрать заново
+        s.state = "doc"
+        for k in ("doc", "day", "time"):
+            s.data.pop(k, None)
+        return [t(s, "doc_unavailable"), t(s, "choose_doctor")], doctor_rows(s)
     dt = datetime.fromisoformat(s.data["time"])
     # слот мог пройти, пока вводили имя/телефон (актуально для окон «сегодня»)
     if is_past(dt):
@@ -765,12 +868,10 @@ async def do_book(s: Session, sid: str):
             return await render_urgent(s, t(s, "slot_taken"))
         s.state = "day"
         return [t(s, "slot_taken")], day_rows(s)
-    svc_key = s.data["svc"]
     dur = svc_duration(svc_key)
-    doc_key = s.data.get("doc", "any")
     if doc_key == "any":
         candidates = []
-        for k in svc_allowed_keys(s):
+        for k in allowed:
             # слот предложен free_starts из окна КОНКРЕТНОГО врача — кандидат
             # обязан проходить ту же проверку окон, а не только занятость:
             # незанятый ≠ работающий (врач утренний, слот вечерний)
@@ -782,6 +883,13 @@ async def do_book(s: Session, sid: str):
             if not _overlaps(dt, dur, busy):
                 candidates.append(k)
     else:
+        # та же проверка окон, что у ветки «any»: график врача могли сузить
+        # после того, как free_starts предложил этот час
+        if not fits_doctor(doc_key, dt, dur):
+            if is_urgent(s):
+                return await render_urgent(s, t(s, "slot_taken"))
+            s.state = "day"
+            return [t(s, "slot_taken")], day_rows(s)
         candidates = [doc_key]
     service = SERVICES[svc_key][s.lang]
     appt_id = None
@@ -808,7 +916,11 @@ async def do_book(s: Session, sid: str):
             return await render_urgent(s, t(s, "slot_taken"))
         s.state = "day"
         return [t(s, "slot_taken")], day_rows(s)
-    s.data["last_appt"] = appt_id
+    # ⭐ PII из ОЗУ — сразу после успеха (аудит 08-20): имя, телефон и год уже
+    # легли в карточку пациента, и держать их в памяти сессии больше незачем.
+    # «Мои записи» и отмена работают по sid через базу и этого не заметят;
+    # повторная запись в тот же заход спросит имя заново — цена честная.
+    s.data = {"last_appt": appt_id}
     s.state = "menu"
     when = f"{day_label(s, dt.date())} {dt.strftime('%H:%M')}"
     return [t(s, "booked").format(when=when, doctor=doctor)], [
@@ -876,6 +988,8 @@ async def handle(s: Session, sid: str, msg: str):
     if msg.startswith("day:"):
         if "svc" not in s.data or "doc" not in s.data:
             return await fallback(s)
+        if not _flow_valid(s):
+            return _stale_reset(s)
         try:
             d = date.fromisoformat(msg[4:])
         except ValueError:
@@ -890,6 +1004,8 @@ async def handle(s: Session, sid: str, msg: str):
     if msg.startswith("time:"):
         if "svc" not in s.data or "doc" not in s.data:
             return await fallback(s)
+        if not _flow_valid(s):
+            return _stale_reset(s)
         try:
             dt = datetime.fromisoformat(msg[5:])
         except ValueError:

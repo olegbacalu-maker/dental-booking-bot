@@ -25,6 +25,7 @@ from __future__ import annotations
 import contextvars
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import pathlib
@@ -488,6 +489,49 @@ def _setup_allowed() -> bool:
             and not _auth_broken())
 
 
+def same_origin_post(request: Request) -> bool:
+    """POST пришёл со СВОЕЙ страницы, а не с чужого сайта в браузере клиники.
+
+    Все аутентифицированные формы от CSRF закрыты кукой: она SameSite=Lax, и
+    на чужой POST браузер её не шлёт — маршрут отвечает редиректом на вход.
+    Но три маршрута живут ДО куки — setup, login, recover, — и страница
+    злоумышленника, открытая в браузере на машине клиники, могла бы отправить
+    их сама: поставить первый PIN (пока auth.json нет) или накрутить счётчик
+    подбора до блокировки. Браузер шлёт Origin на каждый POST; сравниваем его
+    хост с Host запроса. Запрос БЕЗ Origin пропускается: это не браузер
+    (тесты, curl), и CSRF там не существует. «null» (file://, sandbox) —
+    отказ: непрозрачный origin неотличим от чужого.
+    """
+    origin = request.headers.get("origin", "")
+    if not origin:
+        return True
+    if origin == "null":
+        return False
+    host = urllib.parse.urlsplit(origin).netloc
+    return bool(host) and host.lower() == request.headers.get("host", "").lower()
+
+
+def client_is_local(request: Request) -> bool:
+    """Запрос пришёл с ЭТОГО компьютера, а не из сети клиники.
+
+    Нужна первичной установке PIN: пока auth.json нет, журнал не защищён ничем,
+    и при включённом «Acces din rețea» (bind 0.0.0.0, флаг переживает
+    переустановку) любой компьютер сети мог бы назначить себе первый PIN и
+    стать единственным директором. Спрашиваем ПИРА соединения, а не заголовки:
+    X-Forwarded-* пишет кто угодно, а uvicorn без --proxy-headers их и не
+    разбирает. Пустой адрес — отказ: неоткуда не значит «отсюда».
+    """
+    host = (request.client.host or "") if request.client else ""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    # dual-stack отдаёт loopback как ::ffff:127.0.0.1, а у ipaddress такой
+    # адрес НЕ is_loopback — разворачиваем в честный IPv4
+    mapped = getattr(addr, "ipv4_mapped", None)
+    return (mapped or addr).is_loopback
+
+
 # --- сигнализация auth.json (08-06) ---
 # Файл лежит рядом с базой, и человек с доступом к папке может переписать его
 # или удалить (удаление — наш же документированный путь «забыл PIN»). Замка тут
@@ -565,10 +609,24 @@ def _fail_save(st: dict) -> None:
         _fail_mem.clear()
         _fail_mem.update(st)
         return
+    # Атомарно, тем же приёмом, что auth.json (_save_users): обрыв посреди
+    # прямой записи оставлял усечённый файл, а его _fail_state читает как
+    # ПУСТОЙ — счётчик подбора молча обнулялся ровно тому, кто перебирает
+    # (аудит 08-20). tmp в той же папке: os.replace атомарен в пределах тома.
+    tmp = p.with_name(p.name + ".tmp")
     try:
-        p.write_text(json.dumps(st), encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(json.dumps(st))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, p)
     except OSError:
-        pass          # сбой записи не должен превращаться в отказ во входе
+        # сбой записи не должен превращаться в отказ во входе; прежнее
+        # состояние файла при этом цело — replace до него не дошёл
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def lock_left() -> int:

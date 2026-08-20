@@ -30,14 +30,16 @@ from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         PIN_MIN, PERM_SETTINGS, _as_user, _guard, _pin_rec,
                         _secret, _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_blocked, auth_file_fp, chat_session, current_user,
+                        auth_blocked, auth_file_fp, chat_session,
+                        client_is_local, current_user,
                         fail_count, find_user, lock_left, note_fail, note_ok,
                         pin_free, pin_len_ok,
                         remember_auth_file, request_user, require,
-                        set_request_user, set_tamper_alert, verify_pin)
+                        same_origin_post, set_request_user, set_tamper_alert,
+                        verify_pin)
 from .core import dbkey, theme
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
-                          standalone, tg_configured)
+                          fonts_css, standalone, tg_configured)
 from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
 from .modules.qr import routes as qr
@@ -175,6 +177,18 @@ async def startup() -> None:
     # летопись подписывается ИМЕНЕМ вошедшего. Хук, а не импорт: db лежит ниже
     # слоя доступа, и прямой импорт замкнул бы круг db → core.auth → db
     db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
+    # ⛔ Профиль клиники не читается (и .bak тоже): поднимаемся ЭКРАНОМ ОШИБКИ,
+    # как в режиме восстановления, — база не открывается (ни миграций, ни
+    # сида), Telegram не стартует, все адреса ведут на объяснение. Работать на
+    # вшитой демо-клинике поверх настоящей картотеки нельзя: на «Dr. Elena
+    # Rusu», которой в клинике нет, запишут живого человека, а чужой прайс
+    # уйдёт пациенту как настоящий. Падать тоже нельзя (прайор 08-16): у
+    # клиники это «программа не открывается», и рассказать, что чинить, некому.
+    if eng.CONFIG_BROKEN:
+        logging.getLogger("startup").error(
+            "clinic.json не читается, запасного нет — экран ошибки: %s",
+            eng.CONFIG_BROKEN)
+        return
     try:
         seed_rows = eng.build_seed_rows()
     except Exception as e:  # noqa: BLE001 — демо-наполнение НЕ должно валить старт
@@ -355,11 +369,50 @@ async def _recovery_gate(request: Request, call_next):
     же он получает внятный экран с полем для кода.
     ⚠️ `/health` намеренно НЕ трогаем: по нему лаунчер понимает, что сервер
     поднялся, — иначе окно программы не откроется и вводить код будет негде.
+    Тот же шлюз держит и состояние «профиль клиники не читается»
+    (eng.CONFIG_BROKEN): база в нём тоже не открыта, а вместо экрана с кодом —
+    страница с объяснением, какой файл восстановить. Статика не отсекается:
+    экран сам просит шрифты по /static/fonts/….
     """
     p = request.url.path
+    if eng.CONFIG_BROKEN:
+        if p.startswith("/admin"):
+            # ⛔ НЕ через standalone(): тот подставил бы имя и цвет клиники, а
+            # они в этом состоянии пришли бы из демо-каркаса («DentPilot Demo»
+            # в PWA-теге) — страница существует ровно затем, чтобы демо не
+            # показывалось как своё. Экран нарочно нейтральный, без
+            # фирменного цвета.
+            return HTMLResponse(
+                CONFIG_BROKEN_TMPL
+                .replace("__PATH__", html.escape(str(eng.config_path())))
+                .replace("__FONTS__", fonts_css()),
+                status_code=503)
+        if p == "/" or p == "/chat":
+            # каналу записи в этом состоянии отвечать нечем: конфиг (врачи,
+            # услуги, часы) — это и есть то, из чего собирается диалог
+            return Response(status_code=503)
     if RECOVERY and p.startswith("/admin") and not p.startswith("/admin/recover"):
         return RedirectResponse("/admin/recover", status_code=303)
     return await call_next(request)
+
+
+CONFIG_BROKEN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<title>DentPilot — eroare</title><style>__FONTS__
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#f5f6f7;
+      color:#20262b;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
+ p{max-width:560px;line-height:1.55}
+ code{font-size:13px;opacity:.85;word-break:break-all}
+</style></head><body>
+<h1>Profilul clinicii nu poate fi citit</h1>
+<p>Fișierul cu profilul clinicii (<b>clinic.json</b>) este deteriorat, iar
+copia de rezervă (clinic.json.bak) nu a putut fi folosită. Programul s-a oprit
+aici ca să nu amestece evidența dvs. cu date demonstrative.</p>
+<p><b>Ce e de făcut:</b> restaurați fișierul clinic.json dintr-o copie de
+rezervă a clinicii sau contactați suportul, apoi reporniți programul.
+Evidența pacienților (baza de date) nu este afectată.</p>
+<p><code>__PATH__</code></p>
+</body></html>"""
 
 
 @app.get("/admin/recover", response_class=HTMLResponse)
@@ -372,7 +425,7 @@ async def recover_page(err: str = "") -> Response:
 
 
 @app.post("/admin/recover")
-async def recover_apply(code: str = Form("")) -> Response:
+async def recover_apply(request: Request, code: str = Form("")) -> Response:
     """Код с бумаги → ключ → ПЕРЕЗАВОРАЧИВАНИЕ под текущую учётку Windows.
 
     ⭐ Ключ проверяется НА САМОЙ БАЗЕ, а не «похож ли он на код»: иначе опечатка
@@ -381,6 +434,8 @@ async def recover_apply(code: str = Form("")) -> Response:
     """
     if not RECOVERY:
         return RedirectResponse("/admin", status_code=303)
+    if not same_origin_post(request):     # третий POST без куки, тот же щит
+        return Response(status_code=403)
     key = dbkey.parse_recovery(code)
     path = pathlib.Path(db.DATABASE_URL.split("///", 1)[1])
     if key is None or not dbkey.opens_with(path, key) or not dbkey.store(key):
@@ -498,8 +553,13 @@ async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
 
 
 @app.post("/admin/login")
-async def admin_login(password: str = Form(...), uid: str = Form(""),
+async def admin_login(request: Request, password: str = Form(...),
+                      uid: str = Form(""),
                       next_url: str = Form("/admin", alias="next")):
+    # чужой сайт в браузере клиники не должен ни пробовать PIN-ы, ни
+    # накручивать счётчик подбора до блокировки (см. same_origin_post)
+    if not same_origin_post(request):
+        return Response(status_code=403)
     target = next_url if next_url.startswith("/admin") else "/admin"
     nxt = urllib.parse.quote(target, safe="")
     if auth_blocked():
@@ -616,10 +676,34 @@ async def admin_logout():
     return resp
 
 
+# Пока PIN не установлен, журнал не защищён НИЧЕМ — и первичную установку
+# обязан делать тот, кто сидит за самим компьютером клиники. Из сети (второе
+# рабочее место, телефон) экран установки закрыт: при включённом «Acces din
+# rețea» любой в Wi-Fi клиники иначе назначил бы себе первый PIN и стал бы
+# единственным директором. После установки обычный вход из сети работает.
+SETUP_LOCAL_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<title>__CLINIC__ — configurare</title><style>__FONTS__
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;
+      color:__ON__;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
+ p{max-width:520px;line-height:1.55}
+</style></head><body>
+<h1>Prima configurare se face la calculatorul clinicii</h1>
+<p>Programul nu are încă un PIN. Din motive de siguranță, primul PIN se
+stabilește doar pe calculatorul pe care este instalat DentPilot — deschideți
+programul acolo și setați PIN-ul. După aceea, intrarea din rețea va funcționa
+ca de obicei, cu parola fiecărui utilizator.</p>
+</body></html>"""
+
+
 @app.get("/admin/setup", response_class=HTMLResponse)
-async def admin_setup_page(err: str = ""):
+async def admin_setup_page(request: Request, err: str = ""):
     if not _setup_allowed():
         return RedirectResponse("/admin", status_code=303)
+    if not client_is_local(request):
+        # не редирект на /admin: _guard без PIN вернул бы сюда же, и сетевой
+        # клиент кружил бы в 303 — вместо этого внятная страница с причиной
+        return HTMLResponse(standalone(SETUP_LOCAL_TMPL), status_code=403)
     # границы из констант: «4–6» здесь пережило подъём потолка до 8 (08-13),
     # и экран установки противоречил собственному «4–8 cifre» строкой ниже
     err_html = (f"<div class='err'>PIN-urile nu coincid sau nu au "
@@ -630,9 +714,16 @@ async def admin_setup_page(err: str = ""):
 
 
 @app.post("/admin/setup")
-async def admin_setup(pin1: str = Form(...), pin2: str = Form(...)):
+async def admin_setup(request: Request, pin1: str = Form(...),
+                      pin2: str = Form(...)):
     if not _setup_allowed():
         return RedirectResponse("/admin", status_code=303)
+    if not client_is_local(request):
+        return HTMLResponse(standalone(SETUP_LOCAL_TMPL), status_code=403)
+    # пока PIN не установлен, эту форму мог бы отправить чужой сайт из
+    # браузера НА САМОМ компьютере клиники — loopback его не отличает
+    if not same_origin_post(request):
+        return Response(status_code=403)
     p1, p2 = pin1.strip(), pin2.strip()
     if p1 != p2 or not pin_len_ok(p1):
         return RedirectResponse("/admin/setup?err=1", status_code=303)
