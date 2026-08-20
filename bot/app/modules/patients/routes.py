@@ -213,7 +213,15 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     # дата рождения человеку — dd.mm.yyyy, а не сырой ISO из базы
     bd_h = (_pl_dmy(p["birth_date"]) if p.get("birth_date")
             else p.get("birth_year"))
-    info_rows = (frow("Telefon", p.get("phone"), "phone")
+    # «fără telefon» — явной меткой, а не прочерком (08-20): прочерк читается
+    # «забыли вписать», а этим пациентам не уйдут SMS, когда пакет заработает,
+    # и причина обязана быть видна. Строка руками: frow экранирует значение,
+    # и SVG-иконка через него не проходит.
+    tel_row = (frow("Telefon", p.get("phone"), "phone") if p.get("phone") else
+               "<div class='frow'><span>Telefon</span>"
+               "<span class='v notel'>fără telefon</span>"
+               f"<span class='ic'>{_ic('phone-off')}</span></div>")
+    info_rows = (tel_row
                  + frow("Data nașterii", bd_h, "cal")
                  + frow("Gen", {"m": "M", "f": "F"}.get(p.get("gender") or "", p.get("gender")), "pat")
                  + frow("IDNP", p.get("idnp"), "id")
@@ -243,7 +251,10 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     edit_form = f"""
 <form class='fform' id='pedit' method='post' action='{base}/save' style='display:{"block" if bad_field else "none"};margin-top:10px'>
   <input name='name' value="{e(p['name'] or '')}" placeholder='Nume' required{_inv('name')}>
-  <input name='phone' value="{e(p['phone'] or '')}" placeholder='Telefon'>
+  <input name='phone' value="{e(p['phone'] or '')}" placeholder='Telefon'{'' if p['phone'] else ' disabled'}>
+  <label class='nophone'><input type='checkbox' name='nophone' value='1'
+    data-for='phone' onchange='togglePhone(this)'{'' if p['phone'] else ' checked'}>
+    fără telefon</label>
   <div class='r2'><input type='date' name='birth_date' value="{e(p.get('birth_date') or '')}"
     max='{date.today().isoformat()}'{_inv('birth_date')}>
   <select name='gender'><option value=''>Gen —</option>
@@ -1141,6 +1152,19 @@ async def patient_save(request: Request, pid: int):
     # язык печатных документов — мимо PATIENT_FIELDS: колонка NOT NULL, а там
     # пустое поле превращается в NULL
     await db.set_patient_lang(pid, str(form.get("lang") or ""))
+    # Телефон, вписанный ЗАДНИМ числом, может совпасть с чужим (08-20): дальше
+    # запись из журнала по этому номеру уедет «единственному совпавшему», и
+    # угадать кому — нельзя. Сохранение проходит (может, это осознанный
+    # семейный номер), но названо вслух. ⚠️ Себя исключаем: иначе КАЖДОЕ
+    # пересохранение фиши с телефоном предупреждало бы про самого себя, и
+    # баннер перестали бы читать раньше, чем он окажется прав (болезнь ok_past
+    # на мгновенной границе).
+    tel_digits = _pl_digits(data.get("phone"))
+    if len(tel_digits) >= 3:
+        others = [x for x in await db._patient_ids_by_digits(tel_digits)
+                  if x != pid]
+        if others:
+            return _card_redirect(pid, "ok_tel_dup")
     return _card_redirect(pid, "ok_card")
 
 
@@ -1942,15 +1966,38 @@ def _pl_digits(s) -> str:
     return "".join(ch for ch in (s or "") if ch.isdigit())
 
 
+# метка безтелефонного в списке — иконкой, не прочерком (см. tel_row в фише)
+_PL_NOTEL = f"<span class='pl-notel' title='Fără telefon'>{_ic('phone-off')}</span>"
+
+
 def _pl_match_q(p: dict, q: str) -> bool:
     """Имя (без учёта диакритики), e-mail, номер дела — подстрокой; телефон —
-    по цифрам, от трёх: '069 12' и '069-12' обязаны искать одинаково."""
+    по цифрам, от трёх: '069 12' и '069-12' обязаны искать одинаково; дата
+    рождения — как её диктуют на стойке (01.01.2003); цифры ищутся и в notes
+    (там живёт номер второго человека на семейном телефоне)."""
     qf = db.fold(q)
     if len(qf) >= 2 and (qf in db.fold(p["name"]) or qf in db.fold(p["email"])
                          or qf in db.fold(p.get("file_no"))):
         return True
+    # 01.01.2003, принимаем и без ведущих нулей (1.1.2003). Сравнение через
+    # str()[:10]: SQLite отдаёт birth_date строкой, PG — датой, а голое ==
+    # с датой молча не совпало бы никогда (класс болезни db._DT_COLS).
+    # Невозможные день/месяц (99.99.2003) дают ISO, которого нет ни у кого.
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", q.strip())
+    if m:
+        iso = f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+        if str(p.get("birth_date") or "")[:10] == iso:
+            return True
     digits = _pl_digits(q)
-    return len(digits) >= 3 and digits in _pl_digits(p["phone"])
+    if len(digits) < 3:
+        return False
+    if digits in _pl_digits(p["phone"]):
+        return True
+    # Номер ВТОРОГО человека на семейном телефоне живёт в notes (решение
+    # 08-18: у мужа номер в phone, у жены — в заметке, иначе запись из журнала
+    # уедет не тому). ⚠️ РАЗДЕЛЬНО от телефона, не общей строкой: на стыке
+    # «конец телефона + начало заметки» находились бы номера, которых нет.
+    return digits in _pl_digits(p.get("notes"))
 
 
 def _pl_doc(p: dict) -> str:
@@ -2200,7 +2247,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
             f"<tr id='plr{p['id']}' onclick='peek({p['id']})'>"
             f"<td><div class='pl-who'><span class='pl-av'>{e(_initials(p['name'] or '?'))}</span>"
             f"<div class='pl-nm'><b>{e(p['name'] or '—')}</b>{mail}</div></div></td>"
-            f"<td>{e(p['phone'] or '—')}</td>"
+            f"<td>{e(p['phone']) if p['phone'] else _PL_NOTEL}</td>"
             f"<td class='pl-hide'>{_pl_dmy(p['birth_date'])}"
             f"{f'<small> · {age} ani</small>' if age else ''}</td>"
             f"<td>{_pl_doc(p)}</td>"
@@ -2296,6 +2343,8 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
       <input name='name' maxlength='120' required autofocus></label>
     <label class='dlab'>Telefon
       <input name='phone' maxlength='40' placeholder='ex. 069 123 456'></label>
+    <label class='nophone'><input type='checkbox' name='nophone' value='1'
+      data-for='phone' onchange='togglePhone(this)'> fără telefon</label>
     <label class='dlab'>Data nașterii
       <input type='date' name='birth_date'></label>
     <label class='dlab'>E-mail
@@ -2600,7 +2649,7 @@ async def patient_new(request: Request, name: str = Form(""), phone: str = Form(
     phone = phone.strip()[:40]
     digits = _pl_digits(phone)
     if len(digits) >= 3:
-        key = f"manual:{digits}"
+        key = db.manual_key(digits)
         # Дубликат ищется по ЦИФРАМ среди ВСЕХ пациентов, а не только по ключу
         # manual:{digits} (та же починка, что в /admin/add 08-07): у пациента
         # из бота ключ tg:…, и путь по ключу заводил ему фишу-двойника —
@@ -2613,9 +2662,9 @@ async def patient_new(request: Request, name: str = Form(""), phone: str = Form(
         if exist is not None:
             return _card_redirect(exist, "dup_pat")
     else:
-        # без телефона склеивать не по чему — ключ уникальный, но того же вида:
-        # весь остальной код узнаёт по нему «заведён на рецепции»
-        key = f"manual:c{secrets.token_hex(5)}"
+        # без телефона склеивать не по чему — ключ уникальный (db.manual_key,
+        # с 08-20 ЕДИНСТВЕННОЕ место сборки: журнал ходит туда же)
+        key = db.manual_key("")
     bd, year = birth_date.strip()[:10], None
     if bd:
         try:

@@ -248,9 +248,13 @@ def _card_modal(cards: dict, back: str) -> str:
       <button class="bstat b-reopen">{_ic('undo')} Redeschide</button></form>
   </div>
 </dialog>
-<script>
-const CARDS = {data};
-const CS_SHOW = {{waiting: ['confirmed'], arrived: ['confirmed', 'waiting'],
+<script data-live>
+/* data-live: panel.js исполняет скрипт заново после подмены живого куска —
+   иначе CARDS остался бы от прошлого рендера, и клик по свежеприехавшей записи
+   молча не открывал бы карточку. var, не const: повторное объявление const в
+   общем scope — SyntaxError. */
+var CARDS = {data};
+var CS_SHOW = {{waiting: ['confirmed'], arrived: ['confirmed', 'waiting'],
                   done: ['confirmed', 'waiting', 'arrived'],
                   noshow: ['confirmed'],
                   cancel: ['confirmed', 'waiting', 'arrived'],

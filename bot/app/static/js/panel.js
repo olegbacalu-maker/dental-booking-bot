@@ -15,6 +15,22 @@ document.addEventListener('keydown', function (e) {
   }
 });
 
+/* «Fără telefon» — галочка ПРОИЗВОДНАЯ от пустого поля телефона: своей
+   колонки у неё нет (одно состояние — одно имя), она говорит серверу, что
+   пустота — намерение, а не забытое поле. Поле чистится и ВЫКЛЮЧАЕТСЯ:
+   выключенный input в POST не едет, и сервер видит ровно «не сообщали».
+   data-for — имя поля (aphone в журнале, phone в фише), data-req="1" — форме,
+   где телефон без галочки обязателен (журнал). Работает и в подменяемом куске:
+   вызов идёт из onchange самой разметки, замыканий на узлы нет. */
+function togglePhone(cb) {
+  var inp = cb.form && cb.form.querySelector(
+    'input[name=' + (cb.getAttribute('data-for') || 'phone') + ']');
+  if (!inp) return;
+  inp.disabled = cb.checked;
+  if (cb.checked) inp.value = '';
+  inp.required = !cb.checked && cb.getAttribute('data-req') === '1';
+}
+
 /* имя выбранного файла рядом с кнопкой: штатный <input type=file> его прячет */
 function pickName(inp) {
   var out = document.getElementById(inp.id + '_n');
@@ -25,10 +41,10 @@ function pickName(inp) {
 }
 
 /* Часы в подвале сайдбара. ⚠️ Идут ПО ТАЙМЕРУ, а не пишутся один раз при
-   загрузке: автоперезагрузку сервер выдаёт только живому расписанию
-   (layout.LIVE_RELOAD), поэтому на «Pacienți», «Setări» и фише пациента
-   сайдбар весь день показывал бы время ОТКРЫТИЯ страницы. Ошибка ничем себя
-   не выдаёт — цифры правдоподобные, формат верный, час чужой.
+   загрузке: страницы себя больше не перезагружают вовсе (живой журнал —
+   опрос #live, остальные статичны), и разовая надпись весь день показывала
+   бы время ОТКРЫТИЯ страницы. Ошибка ничем себя не выдаёт — цифры
+   правдоподобные, формат верный, час чужой.
    ⚠️ Пояс берётся из разметки (data-tz), а не у устройства: в облаке через
    туннель браузер стоит в своём поясе, а весь остальной экран размечен
    часами клиники (eng.TZ). */
@@ -52,76 +68,125 @@ function pickName(inp) {
   setInterval(tick, 20000);
 })();
 
-/* Автообновление страницы — ТОЛЬКО там, где сервер его попросил: <body
-   data-reload="секунды"> (layout.LIVE_RELOAD, это живое расписание). Раньше
-   перезагружались ВСЕ страницы, и каждая теряла своё: раскрытые <details>
-   FAQ, позицию прокрутки, предпросмотр пациента — чинилось по одному месту,
-   пока не стало ясно, что болеет сама всеобщность. Даже на живой странице
-   перезагрузка НЕ должна отнимать работу: открытый диалог, начатое
-   редактирование, выбранный файл и любой ввод в форме её отменяют. */
+/* Живой журнал: ОПРОС вместо перезагрузки (08-20, жалоба пилота «обновление
+   каждые 12 сек, видно [мигание]»). До этого страница честно перезагружалась,
+   и вокруг reload выросла грядка защит — диалог, перетаскивание, плашка,
+   ввод, файл, прокрутка агенды через sessionStorage: чинилось по симптому,
+   болел сам подход. Теперь сервер оборачивает живой кусок в <div id="live"
+   data-hash=отпечаток> (layout._shell), а мы раз в data-reload секунд
+   спрашиваем ТОТ ЖЕ адрес с заголовком X-DP-Live и своим отпечатком.
+   204 — день не менялся, DOM не трогается ВООБЩЕ: hover, выделение, прокрутка
+   живы, экран неподвижен. 200 — день изменился: подменяем содержимое обёртки
+   и доделываем то, что при загрузке делали скрипты страницы.
+
+   ⚠️ Оставшиеся защиты — не про мигание, а про «не выдёргивать из-под рук»:
+   открытый диалог (модалки живут В куске), перетаскивание, ввод в поле куска.
+   ⚠️ Перед подменой снимается .anim: входные анимации — про приход человека,
+   а не про каждую приехавшую бронь (иначе весь экран пульсировал бы).
+   ⚠️ Плашка ответа (dp_toast) переносится в новый кусок УЗЛОМ, с живыми
+   обработчиками: она отвечает на действие человека, и опрос не вправе её
+   отнять. position:fixed — место в DOM ей безразлично.
+   ⚠️ innerHTML скрипты не исполняет; заново исполняются только помеченные
+   <script data-live> (данные модалок: CARDS, NOTE_ENDS) — они объявляют var,
+   не const, иначе повторное объявление упало бы SyntaxError.
+   ⚠️ X-DP-V — версия программы: после тихого обновления не вклеиваем новую
+   разметку в старый каркас со старым CSS, а перезагружаемся целиком. */
 (function () {
   var iv = parseInt(document.body.getAttribute('data-reload') || '', 10);
-  if (!iv) return;
-  var held = 0;
-  setInterval(function () {
-    if (document.querySelector('dialog[open]')) return;
-    /* идёт перетаскивание — страница не имеет права исчезнуть из-под мыши */
-    if (document.documentElement.classList.contains('dragging')) return;
-    /* непрочитанный ответ на действие (плашка ошибки) опрос не стирает:
-       msg из адреса уже вычищен, и перезагрузка унесла бы сообщение раньше,
-       чем его прочли. Потолок в 5 тиков — чтобы экран, забытый на стойке с
-       ошибкой, не замер навсегда: журнал живёт ради приезжающих броней.
-       Успех сюда почти не попадает — он сам закрывается через 6 секунд. */
-    if (document.getElementById('dp_toast')) {
-      if (held < 5) { held++; return; }
-    } else { held = 0; }
-    var pe = document.getElementById('pedit');
-    if (pe && pe.style.display !== 'none') return;    // открыта форма профиля
-    var fi = document.querySelector('input[type=file]');
-    if (fi && fi.files && fi.files.length) return;    // выбран файл — не терять
+  var live = document.getElementById('live');
+  if (!iv || !live) return;
+  var hash = live.getAttribute('data-hash') || '';
+
+  /* «занят» спрашивается ДВАЖДЫ — перед запросом и перед подменой: ответ
+     летит миллисекунды, но диалог, перетаскивание или ввод могли начаться
+     ровно в эту щель. Отказ в apply ничего не теряет: hash остаётся прежним,
+     и следующий тик привезёт то же изменение заново. */
+  function busy() {
+    if (document.querySelector('dialog[open]')) return true;
+    if (document.documentElement.classList.contains('dragging')) return true;
     var a = document.activeElement;
-    if (a && a.closest && a.closest('form')) return;  // любой ввод в форме
-    if (!a || (a.tagName !== 'INPUT' && a.tagName !== 'SELECT' &&
-               a.tagName !== 'TEXTAREA' && a.tagName !== 'BUTTON')) {
-      /* метка для скрипта в шапке: следующая загрузка — НЕ приход человека, а
-         наш собственный опрос. Иначе цифры оживали бы каждые 12 секунд. */
-      try { sessionStorage.setItem('dp_auto', '1'); } catch (e) { /* приватный режим */ }
-      location.reload();
+    return !!(a && a.closest && a.closest('#live') &&
+              (a.tagName === 'INPUT' || a.tagName === 'SELECT' ||
+               a.tagName === 'TEXTAREA'));
+  }
+
+  function apply(html, tag) {
+    if (busy()) return;
+    hash = tag;
+    document.documentElement.classList.remove('anim');
+    var toast = document.getElementById('dp_toast');
+    var ag = live.querySelector('.ag-l');
+    var agTop = ag ? ag.scrollTop : 0;
+    live.innerHTML = html;
+    if (toast) live.appendChild(toast);
+    var scr = live.querySelectorAll('script[data-live]');
+    for (var i = 0; i < scr.length; i++) {
+      var el = document.createElement('script');
+      el.textContent = scr[i].textContent;
+      scr[i].parentNode.replaceChild(el, scr[i]);
     }
-  }, iv * 1000);
+    ag = live.querySelector('.ag-l');
+    if (ag) ag.scrollTop = agTop;               // прокрутку агенды не отнимать
+    if (window.fitGrid) fitGrid();              // канва: высота часа и ступени
+    placeNowline();
+    markFresh();
+  }
+
+  function tick() {
+    if (document.hidden || busy()) return;      // вкладку не видно / заняты руки
+    fetch(location.pathname + location.search,
+          {headers: {'X-DP-Live': '1', 'X-DP-Hash': hash}, cache: 'no-store'})
+      .then(function (r) {
+        if (r.status !== 200) return;           // 204: день не менялся
+        var v = r.headers.get('X-DP-V') || '';
+        var mine = document.body.getAttribute('data-v') || v;
+        if (v && v !== mine) { location.reload(); return; }
+        var tag = r.headers.get('X-DP-Hash') || '';
+        r.text().then(function (t) { apply(t, tag); });
+      })
+      .catch(function () { /* сервер перезапускается — следующий тик спросит */ });
+  }
+  setInterval(tick, iv * 1000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) tick();               // вернулись к вкладке — сразу
+  });
 })();
 
-/* Прокрутка списка «Agenda zilei» переживает НАШ СОБСТВЕННЫЙ опрос (08-17).
+/* Прокрутка списка «Agenda zilei» переживает ПОВТОР той же страницы (08-17).
 
    Список выше окна с первого же загруженного дня: у клиники их два десятка, а
-   окно списка 320px. Перезагрузка через 12 секунд — настоящая location.reload(),
-   поэтому прокрутка каждый раз отматывалась в начало: врач доводил список до
-   нужного часа и терял место, не успев прочитать. Болело и до 08-17, а кнопка
-   «Odontogramă» сделала строку выше (51 -> 78px, видно 3 визита вместо 5) и
-   довела до заметного.
+   окно списка 320px. Единственная оставшаяся перезагрузка «сам в себя» —
+   303-повтор после POST (смена статуса, dp_auto): опрос живого журнала с 08-20
+   страницу не перезагружает, его прокрутку возвращает сама подмена (apply).
 
-   ВАЖНО: восстанавливаем ТОЛЬКО после своего опроса, а не когда человек пришёл
-   на страницу сам, — иначе журнал открывался бы с середины списка, и это
-   выглядело бы поломкой. Отличаем по классу `anim`: скрипт в шапке выдаёт его,
-   когда загрузка НЕ автоматическая (см. layout — там же снимается dp_auto).
-   Второго флага не заводим намеренно: одно состояние — одно имя.
+   ВАЖНО: восстанавливаем ТОЛЬКО повтор, а не приход человека на страницу, —
+   иначе журнал открывался бы с середины списка, и это выглядело бы поломкой.
+   Отличаем по классу `anim`: скрипт в шапке выдаёт его, когда загрузка НЕ
+   автоматическая (см. layout — там же снимается dp_auto). Второго флага не
+   заводим намеренно: одно состояние — одно имя.
 
    Ключ несёт ДЕНЬ (data-day у сетки): пролистав понедельник и уйдя во вторник,
-   человек ждёт вторник с начала, а не чужую позицию. */
+   человек ждёт вторник с начала, а не чужую позицию.
+   ⚠️ Сохранение — делегатом на document (scroll не всплывает, ловим на
+   погружении): сам .ag-l живёт в подменяемом куске, и слушатель на элементе
+   умирал бы с первой же приехавшей бронью — позиция замирала бы молча. */
 (function () {
+  var key = function () {
+    var grid = document.querySelector('.gridbody');
+    return 'dp_ag_' + ((grid && grid.getAttribute('data-day')) || 'x');
+  };
   var list = document.querySelector('.ag-l');
-  if (!list) return;
-  var grid = document.querySelector('.gridbody');
-  var key = 'dp_ag_' + ((grid && grid.getAttribute('data-day')) || 'x');
-  if (!document.documentElement.classList.contains('anim')) {
+  if (list && !document.documentElement.classList.contains('anim')) {
     try {
-      var was = parseInt(sessionStorage.getItem(key) || '', 10);
+      var was = parseInt(sessionStorage.getItem(key()) || '', 10);
       if (was > 0) list.scrollTop = was;
     } catch (e) { /* приватный режим */ }
   }
-  list.addEventListener('scroll', function () {
-    try { sessionStorage.setItem(key, String(list.scrollTop)); } catch (e) {}
-  });
+  document.addEventListener('scroll', function (ev) {
+    var t = ev.target;
+    if (!t || !t.classList || !t.classList.contains('ag-l')) return;
+    try { sessionStorage.setItem(key(), String(t.scrollTop)); } catch (e) {}
+  }, true);
 })();
 
 /* Перенос визита перетаскиванием (08-12, просьба Олега).
@@ -261,7 +326,10 @@ function pickName(inp) {
       warn.style.display = 'none';
       yes.disabled = false;
     }
-    dlg.showModal();
+    /* не замыкание dlg: после подмены живого куска тот узел уже вне DOM,
+       и showModal() на нём падает — а бросок обязан работать и после того,
+       как опрос привёз новую сетку */
+    document.getElementById('movedlg').showModal();
   });
 })();
 
@@ -354,12 +422,13 @@ function pickName(inp) {
 })();
 
 /* Запись, приехавшая ПОКА СМОТРЯТ НА ЭКРАН, подсвечивается.
-   Это единственная анимация, которая живёт как раз на автоперезагрузке: если
-   бронь из бота просто появляется между двумя кадрами, её никто не замечает —
-   а это ровно то событие, ради которого журнал висит открытым на стойке.
+   Это ровно то событие, ради которого журнал висит открытым на стойке: бронь
+   не имеет права просто появиться между двумя кадрами незамеченной.
    Сравниваем по id с тем, что было видно в прошлый раз; набор помним ПО ДНЮ,
-   иначе переход на завтра красит весь день как новый. */
-(function () {
+   иначе переход на завтра красит весь день как новый. Зовётся при загрузке и
+   после каждой подмены живого куска (apply) — sessionStorage, а не переменная,
+   потому что 303-повтор после смены статуса переживает только он. */
+function markFresh() {
   var grid = document.querySelector('[data-day]');
   if (!grid) return;
   var key = 'dp_seen_' + grid.getAttribute('data-day');
@@ -375,7 +444,59 @@ function pickName(inp) {
       items[j].classList.add('fresh');
     }
   }
-})();
+}
+markFresh();
+
+/* Линия «сейчас» на канве дня. Рисуется ЗДЕСЬ, а не сервером (08-20): она —
+   единственное, что меняется НЕПРЕРЫВНО, и серверный top из минут делал бы
+   отпечаток живого куска всегда другим — опрос подменял бы DOM каждые 12 с,
+   мигание вернулось бы через чёрный ход (см. schedule/routes._live_fragment).
+   Часы и минуты — В ПОЯСЕ КЛИНИКИ (data-tz у часов сайдбара, тот же приём):
+   в облаке через туннель браузер живёт в своём поясе, и линия по часам
+   устройства стояла бы на чужом часе. Не на сегодняшнем дне линии нет.
+   Координаты — те же, что были у сервера: номер строки часа + доля минут,
+   умноженные на живую высоту ячейки (--cell её ставит fitGrid, поэтому и
+   пересчёт на resize — ПОСЛЕ fitGrid: его слушатель зарегистрирован раньше). */
+function placeNowline() {
+  var old = document.querySelector('.nowline');
+  if (old) old.parentNode.removeChild(old);
+  var gb = document.querySelector('.gridbody[data-day]');
+  if (!gb) return;
+  var tc = gb.querySelector('.gcol-time');
+  if (!tc || !tc.children.length) return;
+  var sfc = document.getElementById('sf_clock');
+  var tz = (sfc && sfc.getAttribute('data-tz')) || '';
+  var d = new Date(), day, hh, mm;
+  try {
+    var parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz || undefined, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    }).formatToParts(d);
+    var m = {};
+    for (var i = 0; i < parts.length; i++) m[parts[i].type] = parts[i].value;
+    day = m.year + '-' + m.month + '-' + m.day;
+    hh = parseInt(m.hour, 10); mm = parseInt(m.minute, 10);
+  } catch (e) {   /* пояс не знаком движку — часы устройства лучше пустоты */
+    day = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
+          ('0' + d.getDate()).slice(-2);
+    hh = d.getHours(); mm = d.getMinutes();
+  }
+  if (gb.getAttribute('data-day') !== day) return;
+  var row = -1;
+  for (var k = 0; k < tc.children.length; k++) {
+    if (parseInt(tc.children[k].textContent, 10) === hh) { row = k; break; }
+  }
+  if (row < 0) return;                          // час вне сетки дня
+  var cell = parseFloat(getComputedStyle(gb).getPropertyValue('--cell')) || 66;
+  var el = document.createElement('div');
+  el.className = 'nowline';
+  el.style.top = ((row + mm / 60) * cell) + 'px';
+  gb.appendChild(el);
+}
+placeNowline();
+setInterval(placeNowline, 30000);
+window.addEventListener('resize', placeNowline);
 
 /* Плавающий ответ на действие (?msg=… из редиректа, layout.msg_banner).
    Здесь три обязанности: крестик; автозакрытие УСПЕХА через 6 секунд (ошибки

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import io
 import json
@@ -35,6 +36,38 @@ from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
                             _parse_date, _photo_path)
 
 router = APIRouter()
+
+
+def _live_fragment(request: Request, body: str) -> Response | None:
+    """Живая страница отвечает опросу panel.js (заголовок X-DP-Live) тем же
+    body, который _shell кладёт в <div id="live">, — и это ЕДИНСТВЕННЫЙ
+    источник разметки: второго рендера «для опроса» нет по построению.
+
+    204 — «день не менялся»: клиент прислал отпечаток того, что на экране
+    (X-DP-Hash, изначально из data-hash обёртки), и он совпал. Так экран стоит
+    неподвижно, пока в дне не изменится хоть что-то (жалоба пилота 08-18 на
+    мигание каждые 12 с). Сравнение по своему заголовку, а не ETag/304:
+    у WebView2 и туннеля свои кеши, и стандартную пару они вправе трактовать
+    сами. no-store по той же причине.
+
+    ⚠️ Отсюда обязанность страниц живой раскладки: body ДЕТЕРМИНИРОВАН для
+    неизменных данных. Всё, что меняется непрерывно (линия «сейчас»), рисует
+    panel.js; серверная строка с ней делала бы отпечаток «всегда другим», и
+    подмена шла бы каждый опрос — мигание вернулось бы через чёрный ход.
+    Дискретное (подсветка текущего часа, «past» у прошедших визитов) остаётся
+    серверным: его смена и ЕСТЬ изменение страницы.
+
+    X-DP-V — версия программы: после тихого обновления exe клиент видит чужую
+    версию и делает полную перезагрузку вместо подмены, чтобы не вклеивать
+    новую разметку в старый каркас со старым CSS."""
+    if not request.headers.get("x-dp-live"):
+        return None
+    h = hashlib.md5(body.encode("utf-8")).hexdigest()
+    headers = {"X-DP-Hash": h, "X-DP-V": eng.APP_VERSION,
+               "Cache-Control": "no-store"}
+    if request.headers.get("x-dp-hash") == h:
+        return Response(status_code=204, headers=headers)
+    return HTMLResponse(body, headers=headers)
 
 
 def _date_nav(d: date, base: str, extra: str = "") -> str:
@@ -232,8 +265,12 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
     # переписывается на месте — данные для этого печатаются в саму страницу
     # (panel.js данных из Python не знает намеренно, см. его шапку).
     doc_js = "" if len(doctors_items) < 2 else f"""
-<script>
-const DOC_TIMES = {js_json(doc_times)};
+<script data-live>
+/* data-live: слушатель ниже вешается на select ЭТОГО рендера, а живой кусок
+   подменяется опросом (panel.js) — без переисполнения он остался бы на
+   мёртвом узле, и смена врача молча перестала бы обновлять список часов.
+   var, не const: повторное объявление const в общем scope — SyntaxError. */
+var DOC_TIMES = {js_json(doc_times)};
 (function () {{
   const f = document.querySelector('form.add');
   if (!f) return;
@@ -265,6 +302,7 @@ const DOC_TIMES = {js_json(doc_times)};
   <select name="aservice">{svc_opts}</select>
   <input name="aname" placeholder="Nume pacient" required>
   <input name="aphone" placeholder="Telefon" required>
+  <label class="nophone"><input type="checkbox" name="anophone" value="1" data-for="aphone" data-req="1" onchange="togglePhone(this)"> fără telefon</label>
   <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;
     color:var(--text3)">Naștere (opț.)
     <input type="date" name="abirth" max="{date.today().isoformat()}"></label>
@@ -297,6 +335,7 @@ def _slot_modal(d: date, back: str) -> str:
     <select name="aservice">{svc_opts}</select>
     <input name="aname" placeholder="Nume pacient" required>
     <input name="aphone" placeholder="Telefon" required>
+    <label class="nophone"><input type="checkbox" name="anophone" value="1" data-for="aphone" data-req="1" onchange="togglePhone(this)"> fără telefon</label>
     <label style="font-size:13px;color:#556;display:flex;align-items:center;gap:8px">
       Data nașterii (opț.)
       <input type="date" name="abirth" max="{date.today().isoformat()}" style="flex:1"></label>
@@ -313,14 +352,18 @@ def _slot_modal(d: date, back: str) -> str:
     <button>Salvează notița (blochează orele)</button>
   </form>
 </dialog>
-<script>
-const NOTE_ENDS = {js_json([x.hour + 1 for x in eng.day_slots(d)])};
+<script data-live>
+/* data-live: после подмены живого куска panel.js исполняет этот скрипт заново —
+   NOTE_ENDS и функции обязаны отвечать НОВОЙ разметке. Поэтому var, не const:
+   повторное объявление const в общем scope падает SyntaxError, и модалка молча
+   перестала бы открываться после первой же приехавшей брони. */
+var NOTE_ENDS = {js_json([x.hour + 1 for x in eng.day_slots(d)])};
 /* Клик по ячейке — это ЧАС, а запись бывает и на его половину (08-13, Олег):
    раньше 10:30 из модалки было не выбрать вовсе — только нижней формой.
    Выбор получаса меняет ТОЛЬКО время записи (atime) и заголовок; заметка
    (ntime) остаётся почасовой — блокировки живут часами, как и ячейки. */
-let SLOT_H = '';
-let SLOT_NAME = '';
+var SLOT_H = '';
+var SLOT_NAME = '';
 function pickHalf(mm) {{
   const t = SLOT_H + ':' + (mm ? '30' : '00');
   document.getElementById('m_time_a').value = t;
@@ -777,10 +820,12 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     head.append("</div>")
 
     now = datetime.now(eng.TZ)
-    nowline = ""
-    if d == now.date() and now.hour in idx:
-        frac = idx[now.hour] + now.minute / 60
-        nowline = f"<div class='nowline' style='top:calc({frac:.3f}*var(--cell))'></div>"
+    # ⚠️ Линию «сейчас» рисует panel.js (placeNowline), а не сервер. Она —
+    # единственное, что меняется НЕПРЕРЫВНО: серверная строка с top из минут
+    # делала бы отпечаток живого куска всегда другим, и опрос подменял бы DOM
+    # каждые 12 с — мигание, от которого ушли 08-20, вернулось бы через чёрный
+    # ход. Подсветка текущего часа ниже остаётся серверной намеренно: она
+    # меняется РАЗ В ЧАС, и её смена — честное изменение страницы.
     # метка ТЕКУЩЕГО часа выделена: красная линия показывает точный момент, а
     # подсветка часа читается боковым зрением с другого конца стойки
     timecol = "".join(
@@ -826,8 +871,13 @@ function fitAppts() {{
   }});
 }}
 function fitGrid() {{
-  var gb = document.querySelector('.gridbody'), n = {len(hours)};
+  var gb = document.querySelector('.gridbody');
   if (!gb) return;
+  /* Число часов — из DOM, а не константой первого рендера: опрос (panel.js)
+     подменяет сетку без перезагрузки, и после смены графика клиники старое
+     число растягивало бы час молча. */
+  var tc0 = gb.querySelector('.gcol-time');
+  var n = (tc0 && tc0.children.length) || 1;
   /* ВАЖНО: пол 66px, а не 56 (08-17). Он задаёт ВЫСОТУ БЛОКА (пол минус 6), а
      от неё зависит, останется ли визит двустрочным: при 56 блок 50px, а имени,
      строке «время · услуга» и бейджу статуса нужно 57 — fitAppts схлопывал их
@@ -890,7 +940,7 @@ window.addEventListener('resize', fitGrid);
             f"{_band(band_l, 'gb-top')}"
             f"<div class='gridbody' data-day='{d.isoformat()}'>"
             f"<div class='gcol-time'>{timecol}</div>"
-            f"{''.join(cols)}{nowline}</div>"
+            f"{''.join(cols)}</div>"
             f"{_band(band_r, 'gb-bot')}</div>{fit_js}")
 
 
@@ -1076,6 +1126,8 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
             + "</div></div>"
             + _slot_modal(d, back) + _card_modal(cards, back)
             + _move_modal(d, back))
+    if (fr := _live_fragment(request, body)) is not None:
+        return fr
     sub = (f"panou principal · {_ic('bot')} bot / {_ic('pen')} recepție · se actualizează automat"
            if tg_ui else "panou principal · se actualizează automat")
     return _shell(body, sub, active="dash",
@@ -1136,6 +1188,8 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
            f"<a class='primary' href='/admin/week?date={d.isoformat()}'>Săptămâna</a></div>")
     body = nav + f"<div class='week'>{''.join(cols)}</div>" + \
         "<p class='hint'>Click pe ziua din antet — deschide programul zilei.</p>"
+    if (fr := _live_fragment(request, body)) is not None:
+        return fr
     return _shell(body, "calendar săptămânal · culori după tipul procedurii", active="dash")
 
 
@@ -1283,6 +1337,8 @@ async def admin_all(
             + _slot_modal(d, back)
             + _card_modal(cards, back)
             + _move_modal(d, back))
+    if (fr := _live_fragment(request, body)) is not None:
+        return fr
     return _shell(body, (f"toți medicii · {_ic('bot')} bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
                          else f"toți medicii · {_ic('pen')} recepție / {_ic('note')} notițe"),
@@ -1334,6 +1390,8 @@ async def admin_doctor(
             + _slot_modal(d, back)
             + _card_modal(cards, back)
             + _move_modal(d, back))
+    if (fr := _live_fragment(request, body)) is not None:
+        return fr
     return _shell(body, (f"ziua unui medic · {_ic('bot')} bot / {_ic('pen')} recepție / {_ic('note')} notițe"
                          if tg_configured()
                          else f"ziua unui medic · {_ic('pen')} recepție / {_ic('note')} notițe"),
@@ -1350,7 +1408,11 @@ def _back_redirect(back: str, fallback_date: str, msg: str) -> RedirectResponse:
 async def admin_add(
     request: Request,
     adate: str = Form(...), atime: str = Form(...), adoctor: str = Form(...),
-    aservice: str = Form(...), aname: str = Form(...), aphone: str = Form(...),
+    aservice: str = Form(...), aname: str = Form(...),
+    # aphone НЕ Form(...): галочка «fără telefon» ВЫКЛЮЧАЕТ поле, а выключенный
+    # input в POST не едет вовсе — обязательный параметр давал бы 422 раньше,
+    # чем наш честный bad_phone. Обязательность решает проверка ниже.
+    aphone: str = Form(""), anophone: str = Form(""),
     abirth: str = Form(""), ayear: str = Form(""), back: str = Form(""),
 ):
     if (deny := _guard(request)) is not None:
@@ -1365,6 +1427,14 @@ async def admin_add(
     svc = eng.SERVICES.get(aservice)
     name = aname.strip()[:80]
     phone = aphone.strip()[:25]
+    # Галочка «fără telefon» — намерение ИЗ ФОРМЫ (прайор 08-16, потеря данных
+    # от угадывания), а не «поле пустое»: пустой aphone БЕЗ галочки — это
+    # устаревшая вкладка или недозаполненная форма, и он отбивается bad_phone
+    # как раньше. С галочкой набранный телефон отбрасывается — противоречие
+    # возможно только без JS (скрипт чистит и выключает поле), и галочка,
+    # поставленная руками, весит больше забытого в поле текста.
+    if anophone:
+        phone = ""
     digits = "".join(ch for ch in phone if ch.isdigit())
     # ⚠️ пять разных причин отвечали одним «Date invalide — verificați
     # câmpurile». По такому баннеру не видно, какое поле чинить, и отказ
@@ -1375,7 +1445,7 @@ async def admin_add(
         return _back_redirect(back, adate, "bad_name")
     # 6–15 цифр: у стран номера от 6 национальных цифр, E.164 даёт максимум 15.
     # Жёсткий молдавский формат отверг бы иностранца у стойки (просьба 08-07)
-    if not 6 <= len(digits) <= 15:
+    if not anophone and not 6 <= len(digits) <= 15:
         return _back_redirect(back, adate, "bad_phone")
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
         return _back_redirect(back, adate, "bad_off")  # выключенному не пишем

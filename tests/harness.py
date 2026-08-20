@@ -178,8 +178,8 @@ class Client:
             return Reply(e.code, e.headers.get("Location", ""),
                          data.decode("utf-8", "replace"), dict(e.headers), data)
 
-    def get(self, path: str) -> Reply:
-        return self._do(path)
+    def get(self, path: str, headers: dict | None = None) -> Reply:
+        return self._do(path, headers=headers)
 
     def post(self, path: str, **fields) -> Reply:
         # doseq: список значений = ПОВТОРЯЮЩЕЕСЯ поле формы (галочки), а не

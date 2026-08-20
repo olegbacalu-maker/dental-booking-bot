@@ -1135,6 +1135,17 @@
  .sfrow input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
    accent-color:var(--teal);margin:0}
  .sfrow small{color:var(--text3)}
+ /* «fără telefon» — галочка у поля телефона (журнал, модалка слота, фиша,
+    новый пациент) и метки безтелефонного в списке и фише (08-20).
+    ⚠️ [type=checkbox] обязателен — тот же урок, что у .sfrow выше: form.add
+    и .fform красят «input» ростом var(--h-ctl) и шириной 100%, а
+    .nophone+[type=checkbox] (0,2,1) их (0,1,1) перебивает. */
+ .nophone{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;
+   color:var(--text3);cursor:pointer;user-select:none}
+ .nophone input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
+   accent-color:var(--teal);margin:0}
+ .pl-notel{display:inline-flex;color:var(--text3)}
+ .frow .v.notel{color:var(--text3)}
  /* отметки зуба («în tratament») — тот же флажок, но ЗЕЛЁНЫЙ и рядом со
     списком состояния, а не среди поверхностей: это второй вопрос о зубе
     («что с ним делают»), и одинаковый вид с поверхностями снова читался бы

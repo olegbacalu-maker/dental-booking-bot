@@ -260,6 +260,218 @@ def suite_pages(res: Result) -> None:
                c.get("/static/txt/panel.txt").status == 404, "отдал не css/js")
 
 
+def suite_live_swap(res: Result) -> None:
+    """Живой журнал: опрос #live вместо перезагрузки страницы (08-20).
+
+    Контракт трёхсторонний — layout._shell (обёртка + data-hash),
+    schedule/routes._live_fragment (204/200 + X-DP-Hash) и panel.js (подмена).
+    Здесь проверяется серверная половина и стыковка: отпечаток в обёртке ОБЯЗАН
+    равняться отпечатку фрагмента, иначе первый же опрос привезёт «изменение»
+    на неизменном дне и подмена пойдёт каждые 12 секунд — мигание, от которого
+    уходили, вернётся молча.
+
+    ⚠️ День — БУДУЩИЙ: на сегодняшнем body несёт метки «сейчас» (подсветка
+    текущего часа, past у прошедших визитов), и два запроса по краям смены
+    минуты дали бы ложное расхождение."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(14)
+        c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
+               aservice="consult", aname="Live Test", aphone="022444555",
+               back="/admin/all")
+        H = {"X-DP-Live": "1"}
+
+        for path in (f"/admin?date={day}", f"/admin/all?date={day}",
+                     f"/admin/week?date={day}", f"/admin/doctor/d2?date={day}"):
+            page = c.get(path)
+            m = re.search(r'<div id="live" data-hash="([0-9a-f]{32})">', page.body)
+            res.ok(f"{path.split('?')[0]} несёт обёртку живого куска",
+                   m is not None, "нет <div id=live data-hash=…> — опросу "
+                   "нечего подменять")
+            fr = c.get(path, headers=H)
+            res.ok(f"{path.split('?')[0]} отвечает на опрос фрагментом",
+                   fr.status == 200 and "<!doctype" not in fr.body
+                   and 'id="live"' not in fr.body,
+                   f"код {fr.status}; фрагмент обязан быть НАЧИНКОЙ обёртки, "
+                   "без каркаса страницы")
+            res.ok(f"{path.split('?')[0]}: отпечаток обёртки = отпечатку фрагмента",
+                   m is not None and fr.header("X-DP-Hash") == m.group(1),
+                   "разошлись data-hash и X-DP-Hash — первый опрос всегда "
+                   "«изменение», подмена каждые 12 секунд")
+            res.ok(f"{path.split('?')[0]}: фрагмент лежит в странице дословно",
+                   fr.body in page.body,
+                   "фрагмент отличается от куска страницы — два источника "
+                   "разметки")
+            same = c.get(path, headers={"X-DP-Live": "1",
+                                        "X-DP-Hash": fr.header("X-DP-Hash")})
+            res.ok(f"{path.split('?')[0]}: неизменный день -> 204",
+                   same.status == 204 and not same.body,
+                   f"код {same.status} — DOM дёргался бы без изменений")
+            res.ok(f"{path.split('?')[0]}: у фрагмента версия и запрет кеша",
+                   fr.header("X-DP-V") != "" and
+                   fr.header("Cache-Control") == "no-store",
+                   "без X-DP-V подмена вклеит новую разметку в старый каркас, "
+                   "без no-store WebView2 вправе отдать вчерашний ответ")
+
+        # изменение дня — фрагмент другой, и его видно по отпечатку
+        p0 = f"/admin/all?date={day}"
+        h0 = c.get(p0, headers=H).header("X-DP-Hash")
+        c.post("/admin/add", adate=day, atime="12:00", adoctor="d2",
+               aservice="consult", aname="Sosit Nou", aphone="022777888",
+               back="/admin/all")
+        fr2 = c.get(p0, headers={"X-DP-Live": "1", "X-DP-Hash": h0})
+        res.ok("новая запись меняет отпечаток и приезжает фрагментом",
+               fr2.status == 200 and "Sosit Nou" in fr2.body
+               and fr2.header("X-DP-Hash") != h0,
+               f"код {fr2.status} — приехавшая бронь не доехала бы до экрана")
+
+        # охрана: опрос без входа не отдаёт ни фрагмента, ни отпечатка
+        anon = Client(s.url).get("/admin", headers=H)
+        res.ok("опрос без входа отбивается охраной",
+               anon.status == 303 and "/admin/login" in anon.location,
+               f"код {anon.status} — фрагмент утекал бы мимо входа")
+
+        # неживая страница на заголовок не отзывается — отдаёт обычный каркас
+        st = c.get("/admin/settings", headers=H)
+        res.ok("неживая страница отвечает на опрос полным каркасом",
+               st.status == 200 and "<!doctype" in st.body,
+               "settings прикинулась фрагментом")
+
+        # линию «сейчас» сервер больше не рисует — она у panel.js: серверная
+        # строка с top из минут делала бы отпечаток всегда другим
+        today = c.get("/admin")
+        res.ok("линия «сейчас» не серверная",
+               "class='nowline'" not in today.body,
+               "nowline в body — отпечаток меняется каждую минуту, подмена "
+               "каждые 12 секунд")
+        pjs = c.get("/static/js/panel.js").body
+        res.ok("линию «сейчас» рисует panel.js",
+               "placeNowline" in pjs and ".nowline" in pjs,
+               "линия исчезла совсем: сервер не рисует, скрипт не подхватил")
+
+        # данные модалок обязаны переисполняться после подмены: data-live + var
+        # (const при повторном объявлении — SyntaxError, клик по свежей записи
+        # молча перестал бы открывать карточку)
+        allp = c.get(p0).body
+        res.ok("скрипты данных помечены data-live и объявляют var",
+               "<script data-live>" in allp and "var CARDS" in allp
+               and "var NOTE_ENDS" in allp and "const CARDS" not in allp
+               and "const NOTE_ENDS" not in allp,
+               "подмена не переисполнит данные модалок — карточка свежей "
+               "записи не откроется")
+
+
+def suite_nophone(res: Result) -> None:
+    """Пациент без телефона (08-20, просьба пилота) и поиск по дате рождения.
+
+    Опоры: галочка = намерение ИЗ ФОРМЫ (прайор 08-16 — не угадывать по
+    пустоте); ключ безтелефонного УНИКАЛЕН (db.manual_key — иначе все
+    безтелефонные склеились бы в одного, и _upsert переписал бы имя);
+    телефон задним числом, совпавший с чужим, называется вслух."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = _d(21)
+
+        def add(name, phone, t, **kw):
+            return c.post("/admin/add", adate=day, atime=t, adoctor="d2",
+                          aservice="consult", aname=name, aphone=phone,
+                          back="/admin/all", **kw)
+
+        # пустой телефон БЕЗ галочки — прежний отказ: это недозаполненная
+        # форма или устаревшая вкладка, а не намерение
+        r = add("FaraTel Zero", "", "09:00")
+        res.ok("пустой телефон без галочки отбивается", r.msg == "bad_phone",
+               f"msg {r.msg!r}")
+
+        # с галочкой — проходит; второй безтелефонный — ОТДЕЛЬНЫЙ человек
+        r1 = add("FaraTel Unu", "", "10:00", anophone="1")
+        r2 = add("FaraTel Doi", "", "11:00", anophone="1")
+        res.ok("запись без телефона проходит с галочкой",
+               r1.msg == "ok" and r2.msg == "ok", f"{r1.msg} / {r2.msg}")
+        lst = c.get("/admin/search?q=FaraTel").body
+        res.ok("двое безтелефонных НЕ склеились и не переименованы",
+               "FaraTel Unu" in lst and "FaraTel Doi" in lst,
+               "второй перезаписал первого — ключ manual: снова общий")
+        res.ok("безтелефонный помечен перечёркнутой трубкой, а не прочерком",
+               "pl-notel" in lst, "метки нет — пустота неотличима от «забыли»")
+
+        # так шлёт НАСТОЯЩИЙ браузер: выключенное поле в POST отсутствует
+        # ВОВСЕ, а не приходит пустым — Form(...) на aphone давал бы 422
+        # раньше честного bad_phone (поймано при написании)
+        r = c.post("/admin/add", adate=day, atime="13:00", adoctor="d2",
+                   aservice="consult", aname="FaraTel Patru", anophone="1",
+                   back="/admin/all")
+        res.ok("POST без поля aphone (выключенный input) проходит",
+               r.msg == "ok", f"msg {r.msg!r}")
+
+        # галочка главнее набранного телефона (вкладка без JS): номер отброшен
+        r = add("FaraTel Trei", "069999888", "12:00", anophone="1")
+        res.ok("галочка отбрасывает набранный телефон", r.msg == "ok", r.msg)
+        res.ok("отброшенный телефон не ищется",
+               "FaraTel Trei" not in c.get("/admin/search?q=069999888").body,
+               "номер сохранился вопреки галочке")
+
+        # фиша безтелефонного: явная метка + галочка в форме правки
+        m = re.search(r"/admin/patient/(\d+)", lst)
+        card = c.get(f"/admin/patient/{m.group(1)}").body
+        # ⚠️ не искать "phone-off" в HTML: _ic() разворачивает ключ в чистый
+        # SVG, имени ключа в разметке нет — искать класс метки
+        res.ok("фиша говорит «fără telefon» словами и иконкой",
+               "fără telefon" in card and "class='v notel'" in card, "метки нет")
+        res.ok("в форме правки галочка взведена, поле выключено",
+               "placeholder='Telefon' disabled>" in card and
+               "name='nophone'" in card, "производная от пустого поля не взвелась")
+
+        # --- телефон задним числом, совпавший с чужим, называется вслух ---
+        pa = c.post("/admin/patients/new", name="Sot Comun", phone="068111222")
+        pid_a = re.search(r"/admin/patient/(\d+)", pa.location).group(1)
+        pb = c.post("/admin/patients/new", name="Sotie Aparte", phone="")
+        pid_b = re.search(r"/admin/patient/(\d+)", pb.location).group(1)
+        res.ok("двое заведены отдельно", pid_a != pid_b, "фиши склеились")
+        r = c.post(f"/admin/patient/{pid_b}/save", name="Sotie Aparte",
+                   phone="068 111 222")
+        res.ok("чужой номер в фише назван вслух", r.msg == "ok_tel_dup",
+               f"msg {r.msg!r} — запись из журнала уедет непредсказуемо кому")
+        r = c.post(f"/admin/patient/{pid_a}/save", name="Sot Comun",
+                   phone="068111222")
+        res.ok("свой номер про себя не предупреждает… нельзя: дубль уже есть",
+               r.msg == "ok_tel_dup", f"msg {r.msg!r}")
+        r = c.post(f"/admin/patient/{pid_b}/save", name="Sotie Aparte", phone="")
+        r = c.post(f"/admin/patient/{pid_a}/save", name="Sot Comun",
+                   phone="068111222")
+        res.ok("уникальный свой номер сохраняется без предупреждения",
+               r.msg == "ok_card", f"msg {r.msg!r} — баннер кричал бы на "
+               "каждом пересохранении, и его перестали бы читать")
+
+        # --- поиск: дата рождения, как её диктуют (01.01.2003) ---
+        c.post("/admin/patients/new", name="Cautare Data",
+               birth_date="2003-01-01", phone="067000001")
+        found = c.get("/admin/search?q=01.01.2003").body
+        res.ok("поиск 01.01.2003 находит по дате рождения",
+               "Cautare Data" in found, "формат стойки не понят")
+        res.ok("поиск 1.1.2003 (без ведущих нулей) находит",
+               "Cautare Data" in c.get("/admin/search?q=1.1.2003").body,
+               "ведущие нули стали обязательными")
+        res.ok("чужая дата не находит",
+               "Cautare Data" not in c.get("/admin/search?q=02.01.2003").body,
+               "дата матчится слишком широко")
+
+        # --- цифры ищутся и в notes: номер второго человека на семейном ---
+        c.post(f"/admin/patient/{pid_b}/save", name="Sotie Aparte", phone="",
+               notes="tel. propriu: 069 555 444 (numărul familiei la soț)")
+        res.ok("номер из notes находится поиском",
+               "Sotie Aparte" in c.get("/admin/search?q=069555444").body,
+               "совет «номер второго — в notițe» делал бы человека ненаходимым")
+
+        # --- галочка присутствует во всех четырёх формах ---
+        allp = c.get(f"/admin/all?date={day}").body
+        res.check("журнал: галочка в нижней форме и в модалке слота",
+                  allp.count('name="anophone"'), 2)
+        res.ok("диалог нового пациента несёт галочку",
+               "name='nophone'" in c.get("/admin/search").body,
+               "в npdlg галочки нет")
+
+
 def suite_patient_card(res: Result) -> None:
     """Фиша: профиль, зубная формула, план лечения, алерты, архив."""
     with Server() as s:

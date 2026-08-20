@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 from datetime import datetime, timezone
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -1338,6 +1339,10 @@ async def seed(rows: list | None) -> None:
 
 async def _upsert_patient(session_key: str, name: str, phone: str,
                           lang: str, birth_year: int | None) -> int:
+    # Пустой телефон — NULL, и нормализация именно ЗДЕСЬ, в единственной точке
+    # записи: строка '' прошла бы фильтр phone IS NOT NULL и совпала бы по
+    # цифрам с любым другим безтелефонным (см. _patient_ids_by_digits)
+    phone = phone or None
     pg = """INSERT INTO patients(session_key, name, phone, lang, birth_year)
             VALUES($1, $2, $3, $4, $5)
             ON CONFLICT (session_key) DO UPDATE
@@ -1455,12 +1460,32 @@ async def _book_locked(pid: int, service: str, doctor: str, starts_at: datetime,
     return new_id
 
 
+def manual_key(digits: str) -> str:
+    """Ключ пациента, заведённого с рецепции, — ЕДИНСТВЕННОЕ место, где он
+    собирается (08-20: раньше фиша и журнал собирали его каждый сам, и ветка
+    «без телефона» жила только у фиши). С цифрами — склейка по номеру, как
+    было всегда. Без цифр (галочка «fără telefon») склеивать не по чему — ключ
+    уникальный, но того же вида: по префиксу manual: весь код узнаёт «заведён
+    вручную».
+    ⛔ f"manual:{digits}" с пустыми digits дал бы ОДИН ключ на всех
+    безтелефонных: второй такой пациент молча склеился бы с первым, а
+    _upsert_patient ещё и переписал бы имя — всплыло бы на подписываемой
+    043/e с чужой одонтограммой."""
+    return f"manual:{digits}" if digits else f"manual:c{secrets.token_hex(5)}"
+
+
 async def _patient_ids_by_digits(digits: str) -> list[int]:
     """Пациенты, чей телефон совпадает ПО ЦИФРАМ — независимо от того, каким
     путём человек заведён (tg:… из бота, manual:… с рецепции). Телефон не
     ключ: семья делит номер, поэтому список, а решает вызывающий. Фильтр в
     Python, не в SQL: у SQLite нет regexp, а пациентов у клиники тысячи, не
-    миллионы."""
+    миллионы.
+    ⛔ Пустые цифры — пустой ответ, и это сторож КЛАССА ошибки, а не удобство:
+    пациент без телефона хранит NULL, но одна строка с phone='' (легаси, ручная
+    правка базы) — и «все безтелефонные» совпали бы друг с другом по пустой
+    строке: запись уехала бы первому попавшемуся."""
+    if not digits:
+        return []
     rows = await _fetch(
         "SELECT id, phone FROM patients WHERE phone IS NOT NULL",
         "SELECT id, phone FROM patients WHERE phone IS NOT NULL")
@@ -1504,6 +1529,7 @@ async def admin_add(
     # как раньше. Несколько (семейный номер) → прежняя склейка по ключу:
     # выбрать «правильного» из двоих тут не из чего.
     ids = await _patient_ids_by_digits(digits)
+    key = manual_key(digits)
     existing_name, has_bd = None, False
     if len(ids) == 1:
         pid = ids[0]
@@ -1517,11 +1543,11 @@ async def admin_add(
                         doctor_id, service_id, duration_min)
     else:
         r = await create_appointment(
-            f"manual:{digits}", name, phone, "ro", service, doctor, starts_at,
+            key, name, phone, "ro", service, doctor, starts_at,
             source="manual", birth_year=birth_year,
             doctor_id=doctor_id, service_id=service_id, duration_min=duration_min,
         )
-        pid = await patient_id_by_key(f"manual:{digits}")
+        pid = await patient_id_by_key(key)
     # дата рождения — тем же правилом, что год в upsert: новое значение, если
     # оно задано. Пишем и при dup/conflict — пациент уже существует, а дату
     # регистратура ввела про него же. В ветке по id upsert не выполнялся,

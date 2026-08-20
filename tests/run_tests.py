@@ -12,6 +12,13 @@
 import pathlib
 import sys
 
+# Консоль Windows живёт в cp1251, а отчёт о НЕУДАЧЕ печатает знак ✗ — и прогон
+# с красной проверкой падал UnicodeEncodeError, унося ИМЯ упавшего (замечено
+# 08-20: трейс вместо ответа «что сломалось»). Плохой символ дешевле потерять,
+# чем весь отчёт.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_activity  # noqa: E402
@@ -74,6 +81,8 @@ SUITES = [
     ("Бот записи", test_bot.suite),
     ("Страницы журнала", test_admin.suite_pages),
     ("Панель дня", test_admin.suite_dashboard),
+    ("Живой журнал: опрос вместо перезагрузки", test_admin.suite_live_swap),
+    ("Пациент без телефона и поиск по дате", test_admin.suite_nophone),
     ("Края дневной сетки", test_admin.suite_grid_edges),
     ("Аналитика", test_admin.suite_analytics),
     ("Заморозка бота: интерфейс", test_admin.suite_bot_ui),
