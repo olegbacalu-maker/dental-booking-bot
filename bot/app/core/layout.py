@@ -761,11 +761,21 @@ def _topbar(bell: int | None) -> str:
         bell_html = (f"<a class='bell' href='/admin#botnew' "
                      f"title='Programări noi din bot'>{_ic('bell')}{badge}</a>")
     today = datetime.now(eng.TZ).date().isoformat()
+    # Логотип клиники по центру шапки — галочка в Setări › Aspect (08-21).
+    # Центрируется абсолютом (CSS .tb-logo), поэтому в потоке стоит где
+    # угодно; логотип пропал с диска при живой галочке — просто ничего нет.
+    tb_logo = ""
+    th = theme.current()
+    if th.get("logo_topbar"):
+        lg = theme.logo_url()
+        if lg:
+            tb_logo = f"<a class='tb-logo' href='/admin'><img src='{lg}' alt=''></a>"
     return f"""<div class="top">
   <form class="searchf" method="get" action="/admin/search">
     <input id="topq" name="q" placeholder="Caută pacient, telefon…" autocomplete="off">
     <span class="kbd">Ctrl K</span><button>{_ic('search')}</button>
   </form>
+  {tb_logo}
   <div style="flex:1"></div>
   <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
   {bell_html}

@@ -785,6 +785,20 @@ async def settings_theme(request: Request, msg: str = ""):
                 else "<div class='th-logo none'>fără logo</div>")
     logo_del = (f"<button name='act' value='del' class='pl-btn'>{_ic('trash')} Șterge</button>"
                 if logo else "")
+    # Галочка «логотип и в шапке журнала» (просьба Олега 08-21). Стоит в
+    # секции логотипа, но принадлежит ГЛАВНОЙ форме темы (form='thf'): едет
+    # тем же part=theme. Сохраняется сразу по клику — отдельная кнопка
+    # «Salvează» у логотипа читалась бы как «загрузить файл ещё раз».
+    # Без логотипа не рисуется вовсе: галочка ни о чём сбивала бы с толку.
+    logo_topbar = ""
+    if logo:
+        chk = " checked" if th["logo_topbar"] else ""
+        logo_topbar = (
+            f"<label class='th-topbar'><input type='checkbox' "
+            f"name='logo_topbar' value='1' form='thf'{chk} "
+            f"onchange=\"document.getElementById('thf').requestSubmit()\">"
+            f"Afișează logo-ul și în bara de sus a registrului, pe centru"
+            f"</label>")
 
     body = f"""
 <h2>{_ic("palette")} Aspectul clinicii</h2>
@@ -821,6 +835,7 @@ rămân neschimbate — acolo culoarea înseamnă ceva, nu decorează.</p>
     {logo_del}
   </form>
 </div>
+{logo_topbar}
 <p class='hint'>PNG sau JPEG, cel mult 2 MB. Apare pe ecranul de intrare și în
 antetul documentelor tipărite (043/e, acord, raport de casă). Logoul rămâne la
 actualizarea programului — se păstrează lângă profilul clinicii.</p>
@@ -897,10 +912,13 @@ async def settings_theme_logo(request: Request, file: UploadFile = File(None),
         except (ValueError, OSError):
             return RedirectResponse(f"{back}?msg=bad_logo", status_code=303)
         msg = "ok_logo"
-    # ⚠️ Стиль и цвет переносим ЯВНО: _finish_cfg заменяет секцию целиком, и
-    # сохранение логотипа сбросило бы выбранный цвет на фирменный зелёный.
+    # ⚠️ Стиль, цвет И галочку шапки переносим ЯВНО: _finish_cfg заменяет
+    # секцию целиком, и сохранение логотипа сбросило бы выбранный цвет на
+    # фирменный зелёный (а забытая галочка молча снимала бы логотип с шапки
+    # при каждой замене файла — тот же класс, что и потеря логотипа при
+    # смене цвета).
     cfg = _finish_cfg(theme={"style": th["style"], "primary": th["primary"],
-                             "logo": name})
+                             "logo": name, "logo_topbar": th["logo_topbar"]})
     if eng.save_config(cfg) is not None:
         return RedirectResponse(f"{back}?msg=save_err", status_code=303)
     return RedirectResponse(f"{back}?msg={msg}", status_code=303)
@@ -1118,8 +1136,11 @@ def _val_theme(data: dict) -> dict:
     if rgb is None:
         raise ValueError("primary")
     keep = (eng.CONFIG.get("theme") or {}).get("logo")
+    # галочка «логотип в шапке» приходит ИЗ ФОРМЫ каждый раз (флажок на
+    # странице всегда нарисован, когда есть логотип): нет поля = снята
     return {"style": style, "primary": theme.to_hex(rgb),
-            "logo": keep if keep in theme.LOGO_NAMES.values() else None}
+            "logo": keep if keep in theme.LOGO_NAMES.values() else None,
+            "logo_topbar": bool(data.get("logo_topbar"))}
 
 
 def _val_hours(data: dict) -> dict:
@@ -1474,7 +1495,8 @@ async def admin_settings_save(request: Request, payload: str = Form(""),
             cfg = _finish_cfg(theme=_val_theme({
                 "style": form.get("style", ""),
                 "primary": form.get("primary", ""),
-                "custom": form.get("custom", "")}))
+                "custom": form.get("custom", ""),
+                "logo_topbar": form.get("logo_topbar", "")}))
         elif part == "clinic":
             form = await request.form()
             cfg = _finish_cfg(**_val_clinic({

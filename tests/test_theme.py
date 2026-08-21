@@ -377,10 +377,37 @@ def suite_logo(res: Result) -> None:
                _theme_of(s.clinic).get("logo") == "clinic-logo.png",
                f"в профиле {_theme_of(s.clinic)}")
 
+        # --- логотип в шапке журнала (галочка, 08-21) ---
+        # выключено по умолчанию: существующая клиника не должна проснуться
+        # с новой шапкой; галочка рисуется только при живом логотипе
+        res.ok("по умолчанию шапка без логотипа",
+               "tb-logo" not in c.get("/admin").body,
+               "логотип встал в шапку без галочки")
+        res.ok("страница темы предлагает галочку при живом логотипе",
+               "logo_topbar" in c.get("/admin/settings/theme").body,
+               "галочки на странице нет")
+        r = c.post("/admin/settings/save", part="theme", style="elegant",
+                   primary="#EA580C", custom="", logo_topbar="1")
+        res.check("галочка сохраняется", r.msg, "ok_theme")
+        res.ok("логотип встал в шапку журнала",
+               "tb-logo" in c.get("/admin").body, "в шапке пусто")
+
         r = c.post_file("/admin/settings/theme/logo", "file", "logo.jpg", JPG)
         res.check("JPEG принимается", r.msg, "ok_logo")
         res.check("тип отдачи сменился вместе с файлом",
                   anon.get("/clinic-logo").header("Content-Type"), "image/jpeg")
+        # тот же класс, что «смена цвета роняла логотип»: маршрут логотипа
+        # пишет секцию темы целиком, и забытая галочка снималась бы молча
+        res.ok("галочка пережила замену файла логотипа",
+               "tb-logo" in c.get("/admin").body,
+               "замена файла молча сняла логотип с шапки")
+        c.post("/admin/settings/save", part="theme", style="elegant",
+               primary="#EA580C", custom="")
+        res.ok("снятая галочка убирает логотип из шапки",
+               "tb-logo" not in c.get("/admin").body,
+               "логотип остался в шапке без галочки")
+        c.post("/admin/settings/save", part="theme", style="elegant",
+               primary="#EA580C", custom="", logo_topbar="1")
         res.ok("прежний PNG не остался мусором на диске",
                not (s.dir / "clinic-logo.png").exists(),
                "старый файл лежит рядом и не используется")
@@ -388,6 +415,9 @@ def suite_logo(res: Result) -> None:
         r = c.post("/admin/settings/theme/logo", act="del")
         res.check("логотип удаляется", r.msg, "no_logo")
         res.check("после удаления адрес пустой", anon.get("/clinic-logo").status, 404)
+        res.ok("удалённый логотип исчез и из шапки при живой галочке",
+               "tb-logo" not in c.get("/admin").body,
+               "шапка ссылается на пропавший файл")
         res.ok("после удаления цвет и стиль на месте",
                _theme_of(s.clinic)["primary"] == "#EA580C"
                and _theme_of(s.clinic)["style"] == "elegant",

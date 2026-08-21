@@ -241,6 +241,10 @@ def current() -> dict:
         "primary": to_hex(rgb) if rgb else DEFAULT_PRIMARY,
         "style": style if style in STYLES else DEFAULT_STYLE,
         "logo": logo if logo in LOGO_NAMES.values() else None,
+        # логотип и в шапке журнала (галочка в Setări › Aspect, 08-21);
+        # по умолчанию выключено — существующие клиники не должны проснуться
+        # с новой шапкой
+        "logo_topbar": bool(raw.get("logo_topbar")),
     }
 
 

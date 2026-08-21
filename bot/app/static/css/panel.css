@@ -152,6 +152,17 @@
    border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 8px 0 14px;
    height:var(--h-ctl);width:320px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
  .top form.searchf:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
+ /* логотип клиники по центру шапки (галочка в Setări › Aspect, 08-21).
+    Абсолют от .top (он sticky = containing block): центр не зависит от
+    ширины поиска слева и кнопок справа. На узком окне прячется — лёг бы
+    на поиск; ниже 72px шапки логотип ограничен высотой, не обрезан. */
+ .tb-logo{position:absolute;left:50%;transform:translateX(-50%);
+   display:flex;align-items:center}
+ .tb-logo img{max-height:40px;max-width:220px;object-fit:contain;display:block}
+ /* ступени под ширину: на 1366 (рабочий экран клиники) широкий логотип лёг
+    бы на баннер обновления у правого края — сперва ужимается, потом прячется */
+ @media (max-width:1560px){.tb-logo img{max-width:140px}}
+ @media (max-width:1200px){.tb-logo{display:none}}
  .top form.searchf input{border:none;background:none;outline:none;font-size:14px;flex:1;color:var(--text)}
  .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;padding:4px 6px}
  .top .kbd{font-size:11px;color:var(--text3);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
@@ -1926,6 +1937,10 @@
  .th-logo.none{display:flex;align-items:center;justify-content:center;width:140px;
    height:64px;color:var(--text3);font-size:12.5px;border-style:dashed}
  .th-logof{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0}
+ /* галочка «логотип и в шапке» — под блоком загрузки, сохраняется сама */
+ .th-topbar{display:flex;align-items:center;gap:8px;margin:10px 0 0;
+   font-size:13px;cursor:pointer;color:var(--text2)}
+ .th-topbar input{width:16px;height:16px;accent-color:var(--teal)}
  /* ---------- движение ----------
     ВСЁ привязано к классу `anim` на <html>. Его выдаёт скрипт в шапке страницы
     и только при осмысленном открытии: журнал перезагружает себя каждые 12
