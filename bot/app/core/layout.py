@@ -1002,7 +1002,10 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
     клиники (жёлтый, голубой) заголовок пропал бы вовсе. Тёмный оттенок
     дотемняется циклом до 4.5 к фону страницы, а карточка ещё светлее фона —
     значит порог выдержан тем более. */
- h1{font-size:19px;color:__ACCENT_D__;margin:0 0 4px;font-weight:600;letter-spacing:-.02em}
+ /* по центру, как логотип над ним: имя шло влево при центрованном знаке,
+    и карточка читалась кривой (просьба Олега 08-21) */
+ h1{font-size:19px;color:__ACCENT_D__;margin:0 0 4px;font-weight:600;letter-spacing:-.02em;
+    text-align:center}
  /* логотип клиники — только если она его загрузила; высота ограничена здесь,
     потому что разбирать картинку нечем (Pillow в сборку не едет) */
  .clogo{align-self:center;max-height:64px;max-width:220px;object-fit:contain;margin-bottom:4px}
@@ -1033,7 +1036,10 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  form{background:#fff;padding:30px 32px;border-radius:18px;
       box-shadow:0 4px 8px rgba(15,23,42,.12),0 22px 50px rgba(15,23,42,.26);
       display:flex;flex-direction:column;gap:12px;width:min(340px,100%)}
- h1{font-size:19px;color:#162033;margin:0;font-weight:600;letter-spacing:-.02em}
+ /* центр — тем же правилом, что на входе: эти два экрана делят карточку
+    «логотип + имя», и расходиться им нельзя */
+ h1{font-size:19px;color:#162033;margin:0;font-weight:600;letter-spacing:-.02em;
+    text-align:center}
  p{color:#7E8B9C;font-size:13px;margin:0;line-height:1.5}
  .clogo{align-self:center;max-height:64px;max-width:220px;object-fit:contain}
  input{padding:12px;border:1px solid #E7EDF5;border-radius:12px;font-size:26px;
