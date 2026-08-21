@@ -542,12 +542,21 @@ def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
         odo = (f"<a class='ag-odo' href='/admin/patient/{r['patient_id']}/odontograma'"
                f" onclick='event.stopPropagation()'>{_ic('tooth')}Odontogramă</a>"
                if r.get("patient_id") else "")
+        # «Сколько уже ждёт в приёмной» — по штампу waiting_at (08-13). Сервер
+        # отдаёт ТОЛЬКО отметку времени: строка «N min» серверным текстом
+        # меняла бы отпечаток живого тела каждую минуту, и подмена шла бы
+        # каждый опрос — мигание чёрным ходом (прайор живого журнала). Минуты
+        # пишет panel.js (paintWaits), как линию «сейчас».
+        wait = ""
+        if r["status"] == "waiting" and r.get("waiting_at"):
+            wait = (f"<small class='wait-min' data-wait-since="
+                    f"'{int(r['waiting_at'].timestamp() * 1000)}'></small>")
         out.append(
             f"<div class='ag-i{past}' data-appt='{r['id']}' "
             f"style='border-left-color:{bar}'{click}>"
             f"<span class='ag-t'>{st.strftime('%H:%M')}</span>"
             f"<div class='ag-b'><b>{html.escape(r['name'] or '—')}</b>"
-            f"<small>{html.escape(r['service'])}</small>{odo}</div>"
+            f"<small>{html.escape(r['service'])}</small>{wait}{odo}</div>"
             f"<span class='pl-badge {cls}'>{label}</span></div>")
     return (f"<div class='agenda'><div class='ag-h'><b>Agenda zilei</b>"
             f"<span>{len(items)} programări</span></div>"
@@ -653,8 +662,19 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
                 tip = html.escape(f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
                                   f" · {r['name'] or '—'}"
                                   + (f" · {st_word}" if st_word else ""))
+                # «сколько ждёт в приёмной» — в блоке сетки, рядом со словом
+                # статуса (просьба Олега 08-21). Сервер отдаёт только отметку
+                # waiting_at: минуты пишет panel.js (paintWaits), иначе строка
+                # меняла бы отпечаток живого тела каждую минуту. Живёт внутри
+                # .stw и прячется вместе с ним на сжатых блоках (.slim/.tiny) —
+                # там нет места даже для имени.
+                wait = ""
+                if r["status"] == "waiting" and r.get("waiting_at"):
+                    wait = (f"<span class='wait-min' data-wait-since="
+                            f"'{int(r['waiting_at'].timestamp() * 1000)}'></span>")
                 stw = (f"<small class='stw'><span class='stat s-{r['status']}'>"
-                       f"{STATUS_LABEL.get(r['status'], r['status'])}</span></small>"
+                       f"{STATUS_LABEL.get(r['status'], r['status'])}</span>{wait}"
+                       f"</small>"
                        if st_word else "")
                 out.append(
                     f"<div class='gappt{ns}' data-appt='{r['id']}'"

@@ -130,6 +130,7 @@ function pickName(inp) {
     if (window.fitGrid) fitGrid();              // канва: высота часа и ступени
     placeNowline();
     markFresh();
+    paintWaits();                               // минуты ожидания в агенде
   }
 
   function tick() {
@@ -497,6 +498,31 @@ function placeNowline() {
 placeNowline();
 setInterval(placeNowline, 30000);
 window.addEventListener('resize', placeNowline);
+
+/* «așteaptă N min» у пациента в приёмной (агенда, статус waiting). Минуты
+   пишутся ЗДЕСЬ, а не на сервере: серверная строка с минутами меняла бы
+   отпечаток живого тела каждую минуту, и подмена шла бы каждый опрос —
+   мигание чёрным ходом (прайор живого журнала, тот же, что у линии
+   «сейчас»). Сервер даёт только data-wait-since — он детерминирован. */
+function paintWaits() {
+  var els = document.querySelectorAll('[data-wait-since]');
+  for (var i = 0; i < els.length; i++) {
+    var t = parseInt(els[i].getAttribute('data-wait-since'), 10);
+    if (!t) continue;
+    var m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+    /* первые 5 минут — тишина: «пришёл и почти сразу позвали» ожиданием не
+       считается, а «așteaptă 0 min» на каждом пришедшем — шум (Олег 08-21) */
+    if (m < 5) {
+      els[i].textContent = '';
+      els[i].classList.remove('long');
+      continue;
+    }
+    els[i].textContent = 'așteaptă ' + m + ' min';
+    els[i].classList.toggle('long', m >= 15);
+  }
+}
+paintWaits();
+setInterval(paintWaits, 60000);
 
 /* Плавающий ответ на действие (?msg=… из редиректа, layout.msg_banner).
    Здесь три обязанности: крестик; автозакрытие УСПЕХА через 6 секунд (ошибки

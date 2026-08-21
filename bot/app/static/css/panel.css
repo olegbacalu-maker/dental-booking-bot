@@ -1810,6 +1810,14 @@
  .ag-all{display:block;margin-top:8px;font-size:12px;font-weight:600;
    color:var(--teal-d);text-decoration:none}
  .ag-all:hover{text-decoration:underline}
+ /* «așteaptă N min» — в агенде и в блоке сетки. Текст пишет panel.js
+    (paintWaits) из data-wait-since: серверная строка с минутами меняла бы
+    отпечаток #live каждую минуту. Порог показа (5 мин) — тоже в JS.
+    Жёлтым — засидевшийся (15+): amber — цвет смысла, теме не отдан. */
+ .wait-min{font-size:11px;color:var(--text3)}
+ .ag-b .wait-min{display:block}
+ .gappt .wait-min{margin-left:5px;font-size:10.5px}
+ .wait-min.long{color:var(--amber);font-weight:600}
  /* ---------- аналитика (макет Олега 08-06) ----------
     Сетка 2:1 как у панели дня; на 1366×768 колонки складываются. Все фигуры —
     инлайновый SVG из core/charts.py: программа работает без интернета, и
