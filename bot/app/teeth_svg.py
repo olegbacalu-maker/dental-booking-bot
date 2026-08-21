@@ -758,6 +758,43 @@ def _mark_halo(path: str, marks) -> list:
                    f"stroke-width='6' stroke-linejoin='round' opacity='.85'/>")
     return out
 
+# ------------------------------------------------------------- мост (punte)
+
+# Мост живёт ПОВЕРХ зубов, как отметка поверх находки: состояние зуба НЕ
+# мутируется — кариес под опорой и «lipsă» под промежутком остаются правдой
+# самого зуба, а мост — отдельная конструкция (таблица bridges).
+# Канон нотации — от врача пилота (08-21): опора (stâlp) бывает и В СЕРЕДИНЕ
+# моста (его пример: 47-43, где 47/45/43 — опоры, 46/44 — тело), поэтому роль
+# хранится У КАЖДОГО зуба, а не выводится из краёв. В бумажной 043/e опора
+# пишется «Co» (вариант новее; пишут и «Cr»), тело — «D», над конструкцией
+# рисуется скобка (acoladă) с материалом («din metaloceramică/zirconiu/…»).
+# ⚠️ Полярность списков безопасная: незнакомая роль отбрасывается разбором.
+BRIDGE_ROLES = ("stalp", "corp")
+BRIDGE_RO = {"stalp": "Stâlp", "corp": "Corp de punte"}
+
+
+def pack_bridge(teeth) -> str:
+    """[(fdi, роль)] → «47:stalp,46:corp» — тем порядком, каким пришло
+    (нормализует порядок по дуге odontogram.bridge_norm, а не упаковка)."""
+    return ",".join(f"{n}:{r}" for n, r in teeth)
+
+
+def parse_bridge(packed) -> list:
+    """Строка базы/формы → [(fdi, роль)]. Мусор отбрасывается по белым
+    спискам: роль из BRIDGE_ROLES, номер — целое; принимает и строку, и
+    готовый список — по той же причине, что mark_list."""
+    if not isinstance(packed, str):
+        return [(int(n), r) for n, r in (packed or ())
+                if r in BRIDGE_ROLES]
+    out = []
+    for part in packed.split(","):
+        n, _, r = part.partition(":")
+        n, r = n.strip(), r.strip()
+        if n.isdecimal() and r in BRIDGE_ROLES:
+            out.append((int(n), r))
+    return out
+
+
 # ---------------------------------------------------------- поверхности
 
 SURFACE_ORDER = "MODVL"

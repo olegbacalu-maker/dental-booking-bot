@@ -190,6 +190,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     show_views = views == "1"
     acts = await db.patient_activity(pid, 60, include_views=show_views)
     tooth_acts = await db.tooth_activity(pid)
+    punti = await db.bridges(pid)
     erasure = await db.erasure_kind(pid)
     now = datetime.now(eng.TZ)
     base = f"/admin/patient/{pid}"
@@ -338,7 +339,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <button>+ Adaugă</button></form></div>"""
 
     # -- центр: формула FDI + план --
-    teeth_card = podo.card(tmap, tooth_acts, doc_opts, base)
+    teeth_card = podo.card(tmap, tooth_acts, doc_opts, base, punti)
 
     # порядок осмысленный, а не «как добавляли»: работа сверху, запланированное
     # по сроку, законченное свежим вперёд, отказы последними
@@ -1320,9 +1321,48 @@ async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
     doc_opts = "".join(f"<option value='{html.escape(v)}'>{html.escape(v)}</option>"
                        for v in eng.DOCTORS.values())
     sel = int(t) if t.strip().isdecimal() and int(t) in _FDI_ALL else None
+    punti = await db.bridges(pid)
     body = msg_banner(msg) + podo.page(p, tmap, tooth_acts, doc_opts,
-                                       f"/admin/patient/{pid}", sel)
+                                       f"/admin/patient/{pid}", sel, punti)
     return _shell(body, f"odontogramă · #{pid}", active="pat", rail=True)
+
+
+@router.post("/admin/patient/{pid}/bridge")
+async def patient_bridge_add(request: Request, pid: int,
+                             teeth: str = Form(""), material: str = Form(""),
+                             material_alt: str = Form("")):
+    """Мост (punte, 08-21, просьба пилота с готовым жестом: «selectezi 47-44
+    și meniu în care alegi punte»). `teeth` — «47:stalp,46:corp,…» одной
+    строкой: разбор по белым спискам в teeth_svg.parse_bridge, порядок и
+    правила дуги — в odontogram.bridge_norm (одна дуга, подряд, без молочных,
+    хотя бы одна опора). Материал — из пресетов формы либо свободный текст
+    («alt»): это подпись под скобкой, врач пишет туда и «metaloceramică»,
+    и марку."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    back = f"/admin/patient/{pid}/odontograma"
+    norm = podo.bridge_norm(tsvg.parse_bridge(teeth))
+    if norm is None:
+        return RedirectResponse(f"{back}?msg=bad_punte", status_code=303)
+    mat = (material_alt if material == "alt" else material).strip()[:40]
+    who = request_user() or {}
+    r = await db.add_bridge(pid, norm, mat, who.get("name") or "")
+    msg = "dup_punte" if r == "dup" else "ok_punte"
+    return RedirectResponse(f"{back}?msg={msg}", status_code=303)
+
+
+@router.post("/admin/patient/{pid}/bridge/{bid}/del")
+async def patient_bridge_del(request: Request, pid: int, bid: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    ok = await db.delete_bridge(bid, pid)
+    msg = "ok_punte_del" if ok else "bad"
+    return RedirectResponse(f"/admin/patient/{pid}/odontograma?msg={msg}",
+                            status_code=303)
 
 
 @router.post("/admin/patient/{pid}/tooth")
@@ -1840,12 +1880,14 @@ async def patient_fisa043(request: Request, pid: int, lang: str = ""):
     docs = await db.documents(pid)
     rx = sum(1 for d in docs if d["category"] == "radiografie")
     anam = await db.anamneza(pid)
+    punti = await db.bridges(pid)
     await db.log_event(pid, "fisa043", "Fișa 043/e generată pentru tipărire")
     doc_lang = _doc_lang(p, lang)
     # подписи отметок — на языке ЛИСТА: иначе русский бланк печатал бы
     # «Diabet zaharat» в русской же строке «Перенесённые заболевания»
     return pfisa.render(p, alerts, teeth, plan, list(reversed(recs)), rx,
-                        _p_age(p), anam, panam.labels(doc_lang), doc_lang)
+                        _p_age(p), anam, panam.labels(doc_lang), doc_lang,
+                        punti)
 
 
 @router.get("/admin/patient/{pid}/export")

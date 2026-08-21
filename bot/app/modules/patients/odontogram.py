@@ -36,6 +36,31 @@ FDI_ALL = FDI_UPPER + FDI_LOWER + FDI_MILK_UPPER + FDI_MILK_LOWER
 TOOTH_SURFACES = {"M": "mezial", "O": "ocluzal", "D": "distal",
                   "V": "vestibular", "L": "lingual"}
 
+
+def bridge_norm(teeth: list) -> list | None:
+    """Зубы моста в порядке дуги; None — мостом этот набор быть не может.
+
+    Правила от врача пилота (08-21): одна дуга (верхняя ИЛИ нижняя — между
+    челюстями мостов не бывает; через среднюю линию — бывают, фронтальные);
+    зубы стоят ПОДРЯД без дырок (промежуток моста — это зуб конструкции с
+    ролью corp, а не пропуск в списке); молочных мостов нет; минимум два зуба
+    и хотя бы одна опора (консольный мост = опора + тело).
+    ⚠️ Порядок нормализуется ЗДЕСЬ, по раскладке дуги: форма может прислать
+    зубы в порядке кликов, а хранение и печать читают мост слева направо."""
+    got = tsvg.parse_bridge(teeth) if not isinstance(teeth, list) else teeth
+    if len(got) < 2 or len({n for n, _r in got}) != len(got):
+        return None
+    for arch in (FDI_UPPER, FDI_LOWER):
+        if all(n in arch for n, _r in got):
+            ordered = sorted(got, key=lambda t: arch.index(t[0]))
+            idx = [arch.index(n) for n, _r in ordered]
+            if idx != list(range(idx[0], idx[0] + len(idx))):
+                return None                      # дырка в ряду
+            if not any(r == "stalp" for _n, r in ordered):
+                return None                      # мост без единой опоры
+            return ordered
+    return None                                  # смесь дуг или молочные
+
 # Имя состояния берётся из `teeth_svg.STATE_RO` — там же, откуда его берёт
 # летопись `db.set_tooth`. Своего словаря здесь нет НАМЕРЕННО.
 STATES = tsvg.STATE_RO
@@ -82,9 +107,83 @@ def sf_text(sfmap: dict, sf: str) -> str:
             if len(parts) > 1 else sf)
 
 
+def _bmap(bridges: list) -> dict:
+    """{fdi: (роль, материал)} — для подписи зуба. Разбор строкой из базы —
+    ТОЛЬКО через tsvg.parse_bridge: второй разбор разошёлся бы с печатью."""
+    out: dict = {}
+    for b in bridges or ():
+        for n, r in tsvg.parse_bridge(b["teeth"]):
+            out[n] = (r, b.get("material") or "")
+    return out
+
+
+def bridges_json(bridges: list) -> str:
+    """Мосты для браузера: скобки рисует JS по кнопкам зубов (drawBridges) —
+    дуга живёт в CSS-grid с переменным зазором, и серверный расчёт координат
+    разъезжался бы с каждым медиа-запросом."""
+    rows = []
+    for b in bridges or ():
+        t = tsvg.parse_bridge(b["teeth"])
+        if t:
+            rows.append({"id": b["id"], "teeth": t,
+                         "material": b.get("material") or ""})
+    return js_json(rows)
+
+
+# Скобка (acoladă) моста — общий скрипт фиши и детальной страницы. Рисуется
+# ПО КНОПКАМ (offsetLeft/offsetTop внутри .arch): устойчиво к зазору сетки,
+# ширине окна и обоим видам; скрытый вид пропускается и дорисовывается при
+# переключении (вызов из VIEW_SCRIPT) и на resize.
+BRIDGE_DRAW_JS = """
+function drawBridges() {
+  document.querySelectorAll('.br-arc').forEach(function (x) { x.remove(); });
+  /* typeof, а НЕ window.BRIDGES: на детальной странице список объявлен const,
+     а top-level const свойства window не создаёт — охрана через window молча
+     выключала рисование целиком (поймано при первом же показе) */
+  if (typeof BRIDGES === 'undefined' || !BRIDGES.length) return;
+  document.querySelectorAll('#odo .arch').forEach(function (arch) {
+    if (!arch.offsetParent) return;
+    var btn = {};
+    arch.querySelectorAll('.tooth-btn').forEach(function (b) {
+      btn[b.dataset.n] = b;
+    });
+    BRIDGES.forEach(function (br) {
+      var bs = br.teeth.map(function (t) { return btn[String(t[0])]; });
+      if (bs.some(function (b) { return !b; })) return;
+      var L = Math.min.apply(null, bs.map(function (b) { return b.offsetLeft; }));
+      var R = Math.max.apply(null, bs.map(function (b) {
+        return b.offsetLeft + b.offsetWidth; }));
+      if (R - L < 8) return;
+      var lower = arch.classList.contains('lower');
+      var el = document.createElement('div');
+      el.className = 'br-arc' + (lower ? ' lo' : '');
+      el.style.left = L + 'px';
+      el.style.width = (R - L) + 'px';
+      if (lower) {
+        el.style.top = (Math.max.apply(null, bs.map(function (b) {
+          return b.offsetTop + b.offsetHeight; })) + 2) + 'px';
+      } else {
+        el.style.top = (Math.min.apply(null, bs.map(function (b) {
+          return b.offsetTop; })) - 14) + 'px';
+      }
+      var lbl = document.createElement('span');
+      lbl.textContent = br.material || 'punte';
+      el.appendChild(lbl);
+      el.title = 'Punte ' + br.teeth[0][0] + '-'
+                 + br.teeth[br.teeth.length - 1][0]
+                 + (br.material ? ' (' + br.material + ')' : '');
+      arch.appendChild(el);
+    });
+  });
+}
+drawBridges();
+window.addEventListener('resize', drawBridges);
+"""
+
+
 def _btn(n: int, tmap: dict, *, lower: bool = False, milk: bool = False,
          occ: bool = False, tip: bool = True, click: str = "openTooth",
-         arc: float = 0.0) -> str:
+         arc: float = 0.0, bmap: dict | None = None) -> str:
     """Кнопка одного зуба.
 
     `tip` — плавающая подсказка при наведении: она нужна КОМПАКТНОЙ карточке,
@@ -103,8 +202,14 @@ def _btn(n: int, tmap: dict, *, lower: bool = False, milk: bool = False,
     # поверхности дописываются ПОСЛЕ заметки: подпись «11 · Carie · test»
     # читают и человек, и проверка, и её формат менять незачем.
     sf_txt = sf_text(sfmap, sf)
+    # мост — в подписи зуба наравне с отметкой: скобка говорит «здесь мост»,
+    # а title отвечает, КЕМ этот зуб в нём стоит (опора или тело)
+    br = (bmap or {}).get(n)
+    br_txt = (f" · Punte: {tsvg.BRIDGE_RO[br[0]]}"
+              + (f" ({br[1]})" if br[1] else "") if br else "")
     title = (f"{n} · {STATES.get(st, st)}"
              + "".join(f" · {MARKS[m]}" for m in mk)
+             + br_txt
              + (f" · {note}" if note else "")
              + (f" · {sf_txt}" if sf_txt else ""))
     num = f"<span class='num'>{n}</span>"
@@ -129,13 +234,15 @@ def _btn(n: int, tmap: dict, *, lower: bool = False, milk: bool = False,
             f"{svg + num if lower else num + svg}</button>")
 
 
-def _arch_wrap(tmap: dict, occ: bool, *, tip: bool, click: str) -> str:
+def _arch_wrap(tmap: dict, occ: bool, *, tip: bool, click: str,
+               bmap: dict | None = None) -> str:
     cls = " occ" if occ else ""
     n_up, n_lo = len(FDI_UPPER), len(FDI_LOWER)
-    up = "".join(_btn(n, tmap, occ=occ, tip=tip, click=click,
+    up = "".join(_btn(n, tmap, occ=occ, tip=tip, click=click, bmap=bmap,
                       arc=arc_offset(i, n_up, lower=False) if occ else 0.0)
                  for i, n in enumerate(FDI_UPPER))
     lo = "".join(_btn(n, tmap, lower=True, occ=occ, tip=tip, click=click,
+                      bmap=bmap,
                       arc=arc_offset(i, n_lo, lower=True) if occ else 0.0)
                  for i, n in enumerate(FDI_LOWER))
     return (f"<div class='arch-wrap'><div class='arch{cls}'>{up}</div>"
@@ -202,6 +309,8 @@ VIEW_SCRIPT = """
     // инспектор рисует зуб из ВИДИМОЙ дуги, значит после переключения его
     // надо перерисовать — иначе сверху остаётся лицевой рисунок
     if (window.selTooth && window.SEL_TOOTH) selTooth(window.SEL_TOOTH);
+    // скобки мостов меряются по кнопкам ВИДИМОЙ дуги — перерисовать
+    if (window.drawBridges) drawBridges();
   }
   for (var i = 0; i < btns.length; i++) {
     btns[i].addEventListener('click', function () { set(this.dataset.v); });
@@ -307,7 +416,8 @@ def _mk_boxes() -> str:
                       f"value='{k}'>{v}</label>" for k, v in MARKS.items()))
 
 
-def card(tmap: dict, tooth_acts: list, doc_opts: str, base: str) -> str:
+def card(tmap: dict, tooth_acts: list, doc_opts: str, base: str,
+         bridges: list | None = None) -> str:
     """Компактная одонтограмма в фише: обе дуги, оба вида, диалог по клику.
 
     ⚠️ ОБА вида уезжают в страницу сразу, переключает их CSS. Догрузка по
@@ -318,14 +428,15 @@ def card(tmap: dict, tooth_acts: list, doc_opts: str, base: str) -> str:
     # фиша не должна требовать лишнего клика, взрослая — видеть лишний ряд
     milk_open = " open" if any(n in tmap for n in FDI_MILK_UPPER + FDI_MILK_LOWER) else ""
     teeth_json, thist_json = tooth_data(tmap, tooth_acts)
+    bmap = _bmap(bridges or [])
     return f"""<div class='fcard odo' id='odo' data-view='frontal'>
 <div class='odo-head'>
   <h3>Formula dentară <small>· notație FDI · click pe dinte</small></h3>
   <div class='odo-actions'>{view_switch()}
     <a class='odo-more' href='{base}/odontograma'>{_ic('eye')} Detaliat</a></div>
 </div>
-<div class='odo-view v-frontal'>{_arch_wrap(tmap, False, tip=True, click='openTooth')}</div>
-<div class='odo-view v-ocluzal'>{_arch_wrap(tmap, True, tip=True, click='openTooth')}
+<div class='odo-view v-frontal'>{_arch_wrap(tmap, False, tip=True, click='openTooth', bmap=bmap)}</div>
+<div class='odo-view v-ocluzal'>{_arch_wrap(tmap, True, tip=True, click='openTooth', bmap=bmap)}
   <p class='hint occ-hint'>Suprafața vestibulară este spre exteriorul arcadei;
     cea linguală/palatinală — spre mijloc.</p>
 </div>
@@ -412,12 +523,14 @@ function toothTip(ev, n) {{
   TIP.style.top = (r.bottom + window.scrollY + 8) + 'px';
 }}
 function toothTipOff() {{ TIP.style.display = 'none'; }}
+var BRIDGES = {bridges_json(bridges or [])};
+{BRIDGE_DRAW_JS}
 {VIEW_SCRIPT}
 </script>"""
 
 
 def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
-         base: str, sel: int | None) -> str:
+         base: str, sel: int | None, bridges: list | None = None) -> str:
     """Детальная одонтограмма: дуга крупно + постоянный инспектор справа.
 
     Модалки здесь нет НАМЕРЕННО: она закрывает собой дугу, а весь смысл этого
@@ -434,6 +547,7 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
     e = html.escape
     milk_open = " open" if any(n in tmap for n in FDI_MILK_UPPER + FDI_MILK_LOWER) else ""
     teeth_json, thist_json = tooth_data(tmap, tooth_acts)
+    bmap = _bmap(bridges or [])
     name = e(patient["name"])
     sel_js = str(sel) if sel in FDI_ALL else "0"
     return f"""<div class='odop odo' id='odo' data-view='frontal'>
@@ -441,14 +555,21 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
   <a class='odop-back' href='{base}'>{_ic('pat')} {name}</a>
   <h2>Odontogramă <small>· notație FDI</small></h2>
   <div class='odo-actions'>{view_switch()}
+    <button type='button' class='odo-more' id='br_new'>{_ic('plus')} Punte nouă</button>
     <button type='button' class='odo-more' onclick='window.print()'>{_ic('print')} Printează</button>
   </div>
+</div>
+<div id='br_bar' class='br-bar' hidden>
+  <b>Punte nouă:</b> click pe dinții punții (învecinați, aceeași arcadă)
+  <span id='br_n'>—</span>
+  <button type='button' class='pl-btn' id='br_cancel'>Anulează</button>
+  <button type='button' class='pl-btn primary' id='br_go' disabled>Continuă</button>
 </div>
 <div class='odop-grid'>
   <div class='odop-main'>
     <div class='fcard'>
-      <div class='odo-view v-frontal'>{_arch_wrap(tmap, False, tip=False, click='selTooth')}</div>
-      <div class='odo-view v-ocluzal'>{_arch_wrap(tmap, True, tip=False, click='selTooth')}
+      <div class='odo-view v-frontal'>{_arch_wrap(tmap, False, tip=False, click='selTooth', bmap=bmap)}</div>
+      <div class='odo-view v-ocluzal'>{_arch_wrap(tmap, True, tip=False, click='selTooth', bmap=bmap)}
         <p class='hint occ-hint'>Suprafața vestibulară este spre exteriorul arcadei;
           cea linguală/palatinală — spre mijloc.</p>
       </div>
@@ -465,6 +586,13 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
     <div class='fcard insp'>
       <div class='insp-t'>Dinte selectat</div>
       <div class='insp-n'><b id='i_num'>—</b><span id='i_jaw'></span></div>
+      <div id='i_bridge' class='i-bridge' hidden>
+        <span id='i_br_t'></span>
+        <form method='post' id='i_br_del'
+              onsubmit="return confirm('Ștergeți puntea?')">
+          <button class='pl-btn'>Șterge puntea</button>
+        </form>
+      </div>
       <div class='insp-pic' id='i_pic'>
         <span class='lb lb-v'>V</span><span class='lb lb-l'>L</span>
         <span class='lb lb-m'>M</span><span class='lb lb-d'>D</span>
@@ -490,6 +618,27 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
     </div>
   </aside>
 </div></div>
+<dialog id='brdlg'>
+  <div class='dlg-head'><span>Punte nouă</span>
+    <button type='button' onclick="document.getElementById('brdlg').close()">{_ic('close')}</button></div>
+  <form class='dlg-form' method='post' action='{base}/bridge' id='br_form'>
+    <input type='hidden' name='teeth' id='br_teeth'>
+    <p class='hint' style='margin:0'>Click pe un dinte pentru a schimba rolul:
+      stâlp (Co) sau corp de punte (D).</p>
+    <div class='br-chips' id='br_chips'></div>
+    <select name='material' id='br_mat'>
+      <option value='metalo-ceramică'>Metalo-ceramică</option>
+      <option value='zirconiu'>Zirconiu</option>
+      <option value='ceramică'>Ceramică</option>
+      <option value='metal'>Metal</option>
+      <option value='acrilat'>Acrilat</option>
+      <option value='alt'>Alt material…</option>
+    </select>
+    <input name='material_alt' id='br_alt' placeholder='Materialul punții'
+           maxlength='40' style='display:none'>
+    <button>{_ic('save')} Salvează puntea</button>
+  </form>
+</dialog>
 <script>
 const TEETH = {teeth_json};
 const STATE_RO = {js_json(STATES)};
@@ -530,9 +679,28 @@ document.addEventListener('change', function (ev) {{
   paintSurfaces();
 }});
 function selTooth(n) {{
+  if (BR_MODE) {{ brToggle(n); return; }}
   const t = TEETH[String(n)];
   if (!t) return;
   window.SEL_TOOTH = n;
+  // зуб в мосту: инспектор называет конструкцию и даёт её снять; клик по
+  // зубу вне моста блок прячет
+  const ib = document.getElementById('i_bridge');
+  const inBr = BRIDGES.filter(function (br) {{
+    return br.teeth.some(function (x) {{ return x[0] === n; }});
+  }})[0];
+  if (inBr) {{
+    const role = inBr.teeth.filter(function (x) {{ return x[0] === n; }})[0][1];
+    document.getElementById('i_br_t').textContent =
+      'Punte ' + inBr.teeth[0][0] + '-' + inBr.teeth[inBr.teeth.length - 1][0]
+      + (inBr.material ? ' (' + inBr.material + ')' : '')
+      + ' - rol: ' + (BRIDGE_RO[role] || role);
+    document.getElementById('i_br_del').action =
+      BR_BASE + '/bridge/' + inBr.id + '/del';
+    ib.hidden = false;
+  }} else {{
+    ib.hidden = true;
+  }}
   const box = document.getElementById('odo');
   const view = box.dataset.view === 'ocluzal' ? '.v-ocluzal' : '.v-frontal';
   box.querySelectorAll('.tooth-btn.sel').forEach(function (b) {{
@@ -575,7 +743,90 @@ function selTooth(n) {{
       }}).join('')
     : '<p class="hint" style="margin:0">— fără înregistrări —</p>';
 }}
+// ---------- мост (punte): режим выбора зубов и диалог ролей ----------
+// Жест — ровно как показал врач пилота (08-21): «selectezi 47-44 și meniu în
+// care alegi punte». Пока режим включён, клик по зубу НЕ открывает инспектор
+// (перехват в selTooth), а отмечает зуб; порядок и правила дуги проверяет
+// сервер (bridge_norm) — здесь только удобство.
+const BRIDGES = {bridges_json(bridges or [])};
+const BRIDGE_RO = {js_json(tsvg.BRIDGE_RO)};
+const BR_BASE = '{base}';
+const ARCH_UP = {js_json(FDI_UPPER)}, ARCH_LO = {js_json(FDI_LOWER)};
+let BR_MODE = false, BR_SEL = [], BR_ROLES = {{}};
+function brIdx(n) {{
+  let i = ARCH_UP.indexOf(n);
+  return i >= 0 ? i : 100 + ARCH_LO.indexOf(n);
+}}
+function brPaint() {{
+  document.querySelectorAll('.tooth-btn').forEach(function (b) {{
+    b.classList.toggle('br-pick',
+                       BR_SEL.indexOf(parseInt(b.dataset.n, 10)) >= 0);
+  }});
+  const ord = BR_SEL.slice().sort(function (a, b) {{ return brIdx(a) - brIdx(b); }});
+  document.getElementById('br_n').textContent = ord.length ? ord.join(', ') : '';
+  document.getElementById('br_go').disabled = BR_SEL.length < 2;
+}}
+function brToggle(n) {{
+  if (n > 50) return;               // молочных мостов не бывает (врач, 08-21)
+  const i = BR_SEL.indexOf(n);
+  if (i >= 0) BR_SEL.splice(i, 1); else BR_SEL.push(n);
+  brPaint();
+}}
+function brStop() {{
+  BR_MODE = false; BR_SEL = [];
+  document.getElementById('br_bar').hidden = true;
+  brPaint();
+}}
+document.getElementById('br_new').addEventListener('click', function () {{
+  BR_MODE = true; BR_SEL = [];
+  document.getElementById('br_bar').hidden = false;
+  brPaint();
+}});
+document.getElementById('br_cancel').addEventListener('click', brStop);
+document.getElementById('br_go').addEventListener('click', function () {{
+  const ord = BR_SEL.slice().sort(function (a, b) {{ return brIdx(a) - brIdx(b); }});
+  BR_ROLES = {{}};
+  ord.forEach(function (n, i) {{
+    // крайние — опоры по умолчанию; средний опорой делает клик по фишке
+    // (пример врача: 47-45-43 опоры при теле 46/44)
+    BR_ROLES[n] = (i === 0 || i === ord.length - 1) ? 'stalp' : 'corp';
+  }});
+  const box = document.getElementById('br_chips');
+  box.innerHTML = '';
+  ord.forEach(function (n) {{
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.n = n;
+    box.appendChild(b);
+  }});
+  brChips();
+  document.getElementById('brdlg').showModal();
+}});
+function brChips() {{
+  document.querySelectorAll('#br_chips button').forEach(function (b) {{
+    const n = parseInt(b.dataset.n, 10);
+    b.className = 'br-chip' + (BR_ROLES[n] === 'stalp' ? ' stalp' : '');
+    b.textContent = n + ' - ' + (BRIDGE_RO[BR_ROLES[n]] || '');
+  }});
+}}
+document.addEventListener('click', function (ev) {{
+  const b = ev.target.closest ? ev.target.closest('#br_chips button') : null;
+  if (!b) return;
+  const n = parseInt(b.dataset.n, 10);
+  BR_ROLES[n] = BR_ROLES[n] === 'stalp' ? 'corp' : 'stalp';
+  brChips();
+}});
+document.getElementById('br_mat').addEventListener('change', function () {{
+  document.getElementById('br_alt').style.display =
+    this.value === 'alt' ? 'block' : 'none';
+}});
+document.getElementById('br_form').addEventListener('submit', function () {{
+  const ord = BR_SEL.slice().sort(function (a, b) {{ return brIdx(a) - brIdx(b); }});
+  document.getElementById('br_teeth').value = ord.map(function (n) {{
+    return n + ':' + (BR_ROLES[n] || 'corp');
+  }}).join(',');
+}});
 {VIEW_SCRIPT}
+{BRIDGE_DRAW_JS}
 // зуб из адреса: после сохранения маршрут возвращает сюда с ?t=<номер>,
 // и выбор переживает перезагрузку страницы
 if ({sel_js}) selTooth({sel_js});

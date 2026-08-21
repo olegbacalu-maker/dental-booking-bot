@@ -1019,6 +1019,41 @@
  .insp .insp-t:first-child{margin-top:0}
  .insp-n{display:flex;align-items:baseline;gap:10px}
  .insp-n b{font-size:30px;font-weight:600;line-height:1}
+ /* ---------- мост (punte, 08-21) ---------- */
+ /* скобка (acoladă) над зубами конструкции: JS меряет кнопки и кладёт
+    абсолютом в .arch; подпись — материал, как врач пишет на бумаге */
+ .br-arc{position:absolute;height:10px;border:2px solid var(--teal-d);
+   border-bottom:none;border-radius:6px 6px 0 0;pointer-events:none;z-index:3;
+   display:flex;justify-content:center}
+ .br-arc.lo{border-bottom:2px solid var(--teal-d);border-top:none;
+   border-radius:0 0 6px 6px}
+ .br-arc span{position:relative;top:-9px;font-size:9.5px;line-height:1;
+   color:var(--teal-d);background:var(--panel);padding:0 5px;font-weight:600;
+   white-space:nowrap}
+ .br-arc.lo span{top:5px}
+ /* режим выбора зубов моста: пунктирная рамка на отмеченных */
+ .tooth-btn.br-pick{outline:2px dashed var(--teal);outline-offset:2px}
+ /* [hidden] обязан побеждать: display:flex сильнее UA-правила hidden, и без
+    этой строки бар режима висел бы на странице всегда (поймано показом) */
+ .br-bar[hidden]{display:none}
+ .br-bar{display:flex;align-items:center;gap:10px;background:var(--teal-soft);
+   border:1px solid var(--teal-ring);border-radius:var(--r-ctl);
+   padding:8px 12px;margin:0 0 10px;font-size:13px;flex-wrap:wrap}
+ .br-bar #br_n{font-weight:700;color:var(--teal-d)}
+ .br-chips{display:flex;gap:6px;flex-wrap:wrap}
+ /* селектор с .dlg-form — специфичность: общий `.dlg-form button` красит все
+    кнопки диалога фирменным, и фишки ролей выходили наоборот (тело тёмное,
+    опора бледная). Опора — главный зуб конструкции, выделена она. */
+ .dlg-form .br-chip{border:1px solid var(--line);background:var(--bg);
+   color:var(--text);border-radius:10px;padding:6px 10px;height:auto;
+   font:inherit;font-size:12.5px;font-weight:400;cursor:pointer}
+ .dlg-form .br-chip.stalp{background:var(--teal);border-color:var(--teal);
+   color:var(--on-teal);font-weight:600}
+ .i-bridge{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+   margin:8px 0 2px;padding:8px 10px;border:1px solid var(--line);
+   border-radius:10px;background:var(--bg);font-size:12.5px}
+ .i-bridge form{margin:0}
+ @media print{.br-bar,#br_new{display:none}}
  .insp-n span{color:var(--text2);font-size:13px}
  /* рамка под рисунок зуба: высота фиксирована, иначе панель прыгает при
     выборе резца после моляра */
@@ -1111,7 +1146,9 @@
  .arch.occ.milk-arch:not(.lower){padding-top:17px}
  .arch.occ.milk-arch.lower{padding-bottom:17px}
  .occ-hint{margin:14px 0 0}
- .arch{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:var(--tooth-gap,10px);
+ /* position:relative — опора для скобки моста (.br-arc): та лежит абсолютом
+    и потому изъята из grid-потока дуги; рисует её JS по кнопкам зубов */
+ .arch{position:relative;display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:var(--tooth-gap,10px);
    align-items:end}
  .arch.lower{align-items:start}
  /* молочный прикус: 10 зубов в ТОЙ ЖЕ 16-колоночной сетке, с 4-й позиции —

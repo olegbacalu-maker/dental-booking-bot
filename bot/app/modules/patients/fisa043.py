@@ -37,6 +37,13 @@ _STATE_ABBR = {"ok": "", "carie": "C", "obturatie": "O",
 # а не заменяет собой кариес. Легенда ниже расшифровывает обе группы разом:
 # читающему бланк неважно, где это лежит в базе.
 _MARK_ABBR = {"tratament": "T"}
+# Мост: коды из ответа врача пилота (08-21) — опора «Co» (вариант новее;
+# пишут и «Cr»), тело моста «D». ⚠️ «D» сталкивается с дистальной
+# поверхностью, и на бумаге тоже — различает ГРАММАТИКА клетки: мостовой код
+# стоит ПЕРВЫМ токеном (позиция кода находки), поверхностная D — в хвосте
+# после кода. Скобку решётка не рисует: мосты перечислены строкой под ней,
+# с материалом — ровно то, что врач пишет под своей acoladă.
+_BRIDGE_ABBR = {"stalp": "Co", "corp": "D"}
 # ⚠️ САМИ коды (C/O/T/Cor/Imp/E/A, MODVL) не переводятся — они производные
 # от румынских слов и одинаковы на обоих листах; переводится расшифровка,
 # иначе на русском листе легенда нечитаема ровно там, где она и нужна
@@ -44,11 +51,13 @@ _LEGEND = {
     "ro": ("C — carie · O — obturație · T — în tratament · Cor — coroană · "
            "Imp — implant · E — extras · A — absent · (gol) — sănătos / "
            "neexaminat. Suprafețe: M — mezial, O — ocluzal, D — distal, "
-           "V — vestibular, L — lingual"),
+           "V — vestibular, L — lingual. "
+           "Punte: Co — dinte stâlp, D — corp de punte (primul cod din celulă)"),
     "ru": ("C — кариес · O — пломба · T — в лечении · Cor — коронка · "
            "Imp — имплант · E — удалён · A — отсутствует · (пусто) — здоров / "
            "не осмотрен. Поверхности: M — медиальная, O — окклюзионная, "
-           "D — дистальная, V — вестибулярная, L — язычная"),
+           "D — дистальная, V — вестибулярная, L — язычная. "
+           "Мост: Co — опорный зуб, D — тело моста (первый код клетки)"),
 }
 
 _FDI_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
@@ -88,6 +97,7 @@ _T = {
         "meds": "Medicamente administrate",
         "anesth": "Reacții la anestezice",
         "s3": "3. Formula dentară", "tnotes": "Note pe dinți",
+        "bridge": "Punte dentară",
         "s4": "4. Date obiective", "mucosa": "Starea mucoasei cavității bucale",
         "occl": "Ocluzia", "rx": "Examen radiologic",
         "rx_note": "în program: {n} radiografii atașate",
@@ -122,6 +132,7 @@ _T = {
         "meds": "Принимаемые лекарства",
         "anesth": "Реакции на анестетики",
         "s3": "3. Зубная формула", "tnotes": "Заметки по зубам",
+        "bridge": "Мост (punte)",
         "s4": "4. Объективные данные", "mucosa": "Состояние слизистой полости рта",
         "occl": "Прикус", "rx": "Рентгенологическое исследование",
         "rx_note": "в программе: {n} снимков",
@@ -196,10 +207,16 @@ def _dt(value) -> str:
     return value.strftime("%d.%m.%Y %H:%M")
 
 
-def _od_rows(teeth: dict, milk: bool = False) -> str:
+def _od_rows(teeth: dict, milk: bool = False,
+             bmap: dict | None = None) -> str:
     """Ряды решётки: статусы верхних, номера верхних, [молочные], номера
     нижних, статусы нижних. Средняя линия — утолщённая граница на 9-й клетке.
-    Клетка статуса — буква состояния и, если отмечены, поверхности («C MO»)."""
+    Клетка статуса — буква состояния и, если отмечены, поверхности («C MO»).
+    `bmap` — {fdi: роль моста}: мостовой код (Co/D) встаёт ПЕРВЫМ токеном
+    клетки, прежнее содержимое уходит в хвост — так клетка опоры с кариесом
+    читается «Co C M», а тела моста над отсутствующим — «D A»."""
+    bmap = bmap or {}
+
     def cells(nums, kind, pad=0):
         out = ["<td></td>"] * pad
         for i, n in enumerate(nums):
@@ -239,6 +256,11 @@ def _od_rows(teeth: dict, milk: bool = False) -> str:
                     head = code or mk
                     tail = mk if (code and mk) else ""
                     txt = " ".join(x for x in (head, sf, tail) if x)
+                # мост — первым токеном обеих ветвей: конструкция называет
+                # клетку раньше находки, как на бумаге у врача
+                bcode = _BRIDGE_ABBR.get(bmap.get(n, ""), "")
+                if bcode:
+                    txt = f"{bcode} {txt}".strip()
                 out.append(f"<td class='st{mid}'>{html.escape(txt)}</td>")
         out += ["<td></td>"] * pad
         return "".join(out)
@@ -278,7 +300,8 @@ def _diary_cell(r: dict, t: dict) -> tuple[str, str]:
 
 def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
            rx_count: int, age: int | None, anam: dict | None = None,
-           flag_labels: dict | None = None, lang: str = "ro") -> str:
+           flag_labels: dict | None = None, lang: str = "ro",
+           punti: list | None = None) -> str:
     """`recs` — записи приёмов ХРОНОЛОГИЧЕСКИ (дневник читается сверху вниз).
     `anam` — опросник анамнеза, `flag_labels` — подписи его отметок."""
     e = html.escape
@@ -339,6 +362,24 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
     # молочным зубам либо пациенту меньше 14 лет
     has_milk = (any(50 < t < 90 for t in teeth)
                 or (age is not None and age < 14))
+
+    # Мосты: код в клетке (Co/D через bmap) + строка с материалом под
+    # легендой — печатный аналог скобки (acoladă), которую врач рисует на
+    # бумаге над конструкцией. Разбор строкой из базы — только parse_bridge.
+    punti_map: dict = {}
+    punti_lines = []
+    for b in (punti or []):
+        tt = tsvg.parse_bridge(b["teeth"])
+        if not tt:
+            continue
+        for n, r in tt:
+            punti_map[n] = r
+        codes = ", ".join(f"{n} {_BRIDGE_ABBR[r]}" for n, r in tt)
+        mat = (b.get("material") or "").strip()
+        punti_lines.append(
+            f"<p class='line'>{t['bridge']} {tt[0][0]}–{tt[-1][0]}"
+            + (f" ({e(mat)})" if mat else "") + f": {codes}</p>")
+    punti_html = "".join(punti_lines)
 
     # ⚠️ Причина отказа печатается В ТОЙ ЖЕ строке, под процедурой, а не
     # отдельной колонкой: ст.13(5) требует, чтобы отказ и объяснённые
@@ -412,8 +453,9 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
 <p class="line">{t["anesth"]}: {_fill(anestezie, "_" * 50)}</p>
 
 <h2>{t["s3"]}</h2>
-<table class="od">{_od_rows(teeth, has_milk)}</table>
+<table class="od">{_od_rows(teeth, has_milk, punti_map)}</table>
 <p class="legend">{_LEGEND[lang]}</p>
+{punti_html}
 {f"<p class='tnotes'><b>{t['tnotes']}:</b> {tooth_notes}</p>" if tooth_notes else ""}
 
 <h2>{t["s4"]}</h2>

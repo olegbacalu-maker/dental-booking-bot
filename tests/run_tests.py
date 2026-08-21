@@ -114,6 +114,7 @@ SUITES = [
     ("Одонтограмма: память поверхностей", test_teeth.suite_surface_memory),
     ("Одонтограмма: ввод поверхностей", test_teeth.suite_surface_input),
     ("Одонтограмма: отметки поверх находки", test_teeth.suite_marks),
+    ("Одонтограмма: мост (punte)", test_teeth.suite_punte),
     ("Дневник визита", test_visit.suite),
     ("Дневник визита: план и статусы", test_visit.suite_plan),
     ("Дневник визита: закон 195", test_visit.suite_195),

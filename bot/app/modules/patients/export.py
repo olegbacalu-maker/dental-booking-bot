@@ -78,6 +78,9 @@ async def collect(pid: int) -> dict | None:
         "programari": await db.patient_appointments(pid, _ALL),
         "atentionari": await db.patient_alerts(pid),
         "dinti": [teeth[t] for t in sorted(teeth)],
+        # мосты — конструкции ПОВЕРХ зубов (08-21): машинная копия несёт
+        # строку teeth как есть, человеку роли разворачивает render_html
+        "punti": await db.bridges(pid),
         "plan_tratament": await db.plan_items(pid),
         "anamneza": await db.anamneza(pid),
         "consultatii": await db.patient_visit_records(pid),
@@ -194,6 +197,14 @@ def render_html(data: dict) -> str:
                          for m in tsvg.mark_list(t.get("marks") or ""))) or "—",
           _esc(t["doctor"]) or "—",
           _esc(t["note"]) or "—", _dt(t["updated_at"])] for t in data["dinti"]])
+    # мост — конструкция поверх зубов; роли КАЖДОГО зуба разворачиваются
+    # словами (BRIDGE_RO): «47:stalp» в копии для человека — код, не ответ
+    punti = _table(
+        ["Dinți și roluri", "Material", "Medic", "Data"],
+        [[" · ".join(f"{n} {tsvg.BRIDGE_RO[r]}"
+                     for n, r in tsvg.parse_bridge(b["teeth"])),
+          _esc(b["material"]) or "—", _esc(b["doctor"]) or "—",
+          _dt(b["created_at"])] for b in data.get("punti", [])])
     # ⚠️ Причина отказа входит в копию по 195-му наравне с остальным: это
     # данные о пациенте, которые клиника о нём хранит, и «право на доступ»
     # означает в том числе увидеть, как записан собственный отказ
@@ -287,6 +298,7 @@ def render_html(data: dict) -> str:
 <h2>Atenționări medicale ({len(data['atentionari'])})</h2>{atentionari}
 <h2>Anamneză</h2>{anamneza}
 <h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
+<h2>Punți dentare ({len(data.get('punti', []))})</h2>{punti}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
 <h2>Consultații ({len(data['consultatii'])})</h2>{consultatii}
 <h2>Plăți ({len(data['plati'])})</h2>{plati}

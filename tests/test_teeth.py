@@ -1005,3 +1005,119 @@ def suite_marks(res: Result) -> None:
         res.ok("при живой находке отметка остаётся в хвосте",
                ">C MO T</td>" in f043,
                "порядок токенов клетки разъехался с легендой листа")
+
+
+def suite_punte(res: Result) -> None:
+    """Мост (punte, 08-21, просьба пилота): конструкция ПОВЕРХ зубов.
+
+    Канон — из ответа врача: роль у КАЖДОГО зуба (опора бывает в середине:
+    47-45-43 опоры при теле 46/44), в клетке 043/e опора «Co», тело «D»
+    ПЕРВЫМ токеном, над конструкцией материал (наша печать — строкой под
+    решёткой). Проверяется доезд до всех четырёх представлений: детальная
+    страница, фиша, печатная 043/e, выгрузка по 195-му — и правила дуги.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post("/admin/patients/new", name="Punte Test", phone="022343434")
+        pid = _pid(c, "022343434")
+        base = f"/admin/patient/{pid}"
+
+        # состояние зубов ДО моста: опора с кариесом, тело над отсутствующим —
+        # мост их не мутирует, и клетка 043/e обязана показать оба знания
+        c.post(f"{base}/tooth", tooth="47", state="carie", doctor="d2")
+        c.post(f"{base}/tooth", tooth="46", state="lipsa", doctor="d2")
+
+        r = c.post(f"{base}/bridge",
+                   teeth="44:corp,47:stalp,45:stalp,46:corp,43:stalp",
+                   material="zirconiu")
+        res.check("мост сохраняется (порядок кликов — любой)", r.msg, "ok_punte")
+
+        page = c.get(f"{base}/odontograma").body
+        res.ok("мост на детальной странице",
+               '"teeth": [[47, "stalp"]' in page and "zirconiu" in page,
+               "мост не доехал до BRIDGES страницы")
+        res.ok("порядок зубов нормализован по дуге",
+               '[[47, "stalp"], [46, "corp"], [45, "stalp"], [44, "corp"], '
+               '[43, "stalp"]]' in page,
+               "зубы не в порядке дуги — скобка и печать прочтут вразнобой")
+        res.ok("зуб подписан ролью", "Punte: Stâlp (zirconiu)" in page,
+               "в title зуба нет роли")
+        res.ok("мост виден и в фише",
+               '"teeth": [[47, "stalp"]' in c.get(base).body,
+               "компактная карточка без моста")
+        res.ok("летопись называет мост словами",
+               "stâlpi: 47, 45, 43" in c.get(base).body,
+               "в ленте нет строки моста со словами ролей")
+
+        # --- правила дуги (bridge_norm) ---
+        for label, teeth in (
+            ("дырка в ряду", "47:stalp,45:corp"),
+            ("смесь дуг", "17:stalp,47:corp"),
+            ("молочные", "85:stalp,84:corp"),
+            ("один зуб", "41:stalp"),
+            ("без единой опоры", "42:corp,41:corp"),
+            ("мусорная роль отбрасывается", "42:xxx,41:corp"),
+        ):
+            r = c.post(f"{base}/bridge", teeth=teeth, material="metal")
+            res.check(f"отказ: {label}", r.msg, "bad_punte")
+        r = c.post(f"{base}/bridge", teeth="43:stalp,42:corp", material="metal")
+        res.check("зуб двух мостов сразу — отказ", r.msg, "dup_punte")
+        r = c.post(f"{base}/bridge", teeth="15:stalp,14:corp,13:stalp",
+                   material="alt", material_alt="E.max")
+        res.check("вторая дуга свободна, свой материал принят", r.msg, "ok_punte")
+        res.ok("свободный материал доехал",
+               "E.max" in c.get(f"{base}/odontograma").body,
+               "material_alt потерян")
+
+        # --- печатная 043/e ---
+        fisa = c.get(f"{base}/fisa043").body
+        res.ok("клетка опоры: мост первым токеном, находка следом",
+               ">Co C<" in fisa,
+               "клетка 47 не «Co C» — конструкция не названа раньше находки")
+        res.ok("клетка тела моста над отсутствующим: «D A»",
+               ">D A<" in fisa, "клетка 46 не «D A»")
+        res.ok("строка моста с материалом (печатная acoladă)",
+               "Punte dentară 47–43 (zirconiu): 47 Co, 46 D, 45 Co, 44 D, 43 Co"
+               in fisa, "под решёткой нет строки моста")
+        res.ok("легенда объясняет мостовые коды",
+               "Co — dinte stâlp" in fisa, "легенда без моста")
+
+        # --- выгрузка по 195-му ---
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"{base}/export").raw))
+        html_doc = z.read([n for n in z.namelist()
+                           if n.endswith(".html")][0]).decode("utf-8")
+        res.ok("выгрузка несёт раздел мостов",
+               "Punți dentare" in html_doc and "Stâlp" in html_doc
+               and "zirconiu" in html_doc,
+               "в копии по 195-му моста нет")
+
+        # --- снятие моста ---
+        m = re.search(r'"id": (\d+), "teeth": \[\[47', page)
+        bid = m.group(1) if m else "0"
+        other = Client(s.url).login()
+        other.post("/admin/patients/new", name="Alt Pacient", phone="022454545")
+        pid2 = _pid(other, "022454545")
+        other.post(f"/admin/patient/{pid2}/bridge/{bid}/del")
+        res.ok("чужая фиша мост не снимает",
+               '"teeth": [[47, "stalp"]' in c.get(f"{base}/odontograma").body,
+               "мост снят через чужой pid")
+        r = c.post(f"{base}/bridge/{bid}/del")
+        res.check("свой мост снимается", r.msg, "ok_punte_del")
+        page = c.get(f"{base}/odontograma").body
+        res.ok("мост ушёл со страницы", '[[47, "stalp"]' not in page,
+               "снятый мост остался")
+        res.ok("состояния зубов мост не тронул",
+               '"state": "carie"' in page and '"state": "lipsa"' in page,
+               "снятие моста задело состояния зубов")
+        res.ok("снятие оставило след в летописи",
+               "Punte dentară 47–43 ștearsă" in c.get(base).body,
+               "мост исчез из истории бесследно")
+
+        # --- мост держит фишу от физического стирания (лечение) ---
+        c.post("/admin/patients/new", name="Doar Punte", phone="022565656")
+        pid3 = _pid(c, "022565656")
+        c.post(f"/admin/patient/{pid3}/bridge", teeth="21:stalp,22:corp",
+               material="ceramică")
+        r = c.post(f"/admin/patient/{pid3}/erase", confirm="STERG")
+        res.check("пациент с одним мостом обезличивается, не стирается",
+                  r.msg, "ok_anon")

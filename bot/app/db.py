@@ -240,6 +240,18 @@ CREATE TABLE IF NOT EXISTS anamneza(
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ
 );
+-- Мост (punte, 08-21, просьба пилота): конструкция ПОВЕРХ зубов, своя строка.
+-- teeth — «47:stalp,46:corp,…» в порядке дуги (канон и разбор — teeth_svg,
+-- роль у КАЖДОГО зуба: опора бывает и в середине); material — подпись под
+-- скобкой («zirconiu» и т.п.); doctor — снапшот имени, как у teeth/plan_items.
+CREATE TABLE IF NOT EXISTS bridges(
+  id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES patients(id),
+  teeth TEXT NOT NULL,
+  material TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -469,6 +481,14 @@ CREATE TABLE IF NOT EXISTS anamneza(
   author TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS bridges(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  teeth TEXT NOT NULL,
+  material TEXT NOT NULL DEFAULT '',
+  doctor TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
@@ -2462,6 +2482,88 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     await log_event(pid, "tooth", txt, tooth=tooth)
 
 
+# ---------- мосты (punte, 08-21, просьба пилота) ----------
+# Мост — конструкция ПОВЕРХ зубов: состояние зуба (teeth.state) не мутируется,
+# кариес под опорой и «lipsă» под промежутком остаются правдой самого зуба.
+# Роль у КАЖДОГО зуба (опора бывает и в середине — пример врача: 47-43 с
+# опорами 47/45/43); печать и рисование читают строку teeth через
+# teeth_svg.parse_bridge — второго разбора не заводить.
+
+async def bridges(pid: int) -> list:
+    return await _fetch(
+        """SELECT id, teeth, material, doctor, created_at
+           FROM bridges WHERE patient_id = $1 ORDER BY id""",
+        """SELECT id, teeth, material, doctor, created_at
+           FROM bridges WHERE patient_id = ? ORDER BY id""", pid)
+
+
+def _bridge_words(teeth: list, material: str) -> str:
+    """Мост словами для летописи: «Punte dentară 47–43 din zirconiu; stâlpi:
+    47, 45, 43; intermediari: 46, 44». Летопись хранит ГОТОВУЮ строку навсегда
+    (см. log_event), поэтому роли разворачиваются в слова здесь и сейчас."""
+    span = f"{teeth[0][0]}–{teeth[-1][0]}"
+    stalpi = ", ".join(str(n) for n, r in teeth if r == "stalp")
+    corp = ", ".join(str(n) for n, r in teeth if r == "corp")
+    out = f"Punte dentară {span}"
+    if material:
+        out += f" din {material}"
+    out += f"; stâlpi: {stalpi}"
+    if corp:
+        out += f"; intermediari: {corp}"
+    return out
+
+
+async def add_bridge(pid: int, teeth: list, material: str,
+                     doctor: str = "") -> int | str | None:
+    """id — записан; 'dup' — какой-то зуб уже в другом мосту (два моста на
+    одном зубе — вздор, и молча перекрывать чужую конструкцию нельзя).
+    `teeth` приходит УЖЕ нормализованным (odontogram.bridge_norm) — db
+    порядка дуги не знает."""
+    from .teeth_svg import pack_bridge, parse_bridge
+    mine = {n for n, _r in teeth}
+    for row in await bridges(pid):
+        if mine & {n for n, _r in parse_bridge(row["teeth"])}:
+            return "dup"
+    packed = pack_bridge(teeth)
+    if IS_SQLITE:
+        cur = await _CONN.execute(
+            """INSERT INTO bridges(patient_id, teeth, material, doctor,
+                                   created_at) VALUES(?, ?, ?, ?, ?)""",
+            (pid, packed, material, doctor, _utcnow_iso()))
+        await _CONN.commit()
+        new_id = cur.lastrowid
+        await cur.close()
+    else:
+        async with POOL.acquire() as c:
+            new_id = await c.fetchval(
+                """INSERT INTO bridges(patient_id, teeth, material, doctor)
+                   VALUES($1, $2, $3, $4) RETURNING id""",
+                pid, packed, material, doctor)
+    txt = _bridge_words(teeth, material)
+    if doctor:
+        txt += f" · {doctor}"
+    await log_event(pid, "bridge", txt)
+    return new_id
+
+
+async def delete_bridge(bid: int, pid: int) -> bool:
+    """Снять мост. След в летописи остаётся: конструкцию ставили и снимали —
+    это события лечения, а не оформление."""
+    from .teeth_svg import parse_bridge
+    rows = await _fetch(
+        "SELECT teeth FROM bridges WHERE id = $1 AND patient_id = $2",
+        "SELECT teeth FROM bridges WHERE id = ? AND patient_id = ?", bid, pid)
+    if not rows:
+        return False
+    t = parse_bridge(rows[0]["teeth"])
+    span = f"{t[0][0]}–{t[-1][0]}" if t else "?"
+    await log_event(pid, "bridge", f"Punte dentară {span} ștearsă")
+    await _execute(
+        "DELETE FROM bridges WHERE id = $1 AND patient_id = $2",
+        "DELETE FROM bridges WHERE id = ? AND patient_id = ?", bid, pid)
+    return True
+
+
 # ⭐ «Активная» позиция плана — это planificat|in_lucru, а НЕ «всё, что не
 # finalizat». Пока статусов было три, две формулировки совпадали; с появлением
 # ОТКАЗА (refuzat, ст.13(5) Legea 263/2005) вторая стала враньём: отказанная
@@ -2880,6 +2982,10 @@ async def erasure_kind(pid: int) -> str:
     # а не стирается физически
     anam = await _n("SELECT COUNT(*) FROM anamneza WHERE patient_id = $1",
                     "SELECT COUNT(*) FROM anamneza WHERE patient_id = ?", pid)
+    # мост — протезная работа, то есть лечение: держит фишу от физического
+    # стирания наравне с зубами и планом
+    punti = await _n("SELECT COUNT(*) FROM bridges WHERE patient_id = $1",
+                     "SELECT COUNT(*) FROM bridges WHERE patient_id = ?", pid)
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = $1
@@ -2890,7 +2996,7 @@ async def erasure_kind(pid: int) -> str:
                 OR (status = 'confirmed' AND starts_at < ?))""",
         *((pid, now) if not IS_SQLITE else (pid, _iso(now))))
     return ("anon" if (teeth or plan or docs or happened or pays or consult
-                       or anam) else "delete")
+                       or anam or punti) else "delete")
 
 
 # Таблицы, ссылающиеся на пациента, — в порядке удаления: дети раньше родителя
@@ -2898,7 +3004,7 @@ async def erasure_kind(pid: int) -> str:
 # приёмов стоят раньше визитов: FK на appointments. ⚠️ Состав обязан совпадать
 # с export.py — обе стороны отвечают «где в базе лежит этот человек».
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
-                         "plan_items", "documents", "anamneza",
+                         "plan_items", "documents", "anamneza", "bridges",
                          "visit_records", "appointments")
 
 

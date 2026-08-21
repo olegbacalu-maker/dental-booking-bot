@@ -193,6 +193,12 @@ MSG_BANNER = {
                           "câmpurile de date; intervalul poate fi de cel mult "
                           "un an și nu mai vechi de anul 2000"),
     "ok_card": ("ok", "Fișa pacientului a fost actualizată"),
+    "ok_punte": ("ok", "Puntea a fost salvată"),
+    "ok_punte_del": ("ok", "Puntea a fost ștearsă"),
+    "bad_punte": ("err", "Puntea nu este validă — dinți învecinați de pe "
+                         "aceeași arcadă, cu cel puțin un stâlp"),
+    "dup_punte": ("err", "Un dinte face deja parte din altă punte — "
+                         "ștergeți-o întâi pe aceea"),
     # ⚠️ Архивация УБИРАЕТ пациента из списка, и общее «фиша обновлена» об этом
     # молчит: человек возвращается в список, никого там не находит и решает,
     # что запись пропала. Сообщение обязано назвать, где искать.
