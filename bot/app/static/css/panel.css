@@ -1027,9 +1027,12 @@
    display:flex;justify-content:center}
  .br-arc.lo{border-bottom:2px solid var(--teal-d);border-top:none;
    border-radius:0 0 6px 6px}
+ /* max-width: подпись с непрозрачным фоном (--panel) не шире самой скобки —
+    длинный материал на коротком мосту иначе накрывал бы соседние зубы */
  .br-arc span{position:relative;top:-9px;font-size:9.5px;line-height:1;
    color:var(--teal-d);background:var(--panel);padding:0 5px;font-weight:600;
-   white-space:nowrap}
+   white-space:nowrap;max-width:calc(100% - 4px);overflow:hidden;
+   text-overflow:ellipsis}
  .br-arc.lo span{top:5px}
  /* режим выбора зубов моста: пунктирная рамка на отмеченных */
  .tooth-btn.br-pick{outline:2px dashed var(--teal);outline-offset:2px}
@@ -1053,7 +1056,10 @@
    margin:8px 0 2px;padding:8px 10px;border:1px solid var(--line);
    border-radius:10px;background:var(--bg);font-size:12.5px}
  .i-bridge form{margin:0}
- @media print{.br-bar,#br_new{display:none}}
+ /* .br-arc на печать не идёт: скобка положена JS-ом в ЭКРАННЫХ пикселях, а
+    печать перекладывает поток — скобка легла бы мимо зубов. Мосты на бумаге
+    несёт 043/e (клетки Co/D + строка-acoladă), экранная скобка — дубль. */
+ @media print{.br-bar,#br_new,.br-arc{display:none}}
  .insp-n span{color:var(--text2);font-size:13px}
  /* рамка под рисунок зуба: высота фиксирована, иначе панель прыгает при
     выборе резца после моляра */

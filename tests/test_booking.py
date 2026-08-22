@@ -399,6 +399,23 @@ def suite_status(res: Result) -> None:
                "class='appt waiting" in page and bool(badge)
                and "a venit" in badge.group(1),
                f"плашка waiting: {badge.group(1)[:60] if badge else 'нет'!r}")
+        # «așteaptă N min» (08-21): сервер кладёт ТОЛЬКО штамп data-wait-since
+        # (в повестку <small>, в сетку <span>), минуты рисует panel.js
+        # (paintWaits) — серверная строка минут делала бы отпечаток живого
+        # куска всегда другим, и подмена шла бы каждый опрос (ревью 08-22:
+        # фича была без единой проверки)
+        # дом ожидания — дневная панель /admin (канва + повестка); полный
+        # день /admin/all его не рисует по замыслу
+        day_home = c.get(f"/admin?date={_d(2)}").body
+        res.ok("штамп ожидания стоит на канве дня",
+               "<span class='wait-min' data-wait-since=" in day_home,
+               "data-wait-since не доехал до канвы — paintWaits нечего рисовать")
+        res.ok("штамп ожидания стоит в повестке",
+               "<small class='wait-min' data-wait-since=" in day_home,
+               "data-wait-since не доехал до повестки дня")
+        res.ok("минуты ожидания сервер не печатает",
+               "așteaptă" not in day_home,
+               "серверные минуты = недетерминированный live-отпечаток")
         # слот пришедшего ЗАНЯТ: ACTIVE_STATUSES и предикаты uq-индексов
         # обязаны знать waiting, иначе двойная бронь проходит молча
         res.check("час пришедшего занят для новой записи",

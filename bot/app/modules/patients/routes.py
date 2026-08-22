@@ -1330,7 +1330,8 @@ async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
 @router.post("/admin/patient/{pid}/bridge")
 async def patient_bridge_add(request: Request, pid: int,
                              teeth: str = Form(""), material: str = Form(""),
-                             material_alt: str = Form("")):
+                             material_alt: str = Form(""),
+                             doctor: str = Form("")):
     """Мост (punte, 08-21, просьба пилота с готовым жестом: «selectezi 47-44
     și meniu în care alegi punte»). `teeth` — «47:stalp,46:corp,…» одной
     строкой: разбор по белым спискам в teeth_svg.parse_bridge, порядок и
@@ -1347,8 +1348,12 @@ async def patient_bridge_add(request: Request, pid: int,
     if norm is None:
         return RedirectResponse(f"{back}?msg=bad_punte", status_code=303)
     mat = (material_alt if material == "alt" else material).strip()[:40]
-    who = request_user() or {}
-    r = await db.add_bridge(pid, norm, mat, who.get("name") or "")
+    # врач — из формы и только из справочника, как у зуба: поле «Medic» в
+    # экспорте-195 и летописи — снапшот ЛЕЧАЩЕГО, а вошедшая учётка (нередко
+    # «Director» или регистратура) там была бы враньём; автора события и так
+    # подписывает летопись сама (ACTOR_HOOK). Пусто — честнее, чем не тот.
+    doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
+    r = await db.add_bridge(pid, norm, mat, doc)
     msg = "dup_punte" if r == "dup" else "ok_punte"
     return RedirectResponse(f"{back}?msg={msg}", status_code=303)
 

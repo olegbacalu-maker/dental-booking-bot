@@ -1068,6 +1068,27 @@ def suite_punte(res: Result) -> None:
         res.ok("свободный материал доехал",
                "E.max" in c.get(f"{base}/odontograma").body,
                "material_alt потерян")
+        # фронтальный мост ЧЕРЕЗ среднюю линию — единственная позитивная
+        # ветка, где порядок дуги расходится с порядком номеров FDI (41→31):
+        # сравнение «подряд» по номерам его бы отвергло. Заодно врач моста:
+        # из справочника — снапшотом в летопись, чужое имя — отбрасывается
+        r = c.post(f"{base}/bridge", teeth="31:corp,41:stalp",
+                   material="ceramică", doctor="Dr. Activ Doi")
+        res.check("мост через среднюю линию", r.msg, "ok_punte")
+        page = c.get(f"{base}/odontograma").body
+        res.ok("порядок через центр — по дуге, не по номерам",
+               '[[41, "stalp"], [31, "corp"]]' in page,
+               "фронтальный мост не нормализован порядком дуги")
+        # якорь точный (« · врач» в хвосте строки моста): имя врача само по
+        # себе стоит на фише в селектах — голое вхождение зелено всегда
+        res.ok("врач моста — снапшотом в летописи",
+               "intermediari: 31 · Dr. Activ Doi" in c.get(base).body,
+               "выбранный врач не доехал до летописи")
+        c.post(f"{base}/bridge", teeth="33:stalp,34:corp",
+               material="metal", doctor="Oarecare Străin")
+        res.ok("врач вне справочника отброшен",
+               "Oarecare Străin" not in c.get(base).body,
+               "свободный текст в поле врача прошёл в летопись")
 
         # --- печатная 043/e ---
         fisa = c.get(f"{base}/fisa043").body
@@ -1081,6 +1102,10 @@ def suite_punte(res: Result) -> None:
                in fisa, "под решёткой нет строки моста")
         res.ok("легенда объясняет мостовые коды",
                "Co — dinte stâlp" in fisa, "легенда без моста")
+        res.ok("легенда привязывает мост к списку под решёткой",
+               "doar la dinții enumerați" in fisa,
+               "клетка из одной «D» (здоровый зуб с поверхностью) без этой "
+               "оговорки читалась бы как тело моста")
 
         # --- выгрузка по 195-му ---
         z = zipfile.ZipFile(io.BytesIO(c.get(f"{base}/export").raw))
@@ -1103,6 +1128,14 @@ def suite_punte(res: Result) -> None:
                "мост снят через чужой pid")
         r = c.post(f"{base}/bridge/{bid}/del")
         res.check("свой мост снимается", r.msg, "ok_punte_del")
+        # повторное снятие (вторая вкладка, тот же confirm) — отказ, а не
+        # второй «ștearsă» в летописи: log_event идёт после DELETE и только
+        # при реально снятой строке (ревью 08-22)
+        r = c.post(f"{base}/bridge/{bid}/del")
+        res.check("повторное снятие того же моста — отказ", r.msg, "bad")
+        res.ok("одно снятие — одна строка летописи",
+               c.get(base).body.count("Punte dentară 47–43 ștearsă") == 1,
+               "двойной клик снятия записал событие дважды")
         page = c.get(f"{base}/odontograma").body
         res.ok("мост ушёл со страницы", '[[47, "stalp"]' not in page,
                "снятый мост остался")

@@ -520,6 +520,10 @@ function paintWaits() {
     els[i].textContent = 'așteaptă ' + m + ' min';
     els[i].classList.toggle('long', m >= 15);
   }
+  /* блоки сетки замерены fitAppts ДО того, как сюда вписался текст ожидания —
+     блок на грани после вписывания переполняется и клипается; перемер после
+     текста возвращает честный слим-класс (страницы без сетки — no-op) */
+  if (window.fitAppts) fitAppts();
 }
 paintWaits();
 setInterval(paintWaits, 60000);

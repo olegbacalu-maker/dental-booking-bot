@@ -563,16 +563,19 @@ def suite(res: Result) -> None:
                        "снова только процессный")
     for rel, tree in src:
         for n in ast.walk(tree):
-            if not isinstance(n, (ast.With, ast.AsyncWith)):
+            # ЛЮБОЕ обращение к имени, не только with-форма: прямой
+            # `await _BOOK_LOCK.acquire()` или передача замка дальше обходили
+            # бы сторож, смотревший на одни with (ревью 08-22). Определение
+            # (`_BOOK_LOCK = asyncio.Lock()`) — Name в Store, пропускается;
+            # у Attribute (db._BOOK_LOCK извне) запрещён и Store.
+            name_use = (isinstance(n, ast.Name) and n.id == "_BOOK_LOCK"
+                        and isinstance(n.ctx, ast.Load))
+            attr_use = isinstance(n, ast.Attribute) and n.attr == "_BOOK_LOCK"
+            if not (name_use or attr_use):
                 continue
-            uses = any((isinstance(x, ast.Name) and x.id == "_BOOK_LOCK")
-                       or (isinstance(x, ast.Attribute)
-                           and x.attr == "_BOOK_LOCK")
-                       for item in n.items
-                       for x in ast.walk(item.context_expr))
-            if uses and not (rel == "app/db.py"
-                             and "_slot_lock" in _enclosing(tree, n.lineno)):
-                bad.append(f"{rel}:{n.lineno}")
+            if rel == "app/db.py" and "_slot_lock" in _enclosing(tree, n.lineno):
+                continue
+            bad.append(f"{rel}:{n.lineno}")
     res.ok("замок брони берётся только через _slot_lock", not bad,
            "_BOOK_LOCK взят напрямую — у Postgres-издания это гонка двух "
            "воркеров за один слот: " + "; ".join(bad))

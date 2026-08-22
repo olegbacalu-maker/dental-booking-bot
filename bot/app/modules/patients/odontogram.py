@@ -159,12 +159,18 @@ function drawBridges() {
       el.className = 'br-arc' + (lower ? ' lo' : '');
       el.style.left = L + 'px';
       el.style.width = (R - L) + 'px';
+      /* --arc (вид ocluzal) двигает зуб transform-ом, а transform offsetTop
+         НЕ меняет — без поправки скобка ложилась бы НА поднятые зубы дуги */
+      var arcOf = function (b) {
+        var v = parseFloat(b.style.getPropertyValue('--arc'));
+        return isNaN(v) ? 0 : v;
+      };
       if (lower) {
         el.style.top = (Math.max.apply(null, bs.map(function (b) {
-          return b.offsetTop + b.offsetHeight; })) + 2) + 'px';
+          return b.offsetTop + b.offsetHeight + arcOf(b); })) + 2) + 'px';
       } else {
         el.style.top = (Math.min.apply(null, bs.map(function (b) {
-          return b.offsetTop; })) - 14) + 'px';
+          return b.offsetTop + arcOf(b); })) - 14) + 'px';
       }
       var lbl = document.createElement('span');
       lbl.textContent = br.material || 'punte';
@@ -307,8 +313,11 @@ VIEW_SCRIPT = """
     }
     try { localStorage.setItem('dp_odo_view', v); } catch (e) {}
     // инспектор рисует зуб из ВИДИМОЙ дуги, значит после переключения его
-    // надо перерисовать — иначе сверху остаётся лицевой рисунок
-    if (window.selTooth && window.SEL_TOOTH) selTooth(window.SEL_TOOTH);
+    // надо перерисовать — иначе сверху остаётся лицевой рисунок.
+    // !BR_MODE: в режиме «Punte nouă» selTooth перехвачен в brToggle, и
+    // переключение вида молча вбрасывало бы SEL_TOOTH в состав моста
+    if (window.selTooth && window.SEL_TOOTH && !window.BR_MODE)
+      selTooth(window.SEL_TOOTH);
     // скобки мостов меряются по кнопкам ВИДИМОЙ дуги — перерисовать
     if (window.drawBridges) drawBridges();
   }
@@ -626,6 +635,7 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
     <p class='hint' style='margin:0'>Click pe un dinte pentru a schimba rolul:
       stâlp (Co) sau corp de punte (D).</p>
     <div class='br-chips' id='br_chips'></div>
+    <select name='doctor' id='br_doc'><option value=''>Medic —</option>{doc_opts}</select>
     <select name='material' id='br_mat'>
       <option value='metalo-ceramică'>Metalo-ceramică</option>
       <option value='zirconiu'>Zirconiu</option>
@@ -752,7 +762,11 @@ const BRIDGES = {bridges_json(bridges or [])};
 const BRIDGE_RO = {js_json(tsvg.BRIDGE_RO)};
 const BR_BASE = '{base}';
 const ARCH_UP = {js_json(FDI_UPPER)}, ARCH_LO = {js_json(FDI_LOWER)};
-let BR_MODE = false, BR_SEL = [], BR_ROLES = {{}};
+// BR_MODE — на window: его читает ЧУЖОЙ скрипт (VIEW_SCRIPT, охрана
+// переключения вида), а top-level let, как и const, свойства window
+// не создаёт — та же ловушка, что у BRIDGES выше
+window.BR_MODE = false;
+let BR_SEL = [], BR_ROLES = {{}};
 function brIdx(n) {{
   let i = ARCH_UP.indexOf(n);
   return i >= 0 ? i : 100 + ARCH_LO.indexOf(n);

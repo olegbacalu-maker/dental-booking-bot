@@ -2518,27 +2518,31 @@ async def add_bridge(pid: int, teeth: list, material: str,
     """id — записан; 'dup' — какой-то зуб уже в другом мосту (два моста на
     одном зубе — вздор, и молча перекрывать чужую конструкцию нельзя).
     `teeth` приходит УЖЕ нормализованным (odontogram.bridge_norm) — db
-    порядка дуги не знает."""
+    порядка дуги не знает. Проверка и INSERT — под _slot_lock: инвариант
+    «зуб в одном мосту» держится только check-then-insert'ом (у таблицы нет
+    уникального индекса — зубы лежат упакованной строкой), и без замка два
+    конкурентных сохранения оба видят «свободно» (ревью 08-22)."""
     from .teeth_svg import pack_bridge, parse_bridge
     mine = {n for n, _r in teeth}
-    for row in await bridges(pid):
-        if mine & {n for n, _r in parse_bridge(row["teeth"])}:
-            return "dup"
-    packed = pack_bridge(teeth)
-    if IS_SQLITE:
-        cur = await _CONN.execute(
-            """INSERT INTO bridges(patient_id, teeth, material, doctor,
-                                   created_at) VALUES(?, ?, ?, ?, ?)""",
-            (pid, packed, material, doctor, _utcnow_iso()))
-        await _CONN.commit()
-        new_id = cur.lastrowid
-        await cur.close()
-    else:
-        async with POOL.acquire() as c:
-            new_id = await c.fetchval(
-                """INSERT INTO bridges(patient_id, teeth, material, doctor)
-                   VALUES($1, $2, $3, $4) RETURNING id""",
-                pid, packed, material, doctor)
+    async with _slot_lock():
+        for row in await bridges(pid):
+            if mine & {n for n, _r in parse_bridge(row["teeth"])}:
+                return "dup"
+        packed = pack_bridge(teeth)
+        if IS_SQLITE:
+            cur = await _CONN.execute(
+                """INSERT INTO bridges(patient_id, teeth, material, doctor,
+                                       created_at) VALUES(?, ?, ?, ?, ?)""",
+                (pid, packed, material, doctor, _utcnow_iso()))
+            await _CONN.commit()
+            new_id = cur.lastrowid
+            await cur.close()
+        else:
+            async with POOL.acquire() as c:
+                new_id = await c.fetchval(
+                    """INSERT INTO bridges(patient_id, teeth, material, doctor)
+                       VALUES($1, $2, $3, $4) RETURNING id""",
+                    pid, packed, material, doctor)
     txt = _bridge_words(teeth, material)
     if doctor:
         txt += f" · {doctor}"
@@ -2548,19 +2552,27 @@ async def add_bridge(pid: int, teeth: list, material: str,
 
 async def delete_bridge(bid: int, pid: int) -> bool:
     """Снять мост. След в летописи остаётся: конструкцию ставили и снимали —
-    это события лечения, а не оформление."""
+    это события лечения, а не оформление. Летопись пишется ПОСЛЕ удаления и
+    только если DELETE реально снял строку: log_event коммитится собственной
+    транзакцией, и записанное ДО было бы враньём навсегда при отказе DELETE
+    или втором конкурентном удалении (ревью 08-22). Замок — тот же, что у
+    add_bridge: SELECT и DELETE иначе гоняются с ним."""
     from .teeth_svg import parse_bridge
-    rows = await _fetch(
-        "SELECT teeth FROM bridges WHERE id = $1 AND patient_id = $2",
-        "SELECT teeth FROM bridges WHERE id = ? AND patient_id = ?", bid, pid)
-    if not rows:
+    async with _slot_lock():
+        rows = await _fetch(
+            "SELECT teeth FROM bridges WHERE id = $1 AND patient_id = $2",
+            "SELECT teeth FROM bridges WHERE id = ? AND patient_id = ?",
+            bid, pid)
+        if not rows:
+            return False
+        n = await _execute(
+            "DELETE FROM bridges WHERE id = $1 AND patient_id = $2",
+            "DELETE FROM bridges WHERE id = ? AND patient_id = ?", bid, pid)
+    if n != 1:
         return False
     t = parse_bridge(rows[0]["teeth"])
     span = f"{t[0][0]}–{t[-1][0]}" if t else "?"
     await log_event(pid, "bridge", f"Punte dentară {span} ștearsă")
-    await _execute(
-        "DELETE FROM bridges WHERE id = $1 AND patient_id = $2",
-        "DELETE FROM bridges WHERE id = ? AND patient_id = ?", bid, pid)
     return True
 
 
@@ -3034,7 +3046,13 @@ async def delete_patient_fully(pid: int) -> None:
             await _CONN.executescript(script)
         except Exception:
             # обрыв посреди скрипта оставляет транзакцию открытой — вернуть
-            # базу в исходное; вне транзакции rollback безвреден
+            # базу в исходное; вне транзакции rollback безвреден.
+            # ⚠️ Принятый риск (ревью 08-22): между этим исключением и
+            # rollback чужая операция очереди может успеть commit — общий
+            # commit зафиксировал бы полу-удаление. Предусловие — сам скрипт
+            # упал, а падает он только на уже-битой базе (диск, коррупция),
+            # где атомарность уже не главная беда; отдельное соединение ради
+            # этого окна не заводим.
             await _CONN.rollback()
             raise
     else:

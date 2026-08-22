@@ -211,6 +211,26 @@ def suite_config_fallback(res: Result) -> None:
         res.check("журнал за ним работает",
                   Client(s.url).login().get("/admin").status, 200)
 
+    # ANSI-ловушка Блокнота (ревью 08-22): клиника правит clinic.json в
+    # Блокноте, «Сохранить» в кодировке Windows — файл валидный JSON, но
+    # байты не UTF-8. UnicodeDecodeError обязан вести себя как любая порча
+    # (пробуем .bak), а не ронять сам ИМПОРТ engine — тогда не поднялся бы
+    # даже /health, и у клиники это «программа не открывается».
+    s = Server()
+    cfg["name"] = "Clinica Rezerva"
+    (s.dir / "clinic.json").write_bytes('{"name": "Clinică ANSI"}'
+                                        .encode("cp1250"))
+    (s.dir / "clinic.json.bak").write_text(_json.dumps(cfg, ensure_ascii=False),
+                                           encoding="utf-8")
+    with s:
+        c = Client(s.url)
+        res.check("ANSI-байты не убили сервер (/health)",
+                  c.get("/health").status, 200)
+        page = c.get("/admin/login")
+        res.ok("ANSI-файл = порча, спасает .bak",
+               page.status == 200 and "Clinica Rezerva" in page.body,
+               f"код {page.status} — UnicodeDecodeError пролетел мимо except")
+
     # файлов нет вовсе — законный путь запуска из исходников: живёт демо
     s = Server()
     (s.dir / "clinic.json").unlink()
@@ -282,6 +302,36 @@ def suite_booking_race(res: Result) -> None:
                   c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
                          aservice="consult", aname="Al Treilea",
                          aphone="060777777", back="/admin/all").msg, "conflict")
+
+
+def suite_punte_race(res: Result) -> None:
+    """P2 ревью 08-22: два одновременных сохранения моста с общим зубом.
+    Инвариант «зуб в одном мосту» держит только check-then-insert в
+    add_bridge (у таблицы нет уникального индекса — зубы упакованы строкой),
+    и без _slot_lock оба запроса видели бы «свободно»: два рабочих места
+    пилота или двойной клик по «Salvează puntea»."""
+    import concurrent.futures
+    import threading
+
+    with Server() as s:
+        c0 = Client(s.url).login()
+        c0.post("/admin/patients/new", name="Punte Race", phone="022818181")
+        pid = c0.get("/admin/search?q=022818181").body.split(
+            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+
+        barrier = threading.Barrier(2)
+
+        def fire(teeth: str) -> str:
+            c = Client(s.url).login()
+            barrier.wait()
+            return c.post(f"/admin/patient/{pid}/bridge",
+                          teeth=teeth, material="metal").msg
+
+        with concurrent.futures.ThreadPoolExecutor(2) as ex:
+            got = sorted(ex.map(fire, ["26:stalp,27:corp",
+                                       "27:stalp,28:corp"]))
+        res.check("общий зуб 27: ровно один мост", got,
+                  ["dup_punte", "ok_punte"])
 
 
 # ---------- ШАГ 4/7: сессия переживает hot-reload конфига ----------
@@ -372,6 +422,25 @@ def _worker_stale(tmpdir: str) -> None:
             texts, _rows = await eng.handle(s, "web:stale3", f"day:{day}")
             print("day_stale_text", "actualizat" in " ".join(texts))
 
+            # у услуги выключили ВСЕХ её врачей, а пациент выбрал «любой»:
+            # день обязан ответить «actualizat», а не показать слоты ЧУЖИХ
+            # врачей — free_starts подменяет пустой allowed всеми активными,
+            # и до do_book пациент вводил бы имя и телефон впустую
+            # (ревью 08-22, фикс в _flow_valid)
+            eng.apply_config(fresh)
+            s = eng.get_session("web:stale4")
+            await eng.handle(s, "web:stale4", "/start")
+            await eng.handle(s, "web:stale4", "lang:ro")
+            await eng.handle(s, "web:stale4", "book")
+            await eng.handle(s, "web:stale4", "svc:hygiene")
+            await eng.handle(s, "web:stale4", "doc:any")
+            eng.apply_config(cfg_doctor_off("d3"))
+            texts, rows = await eng.handle(s, "web:stale4", f"day:{day}")
+            print("any_empty_text", "actualizat" in " ".join(texts))
+            print("any_empty_slots",
+                  any(b["value"].startswith("time:")
+                      for row in rows for b in row))
+
             # живой конфиг: тот же путь ДОЛЖЕН бронировать (валидация не
             # перетянула — иначе бот отбивал бы здоровые записи)
             eng.apply_config(fresh)
@@ -407,6 +476,10 @@ def suite_stale_session(res: Result) -> None:
                   "0")
         res.check("пропажа услуги на шаге дня — тоже словами",
                   got.get("day_stale_text"), "True")
+        res.check("услуга без единого врача при «любом»: ответ словами",
+                  got.get("any_empty_text"), "True")
+        res.check("и слоты чужих врачей не показаны",
+                  got.get("any_empty_slots"), "False")
         res.check("живой конфиг бронирует как раньше", got.get("alive_booked"),
                   "True")
     finally:
@@ -566,8 +639,19 @@ def _worker_session(tmpdir: str) -> None:
             eng.get_session("web:trigger")
             print("old_evicted", "web:old" not in eng.SESSIONS)
             print("fresh_alive", "web:fresh" in eng.SESSIONS)
-            print("stamped",
-                  eng.SESSIONS["web:fresh"].last_seen > 0)
+            # «проставляется» значит ОБНОВЛЯЕТСЯ при обращении: штамп при
+            # создании дал бы `> 0` всегда, и прежняя проверка была
+            # тавтологией (ревью 08-22) — сдвигаем в прошлое и трогаем снова
+            eng.SESSIONS["web:fresh"].last_seen = time.time() - 999
+            eng.get_session("web:fresh")
+            print("retouched",
+                  time.time() - eng.SESSIONS["web:fresh"].last_seen < 60)
+            # протухшая, но ещё не выметенная: для session_alive она мертва —
+            # по ней telegram решает «новая ли» (восстановление языка)
+            stale = eng.get_session("web:stale2")
+            stale.last_seen = time.time() - eng.SESSION_TTL - 60
+            print("stale_not_alive", not eng.session_alive("web:stale2"))
+            print("alive_alive", eng.session_alive("web:fresh"))
         finally:
             if db._CONN is not None:
                 await db._CONN.close()
@@ -600,7 +684,12 @@ def suite_session_pii(res: Result) -> None:
         res.check("молчавшая сессия выметена по TTL", got.get("old_evicted"),
                   "True")
         res.check("живая сессия уцелела", got.get("fresh_alive"), "True")
-        res.check("last_seen проставляется", got.get("stamped"), "True")
+        res.check("last_seen обновляется при обращении",
+                  got.get("retouched"), "True")
+        res.check("протухшая до подметания — не живая (session_alive)",
+                  got.get("stale_not_alive"), "True")
+        res.check("живая сессия для session_alive жива",
+                  got.get("alive_alive"), "True")
     finally:
         shutil.rmtree(base, ignore_errors=True)
 
@@ -645,6 +734,14 @@ def suite_csrf_origin(res: Result) -> None:
         res.ok("вход со своим Origin работает",
                r.status == 303 and ok2.get("/admin").status == 200,
                f"код {r.status}")
+        # Origin «null» — file:// и sandboxed iframe: самый дешёвый Origin
+        # для локального html-файла. Хост не совпадёт, но ветку держим
+        # проверкой (ревью 08-22 — была без покрытия). /admin/recover идёт
+        # тем же same_origin_post; отдельно он тут не поднимается — режим
+        # восстановления требует непрочитанного ключа базы.
+        r = Client(s.url).post("/admin/login", headers={"Origin": "null"},
+                               password="4321", next="/admin")
+        res.check("Origin «null» отбит", r.status, 403)
 
 
 def suite_authfail_atomic(res: Result) -> None:

@@ -122,7 +122,9 @@ _ERR_TEXT = ("A apărut o eroare tehnică — încercați încă o dată 🙏 / 
 
 async def _dialog(chat_id: int, text: str, send) -> None:
     sid = f"tg:{chat_id}"
-    fresh = sid not in eng.SESSIONS
+    # session_alive, не `in SESSIONS`: протухшую по TTL get_session снесёт
+    # прямо сейчас — для восстановления языка она такая же «новая»
+    fresh = not eng.session_alive(sid)
     s = eng.get_session(sid)
     if fresh:
         # после рестарта отвечаем возвращённому пациенту на ЕГО языке, не на ro
@@ -266,7 +268,7 @@ async def run(token: str) -> None:
         # рестарт стёр in-memory сессию: объясняем ТОЛЬКО если кнопка из середины
         # флоу записи; rem_ok/cancel:/меню и т.п. стейтлесс — работают и так
         _MIDFLOW = ("svc:", "doc:", "day:", "time:", "confirm", "change", "skip_year")
-        if f"tg:{chat_id}" not in eng.SESSIONS and data.startswith(_MIDFLOW):
+        if not eng.session_alive(f"tg:{chat_id}") and data.startswith(_MIDFLOW):
             try:
                 await c.message.answer("Sesiunea s-a întrerupt — să reluăm de la început 🙏 / "
                                        "Сессия прервалась — начнём сначала 🙏")

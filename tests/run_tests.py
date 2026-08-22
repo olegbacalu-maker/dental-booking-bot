@@ -70,6 +70,7 @@ SUITES = [
     ("Hardening: битый clinic.json не подменяется демо",
      test_hardening.suite_config_fallback),
     ("Hardening: гонка за один слот", test_hardening.suite_booking_race),
+    ("Hardening: гонка сохранения моста", test_hardening.suite_punte_race),
     ("Hardening: сессия переживает hot-reload конфига",
      test_hardening.suite_stale_session),
     ("Hardening: стирание пациента атомарно",

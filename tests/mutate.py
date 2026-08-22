@@ -147,6 +147,10 @@ MUTATIONS = [
     # воркеров за слот — молча, PG-ветку не исполняет ни один набор.
     ("через _slot_lock", "app/db.py",
      "\nasync def _mut_lock():\n    async with _BOOK_LOCK:\n        pass\n"),
+    # Та же гонка БЕЗ with: прямой acquire() прежний сторож не видел вовсе —
+    # он смотрел только на with-узлы (ревью 08-22)
+    ("через _slot_lock", "app/db.py",
+     "\nasync def _mut_acquire():\n    await _BOOK_LOCK.acquire()\n"),
     # Вторая мутация — на ЯКОРЬ: advisory-замок пропал из самой обёртки, все
     # берут _slot_lock, а он снова только процессный. Без этой строки правило
     # позеленело бы навсегда при вычищенном pg_advisory_lock.

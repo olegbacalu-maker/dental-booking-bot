@@ -57,7 +57,11 @@ def _load_config() -> dict:
             return cfg
         except FileNotFoundError:
             continue
-        except (OSError, json.JSONDecodeError) as e:
+        # UnicodeDecodeError здесь не экзотика: клиника правит clinic.json
+        # Блокнотом, и «Сохранить» в ANSI с диакритикой — один клик. Без него
+        # в этом except битый файл ронял бы сам импорт engine: ни .bak, ни
+        # экран CONFIG_BROKEN не поднимались бы вовсе (ревью 08-22).
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
             log.warning("clinic config: %s не читается (%r) — пробую дальше", p, e)
             broken.append(f"{p}: {e}")
     if broken:
@@ -69,7 +73,7 @@ def _load_config() -> dict:
     try:
         with open(demo, encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
         raise RuntimeError(f"clinic config not found/invalid: "
                            f"{', '.join([*candidates, demo])} ({e!r})") from e
 
@@ -398,6 +402,16 @@ def get_session(sid: str) -> Session:
     s = SESSIONS.setdefault(sid, Session())
     s.last_seen = now
     return s
+
+
+def session_alive(sid: str) -> bool:
+    """Жива ли сессия С УЧЁТОМ TTL — для тех, кто спрашивает «нова ли она»
+    ДО get_session (telegram восстанавливает язык пациента только новой).
+    Голый `sid in SESSIONS` тут врёт: протухшая, но ещё не выметенная сессия
+    выглядит живой, get_session её тут же сносит и отдаёт пустую — и язык
+    не восстанавливается (ревью 08-22)."""
+    s = SESSIONS.get(sid)
+    return s is not None and time.time() - s.last_seen <= SESSION_TTL
 
 
 def t(s: Session, key: str) -> str:
@@ -775,8 +789,17 @@ def _flow_valid(s: Session) -> bool:
     svc = s.data.get("svc")
     if svc not in SERVICES:
         return False
+    # Пустой allowed — тоже «выбранного больше нет»: услугу некому выполнять
+    # (всех её врачей выключили под ногами). Пропустить это здесь значило бы
+    # показать пациенту слоты ЧУЖИХ врачей: free_starts через
+    # `allowed_keys or ACTIVE_DOCTORS` не отличает [] от «без ограничения»,
+    # и флоу оборвался бы только в do_book — после ввода имени и телефона
+    # (ревью 08-22).
+    items = {k for k, _n in allowed_doc_items(svc)}
+    if not items:
+        return False
     doc = s.data.get("doc", "any")
-    return doc == "any" or doc in {k for k, _n in allowed_doc_items(svc)}
+    return doc == "any" or doc in items
 
 
 def _stale_reset(s: Session):
