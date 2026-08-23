@@ -13,29 +13,34 @@ no account, no subscription and no server holding patient data.
 
 > Screenshots and `clinic.json` in this repo use synthetic data — invented patients,
 > invented doctors. Phone numbers, e-mail addresses and national ID numbers are masked in
-> the screenshots. One `clinic.json` = one clinic.
+> the screenshots. One `clinic.json` = one clinic. The shots below are **v1.25.1**, taken
+> on a staged clinic with two months of work behind it.
 
 ## Screenshots
 
 **Patient card** — odontogram, treatment plan, anamnesis and the activity feed, with
-medical alerts and insurance pinned in the header:
+medical alerts and insurance pinned in the header. Here 25 is missing and 24/26 carry the
+abutments of a metal-ceramic **bridge**, drawn as the brace a dentist would put on paper:
 
 ![Patient card](screenshots/patient-card.png)
 
 **Form 043/e, printed from the card** — letterhead, general data, a numeric odontogram
 with its legend, the plan and the visit journal come from the database; the yellow gaps
-and the blank rows at the bottom stay for the pen:
+and the blank rows at the bottom stay for the pen. The bridge prints twice: as codes in
+the formula (`Co Cor` / `D A` / `Co Cor`) and as its own line under the grid:
 
 <img src="screenshots/fisa-043e.png" width="620" alt="Printed 043/e form">
 
-**Dashboard** — the day timeline: one column per doctor, blocks drawn to scale by duration,
-the "now" line, tiles with a trend against yesterday and a 14-day sparkline each, the
-doctors on duty with their chair occupancy, and today's agenda in the right rail:
+**Dashboard** — the day timeline: one column per doctor, every visit drawn to scale by
+duration and read in two lines (who, then when · how long · what), coloured by the kind of
+work with the status said in words next to it, the "now" line, tiles with a trend against
+yesterday and a 14-day sparkline each, the doctors on duty with their chair occupancy, and
+today's agenda in the right rail. The page keeps itself current without reloading:
 
 ![Dashboard](screenshots/admin-dashboard.png)
 
-**Patient list** — filters by doctor, status and channel, derived statuses, a side preview
-with treatment-plan progress and CSV export:
+**Patient list** — filters by doctor, status, channel and balance, derived statuses, a side
+preview with treatment-plan progress and CSV export:
 
 ![Patient list](screenshots/patient-search.png)
 
@@ -58,10 +63,18 @@ Four views of the schedule:
 
 1. **Dashboard** — the day timeline: one column per doctor, every visit drawn to scale by
    its duration, a red "now" line on today, and overlapping visits split side by side so
-   nothing hides behind anything. Above it, day tiles with a trend against yesterday and a
-   **14-day sparkline** each, so a number reads as a trend rather than as today's accident;
-   each tile is clickable and opens the filtered list. Hours that a long visit runs through
-   show *⏳ ocupat* instead of a "+". Each doctor's card carries a **chair-occupancy bar** —
+   nothing hides behind anything. A visit reads in **two lines** — the patient first, then
+   hour · duration · service — because the name is what the desk looks for; the status is
+   spelled out as a word next to its colour, and a patient marked *a venit* carries how
+   long they have been waiting (silent for the first five minutes, amber from fifteen: "a
+   venit and was called in at once" is not waiting, and a counter that shows zero on every
+   arrival stops being read). A free slot says what a click will do rather than showing a
+   bare "+"; a block is coloured by the *kind* of work, with a no-show and acute pain
+   overriding that to red; and the navigation rail alongside wears the clinic's own colour
+   end to end. Above it, day tiles with a trend against yesterday and a **14-day
+   sparkline** each, so a number reads as a trend rather than as today's accident; each
+   tile is clickable and opens the filtered list. Each doctor's card carries a
+   **chair-occupancy bar** —
    busy minutes over that doctor's working minutes, the same formula and the same
    `work_minutes()` the *Stats* page uses, so the two screens can never quote different
    percentages for the same doctor. The right rail holds the month calendar and **today's
@@ -81,20 +94,39 @@ Returning a cancelled visit to an active status is refused if the interval has m
 been taken: the journal shows an "interval occupied" banner instead of silently
 double-booking.
 
-Only the pages that show a live schedule reload themselves every 12 seconds. That is a
-whitelist, not a default: an auto-reload on a settings page or a patient card costs the
-user their scroll position, an open dialog and a half-typed form, which it did three times
-before the rule was written down.
+Only the pages that show a live schedule keep themselves current, and they no longer
+*reload*: the server wraps the live part in `<div id="live" data-hash=…>`, the browser asks
+the same URL every 12 seconds with an `X-DP-Live` header and gets **204 when the
+fingerprint has not changed**, swapping the fragment only when it has. The pilot clinic
+reported the reason: a whole page reloading every twelve seconds flickers all day, and it
+took the scroll position, an open dialog and a half-typed form with it.
+
+Two consequences are load-bearing rather than cosmetic. Anything that changes continuously
+— the "now" line, the waiting minutes — is drawn by the browser, because a minute counter
+rendered by the server would make the fingerprint differ on every poll and bring the
+flicker back through the back door. And inline scripts that carry page data are marked
+`data-live` and declare `var`, not `const`: the swap re-executes them, and a repeated
+`const` is a silent `SyntaxError` that would stop a freshly arrived appointment from
+opening.
 
 ### Patient list
 
 `/admin/search` — the clinic's whole base in one working table: avatar and name, phone,
-birth date, doctor, last visit (with the next one flagged in green), status, pages. Filters
-by doctor, status and channel; sorting by name or by last visit; the current selection can
-be exported to CSV or previewed in a side panel that shows the treatment-plan progress,
-alerts and documents without leaving the list. Search by name or phone digits (any format),
-e-mail or file number, ignoring Romanian diacritics and case ("Balan" finds "Bălan").
-Available from the header of any page, or with Ctrl+K.
+birth date, doctor, last visit (with the next one flagged in green), balance, status,
+pages. Filters by doctor, status, channel and balance; sorting by name or by last visit;
+the current selection can be exported to CSV or previewed in a side panel that shows the
+treatment-plan progress, alerts and documents without leaving the list. Search by name or
+phone digits (any format), e-mail or file number, ignoring Romanian diacritics and case
+("Balan" finds "Bălan"). It also understands **a birth date the way it is dictated at the
+desk** (`01.01.2003`, and `1.1.2003` too) and looks for digits inside the patient's notes —
+which is where the second person on a family number is written down. Available from the
+header of any page, or with Ctrl+K.
+
+**A patient may have no phone at all.** The booking and patient forms carry a *fără
+telefon* checkbox, and only that checkbox makes an empty field an intention: a bare empty
+phone is still refused, because it is far more often a half-filled form than a real
+absence. Phoneless patients are stored with `NULL` rather than an empty string — an empty
+digit key would have quietly merged every one of them into a single card.
 
 **Patient status is derived, not stored**: archived → medical alert → unfinished plan → no
 visit for a year → active. Nothing to keep in sync, and no status that says "in treatment"
@@ -114,11 +146,31 @@ then a two-column workspace.
   itself when a child's tooth already has records. Each tooth is drawn as an actual tooth in
   SVG rather than a coloured box: roots follow anatomy, an implant replaces the root with a
   threaded screw, *in treatment* draws the root-canal axes, an extraction a cross, a missing
-  tooth a dashed ghost. Clicking a tooth sets one of eight states with the doctor, the
-  affected **surfaces** (M, O, D, V, L) and a short note; the dialog lists that tooth's own
-  history. The doctor's name is stored as a snapshot, so renaming a doctor never rewrites
-  tooth history. All teeth are generated from one description rather than drawn — see
-  *Design decisions*.
+  tooth a dashed ghost. Clicking a tooth sets its state with the doctor and a short note;
+  the dialog lists that tooth's own history. The doctor's name is stored as a snapshot, so
+  renaming a doctor never rewrites tooth history. All teeth are generated from one
+  description rather than drawn — see *Design decisions*.
+
+  Three things there answer three *different* questions, and each of them used to be one
+  column too few:
+  - **The state** says what is wrong with the tooth. **A mark** says what is being done to
+    it. *În tratament* was the eighth value of the state list until a dentist marked
+    caries, came back to say the work had started, and the caries disappeared — from the
+    chart, from the ledger and from the 043/e that gets signed. Marks are a set, so a
+    second one ("under observation", "referred") needs no column and no migration.
+  - **Each surface carries its own state**, not a bare list of letters next to one word.
+    Caries mesially and a filling occlusally is an ordinary finding; "MO · Carie" left the
+    reader to assume both were caries. The printed form and the Law 195 export spell a
+    mixture out instead of collapsing it, and the detailed page has an occlusal view where
+    the marks sit on the crown rather than in the middle of the tooth.
+  - **A bridge** (*punte*) is a layer over the teeth, in its own table: an abutment over
+    caries and a pontic over a missing tooth leave both teeth their own truth. Roles are
+    per tooth and an abutment may stand in the middle of the span — the pilot's dentist
+    dictated the canon, 47/45/43 abutments with 46/44 pontics. The server enforces one
+    arch, adjacent teeth, no primary teeth and at least one abutment, and it refuses
+    overlapping constructions out loud. Both screens draw the brace with its material over
+    the actual tooth buttons, which is what makes it survive the grid gap, the window
+    width and both views.
 - **Treatment plan** — tooth, procedure, doctor, price in MDL, due date. Three statuses
   (planned → in progress → done) move along a directed path the server validates as a pair
   (from, to), tabs filter by status with counts, the total of the *unfinished* plan is shown
@@ -157,7 +209,9 @@ then a two-column workspace.
 - **Fișa 043/e** (`/admin/patient/{id}/fisa043`) — the ministry form, order 828/2011: title
   block from the card, a numeric odontogram with a letter legend on the sheet itself, the
   plan, and the visit diary in chronological order with a signature column and blank rows
-  after it.
+  after it. A tooth cell leads with the bridge code where there is one — `Co C` on a
+  decayed abutment, `D A` on a pontic over a missing tooth — the legend explains both, and
+  the brace is repeated under the grid as a line naming the span and its material.
 - **Informare și acord** — an information sheet for signature, filled with the patient's and
   the clinic's data. Treatment runs on a contract and on the law, so the consent checkboxes
   cover only marketing and photography; the grounds listed here must match the sheet on the
@@ -238,6 +292,13 @@ LAN it would break login outright, and the clinic's Wi-Fi encrypts one layer bel
   updates, and an FAQ page whose answers are versioned in the same commit as the behaviour
   they describe. `clinic.json` is rewritten atomically (tmp + `os.replace`, plus a `.bak`)
   and re-applied in-process — no restart, no hand-edited JSON.
+- **Appearance** (`Setări › Aspect`) — the clinic picks its own colour and uploads its
+  logo, which it may also hang in the middle of the journal's top bar (off by default: an
+  existing clinic must not wake up with a new header). The colour is a set of CSS variables
+  computed per clinic, including the text colour *on* the brand fill — which is why no rule
+  in the interface may hardcode the default green or a literal white: on a pale brand
+  colour that would print white text on a light background for exactly the clinic that
+  chose it, and never for the developer looking at the screen.
 - **Encrypted backup** — the whole clinic (database, files, profile) into one AES ZIP under
   the clinic's own password, written with `pyzipper`. It opens with 7-Zip on any machine
   **without DentPilot installed**, which is the point: a backup that only its own program can
@@ -276,13 +337,15 @@ services, prices and a Saturday off, zero code changes.
 ## Tests
 
 ```
-.venv-desktop\Scripts\python.exe tests\run_tests.py            # everything, ~95 s
+.venv-desktop\Scripts\python.exe tests\run_tests.py            # everything
 .venv-desktop\Scripts\python.exe tests\run_tests.py журнал     # one suite by name
 ```
 
-Around 670 checks, standard library only — no pytest, no httpx. `.venv-desktop` is the
-*build* environment, and whatever is installed there eventually ends up inside the exe;
-tests must also run where nobody can install packages.
+The run prints how many checks it did and how long it took — a figure written down here
+would be stale by the next feature, and the number only ever grows. Standard library only,
+no pytest and no httpx. `.venv-desktop` is the *build* environment, and whatever is
+installed there eventually ends up inside the exe; tests must also run where nobody can
+install packages.
 
 Each suite starts **its own server on a free port with its own temporary database** (Windows
 happily lets a second process bind a busy port and then routes requests to the first one, so
@@ -321,7 +384,8 @@ the exe, no ports open to the outside. Build with `Build-Desktop.ps1`.
   really protecting a *reused* PIN, not the database.
 - **Tamper signal on the auth file** — its SHA-256 lives in the database, and a mismatch at
   startup raises a banner for the director and a line in the activity log. It is a trace, not
-  a lock: whoever holds the file holds the unencrypted database next to it.
+  a lock: whoever holds the file is standing next to the database as well, and on a clinic
+  that has not turned encryption on, that database opens with any SQLite viewer.
 - **The Telegram token, when used, is encrypted with Windows DPAPI** — a stolen `dental.env`
   is dead on another machine. The flip side is written down rather than discovered: a
   reinstalled Windows or a different account makes that ciphertext unreadable forever, so
@@ -385,12 +449,24 @@ cloud edition it is inside the container with no volume behind it** — a
 `docker compose up -d --build` recreates the container and the uploads are gone, and
 `Backup-Db.ps1` dumps Postgres only. Add a volume before putting real files there.
 
-The database itself is still a plain SQLite file; disk encryption (BitLocker) is the measure
-in place today, and the program reports its status on the security page.
+**The card index itself can be encrypted** (`Setări › Criptarea evidenței`): the database
+moves to SQLCipher under a key the clinic never types, kept by Windows DPAPI. Three things
+follow from that and each one is a rule rather than a detail. The key dies with the Windows
+account — a reinstalled system, a new PC or a different account makes the ciphertext
+unreadable forever — so the only thing that saves the clinic is the **printed recovery
+sheet**, and the program therefore keeps a screen that runs when nothing else can, to take
+that code. The swap of the file itself is done by the launcher *before* the app starts,
+because replacing a database under an open connection with its `-wal`/`-shm` gives
+corruption that surfaces hours later. And nothing in the program may open `dental.db` with
+the plain `sqlite3` module any more; the backup and the launcher's auto-copy both had to
+learn that, one of them silently. Disk encryption (BitLocker) remains the measure for
+everything *around* the database, and the program reports its status on the security page.
 
 Access: the desktop journal is behind the PIN, and an empty `ADMIN_KEY` does not mean an open
-journal — the setup screen appears instead. The cloud edition refuses to start without
-`ADMIN_KEY` (HMAC cookie).
+journal — the setup screen appears instead, and only for a browser on the machine itself: on
+a clinic that has opened the journal to its own network, a first-run setup screen answering
+a second computer would hand the keys to whoever got there first. The cloud edition refuses
+to start without `ADMIN_KEY` (HMAC cookie).
 
 ## Stack
 
@@ -410,8 +486,9 @@ The parts that were not obvious, and what each one cost to get right.
 
 ### The odontogram is generated, not drawn
 
-32 permanent teeth, eight states each, 20 primary teeth on a second arch, and the two arches
-are mirror images. Drawing that by hand is dozens of files that drift apart the first time
+32 permanent teeth, each with a state of its own and a state per surface, 20 primary teeth
+on a second arch, two views, braces of bridges drawn across them, and the two arches are
+mirror images. Drawing that by hand is dozens of files that drift apart the first time
 the shape changes. Instead there is one contour per tooth class, a width coefficient and a
 root-count rule — upper molars three roots, lower molars and the upper first premolar two,
 everything else one — and the upper arch is the same code flipped
@@ -526,11 +603,26 @@ In the same spirit, *arrived* keeps the slot occupied rather than freeing the ho
 returning a cancelled visit to an active status is refused if the interval has meanwhile been
 taken.
 
+### A screen that refreshes itself has to be deterministic
+
+Replacing the twelve-second page reload with a poll-and-swap looked like a rendering
+change and turned out to be a rule about the *body* of a live page: with unchanged data it
+must produce byte-identical HTML, because its fingerprint is what decides whether anything
+gets replaced at all. One server-rendered minute counter — the "now" line, "waiting 7 min"
+— makes every fingerprint differ, every poll swap the fragment, and the flicker return
+through the back door, where it is invisible until somebody stands on the page for half a
+minute. So everything continuously changing moved into the browser, and everything the
+browser re-executes on a swap had to stop being a `const`.
+
+The second half of the rule is the reverse: a page that is never swapped must still be
+correct. The animation switch is a class on `<html>`, and any rule that depends on it has
+to leave the element in its **final** state when the class is absent — a static page is
+normal, not a breakage.
+
 ## Roadmap
 
 - SMS package: reminders and confirmations the clinic controls, which is what clinics ask for
   instead of a public booking link.
-- Cash report for the day, and a debt column in the patient list.
 - Storage periods and scheduled clean-up, the last open item under the new data-protection law.
 - Multi-tenant single instance (today: one lightweight compose stack per clinic).
 
