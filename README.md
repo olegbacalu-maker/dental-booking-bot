@@ -13,7 +13,7 @@ no account, no subscription and no server holding patient data.
 
 > Screenshots and `clinic.json` in this repo use synthetic data — invented patients,
 > invented doctors. Phone numbers, e-mail addresses and national ID numbers are masked in
-> the screenshots. One `clinic.json` = one clinic. The shots below are **v1.25.1**, taken
+> the screenshots. One `clinic.json` = one clinic. The shots below are **v1.25.2**, taken
 > on a staged clinic with two months of work behind it.
 
 ## Screenshots
