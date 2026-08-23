@@ -142,14 +142,24 @@ function drawBridges() {
      выключала рисование целиком (поймано при первом же показе) */
   if (typeof BRIDGES === 'undefined' || !BRIDGES.length) return;
   document.querySelectorAll('#odo .arch').forEach(function (arch) {
+    arch.classList.remove('br-room');
     if (!arch.offsetParent) return;
     var btn = {};
     arch.querySelectorAll('.tooth-btn').forEach(function (b) {
       btn[b.dataset.n] = b;
     });
-    BRIDGES.forEach(function (br) {
+    /* Место под скобку резервируется ДО замеров: padding двигает offsetTop
+       кнопок, и порядок «сначала померили, потом добавили» дал бы скобку на
+       высоту резерва выше зубов — ровно ту накладку на переключатель вида,
+       ради которой резерв и заводится. Чтение offsetLeft ниже само заставляет
+       браузер пересчитать раскладку, так что мерить после класса безопасно. */
+    var mine = BRIDGES.filter(function (br) {
+      return br.teeth.every(function (t) { return btn[String(t[0])]; });
+    });
+    if (!mine.length) return;
+    arch.classList.add('br-room');
+    mine.forEach(function (br) {
       var bs = br.teeth.map(function (t) { return btn[String(t[0])]; });
-      if (bs.some(function (b) { return !b; })) return;
       var L = Math.min.apply(null, bs.map(function (b) { return b.offsetLeft; }));
       var R = Math.max.apply(null, bs.map(function (b) {
         return b.offsetLeft + b.offsetWidth; }));

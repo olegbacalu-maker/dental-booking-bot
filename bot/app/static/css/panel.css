@@ -1020,6 +1020,18 @@
  .insp-n{display:flex;align-items:baseline;gap:10px}
  .insp-n b{font-size:30px;font-weight:600;line-height:1}
  /* ---------- мост (punte, 08-21) ---------- */
+ /* ⛔ Место под скобку резервирует ДУГА, а не отступы страницы: JS кладёт
+    скобку на 14px выше зубов, подпись — ещё выше линии, и без резерва верхняя
+    дуга выносит её ЗА .arch. На компактной фише над дугой стоит переключатель
+    вида, и подпись ложилась прямо на него (08-23, увидено на кадре витрины:
+    «metalo-ceramică» под кнопкой «Vedere frontală»). Класс ставит drawBridges
+    — только той дуге, где мост есть, иначе пустой отступ у всех.
+    ⚠️ В виде сверху зуб ещё и поднят на ARC_PERM (22px) — там резерв больше;
+    правило с тремя классами перебивает .arch.occ по силе, а не по порядку. */
+ .arch.br-room:not(.lower){padding-top:26px}
+ .arch.br-room.lower{padding-bottom:26px}
+ .arch.occ.br-room:not(.lower){padding-top:48px}
+ .arch.occ.br-room.lower{padding-bottom:48px}
  /* скобка (acoladă) над зубами конструкции: JS меряет кнопки и кладёт
     абсолютом в .arch; подпись — материал, как врач пишет на бумаге */
  .br-arc{position:absolute;height:10px;border:2px solid var(--teal-d);
@@ -1055,6 +1067,13 @@
  .i-bridge{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
    margin:8px 0 2px;padding:8px 10px;border:1px solid var(--line);
    border-radius:10px;background:var(--bg);font-size:12.5px}
+ /* ⛔ Та же грабля, что строкой выше у .br-bar, и здесь она опаснее: без этого
+    правила блок моста висит в инспекторе ВСЕГДА — сервер отдаёт его hidden,
+    но display:flex сильнее UA-правила. До первого выбора у формы пустой
+    action, а после — action ПРЕЖНЕГО моста: выбрав зуб вне конструкции,
+    врач видел бы «Șterge puntea» и снёс бы не ту (08-23, увидено на кадре
+    детальной страницы). */
+ .i-bridge[hidden]{display:none}
  .i-bridge form{margin:0}
  /* .br-arc на печать не идёт: скобка положена JS-ом в ЭКРАННЫХ пикселях, а
     печать перекладывает поток — скобка легла бы мимо зубов. Мосты на бумаге
