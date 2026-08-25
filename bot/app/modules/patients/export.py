@@ -57,6 +57,30 @@ def _plain(value):
     raise TypeError(f"не умею сериализовать {type(value).__name__}")
 
 
+async def _perio_dump(pid: int) -> list:
+    """Все осмотры пародонта с измерениями. ⚠️ Точки разворачиваются в ИМЕНА
+    («MV: 3 mm»), а не отдаются строкой «3,2,3,3,2,4»: копия по 195-му обязана
+    быть «в понятной форме», и позиционный код ей не является."""
+    from ... import teeth_svg as _t
+    out = []
+    for ex in await db.perio_exams(pid):
+        rows = await db.perio_rows(ex["id"])
+        out.append({
+            "data": ex["created_at"], "medic": ex["doctor"],
+            "nota": ex["note"],
+            "dinti": [{
+                "dinte": r["tooth"],
+                "adancime_mm": dict(zip(_t.PERIO_SITES, _t._perio_mm(r["pd"]))),
+                "recesiune_mm": dict(zip(_t.PERIO_SITES, _t._perio_mm(r["rec"]))),
+                "sangerare": [s for s, f in zip(_t.PERIO_SITES,
+                                                _t._perio_flags(r["bop"]))
+                              if f == "1"],
+                "mobilitate": r["mob"], "furcatie": r["furc"],
+            } for r in rows],
+        })
+    return out
+
+
 async def collect(pid: int) -> dict | None:
     """Все данные пациента из ВСЕХ таблиц, где он упомянут.
 
@@ -81,6 +105,9 @@ async def collect(pid: int) -> dict | None:
         # мосты — конструкции ПОВЕРХ зубов (08-21): машинная копия несёт
         # строку teeth как есть, человеку роли разворачивает render_html
         "punti": await db.bridges(pid),
+        # пародонтограмма — датированные ОСМОТРЫ; в машинную копию едут все,
+        # каждый со своими измерениями: право на доступ означает и историю
+        "parodont": await _perio_dump(pid),
         "plan_tratament": await db.plan_items(pid),
         "anamneza": await db.anamneza(pid),
         "consultatii": await db.patient_visit_records(pid),
@@ -205,6 +232,21 @@ def render_html(data: dict) -> str:
                      for n, r in tsvg.parse_bridge(b["teeth"])),
           _esc(b["material"]) or "—", _esc(b["doctor"]) or "—",
           _dt(b["created_at"])] for b in data.get("punti", [])])
+    # пародонтограмма: по строке на ЗУБ каждого осмотра — так её читает
+    # человек, а не «3,2,3,3,2,4» позиционным кодом
+    parodont_rows = []
+    for ex in data.get("parodont", []):
+        for t in ex["dinti"]:
+            parodont_rows.append([
+                _dt(ex["data"]), t["dinte"],
+                " · ".join(f"{k} {v}" for k, v in t["adancime_mm"].items() if v) or "—",
+                " · ".join(f"{k} {v}" for k, v in t["recesiune_mm"].items() if v) or "—",
+                " · ".join(t["sangerare"]) or "—",
+                t["mobilitate"] or "—", t["furcatie"] or "—",
+                _esc(ex["medic"]) or "—"])
+    parodont = _table(
+        ["Data", "Dinte", "Adâncime (mm)", "Recesiune (mm)", "Sângerare",
+         "Mobilitate", "Furcație", "Medic"], parodont_rows)
     # ⚠️ Причина отказа входит в копию по 195-му наравне с остальным: это
     # данные о пациенте, которые клиника о нём хранит, и «право на доступ»
     # означает в том числе увидеть, как записан собственный отказ
@@ -299,6 +341,7 @@ def render_html(data: dict) -> str:
 <h2>Anamneză</h2>{anamneza}
 <h2>Starea dinților ({len(data['dinti'])})</h2>{dinti}
 <h2>Punți dentare ({len(data.get('punti', []))})</h2>{punti}
+<h2>Parodontogramă ({len(data.get('parodont', []))} examene)</h2>{parodont}
 <h2>Plan de tratament ({len(data['plan_tratament'])})</h2>{plan}
 <h2>Consultații ({len(data['consultatii'])})</h2>{consultatii}
 <h2>Plăți ({len(data['plati'])})</h2>{plati}

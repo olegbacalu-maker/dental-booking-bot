@@ -1048,6 +1048,70 @@
  .br-arc.lo span{top:5px}
  /* режим выбора зубов моста: пунктирная рамка на отмеченных */
  .tooth-btn.br-pick{outline:2px dashed var(--teal);outline-offset:2px}
+ /* ---------- пародонтограмма (08-25) ---------- */
+ /* Ширина листа — арифметика, а не вкус: 16 зубов × (3 поля по 22px + зазоры)
+    ≈ 1150px, и это ШИРЕ окна даже со свёрнутым сайдбаром. Поэтому дуга
+    прокручивается внутри своей полосы, а не ломает страницу — то же решение,
+    что у широких таблиц (`display:block;overflow-x:auto`). */
+ .pgrid{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:16px;
+   align-items:start}
+ .pscroll{overflow-x:auto;padding-bottom:4px}
+ .parch{display:flex;gap:4px;min-width:max-content;justify-content:center}
+ .ptooth{display:flex;flex-direction:column;align-items:center;gap:2px;
+   width:66px}
+ .ptooth.absent{opacity:.42}
+ .prow{display:flex;gap:1px}
+ .pnum{font-size:12px;color:var(--text2);line-height:1}
+ .pcell{display:flex;flex-direction:column;align-items:center;gap:2px}
+ .pcell input{width:20px;height:21px;padding:0;text-align:center;
+   font-size:11.5px;font-family:inherit;border:1px solid var(--line);
+   border-radius:5px;background:var(--panel);color:var(--text)}
+ .pcell input:focus{outline:2px solid var(--teal);outline-offset:1px;
+   border-color:var(--teal)}
+ /* Карман ≥4 мм — цвет СМЫСЛА, а не темы: красный тут значит находку, и
+    отдавать его цвету клиники нельзя (правило про --red/--amber/--green). */
+ .pcell.deep input{border-color:var(--red);color:var(--red-t);font-weight:600}
+ /* Рецессия — пунктиром: две одинаковые строки чисел под номером зуба
+    невозможно различить взглядом, а путать их нельзя (CAL = сумма). */
+ .prow.rec .pcell input{border-style:dashed;color:var(--text2)}
+ .pdot{width:9px;height:9px;padding:0;border-radius:50%;cursor:pointer;
+   border:1px solid var(--line);background:transparent}
+ .pdot.on{background:var(--red);border-color:var(--red)}
+ .pmf{display:flex;flex-direction:column;gap:2px;width:100%}
+ .pmf select{width:100%;font-size:10.5px;padding:1px 2px;font-family:inherit;
+   border:1px solid var(--line);border-radius:5px;background:var(--panel);
+   color:var(--text2)}
+ .pmid{display:flex;align-items:center;gap:10px;margin:12px 0;
+   color:var(--text3);font-size:11px;text-transform:uppercase;
+   letter-spacing:.08em}
+ .pmid i{flex:1;height:1px;background:var(--line)}
+ .pfoot{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;
+   margin-top:14px}
+ .pfoot label{display:flex;flex-direction:column;gap:4px;font-size:12px;
+   color:var(--text2)}
+ .pfoot .pnote{flex:1;min-width:220px}
+ .pfoot select,.pfoot input{font:inherit;padding:7px 10px;
+   border:1px solid var(--line);border-radius:var(--r-ctl);
+   background:var(--panel);color:var(--text)}
+ .pside h3{margin:0 0 12px;font-size:14px}
+ /* В узкой колонке auto-fit даёт один столбец, а под сеткой на всю ширину —
+    четыре: одно правило на оба положения панели. */
+ .psum{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+ .psum-i{display:flex;flex-direction:column;gap:2px}
+ .psum-i span{font-size:12px;color:var(--text2)}
+ .psum-i b{font-size:26px;font-weight:600;line-height:1.1}
+ .psum-i small{font-size:11px;color:var(--text3)}
+ .pinline{display:inline-flex;margin:0}
+ .pinline select{font:inherit;padding:6px 8px;border:1px solid var(--line);
+   border-radius:var(--r-ctl);background:var(--panel);color:var(--text)}
+ .pempty{text-align:center;padding:34px 20px}
+ .pempty form{margin-top:14px}
+ /* Панель итога уходит ПОД сетку рано — на 1560px, а не на телефонной
+    ширине: шестнадцать зубов требуют ~1116px, и пока панель стоит сбоку,
+    у дуги остаётся ~990 — последние моляры уезжают за край прокрутки.
+    Число посчитано, а не подобрано: 1116 (дуга) + 40 (поля карточки)
+    + 48 (поля страницы) + 56 (свёрнутый сайдбар) + 306 (панель) = 1566. */
+ @media (max-width:1560px){.pgrid{grid-template-columns:minmax(0,1fr)}}
  /* [hidden] обязан побеждать: display:flex сильнее UA-правила hidden, и без
     этой строки бар режима висел бы на странице всегда (поймано показом) */
  .br-bar[hidden]{display:none}

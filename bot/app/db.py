@@ -252,6 +252,27 @@ CREATE TABLE IF NOT EXISTS bridges(
   doctor TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Пародонтограмма: ОСМОТР целиком, а не «текущее состояние зуба». Смысл карты
+-- пародонта — сравнение во времени (было 5 мм, стало 3), поэтому единица
+-- хранения — датированный осмотр, а строки зубов принадлежат ему.
+CREATE TABLE IF NOT EXISTS perio_exams(
+  id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES patients(id),
+  doctor TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS perio_teeth(
+  exam_id INT NOT NULL REFERENCES perio_exams(id) ON DELETE CASCADE,
+  tooth INT NOT NULL,
+  pd TEXT NOT NULL DEFAULT '',
+  rec TEXT NOT NULL DEFAULT '',
+  bop TEXT NOT NULL DEFAULT '000000',
+  mob INT NOT NULL DEFAULT 0,
+  furc INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (exam_id, tooth)
+);
+CREATE INDEX IF NOT EXISTS ix_perio_patient ON perio_exams(patient_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -490,6 +511,28 @@ CREATE TABLE IF NOT EXISTS bridges(
   doctor TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+-- Пародонтограмма: единица хранения — датированный ОСМОТР (карта пародонта
+-- имеет смысл только в сравнении во времени), строки зубов принадлежат ему.
+-- Схема обязана совпадать с PG_SCHEMA поимённо: расхождение сторожит
+-- test_structure — облачную ветку не исполняет ни один прогон.
+CREATE TABLE IF NOT EXISTS perio_exams(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id INTEGER NOT NULL REFERENCES patients(id),
+  doctor TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS perio_teeth(
+  exam_id INTEGER NOT NULL REFERENCES perio_exams(id) ON DELETE CASCADE,
+  tooth INTEGER NOT NULL,
+  pd TEXT NOT NULL DEFAULT '',
+  rec TEXT NOT NULL DEFAULT '',
+  bop TEXT NOT NULL DEFAULT '000000',
+  mob INTEGER NOT NULL DEFAULT 0,
+  furc INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (exam_id, tooth)
+);
+CREATE INDEX IF NOT EXISTS ix_perio_patient ON perio_exams(patient_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -2576,6 +2619,139 @@ async def delete_bridge(bid: int, pid: int) -> bool:
     return True
 
 
+# ---------- пародонтограмма (perio) ----------
+
+async def perio_exams(pid: int) -> list:
+    """Осмотры пациента, свежие сверху, с числом измеренных зубов.
+    ⚠️ `teeth` — СЧЁТЧИК, а не строка зубов: имя короткое, потому что колонка
+    так и называется на экране («28 dinți»)."""
+    return await _fetch(
+        """SELECT e.id, e.doctor, e.note, e.created_at,
+                  COUNT(t.tooth) AS teeth
+           FROM perio_exams e LEFT JOIN perio_teeth t ON t.exam_id = e.id
+           WHERE e.patient_id = $1
+           GROUP BY e.id, e.doctor, e.note, e.created_at
+           ORDER BY e.created_at DESC, e.id DESC""",
+        """SELECT e.id, e.doctor, e.note, e.created_at,
+                  COUNT(t.tooth) AS teeth
+           FROM perio_exams e LEFT JOIN perio_teeth t ON t.exam_id = e.id
+           WHERE e.patient_id = ?
+           GROUP BY e.id, e.doctor, e.note, e.created_at
+           ORDER BY e.created_at DESC, e.id DESC""", pid)
+
+
+async def perio_exam(pid: int, eid: int) -> dict | None:
+    """Шапка осмотра. ⚠️ Всегда И по пациенту: id осмотра приходит из формы, и
+    без второго условия чужой осмотр открывался бы по прямому адресу."""
+    rows = await _fetch(
+        """SELECT id, patient_id, doctor, note, created_at
+           FROM perio_exams WHERE id = $1 AND patient_id = $2""",
+        """SELECT id, patient_id, doctor, note, created_at
+           FROM perio_exams WHERE id = ? AND patient_id = ?""", eid, pid)
+    return rows[0] if rows else None
+
+
+async def perio_rows(eid: int) -> list:
+    """Измерения одного осмотра, по порядку номеров зуба."""
+    return await _fetch(
+        """SELECT tooth, pd, rec, bop, mob, furc FROM perio_teeth
+           WHERE exam_id = $1 ORDER BY tooth""",
+        """SELECT tooth, pd, rec, bop, mob, furc FROM perio_teeth
+           WHERE exam_id = ? ORDER BY tooth""", eid)
+
+
+async def perio_new(pid: int, doctor: str = "", note: str = "") -> int:
+    """Новый (пустой) осмотр. Летопись пишется при СОХРАНЕНИИ измерений, а не
+    здесь: пустой осмотр — это ещё не находка, а открытый лист."""
+    if IS_SQLITE:
+        cur = await _CONN.execute(
+            """INSERT INTO perio_exams(patient_id, doctor, note, created_at)
+               VALUES(?, ?, ?, ?)""",
+            (pid, doctor, note, _utcnow_iso()))
+        await _CONN.commit()
+        new_id = cur.lastrowid
+        await cur.close()
+        return int(new_id)
+    async with POOL.acquire() as c:
+        return int(await c.fetchval(
+            """INSERT INTO perio_exams(patient_id, doctor, note)
+               VALUES($1, $2, $3) RETURNING id""", pid, doctor, note))
+
+
+async def perio_save(pid: int, eid: int, rows: list, shown: set,
+                     doctor: str | None = None,
+                     note: str | None = None) -> int:
+    """Записать измерения в осмотр. Возвращает число сохранённых зубов.
+
+    ⛔ Стираются ТОЛЬКО зубы из `shown` — тех, что форма показывала. Пустое
+    поле значит «не измеряли», а отсутствие зуба в форме — «не показывали», и
+    это разные вещи (08-16, две потери данных на этом же различии): экран
+    половины дуги иначе стирал бы вторую половину молча.
+    ⚠️ Врач и заметка — только если ПРИСЛАНЫ (None ≠ пустая строка): форма
+    печати их не шлёт, и None не должен затирать подпись осмотра.
+    """
+    from .modules.patients.perio import ledger_words
+    keep = {int(r["tooth"]) for r in rows}
+    async with _slot_lock():
+        for tooth in sorted(shown - keep):
+            await _execute(
+                "DELETE FROM perio_teeth WHERE exam_id = $1 AND tooth = $2",
+                "DELETE FROM perio_teeth WHERE exam_id = ? AND tooth = ?",
+                eid, int(tooth))
+        for r in rows:
+            await _execute(
+                """INSERT INTO perio_teeth(exam_id, tooth, pd, rec, bop, mob, furc)
+                   VALUES($1, $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (exam_id, tooth) DO UPDATE SET
+                     pd = EXCLUDED.pd, rec = EXCLUDED.rec, bop = EXCLUDED.bop,
+                     mob = EXCLUDED.mob, furc = EXCLUDED.furc""",
+                """INSERT INTO perio_teeth(exam_id, tooth, pd, rec, bop, mob, furc)
+                   VALUES(?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(exam_id, tooth) DO UPDATE SET
+                     pd = excluded.pd, rec = excluded.rec, bop = excluded.bop,
+                     mob = excluded.mob, furc = excluded.furc""",
+                eid, int(r["tooth"]), r["pd_packed"], r["rec_packed"],
+                r["bop"], int(r["mob"]), int(r["furc"]))
+        if doctor is not None or note is not None:
+            await _execute(
+                """UPDATE perio_exams SET doctor = COALESCE($1, doctor),
+                          note = COALESCE($2, note)
+                   WHERE id = $3 AND patient_id = $4""",
+                """UPDATE perio_exams SET doctor = COALESCE(?, doctor),
+                          note = COALESCE(?, note)
+                   WHERE id = ? AND patient_id = ?""",
+                doctor, note, eid, pid)
+    exam = await perio_exam(pid, eid)
+    when = exam["created_at"] if exam else None
+    await log_event(pid, "perio", ledger_words(await perio_rows(eid), when))
+    return len(rows)
+
+
+async def perio_drop(pid: int, eid: int) -> bool:
+    """Снять ПУСТОЙ осмотр (двойной клик по «Examen nou»).
+    ⛔ Осмотр с измерениями не удаляется никем: это медицинская запись, её
+    правят, а не заставляют исчезнуть — то же правило, что у дневника визита.
+    """
+    if await _fetchval("SELECT COUNT(*) FROM perio_teeth WHERE exam_id = $1",
+                       "SELECT COUNT(*) FROM perio_teeth WHERE exam_id = ?",
+                       eid):
+        return False
+    n = await _execute(
+        "DELETE FROM perio_exams WHERE id = $1 AND patient_id = $2",
+        "DELETE FROM perio_exams WHERE id = ? AND patient_id = ?", eid, pid)
+    return n == 1
+
+
+async def perio_last(pid: int) -> tuple:
+    """Последний осмотр С ИЗМЕРЕНИЯМИ и его строки — для 043/e и выгрузки-195.
+    ⚠️ Именно с измерениями: пустой лист, открытый и не заполненный, не должен
+    подменять собой прошлую настоящую карту на подписываемой бумаге."""
+    for e in await perio_exams(pid):
+        if e["teeth"]:
+            return e, await perio_rows(e["id"])
+    return None, []
+
+
 # ⭐ «Активная» позиция плана — это planificat|in_lucru, а НЕ «всё, что не
 # finalizat». Пока статусов было три, две формулировки совпадали; с появлением
 # ОТКАЗА (refuzat, ст.13(5) Legea 263/2005) вторая стала враньём: отказанная
@@ -2998,6 +3174,11 @@ async def erasure_kind(pid: int) -> str:
     # стирания наравне с зубами и планом
     punti = await _n("SELECT COUNT(*) FROM bridges WHERE patient_id = $1",
                      "SELECT COUNT(*) FROM bridges WHERE patient_id = ?", pid)
+    # пародонтограмма — такая же медицинская запись, как зубы и дневник:
+    # осмотр с измерениями держит фишу от физического стирания
+    perio = await _n("SELECT COUNT(*) FROM perio_exams WHERE patient_id = $1",
+                     "SELECT COUNT(*) FROM perio_exams WHERE patient_id = ?",
+                     pid)
     now = datetime.now(timezone.utc)
     happened = await _n(
         """SELECT COUNT(*) FROM appointments WHERE patient_id = $1
@@ -3008,7 +3189,7 @@ async def erasure_kind(pid: int) -> str:
                 OR (status = 'confirmed' AND starts_at < ?))""",
         *((pid, now) if not IS_SQLITE else (pid, _iso(now))))
     return ("anon" if (teeth or plan or docs or happened or pays or consult
-                       or anam or punti) else "delete")
+                       or anam or punti or perio) else "delete")
 
 
 # Таблицы, ссылающиеся на пациента, — в порядке удаления: дети раньше родителя
@@ -3017,7 +3198,15 @@ async def erasure_kind(pid: int) -> str:
 # с export.py — обе стороны отвечают «где в базе лежит этот человек».
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
                          "plan_items", "documents", "anamneza", "bridges",
-                         "visit_records", "appointments")
+                         "perio_exams", "visit_records", "appointments")
+
+# ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У
+# `perio_teeth` нет patient_id вовсе, и общий шаблон «DELETE ... WHERE
+# patient_id» её не касается. Каскад внешнего ключа сделал бы это сам, но
+# полагаться на него нельзя: включённость `PRAGMA foreign_keys` — свойство
+# СОЕДИНЕНИЯ, и на чужом (восстановление, ремонт базы, другой драйвер)
+# измерения пережили бы стирание пациента молча. Удаляются ПЕРВЫМИ.
+_PATIENT_GRAND_CHILDREN = (("perio_teeth", "exam_id", "perio_exams"),)
 
 
 async def delete_patient_fully(pid: int) -> None:
@@ -3039,8 +3228,11 @@ async def delete_patient_fully(pid: int) -> None:
     pid = int(pid)
     if IS_SQLITE:
         script = "BEGIN IMMEDIATE;\n" + "\n".join(
-            f"DELETE FROM {t} WHERE patient_id = {pid};"
-            for t in _PATIENT_CHILD_TABLES
+            [f"DELETE FROM {t} WHERE {key} IN "
+             f"(SELECT id FROM {parent} WHERE patient_id = {pid});"
+             for t, key, parent in _PATIENT_GRAND_CHILDREN]
+            + [f"DELETE FROM {t} WHERE patient_id = {pid};"
+               for t in _PATIENT_CHILD_TABLES]
         ) + f"\nDELETE FROM patients WHERE id = {pid};\nCOMMIT;"
         try:
             await _CONN.executescript(script)
@@ -3057,6 +3249,10 @@ async def delete_patient_fully(pid: int) -> None:
             raise
     else:
         async with POOL.acquire() as c, c.transaction():
+            for t, key, parent in _PATIENT_GRAND_CHILDREN:
+                await c.execute(
+                    f"DELETE FROM {t} WHERE {key} IN "
+                    f"(SELECT id FROM {parent} WHERE patient_id = $1)", pid)
             for t in _PATIENT_CHILD_TABLES:
                 await c.execute(f"DELETE FROM {t} WHERE patient_id = $1", pid)
             await c.execute("DELETE FROM patients WHERE id = $1", pid)

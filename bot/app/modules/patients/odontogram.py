@@ -452,6 +452,7 @@ def card(tmap: dict, tooth_acts: list, doc_opts: str, base: str,
 <div class='odo-head'>
   <h3>Formula dentară <small>· notație FDI · click pe dinte</small></h3>
   <div class='odo-actions'>{view_switch()}
+    <a class='odo-more' href='{base}/parodontograma'>{_ic('tooth')} Parodontogramă</a>
     <a class='odo-more' href='{base}/odontograma'>{_ic('eye')} Detaliat</a></div>
 </div>
 <div class='odo-view v-frontal'>{_arch_wrap(tmap, False, tip=True, click='openTooth', bmap=bmap)}</div>
@@ -575,6 +576,7 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
   <h2>Odontogramă <small>· notație FDI</small></h2>
   <div class='odo-actions'>{view_switch()}
     <button type='button' class='odo-more' id='br_new'>{_ic('plus')} Punte nouă</button>
+    <a class='odo-more' href='{base}/parodontograma'>{_ic('tooth')} Parodontogramă</a>
     <button type='button' class='odo-more' onclick='window.print()'>{_ic('print')} Printează</button>
   </div>
 </div>

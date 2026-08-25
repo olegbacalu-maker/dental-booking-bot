@@ -795,6 +795,101 @@ def parse_bridge(packed) -> list:
     return out
 
 
+# -------------------------------------------------- пародонтограмма (perio)
+
+# Шесть точек на зуб — канон пародонтальной карты: три со стороны щеки/губы и
+# три со стороны языка/нёба. Порядок ЗАКРЕПЛЁН и одинаков везде: он же порядок
+# диктовки вслух («мезио-вестибулярно, вестибулярно, дисто-вестибулярно…»),
+# порядок колонок на печатном листе и порядок чисел в базе. Переставить его
+# значит молча переписать чужие измерения: в строке «3,2,3,3,2,4» нет имён
+# точек, только позиция.
+PERIO_SITES = ("MV", "V", "DV", "ML", "L", "DL")
+PERIO_SITE_RO = {
+    "MV": "mezio-vestibular", "V": "vestibular", "DV": "disto-vestibular",
+    "ML": "mezio-lingual", "L": "lingual / palatinal", "DL": "disto-lingual",
+}
+# Глубже 15 мм кармана не бывает: это опечатка ввода, а не находка.
+PERIO_MM_MAX = 15
+PERIO_MOB_MAX = 3        # подвижность по Miller: 0–3
+PERIO_FURC_MAX = 3       # фуркация по Hamp: 0–3
+
+
+def _perio_mm(part: str) -> list:
+    """Шесть чисел одной строки измерений. ⚠️ Длина ВСЕГДА шесть: короткий
+    список сдвинул бы значения на соседние точки, и «карман у DV» стал бы
+    карманом у ML — молча, потому что имён точек в данных нет."""
+    out = []
+    for chunk in str(part or "").split(","):
+        chunk = chunk.strip()
+        v = int(chunk) if chunk.isdecimal() else 0
+        out.append(v if 0 <= v <= PERIO_MM_MAX else 0)
+    return (out + [0] * 6)[:6]
+
+
+def _perio_flags(part: str) -> str:
+    """Кровоточивость шести точек маской «010000». Всё, что не единица, —
+    ноль: спрашивать «а вдруг это да» у мусора не надо."""
+    s = "".join("1" if ch == "1" else "0" for ch in str(part or "").strip())
+    return (s + "0" * 6)[:6]
+
+
+def _perio_small(value, top: int) -> int:
+    v = str(value or "").strip()
+    n = int(v) if v.isdecimal() else 0
+    return n if 0 <= n <= top else 0
+
+
+def pack_perio_mm(values) -> str:
+    """[3,2,3,3,2,4] → «3,2,3,3,2,4» с обрезкой по диапазону."""
+    vals = list(values or [])[:6] + [0] * 6
+    return ",".join(str(max(0, min(PERIO_MM_MAX, int(v or 0))))
+                    for v in vals[:6])
+
+
+def parse_perio(packed) -> list:
+    """«16:3,2,3,3,2,4/1,0,1,0,0,2/010000/1/0;17:…» → строки зубов.
+
+    Разбор по белым спискам, ровно как parse_bridge: нечисло, лишняя точка и
+    значение вне диапазона отбрасываются ЗДЕСЬ, а не проверяются каждым
+    потребителем заново.
+    ⚠️ Какие НОМЕРА зубов допустимы, упаковка не решает — так же, как у моста
+    (`parse_bridge` берёт любое целое, а дугу и молочных отсекает
+    `odontogram.bridge_norm`). Списки FDI живут в `odontogram`, который сам
+    импортирует этот модуль: проверка номера здесь замкнула бы круг. Правило
+    «в пародонтальной карте только постоянные зубы» держит `perio.chart_norm`.
+    """
+    out, seen = [], set()
+    for part in str(packed or "").split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        num, _, rest = part.partition(":")
+        num = num.strip()
+        if not num.isdecimal() or int(num) in seen:
+            continue
+        pieces = rest.split("/")
+        pieces += [""] * (5 - len(pieces))
+        seen.add(int(num))
+        out.append({
+            "tooth": int(num),
+            "pd": _perio_mm(pieces[0]),
+            "rec": _perio_mm(pieces[1]),
+            "bop": _perio_flags(pieces[2]),
+            "mob": _perio_small(pieces[3], PERIO_MOB_MAX),
+            "furc": _perio_small(pieces[4], PERIO_FURC_MAX),
+        })
+    return out
+
+
+def pack_perio(row: dict) -> str:
+    """Одна строка зуба обратно в проволочный вид — тем же порядком точек."""
+    return (f"{int(row['tooth'])}:{pack_perio_mm(row.get('pd'))}"
+            f"/{pack_perio_mm(row.get('rec'))}"
+            f"/{_perio_flags(row.get('bop'))}"
+            f"/{_perio_small(row.get('mob'), PERIO_MOB_MAX)}"
+            f"/{_perio_small(row.get('furc'), PERIO_FURC_MAX)}")
+
+
 # ---------------------------------------------------------- поверхности
 
 SURFACE_ORDER = "MODVL"

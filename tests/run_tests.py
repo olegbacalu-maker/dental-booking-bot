@@ -32,6 +32,7 @@ import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
 import test_migrate  # noqa: E402
 import test_bot  # noqa: E402
+import test_perio  # noqa: E402
 import test_pin  # noqa: E402
 import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
@@ -116,6 +117,7 @@ SUITES = [
     ("Одонтограмма: ввод поверхностей", test_teeth.suite_surface_input),
     ("Одонтограмма: отметки поверх находки", test_teeth.suite_marks),
     ("Одонтограмма: мост (punte)", test_teeth.suite_punte),
+    ("Пародонтограмма: шесть точек на зуб", test_perio.suite_perio),
     ("Дневник визита", test_visit.suite),
     ("Дневник визита: план и статусы", test_visit.suite_plan),
     ("Дневник визита: закон 195", test_visit.suite_195),

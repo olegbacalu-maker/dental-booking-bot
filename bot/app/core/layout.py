@@ -199,6 +199,14 @@ MSG_BANNER = {
                          "aceeași arcadă, cu cel puțin un stâlp"),
     "dup_punte": ("err", "Un dinte face deja parte din altă punte — "
                          "ștergeți-o întâi pe aceea"),
+    "ok_perio": ("ok", "Parodontograma a fost salvată"),
+    "ok_perio_new": ("ok", "Examen parodontal nou — introduceți măsurătorile"),
+    "ok_perio_del": ("ok", "Examenul gol a fost șters"),
+    # ⛔ Осмотр с измерениями не удаляется никем: это медицинская запись, её
+    # правят, а не заставляют исчезнуть (то же правило, что у дневника визита).
+    "bad_perio_del": ("err", "Examenul are măsurători și nu se șterge — "
+                             "corectați valorile în el"),
+    "bad_perio": ("err", "Examenul parodontal nu a fost găsit"),
     # ⚠️ Архивация УБИРАЕТ пациента из списка, и общее «фиша обновлена» об этом
     # молчит: человек возвращается в список, никого там не находит и решает,
     # что запись пропала. Сообщение обязано назвать, где искать.

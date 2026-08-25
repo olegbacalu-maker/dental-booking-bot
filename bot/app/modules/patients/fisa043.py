@@ -104,6 +104,7 @@ _T = {
         "s3": "3. Formula dentară", "tnotes": "Note pe dinți",
         "bridge": "Punte dentară",
         "s4": "4. Date obiective", "mucosa": "Starea mucoasei cavității bucale",
+        "perio": "Stare parodontală",
         "occl": "Ocluzia", "rx": "Examen radiologic",
         "rx_note": "în program: {n} radiografii atașate",
         "diag": "Diagnostic",
@@ -139,6 +140,7 @@ _T = {
         "s3": "3. Зубная формула", "tnotes": "Заметки по зубам",
         "bridge": "Мост (punte)",
         "s4": "4. Объективные данные", "mucosa": "Состояние слизистой полости рта",
+        "perio": "Состояние пародонта",
         "occl": "Прикус", "rx": "Рентгенологическое исследование",
         "rx_note": "в программе: {n} снимков",
         "diag": "Диагноз",
@@ -306,7 +308,7 @@ def _diary_cell(r: dict, t: dict) -> tuple[str, str]:
 def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
            rx_count: int, age: int | None, anam: dict | None = None,
            flag_labels: dict | None = None, lang: str = "ro",
-           punti: list | None = None) -> str:
+           punti: list | None = None, perio_line: str = "") -> str:
     """`recs` — записи приёмов ХРОНОЛОГИЧЕСКИ (дневник читается сверху вниз).
     `anam` — опросник анамнеза, `flag_labels` — подписи его отметок."""
     e = html.escape
@@ -468,6 +470,7 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
 <p class="line">{t["occl"]}: {_fill("", "_" * 30)} ·
 {t["rx"]}:{rx_note} {_fill("", "_" * 20)}</p>
 <p class="line">{t["diag"]}: {_fill(diag, "_" * 56)}</p>
+{f'<p class="line"><b>{t["perio"]}:</b> {e(perio_line)}</p>' if perio_line else ""}
 
 <h2>{t["s5"]}</h2>
 {plan_html}

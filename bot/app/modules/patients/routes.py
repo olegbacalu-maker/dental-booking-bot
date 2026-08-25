@@ -43,6 +43,7 @@ from . import anamneza as panam
 from . import export as pexport
 from . import fisa043 as pfisa
 from . import odontogram as podo
+from . import perio as pperio
 from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core import xlsx
@@ -1370,6 +1371,148 @@ async def patient_bridge_del(request: Request, pid: int, bid: int):
                             status_code=303)
 
 
+# ---------- пародонтограмма ----------
+
+def _perio_absent(tmap: dict) -> set:
+    """Зубы, которых по одонтограмме нет. Карта их ПОКАЗЫВАЕТ приглушёнными, но
+    ввод не запрещает: одонтограмма может быть не заполнена, а измерение — это
+    то, что врач нашёл во рту, и отказ терял бы находку."""
+    return {n for n, r in (tmap or {}).items()
+            if (r.get("state") or "") in ("lipsa", "extras")}
+
+
+async def _perio_ctx(pid: int, want: str):
+    """Пациент, выбранный осмотр и его строки. Осмотр — из ?exam=, иначе самый
+    свежий. ⚠️ Чужой id сюда прийти может (адрес набирают руками), поэтому
+    выбор всегда идёт по СПИСКУ осмотров этого пациента, а не по одному id."""
+    exams = await db.perio_exams(pid)
+    exam = None
+    if want.strip().isdecimal():
+        exam = next((x for x in exams if x["id"] == int(want)), None)
+    return exams, (exam or (exams[0] if exams else None))
+
+
+@router.get("/admin/patient/{pid}/parodontograma", response_class=HTMLResponse)
+async def patient_perio(request: Request, pid: int, exam: str = Query(""),
+                        msg: str = Query("")):
+    """Лист пародонтограммы. ⚠️ Сайдбар свёрнут (`rail=True`) по той же
+    арифметике, что у детальной одонтограммы: шестнадцать зубов по шесть точек
+    шире, чем окно с обычным сайдбаром.
+    ⛔ GET ничего не создаёт: пустой карте — экран «начните осмотр» с кнопкой.
+    Иначе каждое обновление страницы плодило бы пустые осмотры."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    base = f"/admin/patient/{pid}"
+    exams, cur = await _perio_ctx(pid, exam)
+    if cur is None:
+        body = msg_banner(msg) + f"""<div class='perio'>
+<div class='odop-top'>
+  <a class='odop-back' href='{base}'>{_ic('pat')} {html.escape(p['name'])}</a>
+  <h2>Parodontogramă <small>· 6 puncte pe dinte</small></h2>
+</div>
+<div class='fcard pempty'>
+  <p>Pentru acest pacient nu există încă niciun examen parodontal.</p>
+  <form method='post' action='{base}/perio/new'>
+    <button class='pl-btn primary'>{_ic('plus')} Începe primul examen</button>
+  </form>
+</div></div>"""
+        return _shell(body, f"parodontogramă · #{pid}", active="pat", rail=True)
+    rows = await db.perio_rows(cur["id"])
+    tmap = await db.teeth_map(pid)
+    # врачи ВСЕ, как в фише: `doctor` осмотра — снапшот имени, и врача могли
+    # отправить в архив уже после измерений
+    doc_opts = "".join(f"<option value='{html.escape(v)}'>{html.escape(v)}</option>"
+                       for v in eng.DOCTORS.values())
+    body = msg_banner(msg) + pperio.page(p, cur, exams, rows,
+                                         _perio_absent(tmap), doc_opts, base)
+    return _shell(body, f"parodontogramă · #{pid}", active="pat", rail=True)
+
+
+@router.post("/admin/patient/{pid}/perio/new")
+async def patient_perio_new(request: Request, pid: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    eid = await db.perio_new(pid)
+    return RedirectResponse(
+        f"/admin/patient/{pid}/parodontograma?exam={eid}&msg=ok_perio_new",
+        status_code=303)
+
+
+@router.post("/admin/patient/{pid}/perio")
+async def patient_perio_save(request: Request, pid: int,
+                             exam: str = Form(""), chart: str = Form(""),
+                             shown: str = Form(""),
+                             doctor: str | None = Form(None),
+                             note: str | None = Form(None)):
+    """Сохранить измерения осмотра.
+
+    ⛔ `shown` — какие зубы форма ПОКАЗЫВАЛА. Стираются только они: пустое поле
+    значит «не измеряли», а отсутствие зуба в форме — «не показывали», и это
+    разные вещи (08-16, две потери данных ровно на этом различии).
+    ⚠️ Врач принимается только из справочника: в осмотре он снапшот ЛЕЧАЩЕГО,
+    а вошедшая учётка (нередко «Director») была бы там враньём.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    back = f"/admin/patient/{pid}/parodontograma"
+    cur = await db.perio_exam(pid, int(exam)) if exam.strip().isdecimal() else None
+    if cur is None:
+        return RedirectResponse(f"{back}?msg=bad_perio", status_code=303)
+    rows = pperio.chart_norm(tsvg.parse_perio(chart))
+    seen = {int(x) for x in re.findall(r"\d+", shown)} & set(pperio.PERIO_TEETH)
+    # ⚠️ None ≠ пустая строка: поля НЕТ в форме — «не сообщали», поле пустое —
+    # «стереть». Form("") стирало бы подпись осмотра при любой отправке, где
+    # врача не показывали (та же грабля 08-16, что с поверхностями зуба).
+    doc = None if doctor is None else (
+        doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else "")
+    await db.perio_save(pid, cur["id"], rows, seen, doctor=doc,
+                        note=None if note is None else note.strip()[:200])
+    return RedirectResponse(f"{back}?exam={cur['id']}&msg=ok_perio",
+                            status_code=303)
+
+
+@router.post("/admin/patient/{pid}/perio/{eid}/del")
+async def patient_perio_del(request: Request, pid: int, eid: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    ok = await db.perio_drop(pid, eid)
+    msg = "ok_perio_del" if ok else "bad_perio_del"
+    return RedirectResponse(f"/admin/patient/{pid}/parodontograma?msg={msg}",
+                            status_code=303)
+
+
+@router.get("/admin/patient/{pid}/parodontograma/print",
+            response_class=HTMLResponse)
+async def patient_perio_print(request: Request, pid: int,
+                              exam: str = Query("")):
+    """Печатный лист. Как и 043/e с acord, печать — событие обработки данных и
+    пишется в летопись: закон 195 спрашивает, кто и когда доставал карту."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    p = await db.get_patient(pid)
+    if not p:
+        return RedirectResponse("/admin/search", status_code=303)
+    _exams, cur = await _perio_ctx(pid, exam)
+    if cur is None:
+        return RedirectResponse(
+            f"/admin/patient/{pid}/parodontograma?msg=bad_perio",
+            status_code=303)
+    rows = await db.perio_rows(cur["id"])
+    await db.log_event(pid, "perio",
+                       f"Parodontogramă {pperio._day(cur['created_at'])} "
+                       f"generată pentru tipărire")
+    return pperio.print_sheet(p, cur, rows)
+
+
 @router.post("/admin/patient/{pid}/tooth")
 async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
                         state: str = Form(...), note: str = Form(""),
@@ -1886,13 +2029,16 @@ async def patient_fisa043(request: Request, pid: int, lang: str = ""):
     rx = sum(1 for d in docs if d["category"] == "radiografie")
     anam = await db.anamneza(pid)
     punti = await db.bridges(pid)
+    # ⚠️ Строка пародонта — из ПОСЛЕДНЕГО осмотра С ИЗМЕРЕНИЯМИ, и на языке
+    # листа: бланк бывает русским, а слова итога живут в perio._SUM_WORDS.
+    p_exam, p_rows = await db.perio_last(pid)
     await db.log_event(pid, "fisa043", "Fișa 043/e generată pentru tipărire")
     doc_lang = _doc_lang(p, lang)
     # подписи отметок — на языке ЛИСТА: иначе русский бланк печатал бы
     # «Diabet zaharat» в русской же строке «Перенесённые заболевания»
     return pfisa.render(p, alerts, teeth, plan, list(reversed(recs)), rx,
                         _p_age(p), anam, panam.labels(doc_lang), doc_lang,
-                        punti)
+                        punti, pperio.summary_line(p_exam, p_rows, doc_lang))
 
 
 @router.get("/admin/patient/{pid}/export")
