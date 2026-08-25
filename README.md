@@ -13,7 +13,7 @@ no account, no subscription and no server holding patient data.
 
 > Screenshots and `clinic.json` in this repo use synthetic data — invented patients,
 > invented doctors. Phone numbers, e-mail addresses and national ID numbers are masked in
-> the screenshots. One `clinic.json` = one clinic. The shots below are **v1.25.2**, taken
+> the screenshots. One `clinic.json` = one clinic. The shots below are **v1.26.0**, taken
 > on a staged clinic with two months of work behind it.
 
 ## Screenshots
@@ -43,6 +43,14 @@ today's agenda in the right rail. The page keeps itself current without reloadin
 preview with treatment-plan progress and CSV export:
 
 ![Patient list](screenshots/patient-search.png)
+
+**Periodontal chart** — six points per tooth (probing depth, recession,
+bleeding) plus mobility and furcation, stored as a dated examination rather
+than as a state, so two examinations can be compared. The numbers on the right
+are computed, not typed: bleeding on probing, mean depth, pockets of 4 mm and
+deeper:
+
+![Periodontal chart](screenshots/perio.png)
 
 **Doctors** — one card per doctor with state, load and 30-day figures; the doctor's own
 page holds the working window, the services performed and the calendar colour:
@@ -171,6 +179,31 @@ then a two-column workspace.
     overlapping constructions out loud. Both screens draw the brace with its material over
     the actual tooth buttons, which is what makes it survive the grid gap, the window
     width and both views.
+- **Periodontal chart** (`/admin/patient/{id}/parodontograma`) — the gum's own
+  chart, six points per tooth: probing depth, recession and bleeding, with
+  mobility (Miller) and furcation (Hamp) for the whole tooth. Attachment level
+  is not stored — it is depth plus recession, and computable things are not
+  written down.
+
+  What makes it different from every other screen here: **the unit of storage
+  is a dated examination, not a current state.** Periodontology is entirely
+  about change over time — "5 mm in March, 3 mm now" *is* the result of the
+  treatment — and a chart without yesterday answers nothing anyone measures it
+  for. So each examination keeps its own numbers and the earlier ones stay
+  untouched.
+
+  A probing depth of **0 means not measured**, not zero millimetres: a healthy
+  sulcus is 1–3 mm, and zero is how a skipped point is written down. That is
+  what keeps the two summary numbers honest — bleeding on probing and mean
+  depth are divided by the points actually probed, so half a mouth left blank
+  cannot halve them and make the treatment look better than it is.
+
+  Entry is built for dictation, because a chart of 192 numbers is otherwise
+  never filled in: the cursor moves to the next point as soon as a number
+  cannot grow (`3` is finished, `1` waits for a second digit), and bleeding is
+  the `b` key. The chart prints as a sheet of its own; the 043/e form gets a
+  one-line summary in section 4, because order 828 fixes that form's structure
+  and there is no room in it for a table of ours.
 - **Treatment plan** — tooth, procedure, doctor, price in MDL, due date. Three statuses
   (planned → in progress → done) move along a directed path the server validates as a pair
   (from, to), tabs filter by status with counts, the total of the *unfinished* plan is shown
