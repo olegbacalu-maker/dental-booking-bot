@@ -18,3 +18,16 @@ build/
 data/
 dental.env
 *.bak
+
+# frontend (DentPilot 2.0)
+frontend/node_modules/
+# ⚠️ Результат сборки фронта кладётся ПРЯМО в статику движка, чтобы его
+# подхватил существующий --add-data. В git он не едет — это артефакт.
+# ⛔ Когда поедет первый React-экран, Build-Desktop.ps1 обязан звать
+# `npm run build` ДО PyInstaller: иначе сборка с чистого клона положит в exe
+# страницу без бандла, и увидит это только клиника.
+bot/app/static/js/bundle.js
+bot/app/static/css/bundle.css
+bot/app/static/js/bundle.js.map
+# rust (PHASE 7)
+src-tauri/target/

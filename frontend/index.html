@@ -1,0 +1,18 @@
+<!doctype html>
+<!--
+  ⚠️ Только для `npm run dev`. В собранной программе страницу отдаёт FastAPI
+  (core/layout._shell), а сюда Vite ничего не кладёт: входная точка сборки —
+  src/main.tsx, а не этот файл. Иначе результат затёр бы bot/app/static/index.html,
+  где живёт лендинг бота.
+-->
+<html lang="ro">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DentPilot — dezvoltare</title>
+  </head>
+  <body>
+    <div id="root" data-screen="dev"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
