@@ -78,5 +78,6 @@ git tag → GitHub Actions → GitHub Release
 · [features.md](features.md) · [screen-test-map.md](screen-test-map.md)
 · [tauri.md](tauri.md) · [sidecar.md](sidecar.md) · [installer.md](installer.md)
 · [updates.md](updates.md) · [release.md](release.md) · [migration.md](migration.md)
+· **[tasks.md](tasks.md) — конкретный список работ**
 
 Аудит, с которого всё началось — [../migration-audit.md](../migration-audit.md).

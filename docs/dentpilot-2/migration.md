@@ -3,6 +3,7 @@
 Точка отсчёта и полный разбор — [../migration-audit.md](../migration-audit.md).
 Что программа умеет **сегодня** — [../current-functionality.md](../current-functionality.md).
 Поэтапный план — [../migration-plan.md](../migration-plan.md).
+Пошаговый список работ с числами — **[tasks.md](tasks.md)**.
 
 ## Доска фаз
 
