@@ -1,0 +1,81 @@
+# PHASE 1 — базовый прогон тестов движка.
+#
+# Ступень 1 из пяти (docs/dentpilot-2/ci.md): здесь ТОЛЬКО тесты. Ни сборки,
+# ни релиза, ни единого секрета. Сборка фронта, Tauri, дымовой тест и E2E
+# приезжают отдельными ступенями, когда будет что собирать, — иначе каждая
+# обычная правка платила бы холодной сборкой Rust.
+#
+# ⛔ Права минимальные и публикацией здесь не пахнет: publish остаётся ручной
+#    командой с машины Олега. Workflow не имеет права выпускать релизы.
+# ⛔ Сторонние action'ы пришпилены по SHA коммита, а не по тегу: тег
+#    перевешивается, SHA — нет.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: Движок (1810 проверок)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Забрать исходники
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # ⚠️ Версия ровно 3.14: именно на ней собрано .venv-desktop у Олега
+      # (sqlcipher3 приезжает бинарным колесом cp314-cp314-win_amd64, и на
+      # другой версии Python его пришлось бы собирать из исходников — а Build
+      # Tools на раннере нет).
+      - name: Поставить Python 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: bot/requirements-desktop.txt
+
+      # ⛔ Папка называется именно .venv-desktop и лежит именно в корне:
+      # tests/harness.py:29 берёт интерпретатор по этому пути БУКВАЛЬНО
+      # (PYTHON = ROOT / ".venv-desktop" / "Scripts" / "python.exe").
+      # Переименуешь — прогон не стартует вовсе.
+      - name: Собрать окружение сборки
+        run: |
+          python -m venv .venv-desktop
+          .venv-desktop\Scripts\python.exe -m pip install --upgrade pip
+          .venv-desktop\Scripts\python.exe -m pip install -r bot\requirements-desktop.txt
+
+      # Проверка до прогона: нативные модули действительно приехали. Без неё
+      # отсутствующий sqlcipher3 дал бы не отказ установки, а красный набор
+      # test_dbcrypt в середине прогона — на шесть минут позже и невнятнее.
+      - name: Убедиться, что нативные модули на месте
+        run: |
+          .venv-desktop\Scripts\python.exe -c "import sqlcipher3, pyzipper, fastapi, uvicorn; print('ok')"
+
+      # Число проверок и время НЕ зашиты: они растут, и workflow, ждущий
+      # старого числа, однажды соврал бы. Их называет сам прогон.
+      - name: Прогон
+        run: .venv-desktop\Scripts\python.exe tests\run_tests.py
+
+      # Сторожа архитектурных правил ломаются молча: список, который ВКЛЮЧАЕТ
+      # требование, при переименовании находит ноль нарушителей и зеленеет
+      # навсегда. mutate.py ломает каждое правило в копии дерева и требует
+      # красного — без него test_structure.py ничего не значит.
+      #
+      # ⚠️ Шаг идёт даже после красного прогона (!cancelled), и это намеренно:
+      # одна отправка должна рассказать ОБА ответа сразу. Иначе починка тестов
+      # и починка сторожей — это два круга ожидания вместо одного.
+      - name: Мутация сторожей
+        if: ${{ !cancelled() }}
+        run: .venv-desktop\Scripts\python.exe tests\mutate.py
