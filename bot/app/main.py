@@ -40,6 +40,7 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
 from .core import dbkey, theme
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
                           fonts_css, standalone, tg_configured)
+from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
 from .modules.qr import routes as qr
@@ -59,6 +60,7 @@ RECOVERY = False
 app.include_router(patients.router)
 app.include_router(schedule.router)
 app.include_router(doctors.router)
+app.include_router(doctors_api.router)    # JSON API раздела (DentPilot 2.0)
 app.include_router(settings.router)
 app.include_router(settings_api.router)   # JSON API раздела (DentPilot 2.0)
 app.include_router(stats.router)

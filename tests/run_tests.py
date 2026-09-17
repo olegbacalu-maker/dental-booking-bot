@@ -27,6 +27,7 @@ import test_anamneza  # noqa: E402
 import test_api  # noqa: E402
 import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
+import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
@@ -136,6 +137,9 @@ SUITES = [
     ("API: охрана и конверт", test_api.suite_guard),
     ("API: настройки клиники — данные", test_api.suite_clinic),
     ("React-экран: рубильник и старая форма", test_api.suite_switch),
+    ("Врачи: старые POST без проверок", test_doctors.suite_legacy),
+    ("Врачи: JSON API", test_doctors.suite_api),
+    ("Врачи: React-экраны и старые страницы", test_doctors.suite_switch),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),

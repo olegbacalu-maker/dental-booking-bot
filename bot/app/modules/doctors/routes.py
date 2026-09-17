@@ -24,7 +24,7 @@ from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, require
 from ...core.layout import (HOUR_MAX, HOUR_MIN, _DOC_STATE_RO,
                             _DOW_FULL, _DOW_ORDER, _doc_hours_text, _ic,
-                            msg_banner, _shell)
+                            msg_banner, react_mount, react_on, _shell)
 from ...core.visits import (_avatar, _card_modal, _collect_cards, _doc_hue,
                             _doctors_dir, _list, _photo_path)
 
@@ -119,6 +119,77 @@ def _patch_doctor(dk: str, **fields) -> str | None:
     return _save_cfg(doctors=docs)
 
 
+# Услуги, которые остаются (или уже остались) без единого активного врача:
+# бот тогда честно скажет «недоступна» (v1.8.1), но админ должен это ВИДЕТЬ.
+# ⚠️ v1.9.1: раньше предупреждение показывалось только пока врач активен —
+# то есть исчезало ровно в тот момент, когда становилось правдой.
+_ORPHAN_SOON = ("Atenție: dacă acest medic nu mai e activ, serviciile {svc} "
+                "rămân fără medic și nu vor mai putea fi programate.")
+_ORPHAN_NOW = ("Cât timp acest medic nu e activ, serviciile {svc} nu au niciun "
+               "medic activ și nu pot fi programate. Bifați-le la alt medic sau "
+               "readuceți-l în activitate.")
+
+
+def _orphan_services(dk: str, *, without: bool) -> list[str]:
+    out = []
+    for sv in eng.SERVICES.values():
+        docs = sv.get("docs") or []
+        if not docs or (without and dk not in docs):
+            continue
+        others = [k for k in docs
+                  if (k != dk if without else True)
+                  and eng.DOCTOR_META.get(k, {}).get("active")]
+        if not others:
+            out.append(sv["ro"])
+    return out
+
+
+def _orphan_warning(dk: str, st: str) -> tuple[str, list[str]]:
+    """(шаблон с {svc}, имена услуг) — или ("", []) когда предупреждать не о
+    чем. Форма оборачивает имена в <b>, JSON API отдаёт сплошным текстом; сама
+    фраза одна."""
+    if st == "activ":
+        names = _orphan_services(dk, without=True)
+        return (_ORPHAN_SOON, names) if names else ("", [])
+    names = _orphan_services(dk, without=False)
+    return (_ORPHAN_NOW, names) if names else ("", [])
+
+
+def _week_cells(dk: str, mine_wk: list, today) -> list[dict]:
+    """Ближайшие 7 дней врача: сколько приёмов и открыт ли день (заметки не в
+    счёт — это не приёмы). Одни числа на старую фишу и на JSON API."""
+    out = []
+    for i in range(7):
+        day = today + timedelta(days=i)
+        cnt = sum(1 for r in mine_wk
+                  if r["starts_at"].astimezone(eng.TZ).date() == day
+                  and r["source"] != "note" and r["status"] != "cancelled")
+        out.append({"date": day.isoformat(),
+                    "label": "Azi" if i == 0 else _DOW_FULL[_DOW_ORDER[day.weekday()]][:2],
+                    "dm": f"{day.day:02d}.{day.month:02d}",
+                    "count": cnt, "open": bool(eng.work_minutes(dk, day))})
+    return out
+
+
+def _service_rows(dk: str) -> list[dict]:
+    """Услуги для галочек фиши: отмечена ли у этого врача и у скольких она."""
+    out = []
+    for sid, sv in eng.SERVICES.items():
+        docs = sv.get("docs") or []
+        out.append({"id": sid, "name": sv["ro"], "checked": (not docs) or dk in docs,
+                    "note": ("toți medicii" if not docs
+                             else "1 medic" if len(docs) == 1 else f"{len(docs)} medici")})
+    return out
+
+
+def _same_color() -> bool:
+    """⚠️ Старая таблица в Setări подставляла КАЖДОМУ врачу один и тот же цвет
+    по умолчанию — на таком конфиге карточки в расписании неразличимы."""
+    set_colors = {(d.get("color") or "").lower() for d in eng.CONFIG["doctors"]}
+    return (len(eng.CONFIG["doctors"]) > 1 and len(set_colors) == 1
+            and "" not in set_colors)
+
+
 def _med_card_html(dk: str, name: str, rows: list, days: list) -> str:
     e = html.escape
     meta = eng.DOCTOR_META.get(dk, {})
@@ -146,6 +217,11 @@ def _med_card_html(dk: str, name: str, rows: list, days: list) -> str:
 async def admin_medici(request: Request, msg: str = ""):
     if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
+    if react_on(request, "doctors_list"):
+        # React-экран (флаг в clinic.json): рамка и плашка ответа те же,
+        # старая разметка ниже остаётся и отдаётся по ?ui=legacy
+        return _shell(msg_banner(msg) + react_mount("doctors_list", request.url.path),
+                      "medicii clinicii · fișă, program, servicii", active="med")
     today = datetime.now(eng.TZ).date()
     d1 = today - timedelta(days=29)
     start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)
@@ -160,11 +236,8 @@ async def admin_medici(request: Request, msg: str = ""):
 
     banner = msg_banner(msg)
 
-    # ⚠️ старая таблица в Setări подставляла КАЖДОМУ врачу один и тот же цвет по
-    # умолчанию — на таком конфиге карточки в расписании неразличимы. Молча
-    # переписывать чужой выбор нельзя, поэтому просто предлагаем сброс.
-    set_colors = {(d.get("color") or "").lower() for d in eng.CONFIG["doctors"]}
-    same_color = len(eng.CONFIG["doctors"]) > 1 and len(set_colors) == 1 and "" not in set_colors
+    # Молча переписывать чужой выбор цвета нельзя — просто предлагаем сброс.
+    same_color = _same_color()
     color_hint = (
         "<div class='banner err'>Toți medicii au aceeași culoare, deci cardurile lor "
         "din programul zilei nu se disting. "
@@ -191,16 +264,15 @@ async def admin_medici(request: Request, msg: str = ""):
     return _shell(body, "medicii clinicii · fișă, program, servicii", active="med")
 
 
-@router.post("/admin/medici/add")
-async def admin_medici_add(request: Request, name: str = Form(...), spec: str = Form("")):
-    if (deny := require(request, PERM_DOCTORS)) is not None:
-        return deny
+def _add_doctor(name: str, spec: str) -> tuple[str, str]:
+    """Новый врач в профиле: (код ответа, id), id пустой при отказе.
+    Правило одно на форму и на JSON API — ответ у каждого свой."""
     nm = name.strip()[:60]
     if not nm:
-        return RedirectResponse("/admin/medici?msg=bad_med", status_code=303)
+        return "bad_med", ""
     # тёзки слили бы истории (легаси-строки матчатся по имени) — запрещаем
     if any(d["name"].casefold() == nm.casefold() for d in eng.CONFIG["doctors"]):
-        return RedirectResponse("/admin/medici?msg=dup_med", status_code=303)
+        return "dup_med", ""
     seq = dict(eng.CONFIG.get("seq") or {})
     n = int(seq.get("doctor", 0))
     for d in eng.CONFIG.get("doctors", []):
@@ -211,21 +283,32 @@ async def admin_medici_add(request: Request, name: str = Form(...), spec: str = 
     seq["doctor"] = n
     did = f"d{n}"
     entry = _doctor_entry({"id": did, "name": nm}, spec=spec.strip()[:60], status="activ")
-    err = _save_cfg(doctors=list(eng.CONFIG["doctors"]) + [entry], seq=seq)
-    if err:
-        return RedirectResponse("/admin/medici?msg=save_err", status_code=303)
-    return _med_redirect(did, "new_med")
+    if _save_cfg(doctors=list(eng.CONFIG["doctors"]) + [entry], seq=seq):
+        return "save_err", ""
+    return "new_med", did
+
+
+@router.post("/admin/medici/add")
+async def admin_medici_add(request: Request, name: str = Form(...), spec: str = Form("")):
+    if (deny := require(request, PERM_DOCTORS)) is not None:
+        return deny
+    code, did = _add_doctor(name, spec)
+    if not did:
+        return RedirectResponse(f"/admin/medici?msg={code}", status_code=303)
+    return _med_redirect(did, code)
+
+
+def _reset_colors() -> str:
+    """Сброс цветов врачей на автоматические (различимые по палитре)."""
+    docs = [_doctor_entry(d, color="") for d in eng.CONFIG["doctors"]]
+    return "save_err" if _save_cfg(doctors=docs) else "ok_med"
 
 
 @router.post("/admin/medici/colors")
 async def admin_medici_colors(request: Request):
-    """Сброс цветов врачей на автоматические (различимые по палитре)."""
     if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
-    docs = [_doctor_entry(d, color="") for d in eng.CONFIG["doctors"]]
-    err = _save_cfg(doctors=docs)
-    return RedirectResponse(f"/admin/medici?msg={'save_err' if err else 'ok_med'}",
-                            status_code=303)
+    return RedirectResponse(f"/admin/medici?msg={_reset_colors()}", status_code=303)
 
 
 @router.get("/admin/doctor-card/{dk}", response_class=HTMLResponse)
@@ -234,6 +317,10 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
+    if react_on(request, "doctor_card"):
+        return _shell(msg_banner(msg) + react_mount("doctor_card", request.url.path,
+                                                    {"dk": dk}),
+                      f"fișa medicului · {html.escape(eng.DOCTORS[dk])}", active="med")
     e = html.escape
     name = eng.DOCTORS[dk]
     meta = eng.DOCTOR_META.get(dk, {})
@@ -254,34 +341,10 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
 
     banner = msg_banner(msg)
 
-    # услуги, которые останутся (или уже остались) без единого активного врача:
-    # бот тогда честно скажет «недоступна» (v1.8.1), но админ должен это ВИДЕТЬ.
-    # ⚠️ v1.9.1: раньше предупреждение показывалось только пока врач активен —
-    # то есть исчезало ровно в тот момент, когда становилось правдой.
-    def _orphans(*, without: bool) -> list[str]:
-        out = []
-        for sv in eng.SERVICES.values():
-            docs = sv.get("docs") or []
-            if not docs or (without and dk not in docs):
-                continue
-            others = [k for k in docs
-                      if (k != dk if without else True)
-                      and eng.DOCTOR_META.get(k, {}).get("active")]
-            if not others:
-                out.append(sv["ro"])
-        return out
-
-    warn = ""
-    if st == "activ":
-        if (soon := _orphans(without=True)):
-            warn = (f"<div class='banner err'>Atenție: dacă acest medic nu mai e activ, "
-                    f"serviciile <b>{e(', '.join(soon))}</b> rămân fără medic și "
-                    f"nu vor mai putea fi programate.</div>")
-    elif (now_orphan := _orphans(without=False)):
-        warn = (f"<div class='banner err'>Cât timp acest medic nu e activ, serviciile "
-                f"<b>{e(', '.join(now_orphan))}</b> nu au niciun medic activ și "
-                f"nu pot fi programate. Bifați-le la alt medic sau readuceți-l în "
-                f"activitate.</div>")
+    tpl, orphan_names = _orphan_warning(dk, st)
+    warn = (f"<div class='banner err'>"
+            f"{tpl.format(svc='<b>' + e(', '.join(orphan_names)) + '</b>')}</div>"
+            if tpl else "")
 
     def _wh_opts(sel, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
         out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
@@ -350,20 +413,15 @@ folosește în calendarul zilei. Arhivarea e posibilă doar fără programări v
 
     # центр: сегодня + ближайшая неделя (заметки не в счёт — это не приёмы)
     wk_cells = []
-    for i in range(7):
-        day = today + timedelta(days=i)
-        cnt = sum(1 for r in mine_wk
-                  if r["starts_at"].astimezone(eng.TZ).date() == day
-                  and r["source"] != "note" and r["status"] != "cancelled")
-        cap = eng.work_minutes(dk, day)
-        lbl = ("Azi" if i == 0 else _DOW_FULL[_DOW_ORDER[day.weekday()]][:2])
-        tone = ("var(--teal-soft)" if cnt else "var(--bg)") if cap else "var(--line2)"
+    for cell in _week_cells(dk, mine_wk, today):
+        tone = (("var(--teal-soft)" if cell["count"] else "var(--bg)")
+                if cell["open"] else "var(--line2)")
         wk_cells.append(
-            f"<a href='/admin/doctor/{dk}?date={day.isoformat()}' style='flex:1;min-width:0;"
+            f"<a href='/admin/doctor/{dk}?date={cell['date']}' style='flex:1;min-width:0;"
             f"text-decoration:none;color:inherit;background:{tone};border-radius:10px;"
             f"padding:8px 6px;text-align:center'>"
-            f"<div style='font-size:11px;color:var(--text3)'>{lbl} {day.day:02d}.{day.month:02d}</div>"
-            f"<div style='font-size:16px;font-weight:600'>{cnt if cap else '—'}</div></a>")
+            f"<div style='font-size:11px;color:var(--text3)'>{cell['label']} {cell['dm']}</div>"
+            f"<div style='font-size:16px;font-weight:600'>{cell['count'] if cell['open'] else '—'}</div></a>")
     back = f"/admin/doctor-card/{dk}"
     cards = _collect_cards(today_rows)
     # 9 колонок в узкой средней колонке — таблица скроллится сама, страница нет
@@ -380,14 +438,11 @@ folosește în calendarul zilei. Arhivarea e posibilă doar fără programări v
 
     # справа: услуги галочками + цифры за 30 дней
     svc_lines = []
-    for sid, sv in eng.SERVICES.items():
-        docs = sv.get("docs") or []
-        checked = (not docs) or dk in docs
-        note = ("toți medicii" if not docs
-                else "1 medic" if len(docs) == 1 else f"{len(docs)} medici")
+    for row in _service_rows(dk):
         svc_lines.append(
-            f"<label><input type='checkbox' name='svc' value='{e(sid)}'"
-            f"{' checked' if checked else ''}> {e(sv['ro'])}<small>{note}</small></label>")
+            f"<label><input type='checkbox' name='svc' value='{e(row['id'])}'"
+            f"{' checked' if row['checked'] else ''}> {e(row['name'])}"
+            f"<small>{row['note']}</small></label>")
     right = f"""<div class='fcard'><h3>Servicii pe care le face</h3>
 <form method='post' action='/admin/doctor-card/{dk}/services'>
   <div class='svcpick'>{''.join(svc_lines)}</div>
@@ -424,32 +479,45 @@ async def doctor_card_save(request: Request, dk: str, name: str = Form(...),
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
+    return _med_redirect(dk, await _save_doctor(
+        dk, name=name, spec=spec, room=room, phone=phone, email=email,
+        color=color, auto_color=bool(auto_color), work_from=work_from,
+        work_to=work_to, status=status))
+
+
+async def _save_doctor(dk: str, *, name: str, spec: str = "", room: str = "",
+                       phone: str = "", email: str = "", color: str = "",
+                       auto_color: bool = False, work_from: str = "",
+                       work_to: str = "", status: str = "activ") -> str:
+    """Правила фиши врача — одни на форму и на JSON API. Возвращает код ответа:
+    bad_med / dup_med / last_med / arch_busy / save_err / ok_med. Часы приходят
+    строками, как из формы («» = как у клиники)."""
     nm = name.strip()[:60]
     if not nm:
-        return _med_redirect(dk, "bad_med")
+        return "bad_med"
     if any(d["id"] != dk and d["name"].casefold() == nm.casefold()
            for d in eng.CONFIG["doctors"]):
-        return _med_redirect(dk, "dup_med")
+        return "dup_med"
     st = status if status in eng.DOCTOR_STATES else "activ"
     if st != "activ" and not any(d["id"] != dk and eng.doctor_state(d) == "activ"
                                  for d in eng.CONFIG["doctors"]):
-        return _med_redirect(dk, "last_med")
+        return "last_med"
     if st == "arhivat":
         # архив = «его больше нет в расписании»; с живыми будущими бронями это
         # тихо оставило бы пациентов без врача — только «в отпуске»
         if await db.doctor_future_count(dk, eng.DOCTORS[dk], datetime.now(eng.TZ)):
-            return _med_redirect(dk, "arch_busy")
+            return "arch_busy"
     wf = int(work_from) if work_from.isdecimal() and 0 <= int(work_from) <= 23 else None
     wt = int(work_to) if work_to.isdecimal() and 1 <= int(work_to) <= 24 else None
     if wf is not None and wt is not None and wf >= wt:
-        return _med_redirect(dk, "bad_med")
+        return "bad_med"
     col = "" if auto_color else color.strip()[:16]
     if col and not re.fullmatch(r"#[0-9a-fA-F]{6}", col):
-        return _med_redirect(dk, "bad_med")
+        return "bad_med"
     err = _patch_doctor(dk, name=nm, spec=spec.strip()[:60], room=room.strip()[:30],
                         phone=phone.strip()[:30], email=email.strip()[:80],
                         color=col, work_from=wf, work_to=wt, status=st)
-    return _med_redirect(dk, "save_err" if err else "ok_med")
+    return "save_err" if err else "ok_med"
 
 
 @router.post("/admin/doctor-card/{dk}/services")
@@ -459,7 +527,12 @@ async def doctor_card_services(request: Request, dk: str):
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
     form = await request.form()
-    picked = set(form.getlist("svc"))
+    return _med_redirect(dk, _set_services(dk, set(form.getlist("svc"))))
+
+
+def _set_services(dk: str, picked: set) -> str:
+    """Галочки услуг врача — одно правило на форму и на JSON API. Возвращает
+    код ответа: svc_empty / save_err / ok_svc_med."""
     all_ids = [d["id"] for d in eng.CONFIG["doctors"]]
     services = []
     for s in eng.CONFIG["services"]:
@@ -489,14 +562,13 @@ async def doctor_card_services(request: Request, dk: str):
             # видит зелёный баннер. Гейт считает только активных.
             if mine and not any(eng.DOCTOR_META.get(k, {}).get("active")
                                 for k in docs):
-                return _med_redirect(dk, "svc_empty")
+                return "svc_empty"
         if docs:
             entry["docs"] = docs
         else:
             entry.pop("docs", None)
         services.append(entry)
-    err = _save_cfg(services=services)
-    return _med_redirect(dk, "save_err" if err else "ok_svc_med")
+    return "save_err" if _save_cfg(services=services) else "ok_svc_med"
 
 
 @router.post("/admin/doctor-card/{dk}/photo")
@@ -505,30 +577,42 @@ async def doctor_card_photo(request: Request, dk: str, file: UploadFile = File(.
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
+    buf = await _read_upload(file)
+    return _med_redirect(dk, "bad_photo" if buf is None else _store_photo(dk, buf))
+
+
+async def _read_upload(file: UploadFile) -> bytes | None:
+    """Файл целиком, но не больше MAX_PHOTO_MB; None — слишком большой."""
     cap, buf = MAX_PHOTO_MB * 1024 * 1024, bytearray()
     try:
         while chunk := await file.read(1024 * 256):
             buf += chunk
             if len(buf) > cap:
-                return _med_redirect(dk, "bad_photo")
+                return None
     finally:
         await file.close()
-    kind = _sniff_photo(bytes(buf[:16]))
-    if not buf or not kind:
-        return _med_redirect(dk, "bad_photo")
+    return bytes(buf)
+
+
+def _store_photo(dk: str, data: bytes) -> str:
+    """Положить фото врача рядом с программой и прописать в профиль. Код
+    ответа: bad_photo / save_err / ok_photo. Одно на форму и на JSON API."""
+    kind = _sniff_photo(data[:16])
+    if not data or not kind:
+        return "bad_photo"
     old = _photo_path(dk)
     stored = _doctors_dir() / f"{dk}_{secrets.token_hex(6)}{kind[0]}"
     try:
-        stored.write_bytes(bytes(buf))
+        stored.write_bytes(data)
     except OSError:
         stored.unlink(missing_ok=True)
-        return _med_redirect(dk, "bad_photo")
+        return "bad_photo"
     if _patch_doctor(dk, photo=stored.name):
         stored.unlink(missing_ok=True)      # конфиг не записался — файл не нужен
-        return _med_redirect(dk, "save_err")
+        return "save_err"
     if old and old != stored:
         old.unlink(missing_ok=True)
-    return _med_redirect(dk, "ok_photo")
+    return "ok_photo"
 
 
 @router.post("/admin/doctor-card/{dk}/photo/del")
@@ -537,12 +621,16 @@ async def doctor_card_photo_del(request: Request, dk: str):
         return deny
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
+    return _med_redirect(dk, _delete_photo(dk))
+
+
+def _delete_photo(dk: str) -> str:
     old = _photo_path(dk)
     if _patch_doctor(dk, photo=""):
-        return _med_redirect(dk, "save_err")  # конфиг не записался — файл храним
+        return "save_err"                   # конфиг не записался — файл храним
     if old:
         old.unlink(missing_ok=True)
-    return _med_redirect(dk, "ok_med")
+    return "ok_med"
 
 
 @router.get("/admin/doctor-photo/{dk}")

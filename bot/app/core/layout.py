@@ -886,7 +886,7 @@ LIVE_RELOAD = {"dash", "prog"}
 # ⛔ React-экран НИКОГДА не лежит внутри #live: panel.js подменил бы innerHTML
 # под смонтированным деревом, и клик по свежему узлу молча умер бы. Экран с
 # ключом из LIVE_RELOAD в React не отдаётся (держит test_api).
-REACT_SCREENS = frozenset({"settings_clinic"})
+REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card"})
 
 
 def react_on(request: Request, screen: str) -> bool:
@@ -900,7 +900,7 @@ def react_on(request: Request, screen: str) -> bool:
     return screen in flags
 
 
-def react_mount(screen: str, path: str) -> str:
+def react_mount(screen: str, path: str, params: dict | None = None) -> str:
     """Узел, в который монтируется бандл, и ссылки на него.
 
     Внутри узла — серверный текст: если бандл не загрузился (потерян
@@ -909,10 +909,14 @@ def react_mount(screen: str, path: str) -> str:
     при монтировании. Имена файлов фиксированы (frontend/vite.config.ts):
     маршрут статики пропускает только их; версия в адресе — как у panel.js."""
     legacy = html.escape(f"{path}?ui=legacy")
+    # параметры экрана (id врача и т. п.) — атрибутом, а не разбором адреса
+    # на клиенте: адрес принадлежит серверу, и клиент не должен его угадывать
+    attrs = (f' data-params="{html.escape(json.dumps(params, ensure_ascii=False), quote=True)}"'
+             if params else "")
     return (
         f'<link rel="stylesheet" href="/static/css/bundle.css?v='
         f'{_asset_ver("css", "bundle.css")}">'
-        f'<div id="root" data-screen="{html.escape(screen)}">'
+        f'<div id="root" data-screen="{html.escape(screen)}"{attrs}>'
         f'<p class="hint">Interfața nouă nu s-a încărcat. '
         f'<a href="{legacy}">Deschideți varianta clasică</a>.</p></div>'
         f'<script type="module" src="/static/js/bundle.js?v='
