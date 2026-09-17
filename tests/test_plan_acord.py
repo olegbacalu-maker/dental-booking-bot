@@ -19,7 +19,7 @@ import sys
 import zipfile
 from datetime import date, timedelta
 
-from harness import BOT, Client, Result, Server
+from harness import BOT, Client, Result, Server, clinic_today
 
 
 def _pid(c: Client, phone: str) -> str:
@@ -50,7 +50,7 @@ def _iids(page: str) -> list:
 def _setup(c: Client) -> str:
     """Пациент с планом из трёх позиций: две останутся активными, одну
     отвергнет пациент."""
-    c.post("/admin/add", adate=(date.today() + timedelta(days=1)).isoformat(),
+    c.post("/admin/add", adate=(clinic_today() + timedelta(days=1)).isoformat(),
            atime="09:00", adoctor="d2", aservice="consult",
            aname="Refuz Test", aphone="022777888", back="/admin/all")
     pid = _pid(c, "022777888")
@@ -177,7 +177,7 @@ def suite_refuz_not_active(res: Result) -> None:
 
         # визит не предлагает отметить отказанное как выполненное
         aid = c.get(f"/admin/all?date="
-                    f"{(date.today() + timedelta(days=1)).isoformat()}"
+                    f"{(clinic_today() + timedelta(days=1)).isoformat()}"
                     ).body.split("/admin/status/", 1)[1].split("'")[0]
         vis = c.get(f"/admin/visit/{aid}").body
         res.ok("в консультации нет галочки на отказанное",

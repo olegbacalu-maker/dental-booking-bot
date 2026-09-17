@@ -13,11 +13,11 @@ import subprocess
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server
+from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server, clinic_today
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _add(c: Client, day: str, time: str, doctor: str, name: str,
@@ -50,7 +50,7 @@ from datetime import datetime, timedelta, date
 from app import engine as eng
 
 def fits(hours, hh, mm, dur):
-    d = date.today() + timedelta(days=1)
+    d = datetime.now(eng.TZ).date() + timedelta(days=1)   # день клиники, не машины
     eng.CONFIG["hours"] = {k: hours for k in
                            ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
     return eng.fits_clinic(

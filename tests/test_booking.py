@@ -6,13 +6,13 @@
 import re
 from datetime import date, datetime, timedelta
 
-from harness import TG_ON, Bot, Client, Result, Server
+from harness import TG_ON, Bot, Client, Result, Server, clinic_today, TZ
 
 PHONE = "022111222"
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def add(c: Client, day: str, time: str, doctor: str = "d2",
@@ -96,9 +96,9 @@ def suite(res: Result) -> None:
                   add(c, _d(-1), "10:00", name="Ieri", phone="022700400"),
                   "ok_past")
         res.check("опечатка в годе — тоже предупреждение",
-                  add(c, f"{date.today().year - 1}-{date.today():%m-%d}", "09:00",
+                  add(c, f"{clinic_today().year - 1}-{clinic_today():%m-%d}", "09:00",
                       name="Typo", phone="022700500"), "ok_past")
-        now = datetime.now()
+        now = datetime.now(TZ)
         if 9 <= now.hour <= 21:      # «два часа назад» должно попасть в график 7–21
             res.check("сегодня в прошедший час — обычная работа, без баннера",
                       add(c, _d(0), f"{now.hour - 2:02d}:00", doctor="d4",
@@ -184,7 +184,7 @@ def suite_card(res: Result) -> None:
 
         res.check("из фиши в будущее — проходит", appoint(_d(2), "15:00"), "ok")
         res.check("из фиши во вчера — запрет", appoint(_d(-1), "10:00"), "past")
-        now = datetime.now()
+        now = datetime.now(TZ)
         if 9 <= now.hour <= 21:
             res.check("из фиши в прошедший час сегодня — запрет",
                       appoint(_d(0), f"{now.hour - 2:02d}:00"), "past")

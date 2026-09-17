@@ -13,11 +13,11 @@ import zipfile
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from harness import BOT, PIN, PYTHON, Client, Result, Server
+from harness import BOT, PIN, PYTHON, Client, Result, Server, clinic_today
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def suite_auth(res: Result) -> None:
@@ -560,7 +560,7 @@ def suite_patient_card(res: Result) -> None:
                   "bad_card")
         res.check("Finalizează — можно", flip("finalizat"), "")
         page = c.get(f"/admin/patient/{pid}").body
-        today_ro = date.today().strftime("%d.%m.%Y")
+        today_ro = clinic_today().strftime("%d.%m.%Y")
         # 08-11: галочка стала иконкой набора, поэтому дата идёт сразу за
         # закрывающим </svg>. Проверяется по-прежнему ДАТА, а не знак.
         res.ok("дата завершения видна", f"</svg> {today_ro}" in page,
@@ -1663,15 +1663,15 @@ out = {
  "runtime_is_pkg": paths.runtime_dir() == paths.PKG_ROOT,
  "past_hour":      eng.is_past(now - timedelta(hours=1)),
  "future_hour":    eng.is_past(now + timedelta(hours=1)),
- "past_day":       eng.is_past_day(date.today() - timedelta(days=1)),
- "today_not_past": eng.is_past_day(date.today()),
+ "past_day":       eng.is_past_day(now.date() - timedelta(days=1)),
+ "today_not_past": eng.is_past_day(now.date()),
  "dur_default":    eng.svc_duration("consult"),
  "dur_long":       eng.svc_duration("long"),
  "dur_unknown":    eng.svc_duration("nope"),
  "fits_noon":      eng.fits_clinic(now.replace(hour=12, minute=0), 60),
  # часы приёма врача — ОДИН ответ на обе дневные страницы (канва и таблица)
- "doc_hours":      sorted(eng.doctor_hours("d2", date.today() + timedelta(days=1))),
- "doc_hours_off":  sorted(eng.doctor_hours("d1", date.today() + timedelta(days=1))),
+ "doc_hours":      sorted(eng.doctor_hours("d2", now.date() + timedelta(days=1))),
+ "doc_hours_off":  sorted(eng.doctor_hours("d1", now.date() + timedelta(days=1))),
  "orphan_docs":    eng.allowed_doc_items("orphan"),
  "consult_docs":   len(eng.allowed_doc_items("consult")),
 }

@@ -12,11 +12,11 @@ import re
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server
+from harness import Client, Result, Server, clinic_today
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _pid(c: Client, phone: str) -> str:
@@ -214,7 +214,7 @@ def suite_195(res: Result) -> None:
         res.ok("раздел Consultații в читаемой фише",
                "Consultații (1)" in html_page and "Gingivită" in html_page,
                "HTML-копия без дневника")
-        want = (date.today() + timedelta(days=3)).strftime("%d.%m.%Y") + " 09:30"
+        want = (clinic_today() + timedelta(days=3)).strftime("%d.%m.%Y") + " 09:30"
         res.ok("время визита в поясе клиники", want in html_page,
                f"нет строки {want!r} — час UTC утёк в документ")
 

@@ -24,7 +24,7 @@
 import re
 from datetime import date, timedelta
 
-from harness import BOT, TG_ON, Bot, Client, Result, Server
+from harness import BOT, TG_ON, Bot, Client, Result, Server, clinic_today
 
 CSS = BOT / "app" / "static" / "css" / "panel.css"
 JS = BOT / "app" / "static" / "js" / "panel.js"
@@ -39,7 +39,7 @@ _RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _rules() -> list[tuple[str, str]]:
@@ -151,7 +151,7 @@ def suite_stats_period(res: Result) -> None:
     """
     with Server() as s:
         c = Client(s.url).login()
-        today = date.today().isoformat()
+        today = clinic_today().isoformat()
         r = c.get(f"/admin/stats?from=0012-08-15&to={today}")
         res.check("промах по сегменту года — отказ, а не падение",
                   (r.status, r.msg), (303, "bad_period"))

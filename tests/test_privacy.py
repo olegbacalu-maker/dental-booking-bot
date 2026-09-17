@@ -14,11 +14,11 @@ import tempfile
 import zipfile
 from datetime import date, timedelta
 
-from harness import BOT, TG_ON, Client, Result, Server
+from harness import BOT, TG_ON, Client, Result, Server, clinic_today
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _pid(c: Client, phone: str) -> str:
@@ -116,7 +116,7 @@ def suite_export(res: Result) -> None:
         # ⚠️ в базе время в UTC. Без перевода в пояс клиники визит на 09:00
         # печатается как 06:00 — дата верна, формат верен, час чужой, и понять
         # это по виду документа нельзя
-        want = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y") + " 09:00"
+        want = (clinic_today() + timedelta(days=1)).strftime("%d.%m.%Y") + " 09:00"
         res.ok("время визита в местном поясе клиники, а не в UTC", want in page,
                f"нет строки {want!r} — пациенту показали чужой час")
 

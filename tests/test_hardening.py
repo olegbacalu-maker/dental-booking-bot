@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 
-from harness import BOT, FIXTURES, PYTHON, Client, Result, Server
+from harness import BOT, FIXTURES, PYTHON, Client, Result, Server, clinic_today
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -256,7 +256,7 @@ def suite_booking_race(res: Result) -> None:
     import threading
     from datetime import date, timedelta
 
-    day = (date.today() + timedelta(days=1)).isoformat()
+    day = (clinic_today() + timedelta(days=1)).isoformat()
 
     with Server() as s:
         def race(entries: list[dict]) -> list[str]:
@@ -352,7 +352,7 @@ def _worker_stale(tmpdir: str) -> None:
     from app import db
     from app import engine as eng
 
-    day = (date.today() + timedelta(days=1)).isoformat()
+    day = (clinic_today() + timedelta(days=1)).isoformat()
 
     async def to_confirm(sid: str, doc: str = "d2"):
         """Прогнать диалог до шага подтверждения, вернуть сессию."""
@@ -588,7 +588,7 @@ def _worker_session(tmpdir: str) -> None:
     from app import db
     from app import engine as eng
 
-    day = (date.today() + timedelta(days=1)).isoformat()
+    day = (clinic_today() + timedelta(days=1)).isoformat()
 
     async def main() -> None:
         await db.init([])

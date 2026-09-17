@@ -21,7 +21,7 @@ import re
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server
+from harness import Client, Result, Server, clinic_today
 
 # Знаки, которые рисует система (те же диапазоны, что стережёт
 # test_structure._SYSGLYPH): в тексте события им не место так же, как на экране,
@@ -31,7 +31,7 @@ _SYSGLYPH = re.compile("[🀀-🫿←-⇿∀-⋿⌀-⏿"
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _pid(c: Client, phone: str) -> str:

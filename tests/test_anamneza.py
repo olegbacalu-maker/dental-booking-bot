@@ -12,11 +12,11 @@ from datetime import date, timedelta
 
 import subprocess
 
-from harness import BOT, PYTHON, Client, Result, Server
+from harness import BOT, PYTHON, Client, Result, Server, clinic_today
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _pid(c: Client, phone: str) -> str:

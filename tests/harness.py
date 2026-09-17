@@ -25,6 +25,8 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]      # …\app
 BOT = ROOT / "bot"
@@ -156,6 +158,20 @@ def _settle_db(path: pathlib.Path, budget: float = 5.0) -> None:
             time.sleep(0.15)
         except sqlite3.DatabaseError:
             return                       # шифрованная база или чужой формат
+
+
+# Часовой пояс клиники — тот же, что engine.TZ (harness приложение не
+# импортирует: он поднимает его подпроцессом).
+TZ = ZoneInfo("Europe/Chisinau")
+
+
+def clinic_today() -> date:
+    """«Сегодня» КЛИНИКИ, не машины. Движок считает день по Кишинёву, а
+    раннер CI живёт по UTC: между 21:00 и 24:00 UTC у них разные даты, и
+    всё, что брало `date.today()`, ночью краснело — «сегодня закрытый день»,
+    баннер прошедшего часа, дата завершения визита, пустой день кассы
+    (18.09, четыре проверки). На ПК с местным поясом значение то же."""
+    return datetime.now(TZ).date()
 
 
 class Reply:

@@ -9,7 +9,7 @@ import subprocess
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server
+from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server, clinic_today
 
 
 def _book(bot: Bot, day: str, hhmm: str, name: str, phone: str,
@@ -68,7 +68,7 @@ def _tg_patient(s: Server, when: datetime) -> str:
 def suite(res: Result) -> None:
     with Server(env=TG_ON) as s:
         c = Client(s.url)
-        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        tomorrow = (clinic_today() + timedelta(days=1)).isoformat()
 
         # --- меню и справочники ---
         bot = Bot(c, "t-menu")
@@ -110,7 +110,7 @@ def suite(res: Result) -> None:
         # подписывает сам и чужой префикс не примет (записи выше ушли под «web»
         # и опцию дать не обязаны)
         made = _tg_patient(s, datetime.combine(
-            date.today() + timedelta(days=1), time(16, 0),
+            clinic_today() + timedelta(days=1), time(16, 0),
             tzinfo=ZoneInfo("Europe/Chisinau")))
         res.ok("tg-пациент заведён как адаптером", made.isdigit(), made)
         res.ok("фильтр каналов предлагает Telegram — tg-пациенты есть",

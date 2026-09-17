@@ -30,7 +30,7 @@ import subprocess
 import tempfile
 from datetime import date, timedelta
 
-from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server
+from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server, clinic_today
 
 TELEGRAM_PY = BOT / "app" / "telegram.py"
 
@@ -42,7 +42,7 @@ _SYSGLYPH = re.compile("[🀀-🫿←-⇿∀-⋿⌀-⏿"
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _answers(node: ast.AST) -> list[int]:

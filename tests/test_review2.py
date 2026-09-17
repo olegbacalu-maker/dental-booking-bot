@@ -18,13 +18,13 @@
 import json
 from datetime import date, timedelta
 
-from harness import Client, Result, Server
+from harness import Client, Result, Server, clinic_today
 
 NO_KEY = {"ADMIN_KEY": ""}          # ветка PIN-файла: учётки живут в auth.json
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _new_pid(c: Client, **fields) -> str:

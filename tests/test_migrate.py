@@ -80,7 +80,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import db as appdb  # noqa: E402 — только константы схем, не соединение
 
-from harness import BOT, Client, Result, Server  # noqa: E402
+from harness import BOT, Client, Result, Server, clinic_today  # noqa: E402
 
 # Предикат, который шаги 2–3 ставили ДО появления 'waiting' (08-13): ровно так
 # выглядят индексы у реальной клиники, чья база остановилась на версии 3.
@@ -1314,7 +1314,7 @@ def suite_uq_gone_still_blocks(res: Result) -> None:
     делает регистратура, и смотрит, что ответил сервер. Отказ, измеренный
     поведением, и есть то единственное, о чём баннер вправе говорить.
     """
-    day = (date.today() + timedelta(days=1)).isoformat()
+    day = (clinic_today() + timedelta(days=1)).isoformat()
     work = pathlib.Path(tempfile.mkdtemp(prefix="dp_mig_noguard_"))
     try:
         dbfile = work / "dental.db"

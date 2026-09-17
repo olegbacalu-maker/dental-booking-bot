@@ -11,11 +11,11 @@ import re
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server
+from harness import Client, Result, Server, clinic_today
 
 
 def _d(offset: int) -> str:
-    return (date.today() + timedelta(days=offset)).isoformat()
+    return (clinic_today() + timedelta(days=offset)).isoformat()
 
 
 def _pid(c: Client, phone: str) -> str:
