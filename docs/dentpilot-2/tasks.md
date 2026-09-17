@@ -108,7 +108,7 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
 - [x] C1 `/admin/settings/clinic` — 21 стр ← **первый** ✅ код 17.09 (экран, состояния, права, 69 серверных + 29 клиентских проверок); ⏳ флаг у пилота выключен
 - [x] C2 `/admin/settings/lan` — 6 стр ✅ 17.09 (`settings_lan`); проза страницы приходит с сервера кусками, кнопки React; ⏳ флаг у пилота выключен
 - [x] C3 `/admin/settings/faq` — 6 стр ✅ 17.09 (`settings_faq`); вопросы и ответы — `faq.entries()`, одни на обе страницы; ⏳ флаг выключен
-- [ ] C4 `/admin/casa` — 13 стр
+- [x] C4 `/admin/casa` — 13 стр ⛔ **остаётся серверным**: это печатный «Raport de casă» со своим `<!doctype>` и `@media print`, лист подписывают ручкой — правило «печать не переносится» (migration-plan). В счёт 25 экранов попал по ошибке; экранов к переносу 24.
 - [ ] C5 `/admin/settings/backup` — 17 стр ⚠️ сейчас без тестов
 - [ ] C6 `/admin/settings/security` — 26 стр
 - [x] C7 `/admin/medici` — 46 стр ✅ код 17.09 (`doctors_list`); ⏳ флаг у пилота выключен
@@ -116,8 +116,8 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
 - [ ] C9 `/admin/settings/crypt` — 66 стр ⚠️ сейчас страница без тестов
 - [ ] C10 `/admin/settings/system` — 80 стр
 - [x] C11 `/admin/settings` — 86 стр, хаб ✅ 17.09 (`settings_hub`); плитки — `_hub_tiles()` кусками, старая разметка из них же; ⏳ флаг выключен
-- [ ] C12 `/admin/settings/services` — 115 стр
-- [ ] C13 `/admin/settings/theme` — 135 стр ⚠️ сторожит `test_theme`
+- [x] C12 `/admin/settings/services` — 115 стр ✅ 17.09 (`settings_services`); та же `_val_services`, врачи галочками вместо строки id; ⏳ флаг выключен
+- [x] C13 `/admin/settings/theme` — 135 стр ✅ 17.09 (`settings_theme`); палитры с сервера, логотип через общий `_logo_action`; `test_theme` зелёный; ⏳ флаг выключен
 - [x] C14 `/admin/doctor-card/{dk}` — 182 стр ✅ код 17.09 (`doctor_card`); ⚠️ список дня без карточки визита и кнопок статуса — это журнал (C24–C27); ⏳ флаг у пилота выключен
 - [ ] C15 `/admin/stats` — 291 стр, право `PERM_MONEY`
 
