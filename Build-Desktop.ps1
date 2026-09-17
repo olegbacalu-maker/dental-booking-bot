@@ -17,6 +17,21 @@ if (-not (Test-Path $venv)) {
 if (-not (Test-Path "build")) { New-Item -ItemType Directory "build" | Out-Null }
 & "$venv\Scripts\python.exe" scripts\make_icon.py build\icon.ico
 
+# React-klient (frontend\) sobiraetsya DO PyInstaller: bundle.js i bundle.css
+# lozhatsya v bot\app\static i edut v exe tem zhe --add-data, chto panel.js.
+# Bez etogo shaga sborka s chistogo klona polozhit v exe stranitsu bez bandla,
+# i uvidit eto tolko klinika s vklyuchennym flagom React (smoke_exe eto lovit).
+# WARNING: npm pishet preduprezhdeniya v stderr, a PowerShell 5.1 pri
+# ErrorActionPreference=Stop delaet iz lyubogo stderr terminiruyushchuyu
+# oshibku - poetomu cherez cmd /c s 2>&1 VNUTRI cmd, a ne v PowerShell.
+if (-not (Test-Path "frontend\node_modules")) {
+    cmd /c "cd /d ""$PSScriptRoot\frontend"" && npm ci 2>&1"
+    if ($LASTEXITCODE -ne 0) { Write-Host "npm ci exit $LASTEXITCODE"; exit 1 }
+}
+cmd /c "cd /d ""$PSScriptRoot\frontend"" && npm run build 2>&1"
+if ($LASTEXITCODE -ne 0) { Write-Host "npm run build exit $LASTEXITCODE"; exit 1 }
+if (-not (Test-Path "bot\app\static\js\bundle.js")) { Write-Host "BUNDLE MISSING"; exit 1 }
+
 # SQLCipher importiruetsya VNUTRI funkcii (db._sqlite_driver): modul nuzhen
 # tolko klinike s shifrovaniem. Bez --hidden-import PyInstaller mozhet ego ne
 # zametit - exe soberetsya, dymovoi test proidet, a shifrovanie otkazhet u toi

@@ -65,6 +65,19 @@ jobs:
 
       # Число проверок и время НЕ зашиты: они растут, и workflow, ждущий
       # старого числа, однажды соврал бы. Их называет сам прогон.
+      # SQLite в 13 наборах живёт в temp и открывается ДВУМЯ процессами
+      # подряд: тест создаёт базу stdlib-модулем, сервер открывает её сам.
+      # В первом прогоне 17.09 ровно они упали с «disk I/O error», а на
+      # машине разработчика зелёные. Известная беда hosted-Windows: Defender
+      # сканирует свежие файлы и держит их открытыми, SQLite видит это как
+      # ошибку диска. Исключаем рабочие папки — команда штатная, раннер
+      # одноразовый. ⚠️ Гипотеза; её проверяет этот же прогон.
+      - name: Исключить рабочие папки из Defender
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
+          Add-MpPreference -ExclusionPath "$env:RUNNER_TEMP"
+          Add-MpPreference -ExclusionPath "$env:TEMP"
+
       - name: Прогон
         run: .venv-desktop\Scripts\python.exe tests\run_tests.py
 
@@ -79,3 +92,45 @@ jobs:
       - name: Мутация сторожей
         if: ${{ !cancelled() }}
         run: .venv-desktop\Scripts\python.exe tests\mutate.py
+
+  # React-клиент (DentPilot 2.0): типы, lint, тесты компонентов, сборка.
+  # Отдельная работа, а не шаг движка: Node на windows-runner не нужен, а
+  # ubuntu поднимает её за минуту. Бандл здесь НЕ публикуется — он собирается
+  # заново в Build-Desktop.ps1 на машине сборки; работа лишь доказывает, что
+  # чистый клон собирается и проверки клиента зелёные.
+  frontend:
+    name: Клиент (typecheck, lint, тесты, сборка)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Забрать исходники
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Поставить Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Зависимости из lock-файла
+        run: npm ci
+
+      - name: Типы
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Тесты клиента
+        run: npm test
+
+      # Сборка — последним и всегда: она пишет в bot/app/static, и её
+      # результат на раннере никому не нужен, кроме как доказательством.
+      - name: Сборка
+        if: ${{ !cancelled() }}
+        run: npm run build
