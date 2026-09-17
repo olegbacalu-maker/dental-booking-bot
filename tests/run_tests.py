@@ -147,6 +147,8 @@ SUITES = [
     ("Настройки: часы (JSON)", test_settings_api.suite_hours),
     ("Настройки: услуги (JSON)", test_settings_api.suite_services),
     ("Настройки: вид клиники (JSON)", test_settings_api.suite_theme),
+    ("Настройки: учётки и PIN (JSON)", test_settings_api.suite_security),
+    ("Настройки: копия (JSON)", test_settings_api.suite_backup),
     ("Настройки: React-экраны пачки A", test_settings_api.suite_switch),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),

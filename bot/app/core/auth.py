@@ -22,6 +22,7 @@ PIN короткий по замыслу — регистратура набир
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import hashlib
 import hmac
@@ -467,6 +468,43 @@ def verify_pin(pin: str, uid: str = "") -> dict | None:
                              if x.get("id") == u.get("id", "clinic")), u)
             return u
     return None
+
+
+async def change_pin(old_pin: str, new1: str, new2: str) -> tuple[str, dict | None]:
+    """Смена СВОЕГО PIN: (код ответа, запись вошедшего для свежей куки).
+
+    Одно правило на форму (main.py) и на JSON API: старый PIN проверяется тем же
+    оракулом, что и вход, и считает те же неудачи; новый обязан быть уникальным
+    (вход идёт по одному лишь паролю — совпавший с чужим означал бы молчаливую
+    смену роли); ключ подписи вращается, поэтому вызывающий ОБЯЗАН выдать
+    свежую куку ответом, иначе первый же переход выкинет на вход.
+    Коды: lock_pin / bad_pin / dup_user / ok_pin.
+    """
+    if not _pin_rec():
+        return "bad_pin", None
+    # своё сообщение, а не bad_pin: «старый PIN неверен» при блокировке — ровно
+    # тот случай, когда экран врёт, и человек начинает перебирать верный PIN
+    if lock_left() > 0:
+        return "lock_pin", None
+    # форма смены — второй оракул для того же PIN, поэтому считает те же неудачи
+    if (who := verify_pin(old_pin.strip())) is None:
+        note_fail()
+        await asyncio.sleep(FAIL_DELAY)
+        return "bad_pin", None
+    note_ok()
+    n1, n2 = new1.strip(), new2.strip()
+    if n1 != n2 or not pin_len_ok(n1):
+        return "bad_pin", None
+    # ⚠️ та же проверка, что в учётках, и по той же причине: verify_pin отдаёт
+    # ПЕРВОГО совпавшего, а сменивший пароль ложится в конец списка —
+    # проигрывает всегда именно он: директор со следующего входа получает куку
+    # регистратуры и вернуть себе роль уже не может.
+    if not pin_free(n1, except_uid=who.get("id", "clinic")):
+        return "dup_user", None
+    # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
+    _write_pin(n1, role=who.get("role", ROLE_DIRECTOR), uid=who.get("id", "clinic"))
+    await remember_auth_file()
+    return "ok_pin", find_user(who.get("id", "clinic"))
 
 
 def _write_pin(pin: str, role: str = ROLE_DIRECTOR, uid: str = "clinic") -> None:

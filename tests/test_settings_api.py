@@ -14,12 +14,17 @@ from harness import TG_ON, Client, Result, Server
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 FLAGS = ["settings_clinic", "doctors_list", "doctor_card", "settings_hub",
          "settings_lan", "settings_faq", "settings_hours", "settings_services",
-         "settings_theme"]
+         "settings_theme", "settings_security", "settings_backup"]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
+NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 
 
 def _j(r) -> dict:
     return json.loads(r.body)
+
+
+def _rec(s: Server) -> dict:
+    return json.loads((s.dir / "auth.json").read_text(encoding="utf-8"))
 
 
 def _cfg(s: Server) -> dict:
@@ -385,6 +390,116 @@ def suite_theme(res: Result) -> None:
                "class='th-styles'" in c.get("/admin/settings/theme").body, "изменилась")
 
 
+def suite_security(res: Result) -> None:
+    """Учётки и свой PIN: те же правила, что у форм (_apply_user, _drop_user,
+    change_pin), с кодами ответа; смена PIN обновляет куку вошедшего."""
+    api = "/api/settings/security"
+    users_api = "/api/settings/users"
+    pin_api = "/api/settings/pin"
+    with Server() as s0:                       # вход по ADMIN_KEY: людей нет
+        c0 = Client(s0.url).login()
+        res.check("без PIN-файла — 404", c0.get(api).status, 404)
+
+    with Server(env=NO_KEY) as s:
+        res.check("без входа — 401", Client(s.url).get(api).status, 401)
+        boss = Client(s.url)
+        boss.post("/admin/setup", pin1="1111", pin2="1111")
+        d = _j(boss.get(api))["data"]
+        res.check("один директор", [(u["id"], u["role"]) for u in d["users"]],
+                  [("clinic", "director")])
+        res.check("подписи ролей — с сервера", d["roles"],
+                  {"director": "Director", "receptie": "Recepție", "medic": "Medic"})
+        res.check("врачи для привязки", [x["id"] for x in d["doctors"]], ["d1", "d2", "d3", "d4"])
+        res.check("это я", d["me"], "clinic")
+        res.check("границы PIN из констант", d["pin"], {"min": 4, "max": 8})
+
+        r = boss.post_json(users_api, {"uid": "ana", "name": "Ana R", "role": "receptie",
+                                       "doctor_id": "", "pin": "3333"})
+        res.ok("новая учётка — 200 ok_user", r.status == 200 and _j(r)["code"] == "ok_user", r.body)
+        res.check("ответ несёт список с новой учёткой",
+                  [u["id"] for u in _j(r)["data"]["users"]], ["clinic", "ana"])
+        r = boss.post_json(users_api, {"uid": "d2", "name": "Dr. Liviu", "role": "medic",
+                                       "doctor_id": "d2", "pin": "2222"})
+        res.ok("врач с привязкой", _j(r)["code"] == "ok_user"
+               and next(u for u in _j(r)["data"]["users"] if u["id"] == "d2")["doctor_id"] == "d2",
+               r.body[:160])
+        r = boss.post_json(users_api, {"uid": "x1", "name": "X", "role": "medic", "pin": "2222"})
+        res.ok("чужой пароль повторить нельзя — 409 dup_user",
+               r.status == 409 and _j(r)["code"] == "dup_user", r.body)
+        r = boss.post_json(users_api, {"uid": "Ана!", "name": "X", "role": "medic", "pin": "4444"})
+        res.ok("id из небезопасных символов — 422 bad_user",
+               r.status == 422 and _j(r)["code"] == "bad_user", r.body)
+        res.check("новому нужен пароль — 422",
+                  boss.post_json(users_api, {"uid": "x2", "name": "X", "role": "medic"}).status, 422)
+        res.check("9 цифр — 422",
+                  boss.post_json(users_api, {"uid": "n9", "name": "N", "role": "receptie",
+                                             "pin": "444455556"}).status, 422)
+        res.check("8 цифр — ok_user",
+                  _j(boss.post_json(users_api, {"uid": "r8", "name": "R", "role": "receptie",
+                                                "pin": "44445555"}))["code"], "ok_user")
+        res.check("незнакомая роль — 422",
+                  boss.post_json(users_api, {"uid": "z", "name": "Z", "role": "boss", "pin": "9876"}).status, 422)
+        r = boss.post_json(users_api, {"uid": "clinic", "name": "D", "role": "medic"})
+        res.ok("последний директор не снимает с себя роль — 409 last_dir",
+               r.status == 409 and _j(r)["code"] == "last_dir", r.body)
+        r = boss.post_json("/api/settings/users/clinic/delete", {})
+        res.ok("сам себя не удаляет — 409 self_user",
+               r.status == 409 and _j(r)["code"] == "self_user", r.body)
+        r = boss.post_json("/api/settings/users/r8/delete", {})
+        res.ok("удаление — ok_user, r8 исчез", _j(r)["code"] == "ok_user"
+               and "r8" not in [u["id"] for u in _j(r)["data"]["users"]], r.body[:160])
+        res.ok("старая страница видит новые учётки",
+               "Ana R" in boss.get("/admin/settings/security").body, "не видит")
+
+        ana = Client(s.url)
+        ana.post("/admin/login", password="3333", next="/admin")
+        res.check("регистратуре раздел закрыт — 403", ana.get(api).status, 403)
+        res.check("регистратура не заводит учётки — 403",
+                  ana.post_json(users_api, {"uid": "q", "name": "Q", "role": "medic", "pin": "1234"}).status,
+                  403)
+        res.ok("последний вход регистратуры виден директору",
+               next(u for u in _j(boss.get(api))["data"]["users"] if u["id"] == "ana")["last_login"] != "",
+               "пусто")
+
+        r = ana.post_json(pin_api, {"old_pin": "9999", "new1": "5678", "new2": "5678"})
+        res.ok("неверный старый PIN — 422 bad_pin", r.status == 422 and _j(r)["code"] == "bad_pin", r.body)
+        res.check("новые не совпали — 422",
+                  ana.post_json(pin_api, {"old_pin": "3333", "new1": "5678", "new2": "5679"}).status, 422)
+        res.check("короткий — 422",
+                  ana.post_json(pin_api, {"old_pin": "3333", "new1": "123", "new2": "123"}).status, 422)
+        r = ana.post_json(pin_api, {"old_pin": "3333", "new1": "2222", "new2": "2222"})
+        res.ok("чужой PIN — 409 dup_user", r.status == 409 and _j(r)["code"] == "dup_user", r.body)
+        key_before = _rec(s)["cookie_key"]
+        r = ana.post_json(pin_api, {"old_pin": "3333", "new1": "5678", "new2": "5678"})
+        res.ok("смена — 200 ok_pin", r.status == 200 and _j(r)["code"] == "ok_pin", r.body)
+        res.ok("ключ подписи повёрнут", _rec(s)["cookie_key"] != key_before, "не повёрнут")
+        res.ok("та же вкладка жива: кука обновлена ответом", ana.get("/admin").status == 200,
+               "выкинуло на вход")
+        old = Client(s.url)
+        old.post("/admin/login", password="3333", next="/admin")
+        res.ok("старый PIN больше не пускает", old.get("/admin").status == 303, "пустил")
+        new = Client(s.url)
+        new.post("/admin/login", password="5678", next="/admin")
+        res.ok("новый PIN пускает", new.get("/admin").status == 200, "не пустил")
+
+
+def suite_backup(res: Result) -> None:
+    """Копия: порог пароля с сервера, сама выгрузка — старым маршрутом."""
+    with Server() as s:
+        res.check("без входа — 401", Client(s.url).get("/api/settings/backup").status, 401)
+        c = Client(s.url).login()
+        d = _j(c.get("/api/settings/backup"))["data"]
+        res.check("порог пароля", d["min_pass"], 10)
+        res.ok("имя архива", d["filename"].endswith(".zip"), d["filename"])
+        r = c.post("/admin/backup/export", parola="scurt")
+        res.ok("старый маршрут: короткая парола — назад с bad_bkp_pass",
+               r.status == 303 and r.msg == "bad_bkp_pass", f"{r!r}")
+        r = c.post("/admin/backup/export", parola="parola-lunga-10")
+        res.ok("старый маршрут отдаёт архив",
+               r.status == 200 and r.raw[:2] == b"PK" and "zip" in r.header("Content-Type"),
+               f"код {r.status}, {r.header('Content-Type')!r}")
+
+
 def suite_switch(res: Result) -> None:
     """Флаги настроек: узел React в той же рамке, ?ui=legacy, охрана."""
     s = _server_with_flags()
@@ -394,7 +509,8 @@ def suite_switch(res: Result) -> None:
                                   ("/admin/settings/faq", "settings_faq", "<details class='faq'"),
                                   ("/admin/settings/hours", "settings_hours", "id='hc_mon'"),
                                   ("/admin/settings/services", "settings_services", "id='svc_tb'"),
-                                  ("/admin/settings/theme", "settings_theme", "class='th-styles'")):
+                                  ("/admin/settings/theme", "settings_theme", "class='th-styles'"),
+                                  ("/admin/settings/backup", "settings_backup", "name='parola'")):
             page = c.get(path).body
             res.ok(f"{path}: узел React", f'data-screen="{screen}"' in page, "узла нет")
             res.ok(f"{path}: старой разметки нет", old not in page, "две разметки")
@@ -433,9 +549,17 @@ def suite_switch(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        page = boss.get("/admin/settings/security").body
+        res.ok("учётки: узел React", 'data-screen="settings_security"' in page, "узла нет")
+        res.ok("учётки: старой формы нет", "name='old_pin'" not in page, "две разметки")
+        res.ok("учётки ?ui=legacy: старая форма",
+               "name='old_pin'" in boss.get("/admin/settings/security?ui=legacy").body, "нет")
+        r = boss.post("/admin/pin/change", old_pin="1111", new1="1234", new2="1234")
+        res.check("старая форма смены PIN при флаге работает", r.msg, "ok_pin")
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
-        for path in ("/admin/settings", "/admin/settings/faq", "/admin/settings/hours"):
+        for path in ("/admin/settings", "/admin/settings/faq", "/admin/settings/hours",
+                     "/admin/settings/security"):
             r = ana.get(path)
             res.ok(f"регистратуре React-страница {path} закрыта, как и старая",
                    r.status == 303 and r.msg == "no_access", f"{r!r}")

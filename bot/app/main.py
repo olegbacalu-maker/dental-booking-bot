@@ -30,7 +30,7 @@ from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         PIN_MIN, PERM_SETTINGS, _as_user, _guard, _pin_rec,
                         _secret, _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_blocked, auth_file_fp, chat_session,
+                        auth_blocked, auth_file_fp, change_pin, chat_session,
                         client_is_local, current_user,
                         fail_count, find_user, lock_left, note_fail, note_ok,
                         pin_free, pin_len_ok,
@@ -742,35 +742,10 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
                            new1: str = Form(...), new2: str = Form(...)):
     if (deny := _guard(request)) is not None:
         return deny
-    if not _pin_rec():
-        return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
-    # своё сообщение, а не bad_pin: «старый PIN неверен» при блокировке — ровно
-    # тот случай, когда экран врёт, и человек начинает перебирать верный PIN
-    if lock_left() > 0:
-        return RedirectResponse("/admin/settings/security?msg=lock_pin", status_code=303)
-    # форма смены — второй оракул для того же PIN, поэтому считает те же неудачи
-    if (who := verify_pin(old_pin.strip())) is None:
-        note_fail()
-        await asyncio.sleep(FAIL_DELAY)
-        return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
-    note_ok()
-    n1, n2 = new1.strip(), new2.strip()
-    if n1 != n2 or not pin_len_ok(n1):
-        return RedirectResponse("/admin/settings/security?msg=bad_pin", status_code=303)
-    # ⚠️ та же проверка, что в users/save, и по той же причине: вход идёт по
-    # ОДНОМУ паролю, и совпавший с чужим означает молчаливую смену роли.
-    # verify_pin отдаёт ПЕРВОГО совпавшего, а сменивший пароль ложится в конец
-    # списка — проигрывает всегда именно он: директор со следующего входа
-    # получает куку регистратуры и вернуть себе роль уже не может.
-    if not pin_free(n1, except_uid=who.get("id", "clinic")):
-        return RedirectResponse("/admin/settings/security?msg=dup_user",
-                                status_code=303)
-    # роль и id берутся у вошедшего: смена своего PIN не должна никого повышать
-    _write_pin(n1, role=who.get("role", "director"), uid=who.get("id", "clinic"))
-    await remember_auth_file()
-    return _set_auth_cookie(
-        RedirectResponse("/admin/settings/security?msg=ok_pin", status_code=303),
-        find_user(who.get("id", "clinic")))
+    # правило одно на форму и на JSON API — core.auth.change_pin
+    code, who = await change_pin(old_pin, new1, new2)
+    resp = RedirectResponse(f"/admin/settings/security?msg={code}", status_code=303)
+    return _set_auth_cookie(resp, who) if code == "ok_pin" else resp
 
 
 

@@ -21,18 +21,23 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Request, UploadFile
 
+from ... import db
 from ... import engine as eng
 from ... import update as upd
 from ...core import theme
-from ...core.api import api_body, api_require
-from ...core.auth import PERM_SETTINGS
+from ...core.api import api_body, api_guard, api_require
+from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN, ROLE_LABEL,
+                          _pin_rec, _set_auth_cookie, all_users, change_pin,
+                          current_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT,
                             _DOW_FULL, _DOW_ORDER, msg_json, tg_refresh_meta)
 from ...core.visits import SVC_PALETTE
+from . import backup as bkp
 from . import faq, lan
-from .routes import (RESTART_NOTE, _PALETTE_RO, _finish_cfg, _hub_tiles,
-                     _lan_available, _logo_action, _set_lan, _val_clinic,
-                     _val_hours, _val_services, _val_theme, restart_text)
+from .routes import (RESTART_NOTE, _PALETTE_RO, _apply_user, _drop_user,
+                     _finish_cfg, _hub_tiles, _lan_available, _last_logins,
+                     _logo_action, _set_lan, _val_clinic, _val_hours,
+                     _val_services, _val_theme, restart_text)
 
 router = APIRouter()
 
@@ -359,3 +364,96 @@ async def api_theme_logo_delete(request: Request):
     ok = code == "no_logo"
     return msg_json(ok, code, data=_theme_data() if ok else None,
                     status=200 if ok else 500)
+
+
+# ---------- безопасность: учётки и свой PIN ----------
+
+# Отказ проверки — 422; спор с состоянием клиники (чужой PIN, последний
+# директор, своя учётка, блокировка) — 409.
+_USER_HTTP = {"bad_user": 422, "bad_pin": 422, "dup_user": 409, "last_dir": 409,
+              "self_user": 409, "lock_pin": 409}
+
+
+async def _security_data(me_id: str) -> dict:
+    last = await _last_logins()
+    return {
+        "users": [{"id": u["id"], "name": u["name"], "role": u["role"],
+                   "doctor_id": u.get("doctor_id", ""),
+                   "last_login": last.get(u["id"], "")} for u in all_users()],
+        "roles": dict(ROLE_LABEL),
+        "doctors": [{"id": k, "name": v} for k, v in eng.DOCTORS.items()],
+        "me": me_id,
+        "pin": {"min": PIN_MIN, "max": PIN_MAX},
+    }
+
+
+def _me(request: Request) -> str:
+    return str((current_user(request) or {}).get("id") or "")
+
+
+@router.get("/api/settings/security")
+async def api_security(request: Request):
+    """Раздел есть только у клиники с PIN-файлом (в облаке людей нет)."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not _pin_rec():
+        return msg_json(False, status=404)
+    return msg_json(True, data=await _security_data(_me(request)))
+
+
+@router.post("/api/settings/users")
+async def api_user_save(request: Request):
+    """Завести или поправить сотрудника — те же правила, что у формы
+    (`_apply_user`): уникальный PIN, последний директор, длина PIN."""
+    if (deny := api_require(request, PERM_USERS)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_user", status=422)
+    s = lambda k: str(body.get(k) or "")  # noqa: E731 — три вызова, не функция
+    code = await _apply_user(s("uid"), name=s("name"), role=s("role"),
+                             doctor_id=s("doctor_id"), pin=s("pin"))
+    if code != "ok_user":
+        return msg_json(False, code, status=_USER_HTTP.get(code, 422))
+    return msg_json(True, code, data=await _security_data(_me(request)))
+
+
+@router.post("/api/settings/users/{uid}/delete")
+async def api_user_delete(request: Request, uid: str):
+    if (deny := api_require(request, PERM_USERS)) is not None:
+        return deny
+    code = await _drop_user(_me(request), uid)
+    if code != "ok_user":
+        return msg_json(False, code, status=_USER_HTTP.get(code, 422))
+    return msg_json(True, code, data=await _security_data(_me(request)))
+
+
+@router.post("/api/settings/pin")
+async def api_pin_change(request: Request):
+    """Смена СВОЕГО PIN — та же `change_pin`, что у формы. Удача вращает ключ
+    подписи, поэтому ответ несёт свежую куку: иначе следующий запрос этой же
+    вкладки выкинул бы на вход."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_pin", status=422)
+    s = lambda k: str(body.get(k) or "")  # noqa: E731
+    code, who = await change_pin(s("old_pin"), s("new1"), s("new2"))
+    if code != "ok_pin":
+        return msg_json(False, code, status=_USER_HTTP.get(code, 422))
+    return _set_auth_cookie(msg_json(True, code), who)
+
+
+# ---------- копия ----------
+
+@router.get("/api/settings/backup")
+async def api_backup(request: Request):
+    """Порог пароля и имя архива. Сама выгрузка остаётся за
+    `POST /admin/backup/export`: файл идёт обычной формой, браузер скачивает
+    ответ потоком, а отказ возвращается на страницу с ?msg=."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not (db.IS_SQLITE and bkp.available()):
+        return msg_json(False, status=404)
+    return msg_json(True, data={"min_pass": bkp.MIN_PASS, "filename": bkp.archive_name()})

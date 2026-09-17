@@ -499,6 +499,9 @@ async def settings_backup(request: Request, msg: str = ""):
         return deny
     if not (db.IS_SQLITE and bkp.available()):
         return RedirectResponse("/admin/settings", status_code=303)
+    if react_on(request, "settings_backup"):
+        return _sec_page(react_mount("settings_backup", request.url.path),
+                         "setări · copie de rezervă", msg)
     body = f"""
 <h2>{_ic("save")} Copie de rezervă criptată</h2>
 <form class='add' method='post' action='/admin/backup/export'>
@@ -513,16 +516,11 @@ fi citită de nimeni, nici de noi.</p>"""
     return _sec_page(body, "setări · copie de rezervă", msg)
 
 
-@router.get("/admin/settings/security", response_class=HTMLResponse)
-async def settings_security(request: Request, msg: str = ""):
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if not _pin_rec():
-        return RedirectResponse("/admin/settings", status_code=303)
-    # последний вход каждого — из meta (пишет /admin/login), НЕ из auth.json:
-    # файл под сигнализацией отпечатка, и запись «когда входил» при каждом
-    # входе дёргала бы её на ровном месте
-    last = {}
+async def _last_logins() -> dict[str, str]:
+    """Последний вход каждого — из meta (пишет /admin/login), НЕ из auth.json:
+    файл под сигнализацией отпечатка, и запись «когда входил» при каждом входе
+    дёргала бы её на ровном месте. uid → «13.08.2026 14:02» в часах клиники."""
+    last: dict[str, str] = {}
     for u in all_users():
         v = await db.get_meta(f"last_login:{u['id']}")
         if v:
@@ -531,6 +529,19 @@ async def settings_security(request: Request, msg: str = ""):
                                  .strftime("%d.%m.%Y %H:%M"))
             except ValueError:
                 pass
+    return last
+
+
+@router.get("/admin/settings/security", response_class=HTMLResponse)
+async def settings_security(request: Request, msg: str = ""):
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if not _pin_rec():
+        return RedirectResponse("/admin/settings", status_code=303)
+    if react_on(request, "settings_security"):
+        return _sec_page(react_mount("settings_security", request.url.path),
+                         "setări · securitate și utilizatori", msg)
+    last = await _last_logins()
     body = f"""
 <h2>{_ic("key")} Schimbă PIN</h2>
 <form class='add' method='post' action='/admin/pin/change'>
@@ -1381,28 +1392,48 @@ async def users_save(request: Request, uid: str = Form(...), name: str = Form(""
     """Завести сотрудника или поправить его доступ."""
     if (deny := require(request, PERM_USERS)) is not None:
         return deny
+    return _set_back(await _apply_user(uid, name=name, role=role,
+                                       doctor_id=doctor_id, pin=pin))
+
+
+async def _apply_user(uid: str, *, name: str, role: str, doctor_id: str,
+                      pin: str) -> str:
+    """Правила учётки — одни на форму и на JSON API. Код ответа:
+    bad_user / dup_user / last_dir / ok_user."""
     uid, name, pin = uid.strip().lower()[:20], name.strip()[:60], pin.strip()
     if not _UID_RE.fullmatch(uid) or role not in ROLE_LABEL:
-        return _set_back("bad_user")
+        return "bad_user"
     existing = find_user(uid)
     if not existing and not pin:
-        return _set_back("bad_user")           # новому нужен пароль
+        return "bad_user"                       # новому нужен пароль
     if pin and not pin_len_ok(pin):
-        return _set_back("bad_user")
+        return "bad_user"
     # ⚠️ проверка ДО записи: вход идёт по одному лишь паролю, и два одинаковых
     # означают, что журнал доступа однажды назовёт не того человека
     if pin and not pin_free(pin, except_uid=uid):
-        return _set_back("dup_user")
+        return "dup_user"
     # директор, снимающий с себя роль последним, запирает настройки НАВСЕГДА:
     # вернуть право станет некому
     if (existing and (existing.get("role") or ROLE_DIRECTOR) == ROLE_DIRECTOR
             and role != ROLE_DIRECTOR and n_directors(excluding=uid) == 0):
-        return _set_back("last_dir")
+        return "last_dir"
     save_user(uid, name=name or (existing or {}).get("name") or uid, role=role,
               doctor_id=doctor_id if doctor_id in eng.DOCTORS else "",
               pin=pin or None)
     await remember_auth_file()      # своя запись — не «взлом» при след. старте
-    return _set_back("ok_user")
+    return "ok_user"
+
+
+async def _drop_user(me_id: str, uid: str) -> str:
+    """Удаление учётки — одно на форму и на JSON API. Код ответа:
+    self_user / last_dir / ok_user."""
+    if me_id and me_id == uid:
+        return "self_user"
+    if n_directors(excluding=uid) == 0:
+        return "last_dir"
+    delete_user(uid)
+    await remember_auth_file()
+    return "ok_user"
 
 
 @router.post("/admin/users/delete")
@@ -1410,13 +1441,7 @@ async def users_delete(request: Request, uid: str = Form(...)):
     if (deny := require(request, PERM_USERS)) is not None:
         return deny
     me = current_user(request)
-    if me and me.get("id") == uid:
-        return _set_back("self_user")
-    if n_directors(excluding=uid) == 0:
-        return _set_back("last_dir")
-    delete_user(uid)
-    await remember_auth_file()
-    return _set_back("ok_user")
+    return _set_back(await _drop_user(str((me or {}).get("id") or ""), uid))
 
 
 @router.post("/admin/backup/export")
