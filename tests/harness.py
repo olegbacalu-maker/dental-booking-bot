@@ -16,6 +16,7 @@ import pathlib
 import secrets
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -119,6 +120,42 @@ class Server:
                 self.proc.kill()
         if self._own_dir:
             shutil.rmtree(self.dir, ignore_errors=True)
+        else:
+            _settle_db(self.dir / "dental.db")
+
+
+def _settle_db(path: pathlib.Path, budget: float = 5.0) -> None:
+    """Дождаться, пока базу можно открыть ПОСЛЕ гашения сервера.
+
+    Сервер гасится TerminateProcess-ом, и его -wal/-shm остаются на диске;
+    следующий, кто открывает базу, делает восстановление журнала. На Windows
+    в первые мгновения после гашения это отвечает «disk I/O error»: отображение
+    -shm убитого процесса ещё не отпущено, и SQLite не может его перезаписать.
+    Локально это одно падение на полный прогон, на раннере GitHub — все
+    восемнадцать наборов, которые читают базу stdlib-ом сразу после
+    `with Server(dir_=…)` (17.09, дважды подряд). Здесь та же попытка делается
+    с паузами, пока не удастся или не кончится бюджет; тогда падает набор —
+    честно, а не молча.
+    ⚠️ Зашифрованную картотеку stdlib не откроет вовсе («file is not a
+    database») — это не наша беда, выходим молча: такие наборы читают базу
+    своим драйвером."""
+    if not path.exists():
+        return
+    deadline = time.time() + budget
+    while True:
+        try:
+            con = sqlite3.connect(str(path))
+            try:
+                con.execute("PRAGMA schema_version").fetchone()
+            finally:
+                con.close()
+            return
+        except sqlite3.OperationalError as e:
+            if "disk I/O error" not in str(e) or time.time() > deadline:
+                raise
+            time.sleep(0.15)
+        except sqlite3.DatabaseError:
+            return                       # шифрованная база или чужой формат
 
 
 class Reply:

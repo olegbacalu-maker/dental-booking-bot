@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   engine:
-    name: Движок (1810 проверок)
+    name: Движок (тесты и сторожа)
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -65,19 +65,6 @@ jobs:
 
       # Число проверок и время НЕ зашиты: они растут, и workflow, ждущий
       # старого числа, однажды соврал бы. Их называет сам прогон.
-      # SQLite в 13 наборах живёт в temp и открывается ДВУМЯ процессами
-      # подряд: тест создаёт базу stdlib-модулем, сервер открывает её сам.
-      # В первом прогоне 17.09 ровно они упали с «disk I/O error», а на
-      # машине разработчика зелёные. Известная беда hosted-Windows: Defender
-      # сканирует свежие файлы и держит их открытыми, SQLite видит это как
-      # ошибку диска. Исключаем рабочие папки — команда штатная, раннер
-      # одноразовый. ⚠️ Гипотеза; её проверяет этот же прогон.
-      - name: Исключить рабочие папки из Defender
-        run: |
-          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
-          Add-MpPreference -ExclusionPath "$env:RUNNER_TEMP"
-          Add-MpPreference -ExclusionPath "$env:TEMP"
-
       - name: Прогон
         run: .venv-desktop\Scripts\python.exe tests\run_tests.py
 
