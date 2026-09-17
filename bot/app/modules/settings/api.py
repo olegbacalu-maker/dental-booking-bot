@@ -1,10 +1,12 @@
-"""JSON API настроек (DentPilot 2.0): клиника, хаб, сеть, справка, часы.
+"""JSON API настроек (DentPilot 2.0): клиника, хаб, сеть, справка, часы,
+услуги, вид клиники.
 
 Правила те же, что у соседнего routes.py: `core`, `db`, `engine` — да,
 `main.py` — нет. Проверки и слияние профиля берутся ИЗ routes.py, а не
-переписываются: `_val_clinic`, `_val_hours`, `_finish_cfg`, `_set_lan`,
-`_hub_tiles` — единственные, кто знает правило, а старая форма и новый экран
-правят ОДИН файл. Второй экземпляр этой логики разошёлся бы с первым молча.
+переписываются: `_val_clinic`, `_val_hours`, `_val_services`, `_val_theme`,
+`_finish_cfg`, `_set_lan`, `_logo_action`, `_hub_tiles` — единственные, кто
+знает правило, а старая форма и новый экран правят ОДИН файл. Второй
+экземпляр этой логики разошёлся бы с первым молча.
 
 Адреса — от сущности, не от страницы (docs/dentpilot-2/api.md), и полным
 путём, без prefix у роутера: карта экранов и сторож раскладки читают адрес
@@ -17,17 +19,20 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
 
 from ... import engine as eng
 from ... import update as upd
+from ...core import theme
 from ...core.api import api_body, api_require
 from ...core.auth import PERM_SETTINGS
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT,
                             _DOW_FULL, _DOW_ORDER, msg_json, tg_refresh_meta)
+from ...core.visits import SVC_PALETTE
 from . import faq, lan
-from .routes import (RESTART_NOTE, _finish_cfg, _hub_tiles, _lan_available,
-                     _set_lan, _val_clinic, _val_hours, restart_text)
+from .routes import (RESTART_NOTE, _PALETTE_RO, _finish_cfg, _hub_tiles,
+                     _lan_available, _logo_action, _set_lan, _val_clinic,
+                     _val_hours, _val_services, _val_theme, restart_text)
 
 router = APIRouter()
 
@@ -199,3 +204,158 @@ async def api_hours_save(request: Request):
         return msg_json(False, "save_err", status=500)
     tg_refresh_meta()   # часы уезжают и в профиль бота — как у формы
     return msg_json(True, "ok_set", data=_hours_data())
+
+
+# ---------- услуги ----------
+
+_DURATIONS = (15, 30, 45, 60, 90, 120)      # те же, что в <select> старой таблицы
+
+
+def _services_data() -> dict:
+    """Услуги так, как их показывала старая таблица: цена строкой (двуязычная
+    — её RO), длительность числом (60 по умолчанию), цвет ключом палитры или
+    пусто, врачи списком id (пусто = все)."""
+    cfg = eng.CONFIG
+    rows = []
+    for s in cfg["services"]:
+        price = s.get("price", "")
+        if isinstance(price, dict):
+            price = price.get("ro", "")
+        rows.append({
+            "id": s["id"], "ro": s["ro"], "ru": s.get("ru", ""),
+            "price": str(price or ""),
+            "duration": int(s.get("duration") or 60),
+            "color": s.get("color", "") if s.get("color") in SVC_PALETTE else "",
+            "urgent": bool(s.get("urgent")),
+            "docs": list(s.get("docs") or []),
+        })
+    return {
+        "services": rows,
+        "palette": dict(_PALETTE_RO),
+        "durations": list(_DURATIONS),
+        "doctors": [{"id": d["id"], "name": d["name"]} for d in cfg["doctors"]],
+    }
+
+
+@router.get("/api/settings/services")
+async def api_services_get(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    return msg_json(True, data=_services_data())
+
+
+@router.post("/api/settings/services")
+async def api_services_save(request: Request):
+    """Та же `_val_services`, что у формы: она ждёт врачей строкой через
+    пробел и длительность строкой — как слал скрипт старой таблицы, так что
+    список id и число приводятся к тому же виду до проверки."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    body = await api_body(request)
+    rows = body.get("services") if body else None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        return msg_json(False, "bad_set", status=422)
+    prepared = []
+    for r in rows:
+        docs = r.get("docs", "")
+        if isinstance(docs, list):
+            docs = " ".join(str(x) for x in docs)
+        dur = r.get("duration")
+        prepared.append({**r, "docs": docs,
+                         "duration": "" if dur in (None, "") else str(dur)})
+    try:
+        services, seq = _val_services({"services": prepared})
+        cfg = _finish_cfg(services=services, seq=seq)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return msg_json(False, "bad_set", status=422)
+    if eng.save_config(cfg) is not None:
+        return msg_json(False, "save_err", status=500)
+    tg_refresh_meta()   # услуги уезжают и в меню бота — как у формы
+    return msg_json(True, "ok_set", data=_services_data())
+
+
+# ---------- вид клиники ----------
+
+def _theme_data() -> dict:
+    """Стиль, цвет, логотип — и всё, что нужно предпросмотру: палитры
+    считает СЕРВЕР (core/theme.py) и отдаёт готовыми, как и старой странице."""
+    th = theme.current()
+    preset_hex = [c for c, _ in theme.PRESETS]
+    return {
+        "style": th["style"], "primary": th["primary"],
+        "custom": th["primary"] not in preset_hex,
+        "styles": [{"key": k, "label": theme.STYLE_LABEL[k][0],
+                    "hint": theme.STYLE_LABEL[k][1], "vars": dict(v)}
+                   for k, v in theme.STYLES.items()],
+        "presets": [{"hex": h, "name": n} for h, n in theme.PRESETS],
+        "palettes": {st: {c: theme.palette(c, st) for c in preset_hex}
+                     for st in theme.STYLES},
+        "logo": theme.logo_url(), "logo_topbar": th["logo_topbar"],
+        "logo_max_mb": theme.LOGO_MAX // (1024 * 1024),
+    }
+
+
+@router.get("/api/settings/theme")
+async def api_theme_get(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    return msg_json(True, data=_theme_data())
+
+
+@router.get("/api/settings/theme/palette")
+async def api_theme_palette(request: Request, c: str = "", style: str = ""):
+    """Палитра своего цвета для предпросмотра — тот же расчёт, что уедет в
+    CSS при сохранении; клиент его не повторяет."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    rgb = theme.parse_hex(c)
+    if rgb is None:
+        return msg_json(False, "bad_set", status=422, field="primary")
+    st = style if style in theme.STYLES else theme.DEFAULT_STYLE
+    return msg_json(True, data=theme.palette(theme.to_hex(rgb), st))
+
+
+@router.post("/api/settings/theme")
+async def api_theme_save(request: Request):
+    """Те же поля, что у формы (`style`, `primary` или `custom` + hex,
+    `logo_topbar`), та же `_val_theme`."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_set", status=422)
+    try:
+        cfg = _finish_cfg(theme=_val_theme({
+            "style": body.get("style", ""), "primary": str(body.get("primary") or ""),
+            "custom": str(body.get("custom") or ""),
+            "logo_topbar": bool(body.get("logo_topbar"))}))
+    except ValueError as e:
+        field = str(e) if str(e) in ("style", "primary") else ""
+        return msg_json(False, "bad_set", status=422, field=field)
+    except (KeyError, TypeError):
+        return msg_json(False, "bad_set", status=422)
+    if eng.save_config(cfg) is not None:
+        return msg_json(False, "save_err", status=500)
+    return msg_json(True, "ok_theme", data=_theme_data())
+
+
+@router.post("/api/settings/theme/logo")
+async def api_theme_logo(request: Request, file: UploadFile = File(...)):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    data = await file.read(theme.LOGO_MAX + 1)
+    await file.close()
+    code = _logo_action(data)
+    ok = code == "ok_logo"
+    return msg_json(ok, code, data=_theme_data() if ok else None,
+                    status=200 if ok else (500 if code == "save_err" else 422))
+
+
+@router.post("/api/settings/theme/logo/delete")
+async def api_theme_logo_delete(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    code = _logo_action(None)
+    ok = code == "no_logo"
+    return msg_json(ok, code, data=_theme_data() if ok else None,
+                    status=200 if ok else 500)

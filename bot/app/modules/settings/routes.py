@@ -803,6 +803,9 @@ async def settings_theme(request: Request, msg: str = ""):
     """
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if react_on(request, "settings_theme"):
+        return _sec_page(react_mount("settings_theme", request.url.path),
+                         "setări · aspectul clinicii", msg)
     th = theme.current()
     e = html.escape
     preset_hex = [c for c, _ in theme.PRESETS]
@@ -951,20 +954,28 @@ async def settings_theme_logo(request: Request, file: UploadFile = File(None),
     гонять картинку через разбор настроек на каждое сохранение цвета."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    back = "/admin/settings/theme"
-    th = theme.current()
     if act == "del":
-        theme.clear_logo()
-        name = None
-        msg = "no_logo"
+        data = None
     else:
         data = await file.read(theme.LOGO_MAX + 1) if file is not None else b""
         if file is not None:
             await file.close()
+    return RedirectResponse(f"/admin/settings/theme?msg={_logo_action(data)}",
+                            status_code=303)
+
+
+def _logo_action(data: bytes | None) -> str:
+    """Логотип клиники: `data` — новый файл, None — убрать. Код ответа:
+    ok_logo / no_logo / bad_logo / save_err. Одно на форму и на JSON API."""
+    th = theme.current()
+    if data is None:
+        theme.clear_logo()
+        name, msg = None, "no_logo"
+    else:
         try:
             name = theme.save_logo(data)
         except (ValueError, OSError):
-            return RedirectResponse(f"{back}?msg=bad_logo", status_code=303)
+            return "bad_logo"
         msg = "ok_logo"
     # ⚠️ Стиль, цвет И галочку шапки переносим ЯВНО: _finish_cfg заменяет
     # секцию целиком, и сохранение логотипа сбросило бы выбранный цвет на
@@ -974,8 +985,8 @@ async def settings_theme_logo(request: Request, file: UploadFile = File(None),
     cfg = _finish_cfg(theme={"style": th["style"], "primary": th["primary"],
                              "logo": name, "logo_topbar": th["logo_topbar"]})
     if eng.save_config(cfg) is not None:
-        return RedirectResponse(f"{back}?msg=save_err", status_code=303)
-    return RedirectResponse(f"{back}?msg={msg}", status_code=303)
+        return "save_err"
+    return msg
 
 
 @router.get("/admin/settings/hours", response_class=HTMLResponse)
@@ -1048,6 +1059,9 @@ function collectHours() {{
 async def settings_services(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if react_on(request, "settings_services"):
+        return _sec_page(react_mount("settings_services", request.url.path),
+                         "setări · servicii", msg)
     cfg = eng.CONFIG
     e = html.escape
 

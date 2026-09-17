@@ -13,11 +13,17 @@ from harness import TG_ON, Client, Result, Server
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 FLAGS = ["settings_clinic", "doctors_list", "doctor_card", "settings_hub",
-         "settings_lan", "settings_faq", "settings_hours"]
+         "settings_lan", "settings_faq", "settings_hours", "settings_services",
+         "settings_theme"]
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
 
 
 def _j(r) -> dict:
     return json.loads(r.body)
+
+
+def _cfg(s: Server) -> dict:
+    return json.loads(s.clinic.read_text(encoding="utf-8"))
 
 
 def _server_with_flags(env: dict | None = None) -> Server:
@@ -227,14 +233,168 @@ def suite_hours(res: Result) -> None:
                   _j(c.get("/api/settings/hours"))["data"]["hours"]["sun"], [8, 20])
 
 
+def suite_services(res: Result) -> None:
+    """Услуги: та же _val_services, тело как у старой таблицы (врачи списком
+    и длительность числом приводятся на сервере к её виду)."""
+    api = "/api/settings/services"
+    with Server() as s:
+        c = Client(s.url).login()
+        res.check("без входа — 401", Client(s.url).get(api).status, 401)
+        d = _j(c.get(api))["data"]
+        res.check("услуги фикстуры по порядку", [x["id"] for x in d["services"]],
+                  ["consult", "pain", "hygiene", "orphan", "long"])
+        by = {x["id"]: x for x in d["services"]}
+        res.check("двуязычная цена — её RO", by["consult"]["price"], "gratuit")
+        res.check("длительность по умолчанию 60", by["consult"]["duration"], 60)
+        res.check("своя длительность", by["long"]["duration"], 120)
+        res.ok("срочная услуга с врачами списком",
+               by["pain"]["urgent"] is True and by["pain"]["docs"] == ["d1", "d2"], f"{by['pain']}")
+        res.ok("без врачей — пустой список", by["consult"]["docs"] == [], f"{by['consult']}")
+        res.check("палитра — шесть ключей", set(d["palette"]),
+                  {"green", "blue", "amber", "violet", "red", "teal"})
+        res.check("длительности как в старом списке", d["durations"], [15, 30, 45, 60, 90, 120])
+        res.check("врачи для галочек", [x["id"] for x in d["doctors"]], ["d1", "d2", "d3", "d4"])
+
+        rows = d["services"] + [{"id": "", "ro": "Albire", "ru": "Отбеливание",
+                                 "price": "1500 MDL", "duration": 90, "color": "violet",
+                                 "urgent": False, "docs": ["d2", "d9"]}]
+        r = c.post_json(api, {"services": rows})
+        res.check("сохранение — 200", r.status, 200)
+        j = _j(r)
+        res.check("код ok_set", j["code"], "ok_set")
+        new = j["data"]["services"][-1]
+        res.ok("новая услуга: id по счётчику, поля как прислали, чужой врач отброшен",
+               new["id"] == "s1" and new["price"] == "1500 MDL" and new["duration"] == 90
+               and new["color"] == "violet" and new["docs"] == ["d2"] and not new["urgent"],
+               f"{new}")
+        after = _cfg(s)
+        res.check("файл: шесть услуг", len(after["services"]), 6)
+        res.check("счётчик seq.service", after["seq"]["service"], 1)
+        res.ok("файл: цена словаря сплющена в строку (как у старой формы)",
+               after["services"][0]["price"] == "gratuit", f"{after['services'][0]}")
+        res.ok("врачи и часы целы", len(after["doctors"]) == 4 and after["hours"]["mon"] == [7, 21],
+               "затёрты")
+        current = _j(c.get(api))["data"]["services"]
+        before = s.clinic.read_bytes()
+        c.post_json(api, {"services": current})
+        res.ok("повторный POST того же тождествен", s.clinic.read_bytes() == before, "изменился")
+        res.ok("старая страница видит новую услугу",
+               "Albire" in c.get("/admin/settings/services").body, "не видит")
+
+        dup = current + [{"id": "", "ro": "consultație", "ru": "", "price": "", "duration": 60,
+                          "color": "", "urgent": False, "docs": []}]
+        r = c.post_json(api, {"services": dup})
+        res.ok("дубль подписи RO без учёта регистра — 422 bad_set",
+               r.status == 422 and _j(r)["code"] == "bad_set", r.body)
+        dup_ru = current + [{"id": "", "ro": "Nou", "ru": "Консультация", "price": "",
+                             "duration": 60, "color": "", "urgent": False, "docs": []}]
+        res.check("дубль по RU — 422", c.post_json(api, {"services": dup_ru}).status, 422)
+        res.check("пустой список — 422", c.post_json(api, {"services": []}).status, 422)
+        res.check("не список — 422", c.post_json(api, {"services": "x"}).status, 422)
+        res.check("строка не объект — 422", c.post_json(api, {"services": ["x"]}).status, 422)
+        res.check("отказы файл не тронули", len(_cfg(s)["services"]), 6)
+
+        r = c.post_json(api, {"services": [x for x in current if x["id"] != "orphan"]})
+        res.check("удаление услуги — ok_set", _j(r)["code"], "ok_set")
+        res.ok("orphan исчез из файла",
+               "orphan" not in [x["id"] for x in _cfg(s)["services"]], "остался")
+
+        r = c.post("/admin/settings/save", part="services",
+                   payload=json.dumps({"services": [
+                       {"id": "consult", "ro": "Consultație", "ru": "Консультация",
+                        "price": "300 MDL", "duration": "30", "docs": ""}]}))
+        res.check("старая форма всё ещё сохраняет", r.msg, "ok_set")
+        res.check("API видит правку старой формы",
+                  [x["id"] for x in _j(c.get(api))["data"]["services"]], ["consult"])
+
+
+def suite_theme(res: Result) -> None:
+    """Вид клиники: палитры считает сервер, сохранение — та же _val_theme,
+    логотип — тот же _logo_action, что у формы."""
+    api = "/api/settings/theme"
+    with Server() as s:
+        c = Client(s.url).login()
+        anon = Client(s.url)
+        res.check("без входа — 401", anon.get(api).status, 401)
+        d = _j(c.get(api))["data"]
+        res.ok("по умолчанию Modern и фирменный зелёный",
+               d["style"] == "modern" and d["primary"] == "#0E9F8A" and not d["custom"], f"{d}")
+        res.check("три стиля", [x["key"] for x in d["styles"]], ["modern", "elegant", "calm"])
+        res.ok("стиль несёт подпись и переменные",
+               d["styles"][0]["label"] == "Modern" and "--bg" in d["styles"][0]["vars"],
+               f"{d['styles'][0]}")
+        res.check("шесть цветов", len(d["presets"]), 6)
+        res.ok("палитры посчитаны сервером для каждого стиля и цвета",
+               d["palettes"]["modern"]["#0E9F8A"]["--teal"] == "#0E9F8A"
+               and set(d["palettes"]) == {"modern", "elegant", "calm"}
+               and len(d["palettes"]["calm"]) == 6, f"{list(d['palettes'])}")
+        res.ok("логотипа нет", d["logo"] is None and d["logo_topbar"] is False, f"{d['logo']}")
+        res.check("потолок логотипа 2 МБ", d["logo_max_mb"], 2)
+
+        r = c.post_json(api, {"style": "calm", "primary": "#7C3AED", "custom": "",
+                              "logo_topbar": False})
+        res.check("сохранение — 200", r.status, 200)
+        j = _j(r)
+        res.check("код ok_theme", j["code"], "ok_theme")
+        res.ok("ответ несёт свежую тему", j["data"]["style"] == "calm"
+               and j["data"]["primary"] == "#7C3AED", f"{j['data']['style']}")
+        page = c.get("/admin").body
+        res.ok("журнал перекрашен: стиль и цвет",
+               'data-style="calm"' in page and "--teal:#7C3AED" in page, "не перекрашен")
+        after = _cfg(s)
+        res.ok("остальной профиль цел", len(after["doctors"]) == 4
+               and len(after["services"]) >= 4 and after["hours"]["mon"] == [7, 21], "затёрт")
+        before = s.clinic.read_bytes()
+        c.post_json(api, {"style": "calm", "primary": "#7C3AED", "custom": "", "logo_topbar": False})
+        res.ok("повторный POST тождествен", s.clinic.read_bytes() == before, "изменился")
+        r = c.post_json(api, {"style": "modern", "primary": "custom", "custom": "#123456",
+                              "logo_topbar": False})
+        res.ok("свой цвет", _j(r)["data"]["primary"] == "#123456" and _j(r)["data"]["custom"] is True,
+               r.body[:120])
+        r = c.post_json(api, {"style": "modern", "primary": "red"})
+        res.ok("мусорный цвет — 422, поле primary",
+               r.status == 422 and _j(r).get("field") == "primary", r.body)
+        r = c.post_json(api, {"style": "хакер", "primary": "#0E9F8A"})
+        res.ok("незнакомый стиль — 422, поле style",
+               r.status == 422 and _j(r).get("field") == "style", r.body)
+        res.check("после отказов тема прежняя", _j(c.get(api))["data"]["primary"], "#123456")
+        r = c.get("/api/settings/theme/palette?c=%23123456&style=modern")
+        res.ok("предпросмотр своего цвета считает сервер",
+               r.status == 200 and _j(r)["data"]["--teal"] == "#123456", r.body[:120])
+        res.check("мусор в предпросмотре — 422", c.get("/api/settings/theme/palette?c=red").status, 422)
+
+        r = c.post_file("/api/settings/theme/logo", "file", "logo.png", PNG)
+        res.check("PNG — 200", r.status, 200)
+        j = _j(r)
+        res.ok("код ok_logo и адрес логотипа",
+               j["code"] == "ok_logo" and str(j["data"]["logo"]).startswith("/clinic-logo?v="), r.body[:120])
+        res.ok("логотип отдаётся без входа", anon.get("/clinic-logo").raw == PNG, "не тот файл")
+        r = c.post_json(api, {"style": "modern", "primary": "#0E9F8A", "custom": "", "logo_topbar": False})
+        res.ok("логотип пережил смену цвета", _j(r)["data"]["logo"] is not None, "пропал")
+        r = c.post_json(api, {"style": "modern", "primary": "#0E9F8A", "custom": "", "logo_topbar": True})
+        res.ok("галочка шапки сохраняется",
+               _j(r)["data"]["logo_topbar"] is True and _cfg(s)["theme"]["logo_topbar"] is True, r.body[:120])
+        r = c.post_file("/api/settings/theme/logo", "file", "x.png", b"MZ not an image at all")
+        res.ok("не картинка — 422 bad_logo", r.status == 422 and _j(r)["code"] == "bad_logo", r.body)
+        res.check("после отказа прежний логотип цел", anon.get("/clinic-logo").status, 200)
+        r = c.post_json("/api/settings/theme/logo/delete", {})
+        res.ok("удаление — no_logo, логотипа нет",
+               _j(r)["code"] == "no_logo" and _j(r)["data"]["logo"] is None, r.body[:120])
+        res.check("файл логотипа удалён — 404", anon.get("/clinic-logo").status, 404)
+        res.ok("старая страница темы — прежняя",
+               "class='th-styles'" in c.get("/admin/settings/theme").body, "изменилась")
+
+
 def suite_switch(res: Result) -> None:
-    """Четыре флага пачки A: узел React в той же рамке, ?ui=legacy, охрана."""
+    """Флаги настроек: узел React в той же рамке, ?ui=legacy, охрана."""
     s = _server_with_flags()
     with s:
         c = Client(s.url).login()
         for path, screen, old in (("/admin/settings", "settings_hub", "class='pl-tile'"),
                                   ("/admin/settings/faq", "settings_faq", "<details class='faq'"),
-                                  ("/admin/settings/hours", "settings_hours", "id='hc_mon'")):
+                                  ("/admin/settings/hours", "settings_hours", "id='hc_mon'"),
+                                  ("/admin/settings/services", "settings_services", "id='svc_tb'"),
+                                  ("/admin/settings/theme", "settings_theme", "class='th-styles'")):
             page = c.get(path).body
             res.ok(f"{path}: узел React", f'data-screen="{screen}"' in page, "узла нет")
             res.ok(f"{path}: старой разметки нет", old not in page, "две разметки")
