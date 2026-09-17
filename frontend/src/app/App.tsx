@@ -1,6 +1,10 @@
 import { DoctorCardScreen } from '../features/doctors/DoctorCardScreen'
 import { DoctorsListScreen } from '../features/doctors/DoctorsListScreen'
 import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSettingsScreen'
+import { FaqScreen } from '../features/settings/FaqScreen'
+import { HoursSettingsScreen } from '../features/settings/HoursSettingsScreen'
+import { LanSettingsScreen } from '../features/settings/LanSettingsScreen'
+import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 
 /**
  * Корень клиента: развилка по имени экрана, которое сервер положил в
@@ -17,6 +21,10 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_clinic') return <ClinicSettingsScreen />
   if (screen === 'doctors_list') return <DoctorsListScreen />
   if (screen === 'doctor_card') return <DoctorCardScreen dk={params.dk ?? ''} />
+  if (screen === 'settings_hub') return <SettingsHubScreen />
+  if (screen === 'settings_lan') return <LanSettingsScreen />
+  if (screen === 'settings_faq') return <FaqScreen />
+  if (screen === 'settings_hours') return <HoursSettingsScreen />
   return <UnknownScreen screen={screen} />
 }
 

@@ -105,3 +105,72 @@
 .dp-comment {
   color: #7a6a00;
 }
+
+/* ---- настройки, пачка A ---- */
+
+/* Тон куска строки состояния плитки: цвета смысла, теме не отдаются. */
+.dp-tone-amber {
+  color: var(--amber-t);
+}
+
+.dp-tone-red {
+  color: var(--red-t);
+}
+
+/* Кнопки страницы «Acces din rețea» (старая: инлайновые стили на формах). */
+.dp-fw-btn {
+  margin: 0 0 12px;
+  background: var(--teal);
+  color: var(--on-teal);
+  border: none;
+  border-radius: var(--r-ctl);
+  height: 40px;
+  padding: 0 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dp-lan-btn {
+  border: none;
+  border-radius: var(--r-ctl);
+  height: 44px;
+  padding: 0 22px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dp-lan-btn.on {
+  background: var(--teal);
+  color: var(--on-teal);
+}
+
+.dp-lan-btn.off {
+  background: var(--red-t); /* красный — цвет смысла, теме не отдан */
+  color: #fff;
+}
+
+/* Справка: карточка вопроса — те же размеры, что инлайном на старой странице. */
+.dp-faq {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  padding: 12px 16px;
+  margin: 10px 0;
+  max-width: var(--measure);
+}
+
+.dp-faq-q {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.dp-faq-a {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text2);
+}

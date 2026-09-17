@@ -1,5 +1,10 @@
 import { ICONS, type IconName } from './icons'
 
+/** Имя иконки, пришедшее строкой с сервера; неизвестное — общий значок. */
+export function iconName(name: string): IconName {
+  return (name in ICONS ? name : 'info') as IconName
+}
+
 /**
  * Значок = иконка из layout._I, идущая currentColor: цвет клиники она берёт
  * сама (правило карты «ничего графического от Windows»). Атрибуты те же, что
