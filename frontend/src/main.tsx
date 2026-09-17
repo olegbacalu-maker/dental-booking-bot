@@ -24,6 +24,10 @@ if (!host) {
   console.debug('DentPilot: #root отсутствует — страница серверная')
 } else {
   const screen = host.dataset.screen ?? 'unknown'
+  // Внутри узла сервер оставил заглушку «интерфейс не загрузился» со
+  // ссылкой на старую страницу (layout.react_mount). Раз мы здесь — бандл
+  // загрузился; заглушку убираем сами, чтобы React монтировался в пустой узел.
+  host.replaceChildren()
   createRoot(host).render(
     <StrictMode>
       <App screen={screen} />

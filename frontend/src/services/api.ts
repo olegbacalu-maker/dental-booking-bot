@@ -5,7 +5,7 @@
  * проверки прав, разбор конверта и обработка истёкшей сессии расползутся по
  * сорока экранам и разойдутся между собой.
  */
-import { ApiError, type ApiEnvelope, type ApiFailure } from '../types/api'
+import { ApiError, type ApiEnvelope, type ApiFailure, type Tone } from '../types/api'
 
 /**
  * Адреса ОТНОСИТЕЛЬНЫЕ, и базового URL здесь нет намеренно.
@@ -22,17 +22,28 @@ const API_ROOT = '/api'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const
 
-interface RequestOptions {
+export interface RequestOptions {
   signal?: AbortSignal
   /** Тело запроса. Сериализуется в JSON. */
   body?: unknown
+}
+
+/**
+ * Удачный ответ: данные плюс то, что сервер сказал словами. `text` — перевод
+ * кода из MSG_BANNER, сделанный на сервере; экран показывает его как есть.
+ */
+export interface ApiResult<T> {
+  data: T
+  code: string
+  text: string
+  tone: Tone
 }
 
 async function request<T>(
   method: 'GET' | 'POST',
   path: string,
   options: RequestOptions = {},
-): Promise<T> {
+): Promise<ApiResult<T>> {
   let response: Response
   try {
     response = await fetch(`${API_ROOT}${path}`, {
@@ -43,7 +54,8 @@ async function request<T>(
       // вернул HTTP 200 с HTML формы входа. Экран показал бы пустоту вместо
       // «сессия истекла», а регистратура решила бы, что у пациента нет
       // записей. С 'manual' такой ответ приходит как opaqueredirect и ниже
-      // превращается в честный отказ.
+      // превращается в честный отказ. /api/* отвечает 401 сам (core/api.py),
+      // но страховка остаётся: она стоит одну строку.
       redirect: 'manual',
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.body === undefined
@@ -62,29 +74,32 @@ async function request<T>(
   const envelope = await readEnvelope<T>(response)
 
   if (response.ok && envelope?.ok) {
-    return envelope.data as T
+    return {
+      data: envelope.data as T,
+      code: envelope.code,
+      text: envelope.text ?? '',
+      tone: envelope.tone ?? 'ok',
+    }
   }
 
   const code = envelope?.code ?? ''
+  const text = envelope?.text ?? ''
   switch (response.status) {
     case 401:
       throw fail({ kind: 'unauthenticated' })
     case 403:
-      throw fail({ kind: 'forbidden', code })
+      throw fail({ kind: 'forbidden', code, text })
     case 409:
-      throw fail({ kind: 'conflict', code })
+      throw fail({ kind: 'conflict', code, text })
     case 422:
       throw fail({
         kind: 'validation',
         code,
+        text,
         ...(envelope?.field ? { field: envelope.field } : {}),
       })
     default:
-      throw fail({
-        kind: 'server',
-        status: response.status,
-        detail: code || response.statusText,
-      })
+      throw fail({ kind: 'server', status: response.status, code, text })
   }
 }
 
@@ -105,7 +120,7 @@ function fail(failure: ApiFailure): ApiError {
 
 /**
  * ⚠️ Это текст для ЛОГА и для разработчика, а не для клиники. Человеку
- * показывается то, что пришло в `code`: переводом занимается сервер, он же
+ * показывается `text` из конверта: переводом занимается сервер, он же
  * единственный владелец MSG_BANNER.
  */
 function describe(failure: ApiFailure): string {
@@ -121,8 +136,18 @@ function describe(failure: ApiFailure): string {
     case 'network':
       return `network: ${failure.detail}`
     case 'server':
-      return `server ${failure.status}: ${failure.detail}`
+      return `server ${failure.status}: ${failure.code}`
   }
+}
+
+/**
+ * Куда отправить человека при 401: на экран входа движка с возвратом сюда —
+ * ровно туда, куда HTML-охрана (_guard) шлёт редиректом. Экран входа
+ * серверный намеренно: он обязан открываться и без бандла.
+ */
+export function loginUrl(): string {
+  const back = window.location.pathname + window.location.search
+  return `/admin/login?next=${encodeURIComponent(back)}`
 }
 
 export const api = {
