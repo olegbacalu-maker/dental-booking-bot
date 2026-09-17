@@ -56,7 +56,7 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
       он подменяет exe у клиники и не покрыт ничем. ⏳ 17.09: осталось 7 —
       `medici/add`, `medici/colors`, `relink`, `doctor-photo` закрыты
       `test_doctors.py`; `lan/firewall` и страница `backup` — `test_settings_api.py`
-      (сам вызов netsh через runas в тестах не делается: UAC).
+      (сам вызов netsh через runas в тестах не делается: UAC). 17.09 вечером: 6.
       *Готово:* таблица «без единой проверки» пуста или в ней остались только
       осознанно оставленные, с причиной.
 - [ ] **A3. `scripts/sync_version.py --check`.** Источник — `engine.py`.
@@ -109,8 +109,8 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
 - [x] C2 `/admin/settings/lan` — 6 стр ✅ 17.09 (`settings_lan`); проза страницы приходит с сервера кусками, кнопки React; ⏳ флаг у пилота выключен
 - [x] C3 `/admin/settings/faq` — 6 стр ✅ 17.09 (`settings_faq`); вопросы и ответы — `faq.entries()`, одни на обе страницы; ⏳ флаг выключен
 - [x] C4 `/admin/casa` — 13 стр ⛔ **остаётся серверным**: это печатный «Raport de casă» со своим `<!doctype>` и `@media print`, лист подписывают ручкой — правило «печать не переносится» (migration-plan). В счёт 25 экранов попал по ошибке; экранов к переносу 24.
-- [ ] C5 `/admin/settings/backup` — 17 стр ⚠️ сейчас без тестов
-- [ ] C6 `/admin/settings/security` — 26 стр
+- [x] C5 `/admin/settings/backup` — 17 стр ✅ 17.09 (`settings_backup`); выгрузка остаётся обычной формой на старый маршрут (файл потоком), страница теперь покрыта `test_settings_api`; ⏳ флаг выключен
+- [x] C6 `/admin/settings/security` — 26 стр ✅ 17.09 (`settings_security`); правила учёток в `_apply_user`/`_drop_user`, смена PIN — `core.auth.change_pin`, одна на форму и API; ⏳ флаг выключен
 - [x] C7 `/admin/medici` — 46 стр ✅ код 17.09 (`doctors_list`); ⏳ флаг у пилота выключен
 - [x] C8 `/admin/settings/hours` — 60 стр ✅ 17.09 (`settings_hours`); тот же payload, та же `_val_hours`; ⏳ флаг выключен
 - [ ] C9 `/admin/settings/crypt` — 66 стр ⚠️ сейчас страница без тестов
