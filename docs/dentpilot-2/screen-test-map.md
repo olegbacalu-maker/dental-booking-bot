@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **109** · наборов **24** · мест вызова `res.ok`/`res.check` в исходниках — **1656**.
+Маршрутов **111** · наборов **25** · мест вызова `res.ok`/`res.check` в исходниках — **1727**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -43,9 +43,9 @@
 | `POST /admin/backup/export` | FILE | 40 | dbcrypt, pin, privacy | 280 | — | — |
 | `POST /admin/lan/firewall` | 303 | 9 | **—** | — | — | — |
 | `POST /admin/lan/save` | HTML | 21 | admin | 376 | — | — |
-| `GET /admin/settings` | HTML | 86 | admin, pin, theme | 554 | — | — |
+| `GET /admin/settings` | HTML | 86 | admin, api, pin, theme | 623 | — | — |
 | `GET /admin/settings/backup` | HTML | 17 | **—** | — | — | — |
-| `GET /admin/settings/clinic` | HTML | 21 | admin | 376 | — | — |
+| `GET /admin/settings/clinic` | HTML | 27 | admin, api | 445 | settings_clinic | off |
 | `GET /admin/settings/crypt` | HTML | 66 | **—** | — | — | — |
 | `POST /admin/settings/crypt/confirm` | 303 | 22 | dbcrypt | 77 | — | — |
 | `POST /admin/settings/crypt/off` | 303 | 8 | **—** | — | — | — |
@@ -54,7 +54,7 @@
 | `GET /admin/settings/faq` | HTML | 6 | admin, dbcrypt, pin | 556 | — | — |
 | `GET /admin/settings/hours` | HTML | 60 | admin | 376 | — | — |
 | `GET /admin/settings/lan` | HTML | 6 | admin | 376 | — | — |
-| `POST /admin/settings/save` | 303 | 38 | admin, pin, review2, theme | 573 | — | — |
+| `POST /admin/settings/save` | 303 | 38 | admin, api, pin, review2, theme | 642 | — | — |
 | `GET /admin/settings/security` | HTML | 26 | pin, review2 | 122 | — | — |
 | `GET /admin/settings/services` | HTML | 115 | admin, review2 | 395 | — | — |
 | `GET /admin/settings/system` | HTML | 80 | admin, pin | 479 | — | — |
@@ -66,7 +66,9 @@
 | `POST /admin/update/check` | 303 | 7 | **—** | — | — | — |
 | `POST /admin/update/run` | HTML | 21 | **—** | — | — | — |
 | `POST /admin/users/delete` | other | 11 | pin | 103 | — | — |
-| `POST /admin/users/save` | other | 28 | migrate, pin, review2, review3_auth | 299 | — | — |
+| `POST /admin/users/save` | other | 28 | api, migrate, pin, review2, review3_auth | 368 | — | — |
+| `GET /api/settings/clinic` | JSON | 4 | api | 69 | — | — |
+| `POST /api/settings/clinic` | JSON | 25 | api | 69 | — | — |
 
 ## Врачи — группа 1
 
@@ -76,7 +78,7 @@
 | `GET /admin/doctor-card/{dk}` | HTML | 182 | admin, pin, review3 | 515 | — | — |
 | `POST /admin/doctor-card/{dk}/photo` | 303 | 29 | admin, pin, review3 | 515 | — | — |
 | `POST /admin/doctor-card/{dk}/photo/del` | 303 | 11 | admin, pin, review3 | 515 | — | — |
-| `POST /admin/doctor-card/{dk}/save` | 303 | 36 | admin, anamneza, migrate, pin, plan_acord, privacy, review2, review3, review3_auth, theme, visit | 1074 | — | — |
+| `POST /admin/doctor-card/{dk}/save` | 303 | 36 | admin, anamneza, api, migrate, pin, plan_acord, privacy, review2, review3, review3_auth, theme, visit | 1143 | — | — |
 | `POST /admin/doctor-card/{dk}/services` | 303 | 44 | admin, pin, review2, review3 | 534 | — | — |
 | `GET /admin/doctor-photo/{dk}` | FILE | 9 | **—** | — | — | — |
 | `GET /admin/medici` | HTML | 46 | admin, pin | 479 | — | — |
@@ -136,7 +138,7 @@
 | `GET /admin/patient/{pid}/plan-acord` | HTML | 24 | activity, admin, anamneza, booking, bot, hardening, migrate, perio, pin, plan_acord, privacy, review2, teeth, visit | 1314 | — | — |
 | `POST /admin/patient/{pid}/plan/{item_id}/del` | other | 16 | activity, admin, anamneza, booking, bot, hardening, migrate, perio, pin, plan_acord, privacy, review2, teeth, visit | 1314 | — | — |
 | `POST /admin/patient/{pid}/plan/{item_id}/status` | other | 18 | activity, admin, anamneza, booking, bot, hardening, migrate, perio, pin, plan_acord, privacy, review2, teeth, visit | 1314 | — | — |
-| `POST /admin/patient/{pid}/save` | 303 | 56 | activity, admin, anamneza, booking, bot, hardening, migrate, perio, pin, plan_acord, privacy, review2, review3_auth, teeth, theme, visit | 1418 | — | — |
+| `POST /admin/patient/{pid}/save` | 303 | 56 | activity, admin, anamneza, api, booking, bot, hardening, migrate, perio, pin, plan_acord, privacy, review2, review3_auth, teeth, theme, visit | 1487 | — | — |
 | `GET /admin/patient/{pid}/slots` | JSON | 18 | activity, admin, anamneza, booking, bot, hardening, migrate, perio, pin, plan_acord, privacy, review2, teeth, visit | 1314 | — | — |
 | `POST /admin/patient/{pid}/tooth` | 303 | 77 | activity, admin, anamneza, booking, bot, hardening, migrate, perio, pin, plan_acord, privacy, review2, teeth, visit | 1314 | — | — |
 | `GET /admin/patients.csv` | FILE | 34 | admin, review2 | 395 | — | — |
@@ -151,7 +153,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Флаг | Пилот |
 |---|---|---|---|---|---|---|
-| `GET /admin` | HTML | 162 | admin, booking, dbcrypt, hardening, migrate, pin, review3_auth, theme | 968 | — | — |
+| `GET /admin` | HTML | 162 | admin, api, booking, dbcrypt, hardening, migrate, pin, review3_auth, theme | 1037 | — | — |
 | `POST /admin/add` | other | 104 | activity, admin, booking, bot, doctor_windows, hardening, migrate, plan_acord, privacy, review2, review3, review3_bot, visit | 1025 | — | — |
 | `GET /admin/all` | HTML | 49 | activity, admin, booking, bot, doctor_windows, hardening, migrate, pin, plan_acord, privacy, review2, review3, review3_bot, visit | 1128 | — | — |
 | `POST /admin/comment/{appt_id}` | other | 6 | privacy | 100 | — | — |
@@ -171,29 +173,29 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Флаг | Пилот |
 |---|---|---|---|---|---|---|
-| `GET /` | HTML | 6 | activity, admin, anamneza, booking, bot, dbcrypt, doctor_windows, guards, hardening, launcher, migrate, perio, pin, plan_acord, privacy, restart, review2, review3, review3_auth, review3_bot, structure, teeth, theme, visit | 1656 | — | — |
-| `GET /admin/login` | HTML | 34 | admin, hardening, migrate, pin, review3_auth, theme | 805 | — | — |
-| `POST /admin/login` | 303 | 66 | admin, hardening, migrate, pin, review3_auth, theme | 805 | — | — |
+| `GET /` | HTML | 6 | activity, admin, anamneza, booking, bot, dbcrypt, doctor_windows, guards, hardening, launcher, migrate, perio, pin, plan_acord, privacy, restart, review2, review3, review3_auth, review3_bot, structure, teeth, theme, visit | 1658 | — | — |
+| `GET /admin/login` | HTML | 34 | admin, api, hardening, migrate, pin, review3_auth, theme | 874 | — | — |
+| `POST /admin/login` | 303 | 66 | admin, api, hardening, migrate, pin, review3_auth, theme | 874 | — | — |
 | `GET /admin/logout` | 303 | 6 | **—** | — | — | — |
 | `POST /admin/pin/change` | 303 | 33 | pin, review3_auth | 132 | — | — |
 | `GET /admin/recover` | HTML | 6 | dbcrypt, hardening | 151 | — | — |
 | `POST /admin/recover` | HTML | 17 | dbcrypt, hardening | 151 | — | — |
 | `POST /admin/security/ack` | 303 | 8 | pin | 103 | — | — |
-| `GET /admin/setup` | HTML | 12 | hardening, migrate, pin, review2, review3_auth | 373 | — | — |
-| `POST /admin/setup` | HTML | 17 | hardening, migrate, pin, review2, review3_auth | 373 | — | — |
+| `GET /admin/setup` | HTML | 12 | api, hardening, migrate, pin, review2, review3_auth | 442 | — | — |
+| `POST /admin/setup` | HTML | 17 | api, hardening, migrate, pin, review2, review3_auth | 442 | — | — |
 | `POST /chat` | other | 13 | admin, bot, hardening, review3_bot | 489 | — | — |
 | `GET /clinic-logo` | other | 20 | theme | 75 | — | — |
 | `GET /favicon.ico` | other | 5 | admin | 376 | — | — |
 | `GET /health` | other | 4 | admin, hardening | 450 | — | — |
 | `GET /icon-{px}.png` | other | 11 | admin | 376 | — | — |
 | `GET /manifest.webmanifest` | other | 31 | admin | 376 | — | — |
-| `GET /static/{kind}/{name}` | other | 28 | admin | 376 | — | — |
+| `GET /static/{kind}/{name}` | other | 28 | admin, api | 445 | — | — |
 
 ## Колонки-состояния
 
 
-`Флаг` — ключ в `clinic.json`, включающий React-экран (§29).
-`Пилот` — `off` / `on` / `откат`. Заполняются по ходу; `—` значит «ещё не начат».
+`Флаг` — имя экрана в `clinic.json` → `ui.react` (включает React-экран; `?ui=legacy` возвращает старый на один запрос).
+`Пилот` — `off` / `on` / `откат`. `—` значит «ещё не начат».
 
 
 ## Самые тяжёлые обработчики
@@ -205,11 +207,11 @@
 | 308 | `GET /admin/search` | 15 |
 | 291 | `GET /admin/stats` | 4 |
 | 182 | `GET /admin/doctor-card/{dk}` | 3 |
-| 162 | `GET /admin` | 8 |
+| 162 | `GET /admin` | 9 |
 | 135 | `GET /admin/settings/theme` | 1 |
 | 115 | `GET /admin/settings/services` | 2 |
 | 106 | `GET /admin/patient/{pid}/peek` | 14 |
 | 104 | `POST /admin/add` | 13 |
-| 86 | `GET /admin/settings` | 3 |
+| 86 | `GET /admin/settings` | 4 |
 
 ⛔ `GET /admin/patient/{pid}` — 909 строк одной функцией. §18 требует разделить его логически; арифметика внутри сегодня проверяется только через готовую страницу.

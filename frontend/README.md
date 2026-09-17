@@ -11,7 +11,25 @@ npm install          # один раз
 npm run dev          # Vite на своём порту, запросы проксируются в песочницу
 npm run build        # бандл прямо в bot/app/static/
 npm run typecheck    # tsc без вывода файлов
+npm run lint         # eslint: рекомендованные правила JS/TS + хуки React
+npm test             # vitest, jsdom, только src/**/*.test.{ts,tsx}
 ```
+
+Иконки: `python scripts/gen_icons.py` пересобирает `src/components/icons.ts`
+из `core/layout._I`; `test_structure` краснеет, если файл отстал.
+
+## Как экран попадает к клинике
+
+Сервер решает по профилю: `clinic.json` → `{"ui": {"react": ["settings_clinic"]}}`
+(`layout.react_on`). Включён — страница отдаёт узел `#root` с `data-screen`
+и серверной заглушкой «интерфейс не загрузился» внутри; выключен — старая
+разметка. `?ui=legacy` возвращает старую страницу на один запрос — выход для
+регистратуры, если новый экран подвёл. Правка файла руками действует после
+перезапуска программы.
+
+Новый экран = имя в `layout.REACT_SCREENS` + ветка в обработчике старой
+страницы (`react_on` → `react_mount`) + строка в `App.tsx` + `FLAG` в
+`scripts/screen_map.py` + проверки в `tests/test_api.py`.
 
 ⚠️ `npm run dev` ждёт, что движок поднят на **8099**:
 
@@ -76,9 +94,10 @@ npm run typecheck    # tsc без вывода файлов
 Экран, который обязан открыться, когда бандл не загрузился, не может жить
 в бандле.
 
-## Ещё не сделано
+## Сборка exe
 
-⛔ `Build-Desktop.ps1` пока **не зовёт** `npm run build`. Пока ни один экран не
-переведён, это безвредно. Как только поедет первый — вызов обязан появиться
-ДО PyInstaller, иначе сборка с чистого клона положит в exe страницу без
-бандла, и увидит это только клиника.
+✅ `Build-Desktop.ps1` зовёт `npm ci` (если нет `node_modules`) и `npm run
+build` ДО PyInstaller, через `cmd /c … 2>&1`: PowerShell 5.1 при
+`ErrorActionPreference=Stop` превращает любой stderr npm в терминирующую
+ошибку. Дымовой тест собранного exe (`tests/smoke_exe.py`) требует
+`bundle.js` и `bundle.css` из сборки.
