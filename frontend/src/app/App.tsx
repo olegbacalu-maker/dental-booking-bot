@@ -1,9 +1,11 @@
 import { DoctorCardScreen } from '../features/doctors/DoctorCardScreen'
 import { DoctorsListScreen } from '../features/doctors/DoctorsListScreen'
+import { BackupSettingsScreen } from '../features/settings/BackupSettingsScreen'
 import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSettingsScreen'
 import { FaqScreen } from '../features/settings/FaqScreen'
 import { HoursSettingsScreen } from '../features/settings/HoursSettingsScreen'
 import { LanSettingsScreen } from '../features/settings/LanSettingsScreen'
+import { SecuritySettingsScreen } from '../features/settings/SecuritySettingsScreen'
 import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
 import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
@@ -29,6 +31,8 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_hours') return <HoursSettingsScreen />
   if (screen === 'settings_services') return <ServicesSettingsScreen />
   if (screen === 'settings_theme') return <ThemeSettingsScreen />
+  if (screen === 'settings_security') return <SecuritySettingsScreen />
+  if (screen === 'settings_backup') return <BackupSettingsScreen />
   return <UnknownScreen screen={screen} />
 }
 

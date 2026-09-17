@@ -114,7 +114,50 @@ export interface ThemeForm {
   logo_topbar: boolean
 }
 
+export interface UserRow {
+  id: string
+  name: string
+  role: string
+  doctor_id: string
+  /** «13.08.2026 14:02» или пусто — с сервера, в часах клиники. */
+  last_login: string
+}
+
+export interface SecurityData {
+  users: UserRow[]
+  /** Подписи ролей: director / receptie / medic. */
+  roles: Record<string, string>
+  doctors: { id: string; name: string }[]
+  /** id вошедшего — свою учётку удалить нельзя. */
+  me: string
+  pin: { min: number; max: number }
+}
+
+/** Те же поля, что у формы учётки: pin пустой = не менять. */
+export interface UserForm {
+  uid: string
+  name: string
+  role: string
+  doctor_id: string
+  pin: string
+}
+
+export interface BackupData {
+  min_pass: number
+  filename: string
+}
+
 export const settings = {
+  security: (signal?: AbortSignal): Promise<ApiResult<SecurityData>> =>
+    api.get<SecurityData>('/settings/security', signal ? { signal } : {}),
+  userSave: (form: UserForm): Promise<ApiResult<SecurityData>> =>
+    api.post<SecurityData>('/settings/users', form),
+  userDelete: (uid: string): Promise<ApiResult<SecurityData>> =>
+    api.post<SecurityData>(`/settings/users/${encodeURIComponent(uid)}/delete`, {}),
+  pinChange: (old_pin: string, new1: string, new2: string): Promise<ApiResult<undefined>> =>
+    api.post<undefined>('/settings/pin', { old_pin, new1, new2 }),
+  backup: (signal?: AbortSignal): Promise<ApiResult<BackupData>> =>
+    api.get<BackupData>('/settings/backup', signal ? { signal } : {}),
   services: (signal?: AbortSignal): Promise<ApiResult<ServicesData>> =>
     api.get<ServicesData>('/settings/services', signal ? { signal } : {}),
   servicesSave: (services: ServiceEntry[]): Promise<ApiResult<ServicesData>> =>

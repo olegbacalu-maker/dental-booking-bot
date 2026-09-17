@@ -204,3 +204,17 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* ---- настройки, пачка C ---- */
+
+/* Строка учётки: как инлайновая форма старой таблицы. */
+.dp-user-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dp-muted {
+  color: var(--text3);
+}
