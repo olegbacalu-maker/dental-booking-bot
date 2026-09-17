@@ -886,7 +886,9 @@ LIVE_RELOAD = {"dash", "prog"}
 # ⛔ React-экран НИКОГДА не лежит внутри #live: panel.js подменил бы innerHTML
 # под смонтированным деревом, и клик по свежему узлу молча умер бы. Экран с
 # ключом из LIVE_RELOAD в React не отдаётся (держит test_api).
-REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card"})
+REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
+                           "settings_hub", "settings_lan", "settings_faq",
+                           "settings_hours"})
 
 
 def react_on(request: Request, screen: str) -> bool:

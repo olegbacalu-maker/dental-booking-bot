@@ -210,29 +210,25 @@ def _sec_page(body: str, sub: str, msg: str) -> str:
     return _shell(nav + msg_banner(msg) + body, sub, active="set")
 
 
-@router.get("/admin/settings", response_class=HTMLResponse)
-async def admin_settings(request: Request, msg: str = ""):
-    """Хаб настроек: по плитке на секцию, на каждой — живая строка состояния."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
+def _lan_available() -> bool:
+    """Секция сети — только у настольного издания: слушающий адрес выбирает
+    лаунчер по dental.env, облаку переключатель не нужен."""
+    return bool(db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"))
+
+
+def _hub_tiles() -> list[dict]:
+    """Плитки хаба: адрес, иконка, тон, подпись и строка состояния КУСКАМИ —
+    текст / иконка с текстом (и тоном) / точка цвета. Одни данные на старую
+    страницу (`_hint_html`) и на JSON API; состояние считает только сервер."""
     cfg = eng.CONFIG
-    e = html.escape
-
-    def tile(href: str, ico: str, tone: str, label: str, hint: str) -> str:
-        return (f"<a class='pl-tile' href='{href}'>"
-                f"<span class='ico {tone}'>{ico}</span><div class='pl-tv'>"
-                f"<span>{label}</span><small>{hint}</small></div></a>")
-
     # короткое состояние обновления — подробности на странице «Stare sistem»
     if upd.can_self_update() or upd.newer_available():
-        up_short = (f"<b style='color:var(--amber-t)'>{_ic('refresh')} disponibilă "
-                    f"{e(upd.STATE['latest'])}</b>")
+        up_short = [{"icon": "refresh", "t": f"disponibilă {upd.STATE['latest']}",
+                     "tone": "amber"}]
     elif upd.STATE["checked"] and not upd.STATE["error"]:
-        up_short = _ic("check") + " la zi"
+        up_short = [{"icon": "check", "t": "la zi"}]
     else:
-        up_short = "stare necunoscută"
-    tg = tg_status()
-    tg_short = (f"{_ic('check')} @{e(tg['username'])}" if tg["running"] else "neconectat")
+        up_short = [{"t": "stare necunoscută"}]
     today_h = cfg.get("hours", {}).get(_DOW_ORDER[datetime.now(eng.TZ).weekday()])
     hours_short = (f"azi {int(today_h[0])}:00–{int(today_h[1])}:00" if today_h
                    else "azi închis")
@@ -241,59 +237,95 @@ async def admin_settings(request: Request, msg: str = ""):
 
     bl_tone, _bl_txt = bitlocker.describe(bitlocker.STATE["code"],
                                           bitlocker.STATE["drive"])
-    bl_flag = ("" if bl_tone in ("ok", "unknown") or not db.IS_SQLITE
-               else f" · <b style='color:var(--red-t)'>{_ic('ban')} disc necriptat</b>"
+    bl_flag = ([] if bl_tone in ("ok", "unknown") or not db.IS_SQLITE
+               else [{"t": " · "}, {"icon": "ban", "t": "disc necriptat", "tone": "red"}]
                if bl_tone == "alarm"
-               else f" · <b style='color:var(--amber-t)'>{_ic('sos')} BitLocker</b>")
-    tiles = [tile("/admin/settings/system", _ic("info"), "b", "Stare sistem",
-                  f"v{eng.APP_VERSION} · {up_short}{bl_flag}"),
-             tile("/admin/settings/clinic", _ic("clinic"), "g", "Clinica",
-                  e(cfg["name"])),
-             tile("/admin/settings/theme", _ic("palette"), "v", "Aspectul clinicii",
-                  f"{e(theme.STYLE_LABEL[_th['style']][0])} · "
-                  f"<span class='th-dot' style='background:{e(_th['primary'])}'></span>"
-                  f"{e(_th['primary'])}"
-                  + (" · logo" if theme.logo_url() else "")),
-             tile("/admin/settings/hours", _ic("clock"), "v", "Program de lucru",
-                  hours_short),
-             tile("/admin/settings/services", _ic("tooth"), "g", "Servicii",
-                  f"{len(cfg['services'])} servicii"),
-             tile("/admin/medici", _ic("med"), "b", "Medici",
-                  f"{n_docs} activi · se editează în secțiunea Medici")]
-    if db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"):
+               else [{"t": " · "}, {"icon": "sos", "t": "BitLocker", "tone": "amber"}])
+
+    def tile(href: str, icon: str, tone: str, label: str, hint: list) -> dict:
+        return {"href": href, "icon": icon, "tone": tone, "label": label, "hint": hint}
+
+    tiles = [tile("/admin/settings/system", "info", "b", "Stare sistem",
+                  [{"t": f"v{eng.APP_VERSION} · "}, *up_short, *bl_flag]),
+             tile("/admin/settings/clinic", "clinic", "g", "Clinica",
+                  [{"t": cfg["name"]}]),
+             tile("/admin/settings/theme", "palette", "v", "Aspectul clinicii",
+                  [{"t": f"{theme.STYLE_LABEL[_th['style']][0]} · "},
+                   {"dot": _th["primary"]}, {"t": _th["primary"]}]
+                  + ([{"t": " · logo"}] if theme.logo_url() else [])),
+             tile("/admin/settings/hours", "clock", "v", "Program de lucru",
+                  [{"t": hours_short}]),
+             tile("/admin/settings/services", "tooth", "g", "Servicii",
+                  [{"t": f"{len(cfg['services'])} servicii"}]),
+             tile("/admin/medici", "med", "b", "Medici",
+                  [{"t": f"{n_docs} activi · se editează în secțiunea Medici"}])]
+    if _lan_available():
         # Telegram заморожен (08-08): плитку видят только клиники с уже
         # настроенным токеном — grandfather, как секция в сайдбаре.
         # Прямой адрес /admin/settings/telegram жив для ручного включения.
         if tg_configured():
-            tiles.append(tile("/admin/settings/telegram", _ic("bot"), "v",
-                              "Telegram Bot", tg_short))
+            tg = tg_status()
+            tiles.append(tile("/admin/settings/telegram", "bot", "v", "Telegram Bot",
+                              [{"icon": "check", "t": f"@{tg['username']}"}]
+                              if tg["running"] else [{"t": "neconectat"}]))
         # Подпись выключенного состояния называет ВЕЩИ, а не режим: директор
         # ищет на хабе «второй компьютер», а не «сетевой доступ» (08-13).
-        lan_short = (_ic("check") + " activ în rețeaua clinicii" if lan.enabled()
-                     else "al doilea calculator, telefon — oprit")
-        tiles.append(tile("/admin/settings/lan", _ic("wifi"), "b",
-                          "Acces din rețea", lan_short))
+        tiles.append(tile("/admin/settings/lan", "wifi", "b", "Acces din rețea",
+                          [{"icon": "check", "t": "activ în rețeaua clinicii"}]
+                          if lan.enabled()
+                          else [{"t": "al doilea calculator, telefon — oprit"}]))
     if db.IS_SQLITE:
         _cs = dbkey.state()
-        tiles.append(tile("/admin/settings/crypt", _ic("lock"), "g", "Criptarea evidenței",
-                          {dbkey.OK: _ic("check") + " activă",
-                           dbkey.UNREADABLE: "<b style='color:var(--red-t)'>" + _ic("ban") + " cheia nu "
-                                             "se citește</b>"}.get(_cs, "oprită")))
+        tiles.append(tile("/admin/settings/crypt", "lock", "g", "Criptarea evidenței",
+                          {dbkey.OK: [{"icon": "check", "t": "activă"}],
+                           dbkey.UNREADABLE: [{"icon": "ban", "t": "cheia nu se citește",
+                                               "tone": "red"}]}.get(_cs, [{"t": "oprită"}])))
     if db.IS_SQLITE and bkp.available():
-        tiles.append(tile("/admin/settings/backup", _ic("save"), "b", "Copie de rezervă",
-                          "arhivă criptată AES-256"))
+        tiles.append(tile("/admin/settings/backup", "save", "b", "Copie de rezervă",
+                          [{"t": "arhivă criptată AES-256"}]))
     if _pin_rec():
-        tiles.append(tile("/admin/settings/security", _ic("users"), "g",
+        tiles.append(tile("/admin/settings/security", "users", "g",
                           "Securitate și utilizatori",
-                          f"{len(all_users())} utilizatori"))
+                          [{"t": f"{len(all_users())} utilizatori"}]))
     # FAQ безусловно и последней: справка в конце списка — привычное место
-    tiles.append(tile("/admin/settings/faq", _ic("help"), "v", "Întrebări frecvente",
-                      "copii de rezervă, mutare, Legea 195"))
+    tiles.append(tile("/admin/settings/faq", "help", "v", "Întrebări frecvente",
+                      [{"t": "copii de rezervă, mutare, Legea 195"}]))
+    return tiles
 
+
+def _hint_html(parts: list[dict]) -> str:
+    """Строка состояния плитки из кусков — та же разметка, что была инлайном."""
+    out = []
+    for p in parts:
+        if p.get("dot"):
+            out.append(f"<span class='th-dot' style='background:{html.escape(p['dot'])}'>"
+                       f"</span>")
+            continue
+        txt = html.escape(p.get("t", ""))
+        piece = f"{_ic(p['icon'])} {txt}" if p.get("icon") else txt
+        if p.get("tone"):
+            piece = f"<b style='color:var(--{p['tone']}-t)'>{piece}</b>"
+        out.append(piece)
+    return "".join(out)
+
+
+@router.get("/admin/settings", response_class=HTMLResponse)
+async def admin_settings(request: Request, msg: str = ""):
+    """Хаб настроек: по плитке на секцию, на каждой — живая строка состояния."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if react_on(request, "settings_hub"):
+        return _shell(msg_banner(msg) + react_mount("settings_hub", request.url.path),
+                      "setările clinicii · pe secțiuni", active="set")
+    tiles = "".join(
+        f"<a class='pl-tile' href='{t['href']}'>"
+        f"<span class='ico {t['tone']}'>{_ic(t['icon'])}</span><div class='pl-tv'>"
+        f"<span>{t['label']}</span><small>{_hint_html(t['hint'])}</small></div></a>"
+        for t in _hub_tiles())
     body = (f"<div class='pl-head'><div><h2>Setări</h2>"
             f"<p>Alegeți o secțiune — modificările se aplică imediat, "
             f"fără repornire</p></div></div>"
-            f"<div class='pl-tiles set-hub'>{''.join(tiles)}</div>")
+            f"<div class='pl-tiles set-hub'>{tiles}</div>")
     return _shell(f"<div class='nav'><a href='/admin'>{_ic('home')} Panou</a></div>"
                   + msg_banner(msg) + body,
                   "setările clinicii · pe secțiuni", active="set")
@@ -408,9 +440,31 @@ Câmp gol + salvare = dezactivează canalul Telegram.</p>"""
 async def settings_lan(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if not (db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE")):
+    if not _lan_available():
         return RedirectResponse("/admin/settings", status_code=303)
+    if react_on(request, "settings_lan"):
+        return _sec_page(react_mount("settings_lan", request.url.path),
+                         "setări · acces din rețea", msg)
     return _sec_page(lan.render(), "setări · acces din rețea", msg)
+
+
+def _set_lan(mode: str) -> str | None:
+    """Переключить доступ из сети в dental.env. Код отказа (`bad_env`) или
+    None. Одно на форму и на JSON API; применение — перезапуск программы,
+    у каждого пути свой ответ (`_restart_now` / JSON с текстом)."""
+    env_file = os.environ.get("DENTART_ENV_FILE", "")
+    val = "1" if mode == "on" else ""
+    try:
+        envfile.set_value(pathlib.Path(env_file), "DENTART_LAN", val)
+    except OSError as ex:
+        # dental.env не читается/не пишется (придержан, чужая кодировка) —
+        # set_value отказывается, а не переписывает файл; говорим честно
+        logging.getLogger("settings").warning("env write: %r", ex)
+        return "bad_env"
+    os.environ["DENTART_LAN"] = val
+    logging.getLogger("settings").warning(
+        "LAN access %s", "ENABLED" if val else "disabled")
+    return None
 
 
 @router.post("/admin/lan/save", response_class=HTMLResponse)
@@ -420,20 +474,10 @@ async def admin_lan_save(request: Request, mode: str = Form("")):
     тот же путь, что смена токена бота."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    env_file = os.environ.get("DENTART_ENV_FILE", "")
-    if not (db.IS_SQLITE and env_file):
+    if not _lan_available():
         return RedirectResponse("/admin/settings", status_code=303)
-    val = "1" if mode == "on" else ""
-    try:
-        envfile.set_value(pathlib.Path(env_file), "DENTART_LAN", val)
-    except OSError as ex:
-        # dental.env не читается/не пишется (придержан, чужая кодировка) —
-        # set_value отказывается, а не переписывает файл; говорим честно
-        logging.getLogger("settings").warning("env write: %r", ex)
-        return RedirectResponse("/admin/settings/lan?msg=bad_env", status_code=303)
-    os.environ["DENTART_LAN"] = val
-    logging.getLogger("settings").warning(
-        "LAN access %s", "ENABLED" if val else "disabled")
+    if (err := _set_lan(mode)) is not None:
+        return RedirectResponse(f"/admin/settings/lan?msg={err}", status_code=303)
     return _restart_now("Setare salvată", "/admin/settings/lan", "ok_set")
 
 
@@ -443,7 +487,7 @@ async def admin_lan_firewall(request: Request):
     доступ включают с этого компьютера, так что директор его и видит."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if not (db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE")):
+    if not _lan_available():
         return RedirectResponse("/admin/settings", status_code=303)
     lan.request_firewall_rule()
     return RedirectResponse("/admin/settings/lan", status_code=303)
@@ -504,6 +548,9 @@ async def settings_faq(request: Request, msg: str = ""):
     # закон 195). Подсказки регистратуре — в самих экранах, не здесь.
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if react_on(request, "settings_faq"):
+        return _sec_page(react_mount("settings_faq", request.url.path),
+                         "setări · întrebări frecvente", msg)
     return _sec_page(faq.render(), "setări · întrebări frecvente", msg)
 
 
@@ -935,6 +982,9 @@ async def settings_theme_logo(request: Request, file: UploadFile = File(None),
 async def settings_hours(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if react_on(request, "settings_hours"):
+        return _sec_page(react_mount("settings_hours", request.url.path),
+                         "setări · program de lucru", msg)
     cfg = eng.CONFIG
 
     def _break_opts(sel) -> str:
@@ -1427,6 +1477,22 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
     return _restart_now("Token salvat", "/admin/settings/telegram", "ok_tok")
 
 
+# Что сказать человеку, когда настройка применится только после перезапуска.
+# Пара (жирная часть, хвост): страница выделяет первую <b>, JSON API отдаёт
+# сплошным текстом; фраза одна, чтобы React не завёл свою.
+RESTART_AUTO = ("Programul se închide acum și pornește din nou",
+                " — setarea se aplică la pornire.")
+RESTART_MANUAL = ("Închideți programul și porniți-l din nou",
+                  " — setarea se aplică la pornire.")
+RESTART_NOTE = ("Dacă fereastra nu revine în câteva secunde, deschideți DentPilot "
+                "de pe scurtătura de pe desktop. Datele clinicii nu sunt afectate: "
+                "oprirea programului nu șterge nimic.")
+
+
+def restart_text(auto: bool) -> str:
+    return "".join(RESTART_AUTO if auto else RESTART_MANUAL)
+
+
 def _restart_now(done: str, back_url: str,
                  fallback: str = "") -> HTMLResponse | RedirectResponse:
     """Сохранили настройку, которую читает лаунчер, — перезапускаем программу.
@@ -1479,12 +1545,8 @@ def _restart_page(done: str, back_url: str, auto: bool) -> str:
  a{{color:__ON__;font-weight:600;font-size:14px;margin-top:18px;display:inline-block}}
 </style></head><body>
 <h1>{_ic('check')} {done}</h1>
-<p>{"<b>Programul se închide acum și pornește din nou</b> — setarea se aplică la pornire."
-   if auto else
-   "<b>Închideți programul și porniți-l din nou</b> — setarea se aplică la pornire."}</p>
-<p style="opacity:.85;font-size:13.5px">Dacă fereastra nu revine în câteva
-secunde, deschideți DentPilot de pe scurtătura de pe desktop. Datele clinicii nu
-sunt afectate: oprirea programului nu șterge nimic.</p>
+<p><b>{(RESTART_AUTO if auto else RESTART_MANUAL)[0]}</b>{(RESTART_AUTO if auto else RESTART_MANUAL)[1]}</p>
+<p style="opacity:.85;font-size:13.5px">{RESTART_NOTE}</p>
 <a href="{back_url}">{_ic('chev-l')} Înapoi în setări</a>
 </body></html>""")
 

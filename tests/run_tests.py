@@ -43,6 +43,7 @@ import test_review3  # noqa: E402
 import test_review3_auth  # noqa: E402
 import test_review3_bot  # noqa: E402
 import test_restart  # noqa: E402
+import test_settings_api  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
@@ -140,6 +141,11 @@ SUITES = [
     ("Врачи: старые POST без проверок", test_doctors.suite_legacy),
     ("Врачи: JSON API", test_doctors.suite_api),
     ("Врачи: React-экраны и старые страницы", test_doctors.suite_switch),
+    ("Настройки: хаб (JSON)", test_settings_api.suite_hub),
+    ("Настройки: сеть (JSON)", test_settings_api.suite_lan),
+    ("Настройки: справка (JSON)", test_settings_api.suite_faq),
+    ("Настройки: часы (JSON)", test_settings_api.suite_hours),
+    ("Настройки: React-экраны пачки A", test_settings_api.suite_switch),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),

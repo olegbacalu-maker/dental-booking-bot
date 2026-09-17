@@ -37,6 +37,11 @@ PrivilegesRequired=lowest (per-user установка в Public — архит�
 Чтение статуса — `netsh ... show rule`: смотреть только КОД возврата
 (0 — правило есть, 1 — нет); текст вывода локализован Windows-ом и потому
 не разбирается (та же грабля, что с текстами ошибок SQLite).
+
+С 17.09 (DentPilot 2.0) текст страницы собран КУСКАМИ (`intro_html`,
+`status_html`, `firewall_html`, `tips_html`): старая страница склеивает их
+со своими формами, JSON API отдаёт те же куски React-экрану, который
+рисует кнопки сам. Прозу здесь не дублируют — она одна.
 """
 from __future__ import annotations
 
@@ -117,15 +122,19 @@ _WARN = ("style='border:1px solid var(--line);border-radius:var(--r-card);"
          "font-size:13px;line-height:1.6;color:var(--text2);max-width:640px'")
 
 
-def render() -> str:
-    on = enabled()
-    p_num = port()
-    body = [f"<h2>{_ic('wifi')} Acces din rețea</h2>",
-            "<p class='hint' style='margin-top:0;max-width:640px'>"
+def address(on: bool) -> tuple[str, str]:
+    """(ip, адрес журнала в сети) — пустые, пока доступ выключен или сети нет."""
+    ip = lan_ip() if on else ""
+    return ip, (f"http://{ip}:{port()}/admin" if ip else "")
+
+
+def intro_html() -> str:
+    """Что такое доступ из сети и главное предупреждение — в обоих состояниях."""
+    return ("<p class='hint' style='margin-top:0;max-width:640px'>"
             "Registrul se deschide și pe al doilea calculator al clinicii "
             "(cabinet, recepție) sau pe telefonul medicului — în aceeași "
             "rețea. Fiecare intră cu parola lui; drepturile și jurnalul de "
-            "acces funcționează ca de obicei.</p>",
+            "acces funcționează ca de obicei.</p>"
             f"<div {_WARN}>{_ic('monitor')} <b>Un program, o singură "
             f"evidență.</b> Programul rămâne instalat pe <b>un singur "
             f"calculator</b> — acesta. Celelalte doar <b>deschid adresa lui</b> "
@@ -133,54 +142,54 @@ def render() -> str:
             f"<br><br>{_ic('ban')} <b>Nu instalați programul și pe al doilea "
             f"calculator.</b> Acolo ar porni cu evidența lui, goală și cu totul "
             f"separată: ce se scrie la recepție nu s-ar vedea în cabinet, deși "
-            f"ambele programe par că funcționează corect.</div>"]
+            f"ambele programe par că funcționează corect.</div>")
 
-    if on:
-        ip = lan_ip()
-        if ip:
-            url = f"http://{ip}:{p_num}/admin"
-            q = urllib.parse.quote(url, safe="")
-            body.append(
-                f"<div {_WARN}><b style='color:var(--green-t)'>{_ic('check')} Activ.</b> "
-                f"Adresa registrului în rețeaua clinicii:"
-                f"<div style='font-size:17px;font-weight:600;color:var(--text);"
-                f"margin:8px 0 12px'>{html.escape(url)}</div>"
-                f"<b>Pe al doilea calculator:</b> deschideți adresa în browser "
-                f"(Chrome sau Edge) și salvați-o la favorite. În Edge: meniul "
-                f"browserului › «Aplicații» › «Instalează acest site ca "
-                f"aplicație» — registrul se deschide ca un program obișnuit, "
-                f"fără bara de adrese."
-                f"<div style='margin:12px 0 4px'><b>Pe telefon:</b> scanați "
-                f"codul (telefonul — pe Wi-Fi-ul clinicii), apoi meniul "
-                f"browserului › «Adaugă pe ecranul principal». Pe iPhone "
-                f"registrul se deschide apoi ca aplicație, pe tot ecranul; pe "
-                f"Android rămâne o scurtătură către browser.</div>"
-                f"<img src='/qr?data={q}' "
-                f"style='width:180px;height:180px'></div>")
-        else:
-            body.append(
-                f"<div {_WARN}>{_ic('sos')} Accesul e pornit, dar calculatorul nu pare "
+
+def status_html(on: bool, ip: str, url: str) -> str:
+    """Состояние: выключено / включено с адресом и QR / включено без сети."""
+    if not on:
+        return (f"<div {_WARN}>Accesul este <b>oprit</b> — programul răspunde "
+                f"doar pe acest calculator (127.0.0.1), ca până acum. După "
+                f"activare, registrul va putea fi deschis de pe al doilea "
+                f"calculator al clinicii sau de pe telefoane, cu parola "
+                f"fiecărui utilizator.</div>")
+    if not ip:
+        return (f"<div {_WARN}>{_ic('sos')} Accesul e pornit, dar calculatorul nu pare "
                 f"conectat la vreo rețea — verificați conexiunea și "
                 f"redeschideți pagina.</div>")
-        fw = firewall_rule_ok()
-        if fw is False:
-            body.append(
-                f"<div {_WARN}>{_ic('sos')} <b>Regula de firewall lipsește</b> — "
-                f"al doilea calculator și telefonul nu vor putea intra. "
-                f"Apăsați butonul și confirmați "
-                f"în fereastra Windows (UAC):"
-                f"<form method='post' action='/admin/lan/firewall' "
-                f"style='margin:10px 0 0'>"
-                f"<button style='background:var(--teal);color:var(--on-teal);"
-                f"border:none;border-radius:var(--r-ctl);height:40px;"
-                f"padding:0 18px;font-size:13.5px;font-weight:600;"
-                f"cursor:pointer'>{_ic('shield')} Creează regula de firewall</button>"
-                f"</form>"
-                f"<small style='color:var(--text3)'>Fereastra de confirmare "
-                f"apare pe ecranul acestui calculator. După confirmare, "
-                f"redeschideți pagina — starea se actualizează.</small></div>")
-        body.append(
-            f"<div {_WARN}>De știut:<br>"
+    q = urllib.parse.quote(url, safe="")
+    return (f"<div {_WARN}><b style='color:var(--green-t)'>{_ic('check')} Activ.</b> "
+            f"Adresa registrului în rețeaua clinicii:"
+            f"<div style='font-size:17px;font-weight:600;color:var(--text);"
+            f"margin:8px 0 12px'>{html.escape(url)}</div>"
+            f"<b>Pe al doilea calculator:</b> deschideți adresa în browser "
+            f"(Chrome sau Edge) și salvați-o la favorite. În Edge: meniul "
+            f"browserului › «Aplicații» › «Instalează acest site ca "
+            f"aplicație» — registrul se deschide ca un program obișnuit, "
+            f"fără bara de adrese."
+            f"<div style='margin:12px 0 4px'><b>Pe telefon:</b> scanați "
+            f"codul (telefonul — pe Wi-Fi-ul clinicii), apoi meniul "
+            f"browserului › «Adaugă pe ecranul principal». Pe iPhone "
+            f"registrul se deschide apoi ca aplicație, pe tot ecranul; pe "
+            f"Android rămâne o scurtătură către browser.</div>"
+            f"<img src='/qr?data={q}' "
+            f"style='width:180px;height:180px'></div>")
+
+
+def firewall_html(form: str = "") -> str:
+    """Правило брандмауэра отсутствует. `form` — кнопка старой страницы;
+    React-экран рисует свою и передаёт пустую строку."""
+    return (f"<div {_WARN}>{_ic('sos')} <b>Regula de firewall lipsește</b> — "
+            f"al doilea calculator și telefonul nu vor putea intra. "
+            f"Apăsați butonul și confirmați "
+            f"în fereastra Windows (UAC):{form}"
+            f"<small style='color:var(--text3)'>Fereastra de confirmare "
+            f"apare pe ecranul acestui calculator. După confirmare, "
+            f"redeschideți pagina — starea se actualizează.</small></div>")
+
+
+def tips_html() -> str:
+    return (f"<div {_WARN}>De știut:<br>"
             f"· calculatorul acesta trebuie să fie <b>pornit</b> — cât timp "
             f"doarme sau e oprit, în cabinet nu se deschide nimic (opriți-i "
             f"modul «Sleep»);<br>"
@@ -197,15 +206,30 @@ def render() -> str:
             f"defect;<br>"
             f"· dacă nu se conectează: rețeaua Windows a acestui "
             f"calculator trebuie să fie «Private», nu «Public».</div>")
+
+
+_FW_FORM = (f"<form method='post' action='/admin/lan/firewall' "
+            f"style='margin:10px 0 0'>"
+            f"<button style='background:var(--teal);color:var(--on-teal);"
+            f"border:none;border-radius:var(--r-ctl);height:40px;"
+            f"padding:0 18px;font-size:13.5px;font-weight:600;"
+            f"cursor:pointer'>{_ic('shield')} Creează regula de firewall</button>"
+            f"</form>")
+
+
+def render() -> str:
+    on = enabled()
+    ip, url = address(on)
+    body = [f"<h2>{_ic('wifi')} Acces din rețea</h2>", intro_html(),
+            status_html(on, ip, url)]
+
+    if on:
+        if firewall_rule_ok() is False:
+            body.append(firewall_html(_FW_FORM))
+        body.append(tips_html())
         btn_label, mode = "Dezactivează accesul", "off"
         tone, ink = "var(--red-t)", "#fff"  # красный — цвет смысла, теме не отдан
     else:
-        body.append(
-            f"<div {_WARN}>Accesul este <b>oprit</b> — programul răspunde "
-            f"doar pe acest calculator (127.0.0.1), ca până acum. După "
-            f"activare, registrul va putea fi deschis de pe al doilea "
-            f"calculator al clinicii sau de pe telefoane, cu parola "
-            f"fiecărui utilizator.</div>")
         btn_label, mode = "Activează accesul", "on"
         tone, ink = "var(--teal)", "var(--on-teal)"
 
