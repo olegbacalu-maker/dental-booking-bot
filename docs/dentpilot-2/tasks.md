@@ -53,9 +53,10 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
       *Готово:* свойства файла в Windows показывают версию и издателя.
 - [ ] **A2. Тринадцать непокрытых маршрутов.** Список — в
       [screen-test-map.md](screen-test-map.md). Начать с `POST /admin/update/run`:
-      он подменяет exe у клиники и не покрыт ничем. ⏳ 17.09: осталось 9 —
+      он подменяет exe у клиники и не покрыт ничем. ⏳ 17.09: осталось 7 —
       `medici/add`, `medici/colors`, `relink`, `doctor-photo` закрыты
-      `test_doctors.py`.
+      `test_doctors.py`; `lan/firewall` и страница `backup` — `test_settings_api.py`
+      (сам вызов netsh через runas в тестах не делается: UAC).
       *Готово:* таблица «без единой проверки» пуста или в ней остались только
       осознанно оставленные, с причиной.
 - [ ] **A3. `scripts/sync_version.py --check`.** Источник — `engine.py`.
@@ -105,16 +106,16 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
 Без живого опроса, без печати, без перетаскивания.
 
 - [x] C1 `/admin/settings/clinic` — 21 стр ← **первый** ✅ код 17.09 (экран, состояния, права, 69 серверных + 29 клиентских проверок); ⏳ флаг у пилота выключен
-- [ ] C2 `/admin/settings/lan` — 6 стр
-- [ ] C3 `/admin/settings/faq` — 6 стр
+- [x] C2 `/admin/settings/lan` — 6 стр ✅ 17.09 (`settings_lan`); проза страницы приходит с сервера кусками, кнопки React; ⏳ флаг у пилота выключен
+- [x] C3 `/admin/settings/faq` — 6 стр ✅ 17.09 (`settings_faq`); вопросы и ответы — `faq.entries()`, одни на обе страницы; ⏳ флаг выключен
 - [ ] C4 `/admin/casa` — 13 стр
 - [ ] C5 `/admin/settings/backup` — 17 стр ⚠️ сейчас без тестов
 - [ ] C6 `/admin/settings/security` — 26 стр
 - [x] C7 `/admin/medici` — 46 стр ✅ код 17.09 (`doctors_list`); ⏳ флаг у пилота выключен
-- [ ] C8 `/admin/settings/hours` — 60 стр
+- [x] C8 `/admin/settings/hours` — 60 стр ✅ 17.09 (`settings_hours`); тот же payload, та же `_val_hours`; ⏳ флаг выключен
 - [ ] C9 `/admin/settings/crypt` — 66 стр ⚠️ сейчас страница без тестов
 - [ ] C10 `/admin/settings/system` — 80 стр
-- [ ] C11 `/admin/settings` — 86 стр, хаб
+- [x] C11 `/admin/settings` — 86 стр, хаб ✅ 17.09 (`settings_hub`); плитки — `_hub_tiles()` кусками, старая разметка из них же; ⏳ флаг выключен
 - [ ] C12 `/admin/settings/services` — 115 стр
 - [ ] C13 `/admin/settings/theme` — 135 стр ⚠️ сторожит `test_theme`
 - [x] C14 `/admin/doctor-card/{dk}` — 182 стр ✅ код 17.09 (`doctor_card`); ⚠️ список дня без карточки визита и кнопок статуса — это журнал (C24–C27); ⏳ флаг у пилота выключен

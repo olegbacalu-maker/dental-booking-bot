@@ -149,9 +149,12 @@ NOTE = {
 # Заполняется ЗДЕСЬ при включении экрана; колонки таблицы производны от него.
 FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/medici": "doctors_list",
-        "/admin/doctor-card/{dk}": "doctor_card"}
-PILOT = {"/admin/settings/clinic": "off", "/admin/medici": "off",
-         "/admin/doctor-card/{dk}": "off"}
+        "/admin/doctor-card/{dk}": "doctor_card",
+        "/admin/settings": "settings_hub",
+        "/admin/settings/lan": "settings_lan",
+        "/admin/settings/faq": "settings_faq",
+        "/admin/settings/hours": "settings_hours"}
+PILOT = {path: "off" for path in FLAG}
 
 
 def _module(path_: str) -> str:
