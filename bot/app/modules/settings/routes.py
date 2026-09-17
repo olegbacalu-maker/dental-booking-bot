@@ -36,8 +36,9 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, PIN_MAX,
                           remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
-                            _doc_hours_text, msg_banner, _shell, standalone,
-                            tg_configured, tg_refresh_meta, tg_status)
+                            _doc_hours_text, msg_banner, react_mount, react_on,
+                            _shell, standalone, tg_configured, tg_refresh_meta,
+                            tg_status)
 from ...core import bitlocker, dbkey, theme
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
@@ -510,6 +511,12 @@ async def settings_faq(request: Request, msg: str = ""):
 async def settings_clinic(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if react_on(request, "settings_clinic"):
+        # React-экран (флаг в clinic.json): та же рамка, та же плашка ответа,
+        # а вместо формы — узел для бандла. Старая форма ниже остаётся как
+        # есть и отдаётся по ?ui=legacy — это откат без сборки и без правок.
+        return _sec_page(react_mount("settings_clinic", request.url.path),
+                         "setări · clinica", msg)
     cfg = eng.CONFIG
     e = html.escape
     body = f"""
@@ -1114,8 +1121,12 @@ function collectServices() {{
 def _val_clinic(data: dict) -> dict:
     name = str(data.get("name", "")).strip()[:80]
     phone = str(data.get("phone", "")).strip()[:30]
-    if not name or not phone:
-        raise ValueError("name/phone")
+    # текст ошибки — ИМЯ виновного поля: JSON API подсвечивает его на экране;
+    # форме всё равно, она ловит ValueError целиком
+    if not name:
+        raise ValueError("name")
+    if not phone:
+        raise ValueError("phone")
     addr_ro = str(data.get("address", {}).get("ro", "")).strip()[:120]
     addr_ru = str(data.get("address", {}).get("ru", "")).strip()[:120]
     return {"name": name, "phone": phone,

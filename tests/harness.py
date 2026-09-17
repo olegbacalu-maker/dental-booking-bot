@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -188,9 +189,11 @@ class Client:
         return self._do(path, urllib.parse.urlencode(fields, doseq=True).encode(),
                         headers)
 
-    def post_json(self, path: str, payload: dict) -> Reply:
+    def post_json(self, path: str, payload: dict,
+                  headers: dict | None = None) -> Reply:
+        # headers — для проверок Origin на /api/*, как у post()
         return self._do(path, json.dumps(payload).encode(),
-                        {"Content-Type": "application/json"})
+                        {"Content-Type": "application/json", **(headers or {})})
 
     def post_file(self, path: str, field: str, filename: str, content: bytes,
                   **fields) -> Reply:
@@ -274,7 +277,12 @@ def run(suites: list) -> int:
         try:
             fn(res)
         except Exception as e:  # noqa: BLE001 — падение набора не должно съесть отчёт
-            res.failed.append((f"{name}: набор упал", repr(e)))
+            # Файл и строка последнего кадра: без них «набор упал:
+            # OperationalError('disk I/O error')» на чужом раннере не говорит,
+            # какая из двадцати баз набора не открылась (первый прогон CI 17.09)
+            tb = traceback.extract_tb(e.__traceback__)
+            where = f" — {pathlib.Path(tb[-1].filename).name}:{tb[-1].lineno}" if tb else ""
+            res.failed.append((f"{name}: набор упал", repr(e) + where))
         done = len(res.passed) + len(res.failed) - before
         print(f"    проверок: {done}")
     print("\n" + "=" * 60)

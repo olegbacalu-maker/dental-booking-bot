@@ -44,6 +44,7 @@ from .modules.doctors import routes as doctors
 from .modules.patients import routes as patients
 from .modules.qr import routes as qr
 from .modules.schedule import routes as schedule
+from .modules.settings import api as settings_api
 from .modules.settings import routes as settings
 from .modules.stats import routes as stats
 
@@ -59,6 +60,7 @@ app.include_router(patients.router)
 app.include_router(schedule.router)
 app.include_router(doctors.router)
 app.include_router(settings.router)
+app.include_router(settings_api.router)   # JSON API раздела (DentPilot 2.0)
 app.include_router(stats.router)
 app.include_router(qr.router)
 

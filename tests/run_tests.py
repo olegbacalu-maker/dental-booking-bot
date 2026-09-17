@@ -24,6 +24,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import test_activity  # noqa: E402
 import test_admin  # noqa: E402
 import test_anamneza  # noqa: E402
+import test_api  # noqa: E402
 import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_doctor_windows  # noqa: E402
@@ -132,6 +133,9 @@ SUITES = [
     ("Ревью-2: очистка даты рождения", test_review2.suite_birth_clear),
     ("Ревью-2: Pacient nou без двойника", test_review2.suite_new_dup),
     ("Ревью-2: настройки (confirm и услуги)", test_review2.suite_settings_ui),
+    ("API: охрана и конверт", test_api.suite_guard),
+    ("API: настройки клиники — данные", test_api.suite_clinic),
+    ("React-экран: рубильник и старая форма", test_api.suite_switch),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),

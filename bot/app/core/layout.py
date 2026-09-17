@@ -17,6 +17,9 @@ import sys
 import urllib.parse
 from datetime import date, datetime
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
 from .. import brand, db, dpapi, paths
 from .. import engine as eng
 from .. import update as upd
@@ -322,6 +325,29 @@ def msg_banner(msg: str) -> str:
             f"{_ic('close')}</button></div></div>")
 
 
+def msg_json(ok: bool, code: str = "", *, data=None, field: str = "",
+             status: int = 200) -> JSONResponse:
+    """Конверт ответа JSON API (`/api/*`, DentPilot 2.0).
+
+    Тот же код из MSG_BANNER, что уезжает страницам в `?msg=`, — и ЗДЕСЬ же он
+    становится текстом для человека: клиент показывает `text` и красит по
+    `tone`, а переводить код сам не имеет права (второй словарь = один статус
+    тремя словами, это уже случалось дважды). `code` остаётся для проверок и
+    лога, `field` называет поле формы при 422.
+
+    ⚠️ Код, которого в словаре нет, уезжает с ПУСТЫМ текстом, а не с самим
+    кодом: иначе на экране появилось бы «bad_set». Клиент на пустой текст
+    показывает свою общую фразу про недоступный движок.
+    """
+    tone, text = MSG_BANNER.get(code, ("ok" if ok else "err", ""))
+    body: dict = {"ok": ok, "code": code, "tone": tone, "text": text}
+    if field:
+        body["field"] = field
+    if data is not None:
+        body["data"] = data
+    return JSONResponse(body, status_code=status)
+
+
 def _banner(msg: str, d: date) -> str:
     out = msg_banner(msg)
     if not eng.hours_for(d):
@@ -549,10 +575,19 @@ def _setup_hint() -> str:
     if not eng.CONFIG.get("template"):
         return ""
     return ("<div class='banner err' style='margin-bottom:14px'>"
-            "Programul încă are datele de exemplu. "
-            "<a href='/admin/settings/clinic'><b>Completați datele clinicii</b></a> — "
-            "denumire, telefon, medici, servicii și program de lucru. "
-            "Ele apar în programul de lucru, în formulare și pe documentele tipărite.</div>")
+            f"{SETUP_HINT[0]} "
+            f"<a href='/admin/settings/clinic'><b>{SETUP_HINT[1]}</b></a>"
+            f"{SETUP_HINT[2]}</div>")
+
+
+# Три куска одной фразы: баннер каркаса оборачивает средний в ссылку, а JSON
+# API отдаёт их React-экрану сплошным текстом (там ссылка на самого себя
+# бессмысленна). Источник один, чтобы «datele de exemplu» не разошлось.
+SETUP_HINT = ("Programul încă are datele de exemplu.",
+              "Completați datele clinicii",
+              " — denumire, telefon, medici, servicii și program de lucru. "
+              "Ele apar în programul de lucru, în formulare și pe documentele "
+              "tipărite.")
 
 
 def _tamper_banner() -> str:
@@ -839,6 +874,49 @@ def _who_chip() -> str:
 # исполняет такие скрипты заново после подмены, const упал бы на повторном
 # объявлении, и клик по свежеприехавшей записи молча перестал бы открываться.
 LIVE_RELOAD = {"dash", "prog"}
+
+# ---- React-экраны (DentPilot 2.0, 09-17) ----
+# Какой интерфейс отдать — решает СЕРВЕР, и решает по профилю клиники:
+#     clinic.json → {"ui": {"react": ["settings_clinic"]}}
+# Имена — из REACT_SCREENS; чужие в списке молча пропускаются. Оба интерфейса
+# лежат в одном exe, поэтому ни включение, ни откат не требуют сборки: правка
+# файла (и перезапуск программы — профиль читается при старте и при сохранении
+# настроек) либо `?ui=legacy` в адресе, который возвращает старую страницу на
+# один запрос — это выход для регистратуры, если новый экран подвёл.
+# ⛔ React-экран НИКОГДА не лежит внутри #live: panel.js подменил бы innerHTML
+# под смонтированным деревом, и клик по свежему узлу молча умер бы. Экран с
+# ключом из LIVE_RELOAD в React не отдаётся (держит test_api).
+REACT_SCREENS = frozenset({"settings_clinic"})
+
+
+def react_on(request: Request, screen: str) -> bool:
+    """Отдать ли экран React-клиенту: флаг в профиле включён, экран известен
+    бандлу, и человек не попросил старую страницу через ?ui=legacy."""
+    if screen not in REACT_SCREENS:
+        return False
+    if request.query_params.get("ui") == "legacy":
+        return False
+    flags = (eng.CONFIG.get("ui") or {}).get("react") or []
+    return screen in flags
+
+
+def react_mount(screen: str, path: str) -> str:
+    """Узел, в который монтируется бандл, и ссылки на него.
+
+    Внутри узла — серверный текст: если бандл не загрузился (потерян
+    --add-data, старый WebView, ошибка в скрипте), человек видит объяснение и
+    ссылку на старую страницу, а не пустой экран. main.tsx этот текст убирает
+    при монтировании. Имена файлов фиксированы (frontend/vite.config.ts):
+    маршрут статики пропускает только их; версия в адресе — как у panel.js."""
+    legacy = html.escape(f"{path}?ui=legacy")
+    return (
+        f'<link rel="stylesheet" href="/static/css/bundle.css?v='
+        f'{_asset_ver("css", "bundle.css")}">'
+        f'<div id="root" data-screen="{html.escape(screen)}">'
+        f'<p class="hint">Interfața nouă nu s-a încărcat. '
+        f'<a href="{legacy}">Deschideți varianta clasică</a>.</p></div>'
+        f'<script type="module" src="/static/js/bundle.js?v='
+        f'{_asset_ver("js", "bundle.js")}"></script>')
 
 # ⭐ Списка «кому отдать ширину окна» здесь БОЛЬШЕ НЕТ (08-16). Он был — два
 # ключа, дневные виды, — и остальные разделы оставались с потолком 1500px без
