@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -31,6 +31,14 @@ const ASSET_RULE = /^[a-z0-9_-]+$/
 
 export default defineConfig({
   plugins: [react()],
+
+  // Тесты компонентов: jsdom вместо браузера, только src/**/*.test.{ts,tsx}.
+  // Подмена движка в них — фикстуры ТОЛЬКО тестов (§26): бандл ничего из
+  // этого не видит, входная точка сборки — main.tsx.
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.{ts,tsx}'],
+  },
 
   build: {
     outDir: ENGINE_STATIC,
