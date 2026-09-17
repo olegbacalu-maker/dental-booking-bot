@@ -4,7 +4,9 @@ import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSett
 import { FaqScreen } from '../features/settings/FaqScreen'
 import { HoursSettingsScreen } from '../features/settings/HoursSettingsScreen'
 import { LanSettingsScreen } from '../features/settings/LanSettingsScreen'
+import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
 import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
+import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 
 /**
  * Корень клиента: развилка по имени экрана, которое сервер положил в
@@ -25,6 +27,8 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_lan') return <LanSettingsScreen />
   if (screen === 'settings_faq') return <FaqScreen />
   if (screen === 'settings_hours') return <HoursSettingsScreen />
+  if (screen === 'settings_services') return <ServicesSettingsScreen />
+  if (screen === 'settings_theme') return <ThemeSettingsScreen />
   return <UnknownScreen screen={screen} />
 }
 

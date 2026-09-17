@@ -64,7 +64,76 @@ export interface HoursData {
   days: { key: string; label: string }[]
 }
 
+/** Строка таблицы услуг — так, как её показывала старая страница. */
+export interface ServiceEntry {
+  id: string
+  ro: string
+  ru: string
+  price: string
+  duration: number
+  /** Ключ палитры или пусто (авто). */
+  color: string
+  urgent: boolean
+  /** id врачей; пусто = все. */
+  docs: string[]
+}
+
+export interface ServicesData {
+  services: ServiceEntry[]
+  palette: Record<string, string>
+  durations: number[]
+  doctors: { id: string; name: string }[]
+}
+
+export interface ThemeStyle {
+  key: string
+  label: string
+  hint: string
+  vars: Record<string, string>
+}
+
+export interface ThemeData {
+  style: string
+  primary: string
+  custom: boolean
+  styles: ThemeStyle[]
+  presets: { hex: string; name: string }[]
+  /** Палитры сервера: стиль → hex набора → переменные :root. */
+  palettes: Record<string, Record<string, Record<string, string>>>
+  logo: string | null
+  logo_topbar: boolean
+  logo_max_mb: number
+}
+
+/** Те же поля, что у старой формы темы. */
+export interface ThemeForm {
+  style: string
+  /** hex из набора или 'custom'. */
+  primary: string
+  custom: string
+  logo_topbar: boolean
+}
+
 export const settings = {
+  services: (signal?: AbortSignal): Promise<ApiResult<ServicesData>> =>
+    api.get<ServicesData>('/settings/services', signal ? { signal } : {}),
+  servicesSave: (services: ServiceEntry[]): Promise<ApiResult<ServicesData>> =>
+    api.post<ServicesData>('/settings/services', { services }),
+  theme: (signal?: AbortSignal): Promise<ApiResult<ThemeData>> =>
+    api.get<ThemeData>('/settings/theme', signal ? { signal } : {}),
+  themePalette: (hex: string, style: string): Promise<ApiResult<Record<string, string>>> =>
+    api.get<Record<string, string>>(
+      `/settings/theme/palette?c=${encodeURIComponent(hex)}&style=${encodeURIComponent(style)}`,
+    ),
+  themeSave: (form: ThemeForm): Promise<ApiResult<ThemeData>> =>
+    api.post<ThemeData>('/settings/theme', form),
+  themeLogo: (file: File): Promise<ApiResult<ThemeData>> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.postForm<ThemeData>('/settings/theme/logo', fd)
+  },
+  themeLogoDelete: (): Promise<ApiResult<ThemeData>> =>
+    api.post<ThemeData>('/settings/theme/logo/delete', {}),
   hub: (signal?: AbortSignal): Promise<ApiResult<HubData>> =>
     api.get<HubData>('/settings/hub', signal ? { signal } : {}),
   lan: (signal?: AbortSignal): Promise<ApiResult<LanData>> =>

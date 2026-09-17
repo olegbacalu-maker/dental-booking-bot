@@ -174,3 +174,33 @@
   line-height: 1.6;
   color: var(--text2);
 }
+
+/* ---- настройки, пачка B ---- */
+
+/* Врачи услуги — галочки вместо строки id-ов старой таблицы. */
+.dp-svc-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.dp-svc-docs label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.dp-svc-docs input {
+  width: auto;
+}
+
+/* Логотип клиники: кнопки рядом с выбором файла. */
+.dp-logo-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
