@@ -1,5 +1,6 @@
 import { DoctorCardScreen } from '../features/doctors/DoctorCardScreen'
 import { DoctorsListScreen } from '../features/doctors/DoctorsListScreen'
+import { PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
 import { BackupSettingsScreen } from '../features/settings/BackupSettingsScreen'
 import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSettingsScreen'
 import { FaqScreen } from '../features/settings/FaqScreen'
@@ -33,6 +34,7 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_theme') return <ThemeSettingsScreen />
   if (screen === 'settings_security') return <SecuritySettingsScreen />
   if (screen === 'settings_backup') return <BackupSettingsScreen />
+  if (screen === 'patients_search') return <PatientsSearchScreen params={params} />
   return <UnknownScreen screen={screen} />
 }
 
