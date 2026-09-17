@@ -49,7 +49,8 @@ from . import visit as pvisit
 from ...core import xlsx
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, STATUS_LABEL, js_json,
-                            _age, _ic, _initials, msg_banner, _shell)
+                            _age, _ic, _initials, msg_banner, react_mount,
+                            react_on, _shell)
 from ...core.storage import _data_dir
 
 log = logging.getLogger("patients")
@@ -2163,26 +2164,47 @@ def _pl_digits(s) -> str:
 _PL_NOTEL = f"<span class='pl-notel' title='Fără telefon'>{_ic('phone-off')}</span>"
 
 
-def _pl_match_q(p: dict, q: str) -> bool:
-    """Имя (без учёта диакритики), e-mail, номер дела — подстрокой; телефон —
-    по цифрам, от трёх: '069 12' и '069-12' обязаны искать одинаково; дата
-    рождения — как её диктуют на стойке (01.01.2003); цифры ищутся и в notes
-    (там живёт номер второго человека на семейном телефоне)."""
+def _pl_terms(q: str) -> dict:
+    """Что именно ищется по строке запроса — куски для `_pl_match_q` (старая
+    страница, в Python) и для `db.patients_rows` (API, в SQL): имя, e-mail и
+    номер дела без учёта диакритики (от двух знаков), дата рождения как её
+    диктуют на стойке (01.01.2003, принимаем и без ведущих нулей — 1.1.2003),
+    цифры телефона от трёх ('069 12' и '069-12' обязаны искать одинаково;
+    цифры ищутся и в notes, где живёт номер второго человека на семейном
+    телефоне). Невозможные день/месяц (99.99.2003) дают ISO, которого нет ни
+    у кого. Пустой словарь — запрос не находит никого."""
+    out: dict = {}
     qf = db.fold(q)
-    if len(qf) >= 2 and (qf in db.fold(p["name"]) or qf in db.fold(p["email"])
-                         or qf in db.fold(p.get("file_no"))):
-        return True
-    # 01.01.2003, принимаем и без ведущих нулей (1.1.2003). Сравнение через
-    # str()[:10]: SQLite отдаёт birth_date строкой, PG — датой, а голое ==
-    # с датой молча не совпало бы никогда (класс болезни db._DT_COLS).
-    # Невозможные день/месяц (99.99.2003) дают ISO, которого нет ни у кого.
+    if len(qf) >= 2:
+        out["fold"] = qf
     m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", q.strip())
     if m:
-        iso = f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
-        if str(p.get("birth_date") or "")[:10] == iso:
-            return True
+        out["birth"] = f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
     digits = _pl_digits(q)
-    if len(digits) < 3:
+    if len(digits) >= 3:
+        out["digits"] = digits
+    return out
+
+
+def _pl_stale_cut(now: datetime) -> datetime:
+    """Граница «неактивен» для SQL: `_pl_stale` считает `(now - last).days > 365`,
+    а это ровно «последний визит не позже, чем now − 366 дней»."""
+    return now - timedelta(days=_PL_INACTIVE_DAYS + 1)
+
+
+def _pl_match_q(p: dict, q: str) -> bool:
+    """Подходит ли строка под запрос — по кускам `_pl_terms`."""
+    t = _pl_terms(q)
+    qf = t.get("fold")
+    if qf and (qf in db.fold(p["name"]) or qf in db.fold(p["email"])
+               or qf in db.fold(p.get("file_no"))):
+        return True
+    # Сравнение через str()[:10]: SQLite отдаёт birth_date строкой, PG — датой,
+    # а голое == с датой молча не совпало бы никогда (класс болезни db._DT_COLS).
+    if t.get("birth") and str(p.get("birth_date") or "")[:10] == t["birth"]:
+        return True
+    digits = t.get("digits")
+    if not digits:
         return False
     if digits in _pl_digits(p["phone"]):
         return True
@@ -2302,6 +2324,12 @@ def _pl_filter(rows: list[dict], now: datetime, q: str, med: str, st: str,
     return out
 
 
+def _pl_new_foot(n_new: int) -> str:
+    """Подпись первой карточки над списком: сколько новых за месяц."""
+    return (f"<span class='up'>+{n_new}</span> luna aceasta" if n_new
+            else "niciun pacient nou luna aceasta")
+
+
 def _pl_trend(cur: int, prev: int) -> str:
     """Сравнение с прошлым месяцем. Проценты от нуля не считаем: «+∞%» —
     не цифра, а шум."""
@@ -2321,6 +2349,21 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
                        per: int = 20, msg: str = "", dat: str = ""):
     if (deny := _guard(request)) is not None:
         return deny
+    if react_on(request, "patients_search"):
+        # React-экран (флаг в clinic.json): отбор из адреса уезжает
+        # параметрами узла, чтобы ссылки «?q=телефон» из фиши и журнала
+        # открывали тот же список; старая разметка ниже — по ?ui=legacy
+        params = {k: v for k, v in (("q", q.strip()[:60]), ("med", med),
+                                    ("st", st), ("ch", ch), ("dat", dat)) if v}
+        if sort != "last":
+            params["sort"] = sort
+        if page != 1:
+            params["page"] = str(page)
+        if per != 20:
+            params["per"] = str(per)
+        return _shell(msg_banner(msg) + react_mount("patients_search", request.url.path,
+                                                    params or None),
+                      "pacienții clinicii · filtre, previzualizare, export", active="pat")
     e = html.escape
     q = q.strip()[:60]
     sort = sort if sort in ("last", "name", "new", "debt") else "last"
@@ -2352,8 +2395,7 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
 
     tiles = ("<div class='pl-tiles'>"
              + tile(_ic("users"), "g", f"{n_total:,}".replace(",", " "), "Total pacienți",
-                    (f"<span class='up'>+{n_new}</span> luna aceasta" if n_new
-                     else "niciun pacient nou luna aceasta"))
+                    _pl_new_foot(n_new))
              + tile(_ic("med"), "b", n_new, "Pacienți noi (luna aceasta)",
                     _pl_trend(n_new, n_new_prev))
              + tile(_ic("cal"), "v", n_appt, "Programări (luna aceasta)",
@@ -2633,10 +2675,21 @@ async def patient_peek(request: Request, pid: int):
     Отдаётся куском разметки: список уже нарисован, перерисовывать его незачем."""
     if (deny := _guard(request)) is not None:
         return deny
-    p = await db.get_patient(pid)
-    if not p:
+    frag = await _peek_html(pid)
+    if frag is None:
         return HTMLResponse("<div class='pp-empty'><span>Fișa nu mai există.</span></div>",
                             status_code=404)
+    return HTMLResponse(frag)
+
+
+async def _peek_html(pid: int) -> str | None:
+    """Кусок предпросмотра — один на старую страницу и на
+    `GET /api/patients/{pid}/peek`: React вставляет его как есть. Это сводка
+    фиши словами сервера, все значения экранированы здесь, а до переезда
+    самой фиши (C18) второй рисовальщик ей ни к чему. None — фиши нет."""
+    p = await db.get_patient(pid)
+    if not p:
+        return None
     e = html.escape
     now = datetime.now(eng.TZ)
     alerts = await db.patient_alerts(pid)
@@ -2723,7 +2776,7 @@ async def patient_peek(request: Request, pid: int):
         docs_block = (f"<div class='pp-b'><div class='pp-t'>Documente{more}</div>"
                       + "".join(items) + "</div>")
 
-    return HTMLResponse(f"""<div class='pp-head'>
+    return f"""<div class='pp-head'>
   <span class='pp-av'>{e(_initials(p['name'] or '?'))}</span>
   <div class='pp-id'><b>{e(p['name'] or '—')}</b>
     <span class='pl-badge {cls}'>{label}</span></div>
@@ -2732,7 +2785,7 @@ async def patient_peek(request: Request, pid: int):
 <a class='pl-btn' href='/admin/patient/{pid}'>{_ic('pen')} Editează fișa</a>
 {next_block}{last_block}{plan_block}{notes_block}{docs_block}
 <div class='pp-foot'><span>{len(live)} vizite în total</span>
-  <a class='pl-btn primary' href='/admin/patient/{pid}'>Vezi profilul complet ›</a></div>""")
+  <a class='pl-btn primary' href='/admin/patient/{pid}'>Vezi profilul complet ›</a></div>"""
 
 
 @router.get("/admin/patients.csv")
@@ -2836,9 +2889,21 @@ async def patient_new(request: Request, name: str = Form(""), phone: str = Form(
     родителя в ребёнка."""
     if (deny := _guard(request)) is not None:
         return deny
+    code, pid = await _new_patient(name, phone, birth_date, email, primary_doctor)
+    if code == "bad_pat":
+        return RedirectResponse("/admin/search?msg=bad_pat", status_code=303)
+    return _card_redirect(pid, code)
+
+
+async def _new_patient(name: str, phone: str, birth_date: str, email: str,
+                       primary_doctor: str) -> tuple[str, int | None]:
+    """Правило новой фиши — одно на форму и на `POST /api/patients`: (код,
+    id фиши). bad_pat — без имени; dup_pat — фиша с таким телефоном уже есть,
+    и открывается ОНА (почему не создаём — docstring формы); new_pat —
+    заведена."""
     name = name.strip()[:120]
     if not name:
-        return RedirectResponse("/admin/search?msg=bad_pat", status_code=303)
+        return "bad_pat", None
     phone = phone.strip()[:40]
     digits = _pl_digits(phone)
     if len(digits) >= 3:
@@ -2853,7 +2918,7 @@ async def patient_new(request: Request, name: str = Form(""), phone: str = Form(
             ids = await db._patient_ids_by_digits(digits)
             exist = ids[0] if ids else None
         if exist is not None:
-            return _card_redirect(exist, "dup_pat")
+            return "dup_pat", exist
     else:
         # без телефона склеивать не по чему — ключ уникальный (db.manual_key,
         # с 08-20 ЕДИНСТВЕННОЕ место сборки: журнал ходит туда же)
@@ -2871,4 +2936,4 @@ async def patient_new(request: Request, name: str = Form(""), phone: str = Form(
                  "email": email.strip()[:120] or None,
                  "primary_doctor": doc if doc in set(eng.DOCTORS.values()) else None})
     await db.update_patient(pid, data)
-    return _card_redirect(pid, "new_pat")
+    return "new_pat", pid

@@ -889,7 +889,8 @@ LIVE_RELOAD = {"dash", "prog"}
 REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "settings_hub", "settings_lan", "settings_faq",
                            "settings_hours", "settings_services", "settings_theme",
-                           "settings_security", "settings_backup"})
+                           "settings_security", "settings_backup",
+                           "patients_search"})
 
 
 def react_on(request: Request, screen: str) -> bool:

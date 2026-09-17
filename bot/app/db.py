@@ -1335,6 +1335,14 @@ async def init(seed_rows: list | None = None) -> None:
         _SQ = sqlite3
         _CONN = await aiosqlite.Connection(connector, 64)
         _CONN.row_factory = sqlite3.Row
+        # Функции для серверного списка пациентов (`patients_rows`): та же
+        # свёртка диакритики и те же «только цифры», что фильтруют в Python
+        # (`fold`, `_digits`), — иначе «Bălan» в SQL и на старой странице
+        # считались бы разными людьми. У PG те же выражения написаны на SQL
+        # (`_pl_dialect`). Только чтение: регистрируем на единственном
+        # соединении, которым ходит `_fetch`.
+        await _CONN.create_function("dp_fold", 1, _fold, deterministic=True)
+        await _CONN.create_function("dp_digits", 1, _digits, deterministic=True)
         await _CONN.execute("PRAGMA journal_mode=WAL")
         await _CONN.execute("PRAGMA foreign_keys=ON")
         await _CONN.executescript(SQLITE_SCHEMA)
@@ -2011,6 +2019,234 @@ async def patients_debt() -> dict:
     for r in await _fetch(pay, pay):
         out[r["patient_id"]] = out.get(r["patient_id"], 0) - int(r["n"] or 0)
     return out
+
+
+# ---------- список пациентов: поиск, фильтры, порядок и страница — в SQL ----------
+#
+# Старая страница «Pacienți» (`_pl_rows` в модуле) читает ВСЮ картотеку шестью
+# выборками выше и отбирает в Python; JSON API DentPilot 2.0 (`/api/patients`)
+# отдаёт только запрошенную страницу. Агрегаты — те же подзапросы, что стоят
+# выше по одному (`patients_visits`, `patients_alert_counts`,
+# `patients_plan_counts`, `patients_last_doctor`, `patients_debt`), только
+# соединённые с patients, чтобы WHERE, ORDER BY и LIMIT считала база.
+# ⚠️ Правила отбора и порядка повторяют модуль (`_pl_filter`, `_pl_match_q`,
+# `_pl_has_status`) на языке SQL — это второе место, и оно осознанное: старая
+# страница остаётся как есть до конца миграции. Расхождение ловит
+# `test_patients_api.suite_parity`, который сравнивает обе выдачи строка в
+# строку на одних данных; с уходом старой страницы уйдут и одиночные выборки.
+
+
+def _digits(s) -> str:
+    """Только цифры — телефон «069-12 34» и «0691234» обязаны совпадать."""
+    return "".join(ch for ch in (s or "") if ch.isdigit())
+
+
+# врач последнего визита (включая будущий — как `patients_last_doctor`):
+# подзапрос по индексу patient_id, а не оконная функция по всей таблице —
+# на 20 000 записей она стоила ~50 мс на КАЖДЫЙ запрос списка, а нужна
+# двадцати строкам страницы (и всем — только под фильтром по врачу)
+_PL_LAST_DOC_OF = ("(SELECT a.doctor FROM appointments a WHERE a.patient_id = p.id "
+                   "AND a.status <> 'cancelled' ORDER BY a.starts_at DESC LIMIT 1)")
+# врач строки: медик курант из фиши, а если его не проставили — тот, кто вёл
+# последний визит (тот же вывод, что `row["doctor"]` в `_pl_rows`)
+_PL_DOCTOR = f"COALESCE(NULLIF(p.primary_doctor, ''), {_PL_LAST_DOC_OF}, '')"
+# долг = финализированный план − оплачено; минус — аванс (как `patients_debt`)
+_PL_DEBT = "(COALESCE(chg.n, 0) - COALESCE(pay.n, 0))"
+# канал по префиксу ключа — как `_pl_canal`; substr, а не LIKE: у LIKE в SQLite
+# регистр не в счёт, а ключи сравниваются буква в букву
+_PL_CANAL = ("CASE WHEN substr(p.session_key, 1, 3) = 'tg:' THEN 'tg' "
+             "WHEN substr(p.session_key, 1, 7) = 'manual:' THEN 'manual' "
+             "ELSE 'web' END")
+_PL_FROM = f"""
+      FROM patients p
+      LEFT JOIN (SELECT patient_id,
+                        MAX(CASE WHEN starts_at <= {{now1}} THEN starts_at END) AS last_at,
+                        MIN(CASE WHEN starts_at > {{now2}} AND status IN {_ACT_SQL}
+                                 THEN starts_at END) AS next_at,
+                        COUNT(*) AS n_visits
+                   FROM appointments
+                  WHERE patient_id IS NOT NULL AND status <> 'cancelled'
+                  GROUP BY patient_id) v ON v.patient_id = p.id
+      LEFT JOIN (SELECT patient_id, COUNT(*) AS n FROM patient_alerts
+                  GROUP BY patient_id) al ON al.patient_id = p.id
+      LEFT JOIN (SELECT patient_id, COUNT(*) AS n FROM plan_items
+                  WHERE status IN ('planificat', 'in_lucru')
+                  GROUP BY patient_id) pl ON pl.patient_id = p.id
+      LEFT JOIN (SELECT patient_id, COALESCE(SUM(price_mdl), 0) AS n FROM plan_items
+                  WHERE status = 'finalizat' GROUP BY patient_id) chg ON chg.patient_id = p.id
+      LEFT JOIN (SELECT patient_id, COALESCE(SUM(amount_mdl), 0) AS n FROM payments
+                  GROUP BY patient_id) pay ON pay.patient_id = p.id"""
+_PL_COLS = ("p.id, p.name, p.phone, p.email, p.session_key, p.birth_year, p.birth_date, "
+            "p.primary_doctor, p.file_no, p.notes, p.created_at, p.archived, "
+            "v.last_at, v.next_at, COALESCE(v.n_visits, 0) AS n_visits, "
+            "COALESCE(al.n, 0) AS n_alerts, COALESCE(pl.n, 0) AS n_plan, "
+            f"{_PL_LAST_DOC_OF} AS last_doctor, {_PL_DEBT} AS debt, "
+            # счёт всего отбора той же выборкой: второй проход по агрегатам
+            # ради COUNT(*) стоил столько же, сколько сама страница
+            "COUNT(*) OVER () AS total")
+_PL_ORDER = {
+    "name": "{fold_name}, p.id",
+    "new": "p.created_at DESC, p.id",
+    "debt": _PL_DEBT + " DESC, p.id",
+    # по последнему визиту; кто ещё не был — в конце, в порядке заведения
+    "last": "(v.last_at IS NULL), v.last_at DESC, p.id",
+}
+
+
+def _pl_dialect(lite: bool) -> dict:
+    """Чем два движка пишут одно и то же: архив (0/1 против boolean), свёртка
+    диакритики, «только цифры», «содержит», заполнитель и вид даты."""
+    if lite:
+        return {"arch": "COALESCE(p.archived, 0) <> 0",
+                "fold": lambda col: f"dp_fold({col})",
+                "digits": lambda col: f"dp_digits({col})",
+                "has": lambda hay, needle: f"instr({hay}, {needle}) > 0",
+                "ph": lambda n: "?", "dt": _iso}
+    return {"arch": "COALESCE(p.archived, FALSE)",
+            # lower() у PG честный к Unicode, поэтому таблица — только строчные
+            "fold": lambda col: (f"translate(lower(COALESCE({col}, '')), "
+                                 f"'ăâîșşțţ', 'aaisstt')"),
+            "digits": lambda col: f"regexp_replace(COALESCE({col}, ''), '[^0-9]', '', 'g')",
+            "has": lambda hay, needle: f"strpos({hay}, {needle}) > 0",
+            "ph": lambda n: f"${n}", "dt": lambda v: v}
+
+
+class _PlQuery:
+    """Текст запроса списка для одного диалекта и его аргументы по порядку.
+
+    `f` — отбор словарём (см. `patients_count`): q/terms, med, st, ch, dat,
+    show_archived, stale_cut, now. Заполнители нумеруются в порядке появления
+    в тексте, поэтому каждое значение добавляется ровно там, где стоит.
+    """
+
+    def __init__(self, f: dict, lite: bool):
+        self.d = _pl_dialect(lite)
+        self.args: list = []
+        d = self.d
+        self.base = _PL_FROM.format(now1=self.arg(f["now"], dt=True),
+                                    now2=self.arg(f["now"], dt=True))
+        conds = []
+        if not f.get("show_archived"):
+            conds.append(f"NOT ({d['arch']})")
+        if f.get("q"):
+            t = f.get("terms") or {}
+            alts = []
+            if t.get("fold"):
+                for col in ("p.name", "p.email", "p.file_no"):
+                    alts.append(d["has"](d["fold"](col), self.arg(t["fold"])))
+            if t.get("birth"):
+                alts.append(f"substr(COALESCE(p.birth_date, ''), 1, 10) = "
+                            f"{self.arg(t['birth'])}")
+            if t.get("digits"):
+                for col in ("p.phone", "p.notes"):
+                    alts.append(d["has"](d["digits"](col), self.arg(t["digits"])))
+            # запрос без единого пригодного куска (одна буква) не находит
+            # никого — как `_pl_match_q`
+            conds.append("(" + " OR ".join(alts) + ")" if alts else "1 = 0")
+        med = f.get("med") or ""
+        if med == "-":
+            conds.append(f"{_PL_DOCTOR} = ''")
+        elif med:
+            conds.append(f"{_PL_DOCTOR} = {self.arg(med)}")
+        st = f.get("st") or ""
+        if st == "arhivat":
+            conds.append(d["arch"])
+        elif st == "atentie":
+            conds.append("COALESCE(al.n, 0) > 0")
+        elif st == "tratament":
+            conds.append("COALESCE(pl.n, 0) > 0")
+        elif st == "inactiv":
+            conds.append(f"(v.last_at IS NULL OR v.last_at <= "
+                         f"{self.arg(f['stale_cut'], dt=True)})")
+        elif st == "activ":
+            conds.append(f"(v.last_at IS NOT NULL AND v.last_at > "
+                         f"{self.arg(f['stale_cut'], dt=True)})")
+        if f.get("ch"):
+            conds.append(f"{_PL_CANAL} = {self.arg(f['ch'])}")
+        if f.get("dat") == "da":
+            conds.append(f"{_PL_DEBT} > 0")
+        elif f.get("dat") == "avans":
+            conds.append(f"{_PL_DEBT} < 0")
+        if conds:
+            self.base += "\n     WHERE " + "\n       AND ".join(conds)
+
+    def arg(self, value, *, dt: bool = False) -> str:
+        self.args.append(self.d["dt"](value) if dt else value)
+        return self.d["ph"](len(self.args))
+
+    def page_sql(self, sort: str, limit: int, offset: int) -> str:
+        order = _PL_ORDER.get(sort, _PL_ORDER["last"]).format(
+            fold_name=self.d["fold"]("p.name"))
+        return (f"SELECT {_PL_COLS}{self.base}\n     ORDER BY {order}"
+                f"\n     LIMIT {self.arg(limit)} OFFSET {self.arg(offset)}")
+
+
+async def patients_count(f: dict) -> int:
+    """Сколько строк проходит отбор `f` — знаменатель страниц.
+
+    Отбор: `q` с разобранными кусками `terms` (fold / birth / digits — что
+    именно ищется, решает модуль, `_pl_terms`), `med` (имя врача или «-» =
+    без врача), `st` (arhivat / atentie / tratament / inactiv / activ,
+    включающий), `ch` (tg / manual / web), `dat` (da / avans),
+    `show_archived`, `stale_cut` (последний визит не позже — неактивен),
+    `now` (граница прошлого и будущего визита).
+    """
+    pg, lt = _PlQuery(f, False), _PlQuery(f, True)
+    n = await _fetchval(f"SELECT COUNT(*){pg.base}", f"SELECT COUNT(*){lt.base}",
+                        *(lt.args if IS_SQLITE else pg.args))
+    return int(n or 0)
+
+
+async def patients_rows(f: dict, sort: str, limit: int, offset: int) -> list:
+    """Страница списка: строки с агрегатами (`last_at`, `next_at`, `n_visits`,
+    `n_alerts`, `n_plan`, `last_doctor`, `debt`) в порядке `sort`
+    (last / name / new / debt) и с `total` — счётом всего отбора в каждой
+    строке (окно). Пустая страница счёта не несёт: тогда `patients_count`.
+    Статус строки выводит модуль (`_pl_status`)."""
+    pg, lt = _PlQuery(f, False), _PlQuery(f, True)
+    pg_sql, lt_sql = pg.page_sql(sort, limit, offset), lt.page_sql(sort, limit, offset)
+    return await _fetch(pg_sql, lt_sql, *(lt.args if IS_SQLITE else pg.args))
+
+
+async def patients_doctors() -> list[str]:
+    """Врачи, по которым список можно отобрать: тот же вывод, что у колонки
+    «Medic» (медик курант, иначе врач последнего визита)."""
+    sql = f"SELECT DISTINCT {_PL_DOCTOR} AS doctor FROM patients p"
+    return sorted(r["doctor"] for r in await _fetch(sql, sql) if r["doctor"])
+
+
+async def patients_archived() -> int:
+    """Сколько фиш в архиве — для подсказки «N arhivați» под списком."""
+    return int(await _fetchval(
+        "SELECT COUNT(*) FROM patients WHERE COALESCE(archived, FALSE)",
+        "SELECT COUNT(*) FROM patients WHERE COALESCE(archived, 0) <> 0") or 0)
+
+
+async def patients_have_tg() -> bool:
+    """Есть ли пациенты из бота — фильтр канала «Telegram» идёт ПО ДАННЫМ."""
+    sql = "SELECT COUNT(*) FROM patients WHERE substr(session_key, 1, 3) = 'tg:'"
+    return bool(await _fetchval(sql, sql))
+
+
+async def patients_counts(month_start: datetime, prev_start: datetime) -> dict:
+    """Числа над списком: живых, в архиве, новых за этот месяц и за прошлый.
+    Новые считаются по всей картотеке, включая архив, — как на странице."""
+    pg = """SELECT SUM(CASE WHEN COALESCE(archived, FALSE) THEN 0 ELSE 1 END) AS n_total,
+                   SUM(CASE WHEN COALESCE(archived, FALSE) THEN 1 ELSE 0 END) AS n_arh,
+                   SUM(CASE WHEN created_at >= $1 THEN 1 ELSE 0 END) AS n_new,
+                   SUM(CASE WHEN created_at >= $2 AND created_at < $3
+                            THEN 1 ELSE 0 END) AS n_new_prev
+              FROM patients"""
+    lt = """SELECT SUM(CASE WHEN COALESCE(archived, 0) <> 0 THEN 0 ELSE 1 END) AS n_total,
+                   SUM(CASE WHEN COALESCE(archived, 0) <> 0 THEN 1 ELSE 0 END) AS n_arh,
+                   SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS n_new,
+                   SUM(CASE WHEN created_at >= ? AND created_at < ?
+                            THEN 1 ELSE 0 END) AS n_new_prev
+              FROM patients"""
+    rows = await _fetch(pg, lt, *((month_start, prev_start, month_start) if not IS_SQLITE
+                                  else (_iso(month_start), _iso(prev_start), _iso(month_start))))
+    r = rows[0] if rows else {}
+    return {k: int(r.get(k) or 0) for k in ("n_total", "n_arh", "n_new", "n_new_prev")}
 
 
 async def payments_day(start: datetime, end: datetime) -> list:

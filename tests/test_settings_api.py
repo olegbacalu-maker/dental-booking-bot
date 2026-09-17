@@ -14,7 +14,8 @@ from harness import TG_ON, Client, Result, Server
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 FLAGS = ["settings_clinic", "doctors_list", "doctor_card", "settings_hub",
          "settings_lan", "settings_faq", "settings_hours", "settings_services",
-         "settings_theme", "settings_security", "settings_backup"]
+         "settings_theme", "settings_security", "settings_backup",
+         "patients_search"]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 
