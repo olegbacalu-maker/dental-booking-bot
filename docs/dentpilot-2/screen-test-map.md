@@ -167,7 +167,7 @@
 | `GET /admin/search` | HTML | 322 | activity, admin, anamneza, booking, bot, dbcrypt, hardening, patients_api, perio, pin, plan_acord, privacy, review2, review3, teeth, visit | 1355 | patients_search | off |
 | `GET /admin/visit/{appt_id}` | HTML | 15 | plan_acord, visit | 111 | — | — |
 | `POST /admin/visit/{appt_id}` | 303 | 33 | plan_acord, visit | 111 | — | — |
-| `GET /api/patients` | JSON | 31 | patients_api | 76 | — | — |
+| `GET /api/patients` | JSON | 34 | patients_api | 76 | — | — |
 | `POST /api/patients` | JSON | 18 | patients_api | 76 | — | — |
 | `GET /api/patients/summary` | JSON | 31 | patients_api | 76 | — | — |
 | `GET /api/patients/{pid}/peek` | JSON | 8 | admin, patients_api, review2 | 471 | — | — |
