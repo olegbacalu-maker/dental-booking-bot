@@ -94,6 +94,18 @@ def main(base: str, password: str) -> int:
           r.status == 200 and "setInterval" in r.body,
           f"код {r.status}, {len(r.body)} б")
 
+    # Бандл React-клиента (DentPilot 2.0) собирает npm ДО PyInstaller
+    # (Build-Desktop.ps1), и он едет тем же --add-data, что panel.js. Пропади
+    # шаг сборки — у клиники с включённым флагом React страница открылась бы
+    # серверной заглушкой, а /health и всё выше осталось бы зелёным.
+    r = c.get("/static/js/bundle.js")
+    check("бандл React отдаётся из сборки",
+          r.status == 200 and len(r.raw) > 50000,
+          f"код {r.status}, {len(r.raw)} б (npm run build не выполнен?)")
+    r = c.get("/static/css/bundle.css")
+    check("стили React отдаются из сборки",
+          r.status == 200 and len(r.body) > 50, f"код {r.status}, {len(r.body)} б")
+
     # ⚠️ Шрифт — ДВОИЧНЫЙ файл, и это его собственный способ не доехать: путь в
     # маршруте отдельный (байты, не текст), а страница без него не ломается —
     # просто рисуется системным Segoe UI, ровно как до вшивания Inter. То есть

@@ -10,9 +10,10 @@
 ничего не чинит: он не даёт правилу тихо отмереть при следующем переезде файла.
 """
 import ast
+import importlib.util
 import re
 
-from harness import BOT, Result
+from harness import BOT, ROOT, Result
 
 # Файлы, которые `desktop.py` зовёт ДО того, как собрано приложение: импортов
 # проекта в них нет и быть не может, и лежать они обязаны в корне app/.
@@ -711,3 +712,65 @@ def suite(res: Result) -> None:
     res.ok("схемы двух изданий описывают одну базу", not bad,
            "; ".join(bad) + " — ветку Postgres не исполняет ни один набор, "
            "и на свежей облачной базе это всплывёт отказом старта")
+
+    # ---- маршруты /api/* охраняет api_guard / api_require (09-17, 2.0) ----
+    # HTML-охрана (_guard/require) отвечает 303 на /admin/login. fetch сходит
+    # за редиректом сам и вернёт клиенту 200 с формой входа — экран покажет
+    # пустоту вместо «сессия истекла», а регистратура решит, что у пациента
+    # нет записей. Поэтому у JSON API своя пара в core/api.py, и каждый
+    # маршрут под /api/ зовёт её. Неохраняемый маршрут — тоже нарушитель:
+    # он отдал бы данные без входа.
+    # ⚠️ Полярность опасная: правило ищет ИМЕНА. Якорей два — пара определена
+    # в core/api.py, и хотя бы один маршрут /api/ существует.
+    bad, n_api = [], 0
+    api_tree = by_path.get("app/core/api.py")
+    api_defs = {fn.name for fn in ast.walk(api_tree or ast.Module(body=[], type_ignores=[]))
+                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if not {"api_guard", "api_require"} <= api_defs:
+        bad.append("app/core/api.py: нет api_guard/api_require — якорь правила пропал")
+    for rel, tree in src:
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            routes = [d.args[0].value for d in fn.decorator_list
+                      if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                      and d.func.attr in ("get", "post", "put", "delete", "patch")
+                      and d.args and isinstance(d.args[0], ast.Constant)
+                      and isinstance(d.args[0].value, str)]
+            if not any(p.startswith("/api/") for p in routes):
+                continue
+            n_api += 1
+            called = _calls(fn)
+            if not called & {"api_guard", "api_require"}:
+                bad.append(f"{rel}:{fn.lineno} {fn.name}() без api_guard/api_require")
+            if called & {"_guard", "require"}:
+                bad.append(f"{rel}:{fn.lineno} {fn.name}() зовёт HTML-охрану "
+                           "(303 вместо JSON)")
+    if not n_api:
+        bad.append("ни одного маршрута /api/ — якорь правила пропал")
+    res.ok("маршруты /api/ охраняет api_guard/api_require", not bad,
+           "fetch получит 303 и покажет пустой экран вместо «сессия истекла»: "
+           + "; ".join(bad))
+
+    # ---- icons.ts свежий: иконки клиента — ИЗ layout._I (09-17, 2.0) ----
+    # У иконок один владелец — словарь _I; frontend/src/components/icons.ts
+    # генерируется из него (scripts/gen_icons.py). Правка иконки на сервере
+    # без пересборки файла разошлась бы молча: старая форма рисует новое,
+    # React — старое, и ни один запрос этого не видит. Сверка идёт разбором
+    # ast, Node не нужен.
+    # ⚠️ Полярность опасная: словарь обязан НАЙТИСЬ, файл — существовать.
+    bad = []
+    spec = importlib.util.spec_from_file_location(
+        "gen_icons", ROOT / "scripts" / "gen_icons.py")
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    icons = gen.icons_from_tree(layout_tree) if layout_tree is not None else None
+    ts = ROOT / "frontend" / "src" / "components" / "icons.ts"
+    if not icons:
+        bad.append("в app/core/layout.py нет словаря _I — якорь правила пропал")
+    elif not ts.exists():
+        bad.append(f"нет {ts.relative_to(ROOT)} — python scripts/gen_icons.py")
+    elif ts.read_text(encoding="utf-8") != gen.render(icons):
+        bad.append("icons.ts отстал от layout._I — python scripts/gen_icons.py")
+    res.ok("icons.ts свежий: иконки клиента из layout._I", not bad,
+           "React рисовал бы не те значки, что сервер: " + "; ".join(bad))

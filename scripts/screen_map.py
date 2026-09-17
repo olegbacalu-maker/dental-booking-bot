@@ -21,6 +21,8 @@ import pathlib
 import re
 import sys
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # консоль бывает cp1251
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BOT = ROOT / "bot" / "app"
 TESTS = ROOT / "tests"
@@ -70,7 +72,7 @@ def routes() -> list[dict]:
 def _kind(body: str, rc: str | None) -> str:
     if rc == "HTMLResponse" or "HTMLResponse" in body:
         return "HTML"
-    if "JSONResponse" in body:
+    if "JSONResponse" in body or "msg_json" in body:
         return "JSON"
     if "FileResponse" in body or "attachment" in body:
         return "FILE"
@@ -142,6 +144,13 @@ NOTE = {
 }
 
 
+# Рубильники React-экранов (DentPilot 2.0): имя флага в
+# clinic.json["ui"]["react"] и состояние у пилота — off / on / откат.
+# Заполняется ЗДЕСЬ при включении экрана; колонки таблицы производны от него.
+FLAG = {"/admin/settings/clinic": "settings_clinic"}
+PILOT = {"/admin/settings/clinic": "off"}
+
+
 def _module(path_: str) -> str:
     for key, name in MODULES:
         if key in path_:
@@ -189,12 +198,13 @@ def render(rs: list[dict], checks: dict[str, int]) -> str:
         for r in sorted(items, key=lambda r: (r["path"], r["method"])):
             suites = ", ".join(x[5:-3] for x in r["suites"]) or "**—**"
             L.append(f"| `{r['method']} {r['path']}` | {r['kind']} | {r['loc']} | "
-                     f"{suites} | {r['suite_checks'] or '—'} | — | — |")
+                     f"{suites} | {r['suite_checks'] or '—'} | "
+                     f"{FLAG.get(r['path'], '—')} | {PILOT.get(r['path'], '—')} |")
 
     L += ["\n## Колонки-состояния\n",
-          "\n`Флаг` — ключ в `clinic.json`, включающий React-экран (§29).\n"
-          "`Пилот` — `off` / `on` / `откат`. Заполняются по ходу; `—` значит "
-          "«ещё не начат».\n",
+          "\n`Флаг` — имя экрана в `clinic.json` → `ui.react` (включает "
+          "React-экран; `?ui=legacy` возвращает старый на один запрос).\n"
+          "`Пилот` — `off` / `on` / `откат`. `—` значит «ещё не начат».\n",
           "\n## Самые тяжёлые обработчики\n",
           "\n| стр | Маршрут | Наборов |\n|---|---|---|"]
     for r in sorted(rs, key=lambda r: -r["loc"])[:10]:

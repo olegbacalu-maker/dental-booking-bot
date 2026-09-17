@@ -31,6 +31,11 @@ import shutil
 import sys
 import tempfile
 
+# Кириллица в выводе: консоль раннера GitHub и PowerShell Олега бывают
+# cp1252/cp1251, и первая же строка отчёта роняла бы скрипт UnicodeEncodeError
+# (так упала «Мутация сторожей» в первом прогоне CI 17.09). Как в run_tests.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_structure  # noqa: E402
@@ -184,6 +189,19 @@ MUTATIONS = [
       '        "CREATE INDEX IF NOT EXISTS ix_appt_starts ON '
       'appointments(starts_at)",\n'
       '        "ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sms_sent INT",')),
+    # Маршрут JSON API, взявший HTML-охрану: у разработчика с живой кукой он
+    # неотличим от правильного, а у клиники с истёкшей сессией fetch получит
+    # 303, форму входа как 200 и пустой экран без единой ошибки.
+    ("охраняет api_guard", "app/modules/settings/api.py",
+     '\n@router.get("/api/mut")\nasync def _mut(request):\n'
+     '    if (deny := require(request, PERM_SETTINGS)) is not None:\n'
+     '        return deny\n'),
+    # Иконка поправлена на сервере, icons.ts не пересобран: старая форма
+    # рисует новое, React — старое. Замена, а не дописывание: словарь —
+    # литерал, и дописать его в конец файла нельзя.
+    ("icons.ts свежий", "app/core/layout.py",
+     ("\"home\": \"<path d='M3 10.5 12 3l9 7.5M5.5 9.5V21h13V9.5'/>\",",
+      "\"home\": \"<path d='M3 10 12 3l9 7'/>\",")),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
