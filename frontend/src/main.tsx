@@ -24,13 +24,20 @@ if (!host) {
   console.debug('DentPilot: #root отсутствует — страница серверная')
 } else {
   const screen = host.dataset.screen ?? 'unknown'
+  // Параметры экрана (id врача и т. п.) сервер кладёт в data-params JSON-ом.
+  let params: Record<string, string> = {}
+  try {
+    params = JSON.parse(host.dataset.params ?? '{}') as Record<string, string>
+  } catch {
+    console.error('DentPilot: data-params не разбирается', host.dataset.params)
+  }
   // Внутри узла сервер оставил заглушку «интерфейс не загрузился» со
   // ссылкой на старую страницу (layout.react_mount). Раз мы здесь — бандл
   // загрузился; заглушку убираем сами, чтобы React монтировался в пустой узел.
   host.replaceChildren()
   createRoot(host).render(
     <StrictMode>
-      <App screen={screen} />
+      <App screen={screen} params={params} />
     </StrictMode>,
   )
 }

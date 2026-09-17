@@ -26,6 +26,8 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** Тело запроса. Сериализуется в JSON. */
   body?: unknown
+  /** Файл(ы): multipart/form-data. Заголовок с boundary ставит браузер сам. */
+  form?: FormData
 }
 
 /**
@@ -58,9 +60,11 @@ async function request<T>(
       // но страховка остаётся: она стоит одну строку.
       redirect: 'manual',
       ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.body === undefined
-        ? {}
-        : { headers: JSON_HEADERS, body: JSON.stringify(options.body) }),
+      ...(options.form
+        ? { body: options.form }
+        : options.body === undefined
+          ? {}
+          : { headers: JSON_HEADERS, body: JSON.stringify(options.body) }),
     })
   } catch (error) {
     // Движок не ответил. Программа при этом жива — падать нельзя.
@@ -118,6 +122,14 @@ function fail(failure: ApiFailure): ApiError {
   return new ApiError(failure, describe(failure))
 }
 
+/** Что бы ни прилетело из await — ApiError. Чужое исключение считается сетью:
+ *  программа жива, экран должен предложить повторить, а не упасть. */
+export function asApiError(e: unknown): ApiError {
+  return e instanceof ApiError
+    ? e
+    : new ApiError({ kind: 'network', detail: String(e) }, String(e))
+}
+
 /**
  * ⚠️ Это текст для ЛОГА и для разработчика, а не для клиники. Человеку
  * показывается `text` из конверта: переводом занимается сервер, он же
@@ -155,4 +167,6 @@ export const api = {
     request<T>('GET', path, options),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>('POST', path, { ...options, body }),
+  postForm: <T>(path: string, form: FormData, options?: RequestOptions) =>
+    request<T>('POST', path, { ...options, form }),
 }

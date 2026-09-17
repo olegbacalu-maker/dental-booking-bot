@@ -1,3 +1,5 @@
+import { DoctorCardScreen } from '../features/doctors/DoctorCardScreen'
+import { DoctorsListScreen } from '../features/doctors/DoctorsListScreen'
 import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSettingsScreen'
 
 /**
@@ -7,10 +9,14 @@ import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSett
  */
 interface AppProps {
   screen: string
+  /** Параметры экрана из data-params (id врача и т. п.). */
+  params?: Record<string, string>
 }
 
-export function App({ screen }: AppProps) {
+export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_clinic') return <ClinicSettingsScreen />
+  if (screen === 'doctors_list') return <DoctorsListScreen />
+  if (screen === 'doctor_card') return <DoctorCardScreen dk={params.dk ?? ''} />
   return <UnknownScreen screen={screen} />
 }
 
