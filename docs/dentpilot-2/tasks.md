@@ -53,7 +53,9 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
       *Готово:* свойства файла в Windows показывают версию и издателя.
 - [ ] **A2. Тринадцать непокрытых маршрутов.** Список — в
       [screen-test-map.md](screen-test-map.md). Начать с `POST /admin/update/run`:
-      он подменяет exe у клиники и не покрыт ничем.
+      он подменяет exe у клиники и не покрыт ничем. ⏳ 17.09: осталось 9 —
+      `medici/add`, `medici/colors`, `relink`, `doctor-photo` закрыты
+      `test_doctors.py`.
       *Готово:* таблица «без единой проверки» пуста или в ней остались только
       осознанно оставленные, с причиной.
 - [ ] **A3. `scripts/sync_version.py --check`.** Источник — `engine.py`.
@@ -108,14 +110,14 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
 - [ ] C4 `/admin/casa` — 13 стр
 - [ ] C5 `/admin/settings/backup` — 17 стр ⚠️ сейчас без тестов
 - [ ] C6 `/admin/settings/security` — 26 стр
-- [ ] C7 `/admin/medici` — 46 стр
+- [x] C7 `/admin/medici` — 46 стр ✅ код 17.09 (`doctors_list`); ⏳ флаг у пилота выключен
 - [ ] C8 `/admin/settings/hours` — 60 стр
 - [ ] C9 `/admin/settings/crypt` — 66 стр ⚠️ сейчас страница без тестов
 - [ ] C10 `/admin/settings/system` — 80 стр
 - [ ] C11 `/admin/settings` — 86 стр, хаб
 - [ ] C12 `/admin/settings/services` — 115 стр
 - [ ] C13 `/admin/settings/theme` — 135 стр ⚠️ сторожит `test_theme`
-- [ ] C14 `/admin/doctor-card/{dk}` — 182 стр
+- [x] C14 `/admin/doctor-card/{dk}` — 182 стр ✅ код 17.09 (`doctor_card`); ⚠️ список дня без карточки визита и кнопок статуса — это журнал (C24–C27); ⏳ флаг у пилота выключен
 - [ ] C15 `/admin/stats` — 291 стр, право `PERM_MONEY`
 
 Плюс 20 POST-действий этих модулей.

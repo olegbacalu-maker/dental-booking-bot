@@ -28,8 +28,10 @@ npm test             # vitest, jsdom, только src/**/*.test.{ts,tsx}
 перезапуска программы.
 
 Новый экран = имя в `layout.REACT_SCREENS` + ветка в обработчике старой
-страницы (`react_on` → `react_mount`) + строка в `App.tsx` + `FLAG` в
-`scripts/screen_map.py` + проверки в `tests/test_api.py`.
+страницы (`react_on` → `react_mount`, параметры экрана третьим аргументом →
+`data-params`) + строка в `App.tsx` + `FLAG` в `scripts/screen_map.py` +
+набор `tests/test_<раздел>.py`. Загрузка данных экрана — `hooks/useLoad`
+(загрузка / готово / отказ / 401 → вход), отказ рисует `components/LoadFailed`.
 
 ⚠️ `npm run dev` ждёт, что движок поднят на **8099**:
 

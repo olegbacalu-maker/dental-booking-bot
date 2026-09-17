@@ -72,7 +72,7 @@ def routes() -> list[dict]:
 def _kind(body: str, rc: str | None) -> str:
     if rc == "HTMLResponse" or "HTMLResponse" in body:
         return "HTML"
-    if "JSONResponse" in body or "msg_json" in body:
+    if any(k in body for k in ("JSONResponse", "msg_json", "_reply(")):
         return "JSON"
     if "FileResponse" in body or "attachment" in body:
         return "FILE"
@@ -147,8 +147,11 @@ NOTE = {
 # Рубильники React-экранов (DentPilot 2.0): имя флага в
 # clinic.json["ui"]["react"] и состояние у пилота — off / on / откат.
 # Заполняется ЗДЕСЬ при включении экрана; колонки таблицы производны от него.
-FLAG = {"/admin/settings/clinic": "settings_clinic"}
-PILOT = {"/admin/settings/clinic": "off"}
+FLAG = {"/admin/settings/clinic": "settings_clinic",
+        "/admin/medici": "doctors_list",
+        "/admin/doctor-card/{dk}": "doctor_card"}
+PILOT = {"/admin/settings/clinic": "off", "/admin/medici": "off",
+         "/admin/doctor-card/{dk}": "off"}
 
 
 def _module(path_: str) -> str:
