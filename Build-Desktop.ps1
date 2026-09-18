@@ -43,8 +43,15 @@ if (-not (Test-Path "bot\app\static\js\bundle.js")) { Write-Host "BUNDLE MISSING
 # proshluyu versiyu na meste i Test-Path nizhe rapportuet "OK" o chuzhom faile.
 Remove-Item "dist\DentPilot.exe" -Force -EA SilentlyContinue
 
+# Svoistva faila v Windows (izdatel, versiya, opisanie) berutsya iz resursa,
+# kotoryi generiruetsya iz APP_VERSION: odin istochnik na programmu, package.json
+# i etot resurs. Do 18.09 vse polya byli PUSTYE - exe bez izdatelya i bez versii.
+& "$venv\Scripts\python.exe" "scripts\sync_version.py"
+if ($LASTEXITCODE -ne 0) { Write-Host "sync_version exit $LASTEXITCODE"; exit 1 }
+
 & "$venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --noconsole --name DentPilot `
     --icon "$PSScriptRoot\build\icon.ico" `
+    --version-file "$PSScriptRoot\build\version_info.txt" `
     --distpath dist --workpath build --specpath build `
     --add-data "$PSScriptRoot\bot\app\static;app\static" `
     --add-data "$PSScriptRoot\bot\app\clinic.json;app" `

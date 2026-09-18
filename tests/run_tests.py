@@ -67,6 +67,7 @@ SUITES = [
     ("Сторожа: знаки математики в текстах", test_guards.suite_glyph_math),
     ("Сторожа: якорь списка ролей", test_guards.suite_roles_anchor),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
+    ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Чистая логика расписания", test_admin.suite_pure),
     ("Вход и охрана доступа", test_admin.suite_auth),
     ("PIN: хранение и переезд", test_pin.suite_store),

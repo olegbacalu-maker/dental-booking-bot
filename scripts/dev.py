@@ -162,6 +162,16 @@ def cmd_check(argv: list) -> int:
     ok &= say(three, f"APP_VERSION = {ver}" if three else
               f"APP_VERSION = {ver!r} — нужны ровно три числа")
 
+    # ⚠️ Версия живёт не только в engine.py: её дублирует package.json
+    # и ресурс свойств exe. Разъезд не мешает ни сборке, ни прогону — он
+    # просто кладёт в свойства файла не тот номер, и увидеть это можно, только
+    # открыв свойства в проводнике.
+    from sync_version import check as _ver_check
+    drift = _ver_check()
+    ok &= say(not drift, "версия одна у движка, клиента и свойств exe"
+              if not drift else "версии разошлись:\n"
+              + "\n".join("          " + x for x in drift))
+
     # ⛔ Локальные теги БЕЗ «v» — наследство веб-формы (08-06). Сами по себе они
     # безобидны: обновление читает /releases/latest, релиза на таком теге нет.
     # Опасны они В ПАРЕ с `git push --tags`, который утаскивает на origin ВСЁ

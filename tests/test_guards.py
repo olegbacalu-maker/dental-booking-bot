@@ -29,6 +29,7 @@ import contextlib
 import importlib
 import io
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -209,3 +210,48 @@ def suite_release_arg(res: Result) -> None:
     for arg, (code, problems) in got.items():
         res.ok(f"«{arg}» — исправный релиз признан исправным", code == 0,
                "; ".join(problems) or f"код возврата {code}")
+
+
+def suite_version_source(res: Result) -> None:
+    """Версия одна на программу: движок — источник, остальные её повторяют.
+
+    ⚠️ Разъезд номеров не мешает НИЧЕМУ: сборка идёт, прогон зелёный, exe
+    работает — просто в свойствах файла стоит не тот номер, а `package.json`
+    врёт о версии клиента. Увидеть это можно, только открыв свойства в
+    проводнике, поэтому проверка здесь. Поймано в первый же запуск 18.09:
+    `package.json` отставал на версию.
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    # ⚠️ Без перехвата вывода, в отличие от соседа: `sync_version` при импорте
+    # НЕ печатает и НЕ трогает stdout — это его свойство и проверяется тем,
+    # что импорт здесь голый.
+    mod = importlib.import_module("sync_version")
+    res.check("сегодня номера сходятся", mod.check(), [])
+    v = mod.app_version()
+    res.ok("версия движка — ровно три числа",
+           bool(re.fullmatch(r"\d+\.\d+\.\d+", v)), f"версия {v!r}")
+    res.check("клиент повторяет версию движка", mod.package_version(), v)
+
+    # ⚠️ Сторож обязан краснеть, а не просто зеленеть: подменяем package.json
+    # на копии и требуем находки. Без этого проверка выше зелена и тогда,
+    # когда `check()` сломан (та же логика, что у mutate.py).
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = pathlib.Path(tmp) / "package.json"
+        fake.write_text('{\n  "name": "x",\n  "version": "0.0.1"\n}\n', encoding="utf-8")
+        real = mod.PACKAGE
+        mod.PACKAGE = fake
+        try:
+            drift = mod.check()
+        finally:
+            mod.PACKAGE = real
+    res.ok("разъехавшийся номер клиента даёт находку",
+           any("package.json" in d for d in drift),
+           f"молчит: {drift}")
+
+    # Ресурс свойств exe генерируется, а не правится руками: в нём обязана
+    # стоять та же версия и имя файла, по которому обновление ищет ассет.
+    info = mod.version_info(v)
+    res.ok("ресурс свойств несёт версию движка и имя DentPilot.exe",
+           f'"FileVersion", "{v}"' in info
+           and '"OriginalFilename", "DentPilot.exe"' in info,
+           "ресурс описывает не то")
