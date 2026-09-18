@@ -1,20 +1,27 @@
 import { useCallback, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
+import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { asApiError, type ApiResult } from '../../services/api'
+import { AddForm } from './AddForm'
+import { CardDialog } from './CardDialog'
 import { DayGrid } from './DayGrid'
-import { day } from './day'
+import { MoveDialog } from './MoveDialog'
+import { SlotDialog, type Slot } from './SlotDialog'
+import { day, type DayModel } from './day'
+import { sameSlot, type Drag, type Target } from './move'
 
-/* День журнала (C25.5a): «Toți medicii» и день одного врача — один экран,
-   разница только в параметре `doctor`. Сетку строит `DayGrid` на классах
-   panel.css; данные — GET /api/schedule/day.
+/* День журнала: «Toți medicii» и день одного врача — один экран, разница
+   только в параметре `doctor` (C25.5a), с записью, карточкой и переносом
+   (C25.5b).
 
    ⛔ Экран НЕ живой, как и неделя: React-дерево внутри #live умирает при
    первой подмене. Сервер сам перестаёт объявлять страницу живой, увидев узел
-   (layout._shell), а свежесть здесь даёт переход по дате.
-   ⚠️ Пока только чтение: запись, модалки и перетаскивание — C25.5b. Всё, что
-   меняет данные, ведёт в старую страницу того же дня, а не изображает кнопку,
-   которая ничего не делает. */
+   (layout._shell), а свежесть здесь даёт переход по дате и ответ действия —
+   каждый POST возвращает СВЕЖИЙ день, и второй запрос за ним не нужен.
+   ⛔ Перезагрузки страницы после действия больше нет, поэтому не нужна и
+   починка прокрутки из panel.js: место на экране не теряется вовсе. */
 const T = {
   prevDay: 'zi',
   today: 'Azi',
@@ -42,7 +49,44 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
   const [at, setAt] = useState(date)
   const load = useCallback((signal: AbortSignal) => day.get(at, doctor, signal),
     [at, doctor])
-  const { state, retry } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const [busy, setBusy] = useState(false)
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const [slot, setSlot] = useState<Slot | null>(null)
+  const [card, setCard] = useState<number | null>(null)
+  const [drag, setDrag] = useState<Drag | null>(null)
+  const [hover, setHover] = useState('')
+  const [move, setMove] = useState<{ drag: Drag; target: Target } | null>(null)
+  const closeToast = useCallback(() => setToast(null), [])
+
+  /* Одно действие на все формы и диалоги: удача подменяет день и показывает
+     плашку сервера, отказ — только плашку. Возвращает «получилось ли», чтобы
+     диалог закрывался лишь на удаче. */
+  const act = useCallback(async (run: () => Promise<ApiResult<DayModel>>): Promise<boolean> => {
+    setBusy(true)
+    try {
+      const r = await run()
+      replace(r.data)
+      if (r.text) setToast({ tone: r.tone, text: r.text })
+      return true
+    } catch (e) {
+      const err = asApiError(e)
+      if (!leaveIfSignedOut(err)) setToast({ tone: 'err', text: err.text || T.offline })
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }, [replace, leaveIfSignedOut])
+
+  const onDrop = useCallback((t: Target) => {
+    setHover('')
+    const d = drag
+    setDrag(null)
+    /* ⛔ Бросок на своё же место — не перенос. Сервер такой запрос ПРИНИМАЕТ
+       и пишет строку в летопись пациента, а летопись не переписывают. */
+    if (!d || sameSlot(d, t)) return
+    setMove({ drag: d, target: t })
+  }, [drag])
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
@@ -62,9 +106,11 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
     setAt(iso)
     try { window.history.replaceState(null, '', `${base}?date=${iso}`) } catch { /* jsdom */ }
   }
+  const openCard = card !== null ? m.cards[String(card)] : undefined
 
   return (
     <section className="dp-react-root">
+      {toast ? <Toast tone={toast.tone} text={toast.text} onClose={closeToast} /> : null}
       <div className="nav">
         <b>{m.date}</b>
         <a href={`${base}?date=${shift(m.date, -1)}`}
@@ -82,7 +128,54 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
           : null}
         <a className="primary" href={`${base}?date=${m.date}&ui=legacy`}>{T.legacy}</a>
       </div>
-      <DayGrid model={m} legacy={`${base}?date=${m.date}&ui=legacy`} />
+
+      <DayGrid model={m} drag={drag} hover={hover}
+               onDrag={setDrag} onHover={setHover} onDrop={onDrop}
+               onPlus={(dk, name, hour) => setSlot({ dk, name, hour })}
+               onCard={setCard} />
+
+      {m.form
+        ? <AddForm form={m.form} date={m.date} busy={busy}
+                   onAdd={(b) => act(() => day.add(at, doctor, b))} />
+        : null}
+
+      {slot && m.form
+        ? <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
+                      date={m.date} form={m.form}
+                      noteEnds={m.note_ends} busy={busy}
+                      onClose={() => setSlot(null)}
+                      onAdd={(b) => act(() => day.add(at, doctor, b))}
+                      onNote={(b) => act(() => day.note(at, doctor, b))} />
+        : null}
+
+      {card !== null && openCard
+        ? <CardDialog key={card} open id={card} card={openCard}
+                      actions={m.actions[openCard.st] ?? []}
+                      back={`${base}?date=${m.date}`} busy={busy}
+                      onClose={() => setCard(null)}
+                      onComment={(text) => act(() => day.comment(at, doctor, card, text))}
+                      onStatus={async (to) => {
+                        const ok = await act(() => day.status(at, doctor, card, to))
+                        if (ok) setCard(null)
+                        return ok
+                      }} />
+        : null}
+
+      {move
+        ? <MoveDialog open model={m} drag={move.drag} target={move.target} busy={busy}
+                      onClose={() => setMove(null)}
+                      onMove={() => {
+                        const { drag: d, target: t } = move
+                        setMove(null)
+                        void act(() => day.move(at, doctor, d.id,
+                          { date: m.date, time: hhmmOf(t.min), doctor: t.dk }))
+                      }} />
+        : null}
     </section>
   )
+}
+
+/** Минуты в «HH:MM» — тем же видом, что ждёт сервер (`mtime`). */
+function hhmmOf(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
 }
