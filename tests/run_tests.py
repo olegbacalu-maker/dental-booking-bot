@@ -47,6 +47,7 @@ import test_review3_bot  # noqa: E402
 import test_restart  # noqa: E402
 import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
+import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
@@ -173,6 +174,8 @@ SUITES = [
     ("Живой журнал: тело детерминировано между запросами",
      test_admin.suite_live_stable),
     ("Неделя: пин поведения (C24)", test_admin.suite_week),
+    ("Неделя: JSON API и паритет со страницей", test_schedule_api.suite_api),
+    ("Неделя: React-экран и живой опрос", test_schedule_api.suite_switch),
     ("Пародонтограмма: старая страница — эталон", test_perio_api.suite_pin),
     ("Пародонтограмма: JSON API осмотров", test_perio_api.suite_api),
     ("Пародонтограмма: React-экран и старая страница", test_perio_api.suite_switch),

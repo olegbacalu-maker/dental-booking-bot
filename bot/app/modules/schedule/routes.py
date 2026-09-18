@@ -30,10 +30,12 @@ from ...core.auth import PERM_DOCTORS, _guard, can, request_user
 from ...core import xlsx
 from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
-                            _initials, _shell, _tg_state, js_json, tg_configured)
+                            _initials, _shell, _tg_state, js_json, react_mount,
+                            react_on, tg_configured)
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
                             _collect_cards, _list, _move_attrs, _move_modal,
                             _parse_date, _photo_path)
+from . import week as pweek
 
 router = APIRouter()
 
@@ -1161,56 +1163,65 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                   bell=new_today if tg_ui else None)
 
 
+async def _week_model(d: date) -> dict:
+    """Неделя данными: ОДИН запрос к базе на всю неделю вместо семи.
+
+    ⚠️ Правила живут в `week.py` и ничего не знают о разметке — их же возьмёт
+    JSON API. Цвет передаётся функцией: он общий с днём и агендой, а импорт
+    `routes` из `week` замкнул бы круг.
+    """
+    monday = pweek.monday_of(d)
+    start, end = pweek.week_span(monday)
+    rows = await db.day_appointments(start, end)
+    return pweek.model(monday, pweek.by_day(rows),
+                       datetime.now(eng.TZ).date(), _svc_colors)
+
+
+def _week_chip(x: dict) -> str:
+    """Чип недели. Заметка стойки — пунктиром и без имени пациента."""
+    if x["kind"] == "note":
+        return (f"<div class='wchip gnote' style='border:1px dashed var(--line);"
+                f"color:var(--text2)'>{_ic('note')} {x['time']} "
+                f"{html.escape(x['text'])}</div>")
+    ns = " noshow" if x["noshow"] else ""
+    return (f"<div class='wchip{ns}' style='background:{x['bg']};"
+            f"border-left:5px solid {x['bar']}'>"
+            f"<b>{x['time']}</b> {html.escape(x['name'])}"
+            f"<small>{html.escape(x['service'])}</small></div>")
+
+
 @router.get("/admin/week", response_class=HTMLResponse)
 async def admin_week(request: Request, date_q: str = Query("", alias="date")):
     """Недельный календарь: колонки рабочих дней, компактные чипы записей."""
     if (deny := _guard(request)) is not None:
         return deny
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
-    monday = d - timedelta(days=d.weekday())
-    today = datetime.now(eng.TZ).date()
-    cols, total_wk = [], 0
-    for i in range(7):
-        day = monday + timedelta(days=i)
-        day_start = datetime(day.year, day.month, day.day, tzinfo=eng.TZ)
-        rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
-        act = sorted((r for r in rows if r["status"] != "cancelled"),
-                     key=lambda r: r["starts_at"])
-        if not eng.hours_for(day) and not act:
-            continue  # выходной прячем, только если на нём НЕТ живых записей
-        n_real = sum(1 for r in act if r["source"] != "note")
-        total_wk += n_real
-        chips = []
-        for r in act:
-            hh = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
-            if r["source"] == "note":
-                chips.append(f"<div class='wchip gnote' style='border:1px dashed var(--line);"
-                             f"color:var(--text2)'>{_ic('note')} {hh} {html.escape(r['service'][:30])}</div>")
-                continue
-            bg, bar = _svc_colors(r)
-            ns = " noshow" if r["status"] == "noshow" else ""
-            chips.append(
-                f"<div class='wchip{ns}' style='background:{bg};border-left:5px solid {bar}'>"
-                f"<b>{hh}</b> {html.escape(r['name'] or '—')}"
-                f"<small>{html.escape(r['service'])}</small></div>")
+    if react_on(request, "schedule_week"):
+        # DentPilot 2.0 (C24): данные — GET /api/schedule/week.
+        # ⛔ Живой опрос у этой страницы ВЫКЛЮЧАЕТСЯ сам: `_shell` не
+        # объявляет живой страницу с узлом React. Ключ `dash` при этом общий с
+        # днём, и день остаётся живым — снимать ключ из LIVE_RELOAD нельзя до
+        # C26, иначе погаснет и он.
+        return _shell(react_mount("schedule_week", "/admin/week",
+                                  {"date": d.isoformat()}),
+                      "calendar săptămânal · culori după tipul procedurii",
+                      active="dash")
+    m = await _week_model(d)
+    cols = []
+    for col in m["days"]:
+        chips = [_week_chip(x) for x in col["items"]]
         if not chips:
             chips.append("<div style='font-size:11.5px;color:var(--text3);"
                          "text-align:center;padding:12px 0'>— liber —</div>")
-        dow = eng.day_label(eng.Session(lang="ro"), day).split(",")[0].split()[0]
-        tdy = " tdy" if day == today else ""
         cols.append(
-            f"<div class='wcol'><div class='wh{tdy}'>"
-            f"<a href='/admin?date={day.isoformat()}'>{dow} {day.strftime('%d.%m')}</a>"
-            f"<small>{n_real} programări</small></div>"
+            f"<div class='wcol'><div class='wh{' tdy' if col['today'] else ''}'>"
+            f"<a href='/admin?date={col['date']}'>{col['label']} {col['dm']}</a>"
+            f"<small>{col['count']} programări</small></div>"
             f"<div class='wb'>{''.join(chips)}</div></div>")
-    prev_w = (monday - timedelta(days=7)).isoformat()
-    next_w = (monday + timedelta(days=7)).isoformat()
-    sunday = monday + timedelta(days=6)
-    nav = (f"<div class='nav'><b>{monday.strftime('%d.%m')} – {sunday.strftime('%d.%m.%Y')}"
-           f" · {total_wk} programări</b>"
-           f"<a href='/admin/week?date={prev_w}'>{_ic('chev-l')} săpt.</a>"
+    nav = (f"<div class='nav'><b>{m['span']} · {m['total']} programări</b>"
+           f"<a href='/admin/week?date={m['prev']}'>{_ic('chev-l')} săpt.</a>"
            f"<a href='/admin/week'>Azi</a>"
-           f"<a href='/admin/week?date={next_w}'>săpt. {_ic('chev-r')}</a>"
+           f"<a href='/admin/week?date={m['next']}'>săpt. {_ic('chev-r')}</a>"
            f"<a href='/admin?date={d.isoformat()}'>Zi</a>"
            f"<a class='primary' href='/admin/week?date={d.isoformat()}'>Săptămâna</a></div>")
     body = nav + f"<div class='week'>{''.join(cols)}</div>" + \

@@ -45,6 +45,7 @@ from .modules.doctors import routes as doctors
 from .modules.patients import api as patients_api
 from .modules.patients import routes as patients
 from .modules.qr import routes as qr
+from .modules.schedule import api as schedule_api
 from .modules.schedule import routes as schedule
 from .modules.settings import api as settings_api
 from .modules.settings import routes as settings
@@ -61,6 +62,7 @@ RECOVERY = False
 app.include_router(patients.router)
 app.include_router(patients_api.router)   # JSON API раздела (DentPilot 2.0)
 app.include_router(schedule.router)
+app.include_router(schedule_api.router)  # JSON API раздела (DentPilot 2.0)
 app.include_router(doctors.router)
 app.include_router(doctors_api.router)    # JSON API раздела (DentPilot 2.0)
 app.include_router(settings.router)

@@ -898,7 +898,7 @@ REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "settings_hours", "settings_services", "settings_theme",
                            "settings_security", "settings_backup",
                            "patients_search", "patient_card", "visit", "odontogram",
-                           "perio"})
+                           "perio", "schedule_week"})
 
 
 def react_on(request: Request, screen: str) -> bool:
