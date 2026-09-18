@@ -93,10 +93,15 @@ async def _identify(request: Request, call_next):
     Сайдбар и верхний угол рисуются глубоко внутри `_shell`, куда запрос не
     приходит. Считаем здесь и кладём в контекст запроса; решение «пускать или
     нет» это НЕ подменяет — его принимает require() в самом маршруте.
-    Только для /admin: статике опознание не нужно, а auth.json читается с диска.
+    Только для /admin и /api: статике опознание не нужно, а auth.json
+    читается с диска. ⚠️ /api — с 18.09 (C18): по тому же контексту летопись
+    подписывает событие ИМЕНЕМ вошедшего (db.ACTOR_HOOK) и фиша решает,
+    показывать ли директорские кнопки; без опознания действие через JSON
+    молча записывалось бы как «recepție» — журнал доступа по 195-му врал бы
+    об авторе. Держит test_patient_card.suite_actions.
     """
     set_request_user(current_user(request)
-                     if request.url.path.startswith("/admin") else None)
+                     if request.url.path.startswith(("/admin", "/api")) else None)
     return await call_next(request)
 
 

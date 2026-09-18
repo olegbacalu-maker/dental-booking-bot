@@ -993,36 +993,35 @@ def _erase_block(base: str, erasure: str) -> str:
   </div></details>"""
 
 
-@router.post("/admin/patient/{pid}/save")
-async def patient_save(request: Request, pid: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    form = await request.form()
-    prev = await db.get_patient(pid)
-    if not prev:
-        return RedirectResponse("/admin/search", status_code=303)
+# ---- правила действий фиши: одни на старую форму (303 + ?msg=) и на JSON API ----
+# Каждая функция отвечает КОДОМ из MSG_BANNER (пустая строка — тихий успех);
+# обработчик формы превращает его в редирект, api.py — в конверт. Вынесены
+# 18.09 (C18) из обработчиков без единой переписанной проверки.
+
+async def _save_profile(pid: int, prev: dict, get) -> str:
+    """Профиль: `get(поле)` отдаёт сырую строку формы или тела запроса."""
     data = {}
     for f in db.PATIENT_FIELDS:
-        v = str(form.get(f) or "").strip()[:200 if f != "notes" else 500]
+        v = get(f).strip()[:200 if f != "notes" else 500]
         data[f] = v or None
     # каждая причина отказа называет себя И подсвечивает своё поле в форме
-    # (msg → поле, см. _BAD_FIELD): «Date invalide» без указания куда смотреть
-    # читалось как «программа не работает» (Олег, 08-07)
+    # (msg → поле, см. card.BAD_FIELD): «Date invalide» без указания куда
+    # смотреть читалось как «программа не работает» (Олег, 08-07)
     if not data.get("name"):
-        return _card_redirect(pid, "bad_card")
+        return "bad_card"
     bd = data.get("birth_date")
     bd_year = None
     if bd:
         try:
             parsed = date.fromisoformat(bd)
         except ValueError:
-            return _card_redirect(pid, "bad_bd")
+            return "bad_bd"
         if not (1900 <= parsed.year and parsed <= date.today()):
-            return _card_redirect(pid, "bad_bd")
+            return "bad_bd"
         data["birth_date"] = parsed.isoformat()
         bd_year = parsed.year
     if data.get("idnp") and not re.fullmatch(r"[0-9]{13}", data["idnp"]):
-        return _card_redirect(pid, "bad_idnp")
+        return "bad_idnp"
     await db.update_patient(pid, data)
     if bd_year:
         # возраст в поиске/сетке/CSV считается по birth_year — держим в синке
@@ -1035,7 +1034,7 @@ async def patient_save(request: Request, pid: int):
         await db.set_birth_year(pid, None)
     # язык печатных документов — мимо PATIENT_FIELDS: колонка NOT NULL, а там
     # пустое поле превращается в NULL
-    await db.set_patient_lang(pid, str(form.get("lang") or ""))
+    await db.set_patient_lang(pid, get("lang"))
     # Телефон, вписанный ЗАДНИМ числом, может совпасть с чужим (08-20): дальше
     # запись из журнала по этому номеру уедет «единственному совпавшему», и
     # угадать кому — нельзя. Сохранение проходит (может, это осознанный
@@ -1048,67 +1047,86 @@ async def patient_save(request: Request, pid: int):
         others = [x for x in await db._patient_ids_by_digits(tel_digits)
                   if x != pid]
         if others:
-            return _card_redirect(pid, "ok_tel_dup")
-    return _card_redirect(pid, "ok_card")
+            return "ok_tel_dup"
+    return "ok_card"
+
+
+@router.post("/admin/patient/{pid}/save")
+async def patient_save(request: Request, pid: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    form = await request.form()
+    prev = await db.get_patient(pid)
+    if not prev:
+        return RedirectResponse("/admin/search", status_code=303)
+    return _card_redirect(pid, await _save_profile(pid, prev, lambda f: str(form.get(f) or "")))
+
+
+async def _free_slots(date_q: str, doctor: str, service: str) -> list[str]:
+    """Свободные старты у врача на дату — для окна записи прямо из фиши.
+    Тот же eng.free_starts, что у бота: одна правда о занятости на всех.
+    Чужой врач, чужая услуга, кривая дата, врач не по услуге — пусто."""
+    if doctor not in eng.DOCTORS or service not in eng.SERVICES:
+        return []
+    try:
+        d = date.fromisoformat(date_q)
+    except ValueError:
+        return []
+    allowed = [k for k, _n in eng.allowed_doc_items(service)]
+    if doctor not in allowed:
+        return []  # услугу этот врач не выполняет
+    free = await eng.free_starts(doctor, d, eng.svc_duration(service), allowed)
+    return [x.strftime("%H:%M") for x in free]
 
 
 @router.get("/admin/patient/{pid}/slots")
 async def patient_slots(request: Request, pid: int,
                         date_q: str = Query("", alias="date"),
                         doctor: str = "", service: str = ""):
-    """Свободные старты у врача на дату — для окна записи прямо из фиши.
-    Тот же eng.free_starts, что у бота: одна правда о занятости на всех."""
     if (deny := _guard(request)) is not None:
         return deny
-    if doctor not in eng.DOCTORS or service not in eng.SERVICES:
-        return JSONResponse({"slots": []})
+    return JSONResponse({"slots": await _free_slots(date_q, doctor, service)})
+
+
+async def _appoint(pid: int, adate: str, atime: str, adoctor: str, aservice: str) -> str:
+    """Запись из фиши: пациент берётся по id, а не по имени/телефону из формы —
+    визит физически не может уехать однофамильцу."""
     try:
-        d = date.fromisoformat(date_q)
-    except ValueError:
-        return JSONResponse({"slots": []})
-    allowed = [k for k, _n in eng.allowed_doc_items(service)]
-    if doctor not in allowed:
-        return JSONResponse({"slots": []})  # услугу этот врач не выполняет
-    free = await eng.free_starts(doctor, d, eng.svc_duration(service), allowed)
-    return JSONResponse({"slots": [x.strftime("%H:%M") for x in free]})
+        d = date.fromisoformat(adate)
+        hh, mm = atime.split(":")
+        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
+    except (ValueError, AttributeError):
+        return "bad"
+    doctor = eng.DOCTORS.get(adoctor)
+    svc = eng.SERVICES.get(aservice)
+    if not doctor or not svc or dt.minute not in (0, 30):
+        return "bad"
+    if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
+        return "bad_off"   # выключенному врачу не пишем
+    if adoctor not in [k for k, _n in eng.allowed_doc_items(aservice)]:
+        return "bad"
+    # окно даёт только свободные будущие часы, но вкладку могли открыть утром:
+    # к обеду её список устарел и без этой проверки визит уехал бы в прошлое
+    if eng.is_past(dt):
+        return "past"
+    dur = eng.svc_duration(aservice)
+    if not eng.fits_clinic(dt, dur):
+        return "outside"
+    r = await db.add_visit_for_patient(pid, svc["ro"], doctor, dt,
+                                       doctor_id=adoctor, service_id=aservice,
+                                       duration_min=dur)
+    return "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
 
 
 @router.post("/admin/patient/{pid}/appoint")
 async def patient_appoint(request: Request, pid: int,
                           adate: str = Form(...), atime: str = Form(...),
                           adoctor: str = Form(...), aservice: str = Form(...)):
-    """Запись из фиши: пациент берётся по id страницы, а не по имени/телефону
-    из формы — визит физически не может уехать однофамильцу."""
     if (deny := _guard(request)) is not None:
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    try:
-        d = date.fromisoformat(adate)
-        hh, mm = atime.split(":")
-        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
-    except (ValueError, AttributeError):
-        return _card_redirect(pid, "bad")
-    doctor = eng.DOCTORS.get(adoctor)
-    svc = eng.SERVICES.get(aservice)
-    if not doctor or not svc or dt.minute not in (0, 30):
-        return _card_redirect(pid, "bad")
-    if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
-        return _card_redirect(pid, "bad_off")   # выключенному врачу не пишем
-    if adoctor not in [k for k, _n in eng.allowed_doc_items(aservice)]:
-        return _card_redirect(pid, "bad")
-    # окно даёт только свободные будущие часы, но вкладку могли открыть утром:
-    # к обеду её список устарел и без этой проверки визит уехал бы в прошлое
-    if eng.is_past(dt):
-        return _card_redirect(pid, "past")
-    dur = eng.svc_duration(aservice)
-    if not eng.fits_clinic(dt, dur):
-        return _card_redirect(pid, "outside")
-    r = await db.add_visit_for_patient(pid, svc["ro"], doctor, dt,
-                                       doctor_id=adoctor, service_id=aservice,
-                                       duration_min=dur)
-    return _card_redirect(pid, "ok" if isinstance(r, int)
-                          else ("dup" if r == "dup" else "conflict"))
+    return _card_redirect(pid, await _appoint(pid, adate, atime, adoctor, aservice))
 
 
 @router.post("/admin/patient/{pid}/archive")
@@ -1122,6 +1140,13 @@ async def patient_archive(request: Request, pid: int, on: str = Form("1")):
     return _card_redirect(pid, "ok_arh" if on == "1" else "ok_unarh")
 
 
+async def _add_alert(pid: int, kind: str, text: str) -> str:
+    if kind not in ALERT_KINDS or not text.strip():
+        return "bad_card"
+    await db.add_alert(pid, kind, text.strip()[:120])
+    return "ok_card"
+
+
 @router.post("/admin/patient/{pid}/alert")
 async def patient_alert_add(request: Request, pid: int,
                             kind: str = Form(...), text: str = Form(...)):
@@ -1129,10 +1154,7 @@ async def patient_alert_add(request: Request, pid: int,
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    if kind not in ALERT_KINDS or not text.strip():
-        return _card_redirect(pid, "bad_card")
-    await db.add_alert(pid, kind, text.strip()[:120])
-    return _card_redirect(pid, "ok_card")
+    return _card_redirect(pid, await _add_alert(pid, kind, text))
 
 
 @router.get("/admin/patient/{pid}/anamneza/print", response_class=HTMLResponse)
@@ -1148,18 +1170,10 @@ async def patient_anamneza_print(request: Request, pid: int, lang: str = ""):
     return panam.render_form(p, _doc_lang(p, lang))
 
 
-@router.post("/admin/patient/{pid}/anamneza")
-async def patient_anamneza(request: Request, pid: int):
+async def _save_anamneza(pid: int, checked: set[str], fields: dict) -> str:
     """Опросник анамнеза. Пустой не сохраняем: «фиша с пустым анамнезом» и
     «анамнез не собирали» — разные вещи, и вторая обязана быть видна."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    form = await request.form()
-    flags = ",".join(k for k in ANAMNEZA_FLAGS
-                     if k in {str(x) for x in form.getlist("fl")})
-    fields = {k: str(form.get(k) or "") for k, *_ in ANAMNEZA_TEXTS}
+    flags = ",".join(k for k in ANAMNEZA_FLAGS if k in checked)
     if not flags and not any(v.strip() for v in fields.values()):
         # пустая форма на ПУСТОМ опроснике — промах, а не ответ: «фиша с
         # пустым анамнезом» и «анамнез не собирали» это разные вещи.
@@ -1167,9 +1181,21 @@ async def patient_anamneza(request: Request, pid: int):
         # ошибочной отметки (поставили «HIV» не тому), и запретить его
         # значит оставить неверную запись в первичной документации
         if not (await db.anamneza(pid)):
-            return _card_redirect(pid, "bad_anam")
+            return "bad_anam"
     await db.save_anamneza(pid, flags, fields)
-    return _card_redirect(pid, "ok_anam")
+    return "ok_anam"
+
+
+@router.post("/admin/patient/{pid}/anamneza")
+async def patient_anamneza(request: Request, pid: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    form = await request.form()
+    return _card_redirect(pid, await _save_anamneza(
+        pid, {str(x) for x in form.getlist("fl")},
+        {k: str(form.get(k) or "") for k, *_ in ANAMNEZA_TEXTS}))
 
 
 @router.post("/admin/patient/{pid}/alert/{aid}/del")
@@ -1475,16 +1501,12 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
     return done("ok_card")
 
 
-@router.post("/admin/patient/{pid}/plan")
-async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
-                           procedure: str = Form(...), doctor: str = Form(""),
-                           price: str = Form(""), due_date: str = Form("")):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
+async def _add_plan(pid: int, tooth: str, procedure: str, doctor: str,
+                    price: str, due_date: str) -> str:
+    """Позиция плана: зуб и цена приходят строками, как из формы; чужой
+    номер зуба и кривой срок молча обнуляются, цена режется до миллиона."""
     if not procedure.strip():
-        return _card_redirect(pid, "bad_card")
+        return "bad_card"
     t = int(tooth) if tooth.strip().isdecimal() else None
     if t is not None and t not in _FDI_ALL:
         t = None
@@ -1498,26 +1520,41 @@ async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
         due = ""
     await db.add_plan_item(pid, t, procedure.strip()[:120], doctor.strip()[:80],
                            pr, due)
-    return _card_redirect(pid, "ok_card")
+    return "ok_card"
+
+
+@router.post("/admin/patient/{pid}/plan")
+async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
+                           procedure: str = Form(...), doctor: str = Form(""),
+                           price: str = Form(""), due_date: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    return _card_redirect(pid, await _add_plan(pid, tooth, procedure, doctor, price, due_date))
+
+
+async def _add_pay(pid: int, amount: str, method: str, note: str) -> str:
+    """Платёж записывает ЛЮБАЯ роль: деньги физически берёт рецепция (решение
+    Олега 08-07). Минус — возврат. Удаление — только директор."""
+    try:
+        amt = int(amount.strip())
+    except (ValueError, AttributeError):
+        return "bad_pay"
+    if amt == 0 or abs(amt) > 1_000_000 or method not in db.PAY_METHODS:
+        return "bad_pay"
+    await db.add_payment(pid, amt, method, note.strip()[:120])
+    return "ok_pay"
 
 
 @router.post("/admin/patient/{pid}/pay")
 async def patient_pay(request: Request, pid: int, amount: str = Form(...),
                       method: str = Form("numerar"), note: str = Form("")):
-    """Платёж записывает ЛЮБАЯ роль: деньги физически берёт рецепция (решение
-    Олега 08-07). Минус — возврат. Удаление — только директор, ниже."""
     if (deny := _guard(request)) is not None:
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    try:
-        amt = int(amount.strip())
-    except (ValueError, AttributeError):
-        return _card_redirect(pid, "bad_pay")
-    if amt == 0 or abs(amt) > 1_000_000 or method not in db.PAY_METHODS:
-        return _card_redirect(pid, "bad_pay")
-    await db.add_payment(pid, amt, method, note.strip()[:120])
-    return _card_redirect(pid, "ok_pay")
+    return _card_redirect(pid, await _add_pay(pid, amount, method, note))
 
 
 @router.post("/admin/patient/{pid}/pay/{pay_id}/del")
@@ -1528,29 +1565,33 @@ async def patient_pay_del(request: Request, pid: int, pay_id: int):
     return _card_redirect(pid, "pay_del")
 
 
-@router.post("/admin/patient/{pid}/plan/{item_id}/status")
-async def patient_plan_status(request: Request, pid: int, item_id: int,
-                              to: str = Form(...), motiv: str = Form("")):
-    if (deny := _guard(request)) is not None:
-        return deny
-    # проверяем РЕБРО (откуда → куда), а не только цель: направление — правило
-    # сервера, а не рисунок кнопок; устаревшая вкладка не воскресит финал
+async def _plan_status(pid: int, item_id: int, to: str, motiv: str) -> str:
+    """Переход позиции плана по РЕБРУ (откуда → куда), а не только по цели:
+    направление — правило сервера, а не рисунок кнопок; устаревшая вкладка
+    не воскресит финал."""
     cur = await db.plan_item_status(item_id, pid)
     if cur is None or (cur, to) not in _PLAN_EDGES:
-        return _card_redirect(pid, "bad_card")
+        return "bad_card"
     why = motiv.strip()[:300]
     # ⭐ Причина требуется СЕРВЕРОМ, а не только атрибутом required в форме:
     # без неё отказ не является записью по ст.13(5) Legea 263/2005 («cu
     # indicarea consecinţelor posibile»), а браузерная проверка обходится
     # любым запросом мимо страницы
     if to in _PLAN_NEEDS_MOTIV and not why:
-        return _card_redirect(pid, "bad_refuz")
+        return "bad_refuz"
     await db.set_plan_status(item_id, pid, to, motiv=why)
-    return _card_redirect(pid, "ok_refuz" if to == "refuzat" else "")
+    return "ok_refuz" if to == "refuzat" else ""
 
 
-@router.post("/admin/patient/{pid}/plan/{item_id}/del")
-async def patient_plan_del(request: Request, pid: int, item_id: int):
+@router.post("/admin/patient/{pid}/plan/{item_id}/status")
+async def patient_plan_status(request: Request, pid: int, item_id: int,
+                              to: str = Form(...), motiv: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    return _card_redirect(pid, await _plan_status(pid, item_id, to, motiv))
+
+
+async def _plan_del(pid: int, item_id: int) -> str:
     """Удалить можно ТОЛЬКО нетронутую позицию.
 
     Начатая, выполненная или отказанная — уже медицинская запись: закон велит
@@ -1559,22 +1600,23 @@ async def patient_plan_del(request: Request, pid: int, item_id: int):
     остальное — статус. ⛔ Проверять здесь, а не только прятать кнопку:
     страница живёт в открытой вкладке дольше, чем позиция в «Planificat».
     """
-    if (deny := _guard(request)) is not None:
-        return deny
     cur = await db.plan_item_status(item_id, pid)
     if cur is not None and cur != "planificat":
-        return _card_redirect(pid, "bad_pdel")
+        return "bad_pdel"
     await db.delete_plan_item(item_id, pid)
-    return _card_redirect(pid)
+    return ""
 
 
-@router.post("/admin/patient/{pid}/doc")
-async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File(...),
-                             category: str = Form("alt")):
+@router.post("/admin/patient/{pid}/plan/{item_id}/del")
+async def patient_plan_del(request: Request, pid: int, item_id: int):
     if (deny := _guard(request)) is not None:
         return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
+    return _card_redirect(pid, await _plan_del(pid, item_id))
+
+
+async def _store_doc(pid: int, file: UploadFile, category: str) -> str:
+    """Файл в папку пациента кусками с потолком MAX_DOC_MB; пустой и
+    переполненный не оставляют огрызка на диске."""
     if category not in DOC_CATEGORIES:
         category = "alt"
     orig = pathlib.Path(file.filename or "document").name[:120] or "document"
@@ -1592,18 +1634,28 @@ async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File
                 if size > cap:
                     out.close()
                     stored.unlink(missing_ok=True)
-                    return _card_redirect(pid, "bad_doc")
+                    return "bad_doc"
                 out.write(chunk)
     except OSError:
         stored.unlink(missing_ok=True)  # диск полон и т.п. — не оставляем огрызок
-        return _card_redirect(pid, "bad_doc")
+        return "bad_doc"
     finally:
         await file.close()
     if size == 0:
         stored.unlink(missing_ok=True)
-        return _card_redirect(pid, "bad_doc")
+        return "bad_doc"
     await db.add_document(pid, orig, str(stored), size, file.content_type or "", category)
-    return _card_redirect(pid, "ok_doc")
+    return "ok_doc"
+
+
+@router.post("/admin/patient/{pid}/doc")
+async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File(...),
+                             category: str = Form("alt")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    return _card_redirect(pid, await _store_doc(pid, file, category))
 
 
 # Что отдавать inline (растр) и что смотреть своим просмотрщиком (PDF) —
@@ -1716,22 +1768,21 @@ _OPEN_EXT = {
 }
 
 
-@router.post("/admin/doc/{doc_id}/open")
-async def patient_doc_open(request: Request, doc_id: int):
+async def _open_doc(request: Request, doc_id: int) -> str:
     """Открыть документ программой этого же компьютера (Word, Excel, просмотр
     фото). Только настольное издание и только локальный запрос: журнал не
-    должен запускать программы на компьютере клиники по команде из сети."""
-    if (deny := _guard(request)) is not None:
-        return deny
+    должен запускать программы на компьютере клиники по команде из сети.
+    Пустая строка — открыто; иначе причина отказа (not_local / missing /
+    ext / os), и вызывающий откатывается на скачивание."""
     host = request.client.host if request.client else ""
     if os.name != "nt" or host not in ("127.0.0.1", "::1"):
-        return JSONResponse({"ok": False, "err": "not_local"})
+        return "not_local"
     d = await db.get_document(doc_id)
     if not d or not pathlib.Path(d["stored_path"]).exists():
-        return JSONResponse({"ok": False, "err": "missing"})
+        return "missing"
     src = pathlib.Path(d["stored_path"])
     if src.suffix.lower() not in _OPEN_EXT:
-        return JSONResponse({"ok": False, "err": "ext"})
+        return "ext"
     await db.log_event(d["patient_id"], "doc_view",
                        f"Document deschis: {d['filename']}")
     try:
@@ -1740,26 +1791,30 @@ async def patient_doc_open(request: Request, doc_id: int):
         os.startfile(_open_copy(src, d["filename"]))
     except OSError as ex:                     # нет ассоциации у расширения и т.п.
         log.warning("startfile doc=%s: %r", doc_id, ex)
-        return JSONResponse({"ok": False, "err": "os"})
-    return JSONResponse({"ok": True})
+        return "os"
+    return ""
 
 
-@router.post("/admin/patient/{pid}/erase")
-async def patient_erase(request: Request, pid: int, confirm: str = Form("")):
+@router.post("/admin/doc/{doc_id}/open")
+async def patient_doc_open(request: Request, doc_id: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    err = await _open_doc(request, doc_id)
+    return JSONResponse({"ok": True} if not err else {"ok": False, "err": err})
+
+
+async def _erase(pid: int, confirm: str) -> str:
     """Право на стирание. Ветку выбирает НЕ рецепция, а состояние фиши
     (db.erasure_kind): физическое удаление доступно только контакту без
-    лечения, у пациента с медзаписями стирается личность, клиника остаётся.
+    лечения (ok_del — фиши больше нет), у пациента с медзаписями стирается
+    личность, клиника остаётся (ok_anon).
 
     Подтверждение — переписанное слово, не галочка: действие необратимо, а
     кнопка стоит в фише рядом с обычными. confirm сверяется здесь, на сервере —
     JS-диалог легко проскочить двойным Enter.
     """
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
     if confirm.strip().upper() != "STERG":
-        return _card_redirect(pid, "bad_erase")
+        return "bad_erase"
     kind = await db.erasure_kind(pid)
     if kind == "delete":
         # файлы удаляются ДО строк: наоборот, упади программа между шагами,
@@ -1770,12 +1825,24 @@ async def patient_erase(request: Request, pid: int, confirm: str = Form("")):
             _thumb_path(d["stored_path"]).unlink(missing_ok=True)
         shutil.rmtree(_files_dir(pid), ignore_errors=True)
         await db.delete_patient_fully(pid)
-        return RedirectResponse("/admin/search?msg=ok_del", status_code=303)
+        return "ok_del"
     await db.anonymize_patient(pid)
     # событие — в летопись, которая у обезличенного остаётся: проверяющему
     # видно, что стирание состоялось и когда
     await db.log_event(pid, "erase", "Date personale șterse (anonimizare)")
-    return _card_redirect(pid, "ok_anon")
+    return "ok_anon"
+
+
+@router.post("/admin/patient/{pid}/erase")
+async def patient_erase(request: Request, pid: int, confirm: str = Form("")):
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not (await db.get_patient(pid)):
+        return RedirectResponse("/admin/search", status_code=303)
+    code = await _erase(pid, confirm)
+    if code == "ok_del":
+        return RedirectResponse("/admin/search?msg=ok_del", status_code=303)
+    return _card_redirect(pid, code)
 
 
 def _doc_lang(p: dict, lang: str) -> str:
@@ -1950,15 +2017,20 @@ async def patient_export(request: Request, pid: int):
         background=BackgroundTask(shutil.rmtree, tmp, ignore_errors=True))
 
 
-@router.post("/admin/patient/{pid}/doc/{doc_id}/del")
-async def patient_doc_del(request: Request, pid: int, doc_id: int):
-    if (deny := _guard(request)) is not None:
-        return deny
+async def _drop_doc(pid: int, doc_id: int) -> None:
+    """Файл и миниатюра с диска, строка из базы; чужой документ не трогается."""
     d = await db.get_document(doc_id)
     if d and d["patient_id"] == pid:
         pathlib.Path(d["stored_path"]).unlink(missing_ok=True)
         _thumb_path(d["stored_path"]).unlink(missing_ok=True)
         await db.delete_document(doc_id, pid)
+
+
+@router.post("/admin/patient/{pid}/doc/{doc_id}/del")
+async def patient_doc_del(request: Request, pid: int, doc_id: int):
+    if (deny := _guard(request)) is not None:
+        return deny
+    await _drop_doc(pid, doc_id)
     return _card_redirect(pid)
 
 
