@@ -594,7 +594,7 @@ def _occ_wrap(fdi: int, state: str, defs: str, body: list, width: int,
 
 def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
                  interactive: bool = False, extra_class: str = "",
-                 surfaces="", marks=()) -> str:
+                 surfaces="", marks=(), hit: bool = False) -> str:
     """Готовый <svg> зуба СВЕРХУ. Рамка квадратная: жевательная поверхность
     примерно так же глубока, как широка, и вытянутая рамка лицевого вида тут
     оставила бы половину пустой."""
@@ -614,6 +614,8 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
     if state == "lipsa":
         body.append(f"<path d='{outline}' fill='none' stroke='{COLORS['lipsa']}' "
                     f"stroke-width='1.6' stroke-dasharray='3 3'/>")
+        if hit:
+            body.append(surface_hits(fdi, occ=True, clip_id=cid))
         return _occ_wrap(fdi, state, defs, body, width, interactive, extra_class)
 
     if state == "coroana":
@@ -690,6 +692,9 @@ def occlusal_svg(fdi: int, state: str = "ok", *, width: int = 44,
     # выемки читается корешком, и моляр превращается в раскрытую книгу. Глубину
     # даёт градиент, а край — одна обводка.
     body.append(f"<path d='{outline}' fill='none' stroke='{line}' stroke-width='1.8'/>")
+    # цели поверхностей — поверх всего, внутри той же обёртки (см. surface_hits)
+    if hit:
+        body.append(surface_hits(fdi, occ=True, clip_id=cid))
     return _occ_wrap(fdi, state, defs, body, width, interactive, extra_class)
 
 
@@ -971,11 +976,44 @@ def _as_map(state: str, surfaces) -> dict:
     return surface_map(state, surfaces or "")
 
 
+def surface_hits(fdi: int, occ: bool = False, clip_id: str = "") -> str:
+    """Невидимые цели поверхностей для клика (DentPilot 2.0, C21): пять
+    фигур с `data-s` = M/O/D/V/L в канонической ориентации — их зеркалит и
+    переворачивает та же обёртка, что рисунок, поэтому React не знает
+    геометрию зуба, но знает, по какой поверхности кликнули.
+
+    Лицевой вид — круги на местах меток `_surface_marks` (крупнее самих
+    меток, чтобы в них попадать пальцем и мышью); сверху — зоны `occ_zones`
+    внутри контура. `fill='transparent'` намеренно: `none` не ловит
+    указатель. Старые страницы этот кусок не просят и не меняются.
+    """
+    out = []
+    if occ:
+        for letter, (x, y, w, h) in occ_zones(fdi).items():
+            out.append(f"<rect x='{x:.1f}' y='{y:.1f}' width='{w:.1f}' height='{h:.1f}' "
+                       f"data-s='{letter}' fill='transparent' stroke='none'/>")
+        clip = f" clip-path='url(#{clip_id})'" if clip_id else ""
+        return f"<g class='sfz'{clip}>{''.join(out)}</g>"
+    cls = tooth_class(fdi)
+    k = _width_k(fdi)
+    dx = _MARK_DX.get(cls, 7.0)
+    oy = 13.0 if cls in ("incisor_c", "incisor_l", "canine") else 19.0
+    pos = {"O": (22.0, oy), "V": (22.0, 28.0), "L": (22.0, 36.0),
+           "M": (22.0 + dx, 27.0), "D": (22.0 - dx, 27.0)}
+    r = 5.6 * k
+    for letter in SURFACE_ORDER:
+        x, yy = pos[letter]
+        out.append(f"<circle cx='{_sx(x, k):.1f}' cy='{yy:.1f}' r='{r:.1f}' "
+                   f"data-s='{letter}' fill='transparent' stroke='none'/>")
+    return f"<g class='sfz'>{''.join(out)}</g>"
+
+
 def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
               interactive: bool = False, extra_class: str = "",
-              surfaces="", marks=()) -> str:
+              surfaces="", marks=(), hit: bool = False) -> str:
     """Готовый <svg> одного зуба. Всё рисование — в канонической ориентации,
-    верхняя челюсть переворачивается обёрткой."""
+    верхняя челюсть переворачивается обёрткой. `hit` — дописать цели
+    поверхностей (см. surface_hits); только для React-клиента."""
     state = state if state in STATE_RO else "ok"
     col = COLORS.get(state, LINE)
     fill = FILLS.get(state, "#FFFFFF")
@@ -1066,6 +1104,10 @@ def tooth_svg(fdi: int, state: str = "ok", *, width: int = 44,
                         f"M {_p(_sx(22 + hw, k), 15)} L {_p(_sx(22 - hw, k), 43)}' "
                         f"stroke='{col}' stroke-width='3' stroke-linecap='round'/>")
 
+    # цели поверхностей — ПОСЛЕДНИМИ, поверх рисунка: клик обязан попадать в
+    # них, а не в метку под ними; внутри обёртки, чтобы сторона была верной
+    if hit:
+        body.append(surface_hits(fdi))
     inner = "".join(body)
     if mirrored(fdi):                       # мезиальная сторона слева
         inner = f"<g transform='translate({VB_W},0) scale(-1,1)'>{inner}</g>"

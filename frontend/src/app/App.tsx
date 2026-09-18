@@ -12,6 +12,7 @@ import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScr
 import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { VisitScreen } from '../features/visits/VisitScreen'
+import { OdontogramScreen } from '../features/clinical/OdontogramScreen'
 
 /**
  * Корень клиента: развилка по имени экрана, которое сервер положил в
@@ -41,6 +42,10 @@ export function App({ screen, params = {} }: AppProps) {
     return <PatientCardScreen pid={Number(params.pid)} views={params.views === '1'} />
   }
   if (screen === 'visit') return <VisitScreen aid={Number(params.aid)} back={params.back ?? ''} />
+  if (screen === 'odontogram') {
+    const t = params.t ? Number(params.t) : null
+    return <OdontogramScreen pid={Number(params.pid)} t={Number.isInteger(t) ? t : null} />
+  }
   return <UnknownScreen screen={screen} />
 }
 

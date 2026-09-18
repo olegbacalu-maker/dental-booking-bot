@@ -12,7 +12,7 @@ import { AppointDialog } from './AppointDialog'
 import { DocumentsCard } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
 import { HeroKpi } from './HeroKpi'
-import { OdontogramCard } from './OdontogramCard'
+import { OdontogramCard } from '../../clinical/OdontogramCard'
 import { PlanCard } from './PlanCard'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
@@ -42,13 +42,6 @@ interface Props {
   /** ?views=1 в адресе: лента с журналом доступа. */
   views?: boolean
   navigate?: (url: string) => void
-}
-
-declare global {
-  interface Window {
-    /** Диалог зуба из куска одонтограммы (точка интеграции до C21). */
-    openTooth?: (n: number) => void
-  }
 }
 
 export function PatientCardScreen({ pid, views: viewsInit = false, navigate = defaultNavigate }: Props) {
@@ -100,12 +93,18 @@ export function PatientCardScreen({ pid, views: viewsInit = false, navigate = de
     }
   }, [state, pid, replace, fail])
 
-  const onTooth = useCallback((n: number) => {
-    if (typeof window.openTooth === 'function') window.openTooth(n)
-    else navigate(`/admin/patient/${pid}/odontograma?t=${n}`)
-  }, [pid, navigate])
+  /* зуб из плана открывается в компактной одонтограмме (диалог зуба); запрос
+     — объектом с меткой, чтобы повторный клик по тому же зубу тоже сработал */
+  const [toothReq, setToothReq] = useState<{ n: number; k: number } | null>(null)
+  const onTooth = useCallback((n: number) => setToothReq({ n, k: Date.now() }), [])
 
   const failCb = useCallback((e: unknown) => { fail(e) }, [fail])
+  const say = useCallback((t: ToastState) => setToast(t), [])
+  /* зуб записан — фиша перечитывает себя тихо: пилюли шапки и летопись
+     зависят от зубов, а перезагрузка страницы (как у старой) не нужна */
+  const reload = useCallback(() => {
+    patientCard.get(pid, viewsRef.current).then((r) => replace(r.data), (e: unknown) => { fail(e) })
+  }, [pid, replace, fail])
 
   if (state.status === 'leaving') return null
 
@@ -144,7 +143,7 @@ export function PatientCardScreen({ pid, views: viewsInit = false, navigate = de
       <HeroKpi card={card} onBook={() => setBooking(true)} />
       <div className="pv2">
         <div className="pv2-main">
-          <OdontogramCard pid={pid} onFail={failCb} />
+          <OdontogramCard pid={pid} say={say} onFail={failCb} onChanged={reload} open={toothReq} />
           <PlanCard card={card} a={a} onTooth={onTooth} />
           <FinanceCard card={card} a={a} />
           <DocumentsCard card={card} a={a} onFail={failCb} navigate={navigate} />

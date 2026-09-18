@@ -13,7 +13,23 @@ vi.mock('../../../services/api', async (importOriginal) => {
   return { ...real, api: { get, post, postForm }, loginUrl: () => '/admin/login?next=x' }
 })
 
-const TEETH = "<div class='fcard odo' id='odo'><h3>Formula dentară</h3></div><script>window.openTooth = function (n) { window.__tooth = n }</script>"
+/* модель одонтограммы — минимальная: один зуб в каждой дуге, без мостов */
+const TOOTH = (n: number, jaw: 'sus' | 'jos') => ({
+  jaw, mez: 'right' as const, state: 'ok', note: '', doctor: '', at: '', sf: '', sfx: '', sfst: {}, mk: [], mkx: '',
+  milk: false, title: `${n} · Sănătos`, bridge: null,
+  svg: { frontal: `<svg class='tooth-svg' aria-label='${n}'><g class='sfz'><circle data-s='O'/></g></svg>`, occlusal: '<svg></svg>' },
+})
+const ODO = {
+  teeth: { '11': TOOTH(11, 'sus'), '41': TOOTH(41, 'jos') }, history: {},
+  arches: { upper: [11], lower: [41], milk_upper: [], milk_lower: [] },
+  arc: { upper: [0], lower: [0], milk_upper: [], milk_lower: [] },
+  milk_open: false, bridges: [], legend: { frontal: [], occlusal: [] },
+  states: { ok: 'Sănătos', carie: 'Carie' }, marks: { tratament: 'În tratament' },
+  surfaces: { M: 'mezial', O: 'ocluzal', D: 'distal', V: 'vestibular', L: 'lingual' },
+  surface_states: ['carie', 'obturatie'], bridge_roles: { stalp: 'Stâlp', corp: 'Corp de punte' },
+  materials: [{ id: 'zirconiu', label: 'Zirconiu' }], patient: { id: 5, name: 'Pin Test', primary_doctor: '' },
+  doctors: ['Dr. Activ Doi'],
+}
 
 const CARD: PatientCard = {
   id: 5, name: 'Pin Test', initials: 'PT', archived: false, erasure: 'anon',
@@ -107,7 +123,7 @@ const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, t
 function serve(card: PatientCard = CARD) {
   get.mockImplementation((path: string) => {
     if (path === '/patients/5' || path === '/patients/5?views=1') return Promise.resolve(ok(card))
-    if (path === '/patients/5/teeth') return Promise.resolve(ok({ html: TEETH }))
+    if (path === '/patients/5/odontogram') return Promise.resolve(ok(ODO))
     if (path.startsWith('/patients/5/activity')) {
       return Promise.resolve(ok({ ...card.activity, views: path.includes('views=1'),
         items: [{ id: 999, kind: 'view', icon: 'eye', text: 'Fișa deschisă', when: '18.09.2026', hhmm: '11:00', who: 'Director' }, ...card.activity.items] }))
@@ -191,10 +207,10 @@ describe('PatientCardScreen', () => {
     expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('none')
     expect(screen.getByText('Arhivează pacientul')).toBeTruthy()
     expect(screen.getByText('datele de identitate')).toBeTruthy()
-    // кусок одонтограммы запрошен отдельно и вставлен как есть
-    await waitFor(() => expect(document.querySelector('#odo')).toBeTruthy())
+    // одонтограмма — свой запрос и свой компонент (C21): дуга с кнопками зубов
+    await waitFor(() => expect(document.querySelector('#odo .tooth-btn[data-n="11"]')).toBeTruthy())
     expect(get).toHaveBeenCalledWith('/patients/5', expect.anything())
-    expect(get).toHaveBeenCalledWith('/patients/5/teeth', expect.anything())
+    expect(get).toHaveBeenCalledWith('/patients/5/odontogram', expect.anything())
   })
 
   it('вкладки плана: Finalizate показывает закрытые, Toate — всё', async () => {

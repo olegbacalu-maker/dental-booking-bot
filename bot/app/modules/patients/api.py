@@ -23,7 +23,6 @@
 """
 from __future__ import annotations
 
-import html
 import urllib.parse
 from datetime import datetime, timedelta
 
@@ -38,13 +37,14 @@ from . import anamneza as panam
 from . import card as pcard
 from . import odontogram as podo
 from . import visit as pvisit
-from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _add_alert, _add_pay,
-                     _add_plan, _appoint, _drop_doc, _erase, _free_slots,
-                     _new_patient, _open_doc, _p_age, _peek_html, _pl_canal,
-                     _pl_dmy, _pl_money, _pl_new_foot, _pl_stale_cut,
-                     _pl_status, _pl_terms, _pl_trend, _plan_del, _plan_status,
-                     _save_anamneza, _save_profile, _save_visit, _store_doc,
-                     _visit_back, _visit_ctx)
+from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _add_alert, _add_bridge,
+                     _add_pay, _add_plan, _appoint, _del_bridge, _drop_doc,
+                     _erase, _free_slots, _new_patient, _open_doc, _p_age,
+                     _peek_html, _pl_canal, _pl_dmy, _pl_money, _pl_new_foot,
+                     _pl_stale_cut, _pl_status, _pl_terms, _pl_trend, _plan_del,
+                     _plan_status, _save_anamneza, _save_profile, _save_tooth,
+                     _save_visit, _sf_letters, _sf_map, _store_doc, _visit_back,
+                     _visit_ctx)
 
 router = APIRouter()
 
@@ -417,29 +417,6 @@ async def api_patient_card(request: Request, pid: int):
     return msg_json(True, data=await _card(pid, p, views=_views(request), log_view=True))
 
 
-@router.get("/api/patients/{pid}/teeth")
-async def api_patient_teeth(request: Request, pid: int):
-    """Компактная одонтограмма фиши — тем же куском разметки, что рисует
-    старая страница (`odontogram.card`: обе дуги, оба вида, диалог зуба,
-    мосты). ⚠️ Точка интеграции до C21: клиент вставляет кусок и исполняет
-    его скрипты; форма зуба по-прежнему уходит POST-ом на старый маршрут и
-    возвращает страницу с ?msg=. Данные зубов React получит на своём этапе."""
-    if (deny := api_guard(request)) is not None:
-        return deny
-    deny, p = await _owned(pid)
-    if deny is not None:
-        return deny
-    tmap = await db.teeth_map(pid)
-    tooth_acts = await db.tooth_activity(pid)
-    punti = await db.bridges(pid)
-    e = html.escape
-    doc_opts = "".join(f"<option value='{e(n)}'"
-                       f"{' selected' if p.get('primary_doctor') == n else ''}>{e(n)}</option>"
-                       for n in eng.DOCTORS.values())
-    return msg_json(True, data={
-        "html": podo.card(tmap, tooth_acts, doc_opts, f"/admin/patient/{pid}", punti)})
-
-
 @router.get("/api/patients/{pid}/activity")
 async def api_patient_activity(request: Request, pid: int):
     """Лента отдельно — для переключения «accesările» без повторного
@@ -732,3 +709,103 @@ async def api_visit_save(request: Request, aid: int):
     a, rec, items = await _visit_ctx(aid)
     return msg_json(True, code, data=_visit_payload(
         a, rec, items, _visit_back(_s(body, "back"), a["patient_id"])))
+
+
+# ======================= одонтограмма (C21) =======================
+# Контракт — docs/dentpilot-2/clinical-chart.md: геометрия и клинические
+# правила серверные, React собирает и обслуживает интерактив. Модель —
+# odontogram.model; удача действия возвращает свежую модель целиком.
+
+async def _odontogram(pid: int, p: dict) -> dict:
+    tmap = await db.teeth_map(pid)
+    tooth_acts = await db.tooth_activity(pid)
+    punti = await db.bridges(pid)
+    m = podo.model(tmap, tooth_acts, punti)
+    m["patient"] = {"id": pid, "name": p["name"] or "",
+                    "primary_doctor": p.get("primary_doctor") or ""}
+    m["doctors"] = list(eng.DOCTORS.values())
+    return m
+
+
+async def _odo_reply(pid: int, code: str, *, ok: set, field: str = "",
+                     conflict: set = frozenset()):
+    if code not in ok:
+        return msg_json(False, code, field=field, status=409 if code in conflict else 422)
+    p = await db.get_patient(pid)
+    if not p:
+        return msg_json(False, status=404)
+    return msg_json(True, code, data=await _odontogram(pid, p))
+
+
+@router.get("/api/patients/{pid}/odontogram")
+async def api_odontogram(request: Request, pid: int):
+    """Одонтограмма данными: зубы с рисунками обоих видов (цели поверхностей
+    внутри), история, дуги, мосты, легенда, словари."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    return msg_json(True, data=await _odontogram(pid, p))
+
+
+@router.post("/api/patients/{pid}/teeth/{tooth}")
+async def api_tooth_save(request: Request, pid: int, tooth: int):
+    """{state, state0, note, doctor, surfaces, marks}. Намерение — явным
+    полем (прайор 08-16): `surfaces` — карта {буква: состояние} или список
+    букв (одно состояние на все), отсутствует/null — форма о поверхностях не
+    сообщала; `marks` — список или null по той же причине; `state0` — что
+    показала форма. Отказ проверки 422 с полем."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_card", field="state", status=422)
+    raw = body.get("surfaces")
+    sf, sfmap = None, None
+    if isinstance(raw, dict):
+        sfmap = _sf_map(raw)
+    elif isinstance(raw, (list, str)):
+        sf = _sf_letters(raw)
+    marks = body.get("marks")
+    marks = [str(x) for x in marks] if isinstance(marks, list) else None
+    st0 = body.get("state0")
+    code = await _save_tooth(pid, tooth, _s(body, "state"), _s(body, "note"),
+                             _s(body, "doctor"), sf=sf, sfmap=sfmap,
+                             state0=str(st0) if isinstance(st0, str) else None, marks=marks)
+    return await _odo_reply(pid, code, ok={"ok_card"}, field="state" if code == "bad_card" else "")
+
+
+@router.post("/api/patients/{pid}/bridges")
+async def api_bridge_add(request: Request, pid: int):
+    """{teeth: [[47,'stalp'],[46,'corp'],…], material, material_alt, doctor}.
+    Порядок и правила дуги — bridge_norm (422 bad_punte); зуб уже в другом
+    мосту — 409 dup_punte."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    body = await api_body(request)
+    raw = (body or {}).get("teeth")
+    teeth = raw if isinstance(raw, list) else []
+    code = await _add_bridge(pid, teeth, _s(body, "material"), _s(body, "material_alt"),
+                             _s(body, "doctor"))
+    return await _odo_reply(pid, code, ok={"ok_punte"}, field="teeth" if code == "bad_punte" else "",
+                            conflict={"dup_punte"})
+
+
+@router.post("/api/patients/{pid}/bridges/{bid}/delete")
+async def api_bridge_del(request: Request, pid: int, bid: int):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    code = await _del_bridge(pid, bid)
+    if code != "ok_punte_del":
+        return msg_json(False, status=404)
+    return msg_json(True, code, data=await _odontogram(pid, p))

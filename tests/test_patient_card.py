@@ -493,11 +493,12 @@ def suite_api(res: Result) -> None:
                and len(_j(r)["data"]["items"]) == len(_card(c, pid, views=True)["activity"]["items"]) - 1,
                r.body[:200])
 
-        # одонтограмма — куском старой страницы (точка интеграции до C21)
-        teeth = _j(c.get(f"/api/patients/{pid}/teeth"))["data"]["html"]
-        res.ok("кусок одонтограммы — тот же, что на странице",
-               teeth.startswith("<div class='fcard odo' id='odo'") and teeth in page
-               and "function openTooth" in teeth, "кусок не совпал")
+        # одонтограмма — своей моделью (C21): та же карта зубов, что у страницы
+        odo = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
+        res.ok("модель одонтограммы: те же зубы, что в TEETH страницы",
+               {k: v["state"] for k, v in odo["teeth"].items()} ==
+               {k: v["state"] for k, v in json.loads(re.search(r"const TEETH = (.*?);\n", page).group(1)).items()},
+               "карта зубов разошлась")
 
         # пустая фиша — те же пустые состояния
         c.post("/admin/patients/new", name="Gol Fără")
@@ -789,9 +790,8 @@ def suite_switch(res: Result) -> None:
         r = c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie", doctor="Dr. Activ Doi")
         res.check("старая форма зуба при флаге работает и возвращает с плашкой",
                   (r.status, r.location), (303, f"/admin/patient/{pid}?msg=ok_card"))
-        res.ok("зуб доехал до куска одонтограммы",
-               "11" in _j(c.get(f"/api/patients/{pid}/teeth"))["data"]["html"]
-               and '"state": "carie"' in _j(c.get(f"/api/patients/{pid}/teeth"))["data"]["html"],
+        res.ok("зуб доехал до модели одонтограммы",
+               _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["teeth"]["11"]["state"] == "carie",
                "не доехал")
         res.ok("флаг пережил правку профиля через API",
                _act(c, pid, "/profile", {"name": "Flag Card", "phone": "069777000"})[0] == 200

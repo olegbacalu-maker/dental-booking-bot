@@ -211,23 +211,10 @@ def _btn(n: int, tmap: dict, *, lower: bool = False, milk: bool = False,
     e = html.escape
     t = tmap.get(n)
     st = t["state"] if t else "ok"
-    note = t["note"] if t else ""
     sf = (t["surfaces"] if t else "") or ""
     sfmap = tsvg.surface_map(st, sf, (t["surface_states"] if t else "") or "")
     mk = tsvg.mark_list((t["marks"] if t else "") or "")
-    # поверхности дописываются ПОСЛЕ заметки: подпись «11 · Carie · test»
-    # читают и человек, и проверка, и её формат менять незачем.
-    sf_txt = sf_text(sfmap, sf)
-    # мост — в подписи зуба наравне с отметкой: скобка говорит «здесь мост»,
-    # а title отвечает, КЕМ этот зуб в нём стоит (опора или тело)
-    br = (bmap or {}).get(n)
-    br_txt = (f" · Punte: {tsvg.BRIDGE_RO[br[0]]}"
-              + (f" ({br[1]})" if br[1] else "") if br else "")
-    title = (f"{n} · {STATES.get(st, st)}"
-             + "".join(f" · {MARKS[m]}" for m in mk)
-             + br_txt
-             + (f" · {note}" if note else "")
-             + (f" · {sf_txt}" if sf_txt else ""))
+    title = tooth_title(n, tmap, bmap)
     num = f"<span class='num'>{n}</span>"
     if occ:
         svg = tsvg.occlusal_svg(n, st, width=38 if milk else 52,
@@ -288,13 +275,12 @@ def _legend(occ: bool) -> str:
     выглядело бы восьмым состоянием — ровно тем недоразумением, из-за которого
     кариес и лечение вытесняли друг друга (08-17). Разделитель показывает, что
     это другой вопрос о зубе."""
-    draw = ((lambda k, m=(): tsvg.occlusal_svg(36, k, width=26, marks=m)) if occ
-            else (lambda k, m=(): tsvg.tooth_svg(36, k, width=20, marks=m)))
-    return ("".join(f"<span class='lg'>{draw(k)} {v}</span>"
-                    for k, v in STATES.items() if k != "ok")
+    items = legend_items(occ)
+    return ("".join(f"<span class='lg'>{it['svg']} {it['label']}</span>"
+                    for it in items if it["kind"] == "state")
             + "<span class='lg-sep'></span>"
-            + "".join(f"<span class='lg'>{draw('ok', (k,))} {v}</span>"
-                      for k, v in MARKS.items()))
+            + "".join(f"<span class='lg'>{it['svg']} {it['label']}</span>"
+                      for it in items if it["kind"] == "mark"))
 
 
 def view_switch() -> str:
@@ -341,8 +327,9 @@ VIEW_SCRIPT = """
 """
 
 
-def tooth_data(tmap: dict, tooth_acts: list) -> tuple:
-    """(данные зубов, история по зубам) для браузера.
+def tooth_info(tmap: dict, tooth_acts: list) -> tuple[dict, dict]:
+    """(данные зубов, история по зубам) словарями — одни на старые страницы
+    (через `tooth_data`, JSON в <script>) и на JSON API (C21).
 
     ⚠️ `jaw` и `mez` считает СЕРВЕР (`tsvg.is_upper`, `tsvg.mesial_right`).
     Правило «квадранты 1/4/5/8 лежат слева, значит их середина справа» обязано
@@ -378,7 +365,111 @@ def tooth_data(tmap: dict, tooth_acts: list) -> tuple:
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
         hist.setdefault(str(a["tooth"]), []).append(
             {"at": at.strftime("%d.%m.%Y") if at else "", "text": a["text"]})
-    return js_json({str(n): info(n) for n in FDI_ALL}), js_json(hist)
+    return {str(n): info(n) for n in FDI_ALL}, hist
+
+
+def tooth_data(tmap: dict, tooth_acts: list) -> tuple:
+    """То же для <script> старых страниц: JSON-строками."""
+    teeth, hist = tooth_info(tmap, tooth_acts)
+    return js_json(teeth), js_json(hist)
+
+
+def tooth_title(n: int, tmap: dict, bmap: dict | None = None) -> str:
+    """Подпись зуба словами: номер, состояние, отметки, мост с ролью и
+    материалом, заметка, поверхности. Сырой текст — одна на title кнопки
+    старой страницы и на JSON API; экранирует тот, кто рисует."""
+    t = tmap.get(n)
+    st = t["state"] if t else "ok"
+    note = t["note"] if t else ""
+    sf = (t["surfaces"] if t else "") or ""
+    sfmap = tsvg.surface_map(st, sf, (t["surface_states"] if t else "") or "")
+    mk = tsvg.mark_list((t["marks"] if t else "") or "")
+    # поверхности дописываются ПОСЛЕ заметки: подпись «11 · Carie · test»
+    # читают и человек, и проверка, и её формат менять незачем.
+    sf_txt = sf_text(sfmap, sf)
+    # мост — в подписи зуба наравне с отметкой: скобка говорит «здесь мост»,
+    # а title отвечает, КЕМ этот зуб в нём стоит (опора или тело)
+    br = (bmap or {}).get(n)
+    br_txt = (f" · Punte: {tsvg.BRIDGE_RO[br[0]]}"
+              + (f" ({br[1]})" if br[1] else "") if br else "")
+    return (f"{n} · {STATES.get(st, st)}"
+            + "".join(f" · {MARKS[m]}" for m in mk)
+            + br_txt
+            + (f" · {note}" if note else "")
+            + (f" · {sf_txt}" if sf_txt else ""))
+
+
+# Материалы моста — пресеты диалога; «alt» = свободный текст. Одни на
+# старую страницу и на JSON API.
+BRIDGE_MATERIALS = (("metalo-ceramică", "Metalo-ceramică"), ("zirconiu", "Zirconiu"),
+                    ("ceramică", "Ceramică"), ("metal", "Metal"),
+                    ("acrilat", "Acrilat"), ("alt", "Alt material…"))
+
+
+def legend_items(occ: bool) -> list[dict]:
+    """Легенда данными: настоящий зуб в каждом состоянии, потом отметки на
+    здоровом — та же последовательность, что рисует `_legend`."""
+    draw = ((lambda k, m=(): tsvg.occlusal_svg(36, k, width=26, marks=m)) if occ
+            else (lambda k, m=(): tsvg.tooth_svg(36, k, width=20, marks=m)))
+    return ([{"kind": "state", "key": k, "label": v, "svg": draw(k)}
+             for k, v in STATES.items() if k != "ok"]
+            + [{"kind": "mark", "key": k, "label": v, "svg": draw("ok", (k,))}
+               for k, v in MARKS.items()])
+
+
+def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
+    """Одонтограмма данными для React (C21, docs/dentpilot-2/clinical-chart.md):
+    зубы с рисунками обоих видов (с целями поверхностей `hit=True`), история,
+    дуги и подъём вида сверху, мосты, легенда и словари. Всё считает сервер —
+    у клиента нет ни геометрии, ни второго словаря состояний."""
+    infos, hist = tooth_info(tmap, tooth_acts)
+    bmap = _bmap(bridges or [])
+    teeth: dict = {}
+    for n in FDI_ALL:
+        t = tmap.get(n)
+        st = t["state"] if t else "ok"
+        sfmap = tsvg.surface_map(st, (t["surfaces"] if t else "") or "",
+                                 (t["surface_states"] if t else "") or "")
+        mk = tsvg.mark_list((t["marks"] if t else "") or "")
+        milk = n in FDI_MILK_UPPER or n in FDI_MILK_LOWER
+        br = bmap.get(n)
+        teeth[str(n)] = {
+            **infos[str(n)], "milk": milk, "title": tooth_title(n, tmap, bmap),
+            "bridge": {"role": br[0], "material": br[1]} if br else None,
+            "svg": {
+                "frontal": tsvg.tooth_svg(n, st, width=28 if milk else 38, interactive=True,
+                                          surfaces=sfmap, marks=mk, hit=True),
+                "occlusal": tsvg.occlusal_svg(n, st, width=38 if milk else 52, interactive=True,
+                                              surfaces=sfmap, marks=mk, hit=True),
+            },
+        }
+
+    def arcs(row: list, *, lower: bool, milk: bool) -> list[int]:
+        return [int(f"{arc_offset(i, len(row), lower=lower, milk=milk):.0f}")
+                for i in range(len(row))]
+
+    rows = []
+    for b in bridges or ():
+        t = tsvg.parse_bridge(b["teeth"])
+        if t:
+            rows.append({"id": b["id"], "teeth": t, "material": b.get("material") or "",
+                         "doctor": b.get("doctor") or ""})
+    return {
+        "teeth": teeth, "history": hist,
+        "arches": {"upper": list(FDI_UPPER), "lower": list(FDI_LOWER),
+                   "milk_upper": list(FDI_MILK_UPPER), "milk_lower": list(FDI_MILK_LOWER)},
+        "arc": {"upper": arcs(FDI_UPPER, lower=False, milk=False),
+                "lower": arcs(FDI_LOWER, lower=True, milk=False),
+                "milk_upper": arcs(FDI_MILK_UPPER, lower=False, milk=True),
+                "milk_lower": arcs(FDI_MILK_LOWER, lower=True, milk=True)},
+        "milk_open": any(n in tmap for n in FDI_MILK_UPPER + FDI_MILK_LOWER),
+        "bridges": rows,
+        "legend": {"frontal": legend_items(False), "occlusal": legend_items(True)},
+        "states": dict(STATES), "marks": dict(MARKS),
+        "surfaces": dict(TOOTH_SURFACES), "surface_states": list(tsvg.SURFACE_STATES),
+        "bridge_roles": dict(tsvg.BRIDGE_RO),
+        "materials": [{"id": k, "label": v} for k, v in BRIDGE_MATERIALS],
+    }
 
 
 # Экранирование значений, которые пишет ЧЕЛОВЕК, перед вставкой в innerHTML.
@@ -649,12 +740,7 @@ def page(patient: dict, tmap: dict, tooth_acts: list, doc_opts: str,
     <div class='br-chips' id='br_chips'></div>
     <select name='doctor' id='br_doc'><option value=''>Medic —</option>{doc_opts}</select>
     <select name='material' id='br_mat'>
-      <option value='metalo-ceramică'>Metalo-ceramică</option>
-      <option value='zirconiu'>Zirconiu</option>
-      <option value='ceramică'>Ceramică</option>
-      <option value='metal'>Metal</option>
-      <option value='acrilat'>Acrilat</option>
-      <option value='alt'>Alt material…</option>
+      {''.join(f"<option value='{k}'>{v}</option>" for k, v in BRIDGE_MATERIALS)}
     </select>
     <input name='material_alt' id='br_alt' placeholder='Materialul punții'
            maxlength='40' style='display:none'>

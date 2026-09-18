@@ -1230,6 +1230,14 @@ async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
+    if react_on(request, "odontogram"):
+        # DentPilot 2.0 (C21): та же рамка с узким сайдбаром, узел React с
+        # фишей и выбранным зубом; данные — GET /api/patients/{pid}/odontogram
+        params = {"pid": str(pid)}
+        if t.strip().isdecimal() and int(t) in _FDI_ALL:
+            params["t"] = t.strip()
+        return _shell(msg_banner(msg) + react_mount("odontogram", f"/admin/patient/{pid}/odontograma", params),
+                      f"odontogramă · #{pid}", active="pat", rail=True)
     tmap = await db.teeth_map(pid)
     tooth_acts = await db.tooth_activity(pid)
     # ⚠️ Врачи ВСЕ, как в фише, а не только активные: `doctor` у зуба —
@@ -1261,10 +1269,22 @@ async def patient_bridge_add(request: Request, pid: int,
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    back = f"/admin/patient/{pid}/odontograma"
+    msg = await _add_bridge(pid, teeth, material, material_alt, doctor)
+    return RedirectResponse(f"/admin/patient/{pid}/odontograma?msg={msg}", status_code=303)
+
+
+async def _add_bridge(pid: int, teeth, material: str, material_alt: str,
+                      doctor: str) -> str:
+    """Мост — одно правило на форму и API. `teeth` — строка «47:stalp,…»
+    (форма) или список пар (JSON); обе идут через parse_bridge по белым
+    спискам, порядок и правила дуги — bridge_norm. bad_punte — набор мостом
+    быть не может; dup_punte — зуб уже в другом мосту."""
+    if not isinstance(teeth, str):
+        teeth = ",".join(f"{t[0]}:{t[1]}" for t in teeth
+                         if isinstance(t, (list, tuple)) and len(t) == 2)
     norm = podo.bridge_norm(tsvg.parse_bridge(teeth))
     if norm is None:
-        return RedirectResponse(f"{back}?msg=bad_punte", status_code=303)
+        return "bad_punte"
     mat = (material_alt if material == "alt" else material).strip()[:40]
     # врач — из формы и только из справочника, как у зуба: поле «Medic» в
     # экспорте-195 и летописи — снапшот ЛЕЧАЩЕГО, а вошедшая учётка (нередко
@@ -1272,8 +1292,11 @@ async def patient_bridge_add(request: Request, pid: int,
     # подписывает летопись сама (ACTOR_HOOK). Пусто — честнее, чем не тот.
     doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
     r = await db.add_bridge(pid, norm, mat, doc)
-    msg = "dup_punte" if r == "dup" else "ok_punte"
-    return RedirectResponse(f"{back}?msg={msg}", status_code=303)
+    return "dup_punte" if r == "dup" else "ok_punte"
+
+
+async def _del_bridge(pid: int, bid: int) -> str:
+    return "ok_punte_del" if await db.delete_bridge(bid, pid) else "bad"
 
 
 @router.post("/admin/patient/{pid}/bridge/{bid}/del")
@@ -1282,8 +1305,7 @@ async def patient_bridge_del(request: Request, pid: int, bid: int):
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    ok = await db.delete_bridge(bid, pid)
-    msg = "ok_punte_del" if ok else "bad"
+    msg = await _del_bridge(pid, bid)
     return RedirectResponse(f"/admin/patient/{pid}/odontograma?msg={msg}",
                             status_code=303)
 
@@ -1458,13 +1480,6 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
     legacy_mark = state == "tratament"
     if legacy_mark:
         state = "ok"
-    if tooth not in _FDI_ALL or state not in TOOTH_STATES:
-        return done("bad_card")
-    # врача принимаем только из справочника: свободный текст тут — будущий
-    # «Иванов»/«Иванова» в истории зуба
-    doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
-    # поверхности — только известные буквы и в каноническом порядке MODVL:
-    # «OM» и «MO» это одно и то же, а в карте и на печати должно читаться одинаково
     # ⚠️ Сюда шлют ДВЕ формы, и знают они РАЗНОЕ: диалог фиши — буквы флажками
     # (`sf`), инспектор детальной страницы — карту состояний (`sfst`), букв у
     # него нет вовсе. Поэтому «поля нет» ≠ «пусто»: пустой список от инспектора,
@@ -1472,21 +1487,8 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
     # печатает 043/e. Не сообщённое едет как None — что с ним делать, знает
     # db.set_tooth, там же, где согласуются все три колонки.
     packed = form.get("sfst")
-    sf = None if packed is not None else "".join(
-        k for k in TOOTH_SURFACES
-        if k in {str(x).strip().upper() for x in form.getlist("sf")})
-    # ⚠️ Состояние на поверхность приходит ОДНОЙ строкой «M:carie,O:obturatie»
-    # и разбирается здесь по белым спискам — буквы из TOOTH_SURFACES, состояния
-    # из tsvg.SURFACE_STATES. Пять отдельных полей формы дали бы пять мест, где
-    # проверку можно забыть, а формат хранения всё равно один.
-    sfmap = None
-    if packed is not None:
-        sfmap = {}
-        for part in str(packed).split(","):
-            k, _, v = part.partition(":")
-            k, v = k.strip().upper(), v.strip()
-            if k in TOOTH_SURFACES and v in tsvg.SURFACE_STATES:
-                sfmap[k] = v
+    sf = None if packed is not None else _sf_letters(form.getlist("sf"))
+    sfmap = _sf_map(packed) if packed is not None else None
     # ⚠️ Диалог фиши сообщает состояние, КАК ЕГО ПОКАЗАЛ (`state0`): по нему
     # db отличает «врач сменил состояние» от «врач его не трогал». Признак —
     # факт формы, а не догадка по базе. Белый список тот же, что у `state`;
@@ -1503,11 +1505,48 @@ async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
         marks = [str(x) for x in form.getlist("mk")]
     if legacy_mark:
         marks = list(marks or []) + ["tratament"]
-    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc, sf,
-                       sfmap=sfmap,
-                       state0=str(st0) if st0 in TOOTH_STATES else None,
-                       marks=marks)
-    return done("ok_card")
+    return done(await _save_tooth(pid, tooth, state, note, doctor, sf=sf, sfmap=sfmap,
+                                  state0=str(st0) if st0 is not None else None, marks=marks))
+
+
+def _sf_letters(raw) -> str:
+    """Буквы поверхностей из списка или строки — только известные и в
+    каноническом порядке MODVL: «OM» и «MO» это одно и то же, а в карте и на
+    печати должно читаться одинаково."""
+    items = raw if isinstance(raw, (list, tuple)) else list(str(raw))
+    got = {str(x).strip().upper() for x in items}
+    return "".join(k for k in TOOTH_SURFACES if k in got)
+
+
+def _sf_map(raw) -> dict:
+    """Карта {поверхность: состояние} из строки «M:carie,O:obturatie» (форма)
+    или словаря (JSON) — по белым спискам: буквы из TOOTH_SURFACES, состояния
+    из tsvg.SURFACE_STATES. Одно место разбора на обе формы и API: пять
+    отдельных полей дали бы пять мест, где проверку можно забыть."""
+    pairs = (raw.items() if isinstance(raw, dict)
+             else (part.partition(":")[::2] for part in str(raw).split(",")))
+    out = {}
+    for k, v in pairs:
+        k, v = str(k).strip().upper(), str(v).strip()
+        if k in TOOTH_SURFACES and v in tsvg.SURFACE_STATES:
+            out[k] = v
+    return out
+
+
+async def _save_tooth(pid: int, tooth: int, state: str, note: str, doctor: str, *,
+                      sf: str | None, sfmap: dict | None, state0: str | None,
+                      marks: list | None) -> str:
+    """Запись зуба — одна на диалог фиши, инспектор детальной страницы и JSON
+    API. `sf`/`sfmap`/`marks` = None означает «форма не сообщала», а не
+    «пусто» (прайор 08-16, две потери данных); `state0` — состояние, как его
+    показала форма. Врач — только из справочника: свободный текст тут —
+    будущий «Иванов»/«Иванова» в истории зуба."""
+    if tooth not in _FDI_ALL or state not in TOOTH_STATES:
+        return "bad_card"
+    doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
+    await db.set_tooth(pid, tooth, state, note.strip()[:120], doc, sf, sfmap=sfmap,
+                       state0=state0 if state0 in TOOTH_STATES else None, marks=marks)
+    return "ok_card"
 
 
 async def _add_plan(pid: int, tooth: str, procedure: str, doctor: str,

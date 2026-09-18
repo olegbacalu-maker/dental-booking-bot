@@ -160,7 +160,8 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/settings/backup": "settings_backup",
         "/admin/search": "patients_search",
         "/admin/patient/{pid}": "patient_card",
-        "/admin/visit/{appt_id}": "visit"}
+        "/admin/visit/{appt_id}": "visit",
+        "/admin/patient/{pid}/odontograma": "odontogram"}
 PILOT = {path: "off" for path in FLAG}
 
 

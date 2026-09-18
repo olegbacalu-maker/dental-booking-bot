@@ -358,3 +358,16 @@
 .dp-react-root .vmeta { color: var(--text3); font-size: 12px; margin-top: 6px; }
 .dp-react-root .vsec { margin: 6px 0 0; font-size: 13.5px; }
 .dp-react-root .fform .dlab { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--text3); }
+
+/* ---- клинический модуль (C21): рисунок выбранного зуба в инспекторе — тот же
+   Tooth, но без кнопочного оформления и номера ---- */
+.dp-react-root .insp-pic .tooth-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+.dp-react-root .insp-pic .tooth-btn .num { display: none; }
+.dp-react-root .odo .arch { position: relative; }
