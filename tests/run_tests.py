@@ -29,6 +29,7 @@ import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
+import test_grid  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
@@ -176,6 +177,9 @@ SUITES = [
     ("Неделя: пин поведения (C24)", test_admin.suite_week),
     ("Неделя: JSON API и паритет со страницей", test_schedule_api.suite_api),
     ("Неделя: React-экран и живой опрос", test_schedule_api.suite_switch),
+    ("Сетка дня: контракт построителя (C25)", test_grid.suite_grid),
+    ("Сетка дня: измерение врача", test_grid.suite_doctors),
+    ("Сетка дня: легаси-имена без doctor_id", test_grid.suite_orphan),
     ("Пародонтограмма: старая страница — эталон", test_perio_api.suite_pin),
     ("Пародонтограмма: JSON API осмотров", test_perio_api.suite_api),
     ("Пародонтограмма: React-экран и старая страница", test_perio_api.suite_switch),
