@@ -13,6 +13,7 @@ import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { VisitScreen } from '../features/visits/VisitScreen'
 import { OdontogramScreen } from '../features/clinical/OdontogramScreen'
+import { PerioScreen } from '../features/clinical/PerioScreen'
 
 /**
  * Корень клиента: развилка по имени экрана, которое сервер положил в
@@ -45,6 +46,10 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'odontogram') {
     const t = params.t ? Number(params.t) : null
     return <OdontogramScreen pid={Number(params.pid)} t={Number.isInteger(t) ? t : null} />
+  }
+  if (screen === 'perio') {
+    const e = params.exam ? Number(params.exam) : null
+    return <PerioScreen pid={Number(params.pid)} exam={Number.isInteger(e) ? e : null} />
   }
   return <UnknownScreen screen={screen} />
 }

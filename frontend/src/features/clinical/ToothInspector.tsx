@@ -19,6 +19,8 @@ const T = {
   bridgeFrom: 'Punte nouă de la acest dinte',
   history: 'Istoric',
   noHistory: '— fără înregistrări —',
+  perio: 'Parodontogramă',
+  openPerio: 'Deschide examenul',
 } as const
 
 interface Props {
@@ -42,6 +44,9 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
   const info = n !== null ? model.teeth[String(n)] : undefined
   const inBr = n !== null ? bridgeOf(model, n) : null
   const hist = n !== null ? (model.history[String(n)] ?? []) : []
+  // замер пародонта у ЭТОГО зуба: у одонтограммы и пародонтограммы один зуб,
+  // и врачу не надо уходить со страницы, чтобы вспомнить глубину кармана
+  const perio = n !== null ? model.perio?.[String(n)] : undefined
   return (
     <div className="fcard insp">
       <div className="insp-t">{T.title}</div>
@@ -80,6 +85,15 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
           onSave={onSave}
           onDiscard={onDiscard}
         />
+      )}
+      {perio && (
+        <div className="i-perio">
+          <span>{T.perio} · {perio.at}</span>
+          <b>{perio.text}</b>
+          <a href={`/admin/patient/${model.patient.id}/parodontograma?exam=${perio.exam}`}>
+            {T.openPerio}
+          </a>
+        </div>
       )}
       {info && n !== null && !inBr && !info.milk && onBridgeFrom && (
         <button type="button" className="pl-btn dp-brfrom" disabled={busy} onClick={() => onBridgeFrom(n)}>

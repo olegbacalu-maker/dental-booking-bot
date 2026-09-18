@@ -30,21 +30,24 @@ from fastapi import APIRouter, File, Request, UploadFile
 
 from ... import db
 from ... import engine as eng
+from ... import teeth_svg as tsvg
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import PERM_MONEY, can, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json
 from . import anamneza as panam
 from . import card as pcard
 from . import odontogram as podo
+from . import perio as pperio
 from . import visit as pvisit
 from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _add_alert, _add_bridge,
                      _add_pay, _add_plan, _appoint, _del_bridge, _drop_doc,
                      _erase, _free_slots, _new_patient, _open_doc, _p_age,
-                     _peek_html, _pl_canal, _pl_dmy, _pl_money, _pl_new_foot,
+                     _peek_html, _perio_absent, _perio_ctx, _perio_del,
+                     _pl_canal, _pl_dmy, _pl_money, _pl_new_foot,
                      _pl_stale_cut, _pl_status, _pl_terms, _pl_trend, _plan_del,
-                     _plan_status, _save_anamneza, _save_profile, _save_tooth,
-                     _save_visit, _sf_letters, _sf_map, _store_doc, _visit_back,
-                     _visit_ctx)
+                     _plan_status, _save_anamneza, _save_perio, _save_profile,
+                     _save_tooth, _save_visit, _sf_letters, _sf_map, _store_doc,
+                     _visit_back, _visit_ctx)
 
 router = APIRouter()
 
@@ -724,6 +727,11 @@ async def _odontogram(pid: int, p: dict) -> dict:
     m["patient"] = {"id": pid, "name": p["name"] or "",
                     "primary_doctor": p.get("primary_doctor") or ""}
     m["doctors"] = list(eng.DOCTORS.values())
+    # ⭐ Последний пародонтальный замер по зубам — «зуб 16 один объект»
+    # (контракт clinical-chart.md › «Один зуб на оба инструмента»). Осмотр тот
+    # же, что печатается в 043/e: `perio_last` пропускает пустые листы.
+    exam, prows = await db.perio_last(pid)
+    m["perio"] = pperio.tooth_lines(exam, prows)
     return m
 
 
@@ -809,3 +817,198 @@ async def api_bridge_del(request: Request, pid: int, bid: int):
     if code != "ok_punte_del":
         return msg_json(False, status=404)
     return msg_json(True, code, data=await _odontogram(pid, p))
+
+
+# ======================= пародонтограмма (C23) =======================
+# Единица здесь — датированный ОСМОТР, а не текущее состояние зуба: карта
+# пародонта имеет смысл только в сравнении во времени. Поэтому адрес несёт
+# `?exam=`, а удача действия возвращает выбранный осмотр целиком со сводкой:
+# BOP%, среднюю глубину и CAL СОХРАНЁННОГО осмотра считает сервер
+# (perio.summary), и эти числа уходят в печать и в §4 формы 043/e.
+# ⚠️ У клиента есть свой счёт тех же формул (`summarize`), но только для
+# ЧЕРНОВИКА: врач видит BOP% пока диктует, а не после записи. Владелец правила
+# остаётся один — записанные числа всегда приезжают отсюда.
+
+
+def _tok(value) -> str:
+    """Одно значение в проволочный вид формы. Всё нечисловое и отрицательное
+    становится «x» — не-числом, которое разбор (`_perio_mm`) читает как «не
+    измеряли». ⛔ Не «0» и не обрезка по краю диапазона: 99 мм — это опечатка
+    ввода, и записать её пятнадцатью значит выдумать глубокий карман."""
+    if isinstance(value, bool):
+        return "x"
+    if isinstance(value, int):
+        return str(value) if value >= 0 else "x"
+    if isinstance(value, str):
+        t = value.strip()
+        return t if t.isdecimal() else "x"
+    return "x"
+
+
+def _perio_rows(raw) -> list:
+    """{"16": {pd, rec, bop, mob, furc}} → строки зубов ТЕМ ЖЕ разбором, что у
+    старой формы (`tsvg.parse_perio`).
+
+    ⛔ Второго парсера у API нет намеренно: диапазоны, длина шести точек и
+    отбрасывание чужих номеров живут в `teeth_svg`, и разойтись им негде.
+    ⚠️ Упаковка (`pack_perio`) для этого не годится: она ЗАЖИМАЕТ значение в
+    диапазон, а разбор — отбрасывает. Через API пришло бы «15 мм» там, где та
+    же опечатка в форме даёт «не измеряли».
+    """
+    if not isinstance(raw, dict):
+        return []
+    parts, sent = [], []
+    for num, row in raw.items():
+        if not str(num).strip().isdecimal() or not isinstance(row, dict):
+            continue
+        if not PERIO_ROW_KEYS <= row.keys():
+            # ⛔ Строка зуба — ЕДИНИЦА, и присылается целиком. Недостающее поле
+            # молча стало бы нулями, то есть стёрло бы рецессию, кровоточивость
+            # или подвижность у зуба, которого никто не трогал (прайор 08-16:
+            # «поля нет» ≠ «стереть»). Здесь нельзя ответить «не сообщали»: в
+            # базе строка перезаписывается целиком, половины у неё не бывает.
+            raise ValueError(f"tooth {num}: строка зуба неполная")
+        bop = row.get("bop")
+        if isinstance(bop, list):
+            bop = "".join("1" if x else "0" for x in bop)
+        # разделители проволочного вида внутри значения сломали бы строку
+        # раньше разбора — гасим их нулём, остальное решает _perio_flags
+        bop = "".join("0" if ch in ";/:," else ch for ch in str(bop or ""))[:6]
+
+        def mm(key: str) -> str:
+            src = row.get(key)
+            return ",".join(_tok(x) for x in (src if isinstance(src, list) else [])[:6])
+
+        sent.append(int(str(num).strip()))
+        parts.append(f"{int(str(num).strip())}:{mm('pd')}/{mm('rec')}/{bop}"
+                     f"/{_tok(row.get('mob'))}/{_tok(row.get('furc'))}")
+    rows = tsvg.parse_perio(";".join(parts))
+    got = {r["tooth"]: r for r in rows}
+    for n in sent:
+        if n not in pperio.PERIO_TEETH:
+            continue          # молочные и чужие номера на лист не попадают
+        r = got.get(n)
+        if r is None or not (any(r["pd"]) or any(r["rec"]) or "1" in r["bop"]
+                             or r["mob"] or r["furc"]):
+            # ⛔ Строка прислана, а показаний из неё не вышло ни одного (дробные
+            # миллиметры, слова, null) — это ОТКАЗ, а не удаление зуба. «Стереть»
+            # выражается иначе: зуб НЕ присылают, но называют в `shown`. Иначе
+            # `3.5` в шести точках молча снесло бы измеренный зуб с ответом 200.
+            raise ValueError(f"tooth {n}: ни одного показания")
+    return rows
+
+
+PERIO_ROW_KEYS = frozenset({"pd", "rec", "bop", "mob", "furc"})
+
+
+def _perio_covers(raw) -> set:
+    """Зубы, О КОТОРЫХ запись СООБЩАЕТ: те, что тронули на этом экране. Поля
+    нет — «не сообщали», и тогда не стирается ничего (прайор 08-16): клиент,
+    тронувший один зуб, не должен обнулять остальную карту — а место,
+    открывшее осмотр раньше, сносить чужой зуб (18.09).
+    ⚠️ Номер принимается и строкой: внутри `teeth` строковые числа берутся
+    везде (и ключ зуба, и значения), и только здесь строгость молча съедала бы
+    намерение стереть — отказа при этом человек не увидел бы."""
+    if not isinstance(raw, list):
+        return set()
+    out = set()
+    for x in raw:
+        if isinstance(x, bool):
+            continue
+        if isinstance(x, int):
+            out.add(x)
+        elif isinstance(x, str) and x.strip().isdecimal() and len(x.strip()) <= 3:
+            out.add(int(x.strip()))
+    return out & set(pperio.PERIO_TEETH)
+
+
+def _perio_field(body: dict | None, key: str) -> str | None:
+    """None — поля не было («не сообщали»), строка — значение."""
+    v = (body or {}).get(key)
+    return v if isinstance(v, str) else None
+
+
+async def _perio_model(pid: int, p: dict, want: str) -> dict:
+    exams, cur = await _perio_ctx(pid, want)
+    rows = await db.perio_rows(cur["id"]) if cur else []
+    tmap = await db.teeth_map(pid)
+    return pperio.model(p, exams, cur, rows, tmap, _perio_absent(tmap),
+                        list(eng.DOCTORS.values()))
+
+
+@router.get("/api/patients/{pid}/perio")
+async def api_perio(request: Request, pid: int, exam: str = ""):
+    """Осмотры пациента и измерения выбранного (по умолчанию — свежего):
+    шесть точек на зуб, CAL, сводка, пороги, рисунки зубов и справочники.
+    ⛔ GET ничего не создаёт: пустая карта приезжает с `exam: null`."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    return msg_json(True, data=await _perio_model(pid, p, exam))
+
+
+@router.post("/api/patients/{pid}/perio/exams")
+async def api_perio_new(request: Request, pid: int):
+    """Новый (пустой) осмотр. Летопись пишется при сохранении измерений."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    eid = await db.perio_new(pid)
+    return msg_json(True, "ok_perio_new", data=await _perio_model(pid, p, str(eid)))
+
+
+@router.post("/api/patients/{pid}/perio/{eid}")
+async def api_perio_save(request: Request, pid: int, eid: int):
+    """{teeth: {"16": {pd, rec, bop, mob, furc}}, shown: [16, …], doctor, note}.
+
+    Намерение — явными полями: `covers` называет зубы, О КОТОРЫХ запись
+    сообщает (стираются только они и только неприсланные), `doctor`/`note` без
+    поля не трогаются, `rev` — отпечаток осмотра при загрузке: разошёлся —
+    ответ тот же 200, но словами «осмотр правили и в другом месте»
+    (ok_perio_merged). ⛔ Строка зуба —
+    единица и присылается ЦЕЛИКОМ (все пять полей), иначе 422: половина строки
+    обнулила бы остальные измерения того же зуба. ⛔ Строка, из которой не
+    вышло ни одного показания, — тоже 422: «стереть» выражается тем, что зуб
+    НЕ прислан, хотя назван в `covers`. Чужой осмотр — 404 bad_perio; удача —
+    свежая карта со сводкой."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_perio", field="teeth", status=422)
+    try:
+        rows = _perio_rows(body.get("teeth"))
+    except ValueError:
+        return msg_json(False, "bad_perio", field="teeth", status=422)
+    code = await _save_perio(pid, str(eid), rows,
+                             _perio_covers(body.get("covers")),
+                             _perio_field(body, "doctor"),
+                             _perio_field(body, "note"),
+                             _perio_field(body, "rev") or "")
+    if not code.startswith("ok"):
+        return msg_json(False, code, status=404)
+    return msg_json(True, code, data=await _perio_model(pid, p, str(eid)))
+
+
+@router.post("/api/patients/{pid}/perio/{eid}/delete")
+async def api_perio_del(request: Request, pid: int, eid: int):
+    """Снять ПУСТОЙ осмотр (двойной клик по «Examen nou»). С измерениями —
+    409: медицинскую запись правят, а не заставляют исчезнуть."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    code = await _perio_del(pid, eid)
+    if code == "bad_perio":
+        return msg_json(False, code, status=404)
+    if code != "ok_perio_del":
+        return msg_json(False, code, status=409)
+    return msg_json(True, code, data=await _perio_model(pid, p, ""))

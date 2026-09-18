@@ -22,13 +22,14 @@
 """
 from __future__ import annotations
 
+import hashlib
 import html
 
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core import theme
 from ...core.layout import _ic
-from .odontogram import FDI_LOWER, FDI_UPPER
+from .odontogram import FDI_LOWER, FDI_UPPER, tooth_title
 
 # Постоянные зубы обеих дуг. Молочных в пародонтальной карте не бывает: карта
 # про опору постоянного зуба, и места для временных на листе нет.
@@ -130,16 +131,44 @@ def summary(rows: list) -> dict:
             mob.append((r["tooth"], r["mob"]))
         if r["furc"]:
             furc.append((r["tooth"], r["furc"]))
+    att = sum(v for r in data for v in cal(r))
     return {
         "teeth": len(data), "sites": sites,
         "bop": round(100 * bleed / sites) if sites else 0,
         "pd_mean": round(total / sites, 1) if sites else 0.0,
+        # ⚠️ Знаменатель ТОТ ЖЕ — измеренные точки: у CAL своего счёта точек
+        # нет, потому что он считается только там, где измерена глубина.
+        "cal_mean": round(att / sites, 1) if sites else 0.0,
         "deep": deep, "severe": severe, "mob": mob, "furc": furc,
     }
 
 
+def cal(row: dict) -> list:
+    """Уровень прикрепления по шести точкам: CAL = PD + рецессия.
+
+    ⚠️ Считается ТОЛЬКО там, где карман измерен: PD = 0 значит «не измеряли»
+    (см. шапку модуля), и 0 + рецессия 2 дало бы «CAL 2 мм» на точке, которой
+    никто не касался. Непомеренная точка остаётся нулём и в CAL.
+    ⛔ В базе CAL не хранится: вычислимое не записывать.
+    """
+    return [(mm + rec) if mm > 0 else 0
+            for mm, rec in zip(row["pd"], row["rec"])]
+
+
 def _day(value) -> str:
-    return value.strftime("%d.%m.%Y") if hasattr(value, "strftime") else ""
+    """Дата осмотра словами человека.
+
+    ⚠️ В базе время UTC, а читает лист ЧЕЛОВЕК в Кишинёве (прайор 08-06):
+    осмотр, записанный после 21:00 UTC, без перевода показывал бы вчерашний
+    день — и в списке осмотров, и на печатном листе, и в строке §4 формы
+    043/e. ⚠️ Переводится только значение С ПОЯСОМ: у наивного `astimezone`
+    подставил бы пояс машины и сдвинул бы день во второй раз.
+    """
+    if not hasattr(value, "strftime"):
+        return ""
+    if getattr(value, "tzinfo", None) is not None:
+        value = value.astimezone(eng.TZ)
+    return value.strftime("%d.%m.%Y")
 
 
 def summary_line(exam: dict | None, rows: list, lang: str = "ro") -> str:
@@ -176,6 +205,134 @@ def ledger_words(rows: list, when=None) -> str:
     return (f"{head}: {s['teeth']} dinți măsurați, BOP {s['bop']}%, "
             f"adâncime medie {s['pd_mean']} mm, "
             f"pungi {DEEP_MM}+ mm: {s['deep']}")
+
+
+
+def exam_view(exam: dict) -> dict:
+    """Шапка осмотра для клиента: дата человеку (зона клиники — см. `_day`),
+    врач, заметка, счёт измеренных зубов."""
+    return {"id": exam["id"], "at": _day(exam.get("created_at")),
+            "doctor": exam.get("doctor") or "", "note": exam.get("note") or "",
+            "teeth": int(exam.get("teeth") or 0)}
+
+
+def rev(exam: dict | None, rows: list) -> str:
+    """Отпечаток осмотра: измерения, подпись врача и заметка одной строкой.
+
+    Нужен, чтобы записывающий УЗНАЛ, что лист изменился под ним: экран
+    возвращает отпечаток, с которым осмотр приехал, и расхождение значит, что
+    между загрузкой и записью осмотр правил кто-то ещё.
+    ⛔ Это не замок, а слово: запись проходит в любом случае — безопасной её
+    делает правило `covers` (db.perio_save), а не отказ. Отказ на этом месте
+    отнимал бы у ассистента набранный лист из 192 чисел ради конфликта,
+    которого чаще всего нет: два места правят РАЗНЫЕ зубы.
+    ⚠️ Считается из данных, а не из времени: колонки в базе нет намеренно, и
+    один и тот же осмотр обязан давать один отпечаток на обоих местах.
+    """
+    if not exam:
+        return ""
+    parts = [f"{n}:{','.join(str(x) for x in r['pd'])}"
+             f"/{','.join(str(x) for x in r['rec'])}/{r['bop']}"
+             f"/{r['mob']}/{r['furc']}"
+             for n, r in sorted(rows_map(rows).items())]
+    parts.append(f"@{(exam.get('doctor') or '').strip()}"
+                 f"|{(exam.get('note') or '').strip()}")
+    return hashlib.sha256(";".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def site_items() -> list:
+    """Шесть точек по канону — ключ и слово. Порядок закреплён (PERIO_SITES):
+    он же порядок диктовки, колонок печати и чисел в базе."""
+    return [{"key": k, "label": tsvg.PERIO_SITE_RO[k]} for k in tsvg.PERIO_SITES]
+
+
+def tooth_lines(exam: dict | None, rows: list) -> dict:
+    """Последний замер ПО ЗУБАМ — для инспектора одонтограммы.
+
+    ⭐ «Зуб 16 — один объект»: одонтограмма ключуется по зубу, пародонтограмма
+    по датированному осмотру, и связывает их API (контракт clinical-chart.md).
+    Строка сворачивается здесь в ГОТОВУЮ фразу — по той же причине, что `sfx`
+    и `mkx` у зуба: слова про глубину, кровоточивость и степени живут в одном
+    месте, второй копии в браузере нет.
+    ⚠️ Пусто, если осмотра С ИЗМЕРЕНИЯМИ нет: молчание честнее нулей, которых
+    никто не мерил. Пустой лист, открытый и не заполненный, сюда не попадает —
+    его отсекает `db.perio_last`.
+    """
+    if not exam or not rows:
+        return {}
+    at = _day(exam.get("created_at"))
+    out = {}
+    for n, r in rows_map(rows).items():
+        def half(key: str, lo: int, hi: int, row=r) -> str:
+            return " ".join(str(v) if v else "·" for v in row[key][lo:hi])
+
+        parts = [f"PD {half('pd', 0, 3)} / {half('pd', 3, 6)}"]
+        if any(r["rec"]):
+            parts.append(f"recesiune {half('rec', 0, 3)} / {half('rec', 3, 6)}")
+        bleed = r["bop"].count("1")
+        if bleed:
+            parts.append(f"sângerare {bleed}/6")
+        if r["mob"]:
+            parts.append(f"mobilitate {MOB_RO.get(r['mob'], r['mob'])}")
+        if r["furc"]:
+            parts.append(f"furcație {FURC_RO.get(r['furc'], r['furc'])}")
+        out[str(n)] = {"at": at, "exam": exam["id"], "text": " · ".join(parts)}
+    return out
+
+
+def model(patient: dict, exams: list, exam: dict | None, rows: list,
+          tmap: dict, absent: set, doctors: list) -> dict:
+    """Пародонтограмма данными для React (C23, docs/dentpilot-2/clinical-chart.md).
+
+    Клиент не считает ничего клинического: сводка, CAL, пороги, приглушение
+    отсутствующего зуба и подпись точки приезжают отсюда. Рисунок зуба — та же
+    геометрия, что у одонтограммы (`teeth_svg`), поэтому зуб 16 под колонкой
+    выглядит ровно как на карте и на печати.
+    ⚠️ `rows` — измерения ВЫБРАННОГО осмотра: единица хранения здесь осмотр, и
+    «текущего состояния зуба» у пародонта не существует.
+    ⚠️ Оба вида зуба едут, хотя лист показывает только лицевой: замер ответа —
+    74 КБ, из них 37 КБ вид сверху, и это localhost при 192 КБ одонтограммы.
+    Отдавать пустую строку вторым видом дешевле на треть и опаснее: тип у
+    рисунка один на оба экрана, и следующий, кто передаст `view='ocluzal'`,
+    получит пустой зуб молча. Урезать — только с замером, который покажет
+    задержку.
+    """
+    data = rows_map(rows)
+    measured = {str(n): {**r, "cal": cal(r)} for n, r in data.items()}
+    teeth = {}
+    for n in PERIO_TEETH:
+        t = tmap.get(n)
+        st = t["state"] if t else "ok"
+        sfmap = tsvg.surface_map(st, (t["surfaces"] if t else "") or "",
+                                 (t["surface_states"] if t else "") or "")
+        mk = tsvg.mark_list((t["marks"] if t else "") or "")
+        teeth[str(n)] = {
+            "state": st, "absent": n in absent, "title": tooth_title(n, tmap),
+            "svg": {
+                "frontal": tsvg.tooth_svg(n, st, width=38, interactive=True,
+                                          surfaces=sfmap, marks=mk),
+                "occlusal": tsvg.occlusal_svg(n, st, width=52, interactive=True,
+                                              surfaces=sfmap, marks=mk),
+            },
+        }
+    return {
+        "patient": {"id": patient["id"], "name": patient.get("name") or ""},
+        "exams": [exam_view(x) for x in exams],
+        "exam": exam_view(exam) if exam else None,
+        # отпечаток ТОГО, что сейчас уезжает на экран: с ним запись и вернётся
+        "rev": rev(exam, rows),
+        "rows": measured,
+        "teeth": teeth,
+        "arches": {"upper": list(FDI_UPPER), "lower": list(FDI_LOWER)},
+        "sites": site_items(),
+        "summary": summary(list(data.values())),
+        "limits": {"mm_max": tsvg.PERIO_MM_MAX, "mob_max": tsvg.PERIO_MOB_MAX,
+                   "furc_max": tsvg.PERIO_FURC_MAX,
+                   "deep": DEEP_MM, "severe": SEVERE_MM},
+        "grades": {"mob": {str(k): v for k, v in MOB_RO.items()},
+                   "furc": {str(k): v for k, v in FURC_RO.items()}},
+        "doctors": list(doctors),
+    }
 
 
 # --------------------------------------------------------------- экран
@@ -266,7 +423,7 @@ def page(patient: dict, exam: dict, exams: list, rows: list, absent: set,
     cur_doc = (exam.get("doctor") or "").strip()
     docs = doc_opts.replace(f">{e(cur_doc)}<",
                             f" selected>{e(cur_doc)}<") if cur_doc else doc_opts
-    shown = ",".join(str(n) for n in PERIO_TEETH)
+    rv = rev(exam, rows)
     return f"""<div class='perio' id='perio'>
 <div class='odop-top'>
   <a class='odop-back' href='{e(base)}'>{_ic('pat')} {e(patient['name'])}</a>
@@ -286,7 +443,8 @@ def page(patient: dict, exam: dict, exams: list, rows: list, absent: set,
 <form method='post' action='{e(base)}/perio' id='pform'>
   <input type='hidden' name='exam' value='{exam['id']}'>
   <input type='hidden' name='chart' id='pchart'>
-  <input type='hidden' name='shown' value='{shown}'>
+  <input type='hidden' name='covers' id='pcovers'>
+  <input type='hidden' name='rev' value='{rv}'>
   <div class='pgrid'>
     <div class='fcard'>
       <p class='hint'>Rânduri: adâncimea de sondare și recesiunea, dinspre
@@ -392,32 +550,61 @@ CHART_JS = """
     if (i >= 0 && i + 1 < cells.length) { cells[i + 1].focus(); cells[i + 1].select(); }
   }
 
-  /* Сборка проволочной строки ПЕРЕД отправкой: одно скрытое поле вместо
-     двухсот, как мост уезжает строкой «47:stalp,46:corp».
-     ВАЖНО: зуб без единого показания в строку НЕ попадает — сервер обязан
+  /* Проволочная строка ОДНОЙ колонки — та же, что уезжает в поле `chart`:
+     одно скрытое поле вместо двухсот, как мост уезжает «47:stalp,46:corp».
+     ВАЖНО: зуб без единого показания даёт ПУСТУЮ строку — сервер обязан
      отличать «не измеряли» от «измерили, и там ноль». */
+  function wire(col) {
+    var r = {pd: [0,0,0,0,0,0], rec: [0,0,0,0,0,0], bop: [0,0,0,0,0,0],
+             mob: 0, furc: 0};
+    col.querySelectorAll('.pcell').forEach(function (cell) {
+      var inp = cell.querySelector('input');
+      if (!inp) return;
+      var i = parseInt(inp.dataset.i, 10);
+      r[inp.dataset.k][i] = parseInt(inp.value, 10) || 0;
+      var dot = cell.querySelector('.pdot');
+      if (dot && dot.classList.contains('on')) r.bop[i] = 1;
+    });
+    col.querySelectorAll('select').forEach(function (s) {
+      r[s.dataset.k] = parseInt(s.value, 10) || 0;
+    });
+    var any = r.pd.concat(r.rec, r.bop).some(function (x) { return x > 0; });
+    if (!any && !r.mob && !r.furc) return '';
+    return col.dataset.tooth + ':' + r.pd.join(',') + '/' + r.rec.join(',')
+           + '/' + r.bop.join('') + '/' + r.mob + '/' + r.furc;
+  }
+
+  /* Слепок листа НА ЗАГРУЗКЕ. Сохранение сообщает только о том, что тронули,
+     и поле `covers` называет эти зубы поимённо — сервер стирает ровно их.
+     ВАЖНО: без слепка лист уезжает целиком, и место, открывшее осмотр раньше,
+     сносит чужой зуб и возвращает чужие числа к тем, что видело само (18.09).
+     ВАЖНО: неизменённые подпись и заметку не отправляем ВОВСЕ — «поля нет»
+     значит «не сообщали», и стала́я вкладка иначе стёрла бы чужую подпись. */
+  var base = {}, head = {};
+  form.querySelectorAll('.ptooth').forEach(function (col) {
+    base[col.dataset.tooth] = wire(col);
+  });
+  ['doctor', 'note'].forEach(function (k) {
+    var el = form.querySelector("[name='" + k + "']");
+    if (!el) return;
+    el.dataset.f = k;
+    head[k] = el.value;
+  });
+
   form.addEventListener('submit', function () {
-    var out = [];
+    var out = [], covers = [];
     form.querySelectorAll('.ptooth').forEach(function (col) {
-      var r = {pd: [0,0,0,0,0,0], rec: [0,0,0,0,0,0], bop: [0,0,0,0,0,0],
-               mob: 0, furc: 0};
-      col.querySelectorAll('.pcell').forEach(function (cell) {
-        var inp = cell.querySelector('input');
-        if (!inp) return;
-        var i = parseInt(inp.dataset.i, 10);
-        r[inp.dataset.k][i] = parseInt(inp.value, 10) || 0;
-        var dot = cell.querySelector('.pdot');
-        if (dot && dot.classList.contains('on')) r.bop[i] = 1;
-      });
-      col.querySelectorAll('select').forEach(function (s) {
-        r[s.dataset.k] = parseInt(s.value, 10) || 0;
-      });
-      var any = r.pd.concat(r.rec, r.bop).some(function (x) { return x > 0; });
-      if (!any && !r.mob && !r.furc) return;
-      out.push(col.dataset.tooth + ':' + r.pd.join(',') + '/' + r.rec.join(',')
-               + '/' + r.bop.join('') + '/' + r.mob + '/' + r.furc);
+      var now = wire(col);
+      if (now === base[col.dataset.tooth]) return;
+      covers.push(col.dataset.tooth);
+      if (now) out.push(now);
     });
     document.getElementById('pchart').value = out.join(';');
+    document.getElementById('pcovers').value = covers.join(',');
+    Object.keys(head).forEach(function (k) {
+      var el = form.querySelector("[data-f='" + k + "']");
+      if (el && el.value === head[k]) el.removeAttribute('name');
+    });
   });
 
   recalc();

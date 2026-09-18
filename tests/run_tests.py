@@ -36,6 +36,7 @@ import test_migrate  # noqa: E402
 import test_odontogram_api  # noqa: E402
 import test_bot  # noqa: E402
 import test_perio  # noqa: E402
+import test_perio_api  # noqa: E402
 import test_pin  # noqa: E402
 import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
@@ -167,6 +168,12 @@ SUITES = [
     ("Одонтограмма: старые страницы — эталон", test_odontogram_api.suite_pin),
     ("Одонтограмма: JSON API", test_odontogram_api.suite_api),
     ("Одонтограмма: React-экран и старая страница", test_odontogram_api.suite_switch),
+    ("Пародонтограмма: старая страница — эталон", test_perio_api.suite_pin),
+    ("Пародонтограмма: JSON API осмотров", test_perio_api.suite_api),
+    ("Пародонтограмма: React-экран и старая страница", test_perio_api.suite_switch),
+    ("Пародонтограмма: дата осмотра в зоне клиники", test_perio_api.suite_day),
+    ("Пародонтограмма: два рабочих места в одном осмотре",
+     test_perio_api.suite_two_seats),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),

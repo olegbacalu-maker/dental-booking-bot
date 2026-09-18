@@ -1331,6 +1331,88 @@ async def _perio_ctx(pid: int, want: str):
     return exams, (exam or (exams[0] if exams else None))
 
 
+# Больше в колонку SQLite INTEGER не влезает. ⛔ Проверять ДЛИНУ, а не только
+# «состоит из цифр»: миллион цифр в адресе — это ещё и ValueError самого
+# int() (у Python с 3.11 потолок на разбор), то есть 500 вместо отказа.
+_EXAM_ID_MAX = 2 ** 63 - 1
+
+
+def _exam_id(value) -> int | None:
+    """Номер осмотра из адреса или формы; None — «такого номера быть не может».
+
+    ⛔ Не просто `isdecimal`: число больше 2^63−1 драйвер SQLite принять не
+    может и бросает OverflowError уже внутри `db`. Маршрут отвечал бы голым
+    500 «Internal Server Error» вместо конверта с отказом, а старая форма —
+    страницей ошибки вместо «осмотр не найден» (нашло ревью C23 18.09).
+    """
+    v = str(value).strip()
+    if not v.isdecimal() or len(v) > 19:
+        return None
+    n = int(v)
+    return n if 0 < n <= _EXAM_ID_MAX else None
+
+
+def _perio_doctor(value: str | None, current: str = "") -> str | None:
+    """Врач осмотра — снимок ЛЕЧАЩЕГО из справочника, а не вошедшего.
+
+    ⚠️ Три значения, а не два: None — «форма врача не показывала» (ничего не
+    трогаем), пустая строка — «стереть», имя из справочника — записать.
+    Чужое имя приходит пустотой, а не ошибкой: подпись осмотра не повод
+    отказать в сохранении измерений.
+    ⚠️ `current` — подпись, которая УЖЕ стоит на осмотре: её врача могли
+    переименовать или отправить в архив, и тогда снимка нет в справочнике.
+    Без этой ветки первое же дописанное измерение стирало бы подпись
+    прошлогоднего осмотра — молча и навсегда, потому что снимок больше нигде
+    не хранится.
+    """
+    if value is None:
+        return None
+    v = value.strip()
+    if v and v == (current or "").strip():
+        return v
+    return v if v in set(eng.DOCTORS.values()) else ""
+
+
+async def _save_perio(pid: int, exam: str, parsed: list, covers: set,
+                      doctor: str | None, note: str | None,
+                      rev: str = "") -> str:
+    """Записать измерения осмотра. Правила одни на форму и на JSON API.
+    `doctor` приходит СЫРЫМ (как его показала форма) — сверяет со справочником
+    и с прежней подписью `_perio_doctor`, ему для этого нужен сам осмотр.
+
+    ⛔ `covers` — зубы, О КОТОРЫХ экран сообщает: те, что на нём тронули.
+    Стираются только они и только неприсланные (db.perio_save): пустой зуб,
+    названный в `covers`, значит «измерений больше нет», зуб вне `covers` —
+    «не трогали», и это разные вещи (08-16, две потери данных ровно на этом
+    различии; 18.09 — потеря чужого зуба при двух рабочих местах).
+    ⚠️ `rev` — отпечаток осмотра НА ЗАГРУЗКЕ экрана. Расхождение не отказ:
+    запись проходит (безопасной её делает `covers`), но ответ иной — человек
+    обязан узнать, что лист под ним успело поправить второе место.
+    ⚠️ Отпечаток снимается ДО записи и вне замка `perio_save`: это слово, а не
+    замок, и совпавшие по времени сохранения оно просто не заметит.
+    """
+    eid = _exam_id(exam)
+    cur = await db.perio_exam(pid, eid) if eid is not None else None
+    if cur is None:
+        return "bad_perio"
+    merged = bool(rev) and rev != pperio.rev(cur, await db.perio_rows(cur["id"]))
+    await db.perio_save(pid, cur["id"], pperio.chart_norm(parsed), covers,
+                        doctor=_perio_doctor(doctor, cur.get("doctor") or ""),
+                        note=None if note is None else note.strip()[:200])
+    return "ok_perio_merged" if merged else "ok_perio"
+
+
+async def _perio_del(pid: int, eid) -> str:
+    """Снять ПУСТОЙ осмотр. Осмотр с измерениями — медицинская запись.
+    ⚠️ Несуществующий осмотр — «не найден», а не «в нём есть измерения»:
+    `db.perio_drop` отвечает False на оба случая, и человеку доставалась
+    фраза про измерения там, где осмотра нет вовсе."""
+    n = _exam_id(eid)
+    if n is None or not (await db.perio_exam(pid, n)):
+        return "bad_perio"
+    return "ok_perio_del" if await db.perio_drop(pid, n) else "bad_perio_del"
+
+
 @router.get("/admin/patient/{pid}/parodontograma", response_class=HTMLResponse)
 async def patient_perio(request: Request, pid: int, exam: str = Query(""),
                         msg: str = Query("")):
@@ -1344,6 +1426,17 @@ async def patient_perio(request: Request, pid: int, exam: str = Query(""),
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
+    if react_on(request, "perio"):
+        # DentPilot 2.0 (C23): та же рамка с узким сайдбаром, узел React с
+        # фишей и выбранным осмотром; данные — GET /api/patients/{pid}/perio.
+        # ⚠️ Проверка id осмотра остаётся серверной (`_perio_ctx`): сюда едет
+        # только то, что пришло в адресе, а чужой номер клиент и не увидит.
+        params = {"pid": str(pid)}
+        if exam.strip().isdecimal():
+            params["exam"] = exam.strip()
+        return _shell(msg_banner(msg) + react_mount(
+            "perio", f"/admin/patient/{pid}/parodontograma", params),
+            f"parodontogramă · #{pid}", active="pat", rail=True)
     base = f"/admin/patient/{pid}"
     exams, cur = await _perio_ctx(pid, exam)
     if cur is None:
@@ -1385,14 +1478,18 @@ async def patient_perio_new(request: Request, pid: int):
 @router.post("/admin/patient/{pid}/perio")
 async def patient_perio_save(request: Request, pid: int,
                              exam: str = Form(""), chart: str = Form(""),
-                             shown: str = Form(""),
+                             covers: str = Form(""), rev: str = Form(""),
                              doctor: str | None = Form(None),
                              note: str | None = Form(None)):
     """Сохранить измерения осмотра.
 
-    ⛔ `shown` — какие зубы форма ПОКАЗЫВАЛА. Стираются только они: пустое поле
-    значит «не измеряли», а отсутствие зуба в форме — «не показывали», и это
-    разные вещи (08-16, две потери данных ровно на этом различии).
+    ⛔ `covers` — зубы, о которых форма СООБЩАЕТ: те, что на ней тронули (лист
+    называет их сам, сравнивая себя со слепком при загрузке). Стираются только
+    они: пустой зуб, названный в `covers`, значит «измерений больше нет», зуб
+    вне `covers` — «не трогали», и это разные вещи (08-16, две потери данных
+    ровно на этом различии; 18.09 — потеря чужого зуба при двух местах).
+    ⚠️ Поля `covers` нет вовсе — не стирается ничего: так ведёт себя лист без
+    JS, и это правильный отказ в сторону сохранности.
     ⚠️ Врач принимается только из справочника: в осмотре он снапшот ЛЕЧАЩЕГО,
     а вошедшая учётка (нередко «Director») была бы там враньём.
     """
@@ -1401,19 +1498,12 @@ async def patient_perio_save(request: Request, pid: int,
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
     back = f"/admin/patient/{pid}/parodontograma"
-    cur = await db.perio_exam(pid, int(exam)) if exam.strip().isdecimal() else None
-    if cur is None:
-        return RedirectResponse(f"{back}?msg=bad_perio", status_code=303)
-    rows = pperio.chart_norm(tsvg.parse_perio(chart))
-    seen = {int(x) for x in re.findall(r"\d+", shown)} & set(pperio.PERIO_TEETH)
-    # ⚠️ None ≠ пустая строка: поля НЕТ в форме — «не сообщали», поле пустое —
-    # «стереть». Form("") стирало бы подпись осмотра при любой отправке, где
-    # врача не показывали (та же грабля 08-16, что с поверхностями зуба).
-    doc = None if doctor is None else (
-        doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else "")
-    await db.perio_save(pid, cur["id"], rows, seen, doctor=doc,
-                        note=None if note is None else note.strip()[:200])
-    return RedirectResponse(f"{back}?exam={cur['id']}&msg=ok_perio",
+    seen = {int(x) for x in re.findall(r"\d+", covers)} & set(pperio.PERIO_TEETH)
+    code = await _save_perio(pid, exam, tsvg.parse_perio(chart), seen,
+                             doctor, note, rev)
+    if not code.startswith("ok"):
+        return RedirectResponse(f"{back}?msg={code}", status_code=303)
+    return RedirectResponse(f"{back}?exam={exam.strip()}&msg={code}",
                             status_code=303)
 
 
@@ -1423,8 +1513,7 @@ async def patient_perio_del(request: Request, pid: int, eid: int):
         return deny
     if not (await db.get_patient(pid)):
         return RedirectResponse("/admin/search", status_code=303)
-    ok = await db.perio_drop(pid, eid)
-    msg = "ok_perio_del" if ok else "bad_perio_del"
+    msg = await _perio_del(pid, eid)
     return RedirectResponse(f"/admin/patient/{pid}/parodontograma?msg={msg}",
                             status_code=303)
 

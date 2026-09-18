@@ -55,6 +55,7 @@ const MODEL: Odontogram = {
   materials: [{ id: 'zirconiu', label: 'Zirconiu' }, { id: 'alt', label: 'Alt material…' }],
   patient: { id: 5, name: 'Odonto Pin', primary_doctor: '' },
   doctors: ['Dr. Activ Doi', 'Dr. Activ Trei'],
+  perio: { '16': { at: '18.09.2026', exam: 7, text: 'PD 3 2 3 / 4 2 5 · sângerare 2/6' } },
 }
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
@@ -400,5 +401,23 @@ describe('C22: поверхность как первичный жест, чер
     fireEvent.click(within(inspector()).getByText('Punte nouă de la acest dinte'))
     expect(btn(16).className).toContain('br-pick')
     expect(screen.getByText('Continuă')).toBeTruthy()
+  })
+})
+
+describe('замер пародонта в инспекторе', () => {
+  it('у зуба с осмотром — строка сервера и ссылка в тот же осмотр', async () => {
+    render(<OdontogramScreen pid={5} t={16} navigate={() => {}} />)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    const box = document.querySelector('.i-perio') as HTMLElement
+    expect(box.textContent).toContain('PD 3 2 3 / 4 2 5 · sângerare 2/6')
+    expect(box.textContent).toContain('18.09.2026')
+    expect(box.querySelector('a')?.getAttribute('href'))
+      .toBe('/admin/patient/5/parodontograma?exam=7')
+  })
+
+  it('у зуба без осмотра блока нет — нулей не выдумываем', async () => {
+    render(<OdontogramScreen pid={5} t={21} navigate={() => {}} />)
+    await waitFor(() => expect(btn(21)).toBeTruthy())
+    expect(document.querySelector('.i-perio')).toBeNull()
   })
 })

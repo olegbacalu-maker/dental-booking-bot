@@ -184,7 +184,9 @@ def suite_api(res: Result) -> None:
         res.check("состав", sorted(d),
                   sorted(["teeth", "history", "arches", "arc", "milk_open", "bridges", "legend",
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
-                          "materials", "patient", "doctors"]))
+                          "materials", "patient", "doctors", "perio"]))
+        res.check("без пародонтального осмотра замеров нет — нулей не выдумываем",
+                  d["perio"], {})
         teeth_old = _blob(page, "TEETH")
         res.check("зубы: те же данные, что TEETH старой страницы",
                   {k: {f: v[f] for f in teeth_old[k]} for k, v in d["teeth"].items()}, teeth_old)
@@ -293,6 +295,28 @@ def suite_api(res: Result) -> None:
         res.check("чужой Origin — 403",
                   c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "carie"},
                               headers={"Origin": "http://evil.example"}).status, 403)
+
+        # ---- замер пародонта у того же зуба (контракт: зуб один на оба
+        # инструмента). Осмотр заводится СТАРОЙ формой: так проверяется и то,
+        # что инспектор читает те же данные, что печатает 043/e.
+        loc = c.post(f"/admin/patient/{pid}/perio/new").location or ""
+        eid = int(re.search(r"exam=(\d+)", loc).group(1))
+        perm = ",".join(str(n) for n in (
+            [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
+            + [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]))
+        c.post(f"/admin/patient/{pid}/perio", exam=str(eid), shown=perm,
+               chart=("16:3,2,3,4,2,5/1,0,0,0,0,2/010010/1/2;"
+                      "46:2,2,2,2,2,2/0,0,0,0,0,0/000000/0/0"))
+        per = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["perio"]
+        res.check("замер зуба — готовой фразой сервера, с рецессией и степенями",
+                  per["16"]["text"],
+                  "PD 3 2 3 / 4 2 5 · recesiune 1 · · / · · 2 · sângerare 2/6 "
+                  "· mobilitate gr. I · furcație gr. II")
+        res.check("у зуба без рецессии и степеней — только глубины",
+                  per["46"]["text"], "PD 2 2 2 / 2 2 2")
+        res.check("неизмеренный зуб строки не получает и осмотр назван номером",
+                  (sorted(per), per["16"]["exam"], per["16"]["at"] == _dmy(0)),
+                  (["16", "46"], eid, True))
 
 
 def _server_with_flag(env: dict | None = None) -> Server:

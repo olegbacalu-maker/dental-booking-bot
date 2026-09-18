@@ -1,5 +1,5 @@
 import type { CSSProperties, MouseEvent } from 'react'
-import type { ToothInfo, View } from './chart'
+import type { ToothVisual, View } from './chart'
 
 /*
  * Один зуб = слои поверх серверной геометрии:
@@ -16,7 +16,8 @@ import type { ToothInfo, View } from './chart'
  */
 interface Props {
   n: number
-  info: ToothInfo
+  /** Рисунок и подпись: `ToothInfo` одонтограммы или зуб пародонтограммы. */
+  info: ToothVisual
   view: View
   selected?: boolean
   picked?: boolean

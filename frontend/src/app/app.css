@@ -422,4 +422,44 @@
   .dp-react-root .odop .arch .tooth-svg .sfz circle { r: 7.5px; }
   .dp-react-root .odop .arch .tooth-btn { padding: 6px 3px; }
 }
+/* пародонтограмма (C23): рисунок зуба под колонкой измерений — та же
+   геометрия, что на одонтограмме и на печати, со стороны средней линии.
+   ⚠️ Кнопка зуба здесь только ведёт фокус в колонку, поэтому подсветки
+   выбора у неё нет: выбранного зуба на этом листе не существует. */
+.dp-react-root .ptpic { display: flex; justify-content: center; margin-top: 2px; }
+.dp-react-root .ptpic .tooth-btn { padding: 2px; cursor: pointer; }
+/* ⚠️ Номер у колонки УЖЕ есть (.pnum между рядами), а `Tooth` рисует свой —
+   на листе он выходил вторым этажом цифр под каждым зубом. Прячем рисуемый,
+   а не убираем из компонента: на одонтограмме он несущий. */
+.dp-react-root .ptpic .num { display: none; }
+.dp-react-root .ptooth.absent .ptpic { opacity: .7; }
+.dp-react-root .pexam { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+@media print { .dp-react-root .ptpic { display: none; } }
+/* замер пародонта в инспекторе: цифры сервера одной строкой + ссылка в лист */
+.dp-react-root .i-perio {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel2, transparent);
+}
+.dp-react-root .i-perio span { font-size: 11.5px; color: var(--text3); }
+.dp-react-root .i-perio b { font-size: 12.5px; font-weight: 600; }
+.dp-react-root .i-perio a { font-size: 12px; color: var(--teal-d); }
+/* ⚠️ Запертая кнопка обязана ВЫГЛЯДЕТЬ запертой: у .pl-btn и .odo-more в
+   panel.css своего вида для :disabled нет (старым страницам он не был нужен —
+   они ничего не запирали), и «Salvează examenul», заблокированная за
+   отсутствием правок, казалась рабочей. Та же мера, что у инспектора
+   одонтограммы (.insp-f button[disabled]). */
+.dp-react-root .pl-btn:disabled,
+.dp-react-root .odo-more:disabled { opacity: .45; cursor: default; }
+.dp-react-root .pl-btn:disabled:hover,
+.dp-react-root .odo-more:disabled:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--line);
+}
 @media print { .dp-cmenu, .dp-draft, .dp-brfrom { display: none; } }

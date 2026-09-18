@@ -49,6 +49,15 @@ export function useLoad<T>(
     setAttempt((n) => n + 1)
   }, [])
 
+  /**
+   * Вернуть экран в «загрузку» перед сменой того, ЧТО грузится (другой
+   * осмотр, другой период). Без этого прежние данные висят на экране весь
+   * запрос: человек уже выбрал другое, а видит и ПРАВИТ старое — и правка
+   * уходит в запись, которую он только что покинул. `retry` для этого не
+   * годится: он перезапускает ту же загрузку.
+   */
+  const reset = useCallback(() => setState({ status: 'loading' }), [])
+
   const replace = useCallback((data: T) => setState({ status: 'ready', data }), [])
 
   /** Отказ действия (POST): 401 уводит на вход, остальное — вызывающему. */
@@ -62,5 +71,5 @@ export function useLoad<T>(
     [navigate],
   )
 
-  return { state, retry, replace, leaveIfSignedOut }
+  return { state, retry, reset, replace, leaveIfSignedOut }
 }

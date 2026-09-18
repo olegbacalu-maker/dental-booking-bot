@@ -9,7 +9,16 @@ import { api } from '../../services/api'
 export type View = 'frontal' | 'ocluzal'
 export type Jaw = 'sus' | 'jos'
 
-export interface ToothInfo {
+/** Что нужно, чтобы НАРИСОВАТЬ зуб, и ничего сверх того: рисунок сервера и
+ *  готовая подпись. Пародонтограмма даёт компоненту `Tooth` ровно это —
+ *  второго рисовальщика зуба в клиенте не будет (контракт clinical-chart.md). */
+export interface ToothVisual {
+  /** Подпись зуба словами — та же, что title кнопки старой страницы. */
+  title: string
+  svg: { frontal: string; occlusal: string }
+}
+
+export interface ToothInfo extends ToothVisual {
   jaw: Jaw
   /** Где мезиальная сторона на экране — считает сервер по квадранту. */
   mez: 'left' | 'right'
@@ -27,10 +36,7 @@ export interface ToothInfo {
   mk: string[]
   mkx: string
   milk: boolean
-  /** Подпись зуба словами — та же, что title кнопки старой страницы. */
-  title: string
   bridge: { role: string; material: string } | null
-  svg: { frontal: string; occlusal: string }
 }
 
 export interface Bridge {
@@ -71,6 +77,11 @@ export interface Odontogram {
   materials: { id: string; label: string }[]
   patient: { id: number; name: string; primary_doctor: string }
   doctors: string[]
+  /** Последний пародонтальный замер по зубам: дата, id осмотра и ГОТОВАЯ
+   *  фраза сервера. ⛔ Своей фразы у клиента нет — слова про глубину и степени
+   *  живут в `perio.py`, как `sfx` у поверхностей. Пусто, если осмотра с
+   *  измерениями у пациента ещё не было. */
+  perio?: Record<string, { at: string; exam: number; text: string }>
 }
 
 /** Запись зуба — намерение явным полем: `surfaces` всегда карта (форма

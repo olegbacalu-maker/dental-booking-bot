@@ -26,7 +26,8 @@ def _new_exam(c: Client, base: str) -> str:
     return m.group(1) if m else "0"
 
 
-# Все постоянные зубы — то, что показывает форма (поле `shown`).
+# Все постоянные зубы. ⚠️ Целиком они попадают в поле `covers` только здесь:
+# проверки правят карту разом, а живой лист называет лишь ТРОНУТЫЕ зубы.
 ALL_TEETH = ",".join(str(n) for n in (
     [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
     + [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]))
@@ -56,7 +57,7 @@ def suite_perio(res: Result) -> None:
 
         # --- осмотр и первые измерения ---
         eid = _new_exam(c, base)
-        r = c.post(f"{base}/perio", exam=eid, chart=CHART, shown=ALL_TEETH,
+        r = c.post(f"{base}/perio", exam=eid, chart=CHART, covers=ALL_TEETH,
                    doctor="Dr. Activ Doi", note="reevaluare")
         res.check("измерения сохраняются", r.msg, "ok_perio")
 
@@ -117,7 +118,7 @@ def suite_perio(res: Result) -> None:
 
         # --- дисциплина разбора ---
         eid2 = _new_exam(c, base)
-        c.post(f"{base}/perio", exam=eid2, shown=ALL_TEETH,
+        c.post(f"{base}/perio", exam=eid2, covers=ALL_TEETH,
                chart="55:3,3,3,3,3,3/0/000000/0/0;"      # молочный
                      "99:3,3,3,3,3,3/0/000000/0/0;"      # чужой номер
                      "17:99,99,99,99,99,99/0/000000/0/0;"  # 99 мм — опечатка
@@ -130,19 +131,19 @@ def suite_perio(res: Result) -> None:
                and "<span>Dinți măsurați</span><b>0</b>" in page2,
                "молочный, чужой номер, 99 мм или пустой зуб доехали до базы")
 
-        # --- ⛔ поле, которого форма не показывала, не стирается ---
+        # --- ⛔ зуб, о котором форма не сообщала, не стирается ---
         r = c.post(f"{base}/perio", exam=eid, chart="16:3,2,3,4,2,5/1,0,0,0,0,2/010010/1/2",
-                   shown="16")
+                   covers="16")
         res.check("узкая форма сохраняется", r.msg, "ok_perio")
         page = c.get(f"{base}/parodontograma?exam={eid}").body
-        res.ok("зуб вне показанного НЕ стёрт",
+        res.ok("зуб, о котором не сообщали, НЕ стёрт",
                "<b>2</b>" in page and "value='2'" in page,
                "форма на один зуб стёрла остальные — «поля нет» приняли за "
                "«стереть» (грабля 08-16)")
 
         # --- пересохранение без правок тождественно ---
         before = c.get(f"{base}/parodontograma?exam={eid}").body
-        c.post(f"{base}/perio", exam=eid, chart=CHART, shown=ALL_TEETH,
+        c.post(f"{base}/perio", exam=eid, chart=CHART, covers=ALL_TEETH,
                doctor="Dr. Activ Doi", note="reevaluare")
         after = c.get(f"{base}/parodontograma?exam={eid}").body
         res.ok("пересохранение без правок ничего не меняет",
@@ -151,7 +152,7 @@ def suite_perio(res: Result) -> None:
 
         # --- осмотры независимы ---
         c.post(f"{base}/perio", exam=eid2, chart="36:4,4,4,4,4,4/0/111111/0/0",
-               shown=ALL_TEETH)
+               covers=ALL_TEETH)
         first = c.get(f"{base}/parodontograma?exam={eid}").body
         res.ok("прошлый осмотр не тронут новым",
                "<b>17%</b>" in first,
@@ -170,7 +171,7 @@ def suite_perio(res: Result) -> None:
         other.post("/admin/patients/new", name="Perio Altul", phone="022686868")
         pid2 = _pid(other, "022686868")
         r = other.post(f"/admin/patient/{pid2}/perio", exam=eid,
-                       chart="11:3,3,3,3,3,3/0/000000/0/0", shown=ALL_TEETH)
+                       chart="11:3,3,3,3,3,3/0/000000/0/0", covers=ALL_TEETH)
         res.check("чужой id осмотра отбивается", r.msg, "bad_perio")
         res.ok("чужие измерения не приписаны",
                "<b>17%</b>" in c.get(f"{base}/parodontograma?exam={eid}").body,
@@ -181,7 +182,7 @@ def suite_perio(res: Result) -> None:
         third.post("/admin/patients/new", name="Perio Erase", phone="022696969")
         pid3 = _pid(third, "022696969")
         e3 = _new_exam(third, f"/admin/patient/{pid3}")
-        third.post(f"/admin/patient/{pid3}/perio", exam=e3, shown=ALL_TEETH,
+        third.post(f"/admin/patient/{pid3}/perio", exam=e3, covers=ALL_TEETH,
                    chart="21:3,3,3,3,3,3/0/000000/0/0")
         r = third.post(f"/admin/patient/{pid3}/erase", confirm="STERG")
         res.check("фиша с осмотром обезличивается, а не стирается",

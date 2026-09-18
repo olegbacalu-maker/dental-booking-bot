@@ -32,6 +32,11 @@ import time
 import urllib.parse
 import urllib.request
 
+# Консоль Windows живёт в cp1251, а отчёт печатает «→» и русские слова:
+# без этого прогон падал бы UnicodeEncodeError на последней строке.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
@@ -265,19 +270,19 @@ def login_cookie(origin):
     return m.group(1)
 
 
-def start_edge(profile):
+def start_edge(profile, port=DEBUG_PORT):
     edge = next((p for p in EDGE_CANDIDATES if os.path.exists(p)), None)
     if not edge:
         raise SystemExit("msedge.exe не найден")
     proc = subprocess.Popen([
-        edge, "--headless=new", f"--remote-debugging-port={DEBUG_PORT}", "--remote-allow-origins=*",
+        edge, "--headless=new", f"--remote-debugging-port={port}", "--remote-allow-origins=*",
         f"--user-data-dir={profile}", "--no-first-run", "--disable-gpu", "--hide-scrollbars",
         f"--window-size={WIDE[0]},{WIDE[1]}", "about:blank"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     target = None
     for _ in range(60):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{DEBUG_PORT}/json/list", timeout=2) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=2) as r:
                 pages = [t for t in json.load(r) if t.get("type") == "page"]
             if pages:
                 target = pages[0]

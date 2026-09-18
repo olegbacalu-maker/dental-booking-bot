@@ -2914,22 +2914,32 @@ async def perio_new(pid: int, doctor: str = "", note: str = "") -> int:
                VALUES($1, $2, $3) RETURNING id""", pid, doctor, note))
 
 
-async def perio_save(pid: int, eid: int, rows: list, shown: set,
+async def perio_save(pid: int, eid: int, rows: list, covers: set,
                      doctor: str | None = None,
                      note: str | None = None) -> int:
     """Записать измерения в осмотр. Возвращает число сохранённых зубов.
 
-    ⛔ Стираются ТОЛЬКО зубы из `shown` — тех, что форма показывала. Пустое
-    поле значит «не измеряли», а отсутствие зуба в форме — «не показывали», и
-    это разные вещи (08-16, две потери данных на этом же различии): экран
-    половины дуги иначе стирал бы вторую половину молча.
+    ⛔ `covers` — зубы, О КОТОРЫХ это сохранение СООБЩАЕТ: экран прислал их
+    измерения или сказал, что измерений у них больше нет. Стирается
+    `covers − keep`, и только оно. Зуб вне `covers` не пишется и НЕ СТИРАЕТСЯ:
+    про него не сказано ничего, а «не сообщали» никогда не значит «стереть»
+    (08-16, две потери данных ровно на этом различии).
+    ⭐ Отсюда два рабочих места правят ОДИН осмотр, не отнимая работу друг у
+    друга (18.09). Прежнее правило стирало «показанные, но не присланные», а
+    показывал лист всегда все 32 зуба: место, загрузившее осмотр раньше,
+    сносило чужой зуб целиком и возвращало чужие числа к тем, что видело само
+    — ответ 200, в летописи обычная вторая строка.
     ⚠️ Врач и заметка — только если ПРИСЛАНЫ (None ≠ пустая строка): форма
     печати их не шлёт, и None не должен затирать подпись осмотра.
+    ⚠️ Сообщать нечего — не делается НИЧЕГО, включая строку летописи: пустое
+    сохранение это не находка осмотра, а промах по кнопке.
     """
     from .modules.patients.perio import ledger_words
+    if not rows and not covers and doctor is None and note is None:
+        return 0
     keep = {int(r["tooth"]) for r in rows}
     async with _slot_lock():
-        for tooth in sorted(shown - keep):
+        for tooth in sorted(covers - keep):
             await _execute(
                 "DELETE FROM perio_teeth WHERE exam_id = $1 AND tooth = $2",
                 "DELETE FROM perio_teeth WHERE exam_id = ? AND tooth = ?",

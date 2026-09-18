@@ -95,11 +95,18 @@ class Server:
             "TELEGRAM_TOKEN": "",            # адаптер Telegram не поднимать
         })
         env.update(self.extra_env)
+        # ⛔ Вывод сервера идёт в ФАЙЛ, а не в трубу. Труба здесь была, и её
+        # никто не вычитывал: стоит серверу напечатать больше буфера окна
+        # (17 КБ трейсбека хватает), как он встаёт на write НАВСЕГДА — набор
+        # выглядит как «зависло на ровном месте», а причина не печатается,
+        # потому что застряла в той же трубе. Нашло ревью C23 (18.09).
+        self._log_path = self.dir / "server.log"
+        self._log = self._log_path.open("wb")
         self.proc = subprocess.Popen(
             [str(PYTHON), "-m", "uvicorn", "app.main:app", "--port", str(self.port),
              "--log-level", "warning"],
             cwd=str(self.bot), env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            stdout=self._log, stderr=subprocess.STDOUT,
         )
         deadline = time.time() + 40
         while time.time() < deadline:
@@ -113,6 +120,14 @@ class Server:
                 time.sleep(0.3)
         raise RuntimeError("сервер не ответил на /health за 40 секунд")
 
+    def log_text(self) -> str:
+        """Что сервер написал за свою жизнь. Файл, а не труба, — см. запуск."""
+        try:
+            self._log.flush()
+            return self._log_path.read_bytes().decode("utf-8", "replace")
+        except OSError:
+            return ""
+
     def __exit__(self, *exc) -> None:
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
@@ -120,6 +135,10 @@ class Server:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        try:
+            self._log.close()         # до удаления папки: файл лежит в ней
+        except (OSError, AttributeError):
+            pass
         if self._own_dir:
             shutil.rmtree(self.dir, ignore_errors=True)
         else:

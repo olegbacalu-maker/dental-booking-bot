@@ -203,6 +203,13 @@ MSG_BANNER = {
     "dup_punte": ("err", "Un dinte face deja parte din altă punte — "
                          "ștergeți-o întâi pe aceea"),
     "ok_perio": ("ok", "Parodontograma a fost salvată"),
+    # ⚠️ Записано ВСЁ и ничего не потеряно — правило `covers` не даёт стереть
+    # чужое. Это предупреждение, а не отказ: осмотр под записывающим успело
+    # поправить второе рабочее место, и он обязан об этом узнать.
+    "ok_perio_merged": ("warn", "Parodontograma a fost salvată. Atenție: "
+                                "între timp examenul a fost modificat și de "
+                                "pe alt calculator — măsurătorile s-au "
+                                "îmbinat, verificați-le"),
     "ok_perio_new": ("ok", "Examen parodontal nou — introduceți măsurătorile"),
     "ok_perio_del": ("ok", "Examenul gol a fost șters"),
     # ⛔ Осмотр с измерениями не удаляется никем: это медицинская запись, её
@@ -890,7 +897,8 @@ REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "settings_hub", "settings_lan", "settings_faq",
                            "settings_hours", "settings_services", "settings_theme",
                            "settings_security", "settings_backup",
-                           "patients_search", "patient_card", "visit", "odontogram"})
+                           "patients_search", "patient_card", "visit", "odontogram",
+                           "perio"})
 
 
 def react_on(request: Request, screen: str) -> bool:
