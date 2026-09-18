@@ -43,6 +43,7 @@ import test_review3  # noqa: E402
 import test_review3_auth  # noqa: E402
 import test_review3_bot  # noqa: E402
 import test_restart  # noqa: E402
+import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
 import test_settings_api  # noqa: E402
 import test_structure  # noqa: E402
@@ -154,6 +155,7 @@ SUITES = [
     ("Пациенты: старая страница и API — одна выдача", test_patients_api.suite_parity),
     ("Пациенты: JSON API списка", test_patients_api.suite_api),
     ("Пациенты: React-экран списка", test_patients_api.suite_switch),
+    ("Фиша: старая страница — эталон", test_patient_card.suite_pin),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),

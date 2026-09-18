@@ -249,13 +249,17 @@ class Client:
                         {"Content-Type": "application/json", **(headers or {})})
 
     def post_file(self, path: str, field: str, filename: str, content: bytes,
-                  **fields) -> Reply:
+                  *, mime: str = "application/octet-stream", **fields) -> Reply:
         """multipart/form-data — загрузка документа в фишу пациента.
 
         Собирается руками: в стандартной библиотеке кодировщика multipart нет,
         а тянуть requests в тесты нельзя (см. шапку файла — только stdlib).
         Имя файла НЕ экранируется намеренно: тесты подсовывают сюда `../`, и
         экранирование здесь спрятало бы ровно то, что проверяется.
+        `mime` — тип файла, как его называет браузер при загрузке: по нему
+        фиша решает, показывать снимок картинкой, PDF — просмотрщиком или
+        отдать файл программе Windows (только keyword, чтобы не спутать с
+        полем формы).
         """
         bnd = "----dp" + secrets.token_hex(8)
         parts = []
@@ -264,7 +268,7 @@ class Client:
                          f'name="{k}"\r\n\r\n{v}\r\n'.encode())
         parts.append(f"--{bnd}\r\nContent-Disposition: form-data; "
                      f'name="{field}"; filename="{filename}"\r\n'
-                     f"Content-Type: application/octet-stream\r\n\r\n".encode())
+                     f"Content-Type: {mime}\r\n\r\n".encode())
         parts.append(content + b"\r\n")
         parts.append(f"--{bnd}--\r\n".encode())
         return self._do(path, b"".join(parts),
