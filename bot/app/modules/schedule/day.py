@@ -26,7 +26,7 @@ from datetime import date, datetime
 from ... import db
 from ... import engine as eng
 from ...core.layout import STATUS_LABEL
-from ...core.visits import _age, all_status_actions
+from ...core.visits import _age, all_status_actions, list_rows
 
 
 def active_map(rows: list) -> tuple[dict, set]:
@@ -115,6 +115,23 @@ def can_drop(dk: str, h: int, work: dict) -> bool:
     """Мишень переноса: приёмный час врача, ЗАНЯТ он или нет — в 10:00 стоит
     визит, а 10:30 у того же часа свободно."""
     return h in work.get(dk, set())
+
+
+# Плитки панели дня ведут на `/admin/all?f=…` и фильтруют СПИСОК, не сетку:
+# «сколько пришло из бота» — вопрос к списку, а сетка в этот момент отвечает на
+# другой («что стоит в дне»), и прореживать её значило бы соврать про занятость.
+# ⚠️ Отменённые в первых трёх фильтрах не считаются: «записей из бота» —
+# это живые записи, а не след отменённых.
+TILE_FILTERS = {
+    "bot": ("prin bot",
+            lambda r: r["source"] == "bot" and r["status"] != "cancelled"),
+    "rec": ("recepție",
+            lambda r: r["source"] == "manual" and r["status"] != "cancelled"),
+    "urg": ("urgențe",
+            lambda r: r["service"] in eng.URGENT_LABELS
+            and r["source"] != "note" and r["status"] != "cancelled"),
+    "noshow": ("neprezentări", lambda r: r["status"] == "noshow"),
+}
 
 
 def note_ends(d: date) -> list[int]:
@@ -218,7 +235,8 @@ def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
 
 
 def model(d, items: list, active: tuple, cards: dict | None, colors,
-          form_items: list | None = None) -> dict:
+          form_items: list | None = None, rows: list | None = None,
+          f: str = "") -> dict:
     """Сетка дня данными: колонки, ряды часов, ячейки с их исходом — и всё,
     чем живут диалоги: форма, концы блокировки, карточки, кнопки исхода.
 
@@ -264,4 +282,19 @@ def model(d, items: list, active: tuple, cards: dict | None, colors,
         # получал бы объект со строковыми ключами
         "cards": {str(k): v for k, v in (cards or {}).items()},
         "actions": all_status_actions(),
+        "note_actions": all_status_actions(is_note=True),
+        **_list_part(rows or [], f),
     }
+
+
+def _list_part(rows: list, f: str) -> dict:
+    """«Lista zilei» и плитка-фильтр. Фильтр режет ТОЛЬКО список: сетка в этот
+    момент отвечает на другой вопрос — что стоит в дне, — и прореживать её
+    значило бы соврать про занятость."""
+    flt = TILE_FILTERS.get(f)
+    if not flt:
+        return {"list": list_rows(rows), "filter": None}
+    label, pred = flt
+    hits = [r for r in rows if pred(r)]
+    return {"list": list_rows(hits),
+            "filter": {"key": f, "label": label, "count": len(hits)}}

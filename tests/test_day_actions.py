@@ -42,6 +42,10 @@ def _day(c: Client, date_: str, doctor: str = "") -> dict:
     return _j(c.get(f"/api/schedule/day{q}"))["data"]
 
 
+def _day_f(c: Client, date_: str, f: str) -> dict:
+    return _j(c.get(f"/api/schedule/day?date={date_}&f={f}"))["data"]
+
+
 def _ids(c: Client, date_: str) -> list[str]:
     return re.findall(r"<tr class='[a-z]+'><td>(\d+)</td>",
                       c.get(f"/admin/all?date={date_}").body)
@@ -68,9 +72,10 @@ def suite_model(res: Result) -> None:
         c.post(f"/admin/comment/{aid}", comment=long_text, back=f"/admin/all?date={day}")
 
         m = _day(c, day)
-        res.check("в модели появились форма, концы блокировки, карточки и кнопки",
+        res.check("в модели есть всё, чем живут форма, диалоги и список",
                   sorted(set(m) - {"date", "doctors", "hours"}),
-                  ["actions", "cards", "form", "note_ends"])
+                  ["actions", "cards", "filter", "form", "list", "note_actions",
+                   "note_ends"])
 
         page = c.get(f"/admin/all?date={day}").body
         res.check("КАРТОЧКИ — те же, что печатает страница, поле в поле",
@@ -104,6 +109,45 @@ def suite_model(res: Result) -> None:
                all(bool(x["confirm"]) == (x["cls"] == "b-reopen")
                    for acts in m["actions"].values() for x in acts),
                "подтверждение возврата разошлось со списком дня")
+
+        # --- список дня (C25.5c) ---
+        c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
+               ntext="Livrare materiale", back=f"/admin/all?date={day}")
+        c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
+               aservice="pain", aname="Urgent Unu", aphone="069160161",
+               back=f"/admin/all?date={day}")
+        m = _day(c, day)
+        page = c.get(f"/admin/all?date={day}").body
+        rows = re.findall(r"<tr class='([a-z]+)'><td>(\d+)</td><td>(\d\d:\d\d)</td>", page)
+        res.check("СПИСОК: те же строки, в том же порядке, с тем же состоянием",
+                  [(x["status"], str(x["id"]), x["time"]) for x in m["list"]], rows)
+        note = next(x for x in m["list"] if x["is_note"])
+        res.check("заметка в списке: без имени и телефона, со своим словом",
+                  (note["name"], note["phone"], note["source_label"],
+                   note["service"]), ("", "", "notiță", "Livrare materiale"))
+        res.check("срочная услуга помечена, обычная нет",
+                  sorted({x["urgent"] for x in m["list"] if not x["is_note"]}),
+                  [False, True])
+        res.check("кнопки заметки — своя матрица, и она не пуста",
+                  ({k: [b["to"] for b in v] for k, v in m["note_actions"].items()},
+                   [b["confirm"] for b in m["note_actions"]["cancelled"]]),
+                  ({"confirmed": ["cancelled"], "cancelled": ["confirmed"]},
+                   ["Restabiliți notița?"]))
+
+        # плитка фильтрует список и называет себя — теми же словами, что баннер
+        mf = _day_f(c, day, "urg")
+        res.check("ФИЛЬТР: только подходящие строки и подпись со счётом",
+                  (len(mf["list"]), mf["filter"]),
+                  (1, {"key": "urg", "label": "urgențe", "count": 1}))
+        res.ok("подпись — та же, что печатает баннер страницы",
+               "urgențe" in c.get(f"/admin/all?date={day}&f=urg").body,
+               "баннер и модель называют фильтр по-разному")
+        res.check("сетка при фильтре та же", len(mf["hours"]), len(m["hours"]))
+        res.check("чужой фильтр — как будто его нет",
+                  _day_f(c, day, "nimic")["filter"], None)
+        res.check("у дня врача фильтра нет вовсе",
+                  _j(c.get(f"/api/schedule/day?date={day}&doctor=d2&f=urg"))["data"]["filter"],
+                  None)
 
         # список ФОРМЫ — активные врачи, даже когда в сетке колонок больше
         c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei", status="concediu")

@@ -99,44 +99,84 @@ def all_status_actions(is_note: bool = False) -> dict:
             for st in (_NOTE_BUTTONS if is_note else _ACT_BUTTONS)}
 
 
-def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
-    items = []
+def list_rows(rows: list) -> list[dict]:
+    """«Lista zilei» данными — строка за строкой, в порядке страницы.
+
+    ⚠️ Это НЕ сетка, и три отличия несущие. Список показывает ОТМЕНЁННЫЕ
+    записи (в сетке их нет — там они только мешали бы) и заметки стойки; и
+    только здесь заметку можно убрать и вернуть, потому что карточки визита у
+    неё нет по замыслу.
+    ⛔ Комментарий здесь обрезан до 80 знаков, в карточке сетки — до 60, а в
+    `cards` он ПОЛНЫЙ. Три длины одного текста: править надо полный, иначе
+    пересохранение укоротит его без единой правки (прайор 08-16).
+    ⚠️ Врач — СНИМОК имени из самой строки, а не колонка сетки: у записи без
+    `doctor_id` другого адреса нет, и переименование врача не двигает историю.
+    """
+    out = []
     for r in rows:
-        dt_txt = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
         is_note = r["source"] == "note"
-        src = _ic("note") + " notiță" if is_note else (_ic("bot") + " bot" if r["source"] == "bot" else _ic("pen") + " manual")
+        st = r["status"]
+        out.append({
+            "id": r["id"], "is_note": is_note,
+            "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
+            "name": "" if is_note else (r["name"] or ""),
+            "age": None if is_note else _age(r.get("birth_year")),
+            "phone": "" if is_note else (r["phone"] or ""),
+            "service": r["service"] or "",
+            "urgent": not is_note and r["service"] in eng.URGENT_LABELS,
+            "comment": (r["comment"] or "")[:80],
+            "doctor": r["doctor"] or "",
+            "source": "note" if is_note else r["source"],
+            "source_label": "notiță" if is_note else (
+                "bot" if r["source"] == "bot" else "manual"),
+            "status": st, "status_label": STATUS_LABEL.get(st, st),
+            "reminded": bool(r.get("reminded_day")),
+            "rec": bool(r.get("has_rec")),
+        })
+    return out
+
+
+def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
+    """Таблица «Lista zilei». Что в строке — считает `list_rows`, здесь только
+    разметка: тот же список отдаётся JSON API, и два разбора одной строки
+    разошлись бы молча."""
+    items = []
+    for v in list_rows(rows):
+        dt_txt = v["time"]
+        is_note = v["is_note"]
+        src = (_ic("note") if is_note else _ic("bot") if v["source"] == "bot"
+               else _ic("pen")) + " " + v["source_label"]
         svc_txt = ((_ic("note") + " " if is_note else _ic("sos") + " "
-                    if r["service"] in eng.URGENT_LABELS else "")
-                   + html.escape(r["service"]))
-        if r["comment"]:
+                    if v["urgent"] else "")
+                   + html.escape(v["service"]))
+        if v["comment"]:
             svc_txt += (f"<br><small style='color:#7a6a00'>{_ic('chat')} "
-                        f"{html.escape(r['comment'][:80])}</small>")
+                        f"{html.escape(v['comment'])}</small>")
         acts = "".join(
-            f"<form class='act' method='post' action='/admin/status/{r['id']}'"
+            f"<form class='act' method='post' action='/admin/status/{v['id']}'"
             + (f" onsubmit=\"return confirm('{b['confirm']}')\"" if b["confirm"] else "")
             + f"><input type='hidden' name='to' value='{b['to']}'>"
             f"<input type='hidden' name='back' value='{html.escape(back)}'>"
             f"<button class='{b['cls']}'>"
             f"{_ic('undo') + ' ' if b['cls'] == 'b-reopen' else ''}{b['label']}</button></form>"
-            for b in status_actions(r["status"], is_note)
+            for b in status_actions(v["status"], is_note)
         )
-        name_html = html.escape(r["name"] or "")
+        name_html = html.escape(v["name"])
         if not is_note and name_html:
             name_html = (f"<a class='plink' href='#' "
-                         f"onclick=\"openCard({r['id']});return false\">{name_html}</a>")
-            a = _age(r["birth_year"])
-            if a:
-                name_html += f" <small style='color:#889'>({a} ani)</small>"
+                         f"onclick=\"openCard({v['id']});return false\">{name_html}</a>")
+            if v["age"]:
+                name_html += f" <small style='color:#889'>({v['age']} ani)</small>"
         items.append(
-            f"<tr class='{r['status']}'><td>{r['id']}</td><td>{dt_txt}</td>"
-            f"<td>{name_html}</td><td>{html.escape(r['phone'] or '')}</td>"
-            f"<td>{svc_txt}</td><td>{html.escape(r['doctor'])}</td>"
+            f"<tr class='{v['status']}'><td>{v['id']}</td><td>{dt_txt}</td>"
+            f"<td>{name_html}</td><td>{html.escape(v['phone'])}</td>"
+            f"<td>{svc_txt}</td><td>{html.escape(v['doctor'])}</td>"
             f"<td>{src}</td>"
-            f"<td><span class='stat s-{r['status']}'>"
-            f"{_STATUS_ICON.get(r['status'], '')}"
-            f"{STATUS_LABEL.get(r['status'], r['status'])}</span>"
-            f"{_REM_MARK if r['reminded_day'] else ''}"
-            f"{_REC_MARK if r.get('has_rec') else ''}</td><td>{acts}</td></tr>"
+            f"<td><span class='stat s-{v['status']}'>"
+            f"{_STATUS_ICON.get(v['status'], '')}"
+            f"{v['status_label']}</span>"
+            f"{_REM_MARK if v['reminded'] else ''}"
+            f"{_REC_MARK if v['rec'] else ''}</td><td>{acts}</td></tr>"
         )
     if not items:
         items = ["<tr><td colspan='9' style='color:var(--text3)'>— nicio programare —</td></tr>"]

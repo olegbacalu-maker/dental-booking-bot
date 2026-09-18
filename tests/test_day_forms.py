@@ -543,6 +543,12 @@ def suite_list(res: Result) -> None:
                   f.count("data-appt='"), plain.count("data-appt='"))
         res.ok("выход из фильтра — ссылкой «arată tot»",
                "arată tot" in f, "из фильтра нечем выйти")
+        # ⚠️ МЕСТО списка зависит от отбора: пришедший с плитки видит строки
+        # СРАЗУ, над сеткой, а полный список живёт внизу, под формой записи
+        res.check("отфильтрованный список стоит НАД сеткой, обычный — под формой",
+                  (f.index("<table class='list'>") < f.index("<table class='grid'>"),
+                   plain.index("<table class='list'>") > plain.index('<form class="add"')),
+                  (True, True))
 
         res.ok("Excel отдаётся ссылкой этого дня",
                f"/admin/export.xlsx?from={day}&to={day}" in body, "ссылки на Excel нет")

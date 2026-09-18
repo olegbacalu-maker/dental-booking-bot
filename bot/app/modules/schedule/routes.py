@@ -1285,19 +1285,10 @@ async def admin_export_xlsx(
 
 
 # фильтры для клика по плиткам дашборда: цифра → сразу список этих записей
-_TILE_FILTERS = {
-    "bot": ("prin bot",
-            lambda r: r["source"] == "bot" and r["status"] != "cancelled"),
-    "rec": ("recepție",
-            lambda r: r["source"] == "manual" and r["status"] != "cancelled"),
-    "urg": ("urgențe",
-            lambda r: r["service"] in eng.URGENT_LABELS
-            and r["source"] != "note" and r["status"] != "cancelled"),
-    "noshow": ("neprezentări", lambda r: r["status"] == "noshow"),
-}
+_TILE_FILTERS = pday.TILE_FILTERS
 
 
-async def _day_model(d: date, doctor: str = "") -> dict | None:
+async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
     """Данные сетки дня — одни на «Toți medicii» и на день врача.
 
     `doctor` пуст — все врачи и все записи; иначе один врач и ТОЛЬКО его
@@ -1326,8 +1317,9 @@ async def _day_model(d: date, doctor: str = "") -> dict | None:
                  or dk in busy_keys or n in busy_names]
         # ⛔ форме — АКТИВНЫЕ справочника, ровно то же, что передаёт `_form`
         form_items = list(eng.ACTIVE_DOCTORS.items()) or items
+    # ⚠️ фильтр плитки — только у общего дня: страница врача его не читает
     return pday.model(d, items, pday.active_map(rows), _collect_cards(rows),
-                      _svc_colors, form_items)
+                      _svc_colors, form_items, rows, "" if doctor else f)
 
 
 @router.get("/admin/all", response_class=HTMLResponse)
@@ -1343,8 +1335,13 @@ async def admin_all(
         # DentPilot 2.0 (C25.5a): данные — GET /api/schedule/day.
         # ⛔ Живой опрос выключается сам: `_shell` не объявляет живой страницу
         # с узлом React. Ключ `prog` общий с днём врача и снимается не здесь.
-        return _shell(react_mount("schedule_all", "/admin/all",
-                                  {"date": d.isoformat()}),
+        # ⚠️ фильтр плитки уезжает параметром узла, но ТОЛЬКО известный:
+        # чужое `?f=` старая страница молча игнорирует, и клиент не должен
+        # узнать о нём иначе
+        params = {"date": d.isoformat()}
+        if f in pday.TILE_FILTERS:
+            params["f"] = f
+        return _shell(react_mount("schedule_all", "/admin/all", params),
                       "toți medicii", active="prog")
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))

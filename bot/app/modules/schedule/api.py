@@ -61,13 +61,19 @@ def _screen(date_q: str) -> date:
     return _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
 
 
-async def _done(code: str, d: date, doctor: str, field: str | None = None):
-    """Ответ действия: отказ — кодом без данных, удача — свежим днём экрана."""
+async def _done(code: str, d: date, doctor: str, field: str | None = None,
+                f: str = ""):
+    """Ответ действия: отказ — кодом без данных, удача — свежим днём экрана.
+
+    ⚠️ Свежий день приезжает В ТОМ ЖЕ ОТБОРЕ, в котором на него смотрят: с
+    плиткой-фильтром ответ без `f` подменил бы отфильтрованный список полным,
+    и запись «исчезла бы» из фильтра прямо на глазах.
+    """
     if code not in _OK:
         return msg_json(False, code,
                         field=_FIELD.get(code, "") if field is None else field,
                         status=409 if code in _CONFLICT else 422)
-    data = await _day_model(d, doctor)
+    data = await _day_model(d, doctor, f)
     if data is None:
         return msg_json(False, status=404)
     return msg_json(True, code, data=data)
@@ -91,7 +97,7 @@ async def api_week(request: Request, date_q: str = Query("", alias="date")):
 
 @router.get("/api/schedule/day")
 async def api_day(request: Request, date_q: str = Query("", alias="date"),
-                  doctor: str = Query("")):
+                  doctor: str = Query(""), f: str = Query("")):
     """Сетка дня: все врачи или один (`?doctor=dk`) — тот же построитель.
 
     ⚠️ Колонки приезжают СПИСКОМ, ячейка ссылается на позицию в нём: врачей
@@ -103,7 +109,7 @@ async def api_day(request: Request, date_q: str = Query("", alias="date"),
     if (deny := api_guard(request)) is not None:
         return deny
     d = _screen(date_q)
-    data = await _day_model(d, doctor)
+    data = await _day_model(d, doctor, f)
     if data is None:
         return msg_json(False, status=404)
     return msg_json(True, data=data)
@@ -111,7 +117,7 @@ async def api_day(request: Request, date_q: str = Query("", alias="date"),
 
 @router.post("/api/schedule/appointments")
 async def api_add(request: Request, date_q: str = Query("", alias="date"),
-                  doctor: str = Query("")):
+                  doctor: str = Query(""), f: str = Query("")):
     """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth}.
 
     ⚠️ `nophone` — намерение ИЗ ФОРМЫ, а не «телефон пустой» (прайор 08-16):
@@ -125,12 +131,12 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
     code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "service"), _s(body, "name"), _s(body, "phone"),
                            "1" if body.get("nophone") else "", _s(body, "birth"))
-    return await _done(code, _screen(date_q), doctor)
+    return await _done(code, _screen(date_q), doctor, f=f)
 
 
 @router.post("/api/schedule/notes")
 async def api_note(request: Request, date_q: str = Query("", alias="date"),
-                   doctor: str = Query("")):
+                   doctor: str = Query(""), f: str = Query("")):
     """Заметка стойки: {date, time, doctor, text, until}. `until` — ГОЛЫЙ час
     (18, не «18:00»), верхняя граница открытая.
 
@@ -145,13 +151,13 @@ async def api_note(request: Request, date_q: str = Query("", alias="date"),
         return msg_json(False, "bad", field="text", status=422)
     code = await _add_note(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "text"), _s(body, "until"))
-    return await _done(code, _screen(date_q), doctor, field="text")
+    return await _done(code, _screen(date_q), doctor, field="text", f=f)
 
 
 @router.post("/api/schedule/appointments/{appt_id}/comment")
 async def api_comment(request: Request, appt_id: int,
                       date_q: str = Query("", alias="date"),
-                      doctor: str = Query("")):
+                      doctor: str = Query(""), f: str = Query("")):
     """Комментарий ресепшена: {comment}. Пустая строка стирает его."""
     if (deny := api_guard(request)) is not None:
         return deny
@@ -159,13 +165,13 @@ async def api_comment(request: Request, appt_id: int,
     if body is None:
         return msg_json(False, "bad", field="comment", status=422)
     return await _done(await _set_comment(appt_id, _s(body, "comment")),
-                       _screen(date_q), doctor)
+                       _screen(date_q), doctor, f=f)
 
 
 @router.post("/api/schedule/appointments/{appt_id}/status")
 async def api_status(request: Request, appt_id: int,
                      date_q: str = Query("", alias="date"),
-                     doctor: str = Query("")):
+                     doctor: str = Query(""), f: str = Query("")):
     """Исход визита: {to}. Удача отвечает ПУСТЫМ кодом — баннера у неё нет и
     на старой странице; отказ называет, ЧТО занято (conflict / dup).
 
@@ -179,13 +185,13 @@ async def api_status(request: Request, appt_id: int,
     if body is None:
         return msg_json(False, "bad", status=422)
     return await _done(await _set_status(appt_id, _s(body, "to")),
-                       _screen(date_q), doctor, field="")
+                       _screen(date_q), doctor, field="", f=f)
 
 
 @router.post("/api/schedule/appointments/{appt_id}/move")
 async def api_move(request: Request, appt_id: int,
                    date_q: str = Query("", alias="date"),
-                   doctor: str = Query("")):
+                   doctor: str = Query(""), f: str = Query("")):
     """Перенос: {date, time, doctor} — тот же маршрут, что у перетаскивания.
 
     ⚠️ Проверки серверные и в полном составе: браузер не кладёт блок в
@@ -199,4 +205,4 @@ async def api_move(request: Request, appt_id: int,
         return msg_json(False, "bad", status=422)
     code = await _move_appt(appt_id, _s(body, "date"), _s(body, "time"),
                             _s(body, "doctor"))
-    return await _done(code, _screen(date_q), doctor)
+    return await _done(code, _screen(date_q), doctor, f=f)
