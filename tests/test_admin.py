@@ -2077,3 +2077,109 @@ def suite_week(res: Result) -> None:
         res.ok("кривая дата не роняет страницу",
                c.get("/admin/week?date=2026-13-99").status == 200,
                "кривая дата обязана молча открыть текущую неделю")
+
+
+# --- C25.2: пины страниц поверх проверенного построителя -------------------
+# ⚠️ Контракт самой сетки живёт в `test_grid.py` и проверяет функцию. Здесь
+# другое: что страница отдаёт построителю ТО, ЧТО НАДО, и кладёт результат
+# туда, куда надо. Одна и та же сетка на двух экранах, и данные в них разные:
+# «Toți medicii» — все врачи и все записи дня, день врача — один врач и
+# только его записи.
+
+def _grid_heads(body: str) -> list[str]:
+    """Имена колонок сетки по порядку."""
+    return re.findall(r"<a class='dh-n'[^>]*>([^<]+)</a>", body)
+
+
+def _grid_appts(body: str) -> list[str]:
+    """Номера записей, попавших в сетку (а не в список под ней)."""
+    grid = body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0]
+    return re.findall(r"data-appt='(\d+)'", grid)
+
+
+def _seed_day(c: Client, day: str) -> dict:
+    """День с двумя врачами, длинным визитом, заметкой и отменой."""
+    c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
+           aservice="consult", aname="Ion Popa", aphone="069140140")
+    c.post("/admin/add", adate=day, atime="10:00", adoctor="d3",
+           aservice="pain", aname="Maria Rusu", aphone="069140141")
+    c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
+           aservice="long", aname="Vasile Lupu", aphone="069140142")
+    c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
+           ntext="Livrare materiale")
+    ids = re.findall(r"data-appt='(\d+)'", c.get(f"/admin/all?date={day}").body)
+    return {"ids": ids}
+
+
+def suite_all_page(res: Result) -> None:
+    """`/admin/all`: все врачи, все записи дня, форма и список под сеткой."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=3)).isoformat()
+        _seed_day(c, day)
+        body = c.get(f"/admin/all?date={day}").body
+
+        active_docs = [x["name"] for x in
+                       json.loads(c.get("/api/doctors").body)["data"]["doctors"]
+                       if not x.get("archived") and x.get("status") == "activ"]
+        res.check("колонки — активные врачи справочника, в его порядке",
+                  _grid_heads(body), active_docs)
+        res.ok("записи обоих врачей попали в сетку",
+               len(_grid_appts(body)) >= 3, "сетка недосчиталась записей")
+        res.ok("заметка стойки тоже в сетке",
+               "appt note" in body, "заметка стойки пропала")
+        res.ok("под сеткой — форма записи и список дня",
+               "id=\"addform\"" in body or "addform" in body,
+               "форма записи пропала со страницы")
+        res.ok("день открывается на нужной дате",
+               f"date={day}" in body, "страница не помнит дату")
+
+        # фильтр по плитке: список фильтруется, сетка остаётся целой
+        f = c.get(f"/admin/all?date={day}&f=noshow").body
+        res.ok("фильтр показывает свой баннер",
+               "Filtru:" in f, "фильтр не отработал")
+        res.check("сетка при фильтре не редеет",
+                  len(_grid_appts(f)), len(_grid_appts(body)))
+
+        res.ok("страница живая: обёртка и метка опроса",
+               'id="live"' in body and 'data-reload="12"' in body,
+               "«Toți medicii» перестала быть живой")
+
+
+def suite_doctor_page(res: Result) -> None:
+    """День одного врача: ТОЛЬКО его записи и одна колонка."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=3)).isoformat()
+        _seed_day(c, day)
+        all_ids = set(_grid_appts(c.get(f"/admin/all?date={day}").body))
+        body = c.get(f"/admin/doctor/d2?date={day}").body
+
+        res.check("колонка одна и это выбранный врач",
+                  _grid_heads(body), ["Dr. Activ Doi"])
+        mine = set(_grid_appts(body))
+        res.ok("в сетке только записи этого врача",
+               mine and mine < all_ids, f"его записи: {mine}, все: {all_ids}")
+        res.ok("чужая запись не показана",
+               "Maria Rusu" not in body.split("<table class='grid'>", 1)[1],
+               "запись другого врача попала в день врача")
+        res.ok("в шапке имя врача и ссылки на панель и на всех",
+               "Dr. Activ Doi" in body and "/admin/all?date=" in body,
+               "шапка дня врача потеряла навигацию")
+        res.ok("страница живая", 'data-reload="12"' in body, "день врача не живой")
+        res.check("чужой врач в адресе — на журнал",
+                  c.get("/admin/doctor/d999").status, 307)
+
+        # выключенный врач остаётся доступен как история
+        r = c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei",
+                   status="concediu")
+        res.check("врач отправлен в отпуск (иначе проверка ниже пуста)",
+                  r.msg, "ok_med")
+        off = c.get(f"/admin/doctor/d3?date={day}").body
+        res.ok("выключенный врач открывается и помечен как история",
+               "inactiv (istoric)" in off,
+               "выключенный врач исчез вместе с историей")
+        allb = c.get(f"/admin/all?date={day}").body
+        res.ok("и остаётся колонкой в общем дне, пока у него есть записи",
+               "Dr. Activ Trei" in _grid_heads(allb),
+               "записи выключенного врача негде смотреть")
