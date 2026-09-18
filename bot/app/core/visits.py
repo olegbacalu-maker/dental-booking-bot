@@ -66,6 +66,25 @@ _NOTE_BUTTONS = {
     "confirmed": (("cancelled", "b-cancel", "Șterge"),),
     "cancelled": (("confirmed", "b-reopen", "Restabilește"),),
 }
+# возврат спрашивают подтверждением: это отмена уже записанного факта, а не
+# следующий шаг приёма (так же ведёт себя «Redeschide» в плане лечения)
+_ASK_APPT = "Redeschideți programarea (înapoi la «confirmată»)?"
+_ASK_NOTE = "Restabiliți notița?"
+
+
+def status_actions(status: str, is_note: bool = False) -> list[dict]:
+    """Кнопки исхода для этого состояния — ОДНА матрица на всех.
+
+    Список дня печатает их формами, модалка карточки прячет лишние через
+    CS_SHOW, React спросит здесь же. Это одно правило в трёх видах, и
+    расхождение молчит: закрытая запись теряла бы кнопку возврата в одном
+    месте и сохраняла в другом, а увидеть это можно, только открыв оба.
+    """
+    src = (_NOTE_BUTTONS if is_note else _ACT_BUTTONS).get(status, ())
+    ask = _ASK_NOTE if is_note else _ASK_APPT
+    return [{"to": to, "cls": cls, "label": label,
+             "confirm": ask if cls == "b-reopen" else ""}
+            for to, cls, label in src]
 
 
 def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
@@ -80,20 +99,14 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
         if r["comment"]:
             svc_txt += (f"<br><small style='color:#7a6a00'>{_ic('chat')} "
                         f"{html.escape(r['comment'][:80])}</small>")
-        buttons = ((_NOTE_BUTTONS if is_note else _ACT_BUTTONS)
-                   .get(r["status"], ()))
-        # возврат спрашивают подтверждением: это отмена уже записанного факта,
-        # а не следующий шаг приёма (так же ведёт себя «Redeschide» в плане)
-        ask = ("Restabiliți notița?" if is_note
-               else "Redeschideți programarea (înapoi la «confirmată»)?")
         acts = "".join(
             f"<form class='act' method='post' action='/admin/status/{r['id']}'"
-            + (f" onsubmit=\"return confirm('{ask}')\"" if cls == "b-reopen" else "")
-            + f"><input type='hidden' name='to' value='{to}'>"
+            + (f" onsubmit=\"return confirm('{b['confirm']}')\"" if b["confirm"] else "")
+            + f"><input type='hidden' name='to' value='{b['to']}'>"
             f"<input type='hidden' name='back' value='{html.escape(back)}'>"
-            f"<button class='{cls}'>"
-            f"{_ic('undo') + ' ' if cls == 'b-reopen' else ''}{label}</button></form>"
-            for to, cls, label in buttons
+            f"<button class='{b['cls']}'>"
+            f"{_ic('undo') + ' ' if b['cls'] == 'b-reopen' else ''}{b['label']}</button></form>"
+            for b in status_actions(r["status"], is_note)
         )
         name_html = html.escape(r["name"] or "")
         if not is_note and name_html:

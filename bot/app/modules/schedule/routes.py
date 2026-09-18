@@ -217,32 +217,16 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
 
 
 def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: str) -> str:
-    # 30-мин шаг (v1.8.0), но только те старты, где помещается минимум 30 минут
-    # приёма внутри рабочего окна клиники (не предлагаем 17:30 при закрытии в 18)
-    def _starts(fits) -> list[str]:
-        out = []
-        for x in eng.day_slots(d):
-            for m in (0, 30):
-                st = x.replace(minute=m)
-                if fits(st):
-                    out.append(st.strftime("%H:%M"))
-        return out
-
-    half = _starts(lambda st: eng.fits_clinic(st, 30))
-    # ⭐ Часы ВРАЧА, а не только клиники. /admin/add отказывает `outside_doc` по
-    # личному графику (work_from/work_to), и список, знающий одну лишь клинику,
-    # предлагал 15:00 утреннему врачу — форма подсказывала час, который сервер
-    # тут же отвергал. Окна те же, из которых free_starts берёт слоты.
-    # ⚠️ Пустой список (у врача в этот день окна нет) заменяется часами клиники:
-    # <select> без единого option не отправил бы поле вовсе, и вместо внятного
-    # «Medicul nu lucrează la ora aleasă» вышла бы ошибка разбора формы.
-    doc_times = {dk: _starts(lambda st, k=dk: eng.fits_doctor(k, st, 30)) or half
-                 for dk, _n in doctors_items}
-    cur_doc = (sel_doctor if sel_doctor in doc_times
-               else (doctors_items[0][0] if doctors_items else ""))
+    # Что предлагать — считает `day.form_spec` (30-мин шаг, часы ВРАЧА, подмена
+    # пустого окна часами клиники); здесь только разметка. Правило вынесено,
+    # потому что тот же список получает JSON API, а два списка часов разошлись
+    # бы молча: форма подсказывала бы час, который сервер тут же отвергает.
+    spec = pday.form_spec(d, doctors_items, sel_doctor, sel_time)
+    doc_times = spec["times"]
+    cur_doc = spec["doctor"]
     time_opts = "".join(
         f"<option value='{t}'{' selected' if sel_time == t else ''}>{t}</option>"
-        for t in doc_times.get(cur_doc, half)
+        for t in doc_times.get(cur_doc, spec["hours"])
     )
     if len(doctors_items) == 1:
         dk, dn = doctors_items[0]
@@ -255,7 +239,8 @@ def _form(d: date, doctors_items: list, sel_doctor: str, sel_time: str, back: st
         )
         doc_field = f"<select name='adoctor'>{doc_opts}</select>"
     svc_opts = "".join(
-        f"<option value='{k}'>{html.escape(v['ro'])}</option>" for k, v in eng.SERVICES.items()
+        f"<option value='{x['id']}'>{html.escape(x['label'])}</option>"
+        for x in spec["services"]
     )
     # Врача в этой форме меняют без перезагрузки, поэтому список часов
     # переписывается на месте — данные для этого печатаются в саму страницу
@@ -301,7 +286,7 @@ var DOC_TIMES = {js_json(doc_times)};
   <label class="nophone"><input type="checkbox" name="anophone" value="1" data-for="aphone" data-req="1" onchange="togglePhone(this)"> fără telefon</label>
   <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;
     color:var(--text3)">Naștere (opț.)
-    <input type="date" name="abirth" max="{date.today().isoformat()}"></label>
+    <input type="date" name="abirth" max="{spec['birth_max']}"></label>
   <button>Adaugă</button>
 </form>{doc_js}"""
 
@@ -353,7 +338,7 @@ def _slot_modal(d: date, back: str) -> str:
    NOTE_ENDS и функции обязаны отвечать НОВОЙ разметке. Поэтому var, не const:
    повторное объявление const в общем scope падает SyntaxError, и модалка молча
    перестала бы открываться после первой же приехавшей брони. */
-var NOTE_ENDS = {js_json([x.hour + 1 for x in eng.day_slots(d)])};
+var NOTE_ENDS = {js_json(pday.note_ends(d))};
 /* Клик по ячейке — это ЧАС, а запись бывает и на его половину (08-13, Олег):
    раньше 10:30 из модалки было не выбрать вовсе — только нижней формой.
    Выбор получаса меняет ТОЛЬКО время записи (atime) и заголовок; заметка
@@ -1462,25 +1447,21 @@ def _back_redirect(back: str, fallback_date: str, msg: str) -> RedirectResponse:
     return RedirectResponse(f"{target}{sep}msg={msg}", status_code=303)
 
 
-@router.post("/admin/add")
-async def admin_add(
-    request: Request,
-    adate: str = Form(...), atime: str = Form(...), adoctor: str = Form(...),
-    aservice: str = Form(...), aname: str = Form(...),
-    # aphone НЕ Form(...): галочка «fără telefon» ВЫКЛЮЧАЕТ поле, а выключенный
-    # input в POST не едет вовсе — обязательный параметр давал бы 422 раньше,
-    # чем наш честный bad_phone. Обязательность решает проверка ниже.
-    aphone: str = Form(""), anophone: str = Form(""),
-    abirth: str = Form(""), ayear: str = Form(""), back: str = Form(""),
-):
-    if (deny := _guard(request)) is not None:
-        return deny
+async def _add_appt(adate: str, atime: str, adoctor: str, aservice: str,
+                    aname: str, aphone: str = "", anophone: str = "",
+                    abirth: str = "", ayear: str = "") -> str:
+    """Ручная запись: код ответа — тот же, что уезжает в `?msg=` (MSG_BANNER).
+
+    Правило вынесено из обработчика формы, потому что то же самое делает
+    JSON API: две копии этих проверок разошлись бы молча, и одна страница
+    принимала бы визит, который другая отвергает.
+    """
     try:
         d = date.fromisoformat(adate)
         hh, mm = atime.split(":")
         dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
     except (ValueError, AttributeError):
-        return _back_redirect(back, adate, "bad")
+        return "bad"
     doctor = eng.DOCTORS.get(adoctor)
     svc = eng.SERVICES.get(aservice)
     name = aname.strip()[:80]
@@ -1498,20 +1479,20 @@ async def admin_add(
     # câmpurile». По такому баннеру не видно, какое поле чинить, и отказ
     # читается как «программа не работает». Каждая причина называет себя.
     if not doctor or not svc:
-        return _back_redirect(back, adate, "bad")
+        return "bad"
     if not name:
-        return _back_redirect(back, adate, "bad_name")
+        return "bad_name"
     # 6–15 цифр: у стран номера от 6 национальных цифр, E.164 даёт максимум 15.
     # Жёсткий молдавский формат отверг бы иностранца у стойки (просьба 08-07)
     if not anophone and not 6 <= len(digits) <= 15:
-        return _back_redirect(back, adate, "bad_phone")
+        return "bad_phone"
     if not eng.DOCTOR_META.get(adoctor, {}).get("active", True):
-        return _back_redirect(back, adate, "bad_off")  # выключенному не пишем
+        return "bad_off"  # выключенному не пишем
     if dt.minute not in (0, 30):
-        return _back_redirect(back, adate, "bad_time")  # 30-мин сетка стартов
+        return "bad_time"  # 30-мин сетка стартов
     if not eng.fits_clinic(dt, eng.svc_duration(aservice)):
         # визит не помещается в рабочее окно клиники (закрытие/обед)
-        return _back_redirect(back, adate, "outside")
+        return "outside"
     # личный график врача (work_from/work_to) — той же проверкой окон, из
     # которой free_starts предлагает слоты.
     # ⚠️ Гейт применяется ТОЛЬКО к будущему: его смысл — не обещать пациенту
@@ -1524,7 +1505,7 @@ async def admin_add(
     # решает, показывать ли предупреждение, а не пускать ли запись.
     fits_doc = eng.fits_doctor(adoctor, dt, eng.svc_duration(aservice))
     if not eng.is_past(dt) and not fits_doc:
-        return _back_redirect(back, adate, "outside_doc")
+        return "outside_doc"
     # полная дата рождения (просьба 08-07: был только год); ayear принимаем
     # ради вкладки, открытой до обновления, — форма шлёт уже только abirth
     year, bdate = None, None
@@ -1532,9 +1513,9 @@ async def admin_add(
         try:
             parsed = date.fromisoformat(abirth.strip()[:10])
         except ValueError:
-            return _back_redirect(back, adate, "bad_bd")
+            return "bad_bd"
         if not (1900 <= parsed.year and parsed <= date.today()):
-            return _back_redirect(back, adate, "bad_bd")
+            return "bad_bd"
         year, bdate = parsed.year, parsed.isoformat()
     elif ayear.strip().isdigit() and 1900 <= int(ayear) <= datetime.now(eng.TZ).year:
         year = int(ayear)
@@ -1566,31 +1547,51 @@ async def admin_add(
     # уже прошедший час сегодня — обычная работа регистратуры, а не ошибка
     if msg == "ok" and eng.is_past_day(dt.date()):
         msg = "ok_past"
-    return _back_redirect(back, adate, msg)
+    return msg
 
 
-@router.post("/admin/note")
-async def admin_note(
+@router.post("/admin/add")
+async def admin_add(
     request: Request,
-    ndate: str = Form(...), ntime: str = Form(...), ndoctor: str = Form(...),
-    ntext: str = Form(...), nuntil: str = Form(""), back: str = Form(""),
+    adate: str = Form(...), atime: str = Form(...), adoctor: str = Form(...),
+    aservice: str = Form(...), aname: str = Form(...),
+    # aphone НЕ Form(...): галочка «fără telefon» ВЫКЛЮЧАЕТ поле, а выключенный
+    # input в POST не едет вовсе — обязательный параметр давал бы 422 раньше,
+    # чем наш честный bad_phone. Обязательность решает проверка выше.
+    aphone: str = Form(""), anophone: str = Form(""),
+    abirth: str = Form(""), ayear: str = Form(""), back: str = Form(""),
 ):
     if (deny := _guard(request)) is not None:
         return deny
+    return _back_redirect(back, adate, await _add_appt(
+        adate, atime, adoctor, aservice, aname, aphone, anophone, abirth, ayear))
+
+
+async def _add_note(ndate: str, ntime: str, ndoctor: str, ntext: str,
+                    nuntil: str = "") -> str:
+    """Заметка стойки: блокировка ЧАСОВ приёма. Код — как у формы.
+
+    ⚠️ Верхняя граница ОТКРЫТАЯ: «с 15 до 18» блокирует 15, 16 и 17. И часы
+    берутся из `day_slots`, поэтому обеденный час внутри диапазона
+    перепрыгивается, а не блокируется дважды.
+    ⚠️ Выключенному врачу здесь отвечает «bad», а не «bad_off», как у записи.
+    Расхождение старое; оно пиннуто, и менять его по дороге в React нельзя —
+    это отдельное решение, а не уборка.
+    """
     try:
         d = date.fromisoformat(ndate)
         start_h = int(ntime.split(":")[0])
         until_h = int(nuntil) if nuntil.strip() else start_h + 1
     except (ValueError, AttributeError):
-        return _back_redirect(back, ndate, "bad")
+        return "bad"
     doctor = eng.DOCTORS.get(ndoctor)
     text = ntext.strip()[:120]
     day_hours = [x.hour for x in eng.day_slots(d)]
     hours = [h for h in day_hours if start_h <= h < until_h]
     if not doctor or not text or not hours or until_h <= start_h:
-        return _back_redirect(back, ndate, "bad")
+        return "bad"
     if not eng.DOCTOR_META.get(ndoctor, {}).get("active", True):
-        return _back_redirect(back, ndate, "bad")
+        return "bad"
     ok_cnt = fail_cnt = 0
     for h in hours:
         dt = datetime(d.year, d.month, d.day, h, 0, tzinfo=eng.TZ)
@@ -1604,7 +1605,27 @@ async def admin_note(
         msg = "part_note"
     else:
         msg = "conflict"
-    return _back_redirect(back, ndate, msg)
+    return msg
+
+
+@router.post("/admin/note")
+async def admin_note(
+    request: Request,
+    ndate: str = Form(...), ntime: str = Form(...), ndoctor: str = Form(...),
+    ntext: str = Form(...), nuntil: str = Form(""), back: str = Form(""),
+):
+    if (deny := _guard(request)) is not None:
+        return deny
+    return _back_redirect(back, ndate,
+                          await _add_note(ndate, ntime, ndoctor, ntext, nuntil))
+
+
+async def _set_comment(appt_id: int, comment: str) -> str:
+    """Комментарий ресепшена. 300 знаков режет СЕРВЕР, а не только поле:
+    `maxlength` у устаревшей вкладки может быть другим, а в фишу и в 043/e
+    уезжает то, что легло в базу."""
+    await db.set_comment(appt_id, comment.strip()[:300])
+    return "ok_comment"
 
 
 @router.post("/admin/comment/{appt_id}")
@@ -1612,8 +1633,46 @@ async def admin_comment(request: Request, appt_id: int,
                         comment: str = Form(""), back: str = Form("")):
     if (deny := _guard(request)) is not None:
         return deny
-    await db.set_comment(appt_id, comment.strip()[:300])
-    return _back_redirect(back, "", "ok_comment")
+    return _back_redirect(back, "", await _set_comment(appt_id, comment))
+
+
+async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
+    """Перенос визита перетаскиванием: другой час и/или другой врач.
+
+    ⚠️ Проверки те же, что у ручной записи, и по той же причине: перетащить —
+    это назначить визит на новое место, а не «подвинуть картинку». Браузер
+    отказывается класть блок в закрытую ячейку ещё до отправки, но верить ему
+    нельзя: вкладка живёт с автообновлением 12 с, а часы клиники и график
+    врача меняются на другом экране.
+    ⛔ Прошлое здесь НЕ проверяется, и это намеренно: визит уже существует, а
+    перенос на утро того же дня — обычная работа регистратуры.
+    """
+    try:
+        d = date.fromisoformat(mdate)
+        hh, mm = mtime.split(":")
+        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
+    except (ValueError, AttributeError):
+        return "bad"
+    doctor = eng.DOCTORS.get(mdoctor)
+    if not doctor:
+        return "bad"
+    if not eng.DOCTOR_META.get(mdoctor, {}).get("active", True):
+        return "bad_off"
+    if dt.minute not in (0, 30):
+        return "bad_time"
+    if not eng.fits_clinic(dt, 30):
+        # 30 минут, а не полная длительность: визит УЖЕ существует, и требовать
+        # от него влезть в окно целиком значило бы отказывать в переносе тем,
+        # кого клиника принимает внахлёст с закрытием (так их и записали).
+        return "outside"
+    # график врача — та причина серверной перепроверки, которую называет
+    # докстринг: часы врача меняются на другом экране, а вкладка устаревает
+    if not eng.fits_doctor(mdoctor, dt, 30):
+        return "outside_doc"
+    code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
+                                     when=dt.strftime("%H:%M"))
+    return {"": "ok_move", "gone": "mv_gone",
+            "closed": "mv_closed"}.get(code, code)
 
 
 @router.post("/admin/move/{appt_id}")
@@ -1622,59 +1681,41 @@ async def admin_move(
     mdate: str = Form(...), mtime: str = Form(...), mdoctor: str = Form(...),
     back: str = Form(""),
 ):
-    """Перенос визита перетаскиванием: другой час и/или другой врач.
-
-    ⚠️ Проверки те же, что у ручной записи, и по той же причине: перетащить —
-    это назначить визит на новое место, а не «подвинуть картинку». Браузер
-    отказывается класть блок в закрытую ячейку ещё до отправки, но верить ему
-    нельзя: вкладка живёт с автообновлением 12 с, а часы клиники и график
-    врача меняются на другом экране.
-    """
     if (deny := _guard(request)) is not None:
         return deny
-    try:
-        d = date.fromisoformat(mdate)
-        hh, mm = mtime.split(":")
-        dt = datetime(d.year, d.month, d.day, int(hh), int(mm), tzinfo=eng.TZ)
-    except (ValueError, AttributeError):
-        return _back_redirect(back, mdate, "bad")
-    doctor = eng.DOCTORS.get(mdoctor)
-    if not doctor:
-        return _back_redirect(back, mdate, "bad")
-    if not eng.DOCTOR_META.get(mdoctor, {}).get("active", True):
-        return _back_redirect(back, mdate, "bad_off")
-    if dt.minute not in (0, 30):
-        return _back_redirect(back, mdate, "bad_time")
-    if not eng.fits_clinic(dt, 30):
-        # 30 минут, а не полная длительность: визит УЖЕ существует, и требовать
-        # от него влезть в окно целиком значило бы отказывать в переносе тем,
-        # кого клиника принимает внахлёст с закрытием (так их и записали).
-        return _back_redirect(back, mdate, "outside")
-    # график врача — та причина серверной перепроверки, которую называет
-    # докстринг: часы врача меняются на другом экране, а вкладка устаревает
-    if not eng.fits_doctor(mdoctor, dt, 30):
-        return _back_redirect(back, mdate, "outside_doc")
-    code = await db.move_appointment(appt_id, mdoctor, doctor, dt,
-                                     when=dt.strftime("%H:%M"))
     return _back_redirect(back, mdate,
-                          {"": "ok_move", "gone": "mv_gone",
-                           "closed": "mv_closed"}.get(code, code))
+                          await _move_appt(appt_id, mdate, mtime, mdoctor))
+
+
+async def _set_status(appt_id: int, to: str) -> str:
+    """Смена исхода визита: «» — сделано, «bad» — слово не из конвейера,
+    иначе код отказа.
+
+    ⚠️ Небывалое слово старая страница глотает МОЛЧА — редирект назад без
+    баннера; обёртка ниже ведёт себя ровно так же. JSON API на «bad» ответит
+    отказом: вкладка, приславшая статус, которого нет, обязана это услышать,
+    а не считать, что сделано.
+    """
+    if to not in {"waiting", "arrived", "done", "noshow", "cancelled", "confirmed"}:
+        return "bad"
+    # код отказа, а не «не получилось»: «занято у медика» и «у пациента уже
+    # есть запись на этот час» чинятся по-разному, и регистратуре нужно
+    # знать, ЧТО именно занято (см. db.set_status)
+    code = await db.set_status(appt_id, to)
+    if not code:
+        return ""
+    return code if code in {"conflict", "dup"} else "conflict"
 
 
 @router.post("/admin/status/{appt_id}")
 async def admin_status(request: Request, appt_id: int, to: str = Form(...), back: str = Form("")):
     if (deny := _guard(request)) is not None:
         return deny
-    if to in {"waiting", "arrived", "done", "noshow", "cancelled", "confirmed"}:
-        # код отказа, а не «не получилось»: «занято у медика» и «у пациента уже
-        # есть запись на этот час» чинятся по-разному, и регистратуре нужно
-        # знать, ЧТО именно занято (см. db.set_status)
-        code = await db.set_status(appt_id, to)
-        if code:
-            msg = code if code in {"conflict", "dup"} else "conflict"
-            sep = "&" if "?" in back else "?"
-            target = (back + f"{sep}msg={msg}") if back.startswith("/admin") \
-                else f"/admin?msg={msg}"
-            return RedirectResponse(target, status_code=303)
+    msg = await _set_status(appt_id, to)
+    if msg and msg != "bad":
+        sep = "&" if "?" in back else "?"
+        target = (back + f"{sep}msg={msg}") if back.startswith("/admin") \
+            else f"/admin?msg={msg}"
+        return RedirectResponse(target, status_code=303)
     target = back if back.startswith("/admin") else "/admin"
     return RedirectResponse(target, status_code=303)
