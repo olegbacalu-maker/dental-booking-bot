@@ -12,9 +12,18 @@
 import json
 import pathlib
 import sys
+
+# ⛔ Консоль Windows живёт в cp1251, а названия проверок — румынские: «ț» в
+# «consultație» ей не по зубам, и печать отчёта падала UnicodeEncodeError
+# ПОСРЕДИ прогона. Сборка при этом отказывалась класть тег, то есть дымовой
+# тест не пускал ни один релиз — а выглядело как «сборка сломалась». Та же
+# мера, что в run_tests.py: плохой символ дешевле потерять, чем весь отчёт.
 import urllib.error
 import urllib.parse
 import urllib.request
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from harness import Client  # noqa: E402
