@@ -1856,3 +1856,224 @@ def suite_bot_ui(res: Result) -> None:
         res.check("grandfather: веб-чат отвечает",
                   c.post_json("/chat", {"session_id": "g", "message": "/start"}).status,
                   200)
+
+
+def suite_live_stable(res: Result) -> None:
+    """Контракт живого протокола: тело ДЕТЕРМИНИРОВАНО при неизменных данных.
+
+    ⭐ Это второе свойство протокола, и до 18.09 его не проверял никто.
+    `suite_live_swap` рядом сравнивает обёртку с фрагментом В ПРЕДЕЛАХ ОДНОГО
+    запроса — такое равенство держится само собой, потому что md5 считается от
+    одной строки. А вот что ДВА запроса подряд дадут одно и то же тело, не
+    следует ни из чего: достаточно одной серверной строки с минутами, случайного
+    id или неустойчивого порядка, и отпечаток становится другим каждые 12 секунд.
+    Подмена пойдёт на каждый опрос, мигание вернётся — то самое, от которого
+    ушли 08-20 по жалобе пилота, — и увидеть это можно, только простояв на
+    странице полминуты. Ни один набор столько не стоит.
+
+    ⚠️ Проверяются ЖИВЫЕ данные, а не пустой день: в дне есть пациент в
+    приёмной (`waiting_at`), запись «сейчас» и прошедшая. Минуты ожидания
+    обязан рисовать `panel.js` по штампу времени в атрибуте — если их однажды
+    напечатает сервер, отпечаток поедет ровно у той клиники, где кто-то ждёт.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        day = clinic_today().isoformat()
+        c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
+               aservice="consult", aname="Live Stabil", aphone="069700700")
+        c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
+               aservice="consult", aname="Live Asteapta", aphone="069700701")
+        # пациент В ПРИЁМНОЙ: именно у него минуты ожидания и мог бы поехать
+        # отпечаток, если бы их печатал сервер
+        page = c.get(f"/admin?date={day}").body
+        # ⚠️ Форм статуса на странице нет: статус меняют из модалки записи, и
+        # номер визита берётся из data-appt. Искать «/admin/status/» бесполезно.
+        aids = re.findall(r"data-appt='(\d+)'", page)
+        assert aids, "на дне нет ни одной записи — сеять нечего"
+        c.post(f"/admin/status/{aids[-1]}", to="waiting", back=f"/admin?date={day}")
+
+        H = {"X-DP-Live": "1"}
+        for path in (f"/admin?date={day}", f"/admin/all?date={day}",
+                     f"/admin/week?date={day}", f"/admin/doctor/d2?date={day}"):
+            name = path.split("?")[0]
+            a = c.get(path, headers=H)
+            b = c.get(path, headers=H)
+            if a.body != b.body:
+                # ⚠️ Могли пересечь границу часа между запросами: подсветка
+                # текущего часа дискретна и меняться ВПРАВЕ раз в час. Второй
+                # шанс отличает редкий переход от настоящего недетерминизма.
+                b = c.get(path, headers=H)
+                a = c.get(path, headers=H)
+            res.ok(f"{name}: два запроса подряд дают одно тело",
+                   a.body == b.body,
+                   "тело меняется само по себе — подмена пойдёт на КАЖДЫЙ опрос "
+                   "и мигание вернётся; ищите в теле время, минуты, случайный id "
+                   "или неустойчивый порядок")
+            res.ok(f"{name}: и один отпечаток",
+                   a.header("X-DP-Hash") == b.header("X-DP-Hash"),
+                   f"{a.header('X-DP-Hash')} против {b.header('X-DP-Hash')}")
+
+        # Данные изменились — отпечаток ОБЯЗАН стать другим, иначе живой журнал
+        # молчит о новой записи, и это вторая половина того же контракта.
+        before = c.get(f"/admin?date={day}", headers=H).header("X-DP-Hash")
+        c.post("/admin/add", adate=day, atime="15:30", adoctor="d2",
+               aservice="consult", aname="Live Nou", aphone="069700702")
+        after = c.get(f"/admin?date={day}", headers=H).header("X-DP-Hash")
+        res.ok("новая запись меняет отпечаток", before != after,
+               "отпечаток не заметил новую запись — опрос вернёт 204, и стойка "
+               "не увидит бронь из бота, пока не обновит страницу руками")
+
+        # Минуты ожидания рисует БРАУЗЕР по штампу времени: сервер печатает
+        # только data-since. Иначе тело менялось бы каждую минуту у любой
+        # клиники, где кто-то сидит в приёмной.
+        page = c.get(f"/admin?date={day}").body
+        res.ok("пациент в приёмной на странице есть (иначе проверка ниже пуста)",
+               "wait-min" in page, "статус «в приёмной» не поставился")
+        res.ok("минуты ожидания — штампом для panel.js, а не текстом сервера",
+               "data-wait-since=" in page and not re.search(r"wait-min[^>]*>\s*\d+\s*min", page),
+               "сервер печатает минуты сам — отпечаток поедет там, где ждут")
+
+
+# --- C24: неделя. Пин ПОВЕДЕНИЯ, а не разметки -----------------------------
+# ⚠️ До 18.09 неделя была покрыта двумя вещами: «отвечает 200» и участием в
+# живом протоколе. Всё, ради чего страница существует — какие дни показаны,
+# сколько записей, что написано в чипе, — не проверялось ни одним символом.
+# Перенос в React без этого терял бы поведение молча, а выглядел бы рабочим.
+
+_WEEK_COL = re.compile(r"<div class='wcol'><div class='wh( tdy)?'>"
+                       r"<a href='/admin\?date=(\d{4}-\d\d-\d\d)'>([^<]+)</a>"
+                       r"<small>(\d+) programări</small></div>"
+                       r"<div class='wb'>(.*?)</div></div>", re.S)
+
+
+def _week_cols(body: str) -> list[dict]:
+    """Колонки недели по порядку: дата, подпись, счётчик, «сегодня», чипы."""
+    out = []
+    for tdy, date, label, count, inner in _WEEK_COL.findall(body):
+        out.append({"date": date, "label": label.strip(), "count": int(count),
+                    "today": bool(tdy), "chips": re.findall(r"<div class='wchip([^']*)'", inner),
+                    "inner": inner})
+    return out
+
+
+def _close_weekend(c: Client) -> bool:
+    """Закрыть субботу и воскресенье — тем же телом, что шлёт страница часов.
+
+    ⚠️ Закрывать ПОСЛЕ сева: на нерабочий день запись через форму не
+    создаётся (`/admin/add` проверяет часы клиники), и это само по себе
+    поведение — см. проверку «на закрытый день записать нельзя». Поэтому
+    суббота сначала рабочая, запись в неё кладётся, и лишь затем день
+    закрывается — ровно так, как бывает у клиники, поменявшей график.
+    """
+    hours = {"mon": [7, 21], "tue": [7, 21], "wed": [7, 21], "thu": [7, 21],
+             "fri": [7, 21], "sat": None, "sun": None}
+    return c.post_json("/api/settings/hours", {"hours": hours}).status == 200
+
+
+def suite_week(res: Result) -> None:
+    """Неделя: диапазон, колонки, счётчики, чипы, цвета, навигация."""
+    with Server() as s:
+        c = Client(s.url).login()
+        # понедельник ближайшей ПОЛНОЙ будущей недели: прошлое не трогаем,
+        # чтобы «сегодня» не путалось с наполнением
+        monday = clinic_today() + timedelta(days=7 - clinic_today().weekday())
+        d = lambda i: (monday + timedelta(days=i)).isoformat()  # noqa: E731
+
+        # суббота пока рабочая — кладём в неё запись, она переживёт закрытие дня
+        sat = c.post("/admin/add", adate=d(5), atime="11:00", adoctor="d2",
+                     aservice="consult", aname="Vasile Lupu", aphone="069800802")
+        res.ok("на рабочую субботу запись создаётся", sat.msg == "ok",
+               f"код {sat.msg} — дальше проверять нечего")
+        res.ok("выходные закрыты через настройки часов", _close_weekend(c),
+               "часы не сохранились")
+
+        page = c.get(f"/admin/week?date={d(2)}").body
+        cols = _week_cols(page)
+        res.check("пять рабочих дней плюс суббота с записью",
+                  [x["date"] for x in cols], [d(i) for i in range(6)])
+        res.ok("пустой рабочий день говорит «— liber —»", "— liber —" in page,
+               "пустой день молчит")
+        res.ok("воскресенье без записей скрыто", d(6) not in page,
+               "пустой выходной обязан исчезнуть из недели")
+        bad = c.post("/admin/add", adate=d(6), atime="11:00", adoctor="d2",
+                     aservice="consult", aname="Nu Merge", aphone="069800809")
+        res.check("на закрытый день записать нельзя — «вне рабочих часов»",
+                  bad.msg, "outside")
+
+        # среда: две записи и заметка стойки
+        c.post("/admin/add", adate=d(2), atime="09:00", adoctor="d2",
+               aservice="consult", aname="Ion Popa", aphone="069800800")
+        c.post("/admin/add", adate=d(2), atime="10:30", adoctor="d2",
+               aservice="pain", aname="Maria Rusu", aphone="069800801")
+        c.post("/admin/note", ndate=d(2), ntime="12:00", ndoctor="d2",
+               ntext="Livrare materiale")
+        page = c.get(f"/admin/week?date={d(2)}").body
+        cols = _week_cols(page)
+        res.check("состав колонок не поехал от новых записей",
+                  [x["date"] for x in cols], [d(i) for i in range(6)])
+        res.ok("подпись дня — своя у каждой колонки, не по индексу",
+               len({x["label"] for x in cols}) == 6,
+               f"подписи повторяются: {[x['label'] for x in cols]}")
+        wed = next(x for x in cols if x["date"] == d(2))
+        res.check("счётчик дня считает записи и НЕ считает заметку",
+                  wed["count"], 2)
+        res.ok("итог недели — сумма записей без заметок",
+               "3 programări" in page, "итог недели посчитан неверно")
+        res.check("в среду три чипа: две записи и заметка",
+                  (len(wed["chips"]), wed["chips"].count(" gnote")), (3, 1))
+        res.ok("чип записи несёт час, имя и услугу",
+               "<b>09:00</b> Ion Popa" in wed["inner"]
+               and "Consultație" in wed["inner"], "чип потерял содержимое")
+        res.ok("чип заметки пунктирный и без имени пациента",
+               "1px dashed" in wed["inner"] and "Livrare materiale" in wed["inner"],
+               "заметка выглядит как запись")
+
+        # цвет — токеном темы, а не хексом: клиника выбирает свой цвет
+        bgs = re.findall(r"class='wchip'[^>]*background:([^;]+);", wed["inner"])
+        res.ok("фон чипа — переменная темы, а не зашитый цвет",
+               bgs and all(b.strip().startswith("var(--") for b in bgs),
+               f"в стиле чипа хекс: {bgs}")
+
+        # неявка: зачёркивание живёт классом, а не разметкой
+        aid = re.findall(r"data-appt='(\d+)'", c.get(f"/admin?date={d(2)}").body)
+        assert aid, "запись не нашлась на дне"
+        c.post(f"/admin/status/{aid[0]}", to="noshow", back=f"/admin?date={d(2)}")
+        wed = next(x for x in _week_cols(c.get(f"/admin/week?date={d(2)}").body)
+                   if x["date"] == d(2))
+        res.ok("неявка помечена классом noshow", " noshow" in wed["chips"],
+               "неявка неотличима от обычной записи")
+
+        # отменённая запись исчезает со страницы целиком
+        c.post(f"/admin/status/{aid[0]}", to="cancelled", back=f"/admin?date={d(2)}")
+        wed = next(x for x in _week_cols(c.get(f"/admin/week?date={d(2)}").body)
+                   if x["date"] == d(2))
+        res.check("отменённая запись ушла из недели и из счётчика",
+                  (len(wed["chips"]), wed["count"]), (2, 1))
+
+        # навигация: ровно ±7 дней от понедельника, «Azi» без параметра
+        nav = page.split("<div class='nav'>", 1)[1].split("</div>", 1)[0]
+        res.ok("навигация ведёт на ±7 дней и на сегодня",
+               f"/admin/week?date={(monday - timedelta(days=7)).isoformat()}" in nav
+               and f"/admin/week?date={(monday + timedelta(days=7)).isoformat()}" in nav
+               and "href='/admin/week'>Azi" in nav, "навигация недели сбита")
+        res.ok("в шапке — диапазон понедельник–воскресенье",
+               f"{monday.strftime('%d.%m')} – "
+               f"{(monday + timedelta(days=6)).strftime('%d.%m.%Y')}" in nav,
+               "диапазон недели показан неверно")
+        res.ok("клик по шапке дня ведёт в день",
+               f"/admin?date={d(2)}" in page, "нет ссылки на день")
+
+        # «сегодня» — ровно одна колонка и только на текущей неделе
+        this_week = _week_cols(c.get("/admin/week").body)
+        res.check("на текущей неделе подсвечен ровно один день",
+                  sum(1 for x in this_week if x["today"]), 1)
+        res.check("на будущей неделе не подсвечен никто",
+                  sum(1 for x in cols if x["today"]), 0)
+
+        # любая дата недели даёт ТУ ЖЕ неделю: страница ключуется понедельником
+        res.check("любой день недели открывает одну и ту же неделю",
+                  [x["date"] for x in _week_cols(c.get(f"/admin/week?date={d(4)}").body)],
+                  [x["date"] for x in cols])
+        res.ok("кривая дата не роняет страницу",
+               c.get("/admin/week?date=2026-13-99").status == 200,
+               "кривая дата обязана молча открыть текущую неделю")
