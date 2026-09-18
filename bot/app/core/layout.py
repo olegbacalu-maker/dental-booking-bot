@@ -912,6 +912,15 @@ def react_on(request: Request, screen: str) -> bool:
     return screen in flags
 
 
+# Метка узла React в готовой странице. ⚠️ Одна строка на печать и на проверку:
+# разойдутся — и правило «узел не внутри #live» перестанет срабатывать молча.
+REACT_MOUNT_MARK = '<div id="root" data-screen="'
+
+
+def _has_react_mount(body: str) -> bool:
+    return REACT_MOUNT_MARK in body
+
+
 def react_mount(screen: str, path: str, params: dict | None = None) -> str:
     """Узел, в который монтируется бандл, и ссылки на него.
 
@@ -928,7 +937,7 @@ def react_mount(screen: str, path: str, params: dict | None = None) -> str:
     return (
         f'<link rel="stylesheet" href="/static/css/bundle.css?v='
         f'{_asset_ver("css", "bundle.css")}">'
-        f'<div id="root" data-screen="{html.escape(screen)}"{attrs}>'
+        f'{REACT_MOUNT_MARK}{html.escape(screen)}"{attrs}>'
         f'<p class="hint">Interfața nouă nu s-a încărcat. '
         f'<a href="{legacy}">Deschideți varianta clasică</a>.</p></div>'
         f'<script type="module" src="/static/js/bundle.js?v='
@@ -952,12 +961,22 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
     fb_subject = urllib.parse.quote(
         f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
     fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
-    reload_attr = ' data-reload="12"' if active in LIVE_RELOAD else ""
+    # ⛔ React-узел НИКОГДА не внутри #live, и держит это правило само место,
+    # где его можно нарушить, а не комментарий рядом. Раньше тут был только
+    # комментарий: `react_on` про LIVE_RELOAD не знает ни строчкой, а проверка
+    # «у /admin нет #root» зелена просто потому, что журнала пока нет в
+    # REACT_SCREENS. Первая же строка C24 сделала бы её ложью молча: panel.js
+    # подменил бы innerHTML под смонтированным деревом, клик по свежему узлу
+    # умер бы, и увидеть это можно было бы только простояв на странице
+    # полминуты. Живой опрос и React несовместимы по устройству, поэтому
+    # страница с узлом живой не объявляется — ни обёрткой, ни атрибутом.
+    live = active in LIVE_RELOAD and not _has_react_mount(body)
+    reload_attr = ' data-reload="12"' if live else ""
     # Обёртка живого куска. data-hash — отпечаток СОДЕРЖИМОГО: panel.js шлёт
     # его с первым же опросом, и сервер отвечает 204 «ничего не менялось» без
     # затравочной загрузки. Хеш считается ЗДЕСЬ и в _live_fragment от одной и
     # той же строки body — это и держит их равенство (сторожит test_admin).
-    if active in LIVE_RELOAD:
+    if live:
         body = (f'<div id="live" data-hash="'
                 f'{hashlib.md5(body.encode("utf-8")).hexdigest()}">{body}</div>')
     # Тема клиники приезжает СТРОКОЙ в шапке, а не переписывает panel.css:

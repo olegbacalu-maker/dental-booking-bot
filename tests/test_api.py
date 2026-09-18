@@ -236,3 +236,45 @@ def suite_switch(res: Result) -> None:
         r = ana.get("/admin/settings/clinic")
         res.ok("регистратуре React-страница закрыта, как и старая",
                r.status == 303 and r.msg == "no_access", f"{r!r}")
+
+
+def suite_live_react(res: Result) -> None:
+    """⛔ React-узел НИКОГДА не внутри #live.
+
+    Правило старое, а держал его до 18.09 только комментарий: `react_on` про
+    `LIVE_RELOAD` не знает ни строчкой, а проверка «у /admin нет #root» зелена
+    просто потому, что журнала пока нет в `REACT_SCREENS`. Первая же строка
+    C24 сделала бы её ложью молча.
+
+    Теперь правило держит само место, где его можно нарушить: `_shell` не
+    объявляет страницу живой, если в теле есть узел React. Сервера здесь не
+    нужно — проверяется сборка страницы.
+    """
+    import pathlib
+    import sys
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
+    from app.core import layout as L
+
+    plain = L._shell("<p>zi</p>", "x", active="dash")
+    res.check("обычная живая страница: обёртка #live и опрос на месте",
+              ('id="live"' in plain, 'data-reload="12"' in plain), (True, True))
+
+    node = L.react_mount("schedule_day", "/admin", {"d": "2026-09-18"})
+    react = L._shell(node, "x", active="dash")
+    res.check("узел React в живом разделе: ни обёртки, ни опроса",
+              ('id="live"' in react, "data-reload" in react), (False, False))
+    res.ok("сам узел при этом на месте и не тронут",
+           'data-screen="schedule_day"' in react and "bundle.js" in react,
+           "узел потерян вместе с обёрткой")
+    res.check("вторая живая секция закрыта тем же правилом",
+              'id="live"' in L._shell(node, "x", active="prog"), False)
+    res.ok("метка узла ОДНА на печать и на распознавание",
+           L.REACT_MOUNT_MARK in node and L._has_react_mount(node),
+           "печать и проверка разошлись — правило перестанет срабатывать молча")
+
+    # ⚠️ Живых разделов два, а ЭКРАНОВ за ними четыре: dash — это /admin и
+    # /admin/week, prog — /admin/all и /admin/doctor/{dk}. Поэтому «убрать ключ
+    # в коммите C26» — не про один экран: снятие dash погасит живую неделю
+    # заодно. Проверка стоит здесь, чтобы это вспомнилось В МОМЕНТ правки.
+    res.check("живых разделов по-прежнему два, оба — журнал",
+              sorted(L.LIVE_RELOAD), ["dash", "prog"])

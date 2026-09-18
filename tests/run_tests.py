@@ -168,6 +168,7 @@ SUITES = [
     ("Одонтограмма: старые страницы — эталон", test_odontogram_api.suite_pin),
     ("Одонтограмма: JSON API", test_odontogram_api.suite_api),
     ("Одонтограмма: React-экран и старая страница", test_odontogram_api.suite_switch),
+    ("Живой журнал: React-узел не внутри #live", test_api.suite_live_react),
     ("Пародонтограмма: старая страница — эталон", test_perio_api.suite_pin),
     ("Пародонтограмма: JSON API осмотров", test_perio_api.suite_api),
     ("Пародонтограмма: React-экран и старая страница", test_perio_api.suite_switch),
