@@ -21,7 +21,7 @@ from ... import engine as eng
 from ...core.api import api_guard
 from ...core.layout import msg_json
 from ...core.visits import _parse_date
-from .routes import _week_model
+from .routes import _day_model, _week_model
 
 router = APIRouter()
 
@@ -41,3 +41,23 @@ async def api_week(request: Request, date_q: str = Query("", alias="date")):
     # него, а не на понедельник — так же, как на старой странице
     data["day"] = d.isoformat()
     return msg_json(True, data=data)
+
+@router.get("/api/schedule/day")
+async def api_day(request: Request, date_q: str = Query("", alias="date"),
+                  doctor: str = Query("")):
+    """Сетка дня: все врачи или один (`?doctor=dk`) — тот же построитель.
+
+    ⚠️ Колонки приезжают СПИСКОМ, ячейка ссылается на позицию в нём: врачей
+    бывает ноль, один или все, и раскладка по фиксированным местам сломалась
+    бы на первом выключенном.
+    ⛔ Поля перетаскивания (`min`, `dur`, `busy`, `movable`) те же, что у
+    `_move_attrs` старой страницы: договор с переносом один на оба экрана.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+    data = await _day_model(d, doctor)
+    if data is None:
+        return msg_json(False, status=404)
+    return msg_json(True, data=data)
+

@@ -180,6 +180,8 @@ SUITES = [
     ("Сетка дня: контракт построителя (C25)", test_grid.suite_grid),
     ("Сетка дня: измерение врача", test_grid.suite_doctors),
     ("Сетка дня: легаси-имена без doctor_id", test_grid.suite_orphan),
+    ("Сетка дня: паритет модели и страницы", test_schedule_api.suite_day_parity),
+    ("Сетка дня: легаси-колонка в паритете", test_schedule_api.suite_day_orphan),
     ("Пародонтограмма: старая страница — эталон", test_perio_api.suite_pin),
     ("Пародонтограмма: JSON API осмотров", test_perio_api.suite_api),
     ("Пародонтограмма: React-экран и старая страница", test_perio_api.suite_switch),

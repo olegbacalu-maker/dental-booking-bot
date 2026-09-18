@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from ... import db
 from ... import engine as eng
 
 
@@ -112,3 +113,70 @@ def can_drop(dk: str, h: int, work: dict) -> bool:
     """Мишень переноса: приёмный час врача, ЗАНЯТ он или нет — в 10:00 стоит
     визит, а 10:30 у того же часа свободно."""
     return h in work.get(dk, set())
+
+# --------------------------------------------------------------- модель 2.0
+# ⚠️ Здесь НЕ появляется ни одного нового правила: всё, что ниже, собирает уже
+# вынесенные функции в один ответ. Если модель и разметка однажды разойдутся,
+# виновата будет сборка, а не правило — искать станет где.
+
+def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
+    """Одна запись глазами сетки: то же, что печатает карточка.
+
+    `colors` и `cards` передаются аргументами по той же причине, что и у
+    недели: они живут в `routes`/`core.visits`, а импорт оттуда замкнул бы
+    круг. ⛔ Перетаскивание описывается ТЕМИ ЖЕ полями, что `_move_attrs`:
+    минуты от полуночи, длительность, подпись и признак «занимает интервал».
+    Разойдись они — перенос на новом экране молча перестал бы работать, а
+    поймать это можно только руками.
+    """
+    st = r["starts_at"].astimezone(eng.TZ)
+    dur = int(r.get("duration_min") or 60)
+    live = r["status"] in db.ACTIVE_STATUSES
+    if r["source"] == "note":
+        return {"kind": "note", "id": r["id"], "time": st.strftime("%H:%M"),
+                "text": r["service"], "min": st.hour * 60 + st.minute,
+                "dur": dur, "busy": live, "movable": bool(dk) and live}
+    bg, bar = colors(r)
+    return {
+        "kind": "appt", "id": r["id"], "time": st.strftime("%H:%M"),
+        "name": r["name"] or "—", "service": r["service"],
+        "phone": r["phone"] or "", "status": r["status"],
+        "urgent": r["service"] in eng.URGENT_LABELS,
+        "source": r["source"], "dur": dur,
+        "comment": (r["comment"] or "")[:60],
+        "birth_year": r.get("birth_year"),
+        "clickable": bool(cards is not None and r["id"] in cards),
+        "bg": bg, "bar": bar,
+        # перетаскивание — теми же полями, что у _move_attrs
+        "min": st.hour * 60 + st.minute, "busy": live,
+        "movable": bool(dk) and live,
+    }
+
+
+def model(d, items: list, active: tuple, cards: dict | None, colors) -> dict:
+    """Сетка дня данными: колонки, ряды часов, ячейки с их исходом.
+
+    ⚠️ Колонки — СПИСОК, и ячейка ссылается на него позицией. Врачей может не
+    быть вовсе (никого активного и ни одной записи), может быть один (день
+    врача) или все; раскладка по фиксированным позициям сломалась бы на
+    первом же выключенном враче.
+    """
+    starts, covered = active
+    work = work_hours(d, items)
+    nh = now_hour(d)
+    cols = [{"id": dk, "name": name, "spec": column_spec(dk)} for dk, name in items]
+    hours = []
+    for h in hours_range(d, starts, covered):
+        kind = closed_kind(d, h)
+        cells = []
+        for dk, dname in items:
+            ck = cell_kind(dk, dname, h, starts, covered, work)
+            cells.append({
+                "kind": ck,
+                "drop": can_drop(dk, h, work),
+                "items": [appt_view(r, dk, cards, colors)
+                          for r in cell_rows(dk, dname, h, starts)],
+            })
+        hours.append({"h": h, "label": f"{h:02d}:00", "closed": kind,
+                      "now": h == nh, "cells": cells})
+    return {"date": d.isoformat(), "doctors": cols, "hours": hours}

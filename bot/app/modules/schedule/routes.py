@@ -1312,6 +1312,34 @@ _TILE_FILTERS = {
 }
 
 
+async def _day_model(d: date, doctor: str = "") -> dict | None:
+    """Данные сетки дня — одни на «Toți medicii» и на день врача.
+
+    `doctor` пуст — все врачи и все записи; иначе один врач и ТОЛЬКО его
+    записи, включая легаси-строки без `doctor_id`, найденные по снимку имени.
+    None — такого врача в справочнике нет.
+    """
+    day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
+    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
+    if doctor:
+        if doctor not in eng.DOCTORS:
+            return None
+        name = eng.DOCTORS[doctor]
+        rows = [r for r in rows
+                if r.get("doctor_id") == doctor
+                or (not r.get("doctor_id") and r["doctor"] == name)]
+        items = [(doctor, name)]
+    else:
+        # неактивный врач остаётся колонкой, пока у него есть записи этого дня
+        busy_keys = {r.get("doctor_id") for r in rows if r["status"] != "cancelled"}
+        busy_names = {r["doctor"] for r in rows if r["status"] != "cancelled"}
+        items = [(dk, n) for dk, n in eng.DOCTORS.items()
+                 if eng.DOCTOR_META.get(dk, {}).get("active", True)
+                 or dk in busy_keys or n in busy_names]
+    return pday.model(d, items, pday.active_map(rows), _collect_cards(rows),
+                      _svc_colors)
+
+
 @router.get("/admin/all", response_class=HTMLResponse)
 async def admin_all(
     request: Request,

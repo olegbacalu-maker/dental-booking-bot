@@ -175,3 +175,193 @@ def suite_switch(res: Result) -> None:
         res.ok("?ui=legacy возвращает старую неделю",
                "class='wcol'" in c.get("/admin/week?ui=legacy").body, "нет")
         res.check("без входа закрыта", Client(s.url).get("/admin/week").status, 303)
+
+
+# --- C25.4: паритет сетки дня ----------------------------------------------
+# ⚠️ Сверяется не «похоже», а поле за полем: колонки, ряды часов, исход каждой
+# ячейки, мишень переноса и поля самого перетаскивания. Расхождение здесь
+# значит, что React-экран покажет не то, что показывает страница, а увидит это
+# клиника — и увидит не сразу.
+
+_TR = re.compile(r"<tr class='(hrow[^']*)'>(.*?)</tr>", re.S)
+_TD = re.compile(r"(<td[^>]*>.*?</td>)", re.S)
+
+
+def _grid_of(body: str) -> dict:
+    """Разобрать таблицу страницы в сравнимый вид."""
+    grid = body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0]
+    heads = re.findall(r"<a class='dh-n'[^>]*>([^<]+)</a>", grid)
+    specs = re.findall(r"<span class='dh-s'>([^<]*)</span>", grid)
+    rows = []
+    for cls, tr in _TR.findall(grid):
+        tds = _TD.findall(tr)
+        hour = re.sub(r"<[^>]+>", " ", tds[0]).split()[0]
+        closed = ("pauza" if "pauză" in tds[0] else
+                  "inchis" if "închis" in tds[0] else "")
+        cells = []
+        for td in tds[1:]:
+            if "class='goff'" in td:
+                kind = "off"
+            elif "appt busy" in td:
+                kind = "busy"
+            elif "data-appt=" in td:
+                kind = "appts"
+            else:
+                kind = "free"
+            cells.append({
+                "kind": kind,
+                "drop": " data-dk=" in td.split(">", 1)[0],
+                "ids": re.findall(r"data-appt='(\d+)'", td),
+                "min": re.findall(r"data-min='(\d+)'", td),
+                "dur": re.findall(r"data-dur='(\d+)'", td),
+                "busy": [bool(x) for x in re.findall(r"(data-busy='1')", td)],
+                "mv": [bool(x) for x in re.findall(r"(data-mv='1')", td)],
+            })
+        rows.append({"hour": hour, "closed": closed, "now": " now" in cls,
+                     "cells": cells})
+    return {"heads": heads, "specs": specs, "rows": rows}
+
+
+def _model_of(j: dict) -> dict:
+    """То же из JSON — теми же именами, чтобы сравнение было прямым."""
+    return {
+        "heads": [x["name"] for x in j["doctors"]],
+        "specs": [x["spec"] for x in j["doctors"]],
+        "rows": [{
+            "hour": h["label"], "closed": h["closed"], "now": h["now"],
+            "cells": [{
+                "kind": c["kind"], "drop": c["drop"],
+                "ids": [str(x["id"]) for x in c["items"]],
+                "min": [str(x["min"]) for x in c["items"]],
+                "dur": [str(x["dur"]) for x in c["items"]],
+                "busy": [True for x in c["items"] if x["busy"]],
+                "mv": [True for x in c["items"] if x["movable"]],
+            } for c in h["cells"]],
+        } for h in j["hours"]],
+    }
+
+
+def _seed_full(c: Client, day: str) -> None:
+    """День, задевающий каждое правило сетки."""
+    c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
+           aservice="consult", aname="Ion Popa", aphone="069170170")
+    c.post("/admin/add", adate=day, atime="10:00", adoctor="d3",
+           aservice="pain", aname="Maria Rusu", aphone="069170171")
+    c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
+           aservice="long", aname="Vasile Lupu", aphone="069170172")
+    c.post("/admin/add", adate=day, atime="12:30", adoctor="d2",
+           aservice="consult", aname="Ana Gheorghiu", aphone="069170173")
+    c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
+           ntext="Livrare materiale")
+    ids = re.findall(r"data-appt='(\d+)'", c.get(f"/admin/all?date={day}").body)
+    if len(ids) >= 2:
+        c.post(f"/admin/status/{ids[0]}", to="noshow", back=f"/admin/all?date={day}")
+        c.post(f"/admin/status/{ids[1]}", to="cancelled", back=f"/admin/all?date={day}")
+
+
+def suite_day_parity(res: Result) -> None:
+    """JSON сетки дня повторяет страницу поле за полем — на обоих экранах."""
+    with Server() as s:
+        res.check("без входа — 401",
+                  Client(s.url).get("/api/schedule/day").status, 401)
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=3)).isoformat()
+        _seed_full(c, day)
+
+        page = _grid_of(c.get(f"/admin/all?date={day}").body)
+        model = _model_of(_j(c.get(f"/api/schedule/day?date={day}"))["data"])
+        res.check("колонки: имена совпадают", model["heads"], page["heads"])
+        res.check("колонки: подписи совпадают", model["specs"], page["specs"])
+        res.check("ряды часов: те же метки и в том же порядке",
+                  [r["hour"] for r in model["rows"]], [r["hour"] for r in page["rows"]])
+        res.check("закрытые часы названы одинаково",
+                  [r["closed"] for r in model["rows"]],
+                  [r["closed"] for r in page["rows"]])
+        res.check("подсветка текущего часа совпадает",
+                  [r["now"] for r in model["rows"]], [r["now"] for r in page["rows"]])
+        res.check("исход каждой ячейки совпадает",
+                  [[c_["kind"] for c_ in r["cells"]] for r in model["rows"]],
+                  [[c_["kind"] for c_ in r["cells"]] for r in page["rows"]])
+        res.check("мишень переноса стоит там же",
+                  [[c_["drop"] for c_ in r["cells"]] for r in model["rows"]],
+                  [[c_["drop"] for c_ in r["cells"]] for r in page["rows"]])
+        res.check("записи лежат в тех же ячейках и в том же порядке",
+                  [[c_["ids"] for c_ in r["cells"]] for r in model["rows"]],
+                  [[c_["ids"] for c_ in r["cells"]] for r in page["rows"]])
+        res.check("поля перетаскивания совпадают: минуты, длительность, занятость",
+                  [[(c_["min"], c_["dur"], c_["busy"], c_["mv"]) for c_ in r["cells"]]
+                   for r in model["rows"]],
+                  [[(c_["min"], c_["dur"], c_["busy"], c_["mv"]) for c_ in r["cells"]]
+                   for r in page["rows"]])
+
+        # содержимое карточки — то же, что печатает страница
+        j = _j(c.get(f"/api/schedule/day?date={day}"))["data"]
+        items = [x for h in j["hours"] for cl in h["cells"] for x in cl["items"]]
+        body = c.get(f"/admin/all?date={day}").body
+        appt = next(x for x in items if x["kind"] == "appt" and x["status"] == "noshow")
+        res.ok("неявка помечена и статусом, и цветом",
+               appt["bg"] == "var(--red-soft)" and "s-noshow" in body,
+               "неявка в модели и на странице разошлись")
+        note = next(x for x in items if x["kind"] == "note")
+        res.check("заметка стойки — своим видом и текстом",
+                  (note["kind"], note["text"]), ("note", "Livrare materiale"))
+        res.ok("отменённая запись не попала ни в модель, ни в сетку",
+               all(x["kind"] != "appt" or x["status"] != "cancelled" for x in items),
+               "отменённая запись видна в сетке")
+
+        # --- день врача: тот же построитель, другие данные ---
+        page1 = _grid_of(c.get(f"/admin/doctor/d2?date={day}").body)
+        model1 = _model_of(_j(c.get(f"/api/schedule/day?date={day}&doctor=d2"))["data"])
+        res.check("день врача: одна колонка и та же",
+                  (model1["heads"], page1["heads"]),
+                  (["Dr. Activ Doi"], ["Dr. Activ Doi"]))
+        res.check("день врача: ряды и ячейки совпадают",
+                  [[c_["kind"] for c_ in r["cells"]] for r in model1["rows"]],
+                  [[c_["kind"] for c_ in r["cells"]] for r in page1["rows"]])
+        res.check("день врача: записи те же",
+                  [[c_["ids"] for c_ in r["cells"]] for r in model1["rows"]],
+                  [[c_["ids"] for c_ in r["cells"]] for r in page1["rows"]])
+        res.check("чужой врач — 404, а не пустая сетка",
+                  c.get("/api/schedule/day?doctor=d999").status, 404)
+
+
+def suite_day_orphan(res: Result) -> None:
+    """Легаси-строка без `doctor_id` стоит в одной и той же колонке у обоих.
+
+    ⚠️ Такую строку не создать через интерфейс: `/admin/add` всегда пишет
+    `doctor_id`. Поэтому она делается прямо в базе песочницы — это ровно то,
+    что лежит у клиник, обновившихся с версий до v1.7.1, и единственный
+    способ проверить вторую половину правила «id, иначе снимок имени».
+    """
+    import sqlite3
+    with Server() as s:
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=4)).isoformat()
+        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
+               aservice="consult", aname="Legacy Pacient", aphone="069180180")
+        c.post("/admin/add", adate=day, atime="10:00", adoctor="d3",
+               aservice="consult", aname="Nou Pacient", aphone="069180181")
+        ids = re.findall(r"data-appt='(\d+)'", c.get(f"/admin/all?date={day}").body)
+        con = sqlite3.connect(s.dir / "dental.db")
+        con.execute("UPDATE appointments SET doctor_id = NULL WHERE id = ?", (ids[0],))
+        con.commit()
+        con.close()
+
+        page = _grid_of(c.get(f"/admin/all?date={day}").body)
+        model = _model_of(_j(c.get(f"/api/schedule/day?date={day}"))["data"])
+        res.check("легаси-запись стоит в той же ячейке, что на странице",
+                  [[c_["ids"] for c_ in r["cells"]] for r in model["rows"]],
+                  [[c_["ids"] for c_ in r["cells"]] for r in page["rows"]])
+        res.ok("и она вообще видна", any(ids[0] in c_["ids"] for r in model["rows"]
+                                         for c_ in r["cells"]),
+               "запись без doctor_id исчезла из модели")
+        res.ok("и не задвоилась у соседнего врача",
+               sum(1 for r in model["rows"] for c_ in r["cells"] if ids[0] in c_["ids"]) == 1,
+               "запись показана дважды")
+        # ⚠️ Запись-сирота ЛЕЖИТ В КОЛОНКЕ НАСТОЯЩЕГО врача (её нашли по снимку
+        # имени), поэтому тащить её можно: адрес переноса — id колонки, и он
+        # есть. Колонка-сирота, у которой своего id нет вовсе, бывает на канве
+        # дня — это уже C26, и правило про «переносить оттуда некуда» живёт там.
+        cell = next(c_ for r in model["rows"] for c_ in r["cells"] if ids[0] in c_["ids"])
+        res.check("из колонки настоящего врача запись-сироту перенести можно",
+                  cell["mv"], [True])
