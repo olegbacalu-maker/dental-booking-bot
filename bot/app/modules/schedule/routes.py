@@ -35,6 +35,7 @@ from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
                             _collect_cards, _list, _move_attrs, _move_modal,
                             _parse_date, _photo_path)
+from . import day as pday
 from . import week as pweek
 
 router = APIRouter()
@@ -105,25 +106,17 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
     # рисовался, значит и `starts` по нему никто не спрашивал. В списке дня и на
     # канве визит есть, здесь его нет. Отсюда часы записей в диапазоне наравне с
     # рабочими — ровно так же, как это делает `_day_canvas`.
-    open_h = {x.hour for x in eng.day_slots(d)}
-    known = sorted(open_h | {h for _k, h in starts} | {h for _k, h in covered})
-    hours = list(range(known[0], known[-1] + 1)) if known else []
-    # закрытый час называет СЕБЯ: обед клиники — «pauză», всё остальное —
-    # «închis» (день ещё не начался / уже кончился, а запись тут есть)
-    _hf = eng.hours_for(d)
-    br_f, br_t = (int(_hf[2]), int(_hf[3])) if _hf and len(_hf) >= 4 else (0, 0)
+    open_h = pday.open_hours(d)
+    hours = pday.hours_range(d, starts, covered)
     # Текущий час подсвечивается ТОЛЬКО на сегодняшнем дне. Отдельной линии
     # «сейчас» поперёк сетки здесь нет намеренно: таблица — не холст, линию
     # пришлось бы позиционировать поверх строк, и она разъезжалась бы с ними
     # при любой ширине. Подсветка строки отвечает на тот же вопрос («где мы
     # сейчас») и не может разъехаться, потому что она и есть строка.
-    now = datetime.now(eng.TZ)
-    now_hour = now.hour if now.date() == d else None
+    now_hour = pday.now_hour(d)
     out = ["<div class='gridwrap'><table class='grid'><tr><th class='gh-t'></th>"]
     for dk, name in doctors_items:
-        spec = eng.DOCTOR_SPEC.get(dk, "")
-        if not eng.DOCTOR_META.get(dk, {}).get("active", True):
-            spec = (spec + " · inactiv").strip(" ·")
+        spec = pday.column_spec(dk)
         out.append(f"<th><a class='dh-n' href='/admin/doctor/{dk}?date={d.isoformat()}'>"
                    f"{html.escape(name)}</a>"
                    f"<span class='dh-s'>{html.escape(spec)}</span></th>")
@@ -134,28 +127,29 @@ def _grid(d: date, doctors_items: list, active: dict, href_fn,
     # врача, которому /admin/add всё равно ответит `bad_off`. Прежний набор
     # `off` знал только про последний, и таблица предлагала «+» там, где канва
     # рисовала штриховку.
-    work = {dk: eng.doctor_hours(dk, d) for dk, _n in doctors_items}
+    work = pday.work_hours(d, doctors_items)
     for h in hours:
         nowcls = " now" if h == now_hour else ""
-        closed = h not in open_h
-        note = (f"<small>{'pauză' if br_f <= h < br_t else 'închis'}</small>"
+        kind = pday.closed_kind(d, h)
+        closed = bool(kind)
+        note = (f"<small>{'pauză' if kind == 'pauza' else 'închis'}</small>"
                 if closed else "")
         out.append(f"<tr class='hrow{' off' if closed else ''}{nowcls}'>"
                    f"<td class='hour{' off' if closed else ''}{nowcls}'>"
                    f"{h:02d}:00{note}</td>")
         for dk, dname in doctors_items:
-            rs = starts.get((dk, h)) or starts.get((dname, h)) or []
+            rs = pday.cell_rows(dk, dname, h, starts)
             # приёмный час = мишень для перетаскивания, ЗАНЯТ он или нет:
             # в 10:00 стоит визит, а 10:30 у того же часа свободно, и отказать
             # в половине часа только потому, что ячейка не пуста, нельзя
             drop = (f" data-dk='{html.escape(dk, quote=True)}' data-h='{h}'"
-                    if h in work.get(dk, set()) else "")
+                    if pday.can_drop(dk, h, work) else "")
             if not rs:
-                if (dk, h) in covered or (dname, h) in covered:
+                if pday.cell_kind(dk, dname, h, starts, covered, work) == "busy":
                     # час накрыт длинным визитом — «+» тут врал бы
                     out.append(f"<td{drop}><div class='appt busy'>"
                                f"{_ic('hourglass')} ocupat</div></td>")
-                elif h not in work.get(dk, set()):
+                elif pday.cell_kind(dk, dname, h, starts, covered, work) == "off":
                     # врач не принимает: «+» тут врал бы так же, как в обед —
                     # запись либо отобьётся, либо назначит визит в пустой кабинет
                     out.append("<td class='goff'></td>")
@@ -408,20 +402,7 @@ def _active_map(rows: list) -> tuple[dict, set]:
     """({(врач, час): [записи]}, {(врач, час) накрытые чужим интервалом}).
     Ключ — стабильный doctor_id (v1.7.1), легаси без id — имя-снапшот.
     Второе множество нужно, чтобы под 90-минутным визитом не рисовать «+»."""
-    starts: dict = {}
-    covered: set = set()
-    for r in rows:
-        if r["status"] == "cancelled":
-            continue
-        did = r.get("doctor_id")
-        key = did if did and did in eng.DOCTORS else r["doctor"]
-        st = r["starts_at"].astimezone(eng.TZ)
-        starts.setdefault((key, st.hour), []).append(r)
-        dur = int(r.get("duration_min") or 60)
-        end_min = st.hour * 60 + st.minute + dur
-        for h in range(st.hour + 1, (end_min + 59) // 60):
-            covered.add((key, h))
-    return starts, covered
+    return pday.active_map(rows)
 
 
 _SVC_CAT = [
