@@ -85,6 +85,26 @@ const MODEL: DayModel = {
     noshow: [{ to: 'confirmed', cls: 'b-reopen', label: 'Redeschide',
       confirm: 'Redeschideți programarea (înapoi la «confirmată»)?' }],
   },
+  note_actions: {
+    confirmed: [{ to: 'cancelled', cls: 'b-cancel', label: 'Șterge', confirm: '' }],
+    cancelled: [{ to: 'confirmed', cls: 'b-reopen', label: 'Restabilește',
+      confirm: 'Restabiliți notița?' }],
+  },
+  list: [
+    { id: 1, is_note: false, time: '09:00', name: 'Ion Popa', age: 41,
+      phone: '069000000', service: 'Consultație', urgent: false, comment: LONG.slice(0, 80),
+      doctor: 'Dr. Activ Doi', source: 'panel', source_label: 'manual',
+      status: 'confirmed', status_label: 'Confirmat', reminded: false, rec: false },
+    { id: 2, is_note: false, time: '10:00', name: 'Maria Rusu', age: 36,
+      phone: '069000001', service: 'Durere acută', urgent: true, comment: '',
+      doctor: 'Dr. Activ Trei', source: 'bot', source_label: 'bot',
+      status: 'noshow', status_label: 'Nu s-a prezentat', reminded: true, rec: true },
+    { id: 9, is_note: true, time: '19:00', name: '', age: null, phone: '',
+      service: 'Livrare', urgent: false, comment: '', doctor: 'Dr. Activ Doi',
+      source: 'note', source_label: 'notiță', status: 'confirmed',
+      status_label: 'Confirmat', reminded: false, rec: false },
+  ],
+  filter: null,
 }
 
 const ok = <T,>(data: T): ApiResult<T> => ({ data, code: 'ok', text: 'Programare adăugată', tone: 'ok' })
@@ -114,8 +134,9 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); vi.restoreAllMocks() })
 
-const show = async (props: { date?: string; doctor?: string } = {}) => {
-  render(<DayScreen date={props.date ?? ''} doctor={props.doctor ?? ''} navigate={() => {}} />)
+const show = async (props: { date?: string; doctor?: string; f?: string } = {}) => {
+  render(<DayScreen date={props.date ?? ''} doctor={props.doctor ?? ''}
+                    f={props.f ?? ''} navigate={() => {}} />)
   await waitFor(() => expect(rows().length).toBeGreaterThan(0))
 }
 
@@ -406,5 +427,96 @@ describe('перетаскивание', () => {
       .toContain('Medicul are deja o programare la 10:00.')
     expect((document.querySelectorAll('.mv-act button')[1] as HTMLButtonElement).disabled)
       .toBe(true)
+  })
+})
+
+describe('список дня', () => {
+  const list = () => Array.from(document.querySelectorAll('table.list tr')).slice(1)
+  const cells = (i: number) =>
+    Array.from(list()[i]?.querySelectorAll('td') ?? []).map((c) => c.textContent?.trim())
+
+  it('строки — все записи дня, включая заметку, в порядке сервера', async () => {
+    await show()
+    expect(list()).toHaveLength(3)
+    expect(list().map((r) => r.className)).toEqual(['confirmed', 'noshow', 'confirmed'])
+    expect(cells(0)?.slice(0, 4)).toEqual(['1', '09:00', 'Ion Popa (41 ani)', '069000000'])
+  })
+
+  it('комментарий строки — обрезанный сервером, а правится полный в карточке', async () => {
+    await show()
+    expect(document.querySelector('table.list .dp-cmt')?.textContent)
+      .toContain(LONG.slice(0, 80))
+    fireEvent.click(document.querySelector('table.list .plink') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog textarea')).toBeTruthy())
+    expect((document.querySelector('dialog textarea') as HTMLTextAreaElement).value).toBe(LONG)
+  })
+
+  it('источник и метки — словами сервера', async () => {
+    await show()
+    expect(cells(1)?.[6]).toBe('bot')
+    expect(cells(2)?.[6]).toBe('notiță')
+    expect(list()[1]?.querySelector('.rem-mark')).toBeTruthy()
+    expect(list()[1]?.querySelector('.rec-mark')).toBeTruthy()
+    expect(list()[0]?.querySelector('.rem-mark')).toBeNull()
+  })
+
+  it('у ЗАМЕТКИ своя кнопка, и по имени её не открыть', async () => {
+    await show()
+    expect(Array.from(list()[2]?.querySelectorAll('button') ?? [])
+      .map((b) => b.textContent?.trim())).toEqual(['Șterge'])
+    expect(list()[2]?.querySelector('.plink')).toBeNull()
+  })
+
+  it('кнопка строки шлёт статус этой записи', async () => {
+    post.mockResolvedValue(ok(MODEL))
+    await show()
+    fireEvent.submit(list()[0]?.querySelector('form.act') as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/status', { to: 'waiting' }))
+  })
+
+  it('возврат неявки спрашивает подтверждение записи, а не заметки', async () => {
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await show()
+    fireEvent.submit(list()[1]?.querySelector('form.act') as HTMLFormElement)
+    expect(ask).toHaveBeenCalledWith('Redeschideți programarea (înapoi la «confirmată»)?')
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('фильтр плитки: спрашивается у сервера и называет себя', async () => {
+    get.mockResolvedValue(ok({
+      ...MODEL, list: [MODEL.list[1]!],
+      filter: { key: 'noshow', label: 'neprezentări', count: 1 },
+    }))
+    await show({ f: 'noshow' })
+    expect(get).toHaveBeenCalledWith('/schedule/day?f=noshow', expect.anything())
+    expect(document.querySelector('.banner.ok')?.textContent)
+      .toContain('neprezentări')
+    expect(list()).toHaveLength(1)
+    // отфильтрованный список стоит НАД сеткой — как на старой странице
+    expect(document.querySelectorAll('h2')[0]?.textContent).toContain('neprezentări')
+    const all = Array.from(document.querySelectorAll('table'))
+    expect(all[0]?.className).toBe('list')
+  })
+
+  it('«arată tot» снимает отбор и перезапрашивает день', async () => {
+    get.mockResolvedValue(ok({
+      ...MODEL, list: [MODEL.list[1]!],
+      filter: { key: 'noshow', label: 'neprezentări', count: 1 },
+    }))
+    await show({ f: 'noshow' })
+    get.mockResolvedValue(ok(MODEL))
+    fireEvent.click(document.querySelector('.banner.ok a') as HTMLElement)
+    await waitFor(() => expect(get).toHaveBeenCalledWith(
+      '/schedule/day?date=2026-09-23', expect.anything()))
+  })
+
+  it('Excel — ссылка этого дня, и только у общего журнала', async () => {
+    await show()
+    expect(document.querySelector('a[href*="export.xlsx"]')?.getAttribute('href'))
+      .toBe('/admin/export.xlsx?from=2026-09-23&to=2026-09-23')
+    cleanup()
+    await show({ doctor: 'd2' })
+    expect(document.querySelector('a[href*="export.xlsx"]')).toBeNull()
   })
 })

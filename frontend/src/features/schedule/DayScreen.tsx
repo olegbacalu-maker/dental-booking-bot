@@ -7,6 +7,7 @@ import { asApiError, type ApiResult } from '../../services/api'
 import { AddForm } from './AddForm'
 import { CardDialog } from './CardDialog'
 import { DayGrid } from './DayGrid'
+import { DayList } from './DayList'
 import { MoveDialog } from './MoveDialog'
 import { SlotDialog, type Slot } from './SlotDialog'
 import { day, type DayModel } from './day'
@@ -28,6 +29,7 @@ const T = {
   all: 'Toți medicii',
   panel: 'Panou',
   legacy: 'Varianta clasică',
+  excel: 'Excel',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
 } as const
 
@@ -36,6 +38,8 @@ interface Props {
   date?: string
   /** Врач: пусто — все. */
   doctor?: string
+  /** Отбор плитки панели дня: режет СПИСОК, сетку не трогает. */
+  f?: string
   navigate?: (url: string) => void
 }
 
@@ -45,10 +49,12 @@ function shift(iso: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }: Props) {
+export function DayScreen({ date = '', doctor = '', f = '',
+  navigate = defaultNavigate }: Props) {
   const [at, setAt] = useState(date)
-  const load = useCallback((signal: AbortSignal) => day.get(at, doctor, signal),
-    [at, doctor])
+  const [tile, setTile] = useState(f)
+  const load = useCallback((signal: AbortSignal) => day.get(at, doctor, tile, signal),
+    [at, doctor, tile])
   const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -102,11 +108,19 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
 
   const m = state.data
   const base = doctor ? `/admin/doctor/${doctor}` : '/admin/all'
-  const go = (iso: string) => {
+  /* Адрес повторяет отбор — как у старой страницы: перезагрузка и
+     `?ui=legacy` открывают тот же день с тем же фильтром. */
+  const go = (iso: string, t2: string = tile) => {
     setAt(iso)
-    try { window.history.replaceState(null, '', `${base}?date=${iso}`) } catch { /* jsdom */ }
+    setTile(t2)
+    const url = `${base}?date=${iso}${t2 ? `&f=${t2}` : ''}`
+    try { window.history.replaceState(null, '', url) } catch { /* jsdom */ }
   }
   const openCard = card !== null ? m.cards[String(card)] : undefined
+  const listNode = (
+    <DayList model={m} busy={busy} onCard={setCard} onAll={() => go(m.date, '')}
+             onStatus={(id, to) => { void act(() => day.status(at, doctor, tile, id, to)) }} />
+  )
 
   return (
     <section className="dp-react-root">
@@ -123,11 +137,21 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
           {T.prevDay} <Icon name="chev-r" />
         </a>
         <a href={`/admin?date=${m.date}`}><Icon name="home" /> {T.panel}</a>
+        {doctor ? null : (
+          <a href={`/admin/export.xlsx?from=${m.date}&to=${m.date}`}>
+            <Icon name="download" /> {T.excel}
+          </a>
+        )}
         {doctor
           ? <a href={`/admin/all?date=${m.date}`}><Icon name="clipboard" /> {T.all}</a>
           : null}
         <a className="primary" href={`${base}?date=${m.date}&ui=legacy`}>{T.legacy}</a>
       </div>
+
+      {/* ⚠️ Место списка зависит от отбора, и это не косметика: пришедший с
+          плитки панели дня должен увидеть СВОИ строки сразу, а не под сеткой
+          и формой. Полный список остаётся внизу, как на старой странице. */}
+      {m.filter ? listNode : null}
 
       <DayGrid model={m} drag={drag} hover={hover}
                onDrag={setDrag} onHover={setHover} onDrop={onDrop}
@@ -136,16 +160,18 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
 
       {m.form
         ? <AddForm form={m.form} date={m.date} busy={busy}
-                   onAdd={(b) => act(() => day.add(at, doctor, b))} />
+                   onAdd={(b) => act(() => day.add(at, doctor, tile, b))} />
         : null}
+
+      {m.filter ? null : listNode}
 
       {slot && m.form
         ? <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
                       date={m.date} form={m.form}
                       noteEnds={m.note_ends} busy={busy}
                       onClose={() => setSlot(null)}
-                      onAdd={(b) => act(() => day.add(at, doctor, b))}
-                      onNote={(b) => act(() => day.note(at, doctor, b))} />
+                      onAdd={(b) => act(() => day.add(at, doctor, tile, b))}
+                      onNote={(b) => act(() => day.note(at, doctor, tile, b))} />
         : null}
 
       {card !== null && openCard
@@ -153,9 +179,9 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
                       actions={m.actions[openCard.st] ?? []}
                       back={`${base}?date=${m.date}`} busy={busy}
                       onClose={() => setCard(null)}
-                      onComment={(text) => act(() => day.comment(at, doctor, card, text))}
+                      onComment={(text) => act(() => day.comment(at, doctor, tile, card, text))}
                       onStatus={async (to) => {
-                        const ok = await act(() => day.status(at, doctor, card, to))
+                        const ok = await act(() => day.status(at, doctor, tile, card, to))
                         if (ok) setCard(null)
                         return ok
                       }} />
@@ -167,7 +193,7 @@ export function DayScreen({ date = '', doctor = '', navigate = defaultNavigate }
                       onMove={() => {
                         const { drag: d, target: t } = move
                         setMove(null)
-                        void act(() => day.move(at, doctor, d.id,
+                        void act(() => day.move(at, doctor, tile, d.id,
                           { date: m.date, time: hhmmOf(t.min), doctor: t.dk }))
                       }} />
         : null}

@@ -23,7 +23,8 @@ const model = (items: DayItem[][]): DayModel => ({
     cells: [{ kind: 'appts' as const, drop: true, items: items[i] ?? [] },
       { kind: 'free' as const, drop: true, items: [] }],
   })),
-  form: null, note_ends: [], cards: {}, actions: {},
+  form: null, note_ends: [], cards: {}, actions: {}, note_actions: {},
+  list: [], filter: null,
 })
 
 describe('час и получас', () => {

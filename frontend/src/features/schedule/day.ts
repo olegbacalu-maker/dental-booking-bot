@@ -117,6 +117,35 @@ export interface DayForm {
   birth_max: string
 }
 
+/** Строка «Lista zilei». ⚠️ Комментарий здесь УЖЕ обрезан до 80 знаков:
+ *  полный живёт в `cards`, и править надо его. */
+export interface DayListRow {
+  id: number
+  is_note: boolean
+  time: string
+  name: string
+  age: number | null
+  phone: string
+  service: string
+  urgent: boolean
+  comment: string
+  /** Снимок имени врача из самой записи, а не колонка сетки. */
+  doctor: string
+  source: string
+  source_label: string
+  status: string
+  status_label: string
+  reminded: boolean
+  rec: boolean
+}
+
+/** Отбор плитки панели дня: режет СПИСОК, сетку не трогает. */
+export interface DayFilter {
+  key: string
+  label: string
+  count: number
+}
+
 export interface DayModel {
   date: string
   doctors: DayColumn[]
@@ -127,13 +156,18 @@ export interface DayModel {
   note_ends: number[]
   cards: Record<string, DayCard>
   actions: Record<string, StatusAction[]>
+  /** Кнопки заметки — своя матрица: у неё «убрать» и «вернуть», не исходы. */
+  note_actions: Record<string, StatusAction[]>
+  list: DayListRow[]
+  filter: DayFilter | null
 }
 
 /** Где мы стоим: свежий день в ответе действия приезжает для ЭКРАНА. */
-function screen(date: string, doctor: string): string {
+function screen(date: string, doctor: string, f = ''): string {
   const q = new URLSearchParams()
   if (date) q.set('date', date)
   if (doctor) q.set('doctor', doctor)
+  if (f) q.set('f', f)
   const tail = q.toString()
   return tail ? `?${tail}` : ''
 }
@@ -158,26 +192,26 @@ export interface NewNote {
 }
 
 export const day = {
-  get: (date: string, doctor: string, signal?: AbortSignal) =>
-    api.get<DayModel>(`/schedule/day${screen(date, doctor)}`,
+  get: (date: string, doctor: string, f = '', signal?: AbortSignal) =>
+    api.get<DayModel>(`/schedule/day${screen(date, doctor, f)}`,
       signal ? { signal } : {}),
 
-  add: (at: string, doctor: string, body: NewAppt) =>
-    api.post<DayModel>(`/schedule/appointments${screen(at, doctor)}`, body),
+  add: (at: string, doctor: string, f: string, body: NewAppt) =>
+    api.post<DayModel>(`/schedule/appointments${screen(at, doctor, f)}`, body),
 
-  note: (at: string, doctor: string, body: NewNote) =>
-    api.post<DayModel>(`/schedule/notes${screen(at, doctor)}`, body),
+  note: (at: string, doctor: string, f: string, body: NewNote) =>
+    api.post<DayModel>(`/schedule/notes${screen(at, doctor, f)}`, body),
 
-  comment: (at: string, doctor: string, id: number, comment: string) =>
+  comment: (at: string, doctor: string, f: string, id: number, comment: string) =>
     api.post<DayModel>(
-      `/schedule/appointments/${id}/comment${screen(at, doctor)}`, { comment }),
+      `/schedule/appointments/${id}/comment${screen(at, doctor, f)}`, { comment }),
 
-  status: (at: string, doctor: string, id: number, to: string) =>
+  status: (at: string, doctor: string, f: string, id: number, to: string) =>
     api.post<DayModel>(
-      `/schedule/appointments/${id}/status${screen(at, doctor)}`, { to }),
+      `/schedule/appointments/${id}/status${screen(at, doctor, f)}`, { to }),
 
-  move: (at: string, doctor: string, id: number,
+  move: (at: string, doctor: string, f: string, id: number,
          body: { date: string; time: string; doctor: string }) =>
     api.post<DayModel>(
-      `/schedule/appointments/${id}/move${screen(at, doctor)}`, body),
+      `/schedule/appointments/${id}/move${screen(at, doctor, f)}`, body),
 }

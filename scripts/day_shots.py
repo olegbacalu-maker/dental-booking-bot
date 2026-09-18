@@ -15,8 +15,9 @@
 перетаскиванием, а не `dispatchEvent` из скрипта.
 
 Сцены: день с записями, диалог «+», добавленная запись, карточка визита с
-ПОЛНЫМ комментарием, диалог переноса после броска в нижнюю половину часа и
-переехавшая запись. К каждой — PNG и проверки; красная проверка даёт код
+ПОЛНЫМ комментарием, диалог переноса после броска в нижнюю половину часа,
+переехавшая запись, убранная из списка заметка стойки и отбор плитки, при
+котором список сужается, а сетка остаётся целой. К каждой — PNG и проверки; красная проверка даёт код
 возврата 1, кадры остаются, чтобы посмотреть глазами.
 """
 import argparse
@@ -58,6 +59,9 @@ CHECK_JS = """(() => {
     appts: cards.map(e => e.getAttribute('data-appt') + '@' + at(e)),
     drag: cards.filter(e => e.getAttribute('draggable') === 'true').length,
     dlg: dlg ? (dlg.querySelector('.dlg-head span') || {}).textContent || '' : null,
+    list: Array.from(document.querySelectorAll('table.list tr')).slice(1)
+      .map(r => r.className + ':' + (r.children[0] || {}).textContent),
+    filter: (document.querySelector('.banner.ok') || {}).textContent || null,
     mv_from: mv[1] ? mv[1].textContent : null,
     mv_to: mv[2] ? mv[2].textContent : null,
     warn: (document.querySelector('dialog[open] .banner.err') || {}).textContent || null,
@@ -78,14 +82,21 @@ CELL = ("Array.from(document.querySelectorAll('tr.hrow'))"
         ".children[{col}]")
 CARD = "document.querySelector('.grid [data-appt=\"{aid}\"]')"
 BY_TEXT = "Array.from(document.querySelectorAll('{sel}')).find(b => b.textContent.includes('{text}'))"
+# кнопка «Șterge» у строки-заметки: единственный способ убрать блокировку слота
+NOTE_BTN = ("Array.from(document.querySelectorAll('table.list tr'))"
+            ".map(r => r.querySelector('button.b-cancel'))"
+            ".filter(Boolean).slice(-1)[0]")
 
 
 def _seed(c: Client, day: str) -> dict:
-    """День с двумя записями и длинным комментарием у первой."""
+    """День с двумя записями, заметкой стойки и длинным комментарием."""
     c.post("/admin/add", adate=day, atime="09:00", adoctor="d2", aservice="consult",
            aname="Ion Popa", aphone="069170170", back=f"/admin/all?date={day}")
     c.post("/admin/add", adate=day, atime="12:00", adoctor="d3", aservice="consult",
            aname="Maria Rusu", aphone="069170171", back=f"/admin/all?date={day}")
+    # заметка стойки: её удаление живёт ТОЛЬКО в списке дня — ради этой сцены
+    c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
+           ntext="Livrare materiale", back=f"/admin/all?date={day}")
     ids = []
     body = c.get(f"/admin/all?date={day}").body
     import re
@@ -152,6 +163,20 @@ def drag(page: Page, src: str, dst: str, frac: float) -> str:
     return ""
 
 
+def click_below(page: Page, finder: str) -> None:
+    """Клик по тому, что лежит НИЖЕ СГИБА.
+
+    ⚠️ CDP шлёт мышь в координатах ОКНА, а `getBoundingClientRect` у элемента
+    за нижней границей даёт y больше высоты окна: клик уходит в пустоту, и
+    сцена краснеет «ничего не произошло». Список дня как раз там — под сеткой
+    и формой. Поэтому сперва подводим элемент к середине экрана.
+    """
+    page.js(f"(() => {{ const el = {finder};"
+            f" if (el) el.scrollIntoView({{block: 'center'}}); return 1 }})()")
+    page.cdp.drain(0.3)
+    page.click(finder)
+
+
 def type_into(page: Page, finder: str, text: str) -> None:
     page.click(finder)
     page.cdp.cmd("Input.insertText", text=text)
@@ -206,8 +231,11 @@ def run(out: pathlib.Path) -> int:
 
             # 1. день целиком: сетка, форма, две записи, обе тащатся
             page.go(path)
-            scene(page, "01_day", {"form": True, "drag": 2,
-                                   "appts": [f"{ids[0]}@09:00|1", f"{ids[1]}@12:00|2"]})
+            # заметка стойки тоже тащится (её блок живёт в сетке), поэтому
+            # перетаскиваемых три, а не две
+            scene(page, "01_day", {"form": True, "drag": 3,
+                                   "appts": [f"{ids[0]}@09:00|1", f"{ids[1]}@12:00|2",
+                                             f"{ids[2]}@15:00|1"]})
 
             # 2. «+» открывает диалог на своей ячейке
             page.click(FREE.format(hh="10:00", col=1))
@@ -246,6 +274,25 @@ def run(out: pathlib.Path) -> int:
             scene(page, "06_moved", {"dlg": None},
                   note="" if any(a.startswith(f"{ids[0]}@11:00") for a in st["appts"])
                   else f"запись не переехала: {st['appts']}")
+
+            # 7. СПИСОК ДНЯ (C25.5c): заметку убирают отсюда — больше ниоткуда,
+            # карточки визита у неё нет по замыслу
+            click_below(page, NOTE_BTN)
+            cdp.drain(1.2)
+            st = json.loads(page.js(CHECK_JS))
+            scene(page, "07_note_removed", {"dlg": None},
+                  note="" if any(x.startswith("cancelled:") for x in st["list"])
+                  else f"заметка не убрана: {st['list']}")
+
+            # 8. плитка панели дня: список сужается, сетка остаётся целой
+            grid_before = len(st["appts"])
+            page.go(f"/admin/all?date={day}&f=urg")
+            st = json.loads(page.js(CHECK_JS))
+            scene(page, "08_filtered", {},
+                  note="" if (st["filter"] and "urgențe" in st["filter"]
+                              and len(st["appts"]) == grid_before)
+                  else f"фильтр: {st['filter']!r}, записей в сетке "
+                       f"{len(st['appts'])} против {grid_before}")
     finally:
         if proc:
             proc.kill()

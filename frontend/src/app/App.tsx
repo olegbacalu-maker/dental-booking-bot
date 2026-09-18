@@ -50,7 +50,9 @@ export function App({ screen, params = {} }: AppProps) {
     return <OdontogramScreen pid={Number(params.pid)} t={Number.isInteger(t) ? t : null} />
   }
   if (screen === 'schedule_week') return <WeekScreen date={params.date ?? ''} />
-  if (screen === 'schedule_all') return <DayScreen date={params.date ?? ''} />
+  if (screen === 'schedule_all') {
+    return <DayScreen date={params.date ?? ''} f={params.f ?? ''} />
+  }
   if (screen === 'schedule_doctor') {
     return <DayScreen date={params.date ?? ''} doctor={params.dk ?? ''} />
   }
