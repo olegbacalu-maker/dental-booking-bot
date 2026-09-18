@@ -40,6 +40,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from . import acord as pacord
 from . import anamneza as panam
+from . import card as pcard
 from . import export as pexport
 from . import fisa043 as pfisa
 from . import odontogram as podo
@@ -49,7 +50,7 @@ from . import visit as pvisit
 from ...core import xlsx
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, STATUS_LABEL, js_json,
-                            _age, _ic, _initials, msg_banner, react_mount,
+                            _ic, _initials, msg_banner, react_mount,
                             react_on, _shell)
 from ...core.storage import _data_dir
 
@@ -60,14 +61,8 @@ router = APIRouter()
 def _due_html(due, status: str) -> str:
     """Срок позиции плана. Просроченное незавершённое подсвечиваем — иначе
     дата в таблице ничем не отличается от любой другой даты."""
-    if not due:
-        return "—"
-    try:
-        d = date.fromisoformat(str(due)[:10])
-    except ValueError:
-        return "—"
-    txt = d.strftime("%d.%m.%Y")
-    if status != "finalizat" and d < datetime.now(eng.TZ).date():
+    txt, overdue = pcard.due_view(due, status, datetime.now(eng.TZ).date())
+    if overdue:
         return (f"<span style='color:var(--red-t);font-weight:600' "
                 f"title='Termen depășit'>{_ic('sos')} {txt}</span>")
     return txt
@@ -99,9 +94,9 @@ TOOTH_SURFACES = podo.TOOTH_SURFACES
 # эмодзи, и молча сломался бы от любой правки текста.
 # ⚠️ Сами подписи (ALERT_KINDS) живут в core/layout.py: те же слова нужны
 # выгрузке по 195-му, а она routes.py импортировать не может — routes.py
-# импортирует её. Здесь остаётся только словарь значков.
-_ALERT_ICON = {"allergy": _ic("sos"), "medication": _ic("pill"),
-               "warning": _ic("alarm"), "info": _ic("info")}
+# импортирует её. Имена значков — в card.py (их же отдаёт JSON API), здесь
+# они завёрнуты в разметку.
+_ALERT_ICON = {k: _ic(v) for k, v in pcard.ALERT_ICON.items()}
 
 
 # справочник вопросов — в modules/patients/anamneza.py (его читают ещё печать
@@ -110,40 +105,16 @@ ANAMNEZA_FLAGS = panam.FLAGS["ro"]
 ANAMNEZA_TEXTS = panam.TEXTS
 
 
-DOC_CATEGORIES = {"radiografie": "Radiografie", "acord": "Acord / contract",
-                  "trimitere": "Trimitere", "alt": "Alt document"}
-_DOC_ICON = {"radiografie": _ic("xray"), "acord": _ic("note"),
-             "trimitere": _ic("mail"), "alt": _ic("file")}
-
-
-# Переходы плана НАПРАВЛЕННЫЕ, а не по кругу (просьба Олега 08-07: кнопка
-# «следующий статус» гоняла процедуру по кольцу, и финал воскресал в
-# «Planificat» одним случайным кликом). Из финала есть ровно один тихий выход —
-# «Redeschide» обратно в работу, для исправления ошибки; пути «финал →
-# запланировано» не существует. Охрана в маршруте смотрит на пару (откуда,
-# куда): устаревшая вкладка не пришлёт запрещённое ребро.
-# ОТКАЗ (08-11) — не четвёртая ступень, а боковой выход: ст.13(5) Legea
-# 263/2005 требует, чтобы отказ пациента остался В МЕДДОКУМЕНТАЦИИ с указанием
-# возможных последствий, а не был вычеркнут. Поэтому отказаться можно и от
-# запланированного, и из работы, а вернуться — только в «Planificat»: заново
-# начатая после отказа процедура это новое решение пациента, а не продолжение
-# старого. ⛔ Из «Finalizat» в «Refuzat» ребра нет: отказаться от сделанного
-# нельзя, ошибку исправляет «Redeschide».
-_PLAN_EDGES = {("planificat", "in_lucru"), ("in_lucru", "finalizat"),
-               ("finalizat", "in_lucru"),
-               ("planificat", "refuzat"), ("in_lucru", "refuzat"),
-               ("refuzat", "planificat")}
-
-# переход, у которого причина ОБЯЗАТЕЛЬНА: «отказался» без «от чего именно
-# предупредили» — это не запись по ст.13(5), а пустая отметка
-_PLAN_NEEDS_MOTIV = ("refuzat",)
-
-
-_PLAN_LABEL = {"planificat": "Planificat", "in_lucru": "În lucru",
-               "finalizat": "Finalizat", "refuzat": "Refuzat"}
-
-
-MAX_DOC_MB = 25
+# Словари фиши (категории документов, переходы и подписи плана, потолок
+# файла) живут в card.py с 18.09 — их спрашивают и старая страница, и JSON API.
+# Имена здесь сохранены: на них смотрят маршруты действий ниже.
+DOC_CATEGORIES = pcard.DOC_CATEGORIES
+_DOC_ICON = {k: _ic(v) for k, v in pcard.DOC_ICON.items()}
+_ACT_ICON = {k: _ic(v) for k, v in pcard.ACT_ICON.items()}
+_PLAN_EDGES = pcard.PLAN_EDGES
+_PLAN_NEEDS_MOTIV = pcard.PLAN_NEEDS_MOTIV
+_PLAN_LABEL = pcard.PLAN_LABEL
+MAX_DOC_MB = pcard.MAX_DOC_MB
 
 
 def _files_dir(pid: int) -> pathlib.Path:
@@ -153,15 +124,9 @@ def _files_dir(pid: int) -> pathlib.Path:
     return d
 
 
-def _p_age(p: dict) -> int | None:
-    if p.get("birth_date"):
-        try:
-            bd = date.fromisoformat(p["birth_date"])
-            t = datetime.now(eng.TZ).date()
-            return t.year - bd.year - ((t.month, t.day) < (bd.month, bd.day))
-        except ValueError:
-            pass
-    return _age(p.get("birth_year"))
+# возраст считает card.age_of (одна арифметика на фишу, список и выгрузки);
+# имя здесь сохранено — его импортирует api.py и зовут страницы ниже
+_p_age = pcard.age_of
 
 
 @router.get("/admin/patient/{pid}", response_class=HTMLResponse)
@@ -201,12 +166,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 
     # -- левая колонка: профиль --
     age = _p_age(p)
-    chan = ("Telegram" if (p["session_key"] or "").startswith("tg:")
-            else "recepție" if (p["session_key"] or "").startswith("manual:")
-            else "web")
-    meta = " · ".join(x for x in [f"{age} ani" if age else "", chan,
-                                  f"dosar {e(p['file_no'])}" if p.get("file_no") else "",
-                                  "arhivat" if p.get("archived") else ""] if x)
+    chan = pcard.channel(p)
 
     def frow(label: str, val, icon: str = "") -> str:
         ic = f"<span class='ic'>{_ic(icon)}</span>" if icon else "<span class='ic'></span>"
@@ -243,8 +203,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
                        for n in eng.DOCTORS.values())
     # отказ сохранения ПОКАЗЫВАЕТ виноватое поле: форма раскрыта, поле красное.
     # Баннер «Date invalide» без этого заставлял искать ошибку перебором
-    bad_field = {"bad_card": "name", "bad_bd": "birth_date",
-                 "bad_idnp": "idnp"}.get(msg, "")
+    bad_field = pcard.BAD_FIELD.get(msg, "")
 
     def _inv(field: str) -> str:
         return (" style='border-color:var(--red-t,#B91C1C);"
@@ -279,7 +238,9 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 </form>"""
 
     # -- анамнез: опросник, раскрывается по клику (заполняется один раз) --
-    an_flags = set((anam.get("flags") or "").split(",")) if anam else set()
+    # риски, дата и автор считаются в card.anamneza_view — те же, что у API
+    av = pcard.anamneza_view(anam)
+    an_flags = av["flags"]
     an_boxes = "".join(
         f"<label><input type='checkbox' name='fl' value='{k}'"
         f"{' checked' if k in an_flags else ''}> {e(v)}</label>"
@@ -289,21 +250,13 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         f"<textarea name='{k}' rows='2' maxlength='500' placeholder='{e(ph)}'>"
         f"{e((anam.get(k) if anam else '') or '')}</textarea></label>"
         for k, lab, ph in ANAMNEZA_TEXTS)
-    an_marked = [v for k, v in ANAMNEZA_FLAGS.items() if k in an_flags]
-    # ⚠️ свободный текст — ТОЖЕ риск, и чаще всего именно там аллергия и
-    # реакция на анестезию. Считать риски по одним галочкам значит показать
-    # «fără riscuri» над записанной пенициллиновой аллергией
-    an_free = [(lab, (anam.get(k) or "").strip())
-               for k, lab, _ph in ANAMNEZA_TEXTS
-               if anam and (anam.get(k) or "").strip()]
+    an_marked, an_free = av["marked"], av["free"]
     if anam:
-        an_when = (anam.get("updated_at") or anam.get("created_at"))
         an_sum = (f"<small class='hint' style='margin:0'>Completat: "
-                  f"{an_when.astimezone(eng.TZ).strftime('%d.%m.%Y')} · "
-                  f"{e(anam.get('author') or '—')}</small>")
-        n_risk = len(an_marked) + len(an_free)
-        an_head = (f"<span class='pill orange'>{n_risk} de reținut</span>"
-                   if n_risk else "<span class='pill green'>fără riscuri</span>")
+                  f"{av['when'].astimezone(eng.TZ).strftime('%d.%m.%Y')} · "
+                  f"{e(av['author'] or '—')}</small>")
+        an_head = (f"<span class='pill orange'>{av['n_risk']} de reținut</span>"
+                   if av["n_risk"] else "<span class='pill green'>fără riscuri</span>")
     else:
         an_sum = ("<small class='hint' style='margin:0'>Nu a fost completată — "
                   "întrebați pacientul înainte de tratament</small>")
@@ -343,44 +296,18 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     # -- центр: формула FDI + план --
     teeth_card = podo.card(tmap, tooth_acts, doc_opts, base, punti)
 
-    # порядок осмысленный, а не «как добавляли»: работа сверху, запланированное
-    # по сроку, законченное свежим вперёд, отказы последними
-    def _plan_key(it):
-        st = it["status"]
-        if st == "in_lucru":
-            return (0, 0.0, it["id"])
-        if st == "planificat":
-            return (1, str(it.get("due_date") or "9999-99-99"), it["id"])
-        da = it.get("done_at")
-        return (2 if st == "finalizat" else 3,
-                -(da.timestamp() if hasattr(da, "timestamp") else 0.0),
-                -it["id"])
-
-    cnt = {k: sum(1 for it in plan if it["status"] == k)
-           for k in ("planificat", "in_lucru", "finalizat", "refuzat")}
-    n_act = cnt["planificat"] + cnt["in_lucru"]
-    # законченное по умолчанию спрятано; если активного не осталось — открываем
-    # первую НЕПУСТУЮ вкладку, а не пустой экран. ⚠️ Раньше запасной была
-    # «Finalizate»; с появлением отказов план из одних отказов открывался
-    # пустым — вкладка есть, записи есть, а на экране ничего
-    default_tab = ("act" if n_act or not plan
-                   else "finalizat" if cnt["finalizat"] else "refuzat")
+    # порядок, счёт, вкладка по умолчанию, суммы и прогресс — card.plan_view:
+    # та же сводка уезжает в JSON API, второго счёта у плана нет
+    pv = pcard.plan_view(plan)
+    cnt, n_act, default_tab = pv["cnt"], pv["n_act"], pv["default_tab"]
+    total, total_done = pv["total"], pv["total_done"]
     # какие статусы показывает каждая вкладка — ОДИН словарь на сервер и на
     # planTab(); пока правило жило выражением «не finalizat», отказ попадал в
     # «Active» молча
-    tab_states = {"act": db.PLAN_ACTIVE, "finalizat": ("finalizat",),
-                  "refuzat": ("refuzat",)}
+    tab_states = pcard.TAB_STATES
     plan_rows = []
-    total = total_done = 0
-    for it in sorted(plan, key=_plan_key):
+    for it in pv["items"]:
         st = it["status"]
-        if it["price_mdl"]:
-            # ⚠️ отказ не деньги НИ В ОДНОЙ из двух сумм: он не ждёт оплаты
-            # (не «plan activ») и не выполнен (не «finalizate»)
-            if st in db.PLAN_ACTIVE:
-                total += it["price_mdl"]
-            elif st == "finalizat":
-                total_done += it["price_mdl"]
         refuz = (f"<button type='button' class='pref' data-id='{it['id']}' "
                  f"data-p='{e(it['procedure'])}' onclick='openRefuz(this)' "
                  f"title='Pacientul refuză procedura — se consemnează în fișă'>"
@@ -468,11 +395,9 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
             + (_tab("refuzat", "Refuzate", cnt["refuzat"]) if cnt["refuzat"] else "")
             + f"<button data-f='all' onclick='planTab(this)'>Toate ({len(plan)})</button>"
             "</div>")
-    # ⚠️ прогресс считается от того, что клиника ещё может сделать: отказ из
-    # знаменателя выпадает, иначе план из трёх процедур, одну из которых
-    # пациент отверг, навсегда застревает на 66% «выполнено»
-    n_track = len(plan) - cnt["refuzat"]
-    pct_done = round(100 * cnt["finalizat"] / n_track) if n_track else 0
+    # прогресс — от того, что клиника ещё может сделать (без отказов в
+    # знаменателе); счёт в card.plan_view
+    n_track, pct_done = pv["n_track"], pv["pct_done"]
     prog = (f"<div class='plan-prog'><div class='statbar'>"
             f"<div style='width:{pct_done}%'></div></div>"
             f"<small>{cnt['finalizat']}/{n_track} finalizate"
@@ -504,8 +429,9 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
 </form></div>"""
 
     # -- правая колонка: визиты + документы --
-    future = [v for v in visits if v["status"] in LIVE_STATUSES and v["starts_at"] > now]
-    nextv = min(future, key=lambda v: v["starts_at"]) if future else None
+    # следующий/последний визит, живые и отменённые — card.visits_view
+    vv = pcard.visits_view(visits, now)
+    nextv, lastv = vv["next"], vv["last"]
     next_html = ""
     if nextv:
         dtv = nextv["starts_at"].astimezone(eng.TZ)
@@ -515,21 +441,21 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
                      f"<div style='font-size:12px;color:var(--text2);margin-top:3px'>"
                      f"{e(nextv['service'])} · {e(nextv['doctor'])}</div></div>")
     hist = []
-    for v in visits[:8]:
+    for v in visits[:pcard.HIST_SHOWN]:
         dtv = v["starts_at"].astimezone(eng.TZ)
         is_next = nextv is not None and v["id"] == nextv["id"]
         # дневник приёма: у заполненного визита — диагноз и ссылка, у
         # состоявшегося пустого — приглашение заполнить (будущие не зовём:
-        # писать «лечение» вперёд — ошибка данных)
+        # писать «лечение» вперёд — ошибка данных); правило — card.consult_kind
         vurl = f"/admin/visit/{v['id']}?back={urllib.parse.quote(base)}"
         r = recs.get(v["id"])
-        if r:
-            diag = (r["diagnostic"] or r["tratament"] or r["acuze"] or "").strip()
+        ck = pcard.consult_kind(v, r, now)
+        if ck == "rec":
+            diag = pcard.rec_diag(r)
             consult = (f"<small style='overflow-wrap:anywhere'>{_ic('med')} "
                        f"<a href='{vurl}'>Consultație</a>"
                        + (f": {e(diag[:60])}" if diag else "") + "</small>")
-        elif (v["status"] in ("done", "arrived", "waiting")
-              or (v["status"] == "confirmed" and v["starts_at"] <= now)):
+        elif ck == "invite":
             consult = f"<small><a href='{vurl}'>+ Consultație</a></small>"
         else:
             consult = ""
@@ -539,7 +465,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
             f"<small>{dtv.strftime('%d.%m.%Y %H:%M')} · {STATUS_LABEL.get(v['status'], v['status'])}</small>"
             f"<b style='font-size:12.5px'>{e(v['service'])}</b>"
             f"<small>{e(v['doctor'])}</small>{consult}</div></div>")
-    hist_card = (f"<div class='fcard'><h3>Istoric vizite <small>· ultimele {len(visits[:8])}</small></h3>"
+    hist_card = (f"<div class='fcard'><h3>Istoric vizite <small>· ultimele {len(visits[:pcard.HIST_SHOWN])}</small></h3>"
                  + ("".join(hist) or "<p class='hint' style='margin:0'>— încă fără vizite —</p>")
                  + f"<a href='/admin/search?q={urllib.parse.quote(p['name'] or '')}' "
                  f"style='font-size:12px'>Vezi tot istoricul ›</a></div>")
@@ -554,15 +480,10 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         thumb = (f"<img src='/admin/doc/{dd['id']}?thumb=1' alt='' loading='lazy'>" if is_img
                  else _DOC_ICON.get(dd["category"], _ic("file")))
         when = dd["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
-        kb = dd["size"] // 1024
-        size = f"{kb} KB" if kb < 1024 else f"{kb / 1024:.1f} MB"
+        size = pcard.doc_size(dd["size"])
         # чем открывать файл: свой просмотрщик (растр, PDF) или программа
         # Windows. href остаётся прежним — без JS карточка просто скачает файл
-        doc_meta[dd["id"]] = {
-            "name": dd["filename"],
-            "view": ("img" if mime in _INLINE_MIME
-                     else "pdf" if mime in _PDF_MIME else "ext"),
-        }
+        doc_meta[dd["id"]] = {"name": dd["filename"], "view": pcard.doc_view(mime)}
         return (f"<div class='doccard'><a href='/admin/doc/{dd['id']}' "
                 f"onclick='return openDoc({dd['id']})' "
                 f"title='{e(dd['filename'])}'><div class='thumb'>{thumb}</div>"
@@ -572,19 +493,6 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
                 f"onsubmit=\"return confirm('Ștergeți documentul?')\">"
                 f"<button title='Șterge'>{_ic('close')}</button></form></div></div>")
 
-    _ACT_ICON = {"appt_new": _ic("cal"), "appt_status": _ic("check"),
-                 "appt_cancel": _ic("ban"), "tooth": _ic("tooth"),
-                 "plan_add": _ic("plus"), "plan_status": _ic("refresh"),
-                 "plan_del": _ic("minus"), "doc_add": _ic("clip"),
-                 "doc_del": _ic("trash"), "alert_add": _ic("sos"),
-                 "profile": _ic("pen"), "archive": _ic("box"),
-                 # выдача копии данных — событие, о котором спросят на проверке;
-                 # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
-                 "export": _ic("download"), "acord": _ic("clipboard"),
-                 "plan_acord": _ic("clipboard"),
-                 "consult": _ic("med"), "fisa043": _ic("print"),
-                 "anamneza": _ic("note"), "view": _ic("eye"),
-                 "doc_view": _ic("eye"), "erase": _ic("erase")}
     act_rows = []
     for a in acts:
         at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
@@ -592,13 +500,12 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         hhmm = at.strftime("%H:%M") if at else ""
         # с ролями подпись — это ИМЯ вошедшего; «recepție» осталось у событий,
         # записанных до учёток, и у фоновых задач, где человека нет
-        who = ("bot" if a["actor"] == "bot"
-               else f"{e(a['actor'] or 'recepție')}")
+        who = e(pcard.who(a["actor"]))
         act_rows.append(
             f"<div class='acti'><span class='ai'>{_ACT_ICON.get(a['kind'], '•')}</span>"
             f"<div class='ab'><b>{e(a['text'])}</b>"
             f"<small>{when} · {who}</small></div><span class='at'>{hhmm}</span></div>")
-    shown, rest = act_rows[:10], act_rows[10:]
+    shown, rest = act_rows[:pcard.ACT_SHOWN], act_rows[pcard.ACT_SHOWN:]
     more = (f"<div id='actmore' style='display:none'>{''.join(rest)}</div>"
             f"<button type='button' class='actmore' onclick=\"var m=document.getElementById('actmore');"
             f"m.style.display='block';this.remove()\">Toate evenimentele ({len(acts)})</button>"
@@ -636,35 +543,11 @@ restul în programul potrivit (Word, Excel). Fișierele rămân local, în folde
 programului (data\\files).</p></div>"""
 
     # ---- hero: кто перед врачом, одним взглядом ----
-    # бейджи собираются из УЖЕ имеющихся данных: алерты, страховка, импланты
-    pills = []
-    if p.get("archived"):
-        pills.append(f"<span class='pill grey'>{_ic('box')} Arhivat</span>")
-    else:
-        pills.append(f"<span class='pill green'>{_ic('check')} Pacient activ</span>")
-    for a in alerts[:3]:
-        tone = {"allergy": "orange", "medication": "orange",
-                "warning": "red"}.get(a["kind"], "grey")
-        icon = _ALERT_ICON.get(a["kind"], _ic("info"))
-        pills.append(f"<span class='pill {tone}'>{icon} {e(a['text'][:38])}</span>")
-    if p.get("insurance"):
-        pills.append(f"<span class='pill green'>{_ic('shield')} {e(p['insurance'][:28])}</span>")
-    # долг видит и рецепция — ей его и взыскивать; сводные суммы по клинике
-    # остаются за директором (PERM_MONEY в статистике)
-    debt = fin["charged"] - fin["paid"]
-    if debt > 0:
-        pills.append(f"<span class='pill red'>{_ic('money')} De achitat: "
-                     f"{f'{debt:,}'.replace(',', ' ')} MDL</span>")
-    elif debt < 0:
-        pills.append(f"<span class='pill green'>{_ic('money')} Avans: "
-                     f"{f'{-debt:,}'.replace(',', ' ')} MDL</span>")
-    n_impl = sum(1 for t in tmap.values() if t["state"] == "implant")
-    if n_impl:
-        pills.append(f"<span class='pill purple'>{_ic('set')} {n_impl} implant"
-                     f"{'e' if n_impl > 1 else ''}</span>")
-
-    past = [v for v in visits if v["starts_at"] <= now and v["status"] != "cancelled"]
-    lastv = max(past, key=lambda v: v["starts_at"]) if past else None
+    # бейджи собираются из УЖЕ имеющихся данных: алерты, страховка, импланты —
+    # состав считает card.pills, здесь только разметка
+    debt = pcard.debt_of(fin)
+    pills = [f"<span class='pill {pl['tone']}'>{_ic(pl['icon'])} {e(pl['text'])}</span>"
+             for pl in pcard.pills(p, alerts, debt, tmap)]
 
     def hs(label: str, val: str, sub: str = "") -> str:
         tail = (f"<div style='color:var(--text3);font-size:12px'>{sub}</div>" if sub else "")
@@ -712,10 +595,8 @@ programului (data\\files).</p></div>"""
 </div>"""
 
     # ---- KPI: пять цифр, которые спрашивают первыми ----
-    n_active = sum(1 for it in plan if it["status"] in db.PLAN_ACTIVE)
-    n_done = sum(1 for it in plan if it["status"] == "finalizat")
-    days_ago = ((now.date() - lastv["starts_at"].astimezone(eng.TZ).date()).days
-                if lastv else None)
+    n_active, n_done = n_act, cnt["finalizat"]
+    days_ago = pcard.days_ago(lastv, now)
     # каждая цифра кликабельна и открывает ТОТ САМЫЙ список, из которого она
     # посчитана: цифра без расшифровки заставляет верить журналу на слово
     def _vrow(v) -> str:
@@ -737,8 +618,7 @@ programului (data\\files).</p></div>"""
     def _lmore(href: str, txt: str) -> str:
         return f"<a class='lmore' href='{href}' onclick='closeKpi()'>{txt} ›</a>"
 
-    live_visits = [v for v in visits if v["status"] != "cancelled"]
-    canc = len(visits) - len(live_visits)
+    live_visits, canc = vv["live"], vv["canc"]
     act_items = [it for it in plan if it["status"] in db.PLAN_ACTIVE]
     done_items = [it for it in plan if it["status"] == "finalizat"]
     kpi_panels = {
@@ -809,17 +689,19 @@ programului (data\\files).</p></div>"""
 {_erase_block(base, erasure)}</div>"""
 
     # ---- платежи и баланс (08-07, модуль финансов, шаг 1) ----
-    _PAY_ICO = {"numerar": _ic("cash"), "card": _ic("card"), "transfer": _ic("bank")}
+    _PAY_ICO = {k: _ic(v) for k, v in pcard.PAY_ICON.items()}
     can_del_pay = can(request_user(), PERM_MONEY)
-    chg = f"{fin['charged']:,}".replace(",", " ")
-    pd_s = f"{fin['paid']:,}".replace(",", " ")
-    if debt > 0:
+    chg = pcard.money(fin["charged"])
+    pd_s = pcard.money(fin["paid"])
+    # ветка сальдо — card.sold_view: долг / аванс / рассчитался / не начисляли
+    sv = pcard.sold_view(fin)
+    if sv and sv[0] == "bad":
         sold = (f"<div class='sold bad'><span>De achitat</span>"
-                f"<b>{f'{debt:,}'.replace(',', ' ')} MDL</b></div>")
-    elif debt < 0:
+                f"<b>{pcard.money(sv[1])} MDL</b></div>")
+    elif sv and sv[0] == "plus":
         sold = (f"<div class='sold plus'><span>Avans</span>"
-                f"<b>{f'{-debt:,}'.replace(',', ' ')} MDL</b></div>")
-    elif fin["charged"]:
+                f"<b>{pcard.money(sv[1])} MDL</b></div>")
+    elif sv:
         sold = "<div class='sold ok'><span>Sold</span><b>achitat integral</b></div>"
     else:
         sold = ""
@@ -871,9 +753,8 @@ soldul fișei.</p></div>"""
     # ---- окно записи ДЛЯ ЭТОГО пациента ----
     # услуга решает, кто из врачей её выполняет; дата и врач решают, какие часы
     # свободны — часы тянем у того же движка, что обслуживает бота
-    ap_svc_docs = {k: [dk for dk, _n in eng.allowed_doc_items(k)] for k in eng.SERVICES}
-    ap_prim = next((dk for dk, n in eng.ACTIVE_DOCTORS.items()
-                    if n == (p.get("primary_doctor") or "")), "")
+    ap = pcard.appoint_view(p)
+    ap_svc_docs, ap_prim = ap["svc_docs"], ap["prim"]
     ap_svc_opts = "".join(f"<option value='{k}'>{e(v['ro'])}</option>"
                           for k, v in eng.SERVICES.items())
     today_iso = now.date().isoformat()
@@ -1725,15 +1606,12 @@ async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File
     return _card_redirect(pid, "ok_doc")
 
 
-# растровые картинки, которые безопасно отдавать inline (для превью в фише).
-# ⛔ SVG и HTML сюда НЕ входят: файл с того же origin, показанный inline, — это
-# чужой скрипт в нашем журнале.
-_INLINE_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
-
-
-# PDF смотрим внутри программы (в WebView2 свой просмотрщик), но множество
-# отдельное: миниатюры и <img> остаются только у растра.
-_PDF_MIME = {"application/pdf"}
+# Что отдавать inline (растр) и что смотреть своим просмотрщиком (PDF) —
+# множества в card.py: по ним же API говорит клиенту, чем открывать файл.
+# ⛔ SVG и HTML в растр НЕ входят: файл с того же origin, показанный inline, —
+# это чужой скрипт в нашем журнале.
+_INLINE_MIME = pcard.INLINE_MIME
+_PDF_MIME = pcard.PDF_MIME
 
 
 THUMB_PX = 320          # с запасом под ретину: карточка показывает 150x120
