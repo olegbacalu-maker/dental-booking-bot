@@ -29,6 +29,7 @@ import test_booking  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
+import test_day_actions  # noqa: E402
 import test_day_forms  # noqa: E402
 import test_grid  # noqa: E402
 import test_guards  # noqa: E402
@@ -188,6 +189,9 @@ SUITES = [
     ("День: диалог «+» и заметки стойки", test_day_forms.suite_slot),
     ("День: карточка визита и её кнопки", test_day_forms.suite_card),
     ("День: диалог переноса и имя в нём", test_day_forms.suite_move),
+    ("День: модель для диалогов (C25.5b)", test_day_actions.suite_model),
+    ("День: действия через JSON", test_day_actions.suite_actions),
+    ("День: форма и API отвечают одним кодом", test_day_actions.suite_parity),
     ("Пародонтограмма: старая страница — эталон", test_perio_api.suite_pin),
     ("Пародонтограмма: JSON API осмотров", test_perio_api.suite_api),
     ("Пародонтограмма: React-экран и старая страница", test_perio_api.suite_switch),

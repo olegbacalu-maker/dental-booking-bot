@@ -26,7 +26,7 @@ from datetime import date, datetime
 from ... import db
 from ... import engine as eng
 from ...core.layout import STATUS_LABEL
-from ...core.visits import _age
+from ...core.visits import _age, all_status_actions
 
 
 def active_map(rows: list) -> tuple[dict, set]:
@@ -217,13 +217,25 @@ def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
     }
 
 
-def model(d, items: list, active: tuple, cards: dict | None, colors) -> dict:
-    """Сетка дня данными: колонки, ряды часов, ячейки с их исходом.
+def model(d, items: list, active: tuple, cards: dict | None, colors,
+          form_items: list | None = None) -> dict:
+    """Сетка дня данными: колонки, ряды часов, ячейки с их исходом — и всё,
+    чем живут диалоги: форма, концы блокировки, карточки, кнопки исхода.
 
     ⚠️ Колонки — СПИСОК, и ячейка ссылается на него позицией. Врачей может не
     быть вовсе (никого активного и ни одной записи), может быть один (день
     врача) или все; раскладка по фиксированным позициям сломалась бы на
     первом же выключенном враче.
+    ⛔ `form_items` — врачи ФОРМЫ, и это НЕ `items`. В сетке остаётся колонка
+    выключенного врача, пока у него есть записи дня, а записать в него
+    `/admin/add` не даст (`bad_off`). Возьми клиент врачей из колонок —
+    регистратура выбрала бы выключенного и получила отказ на ровном месте, а
+    у разработчика оба списка совпадают. `None` — формы нет вовсе (так
+    выглядит страница выключенного врача).
+    ⚠️ Карточки приезжают ЦЕЛИКОМ, включая отменённые, которых в сетке нет:
+    отменённую запись открывают, чтобы вернуть. И комментарий в них ПОЛНЫЙ, а
+    в карточке сетки обрезан до 60 — диалог обязан править полный, иначе
+    пересохранение без единой правки укоротит текст (прайор 08-16).
     """
     starts, covered = active
     work = work_hours(d, items)
@@ -243,4 +255,13 @@ def model(d, items: list, active: tuple, cards: dict | None, colors) -> dict:
             })
         hours.append({"h": h, "label": f"{h:02d}:00", "closed": kind,
                       "now": h == nh, "cells": cells})
-    return {"date": d.isoformat(), "doctors": cols, "hours": hours}
+    return {
+        "date": d.isoformat(), "doctors": cols, "hours": hours,
+        "form": form_spec(d, form_items) if form_items is not None else None,
+        "note_ends": note_ends(d),
+        # ключи строками: так их печатает `js_json(cards)` на странице, и так
+        # они приезжают из JSON — иначе клиент искал бы карточку числом, а
+        # получал бы объект со строковыми ключами
+        "cards": {str(k): v for k, v in (cards or {}).items()},
+        "actions": all_status_actions(),
+    }

@@ -1,7 +1,18 @@
-"""JSON API журнала (DentPilot 2.0). Пока — недельный календарь (C24).
+"""JSON API журнала (DentPilot 2.0): неделя (C24), день и его действия (C25).
 
-Правила живут в `week.py` и одни на старую страницу и на этот маршрут: состав
-колонок, счётчики и цвет чипа считает сервер, клиент их только раскладывает.
+Правила живут в `week.py` / `day.py` и в `routes.py` и одни на старую страницу
+и на эти маршруты: состав колонок, счётчики, цвет чипа, список часов формы и
+все пять правил записи считает сервер, клиент их только раскладывает.
+
+⛔ Ни одного правила ЗДЕСЬ нет. Маршрут зовёт ту же функцию, что и обработчик
+формы, и возвращает тот же код (`MSG_BANNER`), который уезжает в `?msg=`.
+Появись здесь своя проверка — React принимал бы визит, который старая
+страница отвергает, и наоборот; увидела бы это клиника.
+
+⚠️ Действие отвечает СВЕЖИМ ДНЁМ ЭКРАНА: `?date=&doctor=` — это «где я
+стою», тело запроса — «что я делаю». Поэтому запись на другую дату (поле даты
+в форме редактируемое) возвращает день, на который смотрят, а не тот, куда
+уехал визит, — ровно как `back` у старой формы.
 
 ⛔ Маршруты под `/api/` зовут `api_guard`, никогда `_guard`: тот отвечает
 редиректом 303 на экран входа, и `fetch` сходил бы по нему сам, вернув 200 с
@@ -13,17 +24,53 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Query, Request
 
 from ... import engine as eng
-from ...core.api import api_guard
+from ...core.api import api_body, api_guard
 from ...core.layout import msg_json
 from ...core.visits import _parse_date
-from .routes import _day_model, _week_model
+from .routes import (_add_appt, _add_note, _day_model, _move_appt,
+                     _set_comment, _set_status, _week_model)
 
 router = APIRouter()
+
+# Коды удачи и коды спора с состоянием — как у фиши пациента (`patients/api`),
+# чтобы клиент разбирал ответы журнала и фиши одинаково.
+# ⚠️ Пустой код — это удача: так отвечает смена статуса, у которой баннера нет
+# и на старой странице.
+_OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past",
+       "ok_other"}
+_CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past"}
+# какое поле формы подсветить при 422; отказ без поля оставляет его пустым
+_FIELD = {"bad": "time", "bad_time": "time", "outside": "time",
+          "outside_doc": "time", "bad_name": "name", "bad_phone": "phone",
+          "bad_bd": "birth"}
+
+
+def _s(body: dict | None, key: str) -> str:
+    v = (body or {}).get(key)
+    return "" if v is None else str(v)
+
+
+def _screen(date_q: str) -> date:
+    """День, на который смотрят. Кривая дата молча открывает сегодняшний — как
+    у страницы: адрес журнала набирают руками."""
+    return _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+
+
+async def _done(code: str, d: date, doctor: str, field: str | None = None):
+    """Ответ действия: отказ — кодом без данных, удача — свежим днём экрана."""
+    if code not in _OK:
+        return msg_json(False, code,
+                        field=_FIELD.get(code, "") if field is None else field,
+                        status=409 if code in _CONFLICT else 422)
+    data = await _day_model(d, doctor)
+    if data is None:
+        return msg_json(False, status=404)
+    return msg_json(True, code, data=data)
 
 
 @router.get("/api/schedule/week")
@@ -35,7 +82,7 @@ async def api_week(request: Request, date_q: str = Query("", alias="date")):
     """
     if (deny := api_guard(request)) is not None:
         return deny
-    d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+    d = _screen(date_q)
     data = await _week_model(d)
     # день, от которого открыли неделю: ссылки «Zi» и «Săptămâna» ведут на
     # него, а не на понедельник — так же, как на старой странице
@@ -55,9 +102,101 @@ async def api_day(request: Request, date_q: str = Query("", alias="date"),
     """
     if (deny := api_guard(request)) is not None:
         return deny
-    d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+    d = _screen(date_q)
     data = await _day_model(d, doctor)
     if data is None:
         return msg_json(False, status=404)
     return msg_json(True, data=data)
 
+
+@router.post("/api/schedule/appointments")
+async def api_add(request: Request, date_q: str = Query("", alias="date"),
+                  doctor: str = Query("")):
+    """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth}.
+
+    ⚠️ `nophone` — намерение ИЗ ФОРМЫ, а не «телефон пустой» (прайор 08-16):
+    пустой номер без галочки остаётся отказом `bad_phone`, как и у страницы.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", status=422)
+    code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
+                           _s(body, "service"), _s(body, "name"), _s(body, "phone"),
+                           "1" if body.get("nophone") else "", _s(body, "birth"))
+    return await _done(code, _screen(date_q), doctor)
+
+
+@router.post("/api/schedule/notes")
+async def api_note(request: Request, date_q: str = Query("", alias="date"),
+                   doctor: str = Query("")):
+    """Заметка стойки: {date, time, doctor, text, until}. `until` — ГОЛЫЙ час
+    (18, не «18:00»), верхняя граница открытая.
+
+    ⚠️ Поле отказа всегда «text»: `bad` здесь означает и пустой текст, и
+    границы задом наперёд, и неизвестного врача, а правит человек в этом
+    диалоге ровно одно поле — текст. Врач и час приходят из ячейки.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", field="text", status=422)
+    code = await _add_note(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
+                           _s(body, "text"), _s(body, "until"))
+    return await _done(code, _screen(date_q), doctor, field="text")
+
+
+@router.post("/api/schedule/appointments/{appt_id}/comment")
+async def api_comment(request: Request, appt_id: int,
+                      date_q: str = Query("", alias="date"),
+                      doctor: str = Query("")):
+    """Комментарий ресепшена: {comment}. Пустая строка стирает его."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", field="comment", status=422)
+    return await _done(await _set_comment(appt_id, _s(body, "comment")),
+                       _screen(date_q), doctor)
+
+
+@router.post("/api/schedule/appointments/{appt_id}/status")
+async def api_status(request: Request, appt_id: int,
+                     date_q: str = Query("", alias="date"),
+                     doctor: str = Query("")):
+    """Исход визита: {to}. Удача отвечает ПУСТЫМ кодом — баннера у неё нет и
+    на старой странице; отказ называет, ЧТО занято (conflict / dup).
+
+    ⚠️ Слово не из конвейера старая страница глотает молча, а здесь это 422:
+    вкладка, приславшая небывалый статус, обязана услышать отказ, иначе
+    покажет пациента «в кресле», когда он туда не переходил.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", status=422)
+    return await _done(await _set_status(appt_id, _s(body, "to")),
+                       _screen(date_q), doctor, field="")
+
+
+@router.post("/api/schedule/appointments/{appt_id}/move")
+async def api_move(request: Request, appt_id: int,
+                   date_q: str = Query("", alias="date"),
+                   doctor: str = Query("")):
+    """Перенос: {date, time, doctor} — тот же маршрут, что у перетаскивания.
+
+    ⚠️ Проверки серверные и в полном составе: браузер не кладёт блок в
+    закрытую ячейку, но верить ему нельзя — часы клиники и график врача
+    меняются на другом экране, а вкладка живёт долго.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad", status=422)
+    code = await _move_appt(appt_id, _s(body, "date"), _s(body, "time"),
+                            _s(body, "doctor"))
+    return await _done(code, _screen(date_q), doctor)

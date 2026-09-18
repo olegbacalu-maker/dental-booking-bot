@@ -87,6 +87,18 @@ def status_actions(status: str, is_note: bool = False) -> list[dict]:
             for to, cls, label in src]
 
 
+def all_status_actions(is_note: bool = False) -> dict:
+    """Вся матрица разом — {состояние: кнопки}. Её отдаёт JSON API: клиент
+    спрашивает по статусу карточки, как это делает CS_SHOW старой страницы.
+
+    ⚠️ Состояния перечисляет САМА матрица, а не список рядом: список пришлось
+    бы дополнять при седьмом статусе, и забытая строка молча оставила бы
+    новое состояние без кнопок.
+    """
+    return {st: status_actions(st, is_note)
+            for st in (_NOTE_BUTTONS if is_note else _ACT_BUTTONS)}
+
+
 def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
     items = []
     for r in rows:

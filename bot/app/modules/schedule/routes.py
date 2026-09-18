@@ -1314,6 +1314,9 @@ async def _day_model(d: date, doctor: str = "") -> dict | None:
                 if r.get("doctor_id") == doctor
                 or (not r.get("doctor_id") and r["doctor"] == name)]
         items = [(doctor, name)]
+        # у выключенного врача формы нет вовсе — как на его странице
+        form_items = (items if eng.DOCTOR_META.get(doctor, {}).get("active", True)
+                      else None)
     else:
         # неактивный врач остаётся колонкой, пока у него есть записи этого дня
         busy_keys = {r.get("doctor_id") for r in rows if r["status"] != "cancelled"}
@@ -1321,8 +1324,10 @@ async def _day_model(d: date, doctor: str = "") -> dict | None:
         items = [(dk, n) for dk, n in eng.DOCTORS.items()
                  if eng.DOCTOR_META.get(dk, {}).get("active", True)
                  or dk in busy_keys or n in busy_names]
+        # ⛔ форме — АКТИВНЫЕ справочника, ровно то же, что передаёт `_form`
+        form_items = list(eng.ACTIVE_DOCTORS.items()) or items
     return pday.model(d, items, pday.active_map(rows), _collect_cards(rows),
-                      _svc_colors)
+                      _svc_colors, form_items)
 
 
 @router.get("/admin/all", response_class=HTMLResponse)
