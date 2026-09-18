@@ -736,3 +736,77 @@ def suite_actions(res: Result) -> None:
         res.check("директор удаляет — pay_del", (st, j["code"], j["data"]["finance"]["can_delete"]),
                   (200, "pay_del", True))
         res.ok("регистратуре фиша открыта", _card(rec, pid)["name"] == "Bani Test", "закрыта")
+
+
+def _server_with_flag(env: dict | None = None) -> Server:
+    """Сервер, у которого фиша уже отдана React: флаг пишется в копию профиля
+    ДО старта — так профиль читается, как у клиники."""
+    s = Server(env=env)
+    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
+    cfg["ui"] = {"react": ["patient_card"]}
+    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    return s
+
+
+def suite_switch(res: Result) -> None:
+    """Флаг patient_card: узел React с номером фиши и режимом ленты в той же
+    рамке, ?ui=legacy возвращает старую фишу, старые формы при флаге живут и
+    возвращают на React-страницу с плашкой сервера."""
+    with Server() as s:
+        c = Client(s.url).login()
+        c.post("/admin/patients/new", name="Flag Card", phone="069777000")
+        pid = _pid(c, "069777000")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("без флага — старая фиша", "class='hero'" in page and 'id="root"' not in page,
+               "не старая")
+
+    s = _server_with_flag()
+    with s:
+        c = Client(s.url).login()
+        c.post("/admin/patients/new", name="Flag Card", phone="069777000")
+        pid = _pid(c, "069777000")
+        page = c.get(f"/admin/patient/{pid}").body
+        res.ok("узел React в рамке фиши",
+               '<div id="root" data-screen="patient_card"' in page
+               and f"fișa pacientului · #{pid}" in page and "/static/js/bundle.js?v=" in page,
+               "узла нет")
+        params = json.loads(page.split("data-params=\"", 1)[1].split("\"", 1)[0]
+                            .replace("&quot;", '"'))
+        res.check("номер фиши — параметром узла, без режима ленты", params, {"pid": str(pid)})
+        page_v = c.get(f"/admin/patient/{pid}?views=1").body
+        params = json.loads(page_v.split("data-params=\"", 1)[1].split("\"", 1)[0]
+                            .replace("&quot;", '"'))
+        res.check("?views=1 — режим ленты параметром", params, {"pid": str(pid), "views": "1"})
+        res.ok("старой разметки нет", "class='hero'" not in page and "id='plan'" not in page
+               and "apptdlg" not in page, "две разметки")
+        res.ok("не внутри #live", 'id="live"' not in page, "живой кусок")
+        res.ok("?ui=legacy — старая фиша", "class='hero'" in c.get(f"/admin/patient/{pid}?ui=legacy").body,
+               "не вернулась")
+        res.ok("?msg= на React-странице — плашка сервера",
+               "dp_toast" in c.get(f"/admin/patient/{pid}?msg=ok_card").body, "плашки нет")
+        res.check("чужая фиша при флаге — на список", c.get("/admin/patient/9999").status, 303)
+        # форма зуба из куска одонтограммы — старый маршрут, возврат сюда с ?msg=
+        r = c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie", doctor="Dr. Activ Doi")
+        res.check("старая форма зуба при флаге работает и возвращает с плашкой",
+                  (r.status, r.location), (303, f"/admin/patient/{pid}?msg=ok_card"))
+        res.ok("зуб доехал до куска одонтограммы",
+               "11" in _j(c.get(f"/api/patients/{pid}/teeth"))["data"]["html"]
+               and '"state": "carie"' in _j(c.get(f"/api/patients/{pid}/teeth"))["data"]["html"],
+               "не доехал")
+        res.ok("флаг пережил правку профиля через API",
+               _act(c, pid, "/profile", {"name": "Flag Card", "phone": "069777000"})[0] == 200
+               and json.loads(s.clinic.read_text(encoding="utf-8")).get("ui") == {"react": ["patient_card"]},
+               "флаг слетел")
+        res.check("без входа React-страница закрыта", Client(s.url).get(f"/admin/patient/{pid}").status, 303)
+
+    s = _server_with_flag(env={"ADMIN_KEY": ""})
+    with s:
+        boss = Client(s.url)
+        boss.post("/admin/setup", pin1="1111", pin2="1111")
+        boss.post("/admin/users/save", uid="ana", name="Ana", role="receptie", pin="2222")
+        boss.post("/admin/patients/new", name="Flag Pin", phone="069777111")
+        pid = _pid(boss, "069777111")
+        rec = Client(s.url)
+        rec.post("/admin/login", password="2222", next="/admin")
+        res.ok("регистратуре фиша открыта и по PIN",
+               'data-screen="patient_card"' in rec.get(f"/admin/patient/{pid}").body, "закрыта")

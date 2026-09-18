@@ -218,3 +218,108 @@
 .dp-muted {
   color: var(--text3);
 }
+
+/* ---- фиша пациента (C18): то, что у старой страницы было инлайновыми стилями ---- */
+
+.dp-m0 { margin: 0; }
+.dp-m6 { margin: 6px 0; }
+.dp-m08 { margin: 0 0 8px; }
+.dp-mt8 { margin-top: 8px; }
+.dp-mt9 { margin-top: 9px; }
+.dp-mt10 { margin-top: 10px; }
+
+.dp-hs-sub { color: var(--text3); font-size: 12px; }
+.dp-kpi-body { min-width: 0; }
+.dp-hero-wait { min-height: 140px; }
+
+/* заметка под строками профиля */
+.dp-notes {
+  font-size: 12px;
+  color: var(--text2);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-top: 8px;
+}
+
+/* кнопки-ссылки профиля: правка, архив, копия данных, лист информирования */
+.dp-pc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  height: 40px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text3);
+  text-decoration: none;
+}
+
+.dp-pc-edit {
+  margin-top: 12px;
+  height: var(--h-ctl);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.dp-pedit { margin-top: 10px; }
+
+/* опасная зона стирания — свёрнута, рамка красная (цвет смысла) */
+.dp-erase { margin-top: 8px; }
+.dp-erase > summary { font-size: 12px; color: var(--text3); cursor: pointer; }
+.dp-erase-box {
+  border: 1px solid var(--red-t);
+  border-radius: var(--r-ctl);
+  padding: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text2);
+}
+.dp-erase-box p { margin: 0 0 8px; }
+.dp-erase-box form { display: flex; gap: 8px; align-items: center; }
+.dp-erase-box input {
+  width: 120px;
+  text-transform: uppercase;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+}
+.dp-erase-box button {
+  background: none;
+  border: 1px solid var(--red-t);
+  color: var(--red-t);
+  border-radius: var(--r-ctl);
+  height: 32px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+/* просроченный срок позиции плана */
+.dp-overdue { color: var(--red-t); font-weight: 600; }
+.dp-due-hint { font-size: 12px; color: var(--text3); align-self: center; }
+
+/* ближайший визит — карточка фирменного тона */
+.dp-next { background: var(--teal-soft); }
+.dp-next h3 { color: var(--teal-d); }
+.dp-next-when { font-size: 13.5px; font-weight: 600; }
+.dp-next-what { font-size: 12px; color: var(--text2); margin-top: 3px; }
+
+.dp-tb-svc { font-size: 12.5px; }
+.dp-consult { overflow-wrap: anywhere; }
+.dp-hist-all { font-size: 12px; }
+.dp-views { font-size: 12px; font-weight: 400; }
+
+/* кусок одонтограммы: пока едет — место под него, чтобы страница не прыгала */
+.dp-odo-wait { min-height: 120px; }
+.dp-odo-host:empty { display: none; }

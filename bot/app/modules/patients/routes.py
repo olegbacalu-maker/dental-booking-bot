@@ -136,6 +136,15 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
+    if react_on(request, "patient_card"):
+        # DentPilot 2.0 (C18): та же рамка, узел React с номером фиши и режимом
+        # ленты; данные и запись открытия в журнал доступа — у GET
+        # /api/patients/{pid}, который клиент зовёт сразу после монтирования.
+        # Форма зуба из куска одонтограммы по-прежнему возвращает сюда с
+        # ?msg= — плашку рисует msg_banner, как у любой React-страницы.
+        params = {"pid": str(pid), **({"views": "1"} if views == "1" else {})}
+        return _shell(msg_banner(msg) + react_mount("patient_card", f"/admin/patient/{pid}", params),
+                      f"fișa pacientului · #{pid}", active="pat")
     e = html.escape
     # журнал доступа (закон 195): КТО открывал карту — такое же требование,
     # как «кто менял». В ленте фиши эти записи не показываются

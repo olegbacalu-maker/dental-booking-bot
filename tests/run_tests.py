@@ -158,6 +158,7 @@ SUITES = [
     ("Фиша: старая страница — эталон", test_patient_card.suite_pin),
     ("Фиша: JSON API повторяет страницу", test_patient_card.suite_api),
     ("Фиша: действия через JSON", test_patient_card.suite_actions),
+    ("Фиша: React-экран и старая страница", test_patient_card.suite_switch),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),

@@ -1,5 +1,6 @@
 import { DoctorCardScreen } from '../features/doctors/DoctorCardScreen'
 import { DoctorsListScreen } from '../features/doctors/DoctorsListScreen'
+import { PatientCardScreen } from '../features/patients/card/PatientCardScreen'
 import { PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
 import { BackupSettingsScreen } from '../features/settings/BackupSettingsScreen'
 import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSettingsScreen'
@@ -35,6 +36,9 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_security') return <SecuritySettingsScreen />
   if (screen === 'settings_backup') return <BackupSettingsScreen />
   if (screen === 'patients_search') return <PatientsSearchScreen params={params} />
+  if (screen === 'patient_card') {
+    return <PatientCardScreen pid={Number(params.pid)} views={params.views === '1'} />
+  }
   return <UnknownScreen screen={screen} />
 }
 
