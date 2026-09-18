@@ -50,6 +50,7 @@ import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
 import test_visit  # noqa: E402
+import test_visit_api  # noqa: E402
 from harness import run  # noqa: E402
 
 SUITES = [
@@ -159,6 +160,9 @@ SUITES = [
     ("Фиша: JSON API повторяет страницу", test_patient_card.suite_api),
     ("Фиша: действия через JSON", test_patient_card.suite_actions),
     ("Фиша: React-экран и старая страница", test_patient_card.suite_switch),
+    ("Дневник визита: старая страница — эталон", test_visit_api.suite_pin),
+    ("Дневник визита: JSON API", test_visit_api.suite_api),
+    ("Дневник визита: React-экран и старая страница", test_visit_api.suite_switch),
     ("Ревью-3: фирменный цвет и знаки в CSS", test_review3.suite_css),
     ("Ревью-3: часы в подвале сайдбара", test_review3.suite_clock),
     ("Ревью-3: услуги врача и чужой отпуск", test_review3.suite_doc_services),

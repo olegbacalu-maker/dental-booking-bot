@@ -141,7 +141,9 @@ grep -c '^- \[ \]' docs/dentpilot-2/tasks.md
       `test_patient_card.suite_pin` (44), паритет API — `suite_api` (32);
       ⚠️ попутно: `/api` не опознавал вошедшего — летопись подписывалась бы
       «recepție» (починено в `main._identify`); ⏳ флаг у пилота выключен
-- [ ] C19 `/admin/visit/{appt_id}`
+- [x] C19 `/admin/visit/{appt_id}` ✅ 18.09 (`visit`): `_visit_ctx`/`_save_visit`
+      одни на форму и `GET/POST /api/visits/{aid}`, графы и шаблоны — данными
+      из `visit.py`; `test_visit_api` (53); ⏳ флаг у пилота выключен
 - [x] C20 Документы, анамнез, платежи, план — действия фиши ✅ 18.09 вместе
       с C18: `POST /api/patients/{pid}/…` (профиль, архив, стирание,
       предупреждения, анамнез, план и переходы, платежи, документы и их

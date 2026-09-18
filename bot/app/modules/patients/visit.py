@@ -39,6 +39,11 @@ from ...core.layout import STATUS_LABEL, _ic, msg_banner, _shell, js_json
 # статусы визита, которым консультацию НЕ пишут
 NO_FORM_STATUSES = ("cancelled", "noshow")
 
+# что говорит страница вместо формы у отменённого/неявившегося визита —
+# одна строка на старую страницу и на JSON API
+READONLY_NOTE = ("Vizita este anulată sau marcată «neprezentare» — "
+                 "consultația nu se completează.")
+
 # (name, подпись, строк textarea, placeholder)
 _FIELDS = (
     ("acuze", "Acuze / motivul prezentării", 2, "Ce acuză pacientul…"),
@@ -155,14 +160,34 @@ def _fmt(dt) -> str:
     return dt.astimezone(eng.TZ).strftime("%d.%m.%Y %H:%M")
 
 
-def _item_label(it: dict) -> str:
+def fields() -> list[dict]:
+    """Графы дневника данными — для JSON API (DentPilot 2.0): те же подписи,
+    высота и подсказки, что у старой формы; порядок — порядок бланка."""
+    return [{"id": k, "label": lab, "rows": rows, "placeholder": ph}
+            for k, lab, rows, ph in _FIELDS]
+
+
+def templates() -> list[dict]:
+    """Шаблоны-заготовки данными: клиент заполняет ими ТОЛЬКО пустые поля,
+    как applyTpl старой страницы; тексты живут здесь, у клиента копии нет."""
+    return [{"id": k, "label": t["label"], "values": {f: t[f] for f, *_ in _FIELDS}}
+            for k, t in _TEMPLATES.items()]
+
+
+def item_text(it: dict) -> str:
+    """Позиция плана словами: «dinte 26 · Obturație 26 · 500 MDL» — сырой
+    текст, экранирует тот, кто рисует (страница — html, клиент — React)."""
     parts = []
     if it.get("tooth"):
         parts.append(f"dinte {it['tooth']}")
-    parts.append(html.escape(it["procedure"]))
+    parts.append(it["procedure"])
     if it.get("price_mdl"):
         parts.append(f"{it['price_mdl']} MDL")
     return " · ".join(parts)
+
+
+def _item_label(it: dict) -> str:
+    return html.escape(item_text(it))
 
 
 def page(appt: dict, rec: dict | None, items: list, back: str,
@@ -203,10 +228,8 @@ def page(appt: dict, rec: dict | None, items: list, back: str,
             f"<p class='vsec'><b>{lab}:</b><br>{e(vals[k]).replace(chr(10), '<br>')}</p>"
             for k, lab, *_ in _FIELDS if vals[k]
         )
-        note = ("Vizita este anulată sau marcată «neprezentare» — "
-                "consultația nu se completează.")
         body_card = (f"<div class='fcard'><h3>Jurnalul consultației</h3>"
-                     f"<div class='banner warn'>{note}</div>{rows}"
+                     f"<div class='banner warn'>{READONLY_NOTE}</div>{rows}"
                      + (f"<div class='vmeta'>{meta}</div>" if rec else "")
                      + "</div>")
     else:

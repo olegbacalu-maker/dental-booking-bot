@@ -11,6 +11,7 @@ import { SecuritySettingsScreen } from '../features/settings/SecuritySettingsScr
 import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
 import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
+import { VisitScreen } from '../features/visits/VisitScreen'
 
 /**
  * Корень клиента: развилка по имени экрана, которое сервер положил в
@@ -39,6 +40,7 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'patient_card') {
     return <PatientCardScreen pid={Number(params.pid)} views={params.views === '1'} />
   }
+  if (screen === 'visit') return <VisitScreen aid={Number(params.aid)} back={params.back ?? ''} />
   return <UnknownScreen screen={screen} />
 }
 

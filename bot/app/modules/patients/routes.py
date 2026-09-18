@@ -1911,6 +1911,52 @@ async def patient_plan_acord(request: Request, pid: int, lang: str = ""):
 
 # ---------- дневник визита (consultația) ----------
 
+# ---- дневник визита: контекст и правило сохранения, одни на страницу и API (C19) ----
+
+async def _visit_ctx(appt_id: int):
+    """(визит, запись приёма, позиции плана пациента) или None — визита нет,
+    это заметка без пациента. patient_id отсюда — источник истины «чей
+    визит»: маршруты берут его из выборки, а не из формы."""
+    a = await db.appointment_brief(appt_id)
+    if not a or not a.get("patient_id") or a.get("source") == "note":
+        return None
+    return a, await db.visit_record(appt_id), await db.plan_items(a["patient_id"])
+
+
+def _visit_back(back: str, pid: int) -> str:
+    """Куда ведёт «Înapoi»: только адрес журнала, иначе фиша пациента —
+    чужая строка здесь была бы открытым редиректом."""
+    return back if back.startswith("/admin") else f"/admin/patient/{pid}"
+
+
+async def _save_visit(appt_id: int, a: dict, fields: dict, done: list) -> str:
+    """Запись приёма: отменённому/неявившемуся не пишется (bad_vst), пустая
+    не сохраняется (bad_visit); отмеченные позиции плана финализируются НА
+    этом визите."""
+    pid = a["patient_id"]
+    if a["status"] in pvisit.NO_FORM_STATUSES:
+        return "bad_vst"
+    fields = {k: str(fields.get(k) or "")[:2000] for k in db.VISIT_FIELDS}
+    if not any(v.strip() for v in fields.values()):
+        return "bad_visit"
+    await db.save_visit_record(appt_id, pid, a["doctor"], fields)
+    # отмеченные позиции плана выполнены НА этом визите: финализируем из
+    # любого нефинального статуса (дневник фиксирует факт, церемония
+    # in_lucru тут ни при чём) и привязываем к визиту
+    for raw in done:
+        try:
+            iid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        cur = await db.plan_item_status(iid, pid)
+        # ⚠️ финализируем только АКТИВНОЕ: отказ (refuzat) в списке галочек не
+        # показывается, но устаревшая вкладка прислала бы его id — и запись по
+        # ст.13(5) молча превратилась бы в «выполнено»
+        if cur in db.PLAN_ACTIVE:
+            await db.set_plan_status(iid, pid, "finalizat", appt_id)
+    return "ok_visit"
+
+
 @router.get("/admin/visit/{appt_id}", response_class=HTMLResponse)
 async def visit_page(request: Request, appt_id: int, back: str = "",
                      msg: str = ""):
@@ -1919,13 +1965,17 @@ async def visit_page(request: Request, appt_id: int, back: str = "",
     врач, но постфактум вносит и рецепция."""
     if (deny := _guard(request)) is not None:
         return deny
-    a = await db.appointment_brief(appt_id)
-    if not a or not a.get("patient_id") or a.get("source") == "note":
+    ctx = await _visit_ctx(appt_id)
+    if ctx is None:
         return RedirectResponse("/admin", status_code=303)
-    rec = await db.visit_record(appt_id)
-    items = await db.plan_items(a["patient_id"])
-    if not back.startswith("/admin"):
-        back = f"/admin/patient/{a['patient_id']}"
+    a, rec, items = ctx
+    back = _visit_back(back, a["patient_id"])
+    if react_on(request, "visit"):
+        # DentPilot 2.0 (C19): та же рамка, узел React с номером визита и
+        # адресом возврата; данные — у GET /api/visits/{aid}
+        return _shell(msg_banner(msg) + react_mount("visit", f"/admin/visit/{appt_id}",
+                                                    {"aid": str(appt_id), "back": back}),
+                      f"consultație · vizita #{appt_id}", active="pat")
     return HTMLResponse(pvisit.page(a, rec, items, back, msg))
 
 
@@ -1933,36 +1983,16 @@ async def visit_page(request: Request, appt_id: int, back: str = "",
 async def visit_save(request: Request, appt_id: int):
     if (deny := _guard(request)) is not None:
         return deny
-    a = await db.appointment_brief(appt_id)
-    if not a or not a.get("patient_id") or a.get("source") == "note":
+    ctx = await _visit_ctx(appt_id)
+    if ctx is None:
         return RedirectResponse("/admin", status_code=303)
-    pid = a["patient_id"]
+    a = ctx[0]
     form = await request.form()
-    back = str(form.get("back") or "")
-    if not back.startswith("/admin"):
-        back = f"/admin/patient/{pid}"
+    back = _visit_back(str(form.get("back") or ""), a["patient_id"])
     dest = f"/admin/visit/{appt_id}?back={urllib.parse.quote(back)}"
-    if a["status"] in pvisit.NO_FORM_STATUSES:
-        return RedirectResponse(dest + "&msg=bad_vst", status_code=303)
-    fields = {k: str(form.get(k) or "")[:2000] for k in db.VISIT_FIELDS}
-    if not any(v.strip() for v in fields.values()):
-        return RedirectResponse(dest + "&msg=bad_visit", status_code=303)
-    await db.save_visit_record(appt_id, pid, a["doctor"], fields)
-    # отмеченные позиции плана выполнены НА этом визите: финализируем из
-    # любого нефинального статуса (дневник фиксирует факт, церемония
-    # in_lucru тут ни при чём) и привязываем к визиту
-    for raw in form.getlist("done"):
-        try:
-            iid = int(raw)
-        except ValueError:
-            continue
-        cur = await db.plan_item_status(iid, pid)
-        # ⚠️ финализируем только АКТИВНОЕ: отказ (refuzat) в списке галочек не
-        # показывается, но устаревшая вкладка прислала бы его id — и запись по
-        # ст.13(5) молча превратилась бы в «выполнено»
-        if cur in db.PLAN_ACTIVE:
-            await db.set_plan_status(iid, pid, "finalizat", appt_id)
-    return RedirectResponse(dest + "&msg=ok_visit", status_code=303)
+    code = await _save_visit(appt_id, a, {k: form.get(k) for k in db.VISIT_FIELDS},
+                             form.getlist("done"))
+    return RedirectResponse(dest + f"&msg={code}", status_code=303)
 
 
 @router.get("/admin/patient/{pid}/fisa043", response_class=HTMLResponse)

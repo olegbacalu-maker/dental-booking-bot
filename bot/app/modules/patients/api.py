@@ -37,12 +37,14 @@ from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json
 from . import anamneza as panam
 from . import card as pcard
 from . import odontogram as podo
+from . import visit as pvisit
 from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _add_alert, _add_pay,
                      _add_plan, _appoint, _drop_doc, _erase, _free_slots,
                      _new_patient, _open_doc, _p_age, _peek_html, _pl_canal,
                      _pl_dmy, _pl_money, _pl_new_foot, _pl_stale_cut,
                      _pl_status, _pl_terms, _pl_trend, _plan_del, _plan_status,
-                     _save_anamneza, _save_profile, _store_doc)
+                     _save_anamneza, _save_profile, _save_visit, _store_doc,
+                     _visit_back, _visit_ctx)
 
 router = APIRouter()
 
@@ -658,3 +660,75 @@ async def api_patient_appoint(request: Request, pid: int):
     code = await _appoint(pid, _s(body, "date"), _s(body, "time"),
                           _s(body, "doctor"), _s(body, "service"))
     return await _card_reply(request, pid, code, "time" if code in ("bad", "outside") else "")
+
+
+# ======================= дневник визита (C19) =======================
+
+def _visit_payload(a: dict, rec: dict | None, items: list, back: str) -> dict:
+    """Страница «Consultație» данными: визит, запись (или её нет), можно ли
+    писать, графы и шаблоны (тексты сервера), позиции плана — выполненные
+    на этом визите и открытые для отметки (только активные: отказ в списке
+    галочек не показывается, см. visit.py)."""
+    status = a.get("status") or ""
+    editable = status not in pvisit.NO_FORM_STATUSES
+    return {
+        "appt": {"id": a["id"], "when": _when(a["starts_at"]), "patient_id": a["patient_id"],
+                 "patient": a.get("name") or "", "service": a["service"] or "",
+                 "doctor": a["doctor"] or "", "status": status,
+                 "status_label": STATUS_LABEL.get(status, status),
+                 "comment": a.get("comment") or ""},
+        "record": ({**{k: (rec.get(k) or "") for k in db.VISIT_FIELDS},
+                    "created": _when(rec["created_at"]),
+                    "updated": _when(rec["updated_at"]) if rec.get("updated_at") else "",
+                    "author": rec.get("author") or ""} if rec else None),
+        "editable": editable,
+        "note": "" if editable else pvisit.READONLY_NOTE,
+        "fields": pvisit.fields(),
+        "templates": pvisit.templates(),
+        "plan": {
+            "linked": [{"id": it["id"], "text": pvisit.item_text(it)}
+                       for it in items if it.get("appointment_id") == a["id"]],
+            "open": [{"id": it["id"], "text": pvisit.item_text(it),
+                      "in_lucru": it["status"] == "in_lucru"}
+                     for it in items if it["status"] in db.PLAN_ACTIVE],
+        },
+        "back": back,
+    }
+
+
+@router.get("/api/visits/{aid}")
+async def api_visit(request: Request, aid: int, back: str = ""):
+    """Дневник визита. 404 — визита нет или это заметка без пациента."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    ctx = await _visit_ctx(aid)
+    if ctx is None:
+        return msg_json(False, status=404)
+    a, rec, items = ctx
+    return msg_json(True, data=_visit_payload(a, rec, items, _visit_back(back, a["patient_id"])))
+
+
+@router.post("/api/visits/{aid}")
+async def api_visit_save(request: Request, aid: int):
+    """{acuze, examen, diagnostic, tratament, recomandari, done: [id…], back}.
+    Отменённому/неявившемуся — 409 bad_vst; пустая запись — 422 bad_visit;
+    удача — ok_visit и свежая страница."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    ctx = await _visit_ctx(aid)
+    if ctx is None:
+        return msg_json(False, status=404)
+    a = ctx[0]
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_visit", status=422)
+    raw = body.get("done")
+    done = [str(x) for x in raw] if isinstance(raw, list) else []
+    code = await _save_visit(aid, a, {k: _s(body, k) for k in db.VISIT_FIELDS}, done)
+    if code == "bad_vst":
+        return msg_json(False, code, status=409)
+    if code == "bad_visit":
+        return msg_json(False, code, status=422)
+    a, rec, items = await _visit_ctx(aid)
+    return msg_json(True, code, data=_visit_payload(
+        a, rec, items, _visit_back(_s(body, "back"), a["patient_id"])))
