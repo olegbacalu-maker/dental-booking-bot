@@ -365,3 +365,61 @@ def suite_day_orphan(res: Result) -> None:
         cell = next(c_ for r in model["rows"] for c_ in r["cells"] if ids[0] in c_["ids"])
         res.check("из колонки настоящего врача запись-сироту перенести можно",
                   cell["mv"], [True])
+
+
+def _server_day_flag() -> Server:
+    s = Server()
+    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
+    cfg["ui"] = {"react": ["schedule_all", "schedule_doctor"]}
+    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    return s
+
+
+def suite_day_switch(res: Result) -> None:
+    """Флаги дневных экранов: узел React вместо таблицы, живой опрос снят у
+    обоих, а панель дня (`/admin`, ключ `dash`) остаётся живой.
+
+    ⚠️ Оба экрана сидят на ключе `prog`. После этого коммита живых страниц у
+    ключа не остаётся — но снимать его нельзя до C26/C27: панель дня опрашивает
+    свой ключ, и правило «узел React не внутри #live» держится телом страницы,
+    а не именем ключа.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        res.ok("без флага — старая таблица",
+               "<table class='grid'>" in c.get("/admin/all").body, "не старая")
+
+    s = _server_day_flag()
+    with s:
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=2)).isoformat()
+        page = c.get(f"/admin/all?date={day}").body
+        res.ok("узел React на «Toți medicii»",
+               '<div id="root" data-screen="schedule_all"' in page, "узла нет")
+        res.check("дата — параметром узла",
+                  json.loads(page.split('data-params="', 1)[1].split('"', 1)[0]
+                             .replace("&quot;", '"')), {"date": day})
+        res.check("«Toți medicii» больше не живая",
+                  ('id="live"' in page, 'data-reload="12"' in page), (False, False))
+        res.ok("старой таблицы нет", "<table class='grid'>" not in page, "две разметки")
+
+        doc = c.get(f"/admin/doctor/d2?date={day}").body
+        res.ok("узел React на дне врача",
+               '<div id="root" data-screen="schedule_doctor"' in doc, "узла нет")
+        res.check("врач и дата — параметрами узла",
+                  json.loads(doc.split('data-params="', 1)[1].split('"', 1)[0]
+                             .replace("&quot;", '"')), {"date": day, "dk": "d2"})
+        res.check("день врача больше не живой",
+                  ('id="live"' in doc, 'data-reload="12"' in doc), (False, False))
+
+        panel = c.get("/admin").body
+        res.check("ПАНЕЛЬ ДНЯ осталась живой и старой",
+                  ('id="live"' in panel, 'data-reload="12"' in panel,
+                   'id="root"' in panel), (True, True, False))
+
+        res.ok("?ui=legacy возвращает старую таблицу",
+               "<table class='grid'>" in c.get(f"/admin/all?date={day}&ui=legacy").body,
+               "нет")
+        res.check("чужой врач при флаге — на журнал",
+                  c.get("/admin/doctor/d999").status, 307)
+        res.check("без входа закрыта", Client(s.url).get("/admin/all").status, 303)

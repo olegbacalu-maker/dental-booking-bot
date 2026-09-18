@@ -14,6 +14,7 @@ import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { VisitScreen } from '../features/visits/VisitScreen'
 import { OdontogramScreen } from '../features/clinical/OdontogramScreen'
 import { PerioScreen } from '../features/clinical/PerioScreen'
+import { DayScreen } from '../features/schedule/DayScreen'
 import { WeekScreen } from '../features/schedule/WeekScreen'
 
 /**
@@ -49,6 +50,10 @@ export function App({ screen, params = {} }: AppProps) {
     return <OdontogramScreen pid={Number(params.pid)} t={Number.isInteger(t) ? t : null} />
   }
   if (screen === 'schedule_week') return <WeekScreen date={params.date ?? ''} />
+  if (screen === 'schedule_all') return <DayScreen date={params.date ?? ''} />
+  if (screen === 'schedule_doctor') {
+    return <DayScreen date={params.date ?? ''} doctor={params.dk ?? ''} />
+  }
   if (screen === 'perio') {
     const e = params.exam ? Number(params.exam) : null
     return <PerioScreen pid={Number(params.pid)} exam={Number.isInteger(e) ? e : null} />

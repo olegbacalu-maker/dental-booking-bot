@@ -454,6 +454,9 @@
    пришлось бы повторять в каждом чипе. */
 .dp-react-root .dp-wfree { font-size: 11.5px; color: var(--text3); text-align: center; padding: 12px 0; }
 .dp-react-root .dp-wnote { border: 1px dashed var(--line); color: var(--text2); }
+/* день (C25.5a): возраст рядом с именем — тем же приглушённым цветом, что
+   печатала старая страница инлайновым стилем. */
+.dp-react-root .dp-age { color: var(--text3); }
 /* ⚠️ Запертая кнопка обязана ВЫГЛЯДЕТЬ запертой: у .pl-btn и .odo-more в
    panel.css своего вида для :disabled нет (старым страницам он не был нужен —
    они ничего не запирали), и «Salvează examenul», заблокированная за

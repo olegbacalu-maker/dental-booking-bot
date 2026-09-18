@@ -25,6 +25,8 @@ from datetime import date, datetime
 
 from ... import db
 from ... import engine as eng
+from ...core.layout import STATUS_LABEL
+from ...core.visits import _age
 
 
 def active_map(rows: list) -> tuple[dict, set]:
@@ -144,7 +146,12 @@ def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
         "urgent": r["service"] in eng.URGENT_LABELS,
         "source": r["source"], "dur": dur,
         "comment": (r["comment"] or "")[:60],
-        "birth_year": r.get("birth_year"),
+        # ⛔ Слово статуса и возраст приезжают ГОТОВЫМИ: второй словарь статусов
+        # в браузере — это «Finalizat» в одном месте и «a venit» в другом
+        # (ломалось дважды, 08-12 и 08-16), а свой счёт возраста разойдётся с
+        # серверным в день, когда появится месяц рождения.
+        "status_label": STATUS_LABEL.get(r["status"], r["status"]),
+        "age": _age(r.get("birth_year")),
         "clickable": bool(cards is not None and r["id"] in cards),
         "bg": bg, "bar": bar,
         # перетаскивание — теми же полями, что у _move_attrs

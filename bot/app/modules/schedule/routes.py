@@ -1349,6 +1349,13 @@ async def admin_all(
     if (deny := _guard(request)) is not None:
         return deny
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+    if react_on(request, "schedule_all"):
+        # DentPilot 2.0 (C25.5a): данные — GET /api/schedule/day.
+        # ⛔ Живой опрос выключается сам: `_shell` не объявляет живой страницу
+        # с узлом React. Ключ `prog` общий с днём врача и снимается не здесь.
+        return _shell(react_mount("schedule_all", "/admin/all",
+                                  {"date": d.isoformat()}),
+                      "toți medicii", active="prog")
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
     active = _active_map(rows)
@@ -1404,6 +1411,10 @@ async def admin_doctor(
         return RedirectResponse("/admin")
     name = eng.DOCTORS[dk]
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+    if react_on(request, "schedule_doctor"):
+        return _shell(react_mount("schedule_doctor", f"/admin/doctor/{dk}",
+                                  {"date": d.isoformat(), "dk": dk}),
+                      f"ziua medicului · {name}", active="prog")
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = [r for r in await db.day_appointments(day_start, day_start + timedelta(days=1))
             if r.get("doctor_id") == dk
