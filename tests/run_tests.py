@@ -189,6 +189,7 @@ SUITES = [
     ("День: диалог «+» и заметки стойки", test_day_forms.suite_slot),
     ("День: карточка визита и её кнопки", test_day_forms.suite_card),
     ("День: диалог переноса и имя в нём", test_day_forms.suite_move),
+    ("День: список дня, его кнопки и фильтр (C25.5c)", test_day_forms.suite_list),
     ("День: модель для диалогов (C25.5b)", test_day_actions.suite_model),
     ("День: действия через JSON", test_day_actions.suite_actions),
     ("День: форма и API отвечают одним кодом", test_day_actions.suite_parity),

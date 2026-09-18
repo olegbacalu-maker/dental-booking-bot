@@ -436,3 +436,120 @@ def suite_move(res: Result) -> None:
                "Vizită mutată" in c.get(f"/admin/patient/{pid}").body,
                "перенос в себя не оставил следа — правило браузера стало "
                "необязательным, и его можно потерять незаметно")
+
+
+# ------------------------------------------------------- список дня
+
+
+def _rows(body: str) -> list[str]:
+    """Строки списка дня целиком (в порядке, в котором их печатает страница)."""
+    tail = body.split("<table class='list'>", 1)[1].split("</table>", 1)[0]
+    return re.findall(r"<tr class='[a-z]+'>.*?</tr>", tail, re.S)
+
+
+def _cells(tr: str) -> list[str]:
+    return re.findall(r"<td>(.*?)</td>", tr, re.S)
+
+
+def suite_list(res: Result) -> None:
+    """«Lista zilei»: что в строке, какие кнопки и как её фильтрует плитка.
+
+    ⚠️ Список — НЕ сетка. Он показывает и отменённые записи (в сетке их нет), и
+    заметки стойки, и это единственное место, где заметку можно убрать и
+    вернуть: в карточку визита заметки не попадают по замыслу.
+    ⛔ Один и тот же комментарий живёт на экране в ТРЁХ длинах: полный в
+    карточке, 80 знаков в списке, 60 в карточке сетки. Возьми в React не ту —
+    и пересохранение укоротит текст без единой правки (прайор 08-16).
+    """
+    day = (clinic_today() + timedelta(days=3)).isoformat()
+    back = f"/admin/all?date={day}"
+    with Server() as s:
+        c = Client(s.url).login()
+        long_cmt = "B" * 100
+        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2", aservice="pain",
+               aname="Ion Popa", aphone="069190190", back=back)
+        c.post("/admin/add", adate=day, atime="10:00", adoctor="d3", aservice="consult",
+               aname="Maria Rusu", aphone="069190191", back=back)
+        c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
+               ntext="Livrare materiale", back=back)
+        ids = re.findall(r"<tr class='[a-z]+'><td>(\d+)</td>", c.get(back).body)
+        c.post(f"/admin/comment/{ids[0]}", comment=long_cmt, back=back)
+        c.post(f"/admin/status/{ids[1]}", to="cancelled", back=back)
+        body = c.get(back).body
+        rows = _rows(body)
+
+        res.check("в списке ВСЕ записи дня, включая отменённую и заметку",
+                  len(rows), 3)
+        res.ok("а в сетке отменённой нет",
+               f"data-appt='{ids[1]}'" not in
+               body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0],
+               "отменённая запись осталась в сетке")
+        res.check("класс строки — состояние записи",
+                  [re.match(r"<tr class='([a-z]+)'>", r).group(1) for r in rows],
+                  ["confirmed", "cancelled", "confirmed"])
+
+        first = _cells(rows[0])
+        res.check("колонки строки: номер, час, имя, телефон, услуга, врач, источник",
+                  (first[0], first[1], "069190190" in first[3],
+                   "Durere acută" in first[4], first[5]),
+                  (ids[0], "09:00", True, True, "Dr. Activ Doi"))
+        res.ok("имя открывает карточку визита, а не ведёт по ссылке",
+               f"openCard({ids[0]})" in first[2] and "class='plink'" in first[2],
+               "по имени в списке карточку больше не открыть")
+        res.ok("источник назван словом",
+               "manual" in first[6] and "notiță" in _cells(rows[2])[6],
+               "источник записи и заметки перестали различаться")
+        res.check("КОММЕНТАРИЙ В СПИСКЕ обрезан до 80 — не 60 и не полностью",
+                  (long_cmt[:80] in first[4], long_cmt[:81] in first[4],
+                   long_cmt[:60] in _grid_card(body, ids[0]),
+                   long_cmt[:61] in _grid_card(body, ids[0])),
+                  (True, False, True, False))
+
+        note = _cells(rows[2])
+        res.check("у заметки нет ни имени, ни телефона, а текст стоит услугой",
+                  (note[2].strip(), note[3].strip(), "Livrare materiale" in note[4]),
+                  ("", "", True))
+        res.check("заметку можно убрать, и это её единственная кнопка",
+                  re.findall(r"name='to' value='([a-z]+)'", rows[2]), ["cancelled"])
+        c.post(f"/admin/status/{ids[2]}", to="cancelled", back=back)
+        gone = _rows(c.get(back).body)[2]
+        res.check("убранная заметка предлагает вернуть — и спрашивает СВОИМ вопросом",
+                  (re.findall(r"name='to' value='([a-z]+)'", gone),
+                   "Restabiliți notița?" in gone,
+                   "Redeschideți programarea" in gone),
+                  (["confirmed"], True, False))
+
+        # дневник визита помечает строку
+        res.ok("визит записан в дневник (иначе метка ниже недостижима)",
+               c.post(f"/admin/visit/{ids[0]}", acuze="Durere la rece",
+                      diagnostic="K02.1").msg.startswith("ok"), "дневник не сохранён")
+        res.ok("строка помечена «дневник заполнен»",
+               "rec-mark" in _rows(c.get(back).body)[0],
+               "по списку не видно, у кого консультация уже записана")
+
+        # плитка фильтрует СПИСОК, но не сетку
+        # ⚠️ сравнивать с СЕГОДНЯШНИМ состоянием страницы, а не со снимком выше:
+        # заметку между ними убрали, и она законно ушла из сетки
+        plain = c.get(back).body
+        f = c.get(f"{back}&f=urg").body
+        res.check("фильтр: свой заголовок с датой и только подходящие строки",
+                  (len(_rows(f)), _cells(_rows(f)[0])[0]), (1, ids[0]))
+        res.ok("баннер называет фильтр и счёт",
+               "Filtru:" in f and "urgențe" in f and "1 programări" in f,
+               "баннер фильтра изменился")
+        res.ok("второго, нефильтрованного списка на странице нет",
+               f.count("<table class='list'>") == 1, "список напечатан дважды")
+        res.check("сетка при фильтре не редеет",
+                  f.count("data-appt='"), plain.count("data-appt='"))
+        res.ok("выход из фильтра — ссылкой «arată tot»",
+               "arată tot" in f, "из фильтра нечем выйти")
+
+        res.ok("Excel отдаётся ссылкой этого дня",
+               f"/admin/export.xlsx?from={day}&to={day}" in body, "ссылки на Excel нет")
+
+        doc = c.get(f"/admin/doctor/d2?date={day}").body
+        res.check("день врача: список только его записей",
+                  [_cells(r)[5] for r in _rows(doc)], ["Dr. Activ Doi", "Dr. Activ Doi"])
+        res.ok("и Excel там не предлагается",
+               "/admin/export.xlsx" not in doc,
+               "у дня врача появилась выгрузка, которой не было")
