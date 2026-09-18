@@ -153,3 +153,27 @@ export function archIndex(model: Odontogram, n: number): number {
   const u = model.arches.upper.indexOf(n)
   return u >= 0 ? u : 100 + model.arches.lower.indexOf(n)
 }
+
+export type Arrow = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown'
+
+/** Сосед для стрелок (C22): влево/вправо — по ряду в порядке экрана,
+ *  вверх/вниз — та же позиция другой челюсти; молочные — в своей паре
+ *  рядов. Ничего не выбрано — первый зуб верхней дуги. Соседа нет — null. */
+export function neighbour(model: Odontogram, n: number | null, key: Arrow): number | null {
+  const a = model.arches
+  if (n === null) return a.upper[0] ?? null
+  for (const [up, lo] of [[a.upper, a.lower], [a.milk_upper, a.milk_lower]] as const) {
+    const iu = up.indexOf(n)
+    const il = lo.indexOf(n)
+    if (iu < 0 && il < 0) continue
+    const row = iu >= 0 ? up : lo
+    const i = iu >= 0 ? iu : il
+    switch (key) {
+      case 'ArrowLeft': return row[i - 1] ?? null
+      case 'ArrowRight': return row[i + 1] ?? null
+      case 'ArrowUp': return il >= 0 ? (up[i] ?? null) : null
+      case 'ArrowDown': return iu >= 0 ? (lo[i] ?? null) : null
+    }
+  }
+  return null
+}

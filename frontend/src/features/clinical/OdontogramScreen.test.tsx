@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import { OdontogramScreen } from './OdontogramScreen'
-import { surfaceLetter, surfaceName, type Odontogram, type ToothInfo } from './chart'
+import { neighbour, surfaceLetter, surfaceName, type Odontogram, type ToothInfo } from './chart'
+import { cycleState } from './useChart'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
@@ -13,7 +14,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 })
 
 const svgOf = (n: number) =>
-  `<svg class='tooth-svg' aria-label='${n}'><path d='M0 0'/><g class='sfz'><circle data-s='M'/><circle data-s='O'/></g></svg>`
+  `<svg class='tooth-svg' aria-label='${n}'><path d='M0 0'/><g class='sfz'><circle data-s='M'/><circle data-s='O'/><circle data-s='D'/></g></svg>`
 
 function tooth(n: number, jaw: 'sus' | 'jos', extra: Partial<ToothInfo> = {}): ToothInfo {
   return {
@@ -59,6 +60,14 @@ const MODEL: Odontogram = {
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 const btn = (n: number) => document.querySelector(`.odop .arch .tooth-btn[data-n="${n}"]`) as HTMLButtonElement
 const inspector = () => document.querySelector('.insp') as HTMLElement
+const root = () => document.querySelector('.odop') as HTMLElement
+const key = (k: string, target: Element = root()) => fireEvent.keyDown(target, { key: k })
+const hitOf = (n: number, s: string) => btn(n).querySelector(`[data-s='${s}']`) as Element
+const picHit = (s: string) => document.querySelector(`.insp-pic [data-s='${s}']`) as Element
+const sfState = () => within(inspector()).getByLabelText(/Starea suprafeței/) as HTMLSelectElement
+const toothState = () => within(inspector()).getByLabelText('Starea dintelui') as HTMLSelectElement
+const sfBtn = (name: string) => within(inspector()).getByRole('button', { name: new RegExp(`^${name}$`) })
+const unsaved = () => screen.queryByText('Nesalvat')
 
 beforeEach(() => {
   vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -80,6 +89,31 @@ describe('surface labels', () => {
     expect(surfaceLetter('V', 'sus')).toBe('V')
     expect(surfaceName('L', 'sus', MODEL.surfaces)).toBe('palatinal')
     expect(surfaceName('L', 'jos', MODEL.surfaces)).toBe('lingual')
+  })
+})
+
+describe('C22: чистые правила', () => {
+  it('быстрый цикл идёт по списку сервера и возвращается к «—»', () => {
+    const s = ['carie', 'obturatie']
+    expect(cycleState('', s)).toBe('carie')
+    expect(cycleState('carie', s)).toBe('obturatie')
+    expect(cycleState('obturatie', s)).toBe('')
+    expect(cycleState('coroana', s)).toBe('carie')   // не из списка — с начала
+    expect(cycleState('', [])).toBe('')
+  })
+
+  it('сосед по стрелкам: ряд, другая челюсть, край, молочные в своей паре', () => {
+    expect(neighbour(MODEL, null, 'ArrowRight')).toBe(18)
+    expect(neighbour(MODEL, 16, 'ArrowRight')).toBe(15)
+    expect(neighbour(MODEL, 16, 'ArrowLeft')).toBe(17)
+    expect(neighbour(MODEL, 18, 'ArrowLeft')).toBeNull()
+    expect(neighbour(MODEL, 16, 'ArrowDown')).toBe(46)
+    expect(neighbour(MODEL, 46, 'ArrowUp')).toBe(16)
+    expect(neighbour(MODEL, 16, 'ArrowUp')).toBeNull()
+    expect(neighbour(MODEL, 46, 'ArrowDown')).toBeNull()
+    expect(neighbour(MODEL, 55, 'ArrowDown')).toBeNull()
+    expect(neighbour(MODEL, 55, 'ArrowRight')).toBeNull()
+    expect(neighbour(MODEL, 99, 'ArrowRight')).toBeNull()
   })
 })
 
@@ -122,12 +156,11 @@ describe('OdontogramScreen', () => {
   it('клик по поверхности внутри рисунка выбирает зуб и поверхность', async () => {
     render(<OdontogramScreen pid={5} />)
     await waitFor(() => expect(btn(16)).toBeTruthy())
-    const hit = btn(16).querySelector("[data-s='O']") as Element
-    fireEvent.click(hit)
+    fireEvent.click(hitOf(16, 'O'))
     const insp = inspector()
     expect(within(insp).getByText('16', { selector: 'b' })).toBeTruthy()
     expect(within(insp).getByRole('button', { name: /^O ocluzal$/ }).className).toContain('sel')
-    expect((within(insp).getByLabelText(/Starea suprafeței/) as HTMLSelectElement).value).toBe('obturatie')
+    expect(sfState().value).toBe('obturatie')
   })
 
   it('сохранение зуба: намерение явным полем, модель подменяется, плашка сервера', async () => {
@@ -137,9 +170,10 @@ describe('OdontogramScreen', () => {
     await waitFor(() => expect(btn(16)).toBeTruthy())
     const insp = inspector()
     fireEvent.click(within(insp).getByRole('button', { name: /^D distal$/ }))
-    fireEvent.change(within(insp).getByLabelText(/Starea suprafeței/), { target: { value: 'carie' } })
-    fireEvent.change(within(insp).getByLabelText('Starea dintelui'), { target: { value: 'obturatie' } })
+    fireEvent.change(sfState(), { target: { value: 'carie' } })
+    fireEvent.change(toothState(), { target: { value: 'obturatie' } })
     fireEvent.click(within(insp).getByLabelText('În tratament'))
+    expect(unsaved()).toBeTruthy()
     fireEvent.click(within(insp).getByText('Salvează'))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/teeth/16', {
@@ -147,6 +181,8 @@ describe('OdontogramScreen', () => {
       surfaces: { M: 'carie', O: 'obturatie', D: 'carie' }, marks: ['tratament'],
     })
     expect(btn(16).getAttribute('title')).toBe('16 · Obturație')
+    expect(unsaved()).toBeNull()                       // свежая модель — черновика нет
+    expect(btn(16).className).not.toContain('dirty')
   })
 
   it('мост: режим выбора, роли крайних — опоры, сохранение шлёт пары и материал', async () => {
@@ -164,6 +200,9 @@ describe('OdontogramScreen', () => {
     fireEvent.click(screen.getByText('Continuă'))
     expect(screen.getByText('24 - Stâlp')).toBeTruthy()
     expect(screen.getByText('25 - Corp de punte')).toBeTruthy()
+    // диалог открыт — клавиши карты молчат: Esc на карте режим моста не снимает
+    key('Escape')
+    expect(screen.getByText('Salvează puntea')).toBeTruthy()
     fireEvent.click(screen.getByText('25 - Corp de punte'))
     expect(screen.getByText('25 - Stâlp')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Material'), { target: { value: 'alt' } })
@@ -203,6 +242,7 @@ describe('OdontogramScreen', () => {
     fireEvent.click(within(inspector()).getByText('Salvează'))
     expect(await screen.findByText('Date invalide')).toBeTruthy()
     expect((within(inspector()).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).toBe('nou')
+    expect(unsaved()).toBeTruthy()
     cleanup()
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 's'))
     render(<OdontogramScreen pid={5} />)
@@ -212,5 +252,153 @@ describe('OdontogramScreen', () => {
     const navigate = vi.fn()
     render(<OdontogramScreen pid={5} navigate={navigate} />)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
+  })
+})
+
+describe('C22: поверхность как первичный жест, черновик, клавиатура, меню', () => {
+  it('быстрый цикл: повторный клик по выбранной поверхности крутит её состояние, черновик явный', async () => {
+    render(<OdontogramScreen pid={5} />)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.click(hitOf(16, 'O'))                        // выбор зуба и поверхности — без правки
+    expect(sfState().value).toBe('obturatie')
+    expect(unsaved()).toBeNull()
+    fireEvent.click(hitOf(16, 'O'))                        // obturatie → «—»
+    expect(sfState().value).toBe('')
+    expect(unsaved()).toBeTruthy()
+    expect(btn(16).className).toContain('dirty')
+    fireEvent.click(hitOf(16, 'O'))                        // «—» → carie
+    expect(sfState().value).toBe('carie')
+    expect(sfBtn('O ocluzal').className).toContain('sf-carie')
+    fireEvent.click(hitOf(16, 'O'))                        // carie → obturatie: как в модели, черновика больше нет
+    expect(sfState().value).toBe('obturatie')
+    expect(unsaved()).toBeNull()
+    expect(btn(16).className).not.toContain('dirty')
+    // рисунок в инспекторе — тот же путь: первый клик выбирает M, второй крутит
+    fireEvent.click(picHit('M'))
+    expect(sfBtn('M mezial').className).toContain('sel')
+    expect(sfState().value).toBe('carie')
+    fireEvent.click(picHit('M'))
+    expect(sfState().value).toBe('obturatie')
+    expect(unsaved()).toBeTruthy()
+    fireEvent.click(screen.getByText('Renunță'))
+    expect(sfState().value).toBe('carie')
+    expect(unsaved()).toBeNull()
+    expect(post).not.toHaveBeenCalled()                    // цикл ничего не пишет сам
+  })
+
+  it('клавиатура: стрелки — сосед по ряду и та же позиция другой челюсти, буквы — поверхность, P только сверху', async () => {
+    render(<OdontogramScreen pid={5} t={16} />)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    expect(document.activeElement).toBe(btn(16))           // зуб из адреса — в фокусе, клавиши работают сразу
+    key('ArrowRight')
+    expect(btn(15).className).toContain('sel')
+    expect(document.activeElement).toBe(btn(15))
+    key('ArrowDown')
+    expect(btn(45).className).toContain('sel')
+    key('ArrowUp')
+    expect(btn(15).className).toContain('sel')
+    key('ArrowLeft'); key('ArrowLeft'); key('ArrowLeft')
+    expect(btn(18).className).toContain('sel')
+    key('ArrowLeft')
+    expect(btn(18).className).toContain('sel')             // край ряда
+    key('ArrowUp')
+    expect(btn(18).className).toContain('sel')             // выше верхней челюсти нет
+    key('d')
+    expect(sfBtn('D distal').className).toContain('sel')
+    key('p')
+    expect(sfBtn('P palatinal').className).toContain('sel') // алиас L на верхней челюсти
+    key('ArrowDown')
+    expect(btn(48).className).toContain('sel')
+    key('p')
+    expect(sfBtn('L lingual').className).not.toContain('sel') // внизу P ничего не значит
+    expect(sfBtn('O ocluzal').className).toContain('sel')
+    key('v')
+    expect(sfBtn('V vestibular').className).toContain('sel')
+    key('x')                                               // чужая буква — ничего
+    expect(sfBtn('V vestibular').className).toContain('sel')
+  })
+
+  it('Enter записывает черновик, когда карта в фокусе; в поле ввода — нет; Esc сбрасывает', async () => {
+    const after: Odontogram = {
+      ...MODEL,
+      teeth: { ...MODEL.teeth, '16': tooth(16, 'sus', { state: 'carie', sf: 'M', sfx: 'Carie (M)', sfst: { M: 'carie' }, note: 'distal', doctor: 'Dr. Activ Doi', title: '16 · Carie · distal · Carie (M)' }) },
+    }
+    post.mockResolvedValue(ok(after, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    render(<OdontogramScreen pid={5} t={16} />)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    key('Enter')
+    expect(post).not.toHaveBeenCalled()                    // нечего записывать
+    fireEvent.click(hitOf(16, 'O'))
+    fireEvent.click(hitOf(16, 'O'))                        // O: obturatie → «—»
+    expect(unsaved()).toBeTruthy()
+    fireEvent.keyDown(within(inspector()).getByLabelText('Notiță (opțional)'), { key: 'Enter' })
+    expect(post).not.toHaveBeenCalled()                    // в поле ввода Enter — браузерный
+    fireEvent.keyDown(toothState(), { key: 'Escape' })
+    expect(unsaved()).toBeTruthy()                         // и Esc в списке черновик не трогает
+    key('Escape')
+    expect(unsaved()).toBeNull()
+    expect(sfState().value).toBe('obturatie')
+    fireEvent.click(hitOf(16, 'O'))                        // поверхность O всё ещё выбрана — сразу цикл
+    expect(unsaved()).toBeTruthy()
+    fireEvent.keyDown(btn(16), { key: 'Enter' })           // фокус на зубе внутри карты
+    expect(post).toHaveBeenCalledWith('/patients/5/teeth/16', {
+      state: 'carie', state0: 'carie', note: 'distal', doctor: 'Dr. Activ Doi', surfaces: { M: 'carie' }, marks: [],
+    })
+    expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    expect(unsaved()).toBeNull()
+    expect(btn(16).className).not.toContain('dirty')
+    expect(btn(16).getAttribute('title')).toBe('16 · Carie · distal · Carie (M)')
+  })
+
+  it('черновик держится за зубом: клик по соседу правку не теряет, на дуге зуб помечен', async () => {
+    render(<OdontogramScreen pid={5} t={16} />)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.change(toothState(), { target: { value: 'coroana' } })
+    expect(btn(16).className).toContain('dirty')
+    fireEvent.click(btn(21))
+    expect(unsaved()).toBeNull()                           // у 21 правки нет
+    expect(btn(16).className).toContain('dirty')           // а у 16 есть — видно на дуге
+    expect(btn(16).className).not.toContain('sel')
+    fireEvent.click(btn(16))
+    expect(toothState().value).toBe('coroana')
+    expect(unsaved()).toBeTruthy()
+  })
+
+  it('контекстное меню: состояние — в черновик, мост от зуба; у молочного моста нет; в режиме моста меню нет', async () => {
+    render(<OdontogramScreen pid={5} t={16} />)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.contextMenu(btn(21), { clientX: 300, clientY: 200 })
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByText('Dinte 21')).toBeTruthy()
+    expect(within(menu).getByRole('menuitemradio', { name: 'Sănătos' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(within(menu).getByText('Coroană'))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(btn(21).className).toContain('sel')
+    expect(btn(21).className).toContain('dirty')
+    expect(toothState().value).toBe('coroana')
+    expect(unsaved()).toBeTruthy()
+    expect(post).not.toHaveBeenCalled()                    // меню не пишет само
+    fireEvent.contextMenu(btn(21))
+    expect(within(screen.getByRole('menu')).getByRole('menuitemradio', { name: 'Coroană' }).getAttribute('aria-checked')).toBe('true')
+    key('Escape')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(unsaved()).toBeTruthy()                         // Esc закрыл меню, черновик не тронул
+    fireEvent.contextMenu(btn(55))
+    expect(within(screen.getByRole('menu')).queryByText('Punte nouă de la acest dinte')).toBeNull()
+    fireEvent.contextMenu(btn(24))
+    fireEvent.click(within(screen.getByRole('menu')).getByText('Punte nouă de la acest dinte'))
+    expect(btn(24).className).toContain('br-pick')
+    expect(screen.getByText('Continuă')).toBeTruthy()
+    fireEvent.contextMenu(btn(25))
+    expect(screen.queryByRole('menu')).toBeNull()          // в режиме моста меню не открывается
+    key('ArrowRight')
+    expect(btn(25).className).not.toContain('sel')         // и стрелки молчат
+    key('Escape')
+    expect(screen.queryByText('Continuă')).toBeNull()      // Esc выходит из режима моста
+    // тот же путь из инспектора — меню не единственный
+    fireEvent.click(btn(16))
+    fireEvent.click(within(inspector()).getByText('Punte nouă de la acest dinte'))
+    expect(btn(16).className).toContain('br-pick')
+    expect(screen.getByText('Continuă')).toBeTruthy()
   })
 })

@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import { ToothForm } from './ToothForm'
-import type { Odontogram, ToothSave } from './chart'
+import type { Odontogram } from './chart'
+import type { ToothDraft } from './useChart'
 
 /* Диалог зуба компактной карточки фиши: та же форма, что у инспектора
    детальной страницы, плюс история зуба под ней. */
@@ -16,14 +17,17 @@ interface Props {
   model: Odontogram
   n: number | null
   busy: boolean
-  formKey: string
   sel: string
   onSel: (letter: string) => void
-  onSave: (n: number, body: ToothSave) => void
+  draft: ToothDraft | null
+  dirty: boolean
+  onEdit: (patch: Partial<ToothDraft>) => void
+  onSave: () => void
+  onDiscard: () => void
   onClose: () => void
 }
 
-export function ToothDialog({ model, n, busy, formKey, sel, onSel, onSave, onClose }: Props) {
+export function ToothDialog({ model, n, busy, sel, onSel, draft, dirty, onEdit, onSave, onDiscard, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     if (n !== null) showDialog(ref.current)
@@ -37,8 +41,20 @@ export function ToothDialog({ model, n, busy, formKey, sel, onSel, onSave, onClo
         <span>{T.tooth} {n ?? ''}</span>
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
-      {info && n !== null && (
-        <ToothForm key={formKey} model={model} n={n} info={info} busy={busy} sel={sel} onSel={onSel} onSave={onSave} />
+      {info && n !== null && draft && (
+        <ToothForm
+          model={model}
+          n={n}
+          info={info}
+          busy={busy}
+          sel={sel}
+          onSel={onSel}
+          draft={draft}
+          dirty={dirty}
+          onEdit={onEdit}
+          onSave={onSave}
+          onDiscard={onDiscard}
+        />
       )}
       <div className="thist">
         {hist.length > 0 && (

@@ -8,10 +8,11 @@ import type { ToothInfo, View } from './chart'
  *   поверхности    — цели `data-s` внутри SVG (teeth_svg.surface_hits): клик
  *                    по ним даёт букву, без знания геометрии;
  *   состояние      — классы tooth-{state} и ореолы уже в SVG;
- *   выбор          — классы sel / br-pick на кнопке;
+ *   выбор          — классы sel / br-pick / dirty на кнопке;
  *   аннотация      — номер со стороны корней и подпись сервера в title.
  * Разметка кнопки — та же, что у старой страницы (.tooth-btn, .num), поэтому
- * panel.css красит её без единого нового правила.
+ * panel.css красит её без единого нового правила. Правая кнопка (C22) —
+ * контекстное меню родителя; путь не единственный, то же есть в инспекторе.
  */
 interface Props {
   n: number
@@ -19,6 +20,8 @@ interface Props {
   view: View
   selected?: boolean
   picked?: boolean
+  /** Есть незаписанная правка (черновик). */
+  dirty?: boolean
   /** Нижняя дуга: номер идёт ПОСЛЕ рисунка (со стороны корней). */
   lower?: boolean
   /** Подъём в виде сверху, px (переменная --arc, как у старой страницы). */
@@ -27,13 +30,15 @@ interface Props {
   /** Клик по поверхности внутри рисунка. */
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
+  /** Правая кнопка по зубу. */
+  onMenu?: (n: number, e: MouseEvent<HTMLButtonElement>) => void
 }
 
-export function Tooth({ n, info, view, selected, picked, lower, arc, onSelect, onSurface, onHover }: Props) {
+export function Tooth({ n, info, view, selected, picked, dirty, lower, arc, onSelect, onSurface, onHover, onMenu }: Props) {
   const svg = view === 'ocluzal' ? info.svg.occlusal : info.svg.frontal
   const num = `<span class='num'>${n}</span>`
   const html = lower ? svg + num : num + svg
-  const cls = `tooth-btn${selected ? ' sel' : ''}${picked ? ' br-pick' : ''}`
+  const cls = `tooth-btn${selected ? ' sel' : ''}${picked ? ' br-pick' : ''}${dirty ? ' dirty' : ''}`
   const style = arc ? ({ '--arc': `${arc}px` } as CSSProperties) : undefined
 
   function onClick(e: MouseEvent<HTMLButtonElement>) {
@@ -55,6 +60,7 @@ export function Tooth({ n, info, view, selected, picked, lower, arc, onSelect, o
       style={style}
       title={info.title}
       onClick={onClick}
+      onContextMenu={onMenu ? (e) => { e.preventDefault(); onMenu(n, e) } : undefined}
       onMouseEnter={onHover ? (e) => onHover(n, e.currentTarget) : undefined}
       onMouseLeave={onHover ? () => onHover(n, null) : undefined}
       onFocus={onHover ? (e) => onHover(n, e.currentTarget) : undefined}

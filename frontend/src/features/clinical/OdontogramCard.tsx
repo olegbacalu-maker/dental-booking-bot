@@ -13,7 +13,8 @@ import { useChart } from './useChart'
    тот же ClinicalChart, что на детальной странице, — обе дуги, оба вида,
    подсказка при наведении, диалог зуба по клику. Модель грузится своим
    запросом; после записи зуба фиша перезагружается тихо (`onChanged`) —
-   пилюли шапки и летопись зависят от зубов. */
+   пилюли шапки и летопись зависят от зубов. Закрытие диалога = отказ от
+   правки: черновик сбрасывается, как у старой модалки. */
 const T = {
   title: 'Formula dentară',
   sub: 'notație FDI · click pe dinte',
@@ -70,6 +71,7 @@ export function OdontogramCard({ pid, say, onFail, onChanged, open = null }: Pro
   }
   if (!model) return <div className="fcard dp-odo-wait" aria-busy="true"><p className="hint dp-m0">{T.loading}</p></div>
 
+  const close = () => { c.discard(); c.select(null) }
   return (
     <>
       <div className="fcard odo" id="odo" data-view={c.view}>
@@ -95,11 +97,14 @@ export function OdontogramCard({ pid, say, onFail, onChanged, open = null }: Pro
         model={model}
         n={c.selected}
         busy={c.busy}
-        formKey={c.formKey}
         sel={c.sel}
         onSel={c.setSel}
-        onSave={(n, body) => { void c.saveTooth(n, body).then((ok) => { if (ok) c.select(null) }) }}
-        onClose={() => c.select(null)}
+        draft={c.draft}
+        dirty={c.dirty}
+        onEdit={c.edit}
+        onSave={() => { void c.save().then((ok) => { if (ok) c.select(null) }) }}
+        onDiscard={c.discard}
+        onClose={close}
       />
     </>
   )

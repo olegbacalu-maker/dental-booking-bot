@@ -1,18 +1,22 @@
 import { Icon } from '../../components/Icon'
 import { Tooth } from './Tooth'
 import { ToothForm } from './ToothForm'
-import { JAW_RO, bridgeOf, surfaceLetter, type Odontogram, type ToothSave, type View } from './chart'
+import { JAW_RO, bridgeOf, surfaceLetter, type Odontogram, type View } from './chart'
+import type { ToothDraft } from './useChart'
 
 /* Постоянный инспектор детальной страницы (.insp): номер и челюсть, мост,
    рисунок выбранного зуба (тот же серверный SVG, клик по поверхности
-   выбирает её в форме), форма, история. Модалки здесь нет НАМЕРЕННО: она
-   закрывает собой дугу, а смысл экрана — видеть зуб и соседей сразу. */
+   выбирает её в форме, повторный — крутит состояние), форма, история.
+   Модалки здесь нет НАМЕРЕННО: она закрывает собой дугу, а смысл экрана —
+   видеть зуб и соседей сразу. Всё, что умеет контекстное меню, есть и
+   здесь (состояние — в форме, мост — кнопкой): меню не единственный путь. */
 const T = {
   title: 'Dinte selectat',
   bridge: 'Punte',
   role: 'rol',
   delBridge: 'Șterge puntea',
   confirmDel: 'Ștergeți puntea?',
+  bridgeFrom: 'Punte nouă de la acest dinte',
   history: 'Istoric',
   noHistory: '— fără înregistrări —',
 } as const
@@ -22,15 +26,19 @@ interface Props {
   n: number | null
   view: View
   busy: boolean
-  /** Ключ формы: зуб и счётчик сохранений — свежая модель даёт свежую форму. */
-  formKey: string
   sel: string
   onSel: (letter: string) => void
-  onSave: (n: number, body: ToothSave) => void
+  onSurface: (n: number, letter: string) => void
+  draft: ToothDraft | null
+  dirty: boolean
+  onEdit: (patch: Partial<ToothDraft>) => void
+  onSave: () => void
+  onDiscard: () => void
   onDelBridge: (bid: number) => void
+  onBridgeFrom?: (n: number) => void
 }
 
-export function ToothInspector({ model, n, view, busy, formKey, sel, onSel, onSave, onDelBridge }: Props) {
+export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, draft, dirty, onEdit, onSave, onDiscard, onDelBridge, onBridgeFrom }: Props) {
   const info = n !== null ? model.teeth[String(n)] : undefined
   const inBr = n !== null ? bridgeOf(model, n) : null
   const hist = n !== null ? (model.history[String(n)] ?? []) : []
@@ -55,11 +63,28 @@ export function ToothInspector({ model, n, view, busy, formKey, sel, onSel, onSa
         <span className="lb lb-m">M</span>
         <span className="lb lb-d">D</span>
         {info && n !== null && (
-          <Tooth n={n} info={info} view={view} onSurface={(_n, letter) => onSel(letter)} onSelect={() => undefined} />
+          <Tooth n={n} info={info} view={view} onSurface={onSurface} onSelect={() => undefined} />
         )}
       </div>
-      {info && n !== null && (
-        <ToothForm key={formKey} model={model} n={n} info={info} busy={busy} sel={sel} onSel={onSel} onSave={onSave} />
+      {info && n !== null && draft && (
+        <ToothForm
+          model={model}
+          n={n}
+          info={info}
+          busy={busy}
+          sel={sel}
+          onSel={onSel}
+          draft={draft}
+          dirty={dirty}
+          onEdit={onEdit}
+          onSave={onSave}
+          onDiscard={onDiscard}
+        />
+      )}
+      {info && n !== null && !inBr && !info.milk && onBridgeFrom && (
+        <button type="button" className="pl-btn dp-brfrom" disabled={busy} onClick={() => onBridgeFrom(n)}>
+          <Icon name="plus" /> {T.bridgeFrom}
+        </button>
       )}
       <div className="thist">
         {n !== null && (hist.length ? (

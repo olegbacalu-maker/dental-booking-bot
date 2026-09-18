@@ -371,3 +371,55 @@
 }
 .dp-react-root .insp-pic .tooth-btn .num { display: none; }
 .dp-react-root .odo .arch { position: relative; }
+
+/* ---- C22: черновик, клавиатура, контекстное меню, отзывчивость ---- */
+/* карта ловит клавиши контейнером (tabIndex): рамка фокуса самой карте не нужна,
+   фокус виден на кнопке зуба */
+.dp-react-root .odop:focus { outline: none; }
+.dp-react-root .odop .arch .tooth-btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+/* незаписанная правка — янтарное кольцо; вместе с выбором (внутреннее кольцо
+   фирменного цвета) обе видны */
+.dp-react-root .odop .arch .tooth-btn.dirty { box-shadow: 0 0 0 2px var(--amber); }
+.dp-react-root .odop .arch .tooth-btn.sel.dirty { box-shadow: inset 0 0 0 2px var(--teal), 0 0 0 2px var(--amber); }
+.dp-react-root .dp-save-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dp-react-root .dp-save-row .pl-btn { height: var(--h-ctl); }
+.dp-react-root .dp-draft { font-size: 12px; font-weight: 600; color: var(--amber-t); }
+.dp-react-root .dp-brfrom { margin-top: 10px; }
+/* контекстное меню зуба — состояния сервера и мост от зуба */
+.dp-cmenu {
+  position: fixed;
+  z-index: 70;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--sh3);
+  padding: 6px;
+}
+.dp-cmenu-h { font-size: 11.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text3); padding: 6px 10px 4px; }
+.dp-cmenu-i {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.dp-cmenu-i:hover, .dp-cmenu-i:focus-visible { background: var(--teal-soft); color: var(--teal-d); outline: none; }
+.dp-cmenu-i.on { font-weight: 600; color: var(--teal-d); box-shadow: inset 3px 0 0 var(--teal); }
+.dp-cmenu-sep { height: 1px; background: var(--line2); margin: 4px 6px; }
+/* инспектор: справа от 1366, под дугой 1100–1365 (старый порог panel.css — 1100,
+   он остаётся ниже), ниже 1100 цели поверхностей крупнее — раскладку не трогаем */
+@media (max-width: 1365px) {
+  .dp-react-root .odop-grid { grid-template-columns: minmax(0, 1fr); }
+  .dp-react-root .odop-side { position: static; }
+}
+@media (max-width: 1099px) {
+  .dp-react-root .odop .arch .tooth-svg .sfz circle { r: 7.5px; }
+  .dp-react-root .odop .arch .tooth-btn { padding: 6px 3px; }
+}
+@media print { .dp-cmenu, .dp-draft, .dp-brfrom { display: none; } }

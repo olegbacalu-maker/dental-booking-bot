@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { Legend } from './Legend'
 import { Tooth } from './Tooth'
@@ -44,9 +44,11 @@ interface RowProps {
   milk: boolean
   selected: number | null
   picked: ReadonlySet<number>
+  dirty: ReadonlySet<number>
   onSelect: (n: number) => void
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
+  onMenu?: (n: number, e: MouseEvent<HTMLButtonElement>) => void
 }
 
 /** Мосты, все зубы которых стоят в этом ряду. */
@@ -54,7 +56,7 @@ function bridgesIn(model: Odontogram, teeth: number[]): Bridge[] {
   return model.bridges.filter((b) => b.teeth.every((t) => teeth.includes(t[0])))
 }
 
-function ArchRow({ model, teeth, arcs, view, lower, milk, selected, picked, onSelect, onSurface, onHover }: RowProps) {
+function ArchRow({ model, teeth, arcs, view, lower, milk, selected, picked, dirty, onSelect, onSurface, onHover, onMenu }: RowProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [brackets, setBrackets] = useState<Bracket[]>([])
   const mine = useMemo(() => (milk ? [] : bridgesIn(model, teeth)), [model, teeth, milk])
@@ -119,9 +121,11 @@ function ArchRow({ model, teeth, arcs, view, lower, milk, selected, picked, onSe
             arc={occ ? (arcs[i] ?? 0) : 0}
             selected={selected === n}
             picked={picked.has(n)}
+            dirty={dirty.has(n)}
             onSelect={onSelect}
             {...(onSurface ? { onSurface } : {})}
             {...(onHover ? { onHover } : {})}
+            {...(onMenu ? { onMenu } : {})}
           />
         )
       })}
@@ -145,17 +149,23 @@ interface Props {
   selected: number | null
   /** Зубы, отмеченные в режиме «Punte nouă». */
   picked?: ReadonlySet<number>
+  /** Зубы с незаписанной правкой. */
+  dirty?: ReadonlySet<number>
   onSelect: (n: number) => void
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
+  onMenu?: (n: number, e: MouseEvent<HTMLButtonElement>) => void
   legend?: boolean
 }
 
 const NONE: ReadonlySet<number> = new Set()
 
-export function DentalArch({ model, view, selected, picked = NONE, onSelect, onSurface, onHover, legend = true }: Props) {
+export function DentalArch({ model, view, selected, picked = NONE, dirty = NONE, onSelect, onSurface, onHover, onMenu, legend = true }: Props) {
   const occ = view === 'ocluzal'
-  const rowProps = { model, view, selected, picked, onSelect, ...(onSurface ? { onSurface } : {}), ...(onHover ? { onHover } : {}) }
+  const rowProps = {
+    model, view, selected, picked, dirty, onSelect,
+    ...(onSurface ? { onSurface } : {}), ...(onHover ? { onHover } : {}), ...(onMenu ? { onMenu } : {}),
+  }
   return (
     <>
       <div className={`odo-view v-${view}`}>

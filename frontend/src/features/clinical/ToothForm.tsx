@@ -1,15 +1,15 @@
-import { useState, type FormEvent } from 'react'
+import type { FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
-import { surfaceLetter, surfaceName, type Odontogram, type ToothInfo, type ToothSave } from './chart'
+import { surfaceLetter, surfaceName, type Odontogram, type ToothInfo } from './chart'
+import type { ToothDraft } from './useChart'
 
 /* Форма зуба — ОДНА на инспектор детальной страницы и диалог компактной
    карточки: поверхности с состоянием на каждую, состояние зуба, отметки,
-   врач, заметка. Намерение уезжает явно (карта поверхностей и список
-   отметок всегда, state0 — как показали), см. ToothSave. Разметка та же,
-   что у старой страницы (.sfbtns, .sfstate, .mkrow, .dlg-form).
-   ⚠️ Родитель монтирует форму с `key` по зубу и счётчику сохранений: так
-   смена зуба и свежая модель после удачи дают форме новые значения без
-   эффекта, а отказ сервера ввод не трогает. */
+   врач, заметка. Форма КОНТРОЛИРУЕМАЯ (C22): черновик живёт в useChart —
+   его правят ещё клик по рисунку и контекстное меню, а форма его только
+   показывает и меняет через onEdit. Намерение уезжает явно (карта
+   поверхностей и список отметок всегда, state0 — как показали). Разметка
+   та же, что у старой страницы (.sfbtns, .sfstate, .mkrow, .dlg-form). */
 const T = {
   surfaces: 'Suprafețe',
   surfaceState: 'Starea suprafeței',
@@ -18,22 +18,9 @@ const T = {
   doctorNone: 'Medic —',
   note: 'Notiță (opțional)',
   save: 'Salvează',
+  discard: 'Renunță',
+  unsaved: 'Nesalvat',
 } as const
-
-interface Draft {
-  state: string
-  sfst: Record<string, string>
-  marks: string[]
-  doctor: string
-  note: string
-}
-
-/** Поверхность, выбранная по умолчанию: первая отмеченная, иначе жевательная —
- *  поверхность выбирается СРАЗУ, иначе список её состояния скрыт до первого
- *  клика по букве, а догадаться, что по букве надо кликать, неоткуда. */
-export function defaultSurface(info: ToothInfo, order: string[]): string {
-  return order.find((k) => info.sfst[k]) ?? 'O'
-}
 
 interface Props {
   model: Odontogram
@@ -43,19 +30,19 @@ interface Props {
   /** Выбранная поверхность — состояние родителя (её выбирают и с рисунка). */
   sel: string
   onSel: (letter: string) => void
-  onSave: (n: number, body: ToothSave) => void
+  draft: ToothDraft
+  dirty: boolean
+  onEdit: (patch: Partial<ToothDraft>) => void
+  onSave: () => void
+  onDiscard: () => void
 }
 
-export function ToothForm({ model, n, info, busy, sel, onSel, onSave }: Props) {
+export function ToothForm({ model, n, info, busy, sel, onSel, draft: d, dirty, onEdit: edit, onSave, onDiscard }: Props) {
   const order = Object.keys(model.surfaces)
-  const [d, setD] = useState<Draft>(() => ({
-    state: info.state, sfst: { ...info.sfst }, marks: [...info.mk], doctor: info.doctor, note: info.note,
-  }))
-  const edit = (patch: Partial<Draft>) => setD((cur) => ({ ...cur, ...patch }))
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
-    onSave(n, { state: d.state, state0: info.state, note: d.note, doctor: d.doctor, surfaces: d.sfst, marks: d.marks })
+    onSave()
   }
 
   const selState = d.sfst[sel] ?? ''
@@ -123,7 +110,15 @@ export function ToothForm({ model, n, info, busy, sel, onSel, onSave }: Props) {
         aria-label={T.note}
         maxLength={120}
       />
-      <button disabled={busy}><Icon name="save" /> {T.save}</button>
+      <div className="dp-save-row">
+        <button disabled={busy}><Icon name="save" /> {T.save}</button>
+        {dirty && (
+          <>
+            <button type="button" className="pl-btn" onClick={onDiscard}>{T.discard}</button>
+            <span className="dp-draft">{T.unsaved}</span>
+          </>
+        )}
+      </div>
     </form>
   )
 }
