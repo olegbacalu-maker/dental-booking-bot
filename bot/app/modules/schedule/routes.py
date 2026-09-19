@@ -35,6 +35,7 @@ from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
 from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
                             _collect_cards, _list, _move_attrs, _move_modal,
                             _parse_date, _photo_path)
+from . import canvas as pcanvas
 from . import day as pday
 from . import week as pweek
 
@@ -538,66 +539,33 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     Показывает ВСЁ не-отменённое: записи вне текущего графика (часы/обед поменяли
     после брони) получают свою строку, переименованные врачи — свою колонку."""
     live = [r for r in rows if r["status"] != "cancelled"]
-    sched = [x.hour for x in eng.day_slots(d)]
-    row_hours: set[int] = set()
-    for r in live:  # и старт, и КОНЕЦ визита — иначе хвост 120′ уходит за сетку
-        st = r["starts_at"].astimezone(eng.TZ)
-        end_min = st.hour * 60 + st.minute + int(r.get("duration_min") or 60)
-        row_hours.add(st.hour)
-        row_hours.add(max(st.hour, (end_min - 1) // 60))
-    all_hours = sorted(set(sched) | row_hours)
-    if not all_hours:
+    row_hours = pcanvas.row_hours(live)
+    hours = pcanvas.hours_of(d, live)
+    if not hours:
         return "<div class='gridcard' style='padding:28px;text-align:center;color:var(--text3)'>Zi liberă — clinica este închisă</div>"
-    # НЕПРЕРЫВНЫЙ диапазон часов (обед = off-строка): время на канве линейно,
-    # поэтому блоки могут быть пропорциональны длительности (v1.8.0)
-    hours = list(range(all_hours[0], all_hours[-1] + 1))
     idx = {h: i for i, h in enumerate(hours)}
     base_min = hours[0] * 60
 
-    def _pos(r) -> tuple[float, float]:
-        """(top, height) в ячейках: старт и длительность в минутах."""
-        st = r["starts_at"].astimezone(eng.TZ)
-        dur = int(r.get("duration_min") or 60)
-        top = (st.hour * 60 + st.minute - base_min) / 60
-        return top, max(dur / 60, 0.4)
-
-    def _row_col(r) -> str:
-        """Ключ колонки: стабильный doctor_id; легаси без id — снапшот имени."""
-        did = r.get("doctor_id")
-        if did and did in eng.DOCTORS:
-            return f"k:{did}"
-        return f"n:{r['doctor']}"
+    _row_col = pcanvas.row_col
 
     # группировка коллизий по ПЕРЕСЕЧЕНИЮ интервалов внутри колонки
     by_col: dict = {}
     for r in live:
         by_col.setdefault(_row_col(r), []).append(r)
 
-    def _r_bounds(r) -> tuple[int, int]:
-        st = r["starts_at"].astimezone(eng.TZ)
-        s_min = st.hour * 60 + st.minute
-        return s_min, s_min + int(r.get("duration_min") or 60)
+    _r_bounds = pcanvas.bounds
 
     def _blocks(col_key: str) -> str:
         # ключ врача для перетаскивания: у колонки-сироты (легаси-имя без id)
         # его нет, и она намеренно остаётся неподвижной — см. _move_attrs
         col_dk = col_key[2:] if col_key.startswith("k:") else ""
-        rs_all = sorted(by_col.get(col_key, []), key=_r_bounds)
-        # кластеры пересекающихся интервалов делят ширину (ничего не прячем)
-        clusters: list[list] = []
-        for r in rs_all:
-            s_min, e_min = _r_bounds(r)
-            if clusters and any(_r_bounds(x)[0] < e_min and s_min < _r_bounds(x)[1]
-                                for x in clusters[-1]):
-                clusters[-1].append(r)
-            else:
-                clusters.append([r])
         out = []
-        for cluster in clusters:
+        # кластеры пересекающихся интервалов делят ширину (ничего не прячем)
+        for cluster in pcanvas.clusters(by_col.get(col_key, [])):
             n = len(cluster)
             for j, r in enumerate(sorted(cluster,
                                          key=lambda x: x["status"] in LIVE_STATUSES)):
-                top_c, h_c = _pos(r)
+                top_c, h_c = pcanvas.pos(r, base_min)
                 st = r["starts_at"].astimezone(eng.TZ)
                 pos = (f"top:calc({top_c:.3f}*var(--cell) + 2px);"
                        f"height:calc({h_c:.3f}*var(--cell) - 6px);"
@@ -676,24 +644,11 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
         return "".join(out)
 
     def _free_hour(dk: str, col_key: str) -> int | None:
-        """Первый рабочий час врача без пересечений с его занятыми интервалами."""
-        b = eng.doctor_bounds(dk, d)
-        if not b:
-            return None
-        f_h, to_h, bf_h, bt_h = b
-        taken = [_r_bounds(r) for r in by_col.get(col_key, [])]
-        for h in range(f_h, to_h):
-            if bf_h <= h < bt_h:
-                continue
-            if not any(s < (h + 1) * 60 and h * 60 < e for s, e in taken):
-                return h
-        return None
+        return pcanvas.free_hour(dk, d, by_col.get(col_key, []))
 
     # выключенный врач исчезает из расписания; если на этот день у него ещё
     # остались записи — колонка держится с пометкой «inactiv», пока их не разберут
-    shown = [(dk, name) for dk, name in eng.DOCTORS.items()
-             if eng.DOCTOR_META.get(dk, {}).get("active", True)
-             or by_col.get(f"k:{dk}")]
+    shown = pcanvas.shown_doctors(by_col)
 
     # ---- крайние ПОЛНОСТЬЮ закрытые часы — полоской, а не рядом (08-11) ----
     # Час, закрытый у ВСЕХ колонок и без единой записи, не сообщает ничего, кроме
@@ -707,22 +662,8 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # _cells для класса .off. Свой второй признак развёл бы полоску и штриховку.
     # ⚠️ Час, в котором ЕСТЬ запись, не срезается никогда (row_hours): визит вне
     # графика — как раз то, что сетка обязана показывать.
-    open_h: set[int] = set()
-    for _dk, _nm in shown:
-        _b = eng.doctor_bounds(_dk, d)
-        if _b:
-            _f, _to, _bf, _bt = _b
-            open_h |= {h for h in range(_f, _to) if not (_bf <= h < _bt)}
-    keep_h = open_h | row_hours
-    lead, tail = 0, len(hours)
-    while lead < tail - 1 and hours[lead] not in keep_h:
-        lead += 1
-    while tail - 1 > lead and hours[tail - 1] not in keep_h:
-        tail -= 1
-    band_l, band_r = hours[:lead], hours[tail:]
-    # хотя бы один ряд остаётся всегда (условия циклов), иначе день без графика
-    # и без записей отдал бы пустую карточку вместо сетки
-    hours = hours[lead:tail]
+    keep_h = pcanvas.open_hours(d, shown) | row_hours
+    hours, band_l, band_r = pcanvas.trim_edges(hours, keep_h)
     idx = {h: i for i, h in enumerate(hours)}
     base_min = hours[0] * 60
 
@@ -781,8 +722,7 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # легаси-строки без id со старым именем (переименовали ДО v1.7.1) —
     # видимы отдельной колонкой + инструмент «переприкрепить к врачу»:
     # без этого их будущие брони невидимы для проверки занятости
-    known = {f"k:{dk}" for dk, _n in shown}
-    orphans = sorted(set(by_col) - known - {f"k:{dk}" for dk in eng.DOCTORS})
+    orphans = pcanvas.orphan_cols(by_col)
     for col_key in orphans:
         name = col_key[2:]
         mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
