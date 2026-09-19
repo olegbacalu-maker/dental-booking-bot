@@ -37,6 +37,7 @@ from ...core.visits import (SVC_PALETTE, _STATUS_ICON, _card_modal,
                             _move_modal, _parse_date, _photo_path)
 from . import canvas as pcanvas
 from . import day as pday
+from . import panel as ppanel
 from . import week as pweek
 
 router = APIRouter()
@@ -1291,16 +1292,34 @@ async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
                       _svc_colors, form_items, rows, "" if doctor else f)
 
 
+async def _panel_live(d: date, now: datetime) -> dict:
+    """Живое состояние панели данными: канва и повестка от ОДНОЙ выборки дня.
+
+    ⛔ Выборка одна не ради скорости. Канва и повестка обязаны отвечать про
+    один и тот же день: два запроса к базе подряд — это два РАЗНЫХ дня, если
+    между ними кто-то записался со второго рабочего места, и живой канал отдал
+    бы состояние, которого никогда не было ни на одном экране.
+    ⚠️ `now` приходит АРГУМЕНТОМ: от него зависит `state` повестки, и проверке
+    нужна возможность назвать момент, а не гадать о нём.
+    """
+    day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
+    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
+    cards = _collect_cards(rows)
+    return {"canvas": pcanvas.model(d, rows, cards, _svc_colors),
+            "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now)}
+
+
 async def _canvas_model(d: date) -> dict:
     """Данные канвы панели — ТЕ ЖЕ строки и карточки, что печатает `/admin`.
 
     ⛔ Отбора по врачу здесь нет и не будет: канва показывает день целиком,
     включая колонку выпавшего из справочника врача, которой на дне врача
     просто неоткуда взяться.
+    ⚠️ Собирается ТЕМ ЖЕ путём, что живое состояние: своя вторая сборка канвы
+    разошлась бы с живой молча, и отличить это можно было бы только сверкой
+    двух маршрутов между собой.
     """
-    day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
-    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
-    return pcanvas.model(d, rows, _collect_cards(rows), _svc_colors)
+    return (await _panel_live(d, datetime.now(eng.TZ)))["canvas"]
 
 
 @router.get("/admin/all", response_class=HTMLResponse)

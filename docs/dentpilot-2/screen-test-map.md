@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **179** · наборов **37** · мест вызова `res.ok`/`res.check` в исходниках — **2853**.
+Маршрутов **179** · наборов **38** · мест вызова `res.ok`/`res.check` в исходниках — **2879**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -205,7 +205,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Флаг | Пилот |
 |---|---|---|---|---|---|---|
-| `GET /admin` | HTML | 162 | admin, admin_canvas, api, booking, day_forms, dbcrypt, doctors, hardening, migrate, patient_card, patients_api, pin, review3_auth, schedule_api, settings_api, theme, visit_api | 1914 | — | — |
+| `GET /admin` | HTML | 162 | admin, admin_canvas, api, booking, day_forms, dbcrypt, doctors, hardening, migrate, panel_model, patient_card, patients_api, pin, review3_auth, schedule_api, settings_api, theme, visit_api | 1940 | — | — |
 | `POST /admin/add` | other | 14 | activity, admin, admin_canvas, booking, bot, day_actions, day_forms, doctor_windows, hardening, migrate, patient_card, patients_api, plan_acord, privacy, review2, review3, review3_bot, schedule_api, visit, visit_api | 1651 | — | — |
 | `GET /admin/all` | HTML | 63 | activity, admin, admin_canvas, api, booking, bot, day_actions, day_forms, doctor_windows, doctors, hardening, migrate, patient_card, patients_api, pin, plan_acord, privacy, review2, review3, review3_bot, schedule_api, visit, visit_api | 1937 | — | — |
 | `POST /admin/comment/{appt_id}` | other | 5 | day_actions, day_forms, privacy, visit_api | 278 | — | — |
@@ -214,7 +214,7 @@
 | `GET /admin/export.xlsx` | FILE | 39 | admin, day_forms | 502 | — | — |
 | `POST /admin/move/{appt_id}` | other | 9 | booking, day_actions, day_forms, doctor_windows | 239 | — | — |
 | `POST /admin/note` | other | 9 | admin, admin_canvas, booking, day_actions, day_forms, schedule_api | 811 | — | — |
-| `POST /admin/status/{appt_id}` | 303 | 11 | activity, admin, admin_canvas, booking, day_forms, doctor_windows, patient_card, plan_acord, privacy, review3, schedule_api, visit, visit_api | 1252 | — | — |
+| `POST /admin/status/{appt_id}` | 303 | 11 | activity, admin, admin_canvas, booking, day_forms, doctor_windows, panel_model, patient_card, plan_acord, privacy, review3, schedule_api, visit, visit_api | 1278 | — | — |
 | `GET /admin/week` | HTML | 40 | admin, schedule_api | 497 | — | — |
 | `POST /api/schedule/appointments` | JSON | 16 | day_actions | 43 | — | — |
 | `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 11 | day_actions | 43 | — | — |
@@ -222,7 +222,7 @@
 | `POST /api/schedule/appointments/{appt_id}/status` | JSON | 17 | activity, admin, day_actions, patient_card, patients_api, plan_acord, privacy, review2, visit, visit_api | 978 | — | — |
 | `GET /api/schedule/canvas` | JSON | 13 | admin_canvas | 105 | — | — |
 | `GET /api/schedule/day` | JSON | 17 | day_actions, schedule_api | 118 | — | — |
-| `GET /api/schedule/live` | JSON | 33 | schedule_api | 75 | — | — |
+| `GET /api/schedule/live` | JSON | 33 | panel_model, schedule_api | 101 | — | — |
 | `POST /api/schedule/notes` | JSON | 17 | day_actions | 43 | — | — |
 | `GET /api/schedule/week` | JSON | 14 | schedule_api | 75 | — | — |
 
@@ -234,7 +234,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Флаг | Пилот |
 |---|---|---|---|---|---|---|
-| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, launcher, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, structure, teeth, theme, visit, visit_api | 2810 | — | — |
+| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, launcher, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, structure, teeth, theme, visit, visit_api | 2836 | — | — |
 | `GET /admin/login` | HTML | 34 | admin, api, doctors, hardening, migrate, patient_card, patients_api, pin, review3_auth, settings_api, theme, visit_api | 1491 | — | — |
 | `POST /admin/login` | 303 | 66 | admin, api, doctors, hardening, migrate, patient_card, patients_api, pin, review3_auth, settings_api, theme, visit_api | 1491 | — | — |
 | `GET /admin/logout` | 303 | 6 | **—** | — | — | — |
@@ -267,7 +267,7 @@
 | 834 | `GET /admin/patient/{pid}` | 21 |
 | 322 | `GET /admin/search` | 21 |
 | 291 | `GET /admin/stats` | 5 |
-| 162 | `GET /admin` | 17 |
+| 162 | `GET /admin` | 18 |
 | 154 | `GET /admin/doctor-card/{dk}` | 8 |
 | 138 | `GET /admin/settings/theme` | 2 |
 | 118 | `GET /admin/settings/services` | 3 |

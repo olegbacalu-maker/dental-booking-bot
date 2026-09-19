@@ -33,7 +33,8 @@ from ...core.api import api_body, api_guard, live_reply
 from ...core.layout import LIVE_RELOAD, msg_json, react_on
 from ...core.visits import _parse_date
 from .routes import (_add_appt, _add_note, _canvas_model, _day_model,
-                     _move_appt, _set_comment, _set_status, _week_model)
+                     _move_appt, _panel_live, _set_comment, _set_status,
+                     _week_model)
 
 router = APIRouter()
 
@@ -155,7 +156,7 @@ async def api_live(request: Request, screen: str = Query("panel"),
     live = key in LIVE_RELOAD and not react_on(request, react_name)
     data: dict = {"screen": screen, "date": d.isoformat(), "live": live}
     if live:
-        data["canvas"] = await _canvas_model(d)
+        data.update(await _panel_live(d, datetime.now(eng.TZ)))
     return live_reply(request, data)
 
 

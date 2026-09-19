@@ -49,6 +49,7 @@ import test_review3  # noqa: E402
 import test_review3_auth  # noqa: E402
 import test_review3_bot  # noqa: E402
 import test_restart  # noqa: E402
+import test_panel_model  # noqa: E402
 import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
 import test_schedule_api  # noqa: E402
@@ -200,6 +201,9 @@ SUITES = [
     ("Панель: тренды и их полярность", test_admin_canvas.suite_trends),
     ("Живой канал данными: конверт (C27.1)",
      test_schedule_api.suite_live_envelope),
+    ("Правая колонка: повестка — правила", test_panel_model.suite_agenda_pure),
+    ("Правая колонка: повестка против страницы",
+     test_panel_model.suite_agenda_parity),
     ("Панель: модель канвы против страницы (C26.4)", test_admin_canvas.suite_model),
     ("Панель: текущий час в модели и на странице", test_admin_canvas.suite_model_now),
     ("Панель: пустой день в модели", test_admin_canvas.suite_model_empty),
