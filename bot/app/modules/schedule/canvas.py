@@ -22,9 +22,12 @@
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from ... import engine as eng
+from ...core.layout import LIVE_STATUSES, STATUS_LABEL, _initials
+from ...core.visits import _DOC_HUES, photo_url
+from . import day as pday
 
 
 def row_col(r: dict) -> str:
@@ -166,3 +169,195 @@ def shown_doctors(by_col: dict) -> list[tuple[str, str]]:
 def orphan_cols(by_col: dict) -> list[str]:
     """Ключи колонок-сирот: всё, что не принадлежит живому справочнику."""
     return sorted(set(by_col) - {f"k:{dk}" for dk in eng.DOCTORS})
+
+
+# Серый колонки-сироты. ⚠️ Он НЕ фирменный и теме не отдаётся намеренно: это
+# цвет смысла «этого врача в справочнике больше нет», ровно как `--red` у
+# ошибки. Фирменным он сказал бы обратное — что колонка своя.
+_ORPHAN_HUE = "#94A3B8"
+
+
+def _tip(r: dict) -> str:
+    """Подсказка блока. ⚠️ Она не украшение: у короткой записи браузер сжимает
+    текст в строку с многоточием, а у совсем короткой убирает совсем — и тогда
+    подсказка единственное, что отвечает «кто это», не открывая карточку.
+    Поэтому её собирает СЕРВЕР: слово статуса приходит из `STATUS_LABEL`, и
+    второй его словарь в браузере — это «Finalizat» в одном месте и «a venit»
+    в другом (ломалось дважды, 08-12 и 08-16)."""
+    st = r["starts_at"].astimezone(eng.TZ)
+    dur = int(r.get("duration_min") or 60)
+    word = (STATUS_LABEL.get(r["status"], r["status"])
+            if r["status"] != "confirmed" else "")
+    return (f"{st.strftime('%H:%M')} · {dur}′ · {r['service']}"
+            f" · {r['name'] or '—'}" + (f" · {word}" if word else ""))
+
+
+def blocks(rows: list, col_dk: str, base_min: int, cards, colors) -> list[dict]:
+    """Блоки одной колонки: вид записи плюс ГЕОМЕТРИЯ.
+
+    ⚠️ Сам вид берётся у `day.appt_view` — те же поля переноса (`min`, `dur`,
+    `busy`, `movable`), что печатает `_move_attrs`, и то же готовое слово
+    статуса. Канва дописывает только место в кластере (`col` из `of`) и долю
+    высоты. Свой второй вид записи развёл бы два дневных экрана.
+    ⚠️ Порядок внутри кластера — тот же, что на странице: неактивные раньше
+    активных, чтобы живая запись легла ПОВЕРХ отменённой пары.
+    """
+    out: list[dict] = []
+    for cluster in clusters(rows):
+        n = len(cluster)
+        for j, r in enumerate(sorted(cluster,
+                                     key=lambda x: x["status"] in LIVE_STATUSES)):
+            top, height = pos(r, base_min)
+            v = pday.appt_view(r, col_dk, cards, colors)
+            v.update({"top": round(top, 3), "height": round(height, 3),
+                      "col": j, "of": n})
+            if v["kind"] == "note":
+                # ⛔ Один и тот же текст живёт на экране в ДВУХ длинах: 80 в
+                # подсказке и 40 в самом блоке. Обе — данные, а не оформление:
+                # обрежь их в браузере по своей мерке, и пересохранение через
+                # диалог укоротит текст в базе (прайор 08-16).
+                v["title"] = r["service"][:80]
+                v["label"] = r["service"][:40]
+            else:
+                v["title"] = _tip(r)
+                # «сколько ждёт в приёмной»: сервер отдаёт только ОТМЕТКУ, а
+                # минуты считает браузер — серверная строка с минутами меняла
+                # бы отпечаток живого тела каждую минуту, и опрос подменял бы
+                # сетку без единой правки данных (мигание, 08-20).
+                v["wait_since"] = (
+                    int(r["waiting_at"].timestamp() * 1000)
+                    if r["status"] == "waiting" and r.get("waiting_at") else None)
+            out.append(v)
+    return out
+
+
+def _band(hs: list[int]) -> dict | None:
+    """Срезанный край одной полоской: с какого часа по какой закрыто."""
+    return {"from": f"{hs[0]:02d}:00", "to": f"{hs[-1] + 1:02d}:00"} if hs else None
+
+
+def _column(d: date, dk: str, name: str, i: int, by_col: dict, live: list,
+            hours: list[int], base_min: int, cards, colors) -> dict:
+    """Колонка живого врача: шапка, приёмные часы и блоки."""
+    key = f"k:{dk}"
+    meta = eng.DOCTOR_META.get(dk, {})
+    mine = [r for r in live if row_col(r) == key and r["source"] != "note"]
+    free_h = free_hour(dk, d, by_col.get(key, []))
+    # Загрузка кресла: занятые минуты / рабочие минуты врача В ЭТОТ ДЕНЬ.
+    # Ёмкость берётся у того же `eng.work_minutes`, что считает «Statistici»,
+    # иначе дашборд и статистика показывали бы разный процент про одного врача.
+    cap = eng.work_minutes(dk, d)
+    busy = sum(int(r.get("duration_min") or 60) for r in mine)
+    work = eng.doctor_hours(dk, d)
+    return {
+        "key": key, "id": dk, "name": name, "orphan": False,
+        "spec": eng.DOCTOR_SPEC.get(dk, "") or "",
+        "off": not meta.get("active", True),
+        # ⚠️ Цвет — по МЕСТУ СРЕДИ ПОКАЗАННЫХ колонок, а не `_doc_hue` (тот
+        # считает по месту в справочнике). Так печатает страница, и модель
+        # обязана повторить её здесь: паритет важнее правоты, расхождение
+        # двух формул чинится отдельно и на всех экранах разом.
+        "hue": meta.get("color") or _DOC_HUES[i % len(_DOC_HUES)],
+        "photo": photo_url(dk), "initials": _initials(name),
+        # ⚠️ Кабинет и телефон — ОТДЕЛЬНЫМИ полями, а не только внутри
+        # подсказки: регистратура наводится на карточку именно ради номера
+        # кабинета. Ветка `if meta.get("room")` пуста на демо-профиле, поэтому
+        # у разработчика всё выглядит целым и без них.
+        "room": meta.get("room", "") or "", "phone": meta.get("phone", "") or "",
+        # ⛔ Считает ПАЦИЕНТОВ: заметка стойки занимает час, но «N prog.» её не
+        # видит. Свести к одному списку — и число разойдётся с «Lista zilei»
+        # на том же экране.
+        "count": len(mine),
+        # ⛔ А ЭТО смотрит на занятость — и заметка занимает час наравне с
+        # визитом (`by_col` собран из всех живых строк). Два числа в одной
+        # строке шапки питаются разными списками намеренно.
+        "free": f"{free_h:02d}:00" if free_h is not None else None,
+        # ⚠️ Процент НЕ обрезан сотней: перебронированный день показывает
+        # «130%», и это единственный признак, по которому директор его увидит.
+        # Обрезается только ШИРИНА полосы — это дело рисовальщика.
+        "occupancy": ({"busy": busy, "cap": cap, "pct": round(100 * busy / cap)}
+                      if cap else None),
+        "title": " · ".join(x for x in [name, meta.get("room", ""),
+                                        meta.get("phone", "")] if x),
+        # ⛔ Час принимает клик и перетащенный визит по ОДНОМУ признаку —
+        # приёмному часу этого врача (`eng.doctor_hours`, её же спрашивает
+        # таблица «Programări»). Заведи второй — два экрана разойдутся в том,
+        # куда можно писать.
+        "cells": [h in work for h in hours],
+        "blocks": blocks(by_col.get(key, []), dk, base_min, cards, colors),
+        "relink": None,
+    }
+
+
+def _orphan_column(key: str, by_col: dict, live: list, hours: list[int],
+                   base_min: int, cards, colors) -> dict:
+    """Колонка выпавшего из справочника врача — и единственный вход в relink.
+
+    ⛔ Ни клика, ни переноса: врача с таким именем в списке уже нет, писать
+    ему некуда, и адреса у переноса нет тоже (`col_dk` пустой).
+    """
+    name = key[2:]
+    mine = [r for r in live if row_col(r) == key and r["source"] != "note"]
+    return {
+        "key": key, "id": None, "name": name, "orphan": True,
+        "spec": "", "off": True, "hue": _ORPHAN_HUE,
+        "photo": "", "initials": _initials(name),
+        "count": len(mine), "free": None, "occupancy": None, "title": "",
+        "cells": [False] * len(hours),
+        "blocks": blocks(by_col.get(key, []), "", base_min, cards, colors),
+        "relink": {"name": name,
+                   "options": [{"id": k, "name": n}
+                               for k, n in eng.DOCTORS.items()]},
+    }
+
+
+def model(d: date, rows: list, cards: dict | None, colors) -> dict:
+    """Канва дня данными: ряды часов, колонки и блоки с их геометрией.
+
+    ⛔ Это НЕ `day.model` другими словами, и подменять одну другой нельзя.
+    Ключ колонки здесь свой (`row_col`): легаси-строка без `doctor_id`, но с
+    именем живого врача, получает СВОЮ колонку, тогда как таблица сливает её
+    в колонку этого врача. Собери React по модели таблицы — визит выпавшего из
+    справочника врача исчезнет с панели, час будет выглядеть свободным, а
+    `test_schedule_api.suite_day_orphan` останется зелёной: она про таблицу и
+    фиксирует как раз слияние. Разбор — `docs/dentpilot-2/admin-contract.md`.
+
+    ⚠️ `colors` приходит аргументом по той же причине, что и у `day.model`:
+    `_svc_colors` живёт в `routes`, и импорт оттуда замкнул бы круг.
+    ⚠️ Чего здесь НЕТ намеренно: линии «сейчас» (её ставит `panel.js` по
+    минутам — серверная строка меняла бы отпечаток живого тела каждый опрос)
+    и ступеней сжатия блока (`slim`/`tiny`/`bare` ставятся ПО ЗАМЕРУ в
+    браузере: высоту ряда решает окно, и порог числом соврал бы на одном из
+    двух мониторов). Подсветка текущего ЧАСА, наоборот, серверная: она
+    меняется раз в час, и её смена — честное изменение страницы.
+    """
+    live = [r for r in rows if r["status"] != "cancelled"]
+    rh = row_hours(live)
+    hours = hours_of(d, live)
+    if not hours:
+        # «Zi liberă» — ни графика, ни записей: сетки нет вовсе
+        return {"date": d.isoformat(), "empty": True, "base_min": None,
+                "tight": False, "hours": [], "columns": [],
+                "bands": {"top": None, "bottom": None}}
+    by_col: dict = {}
+    for r in live:
+        by_col.setdefault(row_col(r), []).append(r)
+    shown = shown_doctors(by_col)
+    hours, band_l, band_r = trim_edges(hours, open_hours(d, shown) | rh)
+    base_min = hours[0] * 60
+    now = datetime.now(eng.TZ)
+    nh = now.hour if d == now.date() else None
+    cols = [_column(d, dk, name, i, by_col, live, hours, base_min, cards, colors)
+            for i, (dk, name) in enumerate(shown)]
+    cols += [_orphan_column(key, by_col, live, hours, base_min, cards, colors)
+             for key in orphan_cols(by_col)]
+    return {
+        "date": d.isoformat(), "empty": False, "base_min": base_min,
+        # ⚠️ Больше четырёх колонок — карточка врача ужимается (у клиники на
+        # шесть врачей полноразмерная режет имена). Считается ПОСЛЕ сирот:
+        # они такие же колонки и тоже отнимают ширину.
+        "tight": len(cols) > 4,
+        "hours": [{"h": h, "label": f"{h:02d}:00", "now": h == nh} for h in hours],
+        "bands": {"top": _band(band_l), "bottom": _band(band_r)},
+        "columns": cols,
+    }

@@ -543,7 +543,6 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     hours = pcanvas.hours_of(d, live)
     if not hours:
         return "<div class='gridcard' style='padding:28px;text-align:center;color:var(--text3)'>Zi liberă — clinica este închisă</div>"
-    idx = {h: i for i, h in enumerate(hours)}
     base_min = hours[0] * 60
 
     _row_col = pcanvas.row_col
@@ -552,8 +551,6 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     by_col: dict = {}
     for r in live:
         by_col.setdefault(_row_col(r), []).append(r)
-
-    _r_bounds = pcanvas.bounds
 
     def _blocks(col_key: str) -> str:
         # ключ врача для перетаскивания: у колонки-сироты (легаси-имя без id)
@@ -664,7 +661,9 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # графика — как раз то, что сетка обязана показывать.
     keep_h = pcanvas.open_hours(d, shown) | row_hours
     hours, band_l, band_r = pcanvas.trim_edges(hours, keep_h)
-    idx = {h: i for i, h in enumerate(hours)}
+    # ⚠️ `base_min` пересчитывается ИМЕННО ЗДЕСЬ, после среза краёв: `_blocks`
+    # читает его замыканием и зовётся ниже, а значит видит уже новое значение.
+    # Модель канвы берёт его тем же порядком — там он аргумент `pos`.
     base_min = hours[0] * 60
 
     def _band(hs: list[int], side: str) -> str:
@@ -1260,6 +1259,18 @@ async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
     # ⚠️ фильтр плитки — только у общего дня: страница врача его не читает
     return pday.model(d, items, pday.active_map(rows), _collect_cards(rows),
                       _svc_colors, form_items, rows, "" if doctor else f)
+
+
+async def _canvas_model(d: date) -> dict:
+    """Данные канвы панели — ТЕ ЖЕ строки и карточки, что печатает `/admin`.
+
+    ⛔ Отбора по врачу здесь нет и не будет: канва показывает день целиком,
+    включая колонку выпавшего из справочника врача, которой на дне врача
+    просто неоткуда взяться.
+    """
+    day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
+    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
+    return pcanvas.model(d, rows, _collect_cards(rows), _svc_colors)
 
 
 @router.get("/admin/all", response_class=HTMLResponse)

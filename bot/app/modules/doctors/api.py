@@ -10,7 +10,6 @@ clinic.json, поэтому «данные» здесь — чтение про�
 """
 from __future__ import annotations
 
-import urllib.parse
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, File, Request, UploadFile
@@ -21,7 +20,7 @@ from ...core.api import api_body, api_require
 from ...core.auth import PERM_DOCTORS
 from ...core.layout import (HOUR_MAX, HOUR_MIN, STATUS_LABEL, _DOC_STATE_RO,
                             _doc_hours_text, _initials, msg_json)
-from ...core.visits import _doc_hue, _photo_path
+from ...core.visits import _doc_hue, photo_url as _photo_url
 from .routes import (MAX_PHOTO_MB, _DOC_STATE_HINT, _add_doctor, _delete_photo,
                      _doc_rows, _doc_stats, _orphan_warning, _read_upload,
                      _reset_colors, _same_color, _save_doctor, _service_rows,
@@ -41,16 +40,6 @@ def _reply(code: str, data=None, field: str = ""):
     ok = code in _OK
     return msg_json(ok, code, data=data, field=field,
                     status=200 if ok else _HTTP.get(code, 422))
-
-
-def _photo_url(dk: str) -> str:
-    """Тот же адрес, что рисует _avatar: ?v= — имя файла, и кэш браузера
-    сбрасывается сам при замене фото."""
-    p = _photo_path(dk)
-    if not p:
-        return ""
-    return (f"/admin/doctor-photo/{urllib.parse.quote(dk)}"
-            f"?v={urllib.parse.quote(p.name)}")
 
 
 async def _month_rows() -> tuple[list, list]:

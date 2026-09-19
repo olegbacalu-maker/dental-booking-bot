@@ -32,8 +32,8 @@ from ... import engine as eng
 from ...core.api import api_body, api_guard
 from ...core.layout import msg_json
 from ...core.visits import _parse_date
-from .routes import (_add_appt, _add_note, _day_model, _move_appt,
-                     _set_comment, _set_status, _week_model)
+from .routes import (_add_appt, _add_note, _canvas_model, _day_model,
+                     _move_appt, _set_comment, _set_status, _week_model)
 
 router = APIRouter()
 
@@ -113,6 +113,22 @@ async def api_day(request: Request, date_q: str = Query("", alias="date"),
     if data is None:
         return msg_json(False, status=404)
     return msg_json(True, data=data)
+
+
+@router.get("/api/schedule/canvas")
+async def api_canvas(request: Request, date_q: str = Query("", alias="date")):
+    """Канва панели дня: ряды, колонки, блоки с геометрией.
+
+    ⛔ Это НЕ `/api/schedule/day` в другой раскладке. Ключ колонки у канвы
+    свой: легаси-строка без `doctor_id`, но с именем живого врача, получает
+    здесь ОТДЕЛЬНУЮ колонку с формой relink, а день сливает её в колонку
+    врача. Возьми клиент панели данные дня — визит выпавшего из справочника
+    врача исчез бы с экрана, а час выглядел бы свободным.
+    ⚠️ `?doctor=` здесь нет намеренно: панель показывает день целиком.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return msg_json(True, data=await _canvas_model(_screen(date_q)))
 
 
 @router.post("/api/schedule/appointments")

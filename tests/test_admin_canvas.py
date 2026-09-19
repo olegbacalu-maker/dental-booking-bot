@@ -68,8 +68,16 @@ def _canvas(body: str) -> dict:
         cols.append({"dk": m.group(2), "blocks": blocks,
                      "cells": chunk.count("<div class='gcell'"),
                      "off_cells": chunk.count("<div class='gcell off'>")})
+    # ⚠️ Часы читаются из КОЛОНКИ ВРЕМЕНИ, а не из шапки: в шапке их нет
+    # вовсе. Прежний разбор искал `<div class='gh'…>` и находил ноль — поле
+    # никто не читал, и ложного зелёного не случилось, но следующая же
+    # проверка вида «чужих часов нет» прошла бы над пустотой (форма 2 из
+    # `admin-contract.md` › «ложные зелёные»).
+    tcol = (grid.split("<div class='gcol-time'>", 1)[1].split("<div class='gcol'", 1)[0]
+            if "<div class='gcol-time'>" in grid else "")
     return {"cols": cols, "cards": cards, "head": head,
-            "hours": re.findall(r"<div class='gh'[^>]*>(\d\d):00", grid)}
+            "hours": [(hh, bool(cls)) for cls, hh
+                      in re.findall(r"<div(?: class='(nowh)')?>(\d\d):00</div>", tcol)]}
 
 
 def _sql(s: Server, q: str, *args) -> None:
@@ -708,3 +716,310 @@ def suite_trends(res: Result) -> None:
         k2 = _kpis(c.get(f"/admin?date={quiet}&ui=legacy").body)
         res.check("ноль против нуля — «как вчера», без стрелки и без знака",
                   k2["Programări"]["sub"], "la fel ca ieri")
+
+
+# ------------------------------------------- паритет модели и страницы (C26.4)
+
+
+# ⚠️ Имя СВОЁ, не `_DCARD`: тот уже разбирает шапку для `suite_head`, и
+# одноимённая вторая версия молча забрала бы его номера групп — соседний набор
+# упал бы на `int('liber 12:00')`, и выглядело бы это поломкой канвы.
+_HEADCARD = re.compile(
+    r"<div class='dcard([^']*)' style='border-left-color:([^']*)'>"
+    r"<span class='av' style='background:[^']*'>(.*?)</span>"
+    r"<div class='nm'><a(?: href='[^']*')?(?: title='([^']*)')?>(.*?)</a>"
+    r"\s*<small>(.*?)</small>"
+    r"(?:<small class='mt'>(\d+) prog\. · ([^<]*)</small>)?"
+    r"(?:<div class='occ' title='(\d+) din (\d+) minute de lucru'>"
+    r"<div class='statbar'><div style='width:(\d+)%'></div></div>"
+    r"<b>(\d+)%</b></div>)?", re.S)
+_BAND = re.compile(r"<div class='gband (gb-top|gb-bot)' "
+                   r"title='Închis · (\d\d:00) - (\d\d:00)'>")
+
+
+def _weekday_after(d, wd: int):
+    """Ближайший (не раньше `d`) день недели `wd`: 0 — понедельник.
+
+    ⚠️ Фикстура, привязанная к «сегодня плюс N», ездит по дням недели, а у
+    клиники график по дням РАЗНЫЙ. Такой набор краснеет в один день недели из
+    семи — и выглядит это как поломка последнего коммита.
+    """
+    while d.weekday() != wd:
+        d += timedelta(days=1)
+    return d
+
+
+def _page_view(body: str) -> dict:
+    """Канва страницы В ТОЙ ЖЕ ФОРМЕ, в какой её отдаёт `canvas.model`.
+
+    ⛔ Разбор нарочно читает АТРИБУТЫ, а не только тексты: цвет колонки,
+    приёмность ячейки и признак переноса живут именно там, и проверка по
+    содержимому тега зеленела бы над сломанным договором — ровно так уже
+    ошибался разбор C25.1.
+    """
+    cv = _canvas(body)
+    heads = []
+    for cls, hue, av, title, name, sub, cnt, liber, busy, cap, _w, pct in \
+            _HEADCARD.findall(cv["head"]):
+        heads.append({
+            "off": "off" in cls, "hue": hue,
+            "photo": "<img" in av,
+            "initials": "" if "<img" in av else av,
+            "title": title, "name": name, "sub": sub,
+            "count": int(cnt) if cnt else None,
+            "free": liber or None,
+            "occ": (int(busy), int(cap), int(pct)) if cap else None,
+        })
+    bands = {"top": None, "bottom": None}
+    for side, f_h, t_h in _BAND.findall(body):
+        bands["top" if side == "gb-top" else "bottom"] = {"from": f_h, "to": t_h}
+    relink = {}
+    for m in re.finditer(r"<form method='post' action='/admin/relink'.*?</form>",
+                         body, re.S):
+        f = m.group(0)
+        who = re.search(r"name='old_name' value=" + chr(34) + r"([^" + chr(34) + r"]*)", f)
+        relink[who.group(1) if who else ""] = re.findall(r"<option value='([^']+)'>", f)
+    return {"heads": heads, "cols": cv["cols"], "hours": cv["hours"],
+            "bands": bands, "relink": relink,
+            "tight": "class='gridhead tight'" in body}
+
+
+def _model_view(c: Client, day: str) -> dict:
+    """Та же канва глазами модели. ⛔ Через настоящий маршрут `/api/`, а не
+    прямым вызовом функции: иначе проверка не заметила бы ни охраны, ни
+    конверта ответа — а клиент видит именно их."""
+    r = c.get(f"/api/schedule/canvas?date={day}")
+    assert r.status == 200, f"канва не отдана: {r.status}"
+    return json.loads(r.body)["data"]
+
+
+def suite_model(res: Result) -> None:
+    """Модель канвы говорит ТО ЖЕ, что печатает страница.
+
+    ⛔ Это и есть шаг, ради которого писались пины: после переезда `/admin` в
+    React страница останется цела и все семь наборов выше продолжат читать
+    ЕЁ. Единственное, что свяжет новый экран со старым, — вот это сравнение.
+
+    ⚠️ Фикстура собрана из самых дорогих случаев разом: сирота, тёзка живого
+    врача, кластер пересечения, заметка стойки, визит в ожидании и профиль со
+    СДВИНУТЫМ графиком (края дня срезаются в полоски, и `base_min` после среза
+    другой). Простая фикстура прошла бы этот набор зелёной мимо всего, ради
+    чего он написан.
+    """
+    # ⚠️ День выбирается ПО ДНЮ НЕДЕЛИ, а не «сегодня плюс три»: у профиля со
+    # сдвинутым графиком часы приёма разные по дням, и плавающая фикстура была
+    # бы зелёной сегодня и красной в четверг — без единой правки кода.
+    day = _weekday_after(clinic_today(), 2).isoformat()
+    with Server(clinic="clinic_panel.json") as s:
+        c = Client(s.url).login()
+        _add(c, day, "09:00", "d2", "Pacient Lung", 1)
+        _add(c, day, "10:00", "d2", "Pacient Sub", 2)
+        _add(c, day, "11:00", "d3", "Pacient Orfan", 3)
+        _add(c, day, "12:00", "d3", "Pacient Astept", 4)
+        lung, sub, orfan, astept = _ids(c, day)[:4]
+        # ⚠️ Заметка заводится ПОСЛЕ разбора id: `_ids` читает строки дня в
+        # порядке ВРЕМЕНИ, а заметка на 09:00 встала бы первой и сдвинула весь
+        # разбор на единицу — длительность 120′ уехала бы на неё, кластер не
+        # собрался бы, и якорь ругался бы на кластер, а причина была бы здесь.
+        # ⚠️ Час её — ПЕРВЫЙ рабочий у d4: только так видно, что заметка
+        # занимает час, не попадая в счёт пациентов. И не 13:00 — там обед, и
+        # заметку отвергли бы (`bad`).
+        c.post("/admin/note", ndate=day, ntime="09:00", ndoctor="d4",
+               ntext="Livrare materiale pentru cabinetul doi", back=f"/admin?date={day}")
+        # кластер: визит на 09:00 длиной два часа накрывает соседний в 10:00
+        _sql(s, "UPDATE appointments SET duration_min = 120 WHERE id = ?", lung)
+        # сирота: врач выпал из справочника, осталось имя-снимок
+        _sql(s, "UPDATE appointments SET doctor_id = NULL, doctor = ?"
+                " WHERE id = ?", "Dr. Plecat Demult", orfan)
+        # ожидание в приёмной: отметка есть, минуты считает браузер
+        _sql(s, "UPDATE appointments SET status = 'waiting', waiting_at = ?"
+                " WHERE id = ?",
+             datetime.now(TZ).isoformat(timespec="seconds"), astept)
+
+        page = _page_view(c.get(f"/admin?date={day}&ui=legacy").body)
+        m = _model_view(c, day)
+
+        # --- якорь: в фикстуре есть всё, о чём набор говорит ---
+        if not res.check(
+                "якорь: колонка-сирота, кластер, заметка и срезанный край НА МЕСТЕ",
+                (sum(1 for x in m["columns"] if x["orphan"]),
+                 max((b["of"] for x in m["columns"] for b in x["blocks"]), default=0),
+                 sum(1 for x in m["columns"] for b in x["blocks"]
+                     if b["kind"] == "note"),
+                 bool(m["bands"]["top"] or m["bands"]["bottom"])),
+                (1, 2, 1, True)):
+            return
+
+        # --- ряды ---
+        res.check("ЧАСЫ и их порядок совпадают",
+                  [h["label"] for h in m["hours"]], [f"{hh}:00" for hh, _n in page["hours"]])
+        # ⚠️ Подсветки текущего часа здесь нет НАМЕРЕННО: день не сегодняшний,
+        # и сравнение двух пустых списков было бы проверкой над пустотой.
+        # Она живёт в `suite_model_now`, где час действительно есть.
+        res.check("СРЕЗАННЫЕ КРАЯ — те же полоски", m["bands"], page["bands"])
+        res.check("и начало координат — первый ОСТАВЛЕННЫЙ час",
+                  m["base_min"], int(m["hours"][0]["label"][:2]) * 60)
+
+        # --- колонки ---
+        res.check("КОЛОНОК СТОЛЬКО ЖЕ и в том же порядке",
+                  [x["id"] for x in m["columns"]], [x["dk"] for x in page["cols"]])
+        res.check("имя, приглушённость и цвет колонки — те же",
+                  [(x["name"], x["off"], x["hue"]) for x in m["columns"]],
+                  [(h["name"], h["off"], h["hue"]) for h in page["heads"]])
+        res.check("счётчик записей и «liber HH:00» / «complet» — те же",
+                  [(x["count"], f"liber {x['free']}" if x["free"] else "complet")
+                   for x in m["columns"] if not x["orphan"]],
+                  [(h["count"], h["free"]) for h in page["heads"] if h["count"] is not None])
+        # ⚠️ Счёт записей и первый свободный час питаются РАЗНЫМИ списками, и
+        # это не описка: «N prog.» считает пациентов (заметки не в счёт), а
+        # «liber HH:00» смотрит на ЗАНЯТОСТЬ — заметка стойки занимает час
+        # наравне с визитом. Сведи их к одному списку, и модель начнёт звать
+        # записываться в час, заблокированный заметкой.
+        res.check("заметка НЕ идёт в счёт пациентов, но час занимает",
+                  [(x["count"], x["free"])
+                   for x in m["columns"] if x["id"] == "d4"],
+                  [(0, "10:00")])
+        res.check("кабинет и телефон врача приезжают полями, а не только в подсказке",
+                  [(x["room"], x["phone"]) for x in m["columns"] if x["id"] == "d2"],
+                  [("Cab. 2", "069123456")])
+        res.check("а подсказка колонки — та же строка, что у страницы",
+                  [x["title"] for x in m["columns"] if not x["orphan"]],
+                  [h["title"] for h in page["heads"] if h["count"] is not None])
+        res.check("загрузка кресла — те же минуты и тот же процент",
+                  [(x["occupancy"] or {}).get("busy") for x in m["columns"]
+                   if not x["orphan"]],
+                  [h["occ"][0] if h["occ"] else None
+                   for h in page["heads"] if h["count"] is not None])
+        res.check("и тот же процент",
+                  [(x["occupancy"] or {}).get("pct") for x in m["columns"]
+                   if not x["orphan"]],
+                  [h["occ"][2] if h["occ"] else None
+                   for h in page["heads"] if h["count"] is not None])
+        res.check("ужимать карточки или нет — решает сервер, и одинаково",
+                  m["tight"], page["tight"])
+
+        # --- ячейки: куда можно записать и куда можно бросить ---
+        res.check("ПРИЁМНЫЕ ЧАСЫ колонок — те же",
+                  [sum(1 for v in x["cells"] if v) for x in m["columns"]],
+                  [x["cells"] for x in page["cols"]])
+        res.check("и закрытых ровно столько же",
+                  [sum(1 for v in x["cells"] if not v) for x in m["columns"]],
+                  [x["off_cells"] for x in page["cols"]])
+        res.ok("в колонке-сироты не открыт НИ ОДИН час",
+               all(not any(x["cells"]) for x in m["columns"] if x["orphan"]),
+               "модель зовёт записываться к врачу, которого нет в справочнике")
+
+        # --- блоки: геометрия и договор переноса ---
+        res.check("БЛОКИ стоят в тех же колонках и в том же порядке",
+                  [[b["id"] for b in x["blocks"]] for x in m["columns"]],
+                  [[int(b["id"]) for b in x["blocks"]] for x in page["cols"]])
+        res.check("ГЕОМЕТРИЯ каждого блока — та же: верх, высота, место в кластере",
+                  [(b["top"], b["height"], b["col"], b["of"])
+                   for x in m["columns"] for b in x["blocks"]],
+                  [(b["top"], b["h"], b["j"], b["n"])
+                   for x in page["cols"] for b in x["blocks"]])
+        res.check("ДОГОВОР ПЕРЕНОСА тот же: что тащится на странице, "
+                  "то тащится и по модели",
+                  [b["movable"] for x in m["columns"] for b in x["blocks"]],
+                  [b["movable"] for x in page["cols"] for b in x["blocks"]])
+
+        # --- то, чего в разметке не видно, но без чего экран соврёт ---
+        note = next(b for x in m["columns"] for b in x["blocks"]
+                    if b["kind"] == "note")
+        res.check("ЗАМЕТКА приезжает В ДВУХ ДЛИНАХ — 80 в подсказке и 40 в блоке",
+                  (len(note["title"]), len(note["label"])),
+                  (min(80, len("Livrare materiale pentru cabinetul doi")),
+                   min(40, len("Livrare materiale pentru cabinetul doi"))))
+        wait = next(b for x in m["columns"] for b in x["blocks"]
+                    if b.get("status") == "waiting")
+        res.ok("ОЖИДАНИЕ приезжает ОТМЕТКОЙ, а не минутами",
+               isinstance(wait["wait_since"], int) and wait["wait_since"] > 0,
+               "минуты в теле страницы меняли бы отпечаток каждую минуту — "
+               "живой опрос подменял бы сетку без единой правки данных")
+        res.ok("слово статуса приходит с сервера — второго словаря в браузере нет",
+               wait.get("status_label") and wait["status_label"] != wait["status"],
+               f"статус приехал кодом: {wait.get('status_label')!r}")
+        orph = next(x for x in m["columns"] if x["orphan"])
+        res.check("у сироты есть ВХОД В RELINK, и список в нём — тот же, что на странице",
+                  (orph["relink"]["name"],
+                   [o["id"] for o in orph["relink"]["options"]]),
+                  ("Dr. Plecat Demult", page["relink"].get("Dr. Plecat Demult")))
+        # ⛔ Список relink — ВЕСЬ справочник, а не показанные колонки. Врач,
+        # к которому надо переприкрепить легаси-строки, может быть временно
+        # выключен: собери список из колонок — и записи выпавшего врача не
+        # переприкрепить уже никогда, а это единственный вход в relink.
+        res.ok("и в нём есть даже выключенный врач справочника",
+               "d1" in [o["id"] for o in orph["relink"]["options"]],
+               "список собран из показанных колонок — к выключенному врачу "
+               "переприкрепить нечем")
+        res.ok("а у живой колонки его нет",
+               all(x["relink"] is None for x in m["columns"] if not x["orphan"]),
+               "форма переприкрепления предложена там, где прикреплять нечего")
+
+
+def suite_model_now(res: Result) -> None:
+    """Подсветка ТЕКУЩЕГО часа: страница и модель метят один и тот же ряд.
+
+    ⚠️ Час берётся живой, поэтому запись ставится прямо в базу на текущий час
+    — так ряд существует даже в день, когда клиника закрыта (`row_hours`
+    держит час, в котором что-то стоит). Иначе набор молча пропускал бы
+    воскресенье.
+    ⛔ Линию «сейчас» (`placeNowline`) здесь не ищут и в модели её нет: она
+    двигается НЕПРЕРЫВНО и потому живёт в `panel.js`. Подсветка часа —
+    серверная, и это разные вещи: она меняется раз в час, и её смена — честное
+    изменение страницы.
+    """
+    with Server(clinic="clinic_hours.json") as s:
+        c = Client(s.url).login()
+        far = _weekday_after(clinic_today() + timedelta(days=7), 2).isoformat()
+        _add(c, far, "09:00", "d2", "Pacient Acum", 1)
+        aid = _ids(c, far)[0]
+        today = clinic_today().isoformat()
+        for attempt in range(2):
+            hour = datetime.now(TZ).hour
+            _sql(s, "UPDATE appointments SET starts_at = ? WHERE id = ?",
+                 _utc(today, hour), aid)
+            page = _page_view(c.get(f"/admin?date={today}&ui=legacy").body)
+            m = _model_view(c, today)
+            marked_m = [h["label"] for h in m["hours"] if h["now"]]
+            marked_p = [f"{hh}:00" for hh, now in page["hours"] if now]
+            # час мог смениться МЕЖДУ двумя запросами — тогда пробуем ещё раз,
+            # а не краснеем: это не расхождение экранов, а граница часа
+            if marked_m == marked_p or attempt:
+                break
+        if not res.check("якорь: текущий час вообще есть в сетке",
+                         f"{hour:02d}:00" in [h["label"] for h in m["hours"]], True):
+            return
+        res.check("ПОМЕЧЕН РОВНО ОДИН час, и это текущий",
+                  marked_m, [f"{hour:02d}:00"])
+        res.check("и страница метит тот же самый", marked_p, marked_m)
+        res.ok("линии «сейчас» в модели нет — её двигает браузер",
+               all("nowline" not in k for k in m),
+               "непрерывная величина в теле страницы меняла бы отпечаток "
+               "живого куска каждый опрос — мигание, от которого ушли 08-20")
+
+
+def suite_model_empty(res: Result) -> None:
+    """День без графика и без записей: и страница, и модель говорят «пусто».
+
+    ⚠️ Проверка отдельным набором: в общей фикстуре этой ветки не бывает, а
+    ошибка в ней стоит дорого — модель, вернувшая ноль часов вместо признака
+    «закрыто», дала бы React пустую сетку без единого слова о причине.
+    """
+    with Server(clinic="clinic_panel.json") as s:
+        c = Client(s.url).login()
+        # воскресенье: у этого профиля клиника закрыта (`hours.sun = null`)
+        iso = _weekday_after(clinic_today(), 6).isoformat()
+        body = c.get(f"/admin?date={iso}&ui=legacy").body
+        m = _model_view(c, iso)
+        # ⚠️ Якорь ищет КАРТОЧКУ ВМЕСТО СЕТКИ, а не слова «Zi liberă»: те же
+        # слова печатает баннер над журналом (`layout._banner`), и проверка по
+        # тексту зеленела бы на дне, где сетка есть, а баннер просто предупреждает.
+        if not res.check("якорь: у страницы в этот день вместо сетки — карточка",
+                         "<div class='gridcard' style='padding:28px" in body, True):
+            return
+        res.check("модель говорит то же самое: день пуст",
+                  (m["empty"], m["hours"], m["columns"], m["base_min"]),
+                  (True, [], [], None))
+        res.check("и полосок закрытых краёв не выдумывает",
+                  m["bands"], {"top": None, "bottom": None})

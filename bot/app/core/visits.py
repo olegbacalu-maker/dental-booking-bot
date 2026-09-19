@@ -410,6 +410,22 @@ def _photo_path(dk: str) -> pathlib.Path | None:
     return p
 
 
+def photo_url(dk: str) -> str:
+    """Адрес фото врача — ТОТ ЖЕ, что рисует `_avatar` и что печатает канва
+    дня: `?v=` — имя файла, и кэш браузера сбрасывается сам при замене фото.
+
+    ⚠️ Лежит в `core`, потому что спрашивают ДВА модуля — врачи (`/api/doctors`)
+    и журнал (модель канвы). Копия формулы в каждом из них разошлась бы молча:
+    у одного экрана фото обновилось бы после замены, у другого осталось бы
+    старым из кэша, и выглядело бы это как «фото не сохранилось».
+    """
+    p = _photo_path(dk)
+    if not p:
+        return ""
+    return (f"/admin/doctor-photo/{urllib.parse.quote(dk)}"
+            f"?v={urllib.parse.quote(p.name)}")
+
+
 def _doc_hue(dk: str) -> str:
     meta = eng.DOCTOR_META.get(dk, {})
     if meta.get("color"):
