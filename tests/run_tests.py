@@ -23,6 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_activity  # noqa: E402
 import test_admin  # noqa: E402
+import test_admin_canvas  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_api  # noqa: E402
 import test_booking  # noqa: E402
@@ -190,6 +191,9 @@ SUITES = [
     ("День: карточка визита и её кнопки", test_day_forms.suite_card),
     ("День: диалог переноса и имя в нём", test_day_forms.suite_move),
     ("День: список дня, его кнопки и фильтр (C25.5c)", test_day_forms.suite_list),
+    ("Панель: колонка-сирота и relink (C26.2)", test_admin_canvas.suite_orphan),
+    ("Панель: геометрия блоков и кластеры", test_admin_canvas.suite_geometry),
+    ("Панель: плитка и её собственный фильтр", test_admin_canvas.suite_tiles),
     ("День: модель для диалогов (C25.5b)", test_day_actions.suite_model),
     ("День: действия через JSON", test_day_actions.suite_actions),
     ("День: форма и API отвечают одним кодом", test_day_actions.suite_parity),
