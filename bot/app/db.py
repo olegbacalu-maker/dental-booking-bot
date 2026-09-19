@@ -1896,6 +1896,16 @@ async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
 
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     # has_rec — «консультация записана»: не дата, в _DT_COLS ему не место
+    # ⛔ Тай-брейк `a.id` в ORDER BY несущий, а не косметика. Ничья по
+    # (starts_at, doctor) достижима — заметка стойки и визит на одну минуту у
+    # одного врача (`_conflicts` заметки не стережёт), две заметки в слоте, — и
+    # она тянется ВНИЗ: канва сортирует кластеры устойчиво, то есть наследует
+    # порядок базы, а порядок внутри кластера решает `col`/`of`, то есть
+    # геометрию блоков. SQLite на практике стабилен, PG не обещает ничего, и
+    # обычный UPDATE переносит кортеж. Без тай-брейка два опроса живого журнала
+    # при НЕИЗМЕННОМ дне дали бы разное тело, подмена шла бы каждые 12 секунд —
+    # мигание, от которого ушли 08-20, и только у той клиники, где кто-то
+    # поставил заметку поверх визита.
     return await _fetch(
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
@@ -1905,7 +1915,7 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
            WHERE a.starts_at >= $1 AND a.starts_at < $2
-           ORDER BY a.starts_at, a.doctor""",
+           ORDER BY a.starts_at, a.doctor, a.id""",
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
                   a.reminded_day, a.comment, a.waiting_at, a.arrived_at,
@@ -1914,7 +1924,7 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
            WHERE a.starts_at >= ? AND a.starts_at < ?
-           ORDER BY a.starts_at, a.doctor""",
+           ORDER BY a.starts_at, a.doctor, a.id""",
         *((day_start, day_end) if not IS_SQLITE
           else (_iso(day_start), _iso(day_end))),
     )

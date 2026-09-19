@@ -74,6 +74,29 @@ def _live_fragment(request: Request, body: str) -> Response | None:
     return HTMLResponse(body, headers=headers)
 
 
+def _live_stale(request: Request) -> Response | None:
+    """Опрос от вкладки, отрисованной ПО-СТАРОМУ, на экране, который сервер уже
+    отдаёт React-ом. Ответ — 205 «перерисуй себя целиком».
+
+    ⛔ Без этого ветка React стоит раньше `_live_fragment`, и опрос получает
+    200 с ПОЛНЫМ документом без `X-DP-Hash`. `panel.js` вклеивает его внутрь
+    `#live`: сайдбар и шапка задваиваются, отпечаток становится пустым и не
+    совпадёт уже никогда — и так каждые 12 секунд, пока вкладка открыта. Для
+    регистратуры это «журнал сошёл с ума» сразу после того, как директор
+    сохранил настройки.
+    ⚠️ 205, а не 204: 204 значит «ничего не менялось», и вкладка осталась бы
+    висеть на старой разметке, считая себя живой. Здесь менялось всё.
+    ⚠️ Признак живости стоит на `<body>`, СНАРУЖИ подменяемого куска, поэтому
+    перестать быть живой вкладка может только полной перезагрузкой — другого
+    пути у неё нет по устройству.
+    """
+    if not request.headers.get("x-dp-live"):
+        return None
+    return Response(status_code=205,
+                    headers={"X-DP-V": eng.APP_VERSION,
+                             "Cache-Control": "no-store"})
+
+
 def _date_nav(d: date, base: str, extra: str = "") -> str:
     prev_d, next_d = d - timedelta(days=1), d + timedelta(days=1)
     wk_prev, wk_next = d - timedelta(days=7), d + timedelta(days=7)
@@ -1112,6 +1135,8 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
         # объявляет живой страницу с узлом React. Ключ `dash` при этом общий с
         # днём, и день остаётся живым — снимать ключ из LIVE_RELOAD нельзя до
         # C26, иначе погаснет и он.
+        if (st := _live_stale(request)) is not None:
+            return st
         return _shell(react_mount("schedule_week", "/admin/week",
                                   {"date": d.isoformat()}),
                       "calendar săptămânal · culori după tipul procedurii",
@@ -1294,6 +1319,8 @@ async def admin_all(
         # ⚠️ фильтр плитки уезжает параметром узла, но ТОЛЬКО известный:
         # чужое `?f=` старая страница молча игнорирует, и клиент не должен
         # узнать о нём иначе
+        if (st := _live_stale(request)) is not None:
+            return st
         params = {"date": d.isoformat()}
         if f in pday.TILE_FILTERS:
             params["f"] = f
@@ -1355,6 +1382,8 @@ async def admin_doctor(
     name = eng.DOCTORS[dk]
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     if react_on(request, "schedule_doctor"):
+        if (st := _live_stale(request)) is not None:
+            return st
         return _shell(react_mount("schedule_doctor", f"/admin/doctor/{dk}",
                                   {"date": d.isoformat(), "dk": dk}),
                       f"ziua medicului · {name}", active="prog")

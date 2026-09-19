@@ -159,12 +159,20 @@ def suite_switch(res: Result) -> None:
         res.check("НЕДЕЛЯ БОЛЬШЕ НЕ ЖИВАЯ: ни обёртки, ни метки опроса",
                   ('id="live"' in page, 'data-reload="12"' in page),
                   (False, False))
-        res.ok("и опрос ей больше не отвечает фрагментом",
-               c.get(f"/admin/week?date={monday.isoformat()}",
-                     headers={"X-DP-Live": "1"}).status != 200
-               or 'id="root"' in c.get(f"/admin/week?date={monday.isoformat()}",
-                                       headers={"X-DP-Live": "1"}).body,
-               "неделя отвечает живым фрагментом, хотя в ней React")
+        # ⚠️ Прежняя формулировка была «status != 200 ИЛИ в теле есть id=root»
+        # и зеленела по ВТОРОМУ дизъюнкту: сервер отвечал опросу 200 с ПОЛНЫМ
+        # документом, `panel.js` вклеивал его внутрь `#live`, сайдбар и шапка
+        # задваивались — каждые 12 секунд, пока открыта вкладка, отрисованная
+        # до включения флага. Проверка это разрешала. Теперь позитив: ответ
+        # ровно один и означает «перерисуйся целиком».
+        poll = c.get(f"/admin/week?date={monday.isoformat()}",
+                     headers={"X-DP-Live": "1"})
+        res.check("ОПРОС от старой вкладки получает 205, а не документ",
+                  (poll.status, poll.body.strip()), (205, ""))
+        res.ok("и несёт версию с запретом кеша — чтобы перезагрузка была честной",
+               poll.header("X-DP-V") != ""
+               and poll.header("Cache-Control") == "no-store",
+               "вкладка перезагрузится в кеш и увидит ту же старую разметку")
 
         day = c.get("/admin").body
         res.check("ДЕНЬ при этом остался живым: ключ dash снимать рано",
@@ -411,6 +419,16 @@ def suite_day_switch(res: Result) -> None:
                              .replace("&quot;", '"')), {"date": day, "dk": "d2"})
         res.check("день врача больше не живой",
                   ('id="live"' in doc, 'data-reload="12"' in doc), (False, False))
+
+        # ⛔ Вкладка, открытая ДО включения флага, продолжает опрашивать по
+        # старому договору — и узнать «я больше не живая» ей неоткуда: признак
+        # стоит на <body>, снаружи подменяемого куска. Ответ 205 — её
+        # единственный путь к перерисовке. Обоим дневным адресам, а не одному:
+        # флаг включают на каждый экран отдельно.
+        for path in (f"/admin/all?date={day}", f"/admin/doctor/d2?date={day}"):
+            poll = c.get(path, headers={"X-DP-Live": "1"})
+            res.check(f"опрос старой вкладки на {path.split('?')[0]} → 205",
+                      (poll.status, poll.body.strip()), (205, ""))
 
         panel = c.get("/admin").body
         res.check("ПАНЕЛЬ ДНЯ осталась живой и старой",

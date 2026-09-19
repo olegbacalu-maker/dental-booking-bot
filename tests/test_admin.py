@@ -1887,6 +1887,40 @@ def suite_live_stable(res: Result) -> None:
                aservice="consult", aname="Live Stabil", aphone="069700700")
         c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
                aservice="consult", aname="Live Asteapta", aphone="069700701")
+        c.post("/admin/add", adate=day, atime="12:00", adoctor="d2",
+               aservice="consult", aname="Live Ghost", aphone="069700702")
+        # ⛔ НИЧЬЯ в сортировке дня: две строки с ОДНИМ `starts_at` и ОДНИМ
+        # именем врача. Она достижима не «как угодно», а ровно в одном месте, и
+        # это стоило проверки опытом: уникальный индекс слота ЧАСТИЧНЫЙ —
+        # `uq_doctor_slot ON (doctor, starts_at) WHERE status IN (активные)`.
+        # Поэтому две АКТИВНЫЕ записи на минуту не лягут (и заметка тоже: она
+        # идёт через ту же проверку и отвечает «bad» — проверено 19.09), а две
+        # ЗАКОНЧЕННЫЕ — лягут. У клиники это будни: приём завершили, слот
+        # переиспользовали, в дне два `finalizat` на один час.
+        # Дальше ничья тянется вниз: `canvas.clusters` и `canvas.blocks`
+        # сортируют УСТОЙЧИВО, а сортировка кластера отделяет живых от
+        # законченных — между двумя законченными она не различает ничего, и
+        # порядок остаётся тот, что пришёл из базы. Он решает `col`/`of`, то
+        # есть геометрию. Без тай-брейка по `a.id` два опроса при неизменном дне
+        # дали бы разное тело. Правило держит `test_structure` («выборка дня
+        # упорядочена полностью»), здесь — сама ситуация.
+        import sqlite3 as _sq
+        rows_by_name = {m.group(2): m.group(1) for m in re.finditer(
+            r"<tr class='[a-z]+'><td>(\d+)</td>.*?(Live \w+)",
+            c.get(f"/admin/all?date={day}").body, re.S)}
+        assert {"Live Stabil", "Live Ghost", "Live Asteapta"} <= set(rows_by_name), \
+            f"не все визиты фикстуры на месте: {sorted(rows_by_name)}"
+        for who in ("Live Stabil", "Live Ghost"):
+            c.post(f"/admin/status/{rows_by_name[who]}", to="done",
+                   back=f"/admin?date={day}")
+        con = _sq.connect(s.dir / "dental.db")
+        con.execute("UPDATE appointments SET starts_at ="
+                    " (SELECT starts_at FROM appointments WHERE id = ?)"
+                    " WHERE id = ?", (rows_by_name["Live Stabil"],
+                                      rows_by_name["Live Ghost"]))
+        con.commit()
+        con.close()
+
         # пациент В ПРИЁМНОЙ: именно у него минуты ожидания и мог бы поехать
         # отпечаток, если бы их печатал сервер
         page = c.get(f"/admin?date={day}").body
@@ -1894,7 +1928,14 @@ def suite_live_stable(res: Result) -> None:
         # номер визита берётся из data-appt. Искать «/admin/status/» бесполезно.
         aids = re.findall(r"data-appt='(\d+)'", page)
         assert aids, "на дне нет ни одной записи — сеять нечего"
-        c.post(f"/admin/status/{aids[-1]}", to="waiting", back=f"/admin?date={day}")
+        res.ok("ничья в сортировке в фикстуре ЕСТЬ: две строки на одну минуту "
+               "у одного имени",
+               page.count(f"data-appt='{rows_by_name['Live Ghost']}'") > 0
+               and "Live Ghost" in page,
+               "легаси-строка не доехала до дня — набор проверял бы "
+               "детерминизм мимо ничьей")
+        c.post(f"/admin/status/{rows_by_name['Live Asteapta']}", to="waiting",
+               back=f"/admin?date={day}")
 
         H = {"X-DP-Live": "1"}
         for path in (f"/admin?date={day}", f"/admin/all?date={day}",

@@ -138,6 +138,13 @@ function pickName(inp) {
     fetch(location.pathname + location.search,
           {headers: {'X-DP-Live': '1', 'X-DP-Hash': hash}, cache: 'no-store'})
       .then(function (r) {
+        /* 205 — «этот экран больше не живой»: сервер отдаёт его React-ом, а
+           вкладка отрисована по-старому. Перерисовать себя целиком она может
+           только перезагрузкой: признак живости стоит на <body>, снаружи
+           подменяемого куска. Без этой ветки ответ пришёл бы полным
+           документом, и он вклеился бы ВНУТРЬ #live — сайдбар и шапка
+           задваиваются каждые 12 секунд. */
+        if (r.status === 205) { location.reload(); return; }
         if (r.status !== 200) return;           // 204: день не менялся
         var v = r.headers.get('X-DP-V') || '';
         var mine = document.body.getAttribute('data-v') || v;
