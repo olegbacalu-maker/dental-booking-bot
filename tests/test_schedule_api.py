@@ -601,6 +601,46 @@ def suite_live_envelope(res: Result) -> None:
                   (nb["text"], len(nb["title"]), len(nb["label"])),
                   (note_txt[:120], 80, 40))
 
+        # --- 4b. то, чем живут диалоги, и чего в конверте не было (C26.5.3-a) ---
+        env = _j(c.get(url))["data"]
+        res.check("диалог собирается из КОНВЕРТА: кнопки, концы заметки, форма",
+                  (sorted(env["actions"]), "cancelled" in env["note_actions"],
+                   sorted(env["slotform"]),
+                   all(isinstance(x, int) for x in env["note_ends"])),
+                  (sorted(env["actions"]), True, ["birth_max", "services"], True))
+        # ⛔ Потолок даты рождения — СЕГОДНЯ В ЧАСАХ КЛИНИКИ. Считанный от
+        # `date.today()`, он переворачивал бы отпечаток в полночь по часам
+        # машины и расходился бы под `TZ=UTC0` с остальной моделью.
+        res.check("потолок даты рождения — сегодня КЛИНИКИ, а не машины",
+                  env["slotform"]["birth_max"], clinic_today().isoformat())
+        blk = next(b for col in env["canvas"]["columns"] for b in col["blocks"]
+                   if b.get("id") == aid)
+        res.check("в блоке есть всё, что нужно диалогу, и ничего сверх",
+                  sorted(k for k in ("doctor", "pid", "rec", "status", "comment")
+                         if k in blk),
+                  ["comment", "doctor", "pid", "rec", "status"])
+
+        # --- 4c. ⭐ ОТМЕНЁННАЯ запись отпечаток не двигает ---
+        # Этот сторож возможен ТОЛЬКО потому, что карточка не поехала в
+        # конверт отдельной структурой: `_collect_cards` несёт отменённые, а
+        # на панели их негде нажать — и правка у невидимой записи гнала бы
+        # перерисовку, в которой на экране не меняется ничего. Проверка
+        # доказывает, что решение осталось в силе.
+        c.post(f"/admin/status/{aid}", to="cancelled", back="/admin")
+        gone = c.get(url)
+        res.ok("отменённая запись ушла с канвы",
+               not any(b.get("id") == aid
+                       for col in _j(gone)["data"]["canvas"]["columns"]
+                       for b in col["blocks"]),
+               "отменённая осталась на канве — сторож ниже проверял бы не то")
+        h_before = gone.header("X-DP-Hash")
+        r_cmt = c.post_json(f"/api/schedule/appointments/{aid}/comment",
+                            {"comment": "правка у невидимой записи"})
+        res.check("правка принята сервером (иначе сторож ниже зелен впустую)",
+                  r_cmt.status, 200)
+        res.check("⭐ и отпечаток панели НЕ двинулся: на экране не изменилось ничего",
+                  c.get(url).header("X-DP-Hash"), h_before)
+
         # --- 5. охрана: JSON 401, а не редирект на форму входа ---
         anon = Client(s.url).get(url)
         res.check("опрос без входа → JSON 401, НЕ 303",
@@ -649,7 +689,8 @@ def suite_dash_flag(res: Result) -> None:
                           'id="root"' in page, data["live"],
                           sorted(k for k in data if k not in ("screen", "date", "live"))),
                          (True, True, False, True,
-                          ["agenda", "canvas", "minical", "occupancy", "tiles"])):
+                          ["actions", "agenda", "canvas", "minical", "note_actions",
+                    "note_ends", "occupancy", "slotform", "tiles"])):
             return
         # ⭐ Вторая половина отката (C26.5.2). Вкладка, открытая React-ом,
         # узнаёт о ВЫКЛЮЧЕНИИ флага единственным способом, который у неё есть:
@@ -706,7 +747,8 @@ def suite_dash_flag(res: Result) -> None:
                   (live["live"], live["screen"], live["date"],
                    sorted(k for k in live if k not in ("screen", "date", "live"))),
                   (True, "panel", day,
-                   ["agenda", "canvas", "minical", "occupancy", "tiles"]))
+                   ["actions", "agenda", "canvas", "minical", "note_actions",
+                    "note_ends", "occupancy", "slotform", "tiles"]))
         res.check("а поверхность отвечает ЗАГОЛОВКОМ, и это «react»",
                   r_on.header("X-DP-Surface"), "react")
         # ⛔ Отпечаток от флага не зависит. Течь поверхности в `data` — это

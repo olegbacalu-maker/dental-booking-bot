@@ -13,6 +13,8 @@
  * Обе живут в `dashFx.ts`.
  */
 
+import type { VisitCardView } from './day'
+
 /** Полоска «закрыто» вместо срезанных крайних часов. */
 export interface DashBand {
   from: string
@@ -60,6 +62,13 @@ export interface DashAppt extends BlockBase {
   /** Обрезок для ячейки сетки, 60 знаков. */
   comment_cut: string
   age: number | null
+  /** ⚠️ СНИМОК имени врача из самой записи, а не имя колонки: после
+   *  переименования шапка колонки и диалог говорят РАЗНОЕ, и так надо. */
+  doctor: string
+  /** Пациент; `null` у легаси-строки — тогда ссылки на фишу нет. */
+  pid: number | null
+  /** Дневник визита уже заполнен. */
+  rec: boolean
   clickable: boolean
   bg: string
   bar: string
@@ -188,6 +197,25 @@ export interface DashMiniCal {
   next: { date: string; href: string }
 }
 
+/** Кнопки исхода по состоянию: `{состояние: [кнопки]}`. ⛔ Слово кнопки и
+ *  вопрос подтверждения приходят С СЕРВЕРА: второго словаря статусов в
+ *  браузере нет, он разводился уже дважды (08-12, 08-16). */
+export type DashActions = Record<string, {
+  to: string
+  cls: string
+  label: string
+  /** Непусто — спросить подтверждение этим текстом. */
+  confirm: string
+}[]>
+
+/** Что нужно диалогу пустого часа. ⚠️ Имя `slotform`, а не `form`: у модели
+ *  дня `form` несёт ещё врачей, их часы и предвыбор. */
+export interface DashSlotForm {
+  services: { id: string; label: string }[]
+  /** Потолок поля «дата рождения» — сегодня В ЧАСАХ КЛИНИКИ. */
+  birth_max: string
+}
+
 /** Живое состояние панели целиком — то, что везёт `GET /api/schedule/live`. */
 export interface DashModel {
   screen: string
@@ -198,7 +226,24 @@ export interface DashModel {
   tiles: DashTile[]
   occupancy: DashOccupancy
   minical: DashMiniCal
+  /* ---- то, чем живут диалоги (C26.5.3-a) ---- */
+  actions: DashActions
+  note_actions: DashActions
+  /** Часы, которыми может кончиться блокировка слота. */
+  note_ends: number[]
+  slotform: DashSlotForm
 }
+
+/**
+ * ⛔ Сторож ТИПАМИ: блок канвы обязан подходить диалогу карточки целиком.
+ *
+ * Диалог у панели и у дня ОДИН (`CardDialog` принимает `VisitCardView`), и
+ * держаться это должно построением, а не памятью. Пропадёт у блока поле —
+ * `npm run typecheck` покраснеет ЗДЕСЬ, на одной строке с объяснением, а не
+ * у клиники ссылкой на фишу, которой нет на одном экране из двух.
+ */
+type Fits<T extends true> = T
+export type _DashApptFitsCard = Fits<DashAppt extends VisitCardView ? true : false>
 
 /** Адрес живого канала панели. Путь — без `/api`, как у `api.get`. */
 export function livePath(date: string): string {

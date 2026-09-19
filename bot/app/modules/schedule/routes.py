@@ -34,7 +34,8 @@ from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
                             react_on, tg_configured)
 from ...core.visits import (SVC_PALETTE, _STATUS_ICON, _card_modal,
                             _collect_cards, _doc_hue, _list, _move_attrs,
-                            _move_modal, _parse_date, _photo_path)
+                            _move_modal, _parse_date, _photo_path,
+                            all_status_actions)
 from . import canvas as pcanvas
 from . import day as pday
 from . import panel as ppanel
@@ -356,7 +357,7 @@ def _slot_modal(d: date, back: str) -> str:
     <label class="nophone"><input type="checkbox" name="anophone" value="1" data-for="aphone" data-req="1" onchange="togglePhone(this)"> fără telefon</label>
     <label style="font-size:13px;color:#556;display:flex;align-items:center;gap:8px">
       Data nașterii (opț.)
-      <input type="date" name="abirth" max="{date.today().isoformat()}" style="flex:1"></label>
+      <input type="date" name="abirth" max="{pday.birth_max()}" style="flex:1"></label>
     <button>Adaugă programarea</button>
   </form>
   <form id="tab_n" class="dlg-form" method="post" action="/admin/note" style="display:none">
@@ -1368,6 +1369,19 @@ async def _panel_live(d: date, now: datetime) -> dict:
             d, now, ppanel.occupancy_pct(d, rows, active_dks),
             ppanel.occupancy_pct(prev_day, by_day[prev_day], active_dks),
             any(eng.work_minutes(dk, prev_day) for dk in active_dks), occ_series),
+        # ---- то, чем живут диалоги (C26.5.3-a) ----
+        # ⭐ В КОНВЕРТЕ, а не вторым каналом, и это решение. Матрица кнопок и
+        # списки диалога постоянны — значит отпечаток они не двигают НИКОГДА,
+        # и правило «отпечаток двинулся ⇒ на экране что-то изменилось» цело.
+        # Второй канал (параметр узла, отдельный GET) — это второе место, где
+        # можно забыть, а цена забывания — диалог без кнопок на одном экране
+        # из двух. Модель дня возит их тем же способом, то есть способ один.
+        # ⚠️ Цена названа: около килограмма с небольшим байт на каждый ответ
+        # 200 по 127.0.0.1.
+        "actions": all_status_actions(),
+        "note_actions": all_status_actions(is_note=True),
+        "note_ends": pday.note_ends(d),
+        "slotform": pday.slot_form(d),
     }
 
 

@@ -22,7 +22,8 @@ function appt(over: Partial<Extract<DashBlock, { kind: 'appt' }>> = {})
     top: 0, height: 1, col: 0, of: 1, title: '09:00 · 60′ · Consultație · Ion Popa',
     name: 'Ion Popa', service: 'Consultație', phone: '069000000',
     status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'manual',
-    comment: '', comment_cut: '', age: null, clickable: true,
+    comment: '', comment_cut: '', age: null,
+    doctor: 'Dr. Ion', pid: 17, rec: false, clickable: true,
     bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null, ...over,
   }
 }

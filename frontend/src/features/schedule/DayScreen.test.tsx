@@ -79,10 +79,10 @@ const MODEL: DayModel = {
   cards: {
     1: { name: 'Ion Popa', phone: '069000000', service: 'Consultație',
       doctor: 'Dr. Activ Doi', time: '09:00', comment: LONG, age: 41,
-      st: 'confirmed', pid: 7, rec: false },
+      status: 'confirmed', pid: 7, rec: false },
     2: { name: 'Maria Rusu', phone: '069000001', service: 'Durere acută',
       doctor: 'Dr. Activ Trei', time: '10:00', comment: '', age: 36,
-      st: 'noshow', pid: 8, rec: true },
+      status: 'noshow', pid: 8, rec: true },
   },
   actions: {
     confirmed: [{ to: 'waiting', cls: 'b-waiting', label: 'A venit', confirm: '' },

@@ -321,7 +321,7 @@ def suite_card(res: Result) -> None:
 
         res.check("состав карточки", sorted(cards[ids[0]]),
                   sorted(["name", "phone", "service", "doctor", "time", "comment",
-                          "age", "st", "pid", "rec"]))
+                          "age", "status", "pid", "rec"]))
         res.check("КОММЕНТАРИЙ В КАРТОЧКЕ ПОЛНЫЙ, а в сетке обрезан до 60",
                   (cards[ids[0]]["comment"], long_text[:60] in _grid_card(body, ids[0]),
                    long_text in _grid_card(body, ids[0])),
@@ -331,7 +331,7 @@ def suite_card(res: Result) -> None:
                              for v in cards.values()),
                "заметка попала в карточки — у неё нет ни пациента, ни исхода")
         res.ok("ОТМЕНЁННАЯ запись карточку имеет, хотя из сетки исчезла",
-               cards.get(ids[5], {}).get("st") == "cancelled"
+               cards.get(ids[5], {}).get("status") == "cancelled"
                and f"data-appt='{ids[5]}'" not in
                body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0],
                "отменённую запись больше не открыть — вернуть её будет нечем")
@@ -366,7 +366,7 @@ def suite_card(res: Result) -> None:
         # отказы смены статуса
         res.check("неизвестный статус — тихо назад, без баннера и без правки",
                   (c.post(f"/admin/status/{ids[0]}", to="pending", back=back).msg,
-                   _js_var(c.get(back).body, "CARDS")[ids[0]]["st"]),
+                   _js_var(c.get(back).body, "CARDS")[ids[0]]["status"]),
                   ("", "confirmed"))
         # час отменённой записи занят другим пациентом: возврат теперь отбивается
         res.check("час освободился и занят другим (иначе отказа ниже не будет)",

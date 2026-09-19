@@ -270,7 +270,13 @@ def _collect_cards(rows: list) -> dict:
             # состояние, а не «можно ли действовать»: набор кнопок в модалке
             # зависит от статуса так же, как в списке дня, и одним «да/нет»
             # его больше не выразить
-            "st": r["status"],
+            # ⚠️ Имя `status`, а не `st` (C26.5.3-a): ровно так это
+            # поле зовётся в блоке сетки, и рядом с ним лежит
+            # `status_label`. Два имени одного состояния в двух
+            # словарях — это 08-12 и 08-16, и в контракте, который
+            # пишется ради ОДНОГО канонического состояния, их быть
+            # не может.
+            "status": r["status"],
             "pid": r.get("patient_id"),
             # .get: не всякий вызывающий тянет флаг дневника из day_appointments
             "rec": bool(r.get("has_rec")),
@@ -354,7 +360,7 @@ function openCard(id) {{
   for (const k in CS_SHOW) {{
     const f = document.getElementById('cs_' + k);
     f.action = '/admin/status/' + id;
-    f.style.display = CS_SHOW[k].indexOf(c.st) < 0 ? 'none' : '';
+    f.style.display = CS_SHOW[k].indexOf(c.status) < 0 ? 'none' : '';
   }}
   document.getElementById('carddlg').showModal();
 }}

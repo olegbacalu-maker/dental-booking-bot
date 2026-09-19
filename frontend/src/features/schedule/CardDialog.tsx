@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
-import type { DayCard, StatusAction } from './day'
+import type { StatusAction, VisitCardView } from './day'
 
 /* Карточка визита по клику (C25.5b): что это за визит, комментарий стойки и
    кнопки исхода.
@@ -14,7 +14,11 @@ import type { DayCard, StatusAction } from './day'
    печатает список дня. Свой список в браузере разошёлся бы молча: закрытая
    запись потеряла бы возврат в одном месте и сохранила в другом.
    ⚠️ Другая запись — другой диалог: экран пересоздаёт его по номеру визита,
-   поэтому в поле всегда комментарий ТОЙ записи, которую открыли. */
+   поэтому в поле всегда комментарий ТОЙ записи, которую открыли.
+   ⭐ Принимает УЗКИЙ вид `VisitCardView` (C26.5.3-a), а не модель дня: под
+   него ложатся и карточка дня, и блок канвы панели, и диалог у двух экранов
+   остаётся ОДИН. Заведи второй — и на одном экране у визита появится ссылка
+   на фишу, а на другом нет; увидеть это можно, только открыв оба. */
 const T = {
   fisa: 'Deschide fișa pacientului ›',
   visitNew: 'Completează consultația ›',
@@ -27,7 +31,7 @@ const T = {
 interface Props {
   open: boolean
   id: number
-  card: DayCard
+  card: VisitCardView
   actions: StatusAction[]
   /** Адрес возврата для дневника визита — та же страница того же дня. */
   back: string

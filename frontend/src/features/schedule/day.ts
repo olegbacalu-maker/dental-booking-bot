@@ -83,6 +83,28 @@ export interface DayColumn {
 /** Карточка визита — ПОЛНАЯ, включая комментарий целиком (в сетке он обрезан
  *  до 60). Отменённые записи карточку имеют, хотя из сетки уходят: их
  *  открывают, чтобы вернуть. */
+/**
+ * Что нужно диалогу карточки — и ничего сверх.
+ *
+ * ⭐ Узкий вид, под который структурно ложатся и `DayCard` (день), и
+ * `DashAppt` (панель). Диалог у двух экранов ОДИН: заведи второй компонент —
+ * и на одном экране у визита появится ссылка на фишу, а на другом нет, и
+ * увидеть это можно, только открыв оба.
+ */
+export interface VisitCardView {
+  time: string
+  name: string
+  service: string
+  doctor: string
+  phone: string
+  age: number | null
+  /** ПОЛНОЕ значение: из него правят. Никогда не `comment_cut`. */
+  comment: string
+  status: string
+  pid: number | null
+  rec: boolean
+}
+
 export interface DayCard {
   name: string
   phone: string
@@ -91,8 +113,10 @@ export interface DayCard {
   time: string
   comment: string
   age: number | null
-  /** Состояние: по нему берётся набор кнопок из `actions`. */
-  st: string
+  /** Состояние: по нему берётся набор кнопок из `actions`.
+   *  ⚠️ Имя `status`, как в блоке сетки: два имени одного состояния в двух
+   *  словарях — та самая пара 08-12 и 08-16. */
+  status: string
   pid: number | null
   /** Дневник визита уже заполнен. */
   rec: boolean

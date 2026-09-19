@@ -92,6 +92,16 @@ def suite_model(res: Result) -> None:
                   "рядом — под своим именем",
                   (m["cards"][aid]["comment"], blk["comment"], blk["comment_cut"]),
                   (long_text, long_text, long_text[:60]))
+        # ⭐ И ВСЕ остальные поля — ПОЛЕ В ПОЛЕ (C26.5.3-a). Диалог панели
+        # питается блоком, диалог дня — карточкой; разойдись две сборки, и на
+        # одном экране у визита есть ссылка на фишу, а на другом нет — увидеть
+        # это можно, только открыв оба. До 19.09 доказан был один `comment`.
+        shared = ("name", "phone", "service", "time", "age", "status",
+                  "doctor", "pid", "rec", "comment")
+        card = m["cards"][aid]
+        res.check("карточка и блок описывают ОДНУ запись, поле в поле",
+                  {k: blk.get(k) for k in shared},
+                  {k: card.get(k) for k in shared})
 
         res.check("часы формы — те же, что в DOC_TIMES страницы",
                   m["form"]["times"],

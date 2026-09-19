@@ -28,7 +28,8 @@ function model(over: Partial<DashModel> = {}): DashModel {
           top: 0, height: 1, col: 0, of: 1, title: '09:00 · 60′ · Consultație · Ion Popa',
           name: 'Ion Popa', service: 'Consultație', phone: '069000000',
           status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'manual',
-          comment: '', comment_cut: '', age: null, clickable: true,
+          comment: '', comment_cut: '', age: null,
+          doctor: 'Dr. Ion', pid: 17, rec: false, clickable: true,
           bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
         }],
       }],
@@ -53,6 +54,10 @@ function model(over: Partial<DashModel> = {}): DashModel {
       tone: 'var(--violet)', value: 13, series: SERIES,
       from: { label: 'ieri', value: '10%' }, to: { label: 'azi', value: '13%' }, dir: 'up',
     },
+    actions: { confirmed: [{ to: 'waiting', cls: 'b-wait', label: 'A venit', confirm: '' }] },
+    note_actions: { confirmed: [{ to: 'cancelled', cls: 'b-cancel', label: 'Șterge', confirm: '' }] },
+    note_ends: [10, 11, 12],
+    slotform: { services: [{ id: 'consult', label: 'Consultație' }], birth_max: TODAY },
     minical: {
       title: 'Septembrie 2026', weekdays: ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'],
       weeks: [[
@@ -132,7 +137,8 @@ describe('C26.5.2: панель дня — экран целиком', () => {
       top: 1, height: 1, col: 0, of: 1, title: '10:00 · 60′ · Consultație · Maria Rusu',
       name: 'Maria Rusu', service: 'Consultație', phone: '069000001',
       status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'bot',
-      comment: '', comment_cut: '', age: null, clickable: true,
+      comment: '', comment_cut: '', age: null,
+      doctor: 'Dr. Ion', pid: 18, rec: false, clickable: true,
       bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
     })
     second.agenda = { count: 2, today: true, items: [...model().agenda.items] }

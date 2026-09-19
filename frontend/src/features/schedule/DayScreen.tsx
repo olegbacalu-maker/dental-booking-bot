@@ -176,7 +176,7 @@ export function DayScreen({ date = '', doctor = '', f = '',
 
       {card !== null && openCard
         ? <CardDialog key={card} open id={card} card={openCard}
-                      actions={m.actions[openCard.st] ?? []}
+                      actions={m.actions[openCard.status] ?? []}
                       back={`${base}?date=${m.date}`} busy={busy}
                       onClose={() => setCard(null)}
                       onComment={(text) => act(() => day.comment(at, doctor, tile, card, text))}
