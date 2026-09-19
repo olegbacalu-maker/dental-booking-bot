@@ -698,10 +698,14 @@ def suite_dashboard(res: Result) -> None:
                and ".gappt.bare b,.gappt.bare small" in gcss
                and tiny and "display:none" not in tiny,
                "у короткой записи спрятано имя — в журнале останется пятно без имени")
-        res.ok("ряд графика — ровно две недели",
-               all(len(p.split()) == 14 for p in
-                   re.findall(r"<polyline class='sp-l' points='([^']+)'", page)),
-               "точек не 14")
+        # ⚠️ Сторож ПУСТОТЫ, а не придирка: `all([])` — истина, и без него
+        # проверка зеленела бы на странице, где графиков нет ВООБЩЕ (например
+        # после переезда плиток в React). Та же форма, что у недели ниже:
+        # `bgs and all(...)`. Найдено разведкой C26.1.
+        pts = re.findall(r"<polyline class='sp-l' points='([^']+)'", page)
+        res.ok("ряд графика — ровно две недели, и графики вообще есть",
+               pts and all(len(x.split()) == 14 for x in pts),
+               f"рядов {len(pts)}, точек {[len(x.split()) for x in pts]}")
 
         # ⭐ 60′ + 120′ = 180 занятых из 840 рабочих (клиника фикстуры 07–21)
         occ = re.findall(r"title='(\d+) din (\d+) minute de lucru'.*?<b>(\d+)%</b>",

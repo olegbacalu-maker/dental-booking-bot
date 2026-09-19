@@ -327,7 +327,8 @@ def suite_card(res: Result) -> None:
                    long_text in _grid_card(body, ids[0])),
                   (long_text, True, False))
         res.ok("заметки стойки карточки не имеют",
-               all(v["service"] != "Livrare materiale" for v in cards.values()),
+               cards and all(v["service"] != "Livrare materiale"
+                             for v in cards.values()),
                "заметка попала в карточки — у неё нет ни пациента, ни исхода")
         res.ok("ОТМЕНЁННАЯ запись карточку имеет, хотя из сетки исчезла",
                cards.get(ids[5], {}).get("st") == "cancelled"
