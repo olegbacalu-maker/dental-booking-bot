@@ -81,10 +81,17 @@ def suite_model(res: Result) -> None:
         res.check("КАРТОЧКИ — те же, что печатает страница, поле в поле",
                   m["cards"], json.loads(page.split("var CARDS = ", 1)[1]
                                          .split(";\n", 1)[0].rstrip(";")))
-        res.check("а значит комментарий в карточке полный, в сетке — обрезанный",
-                  (m["cards"][aid]["comment"],
-                   next(x for x in _items(m) if x["id"] == int(aid))["comment"]),
-                  (long_text, long_text[:60]))
+        # ⛔ ТРИ значения, а не два (C26.5.2). Обрезок больше не носит имени
+        # полного: в блоке сетки рядом лежат `comment` (полное, источник
+        # правки и участник отпечатка живого канала) и `comment_cut` (60, то,
+        # что печатает ячейка). Пока имя было одно, диалог, накормленный
+        # блоком, записал бы обрезок обратно, и типы не возразили бы — оба
+        # `str` (разбор — live-contract › 6e).
+        blk = next(x for x in _items(m) if x["id"] == int(aid))
+        res.check("комментарий: в карточке полный, в блоке ПОЛНЫЙ и обрезок "
+                  "рядом — под своим именем",
+                  (m["cards"][aid]["comment"], blk["comment"], blk["comment_cut"]),
+                  (long_text, long_text, long_text[:60]))
 
         res.check("часы формы — те же, что в DOC_TIMES страницы",
                   m["form"]["times"],

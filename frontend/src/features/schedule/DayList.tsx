@@ -95,8 +95,8 @@ function Row({ row, actions, clickable, busy, onCard, onStatus }: RowProps) {
         {row.is_note ? <><Icon name="note" /> </>
           : row.urgent ? <><Icon name="sos" /> </> : null}
         {row.service}
-        {row.comment ? (
-          <><br /><small className="dp-cmt"><Icon name="chat" /> {row.comment}</small></>
+        {row.comment_cut ? (
+          <><br /><small className="dp-cmt"><Icon name="chat" /> {row.comment_cut}</small></>
         ) : null}
       </td>
       <td>{row.doctor}</td>

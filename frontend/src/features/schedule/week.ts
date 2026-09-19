@@ -27,7 +27,9 @@ export interface WeekItemAppt {
 export interface WeekItemNote {
   kind: 'note'
   time: string
-  text: string
+  /** Обрезок, 30 знаков: чип недели показывает начало заметки. Полного
+   *  значения у недели нет — ни диалога, ни живого канала здесь тоже нет. */
+  text_cut: string
 }
 
 export type WeekItem = WeekItemAppt | WeekItemNote

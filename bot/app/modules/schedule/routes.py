@@ -1126,7 +1126,7 @@ def _week_chip(x: dict) -> str:
     if x["kind"] == "note":
         return (f"<div class='wchip gnote' style='border:1px dashed var(--line);"
                 f"color:var(--text2)'>{_ic('note')} {x['time']} "
-                f"{html.escape(x['text'])}</div>")
+                f"{html.escape(x['text_cut'])}</div>")
     ns = " noshow" if x["noshow"] else ""
     return (f"<div class='wchip{ns}' style='background:{x['bg']};"
             f"border-left:5px solid {x['bar']}'>"

@@ -29,7 +29,7 @@ const MODEL: WeekModel = {
       items: [
         { kind: 'appt', id: 1, time: '09:00', name: 'Ion Popa', service: 'Consultație', noshow: false, bg: 'var(--green-soft)', bar: 'var(--green)' },
         { kind: 'appt', id: 2, time: '10:30', name: 'Maria Rusu', service: 'Durere acută', noshow: true, bg: 'var(--red-soft)', bar: 'var(--red)' },
-        { kind: 'note', time: '12:00', text: 'Livrare materiale' },
+        { kind: 'note', time: '12:00', text_cut: 'Livrare materiale' },
       ],
     },
     { date: '2026-09-23', dm: '23.09', label: 'Mi', count: 0, today: false, open: true, items: [] },

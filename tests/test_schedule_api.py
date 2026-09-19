@@ -88,7 +88,7 @@ def suite_api(res: Result) -> None:
                    ("10:30", "Maria Rusu", "Durere acută")])
         res.check("заметка стойки — своим видом и без имени пациента",
                   [x for x in tue["items"] if x["kind"] == "note"],
-                  [{"kind": "note", "time": "12:00", "text": "Livrare materiale"}])
+                  [{"kind": "note", "time": "12:00", "text_cut": "Livrare materiale"}])
         res.ok("цвет приезжает переменной темы, а не хексом",
                all(x["bg"].startswith("var(--") and x["bar"].startswith("var(--")
                    for x in tue["items"] if x["kind"] == "appt"),
@@ -548,6 +548,58 @@ def suite_live_envelope(res: Result) -> None:
                   (_j(after)["data"]["screen"], _j(after)["data"]["date"],
                    _j(after)["data"]["live"]),
                   (_j(a)["data"]["screen"], _j(a)["data"]["date"], True))
+
+        # --- 4a. КАНОНИЧЕСКОЕ значение, а не проекция показа (C26.5.2) ---
+        # ⛔ Три разных вопроса, и ответить надо на все три: изменение ВНУТРИ
+        # видимой границы (а), изменение ЗА ней при совпадающем начале (б) и
+        # доезжает ли полное значение ДО КЛИЕНТА (в). Без (в) можно получить
+        # верный отпечаток при неверном теле — и найти это уже на React.
+        # ⚠️ Граница показа у комментария 60 знаков, у заметки 80. Тексты
+        # длиннее границы и совпадают ДО неё: иначе проверка сравнивала бы не
+        # то и зеленела бы по неверной причине.
+        aid = int(ids["Live Unu"])
+        head = "Alergie la penicilina, de sunat inainte, vine cu mama, X"  # 56
+        cmt_a = head + "AAAA" + "1" * 60
+        cmt_b = head + "AAAA" + "2" * 60      # совпадает первые 60, дальше нет
+        cmt_c = head + "BBBB" + "1" * 60      # отличие ВНУТРИ первых 60
+        assert cmt_a[:60] == cmt_b[:60] and cmt_a[:60] != cmt_c[:60], "фикстура"
+
+        def _cmt(txt):
+            r = c.post_json(f"/api/schedule/appointments/{aid}/comment",
+                            {"comment": txt})
+            assert r.status == 200, (r.status, r.body[:120])
+            rr = c.get(url)
+            blk = next(b for col in _j(rr)["data"]["canvas"]["columns"]
+                       for b in col["blocks"] if b.get("id") == aid)
+            return rr.header("X-DP-Hash"), blk
+
+        h_a, blk_a = _cmt(cmt_a)
+        h_c, _ = _cmt(cmt_c)
+        res.check("(а) правка ВНУТРИ видимой границы двигает отпечаток",
+                  h_c != h_a, True)
+        h_a2, _ = _cmt(cmt_a)
+        h_b, blk_b = _cmt(cmt_b)
+        res.check("(б) ТО ЖЕ начало и другой хвост — тоже двигает отпечаток",
+                  (blk_a["comment_cut"] == blk_b["comment_cut"], h_b != h_a2),
+                  (True, True))
+        res.check("(в) полное значение доезжает ДО КЛИЕНТА, а не только до хеша",
+                  (blk_b["comment"], len(blk_b["comment_cut"])), (cmt_b, 60))
+        # ⭐ Заметка: её полное значение (`text`) лежало в конверте и до
+        # C26.5.2 — побочным следствием того, что канва берёт вид у
+        # `day.appt_view`. Следствие стало решением, и теперь оно пиннится.
+        note_txt = "Sedinta de dimineata cu tot personalul clinicii, sala mare" \
+                   " si proiectorul nou, " + "9" * 60
+        assert len(note_txt) > 80
+        c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d3",
+               ntext=note_txt, back="/admin")
+        nb = next(b for col in _j(c.get(url))["data"]["canvas"]["columns"]
+                  for b in col["blocks"] if b.get("kind") == "note")
+        # ⚠️ 120 — потолок САМОЙ заметки (`_add_note`), а не показа: полным
+        # считается то, что легло в базу, и сравнивать надо с ним.
+        res.check("у заметки в конверте ПОЛНЫЙ текст, а обрезки — рядом и с "
+                  "другими именами",
+                  (nb["text"], len(nb["title"]), len(nb["label"])),
+                  (note_txt[:120], 80, 40))
 
         # --- 5. охрана: JSON 401, а не редирект на форму входа ---
         anon = Client(s.url).get(url)

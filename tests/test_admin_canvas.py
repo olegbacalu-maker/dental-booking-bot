@@ -41,6 +41,11 @@ _COL = re.compile(r"<div class='gcol'(?: data-dk='([^']*)')?>(.*?)(?=<div class=
 _BLOCK = re.compile(r"<div class='gappt[^']*' data-appt='(\d+)'(.*?)style='([^']*)'", re.S)
 
 
+# ⚠️ Длиннее 80 намеренно: обе границы показа (80 и 40) обязаны быть
+# РАЗНЫМИ на этом тексте, иначе пин перестанет их различать.
+NOTE_LONG = ("Livrare materiale pentru cabinetul doi: freze, anestezic,"
+             " manusi marimea M si doua truse de unica folosinta")
+
 def _canvas(body: str) -> dict:
     """Канва в сравнимом виде: колонки, их блоки и геометрия каждого блока."""
     head = body.split("<div class='gridhead", 1)[1].split("<div class='gridbody'", 1)[0]
@@ -825,7 +830,7 @@ def suite_model(res: Result) -> None:
         # занимает час, не попадая в счёт пациентов. И не 13:00 — там обед, и
         # заметку отвергли бы (`bad`).
         c.post("/admin/note", ndate=day, ntime="09:00", ndoctor="d4",
-               ntext="Livrare materiale pentru cabinetul doi", back=f"/admin?date={day}")
+               ntext=NOTE_LONG, back=f"/admin?date={day}")
         # кластер: визит на 09:00 длиной два часа накрывает соседний в 10:00
         _sql(s, "UPDATE appointments SET duration_min = 120 WHERE id = ?", lung)
         # сирота: врач выпал из справочника, осталось имя-снимок
@@ -926,10 +931,17 @@ def suite_model(res: Result) -> None:
         # --- то, чего в разметке не видно, но без чего экран соврёт ---
         note = next(b for x in m["columns"] for b in x["blocks"]
                     if b["kind"] == "note")
-        res.check("ЗАМЕТКА приезжает В ДВУХ ДЛИНАХ — 80 в подсказке и 40 в блоке",
-                  (len(note["title"]), len(note["label"])),
-                  (min(80, len("Livrare materiale pentru cabinetul doi")),
-                   min(40, len("Livrare materiale pentru cabinetul doi"))))
+        # ⛔ Текст фикстуры ДЛИННЕЕ обеих границ, и числа записаны числами. До
+        # 19.09 здесь стояло `min(80, len(текст))` при тексте в 38 знаков:
+        # обе величины равнялись 38, и перестановка 80 и 40 местами прошла бы
+        # незамеченной — проверка была зелена по неверной причине.
+        # ⭐ Третьим членом — полная длина: именно `text` закрывает дыру
+        # живого канала (правка после 80-го знака), и до C26.5.2 его не пиннил
+        # никто (live-contract › 6c).
+        res.check("ЗАМЕТКА приезжает В ТРЁХ ВИДАХ: полный текст, 80 в "
+                  "подсказке, 40 в блоке",
+                  (note["text"], len(note["title"]), len(note["label"])),
+                  (NOTE_LONG, 80, 40))
         wait = next(b for x in m["columns"] for b in x["blocks"]
                     if b.get("status") == "waiting")
         res.ok("ОЖИДАНИЕ приезжает ОТМЕТКОЙ, а не минутами",

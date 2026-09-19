@@ -26,7 +26,11 @@ export interface DayAppt {
   urgent: boolean
   source: string
   dur: number
+  /** ⛔ Полное значение — ИЗ НЕГО правят (диалог карточки). */
   comment: string
+  /** Обрезок для ячейки сетки, 60 знаков. ⛔ Не писать обратно: сервер примет
+   *  и укоротит текст в базе без единой правки человеком (08-16). */
+  comment_cut: string
   /** Возраст считает сервер той же функцией, что печатает карточку. */
   age: number | null
   clickable: boolean
@@ -128,7 +132,9 @@ export interface DayListRow {
   phone: string
   service: string
   urgent: boolean
+  /** Полное значение; строка списка печатает `comment_cut` (80). */
   comment: string
+  comment_cut: string
   /** Снимок имени врача из самой записи, а не колонка сетки. */
   doctor: string
   source: string

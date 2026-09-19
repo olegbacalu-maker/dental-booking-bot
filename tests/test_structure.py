@@ -801,6 +801,68 @@ def suite(res: Result) -> None:
            "состояние экрана стало бы зависеть от клиента, а отпечаток — от "
            "адреса опроса: " + "; ".join(bad_ui))
 
+    # ---- обрезок не носит имени полного значения (C26.5.2) ----
+    # Один и тот же текст живёт в нескольких длинах: комментарий — 80 в списке
+    # дня, 60 в карточке сетки, полный в базе; заметка — 80 в подсказке, 40 в
+    # блоке. Пока обрезок звался так же, как полное значение, взять не тот было
+    # нечем помешать: оба `str`, и типы не возражают. Цена названа опытом
+    # 19.09 — правка комментария ПОСЛЕ 60-го знака не меняла живых данных, и
+    # второе рабочее место получало `204` «день не менялся»; а диалог,
+    # накормленный таким полем, записал бы обрезок обратно (08-16).
+    # ⭐ Правило простое: значение, собранное срезом с постоянной границей, не
+    # имеет права называться именем целого. Разрешены `title`/`label` — это
+    # имена МЕСТА показа (подсказка и подпись блока), а не имена значения.
+    # ⚠️ Полярность опасная: правило ищет ФОРМУ (срез с числом). Якоря два, оба
+    # на неё — известный ключ в словаре и известный ключ в присваивании.
+    cut_files = ("app/modules/schedule/day.py", "app/modules/schedule/canvas.py",
+                 "app/modules/schedule/panel.py", "app/modules/schedule/week.py",
+                 "app/core/visits.py")
+    bad_cut, seen_cut = [], {}
+
+    def _sliced(node) -> bool:
+        """`что-то[:ЧИСЛО]` — срез с постоянной границей, то есть обрезок."""
+        return (isinstance(node, ast.Subscript)
+                and isinstance(node.slice, ast.Slice)
+                and isinstance(node.slice.upper, ast.Constant)
+                and isinstance(node.slice.upper.value, int))
+
+    for rel in cut_files:
+        tree = by_path.get(rel)
+        if tree is None:
+            bad_cut.append(f"{rel}: файла нет — якорь правила пропал")
+            continue
+        found = set()
+        for node in ast.walk(tree):
+            pairs = []
+            if isinstance(node, ast.Dict):
+                pairs = [(k.value, v) for k, v in zip(node.keys, node.values)
+                         if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+                # ⚠️ Вторая форма обязательна: `v["title"] = r["service"][:80]`
+                # в canvas.py — это НЕ словарь-литерал, и правило, знающее
+                # только словари, прошло бы мимо половины случаев.
+                tgt = node.targets[0]
+                if (isinstance(tgt, ast.Subscript)
+                        and isinstance(tgt.slice, ast.Constant)
+                        and isinstance(tgt.slice.value, str)):
+                    pairs = [(tgt.slice.value, node.value)]
+            for key, val in pairs:
+                if not _sliced(val):
+                    continue
+                found.add(key)
+                if key not in ("title", "label") and not key.endswith("_cut"):
+                    bad_cut.append(f"{rel}:{val.lineno} ключ «{key}» — обрезок "
+                                   "под именем полного значения")
+        seen_cut[rel] = found
+    for rel, key in (("app/modules/schedule/day.py", "comment_cut"),
+                     ("app/modules/schedule/canvas.py", "title")):
+        if key not in seen_cut.get(rel, ()):
+            bad_cut.append(f"{rel}: срез под ключом «{key}» не найден — "
+                           "якорь правила пропал, форма изменилась")
+    res.ok("обрезок не носит имени полного значения", not bad_cut,
+           "диалог возьмёт обрезок за целое и запишет его обратно, а живой "
+           "канал не заметит правки за границей: " + "; ".join(bad_cut))
+
     # ---- icons.ts свежий: иконки клиента — ИЗ layout._I (09-17, 2.0) ----
     # У иконок один владелец — словарь _I; frontend/src/components/icons.ts
     # генерируется из него (scripts/gen_icons.py). Правка иконки на сервере

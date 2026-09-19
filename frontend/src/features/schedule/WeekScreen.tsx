@@ -102,7 +102,7 @@ function Chip({ item }: { item: WeekItem }) {
   if (item.kind === 'note') {
     return (
       <div className="wchip gnote dp-wnote">
-        <Icon name="note" /> {item.time} {item.text}
+        <Icon name="note" /> {item.time} {item.text_cut}
       </div>
     )
   }

@@ -93,7 +93,11 @@ def _item(r, colors) -> dict:
     """Одна запись глазами недели: час, кто, что и чем красить."""
     hh = r["starts_at"].astimezone(eng.TZ).strftime("%H:%M")
     if is_note(r):
-        return {"kind": "note", "time": hh, "text": r["service"][:30]}
+        # ⛔ `text_cut`, а не `text`: чип недели показывает обрезок, и
+        # имя обязано это говорить. Полного значения здесь нет и не
+        # нужно — у недели нет ни диалога, ни живого канала; появится
+        # потребитель, правящий заметку, — рядом встанет `text`.
+        return {"kind": "note", "time": hh, "text_cut": r["service"][:30]}
     bg, bar = colors(r)
     return {"kind": "appt", "id": r["id"], "time": hh,
             "name": r["name"] or "—", "service": r["service"],

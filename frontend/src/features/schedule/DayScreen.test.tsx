@@ -15,7 +15,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 const appt = (id: number, time: string, name: string, extra = {}) => ({
   kind: 'appt' as const, id, time, name, service: 'Consultație',
   phone: '069000000', status: 'confirmed', status_label: 'Confirmat',
-  urgent: false, source: 'panel', dur: 60, comment: '', age: null,
+  urgent: false, source: 'panel', dur: 60, comment: '', comment_cut: '', age: null,
   clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)',
   min: 600, busy: true, movable: true, ...extra,
 })
@@ -33,7 +33,9 @@ const MODEL: DayModel = {
   hours: [
     {
       h: 9, label: '09:00', closed: '', now: false, cells: [
-        { kind: 'appts', drop: true, items: [appt(1, '09:00', 'Ion Popa', { min: 540 })] },
+        { kind: 'appts', drop: true, items: [appt(1, '09:00', 'Ion Popa', {
+          min: 540, comment: LONG, comment_cut: LONG.slice(0, 60),
+        })] },
         { kind: 'free', drop: true, items: [] },
       ],
     },
@@ -43,7 +45,10 @@ const MODEL: DayModel = {
         {
           kind: 'appts', drop: true, items: [appt(2, '10:00', 'Maria Rusu', {
             status: 'noshow', status_label: 'Nu s-a prezentat', urgent: true,
-            service: 'Durere acută', age: 36, comment: 'sună înainte',
+            service: 'Durere acută', age: 36,
+            // короткий комментарий: обрезок совпадает с полным — так его
+            // и отдаёт сервер, и ячейка обязана его показать
+            comment: 'sună înainte', comment_cut: 'sună înainte',
             bg: 'var(--red-soft)', bar: 'var(--red)', movable: false, busy: false,
           })],
         },
@@ -92,15 +97,15 @@ const MODEL: DayModel = {
   },
   list: [
     { id: 1, is_note: false, time: '09:00', name: 'Ion Popa', age: 41,
-      phone: '069000000', service: 'Consultație', urgent: false, comment: LONG.slice(0, 80),
+      phone: '069000000', service: 'Consultație', urgent: false, comment: LONG, comment_cut: LONG.slice(0, 80),
       doctor: 'Dr. Activ Doi', source: 'panel', source_label: 'manual',
       status: 'confirmed', status_label: 'Confirmat', reminded: false, rec: false },
     { id: 2, is_note: false, time: '10:00', name: 'Maria Rusu', age: 36,
-      phone: '069000001', service: 'Durere acută', urgent: true, comment: '',
+      phone: '069000001', service: 'Durere acută', urgent: true, comment: '', comment_cut: '',
       doctor: 'Dr. Activ Trei', source: 'bot', source_label: 'bot',
       status: 'noshow', status_label: 'Nu s-a prezentat', reminded: true, rec: true },
     { id: 9, is_note: true, time: '19:00', name: '', age: null, phone: '',
-      service: 'Livrare', urgent: false, comment: '', doctor: 'Dr. Activ Doi',
+      service: 'Livrare', urgent: false, comment: '', comment_cut: '', doctor: 'Dr. Activ Doi',
       source: 'note', source_label: 'notiță', status: 'confirmed',
       status_label: 'Confirmat', reminded: false, rec: false },
   ],
@@ -308,10 +313,18 @@ describe('карточка визита', () => {
     await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
   }
 
-  it('правится ПОЛНЫЙ комментарий, а не обрезанный в сетке', async () => {
+  /* ⛔ До 19.09 проверка была зелена по НЕВЕРНОЙ причине: у этой записи
+     комментарий в сетке был пуст, и «в сетке не полный» выполнялось само
+     собой. Теперь в ячейке лежит обрезок (60), в диалоге — полное значение, и
+     они РАЗНЫЕ: подмени диалогу источник — станет красным. */
+  it('в ячейке сетки обрезок, а правится ПОЛНОЕ значение', async () => {
+    await show()
+    const cut = cellsOf(0)[0]?.querySelector('.cmt')?.textContent?.trim()
+    expect(cut).toBe(LONG.slice(0, 60))
+    expect(cut).not.toBe(LONG)
+
     await openCard(1)
     expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe(LONG)
-    expect(cellsOf(0)[0]?.querySelector('.cmt')).toBeNull()   // в сетке его нет вовсе
   })
 
   it('кнопки исхода — те, что прислал сервер для этого состояния', async () => {

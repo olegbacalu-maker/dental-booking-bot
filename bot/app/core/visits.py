@@ -106,9 +106,11 @@ def list_rows(rows: list) -> list[dict]:
     записи (в сетке их нет — там они только мешали бы) и заметки стойки; и
     только здесь заметку можно убрать и вернуть, потому что карточки визита у
     неё нет по замыслу.
-    ⛔ Комментарий здесь обрезан до 80 знаков, в карточке сетки — до 60, а в
-    `cards` он ПОЛНЫЙ. Три длины одного текста: править надо полный, иначе
-    пересохранение укоротит его без единой правки (прайор 08-16).
+    ⛔ Один текст живёт в ЧЕТЫРЁХ длинах — 80 в списке, 60 в карточке сетки,
+    полный в `cards` и полный в базе, — и с 19.09 обрезок больше не носит
+    имени полного значения: правят `comment`, печатают `comment_cut`. До этого
+    оба звались одинаково в разных словарях, оба были `str`, и взять не тот
+    было нечем помешать (прайор 08-16).
     ⚠️ Врач — СНИМОК имени из самой строки, а не колонка сетки: у записи без
     `doctor_id` другого адреса нет, и переименование врача не двигает историю.
     """
@@ -124,7 +126,10 @@ def list_rows(rows: list) -> list[dict]:
             "phone": "" if is_note else (r["phone"] or ""),
             "service": r["service"] or "",
             "urgent": not is_note and r["service"] in eng.URGENT_LABELS,
-            "comment": (r["comment"] or "")[:80],
+            # полное значение — источник правки, обрезок — то, что
+            # печатает строка списка; имена разные намеренно
+            "comment": r["comment"] or "",
+            "comment_cut": (r["comment"] or "")[:80],
             "doctor": r["doctor"] or "",
             "source": "note" if is_note else r["source"],
             "source_label": "notiță" if is_note else (
@@ -149,9 +154,9 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
         svc_txt = ((_ic("note") + " " if is_note else _ic("sos") + " "
                     if v["urgent"] else "")
                    + html.escape(v["service"]))
-        if v["comment"]:
+        if v["comment_cut"]:
             svc_txt += (f"<br><small style='color:#7a6a00'>{_ic('chat')} "
-                        f"{html.escape(v['comment'])}</small>")
+                        f"{html.escape(v['comment_cut'])}</small>")
         acts = "".join(
             f"<form class='act' method='post' action='/admin/status/{v['id']}'"
             + (f" onsubmit=\"return confirm('{b['confirm']}')\"" if b["confirm"] else "")

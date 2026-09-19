@@ -191,7 +191,7 @@ function Appt({ item, dk, dragging, onDrag, onCard }: ApptProps) {
       {item.status !== 'confirmed' && (
         <div className="stw"><span className={`stat s-${item.status}`}>{item.status_label}</span></div>
       )}
-      {item.comment && <div className="cmt"><Icon name="chat" /> {item.comment}</div>}
+      {item.comment_cut && <div className="cmt"><Icon name="chat" /> {item.comment_cut}</div>}
     </div>
   )
 }
