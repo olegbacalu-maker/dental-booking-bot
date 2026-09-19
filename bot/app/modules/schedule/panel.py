@@ -95,3 +95,151 @@ def agenda(d: date, rows: list, cards: dict | None, colors, ag_cls: dict,
                            else None),
         })
     return {"count": len(out), "today": d == now.date(), "items": out}
+
+
+# ---- плитки «Azi» и их тренды ----------------------------------------------
+
+# Длина ряда мини-графика. ⚠️ Константа живёт ЗДЕСЬ, рядом с правилом, которое
+# её читает: вторая копия в разметке однажды разошлась бы, и ряд под цифрой
+# оказался бы не про тот период, про который подпись.
+SPARK_DAYS = 14
+
+
+def spark_span(d: date) -> list:
+    """Две недели, ЗАКАНЧИВАЮЩИЕСЯ днём `d`: от старого к новому.
+
+    ⚠️ Порядок несущий: перевёрнутый ряд нарисовал бы рост как падение, и
+    проверка «значения те же» этого не заметила бы — множество то же.
+    """
+    return [d - timedelta(days=SPARK_DAYS - 1 - i) for i in range(SPARK_DAYS)]
+
+
+def series_of(by_day: dict, span: list) -> list:
+    """Ряды по метрикам: пять списков длиной в `span`, в том же порядке."""
+    return [list(x) for x in zip(*(counts(by_day[x]) for x in span))]
+
+
+def counts(rows: list) -> tuple[int, int, int, int, int]:
+    """(всего, из бота, с ресепшена, срочных, неявок) за день.
+
+    ⚠️ Знаменатели разные: первые четыре считают ЖИВЫЕ записи (без отменённых
+    и без заметок стойки), а неявки — по статусу среди ВСЕХ строк. Свести к
+    одному списку значило бы либо потерять неявки, либо посчитать заметку
+    записью.
+    """
+    a = [r for r in rows if r["status"] != "cancelled" and r["source"] != "note"]
+    return (len(a), sum(1 for r in a if r["source"] == "bot"),
+            sum(1 for r in a if r["source"] == "manual"),
+            sum(1 for r in a if r["service"] in eng.URGENT_LABELS),
+            sum(1 for r in rows if r["status"] == "noshow"))
+
+
+def occupancy_pct(day: date, rows: list, active_dks: list) -> int:
+    """Загрузка кресел за день: занятые минуты / рабочие минуты АКТИВНЫХ врачей.
+
+    ⚠️ Ёмкость берётся у того же `eng.work_minutes`, что считает карточку врача
+    и «Statistici»: три места не имеют права назвать три разных процента про
+    один и тот же день.
+    ⛔ Потолок сотней: перебронированный день на этой полосе показал бы больше
+    ста процентов ширины. ⚠️ У ПЛИТКИ врача потолка нет — там «130%» и есть
+    ответ; здесь величина сводная и полоса общая.
+    """
+    cap = sum(eng.work_minutes(dk, day) for dk in active_dks)
+    if not cap:
+        return 0
+    busy = sum(int(r.get("duration_min") or 60) for r in rows
+               if r["status"] != "cancelled" and r["source"] != "note")
+    return min(round(100 * busy / cap), 100)
+
+
+def delta(cur: int, prev: int, bad_up: bool = False) -> dict:
+    """Сравнение со вчера: `same` или `delta` с НАПРАВЛЕНИЕМ.
+
+    ⛔ Полярность считается ЗДЕСЬ и только здесь. Для записей рост — это `up`,
+    а для НЕЯВОК рост — это `dn`: «неявок стало больше» не может выглядеть
+    хорошей новостью. Общая функция направления, не знающая про `bad_up`,
+    однажды заберёт неявки себе, и стрелка позеленеет на росте неявок — молча,
+    потому что цифра при этом верная и меняется правильно.
+    ⚠️ Направление приезжает ГОТОВЫМ (`up`/`dn`), а не выводится клиентом из
+    знака разницы: вывод по знаку — это и есть та самая общая функция.
+    """
+    diff = cur - prev
+    if diff == 0:
+        return {"kind": "same", "diff": 0, "dir": None, "text": "la fel ca ieri"}
+    up = diff > 0
+    return {"kind": "delta", "diff": diff, "text": "față de ieri",
+            "dir": ("dn" if bad_up else "up") if up else ("up" if bad_up else "dn")}
+
+
+# Плитки в том же порядке, что печатает карточка «Azi». ⛔ `filter` у первой
+# пустой НАМЕРЕННО: «Programări» — это весь день, и ссылка ведёт в полный
+# список. Раздай всем один адрес с отбором, и счётчик перестанет сходиться с
+# тем, что открывается по клику.
+_TILES = (
+    ("total", "Programări", "cal", "green", None, "", False),
+    ("bot", "Prin bot", "bot", "teal", "bot", "", False),
+    ("rec", "Recepție", "headset", "blue", "rec", "", False),
+    ("urg", "Urgențe", "alarm", "amber", "urg", " warn", False),
+    ("noshow", "Neprezentări", "ban", "red", "noshow", " bad", True),
+)
+# Индекс метрики в `counts` по ключу плитки.
+_TILE_AT = {"total": 0, "bot": 1, "rec": 2, "urg": 3, "noshow": 4}
+
+
+def tiles(d: date, cur: tuple, prev: tuple, series: list, tg_on: bool,
+          bot_new: int) -> list[dict]:
+    """Плитки «Azi» СПИСКОМ, а не набором именованных полей.
+
+    ⛔ Список, потому что плиток у клиники ЧЕТЫРЕ или пять: «Prin bot» живёт за
+    `tg_configured()` и у клиники с замороженным ботом не рисуется вовсе.
+    Фиксированные пять позиций дали бы React дыру на месте четвёртой, и он
+    честно нарисовал бы пустую плитку там, где её нет на старом экране.
+    ⚠️ У «Urgențe» тренда НЕТ — у неё своя постоянная подпись. Это ЧЕТВЁРТАЯ
+    форма подписи (считая загрузку кресел), и сводить их к одной функции
+    нельзя: «столько же, сколько вчера», «на столько-то больше», «вперемешку
+    сегодня» и «было → стало» отвечают на разные вопросы.
+    """
+    day_url = f"/admin/all?date={d.isoformat()}"
+    out = []
+    for key, label, icon, hue, flt, cls, bad_up in _TILES:
+        if key == "bot" and not tg_on:
+            continue
+        i = _TILE_AT[key]
+        if key == "urg":
+            sub = {"kind": "static", "text": "intercalate azi"}
+        elif key == "bot":
+            sub = ({"kind": "bot_new", "new": bot_new, "text": "azi"} if bot_new
+                   else {"kind": "static", "text": "nimic nou azi"})
+        else:
+            sub = delta(cur[i], prev[i], bad_up)
+        out.append({
+            "key": key, "label": label, "value": cur[i], "icon": icon,
+            "soft": f"var(--{hue}-soft)", "tone": f"var(--{hue})",
+            "filter": flt, "href": day_url + (f"&f={flt}" if flt else ""),
+            "cls": cls.strip(), "sub": sub, "series": list(series[i]),
+        })
+    return out
+
+
+def occupancy(d: date, now: datetime, occ: int, occ_prev: int,
+              prev_open: bool, series: list) -> dict:
+    """Загрузка кресел: «было → стало», а не разница в пунктах.
+
+    ⚠️ Две величины, а не «+16 pp»: процентные пункты пришлось объяснять даже
+    Олегу, и регистратура не обязана знать эту единицу.
+    ⚠️ Слова «ieri/azi» — только на СЕГОДНЯШНЕЙ странице: журнал умеет
+    показывать любой день, и там честнее даты.
+    ⛔ Закрытый вчера день говорит «închis», а не «0%»: ноль процентов — это
+    «работали и простояли», и на выходном он читался бы как провал.
+    """
+    prev_day = d - timedelta(days=1)
+    a_lbl, b_lbl = (("ieri", "azi") if d == now.date()
+                    else (prev_day.strftime("%d.%m"), d.strftime("%d.%m")))
+    return {
+        "label": "Grad de ocupare", "icon": "trend",
+        "soft": "var(--violet-soft)", "tone": "var(--violet)",
+        "value": occ, "series": list(series),
+        "from": {"label": a_lbl, "value": f"{occ_prev}%" if prev_open else "închis"},
+        "to": {"label": b_lbl, "value": f"{occ}%"},
+        "dir": "up" if occ > occ_prev else "dn" if occ < occ_prev else None,
+    }

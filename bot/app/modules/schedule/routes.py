@@ -481,7 +481,6 @@ def _mini_cal(sel: date, base: str = "/admin") -> str:
   {''.join(weeks)}</table></div>"""
 
 
-SPARK_DAYS = 14
 
 
 # бейдж строки повестки: тот же компонент, что в списке пациентов (.pl-badge) —
@@ -940,33 +939,35 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     # Две недели одним запросом вместо «сегодня» + «вчера» двумя: из этой же
     # выборки берутся и день, и вчера, и ряды для мини-графиков в плитках.
-    span = [d - timedelta(days=SPARK_DAYS - 1 - i) for i in range(SPARK_DAYS)]
+    span = ppanel.spark_span(d)
     all_rows = await db.day_appointments(
-        day_start - timedelta(days=SPARK_DAYS - 1), day_start + timedelta(days=1))
+        day_start - timedelta(days=ppanel.SPARK_DAYS - 1),
+        day_start + timedelta(days=1))
     by_day: dict = {x: [] for x in span}
     for r in all_rows:
         by_day.setdefault(r["starts_at"].astimezone(eng.TZ).date(), []).append(r)
     rows = by_day[d]
 
-    def _counts(rr: list) -> tuple[int, int, int, int, int]:
-        a = [r for r in rr if r["status"] != "cancelled" and r["source"] != "note"]
-        return (len(a), sum(1 for r in a if r["source"] == "bot"),
-                sum(1 for r in a if r["source"] == "manual"),
-                sum(1 for r in a if r["service"] in eng.URGENT_LABELS),
-                sum(1 for r in rr if r["status"] == "noshow"))
-
-    total, n_bot, n_man, n_urg, n_noshow = _counts(rows)
-    y_total, _yb, y_man, _yu, y_noshow = _counts(by_day[d - timedelta(days=1)])
-    series = list(zip(*(_counts(by_day[x]) for x in span)))
+    # ⛔ Счёт и полярность живут в `panel.py` — там же, откуда их берёт модель
+    # живого канала. Своя вторая копия здесь разошлась бы с ней молча: цифра на
+    # экране и цифра в JSON считались бы по-разному, а увидеть это можно было
+    # бы только сверив два экрана глазами.
+    cur_cnt = ppanel.counts(rows)
+    prev_cnt = ppanel.counts(by_day[d - timedelta(days=1)])
+    total, n_bot, n_man, n_urg, n_noshow = cur_cnt
+    y_total, _yb, y_man, _yu, y_noshow = prev_cnt
+    series = ppanel.series_of(by_day, span)
 
     def trend(cur: int, prev: int, bad_up: bool = False) -> str:
-        diff = cur - prev
-        if diff == 0:
-            return "<span class='trend'>la fel ca ieri</span>"
-        cls = ("dn" if bad_up else "up") if diff > 0 else ("up" if bad_up else "dn")
-        arrow = _ic("caret-u") if diff > 0 else _ic("caret-d")
-        return (f"<span class='trend'><span class='{cls}'>{arrow} {diff:+d}</span>"
-                f" față de ieri</span>")
+        """Разметка подписи. ⛔ САМО ПРАВИЛО — в `panel.delta`: направление для
+        неявок обратное, и второй его расчёт рядом с разметкой однажды
+        позеленел бы на росте неявок."""
+        t = ppanel.delta(cur, prev, bad_up)
+        if t["kind"] == "same":
+            return f"<span class='trend'>{t['text']}</span>"
+        arrow = _ic("caret-u") if t["diff"] > 0 else _ic("caret-d")
+        return (f"<span class='trend'><span class='{t['dir']}'>{arrow} "
+                f"{t['diff']:+d}</span> {t['text']}</span>")
 
     now = datetime.now(eng.TZ)
     recent = await db.recent_bot_appointments(now - timedelta(days=7))
@@ -1004,12 +1005,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                   if eng.DOCTOR_META.get(dk, {}).get("active", True)]
 
     def _occ_pct(day: date, rr: list) -> int:
-        cap = sum(eng.work_minutes(dk, day) for dk in active_dks)
-        if not cap:
-            return 0
-        busy = sum(int(r.get("duration_min") or 60) for r in rr
-                   if r["status"] != "cancelled" and r["source"] != "note")
-        return min(round(100 * busy / cap), 100)
+        return ppanel.occupancy_pct(day, rr, active_dks)
 
     occ = _occ_pct(d, rows)
     prev_day = d - timedelta(days=1)
@@ -1293,20 +1289,54 @@ async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
 
 
 async def _panel_live(d: date, now: datetime) -> dict:
-    """Живое состояние панели данными: канва и повестка от ОДНОЙ выборки дня.
+    """Живое состояние панели данными: канва, повестка, плитки и загрузка — от
+    ОДНОЙ выборки.
 
-    ⛔ Выборка одна не ради скорости. Канва и повестка обязаны отвечать про
-    один и тот же день: два запроса к базе подряд — это два РАЗНЫХ дня, если
-    между ними кто-то записался со второго рабочего места, и живой канал отдал
-    бы состояние, которого никогда не было ни на одном экране.
-    ⚠️ `now` приходит АРГУМЕНТОМ: от него зависит `state` повестки, и проверке
-    нужна возможность назвать момент, а не гадать о нём.
+    ⛔ Выборка одна не ради скорости. Части панели обязаны отвечать про один и
+    тот же день: два запроса к базе подряд — это два РАЗНЫХ дня, если между
+    ними кто-то записался со второго рабочего места, и живой канал отдал бы
+    состояние, которого никогда не было ни на одном экране.
+    ⚠️ Окно — ДВЕ НЕДЕЛИ, как у страницы: из него же берутся и вчера (для
+    трендов), и ряды мини-графиков. Отдельный запрос «за вчера» дал бы ту же
+    рассинхронизацию, только реже и незаметнее.
+    ⚠️ `now` приходит АРГУМЕНТОМ: от него зависят `state` повестки и слова
+    «ieri/azi» у загрузки, и проверке нужна возможность назвать момент.
     """
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
-    rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
+    span = ppanel.spark_span(d)
+    all_rows = await db.day_appointments(
+        day_start - timedelta(days=ppanel.SPARK_DAYS - 1),
+        day_start + timedelta(days=1))
+    by_day: dict = {x: [] for x in span}
+    for r in all_rows:
+        by_day.setdefault(r["starts_at"].astimezone(eng.TZ).date(), []).append(r)
+    rows = by_day[d]
     cards = _collect_cards(rows)
-    return {"canvas": pcanvas.model(d, rows, cards, _svc_colors),
-            "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now)}
+
+    active_dks = [dk for dk in eng.DOCTORS
+                  if eng.DOCTOR_META.get(dk, {}).get("active", True)]
+    prev_day = d - timedelta(days=1)
+    # ⛔ Плитка «Prin bot» — НЕ то же самое, что блок «Programări noi din bot».
+    # Блок и колокольчик спрятаны заморозкой целиком, а плитка живёт у
+    # grandfather-клиники и у неё на экране ЕСТЬ. Поэтому список плиток строится
+    # по тому же условию, что и на странице, а не «без бота навсегда».
+    tg_on = tg_configured()
+    bot_new = 0
+    if tg_on:
+        recent = await db.recent_bot_appointments(now - timedelta(days=7))
+        bot_new = sum(1 for x in recent
+                      if x["created_at"].astimezone(eng.TZ).date() == now.date())
+    occ_series = [ppanel.occupancy_pct(x, by_day[x], active_dks) for x in span]
+    return {
+        "canvas": pcanvas.model(d, rows, cards, _svc_colors),
+        "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now),
+        "tiles": ppanel.tiles(d, ppanel.counts(rows), ppanel.counts(by_day[prev_day]),
+                              ppanel.series_of(by_day, span), tg_on, bot_new),
+        "occupancy": ppanel.occupancy(
+            d, now, ppanel.occupancy_pct(d, rows, active_dks),
+            ppanel.occupancy_pct(prev_day, by_day[prev_day], active_dks),
+            any(eng.work_minutes(dk, prev_day) for dk in active_dks), occ_series),
+    }
 
 
 async def _canvas_model(d: date) -> dict:

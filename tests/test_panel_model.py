@@ -16,6 +16,7 @@
 паритетный не заметит, что оба считают неверно — он сверяет их между собой.
 """
 import pathlib
+import re
 import sys
 from datetime import date, datetime, timedelta
 
@@ -24,10 +25,19 @@ from harness import Client, Result, Server, clinic_today
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import engine as eng                                      # noqa: E402
-from app.modules.schedule.panel import agenda, agenda_state        # noqa: E402
+from app.modules.schedule.panel import (agenda, agenda_state,      # noqa: E402
+                                        series_of, spark_span, tiles)
 from app.modules.schedule.routes import _AG_CLS, _svc_colors       # noqa: E402
 
 from test_admin_canvas import _add, _agenda, _ids                   # noqa: E402
+
+# Плитка «Azi» на странице: класс, адрес, число и подпись.
+# ⚠️ Разбор идёт по АТРИБУТАМ (`href`, `data-count`), а не по тексту: адрес
+# отбора и оформление особой плитки живут именно там, и проверка по содержимому
+# тега зеленела бы над сломанной ссылкой.
+_TILE_RE = re.compile(
+    r"<a class='rk-i([^']*)' href='([^']*)'>.*?<b data-count='(\d+)'>\d+</b>"
+    r"<span class='rk-l'>([^<]+)</span>", re.S)
 
 DAY = date(2026, 9, 23)                  # среда, заведомо не «сегодня»
 NOW = datetime(2026, 9, 23, 12, 0, tzinfo=eng.TZ)
@@ -203,3 +213,143 @@ def suite_agenda_parity(res: Result) -> None:
                        for x, r in zip(m["items"], page["rows"]) if x["wait_since"]),
                "отметка ожидания разошлась со страницей — минуты у React и у "
                "старого экрана пошли бы вразнобой")
+
+
+# --------------------------------------------- плитки «Azi» и их тренды
+
+
+def suite_tiles_pure(res: Result) -> None:
+    """Плитки списком, полярность неявок и четыре формы подписи."""
+    span = [DAY - timedelta(days=13 - i) for i in range(14)]
+    series = [[i for i in range(14)] for _ in range(5)]
+
+    off = tiles(DAY, (10, 3, 7, 2, 1), (8, 2, 6, 2, 1), series,
+                tg_on=False, bot_new=0)
+    on = tiles(DAY, (10, 3, 7, 2, 1), (8, 2, 6, 2, 1), series,
+               tg_on=True, bot_new=2)
+    if not res.check("якорь: без бота плиток ЧЕТЫРЕ, с ботом — пять",
+                     (len(off), len(on)), (4, 5)):
+        return
+
+    res.check("⛔ плитка бота ОТСУТСТВУЕТ, а не приезжает пустым местом",
+              [x["key"] for x in off], ["total", "rec", "urg", "noshow"])
+    res.check("и остальные сохраняют и порядок, и личность",
+              [(x["key"], x["label"], x["value"]) for x in off],
+              [(x["key"], x["label"], x["value"]) for x in on if x["key"] != "bot"])
+
+    # --- ПОЛЯРНОСТЬ ---
+    up = {x["key"]: x["sub"] for x in tiles(DAY, (10, 0, 7, 2, 3), (8, 0, 6, 2, 1),
+                                            series, tg_on=False, bot_new=0)}
+    res.check("рост ЗАПИСЕЙ — это `up`, рост НЕЯВОК — это `dn`",
+              (up["total"]["dir"], up["total"]["diff"],
+               up["noshow"]["dir"], up["noshow"]["diff"]),
+              ("up", 2, "dn", 2))
+    down = {x["key"]: x["sub"] for x in tiles(DAY, (6, 0, 7, 2, 0), (8, 0, 6, 2, 2),
+                                              series, tg_on=False, bot_new=0)}
+    res.check("и наоборот: меньше записей — `dn`, меньше неявок — `up`",
+              (down["total"]["dir"], down["noshow"]["dir"]), ("dn", "up"))
+    res.ok("направление приезжает ГОТОВЫМ, а не выводится из знака разницы",
+           down["noshow"]["diff"] < 0 and down["noshow"]["dir"] == "up",
+           "у неявок знак и направление совпали — общая функция направления "
+           "забрала неявки себе, и рост неявок позеленеет")
+
+    # --- ЧЕТЫРЕ ФОРМЫ ПОДПИСИ ---
+    same = {x["key"]: x["sub"] for x in tiles(DAY, (8, 0, 6, 2, 1), (8, 0, 6, 2, 1),
+                                              series, tg_on=False, bot_new=0)}
+    res.check("«столько же, сколько вчера» — своя форма, без стрелки и разницы",
+              (same["total"]["kind"], same["total"]["dir"],
+               same["total"]["diff"], same["total"]["text"]),
+              ("same", None, 0, "la fel ca ieri"))
+    res.check("«на столько-то» — своя, с направлением и знаком",
+              (up["total"]["kind"], up["total"]["text"]), ("delta", "față de ieri"))
+    res.check("у СРОЧНЫХ тренда нет вовсе — у них постоянная подпись",
+              (same["urg"]["kind"], same["urg"]["text"]),
+              ("static", "intercalate azi"))
+    res.check("а у бота — своя, про новые за сегодня",
+              [(x["sub"]["kind"], x["sub"].get("new")) for x in on if x["key"] == "bot"],
+              [("bot_new", 2)])
+    res.check("и «ничего нового» — тоже отдельная, а не ноль в той же",
+              [x["sub"]["kind"] for x in
+               tiles(DAY, (10, 0, 7, 2, 1), (8, 0, 6, 2, 1), series,
+                     tg_on=True, bot_new=0) if x["key"] == "bot"],
+              ["static"])
+
+    # --- АДРЕС ОТБОРА ---
+    res.check("«Programări» ведёт в ВЕСЬ день — отбора у неё нет намеренно",
+              [(x["key"], x["filter"]) for x in off],
+              [("total", None), ("rec", "rec"), ("urg", "urg"), ("noshow", "noshow")])
+    res.ok("и адрес у каждой свой, а не один на всех",
+           len({x["href"] for x in off}) == len(off)
+           and off[0]["href"] == f"/admin/all?date={DAY.isoformat()}",
+           f"адреса совпали: {[x['href'] for x in off]}")
+
+    # --- РЯДЫ ---
+    res.check("ряд у каждой плитки — СВОЙ, длиной в две недели",
+              [len(x["series"]) for x in off], [14, 14, 14, 14])
+    metric = tiles(DAY, (10, 0, 7, 2, 1), (8, 0, 6, 2, 1),
+                   [[1] * 14, [2] * 14, [3] * 14, [4] * 14, [5] * 14],
+                   tg_on=False, bot_new=0)
+    res.check("и ряд принадлежит СВОЕЙ метрике, а не соседней",
+              {x["key"]: x["series"][0] for x in metric},
+              {"total": 1, "rec": 3, "urg": 4, "noshow": 5})
+    res.check("порядок ряда — от старого к новому, заканчивая днём экрана",
+              (spark_span(DAY)[0], spark_span(DAY)[-1], len(spark_span(DAY))),
+              (DAY - timedelta(days=13), DAY, 14))
+    holes = {DAY - timedelta(days=13 - i): [] for i in range(14)}
+    holes[DAY] = [_row(9), _row(10)]
+    holes[DAY - timedelta(days=5)] = [_row(9, status="noshow")]
+    ser = series_of(holes, spark_span(DAY))
+    res.check("пустые дни — НУЛИ на своём месте, а не пропуски в ряду",
+              (len(ser[0]), ser[0][-1], ser[0][0], ser[4][8]), (14, 2, 0, 1))
+
+
+def suite_tiles_parity(res: Result) -> None:
+    """Плитки модели против карточки «Azi» на странице — и с ботом, и без."""
+    day = clinic_today().isoformat()
+    import json as _json
+
+    def _page_tiles(body: str) -> list:
+        block = re.search(r"<div class='rkpi'>.*?(?=<div class='rk-occ'>)", body, re.S)
+        if not block:
+            return []
+        return [{"cls": m.group(1).strip(), "href": m.group(2).replace("&amp;", "&"),
+                 "value": int(m.group(3)), "label": m.group(4)}
+                for m in _TILE_RE.finditer(block.group(0))]
+
+    with Server() as s:
+        c = Client(s.url).login()
+        _add(c, day, "09:00", "d2", "Kpi Unu", 1)
+        _add(c, day, "10:00", "d3", "Kpi Doi", 2, svc="pain")
+        page = _page_tiles(c.get(f"/admin?date={day}&ui=legacy").body)
+        m = _json.loads(c.get(f"/api/schedule/live?date={day}").body)["data"]
+        if not res.check("якорь: у клиники без бота плиток четыре и там, и там",
+                         (len(page), len(m["tiles"])), (4, 4)):
+            return
+        res.check("те же плитки, в том же порядке, с теми же числами",
+                  [(x["label"], x["value"]) for x in m["tiles"]],
+                  [(x["label"], x["value"]) for x in page])
+        res.check("и адреса отбора — те же",
+                  [x["href"] for x in m["tiles"]], [x["href"] for x in page])
+        res.check("и оформление особых плиток — то же",
+                  [x["cls"] for x in m["tiles"]], [x["cls"] for x in page])
+        res.ok("загрузка кресел приехала отдельно от плиток — у неё нет ссылки",
+               m["occupancy"]["value"] == int(
+                   re.search(r"data-count='(\d+)' data-suffix='%'",
+                             c.get(f"/admin?date={day}&ui=legacy").body).group(1)),
+               "процент загрузки разошёлся со страницей")
+
+    # ⛔ Вторая ветка — с ботом. Без неё мутация «вернуть плитку бота» осталась
+    # бы зелёной: у клиники без бота её и так нет, и проверка «плиток четыре»
+    # прошла бы над кодом, который просто не умеет её строить.
+    with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s2:
+        c2 = Client(s2.url).login()
+        _add(c2, day, "09:00", "d2", "Kpi Bot", 3)
+        page2 = _page_tiles(c2.get(f"/admin?date={day}&ui=legacy").body)
+        m2 = _json.loads(c2.get(f"/api/schedule/live?date={day}").body)["data"]
+        res.check("у grandfather-клиники плитка бота ЕСТЬ — и там, и там",
+                  ([x["label"] for x in m2["tiles"]],
+                   [x["label"] for x in page2]),
+                  (["Programări", "Prin bot", "Recepție", "Urgențe", "Neprezentări"],
+                   ["Programări", "Prin bot", "Recepție", "Urgențe", "Neprezentări"]))
+        res.check("и стоит она ВТОРОЙ, а не в конце",
+                  [x["key"] for x in m2["tiles"]][:2], ["total", "bot"])
