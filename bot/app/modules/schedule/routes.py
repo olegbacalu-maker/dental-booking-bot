@@ -453,31 +453,24 @@ _RO_MONTHS = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iul
 
 
 def _mini_cal(sel: date, base: str = "/admin") -> str:
-    first = sel.replace(day=1)
-    prev_m = (first - timedelta(days=1)).replace(day=1)
-    next_m = (first + timedelta(days=32)).replace(day=1)
-    start = first - timedelta(days=first.weekday())
-    today = datetime.now(eng.TZ).date()
+    """Разметка мини-календаря. ⛔ САМИ ПРАВИЛА — в `panel.minical`: полные
+    недели, три независимые метки и соседи по первому числу. Второй их расчёт
+    рядом с разметкой разошёлся бы с моделью молча."""
+    m = ppanel.minical(sel, datetime.now(eng.TZ).date(), _RO_MONTHS, base)
     cells = []
-    cur = start
-    while cur.month == sel.month or cur <= first or len(cells) % 7 != 0:
-        cls = []
-        if cur.month != sel.month:
-            cls.append("oth")
-        if cur == today:
-            cls.append("tdy")
-        if cur == sel:
-            cls.append("seld")
-        cells.append(f"<td><a class='{' '.join(cls)}' "
-                     f"href='{base}?date={cur.isoformat()}'>{cur.day}</a></td>")
-        cur += timedelta(days=1)
+    for wk in m["weeks"]:
+        for c in wk:
+            cls = " ".join(k for k, on in (("oth", c["other"]), ("tdy", c["today"]),
+                                           ("seld", c["selected"])) if on)
+            cells.append(f"<td><a class='{cls}' href='{c["href"]}'>{c["day"]}</a></td>")
     weeks = ["<tr>" + "".join(cells[i:i + 7]) + "</tr>"
              for i in range(0, len(cells), 7)]
+    head = "".join(f"<th>{x}</th>" for x in m["weekdays"])
     return f"""<div class='mcal'>
-  <div class='mhead'><a href='{base}?date={prev_m.isoformat()}'>‹</a>
-    <b>{_RO_MONTHS[sel.month - 1]} {sel.year}</b>
-    <a href='{base}?date={next_m.isoformat()}'>›</a></div>
-  <table><tr><th>Lu</th><th>Ma</th><th>Mi</th><th>Jo</th><th>Vi</th><th>Sâ</th><th>Du</th></tr>
+  <div class='mhead'><a href='{m["prev"]["href"]}'>‹</a>
+    <b>{m["title"]}</b>
+    <a href='{m["next"]["href"]}'>›</a></div>
+  <table><tr>{head}</tr>
   {''.join(weeks)}</table></div>"""
 
 
@@ -1332,6 +1325,10 @@ async def _panel_live(d: date, now: datetime) -> dict:
         "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now),
         "tiles": ppanel.tiles(d, ppanel.counts(rows), ppanel.counts(by_day[prev_day]),
                               ppanel.series_of(by_day, span), tg_on, bot_new),
+        # ⚠️ `now.date()`, а не `d`: «сегодня» в календаре — это сегодня, а не
+        # день, на который смотрят. Подставь `d` — и метка «tdy» поедет вслед
+        # за листанием, перестав отвечать на вопрос, ради которого она есть.
+        "minical": ppanel.minical(d, now.date(), _RO_MONTHS),
         "occupancy": ppanel.occupancy(
             d, now, ppanel.occupancy_pct(d, rows, active_dks),
             ppanel.occupancy_pct(prev_day, by_day[prev_day], active_dks),

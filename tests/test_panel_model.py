@@ -26,8 +26,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import engine as eng                                      # noqa: E402
 from app.modules.schedule.panel import (agenda, agenda_state,      # noqa: E402
-                                        series_of, spark_span, tiles)
-from app.modules.schedule.routes import _AG_CLS, _svc_colors       # noqa: E402
+                                        minical, series_of, spark_span,
+                                        tiles)
+from app.modules.schedule.routes import (_AG_CLS, _svc_colors,     # noqa: E402
+                                        _RO_MONTHS as MONTHS)
 
 from test_admin_canvas import _add, _agenda, _ids                   # noqa: E402
 
@@ -353,3 +355,98 @@ def suite_tiles_parity(res: Result) -> None:
                    ["Programări", "Prin bot", "Recepție", "Urgențe", "Neprezentări"]))
         res.check("и стоит она ВТОРОЙ, а не в конце",
                   [x["key"] for x in m2["tiles"]][:2], ["total", "bot"])
+
+
+# ----------------------------------------------------- мини-календарь
+
+
+def suite_minical_pure(res: Result) -> None:
+    """Календарь: полные недели, три независимые метки, соседи по первому числу.
+
+    ⚠️ Дни названы ЯВНО, а не «сегодня плюс N»: сентябрь 2026 начинается во
+    вторник и укладывается ровно в пять недель — набор, считающий от текущей
+    даты, проверял бы каждый месяц другую раскладку и однажды покраснел бы без
+    единой правки кода.
+    """
+    sep = date(2026, 9, 19)          # суббота
+    today = date(2026, 9, 21)        # понедельник, НЕ выбранный день
+    m = minical(sep, today, MONTHS)
+    if not res.check("якорь: сентябрь 2026 укладывается в ПЯТЬ недель по семь дней",
+                     (len(m["weeks"]), sorted({len(w) for w in m["weeks"]})),
+                     (5, [7])):
+        return
+
+    res.check("подпись — месяц словом и год", m["title"], "Septembrie 2026")
+    res.check("шапка недели начинается с понедельника и кончается воскресеньем",
+              (m["weekdays"][0], m["weekdays"][-1], len(m["weekdays"])),
+              ("Lu", "Du", 7))
+    res.check("ПЕРВАЯ неделя начинается с понедельника — даже из прошлого месяца",
+              (m["weeks"][0][0]["date"], m["weeks"][0][0]["other"]),
+              ("2026-08-31", True))
+    res.check("и первое число месяца стоит во ВТОРНИКЕ, а не в первой клетке",
+              (m["weeks"][0][1]["date"], m["weeks"][0][1]["other"]),
+              ("2026-09-01", False))
+    res.check("последняя неделя дотянута до воскресенья чужими днями",
+              (m["weeks"][-1][-1]["date"], m["weeks"][-1][-1]["other"]),
+              ("2026-10-04", True))
+
+    flat = [c for w in m["weeks"] for c in w]
+    res.check("дни идут подряд, без пропусков и повторов",
+              (len(flat), len({c["date"] for c in flat})), (35, 35))
+    res.check("ТРИ МЕТКИ независимы: чужой месяц, сегодня и выбранный",
+              ([c["date"] for c in flat if c["today"]],
+               [c["date"] for c in flat if c["selected"]],
+               sum(1 for c in flat if c["other"])),
+              (["2026-09-21"], ["2026-09-19"], 5))
+    both = minical(sep, sep, MONTHS)
+    res.ok("один и тот же день бывает СРАЗУ сегодняшним и выбранным",
+           any(c["today"] and c["selected"] for w in both["weeks"] for c in w),
+           "метки склеены — день перестанет быть и тем, и другим одновременно")
+    oth_today = minical(date(2026, 9, 19), date(2026, 8, 31), MONTHS)
+    res.ok("и день из ЧУЖОГО месяца тоже помечается сегодняшним",
+           any(c["other"] and c["today"]
+               for w in oth_today["weeks"] for c in w),
+           "хвост прошлого месяца перестал подсвечиваться как сегодня")
+
+    res.check("соседние месяцы ведут на ПЕРВОЕ число, а не на тот же день",
+              (m["prev"]["date"], m["next"]["date"]), ("2026-08-01", "2026-10-01"))
+    feb = minical(date(2026, 3, 31), today, MONTHS)
+    res.check("и короткий месяц это не ломает: 31 марта → февраль и апрель",
+              (feb["prev"]["date"], feb["next"]["date"]),
+              ("2026-02-01", "2026-04-01"))
+    res.ok("адрес каждой клетки несёт СВОЙ день",
+           all(c["href"].endswith(c["date"]) for c in flat)
+           and len({c["href"] for c in flat}) == 35,
+           "клетки ведут на один адрес — по календарю нельзя перейти")
+    res.check("шесть недель тоже бывает — март 2026 начинается в воскресенье",
+              len(minical(date(2026, 3, 15), today, MONTHS)["weeks"]), 6)
+
+
+def suite_minical_parity(res: Result) -> None:
+    """Календарь модели против календаря страницы."""
+    day = "2026-09-19"
+    import json as _json
+    with Server() as s:
+        c = Client(s.url).login()
+        body = c.get(f"/admin?date={day}&ui=legacy").body
+        block = re.search(r"<div class='mcal'>.*?</table></div>", body, re.S)
+        m = _json.loads(c.get(f"/api/schedule/live?date={day}").body)["data"]["minical"]
+        if not res.ok("якорь: календарь на странице есть", bool(block), "нет блока"):
+            return
+        b = block.group(0)
+        page = [{"cls": x.group(1), "href": x.group(2), "day": x.group(3)}
+                for x in re.finditer(r"<a class='([^']*)' href='([^']*)'>(\d+)</a>", b)]
+        flat = [x for w in m["weeks"] for x in w]
+        res.check("те же клетки в том же порядке",
+                  [(x["day"], x["href"]) for x in flat],
+                  [(int(x["day"]), x["href"]) for x in page])
+        res.check("и те же метки на тех же днях",
+                  [(x["other"], x["today"], x["selected"]) for x in flat],
+                  [("oth" in x["cls"], "tdy" in x["cls"], "seld" in x["cls"])
+                   for x in page])
+        res.check("подпись месяца и соседи — те же",
+                  (m["title"],
+                   m["prev"]["href"] in b, m["next"]["href"] in b),
+                  (re.search(r"<b>([^<]+)</b>", b).group(1), True, True))
+        res.check("шапка недели — та же",
+                  m["weekdays"], re.findall(r"<th>([^<]+)</th>", b))
