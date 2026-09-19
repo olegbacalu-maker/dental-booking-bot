@@ -198,6 +198,8 @@ SUITES = [
     ("Панель: мини-календарь месяца", test_admin_canvas.suite_minical),
     ("Панель: повестка дня", test_admin_canvas.suite_agenda),
     ("Панель: тренды и их полярность", test_admin_canvas.suite_trends),
+    ("Живой канал данными: конверт (C27.1)",
+     test_schedule_api.suite_live_envelope),
     ("Панель: модель канвы против страницы (C26.4)", test_admin_canvas.suite_model),
     ("Панель: текущий час в модели и на странице", test_admin_canvas.suite_model_now),
     ("Панель: пустой день в модели", test_admin_canvas.suite_model_empty),

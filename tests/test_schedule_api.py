@@ -441,3 +441,126 @@ def suite_day_switch(res: Result) -> None:
         res.check("чужой врач при флаге — на журнал",
                   c.get("/admin/doctor/d999").status, 307)
         res.check("без входа закрыта", Client(s.url).get("/admin/all").status, 303)
+
+
+# ------------------------------------------- живой канал ДАННЫМИ (C27.1)
+
+
+def suite_live_envelope(res: Result) -> None:
+    """Конверт живого канала: `GET /api/schedule/live`.
+
+    ⛔ Главное свойство живого журнала — сервер умеет сказать «не менялось».
+    У старого канала это держалось ПОСТРОЕНИЕМ: `data-hash` обёртки и
+    `X-DP-Hash` фрагмента считались от одной строки разметки, и второго рендера
+    «для опроса» не было. Здесь проверяется то же самое, но про ДАННЫЕ, и
+    именно про данные, а не про отпечаток HTML: отпечаток обязан считаться ОТ
+    ТОГО ЖЕ, что уехало клиенту.
+
+    ⚠️ День собран из всего, обо что отпечаток спотыкается: пациент в приёмной
+    (минуты ждать браузеру), визит «сейчас» (подсветка часа), и НИЧЬЯ в
+    сортировке — две законченные записи на одну минуту у одного врача.
+    Уникальный индекс слота частичный (`WHERE status IN (активные)`), поэтому
+    две законченные ложатся, а порядок таких строк без тай-брейка по `a.id`
+    наследуется от базы и решает геометрию блоков.
+
+    ⏳ ЧЕГО ЗДЕСЬ НЕТ и почему: ветка `live: false` не исполняется ни одной
+    проверкой. Она включается флагом React у экрана панели, а `react_on`
+    отклоняет имя, которого нет в `REACT_SCREENS`; `schedule_dash` появится там
+    только в C26.5. Принято сознательно: заводить имя экрана раньше самого
+    экрана значило бы разрешить включить панели флаг, за которым ничего нет.
+    ⛔ Закрыть эту ветку — первая обязанность C26.5, а не «когда-нибудь»:
+    вкладка, открытая до включения флага, узнаёт «я больше не живая» ровно
+    отсюда.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        day = clinic_today().isoformat()
+        for i, (hh, nm) in enumerate((("09:00", "Live Unu"), ("10:00", "Live Doi"),
+                                      ("11:00", "Live Trei"))):
+            c.post("/admin/add", adate=day, atime=hh, adoctor="d2",
+                   aservice="consult", aname=nm, aphone=f"06980010{i}")
+        ids = {m.group(2): m.group(1) for m in re.finditer(
+            r"<tr class='[a-z]+'><td>(\d+)</td>.*?(Live \w+)",
+            c.get(f"/admin/all?date={day}").body, re.S)}
+        assert {"Live Unu", "Live Doi", "Live Trei"} <= set(ids), sorted(ids)
+        c.post(f"/admin/status/{ids['Live Unu']}", to="waiting", back="/admin")
+        for nm in ("Live Doi", "Live Trei"):
+            c.post(f"/admin/status/{ids[nm]}", to="done", back="/admin")
+        import sqlite3 as _sq
+        con = _sq.connect(s.dir / "dental.db")
+        con.execute("UPDATE appointments SET starts_at = (SELECT starts_at FROM"
+                    " appointments WHERE id = ?) WHERE id = ?",
+                    (ids["Live Doi"], ids["Live Trei"]))
+        con.commit()
+        con.close()
+
+        url = f"/api/schedule/live?date={day}"
+        a = c.get(url)
+        if not res.check("якорь: канал отвечает состоянием панели",
+                         (a.status, _j(a)["data"]["live"],
+                          "canvas" in _j(a)["data"],
+                          len(_j(a)["data"]["canvas"]["columns"]) > 0),
+                         (200, True, True, True)):
+            return
+
+        # --- 1. детерминизм: ДАННЫЕ, а не разметка ---
+        b = c.get(url)
+        res.check("два запроса при неизменном дне дают ОДНИ И ТЕ ЖЕ данные",
+                  (a.body == b.body,
+                   a.header("X-DP-Hash") == b.header("X-DP-Hash")),
+                  (True, True))
+        res.ok("и в дне ЕСТЬ то, обо что отпечаток спотыкается",
+               any(x.get("wait_since") for col in _j(a)["data"]["canvas"]["columns"]
+                   for x in col["blocks"])
+               and any(b2["of"] == 2 for col in _j(a)["data"]["canvas"]["columns"]
+                       for b2 in col["blocks"]),
+               "ни ожидающего, ни ничьей — проверка шла бы мимо своего предмета")
+
+        # --- 2. отпечаток считается ОТ ТОГО ЖЕ, что отправлено ---
+        canon = json.dumps(_j(a)["data"], sort_keys=True, ensure_ascii=False,
+                           separators=(",", ":"))
+        import hashlib as _h
+        res.check("ОТПЕЧАТОК — от отправленных данных, а не от чего-то рядом",
+                  _h.md5(canon.encode("utf-8")).hexdigest(), a.header("X-DP-Hash"))
+
+        # --- 3. совпал — 204 без тела ---
+        same = c.get(url, headers={"X-DP-Hash": a.header("X-DP-Hash")})
+        res.check("совпавший отпечаток → 204 и пустое тело",
+                  (same.status, same.body.strip()), (204, ""))
+        res.ok("у 204 те же заголовки: версия и запрет кеша",
+               same.header("X-DP-V") != "" and same.header("X-DP-Hash") != ""
+               and same.header("Cache-Control") == "no-store",
+               "без X-DP-V клиент не узнает об обновлении exe, без no-store "
+               "WebView2 вправе отдать вчерашний ответ")
+
+        # --- 4. изменение двигает ИМЕННО относящееся ---
+        c.post("/admin/add", adate=day, atime="14:00", adoctor="d3",
+               aservice="consult", aname="Live Nou", aphone="069800199")
+        after = c.get(url, headers={"X-DP-Hash": a.header("X-DP-Hash")})
+        blocks = lambda r: [x["id"] for col in _j(r)["data"]["canvas"]["columns"]  # noqa: E731
+                            for x in col["blocks"]]
+        res.check("новая запись меняет отпечаток и приезжает В КАНВЕ",
+                  (after.status,
+                   after.header("X-DP-Hash") != a.header("X-DP-Hash"),
+                   len(blocks(after)) == len(blocks(a)) + 1),
+                  (200, True, True))
+        res.check("а то, чего она не касается, осталось прежним",
+                  (_j(after)["data"]["screen"], _j(after)["data"]["date"],
+                   _j(after)["data"]["live"]),
+                  (_j(a)["data"]["screen"], _j(a)["data"]["date"], True))
+
+        # --- 5. охрана: JSON 401, а не редирект на форму входа ---
+        anon = Client(s.url).get(url)
+        res.check("опрос без входа → JSON 401, НЕ 303",
+                  (anon.status, _j(anon).get("ok")), (401, False))
+
+        # --- 6. эхо параметров и кривая дата ---
+        res.check("экран и дата возвращаются эхом",
+                  (_j(a)["data"]["screen"], _j(a)["data"]["date"]), ("panel", day))
+        bad = c.get("/api/schedule/live?date=31-31-31")
+        res.check("кривая дата молча открывает сегодняшний день — как у страницы",
+                  (bad.status, _j(bad)["data"]["date"]), (200, clinic_today().isoformat()))
+        res.check("неизвестный экран отбивается с полем, а не молча пустотой",
+                  (c.get("/api/schedule/live?screen=nope").status,
+                   _j(c.get("/api/schedule/live?screen=nope")).get("field")),
+                  (422, "screen"))

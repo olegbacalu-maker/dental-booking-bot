@@ -13,14 +13,70 @@ fetch: браузер сходит за редиректом сам и верн�
 """
 from __future__ import annotations
 
+import hashlib
 import json
 
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 
 from .. import db
+from .. import engine as eng
 from .auth import _secret, auth_blocked, can, current_user, same_origin_post
 from .layout import msg_json
+
+
+# ---- живой канал ДАННЫМИ (C27.1) -------------------------------------------
+# ⭐ Живой журнал держится ОДНИМ свойством: сервер отвечает «не менялось», пока
+# состояние то же. У старого канала это держалось построением — `data-hash` у
+# обёртки и `X-DP-Hash` фрагмента считались от ОДНОЙ строки разметки, второго
+# рендера «для опроса» не существовало. Канал данных обязан унаследовать ровно
+# это, иначе первый же опрос на неизменном дне вернёт «изменение», и React
+# станет перерисовывать панель каждые 12 секунд на пустом месте — увидеть это
+# можно, только простояв на странице полминуты.
+LIVE_HEADER = "x-dp-live"
+LIVE_TAG = "x-dp-hash"
+
+
+def live_canon(data) -> str:
+    """Канонические байты состояния — ЕДИНСТВЕННЫЙ вид, от которого считается
+    отпечаток и который уезжает клиенту.
+
+    ⛔ `sort_keys` обязателен: порядок ключей словаря в Python — это порядок
+    вставки, и перестановка двух строк в сборке модели поменяла бы отпечаток,
+    не тронув ни одного значения. ⛔ `separators` без пробелов и
+    `ensure_ascii=False` — чтобы «тот же текст» давал те же байты независимо от
+    настроек дампа в другом месте.
+    """
+    return json.dumps(data, sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":"))
+
+
+def live_hash(data) -> str:
+    """Отпечаток состояния. ⛔ Считается ОТ ТОГО ЖЕ, что отправляется."""
+    return hashlib.md5(live_canon(data).encode("utf-8")).hexdigest()
+
+
+def live_reply(request: Request, data) -> Response:
+    """Ответ живого канала: 204 «состояние прежнее» или 200 с состоянием.
+
+    ⚠️ Сравнение идёт СВОИМ заголовком, а не ETag/304 — как у старого канала и
+    по той же причине: у WebView2 и у туннеля свои кеши, и стандартную пару они
+    вправе трактовать сами. Отсюда же `no-store`.
+    ⚠️ `X-DP-V` несёт версию программы: после тихого обновления exe клиент
+    видит чужую версию и перезагружается целиком, вместо того чтобы вклеивать
+    новые данные в старый экран со старым кодом.
+    """
+    h = live_hash(data)
+    headers = {"X-DP-Hash": h, "X-DP-V": eng.APP_VERSION,
+               "Cache-Control": "no-store"}
+    if request.headers.get(LIVE_TAG) == h:
+        return Response(status_code=204, headers=headers)
+    # ⛔ Конверт — тот же `msg_json`, а не собранный по месту словарь: свой
+    # второй конверт развёл бы разбор ответов у клиента ровно так же, как
+    # второй словарь статусов разводит слова на экране.
+    out = msg_json(True, data=data)
+    out.headers.update(headers)
+    return out
 
 
 def api_guard(request: Request) -> JSONResponse | None:

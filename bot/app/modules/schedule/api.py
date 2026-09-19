@@ -29,8 +29,8 @@ from datetime import date, datetime
 from fastapi import APIRouter, Query, Request
 
 from ... import engine as eng
-from ...core.api import api_body, api_guard
-from ...core.layout import msg_json
+from ...core.api import api_body, api_guard, live_reply
+from ...core.layout import LIVE_RELOAD, msg_json, react_on
 from ...core.visits import _parse_date
 from .routes import (_add_appt, _add_note, _canvas_model, _day_model,
                      _move_appt, _set_comment, _set_status, _week_model)
@@ -113,6 +113,50 @@ async def api_day(request: Request, date_q: str = Query("", alias="date"),
     if data is None:
         return msg_json(False, status=404)
     return msg_json(True, data=data)
+
+
+# Экраны живого канала: имя → (ключ раскладки, имя React-экрана).
+# ⚠️ Наполнение сегодня есть только у панели: канва — единственная часть живого
+# среза, у которой уже есть модель (C26.4). Правая колонка (мини-календарь,
+# повестка, плитки, колокольчик) приедет своими полями, и конверт от этого не
+# изменится — в этом и был смысл делать конверт первым.
+_LIVE_SCREENS = {"panel": ("dash", "schedule_dash")}
+
+
+@router.get("/api/schedule/live")
+async def api_live(request: Request, screen: str = Query("panel"),
+                   date_q: str = Query("", alias="date")):
+    """Живое состояние экрана ДАННЫМИ: 204 «прежнее» или 200 со снимком.
+
+    ⛔ Это не «ещё один способ получить канву». Живой журнал держится ровно на
+    том, что сервер умеет сказать «не менялось», и цена ошибки тут не в лишнем
+    запросе: отпечаток, считающийся не от того, что отправлено, заставит React
+    перерисовывать панель каждые 12 секунд — на неизменном дне, молча, и
+    увидеть это можно, только простояв на странице полминуты.
+
+    ⚠️ `live` — ЯВНОЕ поле, а не догадка по отсутствию заголовка. Экран
+    перестаёт быть живым по ДВУМ причинам сразу (ключ ушёл из `LIVE_RELOAD`
+    или экран отдаётся React-ом), и вкладка, открытая до включения флага,
+    обязана узнать об этом словом, а не молчанием.
+    ⚠️ Версии в состоянии НЕТ намеренно: она едет заголовком `X-DP-V`. Положи
+    её в данные — и отпечаток менялся бы при каждом обновлении exe, хотя день
+    тот же; клиент и так перезагружается по заголовку.
+    ⏳ `updated` (максимум отметок данных дня) тоже нет: отпечаток уже
+    отвечает «менялось или нет», а поле, посчитанное неосторожно от
+    `datetime.now()`, вернуло бы ровно ту болезнь, от которой ушли 08-20.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    spec = _LIVE_SCREENS.get(screen)
+    if spec is None:
+        return msg_json(False, status=422, field="screen")
+    key, react_name = spec
+    d = _screen(date_q)
+    live = key in LIVE_RELOAD and not react_on(request, react_name)
+    data: dict = {"screen": screen, "date": d.isoformat(), "live": live}
+    if live:
+        data["canvas"] = await _canvas_model(d)
+    return live_reply(request, data)
 
 
 @router.get("/api/schedule/canvas")
