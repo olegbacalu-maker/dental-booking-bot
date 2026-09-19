@@ -488,3 +488,16 @@
    инлайновых стилей старой страницы, цвета берутся у темы клиники. */
 .dp-react-root .dp-empty { color: var(--text3); }
 .dp-react-root table.list .dp-cmt { color: var(--amber-t); }
+/* панель дня (C26.5.2): два места, где у старой страницы стоял ИНЛАЙН.
+   Переносим величины, но красит их тема клиники, а не зашитый хекс
+   (прайор 08-09). Всё остальное на канве — классы panel.css как есть. */
+.dp-react-root .dp-freeday { padding: 28px; text-align: center; color: var(--text3); }
+.dp-react-root .dp-relink { margin-top: 3px; display: flex; gap: 3px; }
+.dp-react-root .dp-relink select { font-size: 10.5px; max-width: 110px; }
+.dp-react-root .dp-relink button {
+  font-size: 10.5px;
+  border: 1px solid var(--line);
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
