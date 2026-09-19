@@ -98,6 +98,18 @@ def _live_stale(request: Request) -> Response | None:
                              "Cache-Control": "no-store"})
 
 
+def _day_tabs(d: date) -> str:
+    """Две ссылки в шапке панели: день и неделя.
+
+    ⚠️ Отдельной функцией, потому что потребителей ДВА — старая страница и
+    React-ветка. Вторая копия строки разошлась бы с первой молча: на экране
+    это «у новой панели пропала неделя», а найти причину можно только сверив
+    два экрана глазами.
+    """
+    return (f"<a class='primary' href='/admin?date={d.isoformat()}'>Zi</a>"
+            f"<a href='/admin/week?date={d.isoformat()}'>Săptămâna</a>")
+
+
 def _date_nav(d: date, base: str, extra: str = "") -> str:
     prev_d, next_d = d - timedelta(days=1), d + timedelta(days=1)
     wk_prev, wk_next = d - timedelta(days=7), d + timedelta(days=7)
@@ -940,15 +952,18 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         # объявляет живой страницу с узлом React.
         if (st := _live_stale(request)) is not None:
             return st
-        # ⚠️ `msg` уезжает ПАРАМЕТРОМ УЗЛА: на `/admin` приземляется `no_access`
-        # со ВСЕЙ программы (двенадцать проверок прав сверяют редирект сюда), и
-        # показать его React обязан при ПЕРВОЙ отрисовке, а не после своего
-        # первого ответа — иначе отказ в правах станет молчаливым переходом на
-        # панель.
-        params = {"date": d.isoformat()}
-        if msg:
-            params["msg"] = msg
-        return _shell(react_mount("schedule_dash", "/admin", params),
+        # ⭐ Шапка дня и баннер — СЕРВЕРНЫЕ, как у девяти уже переехавших
+        # экранов, и это решение, а не экономия. На `/admin` приземляется
+        # `no_access` со ВСЕЙ программы (двенадцать проверок прав сверяют
+        # редирект сюда), и увидеть его человек обязан при ПЕРВОЙ отрисовке, а
+        # не после первого ответа канала. Прежде `msg` уезжал параметром узла —
+        # и не читался в клиенте НИ ОДНОЙ строкой: отказ в правах был
+        # молчаливым переходом на панель, а проверка на `data-params` зеленела,
+        # потому что сервер параметр честно клал.
+        # ⚠️ Узел React при этом остаётся узлом: `_shell` видит метку и не
+        # объявляет страницу живой — ни обёртки `#live`, ни `data-reload`.
+        return _shell(_date_nav(d, "/admin", _day_tabs(d)) + _banner(msg, d)
+                      + react_mount("schedule_dash", "/admin", {"date": d.isoformat()}),
                       "panou principal", active="dash")
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     # Две недели одним запросом вместо «сегодня» + «вчера» двумя: из этой же
@@ -1078,8 +1093,7 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
                 f"<span style='width:7px;height:7px;border-radius:50%;background:"
                 f"{'var(--green)' if tg_on else 'var(--text3)'}'></span>"
                 f"{'Sincronizat cu botul Telegram' if tg_on else 'Bot Telegram neconectat'}</div>")
-    tabs = (f"<a class='primary' href='/admin?date={d.isoformat()}'>Zi</a>"
-            f"<a href='/admin/week?date={d.isoformat()}'>Săptămâna</a>")
+    tabs = _day_tabs(d)
     # ⭐ KPI живут в ПРАВОЙ колонке, а не полноширинным рядом над журналом
     # (макет Олега 08-11). Ряд наверху стоил 218px и уводил начало сетки на
     # 556-й пиксель: на рабочем экране клиники (1366×768, окно ~696px) от дня

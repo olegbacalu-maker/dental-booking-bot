@@ -436,7 +436,19 @@ function pickName(inp) {
    иначе переход на завтра красит весь день как новый. Зовётся при загрузке и
    после каждой подмены живого куска (apply) — sessionStorage, а не переменная,
    потому что 303-повтор после смены статуса переживает только он. */
+/* ⛔ Страница, отданная React-ом, рисует сетку САМА. Три функции ниже ищут её
+   узлы по классам и атрибутам — и находят React-овские. Кусается сегодня ровно
+   одна: `placeNowline` висит на своём 30-секундном интервале и начала бы
+   доклеивать ВТОРУЮ линию внутрь поддерева, которым владеет React (первый
+   вызов при загрузке безвреден — бандл ещё не смонтирован). Остальные две
+   безвредны по случайности: `markFresh` зовётся только при загрузке и из
+   подмены живого куска, которой у React-страницы нет, а `paintWaits` ищет
+   `data-wait-since`, который React не печатает. Случайность — не основание;
+   охрана стоит у всех трёх. */
+var DP_REACT = !!document.getElementById('root');
+
 function markFresh() {
+  if (DP_REACT) return;
   var grid = document.querySelector('[data-day]');
   if (!grid) return;
   var key = 'dp_seen_' + grid.getAttribute('data-day');
@@ -466,6 +478,7 @@ markFresh();
    умноженные на живую высоту ячейки (--cell её ставит fitGrid, поэтому и
    пересчёт на resize — ПОСЛЕ fitGrid: его слушатель зарегистрирован раньше). */
 function placeNowline() {
+  if (DP_REACT) return;
   var old = document.querySelector('.nowline');
   if (old) old.parentNode.removeChild(old);
   var gb = document.querySelector('.gridbody[data-day]');
@@ -512,6 +525,7 @@ window.addEventListener('resize', placeNowline);
    мигание чёрным ходом (прайор живого журнала, тот же, что у линии
    «сейчас»). Сервер даёт только data-wait-since — он детерминирован. */
 function paintWaits() {
+  if (DP_REACT) return;
   var els = document.querySelectorAll('[data-wait-since]');
   for (var i = 0; i < els.length; i++) {
     var t = parseInt(els[i].getAttribute('data-wait-since'), 10);

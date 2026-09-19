@@ -147,6 +147,10 @@ NOTE = {
 # Рубильники React-экранов (DentPilot 2.0): имя флага в
 # clinic.json["ui"]["react"] и состояние у пилота — off / on / откат.
 # Заполняется ЗДЕСЬ при включении экрана; колонки таблицы производны от него.
+# ⚠️ Список ведётся РУКАМИ и тестом не покрыт: к 19.09 он отстал на пять
+# имён (perio и все три экрана журнала), и карта экранов молча показывала
+# «—» у переехавших. Правило простое: завёл имя в REACT_SCREENS — впиши
+# сюда его адрес.
 FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/medici": "doctors_list",
         "/admin/doctor-card/{dk}": "doctor_card",
@@ -161,7 +165,12 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/search": "patients_search",
         "/admin/patient/{pid}": "patient_card",
         "/admin/visit/{appt_id}": "visit",
-        "/admin/patient/{pid}/odontograma": "odontogram"}
+        "/admin/patient/{pid}/odontograma": "odontogram",
+        "/admin/patient/{pid}/parodontograma": "perio",
+        "/admin/week": "schedule_week",
+        "/admin/all": "schedule_all",
+        "/admin/doctor/{dk}": "schedule_doctor",
+        "/admin": "schedule_dash"}
 PILOT = {path: "off" for path in FLAG}
 
 

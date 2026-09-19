@@ -78,6 +78,22 @@ def main(base: str, password: str) -> int:
         check(f"{path} открывается",
               r.status == 200 and len(r.body) > 1000, f"код {r.status}, {len(r.body)} б")
 
+    # ⭐ Живой канал панели — В СОБРАННОЙ программе. Страницы его не задевают
+    # вовсе: `/admin` открывается и без него, а `/health` тем более. При этом
+    # именно от него зависит, будет ли панель у клиники обновляться сама, и
+    # ломается он ровно так же, как всё в exe, — потерянным модулем.
+    r = c.get("/api/schedule/live?screen=panel")
+    ok = False
+    try:
+        d = json.loads(r.body).get("data") or {}
+        ok = r.status == 200 and d.get("live") is True and "canvas" in d
+    except Exception:
+        ok = False
+    check("живой канал панели отвечает состоянием в сборке",
+          ok and r.header("X-DP-Hash") != "" and r.header("X-DP-Surface") != "",
+          f"код {r.status}, отпечаток {r.header('X-DP-Hash')!r}, "
+          f"поверхность {r.header('X-DP-Surface')!r}")
+
     # Выгрузка в Excel собирается zip'ом на лету (core/xlsx). В СОБРАННОЙ
     # программе это стоит проверить отдельно: страницы её не задевают, а
     # сжатие живёт в модуле, который PyInstaller тянет неявно.

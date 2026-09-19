@@ -41,8 +41,15 @@ interface Props {
 
 export function DashCanvas({ model, rail, waitTick, lineTick }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
+  /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
+     ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
+     на грани переполняется. В дне без них тик пересчитывал бы классы вхолостую
+     — четыре мутации DOM в минуту на неизменном дне, то есть ровно то, от чего
+     ушли в 08-20 (поймано сценой браузера 19.09, не проверками). */
+  const waits = model.columns.some(
+    (c) => c.blocks.some((b) => b.kind === 'appt' && b.wait_since))
   useFitGrid(body, rail, model.hours.length)
-  useFitAppts(body, waitTick, model)
+  useFitAppts(body, waits ? waitTick : 0, model)
 
   if (model.empty) {
     return (
