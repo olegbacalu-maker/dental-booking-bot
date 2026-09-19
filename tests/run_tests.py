@@ -201,6 +201,7 @@ SUITES = [
     ("Панель: модель канвы против страницы (C26.4)", test_admin_canvas.suite_model),
     ("Панель: текущий час в модели и на странице", test_admin_canvas.suite_model_now),
     ("Панель: пустой день в модели", test_admin_canvas.suite_model_empty),
+    ("Панель: цвет врача — одна формула на все экраны", test_admin_canvas.suite_hue),
     ("День: модель для диалогов (C25.5b)", test_day_actions.suite_model),
     ("День: действия через JSON", test_day_actions.suite_actions),
     ("День: форма и API отвечают одним кодом", test_day_actions.suite_parity),

@@ -26,7 +26,7 @@ from datetime import date, datetime
 
 from ... import engine as eng
 from ...core.layout import LIVE_STATUSES, STATUS_LABEL, _initials
-from ...core.visits import _DOC_HUES, photo_url
+from ...core.visits import _doc_hue, photo_url
 from . import day as pday
 
 
@@ -236,7 +236,7 @@ def _band(hs: list[int]) -> dict | None:
     return {"from": f"{hs[0]:02d}:00", "to": f"{hs[-1] + 1:02d}:00"} if hs else None
 
 
-def _column(d: date, dk: str, name: str, i: int, by_col: dict, live: list,
+def _column(d: date, dk: str, name: str, by_col: dict, live: list,
             hours: list[int], base_min: int, cards, colors) -> dict:
     """Колонка живого врача: шапка, приёмные часы и блоки."""
     key = f"k:{dk}"
@@ -253,11 +253,12 @@ def _column(d: date, dk: str, name: str, i: int, by_col: dict, live: list,
         "key": key, "id": dk, "name": name, "orphan": False,
         "spec": eng.DOCTOR_SPEC.get(dk, "") or "",
         "off": not meta.get("active", True),
-        # ⚠️ Цвет — по МЕСТУ СРЕДИ ПОКАЗАННЫХ колонок, а не `_doc_hue` (тот
-        # считает по месту в справочнике). Так печатает страница, и модель
-        # обязана повторить её здесь: паритет важнее правоты, расхождение
-        # двух формул чинится отдельно и на всех экранах разом.
-        "hue": meta.get("color") or _DOC_HUES[i % len(_DOC_HUES)],
+        # ⛔ Цвет врача считает ОДИН `_doc_hue` — он же красит аватар,
+        # карточку врача и `/api/doctors`. Своя формула «по месту среди
+        # ПОКАЗАННЫХ в этот день колонок» жила здесь и на странице до 19.09:
+        # цвет колонки расходился с аватаром того же врача и вдобавок менялся
+        # ото дня ко дню от того, у кого есть записи.
+        "hue": _doc_hue(dk),
         "photo": photo_url(dk), "initials": _initials(name),
         # ⚠️ Кабинет и телефон — ОТДЕЛЬНЫМИ полями, а не только внутри
         # подсказки: регистратура наводится на карточку именно ради номера
@@ -347,8 +348,8 @@ def model(d: date, rows: list, cards: dict | None, colors) -> dict:
     base_min = hours[0] * 60
     now = datetime.now(eng.TZ)
     nh = now.hour if d == now.date() else None
-    cols = [_column(d, dk, name, i, by_col, live, hours, base_min, cards, colors)
-            for i, (dk, name) in enumerate(shown)]
+    cols = [_column(d, dk, name, by_col, live, hours, base_min, cards, colors)
+            for dk, name in shown]
     cols += [_orphan_column(key, by_col, live, hours, base_min, cards, colors)
              for key in orphan_cols(by_col)]
     return {

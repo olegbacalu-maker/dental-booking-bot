@@ -1023,3 +1023,84 @@ def suite_model_empty(res: Result) -> None:
                   (True, [], [], None))
         res.check("и полосок закрытых краёв не выдумывает",
                   m["bands"], {"top": None, "bottom": None})
+
+
+# ------------------------------------------- цвет врача: одна формула на все
+
+
+def _card_hue(c: Client, dk: str) -> str:
+    """Цвет аватара на КАРТОЧКЕ врача — то, что рисует `core.visits._avatar`.
+
+    ⚠️ Читается со страницы, а не считается формулой заново: проверка,
+    повторяющая формулу, зеленела бы вместе с ней — в том числе на двух
+    экранах, которые уже разъехались.
+    """
+    m = re.search(r"<span class='avatar big' style='background:([^']*)'>",
+                  c.get(f"/admin/doctor-card/{dk}").body)
+    return m.group(1) if m else ""
+
+
+def _head_hues(c: Client, day: str) -> dict:
+    """Цвет колонки каждого врача на панели дня — по имени врача."""
+    return {h["name"]: h["hue"] for h
+            in _page_view(c.get(f"/admin?date={day}&ui=legacy").body)["heads"]}
+
+
+def suite_hue(res: Result) -> None:
+    """Цвет врача считает ОДНА формула — `core.visits._doc_hue` (19.09).
+
+    ⛔ До 19.09 их было две. Карточка врача, `/api/doctors` и аватар брали
+    место врача в СПРАВОЧНИКЕ, а канва панели — место среди ПОКАЗАННЫХ в этот
+    день колонок. Сходились они только там, где показаны все: стоило одному
+    врачу выпасть из дня, и у соседа справа цвет колонки расходился с его же
+    аватаром. Один врач, два цвета, и ни одной ошибки нигде.
+    ⚠️ Хуже расхождения было ПЛАВАНИЕ: цвет колонки менялся ото дня ко дню от
+    того, у кого ещё есть записи. Регистратура держит цвет за признак врача —
+    «синий кабинет» говорят про человека, а не про день, — поэтому оба случая
+    проверяются здесь порознь.
+    ⚠️ Набор читает СТРАНИЦУ и КАРТОЧКУ, а не одну формулу дважды: предмет
+    проверки — согласие двух экранов, и только их сравнение его выражает.
+    """
+    wed = _weekday_after(clinic_today(), 2)
+    day_a, day_b = wed.isoformat(), (wed + timedelta(days=1)).isoformat()
+    with Server(clinic="clinic_panel.json") as s:
+        c = Client(s.url).login()
+        # d1 в фикстуре «arhivat»: колонка ему положена ровно в тот день, где
+        # у него есть записи, — в day_a она есть, в day_b её нет. Запись
+        # заводится мимо формы: выключенного врача она не предложит (тот же
+        # приём, что у сироты в `suite_model`).
+        _add(c, day_a, "09:00", "d2", "Pacient Arhivat", 1)
+        _sql(s, "UPDATE appointments SET doctor_id = 'd1', doctor = ?"
+                " WHERE id = ?", "Dr. Arhivat Unu", _ids(c, day_a)[0])
+
+        hues_a, hues_b = _head_hues(c, day_a), _head_hues(c, day_b)
+        card = _card_hue(c, "d3")
+        d3 = json.loads(c.get("/api/doctors/d3").body)["data"]
+
+        # --- якорь: предмет разговора в фикстуре ЕСТЬ ---
+        # ⛔ Без него набор зеленел бы над врачом СО СВОИМ цветом (там формулы
+        # и не расходились никогда) или над двумя днями, в которых показаны
+        # одни и те же колонки, — то есть над пустотой.
+        if not res.check(
+                "якорь: у d3 цвет ЗАПАСНОЙ, и слева от него колонка то есть, то нет",
+                (d3["auto_color"], "Dr. Arhivat Unu" in hues_a,
+                 "Dr. Arhivat Unu" in hues_b, bool(card)),
+                (True, True, False, True)):
+            return
+
+        res.check("ЦВЕТ КОЛОНКИ на панели = цвет аватара на карточке того же врача",
+                  hues_b.get("Dr. Activ Trei"), card)
+        res.check("и тот же цвет отдаёт /api/doctors — экранов три, формула одна",
+                  d3["color"], card)
+        res.check("и НЕ ЗАВИСИТ от того, у кого ещё есть записи в этот день",
+                  hues_a.get("Dr. Activ Trei"), hues_b.get("Dr. Activ Trei"))
+        res.check("модель канвы отдаёт тот же цвет, что печатает страница",
+                  [x["hue"] for x in _model_view(c, day_a)["columns"]
+                   if x["id"] == "d3"], [card])
+        # ⚠️ Вторая половина `_doc_hue`, и без неё правило читалось бы как
+        # «цвет всегда из палитры»: свой цвет врача сильнее места в справочнике.
+        c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei",
+               status="activ", color="#123456")
+        res.check("СВОЙ цвет врача сильнее палитры — и на панели, и на карточке",
+                  (_head_hues(c, day_a).get("Dr. Activ Trei"), _card_hue(c, "d3")),
+                  ("#123456", "#123456"))

@@ -32,9 +32,9 @@ from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
                             _initials, _shell, _tg_state, js_json, react_mount,
                             react_on, tg_configured)
-from ...core.visits import (SVC_PALETTE, _DOC_HUES, _STATUS_ICON, _card_modal,
-                            _collect_cards, _list, _move_attrs, _move_modal,
-                            _parse_date, _photo_path)
+from ...core.visits import (SVC_PALETTE, _STATUS_ICON, _card_modal,
+                            _collect_cards, _doc_hue, _list, _move_attrs,
+                            _move_modal, _parse_date, _photo_path)
 from . import canvas as pcanvas
 from . import day as pday
 from . import week as pweek
@@ -679,9 +679,14 @@ def _day_canvas(d: date, rows: list, cards: dict) -> str:
     # класс дописываем в конце: полное число колонок известно только после сирот
     head = ["<div class='gridhead'><div class='gh-time'></div>"]
     cols = []
-    for i, (dk, name) in enumerate(shown):
+    for dk, name in shown:
         col_key = f"k:{dk}"
-        hue = eng.DOCTOR_META.get(dk, {}).get("color") or _DOC_HUES[i % len(_DOC_HUES)]
+        # ⛔ Цвет врача считает ОДИН `_doc_hue` — тот же, что красит аватар и
+        # карточку. Здесь до 19.09 жила вторая формула, «по месту среди
+        # ПОКАЗАННЫХ колонок»: у врача без своего цвета колонка была одного
+        # цвета, его же аватар другого, и цвет колонки менялся ото дня ко дню
+        # от того, у кого есть записи в этот день.
+        hue = _doc_hue(dk)
         mine = [r for r in live if _row_col(r) == col_key and r["source"] != "note"]
         free_h = _free_hour(dk, col_key)
         dot = "var(--green)" if free_h is not None else "var(--text3)"

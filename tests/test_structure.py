@@ -57,6 +57,13 @@ _ROLE_OK = {"app/modules/settings/routes.py": {"_users_block", "_apply_user"}}
 # на то он и один на всю программу.
 _AUTH_MODULE = "app/core/auth.py"
 
+# Цвет врача: своя формула на один экран расходится с другими молча — цвета
+# обе берут из одной палитры, и на демо-профиле, где показаны все врачи, они
+# ещё и совпадают. Владелец один: `_doc_hue`, а палитра — его внутренность.
+_HUE_MODULE = "app/core/visits.py"
+_HUE_PALETTE = "_DOC_HUES"
+
+
 # Страница со своей вёрсткой, просящая 'Inter', обязана его и ОБЪЯВИТЬ: либо
 # заполнителем __FONTS__ (его заполняет layout.standalone текстом fonts.css),
 # либо своими @font-face. Правило нужно ровно потому, что нарушение невидимо:
@@ -774,3 +781,34 @@ def suite(res: Result) -> None:
         bad.append("icons.ts отстал от layout._I — python scripts/gen_icons.py")
     res.ok("icons.ts свежий: иконки клиента из layout._I", not bad,
            "React рисовал бы не те значки, что сервер: " + "; ".join(bad))
+
+    # ---- цвет врача считает ОДИН `_doc_hue` (19.09) ----
+    # Палитра `_DOC_HUES` — внутренность формулы, а не общее добро: взять её
+    # напрямую значит завести второй способ ответить «какого цвета этот врач».
+    # Разойдутся они молча — цвета-то оба из палитры. Ровно так жила канва
+    # панели до 19.09: она считала цвет по месту среди ПОКАЗАННЫХ в этот день
+    # колонок, а карточка врача, `/api/doctors` и аватар — по месту в
+    # справочнике. У врача без своего цвета колонка была одного цвета, аватар
+    # другого, и цвет колонки менялся ото дня ко дню от того, у кого есть
+    # записи.
+    # ⚠️ Полярность опасная: правило ищет ИМЯ. Переименуют палитру или саму
+    # формулу — нарушителей ноль, и сторож зелен навсегда. Отсюда якорь: оба
+    # имени обязаны быть ОПРЕДЕЛЕНЫ в модуле-владельце (определены, а не
+    # упомянуты: `_doc_hue` палитру называет, и проверка «имя встречается»
+    # пережила бы переименование самого объявления).
+    bad = [f"{rel}:{n.lineno}" for rel, tree in src if rel != _HUE_MODULE
+           for n in ast.walk(tree)
+           if (isinstance(n, ast.Name) and n.id == _HUE_PALETTE)
+           or (isinstance(n, ast.Attribute) and n.attr == _HUE_PALETTE)
+           or (isinstance(n, ast.alias) and n.name == _HUE_PALETTE)]
+    hue_mod = by_path.get(_HUE_MODULE) or ast.Module(body=[], type_ignores=[])
+    owns = {t.id for n in ast.walk(hue_mod) if isinstance(n, ast.Assign)
+            for t in n.targets if isinstance(t, ast.Name)}
+    owns |= {fn.name for fn in ast.walk(hue_mod)
+             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if not {_HUE_PALETTE, "_doc_hue"} <= owns:
+        bad.append(f"{_HUE_MODULE}: нет {_HUE_PALETTE}/_doc_hue — "
+                   "якорь правила пропал, искать оно будет несуществующее")
+    res.ok("цвет врача считает один _doc_hue", not bad,
+           "второй способ ответить «какого цвета этот врач» — цвет колонки "
+           "разойдётся с аватаром того же врача молча: " + ", ".join(bad))
