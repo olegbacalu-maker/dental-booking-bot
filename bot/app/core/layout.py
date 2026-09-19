@@ -899,7 +899,17 @@ REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "settings_security", "settings_backup",
                            "patients_search", "patient_card", "visit", "odontogram",
                            "perio", "schedule_week", "schedule_all",
-                           "schedule_doctor"})
+                           "schedule_doctor",
+                           # ⛔ ЭКРАНА ЕЩЁ НЕТ (C26.5.1, 19.09). Имя заведено
+                           # РАНЬШЕ него намеренно и с открытыми глазами: без
+                           # него ветку «этот экран больше не живой» не
+                           # исполняет ни одна проверка, а именно она отвечает
+                           # вкладке, открытой до включения флага. Пока
+                           # `schedule_dash` включён, панель отдаёт пустой узел
+                           # — возврат мгновенный, `?ui=legacy` в адресе. Флаг
+                           # у пилота и у всех остальных ВЫКЛЮЧЕН; включать до
+                           # C26.5.2 нечего.
+                           "schedule_dash"})
 
 
 def react_on(request: Request, screen: str) -> bool:

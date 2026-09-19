@@ -564,3 +564,76 @@ def suite_live_envelope(res: Result) -> None:
                   (c.get("/api/schedule/live?screen=nope").status,
                    _j(c.get("/api/schedule/live?screen=nope")).get("field")),
                   (422, "screen"))
+
+
+def suite_dash_flag(res: Result) -> None:
+    """Флаг панели: что происходит с живым каналом и со старой вкладкой (C26.5.1).
+
+    ⛔ Имя `schedule_dash` заведено РАНЬШЕ самого экрана, и это осознанный
+    риск: пока флаг включён, панель отдаёт пустой узел. Взамен ветка «этот
+    экран больше не живой» перестаёт быть непроверяемой — а отвечает она
+    вкладке, которую регистратура открыла ДО того, как директор включил флаг.
+
+    ⛔ Безопасность доказывается не словами «флаг выключен», а проверкой: при
+    ВЫКЛЮЧЕННОМ флаге ни страница, ни канал не меняются ни в чём.
+    """
+    day = clinic_today().isoformat()
+    with Server() as s:
+        c = Client(s.url).login()
+        page = c.get(f"/admin?date={day}").body
+        data = _j(c.get(f"/api/schedule/live?date={day}"))["data"]
+        if not res.check("ЯКОРЬ: с выключенным флагом всё по-прежнему",
+                         ('id="live"' in page, 'data-reload="12"' in page,
+                          'id="root"' in page, data["live"],
+                          sorted(k for k in data if k not in ("screen", "date", "live"))),
+                         (True, True, False, True,
+                          ["agenda", "canvas", "minical", "occupancy", "tiles"])):
+            return
+
+    s2 = Server()
+    cfg = json.loads(s2.clinic.read_text(encoding="utf-8"))
+    cfg["ui"] = {"react": ["schedule_dash"]}
+    s2.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    with s2:
+        c2 = Client(s2.url).login()
+        page2 = c2.get(f"/admin?date={day}").body
+        res.check("с флагом — узел React, и панель БОЛЬШЕ НЕ ЖИВАЯ",
+                  ('<div id="root" data-screen="schedule_dash"' in page2,
+                   'id="live"' in page2, 'data-reload="12"' in page2),
+                  (True, False, False))
+        res.check("дата уехала параметром узла",
+                  json.loads(page2.split('data-params="', 1)[1].split('"', 1)[0]
+                             .replace("&quot;", '"')),
+                  {"date": day})
+        # ⚠️ Разбором, а не подстрокой: параметры сериализуются с пробелами
+        # после двоеточий, и поиск `"msg":"no_access"` не нашёл бы ничего —
+        # красное по неверной причине (поймано 19.09 при первом же прогоне).
+        with_msg = json.loads(c2.get("/admin?msg=no_access").body
+                              .split('data-params="', 1)[1].split('"', 1)[0]
+                              .replace("&quot;", '"'))
+        res.check("и `?msg=` тоже — иначе отказ в правах стал бы молчаливым переходом",
+                  with_msg.get("msg"), "no_access")
+
+        # --- живой канал говорит «я больше не живой» СЛОВОМ ---
+        live = _j(c2.get(f"/api/schedule/live?date={day}"))["data"]
+        res.check("КАНАЛ отвечает live:false и не везёт состояние, которого не показать",
+                  (live["live"], live["screen"], live["date"],
+                   [k for k in ("canvas", "agenda", "tiles", "minical", "occupancy")
+                    if k in live]),
+                  (False, "panel", day, []))
+
+        # --- старая вкладка узнаёт об этом и перерисовывается ---
+        poll = c2.get(f"/admin?date={day}", headers={"X-DP-Live": "1"})
+        res.check("ОПРОС старой вкладки на панели → 205, а не документ",
+                  (poll.status, poll.body.strip()), (205, ""))
+
+        # --- откат мгновенный ---
+        back = c2.get(f"/admin?date={day}&ui=legacy").body
+        res.check("?ui=legacy возвращает СТАРУЮ панель, и она снова живая",
+                  ('id="root"' in back, 'id="live"' in back,
+                   "Agenda zilei" in back), (False, True, True))
+
+        # --- соседние экраны флаг панели не задевает ---
+        allp = c2.get(f"/admin/all?date={day}").body
+        res.check("флаг панели не трогает день: он остался старым и живым",
+                  ('id="root"' in allp, 'id="live"' in allp), (False, True))

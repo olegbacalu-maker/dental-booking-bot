@@ -929,6 +929,27 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
     if (deny := _guard(request)) is not None:
         return deny
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
+    if react_on(request, "schedule_dash"):
+        # DentPilot 2.0 (C26.5): данные — GET /api/schedule/live?screen=panel.
+        # ⛔ ЭКРАНА ЕЩЁ НЕТ (C26.5.1): узел пуст, пока не приедет C26.5.2.
+        # Имя заведено раньше экрана намеренно — иначе ветку «я больше не
+        # живая» не исполняет ни одна проверка. Возврат мгновенный: `?ui=legacy`.
+        # ⛔ Ответ ОПРОСУ — раньше узла: вкладка, отрисованная по-старому, иначе
+        # получила бы полный документ внутрь `#live` (разбор — live-contract.md
+        # › 3). Живой опрос у панели при этом выключается сам: `_shell` не
+        # объявляет живой страницу с узлом React.
+        if (st := _live_stale(request)) is not None:
+            return st
+        # ⚠️ `msg` уезжает ПАРАМЕТРОМ УЗЛА: на `/admin` приземляется `no_access`
+        # со ВСЕЙ программы (двенадцать проверок прав сверяют редирект сюда), и
+        # показать его React обязан при ПЕРВОЙ отрисовке, а не после своего
+        # первого ответа — иначе отказ в правах станет молчаливым переходом на
+        # панель.
+        params = {"date": d.isoformat()}
+        if msg:
+            params["msg"] = msg
+        return _shell(react_mount("schedule_dash", "/admin", params),
+                      "panou principal", active="dash")
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     # Две недели одним запросом вместо «сегодня» + «вчера» двумя: из этой же
     # выборки берутся и день, и вчера, и ряды для мини-графиков в плитках.

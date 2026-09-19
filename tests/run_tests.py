@@ -201,6 +201,8 @@ SUITES = [
     ("Панель: тренды и их полярность", test_admin_canvas.suite_trends),
     ("Живой канал данными: конверт (C27.1)",
      test_schedule_api.suite_live_envelope),
+    ("Панель: флаг schedule_dash и ветка live:false (C26.5.1)",
+     test_schedule_api.suite_dash_flag),
     ("Правая колонка: повестка — правила", test_panel_model.suite_agenda_pure),
     ("Правая колонка: повестка против страницы",
      test_panel_model.suite_agenda_parity),
