@@ -34,13 +34,16 @@ interface Props {
   date: string
   /** Метка времени для минут ожидания; меняется раз в минуту. */
   waitTick: number
+  onCard: (id: number) => void
 }
 
-export function DashRail({ minical, agenda, tiles, occupancy, date, waitTick }: Props) {
+export function DashRail(
+  { minical, agenda, tiles, occupancy, date, waitTick, onCard }: Props,
+) {
   return (
     <>
       <MiniCal cal={minical} />
-      <Agenda agenda={agenda} date={date} waitTick={waitTick} />
+      <Agenda agenda={agenda} date={date} waitTick={waitTick} onCard={onCard} />
       <KpiCard tiles={tiles} occupancy={occupancy} />
     </>
   )
@@ -86,7 +89,9 @@ function MiniCal({ cal }: { cal: DashMiniCal }) {
 /** Пустой день — ДРУГОЕ дерево, а не пустой список: без счётчика, без списка
  *  и без ссылки «смотреть все». */
 function Agenda(
-  { agenda, date, waitTick }: { agenda: DashAgenda; date: string; waitTick: number },
+  { agenda, date, waitTick, onCard }: {
+    agenda: DashAgenda; date: string; waitTick: number; onCard: (id: number) => void
+  },
 ) {
   if (!agenda.items.length) {
     return (
@@ -108,16 +113,21 @@ function Agenda(
           const wait = it.wait_since ? waitLabel(it.wait_since, waitTick) : null
           return (
             <div key={it.id} className={`ag-i${it.state === 'past' ? ' past' : ''}`}
-              data-appt={it.id} style={{ borderLeftColor: it.bar }}>
+              data-appt={it.id} style={{ borderLeftColor: it.bar }}
+              onClick={() => onCard(it.id)}>
               <span className="ag-t">{it.time}</span>
               <div className="ag-b">
                 <b>{it.name}</b>
                 <small>{it.service}</small>
                 {wait && <small className={`wait-min${wait.long ? ' long' : ''}`}>{wait.text}</small>}
                 {/* ⛔ Кнопка одонтограммы — только у визита С ПАЦИЕНТОМ: у
-                    легаси-строки без него ссылка вела бы на `/None/`. */}
+                    легаси-строки без него ссылка вела бы на `/None/`.
+                    ⛔ И всплытие клика она останавливает: строка кликабельна
+                    целиком, и без этого одно нажатие делало бы два действия —
+                    открывало карточку ЗАОДНО с одонтограммой. */}
                 {it.patient_id !== null && (
-                  <a className="ag-odo" href={`/admin/patient/${it.patient_id}/odontograma`}>
+                  <a className="ag-odo" href={`/admin/patient/${it.patient_id}/odontograma`}
+                    onClick={(e) => e.stopPropagation()}>
                     <Icon name="tooth" />{T.odo}
                   </a>
                 )}

@@ -63,17 +63,30 @@ def _screen(date_q: str) -> date:
 
 
 async def _done(code: str, d: date, doctor: str, field: str | None = None,
-                f: str = ""):
+                f: str = "", screen: str = ""):
     """Ответ действия: отказ — кодом без данных, удача — свежим днём экрана.
 
     ⚠️ Свежий день приезжает В ТОМ ЖЕ ОТБОРЕ, в котором на него смотрят: с
     плиткой-фильтром ответ без `f` подменил бы отфильтрованный список полным,
     и запись «исчезла бы» из фильтра прямо на глазах.
+
+    ⛔ А ЖИВОЙ ПОВЕРХНОСТИ (`screen=panel`) состояния не отдаётся вовсе —
+    ни на удаче, ни на отказе (C26.5.3). Причин две, и обе стреляют у клиники.
+    Первая: здесь строится модель ДНЯ, у которой ДРУГОЙ ключ колонки, чем у
+    канвы, — легаси-строка без `doctor_id` слилась бы в колонку живого врача,
+    визит исчез бы с панели, час выглядел бы свободным, и в него записали бы
+    второго (разбор — `admin-contract.md` › 2). Вторая шире: состояние на
+    живой поверхности выпускается ровно одной дверью — `live_reply` вместе со
+    своим отпечатком. Ответ действия отпечатка не несёт, значит любое
+    состояние в нём — второй источник истины, не участвующий в протоколе.
+    Клиент после команды просто спрашивает канал (`refresh()`).
     """
     if code not in _OK:
         return msg_json(False, code,
                         field=_FIELD.get(code, "") if field is None else field,
                         status=409 if code in _CONFLICT else 422)
+    if screen == "panel":
+        return msg_json(True, code)
     data = await _day_model(d, doctor, f)
     if data is None:
         return msg_json(False, status=404)
@@ -224,21 +237,27 @@ async def api_note(request: Request, date_q: str = Query("", alias="date"),
 @router.post("/api/schedule/appointments/{appt_id}/comment")
 async def api_comment(request: Request, appt_id: int,
                       date_q: str = Query("", alias="date"),
-                      doctor: str = Query(""), f: str = Query("")):
-    """Комментарий ресепшена: {comment}. Пустая строка стирает его."""
+                      doctor: str = Query(""), f: str = Query(""),
+                      screen: str = Query("")):
+    """Комментарий ресепшена: {comment}. Пустая строка стирает его.
+
+    ⚠️ `screen=panel` — «я живая поверхность, состояния мне не давай»
+    (разбор в `_done`).
+    """
     if (deny := api_guard(request)) is not None:
         return deny
     body = await api_body(request)
     if body is None:
         return msg_json(False, "bad", field="comment", status=422)
     return await _done(await _set_comment(appt_id, _s(body, "comment")),
-                       _screen(date_q), doctor, f=f)
+                       _screen(date_q), doctor, f=f, screen=screen)
 
 
 @router.post("/api/schedule/appointments/{appt_id}/status")
 async def api_status(request: Request, appt_id: int,
                      date_q: str = Query("", alias="date"),
-                     doctor: str = Query(""), f: str = Query("")):
+                     doctor: str = Query(""), f: str = Query(""),
+                     screen: str = Query("")):
     """Исход визита: {to}. Удача отвечает ПУСТЫМ кодом — баннера у неё нет и
     на старой странице; отказ называет, ЧТО занято (conflict / dup).
 
@@ -252,7 +271,7 @@ async def api_status(request: Request, appt_id: int,
     if body is None:
         return msg_json(False, "bad", status=422)
     return await _done(await _set_status(appt_id, _s(body, "to")),
-                       _screen(date_q), doctor, field="", f=f)
+                       _screen(date_q), doctor, field="", f=f, screen=screen)
 
 
 @router.post("/api/schedule/appointments/{appt_id}/move")

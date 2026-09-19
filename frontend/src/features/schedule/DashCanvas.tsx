@@ -37,9 +37,12 @@ interface Props {
   waitTick: number
   /** Метка времени для линии «сейчас»; меняется раз в 30 с. */
   lineTick: number
+  /** Открыть карточку визита. ⛔ Только у визита: у заметки стойки карточки
+   *  нет по замыслу, её действия живут в списке дня. */
+  onCard: (id: number) => void
 }
 
-export function DashCanvas({ model, rail, waitTick, lineTick }: Props) {
+export function DashCanvas({ model, rail, waitTick, lineTick, onCard }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -86,7 +89,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick }: Props) {
                   {...(open ? { 'data-h': model.hours[i]!.h } : {})} />
               ))}
               {col.blocks.map((b) => (
-                <Block key={b.id} block={b} waitTick={waitTick} />
+                <Block key={b.id} block={b} waitTick={waitTick} onCard={onCard} />
               ))}
             </div>
           ))}
@@ -171,7 +174,10 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
   )
 }
 
-function Block({ block, waitTick }: { block: DashBlock; waitTick: number }) {
+function Block(
+  { block, waitTick, onCard }:
+  { block: DashBlock; waitTick: number; onCard: (id: number) => void },
+) {
   /* ⚠️ Те же множители, что печатал сервер: доли ячейки, ширина делится
      между пересекающимися. Считать позицию «от индекса часа» нельзя — на дне
      со сдвинутым графиком это промахивается (`base_min`). */
@@ -189,11 +195,14 @@ function Block({ block, waitTick }: { block: DashBlock; waitTick: number }) {
       </div>
     )
   }
-  return <ApptBlock block={block} pos={pos} waitTick={waitTick} />
+  return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard} />
 }
 
 function ApptBlock(
-  { block, pos, waitTick }: { block: DashAppt; pos: React.CSSProperties; waitTick: number },
+  { block, pos, waitTick, onCard }: {
+    block: DashAppt; pos: React.CSSProperties; waitTick: number
+    onCard: (id: number) => void
+  },
 ) {
   const ico = block.urgent && block.status === 'confirmed'
     ? 'excl' : STATUS_ICON[block.status] ?? ''
@@ -206,7 +215,7 @@ function ApptBlock(
   return (
     <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}`}
       data-appt={block.id} style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}` }}
-      title={block.title}>
+      title={block.title} onClick={() => onCard(block.id)}>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
       <b>{block.name} <Icon name={block.source === 'bot' ? 'bot' : 'pen'} /></b>
       <small>{block.time} · {block.dur}′ · {block.service}</small>

@@ -1,10 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { Toast, type ToastState } from '../../components/Toast'
+import { CardDialog } from './CardDialog'
+import { asApiError, type ApiResult } from '../../services/api'
 import { useLive } from '../../hooks/useLive'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
 import { useClockTick } from './dashFx'
-import { livePath, type DashModel } from './dash'
+import { dash, livePath, type DashAppt, type DashModel } from './dash'
 
 /**
  * Панель дня (`/admin`) на React — C26.5.2.
@@ -21,8 +24,12 @@ import { livePath, type DashModel } from './dash'
  * при первой отрисовке, а не после первого ответа канала.
  */
 const T = {
-  hint: 'Panoul nou este deocamdată doar pentru citit: se actualizează singur, '
-    + 'dar programările se fac în varianta clasică.',
+  hint: 'Click pe o programare — detalii și statusuri. Programări noi și '
+    + 'mutările se fac deocamdată în varianta clasică.',
+  /* ⚠️ Слово взято у легаси (`MSG_BANNER["mv_gone"]`), а не придумано: та же
+     ситуация там называется так же. Хвост «reîmprospătați pagina» убран —
+     панель освежается сама, и советовать перезагрузку значило бы врать. */
+  gone: 'Programarea nu mai există.',
   legacy: 'Deschideți varianta clasică',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
   retry: 'Reîncearcă',
@@ -42,12 +49,26 @@ interface Props {
 
 export function DashScreen({ date = '' }: Props) {
   const rail = useRef<HTMLDivElement | null>(null)
+  /* ⚠️ Вместе с номером хранится СНИМОК записи на момент клика — он и
+     станет надгробием, если запись исчезнет. Снимок берётся в
+     обработчике, а не в рендере: писать реф во время рендера нельзя, а
+     `setState` в эффекте даёт каскад — оба запрещены линтом React, и оба
+     запрещены по делу.
+     ⭐ И показывает надгробие ровно то, что человек ОТКРЫВАЛ. */
+  const [card, setCard] = useState<{ id: number; at: DashAppt } | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const [busy, setBusy] = useState(false)
+  /* ⛔ Признак «команда в полёте» ставится СИНХРОННО, рефом, и предикат
+     читает его в момент тика: состояние доехало бы до хука кадром позже, а
+     команда длиной в круг по 127.0.0.1 в этот кадр укладывается. */
+  const flying = useRef(false)
   /* ⚠️ Версия — та, с которой загружена ЭТА страница: разошлась с ответом,
      значит exe обновили под открытой вкладкой, и новые данные нельзя
      вклеивать в старый код. Поверхность — `react`: узнав от сервера, что по
      адресу теперь живёт старая страница, вкладка перезагрузится сама. */
   const version = document.body.dataset.v ?? ''
-  const { state, retry } = useLive<DashModel>(livePath(date), 'react', version)
+  const { state, retry, refresh } = useLive<DashModel>(
+    livePath(date), 'react', version, { hold: () => flying.current })
   const lineTick = useClockTick(LINE_MS)
   const waitTick = useClockTick(WAIT_MS)
 
@@ -73,6 +94,46 @@ export function DashScreen({ date = '' }: Props) {
     }
     shown.current = d
   }, [state.data])
+
+  /* ⛔ Надгробие. Запись могли отменить или перенести со второго рабочего
+     места, пока диалог открыт. Молча размонтировать нельзя — человек решит,
+     что промахнулся мимо кнопки; врать «она есть» тоже нельзя. Диалог
+     остаётся на ПОСЛЕДНЕМ известном блоке, говорит словом и запирает все
+     кнопки: из надгробия ничего отправить нельзя, им можно только сказать
+     «этого больше нет». */
+  const found = card === null ? null : findAppt(state.data, card.id)
+  const openCard = found ?? card?.at ?? null
+  const gone = card !== null && found === null
+
+  /* Одно действие на обе команды. ⛔ Ответ состояния НЕ несёт: после команды
+     экран спрашивает канал (`refresh()`), и путь к состоянию остаётся один.
+     ⚠️ `refresh()` зовётся на ЛЮБОМ исходе, включая 409: «интервал занят»
+     значит, что каноническое состояние уже изменилось под тобой, а отказ
+     приходит без данных — человек прочтёт отказ и будет смотреть на
+     несуществующую запись. */
+  const act = useCallback(async (run: () => Promise<ApiResult<void>>) => {
+    flying.current = true
+    setBusy(true)
+    try {
+      const r = await run()
+      if (r.text) setToast({ tone: r.tone, text: r.text })
+      return true
+    } catch (e) {
+      const err = asApiError(e)
+      setToast({ tone: 'err', text: err.text || T.offline })
+      return false
+    } finally {
+      flying.current = false
+      setBusy(false)
+      refresh()
+    }
+  }, [refresh])
+
+  /* Открыть карточку: снимок записи берётся ЗДЕСЬ, в обработчике клика. */
+  const openById = (m: DashModel, id: number) => {
+    const at = findAppt(m, id)
+    if (at) setCard({ id, at })
+  }
 
   if (state.status === 'failed') {
     /* ⚠️ Свой отказ, а не общий `LoadFailed`: тому нужен `ApiError`, а у
@@ -109,16 +170,44 @@ export function DashScreen({ date = '' }: Props) {
     <section className="dp-react-root">
       <div className="dash">
         <div className="dashmain">
-          <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick} lineTick={lineTick} />
+          <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
+            lineTick={lineTick} onCard={(id) => openById(d, id)} />
           <p className="hint">
             {T.hint} <a href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</a>.
           </p>
         </div>
         <div className="rail" ref={rail}>
           <DashRail minical={d.minical} agenda={d.agenda} tiles={d.tiles}
-            occupancy={d.occupancy} date={d.date} waitTick={waitTick} />
+            occupancy={d.occupancy} date={d.date} waitTick={waitTick}
+            onCard={(id) => openById(d, id)} />
         </div>
       </div>
+
+      {card !== null && openCard && (
+        <CardDialog key={card.id} open id={card.id} card={openCard}
+          /* ⛔ Кнопки приходят С СЕРВЕРА по состоянию записи. У надгробия их
+             нет вовсе: действовать не над чем. */
+          actions={gone ? [] : d.actions[openCard.status] ?? []}
+          note={gone ? T.gone : ''}
+          back={`/admin?date=${d.date}`} busy={busy}
+          onClose={() => setCard(null)}
+          onComment={(text) => act(() => dash.comment(d.date, card.id, text))}
+          onStatus={async (to) => {
+            const ok = await act(() => dash.status(d.date, card.id, to))
+            if (ok) setCard(null)
+            return ok
+          }} />
+      )}
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </section>
   )
+}
+
+/** Блок визита по номеру — в той канве, что сейчас на экране. */
+function findAppt(m: DashModel | null, id: number): DashAppt | null {
+  if (!m) return null
+  for (const col of m.canvas.columns) {
+    for (const b of col.blocks) if (b.kind === 'appt' && b.id === id) return b
+  }
+  return null
 }

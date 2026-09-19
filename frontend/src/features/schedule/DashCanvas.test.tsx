@@ -1,6 +1,6 @@
 import { createRef } from 'react'
 import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashCanvas } from './DashCanvas'
 import { clinicNow } from './dashFx'
 import type { DashBlock, DashCanvasModel, DashColumn } from './dash'
@@ -88,10 +88,13 @@ const MODEL: DashCanvasModel = {
 
 const rail = createRef<HTMLDivElement>()
 const show = (model: DashCanvasModel = MODEL) =>
-  render(<DashCanvas model={model} rail={rail} waitTick={NOW} lineTick={NOW} />)
+  render(<DashCanvas model={model} rail={rail} waitTick={NOW} lineTick={NOW}
+    onCard={onCard} />)
 
 const cols = () => Array.from(document.querySelectorAll('.gridbody > .gcol'))
 const cards = () => Array.from(document.querySelectorAll('.gridhead .gh-doc'))
+
+const onCard = vi.fn()
 
 afterEach(cleanup)
 

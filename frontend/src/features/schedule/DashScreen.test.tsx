@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DashScreen } from './DashScreen'
 import { clinicNow } from './dashFx'
@@ -166,13 +166,16 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     expect(document.querySelector('.dash')!.innerHTML).toBe(before)
   })
 
-  it('⛔ подсказка говорит ПРАВДУ: экран читающий, действия — в старой панели', async () => {
-    /* Печатать подсказку старой страницы («click — детали, тащите — перенос»)
-       значило бы обещать то, чего экран не умеет: диалоги это C26.5.3. */
+  it('⛔ подсказка обещает ровно то, что экран умеет, и ни строкой больше', async () => {
+    /* ⚠️ Она правится ВМЕСТЕ с каждым шагом C26.5.3: карточка появилась —
+       про неё сказано; записи по клику и переноса ещё нет — про них сказано,
+       что они в старой панели. Подсказка, обещающая несделанное, — это
+       обещание, которое видит регистратура. */
     vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
     await show()
     const hint = document.querySelector('.dashmain .hint')!
-    expect(hint.textContent).toContain('doar pentru citit')
+    expect(hint.textContent).toContain('Click pe o programare')
+    expect(hint.textContent).toContain('varianta clasică')
     expect(hint.querySelector('a')?.getAttribute('href')).toBe(`/admin?date=${TODAY}&ui=legacy`)
   })
 
@@ -203,5 +206,139 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     render(<DashScreen date={TODAY} />)
     await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
     expect(document.querySelector('.savebtn')).toBeTruthy()
+  })
+})
+
+describe('C26.5.3-b: диалог визита', () => {
+  const openFirst = async () => {
+    await show()
+    fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+  }
+
+  it('карточка открывается и по блоку канвы, и по строке повестки', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await openFirst()
+    expect(document.querySelector('dialog .dlg-head span')?.textContent)
+      .toContain('Ion Popa')
+
+    fireEvent.click(document.querySelector('dialog [aria-label]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+
+    fireEvent.click(document.querySelector('.ag-i') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+  })
+
+  it('ссылки показываются по pid/rec, а НЕ по clickable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await openFirst()
+    const links = Array.from(document.querySelectorAll('dialog .dp-card-link'))
+      .map((a) => a.getAttribute('href'))
+    expect(links).toEqual(['/admin/patient/17', `/admin/visit/1?back=${encodeURIComponent(`/admin?date=${TODAY}`)}`])
+  })
+
+  it('⛔ у записи БЕЗ пациента ссылок нет вовсе', async () => {
+    /* ⚠️ Эта ветка не исполняется на демо-профиле: там у всех записей есть
+       пациент. Легаси-строка без него — реальность клиники, пережившей
+       переезд, и ссылка вела бы на `/admin/patient/null`. */
+    const m = model()
+    const blk = m.canvas.columns[0]!.blocks[0]!
+    if (blk.kind === 'appt') { blk.pid = null; blk.rec = false }
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, m)))
+    await openFirst()
+    expect(document.querySelectorAll('dialog .dp-card-link').length).toBe(0)
+    /* но сама карточка открыта и комментарий править можно */
+    expect(document.querySelector('dialog textarea')).toBeTruthy()
+  })
+
+  it('⭐ грязный черновик переживает конверт, а КАНВА под ним обновляется', async () => {
+    /* Главное отличие от легаси: там открытое окно замораживало страницу
+       целиком, и рабочее место переставало узнавать о бронях, оставаясь
+       живым НА ВИД. Здесь черновик держит СЕБЯ, а не экран. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await openFirst()
+    const area = document.querySelector('dialog textarea') as HTMLTextAreaElement
+    fireEvent.change(area, { target: { value: 'de sunat inainte' } })
+
+    const second = model()
+    const b2 = second.canvas.columns[0]!.blocks[0]!
+    if (b2.kind === 'appt') b2.comment = 'правка со второго места'
+    second.canvas.columns[0]!.blocks.push({
+      kind: 'appt', id: 2, time: '10:00', min: 600, dur: 60, busy: true, movable: true,
+      top: 1, height: 1, col: 0, of: 1, title: '10:00', name: 'Maria Rusu',
+      service: 'Consultație', phone: '069000001', status: 'confirmed',
+      status_label: 'confirmată', urgent: false, source: 'bot', comment: '',
+      comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
+      clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
+    })
+    f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('.gridbody [data-appt]').length).toBe(2))
+    expect((document.querySelector('dialog textarea') as HTMLTextAreaElement).value)
+      .toBe('de sunat inainte')
+  })
+
+  it('чистый черновик ПЕРЕСЕВАЕТСЯ приехавшим значением', async () => {
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await openFirst()
+
+    const second = model()
+    const b2 = second.canvas.columns[0]!.blocks[0]!
+    if (b2.kind === 'appt') b2.comment = 'правка со второго места'
+    f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() =>
+      expect((document.querySelector('dialog textarea') as HTMLTextAreaElement).value)
+        .toBe('правка со второго места'))
+  })
+
+  it('⛔ запись исчезла — НАДГРОБИЕ: словом, и все кнопки исхода убраны', async () => {
+    /* Молча размонтировать нельзя: человек решит, что промахнулся мимо
+       кнопки. Врать «она есть» тоже нельзя. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await openFirst()
+    expect(document.querySelectorAll('dialog .dlg-status button').length)
+      .toBeGreaterThan(0)
+
+    const empty = model()
+    empty.canvas.columns[0]!.blocks = []
+    f.mockImplementation(async () => reply(200, empty, { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() =>
+      expect(document.querySelector('dialog .banner.err')?.textContent)
+        .toBe('Programarea nu mai există.'))
+    expect(document.querySelectorAll('dialog .dlg-status button').length).toBe(0)
+    /* и то, что человек ОТКРЫВАЛ, на экране осталось */
+    expect(document.querySelector('dialog .dlg-head span')?.textContent)
+      .toContain('Ion Popa')
+  })
+
+  it('⭐ команда не приносит состояния: экран берёт его у КАНАЛА', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/comment')
+      /* ответ действия БЕЗ `data` — так отвечает `screen=panel` */
+      ? new Response(JSON.stringify({ ok: true, code: 'ok_comment', text: 'Salvat', tone: 'ok' }),
+        { status: 200, headers: { 'content-type': 'application/json' } })
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openFirst()
+    const before = f.mock.calls.length
+
+    fireEvent.change(document.querySelector('dialog textarea') as HTMLTextAreaElement,
+      { target: { value: 'nou' } })
+    fireEvent.submit(document.querySelector('dialog form') as HTMLFormElement)
+
+    await waitFor(() => expect(f.mock.calls.length).toBeGreaterThan(before + 1))
+    const urls = f.mock.calls.map((c) => String(c[0]))
+    /* команда ушла с пометкой поверхности... */
+    expect(urls.some((u) => u.includes('/comment?screen=panel'))).toBe(true)
+    /* ...и сразу за ней экран спросил КАНАЛ — второй двери к состоянию нет */
+    expect(urls[urls.length - 1]).toContain('/schedule/live')
   })
 })

@@ -13,6 +13,7 @@
  * Обе живут в `dashFx.ts`.
  */
 
+import { api } from '../../services/api'
 import type { VisitCardView } from './day'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
@@ -248,4 +249,29 @@ export type _DashApptFitsCard = Fits<DashAppt extends VisitCardView ? true : fal
 /** Адрес живого канала панели. Путь — без `/api`, как у `api.get`. */
 export function livePath(date: string): string {
   return `/schedule/live?screen=panel${date ? `&date=${encodeURIComponent(date)}` : ''}`
+}
+
+/**
+ * Команды панели.
+ *
+ * ⛔ Ответ НЕ несёт состояния — ни на удаче, ни на отказе (`screen=panel`).
+ * Состояние на живой поверхности выпускается ровно одной дверью — конвертом
+ * с его отпечатком, — и въезжает одной: `apply` в `useLive`. Ответ действия
+ * отпечатка не несёт, значит любое состояние в нём стало бы вторым
+ * источником истины, не участвующим в протоколе. После команды экран просто
+ * спрашивает канал: `refresh()`.
+ * ⚠️ Отсюда же и тип `void`: брать из ответа нечего, и соблазна нет.
+ */
+export const dash = {
+  comment: (date: string, id: number, text: string) =>
+    api.post<void>(`/schedule/appointments/${id}/comment${cmdQuery(date)}`,
+      { comment: text }),
+  status: (date: string, id: number, to: string) =>
+    api.post<void>(`/schedule/appointments/${id}/status${cmdQuery(date)}`, { to }),
+}
+
+function cmdQuery(date: string): string {
+  const q = new URLSearchParams({ screen: 'panel' })
+  if (date) q.set('date', date)
+  return `?${q.toString()}`
 }

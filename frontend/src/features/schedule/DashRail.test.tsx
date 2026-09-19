@@ -1,5 +1,5 @@
 import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashRail } from './DashRail'
 import { sparkPoints } from './dashFx'
 import type {
@@ -92,7 +92,9 @@ const OCC: DashOccupancy = {
 
 const show = (over: Partial<Parameters<typeof DashRail>[0]> = {}) => render(
   <DashRail minical={MINICAL} agenda={AGENDA} tiles={TILES} occupancy={OCC}
-    date="2026-09-19" waitTick={NOW} {...over} />)
+    date="2026-09-19" waitTick={NOW} onCard={onCard} {...over} />)
+
+const onCard = vi.fn()
 
 afterEach(cleanup)
 

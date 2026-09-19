@@ -33,6 +33,9 @@ interface Props {
   id: number
   card: VisitCardView
   actions: StatusAction[]
+  /** Плашка над карточкой: непусто — запись исчезла, действовать не над чем
+   *  (надгробие, C26.5.3-b). Кнопок в этом случае не приходит вовсе. */
+  note?: string
   /** Адрес возврата для дневника визита — та же страница того же дня. */
   back: string
   busy: boolean
@@ -41,15 +44,36 @@ interface Props {
   onStatus: (to: string) => Promise<boolean>
 }
 
-export function CardDialog({ open, id, card, actions, back, busy,
+export function CardDialog({ open, id, card, actions, note = '', back, busy,
   onClose, onComment, onStatus }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [text, setText] = useState(card.comment)
+  /* ⭐ Черновик держит СЕБЯ, а не экран (C26.5.3-b). Пока его не трогали —
+     приехавшее значение пересевает поле, и правка со второго рабочего места
+     видна сразу. Тронули — поле остаётся, а канва под диалогом продолжает
+     жить: старый `panel.js` на любом открытом окне замораживал страницу
+     целиком, и рабочее место с забытой карточкой переставало узнавать о
+     бронях, оставаясь живым НА ВИД.
+     ⚠️ Чистоту решает сравнение с тем, ЧЕМ ЗАСЕЯЛИ, а не с текущим значением
+     карточки: иначе текст, случайно набранный слово в слово, считался бы
+     грязным навсегда. */
+  const seeded = useRef(card.comment)
 
   useEffect(() => {
     if (open) showDialog(ref.current)
     else hideDialog(ref.current)
   }, [open])
+
+  useEffect(() => {
+    /* ⚠️ Решение принимается ВНУТРИ обновления состояния: снаружи `text` —
+       значение прошлого рендера, и черновик, набранный за кадр до ответа
+       канала, считался бы чистым и был бы затёрт. */
+    setText((cur) => {
+      if (cur !== seeded.current) return cur      // тронули — не трогаем
+      seeded.current = card.comment
+      return card.comment
+    })
+  }, [card.comment])
 
   const info = [card.service, card.doctor, card.phone,
     card.age ? `${card.age} ani` : ''].filter(Boolean).join(' · ')
@@ -66,6 +90,9 @@ export function CardDialog({ open, id, card, actions, back, busy,
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
       <div className="dlg-form">
+        {/* Надгробие: запись исчезла, пока диалог открыт. Слово взято у
+            легаси (`MSG_BANNER["mv_gone"]`), а не придумано. */}
+        {note && <div className="banner err" role="alert">{note}</div>}
         <div className="dp-card-info">{info}</div>
         {card.pid ? (
           <>
