@@ -140,9 +140,37 @@ class Server:
         except (OSError, AttributeError):
             pass
         if self._own_dir:
-            shutil.rmtree(self.dir, ignore_errors=True)
+            _rmtree_settled(self.dir)
         else:
             _settle_db(self.dir / "dental.db")
+
+
+def _rmtree_settled(path: pathlib.Path, budget: float = 5.0) -> None:
+    """Убрать песочницу — ДОЖДАВШИСЬ, пока Windows отпустит базу.
+
+    ⛔ `shutil.rmtree(..., ignore_errors=True)` сразу после TerminateProcess не
+    работает и НЕ ЖАЛУЕТСЯ: убитый uvicorn ещё держит отображение `-wal`/`-shm`,
+    удаление падает, флаг отказ проглатывает — и папка остаётся навсегда.
+    Поймано 19.09: один полный прогон поднимает под две сотни серверов, и в
+    `%TEMP%` набралось 4179 папок `dp_test_*` на 1.7 ГБ. Диск C у Олега
+    переполняется регулярно, и это одна из причин.
+
+    ⚠️ Лечится тем же ожиданием, что уже стоит у чужой папки (`_settle_db`):
+    несколько попыток, пока файлы не отпустят. Последняя — молча, чтобы
+    прогон не падал из-за уборки: цель — не оставить мусор, а не умереть.
+    """
+    deadline = time.time() + budget
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.time() > deadline:
+                shutil.rmtree(path, ignore_errors=True)
+                return
+            time.sleep(0.15)
 
 
 def _settle_db(path: pathlib.Path, budget: float = 5.0) -> None:
