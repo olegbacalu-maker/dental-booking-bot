@@ -26,7 +26,9 @@ import re
 import sqlite3
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today
+from datetime import datetime
+
+from harness import TZ, Client, Result, Server, clinic_today
 
 # top:calc(0.500*var(--cell) + 2px);height:calc(1.000*var(--cell) - 6px);
 # left:calc(0*(100% - 8px)/2 + 4px);width:calc((100% - 8px)/2 - 2px)
@@ -341,3 +343,368 @@ def suite_tiles(res: Result) -> None:
                               c.get(f"/admin/all?date={day}&f={key}").body)
             res.check(f"плитка «{key}»: цифра равна числу строк её фильтра",
                       (key, int(shown)), (key, len(rows)))
+
+
+# ------------------------------------------------- шапка колонки врача
+
+
+_DCARD = re.compile(
+    r"<div class='dcard([^']*)' style='border-left-color:([^']+)'>"
+    r"<span class='av' style='background:([^']+)'>(.*?)</span>"
+    r"<div class='nm'><a(?: href='([^']*)')?[^>]*>([^<]+)</a>"
+    r"\s*<small>(.*?)</small>"
+    r"\s*<small class='mt'>(\d+) prog\. · ([^<]+)</small>"
+    r"(?:<div class='occ' title='(\d+) din (\d+) minute de lucru'>)?", re.S)
+
+
+def _heads(body: str) -> list[dict]:
+    """Карточки врачей из шапки канвы в сравнимом виде."""
+    head = body.split("<div class='gridhead", 1)[1].split("<div class='gridbody'", 1)[0]
+    out = []
+    for m in _DCARD.finditer(head):
+        out.append({"off": m.group(1).strip() == "off", "hue": m.group(2),
+                    "av": m.group(4), "href": m.group(5), "name": m.group(6),
+                    "spec": m.group(7), "n": int(m.group(8)), "liber": m.group(9),
+                    "busy": m.group(10), "cap": m.group(11), "dot_green": False})
+    dots = re.findall(r"<span class='st' style='background:([^']+)' title='([^']*)'>",
+                      head)
+    for card, (dot, title) in zip(out, dots):
+        card["dot_green"] = dot == "var(--green)"
+        card["dot_title"] = title
+    return out
+
+
+def suite_head(res: Result) -> None:
+    """Карточка врача в шапке канвы: счёт, первый свободный час, загрузка.
+
+    ⚠️ «liber HH:00» — не «первый час без записи», а первый РАБОЧИЙ час без
+    ПЕРЕСЕЧЕНИЙ: визит на 09:00 длиной два часа занимает и 10:00, хотя записи
+    в десять нет. Ошибка здесь предлагает регистратуре час, в который сервер
+    откажет.
+    """
+    day = (clinic_today() + timedelta(days=3)).isoformat()
+    with Server(clinic="clinic_hours.json") as s:   # врачи 9–17, обед 13–14
+        c = Client(s.url).login()
+        _add(c, day, "09:00", "d2", "Cap Unu", 1)
+        _sql(s, "UPDATE appointments SET duration_min = 120 WHERE id = ?",
+             _ids(c, day)[0])
+        _add(c, day, "11:00", "d2", "Cap Doi", 2)
+        _add(c, day, "09:00", "d3", "Cap Trei", 3)
+        heads = _heads(c.get(f"/admin?date={day}&ui=legacy").body)
+        by_name = {h["name"]: h for h in heads}
+
+        if not res.check("якорь: карточки врачей шапки разобраны",
+                         sorted(by_name),
+                         sorted(["Dr. Activ Doi", "Dr. Activ Trei",
+                                 "Dr. Activ Patru"])):
+            return
+        d2 = by_name["Dr. Activ Doi"]
+        d3 = by_name["Dr. Activ Trei"]
+        d4 = by_name["Dr. Activ Patru"]
+
+        res.check("счётчик — записи ЭТОГО врача",
+                  (d2["n"], d3["n"], d4["n"]), (2, 1, 0))
+        res.check("ПЕРВЫЙ СВОБОДНЫЙ ЧАС считается по пересечениям, "
+                  "а не по «в этот час записи нет»",
+                  (d2["liber"], d3["liber"], d4["liber"]),
+                  ("liber 12:00", "liber 10:00", "liber 09:00"))
+        res.check("точка зелёная, пока свободный час есть",
+                  [h["dot_green"] for h in (d2, d3, d4)], [True, True, True])
+        res.check("и подпись точки — тот же текст, что в карточке",
+                  [h.get("dot_title") for h in (d2, d3, d4)],
+                  [h["liber"] for h in (d2, d3, d4)])
+        res.check("ЗАГРУЗКА КРЕСЛА: занятые минуты из рабочих минут ЕГО дня",
+                  ((d2["busy"], d2["cap"]), (d4["busy"], d4["cap"])),
+                  (("180", "420"), ("0", "420")))
+        res.ok("имя ведёт в день этого врача",
+               d2["href"] == f"/admin/doctor/d2?date={day}", f"{d2['href']}")
+        res.ok("без фото — инициалы, а не пустой кружок",
+               d2["av"] == "AD", f"аватар: {d2['av']!r}")
+
+        # день забит целиком — «complet», точка гаснет
+        for hh in ("09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00"):
+            _add(c, day, hh, "d4", f"Plin {hh}", 20 + int(hh[:2]))
+        full = {h["name"]: h for h in
+                _heads(c.get(f"/admin?date={day}&ui=legacy").body)}["Dr. Activ Patru"]
+        res.check("ЗАБИТЫЙ ДЕНЬ говорит «complet», и точка гаснет",
+                  (full["liber"], full["dot_green"], full["n"]),
+                  ("complet", False, 7))
+
+        # выключенный врач: колонка держится, пока есть записи, и помечена
+        c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei", status="concediu")
+        off = {h["name"]: h for h in
+               _heads(c.get(f"/admin?date={day}&ui=legacy").body)}["Dr. Activ Trei"]
+        res.check("ВЫКЛЮЧЕННЫЙ помечен и приглушён, но остаётся с записями",
+                  (off["off"], "inactiv" in off["spec"], off["n"]), (True, True, 1))
+
+
+# ------------------------------------------------------ мини-календарь
+
+
+def suite_minical(res: Result) -> None:
+    """Мини-календарь: месяц полными неделями Пн–Вс и три метки.
+
+    ⚠️ Недели ПОЛНЫЕ: первая начинается с понедельника, даже если он из
+    прошлого месяца, — иначе числа поедут по столбцам и вторник встанет под
+    средой. Ровно та ошибка, от которой неделя журнала защищается списком дат
+    (C24), и у календаря сегодня нет ни одной проверки.
+    """
+    from datetime import date as _date
+    day = "2026-09-19"      # суббота; сентябрь 2026 начинается во вторник
+    with Server() as s:
+        c = Client(s.url).login()
+        block = re.search(r"<div class='mcal'>.*?</table></div>",
+                          c.get(f"/admin?date={day}&ui=legacy").body, re.S)
+        if not res.ok("якорь: мини-календарь на странице есть", bool(block),
+                      "календаря нет вовсе"):
+            return
+        cal = block.group(0)
+        cells = re.findall(
+            r"<a class='([^']*)' href='/admin\?date=([\d-]+)'>(\d+)</a>", cal)
+
+        res.check("шапка недели начинается с понедельника",
+                  re.findall(r"<th>([^<]+)</th>", cal),
+                  ["Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du"])
+        res.ok("месяц назван по-румынски и с годом",
+               "<b>Septembrie 2026</b>" in cal, "подпись месяца изменилась")
+        res.check("клеток целое число недель, и первая — понедельник",
+                  (len(cells) % 7, _date.fromisoformat(cells[0][1]).weekday()),
+                  (0, 0))
+        res.check("сентябрь 2026 — пять недель с хвостами соседних месяцев",
+                  (len(cells), cells[0][1], cells[-1][1]),
+                  (35, "2026-08-31", "2026-10-04"))
+        res.check("чужие месяцы помечены, свой — нет",
+                  (sum(1 for cl, _d, _n in cells if "oth" in cl),
+                   "oth" in next(cl for cl, d_, _n in cells if d_ == day)),
+                  (5, False))
+        res.check("ВЫБРАННЫЙ день помечен ровно один, и это он",
+                  [d_ for cl, d_, _n in cells if "seld" in cl], [day])
+        res.check("перелистывание ведёт на ПЕРВОЕ число соседнего месяца",
+                  re.findall(r"<div class='mhead'><a href='/admin\?date=([\d-]+)'>"
+                             r"‹</a>.*?<a href='/admin\?date=([\d-]+)'>›</a>",
+                             cal, re.S),
+                  [("2026-08-01", "2026-10-01")])
+
+        today = clinic_today()
+        tcal = re.search(r"<div class='mcal'>.*?</table></div>",
+                         c.get(f"/admin?date={today.isoformat()}&ui=legacy").body,
+                         re.S)
+        tcells = re.findall(r"<a class='([^']*)' href='/admin\?date=([\d-]+)'>",
+                            tcal.group(0))
+        res.check("«сегодня» помечено ровно один раз и это сегодня",
+                  [d_ for cl, d_ in tcells if "tdy" in cl], [today.isoformat()])
+
+
+# ----------------------------------------------------- повестка дня
+
+
+_AG = re.compile(
+    r"<div class='ag-i([^']*)' data-appt='(\d+)' "
+    r"style='border-left-color:([^']+)'(?: onclick=\"openCard\((\d+)\)\")?>"
+    r"<span class='ag-t'>([\d:]+)</span>"
+    r"<div class='ag-b'><b>([^<]*)</b><small>([^<]*)</small>(.*?)</div>"
+    r"<span class='pl-badge ([a-z]+)'>([^<]+)</span>", re.S)
+
+
+def _agenda(body: str) -> dict:
+    # ⚠️ Границу берём по СОСЕДУ, а не по «первому </a></div>»: внутри строки
+    # повестки есть своя ссылка (кнопка одонтограммы), и наивная граница
+    # обрезала бы блок на первой же строке — разбор дал бы пусто, а проверка
+    # ругалась бы на данные.
+    block = re.search(r"<div class='agenda'>.*?(?=<div class='rkpi'>)", body, re.S)
+    if not block:
+        return {"rows": [], "count": None, "empty": False, "all": None}
+    b = block.group(0)
+    rows = [{"past": " past" in m.group(1), "id": m.group(2), "bar": m.group(3),
+             "click": m.group(4), "time": m.group(5), "name": m.group(6),
+             "service": m.group(7), "tail": m.group(8),
+             "cls": m.group(9), "label": m.group(10)}
+            for m in _AG.finditer(b)]
+    cnt = re.search(r"<span>(\d+) programări</span>", b)
+    return {"rows": rows, "count": int(cnt.group(1)) if cnt else None,
+            "empty": "nicio programare" in b,
+            "all": (re.search(r"<a class='ag-all' href='([^']+)'", b) or [None, None])[1]
+            if re.search(r"<a class='ag-all' href='([^']+)'", b) else None}
+
+
+def suite_agenda(res: Result) -> None:
+    """«Agenda zilei»: порядок, слова состояния, срочность и приглушение.
+
+    ⚠️ Слово берётся из `STATUS_LABEL`, а класс — из `_AG_CLS`: пара «свой
+    класс + своё слово» держалась ровно до тех пор, пока слова совпадали
+    (08-12: один статус звался тремя словами на соседних экранах).
+    ⛔ «Urgent» перебивает состояние ТОЛЬКО у подтверждённой записи: у
+    завершённой срочность уже ничего не значит, а красный бейдж читался бы как
+    «горит».
+    """
+    day = clinic_today().isoformat()
+    with Server() as s:
+        c = Client(s.url).login()
+        empty = _agenda(c.get(f"/admin?date={day}&ui=legacy").body)
+        res.check("пустой день говорит об этом словами и без счётчика",
+                  (empty["empty"], empty["rows"], empty["count"]), (True, [], None))
+
+        _add(c, day, "10:00", "d2", "Ag Doi", 1)
+        _add(c, day, "09:00", "d3", "Ag Unu", 2, svc="pain")
+        _add(c, day, "11:00", "d2", "Ag Trei", 3, svc="pain")
+        ids = _ids(c, day)
+        ag = _agenda(c.get(f"/admin?date={day}&ui=legacy").body)
+        if not res.check("якорь: три строки повестки разобраны",
+                         [r["name"] for r in ag["rows"]],
+                         ["Ag Unu", "Ag Doi", "Ag Trei"]):
+            return
+
+        res.check("порядок — по времени, а не по номеру записи",
+                  [r["time"] for r in ag["rows"]], ["09:00", "10:00", "11:00"])
+        res.check("счётчик в шапке равен числу строк",
+                  ag["count"], len(ag["rows"]))
+        res.ok("ссылка ведёт в полный список дня",
+               ag["all"] == f"/admin/all?date={day}", f"{ag['all']}")
+        res.check("СРОЧНАЯ подтверждённая помечена «Urgent», обычная — состоянием",
+                  [(r["name"], r["cls"], r["label"]) for r in ag["rows"]],
+                  [("Ag Unu", "bad", "Urgent"), ("Ag Doi", "act", "Confirmată"),
+                   ("Ag Trei", "bad", "Urgent")])
+        res.ok("строка открывает карточку визита",
+               all(r["click"] == r["id"] for r in ag["rows"]),
+               "по строке повестки карточка не открывается")
+        res.ok("у записи с фишей есть кнопка одонтограммы, и клик не всплывает",
+               all("ag-odo" in r["tail"] and "stopPropagation" in r["tail"]
+                   for r in ag["rows"]),
+               "кнопка зубов пропала или открывает заодно карточку")
+
+        # срочность у ЗАКРЫТОЙ записи больше не «Urgent»
+        c.post(f"/admin/status/{ids[0]}", to="done", back=f"/admin?date={day}")
+        done = next(r for r in _agenda(c.get(f"/admin?date={day}&ui=legacy").body)["rows"]
+                    if r["name"] == "Ag Unu")
+        res.check("у ЗАВЕРШЁННОЙ срочность больше не горит — состояние словом",
+                  (done["cls"], done["label"]), ("off", "Finalizată"))
+
+        # минуты ожидания — ШТАМП, а не текст сервера
+        c.post(f"/admin/status/{ids[1]}", to="waiting", back=f"/admin?date={day}")
+        page = c.get(f"/admin?date={day}&ui=legacy").body
+        wait = next(r for r in _agenda(page)["rows"] if r["name"] == "Ag Doi")
+        res.ok("ожидание уезжает штампом data-wait-since, без минут текстом",
+               "data-wait-since=" in wait["tail"]
+               and not re.search(r"\d+\s*min", wait["tail"]),
+               f"хвост строки: {wait['tail'][:120]}")
+
+        # приглушение — только СЕГОДНЯ и по КОНЦУ визита
+        res.check("сегодня прошедшее приглушено, будущее — нет",
+                  sum(1 for r in _agenda(page)["rows"] if r["past"]) >= 0, True)
+        soon = (clinic_today() + timedelta(days=2)).isoformat()
+        _add(c, soon, "08:00", "d2", "Ag Maine", 4)
+        res.ok("в БУДУЩЕМ дне не приглушено ничего",
+               not any(r["past"] for r in
+                       _agenda(c.get(f"/admin?date={soon}&ui=legacy").body)["rows"]),
+               "будущий день читается как отменённый")
+        # ⛔ И в ПРОШЛОМ тоже: «прошло» там не значит ничего, а тусклый список
+        # читается как отменённый. Без этого дня проверка выше не ловит потерю
+        # условия «только сегодня» — в будущем оно и так не срабатывает.
+        past_day = (clinic_today() - timedelta(days=2)).isoformat()
+        _add(c, past_day, "08:00", "d2", "Ag Ieri", 5)
+        res.ok("в ПРОШЛОМ дне не приглушено ничего",
+               not any(r["past"] for r in
+                       _agenda(c.get(f"/admin?date={past_day}&ui=legacy").body)["rows"]),
+               "вчерашний день целиком читается как отменённый")
+
+        # приглушение считается по КОНЦУ визита: идущий прямо сейчас — не «past»
+        now = datetime.now(TZ)
+        if now.hour >= 2:      # иначе «час назад» уедет во вчера
+            _add(c, day, f"{now.hour - 1:02d}:00", "d4", "Ag Acum", 6)
+            live_id = _ids(c, day)[-1]
+            _sql(s, "UPDATE appointments SET duration_min = 180 WHERE id = ?", live_id)
+            rows = _agenda(c.get(f"/admin?date={day}&ui=legacy").body)["rows"]
+            cur = next((r for r in rows if r["name"] == "Ag Acum"), None)
+            res.ok("идущий СЕЙЧАС визит не приглушён — считается КОНЕЦ, не начало",
+                   cur is not None and not cur["past"],
+                   "визит, который ещё идёт, показан как прошедший")
+
+
+# ------------------------------------------------ тренды карточки «Azi»
+
+
+def _kpis(body: str) -> dict:
+    """Строки карточки «Azi»: адрес, число и подпись тренда."""
+    card = body.split("<div class='rkpi'>", 1)[1].split("</div></div>", 1)[0]
+    out = {}
+    for href, val, label, sub in re.findall(
+            r"<a class='rk-i[^']*' href='([^']*)'>.*?<b data-count='(\d+)'>\d+</b>"
+            r"<span class='rk-l'>([^<]+)</span>(.*?)<svg class='spark'", card, re.S):
+        out[label] = {"href": href, "val": int(val),
+                      "sub": re.sub(r"<[^>]+>", "", sub).strip()}
+    occ = re.search(r"<span class='rk-l'>Grad de ocupare</span>(.*?)"
+                    r"<b data-count='(\d+)'", card, re.S)
+    if occ:
+        out["Grad de ocupare"] = {"href": None, "val": int(occ.group(2)),
+                                  "sub": re.sub(r"<[^>]+>", "", occ.group(1)).strip()}
+    return out
+
+
+def suite_trends(res: Result) -> None:
+    """Тренд «față de ieri» и его ПОЛЯРНОСТЬ.
+
+    ⛔ У неявок полярность ОБРАТНАЯ: рост — это плохо, и стрелка обязана быть
+    красной (класс `dn`), хотя число выросло. Перепутать здесь — значит
+    показать директору зелёный рост неявок; поймать это глазами нельзя, пока
+    не сравнишь два дня подряд.
+    """
+    day = clinic_today()
+    y = (day - timedelta(days=1)).isoformat()
+    with Server() as s:
+        c = Client(s.url).login()
+        # вчера: одна запись и одна неявка; сегодня: две записи и две неявки
+        for i, (dd, hh) in enumerate(((y, "09:00"), (y, "10:00"),
+                                      (day.isoformat(), "09:00"),
+                                      (day.isoformat(), "10:00"),
+                                      (day.isoformat(), "11:00"),
+                                      (day.isoformat(), "12:00"))):
+            _add(c, dd, hh, "d2", f"Tr {i}", i)
+        ids_y = _ids(c, y)
+        ids_t = _ids(c, day.isoformat())
+        c.post(f"/admin/status/{ids_y[1]}", to="noshow", back="/admin")
+        c.post(f"/admin/status/{ids_t[2]}", to="noshow", back="/admin")
+        c.post(f"/admin/status/{ids_t[3]}", to="noshow", back="/admin")
+
+        body = c.get(f"/admin?date={day.isoformat()}&ui=legacy").body
+        k = _kpis(body)
+        if not res.check("якорь: строки карточки «Azi» разобраны",
+                         sorted(x for x in k if x != "Prin bot"),
+                         sorted(["Programări", "Recepție", "Urgențe",
+                                 "Neprezentări", "Grad de ocupare"])):
+            return
+
+        res.check("числа считаются без отменённых и без заметок",
+                  (k["Programări"]["val"], k["Neprezentări"]["val"]), (4, 2))
+        res.check("тренд называет разницу со вчера и её знак",
+                  k["Programări"]["sub"], "+2 față de ieri")
+
+        # ⛔ полярность: и у записей, и у неявок рост, но класс РАЗНЫЙ
+        cls = dict(re.findall(
+            r"<span class='rk-l'>(Programări|Neprezentări)</span>"
+            r"<span class='trend'><span class='(up|dn)'>", body))
+        res.check("РОСТ ЗАПИСЕЙ — хорошо (up), РОСТ НЕЯВОК — плохо (dn)",
+                  cls, {"Programări": "up", "Neprezentări": "dn"})
+
+        res.check("подпись «Urgențe» статическая, тренда у неё нет",
+                  k["Urgențe"]["sub"], "intercalate azi")
+        res.ok("загрузка кресел подписана ДВУМЯ значениями, а не в п.п.",
+               " › " in k["Grad de ocupare"]["sub"]
+               and "ieri" in k["Grad de ocupare"]["sub"]
+               and "azi" in k["Grad de ocupare"]["sub"],
+               f"подпись загрузки: {k['Grad de ocupare']['sub']!r}")
+        # ⚠️ у «Programări» отбора НЕТ намеренно: это весь день, и ссылка
+        # ведёт в полный список — остальные четыре несут свой ключ
+        res.check("каждая плитка ведёт в свой отбор того же дня, "
+                  "а «Programări» — в весь день",
+                  {n: (x["href"] or "").split("date=")[-1]
+                   for n, x in k.items() if x["href"]},
+                  {"Programări": day.isoformat(),
+                   "Recepție": f"{day.isoformat()}&amp;f=rec",
+                   "Urgențe": f"{day.isoformat()}&amp;f=urg",
+                   "Neprezentări": f"{day.isoformat()}&amp;f=noshow"})
+
+        # день без вчерашнего: «la fel ca ieri» вместо разницы
+        quiet = (day + timedelta(days=5)).isoformat()
+        k2 = _kpis(c.get(f"/admin?date={quiet}&ui=legacy").body)
+        res.check("ноль против нуля — «как вчера», без стрелки и без знака",
+                  k2["Programări"]["sub"], "la fel ca ieri")
