@@ -759,6 +759,48 @@ def suite(res: Result) -> None:
            "fetch получит 303 и покажет пустой экран вместо «сессия истекла»: "
            + "; ".join(bad))
 
+    # ---- маршрут /api/ не спрашивает, КТО РИСУЕТ экран (C26.5.2) ----
+    # Дважды наступали на одно и то же место, и оба раза молча.
+    # `react_on` читает `?ui=` САМОГО ЗАПРОСА: ответ начинает зависеть от
+    # адреса опроса, а не от клиники, и если он попадёт в данные — попадёт и в
+    # отпечаток, то есть панель перерисуется от того, что кто-то дописал
+    # параметр. `LIVE_RELOAD` — список ЛЕГАСИ-раскладок для `_shell`: на C27
+    # `dash` уйдёт из него вместе со старой страницей, и связанный с ним канал
+    # молча перестал бы отдавать состояние React-панели.
+    # ⭐ Спрашивать «какую поверхность отдаёт сервер» можно и нужно — но
+    # `react_flag(screen)`, у которого запроса нет, и только ради заголовка.
+    # ⚠️ Полярность опасная: правило ищет ИМЕНА. Якорей три.
+    bad_ui = []
+    lay = by_path.get("app/core/layout.py")
+    lay_names = set()
+    if lay is not None:
+        lay_names = {f.name for f in ast.walk(lay)
+                     if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        lay_names |= {t.id for a in ast.walk(lay) if isinstance(a, ast.Assign)
+                      for t in a.targets if isinstance(t, ast.Name)}
+    for need in ("react_on", "react_flag", "LIVE_RELOAD"):
+        if need not in lay_names:
+            bad_ui.append(f"app/core/layout.py: нет {need} — якорь правила пропал")
+    for rel, tree in src:
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            routes = [d.args[0].value for d in fn.decorator_list
+                      if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                      and d.func.attr in ("get", "post", "put", "delete", "patch")
+                      and d.args and isinstance(d.args[0], ast.Constant)
+                      and isinstance(d.args[0].value, str)]
+            if not any(p.startswith("/api/") for p in routes):
+                continue
+            # ⚠️ ИМЕНА, а не вызовы: `LIVE_RELOAD` не зовут, его читают, и
+            # `_calls(fn)` его не увидел бы.
+            names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+            for nm in sorted(names & {"react_on", "LIVE_RELOAD"}):
+                bad_ui.append(f"{rel}:{fn.lineno} {fn.name}() спрашивает {nm}")
+    res.ok("маршрут /api/ не спрашивает, кто рисует экран", not bad_ui,
+           "состояние экрана стало бы зависеть от клиента, а отпечаток — от "
+           "адреса опроса: " + "; ".join(bad_ui))
+
     # ---- icons.ts свежий: иконки клиента — ИЗ layout._I (09-17, 2.0) ----
     # У иконок один владелец — словарь _I; frontend/src/components/icons.ts
     # генерируется из него (scripts/gen_icons.py). Правка иконки на сервере

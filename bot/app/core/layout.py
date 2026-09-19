@@ -912,15 +912,28 @@ REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "schedule_dash"})
 
 
-def react_on(request: Request, screen: str) -> bool:
-    """Отдать ли экран React-клиенту: флаг в профиле включён, экран известен
-    бандлу, и человек не попросил старую страницу через ?ui=legacy."""
+def react_flag(screen: str) -> bool:
+    """Какую поверхность сервер отдаёт этому экрану ВООБЩЕ: флаг в профиле
+    включён и экран известен бандлу.
+
+    ⛔ Запроса здесь нет намеренно, и это не мелочь. `?ui=legacy` — просьба на
+    ОДИН ответ, а не смена того, что клиника видит по адресу; вопрос «какой
+    экран здесь живёт» обязан отвечаться одинаково на любой запрос. Живой
+    канал спрашивает именно это (`X-DP-Surface`), и спроси он `react_on` —
+    ответ зависел бы от адреса опроса, то есть от клиента, а не от клиники.
+    """
     if screen not in REACT_SCREENS:
-        return False
-    if request.query_params.get("ui") == "legacy":
         return False
     flags = (eng.CONFIG.get("ui") or {}).get("react") or []
     return screen in flags
+
+
+def react_on(request: Request, screen: str) -> bool:
+    """Отдать ли экран React-клиенту ЭТИМ ответом: поверхность React, и
+    человек не попросил старую страницу через ?ui=legacy."""
+    if request.query_params.get("ui") == "legacy":
+        return False
+    return react_flag(screen)
 
 
 # Метка узла React в готовой странице. ⚠️ Одна строка на печать и на проверку:
