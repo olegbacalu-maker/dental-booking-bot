@@ -18,7 +18,10 @@ React → отрисовка → раскладка. Красивая панел
      пределах одного опроса блок приезжает на экран, а геометрия соседа НЕ
      меняется;
   3. неизменный день: за полторы минуты опрос не даёт НИ ОДНОЙ мутации DOM,
-     а линия «сейчас» при этом ЖИВА и сдвинулась. ⚠️ Оба условия вместе:
+     а линия «сейчас» при этом ЖИВА и сдвинулась. ⚠️ Проверки линии
+     пропускаются, если стенд запущен ВНЕ рабочих часов клиники: тогда линии
+     законно нет, и требовать её значило бы краснеть по неверной причине.
+     Пропуск печатается вслух — молчаливый пропуск это ложное зелёное. ⚠️ Оба условия вместе:
      «ноль мутаций» в одиночку зелено и у намертво замершего экрана — самая
      частая форма ложного зелёного в этом проекте. Окно длиннее минуты
      намеренно (разбор у константы QUIET);
@@ -69,6 +72,17 @@ CHECK_JS = """(() => {
       + '@' + (b.querySelector('b') || {}).textContent),
     geom: geom,
     nowlines: document.querySelectorAll('.nowline').length,
+    /* ⚠️ Линия «сейчас» есть ТОЛЬКО когда текущий час клиники попал в сетку
+       дня. Стенд гоняют и ночью, и тогда её законно нет — а проверка «линия
+       ровно одна» краснела бы по неверной причине (наступил 20.09, 00:24). */
+    hour_in_grid: (() => {
+      const tz = (document.getElementById('sf_clock') || {}).dataset;
+      const hh = new Intl.DateTimeFormat('en-CA', {
+        timeZone: (tz && tz.tz) || undefined, hourCycle: 'h23', hour: '2-digit',
+      }).format(new Date());
+      return Array.from(document.querySelectorAll('.gcol-time > div'))
+        .some(d => d.textContent.slice(0, 2) === hh);
+    })(),
     agenda: Array.from(document.querySelectorAll('.ag-i .ag-t')).map(t => t.textContent),
     agenda_count: (document.querySelector('.ag-h span') || {}).textContent || null,
     tiles: Array.from(document.querySelectorAll('.rk-i .rk-l')).map(t => t.textContent),
@@ -175,8 +189,14 @@ def run(out: pathlib.Path) -> int:
             # --- 1. панель из одного конверта ---
             page.go(f"/admin?date={day}")
             cdp.drain(1.5)
+            probe = json.loads(page.js(CHECK_JS))
+            in_hours = bool(probe["hour_in_grid"])
+            if not in_hours:
+                print("⚠️  час вне графика клиники: проверки линии «сейчас» "
+                      "пропущены (стенд запущен не в рабочее время)")
+            line_n = 1 if in_hours else 0
             st = scene(page, "01_panel", {
-                "react": True, "live_wrap": False, "nowlines": 1,
+                "react": True, "live_wrap": False, "nowlines": line_n,
                 "agenda_count": "2 programări",
                 "tiles": ["Programări", "Recepție", "Urgențe", "Neprezentări"],
             })
@@ -205,7 +225,7 @@ def run(out: pathlib.Path) -> int:
                      if k in st["geom"] and st["geom"][k] != v]
             if moved:
                 bad += f" · поехали соседи: {moved!r}"
-            scene(page, "02_live_new", {"nowlines": 1,
+            scene(page, "02_live_new", {"nowlines": line_n,
                                         "agenda_count": "3 programări"}, bad)
 
             # --- 3. неизменный день: ни одной мутации ---
@@ -219,10 +239,10 @@ def run(out: pathlib.Path) -> int:
             # ⭐ И обратная сторона: линия обязана ДВИГАТЬСЯ. Ноль здесь значит,
             # что экран замер, а «ноль мутаций» стало бы зелёным по неверной
             # причине — самая частая форма ложного зелёного в этом проекте.
-            if not st["line_moves"]:
+            if in_hours and not st["line_moves"]:
                 quiet += (" · линия «сейчас» не сдвинулась ни разу за "
                           f"{QUIET:.0f} с — экран замер")
-            scene(page, "03_quiet", {"nowlines": 1}, quiet)
+            scene(page, "03_quiet", {"nowlines": line_n}, quiet)
 
             # --- 4. мгновенный откат ---
             page.go(f"/admin?date={day}&ui=legacy")

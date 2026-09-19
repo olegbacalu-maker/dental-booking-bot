@@ -1,4 +1,4 @@
-import { cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLive } from './useLive'
 
@@ -85,25 +85,81 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     /* ⭐ Ровно то свойство, на котором держался старый panel.js: отказ
        применить ничего не теряет, потому что следующий запрос уйдёт с ПРЕЖНИМ
        отпечатком и принесёт то же самое. Сдвинь отпечаток здесь — и правка,
-       пришедшая во время перетаскивания, пропала бы навсегда. */
+       пришедшая во время перетаскивания, пропала бы навсегда.
+       ⚠️ Признак ставится СИНХРОННО, рефом, и предикат читает его в момент
+       тика: булев проп доехал бы до хука пассивным эффектом, то есть кадром
+       позже — для команды длиной в круг по 127.0.0.1 этого кадра достаточно. */
     const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
     vi.stubGlobal('fetch', f)
-    const o = opts()
-    const { result, rerender } = renderHook(
-      ({ hold }) => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', { ...o, hold }),
-      { initialProps: { hold: false } })
+    const held = { now: false }
+    const o = { ...opts(), hold: () => held.now }
+    const { result } = renderHook(
+      () => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', o))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
 
-    rerender({ hold: true })
+    held.now = true
     f.mockImplementation(async () => reply(200, day(2), { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
 
     expect(result.current.state.data).toEqual(day(1))
     expect(init(f, 1).headers).toEqual({ 'X-DP-Hash': 'h1' })
 
-    rerender({ hold: false })
+    held.now = false
     await vi.advanceTimersByTimeAsync(12_000)
     await waitFor(() => expect(result.current.state.data).toEqual(day(2)))
+  })
+
+  it('⛔ ОПОЗДАВШИЙ опрос не кладёт докомандное состояние поверх свежего', async () => {
+    /* Гонка, от которой `hold` не спасает: к моменту беды команда уже
+       завершилась.
+           тик №2 вылетел  →  команда изменила день  →  refresh() №3 привёз
+           новое и применил  →  ответ №2 доставлен со СТАРЫМ состоянием.
+       Без защиты визит исчезает с канвы на двенадцать секунд, и регистратура
+       записывает второй раз. Номер защищает свежесть СОСТОЯНИЯ, а не порядок
+       доставки: номер не больше применённого — выбросить. */
+    const gate: Array<(r: Response) => void> = []
+    const f = vi.fn<Fetcher>(() => new Promise<Response>((res) => { gate.push(res) }))
+    vi.stubGlobal('fetch', f)
+    const { result } = renderHook(
+      () => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts()))
+
+    await waitFor(() => expect(gate.length).toBe(1))
+    await act(async () => { gate[0]!(reply(200, day(1), { 'X-DP-Hash': 'h1' })) })
+    await waitFor(() => expect(result.current.state.data).toEqual(day(1)))
+
+    /* тик №2 вылетел и завис — это опрос, выпущенный ДО команды */
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(gate.length).toBe(2))
+
+    /* команда прошла, клиент спрашивает немедленно — тик №3 */
+    act(() => { result.current.refresh() })
+    await waitFor(() => expect(gate.length).toBe(3))
+    await act(async () => { gate[2]!(reply(200, day(2), { 'X-DP-Hash': 'h2' })) })
+    await waitFor(() => expect(result.current.state.data).toEqual(day(2)))
+
+    /* и только теперь доезжает №2 — с ДОкомандным состоянием */
+    await act(async () => { gate[1]!(reply(200, day(1), { 'X-DP-Hash': 'h1' })) })
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(result.current.state.data).toEqual(day(2))
+    /* и отпечаток остался свежим: следующий запрос уйдёт с h2, а не с h1 */
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(gate.length).toBeGreaterThan(3))
+    expect(init(f, f.mock.calls.length - 1).headers).toEqual({ 'X-DP-Hash': 'h2' })
+  })
+
+  it('refresh() спрашивает НЕМЕДЛЕННО и отпечатка не трогает', async () => {
+    const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
+    vi.stubGlobal('fetch', f)
+    const { result } = renderHook(
+      () => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts()))
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    expect(f).toHaveBeenCalledTimes(1)
+
+    act(() => { result.current.refresh() })
+    await waitFor(() => expect(f).toHaveBeenCalledTimes(2))
+    /* тот же отпечаток, что и был: refresh — ТОТ ЖЕ путь, а не второй */
+    expect(init(f, 1).headers).toEqual({ 'X-DP-Hash': 'h1' })
   })
 
   it('скрытая вкладка не опрашивается, а возврат к ней спрашивает НЕМЕДЛЕННО', async () => {
