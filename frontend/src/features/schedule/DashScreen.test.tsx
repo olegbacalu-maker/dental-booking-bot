@@ -170,6 +170,28 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     expect(hint.querySelector('a')?.getAttribute('href')).toBe(`/admin?date=${TODAY}&ui=legacy`)
   })
 
+  it('⛔ класс anim снимается на ПЕРВОМ ОБНОВЛЕНИИ, и снять его больше некому', async () => {
+    /* Ставит его каркас всякой странице, а снимал единственный — `apply()`
+       живого опроса panel.js, который на React-странице не запускается. Без
+       этого `.anim .ag-i` и `.anim .spark` переигрывали бы вход на каждом
+       новом узле вечно, а сцена браузера этого не увидела бы: анимация CSS
+       мутацией DOM не является. */
+    document.documentElement.classList.add('anim')
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show()
+    /* первая отрисовка анимируется — как серверная у старой страницы */
+    expect(document.documentElement.classList.contains('anim')).toBe(true)
+
+    const second = model()
+    second.agenda = { count: 2, today: true, items: [...model().agenda.items] }
+    f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() =>
+      expect(document.documentElement.classList.contains('anim')).toBe(false))
+  })
+
   it('движок молчит на первой загрузке → отказ с повтором, а не пустой экран', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
     render(<DashScreen date={TODAY} />)

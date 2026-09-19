@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Icon } from '../../components/Icon'
 import { useLive } from '../../hooks/useLive'
 import { DashCanvas } from './DashCanvas'
@@ -50,6 +50,29 @@ export function DashScreen({ date = '' }: Props) {
   const { state, retry } = useLive<DashModel>(livePath(date), 'react', version)
   const lineTick = useClockTick(LINE_MS)
   const waitTick = useClockTick(WAIT_MS)
+
+  /* ⛔ Класс `anim` снимается ЗДЕСЬ, и снимать его больше некому. Ставит его
+     каркас всякой странице (`core/layout.py`), а снимал единственный —
+     `apply()` живого опроса `panel.js`, который на React-странице не
+     запускается вовсе. Оставь как есть — и `.anim .ag-i`, `.anim .spark`,
+     `.anim .statbar>div` переигрывали бы входную анимацию на КАЖДОМ новом
+     узле, приехавшем каналом, вечно. Сцена этого не поймала бы: анимация CSS
+     мутацией DOM не является.
+     ⚠️ На ПЕРВОМ обновлении, а не на первой отрисовке, и это буквальный
+     перенос старого поведения: у легаси первая отрисовка серверная и
+     анимируется, а снимает класс первый же `apply`, то есть первое
+     ИЗМЕНЕНИЕ. Сними на первой — и анимация входа оборвалась бы на середине.
+     ⚠️ Сравнение по ссылке, а не счётчик: `StrictMode` (`main.tsx`) зовёт
+     эффекты дважды, и счётчик добрался бы до двух на первой же отрисовке. */
+  const shown = useRef<DashModel | null>(null)
+  useEffect(() => {
+    const d = state.data
+    if (!d) return
+    if (shown.current && shown.current !== d) {
+      document.documentElement.classList.remove('anim')
+    }
+    shown.current = d
+  }, [state.data])
 
   if (state.status === 'failed') {
     /* ⚠️ Свой отказ, а не общий `LoadFailed`: тому нужен `ApiError`, а у
