@@ -81,6 +81,20 @@ function reply(status: number, data: unknown, head: Record<string, string> = {})
     { status, headers })
 }
 
+/** Тело POST из записанного вызова `fetch`. ⚠️ Мок объявлен ОДНИМ параметром
+ *  (адрес), поэтому второй достаётся приведением: описывать весь `fetch`
+ *  ради одной строки дороже, чем эта скобка. */
+function bodyOf(call: unknown): Record<string, unknown> {
+  return JSON.parse(String((call as [string, RequestInit])[1].body))
+}
+
+/** Ответ КОМАНДЫ живой поверхности: код и слово, и НИ БАЙТА состояния. */
+function cmdReply(code: string, text: string, status = 200): Response {
+  return new Response(
+    JSON.stringify({ ok: status === 200, code, text, tone: status === 200 ? 'ok' : 'err' }),
+    { status, headers: { 'content-type': 'application/json' } })
+}
+
 beforeEach(() => {
   document.body.dataset.v = '1.27.0'
   vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -344,6 +358,13 @@ describe('C26.5.3-b: диалог визита', () => {
 })
 
 describe('C26.5.3-c: диалог пустого часа', () => {
+  const fill = (name: string, phone: string) => {
+    fireEvent.change(document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLElement,
+      { target: { value: name } })
+    fireEvent.change(document.querySelector('dialog input[placeholder="Telefon"]') as HTMLElement,
+      { target: { value: phone } })
+  }
+
   const openSlot = async (h = 10) => {
     await show()
     fireEvent.click(document.querySelector(`.gcell[data-h="${h}"]`) as HTMLElement)
@@ -410,24 +431,107 @@ describe('C26.5.3-c: диалог пустого часа', () => {
       .value).toBe('Ana Munteanu')
   })
 
-  it('⛔ отправить отсюда ещё некуда: кнопка заперта, и над ней сказано почему', async () => {
-    /* Ступень `c` слот МОДЕЛИРУЕТ; команда — `e`. Мёртвой кнопки, которая
-       молча ничего не делает, на экране не бывает: либо действие, либо
-       объяснение. */
-    const f = vi.fn(async () => reply(200, model()))
-    vi.stubGlobal('fetch', f)
+  it('⭐ команда уходит с пометкой поверхности, а состояние берётся у КАНАЛА', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/schedule/appointments')
+      ? cmdReply('ok', 'Programare adăugată')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
     await openSlot()
-    expect(document.querySelector('dialog .banner.warn')?.textContent)
-      .toContain('varianta clasică')
-    /* ⚠️ Прямой потомок формы: кнопки получаса лежат внутри `.halfpick` и
-       заперты быть не должны — слот моделируется и без отправки. */
-    expect((document.querySelector('dialog .dlg-form > button') as HTMLButtonElement)
-      .disabled).toBe(true)
-
+    fill('Ana Munteanu', '069111222')
     fireEvent.submit(document.querySelector('dialog .dlg-form') as HTMLFormElement)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(f.mock.calls.map((c) => String((c as unknown as [string])[0]))
-      .some((u) => u.includes('/schedule/appointments'))).toBe(false)
+
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+    const urls = f.mock.calls.map((c) => String(c[0]))
+    expect(urls.some((u) => u.includes(`/schedule/appointments?screen=panel&date=${TODAY}`)))
+      .toBe(true)
+    /* ...и сразу за командой экран спросил КАНАЛ: второй двери к состоянию нет */
+    expect(urls[urls.length - 1]).toContain('/schedule/live')
+  })
+
+  it('⛔ `nophone` — намерение ИЗ ФОРМЫ, а не «телефон пустой» (08-16)', async () => {
+    /* Пустой номер БЕЗ галочки остаётся отказом `bad_phone` — это правило
+       сервера. Если бы клиент выводил намерение из пустоты поля, тот же ввод
+       давал бы разный результат в зависимости от того, что в поле осталось. */
+    const f = vi.fn(async (url: string) => (String(url).includes('/schedule/appointments')
+      ? cmdReply('ok', 'Programare adăugată')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openSlot()
+    fill('Ana Munteanu', '069111222')
+    fireEvent.click(document.querySelector('dialog .nophone input') as HTMLElement)
+    fireEvent.submit(document.querySelector('dialog .dlg-form') as HTMLFormElement)
+
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+    const body = bodyOf(f.mock.calls.find(
+      (c) => String(c[0]).includes('/schedule/appointments')))
+    expect([body.nophone, body.phone, body.time]).toEqual([true, '', '10:00'])
+  })
+
+  it('⛔ на 409 диалог НЕ закрывается, набранное на месте, и канал всё равно спрошен', async () => {
+    /* 409 значит «каноническое состояние уже изменилось под тобой», а отказ
+       приходит БЕЗ данных: не спроси экран канал — человек прочтёт «интервал
+       занят» и будет смотреть на пустую ячейку. */
+    const f = vi.fn(async (url: string) => (String(url).includes('/schedule/appointments')
+      ? cmdReply('conflict', 'Intervalul este deja ocupat la acest medic', 409)
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openSlot()
+    fill('Ana Munteanu', '069111222')
+    const before = f.mock.calls.length
+    fireEvent.submit(document.querySelector('dialog .dlg-form') as HTMLFormElement)
+
+    await waitFor(() => expect(f.mock.calls.length).toBeGreaterThan(before + 1))
+    expect(document.querySelector('dialog[open]')).toBeTruthy()
+    expect((document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement)
+      .value).toBe('Ana Munteanu')
+    expect(document.querySelector('.toastbox')?.textContent)
+      .toContain('Intervalul este deja ocupat')
+    expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
+  })
+
+  it('⛔ кнопка ЗАПЕРТА, пока команда в полёте: второй клик — второй ответ', async () => {
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    const f = vi.fn(async (url: string) => {
+      if (String(url).includes('/schedule/appointments')) {
+        await held
+        return cmdReply('ok', 'Programare adăugată')
+      }
+      return reply(200, model())
+    })
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openSlot()
+    fill('Ana Munteanu', '069111222')
+    const btn = document.querySelector('dialog .dlg-form > button') as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    fireEvent.submit(document.querySelector('dialog .dlg-form') as HTMLFormElement)
+
+    await waitFor(() => expect(
+      (document.querySelector('dialog .dlg-form > button') as HTMLButtonElement).disabled)
+      .toBe(true))
+    release()
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+  })
+
+  it('заметка из вкладки уходит ГОЛЫМ часом и своим концом', async () => {
+    /* Получас двигает только время записи: сервер берёт час как
+       `int(ntime.split(":")[0])` и молча округлил бы получас вниз. */
+    const f = vi.fn(async (url: string) => (String(url).includes('/schedule/notes')
+      ? cmdReply('ok_note', 'Notiță adăugată — ora este blocată')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openSlot()
+    fireEvent.click(document.querySelectorAll('.halfpick .hp')[1] as HTMLElement)
+    fireEvent.click(document.querySelectorAll('.tabbtn')[1] as HTMLElement)
+    fireEvent.change(document.querySelector('dialog .dlg-form input') as HTMLElement,
+      { target: { value: 'Pauză de masă' } })
+    fireEvent.submit(document.querySelector('dialog .dlg-form') as HTMLFormElement)
+
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/schedule/notes'))!
+    expect(String(call[0])).toContain('screen=panel')
+    expect(bodyOf(call))
+      .toEqual({ date: TODAY, time: '10:00', doctor: 'd2', text: 'Pauză de masă', until: 11 })
   })
 })
 
@@ -502,18 +606,28 @@ describe('C26.5.3-d: диалог заметки стойки', () => {
     expect(document.querySelector('dialog .dp-note-text')?.textContent).toBe(TEXT)
   })
 
-  it('⛔ снять блокировку отсюда ещё некуда: кнопка заперта, и сказано почему', async () => {
-    const f = vi.fn(async () => reply(200, withNote()))
-    vi.stubGlobal('fetch', f)
+  it('⭐ «Șterge» шлёт `to` СЕРВЕРА тем же маршрутом статуса — и без вопроса', async () => {
+    /* ⚠️ Это не удаление: заметка переводится в `cancelled`, строка остаётся.
+       ⚠️ Вопрос подтверждения СЕРВЕРНЫЙ и по классу: «Șterge» не спрашивает
+       ничего, спрашивает «Restabilește». Полярность обратная ожидаемой — и
+       чинить её по дороге в React нельзя. */
+    const ask = vi.spyOn(window, 'confirm')
+    const f = vi.fn(async (url: string) => (String(url).includes('/status')
+      /* ⚠️ У снятия блокировки нет кода сообщения вовсе: пустая строка
+         числится успехом, и плашки после него не будет ни на одном экране. */
+      ? cmdReply('', '')
+      : reply(200, withNote())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
     await openNote()
-    expect(document.querySelector('dialog .banner.warn')?.textContent)
-      .toContain('lista zilei')
-    expect((document.querySelector('dialog .dlg-status button') as HTMLButtonElement)
-      .disabled).toBe(true)
-
     fireEvent.submit(document.querySelector('dialog .dlg-status form') as HTMLFormElement)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(f.mock.calls.map((c) => String((c as unknown as [string])[0]))
-      .some((u) => u.includes('/status'))).toBe(false)
+
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/status'))!
+    expect(String(call[0]))
+      .toBe(`/api/schedule/appointments/7/status?screen=panel&date=${TODAY}`)
+    expect(bodyOf(call)).toEqual({ to: 'cancelled' })
+    expect(ask).not.toHaveBeenCalled()
+    expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
+    ask.mockRestore()
   })
 })

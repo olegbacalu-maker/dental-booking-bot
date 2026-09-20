@@ -14,7 +14,7 @@
  */
 
 import { api } from '../../services/api'
-import type { NoteView, VisitCardView } from './day'
+import type { NewAppt, NewNote, NoteView, VisitCardView } from './day'
 import type { SlotFormView } from './slot'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
@@ -267,6 +267,10 @@ export function livePath(date: string): string {
  * Команды панели.
  *
  * ⛔ Ответ НЕ несёт состояния — ни на удаче, ни на отказе (`screen=panel`).
+ * ⚠️ И параметр обязан быть ОБЪЯВЛЕН маршрутом, а не просто послан: FastAPI
+ * молча игнорирует неизвестный параметр строки запроса, и такая команда
+ * вернула бы полную модель дня, не сказав об этом ничем. Сторож — не тип
+ * `void`, а проверка на сервере (`suite_panel_cmds`): типом это не ловится.
  * Состояние на живой поверхности выпускается ровно одной дверью — конвертом
  * с его отпечатком, — и въезжает одной: `apply` в `useLive`. Ответ действия
  * отпечатка не несёт, значит любое состояние в нём стало бы вторым
@@ -275,6 +279,14 @@ export function livePath(date: string): string {
  * ⚠️ Отсюда же и тип `void`: брать из ответа нечего, и соблазна нет.
  */
 export const dash = {
+  /* ⚠️ Тело у записи и у заметки ТО ЖЕ, что шлёт день (`NewAppt`/`NewNote`):
+     правило на сервере одно, и два описания одного тела разошлись бы молча —
+     `nophone` остался бы намерением на одном экране и «пустым телефоном» на
+     другом (08-16). ⛔ Отличие ровно одно и оно в АДРЕСЕ: `screen=panel`. */
+  add: (date: string, body: NewAppt) =>
+    api.post<void>(`/schedule/appointments${cmdQuery(date)}`, body),
+  note: (date: string, body: NewNote) =>
+    api.post<void>(`/schedule/notes${cmdQuery(date)}`, body),
   comment: (date: string, id: number, text: string) =>
     api.post<void>(`/schedule/appointments/${id}/comment${cmdQuery(date)}`,
       { comment: text }),

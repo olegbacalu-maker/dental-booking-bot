@@ -23,12 +23,12 @@ import { slotTimes, type Slot, type SlotFormView } from './slot'
    Обеденный час оттуда выпал, поэтому закончить в 14:00 при обеде 13–14
    нельзя — это правило сервера, а не недосмотр списка.
 
-   ⚠️ Отправка НЕОБЯЗАТЕЛЬНА, и это ступень, а не режим: панель в C26.5.3-c
-   слот МОДЕЛИРУЕТ, а команду получает в `e`. Без обработчика кнопка ЗАПЕРТА и
-   над ней стоит объяснение — мёртвой кнопки, которая молча ничего не делает,
-   на экране не бывает. ⛔ В `e` оба пропа станут обязательными, а `notice`
-   уедет вместе со ступенью: держать его дольше — значит оставить экрану способ
-   показать форму, из которой некуда отправить. */
+   ⛔ Кнопка ЗАПЕРТА, пока команда в полёте (`busy`), и это не косметика:
+   второй клик даёт честный отказ `dup`, но человек видел бы два ответа на одно
+   действие. Ключа идемпотентности не нужно — нужна блокировка.
+   ⛔ Диалог закрывается ТОЛЬКО на удаче. Отказ («интервал занят», «врач не
+   работает в этот час») оставляет набранное на экране: закрыть форму, из
+   которой ничего не записалось, значит потерять ввод и не сказать почему. */
 const T = {
   appt: 'Programare',
   note: 'Notiță / blocare',
@@ -51,14 +51,12 @@ interface Props {
   form: SlotFormView
   noteEnds: number[]
   busy: boolean
-  /** Непусто — объяснение над формой: отправить отсюда пока некуда. */
-  notice?: string
   onClose: () => void
-  onAdd?: (body: NewAppt) => Promise<boolean>
-  onNote?: (body: NewNote) => Promise<boolean>
+  onAdd: (body: NewAppt) => Promise<boolean>
+  onNote: (body: NewNote) => Promise<boolean>
 }
 
-export function SlotDialog({ open, slot, date, form, noteEnds, busy, notice = '',
+export function SlotDialog({ open, slot, date, form, noteEnds, busy,
   onClose, onAdd, onNote }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<'a' | 'n'>('a')
@@ -81,7 +79,6 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy, notice = ''
 
   async function submitAppt(e: FormEvent) {
     e.preventDefault()
-    if (!onAdd) return
     const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
       phone: noPhone ? '' : phone, nophone: noPhone, birth })
     if (ok) onClose()
@@ -89,7 +86,6 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy, notice = ''
 
   async function submitNote(e: FormEvent) {
     e.preventDefault()
-    if (!onNote) return
     const ok = await onNote({ date, time: ntime, doctor: slot.dk, text,
       until: until || ends[0] || Number(hh) + 1 })
     if (ok) onClose()
@@ -107,7 +103,6 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy, notice = ''
         <button type="button" className={`tabbtn${tab === 'n' ? ' on' : ''}`}
                 onClick={() => setTab('n')}><Icon name="note" /> {T.note}</button>
       </div>
-      {notice && <div className="banner warn">{notice}</div>}
       {tab === 'a' ? (
         <form className="dlg-form" onSubmit={submitAppt}>
           <div className="halfpick" role="group" aria-label="Ora">
@@ -132,7 +127,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy, notice = ''
             <input type="date" value={birth} max={form.birth_max}
                    onChange={(e) => setBirth(e.target.value)} />
           </label>
-          <button disabled={busy || !onAdd}>{T.go}</button>
+          <button disabled={busy}>{T.go}</button>
         </form>
       ) : (
         <form className="dlg-form" onSubmit={submitNote}>
@@ -144,7 +139,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy, notice = ''
               {ends.map((e) => <option key={e} value={e}>{e}:00</option>)}
             </select>
           </label>
-          <button disabled={busy || !ends.length || !onNote}>{T.goNote}</button>
+          <button disabled={busy || !ends.length}>{T.goNote}</button>
         </form>
       )}
     </dialog>

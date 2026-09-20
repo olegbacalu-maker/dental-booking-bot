@@ -31,9 +31,14 @@ import type { NoteView, StatusAction } from './day'
    записи на каждый час), поэтому кнопка действует на ОДИН час, а не на весь
    интервал. Так же ведёт себя и список дня; здесь это названо, чтобы никто не
    починил «недоработку», которой нет.
-   ⚠️ Отправка НЕОБЯЗАТЕЛЬНА, и это ступень: `d` заметку открывает и
-   моделирует, команда — `e`. Без обработчика кнопка ЗАПЕРТА и над ней стоит
-   объяснение.
+   ⚠️ «Șterge» — это НЕ удаление: она переводит заметку в `cancelled` тем же
+   маршрутом, что и исход визита (`to` приходит с сервера). Строка остаётся, и
+   вернуть её можно — но только из списка дня: канва отбрасывает отменённые ДО
+   сборки блоков, поэтому половина матрицы («Restabilește») на панели не может
+   соответствовать ничему.
+   ⚠️ После снятия блокировки плашки не будет: у этого маршрута нет кода
+   сообщения вовсе (`_set_status` отвечает пустой строкой, и она числится
+   успехом). Ответ человеку — само исчезновение блока с канвы.
    ⛔ Надгробие здесь ЕСТЬ, в отличие от пустого часа, и разница не в
    аккуратности: слот — место, а заметка — запись, и она исчезает из конверта,
    когда её убирают со второго рабочего места. Молча размонтировать нельзя —
@@ -53,14 +58,12 @@ interface Props {
   /** Непусто — заметки больше нет: её убрали со второго рабочего места.
    *  Кнопок в этом случае не приходит вовсе (надгробие, как у карточки). */
   gone?: string
-  /** Непусто — объяснение над текстом: отправить отсюда пока некуда. */
-  notice?: string
   busy: boolean
   onClose: () => void
-  onStatus?: (to: string) => Promise<boolean>
+  onStatus: (to: string) => Promise<boolean>
 }
 
-export function NoteDialog({ open, note, actions, gone = '', notice = '', busy,
+export function NoteDialog({ open, note, actions, gone = '', busy,
   onClose, onStatus }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
 
@@ -77,7 +80,6 @@ export function NoteDialog({ open, note, actions, gone = '', notice = '', busy,
       </div>
       <div className="dlg-form">
         {gone && <div className="banner err" role="alert">{gone}</div>}
-        {notice && <div className="banner warn">{notice}</div>}
         <div className="dp-card-info">{note.time} · {note.dur}′</div>
         {/* ⛔ Именно текст, а не `<textarea>`: поле ввода — обещание правки. */}
         <p className="dp-note-text">{note.text}</p>
@@ -86,11 +88,10 @@ export function NoteDialog({ open, note, actions, gone = '', notice = '', busy,
         {actions.map((a) => (
           <form key={a.to} onSubmit={(e) => {
             e.preventDefault()
-            if (!onStatus) return
             if (a.confirm && !window.confirm(a.confirm)) return
             void onStatus(a.to)
           }}>
-            <button className={`bstat ${a.cls}`} disabled={busy || !onStatus}>
+            <button className={`bstat ${a.cls}`} disabled={busy}>
               {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}
             </button>
           </form>

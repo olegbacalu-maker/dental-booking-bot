@@ -19,32 +19,25 @@ import type { Slot } from './slot'
  * ответом действия, а этот обязан узнавать о брони со второго рабочего места
  * сам. Держит это `useLive`: канал данных, 204 «не менялось», отпечаток от
  * того же, что отправлено.
- * ⛔ Экран пока НЕ ПИШЕТ. Диалоги открываются (визит — `b`, пустой час — `c`,
- * заметка — `d`), но команды записи, снятия блокировки и переноса — `e` и `f`;
- * подсказка говорит правду и ведёт в старую панель, а не обещает действий,
- * которых экран не умеет.
+ * ⭐ Экран ПИШЕТ (C26.5.3-e): карточка, пустой час и заметка отправляют
+ * команды. ⛔ Перетаскивания ещё нет — это `f`, и подсказка говорит об этом
+ * прямо, а не обещает действие, которого экран не умеет.
  * ⛔ Шапка дня (`_date_nav`) и баннер `?msg=` печатает СЕРВЕР, снаружи узла:
  * на `/admin` приземляется `no_access` со всей программы, и увидеть его надо
  * при первой отрисовке, а не после первого ответа канала.
  */
 const T = {
-  hint: 'Click pe o programare — detalii și statusuri. Programări noi și '
-    + 'mutările se fac deocamdată în varianta clasică.',
+  hint: 'Click pe o programare — detalii și statusuri; pe o oră liberă — '
+    + 'programare nouă. Mutările se fac deocamdată în varianta clasică.',
   /* ⚠️ Слово взято у легаси (`MSG_BANNER["mv_gone"]`), а не придумано: та же
      ситуация там называется так же. Хвост «reîmprospătați pagina» убран —
      панель освежается сама, и советовать перезагрузку значило бы врать. */
   gone: 'Programarea nu mai există.',
   legacy: 'Deschideți varianta clasică',
-  /* ⚠️ Ступень, а не решение: слот здесь уже МОДЕЛИРУЕТСЯ (врач, час, получас,
-     концы блокировки), а команда приходит в `e`. Форма без объяснения выглядела
-     бы сломанной, а без формы нечего было бы проверять. */
-  slotSoon: 'Ora se alege aici, dar programarea se salvează deocamdată în '
-    + 'varianta clasică.',
   /* ⚠️ Слово СВОЁ, и это названо: у сервера его нет вовсе (снятие блокировки
      отвечает пустым кодом), а чужое — «Programarea nu mai există» — назвало бы
      заметку программой. */
   noteGone: 'Notița nu mai există.',
-  noteSoon: 'Notița se șterge deocamdată din lista zilei.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
   retry: 'Reîncearcă',
   stopped: 'Panoul nu se mai actualizează singur. Reîncărcați pagina.',
@@ -241,8 +234,12 @@ export function DashScreen({ date = '' }: Props) {
         <NoteDialog key={note.id} open note={openNote}
           actions={noteGone ? [] : d.note_actions[openNote.status] ?? []}
           gone={noteGone ? T.noteGone : ''}
-          notice={noteGone ? '' : T.noteSoon}
-          busy={busy} onClose={() => setNote(null)} />
+          busy={busy} onClose={() => setNote(null)}
+          onStatus={async (to) => {
+            const ok = await act(() => dash.status(d.date, note.id, to))
+            if (ok) setNote(null)
+            return ok
+          }} />
       )}
       {slot && (
         /* ⚠️ Ключ «врач|час» — тот же приём, что у карточки: другая ячейка =
@@ -252,7 +249,14 @@ export function DashScreen({ date = '' }: Props) {
            состоянию не появляется. */
         <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
           date={d.date} form={d.slotform} noteEnds={d.note_ends} busy={busy}
-          notice={T.slotSoon} onClose={() => setSlot(null)} />
+          onClose={() => setSlot(null)}
+          /* ⛔ Своей проверки занятости здесь НЕТ и быть не должно:
+             сериализует сервер (`_slot_lock`, один критический участок на
+             «проверка + вставка»), а клиентская подсказка не имеет права не
+             пустить команду. Отказ приходит словом сервера, и после него
+             диалог остаётся открытым с набранным. */
+          onAdd={(b) => act(() => dash.add(d.date, b))}
+          onNote={(b) => act(() => dash.note(d.date, b))} />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </section>
