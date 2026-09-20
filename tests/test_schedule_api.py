@@ -822,6 +822,31 @@ def suite_dash_flag(res: Result) -> None:
         allp = c2.get(f"/admin/all?date={day}").body
         res.check("флаг панели не трогает день: он остался старым и живым",
                   ('id="root"' in allp, 'id="live"' in allp), (False, True))
+
+        # --- граница владения с panel.js (C26.5.3-f) ---
+        # ⛔ Экранные куски скрипта ищут узлы сетки по классам и атрибутам — и
+        # находят React-овские. Перенос до этого шага молчал ПО СЛУЧАЙНОСТИ: у
+        # React-панели нет узла `movedlg`, и выход стоял на нём. Случайность
+        # снята охраной — а охрана обязана читать УЖЕ ПОСЧИТАННОЕ значение:
+        # `var` поднимается, значение нет, и охрана ВЫШЕ объявления прочитала бы
+        # `undefined`. Выглядела бы написанной и не работала.
+        js = c2.get("/static/js/panel.js").body
+        anchors = ("var dlg = document.getElementById('movedlg')",
+                   "function markFresh() {", "function placeNowline() {",
+                   "function paintWaits() {")
+        # ⭐ Список с ВКЛЮЧАЮЩЕЙ полярностью: он ПЕРЕЧИСЛЯЕТ куски, и
+        # переименуй кто-нибудь `placeNowline` — правило искало бы
+        # несуществующее имя, нашло бы ноль нарушителей и позеленело навсегда.
+        # Поэтому сперва проверяется, что имена ещё есть (прайор о полярности).
+        res.check("ЯКОРЬ: экранные куски panel.js на месте — список не протух",
+                  [a for a in anchors if a not in js], [])
+        decl = js.find("var DP_REACT")
+        guards = [m.start() for m in re.finditer(r"if \(DP_REACT\) return;", js)]
+        naked = [a for a in anchors if "if (DP_REACT) return;"
+                 not in js[max(0, js.find(a) - 300):js.find(a) + 300]]
+        res.check("каждый экранный кусок под охраной, и объявление ВЫШЕ охран",
+                  (naked, decl >= 0, bool(guards), all(g > decl for g in guards)),
+                  ([], True, True, True))
 def suite_panel_cmds(res: Result) -> None:
     """`screen=panel` у СОЗДАЮЩИХ команд: ни удача, ни отказ не несут состояния.
 

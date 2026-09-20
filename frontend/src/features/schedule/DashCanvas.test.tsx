@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashCanvas } from './DashCanvas'
 import { clinicNow } from './dashFx'
 import type { DashBlock, DashCanvasModel, DashColumn } from './dash'
+import type { Drag } from './move'
 
 /* Канва панели дня. Фикстуры ТОЛЬКО этих проверок: бандл их не видит.
    ⛔ День собран из всего, обо что канва спотыкается: колонка-сирота,
@@ -88,9 +89,35 @@ const MODEL: DashCanvasModel = {
 }
 
 const rail = createRef<HTMLDivElement>()
-const show = (model: DashCanvasModel = MODEL) =>
+const show = (model: DashCanvasModel = MODEL, drag: Drag | null = null, hover = '') =>
   render(<DashCanvas model={model} rail={rail} waitTick={NOW} lineTick={NOW}
-    onCard={onCard} onSlot={onSlot} onNote={onNote} />)
+    onCard={onCard} onSlot={onSlot} onNote={onNote}
+    drag={drag} hover={hover} onDrag={onDrag} onHover={onHover} onDrop={onDrop} />)
+
+/**
+ * Событие переноса С НАСТОЯЩЕЙ координатой.
+ *
+ * ⛔ Не `fireEvent.drop(el, {clientY})`: в jsdom нет `DragEvent`, и
+ * testing-library молча откатывается на `window.Event`, который про `clientY`
+ * не знает вовсе — координата приходит нулём, мишень всегда пустая, и
+ * проверка краснеет «не по адресу». Событие мыши того же имени React разбирает
+ * так же, а координата в нём настоящая.
+ */
+const dragTo = (el: Element, type: 'dragover' | 'drop', clientY: number) =>
+  fireEvent(el, new MouseEvent(type, { bubbles: true, cancelable: true, clientY }))
+
+/* jsdom не считает геометрию: ряды подставляются по `data-h`, по 40 пикселей
+   начиная со сотого. Без этого мишень переноса не проверить вовсе. */
+function stubRects() {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+    function rect(this: Element) {
+      const h = (this as HTMLElement).dataset?.h
+      const i = h === undefined ? -1 : [9, 10, 11, 12].indexOf(Number(h))
+      const top = i < 0 ? 0 : 100 + i * 40
+      return { top, height: i < 0 ? 0 : 40, bottom: top + 40,
+        left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) } as DOMRect
+    })
+}
 
 const cols = () => Array.from(document.querySelectorAll('.gridbody > .gcol'))
 const cards = () => Array.from(document.querySelectorAll('.gridhead .gh-doc'))
@@ -98,12 +125,21 @@ const cards = () => Array.from(document.querySelectorAll('.gridhead .gh-doc'))
 const onCard = vi.fn()
 const onSlot = vi.fn()
 const onNote = vi.fn()
+const onDrag = vi.fn()
+const onHover = vi.fn()
+const onDrop = vi.fn()
+
+const DRAG: Drag = { id: 1, dk: 'd2', min: 540, dur: 60, nm: 'Ion Popa' }
 
 afterEach(() => {
   cleanup()
   onCard.mockClear()
   onSlot.mockClear()
   onNote.mockClear()
+  onDrag.mockClear()
+  onHover.mockClear()
+  onDrop.mockClear()
+  vi.restoreAllMocks()
 })
 
 describe('C26.5.2: канва панели — колонки, часы и геометрия', () => {
@@ -319,6 +355,72 @@ describe('C26.5.2: блок записи', () => {
       columns: [column({ blocks: [appt({ id: 7, status: 'noshow', status_label: 'nu a venit' })] })],
     })
     expect(document.querySelector('[data-appt="7"]')?.className).toBe('gappt noshow')
+  })
+})
+
+describe('C26.5.3-f: перенос', () => {
+  it('тащится то, что разрешил СЕРВЕР, и заметка НАРАВНЕ с визитом', () => {
+    /* ⛔ Ограничение одними визитами молча отняло бы перенос блокировки обеда:
+       её двигают ровно так же, и `movable` у неё тоже серверное. */
+    show({
+      ...MODEL,
+      columns: [column({
+        blocks: [
+          appt({ id: 1, movable: true }),
+          appt({ id: 2, time: '10:00', top: 1, movable: false, status: 'done' }),
+          { kind: 'note', id: 3, time: '12:00', min: 720, dur: 60, busy: true,
+            status: 'confirmed', movable: true, top: 3, height: 1, col: 0, of: 1,
+            title: 'Pauză', text: 'Pauză de masă', label: 'Pauză de masă' },
+        ],
+      })],
+    })
+    const grab = (id: number) => document.querySelector(`[data-appt="${id}"]`)
+      ?.getAttribute('draggable')
+    expect([grab(1), grab(2), grab(3)]).toEqual(['true', null, 'true'])
+  })
+
+  it('⛔ из колонки-сироты не тащится: врача нет, и мишени у неё тоже нет', () => {
+    show()
+    expect(cols()[2]!.querySelector('[data-appt="9"]')?.getAttribute('draggable'))
+      .toBeNull()
+  })
+
+  it('⭐ бросок ПОВЕРХ чужого визита попадает в ЕГО час, а не в никуда', () => {
+    /* Блоки лежат поверх ячеек и приходятся им соседями: обработчик стоит на
+       КОЛОНКЕ, а ячейка ищется перебором прямоугольников. */
+    stubRects()
+    show(MODEL, DRAG)
+    const col = cols()[0]!
+    dragTo(col, 'drop', 165)
+    /* 165 — низ ряда 10:00 (140–180), значит 10:30 */
+    expect(onDrop).toHaveBeenCalledWith({ dk: 'd2', min: 10 * 60 + 30 })
+  })
+
+  it('мишень ЕСТЬ только пока тащат, и только на открытом часе', () => {
+    stubRects()
+    show(MODEL, DRAG)
+    const col = cols()[0]!
+    dragTo(col, 'dragover', 145)
+    expect(onHover).toHaveBeenCalledWith('d2|10')
+    /* 11:00 у этой колонки закрыт — ячейки с `data-h` нет, и мишени тоже */
+    onHover.mockClear()
+    dragTo(col, 'dragover', 185)
+    expect(onHover).toHaveBeenCalledWith('')
+    expect(onDrop).not.toHaveBeenCalled()
+
+    cleanup()
+    onDrop.mockClear()
+    /* ничего не тащат — колонка мишенью не становится вовсе */
+    show(MODEL, null)
+    dragTo(cols()[0]!, 'drop', 145)
+    expect(onDrop).not.toHaveBeenCalled()
+  })
+
+  it('подсвечена ровно та ячейка, которую назвал экран', () => {
+    show(MODEL, DRAG, 'd2|10')
+    const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
+    expect(cells.map((c) => c.className))
+      .toEqual(['gcell', 'gcell dropzone', 'gcell off', 'gcell'])
   })
 })
 

@@ -287,6 +287,12 @@ export const dash = {
     api.post<void>(`/schedule/appointments${cmdQuery(date)}`, body),
   note: (date: string, body: NewNote) =>
     api.post<void>(`/schedule/notes${cmdQuery(date)}`, body),
+  /* ⚠️ Тело переноса — то же, что у дня: {date, time, doctor}. День в нём
+     ЕСТЬ и он не лишний: перенос бывает и на другой день (с недели), а
+     маршрут один. */
+  move: (date: string, id: number,
+    body: { date: string; time: string; doctor: string }) =>
+    api.post<void>(`/schedule/appointments/${id}/move${cmdQuery(date)}`, body),
   comment: (date: string, id: number, text: string) =>
     api.post<void>(`/schedule/appointments/${id}/comment${cmdQuery(date)}`,
       { comment: text }),

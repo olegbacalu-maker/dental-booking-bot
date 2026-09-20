@@ -631,3 +631,115 @@ describe('C26.5.3-d: диалог заметки стойки', () => {
     ask.mockRestore()
   })
 })
+
+describe('C26.5.3-f: перенос перетаскиванием', () => {
+  /** ⛔ Не `fireEvent.drop(el, {clientY})`: в jsdom нет `DragEvent`, и
+   *  testing-library молча откатывается на `window.Event`, который про
+   *  `clientY` не знает — координата пришла бы нулём, а мишень пустой. */
+  const dragTo = (el: Element, type: 'dragover' | 'drop', clientY: number) =>
+    fireEvent(el, new MouseEvent(type, { bubbles: true, cancelable: true, clientY }))
+
+  /* jsdom геометрию не считает: ряды по 40 пикселей со сотого, 9-й 100–140,
+     10-й 140–180. */
+  const stubRects = () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      function rect(this: Element) {
+        const h = (this as HTMLElement).dataset?.h
+        const i = h === undefined ? -1 : [9, 10].indexOf(Number(h))
+        const top = i < 0 ? 0 : 100 + i * 40
+        return { top, height: i < 0 ? 0 : 40, bottom: top + 40, left: 0, right: 0,
+          width: 0, x: 0, y: top, toJSON: () => ({}) } as DOMRect
+      })
+  }
+
+  const withTwo = () => {
+    const m = model()
+    m.canvas.columns[0]!.blocks.push({
+      kind: 'appt', id: 2, time: '10:00', min: 600, dur: 60, busy: true, movable: true,
+      top: 1, height: 1, col: 0, of: 1, title: '10:00', name: 'Maria Rusu',
+      service: 'Consultație', phone: '069000001', status: 'confirmed',
+      status_label: 'confirmată', urgent: false, source: 'manual', comment: '',
+      comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
+      clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
+    })
+    return m
+  }
+
+  /** Взять блок 1 и бросить в колонку на координату `y`. */
+  const dropAt = async (y: number) => {
+    stubRects()
+    fireEvent.dragStart(document.querySelector('[data-appt="1"]') as HTMLElement)
+    dragTo(document.querySelector('.gridbody .gcol') as HTMLElement, 'drop', y)
+  }
+
+  it('⭐ перенос уходит командой, а состояние приезжает КАНАЛОМ', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/move')
+      ? cmdReply('ok_move', 'Programare mutată')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    await dropAt(165)                       // низ ряда 10:00 → 10:30
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(document.querySelector('dialog .mv-rows')?.textContent)
+      .toContain('Dr. Ion · 10:30')
+    fireEvent.click(document.querySelectorAll('dialog .mv-act button')[1] as HTMLElement)
+
+    await waitFor(() => expect(
+      f.mock.calls.some((c) => String(c[0]).includes('/move'))).toBe(true))
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/move'))!
+    expect(String(call[0]))
+      .toBe(`/api/schedule/appointments/1/move?screen=panel&date=${TODAY}`)
+    expect(bodyOf(call)).toEqual({ date: TODAY, time: '10:30', doctor: 'd2' })
+    expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
+  })
+
+  it('⛔ бросок на СВОЁ ЖЕ место — не перенос: ни диалога, ни запроса', async () => {
+    /* Сервер такой запрос ПРИНИМАЕТ и пишет строку в летопись пациента, а
+       летопись не переписывают. Правило браузерное, и обойтись без него
+       нельзя. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show()
+    await dropAt(105)                       // верх ряда 09:00 — откуда и взяли
+
+    expect(document.querySelector('dialog')).toBeNull()
+    expect(f.mock.calls.some(
+      (c) => String((c as unknown as [string])[0]).includes('/move'))).toBe(false)
+  })
+
+  it('занятый час — подсказка в диалоге, и подтвердить нельзя', async () => {
+    /* ⚠️ Это ПОДСКАЗКА: правду говорит сервер под `_BOOK_LOCK`. Но кнопка
+       заперта — иначе регистратура отправляла бы заведомый отказ. */
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, withTwo())))
+    await show()
+    await dropAt(145)                       // верх ряда 10:00, где стоит визит 2
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(document.querySelector('dialog .banner.err')?.textContent)
+      .toContain('10:00')
+    expect((document.querySelectorAll('dialog .mv-act button')[1] as HTMLButtonElement)
+      .disabled).toBe(true)
+  })
+
+  it('⛔ отказ сервера — блок остаётся на месте, и это состояние КАНАЛА', async () => {
+    /* React не двигает блок сам: он ушёл командой и вернётся конвертом. На
+       отказе двигать нечего — и именно поэтому экран не «откатывает». */
+    const f = vi.fn(async (url: string) => (String(url).includes('/move')
+      ? cmdReply('conflict', 'Intervalul este deja ocupat la acest medic', 409)
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    await dropAt(165)
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    fireEvent.click(document.querySelectorAll('dialog .mv-act button')[1] as HTMLElement)
+
+    await waitFor(() => expect(document.querySelector('.toastbox')?.textContent)
+      .toContain('Intervalul este deja ocupat'))
+    /* блок там же, где был: локального мира расписания у React нет */
+    expect(document.querySelector('[data-appt="1"] small')?.textContent)
+      .toContain('09:00')
+    expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
+  })
+})

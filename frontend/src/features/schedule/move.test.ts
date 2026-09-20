@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clash, doctorName, dragOf, halfAt, hhmm, sameSlot } from './move'
+import { cellAtY, clash, clashAmong, doctorName, dragOf, halfAt, hhmm, sameSlot } from './move'
 import type { DayItem, DayModel } from './day'
 
 /* Договор перетаскивания по одному полю. Каждая проверка ломается ровно одним
@@ -25,6 +25,42 @@ const model = (items: DayItem[][]): DayModel => ({
   })),
   form: null, note_ends: [], cards: {}, actions: {}, note_actions: {},
   list: [], filter: null,
+})
+
+describe('C26.5.3-f: ячейка по координате и помеха над списком', () => {
+  /* Ряды по 40 пикселей, начиная с 100: 9-й час 100–140, 10-й 140–180. */
+  const CELLS = [9, 10, 11].map((h, i) => ({ h, top: 100 + i * 40, height: 40 }))
+
+  it('ячейка ищется ПО КООРДИНАТЕ, а половина — по месту внутри неё', () => {
+    /* ⛔ Не по `e.target`: блоки лежат ПОВЕРХ ячеек и приходятся им соседями,
+       поэтому бросок на соседний визит обязан попадать в ЕГО час. */
+    expect(cellAtY(CELLS, 100)).toEqual({ h: 9, half: 0 })
+    expect(cellAtY(CELLS, 139)).toEqual({ h: 9, half: 30 })
+    expect(cellAtY(CELLS, 140)).toEqual({ h: 10, half: 0 })
+    expect(cellAtY(CELLS, 165)).toEqual({ h: 10, half: 30 })
+  })
+
+  it('вне приёмных часов мишени НЕТ — ни выше сетки, ни ниже', () => {
+    /* Закрытая ячейка в список не попадает вовсе: у неё нет `data-h`. */
+    expect(cellAtY(CELLS, 99)).toBeNull()
+    expect(cellAtY(CELLS, 220)).toBeNull()
+    expect(cellAtY([], 120)).toBeNull()
+  })
+
+  it('помеха над списком: пересечение, себя — не считает, свободные — тоже', () => {
+    const items = [
+      { id: 1, min: 540, dur: 60, busy: true },
+      { id: 2, min: 660, dur: 60, busy: false },
+    ]
+    /* 09:30 налезает на визит 09:00–10:00 → минута помехи */
+    expect(clashAmong(items, 570, 60, 99)).toBe(540)
+    /* тот же интервал, но это ОН САМ — переноса к другому врачу иначе не было бы */
+    expect(clashAmong(items, 570, 60, 1)).toBe(-1)
+    /* 11:00 занято ЗАВЕРШЁННЫМ визитом — место он не занимает */
+    expect(clashAmong(items, 660, 60, 99)).toBe(-1)
+    /* встык, не внахлёст */
+    expect(clashAmong(items, 600, 60, 99)).toBe(-1)
+  })
 })
 
 describe('час и получас', () => {

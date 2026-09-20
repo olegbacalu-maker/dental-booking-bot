@@ -3,13 +3,18 @@ import { Icon, iconName } from '../../components/Icon'
 import { clinicNow, clinicTz, nowlineRows, useFitAppts, useFitGrid, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
 import { hourLabel } from './slot'
+import { cellAtY, dragOf, type CellRect, type Drag, type Target } from './move'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
 
    Три нажатия, и все три ведут в диалог: блок визита — карточка (C26.5.3-b),
    пустая ячейка — слот (C26.5.3-c), блок заметки — сама заметка (C26.5.3-d).
-   ⛔ Перетаскивания ещё нет — это `f`, и полей переноса у блоков нет тоже: их
-   отсутствие честнее, чем мишень, которая ничего не принимает.
+   Плюс перенос (C26.5.3-f): тащится ЛЮБОЙ блок, которому разрешил СЕРВЕР
+   (`movable`), — ⛔ ограничение одними визитами молча отняло бы перенос
+   блокировки обеда, а её двигают ровно так же.
+   ⛔ Мишень ищется ПО КООРДИНАТЕ внутри колонки, а не по `e.target`: блоки
+   лежат ПОВЕРХ ячеек и приходятся им соседями, поэтому бросок на соседний
+   визит целится в него, и ячейка под курсором в событии не участвует.
    ⛔ Классы берутся у panel.css как есть: это перенос поведения, а не
    редизайн. Своя вторая раскладка развела бы старую страницу и новую на
    первом же правиле темы. */
@@ -47,9 +52,17 @@ interface Props {
   /** Открыть пустой час: врач, его имя и «HH:00» — те же три значения, что
    *  принимал легаси-обработчик `openSlot(dk, dname, hh)`. */
   onSlot: (dk: string, name: string, hour: string) => void
+  /** Начало броска: `null` — бросок кончился. */
+  drag: Drag | null
+  /** Подсвеченная ячейка: «колонка|час». */
+  hover: string
+  onDrag: (d: Drag | null) => void
+  onHover: (key: string) => void
+  onDrop: (t: Target) => void
 }
 
-export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, onNote }: Props) {
+export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, onNote,
+  drag, hover, onDrag, onHover, onDrop }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -87,7 +100,8 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, on
             ))}
           </div>
           {model.columns.map((col) => (
-            <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}>
+            <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}
+              {...(drag && col.id ? dropZone(col.id, onHover, onDrop) : {})}>
               {col.cells.map((open, i) => {
                 /* ⛔ Закрытая ячейка БЕЗ `data-h`: «куда нельзя записать, туда
                    нельзя и перенести». Признак ОДИН на класс, на `data-h` и на
@@ -100,13 +114,14 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, on
                 const dk = open ? col.id : null
                 if (!dk) return <div key={h} className="gcell off" />
                 return (
-                  <div key={h} className="gcell" data-h={h}
+                  <div key={h} data-h={h}
+                    className={hover === dk + '|' + h ? 'gcell dropzone' : 'gcell'}
                     onClick={() => onSlot(dk, col.name, hourLabel(h))} />
                 )
               })}
               {col.blocks.map((b) => (
-                <Block key={b.id} block={b} waitTick={waitTick}
-                  onCard={onCard} onNote={onNote} />
+                <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
+                  onCard={onCard} onNote={onNote} onDrag={onDrag} />
               ))}
             </div>
           ))}
@@ -120,6 +135,45 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, on
       </div>
     </>
   )
+}
+
+/**
+ * Мишень переноса — вся КОЛОНКА, а ячейка под курсором ищется перебором её
+ * прямоугольников.
+ *
+ * ⛔ Не на ячейке, и это не оптимизация: блок визита лежит ПОВЕРХ ячеек и
+ * перехватывает событие, а ячейка ему сосед, а не родитель, — повесь
+ * обработчик на ячейку, и бросок на соседний визит уходил бы в никуда.
+ * ⚠️ Без `preventDefault` браузер не отдаёт `drop` вовсе.
+ * ⚠️ `dataTransfer` бывает недоступен (и его нет у события, синтезированного
+ * проверкой), поэтому подсветка стоит СНАРУЖИ этого условия.
+ */
+function dropZone(dk: string, onHover: (key: string) => void,
+  onDrop: (t: Target) => void) {
+  const at = (e: React.DragEvent<HTMLDivElement>) => {
+    const rects: CellRect[] = Array.from(
+      e.currentTarget.querySelectorAll<HTMLElement>('.gcell[data-h]'),
+    ).map((el) => {
+      const r = el.getBoundingClientRect()
+      return { h: Number(el.dataset.h), top: r.top, height: r.height }
+    })
+    return cellAtY(rects, e.clientY)
+  }
+  return {
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      const cell = at(e)
+      if (!cell) { onHover(''); return }
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+      onHover(dk + '|' + cell.h)
+    },
+    onDragLeave: () => onHover(''),
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      const cell = at(e)
+      if (cell) onDrop({ dk, min: cell.h * 60 + cell.half })
+    },
+  }
 }
 
 /** Полоска срезанного края. Стоит СНАРУЖИ `.gridbody`: внутри она сдвинула бы
@@ -192,10 +246,11 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, onCard, onNote }:
+  { block, waitTick, dk, onCard, onNote, onDrag }:
   {
-    block: DashBlock; waitTick: number
+    block: DashBlock; waitTick: number; dk: string
     onCard: (id: number) => void; onNote: (id: number) => void
+    onDrag: (d: Drag | null) => void
   },
 ) {
   /* ⚠️ Те же множители, что печатал сервер: доли ячейки, ширина делится
@@ -208,6 +263,17 @@ function Block(
     width: `calc((100% - 8px)/${block.of} - 2px)`,
   }
 
+  /* ⛔ Тащится то, что разрешил СЕРВЕР (`movable`): активная запись из колонки
+     настоящего врача. У колонки-сироты `dk` пуст — и это ВТОРОЙ замок на том
+     же правиле, потому что мишени у неё тоже нет. */
+  const grab = block.movable && dk
+    ? {
+        draggable: true,
+        onDragStart: () => onDrag(dragOf(block, dk)),
+        onDragEnd: () => onDrag(null),
+      }
+    : {}
+
   if (block.kind === 'note') {
     /* ⚠️ Блок лежит ПОВЕРХ ячейки, но ячейка ему не родитель, а сосед: без
        своего обработчика нажатие уходило бы в `.gcol` и не делало ничего —
@@ -216,18 +282,20 @@ function Block(
        поверх уже заблокированного часа — не то, что человек нажимал. */
     return (
       <div className="gappt gnote" data-appt={block.id} style={pos} title={block.title}
-        onClick={() => onNote(block.id)}>
+        onClick={() => onNote(block.id)} {...grab}>
         <b><Icon name="note" /> {block.label}</b>
       </div>
     )
   }
-  return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard} />
+  return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
+    grab={grab} />
 }
 
 function ApptBlock(
-  { block, pos, waitTick, onCard }: {
+  { block, pos, waitTick, onCard, grab }: {
     block: DashAppt; pos: React.CSSProperties; waitTick: number
     onCard: (id: number) => void
+    grab: Record<string, unknown>
   },
 ) {
   const ico = block.urgent && block.status === 'confirmed'
@@ -241,7 +309,7 @@ function ApptBlock(
   return (
     <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}`}
       data-appt={block.id} style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}` }}
-      title={block.title} onClick={() => onCard(block.id)}>
+      title={block.title} onClick={() => onCard(block.id)} {...grab}>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
       <b>{block.name} <Icon name={block.source === 'bot' ? 'bot' : 'pen'} /></b>
       <small>{block.time} · {block.dur}′ · {block.service}</small>

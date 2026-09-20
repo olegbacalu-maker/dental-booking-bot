@@ -6,11 +6,13 @@ import { asApiError, type ApiResult } from '../../services/api'
 import { useLive } from '../../hooks/useLive'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
+import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
 import { useClockTick } from './dashFx'
 import { dash, livePath, type DashAppt, type DashBlock, type DashModel, type DashNote } from './dash'
 import type { Slot } from './slot'
+import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
 
 /**
  * Панель дня (`/admin`) на React — C26.5.2.
@@ -19,16 +21,16 @@ import type { Slot } from './slot'
  * ответом действия, а этот обязан узнавать о брони со второго рабочего места
  * сам. Держит это `useLive`: канал данных, 204 «не менялось», отпечаток от
  * того же, что отправлено.
- * ⭐ Экран ПИШЕТ (C26.5.3-e): карточка, пустой час и заметка отправляют
- * команды. ⛔ Перетаскивания ещё нет — это `f`, и подсказка говорит об этом
- * прямо, а не обещает действие, которого экран не умеет.
+ * ⭐ Экран ПИШЕТ: карточка, пустой час, заметка и перенос отправляют команды
+ * (C26.5.3-e и -f). Состояние после любой из них приезжает ОДНОЙ дверью —
+ * каналом, — и локального мира расписания у React нет.
  * ⛔ Шапка дня (`_date_nav`) и баннер `?msg=` печатает СЕРВЕР, снаружи узла:
  * на `/admin` приземляется `no_access` со всей программы, и увидеть его надо
  * при первой отрисовке, а не после первого ответа канала.
  */
 const T = {
   hint: 'Click pe o programare — detalii și statusuri; pe o oră liberă — '
-    + 'programare nouă. Mutările se fac deocamdată în varianta clasică.',
+    + 'programare nouă. Trageți o programare pentru a o muta.',
   /* ⚠️ Слово взято у легаси (`MSG_BANNER["mv_gone"]`), а не придумано: та же
      ситуация там называется так же. Хвост «reîmprospătați pagina» убран —
      панель освежается сама, и советовать перезагрузку значило бы врать. */
@@ -74,6 +76,13 @@ export function DashScreen({ date = '' }: Props) {
      со второго рабочего места, пока диалог открыт, — тогда на экране остаётся
      то, что человек ОТКРЫВАЛ, и слово о том, что этого больше нет. */
   const [note, setNote] = useState<{ id: number; at: DashNote } | null>(null)
+  /* Перетаскивание (C26.5.3-f). ⛔ Между `dragstart` и `drop` живёт НАМЕРЕНИЕ,
+     а не состояние: канва под курсором продолжает обновляться, и только на
+     время самого броска хук придерживает применение — иначе приехавшие данные
+     увезли бы блок из-под мыши. */
+  const [drag, setDrag] = useState<Drag | null>(null)
+  const [hover, setHover] = useState('')
+  const [move, setMove] = useState<{ drag: Drag; target: Target } | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   /* ⛔ Признак «команда в полёте» ставится СИНХРОННО, рефом, и предикат
@@ -85,8 +94,23 @@ export function DashScreen({ date = '' }: Props) {
      вклеивать в старый код. Поверхность — `react`: узнав от сервера, что по
      адресу теперь живёт старая страница, вкладка перезагрузится сама. */
   const version = document.body.dataset.v ?? ''
+  /* ⛔ `hold` держит ровно два случая, и оба недолгие: команда в полёте и
+     ИДУЩИЙ бросок. Открытый диалог сюда не входит — иначе рабочее место с
+     забытой открытой карточкой перестало бы узнавать о бронях, оставаясь
+     живым НА ВИД (ровно `panel.js`, от которого уходим).
+     ⚠️ Предикат над рефами, а не булев проп: проп доезжает до хука кадром
+     позже, а бросок и круг по 127.0.0.1 в этот кадр укладываются. */
+  const dragging = useRef(false)
+  const startDrag = useCallback((d: Drag | null) => {
+    /* ⚠️ Реф ставится В ОБРАБОТЧИКЕ, а не в рендере: писать реф во время
+       рендера нельзя, а состояние доехало бы до предиката кадром позже — как
+       раз к моменту, когда данные уже увезли бы блок из-под мыши. */
+    dragging.current = d !== null
+    setDrag(d)
+  }, [])
   const { state, retry, refresh } = useLive<DashModel>(
-    livePath(date), 'react', version, { hold: () => flying.current })
+    livePath(date), 'react', version,
+    { hold: () => flying.current || dragging.current })
   const lineTick = useClockTick(LINE_MS)
   const waitTick = useClockTick(WAIT_MS)
 
@@ -161,6 +185,18 @@ export function DashScreen({ date = '' }: Props) {
     if (at) setNote({ id, at })
   }
 
+  /* ⛔ Бросок на СВОЁ ЖЕ место — не перенос. Сервер такой запрос ПРИНИМАЕТ
+     (`ok_move`) и пишет строку в летопись пациента, а летопись не
+     переписывают. Получас при этом переносом считается: 09:00 → 09:30 —
+     настоящее изменение. */
+  const onDrop = useCallback((t: Target) => {
+    setHover('')
+    const d = drag
+    startDrag(null)
+    if (!d || sameSlot(d, t)) return
+    setMove({ drag: d, target: t })
+  }, [drag, startDrag])
+
   if (state.status === 'failed') {
     /* ⚠️ Свой отказ, а не общий `LoadFailed`: тому нужен `ApiError`, а у
        живого канала исходов четыре и исключений среди них нет. Слова и
@@ -199,7 +235,9 @@ export function DashScreen({ date = '' }: Props) {
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
             lineTick={lineTick} onCard={(id) => openById(d, id)}
             onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
-            onNote={(id) => openNoteById(d, id)} />
+            onNote={(id) => openNoteById(d, id)}
+            drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
+            onDrop={onDrop} />
           <p className="hint">
             {T.hint} <a href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</a>.
           </p>
@@ -258,9 +296,42 @@ export function DashScreen({ date = '' }: Props) {
           onAdd={(b) => act(() => dash.add(d.date, b))}
           onNote={(b) => act(() => dash.note(d.date, b))} />
       )}
+      {move && (
+        /* ⛔ Подсказку о помехе считает ЭКРАН по своей канве, а не диалог по
+           модели: у дня и у панели разные модели и разный ключ колонки, а
+           диалог переноса ОДИН на оба.
+           ⚠️ И это именно подсказка: правду говорит сервер под `_BOOK_LOCK` —
+           пока тянули, час мог занять второй администратор. */
+        <MoveDialog open drag={move.drag} target={move.target} busy={busy}
+          fromName={colName(d, move.drag.dk)} toName={colName(d, move.target.dk)}
+          busyAt={clashAmong(blocksOf(d, move.target.dk), move.target.min,
+            move.drag.dur, move.drag.id)}
+          onClose={() => setMove(null)}
+          onMove={() => {
+            /* ⚠️ Диалог закрывается ДО ответа, в отличие от записи: терять
+               здесь нечего — набранного в нём нет, — а ответом служит сам
+               блок, который либо переехал, либо остался на месте. */
+            const { drag: what, target: to } = move
+            setMove(null)
+            void act(() => dash.move(d.date, what.id,
+              { date: d.date, time: hhmm(to.min), doctor: to.dk }))
+          }} />
+      )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </section>
   )
+}
+
+/** Имя колонки по ключу врача — для строк «De la» / «La». ⛔ Из КАНВЫ, а не
+ *  из модели дня: ключ колонки здесь свой, и у выпавшего из справочника врача
+ *  колонка отдельная. */
+function colName(m: DashModel, dk: string): string {
+  return m.canvas.columns.find((c) => c.id === dk)?.name ?? '—'
+}
+
+/** Блоки ЭТОЙ колонки — по ним считается подсказка о помехе. */
+function blocksOf(m: DashModel, dk: string) {
+  return m.canvas.columns.find((c) => c.id === dk)?.blocks ?? []
 }
 
 /** Блок по номеру — в той канве, что сейчас на экране. ⚠️ Номер один на

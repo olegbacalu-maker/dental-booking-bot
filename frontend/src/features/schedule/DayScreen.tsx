@@ -12,7 +12,7 @@ import { MoveDialog } from './MoveDialog'
 import { SlotDialog } from './SlotDialog'
 import { day, type DayModel } from './day'
 import type { Slot } from './slot'
-import { sameSlot, type Drag, type Target } from './move'
+import { clash, doctorName, sameSlot, type Drag, type Target } from './move'
 
 /* День журнала: «Toți medicii» и день одного врача — один экран, разница
    только в параметре `doctor` (C25.5a), с записью, карточкой и переносом
@@ -189,7 +189,10 @@ export function DayScreen({ date = '', doctor = '', f = '',
         : null}
 
       {move
-        ? <MoveDialog open model={m} drag={move.drag} target={move.target} busy={busy}
+        ? <MoveDialog open drag={move.drag} target={move.target} busy={busy}
+                      fromName={doctorName(m, move.drag.dk)}
+                      toName={doctorName(m, move.target.dk)}
+                      busyAt={clash(m, move.target, move.drag.dur, move.drag.id)}
                       onClose={() => setMove(null)}
                       onMove={() => {
                         const { drag: d, target: t } = move

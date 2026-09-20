@@ -51,6 +51,32 @@ export function halfAt(y: number, rect: { top: number; height: number }): 0 | 30
   return y - rect.top >= rect.height / 2 ? 30 : 0
 }
 
+/**
+ * Ячейка ПО КООРДИНАТЕ, а не по `e.target` (C26.5.3-f).
+ *
+ * ⛔ На канве панели блоки лежат ПОВЕРХ ячеек и приходятся им СОСЕДЯМИ, а не
+ * детьми: событие переноса над чужим визитом целится в него, и ячейка под
+ * курсором не участвует в нём никак. Ищем её перебором прямоугольников, ровно
+ * как `targetAt` в `panel.js`, — иначе бросок на соседний визит попадал бы в
+ * никуда вместо его часа.
+ * ⚠️ `null` — курсор вне приёмных часов: закрытая ячейка мишенью не бывает, и
+ * список ей просто не содержит (у неё нет `data-h`).
+ */
+export interface CellRect {
+  h: number
+  top: number
+  height: number
+}
+
+export function cellAtY(cells: CellRect[], y: number): { h: number; half: 0 | 30 } | null {
+  for (const c of cells) {
+    if (y >= c.top && y < c.top + c.height) {
+      return { h: c.h, half: halfAt(y, c) }
+    }
+  }
+  return null
+}
+
 /** Что снять с карточки, чтобы её тащить. `null` — эту запись не тащат. */
 export function dragOf(item: DayItem, dk: string): Drag | null {
   if (!item.movable) return null
@@ -83,15 +109,32 @@ export function sameSlot(d: Drag, t: Target): boolean {
 export function clash(model: DayModel, t: Target, dur: number, id: number): number {
   const col = model.doctors.findIndex((x) => x.id === t.dk)
   if (col < 0) return -1
-  for (const row of model.hours) {
-    const cell = row.cells[col]
-    if (!cell) continue
-    for (const it of cell.items) {
-      if (!it.busy || it.id === id) continue
-      const s = it.min
-      const e = s + (it.dur || 60)
-      if (s < t.min + dur && t.min < e) return s
-    }
+  const items = model.hours.flatMap((row) => row.cells[col]?.items ?? [])
+  return clashAmong(items, t.min, dur, id)
+}
+
+/**
+ * То же правило над ГОТОВЫМ списком занятых — им живёт канва панели, где
+ * записи лежат не в ячейках, а в колонке.
+ *
+ * ⛔ Одно правило на два экрана: разойдись они, подсказка о занятости
+ * загоралась бы на одном и молчала на другом при одинаковых данных, и
+ * увидеть это можно было бы, только открыв оба.
+ */
+export interface Occupies {
+  id: number
+  min: number
+  dur: number
+  busy: boolean
+}
+
+export function clashAmong(items: Occupies[], min: number, dur: number,
+  id: number): number {
+  for (const it of items) {
+    if (!it.busy || it.id === id) continue
+    const s = it.min
+    const e = s + (it.dur || 60)
+    if (s < min + dur && min < e) return s
   }
   return -1
 }
