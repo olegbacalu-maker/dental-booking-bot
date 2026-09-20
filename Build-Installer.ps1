@@ -91,6 +91,11 @@ if (Test-Path $lab) { Remove-Item $lab -Recurse -Force }
 New-Item -ItemType Directory -Force $lab | Out-Null
 Copy-Item "dist\DentPilot.exe" $lab
 $env:DENTART_BROWSER_MODE = "1"; $env:DENTART_NO_BROWSER = "1"; $env:DENTART_PORT = "$port"
+# DENTART_DATA_DIR obyazatelen s P1: launcher bolshe ne schitaet papku dannyh
+# ot mesta exe. Bez nego laboratoriya ne uvidela by svoi dental.env (znachit
+# grandfather ne vklyuchilsya by i dymovoi test upal by), a pisala by v
+# NASTOYASHCHUYU kartoteku v %ProgramData%.
+$env:DENTART_DATA_DIR = $lab
 # ADMIN_KEY zadan, chtoby dymovoi test mog otkryt STRANICY, a ne tolko /health:
 # bez nego pustaya papka trebuet ekrana ustanovki PIN.
 $env:ADMIN_KEY = "smoke1234"
@@ -136,7 +141,7 @@ if ($health) {
 try { & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null } catch { }
 Start-Sleep -Milliseconds 800
 Remove-Item $lab -Recurse -Force -EA SilentlyContinue
-$env:DENTART_BROWSER_MODE = $null; $env:DENTART_NO_BROWSER = $null; $env:DENTART_PORT = $null
+$env:DENTART_BROWSER_MODE = $null; $env:DENTART_NO_BROWSER = $null; $env:DENTART_PORT = $null; $env:DENTART_DATA_DIR = $null
 $env:ADMIN_KEY = $null
 
 if (-not $health) { Fail "sobrannyi exe ne otvechaet na /health - on ne zapuskaetsya (proverte hidden-imports)" }

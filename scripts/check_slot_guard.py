@@ -216,8 +216,12 @@ def inject_renamed(db: pathlib.Path):
 
 def run_lab(lab: pathlib.Path, exe_name: str, port: int, seconds: int = 90):
     env = dict(os.environ)
+    # ⛔ DENTART_DATA_DIR обязателен с P1: лаунчер больше не считает папку
+    # данных от места exe. Без него лаборатория запустила бы exe поверх
+    # НАСТОЯЩЕЙ картотеки в %ProgramData%, а проверяла бы подготовленную копию.
     env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
-                "DENTART_PORT": str(port), "ADMIN_KEY": KEY})
+                "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
+                "DENTART_DATA_DIR": str(lab)})
     proc = subprocess.Popen([str(lab / exe_name)], cwd=str(lab), env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}"
