@@ -496,6 +496,9 @@ def suite_backup(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         pid = _seed(c)                     # чтобы в базе и файлах что-то было
+        res.check("логотип клиники загружен", c.post_file(
+            "/admin/settings/theme/logo", "file", "logo.png",
+            b"\x89PNG\r\n\x1a\n" + b"x" * 64).msg, "ok_logo")
 
         r = c.post("/admin/backup/export", parola="scurt")
         res.check("короткий пароль отбит", r.msg, "bad_bkp_pass")
@@ -518,6 +521,13 @@ def suite_backup(res: Result) -> None:
         res.ok("файлы пациентов в бэкапе",
                any(n.startswith("data/files/") for n in names),
                f"нет data/files/: {names}")
+        # ⚠️ Логотип лежит НЕ в data/, а рядом с clinic.json — уровнем выше
+        # единственного обхода каталога в белом списке, поэтому «база и файлы
+        # на месте» его отсутствия не показывает. Проверяется ИМЕННО состав
+        # архива: на живой машине пропажа всплывает только на новом ПК, когда
+        # 043/e печатается без логотипа и объяснить это уже нечем.
+        res.ok("логотип клиники в бэкапе", "clinic-logo.png" in names,
+               f"логотип не уехал с клиникой, состав: {names}")
 
         head = z.read("data/dental.db")[:16]
         res.ok("база читается верным паролем и это SQLite",
@@ -562,6 +572,8 @@ def suite_backup(res: Result) -> None:
                "в описи нет имени пациента")
         res.ok("опись считает пациентов", "Pacienti: " in cont
                and "Pacienti: ?" not in cont, f"счётчики пусты: {cont[:200]!r}")
+        res.ok("опись называет логотип", "clinic-logo.png" in cont,
+               "опись молчит о логотипе — клиника не может проверить, уехал ли он")
         try:
             plain.read("CONTINUT.txt")
             cont_open = True
@@ -569,6 +581,19 @@ def suite_backup(res: Result) -> None:
             cont_open = False
         res.ok("опись (с именами пациентов) БЕЗ пароля не читается",
                not cont_open, "имена пациентов легли в открытую часть архива")
+
+        # ⚠️ Имён у логотипа ДВА, а на диске лежит ровно одно (save_logo при
+        # смене формата удаляет второе). Зашитое в состав архива
+        # "clinic-logo.png" прошло бы проверку выше и молча обокрало бы
+        # клинику, у которой логотип в JPEG.
+        res.check("логотип заменён на JPEG", c.post_file(
+            "/admin/settings/theme/logo", "file", "logo.jpg",
+            b"\xff\xd8\xff\xe0" + b"x" * 64).msg, "ok_logo")
+        jn = pyzipper.AESZipFile(io.BytesIO(c.post(
+            "/admin/backup/export", parola="parola-foarte-buna").raw)).namelist()
+        res.ok("в бэкапе JPEG-логотип, а прежнего PNG нет",
+               "clinic-logo.jpg" in jn and "clinic-logo.png" not in jn,
+               f"состав: {jn}")
 
 
 def suite_export_names(res: Result) -> None:

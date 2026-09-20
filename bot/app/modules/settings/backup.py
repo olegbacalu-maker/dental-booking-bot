@@ -82,14 +82,51 @@ def _db_snapshot(src: pathlib.Path, dst: pathlib.Path) -> None:
         con.close()
 
 
+def _logo_files() -> list[tuple[pathlib.Path, str]]:
+    """Логотип клиники — единственный файл профиля ВНЕ `data/`.
+
+    Он лежит в корне папки клиники, рядом с `clinic.json`, то есть уровнем выше
+    единственного обхода каталога в белом списке, — и потому не попадал в архив
+    ни при каких условиях. Наружу это выглядело так: клиника восстановилась на
+    новом ПК, всё на месте, а логотип пропал из 043/e, acord и шапки журнала.
+    Ни ошибки, ни пустого места — просто бланк без логотипа, как у клиники,
+    которая его не загружала.
+
+    ⚠️ Папку спрашиваем у `theme`, а не считаем от `clinic_json`: второй
+    вычислитель этого пути запрещён прямо в докстринге `eng.config_path()` —
+    разойдясь, они увезли бы в архив файл из папки, в которую программа при
+    следующем запуске не смотрит.
+    ⭐ Смотрим на ДИСК по двум разрешённым именам, а не на
+    `theme.current()["logo"]`: копия обязана повторять то, что лежит, а не то,
+    что записано в профиле. `save_logo` держит на диске ровно один файл (при
+    смене формата удаляет второй), так что список выходит из одного имени, а
+    расхождение профиля с диском копию больше не обкрадывает.
+    """
+    from ...core import theme
+
+    d = theme.logo_dir()
+    out = []
+    for name in sorted(theme.LOGO_NAMES.values()):
+        if (p := d / name).is_file():
+            out.append((p, name))
+    return out
+
+
 def write_encrypted(data_dir: pathlib.Path, clinic_json: pathlib.Path | None,
                     password: str, dest: pathlib.Path) -> int:
     """Собрать зашифрованный архив клиники. Возвращает число файлов внутри.
 
     Внутрь идёт всё, из чего клиника восстанавливается НА ЛЮБОЙ машине:
-    база, профиль клиники, документы пациентов. Не идут: dental.env (токен там
-    зашифрован DPAPI этой машины — на другой он мусор, а класть его открытым
-    значило бы ронять секрет в архив), логи и автокопии (это уже копии).
+    база, профиль клиники, ЛОГОТИП, документы пациентов. Не идут: dental.env
+    (токен там зашифрован DPAPI этой машины — на другой он мусор, а класть его
+    открытым значило бы ронять секрет в архив), логи и автокопии (это уже
+    копии).
+
+    ⛔ Состав — БЕЛЫЙ СПИСОК, и обход каталога здесь ровно один: по
+    `data/files/`. Расширить его до обхода папки клиники нельзя — в её корне
+    лежит `dental.env`, а по задаче P7 туда же ляжет `device.json` (личность
+    машины): обход склонировал бы на чужой компьютер и то, и другое. Всё, что
+    лежит в корне и обязано переехать, добавляется ПОИМЁННО.
     """
     import pyzipper
 
@@ -101,6 +138,7 @@ def write_encrypted(data_dir: pathlib.Path, clinic_json: pathlib.Path | None,
         files.append((snap, "data/dental.db"))
     if clinic_json and clinic_json.exists():
         files.append((clinic_json, "clinic.json"))
+        files += _logo_files()
     auth = data_dir / "auth.json"
     if auth.exists():                     # хеши PIN, не сам PIN — можно
         files.append((auth, "data/auth.json"))
@@ -147,6 +185,9 @@ def _manifest(snap: pathlib.Path, files: list[tuple[pathlib.Path, str]]) -> str:
     никого не блокирует. Любая ошибка описи не должна валить сам бэкап —
     опись украшает архив, а спасает его содержимое.
     """
+    from ...core import theme
+
+    logo_arcs = set(theme.LOGO_NAMES.values())
     arc_by_name = {src.name: arc for src, arc in files}
     pat, appt, docs, rows = "?", "?", "?", []
     if snap.exists():
@@ -176,6 +217,15 @@ def _manifest(snap: pathlib.Path, files: list[tuple[pathlib.Path, str]]) -> str:
         "    CITESTE-MA.txt). Numele pacientilor sunt inauntru, nu in numele",
         "    fisierelor.",
         "clinic.json - profilul clinicii: medici, servicii, program de lucru.",
+    ]
+    # логотип называем ТОЛЬКО когда он правда внутри: опись отвечает на вопрос
+    # «мои данные тут?», и строка про файл, которого в архиве нет, отвечает на
+    # него ложью — а это хуже молчания
+    for _, arc in files:
+        if arc in logo_arcs:
+            lines.append(f"{arc} - logo-ul clinicii (apare pe documentele")
+            lines.append("    tiparite - 043/e, acord - si la intrare).")
+    lines += [
         "data/auth.json - PIN-ul jurnalului (pastrat ca hash).",
         "data/files/doctors/ - fotografiile medicilor.",
         "data/files/<nr>/ - documentele pacientilor. Numele de pe disc sunt",
