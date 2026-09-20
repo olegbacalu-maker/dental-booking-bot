@@ -25,7 +25,12 @@ React → отрисовка → раскладка. Красивая панел
      «ноль мутаций» в одиночку зелено и у намертво замершего экрана — самая
      частая форма ложного зелёного в этом проекте. Окно длиннее минуты
      намеренно (разбор у константы QUIET);
-  4. `?ui=legacy` возвращает старую панель, и она снова живая.
+  4. `?ui=legacy` возвращает старую панель, и она снова живая;
+  5. ⭐ ДВА БРАУЗЕРА (C26.5.3-g): A переносит визит мышью, B не делает ничего.
+     Снимок A, снимок B и состояние БАЗЫ обязаны сойтись, а после команды у A
+     не должно быть НИ ОДНОГО кадра с докомандным местом блока. ⚠️ Здесь
+     проверяется то, чего не может jsdom: настоящая геометрия, настоящее
+     наложение блоков на ячейки и настоящая цепочка команда → канал → экран.
 
 К каждой — PNG и проверки; красная проверка даёт код возврата 1, кадры
 остаются, чтобы посмотреть глазами.
@@ -132,6 +137,108 @@ def _seed(c: Client, day: str) -> None:
            ntext="Livrare materiale pentru cabinetul doi", back=f"/admin?date={day}")
 
 
+# Где стоит блок: `style.top` как его печатает React (доли ячейки в calc()).
+# ⚠️ Сравнивается СТРОКА стиля, а не пиксели: пиксель ячейки ставит замер в
+# браузере, и на другом размере окна он законно другой — а вот множитель в
+# `calc()` обязан быть тем же у обоих клиентов.
+WHERE_JS = """(() => {
+  const b = document.querySelector('.gridbody [data-appt="%s"]');
+  return JSON.stringify({top: b ? b.style.top : null,
+                         col: b ? (b.closest('.gcol') || {}).dataset.dk : null});
+})()"""
+
+
+def _second_browser(origin: str, cookie: str) -> tuple:
+    """Второе рабочее место — ОТДЕЛЬНЫЙ БРАУЗЕР, а не вторая вкладка.
+
+    ⛔ И это не придирка к чистоте: живой опрос НЕ ИДЁТ у невидимой вкладки —
+    так у React (`useLive`: `if (stopped || document.hidden) return`), так и у
+    легаси (`panel.js`), и это правильно: фоновая вкладка не обязана дёргать
+    движок. Открой второго клиента вкладкой в том же окне — и ПЕРВЫЙ станет
+    скрытым, перестанет опрашивать и замрёт. Сцена 20.09 так и покраснела:
+    команда прошла, база и второй экран сошлись, а первый стоял на
+    докомандном месте. Два рабочих места — это два ОКНА.
+    ⚠️ Свой профиль и свой порт отладки: общий профиль два headless-процесса
+    не делят.
+    """
+    proc2, ws2 = start_edge(os.path.join(os.environ["TEMP"], "dp-edge-dash-b"),
+                            port=PORT + 1)
+    cdp2 = CDP(ws2)
+    for dom in ("Network", "Runtime", "Log", "Page"):
+        cdp2.cmd(f"{dom}.enable")
+    cdp2.cmd("Network.setCookie", name="admin_auth", value=cookie,
+             url=origin + "/")
+    return proc2, cdp2, Page(cdp2, origin)
+
+
+def _drag(page: Page, appt: int, col_i: int, hour: int, half: bool) -> str:
+    """Перетащить визит в ячейку `hour` (нижняя половина — получас).
+
+    ⛔ Координата берётся у НАСТОЯЩЕГО прямоугольника ячейки: ровно то, чего
+    не проверить в jsdom, где геометрии нет вовсе и её приходится подставлять.
+    ⚠️ Сначала пробуем НАСТОЯЩЕЕ перетаскивание браузера (`Input.setInterceptDrags`
+    + `Input.dispatchDragEvent`). Если Edge не перехватил бросок за отведённое
+    время, событие собирается в самой странице — тоже настоящим `DragEvent` с
+    настоящими координатами, но мимо машинерии браузера. О подмене печатается
+    ВСЛУХ: молчаливый откат — это ложное зелёное.
+    """
+    xy = json.loads(page.js(
+        "(() => { const c = document.querySelectorAll('.gridbody .gcol')[%d]"
+        ".querySelector('.gcell[data-h=\"%d\"]'); const r = c.getBoundingClientRect();"
+        " return JSON.stringify([r.left + r.width / 2, r.top + r.height * %s]) })()"
+        % (col_i, hour, "0.75" if half else "0.25")))
+    src = json.loads(page.js(
+        "(() => { const b = document.querySelector('.gridbody [data-appt=\"%d\"]');"
+        " const r = b.getBoundingClientRect();"
+        " return JSON.stringify([r.left + r.width / 2, r.top + 6]) })()" % appt))
+    tx, ty = xy
+    sx, sy = src
+    m = page.cdp.cmd
+    try:
+        m("Input.setInterceptDrags", enabled=True)
+        m("Input.dispatchMouseEvent", type="mouseMoved", x=sx, y=sy)
+        m("Input.dispatchMouseEvent", type="mousePressed", x=sx, y=sy,
+          button="left", clickCount=1)
+        m("Input.dispatchMouseEvent", type="mouseMoved", x=sx, y=sy + 12,
+          button="left", buttons=1)
+        m("Input.dispatchMouseEvent", type="mouseMoved", x=tx, y=ty,
+          button="left", buttons=1)
+        data = None
+        for e in list(page.cdp.events):
+            if e.get("method") == "Input.dragIntercepted":
+                data = e["params"]["data"]
+        if data is None and page.cdp.wait_event("Input.dragIntercepted", timeout=2.0):
+            for e in list(page.cdp.events):
+                if e.get("method") == "Input.dragIntercepted":
+                    data = e["params"]["data"]
+        if data is not None:
+            for t in ("dragEnter", "dragOver", "drop"):
+                m("Input.dispatchDragEvent", type=t, x=tx, y=ty, data=data)
+            m("Input.dispatchMouseEvent", type="mouseReleased", x=tx, y=ty,
+              button="left", clickCount=1)
+            m("Input.setInterceptDrags", enabled=False)
+            page.cdp.drain(0.5)
+            return "браузерный"
+        m("Input.dispatchMouseEvent", type="mouseReleased", x=tx, y=ty,
+          button="left", clickCount=1)
+        m("Input.setInterceptDrags", enabled=False)
+    except RuntimeError as e:
+        print(f"    ⚠️  Input.dispatchDragEvent недоступен ({e}); собираем событие в странице")
+    page.js(
+        "(() => { const b = document.querySelector('.gridbody [data-appt=\"%d\"]');"
+        " const col = document.querySelectorAll('.gridbody .gcol')[%d];"
+        " const dt = new DataTransfer();"
+        " const mk = (t, y) => new DragEvent(t, {bubbles: true, cancelable: true,"
+        "   clientX: %f, clientY: y, dataTransfer: dt});"
+        " b.dispatchEvent(mk('dragstart', %f));"
+        " col.dispatchEvent(mk('dragover', %f));"
+        " col.dispatchEvent(mk('drop', %f));"
+        " b.dispatchEvent(mk('dragend', %f)); return 1 })()"
+        % (appt, col_i, tx, sy, ty, ty, ty))
+    page.cdp.drain(0.4)
+    return "страничный"
+
+
 def run(out: pathlib.Path) -> int:
     out.mkdir(parents=True, exist_ok=True)
     results = []
@@ -169,7 +276,7 @@ def run(out: pathlib.Path) -> int:
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-dash-shots")
     s2 = Server(dir_=s1.dir)
-    proc = None
+    proc = proc_b = None
     try:
         with s2:
             origin = s2.url
@@ -230,12 +337,22 @@ def run(out: pathlib.Path) -> int:
 
             # --- 3. неизменный день: ни одной мутации ---
             page.js("(() => { window.__dpMut = 0; window.__dpLine = 0; return 1 })()")
+            was_quiet = json.loads(page.js(CHECK_JS))
             cdp.drain(QUIET)
             st = json.loads(page.js(CHECK_JS))
             quiet = ""
             if st["muts"]:
+                # ⭐ Не «сколько», а ЧТО: за 95 секунд день меняется и
+                # ЗАКОННО — сменился час клиники, пациент перешёл в прошлое.
+                # Без этой строки сцена краснела бы «мигание вернулось» на
+                # правильном поведении, и разбирать пришлось бы догадками
+                # (наступило 20.09).
+                diff = [k for k in ("appts", "geom", "agenda", "agenda_count",
+                                    "tiles", "occ", "cols")
+                        if was_quiet.get(k) != st.get(k)]
                 quiet = (f"на неизменном дне {st['muts']} мутаций DOM — экран "
-                         "подменяется на каждый опрос, мигание вернулось")
+                         "подменяется на каждый опрос, мигание вернулось"
+                         f" · изменилось: {diff or 'ничего из наблюдаемого'}")
             # ⭐ И обратная сторона: линия обязана ДВИГАТЬСЯ. Ноль здесь значит,
             # что экран замер, а «ноль мутаций» стало бы зелёным по неверной
             # причине — самая частая форма ложного зелёного в этом проекте.
@@ -244,13 +361,82 @@ def run(out: pathlib.Path) -> int:
                           f"{QUIET:.0f} с — экран замер")
             scene(page, "03_quiet", {"nowlines": line_n}, quiet)
 
+            # --- 5. ⭐ ДВА БРАУЗЕРА: перенос у A приезжает к B (C26.5.3-g) ---
+            # ⛔ Главная проверка ступени и единственная, которая смотрит на
+            # ЦЕПОЧКУ целиком: команда → мутация → канал → второй экран. Ни
+            # Vitest, ни питоновский прогон её не заменяют: первый не знает
+            # геометрии, второй не знает браузера.
+            proc_b, cdp_b, page_b = _second_browser(origin, cookie)
+            page_b.size(*WIDE)
+            page_b.go(f"/admin?date={day}")
+            cdp_b.drain(1.0)
+            aid = int(json.loads(page.js(
+                "(() => { const b = [...document.querySelectorAll('.gridbody [data-appt]')]"
+                ".find(x => (x.querySelector('b') || {}).textContent.includes('Ion Popa'));"
+                " return JSON.stringify(b.getAttribute('data-appt')) })()")))
+            was_a = json.loads(page.js(WHERE_JS % aid))
+            was_b = json.loads(page_b.js(WHERE_JS % aid))
+            how = _drag(page, aid, 0, 11, half=True)
+            # ⛔ Диалог переноса обязателен: перетащить мышью легко случайно, а
+            # визит — это человек, которому уже назвали время. Не открылся —
+            # сцена КРАСНАЯ, а не падение стенда на исключении.
+            has_dlg = page.js("!!document.querySelector('dialog .mv-act')")
+            if has_dlg:
+                page.click("document.querySelectorAll('dialog .mv-act button')[1]")
+            # ⛔ Кадры СНИМАЮТСЯ подряд: запрещён не «неверный итог», а любой
+            # кадр, в котором блок вернулся на докомандное место ПОСЛЕ того,
+            # как он уже переехал. Ровно это ловит порядковый номер тика.
+            frames, moved_at = [], None
+            t0 = time.time()
+            while time.time() - t0 < TICK + 4:
+                cur = json.loads(page.js(WHERE_JS % aid))["top"]
+                frames.append(cur)
+                if moved_at is None and cur != was_a["top"]:
+                    moved_at = time.time() - t0
+                time.sleep(0.25)
+            now_a = json.loads(page.js(WHERE_JS % aid))
+            # B ничего не делал — он обязан УЗНАТЬ сам, в пределах одного опроса
+            t0 = time.time()
+            while time.time() - t0 < TICK:
+                cdp_b.drain(1.0)
+                now_b = json.loads(page_b.js(WHERE_JS % aid))
+                if now_b["top"] != was_b["top"]:
+                    break
+            now_b = json.loads(page_b.js(WHERE_JS % aid))
+            # ...и правда — у БАЗЫ
+            row = next((r for r in json.loads(
+                other.get(f"/api/schedule/day?date={day}").body)["data"]["list"]
+                if r["id"] == aid), None)
+            bad = f"перенос {how}"
+            if not has_dlg:
+                bad += " · диалог переноса НЕ открылся"
+            if moved_at is None:
+                bad += " · блок НЕ переехал у A вовсе"
+            if now_a != now_b:
+                bad += f" · A и B разошлись: {now_a!r} против {now_b!r}"
+            if row is None or row["time"] != "11:30":
+                bad += f" · база говорит другое: {row and row['time']!r}"
+            # запрещённый кадр: старое место ПОСЛЕ нового
+            after = frames[frames.index(now_a["top"]):] if now_a["top"] in frames else []
+            if any(f == was_a["top"] for f in after):
+                bad += " · был кадр с ДОКОМАНДНЫМ местом после переезда"
+            cdp_b.drain(0.2)
+            bad += "".join(f" · консоль B: {e}" for e in cdp_b.errors())
+            scene(page, "05_two_clients", {"nowlines": line_n}, bad
+                  if bad != f"перенос {how}" else "")
+            print(f"    перенос {how}; A увидел новое место через "
+                  f"{moved_at if moved_at is None else round(moved_at, 2)} с; "
+                  f"кадров снято {len(frames)}")
+            page_b.png(out / "05_two_clients_B.png")
+
             # --- 4. мгновенный откат ---
             page.go(f"/admin?date={day}&ui=legacy")
             cdp.drain(1.0)
             scene(page, "04_legacy", {"react": False, "live_wrap": True})
     finally:
-        if proc is not None:
-            proc.terminate()
+        for p in (proc, proc_b):
+            if p is not None:
+                p.terminate()
         s1.__exit__(None, None, None)
 
     red = [n for n, f in results if f]
