@@ -822,3 +822,70 @@ def suite_dash_flag(res: Result) -> None:
         allp = c2.get(f"/admin/all?date={day}").body
         res.check("флаг панели не трогает день: он остался старым и живым",
                   ('id="root"' in allp, 'id="live"' in allp), (False, True))
+
+
+def suite_panel_cmds(res: Result) -> None:
+    """`screen=panel` у СОЗДАЮЩИХ команд: ни удача, ни отказ не несут состояния.
+
+    ⛔ Написано ПЕРВЫМ шагом `e`, до клиента, и причина механическая: **FastAPI
+    молча игнорирует неизвестный параметр строки запроса.** Маршрут, который
+    `screen` не объявил, на `?screen=panel` отвечает ПОЛНОЙ моделью дня — у
+    которой ДРУГОЙ ключ колонки, чем у канвы, — и не говорит об этом ничем: ни
+    отказом, ни предупреждением. Увидеть такую дыру можно только тогда, когда
+    клиент однажды начнёт это состояние читать, то есть у клиники.
+    ⚠️ Контраст с дневным вызовом обязателен в каждой паре: без него проверка
+    зелена и у маршрута, который данных не отдаёт НИКОМУ, а день на них живёт.
+    ⭐ Здесь же пинится `part_note`: частичная блокировка — это УДАЧА (200), и
+    приезжает она КОДОМ, а слово к коду подбирает `MSG_BANNER`, не клиент.
+    """
+    with Server() as s:
+        c = Client(s.url).login()
+        day = clinic_today().isoformat()
+        base = {"date": day, "doctor": "d2", "service": "consult",
+                "nophone": False, "birth": ""}
+
+        def add(hh: str, nm: str, phone: str, panel: bool):
+            q = f"?screen=panel&date={day}" if panel else f"?date={day}"
+            return c.post_json(f"/api/schedule/appointments{q}",
+                               {**base, "time": hh, "name": nm, "phone": phone})
+
+        def note(hh: str, txt: str, until: int, panel: bool):
+            q = f"?screen=panel&date={day}" if panel else f"?date={day}"
+            return c.post_json(f"/api/schedule/notes{q}",
+                               {"date": day, "time": hh, "doctor": "d2",
+                                "text": txt, "until": until})
+
+        ok_panel = add("09:00", "Panel Unu", "069800101", True)
+        ok_day = add("10:00", "Panel Doi", "069800102", False)
+        if not res.check("запись: панели — код без состояния, дню — свежий день",
+                         (ok_panel.status, _j(ok_panel)["code"],
+                          "data" in _j(ok_panel),
+                          ok_day.status, "data" in _j(ok_day)),
+                         (200, "ok", False, 200, True)):
+            return
+
+        busy = add("09:00", "Panel Trei", "069800103", True)
+        res.check("отказ записи — 409, JSON, и тоже без состояния",
+                  (busy.status, _j(busy)["code"], "data" in _j(busy),
+                   _j(busy)["ok"]),
+                  (409, "conflict", False, False))
+
+        n_panel = note("12:00", "Pauză de masă", 13, True)
+        n_day = note("14:00", "Ședință", 15, False)
+        res.check("заметка: панели — код без состояния, дню — свежий день",
+                  (n_panel.status, _j(n_panel)["code"], "data" in _j(n_panel),
+                   n_day.status, "data" in _j(n_day)),
+                  (200, "ok_note", False, 200, True))
+
+        # 10:00 занят визитом, 11:00 свободен: часть легла, часть нет
+        part = note("10:00", "Blocare parțială", 12, True)
+        res.check("⭐ `part_note` — это УДАЧА, и она приезжает КОДОМ",
+                  (part.status, _j(part)["code"], "data" in _j(part),
+                   _j(part)["ok"]),
+                  (200, "part_note", False, True))
+
+        clash = note("09:00", "Peste tot ocupat", 10, True)
+        res.check("отказ заметки — 409 и без состояния, поле отказа «text»",
+                  (clash.status, _j(clash)["code"], "data" in _j(clash),
+                   _j(clash).get("field")),
+                  (409, "conflict", False, "text"))

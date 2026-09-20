@@ -204,6 +204,8 @@ SUITES = [
      test_schedule_api.suite_live_envelope),
     ("Панель: флаг schedule_dash и обе половины отката (C26.5.2)",
      test_schedule_api.suite_dash_flag),
+    ("Панель: команды без состояния (C26.5.3-e)",
+     test_schedule_api.suite_panel_cmds),
     ("Правая колонка: повестка — правила", test_panel_model.suite_agenda_pure),
     ("Правая колонка: повестка против страницы",
      test_panel_model.suite_agenda_parity),

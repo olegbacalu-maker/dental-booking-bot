@@ -197,11 +197,16 @@ async def api_canvas(request: Request, date_q: str = Query("", alias="date")):
 
 @router.post("/api/schedule/appointments")
 async def api_add(request: Request, date_q: str = Query("", alias="date"),
-                  doctor: str = Query(""), f: str = Query("")):
+                  doctor: str = Query(""), f: str = Query(""),
+                  screen: str = Query("")):
     """Ручная запись: {date, time, doctor, service, name, phone, nophone, birth}.
 
     ⚠️ `nophone` — намерение ИЗ ФОРМЫ, а не «телефон пустой» (прайор 08-16):
     пустой номер без галочки остаётся отказом `bad_phone`, как и у страницы.
+    ⚠️ `screen=panel` — «я живая поверхность, состояния мне не давай»
+    (разбор в `_done`). ⛔ Параметр обязан быть ОБЪЯВЛЕН, а не просто послан:
+    неизвестный параметр строки запроса FastAPI молча игнорирует, и маршрут
+    ответил бы полной моделью дня, не сказав об этом ничем.
     """
     if (deny := api_guard(request)) is not None:
         return deny
@@ -211,12 +216,13 @@ async def api_add(request: Request, date_q: str = Query("", alias="date"),
     code = await _add_appt(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "service"), _s(body, "name"), _s(body, "phone"),
                            "1" if body.get("nophone") else "", _s(body, "birth"))
-    return await _done(code, _screen(date_q), doctor, f=f)
+    return await _done(code, _screen(date_q), doctor, f=f, screen=screen)
 
 
 @router.post("/api/schedule/notes")
 async def api_note(request: Request, date_q: str = Query("", alias="date"),
-                   doctor: str = Query(""), f: str = Query("")):
+                   doctor: str = Query(""), f: str = Query(""),
+                   screen: str = Query("")):
     """Заметка стойки: {date, time, doctor, text, until}. `until` — ГОЛЫЙ час
     (18, не «18:00»), верхняя граница открытая.
 
@@ -231,7 +237,8 @@ async def api_note(request: Request, date_q: str = Query("", alias="date"),
         return msg_json(False, "bad", field="text", status=422)
     code = await _add_note(_s(body, "date"), _s(body, "time"), _s(body, "doctor"),
                            _s(body, "text"), _s(body, "until"))
-    return await _done(code, _screen(date_q), doctor, field="text", f=f)
+    return await _done(code, _screen(date_q), doctor, field="text", f=f,
+                       screen=screen)
 
 
 @router.post("/api/schedule/appointments/{appt_id}/comment")
