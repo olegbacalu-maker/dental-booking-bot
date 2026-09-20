@@ -78,6 +78,8 @@ git tag → GitHub Actions → GitHub Release
 · [features.md](features.md) · [screen-test-map.md](screen-test-map.md)
 · [tauri.md](tauri.md) · [sidecar.md](sidecar.md) · [installer.md](installer.md)
 · [updates.md](updates.md) · [release.md](release.md) · [migration.md](migration.md)
+· **[storage.md](storage.md) — `Program Files` и `ProgramData`, решение 20.09**
+· **[deployment-modes.md](deployment-modes.md) — режимы A/B/C, контракт 20.09**
 · **[tasks.md](tasks.md) — конкретный список работ**
 
 Аудит, с которого всё началось — [../migration-audit.md](../migration-audit.md).
