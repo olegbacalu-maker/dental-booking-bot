@@ -22,6 +22,8 @@ import pathlib
 import sqlite3
 from datetime import datetime
 
+from ... import paths
+
 MIN_PASS = 10   # 4–8 цифр PIN здесь не годятся: архив уезжает с машины,
                 # то есть попадает ровно туда, где офлайн-перебор возможен
 
@@ -250,6 +252,32 @@ def _manifest(snap: pathlib.Path, files: list[tuple[pathlib.Path, str]]) -> str:
 
 
 def _readme() -> str:
+    """Инструкция восстановления — единственный файл архива БЕЗ шифра.
+
+    ⭐ Папку называем НАСТОЯЩИМ путём, а не «рядом с exe»: с переезда в
+    `Program Files` раскладок две (обычная `%ProgramData%\\DentPilot` и
+    портативная — рядом с exe, по `portable.flag`), и словесное описание
+    устареет на следующем же переезде. ⚠️ Подставляется путь ИСХОДНОЙ машины,
+    поэтому он и подписан как «откуда снята копия»: на новом компьютере папка
+    может быть другой, и авторитетом назван экран «Stare sistem» ТОЙ машины,
+    куда восстанавливают.
+
+    ⛔ Шаг 4 остаётся ОБОБЩЁННЫМ («весь состав, сохраняя структуру»), а не
+    перечислением файлов. Перечисление — ловушка на будущее: состав архива
+    растёт, и файл, забытый в списке, молча останется невосстановленным у
+    клиники, которая всё сделала по инструкции.
+    ⚠️ Папка названа ДО шага 3, а не внутри шага 4, как было: шаг 3 велит
+    удалить `data\\dental.db-wal`, то есть уже требует знать, в какой папке
+    искать, — прежний порядок отвечал на это шагом позже.
+    """
+    # Путь спрашиваем у того же делегата, что и экран «Stare sistem»
+    # (`layout.data_folder`): второй вычислитель папки — ровно тот класс
+    # ошибки, который там и описан.
+    root = paths.data_root()
+    where = ("\r\n"
+             "  Pe calculatorul de unde s-a luat aceasta copie, folderul cu\r\n"
+             "  date era:\r\n"
+             "    " + str(root) + "\r\n") if root is not None else ""
     return (
         "COPIE DE REZERVA DENTPILOT (criptata AES-256)\r\n"
         "=============================================\r\n\r\n"
@@ -262,16 +290,31 @@ def _readme() -> str:
         "Parola NU este salvata nicaieri - fara ea datele nu pot fi citite.\r\n\r\n"
         "Ce este inauntru - vezi CONTINUT.txt dupa dezarhivare: cati pacienti,\r\n"
         "cate programari si care fisier tehnic este care document real.\r\n\r\n"
-        "Restaurare pe un calculator nou:\r\n"
+        "Restaurare pe un calculator nou:\r\n\r\n"
+        "  FOLDERUL CU DATE - acolo se restaureaza totul.\r\n"
+        "  ATENTIE: NU este folderul in care se instaleaza DentPilot.exe.\r\n"
+        "  Datele clinicii stau separat de program:\r\n"
+        "    * instalare obisnuita:  C:\\ProgramData\\DentPilot\r\n"
+        "    * varianta portabila (pe stick, cu fisierul portable.flag langa\r\n"
+        "      DentPilot.exe): chiar folderul in care sta DentPilot.exe\r\n"
+        "  Calea exacta o arata programul DE PE CALCULATORUL NOU:\r\n"
+        "  Setari > Stare sistem, randul \"Folderul cu date\". Verificati\r\n"
+        "  acolo, nu ghiciti: dezarhivata in alt folder, arhiva nu ajunge la\r\n"
+        "  program - el porneste cu evidenta goala, ca si cum copia ar fi\r\n"
+        "  fost goala, si nu apare nicio eroare.\r\n"
+        + where +
+        "  Mai jos, \"folderul cu date\" inseamna acest folder.\r\n\r\n"
         "  1. Instalati DentPilot si porniti-l o data (se creeaza folderul).\r\n"
         "  2. Inchideti programul.\r\n"
-        "  3. STERGETI fisierele data\\dental.db-wal si data\\dental.db-shm,\r\n"
-        "     daca exista. ACEST PAS NU SE SARE: ele apartin bazei create la\r\n"
-        "     pasul 1, iar daca raman, Windows le aplica peste baza restaurata\r\n"
-        "     si evidenta revine goala - fara nicio eroare, ca si cum arhiva ar\r\n"
-        "     fi fost goala.\r\n"
-        "  4. Dezarhivati continutul PESTE folderul programului\r\n"
-        "     (clinic.json langa DentPilot.exe, folderul data\\ peste data\\).\r\n"
+        "  3. In folderul cu date STERGETI fisierele data\\dental.db-wal si\r\n"
+        "     data\\dental.db-shm, daca exista. ACEST PAS NU SE SARE: ele\r\n"
+        "     apartin bazei create la pasul 1, iar daca raman, Windows le\r\n"
+        "     aplica peste baza restaurata si evidenta revine goala - fara\r\n"
+        "     nicio eroare, ca si cum arhiva ar fi fost goala.\r\n"
+        "  4. Dezarhivati TOT continutul arhivei PESTE folderul cu date,\r\n"
+        "     pastrand structura din arhiva: folderul data\\ din arhiva se\r\n"
+        "     suprapune peste data\\, iar celelalte fisiere ajung direct in\r\n"
+        "     folderul cu date, unul langa altul.\r\n"
         "  5. DACA exista fisierul data\\db.key (criptarea evidentei era\r\n"
         "     activata pe acest calculator) - STERGETI data\\db.key. Baza din\r\n"
         "     arhiva NU este criptata, iar cu cheia ramasa pe loc programul ar\r\n"

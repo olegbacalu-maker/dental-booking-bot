@@ -22,7 +22,9 @@ dpapi.py; ступени блокировки входа — auth._LOCK_STEPS (3
 """
 from __future__ import annotations
 
-from ...core.layout import FEEDBACK_EMAIL, _ic, tg_configured
+import html
+
+from ...core.layout import FEEDBACK_EMAIL, _ic, data_folder, tg_configured
 from . import backup as bkp
 
 # ⚠️ Потолок ширины — у КАРТОЧКИ, а не у текста внутри неё (08-16, когда
@@ -54,6 +56,16 @@ def entries() -> list[dict]:
     """Все записи справки в порядке страницы."""
     p = "<p style='margin:0 0 8px'>"
     end = "</p>"
+    # ⭐ Путь НАСТОЯЩИЙ, а не пересказ раскладки (`layout.data_folder`):
+    # раскладок две, выбирает лаунчер, и перечисление обеих устареет на
+    # следующем переезде. Строку, которую директор сверяет с адресной строкой
+    # Проводника, устареть нельзя. Пусто бывает только вне настольного
+    # издания (облако, запуск из исходников) — тогда называем обе раскладки,
+    # потому что спрашивать о раскладке не у кого.
+    _folder = data_folder()
+    loc = (f"<b>{html.escape(_folder)}</b>" if _folder else
+           "<b>C:\\ProgramData\\DentPilot</b> (sau, la varianta portabilă, "
+           "chiar folderul în care stă DentPilot.exe)")
     # Telegram заморожен (08-08): абзац про токен — только клинике, у которой
     # бот настроен (grandfather). Остальным он рассказывал бы про раздел,
     # которого у них нет (08-13). Следующий абзац меняет число вместе с ним:
@@ -119,10 +131,17 @@ def entries() -> list[dict]:
 
         _q("home", "Mutăm programul pe alt calculator sau reinstalăm Windows — "
                   "ce se întâmplă cu datele?",
-           f"{p}Toate datele stau în folderul programului. Copiați folderul "
-           f"<b>întreg</b> pe calculatorul nou — sau restaurați din arhiva de "
-           f"rezervă (pașii sunt în CITESTE-MA.txt din arhivă). Pacienții, "
-           f"programările, documentele și PIN-urile de intrare rămân.{end}"
+           f"{p}Datele clinicii stau <b>separat de program</b>, în folderul "
+           f"lor: {loc}. Pe calculatorul nou instalați DentPilot, porniți-l o "
+           f"dată (ca să se creeze folderul), închideți programul și copiați "
+           f"conținutul folderului vechi peste cel nou — sau restaurați din "
+           f"arhiva de rezervă (pașii sunt în CITESTE-MA.txt din arhivă). "
+           f"Pacienții, programările, documentele și PIN-urile de intrare "
+           f"rămân.{end}"
+           f"{p}{_ic('folder')} <b>Nu copiați «lângă DentPilot.exe»</b>: acolo "
+           f"stă doar programul, care se reinstalează oricând. Pe calculatorul "
+           f"nou calea poate fi alta decât aici — o arată programul însuși, în "
+           f"<b>Setări › Stare sistem</b>, rândul <b>Folderul cu date</b>.{end}"
            f"{p}{_ic('sos')} <b>Dacă evidența este criptată</b> (Setări › Criptarea "
            f"evidenței), pe calculatorul nou programul vă va cere codul de pe "
            f"<b>foaia de recuperare</b> — cea tipărită la activarea criptării. "
@@ -289,9 +308,12 @@ def entries() -> list[dict]:
            f"pe el.{end}"),
 
         _q("folder", "Unde sunt datele clinicii și ce nu trebuie atins?",
-           f"{p}Totul e în folderul programului: <b>data\\dental.db</b> — "
-           f"toată evidența; <b>data\\files\\</b> — documentele pacienților; "
-           f"<b>clinic.json</b> — profilul clinicii.{end}"
+           f"{p}Datele au un folder al lor, separat de folderul în care "
+           f"este instalat programul: {loc} — îl arată și <b>Setări › Stare "
+           f"sistem</b>, rândul <b>Folderul cu date</b>. Înăuntru: "
+           f"<b>data\\dental.db</b> — toată evidența; <b>data\\files\\</b> — "
+           f"documentele pacienților; <b>clinic.json</b> — profilul "
+           f"clinicii.{end}"
            f"{p}Dacă evidența este criptată, tot acolo apare "
            f"<b>data\\db.key</b> — cheia. {_ic('ban')} Acest fișier <b>nu se șterge "
            f"niciodată</b>: fără el evidența se deschide doar cu codul de pe "

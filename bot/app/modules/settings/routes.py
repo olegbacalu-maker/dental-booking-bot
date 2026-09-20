@@ -36,9 +36,9 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, PIN_MAX,
                           remember_auth_file, require, save_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
-                            _doc_hours_text, msg_banner, react_mount, react_on,
-                            _shell, standalone, tg_configured, tg_refresh_meta,
-                            tg_status)
+                            _doc_hours_text, data_folder, msg_banner,
+                            react_mount, react_on, _shell, standalone,
+                            tg_configured, tg_refresh_meta, tg_status)
 from ...core import bitlocker, dbkey, theme
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
@@ -364,6 +364,19 @@ async def settings_system(request: Request, msg: str = ""):
         up_line = "— necunoscut (offline?)"
     else:
         up_line = "se verifică…"
+    # ⭐ ЕДИНСТВЕННОЕ место, где директор может свериться, куда программа
+    # пишет, — и потому якорь для двух текстов, которые иначе описывали бы
+    # раскладку словами и протухли бы при следующем переезде: ответы FAQ про
+    # перенос и CITESTE-MA.txt внутри вывозного архива оба отсылают СЮДА.
+    # ⚠️ Путь, а не «да/нет»: сверяют его глазами с адресной строкой
+    # Проводника, и сокращение вроде «%ProgramData%» сверить нельзя.
+    _folder = data_folder()
+    dir_row = (f"<tr><th>Folderul cu date</th><td><code>"
+               f"{html.escape(_folder)}</code><br>"
+               f"<span style='color:var(--text3);font-size:12px'>aici stau "
+               f"evidența, documentele și copiile de rezervă — nu în folderul "
+               f"în care este instalat programul</span></td></tr>"
+               ) if _folder else ""
     # Канал виден в интерфейсе намеренно: на этой машине обновление приходит
     # РАНЬШЕ, чем клиникам, и перепутать её с боевой установкой нельзя.
     chan_row = ""
@@ -391,6 +404,7 @@ async def settings_system(request: Request, msg: str = ""):
 <table class='set'>
 <tr><th style='width:180px'>Versiune</th><td>v{eng.APP_VERSION}</td></tr>
 <tr><th>Bază de date</th><td>{"SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"}</td></tr>
+{dir_row}
 {tg_row}
 <tr><th>Actualizări</th><td>{up_line}</td></tr>
 {chan_row}
@@ -405,7 +419,7 @@ async def settings_system(request: Request, msg: str = ""):
 <b style='color:var(--text)'>Programul funcționează local.</b> Datele personale ale pacienților
 nu sunt transmise dezvoltatorului și nu sunt stocate pe serverele acestuia.
 Actualizările descarcă doar fișierele programului. Baza de date, jurnalele și
-copiile de rezervă rămân pe acest calculator, în folderul programului.</p>
+copiile de rezervă rămân pe acest calculator, în folderul cu date de mai sus.</p>
 <p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--text3)'>
 Программа работает локально. Персональные данные пациентов не передаются
 разработчику и не хранятся на его серверах. Обновления загружают только файлы

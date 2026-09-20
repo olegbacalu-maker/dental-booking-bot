@@ -367,7 +367,7 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
   <button>{_ic('camera')} Încarcă fotografia</button>
 </form>
 <p class='hint' style='margin:6px 0 0'>JPEG / PNG / WebP, max {MAX_PHOTO_MB} MB.
-Rămâne local, în folderul programului; pacienții nu o văd.</p>"""
+Rămâne local, pe acest calculator; pacienții nu o văd.</p>"""
     if meta.get("photo"):
         photo_form += (f"<form method='post' action='/admin/doctor-card/{dk}/photo/del' "
                        f"style='margin-top:6px' onsubmit=\"return confirm('Ștergeți fotografia?')\">"

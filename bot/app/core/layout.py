@@ -274,7 +274,7 @@ MSG_BANNER = {
     "last_dir": ("err", "Trebuie să rămână cel puțin un director — altfel nimeni nu mai "
                         "poate deschide Setările și nu are cine să dea drepturi înapoi"),
     "self_user": ("err", "Nu vă puteți șterge propriul cont — cereți altui director"),
-    "ok_doc": ("ok", "Document încărcat — rămâne local, în folderul programului"),
+    "ok_doc": ("ok", "Document încărcat — rămâne local, pe acest calculator"),
     "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
     "ok_med": ("ok", "Datele medicului au fost salvate"),
     "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
@@ -286,9 +286,14 @@ MSG_BANNER = {
     "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic "
                          "ACTIV — altfel nu mai poate fi ales la programare. Bifați alt medic "
                          "(sau readuceți unul din concediu) înainte de a-l scoate pe acesta"),
+    # ⚠️ Папка НЕ «программы»: пишем мы в папку данных, и она с переезда в
+    # `Program Files` другая. Совет проверить права не на той папке — это
+    # директор, который час чинит исправное место, пока clinic.json не
+    # сохраняется. Путь показывает «Stare sistem», туда и отсылаем.
     "save_err": ("err", "Nu am putut scrie fișierul clinicii (clinic.json) — datele NU "
                         "au fost salvate. Verificați spațiul pe disc și drepturile la "
-                        "folderul programului; detalii în data\\dentpilot.log"),
+                        "folderul cu date (Setări › Stare sistem); detalii în "
+                        "data\\dentpilot.log"),
     "arch_busy": ("err", "Medicul are programări viitoare — mutați-le la alt medic sau "
                          "alegeți «în concediu» în loc de arhivare"),
     "last_med": ("err", "Trebuie să rămână cel puțin un medic activ"),
@@ -556,6 +561,29 @@ def tg_configured() -> bool:
     заново, а не гадать, куда он делся."""
     return bool(os.environ.get("TELEGRAM_TOKEN", "").strip()) \
         or dpapi.UNREADABLE_FLAG in os.environ
+
+
+def data_folder() -> str:
+    """Настоящий путь к папке КЛИНИКИ — строкой, которую читает человек.
+    Пусто, если раскладку никто не задавал (облако, запуск из исходников).
+
+    ⭐ Показываем ФАКТ, а не пересказ раскладки. Раскладок с переезда в
+    `Program Files` две — обычная (`%ProgramData%\\DentPilot`) и портативная
+    (рядом с exe, по `portable.flag`), — выбирает между ними лаунчер, и текст,
+    который их ПЕРЕЧИСЛЯЕТ, разойдётся с машиной на следующем же переезде.
+    Строка, которую директор сверяет глазами с адресной строкой Проводника,
+    не протухает: она приходит оттуда же, куда программа пишет.
+
+    ⛔ Это ФОРМАТТЕР над `paths.data_root()`, а не второй вычислитель пути.
+    Соблазн посчитать папку иначе (от `sys.executable`, от `config_path()`,
+    от аргумента вызывающего) здесь особенно велик, потому что ответов
+    несколько и на настольной машине они совпадают. Разойдутся они у клиники,
+    и цена известна заранее: `config_path()` прямо пишет, что второе
+    вычисление увезло бы файл в папку, в которую программа при следующем
+    запуске не смотрит. Ср. `storage._data_dir()` — такой же делегат.
+    """
+    root = paths.data_root()
+    return str(root) if root is not None else ""
 
 
 def _update_banner() -> str:
