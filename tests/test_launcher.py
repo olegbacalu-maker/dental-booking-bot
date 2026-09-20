@@ -190,8 +190,9 @@ def suite_port(res: Result) -> None:
     # дважды за один день — сперва на `envfile.read_all` строкой выше, потом
     # на этом же правиле. Текстовый сторож обязан искать то, что СЛОМАЕТСЯ
     # при удалении кода, а не то, что объясняет код.
-    for rel, want in (("Build-Installer.ps1", "$env:DENTART_DATA_DIR = $lab"),
-                      ("scripts/check_slot_guard.py", '"DENTART_DATA_DIR": str(lab)')):
+    BENCHES = {"Build-Installer.ps1": "$env:DENTART_DATA_DIR = $lab",
+               "scripts/check_slot_guard.py": '"DENTART_DATA_DIR": str(lab)'}
+    for rel, want in BENCHES.items():
         f = BOT.parent / rel
         # сторож за сторожом: переименуют файл — правило обязано упасть, а не
         # позеленеть на пустом месте
@@ -202,6 +203,32 @@ def suite_port(res: Result) -> None:
                want in f.read_text(encoding="utf-8", errors="replace"),
                f"нет строки {want!r} — лаборатория запустит exe поверх "
                "настоящей картотеки машины")
+
+    # ⭐ И обратная сторона, без которой список выше — как раз тот гниющий
+    # список-включатель из прайора карты: он проверяет ровно тех, кого в нём
+    # назвали, и НОВЫЙ стенд проходит мимо молча. Поэтому ищем нарушителей:
+    # всякий, кто ЗАПУСКАЕТ собранный exe и в списке не значится.
+    # ⚠️ Правило намеренно чуть жадное. Ложное срабатывание здесь — громкий
+    # вопрос человеку («это стенд? изолируй или впиши с причиной»), а пропуск
+    # — тихий запуск поверх настоящей картотеки клиники.
+    root = BOT.parent
+    # ⚠️ Файл самого правила исключён: в нём написаны искомые литералы, и без
+    # этого он ловит сам себя. Единственное исключение, и оно самоочевидно —
+    # сторож ничего не запускает.
+    skip = set(BENCHES) | {"tests/test_launcher.py"}
+    cand = [p for p in list(root.glob("*.ps1")) + list((root / "scripts").glob("*.py"))
+            + list((root / "tests").glob("*.py"))
+            if str(p.relative_to(root)).replace("\\", "/") not in skip]
+    rogue = []
+    for p in cand:
+        txt = p.read_text(encoding="utf-8", errors="replace")
+        if "DentPilot.exe" not in txt:
+            continue
+        if any(s in txt for s in ("Start-Process", "subprocess.Popen(", "os.startfile(")):
+            rogue.append(str(p.relative_to(root)).replace("\\", "/"))
+    res.ok("собранный exe запускают только известные стенды", not rogue,
+           "стенд вне списка — изолируй ему DENTART_DATA_DIR или впиши "
+           "в BENCHES с причиной: " + ", ".join(rogue))
 
 
 # ---------- 3. автокопия базы при старте ----------
