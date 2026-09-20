@@ -36,6 +36,7 @@ import test_grid  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
+import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
 import test_migrate  # noqa: E402
 import test_odontogram_api  # noqa: E402
@@ -320,6 +321,11 @@ SUITES = [
     ("P3-min: резерв остаётся резервом", test_legacy.suite_reserved),
     ("P3-min: намерение установщика", test_legacy.suite_install_info),
     ("P3-min: разбор настоящих ярлыков", test_legacy.suite_real_shortcuts),
+    ("P3-min: контракт установщика", test_installer.suite_contract),
+    ("P3-min: права на папку данных", test_installer.suite_acl),
+    ("P3-min: первый запуск и блокировка", test_installer.suite_first_run),
+    ("P3-min: комментарии Pascal", test_installer.suite_pascal_comments),
+    ("P3-min: установщик компилируется", test_installer.suite_compiles),
     ("Зашифрованный бэкап клиники",test_privacy.suite_backup),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]

@@ -2,11 +2,14 @@
 ; Один файл для клиники: мастер установки, выбор папки, ярлыки, автозапуск,
 ; запись в «Программы и компоненты» + деинсталлятор.
 ;
-; ВАЖНО (архитектурное ограничение): DentPilot хранит рабочие данные РЯДОМ с exe
-; (clinic.json, dental.env, data\dental.db). Поэтому установка только
-; per-user (PrivilegesRequired=lowest) в папку, куда пользователь может писать.
-; Program Files не подходит — там обычному пользователю запись запрещена,
-; программа не создаст базу. На странице выбора папки стоит предупреждение.
+; РАСКЛАДКА (P3-min, 20.09): программа и данные РАЗВЕДЕНЫ.
+;   {commonpf}\DentPilot       — программа, только чтение в работе
+;   {commonappdata}\DentPilot  — данные клиники, общие для всех учёток машины
+; Поэтому установка per-machine (PrivilegesRequired=admin). Прежнее «данные
+; рядом с exe» отменено: разбор — docs/dentpilot-2/storage.md.
+; ⛔ Папке программы права на запись НЕ выдаются: с приходом привилегированного
+; обновлятора (P4) это означало бы, что любой пользователь машины подменяет
+; бинарник, который исполняется от LocalSystem.
 ;
 ; Сборка: .\Build-Installer.ps1  (или ISCC.exe /DAppVersion=1.10.0 installer\DentPilot.iss)
 
@@ -31,13 +34,13 @@ VersionInfoVersion={#AppVersion}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} — registrul clinicii (setup)
 
-DefaultDirName={code:DefaultInstallDir}
+DefaultDirName={commonpf}\{#AppName}
 UsePreviousAppDir=yes
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -113,22 +116,32 @@ UninstalledAll=DentPilot a fost șters.
 ; здесь (в [Messages] компилятор их не признаёт)
 ro.CreateDesktopIcon=Scurtătură pe desktop
 ro.AdditionalIcons=Scurtături:
-ro.AutostartTask=Pornește DentPilot la pornirea calculatorului
 ro.DemoDataTask=Umple registrul cu programări demonstrative (DOAR pentru prezentare, nu pentru lucru)
 ro.InstallingWebView2=Se instalează componenta Microsoft pentru afișare (WebView2)…
-ro.NoWriteTitle=În acest folder nu se poate scrie
-ro.NoWriteText=Nu am putut scrie un fișier în «%1».%n%nDentPilot ține baza de date a clinicii lângă program, deci folderul trebuie să permită scrierea. Se poate să fi fost creat de alt utilizator Windows.%n%nAlegeți alt folder (de exemplu cel propus implicit).
+ro.NoWriteTitle=Nu se poate pregăti dosarul cu date
+ro.NoWriteText=Nu am putut scrie în «%1».%n%nAcolo DentPilot ține baza de date a clinicii. Instalarea nu poate continua.
 ro.DataKeptTitle=Datele clinicii au rămas
 ro.DataKeptText=Programul a fost șters, dar datele clinicii NU au fost șterse:%n%n%1%n%nAcolo au rămas baza de date (data\dental.db), setările (clinic.json) și tokenul botului (dental.env). Ștergeți folderul manual dacă datele nu mai sunt necesare.
-ro.PfWarnTitle=Acest folder nu este potrivit
-ro.PfWarnText=Folderul «%1» este în Program Files.%n%nDentPilot ține baza de date a clinicii lângă program, iar în Program Files un utilizator obișnuit nu poate scrie — programul nu ar putea crea baza de date.%n%nAlegeți alt folder (de exemplu cel propus implicit).
+ro.LegacyTitle=Există deja o instalare mai veche
+ro.LegacyText=Pe acest calculator există o instalare mai veche a DentPilot, cu datele clinicii lângă program:%n%n%1%n%nMutarea datelor în noua așezare nu este încă disponibilă în această versiune. Instalarea a fost oprită ca să nu rămână două evidențe separate.
+ro.AclTitle=Drepturile pe dosarul cu date
+ro.AclText=Nu am putut acorda drepturi de scriere pe «%1».%n%nFără ele, a doua tură nu va putea lucra. Instalarea a fost oprită.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "autostart";   Description: "{cm:AutostartTask}"
 ; По умолчанию СНЯТА: установщик получает реальная клиника, и демо-пациенты
 ; в её журнале — это чужие фамилии, которые придётся удалять по одной.
 Name: "demodata";    Description: "{cm:DemoDataTask}"; Flags: unchecked
+
+[Dirs]
+; Данные клиники. ⛔ Право на запись нужно на КАТАЛОГ, а не только на файлы:
+; SQLite в режиме WAL создаёт рядом с базой -wal и -shm.
+; ⛔ У {app} параметра Permissions НЕТ ни на одной строке и быть не должно —
+; см. шапку файла.
+Name: "{commonappdata}\{#AppName}";               Permissions: users-modify
+Name: "{commonappdata}\{#AppName}\data";          Permissions: users-modify
+Name: "{commonappdata}\{#AppName}\data\backups";  Permissions: users-modify
+Name: "{commonappdata}\{#AppName}\data\files";    Permissions: users-modify
 
 [Files]
 Source: "..\dist\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -143,7 +156,6 @@ Source: "MicrosoftEdgeWebView2Setup.exe"; DestDir: "{tmp}"; \
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
-Name: "{userstartup}\{#AppName}";  Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: autostart
 
 [Run]
 ; ⛔ ДО запуска программы: без WebView2 окно не открывается, и до этой правки
@@ -160,7 +172,12 @@ Filename: "{src}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/si
     StatusMsg: "{cm:InstallingWebView2}"; Check: OfflineWv2Ready; Flags: waituntilterminated
 Filename: "{tmp}\MicrosoftEdgeWebView2Setup.exe"; Parameters: "/silent /install"; \
     StatusMsg: "{cm:InstallingWebView2}"; Check: WebView2Missing; Flags: waituntilterminated
-Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+; ⛔ runasoriginaluser обязателен. Без него [Run] наследует ПОВЫШЕННЫЙ токен,
+; и первый запуск идёт от администратора: файлы в папке данных создаются не той
+; учёткой, а на клинике с шифрованием db.key заворачивается под DPAPI админа —
+; и собственная учётка клиники встречает экран восстановления.
+Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; \
+    WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 ; Данные клиники деинсталлятор НЕ трогает: clinic.json, dental.env и data\
 ; (база + бэкапы) остаются. А вот обломки самообновления — это файлы программы,
@@ -172,6 +189,8 @@ Type: files; Name: "{app}\DentPilot.exe.bak"
 Type: files; Name: "{app}\dentpilot_update.bat"
 Type: files; Name: "{app}\dentpilot_restart.bat"
 Type: files; Name: "{app}\demo.flag"
+; install.json пишем мы — значит и убираем мы
+Type: files; Name: "{app}\install.json"
 
 [Code]
 
@@ -241,29 +260,15 @@ begin
     ExpandConstant('{src}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe'));
 end;
 
-{ Папка по умолчанию.
-
-  ⚠️ Главное соображение: база лежит РЯДОМ с exe, значит папка обязана быть
-  общей для всех учётных записей Windows на этом компьютере. В клинике две
-  смены — это две учётки; при установке в профиль пользователя вторая смена
-  не увидит ни ярлыка, ни программы, поставит её заново и получит ПУСТУЮ базу.
-  Обнаружилось бы это фразой «а куда делись сегодняшние записи».
-
-  C:\Users\Public подходит: там на «ИНТЕРАКТИВНЫЕ» (любой вошедший за этот
-  компьютер) наследуется Modify — писать может каждый, права администратора не
-  нужны. Профиль пользователя оставлен запасным вариантом на случай, если
-  Public почему-то недоступен.
-
-  Порядок: старая установка (чтобы не потерять базу) → общая папка → профиль. }
-function DefaultInstallDir(Param: String): String;
-begin
-  if FileExists('C:\DentPilot\DentPilot.exe') then
-    Result := 'C:\DentPilot'
-  else if DirExists(ExpandConstant('{commondocs}\..')) then
-    Result := ExpandConstant('{commondocs}\..\DentPilot')
-  else
-    Result := ExpandConstant('{localappdata}\Programs\DentPilot');
-end;
+// ⛔ Здесь была DefaultInstallDir: она предлагала C:\DentPilot или
+// C:\Users\Public\DentPilot, потому что база лежала рядом с exe. С P3-min
+// папка программы — константа commonpf\DentPilot, и функция удалена целиком,
+// а не оставлена «на всякий случай»: её ветка localappdata — пользовательская
+// область, а в режиме административной установки Inno помечает такие области
+// предупреждением на каждой сборке.
+// ⚠️ Комментарии здесь намеренно на //, а не на фигурных скобках: внутри
+// текста стоят константы Inno, и первая же закрывающая скобка закрыла бы
+// комментарий, превратив остаток пояснения в код. Наступлено 20.09.
 
 function StartsWithDir(Path, Base: String): Boolean;
 begin
@@ -278,10 +283,15 @@ begin
             StartsWithDir(Path, ExpandConstant('{commonpf64}'));
 end;
 
-{ Проба записи сильнее правила про путь: Program Files — лишь один из
-  неподходящих вариантов. Папка, созданная ДРУГИМ пользователем (например
-  C:\DentPilot от установки под админом), проходит проверку по имени, но
-  программа упадёт уже при создании базы — когда объяснять будет некому. }
+// Проба записи — теперь про папку ДАННЫХ, а не про папку программы.
+//
+// ⛔ Прежняя проба стояла на папке программы и с приходом admin потеряла смысл
+// дважды: та папка ТЕПЕРЬ и должна быть недоступной на запись, а сама проба
+// идёт с повышенным токеном и в Program Files всегда проходит — то есть могла
+// бы дать только ложное зелёное.
+// ⚠️ Честная оговорка: никакая проба со стороны установщика не доказывает, что
+// писать сможет НЕпривилегированный пользователь. Это доказывает только вход
+// второй учёткой (приёмка P5).
 function CanWriteTo(Dir: String): Boolean;
 var
   Probe: String;
@@ -292,25 +302,133 @@ begin
     DeleteFile(Probe);
 end;
 
-function NextButtonClick(CurPageID: Integer): Boolean;
+function DataRoot(): String;
 begin
-  Result := True;
-  if CurPageID = wpSelectDir then
+  Result := ExpandConstant('{commonappdata}\{#AppName}');
+end;
+
+{ Есть ли на машине СТАРАЯ установка — та, где данные лежат рядом с exe.
+
+  ⭐ ВАЖНО про правило доверия. В storage.md записано: кандидата на ПЕРЕЕЗД
+  называет только источник происхождения, содержимое лишь подтверждает. Здесь
+  задача ДРУГАЯ и риск обратный: мы не выбираем, что переносить, — мы решаем,
+  можно ли ставиться. Ошибка «померещилось» стоит отказа в установке, ошибка
+  «не заметил» стоит клинике двух разных картотек. Поэтому здесь проверка
+  НАРОЧНО шире: и ярлыки, и два прежних расположения по умолчанию.
+  ⚠️ Ярлыки видны только у той учётки, что запустила установку: при вводе
+  админского пароля «через плечо» это админ, а не регистратура. Дыру закрывают
+  два прежних пути; авторитетная детекция для переезда живёт в app/legacy.py и
+  работает уже от имени клиники. }
+function LegacyDir(): String;
+var
+  Sh, Lnk: Variant;
+  I: Integer;
+  Cand: array[0..4] of String;
+  T, Dir: String;
+begin
+  Result := '';
+  Cand[0] := ExpandConstant('{userdesktop}\{#AppName}.lnk');
+  Cand[1] := ExpandConstant('{userprograms}\{#AppName}.lnk');
+  Cand[2] := ExpandConstant('{userstartup}\{#AppName}.lnk');
+  Cand[3] := 'C:\DentPilot';
+  Cand[4] := ExpandConstant('{commondocs}\..\{#AppName}');
+  for I := 0 to 4 do
   begin
-    if IsUnderProgramFiles(WizardDirValue) then
+    Dir := '';
+    if I <= 2 then
     begin
-      MsgBox(FmtMessage(CustomMessage('PfWarnText'), [WizardDirValue]),
-             mbError, MB_OK);
-      Result := False;
+      if not FileExists(Cand[I]) then Continue;
+      try
+        Sh := CreateOleObject('WScript.Shell');
+        Lnk := Sh.CreateShortcut(Cand[I]);
+        T := Lnk.TargetPath;
+      except
+        T := '';
+      end;
+      if (T <> '') and (CompareText(ExtractFileName(T), '{#AppExeName}') = 0) then
+        Dir := ExtractFileDir(T);
+    end
+    else
+      Dir := Cand[I];
+    if Dir = '' then Continue;
+    { подтверждение содержимым — здесь оно уместно: путь уже назван }
+    if DirExists(Dir) and (FileExists(AddBackslash(Dir) + 'clinic.json') or
+                           DirExists(AddBackslash(Dir) + 'data')) and
+       not IsUnderProgramFiles(Dir) then
+    begin
+      Result := RemoveBackslash(Dir);
       Exit;
     end;
-    if not CanWriteTo(WizardDirValue) then
-    begin
-      MsgBox(FmtMessage(CustomMessage('NoWriteText'), [WizardDirValue]),
-             mbError, MB_OK);
-      Result := False;
-    end;
   end;
+end;
+
+function NoLegacyFound(): Boolean;
+begin
+  Result := LegacyDir() = '';
+end;
+
+// ⛔ Блокировка, а не предупреждение. Пока переезд данных (P2) не написан,
+// установка поверх старой раскладки оставила бы клинику с двумя картотеками:
+// новая программа завела бы пустую базу в папке данных, а настоящая осталась
+// бы рядом со старым exe — и обе выглядели бы исправно работающими.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Legacy: String;
+begin
+  Result := '';
+  Legacy := LegacyDir();
+  if Legacy <> '' then
+  begin
+    Result := FmtMessage(CustomMessage('LegacyText'), [Legacy]);
+    Exit;
+  end;
+  if not CanWriteTo(DataRoot()) then
+    Result := FmtMessage(CustomMessage('NoWriteText'), [DataRoot()]);
+end;
+
+{ Права на папку данных и запись намерения установщика.
+
+  ⛔ Права выдаём ПО SID: на румынской Windows группа зовётся «Utilizatori», и
+  /grant Users: не найдёт там ничего.
+  ⛔ Без /C и /Q: /C велит icacls продолжать после ошибок, то есть ровно то, от
+  чего код возврата перестаёт что-либо значить. }
+procedure WriteInstallJson(AclOk: Boolean);
+var
+  S: TArrayOfString;
+  Root, Data, Ok, Chan: String;
+begin
+  Root := ExpandConstant('{app}');
+  Data := DataRoot();
+  StringChangeEx(Root, '\', '\\', True);
+  StringChangeEx(Data, '\', '\\', True);
+  if AclOk then Ok := 'true' else Ok := 'false';
+  { канал — НАМЕРЕНИЕ: лаунчер возьмёт его при первом создании dental.env }
+  Chan := ExpandConstant('{param:CHANNEL|stable}');
+  SetArrayLength(S, 8);
+  S[0] := '{';
+  S[1] := '  "schema": 1,';
+  S[2] := '  "mode": "standalone",';
+  S[3] := '  "channel": "' + Chan + '",';
+  S[4] := '  "install_root": "' + Root + '",';
+  S[5] := '  "data_root": "' + Data + '",';
+  S[6] := '  "acl_ok": ' + Ok;
+  S[7] := '}';
+  SaveStringsToUTF8File(ExpandConstant('{app}\install.json'), S, False);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  RC: Integer;
+  AclOk: Boolean;
+begin
+  if CurStep <> ssPostInstall then
+    Exit;
+  AclOk := Exec(ExpandConstant('{sys}\icacls.exe'),
+                '"' + DataRoot() + '" /grant *S-1-5-32-545:(OI)(CI)M /T',
+                '', SW_HIDE, ewWaitUntilTerminated, RC) and (RC = 0);
+  WriteInstallJson(AclOk);
+  if not AclOk then
+    MsgBox(FmtMessage(CustomMessage('AclText'), [DataRoot()]), mbError, MB_OK);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -319,7 +437,7 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    Dir := ExpandConstant('{app}');
+    Dir := DataRoot();
     if DirExists(Dir) and (FileExists(Dir + '\clinic.json') or
                            DirExists(Dir + '\data')) then
       MsgBox(FmtMessage(CustomMessage('DataKeptText'), [Dir]), mbInformation, MB_OK);
