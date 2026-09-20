@@ -36,6 +36,7 @@ import test_grid  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
+import test_legacy  # noqa: E402
 import test_migrate  # noqa: E402
 import test_odontogram_api  # noqa: E402
 import test_bot  # noqa: E402
@@ -315,6 +316,10 @@ SUITES = [
     ("Лаунчер: dental.env из Блокнота", test_launcher.suite_envfile),
     ("Лаунчер: DENTART_PORT", test_launcher.suite_port),
     ("Лаунчер: автокопия базы", test_launcher.suite_autobackup),
+    ("P3-min: происхождение старой установки", test_legacy.suite_origin),
+    ("P3-min: резерв остаётся резервом", test_legacy.suite_reserved),
+    ("P3-min: намерение установщика", test_legacy.suite_install_info),
+    ("P3-min: разбор настоящих ярлыков", test_legacy.suite_real_shortcuts),
     ("Зашифрованный бэкап клиники",test_privacy.suite_backup),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]
