@@ -430,3 +430,90 @@ describe('C26.5.3-c: диалог пустого часа', () => {
       .some((u) => u.includes('/schedule/appointments'))).toBe(false)
   })
 })
+
+describe('C26.5.3-d: диалог заметки стойки', () => {
+  /* ⚠️ Текст ровно такой длины, как его хранит база (120), и блок покажет из
+     него 40: проверка про ПОЛНЫЙ текст ничего не стоит, если обрезок и полное
+     значение совпадают. */
+  const TEXT = `Pauză de masă și ședință cu tot personalul ${'9'.repeat(78)}`
+  const NOTE = {
+    kind: 'note' as const, id: 7, time: '10:00', min: 600, dur: 60, busy: true,
+    movable: true, top: 1, height: 1, col: 0, of: 1, status: 'confirmed',
+    title: TEXT.slice(0, 80), text: TEXT, label: TEXT.slice(0, 40),
+  }
+  const withNote = () => {
+    const m = model()
+    m.canvas.columns[0]!.blocks.push({ ...NOTE })
+    return m
+  }
+  const openNote = async () => {
+    await show()
+    fireEvent.click(document.querySelector('[data-appt="7"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+  }
+
+  it('⭐ показывает ПОЛНЫЙ текст — тот, что на панели не виден больше нигде', async () => {
+    /* В блоке 40 знаков, в подсказке 80, в базе 120. До этого шага длинную
+       заметку на /admin было не прочитать вовсе, ни одним способом. */
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, withNote())))
+    await openNote()
+    expect(document.querySelector('dialog .dp-note-text')?.textContent).toBe(TEXT)
+    expect(document.querySelector('[data-appt="7"] b')?.textContent)
+      .toContain(TEXT.slice(0, 40))
+    expect(document.querySelector('[data-appt="7"] b')?.textContent)
+      .not.toContain(TEXT.slice(0, 41))
+  })
+
+  it('⛔ у заметки РОВНО ОДНА кнопка, и слово у неё серверное', async () => {
+    /* Матрица заметки знает два состояния из шести: прихода и исхода у неё
+       нет, есть «убрать» и «вернуть». Своего списка в браузере нет. */
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, withNote())))
+    await openNote()
+    const buttons = Array.from(document.querySelectorAll('dialog .dlg-status button'))
+    expect(buttons.map((b) => b.textContent)).toEqual(['Șterge'])
+  })
+
+  it('⛔ текст заметки НЕ правится: поля ввода в диалоге нет вовсе', async () => {
+    /* Маршрута для правки не существует — текст пишется один раз при вставке,
+       и ни один UPDATE appointments не трогает колонку service. Поле ввода
+       было бы обещанием, которого сервер не выполнит. */
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, withNote())))
+    await openNote()
+    expect(document.querySelectorAll('dialog textarea').length).toBe(0)
+    expect(document.querySelectorAll('dialog input').length).toBe(0)
+    /* и это НЕ карточка визита: ни фиши, ни дневника у заметки не бывает */
+    expect(document.querySelectorAll('dialog .dp-card-link').length).toBe(0)
+  })
+
+  it('⛔ убрали со второго рабочего места — НАДГРОБИЕ, и кнопок больше нет', async () => {
+    const f = vi.fn(async () => reply(200, withNote()))
+    vi.stubGlobal('fetch', f)
+    await openNote()
+    expect(document.querySelectorAll('dialog .dlg-status button').length).toBe(1)
+
+    f.mockImplementation(async () => reply(200, model(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() =>
+      expect(document.querySelector('dialog .banner.err')?.textContent)
+        .toBe('Notița nu mai există.'))
+    expect(document.querySelectorAll('dialog .dlg-status button').length).toBe(0)
+    /* и то, что человек ОТКРЫВАЛ, на экране осталось */
+    expect(document.querySelector('dialog .dp-note-text')?.textContent).toBe(TEXT)
+  })
+
+  it('⛔ снять блокировку отсюда ещё некуда: кнопка заперта, и сказано почему', async () => {
+    const f = vi.fn(async () => reply(200, withNote()))
+    vi.stubGlobal('fetch', f)
+    await openNote()
+    expect(document.querySelector('dialog .banner.warn')?.textContent)
+      .toContain('lista zilei')
+    expect((document.querySelector('dialog .dlg-status button') as HTMLButtonElement)
+      .disabled).toBe(true)
+
+    fireEvent.submit(document.querySelector('dialog .dlg-status form') as HTMLFormElement)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.mock.calls.map((c) => String((c as unknown as [string])[0]))
+      .some((u) => u.includes('/status'))).toBe(false)
+  })
+})

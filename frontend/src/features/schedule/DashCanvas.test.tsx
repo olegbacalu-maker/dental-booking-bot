@@ -72,6 +72,7 @@ const MODEL: DashCanvasModel = {
         }),
         {
           kind: 'note', id: 4, time: '12:00', min: 720, dur: 60, busy: true,
+          status: 'confirmed',
           movable: false, top: 3, height: 1, col: 0, of: 1,
           title: LONG_NOTE, text: `${LONG_NOTE} si doua truse`, label: LONG_NOTE.slice(0, 40),
         },
@@ -89,18 +90,20 @@ const MODEL: DashCanvasModel = {
 const rail = createRef<HTMLDivElement>()
 const show = (model: DashCanvasModel = MODEL) =>
   render(<DashCanvas model={model} rail={rail} waitTick={NOW} lineTick={NOW}
-    onCard={onCard} onSlot={onSlot} />)
+    onCard={onCard} onSlot={onSlot} onNote={onNote} />)
 
 const cols = () => Array.from(document.querySelectorAll('.gridbody > .gcol'))
 const cards = () => Array.from(document.querySelectorAll('.gridhead .gh-doc'))
 
 const onCard = vi.fn()
 const onSlot = vi.fn()
+const onNote = vi.fn()
 
 afterEach(() => {
   cleanup()
   onCard.mockClear()
   onSlot.mockClear()
+  onNote.mockClear()
 })
 
 describe('C26.5.2: канва панели — колонки, часы и геометрия', () => {
@@ -283,6 +286,17 @@ describe('C26.5.2: блок записи', () => {
     const wait = cols()[0]!.querySelector('[data-appt="2"] .wait-min')
     expect(wait?.textContent).toBe('așteaptă 20 min')
     expect(wait?.className).toBe('wait-min long')
+  })
+
+  it('C26.5.3-d: нажатие по заметке ведёт в ЕЁ диалог, а не в карточку визита', () => {
+    /* ⛔ И не в диалог пустого часа: блок лежит ПОВЕРХ ячейки, у которой свой
+       обработчик, но ячейка ему сосед, а не родитель — «записать в этот час»
+       поверх уже заблокированного часа человек не нажимал. */
+    show()
+    fireEvent.click(cols()[0]!.querySelector('[data-appt="4"]') as HTMLElement)
+    expect(onNote).toHaveBeenCalledWith(4)
+    expect(onCard).not.toHaveBeenCalled()
+    expect(onSlot).not.toHaveBeenCalled()
   })
 
   it('заметка стойки — своим видом и ОБРЕЗКОМ, а полный текст остаётся в данных', () => {

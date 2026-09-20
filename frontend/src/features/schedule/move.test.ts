@@ -55,6 +55,7 @@ describe('что можно тащить', () => {
 
   it('заметка тащится под СВОИМ текстом, а не под именем пациента', () => {
     const note: DayItem = { kind: 'note', id: 9, time: '11:00', text: 'Livrare',
+      status: 'confirmed',
       min: 660, dur: 60, busy: true, movable: true }
     expect(dragOf(note, 'd2')?.nm).toBe('Livrare')
   })

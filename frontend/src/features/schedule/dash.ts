@@ -14,7 +14,7 @@
  */
 
 import { api } from '../../services/api'
-import type { VisitCardView } from './day'
+import type { NoteView, VisitCardView } from './day'
 import type { SlotFormView } from './slot'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
@@ -43,10 +43,13 @@ interface BlockBase {
 
 export interface DashNote extends BlockBase {
   kind: 'note'
-  /** Полный текст заметки — из него правят. */
+  /** ⛔ ПОЛНЫЙ текст (до 120). На панели он не виден нигде, кроме диалога:
+   *  в блоке 40 знаков, в подсказке 80, а хранится 120. */
   text: string
   /** Подпись в блоке, 40 знаков. Обрезает сервер (`live-contract` › 6e). */
   label: string
+  /** Состояние — им спрашивается кнопка в `note_actions` (C26.5.3-d). */
+  status: string
 }
 
 export interface DashAppt extends BlockBase {
@@ -250,6 +253,10 @@ export type _DashApptFitsCard = Fits<DashAppt extends VisitCardView ? true : fal
 /** ⛔ И то же самое у диалога пустого часа: он один на день и на панель, а
  *  конверты у них разные. Сузится `slotform` — покраснеет здесь. */
 export type _DashSlotFormFitsDialog = Fits<DashSlotForm extends SlotFormView ? true : false>
+
+/** ⛔ И у заметки: пропадёт `status` — диалог остался бы без кнопок молча,
+ *  потому что `note_actions[undefined]` это просто пустой список. */
+export type _DashNoteFitsDialog = Fits<DashNote extends NoteView ? true : false>
 
 /** Адрес живого канала панели. Путь — без `/api`, как у `api.get`. */
 export function livePath(date: string): string {

@@ -6,10 +6,10 @@ import { hourLabel } from './slot'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
 
-   Два нажатия, и оба ведут в диалог: блок визита — карточка (C26.5.3-b),
-   пустая ячейка — слот (C26.5.3-c). ⛔ Перетаскивания ещё нет — это `f`, и
-   полей переноса у блоков нет тоже: их отсутствие честнее, чем мишень,
-   которая ничего не принимает.
+   Три нажатия, и все три ведут в диалог: блок визита — карточка (C26.5.3-b),
+   пустая ячейка — слот (C26.5.3-c), блок заметки — сама заметка (C26.5.3-d).
+   ⛔ Перетаскивания ещё нет — это `f`, и полей переноса у блоков нет тоже: их
+   отсутствие честнее, чем мишень, которая ничего не принимает.
    ⛔ Классы берутся у panel.css как есть: это перенос поведения, а не
    редизайн. Своя вторая раскладка развела бы старую страницу и новую на
    первом же правиле темы. */
@@ -39,15 +39,17 @@ interface Props {
   waitTick: number
   /** Метка времени для линии «сейчас»; меняется раз в 30 с. */
   lineTick: number
-  /** Открыть карточку визита. ⛔ Только у визита: у заметки стойки карточки
-   *  нет по замыслу, её действия живут в списке дня. */
+  /** Открыть карточку визита. ⛔ Только у визита: у заметки карточки не
+   *  бывает — `_collect_cards` её пропускает, и диалог у неё СВОЙ. */
   onCard: (id: number) => void
+  /** Открыть заметку стойки: полный текст и её единственная кнопка. */
+  onNote: (id: number) => void
   /** Открыть пустой час: врач, его имя и «HH:00» — те же три значения, что
    *  принимал легаси-обработчик `openSlot(dk, dname, hh)`. */
   onSlot: (dk: string, name: string, hour: string) => void
 }
 
-export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot }: Props) {
+export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, onNote }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -103,7 +105,8 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot }: 
                 )
               })}
               {col.blocks.map((b) => (
-                <Block key={b.id} block={b} waitTick={waitTick} onCard={onCard} />
+                <Block key={b.id} block={b} waitTick={waitTick}
+                  onCard={onCard} onNote={onNote} />
               ))}
             </div>
           ))}
@@ -189,8 +192,11 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, onCard }:
-  { block: DashBlock; waitTick: number; onCard: (id: number) => void },
+  { block, waitTick, onCard, onNote }:
+  {
+    block: DashBlock; waitTick: number
+    onCard: (id: number) => void; onNote: (id: number) => void
+  },
 ) {
   /* ⚠️ Те же множители, что печатал сервер: доли ячейки, ширина делится
      между пересекающимися. Считать позицию «от индекса часа» нельзя — на дне
@@ -203,8 +209,14 @@ function Block(
   }
 
   if (block.kind === 'note') {
+    /* ⚠️ Блок лежит ПОВЕРХ ячейки, но ячейка ему не родитель, а сосед: без
+       своего обработчика нажатие уходило бы в `.gcol` и не делало ничего —
+       ровно как на легаси-панели, где у заметки курсор-палец и мёртвый клик.
+       ⛔ И оно НЕ должно доставать до ячейки под собой: «записать в этот час»
+       поверх уже заблокированного часа — не то, что человек нажимал. */
     return (
-      <div className="gappt gnote" data-appt={block.id} style={pos} title={block.title}>
+      <div className="gappt gnote" data-appt={block.id} style={pos} title={block.title}
+        onClick={() => onNote(block.id)}>
         <b><Icon name="note" /> {block.label}</b>
       </div>
     )

@@ -233,8 +233,16 @@ def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
     dur = int(r.get("duration_min") or 60)
     live = r["status"] in db.ACTIVE_STATUSES
     if r["source"] == "note":
+        # ⛔ `status` у заметки — не для показа, а чтобы по нему СПРОСИТЬ кнопку
+        # в `note_actions` (C26.5.3-d). Без него клиенту пришлось бы считать
+        # заметку «confirmed» по умолчанию — то есть завести в браузере ВТОРОЕ
+        # знание о состоянии, а эта пара расходилась молча уже дважды (08-12,
+        # 08-16). ⚠️ Матрица заметки знает два состояния из шести, и это не
+        # оплошность: у неё нет прихода и исхода, есть «убрать» и «вернуть».
+        # Заметка, уведённая в чужой статус, честно останется без кнопок.
         return {"kind": "note", "id": r["id"], "time": st.strftime("%H:%M"),
-                "text": r["service"], "min": st.hour * 60 + st.minute,
+                "text": r["service"], "status": r["status"],
+                "min": st.hour * 60 + st.minute,
                 "dur": dur, "busy": live, "movable": bool(dk) and live}
     bg, bar = colors(r)
     return {

@@ -6,9 +6,10 @@ import { asApiError, type ApiResult } from '../../services/api'
 import { useLive } from '../../hooks/useLive'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
+import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
 import { useClockTick } from './dashFx'
-import { dash, livePath, type DashAppt, type DashModel } from './dash'
+import { dash, livePath, type DashAppt, type DashBlock, type DashModel, type DashNote } from './dash'
 import type { Slot } from './slot'
 
 /**
@@ -18,9 +19,10 @@ import type { Slot } from './slot'
  * ответом действия, а этот обязан узнавать о брони со второго рабочего места
  * сам. Держит это `useLive`: канал данных, 204 «не менялось», отпечаток от
  * того же, что отправлено.
- * ⛔ Экран пока НЕ ПИШЕТ. Диалоги открываются (визит — `b`, пустой час — `c`),
- * но команды записи и переноса — `e` и `f`; подсказка говорит правду и ведёт в
- * старую панель, а не обещает действий, которых экран не умеет.
+ * ⛔ Экран пока НЕ ПИШЕТ. Диалоги открываются (визит — `b`, пустой час — `c`,
+ * заметка — `d`), но команды записи, снятия блокировки и переноса — `e` и `f`;
+ * подсказка говорит правду и ведёт в старую панель, а не обещает действий,
+ * которых экран не умеет.
  * ⛔ Шапка дня (`_date_nav`) и баннер `?msg=` печатает СЕРВЕР, снаружи узла:
  * на `/admin` приземляется `no_access` со всей программы, и увидеть его надо
  * при первой отрисовке, а не после первого ответа канала.
@@ -38,6 +40,11 @@ const T = {
      бы сломанной, а без формы нечего было бы проверять. */
   slotSoon: 'Ora se alege aici, dar programarea se salvează deocamdată în '
     + 'varianta clasică.',
+  /* ⚠️ Слово СВОЁ, и это названо: у сервера его нет вовсе (снятие блокировки
+     отвечает пустым кодом), а чужое — «Programarea nu mai există» — назвало бы
+     заметку программой. */
+  noteGone: 'Notița nu mai există.',
+  noteSoon: 'Notița se șterge deocamdată din lista zilei.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
   retry: 'Reîncearcă',
   stopped: 'Panoul nu se mai actualizează singur. Reîncărcați pagina.',
@@ -70,6 +77,10 @@ export function DashScreen({ date = '' }: Props) {
      сервер). Поэтому диалог живёт на трёх значениях клика и не смотрит в
      канву вовсе. */
   const [slot, setSlot] = useState<Slot | null>(null)
+  /* ⚠️ Со снимком, как у карточки, и по той же причине: заметку могли убрать
+     со второго рабочего места, пока диалог открыт, — тогда на экране остаётся
+     то, что человек ОТКРЫВАЛ, и слово о том, что этого больше нет. */
+  const [note, setNote] = useState<{ id: number; at: DashNote } | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   /* ⛔ Признак «команда в полёте» ставится СИНХРОННО, рефом, и предикат
@@ -118,6 +129,9 @@ export function DashScreen({ date = '' }: Props) {
   const found = card === null ? null : findAppt(state.data, card.id)
   const openCard = found ?? card?.at ?? null
   const gone = card !== null && found === null
+  const foundNote = note === null ? null : findNote(state.data, note.id)
+  const openNote = foundNote ?? note?.at ?? null
+  const noteGone = note !== null && foundNote === null
 
   /* Одно действие на обе команды. ⛔ Ответ состояния НЕ несёт: после команды
      экран спрашивает канал (`refresh()`), и путь к состоянию остаётся один.
@@ -147,6 +161,11 @@ export function DashScreen({ date = '' }: Props) {
   const openById = (m: DashModel, id: number) => {
     const at = findAppt(m, id)
     if (at) setCard({ id, at })
+  }
+
+  const openNoteById = (m: DashModel, id: number) => {
+    const at = findNote(m, id)
+    if (at) setNote({ id, at })
   }
 
   if (state.status === 'failed') {
@@ -186,7 +205,8 @@ export function DashScreen({ date = '' }: Props) {
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
             lineTick={lineTick} onCard={(id) => openById(d, id)}
-            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })} />
+            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+            onNote={(id) => openNoteById(d, id)} />
           <p className="hint">
             {T.hint} <a href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</a>.
           </p>
@@ -213,6 +233,17 @@ export function DashScreen({ date = '' }: Props) {
             return ok
           }} />
       )}
+      {note !== null && openNote && (
+        /* ⛔ Кнопка приходит С СЕРВЕРА по состоянию заметки — той же матрицей,
+           что печатает список дня. У надгробия её нет вовсе: действовать не над
+           чем. ⚠️ Матрица знает два состояния из шести, и заметка, уведённая в
+           чужой статус, честно остаётся без кнопок. */
+        <NoteDialog key={note.id} open note={openNote}
+          actions={noteGone ? [] : d.note_actions[openNote.status] ?? []}
+          gone={noteGone ? T.noteGone : ''}
+          notice={noteGone ? '' : T.noteSoon}
+          busy={busy} onClose={() => setNote(null)} />
+      )}
       {slot && (
         /* ⚠️ Ключ «врач|час» — тот же приём, что у карточки: другая ячейка =
            другой диалог, и набранное имя не переезжает на соседний час.
@@ -228,11 +259,23 @@ export function DashScreen({ date = '' }: Props) {
   )
 }
 
-/** Блок визита по номеру — в той канве, что сейчас на экране. */
-function findAppt(m: DashModel | null, id: number): DashAppt | null {
+/** Блок по номеру — в той канве, что сейчас на экране. ⚠️ Номер один на
+ *  визиты и заметки (заметка это строка `appointments` с `source='note'`),
+ *  поэтому ищется блок, а вид уточняется после. */
+function findBlock(m: DashModel | null, id: number): DashBlock | null {
   if (!m) return null
   for (const col of m.canvas.columns) {
-    for (const b of col.blocks) if (b.kind === 'appt' && b.id === id) return b
+    for (const b of col.blocks) if (b.id === id) return b
   }
   return null
+}
+
+function findAppt(m: DashModel | null, id: number): DashAppt | null {
+  const b = findBlock(m, id)
+  return b && b.kind === 'appt' ? b : null
+}
+
+function findNote(m: DashModel | null, id: number): DashNote | null {
+  const b = findBlock(m, id)
+  return b && b.kind === 'note' ? b : null
 }

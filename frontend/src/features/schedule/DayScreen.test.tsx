@@ -62,7 +62,7 @@ const MODEL: DayModel = {
     },
     {
       h: 19, label: '19:00', closed: 'inchis', now: false, cells: [
-        { kind: 'appts', drop: false, items: [{ kind: 'note', id: 9, time: '19:00', text: 'Livrare', min: 1140, dur: 60, busy: false, movable: false }] },
+        { kind: 'appts', drop: false, items: [{ kind: 'note', id: 9, time: '19:00', text: 'Livrare', status: 'confirmed', min: 1140, dur: 60, busy: false, movable: false }] },
         { kind: 'off', drop: false, items: [] },
       ],
     },
