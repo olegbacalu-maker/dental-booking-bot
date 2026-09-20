@@ -64,6 +64,9 @@ MUTATIONS = [
     ("исходники нашлись", None, None),
     ("__file__", "app/db.py",
      "\n_mut = __file__\n"),
+    # Второй разборщик адреса базы — ровно то, что было в main.py и db.py до P1
+    ("$DATABASE_URL разбирает только", "app/core/storage.py",
+     "\n_mut = 'sqlite:///x'.split('///', 1)[1]\n"),
     ("__package__", "app/engine.py",
      "\n_mut = __package__ + '.telegram'\n"),
     ("роль не сравнивается", "app/modules/stats/routes.py",

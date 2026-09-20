@@ -11,10 +11,19 @@ from __future__ import annotations
 
 import pathlib
 
-from .. import db
+from .. import paths
 
 
 def _data_dir() -> pathlib.Path | None:
-    if db.IS_SQLITE:
-        return pathlib.Path(db.DATABASE_URL.split("///", 1)[1]).parent
-    return None
+    """⭐ Один вычислитель на весь проект — `paths.db_dir()`.
+
+    Раньше путь считался здесь своей строкой, и это работало ровно до тех пор,
+    пока место записи было одно. С разделением «папка программы» и «папка
+    клиники» второй вычислитель того же места стал бы расходиться молча: у
+    `dbkey` он решает, зашифрована ли картотека, а у `auth` — есть ли учётки
+    вообще. Поэтому здесь остаётся ИМЯ (его знают 13 вызывающих), а знание —
+    в `paths`.
+    ⚠️ `paths` лежит НИЖЕ `db` и про проект не знает ничего: он читает
+    `$DATABASE_URL` из окружения, откуда его берёт и сам `db`.
+    """
+    return paths.db_dir()

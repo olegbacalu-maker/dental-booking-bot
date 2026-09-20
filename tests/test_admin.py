@@ -1600,7 +1600,7 @@ def suite_lan(res: Result) -> None:
 def suite_pure(res: Result) -> None:
     """Чистая логика расписания — без сервера и без базы."""
     code = r"""
-import json, sys
+import json, os, pathlib, sys
 sys.path.insert(0, r"%s")
 from datetime import datetime, timedelta, date
 from app import engine as eng
@@ -1664,7 +1664,18 @@ out = {
  "res_clinic_new": paths.resource("clinic_new.json").exists(),
  "res_static":     paths.resource("static").is_dir(),
  "res_index":      paths.resource("static", "index.html").exists(),
- "runtime_is_pkg": paths.runtime_dir() == paths.PKG_ROOT,
+ # ⛔ runtime_dir() удалён: место записи больше не считается от того, где
+ # лежит программа. Обе новые функции читают ОКРУЖЕНИЕ, поэтому и проверяем
+ # их окружением — в этом подпроцессе ни одна из переменных не задана.
+ "db_dir_unset":   paths.db_dir() is None,
+ "data_root_unset": paths.data_root() is None,
+ "db_dir_from_url": (os.environ.update(
+                        {"DATABASE_URL": "sqlite:///C:/x/data/dental.db"})
+                     or str(paths.db_dir()).replace("\\", "/")),
+ "root_needs_abs": (os.environ.update({"DENTART_DATA_DIR": "relativ"})
+                    or paths.data_root() is None),
+ "root_from_env":  (os.environ.update({"DENTART_DATA_DIR": r"C:\x"})
+                    or str(paths.data_root()).replace("\\", "/")),
  "past_hour":      eng.is_past(now - timedelta(hours=1)),
  "future_hour":    eng.is_past(now + timedelta(hours=1)),
  "past_day":       eng.is_past_day(now.date() - timedelta(days=1)),
@@ -1726,8 +1737,15 @@ print(json.dumps(out))
     res.check("пустой профиль клиники находится", v["res_clinic_new"], True)
     res.check("папка static находится", v["res_static"], True)
     res.check("страница пациента находится", v["res_index"], True)
-    res.check("вне сборки писать некуда, кроме корня пакета",
-              v["runtime_is_pkg"], True)
+    # ⛔ runtime_dir() удалён — писать «рядом с программой» больше нельзя.
+    res.check("без DATABASE_URL каталога базы нет", v["db_dir_unset"], True)
+    res.check("без DENTART_DATA_DIR папки клиники нет", v["data_root_unset"], True)
+    res.check("каталог базы считается от DATABASE_URL",
+              v["db_dir_from_url"], "C:/x/data")
+    # ⚠️ относительный путь отвергается: у ярлыка и у службы разный cwd
+    res.check("относительный DENTART_DATA_DIR отвергнут", v["root_needs_abs"], True)
+    res.check("папка клиники берётся из DENTART_DATA_DIR",
+              v["root_from_env"], "C:/x")
     res.check("прошедший час — в прошлом", v["past_hour"], True)
     res.check("будущий час — не в прошлом", v["future_hour"], False)
     res.check("вчерашний день закрыт", v["past_day"], True)

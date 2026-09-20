@@ -1326,7 +1326,8 @@ async def init(seed_rows: list | None = None) -> None:
     global POOL, _CONN, _SQ
     if IS_SQLITE:
         import aiosqlite
-        path = DATABASE_URL.split("///", 1)[1]
+        from . import paths            # ⭐ один разборщик $DATABASE_URL на проект
+        path = str(paths.db_file())
         # ⚠️ Локальное имя `sqlite3` — не описка: ниже в этой же функции стоят
         # `except sqlite3.OperationalError`, и они обязаны смотреть на ТОТ
         # драйвер, которым база открыта. Назови переменную иначе — и следующий

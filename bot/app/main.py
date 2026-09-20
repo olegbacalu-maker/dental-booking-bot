@@ -432,9 +432,17 @@ Evidența pacienților (baza de date) nu este afectată.</p>
 async def recover_page(err: str = "") -> Response:
     if not RECOVERY:
         return RedirectResponse("/admin", status_code=303)
-    msg = ("<div class='err'>Codul nu este valid sau nu se potrivește cu "
-           "această bază de date</div>") if err else ""
-    return HTMLResponse(standalone(RECOVER_TMPL).replace("__ERR__", msg))
+    # ⭐ ДВА исхода, а не один. Раньше оба вели сюда с `err=1`, и клиника,
+    # набравшая ПРАВИЛЬНЫЙ код с печатного листа, получала «код неверен» —
+    # тупик в самый плохой момент, потому что чинить она шла не то. Отказ
+    # записи `db.key` (нет прав на папку) не имеет отношения к коду.
+    msg = {
+        "1": "Codul nu este valid sau nu se potrivește cu această bază de date",
+        "2": ("Codul este corect, dar cheia nu a putut fi salvată în dosarul "
+              "cu date. Verificați drepturile pe dosar și încercați din nou."),
+    }.get(err, "")
+    return HTMLResponse(standalone(RECOVER_TMPL).replace(
+        "__ERR__", f"<div class='err'>{msg}</div>" if msg else ""))
 
 
 @app.post("/admin/recover")
@@ -450,9 +458,14 @@ async def recover_apply(request: Request, code: str = Form("")) -> Response:
     if not same_origin_post(request):     # третий POST без куки, тот же щит
         return Response(status_code=403)
     key = dbkey.parse_recovery(code)
-    path = pathlib.Path(db.DATABASE_URL.split("///", 1)[1])
-    if key is None or not dbkey.opens_with(path, key) or not dbkey.store(key):
+    path = paths.db_file()
+    if key is None or not dbkey.opens_with(path, key):
         return RedirectResponse("/admin/recover?err=1", status_code=303)
+    # ⛔ Сюда мы попадаем, только если код ВЕРЕН: он открыл саму базу. Значит
+    # неудача записи — это про папку, а не про ввод, и путать их нельзя.
+    if not dbkey.store(key):
+        log.error("ключ с листа верен, но db.key записать не удалось")
+        return RedirectResponse("/admin/recover?err=2", status_code=303)
     log.warning("ключ базы восстановлен с листа — требуется перезапуск")
     return HTMLResponse(standalone(RECOVER_DONE))
 

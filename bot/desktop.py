@@ -1,8 +1,11 @@
 """DentPilot Desktop — лаунчер .exe-издания (без Docker и VPS).
 
-Рядом с exe живут: clinic.json (профиль клиники, правится в Setări),
-dental.env (TELEGRAM_TOKEN и ADMIN_KEY), data/dental.db (SQLite),
-data/dentpilot.log (лог). Обычный режим — собственное окно приложения
+Данные КЛИНИКИ живут в отдельной папке (`data_root()` ниже), а не рядом с exe:
+clinic.json (профиль, правится в Setări), dental.env (TELEGRAM_TOKEN и
+ADMIN_KEY), data/dental.db (SQLite), data/dentpilot.log (лог).
+⛔ Разделение намеренное: программа уезжает в `Program Files`, доступный только
+на чтение. Рядом с exe остаётся лишь то, что кладёт СБОРКА (`demo.flag`,
+`portable.flag`). Обычный режим — собственное окно приложения
 (WebView2); закрытие окна останавливает программу.
 DENTART_BROWSER_MODE=1 — старый режим: консоль + системный браузер.
 (env-переменные исторически с префиксом DENTART_ — не трогаем ради
@@ -31,10 +34,79 @@ def bundle_dir() -> pathlib.Path:
                                 pathlib.Path(__file__).resolve().parent))
 
 
-BASE = exe_dir()
+def _fatal_dir(path: pathlib.Path, err: Exception) -> None:
+    """Папка клиники недоступна — сказать это ВСЛУХ и выйти.
 
-data_dir = BASE / "data"
-data_dir.mkdir(exist_ok=True)
+    ⛔ Единственный способ сообщить здесь — окно: сборка идёт `--noconsole`
+    (stdout/stderr ещё None), лога ещё нет, и до `sys.excepthook` дело не
+    дойдёт — этот код исполняется на уровне модуля. Без этого окна отказ прав
+    на `ProgramData` выглядит как «ярлык не работает», и чинить клиника пойдёт
+    не то.
+    ⚠️ Текст клинике по-румынски и с ПУТЁМ: без пути поддержка по телефону
+    не сможет спросить ничего полезного.
+    """
+    msg = (f"DentPilot nu poate folosi dosarul cu datele clinicii:\n\n{path}\n\n"
+           f"{err.__class__.__name__}: {err}\n\n"
+           "Verificați drepturile pe acest dosar sau porniți instalarea din nou.")
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, msg, "DentPilot", 0x10)
+    except Exception:                      # noqa: BLE001 — не на Windows / нет user32
+        print(msg, file=sys.__stderr__ or sys.stdout)
+    raise SystemExit(2)
+
+
+def data_root() -> pathlib.Path:
+    """Папка КЛИНИКИ. Решает ОДИН лаунчер — он один знает раскладку машины.
+
+    ⛔ Порядок именно такой, и каждая ветка тут за своё:
+      1. `$DENTART_DATA_DIR` из окружения ПРОЦЕССА — им пользуются установщик,
+         будущий сайдкар Tauri и стенд. ⚠️ Из `dental.env` этот ключ НЕ берётся
+         и взяться не может: сам файл лежит ВНУТРИ искомой папки, и ключ в нём
+         замкнул бы круг — второй запуск разрешился бы в другое место. Поэтому
+         переменная выставляется ЖЁСТКО и ДО чтения `dental.env` (ниже).
+      2. `portable.flag` рядом с exe — флешка и выезд: раскладка «всё в одной
+         папке», как было до переезда. Флаг БУЛЕВ и пути не несёт: путь в
+         текстовом файле можно испортить, а флаг — нет.
+      3. Иначе — `%ProgramData%\\DentPilot`, общая для всех учёток машины.
+    ⚠️ Ветки «старая установка рядом с exe» здесь НЕТ намеренно: её признак
+    обязан приходить от установщика (P2), а не выводиться из положения exe —
+    иначе программа, переставленная в `Program Files`, не найдёт базу и молча
+    заведёт пустую рядом с настоящей.
+    """
+    raw = os.environ.get("DENTART_DATA_DIR", "").strip().strip("\"'")
+    if raw and pathlib.Path(raw).is_absolute():
+        return pathlib.Path(raw)
+    if (BASE / "portable.flag").exists():
+        return BASE
+    return pathlib.Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "DentPilot"
+
+
+BASE = exe_dir()
+ROOT = data_root()
+data_dir = ROOT / "data"
+
+# ⛔ ЖЁСТКО и ЗДЕСЬ, а не `setdefault` и не ниже. Двумя причинами.
+# 1. Ниже окружение пополняется ВСЕМИ ключами `dental.env` подряд, без белого
+#    списка. Строка `DENTART_DATA_DIR=` в том файле (а он лежит ВНУТРИ папки,
+#    которую сам же и определяет)
+#    разрешилась бы у приложения в другое место, чем у лаунчера: база одна,
+#    профиль другой. Замкнутый круг, который виден только со второго запуска.
+#    ⚠️ Имя той функции здесь НЕ пишем: сторож `test_launcher` ищет его
+#    текстом и посчитал бы этот комментарий за сам вызов.
+# 2. Приложение (`paths.data_root()`) читает ровно эту переменную и обязано
+#    получить ТО ЖЕ значение, которое лаунчер уже использовал для mkdir.
+os.environ["DENTART_DATA_DIR"] = str(ROOT)
+
+# ⛔ Первое, что может отказать, и отказать беззвучно. Раньше здесь стоял
+# `mkdir(exist_ok=True)` без parents и без перехвата: папка была своя, поэтому
+# отказа не бывало. На `ProgramData` с неверными правами это «двойной клик не
+# делает ничего» — ни окна, ни консоли, ни лога, потому что stderr и лог
+# настраиваются ТРЕМЯ строками ниже. Поэтому: parents=True и явная жалоба.
+try:
+    data_dir.mkdir(parents=True, exist_ok=True)
+except OSError as e:
+    _fatal_dir(data_dir, e)
 
 # noconsole-сборка: sys.stdout/stderr = None → uvicorn падает на isatty().
 # Подкладываем безопасные потоки; stderr пишем в файл (видны краши).
@@ -51,7 +123,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
-cfg_path = BASE / "clinic.json"
+cfg_path = ROOT / "clinic.json"
 if not cfg_path.exists():
     # Первый запуск. Два РАЗНЫХ вшитых профиля, а не один с подчистками:
     #   demo.flag есть  -> clinic.json     (показ: 4 врача, прайс, демо-записи)
@@ -62,7 +134,7 @@ if not cfg_path.exists():
     src = "clinic.json" if (BASE / "demo.flag").exists() else "clinic_new.json"
     shutil.copy(bundle_dir() / "app" / src, cfg_path)
 
-env_path = BASE / "dental.env"
+env_path = ROOT / "dental.env"
 if not env_path.exists():
     env_path.write_text(
         "# Token botului Telegram (de la @BotFather):\nTELEGRAM_TOKEN=\n"
