@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashCanvas } from './DashCanvas'
 import { clinicNow } from './dashFx'
@@ -89,14 +89,19 @@ const MODEL: DashCanvasModel = {
 const rail = createRef<HTMLDivElement>()
 const show = (model: DashCanvasModel = MODEL) =>
   render(<DashCanvas model={model} rail={rail} waitTick={NOW} lineTick={NOW}
-    onCard={onCard} />)
+    onCard={onCard} onSlot={onSlot} />)
 
 const cols = () => Array.from(document.querySelectorAll('.gridbody > .gcol'))
 const cards = () => Array.from(document.querySelectorAll('.gridhead .gh-doc'))
 
 const onCard = vi.fn()
+const onSlot = vi.fn()
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  onCard.mockClear()
+  onSlot.mockClear()
+})
 
 describe('C26.5.2: канва панели — колонки, часы и геометрия', () => {
   it('ряды часов и метка ТЕКУЩЕГО часа приходят с сервера', () => {
@@ -114,6 +119,23 @@ describe('C26.5.2: канва панели — колонки, часы и ге�
     const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
     expect(cells.map((c) => c.className)).toEqual(['gcell', 'gcell', 'gcell off', 'gcell'])
     expect(cells.map((c) => c.getAttribute('data-h'))).toEqual(['9', '10', null, '12'])
+  })
+
+  it('C26.5.3-c: открытая ячейка отдаёт врача и СВОЙ час, «HH:00»', () => {
+    show()
+    const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
+    fireEvent.click(cells[1] as HTMLElement)
+    expect(onSlot).toHaveBeenCalledWith('d2', 'Dr. Ion', '10:00')
+  })
+
+  it('⛔ C26.5.3-c: закрытая ячейка молчит — признак ОДИН на вид и на нажатие', () => {
+    /* Доступность действия выражает сам DOM: нет `data-h` — нет и мишени.
+       Второго признака «кликабельна» не заводится: он разошёлся бы с первым, и
+       ячейка выглядела бы открытой, ничего при этом не открывая. */
+    show()
+    const cells = Array.from(cols()[0]!.querySelectorAll('.gcell'))
+    fireEvent.click(cells[2] as HTMLElement)
+    expect(onSlot).not.toHaveBeenCalled()
   })
 
   it('геометрия блока — множители модели, а пиксель часа остаётся за CSS', () => {
@@ -212,6 +234,15 @@ describe('C26.5.2: колонка-сирота — единственный вх
     expect(orphan.getAttribute('data-dk')).toBeNull()
     expect(Array.from(orphan.querySelectorAll('.gcell')).map((c) => c.className))
       .toEqual(['gcell off', 'gcell off', 'gcell off', 'gcell off'])
+  })
+
+  it('⛔ и её ячейка не открывает диалог: мишень — это ПАРА «врач + час»', () => {
+    /* Врача с таким именем в справочнике нет, и отправлять запись было бы
+       некому: сервер отвечает такому ключу отказом. Здесь этого просто не
+       случается — слота без врача не бывает. */
+    show()
+    fireEvent.click(cols()[2]!.querySelector('.gcell') as HTMLElement)
+    expect(onSlot).not.toHaveBeenCalled()
   })
 
   it('форма переприкрепления — обычная, с 303, и несёт возврат на панель', () => {

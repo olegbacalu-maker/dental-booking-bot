@@ -342,3 +342,91 @@ describe('C26.5.3-b: диалог визита', () => {
     expect(urls[urls.length - 1]).toContain('/schedule/live')
   })
 })
+
+describe('C26.5.3-c: диалог пустого часа', () => {
+  const openSlot = async (h = 10) => {
+    await show()
+    fireEvent.click(document.querySelector(`.gcell[data-h="${h}"]`) as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+  }
+
+  it('открывается на СВОЕЙ ячейке: врач колонки и её час', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await openSlot()
+    expect(document.querySelector('dialog .dlg-head span')?.textContent)
+      .toBe('Dr. Ion — 10:00')
+    expect(document.querySelectorAll('.halfpick .hp')[0]?.className).toContain('on')
+    /* услуги и потолок «даты рождения» — ИЗ КОНВЕРТА, второго запроса нет */
+    expect(Array.from(document.querySelectorAll('dialog select option'))
+      .map((o) => o.textContent)).toEqual(['Consultație'])
+    expect(document.querySelector('dialog input[type="date"]')?.getAttribute('max'))
+      .toBe(TODAY)
+  })
+
+  it('⛔ получас меняет ТОЛЬКО время записи: концы блокировки остаются часовыми', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await openSlot()
+    const ends = () => {
+      fireEvent.click(document.querySelectorAll('.tabbtn')[1] as HTMLElement)
+      const sel = document.querySelector('dialog select') as HTMLSelectElement
+      return Array.from(sel.options).map((o) => o.value)
+    }
+    /* ⚠️ Концы приезжают конвертом (`note_ends`) и режутся началом часа: у
+       10:00 это 11 и 12, а 10 — уже не конец, а начало. */
+    expect(ends()).toEqual(['11', '12'])
+
+    fireEvent.click(document.querySelectorAll('.tabbtn')[0] as HTMLElement)
+    fireEvent.click(document.querySelectorAll('.halfpick .hp')[1] as HTMLElement)
+    expect(document.querySelector('dialog .dlg-head span')?.textContent)
+      .toBe('Dr. Ion — 10:30')
+    expect(ends()).toEqual(['11', '12'])
+  })
+
+  it('⭐ набранное переживает конверт, а КАНВА под ним обновляется', async () => {
+    /* То же, что у карточки, и по той же причине: открытый диалог не имеет
+       права замораживать живой экран. Здесь это даётся построением — поля
+       заводятся при монтировании, пересевать их нечему. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await openSlot()
+    const name = document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement
+    fireEvent.change(name, { target: { value: 'Ana Munteanu' } })
+
+    const second = model()
+    second.canvas.columns[0]!.blocks.push({
+      kind: 'appt', id: 2, time: '10:00', min: 600, dur: 60, busy: true, movable: true,
+      top: 1, height: 1, col: 0, of: 1, title: '10:00', name: 'Maria Rusu',
+      service: 'Consultație', phone: '069000001', status: 'confirmed',
+      status_label: 'confirmată', urgent: false, source: 'bot', comment: '',
+      comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
+      clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
+    })
+    f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('.gridbody [data-appt]').length).toBe(2))
+    expect((document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLInputElement)
+      .value).toBe('Ana Munteanu')
+  })
+
+  it('⛔ отправить отсюда ещё некуда: кнопка заперта, и над ней сказано почему', async () => {
+    /* Ступень `c` слот МОДЕЛИРУЕТ; команда — `e`. Мёртвой кнопки, которая
+       молча ничего не делает, на экране не бывает: либо действие, либо
+       объяснение. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await openSlot()
+    expect(document.querySelector('dialog .banner.warn')?.textContent)
+      .toContain('varianta clasică')
+    /* ⚠️ Прямой потомок формы: кнопки получаса лежат внутри `.halfpick` и
+       заперты быть не должны — слот моделируется и без отправки. */
+    expect((document.querySelector('dialog .dlg-form > button') as HTMLButtonElement)
+      .disabled).toBe(true)
+
+    fireEvent.submit(document.querySelector('dialog .dlg-form') as HTMLFormElement)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.mock.calls.map((c) => String((c as unknown as [string])[0]))
+      .some((u) => u.includes('/schedule/appointments'))).toBe(false)
+  })
+})

@@ -2,12 +2,14 @@ import { useRef } from 'react'
 import { Icon, iconName } from '../../components/Icon'
 import { clinicNow, clinicTz, nowlineRows, useFitAppts, useFitGrid, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
+import { hourLabel } from './slot'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
 
-   ⛔ Экран ЧИТАЮЩИЙ (C26.5.2). Ни диалогов, ни перетаскивания: это C26.5.3.
-   Поэтому у ячеек и блоков нет ни обработчиков, ни полей переноса — их
-   отсутствие честнее, чем кнопка, которая ничего не делает.
+   Два нажатия, и оба ведут в диалог: блок визита — карточка (C26.5.3-b),
+   пустая ячейка — слот (C26.5.3-c). ⛔ Перетаскивания ещё нет — это `f`, и
+   полей переноса у блоков нет тоже: их отсутствие честнее, чем мишень,
+   которая ничего не принимает.
    ⛔ Классы берутся у panel.css как есть: это перенос поведения, а не
    редизайн. Своя вторая раскладка развела бы старую страницу и новую на
    первом же правиле темы. */
@@ -40,9 +42,12 @@ interface Props {
   /** Открыть карточку визита. ⛔ Только у визита: у заметки стойки карточки
    *  нет по замыслу, её действия живут в списке дня. */
   onCard: (id: number) => void
+  /** Открыть пустой час: врач, его имя и «HH:00» — те же три значения, что
+   *  принимал легаси-обработчик `openSlot(dk, dname, hh)`. */
+  onSlot: (dk: string, name: string, hour: string) => void
 }
 
-export function DashCanvas({ model, rail, waitTick, lineTick, onCard }: Props) {
+export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -81,13 +86,22 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard }: Props) {
           </div>
           {model.columns.map((col) => (
             <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}>
-              {col.cells.map((open, i) => (
+              {col.cells.map((open, i) => {
                 /* ⛔ Закрытая ячейка БЕЗ `data-h`: «куда нельзя записать, туда
-                   нельзя и перенести». Признак один на клик и на перенос. */
-                <div key={model.hours[i]!.h}
-                  className={open ? 'gcell' : 'gcell off'}
-                  {...(open ? { 'data-h': model.hours[i]!.h } : {})} />
-              ))}
+                   нельзя и перенести». Признак ОДИН на класс, на `data-h` и на
+                   нажатие: разведи их — и появится ячейка, которая выглядит
+                   открытой и молчит в ответ.
+                   ⛔ Мишень — это ПАРА «врач + час», а у колонки-сироты врача
+                   нет: писать в неё некуда, и сервер говорит то же самое
+                   (`cells` сироты пусты). Здесь это сказано ТИПОМ. */
+                const h = model.hours[i]!.h
+                const dk = open ? col.id : null
+                if (!dk) return <div key={h} className="gcell off" />
+                return (
+                  <div key={h} className="gcell" data-h={h}
+                    onClick={() => onSlot(dk, col.name, hourLabel(h))} />
+                )
+              })}
               {col.blocks.map((b) => (
                 <Block key={b.id} block={b} waitTick={waitTick} onCard={onCard} />
               ))}

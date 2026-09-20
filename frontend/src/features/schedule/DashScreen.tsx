@@ -6,8 +6,10 @@ import { asApiError, type ApiResult } from '../../services/api'
 import { useLive } from '../../hooks/useLive'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
+import { SlotDialog } from './SlotDialog'
 import { useClockTick } from './dashFx'
 import { dash, livePath, type DashAppt, type DashModel } from './dash'
+import type { Slot } from './slot'
 
 /**
  * Панель дня (`/admin`) на React — C26.5.2.
@@ -16,9 +18,9 @@ import { dash, livePath, type DashAppt, type DashModel } from './dash'
  * ответом действия, а этот обязан узнавать о брони со второго рабочего места
  * сам. Держит это `useLive`: канал данных, 204 «не менялось», отпечаток от
  * того же, что отправлено.
- * ⛔ Экран ЧИТАЮЩИЙ. Диалоги, запись по клику в пустой час и перетаскивание —
- * C26.5.3; пока их нет, подсказка говорит правду и ведёт в старую панель, а
- * не обещает действий, которых экран не умеет.
+ * ⛔ Экран пока НЕ ПИШЕТ. Диалоги открываются (визит — `b`, пустой час — `c`),
+ * но команды записи и переноса — `e` и `f`; подсказка говорит правду и ведёт в
+ * старую панель, а не обещает действий, которых экран не умеет.
  * ⛔ Шапка дня (`_date_nav`) и баннер `?msg=` печатает СЕРВЕР, снаружи узла:
  * на `/admin` приземляется `no_access` со всей программы, и увидеть его надо
  * при первой отрисовке, а не после первого ответа канала.
@@ -31,6 +33,11 @@ const T = {
      панель освежается сама, и советовать перезагрузку значило бы врать. */
   gone: 'Programarea nu mai există.',
   legacy: 'Deschideți varianta clasică',
+  /* ⚠️ Ступень, а не решение: слот здесь уже МОДЕЛИРУЕТСЯ (врач, час, получас,
+     концы блокировки), а команда приходит в `e`. Форма без объяснения выглядела
+     бы сломанной, а без формы нечего было бы проверять. */
+  slotSoon: 'Ora se alege aici, dar programarea se salvează deocamdată în '
+    + 'varianta clasică.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
   retry: 'Reîncearcă',
   stopped: 'Panoul nu se mai actualizează singur. Reîncărcați pagina.',
@@ -56,6 +63,13 @@ export function DashScreen({ date = '' }: Props) {
      запрещены по делу.
      ⭐ И показывает надгробие ровно то, что человек ОТКРЫВАЛ. */
   const [card, setCard] = useState<{ id: number; at: DashAppt } | null>(null)
+  /* ⛔ Надгробия у слота нет и не нужно: слот — не запись, а МЕСТО. Пока
+     диалог открыт, час могли занять со второго рабочего места, и отвечает на
+     это ОТКАЗ команды (`e`), а не исчезновение из конверта: своей проверки
+     занятости на клиенте не заводится (`clash` — подсказка, сериализует
+     сервер). Поэтому диалог живёт на трёх значениях клика и не смотрит в
+     канву вовсе. */
+  const [slot, setSlot] = useState<Slot | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   /* ⛔ Признак «команда в полёте» ставится СИНХРОННО, рефом, и предикат
@@ -171,7 +185,8 @@ export function DashScreen({ date = '' }: Props) {
       <div className="dash">
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
-            lineTick={lineTick} onCard={(id) => openById(d, id)} />
+            lineTick={lineTick} onCard={(id) => openById(d, id)}
+            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })} />
           <p className="hint">
             {T.hint} <a href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</a>.
           </p>
@@ -197,6 +212,16 @@ export function DashScreen({ date = '' }: Props) {
             if (ok) setCard(null)
             return ok
           }} />
+      )}
+      {slot && (
+        /* ⚠️ Ключ «врач|час» — тот же приём, что у карточки: другая ячейка =
+           другой диалог, и набранное имя не переезжает на соседний час.
+           ⛔ Данные — ИЗ КОНВЕРТА (`slotform`, `note_ends`), а не отдельным
+           запросом: они постоянны, отпечаток не двигают, и второй двери к
+           состоянию не появляется. */
+        <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
+          date={d.date} form={d.slotform} noteEnds={d.note_ends} busy={busy}
+          notice={T.slotSoon} onClose={() => setSlot(null)} />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </section>

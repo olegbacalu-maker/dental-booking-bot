@@ -15,6 +15,7 @@
 
 import { api } from '../../services/api'
 import type { VisitCardView } from './day'
+import type { SlotFormView } from './slot'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
 export interface DashBand {
@@ -245,6 +246,10 @@ export interface DashModel {
  */
 type Fits<T extends true> = T
 export type _DashApptFitsCard = Fits<DashAppt extends VisitCardView ? true : false>
+
+/** ⛔ И то же самое у диалога пустого часа: он один на день и на панель, а
+ *  конверты у них разные. Сузится `slotform` — покраснеет здесь. */
+export type _DashSlotFormFitsDialog = Fits<DashSlotForm extends SlotFormView ? true : false>
 
 /** Адрес живого канала панели. Путь — без `/api`, как у `api.get`. */
 export function livePath(date: string): string {

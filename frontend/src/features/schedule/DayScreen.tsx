@@ -9,8 +9,9 @@ import { CardDialog } from './CardDialog'
 import { DayGrid } from './DayGrid'
 import { DayList } from './DayList'
 import { MoveDialog } from './MoveDialog'
-import { SlotDialog, type Slot } from './SlotDialog'
+import { SlotDialog } from './SlotDialog'
 import { day, type DayModel } from './day'
+import type { Slot } from './slot'
 import { sameSlot, type Drag, type Target } from './move'
 
 /* День журнала: «Toți medicii» и день одного врача — один экран, разница

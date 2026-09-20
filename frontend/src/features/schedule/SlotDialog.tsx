@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
-import type { DayForm, NewAppt, NewNote } from './day'
+import type { NewAppt, NewNote } from './day'
+import { slotTimes, type Slot, type SlotFormView } from './slot'
 
 /* Диалог свободной ячейки «+» (C25.5b): записать пациента ИЛИ заблокировать
    часы заметкой стойки. Разметка — те же классы, что печатает `_slot_modal`.
@@ -10,12 +11,24 @@ import type { DayForm, NewAppt, NewNote } from './day'
    поэтому сброс полей не нужен ни одним эффектом. Расхождение со старой
    страницей записано осознанно: там диалог ОДИН на весь документ, и набранное
    имя переживало закрытие — на другой ячейке оно подставлялось снова.
+   ⭐ И это же держит набранное на ЖИВОМ экране (панель): состояние полей
+   заводится при монтировании, а конверт приезжает каждые 12 секунд — пересевать
+   их некому и незачем. Диалог визита добивается того же черновиком, потому что
+   у него есть серверное значение, которое он показывает; здесь его нет.
 
-   ⚠️ Получас меняет ТОЛЬКО время записи и заголовок. Заметка остаётся
-   почасовой: блокировки живут часами, как и ячейки сетки.
+   ⚠️ Оба времени считает `slotTimes`, а не два обработчика по месту: получас
+   двигает время ЗАПИСИ и заголовок, начало заметки остаётся часовым, и теперь
+   это правило с проверкой, а не намерение.
    ⚠️ Конец блокировки — голый час из `note_ends`, и только больше начала.
    Обеденный час оттуда выпал, поэтому закончить в 14:00 при обеде 13–14
-   нельзя — это правило сервера, а не недосмотр списка. */
+   нельзя — это правило сервера, а не недосмотр списка.
+
+   ⚠️ Отправка НЕОБЯЗАТЕЛЬНА, и это ступень, а не режим: панель в C26.5.3-c
+   слот МОДЕЛИРУЕТ, а команду получает в `e`. Без обработчика кнопка ЗАПЕРТА и
+   над ней стоит объяснение — мёртвой кнопки, которая молча ничего не делает,
+   на экране не бывает. ⛔ В `e` оба пропа станут обязательными, а `notice`
+   уедет вместе со ступенью: держать его дольше — значит оставить экрану способ
+   показать форму, из которой некуда отправить. */
 const T = {
   appt: 'Programare',
   note: 'Notiță / blocare',
@@ -31,27 +44,21 @@ const T = {
   close: 'Închide',
 } as const
 
-export interface Slot {
-  dk: string
-  /** Имя врача — оно стоит в заголовке диалога. */
-  name: string
-  /** Час ячейки, «HH:00». */
-  hour: string
-}
-
 interface Props {
   open: boolean
   slot: Slot
   date: string
-  form: DayForm
+  form: SlotFormView
   noteEnds: number[]
   busy: boolean
+  /** Непусто — объяснение над формой: отправить отсюда пока некуда. */
+  notice?: string
   onClose: () => void
-  onAdd: (body: NewAppt) => Promise<boolean>
-  onNote: (body: NewNote) => Promise<boolean>
+  onAdd?: (body: NewAppt) => Promise<boolean>
+  onNote?: (body: NewNote) => Promise<boolean>
 }
 
-export function SlotDialog({ open, slot, date, form, noteEnds, busy,
+export function SlotDialog({ open, slot, date, form, noteEnds, busy, notice = '',
   onClose, onAdd, onNote }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [tab, setTab] = useState<'a' | 'n'>('a')
@@ -64,34 +71,34 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy,
   const [text, setText] = useState('')
   const [until, setUntil] = useState(0)
 
-  const startH = Number(slot.hour.split(':')[0])
-  const ends = noteEnds.filter((e) => e > startH)
+  const hh = slot.hour.split(':')[0] ?? ''
+  const { atime, ntime, ends } = slotTimes(slot.hour, half, noteEnds)
 
   useEffect(() => {
     if (open) showDialog(ref.current)
     else hideDialog(ref.current)
   }, [open])
 
-  const time = `${slot.hour.split(':')[0]}:${half ? '30' : '00'}`
-
   async function submitAppt(e: FormEvent) {
     e.preventDefault()
-    const ok = await onAdd({ date, time, doctor: slot.dk, service, name,
+    if (!onAdd) return
+    const ok = await onAdd({ date, time: atime, doctor: slot.dk, service, name,
       phone: noPhone ? '' : phone, nophone: noPhone, birth })
     if (ok) onClose()
   }
 
   async function submitNote(e: FormEvent) {
     e.preventDefault()
-    const ok = await onNote({ date, time: slot.hour, doctor: slot.dk, text,
-      until: until || ends[0] || startH + 1 })
+    if (!onNote) return
+    const ok = await onNote({ date, time: ntime, doctor: slot.dk, text,
+      until: until || ends[0] || Number(hh) + 1 })
     if (ok) onClose()
   }
 
   return (
     <dialog ref={ref} onClose={onClose}>
       <div className="dlg-head">
-        <span>{slot.name} — {time}</span>
+        <span>{slot.name} — {atime}</span>
         <button type="button" onClick={onClose} aria-label={T.close}><Icon name="close" /></button>
       </div>
       <div className="dlg-tabs">
@@ -100,13 +107,14 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy,
         <button type="button" className={`tabbtn${tab === 'n' ? ' on' : ''}`}
                 onClick={() => setTab('n')}><Icon name="note" /> {T.note}</button>
       </div>
+      {notice && <div className="banner warn">{notice}</div>}
       {tab === 'a' ? (
         <form className="dlg-form" onSubmit={submitAppt}>
           <div className="halfpick" role="group" aria-label="Ora">
             <button type="button" className={`hp${half ? '' : ' on'}`}
-                    onClick={() => setHalf(0)}>{slot.hour.split(':')[0]}:00</button>
+                    onClick={() => setHalf(0)}>{hh}:00</button>
             <button type="button" className={`hp${half ? ' on' : ''}`}
-                    onClick={() => setHalf(30)}>{slot.hour.split(':')[0]}:30</button>
+                    onClick={() => setHalf(30)}>{hh}:30</button>
           </div>
           <select value={service} onChange={(e) => setService(e.target.value)}
                   aria-label={T.service}>
@@ -124,7 +132,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy,
             <input type="date" value={birth} max={form.birth_max}
                    onChange={(e) => setBirth(e.target.value)} />
           </label>
-          <button disabled={busy}>{T.go}</button>
+          <button disabled={busy || !onAdd}>{T.go}</button>
         </form>
       ) : (
         <form className="dlg-form" onSubmit={submitNote}>
@@ -136,7 +144,7 @@ export function SlotDialog({ open, slot, date, form, noteEnds, busy,
               {ends.map((e) => <option key={e} value={e}>{e}:00</option>)}
             </select>
           </label>
-          <button disabled={busy || !ends.length}>{T.goNote}</button>
+          <button disabled={busy || !ends.length || !onNote}>{T.goNote}</button>
         </form>
       )}
     </dialog>
