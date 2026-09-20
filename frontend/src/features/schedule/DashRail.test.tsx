@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashRail } from './DashRail'
 import { sparkPoints } from './dashFx'
@@ -92,7 +92,11 @@ const OCC: DashOccupancy = {
 
 const show = (over: Partial<Parameters<typeof DashRail>[0]> = {}) => render(
   <DashRail minical={MINICAL} agenda={AGENDA} tiles={TILES} occupancy={OCC}
-    date="2026-09-19" waitTick={NOW} onCard={onCard} {...over} />)
+    date="2026-09-19" waitTick={NOW} onCard={onCard} fresh={NO_FRESH} {...over} />)
+
+/** Пустая пометка: подсветка приехавшего — дело экрана, рельс её получает. */
+
+const NO_FRESH: ReadonlySet<number> = new Set()
 
 const onCard = vi.fn()
 
@@ -280,5 +284,75 @@ describe('C26.5.2: спарклайн', () => {
     expect(svg.getAttribute('viewBox')).toBe('0 0 100 26')
     expect(svg.querySelector('.sp-a')?.getAttribute('points')).toMatch(/^0,26 .* 100,26$/)
     expect(svg.querySelector('.sp-l')?.getAttribute('vector-effect')).toBe('non-scaling-stroke')
+  })
+})
+
+describe('C26.5.4: цифра считает от нуля, но истина — значение', () => {
+  const anim = (on: boolean) => document.documentElement.classList.toggle('anim', on)
+  const num = () => document.querySelector('.rk-i b')
+  afterEach(() => { anim(false); vi.unstubAllGlobals() })
+
+  it('без класса `anim` цифра статична: перепоказ после действия не считает', () => {
+    /* Класс снимает каркас на 303-повторе и React — на первом же обновлении.
+       Считать в этот момент значило бы мигать цифрой на каждое действие. */
+    anim(false)
+    show()
+    expect(num()?.textContent).toBe('7')
+  })
+
+  it('⭐ с `anim` цифра идёт от нуля и приходит РОВНО к значению', async () => {
+    anim(true)
+    show()
+    expect(num()?.textContent).toBe('0')
+    await waitFor(() => expect(num()?.textContent).toBe('7'))
+  })
+
+  it('⛔ `data-count` равен значению ВСЕГДА — атрибут и есть контракт', () => {
+    /* У легаси проверки разбирают атрибут, а не текст, и это записано: текст
+       во время счёта врёт по замыслу, атрибут — никогда. */
+    anim(true)
+    show()
+    expect(num()?.getAttribute('data-count')).toBe('7')
+    expect(num()?.textContent).toBe('0')
+  })
+
+  it('⛔ приехавшее конвертом значение показывается СРАЗУ, без счёта', async () => {
+    anim(true)
+    const { rerender } = show()
+    await waitFor(() => expect(num()?.textContent).toBe('7'))
+    rerender(
+      <DashRail minical={MINICAL} agenda={AGENDA} occupancy={OCC}
+        tiles={[{ ...TILES[0]!, value: 40 }, ...TILES.slice(1)]}
+        date="2026-09-19" waitTick={NOW} onCard={onCard} fresh={NO_FRESH} />)
+    expect(num()?.textContent).toBe('40')
+  })
+
+  it('⚠️ ноль и единица не считаются: это мигание, а не движение', () => {
+    anim(true)
+    show({ tiles: [{ ...TILES[0]!, value: 1 }, ...TILES.slice(1)] })
+    expect(num()?.textContent).toBe('1')
+  })
+
+  it('⭐ просьбу системы уменьшить движение цифра УВАЖАЕТ', () => {
+    /* ⚠️ Расхождение с легаси, названное вслух: там счётчик живёт в JS и про
+       `prefers-reduced-motion` не знает вовсе, хотя оформление знает. */
+    anim(true)
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: q.includes('reduce'), media: q, onchange: null,
+      addListener: () => {}, removeListener: () => {},
+      addEventListener: () => {}, removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }))
+    show()
+    expect(num()?.textContent).toBe('7')
+  })
+
+  it('процент занятости считает так же и со своим знаком', async () => {
+    anim(true)
+    show()
+    const occ = () => document.querySelector('.rk-occ b')
+    expect(occ()?.textContent).toBe('0%')
+    await waitFor(() => expect(occ()?.textContent).toBe('86%'))
+    expect(occ()?.getAttribute('data-count')).toBe('86')
   })
 })

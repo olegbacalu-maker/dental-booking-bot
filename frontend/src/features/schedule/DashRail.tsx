@@ -1,5 +1,6 @@
 import { Icon, iconName } from '../../components/Icon'
-import { sparkPoints, waitLabel } from './dashFx'
+import { useState } from 'react'
+import { canAnimate, sparkPoints, useCountUp, waitLabel } from './dashFx'
 import type {
   DashAgenda, DashMiniCal, DashOccupancy, DashSub, DashTile,
 } from './dash'
@@ -11,9 +12,12 @@ import type {
    ⛔ Колокольчика и «Programări noi din bot» тут НЕТ: оба за `tg_configured()`,
    живого grandfather нет ни у кого, и в конверте их тоже нет. Модель для
    блока, которого не видно ни на одном экране, проверялась бы только тестом.
-   ⛔ Экран ЧИТАЮЩИЙ (C26.5.2): строка повестки не открывает карточку —
-   диалоги это C26.5.3. Ссылки (месяц, плитка, одонтограмма, «Vezi toate»)
-   работают: они обычные адреса. */
+   ⭐ Цифры плиток считают от нуля при ПЕРВОМ показе (C26.5.4) — перенос
+   `data-count` из `panel.js`, вместе с его условиями: только под классом
+   `anim`, только от двойки и выше, 620 мс. ⛔ На приехавшем конверте счёта
+   НЕТ и быть не должно: у легаси живая подмена счётчик не перезапускала и не
+   могла бы (`apply` снимает `anim` до неё), а цифра, ползущая на каждый ответ
+   канала, — это мигание, от которого ушли в 08-20. */
 
 const T = {
   agenda: 'Agenda zilei',
@@ -35,15 +39,18 @@ interface Props {
   /** Метка времени для минут ожидания; меняется раз в минуту. */
   waitTick: number
   onCard: (id: number) => void
+  /** Что приехало прямо сейчас: этим строкам ставится `fresh` (C26.5.4). */
+  fresh: ReadonlySet<number>
 }
 
 export function DashRail(
-  { minical, agenda, tiles, occupancy, date, waitTick, onCard }: Props,
+  { minical, agenda, tiles, occupancy, date, waitTick, onCard, fresh }: Props,
 ) {
   return (
     <>
       <MiniCal cal={minical} />
-      <Agenda agenda={agenda} date={date} waitTick={waitTick} onCard={onCard} />
+      <Agenda agenda={agenda} date={date} waitTick={waitTick} onCard={onCard}
+        fresh={fresh} />
       <KpiCard tiles={tiles} occupancy={occupancy} />
     </>
   )
@@ -89,8 +96,9 @@ function MiniCal({ cal }: { cal: DashMiniCal }) {
 /** Пустой день — ДРУГОЕ дерево, а не пустой список: без счётчика, без списка
  *  и без ссылки «смотреть все». */
 function Agenda(
-  { agenda, date, waitTick, onCard }: {
-    agenda: DashAgenda; date: string; waitTick: number; onCard: (id: number) => void
+  { agenda, date, waitTick, onCard, fresh }: {
+    agenda: DashAgenda; date: string; waitTick: number
+    onCard: (id: number) => void; fresh: ReadonlySet<number>
   },
 ) {
   if (!agenda.items.length) {
@@ -112,7 +120,9 @@ function Agenda(
         {agenda.items.map((it) => {
           const wait = it.wait_since ? waitLabel(it.wait_since, waitTick) : null
           return (
-            <div key={it.id} className={`ag-i${it.state === 'past' ? ' past' : ''}`}
+            <div key={it.id}
+              className={`ag-i${it.state === 'past' ? ' past' : ''}`
+                + (fresh.has(it.id) ? ' fresh' : '')}
               data-appt={it.id} style={{ borderLeftColor: it.bar }}
               onClick={() => onCard(it.id)}>
               <span className="ag-t">{it.time}</span>
@@ -143,6 +153,10 @@ function Agenda(
 }
 
 function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccupancy }) {
+  /* ⚠️ Решается ОДИН раз, при монтировании: `anim` снимает первое же
+     обновление (`DashScreen`), и спроси мы класс на каждом рендере — счёт
+     зависел бы от того, успел ли прийти конверт. */
+  const [live] = useState(canAnimate)
   return (
     <div className="rkpi">
       <div className="rk-h"><b>{T.today}</b></div>
@@ -154,7 +168,7 @@ function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccup
           <span className="ico" style={{ background: t.soft, color: t.tone }}>
             <Icon name={iconName(t.icon)} />
           </span>
-          <b>{t.value}</b>
+          <Count value={t.value} live={live} />
           <span className="rk-l">{t.label}</span>
           <Trend sub={t.sub} />
           <Spark series={t.series} tone={t.tone} />
@@ -176,7 +190,7 @@ function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccup
           {' '}
           {occupancy.from.label} {occupancy.from.value} › {occupancy.to.label} {occupancy.to.value}
         </span>
-        <b>{occupancy.value}%</b>
+        <Count value={occupancy.value} live={live} suffix="%" />
         <Spark series={occupancy.series} tone={occupancy.tone} />
       </div>
     </div>
@@ -191,6 +205,19 @@ function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccup
  * сервер. У неявок они расходятся намеренно: рост неявок — стрелка вверх и
  * КРАСНЫЙ. Возьми цвет из знака — и стрелка позеленела бы на росте неявок.
  */
+/**
+ * Цифра плитки. ⛔ Истина — `value`; хук решает только, что показать в первые
+ * 620 мс. Приехало новое значение — оно и стоит, без счёта.
+ * ⚠️ `data-count` печатается и здесь: по нему читают проверки (у легаси это
+ * КОНТРАКТ — тесты разбирают атрибут, а не текст), и расхождение текста с
+ * атрибутом означало бы, что анимация стала источником правды.
+ */
+function Count({ value, live, suffix = '' }:
+{ value: number; live: boolean; suffix?: string }) {
+  const shown = useCountUp(value, live)
+  return <b data-count={value}>{shown}{suffix}</b>
+}
+
 function Trend({ sub }: { sub: DashSub }) {
   if (sub.kind === 'static' || sub.kind === 'same') {
     return <span className="trend">{sub.text}</span>

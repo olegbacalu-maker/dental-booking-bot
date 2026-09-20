@@ -89,10 +89,12 @@ const MODEL: DashCanvasModel = {
 }
 
 const rail = createRef<HTMLDivElement>()
-const show = (model: DashCanvasModel = MODEL, drag: Drag | null = null, hover = '') =>
+const show = (model: DashCanvasModel = MODEL, drag: Drag | null = null, hover = '',
+  fresh: ReadonlySet<number> = new Set()) =>
   render(<DashCanvas model={model} rail={rail} waitTick={NOW} lineTick={NOW}
     onCard={onCard} onSlot={onSlot} onNote={onNote}
-    drag={drag} hover={hover} onDrag={onDrag} onHover={onHover} onDrop={onDrop} />)
+    drag={drag} hover={hover} onDrag={onDrag} onHover={onHover} onDrop={onDrop}
+    fresh={fresh} />)
 
 /**
  * Событие переноса С НАСТОЯЩЕЙ координатой.

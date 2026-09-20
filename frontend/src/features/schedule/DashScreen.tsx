@@ -12,6 +12,7 @@ import { SlotDialog } from './SlotDialog'
 import { useClockTick } from './dashFx'
 import { dash, livePath, type DashAppt, type DashBlock, type DashModel, type DashNote } from './dash'
 import type { Slot } from './slot'
+import { freshOf, readSeen, writeSeen, FRESH_MS } from './fresh'
 import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
 
 /**
@@ -72,6 +73,8 @@ export function DashScreen({ date = '' }: Props) {
      сервер). Поэтому диалог живёт на трёх значениях клика и не смотрит в
      канву вовсе. */
   const [slot, setSlot] = useState<Slot | null>(null)
+  /* Что приехало ПРЯМО СЕЙЧАС — номера, которых в прошлом конверте не было. */
+  const [fresh, setFresh] = useState<ReadonlySet<number>>(NO_FRESH)
   /* ⚠️ Со снимком, как у карточки, и по той же причине: заметку могли убрать
      со второго рабочего места, пока диалог открыт, — тогда на экране остаётся
      то, что человек ОТКРЫВАЛ, и слово о том, что этого больше нет. */
@@ -128,14 +131,36 @@ export function DashScreen({ date = '' }: Props) {
      ⚠️ Сравнение по ссылке, а не счётчик: `StrictMode` (`main.tsx`) зовёт
      эффекты дважды, и счётчик добрался бы до двух на первой же отрисовке. */
   const shown = useRef<DashModel | null>(null)
+  /* Память дня для подсветки приехавшего. ⛔ В ПЕРВЫЙ раз читается из
+     хранилища — её мог оставить легаси-экран этой же вкладки, и ключ у них
+     общий; дальше ведётся здесь. */
+  const seen = useRef<string[] | null>(null)
   useEffect(() => {
     const d = state.data
-    if (!d) return
-    if (shown.current && shown.current !== d) {
-      document.documentElement.classList.remove('anim')
-    }
+    if (!d || shown.current === d) return
+    if (shown.current) document.documentElement.classList.remove('anim')
     shown.current = d
+    const ids = idsOf(d)
+    const was = seen.current ?? readSeen(d.date)
+    seen.current = ids
+    writeSeen(d.date, ids)
+    /* ⛔ Подсветка родится ТОЛЬКО здесь, из разницы двух конвертов. Никакое
+       локальное действие её не ставит: «приехало» — это то, что сказал канал,
+       а не то, что мы сами сделали минуту назад. */
+    const got = freshOf(was, ids)
+    if (got.length) setFresh(new Set(got.map(Number)))
   }, [state.data])
+
+  /* ⛔ Пометку снимает ТАЙМЕР, а не `animationend`: под
+     `prefers-reduced-motion` анимации нет вовсе, события не будет, и пометка
+     осталась бы навсегда. У легаси её не снимали никогда — там узел умирал при
+     первой же подмене, а здесь он живёт, и залипшая пометка означала бы, что
+     вторая такая же запись уже не мигнёт. */
+  useEffect(() => {
+    if (!fresh.size) return
+    const t = setTimeout(() => setFresh(NO_FRESH), FRESH_MS)
+    return () => clearTimeout(t)
+  }, [fresh])
 
   /* ⛔ Надгробие. Запись могли отменить или перенести со второго рабочего
      места, пока диалог открыт. Молча размонтировать нельзя — человек решит,
@@ -237,7 +262,7 @@ export function DashScreen({ date = '' }: Props) {
             onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
-            onDrop={onDrop} />
+            onDrop={onDrop} fresh={fresh} />
           <p className="hint">
             {T.hint} <a href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</a>.
           </p>
@@ -245,7 +270,7 @@ export function DashScreen({ date = '' }: Props) {
         <div className="rail" ref={rail}>
           <DashRail minical={d.minical} agenda={d.agenda} tiles={d.tiles}
             occupancy={d.occupancy} date={d.date} waitTick={waitTick}
-            onCard={(id) => openById(d, id)} />
+            onCard={(id) => openById(d, id)} fresh={fresh} />
         </div>
       </div>
 
@@ -320,6 +345,23 @@ export function DashScreen({ date = '' }: Props) {
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </section>
   )
+}
+
+/** Пустая пометка — ОДНА ссылка на всех: новый `new Set()` в состоянии давал
+ *  бы новый объект на каждый тик и перезапускал бы эффект таймера. */
+const NO_FRESH: ReadonlySet<number> = new Set()
+
+/** Номера всего, что ВИДНО на панели: блоки канвы (визиты и заметки стойки) и
+ *  строки повестки. ⛔ Тот же состав, что собирает легаси своим
+ *  `[data-appt]`, — иначе две памяти одного дня разошлись бы, и переход на
+ *  `?ui=legacy` дал бы вспышку всего экрана. */
+function idsOf(m: DashModel): string[] {
+  const out: string[] = []
+  for (const col of m.canvas.columns) {
+    for (const b of col.blocks) out.push(String(b.id))
+  }
+  for (const it of m.agenda.items) out.push(String(it.id))
+  return out
 }
 
 /** Имя колонки по ключу врача — для строк «De la» / «La». ⛔ Из КАНВЫ, а не

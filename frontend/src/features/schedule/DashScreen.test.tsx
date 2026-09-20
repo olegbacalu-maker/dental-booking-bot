@@ -104,6 +104,10 @@ afterEach(() => {
   cleanup()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  /* ⚠️ Память дня живёт в sessionStorage и ключом на ДЕНЬ: не чисти её — и
+     следующая проверка начнёт со снимком от предыдущей, то есть подсветит
+     то, чего в её собственном первом конверте «не было». */
+  sessionStorage.clear()
 })
 
 const show = async () => {
@@ -741,5 +745,103 @@ describe('C26.5.3-f: перенос перетаскиванием', () => {
     expect(document.querySelector('[data-appt="1"] small')?.textContent)
       .toContain('09:00')
     expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live')
+  })
+})
+
+describe('C26.5.4: подсветка приехавшей записи', () => {
+  const NEW_BLOCK = {
+    kind: 'appt' as const, id: 2, time: '10:00', min: 600, dur: 60, busy: true,
+    movable: true, top: 1, height: 1, col: 0, of: 1, title: '10:00',
+    name: 'Maria Rusu', service: 'Consultație', phone: '069000001',
+    status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'bot',
+    comment: '', comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18,
+    rec: false, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)',
+    wait_since: null,
+  }
+  const withNew = () => {
+    const m = model()
+    m.canvas.columns[0]!.blocks.push({ ...NEW_BLOCK })
+    m.agenda = {
+      count: 2,
+      today: true,
+      items: [...model().agenda.items, {
+        id: 2, time: '10:00', dur: 60, name: 'Maria Rusu', service: 'Consultație',
+        status: 'confirmed', badge: { cls: 'act', label: 'Confirmată' },
+        urgent: false, bar: 'var(--green)', state: 'future' as const,
+        clickable: true, patient_id: 18, wait_since: null,
+      }],
+    }
+    return m
+  }
+  const marked = () => Array.from(document.querySelectorAll('.fresh'))
+    .map((el) => el.getAttribute('data-appt'))
+
+  it('⛔ первый показ дня не подсвечивает НИЧЕГО, но снимок ПИШЕТ', async () => {
+    /* Новым является всё, и вспышка целого экрана — это не сигнал, а мигание.
+       А снимок обязан лечь, иначе не будет виден следующий приезд. */
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await show()
+    expect(marked()).toEqual([])
+    /* ⚠️ Снимок кладёт ЭФФЕКТ, а он доезжает после отрисовки: проверять его
+       сразу — значит проверять не то. */
+    await waitFor(() => expect(
+      JSON.parse(sessionStorage.getItem(`dp_seen_${TODAY}`) ?? 'null'))
+      .toEqual(['1', '1']))
+  })
+
+  it('⭐ приехавшая запись подсвечена — и в канве, и в повестке, и ТОЛЬКО она', async () => {
+    /* То самое событие, ради которого журнал висит открытым на стойке. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show()
+
+    f.mockImplementation(async () => reply(200, withNew(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() => expect(marked().length).toBe(2))
+    expect(marked()).toEqual(['2', '2'])
+    /* ⛔ Класс ТОТ ЖЕ, что у легаси: оформление уже лежит в panel.css */
+    expect(document.querySelector('.gridbody [data-appt="2"]')?.className)
+      .toContain('fresh')
+    expect(document.querySelector('.ag-l [data-appt="2"]')?.className)
+      .toContain('fresh')
+  })
+
+  it('⛔ пометка НЕ ЗАЛИПАЕТ: снимается по таймеру, а не по animationend', async () => {
+    /* Под `prefers-reduced-motion` анимации нет вовсе, события не будет — а у
+       легаси пометку не снимали никогда, там узел умирал при подмене. Здесь
+       он живёт, и залипшая пометка означала бы, что вторая такая же запись
+       уже не мигнёт. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show()
+    f.mockImplementation(async () => reply(200, withNew(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(marked().length).toBe(2))
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    await waitFor(() => expect(marked()).toEqual([]))
+    /* и сама запись на месте — ушла пометка, а не узел */
+    expect(document.querySelector('.gridbody [data-appt="2"]')).toBeTruthy()
+  })
+
+  it('⛔ СВОЁ действие не подсвечивает ничего: подсветка родится из КАНАЛА', async () => {
+    /* «Приехало» — это то, что сказал канал, а не то, что мы сами сделали
+       минуту назад. Если бы подсветку ставило локальное действие, она
+       загоралась бы и там, где состояние не менялось вовсе. */
+    const f = vi.fn(async (url: string) => (String(url).includes('/comment')
+      ? new Response(JSON.stringify({ ok: true, code: 'ok_comment', text: 'Salvat', tone: 'ok' }),
+        { status: 200, headers: { 'content-type': 'application/json' } })
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    fireEvent.change(document.querySelector('dialog textarea') as HTMLTextAreaElement,
+      { target: { value: 'nou' } })
+    fireEvent.submit(document.querySelector('dialog form') as HTMLFormElement)
+
+    await waitFor(() => expect(f.mock.calls.length).toBeGreaterThan(2))
+    expect(marked()).toEqual([])
   })
 })

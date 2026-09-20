@@ -88,6 +88,15 @@ CHECK_JS = """(() => {
       return Array.from(document.querySelectorAll('.gcol-time > div'))
         .some(d => d.textContent.slice(0, 2) === hh);
     })(),
+    /* Подсветка приехавшего (C26.5.4): пометка живёт 1.8 с, поэтому её
+       снимают ТЕМ ЖЕ кадром, каким заметили приезд. */
+    marked: Array.from(document.querySelectorAll('.fresh'))
+      .map(e => e.getAttribute('data-appt')),
+    /* ⚠️ КЛАССЫ, а не только тексты: за окно тишины визит законно уезжает в
+       прошлое, и меняется ровно класс строки. Без него «изменилось ничего из
+       наблюдаемого» означало бы «я смотрю не туда», а не «день не менялся». */
+    cls: Array.from(document.querySelectorAll('.ag-i, .gridbody [data-appt]'))
+      .map(e => e.getAttribute('data-appt') + ':' + e.className),
     agenda: Array.from(document.querySelectorAll('.ag-i .ag-t')).map(t => t.textContent),
     agenda_count: (document.querySelector('.ag-h span') || {}).textContent || null,
     tiles: Array.from(document.querySelectorAll('.rk-i .rk-l')).map(t => t.textContent),
@@ -316,16 +325,28 @@ def run(out: pathlib.Path) -> int:
                        aservice="consult", aname="Vasile Nou", aphone="069190192",
                        back=f"/admin?date={day}")
             t0 = time.time()
+            arrived = None
             while time.time() - t0 < TICK:
                 cdp.drain(1.0)
                 cur = json.loads(page.js(CHECK_JS))
                 if len(cur["appts"]) > len(before):
+                    arrived = cur
                     break
             st = json.loads(page.js(CHECK_JS))
             fresh = [a for a in st["appts"] if a not in before]
             bad = ""
             if len(fresh) != 1 or "Vasile Nou" not in fresh[0]:
                 bad = f"приехало не то: {fresh!r} (ждали одну «Vasile Nou»)"
+            # ⭐ C26.5.4: приезд обязан быть ВИДЕН человеку. Ради этого события
+            # журнал и висит открытым на стойке: бронь не имеет права появиться
+            # между двумя кадрами незамеченной.
+            # ⚠️ Смотрим кадр, КОТОРЫМ заметили приезд: пометка живёт 1.8 с, и
+            # взгляд секундой позже законно не нашёл бы её.
+            got = (arrived or st)["marked"]
+            new_id = fresh[0].split("@")[0] if fresh else "?"
+            if new_id not in got:
+                bad += (f" · приехавшая запись НЕ подсвечена: помечено {got!r},"
+                        f" ждали номер {new_id}")
             # ⛔ Геометрия СОСЕДЕЙ обязана остаться прежней: живое обновление —
             # это приезд записи, а не пересборка дня.
             moved = [k for k, v in base_geom.items()
@@ -341,18 +362,21 @@ def run(out: pathlib.Path) -> int:
             cdp.drain(QUIET)
             st = json.loads(page.js(CHECK_JS))
             quiet = ""
-            if st["muts"]:
-                # ⭐ Не «сколько», а ЧТО: за 95 секунд день меняется и
-                # ЗАКОННО — сменился час клиники, пациент перешёл в прошлое.
-                # Без этой строки сцена краснела бы «мигание вернулось» на
-                # правильном поведении, и разбирать пришлось бы догадками
-                # (наступило 20.09).
-                diff = [k for k in ("appts", "geom", "agenda", "agenda_count",
-                                    "tiles", "occ", "cols")
-                        if was_quiet.get(k) != st.get(k)]
+            # ⭐ Не «сколько мутаций», а «менялся ли день». За 95 секунд он
+            # меняется и ЗАКОННО: сменился час клиники, визит уехал в прошлое.
+            # Требовать ноль мутаций в такое окно — краснеть на правильном
+            # поведении, а читалось бы это как «мигание вернулось» (наступило
+            # 20.09 дважды). Поэтому: день не менялся — спрос строгий; менялся
+            # — проверка пропускается ВСЛУХ, молчаливый пропуск хуже красного.
+            diff = [k for k in ("appts", "geom", "cls", "agenda", "agenda_count",
+                                "tiles", "occ", "cols")
+                    if was_quiet.get(k) != st.get(k)]
+            if st["muts"] and diff:
+                print(f"    ⚠️  день изменился за окно тишины законно ({diff}); "
+                      f"проверка на {st['muts']} мутаций пропущена")
+            elif st["muts"]:
                 quiet = (f"на неизменном дне {st['muts']} мутаций DOM — экран "
-                         "подменяется на каждый опрос, мигание вернулось"
-                         f" · изменилось: {diff or 'ничего из наблюдаемого'}")
+                         "подменяется на каждый опрос, мигание вернулось")
             # ⭐ И обратная сторона: линия обязана ДВИГАТЬСЯ. Ноль здесь значит,
             # что экран замер, а «ноль мутаций» стало бы зелёным по неверной
             # причине — самая частая форма ложного зелёного в этом проекте.

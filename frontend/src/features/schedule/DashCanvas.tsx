@@ -59,10 +59,12 @@ interface Props {
   onDrag: (d: Drag | null) => void
   onHover: (key: string) => void
   onDrop: (t: Target) => void
+  /** Что приехало прямо сейчас: этим блокам ставится `fresh` (C26.5.4). */
+  fresh: ReadonlySet<number>
 }
 
 export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, onNote,
-  drag, hover, onDrag, onHover, onDrop }: Props) {
+  drag, hover, onDrag, onHover, onDrop, fresh }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
      ожидающие ЕСТЬ: текст «așteaptă N min» вписывается после замера, и блок
@@ -121,7 +123,8 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, on
               })}
               {col.blocks.map((b) => (
                 <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
-                  onCard={onCard} onNote={onNote} onDrag={onDrag} />
+                  onCard={onCard} onNote={onNote} onDrag={onDrag}
+                  fresh={fresh.has(b.id)} />
               ))}
             </div>
           ))}
@@ -246,13 +249,18 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onNote, onDrag }:
+  { block, waitTick, dk, onCard, onNote, onDrag, fresh }:
   {
     block: DashBlock; waitTick: number; dk: string
     onCard: (id: number) => void; onNote: (id: number) => void
     onDrag: (d: Drag | null) => void
+    fresh: boolean
   },
 ) {
+  /* ⛔ Класс ТОТ ЖЕ, что у легаси (`.gappt.fresh` в panel.css): оформление уже
+     лежит в стилях и живёт ВНЕ `.anim` — как раз потому, что эта анимация
+     нужна на автообновлении, когда входные уже выключены. */
+  const fx = fresh ? ' fresh' : ''
   /* ⚠️ Те же множители, что печатал сервер: доли ячейки, ширина делится
      между пересекающимися. Считать позицию «от индекса часа» нельзя — на дне
      со сдвинутым графиком это промахивается (`base_min`). */
@@ -281,21 +289,22 @@ function Block(
        ⛔ И оно НЕ должно доставать до ячейки под собой: «записать в этот час»
        поверх уже заблокированного часа — не то, что человек нажимал. */
     return (
-      <div className="gappt gnote" data-appt={block.id} style={pos} title={block.title}
-        onClick={() => onNote(block.id)} {...grab}>
+      <div className={`gappt gnote${fx}`} data-appt={block.id} style={pos}
+        title={block.title} onClick={() => onNote(block.id)} {...grab}>
         <b><Icon name="note" /> {block.label}</b>
       </div>
     )
   }
   return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
-    grab={grab} />
+    grab={grab} fx={fx} />
 }
 
 function ApptBlock(
-  { block, pos, waitTick, onCard, grab }: {
+  { block, pos, waitTick, onCard, grab, fx }: {
     block: DashAppt; pos: React.CSSProperties; waitTick: number
     onCard: (id: number) => void
     grab: Record<string, unknown>
+    fx: string
   },
 ) {
   const ico = block.urgent && block.status === 'confirmed'
@@ -307,7 +316,7 @@ function ApptBlock(
   const word = block.status === 'confirmed' ? '' : block.status_label
   const wait = block.wait_since ? waitLabel(block.wait_since, waitTick) : null
   return (
-    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}`}
+    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${fx}`}
       data-appt={block.id} style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}` }}
       title={block.title} onClick={() => onCard(block.id)} {...grab}>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
