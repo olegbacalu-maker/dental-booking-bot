@@ -19,7 +19,8 @@ from harness import BOT, ROOT, Result
 # проекта в них нет и быть не может, и лежать они обязаны в корне app/.
 # Переезд любого из них в подпапку ломает запуск у клиники, не тронув запуск
 # из исходников — то есть ни один прогон этого не заметит.
-_PRELOAD = ("app/paths.py", "app/dpapi.py", "app/envfile.py")
+_PRELOAD = ("app/paths.py", "app/dpapi.py", "app/envfile.py",
+            "app/install_info.py", "app/legacy.py")
 
 # Друг друга им знать можно — это один слой, живущий до сборки приложения
 # (dpapi правит токен в dental.env, то есть зовёт envfile). Нельзя всё

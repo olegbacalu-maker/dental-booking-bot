@@ -45,15 +45,20 @@ def _fatal_dir(path: pathlib.Path, err: Exception) -> None:
     ⚠️ Текст клинике по-румынски и с ПУТЁМ: без пути поддержка по телефону
     не сможет спросить ничего полезного.
     """
-    msg = (f"DentPilot nu poate folosi dosarul cu datele clinicii:\n\n{path}\n\n"
-           f"{err.__class__.__name__}: {err}\n\n"
-           "Verificați drepturile pe acest dosar sau porniți instalarea din nou.")
+    _box(f"DentPilot nu poate folosi dosarul cu datele clinicii:\n\n{path}\n\n"
+         f"{err.__class__.__name__}: {err}\n\n"
+         "Verificați drepturile pe acest dosar sau porniți instalarea din nou.")
+    raise SystemExit(2)
+
+
+def _box(msg: str) -> None:
+    """Сказать клинике вслух. ⛔ Единственный способ на этом этапе: сборка идёт
+    `--noconsole`, лога может ещё не быть, а `sys.excepthook` ставится позже."""
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(0, msg, "DentPilot", 0x10)
     except Exception:                      # noqa: BLE001 — не на Windows / нет user32
         print(msg, file=sys.__stderr__ or sys.stdout)
-    raise SystemExit(2)
 
 
 def data_root() -> pathlib.Path:
@@ -134,11 +139,30 @@ if not cfg_path.exists():
     src = "clinic.json" if (BASE / "demo.flag").exists() else "clinic_new.json"
     shutil.copy(bundle_dir() / "app" / src, cfg_path)
 
+from app import install_info  # noqa: E402 — предзагрузочный слой, без проекта
+
 env_path = ROOT / "dental.env"
 if not env_path.exists():
+    # ⭐ Канал обновления берётся ЗДЕСЬ и только здесь — при ПЕРВОМ создании
+    # файла. Намерение записал установщик в install.json; дальше файлом владеет
+    # клиника, и сверять канал на каждом старте НЕЛЬЗЯ: это отняло бы у неё
+    # возможность переключиться руками, а у нас — единственного писателя.
+    # ⚠️ Зачем вообще: флаг канарейки жил только в dental.env, а чистая
+    # установка создавала файл заново — машина молча возвращалась на stable.
+    # Случалось дважды и выглядело как «обновление не пришло».
+    try:
+        _info = install_info.read(BASE)
+    except install_info.InstallInfoError as e:
+        # ⛔ Молча подставить stable нельзя: это ровно та беда. Но и держать
+        # клинику взаперти из-за испорченного файла в папке программы
+        # несоразмерно — канал работать не мешает. Поэтому громко и дальше.
+        logging.error("install.json не читается: %s", e)
+        _box(f"install.json:\n{e}\n\nProgramul pornește pe canalul obișnuit.")
+        _info = None
     env_path.write_text(
         "# Token botului Telegram (de la @BotFather):\nTELEGRAM_TOKEN=\n"
-        "# Parola jurnalului /admin (gol = deschis):\nADMIN_KEY=\n",
+        "# Parola jurnalului /admin (gol = deschis):\nADMIN_KEY=\n"
+        + install_info.channel_line(_info),
         encoding="utf-8",
     )
 from app import dpapi, envfile  # noqa: E402 — путь к env вычислен строкой выше

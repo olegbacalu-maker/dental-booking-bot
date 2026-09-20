@@ -80,3 +80,21 @@ def read(install_root: pathlib.Path) -> dict | None:
     if channel not in CHANNELS:
         raise InstallInfoError(f"{p}: канал {channel!r} не из {CHANNELS}")
     return {"mode": mode, "channel": channel}
+
+
+def channel_line(info: dict | None) -> str:
+    """Что дописать в ТОЛЬКО ЧТО созданный `dental.env`.
+
+    ⭐ Отдельная чистая функция, а не три строки внутри лаунчера: тело
+    `desktop.py` тестами неимпортируемо (харнесс поднимает `app.main` напрямую
+    и лаунчер не исполняет ни строкой), и решение про канал осталось бы
+    непроверяемым до самой установки.
+
+    `stable` не пишем НАМЕРЕННО: это умолчание продукта, и строка о нём в файле
+    клиники — лишний повод её править. Пустая строка означает «оставить как
+    есть», а не «поставить stable».
+    """
+    if not info or info.get("channel", CHANNEL_DEFAULT) == CHANNEL_DEFAULT:
+        return ""
+    return ("# Canal de actualizare (pus de instalator):\n"
+            f"DENTART_CHANNEL={info['channel']}\n")

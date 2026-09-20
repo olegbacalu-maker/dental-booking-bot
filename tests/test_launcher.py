@@ -11,6 +11,7 @@ app/core/autobackup.py (копия базы). Что лаунчер их дей�
 проверяется ТЕКСТОМ desktop.py — тем же приёмом, каким test_dbcrypt смотрит в
 Build-Desktop.ps1.
 """
+import ast
 import codecs
 import ctypes
 import os
@@ -229,6 +230,39 @@ def suite_port(res: Result) -> None:
     res.ok("собранный exe запускают только известные стенды", not rogue,
            "стенд вне списка — изолируй ему DENTART_DATA_DIR или впиши "
            "в BENCHES с причиной: " + ", ".join(rogue))
+
+    # ⛔ Канал засевается при ПЕРВОМ создании dental.env, а не сверяется на
+    # каждом старте. Разница не косметическая: сверка на каждом старте отняла
+    # бы у клиники возможность переключить канал руками и завела бы файлу
+    # ВТОРОГО писателя. Проверяем разбором, а не текстом: запись обязана
+    # стоять ВНУТРИ ветки «файла ещё нет».
+    tree = ast.parse(desk)
+    guarded, total = 0, 0
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "write_text"
+                and isinstance(n.func.value, ast.Name)
+                and n.func.value.id == "env_path"):
+            continue
+        total += 1
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.If):
+            continue
+        src = ast.dump(n.test)
+        if "env_path" not in src or "exists" not in src or "Not" not in src:
+            continue
+        for m in ast.walk(n):
+            if (isinstance(m, ast.Call) and isinstance(m.func, ast.Attribute)
+                    and m.func.attr == "write_text"
+                    and isinstance(m.func.value, ast.Name)
+                    and m.func.value.id == "env_path"):
+                guarded += 1
+    res.ok("dental.env пишется только при ПЕРВОМ создании",
+           total > 0 and guarded == total,
+           f"записей всего {total}, под охраной «файла ещё нет» — {guarded}")
+    res.ok("канал берётся из install.json одной функцией",
+           "install_info.channel_line(" in desk,
+           "засев переписан на месте — знание о канале раздвоилось")
 
 
 # ---------- 3. автокопия базы при старте ----------

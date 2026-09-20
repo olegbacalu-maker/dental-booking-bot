@@ -320,6 +320,7 @@ SUITES = [
     ("P3-min: происхождение старой установки", test_legacy.suite_origin),
     ("P3-min: резерв остаётся резервом", test_legacy.suite_reserved),
     ("P3-min: намерение установщика", test_legacy.suite_install_info),
+    ("P3-min: засев канала", test_legacy.suite_channel_seed),
     ("P3-min: разбор настоящих ярлыков", test_legacy.suite_real_shortcuts),
     ("P3-min: контракт установщика", test_installer.suite_contract),
     ("P3-min: права на папку данных", test_installer.suite_acl),

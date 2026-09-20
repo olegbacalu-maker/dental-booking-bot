@@ -171,6 +171,30 @@ def suite_install_info(res: Result) -> None:
                 res.ok(f"отказ на «{why}»", True, "")
 
 
+def suite_channel_seed(res: Result) -> None:
+    """Ступень 3: что лаунчер допишет в ТОЛЬКО ЧТО созданный dental.env.
+
+    ⭐ Проверяется чистая функция, потому что тело `desktop.py` тестами
+    неимпортируемо: харнесс поднимает `app.main` напрямую и лаунчер не
+    исполняет ни строкой. Что вызов стоит В НУЖНОМ МЕСТЕ — держит
+    `test_launcher`; что канал доезжает до живой машины — ступень 4.
+    """
+    res.check("install.json нет — канал не навязываем",
+              install_info.channel_line(None), "")
+    res.check("stable не пишем: это умолчание продукта",
+              install_info.channel_line({"channel": "stable"}), "")
+    for chan in ("beta", "draft"):
+        line = install_info.channel_line({"channel": chan})
+        res.ok(f"канал {chan} доезжает строкой",
+               f"DENTART_CHANNEL={chan}\n" in line, f"вернулось {line!r}")
+        # ⚠️ Ключ обязан быть тем самым, что читает update._beta(): имя
+        # переменной — контракт между установщиком, лаунчером и обновлятором.
+        res.ok(f"канал {chan} — ровно тот ключ, что читает обновлятор",
+               line.count("DENTART_CHANNEL=") == 1
+               and not line.startswith("DENTART_CHANNEL"),
+               "строка без пояснения или с лишними ключами: " + repr(line))
+
+
 def suite_real_shortcuts(res: Result) -> None:
     """Разбор против НАСТОЯЩИХ ярлыков машины, если они есть.
 
