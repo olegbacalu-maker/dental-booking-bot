@@ -624,7 +624,14 @@ def suite_agenda(res: Result) -> None:
         now = datetime.now(TZ)
         if now.hour >= 2:      # иначе «час назад» уедет во вчера
             _add(c, day, f"{now.hour - 1:02d}:00", "d4", "Ag Acum", 6)
-            live_id = _ids(c, day)[-1]
+            # ⚠️ НЕ `[-1]`: список дня идёт по ВРЕМЕНИ, а не по номеру записи,
+            # и визит «час назад» встаёт в СЕРЕДИНУ. До полудня `[-1]` брал
+            # чужую строку, длительность уезжала не тому визиту, и проверка
+            # краснела «визит показан как прошедший» — по делу, но не о том.
+            # Написана она была в 12:15, когда час совпал с последним визитом
+            # дня и промах не проявился, а в CI (UTC, клиника +3) это красное
+            # всё утро. Берём НОВЕЙШУЮ запись — ту, что только что добавили.
+            live_id = max(_ids(c, day), key=int)
             _sql(s, "UPDATE appointments SET duration_min = 180 WHERE id = ?", live_id)
             rows = _agenda(c.get(f"/admin?date={day}&ui=legacy").body)["rows"]
             cur = next((r for r in rows if r["name"] == "Ag Acum"), None)
