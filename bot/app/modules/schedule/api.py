@@ -284,7 +284,8 @@ async def api_status(request: Request, appt_id: int,
 @router.post("/api/schedule/appointments/{appt_id}/move")
 async def api_move(request: Request, appt_id: int,
                    date_q: str = Query("", alias="date"),
-                   doctor: str = Query(""), f: str = Query("")):
+                   doctor: str = Query(""), f: str = Query(""),
+                   screen: str = Query("")):
     """Перенос: {date, time, doctor} — тот же маршрут, что у перетаскивания.
 
     ⚠️ Проверки серверные и в полном составе: браузер не кладёт блок в
@@ -298,4 +299,4 @@ async def api_move(request: Request, appt_id: int,
         return msg_json(False, "bad", status=422)
     code = await _move_appt(appt_id, _s(body, "date"), _s(body, "time"),
                             _s(body, "doctor"))
-    return await _done(code, _screen(date_q), doctor, f=f)
+    return await _done(code, _screen(date_q), doctor, f=f, screen=screen)

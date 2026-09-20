@@ -822,8 +822,6 @@ def suite_dash_flag(res: Result) -> None:
         allp = c2.get(f"/admin/all?date={day}").body
         res.check("флаг панели не трогает день: он остался старым и живым",
                   ('id="root"' in allp, 'id="live"' in allp), (False, True))
-
-
 def suite_panel_cmds(res: Result) -> None:
     """`screen=panel` у СОЗДАЮЩИХ команд: ни удача, ни отказ не несут состояния.
 
@@ -889,3 +887,26 @@ def suite_panel_cmds(res: Result) -> None:
                   (clash.status, _j(clash)["code"], "data" in _j(clash),
                    _j(clash).get("field")),
                   (409, "conflict", False, "text"))
+
+        # --- перенос (C26.5.3-f): тот же договор у третьего маршрута ---
+        rows = _j(c.get(f"/api/schedule/day?date={day}"))["data"]["list"]
+        mid = next(r["id"] for r in rows if r["name"] == "Panel Doi")
+
+        def move(hh: str, panel: bool):
+            q = f"?screen=panel&date={day}" if panel else f"?date={day}"
+            return c.post_json(f"/api/schedule/appointments/{mid}/move{q}",
+                               {"date": day, "time": hh, "doctor": "d2"})
+
+        mv_panel = move("15:00", True)
+        mv_day = move("16:00", False)
+        res.check("перенос: панели — код без состояния, дню — свежий день",
+                  (mv_panel.status, _j(mv_panel)["code"], "data" in _j(mv_panel),
+                   mv_day.status, "data" in _j(mv_day)),
+                  (200, "ok_move", False, 200, True))
+
+        # 09:00 занят другим визитом — правду говорит сервер, а не подсказка
+        mv_busy = move("09:00", True)
+        res.check("занятый час — отказ сервера, 409 и без состояния",
+                  (mv_busy.status, _j(mv_busy)["code"], "data" in _j(mv_busy),
+                   _j(mv_busy)["ok"]),
+                  (409, "conflict", False, False))
