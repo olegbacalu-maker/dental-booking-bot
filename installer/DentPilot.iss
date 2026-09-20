@@ -110,6 +110,12 @@ RunEntryExec=Pornește %1
 ConfirmUninstall=Sigur doriți să ștergeți DentPilot?
 UninstallStatusLabel=Vă rugăm să așteptați, se șterge programul...
 UninstalledAll=DentPilot a fost șters.
+; ⛔ Встроенное сообщение Inno, БЕЗ префикса языка: в этом файле один язык.
+; Показывается СРАЗУ ПОСЛЕ нашего отказа из PrepareToInstall, и без перевода
+; клиника видела английскую строку в румынской программе — поймано живым
+; прогоном 21.09. Статические проверки такое не ловят по устройству: строка
+; приходит из поставки Inno, а не из нашего исходника.
+CannotContinue=Instalarea nu poate continua. Apăsați «Anulează» pentru a ieși.
 
 [CustomMessages]
 ; CreateDesktopIcon/AdditionalIcons — встроенные сообщения Inno, живут именно
@@ -331,7 +337,11 @@ begin
   Cand[1] := ExpandConstant('{userprograms}\{#AppName}.lnk');
   Cand[2] := ExpandConstant('{userstartup}\{#AppName}.lnk');
   Cand[3] := 'C:\DentPilot';
-  Cand[4] := ExpandConstant('{commondocs}\..\{#AppName}');
+  // ⛔ Не '{commondocs}\..\{#AppName}': путь с «..» доезжает до экрана
+  // как «C:\Users\Public\Documents\..\DentPilot» — клинике его не
+  // прочитать, поддержке по телефону не спросить, а P2 получит такой же
+  // корень переезда. ExtractFileDir даёт родителя без «..».
+  Cand[4] := AddBackslash(ExtractFileDir(ExpandConstant('{commondocs}'))) + '{#AppName}';
   for I := 0 to 4 do
   begin
     Dir := '';
@@ -413,7 +423,10 @@ begin
   S[5] := '  "data_root": "' + Data + '",';
   S[6] := '  "acl_ok": ' + Ok;
   S[7] := '}';
-  SaveStringsToUTF8File(ExpandConstant('{app}\install.json'), S, False);
+  // ⛔ ...WithoutBOM: обычный SaveStringsToUTF8File ставит BOM, и читающая
+  // сторона падала на нём разбором JSON. Поймано живым прогоном 21.09 —
+  // ни компиляция, ни статические проверки кодировку файла не видят.
+  SaveStringsToUTF8FileWithoutBOM(ExpandConstant('{app}\install.json'), S, False);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

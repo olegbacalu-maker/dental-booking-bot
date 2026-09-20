@@ -64,7 +64,11 @@ def read(install_root: pathlib.Path) -> dict | None:
     if not p.exists():
         return None
     try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
+        # ⚠️ utf-8-sig, а не utf-8: установщик пишет файл без BOM, но чужой
+        # редактор (Блокнот) добавит его молча, и разбор JSON упадёт на
+        # первом символе. Терпимость на чтении дешевле, чем поломка запуска
+        # из-за того, что файл кто-то открыл и сохранил.
+        raw = json.loads(p.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as e:
         raise InstallInfoError(f"{p}: {e}") from e
     if not isinstance(raw, dict):

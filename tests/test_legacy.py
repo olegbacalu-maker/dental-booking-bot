@@ -154,6 +154,18 @@ def suite_install_info(res: Result) -> None:
         res.check("режим прочитан", got["mode"], "shared_pc")
         res.check("канал прочитан", got["channel"], "beta")
 
+        # ⛔ BOM. Установщик писал файл через SaveStringsToUTF8File, тот ставит
+        # BOM, и разбор JSON падал на ПЕРВОМ символе — программа поднималась с
+        # окном об ошибке вместо канала. Поймано только живой установкой 21.09:
+        # ни компиляция `ISCC`, ни разбор текста `.iss`, ни прогон кодировку
+        # готового файла не видят. Чинится с ДВУХ сторон — установщик пишет без
+        # BOM, а чтение его терпит: файл может открыть Блокнот.
+        install_info.path(root).write_bytes(
+            b"\xef\xbb\xbf" + json.dumps({"channel": "beta"}).encode("utf-8"))
+        got = install_info.read(root)
+        res.ok("файл с BOM читается, а не роняет запуск",
+               got is not None and got["channel"] == "beta", f"вернулось {got!r}")
+
         install_info.path(root).write_text('{"mode": "standalone"}', encoding="utf-8")
         res.check("канал по умолчанию", install_info.read(root)["channel"], "stable")
 
