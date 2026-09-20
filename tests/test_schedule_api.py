@@ -12,8 +12,8 @@
 import json
 import re
 
-from harness import Client, Result, Server, clinic_today
-from datetime import timedelta
+from harness import TZ, Client, Result, Server, clinic_today
+from datetime import datetime, timedelta
 
 from test_admin import _week_cols
 
@@ -737,6 +737,11 @@ def suite_dash_flag(res: Result) -> None:
         # день в обоих профилях пустой и одинаковый — сравнение ниже про то,
         # что от ФЛАГА состояние не зависит, а не про содержимое дня
         body_off, hash_off = r_off.body, r_off.header("X-DP-Hash")
+        # ⚠️ Час снимаем ЗДЕСЬ: сравнение ниже идёт уже на ДРУГОМ сервере,
+        # а между ними — подъём второго процесса. Текущий час лежит в теле
+        # конверта законно (canvas: "now": h == nh), поэтому смена часа
+        # между снимками меняет тело на исправном коде (D0b, 20.09).
+        hour_off = datetime.now(TZ).hour
 
     s2 = Server()
     cfg = json.loads(s2.clinic.read_text(encoding="utf-8"))
@@ -796,9 +801,23 @@ def suite_dash_flag(res: Result) -> None:
                   (r_leg.body == r_on.body,
                    r_leg.header("X-DP-Hash") == r_on.header("X-DP-Hash")),
                   (True, True))
-        res.check("ОДИН И ТОТ ЖЕ день при разных флагах — один отпечаток",
-                  (r_on.body == body_off, r_on.header("X-DP-Hash") == hash_off),
-                  (True, True))
+        # ⛔ Час мог смениться между снимками — тогда тело разошлось ЗАКОННО,
+        # и требовать совпадения значит краснеть на исправном коде (D0b).
+        # ⛔ Ретрая тут нет и быть не должно: проверка стоит ради настоящей
+        # потери детерминизма (мигание панели, C26.5.2), а ретрай замаскировал
+        # бы именно её. Поэтому — пропуск, и обязательно ВСЛУХ: метку
+        # прошедшей проверки прогон не печатает, и молчаливый пропуск стал бы
+        # ложным зелёным.
+        if datetime.now(TZ).hour != hour_off:
+            print("    \u26a0\ufe0f  между снимками сменился час: сверка тела и "
+                  "отпечатка пропущена (D0b)")
+            res.ok("ОДИН И ТОТ ЖЕ день при разных флагах — час сменился, "
+                   "сверка пропущена", True, "")
+        else:
+            res.check("ОДИН И ТОТ ЖЕ день при разных флагах — один отпечаток",
+                      (r_on.body == body_off,
+                       r_on.header("X-DP-Hash") == hash_off),
+                      (True, True))
         # ⭐ Вторая половина отката: заголовок едет и на 204, поэтому вкладка
         # узнаёт «здесь больше не моя поверхность» даже в тихий день, когда
         # тела нет вовсе. Поле в `data` на 204 не приехало бы никогда.
