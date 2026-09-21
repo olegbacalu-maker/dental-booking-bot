@@ -20,7 +20,7 @@ from datetime import date, datetime
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from .. import brand, db, dpapi, paths
+from .. import brand, db, dpapi, paths, relocate
 from .. import engine as eng
 from .. import update as upd
 from . import theme
@@ -305,6 +305,27 @@ MSG_BANNER = {
                          "un câmp"),
     "bad_vst": ("err", "Vizita anulată sau neprezentată nu poate avea "
                        "consultație — schimbați mai întâi statusul vizitei"),
+    # Экран раздвоения (P2). ⛔ Три остановки звучат ПО-РАЗНОМУ намеренно:
+    # «PIN не ставили» и «файл повреждён» ведут человека в разные стороны,
+    # и показать второе как первое — тот же тупик, что чинили в
+    # восстановлении. ⚠️ Успех говорит, что данные ЕЩЁ НЕ перенесены:
+    # «готово» без содержания оставило бы человека думать, что переезд
+    # состоялся, — а Copy-only это следующий шаг, которого пока нет.
+    "mig_ok": ("ok", "Fișa veche este confirmată. Datele NU au fost încă "
+                     "mutate — transferul este pasul următor; până atunci "
+                     "programul lucrează mai departe în fișa curentă"),
+    "mig_kept": ("ok", "Alegerea este înregistrată: rămâneți cu fișa "
+                       "curentă. Cealaltă fișă nu a fost ștearsă și nu a "
+                       "fost modificată"),
+    "mig_bad": ("err", "PIN greșit pentru fișa aleasă"),
+    "mig_lock": ("err", "Prea multe încercări — așteptați înainte de a "
+                        "reîncerca"),
+    "mig_noauth": ("err", "Fișa aleasă nu are PIN — nu avem cu ce confirma "
+                          "că vă aparține, deci transferul nu începe"),
+    "mig_broken": ("err", "Fișierul de acces al fișei alese este deteriorat "
+                          "și nu poate fi citit — transferul nu începe"),
+    "mig_nousers": ("err", "În fișa aleasă nu există niciun cont — nu avem "
+                           "cu ce confirma, deci transferul nu începe"),
 }
 
 
@@ -644,6 +665,36 @@ def _tamper_banner() -> str:
             "<button style='background:none;border:1px solid currentColor;"
             "border-radius:8px;padding:4px 12px;cursor:pointer;color:inherit;"
             "font-size:13px'>Am luat la cunoștință</button></form></div>")
+
+
+def _split_banner() -> str:
+    """На машине ДВЕ картотеки — вопрос к директору, но НЕ стена.
+
+    ⛔ Противоположность режиму восстановления, хотя экран у них одного класса.
+    `RECOVERY` перекрывает весь `/admin`, потому что показывать нечего: база не
+    открывается. Здесь показывать ЕСТЬ что — в назначении лежит рабочая
+    картотека, клиника в ней уже принимает, — и стена закрыла бы её на день
+    ради конфликта, который терпит до вечера.
+
+    Родственник тут `_slot_banner`, а не сигнализация auth.json: гасить вручную
+    нечем и не нужно. Как только человек ответил, ответ ложится в
+    `migration.json`, и ближайшая же страница открывается без баннера — кнопка
+    «понятно» здесь врала бы, что вопрос закрыт.
+    """
+    if relocate.split_pending() is None:
+        return ""
+    me = request_user()
+    # ⚠️ Условие ровно такое же, как у соседей, и `me is not None` в нём не
+    # лишнее: без него баннер пропадал бы у всякого, кого не опознали, — а это
+    # каждая страница до того, как в клинике заведён первый PIN. Ровно та
+    # машина, на которой раздвоение и случается.
+    if me is not None and not can(me, PERM_SETTINGS):
+        return ""
+    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('folder')} "
+            f"Pe acest calculator sunt două fișe de pacienți. Programul lucrează "
+            f"în cea curentă; care este cea reală decideți dumneavoastră — "
+            f"<a href='/admin/migration'>Două fișe de pacienți</a>. "
+            f"Nicio fișă nu este ștearsă până atunci.</div>")
 
 
 def _slot_banner() -> str:
@@ -1073,7 +1124,7 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 <div class="content">
 <h1><a href="/admin">Registrul Clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
-{_tamper_banner()}{_slot_banner()}{_setup_hint()}
+{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
 {body}
 </div></div>
 <div class="brandcorner">{_ic('tooth')} <b>DentPilot</b> ·

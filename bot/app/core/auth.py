@@ -903,3 +903,22 @@ async def verify_source_pin(source_root: pathlib.Path | str, pin: str,
     lock = attempts.count_fail()
     await asyncio.sleep(FAIL_DELAY)
     return _src(SRC_BAD, "PIN не подошёл", attempts, lock)
+
+
+# --- то, что зовёт ЭКРАН, и больше ничего ---------------------------------
+# ⭐ Экран раздвоения не имеет права знать, как устроены auth.json, хеши, счётчик
+# и его лестница: страница, повторившая любую из этих деталей, станет вторым
+# местом, где живёт правда о PIN, и разойдётся с первым молча.
+# ⚠️ Явный аргумент у `verify_source_pin` при этом остаётся, и обёртка его не
+# отменяет: там он защищает от записи в источник, а называть назначение обязан
+# тот, кто знает, где можно писать, — то есть этот модуль.
+
+
+async def confirm_source(source_root: pathlib.Path | str, pin: str) -> dict:
+    """Подтвердить выбранный корень его PIN. Счётчик — там, где писать можно."""
+    return await verify_source_pin(source_root, pin, destination_attempts())
+
+
+def source_pin_closed_for() -> int:
+    """На сколько секунд подтверждение закрыто подбором (0 — открыто)."""
+    return destination_attempts().closed_for()

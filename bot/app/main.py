@@ -44,6 +44,7 @@ from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
 from .modules.patients import api as patients_api
 from .modules.patients import routes as patients
+from .modules.migration import routes as migration
 from .modules.qr import routes as qr
 from .modules.schedule import api as schedule_api
 from .modules.schedule import routes as schedule
@@ -61,6 +62,7 @@ RECOVERY = False
 # Модули подключаются здесь и только здесь. Модуль знает про core, db и engine,
 # но ничего не знает про main.py — иначе импорт замкнулся бы в круг.
 app.include_router(patients.router)
+app.include_router(migration.router)  # экран раздвоения (P2)
 app.include_router(patients_api.router)   # JSON API раздела (DentPilot 2.0)
 app.include_router(schedule.router)
 app.include_router(schedule_api.router)  # JSON API раздела (DentPilot 2.0)

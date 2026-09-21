@@ -39,6 +39,7 @@ import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
 import test_relocate  # noqa: E402
+import test_split  # noqa: E402
 import test_srcpin  # noqa: E402
 import test_migrate  # noqa: E402
 import test_odontogram_api  # noqa: E402
@@ -343,6 +344,9 @@ SUITES = [
     ("P2 split: нечем подтвердить — остановка", test_srcpin.suite_no_auth),
     ("P2 split: счётчик попыток в назначении", test_srcpin.suite_counter),
     ("P2 split: счётчик внутри источника отвергнут", test_srcpin.suite_guard),
+    ("P2 шаг 4: migration.json — граница транзакции", test_split.suite_state),
+    ("P2 шаг 4: экран раздвоения", test_split.suite_screen),
+    ("P2 шаг 4: охрана формы выбора", test_split.suite_guard),
     ("P3-min: резерв остаётся резервом", test_legacy.suite_reserved),
     ("P3-min: намерение установщика", test_legacy.suite_install_info),
     ("P3-min: засев канала", test_legacy.suite_channel_seed),

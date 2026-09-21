@@ -38,7 +38,7 @@ import hashlib
 import os
 import pathlib
 
-from . import legacy
+from . import legacy, migstate, paths
 
 # Заголовок незашифрованной базы. SQLCipher шифрует ПЕРВУЮ страницу целиком,
 # поэтому отличить одно от другого можно не открывая файл.
@@ -250,3 +250,52 @@ def survey(named: str | pathlib.Path | None = None,
     det = legacy.detect(shortcuts, named=named, exclude=[root],
                         self_root=self_root)
     return decide(det, root)
+
+
+# Как ВЕРДИКТ лаунчера доезжает до приложения. Раньше он умирал строкой в логе:
+# `root_for` возвращал корень, а исход знал только `desktop.py`.
+# ⛔ Переменная ставится и СНИМАЕТСЯ жёстко, обеими ветками, и обязательно ДО
+# того, как лаунчер пополнит окружение ключами `dental.env`. Тот файл лежит
+# ВНУТРИ корня и правится клиникой: строка `DENTART_SPLIT_SOURCE=...` в нём
+# нарисовала бы экран раздвоения на здоровой машине — при чистом логе и верной
+# раскладке. «В нормальной ветке не трогаем» — это и есть дыра.
+SPLIT_ENV = "DENTART_SPLIT_SOURCE"
+
+
+def split_source() -> pathlib.Path | None:
+    """Источник, названный лаунчером при раздвоении. `None` — раздвоения нет.
+
+    ⚠️ Значение перепроверяется маркерами, а не принимается на слово: между
+    запуском и открытием страницы папку могли убрать или это вообще чужая
+    строка. Признак тот же, что у решения (`carries_records`), поэтому «экран
+    показан» и «решение принято» не могут разойтись.
+    """
+    raw = os.environ.get(SPLIT_ENV, "").strip().strip("\"'")
+    if not raw:
+        return None
+    root = pathlib.Path(raw)
+    return root if carries_records(fingerprint(root)) else None
+
+
+def split_pending(anchor: pathlib.Path | None = None) -> pathlib.Path | None:
+    """Ждёт ли машина ОТВЕТА о раздвоении. `None` — не ждёт.
+
+    Два условия, и второе важнее: раздвоение найдено И человек ещё не ответил.
+    ⚠️ Без второго экран возвращался бы на каждом запуске и его перестали бы
+    читать — та же болезнь, что у баннера, срабатывающего по нескольку раз в
+    день. Ответ живёт в `migration.json`, потому что читать его обязан
+    предзагрузочный слой, а не база.
+    """
+    # ⚠️ Порядок дешёвого вперёд: зовётся это с КАЖДОЙ страницы (баннер в
+    # каркасе), а здоровая машина обязана платить за вопрос одним чтением
+    # окружения, а не обходом двух деревьев.
+    if not os.environ.get(SPLIT_ENV, "").strip():
+        return None
+    # ⚠️ Без корня назначения вопрос не задаётся вовсе: ответ записывать некуда,
+    # и экран возвращался бы на каждом запуске. Это тот же `no-anchor`, что у
+    # `survey`, — не ошибка, а отсутствие вопроса (облако, прогон, `dev up`).
+    if (paths.data_root() if anchor is None else pathlib.Path(anchor)) is None:
+        return None
+    if migstate.settled(anchor):
+        return None
+    return split_source()
