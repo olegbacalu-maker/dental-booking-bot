@@ -112,6 +112,31 @@ def run_lab(old: pathlib.Path, anchor: pathlib.Path, port: int, seconds: int = 9
     return proc, base, False
 
 
+def stop(proc) -> None:
+    """Погасить ДЕРЕВО процессов, а не один pid.
+
+    ⛔ `proc.terminate()` здесь недостаточно, и это не теория: onefile-сборка
+    PyInstaller — это загрузчик, который распаковывает себя и запускает
+    ДОЧЕРНИЙ процесс с тем же именем. Убив загрузчика, получаешь живого
+    ребёнка: он держит порт и файл exe, `shutil.rmtree` молча не удаляет
+    лабораторию (`ignore_errors`), и в темпе остаётся папка с работающей
+    программой внутри. Так и вышло 21.09 — процесс прожил лишний час, и
+    заметила его соседняя сессия, а не стенд.
+    ⚠️ `taskkill /T` (дерево) и `/F` (без вежливых просьб): у программы нет
+    окна, которое можно закрыть, а обработчик выхода здесь не нужен — данные
+    лабораторные.
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   check=False)
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
 def admin_page(base: str) -> str:
     """Журнал глазами вошедшего.
 
@@ -178,16 +203,18 @@ def main() -> int:
         if not (old / "data" / "dental.db").exists():
             bad.append("в старом корне не появилась база — журнал открылся не там")
     finally:
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+        stop(proc)
         if args.keep:
             print(f"лаборатория оставлена: {lab}")
         else:
             shutil.rmtree(lab, ignore_errors=True)
+            # ⛔ ВСЛУХ. `ignore_errors` глотает ровно тот случай, ради которого
+            # проверка и нужна: файлы держит живой процесс, и папка остаётся с
+            # exe внутри. Молчание здесь = мусор в темпе и занятый порт, о
+            # которых узнает кто-то другой.
+            if lab.exists():
+                print(f"⚠️  лаборатория НЕ удалена: {lab}")
+                print("    что-то держит файлы — проверьте процессы DentPilot.exe")
 
     if bad:
         print("КРАСНО:")
