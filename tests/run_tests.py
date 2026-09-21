@@ -89,6 +89,8 @@ SUITES = [
     ("P4.1: что уходит в UAC", test_privileged.suite_request),
     ("P4.1: вход лаунчера", test_privileged.suite_argv),
     ("P4.1: приложение не пишет в реестр", test_privileged.suite_no_direct_write),
+    ("P4.1: кнопка доходит до исполнителя", test_privileged.suite_route),
+    ("P4.1: чинить нечего — окна нет", test_privileged.suite_route_quiet),
     ("Чистая логика расписания", test_admin.suite_pure),
     ("Вход и охрана доступа", test_admin.suite_auth),
     ("PIN: хранение и переезд", test_pin.suite_store),

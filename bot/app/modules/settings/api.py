@@ -23,6 +23,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 
 from ... import db
 from ... import engine as eng
+from ... import privileged
 from ... import update as upd
 from ...core import theme
 from ...core.api import api_body, api_guard, api_require
@@ -189,6 +190,30 @@ def api_system_check(request: Request):
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     upd.check_now()
+    return msg_json(True, data=system.data())
+
+
+@router.post("/api/settings/system/uninstall-sync")
+def api_uninstall_sync(request: Request):
+    """Попросить Windows поправить запись «Программ и компонентов» (P4.1).
+
+    ⭐ Ответ — СВЕЖАЯ модель, а не «сделано»: итог UAC серверу не виден, и
+    сказать «готово» он не вправе. Человек подтверждает окно, экран перечитывает
+    состояние и видит результат фактом, а не обещанием.
+    ⚠️ Синхронный `def` › threadpool: `ShellExecuteW` блокирует до показа окна.
+    """
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    st = upd.uninstall_entry()
+    if not st["found"] or not st["stale"]:
+        # Нечего чинить — и окно UAC ради этого не показываем.
+        return msg_json(True, data=system.data())
+    try:
+        privileged.request("uninstall-version", eng.APP_VERSION)
+    except privileged.Refused:
+        # ⛔ Отказ ДО окна: версия движка не из трёх чисел. Это дефект сборки,
+        # а не действие человека, и молчать о нём нельзя.
+        return msg_json(False, "bad_set", data=system.data())
     return msg_json(True, data=system.data())
 
 

@@ -26,6 +26,10 @@ const T = t('system', {
   bitlocker: 'Criptare disc (BitLocker)',
   run: 'Actualizează acum',
   check: 'Verifică acum',
+  uninstallStale: 'În «Programe și caracteristici» scrie versiunea',
+  uninstallFix: 'Corectează (necesită drepturi de administrator)',
+  uninstallWhy: 'Windows cere confirmare: intrarea aparține instalării, '
+    + 'nu programului. Datele clinicii nu sunt atinse.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
 } as const)
 
@@ -58,6 +62,27 @@ export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
     }
   }
 
+  /* ⛔ Окно UAC программа сама не показывает: правка записи установщика —
+     косметика, а запрос прав на каждом старте перестают читать и начинают
+     подтверждать не глядя. Кнопку нажимает человек, и нажимает там, где эту
+     версию и видит. ⚠️ Ответ — свежая МОДЕЛЬ, а не «готово»: итог окна серверу
+     не виден, и строка обновится, только если Windows действительно дала
+     права. */
+  async function fixUninstall() {
+    setBusy(true)
+    try {
+      const r = await settings.uninstallSync()
+      replace(r.data)
+      if (r.code) setToast({ tone: r.tone, text: r.text })
+    } catch (e) {
+      const err = asApiError(e)
+      if (leaveIfSignedOut(err)) return
+      setToast({ tone: 'err', text: err.text || T.offline })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (state.status === 'leaving') return null
   const head = <h2><Icon name="info" /> {T.title}</h2>
 
@@ -79,7 +104,31 @@ export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
         <>
           <table className="set">
             <tbody>
-              <tr><th className="dp-set-th">{T.version}</th><td>v{data.version}</td></tr>
+              <tr>
+                <th className="dp-set-th">{T.version}</th>
+                <td>
+                  v{data.version}
+                  {data.uninstall.stale && (
+                    /* ⭐ Строка появляется ТОЛЬКО когда расхождение есть: у
+                       установки копированием записи нет вовсе, и предлагать
+                       там «исправить» значило бы звать человека чинить то,
+                       чего не существует. */
+                    <div className="dp-hs-sub" style={{ marginTop: 6 }}>
+                      <Icon name="excl" /> {T.uninstallStale} v{data.uninstall.version}.{' '}
+                      <button
+                        type="button"
+                        className="savebtn"
+                        disabled={busy}
+                        onClick={fixUninstall}
+                      >
+                        {T.uninstallFix}
+                      </button>
+                      <br />
+                      <span>{T.uninstallWhy}</span>
+                    </div>
+                  )}
+                </td>
+              </tr>
               <tr><th>{T.db}</th><td>{data.db}</td></tr>
               {data.folder.path && (
                 <tr>

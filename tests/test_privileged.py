@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import pathlib
 import sys
 
@@ -226,3 +227,112 @@ def suite_no_direct_write(res: Result) -> None:
     res.ok("и умеет сказать, что нужны права",
            '"needs-admin"' in upd,
            "исход «нужен администратор» исчез — кнопке нечего показывать")
+
+def suite_route(res: Result) -> None:
+    """Кнопка в продукте: маршрут действительно доходит до исполнителя.
+
+    ⛔ Без этого набора привилегированный путь замкнут в лаборатории: сам
+    оракул проверен, а вызвать его в продукте нечем — и это ровно тот класс
+    «ветка, которую не исполняет никто», из-за которого P2 однажды получил
+    экран, невозможный в принципе.
+
+    ⚠️ Настоящий `ShellExecuteW` в прогоне звать нельзя — он показал бы окно
+    UAC и стал бы писать реестр машины. Поэтому сервер поднимается из КОПИИ
+    дерева, где `privileged.request` заменён распиской в файле, а состояние
+    записи подделано устаревшим. Тот же приём и по той же причине, что у
+    проверок миграций: снаружи такое поведение не вызвать ничем.
+    """
+    import shutil
+    import tempfile
+
+    from harness import BOT, Client, Server
+
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_priv_route_"))
+    try:
+        dst = work / "bot"
+        shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"))
+        mark = work / "uac.txt"
+        # Запись «версия отстала» + расписка вместо окна UAC.
+        (dst / "app" / "update.py").write_text(
+            (dst / "app" / "update.py").read_text(encoding="utf-8")
+            + "\n\ndef uninstall_entry():\n"
+              "    return {'found': True, 'version': '1.20.0', 'stale': True,\n"
+              "            'hive': 'HKLM'}\n",
+            encoding="utf-8")
+        (dst / "app" / "privileged.py").write_text(
+            (dst / "app" / "privileged.py").read_text(encoding="utf-8")
+            + "\n\ndef request(name, *args, _shell=None):\n"
+              f"    import pathlib as _p\n"
+              f"    _p.Path(r'{mark}').write_text(' '.join([name, *args]),\n"
+              "                                   encoding='utf-8')\n"
+              "    return True\n",
+            encoding="utf-8")
+
+        data = work / "data"
+        data.mkdir()
+        with Server(dir_=data, bot=dst) as s:
+            c = Client(s.url).login()
+            before = json.loads(c.get("/api/settings/system").body)["data"]
+            res.ok("состояние записи едет на экран",
+                   before["uninstall"]["stale"] is True, f"{before.get('uninstall')!r}")
+            res.ok("и называет ту версию, что видна в Windows",
+                   before["uninstall"]["version"] == "1.20.0", "")
+            res.ok("до нажатия окна UAC не просили", not mark.exists(),
+                   "права запрошены без человека — окно на старте перестанут читать")
+
+            r = c.post_json("/api/settings/system/uninstall-sync", {})
+            res.check("кнопка принята", r.status, 200)
+            res.ok("исполнитель позван", mark.exists(),
+                   "маршрут не дошёл до privileged.request — кнопка мертва")
+            if mark.exists():
+                # ⭐ Именно операция из закрытого списка и ТЕКУЩАЯ версия
+                # движка: попроси маршрут что-то своё, за UAC ушло бы не то.
+                from app import engine as eng
+                res.check("операция и аргумент", mark.read_text(encoding="utf-8"),
+                          f"uninstall-version {eng.APP_VERSION}")
+
+            # ⛔ Право: раздел директорский, и кнопка тоже.
+            other = Client(s.url)
+            res.check("без входа маршрут закрыт",
+                      other.post_json("/api/settings/system/uninstall-sync", {}).status,
+                      401)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def suite_route_quiet(res: Result) -> None:
+    """⛔ Чинить нечего — окна UAC не показываем.
+
+    Обратная половина: маршрут, который зовёт исполнителя ВСЕГДА, показал бы
+    клинике запрос прав на ровном месте — а такие окна перестают читать.
+    """
+    import shutil
+    import tempfile
+
+    from harness import BOT, Client, Server
+
+    work = pathlib.Path(tempfile.mkdtemp(prefix="dp_priv_quiet_"))
+    try:
+        dst = work / "bot"
+        shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"))
+        mark = work / "uac.txt"
+        (dst / "app" / "privileged.py").write_text(
+            (dst / "app" / "privileged.py").read_text(encoding="utf-8")
+            + "\n\ndef request(name, *args, _shell=None):\n"
+              f"    import pathlib as _p\n"
+              f"    _p.Path(r'{mark}').write_text('позвали', encoding='utf-8')\n"
+              "    return True\n",
+            encoding="utf-8")
+        data = work / "data"
+        data.mkdir()
+        with Server(dir_=data, bot=dst) as s:
+            c = Client(s.url).login()
+            st = json.loads(c.get("/api/settings/system").body)["data"]["uninstall"]
+            res.ok("в прогоне записи установщика нет", st["found"] is False,
+                   f"{st!r} — прогон идёт под установленной программой?")
+            r = c.post_json("/api/settings/system/uninstall-sync", {})
+            res.check("маршрут отвечает", r.status, 200)
+            res.ok("и окна UAC не просил", not mark.exists(),
+                   "права запрошены там, где чинить нечего")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)

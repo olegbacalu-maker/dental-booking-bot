@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **187** · наборов **45** · мест вызова `res.ok`/`res.check` в исходниках — **3347**.
+Маршрутов **188** · наборов **46** · мест вызова `res.ok`/`res.check` в исходниках — **3391**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -80,8 +80,9 @@
 | `GET /api/settings/security` | JSON | 7 | settings_api | 243 | — |
 | `GET /api/settings/services` | JSON | 4 | settings_api | 243 | — |
 | `POST /api/settings/services` | JSON | 27 | settings_api | 243 | — |
-| `GET /api/settings/system` | JSON | 4 | settings_api | 243 | — |
+| `GET /api/settings/system` | JSON | 4 | privileged, settings_api | 284 | — |
 | `POST /api/settings/system/check` | JSON | 14 | settings_api | 243 | — |
+| `POST /api/settings/system/uninstall-sync` | JSON | 21 | privileged | 41 | — |
 | `GET /api/settings/theme` | JSON | 4 | settings_api | 243 | — |
 | `POST /api/settings/theme` | JSON | 21 | settings_api | 243 | — |
 | `POST /api/settings/theme/logo` | JSON | 9 | settings_api | 243 | — |
@@ -243,7 +244,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, installer, launcher, legacy, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, split, srcpin, structure, teeth, theme, visit, visit_api | 3255 | — |
+| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, installer, launcher, legacy, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, privileged, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, split, srcpin, structure, teeth, theme, visit, visit_api | 3299 | — |
 | `GET /admin/login` | HTML | 34 | admin, api, doctors, hardening, migrate, patient_card, patients_api, pin, review3_auth, settings_api, stats_api, theme, visit_api | 1618 | — |
 | `POST /admin/login` | 303 | 66 | admin, api, doctors, hardening, migrate, patient_card, patients_api, pin, review3_auth, settings_api, stats_api, theme, visit_api | 1618 | — |
 | `GET /admin/logout` | 303 | 6 | **—** | — | — |

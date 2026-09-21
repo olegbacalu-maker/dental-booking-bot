@@ -196,6 +196,13 @@ export interface SystemData {
   feedback: string
   /** Два абзаца о том, что программа работает локально (RO и RU). */
   privacy: string
+  /**
+   * Запись в «Программах и компонентах» (P4.1). `found=false` — установка
+   * копированием, в реестре её нет и чинить нечего. `stale` — версия там
+   * отстала: правка требует прав администратора, поэтому это СОСТОЯНИЕ, а не
+   * то, что программа поправит сама.
+   */
+  uninstall: { found: boolean; version: string; stale: boolean; hive: string }
 }
 
 export interface BackupData {
@@ -245,6 +252,10 @@ export const settings = {
     api.get<SystemData>('/settings/system', signal ? { signal } : {}),
   systemCheck: (): Promise<ApiResult<SystemData>> =>
     api.post<SystemData>('/settings/system/check', {}),
+  /** Попросить Windows поправить запись установщика: показывает окно UAC.
+      ⚠️ Ответ — свежая модель, а НЕ «сделано»: итог окна серверу не виден. */
+  uninstallSync: (): Promise<ApiResult<SystemData>> =>
+    api.post<SystemData>('/settings/system/uninstall-sync', {}),
   crypt: (signal?: AbortSignal): Promise<ApiResult<CryptData>> =>
     api.get<CryptData>('/settings/crypt', signal ? { signal } : {}),
   cryptPrepare: (): Promise<ApiResult<CryptPrepared>> =>

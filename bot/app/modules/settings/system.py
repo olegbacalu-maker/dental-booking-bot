@@ -157,6 +157,10 @@ def data() -> dict:
         "bitlocker": bitlocker_state(),
         "feedback": FEEDBACK_EMAIL,
         "privacy": privacy_html(),
+        # P4.1. ⚠️ Состояние, а не действие: правка записи требует прав
+        # администратора, и запрашивать их программа сама не вправе — окно UAC
+        # на каждом старте перестают читать. Кнопку нажимает человек.
+        "uninstall": upd.uninstall_entry(),
     }
 
 

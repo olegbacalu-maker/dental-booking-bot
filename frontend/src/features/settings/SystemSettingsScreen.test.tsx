@@ -22,6 +22,7 @@ const FRESH: SystemData = {
   bitlocker: { tone: 'ok', icon: 'check', text: 'activ pe C:' },
   feedback: 'suport@dentpilot.md',
   privacy: '<p>Programul funcționează local.</p>',
+  uninstall: { found: true, version: '1.28.0', stale: false, hive: 'HKLM' },
 }
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
@@ -111,5 +112,55 @@ describe('SystemSettingsScreen', () => {
     render(<SystemSettingsScreen navigate={vi.fn()} />)
     const cell = await screen.findByText(/discul nu este criptat/)
     expect(cell.className).toContain('dp-bl-alarm')
+  })
+
+  /* P4.1. Запись «Программ и компонентов» лежит в HKLM, программа идёт без
+     повышения — поправить её она сама не может. Экран обязан показать это
+     ФАКТОМ и дать кнопку, а не молчать и не показывать UAC сам. */
+  it('версия сходится — ни строки, ни кнопки', async () => {
+    get.mockResolvedValueOnce(ok(FRESH))
+    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    await screen.findByText('v1.28.0')
+    expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('установка копированием — записи нет, чинить нечего', async () => {
+    get.mockResolvedValueOnce(ok({
+      ...FRESH,
+      uninstall: { found: false, version: '', stale: false, hive: '' },
+    }))
+    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    await screen.findByText('v1.28.0')
+    /* ⛔ Предлагать «исправить» там, где записи не существует, значит звать
+       человека чинить то, чего нет. */
+    expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull()
+  })
+
+  it('версия отстала — названа СТАРАЯ, и кнопка просит права', async () => {
+    get.mockResolvedValueOnce(ok({
+      ...FRESH,
+      uninstall: { found: true, version: '1.20.0', stale: true, hive: 'HKLM' },
+    }))
+    post.mockResolvedValueOnce(ok({
+      ...FRESH,
+      uninstall: { found: true, version: '1.28.0', stale: false, hive: 'HKLM' },
+    }))
+    const { container } = render(<SystemSettingsScreen navigate={vi.fn()} />)
+    await screen.findByRole('button', { name: /Corectează/ })
+    /* ⭐ Названа та версия, что ВИДНА в Windows, а не своя: человек сверяет
+       строку глазами со списком «Программ и компонентов». ⚠️ Текст разбит на
+       узлы JSX, поэтому сверяется содержимое целиком, а не один элемент. */
+    expect(container.textContent).toContain('scrie versiunea v1.20.0')
+    expect(container.textContent).toContain('drepturi de administrator')
+    expect(container.textContent).toContain('Datele clinicii nu sunt atinse')
+
+    fireEvent.click(screen.getByRole('button', { name: /Corectează/ }))
+    await vi.waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/settings/system/uninstall-sync', {}))
+    /* ⚠️ Итог окна UAC серверу не виден, поэтому экран верит только СВЕЖЕЙ
+       модели: строка ушла — значит запись действительно поправлена. */
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull())
   })
 })
