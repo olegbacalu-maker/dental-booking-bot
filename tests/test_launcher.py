@@ -211,7 +211,10 @@ def suite_port(res: Result) -> None:
     # на этом же правиле. Текстовый сторож обязан искать то, что СЛОМАЕТСЯ
     # при удалении кода, а не то, что объясняет код.
     BENCHES = {"Build-Installer.ps1": "$env:DENTART_DATA_DIR = $lab",
-               "scripts/check_slot_guard.py": '"DENTART_DATA_DIR": str(lab)'}
+               "scripts/check_slot_guard.py": '"DENTART_DATA_DIR": str(lab)',
+               # ⚠️ У этого стенда назначение и есть изолируемая папка: он
+               # проверяет, что программа туда НЕ пошла. Поэтому имя другое.
+               "scripts/check_relocate_live.py": '"DENTART_DATA_DIR": str(anchor)'}
     for rel, want in BENCHES.items():
         f = BOT.parent / rel
         # сторож за сторожом: переименуют файл — правило обязано упасть, а не
