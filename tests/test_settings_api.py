@@ -373,11 +373,20 @@ def suite_crypt(res: Result) -> None:
         res.ok("лист восстановления и под флагом серверный",
                "Foaie de recuperare" in boss.get("/admin/settings/crypt/sheet").body,
                "лист уехал в React")
+        # ⚠️ СТАРАЯ форма выключения не была покрыта ничем (карта экранов
+        # называла её поимённо). Она правится тем же `crypt.turn_off`, что и
+        # JSON, и при включённом флаге остаётся рабочим откатом.
+        boss.post("/admin/settings/crypt/off")
+        res.ok("старая форма выключения заказывает расшифровку",
+               (s.dir / "db-decrypt.request").exists(), "заказа нет")
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         res.check("регистратуре JSON закрыт", ana.get("/api/settings/crypt").status, 403)
         res.check("и подготовка закрыта",
                   ana.post_json("/api/settings/crypt/prepare", {}).status, 403)
+        r = ana.post("/admin/settings/crypt/off")
+        res.ok("и старая форма выключения тоже",
+               r.status == 303 and r.msg == "no_access", f"{r!r}")
 
 
 def suite_faq(res: Result) -> None:
