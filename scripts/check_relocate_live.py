@@ -50,6 +50,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# ⚠️ Консоль Windows живёт в cp1251, а отчёт печатает «⚠️» и кириллицу — и
+# стенд падал UnicodeEncodeError В БЛОКЕ УБОРКИ, унося и жалобу, и удаление
+# лаборатории. Тот же приём, что в `run_tests.py`: плохой символ дешевле
+# потерять, чем весь отчёт. ⭐ И это ровно тот дефект, который стенд ищет в
+# продукте, — кодировка вывода, взятая у машины.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 KEY = "lab-relocate-key"
 CLINIC_MARK = "LABORATOR RADACINA VECHE"
@@ -137,22 +145,61 @@ def stop(proc) -> None:
         proc.kill()
 
 
-def admin_page(base: str) -> str:
-    """Журнал глазами вошедшего.
+def admin_page(base: str) -> tuple[str, str]:
+    """Журнал глазами вошедшего. Возвращает `(страница, чем_плохо)`.
 
-    ⚠️ Ключ в адресе и самодельная кука не принимаются никогда: такой запрос
-    уезжает редиректом на форму входа, и проверка «имя клиники видно» молча
-    отвечала бы «нет» на любой сборке.
+    ⛔ Поле формы — `password`, а НЕ `key` (`main.py`, `password: str =
+    Form(...)`, живёт с 30.07). С `key` маршрут отвечает 422, и стенд не
+    логинился ни разу.
+    ⛔ И главное: провал запроса ОБЯЗАН отличаться от честного «на странице
+    этого нет». Прежняя версия ловила `urllib.error.URLError`, наследником
+    которого является `HTTPError`, и возвращала строку-заглушку — утверждение
+    печатало «программа открыла ЧУЖОЙ профиль» там, где на самом деле стенд
+    просто не вошёл. Это прайор карты «303 не отличает успех от отказа» в новом
+    платье, и он дороже обычной ошибки: стенд краснеет ПРАВДОПОДОБНО, уводя
+    чинить не то.
+    ⚠️ Ключ в адресе (`/admin?key=…`) и самодельная кука не принимаются
+    никогда — только форма с куки-джаром, как у человека.
     """
     jar = http.cookiejar.CookieJar()
     op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-    data = urllib.parse.urlencode({"key": KEY}).encode()
+    data = urllib.parse.urlencode({"password": KEY}).encode()
     try:
         op.open(base + "/admin/login", data=data, timeout=10).read()
+    except urllib.error.HTTPError as e:
+        return "", f"вход отклонён: HTTP {e.code} на /admin/login (поле формы?)"
+    except OSError as e:
+        return "", f"вход не состоялся: {e}"
+    if not any(c.name == "admin_auth" for c in jar):
+        return "", "вход прошёл без куки admin_auth — стенд не в журнале"
+    try:
         with op.open(base + "/admin", timeout=10) as r:
-            return r.read().decode("utf-8", "replace")
-    except urllib.error.URLError as e:
-        return f"<!-- запрос не удался: {e} -->"
+            return r.read().decode("utf-8", "replace"), ""
+    except OSError as e:
+        return "", f"журнал не открылся: {e}"
+
+
+def read_log(path: pathlib.Path) -> tuple[str, str]:
+    """Текст лога и жалоба, если он написан НЕ в utf-8.
+
+    ⛔ Читать один utf-8 и молчать нельзя: до правки 21.09 лаунчер открывал лог
+    в ANSI машины, и стенд кириллицы не видел НИКОГДА — красное «вердикта нет»
+    при вердикте, лежащем в файле. Но и принимать ANSI молча нельзя: у клиники
+    ANSI это cp1250, и русская строка туда не пишется вовсе — `logging`
+    выбрасывает запись целиком. Поэтому ANSI здесь не запасной вариант, а
+    ОТДЕЛЬНЫЙ дефект, о котором стенд обязан сказать.
+    """
+    if not path.exists():
+        return "", ""
+    raw = path.read_bytes()
+    try:
+        return raw.decode("utf-8"), ""
+    except UnicodeDecodeError:
+        import locale
+        ansi = locale.getpreferredencoding(False)
+        return (raw.decode(ansi, "replace"),
+                f"лог написан не в utf-8, а в ANSI машины ({ansi}): у клиники "
+                "с румынской Windows русские строки лога пропадут целиком")
 
 
 def main() -> int:
@@ -183,8 +230,12 @@ def main() -> int:
             return 1
 
         # 1. работаем из СТАРОГО корня — это видно по профилю на странице
-        page = admin_page(base)
-        if CLINIC_MARK not in page:
+        page, trouble = admin_page(base)
+        if trouble:
+            # ⛔ Отдельная строка, а не «профиль чужой»: стенд, который не вошёл,
+            # ничего не знает о профиле и обязан сказать именно это.
+            bad.append(f"проверить профиль не удалось — {trouble}")
+        elif CLINIC_MARK not in page:
             bad.append("на странице нет имени клиники из старого корня: "
                        "программа открыла ЧУЖОЙ профиль")
 
@@ -196,9 +247,11 @@ def main() -> int:
 
         # 3. вердикт записан
         log = old / "data" / "dentpilot.log"
-        text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+        text, log_trouble = read_log(log)
         if "раскладка: unique" not in text:
             bad.append(f"в {log} нет строки вердикта с исходом unique")
+        if log_trouble:
+            bad.append(log_trouble)
 
         if not (old / "data" / "dental.db").exists():
             bad.append("в старом корне не появилась база — журнал открылся не там")
@@ -207,7 +260,14 @@ def main() -> int:
         if args.keep:
             print(f"лаборатория оставлена: {lab}")
         else:
-            shutil.rmtree(lab, ignore_errors=True)
+            # ⚠️ С повтором: Windows отпускает хэндлы убитого процесса не
+            # мгновенно, и первая попытка сразу после taskkill проваливается на
+            # ровном месте — папка остаётся в темпе, хотя держать её уже некому.
+            for _ in range(5):
+                shutil.rmtree(lab, ignore_errors=True)
+                if not lab.exists():
+                    break
+                time.sleep(1)
             # ⛔ ВСЛУХ. `ignore_errors` глотает ровно тот случай, ради которого
             # проверка и нужна: файлы держит живой процесс, и папка остаётся с
             # exe внутри. Молчание здесь = мусор в темпе и занятый порт, о

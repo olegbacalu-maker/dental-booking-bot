@@ -139,9 +139,21 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(data_dir / "dentpilot.err.log", "a", encoding="utf-8")  # noqa: SIM115
 
+# ⛔ `encoding="utf-8"` ОБЯЗАТЕЛЕН, и это не косметика. Без него `FileHandler`
+# открывает файл в ANSI-кодировке МАШИНЫ (`locale.getpreferredencoding`), а у
+# клиники Windows румынская: ANSI = cp1250, кириллицы в нём нет. Сообщение с
+# русским текстом там не искажается — `logging` его ВЫБРАСЫВАЕТ целиком
+# (UnicodeEncodeError → handleError), и в файл не попадает ни строки. Проверено
+# опытом 21.09: лог с cp1250 принял латинскую строку и потерял русскую, след
+# остался только в stderr («--- Logging error ---»).
+# ⚠️ Цена промаха — все 40 русских сообщений продукта, включая диагностику
+# неудавшейся миграции индексов в `db.py`: ровно то, что поддержка читает,
+# когда у клиники «после обновления не открывается». На машине разработчика
+# дефекта НЕ ВИДНО — здесь ANSI это cp1251, и кириллица ложится штатно.
 logging.basicConfig(
     filename=str(data_dir / "dentpilot.log"), level=logging.WARNING,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    encoding="utf-8",
 )
 
 # ⚠️ Вердикт пишется ЗДЕСЬ, а не там, где получен: там ещё нет ни лога, ни
