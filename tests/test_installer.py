@@ -56,6 +56,19 @@ def suite_contract(res: Result) -> None:
     res.ok("запрет Program Files снят", "PfWarnText" not in s,
            "мастер отвергнет собственную папку по умолчанию")
 
+    # ⭐ Допущение, на котором стоит детекция. `app/legacy.py` ищет ярлык в
+    # ОБЩИХ папках потому, что `{auto*}` при PrivilegesRequired=admin — это
+    # `{common*}`. Смени здесь `{auto` на `{user`, и детекция начнёт искать
+    # там, куда никто не пишет: ни падения, ни красноты, просто «не нашли».
+    icons = [ln for ln in s.splitlines()
+             if ln.lstrip().startswith("Name:") and "{#AppExeName}" in ln]
+    res.ok("ярлыки создаются (иначе проверка ниже пуста)", len(icons) >= 2,
+           f"в [Icons] найдено {len(icons)} строк")
+    res.ok("ярлыки идут через {auto…} — значит в ОБЩИЕ папки",
+           all("{auto" in ln for ln in icons),
+           "ярлык уехал в профиль пользователя, а legacy.shortcut_paths() "
+           "ищет общие: пути разошлись молча")
+
 
 def suite_acl(res: Result) -> None:
     """Права на папку данных: кому, чем и как проверено."""

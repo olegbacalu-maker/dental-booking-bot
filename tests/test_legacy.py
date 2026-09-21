@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import struct
 import sys
@@ -116,6 +117,180 @@ def suite_origin(res: Result) -> None:
                legacy.shortcut_target(junk) is None, "разобрался в мусоре")
         res.ok("несуществующий ярлык — None",
                legacy.shortcut_target(links / "net.lnk") is None, "")
+
+
+def suite_shortcut_places(res: Result) -> None:
+    """ГДЕ модуль ищет ярлыки — и почему общих мест теперь два.
+
+    ⛔ Не косметика. `[Icons]` нового установщика исполняется от админа, значит
+    `{autoprograms}`/`{autodesktop}` резолвятся в `%ProgramData%\\Microsoft\\…`
+    и `%PUBLIC%\\Desktop`. Пока этих путей тут не было, детекция была слепа
+    ровно к тому, что мы отгружаем СЕГОДНЯ, — и молча: список без них не
+    краснеет, он просто ничего не находит.
+    """
+    keep = {k: os.environ.get(k) for k in
+            ("USERPROFILE", "APPDATA", "PUBLIC", "ProgramData", "ALLUSERSPROFILE")}
+    try:
+        os.environ["USERPROFILE"] = r"X:\u"
+        os.environ["APPDATA"] = r"X:\u\AppData\Roaming"
+        os.environ["PUBLIC"] = r"X:\Public"
+        os.environ["ProgramData"] = r"X:\PD"
+        os.environ.pop("ALLUSERSPROFILE", None)
+        got = [str(p) for p in legacy.shortcut_paths()]
+        os.environ.pop("ProgramData", None)
+        os.environ["ALLUSERSPROFILE"] = r"X:\PD"
+        fallback = [str(p) for p in legacy.shortcut_paths()]
+    finally:
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    menu = r"Microsoft\Windows\Start Menu\Programs\DentPilot.lnk"
+    for want, why in (
+            (r"X:\u\Desktop\DentPilot.lnk", "свой стол"),
+            (r"X:\u\AppData\Roaming\%s" % menu, "своё меню «Пуск»"),
+            (r"X:\u\AppData\Roaming\Microsoft\Windows\Start Menu\Programs"
+             r"\Startup\DentPilot.lnk", "своя автозагрузка (Install-DentPilot.ps1)"),
+            (r"X:\Public\Desktop\DentPilot.lnk", "ОБЩИЙ стол — {autodesktop} от админа"),
+            (r"X:\PD\%s" % menu, "ОБЩЕЕ меню — {autoprograms} от админа"),
+    ):
+        res.ok(f"ищем ярлык: {why}", want in got, f"нет в {got!r}")
+
+    res.ok("общей автозагрузки в списке НЕТ",
+           not any(g.startswith(r"X:\PD") and "Startup" in g for g in got),
+           "туда не пишет ни установщик, ни Install-DentPilot.ps1: путь, по "
+           "которому ничто не создаёт ярлыка, зеленел бы сам по себе")
+    res.ok("ProgramData нет — берётся ALLUSERSPROFILE",
+           r"X:\PD\%s" % menu in fallback, f"вернулось {fallback!r}")
+
+
+def suite_program_only(res: Result) -> None:
+    """⛔ Папка программы без картотеки — НЕ старая установка.
+
+    Прямой случай сегодняшней машины: общий ярлык ведёт в
+    `C:\\Program Files\\DentPilot`, где лежат exe и `unins000.dat`, а данные —
+    в `%ProgramData%`. Считай мы маркеры программы подтверждением, P2 получил
+    бы корнем переезда СВОЮ ЖЕ установку. Проверка появилась вместе с общими
+    ярлыками: до них этот ярлык был просто не виден.
+    """
+    with tempfile.TemporaryDirectory(prefix="dp_prog_") as td:
+        root = pathlib.Path(td)
+        new = root / "Program Files" / "DentPilot"
+        new.mkdir(parents=True)
+        (new / "DentPilot.exe").write_bytes(b"MZ")
+        (new / "unins000.dat").write_bytes(b"Inno Setup Uninstall Log (b) 64-bit")
+        lnk = root / "common.lnk"
+        lnk.write_bytes(_lnk(str(new / "DentPilot.exe")))
+
+        got = legacy.detect([lnk], exclude=[])
+        res.check("установка без картотеки не подтверждена", got["reason"],
+                  "unconfirmed")
+        res.ok("и корнем переезда не названа", got["path"] is None,
+               f"назвали {got['path']!r} — P2 переносил бы программу в себя")
+        res.ok("но найденное человеку показано",
+               "DentPilot.exe" in got["markers"],
+               f"markers={got['markers']!r}: разница между «пусто» и «программа "
+               "есть, картотеки нет» потеряна, а решать по ней человеку")
+        res.ok("маркеры программы подтверждением не считаются",
+               not legacy.carries_data(["DentPilot.exe", "unins000.dat"]),
+               "exe и деинсталлятор несёт любая установка")
+        for m in legacy.MARKERS_DATA:
+            res.ok(f"а маркер данных — считается: {m}", legacy.carries_data([m]), "")
+
+        # ⭐ та же папка, но с картотекой рядом, — это и есть старая раскладка
+        (new / "clinic.json").write_text("{}", encoding="utf-8")
+        got = legacy.detect([lnk], exclude=[])
+        res.ok("появилась картотека рядом — старая раскладка найдена",
+               got["found"] and got["path"] == new, f"вернулось {got!r}")
+
+
+def suite_self(res: Result) -> None:
+    """⛔ Себя самого источником переезда не называем.
+
+    Случай не выдуманный: в portable-раскладке (`portable.flag` рядом с exe)
+    папка данных и есть папка программы, а ярлык на неё создаём мы сами.
+    Без исключения P2 получил бы задание «перенеси из X в X».
+    """
+    with tempfile.TemporaryDirectory(prefix="dp_self_") as td:
+        root = pathlib.Path(td)
+        here = _install(root / "DentPilot")
+        lnk = root / "self.lnk"
+        lnk.write_bytes(_lnk(str(here / "DentPilot.exe")))
+
+        res.ok("без исключения такая папка находится (иначе проверка пуста)",
+               legacy.detect([lnk], exclude=[])["found"], "")
+        got = legacy.detect([lnk], exclude=[here])
+        res.check("свой корень — отдельный исход", got["reason"], "self")
+        res.ok("и он не назначен", got["path"] is None,
+               f"назвали {got['path']!r} — копировали бы папку внутрь неё самой")
+
+        # ⚠️ сравнение путей: ни регистр, ни «..» не делают из своего чужой
+        sneaky = pathlib.Path(str(here).upper()) / ".." / here.name
+        res.check("тот же корень через «..» и в другом регистре — всё ещё свой",
+                  legacy.detect([lnk], exclude=[sneaky])["reason"], "self")
+
+        # ⭐ умолчание берётся у paths.data_root(), а не заводится второй раз
+        keep = os.environ.get("DENTART_DATA_DIR")
+        os.environ["DENTART_DATA_DIR"] = str(here)
+        try:
+            res.check("умолчание = папка данных, названная лаунчером",
+                      legacy.detect([lnk])["reason"], "self")
+        finally:
+            if keep is None:
+                os.environ.pop("DENTART_DATA_DIR", None)
+            else:
+                os.environ["DENTART_DATA_DIR"] = keep
+
+
+def suite_human(res: Result) -> None:
+    """Путь, НАЗВАННЫЙ человеком, — второй источник v1.
+
+    ⭐ Заведён не для полноты: 21.09 на стенде `detect()` вернул `no-origin`
+    при живой картотеке — ярлыки сняты вместе с программой, а папка
+    переименована человеком в `DentPilot.hold`. Переименование не предсказывает
+    ни одно правило, поэтому источником и становится человек.
+    ⛔ Но подтверждения содержимым он НЕ отменяет.
+    """
+    with tempfile.TemporaryDirectory(prefix="dp_human_") as td:
+        root = pathlib.Path(td)
+        hold = _install(root / "Public" / "DentPilot.hold")
+
+        res.check("без человека на такой машине — no-origin",
+                  legacy.detect([], exclude=[])["reason"], "no-origin")
+
+        got = legacy.detect([], named=str(hold), exclude=[])
+        res.ok("человек назвал — папка найдена",
+               got["found"] and got["path"] == hold, f"вернулось {got!r}")
+        res.check("и источник назван честно", got["origin"], legacy.ORIGIN_HUMAN)
+
+        # ⚠️ путь из копипаста приезжает в кавычках и с пробелом
+        res.ok("кавычки и пробелы сняты",
+               legacy.detect([], named=f'  "{hold}" ', exclude=[])["found"],
+               "путь из проводника не разобрался")
+
+        empty = root / "pusto"
+        empty.mkdir()
+        got = legacy.detect([], named=str(empty), exclude=[])
+        res.check("названа пустая папка — unconfirmed, а не «нашли»",
+                  got["reason"], "unconfirmed")
+        res.ok("и она не назначена", got["path"] is None,
+               f"назвали {got['path']!r} — человек назвал МЕСТО, а не картотеку")
+
+        # ⚠️ относительный путь места не называет: ответ зависел бы от cwd
+        res.check("относительный путь источником не становится",
+                  legacy.detect([], named="DentPilot", exclude=[])["reason"],
+                  "no-origin")
+
+        # ⭐ порядок доверия: человек впереди ярлыка
+        other = _install(root / "Public" / "DentPilot")
+        lnk = root / "l.lnk"
+        lnk.write_bytes(_lnk(str(other / "DentPilot.exe")))
+        got = legacy.detect([lnk], named=str(hold), exclude=[])
+        res.ok("человек важнее ярлыка",
+               got["path"] == hold and got["origin"] == legacy.ORIGIN_HUMAN,
+               f"вернулось {got!r} — ярлык перебил человека")
 
 
 def suite_reserved(res: Result) -> None:
