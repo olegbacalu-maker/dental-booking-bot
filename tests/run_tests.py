@@ -39,6 +39,7 @@ import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
 import test_relocate  # noqa: E402
+import test_srcpin  # noqa: E402
 import test_migrate  # noqa: E402
 import test_odontogram_api  # noqa: E402
 import test_bot  # noqa: E402
@@ -337,6 +338,11 @@ SUITES = [
     ("P2: из какого корня работать запуску", test_relocate.suite_root_for),
     ("P2 шаги 1-3: ни одного записанного байта", test_relocate.suite_read_only),
     ("P2 шаги 1-3: драйверы не зовутся", test_relocate.suite_no_drivers),
+    ("P2 split: подтверждение источника его PIN", test_srcpin.suite_verify),
+    ("P2 split: источник побайтно не тронут", test_srcpin.suite_untouched),
+    ("P2 split: нечем подтвердить — остановка", test_srcpin.suite_no_auth),
+    ("P2 split: счётчик попыток в назначении", test_srcpin.suite_counter),
+    ("P2 split: счётчик внутри источника отвергнут", test_srcpin.suite_guard),
     ("P3-min: резерв остаётся резервом", test_legacy.suite_reserved),
     ("P3-min: намерение установщика", test_legacy.suite_install_info),
     ("P3-min: засев канала", test_legacy.suite_channel_seed),

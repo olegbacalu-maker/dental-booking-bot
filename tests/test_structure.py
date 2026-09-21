@@ -39,6 +39,26 @@ _FILE_OK = {"app/paths.py", "desktop.py"}
 # это хуже настоящего — клиника перестанет верить баннеру.
 _AUTH_WRITERS = {"save_user", "delete_user", "_write_pin", "verify_pin"}
 
+# Оракул ВХОДА В ЖУРНАЛ. Все пятеро привязаны к папке, В КОТОРОЙ ИДЁТ
+# ПРОГРАММА, и все пишут в неё. Против чужого корня (экран раздвоения, P2) они
+# непригодны вовсе — там `verify_source_pin`, читающий по явному пути.
+_LOGIN_ORACLE = {"verify_pin", "note_fail", "note_ok", "lock_left", "fail_count"}
+# Где вход законен: сам модуль-владелец и форма входа в журнал.
+_LOGIN_OK = {"app/core/auth.py", "app/main.py"}
+
+# Подтверждение ИСТОЧНИКА: функция и её счётчик. Оба имени — якорь правил ниже.
+_SRC_VERIFY = "verify_source_pin"
+_SRC_OWNS = {_SRC_VERIFY, "SourcePinAttempts", "source_auth_file"}
+# Чем в чужом корне можно наследить. ⛔ Список про ЛЮБУЮ запись, а не только
+# про auth.json: copy-only нарушает и .tmp, и пустая папка.
+_SRC_WRITES = {"write_text", "write_bytes", "_write_pin", "_save_users",
+               "_fail_save", "_state_write", "remember_auth_file", "replace",
+               "rename", "unlink", "mkdir", "touch", "copy", "copy2",
+               "copyfile", "copytree", "fsync"}
+
+# Арифметика PIN: соль, хеш, разбор учёток. Один модуль на всю программу.
+_PIN_MATH = {"_derive", "_secret_fields", "_users"}
+
 # Роль — НАБОР ПРАВ в таблице PERMS, а не строка, которую сравнивают по месту.
 # Ловим и литерал, и константу: `role == "director"` и `role == ROLE_DIRECTOR`.
 _ROLES = {"director", "receptie", "medic"}
@@ -1032,3 +1052,67 @@ def suite(res: Result) -> None:
            "ничья в сортировке дня перетасует блоки канвы между запросами: "
            "живой журнал начнёт подменять сетку без единой правки данных — "
            + ", ".join(bad))
+
+    # ---- вход в журнал и подтверждение ИСТОЧНИКА — РАЗНЫЕ оракулы (21.09) ---
+    # ⛔ Оба имени ниже привязаны к папке, В КОТОРОЙ ИДЁТ ПРОГРАММА, и оба в неё
+    # ПИШУТ: `verify_pin` при удаче мигрирует auth.json v1→v2 и меняет ключ
+    # подписи сессий, `note_fail` кладёт счётчик рядом. Позвать их против
+    # ЧУЖОГО корня (экран раздвоения, P2) значит записать в источник, который
+    # ещё не решено копировать, — и copy-only ломается до того, как начнётся.
+    # Для источника есть `verify_source_pin`: он читает по ЯВНОМУ пути.
+    # ⚠️ Белый список именной: вход в журнал живёт в main.py, и разрешение на
+    # «любой модуль, где есть форма» спрятало бы в нём будущий экран миграции.
+    # Переедет вход — правило покраснеет, и это правильно: повод посмотреть.
+    bad = [f"{rel}:{n.lineno} → {name}" for rel, tree in src
+           if rel not in _LOGIN_OK
+           for n in ast.walk(tree)
+           if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
+           for name in [n.func.id if isinstance(n.func, ast.Name) else n.func.attr]
+           if name in _LOGIN_ORACLE]
+    res.ok("оракул входа не зовётся вне входа", not bad,
+           "проверка PIN или счётчик попыток спрошены там, где корень может "
+           "быть чужим — источник получит запись: " + ", ".join(bad))
+
+    # ---- подтверждение источника не пишет в источник ------------------------
+    # ⭐ Правило смотрит внутрь ОДНОЙ функции, и это единственное место, где
+    # «ничего не записано» проверяется разбором, а не снимком дерева. Снимок
+    # (`tests/test_srcpin.py`) отвечает за поведение, разбор — за то, что новая
+    # ветка в этой же функции не заведёт запись мимо стенда.
+    src_fn = next((fn for fn in ast.walk(auth_mod)
+                   if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   and fn.name == _SRC_VERIFY), None)
+    bad = [f"{_AUTH_MODULE}:{n.lineno} → {name}"
+           for n in ast.walk(src_fn or ast.Module(body=[], type_ignores=[]))
+           if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
+           for name in [n.func.id if isinstance(n.func, ast.Name) else n.func.attr]
+           if name in _SRC_WRITES]
+    res.ok("подтверждение источника ничего не пишет", not bad,
+           "в чужом корне после проверки останется след: " + ", ".join(bad))
+
+    # ---- якорь обоих правил выше (полярность опасная) -----------------------
+    # Оба списка ВКЛЮЧАЮЩИЕ: переименуют `verify_pin` или `verify_source_pin` —
+    # правила станут искать несуществующие имена, найдут ноль нарушителей и
+    # позеленеют навсегда. Мутация этого не ловит: она ломает сторожа тем же
+    # устаревшим именем. Поэтому имена сверяются с ОПРЕДЕЛЕНИЯМИ в auth.py.
+    auth_defs = {fn.name for fn in ast.walk(auth_mod)
+                 if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                    ast.ClassDef))}
+    gone = sorted((_LOGIN_ORACLE | _PIN_MATH | _SRC_OWNS) - auth_defs)
+    res.ok("имена обоих оракулов не протухли", not gone,
+           f"нет в {_AUTH_MODULE}: {', '.join(gone)} — правила про вход и про "
+           f"источник ищут то, чего больше нет, и молчат")
+
+    # ---- проверку PIN считает ОДИН модуль -----------------------------------
+    # ⚠️ Реальный ход мысли, от которого правило и защищает: автор экрана
+    # раздвоения видит, что `verify_pin` звать нельзя, и «просто читает json и
+    # считает хеш сам». Вторая формула разойдётся с первой молча — у неё свои
+    # KDF и число итераций, и разойдётся она ровно в тот день, когда формат
+    # файла тронут. Правило не про доверие, а про то, что расхождение невидимо.
+    bad = [f"{rel}:{n.lineno} → {name}" for rel, tree in src
+           if rel != _AUTH_MODULE
+           for n in ast.walk(tree)
+           if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
+           for name in [n.func.id if isinstance(n.func, ast.Name) else n.func.attr]
+           if name in _PIN_MATH]
+    res.ok("PIN проверяет один модуль", not bad,
+           "вторая формула хеша PIN вне auth.py: " + ", ".join(bad))

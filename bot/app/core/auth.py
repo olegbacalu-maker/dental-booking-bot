@@ -37,7 +37,7 @@ import urllib.parse
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
-from .. import db
+from .. import db, relocate
 from .storage import _data_dir
 
 # --- защита журнала ---
@@ -112,9 +112,14 @@ def can(user: dict | None, perm: str) -> bool:
     return perm in PERMS.get(user.get("role", ""), set())
 
 
+# Имя файла — константой, потому что спрашивают его ДВА раза и про РАЗНЫЕ
+# корни: свой (_auth_path) и чужой (source_auth_file, экран раздвоения).
+AUTH_NAME = "auth.json"
+
+
 def _auth_path() -> pathlib.Path | None:
     d = _data_dir()
-    return d / "auth.json" if d else None
+    return d / AUTH_NAME if d else None
 
 
 def _pin_rec() -> dict | None:
@@ -450,6 +455,11 @@ def verify_pin(pin: str, uid: str = "") -> dict | None:
     его ввели. Подпись сессии при этом меняется, поэтому вызывающий ОБЯЗАН
     выдать свежую куку сразу после удачи, иначе вход «удастся» и тут же
     отвалится на первом же переходе.
+
+    ⛔ **Против ЧУЖОГО корня эту функцию звать нельзя** — ни здесь, ни в
+    миграции. Строчка выше про «переписывается в v2» и есть причина: удачная
+    проверка ПИШЕТ в корень. Для источника есть `verify_source_pin` — он читает
+    по явному пути и не пишет туда ничего.
     """
     rec = _pin_rec()
     for u in _users(rec):
@@ -629,28 +639,23 @@ def _fail_path() -> pathlib.Path | None:
     return d / "auth_fail.json" if d else None
 
 
-def _fail_state() -> dict:
-    p = _fail_path()
-    if p is None:
-        return dict(_fail_mem)
+def _state_read(p: pathlib.Path) -> dict:
+    """Состояние счётчика с диска. Нечитаемое — это ПУСТО, а не отказ во входе:
+    иначе повреждённый файл запирал бы клинику наглухо."""
     if p.exists():
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
+            got = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {}
+        return got if isinstance(got, dict) else {}
     return {}
 
 
-def _fail_save(st: dict) -> None:
-    p = _fail_path()
-    if p is None:
-        _fail_mem.clear()
-        _fail_mem.update(st)
-        return
-    # Атомарно, тем же приёмом, что auth.json (_save_users): обрыв посреди
-    # прямой записи оставлял усечённый файл, а его _fail_state читает как
-    # ПУСТОЙ — счётчик подбора молча обнулялся ровно тому, кто перебирает
-    # (аудит 08-20). tmp в той же папке: os.replace атомарен в пределах тома.
+def _state_write(p: pathlib.Path, st: dict) -> None:
+    """Атомарно, тем же приёмом, что auth.json (_save_users): обрыв посреди
+    прямой записи оставлял усечённый файл, а читается он как ПУСТОЙ — счётчик
+    подбора молча обнулялся ровно тому, кто перебирает (аудит 08-20). tmp в той
+    же папке: os.replace атомарен в пределах тома."""
     tmp = p.with_name(p.name + ".tmp")
     try:
         with open(tmp, "w", encoding="utf-8") as f:
@@ -667,6 +672,31 @@ def _fail_save(st: dict) -> None:
             pass
 
 
+def _fail_state() -> dict:
+    p = _fail_path()
+    return dict(_fail_mem) if p is None else _state_read(p)
+
+
+def _fail_save(st: dict) -> None:
+    p = _fail_path()
+    if p is None:
+        _fail_mem.clear()
+        _fail_mem.update(st)
+        return
+    _state_write(p, st)
+
+
+def _lock_for(n: int) -> int:
+    """На сколько секунд закрыть после n неудач подряд.
+
+    ⭐ Вычислитель один на все формы, спрашивающие PIN. Второй счётчик (у
+    подтверждения источника, P2) считает СВОИ неудачи, но лестница у него та
+    же — и получает он её отсюда, а не копией: копия разъехалась бы при первой
+    же правке `_LOCK_STEPS`, и разъехалась бы молча.
+    """
+    return next((sec for cnt, sec in _LOCK_STEPS if n >= cnt), 0)
+
+
 def lock_left() -> int:
     """Сколько секунд вход закрыт (0 — открыт)."""
     return max(0, int(_fail_state().get("until", 0) - time.time()))
@@ -680,7 +710,7 @@ def note_fail() -> int:
     полминуты. Обнуляет только удачный вход.
     """
     n = int(_fail_state().get("fails", 0)) + 1
-    lock = next((sec for cnt, sec in _LOCK_STEPS if n >= cnt), 0)
+    lock = _lock_for(n)
     _fail_save({"fails": n, "until": time.time() + lock if lock else 0})
     return lock
 
@@ -693,3 +723,183 @@ def fail_count() -> int:
     """Сколько неудач подряд накоплено. Для журнала входов: сам счётчик
     обнуляется удачным входом, и серия подбора иначе исчезала бы без следа."""
     return int(_fail_state().get("fails", 0))
+
+
+# --- подтверждение ЧУЖОГО корня (P2, экран раздвоения) ---------------------
+# Контракт — `docs/dentpilot-2/split-contract.md`. Вопрос там ровно один и он
+# про ПРОИСХОЖДЕНИЕ: «какая из двух картотек настоящая», и ответ подтверждается
+# PIN выбранного ИСТОЧНИКА, а не личностью того, кто сидит за машиной.
+#
+# ⛔ Позвать для этого `verify_pin` нельзя, и причин две, обе молчаливые:
+#   1. при удаче он переписывает файл v1→v2 — то есть ПИШЕТ в корень, который
+#      мы ещё не решили копировать, да ещё и меняет ключ подписи сессий той
+#      установки. Copy-only ломается до того, как начнётся;
+#   2. и он, и счётчик попыток привязаны к папке, В КОТОРОЙ ИДЁТ ПРОГРАММА
+#      (`_data_dir`), а спрашивают нас про ДРУГОЙ корень — тот, что назвал
+#      человек. Переиспользовать их против чужого корня нельзя вовсе.
+#
+# ⭐ Хорошая новость, без которой это не сошлось бы: auth.json — обычный файл
+# рядом с базой, а не внутри неё. Прочитать его можно, НЕ ОТКРЫВАЯ базу никаким
+# драйвером, то есть не нарушая ни правила шага 2, ни copy-only.
+
+SRC_OK = "ok"              # PIN подошёл — источник подтверждён
+SRC_BAD = "bad"            # не подошёл: попытка засчитана в НАЗНАЧЕНИИ
+SRC_LOCKED = "locked"      # подбор: закрыто на N секунд, оракул не спрошен
+SRC_NO_AUTH = "no-auth"    # в источнике нет auth.json — подтверждать нечем
+SRC_BROKEN = "broken"      # auth.json есть, но не читается
+SRC_NO_USERS = "no-users"  # читается, но учётных записей в нём нет
+
+# ⛔ Исходы, на которых миграция ОСТАНАВЛИВАЕТСЯ, и подтверждения не будет
+# вовсе. Ни один из них не «пропустить» и не «считать подтверждённым»: это тот
+# же случай, что забытый PIN старой установки — честная остановка, а не скрытая
+# ветка внутри миграции. Молчаливый пропуск означал бы, что картотеку клиники
+# выбирает любой, кто сел за машину.
+# ⚠️ Их три, а не один, потому что различать их обязан экран: «PIN не ставили»
+# и «файл повреждён» ведут человека в разные стороны, и второе нельзя
+# показывать как первое (тот же прайор, что у `_auth_broken`).
+SRC_STOP = (SRC_NO_AUTH, SRC_BROKEN, SRC_NO_USERS)
+
+# Счётчик подтверждения источника — ОТДЕЛЬНЫЙ файл, не auth_fail.json.
+# ⚠️ Это не аккуратность, а развод двух разных секретов. PIN источника и PIN
+# назначения лежат в разных файлах и совпадать не обязаны; общий счётчик
+# означал бы, что перебор на экране миграции закрывает вход в журнал, в котором
+# клиника В ЭТУ МИНУТУ принимает (при `split` назначение — рабочая картотека),
+# и наоборот — что рабочий день с парой опечаток на входе запрещает миграцию.
+SRC_FAIL_NAME = "srcpin_fail.json"
+
+
+def source_auth_file(source_root: pathlib.Path | str) -> pathlib.Path:
+    """Где в ЧУЖОМ корне лежит auth.json.
+
+    ⚠️ Раскладка берётся у `relocate`, а не собирается здесь строкой: внутри
+    работающей программы то же место считает `paths.db_dir()` от
+    `$DATABASE_URL`, но у чужого корня такого ответа нет — его никто не
+    запускал. Второй вычислитель раскладки однажды заглянет мимо и доложит
+    «PIN не ставили» про установку, где он есть.
+    """
+    return pathlib.Path(source_root) / relocate.DATA_REL / AUTH_NAME
+
+
+class SourcePinAttempts:
+    """Счётчик попыток подтверждения источника. Живёт в НАЗНАЧЕНИИ — всегда.
+
+    ⭐ Разрешение противоречия из контракта: отказаться от счётчика нельзя
+    (стойкость хеша и счётчик попыток лечат РАЗНЫЕ переборы, и одно другого не
+    заменяет), а писать в источник нельзя тем более. Значит состояние живёт там,
+    где писать можно: в папке данных работающей программы.
+
+    ⚠️ Папка передаётся ЯВНО, и `_data_dir()` внутри не спрашивается намеренно.
+    Ambient-путь — ровно та ловушка, из-за которой нельзя переиспользовать
+    `note_fail`: он «сам знает», куда писать, и знает не то. Здесь место
+    выбирает вызывающий, а `verify_source_pin` проверяет его выбор.
+    """
+
+    def __init__(self, dest_dir: pathlib.Path | str):
+        if dest_dir is None:
+            raise ValueError("счётчику попыток нужна папка назначения")
+        self.dir = pathlib.Path(dest_dir)
+        self.path = self.dir / SRC_FAIL_NAME
+
+    def closed_for(self) -> int:
+        """Сколько секунд подтверждение закрыто (0 — открыто)."""
+        return max(0, int(_state_read(self.path).get("until", 0) - time.time()))
+
+    def fails(self) -> int:
+        return int(_state_read(self.path).get("fails", 0))
+
+    def count_fail(self) -> int:
+        """Записать неудачу, вернуть срок блокировки. Лестница общая
+        (`_lock_for`), счётчик свой."""
+        n = self.fails() + 1
+        lock = _lock_for(n)
+        _state_write(self.path,
+                     {"fails": n, "until": time.time() + lock if lock else 0})
+        return lock
+
+    def clear(self) -> None:
+        _state_write(self.path, {"fails": 0, "until": 0})
+
+
+def destination_attempts() -> SourcePinAttempts:
+    """Счётчик там, где программа работает СЕЙЧАС, — то есть в назначении."""
+    d = _data_dir()
+    if d is None:
+        raise RuntimeError("папка данных не названа — подтверждать негде")
+    return SourcePinAttempts(d)
+
+
+def _src(outcome: str, why: str, attempts: SourcePinAttempts,
+         lock: int = 0) -> dict:
+    return {"outcome": outcome, "ok": outcome == SRC_OK, "lock_left": lock,
+            "fails": attempts.fails(), "stop": outcome in SRC_STOP, "why": why}
+
+
+async def verify_source_pin(source_root: pathlib.Path | str, pin: str,
+                            attempts: SourcePinAttempts) -> dict:
+    """Подтвердить право на ЧУЖОЙ корень его собственным PIN. Чистое чтение.
+
+    Возвращает вердикт: `outcome` (одно из `SRC_*`), `ok`, `lock_left`, `fails`,
+    `stop`, `why`. ⛔ Запись вошедшего НЕ возвращается, и это не экономия:
+    подтверждается ПРОИСХОЖДЕНИЕ, а не личность. Вернув пользователя, функция
+    стала бы вторым входом в журнал — по файлу из корня, который ещё даже не
+    признан настоящим.
+
+    Чего эта функция не делает, и ради чего написана отдельно:
+      * не открывает базу — ни одним драйвером, ни на чтение;
+      * не переписывает auth.json источника, в том числе v1 → v2 при УДАЧЕ;
+      * не трогает ключ подписи сессий источника;
+      * не создаёт в источнике ни `auth_fail.json`, ни любого другого файла;
+      * ничего не пишет в источник вообще — ни при удаче, ни при неудаче.
+
+    ⚠️ Самый опасный дефект здесь — именно УДАЧНАЯ проверка: неудачная ничего
+    записать и не пробует, а удачная в `verify_pin` как раз мигрирует файл. Оба
+    исхода проверяются снимком дерева побайтно (`tests/test_srcpin.py`).
+    """
+    src = pathlib.Path(source_root)
+    # ⛔ Инвариант в КОДЕ, а не в тексте: состояние счётчика не может оказаться
+    # внутри источника. Явный аргумент за тем и введён — но явный аргумент
+    # можно и передать неверно, а такая ошибка обязана быть громкой: тихо она
+    # выглядела бы как исправная миграция, оставившая в источнике лишний файл.
+    try:
+        inside = (attempts.path.resolve().is_relative_to(src.resolve())
+                  if src.exists() else False)
+    except OSError:
+        inside = False
+    if inside:
+        raise ValueError(
+            f"счётчик попыток внутри источника ({attempts.path}) — "
+            f"подтверждение обязано оставить {src} нетронутым")
+
+    # Блокировка спрашивается ДО источника: закрытое подтверждение не читает
+    # чужой файл вовсе, и перебор упирается в ту же лестницу, что вход.
+    if (lock := attempts.closed_for()) > 0:
+        return _src(SRC_LOCKED, "подбор: подтверждение закрыто", attempts, lock)
+
+    p = source_auth_file(src)
+    if not p.exists():
+        return _src(SRC_NO_AUTH, f"в источнике нет {p.name}", attempts)
+    try:
+        rec = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _src(SRC_BROKEN, f"{p.name} не читается", attempts)
+    users = _users(rec) if isinstance(rec, dict) else []
+    if not users:
+        return _src(SRC_NO_USERS, f"в {p.name} нет учётных записей", attempts)
+
+    for u in users:
+        want = u.get("hash", "")
+        try:
+            got = _derive(pin, u.get("salt", ""), u.get("kdf", KDF),
+                          int(u.get("iter") or KDF_ITER))
+        except (TypeError, ValueError):
+            continue        # запись из будущей версии: не наше дело её чинить
+        if want and hmac.compare_digest(got, want):
+            # ⛔ И ВОТ ЗДЕСЬ `verify_pin` записал бы файл v1→v2. Мы — нет:
+            # источник остаётся байт в байт таким, каким его нашли, и чинить
+            # его формат будет уже перенесённая копия, если понадобится.
+            attempts.clear()
+            return _src(SRC_OK, "источник подтверждён", attempts)
+
+    lock = attempts.count_fail()
+    await asyncio.sleep(FAIL_DELAY)
+    return _src(SRC_BAD, "PIN не подошёл", attempts, lock)
