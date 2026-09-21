@@ -1,0 +1,230 @@
+/*
+  Оформление прототипа. Имена переменных — те же, что печатает core/theme.py
+  (--panel, --line, --text, --teal…), с запасным значением на случай, когда
+  страница открыта сама по себе, без серверной темы. Тогда при переносе в
+  экран программы цвета подхватятся темой клиники без единой правки.
+
+  ⛔ Ни одного transition на контейнере холста и ни одной величины, которая
+  меняется при наведении: любая анимация размеров здесь — это layout shift
+  вокруг WebGL, то есть новый источник мигания.
+*/
+
+.d3-root {
+  --d3-panel: var(--panel, #ffffff);
+  --d3-bg: var(--bg, #f4f6f8);
+  --d3-line: var(--line, #dde3e8);
+  --d3-text: var(--text, #17242c);
+  --d3-text2: var(--text2, #4a5a64);
+  --d3-text3: var(--text3, #7a8a94);
+  --d3-accent: var(--teal, #0f7b8a);
+  --d3-accent-soft: var(--teal-soft, #e4f2f4);
+  --d3-on-accent: var(--on-teal, #ffffff);
+  --d3-radius: var(--r-card, 14px);
+
+  box-sizing: border-box;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 16px 28px;
+  color: var(--d3-text);
+  font: 14px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+.d3-root *,
+.d3-root *::before,
+.d3-root *::after {
+  box-sizing: inherit;
+}
+
+.d3-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.d3-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.d3-sub {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--d3-text3);
+}
+
+.d3-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--d3-line);
+  background: var(--d3-panel);
+  color: var(--d3-text2);
+  border-radius: var(--r-ctl, 9px);
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.d3-btn:hover {
+  border-color: var(--d3-accent);
+  color: var(--d3-accent);
+}
+
+.d3-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Габариты холста заданы ЖЁСТКО и не зависят ни от содержимого, ни от
+   состояния: контейнер не может изменить размер во время взаимодействия,
+   поэтому ResizeObserver молчит, а WebGL не пересоздаёт буферы. */
+.d3-viewport {
+  position: relative;
+  height: 560px;
+  border: 1px solid var(--d3-line);
+  border-radius: var(--d3-radius);
+  background:
+    radial-gradient(120% 90% at 50% 0%, #ffffff 0%, #eef2f5 58%, #e4eaef 100%);
+  overflow: hidden;
+  contain: paint;
+}
+
+.d3-stage {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+.d3-panel {
+  border: 1px solid var(--d3-line);
+  border-radius: var(--d3-radius);
+  background: var(--d3-panel);
+  padding: 14px 15px 16px;
+}
+
+.d3-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.d3-row:first-child {
+  margin-top: 0;
+}
+
+.d3-k {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--d3-text3);
+}
+
+.d3-v {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--d3-text);
+  /* Цифры не пляшут при смене значения. */
+  font-variant-numeric: tabular-nums;
+}
+
+.d3-tooth {
+  font-size: 22px;
+  color: var(--d3-accent);
+}
+
+.d3-empty {
+  color: var(--d3-text3);
+  font-weight: 500;
+}
+
+.d3-note {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--d3-text3);
+}
+
+.d3-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.d3-chip {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--d3-line);
+  background: transparent;
+  color: var(--d3-text2);
+  border-radius: 9px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.d3-chip:hover {
+  border-color: var(--d3-accent);
+}
+
+.d3-chip.on {
+  border-color: var(--d3-accent);
+  background: var(--d3-accent-soft);
+  color: var(--d3-accent);
+  font-weight: 600;
+}
+
+.d3-code {
+  flex: 0 0 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--d3-bg);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.d3-chip.on .d3-code {
+  background: var(--d3-accent);
+  color: var(--d3-on-accent);
+}
+
+.d3-state {
+  margin: 16px 0 0;
+  padding: 10px;
+  border-radius: 9px;
+  background: var(--d3-bg);
+  color: var(--d3-text2);
+  font: 12px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.d3-stats {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--d3-text3);
+}
+
+@media (max-width: 880px) {
+  .d3-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .d3-viewport {
+    height: 420px;
+  }
+}
