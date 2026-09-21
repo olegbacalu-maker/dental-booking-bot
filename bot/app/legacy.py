@@ -16,15 +16,33 @@
 то, что вернул `origins()`. Нет источника — нет кандидата, и это не ошибка
 разбора, а ответ.
 
-Источников в v1 **два**, и второй появился 21.09 не для полноты:
+Источников в v1 **три**, и порядок здесь — порядок ДОВЕРИЯ:
 
-* `shortcut` — ярлыки, которые кладём мы сами: свои И общие (`shortcut_paths()`);
 * `human` — путь, НАЗВАННЫЙ человеком. Без него детекция слепа на машине, где
   папку однажды передвинули: ярлыки сняты вместе со старой программой, а
   переименование не предсказывает ни одно правило. Проверено на стенде 21.09 —
   `detect()` вернул `no-origin` при живой картотеке в
   `C:\\Users\\Public\\DentPilot.hold`. Человек не ослабляет правило
   «происхождение доказывает место», он самый авторитетный его случай.
+* `self` — папка, из которой ЗАПУЩЕН сам процесс (решение Олега 21.09).
+  ⭐ Это не содержимое каталога и не эвристика, а **происхождение процесса**:
+  программе не нужно спрашивать «нет ли где-нибудь подозрительной папки», она
+  уже знает, откуда её запустили. Закрывает дыру, которой не закрывает ничто
+  другое: одноклик-обновление подменяет exe НА МЕСТЕ и перезапускает его из
+  планировщика, то есть в чистом окружении без `$DENTART_DATA_DIR`, —
+  установщик при этом не зовётся вовсе и отказать не может.
+  ⛔ И ровно поэтому `self` НОМИНИРУЕТ, но ничего не решает: дальше тот же
+  контракт — отпечаток, маркеры данных, решение. Автоматической миграции по
+  факту «я отсюда запущен» нет.
+* `shortcut` — ярлыки, которые кладём мы сами: свои И общие
+  (`shortcut_paths()`).
+
+⚠️ Источник `install` (`install.json` называет корень) назван Олегом в том же
+решении, но в v1 НЕ реализован, и это не забывчивость. Файл пишет только новый
+установщик, а он поверх старой раскладки ставиться отказывается — значит
+старый корень он не назовёт никогда; называет он ДРУГОЕ, папку назначения.
+Источником он станет в тот день, когда установщик начнёт записывать то, что
+нашёл `LegacyDir()`, — вместе со сценарием и проверкой, как и все остальные.
 
 ⛔ **Подтверждает папку только маркер ДАННЫХ** (`MARKERS_DATA`). `DentPilot.exe`
 и `unins000.dat` несёт и СЕГОДНЯШНЯЯ установка в `Program Files`, где данных
@@ -33,9 +51,10 @@
 программу саму в себя. Старую раскладку определяет одно: картотека лежит
 РЯДОМ с exe.
 
-⛔ **Свой собственный корень кандидатом не становится** (`self_roots()`):
-portable-установка, где папка данных и есть папка программы, иначе назвала бы
-источником переезда саму себя.
+⛔ **Папка НАЗНАЧЕНИЯ кандидатом не становится** (`anchor_roots()`): в
+portable-раскладке папка данных и есть папка программы, и без этого `self`
+назвал бы источником переезда ту самую папку, в которую мы переезжаем, — P2
+получил бы «перенеси из X в X».
 
 ⛔ **RESERVED, в v1 не реализовано:** запущенный процесс, профили других
 пользователей (перебор `ProfileList` в реестре), чужие `AppData`, ярлыки
@@ -71,8 +90,9 @@ MARKERS_PROGRAM = (EXE_NAME, "unins000.dat")
 # Ни один из них не НАЗНАЧАЕТ — назначает источник происхождения.
 MARKERS = MARKERS_DATA + MARKERS_PROGRAM
 
-ORIGIN_SHORTCUT = "shortcut"
 ORIGIN_HUMAN = "human"
+ORIGIN_SELF = "self"
+ORIGIN_SHORTCUT = "shortcut"
 
 
 def _key(p: pathlib.Path | str) -> str:
@@ -121,21 +141,33 @@ def shortcut_paths() -> list[pathlib.Path]:
     return out
 
 
-def self_roots() -> list[pathlib.Path]:
-    """Корни, которые есть МЫ САМИ: папка запущенной программы и папка данных.
+def running_root() -> pathlib.Path | None:
+    """Папка, из которой запущен САМ процесс, — источник `self`.
 
-    ⛔ Кандидатом на переезд не становится ни один из них. Без этого
-    portable-установка (`portable.flag` рядом с exe — данные и программа в
-    одной папке) назвала бы источником переезда саму себя, а P2 получил бы
-    задание «перенеси из X в X» и копировал бы папку внутрь неё самой.
+    ⭐ Происхождение процесса, а не содержимое папки: программа не ищет, она
+    знает. Единственный источник, доживающий до одноклик-обновления — там exe
+    подменён на месте и перезапущен планировщиком, ярлыки ни при чём,
+    окружение чистое, а установщик не звался вовсе и отказать не мог.
+
+    ⚠️ Только у СОБРАННОЙ программы. Из исходников `sys.executable` — это
+    `python.exe` в `.venv-desktop\\Scripts`, и папка интерпретатора кандидатом
+    на переезд картотеки не может быть ни при каких обстоятельствах.
     """
-    out: list[pathlib.Path] = []
-    if getattr(sys, "frozen", False):
-        out.append(pathlib.Path(sys.executable).parent)
+    if not getattr(sys, "frozen", False):
+        return None
+    return pathlib.Path(sys.executable).resolve().parent
+
+
+def anchor_roots() -> list[pathlib.Path]:
+    """Папка НАЗНАЧЕНИЯ — та, в которую переезжаем. Кандидатом не бывает.
+
+    ⛔ Без этого portable-раскладка (`portable.flag` рядом с exe — данные и
+    программа в одной папке) дала бы `self`-кандидата, равного назначению, и
+    P2 получил бы «перенеси из X в X», то есть копирование папки внутрь неё
+    самой.
+    """
     root = paths.data_root()
-    if root is not None:
-        out.append(root)
-    return out
+    return [] if root is None else [root]
 
 
 def shortcut_target(lnk: pathlib.Path) -> pathlib.Path | None:
@@ -190,16 +222,25 @@ def _zstr(b: bytes, start: int, unicode: bool) -> str:
 
 
 def origins(shortcuts: list[pathlib.Path] | None = None,
-            named: str | pathlib.Path | None = None) -> list[dict]:
+            named: str | pathlib.Path | None = None,
+            self_root: pathlib.Path | None = None) -> list[dict]:
     """Кандидаты, НАЗВАННЫЕ источником. Единственный вход в детекцию.
 
     Возвращает `[{"path": папка, "origin": ..., "source": чем названа}]`,
-    без дубликатов, в порядке ДОВЕРИЯ: сперва человек, затем ярлыки.
+    без дубликатов, в порядке ДОВЕРИЯ: человек → сам процесс → ярлыки.
+
+    ⭐ Почему человек впереди `self`: человек видит обе папки и знает, какая
+    из них картотека, а процесс знает только, откуда его запустили. На машине,
+    где старый exe остался рядом со старой базой, а работать надо с новой,
+    прав человек.
 
     ⚠️ `named` — путь, введённый человеком. Не абсолютный отбрасывается: он не
     называет МЕСТО (тот же выбор, что у `paths.data_root()`), а разрешать его
     от текущей папки значило бы отвечать по-разному на один и тот же ввод.
     Кавычки и пробелы по краям снимаются: путь приходит из копипаста.
+    ⚠️ `self_root=None` — вычислить самим (`running_root()`); из исходников
+    там `None`, поэтому в прогоне источник `self` молчит, пока его не передали
+    явно.
     """
     seen: set[str] = set()
     out: list[dict] = []
@@ -208,6 +249,10 @@ def origins(shortcuts: list[pathlib.Path] | None = None,
         if p.is_absolute():
             seen.add(_key(p))
             out.append({"path": p, "origin": ORIGIN_HUMAN, "source": p})
+    mine = running_root() if self_root is None else pathlib.Path(self_root)
+    if mine is not None and _key(mine) not in seen:
+        seen.add(_key(mine))
+        out.append({"path": mine, "origin": ORIGIN_SELF, "source": mine})
     for lnk in (shortcut_paths() if shortcuts is None else shortcuts):
         target = shortcut_target(lnk)
         if target is None or target.name.lower() != EXE_NAME.lower():
@@ -245,7 +290,8 @@ def carries_data(markers: list[str]) -> bool:
 
 def detect(shortcuts: list[pathlib.Path] | None = None,
            named: str | pathlib.Path | None = None,
-           exclude: list[pathlib.Path] | None = None) -> dict:
+           exclude: list[pathlib.Path] | None = None,
+           self_root: pathlib.Path | None = None) -> dict:
     """Итог: `{"found", "path", "origin", "source", "markers", "reason"}`.
 
     Четыре исхода, и все четыре названы явно:
@@ -256,18 +302,22 @@ def detect(shortcuts: list[pathlib.Path] | None = None,
         СЕГОДНЯШНЮЮ установку, у которой данные лежат отдельно. В `markers`
         при этом остаётся найденное — человеку нужна разница между «пусто» и
         «программа есть, картотеки нет»;
-      * `found=False`, `reason="self"` — источники назвали только нас самих.
+      * `found=False`, `reason="destination"` — источники назвали только ту
+        папку, в которую мы и переезжаем (portable-раскладка).
 
     ⛔ Пятого исхода «похоже, что вон та папка» не существует и появиться не
     может: перебирается только то, что вернул `origins()`.
+    ⭐ `found=True` — это НОМИНАЦИЯ, а не разрешение мигрировать. Дальше по
+    контракту идут отпечаток и решение; `origin="self"` тут ничем не
+    привилегированнее прочих, хотя и знает про себя больше всех.
     ⚠️ `found=False` НЕ означает «чистая машина». Чистой машина считается по
     положительному признаку, иначе первый же сбой детекции выглядит как новая
     клиника — и программа заводит пустой журнал рядом с живой картотекой.
     """
-    skip = {_key(p) for p in (self_roots() if exclude is None else exclude)}
+    skip = {_key(p) for p in (anchor_roots() if exclude is None else exclude)}
     mine = False
     first: dict | None = None
-    for c in origins(shortcuts, named):
+    for c in origins(shortcuts, named, self_root):
         if _key(c["path"]) in skip:
             mine = True
             continue
@@ -282,4 +332,4 @@ def detect(shortcuts: list[pathlib.Path] | None = None,
                 "source": first["source"], "markers": first["markers"],
                 "reason": "unconfirmed"}
     return {"found": False, "path": None, "origin": None, "source": None,
-            "markers": [], "reason": "self" if mine else "no-origin"}
+            "markers": [], "reason": "destination" if mine else "no-origin"}

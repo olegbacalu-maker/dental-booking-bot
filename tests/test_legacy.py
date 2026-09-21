@@ -206,14 +206,15 @@ def suite_program_only(res: Result) -> None:
                got["found"] and got["path"] == new, f"вернулось {got!r}")
 
 
-def suite_self(res: Result) -> None:
-    """⛔ Себя самого источником переезда не называем.
+def suite_destination(res: Result) -> None:
+    """⛔ Папку, в которую переезжаем, кандидатом не делаем.
 
     Случай не выдуманный: в portable-раскладке (`portable.flag` рядом с exe)
-    папка данных и есть папка программы, а ярлык на неё создаём мы сами.
-    Без исключения P2 получил бы задание «перенеси из X в X».
+    папка данных и есть папка программы, а ярлык на неё создаём мы сами — и
+    источник `self` назовёт её тем более. Без исключения P2 получил бы задание
+    «перенеси из X в X» и копировал бы папку внутрь неё самой.
     """
-    with tempfile.TemporaryDirectory(prefix="dp_self_") as td:
+    with tempfile.TemporaryDirectory(prefix="dp_dest_") as td:
         root = pathlib.Path(td)
         here = _install(root / "DentPilot")
         lnk = root / "self.lnk"
@@ -222,26 +223,77 @@ def suite_self(res: Result) -> None:
         res.ok("без исключения такая папка находится (иначе проверка пуста)",
                legacy.detect([lnk], exclude=[])["found"], "")
         got = legacy.detect([lnk], exclude=[here])
-        res.check("свой корень — отдельный исход", got["reason"], "self")
-        res.ok("и он не назначен", got["path"] is None,
+        res.check("папка назначения — отдельный исход", got["reason"],
+                  "destination")
+        res.ok("и она не назначена", got["path"] is None,
                f"назвали {got['path']!r} — копировали бы папку внутрь неё самой")
 
-        # ⚠️ сравнение путей: ни регистр, ни «..» не делают из своего чужой
+        # ⚠️ сравнение путей: ни регистр, ни «..» не делают назначение чужим
         sneaky = pathlib.Path(str(here).upper()) / ".." / here.name
-        res.check("тот же корень через «..» и в другом регистре — всё ещё свой",
-                  legacy.detect([lnk], exclude=[sneaky])["reason"], "self")
+        res.check("тот же корень через «..» и в другом регистре — всё ещё он",
+                  legacy.detect([lnk], exclude=[sneaky])["reason"], "destination")
 
         # ⭐ умолчание берётся у paths.data_root(), а не заводится второй раз
         keep = os.environ.get("DENTART_DATA_DIR")
         os.environ["DENTART_DATA_DIR"] = str(here)
         try:
             res.check("умолчание = папка данных, названная лаунчером",
-                      legacy.detect([lnk])["reason"], "self")
+                      legacy.detect([lnk])["reason"], "destination")
         finally:
             if keep is None:
                 os.environ.pop("DENTART_DATA_DIR", None)
             else:
                 os.environ["DENTART_DATA_DIR"] = keep
+
+
+def suite_self_origin(res: Result) -> None:
+    """Источник `self` — папка, из которой ЗАПУЩЕН процесс (решение 21.09).
+
+    ⭐ Закрывает дыру, которую не закрывает ничто другое: одноклик-обновление
+    подменяет exe НА МЕСТЕ и перезапускает его планировщиком — установщик не
+    зовётся и отказать не может, окружение чистое, ярлыки могут вести куда
+    угодно. Единственное, что программа в этот момент знает наверняка, — откуда
+    её запустили.
+    ⛔ Но номинация не есть разрешение: дальше тот же контракт.
+    """
+    with tempfile.TemporaryDirectory(prefix="dp_selforg_") as td:
+        root = pathlib.Path(td)
+        old = _install(root / "Public" / "DentPilot")     # старая раскладка
+        anchor = root / "ProgramData" / "DentPilot"       # куда переезжаем
+        anchor.mkdir(parents=True)
+
+        got = legacy.detect([], exclude=[anchor], self_root=old)
+        res.ok("запущены из старой раскладки — она и найдена",
+               got["found"] and got["path"] == old, f"вернулось {got!r}")
+        res.check("источник назван собой", got["origin"], legacy.ORIGIN_SELF)
+
+        # ⛔ Program Files: запущены отсюда, но картотеки рядом нет
+        pf = root / "Program Files" / "DentPilot"
+        pf.mkdir(parents=True)
+        (pf / "DentPilot.exe").write_bytes(b"MZ")
+        res.check("запущены из папки без картотеки — unconfirmed",
+                  legacy.detect([], exclude=[anchor], self_root=pf)["reason"],
+                  "unconfirmed")
+
+        # ⛔ portable: откуда запущены, туда и переезжали бы
+        res.check("запущены из папки назначения — destination",
+                  legacy.detect([], exclude=[anchor], self_root=anchor)["reason"],
+                  "destination")
+
+        # ⭐ порядок доверия: человек видит обе папки, процесс — только свою
+        got = legacy.detect([], named=str(old), exclude=[anchor], self_root=pf)
+        res.ok("человек важнее собственного происхождения",
+               got["path"] == old and got["origin"] == legacy.ORIGIN_HUMAN,
+               f"вернулось {got!r}")
+
+        # ⚠️ из ИСХОДНИКОВ источника self нет вовсе: sys.executable — это
+        # python.exe, и папка интерпретатора кандидатом на картотеку быть не
+        # может. Иначе прогон сам стал бы «старой установкой».
+        res.ok("вне собранной программы self молчит",
+               legacy.running_root() is None,
+               f"вернулось {legacy.running_root()!r} — это папка интерпретатора")
+        res.ok("и кандидата не даёт", not legacy.origins([], None),
+               f"кандидаты из ниоткуда: {legacy.origins([], None)!r}")
 
 
 def suite_human(res: Result) -> None:
