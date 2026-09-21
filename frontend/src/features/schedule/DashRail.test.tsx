@@ -1,7 +1,7 @@
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashRail } from './DashRail'
-import { sparkPoints } from './dashFx'
+import { sparkPoints } from '../../utils/chart'
 import type {
   DashAgenda, DashAgendaItem, DashMiniCal, DashOccupancy, DashTile,
 } from './dash'

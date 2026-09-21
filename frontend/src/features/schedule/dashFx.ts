@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 
 /**
  * То, что панель считает В БРАУЗЕРЕ, и почему это не уехало на сервер.
@@ -187,90 +187,4 @@ export function useFitAppts(
       if (a.scrollHeight > a.clientHeight) a.classList.add('bare')
     }
   }, [body, tick, deps])
-}
-
-/**
- * Точки спарклайна: ряд чисел → строка координат для `<polyline>`.
- *
- * ⛔ Нормировка по СВОЕМУ максимуму, а не по общей шкале: пять плиток на одной
- * шкале (24 записи и 2 неявки) дали бы прямую под потолком и прямую по полу,
- * то есть ничего.
- * ⛔ Ряд из одних нулей — это РОВНАЯ ЛИНИЯ ПО ПОЛУ, а не пустое место: две
- * недели без единой записи говорят ровно столько же, сколько две недели с
- * записями, и график обязан это сказать. Пустой ряд (`[]`) — другое дело, там
- * графика нет вовсе.
- */
-/** Длительность счёта от нуля — та же, что в `panel.js`. */
-export const COUNT_MS = 620
-
-/**
- * Можно ли проигрывать входную анимацию ПРЯМО СЕЙЧАС.
- *
- * ⛔ Два условия, и оба чужие. Класс `anim` ставит каркас (`core/layout`) и
- * снимает его повтор после действия: «человек пришёл на страницу» против
- * «страницу перепоказали». Просьба системы уменьшить движение — это просьба, а
- * не пожелание, и оформление её уже уважает
- * (`@media (prefers-reduced-motion:reduce)` в panel.css).
- * ⚠️ РАСХОЖДЕНИЕ С ЛЕГАСИ, названное вслух: там счётчик живёт в JS и про
- * `prefers-reduced-motion` не знает — шесть цифр считают вверх даже у того,
- * кто попросил тишины. Повторять этот промах в новом коде не стал; чинить
- * легаси по дороге — нельзя (это отдельное решение).
- * ⚠️ `matchMedia` в jsdom нет вовсе, поэтому вызов в try.
- */
-export function canAnimate(): boolean {
-  try {
-    if (typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
-  } catch { /* движок без matchMedia */ }
-  return document.documentElement.classList.contains('anim')
-}
-
-/**
- * Цифра, считающая от нуля при ПЕРВОМ показе (перенос `data-count`).
- *
- * ⛔ Истина — `value`, всегда. Хук решает только, ЧТО ПОКАЗАТЬ в первые
- * 620 мс; всё остальное время он отдаёт значение как есть, а приехавшее
- * конвертом новое значение показывается СРАЗУ и без счёта — ровно как у
- * легаси, где живая подмена счётчик не перезапускает и не могла бы:
- * `apply()` снимает `anim` до неё. Анимация здесь представление, а не
- * состояние, и обратного пути у неё нет.
- * ⚠️ Ноль и единица не считаются (`value < 2`): «счёт» от нуля до единицы —
- * это мигание, а не движение. Условие взято у легаси дословно.
- */
-export function useCountUp(value: number, active: boolean): number {
-  const [shown, setShown] = useState(() => (active && value >= 2 ? 0 : value))
-  const done = useRef(!active || value < 2)
-  useEffect(() => {
-    if (done.current) {
-      setShown(value)                    // данные победили: показываем их
-      return
-    }
-    done.current = true
-    let raf = 0
-    const t0 = performance.now()
-    /* ⚠️ Время берётся у `performance.now()` и в начале, и в кадре, а НЕ из
-       аргумента `requestAnimationFrame`: часы у них разные (в jsdom — заметно
-       разные), и разность двух шкал даёт бессмысленную долю. Легаси считал по
-       аргументу и был прав у себя; здесь важнее, чтобы обе точки были с одних
-       часов. */
-    const step = () => {
-      const p = Math.min((performance.now() - t0) / COUNT_MS, 1)
-      /* та же кривая, что в panel.js: cubic ease-out */
-      setShown(Math.round(value * (1 - Math.pow(1 - p, 3))))
-      if (p < 1) raf = requestAnimationFrame(step)
-    }
-    raf = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(raf)
-  }, [value])
-  return shown
-}
-
-export function sparkPoints(series: number[], h = 26): string {
-  if (!series.length) return ''
-  const w = 100, pad = 3
-  const top = Math.max(...series) || 1
-  const step = w / Math.max(series.length - 1, 1)
-  return series
-    .map((v, i) => `${(i * step).toFixed(1)},${(h - pad - (h - 2 * pad) * (v / top)).toFixed(1)}`)
-    .join(' ')
 }

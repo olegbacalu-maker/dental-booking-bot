@@ -1,6 +1,9 @@
 import { Icon, iconName } from '../../components/Icon'
 import { useState } from 'react'
-import { canAnimate, sparkPoints, useCountUp, waitLabel } from './dashFx'
+import { waitLabel } from './dashFx'
+import { canAnimate } from '../../utils/fx'
+import { Count } from '../../components/Count'
+import { Spark } from '../../components/Spark'
 import type {
   DashAgenda, DashMiniCal, DashOccupancy, DashSub, DashTile,
 } from './dash'
@@ -205,19 +208,6 @@ function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccup
  * сервер. У неявок они расходятся намеренно: рост неявок — стрелка вверх и
  * КРАСНЫЙ. Возьми цвет из знака — и стрелка позеленела бы на росте неявок.
  */
-/**
- * Цифра плитки. ⛔ Истина — `value`; хук решает только, что показать в первые
- * 620 мс. Приехало новое значение — оно и стоит, без счёта.
- * ⚠️ `data-count` печатается и здесь: по нему читают проверки (у легаси это
- * КОНТРАКТ — тесты разбирают атрибут, а не текст), и расхождение текста с
- * атрибутом означало бы, что анимация стала источником правды.
- */
-function Count({ value, live, suffix = '' }:
-{ value: number; live: boolean; suffix?: string }) {
-  const shown = useCountUp(value, live)
-  return <b data-count={value}>{shown}{suffix}</b>
-}
-
 function Trend({ sub }: { sub: DashSub }) {
   if (sub.kind === 'static' || sub.kind === 'same') {
     return <span className="trend">{sub.text}</span>
@@ -237,19 +227,3 @@ function Trend({ sub }: { sub: DashSub }) {
   )
 }
 
-/** Ряд за две недели инлайновым SVG — без библиотек: программа ставится одним
- *  exe и работает без интернета. */
-function Spark({ series, tone }: { series: number[]; tone: string }) {
-  const pts = sparkPoints(series)
-  if (!pts) return null
-  return (
-    <svg className="spark" viewBox="0 0 100 26" width="100%" height="26"
-      preserveAspectRatio="none" aria-hidden="true">
-      <polygon className="sp-a" points={`0,26 ${pts} 100,26`} style={{ fill: tone }} />
-      {/* ⛔ `vector-effect`: без него `preserveAspectRatio="none"` размазал бы
-          штрих вместе с координатами. */}
-      <polyline className="sp-l" points={pts} vectorEffect="non-scaling-stroke"
-        style={{ stroke: tone }} />
-    </svg>
-  )
-}
