@@ -20,6 +20,7 @@ import { PerioScreen } from '../features/clinical/PerioScreen'
 import { DashScreen } from '../features/schedule/DashScreen'
 import { DayScreen } from '../features/schedule/DayScreen'
 import { WeekScreen } from '../features/schedule/WeekScreen'
+import { QuickFind } from '../features/quickfind/QuickFind'
 
 /**
  * Корень клиента: развилка по имени экрана, которое сервер положил в
@@ -33,6 +34,19 @@ interface AppProps {
 }
 
 export function App({ screen, params = {} }: AppProps) {
+  /* ⭐ Быстрый поиск живёт РЯДОМ с экраном, а не внутри него: Ctrl+K обязан
+     работать откуда угодно, а накладка `position: fixed` накрывает окно
+     независимо от того, где в разметке стоит узел React. */
+  return (
+    <>
+      {screenFor(screen, params)}
+      <QuickFind />
+    </>
+  )
+}
+
+
+function screenFor(screen: string, params: Record<string, string>) {
   if (screen === 'settings_clinic') return <ClinicSettingsScreen />
   if (screen === 'doctors_list') return <DoctorsListScreen />
   if (screen === 'doctor_card') return <DoctorCardScreen dk={params.dk ?? ''} />

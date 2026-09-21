@@ -568,3 +568,91 @@
   font-size: 14px;
   font-weight: 600;
 }
+
+/* --- Быстрый поиск (Ctrl+K) -------------------------------------------
+   ⛔ Цвета ТОЛЬКО переменными темы: клиника выбирает свой цвет, и вшитый
+   #0E9F8A остался бы зелёным на синем интерфейсе — молча, потому что на
+   экране разработчика умолчание как раз зелёное.
+   ⚠️ Накладка `fixed`: узел React стоит под шапкой, а окно надо накрыть
+   целиком. Второй корень React для этого заводить нельзя. */
+.dp-qf-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .38);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 60;
+}
+.dp-qf {
+  width: min(560px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, .22);
+  overflow: hidden;
+}
+.dp-qf-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.dp-qf-top input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: none;
+  font-size: 16px;
+  color: inherit;
+}
+.dp-qf-note {
+  padding: 16px 16px 18px;
+  color: var(--text2);
+  font-size: 14px;
+}
+.dp-qf-err { color: var(--red); }
+.dp-qf-list { list-style: none; margin: 0; padding: 6px; max-height: 46vh; overflow: auto; }
+.dp-qf-list button {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+  color: inherit;
+}
+/* ⚠️ Подсветка идёт по КЛАВИАТУРНОМУ выбору, а не по :hover: иначе стрелки
+   ведут одну строку, а мышь подсвечивает другую, и человек жмёт Enter не на
+   том пациенте. Мышь двигает тот же выбор (onMouseEnter). */
+.dp-qf-list button.on { background: var(--teal); color: var(--on-teal); }
+.dp-qf-ini {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--teal-soft, var(--bg));
+  font-size: 12px;
+  font-weight: 700;
+}
+.dp-qf-list button.on .dp-qf-ini { background: rgba(255, 255, 255, .22); }
+.dp-qf-name { font-weight: 600; }
+.dp-qf-sub { opacity: .75; font-size: 13px; }
+.dp-qf-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text2);
+}

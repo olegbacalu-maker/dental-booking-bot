@@ -20,8 +20,12 @@
    нужны React-странице ровно так же. */
 var DP_REACT = !!document.getElementById('root');
 
-/* Ctrl+K — в поиск пациента, откуда бы ни смотрели */
+/* Ctrl+K — в поиск пациента, откуда бы ни смотрели.
+   ⛔ На React-странице НЕ вмешиваемся: там по этой клавише открывается
+   накладка быстрого поиска, и фокус в поле шапки увёл бы курсор из неё —
+   человек набирал бы запрос мимо открытого окна. Отдаём клавишу клиенту. */
 document.addEventListener('keydown', function (e) {
+  if (DP_REACT) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
     var q = document.getElementById('topq');
