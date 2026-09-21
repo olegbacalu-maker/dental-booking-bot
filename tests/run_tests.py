@@ -38,6 +38,7 @@ import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
+import test_relocate  # noqa: E402
 import test_migrate  # noqa: E402
 import test_odontogram_api  # noqa: E402
 import test_bot  # noqa: E402
@@ -325,6 +326,11 @@ SUITES = [
      test_legacy.suite_destination),
     ("P3-min: источник «откуда запущен процесс»", test_legacy.suite_self_origin),
     ("P3-min: путь, названный человеком", test_legacy.suite_human),
+    ("P2 шаг 2: отпечаток без открытия", test_relocate.suite_fingerprint),
+    ("P2 шаг 3: решение", test_relocate.suite_decide),
+    ("P2 шаг 3: приказы шифрования останавливают", test_relocate.suite_blockers),
+    ("P2 шаги 1-3: ни одного записанного байта", test_relocate.suite_read_only),
+    ("P2 шаги 1-3: драйверы не зовутся", test_relocate.suite_no_drivers),
     ("P3-min: резерв остаётся резервом", test_legacy.suite_reserved),
     ("P3-min: намерение установщика", test_legacy.suite_install_info),
     ("P3-min: засев канала", test_legacy.suite_channel_seed),
