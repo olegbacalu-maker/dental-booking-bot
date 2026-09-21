@@ -168,6 +168,36 @@ export interface CryptStopped {
   note: string
 }
 
+/** Что программа знает про обновление. Слова — серверные: в них едут номера
+ *  версий и причина, по которой файла ещё нет. */
+export interface SystemUpdate {
+  state: 'self' | 'pending' | 'link' | 'fresh' | 'unknown' | 'checking'
+  /** Имя значка из icons.ts; пусто — значка у этого состояния нет. */
+  icon: string
+  text: string
+  latest: string
+  /** Адрес страницы релиза; непуст только когда скачивать надо руками. */
+  url: string
+}
+
+export interface SystemData {
+  version: string
+  db: string
+  /** Путь и объяснение, что в нём лежит. Пустой путь — строки нет вовсе. */
+  folder: { path: string; hint: string }
+  /** Строка канала бота, HTML-кусок сервера; пусто, пока раздел заморожен. */
+  telegram: string
+  update: SystemUpdate
+  /** Непусто только на НЕ-stable: этот компьютер видит версии раньше клиник. */
+  channel: { name: string; warn: string; note: string } | null
+  access: { icon: string; text: string }
+  /** null вне настольного издания: у облака диск не наш. */
+  bitlocker: { tone: string; icon: string; text: string } | null
+  feedback: string
+  /** Два абзаца о том, что программа работает локально (RO и RU). */
+  privacy: string
+}
+
 export interface BackupData {
   min_pass: number
   filename: string
@@ -211,6 +241,10 @@ export const settings = {
     api.post<LanSaved>('/settings/lan', { mode }),
   lanFirewall: (): Promise<ApiResult<{ asked: boolean }>> =>
     api.post<{ asked: boolean }>('/settings/lan/firewall', {}),
+  system: (signal?: AbortSignal): Promise<ApiResult<SystemData>> =>
+    api.get<SystemData>('/settings/system', signal ? { signal } : {}),
+  systemCheck: (): Promise<ApiResult<SystemData>> =>
+    api.post<SystemData>('/settings/system/check', {}),
   crypt: (signal?: AbortSignal): Promise<ApiResult<CryptData>> =>
     api.get<CryptData>('/settings/crypt', signal ? { signal } : {}),
   cryptPrepare: (): Promise<ApiResult<CryptPrepared>> =>

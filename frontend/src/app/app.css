@@ -506,3 +506,52 @@
   cursor: pointer;
 }
 .dp-react-root .dp-ag-empty { margin: 0; }
+
+/* ---- «Stare sistem» (C10) ---- */
+
+.dp-set-th {
+  width: 180px;
+}
+
+.dp-inline-form {
+  display: inline;
+}
+
+/* Запуск обновления. Оранжевый — цвет ВНИМАНИЯ, а не фирменный: цвета смысла
+   теме не отдаются, иначе кнопка «обновиться сейчас» стала бы неотличима от
+   любой другой у клиники со своим цветом. Тот же литерал, что у старой
+   страницы, — вид не меняется ни на пиксель. */
+.dp-upd-btn {
+  background: #e8710a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 8px;
+}
+
+/* «Verifică acum» — второстепенное действие рядом с состоянием, поэтому
+   контурная, а не заливкой (как на старой странице). */
+.dp-check-btn {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text2);
+  margin-left: 10px;
+}
+
+.dp-bl-alarm {
+  color: var(--red-t);
+  font-weight: 600;
+}
+
+/* Сплошной текст читается узкой колонкой — потолок берётся у самого текста,
+   а не у страницы (panel.css: --measure). */
+.dp-measure {
+  max-width: var(--measure);
+}

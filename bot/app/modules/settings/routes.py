@@ -45,6 +45,7 @@ from ...core.visits import SVC_PALETTE
 from . import backup as bkp
 from . import crypt
 from . import faq
+from . import system
 from . import lan
 
 router = APIRouter()
@@ -179,32 +180,6 @@ def _hour_opts(sel: int, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
 # устаревшая вкладка «Program» затирала бы услуги, сохранённые из соседней.
 
 
-def _bl_row() -> str:
-    """Строка BitLocker в «Stare sistem». Только desktop: у облака диск не наш."""
-    if not db.IS_SQLITE:
-        return ""
-    tone, txt = bitlocker.describe(bitlocker.STATE["code"],
-                                   bitlocker.STATE["drive"])
-    ico = {"ok": _ic("check"), "warn": _ic("sos"), "alarm": _ic("ban")}.get(tone, "")
-    style = (" style='color:var(--red-t);font-weight:600'" if tone == "alarm"
-             else " style='color:var(--amber-t)'" if tone == "warn" else "")
-    return (f"<tr><th>Criptare disc (BitLocker)</th>"
-            f"<td{style}>{ico} {html.escape(txt)}</td></tr>")
-
-
-def _tg_line(tg: dict) -> str:
-    if tg["running"]:
-        return f"{_ic('check')} activ — @{html.escape(tg['username'])}"
-    if os.environ.get("DENTART_TOKEN_UNREADABLE") == "1":
-        # шифротекст не с этой машины (см. dpapi.py). Молчаливое «fără token»
-        # отправило бы клинику чинить настройки бота, которые в порядке
-        return (_ic("key") + " tokenul nu poate fi citit pe acest calculator — "
-                "reintroduceți-l în secțiunea Telegram")
-    if os.environ.get("TELEGRAM_TOKEN", "").strip():
-        return f"{_ic('sos')} {html.escape(tg.get('error') or 'pornire…')}"
-    return "— fără token (secțiunea Telegram Bot)"
-
-
 def _sec_page(body: str, sub: str, msg: str) -> str:
     nav = (f"<div class='nav'><a href='/admin/settings'>{_ic('chev-l')} Setări</a>"
            f"<a href='/admin'>{_ic('home')} Panou</a></div>")
@@ -336,97 +311,10 @@ async def admin_settings(request: Request, msg: str = ""):
 async def settings_system(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    # статус спрашиваем у core, а не повторяем трюк с sys.modules: имя пакета
-    # зависит от того, где лежит файл, и своя копия уже один раз соврала
-    tg = tg_status()
-    # Telegram заморожен (08-08): строка канала — только клинике с настроенным
-    # ботом. Остальным она писала «— fără token (secțiunea Telegram Bot)» —
-    # отправляла искать раздел, который заморозка как раз спрятала (08-13).
-    tg_row = (f"<tr><th>Canal Telegram</th><td>{_tg_line(tg)}</td></tr>"
-              if tg_configured() else "")
-    if upd.can_self_update():
-        up_line = (
-            f"{_ic('refresh')} disponibilă {html.escape(upd.STATE['latest'])} "
-            f"<form method='post' action='/admin/update/run' style='display:inline'>"
-            f"<button style='background:#e8710a;color:#fff;border:none;border-radius:6px;"
-            f"padding:6px 14px;cursor:pointer;font-size:14px;margin-left:8px'>"
-            f"{_ic('upload')} Actualizează acum</button></form>"
-        )
-    elif upd.asset_pending() and upd.is_desktop():
-        up_line = (f"{_ic('clock')} versiunea {html.escape(upd.STATE['latest'])} este anunțată, "
-                   f"dar fișierul programului încă nu e publicat — "
-                   f"reverificăm automat peste câteva minute")
-    elif upd.newer_available():
-        up_line = (f"<a href='{html.escape(upd.STATE['url'])}' target='_blank'>"
-                   f"{_ic('refresh')} disponibilă {html.escape(upd.STATE['latest'])} — descărcați</a>")
-    elif upd.STATE["checked"] and not upd.STATE["error"]:
-        up_line = f"{_ic('check')} la zi"
-    elif upd.STATE["error"]:
-        up_line = "— necunoscut (offline?)"
-    else:
-        up_line = "se verifică…"
-    # ⭐ ЕДИНСТВЕННОЕ место, где директор может свериться, куда программа
-    # пишет, — и потому якорь для двух текстов, которые иначе описывали бы
-    # раскладку словами и протухли бы при следующем переезде: ответы FAQ про
-    # перенос и CITESTE-MA.txt внутри вывозного архива оба отсылают СЮДА.
-    # ⚠️ Путь, а не «да/нет»: сверяют его глазами с адресной строкой
-    # Проводника, и сокращение вроде «%ProgramData%» сверить нельзя.
-    _folder = data_folder()
-    dir_row = (f"<tr><th>Folderul cu date</th><td><code>"
-               f"{html.escape(_folder)}</code><br>"
-               f"<span style='color:var(--text3);font-size:12px'>aici stau "
-               f"evidența, documentele și copiile de rezervă — nu în folderul "
-               f"în care este instalat programul</span></td></tr>"
-               ) if _folder else ""
-    # Канал виден в интерфейсе намеренно: на этой машине обновление приходит
-    # РАНЬШЕ, чем клиникам, и перепутать её с боевой установкой нельзя.
-    chan_row = ""
-    ch = upd.channel()
-    if ch != "stable":
-        # beta — публичные пре-релизы, ключ не нужен; draft — ещё и черновики,
-        # но для них нужен токен с правом записи. Названия разные намеренно:
-        # риск у этих двух режимов разный, и путать их нельзя.
-        name = "draft (test)" if ch == "draft" else "beta (pre-lansări)"
-        note = ""
-        if upd.STATE.get("draft"):
-            note = " · versiunea curentă din canal este nepublicată"
-        elif upd.STATE.get("prerelease"):
-            note = " · versiunea curentă din canal este pre-lansare"
-        chan_row = (f"<tr><th>Canal actualizări</th><td>"
-                    f"<b style='color:var(--amber-t)'>{name}</b> — "
-                    "acest calculator vede versiunile ÎNAINTE de clinici"
-                    + note + "</td></tr>")
-    up_line += ("<form method='post' action='/admin/update/check' style='display:inline'>"
-                "<button style='background:none;border:1px solid var(--line);border-radius:8px;"
-                "padding:4px 10px;cursor:pointer;font-size:12px;color:var(--text2);"
-                f"margin-left:10px'>{_ic('refresh')} Verifică acum</button></form>")
-    body = f"""
-<h2>{_ic("info")} Stare sistem</h2>
-<table class='set'>
-<tr><th style='width:180px'>Versiune</th><td>v{eng.APP_VERSION}</td></tr>
-<tr><th>Bază de date</th><td>{"SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"}</td></tr>
-{dir_row}
-{tg_row}
-<tr><th>Actualizări</th><td>{up_line}</td></tr>
-{chan_row}
-<tr><th>Acces jurnal</th><td>{_ic('lock')} {"PIN setat" if _pin_rec() else ("parolă (ADMIN_KEY)" if ADMIN_KEY else "deschis")}</td></tr>
-{_bl_row()}
-<tr><th>Feedback / suport</th><td><a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a></td></tr>
-</table>
-
-<h2>{_ic("shield")} Confidențialitate</h2>
-<div class='pcard' style='max-width:var(--measure)'>
-<p style='margin:0 0 8px;font-size:13px;line-height:1.55;color:var(--text2)'>
-<b style='color:var(--text)'>Programul funcționează local.</b> Datele personale ale pacienților
-nu sunt transmise dezvoltatorului și nu sunt stocate pe serverele acestuia.
-Actualizările descarcă doar fișierele programului. Baza de date, jurnalele și
-copiile de rezervă rămân pe acest calculator, în folderul cu date de mai sus.</p>
-<p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--text3)'>
-Программа работает локально. Персональные данные пациентов не передаются
-разработчику и не хранятся на его серверах. Обновления загружают только файлы
-программы. База данных, журналы и резервные копии остаются на этом компьютере.</p>
-</div>"""
-    return _sec_page(body, "setări · stare sistem", msg)
+    if react_on(request, "settings_system"):
+        return _sec_page(react_mount("settings_system", request.url.path),
+                         "setări · stare sistem", msg)
+    return _sec_page(system.render(), "setări · stare sistem", msg)
 
 
 @router.get("/admin/settings/telegram", response_class=HTMLResponse)
@@ -440,7 +328,7 @@ async def settings_telegram(request: Request, msg: str = ""):
           else "token de la @BotFather (ex. 123456789:AA...)")
     body = f"""
 <h2>{_ic("bot")} Telegram — token bot</h2>
-<p class='hint' style='margin-top:0'>Stare: {_tg_line(tg_status())}</p>
+<p class='hint' style='margin-top:0'>Stare: {system.tg_line(tg_status())}</p>
 <form class='add' method='post' action='/admin/telegram/save'
       onsubmit="return confirm('Programul se va reporni pentru aplicare. Continuați?')">
   <input type='password' name='token' placeholder="{ph}" style='width:430px'>

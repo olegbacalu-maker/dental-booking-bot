@@ -4,19 +4,20 @@
 данных (`_hub_tiles`, `faq.entries`, `lan.*_html`, `_val_hours`) — подпись,
 которой нет на старой странице, не может появиться и в JSON, и наоборот.
 """
+import html
 import json
 import pathlib
 import re
 import shutil
 import tempfile
 
-from harness import TG_ON, Client, Result, Server
+from harness import FIXTURES, TG_ON, Client, Result, Server
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 FLAGS = ["settings_clinic", "doctors_list", "doctor_card", "settings_hub",
          "settings_lan", "settings_faq", "settings_hours", "settings_services",
          "settings_theme", "settings_security", "settings_backup",
-         "settings_crypt", "patients_search"]
+         "settings_crypt", "settings_system", "patients_search"]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 
@@ -159,6 +160,112 @@ def suite_lan(res: Result) -> None:
                       Client(s.url).post_json("/api/settings/lan/firewall", {}).status, 401)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def suite_system(res: Result) -> None:
+    """«Stare sistem»: версия, база, ПУТЬ к папке данных, обновление, вход.
+
+    ⭐ Главное, что стережётся, — ФАКТ вместо описания. Это единственный экран,
+    по которому директор сверяет, куда программа пишет; описание раскладки
+    словами протухает молча (хвост P1, 21.09: семь фраз уехали клиникам,
+    описывая «рядом с exe»), а путь из того же места, куда программа пишет, —
+    нет.
+    """
+    with Server() as s:
+        res.check("без входа — 401", Client(s.url).get("/api/settings/system").status, 401)
+        c = Client(s.url).login()
+        d = _j(c.get("/api/settings/system"))["data"]
+        res.ok("версия — три числа", d["version"].count(".") == 2, f"{d['version']!r}")
+        res.check("база названа", d["db"], "SQLite (local, data/dental.db)")
+        # ⚠️ Прогон идёт ИЗ ИСХОДНИКОВ, а раскладку задаёт лаунчер
+        # (`$DENTART_DATA_DIR`): здесь её нет, и строки быть не должно вовсе.
+        # Врать «папка рядом с exe» — ровно то, чем кончился хвост P1.
+        res.check("без заданной раскладки пути нет", d["folder"]["path"], "")
+        res.ok("рядом с путём сказано, что в нём лежит",
+               "copiile de rezervă" in d["folder"]["hint"], d["folder"]["hint"])
+        res.ok("вход: значок и слово по отдельности",
+               d["access"]["icon"] == "lock" and d["access"]["text"],
+               f"{d['access']}")
+        res.ok("обновление: состояние из перечисления",
+               d["update"]["state"] in ("self", "pending", "link", "fresh",
+                                        "unknown", "checking"), f"{d['update']}")
+        res.ok("у состояния есть слово для человека", bool(d["update"]["text"]),
+               f"{d['update']}")
+        res.ok("ссылка непуста ТОЛЬКО там, где качать надо руками",
+               bool(d["update"]["url"]) == (d["update"]["state"] == "link"),
+               f"{d['update']}")
+        res.check("канал stable строки не даёт", d["channel"], None)
+        res.ok("почта поддержки на месте", "@" in d["feedback"], d["feedback"])
+        res.ok("проза о локальности приехала обоими языками",
+               "funcționează local" in d["privacy"]
+               and "работает локально" in d["privacy"], d["privacy"][:80])
+        # ⛔ Бот заморожен (08-08): строки канала быть не должно, иначе она
+        # отправляет клинику искать раздел, который заморозка спрятала.
+        res.check("без настроенного бота строки канала нет", d["telegram"], "")
+
+        # ⛔ Паритет: JSON и старая страница собраны из ОДНИХ кусков.
+        page = c.get("/admin/settings/system").body
+        res.ok("без пути строки о папке нет и на старой странице",
+               "Folderul cu date" not in page, "строка появилась без раскладки")
+        res.ok("слово об обновлении есть и на старой странице",
+               d["update"]["text"] in page, "строка обновления разошлась")
+        res.ok("проза о локальности есть и на старой странице",
+               "funcționează local" in page, "проза разошлась")
+
+        r = c.post_json("/api/settings/system/check", {})
+        res.check("проверка обновлений — 200", r.status, 200)
+        res.ok("ответ — СВЕЖАЯ модель целиком, а не «проверено»",
+               _j(r)["data"]["version"] == d["version"] and "update" in _j(r)["data"],
+               f"{_j(r)['data'].keys()}")
+
+    # ⭐ Раскладка задана лаунчером — экран показывает ФАКТ, и тот же факт
+    # видит старая страница. Это единственное место, по которому директор
+    # сверяет, куда программа пишет, поэтому путь ЦЕЛИКОМ: сокращение вроде
+    # «%ProgramData%» с адресной строкой Проводника не сверить.
+    with Server(env={"DENTART_DATA_DIR": str(FIXTURES)}) as s:
+        c = Client(s.url).login()
+        d = _j(c.get("/api/settings/system"))["data"]
+        res.check("папка данных — та, что задал лаунчер", d["folder"]["path"],
+                  str(FIXTURES))
+        res.ok("тот же путь на старой странице",
+               html.escape(str(FIXTURES)) in c.get("/admin/settings/system").body,
+               "путь разошёлся")
+
+    # ⭐ Канал НЕ stable виден намеренно: на этой машине обновление приходит
+    # раньше, чем клиникам, и перепутать её с боевой установкой нельзя.
+    with Server(env={"DENTART_CHANNEL": "beta"}) as s:
+        c = Client(s.url).login()
+        ch = _j(c.get("/api/settings/system"))["data"]["channel"]
+        res.ok("beta названа и объяснена",
+               ch and "beta" in ch["name"] and "ÎNAINTE" in ch["warn"], f"{ch}")
+        res.ok("та же строка есть и на старой странице",
+               ch and ch["name"] in c.get("/admin/settings/system").body, "разошлась")
+
+    # клиника с настроенным ботом (grandfather) — строка канала возвращается
+    with Server(env=TG_ON) as s:
+        c = Client(s.url).login()
+        d = _j(c.get("/api/settings/system"))["data"]
+        res.ok("у grandfather-клиники строка канала есть", bool(d["telegram"]),
+               "строки нет")
+
+    s = _server_with_flags(env=NO_KEY)
+    with s:
+        boss = Client(s.url)
+        boss.post("/admin/setup", pin1="1111", pin2="1111")
+        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        page = boss.get("/admin/settings/system").body
+        res.ok("узел React", 'data-screen="settings_system"' in page, "узла нет")
+        res.ok("старой таблицы нет", "Stare sistem</h2>" not in page, "две разметки")
+        res.ok("?ui=legacy: старая страница",
+               "Confidențialitate" in boss.get("/admin/settings/system?ui=legacy").body, "нет")
+        res.ok("вход по PIN виден как PIN",
+               _j(boss.get("/api/settings/system"))["data"]["access"]["text"] == "PIN setat",
+               "вход назван не так")
+        ana = Client(s.url)
+        ana.post("/admin/login", password="3333", next="/admin")
+        res.check("регистратуре JSON закрыт", ana.get("/api/settings/system").status, 403)
+        res.check("и проверка обновлений закрыта",
+                  ana.post_json("/api/settings/system/check", {}).status, 403)
 
 
 def suite_crypt(res: Result) -> None:

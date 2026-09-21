@@ -10,6 +10,7 @@ import { HoursSettingsScreen } from '../features/settings/HoursSettingsScreen'
 import { LanSettingsScreen } from '../features/settings/LanSettingsScreen'
 import { SecuritySettingsScreen } from '../features/settings/SecuritySettingsScreen'
 import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
+import { SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
 import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { VisitScreen } from '../features/visits/VisitScreen'
@@ -43,6 +44,7 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_security') return <SecuritySettingsScreen />
   if (screen === 'settings_backup') return <BackupSettingsScreen />
   if (screen === 'settings_crypt') return <CryptSettingsScreen />
+  if (screen === 'settings_system') return <SystemSettingsScreen />
   if (screen === 'patients_search') return <PatientsSearchScreen params={params} />
   if (screen === 'patient_card') {
     return <PatientCardScreen pid={Number(params.pid)} views={params.views === '1'} />

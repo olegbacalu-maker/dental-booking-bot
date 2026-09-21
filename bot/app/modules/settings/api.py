@@ -34,7 +34,7 @@ from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT,
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
-from . import crypt, faq, lan
+from . import crypt, faq, lan, system
 from .routes import (RESTART_NOTE, _PALETTE_RO, _apply_user, _drop_user,
                      _finish_cfg, _hub_tiles, _lan_available, _last_logins,
                      _logo_action, _set_lan, _val_clinic, _val_hours,
@@ -164,6 +164,32 @@ async def api_lan_firewall(request: Request):
     if not _lan_available():
         return msg_json(False, status=404)
     return msg_json(True, data={"asked": lan.request_firewall_rule()})
+
+
+# ---------- состояние системы ----------
+
+@router.get("/api/settings/system")
+async def api_system_get(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    return msg_json(True, data=system.data())
+
+
+@router.post("/api/settings/system/check")
+def api_system_check(request: Request):
+    """Проверить обновления прямо сейчас — не ждать следующего цикла.
+
+    ⚠️ Синхронный `def` › threadpool, как у формы старой страницы: сетевой
+    запрос не должен блокировать сервер.
+    ⭐ Ответ — СВЕЖАЯ модель целиком, а не «проверено»: старая страница
+    отвечала редиректом на себя же, то есть человек видел результат на
+    перезагруженной странице. Второй запрос за состоянием был бы тем же самым
+    ответом, только позже.
+    """
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    upd.check_now()
+    return msg_json(True, data=system.data())
 
 
 # ---------- шифрование картотеки ----------
