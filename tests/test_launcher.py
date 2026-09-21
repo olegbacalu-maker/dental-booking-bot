@@ -261,7 +261,10 @@ def suite_port(res: Result) -> None:
                "scripts/smoke_build.py": '"DENTART_DATA_DIR": str(lab)',
                # ⚠️ У этого стенда назначение и есть изолируемая папка: он
                # проверяет, что программа туда НЕ пошла. Поэтому имя другое.
-               "scripts/check_relocate_live.py": '"DENTART_DATA_DIR": str(anchor)'}
+               "scripts/check_relocate_live.py": '"DENTART_DATA_DIR": str(anchor)',
+               # ⚠️ И у этого назначение — изолируемая папка: он проверяет, что
+               # подтверждение в неё почти ничего не пишет.
+               "scripts/check_split_live.py": '"DENTART_DATA_DIR": str(anchor)'}
     for rel, want in BENCHES.items():
         f = BOT.parent / rel
         # сторож за сторожом: переименуют файл — правило обязано упасть, а не
