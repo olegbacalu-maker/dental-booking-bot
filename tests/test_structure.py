@@ -112,6 +112,16 @@ _LITE_PATIENT_TABLE = "patients"
 _LITE_PATIENT_ALTER = f"ALTER TABLE {_LITE_PATIENT_TABLE} ADD COLUMN"
 
 
+# Как клиент называет поверхность: в адресе (`…?screen=panel`) и ключом
+# объекта (`new URLSearchParams({ screen: 'panel' })`). Вторая форма нужна:
+# панель строит запрос именно так, и правило, знающее только первую, не
+# увидело бы её вовсе.
+# ⚠️ У ключевой формы кавычки ОБЯЗАТЕЛЬНЫ — иначе правило поймало бы
+# объявление типа `screen: string` и сочло бы поверхностью слово «string».
+_SURF_URL = re.compile(r"screen=([a-z_]+)")
+_SURF_KEY = re.compile(r"""\bscreen\b\s*:\s*['"]([a-z_]+)['"]""")
+
+
 def _schema_tables(sql: str) -> dict[str, set]:
     """{таблица: {имена колонок}} из текста схемы."""
     sql = _SQL_COMMENT.sub("", sql)
@@ -893,6 +903,56 @@ def suite(res: Result) -> None:
     res.ok("обрезок не носит имени полного значения", not bad_cut,
            "диалог возьмёт обрезок за целое и запишет его обратно, а живой "
            "канал не заметит правки за границей: " + "; ".join(bad_cut))
+
+    # ---- поверхность без состояния: клиент и сервер зовут её ОДИНАКОВО ----
+    # ⭐ `_NO_STATE` (`schedule/api.py`) — имена поверхностей, которым команда
+    # отвечает кодом БЕЗ состояния: у них своя модель, и день журнала им не
+    # подходит. Имя это ДОГОВОР между клиентом и сервером, и опасное
+    # направление у него не то, о котором думаешь.
+    # ⛔ Клиент шлёт `screen=X`, сервер такого имени не знает — и вместо кода
+    # приезжает ПОЛНАЯ МОДЕЛЬ ДНЯ, с другим ключом колонки, с кодом 200 и без
+    # единого слова об этом. Ровно так и краснели первые проверки `e` и `f`
+    # (C26.5.3): FastAPI молча игнорирует неизвестный ПАРАМЕТР, а неизвестное
+    # ЗНАЧЕНИЕ параметра молча роняет ответ в ветку дня.
+    # ⚠️ Второе направление дешевле, но тоже сторожится: имя в наборе, которого
+    # не шлёт никто, — мёртвая ветка, и само по себе такое правило не краснеет
+    # никогда (список с ВКЛЮЧАЮЩЕЙ полярностью, CLAUDE.md).
+    # ⚠️ Проверки клиента из обхода исключены намеренно: они вправе назвать
+    # небывалую поверхность, чтобы доказать отказ.
+    sched = by_path.get("app/modules/schedule/api.py")
+    surfaces: set[str] = set()
+    if sched is not None:
+        for node in ast.walk(sched):
+            if (isinstance(node, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == "_NO_STATE"
+                            for t in node.targets)
+                    and isinstance(node.value, ast.Set)):
+                surfaces = {e.value for e in node.value.elts
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    sent: dict[str, str] = {}
+    for f in sorted((ROOT / "frontend" / "src").rglob("*.ts*")):
+        if ".test." in f.name:
+            continue
+        text = f.read_text(encoding="utf-8")
+        for rx in (_SURF_URL, _SURF_KEY):
+            for m in rx.finditer(text):
+                sent.setdefault(m.group(1), str(f.relative_to(ROOT)))
+
+    bad = []
+    if not surfaces:
+        bad.append("в app/modules/schedule/api.py нет набора _NO_STATE — "
+                   "якорь правила пропал")
+    bad += [f"{where}: клиент шлёт screen={name}, а сервер такого не знает"
+            for name, where in sorted(sent.items()) if name not in surfaces]
+    res.ok("поверхность, которую шлёт клиент, сервер знает", not bad,
+           "команда вернёт полную модель ДНЯ вместо кода — с другим ключом "
+           "колонки и с кодом 200: " + "; ".join(bad))
+
+    dead = sorted(surfaces - set(sent))
+    res.ok("в _NO_STATE нет имени, которого не шлёт никто",
+           bool(surfaces) and not dead,
+           "мёртвая ветка на сервере (или переименованная поверхность, о "
+           "которой клиент уже не знает): " + "; ".join(dead or ["нет _NO_STATE"]))
 
     # ---- icons.ts свежий: иконки клиента — ИЗ layout._I (09-17, 2.0) ----
     # У иконок один владелец — словарь _I; frontend/src/components/icons.ts
