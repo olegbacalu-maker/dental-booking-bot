@@ -49,6 +49,7 @@ from .modules.schedule import api as schedule_api
 from .modules.schedule import routes as schedule
 from .modules.settings import api as settings_api
 from .modules.settings import routes as settings
+from .modules.stats import api as stats_api
 from .modules.stats import routes as stats
 
 app = FastAPI(title="DentPilot")
@@ -68,6 +69,7 @@ app.include_router(doctors_api.router)    # JSON API раздела (DentPilot 2
 app.include_router(settings.router)
 app.include_router(settings_api.router)   # JSON API раздела (DentPilot 2.0)
 app.include_router(stats.router)
+app.include_router(stats_api.router)      # JSON API раздела (DentPilot 2.0)
 app.include_router(qr.router)
 
 

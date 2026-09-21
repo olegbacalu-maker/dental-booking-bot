@@ -13,6 +13,7 @@ import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScr
 import { SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
 import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
+import { StatsScreen } from '../features/stats/StatsScreen'
 import { VisitScreen } from '../features/visits/VisitScreen'
 import { OdontogramScreen } from '../features/clinical/OdontogramScreen'
 import { PerioScreen } from '../features/clinical/PerioScreen'
@@ -45,6 +46,9 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_backup') return <BackupSettingsScreen />
   if (screen === 'settings_crypt') return <CryptSettingsScreen />
   if (screen === 'settings_system') return <SystemSettingsScreen />
+  if (screen === 'stats') {
+    return <StatsScreen from={params.from ?? ''} to={params.to ?? ''} />
+  }
   if (screen === 'patients_search') return <PatientsSearchScreen params={params} />
   if (screen === 'patient_card') {
     return <PatientCardScreen pid={Number(params.pid)} views={params.views === '1'} />

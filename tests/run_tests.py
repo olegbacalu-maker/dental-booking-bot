@@ -57,6 +57,7 @@ import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
+import test_stats_api  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
@@ -118,6 +119,8 @@ SUITES = [
     ("Пациент без телефона и поиск по дате", test_admin.suite_nophone),
     ("Края дневной сетки", test_admin.suite_grid_edges),
     ("Аналитика", test_admin.suite_analytics),
+    ("Аналитика (JSON)", test_stats_api.suite_stats),
+    ("Аналитика: React-экран и право", test_stats_api.suite_switch),
     ("Заморозка бота: интерфейс", test_admin.suite_bot_ui),
     ("Карточка пациента", test_admin.suite_patient_card),
     ("Анамнез: опросник", test_anamneza.suite),
