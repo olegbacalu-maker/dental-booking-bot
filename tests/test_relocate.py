@@ -188,6 +188,68 @@ def suite_read_only(res: Result) -> None:
                "шаги 1–3 что-то создали — это уже шаг 4")
 
 
+def suite_root_for(res: Result) -> None:
+    """Из какого корня РАБОТАТЬ запуску, пока шаги 4–8 не написаны.
+
+    ⭐ Правило живёт здесь, а не в лаунчере, ровно потому, что лаунчер прогоном
+    не исполняется ни строкой (харнесс поднимает `app.main` напрямую) — прайор
+    карты. В `desktop.py` остаётся вызов, и его МЕСТО держит `test_launcher`.
+
+    ⚠️ `shortcuts=[]` во всех вызовах — не формальность. Без него детекция
+    читает НАСТОЯЩИЕ ярлыки машины, а на машине разработчика DentPilot
+    установлен: проверка «чистая машина» падала на `unconfirmed`, потому что
+    видела `C:\\Program Files\\DentPilot`. Поймано этой же проверкой при первом
+    прогоне — временная папка не делает набор герметичным, пока код смотрит в
+    окружение.
+    """
+    with tempfile.TemporaryDirectory(prefix="dp_rf_") as td:
+        root = pathlib.Path(td)
+        old = _root(root / "Public" / "DentPilot")
+        anchor = root / "ProgramData" / "DentPilot"
+        anchor.mkdir(parents=True)
+
+        # ⛔ Главный случай: одноклик-обновление подменило exe на месте,
+        # перезапустило его из планировщика, окружение чистое. Картотека —
+        # рядом со старым exe, назначение пусто. Работаем ТАМ, где картотека.
+        got, verdict = relocate.root_for(anchor, shortcuts=[], self_root=old)
+        res.check("назначение пусто — работаем в старом корне", got, old)
+        res.check("и это исход unique", verdict["outcome"], "unique")
+
+        # ⚠️ Приказ шифрования запрещает КОПИРОВАТЬ, а не работать: вместо
+        # пустого журнала клиника получила бы закрытую программу.
+        (old / "data" / "db-key.pending").write_text("x", encoding="utf-8")
+        got, verdict = relocate.root_for(anchor, shortcuts=[], self_root=old)
+        res.check("приказ шифрования работу в старом корне не отменяет",
+                  got, old)
+        res.ok("но в вердикте он назван", verdict["blockers"], "молчком")
+        (old / "data" / "db-key.pending").unlink()
+
+        # ⛔ Картотека в обоих — стартуем в назначении, а НЕ отказываем:
+        # программа, не открывшаяся из-за спорной находки, закрыла бы клинику
+        # на день. Выбор — экран того же класса, что режим восстановления.
+        _root(anchor)
+        got, verdict = relocate.root_for(anchor, shortcuts=[], self_root=old)
+        res.check("раздвоение — стартуем в назначении", got, anchor)
+        res.check("и это исход split", verdict["outcome"], "split")
+
+        # ⛔ И самое неочевидное: unconfirmed — НОРМА здоровой установки.
+        # Общий ярлык и сам процесс называют папку программы, данных там нет и
+        # быть не должно. Останавливать по нему запуск значило бы не пускать в
+        # программу каждую правильно установленную клинику.
+        pf = root / "Program Files" / "DentPilot"
+        pf.mkdir(parents=True)
+        (pf / "DentPilot.exe").write_bytes(b"MZ")
+        got, verdict = relocate.root_for(anchor, shortcuts=[], self_root=pf)
+        res.check("установка без картотеки рядом — это unconfirmed",
+                  verdict["outcome"], "unconfirmed")
+        res.check("и запуск идёт обычным порядком", got, anchor)
+
+        # чистая машина: никто ничего не назвал
+        got, verdict = relocate.root_for(anchor, shortcuts=[], self_root=None)
+        res.check("источников нет — корень назначения", got, anchor)
+        res.check("исход назван", verdict["outcome"], "no-origin")
+
+
 def suite_no_drivers(res: Result) -> None:
     """⛔ Сторож полярности: источник не открывается НИКАКИМ драйвером.
 

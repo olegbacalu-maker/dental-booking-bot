@@ -329,6 +329,7 @@ SUITES = [
     ("P2 шаг 2: отпечаток без открытия", test_relocate.suite_fingerprint),
     ("P2 шаг 3: решение", test_relocate.suite_decide),
     ("P2 шаг 3: приказы шифрования останавливают", test_relocate.suite_blockers),
+    ("P2: из какого корня работать запуску", test_relocate.suite_root_for),
     ("P2 шаги 1-3: ни одного записанного байта", test_relocate.suite_read_only),
     ("P2 шаги 1-3: драйверы не зовутся", test_relocate.suite_no_drivers),
     ("P3-min: резерв остаётся резервом", test_legacy.suite_reserved),
