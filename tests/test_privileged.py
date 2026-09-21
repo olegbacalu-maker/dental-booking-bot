@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import ast
 import ctypes
 import json
 import pathlib
@@ -336,3 +337,261 @@ def suite_route_quiet(res: Result) -> None:
                    "права запрошены там, где чинить нечего")
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+def _lab(tmp: pathlib.Path, *, size: int = 5_200_000, head: bytes = b"MZ",
+         request: dict | None = None) -> tuple:
+    """Лаборатория обновления: папка программы, папка клиники, файл и описание."""
+    import hashlib
+    import json
+
+    prog = tmp / "Program Files" / "DentPilot"
+    prog.mkdir(parents=True)
+    exe = prog / "DentPilot.exe"
+    exe.write_bytes(b"STARAYA PROGRAMMA")
+    work = tmp / "data" / privileged.WORK_SUBDIR
+    work.mkdir(parents=True)
+    new = work / ("DentPilot" + privileged.NEW_SUFFIX)
+    body = head + b"\0" * max(0, size - len(head))
+    new.write_bytes(body)
+    if request is None:
+        request = {"size": len(body), "sha256": hashlib.sha256(body).hexdigest()}
+    (work / privileged.REQUEST_NAME).write_text(json.dumps(request),
+                                                encoding="utf-8")
+    return exe, work, new
+
+
+def suite_install(res: Result) -> None:
+    """P4.2: подмена программы за UAC — только перемещение, и по проверке."""
+    import tempfile
+
+    real = privileged._self_exe
+    with tempfile.TemporaryDirectory(prefix="dp_inst_") as td:
+        tmp = pathlib.Path(td)
+        exe, work, new = _lab(tmp)
+        privileged._self_exe = lambda: exe
+        try:
+            out = privileged.run_op("install-update", [], lambda: tmp / "data")
+            res.check("операция довольна", out, "ok")
+            res.ok("новый файл занял место программы",
+                   exe.read_bytes()[:2] == b"MZ", "подмена не состоялась")
+            old = exe.with_name("DentPilot" + privileged.OLD_SUFFIX)
+            # ⛔ Старую версию НЕ удаляем (прайор 08-10): существование нового
+            # файла ничего не доказывает — он может быть битым или съеденным
+            # антивирусом, и тогда клиника осталась бы вообще без программы.
+            res.ok("прежняя программа лежит рядом", old.exists(),
+                   "откатывать нечем — неудачное обновление станет удалением")
+            res.check("и это именно она", old.read_bytes(), b"STARAYA PROGRAMMA")
+            res.ok("исходник из папки клиники убран", not new.exists(),
+                   "копия осталась — следующий запуск поставит её заново")
+            res.check("итог записан файлом",
+                      (work / privileged.RESULT_NAME).read_text(encoding="utf-8"),
+                      "ok")
+        finally:
+            privileged._self_exe = real
+
+    # ⛔ Отрицательные: каждый отказ обязан ОСТАВИТЬ программу на месте.
+    cases = [
+        ("файла нет", dict(size=0), "нет файла"),
+        ("обрывок закачки", dict(size=1000), "размер"),
+        ("не программа Windows", dict(head=b"PK"), "не программа"),
+        ("отпечаток не сошёлся",
+         dict(request={"size": 5_200_000, "sha256": "0" * 64}), "отпечаток"),
+        ("размер не сошёлся",
+         dict(request={"size": 42, "sha256": "0" * 64}), "размер"),
+    ]
+    for name, kw, want in cases:
+        with tempfile.TemporaryDirectory(prefix="dp_inst_bad_") as td:
+            tmp = pathlib.Path(td)
+            exe, work, new = _lab(tmp, **kw)
+            if kw.get("size") == 0:
+                new.unlink()
+            privileged._self_exe = lambda e=exe: e
+            try:
+                out = privileged.run_op("install-update", [], lambda: tmp / "data")
+                res.ok(f"отказ: {name}", want in out, f"ответ: {out!r}")
+                res.check(f"программа цела: {name}", exe.read_bytes(),
+                          b"STARAYA PROGRAMMA")
+            finally:
+                privileged._self_exe = real
+
+    # ⛔ И самое важное: операция НИЧЕГО не запускает. Запусти она новый файл —
+    # тот пошёл бы от администратора, и подменённый кем-то exe получил бы
+    # права, которых у него нет.
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "bot" / "app" / "privileged.py").read_text(encoding="utf-8")
+    body = src[src.index("def _install_update"):src.index("# Закрытый список")]
+    for token in ("subprocess", "os.system", "os.startfile", "Popen",
+                  "ShellExecute", "exec(", "eval("):
+        res.ok(f"подмена ничего не исполняет: нет {token}", token not in body,
+               f"в операции появился запуск: {token}")
+
+
+def suite_update_paths(res: Result) -> None:
+    """⛔ Рядом с exe больше НЕ ПИШЕТСЯ ничего.
+
+    В `Program Files` первая же такая запись — «Отказано в доступе», и прежний
+    путь отказывал на скачивании, то есть обновление у клиники не начиналось.
+    """
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "bot" / "app" / "update.py").read_text(encoding="utf-8")
+    res.ok("исходник на месте", len(src) > 5000, "файл переехал")
+    for need, why in (
+            ('work_dir() / "dentpilot_update.bat"', "скрипт обновления"),
+            ('work_dir() / "dentpilot_restart.bat"', "скрипт перезапуска"),
+            ('work_dir() / (exe.stem + ".new.exe")', "скачанный файл")):
+        res.ok(f"{why} — в папке клиники", need in src,
+               f"{why} снова пишется рядом с exe")
+    # Якорь обратной полярности: ни одного скрипта рядом с программой.
+    res.ok("bat рядом с exe не создаётся",
+           'exe.with_name("dentpilot' not in src,
+           "скрипт снова кладётся в папку программы")
+    res.ok("подмена уходит привилегированной ветке",
+           "_install_privileged(new_path, exe)" in src
+           and "exe_dir_writable()" in src,
+           "ветка без прав исчезла — обновление в Program Files снова невозможно")
+    # ⚠️ Переносимая раскладка обязана обойтись БЕЗ UAC: там папка своя.
+    res.ok("портативной раскладке окно UAC не показывается",
+           "if not exe_dir_writable():" in src,
+           "проба записи исчезла — портативная установка получит лишний UAC")
+
+def suite_contract(res: Result) -> None:
+    """P4.3: исполнитель как целое — чем он НЕ является.
+
+    ⛔ Три запрета, и проверяются они отрицательными, а не чтением кода:
+    произвольная команда, произвольный путь, произвольные аргументы. Каждый из
+    них превращает «поправить строку в реестре» в «запустить что угодно от
+    имени администратора», и обратного пути из такой ошибки у клиники нет.
+    """
+    priv = (pathlib.Path(__file__).resolve().parents[1]
+            / "bot" / "app" / "privileged.py")
+    src = priv.read_text(encoding="utf-8")
+    res.ok("исходник исполнителя на месте", len(src) > 2000, "файл переехал")
+
+    # ---- 1. произвольная КОМАНДА ----
+    # ⚠️ Разбираем КОД, а не текст файла. Первая версия искала подстроки и
+    # краснела на собственных комментариях («ни `cmd.exe`, ни `shell=True`») и
+    # на законном `getattr(sys, "frozen")`. Сторож, краснеющий на объяснении
+    # правила, отключают вместе с правилом.
+    tree = ast.parse(src)
+    doc_ids = {id(n.body[0].value) for n in ast.walk(tree)
+               if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                                 ast.ClassDef))
+               and n.body and isinstance(n.body[0], ast.Expr)
+               and isinstance(n.body[0].value, ast.Constant)
+               and isinstance(n.body[0].value.value, str)}
+    called, texts, shell_kw, loose_getattr = set(), [], False, False
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            f = n.func
+            name = f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
+            mod = (f.value.id if isinstance(f, ast.Attribute)
+                   and isinstance(f.value, ast.Name) else "")
+            called.add(f"{mod}.{name}" if mod else name)
+            if any(k.arg == "shell" for k in n.keywords):
+                shell_kw = True
+            # ⭐ `getattr(sys, …)` законен: это чтение флага сборки, а не выбор
+            # функции по строке. Запрещён ЛЮБОЙ другой.
+            if name == "getattr" and not (n.args and isinstance(n.args[0], ast.Name)
+                                          and n.args[0].id == "sys"):
+                loose_getattr = True
+        elif (isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and id(n) not in doc_ids):
+            texts.append(n.value)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                called.add(a.name)
+
+    for bad, why in (("subprocess", "запуск процесса"),
+                     ("os.system", "оболочка"),
+                     ("os.popen", "оболочка"),
+                     ("eval", "исполнение строки"),
+                     ("exec", "исполнение строки"),
+                     ("__import__", "импорт по имени"),
+                     ("importlib", "импорт по имени")):
+        res.ok(f"в исполнителе нет: {why} ({bad})", bad not in called,
+               f"появился {bad} — закрытый список перестал быть закрытым")
+    res.ok("ни одного вызова с shell=", not shell_kw,
+           "оболочка за UAC — это и есть произвольная команда")
+    res.ok("функция не выбирается по строке", not loose_getattr,
+           "getattr мимо sys — имя операции перестало быть из закрытого списка")
+    shells = [t for t in texts
+              if "cmd.exe" in t.lower() or "powershell" in t.lower()]
+    res.ok("в КОДЕ нет имени интерпретатора", not shells,
+           f"строка с оболочкой: {shells[:2]}")
+    res.ok("запускается ровно одно — свой exe",
+           src.count("ShellExecuteW") == 1 and "sys.executable, line" in src,
+           "второй способ что-то запустить")
+
+    # ---- 2. произвольный ПУТЬ ----
+    # Ни одна операция не берёт путь снаружи: `run_op` получает только имя и
+    # аргументы, а пути вычисляются от `_self_exe()` и от корня клиники.
+    # ⚠️ Корень клиники ЖИВОЙ, а не None. С `None` отказ приходил бы от «папка
+    # не найдена», и снятая проверка аргументов осталась бы незамеченной —
+    # поймано красным стендом: отказ «вообще» не доказывает отказ ПО ПРИЧИНЕ.
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="dp_argpath_") as _td:
+        _root = pathlib.Path(_td)
+        (_root / privileged.WORK_SUBDIR).mkdir()
+        for name in sorted(privileged.OPS):
+            for evil in (r"C:\Windows\System32\cmd.exe", "..\\..\\evil.exe",
+                         r"\\server\share\x.exe", "/etc/passwd"):
+                raised = ""
+                try:
+                    privileged.run_op(name, [evil], lambda: _root)
+                except privileged.Refused as e:
+                    raised = str(e)
+                res.ok(f"{name}: путь снаружи отвергнут ({evil[:18]})", bool(raised),
+                       "операция приняла путь аргументом — это и есть «запустить "
+                       "что угодно от администратора»")
+
+    # ---- 3. произвольные АРГУМЕНТЫ ----
+    # ⚠️ Лишний аргумент отвергается ТОЖЕ: операция, принимающая «хвост»,
+    # однажды начнёт его куда-нибудь передавать.
+    for args in ([], ["1.2.3", "1.2.4"], ["1.2.3", "--force"], ["-1.2.3"],
+                 ["1.2.3\n2.0.0"], [" 1.2.3 "]):
+        raised = ""
+        try:
+            privileged.run_op("uninstall-version", args, lambda: None)
+        except privileged.Refused as e:
+            raised = str(e)
+        res.ok(f"версия: отвергнуто {args!r}", bool(raised),
+               "в реестр машины уходит непроверенная строка")
+
+    # ---- 4. привилегированный процесс ВЫХОДИТ ----
+    # ⛔ Он обязан сделать одно дело и выйти: подними он заодно сервер, у
+    # клиники работала бы программа от администратора, и всё, что она пишет,
+    # стало бы недоступно ей же при следующем обычном запуске.
+    for name in sorted(privileged.OPS):
+        code = privileged.handle_argv([privileged.FLAG, name], lambda: None)
+        res.ok(f"{name}: лаунчер получает код выхода", isinstance(code, int),
+               f"вернулось {code!r} — процесс пошёл бы дальше и поднял сервер")
+
+    # ---- 5. второй способ повышения не заводится ----
+    # ⚠️ Список ИМЕНОВАННЫЙ, и это опасная полярность: новый файл с `runas`
+    # мимо него не заметит никто. Поэтому ищем нарушителей обходом, а
+    # исключение названо одно и с причиной.
+    root = pathlib.Path(__file__).resolve().parents[1] / "bot"
+    allowed = {"app/privileged.py",
+               # Правило брандмауэра, 1.15.x: под UAC уходит командная строка
+               # `cmd.exe`. Сегодня безопасно (все куски свои), но форма та
+               # самая. ⚠️ Переписать на операцию исполнителя — отдельный шаг,
+               # и пока он не сделан, это ЕДИНСТВЕННОЕ исключение.
+               "app/modules/settings/lan.py"}
+    bad = []
+    seen = 0
+    for f in sorted(root.rglob("*.py")):
+        if "__pycache__" in str(f):
+            continue
+        seen += 1
+        rel = str(f.relative_to(root)).replace("\\", "/")
+        if rel in allowed:
+            continue
+        if '"runas"' in f.read_text(encoding="utf-8", errors="replace"):
+            bad.append(rel)
+    res.ok("исходники нашлись", seen > 20, f"разобрано файлов: {seen}")
+    res.ok("повышение прав живёт в одном месте", not bad,
+           "третий способ поднять права: " + ", ".join(bad))
+    # Якорь к списку исключений: пропадёт файл — правило станет вечнозелёным.
+    gone = [rel for rel in sorted(allowed) if not (root / rel).exists()]
+    res.ok("список исключений не протух", not gone,
+           "нет файлов: " + ", ".join(gone))

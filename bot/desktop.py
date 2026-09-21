@@ -100,7 +100,11 @@ BASE = exe_dir()
 # ⚠️ Список того, что вообще может случиться за UAC, — `app/privileged.py`.
 from app import privileged  # noqa: E402 — предзагрузочный слой, без проекта
 
-if (_code := privileged.handle_argv(sys.argv[1:])) is not None:
+# ⚠️ Раскладку передаём СВОЕЙ функцией: у неё три ветки ($DENTART_DATA_DIR,
+# portable.flag, %ProgramData%), и второй вычислитель разошёлся бы с этим
+# молча. ⛔ Окружение сюда не доезжает: повышенный процесс запускает Windows,
+# а не мы, и `$DENTART_DATA_DIR`, выставленный лаунчером, в нём не виден.
+if (_code := privileged.handle_argv(sys.argv[1:], data_root)) is not None:
     raise SystemExit(_code)
 
 ROOT = data_root()

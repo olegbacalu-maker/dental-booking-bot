@@ -34,6 +34,7 @@ P4.1. Установщик с P1 работает от админа, поэто�
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 
 # Метка привилегированного запуска. Своя, а не позиционная: случайный аргумент
@@ -58,7 +59,7 @@ class Refused(Exception):
     не прошёл проверку. Отдельный тип, чтобы отказ не путался со сбоем."""
 
 
-def _set_uninstall_version(args: list[str]) -> str:
+def _set_uninstall_version(args: list[str], data_root=None) -> str:
     """`DisplayVersion` (и версия внутри `DisplayName`) в записи установщика.
 
     ⚠️ Ключ не создаётся никогда: нет записи — нечего и править, это установка
@@ -90,20 +91,144 @@ def _set_uninstall_version(args: list[str]) -> str:
     return "записи установщика нет — править нечего"
 
 
+# Имена в рабочей папке обновления. ⛔ Их знают ОБЕ стороны и ни одна не
+# передаёт другой путь: просящий кладёт файлы по этим именам, исполнитель по
+# ним же их и ищет. Путь в аргументах был бы ровно той дырой, ради которой
+# список операций и закрыт.
+WORK_SUBDIR = "updates"
+NEW_SUFFIX = ".new.exe"
+OLD_SUFFIX = ".old.exe"
+REQUEST_NAME = "install.request"
+RESULT_NAME = "install.result"
+
+# Сколько может весить программа. Нижняя граница — от оборванной закачки
+# (urllib не считает обрыв ошибкой), верхняя — чтобы не двигать в Program Files
+# что попало.
+MIN_EXE, MAX_EXE = 5_000_000, 300_000_000
+
+
+def _self_exe() -> "pathlib.Path":
+    """Что именно подменяем. ⭐ Своя функция, а не выражение по месту: это ШОВ
+    для проверок — иначе набор подменял бы python.exe, которым сам и запущен.
+    ⛔ Значение по-прежнему берётся у процесса, а НЕ из аргументов: снаружи
+    назвать цель нельзя ничем."""
+    import pathlib
+    return pathlib.Path(sys.executable).resolve()
+
+
+def _install_update(args: list[str], data_root=None) -> str:
+    """Подменить файл программы новым. ⛔ Ни одного аргумента, ни одного пути.
+
+    Источник и назначение исполнитель вычисляет САМ: назначение — это он сам
+    (`sys.executable`), источник — условленное имя в папке клиники, которую он
+    находит тем же способом, что лаунчер.
+
+    ⛔ **Здесь ничего не ИСПОЛНЯЕТСЯ.** Это и есть главный инвариант: файл
+    только перемещается. Запусти мы новую программу отсюда — она пошла бы от
+    администратора, а всё, что она пишет, стало бы недоступно клинике при
+    следующем обычном запуске; и подменённый кем-то файл получил бы права,
+    которых у него нет. Перезапуск делает обычный процесс, обычным пользователем.
+
+    ⚠️ Проверка повторяется ЗДЕСЬ, хотя обычный процесс уже проверял: между его
+    проверкой и этим моментом файл могли подменить. Она ловит гонку и порчу.
+    ⛔ Чего она НЕ ловит — подмену тем, кто уже работает с правами клиники:
+    и файл, и записанный рядом отпечаток лежат в папке, куда он пишет. Закрыть
+    это может только подпись Authenticode, и она в «закалке»; но и цена такой
+    подмены ограничена тем, что сказано выше: файл не исполняется, а попадает в
+    папку, откуда его запустит обычный пользователь.
+    """
+    if args:
+        raise Refused(f"операция не принимает аргументов, получено {args!r}")
+    import hashlib
+    import json
+    import pathlib
+
+    exe = _self_exe()
+    root = data_root() if callable(data_root) else data_root
+    if root is None:
+        raise Refused("папка клиники не найдена — источник обновления неизвестен")
+    work = pathlib.Path(root) / WORK_SUBDIR
+    new = work / (exe.stem + NEW_SUFFIX)
+    result = work / RESULT_NAME
+
+    def done(text: str) -> str:
+        # ⭐ Итог пишем ФАЙЛОМ: обычный процесс не видит ни кода возврата за
+        # UAC, ни вывода, и без этого ему осталось бы гадать.
+        try:
+            result.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+        return text
+
+    if not new.exists():
+        return done("нет файла обновления")
+    size = new.stat().st_size
+    if not MIN_EXE <= size <= MAX_EXE:
+        return done(f"размер не годится: {size}")
+    with open(new, "rb") as f:
+        if f.read(2) != b"MZ":
+            # ⛔ Опознаём по СИГНАТУРЕ, а не по расширению — тот же прайор, что
+            # у логотипа клиники.
+            return done("это не программа Windows")
+    try:
+        want = json.loads((work / REQUEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return done("нет описания обновления")
+    if str(want.get("size")) != str(size):
+        return done("размер разошёлся с описанием")
+    h = hashlib.sha256()
+    with open(new, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    if h.hexdigest() != str(want.get("sha256", "")).lower():
+        return done("отпечаток разошёлся с описанием")
+
+    old = exe.with_name(exe.stem + OLD_SUFFIX)
+    # ⛔ Порядок тот же, что у скрипта переносимой раскладки, и по той же
+    # причине (08-10): сперва увести рабочий файл, потом класть новый. При
+    # прямой замене любой сбой ПОСЛЕ неё не оставлял на диске ни одной копии
+    # программы, и все ярлыки вели в никуда.
+    try:
+        old.unlink(missing_ok=True)
+        exe.rename(old)
+    except OSError as e:
+        return done(f"не удалось убрать рабочий файл: {e}")
+    try:
+        shutil.move(str(new), str(exe))
+    except OSError as e:
+        try:
+            old.rename(exe)          # неудачное обновление ≠ удаление программы
+        except OSError:
+            pass
+        return done(f"не удалось положить новый файл: {e}")
+    return done("ok")
+
+
 # Закрытый список. Имя → обработчик. ⛔ Ни `getattr`, ни импорта по имени:
 # словарь и есть граница того, что вообще может случиться за UAC.
-OPS = {"uninstall-version": _set_uninstall_version}
+OPS = {"uninstall-version": _set_uninstall_version,
+       "install-update": _install_update}
 
 
-def run_op(name: str, args: list[str]) -> str:
-    """Исполнить операцию. Зовётся УЖЕ в привилегированном процессе."""
+def run_op(name: str, args: list[str], data_root=None) -> str:
+    """Исполнить операцию. Зовётся УЖЕ в привилегированном процессе.
+
+    ⚠️ `data_root` передаёт ЛАУНЧЕР своей же функцией. Считать раскладку здесь
+    вторым способом нельзя: у неё три ветки (`$DENTART_DATA_DIR`, портативный
+    флаг, `%ProgramData%`), и второй вычислитель разошёлся бы с первым молча.
+    ⛔ Это НЕ путь из аргументов: значение приходит из кода, а не из argv.
+    """
     op = OPS.get(name)
     if op is None:
         raise Refused(f"операции {name!r} не существует; известны {sorted(OPS)}")
-    return op(list(args))
+    # ⛔ Без «а если не примет» — все операции принимают резолвер одинаково.
+    # Запасной вызов по `TypeError` ловил бы и ошибку ВНУТРИ операции и звал бы
+    # её второй раз с другими аргументами: за UAC это худшее, что можно
+    # придумать, и выглядело бы как случайный сбой.
+    return op(list(args), data_root)
 
 
-def handle_argv(argv: list[str]) -> int | None:
+def handle_argv(argv: list[str], data_root=None) -> int | None:
     """`None` — обычный запуск; число — код возврата привилегированного.
 
     ⚠️ Зовётся ПЕРВОЙ строкой лаунчера. Привилегированный процесс обязан
@@ -114,7 +239,7 @@ def handle_argv(argv: list[str]) -> int | None:
     if len(argv) < 2 or argv[0] != FLAG:
         return None
     try:
-        print(run_op(argv[1], argv[2:]))
+        print(run_op(argv[1], argv[2:], data_root))
         return 0
     except Refused as e:
         print(f"отклонено: {e}", file=sys.stderr)

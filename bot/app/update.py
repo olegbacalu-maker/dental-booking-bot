@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.request
 
 from . import engine as eng
+from . import paths
 from . import privileged
 from . import repo
 
@@ -106,6 +107,42 @@ def newer_available() -> bool:
 def is_desktop() -> bool:
     return bool(getattr(sys, "frozen", False))
 
+
+def work_dir() -> pathlib.Path:
+    """Куда обновление пишет СВОИ файлы: скачанный exe, скрипт, метку задачи.
+
+    ⛔ Больше НЕ «рядом с exe». С переездом в `Program Files` папка программы
+    доступна только на чтение, и прежний путь отказывал на ПЕРВОМ же шаге — на
+    скачивании, — то есть обновление у клиники не начиналось вовсе.
+    ⚠️ Сюда пишет ОБЫЧНЫЙ процесс, и это осознанно: скачивать, проверять и
+    готовить можно без прав администратора. Права нужны ровно на одно действие
+    — подменить файл программы, — и живёт оно в `privileged`.
+    ⭐ Папка та же, что у картотеки: её клиника уже носит с собой при переезде,
+    и обрывок закачки в ней виден человеку, а не спрятан в чужом временном
+    каталоге.
+    """
+    root = paths.data_root() or pathlib.Path(sys.executable).resolve().parent
+    d = root / "updates"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def exe_dir_writable() -> bool:
+    """Можно ли подменить программу без прав администратора.
+
+    ⭐ Проба, а не догадка по пути: `portable.flag` рядом с exe — законная
+    раскладка, и показывать там окно UAC не за что. Решать по строке
+    «начинается ли путь с Program Files» значило бы угадывать: у клиники диск
+    может быть размечен как угодно, а у Windows есть перенаправление папок.
+    """
+    try:
+        d = pathlib.Path(sys.executable).resolve().parent
+        probe = d / f".dp-write-{os.getpid()}"
+        probe.write_bytes(b"")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
 
 # Где лежит запись установщика — знает `privileged`: правит её только он.
 # ⛔ Здесь НЕТ ни одной записи в реестр, и это не стиль, а следствие P1:
@@ -600,12 +637,16 @@ def restart_app() -> str | None:
     if os.environ.get("DENTART_NO_RESTART") == "1":  # тест-хук
         return None
     exe = pathlib.Path(sys.executable).resolve()
-    bat = exe.with_name("dentpilot_restart.bat")
+    # ⛔ Скрипт — в папку КЛИНИКИ, а не рядом с exe: в `Program Files` запись
+    # запрещена, и перезапуск отказывал бы ровно там, где он нужен чаще всего
+    # (смена токена, применение настроек).
+    # ⚠️ Раз скрипт лежит не рядом с программой, пути в нём обязаны быть
+    # АБСОЛЮТНЫМИ: `%~dp0` указывает теперь на папку клиники.
+    bat = work_dir() / "dentpilot_restart.bat"
     bat.write_text(
         "@echo off\r\n"
-        'cd /d "%~dp0"\r\n'
         "ping -n 3 127.0.0.1 >nul\r\n"
-        f'start "" /D "%~dp0" "{exe.name}"\r\n'
+        f'start "" /D "{exe.parent}" "{exe}"\r\n'
         "schtasks /delete /tn DentPilotRestart /f >nul 2>&1\r\n"
         'del "%~f0"\r\n',
         encoding="ascii",
@@ -616,6 +657,58 @@ def restart_app() -> str | None:
         return err
     _exit_soon()
     return None
+
+
+def _install_privileged(new_path: pathlib.Path, exe: pathlib.Path) -> str | None:
+    """Подмена файла программы за UAC (P4.2). None = пошло, str = человеку.
+
+    ⭐ Разделение труда здесь и есть смысл шага: скачивание, проверка и
+    перезапуск идут БЕЗ повышения, а прав просим ровно на одно действие —
+    переместить файл в папку, куда обычному процессу писать нельзя.
+
+    ⚠️ `request` отвечает «окно показано», а не «сделано»: итог UAC вызывающему
+    не виден. Поэтому исполнитель оставляет ФАЙЛ с итогом, а мы его ждём.
+    ⛔ Отказ человека в UAC — нормальный исход, а не сбой: программа остаётся
+    жива и продолжает приём, а экран честно говорит, что обновление не встало.
+    """
+    work = work_dir()
+    result = work / privileged.RESULT_NAME
+    result.unlink(missing_ok=True)
+    # Описание для перепроверки ЗА UAC: между проверкой здесь и подменой там
+    # файл могли подменить.
+    (work / privileged.REQUEST_NAME).write_text(
+        json.dumps({"size": new_path.stat().st_size,
+                    "sha256": _sha256(new_path),
+                    "version": STATE["latest"]}),
+        encoding="utf-8")
+    try:
+        shown = privileged.request("install-update")
+    except privileged.Refused as e:
+        return f"actualizarea nu a pornit: {e}"
+    if not shown:
+        return ("Windows nu a afișat cererea de drepturi de administrator — "
+                "actualizarea nu a fost instalată")
+    # ⚠️ Ждём ИТОГ, а не окно: человек может думать сколько угодно, а гасить
+    # программу до подмены нельзя — вернуть её будет некому.
+    deadline = time.time() + 300
+    while time.time() < deadline and not result.exists():
+        time.sleep(0.5)
+    if not result.exists():
+        return ("actualizarea nu a fost confirmată — programul continuă să "
+                "funcționeze cu versiunea curentă")
+    out = result.read_text(encoding="utf-8", errors="replace").strip()
+    if out != "ok":
+        return f"actualizarea nu a reușit: {out}"
+    # Файл подменён — теперь обычный перезапуск, обычным пользователем.
+    return restart_app()
+
+
+def _sha256(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _verify_download(path: pathlib.Path) -> str | None:
@@ -657,7 +750,11 @@ def self_update() -> str | None:
     exe = pathlib.Path(sys.executable).resolve()
     # имя производное от текущего exe: у старых установок он DentArt.exe,
     # у новых DentPilot.exe — bat в обоих случаях кладёт новый файл на место
-    new_path = exe.with_name(exe.stem + ".new.exe")
+    # ⛔ Скачиваем в папку КЛИНИКИ, а не рядом с exe. В `Program Files` первая
+    # же запись — «Отказано в доступе», то есть обновление не начиналось вовсе.
+    # ⭐ И это не только про права: проверять скачанное можно (и нужно) без
+    # повышения, а права запрашивать ровно на одно действие — подмену файла.
+    new_path = work_dir() / (exe.stem + ".new.exe")
     try:
         headers = {"User-Agent": "dentpilot-desktop"}
         tok = _token()
@@ -674,7 +771,13 @@ def self_update() -> str | None:
         new_path.unlink(missing_ok=True)
         return err
     old_path = exe.with_name(exe.stem + ".old.exe")
-    bat = exe.with_name("dentpilot_update.bat")
+    # ⛔ P4.2. Папка программы недоступна на запись (`Program Files`) — подмену
+    # делает не скрипт, а привилегированная операция. Скрипт ниже остаётся
+    # только для переносимой раскладки (`portable.flag`), где показывать окно
+    # UAC не за что.
+    if not exe_dir_writable():
+        return _install_privileged(new_path, exe)
+    bat = work_dir() / "dentpilot_update.bat"
     # ping вместо timeout (timeout требует консоль), CREATE_NO_WINDOW даёт cmd
     # скрытую консоль — start/ping работают, окна не мелькают.
     #
@@ -685,32 +788,35 @@ def self_update() -> str | None:
     # запускает его: неудачное обновление должно быть отличимо от удаления.
     # Число попыток ограничено (~60 с): без предела bat крутился вечно и
     # программа просто не запускалась, пока клиника не перезагрузит компьютер.
+    # ⚠️ Пути АБСОЛЮТНЫЕ: скрипт лежит теперь в папке клиники, а работает с
+    # файлами в папке программы, и `%~dp0` указывает уже не туда. ⭐ `move`
+    # переносит и между томами (копия + удаление) — папка клиники и программа
+    # вполне могут оказаться на разных дисках.
     bat.write_text(
         "@echo off\r\n"
-        f'cd /d "%~dp0"\r\n'
         "set n=0\r\n"
         ":try\r\n"
         "ping -n 2 127.0.0.1 >nul\r\n"
         "set /a n+=1\r\n"
-        f'move /y "{exe.name}" "{old_path.name}" >nul 2>&1\r\n'
-        f'if not exist "{exe.name}" goto swap\r\n'
+        f'move /y "{exe}" "{old_path}" >nul 2>&1\r\n'
+        f'if not exist "{exe}" goto swap\r\n'
         "if %n% lss 30 goto try\r\n"
         "goto fail\r\n"
         ":swap\r\n"
-        f'move /y "{new_path.name}" "{exe.name}" >nul 2>&1\r\n'
-        f'if not exist "{exe.name}" goto restore\r\n'
+        f'move /y "{new_path}" "{exe}" >nul 2>&1\r\n'
+        f'if not exist "{exe}" goto restore\r\n'
         # ⛔ Старую версию тут НЕ удаляем (08-10). Существование нового файла
         # ничего не доказывает: он может быть битым, съеденным антивирусом или
         # несовместимым, и тогда `del` оставлял клинику вообще без рабочей
         # программы. `.old.exe` убирает ЛАУНЧЕР — но только после того, как
         # новая сборка поднялась и /health ответил ею. Не поднялась — файл
         # лежит рядом, и его достаточно переименовать обратно.
-        f'start "" /D "%~dp0" "{exe.name}"\r\n'
+        f'start "" /D "{exe.parent}" "{exe}"\r\n'
         "goto done\r\n"
         ":restore\r\n"
-        f'move /y "{old_path.name}" "{exe.name}" >nul 2>&1\r\n'
+        f'move /y "{old_path}" "{exe}" >nul 2>&1\r\n'
         ":fail\r\n"
-        f'if exist "{exe.name}" start "" /D "%~dp0" "{exe.name}"\r\n'
+        f'if exist "{exe}" start "" /D "{exe.parent}" "{exe}"\r\n'
         ":done\r\n"
         "schtasks /delete /tn DentPilotUpdate /f >nul 2>&1\r\n"
         'del "%~f0"\r\n',
