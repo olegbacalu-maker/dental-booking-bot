@@ -34,16 +34,57 @@ HTTP = ("get", "post", "put", "delete", "patch")
 END = r'(?:["\'?#]|\s)'
 
 
-def routes() -> list[dict]:
+def _consts(tree: ast.Module) -> dict:
+    """Строковые константы уровня модуля: `PAGE = "/admin/migration"`.
+
+    ⚠️ Нужны потому, что адрес маршрута не обязан быть литералом. Модуль,
+    объявивший его константой, раньше пропадал из карты ЦЕЛИКОМ и молча — а
+    карта при этом выглядела полной: то же число маршрутов, ни одной жалобы.
+    Так из неё выпал экран раздвоения (21.09).
+    """
+    out = {}
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)):
+            out[node.targets[0].id] = node.value.value
+    return out
+
+
+def _route_path(node: ast.AST, consts: dict) -> str | None:
+    """Адрес из аргумента декоратора, или None — если разобрать не смогли.
+
+    ⛔ None обязан быть ГРОМКИМ у вызывающего. Тихий пропуск здесь и есть
+    ошибка класса «правило нашло ноль нарушителей и позеленело».
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return consts.get(node.id)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _route_path(node.left, consts)
+        right = _route_path(node.right, consts)
+        return None if left is None or right is None else left + right
+    return None
+
+
+def routes() -> tuple[list[dict], list[str]]:
     """Все маршруты приложения разбором ast — не грепом: декоратор бывает
-    многострочным, а имя обработчика нужно вместе с телом."""
-    out = []
+    многострочным, а имя обработчика нужно вместе с телом.
+
+    Возвращает `(маршруты, неразобранные)`. Второй список почти всегда пуст, и
+    именно поэтому его нельзя выбрасывать: непустым он станет ровно тогда,
+    когда карта начнёт врать.
+    """
+    out, unresolved = [], []
     for f in sorted(BOT.rglob("*.py")):
         src = f.read_text(encoding="utf-8")
         try:
             tree = ast.parse(src)
         except SyntaxError:
             continue
+        consts = _consts(tree)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -51,8 +92,12 @@ def routes() -> list[dict]:
                 if not (isinstance(dec, ast.Call)
                         and isinstance(dec.func, ast.Attribute)
                         and dec.func.attr in HTTP
-                        and dec.args
-                        and isinstance(dec.args[0], ast.Constant)):
+                        and dec.args):
+                    continue
+                rel = str(f.relative_to(ROOT)).replace("\\", "/")
+                path_ = _route_path(dec.args[0], consts)
+                if path_ is None:
+                    unresolved.append(f"{rel}:{node.lineno} {node.name}")
                     continue
                 body = ast.get_source_segment(src, node) or ""
                 kw = {k.arg: k.value for k in dec.keywords}
@@ -60,13 +105,13 @@ def routes() -> list[dict]:
                 rc = rc.id if isinstance(rc, ast.Name) else None
                 out.append({
                     "method": dec.func.attr.upper(),
-                    "path": dec.args[0].value,
-                    "file": str(f.relative_to(ROOT)).replace("\\", "/"),
+                    "path": path_,
+                    "file": rel,
                     "line": node.lineno,
                     "kind": _kind(body, rc),
                     "loc": len(body.splitlines()),
                 })
-    return out
+    return out, unresolved
 
 
 def _kind(body: str, rc: str | None) -> str:
@@ -184,7 +229,8 @@ def _module(path_: str) -> str:
     return "Прочее"
 
 
-def render(rs: list[dict], checks: dict[str, int]) -> str:
+def render(rs: list[dict], checks: dict[str, int],
+           unresolved: list[str] | None = None) -> str:
     by = collections.defaultdict(list)
     for r in rs:
         by[_module(r["file"])].append(r)
@@ -198,6 +244,12 @@ def render(rs: list[dict], checks: dict[str, int]) -> str:
          "\n⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть\n"
          "вызовов стоит в циклах. Делить одно на другое нельзя — сколько проверок\n"
          "на самом деле, говорит сам прогон (`.\\dev test`).\n",
+         "\n⛔ Адресов, которые сборщик не смог разобрать: "
+         f"**{len(unresolved or [])}**"
+         + (" — " + ", ".join(unresolved) if unresolved else
+            " — маршрут, объявленный через константу, раньше выпадал из карты\n"
+            "ЦЕЛИКОМ и молча: число маршрутов не менялось, жалобы не было.")
+         + "\n",
          "\n## Маршруты без единой проверки\n",
          "\n| Маршрут | Тип | стр | Замечание |\n|---|---|---|---|"]
 
@@ -242,9 +294,9 @@ def render(rs: list[dict], checks: dict[str, int]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    rs = routes()
+    rs, unresolved = routes()
     checks = link(rs)
-    text = render(rs, checks)
+    text = render(rs, checks, unresolved)
     if "--check" in argv:
         old = DOC.read_text(encoding="utf-8") if DOC.exists() else ""
         if old == text:
@@ -257,6 +309,11 @@ def main(argv: list[str]) -> int:
     uncovered = sum(1 for r in rs if not r["suites"])
     print(f"{DOC.relative_to(ROOT)}: маршрутов {len(rs)}, "
           f"без единой проверки {uncovered}")
+    if unresolved:
+        # ⛔ ВСЛУХ: недосчитанный маршрут делает карту ЛОЖНО ПОЛНОЙ, а это
+        # хуже пустой — по ней принимают решение о готовности.
+        print(f"⛔ адрес не разобран у {len(unresolved)} маршрутов — карта "
+              f"НЕДОСЧИТЫВАЕТ: {', '.join(unresolved)}")
     if "--json" in argv:
         print(json.dumps(rs, ensure_ascii=False, indent=1))
     return 0

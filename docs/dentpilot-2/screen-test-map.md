@@ -5,12 +5,16 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **185** · наборов **42** · мест вызова `res.ok`/`res.check` в исходниках — **3238**.
+Маршрутов **187** · наборов **44** · мест вызова `res.ok`/`res.check` в исходниках — **3333**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
 вызовов стоит в циклах. Делить одно на другое нельзя — сколько проверок
 на самом деле, говорит сам прогон (`.\dev test`).
+
+
+⛔ Адресов, которые сборщик не смог разобрать: **0** — маршрут, объявленный через константу, раньше выпадал из карты
+ЦЕЛИКОМ и молча: число маршрутов не менялось, жалобы не было.
 
 
 ## Маршруты без единой проверки
@@ -210,7 +214,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Флаг | Пилот |
 |---|---|---|---|---|---|---|
-| `GET /admin` | HTML | 182 | admin, admin_canvas, api, booking, day_forms, dbcrypt, doctors, hardening, migrate, panel_model, patient_card, patients_api, pin, review3_auth, schedule_api, settings_api, stats_api, theme, visit_api | 2148 | schedule_dash | off |
+| `GET /admin` | HTML | 182 | admin, admin_canvas, api, booking, day_forms, dbcrypt, doctors, hardening, migrate, panel_model, patient_card, patients_api, pin, review3_auth, schedule_api, settings_api, split, stats_api, theme, visit_api | 2192 | schedule_dash | off |
 | `POST /admin/add` | other | 14 | activity, admin, admin_canvas, booking, bot, day_actions, day_forms, doctor_windows, doctors, hardening, migrate, patient_card, patients_api, plan_acord, privacy, review2, review3, review3_bot, schedule_api, stats_api, visit, visit_api | 1869 | — | — |
 | `GET /admin/all` | HTML | 63 | activity, admin, admin_canvas, api, booking, bot, day_actions, day_forms, doctor_windows, doctors, hardening, migrate, panel_model, patient_card, patients_api, pin, plan_acord, privacy, review2, review3, review3_bot, schedule_api, stats_api, visit, visit_api | 2120 | schedule_all | off |
 | `POST /admin/comment/{appt_id}` | other | 5 | day_actions, day_forms, privacy, visit_api | 290 | — | — |
@@ -239,7 +243,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Флаг | Пилот |
 |---|---|---|---|---|---|---|
-| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, installer, launcher, legacy, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, relocate, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, structure, teeth, theme, visit, visit_api | 3146 | — | — |
+| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, installer, launcher, legacy, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, relocate, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, split, srcpin, structure, teeth, theme, visit, visit_api | 3241 | — | — |
 | `GET /admin/login` | HTML | 34 | admin, api, doctors, hardening, migrate, patient_card, patients_api, pin, review3_auth, settings_api, stats_api, theme, visit_api | 1618 | — | — |
 | `POST /admin/login` | 303 | 66 | admin, api, doctors, hardening, migrate, patient_card, patients_api, pin, review3_auth, settings_api, stats_api, theme, visit_api | 1618 | — | — |
 | `GET /admin/logout` | 303 | 6 | **—** | — | — | — |
@@ -257,6 +261,17 @@
 | `GET /manifest.webmanifest` | other | 31 | admin | 428 | — | — |
 | `GET /static/{kind}/{name}` | other | 28 | admin, api, doctors, odontogram_api, patient_card, patients_api, perio_api, schedule_api, settings_api, visit_api | 1416 | — | — |
 
+## Прочее — не мигрирует
+
+
+⛔ Аварийные и служебные маршруты: остаются серверными (§27).
+
+
+| Маршрут | Тип | стр | Наборы | Проверок | Флаг | Пилот |
+|---|---|---|---|---|---|---|
+| `GET /admin/migration` | HTML | 45 | split | 44 | — | — |
+| `POST /admin/migration/confirm` | 303 | 32 | split | 44 | — | — |
+
 ## Колонки-состояния
 
 
@@ -271,7 +286,7 @@
 |---|---|---|
 | 834 | `GET /admin/patient/{pid}` | 21 |
 | 322 | `GET /admin/search` | 21 |
-| 182 | `GET /admin` | 19 |
+| 182 | `GET /admin` | 20 |
 | 154 | `GET /admin/doctor-card/{dk}` | 8 |
 | 138 | `GET /admin/settings/theme` | 2 |
 | 118 | `GET /admin/settings/services` | 3 |

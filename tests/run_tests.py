@@ -78,6 +78,8 @@ SUITES = [
     ("Сторожа: отпечаток auth.json и форма вызова", test_guards.suite_auth_fp),
     ("Сторожа: знаки математики в текстах", test_guards.suite_glyph_math),
     ("Сторожа: якорь списка ролей", test_guards.suite_roles_anchor),
+    ("Сторожа: карта экранов видит все маршруты",
+     test_guards.suite_screen_map),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Чистая логика расписания", test_admin.suite_pure),
