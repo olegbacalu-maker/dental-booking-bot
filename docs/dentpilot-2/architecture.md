@@ -81,6 +81,7 @@ git tag → GitHub Actions → GitHub Release
 · **[storage.md](storage.md) — `Program Files` и `ProgramData`, решение 20.09**
 · **[deployment-modes.md](deployment-modes.md) — режимы A/B/C, контракт 20.09**
 · **[migration-contract.md](migration-contract.md) — P2, контракт миграции 21.09**
+· **[i18n.md](i18n.md) — язык и слой Country, развилки 21.09 (кода нет, работа не запланирована)**
 · **[tasks.md](tasks.md) — конкретный список работ**
 
 Аудит, с которого всё началось — [../migration-audit.md](../migration-audit.md).
