@@ -60,9 +60,29 @@ if ($LASTEXITCODE -ne 0) { Write-Host "sync_version exit $LASTEXITCODE"; exit 1 
     "$PSScriptRoot\bot\desktop.py"
 if ($LASTEXITCODE -ne 0) { Write-Host "PyInstaller exit $LASTEXITCODE"; exit 1 }
 
-if (Test-Path "dist\DentPilot.exe") {
-    $size = [math]::Round((Get-Item "dist\DentPilot.exe").Length / 1MB, 1)
-    Write-Host "OK: dist\DentPilot.exe ($size MB)"
-} else {
-    Write-Host "BUILD FAILED"; exit 1
-}
+if (-not (Test-Path "dist\DentPilot.exe")) { Write-Host "BUILD FAILED"; exit 1 }
+$size = [math]::Round((Get-Item "dist\DentPilot.exe").Length / 1MB, 1)
+Write-Host "Sobrano: dist\DentPilot.exe ($size MB). Dalshe - ZAPUSK, a ne tolko fail."
+
+# ⛔ Do 21.09 sborka konchalas strokoi vyshe, i ona oznachala ROVNO odno: fail
+# sushchestvuet i vesit stolko-to. Za odin den etogo trizhdy okazalos malo -
+# pravka launchera, vernaya v ishodnikah, v binarnike ne ispolnyalas, i vidno
+# eto TOLKO zapuskom: mezhdu pravilom i povedeniem stoyat PyInstaller,
+# planirovshchik i failovaya sistema. Build-Installer.ps1 etot shag imel s
+# samogo nachala, a sobirayut Build-Desktop - imenno im, kogda proveryayut
+# povedenie. Oba stenda izoliruyut sebe $DENTART_DATA_DIR sami (sm. ih
+# dokstrings) i zhivut vo vremennoi papke: ustanovku na etoi mashine,
+# %ProgramData% i port 8088 ne trogaet ni odin.
+Write-Host "Dymovoi test sobrannoi programmy ..."
+& "$venv\Scripts\python.exe" "scripts\smoke_build.py" --exe "dist\DentPilot.exe"
+if ($LASTEXITCODE -ne 0) { Write-Host "SBORKA NE PRINYATA: dymovoi test"; exit 1 }
+
+# Zhivaya proverka vetki unique: launcher obyazan naiti STARYI koren i ne
+# zavodit pustoi zhurnal ryadom s nastoyashchei kartotekoi. Eto ta samaya dyra
+# odnoklik-obnovleniya, i prognom iz ishodnikov ona ne lovitsya voobshche:
+# harness podnimaet app.main napryamuyu i desktop.py ne ispolnyaet ni strokoi.
+Write-Host "Zhivaya proverka vetki unique ..."
+& "$venv\Scripts\python.exe" "scripts\check_relocate_live.py" --exe "dist\DentPilot.exe"
+if ($LASTEXITCODE -ne 0) { Write-Host "SBORKA NE PRINYATA: vetka unique"; exit 1 }
+
+Write-Host "OK: dist\DentPilot.exe ($size MB) - zapuskaetsya, stranicy otkryvayutsya, vetka unique ispolnena."
