@@ -20,7 +20,8 @@ from ...core.api import api_body, api_require
 from ...core.auth import PERM_DOCTORS
 from ...core.layout import (HOUR_MAX, HOUR_MIN, STATUS_LABEL, _DOC_STATE_RO,
                             _doc_hours_text, _initials, msg_json)
-from ...core.visits import _doc_hue, photo_url as _photo_url
+from ...core.visits import (_doc_hue, all_status_actions,
+                            photo_url as _photo_url)
 from .routes import (MAX_PHOTO_MB, _DOC_STATE_HINT, _add_doctor, _delete_photo,
                      _doc_rows, _doc_stats, _orphan_warning, _read_upload,
                      _reset_colors, _same_color, _save_doctor, _service_rows,
@@ -104,6 +105,13 @@ async def _card(dk: str) -> dict:
         "warning": tpl.format(svc=", ".join(orphan_names)) if tpl else "",
         "week": _week_cells(dk, mine_wk, today),
         "today": _today_rows(today_rows),
+        # ⭐ Кнопки исхода — ТА ЖЕ матрица, что у списка дня
+        # (`core.visits.status_actions`), а не свой набор рядом. Своя копия
+        # «какие кнопки у завершённого визита» разошлась бы с журналом молча:
+        # закрытая запись теряла бы кнопку возврата в одном месте и сохраняла
+        # в другом, а увидеть это можно, только открыв оба экрана.
+        "actions": all_status_actions(),
+        "note_actions": all_status_actions(is_note=True),
         "services": _service_rows(dk),
         "states": {k: {"label": v, "hint": _DOC_STATE_HINT[k]}
                    for k, v in _DOC_STATE_RO.items()},

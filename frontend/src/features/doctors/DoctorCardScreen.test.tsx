@@ -36,6 +36,19 @@ const CARD: DoctorCard = {
     { id: 'consult', name: 'Consultație', checked: true, note: 'toți medicii' },
     { id: 'hygiene', name: 'Igienizare', checked: false, note: '1 medic' },
   ],
+  actions: {
+    confirmed: [
+      { to: 'waiting', cls: 'b-waiting', label: 'A venit', confirm: '' },
+      { to: 'done', cls: 'b-done', label: 'Finalizat', confirm: '' },
+    ],
+    done: [{ to: 'confirmed', cls: 'b-reopen', label: 'Redeschide',
+             confirm: 'Redeschideți programarea (înapoi la «confirmată»)?' }],
+  },
+  note_actions: {
+    confirmed: [{ to: 'cancelled', cls: 'b-cancel', label: 'Șterge', confirm: '' }],
+    cancelled: [{ to: 'confirmed', cls: 'b-reopen', label: 'Restabilește',
+                  confirm: 'Restabiliți notița?' }],
+  },
   states: {
     activ: { label: 'Activ', hint: 'apare în programări' },
     concediu: { label: 'În concediu', hint: 'temporar nu primește' },
@@ -183,6 +196,49 @@ describe('DoctorCardScreen', () => {
     render(<DoctorCardScreen dk="d9" />)
     expect(await screen.findByText(/Medicul nu există/)).toBeTruthy()
     expect((screen.getByRole('link', { name: 'Varianta clasică' }) as HTMLAnchorElement).getAttribute('href')).toContain('?ui=legacy')
+  })
+
+  /* ---- C14+: кнопки исхода в списке сегодняшнего дня ---- */
+
+  it('кнопки берутся С СЕРВЕРА по состоянию строки, а у заметки — СВОИ', async () => {
+    get.mockResolvedValueOnce(ok(CARD))
+    render(<DoctorCardScreen dk="d2" />)
+    await screen.findByText('Chirurgie')
+    expect(screen.getByRole('button', { name: 'A venit' })).toBeTruthy()
+    /* ⛔ Заметка стойки — не визит: ни «пришёл», ни «завершено» у неё нет. */
+    expect(screen.getByRole('button', { name: 'Șterge' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'A venit' })).toHaveLength(1)
+  })
+
+  it('исход уходит ЖУРНАЛЬНЫМ маршрутом и экран перечитывает себя', async () => {
+    get.mockResolvedValueOnce(ok(CARD))
+    post.mockResolvedValueOnce(ok(undefined))
+    get.mockResolvedValueOnce(ok({
+      ...CARD,
+      today: [{ ...CARD.today[0]!, status: 'waiting', status_label: 'în așteptare' },
+              CARD.today[1]!],
+    }))
+    render(<DoctorCardScreen dk="d2" />)
+    await screen.findByText('Chirurgie')
+    fireEvent.click(screen.getByRole('button', { name: 'A venit' }))
+    /* ⭐ Адрес чужой намеренно: менять состояние визита умеет одно место.
+       `screen=med` просит НЕ присылать день журнала — у фиши своя модель. */
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/7/status?screen=med', { to: 'waiting' }))
+    expect(await screen.findByText('în așteptare')).toBeTruthy()
+    expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('возврат закрытой записи спрашивают; отказ не шлёт ничего', async () => {
+    get.mockResolvedValueOnce(ok({
+      ...CARD,
+      today: [{ ...CARD.today[0]!, status: 'done', status_label: 'finalizată' }],
+    }))
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    render(<DoctorCardScreen dk="d2" />)
+    await screen.findByText('Chirurgie')
+    fireEvent.click(screen.getByRole('button', { name: /Redeschide/ }))
+    expect(post).not.toHaveBeenCalled()
   })
 
   it('401 при сохранении — на вход', async () => {

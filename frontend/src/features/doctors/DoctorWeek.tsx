@@ -1,5 +1,5 @@
 import { Icon } from '../../components/Icon'
-import type { TodayRow, WeekCell } from './doctors'
+import type { StatusAction, TodayRow, WeekCell } from './doctors'
 
 const T = {
   next7: 'Următoarele 7 zile',
@@ -7,7 +7,7 @@ const T = {
   today: 'Astăzi, ',
   grid: 'grila zilei',
   none: '— nicio programare —',
-  cols: ['#', 'Ora', 'Pacient', 'Telefon', 'Serviciu', 'Status'],
+  cols: ['#', 'Ora', 'Pacient', 'Telefon', 'Serviciu', 'Status', 'Acțiuni'],
 } as const
 
 /** ISO-дата (гггг-мм-дд) → дд.мм.гггг, как в заголовке старой таблицы дня. */
@@ -20,14 +20,24 @@ interface Props {
   dk: string
   week: WeekCell[]
   today: TodayRow[]
+  actions: Record<string, StatusAction[]>
+  noteActions: Record<string, StatusAction[]>
+  busy: boolean
+  onStatus: (id: number, to: string) => void
 }
 
 /**
- * Ближайшие 7 дней и сегодняшний список врача. Список здесь — таблица со
- * ссылками на фишу пациента; действия со статусом и карточка визита остаются
- * у журнала и переедут вместе с ним (группа 5).
+ * Ближайшие 7 дней и сегодняшний список врача.
+ *
+ * ⭐ Кнопки исхода (C14+) берутся С СЕРВЕРА — `actions` для записи,
+ * `note_actions` для заметки стойки, — и это та же матрица, что у списка дня
+ * (`core.visits.status_actions`). Своя копия «какие кнопки у завершённого
+ * визита» разошлась бы с журналом молча: закрытая запись теряла бы кнопку
+ * возврата в одном месте и сохраняла в другом.
+ * ⛔ Карточки визита здесь по-прежнему нет: она живёт в журнале, и её перенос
+ * сюда был бы вторым экраном визита, а не кнопкой.
  */
-export function DoctorWeek({ dk, week, today }: Props) {
+export function DoctorWeek({ dk, week, today, actions, noteActions, busy, onStatus }: Props) {
   const first = week[0]
   const dayUrl = (date: string) => `/admin/doctor/${encodeURIComponent(dk)}?date=${date}`
   return (
@@ -83,6 +93,19 @@ export function DoctorWeek({ dk, week, today }: Props) {
                       {r.comment && <><br /><small className="dp-comment">{r.comment}</small></>}
                     </td>
                     <td><span className={`stat s-${r.status}`}>{r.status_label}</span></td>
+                    <td>
+                      {((r.note ? noteActions : actions)[r.status] ?? []).map((a) => (
+                        <form key={a.to} className="act" onSubmit={(e) => {
+                          e.preventDefault()
+                          if (a.confirm && !window.confirm(a.confirm)) return
+                          onStatus(r.id, a.to)
+                        }}>
+                          <button className={a.cls} disabled={busy}>
+                            {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}
+                          </button>
+                        </form>
+                      ))}
+                    </td>
                   </tr>
                 ))
               )}

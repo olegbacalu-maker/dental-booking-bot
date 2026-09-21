@@ -39,6 +39,15 @@ export interface WeekCell {
   open: boolean
 }
 
+/** Кнопка исхода: та же матрица, что у списка дня (`core.visits.status_actions`). */
+export interface StatusAction {
+  to: string
+  cls: string
+  label: string
+  /** Непусто — спросить подтверждение этими словами (возврат закрытой записи). */
+  confirm: string
+}
+
 export interface TodayRow {
   id: number
   time: string
@@ -80,6 +89,9 @@ export interface DoctorCard {
   warning: string
   week: WeekCell[]
   today: TodayRow[]
+  /** Кнопки исхода по состоянию записи и по состоянию заметки стойки. */
+  actions: Record<string, StatusAction[]>
+  note_actions: Record<string, StatusAction[]>
   services: ServiceRow[]
   states: Record<string, { label: string; hint: string }>
 }
@@ -119,4 +131,16 @@ export const doctors = {
   },
   deletePhoto: (dk: string): Promise<ApiResult<{ photo: string }>> =>
     api.post<{ photo: string }>(`/doctors/${encodeURIComponent(dk)}/photo/delete`, {}),
+  /**
+   * Исход визита из списка дня в фише врача.
+   *
+   * ⭐ Маршрут ЧУЖОЙ — журнальный, и это не оплошность: менять состояние визита
+   * умеет ровно одно место, и второй адрес под `/doctors/` был бы вторым
+   * владельцем одного правила. `screen=med` говорит серверу, что состояние в
+   * ответе не нужно: у фиши врача своя модель, и день журнала ей не подходит.
+   * Свежие данные экран берёт своим перечитыванием — команда состояния не
+   * возвращает (interaction-contract.md).
+   */
+  status: (id: number, to: string): Promise<ApiResult<undefined>> =>
+    api.post<undefined>(`/schedule/appointments/${id}/status?screen=med`, { to }),
 }

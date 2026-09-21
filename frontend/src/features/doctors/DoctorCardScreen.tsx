@@ -40,6 +40,7 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
   const load = useCallback((signal: AbortSignal) => doctors.card(dk, signal), [dk])
   const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
+  const [busy, setBusy] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
 
   const fail = useCallback(
@@ -51,6 +52,30 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
     [leaveIfSignedOut],
   )
   const said = useCallback((r: ApiResult<unknown>) => setToast({ tone: r.tone, text: r.text }), [])
+
+  /**
+   * Исход визита из списка сегодняшнего дня (C14+).
+   *
+   * ⭐ Команда состояния НЕ возвращает: у фиши врача своя модель, и день
+   * журнала ей не подходит. Поэтому после удачи экран перечитывает СЕБЯ —
+   * и заодно видит, что за это время сделали со второго рабочего места.
+   * ⚠️ Удача здесь МОЛЧАЛИВА: у смены статуса нет кода сообщения ни на
+   * одной странице, и ответ человеку — сама изменившаяся строка.
+   */
+  const onStatus = useCallback((id: number, to: string) => {
+    setBusy(true)
+    doctors.status(id, to).then(
+      (r) => {
+        if (r.text) said(r)
+        setBusy(false)
+        retry()
+      },
+      (e: unknown) => {
+        setBusy(false)
+        fail(e)
+      },
+    )
+  }, [fail, retry, said])
 
   if (state.status === 'leaving') return null
 
@@ -123,7 +148,9 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
           </div>
         </div>
         <div className="fcol-c">
-          <DoctorWeek dk={dk} week={card.week} today={card.today} />
+          <DoctorWeek dk={dk} week={card.week} today={card.today}
+            actions={card.actions} noteActions={card.note_actions}
+            busy={busy} onStatus={onStatus} />
         </div>
         <div className="fcol-r">
           <div className="fcard">

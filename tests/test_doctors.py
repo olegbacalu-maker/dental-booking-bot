@@ -9,7 +9,14 @@ clinic.json одними правилами (`_add_doctor`, `_save_doctor`, `_se
 import json
 import sqlite3
 
-from harness import Client, Result, Server
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
+
+from app.core.visits import all_status_actions  # noqa: E402
+
+from harness import Client, Result, Server, clinic_today  # noqa: E402
 
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
@@ -189,6 +196,39 @@ def suite_api(res: Result) -> None:
         res.ok("фиша: ячейка знает дату и открыт ли день",
                set(card["week"][0]) == {"date", "label", "dm", "count", "open"}, f"{card['week'][0]}")
         res.check("фиша: сегодня пусто", card["today"], [])
+        # ⭐ C14+: кнопки исхода — ТА ЖЕ матрица, что у списка дня. Своя копия
+        # разошлась бы с журналом молча: закрытая запись теряла бы кнопку
+        # возврата в одном месте и сохраняла в другом.
+        res.check("фиша: матрица кнопок — из core.visits",
+                  card["actions"], all_status_actions())
+        res.check("фиша: у заметки СВОЯ матрица",
+                  card["note_actions"], all_status_actions(is_note=True))
+        res.ok("у завершённой записи ровно одна кнопка — возврат, и он спрашивает",
+               [b["to"] for b in card["actions"]["done"]] == ["confirmed"]
+               and card["actions"]["done"][0]["confirm"], f"{card['actions']['done']}")
+
+        # --- C14+: исход из фиши врача идёт ЖУРНАЛЬНЫМ маршрутом ---
+        # ⛔ Менять состояние визита умеет ровно одно место; второй адрес под
+        # `/doctors/` был бы вторым владельцем одного правила.
+        day = clinic_today().isoformat()
+        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
+               aservice="consult", aname="Medic Card Unu", aphone="069000031",
+               back="/admin/all")
+        row = _j(c.get("/api/doctors/d2"))["data"]["today"][0]
+        res.check("запись видна в сегодняшнем списке врача", row["status"], "confirmed")
+        aid = row["id"]
+        # ⚠️ Контраст обязателен: без него проверка зелена и у маршрута,
+        # который данных не отдаёт НИКОМУ, — а день на них живёт.
+        med_ok = c.post_json(
+            f"/api/schedule/appointments/{aid}/status?screen=med", {"to": "waiting"})
+        day_ok = c.post_json(
+            f"/api/schedule/appointments/{aid}/status?date={day}", {"to": "arrived"})
+        res.check("фише врача — код без состояния, дню — свежий день",
+                  (med_ok.status, "data" in _j(med_ok),
+                   day_ok.status, "data" in _j(day_ok)),
+                  (200, False, 200, True))
+        res.check("исход действительно применился",
+                  _j(c.get("/api/doctors/d2"))["data"]["today"][0]["status"], "arrived")
         svc = {x["id"]: x for x in card["services"]}
         res.ok("фиша: consult у всех, hygiene не у d2",
                svc["consult"]["checked"] and svc["consult"]["note"] == "toți medicii"
