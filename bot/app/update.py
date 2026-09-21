@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.request
 
 from . import engine as eng
+from . import privileged
 from . import repo
 
 log = logging.getLogger("update")
@@ -106,50 +107,61 @@ def is_desktop() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
-# GUID из installer/DentPilot.iss (AppId). Inno дописывает к нему «_is1».
-# Ключ создаёт установщик; программа его только ПРАВИТ и никогда не создаёт —
-# установка копированием exe в реестре не числится, и выдумывать её нельзя.
-_UNINST_KEY = (r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
-               r"\{B8836ACC-EA41-4B1C-9FEB-DC61ADD35754}_is1")
+# Где лежит запись установщика — знает `privileged`: правит её только он.
+# ⛔ Здесь НЕТ ни одной записи в реестр, и это не стиль, а следствие P1:
+# установщик работает от админа, запись уехала в `HKLM`, а программа идёт без
+# повышения. Проверено на машине: обычному процессу ключ `Uninstall` в `HKLM`
+# открыт на ЧТЕНИЕ, а запись значений — «Отказано в доступе» (5). Прежний код
+# пытался писать и ловил `OSError` — то есть молча сдавался, и клиника видела
+# в «Программах и компонентах» версию, с которой её давно сняли.
 
 
-def sync_uninstall_version() -> None:
-    """После обновления в один клик «Программы и компоненты» показывали версию,
-    записанную установщиком, — то есть ту, с которой клинику давно сняли.
-    А это единственное место, где версию видно НЕ открывая программу: по
-    телефону спрашивают именно там. Приводим запись в соответствие с тем,
-    что реально лежит на диске."""
+def uninstall_entry() -> dict:
+    """Что показывают «Программы и компоненты». ТОЛЬКО чтение.
+
+    `found` · `version` · `stale` · `hive` (`HKLM`/`HKCU`).
+    ⚠️ `found=False` — это НЕ поломка: установка копированием exe в реестре не
+    числится вовсе, и предлагать там что-то чинить нечего.
+    """
+    out = {"found": False, "version": "", "stale": False, "hive": ""}
     if not is_desktop() or sys.platform != "win32":
-        return
+        return out
     try:
         import winreg
     except ImportError:
-        return
-    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        return out
+    for name, hive in (("HKLM", winreg.HKEY_LOCAL_MACHINE),
+                       ("HKCU", winreg.HKEY_CURRENT_USER)):
         try:
-            with winreg.OpenKey(hive, _UNINST_KEY, 0,
-                                winreg.KEY_READ | winreg.KEY_WRITE) as k:
-                cur, _ = winreg.QueryValueEx(k, "DisplayVersion")
-                if str(cur) == eng.APP_VERSION:
-                    return
-                winreg.SetValueEx(k, "DisplayVersion", 0, winreg.REG_SZ,
-                                  eng.APP_VERSION)
-                # DisplayName у Inno = «DentPilot X.Y.Z», версия внутри строки
-                try:
-                    name, _ = winreg.QueryValueEx(k, "DisplayName")
-                    if str(cur) and str(cur) in str(name):
-                        winreg.SetValueEx(k, "DisplayName", 0, winreg.REG_SZ,
-                                          str(name).replace(str(cur), eng.APP_VERSION))
-                except OSError:
-                    pass
-                log.warning("uninstall entry: %s -> %s", cur, eng.APP_VERSION)
-                return
-        except FileNotFoundError:
-            continue          # в этом улье записи нет — не наш случай
-        except OSError as e:
-            # HKLM без прав администратора: правка невозможна, но это косметика
-            log.warning("uninstall entry not updated (%r)", e)
-            return
+            with winreg.OpenKey(hive, privileged.UNINST_KEY, 0,
+                                winreg.KEY_READ) as k:
+                cur = str(winreg.QueryValueEx(k, "DisplayVersion")[0])
+        except OSError:
+            continue
+        return {"found": True, "version": cur,
+                "stale": cur != eng.APP_VERSION, "hive": name}
+    return out
+
+
+def sync_uninstall_version() -> str:
+    """Посмотреть, сходится ли запись. ⛔ НИЧЕГО не пишет и НЕ показывает UAC.
+
+    Возвращает исход словами: `fresh` · `absent` · `needs-admin`.
+
+    ⛔ Окно UAC отсюда не показывается никогда. Версия в «Программах и
+    компонентах» — вещь косметическая, а запрос прав НА КАЖДОМ запуске стоил бы
+    дороже самой пользы: такие окна перестают читать, а потом подтверждают не
+    глядя. Человек нажимает кнопку сам — там же, где эту версию и видит.
+    ⭐ Поэтому старт только СМОТРИТ, а чинит `privileged.request`.
+    """
+    st = uninstall_entry()
+    if not st["found"]:
+        return "absent"
+    if not st["stale"]:
+        return "fresh"
+    log.warning("uninstall entry: %s вместо %s (нужны права администратора)",
+                st["version"], eng.APP_VERSION)
+    return "needs-admin"
 
 
 def can_self_update() -> bool:

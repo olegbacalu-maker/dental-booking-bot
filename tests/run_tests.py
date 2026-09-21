@@ -50,6 +50,7 @@ import test_perio_api  # noqa: E402
 import test_pin  # noqa: E402
 import test_plan_acord  # noqa: E402
 import test_privacy  # noqa: E402
+import test_privileged  # noqa: E402
 import test_review2  # noqa: E402
 import test_review3  # noqa: E402
 import test_review3_auth  # noqa: E402
@@ -83,6 +84,11 @@ SUITES = [
      test_guards.suite_screen_map),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
+    ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
+    ("P4.1: операция за UAC", test_privileged.suite_op),
+    ("P4.1: что уходит в UAC", test_privileged.suite_request),
+    ("P4.1: вход лаунчера", test_privileged.suite_argv),
+    ("P4.1: приложение не пишет в реестр", test_privileged.suite_no_direct_write),
     ("Чистая логика расписания", test_admin.suite_pure),
     ("Вход и охрана доступа", test_admin.suite_auth),
     ("PIN: хранение и переезд", test_pin.suite_store),
