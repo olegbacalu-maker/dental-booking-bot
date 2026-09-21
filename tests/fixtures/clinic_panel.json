@@ -137,5 +137,8 @@
       "duration": 30
     }
   ],
-  "seed_demo": false
+  "seed_demo": false,
+  "ui": {
+    "react": []
+  }
 }

@@ -7,57 +7,113 @@
     "ru": "ул. Тест 1, Кахул"
   },
   "hours": {
-    "mon": [7, 21],
-    "tue": [7, 21],
-    "wed": [7, 21],
-    "thu": [7, 21],
-    "fri": [7, 21],
-    "sat": [7, 21],
-    "sun": [7, 21]
+    "mon": [
+      7,
+      21
+    ],
+    "tue": [
+      7,
+      21
+    ],
+    "wed": [
+      7,
+      21
+    ],
+    "thu": [
+      7,
+      21
+    ],
+    "fri": [
+      7,
+      21
+    ],
+    "sat": [
+      7,
+      21
+    ],
+    "sun": [
+      7,
+      21
+    ]
   },
   "doctors": [
-    { "id": "d1", "name": "Dr. Arhivat Unu", "spec": "Terapie", "status": "arhivat" },
-    { "id": "d2", "name": "Dr. Activ Doi", "spec": "Chirurgie" },
-    { "id": "d3", "name": "Dr. Activ Trei", "spec": "Igienă" },
-    { "id": "d4", "name": "Dr. Activ Patru", "spec": "Protetică" }
+    {
+      "id": "d1",
+      "name": "Dr. Arhivat Unu",
+      "spec": "Terapie",
+      "status": "arhivat"
+    },
+    {
+      "id": "d2",
+      "name": "Dr. Activ Doi",
+      "spec": "Chirurgie"
+    },
+    {
+      "id": "d3",
+      "name": "Dr. Activ Trei",
+      "spec": "Igienă"
+    },
+    {
+      "id": "d4",
+      "name": "Dr. Activ Patru",
+      "spec": "Protetică"
+    }
   ],
   "services": [
     {
       "id": "consult",
       "ro": "Consultație",
       "ru": "Консультация",
-      "price": { "ro": "gratuit", "ru": "бесплатно" }
+      "price": {
+        "ro": "gratuit",
+        "ru": "бесплатно"
+      }
     },
     {
       "id": "pain",
       "ro": "Durere acută",
       "ru": "Острая боль",
       "urgent": true,
-      "docs": ["d1", "d2"],
-      "price": { "ro": "în aceeași zi", "ru": "в тот же день" }
+      "docs": [
+        "d1",
+        "d2"
+      ],
+      "price": {
+        "ro": "în aceeași zi",
+        "ru": "в тот же день"
+      }
     },
     {
       "id": "hygiene",
       "ro": "Igienizare",
       "ru": "Гигиена",
-      "docs": ["d3"],
+      "docs": [
+        "d3"
+      ],
       "price": "1000 MDL"
     },
     {
       "id": "orphan",
       "ro": "Serviciu fără medic",
       "ru": "Услуга без врача",
-      "docs": ["d1"],
+      "docs": [
+        "d1"
+      ],
       "price": "500 MDL"
     },
     {
       "id": "long",
       "ro": "Tratament lung",
       "ru": "Долгое лечение",
-      "docs": ["d2"],
+      "docs": [
+        "d2"
+      ],
       "duration": 120,
       "price": "2000 MDL"
     }
   ],
-  "seed_demo": false
+  "seed_demo": false,
+  "ui": {
+    "react": []
+  }
 }

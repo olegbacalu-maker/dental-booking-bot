@@ -38,6 +38,7 @@ import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
+import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
 import test_srcpin  # noqa: E402
@@ -160,6 +161,9 @@ SUITES = [
     ("API: охрана и конверт", test_api.suite_guard),
     ("API: настройки клиники — данные", test_api.suite_clinic),
     ("React-экран: рубильник и старая форма", test_api.suite_switch),
+    ("Продукт: чистая установка открывается на React",
+     test_react_default.suite_fresh),
+    ("Продукт: аварийный выключатель React", test_react_default.suite_switch_off),
     ("Врачи: старые POST без проверок", test_doctors.suite_legacy),
     ("Врачи: JSON API", test_doctors.suite_api),
     ("Врачи: React-экраны и старые страницы", test_doctors.suite_switch),

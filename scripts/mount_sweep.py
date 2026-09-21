@@ -17,7 +17,8 @@
 класс: «экран открылся у человека». Семь утверждений на экран, все общие:
 
   1. маршрут отвечает — ни один запрос страницы не пришёл с 4xx/5xx;
-  2. сервер выбрал React — узел `#root` несёт `data-screen` этого экрана;
+  2. сервер выбрал React САМ, без флага — узел `#root` несёт `data-screen`
+     этого экрана (профиль лаборатории ключа `ui.react` не содержит вовсе);
   3. бандл ВЫПОЛНИЛСЯ — есть `.dp-react-root`, серверной заглушки нет;
   4. данные пришли — экран не остался в `aria-busy` и не пуст;
   5. ни одного исключения JS и ни одной ошибки консоли;
@@ -169,7 +170,6 @@ def run(out: pathlib.Path, only: set[str] | None) -> int:
     if not rows:
         raise SystemExit("нечего открывать: аудит не дал ни одного экрана с адресом")
     out.mkdir(parents=True, exist_ok=True)
-    flags = [r["screen"] for r in rows]
 
     day = clinic_today().isoformat()
     s1 = Server()
@@ -179,10 +179,12 @@ def run(out: pathlib.Path, only: set[str] | None) -> int:
     with s1:
         ids = seed(Client(s1.url).login(PIN), day)
     cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
-    # ⚠️ Все флаги разом. Это НЕ выкат: профиль лаборатории живёт в темпе и
-    # никакой клиники не касается. Вопрос прохода — «открывается ли», а он
-    # задаётся только при включённом флаге.
-    cfg["ui"] = {"react": flags}
+    # ⭐ Пин наборов СНИМАЕТСЯ, а не заменяется своим списком. Фикстура прогона
+    # гасит React явно (там эталон — старая страница), а у продукта ключа нет
+    # вовсе. Проход обязан открывать то, что увидит клиника ПО УМОЛЧАНИЮ;
+    # собственный список флагов проверял бы собственную настройку.
+    cfg.pop("ui", None)
+    cfg.pop("_ui_comment", None)
     s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-mount-sweep")

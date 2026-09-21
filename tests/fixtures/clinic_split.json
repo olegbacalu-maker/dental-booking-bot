@@ -7,17 +7,50 @@
     "ru": "ул. Тест 1, Кахул"
   },
   "hours": {
-    "mon": [8, 18],
-    "tue": [8, 18],
-    "wed": [8, 18],
-    "thu": [8, 18],
-    "fri": [8, 18],
-    "sat": [8, 18],
-    "sun": [8, 18]
+    "mon": [
+      8,
+      18
+    ],
+    "tue": [
+      8,
+      18
+    ],
+    "wed": [
+      8,
+      18
+    ],
+    "thu": [
+      8,
+      18
+    ],
+    "fri": [
+      8,
+      18
+    ],
+    "sat": [
+      8,
+      18
+    ],
+    "sun": [
+      8,
+      18
+    ]
   },
   "doctors": [
-    { "id": "da", "name": "Dr. Zi Dimineata", "spec": "Terapie", "work_from": 9, "work_to": 13 },
-    { "id": "db", "name": "Dr. Zi Seara", "spec": "Terapie", "work_from": 14, "work_to": 18 }
+    {
+      "id": "da",
+      "name": "Dr. Zi Dimineata",
+      "spec": "Terapie",
+      "work_from": 9,
+      "work_to": 13
+    },
+    {
+      "id": "db",
+      "name": "Dr. Zi Seara",
+      "spec": "Terapie",
+      "work_from": 14,
+      "work_to": 18
+    }
   ],
   "services": [
     {
@@ -27,5 +60,8 @@
       "price": "100 MDL"
     }
   ],
-  "seed_demo": false
+  "seed_demo": false,
+  "ui": {
+    "react": []
+  }
 }
