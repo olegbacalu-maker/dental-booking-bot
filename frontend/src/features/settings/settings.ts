@@ -142,6 +142,32 @@ export interface UserForm {
   pin: string
 }
 
+/** Что показывает раздел шифрования. `cloud` — не состояние ключа, а издание:
+ *  у PostgreSQL файла базы нет вовсе. Четвёртого состояния («ключ не читается»)
+ *  здесь не бывает — оно уводит программу в режим восстановления при старте. */
+export type CryptState = 'cloud' | 'off' | 'pending' | 'on'
+
+export interface CryptData {
+  state: CryptState
+  /** Проза состояния — серверный текст теми же кусками, что у старой страницы.
+   *  Пустая строка значит «в этом состоянии блока нет». */
+  blocks: { status: string; what: string; cost: string; limit: string; note: string }
+  /** Адрес печатного листа восстановления. Он остаётся серверной страницей. */
+  sheet: string
+}
+
+export interface CryptPrepared {
+  sheet: string
+}
+
+export interface CryptStopped {
+  /** Программа сама закрывается и стартует заново (планировщик отработал). */
+  restart: boolean
+  /** Что сказать человеку про перезапуск; пусто вне настольного издания. */
+  text: string
+  note: string
+}
+
 export interface BackupData {
   min_pass: number
   filename: string
@@ -185,6 +211,12 @@ export const settings = {
     api.post<LanSaved>('/settings/lan', { mode }),
   lanFirewall: (): Promise<ApiResult<{ asked: boolean }>> =>
     api.post<{ asked: boolean }>('/settings/lan/firewall', {}),
+  crypt: (signal?: AbortSignal): Promise<ApiResult<CryptData>> =>
+    api.get<CryptData>('/settings/crypt', signal ? { signal } : {}),
+  cryptPrepare: (): Promise<ApiResult<CryptPrepared>> =>
+    api.post<CryptPrepared>('/settings/crypt/prepare', {}),
+  cryptStop: (): Promise<ApiResult<CryptStopped>> =>
+    api.post<CryptStopped>('/settings/crypt/off', {}),
   faq: (signal?: AbortSignal): Promise<ApiResult<FaqData>> =>
     api.get<FaqData>('/settings/faq', signal ? { signal } : {}),
   hours: (signal?: AbortSignal): Promise<ApiResult<HoursData>> =>

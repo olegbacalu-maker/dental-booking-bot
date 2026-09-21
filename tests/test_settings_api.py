@@ -6,6 +6,7 @@
 """
 import json
 import pathlib
+import re
 import shutil
 import tempfile
 
@@ -15,7 +16,7 @@ DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 FLAGS = ["settings_clinic", "doctors_list", "doctor_card", "settings_hub",
          "settings_lan", "settings_faq", "settings_hours", "settings_services",
          "settings_theme", "settings_security", "settings_backup",
-         "patients_search"]
+         "settings_crypt", "patients_search"]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 
@@ -158,6 +159,118 @@ def suite_lan(res: Result) -> None:
                       Client(s.url).post_json("/api/settings/lan/firewall", {}).status, 401)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def suite_crypt(res: Result) -> None:
+    """Шифрование картотеки: состояние, проза и заказ.
+
+    ⭐ Раздел до 21.09 не был покрыт НИ ОДНОЙ проверкой, и это самое дорогое
+    место продукта: ошибка здесь не роняет программу, а тихо отнимает у
+    клиники доступ к картотеке навсегда. Поэтому проверок больше, чем у
+    соседних разделов настроек.
+    """
+    with Server() as s:
+        res.check("без входа — 401", Client(s.url).get("/api/settings/crypt").status, 401)
+        c = Client(s.url).login()
+        d = _j(c.get("/api/settings/crypt"))["data"]
+        res.check("состояние: выключено", d["state"], "off")
+        res.check("адрес листа — от сервера", d["sheet"], "/admin/settings/crypt/sheet")
+        b = d["blocks"]
+        # ⭐ Три абзаца «что даёт / чего стоит / чего НЕ делает» — решение Олега
+        # 08-09: раздел не уговаривает, он называет цену. Потеряйся один — и
+        # экран станет рекламой шифрования, за которым стоит потеря базы.
+        res.ok("сказано, что не обязательно", "Nu este obligatorie" in b["status"], b["status"][:80])
+        res.ok("сказано, что оно даёт", "Ce face" in b["what"], b["what"][:80])
+        res.ok("сказано, чего стоит: лист и потеря без него",
+               "foaia de recuperare" in b["cost"] and "nu poate fi reparată" in b["cost"],
+               b["cost"][:120])
+        res.ok("сказано, чего НЕ делает", "Ce NU face" in b["limit"], b["limit"][:80])
+        res.ok("заметки о копиях в выключенном состоянии нет", b["note"] == "", b["note"][:60])
+
+        # ⛔ Паритет: JSON и старая страница собраны из ОДНИХ кусков. Разойдись
+        # они — директор прочёл бы про риск на одной поверхности и не прочёл на
+        # другой, а увидеть это можно только открыв обе.
+        page = c.get("/admin/settings/crypt").body
+        res.ok("каждый кусок прозы есть и на старой странице",
+               all(part in page for part in (b["status"], b["what"], b["cost"], b["limit"])),
+               "проза разошлась")
+
+        r = c.post_json("/api/settings/crypt/prepare", {})
+        res.check("подготовка — 200", r.status, 200)
+        res.check("ответ ведёт на печатный лист", _j(r)["data"]["sheet"],
+                  "/admin/settings/crypt/sheet")
+        sheet = c.get("/admin/settings/crypt/sheet").body
+        res.ok("лист показывает код", "Foaie de recuperare" in sheet, sheet[:120])
+        code = re.search(r"class=\"code\">([^<]+)<", sheet)
+        res.ok("код на листе нашёлся", code is not None, sheet[:200])
+        first = code.group(1).strip() if code else ""
+
+        # ⛔ Второе нажатие НЕ создаёт новый ключ (враждебное ревью 08-09):
+        # иначе напечатанный лист перестаёт открывать базу, а человек об этом
+        # не узнает до смены ПК.
+        res.check("второе нажатие — тоже 200",
+                  c.post_json("/api/settings/crypt/prepare", {}).status, 200)
+        again = re.search(r"class=\"code\">([^<]+)<",
+                          c.get("/admin/settings/crypt/sheet").body)
+        res.check("код НЕ сменился", again.group(1).strip() if again else "", first)
+
+        # ⭐ Заказ кладёт ГАЛОЧКА на листе, а не подготовка: закрытая без
+        # подтверждения страница не должна оставлять на диске приказ шифровать.
+        res.ok("до подтверждения заказа на диске нет",
+               not (s.dir / "db-key.pending").exists(), "заказ появился раньше галочки")
+        c.post("/admin/settings/crypt/confirm", ack="1")
+        res.ok("после галочки заказ лежит на диске",
+               (s.dir / "db-key.pending").exists(), "заказа нет")
+        d = _j(c.get("/api/settings/crypt"))["data"]
+        res.check("состояние: заказано", d["state"], "pending")
+        res.ok("в заказанном состоянии проза уговаривания исчезла",
+               d["blocks"]["what"] == "" and d["blocks"]["cost"] == "",
+               "проза осталась")
+        res.ok("сказано, что применится при следующем запуске",
+               "la următoarea pornire" in d["blocks"]["status"], d["blocks"]["status"][:80])
+
+        # ⛔ Нажатие при УЖЕ включённом шифровании — отказ, а не новый ключ:
+        # заказ на переезд не выполнился бы никогда (база под старым ключом),
+        # а лист напечатался бы с ключом, который не открывает ничего.
+        (s.dir / "db.key").write_text("x", encoding="utf-8")
+        r = c.post_json("/api/settings/crypt/prepare", {})
+        res.check("при включённом шифровании подготовка отказывает", r.status, 409)
+        res.check("и называет причину словом", _j(r)["code"], "crypt_on")
+        (s.dir / "db.key").unlink()
+
+        r = c.post_json("/api/settings/crypt/off", {})
+        res.check("выключение — 200", r.status, 200)
+        res.check("код ok_set", _j(r)["code"], "ok_set")
+        res.ok("вне настольного издания текста перезапуска нет",
+               _j(r)["data"]["text"] == "" and _j(r)["data"]["restart"] is False,
+               f"{_j(r)['data']}")
+        # ⛔ Сам переезд делает ЛАУНЧЕР до старта приложения: подмена файла под
+        # открытым соединением с -wal/-shm даёт порчу часами позже.
+        res.ok("страница только ЗАКАЗЫВАЕТ расшифровку",
+               (s.dir / "db-decrypt.request").exists(), "заказа на расшифровку нет")
+
+    # ---- права: деньги и настройки закрыты не только в меню ----
+    s = _server_with_flags(env=NO_KEY)
+    with s:
+        boss = Client(s.url)
+        boss.post("/admin/setup", pin1="1111", pin2="1111")
+        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        page = boss.get("/admin/settings/crypt").body
+        res.ok("узел React", 'data-screen="settings_crypt"' in page, "узла нет")
+        res.ok("старой кнопки нет", "Pregătește criptarea" not in page, "две разметки")
+        res.ok("?ui=legacy: старая страница",
+               "Pregătește criptarea" in boss.get("/admin/settings/crypt?ui=legacy").body, "нет")
+        # ⛔ Лист остаётся серверным и при включённом флаге: он обязан
+        # открываться, когда бандл не загрузился.
+        boss.post_json("/api/settings/crypt/prepare", {})
+        res.ok("лист восстановления и под флагом серверный",
+               "Foaie de recuperare" in boss.get("/admin/settings/crypt/sheet").body,
+               "лист уехал в React")
+        ana = Client(s.url)
+        ana.post("/admin/login", password="3333", next="/admin")
+        res.check("регистратуре JSON закрыт", ana.get("/api/settings/crypt").status, 403)
+        res.check("и подготовка закрыта",
+                  ana.post_json("/api/settings/crypt/prepare", {}).status, 403)
 
 
 def suite_faq(res: Result) -> None:

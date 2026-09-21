@@ -164,6 +164,7 @@ SUITES = [
     ("Настройки: вид клиники (JSON)", test_settings_api.suite_theme),
     ("Настройки: учётки и PIN (JSON)", test_settings_api.suite_security),
     ("Настройки: копия (JSON)", test_settings_api.suite_backup),
+    ("Настройки: шифрование картотеки (JSON)", test_settings_api.suite_crypt),
     ("Настройки: React-экраны пачки A", test_settings_api.suite_switch),
     ("Пациенты: старая страница и API — одна выдача", test_patients_api.suite_parity),
     ("Пациенты: JSON API списка", test_patients_api.suite_api),

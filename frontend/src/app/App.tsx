@@ -4,6 +4,7 @@ import { PatientCardScreen } from '../features/patients/card/PatientCardScreen'
 import { PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
 import { BackupSettingsScreen } from '../features/settings/BackupSettingsScreen'
 import { ClinicSettingsScreen, legacyUrl } from '../features/settings/ClinicSettingsScreen'
+import { CryptSettingsScreen } from '../features/settings/CryptSettingsScreen'
 import { FaqScreen } from '../features/settings/FaqScreen'
 import { HoursSettingsScreen } from '../features/settings/HoursSettingsScreen'
 import { LanSettingsScreen } from '../features/settings/LanSettingsScreen'
@@ -41,6 +42,7 @@ export function App({ screen, params = {} }: AppProps) {
   if (screen === 'settings_theme') return <ThemeSettingsScreen />
   if (screen === 'settings_security') return <SecuritySettingsScreen />
   if (screen === 'settings_backup') return <BackupSettingsScreen />
+  if (screen === 'settings_crypt') return <CryptSettingsScreen />
   if (screen === 'patients_search') return <PatientsSearchScreen params={params} />
   if (screen === 'patient_card') {
     return <PatientCardScreen pid={Number(params.pid)} views={params.views === '1'} />

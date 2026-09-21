@@ -31,9 +31,10 @@ from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN, ROLE_LABE
                           current_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT,
                             _DOW_FULL, _DOW_ORDER, msg_json, tg_refresh_meta)
+from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
-from . import faq, lan
+from . import crypt, faq, lan
 from .routes import (RESTART_NOTE, _PALETTE_RO, _apply_user, _drop_user,
                      _finish_cfg, _hub_tiles, _lan_available, _last_logins,
                      _logo_action, _set_lan, _val_clinic, _val_hours,
@@ -163,6 +164,61 @@ async def api_lan_firewall(request: Request):
     if not _lan_available():
         return msg_json(False, status=404)
     return msg_json(True, data={"asked": lan.request_firewall_rule()})
+
+
+# ---------- шифрование картотеки ----------
+
+def _crypt_data() -> dict:
+    """Состояние раздела и его проза — те же куски, что у старой страницы.
+
+    ⛔ Адрес печатного листа едет ОТ СЕРВЕРА, а не склеивается в браузере:
+    страницу обслуживает он, и клиенту нечем проверить, что она там же.
+    """
+    st = crypt.state(_data_dir())
+    return {"state": st, "blocks": crypt.blocks(st),
+            "sheet": "/admin/settings/crypt/sheet"}
+
+
+@router.get("/api/settings/crypt")
+async def api_crypt_get(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    return msg_json(True, data=_crypt_data())
+
+
+@router.post("/api/settings/crypt/prepare")
+async def api_crypt_prepare(request: Request):
+    """Приготовить ключ и отправить человека на лист. Та же `crypt.prepare`,
+    что у формы, и тот же отказ второму нажатию.
+
+    ⚠️ Заказа на диске этот вызов не оставляет — его кладёт галочка на самом
+    листе. Ответ несёт АДРЕС листа, а не разметку: печать остаётся серверной.
+    """
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    err = crypt.prepare(_data_dir())
+    if err == "crypt_on":
+        return msg_json(False, err, status=409)
+    if err is not None:
+        return msg_json(False, err, status=500)
+    return msg_json(True, data={"sheet": "/admin/settings/crypt/sheet"})
+
+
+@router.post("/api/settings/crypt/off")
+async def api_crypt_off(request: Request):
+    """Заказать расшифровку. Форма отвечала страницей перезапуска; здесь —
+    JSON с тем же словом, и клиент показывает его вместо страницы."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if (err := crypt.turn_off(_data_dir())) is not None:
+        return msg_json(False, err, status=500)
+    auto = upd.restart_app() is None
+    desktop = upd.is_desktop()
+    return msg_json(True, "ok_set", data={
+        "restart": auto,
+        "text": f"{crypt.OFF_DONE} — {restart_text(auto)}" if desktop else "",
+        "note": RESTART_NOTE if desktop else "",
+    })
 
 
 # ---------- справка ----------
