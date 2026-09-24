@@ -35,6 +35,8 @@ MSG = {
     "bad_months": ("err", "Срок оплаты — 1, 3, 6 или 12 месяцев"),
     "bad_amount": ("err", "Сумма — целое число лей больше нуля"),
     "no_bank": ("err", "Платёж создан, но реквизиты (DP_BANK_*) не заполнены — письмо не отправлено"),
+    "daily_done": ("ok", "Ежедневная задача выполнена — итог строкой в журнале"),
+    "daily_failed": ("err", "Ежедневная задача: часть писем не ушла — смотрите журнал и лог сервера"),
     "login_bad": ("err", "Неверный логин или пароль"),
     "login_locked": ("err", "Слишком много попыток — подождите минуту"),
 }
@@ -42,6 +44,9 @@ MSG = {
 STATE_RU = {"active": ("ok", "действует"), "grace": ("warn", "льгота"),
             "readonly": ("bad", "только чтение"), "none": ("mute", "нет файла")}
 PAY_RU = {"pending": ("warn", "ожидает"), "paid": ("ok", "оплачен"), "rejected": ("bad", "отклонён")}
+KIND_RU = {"invoice": "счёт за 14 дней до конца срока", "expiring": "за 3 дня до конца срока",
+           "expired": "срок истёк, идёт льгота", "last_warning": "завтра — только чтение",
+           "readonly": "режим только чтения"}
 
 _CSS = """
 body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;background:#F4F7F6;color:#16232B}
@@ -72,7 +77,7 @@ def page(title: str, body: str, user: str | None = None, msg: str = "", pending:
         banner = f"<div class='banner {cls}'>{esc(text)}</div>"
     pend = f" ({pending})" if pending else ""
     nav = ("<div class='top'><a href='/admin'>DentPilot Cloud</a><a href='/admin'>Клиники</a>"
-           f"<a href='/admin/payments'>Платежи{pend}</a>"
+           f"<a href='/admin/payments'>Платежи{pend}</a><a href='/admin/audit'>Журнал</a>"
            + (f"<form method='post' action='/admin/logout'><button>Выход · {esc(user)}</button></form>"
               if user else "") + "</div>")
     return (f"<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
@@ -107,7 +112,16 @@ def clinics_page(rows: list, user: str, msg: str = "") -> str:
         f"<td>{_tag(license.state(_ts(r['valid_until']), r['grace_days'] or 0, now))}</td>"
         f"<td>{r['seq'] or 0}</td></tr>"
         for r in rows) or "<tr><td colspan='6' class='muted'>Пока ни одной клиники</td></tr>"
-    table = ("<div class='card'><table><tr><th>Клиника</th><th>IDNO</th><th>Тариф</th>"
+    counts = {k: 0 for k in STATE_RU}
+    for r in rows:
+        counts[license.state(_ts(r["valid_until"]), r["grace_days"] or 0, now)] += 1
+    summary = " · ".join(f"{STATE_RU[k][1]} {n}" for k, n in counts.items())
+    daily = ("<form method='post' action='/admin/jobs/daily' style='margin:0'>"
+             "<button title='Напоминания по таблице cloud.md за сегодня; cron делает то же раз в сутки'>"
+             "Запустить ежедневную задачу</button></form>")
+    table = (f"<div class='card'><div style='display:flex;justify-content:space-between;align-items:center;"
+             f"margin-bottom:8px'><span class='muted'>Состояния: {summary}</span>{daily}</div>"
+             "<table><tr><th>Клиника</th><th>IDNO</th><th>Тариф</th>"
              f"<th>Срок до</th><th>Состояние</th><th>Файлов</th></tr>{trs}</table></div>")
     form = ("<h2>Новая клиника</h2><div class='card'><form method='post' action='/admin/clinics'>"
             "<div class='grid'><div><label>Название *</label><input name='name' required maxlength='120'></div>"
@@ -156,8 +170,26 @@ def payments_page(rows: list, user: str, msg: str = "") -> str:
     return page("Платежи в ожидании", body, user, msg, pending=len(rows))
 
 
+def _reminder_rows(rows: list) -> str:
+    return "".join(f"<tr><td>{esc(KIND_RU.get(r['kind'], r['kind']))}</td><td>{_d(r['period'])}</td>"
+                   f"<td>{esc(r['sent_at'][:16].replace('T', ' '))}</td></tr>" for r in rows)
+
+
+def audit_page(rows: list, user: str, msg: str = "", pending: int = 0) -> str:
+    out = []
+    for a in rows:
+        who = (f"<a href='/admin/clinics/{esc(a['clinic_id'])}'>{esc(a['clinic'] or a['clinic_id'])}</a>"
+               if a["clinic_id"] else "—")
+        out.append(f"<tr><td>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
+                   f"<td>{esc(a['what'])}</td><td>{who}</td><td>{esc(a['detail'])}</td></tr>")
+    trs = "".join(out)
+    body = (f"<div class='card'><table><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Клиника</th>"
+            f"<th>Подробности</th></tr>{trs or '<tr><td colspan=5 class=muted>пусто</td></tr>'}</table></div>")
+    return page("Журнал", body, user, msg, pending=pending)
+
+
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
-                payments: list = (), pending: int = 0) -> str:
+                payments: list = (), pending: int = 0, reminders: list = ()) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     head = (f"<div class='card'><div class='grid'>"
@@ -207,9 +239,12 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"<button class='primary'>Отправить последний файл письмом</button></form>" if issues else "")
     issues_html = (f"<h2>Выданные файлы</h2><div class='card'><table><tr><th>№</th><th>Выдан</th>"
                    f"<th>Срок до</th><th>Льгота до</th><th>Основание</th><th>Файл</th></tr>{trs}</table>{mail_btn}</div>")
+    rem_html = (f"<h2>Напоминания</h2><div class='card'><table><tr><th>Письмо</th><th>Период до</th>"
+                f"<th>Отправлено</th></tr>{_reminder_rows(list(reminders)) or '<tr><td colspan=3 class=muted>Напоминаний ещё не было</td></tr>'}"
+                f"</table></div>")
     ars = "".join(f"<tr><td>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
                   f"<td>{esc(a['what'])}</td><td>{esc(a['detail'])}</td></tr>" for a in audit)
     audit_html = (f"<h2>Журнал</h2><div class='card'><table><tr><th>Когда</th><th>Кто</th><th>Что</th>"
                   f"<th>Подробности</th></tr>{ars or '<tr><td colspan=4 class=muted>пусто</td></tr>'}</table></div>")
-    return page(c["name"], head + edit + pay_form + issue_form + issues_html + audit_html, user, msg,
-                pending=pending)
+    return page(c["name"], head + edit + pay_form + issue_form + issues_html + rem_html + audit_html, user,
+                msg, pending=pending)

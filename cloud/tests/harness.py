@@ -48,6 +48,7 @@ class Server:
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_cloud_"))
         self.outbox = self.dir / "outbox"
         self.extra_env = env or {}
+        self.env: dict = {}
         self.proc = None
 
     @property
@@ -62,6 +63,7 @@ class Server:
                     "DP_SECRET": "test-secret", "DP_MAIL_OUTBOX": str(self.outbox),
                     "DP_SMTP_HOST": ""})
         env.update(self.extra_env)
+        self.env = env      # то же окружение — для запуска задач как из cron
         self._log = (self.dir / "server.log").open("wb")
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(self.port),

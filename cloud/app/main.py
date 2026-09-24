@@ -2,7 +2,8 @@
 
 Отдельная программа: ни одного импорта из bot/. Общее с движком — контракт
 файла лицензии и фикстуры tests/fixtures/license/. Здесь: вход администратора,
-клиники, выдача файла, письмо с файлом (L7). Платежи — L8, напоминания — L9.
+клиники, выдача файла, письмо с файлом (L7), платежи переводом (L8),
+ежедневная задача с напоминаниями и журнал (L9).
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import auth, config, db, license, mail, payments, views
+from . import auth, config, db, jobs, license, mail, payments, views
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -158,13 +159,44 @@ def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
         issues = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC", (cid,)).fetchall()
         audit = con.execute("SELECT * FROM audit WHERE clinic_id=? ORDER BY id DESC LIMIT 50", (cid,)).fetchall()
         pays = con.execute("SELECT * FROM payments WHERE clinic_id=? ORDER BY id DESC", (cid,)).fetchall()
+        rems = con.execute("SELECT * FROM reminders WHERE subscription_id=? ORDER BY sent_at DESC, rowid DESC",
+                           (cid,)).fetchall()
         pending = _pending_count(con)
     return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
-                                          payments=pays, pending=pending))
+                                          payments=pays, pending=pending, reminders=rems))
 
 
 def _pending_count(con) -> int:
     return con.execute("SELECT count(*) FROM payments WHERE status='pending'").fetchone()[0]
+
+
+# ---------- ежедневная задача и журнал (L9) ----------
+
+
+@app.post("/admin/jobs/daily")
+def daily_job(request: Request) -> Response:
+    """То же, что cron: напоминания по таблице за сегодня. Повторный запуск в тот же
+    день ничего не шлёт — ключ (подписка, kind, period) в reminders."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    rep = jobs.daily(who=auth.current_user(request))
+    return RedirectResponse("/admin?msg=" + ("daily_failed" if rep.failed else "daily_done"), status_code=303)
+
+
+_AUDIT_SQL = """SELECT a.*, c.name AS clinic FROM audit a LEFT JOIN clinics c ON c.id = a.clinic_id
+                ORDER BY a.id DESC LIMIT 200"""
+
+
+@app.get("/admin/audit", response_class=HTMLResponse)
+def audit_log(request: Request, msg: str = "") -> Response:
+    if (deny := _guard(request)) is not None:
+        return deny
+    with db.connect() as con:
+        rows = con.execute(_AUDIT_SQL).fetchall()
+        pending = _pending_count(con)
+    return HTMLResponse(views.audit_page(rows, auth.current_user(request), msg, pending))
 
 
 # ---------- платежи (L8) ----------
