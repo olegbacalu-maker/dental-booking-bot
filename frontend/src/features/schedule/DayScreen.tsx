@@ -172,8 +172,13 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                onPlus={(dk, name, hour) => setSlot({ dk, name, hour })}
                onCard={setCard} />
 
+      {/* ⛔ Ключ — день экрана. Форма засевает дату один раз, а переход по
+          дням идёт роутером и экземпляр не пересоздаёт: без ключа форма
+          показывала первый день вкладки и записывала в него. Смена дня
+          начинает форму заново, как перезагрузка старой страницы (Олег
+          24.09); ответ действия приносит тот же день, и набор не трогает. */}
       {m.form
-        ? <AddForm form={m.form} date={m.date} busy={busy}
+        ? <AddForm key={m.date} form={m.form} date={m.date} busy={busy}
                    onAdd={(b) => act(() => day.add(at, doctor, tile, b))} />
         : null}
 

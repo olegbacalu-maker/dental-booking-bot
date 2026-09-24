@@ -24,7 +24,8 @@ const T = {
 
 interface Props {
   form: DayForm
-  /** День экрана: он же подставляется в поле даты. */
+  /** День экрана: он же подставляется в поле даты — ОДИН раз, при монтировании.
+   *  ⛔ Поэтому экран ставит форме `key` по дню (DayScreen). */
   date: string
   busy: boolean
   onAdd: (body: NewAppt) => Promise<boolean>

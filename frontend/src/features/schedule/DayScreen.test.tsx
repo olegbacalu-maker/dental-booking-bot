@@ -287,6 +287,55 @@ describe('форма записи', () => {
       .toContain('Programare adăugată'))
   })
 
+  /* День ответа — тот, что спрошен в адресе: иначе любой переход «приезжал»
+     бы тем же днём, и смена дня для формы была бы невидима. */
+  const dayOfUrl = (url: string) =>
+    Promise.resolve(ok({ ...MODEL, date: /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date }))
+  const formDate = () =>
+    (document.querySelector('form.add > input[type="date"]') as HTMLInputElement).value
+
+  /* ⛔ Поле даты засевалось ОДИН раз, первой загрузкой: после «zi ›» на экране
+     новый день, а форма показывала прежний — и записывала пациента в него.
+     Недонабранное смена дня стирает, как перезагрузка старой страницы (Олег
+     24.09). */
+  it('день сменился — дата формы и запись идут за днём экрана', async () => {
+    get.mockImplementation(dayOfUrl)
+    post.mockResolvedValue(ok({ ...MODEL, date: '2026-09-23' }))
+    await show({ date: '2026-09-22' })
+    expect(formDate()).toBe('2026-09-22')
+    const nameOf = () => document.querySelector(
+      'form.add input[placeholder="Nume pacient"]') as HTMLInputElement
+    fireEvent.change(nameOf(), { target: { value: 'Ion Popa' } })
+    fireEvent.click(document.querySelectorAll('.nav a')[2] as HTMLElement)
+    await waitFor(() => expect(document.querySelector('.nav b')?.textContent).toBe('2026-09-23'))
+    expect(formDate()).toBe('2026-09-23')
+    expect(nameOf().value).toBe('')
+    const form = document.querySelector('form.add') as HTMLFormElement
+    fireEvent.change(nameOf(), { target: { value: 'Vasile Lupu' } })
+    fireEvent.change(form.querySelector('input[placeholder="Telefon"]') as HTMLElement,
+      { target: { value: '069112233' } })
+    fireEvent.submit(form)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments?date=2026-09-23',
+      expect.objectContaining({ date: '2026-09-23', name: 'Vasile Lupu' })))
+  })
+
+  /* А свою дату человек вписал сам — её не трогает действие, вернувшее свежий
+     ТОТ ЖЕ день (статус из списка посреди набора записи). */
+  it('вписанная дата переживает действие, вернувшее тот же день', async () => {
+    get.mockImplementation(dayOfUrl)
+    post.mockResolvedValue(ok({ ...MODEL, date: '2026-09-22' }))
+    await show({ date: '2026-09-22' })
+    const form = document.querySelector('form.add') as HTMLFormElement
+    const name = form.querySelector('input[placeholder="Nume pacient"]') as HTMLInputElement
+    fireEvent.change(form.querySelector(':scope > input[type="date"]') as HTMLElement,
+      { target: { value: '2026-09-30' } })
+    fireEvent.change(name, { target: { value: 'Vasile Lupu' } })
+    fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
+    await waitFor(() => expect(document.querySelector('.toastbox')).toBeTruthy())
+    expect(formDate()).toBe('2026-09-30')
+    expect(name.value).toBe('Vasile Lupu')
+  })
+
   it('у выключенного врача формы нет вовсе', async () => {
     get.mockResolvedValue(ok({ ...MODEL, form: null }))
     await show({ doctor: 'd3' })
