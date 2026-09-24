@@ -59,8 +59,10 @@ const WEEK: StatsData = {
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
 /* Экран открывается РОУТЕРОМ, как в App.tsx: период приносит загрузчик. */
-const open = (url = '/admin/stats') =>
-  openScreen('/admin/stats', url, <StatsScreen navigate={vi.fn()} />, loadStats)
+const open = (url = '/admin/stats', navigate = vi.fn()) =>
+  openScreen('/admin/stats', url, <StatsScreen navigate={navigate} />, loadStats, navigate)
+
+const DENIED = new ApiError({ kind: 'forbidden', code: 'no_access', text: 'Nu aveți acces la această secțiune' }, 'f')
 
 /* Сервер в миниатюре для проверок адреса: период из запроса, перевёрнутый —
    развёрнут (как `period()`), без запроса — неделя по умолчанию. */
@@ -283,5 +285,26 @@ describe('StatsScreen', () => {
     /* Отказ — не переход: адрес прежний, и загрузчик не ходил второй раз. */
     expect(router.state.location.search).toBe('')
     expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('B3: без права — экран НЕ монтируется, уход туда же, куда страница сервера', async () => {
+    get.mockRejectedValueOnce(DENIED)
+    const navigate = vi.fn()
+    open('/admin/stats', navigate)
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin?msg=no_access'))
+    /* ⛔ Ни плашки отказа внутри раздела, ни его кадра: экрана нет. */
+    await waitFor(() => expect(document.querySelector('.dp-react-root')).toBeNull())
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('B3: право отняли посреди сеанса — первый же переход уводит, старый период не остаётся', async () => {
+    get.mockResolvedValueOnce(ok(WEEK)).mockRejectedValueOnce(DENIED)
+    const navigate = vi.fn()
+    open('/admin/stats', navigate)
+    await screen.findByText('15.09.2026 — 21.09.2026')
+    fireEvent.click(screen.getByRole('link', { name: 'Azi' }))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin?msg=no_access'))
+    await waitFor(() => expect(screen.queryByText('15.09.2026 — 21.09.2026')).toBeNull())
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

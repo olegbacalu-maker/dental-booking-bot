@@ -28,8 +28,23 @@ export type RouteLoad<T> = (signal: AbortSignal, params: Params, search: URLSear
  */
 export type ScreenData = RouteLoad<unknown> | {
   load: RouteLoad<unknown>
-  shouldRevalidate: ShouldRevalidateFunction
+  shouldRevalidate?: ShouldRevalidateFunction
+  /**
+   * B3: маршрут под ПРАВОМ. Отказ загрузчику (`403 no_access`) — не плашка
+   * экрана, а то же, что делает страница сервера (`core/auth.require`): уход
+   * на `NO_ACCESS_URL`, экран не монтируется ни кадра. ⛔ Решает СЕРВЕР:
+   * клиент прав не знает и не вычисляет — он передаёт отказ туда же, куда
+   * его отправил бы сервер. Пока включено на одном маршруте (статистика).
+   */
+  guarded?: boolean
 }
+
+/**
+ * Куда сервер отправляет без права: `core/auth.require` → 303 сюда. Баннер
+ * `no_access` рисует ОБОЛОЧКА документа (`frame.msg`), поэтому переход —
+ * документом, как и уход на вход при 401.
+ */
+export const NO_ACCESS_URL = '/admin?msg=no_access'
 
 /**
  * Правило для экрана, который смену query на том же пути обслуживает САМ:
@@ -47,7 +62,9 @@ export const searchChangeKeepsData: ShouldRevalidateFunction = ({ currentUrl, ne
  * потерял бы свою плашку отказа с повтором и ссылкой на старую страницу.
  * Бросает он только то, чего не ждёт никто, — это и есть работа ловушки.
  */
-export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => void = defaultNavigate) {
+export function routeLoader<T>(
+  load: RouteLoad<T>, navigate: (url: string) => void = defaultNavigate, guarded = false,
+) {
   return async ({ request, params }: LoaderFunctionArgs): Promise<LoadState<T>> => {
     try {
       const r = await load(request.signal, params, new URL(request.url).searchParams)
@@ -56,6 +73,12 @@ export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => vo
       const err = asApiError(e)
       if (err.failure.kind === 'unauthenticated') {
         navigate(loginUrl())
+        return { status: 'leaving' }
+      }
+      // ⚠️ Только отказ в ПРАВЕ (`no_access`), а не любой 403: у сервера есть и
+      // другие (`same_origin_post`), и уводить с экрана по ним нельзя.
+      if (guarded && err.failure.kind === 'forbidden' && err.failure.code === 'no_access') {
+        navigate(NO_ACCESS_URL)
         return { status: 'leaving' }
       }
       return { status: 'failed', error: err }
@@ -76,11 +99,12 @@ export function screenRoute(
   navigate?: (url: string) => void,
 ): RouteObject {
   if (!data) return { path, element }
-  const load = typeof data === 'function' ? data : data.load
+  const opts = typeof data === 'function' ? { load: data } : data
   const route: RouteObject = {
-    path, element, loader: routeLoader(load, navigate), hydrateFallbackElement: element,
+    path, element, hydrateFallbackElement: element,
+    loader: routeLoader(opts.load, navigate, 'guarded' in opts && opts.guarded === true),
   }
-  if (typeof data !== 'function') route.shouldRevalidate = data.shouldRevalidate
+  if ('shouldRevalidate' in opts && opts.shouldRevalidate) route.shouldRevalidate = opts.shouldRevalidate
   return route
 }
 

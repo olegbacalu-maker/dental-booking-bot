@@ -1,7 +1,8 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, matchRoutes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ShellModel } from '../layouts/shell'
+import { ApiError } from '../types/api'
 import { App, appRoutes, SCREENS, type MountNode } from './App'
 import { ROUTES } from './routes'
 
@@ -11,6 +12,13 @@ vi.mock('../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/api')>()
   return { ...real, api: { get, post }, loginUrl: () => '/admin/login?next=x' }
 })
+
+/* Уход документом (вход, «нет доступа») — подмена: jsdom переходов не умеет. */
+const { leave } = vi.hoisted(() => ({ leave: vi.fn() }))
+vi.mock('../hooks/useLoad', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../hooks/useLoad')>(),
+  defaultNavigate: leave,
+}))
 
 /* Экран, который падает при отрисовке: ловушку ошибок иначе не проверить.
    FAQ выбран потому, что больше ни одна проверка этого файла его не открывает. */
@@ -136,5 +144,14 @@ describe('App', () => {
     expect(screen.getByRole('alert').textContent).toContain('nu a putut fi afișat')
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
     expect(screen.getByTitle('Setări')).toBeTruthy()
+  })
+
+  it('B3: маршрут под правом без права — экран не монтируется, оболочка на месте', async () => {
+    get.mockRejectedValueOnce(new ApiError({ kind: 'forbidden', code: 'no_access', text: 'Nu' }, 'f'))
+    open('/admin/stats', node('stats', {}, SHELL))
+    await waitFor(() => expect(leave).toHaveBeenCalledWith('/admin?msg=no_access'))
+    await waitFor(() => expect(document.querySelector('.dp-react-root')).toBeNull())
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
