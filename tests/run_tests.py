@@ -43,6 +43,7 @@ import test_license_verify  # noqa: E402
 import test_license_state  # noqa: E402
 import test_license_gate  # noqa: E402
 import test_license_page  # noqa: E402
+import test_license_existing  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
@@ -105,6 +106,7 @@ SUITES = [
     ("Лицензия: стена активации и импорт файла", test_license_page.suite_wall),
     ("Лицензия: баннер и /api/license", test_license_page.suite_banner),
     ("Лицензия: без ключа выдачи не применяется", test_license_page.suite_no_keys),
+    ("Лицензия: обновившаяся клиника без файла", test_license_existing.suite_existing),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),
