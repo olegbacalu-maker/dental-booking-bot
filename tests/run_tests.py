@@ -38,6 +38,7 @@ import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
+import test_license_format  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
@@ -84,6 +85,8 @@ SUITES = [
      test_guards.suite_screen_map),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
+    # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
+    ("Лицензия: формат файла и фикстуры", test_license_format.suite),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),
