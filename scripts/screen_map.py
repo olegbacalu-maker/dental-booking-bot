@@ -27,6 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 BOT = ROOT / "bot" / "app"
 TESTS = ROOT / "tests"
 DOC = ROOT / "docs" / "dentpilot-2" / "screen-test-map.md"
+ROUTE_DOC = ROOT / "docs" / "dentpilot-2" / "route-map.md"
 
 HTTP = ("get", "post", "put", "delete", "patch")
 # Адрес закончился: кавычка, знак запроса, решётка или пробел. Нужно, чтобы
@@ -219,6 +220,58 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/all": "schedule_all",
         "/admin/doctor/{dk}": "schedule_doctor",
         "/admin": "schedule_dash"}
+# Что нужно маршруту сверх имени экрана: параметры узла и загрузчик (B2).
+# ⭐ Лежит РЯДОМ с FLAG намеренно. Два словаря в разных файлах разъезжаются
+# поодиночке; здесь пропуск виден глазом, а `test_guards` требует строку на
+# КАЖДЫЙ ключ FLAG — список с включающей полярностью без этого гниёт молча.
+# ⚠️ «?» у ключа значит «бывает и не быть»: сервер кладёт его только когда
+# значение непустое (`params or None`).
+# ⚠️ Загрузчик — то, что экран просит ПРИ МОНТИРОВАНИИ. В data-router это и
+# станет `loader` маршрута; «—» значит, что просить нечего и данные уже в
+# параметрах узла.
+B2 = {
+    "/admin": ("date, day_label", "GET /api/schedule/live",
+               "живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток"),
+    "/admin/week": ("date", "GET /api/schedule/week", ""),
+    "/admin/all": ("date, f?", "GET /api/schedule/day", "экран DayScreen, общий с днём врача"),
+    "/admin/doctor/{dk}": ("date, dk", "GET /api/schedule/day", "тот же DayScreen, отличается dk"),
+    "/admin/search": ("q?, med?, st?, ch?, dat?, sort?, page?, per?",
+                      "GET /api/patients/summary + GET /api/patients",
+                      "ДВА запроса разом (Promise.all) — loader обязан ждать оба"),
+    "/admin/patient/{pid}": ("pid, views?", "GET /api/patients/{pid}", ""),
+    "/admin/visit/{appt_id}": ("aid, back", "GET /api/visits/{aid}",
+                               "⚠️ ключ узла `aid`, а параметр пути `appt_id` — имена РАЗНЫЕ"),
+    "/admin/patient/{pid}/odontograma": ("pid, t?", "GET /api/patients/{pid}/odontogram", ""),
+    "/admin/patient/{pid}/parodontograma": ("pid, exam?", "GET /api/patients/{pid}/perio", ""),
+    "/admin/medici": ("—", "GET /api/doctors", ""),
+    "/admin/doctor-card/{dk}": ("dk", "GET /api/doctors/{dk}",
+                                "⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале"),
+    "/admin/settings": ("—", "GET /api/settings/hub", ""),
+    "/admin/settings/clinic": ("—", "GET /api/settings/clinic",
+                               "⚠️ единственный экран НЕ на useLoad: свой useEffect"),
+    "/admin/settings/lan": ("—", "GET /api/settings/lan", ""),
+    "/admin/settings/faq": ("—", "GET /api/settings/faq", ""),
+    "/admin/settings/hours": ("—", "GET /api/settings/hours", ""),
+    "/admin/settings/services": ("—", "GET /api/settings/services", ""),
+    "/admin/settings/theme": ("—", "GET /api/settings/theme", ""),
+    "/admin/settings/security": ("—", "GET /api/settings/security", ""),
+    "/admin/settings/backup": ("—", "GET /api/settings/backup", ""),
+    "/admin/settings/crypt": ("—", "GET /api/settings/crypt", ""),
+    "/admin/settings/system": ("—", "GET /api/settings/system", ""),
+    "/admin/stats": ("from, to", "GET /api/stats", ""),
+}
+
+
+def react_path(path_: str) -> str:
+    """Адрес FastAPI как маршрут React: `{pid}` → `:pid`, остальное БЕЗ правок.
+
+    ⛔ Новых адресов не заводим. `/dashboard`, `/pacienti` и прочее на сервере
+    не существует, и перезагрузка такой страницы дала бы 404 — правило решения
+    B: бэкенд не переписывается ради роутера.
+    """
+    return re.sub(r"\{([a-z_]+)\}", lambda m: ":" + m.group(1), path_)
+
+
 # ⛔ Колонка «Пилот» убрана 21.09 вместе с самим выкатом: живых профилей нет,
 # сохранять нечего, и React стал поверхностью продукта по умолчанию. FLAG
 # остался как «где у экрана есть React-имя», а не как рубильник включения.
@@ -297,19 +350,67 @@ def render(rs: list[dict], checks: dict[str, int],
     return "\n".join(L)
 
 
+def render_routes() -> str:
+    """Карта маршрутов B2: адрес FastAPI → маршрут React → экран → параметры → загрузчик.
+
+    ⛔ Новых адресов НЕТ и быть не может: маршрут React — тот же путь, только
+    `{pid}` записан как `:pid`. Это и есть правило решения B, записанное кодом,
+    а не обещанием: колонка вычисляется из адреса сервера, а не набирается.
+    """
+    rows = sorted(FLAG.items(), key=lambda kv: (kv[0].count("/"), kv[0]))
+    L = ["# Карта маршрутов B2\n",
+         "Адрес FastAPI → маршрут React → экран → параметры узла → загрузчик.\n",
+         "\n⚠️ Файл **производный**: правится не он, а `scripts/screen_map.py`\n"
+         "(словари `FLAG` и `B2` лежат там рядом). Пересобрать —\n"
+         "`python scripts/screen_map.py`.\n",
+         "\n⛔ Колонка «маршрут React» ВЫЧИСЛЯЕТСЯ из адреса сервера, а не\n"
+         "набирается: новых адресов вроде `/dashboard` или `/pacienti` на сервере\n"
+         "нет, и перезагрузка такой страницы дала бы 404. Бэкенд не переписывается\n"
+         "ради роутера.\n",
+         f"\nПоверхностей **{len(rows)}**.\n",
+         "\n| адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |",
+         "|---|---|---|---|---|"]
+    notes = []
+    for path_, screen in rows:
+        params, loader, note = B2.get(path_, ("?", "?", ""))
+        L.append(f"| `{path_}` | `{react_path(path_)}` | `{screen}` | {params} | {loader} |")
+        if note:
+            notes.append(f"- `{path_}` — {note}")
+    if notes:
+        L += ["\n## Что нельзя потерять при переносе\n"] + notes
+    L += ["\n## Чего в этой карте намеренно нет\n",
+          "Крошка раздела (`frame.crumbs`) — она в модели ОБОЛОЧКИ, а не в\n"
+          "параметрах экрана, и одна на все десять страниц настроек. В\n"
+          "конфигурацию маршрута её тянуть незачем: она уже приезжает готовой.\n",
+          "\nПрава. Страница зовёт `require(PERM_…)`, её загрузчик — `api_require`.\n"
+          "Свести их в одно место — это B3, и до выбора режима роутера трогать\n"
+          "нечего. ⚠️ Расхождение прав между страницей и её загрузчиком обязано\n"
+          "быть проверено ДО B3, иначе проверка переедет в загрузчик вместе с\n"
+          "ошибкой.\n",
+          "\n---\nСвязано: [spa-transition.md](spa-transition.md),\n"
+          "[screen-test-map.md](screen-test-map.md).\n"]
+    return "\n".join(L)
+
+
 def main(argv: list[str]) -> int:
     rs, unresolved = routes()
     checks = link(rs)
     text = render(rs, checks, unresolved)
+    rtext = render_routes()
     if "--check" in argv:
         old = DOC.read_text(encoding="utf-8") if DOC.exists() else ""
-        if old == text:
-            print(f"карта экранов свежая ({len(rs)} маршрутов)")
+        rold = ROUTE_DOC.read_text(encoding="utf-8") if ROUTE_DOC.exists() else ""
+        if old == text and rold == rtext:
+            print(f"карты свежие ({len(rs)} маршрутов, {len(FLAG)} поверхностей)")
             return 0
-        print("карта экранов устарела — пересобрать: python scripts/screen_map.py")
+        stale = ", ".join(n for n, ok in (("экранов", old == text),
+                                         ("маршрутов", rold == rtext)) if not ok)
+        print(f"карта {stale} устарела — пересобрать: python scripts/screen_map.py")
         return 1
     DOC.parent.mkdir(parents=True, exist_ok=True)
     DOC.write_text(text, encoding="utf-8")
+    ROUTE_DOC.write_text(rtext, encoding="utf-8")
+    print(f"{ROUTE_DOC.relative_to(ROOT)}: поверхностей {len(FLAG)}")
     uncovered = sum(1 for r in rs if not r["suites"])
     print(f"{DOC.relative_to(ROOT)}: маршрутов {len(rs)}, "
           f"без единой проверки {uncovered}")

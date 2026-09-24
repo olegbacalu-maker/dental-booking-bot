@@ -82,6 +82,8 @@ SUITES = [
     ("Сторожа: якорь списка ролей", test_guards.suite_roles_anchor),
     ("Сторожа: карта экранов видит все маршруты",
      test_guards.suite_screen_map),
+    ("Сторожа: карта маршрутов B2 не отстаёт от кода",
+     test_guards.suite_route_map),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
