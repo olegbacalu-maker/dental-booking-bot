@@ -115,21 +115,21 @@ def _date_nav(d: date, base: str, extra: str = "") -> str:
     prev_d, next_d = d - timedelta(days=1), d + timedelta(days=1)
     wk_prev, wk_next = d - timedelta(days=7), d + timedelta(days=7)
     lbl = eng.day_label(eng.Session(lang="ro"), d)
-    picker = (f"<form class='dpickf' method='get' action='{base}'>"
-              f"<input class='dpick' type='date' name='date' value='{d.isoformat()}' "
-              f"onchange='this.form.submit()' title='Alege data (calendar)'></form>")
     # ⚠️ Дата ОДИН раз. До 08-11 тут стояло `{lbl} {d.isoformat()}`, то есть
     # «Ma 11.08 2026-08-11» — один и тот же день двумя записями подряд и без
-    # разделителя, а следом поле выбора рисует его же третий раз («11.08.2026»).
-    # Год берётся из `d.year`, а не из ISO: day_label даёт только день с месяцем,
-    # и без года шапка не сказала бы, какой это август.
+    # разделителя. Год берётся из `d.year`, а не из ISO: day_label даёт только
+    # день с месяцем, и без года шапка не сказала бы, какой это август.
+    # ⛔ Поля <input type=date> здесь больше НЕТ (решение Олега 24.09): выбор
+    # произвольного дня живёт в мини-календаре правой колонки, а третья запись
+    # той же даты в шапке только съедала ширину — ровно те 150px, которых не
+    # хватало, чтобы шапка дня встала в один ряд с заголовком на 1366.
     return (f"<div class='nav'><b>{lbl}.{d.year}</b>"
             f"<a href='{base}?date={wk_prev.isoformat()}' title='-7 zile'>{_ic('chevs-l')}</a>"
             f"<a href='{base}?date={prev_d.isoformat()}'>{_ic('chev-l')} {prev_d.strftime('%d.%m')}</a>"
             f"<a href='{base}'>Azi</a>"
             f"<a href='{base}?date={next_d.isoformat()}'>{next_d.strftime('%d.%m')} {_ic('chev-r')}</a>"
             f"<a href='{base}?date={wk_next.isoformat()}' title='+7 zile'>{_ic('chevs-r')}</a>"
-            f"{picker}{extra}</div>")
+            f"{extra}</div>")
 
 
 def _grid(d: date, doctors_items: list, active: dict, href_fn,

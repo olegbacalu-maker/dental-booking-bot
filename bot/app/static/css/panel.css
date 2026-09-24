@@ -160,6 +160,12 @@
  /* «выключено» на заливке: --text3 на ней не видно, а точка отвечает на вопрос
     «жив ли бот», и невидимая точка читается как «всё хорошо» */
  .side nav a .dot.off{background:rgba(255,255,255,.42)}
+ /* «Setări» — в самом низу меню, над подвалом (просьба Олега 24.09): меню
+    растёт колонкой, и последний пункт отжимается вниз своим полем. ⚠️ На
+    телефоне (≤640) меню лежит СТРОКОЙ, там это поле снимается — иначе auto
+    по поперечной оси уронил бы пункт к низу таб-бара. */
+ .side nav{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+ .side nav a[title="Setări"]{margin-top:auto}
  .side .sfoot{margin-top:auto;padding:12px 16px;
    border-top:1px solid rgba(255,255,255,.16);
    font-size:11.5px;color:var(--on-teal-d);opacity:.5}
@@ -168,7 +174,7 @@
    display:flex;align-items:center;gap:12px;padding:0 24px;position:sticky;top:0;z-index:20}
  .top form.searchf{display:flex;gap:0;align-items:center;background:#FBFDFE;
    border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 8px 0 14px;
-   height:var(--h-ctl);width:320px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
+   height:var(--h-ctl);width:440px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
  .top form.searchf:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
  /* логотип клиники по центру шапки (галочка в Setări › Aspect, 08-21).
     Абсолют от .top (он sticky = containing block): центр не зависит от
@@ -253,6 +259,29 @@
     строки живёт у самого текста (--measure), а не у страницы: страница остаётся
     во всю ширину, а абзац в ней не растягивается. */
  .content{padding:24px 24px 60px;width:100%;max-width:2200px;margin-inline:auto}
+ /* ---------- шапка раздела: заголовок и навигация дня в ОДИН ряд (24.09) ----------
+    Просьба Олега: строка с датами стояла под заголовком, справа от него
+    пустовало, и всё содержимое начиналось на 60px ниже, чем могло бы.
+    Устройство: .content — сетка из двух колонок. h1 и .sub занимают левую
+    (две строки), ПЕРВАЯ .nav страницы — правую на высоту обеих, остальные
+    дети — во всю ширину. Размещение ЯВНОЕ, по областям, поэтому порядок в
+    разметке не важен: баннер в потоке между .sub и телом уходит под шапку, а
+    не сдвигает навигацию (проверено вставкой баннера).
+    ⭐ #root и секция React — display:contents: их навигация становится
+    ячейкой этой же сетки, и восемь React-экранов не трогаются вовсе. Ни
+    одно правило не стилизует сам бокс #root/секции (кроме заглушки, а она
+    ребёнок) — иначе contents его бы обнулил. Замер 1366/1920: ни одного
+    наложения на девяти страницах; на 1366 шапка панели встала в ряд после
+    того, как из неё убрали поле даты (schedule._date_nav).
+    ⚠️ Старые страницы под #live не поднимаются — навигация там внутри
+    обёртки; это ?ui=legacy, не продукт. Печать и телефон — обычный поток. */
+ .content{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:24px;align-content:start}
+ .content>*,#root>*,.dp-react-root>*{grid-column:1/-1}
+ .content>h1{grid-area:1/1/2/2;margin:0}
+ .content>.sub{grid-area:2/1/3/2;margin:4px 0 18px}
+ #root,.dp-react-root{display:contents}
+ .content>.nav:not(.nav~.nav),.dp-react-root>.nav:not(.nav~.nav){grid-area:1/2/3/3;align-self:center;justify-self:start;margin:0}
+ @media print{.content{display:block}}
  /* ---------- общие элементы ---------- */
  h1{font-size:32px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em;line-height:1.2;
    display:flex;align-items:center;gap:.44em}
@@ -2190,8 +2219,13 @@
      height:calc(56px + env(safe-area-inset-bottom));flex:none;
      flex-direction:row;border-right:none;border-top:1px solid var(--line);
      padding-bottom:env(safe-area-inset-bottom);z-index:40;overflow:visible}
-   .side nav{display:flex;width:100%;align-items:center}
+   .side nav{display:flex;flex-direction:row;width:100%;align-items:center}
    .side nav a{flex:1 1 0;min-width:0;justify-content:center;margin:6px 3px;height:44px}
+   /* «Setări» в строке таб-бара — обычный пункт, а не отжатый вниз */
+   .side nav a[title="Setări"]{margin-top:6px}
+   /* шапка раздела на телефоне — обычным потоком: заголовок и навигация в
+      один ряд на 375px не помещаются */
+   .content{display:block}
    /* топбар: поиск на всю ширину, кнопка — только «+», лента апдейта скрыта */
    .top{height:56px;flex:0 0 56px;padding:0 10px;gap:8px}
    .toastbox{top:64px}
