@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router'
 import { Icon } from '../../components/Icon'
 import {
   filtersToQuery, isDirty, type Filters, type PatientRow, type PatientsPage,
@@ -60,6 +61,9 @@ interface Props {
 export function PatientsTable({ page, summary, filters, selected, onFilters, onPeek, onAdd }: Props) {
   const statuses = new Map(summary.statuses.map((s) => [s.id, s]))
   const channels = new Map(summary.channels.map((c) => [c.id, c.label]))
+  // ⛔ Адрес — у роутера (B2.3), а не `window.location`: второй источник
+  // адреса разошёлся бы с первым при первом же переходе без перезагрузки.
+  const { pathname } = useLocation()
 
   function go(next: Partial<Filters>) {
     onFilters({ ...filters, ...next })
@@ -70,7 +74,7 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
   function link(next: Partial<Filters>, withPage = true) {
     const f = { ...filters, ...next }
     return {
-      href: `${window.location.pathname}${filtersToQuery(f, withPage)}`,
+      href: `${pathname}${filtersToQuery(f, withPage)}`,
       onClick: (e: React.MouseEvent) => {
         e.preventDefault()
         onFilters(f)
@@ -180,7 +184,7 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
         <Icon name="search" />
         <b>{T.nothing}</b>
         <span>{T.nothingHint}</span>
-        <a className="pl-btn" href={window.location.pathname} onClick={(e) => {
+        <a className="pl-btn" href={pathname} onClick={(e) => {
           e.preventDefault()
           onFilters({ ...filters, q: '', med: '', st: '', ch: '', dat: '', page: 1 })
         }}>{T.seeAll}</a>

@@ -62,6 +62,12 @@ CASES = [
     # фишу»), а F5 грузит фишу сразу с лентой. Сравнивается адрес и режим.
     ("фиша: лента доступа", "/admin/patient/{pid}", "document.querySelector('.dp-views')",
      "(document.querySelector('.dp-views')||{}).textContent||''", "/api/patients/", False),
+    # Поиск: смена отбора дочитывает только список (сводка — раз на открытие),
+    # загрузчик её не видит; F5 обязан собрать тот же список по адресу.
+    ("поиск: сортировка", "/admin/search",
+     "[...document.querySelectorAll('.pl-card thead th a')].find(a => a.textContent.trim() === 'Pacient')",
+     "([...document.querySelectorAll('.pl-card thead th a')].find(a => a.querySelector('svg'))||{}).textContent||''",
+     "/api/patients?", True),
     ("визит", "/admin/visit/{appt_id}?back=%2Fadmin%2Fall", None,
      "([...document.querySelectorAll('.dp-react-root a')].find(a => a.textContent.includes('Înapoi'))"
      "||{getAttribute(){return ''}}).getAttribute('href')", "/api/visits/", True),

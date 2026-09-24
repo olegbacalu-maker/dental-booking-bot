@@ -6,7 +6,7 @@ import type { ShellModel } from '../layouts/shell'
 import { DoctorCardScreen, loadDoctorCard } from '../features/doctors/DoctorCardScreen'
 import { DoctorsListScreen, loadDoctorsList } from '../features/doctors/DoctorsListScreen'
 import { loadPatientCard, PatientCardScreen } from '../features/patients/card/PatientCardScreen'
-import { PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
+import { loadPatientsSearch, PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
 import { BackupSettingsScreen, loadBackupSettings } from '../features/settings/BackupSettingsScreen'
 import { ClinicSettingsScreen } from '../features/settings/ClinicSettingsScreen'
 import { CryptSettingsScreen, loadCryptSettings } from '../features/settings/CryptSettingsScreen'
@@ -74,7 +74,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_crypt: () => <CryptSettingsScreen />,
   settings_system: () => <SystemSettingsScreen />,
   stats: () => <StatsScreen />,
-  patients_search: (p) => <PatientsSearchScreen params={p} />,
+  patients_search: () => <PatientsSearchScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,
   // ⚠️ Параметр пути — `appt_id`, как у сервера. Ключ узла `aid` здесь больше
   // не читается: адрес визита разбирает роутер, а имена у них РАЗНЫЕ. `back`
@@ -115,6 +115,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   perio: loadPerio,
   patient_card: loadPatientCard,
   visit: loadVisit,
+  patients_search: loadPatientsSearch,
 }
 
 /**

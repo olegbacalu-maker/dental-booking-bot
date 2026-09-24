@@ -32,6 +32,16 @@ export type ScreenData = RouteLoad<unknown> | {
 }
 
 /**
+ * Правило для экрана, который смену query на том же пути обслуживает САМ:
+ * загрузчик не перезапускается, повтор (тот же адрес) и другой путь — как
+ * обычно. Поиск: сводка над списком — «один раз на открытие экрана»
+ * (`/api/patients/summary`), а отбор тянет только страницу списка.
+ */
+export const searchChangeKeepsData: ShouldRevalidateFunction = ({ currentUrl, nextUrl, defaultShouldRevalidate }) =>
+  currentUrl.pathname === nextUrl.pathname && currentUrl.search !== nextUrl.search
+    ? false : defaultShouldRevalidate
+
+/**
  * ⭐ Загрузчик отдаёт ту же `LoadState`, что и `useLoad`, и НЕ бросает на
  * отказе сервера: брошенное ушло бы в ловушку ошибок маршрута, и экран
  * потерял бы свою плашку отказа с повтором и ссылкой на старую страницу.

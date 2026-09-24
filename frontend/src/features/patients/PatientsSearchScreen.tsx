@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import {
+  queryParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
+} from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
-import type { ApiResult } from '../../services/api'
 import { NewPatientDialog } from './NewPatientDialog'
 import { PatientPeek, type PeekState } from './PatientPeek'
 import { PatientsTable } from './PatientsTable'
 import {
-  filtersFromParams, filtersToQuery, isDirty, patients, sameFilters,
+  DEFAULT_FILTERS, filtersFromParams, filtersToQuery, isDirty, patients, sameFilters,
   type Filters, type PatientsPage, type PatientsSummary,
 } from './patients'
 
@@ -41,38 +44,60 @@ const T = {
 interface Data {
   summary: PatientsSummary
   page: PatientsPage
+  /** Отбор, на который ОТВЕЧАЕТ `page` (номер страницы — как его поправил сервер). */
+  filters: Filters
 }
 
 interface Props {
-  /** Отбор из адреса (data-params узла): q, med, st, ch, dat, sort, page, per. */
-  params?: Record<string, string>
   navigate?: (url: string) => void
   /** Пауза после буквы в поиске, мс; в проверках — 0. */
   debounceMs?: number
 }
 
-export function PatientsSearchScreen({ params = {}, navigate = defaultNavigate, debounceMs = 250 }: Props) {
-  const [filters, setFilters] = useState<Filters>(() => filtersFromParams(params))
-  // отбор, с которым шла ПОСЛЕДНЯЯ загрузка (первая — вместе со сводкой)
-  const loadedRef = useRef<Filters | null>(null)
-  const filtersRef = useRef(filters)
-  // эффект объявлен ДО useLoad: его загрузка читает свежий отбор при повторе
-  useEffect(() => { filtersRef.current = filters }, [filters])
+const KEYS = ['q', 'med', 'st', 'ch', 'dat', 'sort', 'page', 'per'] as const
 
-  const load = useCallback(async (signal: AbortSignal): Promise<ApiResult<Data>> => {
-    const f = filtersRef.current
-    const [s, p] = await Promise.all([patients.summary(signal), patients.page(f, signal)])
-    loadedRef.current = { ...f, page: p.data.page }
-    return { ...p, data: { summary: s.data, page: p.data } }
-  }, [])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+/**
+ * Отбор из АДРЕСА — правилом страницы сервера: повтор ключа — последний,
+ * `q` обрезан. ⛔ Адрес — единственный владелец отбора (B2.3): своей копии у
+ * экрана нет, иначе после перехода она разошлась бы с адресом.
+ */
+export function filtersOf(q: URLSearchParams): Filters {
+  const p: Record<string, string> = Object.fromEntries(KEYS.map((k) => [k, queryParam(q, k)]))
+  return filtersFromParams({ ...p, q: (p.q ?? '').trim().slice(0, 60) })
+}
 
-  const [busy, setBusy] = useState(false)
+const loadPatients: RouteLoad<Data> = async (signal, _p, q) => {
+  const f = filtersOf(q)
+  // ⭐ Оба запроса РАЗОМ, и загрузчик ждёт оба: экран без сводки не рисуется
+  const [s, p] = await Promise.all([patients.summary(signal), patients.page(f, signal)])
+  return { ...p, data: { summary: s.data, page: p.data, filters: { ...f, page: p.data.page } } }
+}
+
+/**
+ * Данные грузит роутер (B2.2) на открытии, F5 и повторе — сводку и список.
+ * ⭐ Смена ОТБОРА (одного query) загрузчик НЕ перезапускает: сводка — «один
+ * раз на открытие экрана» (`/api/patients/summary`), а список по новому
+ * отбору экран дочитывает сам — как и до роутера.
+ */
+export const loadPatientsSearch: ScreenData = { load: loadPatients, shouldRevalidate: searchChangeKeepsData }
+
+export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 250 }: Props) {
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<Data>(navigate)
+  const [params] = useSearchParams()
+  const filters = useMemo(() => filtersOf(params), [params])
+  const { pathname } = useLocation()
+  const to = useNavigate()
+  /* Набранное в поиске, но ещё не ушедшее в адрес (ждёт паузу). Это черновик
+     ПОЛЯ, а не отбор: отбор — в адресе. `null` — черновика нет. */
+  const [draft, setDraft] = useState<string | null>(null)
+  const typed = draft === null ? null : draft.trim().slice(0, 60)
+  /* Отказ дочитки: чтобы «занято» не висело после ошибки. */
+  const [failedFor, setFailedFor] = useState<string | null>(null)
+
   const [toast, setToast] = useState<ToastState | null>(null)
   const [peek, setPeek] = useState<PeekState | null>(null)
   const [adding, setAdding] = useState(false)
   const peekSeq = useRef(0)
-  const flushRef = useRef<(() => void) | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
 
   const fail = useCallback((e: unknown) => {
@@ -81,45 +106,56 @@ export function PatientsSearchScreen({ params = {}, navigate = defaultNavigate, 
     setToast({ tone: 'err', text: err.text || T.offline })
   }, [leaveIfSignedOut])
 
-  /* Адрес страницы повторяет отбор: перезагрузка и «варианта clasică»
-     (?ui=legacy) открывают тот же список — имена параметров те же. */
-  useEffect(() => {
-    window.history.replaceState(null, '', `${window.location.pathname}${filtersToQuery(filters)}`)
-  }, [filters])
+  /* Отбор уходит в адрес РОУТЕРОМ: F5 и «varianta clasică» (?ui=legacy)
+     открывают тот же список — имена параметров те же. `replace`, как и было:
+     буквы и фильтры не копят шагов «Назад»; query — заново (без ?msg=). */
+  const go = useCallback((f: Filters) => {
+    void to(`${pathname}${filtersToQuery(f)}`, { replace: true })
+  }, [to, pathname])
 
-  /* Смена отбора после первой загрузки: только страница списка, сводка
-     остаётся. Буква в поиске ждёт паузу, выбор в фильтре идёт сразу. */
-  const summary = state.status === 'ready' ? state.data.summary : null
+  /* Любой переход несёт и набранное, но не ушедшее: щелчок по сортировке за
+     миг до паузы не должен терять буквы. Явная смена q (сброс в таблице) —
+     главнее набранного. */
+  const commit = useCallback((next: Filters) => {
+    if (next.q !== filters.q) {
+      setDraft(null)
+      go(next)
+      return
+    }
+    go(typed === null ? next : { ...next, q: typed })
+  }, [filters.q, typed, go])
+
+  /* Буква ждёт паузу, потом — в адрес; выбор в фильтре идёт сразу (commit). */
   useEffect(() => {
-    if (!summary || !loadedRef.current) return
-    const prev = loadedRef.current
-    if (sameFilters(prev, filters)) return
+    if (typed === null || typed === filters.q) return
+    const timer = window.setTimeout(() => go({ ...filters, q: typed, page: 1 }), debounceMs)
+    return () => window.clearTimeout(timer)
+  }, [typed, filters, debounceMs, go])
+
+  /* Адрес сменился, а список на экране отвечает прежнему отбору — дочитать
+     ТОЛЬКО страницу списка; сводка остаётся. Прошлый запрос отменяется. */
+  const data = state.status === 'ready' ? state.data : null
+  const key = filtersToQuery(filters)
+  useEffect(() => {
+    if (!data || sameFilters(data.filters, filters)) return
     const ctl = new AbortController()
-    const run = async () => {
-      flushRef.current = null
-      loadedRef.current = filters
-      setBusy(true)
-      try {
-        const r = await patients.page(filters, ctl.signal)
-        if (ctl.signal.aborted) return
-        // сервер мог схлопнуть страницу за пределом на последнюю
-        loadedRef.current = { ...filters, page: r.data.page }
-        replace({ summary, page: r.data })
-        if (r.data.page !== filters.page) setFilters((f) => ({ ...f, page: r.data.page }))
-      } catch (e) {
-        if (!ctl.signal.aborted) fail(e)
-      } finally {
-        if (!ctl.signal.aborted) setBusy(false)
+    patients.page(filters, ctl.signal).then((r) => {
+      if (ctl.signal.aborted) return
+      if (r.data.page !== filters.page) {
+        // сервер схлопнул страницу за пределом на последнюю — адрес за ним,
+        // а список дочитается уже по поправленному адресу
+        go({ ...filters, page: r.data.page })
+        return
       }
-    }
-    const wait = filters.q !== prev.q ? debounceMs : 0
-    const timer = window.setTimeout(() => { void run() }, wait)
-    flushRef.current = () => { window.clearTimeout(timer); void run() }
-    return () => {
-      window.clearTimeout(timer)
-      ctl.abort()
-    }
-  }, [filters, summary, debounceMs, replace, fail])
+      replace({ summary: data.summary, page: r.data, filters })
+    }, (e: unknown) => {
+      if (ctl.signal.aborted) return
+      setFailedFor(key)
+      fail(e)
+    })
+    return () => ctl.abort()
+  }, [data, filters, key, replace, fail, go])
+  const busy = data !== null && !sameFilters(data.filters, filters) && failedFor !== key
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setPeek(null) }
@@ -144,12 +180,12 @@ export function PatientsSearchScreen({ params = {}, navigate = defaultNavigate, 
   }
 
   function set(next: Partial<Filters>) {
-    setFilters((f) => ({ ...f, ...next, page: next.page ?? 1 }))
+    commit({ ...filters, ...next, page: next.page ?? 1 })
   }
 
   function onSearch(e: FormEvent) {
     e.preventDefault()
-    flushRef.current?.()
+    if (typed !== null && typed !== filters.q) go({ ...filters, q: typed, page: 1 })
   }
 
   if (state.status === 'leaving') return null
@@ -162,9 +198,10 @@ export function PatientsSearchScreen({ params = {}, navigate = defaultNavigate, 
     )
   }
 
-  const data = state.status === 'ready' ? state.data : null
-  const dirty = isDirty(filters) || filters.sort !== 'last' || filters.per !== 20
-  const exportUrl = `/admin/patients.xlsx${filtersToQuery(filters, false)}`
+  // Что видит человек: отбор адреса плюс набранное в поле
+  const cur = typed === null ? filters : { ...filters, q: typed }
+  const dirty = isDirty(cur) || cur.sort !== 'last' || cur.per !== 20
+  const exportUrl = `/admin/patients.xlsx${filtersToQuery(cur, false)}`
 
   return (
     <section className="dp-react-root" aria-busy={data === null || busy}>
@@ -180,8 +217,8 @@ export function PatientsSearchScreen({ params = {}, navigate = defaultNavigate, 
           <Icon name="search" />
           <input
             name="q"
-            value={filters.q}
-            onChange={(e) => set({ q: e.target.value.slice(0, 60) })}
+            value={draft ?? filters.q}
+            onChange={(e) => setDraft(e.target.value.slice(0, 60))}
             placeholder={T.search}
             aria-label={T.search}
           />
@@ -208,9 +245,9 @@ export function PatientsSearchScreen({ params = {}, navigate = defaultNavigate, 
         {dirty && (
           <a
             className="pl-btn"
-            href={window.location.pathname}
+            href={pathname}
             title={T.resetTitle}
-            onClick={(e) => { e.preventDefault(); setFilters(filtersFromParams({})) }}
+            onClick={(e) => { e.preventDefault(); setDraft(null); go(DEFAULT_FILTERS) }}
           >
             <Icon name="close" /> {T.reset}
           </a>
@@ -250,7 +287,7 @@ export function PatientsSearchScreen({ params = {}, navigate = defaultNavigate, 
               summary={data.summary}
               filters={filters}
               selected={peek?.id ?? null}
-              onFilters={setFilters}
+              onFilters={commit}
               onPeek={(id) => { void openPeek(id) }}
               onAdd={() => setAdding(true)}
             />
