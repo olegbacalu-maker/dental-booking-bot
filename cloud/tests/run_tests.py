@@ -15,6 +15,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
 import test_issue  # noqa: E402
+import test_payments  # noqa: E402
 import test_pure  # noqa: E402
 from harness import run  # noqa: E402
 
@@ -25,6 +26,8 @@ SUITES = [
     ("Сервер: клиники", test_clinics.suite),
     ("Сервер: выдача файла — проходит проверку движка", test_issue.suite_issue),
     ("Сервер: письмо с файлом", test_issue.suite_mail),
+    ("Сервер: правило продления на неудобных датах", test_payments.suite_rules),
+    ("Сервер: платёж переводом — ожидание, подтверждение, отказ", test_payments.suite_flow),
 ]
 
 if __name__ == "__main__":

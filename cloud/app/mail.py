@@ -39,6 +39,29 @@ def send(to: str, subject: str, body: str,
     raise RuntimeError("ни DP_SMTP_HOST, ни DP_MAIL_OUTBOX: письмо отправить некуда")
 
 
+def payment_letter(clinic: str, reference: str, amount: int, months: int) -> tuple[str, str]:
+    """Письмо с реквизитами перевода. Требует заполненных DP_BANK_* — иначе RuntimeError."""
+    b = config.BANK
+    if not (b["iban"] and b["beneficiary"]):
+        raise RuntimeError("DP_BANK_IBAN / DP_BANK_BENEFICIARY пусты: реквизитов для письма нет")
+    subject = f"DentPilot: nota de plată {reference} pentru {clinic}"
+    body = (f"Bună ziua,\n\n"
+            f"Pentru continuarea abonamentului DentPilot ({clinic}, {months} "
+            f"{'lună' if months == 1 else 'luni'}) vă rugăm să efectuați un transfer bancar:\n\n"
+            f"  Suma: {amount} MDL\n"
+            f"  Beneficiar: {b['beneficiary']}\n"
+            f"  IBAN: {b['iban']}\n"
+            + (f"  Banca: {b['bank']}\n" if b['bank'] else "")
+            + (f"  Cod fiscal: {b['code']}\n" if b['code'] else "")
+            + f"  Destinația plății: {reference}\n\n"
+            f"Important: indicați neapărat referința {reference} în destinația plății — după ea "
+            f"recunoaștem plata dumneavoastră. După confirmare primiți prin e-mail fișierul de "
+            f"licență cu noul termen.\n\n"
+            f"Întrebări: {config.SUPPORT_EMAIL} · {config.SUPPORT_PHONE}\n\n"
+            f"DentPilot")
+    return subject, body
+
+
 def license_letter(clinic: str, valid_until: str, plan: str) -> tuple[str, str]:
     """Тема и текст письма с файлом — по-румынски, как интерфейс программы."""
     what = "perioada de probă" if plan == "trial" else "abonamentul"

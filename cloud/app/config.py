@@ -28,4 +28,8 @@ SMTP_PASS = env("DP_SMTP_PASS")
 MAIL_FROM = env("DP_MAIL_FROM", SMTP_USER or "dentpilotpro@gmail.com")
 MAIL_OUTBOX = env("DP_MAIL_OUTBOX")          # папка сухого прогона: письма ложатся файлами
 SUPPORT_EMAIL = "dentpilotpro@gmail.com"
+# Реквизиты для перевода — в письме клинике. Пусто = письмо с реквизитами не
+# отправляется (платёж при этом создаётся), пока Олег не заполнит окружение.
+BANK = {"beneficiary": env("DP_BANK_BENEFICIARY"), "iban": env("DP_BANK_IBAN"),
+        "bank": env("DP_BANK_NAME"), "code": env("DP_BANK_CODE")}
 SUPPORT_PHONE = "+373 60 508 048"

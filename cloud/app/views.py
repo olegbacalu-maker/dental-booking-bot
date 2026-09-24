@@ -26,12 +26,22 @@ MSG = {
     "no_key": ("err", "Ключ выдачи не настроен (DP_LICENSE_KEY) — выдавать нечем"),
     "mail_failed": ("err", "Письмо не отправлено — смотрите лог сервера"),
     "no_issue": ("err", "Файла ещё не выдавали"),
+    "payment_created": ("ok", "Платёж создан — reference в карточке"),
+    "payment_created_mailed": ("ok", "Платёж создан, письмо с реквизитами отправлено"),
+    "payment_confirmed": ("ok", "Платёж подтверждён, срок продлён, файл выдан"),
+    "payment_confirmed_mailed": ("ok", "Платёж подтверждён, срок продлён, файл выдан и отправлен"),
+    "payment_rejected": ("ok", "Платёж отклонён"),
+    "payment_not_pending": ("err", "Этот платёж уже подтверждён или отклонён — второго продления не будет"),
+    "bad_months": ("err", "Срок оплаты — 1, 3, 6 или 12 месяцев"),
+    "bad_amount": ("err", "Сумма — целое число лей больше нуля"),
+    "no_bank": ("err", "Платёж создан, но реквизиты (DP_BANK_*) не заполнены — письмо не отправлено"),
     "login_bad": ("err", "Неверный логин или пароль"),
     "login_locked": ("err", "Слишком много попыток — подождите минуту"),
 }
 
 STATE_RU = {"active": ("ok", "действует"), "grace": ("warn", "льгота"),
             "readonly": ("bad", "только чтение"), "none": ("mute", "нет файла")}
+PAY_RU = {"pending": ("warn", "ожидает"), "paid": ("ok", "оплачен"), "rejected": ("bad", "отклонён")}
 
 _CSS = """
 body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;background:#F4F7F6;color:#16232B}
@@ -55,12 +65,14 @@ button.primary{background:#0E9F8A;color:#fff;border:none;border-radius:9px;paddi
 """
 
 
-def page(title: str, body: str, user: str | None = None, msg: str = "") -> str:
+def page(title: str, body: str, user: str | None = None, msg: str = "", pending: int = 0) -> str:
     banner = ""
     if msg in MSG:
         cls, text = MSG[msg]
         banner = f"<div class='banner {cls}'>{esc(text)}</div>"
+    pend = f" ({pending})" if pending else ""
     nav = ("<div class='top'><a href='/admin'>DentPilot Cloud</a><a href='/admin'>Клиники</a>"
+           f"<a href='/admin/payments'>Платежи{pend}</a>"
            + (f"<form method='post' action='/admin/logout'><button>Выход · {esc(user)}</button></form>"
               if user else "") + "</div>")
     return (f"<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
@@ -113,7 +125,39 @@ def _ts(s):
     return db.parse_ts(s)
 
 
-def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "") -> str:
+def _pay_tag(status: str) -> str:
+    cls, text = PAY_RU.get(status, ("mute", status))
+    return f"<span class='tag {cls}'>{esc(text)}</span>"
+
+
+def _payment_rows(rows: list, with_clinic: bool = False) -> str:
+    out = []
+    for p in rows:
+        actions = ""
+        if p["status"] == "pending":
+            actions = (f"<form method='post' action='/admin/payments/{p['id']}/confirm' style='display:inline'>"
+                       f"<button class='primary'>Подтвердить</button></form> "
+                       f"<form method='post' action='/admin/payments/{p['id']}/reject' style='display:inline'>"
+                       f"<input name='reason' placeholder='причина' style='width:140px;display:inline'> "
+                       f"<button>Отклонить</button></form>")
+        clinic_td = (f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
+                     if with_clinic else "")
+        out.append(f"<tr><td class='mono'>{esc(p['reference'])}</td>{clinic_td}"
+                   f"<td>{p['amount']} {esc(p['currency'])}</td><td>{p['months']} мес.</td>"
+                   f"<td>{esc(p['created_at'][:10])}</td><td>{_pay_tag(p['status'])}"
+                   f"{(' · ' + esc(p['paid_at'][:10])) if p['paid_at'] else ''}</td><td>{actions}</td></tr>")
+    return "".join(out)
+
+
+def payments_page(rows: list, user: str, msg: str = "") -> str:
+    trs = _payment_rows(rows, with_clinic=True) or "<tr><td colspan='7' class='muted'>Ожидающих платежей нет</td></tr>"
+    body = (f"<div class='card'><table><tr><th>Reference</th><th>Клиника</th><th>Сумма</th><th>Срок</th>"
+            f"<th>Создан</th><th>Состояние</th><th></th></tr>{trs}</table></div>")
+    return page("Платежи в ожидании", body, user, msg, pending=len(rows))
+
+
+def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
+                payments: list = (), pending: int = 0) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     head = (f"<div class='card'><div class='grid'>"
@@ -144,6 +188,16 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "") -> 
                   f"<div><label>Основание</label><input name='reason' placeholder='платёж DP-2026-000001, демонстрация…'></div></div>"
                   f"<label><input type='checkbox' name='send' value='1' style='width:auto'> сразу отправить письмом на {esc(c['email'] or '— e-mail не указан')}</label>"
                   f"<p><button class='primary'>Выдать</button></p></form></div>")
+    price = sub["price"] if sub else 399
+    opts = "".join(f"<option value='{m}'>{m} мес. — {m * price} MDL</option>" for m in (1, 3, 6, 12))
+    pay_form = (f"<h2>Платежи</h2><div class='card'><form method='post' action='/admin/clinics/{esc(c['id'])}/payments'>"
+                f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
+                f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div></div>"
+                f"<label><input type='checkbox' name='send' value='1' checked style='width:auto'> отправить письмо с реквизитами "
+                f"на {esc(c['email'] or '— e-mail не указан')}</label>"
+                f"<p><button class='primary'>Создать платёж переводом</button></p></form>"
+                f"<table><tr><th>Reference</th><th>Сумма</th><th>Срок</th><th>Создан</th><th>Состояние</th><th></th></tr>"
+                f"{_payment_rows(list(payments)) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table></div>")
     trs = "".join(
         f"<tr><td>{i['seq']}</td><td>{esc(i['issued_at'][:16].replace('T', ' '))}</td>"
         f"<td>{_d(i['valid_until'])}</td><td>{_d(i['grace_until'])}</td><td>{esc(i['reason'])}</td>"
@@ -157,4 +211,5 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "") -> 
                   f"<td>{esc(a['what'])}</td><td>{esc(a['detail'])}</td></tr>" for a in audit)
     audit_html = (f"<h2>Журнал</h2><div class='card'><table><tr><th>Когда</th><th>Кто</th><th>Что</th>"
                   f"<th>Подробности</th></tr>{ars or '<tr><td colspan=4 class=muted>пусто</td></tr>'}</table></div>")
-    return page(c["name"], head + edit + issue_form + issues_html + audit_html, user, msg)
+    return page(c["name"], head + edit + pay_form + issue_form + issues_html + audit_html, user, msg,
+                pending=pending)

@@ -21,6 +21,7 @@ DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtu
 | `DP_SECRET` | подпись куки сессии; пусто — случайная на процесс (сессии не переживут рестарт) |
 | `DP_SECURE_COOKIES` | `1` за TLS (Caddy) |
 | `DP_SMTP_HOST/PORT/USER/PASS`, `DP_MAIL_FROM` | почта; без хоста письма ложатся файлами в `DP_MAIL_OUTBOX` |
+| `DP_BANK_BENEFICIARY`, `DP_BANK_IBAN`, `DP_BANK_NAME`, `DP_BANK_CODE` | реквизиты в письме о переводе; без них платёж создаётся, письмо не уходит |
 
 **Боевой ключ** делается один раз на сервере и никогда не покидает его:
 

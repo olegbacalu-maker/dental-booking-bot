@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import auth, config, db, license, mail, views
+from . import auth, config, db, license, mail, payments, views
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -157,7 +157,126 @@ def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
         issues = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC", (cid,)).fetchall()
         audit = con.execute("SELECT * FROM audit WHERE clinic_id=? ORDER BY id DESC LIMIT 50", (cid,)).fetchall()
-    return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg))
+        pays = con.execute("SELECT * FROM payments WHERE clinic_id=? ORDER BY id DESC", (cid,)).fetchall()
+        pending = _pending_count(con)
+    return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
+                                          payments=pays, pending=pending))
+
+
+def _pending_count(con) -> int:
+    return con.execute("SELECT count(*) FROM payments WHERE status='pending'").fetchone()[0]
+
+
+# ---------- платежи (L8) ----------
+
+
+_PENDING_SQL = """SELECT p.*, c.name AS clinic FROM payments p JOIN clinics c ON c.id = p.clinic_id
+                  WHERE p.status = 'pending' ORDER BY p.id"""
+
+
+@app.get("/admin/payments", response_class=HTMLResponse)
+def payments_pending(request: Request, msg: str = "") -> Response:
+    if (deny := _guard(request)) is not None:
+        return deny
+    with db.connect() as con:
+        rows = con.execute(_PENDING_SQL).fetchall()
+    return HTMLResponse(views.payments_page(rows, auth.current_user(request), msg))
+
+
+@app.post("/admin/clinics/{cid}/payments")
+def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str = Form(""),
+                send: str = Form("")) -> Response:
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    who = auth.current_user(request)
+    with db.connect() as con:
+        c = _clinic(con, cid)
+        if c is None:
+            return Response(status_code=404)
+        sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
+        price = sub["price"] if sub else 399
+        try:
+            m = int(months)
+            a = int(amount) if amount.strip() else m * price
+        except ValueError:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
+        try:
+            p = payments.create(con, c, m, a, who)
+        except ValueError as e:
+            return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
+        code = "payment_created"
+        if send == "1":
+            code = _send_payment_letter(con, c, p, who) or "payment_created_mailed"
+    return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
+
+
+def _send_payment_letter(con, c, p, who: str) -> str:
+    if not c["email"]:
+        return "bad_email"
+    try:
+        subject, body = mail.payment_letter(c["name"], p["reference"], p["amount"], p["months"])
+    except RuntimeError:
+        return "no_bank"
+    try:
+        where = mail.send(c["email"], subject, body)
+    except (RuntimeError, OSError) as e:
+        log.error("письмо с реквизитами %s не отправлено: %r", p["reference"], e)
+        return "mail_failed"
+    db.audit(con, who, "mail", c["id"], f"реквизиты {p['reference']} на {c['email']} ({where})")
+    return ""
+
+
+def _payment(con, pid: int):
+    return con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+
+
+def _back(request: Request, p) -> str:
+    """Откуда пришли: со страницы ожидающих — туда же, иначе в карточку."""
+    ref = request.headers.get("referer", "")
+    return "/admin/payments" if ref.endswith("/admin/payments") else f"/admin/clinics/{p['clinic_id']}"
+
+
+@app.post("/admin/payments/{pid}/confirm")
+def payment_confirm(request: Request, pid: int) -> Response:
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    who = auth.current_user(request)
+    with db.connect() as con:
+        p = _payment(con, pid)
+        if p is None:
+            return Response(status_code=404)
+        back = _back(request, p)
+        try:
+            payments.confirm(con, p, who)
+        except ValueError:
+            return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
+        except RuntimeError:
+            return RedirectResponse(f"{back}?msg=no_key", status_code=303)
+        c = _clinic(con, p["clinic_id"])
+        code = "payment_confirmed" if _send_latest(con, c, who) else "payment_confirmed_mailed"
+    return RedirectResponse(f"{back}?msg={code}", status_code=303)
+
+
+@app.post("/admin/payments/{pid}/reject")
+def payment_reject(request: Request, pid: int, reason: str = Form("")) -> Response:
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        p = _payment(con, pid)
+        if p is None:
+            return Response(status_code=404)
+        back = _back(request, p)
+        try:
+            payments.reject(con, p, reason.strip()[:200], auth.current_user(request))
+        except ValueError:
+            return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
+    return RedirectResponse(f"{back}?msg=payment_rejected", status_code=303)
 
 
 @app.post("/admin/clinics/{cid}/edit")
