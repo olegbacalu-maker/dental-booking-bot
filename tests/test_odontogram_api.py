@@ -342,8 +342,15 @@ def suite_switch(res: Result) -> None:
         pid = _seed(c)["pid"]
         page = c.get(f"/admin/patient/{pid}/odontograma?t=16").body
         res.ok("узел React в рамке одонтограммы, сайдбар узкий",
-               '<div id="root" data-screen="odontogram"' in page and "side side-rail" in page
+               '<div id="root" data-screen="odontogram"' in page
                and "/static/js/bundle.js?v=" in page, "узла нет")
+        # ⭐ B1: узкий сайдбар больше не строка серверной разметки, а поле
+        # модели — сайдбар рисует React. Проверяем ЗНАЧЕНИЕ, а не литерал.
+        shell = json.loads(page.split('data-shell="', 1)[1].split('"', 1)[0]
+                           .replace("&quot;", '"'))
+        res.ok("узкий сайдбар — в модели оболочки", shell["frame"]["rail"] is True,
+               f"{shell['frame']['rail']!r}")
+        res.ok("серверного каркаса нет", "<aside" not in page, "две оболочки разом")
         params = json.loads(page.split("data-params=\"", 1)[1].split("\"", 1)[0].replace("&quot;", '"'))
         res.check("параметры: фиша и выбранный зуб", params, {"pid": str(pid), "t": "16"})
         res.ok("старой разметки нет", "insp-pic" not in page and "selTooth" not in page, "две разметки")

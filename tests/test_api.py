@@ -185,16 +185,26 @@ def suite_switch(res: Result) -> None:
         c = Client(s.url).login()
         page = c.get("/admin/settings/clinic").body
         res.ok("с флагом — узел React с именем экрана",
-               '<div id="root" data-screen="settings_clinic">' in page, "узла нет")
+               '<div id="root" data-screen="settings_clinic"' in page, "узла нет")
+        # ⭐ B1: модель оболочки приезжает ИНЛАЙНОМ тем же узлом.
+        shell = json.loads(page.split('data-shell="', 1)[1].split('"', 1)[0]
+                           .replace("&quot;", '"'))
         res.ok("бандл и его стили подключены с версией",
                "/static/js/bundle.js?v=" in page and "/static/css/bundle.css?v=" in page,
                "нет ссылок на бандл")
         res.ok("серверная заглушка со ссылкой на старую страницу",
                "?ui=legacy" in page and "Deschideți varianta clasică" in page,
                "пустой узел без объяснения")
-        res.ok("рамка на месте: навигация к хабу и подпись раздела",
-               "href='/admin/settings'>" in page and "Setări</a>" in page
-               and "setări · clinica" in page, "рамка потеряна")
+        # ⛔ Рамку больше не печатает сервер — она в модели. Проверяем ЗНАЧЕНИЯ,
+        # а не литералы разметки: крошка, подпись раздела и активный пункт.
+        res.ok("рамка на месте: крошка к хабу, подпись раздела, активный пункт",
+               [c["href"] for c in shell["frame"]["crumbs"]] == ["/admin/settings", "/admin"]
+               and shell["frame"]["crumbs"][0]["label"] == "Setări"
+               and shell["frame"]["sub"] == "setări · clinica"
+               and shell["nav"]["active"] == "set",
+               f"{shell['frame']['crumbs']} {shell['frame']['sub']} {shell['nav']['active']}")
+        res.ok("серверного каркаса на React-странице нет",
+               "<aside" not in page and 'class="top"' not in page, "две оболочки разом")
         res.ok("формы старого экрана на React-странице нет", "name='name'" not in page,
                "два экрана на одной странице")
         res.ok("узел React не внутри #live", 'id="live"' not in page,

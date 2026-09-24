@@ -147,6 +147,18 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
           <div className="sub">{m.frame.sub}{m.frame.sec_warn} · v{m.runtime.version}</div>
           {[sig.tamper, sig.split, sig.slot, sig.setup].map((s, i) =>
             s.shown ? <div key={i} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}
+          {/* ⚠️ Порядок тот же, что печатал сервер: системные баннеры, потом
+              навигация раздела, потом плашка ответа, потом экран. Крошка идёт
+              ДО плашки — так её и ставил `_sec_page`. */}
+          {m.frame.crumbs.length > 0 && (
+            <div className="nav">
+              {m.frame.crumbs.map((c) => (
+                <a key={c.href} href={c.href}>
+                  <Icon name={iconName(c.icon)} /> {c.label}
+                </a>
+              ))}
+            </div>
+          )}
           {m.frame.msg && <div dangerouslySetInnerHTML={{ __html: m.frame.msg }} />}
           {children}
         </div>

@@ -43,6 +43,14 @@ export interface ShellModel {
   signals: { tamper: Signal; split: Signal; slot: Signal; setup: Signal }
   frame: {
     sub: string
+    /**
+     * Навигация раздела — сегодня её печатает `_sec_page`, одну и ту же на всех
+     * страницах настроек. Пустой список значит «у этого раздела крошки нет».
+     * ⚠️ Форма та же, что у `nav.items`, и это не совпадение: обе — навигация
+     * каркаса, и держать их разными структурами значило бы завести две формы
+     * одного понятия.
+     */
+    crumbs: NavItem[]
     rail: boolean
     bell: number | null
     sec_warn: string

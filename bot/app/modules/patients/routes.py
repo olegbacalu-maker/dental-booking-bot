@@ -1238,8 +1238,11 @@ async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
         params = {"pid": str(pid)}
         if t.strip().isdecimal() and int(t) in _FDI_ALL:
             params["t"] = t.strip()
-        return _shell(msg_banner(msg) + react_mount("odontogram", f"/admin/patient/{pid}/odontograma", params),
-                      f"odontogramă · #{pid}", active="pat", rail=True)
+        # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
+        return react_shell("odontogram", f"/admin/patient/{pid}/odontograma",
+                           shell_model("pat", f"odontogramă · #{pid}",
+                                       rail=True, msg=msg),
+                           params)
     tmap = await db.teeth_map(pid)
     tooth_acts = await db.tooth_activity(pid)
     # ⚠️ Врачи ВСЕ, как в фише, а не только активные: `doctor` у зуба —
@@ -1436,9 +1439,11 @@ async def patient_perio(request: Request, pid: int, exam: str = Query(""),
         params = {"pid": str(pid)}
         if exam.strip().isdecimal():
             params["exam"] = exam.strip()
-        return _shell(msg_banner(msg) + react_mount(
-            "perio", f"/admin/patient/{pid}/parodontograma", params),
-            f"parodontogramă · #{pid}", active="pat", rail=True)
+        # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
+        return react_shell("perio", f"/admin/patient/{pid}/parodontograma",
+                           shell_model("pat", f"parodontogramă · #{pid}",
+                                       rail=True, msg=msg),
+                           params)
     base = f"/admin/patient/{pid}"
     exams, cur = await _perio_ctx(pid, exam)
     if cur is None:

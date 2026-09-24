@@ -180,10 +180,29 @@ def _hour_opts(sel: int, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
 # устаревшая вкладка «Program» затирала бы услуги, сохранённые из соседней.
 
 
+# Навигация раздела — ОДНА на все страницы настроек, и это не совпадение:
+# она никуда не ведёт, кроме как вверх. Отсюда и форма в модели (`frame.crumbs`).
+_SEC_CRUMBS = [{"href": "/admin/settings", "icon": "chev-l", "label": "Setări"},
+               {"href": "/admin", "icon": "home", "label": "Panou"}]
+
+
 def _sec_page(body: str, sub: str, msg: str) -> str:
-    nav = (f"<div class='nav'><a href='/admin/settings'>{_ic('chev-l')} Setări</a>"
-           f"<a href='/admin'>{_ic('home')} Panou</a></div>")
+    nav = "<div class='nav'>" + "".join(
+        f"<a href='{c['href']}'>{_ic(c['icon'])} {c['label']}</a>"
+        for c in _SEC_CRUMBS) + "</div>"
     return _shell(nav + msg_banner(msg) + body, sub, active="set")
+
+
+def _sec_react(screen: str, path: str, sub: str, msg: str,
+               params: dict | None = None) -> str:
+    """Страница-секция настроек на React-оболочке (B1).
+
+    ⭐ Крошка едет в модели той же структурой, из которой её печатает и старая
+    страница: два владельца одной навигации разошлись бы молча.
+    """
+    return react_shell(screen, path,
+                       shell_model("set", sub, msg=msg, crumbs=_SEC_CRUMBS),
+                       params)
 
 
 def _lan_available() -> bool:
@@ -313,8 +332,8 @@ async def settings_system(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if react_on(request, "settings_system"):
-        return _sec_page(react_mount("settings_system", request.url.path),
-                         "setări · stare sistem", msg)
+        return _sec_react("settings_system", request.url.path,
+                           "setări · stare sistem", msg)
     return _sec_page(system.render(), "setări · stare sistem", msg)
 
 
@@ -347,8 +366,8 @@ async def settings_lan(request: Request, msg: str = ""):
     if not _lan_available():
         return RedirectResponse("/admin/settings", status_code=303)
     if react_on(request, "settings_lan"):
-        return _sec_page(react_mount("settings_lan", request.url.path),
-                         "setări · acces din rețea", msg)
+        return _sec_react("settings_lan", request.url.path,
+                           "setări · acces din rețea", msg)
     return _sec_page(lan.render(), "setări · acces din rețea", msg)
 
 
@@ -404,8 +423,8 @@ async def settings_backup(request: Request, msg: str = ""):
     if not (db.IS_SQLITE and bkp.available()):
         return RedirectResponse("/admin/settings", status_code=303)
     if react_on(request, "settings_backup"):
-        return _sec_page(react_mount("settings_backup", request.url.path),
-                         "setări · copie de rezervă", msg)
+        return _sec_react("settings_backup", request.url.path,
+                           "setări · copie de rezervă", msg)
     body = f"""
 <h2>{_ic("save")} Copie de rezervă criptată</h2>
 <form class='add' method='post' action='/admin/backup/export'>
@@ -443,8 +462,8 @@ async def settings_security(request: Request, msg: str = ""):
     if not _pin_rec():
         return RedirectResponse("/admin/settings", status_code=303)
     if react_on(request, "settings_security"):
-        return _sec_page(react_mount("settings_security", request.url.path),
-                         "setări · securitate și utilizatori", msg)
+        return _sec_react("settings_security", request.url.path,
+                           "setări · securitate și utilizatori", msg)
     last = await _last_logins()
     body = f"""
 <h2>{_ic("key")} Schimbă PIN</h2>
@@ -464,8 +483,8 @@ async def settings_faq(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if react_on(request, "settings_faq"):
-        return _sec_page(react_mount("settings_faq", request.url.path),
-                         "setări · întrebări frecvente", msg)
+        return _sec_react("settings_faq", request.url.path,
+                           "setări · întrebări frecvente", msg)
     return _sec_page(faq.render(), "setări · întrebări frecvente", msg)
 
 
@@ -477,8 +496,8 @@ async def settings_clinic(request: Request, msg: str = ""):
         # React-экран (флаг в clinic.json): та же рамка, та же плашка ответа,
         # а вместо формы — узел для бандла. Старая форма ниже остаётся как
         # есть и отдаётся по ?ui=legacy — это откат без сборки и без правок.
-        return _sec_page(react_mount("settings_clinic", request.url.path),
-                         "setări · clinica", msg)
+        return _sec_react("settings_clinic", request.url.path,
+                           "setări · clinica", msg)
     cfg = eng.CONFIG
     e = html.escape
     body = f"""
@@ -511,8 +530,8 @@ async def settings_crypt(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if react_on(request, "settings_crypt"):
-        return _sec_page(react_mount("settings_crypt", request.url.path),
-                         "setări · criptare", msg)
+        return _sec_react("settings_crypt", request.url.path,
+                           "setări · criptare", msg)
     return _sec_page(crypt.render(crypt.state(_data_dir())), "setări · criptare", msg)
 
 
@@ -624,8 +643,8 @@ async def settings_theme(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if react_on(request, "settings_theme"):
-        return _sec_page(react_mount("settings_theme", request.url.path),
-                         "setări · aspectul clinicii", msg)
+        return _sec_react("settings_theme", request.url.path,
+                           "setări · aspectul clinicii", msg)
     th = theme.current()
     e = html.escape
     preset_hex = [c for c, _ in theme.PRESETS]
@@ -814,8 +833,8 @@ async def settings_hours(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if react_on(request, "settings_hours"):
-        return _sec_page(react_mount("settings_hours", request.url.path),
-                         "setări · program de lucru", msg)
+        return _sec_react("settings_hours", request.url.path,
+                           "setări · program de lucru", msg)
     cfg = eng.CONFIG
 
     def _break_opts(sel) -> str:
@@ -880,8 +899,8 @@ async def settings_services(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if react_on(request, "settings_services"):
-        return _sec_page(react_mount("settings_services", request.url.path),
-                         "setări · servicii", msg)
+        return _sec_react("settings_services", request.url.path,
+                           "setări · servicii", msg)
     cfg = eng.CONFIG
     e = html.escape
 

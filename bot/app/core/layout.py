@@ -1106,7 +1106,8 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 
 
 def shell_model(active: str, sub: str, rail: bool = False,
-                bell: int | None = None, msg: str = "") -> dict:
+                bell: int | None = None, msg: str = "",
+                crumbs: list | None = None) -> dict:
     """Оболочка ДАННЫМИ — одна модель на серверную страницу и на React (B1).
 
     ⭐ Живёт рядом с `_shell`, а не в своём модуле: ей нужны `auth`, `theme`,
@@ -1178,6 +1179,13 @@ def shell_model(active: str, sub: str, rail: bool = False,
                   "sec_warn": _sec_warn(),
                   "update": _update_banner().removeprefix(" · "),
                   "msg": msg_banner(msg) if msg else "",
+                  # ⭐ Навигация раздела (сегодня её печатает `_sec_page`, одну
+                  # и ту же на всех 22 вызовах). СТРУКТУРОЙ, а не разметкой:
+                  # условие «когда показывать» остаётся на сервере, где его и
+                  # принимают, а React только рисует. HTML-строкой это утащило
+                  # бы в модель вёрстку, а решение «по active === set» на
+                  # клиенте развело бы одно условие по двум местам.
+                  "crumbs": crumbs or [],
                   "feedback": {
                       "email": FEEDBACK_EMAIL,
                       "href": (f"mailto:{FEEDBACK_EMAIL}?subject="
