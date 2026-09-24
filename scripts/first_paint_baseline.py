@@ -182,7 +182,7 @@ def main() -> int:
     # показывал серверный каркас на 59 мс без единого узла React — выглядело
     # как дефект стенда, а было дефектом списка.
     cfg["ui"] = {"react": ["schedule_dash", "patients_search", "stats",
-                           "doctors_list"]}
+                           "doctors_list", "settings_hub", "doctor_card"]}
     s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-baseline")
@@ -216,7 +216,12 @@ def main() -> int:
             # потеряно, потому что первую вертикаль B1 я включил именно на нём,
             # а в набор адресов его не внёс. Прайор на будущее: замерять надо
             # ТОТ адрес, который собираешься тронуть первым.
-            for path in ("/admin", "/admin/search", "/admin/stats", "/admin/medici"):
+            # ⭐ Правило Олега 24.09: адрес сначала попадает в набор замера,
+            # и только ПОТОМ его оболочка переносится. `/admin/medici` этому
+            # правилу не подчинился и своё «до» потерял — второй раз не надо.
+            for path in ("/admin", "/admin/search", "/admin/stats",
+                         "/admin/medici", "/admin/settings",
+                         "/admin/doctor-card/d2"):
                 m = measure(page, cdp, path)
                 runs.append(m)
                 print(f"\n{path}")

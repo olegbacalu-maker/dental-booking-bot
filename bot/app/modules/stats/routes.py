@@ -28,7 +28,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, require
-from ...core.layout import _shell, msg_banner, react_mount, react_on
+from ...core.layout import (_shell, msg_banner, react_mount, react_on,
+                            react_shell, shell_model)
 from ...core.visits import _parse_date
 from . import casa, model, render
 
@@ -53,11 +54,12 @@ async def admin_stats(
     if react_on(request, "stats"):
         # период уезжает ПАРАМЕТРАМИ узла, а не разбором адреса на клиенте:
         # адрес принадлежит серверу, и клиент не должен его угадывать
-        body = react_mount("stats", request.url.path,
+        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        return react_shell("stats", request.url.path,
+                           shell_model("stat",
+                                       "statistici · perioadă selectabilă · doar director",
+                                       msg=msg),
                            {"from": d1.isoformat(), "to": d2.isoformat()})
-        return _shell(msg_banner(msg) + body,
-                      "statistici · perioadă selectabilă · doar director",
-                      active="stat")
     d = await model.build(d1, d2, today)
     return _shell(msg_banner(msg) + render.page(d),
                   "statistici · perioadă selectabilă · doar director",

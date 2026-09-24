@@ -299,8 +299,13 @@ def suite_switch(res: Result) -> None:
         c.post("/admin/patients/new", name="Flag Test", phone="060333444")
         page = c.get("/admin/search").body
         res.ok("узел React в рамке раздела",
-               '<div id="root" data-screen="patients_search">' in page
+               '<div id="root" data-screen="patients_search"' in page
                and "pacienții clinicii" in page and "/static/js/bundle.js?v=" in page, "узла нет")
+        # ⭐ B1: модель оболочки приезжает ИНЛАЙНОМ тем же узлом.
+        res.ok("модель оболочки на узле", 'data-shell="' in page, "модели нет")
+        # ⛔ Негативный сторож B1: серверного каркаса на React-маршруте нет.
+        res.ok("серверного каркаса нет",
+               "<aside" not in page and 'class="top"' not in page, "две оболочки разом")
         res.ok("старой таблицы нет", "pl-tbl" not in page and "npdlg" not in page, "две разметки")
         res.ok("не внутри #live", 'id="live"' not in page, "живой кусок")
         page = c.get("/admin/search?q=balan&st=inactiv&per=10&sort=last&page=1").body

@@ -37,7 +37,7 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, PIN_MAX,
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
                             _doc_hours_text, data_folder, msg_banner,
-                            react_mount, react_on, _shell, standalone,
+                            react_mount, react_shell, shell_model, react_on, _shell, standalone,
                             tg_configured, tg_refresh_meta, tg_status)
 from ...core import bitlocker, dbkey, theme
 from ...core.storage import _data_dir
@@ -291,8 +291,9 @@ async def admin_settings(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if react_on(request, "settings_hub"):
-        return _shell(msg_banner(msg) + react_mount("settings_hub", request.url.path),
-                      "setările clinicii · pe secțiuni", active="set")
+        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        return react_shell("settings_hub", request.url.path,
+                           shell_model("set", "setările clinicii · pe secțiuni", msg=msg))
     tiles = "".join(
         f"<a class='pl-tile' href='{t['href']}'>"
         f"<span class='ico {t['tone']}'>{_ic(t['icon'])}</span><div class='pl-tv'>"

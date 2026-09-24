@@ -323,9 +323,12 @@ async def admin_doctor_card(request: Request, dk: str, msg: str = ""):
     if dk not in eng.DOCTORS:
         return RedirectResponse("/admin/medici", status_code=303)
     if react_on(request, "doctor_card"):
-        return _shell(msg_banner(msg) + react_mount("doctor_card", request.url.path,
-                                                    {"dk": dk}),
-                      f"fișa medicului · {html.escape(eng.DOCTORS[dk])}", active="med")
+        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        return react_shell("doctor_card", request.url.path,
+                           shell_model("med",
+                                       f"fișa medicului · {html.escape(eng.DOCTORS[dk])}",
+                                       msg=msg),
+                           {"dk": dk})
     e = html.escape
     name = eng.DOCTORS[dk]
     meta = eng.DOCTOR_META.get(dk, {})

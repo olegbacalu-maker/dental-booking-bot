@@ -50,7 +50,7 @@ from . import visit as pvisit
 from ...core import xlsx
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, STATUS_LABEL, js_json,
-                            _ic, _initials, msg_banner, react_mount,
+                            _ic, _initials, msg_banner, react_mount, react_shell, shell_model,
                             react_on, _shell)
 from ...core.storage import _data_dir
 
@@ -143,8 +143,10 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         # Форма зуба из куска одонтограммы по-прежнему возвращает сюда с
         # ?msg= — плашку рисует msg_banner, как у любой React-страницы.
         params = {"pid": str(pid), **({"views": "1"} if views == "1" else {})}
-        return _shell(msg_banner(msg) + react_mount("patient_card", f"/admin/patient/{pid}", params),
-                      f"fișa pacientului · #{pid}", active="pat")
+        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        return react_shell("patient_card", f"/admin/patient/{pid}",
+                           shell_model("pat", f"fișa pacientului · #{pid}", msg=msg),
+                           params)
     e = html.escape
     # журнал доступа (закон 195): КТО открывал карту — такое же требование,
     # как «кто менял». В ленте фиши эти записи не показываются
@@ -2101,9 +2103,10 @@ async def visit_page(request: Request, appt_id: int, back: str = "",
     if react_on(request, "visit"):
         # DentPilot 2.0 (C19): та же рамка, узел React с номером визита и
         # адресом возврата; данные — у GET /api/visits/{aid}
-        return _shell(msg_banner(msg) + react_mount("visit", f"/admin/visit/{appt_id}",
-                                                    {"aid": str(appt_id), "back": back}),
-                      f"consultație · vizita #{appt_id}", active="pat")
+        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        return react_shell("visit", f"/admin/visit/{appt_id}",
+                           shell_model("pat", f"consultație · vizita #{appt_id}", msg=msg),
+                           {"aid": str(appt_id), "back": back})
     return HTMLResponse(pvisit.page(a, rec, items, back, msg))
 
 
@@ -2478,9 +2481,12 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
             params["page"] = str(page)
         if per != 20:
             params["per"] = str(per)
-        return _shell(msg_banner(msg) + react_mount("patients_search", request.url.path,
-                                                    params or None),
-                      "pacienții clinicii · filtre, previzualizare, export", active="pat")
+        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        return react_shell("patients_search", request.url.path,
+                           shell_model("pat",
+                                       "pacienții clinicii · filtre, previzualizare, export",
+                                       msg=msg),
+                           params or None)
     e = html.escape
     q = q.strip()[:60]
     sort = sort if sort in ("last", "name", "new", "debt") else "last"
