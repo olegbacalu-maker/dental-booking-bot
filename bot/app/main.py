@@ -19,7 +19,7 @@ import sys
 import urllib.parse
 from datetime import datetime
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import brand
@@ -30,7 +30,7 @@ from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         PIN_MIN, PERM_SETTINGS, _as_user, _guard, _pin_rec,
                         _secret, _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_blocked, auth_file_fp, change_pin, chat_session,
+                        auth_blocked, auth_file_fp, can, change_pin, chat_session,
                         client_is_local, current_user,
                         fail_count, find_user, lock_left, note_fail, note_ok,
                         pin_free, pin_len_ok,
@@ -39,8 +39,10 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         verify_pin)
 from .core import dbkey, theme
 from .core import license as lic
+from .core.api import api_guard
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
-                          fonts_css, msg_json, standalone, tg_configured)
+                          fonts_css, license_page, msg_json, standalone,
+                          tg_configured)
 from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
 from .modules.patients import api as patients_api
@@ -414,13 +416,20 @@ async def _recovery_gate(request: Request, call_next):
             return Response(status_code=503)
     if RECOVERY and p.startswith("/admin") and not p.startswith("/admin/recover"):
         return RedirectResponse("/admin/recover", status_code=303)
-    # Ворота лицензии (L4): пишущий запрос в состоянии readonly отказывает
-    # ЗДЕСЬ, до маршрутизации и разбора тела, одним кодом для страниц и JSON.
-    # Чтение, печать, экспорт и бэкап остаются: замок на записи, не на входе.
-    if lic.refuses(p, request.method):
+    # Стена активации (L5): пустая картотека без годного файла — показывать
+    # нечего, и каждый адрес журнала ведёт на страницу активации. Как у
+    # восстановления выше; при льготе и режиме чтения стены нет (баннер).
+    if lic.walled(p, request.method):
+        return RedirectResponse("/admin/license", status_code=303)
+    # Ворота лицензии (L4): пишущий запрос в состоянии readonly (или за стеной)
+    # отказывает ЗДЕСЬ, до маршрутизации и разбора тела, одним кодом для
+    # страниц и JSON. Чтение, печать, экспорт и бэкап остаются: замок на
+    # записи, не на входе.
+    if (code := lic.refuses(p, request.method)):
         if p.startswith("/api/"):
-            return msg_json(False, lic.READONLY_CODE, status=423)
-        return RedirectResponse(f"/admin?msg={lic.READONLY_CODE}", status_code=303)
+            return msg_json(False, code, status=423)
+        back = "/admin/license" if code == lic.MISSING_CODE else "/admin"
+        return RedirectResponse(f"{back}?msg={code}", status_code=303)
     return await call_next(request)
 
 
@@ -458,6 +467,44 @@ async def recover_page(err: str = "") -> Response:
     }.get(err, "")
     return HTMLResponse(standalone(RECOVER_TMPL).replace(
         "__ERR__", f"<div class='err'>{msg}</div>" if msg else ""))
+
+
+@app.get("/admin/license", response_class=HTMLResponse)
+async def license_view(request: Request, msg: str = "") -> Response:
+    """Страница активации (L5): состояние, импорт файла, контакты. Вход нужен,
+    право директора — только на импорт: регистратура видит состояние и
+    просьбу позвать директора, а не петлю no_access → стена → no_access."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    me = current_user(request)
+    return HTMLResponse(license_page(msg, director=me is not None and can(me, PERM_SETTINGS),
+                                     walled=lic.walled("/admin", "GET")))
+
+
+@app.post("/admin/license")
+async def license_install(request: Request, file: UploadFile | None = File(None),
+                          text: str = Form("")) -> Response:
+    """Файл из поля или вставленный текст → проверка → license.json → перечитать."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    raw = b""
+    if file is not None and file.filename:
+        raw = await file.read()
+    if not raw.strip():
+        raw = text.encode("utf-8")
+    code = await lic.install(raw.decode("utf-8", "replace"))
+    if code:
+        return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
+    return RedirectResponse("/admin?msg=license_ok", status_code=303)
+
+
+@app.get("/api/license")
+async def license_api(request: Request) -> Response:
+    """Состояние лицензии для клиента: баннер рисует каркас страницы, а это —
+    для экранов, которым нужно знать «сегодня можно писать?» без перезагрузки."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return msg_json(True, data=lic.as_json())
 
 
 @app.post("/admin/recover")

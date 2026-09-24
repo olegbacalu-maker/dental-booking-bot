@@ -35,6 +35,10 @@ ENV_KEYS = "DENTART_LICENSE_KEYS"
 META_FIRST, META_SEEN, META_ACCEPTED = "lic_first", "lic_seen", "lic_accepted"
 STATE_WRITE_EVERY = timedelta(days=1)      # last_seen пишется на старте и раз в сутки
 READONLY_CODE = "license_readonly"         # код отказа: в MSG_BANNER, в ?msg= и в JSON
+MISSING_CODE = "license_missing"           # то же для стены: файла нет, картотека пуста
+# Адреса, открытые и за стеной: сама активация и всё, что нужно, чтобы до неё дойти
+WALL_FREE = ("/admin/license", "/admin/login", "/admin/logout", "/admin/setup",
+             "/admin/recover")
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -42,6 +46,7 @@ _mem = st.Memory()
 _status: st.Status | None = None
 _patients = False
 _written: datetime | None = None
+_keys_present = False
 
 
 def folder() -> pathlib.Path | None:
@@ -114,13 +119,15 @@ async def startup() -> None:
 
 async def refresh() -> st.Status | None:
     """Перечитать файл и память, пересчитать, записать память. Старт и импорт (L5)."""
-    global _dir, _result, _mem, _status, _patients, _written
+    global _dir, _result, _mem, _status, _patients, _written, _keys_present
     d = folder()
     if d is None:
         log.warning("лицензия: папка клиники не определена, проверка не ведётся")
         return None
     text = _read_file(d / FILE_NAME)
-    result = None if text is None else rsa_verify.open_envelope(text, keys())
+    table = keys()
+    _keys_present = bool(table)
+    result = None if text is None else rsa_verify.open_envelope(text, table)
     mem = st.merge(st.load(d / STATE_NAME), await _meta_memory())
     patients = (await db.patients_total()) > 0
     status, mem = st.evaluate(result, _now(), mem, patients)
@@ -131,19 +138,86 @@ async def refresh() -> st.Status | None:
     return status
 
 
-def refuses(path: str, method: str) -> bool:
-    """Ворота записи (L4): отказать ли ЭТОМУ запросу. Зовёт шлюз в main.py
-    до маршрутизации — иначе 422 разбора тела опередил бы отказ, и клиника
-    читала бы «неверные данные» там, где кончился абонемент.
+def applies() -> bool:
+    """Применяется ли лицензия вообще: только когда есть хоть один ключ выдачи.
 
-    Чтение открыто всегда; облако и демо без ключа (`current()` = None) ворот
-    не видят; белый список — `license_state.READONLY_ALLOW`."""
+    ⭐ Без единого ключа (запуск из исходников, песочница `dev up`, exe до
+    первого боевого ключа L7) нет ни стены, ни баннера, ни отказов: файл
+    взять неоткуда, и стена заперла бы каждую свежую установку без двери.
+    Проверять поведение можно всегда — тесты подкладывают ключ окружением."""
+    return _keys_present
+
+
+def refuses(path: str, method: str) -> str:
+    """Ворота записи (L4): код отказа для ЭТОГО запроса, '' — пропустить.
+    Зовёт шлюз в main.py до маршрутизации — иначе 422 разбора тела опередил бы
+    отказ, и клиника читала бы «неверные данные» там, где кончился абонемент.
+
+    Чтение открыто всегда; облако, демо без ключа и запуск без ключей выдачи
+    (`applies()`) ворот не видят; белый список — `license_state.READONLY_ALLOW`.
+    За стеной (L5) запись отказывает тем же списком, но своим кодом: у свежей
+    установки не «кончился абонемент», у неё нет файла."""
     if not st.gated(path, method):
+        return ""
+    s = current()
+    if s is None or not applies() or st.allowed(path):
+        return ""
+    if s.wall:
+        return MISSING_CODE
+    return READONLY_CODE if s.state == st.READONLY else ""
+
+
+def walled(path: str, method: str = "GET") -> bool:
+    """Стена активации (L5): пустая картотека без годного файла — каждый адрес
+    журнала ведёт на /admin/license, кроме тех, без которых до неё не дойти.
+    Класс экрана — как у режима восстановления (`main.py`, `_recovery_gate`).
+    ⚠️ Только чтение: запись за стеной отвечает `refuses()` своим кодом, чтобы
+    форма не уезжала на активацию без объяснения."""
+    if (method not in st.READ_METHODS or not path.startswith("/admin")
+            or path.startswith(WALL_FREE)):
         return False
     s = current()
-    if s is None or s.state != st.READONLY:
-        return False
-    return not st.allowed(path)
+    return s is not None and applies() and s.wall
+
+
+async def install(text: str) -> str:
+    """Импорт файла со страницы активации: проверить, записать, перечитать.
+    Возвращает код отказа или '' — файл лежит и принят."""
+    d = folder()
+    if d is None:
+        return rsa_verify.MALFORMED
+    code, claim = rsa_verify.open_envelope(text, keys())
+    if code:
+        return code
+    if _mem.accepted_seq and claim.seq < _mem.accepted_seq:
+        return st.OLDER
+    p = d / FILE_NAME
+    tmp = p.with_name(p.name + ".tmp")
+    try:
+        tmp.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError as e:
+        log.warning("лицензия: %s не записан: %r", p.name, e)
+        return rsa_verify.MALFORMED
+    s = await refresh()
+    if s is not None and s.claim is not None:
+        await db.log_clinic_event(
+            "license", f"Licența a fost activată: valabilă până la "
+                       f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq})")
+    return ""
+
+
+def as_json() -> dict:
+    """Состояние для /api/license: клиенту и тестам."""
+    s = current()
+    if s is None or not applies():
+        return {"applies": False}
+    c = s.claim
+    return {"applies": True, "state": s.state, "code": s.code, "wall": s.wall,
+            "valid_until": st.fmt(s.valid_until) if s.valid_until else None,
+            "grace_until": st.fmt(s.grace_until) if s.grace_until else None,
+            "clinic": c.clinic if c else "", "plan": c.plan if c else "",
+            "seq": _mem.accepted_seq}
 
 
 def current() -> st.Status | None:

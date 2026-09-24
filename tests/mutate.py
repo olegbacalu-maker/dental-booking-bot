@@ -340,7 +340,7 @@ LEGAL = [
     # ⭐ Законно: ещё один маршрут в белом списке — так туда ляжет импорт
     # лицензии (L5). Правило обязано молчать: список — его, а не чужой.
     ("ворота лицензии стоят в шлюзе", "app/core/license_state.py",
-     ('    "/admin/login", "/admin/setup",', '    "/admin/login", "/admin/setup", "/admin/license",')),
+     ('    "/admin/login", "/admin/setup",', '    "/admin/login", "/admin/setup", "/api/license/renew",')),
 ]
 
 

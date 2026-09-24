@@ -23,12 +23,14 @@ from fastapi.responses import JSONResponse
 from .. import brand, db, dpapi, paths, relocate
 from .. import engine as eng
 from .. import update as upd
+from . import license as lic
 from . import theme
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
                    ROLE_LABEL, _sec_warn, can,
                    request_user, tamper_alert)
 
 FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
+SUPPORT_PHONE = "+373 60 508 048"     # страница активации лицензии; менять вместе с сайтом
 
 # Единый диапазон часов для ВСЕХ выпадающих списков: часы клиники, обед,
 # личное окно врача. Раньше их было три разных (0-23 / 6-21 / 7-23) — клиника
@@ -124,6 +126,17 @@ MSG_BANNER = {
     "license_readonly": ("err", "Programul este în regim de citire: abonamentul a "
                                 "expirat. Datele se pot consulta, tipări și exporta; "
                                 "pentru a continua lucrul, activați abonamentul."),
+    "license_missing": ("err", "Programul nu are o licență activată — introduceți "
+                               "fișierul de licență pe pagina de activare."),
+    "license_ok": ("ok", "Licența a fost activată"),
+    "license_malformed": ("err", "Fișierul nu este un fișier de licență DentPilot "
+                                 "sau este deteriorat"),
+    "license_key_unknown": ("err", "Fișierul a fost emis cu o cheie pe care această "
+                                   "versiune a programului nu o cunoaște — actualizați "
+                                   "programul sau cereți un fișier nou"),
+    "license_bad_signature": ("err", "Semnătura fișierului nu corespunde conținutului — "
+                                     "fișierul a fost modificat sau este corupt"),
+    "license_older": ("err", "Fișierul este mai vechi decât licența deja activată"),
     "ok": ("ok", "Programare adăugată"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),
@@ -671,6 +684,45 @@ def _tamper_banner() -> str:
             "font-size:13px'>Am luat la cunoștință</button></form></div>")
 
 
+def _lic_date(d) -> str:
+    return d.astimezone(eng.TZ).strftime("%d.%m.%Y")
+
+
+def _license_banner() -> str:
+    """Лицензия (L5): льгота — директору, режим чтения — всем.
+
+    Сосед `_tamper_banner`: тот же принцип «баннер, не стена» из
+    split-contract и та же оговорка про `me is not None`. Без единого ключа
+    выдачи (`lic.applies()`: исходники, песочница, exe до боевого ключа)
+    баннера нет — иначе каждая страница разработчика кричала бы о файле,
+    которого взять неоткуда."""
+    s = lic.current()
+    if s is None or not lic.applies() or s.state not in (lic.st.GRACE, lic.st.READONLY):
+        return ""
+    me = request_user()
+    if s.state == lic.st.GRACE and me is not None and not can(me, PERM_SETTINGS):
+        return ""
+    link = "<a href='/admin/license'>Licență</a>"
+    if s.claim is None:
+        why = ("lipsește" if not s.code
+               else MSG_BANNER.get(s.code, ("err", s.code))[1].split(" — ")[0].lower())
+        head = f"Fișierul de licență {why}."
+        until = (f" Programul funcționează încă până la {_lic_date(s.grace_until)}"
+                 if s.state == lic.st.GRACE else
+                 f" Programul este în regim de citire din {_lic_date(s.grace_until)}")
+        text = head + until + f"; pentru a continua, activați licența — {link}."
+    elif s.state == lic.st.GRACE:
+        text = (f"Abonamentul a expirat la {_lic_date(s.valid_until)}. Programul "
+                f"funcționează încă până la {_lic_date(s.grace_until)}; pentru a continua "
+                f"fără întrerupere, activați abonamentul — {link}.")
+    else:
+        text = (f"Programul este în regim de citire: abonamentul a expirat la "
+                f"{_lic_date(s.valid_until)}. Datele se pot consulta, tipări și exporta; "
+                f"pentru a continua lucrul, activați abonamentul — {link}.")
+    cls = "warn" if s.state == lic.st.GRACE else "err"
+    return f"<div class='banner {cls}' style='margin-bottom:14px'>{_ic('key')} {text}</div>"
+
+
 def _split_banner() -> str:
     """На машине ДВЕ картотеки — вопрос к директору, но НЕ стена.
 
@@ -1140,7 +1192,7 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 <div class="content">
 <h1><a href="/admin">Registrul Clinicii</a></h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
-{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
+{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
 {body}
 </div></div>
 <div class="brandcorner">{_ic('tooth')} <b>DentPilot</b> ·
@@ -1360,6 +1412,105 @@ RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 # выше фигурных скобок больше, чем текста). `standalone` для этого не годится:
 # он общий на три страницы, а ключ нужен одной.
 RECOVER_TMPL = RECOVER_TMPL.replace("__ICON__", _ic("key"))
+
+# Страница активации лицензии (L5). Тот же класс, что у восстановления: своя
+# вёрстка, открывается и без бандла, потому что обязана открыться тогда, когда
+# программе больше нечего показать. В отличие от восстановления — не всегда
+# стена: при льготе и режиме чтения на неё ведёт ссылка из баннера.
+LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__CLINIC__ — licență</title><style>__FONTS__
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__BG__;display:flex;
+      align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
+      padding:16px;box-sizing:border-box}
+ .box{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
+      box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
+      display:flex;flex-direction:column;gap:12px;width:min(600px,100%)}
+ h1{font-size:19px;margin:0;font-weight:600;letter-spacing:-.02em}
+ p{color:#5A6875;font-size:13.5px;margin:0;line-height:1.55}
+ dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:13.5px}
+ dt{color:#5A6875}dd{margin:0;font-weight:600}
+ input,textarea{font-family:ui-monospace,Consolas,monospace;font-size:13px;padding:10px 12px;
+       border:1px solid #E7EDF5;border-radius:12px;outline:none;color:#162033;width:100%;
+       box-sizing:border-box}
+ textarea{min-height:96px;resize:vertical}
+ input:focus,textarea:focus{border-color:__ACCENT__;box-shadow:0 0 0 3px __RING__}
+ button{background:__ACCENT__;color:__ON__;border:none;border-radius:12px;height:44px;
+        font-size:15px;font-weight:600;cursor:pointer}
+ .err{color:#B91C1C;font-size:13px}
+ .state{padding:10px 12px;border-radius:10px;font-size:13.5px;line-height:1.5}
+ .state.ok{background:#ECFDF5;color:#065F46}.state.warn{background:#FFFBEB;color:#B45309}
+ .state.bad{background:#FEF2F2;color:#B91C1C}
+ .contacts{font-size:13px}a{color:__ACCENT_D__}
+</style></head><body>
+<form class="box" method="post" action="/admin/license" enctype="multipart/form-data">
+  <h1>__ICON__ __TITLE__</h1>
+  <div class="state __TONE__">__TEXT__</div>
+  __DETAILS__
+  __ERR__
+  __FORM__
+  <p class="contacts">Fișierul de licență îl primiți de la DentPilot prin e-mail.
+  Întrebări sau un fișier nou: <a href="mailto:__EMAIL__">__EMAIL__</a> · __PHONE__</p>
+  __BACK__
+</form></body></html>"""
+LICENSE_TMPL = LICENSE_TMPL.replace("__ICON__", _ic("key"))
+
+_LICENSE_FORM = """<p><b>Fișierul de licență</b> (license.json): alegeți-l sau lipiți conținutul lui.</p>
+  <input type="file" name="file" accept=".json,application/json">
+  <textarea name="text" placeholder='{"v": 1, "kid": "...", "payload": "...", "sig": "..."}'></textarea>
+  <button>Activează licența</button>"""
+
+
+def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
+    """Страница активации по текущему состоянию. `msg` — код из MSG_BANNER после
+    303 (отказ импорта); текст берётся оттуда же, как у всех отказов."""
+    s = lic.current()
+    applies = s is not None and lic.applies()
+    details = ""
+    if s is None or not applies:
+        title, tone, text = ("Licența programului", "warn",
+                             "Această versiune a programului nu verifică licența: nu are nicio "
+                             "cheie de emitere. Fișierul de licență se poate păstra pentru mai târziu.")
+    elif s.claim is not None:
+        c = s.claim
+        details = (f"<dl><dt>Clinica</dt><dd>{html.escape(c.clinic)}</dd>"
+                   f"<dt>Abonament</dt><dd>{html.escape(c.plan)}</dd>"
+                   f"<dt>Valabil până la</dt><dd>{_lic_date(c.valid_until)}</dd>"
+                   f"<dt>Fișier</dt><dd>nr. {c.seq}</dd></dl>")
+        if s.state == lic.st.ACTIVE:
+            title, tone, text = "Licența programului", "ok", "Abonamentul este activ."
+        elif s.state == lic.st.GRACE:
+            title, tone = "Abonamentul a expirat", "warn"
+            text = (f"Abonamentul a expirat la {_lic_date(s.valid_until)}. Programul funcționează "
+                    f"încă până la {_lic_date(s.grace_until)}; după această dată trece în regim de citire.")
+        else:
+            title, tone = "Programul este în regim de citire", "bad"
+            text = (f"Abonamentul a expirat la {_lic_date(s.valid_until)}, iar perioada de plată s-a "
+                    f"încheiat la {_lic_date(s.grace_until)}. Datele se pot consulta, tipări și "
+                    f"exporta; pentru a continua lucrul, activați un fișier de licență nou.")
+    else:
+        title = "Activarea programului"
+        reason = ("nu a fost găsit pe acest calculator" if not s.code
+                  else MSG_BANNER.get(s.code, ("err", s.code))[1].lower())
+        if s.wall:
+            tone, text = "warn", (f"Fișierul de licență {reason}. Programul se activează cu fișierul "
+                                  f"primit de la DentPilot după demonstrație sau la plata abonamentului.")
+        elif s.state == lic.st.GRACE:
+            tone, text = "warn", (f"Fișierul de licență {reason}. Programul funcționează încă până la "
+                                  f"{_lic_date(s.grace_until)}; după această dată trece în regim de citire.")
+        else:
+            tone, text = "bad", (f"Fișierul de licență {reason}. Programul este în regim de citire din "
+                                 f"{_lic_date(s.grace_until)}: datele se pot consulta, tipări și exporta.")
+    err = MSG_BANNER.get(msg, ("", ""))[1] if msg else ""
+    form = _LICENSE_FORM if director else (
+        "<p>Fișierul de licență îl poate activa directorul clinicii.</p>")
+    back = "" if walled else "<p><a href='/admin'>Înapoi la registru</a></p>"
+    return (standalone(LICENSE_TMPL)
+            .replace("__TITLE__", title).replace("__TONE__", tone)
+            .replace("__TEXT__", text).replace("__DETAILS__", details)
+            .replace("__ERR__", f"<div class='err'>{html.escape(err)}</div>" if err else "")
+            .replace("__FORM__", form).replace("__BACK__", back)
+            .replace("__EMAIL__", FEEDBACK_EMAIL).replace("__PHONE__", SUPPORT_PHONE))
 
 
 _PWA_ANCHOR = '<meta charset="utf-8">'

@@ -42,6 +42,7 @@ import test_license_format  # noqa: E402
 import test_license_verify  # noqa: E402
 import test_license_state  # noqa: E402
 import test_license_gate  # noqa: E402
+import test_license_page  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
@@ -101,6 +102,9 @@ SUITES = [
     ("Лицензия: ворота — сопоставление и белый список", test_license_gate.suite_matcher),
     ("Лицензия: ворота в readonly по всем маршрутам", test_license_gate.suite_readonly),
     ("Лицензия: ворота молчат при действующем файле", test_license_gate.suite_active),
+    ("Лицензия: стена активации и импорт файла", test_license_page.suite_wall),
+    ("Лицензия: баннер и /api/license", test_license_page.suite_banner),
+    ("Лицензия: без ключа выдачи не применяется", test_license_page.suite_no_keys),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),

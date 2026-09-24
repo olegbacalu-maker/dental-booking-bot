@@ -194,7 +194,8 @@ def save(path: pathlib.Path, mem: Memory) -> None:
 # ⛔ Список — константа, а не флаг у маршрута: сторож проверяет, что каждый
 # пишущий маршрут либо здесь, либо отказывает (tests/test_license_gate.py).
 READONLY_ALLOW = (
-    "/admin/login", "/admin/setup", "/admin/recover", "/admin/pin/change",
+    "/admin/login", "/admin/setup", "/admin/license", "/admin/recover",
+    "/admin/pin/change",
     "/admin/security/ack", "/admin/users/save", "/admin/users/delete",
     "/admin/backup/export",
     "/admin/settings/crypt/prepare", "/admin/settings/crypt/confirm",
