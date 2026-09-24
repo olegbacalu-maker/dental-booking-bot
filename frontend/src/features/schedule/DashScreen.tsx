@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { Toast, type ToastState } from '../../components/Toast'
 import { CardDialog } from './CardDialog'
@@ -270,9 +271,10 @@ export function DashScreen() {
    * подписи нет вовсе: дни недели по-румынски знает только сервер.
    * ⛔ При ЗАГРУЗКЕ шапки нет: пришла бы раньше данных — и подпись вставала
    * бы в неё вторым кадром.
-   * ⛔ Ссылки настоящие (`<a href>`), а не обработчики: переход по дате на
-   * `/admin` сегодня — полная загрузка документа, ровно как у сервера. Менять
-   * это здесь нельзя, это работа B4.
+   * ⛔ Ссылки настоящие (`<a href>`), а не обработчики. Вкладка недели —
+   * переход без перезагрузки (B4.1, `AppLink`: тот же `<a href>`, простой
+   * щелчок перехватывает роутер); переход по дате на `/admin` пока — полная
+   * загрузка документа, его очередь — третья ступень B4.
    */
   const navNode = () => {
     const m = state.data
@@ -294,7 +296,7 @@ export function DashScreen() {
           <Icon name="chevs-r" />
         </a>
         <a className="primary" href={`/admin?date=${on}`}>{T.day}</a>
-        <a href={`/admin/week?date=${on}`}>{T.week}</a>
+        <AppLink href={`/admin/week?date=${on}`}>{T.week}</AppLink>
       </div>
     )
   }

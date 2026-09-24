@@ -13,8 +13,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter } from 'react-router'
-import { App, appRoutes } from './app/App'
-import { readShell } from './layouts/shell'
+import { App, appHydration, appRoutes } from './app/App'
+import { readNode } from './app/doc'
 import './app/app.css'
 
 const host = document.getElementById('root')
@@ -24,25 +24,20 @@ if (!host) {
   // большинство страниц пока рисует Python. Молча выходим.
   console.debug('DentPilot: #root отсутствует — страница серверная')
 } else {
-  const screen = host.dataset.screen ?? 'unknown'
-  // Параметры экрана (id врача и т. п.) сервер кладёт в data-params JSON-ом.
-  let params: Record<string, string> = {}
-  try {
-    params = JSON.parse(host.dataset.params ?? '{}') as Record<string, string>
-  } catch {
-    console.error('DentPilot: data-params не разбирается', host.dataset.params)
-  }
+  // ⭐ Узел читается тем же разбором, что и документ нового адреса при
+  // переходе без перезагрузки (B4, `app/doc.ts`): два разборщика одного
+  // атрибута разошлись бы молча. Модель оболочки (B1) приезжает ИНЛАЙНОМ,
+  // атрибутом того же узла; `null` значит, что каркас печатает сервер.
+  const node = readNode(host)
   // Внутри узла сервер оставил заглушку «интерфейс не загрузился» со
   // ссылкой на старую страницу (layout.react_mount). Раз мы здесь — бандл
   // загрузился; заглушку убираем сами, чтобы React монтировался в пустой узел.
-  // ⭐ B1: модель оболочки приезжает ИНЛАЙНОМ, атрибутом того же узла. `null`
-  // значит, что каркас ещё печатает сервер — тогда App рисует один экран.
-  const shell = readShell(host)
   host.replaceChildren()
-  // ⚠️ Загрузчиков у маршрутов пока нет, и поэтому первый кадр СИНХРОННЫЙ:
-  // роутер инициализирован сразу, оболочка рисуется без пустого промежутка.
-  // Появится загрузчик — первый кадр станет ждать его, и это решается там же.
-  const router = createBrowserRouter(appRoutes({ screen, params, shell }))
+  // ⚠️ Узел отдаётся роутеру ГОТОВЫМ (`appHydration`): загрузчик корня на
+  // первом кадре не идёт за документом, который уже на экране, и оболочка
+  // рисуется сразу. Загрузчики экранов ждут данные под своим первым кадром
+  // (`hydrateFallbackElement`, B2.2).
+  const router = createBrowserRouter(appRoutes(), { hydrationData: appHydration(node) })
   createRoot(host).render(
     <StrictMode>
       <App router={router} />

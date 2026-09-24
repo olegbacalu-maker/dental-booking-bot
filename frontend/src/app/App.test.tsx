@@ -1,9 +1,9 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, matchRoutes } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ShellModel } from '../layouts/shell'
 import { ApiError } from '../types/api'
-import { App, appRoutes, SCREENS, type MountNode } from './App'
+import { App, appHydration, appRoutes, docChanged, SCREENS, type MountNode } from './App'
 import { ROUTES } from './routes'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
@@ -12,6 +12,10 @@ vi.mock('../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/api')>()
   return { ...real, api: { get, post }, loginUrl: () => '/admin/login?next=x' }
 })
+
+/* Документ нового адреса (B4) — подмена: сервера в проверках нет. */
+const { fetchDoc } = vi.hoisted(() => ({ fetchDoc: vi.fn() }))
+vi.mock('../services/doc', () => ({ fetchDoc }))
 
 /* Уход документом (вход, «нет доступа») — подмена: jsdom переходов не умеет. */
 const { leave } = vi.hoisted(() => ({ leave: vi.fn() }))
@@ -53,9 +57,10 @@ function node(screen: string, params: Record<string, string> = {}, shell: ShellM
   return { screen, params, shell }
 }
 
+/** Окно, открытое на адресе: узел документа отдаётся роутеру готовым, как в main.tsx. */
 function open(url: string, n: MountNode) {
-  const router = createMemoryRouter(appRoutes(n), { initialEntries: [url] })
-  return render(<App router={router} />)
+  const router = createMemoryRouter(appRoutes(), { initialEntries: [url], hydrationData: appHydration(n) })
+  return { router, ...render(<App router={router} />) }
 }
 
 /** Адрес-образец маршрута: каждый `:параметр` заменён числом. */
@@ -63,13 +68,19 @@ const sample = (path: string) => path.replace(/:[a-z_]+/g, '7')
 
 /** Какой маршрут таблицы выиграл на адресе — самый глубокий в совпадении. */
 function winner(url: string): string | undefined {
-  return matchRoutes(appRoutes(node('x')), url)?.at(-1)?.route.path
+  return matchRoutes(appRoutes(), url)?.at(-1)?.route.path
 }
+
+/* Прокрутку после перехода ставит `ScrollRestoration`, а jsdom её не умеет —
+   без подмены каждая проверка перехода печатала бы «Not implemented». */
+beforeAll(() => { window.scrollTo = vi.fn() as unknown as typeof window.scrollTo })
 
 afterEach(() => {
   cleanup()
   get.mockReset()
   post.mockReset()
+  fetchDoc.mockReset()
+  leave.mockReset()
   vi.restoreAllMocks()
 })
 
@@ -88,7 +99,7 @@ describe('таблица маршрутов', () => {
   })
 
   it('маршрут с загрузчиком несёт первый кадр — без него роутер уберёт оболочку', () => {
-    const screens = appRoutes(node('x'))[0]?.children?.[0]?.children ?? []
+    const screens = appRoutes()[0]?.children?.[0]?.children ?? []
     const loaded = screens.filter((r) => r.loader)
     expect(loaded.length).toBeGreaterThan(0)
     for (const r of loaded) expect(r.hydrateFallbackElement, r.path).toBeTruthy()
@@ -153,5 +164,95 @@ describe('App', () => {
     await waitFor(() => expect(document.querySelector('.dp-react-root')).toBeNull())
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+/* Модель оболочки ДРУГОГО адреса: другой активный пункт и подпись. */
+const SHELL_MED: ShellModel = {
+  ...SHELL,
+  nav: {
+    ...SHELL.nav,
+    active: 'med',
+    items: [...SHELL.nav.items, { key: 'med', href: '/admin/medici', icon: 'med', label: 'Medici' }],
+  },
+  frame: { ...SHELL.frame, sub: 'medicii clinicii' },
+}
+
+const OFFLINE = new ApiError({ kind: 'network', detail: 'x' }, 'x')
+
+/* Хаб настроек ждёт вечно (кадр прежнего адреса), список врачей отвечает
+   отказом сети: экран с плашкой — законный конец перехода, и данные нужного
+   вида для него не нужны. */
+const hubWaitsDoctorsFail = (path: string) =>
+  path === '/settings/hub' ? new Promise(() => {}) : Promise.reject(OFFLINE)
+
+describe('B4: переход без перезагрузки', () => {
+  it('первый кадр за документом не ходит: узел приехал инлайном', () => {
+    get.mockReturnValue(new Promise(() => {}))
+    open('/admin/settings', node('settings_hub', {}, SHELL))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
+    expect(fetchDoc).not.toHaveBeenCalled()
+  })
+
+  it('другой путь: оболочка та же (узлы не пересозданы), модель — из документа нового адреса', async () => {
+    get.mockImplementation(hubWaitsDoctorsFail)
+    fetchDoc.mockResolvedValue({ kind: 'page', node: node('doctors_list', {}, SHELL_MED) })
+    const { router } = open('/admin/settings', node('settings_hub', {}, SHELL))
+    const aside = document.querySelector('aside.side')
+    const h1 = screen.getByRole('heading', { level: 1 })
+    expect(document.querySelector('.sub')?.textContent).toContain('setări')
+
+    await act(() => router.navigate('/admin/medici'))
+
+    expect(fetchDoc).toHaveBeenCalledWith(expect.stringContaining('/admin/medici'), expect.any(AbortSignal))
+    expect(document.querySelector('.sub')?.textContent).toContain('medicii clinicii')
+    expect(document.querySelector('aside nav a.on')?.getAttribute('title')).toBe('Medici')
+    /* ⭐ Те же узлы, а не пересозданные: сайдбар и шапка не исчезали ни на кадр. */
+    expect(document.querySelector('aside.side')).toBe(aside)
+    expect(screen.getByRole('heading', { level: 1 })).toBe(h1)
+    expect(leave).not.toHaveBeenCalled()
+  })
+
+  it('тот же путь, другой query — тот же документ: запроса за ним нет', async () => {
+    const wk = (path: string) => Promise.resolve({
+      data: { monday: '', sunday: '', prev: '', next: '', span: path, total: 0, days: [], day: '' },
+      code: '', text: '', tone: 'ok',
+    })
+    get.mockImplementation(wk)
+    const { router } = open('/admin/week?date=2026-09-21', node('schedule_week', {}, SHELL))
+    await screen.findByText(/2026-09-21/)
+    await act(() => router.navigate('/admin/week?date=2026-09-28', { replace: true }))
+    expect(await screen.findByText(/2026-09-28/)).toBeTruthy()
+    expect(fetchDoc).not.toHaveBeenCalled()
+  })
+
+  it('перечитывается при смене пути и плашки ?msg=, но не query того же пути', () => {
+    const at = (a: string, b: string) =>
+      docChanged({ currentUrl: new URL(a, 'http://x'), nextUrl: new URL(b, 'http://x') } as Parameters<typeof docChanged>[0])
+    expect(at('/admin/week', '/admin')).toBe(true)
+    expect(at('/admin/week?date=2026-09-21', '/admin/week?date=2026-09-28')).toBe(false)
+    expect(at('/admin?msg=no_access', '/admin?date=2026-09-25')).toBe(true)
+    expect(at('/admin/search?q=a', '/admin/search?q=ab')).toBe(false)
+  })
+
+  it('документ велит уйти — уходим документом, а в окне прежний кадр до конца', async () => {
+    get.mockReturnValue(new Promise(() => {}))
+    fetchDoc.mockResolvedValue({ kind: 'leave', url: '/admin/login?next=%2Fadmin%2Fmedici' })
+    const { router } = open('/admin/settings', node('settings_hub', {}, SHELL))
+    act(() => { void router.navigate('/admin/medici') })
+    await waitFor(() => expect(leave).toHaveBeenCalledWith('/admin/login?next=%2Fadmin%2Fmedici'))
+    expect(router.state.location.pathname).toBe('/admin/settings')
+    expect(document.querySelector('.sub')?.textContent).toContain('setări')
+  })
+
+  it('голова нового адреса ложится в окно вместе с его кадром', async () => {
+    get.mockImplementation(hubWaitsDoctorsFail)
+    const head = { title: 'Clinica Nouă — registru', style: 'calm', themeColor: '#123456', themeCss: ':root{}' }
+    fetchDoc.mockResolvedValue({ kind: 'page', node: { ...node('doctors_list', {}, SHELL_MED), head } })
+    const { router } = open('/admin/settings', node('settings_hub', {}, SHELL))
+    expect(document.title).not.toBe(head.title)
+    await act(() => router.navigate('/admin/medici'))
+    expect(document.title).toBe(head.title)
+    expect(document.documentElement.dataset.style).toBe('calm')
   })
 })

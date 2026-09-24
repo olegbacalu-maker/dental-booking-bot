@@ -156,9 +156,11 @@ function describe(failure: ApiFailure): string {
  * Куда отправить человека при 401: на экран входа движка с возвратом сюда —
  * ровно туда, куда HTML-охрана (_guard) шлёт редиректом. Экран входа
  * серверный намеренно: он обязан открываться и без бандла.
+ * ⚠️ `back` — куда вернуться после входа. Загрузчик ПЕРЕХОДА передаёт свой
+ * адрес: окно ещё стоит на прежнем, а человек шёл на новый — туда его и вернёт
+ * сервер, отказавший документу этого адреса (B4).
  */
-export function loginUrl(): string {
-  const back = window.location.pathname + window.location.search
+export function loginUrl(back: string = window.location.pathname + window.location.search): string {
   return `/admin/login?next=${encodeURIComponent(back)}`
 }
 

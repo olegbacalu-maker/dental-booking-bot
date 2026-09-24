@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { defaultNavigate } from '../../hooks/useLoad'
@@ -78,7 +79,8 @@ export function WeekScreen({ navigate = defaultNavigate }: Props) {
            onClick={(e) => { e.preventDefault(); go(m.next) }}>
           {T.week} <Icon name="chev-r" />
         </a>
-        <a href={`/admin?date=${m.day}`}>{T.day}</a>
+        {/* Вкладка дня — переход без перезагрузки (B4.1): сайдбар и шапка на месте. */}
+        <AppLink href={`/admin?date=${m.day}`}>{T.day}</AppLink>
         <a className="primary" href={`/admin/week?date=${m.day}`}>{T.title}</a>
       </div>
       <div className="week">

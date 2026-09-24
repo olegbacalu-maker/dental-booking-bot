@@ -7,7 +7,7 @@ import { NO_ACCESS_URL, queryParam, routeLoader, screenRoute, useRouteLoad } fro
 
 vi.mock('../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/api')>()
-  return { ...real, loginUrl: () => '/admin/login?next=%2Fx' }
+  return { ...real, loginUrl: (back = '/x') => `/admin/login?next=${encodeURIComponent(back)}` }
 })
 
 const args = () => ({ request: new Request('http://x/admin/settings'), params: {} }) as unknown as LoaderFunctionArgs
@@ -50,7 +50,9 @@ describe('routeLoader', () => {
     const r = await routeLoader(
       vi.fn().mockRejectedValue(new ApiError({ kind: 'unauthenticated' }, 'u')), navigate)(args())
     expect(r).toEqual({ status: 'leaving' })
-    expect(navigate).toHaveBeenCalledWith('/admin/login?next=%2Fx')
+    /* ⚠️ Вернуться — на адрес ЗАГРУЗЧИКА (B4): при переходе без перезагрузки
+       окно ещё стоит на прежнем адресе, а шёл человек сюда. */
+    expect(navigate).toHaveBeenCalledWith('/admin/login?next=%2Fadmin%2Fsettings')
   })
 })
 

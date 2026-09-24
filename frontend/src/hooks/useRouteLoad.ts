@@ -64,13 +64,16 @@ export const searchChangeKeepsData: ShouldRevalidateFunction = ({ currentUrl, ne
  */
 export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => void = defaultNavigate) {
   return async ({ request, params }: LoaderFunctionArgs): Promise<LoadState<T>> => {
+    const url = new URL(request.url)
     try {
-      const r = await load(request.signal, params, new URL(request.url).searchParams)
+      const r = await load(request.signal, params, url.searchParams)
       return { status: 'ready', data: r.data }
     } catch (e) {
       const err = asApiError(e)
       if (err.failure.kind === 'unauthenticated') {
-        navigate(loginUrl())
+        // ⚠️ Вернуться — на адрес ЗАГРУЗЧИКА, а не окна: при переходе без
+        // перезагрузки окно ещё на прежнем (B4), а шёл человек сюда.
+        navigate(loginUrl(url.pathname + url.search))
         return { status: 'leaving' }
       }
       // ⚠️ Только отказ в ПРАВЕ (`no_access`), а не любой 403: у сервера есть и
