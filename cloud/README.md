@@ -36,6 +36,12 @@ DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtu
 python -m app.jobs daily --at 2026-10-17T06:00:00Z     # разбор: что ушло бы в этот день
 ```
 
+**Прод** — по шагам в [DEPLOY.md](DEPLOY.md): VPS, Docker + Caddy, ключ,
+секреты, cron, копии и учение по восстановлению, вариант без Docker и вариант
+на ПК с Windows. Служебные команды: `python -m app.tools check` (окружение
+готово?), `backup --dir … --keep 30`, `verify-backup ФАЙЛ`, `drill ФАЙЛ`
+(учение: сервер на копии в чистой папке).
+
 **Боевой ключ** делается один раз на сервере и никогда не покидает его:
 
 ```

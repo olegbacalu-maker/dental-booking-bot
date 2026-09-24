@@ -1,0 +1,41 @@
+# DentPilot Cloud за Caddy. Секреты — только в cloud.env (env_file), здесь их нет.
+# Порт 8090 наружу не публикуется: до сервера дотягивается только Caddy.
+services:
+  cloud:
+    build: ..
+    image: dentpilot-cloud
+    container_name: dentpilot-cloud      # так его зовёт cron.example: docker exec dentpilot-cloud …
+    restart: unless-stopped
+    env_file: cloud.env
+    environment:
+      DP_CLOUD_DB: /srv/data/cloud.db
+    volumes:
+      - /srv/dentpilot/data:/srv/data          # база и её копии (backups/)
+      - /srv/dentpilot/keys:/srv/keys:ro       # приватный ключ выдачи, 0600, только чтение
+    # Единственный сосед по сети — Caddy, поэтому X-Forwarded-For из него — правда.
+    # Без forwarded-allow-ips uvicorn считал бы адресом клиента адрес Caddy, и лимит
+    # попыток входа запирал бы всех разом.
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090",
+              "--proxy-headers", "--forwarded-allow-ips", "*"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                        # сертификаты Let's Encrypt
+      - caddy_config:/config
+    depends_on:
+      - cloud
+
+volumes:
+  caddy_data:
+  caddy_config:

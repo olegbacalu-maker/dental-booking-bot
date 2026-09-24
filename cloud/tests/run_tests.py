@@ -14,6 +14,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
+import test_deploy  # noqa: E402
 import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
 import test_payments  # noqa: E402
@@ -32,6 +33,9 @@ SUITES = [
     ("Сервер: окна напоминаний — подставная дата на каждую строку", test_jobs.suite_windows),
     ("Сервер: ежедневная задача — письма, повтор, новый период", test_jobs.suite_daily),
     ("Сервер: задача — пробный, без e-mail, без реквизитов, кнопка, журнал", test_jobs.suite_edges),
+    ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
+    ("Прод: проверка окружения", test_deploy.suite_check),
+    ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),
 ]
 
 if __name__ == "__main__":

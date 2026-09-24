@@ -5,9 +5,9 @@ import re
 from harness import CLOUD, ROOT, Result
 
 ALLOWED = {"argparse", "base64", "calendar", "contextlib", "dataclasses", "datetime", "getpass", "hashlib",
-           "hmac", "html",
-           "json", "logging", "os", "pathlib", "re", "secrets", "smtplib", "sqlite3", "sys",
-           "time", "email", "urllib", "fastapi", "cryptography", "__future__"}
+           "hmac", "html", "json", "logging", "os", "pathlib", "re", "secrets", "shutil", "smtplib",
+           "socket", "sqlite3", "subprocess", "sys", "tempfile", "time", "email", "urllib", "fastapi",
+           "cryptography", "__future__"}
 
 
 def suite(res: Result) -> None:

@@ -36,3 +36,5 @@ src-tauri/target/
 cloud/cloud.db*
 cloud/outbox/
 cloud/.venv/
+cloud/backups/
+cloud/deploy/cloud.env
