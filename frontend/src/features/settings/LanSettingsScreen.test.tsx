@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { LanData } from './settings'
-import { LanSettingsScreen } from './LanSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { LanSettingsScreen, loadLanSettings } from './LanSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -28,6 +29,10 @@ const ON: LanData = {
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/lan', '/admin/settings/lan',
+  <LanSettingsScreen {...(navigate ? { navigate } : {})} />, loadLanSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -38,7 +43,7 @@ afterEach(() => {
 describe('LanSettingsScreen', () => {
   it('выключено: проза сервера и кнопка включения', async () => {
     get.mockResolvedValueOnce(ok(OFF))
-    render(<LanSettingsScreen />)
+    open()
     expect(await screen.findByText('Un program, o singură evidență.')).toBeTruthy()
     expect(screen.getByText('Accesul este oprit')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Activează accesul' })).toBeTruthy()
@@ -51,7 +56,7 @@ describe('LanSettingsScreen', () => {
       text: 'Programul se închide acum și pornește din nou — setarea se aplică la pornire.',
       note: 'Datele clinicii nu sunt afectate.' }, 'ok_set', 'Setări salvate'))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    render(<LanSettingsScreen />)
+    open()
     await screen.findByText('Accesul este oprit')
     fireEvent.click(screen.getByRole('button', { name: 'Activează accesul' }))
     expect(await screen.findByText(/Programul se închide acum/)).toBeTruthy()
@@ -62,7 +67,7 @@ describe('LanSettingsScreen', () => {
   it('отказ в подтверждении — ничего не шлёт', async () => {
     get.mockResolvedValueOnce(ok(OFF))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
-    render(<LanSettingsScreen />)
+    open()
     await screen.findByText('Accesul este oprit')
     fireEvent.click(screen.getByRole('button', { name: 'Activează accesul' }))
     expect(post).not.toHaveBeenCalled()
@@ -73,7 +78,7 @@ describe('LanSettingsScreen', () => {
     post.mockResolvedValueOnce(ok({ enabled: true, restart: false, text: '', note: '' }, 'ok_set', 'Setări salvate'))
     get.mockResolvedValueOnce(ok(ON))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    render(<LanSettingsScreen />)
+    open()
     await screen.findByText('Accesul este oprit')
     fireEvent.click(screen.getByRole('button', { name: 'Activează accesul' }))
     expect(await screen.findByText('Setări salvate')).toBeTruthy()
@@ -85,7 +90,7 @@ describe('LanSettingsScreen', () => {
     get.mockResolvedValueOnce(ok(ON))
     post.mockResolvedValueOnce(ok({ asked: true }))
     get.mockResolvedValueOnce(ok({ ...ON, firewall: true, blocks: { ...ON.blocks, firewall: '' } }))
-    render(<LanSettingsScreen />)
+    open()
     expect(await screen.findByText('Regula de firewall lipsește')).toBeTruthy()
     expect(screen.getByText('De știut')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Creează regula de firewall/ }))
@@ -95,7 +100,7 @@ describe('LanSettingsScreen', () => {
 
   it('секции нет в этом издании (404) — своя фраза', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 'nf'))
-    render(<LanSettingsScreen />)
+    open()
     expect(await screen.findByText(/doar în ediția instalată/)).toBeTruthy()
   })
 })

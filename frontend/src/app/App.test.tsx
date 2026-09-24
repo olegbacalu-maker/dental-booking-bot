@@ -14,7 +14,8 @@ vi.mock('../services/api', async (importOriginal) => {
 
 /* Экран, который падает при отрисовке: ловушку ошибок иначе не проверить.
    FAQ выбран потому, что больше ни одна проверка этого файла его не открывает. */
-vi.mock('../features/settings/FaqScreen', () => ({
+vi.mock('../features/settings/FaqScreen', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../features/settings/FaqScreen')>(),
   FaqScreen: () => { throw new Error('FAQ a căzut') },
 }))
 

@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import type { SystemData } from './settings'
-import { SystemSettingsScreen } from './SystemSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { loadSystemSettings, SystemSettingsScreen } from './SystemSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -27,6 +28,10 @@ const FRESH: SystemData = {
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/system', '/admin/settings/system',
+  <SystemSettingsScreen {...(navigate ? { navigate } : {})} />, loadSystemSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -37,7 +42,7 @@ afterEach(() => {
 describe('SystemSettingsScreen', () => {
   it('состояние: версия, база, ПУТЬ к папке данных и проза о приватности', async () => {
     get.mockResolvedValueOnce(ok(FRESH))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     expect(await screen.findByText('v1.28.0')).toBeTruthy()
     expect(screen.getByText('SQLite (local, data/dental.db)')).toBeTruthy()
     /* ⭐ Единственное место, где директор сверяет, КУДА программа пишет.
@@ -56,7 +61,7 @@ describe('SystemSettingsScreen', () => {
       ...FRESH,
       update: { state: 'self', icon: 'refresh', text: 'disponibilă 1.29.0', latest: '1.29.0', url: '' },
     }))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     const btn = await screen.findByRole('button', { name: /Actualizează acum/ })
     /* ⛔ Не fetch: маршрут подменяет сам exe и отвечает целой страницей,
        которая обязана работать, когда бандла под ней уже нет. */
@@ -70,7 +75,7 @@ describe('SystemSettingsScreen', () => {
       update: { state: 'link', icon: 'refresh', text: 'disponibilă 1.29.0 — descărcați',
                 latest: '1.29.0', url: 'https://example.invalid/r/1.29.0' },
     }))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     const link = await screen.findByRole('link', { name: /descărcați/ })
     expect(link.getAttribute('href')).toBe('https://example.invalid/r/1.29.0')
     expect(screen.queryByRole('button', { name: /Actualizează acum/ })).toBeNull()
@@ -83,7 +88,7 @@ describe('SystemSettingsScreen', () => {
       update: { state: 'link', icon: 'refresh', text: 'disponibilă 1.29.0 — descărcați',
                 latest: '1.29.0', url: 'https://example.invalid/r/1.29.0' },
     }))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     await screen.findByText('la zi')
     fireEvent.click(screen.getByRole('button', { name: /Verifică acum/ }))
     expect(await screen.findByText(/disponibilă 1.29.0/)).toBeTruthy()
@@ -98,7 +103,7 @@ describe('SystemSettingsScreen', () => {
                  warn: 'acest calculator vede versiunile ÎNAINTE de clinici',
                  note: ' · versiunea curentă din canal este pre-lansare' },
     }))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     expect(await screen.findByText('beta (pre-lansări)')).toBeTruthy()
     expect(screen.getByText(/ÎNAINTE de clinici/)).toBeTruthy()
     expect(screen.getByText(/pre-lansare/)).toBeTruthy()
@@ -109,7 +114,7 @@ describe('SystemSettingsScreen', () => {
       ...FRESH,
       bitlocker: { tone: 'alarm', icon: 'ban', text: 'oprit — discul nu este criptat' },
     }))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     const cell = await screen.findByText(/discul nu este criptat/)
     expect(cell.className).toContain('dp-bl-alarm')
   })
@@ -119,7 +124,7 @@ describe('SystemSettingsScreen', () => {
      ФАКТОМ и дать кнопку, а не молчать и не показывать UAC сам. */
   it('версия сходится — ни строки, ни кнопки', async () => {
     get.mockResolvedValueOnce(ok(FRESH))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     await screen.findByText('v1.28.0')
     expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull()
     expect(post).not.toHaveBeenCalled()
@@ -130,7 +135,7 @@ describe('SystemSettingsScreen', () => {
       ...FRESH,
       uninstall: { found: false, version: '', stale: false, hive: '' },
     }))
-    render(<SystemSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     await screen.findByText('v1.28.0')
     /* ⛔ Предлагать «исправить» там, где записи не существует, значит звать
        человека чинить то, чего нет. */
@@ -146,7 +151,7 @@ describe('SystemSettingsScreen', () => {
       ...FRESH,
       uninstall: { found: true, version: '1.28.0', stale: false, hive: 'HKLM' },
     }))
-    const { container } = render(<SystemSettingsScreen navigate={vi.fn()} />)
+    const { container } = open(vi.fn())
     await screen.findByRole('button', { name: /Corectează/ })
     /* ⭐ Названа та версия, что ВИДНА в Windows, а не своя: человек сверяет
        строку глазами со списком «Программ и компонентов». ⚠️ Текст разбит на

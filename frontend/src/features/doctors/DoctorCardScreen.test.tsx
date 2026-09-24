@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { DoctorCard } from './doctors'
-import { DoctorCardScreen } from './DoctorCardScreen'
+import { openScreen } from '../../test/openScreen'
+import { DoctorCardScreen, loadDoctorCard } from './DoctorCardScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -62,6 +63,10 @@ function ok<T>(data: T, code = '', text = ''): ApiResult<T> {
 
 const input = (label: string) => screen.getByLabelText(label) as HTMLInputElement
 
+const open = (dk: string, navigate?: (url: string) => void) => openScreen(
+  '/admin/doctor-card/:dk', `/admin/doctor-card/${dk}`,
+  <DoctorCardScreen dk={dk} {...(navigate ? { navigate } : {})} />, loadDoctorCard, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -72,7 +77,7 @@ afterEach(() => {
 describe('DoctorCardScreen', () => {
   it('успех: шапка, поля формы, неделя, сегодня, услуги, цифры', async () => {
     get.mockResolvedValueOnce(ok(CARD))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     expect(await screen.findByText('Chirurgie')).toBeTruthy()
     expect(input('Nume').value).toBe('Dr. Activ Doi')
     expect(input('Cabinet').value).toBe('3')
@@ -99,20 +104,20 @@ describe('DoctorCardScreen', () => {
 
   it('предупреждение об услугах без врача — текст сервера', async () => {
     get.mockResolvedValueOnce(ok({ ...CARD, warning: 'Atenție: serviciile X rămân fără medic' }))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     expect(await screen.findByText(/rămân fără medic/)).toBeTruthy()
   })
 
   it('сегодня пусто — строка «nicio programare»', async () => {
     get.mockResolvedValueOnce(ok({ ...CARD, today: [] }))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     expect(await screen.findByText(/nicio programare/)).toBeTruthy()
   })
 
   it('сохранение: шлёт форму, шапка берёт свежие данные, плашка сервера', async () => {
     get.mockResolvedValueOnce(ok(CARD))
     post.mockResolvedValueOnce(ok({ ...CARD, name: 'Dr. Doi Nou', work_from: 9, auto_color: false, color: '#112233' }, 'ok_med', 'Datele medicului au fost salvate'))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     fireEvent.change(input('Nume'), { target: { value: 'Dr. Doi Nou' } })
     fireEvent.change(screen.getByLabelText('de la'), { target: { value: '9' } })
@@ -130,7 +135,7 @@ describe('DoctorCardScreen', () => {
   it('сохранение: тёзка — 409 с текстом сервера', async () => {
     get.mockResolvedValueOnce(ok(CARD))
     post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'dup_med', text: 'Există deja un medic' }, 'c'))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
     expect(await screen.findByText('Există deja un medic')).toBeTruthy()
@@ -143,7 +148,7 @@ describe('DoctorCardScreen', () => {
       { id: 'consult', name: 'Consultație', checked: true, note: 'toți medicii' },
       { id: 'hygiene', name: 'Igienizare', checked: true, note: '2 medici' },
     ] }, 'ok_svc_med', 'Serviciile medicului au fost actualizate'))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByLabelText(/Igienizare/))
     fireEvent.click(screen.getByRole('button', { name: 'Salvează serviciile' }))
@@ -155,7 +160,7 @@ describe('DoctorCardScreen', () => {
   it('услуги: последний врач услуги — 409 svc_empty с текстом', async () => {
     get.mockResolvedValueOnce(ok(CARD))
     post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'svc_empty', text: 'cel puțin un medic' }, 'c'))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByLabelText(/Consultație/))
     fireEvent.click(screen.getByRole('button', { name: 'Salvează serviciile' }))
@@ -165,7 +170,7 @@ describe('DoctorCardScreen', () => {
   it('фото: выбранный файл уезжает multipart, аватар получает адрес', async () => {
     get.mockResolvedValueOnce(ok(CARD))
     postForm.mockResolvedValueOnce(ok({ photo: '/admin/doctor-photo/d2?v=new' }, 'ok_photo', 'Fotografia a fost salvată'))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     const file = new File([new Uint8Array([137, 80, 78, 71])], 'me.png', { type: 'image/png' })
     fireEvent.change(document.getElementById('docphoto-d2') as HTMLInputElement, { target: { files: [file] } })
@@ -183,7 +188,7 @@ describe('DoctorCardScreen', () => {
     get.mockResolvedValueOnce(ok({ ...CARD, photo: '/admin/doctor-photo/d2?v=old' }))
     post.mockResolvedValueOnce(ok({ photo: '' }, 'ok_med', 'Datele medicului au fost salvate'))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByRole('button', { name: /Șterge fotografia/ }))
     expect(await screen.findByText('Datele medicului au fost salvate')).toBeTruthy()
@@ -193,7 +198,7 @@ describe('DoctorCardScreen', () => {
 
   it('врач не найден: своя фраза и путь на старую страницу', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 'nf'))
-    render(<DoctorCardScreen dk="d9" />)
+    open('d9')
     expect(await screen.findByText(/Medicul nu există/)).toBeTruthy()
     expect((screen.getByRole('link', { name: 'Varianta clasică' }) as HTMLAnchorElement).getAttribute('href')).toContain('?ui=legacy')
   })
@@ -202,7 +207,7 @@ describe('DoctorCardScreen', () => {
 
   it('кнопки берутся С СЕРВЕРА по состоянию строки, а у заметки — СВОИ', async () => {
     get.mockResolvedValueOnce(ok(CARD))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     expect(screen.getByRole('button', { name: 'A venit' })).toBeTruthy()
     /* ⛔ Заметка стойки — не визит: ни «пришёл», ни «завершено» у неё нет. */
@@ -218,7 +223,7 @@ describe('DoctorCardScreen', () => {
       today: [{ ...CARD.today[0]!, status: 'waiting', status_label: 'în așteptare' },
               CARD.today[1]!],
     }))
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByRole('button', { name: 'A venit' }))
     /* ⭐ Адрес чужой намеренно: менять состояние визита умеет одно место.
@@ -235,7 +240,7 @@ describe('DoctorCardScreen', () => {
       today: [{ ...CARD.today[0]!, status: 'done', status_label: 'finalizată' }],
     }))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
-    render(<DoctorCardScreen dk="d2" />)
+    open('d2')
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByRole('button', { name: /Redeschide/ }))
     expect(post).not.toHaveBeenCalled()
@@ -245,7 +250,7 @@ describe('DoctorCardScreen', () => {
     get.mockResolvedValueOnce(ok(CARD))
     post.mockRejectedValueOnce(new ApiError({ kind: 'unauthenticated' }, 'u'))
     const navigate = vi.fn()
-    render(<DoctorCardScreen dk="d2" navigate={navigate} />)
+    open('d2', navigate)
     await screen.findByText('Chirurgie')
     fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))

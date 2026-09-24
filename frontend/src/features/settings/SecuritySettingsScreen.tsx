@@ -2,7 +2,8 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import { settings, type SecurityData, type UserForm, type UserRow } from './settings'
 
@@ -43,13 +44,15 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadSecuritySettings: RouteLoad<SecurityData> = (signal) => settings.security(signal)
+
 /**
  * Смена своего PIN и учётки сотрудников. Правила (уникальность PIN, последний
  * директор, своя учётка) — на сервере, те же, что у форм; здесь только ввод.
  */
 export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.security(signal), [])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<SecurityData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   const [pins, setPins] = useState({ old_pin: '', new1: '', new2: '' })

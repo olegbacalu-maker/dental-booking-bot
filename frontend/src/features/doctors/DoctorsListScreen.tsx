@@ -3,9 +3,10 @@ import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
-import { doctors, type DoctorSummary } from './doctors'
+import { doctors, type DoctorsList, type DoctorSummary } from './doctors'
 
 /* Подписи экрана — те же слова, что на старой странице «Medici». Состояния
    врача, часы, цвета и цифры приходят с сервера. */
@@ -35,9 +36,11 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadDoctorsList: RouteLoad<DoctorsList> = (signal) => doctors.list(signal)
+
 export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => doctors.list(signal), [])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DoctorsList>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [name, setName] = useState('')
   const [spec, setSpec] = useState('')

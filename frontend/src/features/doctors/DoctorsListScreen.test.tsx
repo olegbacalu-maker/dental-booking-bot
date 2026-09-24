@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { DoctorsList } from './doctors'
-import { DoctorsListScreen } from './DoctorsListScreen'
+import { openScreen } from '../../test/openScreen'
+import { DoctorsListScreen, loadDoctorsList } from './DoctorsListScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -29,6 +30,10 @@ function ok<T>(data: T, code = '', text = ''): ApiResult<T> {
   return { data, code, text, tone: 'ok' }
 }
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/medici', '/admin/medici', <DoctorsListScreen {...(navigate ? { navigate } : {})} />,
+  loadDoctorsList, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -38,14 +43,14 @@ afterEach(() => {
 describe('DoctorsListScreen', () => {
   it('загрузка: форма добавления занята', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
-    render(<DoctorsListScreen />)
+    open()
     expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('true')
     expect((screen.getByLabelText('Dr. Nume Prenume') as HTMLInputElement).disabled).toBe(true)
   })
 
   it('успех: карточки, подписи состояний с сервера, архив отдельно', async () => {
     get.mockResolvedValueOnce(ok(LIST))
-    render(<DoctorsListScreen />)
+    open()
     expect(await screen.findByText('Dr. Activ Doi')).toBeTruthy()
     expect(screen.getByText('Activ').className).toContain('dbadge activ')
     expect(screen.getByText('Arhivat').className).toContain('dbadge arhivat')
@@ -62,7 +67,7 @@ describe('DoctorsListScreen', () => {
 
   it('пусто: ни одного врача — подсказка, форма открыта', async () => {
     get.mockResolvedValueOnce(ok({ ...LIST, doctors: [] }))
-    render(<DoctorsListScreen />)
+    open()
     expect(await screen.findByText(/Niciun medic/)).toBeTruthy()
     expect((screen.getByLabelText('Dr. Nume Prenume') as HTMLInputElement).disabled).toBe(false)
   })
@@ -71,7 +76,7 @@ describe('DoctorsListScreen', () => {
     get.mockResolvedValueOnce(ok(LIST))
     post.mockResolvedValueOnce(ok({ id: 'd5' }, 'new_med', 'Medic adăugat'))
     const navigate = vi.fn()
-    render(<DoctorsListScreen navigate={navigate} />)
+    open(navigate)
     await screen.findByText('Dr. Activ Doi')
     fireEvent.change(screen.getByLabelText('Dr. Nume Prenume'), { target: { value: 'Dr. Cinci' } })
     fireEvent.change(screen.getByLabelText('Specializare (ex. Terapie)'), { target: { value: 'Orto' } })
@@ -83,7 +88,7 @@ describe('DoctorsListScreen', () => {
   it('добавление: тёзка — текст сервера в плашке, форма остаётся', async () => {
     get.mockResolvedValueOnce(ok(LIST))
     post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'dup_med', text: 'Există deja un medic' }, 'c'))
-    render(<DoctorsListScreen />)
+    open()
     await screen.findByText('Dr. Activ Doi')
     fireEvent.change(screen.getByLabelText('Dr. Nume Prenume'), { target: { value: 'Dr. Activ Doi' } })
     fireEvent.click(screen.getByRole('button', { name: '+ Adaugă medic' }))
@@ -95,7 +100,7 @@ describe('DoctorsListScreen', () => {
     get.mockResolvedValueOnce(ok({ ...LIST, same_color: true }))
     post.mockResolvedValueOnce(ok(undefined, 'ok_med', 'Datele medicului au fost salvate'))
     get.mockResolvedValueOnce(ok(LIST))
-    render(<DoctorsListScreen />)
+    open()
     expect(await screen.findByText(/aceeași culoare/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Culori automate/ }))
     expect(await screen.findByText('Datele medicului au fost salvate')).toBeTruthy()
@@ -107,7 +112,7 @@ describe('DoctorsListScreen', () => {
   it('движок не ответил: повтор', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'network', detail: 'x' }, 'x'))
     get.mockResolvedValueOnce(ok(LIST))
-    render(<DoctorsListScreen />)
+    open()
     fireEvent.click(await screen.findByRole('button', { name: /Reîncearcă/ }))
     expect(await screen.findByText('Dr. Activ Doi')).toBeTruthy()
   })
@@ -115,7 +120,7 @@ describe('DoctorsListScreen', () => {
   it('401: на вход, ничего не рисует', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'unauthenticated' }, 'u'))
     const navigate = vi.fn()
-    render(<DoctorsListScreen navigate={navigate} />)
+    open(navigate)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
     expect(screen.queryByLabelText('Dr. Nume Prenume')).toBeNull()
   })

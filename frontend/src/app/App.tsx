@@ -3,29 +3,30 @@ import { Outlet, useParams, useRouteError, type DataRouter, type RouteObject } f
 import { RouterProvider } from 'react-router/dom'
 import { AppShell } from '../layouts/AppShell'
 import type { ShellModel } from '../layouts/shell'
-import { DoctorCardScreen } from '../features/doctors/DoctorCardScreen'
-import { DoctorsListScreen } from '../features/doctors/DoctorsListScreen'
+import { DoctorCardScreen, loadDoctorCard } from '../features/doctors/DoctorCardScreen'
+import { DoctorsListScreen, loadDoctorsList } from '../features/doctors/DoctorsListScreen'
 import { PatientCardScreen } from '../features/patients/card/PatientCardScreen'
 import { PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
-import { BackupSettingsScreen } from '../features/settings/BackupSettingsScreen'
+import { BackupSettingsScreen, loadBackupSettings } from '../features/settings/BackupSettingsScreen'
 import { ClinicSettingsScreen } from '../features/settings/ClinicSettingsScreen'
-import { CryptSettingsScreen } from '../features/settings/CryptSettingsScreen'
-import { FaqScreen } from '../features/settings/FaqScreen'
-import { HoursSettingsScreen } from '../features/settings/HoursSettingsScreen'
-import { LanSettingsScreen } from '../features/settings/LanSettingsScreen'
-import { SecuritySettingsScreen } from '../features/settings/SecuritySettingsScreen'
-import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
-import { SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
-import { SettingsHubScreen, settingsHubRoute } from '../features/settings/SettingsHubScreen'
-import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
+import { CryptSettingsScreen, loadCryptSettings } from '../features/settings/CryptSettingsScreen'
+import { FaqScreen, loadFaq } from '../features/settings/FaqScreen'
+import { HoursSettingsScreen, loadHoursSettings } from '../features/settings/HoursSettingsScreen'
+import { LanSettingsScreen, loadLanSettings } from '../features/settings/LanSettingsScreen'
+import { loadSecuritySettings, SecuritySettingsScreen } from '../features/settings/SecuritySettingsScreen'
+import { loadServicesSettings, ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
+import { loadSystemSettings, SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
+import { loadSettingsHub, SettingsHubScreen } from '../features/settings/SettingsHubScreen'
+import { loadThemeSettings, ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { StatsScreen } from '../features/stats/StatsScreen'
 import { VisitScreen } from '../features/visits/VisitScreen'
-import { OdontogramScreen } from '../features/clinical/OdontogramScreen'
+import { loadOdontogram, OdontogramScreen } from '../features/clinical/OdontogramScreen'
 import { PerioScreen } from '../features/clinical/PerioScreen'
 import { DashScreen } from '../features/schedule/DashScreen'
 import { DayScreen } from '../features/schedule/DayScreen'
 import { WeekScreen } from '../features/schedule/WeekScreen'
 import { QuickFind } from '../features/quickfind/QuickFind'
+import { screenRoute, type RouteLoad } from '../hooks/useRouteLoad'
 import { legacyUrl } from '../utils/legacy'
 import { ROUTES, type ScreenName } from './routes'
 
@@ -88,13 +89,24 @@ export const SCREENS: Record<ScreenName, Draw> = {
 }
 
 /**
- * Экраны, чьи данные грузит РОУТЕР (B2.2): загрузчик и первый кадр на время
- * ожидания. Остальные грузят сами (`useLoad`), пока не дошла их очередь.
- * ⛔ Загрузчик без `hydrateFallbackElement` не заводить: роутер нарисовал бы
- * вместо корня `null`, и оболочка пропала бы вместе с экраном (loader_hold.py).
+ * Экраны, чьи данные грузит РОУТЕР (B2.2). Остальные грузят сами (`useLoad`),
+ * пока не дошла их очередь. Маршрут собирает `screenRoute`: загрузчик без
+ * первого кадра на время ожидания там собрать нельзя.
  */
-const ROUTE_DATA: Partial<Record<ScreenName, Pick<RouteObject, 'loader' | 'hydrateFallbackElement'>>> = {
-  settings_hub: settingsHubRoute,
+const LOADS: Partial<Record<ScreenName, RouteLoad<unknown>>> = {
+  settings_hub: loadSettingsHub,
+  settings_faq: loadFaq,
+  settings_backup: loadBackupSettings,
+  settings_lan: loadLanSettings,
+  settings_crypt: loadCryptSettings,
+  settings_hours: loadHoursSettings,
+  settings_services: loadServicesSettings,
+  settings_security: loadSecuritySettings,
+  settings_system: loadSystemSettings,
+  settings_theme: loadThemeSettings,
+  doctors_list: loadDoctorsList,
+  doctor_card: loadDoctorCard,
+  odontogram: loadOdontogram,
 }
 
 /**
@@ -136,11 +148,7 @@ export function appRoutes(node: MountNode): RouteObject[] {
     children: [{
       errorElement: <ScreenFailed />,
       children: [
-        ...ROUTES.map((r) => ({
-          path: r.path,
-          element: <Screen name={r.screen} node={node} />,
-          ...ROUTE_DATA[r.screen],
-        })),
+        ...ROUTES.map((r) => screenRoute(r.path, <Screen name={r.screen} node={node} />, LOADS[r.screen])),
         { path: '*', element: <UnknownScreen screen={node.screen} /> },
       ],
     }],

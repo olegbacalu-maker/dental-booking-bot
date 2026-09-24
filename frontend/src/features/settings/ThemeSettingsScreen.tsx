@@ -2,7 +2,8 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { settings, type ThemeData, type ThemeForm } from './settings'
 
@@ -47,6 +48,9 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadThemeSettings: RouteLoad<ThemeData> = (signal) => settings.theme(signal)
+
 /**
  * Стиль, фирменный цвет, логотип. Палитры считает сервер и отдаёт готовыми;
  * свой цвет предпросмотр получает от /api/settings/theme/palette — клиент
@@ -54,8 +58,7 @@ interface Props {
  * сохранения другой).
  */
 export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.theme(signal), [])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<ThemeData>(navigate)
   const [form, setForm] = useState<ThemeForm | null>(null)
   const [busy, setBusy] = useState(false)
   const [file, setFile] = useState<File | null>(null)

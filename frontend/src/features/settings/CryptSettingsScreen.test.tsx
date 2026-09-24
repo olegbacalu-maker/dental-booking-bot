@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import type { CryptData } from './settings'
-import { CryptSettingsScreen } from './CryptSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { CryptSettingsScreen, loadCryptSettings } from './CryptSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -47,6 +48,10 @@ const CLOUD: CryptData = {
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/crypt', '/admin/settings/crypt',
+  <CryptSettingsScreen {...(navigate ? { navigate } : {})} />, loadCryptSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -57,7 +62,7 @@ afterEach(() => {
 describe('CryptSettingsScreen', () => {
   it('выключено: вся проза сервера и кнопка подготовки, листа ещё нет', async () => {
     get.mockResolvedValueOnce(ok(OFF))
-    render(<CryptSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     expect(await screen.findByText('Nu este obligatorie.')).toBeTruthy()
     /* ⭐ Три абзаца «что даёт / чего стоит / чего НЕ делает» — решение Олега
        08-09: раздел не уговаривает, он называет цену. Потеряйся один из них
@@ -73,7 +78,7 @@ describe('CryptSettingsScreen', () => {
     get.mockResolvedValueOnce(ok(OFF))
     post.mockResolvedValueOnce(ok({ sheet: SHEET }))
     const navigate = vi.fn()
-    render(<CryptSettingsScreen navigate={navigate} />)
+    open(navigate)
     await screen.findByText('Nu este obligatorie.')
     fireEvent.click(screen.getByRole('button', { name: /Pregătește criptarea/ }))
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(SHEET))
@@ -83,7 +88,7 @@ describe('CryptSettingsScreen', () => {
   it('включено: лист, заметка про копии и остановка; отказ в подтверждении не шлёт ничего', async () => {
     get.mockResolvedValueOnce(ok(ON))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
-    render(<CryptSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     expect(await screen.findByText('Evidența este criptată.')).toBeTruthy()
     expect(screen.getByText('Copiile zilnice sunt și ele criptate.')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Foaia de recuperare/ }).getAttribute('href')).toBe(SHEET)
@@ -97,7 +102,7 @@ describe('CryptSettingsScreen', () => {
       { restart: true, text: 'Programul se închide acum și pornește din nou.',
         note: 'Datele clinicii nu sunt afectate.' }, 'ok_set', 'Setări salvate'))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    render(<CryptSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     await screen.findByText('Evidența este criptată.')
     fireEvent.click(screen.getByRole('button', { name: 'Oprește criptarea' }))
     expect(await screen.findByText(/Programul se închide acum/)).toBeTruthy()
@@ -108,7 +113,7 @@ describe('CryptSettingsScreen', () => {
 
   it('заказ сделан: только лист, ни одной кнопки действия', async () => {
     get.mockResolvedValueOnce(ok(PENDING))
-    render(<CryptSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     expect(await screen.findByText('Criptarea este pregătită.')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Deschide foaia de recuperare/ })).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
@@ -116,7 +121,7 @@ describe('CryptSettingsScreen', () => {
 
   it('облако: объяснение без заголовка раздела — как на старой странице', async () => {
     get.mockResolvedValueOnce(ok(CLOUD))
-    render(<CryptSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     expect(await screen.findByText('Ediția cloud folosește PostgreSQL.')).toBeTruthy()
     expect(screen.queryByRole('heading')).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()

@@ -2,7 +2,8 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { settings, type ServiceEntry, type ServicesData } from './settings'
 
@@ -29,14 +30,16 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadServicesSettings: RouteLoad<ServicesData> = (signal) => settings.services(signal)
+
 /**
  * Таблица услуг — те же колонки и то же тело запроса, что у старой страницы;
  * дубли подписей и всё прочее проверяет сервер (_val_services), а правки при
  * отказе не пропадают: они живут в состоянии экрана, не в перерисованной форме.
  */
 export function ServicesSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.services(signal), [])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<ServicesData>(navigate)
   const [rows, setRows] = useState<ServiceEntry[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)

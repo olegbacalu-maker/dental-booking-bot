@@ -2,10 +2,11 @@ import { useCallback, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { t } from '../../utils/i18n'
-import { settings, type CryptStopped } from './settings'
+import { settings, type CryptData, type CryptStopped } from './settings'
 
 /* Проза раздела (что делает, чего стоит, чего НЕ делает) приходит с сервера
    теми же кусками, что рисует старая страница: текст, объясняющий директору,
@@ -24,9 +25,11 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadCryptSettings: RouteLoad<CryptData> = (signal) => settings.crypt(signal)
+
 export function CryptSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.crypt(signal), [])
-  const { state, retry, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, leaveIfSignedOut } = useRouteLoad<CryptData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   const [stopped, setStopped] = useState<CryptStopped | null>(null)

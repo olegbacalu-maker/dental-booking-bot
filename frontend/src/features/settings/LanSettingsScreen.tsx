@@ -2,9 +2,10 @@ import { useCallback, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
-import { settings, type LanSaved } from './settings'
+import { settings, type LanData, type LanSaved } from './settings'
 
 /* Проза страницы (что это, предупреждение о второй установке, советы)
    приходит с сервера теми же кусками, что у старой страницы. Здесь только
@@ -23,9 +24,11 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadLanSettings: RouteLoad<LanData> = (signal) => settings.lan(signal)
+
 export function LanSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.lan(signal), [])
-  const { state, retry, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, leaveIfSignedOut } = useRouteLoad<LanData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<LanSaved | null>(null)

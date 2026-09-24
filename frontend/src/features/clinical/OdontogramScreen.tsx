@@ -2,14 +2,15 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Mous
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { DentalArch } from './DentalArch'
 import { ToothInspector } from './ToothInspector'
 import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ViewSwitch } from './ViewSwitch'
-import { chart, neighbour, type Arrow } from './chart'
+import { chart, neighbour, type Arrow, type Odontogram } from './chart'
 import { useChart } from './useChart'
 
 /* Детальная одонтограмма (C21): дуга крупно + постоянный инспектор справа,
@@ -45,9 +46,11 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadOdontogram: RouteLoad<Odontogram> = (signal, params) => chart.get(Number(params.pid), signal)
+
 export function OdontogramScreen({ pid, t = null, navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => chart.get(pid, signal), [pid])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<Odontogram>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
   const say = useCallback((x: ToastState) => setToast(x), [])

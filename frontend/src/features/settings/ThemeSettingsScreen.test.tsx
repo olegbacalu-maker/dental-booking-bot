@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
+import { openScreen } from '../../test/openScreen'
 import type { ThemeData } from './settings'
-import { ThemeSettingsScreen } from './ThemeSettingsScreen'
+import { loadThemeSettings, ThemeSettingsScreen } from './ThemeSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -28,6 +29,10 @@ const THEME: ThemeData = {
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 const teal = () => document.documentElement.style.getPropertyValue('--teal')
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/theme', '/admin/settings/theme',
+  <ThemeSettingsScreen {...(navigate ? { navigate } : {})} />, loadThemeSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -39,7 +44,7 @@ afterEach(() => {
 describe('ThemeSettingsScreen', () => {
   it('стили и цвета из ответа, текущий выбор отмечен, без логотипа', async () => {
     get.mockResolvedValueOnce(ok(THEME))
-    render(<ThemeSettingsScreen />)
+    open()
     expect(await screen.findByText('Modern')).toBeTruthy()
     expect((screen.getByDisplayValue('modern') as HTMLInputElement).checked).toBe(true)
     expect((screen.getByDisplayValue('#0E9F8A') as HTMLInputElement).checked).toBe(true)
@@ -49,7 +54,7 @@ describe('ThemeSettingsScreen', () => {
 
   it('выбор цвета из набора красит страницу палитрой сервера, без запроса', async () => {
     get.mockResolvedValueOnce(ok(THEME))
-    render(<ThemeSettingsScreen />)
+    open()
     await screen.findByText('Modern')
     fireEvent.click(screen.getByDisplayValue('#7C3AED'))
     expect(teal()).toBe('#7C3AED')
@@ -59,7 +64,7 @@ describe('ThemeSettingsScreen', () => {
   it('свой цвет: палитру считает сервер', async () => {
     get.mockResolvedValueOnce(ok(THEME))
     get.mockResolvedValueOnce(ok({ '--teal': '#123456' }))
-    render(<ThemeSettingsScreen />)
+    open()
     await screen.findByText('Modern')
     fireEvent.change(screen.getByLabelText('Culoare personalizată'), { target: { value: '#123456' } })
     await waitFor(() => expect(teal()).toBe('#123456'))
@@ -69,7 +74,7 @@ describe('ThemeSettingsScreen', () => {
   it('сохранение шлёт те же поля, что форма', async () => {
     get.mockResolvedValueOnce(ok(THEME))
     post.mockResolvedValueOnce(ok({ ...THEME, style: 'calm', primary: '#7C3AED' }, 'ok_theme', 'Aspectul clinicii a fost salvat'))
-    render(<ThemeSettingsScreen />)
+    open()
     await screen.findByText('Modern')
     fireEvent.click(screen.getByDisplayValue('calm'))
     fireEvent.click(screen.getByDisplayValue('#7C3AED'))
@@ -83,7 +88,7 @@ describe('ThemeSettingsScreen', () => {
     postForm.mockResolvedValueOnce(ok({ ...THEME, logo: '/clinic-logo?v=1' }, 'ok_logo', 'Logo salvat'))
     post.mockResolvedValueOnce(ok({ ...THEME, logo: '/clinic-logo?v=1', logo_topbar: true }, 'ok_theme', 'Aspectul salvat'))
     post.mockResolvedValueOnce(ok(THEME, 'no_logo', 'Logo șters'))
-    render(<ThemeSettingsScreen />)
+    open()
     await screen.findByText('Modern')
     const file = new File([new Uint8Array([137, 80, 78, 71])], 'logo.png', { type: 'image/png' })
     fireEvent.change(document.getElementById('thlogo') as HTMLInputElement, { target: { files: [file] } })

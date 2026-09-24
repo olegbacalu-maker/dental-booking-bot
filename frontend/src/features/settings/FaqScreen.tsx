@@ -1,8 +1,8 @@
-import { useCallback } from 'react'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
-import { settings } from './settings'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import { settings, type FaqData } from './settings'
 
 const T = {
   title: 'Întrebări frecvente',
@@ -13,6 +13,9 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadFaq: RouteLoad<FaqData> = (signal) => settings.faq(signal)
+
 /**
  * Справка директора. Вопросы и ответы — текст сервера (тот же, что на старой
  * странице; ответы с иконками приходят HTML-ом): справка версионируется тем
@@ -20,8 +23,7 @@ interface Props {
  * раскрытии: <details> раскрывает браузер.
  */
 export function FaqScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.faq(signal), [])
-  const { state, retry } = useLoad(load, navigate)
+  const { state, retry } = useRouteLoad<FaqData>(navigate)
 
   if (state.status === 'leaving') return null
   const head = <h2><Icon name="help" /> {T.title}</h2>

@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { BackupData, SecurityData } from './settings'
-import { BackupSettingsScreen } from './BackupSettingsScreen'
-import { SecuritySettingsScreen } from './SecuritySettingsScreen'
+import { BackupSettingsScreen, loadBackupSettings } from './BackupSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { loadSecuritySettings, SecuritySettingsScreen } from './SecuritySettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -26,6 +27,10 @@ const SEC: SecurityData = {
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/security', '/admin/settings/security',
+  <SecuritySettingsScreen {...(navigate ? { navigate } : {})} />, loadSecuritySettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -36,9 +41,9 @@ afterEach(() => {
 describe('SecuritySettingsScreen', () => {
   it('учётки: имя, id, последний вход, роль и врач в строке', async () => {
     get.mockResolvedValueOnce(ok(SEC))
-    render(<SecuritySettingsScreen />)
+    open()
     expect(await screen.findByText('Director')).toBeTruthy()
-    expect(screen.getByText(/13.08.2026 14:02/)).toBeTruthy()
+    expect(await screen.findByText(/13.08.2026 14:02/)).toBeTruthy()
     expect(screen.getByText(/id: ana/)).toBeTruthy()
     expect((screen.getByLabelText('rol ana') as HTMLSelectElement).value).toBe('receptie')
     expect((screen.getByLabelText('medic clinic') as HTMLSelectElement).value).toBe('')
@@ -48,7 +53,7 @@ describe('SecuritySettingsScreen', () => {
   it('смена PIN: шлёт три поля, показывает ответ, чистит форму', async () => {
     get.mockResolvedValueOnce(ok(SEC))
     post.mockResolvedValueOnce(ok(undefined, 'ok_pin', 'PIN schimbat'))
-    render(<SecuritySettingsScreen />)
+    open()
     await screen.findByText('Director')
     fireEvent.change(screen.getByLabelText('PIN actual'), { target: { value: '4321' } })
     fireEvent.change(screen.getByLabelText('PIN nou'), { target: { value: '5678' } })
@@ -62,7 +67,7 @@ describe('SecuritySettingsScreen', () => {
   it('смена PIN: отказ сервера словами', async () => {
     get.mockResolvedValueOnce(ok(SEC))
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_pin', text: 'PIN greșit' }, 'v'))
-    render(<SecuritySettingsScreen />)
+    open()
     await screen.findByText('Director')
     fireEvent.change(screen.getByLabelText('PIN actual'), { target: { value: '0000' } })
     fireEvent.change(screen.getByLabelText('PIN nou'), { target: { value: '5678' } })
@@ -74,9 +79,9 @@ describe('SecuritySettingsScreen', () => {
   it('правка строки: роль и новый PIN уезжают с id учётки, список подменяется ответом', async () => {
     get.mockResolvedValueOnce(ok(SEC))
     post.mockResolvedValueOnce(ok({ ...SEC, users: [SEC.users[0]!, { ...SEC.users[1]!, role: 'medic', doctor_id: 'd2' }] }, 'ok_user', 'Cont salvat'))
-    render(<SecuritySettingsScreen />)
+    open()
     await screen.findByText('Director')
-    fireEvent.change(screen.getByLabelText('rol ana'), { target: { value: 'medic' } })
+    fireEvent.change(await screen.findByLabelText('rol ana'), { target: { value: 'medic' } })
     fireEvent.change(screen.getByLabelText('medic ana'), { target: { value: 'd2' } })
     fireEvent.change(screen.getByLabelText('PIN ana'), { target: { value: '7777' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Salvează' })[1] as HTMLButtonElement)
@@ -88,7 +93,7 @@ describe('SecuritySettingsScreen', () => {
   it('новая учётка: форма добавления шлёт все поля и очищается', async () => {
     get.mockResolvedValueOnce(ok(SEC))
     post.mockResolvedValueOnce(ok({ ...SEC, users: [...SEC.users, { id: 'd2', name: 'Dr. Doi', role: 'medic', doctor_id: 'd2', last_login: '' }] }, 'ok_user', 'Cont salvat'))
-    render(<SecuritySettingsScreen />)
+    open()
     await screen.findByText('Director')
     fireEvent.change(screen.getByLabelText('Nume și prenume'), { target: { value: 'Dr. Doi' } })
     fireEvent.change(screen.getByLabelText('id (ex. d2, ana)'), { target: { value: 'd2' } })
@@ -105,9 +110,9 @@ describe('SecuritySettingsScreen', () => {
     get.mockResolvedValueOnce(ok(SEC))
     post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'last_dir', text: 'cel puțin un director' }, 'c'))
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    render(<SecuritySettingsScreen />)
+    open()
     await screen.findByText('Director')
-    fireEvent.click(screen.getAllByRole('button', { name: 'Șterge' })[0] as HTMLButtonElement)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Șterge' }))[0] as HTMLButtonElement)
     expect(await screen.findByText('cel puțin un director')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/users/clinic/delete', {})
     expect(window.confirm).toHaveBeenCalledWith('Ștergeți contul Director?')
@@ -115,7 +120,7 @@ describe('SecuritySettingsScreen', () => {
 
   it('секции нет (404): своя фраза', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 'nf'))
-    render(<SecuritySettingsScreen />)
+    open()
     expect(await screen.findByText(/doar în ediția instalată/)).toBeTruthy()
   })
 })
@@ -123,12 +128,12 @@ describe('SecuritySettingsScreen', () => {
 describe('BackupSettingsScreen', () => {
   it('форма выгрузки бьёт в старый маршрут обычным POST, порог пароли с сервера', async () => {
     get.mockResolvedValueOnce(ok<BackupData>({ min_pass: 10, filename: 'dentpilot-backup.zip' }))
-    render(<BackupSettingsScreen />)
+    openScreen('/admin/settings/backup', '/admin/settings/backup', <BackupSettingsScreen />, loadBackupSettings)
     expect(await screen.findByRole('button', { name: /Exportă arhiva/ })).toBeTruthy()
     const form = document.querySelector('form') as HTMLFormElement
     expect(form.getAttribute('action')).toBe('/admin/backup/export')
     expect(form.getAttribute('method')).toBe('post')
-    const pw = screen.getByLabelText('parolă (min. 10 caractere)') as HTMLInputElement
+    const pw = await screen.findByLabelText('parolă (min. 10 caractere)') as HTMLInputElement
     expect(pw.minLength).toBe(10)
     expect(pw.name).toBe('parola')
     expect(post).not.toHaveBeenCalled()

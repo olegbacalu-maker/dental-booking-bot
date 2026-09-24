@@ -1,9 +1,10 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../types/api'
 import type { ApiResult } from '../../services/api'
 import type { BackupData } from './settings'
-import { BackupSettingsScreen, EXPORT_ACTION } from './BackupSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { BackupSettingsScreen, EXPORT_ACTION, loadBackupSettings } from './BackupSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -19,6 +20,10 @@ const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, t
 const boom = (status: number) =>
   new ApiError({ kind: 'server', status, code: '', text: '' }, `s${status}`)
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/backup', '/admin/settings/backup',
+  <BackupSettingsScreen {...(navigate ? { navigate } : {})} />, loadBackupSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -29,7 +34,7 @@ afterEach(() => {
 describe('BackupSettingsScreen', () => {
   it('выгрузка идёт ОБЫЧНОЙ формой на старый маршрут, а не через fetch', async () => {
     get.mockResolvedValueOnce(ok(DATA))
-    const { container } = render(<BackupSettingsScreen navigate={vi.fn()} />)
+    const { container } = open(vi.fn())
     await screen.findByRole('button', { name: /Exportă arhiva/ })
     /* ⛔ Главное свойство экрана, и оно невидимо глазами: архив весит сотни
        мегабайт, браузер качает ответ формы потоком и показывает ход. Прочитай
@@ -43,7 +48,7 @@ describe('BackupSettingsScreen', () => {
 
   it('минимальная длина пароля приходит С СЕРВЕРА, а не зашита в экран', async () => {
     get.mockResolvedValueOnce(ok(DATA))
-    render(<BackupSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     const input = await screen.findByLabelText(/min\. 8 caractere/)
     /* Своё число здесь разошлось бы с `bkp.MIN_PASS` молча: браузер пустил бы
        короткую паролю, а сервер вернул бы отказ — и человек чинил бы не то. */
@@ -54,7 +59,7 @@ describe('BackupSettingsScreen', () => {
 
   it('пока данных нет — ни поля, ни кнопки нажать нельзя', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
-    const { container } = render(<BackupSettingsScreen navigate={vi.fn()} />)
+    const { container } = open(vi.fn())
     /* ⛔ Иначе форма уйдёт на сервер с пустым minLength, то есть без ограничения
        вовсе, — а пароль здесь единственное, чем закрыт архив с картотекой. */
     expect(container.querySelector('input')?.hasAttribute('disabled')).toBe(true)
@@ -64,7 +69,7 @@ describe('BackupSettingsScreen', () => {
 
   it('облако: 404 объясняется словами, а не общим «не загрузилось»', async () => {
     get.mockRejectedValueOnce(boom(404))
-    render(<BackupSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     /* Копия существует только в установленной редакции. Общий текст отказа
        отправил бы человека чинить сеть там, где чинить нечего. */
     expect(await screen.findByText(/doar în ediția instalată/)).toBeTruthy()
@@ -73,7 +78,7 @@ describe('BackupSettingsScreen', () => {
 
   it('обычный отказ НЕ выдаётся за облако', async () => {
     get.mockRejectedValueOnce(boom(500))
-    render(<BackupSettingsScreen navigate={vi.fn()} />)
+    open(vi.fn())
     await screen.findByRole('button', { name: /Reîncearcă/ })
     expect(screen.queryByText(/doar în ediția instalată/)).toBeNull()
   })

@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
+import { openScreen } from '../../test/openScreen'
 import { ApiError } from '../../types/api'
-import { OdontogramScreen } from './OdontogramScreen'
+import { loadOdontogram, OdontogramScreen } from './OdontogramScreen'
 import { neighbour, surfaceLetter, surfaceName, type Odontogram, type ToothInfo } from './chart'
 import { cycleState } from './useChart'
 
@@ -70,6 +71,12 @@ const toothState = () => within(inspector()).getByLabelText('Starea dintelui') a
 const sfBtn = (name: string) => within(inspector()).getByRole('button', { name: new RegExp(`^${name}$`) })
 const unsaved = () => screen.queryByText('Nesalvat')
 
+/* Пациента даёт путь маршрута, зуб из адреса (?t=) остаётся пропом экрана. */
+const open = (t?: number, navigate?: (url: string) => void) => openScreen(
+  '/admin/patient/:pid/odontograma', '/admin/patient/5/odontograma',
+  <OdontogramScreen pid={5} {...(t !== undefined ? { t } : {})} {...(navigate ? { navigate } : {})} />,
+  loadOdontogram, navigate)
+
 beforeEach(() => {
   vi.spyOn(window, 'confirm').mockReturnValue(true)
   get.mockResolvedValue(ok(MODEL))
@@ -120,7 +127,7 @@ describe('C22: чистые правила', () => {
 
 describe('OdontogramScreen', () => {
   it('дуги из модели: кнопки с серверным SVG и подписью, молочный ряд раскрыт, скобка моста, легенда', async () => {
-    render(<OdontogramScreen pid={5} />)
+    open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     expect(document.querySelectorAll('.odop .arch .tooth-btn').length).toBe(33)
     expect(btn(16).getAttribute('title')).toBe('16 · Carie · distal · Carie (M), Obturație (O)')
@@ -136,7 +143,7 @@ describe('OdontogramScreen', () => {
   })
 
   it('выбор зуба: из адреса, кликом; инспектор показывает зуб, форму, историю и мост', async () => {
-    render(<OdontogramScreen pid={5} t={16} />)
+    open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     expect(btn(16).className).toContain('sel')
     const insp = inspector()
@@ -155,7 +162,7 @@ describe('OdontogramScreen', () => {
   })
 
   it('клик по поверхности внутри рисунка выбирает зуб и поверхность', async () => {
-    render(<OdontogramScreen pid={5} />)
+    open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.click(hitOf(16, 'O'))
     const insp = inspector()
@@ -167,7 +174,7 @@ describe('OdontogramScreen', () => {
   it('сохранение зуба: намерение явным полем, модель подменяется, плашка сервера', async () => {
     const after: Odontogram = { ...MODEL, teeth: { ...MODEL.teeth, '16': tooth(16, 'sus', { state: 'obturatie', title: '16 · Obturație' }) } }
     post.mockResolvedValueOnce(ok(after, 'ok_card', 'Fișa pacientului a fost actualizată'))
-    render(<OdontogramScreen pid={5} t={16} />)
+    open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     const insp = inspector()
     fireEvent.click(within(insp).getByRole('button', { name: /^D distal$/ }))
@@ -188,7 +195,7 @@ describe('OdontogramScreen', () => {
 
   it('мост: режим выбора, роли крайних — опоры, сохранение шлёт пары и материал', async () => {
     post.mockResolvedValueOnce(ok(MODEL, 'ok_punte', 'Puntea a fost salvată'))
-    render(<OdontogramScreen pid={5} />)
+    open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /Punte nouă/ }))
     expect(screen.getByText('Continuă').hasAttribute('disabled')).toBe(true)
@@ -218,7 +225,7 @@ describe('OdontogramScreen', () => {
 
   it('снять мост из инспектора', async () => {
     post.mockResolvedValueOnce(ok({ ...MODEL, bridges: [] }, 'ok_punte_del', 'Puntea a fost ștearsă'))
-    render(<OdontogramScreen pid={5} t={47} />)
+    open(47)
     await waitFor(() => expect(btn(47)).toBeTruthy())
     fireEvent.click(within(inspector()).getByText('Șterge puntea'))
     expect(await screen.findByText('Puntea a fost ștearsă')).toBeTruthy()
@@ -226,7 +233,7 @@ describe('OdontogramScreen', () => {
   })
 
   it('вид: переключение запоминается, как у старой страницы', async () => {
-    render(<OdontogramScreen pid={5} />)
+    open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     expect(document.querySelector('#odo')?.getAttribute('data-view')).toBe('frontal')
     fireEvent.click(screen.getByText('Vedere ocluzală'))
@@ -237,7 +244,7 @@ describe('OdontogramScreen', () => {
 
   it('отказ сервера — текст сервера, ввод остаётся; 404 и 401', async () => {
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'state' }, 'v'))
-    render(<OdontogramScreen pid={5} t={16} />)
+    open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.change(within(inspector()).getByLabelText('Notiță (opțional)'), { target: { value: 'nou' } })
     fireEvent.click(within(inspector()).getByText('Salvează'))
@@ -246,19 +253,19 @@ describe('OdontogramScreen', () => {
     expect(unsaved()).toBeTruthy()
     cleanup()
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 's'))
-    render(<OdontogramScreen pid={5} />)
+    open()
     expect(await screen.findByText('Fișa nu există sau a fost ștearsă.')).toBeTruthy()
     cleanup()
     get.mockRejectedValue(new ApiError({ kind: 'unauthenticated' }, 'u'))
     const navigate = vi.fn()
-    render(<OdontogramScreen pid={5} navigate={navigate} />)
+    open(undefined, navigate)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
   })
 })
 
 describe('C22: поверхность как первичный жест, черновик, клавиатура, меню', () => {
   it('быстрый цикл: повторный клик по выбранной поверхности крутит её состояние, черновик явный', async () => {
-    render(<OdontogramScreen pid={5} />)
+    open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.click(hitOf(16, 'O'))                        // выбор зуба и поверхности — без правки
     expect(sfState().value).toBe('obturatie')
@@ -288,7 +295,7 @@ describe('C22: поверхность как первичный жест, чер
   })
 
   it('клавиатура: стрелки — сосед по ряду и та же позиция другой челюсти, буквы — поверхность, P только сверху', async () => {
-    render(<OdontogramScreen pid={5} t={16} />)
+    open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     expect(document.activeElement).toBe(btn(16))           // зуб из адреса — в фокусе, клавиши работают сразу
     key('ArrowRight')
@@ -325,7 +332,7 @@ describe('C22: поверхность как первичный жест, чер
       teeth: { ...MODEL.teeth, '16': tooth(16, 'sus', { state: 'carie', sf: 'M', sfx: 'Carie (M)', sfst: { M: 'carie' }, note: 'distal', doctor: 'Dr. Activ Doi', title: '16 · Carie · distal · Carie (M)' }) },
     }
     post.mockResolvedValue(ok(after, 'ok_card', 'Fișa pacientului a fost actualizată'))
-    render(<OdontogramScreen pid={5} t={16} />)
+    open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     key('Enter')
     expect(post).not.toHaveBeenCalled()                    // нечего записывать
@@ -352,7 +359,7 @@ describe('C22: поверхность как первичный жест, чер
   })
 
   it('черновик держится за зубом: клик по соседу правку не теряет, на дуге зуб помечен', async () => {
-    render(<OdontogramScreen pid={5} t={16} />)
+    open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.change(toothState(), { target: { value: 'coroana' } })
     expect(btn(16).className).toContain('dirty')
@@ -366,7 +373,7 @@ describe('C22: поверхность как первичный жест, чер
   })
 
   it('контекстное меню: состояние — в черновик, мост от зуба; у молочного моста нет; в режиме моста меню нет', async () => {
-    render(<OdontogramScreen pid={5} t={16} />)
+    open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.contextMenu(btn(21), { clientX: 300, clientY: 200 })
     const menu = screen.getByRole('menu')
@@ -406,7 +413,7 @@ describe('C22: поверхность как первичный жест, чер
 
 describe('замер пародонта в инспекторе', () => {
   it('у зуба с осмотром — строка сервера и ссылка в тот же осмотр', async () => {
-    render(<OdontogramScreen pid={5} t={16} navigate={() => {}} />)
+    open(16, () => {})
     await waitFor(() => expect(btn(16)).toBeTruthy())
     const box = document.querySelector('.i-perio') as HTMLElement
     expect(box.textContent).toContain('PD 3 2 3 / 4 2 5 · sângerare 2/6')
@@ -416,7 +423,7 @@ describe('замер пародонта в инспекторе', () => {
   })
 
   it('у зуба без осмотра блока нет — нулей не выдумываем', async () => {
-    render(<OdontogramScreen pid={5} t={21} navigate={() => {}} />)
+    open(21, () => {})
     await waitFor(() => expect(btn(21)).toBeTruthy())
     expect(document.querySelector('.i-perio')).toBeNull()
   })

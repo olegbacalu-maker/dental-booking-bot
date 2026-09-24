@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { ServicesData } from './settings'
-import { ServicesSettingsScreen } from './ServicesSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { loadServicesSettings, ServicesSettingsScreen } from './ServicesSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -25,6 +26,10 @@ const DATA: ServicesData = {
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 const input = (label: string) => screen.getByLabelText(label) as HTMLInputElement
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/services', '/admin/settings/services',
+  <ServicesSettingsScreen {...(navigate ? { navigate } : {})} />, loadServicesSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -34,7 +39,7 @@ afterEach(() => {
 describe('ServicesSettingsScreen', () => {
   it('строки: цена, длительность, цвет, срочность, врачи галочками', async () => {
     get.mockResolvedValueOnce(ok(DATA))
-    render(<ServicesSettingsScreen />)
+    open()
     expect(await screen.findByDisplayValue('Consultație')).toBeTruthy()
     expect(input('Preț 1').value).toBe('gratuit')
     expect((screen.getByLabelText('Durată 2') as HTMLSelectElement).value).toBe('60')
@@ -52,7 +57,7 @@ describe('ServicesSettingsScreen', () => {
   it('добавить, поправить, удалить, сохранить: тело запроса как у старой таблицы', async () => {
     get.mockResolvedValueOnce(ok(DATA))
     post.mockResolvedValueOnce(ok({ ...DATA, services: [DATA.services[1]!, { id: 's1', ro: 'Albire', ru: 'Albire', price: '1500 MDL', duration: 90, color: 'green', urgent: false, docs: ['d3'] }] }, 'ok_set', 'Setări salvate'))
-    render(<ServicesSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Consultație')
     fireEvent.click(screen.getByRole('button', { name: '+ Adaugă serviciu' }))
     fireEvent.change(input('Denumire (RO) 3'), { target: { value: 'Albire' } })
@@ -75,7 +80,7 @@ describe('ServicesSettingsScreen', () => {
   it('отказ сервера — текст в плашке, правки остаются', async () => {
     get.mockResolvedValueOnce(ok(DATA))
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_set', text: 'Setări invalide' }, 'v'))
-    render(<ServicesSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Consultație')
     fireEvent.change(input('Denumire (RO) 1'), { target: { value: 'Durere acută' } })
     fireEvent.click(screen.getByRole('button', { name: /Salvează serviciile/ }))

@@ -1,6 +1,10 @@
 Каталог структуры §8. Заполняется по мере переноса экранов.
 
 - `useLoad` — экран грузит свои данные сам, после первой отрисовки.
-- `useRouteLoad` / `routeLoader` — данные грузит роутер (B2.2), та же
-  `LoadState`. ⛔ Маршрут с загрузчиком обязан нести `hydrateFallbackElement`,
-  иначе на время ожидания пропадает оболочка (docs/dentpilot-2/spa-transition.md).
+- `useRouteLoad` / `routeLoader` / `screenRoute` — данные грузит роутер (B2.2),
+  та же `LoadState` и тот же набор: повтор, `replace` ответом POST, уход на
+  вход при 401. Экран экспортирует `loadXxx: RouteLoad<T>`, `App.tsx › LOADS`
+  подключает его. ⛔ Маршрут собирается только через `screenRoute`: загрузчик
+  без первого кадра на время ожидания там собрать нельзя, иначе пропадает
+  оболочка (docs/dentpilot-2/spa-transition.md, стенд scripts/loader_hold.py).
+  В проверках экран открывается `test/openScreen` — тем же маршрутом.

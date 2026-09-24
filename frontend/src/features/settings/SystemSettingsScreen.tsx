@@ -2,10 +2,11 @@ import { useCallback, useState } from 'react'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { t } from '../../utils/i18n'
-import { settings } from './settings'
+import { settings, type SystemData } from './settings'
 
 /* Подписи строк таблицы. Всё, что несёт ЗНАЧЕНИЕ (версия, состояние
    обновления, путь к папке, строка BitLocker, проза о приватности), приходит
@@ -37,9 +38,11 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadSystemSettings: RouteLoad<SystemData> = (signal) => settings.system(signal)
+
 export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.system(signal), [])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<SystemData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])

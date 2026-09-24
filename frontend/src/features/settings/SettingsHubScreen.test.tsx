@@ -1,10 +1,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
+import { screenRoute } from '../../hooks/useRouteLoad'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { HubData } from './settings'
-import { SettingsHubScreen, settingsHubRoute } from './SettingsHubScreen'
+import { loadSettingsHub, SettingsHubScreen } from './SettingsHubScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -30,7 +31,7 @@ const ok = <T,>(data: T): ApiResult<T> => ({ data, code: '', text: '', tone: 'ok
    тем же маршрутом, что в App.tsx, а не голым компонентом. */
 function openHub() {
   const router = createMemoryRouter(
-    [{ path: '/admin/settings', element: <SettingsHubScreen />, ...settingsHubRoute }],
+    [screenRoute('/admin/settings', <SettingsHubScreen />, loadSettingsHub)],
     { initialEntries: ['/admin/settings'] })
   return render(<RouterProvider router={router} />)
 }

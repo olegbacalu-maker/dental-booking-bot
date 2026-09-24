@@ -1,8 +1,8 @@
-import { useCallback } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
-import { settings } from './settings'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import { settings, type BackupData } from './settings'
 
 const T = {
   title: 'Copie de rezervă criptată',
@@ -22,6 +22,9 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadBackupSettings: RouteLoad<BackupData> = (signal) => settings.backup(signal)
+
 /**
  * Экспорт архива. Сама выгрузка идёт ОБЫЧНОЙ формой на старый маршрут: файл
  * может весить сотни мегабайт, а браузер скачивает ответ формы потоком и
@@ -30,8 +33,7 @@ interface Props {
  * сервер возвращает редиректом на эту страницу с ?msg=, и плашку рисует рамка.
  */
 export function BackupSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.backup(signal), [])
-  const { state, retry } = useLoad(load, navigate)
+  const { state, retry } = useRouteLoad<BackupData>(navigate)
 
   if (state.status === 'leaving') return null
   const head = <h2><Icon name="save" /> {T.title}</h2>

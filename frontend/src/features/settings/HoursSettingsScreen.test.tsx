@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { HoursData } from './settings'
-import { HoursSettingsScreen } from './HoursSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { HoursSettingsScreen, loadHoursSettings } from './HoursSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -21,6 +22,10 @@ const HOURS: HoursData = {
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 const sel = (label: string) => screen.getByLabelText(label) as HTMLSelectElement
 
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/hours', '/admin/settings/hours',
+  <HoursSettingsScreen {...(navigate ? { navigate } : {})} />, loadHoursSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -30,7 +35,7 @@ afterEach(() => {
 describe('HoursSettingsScreen', () => {
   it('строки дней: закрытый день, обед, диапазон часов с сервера', async () => {
     get.mockResolvedValueOnce(ok(HOURS))
-    render(<HoursSettingsScreen />)
+    open()
     expect(await screen.findByText('Luni')).toBeTruthy()
     expect(sel('Luni: De la').value).toBe('9')
     expect(sel('Luni: Pauză de la').value).toBe('')
@@ -47,7 +52,7 @@ describe('HoursSettingsScreen', () => {
   it('сохранение: тот же payload, что у старой страницы; ответ подменяет таблицу', async () => {
     get.mockResolvedValueOnce(ok(HOURS))
     post.mockResolvedValueOnce(ok({ ...HOURS, hours: { mon: [10, 18, 13, 14], tue: [9, 18], wed: [8, 12] } }, 'ok_set', 'Setări salvate'))
-    render(<HoursSettingsScreen />)
+    open()
     await screen.findByText('Luni')
     fireEvent.change(sel('Luni: De la'), { target: { value: '10' } })
     fireEvent.change(sel('Luni: Pauză de la'), { target: { value: '13' } })
@@ -68,7 +73,7 @@ describe('HoursSettingsScreen', () => {
   it('отказ проверки — текст сервера, таблица остаётся', async () => {
     get.mockResolvedValueOnce(ok(HOURS))
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_set', text: 'Setări invalide' }, 'v'))
-    render(<HoursSettingsScreen />)
+    open()
     await screen.findByText('Luni')
     fireEvent.click(screen.getByRole('button', { name: /Salvează programul/ }))
     expect(await screen.findByText('Setări invalide')).toBeTruthy()

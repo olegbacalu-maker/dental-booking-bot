@@ -3,7 +3,8 @@ import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import { DoctorPhoto } from './DoctorPhoto'
 import { DoctorProfileForm } from './DoctorProfileForm'
@@ -36,9 +37,11 @@ interface Props {
   navigate?: (url: string) => void
 }
 
+/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
+export const loadDoctorCard: RouteLoad<DoctorCard> = (signal, params) => doctors.card(params.dk ?? '', signal)
+
 export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => doctors.card(dk, signal), [dk])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DoctorCard>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
