@@ -1,7 +1,8 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, matchRoutes } from 'react-router'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ShellModel } from '../layouts/shell'
+import { nativeClick } from '../test/nativeClick'
 import { ApiError } from '../types/api'
 import { App, appHydration, appRoutes, docChanged, SCREENS, type MountNode } from './App'
 import { ROUTES } from './routes'
@@ -254,5 +255,130 @@ describe('B4: переход без перезагрузки', () => {
     await act(() => router.navigate('/admin/medici'))
     expect(document.title).toBe(head.title)
     expect(document.documentElement.dataset.style).toBe('calm')
+  })
+})
+
+describe('B4.2: оболочка — сайдбар, крошки, шапка, поиск', () => {
+  const SHELL_FULL: ShellModel = {
+    ...SHELL,
+    nav: {
+      ...SHELL.nav,
+      items: [
+        { key: 'dash', href: '/admin', icon: 'home', label: 'Dashboard' },
+        { key: 'med', href: '/admin/medici', icon: 'med', label: 'Medici' },
+        { key: 'set', href: '/admin/settings', icon: 'set', label: 'Setări' },
+      ],
+      sync: [
+        { key: 'tg', href: '/admin/settings/telegram', icon: 'bot', label: 'Telegram Bot', dot: 'off' },
+        { key: 'qr', href: '/admin/qr-print', icon: 'qr', label: 'QR pacienți' },
+      ],
+    },
+    frame: {
+      ...SHELL.frame,
+      crumbs: [
+        { key: 'set', href: '/admin/settings', icon: 'chev-l', label: 'Setări' },
+        { key: 'home', href: '/admin', icon: 'home', label: 'Panou' },
+      ],
+      update: "<a href='/admin/settings/system'>versiune nouă 9.9.10</a>",
+      msg: "<div class='banner ok'>Salvat. <a href='/admin/settings/clinic?ui=legacy'>clasic</a></div>",
+    },
+  }
+  const CLINIC_URL = '/admin/settings/clinic'
+
+  function openClinic() {
+    get.mockImplementation(hubWaitsDoctorsFail)
+    fetchDoc.mockResolvedValue({ kind: 'page', node: node('doctors_list', {}, SHELL_MED) })
+    return open(CLINIC_URL, node('settings_clinic', {}, SHELL_FULL))
+  }
+
+  /** Переход состоялся роутером: адрес сменился, документ нового адреса запрошен, окно не уходило. */
+  async function expectTransition(router: ReturnType<typeof open>['router'], where: string) {
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search).toBe(where))
+    expect(fetchDoc).toHaveBeenCalledWith(expect.stringContaining(where), expect.any(AbortSignal))
+    expect(leave).not.toHaveBeenCalled()
+  }
+
+  it('пункт сайдбара — переход без перезагрузки, активный пункт — из документа нового адреса', async () => {
+    const { router } = openClinic()
+    let native = true
+    await act(async () => { native = nativeClick(screen.getByTitle('Medici')) })
+    expect(native).toBe(false)
+    await expectTransition(router, '/admin/medici')
+    expect(document.querySelector('aside nav a.on')?.getAttribute('title')).toBe('Medici')
+  })
+
+  it('пункт «Sincronizări» на страницу, которой нет у роутера, — обычная ссылка', async () => {
+    const { router } = openClinic()
+    let native = false
+    await act(async () => { native = nativeClick(screen.getByTitle('Telegram Bot')) })
+    expect(native).toBe(true)
+    expect(router.state.location.pathname).toBe(CLINIC_URL)
+    expect(fetchDoc).not.toHaveBeenCalled()
+  })
+
+  it('крошка раздела — переход без перезагрузки', async () => {
+    const { router } = openClinic()
+    await act(async () => { nativeClick(screen.getByText('Panou')) })
+    await expectTransition(router, '/admin')
+  })
+
+  it('«+ Programare nouă» — переход, якорь формы остаётся в адресе', async () => {
+    const { router } = openClinic()
+    await act(async () => { nativeClick(screen.getByText('Programare nouă')) })
+    await expectTransition(router, '/admin/all?date=2026-09-24')
+    expect(router.state.location.hash).toBe('#addform')
+  })
+
+  it('поиск из шапки: Enter в поле ведёт на экран поиска с ?q=, без перезагрузки', async () => {
+    const { router } = openClinic()
+    const q = document.getElementById('topq') as HTMLInputElement
+    fireEvent.change(q, { target: { value: 'Ion Popescu' } })
+    await act(async () => { fireEvent.submit(q.closest('form') as HTMLFormElement) })
+    await expectTransition(router, '/admin/search?q=Ion+Popescu')
+  })
+
+  it('ссылка в серверной прозе (строка обновления) — переход; ?ui=legacy в плашке — документ', async () => {
+    const { router } = openClinic()
+    /* Сначала плашка: после перехода оболочка уже от другого документа, и
+       плашки ответа в ней нет. */
+    let native = false
+    await act(async () => { native = nativeClick(screen.getByText('clasic')) })
+    expect(native).toBe(true)
+    expect(fetchDoc).not.toHaveBeenCalled()
+    native = true
+    await act(async () => { native = nativeClick(screen.getByText('versiune nouă 9.9.10')) })
+    expect(native).toBe(false)
+    await expectTransition(router, '/admin/settings/system')
+  })
+
+  it('выход — не экран: обычная ссылка на сервер', async () => {
+    get.mockReturnValue(new Promise(() => {}))
+    const { router } = open(CLINIC_URL, node('settings_clinic', {}, {
+      ...SHELL_FULL,
+      identity: { name: 'Ana', role: 'director', role_label: 'Director', initials: 'A',
+        can: { money: true, settings: true, doctors: true } },
+    }))
+    let native = false
+    await act(async () => { native = nativeClick(screen.getByTitle('Ieșire din cont')) })
+    expect(native).toBe(true)
+    expect(router.state.location.pathname).toBe(CLINIC_URL)
+  })
+
+  it('быстрый поиск (Ctrl+K) открывает фишу переходом роутера', async () => {
+    /* Список — ответ поиска; фиша отвечает отказом сети: экран с плашкой —
+       законный конец перехода (загрузчик, который ждёт вечно, перехода бы не
+       завершил). */
+    get.mockImplementation((path: string) => path.startsWith('/patients?')
+      ? Promise.resolve({ data: { rows: [{ id: 33, name: 'Ion Popescu', initials: 'IP', phone: '', doctor: '' }] },
+                         code: '', text: '', tone: 'ok' })
+      : Promise.reject(OFFLINE))
+    fetchDoc.mockResolvedValue({ kind: 'page', node: node('patient_card', {}, SHELL_MED) })
+    const { router } = open(CLINIC_URL, node('settings_clinic', {}, SHELL_FULL))
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
+    const field = await screen.findByLabelText('Nume sau telefon…')
+    fireEvent.change(field, { target: { value: 'Ion' } })
+    await screen.findByText('Ion Popescu')
+    await act(async () => { fireEvent.keyDown(field, { key: 'Enter' }) })
+    await expectTransition(router, '/admin/patient/33')
   })
 })

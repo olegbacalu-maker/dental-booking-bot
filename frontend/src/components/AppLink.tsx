@@ -1,5 +1,5 @@
-import type { AnchorHTMLAttributes } from 'react'
-import { Link, matchRoutes } from 'react-router'
+import { useCallback, type AnchorHTMLAttributes, type MouseEvent } from 'react'
+import { Link, matchRoutes, useNavigate } from 'react-router'
 import { ROUTES } from '../app/routes'
 
 /* Таблица путей — та же, по которой выбирает экран роутер (routes.ts, производная
@@ -23,6 +23,18 @@ export function isAppHref(href: string): boolean {
   return matchRoutes(TABLE, u.pathname) !== null
 }
 
+/**
+ * Простой щелчок — тот, который перехватывает и `Link` роутера: левая кнопка
+ * без модификаторов, у ссылки нет своей цели (`target`), и никто выше не
+ * отменил действие. Всё остальное (Ctrl, средняя кнопка, «открыть в новой
+ * вкладке») остаётся браузеру, как у обычной ссылки.
+ */
+export function isPlainClick(e: MouseEvent<HTMLElement>, target: string | null = null): boolean {
+  return e.button === 0 && !e.defaultPrevented
+    && !(target && target !== '_self')
+    && !(e.metaKey || e.altKey || e.ctrlKey || e.shiftKey)
+}
+
 type Props = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & { href: string }
 
 /**
@@ -37,4 +49,23 @@ type Props = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & { href: str
  */
 export function AppLink({ href, ...rest }: Props) {
   return isAppHref(href) ? <Link to={href} {...rest} /> : <a href={href} {...rest} />
+}
+
+/**
+ * Ссылки в серверной ПРОЗЕ — баннерах и плашках, которые приезжают готовой
+ * разметкой (`frame.msg`, `frame.update`, сигналы): `AppLink` туда не
+ * поставить, а переход по ним обязан быть тем же, что у ссылки приложения.
+ * Обработчик вешается на контейнер прозы; правило то же: экран из карты и
+ * простой щелчок — роутером, остальное — браузеру.
+ */
+export function useProseLinks(): (e: MouseEvent<HTMLElement>) => void {
+  const navigate = useNavigate()
+  return useCallback((e: MouseEvent<HTMLElement>) => {
+    const a = (e.target as HTMLElement).closest('a')
+    if (!a || !e.currentTarget.contains(a)) return
+    const href = a.getAttribute('href')
+    if (!href || !isPlainClick(e, a.getAttribute('target')) || !isAppHref(href)) return
+    e.preventDefault()
+    void navigate(href)
+  }, [navigate])
 }

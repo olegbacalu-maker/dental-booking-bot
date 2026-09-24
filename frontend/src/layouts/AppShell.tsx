@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { Form } from 'react-router'
+import { AppLink, useProseLinks } from '../components/AppLink'
 import { Icon, iconName } from '../components/Icon'
 import { t } from '../utils/i18n'
 import type { NavItem, ShellModel } from './shell'
@@ -6,7 +8,10 @@ import type { NavItem, ShellModel } from './shell'
 /* Оболочка журнала в React (B1). Разметка и классы — ТЕ ЖЕ, что печатал
    серверный `_shell`: paritet здесь не «похоже», а те же узлы в том же
    порядке, потому что panel.css написан под них.
-   ⛔ Никакой перекладки и никакого редизайна: облик меняется с B5, не здесь. */
+   ⛔ Никакой перекладки и никакого редизайна: облик меняется с B5, не здесь.
+   ⭐ B4.2: ссылки оболочки — переходы без перезагрузки (`AppLink`): сайдбар,
+   крошки, шапка, поиск. Адрес не из карты маршрутов (Telegram, QR, выход)
+   остаётся обычной ссылкой — это решает сам `AppLink`, не список здесь. */
 
 const T = t('shell', {
   title: 'Registrul Clinicii',
@@ -31,7 +36,7 @@ function Item({ it, active }: { it: NavItem; active: string }) {
   )
   const cls = it.key === active ? 'on' : ''
   return it.href
-    ? <a className={cls} href={it.href} title={it.label}>{body}</a>
+    ? <AppLink className={cls} href={it.href} title={it.label}>{body}</AppLink>
     : <a className={cls} title={it.label}>{body}</a>
 }
 
@@ -89,31 +94,34 @@ function Sidebar({ m }: { m: ShellModel }) {
   )
 }
 
-function Topbar({ m }: { m: ShellModel }) {
+function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLElement>) => void }) {
   const { identity, clinic, frame } = m
   return (
     <div className="top">
-      <form className="searchf" method="get" action="/admin/search">
+      {/* ⭐ Поиск из шапки — переход роутером (B4.2): `Form` с методом GET
+          собирает `?q=` из поля и ведёт на экран поиска без перезагрузки;
+          в разметке это тот же <form method=get action>, Enter работает. */}
+      <Form className="searchf" method="get" action="/admin/search">
         <input id="topq" name="q" placeholder={T.search} autoComplete="off" />
         <span className="kbd">{T.kbd}</span>
         <button><Icon name="search" /></button>
-      </form>
+      </Form>
       {clinic.logo_topbar && (
-        <a className="tb-logo" href="/admin"><img src={clinic.logo_topbar} alt="" /></a>
+        <AppLink className="tb-logo" href="/admin"><img src={clinic.logo_topbar} alt="" /></AppLink>
       )}
       <div style={{ flex: 1 }} />
-      <span className="dp-upd" dangerouslySetInnerHTML={{ __html: frame.update }} />
+      <span className="dp-upd" onClick={prose} dangerouslySetInnerHTML={{ __html: frame.update }} />
       {/* ⛔ Колокольчик заморожен вместе с ботом: сервер присылает `bell: null`,
           пока `tg_configured()` ложно. Размораживать его здесь нельзя. */}
       {frame.bell !== null && (
-        <a className="bell" href="/admin#botnew" title={T.bell}>
+        <AppLink className="bell" href="/admin#botnew" title={T.bell}>
           <Icon name="bell" />
           {frame.bell > 0 && <span className="n">{frame.bell}</span>}
-        </a>
+        </AppLink>
       )}
-      <a className="newbtn" href={`/admin/all?date=${frame.today}#addform`}>
+      <AppLink className="newbtn" href={`/admin/all?date=${frame.today}#addform`}>
         <span className="plus">+</span><span className="nb-t">{T.newAppt}</span>
-      </a>
+      </AppLink>
       {identity && (
         <div className="who" title={`${identity.name} · ${identity.role_label}`}>
           <span className="who-av">{identity.initials}</span>
@@ -121,6 +129,7 @@ function Topbar({ m }: { m: ShellModel }) {
             <b>{identity.name}</b>
             <small>{identity.role_label} · {clinic.name}</small>
           </div>
+          {/* выход — не экран: обычная ссылка, сервер снимает куку и уводит на вход */}
           <a className="who-out" href="/admin/logout" title={T.logout}>
             <Icon name="power" />
           </a>
@@ -137,29 +146,32 @@ function Topbar({ m }: { m: ShellModel }) {
  */
 export function AppShell({ m, children }: { m: ShellModel; children: React.ReactNode }) {
   const sig = m.signals
+  /* Ссылки в серверной прозе (баннеры, плашка, строка обновления) — тем же
+     переходом, что и `AppLink`: обработчик на контейнере прозы. */
+  const prose = useProseLinks()
   return (
     <>
       <Sidebar m={m} />
       <div className="main">
-        <Topbar m={m} />
+        <Topbar m={m} prose={prose} />
         <div className="content">
-          <h1><a href="/admin">{T.title}</a></h1>
+          <h1><AppLink href="/admin">{T.title}</AppLink></h1>
           <div className="sub">{m.frame.sub}{m.frame.sec_warn} · v{m.runtime.version}</div>
           {[sig.tamper, sig.split, sig.slot, sig.setup].map((s, i) =>
-            s.shown ? <div key={i} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}
+            s.shown ? <div key={i} onClick={prose} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}
           {/* ⚠️ Порядок тот же, что печатал сервер: системные баннеры, потом
               навигация раздела, потом плашка ответа, потом экран. Крошка идёт
               ДО плашки — так её и ставил `_sec_page`. */}
           {m.frame.crumbs.length > 0 && (
             <div className="nav">
               {m.frame.crumbs.map((c) => (
-                <a key={c.href} href={c.href}>
+                <AppLink key={c.href} href={c.href}>
                   <Icon name={iconName(c.icon)} /> {c.label}
-                </a>
+                </AppLink>
               ))}
             </div>
           )}
-          {m.frame.msg && <div dangerouslySetInnerHTML={{ __html: m.frame.msg }} />}
+          {m.frame.msg && <div onClick={prose} dangerouslySetInnerHTML={{ __html: m.frame.msg }} />}
           {children}
         </div>
       </div>

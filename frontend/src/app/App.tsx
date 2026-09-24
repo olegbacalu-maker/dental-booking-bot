@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react'
 import {
   Outlet, ScrollRestoration, useLoaderData, useParams, useRouteError, useRouteLoaderData,
   type DataRouter, type GetScrollRestorationKeyFunction, type HydrationState,
@@ -236,11 +236,13 @@ export function appRoutes(): RouteObject[] {
 export function App({ router }: { router: DataRouter }) {
   /* ⭐ Быстрый поиск живёт РЯДОМ с роутером, а не внутри экрана: Ctrl+K обязан
      работать откуда угодно, а накладка `position: fixed` накрывает окно
-     независимо от того, где в разметке стоит узел React. */
+     независимо от того, где в разметке стоит узел React. Открывает фишу он
+     ПЕРЕХОДОМ (B4.2) — роутером напрямую, раз вне его дерева. */
+  const go = useCallback((url: string) => { void router.navigate(url) }, [router])
   return (
     <>
       <RouterProvider router={router} />
-      <QuickFind />
+      <QuickFind navigate={go} />
     </>
   )
 }

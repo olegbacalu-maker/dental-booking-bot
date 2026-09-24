@@ -1,7 +1,8 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
-import { AppLink, isAppHref } from './AppLink'
+import { nativeClick as click } from '../test/nativeClick'
+import { AppLink, isAppHref, useProseLinks } from './AppLink'
 
 afterEach(() => cleanup())
 
@@ -33,21 +34,6 @@ function mount(href: string) {
   ], { initialEntries: ['/admin'] })
   render(<RouterProvider router={router} />)
   return router
-}
-
-/** Щелчок; `true` — браузер пошёл бы по ссылке сам (действие не отменено). */
-function click(el: HTMLElement, init: MouseEventInit = {}): boolean {
-  let native = true
-  /* Слушатель окна стоит ПОСЛЕ корня React: видит решение роутера и сам
-     отменяет действие, чтобы jsdom не пытался грузить документ. */
-  const spy = (e: Event) => { native = !e.defaultPrevented; e.preventDefault() }
-  window.addEventListener('click', spy)
-  try {
-    fireEvent.click(el, { button: 0, ...init })
-  } finally {
-    window.removeEventListener('click', spy)
-  }
-  return native
 }
 
 describe('AppLink', () => {
@@ -85,6 +71,56 @@ describe('AppLink', () => {
     const router = mount('/admin/week?ui=legacy')
     let native = false
     await act(async () => { native = click(screen.getByRole('link')) })
+    expect(native).toBe(true)
+    expect(router.state.location.pathname).toBe('/admin')
+  })
+})
+
+/** Серверная проза с тремя ссылками: экран, старая страница, своя вкладка. */
+function Prose() {
+  const prose = useProseLinks()
+  return (
+    <div onClick={prose} dangerouslySetInnerHTML={{ __html:
+      "<a href='/admin/settings/system'>versiune nouă</a> "
+      + "<a href='/admin/settings/system?ui=legacy'>clasic</a> "
+      + "<a href='/admin/week' target='_blank'>fereastră</a>" }} />
+  )
+}
+
+function mountProse() {
+  const router = createMemoryRouter([
+    { path: '/admin', element: <Prose /> },
+    { path: '/admin/settings/system', element: <p>system</p> },
+    { path: '/admin/week', element: <p>week</p> },
+  ], { initialEntries: ['/admin'] })
+  render(<RouterProvider router={router} />)
+  return router
+}
+
+describe('useProseLinks — ссылки в серверной прозе', () => {
+  it('ссылка на экран внутри готовой разметки — переход роутером', async () => {
+    const router = mountProse()
+    let native = true
+    await act(async () => { native = click(screen.getByText('versiune nouă')) })
+    expect(native).toBe(false)
+    expect(router.state.location.pathname).toBe('/admin/settings/system')
+  })
+
+  it('?ui=legacy и target=_blank в прозе — браузеру, как у обычной ссылки', async () => {
+    const router = mountProse()
+    let a = false
+    let b = false
+    await act(async () => { a = click(screen.getByText('clasic')) })
+    await act(async () => { b = click(screen.getByText('fereastră')) })
+    expect(a).toBe(true)
+    expect(b).toBe(true)
+    expect(router.state.location.pathname).toBe('/admin')
+  })
+
+  it('Ctrl-щелчок в прозе — браузеру', async () => {
+    const router = mountProse()
+    let native = false
+    await act(async () => { native = click(screen.getByText('versiune nouă'), { ctrlKey: true }) })
     expect(native).toBe(true)
     expect(router.state.location.pathname).toBe('/admin')
   })

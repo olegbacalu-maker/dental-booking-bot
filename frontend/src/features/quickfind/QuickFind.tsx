@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isPlainClick } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { asApiError } from '../../services/api'
 import { defaultNavigate } from '../../hooks/useLoad'
@@ -174,6 +175,7 @@ function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
   }
 
   const short = q.trim().length > 0 && q.trim().length < MIN
+  const allUrl = `/admin/search${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`
   return (
     <div className="dp-qf-back" onMouseDown={onClose}>
       <div
@@ -231,7 +233,16 @@ function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
 
         <div className="dp-qf-foot">
           <span>{T.hint}</span>
-          <a href={`/admin/search${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`}>
+          {/* ⭐ Накладка живёт ВНЕ дерева роутера (`App`), поэтому не `AppLink`:
+              тот же переход даёт `navigate` — роутером из `App` (B4.2). Простой
+              щелчок — переходом, Ctrl и средняя кнопка — браузеру. */}
+          <a href={allUrl}
+             onClick={(e) => {
+               if (!isPlainClick(e)) return
+               e.preventDefault()
+               onClose()
+               navigate(allUrl)
+             }}>
             {T.all}
           </a>
         </div>

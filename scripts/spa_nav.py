@@ -22,7 +22,10 @@
      позицию (окно 500 px высотой, чтобы было куда прокручивать; если
      страница не выше окна — SKIP с причиной, а не тихая зелень);
   4. F5 на адресе, куда привёл переход, даёт тот же экран (то, что и стенд
-     url_state_f5, но на этом адресе).
+     url_state_f5, но на этом адресе);
+  5. оболочка (B4.2): пункт сайдбара «Setări», крошка «Panou» из раздела
+     настроек, поиск из шапки (набор в поле + Enter) и «+ Programare nouă» с
+     якорем формы — каждый переходом, свидетель жив, экран нарисован.
 
 ⛔ Пара (без неё стенд ничего не доказывает): та же ссылка, лишённая роутера
 (узел подменён клоном без обработчиков React), обязана перезагрузить документ
@@ -78,6 +81,10 @@ STATE = """(() => {
     busy: r ? r.getAttribute('aria-busy') : 'none',
     week: !!document.querySelector('.dp-react-root .week'),
     dash: !!document.querySelector('.dp-react-root .dash'),
+    hub: !!document.querySelector('.dp-react-root .set-hub'),
+    rows: document.querySelectorAll('.pl-card tbody tr').length,
+    addform: (() => { const el = document.getElementById('addform'); if (!el) return null;
+      const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight; })(),
     docs: docs,
     y: window.scrollY,
     tall: document.documentElement.scrollHeight - window.innerHeight,
@@ -99,17 +106,21 @@ def settle(page: Page, ready, timeout: float = 10.0) -> dict:
     return s
 
 
-def click(page: Page, text: str) -> None:
-    """Настоящий щелчок мышью по ссылке шапки экрана.
+def click_el(page: Page, el: str) -> None:
+    """Настоящий щелчок мышью по элементу (JS-выражение).
 
-    ⚠️ Сначала ссылка ставится в середину окна: `Input.dispatchMouseEvent`
+    ⚠️ Сначала элемент ставится в середину окна: `Input.dispatchMouseEvent`
     бьёт по координатам ОКНА, а верхняя панель липкая — на прокрученной
     странице щелчок по центру спрятанной под ней ссылки уходил в «+ Programare
     nouă» и уводил документом на `/admin/all#addform` (окно 260 px, шаг 3)."""
-    el = NAV_LINK % json.dumps(text)
     page.js(f"(() => {{ const el = {el}; if (el) el.scrollIntoView({{ block: 'center' }}) }})()")
     time.sleep(0.2)
     page.click(el)
+
+
+def click(page: Page, text: str) -> None:
+    """Щелчок по ссылке шапки экрана с таким текстом."""
+    click_el(page, NAV_LINK % json.dumps(text))
 
 
 def main() -> int:
@@ -230,6 +241,60 @@ def main() -> int:
             errs = cdp.errors()
             if errs:
                 bad.append("ошибки консоли: " + "; ".join(errs[:3]))
+
+            # 5. оболочка (B4.2): сайдбар, крошка, поиск из шапки, «+ Programare nouă»
+            def shell_step(name: str, act, ready, want_sub: str) -> dict:
+                tok = page.js(MARK)
+                act()
+                s = settle(page, lambda st: ready(st) and st["busy"] != "true")
+                print(f"оболочка: {name} → {s['href']}  «{s['sub'][:40]}»")
+                if not ready(s):
+                    bad.append(f"{name}: экран не открылся: {s['href']}")
+                if s["tok"] != tok:
+                    bad.append(f"{name}: документ ПЕРЕЗАГРУЖЕН")
+                if not (s["aside"] and s["top"]):
+                    bad.append(f"{name}: сайдбар или шапка пересозданы")
+                if want_sub not in s["sub"]:
+                    bad.append(f"{name}: подпись не от документа нового адреса: «{s['sub']}»")
+                return s
+
+            page.go(b["href"])
+            settle(page, lambda st: st["week"] and st["busy"] != "true")
+            shell_step("сайдбар «Setări»",
+                       lambda: click_el(page, "document.querySelector('aside nav a[title=\"Setări\"]')"),
+                       lambda st: st["href"] == "/admin/settings" and st["hub"],
+                       "setările clinicii")
+            page.go("/admin/settings/hours")
+            settle(page, lambda st: st["busy"] != "true" and st["busy"] != "none")
+            shell_step("крошка «Panou»",
+                       lambda: click_el(page, "[...document.querySelectorAll('.content .nav a')]"
+                                              ".find(a => a.textContent.includes('Panou'))"),
+                       lambda st: st["href"] == "/admin" and st["dash"], "panou principal")
+
+            def search():
+                page.js("(() => { const q = document.getElementById('topq'); q.focus(); q.value = ''; })()")
+                cdp.cmd("Input.insertText", text="Proba")
+                # ⚠️ Enter с `text="\r"`: без символа браузер не поднимает keypress,
+                # а неявная отправка формы живёт именно на нём.
+                cdp.cmd("Input.dispatchKeyEvent", type="keyDown", key="Enter", code="Enter",
+                        text="\r", windowsVirtualKeyCode=13)
+                cdp.cmd("Input.dispatchKeyEvent", type="keyUp", key="Enter", code="Enter",
+                        windowsVirtualKeyCode=13)
+            s5 = shell_step("поиск из шапки", search,
+                            lambda st: st["href"] == "/admin/search?q=Proba" and st["rows"] > 0,
+                            "pacien")
+            if s5["rows"] < 1:
+                bad.append("поиск из шапки: список пациентов пуст")
+            s6 = shell_step("«+ Programare nouă»",
+                            lambda: click_el(page, "document.querySelector('.top .newbtn')"),
+                            lambda st: st["href"].startswith("/admin/all?date=") and st["addform"] is not None,
+                            "toți medicii")
+            if s6["addform"] is not True:
+                bad.append(f"«+ Programare nouă»: форма записи не в окне (якорь #addform): {s6['addform']}")
+
+            errs = cdp.errors()
+            if errs:
+                bad.append("ошибки консоли (оболочка): " + "; ".join(errs[:3]))
 
             # ⛔ Пара: обычная ссылка перезагружает документ — свидетель пропадает
             page.go("/admin")
