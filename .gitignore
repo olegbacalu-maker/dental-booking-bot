@@ -31,3 +31,8 @@ bot/app/static/css/bundle.css
 bot/app/static/js/bundle.js.map
 # rust (PHASE 7)
 src-tauri/target/
+
+# cloud (сервер лицензий): база, письма сухого прогона, своё окружение
+cloud/cloud.db*
+cloud/outbox/
+cloud/.venv/
