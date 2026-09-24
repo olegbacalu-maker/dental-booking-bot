@@ -77,7 +77,15 @@ interface OverlayProps {
 
 function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
   const [q, setQ] = useState('')
-  const [rows, setRows] = useState<PatientRow[] | null>(null)
+  /* Ответ помнит, НА КАКОЙ запрос он пришёл. Список прошлого ответа виден всю
+     паузу и весь следующий запрос (иначе он мигал бы на каждую букву), но
+     открывать из него можно только пока поле спрашивает то же самое.
+     ⚠️ Без метки «Ion» → вставленный телефон второго однофамильца → Enter
+     до ответа открывал ПЕРВОГО «Ion Popescu»: по запросу, которого в поле
+     уже нет, — а во время запроса вообще по спрятанному списку. */
+  const [found, setFound] = useState<{ asked: string; rows: PatientRow[] } | null>(null)
+  const rows = found?.rows ?? null
+  const fresh = found !== null && found.asked === q.trim()
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [cur, setCur] = useState(0)
@@ -95,7 +103,7 @@ function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
     const next = value.slice(0, 60)
     setQ(next)
     if (next.trim().length < MIN) {
-      setRows(null)
+      setFound(null)
       setBusy(false)
     }
   }
@@ -114,13 +122,13 @@ function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
         .page({ q: text, med: '', st: '', ch: '', dat: '', sort: 'last',
                 page: 1, per: LIMIT }, ac.signal)
         .then((r) => {
-          setRows(r.data.rows.slice(0, LIMIT))
+          setFound({ asked: text, rows: r.data.rows.slice(0, LIMIT) })
           setCur(0)
         })
         .catch((e) => {
           if (ac.signal.aborted) return
           setErr(asApiError(e).text || T.err)
-          setRows([])
+          setFound({ asked: text, rows: [] })
         })
         .finally(() => {
           if (!ac.signal.aborted) setBusy(false)
@@ -132,10 +140,16 @@ function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
     }
   }, [q, debounceMs])
 
+  /* Единственный вход в «открыть» — и Enter, и щелчок идут сюда, поэтому
+     проверка свежести стоит здесь, а не у каждого. Несвежий список молчит:
+     «дождаться ответа и открыть первого» значило бы открыть пациента,
+     которого человек ещё не видел, — среди однофамильцев это и есть ошибка.
+     Ответ придёт через долю секунды, второй Enter откроет уже его. */
   const go = useCallback((row: PatientRow) => {
+    if (!fresh) return
     onClose()
     navigate(`/admin/patient/${row.id}`)
-  }, [navigate, onClose])
+  }, [fresh, navigate, onClose])
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape') {

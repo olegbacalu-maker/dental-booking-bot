@@ -117,6 +117,42 @@ describe('QuickFind', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
+  it('телефон вставлен поверх имени, Enter до конца паузы — фиша по старому запросу НЕ открывается', async () => {
+    get.mockResolvedValue(page([row(1, 'Ion Popescu', '069000001'), row(2, 'Ion Popescu', '069000002')]))
+    const navigate = vi.fn()
+    render(<QuickFind navigate={navigate} debounceMs={200} />)
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
+    const input = await screen.findByLabelText(/Nume sau telefon/)
+    fireEvent.change(input, { target: { value: 'Ion' } })
+    await vi.waitFor(() => expect(screen.getAllByRole('button').length).toBe(2), { timeout: 2000 })
+    fireEvent.change(input, { target: { value: '069000002' } })
+    /* ⚠️ На экране ещё список по «Ion», а в поле уже телефон второго
+       однофамильца. Enter здесь открыл бы ПЕРВОГО — по запросу, которого в
+       поле больше нет. */
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('старый список не открывается и щелчком, а ответ на новый запрос — открывается', async () => {
+    get.mockResolvedValueOnce(page([row(1, 'Ion Popescu', '069000001'),
+                                    row(2, 'Ion Popescu', '069000002')]))
+       .mockResolvedValueOnce(page([row(2, 'Ion Popescu', '069000002')]))
+    const navigate = vi.fn()
+    render(<QuickFind navigate={navigate} debounceMs={200} />)
+    openIt()
+    const input = await screen.findByLabelText(/Nume sau telefon/)
+    fireEvent.change(input, { target: { value: 'Ion' } })
+    await vi.waitFor(() => expect(screen.getAllByRole('button').length).toBe(2), { timeout: 2000 })
+    fireEvent.change(input, { target: { value: '069000002' } })
+    fireEvent.click(screen.getAllByRole('button')[0] as HTMLButtonElement)
+    expect(navigate).not.toHaveBeenCalled()
+    /* ⚠️ Запрет обязан СНИМАТЬСЯ: экран, который глотает Enter всегда,
+       прошёл бы обе проверки выше. */
+    await vi.waitFor(() => expect(screen.getAllByRole('button').length).toBe(1), { timeout: 2000 })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(navigate).toHaveBeenCalledWith('/admin/patient/2')
+  })
+
   it('ничего не нашлось — так и говорит, а не молчит', async () => {
     get.mockResolvedValue(page([]))
     render(<QuickFind navigate={vi.fn()} debounceMs={0} />)
