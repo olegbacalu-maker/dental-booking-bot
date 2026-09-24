@@ -726,6 +726,16 @@ async def del_meta(key: str) -> None:
                    "DELETE FROM schema_meta WHERE key = ?", key)
 
 
+async def patients_total() -> int:
+    """Пуста ли картотека — вопрос лицензии (core/license.py): на пустой без
+    файла стоит стена активации, на живой — отсчёт льготы.
+    ⚠️ Не `patients_count`: то имя занято счётчиком ОТФИЛЬТРОВАННОГО списка
+    ниже, и одноимённая функция молча перекрыла бы его (поймано 24.09)."""
+    n = await _fetchval("SELECT count(*) FROM patients",
+                        "SELECT count(*) FROM patients")
+    return int(n or 0)
+
+
 # ---------- страховочные индексы слота ----------
 
 # Три уникальных индекса, которые И ЕСТЬ защита от двойной брони. ⚠️ Владелец у

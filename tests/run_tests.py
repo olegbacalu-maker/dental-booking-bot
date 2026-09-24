@@ -40,6 +40,7 @@ import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
 import test_license_format  # noqa: E402
 import test_license_verify  # noqa: E402
+import test_license_state  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
@@ -92,6 +93,10 @@ SUITES = [
     ("Лицензия: конверт и четыре отказа", test_license_verify.suite_envelope),
     ("Лицензия: claim по таблице схемы", test_license_verify.suite_claim),
     ("Лицензия: модуль проверки чистый", test_license_verify.suite_pure),
+    ("Лицензия: пол часов и три состояния", test_license_state.suite_states),
+    ("Лицензия: память между запусками", test_license_state.suite_memory),
+    ("Лицензия: таблица ключей и окружение", test_license_state.suite_keys),
+    ("Лицензия: файл и память на живом сервере", test_license_state.suite_server),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),

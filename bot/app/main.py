@@ -38,6 +38,7 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         same_origin_post, set_request_user, set_tamper_alert,
                         verify_pin)
 from .core import dbkey, theme
+from .core import license as lic
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
                           fonts_css, standalone, tg_configured)
 from .modules.doctors import api as doctors_api
@@ -224,6 +225,9 @@ async def startup() -> None:
         return
     await db.init(seed_rows)
     await _check_auth_file()
+    # Лицензия (L3): файл, память, состояние — до первого запроса к воротам
+    # (L4) и баннеру (L5). Облако и демо без ключа: внутри no-op.
+    await lic.startup()
     # v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
     # идемпотентно (только NULL), на каждом старте — дёшево и самозалечивается
     doc_map = {name: k for k, name in eng.DOCTORS.items()}
