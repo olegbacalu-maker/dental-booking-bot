@@ -939,6 +939,12 @@ def suite(res: Result) -> None:
     # никогда (список с ВКЛЮЧАЮЩЕЙ полярностью, CLAUDE.md).
     # ⚠️ Проверки клиента из обхода исключены намеренно: они вправе назвать
     # небывалую поверхность, чтобы доказать отказ.
+    # ⚠️ И таблица маршрутов B2 (`app/routes.ts`): её `screen:` — имя
+    # React-экрана, та же ось, что `data-screen`, а не поверхность живого
+    # канала, и в сеть она ничего не шлёт. Её держит `test_guards.suite_route_map`.
+    # Исключение по ТОЧНОМУ пути: переименуют файл — правило покраснеет, а не
+    # замолчит.
+    routes_ts = ROOT / "frontend" / "src" / "app" / "routes.ts"
     sched = by_path.get("app/modules/schedule/api.py")
     surfaces: set[str] = set()
     if sched is not None:
@@ -951,7 +957,7 @@ def suite(res: Result) -> None:
                             if isinstance(e, ast.Constant) and isinstance(e.value, str)}
     sent: dict[str, str] = {}
     for f in sorted((ROOT / "frontend" / "src").rglob("*.ts*")):
-        if ".test." in f.name:
+        if ".test." in f.name or f == routes_ts:
             continue
         text = f.read_text(encoding="utf-8")
         for rx in (_SURF_URL, _SURF_KEY):

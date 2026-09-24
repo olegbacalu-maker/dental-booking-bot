@@ -1,19 +1,19 @@
 /**
  * Точка входа React-клиента.
  *
- * Монтируется В СУЩЕСТВУЮЩУЮ страницу движка: серверный core/layout._shell
- * рисует сайдбар, верхнюю панель, тему и шрифты, а сюда отдаёт один узел
- *   <div id="root" data-screen="имя-экрана"></div>
- * Какой экран показывать, решает СЕРВЕР через data-screen — это тот же
- * рубильник, что и флаг в clinic.json (§29): включение экрана не требует
- * пересборки, потому что оба интерфейса лежат в одном бинарнике.
+ * Монтируется в страницу движка: сервер отдаёт один узел
+ *   <div id="root" data-screen="имя-экрана" data-params="…" data-shell="…"></div>
+ * ОТДАТЬ ли React этот адрес, решает по-прежнему СЕРВЕР — флаг в clinic.json
+ * (§29) и `?ui=legacy`: включение экрана не требует пересборки, потому что оба
+ * интерфейса лежат в одном бинарнике. КАКОЙ экран рисовать, с B2 решает роутер
+ * по адресу, а `data-screen` остаётся свидетелем (см. `Screen` в App.tsx).
  *
- * ⛔ Сайдбар и шапку здесь не дублировать. Тема, иконки и тексты сообщений —
- * серверные (§7), React их потребляет.
+ * ⛔ Тема, иконки и тексты сообщений — серверные (§7), React их потребляет.
  */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { App } from './app/App'
+import { createBrowserRouter } from 'react-router'
+import { App, appRoutes } from './app/App'
 import { readShell } from './layouts/shell'
 import './app/app.css'
 
@@ -39,9 +39,13 @@ if (!host) {
   // значит, что каркас ещё печатает сервер — тогда App рисует один экран.
   const shell = readShell(host)
   host.replaceChildren()
+  // ⚠️ Загрузчиков у маршрутов пока нет, и поэтому первый кадр СИНХРОННЫЙ:
+  // роутер инициализирован сразу, оболочка рисуется без пустого промежутка.
+  // Появится загрузчик — первый кадр станет ждать его, и это решается там же.
+  const router = createBrowserRouter(appRoutes({ screen, params, shell }))
   createRoot(host).render(
     <StrictMode>
-      <App screen={screen} params={params} shell={shell} />
+      <App router={router} />
     </StrictMode>,
   )
 }

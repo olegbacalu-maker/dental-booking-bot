@@ -296,14 +296,31 @@ def suite_route_map(res: Result) -> None:
            "два адреса на один экран — маршрут станет неоднозначным")
 
     app = (ROOT / "frontend" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
-    drawn = set(re.findall(r"screen === '([a-z_0-9]+)'", app))
+    blk = app.split("export const SCREENS", 1)[-1].split("\n}\n", 1)[0]
+    drawn = set(re.findall(r"^  ([a-z_0-9]+): ", blk, re.M))
     res.ok("клиент разбирает разбор экрана", len(drawn) > 15,
-           f"разобрано {len(drawn)} — форма развилки в App.tsx изменилась, "
+           f"разобрано {len(drawn)} — форма SCREENS в App.tsx изменилась, "
            "и эта проверка перестала что-либо значить")
     res.ok("каждый экран карты умеет рисоваться клиентом",
            not (screens - drawn),
            "сервер отдаст узел, а клиент покажет «экран не существует»: "
            + ", ".join(sorted(screens - drawn)))
+
+    # ⛔ B2: таблица маршрутов клиента — ПРОИЗВОДНАЯ от FLAG, как icons.ts от
+    # `_I`. Отставшая таблица не падает: адрес, которого клиент не знает,
+    # показывает «такого экрана нет» — у клиники, а не при сборке.
+    ts = screen_map.ROUTES_TS
+    res.ok("routes.ts свежий: маршруты клиента из FLAG",
+           ts.exists() and ts.read_text(encoding="utf-8") == screen_map.render_routes_ts(),
+           "таблица клиента разошлась с картой — `python scripts/screen_map.py`")
+    # ⚠️ И вторая половина того же правила: свежая производная ничего не
+    # значит, если рядом завели свою. Адрес маршрута в App.tsx набран руками =
+    # вторая карта адресов, та самая, от которой генератор и спасает.
+    own = re.findall(r"""path:\s*['"]/[^'"]*""", app)
+    res.ok("App.tsx берёт маршруты из routes.ts, а не пишет свои",
+           "from './routes'" in app and not own,
+           "рукописный адрес рядом с производной таблицей: " + ", ".join(own)
+           if own else "App.tsx не импортирует routes.ts")
 
     # ⛔ И строка B2 на КАЖДЫЙ адрес: без неё карта маршрутов печатает «?» в
     # колонках параметров и загрузчика, то есть выглядит заполненной.

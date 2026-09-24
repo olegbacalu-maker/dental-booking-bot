@@ -8,7 +8,8 @@
 падают при переносе конкретного экрана. Таблица и есть тот критерий.
 
 ⚠️ Файл docs/dentpilot-2/screen-test-map.md ПРОИЗВОДНЫЙ. Правится генератор,
-а не он: правка руками потеряется при первой же пересборке.
+а не он: правка руками потеряется при первой же пересборке. Так же производны
+route-map.md и таблица маршрутов клиента frontend/src/app/routes.ts (B2).
 
 Зависимостей нет намеренно — только стандартная библиотека, как и у tests/.
 """
@@ -28,6 +29,7 @@ BOT = ROOT / "bot" / "app"
 TESTS = ROOT / "tests"
 DOC = ROOT / "docs" / "dentpilot-2" / "screen-test-map.md"
 ROUTE_DOC = ROOT / "docs" / "dentpilot-2" / "route-map.md"
+ROUTES_TS = ROOT / "frontend" / "src" / "app" / "routes.ts"
 
 HTTP = ("get", "post", "put", "delete", "patch")
 # Адрес закончился: кавычка, знак запроса, решётка или пробел. Нужно, чтобы
@@ -392,25 +394,52 @@ def render_routes() -> str:
     return "\n".join(L)
 
 
+def render_routes_ts() -> str:
+    """Таблица маршрутов клиента (B2) — ИЗ FLAG, тем же приёмом, что icons.ts.
+
+    ⛔ Рукописная таблица в клиенте была бы второй картой адресов рядом с
+    серверной, и разошлись бы они молча: перезагрузка на адресе, которого
+    клиент не знает, показывает «такого экрана нет», а не ошибку сборки.
+    Свежесть держит `test_guards.suite_route_map`.
+    """
+    rows = sorted(FLAG.items(), key=lambda kv: (kv[0].count("/"), kv[0]))
+    L = ["// Сгенерировано scripts/screen_map.py из словаря FLAG.",
+         "// НЕ ПРАВИТЬ РУКАМИ: правится FLAG, потом `python scripts/screen_map.py`.",
+         "// Маршрут — адрес FastAPI, где `{pid}` записан как `:pid`. Новых адресов нет:",
+         "// перезагрузка на адресе, которого не знает сервер, дала бы 404.",
+         "export const ROUTES = ["]
+    for path_, screen in rows:
+        L.append(f"  {{ path: {json.dumps(react_path(path_))}, "
+                 f"screen: {json.dumps(screen)} }},")
+    L += ["] as const", "",
+          "export type ScreenName = (typeof ROUTES)[number]['screen']", ""]
+    return "\n".join(L)
+
+
 def main(argv: list[str]) -> int:
     rs, unresolved = routes()
     checks = link(rs)
     text = render(rs, checks, unresolved)
     rtext = render_routes()
+    ts = render_routes_ts()
     if "--check" in argv:
         old = DOC.read_text(encoding="utf-8") if DOC.exists() else ""
         rold = ROUTE_DOC.read_text(encoding="utf-8") if ROUTE_DOC.exists() else ""
-        if old == text and rold == rtext:
+        tsold = ROUTES_TS.read_text(encoding="utf-8") if ROUTES_TS.exists() else ""
+        if old == text and rold == rtext and tsold == ts:
             print(f"карты свежие ({len(rs)} маршрутов, {len(FLAG)} поверхностей)")
             return 0
         stale = ", ".join(n for n, ok in (("экранов", old == text),
-                                         ("маршрутов", rold == rtext)) if not ok)
-        print(f"карта {stale} устарела — пересобрать: python scripts/screen_map.py")
+                                         ("маршрутов", rold == rtext),
+                                         ("routes.ts", tsold == ts)) if not ok)
+        print(f"устарело: {stale} — пересобрать: python scripts/screen_map.py")
         return 1
     DOC.parent.mkdir(parents=True, exist_ok=True)
     DOC.write_text(text, encoding="utf-8")
     ROUTE_DOC.write_text(rtext, encoding="utf-8")
+    ROUTES_TS.write_text(ts, encoding="utf-8", newline="\n")  # LF, как icons.ts
     print(f"{ROUTE_DOC.relative_to(ROOT)}: поверхностей {len(FLAG)}")
+    print(f"{ROUTES_TS.relative_to(ROOT)}: маршрутов клиента {len(FLAG)}")
     uncovered = sum(1 for r in rs if not r["suites"])
     print(f"{DOC.relative_to(ROOT)}: маршрутов {len(rs)}, "
           f"без единой проверки {uncovered}")

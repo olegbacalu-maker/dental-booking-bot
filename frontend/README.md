@@ -28,9 +28,11 @@ npm test             # vitest, jsdom, только src/**/*.test.{ts,tsx}
 перезапуска программы.
 
 Новый экран = имя в `layout.REACT_SCREENS` + ветка в обработчике старой
-страницы (`react_on` → `react_mount`, параметры экрана третьим аргументом →
-`data-params`) + строка в `App.tsx` + `FLAG` в `scripts/screen_map.py` +
-набор `tests/test_<раздел>.py`. Загрузка данных экрана — `hooks/useLoad`
+страницы (`react_on` → `react_shell`, параметры экрана — `data-params`) +
+адрес в `FLAG` и строка в `B2` (`scripts/screen_map.py`) + пересборка
+`python scripts/screen_map.py` (она пишет `src/app/routes.ts` — маршрут роутера
+руками не набирается) + строка в `SCREENS` (`App.tsx`; забытую не пропустит
+tsc) + набор `tests/test_<раздел>.py`. Загрузка данных экрана — `hooks/useLoad`
 (загрузка / готово / отказ / 401 → вход), отказ рисует `components/LoadFailed`.
 
 ⚠️ `npm run dev` ждёт, что движок поднят на **8099**:

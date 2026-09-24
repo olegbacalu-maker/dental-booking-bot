@@ -1,6 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { App } from '../../app/App'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { ClinicSettings } from './clinicSettings'
@@ -183,19 +182,5 @@ describe('ClinicSettingsScreen', () => {
     expect(input('Nume').maxLength).toBe(80)
     expect(input('Telefon').maxLength).toBe(30)
     expect(input('Adresa (RO)').maxLength).toBe(120)
-  })
-})
-
-describe('App', () => {
-  it('известный экран монтируется', () => {
-    get.mockReturnValueOnce(new Promise(() => {}))
-    render(<App screen="settings_clinic" />)
-    expect(screen.getByLabelText('Nume')).toBeTruthy()
-  })
-
-  it('неизвестный экран называется по имени и ведёт на старую страницу', () => {
-    render(<App screen="fisa" />)
-    expect(screen.getByRole('alert').textContent).toContain('«fisa»')
-    expect((screen.getByRole('link') as HTMLAnchorElement).getAttribute('href')).toContain('?ui=legacy')
   })
 })
