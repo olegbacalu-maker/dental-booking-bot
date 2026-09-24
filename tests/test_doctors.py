@@ -16,7 +16,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app.core.visits import all_status_actions  # noqa: E402
 
-from harness import Client, Result, Server, clinic_today  # noqa: E402
+from datetime import datetime, time  # noqa: E402
+
+from harness import TZ, Client, Result, Server, clinic_today  # noqa: E402
 
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
@@ -211,7 +213,10 @@ def suite_api(res: Result) -> None:
         # ⛔ Менять состояние визита умеет ровно одно место; второй адрес под
         # `/doctors/` был бы вторым владельцем одного правила.
         day = clinic_today().isoformat()
-        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
+        # ⚠️ Час брони — ОДНОЙ константой на бронь и на ожидание «будущих» ниже:
+        # две копии одного часа разошлись бы молча (поймано имитацией ночи).
+        book_at = time(9, 0)
+        c.post("/admin/add", adate=day, atime=book_at.strftime("%H:%M"), adoctor="d2",
                aservice="consult", aname="Medic Card Unu", aphone="069000031",
                back="/admin/all")
         row = _j(c.get("/api/doctors/d2"))["data"]["today"][0]
@@ -299,7 +304,22 @@ def suite_api(res: Result) -> None:
         r = c.post_json("/api/doctors/d2", {**body, "status": "arhivat"})
         res.ok("в архив с будущей записью нельзя — 409 arch_busy",
                r.status == 409 and _j(r)["code"] == "arch_busy", r.body)
-        res.check("фиша считает будущие", _j(c.get("/api/doctors/d2"))["data"]["future"], 1)
+        # ⚠️ Бронь «сегодня в book_at» (выше, C14+) — тоже ЖИВАЯ, и счётчик
+        # считает её честно: пока этот час по Кишинёву не наступил, она впереди.
+        # Зашитая единица держала проверку зелёной только с 09:00 до полуночи —
+        # ночной прогон 22.09 покраснел без единой правки кода. Ожидание
+        # считается от часов клиники (`TZ`, не машины), причём ДВАЖДЫ — до
+        # запроса и после: сервер берёт своё «сейчас» где-то между, и в секунду
+        # ровно 09:00:00 верны оба ответа. Что проверяется, не изменилось:
+        # запись 2099 года видна счётчику и запирает архивацию.
+        booked = datetime.combine(clinic_today(), book_at, tzinfo=TZ)
+        before = datetime.now(TZ)
+        got = _j(c.get("/api/doctors/d2"))["data"]["future"]
+        after = datetime.now(TZ)
+        expected = {1 + (1 if booked >= t else 0) for t in (before, after)}
+        res.ok("фиша считает будущие", got in expected,
+               f"получено {got}, ожидалось {sorted(expected)} "
+               f"(сегодняшняя бронь {'ещё впереди' if booked >= after else 'уже прошла'})")
 
         # ---- услуги ----
         r = c.post_json("/api/doctors/d3/services", {"services": ["hygiene"]})
