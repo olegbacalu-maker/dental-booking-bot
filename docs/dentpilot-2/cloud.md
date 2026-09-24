@@ -509,7 +509,45 @@ cron на 06:05 UTC (README).
 [release.md](release.md). Сервер и админку можно поднять раньше и выдавать
 файлы нынешним клиникам вручную ещё до релиза.
 
-### Блок L — задачи
+### Где остановились — 24.09, вечер
+
+Ветка `claude/charming-lovelace-ndrzi8`, голова `5eb32f6`; в `main` не слито,
+PR не открывался. L1–L11 сделаны и проверены в CI ручным запуском
+`tests.yml` (движок на Windows зелёный, облако зелёное, Lint клиента красный
+заранее из-за `QuickFind.tsx`). Продолжать словами «Дальше L13» (или L12/L14/L15):
+шаг = код + тесты + запись здесь + коммит в ту же ветку + прогон CI.
+
+**На стороне Олега, в любом порядке:**
+
+- `python -m app.tools keygen --kid 2026a --out …` на сервере (или ПК) →
+  строку для `rsa_verify.KEYS` прислать в чат; до неё лицензия в программе
+  не применяется.
+- VPS + A-запись `cloud.dentpilot.md` и `cloud/DEPLOY.md` по шагам, либо пока
+  ПК через `cloud/deploy/run-windows.ps1`.
+- IDNO: три места на сайте (футер, `privacy.html`, `termeni.html`) — прислать
+  номер, подставлю.
+- Выложить `docs/site/termeni.html` и `privacy.html` на сайт
+  (`docs/site/README.md`); юристу — они же плюс `contract.md` и бумага
+  поставщика из папки lege-195.
+- Локально: Lint `QuickFind.tsx` (react-hooks/set-state-in-effect) и тест
+  «фиша считает будущие», красный по вечерам; ящик для писем и периоды
+  продажи (L0).
+
+**Дальше по плану:** L13 автообновление файла (нужен сервер по L10 с публичным
+адресом), L12 maib (после ответа maib про договор с antreprenor independent),
+L14 форма пробного периода, L15 кнопка на сайте после подписи exe.
+
+**Облачная сессия (Linux), чтобы прогоны шли:** харнес движка берёт
+`.venv-desktop/Scripts/python.exe` буквально — в контейнере это venv на
+Python 3.13 (`uv venv --python /usr/bin/python3.13 .venv-desktop`, пакеты из
+`bot/requirements-desktop.txt` без Windows-only плюс `cryptography` и
+`playwright`) и симлинк `Scripts/python.exe -> ../bin/python`; папка в
+`.gitignore`. Python 3.11 для сторожей и `scripts/screen_map.py` не годится
+(PEP 701). Chromium для Playwright — `/opt/pw-browsers/chromium-*/chrome-linux/chrome`
+через `executable_path` с `--no-sandbox`. CI запускать только когда прежний
+прогон завершён: `concurrency` отменяет идущий.
+
+## Блок L — задачи
 
 Формат тот же, что в [tasks.md](tasks.md); туда блок переезжает, когда Олег
 его примет (счётчик задач там считается по `- [ ]`, поэтому здесь список
