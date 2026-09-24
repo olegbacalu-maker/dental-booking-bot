@@ -6,7 +6,7 @@ import { LoadFailed } from '../../components/LoadFailed'
 import { Spark } from '../../components/Spark'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
-import { queryParam, useRouteLoad, type RouteLoad, type ScreenData } from '../../hooks/useRouteLoad'
+import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { canAnimate } from '../../utils/fx'
 import { t } from '../../utils/i18n'
@@ -84,17 +84,9 @@ interface Props {
  * уходит своей, прочие хвосты адреса (`msg`, `ui`) в запрос не попадают.
  * Пустой адрес — последние 7 дней, их считает сервер в поясе клиники.
  */
-const loadStatsData: RouteLoad<StatsData> = (signal, _p, q) =>
+export const loadStats: RouteLoad<StatsData> = (signal, _p, q) =>
   stats.get(queryParam(q, 'from'), queryParam(q, 'to'), signal)
 
-/**
- * B3, первый маршрут под правом (`PERM_MONEY`): отказ загрузчику — туда же,
- * куда страница сервера (`/admin?msg=no_access`), экран не монтируется. Право
- * понижают на лету (роль читается из файла на каждом запросе): вкладка,
- * открытая директором, после понижения на первом же переходе уходит, а не
- * показывает плашку отказа внутри раздела, куда пускать уже нельзя.
- */
-export const loadStats: ScreenData = { load: loadStatsData, guarded: true }
 
 /** Адрес периода — СВЕЖИЙ query из двух границ: `msg=bad_period` и прочее
  *  не переносятся, иначе плашка отказа возвращалась бы на каждой F5. */

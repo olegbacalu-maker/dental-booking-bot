@@ -145,11 +145,21 @@ describe('ClinicSettingsScreen', () => {
     expect(input('Nume').value).toBe('Clinica Test')
   })
 
-  it('403 при загрузке: текст сервера, без кнопки «повторить», со ссылкой на старую страницу', async () => {
+  it('B3: отказ в праве при загрузке — уход туда же, куда страница сервера; экран не монтируется', async () => {
     get.mockRejectedValueOnce(new ApiError(
       { kind: 'forbidden', code: 'no_access', text: 'Secțiunea este rezervată directorului' }, 'f'))
+    const navigate = vi.fn()
+    open(navigate)
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin?msg=no_access'))
+    await waitFor(() => expect(document.querySelector('.dp-react-root')).toBeNull())
+    expect(screen.queryByText('Secțiunea este rezervată directorului')).toBeNull()
+  })
+
+  it('иной 403 при загрузке: текст сервера, без кнопки «повторить», со ссылкой на старую страницу', async () => {
+    get.mockRejectedValueOnce(new ApiError(
+      { kind: 'forbidden', code: 'bad_origin', text: 'Cerere respinsă' }, 'f'))
     open()
-    expect(await screen.findByText('Secțiunea este rezervată directorului')).toBeTruthy()
+    expect(await screen.findByText('Cerere respinsă')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Reîncearcă/ })).toBeNull()
     expect(screen.queryByLabelText('Nume')).toBeNull()
     const link = screen.getByRole('link', { name: 'Varianta clasică' }) as HTMLAnchorElement

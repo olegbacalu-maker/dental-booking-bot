@@ -28,22 +28,19 @@ describe('routeLoader', () => {
     expect(r).toEqual({ status: 'failed', error: err })
   })
 
-  it('B3: маршрут под правом — отказ в праве уводит туда же, куда страница сервера', async () => {
+  it('B3: отказ в праве уводит туда же, куда страница сервера — на любом маршруте', async () => {
     const navigate = vi.fn()
     const denied = new ApiError({ kind: 'forbidden', code: 'no_access', text: 'Nu aveți acces' }, 'f')
-    const r = await routeLoader(vi.fn().mockRejectedValue(denied), navigate, true)(args())
+    const r = await routeLoader(vi.fn().mockRejectedValue(denied), navigate)(args())
     expect(r).toEqual({ status: 'leaving' })
     expect(navigate).toHaveBeenCalledWith(NO_ACCESS_URL)
     expect(NO_ACCESS_URL).toBe('/admin?msg=no_access')   // core/auth.require
   })
 
-  it('B3: без признака маршрута отказ — прежняя плашка; чужой 403 не уводит никогда', async () => {
+  it('B3: чужой 403 (не отказ в праве) не уводит никогда — плашка экрана', async () => {
     const navigate = vi.fn()
-    const denied = new ApiError({ kind: 'forbidden', code: 'no_access', text: 'Nu aveți acces' }, 'f')
-    expect(await routeLoader(vi.fn().mockRejectedValue(denied), navigate)(args()))
-      .toEqual({ status: 'failed', error: denied })
     const origin = new ApiError({ kind: 'forbidden', code: 'bad_origin', text: 'x' }, 'o')
-    expect(await routeLoader(vi.fn().mockRejectedValue(origin), navigate, true)(args()))
+    expect(await routeLoader(vi.fn().mockRejectedValue(origin), navigate)(args()))
       .toEqual({ status: 'failed', error: origin })
     expect(navigate).not.toHaveBeenCalled()
   })

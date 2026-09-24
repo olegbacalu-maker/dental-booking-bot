@@ -29,20 +29,20 @@ export type RouteLoad<T> = (signal: AbortSignal, params: Params, search: URLSear
 export type ScreenData = RouteLoad<unknown> | {
   load: RouteLoad<unknown>
   shouldRevalidate?: ShouldRevalidateFunction
-  /**
-   * B3: маршрут под ПРАВОМ. Отказ загрузчику (`403 no_access`) — не плашка
-   * экрана, а то же, что делает страница сервера (`core/auth.require`): уход
-   * на `NO_ACCESS_URL`, экран не монтируется ни кадра. ⛔ Решает СЕРВЕР:
-   * клиент прав не знает и не вычисляет — он передаёт отказ туда же, куда
-   * его отправил бы сервер. Пока включено на одном маршруте (статистика).
-   */
-  guarded?: boolean
 }
 
 /**
  * Куда сервер отправляет без права: `core/auth.require` → 303 сюда. Баннер
  * `no_access` рисует ОБОЛОЧКА документа (`frame.msg`), поэтому переход —
  * документом, как и уход на вход при 401.
+ *
+ * ⭐ B3: отказ в ПРАВЕ загрузчику — не плашка экрана, а то же, что делает
+ * страница сервера: уход сюда, экран не монтируется ни кадра. Решает СЕРВЕР —
+ * клиент прав не знает и не вычисляет. ⛔ Списка «маршруты под правом» у
+ * клиента НЕТ намеренно: `no_access` отдаёт один `api_require`, и у загрузчика
+ * он значит ровно «маршрут под правом». Рукописный список рос бы включающей
+ * полярностью и гнил молча: новый маршрут без пометки тихо вернулся бы к
+ * плашке отказа внутри раздела.
  */
 export const NO_ACCESS_URL = '/admin?msg=no_access'
 
@@ -62,9 +62,7 @@ export const searchChangeKeepsData: ShouldRevalidateFunction = ({ currentUrl, ne
  * потерял бы свою плашку отказа с повтором и ссылкой на старую страницу.
  * Бросает он только то, чего не ждёт никто, — это и есть работа ловушки.
  */
-export function routeLoader<T>(
-  load: RouteLoad<T>, navigate: (url: string) => void = defaultNavigate, guarded = false,
-) {
+export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => void = defaultNavigate) {
   return async ({ request, params }: LoaderFunctionArgs): Promise<LoadState<T>> => {
     try {
       const r = await load(request.signal, params, new URL(request.url).searchParams)
@@ -77,7 +75,7 @@ export function routeLoader<T>(
       }
       // ⚠️ Только отказ в ПРАВЕ (`no_access`), а не любой 403: у сервера есть и
       // другие (`same_origin_post`), и уводить с экрана по ним нельзя.
-      if (guarded && err.failure.kind === 'forbidden' && err.failure.code === 'no_access') {
+      if (err.failure.kind === 'forbidden' && err.failure.code === 'no_access') {
         navigate(NO_ACCESS_URL)
         return { status: 'leaving' }
       }
@@ -102,7 +100,7 @@ export function screenRoute(
   const opts = typeof data === 'function' ? { load: data } : data
   const route: RouteObject = {
     path, element, hydrateFallbackElement: element,
-    loader: routeLoader(opts.load, navigate, 'guarded' in opts && opts.guarded === true),
+    loader: routeLoader(opts.load, navigate),
   }
   if ('shouldRevalidate' in opts && opts.shouldRevalidate) route.shouldRevalidate = opts.shouldRevalidate
   return route
