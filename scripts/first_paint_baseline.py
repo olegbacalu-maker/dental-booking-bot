@@ -182,7 +182,8 @@ def main() -> int:
     # показывал серверный каркас на 59 мс без единого узла React — выглядело
     # как дефект стенда, а было дефектом списка.
     cfg["ui"] = {"react": ["schedule_dash", "patients_search", "stats",
-                           "doctors_list", "settings_hub", "doctor_card"]}
+                           "doctors_list", "settings_hub", "doctor_card",
+                           "schedule_week", "schedule_all", "schedule_doctor"]}
     s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-baseline")
@@ -221,7 +222,8 @@ def main() -> int:
             # правилу не подчинился и своё «до» потерял — второй раз не надо.
             for path in ("/admin", "/admin/search", "/admin/stats",
                          "/admin/medici", "/admin/settings",
-                         "/admin/doctor-card/d2"):
+                         "/admin/doctor-card/d2",
+                         "/admin/week", "/admin/all", "/admin/doctor/d2"):
                 m = measure(page, cdp, path)
                 runs.append(m)
                 print(f"\n{path}")

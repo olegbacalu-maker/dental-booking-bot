@@ -50,7 +50,7 @@ from . import visit as pvisit
 from ...core import xlsx
 from ...core.auth import PERM_MONEY, _guard, can, request_user, require
 from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, STATUS_LABEL, js_json,
-                            _ic, _initials, msg_banner, react_mount, react_shell, shell_model,
+                            _ic, _initials, msg_banner, react_shell, shell_model,
                             react_on, _shell)
 from ...core.storage import _data_dir
 

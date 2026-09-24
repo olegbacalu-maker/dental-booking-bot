@@ -37,7 +37,7 @@ from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, PIN_MAX,
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
                             _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
                             _doc_hours_text, data_folder, msg_banner,
-                            react_mount, react_shell, shell_model, react_on, _shell, standalone,
+                            react_shell, shell_model, react_on, _shell, standalone,
                             tg_configured, tg_refresh_meta, tg_status)
 from ...core import bitlocker, dbkey, theme
 from ...core.storage import _data_dir

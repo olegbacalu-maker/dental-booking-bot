@@ -4,6 +4,7 @@ import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate, useLoad } from '../../hooks/useLoad'
 import { asApiError, type ApiResult } from '../../services/api'
+import { shift } from '../../utils/date'
 import { AddForm } from './AddForm'
 import { CardDialog } from './CardDialog'
 import { DayGrid } from './DayGrid'
@@ -42,12 +43,6 @@ interface Props {
   /** Отбор плитки панели дня: режет СПИСОК, сетку не трогает. */
   f?: string
   navigate?: (url: string) => void
-}
-
-function shift(iso: string, days: number): string {
-  const d = iso ? new Date(`${iso}T12:00:00`) : new Date()
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
 }
 
 export function DayScreen({ date = '', doctor = '', f = '',

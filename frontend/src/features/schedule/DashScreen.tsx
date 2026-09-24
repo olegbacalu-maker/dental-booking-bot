@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { Toast, type ToastState } from '../../components/Toast'
 import { CardDialog } from './CardDialog'
 import { asApiError, type ApiResult } from '../../services/api'
+import { dm, shift } from '../../utils/date'
 import { useLive } from '../../hooks/useLive'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
@@ -25,9 +26,12 @@ import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
  * ⭐ Экран ПИШЕТ: карточка, пустой час, заметка и перенос отправляют команды
  * (C26.5.3-e и -f). Состояние после любой из них приезжает ОДНОЙ дверью —
  * каналом, — и локального мира расписания у React нет.
- * ⛔ Шапка дня (`_date_nav`) и баннер `?msg=` печатает СЕРВЕР, снаружи узла:
- * на `/admin` приземляется `no_access` со всей программы, и увидеть его надо
- * при первой отрисовке, а не после первого ответа канала.
+ * ⛔ Шапка дня и баннер `?msg=` обязаны быть на ПЕРВОЙ отрисовке, а не после
+ * первого ответа канала: на `/admin` приземляется `no_access` со всей
+ * программы. Баннер приезжает моделью оболочки (B1, `frame.msg`), а шапка —
+ * ПАРАМЕТРАМИ УЗЛА, и потому рисуется во всех ветках, включая загрузку и
+ * отказ. ⛔ Поэтому же `day_label` не в модели канала: оттуда он пришёл бы
+ * вторым кругом, и шапка мигала бы на каждом переходе по дате.
  */
 const T = {
   hint: 'Click pe o programare — detalii și statusuri; pe o oră liberă — '
@@ -37,6 +41,13 @@ const T = {
      панель освежается сама, и советовать перезагрузку значило бы врать. */
   gone: 'Programarea nu mai există.',
   legacy: 'Deschideți varianta clasică',
+  /* Шапка дня. ⚠️ Слова те же, что печатал `_date_nav`/`_day_tabs`: это не
+     новый текст, а переезд существующего к своему экрану. */
+  today: 'Azi',
+  wkPrev: '-7 zile',
+  wkNext: '+7 zile',
+  day: 'Zi',
+  week: 'Săptămâna',
   /* ⚠️ Слово СВОЁ, и это названо: у сервера его нет вовсе (снятие блокировки
      отвечает пустым кодом), а чужое — «Programarea nu mai există» — назвало бы
      заметку программой. */
@@ -55,9 +66,16 @@ const WAIT_MS = 60_000
 interface Props {
   /** День из адреса; пусто — сегодня (решает сервер). */
   date?: string
+  /**
+   * Подпись дня для шапки: «Jo 24.09.2026». ⛔ Строит СЕРВЕР
+   * (`eng.day_label`): сокращения дней недели румынские, и второй их список
+   * в браузере разошёлся бы с первым молча — на этом уже обожглись дважды
+   * (08-12, 08-16). Пусто — шапки нет вовсе.
+   */
+  dayLabel?: string
 }
 
-export function DashScreen({ date = '' }: Props) {
+export function DashScreen({ date = '', dayLabel = '' }: Props) {
   const rail = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Вместе с номером хранится СНИМОК записи на момент клика — он и
      станет надгробием, если запись исчезнет. Снимок берётся в
@@ -222,12 +240,42 @@ export function DashScreen({ date = '' }: Props) {
     setMove({ drag: d, target: t })
   }, [drag, startDrag])
 
+  /*
+   * Шапка дня. ⚠️ Стоит ВНЕ ветки данных и рисуется одинаково при загрузке,
+   * отказе и остановке канала: листать дни надо и тогда, когда данных нет, —
+   * иначе на упавшем канале с экрана не уйти никуда, кроме легаси.
+   * ⛔ Ссылки настоящие (`<a href>`), а не обработчики: переход по дате на
+   * `/admin` сегодня — полная загрузка документа, ровно как у сервера. Менять
+   * это здесь нельзя, это работа B4.
+   */
+  const navNode = dayLabel === '' ? null : (
+    <div className="nav">
+      <b>{dayLabel}</b>
+      <a href={`/admin?date=${shift(date, -7)}`} title={T.wkPrev}>
+        <Icon name="chevs-l" />
+      </a>
+      <a href={`/admin?date=${shift(date, -1)}`}>
+        <Icon name="chev-l" /> {dm(shift(date, -1))}
+      </a>
+      <a href="/admin">{T.today}</a>
+      <a href={`/admin?date=${shift(date, 1)}`}>
+        {dm(shift(date, 1))} <Icon name="chev-r" />
+      </a>
+      <a href={`/admin?date=${shift(date, 7)}`} title={T.wkNext}>
+        <Icon name="chevs-r" />
+      </a>
+      <a className="primary" href={`/admin?date=${date}`}>{T.day}</a>
+      <a href={`/admin/week?date=${date}`}>{T.week}</a>
+    </div>
+  )
+
   if (state.status === 'failed') {
     /* ⚠️ Свой отказ, а не общий `LoadFailed`: тому нужен `ApiError`, а у
        живого канала исходов четыре и исключений среди них нет. Слова и
        разметка — те же. */
     return (
       <section className="dp-react-root">
+        {navNode}
         <div className="banner err" role="alert">{T.offline}</div>
         <p className="dp-actions">
           <button type="button" className="savebtn" onClick={retry}>
@@ -241,6 +289,7 @@ export function DashScreen({ date = '' }: Props) {
   if (state.status === 'stopped') {
     return (
       <section className="dp-react-root">
+        {navNode}
         <div className="banner err" role="alert">
           {T.stopped} <a href="/admin?ui=legacy">{T.legacy}</a>.
         </div>
@@ -249,12 +298,13 @@ export function DashScreen({ date = '' }: Props) {
   }
   if (!state.data) {
     /* `loading` и `leaving`: на уходе форму не показываем даже кадр. */
-    return <section className="dp-react-root" />
+    return <section className="dp-react-root">{navNode}</section>
   }
 
   const d = state.data
   return (
     <section className="dp-react-root">
+      {navNode}
       <div className="dash">
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}

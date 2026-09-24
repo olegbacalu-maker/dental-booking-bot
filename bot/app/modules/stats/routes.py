@@ -28,7 +28,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, require
-from ...core.layout import (_shell, msg_banner, react_mount, react_on,
+from ...core.layout import (_shell, msg_banner, react_on,
                             react_shell, shell_model)
 from ...core.visits import _parse_date
 from . import casa, model, render

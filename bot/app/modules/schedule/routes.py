@@ -30,7 +30,7 @@ from ...core.auth import PERM_DOCTORS, _guard, can, request_user
 from ...core import xlsx
 from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
-                            _initials, _shell, _tg_state, js_json, react_mount,
+                            _initials, _shell, _tg_state, js_json, react_shell, shell_model,
                             react_on, tg_configured)
 from ...core.visits import (SVC_PALETTE, _STATUS_ICON, _card_modal,
                             _collect_cards, _doc_hue, _list, _move_attrs,
@@ -953,19 +953,23 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         # объявляет живой страницу с узлом React.
         if (st := _live_stale(request)) is not None:
             return st
-        # ⭐ Шапка дня и баннер — СЕРВЕРНЫЕ, как у девяти уже переехавших
-        # экранов, и это решение, а не экономия. На `/admin` приземляется
+        # ⭐ B1: оболочку рисует React. Требование «увидеть при ПЕРВОЙ
+        # отрисовке» осталось в силе и выполняется по-прежнему: `msg` едет
+        # моделью оболочки (`frame.msg`), подпись дня — параметром узла. Ни то
+        # ни другое не ждёт первого ответа канала. На `/admin` приземляется
         # `no_access` со ВСЕЙ программы (двенадцать проверок прав сверяют
-        # редирект сюда), и увидеть его человек обязан при ПЕРВОЙ отрисовке, а
-        # не после первого ответа канала. Прежде `msg` уезжал параметром узла —
-        # и не читался в клиенте НИ ОДНОЙ строкой: отказ в правах был
-        # молчаливым переходом на панель, а проверка на `data-params` зеленела,
-        # потому что сервер параметр честно клал.
-        # ⚠️ Узел React при этом остаётся узлом: `_shell` видит метку и не
-        # объявляет страницу живой — ни обёртки `#live`, ни `data-reload`.
-        return _shell(_date_nav(d, "/admin", _day_tabs(d)) + _banner(msg, d)
-                      + react_mount("schedule_dash", "/admin", {"date": d.isoformat()}),
-                      "panou principal", active="dash")
+        # редирект сюда), поэтому требование и названо.
+        # ⛔ «Zi liberă» сервер больше НЕ печатает, и это исправление, а не
+        # переезд: фраза выводилась ДВАЖДЫ — баннером по `hours_for` (только
+        # график) и холстом по `hours_of` (график И записи). В закрытом дне, где
+        # запись осталась с тех пор, когда день был рабочим, баннер сообщал
+        # «clinica este închisă» прямо над нарисованной записью. Владелец
+        # остался один — холст, у него условие полное.
+        return react_shell("schedule_dash", "/admin",
+                           shell_model("dash", "panou principal", msg=msg),
+                           {"date": d.isoformat(),
+                            "day_label": f"{eng.day_label(eng.Session(lang='ro'), d)}"
+                                         f".{d.year}"})
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     # Две недели одним запросом вместо «сегодня» + «вчера» двумя: из этой же
     # выборки берутся и день, и вчера, и ряды для мини-графиков в плитках.
@@ -1163,10 +1167,11 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
         # C26, иначе погаснет и он.
         if (st := _live_stale(request)) is not None:
             return st
-        return _shell(react_mount("schedule_week", "/admin/week",
-                                  {"date": d.isoformat()}),
-                      "calendar săptămânal · culori după tipul procedurii",
-                      active="dash")
+        # ⭐ B1: оболочку рисует React.
+        return react_shell("schedule_week", "/admin/week",
+                           shell_model("dash",
+                                       "calendar săptămânal · culori după tipul procedurii"),
+                           {"date": d.isoformat()})
     m = await _week_model(d)
     cols = []
     for col in m["days"]:
@@ -1419,8 +1424,9 @@ async def admin_all(
         params = {"date": d.isoformat()}
         if f in pday.TILE_FILTERS:
             params["f"] = f
-        return _shell(react_mount("schedule_all", "/admin/all", params),
-                      "toți medicii", active="prog")
+        # ⭐ B1: оболочку рисует React.
+        return react_shell("schedule_all", "/admin/all",
+                           shell_model("prog", "toți medicii"), params)
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
     active = _active_map(rows)
@@ -1479,9 +1485,10 @@ async def admin_doctor(
     if react_on(request, "schedule_doctor"):
         if (st := _live_stale(request)) is not None:
             return st
-        return _shell(react_mount("schedule_doctor", f"/admin/doctor/{dk}",
-                                  {"date": d.isoformat(), "dk": dk}),
-                      f"ziua medicului · {name}", active="prog")
+        # ⭐ B1: оболочку рисует React.
+        return react_shell("schedule_doctor", f"/admin/doctor/{dk}",
+                           shell_model("prog", f"ziua medicului · {name}"),
+                           {"date": d.isoformat(), "dk": dk})
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = [r for r in await db.day_appointments(day_start, day_start + timedelta(days=1))
             if r.get("doctor_id") == dk

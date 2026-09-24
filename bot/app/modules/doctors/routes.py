@@ -24,7 +24,7 @@ from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, require
 from ...core.layout import (HOUR_MAX, HOUR_MIN, _DOC_STATE_RO,
                             _DOW_FULL, _DOW_ORDER, _doc_hours_text, _ic,
-                            msg_banner, react_mount, react_shell, shell_model, react_on, _shell)
+                            msg_banner, react_shell, shell_model, react_on, _shell)
 from ...core.visits import (_avatar, _card_modal, _collect_cards, _doc_hue,
                             _doctors_dir, _list, _photo_path)
 

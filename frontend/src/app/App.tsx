@@ -85,7 +85,9 @@ function screenFor(screen: string, params: Record<string, string>) {
     const t = params.t ? Number(params.t) : null
     return <OdontogramScreen pid={Number(params.pid)} t={Number.isInteger(t) ? t : null} />
   }
-  if (screen === 'schedule_dash') return <DashScreen date={params.date ?? ''} />
+  if (screen === 'schedule_dash') {
+    return <DashScreen date={params.date ?? ''} dayLabel={params.day_label ?? ''} />
+  }
   if (screen === 'schedule_week') return <WeekScreen date={params.date ?? ''} />
   if (screen === 'schedule_all') {
     return <DayScreen date={params.date ?? ''} f={params.f ?? ''} />

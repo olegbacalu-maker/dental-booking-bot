@@ -754,10 +754,9 @@ def suite_dash_flag(res: Result) -> None:
                   ('<div id="root" data-screen="schedule_dash"' in page2,
                    'id="live"' in page2, 'data-reload="12"' in page2),
                   (True, False, False))
-        res.check("дата уехала параметром узла",
-                  json.loads(page2.split('data-params="', 1)[1].split('"', 1)[0]
-                             .replace("&quot;", '"')),
-                  {"date": day})
+        params = json.loads(page2.split('data-params="', 1)[1].split('"', 1)[0]
+                            .replace("&quot;", '"'))
+        res.check("дата уехала параметром узла", params["date"], day)
         # ⛔ А `?msg=` — НЕ параметром узла (переписано в C26.5.2). Прежняя
         # проверка сверяла `data-params["msg"]` и была зелена по неверной
         # причине: сервер параметр честно клал, а читать его в клиенте было
@@ -769,14 +768,21 @@ def suite_dash_flag(res: Result) -> None:
                   ("rezervată directorului" in deny, '"msg"' in deny,
                    '<div id="root" data-screen="schedule_dash"' in deny),
                   (True, False, True))
-        # ⭐ И шапка дня тоже серверная: ссылки «Zi»/«Săptămâna» работают до
-        # того, как бандл загрузился — как у девяти соседних экранов.
-        # ⛔ Поля выбора даты в шапке БОЛЬШЕ НЕТ (24.09): день выбирают в
+        # ⭐ B1: шапку дня печатает ЭКРАН, а не сервер. Проверяется ПАРОЙ —
+        # ссылки на неделю в серверном HTML больше нет, а подпись дня, без
+        # которой экран шапку не нарисует, приехала параметром узла и готова
+        # к ПЕРВОЙ отрисовке. Одной половины мало: «сервер не печатает» само по
+        # себе зеленело бы и на экране, потерявшем шапку совсем.
+        # ⛔ Подпись НЕ в модели канала намеренно: оттуда она приходила бы
+        # вторым кругом, и шапка мигала бы на каждом переходе по дате.
+        # ⛔ Поля выбора даты в шапке нет с 24.09: день выбирают в
         # мини-календаре правой колонки, а третья запись даты съедала ширину,
         # из-за которой шапка не вставала в ряд с заголовком на 1366.
-        res.check("шапка дня на месте и ведёт на неделю, без поля даты",
-                  (f"/admin/week?date={day}" in page2, "class='dpickf'" in page2),
-                  (True, False))
+        res.check("шапка дня уехала к экрану, подпись готова к первой отрисовке",
+                  (f"/admin/week?date={day}" in page2,
+                   params["day_label"].endswith("." + day[:4]),
+                   "class='dpickf'" in page2),
+                  (False, True, False))
 
         # --- канал НЕ СПРАШИВАЕТ, кто рисует экран (C26.5.2) ---
         # ⛔ До 19.09 он отвечал здесь `live:false` и пустотой — то есть
@@ -868,6 +874,94 @@ def suite_dash_flag(res: Result) -> None:
         res.check("каждый экранный кусок под охраной, и объявление ВЫШЕ охран",
                   (naked, decl >= 0, bool(guards), all(g > decl for g in guards)),
                   ([], True, True, True))
+
+def _shell_of(page: str) -> dict:
+    """Модель оболочки со страницы; `{}` — её на узле нет.
+
+    ⚠️ Пустой словарь, а не исключение: страница со СТАРОЙ оболочкой — это
+    ровно то, что сторож ловит, и падение набора назвало бы её «IndexError»
+    вместо «модели нет». Проверено парой: возврат одной поверхности на `_shell`
+    красит проверку, а не роняет набор.
+    """
+    if 'data-shell="' not in page:
+        return {}
+    return json.loads(page.split('data-shell="', 1)[1].split('"', 1)[0]
+                      .replace("&quot;", '"'))
+
+
+def suite_live_shell(res: Result) -> None:
+    """Четыре живых экрана на ОБЩЕЙ оболочке React (B1, последняя вертикаль).
+
+    ⭐ Проверки СТРУКТУРНЫЕ, а не по литералу разметки: узел, модель оболочки,
+    её значения — и отрицательная половина, что серверного каркаса на странице
+    больше нет. Литерал ломался бы от любого нового атрибута узла, и это уже
+    случилось: появление `data-shell` покрасило шесть проверок в пяти наборах.
+
+    ⛔ Отрицательная половина обязательна. «Узел с моделью есть» зеленело бы и
+    на странице, где оболочку печатают ОБА — а это ровно то, что B1 исключает.
+    """
+    day = clinic_today().isoformat()
+    srv = Server()
+    cfg = json.loads(srv.clinic.read_text(encoding="utf-8"))
+    cfg["ui"] = {"react": ["schedule_dash", "schedule_week", "schedule_all",
+                           "schedule_doctor"]}
+    srv.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    dk = next(d["id"] for d in cfg["doctors"] if d.get("status") != "arhivat")
+    with srv:
+        c = Client(srv.url).login()
+        want = {"/admin": ("schedule_dash", "dash"),
+                "/admin/week": ("schedule_week", "dash"),
+                "/admin/all": ("schedule_all", "prog"),
+                f"/admin/doctor/{dk}": ("schedule_doctor", "prog")}
+        for path, (screen, active) in want.items():
+            page = c.get(f"{path}?date={day}").body
+            shell = _shell_of(page)
+            res.check(f"{path}: узел экрана и модель оболочки на нём",
+                      (f'<div id="root" data-screen="{screen}"' in page,
+                       shell.get("nav", {}).get("active"),
+                       bool(shell.get("frame", {}).get("sub"))),
+                      (True, active, True))
+            # ⚠️ `panel.js` ищется ТЕГОМ, а не именем: имя встречается в
+            # пояснении к скрипту анимаций, которое печатает голова документа,
+            # и проверка по имени краснела бы на исправном коде (прайор о
+            # ложном красном стенде — поймано этим же стендом 24.09).
+            res.check(f"{path}: серверного каркаса нет",
+                      ('<aside class="side' in page, '<div class="top"' in page,
+                       "<h1><a href=" in page, 'src="/static/js/panel.js' in page),
+                      (False, False, False, False))
+
+
+def suite_free_day_owner(res: Result) -> None:
+    """«Zi liberă» — ОДИН владелец (исправление 24.09, найдено при переносе).
+
+    Фраза печаталась ДВАЖДЫ: баннером сервера по `eng.hours_for` (только
+    график) и холстом React по `hours_of` (график И записи). Условия разные,
+    поэтому в закрытом дне с уцелевшей записью баннер сообщал «clinica este
+    închisă» прямо над нарисованной записью.
+
+    ⛔ Фикстура с ЗАКРЫТЫМ днём обязательна: у `clinic_test.json` открыты все
+    семь дней, и дубль на ней не воспроизводится вовсе — проверка зеленела бы,
+    ничего не проверив. `clinic_panel.json` закрывает воскресенье (`sun: null`).
+    """
+    srv = Server(clinic="clinic_panel.json")
+    cfg = json.loads(srv.clinic.read_text(encoding="utf-8"))
+    cfg["ui"] = {"react": ["schedule_dash"]}
+    srv.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    with srv:
+        c = Client(srv.url).login()
+        d = clinic_today()
+        sun = d + timedelta(days=(6 - d.weekday()) % 7 or 7)
+        page = c.get(f"/admin?date={sun.isoformat()}").body
+        res.check("закрытый день: сервер фразу больше НЕ печатает",
+                  page.count("Zi liber"), 0)
+        # ⚠️ И вторая половина пары: владелец, который остался, эту фразу
+        # действительно скажет — модель холста объявляет день пустым. Без неё
+        # проверка выше зеленела бы и на экране, потерявшем сообщение совсем.
+        cv = _j(c.get(f"/api/schedule/canvas?date={sun.isoformat()}"))["data"]
+        res.check("а холст закрытый день видит и объявляет пустым",
+                  (cv["empty"], cv["hours"]), (True, []))
+
+
 def suite_panel_cmds(res: Result) -> None:
     """`screen=panel` у СОЗДАЮЩИХ команд: ни удача, ни отказ не несут состояния.
 
