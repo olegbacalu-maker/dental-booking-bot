@@ -191,11 +191,11 @@ export function PerioScreen({ pid, exam = null, navigate = defaultNavigate }: Pr
         </button>
         <a className="odo-more" href={`${base}/odontograma`}><Icon name="tooth" /> {T.odo}</a>
         {model.exam && (
+          /* ⛔ Без target="_blank": окно программы отдаёт «новое окно»
+             системному браузеру, где нет куки входа — см. AnamnezaCard. */
           <a
             className="odo-more"
             href={`${base}/parodontograma/print?exam=${model.exam.id}`}
-            target="_blank"
-            rel="noreferrer"
           >
             <Icon name="print" /> {T.print}
           </a>

@@ -66,7 +66,12 @@ export function AnamnezaCard({ card, a }: Props) {
       <small className="hint dp-m0">
         {an.filled ? `${T.filled} ${an.when} · ${an.author || '—'}` : T.notFilled}
       </small>
-      <a className="anprint" href={`/admin/patient/${card.id}/anamneza/print`} target="_blank" rel="noreferrer">
+      {/* ⛔ Без target="_blank" — как 043/e и acord. Окно программы (pywebview,
+          OPEN_EXTERNAL_LINKS_IN_BROWSER) отдаёт «новое окно» СИСТЕМНОМУ
+          браузеру: там нет куки входа, бланк просит PIN, а ссылка «назад» с
+          него уводит весь журнал в браузер. Бланк печатается кнопкой и
+          возвращает ссылкой — новая вкладка ему не нужна. */}
+      <a className="anprint" href={`/admin/patient/${card.id}/anamneza/print`}>
         <Icon name="print" /> {T.print}
       </a>
       <details className="anform" open={!an.filled}>

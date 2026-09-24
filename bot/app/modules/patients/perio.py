@@ -436,8 +436,7 @@ def page(patient: dict, exam: dict, exams: list, rows: list, absent: set,
     <form method='post' action='{e(base)}/perio/new' class='pinline'>
       <button class='odo-more'>{_ic('plus')} Examen nou</button>
     </form>
-    <a class='odo-more' href='{e(base)}/parodontograma/print'
-       target='_blank'>{_ic('print')} Printează</a>
+    <a class='odo-more' href='{e(base)}/parodontograma/print'>{_ic('print')} Printează</a>
   </div>
 </div>
 <form method='post' action='{e(base)}/perio' id='pform'>

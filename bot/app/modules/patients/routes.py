@@ -279,7 +279,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
                if an_chips else "")
     anam_card = f"""<div class='fcard' id='anamneza'>
 <h3>Anamneză {an_head}</h3>{an_list}{an_sum}
-<a class='anprint' href='{base}/anamneza/print' target='_blank'>{_ic('print')} Formular
+<a class='anprint' href='{base}/anamneza/print'>{_ic('print')} Formular
   pentru pacient</a>
 <details class='anform'{' open' if not anam else ''}>
   <summary>{_ic('pen')} Chestionar</summary>
