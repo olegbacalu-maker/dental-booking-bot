@@ -250,6 +250,13 @@ MSG_BANNER = {
     "bad_pdel": ("err", "Se poate șterge doar o poziție neîncepută. Procedura "
                         "începută, finalizată sau refuzată rămâne în fișă — "
                         "închideți-o prin statut"),
+    # ⚠️ Удаляют то, чего в фише уже нет: чаще всего его сняли со второго
+    # рабочего места, пока эта вкладка стояла открытой. Текст говорит, что
+    # делать, как у mv_gone; фиша в ответ не едет (patients/api.py, `_GONE`).
+    "alert_gone": ("err", "Atenționarea nu mai există — reîmprospătați pagina"),
+    "plan_gone": ("err", "Poziția din plan nu mai există — reîmprospătați pagina"),
+    "doc_gone": ("err", "Documentul nu mai există — reîmprospătați pagina"),
+    "pay_gone": ("err", "Plata nu mai există — reîmprospătați pagina"),
     "new_pat": ("ok", "Pacient adăugat — completați fișa (dinți, plan, documente)"),
     # ⚠️ Сохранение НЕ отменяется — названо вслух (та же логика, что ok_other:
     # регистратуре нужна скорость, а молчаливый запрет читался бы как «программа

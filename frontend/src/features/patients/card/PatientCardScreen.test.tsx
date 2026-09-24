@@ -298,6 +298,21 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(post).toHaveBeenLastCalledWith('/patients/5/alerts/2/delete', {}))
   })
 
+  it('удаление того, чего уже нет (сняли с другого места): 404 — плашка сервера, фиша остаётся', async () => {
+    /* ⚠️ Сервер отвечает 404 с кодом и текстом и БЕЗ фиши: тихий успех отдавал
+       фишу целиком мимо журнала доступа. 404 действия — не «фиши нет». */
+    serve()
+    post.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: 'alert_gone', text: 'Atenționarea nu mai există — reîmprospătați pagina' }, 's'))
+    open()
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    fireEvent.click(screen.getByLabelText('Șterge: Penicilină'))
+    expect(await screen.findByText('Atenționarea nu mai există — reîmprospătați pagina')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/alerts/1/delete', {})
+    expect(screen.getByText('Pin Test', { selector: 'h2' })).toBeTruthy()
+    expect(screen.getByText(/Penicilină/, { selector: '.alert' })).toBeTruthy()
+    expect(screen.queryByText('Fișa nu există sau a fost ștearsă.')).toBeNull()
+  })
+
   it('профиль: правка шлёт все поля; 422 bad_idnp подсвечивает IDNP и оставляет форму', async () => {
     serve()
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_idnp', text: 'IDNP trebuie să aibă exact 13 cifre', field: 'idnp' }, 'v'))

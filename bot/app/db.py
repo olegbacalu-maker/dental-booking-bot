@@ -2413,10 +2413,25 @@ async def add_alert(pid: int, kind: str, text: str) -> None:
     )
 
 
-async def delete_alert(alert_id: int, pid: int) -> None:
-    await _execute(
+async def delete_alert(alert_id: int, pid: int) -> bool:
+    """Снять предупреждение. След в летописи обязателен: снятая аллергия на
+    пенициллин — клинически значимое событие, и «кто её снял» спросят громче,
+    чем «кто записал» (до 24.09 удаление не оставляло строки вовсе). Летопись
+    — ПОСЛЕ DELETE и только за реально снятую строку, как у `delete_bridge`.
+    False — у пациента такого предупреждения нет (чужое, выдуманное, уже
+    снятое с другого места)."""
+    rows = await _fetch(
+        "SELECT text FROM patient_alerts WHERE id = $1 AND patient_id = $2",
+        "SELECT text FROM patient_alerts WHERE id = ? AND patient_id = ?", alert_id, pid)
+    if not rows:
+        return False
+    n = await _execute(
         "DELETE FROM patient_alerts WHERE id = $1 AND patient_id = $2",
         "DELETE FROM patient_alerts WHERE id = ? AND patient_id = ?", alert_id, pid)
+    if n != 1:
+        return False
+    await log_event(pid, "alert_del", f"Atenționare ștearsă: {rows[0]['text']}")
+    return True
 
 
 # Кто сейчас за журналом. Ставится приложением при старте (main.py), потому что
@@ -3109,16 +3124,22 @@ async def set_plan_status(item_id: int, pid: int, status: str,
         )
 
 
-async def delete_plan_item(item_id: int, pid: int) -> None:
+async def delete_plan_item(item_id: int, pid: int) -> bool:
+    """Летопись — ПОСЛЕ DELETE и только за реально снятую строку (как у
+    `delete_bridge`). False — позиции у пациента нет."""
     rows = await _fetch("SELECT procedure, tooth FROM plan_items WHERE id = $1 AND patient_id = $2",
                         "SELECT procedure, tooth FROM plan_items WHERE id = ? AND patient_id = ?",
                         item_id, pid)
-    if rows:
-        await log_event(pid, "plan_del", f"Plan: - {rows[0]['procedure']}",
-                        tooth=rows[0]["tooth"])
-    await _execute(
+    if not rows:
+        return False
+    n = await _execute(
         "DELETE FROM plan_items WHERE id = $1 AND patient_id = $2",
         "DELETE FROM plan_items WHERE id = ? AND patient_id = ?", item_id, pid)
+    if n != 1:
+        return False
+    await log_event(pid, "plan_del", f"Plan: - {rows[0]['procedure']}",
+                    tooth=rows[0]["tooth"])
+    return True
 
 
 # ---------- дневник визита (consultația) ----------
@@ -3359,15 +3380,18 @@ async def get_payment(pay_id: int, pid: int) -> dict | None:
 
 async def delete_payment(pay_id: int, pid: int) -> bool:
     """Удаление платежа — исправление ошибки ввода, не бухгалтерская операция.
-    Право на него только у директора (маршрут), а след остаётся в летописи."""
+    Право на него только у директора (маршрут), а след остаётся в летописи —
+    ПОСЛЕ DELETE и только за реально снятую строку (как у `delete_bridge`)."""
     p = await get_payment(pay_id, pid)
     if p is None:
         return False
+    n = await _execute("DELETE FROM payments WHERE id = $1 AND patient_id = $2",
+                       "DELETE FROM payments WHERE id = ? AND patient_id = ?",
+                       pay_id, pid)
+    if n != 1:
+        return False
     await log_event(pid, "pay_del",
                     f"Plată ștearsă: {p['amount_mdl']} MDL ({p['method']})")
-    await _execute("DELETE FROM payments WHERE id = $1 AND patient_id = $2",
-                   "DELETE FROM payments WHERE id = ? AND patient_id = ?",
-                   pay_id, pid)
     return True
 
 
@@ -3605,13 +3629,20 @@ async def get_document(doc_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
-async def delete_document(doc_id: int, pid: int) -> None:
+async def delete_document(doc_id: int, pid: int) -> bool:
+    """Строка документа (файл с диска снимает маршрут, `_drop_doc`). Летопись —
+    ПОСЛЕ DELETE и только за реально снятую строку (как у `delete_bridge`).
+    False — документа у пациента нет."""
     d = await get_document(doc_id)
-    if d and d["patient_id"] == pid:
-        await log_event(pid, "doc_del", f"Document șters: {d['filename']}")
-    await _execute(
+    if not d or d["patient_id"] != pid:
+        return False
+    n = await _execute(
         "DELETE FROM documents WHERE id = $1 AND patient_id = $2",
         "DELETE FROM documents WHERE id = ? AND patient_id = ?", doc_id, pid)
+    if n != 1:
+        return False
+    await log_event(pid, "doc_del", f"Document șters: {d['filename']}")
+    return True
 
 
 async def set_comment(appt_id: int, text: str) -> None:

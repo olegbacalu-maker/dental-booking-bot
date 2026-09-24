@@ -197,14 +197,21 @@ async def api_patient_new(request: Request):
 # спор с состоянием (запрещённое ребро плана, удаление начатой позиции,
 # выключенный врач, прошедший час, занятый слот) — 409. Коды и тексты — те
 # же, что у форм (MSG_BANNER); тихий успех — пустой код.
+# Удаление того, чего у пациента нет (чужой или выдуманный id, строка уже
+# снята с другого места), — 404 без фиши. ⛔ Не тихий успех: фиша едет только
+# ответом на действие, оставившее строку в летописи, а несостоявшееся
+# удаление строки не оставляет — POST с выдуманным id читал бы фишу целиком
+# мимо журнала доступа (закон 195).
 _CONFLICT = {"bad_pdel", "bad_off", "past", "dup", "conflict"}
+_GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone"}
 _OK = {"", "ok", "ok_card", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_pay",
        "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz"}
 
 
 def _reply(code: str, data=None, field: str = "", *, conflict: bool = False):
     ok = code in _OK
-    status = 200 if ok else 409 if (conflict or code in _CONFLICT) else 422
+    status = (200 if ok else 404 if code in _GONE
+              else 409 if (conflict or code in _CONFLICT) else 422)
     return msg_json(ok, code, data=data, field=field, status=status)
 
 
@@ -496,8 +503,7 @@ async def api_patient_alert_del(request: Request, pid: int, aid: int):
     deny, p = await _owned(pid)
     if deny is not None:
         return deny
-    await db.delete_alert(aid, pid)
-    return await _card_reply(request, pid, "")
+    return await _card_reply(request, pid, "" if await db.delete_alert(aid, pid) else "alert_gone")
 
 
 @router.post("/api/patients/{pid}/anamneza")
@@ -575,8 +581,8 @@ async def api_patient_pay_del(request: Request, pid: int, pay_id: int):
         return deny
     if not (await db.get_patient(pid)):
         return msg_json(False, status=404)
-    await db.delete_payment(pay_id, pid)
-    return await _card_reply(request, pid, "pay_del")
+    return await _card_reply(request, pid,
+                             "pay_del" if await db.delete_payment(pay_id, pid) else "pay_gone")
 
 
 @router.post("/api/patients/{pid}/documents")
@@ -599,8 +605,7 @@ async def api_patient_doc_del(request: Request, pid: int, doc_id: int):
     deny, p = await _owned(pid)
     if deny is not None:
         return deny
-    await _drop_doc(pid, doc_id)
-    return await _card_reply(request, pid, "")
+    return await _card_reply(request, pid, "" if await _drop_doc(pid, doc_id) else "doc_gone")
 
 
 @router.post("/api/documents/{doc_id}/open")

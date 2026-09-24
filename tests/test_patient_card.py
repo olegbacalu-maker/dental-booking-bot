@@ -359,11 +359,15 @@ def _card(c: Client, pid: int, views: bool = False) -> dict:
     return _j(r)["data"]
 
 
+def _feed(c: Client, pid: int) -> list[dict]:
+    """Летопись вместе с журналом доступа — лентой отдельно (`/activity`): она
+    сама просмотра не пишет, чтение не меняет считаемое."""
+    return _j(c.get(f"/api/patients/{pid}/activity?views=1"))["data"]["items"]
+
+
 def _opens(c: Client, pid: int) -> int:
-    """Строк «Fișa deschisă» в журнале доступа. Считает лентой отдельно
-    (`/activity`): она сама просмотра не пишет, счёт не меняет считаемое."""
-    items = _j(c.get(f"/api/patients/{pid}/activity?views=1"))["data"]["items"]
-    return sum(a["kind"] == "view" for a in items)
+    """Строк «Fișa deschisă» в журнале доступа."""
+    return sum(a["kind"] == "view" for a in _feed(c, pid))
 
 
 def suite_api(res: Result) -> None:
@@ -528,6 +532,15 @@ def _act(c: Client, pid: int, path: str, payload: dict | None = None) -> tuple:
     return r.status, _j(r)
 
 
+def _gone(c: Client, pid: int, api: str, form: str) -> tuple:
+    """Удаление того, чего в фише нет: (HTTP, код, есть ли текст, есть ли
+    данные) у JSON и плашка старой формы. Фиша в ответе на такое — чтение мимо
+    журнала доступа: удаление не состоялось и строки в летописи не оставило."""
+    r = c.post_json(f"/api/patients/{pid}{api}", {})
+    j = _j(r)
+    return r.status, j["code"], bool(j["text"]), "data" in j, c.post(f"/admin/patient/{pid}{form}").msg
+
+
 def suite_actions(res: Result) -> None:
     """Действия фиши через JSON: те же коды, что у форм, отказ проверки 422 с
     полем, спор с состоянием 409, удача — свежая фиша."""
@@ -581,6 +594,31 @@ def suite_actions(res: Result) -> None:
         aid = j["data"]["alerts"][0]["id"]
         st, j = _act(c, pid, f"/alerts/{aid}/delete")
         res.check("удалено — тихий успех, список пуст", (st, j["code"], j["data"]["alerts"]), (200, "", []))
+        # ⚠️ До 24.09 снятие предупреждения не оставляло в летописи НИЧЕГО
+        # (закон 195: кто снял аллергию), а удаление по чужому id отвечало
+        # фишей целиком — чтением мимо журнала доступа
+        res.check("снятие — одна строка летописи: текст, имя вошедшего, значок",
+                  [(a["text"], a["who"], a["icon"]) for a in j["data"]["activity"]["items"]
+                   if a["kind"] == "alert_del"],
+                  [("Atenționare ștearsă: Latex", "Director", "trash")])
+        feed = _feed(c, pid)
+        res.check("уже снятое (вторая вкладка) — 404 alert_gone без фиши, форма — плашкой",
+                  _gone(c, pid, f"/alerts/{aid}/delete", f"/alert/{aid}/del"),
+                  (404, "alert_gone", True, False, "alert_gone"))
+        c.post("/admin/patients/new", name="Alt Alerta", phone="069555777")
+        pid_alt = _pid(c, "069555777")
+        oid = _act(c, pid_alt, "/alerts", {"kind": "info", "text": "Străin"})[1]["data"]["alerts"][0]["id"]
+        res.check("чужое предупреждение через свою фишу — отказ, у владельца осталось",
+                  (_gone(c, pid, f"/alerts/{oid}/delete", f"/alert/{oid}/del"),
+                   [a["text"] for a in _card(c, pid_alt)["alerts"]]),
+                  ((404, "alert_gone", True, False, "alert_gone"), ["Străin"]))
+        res.check("отказы не тронули ни летописи, ни журнала доступа", _feed(c, pid), feed)
+        st, j = _act(c, pid, "/alerts", {"kind": "allergy", "text": "Iod"})
+        aid = j["data"]["alerts"][0]["id"]
+        res.check("старая форма снимает так же — со строкой в летописи",
+                  (c.post(f"/admin/patient/{pid}/alert/{aid}/del").msg,
+                   [a["text"] for a in _feed(c, pid) if a["kind"] == "alert_del"]),
+                  ("", ["Atenționare ștearsă: Iod", "Atenționare ștearsă: Latex"]))
 
         # ---- анамнез ----
         st, j = _act(c, pid, "/anamneza", {"flags": [], "boli": "  "})
@@ -626,6 +664,10 @@ def suite_actions(res: Result) -> None:
         st, j = _act(c, pid, f"/plan/{iid2}/delete")
         res.check("удалить нетронутую — можно, тихо", (st, j["code"], len(j["data"]["plan"]["items"])),
                   (200, "", 1))
+        res.check("уже удалённая позиция — 404 plan_gone без фиши, форма — плашкой; строка одна",
+                  (*_gone(c, pid, f"/plan/{iid2}/delete", f"/plan/{iid2}/del"),
+                   sum(a["text"] == "Plan: - Coroană" for a in _feed(c, pid))),
+                  (404, "plan_gone", True, False, "plan_gone", 1))
         res.check("чужая позиция — 409", _act(c, pid, "/plan/9999/status", {"to": "in_lucru"})[0], 409)
 
         # ---- платежи ----
@@ -647,6 +689,10 @@ def suite_actions(res: Result) -> None:
                   (st, j["code"], j["data"]["finance"]["payments"],
                    any("ștearsă" in a["text"] for a in j["data"]["activity"]["items"])),
                   (200, "pay_del", [], True))
+        res.check("уже удалённый платёж — 404 pay_gone, а не «Plata a fost ștearsă»; строка одна",
+                  (*_gone(c, pid, f"/payments/{pay_id}/delete", f"/pay/{pay_id}/del"),
+                   sum(a["kind"] == "pay_del" for a in _feed(c, pid))),
+                  (404, "pay_gone", True, False, "pay_gone", 1))
 
         # ---- документы ----
         r = c.post_file(f"/api/patients/{pid}/documents", "file", "rx.png", PNG, mime="image/png",
@@ -670,6 +716,10 @@ def suite_actions(res: Result) -> None:
         st, j = _act(c, pid, f"/documents/{exe_id}/delete")
         res.check("документ удалён — тихо, остался один", (st, [x["id"] for x in j["data"]["documents"]]),
                   (200, [doc_id]))
+        res.check("уже удалённый документ — 404 doc_gone без фиши, форма — плашкой; строка одна",
+                  (*_gone(c, pid, f"/documents/{exe_id}/delete", f"/doc/{exe_id}/del"),
+                   sum(a["text"] == "Document șters: virus.exe" for a in _feed(c, pid))),
+                  (404, "doc_gone", True, False, "doc_gone", 1))
 
         # ---- запись ----
         j = _j(c.get(f"/api/patients/{pid}/slots?date={_d(3)}&doctor=d2&service=consult"))
@@ -778,6 +828,11 @@ def suite_actions(res: Result) -> None:
         st, j = _act(boss, pid, f"/payments/{pay_id}/delete")
         res.check("директор удаляет — pay_del", (st, j["code"], j["data"]["finance"]["can_delete"]),
                   (200, "pay_del", True))
+        st, j = _act(rec, pid, "/alerts", {"kind": "allergy", "text": "Penicilină"})
+        st, j = _act(rec, pid, f"/alerts/{j['data']['alerts'][0]['id']}/delete")
+        res.check("снятие предупреждения подписано именем снявшего (ветка PIN, как у клиники)",
+                  [(a["text"], a["who"]) for a in j["data"]["activity"]["items"] if a["kind"] == "alert_del"],
+                  [("Atenționare ștearsă: Penicilină", "Ana")])
         res.ok("регистратуре фиша открыта", _card(rec, pid)["name"] == "Bani Test", "закрыта")
 
 

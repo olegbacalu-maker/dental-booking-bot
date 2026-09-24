@@ -1213,8 +1213,7 @@ async def patient_anamneza(request: Request, pid: int):
 async def patient_alert_del(request: Request, pid: int, aid: int):
     if (deny := _guard(request)) is not None:
         return deny
-    await db.delete_alert(aid, pid)
-    return _card_redirect(pid)
+    return _card_redirect(pid, "" if await db.delete_alert(aid, pid) else "alert_gone")
 
 
 @router.get("/admin/patient/{pid}/odontograma", response_class=HTMLResponse)
@@ -1705,8 +1704,7 @@ async def patient_pay(request: Request, pid: int, amount: str = Form(...),
 async def patient_pay_del(request: Request, pid: int, pay_id: int):
     if (deny := require(request, PERM_MONEY)) is not None:
         return deny
-    await db.delete_payment(pay_id, pid)
-    return _card_redirect(pid, "pay_del")
+    return _card_redirect(pid, "pay_del" if await db.delete_payment(pay_id, pid) else "pay_gone")
 
 
 async def _plan_status(pid: int, item_id: int, to: str, motiv: str) -> str:
@@ -1743,12 +1741,14 @@ async def _plan_del(pid: int, item_id: int) -> str:
     документации. Опечатку в свежедобавленной строке чинит удаление, всё
     остальное — статус. ⛔ Проверять здесь, а не только прятать кнопку:
     страница живёт в открытой вкладке дольше, чем позиция в «Planificat».
+    Позиции у пациента нет — plan_gone, а не тихий успех (см. `api._GONE`).
     """
     cur = await db.plan_item_status(item_id, pid)
-    if cur is not None and cur != "planificat":
+    if cur is None:
+        return "plan_gone"
+    if cur != "planificat":
         return "bad_pdel"
-    await db.delete_plan_item(item_id, pid)
-    return ""
+    return "" if await db.delete_plan_item(item_id, pid) else "plan_gone"
 
 
 @router.post("/admin/patient/{pid}/plan/{item_id}/del")
@@ -2192,21 +2192,22 @@ async def patient_export(request: Request, pid: int):
         background=BackgroundTask(shutil.rmtree, tmp, ignore_errors=True))
 
 
-async def _drop_doc(pid: int, doc_id: int) -> None:
-    """Файл и миниатюра с диска, строка из базы; чужой документ не трогается."""
+async def _drop_doc(pid: int, doc_id: int) -> bool:
+    """Файл и миниатюра с диска, строка из базы; чужой документ не трогается.
+    False — у пациента такого документа нет."""
     d = await db.get_document(doc_id)
-    if d and d["patient_id"] == pid:
-        pathlib.Path(d["stored_path"]).unlink(missing_ok=True)
-        _thumb_path(d["stored_path"]).unlink(missing_ok=True)
-        await db.delete_document(doc_id, pid)
+    if not d or d["patient_id"] != pid:
+        return False
+    pathlib.Path(d["stored_path"]).unlink(missing_ok=True)
+    _thumb_path(d["stored_path"]).unlink(missing_ok=True)
+    return await db.delete_document(doc_id, pid)
 
 
 @router.post("/admin/patient/{pid}/doc/{doc_id}/del")
 async def patient_doc_del(request: Request, pid: int, doc_id: int):
     if (deny := _guard(request)) is not None:
         return deny
-    await _drop_doc(pid, doc_id)
-    return _card_redirect(pid)
+    return _card_redirect(pid, "" if await _drop_doc(pid, doc_id) else "doc_gone")
 
 
 # ---------- раздел «Pacienți»: список клиники (макет Олега 08-06) ----------
