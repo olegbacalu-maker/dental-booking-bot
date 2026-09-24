@@ -8,7 +8,7 @@ import { DoctorsListScreen, loadDoctorsList } from '../features/doctors/DoctorsL
 import { loadPatientCard, PatientCardScreen } from '../features/patients/card/PatientCardScreen'
 import { loadPatientsSearch, PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
 import { BackupSettingsScreen, loadBackupSettings } from '../features/settings/BackupSettingsScreen'
-import { ClinicSettingsScreen } from '../features/settings/ClinicSettingsScreen'
+import { ClinicSettingsScreen, loadClinicSettings } from '../features/settings/ClinicSettingsScreen'
 import { CryptSettingsScreen, loadCryptSettings } from '../features/settings/CryptSettingsScreen'
 import { FaqScreen, loadFaq } from '../features/settings/FaqScreen'
 import { HoursSettingsScreen, loadHoursSettings } from '../features/settings/HoursSettingsScreen'
@@ -116,6 +116,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   patient_card: loadPatientCard,
   visit: loadVisit,
   patients_search: loadPatientsSearch,
+  settings_clinic: loadClinicSettings,
 }
 
 /**

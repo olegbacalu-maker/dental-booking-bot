@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { Toast, type ToastState } from '../../components/Toast'
-import { loginUrl } from '../../services/api'
-import { ApiError } from '../../types/api'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import { asApiError } from '../../services/api'
+import { legacyUrl } from '../../utils/legacy'
 import { clinicSettings, type ClinicForm, type ClinicSettings } from './clinicSettings'
 
 /*
@@ -28,75 +30,37 @@ const T = {
   legacy: 'Varianta clasică',
 } as const
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready'; data: ClinicSettings }
-  | { status: 'failed'; error: ApiError }
-  /* 401: браузер уже уходит на вход; форму не показывать даже кадр. */
-  | { status: 'leaving' }
-
 const EMPTY: ClinicForm = { name: '', phone: '', address: { ro: '', ru: '' } }
 
 function toForm(d: ClinicSettings): ClinicForm {
   return { name: d.name, phone: d.phone, address: { ro: d.address.ro, ru: d.address.ru } }
 }
 
-function asApiError(e: unknown): ApiError {
-  return e instanceof ApiError
-    ? e
-    : new ApiError({ kind: 'network', detail: String(e) }, String(e))
-}
-
-/** Старая страница того же экрана — откат на один запрос, без сборки. */
-export function legacyUrl(): string {
-  return `${window.location.pathname}?ui=legacy`
-}
-
-/* Вне компонента, чтобы ссылка была стабильной: параметр по умолчанию,
-   созданный в теле, был бы новой функцией на каждый рендер и перезапускал
-   бы эффект загрузки без конца. */
-const defaultNavigate = (url: string) => window.location.assign(url)
-
 interface Props {
   /** Куда уходить при 401. Подменяется в тестах: jsdom не умеет переходов. */
   navigate?: (url: string) => void
 }
 
+/**
+ * Данные грузит роутер (B2): был единственным экраном на своём `useEffect`
+ * — со своим циклом загрузки, своим «уходим на вход» и своими копиями общих
+ * `asApiError`/`legacyUrl`. Теперь цикл тот же, что у всех (`useRouteLoad`).
+ */
+export const loadClinicSettings: RouteLoad<ClinicSettings> = (signal) => clinicSettings.load(signal)
+
 export function ClinicSettingsScreen({ navigate = defaultNavigate }: Props) {
-  const [load, setLoad] = useState<LoadState>({ status: 'loading' })
-  const [form, setForm] = useState<ClinicForm>(EMPTY)
+  const { state: load, retry, replace, leaveIfSignedOut } = useRouteLoad<ClinicSettings>(navigate)
+  /* Правка поверх данных загрузчика: `null` — полей не трогали, и форма
+     показывает то, что пришло (или что вернуло сохранение). */
+  const [draft, setDraft] = useState<ClinicForm | null>(null)
   const [saving, setSaving] = useState(false)
   const [invalid, setInvalid] = useState<string | undefined>(undefined)
   const [toast, setToast] = useState<ToastState | null>(null)
-  const [attempt, setAttempt] = useState(0)
-
-  useEffect(() => {
-    const ctl = new AbortController()
-    clinicSettings.load(ctl.signal).then(
-      (r) => {
-        setLoad({ status: 'ready', data: r.data })
-        setForm(toForm(r.data))
-      },
-      (e: unknown) => {
-        if (ctl.signal.aborted) return
-        const err = asApiError(e)
-        if (err.failure.kind === 'unauthenticated') {
-          setLoad({ status: 'leaving' })
-          navigate(loginUrl())
-          return
-        }
-        setLoad({ status: 'failed', error: err })
-      },
-    )
-    return () => ctl.abort()
-  }, [attempt, navigate])
-
-  const retry = () => {
-    setLoad({ status: 'loading' })
-    setAttempt((n) => n + 1)
-  }
 
   const closeToast = useCallback(() => setToast(null), [])
+
+  const data = load.status === 'ready' ? load.data : null
+  const form = draft ?? (data ? toForm(data) : EMPTY)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -104,16 +68,12 @@ export function ClinicSettingsScreen({ navigate = defaultNavigate }: Props) {
     setInvalid(undefined)
     try {
       const r = await clinicSettings.save(form)
-      setLoad({ status: 'ready', data: r.data })
-      setForm(toForm(r.data))
+      replace(r.data)
+      setDraft(null)
       setToast({ tone: r.tone, text: r.text })
     } catch (e) {
       const err = asApiError(e)
-      if (err.failure.kind === 'unauthenticated') {
-        setLoad({ status: 'leaving' })
-        navigate(loginUrl())
-        return
-      }
+      if (leaveIfSignedOut(err)) return
       if (err.failure.kind === 'validation') setInvalid(err.field)
       setToast({ tone: 'err', text: err.text || T.offline })
     } finally {
@@ -141,9 +101,8 @@ export function ClinicSettingsScreen({ navigate = defaultNavigate }: Props) {
     )
   }
 
-  const data = load.status === 'ready' ? load.data : null
   const busy = data === null || saving
-  const set = (patch: Partial<ClinicForm>) => setForm((f) => ({ ...f, ...patch }))
+  const set = (patch: Partial<ClinicForm>) => setDraft({ ...form, ...patch })
 
   return (
     <section className="dp-react-root" aria-busy={data === null}>

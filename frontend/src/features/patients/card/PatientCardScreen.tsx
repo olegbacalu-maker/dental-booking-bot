@@ -1,10 +1,12 @@
 import { startTransition, useCallback, useState } from 'react'
-import { useLocation, useNavigate, useSearchParams, type ShouldRevalidateFunction } from 'react-router'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../../components/Icon'
 import { LoadFailed } from '../../../components/LoadFailed'
 import { Toast, type ToastState } from '../../../components/Toast'
 import { defaultNavigate } from '../../../hooks/useLoad'
-import { queryParam, useRouteLoad, type RouteLoad, type ScreenData } from '../../../hooks/useRouteLoad'
+import {
+  queryParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
+} from '../../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../../services/api'
 import type { ApiError } from '../../../types/api'
 import { ActivityCard } from './ActivityCard'
@@ -58,14 +60,10 @@ const loadCard: RouteLoad<PatientCard> = (signal, params, q) =>
 /* ⭐ Смена ОДНОГО query на том же пути — переключатель ленты: её экран уже
    принёс сам (`/activity`, без записи о просмотре). Полная загрузка —
    `GET /api/patients/{pid}` — это ОТКРЫТИЕ фиши, и каждый щелчок писал бы в
-   журнал доступа лишнее «Fișa deschisă». Повтор (тот же адрес) и другой
-   пациент перезапускают загрузчик, как обычно. */
-const onlySearchKeeps: ShouldRevalidateFunction = ({ currentUrl, nextUrl, defaultShouldRevalidate }) =>
-  currentUrl.pathname === nextUrl.pathname && currentUrl.search !== nextUrl.search
-    ? false : defaultShouldRevalidate
-
+   журнал доступа лишнее «Fișa deschisă». Правило общее с поиском
+   (`searchChangeKeepsData`): повтор и другой пациент перезапускают загрузчик. */
 /** Данные фиши грузит роутер (B2.3): пациент — из пути, режим ленты — из query. */
-export const loadPatientCard: ScreenData = { load: loadCard, shouldRevalidate: onlySearchKeeps }
+export const loadPatientCard: ScreenData = { load: loadCard, shouldRevalidate: searchChangeKeepsData }
 
 export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<PatientCard>(navigate)
@@ -109,7 +107,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   /* Переключение журнала доступа: лента отдельно (без новой записи о
      просмотре), адрес страницы повторяет режим — как ?views=1 старой.
      Сначала данные, потом адрес — через РОУТЕР (загрузчик на смену одного
-     query не перезапускается, см. `onlySearchKeeps`), и F5 на этом адресе
+     query не перезапускается, см. `searchChangeKeepsData`), и F5 на этом адресе
      откроет фишу в том же режиме. `replace`, как и было: щелчки не копят
      шаги «Назад»; query собирается заново (прежний ?msg= не тянется).
      ⚠️ Лента и режим адреса (из него `a.views`) обязаны смениться ОДНОЙ

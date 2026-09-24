@@ -1,14 +1,16 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { ClinicSettings } from './clinicSettings'
-import { ClinicSettingsScreen } from './ClinicSettingsScreen'
+import { openScreen } from '../../test/openScreen'
+import { ClinicSettingsScreen, loadClinicSettings } from './ClinicSettingsScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26): экран получает то, что
    отдал бы движок, а бандл этого файла не видит. */
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
-vi.mock('../../services/api', () => ({
+vi.mock('../../services/api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../services/api')>(),
   api: { get, post },
   loginUrl: () => '/admin/login?next=%2Fadmin%2Fsettings%2Fclinic',
 }))
@@ -27,6 +29,11 @@ function ok<T>(data: T, code = '', text = ''): ApiResult<T> {
 
 const input = (label: string) => screen.getByLabelText(label) as HTMLInputElement
 
+/* Экран грузит роутер (B2): открывается тем же маршрутом, что в App.tsx. */
+const open = (navigate?: (url: string) => void) => openScreen(
+  '/admin/settings/clinic', '/admin/settings/clinic',
+  <ClinicSettingsScreen {...(navigate ? { navigate } : {})} />, loadClinicSettings, navigate)
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -36,7 +43,7 @@ afterEach(() => {
 describe('ClinicSettingsScreen', () => {
   it('загрузка: форма видна, но занята и пуста', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
-    render(<ClinicSettingsScreen />)
+    open()
     expect(screen.getByRole('heading').textContent).toContain('Clinica')
     expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('true')
     expect(input('Nume').disabled).toBe(true)
@@ -45,7 +52,7 @@ describe('ClinicSettingsScreen', () => {
 
   it('успех: поля заполнены данными движка, форма отпущена', async () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
-    render(<ClinicSettingsScreen />)
+    open()
     expect(await screen.findByDisplayValue('Clinica Test')).toBeTruthy()
     expect(input('Telefon').value).toBe('+373 60 000 000')
     expect(input('Adresa (RO)').value).toBe('str. Test 1, Cahul')
@@ -57,13 +64,13 @@ describe('ClinicSettingsScreen', () => {
 
   it('пустое состояние: шаблонный профиль показывает подсказку сервера', async () => {
     get.mockResolvedValueOnce(ok({ ...SAMPLE, template: true }))
-    render(<ClinicSettingsScreen />)
+    open()
     expect(await screen.findByText('Programul încă are datele de exemplu.')).toBeTruthy()
   })
 
   it('обычный профиль подсказку не показывает', async () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
-    render(<ClinicSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Clinica Test')
     expect(screen.queryByText('Programul încă are datele de exemplu.')).toBeNull()
   })
@@ -71,15 +78,17 @@ describe('ClinicSettingsScreen', () => {
   it('сохранение: шлёт форму, показывает текст сервера, берёт данные из ответа', async () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
     post.mockResolvedValueOnce(ok({ ...SAMPLE, name: 'Clinica Nouă' }, 'ok_set', 'Setări salvate'))
-    render(<ClinicSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Clinica Test')
 
-    fireEvent.change(input('Nume'), { target: { value: 'Clinica Nouă' } })
+    /* Набрано с пробелами, сервер вернул обрезанное: поле обязано показать
+       ОТВЕТ, иначе «берёт данные из ответа» ничего бы не доказывало. */
+    fireEvent.change(input('Nume'), { target: { value: '  Clinica Nouă  ' } })
     fireEvent.click(screen.getByRole('button', { name: /Salvează/ }))
 
     expect(await screen.findByText('Setări salvate')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/clinic', {
-      name: 'Clinica Nouă',
+      name: '  Clinica Nouă  ',
       phone: '+373 60 000 000',
       address: { ro: 'str. Test 1, Cahul', ru: '' },
     })
@@ -90,7 +99,7 @@ describe('ClinicSettingsScreen', () => {
   it('плашка закрывается крестиком', async () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
     post.mockResolvedValueOnce(ok(SAMPLE, 'ok_set', 'Setări salvate'))
-    render(<ClinicSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Clinica Test')
     fireEvent.click(screen.getByRole('button', { name: /Salvează/ }))
     await screen.findByText('Setări salvate')
@@ -102,7 +111,7 @@ describe('ClinicSettingsScreen', () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
     post.mockRejectedValueOnce(new ApiError(
       { kind: 'validation', code: 'bad_set', text: 'Setări invalide', field: 'name' }, 'v'))
-    render(<ClinicSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Clinica Test')
 
     fireEvent.change(input('Nume'), { target: { value: '' } })
@@ -119,7 +128,7 @@ describe('ClinicSettingsScreen', () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
     post.mockRejectedValueOnce(new ApiError(
       { kind: 'server', status: 500, code: 'save_err', text: 'Nu am putut scrie fișierul' }, 's'))
-    render(<ClinicSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Clinica Test')
     fireEvent.click(screen.getByRole('button', { name: /Salvează/ }))
     expect(await screen.findByText('Nu am putut scrie fișierul')).toBeTruthy()
@@ -129,7 +138,7 @@ describe('ClinicSettingsScreen', () => {
   it('сеть упала при сохранении: своя фраза, форма остаётся', async () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
     post.mockRejectedValueOnce(new ApiError({ kind: 'network', detail: 'x' }, 'x'))
-    render(<ClinicSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Clinica Test')
     fireEvent.click(screen.getByRole('button', { name: /Salvează/ }))
     expect(await screen.findByText(/Programul nu răspunde/)).toBeTruthy()
@@ -139,7 +148,7 @@ describe('ClinicSettingsScreen', () => {
   it('403 при загрузке: текст сервера, без кнопки «повторить», со ссылкой на старую страницу', async () => {
     get.mockRejectedValueOnce(new ApiError(
       { kind: 'forbidden', code: 'no_access', text: 'Secțiunea este rezervată directorului' }, 'f'))
-    render(<ClinicSettingsScreen />)
+    open()
     expect(await screen.findByText('Secțiunea este rezervată directorului')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Reîncearcă/ })).toBeNull()
     expect(screen.queryByLabelText('Nume')).toBeNull()
@@ -150,7 +159,7 @@ describe('ClinicSettingsScreen', () => {
   it('движок не ответил при загрузке: «повторить» запрашивает заново', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'network', detail: 'x' }, 'x'))
     get.mockResolvedValueOnce(ok(SAMPLE))
-    render(<ClinicSettingsScreen />)
+    open()
     expect(await screen.findByText(/Programul nu răspunde/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Reîncearcă/ }))
     expect(await screen.findByDisplayValue('Clinica Test')).toBeTruthy()
@@ -160,7 +169,7 @@ describe('ClinicSettingsScreen', () => {
   it('401 при загрузке: уходит на вход движка, форму не рисует', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'unauthenticated' }, 'u'))
     const navigate = vi.fn()
-    render(<ClinicSettingsScreen navigate={navigate} />)
+    open(navigate)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=%2Fadmin%2Fsettings%2Fclinic'))
     expect(screen.queryByLabelText('Nume')).toBeNull()
   })
@@ -169,7 +178,7 @@ describe('ClinicSettingsScreen', () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
     post.mockRejectedValueOnce(new ApiError({ kind: 'unauthenticated' }, 'u'))
     const navigate = vi.fn()
-    render(<ClinicSettingsScreen navigate={navigate} />)
+    open(navigate)
     await screen.findByDisplayValue('Clinica Test')
     fireEvent.click(screen.getByRole('button', { name: /Salvează/ }))
     await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1))
@@ -177,7 +186,7 @@ describe('ClinicSettingsScreen', () => {
 
   it('поля режут ввод по потолку сервера', async () => {
     get.mockResolvedValueOnce(ok(SAMPLE))
-    render(<ClinicSettingsScreen />)
+    open()
     await screen.findByDisplayValue('Clinica Test')
     expect(input('Nume').maxLength).toBe(80)
     expect(input('Telefon').maxLength).toBe(30)
