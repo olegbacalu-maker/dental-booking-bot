@@ -14,6 +14,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
+import test_contract  # noqa: E402
 import test_deploy  # noqa: E402
 import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
@@ -36,6 +37,7 @@ SUITES = [
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),
+    ("Договор и сайт: страницы говорят то же, что сервер и письма", test_contract.suite),
 ]
 
 if __name__ == "__main__":
