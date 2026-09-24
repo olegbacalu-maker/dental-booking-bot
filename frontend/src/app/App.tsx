@@ -16,7 +16,7 @@ import { LanSettingsScreen } from '../features/settings/LanSettingsScreen'
 import { SecuritySettingsScreen } from '../features/settings/SecuritySettingsScreen'
 import { ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
 import { SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
-import { SettingsHubScreen } from '../features/settings/SettingsHubScreen'
+import { SettingsHubScreen, settingsHubRoute } from '../features/settings/SettingsHubScreen'
 import { ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { StatsScreen } from '../features/stats/StatsScreen'
 import { VisitScreen } from '../features/visits/VisitScreen'
@@ -88,6 +88,16 @@ export const SCREENS: Record<ScreenName, Draw> = {
 }
 
 /**
+ * Экраны, чьи данные грузит РОУТЕР (B2.2): загрузчик и первый кадр на время
+ * ожидания. Остальные грузят сами (`useLoad`), пока не дошла их очередь.
+ * ⛔ Загрузчик без `hydrateFallbackElement` не заводить: роутер нарисовал бы
+ * вместо корня `null`, и оболочка пропала бы вместе с экраном (loader_hold.py).
+ */
+const ROUTE_DATA: Partial<Record<ScreenName, Pick<RouteObject, 'loader' | 'hydrateFallbackElement'>>> = {
+  settings_hub: settingsHubRoute,
+}
+
+/**
  * Экран маршрута. ⭐ Сервер остаётся СВИДЕТЕЛЕМ: `data-screen` говорит, что он
  * отдал по этому адресу, и расхождение с роутером — это бандл и сервер из
  * разных версий. Показать тогда «чужой» экран с чужими параметрами было бы
@@ -126,7 +136,11 @@ export function appRoutes(node: MountNode): RouteObject[] {
     children: [{
       errorElement: <ScreenFailed />,
       children: [
-        ...ROUTES.map((r) => ({ path: r.path, element: <Screen name={r.screen} node={node} /> })),
+        ...ROUTES.map((r) => ({
+          path: r.path,
+          element: <Screen name={r.screen} node={node} />,
+          ...ROUTE_DATA[r.screen],
+        })),
         { path: '*', element: <UnknownScreen screen={node.screen} /> },
       ],
     }],

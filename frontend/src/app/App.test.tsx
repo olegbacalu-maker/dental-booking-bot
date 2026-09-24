@@ -78,6 +78,13 @@ describe('таблица маршрутов', () => {
     expect(winner('/admin/doctor-card/ana')).toBe('/admin/doctor-card/:dk')
   })
 
+  it('маршрут с загрузчиком несёт первый кадр — без него роутер уберёт оболочку', () => {
+    const screens = appRoutes(node('x'))[0]?.children?.[0]?.children ?? []
+    const loaded = screens.filter((r) => r.loader)
+    expect(loaded.length).toBeGreaterThan(0)
+    for (const r of loaded) expect(r.hydrateFallbackElement, r.path).toBeTruthy()
+  })
+
   it('адреса, которого нет у сервера, у роутера тоже нет', () => {
     expect(winner('/dashboard')).toBe('*')
     expect(winner('/admin/pacienti')).toBe('*')
@@ -89,6 +96,14 @@ describe('App', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
     open('/admin/settings/clinic', node('settings_clinic'))
     expect(screen.getByLabelText('Nume')).toBeTruthy()
+  })
+
+  it('экран на загрузчике: пока ответа нет, оболочка на месте, а экран в ожидании', () => {
+    get.mockReturnValueOnce(new Promise(() => {}))
+    open('/admin/settings', node('settings_hub', {}, SHELL))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
+    expect(document.querySelector('section.dp-react-root')?.getAttribute('aria-busy')).toBe('true')
+    expect(get).toHaveBeenCalledWith('/settings/hub', expect.anything())
   })
 
   it('визит: номер берётся из параметра пути appt_id, а не из ключа узла aid', () => {

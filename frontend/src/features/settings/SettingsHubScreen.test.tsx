@@ -1,9 +1,10 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { HubData } from './settings'
-import { SettingsHubScreen } from './SettingsHubScreen'
+import { SettingsHubScreen, settingsHubRoute } from './SettingsHubScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -25,6 +26,15 @@ const HUB: HubData = {
 
 const ok = <T,>(data: T): ApiResult<T> => ({ data, code: '', text: '', tone: 'ok' })
 
+/* Экран живёт на загрузчике маршрута (B2.2), поэтому и открывается роутером —
+   тем же маршрутом, что в App.tsx, а не голым компонентом. */
+function openHub() {
+  const router = createMemoryRouter(
+    [{ path: '/admin/settings', element: <SettingsHubScreen />, ...settingsHubRoute }],
+    { initialEntries: ['/admin/settings'] })
+  return render(<RouterProvider router={router} />)
+}
+
 afterEach(() => {
   cleanup()
   get.mockReset()
@@ -33,7 +43,7 @@ afterEach(() => {
 describe('SettingsHubScreen', () => {
   it('плитки: ссылки, подписи, куски состояния (иконка с тоном, точка цвета)', async () => {
     get.mockResolvedValueOnce(ok(HUB))
-    render(<SettingsHubScreen />)
+    openHub()
     expect(await screen.findByText('Stare sistem')).toBeTruthy()
     const tiles = document.querySelectorAll('a.pl-tile')
     expect(tiles.length).toBe(4)
@@ -50,19 +60,28 @@ describe('SettingsHubScreen', () => {
 
   it('неизвестная иконка с сервера не роняет экран', async () => {
     get.mockResolvedValueOnce(ok(HUB))
-    render(<SettingsHubScreen />)
+    openHub()
     expect(await screen.findByText('Întrebări frecvente')).toBeTruthy()
     // у каждой плитки свой значок; «nope» с сервера стал общим, а не пустотой
     expect(document.querySelectorAll('a.pl-tile .ico svg').length).toBe(4)
   })
 
-  it('загрузка и отказ', async () => {
+  it('загрузка: пока ответа нет, первый кадр — тот же экран в ожидании, а не пустота', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
-    const { unmount } = render(<SettingsHubScreen />)
+    openHub()
     expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('true')
-    unmount()
+    expect(screen.getByText('Setări')).toBeTruthy()
+  })
+
+  it('отказ: плашка с повтором, повтор перезапускает загрузчик и приносит плитки', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'network', detail: 'x' }, 'x'))
-    render(<SettingsHubScreen />)
-    expect(await screen.findByRole('button', { name: /Reîncearcă/ })).toBeTruthy()
+       .mockResolvedValueOnce(ok(HUB))
+    openHub()
+    fireEvent.click(await screen.findByRole('button', { name: /Reîncearcă/ }))
+    /* ⚠️ Пока повтор идёт, роутер держит ПРЕЖНИЙ отказ; экран обязан показать
+       загрузку, как было с useLoad, а не старую плашку. */
+    expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('true')
+    expect(await screen.findByText('Stare sistem')).toBeTruthy()
+    expect(get).toHaveBeenCalledTimes(2)
   })
 })

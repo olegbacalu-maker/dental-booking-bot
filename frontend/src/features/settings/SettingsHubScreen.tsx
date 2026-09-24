@@ -1,8 +1,8 @@
-import { useCallback } from 'react'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
-import { settings, type HintPart } from './settings'
+import type { LoadState } from '../../hooks/useLoad'
+import { routeLoader, useRouteLoad } from '../../hooks/useRouteLoad'
+import { settings, type HintPart, type HubData } from './settings'
 
 const T = {
   panel: 'Panou',
@@ -10,16 +10,24 @@ const T = {
   sub: 'Alegeți o secțiune — modificările se aplică imediat, fără repornire',
 } as const
 
-interface Props {
-  navigate?: (url: string) => void
+/**
+ * Данные хаба грузит РОУТЕР (B2.2, первый экран на загрузчике): запрос уходит
+ * при выборе маршрута, а не после первой отрисовки. Первый кадр, пока ответа
+ * нет, — тот же экран в загрузке, поэтому оболочка на месте.
+ */
+export const settingsHubRoute = {
+  loader: routeLoader((signal) => settings.hub(signal)),
+  hydrateFallbackElement: <SettingsHubView state={{ status: 'loading' }} retry={() => {}} />,
 }
 
 /** Хаб настроек: плитки с живой строкой состояния. Состояние считает сервер
  *  (обновление, BitLocker, шифрование, бот, сеть) — здесь только раскладка. */
-export function SettingsHubScreen({ navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => settings.hub(signal), [])
-  const { state, retry } = useLoad(load, navigate)
+export function SettingsHubScreen() {
+  const { state, retry } = useRouteLoad<HubData>()
+  return <SettingsHubView state={state} retry={retry} />
+}
 
+function SettingsHubView({ state, retry }: { state: LoadState<HubData>; retry: () => void }) {
   if (state.status === 'leaving') return null
   const nav = (
     <div className="nav"><a href="/admin"><Icon name="home" /> {T.panel}</a></div>
