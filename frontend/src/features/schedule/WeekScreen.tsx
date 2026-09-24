@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
-import { week, type WeekDay, type WeekItem } from './week'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import { week, type WeekDay, type WeekItem, type WeekModel } from './week'
 
 /* Недельный календарь (C24): колонки рабочих дней, компактные чипы записей.
    Те же классы, что у старой страницы (.week, .wcol, .wh, .wb, .wchip, .nav),
@@ -29,15 +30,19 @@ const T = {
 } as const
 
 interface Props {
-  /** Дата из адреса: пусто — текущая неделя. */
-  date?: string
   navigate?: (url: string) => void
 }
 
-export function WeekScreen({ date = '', navigate = defaultNavigate }: Props) {
-  const [at, setAt] = useState(date)
-  const load = useCallback((signal: AbortSignal) => week.get(at, signal), [at])
-  const { state, retry } = useLoad(load, navigate)
+/**
+ * Данные грузит роутер (B2.2), и ДАТУ он берёт из адреса (B2.3): владелец
+ * «какая неделя» — `?date=` в адресе, и больше никто. Пусто — текущая
+ * неделя, её день считает сервер в поясе клиники, а не браузер.
+ */
+export const loadWeek: RouteLoad<WeekModel> = (signal, _p, q) => week.get(queryParam(q, 'date'), signal)
+
+export function WeekScreen({ navigate = defaultNavigate }: Props) {
+  const { state, retry } = useRouteLoad<WeekModel>(navigate)
+  const to = useNavigate()
 
   if (state.status === 'leaving') return null
   if (state.status === 'failed') {
@@ -52,10 +57,12 @@ export function WeekScreen({ date = '', navigate = defaultNavigate }: Props) {
   }
 
   const m = state.data
-  /** Переход на другую неделю: адрес меняется, чтобы F5 вернул сюда же. */
+  /** Переход на другую неделю — через РОУТЕР: адрес меняется, загрузчик читает
+   *  уже его, и F5 на этом адресе вернёт ту же неделю. `replace`, как и было:
+   *  листание недель не копит шаги «Назад». Пока ответа нет, на экране прежняя
+   *  неделя — так было и до роутера (экран только читает). */
   const go = (iso: string) => {
-    setAt(iso)
-    try { window.history.replaceState(null, '', `/admin/week?date=${iso}`) } catch { /* jsdom */ }
+    void to(iso ? `/admin/week?date=${iso}` : '/admin/week', { replace: true })
   }
 
   return (

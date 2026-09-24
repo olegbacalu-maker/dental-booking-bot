@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
-import { WeekScreen } from './WeekScreen'
+import { openScreen } from '../../test/openScreen'
+import { loadWeek, WeekScreen } from './WeekScreen'
 import type { WeekModel } from './week'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
@@ -50,8 +51,10 @@ beforeEach(() => { get.mockResolvedValue(ok(MODEL)) })
 afterEach(() => { cleanup(); get.mockReset(); post.mockReset() })
 
 const show = async (date = '') => {
-  render(<WeekScreen date={date} navigate={() => {}} />)
+  const r = openScreen('/admin/week', date ? `/admin/week?date=${date}` : '/admin/week',
+    <WeekScreen navigate={() => {}} />, loadWeek)
   await waitFor(() => expect(cols().length).toBeGreaterThan(0))
+  return r
 }
 
 describe('недельный календарь', () => {
@@ -102,14 +105,22 @@ describe('недельный календарь', () => {
   })
 
   it('соседняя неделя запрашивается у сервера, а не считается на клиенте', async () => {
-    await show()
+    const { router } = await show()
     fireEvent.click(screen.getAllByText(/săpt\./)[0] as HTMLElement)
     await waitFor(() => expect(get).toHaveBeenCalledWith('/schedule/week?date=2026-09-14', expect.anything()))
+    /* ⭐ Адрес ведёт РОУТЕР: F5 на нём открывает ту же неделю. */
+    expect(router.state.location.search).toBe('?date=2026-09-14')
   })
 
-  it('«Azi» просит неделю без даты', async () => {
-    await show('2026-09-21')
+  it('«Azi» просит неделю без даты, и адрес — без даты', async () => {
+    const { router } = await show('2026-09-21')
     fireEvent.click(screen.getByText('Azi'))
     await waitFor(() => expect(get).toHaveBeenCalledWith('/schedule/week', expect.anything()))
+    expect(router.state.location.pathname + router.state.location.search).toBe('/admin/week')
+  })
+
+  it('открытие по адресу: дату загрузчик берёт из адреса', async () => {
+    await show('2026-09-14')
+    expect(get).toHaveBeenCalledWith('/schedule/week?date=2026-09-14', expect.anything())
   })
 })

@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
-import { DayScreen } from './DayScreen'
+import { openScreen } from '../../test/openScreen'
+import { DayScreen, loadDay } from './DayScreen'
 import type { DayModel } from './day'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
@@ -139,10 +140,39 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); vi.restoreAllMocks() })
 
-const show = async (props: { date?: string; doctor?: string; f?: string } = {}) => {
-  render(<DayScreen date={props.date ?? ''} doctor={props.doctor ?? ''}
-                    f={props.f ?? ''} navigate={() => {}} />)
+/* Экран открывается ТЕМ ЖЕ маршрутом, что в App.tsx: путь решает, общий это
+   журнал или день врача, и врача экран получает из пути, как и там. */
+const open = async (url: string) => {
+  const dk = /^\/admin\/doctor\/([^/?]+)/.exec(url)?.[1] ?? ''
+  const r = openScreen(dk ? '/admin/doctor/:dk' : '/admin/all', url,
+    <DayScreen doctor={dk} navigate={() => {}} />, loadDay)
   await waitFor(() => expect(rows().length).toBeGreaterThan(0))
+  return r
+}
+
+const show = (props: { date?: string; doctor?: string; f?: string } = {}) => {
+  const q = new URLSearchParams()
+  if (props.date) q.set('date', props.date)
+  if (props.f) q.set('f', props.f)
+  const tail = q.toString()
+  return open(`${props.doctor ? `/admin/doctor/${props.doctor}` : '/admin/all'}${tail ? `?${tail}` : ''}`)
+}
+
+type Router = Awaited<ReturnType<typeof open>>['router']
+/** Адрес, которым владеет роутер: его и увидит F5. */
+const addr = (router: Router) => router.state.location.pathname + router.state.location.search
+
+/* ⭐ F5-паритет: адрес, записанный экраном, открытый ЗАНОВО — свежим роутером,
+   без памяти вкладки, — обязан спросить у сервера тот же день. Иначе переход
+   изменил адрес только для глаз, а перезагрузка откроет другое. */
+const reloadParity = async (router: Router) => {
+  const before = get.mock.lastCall?.[0]
+  const at = addr(router)
+  cleanup()
+  get.mockClear()
+  await open(at)
+  expect(get).toHaveBeenCalledTimes(1)
+  expect(get.mock.lastCall?.[0]).toBe(before)
 }
 
 describe('день журнала: чтение', () => {
@@ -201,10 +231,12 @@ describe('день журнала: чтение', () => {
   })
 
   it('соседний день запрашивается у сервера', async () => {
-    await show({ date: '2026-09-23' })
+    const { router } = await show({ date: '2026-09-23' })
     fireEvent.click(document.querySelectorAll('.nav a')[0] as HTMLElement)
     await waitFor(() => expect(get).toHaveBeenCalledWith(
       '/schedule/day?date=2026-09-22', expect.anything()))
+    /* ⭐ Адрес ведёт РОУТЕР, а не запись мимо него. */
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22'))
   })
 
   it('день врача просит только его записи', async () => {
@@ -517,11 +549,12 @@ describe('список дня', () => {
       ...MODEL, list: [MODEL.list[1]!],
       filter: { key: 'noshow', label: 'neprezentări', count: 1 },
     }))
-    await show({ f: 'noshow' })
+    const { router } = await show({ f: 'noshow' })
     get.mockResolvedValue(ok(MODEL))
     fireEvent.click(document.querySelector('.banner.ok a') as HTMLElement)
     await waitFor(() => expect(get).toHaveBeenCalledWith(
       '/schedule/day?date=2026-09-23', expect.anything()))
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-23'))
   })
 
   it('Excel — ссылка этого дня, и только у общего журнала', async () => {
@@ -531,5 +564,109 @@ describe('список дня', () => {
     cleanup()
     await show({ doctor: 'd2' })
     expect(document.querySelector('a[href*="export.xlsx"]')).toBeNull()
+  })
+})
+
+/* B2.3: день, отбор и врач живут в АДРЕСЕ, и владеет им роутер. Экран не
+   держит своей копии ни одного из них, поэтому F5 на любом адресе, который он
+   записал, открывает тот же день с тем же отбором. */
+describe('адрес дня', () => {
+  const FILTERED = ok({
+    ...MODEL, list: [MODEL.list[0]!],
+    filter: { key: 'noshow', label: 'neprezentări', count: 1 },
+  })
+  const nav = (i: number) => fireEvent.click(document.querySelectorAll('.nav a')[i] as HTMLElement)
+
+  it('открытие по адресу: день и отбор загрузчик берёт из адреса', async () => {
+    await open('/admin/all?date=2026-09-20&f=noshow')
+    expect(get).toHaveBeenCalledWith('/schedule/day?date=2026-09-20&f=noshow', expect.anything())
+  })
+
+  /* ⛔ Ссылка «+» старой страницы ведёт на /admin/all?doctor=…&time_pre=… —
+     это предвыбор её формы. У `/api/schedule/day` `doctor` значит «день
+     одного врача»: переслать query как есть — и откроется чужая сетка. */
+  it('предвыбор старой формы не делает общий журнал днём врача', async () => {
+    await open('/admin/all?date=2026-09-23&doctor=d2&time_pre=10:00&msg=ok_add')
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledWith('/schedule/day?date=2026-09-23', expect.anything())
+  })
+
+  it('«zi» назад: адрес — день и отбор, без хвоста; F5 — тот же запрос', async () => {
+    get.mockResolvedValue(FILTERED)
+    const { router } = await open('/admin/all?date=2026-09-23&f=noshow&msg=ok_add')
+    nav(0)
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22&f=noshow'))
+    expect(get.mock.lastCall?.[0]).toBe('/schedule/day?date=2026-09-22&f=noshow')
+    await reloadParity(router)
+  })
+
+  it('«zi» вперёд у дня врача: врач остаётся в пути; F5 — тот же запрос', async () => {
+    const { router } = await show({ doctor: 'd2', date: '2026-09-23' })
+    nav(2)
+    await waitFor(() => expect(addr(router)).toBe('/admin/doctor/d2?date=2026-09-24'))
+    expect(get.mock.lastCall?.[0]).toBe('/schedule/day?date=2026-09-24&doctor=d2')
+    await reloadParity(router)
+  })
+
+  it('«Azi»: адрес без даты, отбор остаётся; F5 — тот же запрос', async () => {
+    get.mockResolvedValue(FILTERED)
+    const { router } = await show({ date: '2026-09-20', f: 'noshow' })
+    nav(1)
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?f=noshow'))
+    expect(get.mock.lastCall?.[0]).toBe('/schedule/day?f=noshow')
+    await reloadParity(router)
+  })
+
+  it('«arată tot»: F5 — тот же запрос', async () => {
+    get.mockResolvedValue(FILTERED)
+    const { router } = await show({ date: '2026-09-23', f: 'noshow' })
+    get.mockResolvedValue(ok(MODEL))
+    fireEvent.click(document.querySelector('.banner.ok a') as HTMLElement)
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-23'))
+    await reloadParity(router)
+  })
+
+  /* Отбор — эхо сервера: чужой ключ он не признаёт (`filter: null`), и дальше
+     — ни в адрес, ни в действия — такой ключ не уходит. */
+  it('чужой отбор из адреса не переезжает ни в адрес, ни в действие', async () => {
+    post.mockResolvedValue(ok(MODEL))
+    const { router } = await open('/admin/all?date=2026-09-23&f=bogus')
+    fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/status?date=2026-09-23', { to: 'waiting' }))
+    nav(0)
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22'))
+  })
+
+  it('признанный отбор уходит в действие', async () => {
+    get.mockResolvedValue(FILTERED)
+    post.mockResolvedValue(FILTERED)
+    await show({ f: 'noshow' })
+    fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/status?f=noshow', { to: 'waiting' }))
+  })
+
+  /* ⛔ Своя копия даты, засеянная первой загрузкой, слала бы действие в день,
+     которого на экране давно нет. */
+  it('после перехода действие шлёт день АДРЕСА', async () => {
+    post.mockResolvedValue(ok(MODEL))
+    const { router } = await show({ date: '2026-09-23' })
+    nav(0)
+    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22'))
+    await waitFor(() => expect(router.state.navigation.state).toBe('idle'))
+    fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/status?date=2026-09-22', { to: 'waiting' }))
+  })
+
+  it('пока новый день грузится, на экране прежний, а не загрузка', async () => {
+    const { router } = await show({ date: '2026-09-23' })
+    get.mockReturnValueOnce(new Promise(() => {}))
+    nav(2)
+    await waitFor(() => expect(router.state.navigation.state).toBe('loading'))
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull()
+    expect(rows().length).toBeGreaterThan(0)
+    expect(document.querySelector('.nav b')?.textContent).toBe('2026-09-23')
   })
 })

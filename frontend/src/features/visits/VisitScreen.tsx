@@ -2,7 +2,8 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { visits, type VisitPage } from './visits'
 
@@ -55,15 +56,23 @@ interface Draft {
 }
 
 interface Props {
+  /** Номер визита — параметр пути `appt_id`, его разбирает роутер. */
   aid: number
-  /** Адрес «Înapoi» из узла (сервер уже проверил, что это журнал). */
-  back: string
   navigate?: (url: string) => void
 }
 
-export function VisitScreen({ aid, back, navigate = defaultNavigate }: Props) {
-  const load = useCallback((signal: AbortSignal) => visits.get(aid, back, signal), [aid, back])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+/**
+ * Данные грузит роутер (B2.3): номер — из пути, «Înapoi» — `?back=` ТЕКУЩЕГО
+ * адреса, и больше ниоткуда (не из узла: тот описывает документ). Значение
+ * уходит серверу как есть, а экран показывает и шлёт ТОЛЬКО эхо сервера
+ * `page.back`: проверяет адрес возврата один `_visit_back`, и чужой
+ * `?back=http://…` не станет живой ссылкой. Сам экран адрес не пишет.
+ */
+export const loadVisit: RouteLoad<VisitPage> = (signal, p, q) =>
+  visits.get(Number(p.appt_id), queryParam(q, 'back'), signal)
+
+export function VisitScreen({ aid, navigate = defaultNavigate }: Props) {
+  const { state, pending, retry, replace, leaveIfSignedOut } = useRouteLoad<VisitPage>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [saving, setSaving] = useState(false)
   /* черновик привязан к странице, с которой начат: свежая страница после
@@ -82,7 +91,10 @@ export function VisitScreen({ aid, back, navigate = defaultNavigate }: Props) {
     )
   }
 
-  if (state.status === 'loading') {
+  /* ⚠️ Переход роутером на другой визит: пока ответа нет, форма НЕ
+     показывается — иначе правили бы запись, которую уже покидают. То же
+     ожидание, что и при открытии визита. */
+  if (state.status === 'loading' || pending) {
     return <section className="dp-react-root" aria-busy="true"><div className="vwrap"><div className="fcard" /></div></section>
   }
 

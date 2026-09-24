@@ -1,10 +1,12 @@
 import { useCallback, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { Count } from '../../components/Count'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Spark } from '../../components/Spark'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { canAnimate } from '../../utils/fx'
 import { t } from '../../utils/i18n'
@@ -73,45 +75,58 @@ function Bar({ pct }: { pct: number }) {
 }
 
 interface Props {
-  from?: string
-  to?: string
   navigate?: (url: string) => void
 }
 
-export function StatsScreen({ from = '', to = '', navigate = defaultNavigate }: Props) {
-  const [span, setSpan] = useState({ from, to })
-  const load = useCallback(
-    (signal: AbortSignal) => stats.get(span.from, span.to, signal), [span])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+/**
+ * Данные грузит роутер, и ПЕРИОД он берёт из адреса (B2.3): владелец «какой
+ * период» — `?from=` и `?to=` в адресе, и больше никто. Каждая граница
+ * уходит своей, прочие хвосты адреса (`msg`, `ui`) в запрос не попадают.
+ * Пустой адрес — последние 7 дней, их считает сервер в поясе клиники.
+ */
+export const loadStats: RouteLoad<StatsData> = (signal, _p, q) =>
+  stats.get(queryParam(q, 'from'), queryParam(q, 'to'), signal)
+
+/** Адрес периода — СВЕЖИЙ query из двух границ: `msg=bad_period` и прочее
+ *  не переносятся, иначе плашка отказа возвращалась бы на каждой F5. */
+const periodUrl = (f: string, t2: string) => `/admin/stats?from=${f}&to=${t2}`
+
+export function StatsScreen({ navigate = defaultNavigate }: Props) {
+  const { state, retry, leaveIfSignedOut } = useRouteLoad<StatsData>(navigate)
+  /* Смена адреса — РОУТЕРОМ; `navigate` из пропсов — это уход на вход. */
+  const routeTo = useNavigate()
   const [toast, setToast] = useState<ToastState | null>(null)
-  const [draft, setDraft] = useState<{ from: string; to: string } | null>(null)
+  /* Набранный в полях период — состояние ФОРМЫ, а не адреса. `sent` — данные,
+     поверх которых сервер его принял: принятый период стоит в полях, пока
+     роутер не принёс ответ для нового адреса, и уступает эху сервера вместе с
+     ним, а не кадром раньше — поля не прыгают назад, на прежний период. */
+  const [draft, setDraft] = useState<{ from: string; to: string; sent?: StatsData } | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
   const live = canAnimate()
 
   /* Адрес повторяет отбор — как у старой страницы: перезагрузка, закладка и
-     `?ui=legacy` открывают ТОТ ЖЕ период. */
-  function remember(f: string, t2: string) {
-    const url = f && t2 ? `/admin/stats?from=${f}&to=${t2}` : '/admin/stats'
-    try { window.history.replaceState(null, '', url) } catch { /* jsdom */ }
-  }
-
+     `?ui=legacy` открывают ТОТ ЖЕ период. Пишет его РОУТЕР, и загрузчик читает
+     уже новый адрес. `replace`, как и было: смена периода не копит шагов
+     «Назад». Пока ответа нет, на экране прежний период — так было и до
+     роутера (экран только читает). */
   function go(f: string, t2: string) {
-    setSpan({ from: f, to: t2 })
     setDraft(null)
-    remember(f, t2)
+    void routeTo(periodUrl(f, t2), { replace: true })
   }
 
-  async function apply(f: string, t2: string) {
+  async function apply(f: string, t2: string, over: StatsData) {
     /* ⛔ Негодный период НЕ сбрасывает экран на «последние 7 дней», как делал
        редирект старой страницы: человек промахнулся по сегменту года, и
        ответом обязан быть отказ с названной причиной, а не молча другой
-       период под теми же цифрами в полях. */
+       период под теми же цифрами в полях.
+       Поэтому проверка — ПРЯМЫМ запросом ДО перехода: переход с отказом увёл
+       бы весь экран в «не загрузилось» и записал бы в адрес негодный период.
+       Данные же экрану приносит только загрузчик — по НОРМАЛИЗОВАННОМУ периоду
+       из ответа (перевёрнутый развёрнут, недостающая граница достроена). */
     try {
       const r = await stats.get(f, t2)
-      replace(r.data)
-      setSpan({ from: f, to: t2 })
-      setDraft(null)
-      remember(f, t2)
+      setDraft({ from: f, to: t2, sent: over })
+      void routeTo(periodUrl(r.data.period.from, r.data.period.to), { replace: true })
     } catch (e) {
       const err = asApiError(e)
       if (leaveIfSignedOut(err)) return
@@ -132,7 +147,8 @@ export function StatsScreen({ from = '', to = '', navigate = defaultNavigate }: 
   }
 
   const d: StatsData = state.data
-  const pick = draft ?? { from: d.period.from, to: d.period.to }
+  const pick = draft && (!draft.sent || draft.sent === d)
+    ? draft : { from: d.period.from, to: d.period.to }
   return (
     <section className="dp-react-root">
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
@@ -141,21 +157,21 @@ export function StatsScreen({ from = '', to = '', navigate = defaultNavigate }: 
         {d.presets.map((p) => (
           <a
             key={p.key}
-            href={`/admin/stats?from=${p.from}&to=${p.to}`}
+            href={periodUrl(p.from, p.to)}
             onClick={(e) => { e.preventDefault(); go(p.from, p.to) }}
           >{p.label}</a>
         ))}
         <form
           className="dpickf"
-          onSubmit={(e) => { e.preventDefault(); void apply(pick.from, pick.to) }}
+          onSubmit={(e) => { e.preventDefault(); void apply(pick.from, pick.to, d) }}
         >
           <input
             className="dpick" type="date" value={pick.from} aria-label={T.fromLabel}
-            onChange={(e) => setDraft({ ...pick, from: e.target.value })}
+            onChange={(e) => setDraft({ from: e.target.value, to: pick.to })}
           />
           <input
             className="dpick" type="date" value={pick.to} aria-label={T.toLabel}
-            onChange={(e) => setDraft({ ...pick, to: e.target.value })}
+            onChange={(e) => setDraft({ from: pick.from, to: e.target.value })}
           />
           <button className="searchf dp-ok-btn">{T.apply}</button>
         </form>

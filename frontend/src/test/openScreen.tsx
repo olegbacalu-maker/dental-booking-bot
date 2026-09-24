@@ -1,7 +1,8 @@
 import { render } from '@testing-library/react'
 import type { ReactElement } from 'react'
-import { createMemoryRouter, RouterProvider } from 'react-router'
-import { screenRoute, type RouteLoad } from '../hooks/useRouteLoad'
+import { createMemoryRouter } from 'react-router'
+import { RouterProvider } from 'react-router/dom'
+import { screenRoute, type ScreenData } from '../hooks/useRouteLoad'
 
 /**
  * Открыть экран в проверке ТЕМ ЖЕ маршрутом, что и в App.tsx (`screenRoute`):
@@ -13,7 +14,7 @@ import { screenRoute, type RouteLoad } from '../hooks/useRouteLoad'
  *   через проп экрана).
  */
 export function openScreen(
-  path: string, url: string, element: ReactElement, load: RouteLoad<unknown>,
+  path: string, url: string, element: ReactElement, load: ScreenData,
   navigate?: (url: string) => void,
 ) {
   const router = createMemoryRouter([screenRoute(path, element, load, navigate)],

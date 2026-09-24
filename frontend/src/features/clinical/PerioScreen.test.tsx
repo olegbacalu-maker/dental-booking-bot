@@ -1,7 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createMemoryRouter } from 'react-router'
+import { RouterProvider } from 'react-router/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { screenRoute } from '../../hooks/useRouteLoad'
 import type { ApiResult } from '../../services/api'
-import { PerioScreen } from './PerioScreen'
+import { openScreen } from '../../test/openScreen'
+import { loadPerio, PerioScreen } from './PerioScreen'
 import { hasData, roundLikeServer, rowOf, summarize, type PerioEdit, type PerioModel, type PerioSave } from './perio'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
@@ -70,9 +74,30 @@ afterEach(() => {
   post.mockReset()
 })
 
-const show = async (props: Partial<{ exam: number | null }> = {}) => {
-  render(<PerioScreen pid={5} exam={props.exam ?? null} navigate={() => {}} />)
+const PATH = '/admin/patient/:pid/parodontograma'
+const SHEET = '/admin/patient/5/parodontograma'
+
+/** Лист тем же маршрутом, что в App.tsx: данные приносит загрузчик роутера. */
+const open = (url = SHEET) => openScreen(PATH, url, <PerioScreen pid={5} navigate={() => {}} />, loadPerio)
+
+const show = async (url = SHEET) => {
+  const r = open(url)
   await waitFor(() => expect(col(16)).toBeTruthy())
+  return r
+}
+
+/** Адрес, которым владеет роутер: его и увидит F5. */
+const at = (router: ReturnType<typeof open>['router']) =>
+  router.state.location.pathname + router.state.location.search
+
+/** Последний адрес, по которому экран спросил движок. */
+const lastGet = () => (get.mock.calls[get.mock.calls.length - 1] as [string, unknown] | undefined)?.[0]
+
+/** Отложенный ответ: позволяет печатать, пока запрос «в пути». */
+const deferred = <T,>() => {
+  let go: (v: T) => void = () => {}
+  const promise = new Promise<T>((resolve) => { go = resolve })
+  return { promise, go }
 }
 
 describe('лист пародонтограммы', () => {
@@ -289,9 +314,12 @@ describe('осмотры', () => {
   })
 
   it('выбор прошлого осмотра перечитывает лист по его id', async () => {
-    await show()
+    const { router } = await show()
     fireEvent.change(document.querySelector('.pexam') as HTMLSelectElement, { target: { value: '4' } })
     await waitFor(() => expect(get).toHaveBeenCalledWith('/patients/5/perio?exam=4', expect.anything()))
+    // ⭐ Адрес ведёт РОУТЕР: это его адрес, а не только строка в истории браузера
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=4'))
+    expect(router.state.historyAction).toBe('REPLACE')   // смена осмотра не копит «Назад»
   })
 
   it('черновик привязан к своему осмотру и переживает переключение', async () => {
@@ -300,7 +328,8 @@ describe('осмотры', () => {
     const other: PerioModel = { ...MODEL, exam: MODEL.exams[1] ?? null, rows: {} }
     get.mockResolvedValue(ok(other))
     fireEvent.change(document.querySelector('.pexam') as HTMLSelectElement, { target: { value: '4' } })
-    await waitFor(() => expect(unsaved()).toBeNull())
+    await waitFor(() => expect((document.querySelector('.pexam') as HTMLSelectElement | null)?.value).toBe('4'))
+    expect(unsaved()).toBeNull()
     expect(cell(11, 'pd', 0).value).toBe('')     // у прошлого осмотра своих измерений нет
     get.mockResolvedValue(ok(MODEL))
     fireEvent.change(document.querySelector('.pexam') as HTMLSelectElement, { target: { value: '9' } })
@@ -310,7 +339,7 @@ describe('осмотры', () => {
 
   it('пациент без осмотров: экран начала, а не пустая карта', async () => {
     get.mockResolvedValue(ok({ ...MODEL, exams: [], exam: null, rows: {} }))
-    render(<PerioScreen pid={5} navigate={() => {}} />)
+    open()
     await waitFor(() => expect(screen.getByRole('button', { name: /Începe primul examen/ })).toBeTruthy())
     expect(document.querySelector('.ptooth')).toBeNull()
     expect(document.querySelector('.pexam')).toBeNull()
@@ -359,13 +388,6 @@ describe('счёт предпросмотра', () => {
 })
 
 describe('находки ревью C23', () => {
-  /** Отложенный ответ: позволяет печатать, пока запрос «в пути». */
-  const deferred = <T,>() => {
-    let go: (v: T) => void = () => {}
-    const promise = new Promise<T>((resolve) => { go = resolve })
-    return { promise, go }
-  }
-
   it('цифра, набранная ПОКА идёт запись, не пропадает', async () => {
     await show()
     fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
@@ -415,26 +437,153 @@ describe('находки ревью C23', () => {
   })
 
   it('смена осмотра уводит лист в загрузку — цифра не уходит в покинутый осмотр', async () => {
-    await show()
+    const { router } = await show()
     const d = deferred<ApiResult<PerioModel>>()
     get.mockReturnValue(d.promise)
     fireEvent.change(document.querySelector('.pexam') as HTMLSelectElement, { target: { value: '4' } })
     expect(document.querySelector('.ptooth')).toBeNull()        // печатать некуда
+    expect(document.querySelector('.pcell input')).toBeNull()   // ни одного поля прежнего осмотра
     expect(document.querySelector('[aria-busy="true"]')).toBeTruthy()
     d.go(ok({ ...MODEL, exam: MODEL.exams[1] ?? null, rows: {} }))
     await waitFor(() => expect(col(16)).toBeTruthy())
     expect(cell(16, 'pd', 0).value).toBe('')
+    expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=4')
   })
 
   it('«Examen nou» ставит новый осмотр в адрес — F5 возвращает в него', async () => {
-    await show()
-    const spy = vi.spyOn(window.history, 'replaceState')
+    const { router } = await show()
     post.mockResolvedValue(ok(
       { ...MODEL, exam: { id: 12, at: '18.09.2026', doctor: '', note: '', teeth: 0 }, rows: {} },
       'ok_perio_new', 'examen nou'))
     fireEvent.click(screen.getByRole('button', { name: /Examen nou/ }))
-    await waitFor(() => expect(spy).toHaveBeenCalledWith(null, '', '/admin/patient/5/parodontograma?exam=12'))
-    spy.mockRestore()
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=12'))
+  })
+})
+
+describe('адрес листа ведёт роутер (B2.3)', () => {
+  const NEW: PerioModel = {
+    ...MODEL,
+    exams: [{ id: 12, at: '24.09.2026', doctor: '', note: '', teeth: 0 }, ...MODEL.exams],
+    exam: { id: 12, at: '24.09.2026', doctor: '', note: '', teeth: 0 },
+    rows: {},
+  }
+  const PAST: PerioModel = { ...MODEL, exam: MODEL.exams[1] ?? null, rows: {} }
+  const picked = () => (document.querySelector('.pexam') as HTMLSelectElement).value
+
+  /**
+   * F5: СВЕЖИЙ роутер на адресе, который оставил экран, обязан спросить у
+   * движка то же самое. Иначе переход поменял адрес только на вид.
+   */
+  const f5 = async (router: ReturnType<typeof open>['router']) => {
+    const asked = lastGet()
+    const url = at(router)
+    cleanup()
+    get.mockClear()
+    await show(url)
+    expect(lastGet()).toBe(asked)
+  }
+
+  it('загрузка встаёт на экран ещё внутри события выбора — как reset(), ни мгновения на прежний осмотр', async () => {
+    // ⚠️ Не openScreen: там RouterProvider из 'react-router', без flushSync, и
+    // переход рисуется переходом React — задачей позже. App.tsx берёт его из
+    // 'react-router/dom', и проверять это надо тем же.
+    const router = createMemoryRouter(
+      [screenRoute(PATH, <PerioScreen pid={5} navigate={() => {}} />, loadPerio)], { initialEntries: [SHEET] })
+    render(<RouterProvider router={router} />)
+    await waitFor(() => expect(col(16)).toBeTruthy())
+    const d = deferred<ApiResult<PerioModel>>()
+    get.mockReturnValue(d.promise)
+    const sel = document.querySelector('.pexam') as HTMLSelectElement
+    sel.value = '4'
+    sel.dispatchEvent(new Event('change', { bubbles: true }))   // без act: как в окне программы
+    expect(document.querySelector('.pcell input')).toBeNull()
+    expect(document.querySelector('[aria-busy="true"]')).toBeTruthy()
+    d.go(ok({ ...MODEL, exam: MODEL.exams[1] ?? null, rows: {} }))
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=4'))
+  })
+
+  it('открытие по адресу: осмотр загрузчик берёт из ?exam=', async () => {
+    await show(`${SHEET}?exam=4`)
+    expect(get).toHaveBeenCalledWith('/patients/5/perio?exam=4', expect.anything())
+  })
+
+  it('?exam= читается правилом страницы: только цифры, иначе — свежий осмотр', async () => {
+    const asked = async (search: string) => {
+      get.mockClear()
+      await loadPerio(new AbortController().signal, { pid: '5' }, new URLSearchParams(search))
+      return lastGet()
+    }
+    expect(await asked('exam=4')).toBe('/patients/5/perio?exam=4')
+    expect(await asked('exam=%204%20')).toBe('/patients/5/perio?exam=4')
+    expect(await asked('exam=0004')).toBe('/patients/5/perio?exam=4')
+    for (const v of ['', 'exam=', 'exam=0']) expect(await asked(v)).toBe('/patients/5/perio')
+    // страница эти значения не пропускает (`isdecimal`) — значит, свежий осмотр
+    for (const v of ['4.0', '%2B4', '0x4', '1e1', '-4', 'abc']) {
+      expect(await asked(`exam=${v}`)).toBe('/patients/5/perio')
+    }
+    // ⚠️ Полноширинная «４»: страница её пропускает, но число из неё в браузере
+    // не выходит — и сегодня это свежий осмотр, а не осмотр 4 (так прочёл бы
+    // её Python). То же с сотнями цифр: это бесконечность, а не номер.
+    expect(await asked('exam=%EF%BC%94')).toBe('/patients/5/perio')
+    expect(await asked(`exam=${'9'.repeat(400)}`)).toBe('/patients/5/perio')
+  })
+
+  it('F5 после смены осмотра открывает тот же осмотр', async () => {
+    const { router } = await show()
+    get.mockResolvedValue(ok(PAST))
+    fireEvent.change(document.querySelector('.pexam') as HTMLSelectElement, { target: { value: '4' } })
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=4'))
+    await f5(router)
+    expect(picked()).toBe('4')
+  })
+
+  it('«Examen nou»: ответ POST на экране сразу, загрузчик перечитывает ЕГО осмотр, а не свежий', async () => {
+    const { router } = await show()
+    post.mockResolvedValue(ok(NEW, 'ok_perio_new', 'examen nou'))
+    const d = deferred<ApiResult<PerioModel>>()
+    get.mockClear()
+    get.mockReturnValue(d.promise)
+    fireEvent.click(screen.getByRole('button', { name: /Examen nou/ }))
+    await waitFor(() => expect(get).toHaveBeenCalled())
+    // как и до роутера: новый осмотр виден и правится, пока идёт перечитывание
+    expect(picked()).toBe('12')
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
+    d.go(ok(NEW))
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=12'))
+    // ОДИН запрос, и по номеру: «самый свежий» могло завести второе рабочее место
+    expect(get.mock.calls.map((x) => x[0])).toEqual(['/patients/5/perio?exam=12'])
+    expect(cell(11, 'pd', 0).value).toBe('5')    // набранное в эти полсекунды цело
+    expect(unsaved()).toBeTruthy()
+  })
+
+  it('F5 после «Examen nou» открывает новый осмотр', async () => {
+    const { router } = await show()
+    post.mockResolvedValue(ok(NEW, 'ok_perio_new', 'examen nou'))
+    get.mockResolvedValue(ok(NEW))
+    fireEvent.click(screen.getByRole('button', { name: /Examen nou/ }))
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=12'))
+    await f5(router)
+    expect(picked()).toBe('12')
+  })
+
+  it('F5 после снятия пустого осмотра открывает оставшийся', async () => {
+    get.mockResolvedValue(ok(NEW))
+    const { router } = await show(`${SHEET}?exam=12`)
+    post.mockResolvedValue(ok(PAST, 'ok_perio_drop', 'examen șters'))
+    get.mockResolvedValue(ok(PAST))
+    fireEvent.click(screen.getByRole('button', { name: 'Șterge examenul gol' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/perio/12/delete', {}))
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=4'))
+    expect(lastGet()).toBe('/patients/5/perio?exam=4')
+    await f5(router)
+    expect(picked()).toBe('4')
+  })
+
+  it('новый адрес собирается заново: хвост прошлого (msg) не едет, F5 не повторит плашку', async () => {
+    const { router } = await show(`${SHEET}?exam=9&msg=ok_perio`)
+    fireEvent.change(document.querySelector('.pexam') as HTMLSelectElement, { target: { value: '4' } })
+    await waitFor(() => expect(at(router)).toBe('/admin/patient/5/parodontograma?exam=4'))
   })
 })
 

@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from 'react'
+import { startTransition, useCallback, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams, type ShouldRevalidateFunction } from 'react-router'
 import { Icon } from '../../../components/Icon'
 import { LoadFailed } from '../../../components/LoadFailed'
 import { Toast, type ToastState } from '../../../components/Toast'
-import { defaultNavigate, useLoad } from '../../../hooks/useLoad'
+import { defaultNavigate } from '../../../hooks/useLoad'
+import { queryParam, useRouteLoad, type RouteLoad, type ScreenData } from '../../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../../services/api'
 import type { ApiError } from '../../../types/api'
 import { ActivityCard } from './ActivityCard'
@@ -39,16 +41,43 @@ const T = {
 
 interface Props {
   pid: number
-  /** ?views=1 в адресе: лента с журналом доступа. */
-  views?: boolean
   navigate?: (url: string) => void
 }
 
-export function PatientCardScreen({ pid, views: viewsInit = false, navigate = defaultNavigate }: Props) {
-  const [views, setViews] = useState(viewsInit)
-  const viewsRef = useRef(viewsInit)
-  const load = useCallback((signal: AbortSignal) => patientCard.get(pid, viewsRef.current, signal), [pid])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+/**
+ * Режим ленты — `?views=1` в АДРЕСЕ (лента с журналом доступа), и больше
+ * ниоткуда (B2.3). ⚠️ Повтор ключа (`?views=1&views=0`) решает ПОСЛЕДНИЙ,
+ * как у сервера (Starlette): `URLSearchParams.get` берёт первый, и на одном
+ * и том же адресе клиент и сервер показали бы разное.
+ */
+const viewsOf = (q: URLSearchParams): boolean => queryParam(q, 'views') === '1'
+
+const loadCard: RouteLoad<PatientCard> = (signal, params, q) =>
+  patientCard.get(Number(params.pid), viewsOf(q), signal)
+
+/* ⭐ Смена ОДНОГО query на том же пути — переключатель ленты: её экран уже
+   принёс сам (`/activity`, без записи о просмотре). Полная загрузка —
+   `GET /api/patients/{pid}` — это ОТКРЫТИЕ фиши, и каждый щелчок писал бы в
+   журнал доступа лишнее «Fișa deschisă». Повтор (тот же адрес) и другой
+   пациент перезапускают загрузчик, как обычно. */
+const onlySearchKeeps: ShouldRevalidateFunction = ({ currentUrl, nextUrl, defaultShouldRevalidate }) =>
+  currentUrl.pathname === nextUrl.pathname && currentUrl.search !== nextUrl.search
+    ? false : defaultShouldRevalidate
+
+/** Данные фиши грузит роутер (B2.3): пациент — из пути, режим ленты — из query. */
+export const loadPatientCard: ScreenData = { load: loadCard, shouldRevalidate: onlySearchKeeps }
+
+export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<PatientCard>(navigate)
+  /* Режим ленты читается из адреса, который ведёт РОУТЕР, — тот же, что у
+     загрузчика; из него же `reload` и каждое действие (`a.views`). Своей
+     копии нет: после перехода она разошлась бы с адресом, и запросы ушли бы
+     в прежнем режиме. `navigate` в пропсах — уход на вход (документом),
+     переходы роутером — `to`. */
+  const [q] = useSearchParams()
+  const views = viewsOf(q)
+  const { pathname } = useLocation()
+  const to = useNavigate()
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [booking, setBooking] = useState(false)
@@ -78,20 +107,28 @@ export function PatientCardScreen({ pid, views: viewsInit = false, navigate = de
   }, [replace, fail])
 
   /* Переключение журнала доступа: лента отдельно (без новой записи о
-     просмотре), адрес страницы повторяет режим — как ?views=1 старой. */
+     просмотре), адрес страницы повторяет режим — как ?views=1 старой.
+     Сначала данные, потом адрес — через РОУТЕР (загрузчик на смену одного
+     query не перезапускается, см. `onlySearchKeeps`), и F5 на этом адресе
+     откроет фишу в том же режиме. `replace`, как и было: щелчки не копят
+     шаги «Назад»; query собирается заново (прежний ?msg= не тянется).
+     ⚠️ Лента и режим адреса (из него `a.views`) обязаны смениться ОДНОЙ
+     отрисовкой: переход роутера React рисует переходом (transition), а
+     подмену ленты — обычным обновлением, и между ними был бы кадр, где лента
+     уже с просмотрами, а действие ушло бы без ?views=1. */
   const onViews = useCallback(async (on: boolean) => {
     if (state.status !== 'ready') return
     const card = state.data
     try {
       const r = await patientCard.activity(pid, on)
-      viewsRef.current = on
-      setViews(on)
-      replace({ ...card, activity: r.data })
-      window.history.replaceState(null, '', `${window.location.pathname}${on ? '?views=1' : ''}`)
+      startTransition(() => {
+        replace({ ...card, activity: r.data })
+        void to(`${pathname}${on ? '?views=1' : ''}`, { replace: true })
+      })
     } catch (e) {
       fail(e)
     }
-  }, [state, pid, replace, fail])
+  }, [state, pid, replace, fail, to, pathname])
 
   /* зуб из плана открывается в компактной одонтограмме (диалог зуба); запрос
      — объектом с меткой, чтобы повторный клик по тому же зубу тоже сработал */
@@ -103,8 +140,8 @@ export function PatientCardScreen({ pid, views: viewsInit = false, navigate = de
   /* зуб записан — фиша перечитывает себя тихо: пилюли шапки и летопись
      зависят от зубов, а перезагрузка страницы (как у старой) не нужна */
   const reload = useCallback(() => {
-    patientCard.get(pid, viewsRef.current).then((r) => replace(r.data), (e: unknown) => { fail(e) })
-  }, [pid, replace, fail])
+    patientCard.get(pid, views).then((r) => replace(r.data), (e: unknown) => { fail(e) })
+  }, [pid, views, replace, fail])
 
   if (state.status === 'leaving') return null
 

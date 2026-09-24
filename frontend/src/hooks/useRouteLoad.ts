@@ -1,6 +1,7 @@
 import { useCallback, useState, type ReactElement } from 'react'
 import {
-  useLoaderData, useRevalidator, type LoaderFunctionArgs, type Params, type RouteObject,
+  useLoaderData, useNavigation, useRevalidator, type LoaderFunctionArgs, type Params,
+  type RouteObject, type ShouldRevalidateFunction,
 } from 'react-router'
 import { asApiError, loginUrl, type ApiResult } from '../services/api'
 import type { ApiError } from '../types/api'
@@ -11,8 +12,24 @@ import { defaultNavigate, type LoadState } from './useLoad'
  * запрос уходит в момент выбора маршрута, а не после первой отрисовки.
  */
 
-/** Что экран просит у движка: сигнал отмены роутера и параметры ПУТИ. */
-export type RouteLoad<T> = (signal: AbortSignal, params: Params) => Promise<ApiResult<T>>
+/**
+ * Что экран просит у движка: сигнал отмены роутера, параметры ПУТИ и query
+ * ТЕКУЩЕГО адреса (B2.3). ⛔ Не параметры узла: узел описывает документ,
+ * а после перехода роутером адрес уже другой.
+ */
+export type RouteLoad<T> = (signal: AbortSignal, params: Params, search: URLSearchParams) =>
+  Promise<ApiResult<T>>
+
+/**
+ * Загрузчик экрана и, если нужно, своё правило перезапуска. Правило нужно
+ * тому экрану, который часть адреса обслуживает САМ, без полной перезагрузки
+ * (фиша: `?views=1` приносит только ленту — полная перезагрузка писала бы в
+ * журнал доступа лишнее «открыл фишу»).
+ */
+export type ScreenData = RouteLoad<unknown> | {
+  load: RouteLoad<unknown>
+  shouldRevalidate: ShouldRevalidateFunction
+}
 
 /**
  * ⭐ Загрузчик отдаёт ту же `LoadState`, что и `useLoad`, и НЕ бросает на
@@ -23,7 +40,7 @@ export type RouteLoad<T> = (signal: AbortSignal, params: Params) => Promise<ApiR
 export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => void = defaultNavigate) {
   return async ({ request, params }: LoaderFunctionArgs): Promise<LoadState<T>> => {
     try {
-      const r = await load(request.signal, params)
+      const r = await load(request.signal, params, new URL(request.url).searchParams)
       return { status: 'ready', data: r.data }
     } catch (e) {
       const err = asApiError(e)
@@ -45,12 +62,25 @@ export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => vo
  * которая разошлась бы с экраном, не существует.
  */
 export function screenRoute(
-  path: string, element: ReactElement, load?: RouteLoad<unknown>,
+  path: string, element: ReactElement, data?: ScreenData,
   navigate?: (url: string) => void,
 ): RouteObject {
-  if (!load) return { path, element }
-  return { path, element, loader: routeLoader(load, navigate), hydrateFallbackElement: element }
+  if (!data) return { path, element }
+  const load = typeof data === 'function' ? data : data.load
+  const route: RouteObject = {
+    path, element, loader: routeLoader(load, navigate), hydrateFallbackElement: element,
+  }
+  if (typeof data !== 'function') route.shouldRevalidate = data.shouldRevalidate
+  return route
 }
+
+/**
+ * Значение query так, как его читает СЕРВЕР: у Starlette при повторе
+ * побеждает ПОСЛЕДНЕЕ, а `URLSearchParams.get` берёт первое. На адресе вида
+ * `?date=A&date=B` страница после F5 и переход роутером показали бы разное.
+ * Загрузчики читают query только так.
+ */
+export const queryParam = (q: URLSearchParams, name: string): string => q.getAll(name).at(-1) ?? ''
 
 const LOADING = { status: 'loading' } as const
 
@@ -75,6 +105,10 @@ export function useRouteLoad<T>(navigate: (url: string) => void = defaultNavigat
   /* ⚠️ Во время повтора роутер держит ПРЕЖНИЕ данные (отказ) до ответа;
      экран же, как и с `useLoad`, обязан показать загрузку. */
   const state: LoadState<T> = rv === 'loading' || data === undefined ? LOADING : own ?? data
+  /* Идёт переход роутером (другой адрес, новый ответ загрузчика ещё не пришёл).
+     На экране пока ПРЕЖНИЕ данные; экран, которому их нельзя править в этот
+     миг (осмотр пародонтограммы), сам решает показать загрузку. */
+  const pending = useNavigation().state === 'loading'
 
   const retry = useCallback(() => { void revalidate() }, [revalidate])
 
@@ -88,5 +122,5 @@ export function useRouteLoad<T>(navigate: (url: string) => void = defaultNavigat
     return true
   }, [navigate])
 
-  return { state, retry, replace, leaveIfSignedOut }
+  return { state, pending, retry, replace, leaveIfSignedOut }
 }

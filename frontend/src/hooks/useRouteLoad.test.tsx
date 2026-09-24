@@ -3,7 +3,7 @@ import { createMemoryRouter, RouterProvider, type LoaderFunctionArgs } from 'rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../services/api'
 import { ApiError } from '../types/api'
-import { routeLoader, screenRoute, useRouteLoad } from './useRouteLoad'
+import { queryParam, routeLoader, screenRoute, useRouteLoad } from './useRouteLoad'
 
 vi.mock('../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/api')>()
@@ -98,5 +98,58 @@ describe('useRouteLoad', () => {
     fireEvent.click(screen.getByText('leave'))
     expect(nav).toHaveBeenCalledWith('/admin/login?next=%2Fx')
     expect(s()).toBe('leaving')
+  })
+})
+
+describe('адрес после перехода (B2.3)', () => {
+  function Pending() {
+    const { state, pending } = useRouteLoad<{ n: number }>(vi.fn())
+    return <p data-testid="s">{pending ? 'pending' : state.status === 'ready' ? `ready:${state.data.n}` : state.status}</p>
+  }
+
+  it('загрузчик видит query ТЕКУЩЕГО адреса, а не документа', async () => {
+    const load = vi.fn((_s: AbortSignal, _p: unknown, q: URLSearchParams) =>
+      Promise.resolve(ok({ n: Number(q.get('d')) })))
+    const router = createMemoryRouter([screenRoute('/x', <Pending />, load)], { initialEntries: ['/x?d=5'] })
+    render(<RouterProvider router={router} />)
+    expect(await screen.findByText('ready:5')).toBeTruthy()
+    await act(() => router.navigate('/x?d=6', { replace: true }))
+    expect(s()).toBe('ready:6')
+    expect(load).toHaveBeenLastCalledWith(expect.any(AbortSignal), expect.anything(), expect.any(URLSearchParams))
+  })
+
+  it('пока переход ждёт ответа, экран знает об этом (pending)', async () => {
+    let release: (v: ApiResult<{ n: number }>) => void = () => {}
+    const load = vi.fn()
+      .mockResolvedValueOnce(ok({ n: 1 }))
+      .mockReturnValueOnce(new Promise((r) => { release = r }))
+    const router = createMemoryRouter([screenRoute('/x', <Pending />, load)], { initialEntries: ['/x?d=1'] })
+    render(<RouterProvider router={router} />)
+    await screen.findByText('ready:1')
+    act(() => { void router.navigate('/x?d=2', { replace: true }) })
+    expect(await screen.findByText('pending')).toBeTruthy()
+    await act(async () => { release(ok({ n: 2 })) })
+    expect(await screen.findByText('ready:2')).toBeTruthy()
+  })
+
+  it('своё правило перезапуска доходит до маршрута: смена query без перезагрузки', async () => {
+    const load = vi.fn().mockResolvedValue(ok({ n: 1 }))
+    const router = createMemoryRouter(
+      [screenRoute('/x', <Pending />, { load, shouldRevalidate: () => false })],
+      { initialEntries: ['/x'] })
+    render(<RouterProvider router={router} />)
+    await screen.findByText('ready:1')
+    await act(() => router.navigate('/x?views=1', { replace: true }))
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(router.state.location.search).toBe('?views=1')
+  })
+})
+
+describe('queryParam', () => {
+  it('повтор параметра читается как у сервера — побеждает последнее', () => {
+    const q = new URLSearchParams('date=2026-09-01&date=2026-09-02&f=')
+    expect(queryParam(q, 'date')).toBe('2026-09-02')
+    expect(queryParam(q, 'f')).toBe('')
+    expect(queryParam(q, 'nope')).toBe('')
   })
 })

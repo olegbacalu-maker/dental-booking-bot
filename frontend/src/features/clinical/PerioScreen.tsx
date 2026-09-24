@@ -1,8 +1,10 @@
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react'
+import { useNavigate, useNavigation } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { PerioSummaryCard } from './PerioSummary'
 import { PerioTooth } from './PerioTooth'
@@ -46,15 +48,35 @@ const T = {
 
 interface Props {
   pid: number
-  /** Осмотр из адреса (?exam=): выбор переживает перезагрузку. */
-  exam?: number | null
   navigate?: (url: string) => void
 }
 
-export function PerioScreen({ pid, exam = null, navigate = defaultNavigate }: Props) {
-  const [want, setWant] = useState<number | null>(exam)
-  const load = useCallback((signal: AbortSignal) => perio.get(pid, want, signal), [pid, want])
-  const { state, retry, reset, replace, leaveIfSignedOut } = useLoad(load, navigate)
+/**
+ * Осмотр из адреса (`?exam=`) — правилом СТРАНИЦЫ сервера: обрезанное
+ * значение из одних цифр ASCII — номер, всё прочее — «самый свежий» (null).
+ * ⚠️ Не `Number` по сырому значению: «4.0», «+4», «0x4», «1e1» открыли бы
+ * конкретный осмотр там, где страница отдаёт свежий. И не сырая строка в API:
+ * полноширинную «４» Python читает как 4. Бесконечность (сотни цифр) —
+ * тоже свежий, как и было.
+ */
+function examOf(q: URLSearchParams): number | null {
+  const raw = queryParam(q, 'exam').trim()
+  const n = Number(raw)
+  return /^\d+$/.test(raw) && Number.isInteger(n) ? n : null
+}
+
+/**
+ * Данные грузит роутер (B2.3): фишу — из пути, осмотр — из `?exam=` ТЕКУЩЕГО
+ * адреса. Владелец «какой осмотр» — адрес, и больше никто; на экране — эхо
+ * сервера (`model.exam`): чужой или несуществующий номер он сводит к свежему.
+ */
+export const loadPerio: RouteLoad<PerioModel> = (signal, params, q) =>
+  perio.get(Number(params.pid), examOf(q), signal)
+
+export function PerioScreen({ pid, navigate = defaultNavigate }: Props) {
+  const { state, pending, retry, replace, leaveIfSignedOut } = useRouteLoad<PerioModel>(navigate)
+  const to = useNavigate()
+  const target = useNavigation().location
   const [toast, setToast] = useState<ToastState | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
   const say = useCallback((x: ToastState) => setToast(x), [])
@@ -62,7 +84,15 @@ export function PerioScreen({ pid, exam = null, navigate = defaultNavigate }: Pr
     const err = asApiError(e)
     if (!leaveIfSignedOut(err)) setToast({ tone: 'err', text: err.text || T.offline })
   }, [leaveIfSignedOut])
-  const model = state.status === 'ready' ? state.data : null
+  const data = state.status === 'ready' ? state.data : null
+  /* ⛔ Переход к ДРУГОМУ осмотру ждёт загрузчика, а роутер тем временем держит
+     прежний. Его не показывать: набранная в этот миг цифра ушла бы в запись,
+     которую человек только что покинул. Ответ POST (новый или оставшийся
+     осмотр) уже И ЕСТЬ тот, куда ведёт адрес, — он остаётся на экране, как и
+     до роутера. */
+  const leaving = pending && data !== null
+    && examOf(new URLSearchParams(target?.search ?? '')) !== (data.exam?.id ?? null)
+  const model = leaving ? null : data
   const c = usePerio(pid, model, replace, fail, say)
   const root = useRef<HTMLDivElement>(null)
 
@@ -121,23 +151,26 @@ export function PerioScreen({ pid, exam = null, navigate = defaultNavigate }: Pr
   }
 
   /** Адрес листа: осмотр виден в ссылке, поэтому F5 и «открыть ещё раз»
-   *  возвращают туда же, а не к самому свежему. */
-  const syncUrl = (id: number | null) => {
-    const url = `${base}/parodontograma${id ? `?exam=${id}` : ''}`
-    try { window.history.replaceState(null, '', url) } catch { /* jsdom */ }
+   *  возвращают туда же, а не к самому свежему. Пишет его РОУТЕР, и загрузчик
+   *  читает уже новый адрес. `replace`, как и было: смена осмотра не копит
+   *  шаги «Назад». Query — заново: `msg` прошлого адреса повторил бы плашку. */
+  const goTo = (id: number | null, now = false) => {
+    void to(`${base}/parodontograma${id ? `?exam=${id}` : ''}`, { replace: true, flushSync: now })
   }
 
   const goExam = (id: number) => {
     // ⛔ Сначала В ЗАГРУЗКУ, потом запрос: иначе прежний осмотр висит на экране
     // весь ответ, а набранная в этот миг цифра уходит в него — в запись,
-    // которую человек только что покинул.
-    reset()
-    setWant(id)
-    syncUrl(id)
+    // которую человек только что покинул. Загрузку рисует `leaving`, а
+    // `flushSync` ставит её на экран ещё в этом событии, как это делал reset().
+    goTo(id, true)
   }
 
+  /* После POST ответ уже на экране (`replace`); адрес ведёт к ЕГО осмотру по
+     номеру, и загрузчик перечитывает именно его, а не «самый свежий», который
+     могло тем временем завести второе рабочее место. */
   const afterExam = (m: PerioModel | null) => {
-    if (m) { setWant(null); syncUrl(m.exam?.id ?? null) }
+    if (m) goTo(m.exam?.id ?? null)
   }
 
   const arch = (teeth: number[], lower?: boolean) => (

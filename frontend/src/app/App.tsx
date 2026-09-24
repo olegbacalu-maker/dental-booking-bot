@@ -5,7 +5,7 @@ import { AppShell } from '../layouts/AppShell'
 import type { ShellModel } from '../layouts/shell'
 import { DoctorCardScreen, loadDoctorCard } from '../features/doctors/DoctorCardScreen'
 import { DoctorsListScreen, loadDoctorsList } from '../features/doctors/DoctorsListScreen'
-import { PatientCardScreen } from '../features/patients/card/PatientCardScreen'
+import { loadPatientCard, PatientCardScreen } from '../features/patients/card/PatientCardScreen'
 import { PatientsSearchScreen } from '../features/patients/PatientsSearchScreen'
 import { BackupSettingsScreen, loadBackupSettings } from '../features/settings/BackupSettingsScreen'
 import { ClinicSettingsScreen } from '../features/settings/ClinicSettingsScreen'
@@ -18,15 +18,15 @@ import { loadServicesSettings, ServicesSettingsScreen } from '../features/settin
 import { loadSystemSettings, SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
 import { loadSettingsHub, SettingsHubScreen } from '../features/settings/SettingsHubScreen'
 import { loadThemeSettings, ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
-import { StatsScreen } from '../features/stats/StatsScreen'
-import { VisitScreen } from '../features/visits/VisitScreen'
+import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
+import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
 import { loadOdontogram, OdontogramScreen } from '../features/clinical/OdontogramScreen'
-import { PerioScreen } from '../features/clinical/PerioScreen'
+import { loadPerio, PerioScreen } from '../features/clinical/PerioScreen'
 import { DashScreen } from '../features/schedule/DashScreen'
-import { DayScreen } from '../features/schedule/DayScreen'
-import { WeekScreen } from '../features/schedule/WeekScreen'
+import { DayScreen, loadDay } from '../features/schedule/DayScreen'
+import { loadWeek, WeekScreen } from '../features/schedule/WeekScreen'
 import { QuickFind } from '../features/quickfind/QuickFind'
-import { screenRoute, type RouteLoad } from '../hooks/useRouteLoad'
+import { screenRoute, type ScreenData } from '../hooks/useRouteLoad'
 import { legacyUrl } from '../utils/legacy'
 import { ROUTES, type ScreenName } from './routes'
 
@@ -73,19 +73,20 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_backup: () => <BackupSettingsScreen />,
   settings_crypt: () => <CryptSettingsScreen />,
   settings_system: () => <SystemSettingsScreen />,
-  stats: (p) => <StatsScreen from={p.from ?? ''} to={p.to ?? ''} />,
+  stats: () => <StatsScreen />,
   patients_search: (p) => <PatientsSearchScreen params={p} />,
-  patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} views={p.views === '1'} />,
+  patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,
   // ⚠️ Параметр пути — `appt_id`, как у сервера. Ключ узла `aid` здесь больше
-  // не читается: адрес визита разбирает роутер, а имена у них РАЗНЫЕ.
-  visit: (p) => <VisitScreen aid={Number(p.appt_id)} back={p.back ?? ''} />,
+  // не читается: адрес визита разбирает роутер, а имена у них РАЗНЫЕ. `back`
+  // загрузчик берёт из АДРЕСА (B2.3), экран показывает только эхо сервера.
+  visit: (p) => <VisitScreen aid={Number(p.appt_id)} />,
   odontogram: (p) => <OdontogramScreen pid={Number(p.pid)} t={intOrNull(p.t)} />,
   schedule_dash: (p) => <DashScreen date={p.date ?? ''} dayLabel={p.day_label ?? ''} />,
-  schedule_week: (p) => <WeekScreen date={p.date ?? ''} />,
-  schedule_all: (p) => <DayScreen date={p.date ?? ''} f={p.f ?? ''} />,
+  schedule_week: () => <WeekScreen />,
+  schedule_all: () => <DayScreen />,
   // ⛔ Не путать с doctor_card: тот же `dk`, но это день врача в журнале.
-  schedule_doctor: (p) => <DayScreen date={p.date ?? ''} doctor={p.dk ?? ''} />,
-  perio: (p) => <PerioScreen pid={Number(p.pid)} exam={intOrNull(p.exam)} />,
+  schedule_doctor: (p) => <DayScreen doctor={p.dk ?? ''} />,
+  perio: (p) => <PerioScreen pid={Number(p.pid)} />,
 }
 
 /**
@@ -93,7 +94,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
  * пока не дошла их очередь. Маршрут собирает `screenRoute`: загрузчик без
  * первого кадра на время ожидания там собрать нельзя.
  */
-const LOADS: Partial<Record<ScreenName, RouteLoad<unknown>>> = {
+const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   settings_hub: loadSettingsHub,
   settings_faq: loadFaq,
   settings_backup: loadBackupSettings,
@@ -107,6 +108,13 @@ const LOADS: Partial<Record<ScreenName, RouteLoad<unknown>>> = {
   doctors_list: loadDoctorsList,
   doctor_card: loadDoctorCard,
   odontogram: loadOdontogram,
+  schedule_week: loadWeek,
+  schedule_all: loadDay,
+  schedule_doctor: loadDay,
+  stats: loadStats,
+  perio: loadPerio,
+  patient_card: loadPatientCard,
+  visit: loadVisit,
 }
 
 /**

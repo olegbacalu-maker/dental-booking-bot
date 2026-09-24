@@ -107,10 +107,10 @@ describe('App', () => {
     expect(get).toHaveBeenCalledWith('/settings/hub', expect.anything())
   })
 
-  it('визит: номер берётся из параметра пути appt_id, а не из ключа узла aid', () => {
+  it('визит: номер — из пути appt_id, back — из АДРЕСА, а не из узла (aid, back)', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
-    open('/admin/visit/42', node('visit', { aid: '999', back: '/admin/all' }))
-    expect(get).toHaveBeenCalledWith(expect.stringMatching(/^\/visits\/42\?/), expect.anything())
+    open('/admin/visit/42?back=%2Fadmin%2Fall', node('visit', { aid: '999', back: '/admin/week' }))
+    expect(get).toHaveBeenCalledWith('/visits/42?back=%2Fadmin%2Fall', expect.anything())
   })
 
   it('адрес, которого роутер не знает: экран называется по имени и ведёт на старую страницу', () => {
@@ -123,7 +123,10 @@ describe('App', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     open('/admin/week', node('stats'))
     expect(screen.getByRole('alert').textContent).toContain('«stats»')
-    expect(get).not.toHaveBeenCalled()
+    /* ⚠️ Загрузчик маршрута отработает и тут — роутер спрашивает данные до
+       того, как экран решит, что рисовать. Доказательство — отсутствие
+       разметки ЧУЖОГО экрана, а не отсутствие запроса. */
+    expect(document.querySelector('.week')).toBeNull()
     expect(err.mock.calls.flat().join(' ')).toContain('schedule_week')
   })
 

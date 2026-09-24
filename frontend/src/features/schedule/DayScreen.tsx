@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
-import { defaultNavigate, useLoad } from '../../hooks/useLoad'
+import { defaultNavigate } from '../../hooks/useLoad'
+import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import { shift } from '../../utils/date'
 import { AddForm } from './AddForm'
@@ -36,22 +38,31 @@ const T = {
 } as const
 
 interface Props {
-  /** Дата из адреса; пусто — сегодня. */
-  date?: string
-  /** Врач: пусто — все. */
+  /** Врач из ПУТИ (`/admin/doctor/:dk`): пусто — все. */
   doctor?: string
-  /** Отбор плитки панели дня: режет СПИСОК, сетку не трогает. */
-  f?: string
   navigate?: (url: string) => void
 }
 
-export function DayScreen({ date = '', doctor = '', f = '',
-  navigate = defaultNavigate }: Props) {
-  const [at, setAt] = useState(date)
-  const [tile, setTile] = useState(f)
-  const load = useCallback((signal: AbortSignal) => day.get(at, doctor, tile, signal),
-    [at, doctor, tile])
-  const { state, retry, replace, leaveIfSignedOut } = useLoad(load, navigate)
+/**
+ * Данные дня грузит роутер (B2.2), и ЧТО грузить, он берёт из адреса (B2.3):
+ * «какой день» — `?date=`, «какой отбор» — `?f=`, «чей день» — путь, и больше
+ * никто. Пустая дата — сегодня, его считает сервер в поясе клиники.
+ * ⛔ Запрос собирается ТОЛЬКО из этих трёх, query как есть не пересылается:
+ * на `/admin/all` `?doctor=` и `?time_pre=` — предвыбор формы старой страницы
+ * (её ссылка «+»), а у `/api/schedule/day` `doctor` значит «день одного
+ * врача». Переслать адрес целиком — и общий журнал открылся бы днём врача.
+ */
+export const loadDay: RouteLoad<DayModel> = (signal, p, q) =>
+  day.get(queryParam(q, 'date'), p.dk ?? '', queryParam(q, 'f'), signal)
+
+export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DayModel>(navigate)
+  const to = useNavigate()
+  const [q] = useSearchParams()
+  /* День действий — дата АДРЕСА как есть, без своей копии: пусто так и
+     уходит пустым, и «сегодня» решает сервер в момент запроса (после
+     полуночи — уже новый день), а не браузер и не первая загрузка. */
+  const at = queryParam(q, 'date')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [slot, setSlot] = useState<Slot | null>(null)
@@ -104,13 +115,20 @@ export function DayScreen({ date = '', doctor = '', f = '',
 
   const m = state.data
   const base = doctor ? `/admin/doctor/${doctor}` : '/admin/all'
-  /* Адрес повторяет отбор — как у старой страницы: перезагрузка и
-     `?ui=legacy` открывают тот же день с тем же фильтром. */
-  const go = (iso: string, t2: string = tile) => {
-    setAt(iso)
-    setTile(t2)
-    const url = `${base}?date=${iso}${t2 ? `&f=${t2}` : ''}`
-    try { window.history.replaceState(null, '', url) } catch { /* jsdom */ }
+  /* Отбор — ЭХО сервера, а не сырой `?f=`: чужой ключ сервер отбрасывает
+     (`filter: null`), и в адрес и в действия дальше уходит только признанный. */
+  const tile = m.filter?.key ?? ''
+  /* Переход на другой день или отбор — через РОУТЕР: адрес меняется, загрузчик
+     читает уже его, и F5 на этом адресе откроет тот же день с тем же отбором.
+     Query собирается заново (дата и отбор, без `msg` и прочего хвоста);
+     `replace`, как и было: листание дней не копит шаги «Назад». Пока ответа
+     нет, на экране прежний день, как и до роутера. */
+  const go = (iso: string, f: string = tile) => {
+    const next = new URLSearchParams()
+    if (iso) next.set('date', iso)
+    if (f) next.set('f', f)
+    const tail = next.toString()
+    void to(tail ? `${base}?${tail}` : base, { replace: true })
   }
   const openCard = card !== null ? m.cards[String(card)] : undefined
   const listNode = (

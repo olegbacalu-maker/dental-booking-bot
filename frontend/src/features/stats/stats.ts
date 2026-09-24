@@ -132,10 +132,18 @@ export interface StatsData {
 }
 
 export const stats = {
+  /**
+   * ⭐ Каждая НЕПУСТАЯ граница уходит сама по себе. Недостающую достраивает
+   * `period()` сервера — одна функция на страницу и на JSON, поэтому
+   * `?from=X` даёт X..сегодня и после F5, и в старой форме. Отбрось клиент
+   * обе границы из-за одной пустой, и тот же адрес открыл бы в SPA «последние
+   * 7 дней», а после перезагрузки — другой период.
+   */
   get: (from: string, to: string, signal?: AbortSignal): Promise<ApiResult<StatsData>> => {
-    const q = from && to
-      ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-      : ''
-    return api.get<StatsData>(`/stats${q}`, signal ? { signal } : {})
+    const q = [
+      from && `from=${encodeURIComponent(from)}`,
+      to && `to=${encodeURIComponent(to)}`,
+    ].filter(Boolean).join('&')
+    return api.get<StatsData>(q ? `/stats?${q}` : '/stats', signal ? { signal } : {})
   },
 }

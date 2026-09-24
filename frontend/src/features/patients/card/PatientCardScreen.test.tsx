@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../../services/api'
+import { openScreen } from '../../../test/openScreen'
 import { ApiError } from '../../../types/api'
 import type { PatientCard } from './card'
 import { mdl } from './card'
-import { PatientCardScreen } from './PatientCardScreen'
+import { loadPatientCard, PatientCardScreen } from './PatientCardScreen'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -119,21 +120,43 @@ CARD.visits.live = CARD.visits.history
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
-/** Сервер по адресу: фиша, кусок одонтограммы, лента, часы. */
+/** Лента в режиме: с ?views=1 сервер добавляет просмотры (журнал доступа) и отражает режим. */
+const feed = (card: PatientCard, views: boolean) => (views
+  ? { ...card.activity, views, items: [{ id: 999, kind: 'view', icon: 'eye', text: 'Fișa deschisă', when: '18.09.2026', hhmm: '11:00', who: 'Director' }, ...card.activity.items] }
+  : { ...card.activity, views })
+
+/** Сервер по адресу: фиша (в режиме ленты из адреса), кусок одонтограммы, лента, часы. */
 function serve(card: PatientCard = CARD) {
   get.mockImplementation((path: string) => {
-    if (path === '/patients/5' || path === '/patients/5?views=1') return Promise.resolve(ok(card))
+    if (path === '/patients/5') return Promise.resolve(ok(card))
+    if (path === '/patients/5?views=1') return Promise.resolve(ok({ ...card, activity: feed(card, true) }))
     if (path === '/patients/5/odontogram') return Promise.resolve(ok(ODO))
-    if (path.startsWith('/patients/5/activity')) {
-      return Promise.resolve(ok({ ...card.activity, views: path.includes('views=1'),
-        items: [{ id: 999, kind: 'view', icon: 'eye', text: 'Fișa deschisă', when: '18.09.2026', hhmm: '11:00', who: 'Director' }, ...card.activity.items] }))
-    }
+    if (path.startsWith('/patients/5/activity')) return Promise.resolve(ok(feed(card, path.includes('views=1'))))
     if (path.startsWith('/patients/5/slots')) return Promise.resolve(ok({ slots: ['09:00', '09:30'] }))
     return Promise.reject(new Error(`unexpected ${path}`))
   })
 }
 
 const rowOf = (text: string) => screen.getByText(text, { selector: '.pp' }).closest('.plan-row') as HTMLElement
+
+/** Фиша по адресу — тем же маршрутом, что в App.tsx: загрузчик роутера и его правило перезапуска. */
+const open = (url = '/admin/patient/5', navigate?: (url: string) => void) => openScreen(
+  '/admin/patient/:pid', url, <PatientCardScreen pid={5} {...(navigate ? { navigate } : {})} />,
+  loadPatientCard, navigate)
+
+/** Сколько раз фиша ОТКРЫВАЛАСЬ (полная загрузка — на сервере это запись «Fișa deschisă»). */
+const opens = () => get.mock.calls.filter(([p]) => p === '/patients/5' || p === '/patients/5?views=1').length
+
+/** Фиша дорисована целиком: одонтограмма (свой запрос) уже пришла — дальше запросы только наши. */
+const settled = () => waitFor(() => expect(document.querySelector('#odo .tooth-btn[data-n="11"]')).toBeTruthy())
+
+/** F5: свежий роутер на адресе, который оставил экран; подмена сети та же, счёт вызовов — с нуля. */
+const reopen = (router: ReturnType<typeof open>['router']) => {
+  const url = router.state.location.pathname + router.state.location.search
+  cleanup()
+  get.mockClear()
+  return open(url)
+}
 
 beforeEach(() => {
   vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -145,7 +168,6 @@ afterEach(() => {
   post.mockReset()
   postForm.mockReset()
   vi.restoreAllMocks()
-  window.history.replaceState(null, '', '/admin/patient/5')
 })
 
 describe('mdl', () => {
@@ -159,7 +181,7 @@ describe('mdl', () => {
 describe('PatientCardScreen', () => {
   it('успех: шапка, пилюли, KPI, план по вкладке, сальдо, документы, история, летопись, анамнез, профиль', async () => {
     serve()
-    render(<PatientCardScreen pid={5} />)
+    open()
     expect(await screen.findByText('Pin Test', { selector: 'h2' })).toBeTruthy()
     expect(screen.getByText('41 ani')).toBeTruthy()
     expect(screen.getByText('ID #5')).toBeTruthy()
@@ -215,7 +237,7 @@ describe('PatientCardScreen', () => {
 
   it('вкладки плана: Finalizate показывает закрытые, Toate — всё', async () => {
     serve()
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByText('Finalizate (1)'))
     expect(screen.getByText('Detartraj', { selector: '.pp' })).toBeTruthy()
@@ -231,7 +253,7 @@ describe('PatientCardScreen', () => {
     serve()
     const after: PatientCard = { ...CARD, plan: { ...CARD.plan, default_tab: 'finalizat', n_act: 0 }, kpi: { ...CARD.kpi, active: 0 } }
     post.mockResolvedValueOnce(ok(after, 'ok_refuz', 'Refuzul a fost consemnat'))
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(within(rowOf('Coroană 11')).getByText('Finalizează'))
     expect(await screen.findByText('Refuzul a fost consemnat')).toBeTruthy()
@@ -245,7 +267,7 @@ describe('PatientCardScreen', () => {
     serve()
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_refuz', text: 'Scrieți motivul refuzului', field: 'motiv' }, 'v'))
     post.mockResolvedValueOnce(ok(CARD, 'ok_refuz', 'Refuzul a fost consemnat'))
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(within(rowOf('Coroană 11')).getByText('Refuz'))
     const area = screen.getByLabelText(/Motivul refuzului/) as HTMLTextAreaElement
@@ -264,7 +286,7 @@ describe('PatientCardScreen', () => {
     const after = { ...CARD, alerts: [...CARD.alerts, { id: 2, kind: 'info', label: 'Info', icon: 'info', text: 'Vorbește rusă' }] }
     post.mockResolvedValueOnce(ok(after, 'ok_card', 'Fișa pacientului a fost actualizată'))
     post.mockResolvedValueOnce(ok(CARD))
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.change(screen.getByLabelText('Atenționări medicale'), { target: { value: 'info' } })
     fireEvent.change(screen.getByLabelText('ex. Alergie: Penicilină'), { target: { value: 'Vorbește rusă' } })
@@ -279,7 +301,7 @@ describe('PatientCardScreen', () => {
   it('профиль: правка шлёт все поля; 422 bad_idnp подсвечивает IDNP и оставляет форму', async () => {
     serve()
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_idnp', text: 'IDNP trebuie să aibă exact 13 cifre', field: 'idnp' }, 'v'))
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByText('Editează profilul'))
     expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('flex')
@@ -298,7 +320,7 @@ describe('PatientCardScreen', () => {
   it('платёж: форма шлёт сумму, метод и заметку; без права — кнопок удаления нет', async () => {
     serve({ ...CARD, finance: { ...CARD.finance, can_delete: false } })
     post.mockResolvedValueOnce(ok(CARD, 'ok_pay', 'Plata a fost înregistrată'))
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(screen.queryAllByLabelText(/Șterge plata/).length).toBe(0)
     fireEvent.change(screen.getByLabelText('Suma MDL (cu minus = restituire)'), { target: { value: '250' } })
@@ -313,7 +335,7 @@ describe('PatientCardScreen', () => {
     serve({ ...CARD, erasure: 'delete' })
     post.mockResolvedValueOnce(ok({ url: '/admin/search?msg=ok_del' }, 'ok_del', 'Fișa a fost ștearsă'))
     const navigate = vi.fn()
-    render(<PatientCardScreen pid={5} navigate={navigate} />)
+    open('/admin/patient/5', navigate)
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(screen.getByText('ștearsă definitiv')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('scrieți STERG'), { target: { value: 'sterg' } })
@@ -325,7 +347,7 @@ describe('PatientCardScreen', () => {
   it('запись: диалог тянет часы у движка и шлёт запись', async () => {
     serve()
     post.mockResolvedValueOnce(ok(CARD, 'ok', 'Programare adăugată'))
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByText('Programează'))
     expect(await screen.findByText('2 intervale libere în această zi')).toBeTruthy()
@@ -338,22 +360,123 @@ describe('PatientCardScreen', () => {
 
   it('летопись: «Toate» раскрывает; «accesările» тянет ленту отдельно и меняет адрес', async () => {
     serve()
-    render(<PatientCardScreen pid={5} />)
+    const { router } = open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByText('Toate evenimentele (12)'))
     expect(document.querySelectorAll('.acti').length).toBe(12)
     fireEvent.click(screen.getByText('accesările'))
     expect(await screen.findByText('Fișa deschisă')).toBeTruthy()
     expect(get).toHaveBeenCalledWith('/patients/5/activity?views=1')
-    expect(window.location.search).toBe('?views=1')
+    /* ⭐ Адрес ведёт РОУТЕР (не history мимо него): его и читают загрузчик и действия. */
+    await waitFor(() => expect(router.state.location.search).toBe('?views=1'))
     expect(screen.getByText('ascunde accesările')).toBeTruthy()
+    /* переключатель не открывает фишу заново: одна полная загрузка — одна запись в журнале */
+    expect(opens()).toBe(1)
+  })
+
+  it('пока лента едет — прежняя фиша без сброса в ожидание; адрес меняется ПОСЛЕ данных', async () => {
+    serve()
+    const base = get.getMockImplementation()
+    let arrive = () => {}
+    get.mockImplementation((path: string) => (path.startsWith('/patients/5/activity')
+      ? new Promise<void>((res) => { arrive = res }).then(() => base?.(path))
+      : base?.(path)))
+    const { router } = open()
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    fireEvent.click(screen.getByText('accesările'))
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/patients/5/activity?views=1'))
+    expect(screen.getByText('Pin Test', { selector: 'h2' })).toBeTruthy()
+    expect(document.querySelector('.dp-hero-wait')).toBeNull()
+    expect(screen.getByText('accesările')).toBeTruthy()
+    expect(router.state.location.search).toBe('')
+    await act(async () => { arrive() })
+    await screen.findByText('ascunde accesările')
+    await waitFor(() => expect(router.state.location.search).toBe('?views=1'))
+  })
+
+  it('переключатель ленты не перезапускает загрузчик, а повтор — перезапускает, и уже по новому адресу', async () => {
+    serve()
+    get.mockRejectedValueOnce(new ApiError({ kind: 'network', detail: 'offline' }, 'n'))
+    const { router } = open()
+    fireEvent.click(await screen.findByText('Reîncearcă'))
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    expect(opens()).toBe(2)
+    fireEvent.click(screen.getByText('accesările'))
+    await screen.findByText('ascunde accesările')
+    await waitFor(() => expect(router.state.location.search).toBe('?views=1'))
+    expect(opens()).toBe(2)
+    /* перезапуск на том же адресе (так работает «Reîncearcă») — загрузчик видит УЖЕ новый адрес */
+    await act(() => router.revalidate())
+    expect(get).toHaveBeenLastCalledWith('/patients/5?views=1', expect.anything())
+    expect(opens()).toBe(3)
+    expect(screen.getByText('Fișa deschisă')).toBeTruthy()
+  })
+
+  it('F5 после «accesările»: тот же адрес — та же фиша в том же режиме ленты', async () => {
+    serve()
+    const { router } = open()
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    await settled()
+    fireEvent.click(screen.getByText('accesările'))
+    await screen.findByText('ascunde accesările')
+    await waitFor(() => expect(router.state.location.search).toBe('?views=1'))
+    const asked = get.mock.calls.at(-1)?.[0] as string
+    expect(asked).toBe('/patients/5/activity?views=1')
+    reopen(router)
+    await screen.findByText('ascunde accesările')
+    /* тот же набор: полная загрузка в том же режиме, что принёс переключатель */
+    expect(get.mock.calls[0]?.[0]).toBe(asked.replace('/activity', ''))
+    expect(screen.getByText('Fișa deschisă')).toBeTruthy()
+  })
+
+  it('F5 после «ascunde accesările»: адрес без query (и без прежнего ?msg=) — фиша без просмотров', async () => {
+    serve()
+    const { router } = open('/admin/patient/5?views=1&msg=ok_card')
+    await screen.findByText('ascunde accesările')
+    expect(screen.getByText('Fișa deschisă')).toBeTruthy()
+    await settled()
+    fireEvent.click(screen.getByText('ascunde accesările'))
+    await screen.findByText('accesările')
+    await waitFor(() => expect(router.state.location.search).toBe(''))
+    expect(router.state.location.pathname).toBe('/admin/patient/5')
+    const asked = get.mock.calls.at(-1)?.[0] as string
+    expect(asked).toBe('/patients/5/activity')
+    expect(opens()).toBe(1)
+    reopen(router)
+    await screen.findByText('accesările')
+    expect(get.mock.calls[0]?.[0]).toBe(asked.replace('/activity', ''))
+    expect(screen.queryByText('Fișa deschisă')).toBeNull()
+  })
+
+  it('режим ленты — из адреса: повтор ключа решает последний, как у сервера; действия несут режим адреса', async () => {
+    serve()
+    post.mockResolvedValue(ok(CARD))
+    open('/admin/patient/5?views=1&views=0')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    expect(get).toHaveBeenCalledWith('/patients/5', expect.anything())
+    cleanup()
+    get.mockClear()
+    open('/admin/patient/5?views=0&views=1')
+    await screen.findByText('ascunde accesările')
+    expect(get).toHaveBeenCalledWith('/patients/5?views=1', expect.anything())
+    fireEvent.click(screen.getByText('Arhivează pacientul'))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/archive?views=1', { on: true }))
+    cleanup()
+    post.mockClear()
+    /* после переключения действие уходит в НОВОМ режиме: второй копии режима у экрана нет */
+    open()
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    fireEvent.click(screen.getByText('accesările'))
+    await screen.findByText('ascunde accesările')
+    fireEvent.click(screen.getByText('Arhivează pacientul'))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/archive?views=1', { on: true }))
   })
 
   it('документ для чужой программы: движок не открыл — скачивание', async () => {
     serve()
     post.mockResolvedValueOnce(ok({ opened: false, reason: 'not_local' }))
     const navigate = vi.fn()
-    render(<PatientCardScreen pid={5} navigate={navigate} />)
+    open('/admin/patient/5', navigate)
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByTitle('trimitere.docx'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/doc/3'))
@@ -363,7 +486,7 @@ describe('PatientCardScreen', () => {
   it('архив: серая пилюля и кнопка возврата', async () => {
     serve({ ...CARD, archived: true, hero: { ...CARD.hero, pills: [{ tone: 'grey', icon: 'box', text: 'Arhivat' }] } })
     post.mockResolvedValueOnce(ok(CARD, 'ok_unarh', 'Pacient scos din arhivă'))
-    render(<PatientCardScreen pid={5} />)
+    open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(screen.getByText('Arhivat', { selector: '.pill' })).toBeTruthy()
     fireEvent.click(screen.getByText('Scoate din arhivă'))
@@ -373,12 +496,12 @@ describe('PatientCardScreen', () => {
 
   it('фиши нет — 404 своим текстом; 401 — уход на вход', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 's'))
-    render(<PatientCardScreen pid={5} />)
+    open()
     expect(await screen.findByText('Fișa nu există sau a fost ștearsă.')).toBeTruthy()
     cleanup()
     get.mockRejectedValue(new ApiError({ kind: 'unauthenticated' }, 'u'))
     const navigate = vi.fn()
-    render(<PatientCardScreen pid={5} navigate={navigate} />)
+    open('/admin/patient/5', navigate)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
   })
 })
