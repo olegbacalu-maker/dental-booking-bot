@@ -224,7 +224,15 @@ export interface DashSlotForm {
 /** Живое состояние панели целиком — то, что везёт `GET /api/schedule/live`. */
 export interface DashModel {
   screen: string
+  /** Эхо дня, на который ответил сервер. ⭐ Адрес без `?date=` — это «сегодня
+   *  сервера», и в полночь эхо меняется само: шапка и ссылки строятся ОТСЮДА,
+   *  а не из адреса и не из узла. */
   date: string
+  /** Подпись дня для шапки: «Jo 24.09.2026». ⛔ Строит СЕРВЕР (`_day_title`,
+   *  та же, что у старой шапки): сокращения дней недели румынские, и второй их
+   *  список в браузере разошёлся бы с первым молча (08-12, 08-16). Едет ОДНИМ
+   *  конвертом с `date` — новый день приезжает датой и подписью разом. */
+  day_label: string
   live: boolean
   canvas: DashCanvasModel
   agenda: DashAgenda
@@ -258,7 +266,10 @@ export type _DashSlotFormFitsDialog = Fits<DashSlotForm extends SlotFormView ? t
  *  потому что `note_actions[undefined]` это просто пустой список. */
 export type _DashNoteFitsDialog = Fits<DashNote extends NoteView ? true : false>
 
-/** Адрес живого канала панели. Путь — без `/api`, как у `api.get`. */
+/** Адрес живого канала панели. Путь — без `/api`, как у `api.get`.
+ *  ⛔ `date` — день АДРЕСА как есть: пусто значит «сегодня сервера», и так и
+ *  уходит. Подставь сюда конкретный день, посчитанный при загрузке, — и
+ *  вкладка, оставленная на ночь, утром опрашивала бы вчера. */
 export function livePath(date: string): string {
   return `/schedule/live?screen=panel${date ? `&date=${encodeURIComponent(date)}` : ''}`
 }

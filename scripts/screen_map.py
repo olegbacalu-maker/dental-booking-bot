@@ -232,8 +232,9 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
 # станет `loader` маршрута; «—» значит, что просить нечего и данные уже в
 # параметрах узла.
 B2 = {
-    "/admin": ("date, day_label", "GET /api/schedule/live",
-               "живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток"),
+    "/admin": ("—", "GET /api/schedule/live",
+               "живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток; "
+               "день — из АДРЕСА (пусто — сегодня сервера), шапка — эхо канала"),
     "/admin/week": ("date", "GET /api/schedule/week", ""),
     "/admin/all": ("date, f?", "GET /api/schedule/day", "экран DayScreen, общий с днём врача"),
     "/admin/doctor/{dk}": ("date, dk", "GET /api/schedule/day", "тот же DayScreen, отличается dk"),

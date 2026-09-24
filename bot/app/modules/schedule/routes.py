@@ -111,19 +111,29 @@ def _day_tabs(d: date) -> str:
             f"<a href='/admin/week?date={d.isoformat()}'>Săptămâna</a>")
 
 
+def _day_title(d: date) -> str:
+    """Подпись дня в шапке: «Jo 24.09.2026».
+
+    ⚠️ Дата ОДИН раз. До 08-11 шапка печатала `{lbl} {d.isoformat()}`, то есть
+    «Ma 11.08 2026-08-11» — один и тот же день двумя записями подряд и без
+    разделителя. Год берётся из `d.year`, а не из ISO: day_label даёт только
+    день с месяцем, и без года шапка не сказала бы, какой это август.
+    ⛔ Сборка ОДНА на старую шапку (`_date_nav`) и на живой канал панели
+    (`_panel_live` › `day_label`): сокращения дней недели румынские, и вторая
+    сборка разошлась бы с первой молча — у старой и новой панели один и тот же
+    день назывался бы по-разному.
+    """
+    return f"{eng.day_label(eng.Session(lang='ro'), d)}.{d.year}"
+
+
 def _date_nav(d: date, base: str, extra: str = "") -> str:
     prev_d, next_d = d - timedelta(days=1), d + timedelta(days=1)
     wk_prev, wk_next = d - timedelta(days=7), d + timedelta(days=7)
-    lbl = eng.day_label(eng.Session(lang="ro"), d)
-    # ⚠️ Дата ОДИН раз. До 08-11 тут стояло `{lbl} {d.isoformat()}`, то есть
-    # «Ma 11.08 2026-08-11» — один и тот же день двумя записями подряд и без
-    # разделителя. Год берётся из `d.year`, а не из ISO: day_label даёт только
-    # день с месяцем, и без года шапка не сказала бы, какой это август.
     # ⛔ Поля <input type=date> здесь больше НЕТ (решение Олега 24.09): выбор
     # произвольного дня живёт в мини-календаре правой колонки, а третья запись
     # той же даты в шапке только съедала ширину — ровно те 150px, которых не
     # хватало, чтобы шапка дня встала в один ряд с заголовком на 1366.
-    return (f"<div class='nav'><b>{lbl}.{d.year}</b>"
+    return (f"<div class='nav'><b>{_day_title(d)}</b>"
             f"<a href='{base}?date={wk_prev.isoformat()}' title='-7 zile'>{_ic('chevs-l')}</a>"
             f"<a href='{base}?date={prev_d.isoformat()}'>{_ic('chev-l')} {prev_d.strftime('%d.%m')}</a>"
             f"<a href='{base}'>Azi</a>"
@@ -941,12 +951,9 @@ def _botnew_block(recent: list, now: datetime) -> str:
 async def admin_home(request: Request, date_q: str = Query("", alias="date"), msg: str = ""):
     if (deny := _guard(request)) is not None:
         return deny
-    d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     if react_on(request, "schedule_dash"):
         # DentPilot 2.0 (C26.5): данные — GET /api/schedule/live?screen=panel.
-        # ⛔ ЭКРАНА ЕЩЁ НЕТ (C26.5.1): узел пуст, пока не приедет C26.5.2.
-        # Имя заведено раньше экрана намеренно — иначе ветку «я больше не
-        # живая» не исполняет ни одна проверка. Возврат мгновенный: `?ui=legacy`.
+        # Возврат мгновенный: `?ui=legacy`.
         # ⛔ Ответ ОПРОСУ — раньше узла: вкладка, отрисованная по-старому, иначе
         # получила бы полный документ внутрь `#live` (разбор — live-contract.md
         # › 3). Живой опрос у панели при этом выключается сам: `_shell` не
@@ -954,11 +961,17 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         if (st := _live_stale(request)) is not None:
             return st
         # ⭐ B1: оболочку рисует React. Требование «увидеть при ПЕРВОЙ
-        # отрисовке» осталось в силе и выполняется по-прежнему: `msg` едет
-        # моделью оболочки (`frame.msg`), подпись дня — параметром узла. Ни то
-        # ни другое не ждёт первого ответа канала. На `/admin` приземляется
+        # отрисовке» держит баннер: `msg` едет моделью оболочки (`frame.msg`)
+        # и первого ответа канала не ждёт. На `/admin` приземляется
         # `no_access` со ВСЕЙ программы (двенадцать проверок прав сверяют
         # редирект сюда), поэтому требование и названо.
+        # ⛔ Дня в узле НЕТ — ни даты, ни подписи (решение Олега 24.09). Узел
+        # описывает ДОКУМЕНТ, то есть момент загрузки: день из него застывал,
+        # и вкладка, оставленная на ночь, утром показывала вчера, хотя старая
+        # панель на том же адресе переходила на новый день сама. Экран берёт
+        # день из АДРЕСА (пусто — «сегодня» сервера), а шапку строит по эху
+        # канала (`date`, `day_label`). Цена названа: шапка приходит вместе с
+        # панелью первым ответом канала, а не первым кадром.
         # ⛔ «Zi liberă» сервер больше НЕ печатает, и это исправление, а не
         # переезд: фраза выводилась ДВАЖДЫ — баннером по `hours_for` (только
         # график) и холстом по `hours_of` (график И записи). В закрытом дне, где
@@ -966,10 +979,8 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         # «clinica este închisă» прямо над нарисованной записью. Владелец
         # остался один — холст, у него условие полное.
         return react_shell("schedule_dash", "/admin",
-                           shell_model("dash", "panou principal", msg=msg),
-                           {"date": d.isoformat(),
-                            "day_label": f"{eng.day_label(eng.Session(lang='ro'), d)}"
-                                         f".{d.year}"})
+                           shell_model("dash", "panou principal", msg=msg))
+    d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     # Две недели одним запросом вместо «сегодня» + «вчера» двумя: из этой же
     # выборки берутся и день, и вчера, и ряды для мини-графиков в плитках.
@@ -1362,6 +1373,13 @@ async def _panel_live(d: date, now: datetime) -> dict:
                       if x["created_at"].astimezone(eng.TZ).date() == now.date())
     occ_series = [ppanel.occupancy_pct(x, by_day[x], active_dks) for x in span]
     return {
+        # ⭐ Подпись дня для шапки — В КОНВЕРТЕ, рядом с эхом `date` (решение
+        # Олега 24.09). Адрес панели без `?date=` значит «сегодня сервера», и в
+        # полночь новый день приезжает ОДНИМ ответом — дата, подпись и данные
+        # вместе, как у старой панели, которая опрашивает свой адрес. Из узла
+        # подпись застывала на моменте загрузки. Отпечаток она не шевелит:
+        # для одного дня она одна и та же, меняется ровно вместе с датой.
+        "day_label": _day_title(d),
         "canvas": pcanvas.model(d, rows, cards, _svc_colors),
         "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now),
         "tiles": ppanel.tiles(d, ppanel.counts(rows), ppanel.counts(by_day[prev_day]),

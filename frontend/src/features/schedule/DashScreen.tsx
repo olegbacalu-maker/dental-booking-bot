@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { Toast, type ToastState } from '../../components/Toast'
 import { CardDialog } from './CardDialog'
 import { asApiError, type ApiResult } from '../../services/api'
 import { dm, shift } from '../../utils/date'
 import { useLive } from '../../hooks/useLive'
+import { queryParam } from '../../hooks/useRouteLoad'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
 import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
-import { useClockTick } from './dashFx'
+import { clinicNow, clinicTz, useClockTick } from './dashFx'
 import { dash, livePath, type DashAppt, type DashBlock, type DashModel, type DashNote } from './dash'
 import type { Slot } from './slot'
 import { freshOf, readSeen, writeSeen, FRESH_MS } from './fresh'
@@ -26,12 +28,18 @@ import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
  * ⭐ Экран ПИШЕТ: карточка, пустой час, заметка и перенос отправляют команды
  * (C26.5.3-e и -f). Состояние после любой из них приезжает ОДНОЙ дверью —
  * каналом, — и локального мира расписания у React нет.
- * ⛔ Шапка дня и баннер `?msg=` обязаны быть на ПЕРВОЙ отрисовке, а не после
- * первого ответа канала: на `/admin` приземляется `no_access` со всей
- * программы. Баннер приезжает моделью оболочки (B1, `frame.msg`), а шапка —
- * ПАРАМЕТРАМИ УЗЛА, и потому рисуется во всех ветках, включая загрузку и
- * отказ. ⛔ Поэтому же `day_label` не в модели канала: оттуда он пришёл бы
- * вторым кругом, и шапка мигала бы на каждом переходе по дате.
+ * ⛔ Баннер `?msg=` обязан быть на ПЕРВОЙ отрисовке, а не после первого ответа
+ * канала: на `/admin` приземляется `no_access` со всей программы. Он приезжает
+ * моделью оболочки (B1, `frame.msg`) и этого экрана не касается.
+ * ⭐ ДЕНЬ — из АДРЕСА, шапка — из ЭХА КАНАЛА (решение Олега 24.09). Пустой
+ * `?date=` уходит в канал пустым и значит «сегодня сервера»: в полночь канал
+ * сам приносит новый день вместе с его подписью — как старая панель, которая
+ * опрашивает свой адрес. До 24.09 день и подпись ехали параметрами узла, а
+ * узел описывает ДОКУМЕНТ, то есть момент загрузки: вкладка, оставленная на
+ * ночь, утром опрашивала и показывала вчера.
+ * ⚠️ Цена названа: шапка приходит вместе с панелью первым ответом канала, а не
+ * первым кадром. Мигания нет — шапка не рисуется раньше данных, а приходит с
+ * ними одним кадром.
  */
 const T = {
   hint: 'Click pe o programare — detalii și statusuri; pe o oră liberă — '
@@ -63,19 +71,8 @@ const T = {
 const LINE_MS = 30_000
 const WAIT_MS = 60_000
 
-interface Props {
-  /** День из адреса; пусто — сегодня (решает сервер). */
-  date?: string
-  /**
-   * Подпись дня для шапки: «Jo 24.09.2026». ⛔ Строит СЕРВЕР
-   * (`eng.day_label`): сокращения дней недели румынские, и второй их список
-   * в браузере разошёлся бы с первым молча — на этом уже обожглись дважды
-   * (08-12, 08-16). Пусто — шапки нет вовсе.
-   */
-  dayLabel?: string
-}
-
-export function DashScreen({ date = '', dayLabel = '' }: Props) {
+export function DashScreen() {
+  const at = useAddressDay()
   const rail = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Вместе с номером хранится СНИМОК записи на момент клика — он и
      станет надгробием, если запись исчезнет. Снимок берётся в
@@ -130,10 +127,30 @@ export function DashScreen({ date = '', dayLabel = '' }: Props) {
     setDrag(d)
   }, [])
   const { state, retry, refresh } = useLive<DashModel>(
-    livePath(date), 'react', version,
+    livePath(at), 'react', version,
     { hold: () => flying.current || dragging.current })
   const lineTick = useClockTick(LINE_MS)
   const waitTick = useClockTick(WAIT_MS)
+
+  /* ⛔ Смена дня под открытым экраном — полночь на адресе без даты — это
+     «перезагрузка страницы», как у дня (решение Олега 24.09 для формы записи):
+     диалоги прежнего дня закрываются, и набранное в них на новый день не
+     переезжает. Оставь их — и карточка вчерашней записи назвала бы её
+     исчезнувшей (в конверте нового дня её нет), а пустой час или перенос
+     записали бы на НОВЫЙ день то, что набирали для прежнего.
+     ⚠️ Поправка во время отрисовки, а не эффектом: `setState` в эффекте даёт
+     каскад — тот же приём, что в `useRouteLoad`. */
+  const onDay = state.data?.date ?? ''
+  const [day, setDay] = useState(onDay)
+  if (onDay !== day) {
+    setDay(onDay)
+    if (day !== '' && onDay !== '') {
+      setCard(null)
+      setNote(null)
+      setSlot(null)
+      setMove(null)
+    }
+  }
 
   /* ⛔ Класс `anim` снимается ЗДЕСЬ, и снимать его больше некому. Ставит его
      каркас всякой странице (`core/layout.py`), а снимал единственный —
@@ -151,16 +168,20 @@ export function DashScreen({ date = '', dayLabel = '' }: Props) {
   const shown = useRef<DashModel | null>(null)
   /* Память дня для подсветки приехавшего. ⛔ В ПЕРВЫЙ раз читается из
      хранилища — её мог оставить легаси-экран этой же вкладки, и ключ у них
-     общий; дальше ведётся здесь. */
-  const seen = useRef<string[] | null>(null)
+     общий; дальше ведётся здесь.
+     ⛔ Память — НА ДЕНЬ, как и ключ хранилища. В полночь адрес без даты
+     приносит новый день, и снимок прошлого дня подсветил бы весь новый как
+     «только что приехал». Другой день читается из хранилища: первый его
+     показ не подсвечивает ничего. */
+  const seen = useRef<{ day: string; ids: string[] } | null>(null)
   useEffect(() => {
     const d = state.data
     if (!d || shown.current === d) return
     if (shown.current) document.documentElement.classList.remove('anim')
     shown.current = d
     const ids = idsOf(d)
-    const was = seen.current ?? readSeen(d.date)
-    seen.current = ids
+    const was = seen.current?.day === d.date ? seen.current.ids : readSeen(d.date)
+    seen.current = { day: d.date, ids }
     writeSeen(d.date, ids)
     /* ⛔ Подсветка родится ТОЛЬКО здесь, из разницы двух конвертов. Никакое
        локальное действие её не ставит: «приехало» — это то, что сказал канал,
@@ -241,33 +262,42 @@ export function DashScreen({ date = '', dayLabel = '' }: Props) {
   }, [drag, startDrag])
 
   /*
-   * Шапка дня. ⚠️ Стоит ВНЕ ветки данных и рисуется одинаково при загрузке,
-   * отказе и остановке канала: листать дни надо и тогда, когда данных нет, —
-   * иначе на упавшем канале с экрана не уйти никуда, кроме легаси.
+   * Шапка дня — по ЭХУ канала: день, на который ответил сервер, и его подпись.
+   * ⚠️ Рисуется и при остановке канала (данные прежние остаются), и при отказе
+   * первой загрузки: листать дни надо и тогда, когда данных нет, — иначе на
+   * упавшем канале с экрана не уйти никуда, кроме легаси. Без данных ссылки
+   * строятся от дня АДРЕСА (пусто или криво — сегодня по часам клиники), а
+   * подписи нет вовсе: дни недели по-румынски знает только сервер.
+   * ⛔ При ЗАГРУЗКЕ шапки нет: пришла бы раньше данных — и подпись вставала
+   * бы в неё вторым кадром.
    * ⛔ Ссылки настоящие (`<a href>`), а не обработчики: переход по дате на
    * `/admin` сегодня — полная загрузка документа, ровно как у сервера. Менять
    * это здесь нельзя, это работа B4.
    */
-  const navNode = dayLabel === '' ? null : (
-    <div className="nav">
-      <b>{dayLabel}</b>
-      <a href={`/admin?date=${shift(date, -7)}`} title={T.wkPrev}>
-        <Icon name="chevs-l" />
-      </a>
-      <a href={`/admin?date=${shift(date, -1)}`}>
-        <Icon name="chev-l" /> {dm(shift(date, -1))}
-      </a>
-      <a href="/admin">{T.today}</a>
-      <a href={`/admin?date=${shift(date, 1)}`}>
-        {dm(shift(date, 1))} <Icon name="chev-r" />
-      </a>
-      <a href={`/admin?date=${shift(date, 7)}`} title={T.wkNext}>
-        <Icon name="chevs-r" />
-      </a>
-      <a className="primary" href={`/admin?date=${date}`}>{T.day}</a>
-      <a href={`/admin/week?date=${date}`}>{T.week}</a>
-    </div>
-  )
+  const navNode = () => {
+    const m = state.data
+    const on = m ? m.date : linkDay(at)
+    return (
+      <div className="nav">
+        {m ? <b>{m.day_label}</b> : null}
+        <a href={`/admin?date=${shift(on, -7)}`} title={T.wkPrev}>
+          <Icon name="chevs-l" />
+        </a>
+        <a href={`/admin?date=${shift(on, -1)}`}>
+          <Icon name="chev-l" /> {dm(shift(on, -1))}
+        </a>
+        <a href="/admin">{T.today}</a>
+        <a href={`/admin?date=${shift(on, 1)}`}>
+          {dm(shift(on, 1))} <Icon name="chev-r" />
+        </a>
+        <a href={`/admin?date=${shift(on, 7)}`} title={T.wkNext}>
+          <Icon name="chevs-r" />
+        </a>
+        <a className="primary" href={`/admin?date=${on}`}>{T.day}</a>
+        <a href={`/admin/week?date=${on}`}>{T.week}</a>
+      </div>
+    )
+  }
 
   if (state.status === 'failed') {
     /* ⚠️ Свой отказ, а не общий `LoadFailed`: тому нужен `ApiError`, а у
@@ -275,7 +305,7 @@ export function DashScreen({ date = '', dayLabel = '' }: Props) {
        разметка — те же. */
     return (
       <section className="dp-react-root">
-        {navNode}
+        {navNode()}
         <div className="banner err" role="alert">{T.offline}</div>
         <p className="dp-actions">
           <button type="button" className="savebtn" onClick={retry}>
@@ -289,7 +319,7 @@ export function DashScreen({ date = '', dayLabel = '' }: Props) {
   if (state.status === 'stopped') {
     return (
       <section className="dp-react-root">
-        {navNode}
+        {navNode()}
         <div className="banner err" role="alert">
           {T.stopped} <a href="/admin?ui=legacy">{T.legacy}</a>.
         </div>
@@ -298,13 +328,13 @@ export function DashScreen({ date = '', dayLabel = '' }: Props) {
   }
   if (!state.data) {
     /* `loading` и `leaving`: на уходе форму не показываем даже кадр. */
-    return <section className="dp-react-root">{navNode}</section>
+    return <section className="dp-react-root" />
   }
 
   const d = state.data
   return (
     <section className="dp-react-root">
-      {navNode}
+      {navNode()}
       <div className="dash">
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
@@ -395,6 +425,26 @@ export function DashScreen({ date = '', dayLabel = '' }: Props) {
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </section>
   )
+}
+
+/** День АДРЕСА как есть: пусто = «сегодня сервера», и так и уходит в канал —
+ *  день здесь не вычисляется. Повтор параметра читается по правилу сервера
+ *  (`queryParam`: побеждает последний).
+ *  ⚠️ Своим хуком, а не двумя строками в теле экрана: выведенное прямо там
+ *  из `useSearchParams`, значение ломало компилятору React ручную мемоизацию
+ *  `onDrop` (lint `preserve-manual-memoization`); из хука приходит строка. */
+function useAddressDay(): string {
+  const [q] = useSearchParams()
+  return queryParam(q, 'date')
+}
+
+/** День, от которого строить ссылки шапки, когда данных нет: день адреса или,
+ *  без него, сегодня по часам клиники. ⚠️ Кривую дату сервер молча меняет на
+ *  сегодня; здесь она ссылкой не становится — `shift` на ней бросил бы
+ *  исключение и уронил бы экран отказа. */
+function linkDay(at: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(at) && !Number.isNaN(new Date(`${at}T12:00:00`).getTime())
+    ? at : clinicNow(clinicTz(), new Date()).day
 }
 
 /** Пустая пометка — ОДНА ссылка на всех: новый `new Set()` в состоянии давал

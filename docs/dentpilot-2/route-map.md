@@ -19,7 +19,7 @@
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
 |---|---|---|---|---|
-| `/admin` | `/admin` | `schedule_dash` | date, day_label | GET /api/schedule/live |
+| `/admin` | `/admin` | `schedule_dash` | — | GET /api/schedule/live |
 | `/admin/all` | `/admin/all` | `schedule_all` | date, f? | GET /api/schedule/day |
 | `/admin/medici` | `/admin/medici` | `doctors_list` | — | GET /api/doctors |
 | `/admin/search` | `/admin/search` | `patients_search` | q?, med?, st?, ch?, dat?, sort?, page?, per? | GET /api/patients/summary + GET /api/patients |
@@ -45,7 +45,7 @@
 
 ## Что нельзя потерять при переносе
 
-- `/admin` — живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток
+- `/admin` — живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток; день — из АДРЕСА (пусто — сегодня сервера), шапка — эхо канала
 - `/admin/all` — экран DayScreen, общий с днём врача
 - `/admin/search` — ДВА запроса разом (Promise.all) — loader обязан ждать оба
 - `/admin/doctor-card/{dk}` — ⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале

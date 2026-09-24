@@ -693,6 +693,36 @@ def suite_live_envelope(res: Result) -> None:
                    _j(c.get("/api/schedule/live?screen=nope")).get("field")),
                   (422, "screen"))
 
+        # --- 7. адрес без даты — «сегодня сервера» на КАЖДЫЙ запрос (24.09) ---
+        # ⭐ React-панель опрашивает адрес без даты КАК ЕСТЬ, и в полночь новый
+        # день приезжает сюда же одним ответом: эхо даты и подпись этого дня
+        # вместе. До 24.09 клиент подставлял день из узла, то есть момент
+        # загрузки, и вкладка, оставленная на ночь, утром показывала вчера.
+        # ⚠️ «Сегодня» теста и сервера сравниваются окном: запрос, попавший на
+        # полночь, законно отвечает любым из двух дней.
+        before = clinic_today().isoformat()
+        bare = _j(c.get("/api/schedule/live?screen=panel"))["data"]
+        after = clinic_today().isoformat()
+
+        def old_label(on: str) -> str | None:
+            """Подпись старой шапки того же дня: сборка одна (`_day_title`)."""
+            m_nav = re.search(r"<div class='nav'><b>([^<]+)</b>",
+                              c.get(f"/admin?date={on}").body)
+            return m_nav.group(1) if m_nav else None
+
+        res.check("без даты — сегодняшний день клиники и подпись ЭТОГО дня, как у старой шапки",
+                  (bare["date"] in (before, after), bare["day_label"] == old_label(bare["date"])),
+                  (True, True))
+        # ⛔ И подпись идёт за ЭХОМ, а не за часами: собери её от `now` — и
+        # оба «сегодняшних» случая выше зеленели бы, а панель любого другого
+        # дня называла бы себя сегодняшним.
+        other = (clinic_today() + timedelta(days=9)).isoformat()
+        far = _j(c.get(f"/api/schedule/live?date={other}"))["data"]
+        res.check("подпись другого дня — его собственная, та же, что у старой шапки",
+                  (far["date"], far["day_label"] == old_label(other),
+                   far["day_label"] != bare["day_label"]),
+                  (other, True, True))
+
 
 def suite_dash_flag(res: Result) -> None:
     """Флаг панели: что происходит с живым каналом и со старой вкладкой (C26.5.1).
@@ -725,8 +755,9 @@ def suite_dash_flag(res: Result) -> None:
                           'id="root"' in page, data["live"],
                           sorted(k for k in data if k not in ("screen", "date", "live"))),
                          (True, True, False, True,
-                          ["actions", "agenda", "canvas", "minical", "note_actions",
-                    "note_ends", "occupancy", "slotform", "tiles"])):
+                          ["actions", "agenda", "canvas", "day_label", "minical",
+                           "note_actions", "note_ends", "occupancy", "slotform",
+                           "tiles"])):
             return
         # ⭐ Вторая половина отката (C26.5.2). Вкладка, открытая React-ом,
         # узнаёт о ВЫКЛЮЧЕНИИ флага единственным способом, который у неё есть:
@@ -754,9 +785,19 @@ def suite_dash_flag(res: Result) -> None:
                   ('<div id="root" data-screen="schedule_dash"' in page2,
                    'id="live"' in page2, 'data-reload="12"' in page2),
                   (True, False, False))
-        params = json.loads(page2.split('data-params="', 1)[1].split('"', 1)[0]
-                            .replace("&quot;", '"'))
-        res.check("дата уехала параметром узла", params["date"], day)
+        # ⛔ Дня в узле НЕТ — ни даты, ни подписи (24.09, решение Олега). Узел
+        # описывает ДОКУМЕНТ, то есть момент загрузки, и день из него застывал:
+        # вкладка, оставленная на ночь, утром опрашивала и показывала вчера,
+        # хотя старая панель на том же адресе переходила на новый день сама.
+        # Экран берёт день из адреса, шапку — из эха канала. Проверяется
+        # ОТСУТСТВИЕ, а не «клиент не читает»: оставленный параметр — готовое
+        # приглашение прочесть застывший день снова.
+        m_node = re.search(r'<div id="root" data-screen="schedule_dash"[^>]*?'
+                           r'data-params="([^"]*)"', page2)
+        params = (json.loads(m_node.group(1).replace("&quot;", '"'))
+                  if m_node else {})
+        res.check("в узле панели нет дня — ни даты, ни подписи",
+                  ("date" in params, "day_label" in params), (False, False))
         # ⛔ А `?msg=` — НЕ параметром узла (переписано в C26.5.2). Прежняя
         # проверка сверяла `data-params["msg"]` и была зелена по неверной
         # причине: сервер параметр честно клал, а читать его в клиенте было
@@ -768,22 +809,6 @@ def suite_dash_flag(res: Result) -> None:
                   ("rezervată directorului" in deny, '"msg"' in deny,
                    '<div id="root" data-screen="schedule_dash"' in deny),
                   (True, False, True))
-        # ⭐ B1: шапку дня печатает ЭКРАН, а не сервер. Проверяется ПАРОЙ —
-        # ссылки на неделю в серверном HTML больше нет, а подпись дня, без
-        # которой экран шапку не нарисует, приехала параметром узла и готова
-        # к ПЕРВОЙ отрисовке. Одной половины мало: «сервер не печатает» само по
-        # себе зеленело бы и на экране, потерявшем шапку совсем.
-        # ⛔ Подпись НЕ в модели канала намеренно: оттуда она приходила бы
-        # вторым кругом, и шапка мигала бы на каждом переходе по дате.
-        # ⛔ Поля выбора даты в шапке нет с 24.09: день выбирают в
-        # мини-календаре правой колонки, а третья запись даты съедала ширину,
-        # из-за которой шапка не вставала в ряд с заголовком на 1366.
-        res.check("шапка дня уехала к экрану, подпись готова к первой отрисовке",
-                  (f"/admin/week?date={day}" in page2,
-                   params["day_label"].endswith("." + day[:4]),
-                   "class='dpickf'" in page2),
-                  (False, True, False))
-
         # --- канал НЕ СПРАШИВАЕТ, кто рисует экран (C26.5.2) ---
         # ⛔ До 19.09 он отвечал здесь `live:false` и пустотой — то есть
         # отнимал состояние ровно у того клиента, ради которого делался, а
@@ -796,8 +821,29 @@ def suite_dash_flag(res: Result) -> None:
                   (live["live"], live["screen"], live["date"],
                    sorted(k for k in live if k not in ("screen", "date", "live"))),
                   (True, "panel", day,
-                   ["actions", "agenda", "canvas", "minical", "note_actions",
-                    "note_ends", "occupancy", "slotform", "tiles"]))
+                   ["actions", "agenda", "canvas", "day_label", "minical",
+                    "note_actions", "note_ends", "occupancy", "slotform", "tiles"]))
+        # ⭐ B1: шапку дня печатает ЭКРАН, а не сервер. Проверяется ПАРОЙ —
+        # ссылки на неделю в серверном HTML больше нет, а подпись дня, без
+        # которой экран шапку не нарисует, едет КАНАЛОМ рядом с эхом даты
+        # (24.09) — и это та же подпись, что печатает старая шапка этого дня:
+        # сборка одна (`_day_title`). Одной половины мало: «сервер не печатает»
+        # само по себе зеленело бы и на экране, потерявшем шапку совсем.
+        # ⚠️ Цена названа: подпись больше не в первом кадре, она приходит с
+        # панелью первым ответом канала. Прежний довод «из канала шапка мигала
+        # бы на каждом переходе по дате» относился к шапке, нарисованной
+        # РАНЬШЕ данных; экран рисует её вместе с ними.
+        # ⛔ Поля выбора даты в шапке нет с 24.09: день выбирают в
+        # мини-календаре правой колонки, а третья запись даты съедала ширину,
+        # из-за которой шапка не вставала в ряд с заголовком на 1366.
+        old_nav = re.search(r"<div class='nav'><b>([^<]+)</b>",
+                            c2.get(f"/admin?date={day}&ui=legacy").body)
+        res.check("шапка дня уехала к экрану, подпись едет каналом — та же, что у старой",
+                  (f"/admin/week?date={day}" in page2,
+                   live["day_label"].endswith("." + day[:4]),
+                   live["day_label"] == (old_nav.group(1) if old_nav else None),
+                   "class='dpickf'" in page2),
+                  (False, True, True, False))
         res.check("а поверхность отвечает ЗАГОЛОВКОМ, и это «react»",
                   r_on.header("X-DP-Surface"), "react")
         # ⛔ Отпечаток от флага не зависит. Течь поверхности в `data` — это

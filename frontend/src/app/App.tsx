@@ -81,7 +81,9 @@ export const SCREENS: Record<ScreenName, Draw> = {
   // загрузчик берёт из АДРЕСА (B2.3), экран показывает только эхо сервера.
   visit: (p) => <VisitScreen aid={Number(p.appt_id)} />,
   odontogram: (p) => <OdontogramScreen pid={Number(p.pid)} t={intOrNull(p.t)} />,
-  schedule_dash: (p) => <DashScreen date={p.date ?? ''} dayLabel={p.day_label ?? ''} />,
+  // ⛔ Панель параметров узла не читает: день берёт из АДРЕСА сама, шапку — из
+  // эха живого канала. День из узла застывал на моменте загрузки документа.
+  schedule_dash: () => <DashScreen />,
   schedule_week: () => <WeekScreen />,
   schedule_all: () => <DayScreen />,
   // ⛔ Не путать с doctor_card: тот же `dk`, но это день врача в журнале.

@@ -1,8 +1,12 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { createMemoryRouter } from 'react-router'
+import { RouterProvider } from 'react-router/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { screenRoute } from '../../hooks/useRouteLoad'
+import { shift } from '../../utils/date'
 import { DashScreen } from './DashScreen'
 import { clinicNow } from './dashFx'
-import type { DashModel } from './dash'
+import type { DashAppt, DashModel } from './dash'
 
 /* Панель дня целиком: ОДИН конверт кормит пять блоков, и экран живой.
    Фикстуры ТОЛЬКО этих проверок. */
@@ -13,7 +17,7 @@ const SERIES = [0, 1, 2, 3, 2, 4, 5, 3, 2, 6, 4, 3, 7, 5]
 
 function model(over: Partial<DashModel> = {}): DashModel {
   return {
-    screen: 'panel', date: TODAY, live: true,
+    screen: 'panel', date: TODAY, day_label: 'Sâ 19.09.2026', live: true,
     canvas: {
       date: TODAY, empty: false, base_min: 540, tight: false,
       hours: [{ h: 9, label: '09:00', now: false }, { h: 10, label: '10:00', now: true }],
@@ -110,8 +114,16 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
-const show = async () => {
-  render(<DashScreen date={TODAY} />)
+/* Экран открывается ТЕМ ЖЕ маршрутом, что в App.tsx (загрузчика нет — данные
+   несёт живой канал), и на АДРЕСЕ: день он берёт из `?date=` сам. */
+function mount(url = `/admin?date=${TODAY}`) {
+  const router = createMemoryRouter([screenRoute('/admin', <DashScreen />)],
+    { initialEntries: [url] })
+  return { router, ...render(<RouterProvider router={router} />) }
+}
+
+const show = async (url?: string) => {
+  mount(url)
   await waitFor(() => expect(document.querySelector('.gridbody')).toBeTruthy())
 }
 
@@ -221,9 +233,165 @@ describe('C26.5.2: панель дня — экран целиком', () => {
 
   it('движок молчит на первой загрузке → отказ с повтором, а не пустой экран', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
-    render(<DashScreen date={TODAY} />)
+    mount()
     await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
     expect(document.querySelector('.savebtn')).toBeTruthy()
+  })
+})
+
+describe('24.09: день — из адреса, шапка — из эха канала (полночь)', () => {
+  /* ⛔ До 24.09 день и подпись ехали параметрами узла, а узел описывает
+     ДОКУМЕНТ: вкладка, оставленная на ночь, утром опрашивала и показывала
+     вчера, хотя старая панель на том же адресе переходила на новый день
+     сама. Здесь день — «что сказал адрес», а шапка — «что ответил сервер». */
+  const NEXT = shift(TODAY, 1)
+  type Calls = { mock: { calls: unknown[] } }
+  const urls = (f: Calls) => f.mock.calls.map((c) => (c as [string])[0])
+  const url0 = (f: Calls) => urls(f)[0]
+  const nav = () => ({
+    label: document.querySelector('.nav b')?.textContent ?? null,
+    links: Array.from(document.querySelectorAll('.nav a')).map((a) => a.getAttribute('href')),
+  })
+  const linksOf = (day: string) => [
+    `/admin?date=${shift(day, -7)}`, `/admin?date=${shift(day, -1)}`, '/admin',
+    `/admin?date=${shift(day, 1)}`, `/admin?date=${shift(day, 7)}`,
+    `/admin?date=${day}`, `/admin/week?date=${day}`,
+  ]
+  /** Утро после полуночи: другой день, другая подпись, другая запись. */
+  const morning = (): DashModel => {
+    const m = model({ date: NEXT, day_label: 'Du 20.09.2026' })
+    const col = m.canvas.columns[0]!
+    m.canvas = { ...m.canvas, date: NEXT,
+      columns: [{ ...col, blocks: [{ ...(col.blocks[0] as DashAppt), id: 5, name: 'Ana Dimineață' }] }] }
+    m.agenda = { ...m.agenda, items: [{ ...m.agenda.items[0]!, id: 5, name: 'Ana Dimineață' }] }
+    return m
+  }
+
+  it('адрес БЕЗ даты уходит в канал без даты: «сегодня» решает сервер', async () => {
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show('/admin')
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(f.mock.calls.length).toBeGreaterThan(1))
+    expect(new Set(urls(f))).toEqual(new Set(['/api/schedule/live?screen=panel']))
+  })
+
+  it('⭐ шапка — эхо канала: подпись и ссылки от дня, на который ОТВЕТИЛ сервер', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
+    await show('/admin')
+    expect(nav()).toEqual({ label: 'Sâ 19.09.2026', links: linksOf(TODAY) })
+  })
+
+  it('⭐ полночь: новый день приезжает ОДНИМ ответом — шапка, ссылки и данные', async () => {
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show('/admin')
+
+    f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() => expect(nav().label).toBe('Du 20.09.2026'))
+    expect(nav().links).toEqual(linksOf(NEXT))
+    expect(document.querySelector('[data-appt="5"] b')?.textContent).toContain('Ana Dimineață')
+    expect(document.querySelector('.dashmain .hint a')?.getAttribute('href'))
+      .toBe(`/admin?date=${NEXT}&ui=legacy`)
+    /* и адрес опроса НЕ застыл на вчерашнем дне */
+    expect(new Set(urls(f))).toEqual(new Set(['/api/schedule/live?screen=panel']))
+  })
+
+  it('⛔ полночь не подсвечивает весь новый день как «только что приехал»', async () => {
+    /* Первый показ дня не подсвечивает ничего — и новый день в полночь тоже
+       первый его показ. Снимок прошлого дня в сравнении подсветил бы всё. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show('/admin')
+
+    f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() => expect(document.querySelector('[data-appt="5"]')).toBeTruthy())
+    expect(document.querySelectorAll('.fresh').length).toBe(0)
+    await waitFor(() => expect(
+      JSON.parse(sessionStorage.getItem(`dp_seen_${NEXT}`) ?? 'null')).toEqual(['5', '5']))
+  })
+
+  it('⛔ полночь закрывает карточку прежнего дня, а не хоронит запись', async () => {
+    /* В конверте нового дня вчерашней записи нет, и надгробие сказало бы
+       «Programarea nu mai există» о записи, которая есть. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show('/admin')
+    fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+
+    f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() => expect(nav().label).toBe('Du 20.09.2026'))
+    expect(document.querySelector('dialog')).toBeNull()
+  })
+
+  it('⛔ полночь закрывает пустой час: набранное на новый день не переезжает', async () => {
+    /* То же решение, что у формы дня (Олег, 24.09): смена дня — как
+       перезагрузка страницы. Иначе «Salvează» записал бы на СЕГОДНЯ то, что
+       набирали на вчера. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show('/admin')
+    fireEvent.click(document.querySelector('.gcell[data-h="10"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    fireEvent.change(document.querySelector('dialog input[placeholder="Nume pacient"]') as HTMLElement,
+      { target: { value: 'Ana Munteanu' } })
+
+    f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
+    await vi.advanceTimersByTimeAsync(12_000)
+
+    await waitFor(() => expect(nav().label).toBe('Du 20.09.2026'))
+    expect(document.querySelector('dialog')).toBeNull()
+  })
+
+  it('повтор `?date=` читается как у сервера: побеждает ПОСЛЕДНИЙ', async () => {
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show(`/admin?date=2026-09-01&date=${TODAY}`)
+    expect(url0(f)).toBe(`/api/schedule/live?screen=panel&date=${TODAY}`)
+  })
+
+  it('кривая дата уходит серверу как есть, а ссылки строятся от его ЭХА', async () => {
+    /* Сервер кривую дату молча меняет на сегодня — и экран обязан показать
+       то же, что сервер, а не то, что набрано в адресе. */
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show('/admin?date=zz')
+    expect(url0(f)).toBe('/api/schedule/live?screen=panel&date=zz')
+    expect(nav().links).toEqual(linksOf(TODAY))
+  })
+
+  it('⛔ отказ первой загрузки: шапка есть — от дня адреса и БЕЗ подписи', async () => {
+    /* Листать дни надо и тогда, когда данных нет. А подпись — только
+       серверная: дни недели по-румынски браузер не знает. */
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
+    mount(`/admin?date=${TODAY}`)
+    await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
+    expect(nav()).toEqual({ label: null, links: linksOf(TODAY) })
+  })
+
+  it('⛔ отказ на адресе без даты или с кривой — ссылки от сегодня клиники, экран жив', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
+    mount('/admin?date=2026-9-4')
+    await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
+    expect(nav()).toEqual({ label: null, links: linksOf(clinicNow('', new Date()).day) })
+  })
+
+  it('при загрузке шапки нет: она приходит вместе с данными, а не раньше', async () => {
+    let answer: (r: Response) => void = () => {}
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((ok) => { answer = ok })))
+    mount('/admin')
+    await waitFor(() => expect(document.querySelector('.dp-react-root')).toBeTruthy())
+    expect(document.querySelector('.nav')).toBeNull()
+    answer(reply(200, model()))
+    await waitFor(() => expect(nav().label).toBe('Sâ 19.09.2026'))
+    expect(document.querySelector('.gridbody')).toBeTruthy()
   })
 })
 
