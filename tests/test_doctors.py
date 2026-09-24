@@ -396,7 +396,15 @@ def suite_switch(res: Result) -> None:
     with s:
         c = Client(s.url).login()
         page = c.get("/admin/medici").body
-        res.ok("список: узел React", '<div id="root" data-screen="doctors_list">' in page, "узла нет")
+        res.ok("список: узел React", '<div id="root" data-screen="doctors_list"' in page,
+               "узла нет")
+        # ⭐ B1: модель оболочки приезжает ИНЛАЙНОМ тем же узлом — оболочка,
+        # ждущая fetch, рисовала бы пустой сайдбар на первом кадре.
+        res.ok("список: модель оболочки на узле", 'data-shell="' in page, "модели нет")
+        # ⛔ Негативный сторож B1: сервер каркас больше НЕ печатает. Иначе на
+        # экране было бы по два сайдбара, и увидеть это можно только глазами.
+        res.ok("список: серверного каркаса нет", "<aside" not in page
+               and 'class="top"' not in page, "две оболочки разом")
         res.ok("список: рамка (подпись раздела и бандл)",
                "medicii clinicii" in page and "/static/js/bundle.js?v=" in page, "рамка потеряна")
         res.ok("список: старой разметки нет", "class='medgrid'" not in page, "две разметки")

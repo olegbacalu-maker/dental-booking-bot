@@ -24,7 +24,7 @@ from ... import engine as eng
 from ...core.auth import PERM_DOCTORS, _guard, require
 from ...core.layout import (HOUR_MAX, HOUR_MIN, _DOC_STATE_RO,
                             _DOW_FULL, _DOW_ORDER, _doc_hours_text, _ic,
-                            msg_banner, react_mount, react_on, _shell)
+                            msg_banner, react_mount, react_shell, shell_model, react_on, _shell)
 from ...core.visits import (_avatar, _card_modal, _collect_cards, _doc_hue,
                             _doctors_dir, _list, _photo_path)
 
@@ -218,10 +218,15 @@ async def admin_medici(request: Request, msg: str = ""):
     if (deny := require(request, PERM_DOCTORS)) is not None:
         return deny
     if react_on(request, "doctors_list"):
-        # React-экран (флаг в clinic.json): рамка и плашка ответа те же,
-        # старая разметка ниже остаётся и отдаётся по ?ui=legacy
-        return _shell(msg_banner(msg) + react_mount("doctors_list", request.url.path),
-                      "medicii clinicii · fișă, program, servicii", active="med")
+        # ⭐ B1, ПЕРВАЯ ВЕРТИКАЛЬ: оболочку рисует React. Сервер печатает только
+        # голову и узел с моделью — ни сайдбара, ни шапки, ни заголовка, ни
+        # баннеров, иначе на экране было бы по две штуки всего.
+        # ⛔ Старая разметка ниже НЕ трогается и отдаётся по ?ui=legacy: это
+        # аварийный выход, и он обязан вести на полностью серверную страницу.
+        return react_shell("doctors_list", request.url.path,
+                           shell_model("med",
+                                       "medicii clinicii · fișă, program, servicii",
+                                       msg=msg))
     today = datetime.now(eng.TZ).date()
     d1 = today - timedelta(days=29)
     start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)

@@ -14,6 +14,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
+import { readShell } from './layouts/shell'
 import './app/app.css'
 
 const host = document.getElementById('root')
@@ -34,10 +35,13 @@ if (!host) {
   // Внутри узла сервер оставил заглушку «интерфейс не загрузился» со
   // ссылкой на старую страницу (layout.react_mount). Раз мы здесь — бандл
   // загрузился; заглушку убираем сами, чтобы React монтировался в пустой узел.
+  // ⭐ B1: модель оболочки приезжает ИНЛАЙНОМ, атрибутом того же узла. `null`
+  // значит, что каркас ещё печатает сервер — тогда App рисует один экран.
+  const shell = readShell(host)
   host.replaceChildren()
   createRoot(host).render(
     <StrictMode>
-      <App screen={screen} params={params} />
+      <App screen={screen} params={params} shell={shell} />
     </StrictMode>,
   )
 }

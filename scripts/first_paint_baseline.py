@@ -177,7 +177,12 @@ def main() -> int:
     # включения замер снял бы ЛЕГАСИ-страницы — без узла #root вовсе, то есть
     # доказывал бы отсутствие дефекта, которого на той поверхности и нет.
     cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["schedule_dash", "patients_search", "stats"]}
+    # ⚠️ Список обязан покрывать ВСЕ замеряемые адреса. Пропущенный
+    # `doctors_list` отдавал `/admin/medici` старой страницей, и замер честно
+    # показывал серверный каркас на 59 мс без единого узла React — выглядело
+    # как дефект стенда, а было дефектом списка.
+    cfg["ui"] = {"react": ["schedule_dash", "patients_search", "stats",
+                           "doctors_list"]}
     s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-baseline")
@@ -191,6 +196,14 @@ def main() -> int:
             cdp = CDP(ws)
             for dom in ("Page", "Runtime", "Network"):
                 cdp.cmd(f"{dom}.enable")
+            # ⛔ Кеш ВЫКЛЮЧЕН, и это не мелочь. Без этого второй и следующие
+            # адреса берут bundle.js из памяти браузера, React монтируется до
+            # первого кадра сэмплера, и метки `root_node` / `stub_visible`
+            # пропадают вовсе — страница выглядит здоровой, потому что замер
+            # опоздал. Поймано на `/admin/medici`: тёплый прогон дал «каркас на
+            # 58 мс», холодный — честные 205. Пара «до/после» без этого
+            # сравнивает не код, а прогретость профиля.
+            cdp.cmd("Network.setCacheDisabled", cacheDisabled=True)
             cdp.cmd("Network.setCookie", name="admin_auth", value=cookie,
                     url=s2.url + "/")
             # ⛔ Сэмплер обязан стоять ДО скриптов страницы, иначе первый кадр
@@ -199,7 +212,11 @@ def main() -> int:
             page = Page(cdp, s2.url)
             page.size(*WIDE)
 
-            for path in ("/admin", "/admin/search", "/admin/stats"):
+            # ⚠️ `/admin/medici` добавлен ПОСЛЕ снятия базовой линии: его «до»
+            # потеряно, потому что первую вертикаль B1 я включил именно на нём,
+            # а в набор адресов его не внёс. Прайор на будущее: замерять надо
+            # ТОТ адрес, который собираешься тронуть первым.
+            for path in ("/admin", "/admin/search", "/admin/stats", "/admin/medici"):
                 m = measure(page, cdp, path)
                 runs.append(m)
                 print(f"\n{path}")

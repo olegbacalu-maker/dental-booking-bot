@@ -1072,6 +1072,152 @@ def react_mount(screen: str, path: str, params: dict | None = None) -> str:
 # Новый абзац на новой странице берёт его же, а не заводит своё число.
 
 
+def _doc_head() -> str:
+    """<head> страницы журнала — ОДИН на серверную оболочку и на React (B1).
+
+    ⭐ Вынесен не ради красоты: с B1 голову печатают ДВА отправителя
+    (`_shell` и `react_shell`), и скопированная голова разошлась бы молча —
+    порядок `panel.css` → `<style>` темы и положение скрипта `anim` в шапке
+    ломаются без единой ошибки на экране.
+    """
+    th = theme.current()
+    th_css = theme.vars_css()
+    th_bg = theme.STYLES[th["style"]]["--bg"]
+    return f"""<!doctype html><html lang="ro" data-style="{th['style']}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="{th_bg}">
+<link rel="icon" type="image/svg+xml" href="/favicon.ico">{pwa_head()}
+<title>{html.escape(eng.CLINIC_NAME)} — registru</title>
+<link rel="stylesheet" href="/static/css/fonts.css?v={_asset_ver('css', 'fonts.css')}">
+<link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
+<style>{th_css}</style>
+<script>/* Оживлять цифры и полосы можно только при ОСМЫСЛЕННОМ открытии страницы.
+Флаг dp_auto ставит panel.js перед 303-повтором той же страницы (смена статуса):
+это не приход человека, и заново играть появление блоков незачем. Здесь флаг
+снимается — и класс `anim` не выдаётся. Опрос живого журнала (12 с) страницу
+больше не перезагружает вовсе — panel.js подменяет #live и сам снимает `anim`,
+чтобы входные анимации не переигрывались на каждой приехавшей брони.
+ВАЖНО: скрипт обязан стоять В ШАПКЕ — класс нужен ДО первой отрисовки, иначе виден
+кадр с конечным состоянием, и анимация выглядит рывком назад. Всё оформление
+привязано к `.anim`, поэтому без JS страница просто статична — не пуста. */
+try{{if(sessionStorage.getItem('dp_auto')==='1'){{sessionStorage.removeItem('dp_auto');}}
+else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.documentElement.classList.add('anim');}}
+</script></head>"""
+
+
+def shell_model(active: str, sub: str, rail: bool = False,
+                bell: int | None = None, msg: str = "") -> dict:
+    """Оболочка ДАННЫМИ — одна модель на серверную страницу и на React (B1).
+
+    ⭐ Живёт рядом с `_shell`, а не в своём модуле: ей нужны `auth`, `theme`,
+    `brand` и сами баннеры, и вынос замкнул бы круг импортов.
+
+    ⛔ Права приезжают РАЗРЕШЁННЫМИ (`can.money`), а не таблицей `PERMS`:
+    таблица приглашает клиента вычислять право самому, булев ответ — не
+    приглашает. И скрытый пункт меню — по-прежнему УДОБСТВО, а не защита:
+    отказ выдаёт `require()` в самом маршруте, потому что адрес набирается
+    руками, а роль читается из файла по id, чтобы понижение действовало сразу.
+
+    ⚠️ Текст сигналов остаётся серверной прозой (идиома `lan.py`, `crypt.py`):
+    доказуемо значением здесь УСЛОВИЕ (`shown`), а не формулировка. Условия —
+    `tamper_alert()`, `slot_guard()`, `split_pending()`, `CONFIG['template']`;
+    их и сверяет сторож, а тексты живут один раз.
+    """
+    me = request_user()
+    show_money = can(me, PERM_MONEY) or me is None
+    show_set = can(me, PERM_SETTINGS) or me is None
+    show_docs = can(me, PERM_DOCTORS) or me is None
+    tg_on, tg_user = _tg_state()
+    th = theme.current()
+
+    items = [{"key": "dash", "href": "/admin", "icon": "home", "label": "Dashboard"},
+             {"key": "prog", "href": "/admin/all", "icon": "cal", "label": "Programări"},
+             {"key": "pat", "href": "/admin/search", "icon": "pat", "label": "Pacienți"}]
+    if show_docs:
+        items.append({"key": "med", "href": "/admin/medici", "icon": "med",
+                      "label": "Medici"})
+    if show_money:
+        items.append({"key": "stat", "href": "/admin/stats", "icon": "stat",
+                      "label": "Statistici"})
+    if show_set:
+        items.append({"key": "set", "href": "/admin/settings", "icon": "set",
+                      "label": "Setări"})
+    # Секция «Sincronizări» — только у клиники с уже настроенным ботом
+    # (grandfather): Telegram заморожен. Пустой список = секции нет вовсе.
+    sync = []
+    if tg_configured():
+        sync = [{"key": "tg",
+                 "href": "/admin/settings/telegram" if show_set else "",
+                 "icon": "bot", "label": "Telegram Bot",
+                 "dot": "ok" if tg_on else "off"},
+                {"key": "qr", "href": "/admin/qr-print", "icon": "qr",
+                 "label": "QR pacienți"}]
+
+    def _sig(html_: str) -> dict:
+        return {"shown": bool(html_), "html": html_}
+
+    return {
+        "identity": ({"name": me["name"], "role": me["role"],
+                      "role_label": ROLE_LABEL.get(me["role"], me["role"]),
+                      "initials": _initials(me["name"]),
+                      "can": {"money": show_money, "settings": show_set,
+                              "doctors": show_docs}} if me else None),
+        # ⚠️ Знак и адрес обратной связи едут СТРОКАМИ сервера, как проза
+        # баннеров: рисовать фирменный знак второй раз в TSX значило бы завести
+        # второго владельца одной картинки.
+        "clinic": {"name": eng.CLINIC_NAME,
+                   "mark": brand.mark_svg(32, "logo", flat=True),
+                   "logo_topbar": (theme.logo_url() or "") if th.get("logo_topbar") else ""},
+        "runtime": {"version": eng.APP_VERSION, "tz": eng.TZ.key},
+        "nav": {"active": active, "items": items, "sync": sync,
+                "foot_title": (f"@{tg_user}" if tg_on else "neconectat")
+                              if tg_configured() else ""},
+        "signals": {"tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
+                    "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint())},
+        "frame": {"sub": sub, "rail": rail, "bell": bell,
+                  "sec_warn": _sec_warn(),
+                  "update": _update_banner().removeprefix(" · "),
+                  "msg": msg_banner(msg) if msg else "",
+                  "feedback": {
+                      "email": FEEDBACK_EMAIL,
+                      "href": (f"mailto:{FEEDBACK_EMAIL}?subject="
+                               + urllib.parse.quote(f"Feedback DentPilot — "
+                                                    f"{eng.CLINIC_NAME} (v{eng.APP_VERSION})")
+                               + "&body="
+                               + urllib.parse.quote("Ideea / problema mea:\n\n"))},
+                  "today": datetime.now(eng.TZ).date().isoformat()},
+    }
+
+
+def react_shell(screen: str, path: str, model: dict,
+                params: dict | None = None) -> str:
+    """Документ, в котором оболочку рисует React (B1).
+
+    ⛔ Отличие от `_shell` ровно одно и оно несущее: сервер печатает ТОЛЬКО
+    голову и узел монтирования. Ни сайдбара, ни верхней панели, ни `<h1>`, ни
+    подписи раздела, ни баннеров — иначе на экране было бы по две штуки всего.
+
+    ⭐ Модель едет ИНЛАЙНОМ, атрибутом, тем же экранированием, что и
+    `data-params`. Оболочка, ждущая `fetch`, рисовала бы пустой сайдбар на
+    первом кадре — ровно то мигание, ради устранения которого B1 и делается.
+
+    ⚠️ `panel.js` здесь НЕ подключается: на этой странице у него не остаётся
+    ни одного читателя (`#live` нет, `#sf_clock` теперь рисует React, Ctrl+K —
+    `QuickFind`), а его часы писали бы в узел, которым владеет React.
+    """
+    e = html.escape
+    attrs = (f' data-params="{e(json.dumps(params, ensure_ascii=False), quote=True)}"'
+             if params else "")
+    return _doc_head() + f'''<body data-v="{eng.APP_VERSION}">
+<link rel="stylesheet" href="/static/css/bundle.css?v={_asset_ver("css", "bundle.css")}">
+{REACT_MOUNT_MARK}{e(screen)}"{attrs}
+ data-shell="{e(json.dumps(model, ensure_ascii=False), quote=True)}">
+<p class="hint">Interfața nouă nu s-a încărcat.
+<a href="{e(path)}?ui=legacy">Deschideți varianta clasică</a>.</p></div>
+<script type="module" src="/static/js/bundle.js?v={_asset_ver("js", "bundle.js")}"></script>
+</body></html>'''
+
+
 def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
            rail: bool = False) -> str:
     fb_subject = urllib.parse.quote(
@@ -1100,9 +1246,6 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
     # все клиники. Порядок обязателен — <style> ПОСЛЕ ссылки, иначе он не
     # перебьёт :root. Цвет полосы браузера берётся из того же стиля: на
     # телефоне врача она занимает верх экрана и осталась бы от прежней темы.
-    th = theme.current()
-    th_css = theme.vars_css()
-    th_bg = theme.STYLES[th["style"]]["--bg"]
     # ⚠️ В <h1> имени клиники НЕТ намеренно (08-09): оно и так на экране дважды —
     # в подписи сайдбара и в чипе вошедшего («роль · клиника»), а строка
     # «Clinica mea — registrul clinicii» съедала ширину ради третьего повтора.
@@ -1110,26 +1253,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
     # поэтому он называет ПРОГРАММУ, а не страницу — и обязан быть коротким.
     # В <title> окна имя клиники остаётся: там оно различает установки в панели
     # задач, а не повторяет соседний элемент.
-    return f"""<!doctype html><html lang="ro" data-style="{th['style']}"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="{th_bg}">
-<link rel="icon" type="image/svg+xml" href="/favicon.ico">{pwa_head()}
-<title>{html.escape(eng.CLINIC_NAME)} — registru</title>
-<link rel="stylesheet" href="/static/css/fonts.css?v={_asset_ver('css', 'fonts.css')}">
-<link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
-<style>{th_css}</style>
-<script>/* Оживлять цифры и полосы можно только при ОСМЫСЛЕННОМ открытии страницы.
-Флаг dp_auto ставит panel.js перед 303-повтором той же страницы (смена статуса):
-это не приход человека, и заново играть появление блоков незачем. Здесь флаг
-снимается — и класс `anim` не выдаётся. Опрос живого журнала (12 с) страницу
-больше не перезагружает вовсе — panel.js подменяет #live и сам снимает `anim`,
-чтобы входные анимации не переигрывались на каждой приехавшей брони.
-ВАЖНО: скрипт обязан стоять В ШАПКЕ — класс нужен ДО первой отрисовки, иначе виден
-кадр с конечным состоянием, и анимация выглядит рывком назад. Всё оформление
-привязано к `.anim`, поэтому без JS страница просто статична — не пуста. */
-try{{if(sessionStorage.getItem('dp_auto')==='1'){{sessionStorage.removeItem('dp_auto');}}
-else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.documentElement.classList.add('anim');}}
-</script></head><body{reload_attr} data-v="{eng.APP_VERSION}">
+    return _doc_head() + f"""<body{reload_attr} data-v="{eng.APP_VERSION}">
 {_sidebar(active, rail)}
 <div class="main">
 {_topbar(bell)}

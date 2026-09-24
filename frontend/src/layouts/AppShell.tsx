@@ -1,0 +1,162 @@
+import { useEffect, useState } from 'react'
+import { Icon, iconName } from '../components/Icon'
+import { t } from '../utils/i18n'
+import type { NavItem, ShellModel } from './shell'
+
+/* Оболочка журнала в React (B1). Разметка и классы — ТЕ ЖЕ, что печатал
+   серверный `_shell`: paritet здесь не «похоже», а те же узлы в том же
+   порядке, потому что panel.css написан под них.
+   ⛔ Никакой перекладки и никакого редизайна: облик меняется с B5, не здесь. */
+
+const T = t('shell', {
+  title: 'Registrul Clinicii',
+  menu: 'Meniu',
+  sync: 'Sincronizări',
+  search: 'Caută pacient, telefon…',
+  kbd: 'Ctrl K',
+  newAppt: 'Programare nouă',
+  logout: 'Ieșire din cont',
+  bell: 'Programări noi din bot',
+  feedback: 'Feedback',
+} as const)
+
+/** Пункт меню. Пустой `href` — строка без ссылки (см. модель). */
+function Item({ it, active }: { it: NavItem; active: string }) {
+  const body = (
+    <>
+      <Icon name={iconName(it.icon)} />
+      <span>{it.label}</span>
+      {it.dot && <span className={`dot ${it.dot}`} />}
+    </>
+  )
+  const cls = it.key === active ? 'on' : ''
+  return it.href
+    ? <a className={cls} href={it.href} title={it.label}>{body}</a>
+    : <a className={cls} title={it.label}>{body}</a>
+}
+
+/**
+ * Часы подвала. ⚠️ Пояс — КЛИНИКИ, из модели, а не устройства: в облаке через
+ * туннель браузер живёт в своём поясе. Формат и период (20 с) те же, что были
+ * у `panel.js`, который эти часы и вёл до B1.
+ */
+function Clock({ tz }: { tz: string }) {
+  const [txt, setTxt] = useState('')
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date()
+      try {
+        setTxt(now.toLocaleTimeString('ro-RO',
+          { timeZone: tz || undefined, hour: '2-digit', minute: '2-digit' }))
+      } catch {
+        /* пояс не знаком движку — часы устройства лучше пустоты */
+        const p2 = (n: number) => String(n).padStart(2, '0')
+        setTxt(`${p2(now.getHours())}:${p2(now.getMinutes())}`)
+      }
+    }
+    tick()
+    const id = window.setInterval(tick, 20_000)
+    return () => window.clearInterval(id)
+  }, [tz])
+  return <span id="sf_clock" data-tz={tz}>{txt}</span>
+}
+
+function Sidebar({ m }: { m: ShellModel }) {
+  const { nav, clinic, runtime, frame } = m
+  return (
+    <aside className={frame.rail ? 'side side-rail' : 'side'}>
+      <div className="brand">
+        {/* знак приходит строкой сервера — второй его владелец не нужен */}
+        <span dangerouslySetInnerHTML={{ __html: clinic.mark }} />
+        <div className="txt">
+          <b title={clinic.name}>{clinic.name}</b><small>DentPilot</small>
+        </div>
+      </div>
+      <nav>
+        <div className="sec">{T.menu}</div>
+        {nav.items.map((it) => <Item key={it.key} it={it} active={nav.active} />)}
+        {nav.sync.length > 0 && (
+          <>
+            <div className="sec">{T.sync}</div>
+            {nav.sync.map((it) => <Item key={it.key} it={it} active={nav.active} />)}
+          </>
+        )}
+      </nav>
+      <div className="sfoot" {...(nav.foot_title ? { title: `Telegram: ${nav.foot_title}` } : {})}>
+        v{runtime.version} · <Clock tz={runtime.tz} />
+      </div>
+    </aside>
+  )
+}
+
+function Topbar({ m }: { m: ShellModel }) {
+  const { identity, clinic, frame } = m
+  return (
+    <div className="top">
+      <form className="searchf" method="get" action="/admin/search">
+        <input id="topq" name="q" placeholder={T.search} autoComplete="off" />
+        <span className="kbd">{T.kbd}</span>
+        <button><Icon name="search" /></button>
+      </form>
+      {clinic.logo_topbar && (
+        <a className="tb-logo" href="/admin"><img src={clinic.logo_topbar} alt="" /></a>
+      )}
+      <div style={{ flex: 1 }} />
+      <span className="dp-upd" dangerouslySetInnerHTML={{ __html: frame.update }} />
+      {/* ⛔ Колокольчик заморожен вместе с ботом: сервер присылает `bell: null`,
+          пока `tg_configured()` ложно. Размораживать его здесь нельзя. */}
+      {frame.bell !== null && (
+        <a className="bell" href="/admin#botnew" title={T.bell}>
+          <Icon name="bell" />
+          {frame.bell > 0 && <span className="n">{frame.bell}</span>}
+        </a>
+      )}
+      <a className="newbtn" href={`/admin/all?date=${frame.today}#addform`}>
+        <span className="plus">+</span><span className="nb-t">{T.newAppt}</span>
+      </a>
+      {identity && (
+        <div className="who" title={`${identity.name} · ${identity.role_label}`}>
+          <span className="who-av">{identity.initials}</span>
+          <div className="who-n">
+            <b>{identity.name}</b>
+            <small>{identity.role_label} · {clinic.name}</small>
+          </div>
+          <a className="who-out" href="/admin/logout" title={T.logout}>
+            <Icon name="power" />
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Каркас страницы. Экран приезжает детьми и стоит там же, где стоял `body` у
+ * серверной оболочки, — внутри `.content`, после заголовка, подписи и
+ * баннеров.
+ */
+export function AppShell({ m, children }: { m: ShellModel; children: React.ReactNode }) {
+  const sig = m.signals
+  return (
+    <>
+      <Sidebar m={m} />
+      <div className="main">
+        <Topbar m={m} />
+        <div className="content">
+          <h1><a href="/admin">{T.title}</a></h1>
+          <div className="sub">{m.frame.sub}{m.frame.sec_warn} · v{m.runtime.version}</div>
+          {[sig.tamper, sig.split, sig.slot, sig.setup].map((s, i) =>
+            s.shown ? <div key={i} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}
+          {m.frame.msg && <div dangerouslySetInnerHTML={{ __html: m.frame.msg }} />}
+          {children}
+        </div>
+      </div>
+      <div className="brandcorner">
+        <Icon name="tooth" /> <b>DentPilot</b> ·{' '}
+        <a href={m.frame.feedback.href} title={m.frame.feedback.email}>
+          <Icon name="chat" /> {T.feedback}
+        </a>
+      </div>
+    </>
+  )
+}

@@ -1,3 +1,5 @@
+import { AppShell } from '../layouts/AppShell'
+import type { ShellModel } from '../layouts/shell'
 import { DoctorCardScreen } from '../features/doctors/DoctorCardScreen'
 import { DoctorsListScreen } from '../features/doctors/DoctorsListScreen'
 import { PatientCardScreen } from '../features/patients/card/PatientCardScreen'
@@ -31,15 +33,26 @@ interface AppProps {
   screen: string
   /** Параметры экрана из data-params (id врача и т. п.). */
   params?: Record<string, string>
+  /**
+   * Модель оболочки (B1). `null`/отсутствует — каркас ещё рисует сервер, и
+   * экран монтируется один, внутри серверной `.content`. Так живут все
+   * страницы, которые на B1 ещё не переведены.
+   */
+  shell?: ShellModel | null
 }
 
-export function App({ screen, params = {} }: AppProps) {
+export function App({ screen, params = {}, shell = null }: AppProps) {
   /* ⭐ Быстрый поиск живёт РЯДОМ с экраном, а не внутри него: Ctrl+K обязан
      работать откуда угодно, а накладка `position: fixed` накрывает окно
      независимо от того, где в разметке стоит узел React. */
+  const screenNode = screenFor(screen, params)
   return (
     <>
-      {screenFor(screen, params)}
+      {/* ⭐ B1: модель есть — каркас наш, экран внутри него. Модели нет —
+          страница ещё со СТАРОЙ оболочкой, и экран монтируется один, как до
+          B1. Обе ветки живут одновременно по замыслу: серверных страниц
+          остаётся девятнадцать, и они серверные навсегда. */}
+      {shell ? <AppShell m={shell}>{screenNode}</AppShell> : screenNode}
       <QuickFind />
     </>
   )
