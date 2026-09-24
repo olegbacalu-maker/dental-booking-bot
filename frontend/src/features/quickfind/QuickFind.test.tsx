@@ -99,6 +99,24 @@ describe('QuickFind', () => {
     expect(navigate).toHaveBeenCalledWith('/admin/patient/22')
   })
 
+  it('запрос стал короче двух букв — прошлый ответ стёрт и не всплывает снова', async () => {
+    get.mockResolvedValue(page([row(11, 'Ana')]))
+    const navigate = vi.fn()
+    render(<QuickFind navigate={navigate} debounceMs={0} />)
+    openIt()
+    const input = await screen.findByLabelText(/Nume sau telefon/)
+    fireEvent.change(input, { target: { value: 'Ana' } })
+    await vi.waitFor(() => expect(screen.getAllByRole('button').length).toBe(1))
+    fireEvent.change(input, { target: { value: 'A' } })
+    fireEvent.change(input, { target: { value: 'Ma' } })
+    /* ⚠️ Пауза перед поиском по «Ma» ещё идёт. Спрятать ответ, пока запрос
+       короткий, мало: без стирания здесь снова стояла бы «Ana», и Enter
+       открыл бы фишу, которую никто не искал. */
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
   it('ничего не нашлось — так и говорит, а не молчит', async () => {
     get.mockResolvedValue(page([]))
     render(<QuickFind navigate={vi.fn()} debounceMs={0} />)

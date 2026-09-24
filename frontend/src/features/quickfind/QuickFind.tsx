@@ -47,12 +47,6 @@ interface Props {
 
 export function QuickFind({ navigate = defaultNavigate, debounceMs = 200 }: Props) {
   const [open, setOpen] = useState(false)
-  const [q, setQ] = useState('')
-  const [rows, setRows] = useState<PatientRow[] | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [cur, setCur] = useState(0)
-  const input = useRef<HTMLInputElement | null>(null)
 
   /* Ctrl+K открывает откуда угодно. ⚠️ `preventDefault` обязателен: у браузера
      это своя команда (поиск в закладках у части сборок Chromium). */
@@ -67,29 +61,51 @@ export function QuickFind({ navigate = defaultNavigate, debounceMs = 200 }: Prop
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
+  /* Закрыли — забываем ввод: следующий вызов начинается с чистого листа, а не
+     с чужого запроса получасовой давности. Забывает РАЗМОНТИРОВАНИЕ накладки,
+     а не сброс полей эффектом по `open`: такой сброс перечислял поля поимённо,
+     и новое поле состояния пережило бы закрытие молча. */
+  if (!open) return null
+  return <Overlay navigate={navigate} debounceMs={debounceMs} onClose={() => setOpen(false)} />
+}
+
+interface OverlayProps {
+  navigate: (url: string) => void
+  debounceMs: number
+  onClose: () => void
+}
+
+function Overlay({ navigate, debounceMs, onClose }: OverlayProps) {
+  const [q, setQ] = useState('')
+  const [rows, setRows] = useState<PatientRow[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [cur, setCur] = useState(0)
+  const input = useRef<HTMLInputElement | null>(null)
+
   useEffect(() => {
-    if (open) input.current?.focus()
-    else {
-      // Закрыли — забываем ввод: следующий вызов начинается с чистого листа,
-      // а не с чужого запроса получасовой давности.
-      setQ('')
+    input.current?.focus()
+  }, [])
+
+  /* Короткий запрос не ищет, и прошлый ответ стирается тут же, в обработчике
+     ввода. ⚠️ Одного «не показывать, пока короткий» мало: «Ana» → «A» → «Ma»
+     вернул бы ответ по «Ana» на всю паузу перед поиском, и Enter открыл бы
+     фишу, которую никто не искал. */
+  function onType(value: string) {
+    const next = value.slice(0, 60)
+    setQ(next)
+    if (next.trim().length < MIN) {
       setRows(null)
-      setErr('')
-      setCur(0)
+      setBusy(false)
     }
-  }, [open])
+  }
 
   /* Поиск с паузой. ⚠️ Прошлый запрос ОТМЕНЯЕТСЯ: без этого ответы приходят
      не в том порядке, в каком уходили, и список показывает результат по
      предыдущей букве — это видно только на медленной сети. */
   useEffect(() => {
-    if (!open) return
     const text = q.trim()
-    if (text.length < MIN) {
-      setRows(null)
-      setBusy(false)
-      return
-    }
+    if (text.length < MIN) return
     const ac = new AbortController()
     const timer = setTimeout(() => {
       setBusy(true)
@@ -114,16 +130,16 @@ export function QuickFind({ navigate = defaultNavigate, debounceMs = 200 }: Prop
       clearTimeout(timer)
       ac.abort()
     }
-  }, [q, open, debounceMs])
+  }, [q, debounceMs])
 
   const go = useCallback((row: PatientRow) => {
-    setOpen(false)
+    onClose()
     navigate(`/admin/patient/${row.id}`)
-  }, [navigate])
+  }, [navigate, onClose])
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape') {
-      setOpen(false)
+      onClose()
       return
     }
     if (!rows || !rows.length) return
@@ -143,10 +159,9 @@ export function QuickFind({ navigate = defaultNavigate, debounceMs = 200 }: Prop
     }
   }
 
-  if (!open) return null
   const short = q.trim().length > 0 && q.trim().length < MIN
   return (
-    <div className="dp-qf-back" onMouseDown={() => setOpen(false)}>
+    <div className="dp-qf-back" onMouseDown={onClose}>
       <div
         className="dp-qf"
         role="dialog"
@@ -161,7 +176,7 @@ export function QuickFind({ navigate = defaultNavigate, debounceMs = 200 }: Prop
           <input
             ref={input}
             value={q}
-            onChange={(e) => setQ(e.target.value.slice(0, 60))}
+            onChange={(e) => onType(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={T.ph}
             aria-label={T.ph}
