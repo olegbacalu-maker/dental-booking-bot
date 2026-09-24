@@ -39,6 +39,7 @@ import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
 import test_license_format  # noqa: E402
+import test_license_verify  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
@@ -87,6 +88,10 @@ SUITES = [
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
     ("Лицензия: формат файла и фикстуры", test_license_format.suite),
+    ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),
+    ("Лицензия: конверт и четыре отказа", test_license_verify.suite_envelope),
+    ("Лицензия: claim по таблице схемы", test_license_verify.suite_claim),
+    ("Лицензия: модуль проверки чистый", test_license_verify.suite_pure),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),
