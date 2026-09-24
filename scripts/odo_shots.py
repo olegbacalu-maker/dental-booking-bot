@@ -277,6 +277,9 @@ def start_edge(profile, port=DEBUG_PORT):
     proc = subprocess.Popen([
         edge, "--headless=new", f"--remote-debugging-port={port}", "--remote-allow-origins=*",
         f"--user-data-dir={profile}", "--no-first-run", "--disable-gpu", "--hide-scrollbars",
+        # ⛔ (09-24) без флага Edge качает в профиль свои компоненты: профиль, проживший
+        # ~30 мин, дорастает до ~440 МБ — двенадцать брошенных съели 5 ГБ в TEMP
+        "--disable-component-update",
         f"--window-size={WIDE[0]},{WIDE[1]}", "about:blank"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     target = None
