@@ -12,9 +12,12 @@ import { useChart } from './useChart'
 /* Компактная одонтограмма в фише (C21 закрывает точку интеграции C18):
    тот же ClinicalChart, что на детальной странице, — обе дуги, оба вида,
    подсказка при наведении, диалог зуба по клику. Модель грузится своим
-   запросом; после записи зуба фиша перезагружается тихо (`onChanged`) —
-   пилюли шапки и летопись зависят от зубов. Закрытие диалога = отказ от
-   правки: черновик сбрасывается, как у старой модалки. */
+   запросом; запись зуба просит у сервера и свежую фишу (`?card=1`) и
+   отдаёт её наверх (`onChanged`) — пилюли шапки и летопись зависят от
+   зубов. ⛔ Фиша не перечитывает себя GET-ом: это ОТКРЫТИЕ, и каждое
+   сохранение зуба оставляло бы в журнале доступа ложное «Fișa deschisă».
+   Закрытие диалога = отказ от правки: черновик сбрасывается, как у старой
+   модалки. */
 const T = {
   title: 'Formula dentară',
   sub: 'notație FDI · click pe dinte',
@@ -27,22 +30,28 @@ const T = {
 
 interface Props {
   pid: number
+  /** Режим ленты фиши (`?views=1`): свежая фиша в ответе записи — в нём же. */
+  views: boolean
   say: (t: ToastState) => void
   onFail: (e: unknown) => void
-  /** Зуб записан — фише пора перечитать себя. */
-  onChanged: () => void
+  /** Зуб записан — свежая фиша из того же ответа (её тип знает фиша). */
+  onChanged: (card: unknown) => void
   /** Просьба открыть зуб снаружи (кнопка номера в плане): объект с меткой,
       чтобы повторный клик по тому же зубу тоже открыл диалог. */
   open?: { n: number; k: number } | null
 }
 
-export function OdontogramCard({ pid, say, onFail, onChanged, open = null }: Props) {
+export function OdontogramCard({ pid, views, say, onFail, onChanged, open = null }: Props) {
   const [got, setGot] = useState<{ pid: number; model: Odontogram | null; failed: boolean } | null>(null)
   const model = got && got.pid === pid ? got.model : null
   const failed = Boolean(got && got.pid === pid && got.failed)
-  const replace = useCallback((m: Odontogram) => { setGot({ pid, model: m, failed: false }); onChanged() }, [pid, onChanged])
+  const replace = useCallback((m: Odontogram) => {
+    const { card, ...fresh } = m
+    setGot({ pid, model: fresh, failed: false })
+    onChanged(card)
+  }, [pid, onChanged])
   const fail = useCallback((e: unknown) => onFail(asApiError(e)), [onFail])
-  const c = useChart(pid, model, replace, fail, say)
+  const c = useChart(pid, model, replace, fail, say, null, `?card=1${views ? '&views=1' : ''}`)
   const [hover, setHover] = useState<Hover | null>(null)
   // просьба открыть зуб применяется один раз на метку — выводится при
   // отрисовке, без эффекта (правило хуков)

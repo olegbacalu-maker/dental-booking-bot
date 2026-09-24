@@ -90,6 +90,8 @@ export function useChart(
   fail: (e: unknown) => void,
   say: (t: ToastState) => void,
   initial: number | null = null,
+  /** Хвост адреса записи зуба (`chart.saveTooth`): фиша просит им себя в ответ. */
+  saveQuery = '',
 ): ChartApi {
   const [view, setViewState] = useState<View>(() => savedView())
   const [selected, setSelected] = useState<number | null>(initial)
@@ -188,7 +190,7 @@ export function useChart(
     const n = selected
     const d = cur.d
     const body: ToothSave = { state: d.state, state0: info.state, note: d.note, doctor: d.doctor, surfaces: d.sfst, marks: d.marks }
-    return act(() => chart.saveTooth(pid, n, body))
+    return act(() => chart.saveTooth(pid, n, body, saveQuery))
   }
 
   return {

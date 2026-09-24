@@ -359,6 +359,13 @@ def _card(c: Client, pid: int, views: bool = False) -> dict:
     return _j(r)["data"]
 
 
+def _opens(c: Client, pid: int) -> int:
+    """Строк «Fișa deschisă» в журнале доступа. Считает лентой отдельно
+    (`/activity`): она сама просмотра не пишет, счёт не меняет считаемое."""
+    items = _j(c.get(f"/api/patients/{pid}/activity?views=1"))["data"]["items"]
+    return sum(a["kind"] == "view" for a in items)
+
+
 def suite_api(res: Result) -> None:
     """`GET /api/patients/{pid}` повторяет старую страницу цифра в цифру:
     пилюли, KPI, план, сальдо, документы, визиты, летопись, анамнез, профиль."""
@@ -686,6 +693,41 @@ def suite_actions(res: Result) -> None:
         st, j = _act(c, pid, "/appoint", {"date": _d(3), "time": "09:00", "doctor": "d3", "service": "consult"})
         res.check("тот же час у пациента — 409 dup", (st, j["code"]), (409, "dup"))
         res.ok("визит виден в журнале дня", "Act Test Nou" in c.get(f"/admin/all?date={_d(3)}").body, "нет")
+
+        # ---- зуб из фиши и журнал доступа ----
+        # ⚠️ После записи зуба фиша перечитывала себя GET-ом фиши, а он —
+        # ОТКРЫТИЕ: каждое сохранение зуба добавляло в журнал доступа (закон
+        # 195) ложное «Fișa deschisă». Свежая фиша едет в ответе самой записи.
+        c.post("/admin/patients/new", name="Dinte Jurnal", phone="069555444")
+        pt = _pid(c, "069555444")
+        _card(c, pt)
+        res.check("фиша открыта один раз — одна строка журнала доступа", _opens(c, pt), 1)
+        implant = {"state": "implant", "state0": "ok", "note": "", "doctor": "",
+                   "surfaces": {}, "marks": []}
+        r = c.post_json(f"/api/patients/{pt}/teeth/36?card=1", implant)
+        j = _j(r)
+        res.check("зуб из фиши: модель и свежая фиша в одном ответе (пилюля, летопись)",
+                  (r.status, j["code"], j["data"]["teeth"]["36"]["state"],
+                   [pl["text"] for pl in j["data"].get("card", {}).get("hero", {}).get("pills", [])],
+                   j["data"].get("card", {}).get("activity", {}).get("items", [{}])[0].get("text"),
+                   j["data"].get("card", {}).get("activity", {}).get("views")),
+                  (200, "ok_card", "implant", ["Pacient activ", "1 implant"],
+                   "Dinte 36: Implant", False))
+        res.check("запись зуба из фиши журнал доступа не тронула", _opens(c, pt), 1)
+        j = _j(c.post_json(f"/api/patients/{pt}/teeth/36?card=1&views=1",
+                           {**implant, "state0": "implant"}))
+        acts = j["data"].get("card", {}).get("activity", {})
+        res.check("фиша в ответе — в режиме ленты запроса (?views=1: с просмотрами)",
+                  (acts.get("views"), sum(a["kind"] == "view" for a in acts.get("items", [])),
+                   _opens(c, pt)), (True, 1, 1))
+        j = _j(c.post_json(f"/api/patients/{pt}/teeth/36", {**implant, "state0": "implant"}))
+        res.check("без ?card=1 (детальная страница) — только модель, фиши в ответе нет",
+                  (j["code"], "card" in j["data"]), ("ok_card", False))
+        r = c.post_json(f"/api/patients/{pt}/teeth/99?card=1", implant)
+        res.check("отказ записи — 422 без данных, журнал не тронут",
+                  (r.status, "data" in _j(r), _opens(c, pt)), (422, False, 1))
+        _card(c, pt)
+        res.check("настоящее открытие фиши пишется, как прежде", _opens(c, pt), 2)
 
         # ---- стирание ----
         st, j = _act(c, pid, "/erase", {"confirm": "nu"})

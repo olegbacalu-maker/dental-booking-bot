@@ -472,6 +472,44 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/archive?views=1', { on: true }))
   })
 
+  it('зуб из фиши: свежая фиша едет в ответе записи, а не новым открытием (журнал доступа)', async () => {
+    /* ⚠️ Раньше фиша перечитывала себя GET-ом после записи зуба — на сервере
+       это ОТКРЫТИЕ, и каждое сохранение зуба писало ложное «Fișa deschisă». */
+    const after: PatientCard = {
+      ...CARD, hero: { ...CARD.hero, pills: [...CARD.hero.pills.slice(0, 3), { tone: 'purple', icon: 'set', text: '2 implante' }] },
+    }
+    const saveTooth11 = async () => {
+      await settled()
+      fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
+      const dlg = screen.getByText('Dinte 11').closest('dialog') as HTMLElement
+      fireEvent.change(within(dlg).getByLabelText('Starea dintelui'), { target: { value: 'carie' } })
+      fireEvent.click(within(dlg).getByText('Salvează'))
+      expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    }
+    const pills = () => Array.from(document.querySelectorAll('.hero-badges .pill')).map((p) => p.textContent?.trim())
+    serve()
+    post.mockResolvedValueOnce(ok({ ...ODO, card: after }, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open()
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    await saveTooth11()
+    expect(opens()).toBe(1)
+    expect(post).toHaveBeenCalledWith('/patients/5/teeth/11?card=1', expect.objectContaining({ state: 'carie', state0: 'ok' }))
+    await waitFor(() => expect(pills()).toContain('2 implante'))
+    expect(opens()).toBe(1)
+    /* режим ленты адреса едет и в запись: фиша в ответе — с просмотрами */
+    cleanup()
+    get.mockClear()
+    post.mockReset()
+    post.mockResolvedValueOnce(ok({ ...ODO, card: { ...after, activity: feed(after, true) } }, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open('/admin/patient/5?views=1')
+    await screen.findByText('ascunde accesările')
+    await saveTooth11()
+    expect(post).toHaveBeenCalledWith('/patients/5/teeth/11?card=1&views=1', expect.anything())
+    await waitFor(() => expect(pills()).toContain('2 implante'))
+    expect(screen.getByText('ascunde accesările')).toBeTruthy()
+    expect(opens()).toBe(1)
+  })
+
   it('документ для чужой программы: движок не открыл — скачивание', async () => {
     serve()
     post.mockResolvedValueOnce(ok({ opened: false, reason: 'not_local' }))

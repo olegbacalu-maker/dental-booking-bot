@@ -736,13 +736,19 @@ async def _odontogram(pid: int, p: dict) -> dict:
 
 
 async def _odo_reply(pid: int, code: str, *, ok: set, field: str = "",
-                     conflict: set = frozenset()):
+                     conflict: set = frozenset(), card_for: Request | None = None):
+    """Удача — свежая модель. `card_for` — запрос, просивший рядом с ней и
+    фишу: она едет в режиме ЕГО ленты и без записи о просмотре, как у
+    `_card_reply`."""
     if code not in ok:
         return msg_json(False, code, field=field, status=409 if code in conflict else 422)
     p = await db.get_patient(pid)
     if not p:
         return msg_json(False, status=404)
-    return msg_json(True, code, data=await _odontogram(pid, p))
+    data = await _odontogram(pid, p)
+    if card_for is not None:
+        data["card"] = await _card(pid, p, views=_views(card_for), log_view=False)
+    return msg_json(True, code, data=data)
 
 
 @router.get("/api/patients/{pid}/odontogram")
@@ -763,7 +769,15 @@ async def api_tooth_save(request: Request, pid: int, tooth: int):
     полем (прайор 08-16): `surfaces` — карта {буква: состояние} или список
     букв (одно состояние на все), отсутствует/null — форма о поверхностях не
     сообщала; `marks` — список или null по той же причине; `state0` — что
-    показала форма. Отказ проверки 422 с полем."""
+    показала форма. Отказ проверки 422 с полем.
+
+    `?card=1` — запись из фиши: рядом с моделью едет свежая фиша (`card`,
+    лента в режиме того же `?views=`), как в ответе любого действия фиши.
+    ⛔ Перечитывать её `GET /api/patients/{pid}` нельзя: это ОТКРЫТИЕ, и
+    каждое сохранение зуба писало бы в журнал доступа (закон 195) ложное
+    «Fișa deschisă». Тихого режима у того GET нет намеренно: им читал бы
+    фишу без следа любой, кто допишет параметр; здесь фиша — ответ на
+    запись, которая сама остаётся в летописи строкой «Dinte …»."""
     if (deny := api_guard(request)) is not None:
         return deny
     deny, p = await _owned(pid)
@@ -784,7 +798,8 @@ async def api_tooth_save(request: Request, pid: int, tooth: int):
     code = await _save_tooth(pid, tooth, _s(body, "state"), _s(body, "note"),
                              _s(body, "doctor"), sf=sf, sfmap=sfmap,
                              state0=str(st0) if isinstance(st0, str) else None, marks=marks)
-    return await _odo_reply(pid, code, ok={"ok_card"}, field="state" if code == "bad_card" else "")
+    return await _odo_reply(pid, code, ok={"ok_card"}, field="state" if code == "bad_card" else "",
+                            card_for=request if request.query_params.get("card") == "1" else None)
 
 
 @router.post("/api/patients/{pid}/bridges")

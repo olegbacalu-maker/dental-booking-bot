@@ -137,11 +137,14 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
 
   const failCb = useCallback((e: unknown) => { fail(e) }, [fail])
   const say = useCallback((t: ToastState) => setToast(t), [])
-  /* зуб записан — фиша перечитывает себя тихо: пилюли шапки и летопись
-     зависят от зубов, а перезагрузка страницы (как у старой) не нужна */
-  const reload = useCallback(() => {
-    patientCard.get(pid, views).then((r) => replace(r.data), (e: unknown) => { fail(e) })
-  }, [pid, views, replace, fail])
+  /* зуб записан — свежая фиша приезжает В ОТВЕТЕ записи (`?card=1`, режим
+     ленты — из адреса): пилюли шапки и летопись зависят от зубов.
+     ⛔ Не перечитывать `patientCard.get`: GET фиши — это ОТКРЫТИЕ, и каждое
+     сохранение зуба писало бы в журнал доступа ложное «Fișa deschisă».
+     Фиши нет только в ответе моста, а мосты правятся на детальной. */
+  const onToothSaved = useCallback((fresh: unknown) => {
+    if (fresh) replace(fresh as PatientCard)
+  }, [replace])
 
   if (state.status === 'leaving') return null
 
@@ -180,7 +183,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       <HeroKpi card={card} onBook={() => setBooking(true)} />
       <div className="pv2">
         <div className="pv2-main">
-          <OdontogramCard pid={pid} say={say} onFail={failCb} onChanged={reload} open={toothReq} />
+          <OdontogramCard pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq} />
           <PlanCard card={card} a={a} onTooth={onTooth} />
           <FinanceCard card={card} a={a} />
           <DocumentsCard card={card} a={a} onFail={failCb} navigate={navigate} />

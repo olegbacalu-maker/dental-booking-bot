@@ -82,6 +82,9 @@ export interface Odontogram {
    *  живут в `perio.py`, как `sfx` у поверхностей. Пусто, если осмотра с
    *  измерениями у пациента ещё не было. */
   perio?: Record<string, { at: string; exam: number; text: string }>
+  /** Свежая фиша — ТОЛЬКО в ответе записи зуба, которая её попросила
+   *  (`?card=1`, см. `saveTooth`). Её тип знает фиша, а не этот модуль. */
+  card?: unknown
 }
 
 /** Запись зуба — намерение явным полем: `surfaces` всегда карта (форма
@@ -141,8 +144,11 @@ const P = (pid: number) => `/patients/${pid}`
 export const chart = {
   get: (pid: number, signal?: AbortSignal) =>
     api.get<Odontogram>(`${P(pid)}/odontogram`, signal ? { signal } : {}),
-  saveTooth: (pid: number, n: number, body: ToothSave) =>
-    api.post<Odontogram>(`${P(pid)}/teeth/${n}`, body),
+  /** `q` дописывается к адресу: фиша шлёт `?card=1…` и получает рядом с
+   *  моделью свежую себя — перечитывать её открытием (а это строка журнала
+   *  доступа) не нужно (`api_tooth_save`). */
+  saveTooth: (pid: number, n: number, body: ToothSave, q = '') =>
+    api.post<Odontogram>(`${P(pid)}/teeth/${n}${q}`, body),
   addBridge: (pid: number, body: BridgeSave) =>
     api.post<Odontogram>(`${P(pid)}/bridges`, body),
   delBridge: (pid: number, bid: number) =>
