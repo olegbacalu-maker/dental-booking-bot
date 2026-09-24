@@ -34,6 +34,7 @@ STATE_NAME = "license.state"
 ENV_KEYS = "DENTART_LICENSE_KEYS"
 META_FIRST, META_SEEN, META_ACCEPTED = "lic_first", "lic_seen", "lic_accepted"
 STATE_WRITE_EVERY = timedelta(days=1)      # last_seen пишется на старте и раз в сутки
+READONLY_CODE = "license_readonly"         # код отказа: в MSG_BANNER, в ?msg= и в JSON
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -128,6 +129,21 @@ async def refresh() -> st.Status | None:
     _dir, _result, _mem, _status, _patients, _written = d, result, mem, status, patients, status.now
     _log(status)
     return status
+
+
+def refuses(path: str, method: str) -> bool:
+    """Ворота записи (L4): отказать ли ЭТОМУ запросу. Зовёт шлюз в main.py
+    до маршрутизации — иначе 422 разбора тела опередил бы отказ, и клиника
+    читала бы «неверные данные» там, где кончился абонемент.
+
+    Чтение открыто всегда; облако и демо без ключа (`current()` = None) ворот
+    не видят; белый список — `license_state.READONLY_ALLOW`."""
+    if not st.gated(path, method):
+        return False
+    s = current()
+    if s is None or s.state != st.READONLY:
+        return False
+    return not st.allowed(path)
 
 
 def current() -> st.Status | None:

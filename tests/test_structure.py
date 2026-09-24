@@ -1116,3 +1116,38 @@ def suite(res: Result) -> None:
            if name in _PIN_MATH]
     res.ok("PIN проверяет один модуль", not bad,
            "вторая формула хеша PIN вне auth.py: " + ", ".join(bad))
+
+    # ---- ворота лицензии стоят в шлюзе, белый список — константа (L4) ----
+    # Ворота одни: шлюз в main.py зовёт lic.refuses(...) ДО маршрутизации, и
+    # ни один маршрут не решает про readonly сам. Второе решение разошлось бы
+    # с белым списком молча — у клиники, не в тесте: маршрут, «просто
+    # проверивший состояние» у себя, отказал бы бэкапу или пустил бы запись.
+    # Три якоря: вызов в шлюзе, кортеж READONLY_ALLOW из адресов под /admin и
+    # /api/, и строка кода отказа только там, где ей место.
+    bad = []
+    main_tree = by_path.get("app/main.py")
+    gate = [n for n in ast.walk(main_tree) if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute) and n.func.attr == "refuses"] if main_tree else []
+    if not gate:
+        bad.append("app/main.py: шлюз не зовёт lic.refuses — ворот нет")
+    allow = None
+    lst_tree = by_path.get("app/core/license_state.py")
+    for n in ast.walk(lst_tree) if lst_tree else ():
+        if (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "READONLY_ALLOW"
+                                              for t in n.targets)
+                and isinstance(n.value, ast.Tuple)):
+            allow = [e.value for e in n.value.elts
+                     if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+    if allow is None:
+        bad.append("app/core/license_state.py: нет кортежа READONLY_ALLOW — якорь правила пропал")
+    else:
+        bad += [f"READONLY_ALLOW: {t} — не под /admin и не под /api/"
+                for t in allow if not t.startswith(("/admin", "/api/"))]
+    _GATE_HOME = ("app/core/license.py", "app/core/license_state.py",
+                  "app/core/layout.py", "app/main.py")
+    bad += [f"{rel}:{ln} — второе решение про readonly вне шлюза"
+            for rel, tree in src if rel not in _GATE_HOME
+            for ln, text in _ui_texts(tree) if text == "license_readonly"]
+    res.ok("ворота лицензии стоят в шлюзе, белый список — константа", not bad,
+           "запись в readonly решается в двух местах или не решается вовсе: "
+           + "; ".join(bad))

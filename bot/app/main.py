@@ -40,7 +40,7 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
 from .core import dbkey, theme
 from .core import license as lic
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
-                          fonts_css, standalone, tg_configured)
+                          fonts_css, msg_json, standalone, tg_configured)
 from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
 from .modules.patients import api as patients_api
@@ -414,6 +414,13 @@ async def _recovery_gate(request: Request, call_next):
             return Response(status_code=503)
     if RECOVERY and p.startswith("/admin") and not p.startswith("/admin/recover"):
         return RedirectResponse("/admin/recover", status_code=303)
+    # Ворота лицензии (L4): пишущий запрос в состоянии readonly отказывает
+    # ЗДЕСЬ, до маршрутизации и разбора тела, одним кодом для страниц и JSON.
+    # Чтение, печать, экспорт и бэкап остаются: замок на записи, не на входе.
+    if lic.refuses(p, request.method):
+        if p.startswith("/api/"):
+            return msg_json(False, lic.READONLY_CODE, status=423)
+        return RedirectResponse(f"/admin?msg={lic.READONLY_CODE}", status_code=303)
     return await call_next(request)
 
 

@@ -41,6 +41,7 @@ import test_legacy  # noqa: E402
 import test_license_format  # noqa: E402
 import test_license_verify  # noqa: E402
 import test_license_state  # noqa: E402
+import test_license_gate  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
@@ -97,6 +98,9 @@ SUITES = [
     ("Лицензия: память между запусками", test_license_state.suite_memory),
     ("Лицензия: таблица ключей и окружение", test_license_state.suite_keys),
     ("Лицензия: файл и память на живом сервере", test_license_state.suite_server),
+    ("Лицензия: ворота — сопоставление и белый список", test_license_gate.suite_matcher),
+    ("Лицензия: ворота в readonly по всем маршрутам", test_license_gate.suite_readonly),
+    ("Лицензия: ворота молчат при действующем файле", test_license_gate.suite_active),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),

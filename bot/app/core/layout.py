@@ -120,6 +120,10 @@ def _asset_ver(*parts: str) -> str:
 
 
 MSG_BANNER = {
+    # Ворота лицензии (core/license.py, L4): один код на страницы и на JSON
+    "license_readonly": ("err", "Programul este în regim de citire: abonamentul a "
+                                "expirat. Datele se pot consulta, tipări și exporta; "
+                                "pentru a continua lucrul, activați abonamentul."),
     "ok": ("ok", "Programare adăugată"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),

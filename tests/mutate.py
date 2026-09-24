@@ -296,6 +296,14 @@ MUTATIONS = [
     # «просто прочитаю json и посчитаю сам».
     ("PIN проверяет один модуль", "app/relocate.py",
      "\n_mut = _derive(\"1234\", \"salt\")\n"),
+    # ---- ворота лицензии (L4) ----
+    # Шлюз перестал звать refuses: запись в readonly проходит везде. Замена,
+    # а не дописывание: нарушение — исчезновение вызова.
+    ("ворота лицензии стоят в шлюзе", "app/main.py",
+     ("lic.refuses(", "lic.refuses_nowhere(")),
+    # Маршрут решил про readonly сам — второй вычислитель рядом с белым списком.
+    ("ворота лицензии стоят в шлюзе", "app/modules/settings/routes.py",
+     "\n_mut = \"license_readonly\"\n"),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
@@ -329,6 +337,10 @@ LEGAL = [
      "\n_mut = verify_source_pin(_src, _pin, destination_attempts())\n"),
     ("PIN проверяет один модуль", "app/modules/settings/routes.py",
      "\n_mut = [u for u in all_users()]\n"),
+    # ⭐ Законно: ещё один маршрут в белом списке — так туда ляжет импорт
+    # лицензии (L5). Правило обязано молчать: список — его, а не чужой.
+    ("ворота лицензии стоят в шлюзе", "app/core/license_state.py",
+     ('    "/admin/login", "/admin/setup",', '    "/admin/login", "/admin/setup", "/admin/license",')),
 ]
 
 

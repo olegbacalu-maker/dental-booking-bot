@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
@@ -180,6 +181,54 @@ def save(path: pathlib.Path, mem: Memory) -> None:
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+# ---------- ворота записи (L4) ----------
+
+# Маршруты, которым запись нужна и в `readonly`, — шаблонами ровно как в
+# декораторах. Три рода: доступ (вход, PIN, учётки, сигнализация), права
+# клиники на свои данные (бэкап, выгрузка пациента, право на стирание,
+# открыть документ, шифрование картотеки) и обслуживание программы
+# (обновление, сеть, раскладка). Всё, что трогает картотеку, расписание,
+# врачей, прайс и профиль клиники, здесь не значится — и потому отказывает.
+# ⛔ Список — константа, а не флаг у маршрута: сторож проверяет, что каждый
+# пишущий маршрут либо здесь, либо отказывает (tests/test_license_gate.py).
+READONLY_ALLOW = (
+    "/admin/login", "/admin/setup", "/admin/recover", "/admin/pin/change",
+    "/admin/security/ack", "/admin/users/save", "/admin/users/delete",
+    "/admin/backup/export",
+    "/admin/settings/crypt/prepare", "/admin/settings/crypt/confirm",
+    "/admin/settings/crypt/off",
+    "/admin/update/check", "/admin/update/run",
+    "/admin/lan/save", "/admin/lan/firewall", "/admin/migration/confirm",
+    "/api/settings/pin", "/api/settings/users", "/api/settings/users/{uid}/delete",
+    "/api/settings/crypt/prepare", "/api/settings/crypt/off",
+    "/api/settings/system/check", "/api/settings/system/uninstall-sync",
+    "/api/settings/lan", "/api/settings/lan/firewall",
+    "/api/patients/{pid}/archive", "/api/patients/{pid}/erase",
+    "/api/documents/{doc_id}/open",
+)
+GATED_PREFIXES = ("/admin", "/api/")           # где ворота вообще стоят
+READ_METHODS = ("GET", "HEAD", "OPTIONS")
+_ALLOW_RX: dict[tuple, list] = {}
+
+
+def _rx(template: str):
+    return re.compile("^" + re.sub(r"\{[^}/]+\}", "[^/]+", re.escape(template)
+                                   .replace("\\{", "{").replace("\\}", "}")) + "$")
+
+
+def allowed(path: str, templates: tuple = READONLY_ALLOW) -> bool:
+    """Подходит ли путь под один из шаблонов белого списка."""
+    rxs = _ALLOW_RX.get(templates)
+    if rxs is None:
+        rxs = _ALLOW_RX[templates] = [_rx(t) for t in templates]
+    return any(r.match(path) for r in rxs)
+
+
+def gated(path: str, method: str) -> bool:
+    """Стоят ли ворота на этом запросе вообще: пишущий метод под /admin или /api/."""
+    return method not in READ_METHODS and path.startswith(GATED_PREFIXES)
 
 
 # ---------- таблица ключей ----------
