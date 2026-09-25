@@ -1,5 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
-import { AppLink } from '../../components/AppLink'
+import { AppLink, useAppNavigate } from '../../components/AppLink'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -42,6 +42,7 @@ export const loadDoctorsList: RouteLoad<DoctorsList> = (signal) => doctors.list(
 
 export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DoctorsList>(navigate)
+  const goTo = useAppNavigate(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [name, setName] = useState('')
   const [spec, setSpec] = useState('')
@@ -59,8 +60,9 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
     setBusy(true)
     try {
       const r = await doctors.add(name, spec)
-      // как старая форма: в фишу нового врача, с плашкой сервера (?msg=new_med)
-      navigate(`/admin/doctor-card/${encodeURIComponent(r.data.id)}?msg=${r.code}`)
+      // как старая форма: в фишу нового врача, с плашкой сервера (?msg=new_med);
+      // переходом (B4) — плашку несёт адрес, рисует оболочка
+      goTo(`/admin/doctor-card/${encodeURIComponent(r.data.id)}?msg=${r.code}`)
     } catch (err) {
       fail(err)
       setBusy(false)

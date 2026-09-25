@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { AppLink } from '../../../components/AppLink'
+import { AppLink, useAppNavigate } from '../../../components/AppLink'
 import { Icon } from '../../../components/Icon'
 import type { IconName } from '../../../components/icons'
 import type { CardActions } from './actions'
@@ -72,6 +72,7 @@ interface Draft {
 const fresh = (card: PatientCard): Draft => ({ card, form: formOf(card), noPhone: !card.profile.phone })
 
 export function ProfileCard({ card, a, editOpen, onEditOpen, navigate, onFail }: Props) {
+  const goTo = useAppNavigate(navigate)
   const p = card.profile
   /* Черновик формы привязан к ФИШЕ, с которой начат: свежая фиша после
      удачи даёт форме свои значения (сервер мог срезать длину и
@@ -108,7 +109,7 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, navigate, onFail }:
     try {
       const r = await patientCard.erase(a.pid, a.views, confirm)
       if ('url' in r.data) {
-        navigate(r.data.url)
+        goTo(r.data.url)          // фиши больше нет — в список, переходом (B4)
         return
       }
       /* обезличено: фиша осталась — показываем её через тот же путь, что и

@@ -4,6 +4,7 @@ import type { ApiResult } from '../../services/api'
 import { ApiError } from '../../types/api'
 import type { PatientsPage, PatientsSummary } from './patients'
 import { filtersFromParams, filtersToQuery } from './patients'
+import { nativeClick } from '../../test/nativeClick'
 import { openScreen } from '../../test/openScreen'
 import { filtersOf, loadPatientsSearch, PatientsSearchScreen } from './PatientsSearchScreen'
 
@@ -174,7 +175,7 @@ describe('PatientsSearchScreen', () => {
     get.mockImplementation((path: string) => (path === '/patients/6/peek'
       ? Promise.resolve(ok({ html: "<div class='pp-head'><b>Avans Popescu</b></div><a href='/admin/patient/6'>Editează fișa</a>" }))
       : base(path)))
-    open()
+    const { router } = open()
     fireEvent.click(await screen.findByText('Avans Popescu'))
     expect(await screen.findByText('Editează fișa')).toBeTruthy()
     expect(document.querySelector('aside')?.className).toBe('ppanel open')
@@ -182,6 +183,15 @@ describe('PatientsSearchScreen', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(document.querySelector('aside')?.className).toBe('ppanel')
     expect(screen.queryByText('Editează fișa')).toBeNull()
+
+    /* B4: ссылка в прозе предпросмотра — переход роутером, не документ (голой
+       она перезагружала окно — «дёргание» поиск → фиша на канарейке 1.30.2). */
+    fireEvent.click(screen.getByText('Avans Popescu'))
+    const link = await screen.findByText('Editează fișa')
+    let native = true
+    await act(async () => { native = nativeClick(link) })
+    expect(native).toBe(false)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/patient/6'))
   })
 
   it('предпросмотр исчезнувшей фиши — своя фраза', async () => {
@@ -201,7 +211,7 @@ describe('PatientsSearchScreen', () => {
     const navigate = vi.fn()
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_pat', text: 'Lipsește numele', field: 'name' }, 'v'))
     post.mockResolvedValueOnce(ok({ id: 9, url: '/admin/patient/9?msg=new_pat' }, 'new_pat', 'Pacient adăugat'))
-    open('/admin/search', { navigate })
+    const { router } = open('/admin/search', { navigate })
     await screen.findByText('Avans Popescu')
     fireEvent.click(screen.getByText('＋ Adaugă pacient'))
     const form = document.querySelector('dialog form') as HTMLFormElement
@@ -212,7 +222,11 @@ describe('PatientsSearchScreen', () => {
     fireEvent.change(screen.getByLabelText('Data nașterii', { selector: 'dialog input' }), { target: { value: '1990-05-06' } })
     fireEvent.change(screen.getByLabelText('Medic curant'), { target: { value: 'Dr. Activ Trei' } })
     fireEvent.submit(form)
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/patient/9?msg=new_pat'))
+    /* B4: новая фиша открывается ПЕРЕХОДОМ по адресу сервера (с ?msg= для
+       плашки оболочки), а не документом — `navigate` экрана остаётся входу. */
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search)
+      .toBe('/admin/patient/9?msg=new_pat'))
+    expect(navigate).not.toHaveBeenCalled()
     expect(post).toHaveBeenLastCalledWith('/patients', {
       name: 'Ion Nou', phone: '060 111 222', birth_date: '1990-05-06', email: '', primary_doctor: 'Dr. Activ Trei',
     })

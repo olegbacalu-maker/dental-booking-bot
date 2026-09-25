@@ -350,12 +350,15 @@ describe('PatientCardScreen', () => {
     serve({ ...CARD, erasure: 'delete' })
     post.mockResolvedValueOnce(ok({ url: '/admin/search?msg=ok_del' }, 'ok_del', 'Fișa a fost ștearsă'))
     const navigate = vi.fn()
-    open('/admin/patient/5', navigate)
+    const { router } = open('/admin/patient/5', navigate)
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(screen.getByText('ștearsă definitiv')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('scrieți STERG'), { target: { value: 'sterg' } })
     fireEvent.click(screen.getByText('Șterge definitiv'))
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/search?msg=ok_del'))
+    /* B4: в список — ПЕРЕХОДОМ (плашку «ștearsă» несёт адрес); `navigate` экрана — входу */
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search)
+      .toBe('/admin/search?msg=ok_del'))
+    expect(navigate).not.toHaveBeenCalled()
     expect(post).toHaveBeenCalledWith('/patients/5/erase', { confirm: 'sterg' })
   })
 

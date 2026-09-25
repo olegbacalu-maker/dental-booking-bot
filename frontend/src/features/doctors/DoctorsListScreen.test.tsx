@@ -76,12 +76,15 @@ describe('DoctorsListScreen', () => {
     get.mockResolvedValueOnce(ok(LIST))
     post.mockResolvedValueOnce(ok({ id: 'd5' }, 'new_med', 'Medic adăugat'))
     const navigate = vi.fn()
-    open(navigate)
+    const { router } = open(navigate)
     await screen.findByText('Dr. Activ Doi')
     fireEvent.change(screen.getByLabelText('Dr. Nume Prenume'), { target: { value: 'Dr. Cinci' } })
     fireEvent.change(screen.getByLabelText('Specializare (ex. Terapie)'), { target: { value: 'Orto' } })
     fireEvent.click(screen.getByRole('button', { name: '+ Adaugă medic' }))
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/doctor-card/d5?msg=new_med'))
+    /* B4: в фишу нового — ПЕРЕХОДОМ (плашку несёт адрес); `navigate` экрана — входу */
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search)
+      .toBe('/admin/doctor-card/d5?msg=new_med'))
+    expect(navigate).not.toHaveBeenCalled()
     expect(post).toHaveBeenCalledWith('/doctors', { name: 'Dr. Cinci', spec: 'Orto' })
   })
 

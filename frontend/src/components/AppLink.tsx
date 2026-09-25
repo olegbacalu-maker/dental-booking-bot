@@ -1,6 +1,7 @@
 import { useCallback, type AnchorHTMLAttributes, type MouseEvent } from 'react'
 import { Link, matchRoutes, useInRouterContext, useNavigate } from 'react-router'
 import { ROUTES } from '../app/routes'
+import { defaultNavigate } from '../hooks/useLoad'
 
 /* Таблица путей — та же, по которой выбирает экран роутер (routes.ts, производная
    от серверной карты): своей здесь нет. */
@@ -53,6 +54,20 @@ type Props = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & { href: str
 export function AppLink({ href, ...rest }: Props) {
   const routed = useInRouterContext()
   return routed && isAppHref(href) ? <Link to={href} {...rest} /> : <a href={href} {...rest} />
+}
+
+/**
+ * Переход ПОСЛЕ ДЕЙСТВИЯ (новый врач → его карточка, стёртая фиша → список):
+ * адрес экрана — роутером, как `AppLink`; всё остальное (файл, печатный лист,
+ * вход) — документом через `fallback`. ⚠️ `navigate` экрана остаётся входу:
+ * 401 обязан уводить документом, и здесь он не подменяется.
+ */
+export function useAppNavigate(fallback: (url: string) => void = defaultNavigate): (url: string) => void {
+  const navigate = useNavigate()
+  return useCallback((url: string) => {
+    if (isAppHref(url)) void navigate(url)
+    else fallback(url)
+  }, [navigate, fallback])
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -30,6 +30,7 @@ const T = t('system', {
   check: 'Verifică acum',
   uninstallStale: 'În «Programe și caracteristici» scrie versiunea',
   uninstallFix: 'Corectează (necesită drepturi de administrator)',
+  uninstallWait: 'Se așteaptă confirmarea Windows…',
   uninstallWhy: 'Windows cere confirmare: intrarea aparține instalării, '
     + 'nu programului. Datele clinicii nu sunt atinse.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
@@ -37,16 +38,54 @@ const T = t('system', {
 
 interface Props {
   navigate?: (url: string) => void
+  /** Период дозора за записью установщика после «Corectează»; в проверках — 0. */
+  pollMs?: number
 }
+
+/* Сколько раз перечитать состояние, пока человек подтверждает окно UAC:
+   40 × 1,5 с = минута. Дальше кнопка возвращается — нажать можно снова. */
+const UNINSTALL_POLLS = 40
 
 /** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
 export const loadSystemSettings: RouteLoad<SystemData> = (signal) => settings.system(signal)
 
-export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
+export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500 }: Props) {
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<SystemData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
+  /* Дозор за записью установщика: 0 — не идёт, иначе номер запуска. */
+  const [watch, setWatch] = useState(0)
   const closeToast = useCallback(() => setToast(null), [])
+
+  /* ⭐ Ответ «Corectează» приходит ДО того, как человек подтвердил окно UAC:
+     сервер отпускает запрос, едва окно показано, и запись в нём ещё старая.
+     Поэтому экран перечитывает состояние сам, пока строка не уйдёт: кнопка
+     исчезает ФАКТОМ (запись поправлена), а не по щелчку. Раньше строка
+     держалась до смены страницы (Олег, канарейка 1.30.2). */
+  useEffect(() => {
+    if (!watch) return
+    const ctl = new AbortController()
+    let tries = 0
+    let timer = 0
+    const tick = async () => {
+      if (ctl.signal.aborted) return
+      try {
+        const r = await settings.system(ctl.signal)
+        if (ctl.signal.aborted) return
+        if (!r.data.uninstall.stale) {
+          replace(r.data)
+          setWatch(0)
+          return
+        }
+      } catch {
+        /* окно ещё открыто или сеть моргнула — следующий круг */
+      }
+      if (++tries < UNINSTALL_POLLS) timer = window.setTimeout(tick, pollMs)
+      else setWatch(0)
+    }
+    timer = window.setTimeout(tick, pollMs)
+    return () => { ctl.abort(); window.clearTimeout(timer) }
+  }, [watch, pollMs, replace])
 
   /* «Verifică acum» у старой страницы была формой с редиректом на себя же:
      проверка синхронная, и человек видел результат на перезагруженной
@@ -78,6 +117,7 @@ export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
       const r = await settings.uninstallSync()
       replace(r.data)
       if (r.code) setToast({ tone: r.tone, text: r.text })
+      if (r.data.uninstall.stale) setWatch((n) => n + 1)
     } catch (e) {
       const err = asApiError(e)
       if (leaveIfSignedOut(err)) return
@@ -122,11 +162,12 @@ export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
                       <button
                         type="button"
                         className="savebtn"
-                        disabled={busy}
+                        disabled={busy || watch > 0}
                         onClick={fixUninstall}
                       >
                         {T.uninstallFix}
                       </button>
+                      {watch > 0 && <span className="dp-wait"> {T.uninstallWait}</span>}
                       <br />
                       <span>{T.uninstallWhy}</span>
                     </div>

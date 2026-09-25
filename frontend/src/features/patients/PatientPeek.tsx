@@ -1,3 +1,4 @@
+import { useProseLinks } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 
 /* Боковой предпросмотр фиши. Кусок разметки приходит с сервера
@@ -22,6 +23,10 @@ interface Props {
 }
 
 export function PatientPeek({ peek, onClose }: Props) {
+  /* Ссылки в прозе сервера («Editează fișa», «Vezi profilul complet») — тем
+     же переходом, что и AppLink (B4): голыми они перезагружали документ, и
+     переход поиск → фиша «дёргался» (Олег, канарейка 1.30.2). */
+  const prose = useProseLinks()
   let body
   if (!peek) {
     body = (
@@ -35,7 +40,7 @@ export function PatientPeek({ peek, onClose }: Props) {
   } else if (peek.html === null) {
     body = <div className="pp-empty"><span>{T.loading}</span></div>
   } else {
-    body = <div dangerouslySetInnerHTML={{ __html: peek.html }} />
+    body = <div onClick={prose} dangerouslySetInnerHTML={{ __html: peek.html }} />
   }
   return (
     <>

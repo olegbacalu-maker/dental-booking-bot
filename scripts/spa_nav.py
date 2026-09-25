@@ -88,6 +88,7 @@ STATE = """(() => {
     rail: !!document.querySelector('aside.side-rail'),
     odop: !!document.querySelector('.dp-react-root .odop'),
     rows: document.querySelectorAll('.pl-card tbody tr').length,
+    peek_link: !!document.querySelector('.ppanel.open a[href^="/admin/patient/"]'),
     addform: (() => { const el = document.getElementById('addform'); if (!el) return null;
       const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight; })(),
     docs: docs,
@@ -320,6 +321,15 @@ def main() -> int:
             settle(page, lambda st: st["busy"] != "true" and st["busy"] != "none")
             shell_step("день → панель", lambda: click(page, "Panou"),
                        lambda st: st["href"].startswith("/admin?date=") and st["dash"], "panou principal")
+            # проза сервера внутри экрана: предпросмотр пациента → «Editează fișa»
+            page.go("/admin/search")
+            settle(page, lambda st: st["rows"] > 0 and st["busy"] != "true")
+            click_el(page, "document.querySelector('.pl-card tbody tr')")
+            settle(page, lambda st: st["peek_link"])
+            shell_step("предпросмотр → фиша (проза сервера)",
+                       lambda: click_el(page, "document.querySelector('.ppanel.open a[href^=\"/admin/patient/\"]')"),
+                       lambda st: st["href"].startswith("/admin/patient/") and "fișa pacientului" in st["sub"],
+                       "fișa pacientului")
             page.go("/admin/medici")
             settle(page, lambda st: st["busy"] != "true" and st["busy"] != "none")
             shell_step("врачи → карточка врача",

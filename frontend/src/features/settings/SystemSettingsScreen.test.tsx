@@ -28,9 +28,9 @@ const FRESH: SystemData = {
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
-const open = (navigate?: (url: string) => void) => openScreen(
+const open = (navigate?: (url: string) => void, pollMs = 1500) => openScreen(
   '/admin/settings/system', '/admin/settings/system',
-  <SystemSettingsScreen {...(navigate ? { navigate } : {})} />, loadSystemSettings, navigate)
+  <SystemSettingsScreen pollMs={pollMs} {...(navigate ? { navigate } : {})} />, loadSystemSettings, navigate)
 
 afterEach(() => {
   cleanup()
@@ -167,5 +167,30 @@ describe('SystemSettingsScreen', () => {
        модели: строка ушла — значит запись действительно поправлена. */
     await vi.waitFor(() =>
       expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull())
+  })
+
+  it('ответ пришёл ДО подтверждения UAC — экран перечитывает состояние, пока запись не поправлена', async () => {
+    const stale = { found: true, version: '1.20.0', stale: true, hive: 'HKLM' }
+    const fixed = { found: true, version: '1.28.0', stale: false, hive: 'HKLM' }
+    /* загрузчик → запись старая; ответ кнопки — ЕЩЁ старая (окно только
+       показано); дозор: раз старая, потом поправлена */
+    let release: (v: ApiResult<SystemData>) => void = () => {}
+    get.mockResolvedValueOnce(ok({ ...FRESH, uninstall: stale }))
+    post.mockResolvedValueOnce(ok({ ...FRESH, uninstall: stale }))
+    get.mockResolvedValueOnce(ok({ ...FRESH, uninstall: stale }))
+    get.mockReturnValueOnce(new Promise<ApiResult<SystemData>>((r) => { release = r }))
+    const { container } = open(vi.fn(), 0)
+    fireEvent.click(await screen.findByRole('button', { name: /Corectează/ }))
+    /* пока окно у человека — кнопка не даёт нажать второй раз, и это сказано */
+    await vi.waitFor(() => expect(container.textContent).toContain('Se așteaptă confirmarea Windows'))
+    expect((screen.getByRole('button', { name: /Corectează/ }) as HTMLButtonElement).disabled).toBe(true)
+    /* второй круг дозора висит, пока человек в окне; подтвердил — запись
+       поправлена, строка ушла ФАКТОМ, без смены страницы */
+    await vi.waitFor(() => expect(get.mock.calls.filter((c) => c[0] === '/settings/system').length).toBe(3))
+    release(ok({ ...FRESH, uninstall: fixed }))
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Corectează/ })).toBeNull())
+    expect(container.textContent).not.toContain('Se așteaptă')
+    expect(get.mock.calls.filter((c) => c[0] === '/settings/system').length).toBe(3)
   })
 })

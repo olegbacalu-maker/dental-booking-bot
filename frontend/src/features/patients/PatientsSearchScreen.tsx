@@ -114,6 +114,10 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
     void to(`${pathname}${filtersToQuery(f)}`, { replace: true })
   }, [to, pathname])
 
+  /* Новая фиша открывается ПЕРЕХОДОМ по адресу сервера (B4), а не документом:
+     плашку «Pacient adăugat» несёт `?msg=` в адресе, её рисует оболочка. */
+  const openCreated = useCallback((url: string) => { void to(url) }, [to])
+
   /* Любой переход несёт и набранное, но не ушедшее: щелчок по сортировке за
      миг до паузы не должен терять буквы. Явная смена q (сброс в таблице) —
      главнее набранного. */
@@ -300,7 +304,7 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
         open={adding}
         doctors={data?.summary.clinic_doctors ?? []}
         onClose={() => setAdding(false)}
-        navigate={navigate}
+        navigate={openCreated}
         leaveIfSignedOut={leaveIfSignedOut}
       />
     </section>
