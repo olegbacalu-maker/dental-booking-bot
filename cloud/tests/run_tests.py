@@ -41,6 +41,7 @@ SUITES = [
     ("Сервер: карта maib — ссылка, четыре callback, проверка, новая ссылка", test_maib.suite_flow),
     ("Сервер: карта maib — ежедневная задача, maib молчит", test_maib.suite_daily),
     ("Сервер: карта maib — без DP_MAIB_* всё как в шаге 1", test_maib.suite_off),
+    ("Сервер: форма пробного — правила: ящик, поля, лимиты", test_trial.suite_rules),
     ("Сервер: форма пробного — auto, один пробный на IDNO/e-mail, спам", test_trial.suite_auto),
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),

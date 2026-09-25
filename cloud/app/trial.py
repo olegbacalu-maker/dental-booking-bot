@@ -8,17 +8,22 @@ cloud.md › «Сайт»: страница живёт здесь, а не на 
                            выдаёт админка кнопкой «Выдать пробный»;
   auto                     файл выдаётся и уходит письмом сразу, Олегу копия.
 
-⛔ Второго пробного по той же клинике нет: IDNO (если назван) и e-mail
-сверяются со всеми клиниками — заявка, выданный пробный или абонемент —
-и повтор получает «уже есть», а не второй файл. Правило — в `existing`, одно
-на оба режима.
+⛔ Второго пробного по той же клинике нет: IDNO (если назван) и ящик e-mail
+(в канонической форме: регистр, `+метка`, точки gmail) сверяются со всеми
+клиниками — заявка, выданный пробный или абонемент, кроме скрытых, — и
+повтор не даёт файла. ⭐ Повтор клинике не объявляется: страница та же, что
+у принятой заявки, — иначе форма была бы оракулом «эта клиника уже клиент
+DentPilot»; о повторе узнаёт Олег письмом и отвечает сам. Правило — в
+`existing`, одно на оба режима.
 
 Спам держат три вещи, и ни одна не требует капчи: скрытое поле, которое
-человек не видит и не заполняет; лимит заявок с одного адреса в час;
-согласие галочкой. Всё, что за ними, — в журнале с адресом.
+человек не видит и не заполняет; лимит заявок с одного адреса (IPv6 — сети
+/64) в час и общий потолок на всех; согласие галочкой. Всё, что за ними, —
+в журнале с адресом.
 """
 from __future__ import annotations
 
+import ipaddress
 import re
 import secrets
 import sqlite3
@@ -27,13 +32,18 @@ import time
 from . import config, db, license, mail
 
 MODE_AUTO, MODE_APPROVE = "auto", "approve"
-MAX_PER_HOUR = 5                 # заявок с одного адреса в час
+MAX_PER_HOUR = 5                 # заявок с одного адреса (IPv6 — с одной /64) в час
+MAX_TOTAL_PER_HOUR = 60          # заявок со всех адресов в час: потолок на случай ротации адресов
 _hits: dict[str, list[float]] = {}
+_all: list[float] = []
 HONEYPOT = "website"             # поле, которого нет для человека
-ISSUED, REQUESTED, DUPLICATE = "issued", "requested", "duplicate"
+ISSUED, ISSUED_UNMAILED, REQUESTED, DUPLICATE = "issued", "issued_unmailed", "requested", "duplicate"
 NAME_MAX, EMAIL_MAX, CONTACT_MAX, PHONE_MAX = 120, 120, 80, 40
-_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Голый адрес: одна «@», без пробелов и знаков, которыми в заголовке письма
+# отделяют имя от адреса или один адрес от другого.
+_EMAIL = re.compile(r"^[^@\s<>\"(),;:\[\]]+@[^@\s<>\"(),;:\[\]]+\.[A-Za-z0-9-]{2,}$")
 _IDNO = re.compile(r"^[0-9]{13}$")
+_DOT_BLIND = ("gmail.com", "googlemail.com")   # точки в имени ящика ничего не значат
 
 
 def mode() -> str:
@@ -43,25 +53,48 @@ def mode() -> str:
 # ---------- спам ----------
 
 
+def bucket(ip: str) -> str:
+    """Ключ лимита: IPv4 — адрес, IPv6 — сеть /64 (у любого клиента их не меньше)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return ip
+
+
 def limited(ip: str) -> bool:
-    """Больше MAX_PER_HOUR заявок с адреса за час — отказ, тем же приёмом, что лимит входа."""
+    """Больше MAX_PER_HOUR заявок с адреса за час, или больше MAX_TOTAL_PER_HOUR со
+    всех, — отказ, тем же приёмом, что лимит входа. Считаются и принятые, и
+    отказанные после проверки полей: перебор адресов тоже заявки."""
     now = time.time()
-    stamps = [t for t in _hits.get(ip, []) if now - t < 3600]
-    _hits[ip] = stamps
-    return len(stamps) >= MAX_PER_HOUR
+    key = bucket(ip)
+    stamps = [t for t in _hits.get(key, []) if now - t < 3600]
+    if stamps:
+        _hits[key] = stamps
+    else:
+        _hits.pop(key, None)
+    _all[:] = [t for t in _all if now - t < 3600]
+    return len(stamps) >= MAX_PER_HOUR or len(_all) >= MAX_TOTAL_PER_HOUR
 
 
 def note(ip: str) -> None:
-    _hits.setdefault(ip, []).append(time.time())
+    now = time.time()
+    _hits.setdefault(bucket(ip), []).append(now)
+    _all.append(now)
 
 
 # ---------- поля ----------
 
 
 def clean(fields: dict) -> tuple[dict, str]:
-    """(чистые поля, код ошибки или ''). Коды — ключи views.TRIAL_MSG."""
-    f = {k: (fields.get(k) or "").strip() for k in ("name", "idno", "contact_name", "email", "phone")}
+    """(чистые поля, код ошибки или ''). Коды — ключи views.TRIAL_MSG.
+    Пробелы и переводы строк внутри полей схлопываются в один пробел: поле
+    уходит в заголовок письма, а перевод строки там — второй заголовок."""
+    f = {k: " ".join((fields.get(k) or "").split()) for k in ("name", "idno", "contact_name", "email", "phone")}
     f["idno"] = f["idno"].replace(" ", "")
+    f["email"] = f["email"].replace(" ", "")
     if not 2 <= len(f["name"]) <= NAME_MAX:
         return f, "bad_name"
     if f["idno"] and not _IDNO.match(f["idno"]):
@@ -75,10 +108,28 @@ def clean(fields: dict) -> tuple[dict, str]:
     return f, ""
 
 
+def canonical(email: str) -> str:
+    """Один ящик — одна форма: регистр не важен, `+метка` в имени ящика отбрасывается,
+    у gmail точки в имени ничего не значат. Хранится и в письмо идёт адрес, как
+    его написали; сравнивается — эта форма."""
+    local, _, domain = email.lower().partition("@")
+    local = local.split("+", 1)[0]
+    if domain in _DOT_BLIND:
+        local = local.replace(".", "")
+    return f"{local}@{domain}"
+
+
 def existing(con: sqlite3.Connection, idno: str, email: str) -> sqlite3.Row | None:
-    """Клиника с тем же IDNO или e-mail — заявка, пробный или абонемент, скрытая тоже."""
-    return con.execute("SELECT * FROM clinics WHERE (? <> '' AND idno = ?) OR lower(email) = lower(?) "
-                       "ORDER BY created_at LIMIT 1", (idno, idno, email)).fetchone()
+    """Клиника с тем же IDNO или тем же ящиком — заявка, пробный или абонемент.
+    Скрытая заявка не считается: «Скрыть» освобождает IDNO и e-mail."""
+    want = canonical(email)
+    domain = want.partition("@")[2]
+    rows = con.execute("SELECT * FROM clinics WHERE declined_at IS NULL AND ((? <> '' AND idno = ?) "
+                       "OR lower(email) LIKE ?) ORDER BY created_at", (idno, idno, "%@" + domain)).fetchall()
+    for r in rows:
+        if (idno and r["idno"] == idno) or canonical(r["email"]) == want:
+            return r
+    return None
 
 
 # ---------- заявка ----------
@@ -89,7 +140,9 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form") -> tupl
     REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен."""
     old = existing(con, f["idno"], f["email"])
     if old is not None:
-        db.audit(con, who, "trial_duplicate", old["id"], f"{f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip}")
+        # без clinic_id: чужой текст не должен ложиться в карточку клиники
+        db.audit(con, who, "trial_duplicate", None,
+                 f"{f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip} — уже есть {old['id']} ({old['name']})")
         return DUPLICATE, old
     cid = "c_" + secrets.token_hex(6)
     now = db.now_iso()
@@ -110,15 +163,16 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form") -> tupl
     code = license.mail_latest(con, clinic, who)
     if code:
         db.audit(con, who, "mail_failed", cid, f"пробный из формы не ушёл: {code}")
+        return ISSUED_UNMAILED, clinic
     return ISSUED, clinic
 
 
-def notify(clinic: sqlite3.Row, outcome: str, ip: str) -> str:
+def notify(clinic: sqlite3.Row, outcome: str, ip: str, fields: dict | None = None) -> str:
     """Письмо Олегу о заявке — как вышло; отказ почты не ломает заявку."""
-    subject, body = mail.trial_notice(clinic, outcome, ip)
+    subject, body = mail.trial_notice(clinic, outcome, ip, fields)
     try:
         return mail.send(config.TRIAL_NOTIFY, subject, body)
-    except (RuntimeError, OSError):
+    except (RuntimeError, OSError, ValueError):
         return ""
 
 
@@ -127,5 +181,5 @@ def acknowledge(clinic: sqlite3.Row) -> str:
     subject, body = mail.trial_received(clinic["name"])
     try:
         return mail.send(clinic["email"], subject, body)
-    except (RuntimeError, OSError):
+    except (RuntimeError, OSError, ValueError):
         return ""

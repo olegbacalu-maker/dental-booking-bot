@@ -5,7 +5,7 @@ import re
 from harness import CLOUD, ROOT, Result
 
 ALLOWED = {"argparse", "base64", "calendar", "contextlib", "dataclasses", "datetime", "getpass", "hashlib",
-           "hmac", "html", "json", "logging", "os", "pathlib", "re", "secrets", "shutil", "smtplib",
+           "hmac", "html", "ipaddress", "json", "logging", "os", "pathlib", "re", "secrets", "shutil", "smtplib",
            "socket", "sqlite3", "subprocess", "sys", "tempfile", "time", "email", "urllib", "fastapi",
            "cryptography", "__future__"}
 

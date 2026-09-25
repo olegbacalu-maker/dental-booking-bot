@@ -215,8 +215,8 @@ def trial_page(msg: str = "", values: dict | None = None) -> str:
     site = config.SITE_URL.rstrip("/")
     inner = (f"<h1>Perioadă de probă DentPilot — {license.TRIAL_DAYS} zile</h1>"
              f"<div class='card'><p>Completați formularul și primiți pe e-mail fișierul de licență pentru "
-             f"{license.TRIAL_DAYS} zile, fără plată și fără obligații. Programul se descarcă de pe "
-             f"<a href='{esc(site)}'>dentpilot.md</a>; datele pacienților rămân pe calculatorul clinicii.</p>"
+             f"{license.TRIAL_DAYS} zile, fără plată și fără obligații; programul îl instalăm împreună, "
+             f"la telefon. Datele pacienților rămân pe calculatorul clinicii.</p>"
              f"{err}<form method='post' action='/proba'>"
              f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}'>"
              f"<label>IDNO (13 cifre, opțional pentru probă)</label><input name='idno' value='{v['idno']}' maxlength='13' inputmode='numeric'>"
@@ -233,18 +233,15 @@ def trial_page(msg: str = "", values: dict | None = None) -> str:
 
 
 def trial_done_page(outcome: str, email: str) -> str:
+    """Два лица: «отправлено» и «принято». Повтор и файл без письма показывают
+    «принято» — форма не оракул о том, кто уже клиент; дальше отвечает Олег."""
     if outcome == trial.ISSUED:
         title, text = ("Fișierul a fost trimis", f"Fișierul de licență pentru {license.TRIAL_DAYS} zile a "
                        f"plecat la {email}, împreună cu pașii de activare. Dacă nu îl găsiți în câteva "
                        f"minute, verificați dosarul Spam sau scrieți-ne.")
-    elif outcome == trial.REQUESTED:
-        title, text = ("Cererea a fost primită", f"Vă trimitem fișierul de licență pentru {license.TRIAL_DAYS} "
-                       f"zile la {email} în cel mult o zi lucrătoare, împreună cu pașii de activare.")
     else:
-        title, text = ("Această clinică este deja înregistrată",
-                       "Avem deja o cerere sau un fișier de licență pentru acest IDNO sau e-mail, iar "
-                       "perioada de probă se acordă o singură dată. Dacă nu ați primit fișierul sau vreți "
-                       "un abonament, scrieți-ne — vă răspundem în aceeași zi.")
+        title, text = ("Cererea a fost primită", f"Vă răspundem la {email} în cel mult o zi lucrătoare — "
+                       f"cu fișierul de licență pentru {license.TRIAL_DAYS} zile și pașii de activare.")
     return _public(title, f"<div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p></div>")
 
 

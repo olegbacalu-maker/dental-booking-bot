@@ -161,7 +161,7 @@ def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
                                         plan["plan"] if plan else "standard", renew=renew_offered())
     try:
         where = mail.send(clinic["email"], subject, body, ("license.json", issue_text(row).encode("utf-8")))
-    except (RuntimeError, OSError) as e:
+    except (RuntimeError, OSError, ValueError) as e:
         log.error("письмо клинике %s не отправлено: %r", clinic["id"], e)
         return "mail_failed"
     db.audit(con, who, "mail", clinic["id"], f"seq {row['seq']} на {clinic['email']} ({where})")

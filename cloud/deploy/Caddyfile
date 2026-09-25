@@ -3,6 +3,10 @@
 # docker-compose.yml; без Docker (systemd) — 127.0.0.1:8090.
 cloud.dentpilot.md {
 	encode gzip
+	# формы админки и /proba — килобайты; поток гигабайт в публичную форму — нет
+	request_body {
+		max_size 256KB
+	}
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff

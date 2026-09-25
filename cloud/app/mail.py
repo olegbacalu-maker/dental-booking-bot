@@ -172,20 +172,27 @@ def trial_received(clinic: str) -> tuple[str, str]:
     body = (f"Bună ziua,\n\n"
             f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. Fișierul de licență "
             f"pentru 14 zile vine pe acest e-mail în cel mult o zi lucrătoare, împreună cu pașii de "
-            f"activare. Programul se descarcă de pe dentpilot.md.\n\n{FOOTER}")
+            f"activare; programul îl instalăm împreună, la telefon.\n\n{FOOTER}")
     return subject, body
 
 
-def trial_notice(clinic, outcome: str, ip: str) -> tuple[str, str]:
-    """Олегу: заявка с формы — кто, что вышло, ссылка на карточку. По-русски: письмо своё."""
+def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None) -> tuple[str, str]:
+    """Олегу: заявка с формы — кто, что вышло, ссылка на карточку. По-русски: письмо
+    своё. При повторе `clinic` — та, что уже есть, а `fields` — что написали в форме."""
     what = {"issued": "пробный файл выдан и отправлен клинике",
-            "requested": "ждёт решения: выдать пробный кнопкой в админке"}.get(outcome, outcome)
-    subject = f"DentPilot Cloud: заявка на пробный — {clinic['name']}"
+            "issued_unmailed": "файл выдан, но письмо клинике НЕ ушло — в карточке «Отправить последний файл письмом»",
+            "requested": "ждёт решения: выдать пробный кнопкой в админке",
+            "duplicate": "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме отвечено «принято» — "
+                         "ответьте клинике сами"}.get(outcome, outcome)
+    f = fields or {}
+    subject = f"DentPilot Cloud: заявка на пробный — {f.get('name') or clinic['name']}"
     body = (f"Заявка с формы /proba ({ip}):\n\n"
-            f"  Клиника: {clinic['name']}\n  IDNO: {clinic['idno'] or '—'}\n"
-            f"  Контакт: {clinic['contact_name'] or '—'}\n  E-mail: {clinic['email']}\n"
-            f"  Телефон: {clinic['phone'] or '—'}\n\n"
-            f"Итог: {what}.\nКарточка: {config.BASE_URL.rstrip('/')}/admin/clinics/{clinic['id']}\n")
+            f"  Клиника: {f.get('name') or clinic['name']}\n  IDNO: {f.get('idno') or clinic['idno'] or '—'}\n"
+            f"  Контакт: {f.get('contact_name') or clinic['contact_name'] or '—'}\n"
+            f"  E-mail: {f.get('email') or clinic['email']}\n"
+            f"  Телефон: {f.get('phone') or clinic['phone'] or '—'}\n\n"
+            f"Итог: {what}.\nКарточка: {config.BASE_URL.rstrip('/')}/admin/clinics/{clinic['id']}"
+            f"{' (' + clinic['name'] + ', ' + (clinic['email'] or '—') + ')' if outcome == 'duplicate' else ''}\n")
     return subject, body
 
 

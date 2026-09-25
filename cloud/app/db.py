@@ -91,12 +91,16 @@ def parse_ts(s: str | None) -> datetime | None:
 
 
 @contextlib.contextmanager
-def connect():
+def connect(immediate: bool = False):
+    """`immediate` — транзакция сразу берёт замок записи: для маршрута, который
+    сперва читает, потом пишет по прочитанному (форма пробного — «уже есть?» →
+    INSERT); две такие заявки одновременно иначе упирались бы в «database is
+    locked» вместо того, чтобы вторая дождалась первой и увидела её строку."""
     con = sqlite3.connect(config.DB_PATH, isolation_level=None, timeout=10)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
     try:
-        con.execute("BEGIN")
+        con.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         yield con
         con.execute("COMMIT")
     except BaseException:
