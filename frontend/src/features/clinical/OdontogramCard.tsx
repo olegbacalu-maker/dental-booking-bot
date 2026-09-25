@@ -12,8 +12,10 @@ import { useChart } from './useChart'
 
 /* Компактная одонтограмма в фише (C21 закрывает точку интеграции C18):
    тот же ClinicalChart, что на детальной странице, — обе дуги, оба вида,
-   подсказка при наведении, диалог зуба по клику. Модель грузится своим
-   запросом; запись зуба просит у сервера и свежую фишу (`?card=1`) и
+   подсказка при наведении, диалог зуба по клику. Модель приезжает С ФИШЕЙ
+   (загрузчик фиши, `initial`) — так дуга стоит в первом кадре и ничего под
+   ней не прыгает; своим запросом карточка грузит её только если фиша модели
+   не принесла (отказ карты). Запись зуба просит у сервера и свежую фишу (`?card=1`) и
    отдаёт её наверх (`onChanged`) — пилюли шапки и летопись зависят от
    зубов. ⛔ Фиша не перечитывает себя GET-ом: это ОТКРЫТИЕ, и каждое
    сохранение зуба оставляло бы в журнале доступа ложное «Fișa deschisă».
@@ -40,12 +42,18 @@ interface Props {
   /** Просьба открыть зуб снаружи (кнопка номера в плане): объект с меткой,
       чтобы повторный клик по тому же зубу тоже открыл диалог. */
   open?: { n: number; k: number } | null
+  /** Модель, приехавшая с фишей (загрузчик); `null` — грузить самой. */
+  initial?: Odontogram | null
 }
 
-export function OdontogramCard({ pid, views, say, onFail, onChanged, open = null }: Props) {
+export function OdontogramCard({ pid, views, say, onFail, onChanged, open = null, initial = null }: Props) {
   const [got, setGot] = useState<{ pid: number; model: Odontogram | null; failed: boolean } | null>(null)
-  const model = got && got.pid === pid ? got.model : null
-  const failed = Boolean(got && got.pid === pid && got.failed)
+  /* Своё состояние (ответ записи, свой запрос) главнее засева; засев — только
+     для ЭТОГО пациента: после перехода на другую фишу старый не годится. */
+  const mine = got && got.pid === pid ? got : null
+  const seeded = initial && initial.patient.id === pid ? initial : null
+  const model = mine ? mine.model : seeded
+  const failed = Boolean(mine?.failed)
   const replace = useCallback((m: Odontogram) => {
     const { card, ...fresh } = m
     setGot({ pid, model: fresh, failed: false })
@@ -63,13 +71,14 @@ export function OdontogramCard({ pid, views, say, onFail, onChanged, open = null
   }
 
   useEffect(() => {
+    if (seeded || (got && got.pid === pid)) return   // модель уже есть — запрос не нужен
     const ctl = new AbortController()
     chart.get(pid, ctl.signal).then(
       (r) => { if (!ctl.signal.aborted) setGot({ pid, model: r.data, failed: false }) },
       (e: unknown) => { if (!ctl.signal.aborted) { setGot({ pid, model: null, failed: true }); onFail(asApiError(e)) } },
     )
     return () => ctl.abort()
-  }, [pid, onFail])
+  }, [pid, onFail, seeded, got])
 
   const base = `/admin/patient/${pid}`
   if (failed) {

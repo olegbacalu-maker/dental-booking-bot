@@ -346,6 +346,28 @@ describe('PatientCardScreen', () => {
     expect(post).toHaveBeenCalledWith('/patients/5/payments', { amount: '250', method: 'card', note: 'avans' })
   })
 
+  it('одонтограмма приезжает С ФИШЕЙ: дуга в том же кадре, что и шапка, и запрос один', async () => {
+    serve()
+    open('/admin/patient/5')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    /* без waitFor: дуга обязана быть УЖЕ в кадре шапки — иначе всё под ней прыгнет */
+    expect(document.querySelector('#odo .tooth-btn[data-n="11"]')).toBeTruthy()
+    expect(get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length).toBe(1)
+    expect(opens()).toBe(1)
+  })
+
+  it('карта не ответила загрузчику — фиша открывается, карточка грузит сама и говорит об отказе', async () => {
+    serve()
+    const base = get.getMockImplementation()!
+    get.mockImplementation((path: string) => (path === '/patients/5/odontogram'
+      ? Promise.reject(new ApiError({ kind: 'network', detail: 'down' }, 'n'))
+      : base(path)))
+    open('/admin/patient/5')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    expect(await screen.findByText('Formula dentară nu s-a încărcat.')).toBeTruthy()
+    expect(get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length).toBe(2)
+  })
+
   it('стирание: контакт без лечения — уход по адресу сервера', async () => {
     serve({ ...CARD, erasure: 'delete' })
     post.mockResolvedValueOnce(ok({ url: '/admin/search?msg=ok_del' }, 'ok_del', 'Fișa a fost ștearsă'))
@@ -425,7 +447,8 @@ describe('PatientCardScreen', () => {
     expect(opens()).toBe(2)
     /* перезапуск на том же адресе (так работает «Reîncearcă») — загрузчик видит УЖЕ новый адрес */
     await act(() => router.revalidate())
-    expect(get).toHaveBeenLastCalledWith('/patients/5?views=1', expect.anything())
+    /* последним уходит запрос карты (загрузчик просит обе разом) — важен сам факт запроса фиши по новому адресу */
+    expect(get).toHaveBeenCalledWith('/patients/5?views=1', expect.anything())
     expect(opens()).toBe(3)
     expect(screen.getByText('Fișa deschisă')).toBeTruthy()
   })

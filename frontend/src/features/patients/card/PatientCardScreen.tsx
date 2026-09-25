@@ -17,6 +17,7 @@ import { AppointDialog } from './AppointDialog'
 import { DocumentsCard } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
 import { HeroKpi } from './HeroKpi'
+import { chart, type Odontogram } from '../../clinical/chart'
 import { OdontogramCard } from '../../clinical/OdontogramCard'
 import { PlanCard } from './PlanCard'
 import { ProfileCard } from './ProfileCard'
@@ -55,8 +56,24 @@ interface Props {
  */
 const viewsOf = (q: URLSearchParams): boolean => queryParam(q, 'views') === '1'
 
-const loadCard: RouteLoad<PatientCard> = (signal, params, q) =>
-  patientCard.get(Number(params.pid), viewsOf(q), signal)
+/** Фиша плюс её одонтограмма — одним кадром. После ответа действия (`replace`)
+ *  поля `odontogram` нет: карточка к тому моменту уже держит модель сама. */
+type CardData = PatientCard & { odontogram?: Odontogram | null }
+
+/* ⭐ Одонтограмма — ВМЕСТЕ с фишей, до первого кадра. Своим запросом после
+   монтирования она приезжала на ~50 мс позже фиши и роняла всё, что под ней,
+   на треть экрана (зонд CDP 25.09: layout-shift 0.046 при КАЖДОМ открытии
+   фиши — Олег: «прыгание страницы» после «Vezi profilul complet»). Отказ
+   карты фишу не валит: карточка тогда грузит её сама и покажет отказ. Журнал
+   доступа этот GET не трогает — «Fișa deschisă» пишет только GET фиши. */
+const loadCard: RouteLoad<CardData> = async (signal, params, q) => {
+  const pid = Number(params.pid)
+  const [r, odontogram] = await Promise.all([
+    patientCard.get(pid, viewsOf(q), signal),
+    Promise.resolve().then(() => chart.get(pid, signal)).then((x) => x.data, () => null),
+  ])
+  return { ...r, data: { ...r.data, odontogram } }
+}
 
 /* ⭐ Смена ОДНОГО query на том же пути — переключатель ленты: её экран уже
    принёс сам (`/activity`, без записи о просмотре). Полная загрузка —
@@ -67,7 +84,7 @@ const loadCard: RouteLoad<PatientCard> = (signal, params, q) =>
 export const loadPatientCard: ScreenData = { load: loadCard, shouldRevalidate: searchChangeKeepsData }
 
 export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
-  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<PatientCard>(navigate)
+  const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<CardData>(navigate)
   /* Режим ленты читается из адреса, который ведёт РОУТЕР, — тот же, что у
      загрузчика; из него же `reload` и каждое действие (`a.views`). Своей
      копии нет: после перехода она разошлась бы с адресом, и запросы ушли бы
@@ -182,7 +199,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       <HeroKpi card={card} onBook={() => setBooking(true)} />
       <div className="pv2">
         <div className="pv2-main">
-          <OdontogramCard pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq} />
+          <OdontogramCard pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
+            initial={card.odontogram ?? null} />
           <PlanCard card={card} a={a} onTooth={onTooth} />
           <FinanceCard card={card} a={a} />
           <DocumentsCard card={card} a={a} onFail={failCb} navigate={navigate} />
