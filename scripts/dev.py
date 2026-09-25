@@ -210,23 +210,31 @@ def cmd_check(argv: list) -> int:
             ok &= say(False, f"тег {tag} стоит на {at[:7]}, и этого коммита нет "
                              f"в HEAD {head[:7]} — тег описывает другую ветку")
 
-    # Есть ли что выпускать. В exe едет ТОЛЬКО bot/: тесты, scripts, dev.ps1,
+    # Есть ли что выпускать. В exe едет bot/ И клиент: frontend/src собирается
+    # сборкой в bot/app/static/js/bundle.js (сам бандл в git не лежит), так что
+    # правка экрана React — такое же содержание выпуска, как правка bot/.
+    # ⛔ 25.09: проверка считала только bot/ и на B4 (весь переход — в
+    # frontend/) сказала «выпускать нечего» — ложно. Тесты, scripts, dev.ps1,
     # README и скриншоты не пакуются, и релиз с одними ими повёз бы клинике
     # 30 МБ ради новой строки версии.
-    # ⚠️ Информационно, не [!!]: сразу после релиза «в bot/ пусто» — норма, и
-    # красная строка тут горела бы постоянно (та же ловушка, что с тегом выше).
+    # ⚠️ Информационно, не [!!]: сразу после релиза «пусто» — норма, и красная
+    # строка тут горела бы постоянно (та же ловушка, что с тегом выше).
     base = git("describe", "--tags", "--abbrev=0").strip()
     empty = False
     if base:
-        stat = [l for l in git("diff", "--numstat", f"{base}..HEAD",
-                               "--", "bot/").splitlines() if l.strip()]
-        # подъём версии — одна строка в engine.py: сам по себе он не содержание
-        only_bump = (len(stat) == 1 and stat[0].endswith("engine.py")
-                     and stat[0].split("\t")[:2] == ["1", "1"])
+        stat = [l for l in git("diff", "--numstat", f"{base}..HEAD", "--", "bot/",
+                               "frontend/src/", "frontend/package.json",
+                               "frontend/vite.config.ts").splitlines() if l.strip()]
+        # подъём версии — строка в engine.py и её эхо в package.json
+        # (sync_version): сам по себе он не содержание
+        bump_files = {"bot/app/engine.py", "frontend/package.json"}
+        only_bump = bool(stat) and all(
+            l.split("\t")[2].replace("\\", "/") in bump_files and l.split("\t")[:2] == ["1", "1"]
+            for l in stat)
         empty = not stat or only_bump
-        say(True, f"в bot/ с {base} изменений нет" if not stat else
-                  f"в bot/ с {base} только подъём версии" if only_bump else
-                  f"в bot/ с {base} изменено файлов: {len(stat)}")
+        say(True, f"в bot/ и frontend/src с {base} изменений нет" if not stat else
+                  f"с {base} только подъём версии" if only_bump else
+                  f"в bot/ и frontend/src с {base} изменено файлов: {len(stat)}")
 
     print()
     if not ok:
