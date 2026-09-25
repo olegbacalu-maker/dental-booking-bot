@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
+import { placeMenu, useMenuDismiss } from '../../components/menu'
 import type { Odontogram } from './chart'
 
 /* Контекстное меню зуба (C22): состояния зуба — в ЧЕРНОВИК (запись — Save
@@ -32,29 +33,13 @@ const ROW = 32
 
 export function ToothMenu({ model, at, current, onState, onBridge, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const down = (e: Event) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('mousedown', down)
-    document.addEventListener('keydown', key)
-    window.addEventListener('resize', onClose)
-    window.addEventListener('scroll', onClose, true)
-    return () => {
-      document.removeEventListener('mousedown', down)
-      document.removeEventListener('keydown', key)
-      window.removeEventListener('resize', onClose)
-      window.removeEventListener('scroll', onClose, true)
-    }
-  }, [onClose])
+  useMenuDismiss(ref, onClose)
 
   const info = model.teeth[String(at.n)]
   const states = Object.entries(model.states)
   const bridge = Boolean(info && !info.milk)
   const height = 40 + states.length * ROW + (bridge ? ROW + 9 : 0) + 12
-  const left = Math.max(4, Math.min(at.x, window.innerWidth - WIDTH - 4))
-  const top = Math.max(4, Math.min(at.y, window.innerHeight - height - 4))
+  const { left, top } = placeMenu(at.x, at.y, WIDTH, height)
   return (
     <div ref={ref} className="dp-cmenu" role="menu" aria-label={`${T.tooth} ${at.n}`} style={{ left, top, width: WIDTH }}>
       <div className="dp-cmenu-h">{T.tooth} {at.n}</div>

@@ -28,12 +28,13 @@ interface Props {
   busy: boolean
   /** Открыть карточку визита (у заметки её нет). */
   onCard: (id: number) => void
+  onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   onStatus: (id: number, to: string) => void
   /** Выйти из отбора плитки. */
   onAll: () => void
 }
 
-export function DayList({ model, busy, onCard, onStatus, onAll }: Props) {
+export function DayList({ model, busy, onCard, onCardMenu, onStatus, onAll }: Props) {
   const f = model.filter
   const title = f
     ? `${f.label} — ${model.date.split('-').reverse().join('.')}`
@@ -60,7 +61,7 @@ export function DayList({ model, busy, onCard, onStatus, onAll }: Props) {
             <Row key={row.id} row={row} busy={busy}
                  actions={(row.is_note ? model.note_actions : model.actions)[row.status] ?? []}
                  clickable={!row.is_note && !!model.cards[String(row.id)]}
-                 onCard={onCard} onStatus={onStatus} />
+                 onCard={onCard} onCardMenu={onCardMenu} onStatus={onStatus} />
           ))}
         </tbody>
       </table>
@@ -74,10 +75,11 @@ interface RowProps {
   clickable: boolean
   busy: boolean
   onCard: (id: number) => void
+  onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   onStatus: (id: number, to: string) => void
 }
 
-function Row({ row, actions, clickable, busy, onCard, onStatus }: RowProps) {
+function Row({ row, actions, clickable, busy, onCard, onCardMenu, onStatus }: RowProps) {
   return (
     <tr className={row.status}>
       <td>{row.id}</td>
@@ -86,7 +88,8 @@ function Row({ row, actions, clickable, busy, onCard, onStatus }: RowProps) {
         {clickable ? (
           <>
             <AppLink className="plink" href="#addform"
-               onClick={(e) => { e.preventDefault(); onCard(row.id) }}>{row.name}</AppLink>
+               onClick={(e) => { e.preventDefault(); onCard(row.id) }}
+               onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(row.id, e.clientX, e.clientY) }}>{row.name}</AppLink>
             {row.age ? <small className="dp-age"> ({row.age} ani)</small> : null}
           </>
         ) : row.name}

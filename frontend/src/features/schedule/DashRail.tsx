@@ -43,18 +43,20 @@ interface Props {
   /** Метка времени для минут ожидания; меняется раз в минуту. */
   waitTick: number
   onCard: (id: number) => void
+  /** Правая кнопка по строке повестки: то же меню, что у блока в сетке. */
+  onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   /** Что приехало прямо сейчас: этим строкам ставится `fresh` (C26.5.4). */
   fresh: ReadonlySet<number>
 }
 
 export function DashRail(
-  { minical, agenda, tiles, occupancy, date, waitTick, onCard, fresh }: Props,
+  { minical, agenda, tiles, occupancy, date, waitTick, onCard, onCardMenu, fresh }: Props,
 ) {
   return (
     <>
       <MiniCal cal={minical} />
       <Agenda agenda={agenda} date={date} waitTick={waitTick} onCard={onCard}
-        fresh={fresh} />
+        onCardMenu={onCardMenu} fresh={fresh} />
       <KpiCard tiles={tiles} occupancy={occupancy} />
     </>
   )
@@ -100,9 +102,10 @@ function MiniCal({ cal }: { cal: DashMiniCal }) {
 /** Пустой день — ДРУГОЕ дерево, а не пустой список: без счётчика, без списка
  *  и без ссылки «смотреть все». */
 function Agenda(
-  { agenda, date, waitTick, onCard, fresh }: {
+  { agenda, date, waitTick, onCard, onCardMenu, fresh }: {
     agenda: DashAgenda; date: string; waitTick: number
-    onCard: (id: number) => void; fresh: ReadonlySet<number>
+    onCard: (id: number) => void; onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
+    fresh: ReadonlySet<number>
   },
 ) {
   if (!agenda.items.length) {
@@ -128,7 +131,8 @@ function Agenda(
               className={`ag-i${it.state === 'past' ? ' past' : ''}`
                 + (fresh.has(it.id) ? ' fresh' : '')}
               data-appt={it.id} style={{ borderLeftColor: it.bar }}
-              onClick={() => onCard(it.id)}>
+              onClick={() => onCard(it.id)}
+              onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(it.id, e.clientX, e.clientY) }}>
               <span className="ag-t">{it.time}</span>
               <div className="ag-b">
                 <b>{it.name}</b>

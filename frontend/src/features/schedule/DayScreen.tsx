@@ -10,6 +10,7 @@ import { asApiError, type ApiResult } from '../../services/api'
 import { shift } from '../../utils/date'
 import { AddForm } from './AddForm'
 import { CardDialog } from './CardDialog'
+import { CardMenu, type CardMenuAt } from './CardMenu'
 import { DayGrid } from './DayGrid'
 import { DayList } from './DayList'
 import { MoveDialog } from './MoveDialog'
@@ -68,6 +69,9 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [slot, setSlot] = useState<Slot | null>(null)
   const [card, setCard] = useState<number | null>(null)
+  /* Меню по правой кнопке — те же исходы, что в диалоге, у курсора. */
+  const [menu, setMenu] = useState<CardMenuAt | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
   const [drag, setDrag] = useState<Drag | null>(null)
   const [hover, setHover] = useState('')
   const [move, setMove] = useState<{ drag: Drag; target: Target } | null>(null)
@@ -132,8 +136,10 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
     void to(tail ? `${base}?${tail}` : base, { replace: true })
   }
   const openCard = card !== null ? m.cards[String(card)] : undefined
+  const menuCard = menu !== null ? m.cards[String(menu.id)] : undefined
+  const openMenu = (id: number, x: number, y: number) => setMenu({ id, x, y })
   const listNode = (
-    <DayList model={m} busy={busy} onCard={setCard} onAll={() => go(m.date, '')}
+    <DayList model={m} busy={busy} onCard={setCard} onCardMenu={openMenu} onAll={() => go(m.date, '')}
              onStatus={(id, to) => { void act(() => day.status(at, doctor, tile, id, to)) }} />
   )
 
@@ -171,7 +177,7 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
       <DayGrid model={m} drag={drag} hover={hover}
                onDrag={setDrag} onHover={setHover} onDrop={onDrop}
                onPlus={(dk, name, hour) => setSlot({ dk, name, hour })}
-               onCard={setCard} />
+               onCard={setCard} onCardMenu={openMenu} />
 
       {/* ⛔ Ключ — день экрана. Форма засевает дату один раз, а переход по
           дням идёт роутером и экземпляр не пересоздаёт: без ключа форма
@@ -192,6 +198,16 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       onClose={() => setSlot(null)}
                       onAdd={(b) => act(() => day.add(at, doctor, tile, b))}
                       onNote={(b) => act(() => day.note(at, doctor, tile, b))} />
+        : null}
+
+      {menu !== null && menuCard
+        ? <CardMenu at={menu} card={menuCard} actions={m.actions[menuCard.status] ?? []}
+                    busy={busy} onClose={closeMenu}
+                    onStatus={async (to) => {
+                      const ok = await act(() => day.status(at, doctor, tile, menu.id, to))
+                      if (ok) setMenu(null)
+                      return ok
+                    }} />
         : null}
 
       {card !== null && openCard

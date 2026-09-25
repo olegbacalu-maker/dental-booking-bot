@@ -4,6 +4,7 @@ import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { Toast, type ToastState } from '../../components/Toast'
 import { CardDialog } from './CardDialog'
+import { CardMenu, type CardMenuAt } from './CardMenu'
 import { asApiError, type ApiResult } from '../../services/api'
 import { dm, shift } from '../../utils/date'
 import { useLive } from '../../hooks/useLive'
@@ -82,6 +83,10 @@ export function DashScreen() {
      запрещены по делу.
      ⭐ И показывает надгробие ровно то, что человек ОТКРЫВАЛ. */
   const [card, setCard] = useState<{ id: number; at: DashAppt } | null>(null)
+  /* Меню по правой кнопке: номер записи и место у курсора. Надгробия у меню
+     нет — исчезла запись, исчезло и меню: действовать не над чем. */
+  const [menu, setMenu] = useState<CardMenuAt | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
   /* ⛔ Надгробия у слота нет и не нужно: слот — не запись, а МЕСТО. Пока
      диалог открыт, час могли занять со второго рабочего места, и отвечает на
      это ОТКАЗ команды (`e`), а не исчезновение из конверта: своей проверки
@@ -211,6 +216,7 @@ export function DashScreen() {
   const found = card === null ? null : findAppt(state.data, card.id)
   const openCard = found ?? card?.at ?? null
   const gone = card !== null && found === null
+  const menuCard = menu === null ? null : findAppt(state.data, menu.id)
   const foundNote = note === null ? null : findNote(state.data, note.id)
   const openNote = foundNote ?? note?.at ?? null
   const noteGone = note !== null && foundNote === null
@@ -341,6 +347,7 @@ export function DashScreen() {
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
             lineTick={lineTick} onCard={(id) => openById(d, id)}
+            onCardMenu={(id, x, y) => setMenu({ id, x, y })}
             onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
@@ -352,10 +359,20 @@ export function DashScreen() {
         <div className="rail" ref={rail}>
           <DashRail minical={d.minical} agenda={d.agenda} tiles={d.tiles}
             occupancy={d.occupancy} date={d.date} waitTick={waitTick}
-            onCard={(id) => openById(d, id)} fresh={fresh} />
+            onCard={(id) => openById(d, id)}
+            onCardMenu={(id, x, y) => setMenu({ id, x, y })} fresh={fresh} />
         </div>
       </div>
 
+      {menu !== null && menuCard && (
+        <CardMenu at={menu} card={menuCard} actions={d.actions[menuCard.status] ?? []}
+          busy={busy} onClose={closeMenu}
+          onStatus={async (to) => {
+            const ok = await act(() => dash.status(d.date, menu.id, to))
+            if (ok) setMenu(null)
+            return ok
+          }} />
+      )}
       {card !== null && openCard && (
         <CardDialog key={card.id} open id={card.id} card={openCard}
           /* ⛔ Кнопки приходят С СЕРВЕРА по состоянию записи. У надгробия их

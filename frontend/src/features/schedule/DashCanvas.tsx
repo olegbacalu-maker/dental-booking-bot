@@ -48,6 +48,8 @@ interface Props {
   /** Открыть карточку визита. ⛔ Только у визита: у заметки карточки не
    *  бывает — `_collect_cards` её пропускает, и диалог у неё СВОЙ. */
   onCard: (id: number) => void
+  /** Правая кнопка по визиту: меню исходов у курсора (окно: clientX/Y). */
+  onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
   /** Открыть заметку стойки: полный текст и её единственная кнопка. */
   onNote: (id: number) => void
   /** Открыть пустой час: врач, его имя и «HH:00» — те же три значения, что
@@ -64,7 +66,7 @@ interface Props {
   fresh: ReadonlySet<number>
 }
 
-export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, onNote,
+export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu, onSlot, onNote,
   drag, hover, onDrag, onHover, onDrop, fresh }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Перемер блоков привязан к минутам ожидания не вообще, а только когда
@@ -124,7 +126,7 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onSlot, on
               })}
               {col.blocks.map((b) => (
                 <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
-                  onCard={onCard} onNote={onNote} onDrag={onDrag}
+                  onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
                   fresh={fresh.has(b.id)} />
               ))}
             </div>
@@ -250,10 +252,11 @@ function Relink({ relink, date }: { relink: NonNullable<DashColumn['relink']>; d
 }
 
 function Block(
-  { block, waitTick, dk, onCard, onNote, onDrag, fresh }:
+  { block, waitTick, dk, onCard, onCardMenu, onNote, onDrag, fresh }:
   {
     block: DashBlock; waitTick: number; dk: string
     onCard: (id: number) => void; onNote: (id: number) => void
+    onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     onDrag: (d: Drag | null) => void
     fresh: boolean
   },
@@ -297,13 +300,14 @@ function Block(
     )
   }
   return <ApptBlock block={block} pos={pos} waitTick={waitTick} onCard={onCard}
-    grab={grab} fx={fx} />
+    onCardMenu={onCardMenu} grab={grab} fx={fx} />
 }
 
 function ApptBlock(
-  { block, pos, waitTick, onCard, grab, fx }: {
+  { block, pos, waitTick, onCard, onCardMenu, grab, fx }: {
     block: DashAppt; pos: React.CSSProperties; waitTick: number
     onCard: (id: number) => void
+    onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     grab: Record<string, unknown>
     fx: string
   },
@@ -319,7 +323,9 @@ function ApptBlock(
   return (
     <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${fx}`}
       data-appt={block.id} style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}` }}
-      title={block.title} onClick={() => onCard(block.id)} {...grab}>
+      title={block.title} onClick={() => onCard(block.id)}
+      onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(block.id, e.clientX, e.clientY) }}
+      {...grab}>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
       <b>{block.name} <Icon name={block.source === 'bot' ? 'bot' : 'pen'} /></b>
       <small>{block.time} · {block.dur}′ · {block.service}</small>

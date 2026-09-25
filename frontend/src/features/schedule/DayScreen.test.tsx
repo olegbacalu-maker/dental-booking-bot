@@ -414,6 +414,31 @@ describe('карточка визита', () => {
       .map((b) => b.textContent?.trim())).toEqual(['A venit', 'Finalizat'])
   })
 
+  it('правая кнопка по записи в сетке — меню с ТЕМИ ЖЕ исходами, «Finalizat» шлёт статус', async () => {
+    post.mockResolvedValue(ok(MODEL))
+    await show({ date: '2026-09-23' })
+    fireEvent.contextMenu(document.querySelector('.appt[data-appt="1"]') as HTMLElement, { clientX: 200, clientY: 200 })
+    const menu = document.querySelector('.dp-cmenu') as HTMLElement
+    expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
+      .toEqual(['A venit', 'Finalizat'])
+    expect(menu.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/7')
+    fireEvent.click(Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Finalizat') as HTMLButtonElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/status?date=2026-09-23', { to: 'done' }))
+    await waitFor(() => expect(document.querySelector('.dp-cmenu')).toBeNull())
+  })
+
+  it('возврат из меню спрашивает то же серверное подтверждение, что и диалог', async () => {
+    post.mockResolvedValue(ok(MODEL))
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await show({ date: '2026-09-23' })
+    fireEvent.contextMenu(document.querySelector('.appt[data-appt="2"]') as HTMLElement, { clientX: 200, clientY: 200 })
+    fireEvent.click(Array.from(document.querySelectorAll('.dp-cmenu button'))
+      .find((b) => /Redeschide/.test(b.textContent ?? '')) as HTMLButtonElement)
+    expect(ask).toHaveBeenCalledWith('Redeschideți programarea (înapoi la «confirmată»)?')
+    expect(post).not.toHaveBeenCalled()
+  })
+
   it('возврат закрытой записи спрашивает подтверждение', async () => {
     post.mockResolvedValue(ok(MODEL))
     const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)

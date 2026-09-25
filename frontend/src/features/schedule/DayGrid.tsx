@@ -36,9 +36,11 @@ interface Props {
   onDrop: (t: Target) => void
   onPlus: (dk: string, name: string, hour: string) => void
   onCard: (id: number) => void
+  /** Правая кнопка по записи: меню исходов у курсора. */
+  onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
 }
 
-export function DayGrid({ model, drag, hover, onDrag, onHover, onDrop, onPlus, onCard }: Props) {
+export function DayGrid({ model, drag, hover, onDrag, onHover, onDrop, onPlus, onCard, onCardMenu }: Props) {
   return (
     <>
       <div className="gridwrap">
@@ -66,7 +68,7 @@ export function DayGrid({ model, drag, hover, onDrag, onHover, onDrop, onPlus, o
                     <Cell key={key} cell={cell} dk={dc?.id ?? ''} name={dc?.name ?? ''}
                           hour={row.h} drag={drag} hovered={hover === key}
                           onDrag={onDrag} onHover={onHover} onDrop={onDrop}
-                          onPlus={onPlus} onCard={onCard} />
+                          onPlus={onPlus} onCard={onCard} onCardMenu={onCardMenu} />
                   )
                 })}
               </tr>
@@ -91,10 +93,11 @@ interface CellProps {
   onDrop: (t: Target) => void
   onPlus: (dk: string, name: string, hour: string) => void
   onCard: (id: number) => void
+  onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
 }
 
 function Cell({ cell, dk, name, hour, drag, hovered, onDrag, onHover, onDrop,
-  onPlus, onCard }: CellProps) {
+  onPlus, onCard, onCardMenu }: CellProps) {
   const label = `${String(hour).padStart(2, '0')}:00`
   /* Мишень только у приёмного часа, и только пока что-то тащат: без
      preventDefault браузер не отдаст событие drop вовсе. */
@@ -139,7 +142,7 @@ function Cell({ cell, dk, name, hour, drag, hovered, onDrag, onHover, onDrop,
     <td className={cls} {...zone}>
       {cell.items.map((x) => (
         <Appt key={x.id} item={x} dk={dk} dragging={drag?.id === x.id}
-              onDrag={onDrag} onCard={onCard} />
+              onDrag={onDrag} onCard={onCard} onCardMenu={onCardMenu} />
       ))}
     </td>
   )
@@ -151,9 +154,10 @@ interface ApptProps {
   dragging: boolean
   onDrag: (d: Drag | null) => void
   onCard: (id: number) => void
+  onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
 }
 
-function Appt({ item, dk, dragging, onDrag, onCard }: ApptProps) {
+function Appt({ item, dk, dragging, onDrag, onCard, onCardMenu }: ApptProps) {
   /* data-mv остаётся атрибутом: по нему panel.css гасит тащимую карточку
      (`[data-mv].dragging`), и правило одно на обе страницы. */
   const move = item.movable
@@ -181,7 +185,10 @@ function Appt({ item, dk, dragging, onDrag, onCard }: ApptProps) {
     <div className={`appt ${item.status}${item.urgent ? ' urgent' : ''}`
       + `${item.clickable ? ' clickable' : ''}${cls}`}
          data-appt={item.id} {...move}
-         onClick={item.clickable ? () => onCard(item.id) : undefined}>
+         onClick={item.clickable ? () => onCard(item.id) : undefined}
+         onContextMenu={item.clickable
+           ? (e) => { e.preventDefault(); onCardMenu?.(item.id, e.clientX, e.clientY) }
+           : undefined}>
       <b>{item.time} · {item.name}</b>
       {item.age ? <small className="dp-age"> {item.age} a.</small> : null}{' '}
       <Icon name={item.source === 'bot' ? 'bot' : 'pen'} />

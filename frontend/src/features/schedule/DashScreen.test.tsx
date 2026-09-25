@@ -740,6 +740,40 @@ describe('C26.5.3-d: диалог заметки стойки', () => {
       .not.toContain(TEXT.slice(0, 41))
   })
 
+  it('правая кнопка по блоку: меню с исходами СЕРВЕРА и ссылкой на фишу; выбор шлёт статус', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/status')
+      ? cmdReply('ok_wait', 'Pacientul a venit')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    const block = document.querySelector('.gappt[data-appt="1"]') as HTMLElement
+    fireEvent.contextMenu(block, { clientX: 120, clientY: 140 })
+    const menu = document.querySelector('.dp-cmenu') as HTMLElement
+    expect(menu).toBeTruthy()
+    /* диалога по правой кнопке НЕТ — это меню, а не карточка */
+    expect(document.querySelector('dialog[open]')).toBeNull()
+    expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
+      .toEqual(['A venit'])
+    expect(menu.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/17')
+    fireEvent.click(menu.querySelector('button') as HTMLButtonElement)
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/status'))).toBe(true))
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/status'))!
+    expect(String(call[0])).toBe(`/api/schedule/appointments/1/status?screen=panel&date=${TODAY}`)
+    expect(bodyOf(call)).toEqual({ to: 'waiting' })
+    await waitFor(() => expect(document.querySelector('.dp-cmenu')).toBeNull())
+  })
+
+  it('правая кнопка по строке повестки — то же меню; Esc закрывает без запроса', async () => {
+    const f = vi.fn(async (url: string) => reply(200, model(), { 'X-DP-From': String(url).length ? 'x' : 'y' }))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    fireEvent.contextMenu(document.querySelector('.ag-i[data-appt="1"]') as HTMLElement, { clientX: 900, clientY: 300 })
+    expect(document.querySelector('.dp-cmenu .dp-cmenu-h')?.textContent).toBe('09:00 — Ion Popa')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.querySelector('.dp-cmenu')).toBeNull()
+    expect(f.mock.calls.some((c) => String(c[0]).includes('/status'))).toBe(false)
+  })
+
   it('⛔ у заметки РОВНО ОДНА кнопка, и слово у неё серверное', async () => {
     /* Матрица заметки знает два состояния из шести: прихода и исхода у неё
        нет, есть «убрать» и «вернуть». Своего списка в браузере нет. */

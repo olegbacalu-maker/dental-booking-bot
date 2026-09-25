@@ -412,6 +412,10 @@
 .dp-cmenu-i:hover, .dp-cmenu-i:focus-visible { background: var(--teal-soft); color: var(--teal-d); outline: none; }
 .dp-cmenu-i.on { font-weight: 600; color: var(--teal-d); box-shadow: inset 3px 0 0 var(--teal); }
 .dp-cmenu-sep { height: 1px; background: var(--line2); margin: 4px 6px; }
+/* меню карточки визита (25.09): пункт-ссылка «Fișa pacientului» выглядит как
+   кнопки рядом; занятый пункт (команда в полёте) — приглушён, не спрятан */
+.dp-cmenu a.dp-cmenu-i { text-decoration: none; display: flex; align-items: center; gap: 8px; }
+.dp-cmenu-i:disabled { opacity: .5; cursor: default; }
 /* инспектор: справа от 1366, под дугой 1100–1365 (старый порог panel.css — 1100,
    он остаётся ниже), ниже 1100 цели поверхностей крупнее — раскладку не трогаем */
 @media (max-width: 1365px) {
