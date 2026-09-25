@@ -18,6 +18,7 @@ import test_contract  # noqa: E402
 import test_deploy  # noqa: E402
 import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
+import test_maib  # noqa: E402
 import test_payments  # noqa: E402
 import test_pure  # noqa: E402
 import test_renew  # noqa: E402
@@ -36,6 +37,9 @@ SUITES = [
     ("Сервер: ежедневная задача — письма, повтор, новый период", test_jobs.suite_daily),
     ("Сервер: задача — пробный, без e-mail, без реквизитов, кнопка, журнал", test_jobs.suite_edges),
     ("Сервер: автообновление — renew в файле, /v1/license, клиент программы", test_renew.suite_renew),
+    ("Сервер: карта maib — ссылка, четыре callback, проверка, новая ссылка", test_maib.suite_flow),
+    ("Сервер: карта maib — ежедневная задача, maib молчит", test_maib.suite_daily),
+    ("Сервер: карта maib — без DP_MAIB_* всё как в шаге 1", test_maib.suite_off),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

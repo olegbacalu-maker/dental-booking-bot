@@ -3,20 +3,23 @@
 Отдельная программа: ни одного импорта из bot/. Общее с движком — контракт
 файла лицензии и фикстуры tests/fixtures/license/. Здесь: вход администратора,
 клиники, выдача файла, письмо с файлом (L7), платежи переводом (L8),
-ежедневная задача с напоминаниями и журнал (L9), ответ программе клиники на
-её суточный запрос нового файла (L13, /v1/license).
+ежедневная задача с напоминаниями и журнал (L9), оплата картой через maib —
+ссылка, callback, проверка статуса (L12), ответ программе клиники на её
+суточный запрос нового файла (L13, /v1/license).
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Form, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import auth, config, db, jobs, license, mail, payments, views
+from . import auth, config, db, jobs, license, maib, mail, payments, views
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -252,30 +255,43 @@ def payments_pending(request: Request, msg: str = "") -> Response:
 
 @app.post("/admin/clinics/{cid}/payments")
 def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str = Form(""),
-                send: str = Form("")) -> Response:
+                send: str = Form(""), method: str = Form(payments.TRANSFER)) -> Response:
+    """Платёж: переводом (reference в письме) или картой (L12: плюс ссылка maib).
+    maib не ответил — строка откатывается вместе с транзакцией, reference не
+    потрачен, админ видит maib_failed."""
     if (deny := _guard(request)) is not None:
         return deny
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     who = auth.current_user(request)
-    with db.connect() as con:
-        c = _clinic(con, cid)
-        if c is None:
-            return Response(status_code=404)
-        sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
-        price = sub["price"] if sub else 399
-        try:
-            m = int(months)
-            a = int(amount) if amount.strip() else m * price
-        except ValueError:
-            return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
-        try:
-            p = payments.create(con, c, m, a, who)
-        except ValueError as e:
-            return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
-        code = "payment_created"
-        if send == "1":
-            code = _send_payment_letter(con, c, p, who) or "payment_created_mailed"
+    card = method == payments.CARD
+    if card and not maib.enabled():
+        return RedirectResponse(f"/admin/clinics/{cid}?msg=no_maib", status_code=303)
+    try:
+        with db.connect() as con:
+            c = _clinic(con, cid)
+            if c is None:
+                return Response(status_code=404)
+            sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
+            price = sub["price"] if sub else 399
+            try:
+                m = int(months)
+                a = int(amount) if amount.strip() else m * price
+            except ValueError:
+                return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
+            try:
+                p = payments.create(con, c, m, a, who)
+            except ValueError as e:
+                return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_{e}", status_code=303)
+            code = "payment_created"
+            if card:
+                p = payments.attach_card(con, p, c, who, _ip(request))
+                code = "card_created"
+            if send == "1":
+                code = _send_payment_letter(con, c, p, who) or code + "_mailed"
+    except maib.MaibError as e:
+        log.error("maib: платёж клинике %s не создан: %s", cid, e)
+        return RedirectResponse(f"/admin/clinics/{cid}?msg=maib_failed", status_code=303)
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
 
 
@@ -283,16 +299,135 @@ def _send_payment_letter(con, c, p, who: str) -> str:
     if not c["email"]:
         return "bad_email"
     try:
-        subject, body = mail.payment_letter(c["name"], p["reference"], p["amount"], p["months"])
+        subject, body = mail.payment_letter(c["name"], p["reference"], p["amount"], p["months"],
+                                            pay_url=p["pay_url"])
     except RuntimeError:
         return "no_bank"
     try:
         where = mail.send(c["email"], subject, body)
     except (RuntimeError, OSError) as e:
-        log.error("письмо с реквизитами %s не отправлено: %r", p["reference"], e)
+        log.error("письмо с нотой %s не отправлено: %r", p["reference"], e)
         return "mail_failed"
-    db.audit(con, who, "mail", c["id"], f"реквизиты {p['reference']} на {c['email']} ({where})")
+    db.audit(con, who, "mail", c["id"], f"нота {p['reference']} на {c['email']} ({where})")
     return ""
+
+
+# ---------- карта: maib (L12) ----------
+
+
+def _settle_now(con, p, who: str) -> str:
+    """Спросить maib и применить: код для ?msg=. Истина — pay-info, не callback и не кнопка."""
+    truth = maib.info(p["provider_id"])
+    outcome = payments.settle(con, p, truth, who)
+    if outcome == payments.SETTLED_PAID:
+        license.mail_latest(con, _clinic(con, p["clinic_id"]), who)
+        return "card_paid"
+    return {payments.SETTLED_ALREADY: "payment_not_pending", payments.SETTLED_WAITING: "card_waiting"
+            }.get(outcome, "card_failed")
+
+
+@app.post("/admin/payments/{pid}/check")
+def payment_check(request: Request, pid: int) -> Response:
+    """Кнопка «Проверить»: тот же вопрос maib, что задают callback и ежедневная задача."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        p = _payment(con, pid)
+        if p is None:
+            return Response(status_code=404)
+        back = _back(request, p)
+        if not p["provider_id"]:
+            return RedirectResponse(f"{back}?msg=card_none", status_code=303)
+        try:
+            code = _settle_now(con, p, auth.current_user(request))
+        except maib.MaibError as e:
+            log.error("maib: статус %s не получен: %s", p["reference"], e)
+            code = "maib_failed"
+    return RedirectResponse(f"{back}?msg={code}", status_code=303)
+
+
+@app.post("/admin/payments/{pid}/link")
+def payment_link(request: Request, pid: int) -> Response:
+    """Ссылка на карту к ожидающему платежу: первая (платёж заведён переводом) или
+    новая взамен не прошедшей. Тот же reference; письмо — если есть e-mail."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    if not maib.enabled():
+        return RedirectResponse("/admin/payments?msg=no_maib", status_code=303)
+    who = auth.current_user(request)
+    try:
+        with db.connect() as con:
+            p = _payment(con, pid)
+            if p is None:
+                return Response(status_code=404)
+            back = _back(request, p)
+            c = _clinic(con, p["clinic_id"])
+            try:
+                p = payments.attach_card(con, p, c, who, _ip(request))
+            except ValueError:
+                return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
+            code = "card_link"
+            if c["email"]:
+                code = _send_payment_letter(con, c, p, who) or "card_link_mailed"
+    except maib.MaibError as e:
+        log.error("maib: ссылка для платежа %s не создана: %s", pid, e)
+        return RedirectResponse(f"/admin/payments?msg=maib_failed", status_code=303)
+    return RedirectResponse(f"{back}?msg={code}", status_code=303)
+
+
+def _maib_callback(raw: bytes) -> Response:
+    """Сигнал от maib после оплаты. Подпись — фильтр от чужих; истина — pay-info
+    (инвариант 2); второй callback того же платежа ничего не делает (3).
+    Ответы: 400 битый или подпись не сошлась, 404 платёж не наш, 503 maib не
+    ответил про статус (пусть повторит), 200 — принято, с исходом."""
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return JSONResponse({"ok": False, "code": "bad_json"}, status_code=400)
+    result = maib.signed(payload)
+    if result is None:
+        log.warning("maib callback: подпись не сошлась или тело не по форме")
+        return JSONResponse({"ok": False, "code": "bad_signature"}, status_code=400)
+    pay_id = result.get("payId")
+    with db.connect() as con:
+        p = (con.execute("SELECT * FROM payments WHERE provider_id=?", (pay_id,)).fetchone()
+             if isinstance(pay_id, str) and pay_id else None)
+    if p is None:
+        log.warning("maib callback: платёж %r не наш", pay_id)
+        return JSONResponse({"ok": False, "code": "unknown_payment"}, status_code=404)
+    try:
+        truth = maib.info(pay_id)
+    except maib.MaibError as e:
+        log.error("maib callback: статус %s не получен: %s", p["reference"], e)
+        return JSONResponse({"ok": False, "code": "maib_unavailable"}, status_code=503)
+    with db.connect() as con:
+        p = _payment(con, p["id"])
+        outcome = payments.settle(con, p, truth, "maib")
+        if outcome == payments.SETTLED_PAID:
+            license.mail_latest(con, _clinic(con, p["clinic_id"]), "maib")
+    log.info("maib callback: %s → %s", p["reference"], outcome)
+    return JSONResponse({"ok": True, "outcome": outcome})
+
+
+@app.post(maib.CALLBACK_PATH)
+async def maib_callback(request: Request) -> Response:
+    return await run_in_threadpool(_maib_callback, await request.body())
+
+
+@app.get(maib.OK_PATH, response_class=HTMLResponse)
+def pay_ok() -> Response:
+    """Куда maib возвращает браузер после оплаты. Редирект — не истина: страница
+    не говорит «оплачено», а что подтверждение и файл придут письмом."""
+    return HTMLResponse(views.pay_page(True))
+
+
+@app.get(maib.FAIL_PATH, response_class=HTMLResponse)
+def pay_fail() -> Response:
+    return HTMLResponse(views.pay_page(False))
 
 
 def _payment(con, pid: int):
@@ -370,24 +505,9 @@ def clinic_edit(request: Request, cid: str, name: str = Form(""), idno: str = Fo
 
 
 def _send_latest(con, c, who: str) -> str:
-    """Последний выданный файл письмом; код для ?msg=."""
-    row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
-                      (c["id"],)).fetchone()
-    if row is None:
-        return "no_issue"
-    if not c["email"]:
-        return "bad_email"
-    plan = con.execute("SELECT plan FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
-    subject, body = mail.license_letter(c["name"], row["valid_until"], plan["plan"] if plan else "standard",
-                                        renew=license.renew_offered())
-    try:
-        where = mail.send(c["email"], subject, body,
-                          ("license.json", license.issue_text(row).encode("utf-8")))
-    except (RuntimeError, OSError) as e:
-        log.error("письмо клинике %s не отправлено: %r", c["id"], e)
-        return "mail_failed"
-    db.audit(con, who, "mail", c["id"], f"seq {row['seq']} на {c['email']} ({where})")
-    return ""
+    """Последний выданный файл письмом; код для ?msg=. Одна функция на админку,
+    callback maib и ежедневную задачу — license.mail_latest."""
+    return license.mail_latest(con, c, who)
 
 
 @app.post("/admin/clinics/{cid}/issue")

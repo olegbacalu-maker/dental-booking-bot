@@ -16,6 +16,11 @@ cloud.md › «Напоминания». Запуск раз в сутки из 
 ⭐ Каждая подписка — своя транзакция: отказ почты у одной клиники не
 откатывает запись об отправленном у другой, а ошибка одной не останавливает
 остальных. Состояние по-прежнему не хранится: окна считаются от дат.
+
+Карты (L12): при настроенном maib открытый платёж получает ссылку на
+hosted-страницу до первого письма периода, и все письма периода несут её
+рядом с reference. Вторая забота задачи — спросить maib про каждый ожидающий
+платёж со ссылкой: callback мог не дойти, а истина всё равно у maib.
 """
 from __future__ import annotations
 
@@ -26,7 +31,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from . import db, mail, payments
+from . import db, license, mail, maib, payments
 
 log = logging.getLogger("cloud.jobs")
 
@@ -70,9 +75,11 @@ class Report:
     sent: list[tuple[str, str]] = field(default_factory=list)      # (clinic_id, kind)
     skipped: list[tuple[str, str]] = field(default_factory=list)   # (clinic_id, почему)
     failed: list[tuple[str, str]] = field(default_factory=list)    # (clinic_id, ошибка)
+    cards: list[tuple[str, str]] = field(default_factory=list)     # (clinic_id, reference) — maib сказал OK
 
     def line(self) -> str:
-        return f"писем: {len(self.sent)}, пропущено: {len(self.skipped)}, ошибок: {len(self.failed)}"
+        return (f"писем: {len(self.sent)}, пропущено: {len(self.skipped)}, ошибок: {len(self.failed)}, "
+                f"картой оплачено: {len(self.cards)}")
 
 
 _SUBS = """SELECT c.*, s.plan, s.price, s.valid_until, s.grace_days
@@ -113,7 +120,14 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
     pay = None
     if row["plan"] != "trial":
         p = open_payment(con, row, who)
-        pay = {"reference": p["reference"], "amount": int(p["amount"]), "months": int(p["months"])}
+        if maib.enabled() and not p["provider_id"]:
+            # ссылка на карту — до первого письма периода; maib молчит — письмо идёт с одним reference
+            try:
+                p = payments.attach_card(con, p, row, who)
+            except maib.MaibError as e:
+                log.warning("ссылка maib для %s не создана: %s", p["reference"], e)
+        pay = {"reference": p["reference"], "amount": int(p["amount"]), "months": int(p["months"]),
+               "url": p["pay_url"]}
     subject, body = mail.reminder_letter(kind, row["name"], row["plan"], valid, grace,
                                          int(row["grace_days"]), pay, int(row["price"] or 0))
     try:
@@ -128,10 +142,41 @@ def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: st
     rep.sent.append((row["id"], kind))
 
 
+def settle_cards(who: str, rep: Report) -> None:
+    """Каждый ожидающий платёж со ссылкой maib: спросить pay-info и применить
+    (payments.settle). Callback мог не дойти; истина у maib и без него.
+    Оплачено — файл письмом, как из админки. maib не ответил — в отчёт, не в
+    падение задачи: письма клиникам от этого не зависят."""
+    if not maib.enabled():
+        return
+    with db.connect() as con:
+        rows = con.execute("SELECT * FROM payments WHERE status=? AND provider_id IS NOT NULL ORDER BY id",
+                           (payments.PENDING,)).fetchall()
+    for p in rows:
+        try:
+            truth = maib.info(p["provider_id"])
+        except maib.MaibError as e:
+            log.warning("maib про %s не ответил: %s", p["reference"], e)
+            rep.skipped.append((p["clinic_id"], f"maib не ответил про {p['reference']}"))
+            continue
+        try:
+            with db.connect() as con:
+                fresh = con.execute("SELECT * FROM payments WHERE id=?", (p["id"],)).fetchone()
+                outcome = payments.settle(con, fresh, truth, who)
+                if outcome == payments.SETTLED_PAID:
+                    clinic = con.execute("SELECT * FROM clinics WHERE id=?", (p["clinic_id"],)).fetchone()
+                    license.mail_latest(con, clinic, who)
+                    rep.cards.append((p["clinic_id"], p["reference"]))
+        except Exception as e:  # noqa: BLE001 — один платёж не останавливает остальных
+            log.error("платёж картой %s: %r", p["reference"], e)
+            rep.failed.append((p["clinic_id"], repr(e)))
+
+
 def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report:
     """Один проход по всем подпискам. `now` подставляется в тестах; письма — через `send`."""
     now = now or datetime.now(timezone.utc)
     rep = Report(at=now.strftime(db.TS))
+    settle_cards(who, rep)     # сперва оплаты: продлённая подписка сегодня писем не ждёт
     with db.connect() as con:
         subs = con.execute(_SUBS).fetchall()
     for row in subs:
@@ -160,6 +205,8 @@ def main(argv=None) -> int:
             ap.error("--at: ожидается YYYY-MM-DDTHH:MM:SSZ")
     db.init()
     rep = daily(now)
+    for cid, ref in rep.cards:
+        print(f"оплачено картой {ref} {cid}")
     for cid, kind in rep.sent:
         print(f"отправлено {kind} {cid}")
     for cid, why in rep.skipped:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
-from . import config, license
+from . import config, license, maib
 
 esc = html.escape
 
@@ -35,6 +35,16 @@ MSG = {
     "bad_months": ("err", "Срок оплаты — 1, 3, 6 или 12 месяцев"),
     "bad_amount": ("err", "Сумма — целое число лей больше нуля"),
     "no_bank": ("err", "Платёж создан, но реквизиты (DP_BANK_*) не заполнены — письмо не отправлено"),
+    "card_created": ("ok", "Платёж картой создан — ссылка maib в карточке"),
+    "card_created_mailed": ("ok", "Платёж картой создан, письмо со ссылкой отправлено"),
+    "no_maib": ("err", "Оплата картой не настроена (DP_MAIB_*) — платёж не создан"),
+    "maib_failed": ("err", "maib не ответил — ничего не изменено, смотрите лог сервера"),
+    "card_paid": ("ok", "maib подтвердил оплату: срок продлён, файл выдан и отправлен"),
+    "card_waiting": ("ok", "maib: платёж ещё не оплачен"),
+    "card_failed": ("err", "maib: платёж не прошёл — его слова в карточке; можно выслать новую ссылку"),
+    "card_none": ("err", "У этого платежа нет ссылки maib — сначала «Ссылка на карту»"),
+    "card_link": ("ok", "Ссылка maib создана — у клиники нет e-mail, передайте её сами"),
+    "card_link_mailed": ("ok", "Ссылка maib создана и отправлена письмом"),
     "daily_done": ("ok", "Ежедневная задача выполнена — итог строкой в журнале"),
     "daily_failed": ("err", "Ежедневная задача: часть писем не ушла — смотрите журнал и лог сервера"),
     "login_bad": ("err", "Неверный логин или пароль"),
@@ -163,6 +173,15 @@ def _pay_tag(status: str) -> str:
     return f"<span class='tag {cls}'>{esc(text)}</span>"
 
 
+def _card_cell(p) -> str:
+    """Карта (L12): ссылка maib и последние слова maib о платеже."""
+    if not p["provider_id"]:
+        return ""
+    words = esc(p["provider_status"] or "ссылка выслана, ответа maib ещё нет")
+    return (f"<br><a href='{esc(p['pay_url'] or '#')}' target='_blank' rel='noopener'>ссылка maib</a>"
+            f" <span class='muted'>{words}</span>")
+
+
 def _payment_rows(rows: list, with_clinic: bool = False) -> str:
     out = []
     for p in rows:
@@ -173,13 +192,42 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
                        f"<form method='post' action='/admin/payments/{p['id']}/reject' style='display:inline'>"
                        f"<input name='reason' placeholder='причина' style='width:140px;display:inline'> "
                        f"<button>Отклонить</button></form>")
+            if p["provider_id"]:
+                actions += (f" <form method='post' action='/admin/payments/{p['id']}/check' style='display:inline'>"
+                            f"<button title='Спросить maib о статусе'>Проверить</button></form>")
+            if maib.enabled():
+                actions += (f" <form method='post' action='/admin/payments/{p['id']}/link' style='display:inline'>"
+                            f"<button title='Ссылка на оплату картой к этому же reference'>"
+                            f"{'Новая ссылка' if p['provider_id'] else 'Ссылка на карту'}</button></form>")
         clinic_td = (f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
                      if with_clinic else "")
         out.append(f"<tr><td class='mono'>{esc(p['reference'])}</td>{clinic_td}"
                    f"<td>{p['amount']} {esc(p['currency'])}</td><td>{p['months']} мес.</td>"
                    f"<td>{esc(p['created_at'][:10])}</td><td>{_pay_tag(p['status'])}"
-                   f"{(' · ' + esc(p['paid_at'][:10])) if p['paid_at'] else ''}</td><td>{actions}</td></tr>")
+                   f"{(' · ' + esc(p['paid_at'][:10])) if p['paid_at'] else ''}"
+                   f"{(' · ' + esc(p['confirmed_by'])) if p['confirmed_by'] and p['status'] == 'paid' else ''}"
+                   f"{_card_cell(p)}</td><td>{actions}</td></tr>")
     return "".join(out)
+
+
+def pay_page(ok: bool) -> str:
+    """Куда maib возвращает браузер клиники (L12). Редирект — не истина о платеже,
+    поэтому страница не говорит «оплачено»: подтверждение и файл придут письмом."""
+    if ok:
+        title, text = ("Mulțumim!", "Plata a fost transmisă către bancă. După confirmare primiți pe e-mail "
+                                    "fișierul de licență cu noul termen — de obicei în câteva minute. "
+                                    "Programul DentPilot îl preia singur dacă are acces la internet.")
+    else:
+        title, text = ("Plata nu a reușit", "Banca nu a confirmat plata. Puteți încerca din nou din e-mailul "
+                                            "cu nota de plată sau plăti prin transfer bancar cu referința din "
+                                            "aceeași notă.")
+    return (f"<!doctype html><html lang='ro'><head><meta charset='utf-8'>"
+            f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+            f"<title>{esc(title)} — DentPilot</title><style>{_CSS}"
+            f".box{{max-width:520px;margin:48px auto;padding:0 16px}}</style></head>"
+            f"<body><div class='box'><div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p>"
+            f"<p class='muted'>Întrebări: {esc(config.SUPPORT_EMAIL)} · {esc(config.SUPPORT_PHONE)}</p>"
+            f"</div></div></body></html>")
 
 
 def payments_page(rows: list, user: str, msg: str = "") -> str:
@@ -243,12 +291,21 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                   f"<p><button class='primary'>Выдать</button></p></form></div>")
     price = sub["price"] if sub else 399
     opts = "".join(f"<option value='{m}'>{m} мес. — {m * price} MDL</option>" for m in (1, 3, 6, 12))
+    if maib.enabled():
+        method = ("<div><label>Как платит клиника</label><select name='method'>"
+                  "<option value='transfer'>Переводом — реквизиты и reference в письме</option>"
+                  "<option value='card'>Картой — ссылка maib в письме (и reference для перевода)</option>"
+                  "</select></div>")
+    else:
+        method = ("<div><label>Как платит клиника</label><div class='muted'>только переводом: "
+                  "DP_MAIB_* не заданы, ссылки на карту нет</div></div>")
     pay_form = (f"<h2>Платежи</h2><div class='card'><form method='post' action='/admin/clinics/{esc(c['id'])}/payments'>"
                 f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
-                f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div></div>"
-                f"<label><input type='checkbox' name='send' value='1' checked style='width:auto'> отправить письмо с реквизитами "
+                f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div>"
+                f"{method}</div>"
+                f"<label><input type='checkbox' name='send' value='1' checked style='width:auto'> отправить письмо с нотой "
                 f"на {esc(c['email'] or '— e-mail не указан')}</label>"
-                f"<p><button class='primary'>Создать платёж переводом</button></p></form>"
+                f"<p><button class='primary'>Создать платёж</button></p></form>"
                 f"<table><tr><th>Reference</th><th>Сумма</th><th>Срок</th><th>Создан</th><th>Состояние</th><th></th></tr>"
                 f"{_payment_rows(list(payments)) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table></div>")
     trs = "".join(

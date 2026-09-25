@@ -23,6 +23,7 @@ DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtu
 | `DP_SECURE_COOKIES` | `1` за TLS (Caddy) |
 | `DP_SMTP_HOST/PORT/USER/PASS`, `DP_MAIL_FROM` | почта; без хоста письма ложатся файлами в `DP_MAIL_OUTBOX` |
 | `DP_BANK_BENEFICIARY`, `DP_BANK_IBAN`, `DP_BANK_NAME`, `DP_BANK_CODE` | реквизиты в письме о переводе; без них платёж создаётся, письмо не уходит |
+| `DP_MAIB_PROJECT_ID`, `DP_MAIB_PROJECT_SECRET`, `DP_MAIB_SIGNATURE_KEY` | проект maib ecommerce (L12): оплата картой по ссылке; пусто — только переводом. `DP_MAIB_BASE_URL` — адрес API, меняют только тесты |
 
 **Ежедневная задача** — напоминания по таблице `cloud.md › «Напоминания»`
 (счёт за 14 дней, за 3 дня, в день срока, накануне и в день режима чтения).
@@ -35,6 +36,19 @@ DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtu
 # в Docker: docker exec dentpilot-cloud python -m app.jobs daily
 python -m app.jobs daily --at 2026-10-17T06:00:00Z     # разбор: что ушло бы в этот день
 ```
+
+**Оплата картой (L12)** — платёж с ссылкой maib: в карточке «Создать платёж»
+с выбором «картой» (или «Ссылка на карту» у ожидающего перевода), письмо несёт
+ссылку на hosted-страницу maib и, если есть реквизиты, перевод с тем же
+reference — долг один. После оплаты maib зовёт
+`POST /v1/maib/callback`; подпись проверяется, и всё равно статус
+спрашивается у maib (`pay-info`) — только его `OK` продлевает срок и выдаёт
+файл, второй callback ничего не делает. Тот же вопрос задают кнопка
+«Проверить» и ежедневная задача — callback не обязан дойти. Статус не OK —
+платёж остаётся в ожидании со словами maib в карточке; «Новая ссылка» даёт
+новую попытку на тот же reference. Страницы возврата — `/pay/ok`, `/pay/fail`.
+⚠️ Имена методов maib — по их документации на 25.09, сверить в песочнице
+(`app/maib.py`).
 
 **Автообновление файла (L13)** — в каждый выданный файл едет `renew`: адрес
 `DP_BASE_URL/v1/license` и токен клиники (рождается с первой выдачей, дальше

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -59,6 +59,12 @@ MIGRATIONS = {
         "ALTER TABLE clinics ADD COLUMN renew_token TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE clinics ADD COLUMN renew_at TEXT",
         "ALTER TABLE clinics ADD COLUMN renew_seq INTEGER",
+    ],
+    # L12, карты: адрес hosted-страницы maib и последний статус, который назвал
+    # сам maib (pay-info). `provider_id` (payId) и его UNIQUE — с первой схемы.
+    3: [
+        "ALTER TABLE payments ADD COLUMN pay_url TEXT",
+        "ALTER TABLE payments ADD COLUMN provider_status TEXT NOT NULL DEFAULT ''",
     ],
 }
 

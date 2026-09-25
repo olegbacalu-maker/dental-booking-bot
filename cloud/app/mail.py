@@ -67,35 +67,59 @@ def bank_lines(reference: str, amount: int) -> str:
 _REFERENCE_NOTE = ("Important: indicați neapărat referința {reference} în destinația plății — după ea "
                    "recunoaștem plata dumneavoastră. După confirmare primiți prin e-mail fișierul de "
                    "licență cu noul termen.")
+CARD_NOTE = "Plata cu cardul (Visa, Mastercard, Apple Pay, Google Pay), pe pagina securizată maib:"
 
 
-def payment_letter(clinic: str, reference: str, amount: int, months: int) -> tuple[str, str]:
-    """Письмо с реквизитами перевода (платёж, созданный админом вручную)."""
-    lines = bank_lines(reference, amount)
+def card_lines(pay_url: str, amount: int) -> str:
+    """Ссылка на hosted-страницу maib (L12). После оплаты картой файл приходит сам."""
+    return (f"{CARD_NOTE}\n  {pay_url}\n  Suma: {amount} MDL\n"
+            f"  După plata cu cardul nu trebuie să faceți nimic: fișierul de licență cu noul "
+            f"termen vine pe e-mail în câteva minute.\n")
+
+
+def ways_to_pay(reference: str, amount: int, pay_url: str | None) -> str:
+    """Способы оплаты по порядку: карта (если есть ссылка), перевод (если есть
+    реквизиты). Ни того ни другого — RuntimeError, как у bank_lines."""
+    parts = []
+    if pay_url:
+        parts.append(card_lines(pay_url, amount))
+    try:
+        lines = bank_lines(reference, amount)
+        parts.append(("Sau prin transfer bancar:\n" if pay_url else "") + lines
+                     + "\n" + _REFERENCE_NOTE.format(reference=reference))
+    except RuntimeError:
+        if not parts:
+            raise
+    return "\n".join(parts)
+
+
+def payment_letter(clinic: str, reference: str, amount: int, months: int,
+                   pay_url: str | None = None) -> tuple[str, str]:
+    """Письмо с нотой: ссылка на карту (L12), реквизиты перевода — что настроено."""
+    ways = ways_to_pay(reference, amount, pay_url)
     subject = f"DentPilot: nota de plată {reference} pentru {clinic}"
     body = (f"Bună ziua,\n\n"
             f"Pentru continuarea abonamentului DentPilot ({clinic}, {luni(months)}) "
-            f"vă rugăm să efectuați un transfer bancar:\n\n"
-            f"{lines}\n"
-            f"{_REFERENCE_NOTE.format(reference=reference)}\n\n"
+            f"vă rugăm să achitați {amount} MDL:\n\n"
+            f"{ways}\n\n"
             f"{FOOTER}")
     return subject, body
 
 
 def how_to_pay(pay: dict | None, price: int) -> str:
-    """Абзац «как продолжить»: реквизиты с reference (абонемент) или как оформить
-    абонемент (пробный). Без DP_BANK_* — честная фраза, что нота придёт отдельно."""
+    """Абзац «как продолжить»: ссылка на карту и/или реквизиты с reference
+    (абонемент) или как оформить абонемент (пробный). Без ссылки и без
+    DP_BANK_* — честная фраза, что нота придёт отдельно."""
     if pay is None:
         return (f"Pentru a continua cu un abonament ({price} MDL pe lună) răspundeți la acest e-mail "
                 f"sau sunați la {config.SUPPORT_PHONE}, indicând IDNO-ul clinicii — vă trimitem nota "
                 f"de plată, iar după plată noul fișier de licență.")
     try:
-        lines = bank_lines(pay["reference"], pay["amount"])
+        ways = ways_to_pay(pay["reference"], pay["amount"], pay.get("url"))
     except RuntimeError:
         return (f"Nota de plată {pay['reference']} ({pay['amount']} MDL pentru {luni(pay['months'])}) "
                 f"o primiți separat; întrebări — {config.SUPPORT_EMAIL}.")
-    return (f"Pentru a continua ({luni(pay['months'])}, {pay['amount']} MDL) efectuați un transfer "
-            f"bancar:\n\n{lines}\n{_REFERENCE_NOTE.format(reference=pay['reference'])} "
+    return (f"Pentru a continua ({luni(pay['months'])}, {pay['amount']} MDL):\n\n{ways} "
             f"Dacă ați plătit deja, ignorați acest mesaj.")
 
 

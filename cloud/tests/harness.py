@@ -141,6 +141,10 @@ class Client:
     def post(self, path: str, headers: dict | None = None, **fields) -> Reply:
         return self._do(path, urllib.parse.urlencode(fields, doseq=True).encode(), headers)
 
+    def post_raw(self, path: str, data: bytes, content_type: str = "application/json") -> Reply:
+        """Тело как есть — так стучится провайдер (callback maib), не форма админки."""
+        return self._do(path, data, {"Content-Type": content_type})
+
     def login(self, user: str = ADMIN_USER, password: str = ADMIN_PASS) -> "Client":
         self.post("/admin/login", user=user, password=password)
         return self

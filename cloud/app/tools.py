@@ -41,7 +41,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import auth, config, db, keys, license
+from . import auth, config, db, keys, license, maib
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 
@@ -248,6 +248,15 @@ def check() -> list[tuple[str, str]]:
     else:
         out.append((WARN, f"DP_BASE_URL={config.BASE_URL}: не https и не loopback — поле renew в файлы "
                           "не пишется, программы клиник не обновятся сами"))
+    if maib.enabled():
+        try:
+            maib.token()
+            out.append((OK, f"maib: токен получен, оплата картой включена ({config.MAIB_BASE_URL}); "
+                            f"callback {config.BASE_URL.rstrip('/')}{maib.CALLBACK_PATH}"))
+        except maib.MaibError as e:
+            out.append((BAD, f"maib не отвечает: {e}"))
+    else:
+        out.append((WARN, "DP_MAIB_* пусты: оплата картой выключена, платежи только переводом"))
     if config.SMTP_HOST:
         try:
             with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as s:

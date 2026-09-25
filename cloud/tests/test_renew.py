@@ -16,6 +16,7 @@ from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_
 
 sys.path.insert(0, str(CLOUD))
 from app import license as srv  # noqa: E402 — чистые части сервера
+from app import db as srv_db  # noqa: E402
 from app import mail  # noqa: E402
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
@@ -122,7 +123,8 @@ def suite_renew(res: Result) -> None:
         res.ok("токен родился с выдачей и попал в файл", code == "" and len(tok2) >= 32
                and claim3.renew["token"] == tok2 and tok2 != token)
         res.check("до первой выдачи: пустой токен — не ключ ко всем", _get(s, "", 0)[0], rn.REFUSED)
-        res.ok("схема базы: версия 2", _sql(s, "SELECT value FROM schema_meta WHERE key='version'")[0][0] == "2")
+        res.check("схема базы: версия как у сервера (миграция renew прошла)",
+                  _sql(s, "SELECT value FROM schema_meta WHERE key='version'")[0][0], str(srv_db.SCHEMA_VERSION))
 
     # адрес не https и не loopback: renew в файл не пишется, письмо не обещает, check предупреждает
     with Server(env={"DP_BASE_URL": "http://192.168.1.5:8090"}) as s:

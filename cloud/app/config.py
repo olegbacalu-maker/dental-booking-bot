@@ -32,4 +32,10 @@ SUPPORT_EMAIL = "dentpilotpro@gmail.com"
 # отправляется (платёж при этом создаётся), пока Олег не заполнит окружение.
 BANK = {"beneficiary": env("DP_BANK_BENEFICIARY"), "iban": env("DP_BANK_IBAN"),
         "bank": env("DP_BANK_NAME"), "code": env("DP_BANK_CODE")}
+# Оплата картой через maib (L12): проект из кабинета maibmerchants. Все три
+# пусты = карт нет, платежи только переводом; адрес меняют только тесты.
+MAIB_BASE_URL = env("DP_MAIB_BASE_URL", "https://api.maibmerchants.md/v1")
+MAIB_PROJECT_ID = env("DP_MAIB_PROJECT_ID")
+MAIB_PROJECT_SECRET = env("DP_MAIB_PROJECT_SECRET")
+MAIB_SIGNATURE_KEY = env("DP_MAIB_SIGNATURE_KEY")   # подпись callback
 SUPPORT_PHONE = "+373 60 508 048"

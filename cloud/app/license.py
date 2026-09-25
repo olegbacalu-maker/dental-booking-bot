@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import secrets
 import sqlite3
@@ -25,7 +26,9 @@ from datetime import datetime, timedelta, timezone
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from . import config, db, keys
+from . import config, db, keys, mail
+
+log = logging.getLogger("cloud.license")
 
 TRIAL_DAYS = 14
 TRIAL_GRACE_DAYS = 3
@@ -142,6 +145,27 @@ def issue_text(row: sqlite3.Row) -> str:
     """Текст файла из строки issues — то же, что было выдано."""
     return json.dumps({"v": 1, "kid": row["kid"], "payload": row["payload"], "sig": row["sig"]},
                       ensure_ascii=False, indent=2) + "\n"
+
+
+def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
+    """Последний выданный файл письмом: админка, callback maib и ежедневная задача —
+    одной функцией. Возвращает код для ?msg= или '' — ушло."""
+    row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
+                      (clinic["id"],)).fetchone()
+    if row is None:
+        return "no_issue"
+    if not clinic["email"]:
+        return "bad_email"
+    plan = con.execute("SELECT plan FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
+    subject, body = mail.license_letter(clinic["name"], row["valid_until"],
+                                        plan["plan"] if plan else "standard", renew=renew_offered())
+    try:
+        where = mail.send(clinic["email"], subject, body, ("license.json", issue_text(row).encode("utf-8")))
+    except (RuntimeError, OSError) as e:
+        log.error("письмо клинике %s не отправлено: %r", clinic["id"], e)
+        return "mail_failed"
+    db.audit(con, who, "mail", clinic["id"], f"seq {row['seq']} на {clinic['email']} ({where})")
+    return ""
 
 
 def trial_dates(now: datetime | None = None) -> tuple[datetime, datetime]:

@@ -8,6 +8,12 @@ cloud.md › «Оплата › Шаг 1 — transfer bancar». Reference уни
 ⭐ Правило продления: N месяцев от БОЛЬШЕЙ из дат — сегодня или конца
 действующего срока. Ранняя оплата не крадёт дни, поздняя не дарит. Каждое
 продление = новая выдача файла (seq+1): файл и есть истина о сроке.
+
+Карта (L12): у платежа появляется ссылка maib (`provider_id` = payId,
+`pay_url`), reference остаётся тем же — клиника платит картой по ссылке ИЛИ
+переводом с reference, долг один. Ответ maib применяет `settle` — одно правило
+на callback, кнопку «Проверить» и ежедневную задачу: оплачено только то, про
+что сам maib (pay-info) сказал OK; второй раз ничего не продлевается.
 """
 from __future__ import annotations
 
@@ -15,11 +21,13 @@ import calendar
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from . import db, license
+from . import db, license, maib
 
 PENDING, PAID, REJECTED = "pending", "paid", "rejected"
-TRANSFER = "transfer"
+TRANSFER, CARD = "transfer", "card"
 MONTHS = (1, 3, 6, 12)
+# Исходы settle: подтверждён сейчас · уже не в ожидании · maib ещё ждёт · не прошёл
+SETTLED_PAID, SETTLED_ALREADY, SETTLED_WAITING, SETTLED_FAILED = "paid", "already", "waiting", "failed"
 
 
 def add_months(dt: datetime, n: int) -> datetime:
@@ -55,6 +63,47 @@ def create(con: sqlite3.Connection, clinic: sqlite3.Row, months: int, amount: in
                 (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, months, db.now_iso()))
     db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за {months} мес., перевод")
     return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
+
+
+def attach_card(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.Row, who: str,
+                client_ip: str = "127.0.0.1") -> sqlite3.Row:
+    """Ссылка maib к ожидающему платежу (L12): новый платёж у maib, payId и адрес
+    страницы — в строку; reference не меняется. Повторный вызов — новая ссылка
+    взамен неудавшейся. Бросает maib.MaibError, если maib не ответил."""
+    if payment["status"] != PENDING:
+        raise ValueError("not_pending")
+    pay_id, pay_url = maib.create(int(payment["amount"]), payment["reference"],
+                                  f"DentPilot {payment['reference']}: {clinic['name']}",
+                                  clinic["email"] or "", client_ip)
+    con.execute("UPDATE payments SET method=?, provider_id=?, pay_url=?, provider_status='' WHERE id=?",
+                (CARD, pay_id, pay_url, payment["id"]))
+    db.audit(con, who, "card_link", clinic["id"], f"{payment['reference']}: maib {pay_id}")
+    return con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
+
+
+def settle(con: sqlite3.Connection, payment: sqlite3.Row, result: dict, who: str) -> str:
+    """Применить ответ maib о платеже (pay-info): SETTLED_*.
+
+    ⛔ Единственное место, где статус maib становится нашим `paid`, — и только
+    статус OK. Всё, что не OK и не ожидание, — «не прошёл»: строка остаётся в
+    ожидании (долг стоит, перевод по reference по-прежнему возможен), а слова
+    maib ложатся в provider_status и журнал. Не в ожидании — ничего: второе
+    подтверждение не продлевает (инвариант 3)."""
+    if result.get("payId") != payment["provider_id"]:
+        raise ValueError("foreign")
+    status = str(result.get("status") or "").upper()
+    detail = " ".join(str(result.get(k) or "") for k in ("status", "statusCode", "statusMessage")).strip()
+    con.execute("UPDATE payments SET provider_status=? WHERE id=?", (detail[:120], payment["id"]))
+    if payment["status"] != PENDING:
+        return SETTLED_ALREADY
+    if status == maib.STATUS_OK:
+        confirm(con, payment, who)
+        con.execute("UPDATE payments SET method=? WHERE id=?", (CARD, payment["id"]))
+        return SETTLED_PAID
+    if status in maib.WAITING:
+        return SETTLED_WAITING
+    db.audit(con, who, "card_failed", payment["clinic_id"], f"{payment['reference']}: {detail}")
+    return SETTLED_FAILED
 
 
 def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> tuple[int, str]:
