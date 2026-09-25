@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -243,19 +244,19 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
         </select>
         <button className="pl-btn">{T.find}</button>
         {dirty && (
-          <a
+          <AppLink
             className="pl-btn"
             href={pathname}
             title={T.resetTitle}
             onClick={(e) => { e.preventDefault(); setDraft(null); go(DEFAULT_FILTERS) }}
           >
             <Icon name="close" /> {T.reset}
-          </a>
+          </AppLink>
         )}
         <span style={{ flex: 1 }}></span>
-        <a className="pl-btn" href={exportUrl} title={T.exportTitle}>
+        <AppLink className="pl-btn" href={exportUrl} title={T.exportTitle}>
           <Icon name="download" /> {T.exportBtn}
-        </a>
+        </AppLink>
         <button type="button" className="pl-btn primary" onClick={() => setAdding(true)}>
           {T.add}
         </button>
@@ -274,7 +275,7 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
               </>
             )
             return t.href
-              ? <a key={i} className="pl-tile" href={t.href}>{inner}</a>
+              ? <AppLink key={i} className="pl-tile" href={t.href}>{inner}</AppLink>
               : <div key={i} className="pl-tile">{inner}</div>
           })}
         </div>

@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -136,14 +137,14 @@ export function VisitScreen({ aid, navigate = defaultNavigate }: Props) {
   return (
     <section className="dp-react-root" aria-busy={saving || undefined}>
       <p className="dp-vnav">
-        <a href={page.back}><Icon name="chev-l" /> {T.back}</a>
+        <AppLink href={page.back}><Icon name="chev-l" /> {T.back}</AppLink>
         {' '}&nbsp;·&nbsp;{' '}
-        <a href={`/admin/patient/${a.patient_id}`}><Icon name="id" /> {T.card}</a>
+        <AppLink href={`/admin/patient/${a.patient_id}`}><Icon name="id" /> {T.card}</AppLink>
       </p>
       <div className="vwrap">
         <div className="fcard">
           <h3>{T.title} <small>· {a.when} · {T.visit} #{a.id}</small></h3>
-          <div className="frow"><span>{T.rows.patient}</span><span className="v"><a href={`/admin/patient/${a.patient_id}`}>{a.patient || '—'}</a></span></div>
+          <div className="frow"><span>{T.rows.patient}</span><span className="v"><AppLink href={`/admin/patient/${a.patient_id}`}>{a.patient || '—'}</AppLink></span></div>
           <div className="frow"><span>{T.rows.service}</span><span className="v">{a.service}</span></div>
           <div className="frow"><span>{T.rows.doctor}</span><span className="v">{a.doctor}</span></div>
           <div className="frow"><span>{T.rows.status}</span><span className="v">{a.status_label}</span></div>

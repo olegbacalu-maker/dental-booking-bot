@@ -1,4 +1,5 @@
 import { Icon } from '../../components/Icon'
+import { AppLink } from '../../components/AppLink'
 import type { StatusAction, TodayRow, WeekCell } from './doctors'
 
 const T = {
@@ -46,7 +47,7 @@ export function DoctorWeek({ dk, week, today, actions, noteActions, busy, onStat
         <h3>{T.next7} <small>{T.next7sub}</small></h3>
         <div style={{ display: 'flex', gap: 6 }}>
           {week.map((c) => (
-            <a
+            <AppLink
               key={c.date}
               href={dayUrl(c.date)}
               className="dp-daycell"
@@ -54,7 +55,7 @@ export function DoctorWeek({ dk, week, today, actions, noteActions, busy, onStat
             >
               <div className="dp-daycell-l">{c.label} {c.dm}</div>
               <div className="dp-daycell-n">{c.open ? c.count : '—'}</div>
-            </a>
+            </AppLink>
           ))}
         </div>
       </div>
@@ -63,7 +64,7 @@ export function DoctorWeek({ dk, week, today, actions, noteActions, busy, onStat
           {T.today}{first ? dmy(first.date) : ''}{' '}
           {first && (
             <small style={{ fontSize: 12, fontWeight: 400 }}>
-              <a href={dayUrl(first.date)}>{T.grid} <Icon name="out" /></a>
+              <AppLink href={dayUrl(first.date)}>{T.grid} <Icon name="out" /></AppLink>
             </small>
           )}
         </h2>
@@ -82,7 +83,7 @@ export function DoctorWeek({ dk, week, today, actions, noteActions, busy, onStat
                     <td>{r.time}</td>
                     <td>
                       {r.patient_id !== null && !r.note ? (
-                        <a className="plink" href={`/admin/patient/${r.patient_id}`}>{r.patient}</a>
+                        <AppLink className="plink" href={`/admin/patient/${r.patient_id}`}>{r.patient}</AppLink>
                       ) : (
                         r.patient
                       )}

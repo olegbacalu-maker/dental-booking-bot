@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useState } from 'react'
+import { AppLink } from '../../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../../components/Icon'
 import { LoadFailed } from '../../../components/LoadFailed'
@@ -148,8 +149,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
 
   const nav = (
     <div className="nav">
-      <a href="/admin/search"><Icon name="chev-l" /> {T.patients}</a>
-      <a href="/admin/all"><Icon name="clipboard" /> {T.schedule}</a>
+      <AppLink href="/admin/search"><Icon name="chev-l" /> {T.patients}</AppLink>
+      <AppLink href="/admin/all"><Icon name="clipboard" /> {T.schedule}</AppLink>
     </div>
   )
 
@@ -189,8 +190,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
             <h3>{T.quick}</h3>
             <div className="qa">
               <button type="button" onClick={() => setBooking(true)}><Icon name="plus" /> {T.newVisit}</button>
-              <a href="#plan"><Icon name="tooth" /> {T.plan}</a>
-              <a href="#docs"><Icon name="camera" /> {T.upload}</a>
+              <AppLink href="#plan"><Icon name="tooth" /> {T.plan}</AppLink>
+              <AppLink href="#docs"><Icon name="camera" /> {T.upload}</AppLink>
               <button type="button" onClick={() => setEditOpen(true)}><Icon name="note" /> {T.note}</button>
               <button type="button" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
             </div>

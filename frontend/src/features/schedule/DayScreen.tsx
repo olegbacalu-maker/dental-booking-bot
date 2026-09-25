@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -141,25 +142,25 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
       {toast ? <Toast tone={toast.tone} text={toast.text} onClose={closeToast} /> : null}
       <div className="nav">
         <b>{m.date}</b>
-        <a href={`${base}?date=${shift(m.date, -1)}`}
+        <AppLink href={`${base}?date=${shift(m.date, -1)}`}
            onClick={(e) => { e.preventDefault(); go(shift(m.date, -1)) }}>
           <Icon name="chev-l" /> {T.prevDay}
-        </a>
-        <a href={base} onClick={(e) => { e.preventDefault(); go('') }}>{T.today}</a>
-        <a href={`${base}?date=${shift(m.date, 1)}`}
+        </AppLink>
+        <AppLink href={base} onClick={(e) => { e.preventDefault(); go('') }}>{T.today}</AppLink>
+        <AppLink href={`${base}?date=${shift(m.date, 1)}`}
            onClick={(e) => { e.preventDefault(); go(shift(m.date, 1)) }}>
           {T.prevDay} <Icon name="chev-r" />
-        </a>
-        <a href={`/admin?date=${m.date}`}><Icon name="home" /> {T.panel}</a>
+        </AppLink>
+        <AppLink href={`/admin?date=${m.date}`}><Icon name="home" /> {T.panel}</AppLink>
         {doctor ? null : (
-          <a href={`/admin/export.xlsx?from=${m.date}&to=${m.date}`}>
+          <AppLink href={`/admin/export.xlsx?from=${m.date}&to=${m.date}`}>
             <Icon name="download" /> {T.excel}
-          </a>
+          </AppLink>
         )}
         {doctor
-          ? <a href={`/admin/all?date=${m.date}`}><Icon name="clipboard" /> {T.all}</a>
+          ? <AppLink href={`/admin/all?date=${m.date}`}><Icon name="clipboard" /> {T.all}</AppLink>
           : null}
-        <a className="primary" href={`${base}?date=${m.date}&ui=legacy`}>{T.legacy}</a>
+        <AppLink className="primary" href={`${base}?date=${m.date}&ui=legacy`}>{T.legacy}</AppLink>
       </div>
 
       {/* ⚠️ Место списка зависит от отбора, и это не косметика: пришедший с

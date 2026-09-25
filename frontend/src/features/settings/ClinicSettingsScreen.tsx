@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
@@ -95,7 +96,7 @@ export function ClinicSettingsScreen({ navigate = defaultNavigate }: Props) {
               <Icon name="refresh" /> {T.retry}
             </button>
           )}
-          <a href={legacyUrl()}>{T.legacy}</a>
+          <AppLink href={legacyUrl()}>{T.legacy}</AppLink>
         </p>
       </section>
     )

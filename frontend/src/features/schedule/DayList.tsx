@@ -1,4 +1,5 @@
 import { Icon } from '../../components/Icon'
+import { AppLink } from '../../components/AppLink'
 import type { DayListRow, DayModel } from './day'
 
 /* «Lista zilei» (C25.5c): все записи дня строками, с кнопками исхода.
@@ -43,10 +44,10 @@ export function DayList({ model, busy, onCard, onStatus, onAll }: Props) {
       {f ? (
         <div className="banner ok">
           Filtru: <b>{f.label}</b> — {f.count} programări{' · '}
-          <a href={`/admin/all?date=${model.date}`}
+          <AppLink href={`/admin/all?date=${model.date}`}
              onClick={(e) => { e.preventDefault(); onAll() }}>
             {T.all} <Icon name="close" />
-          </a>
+          </AppLink>
         </div>
       ) : null}
       <h2>{title}</h2>
@@ -84,8 +85,8 @@ function Row({ row, actions, clickable, busy, onCard, onStatus }: RowProps) {
       <td>
         {clickable ? (
           <>
-            <a className="plink" href="#addform"
-               onClick={(e) => { e.preventDefault(); onCard(row.id) }}>{row.name}</a>
+            <AppLink className="plink" href="#addform"
+               onClick={(e) => { e.preventDefault(); onCard(row.id) }}>{row.name}</AppLink>
             {row.age ? <small className="dp-age"> ({row.age} ani)</small> : null}
           </>
         ) : row.name}

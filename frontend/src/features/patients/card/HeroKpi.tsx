@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { AppLink } from '../../../components/AppLink'
 import { Icon, iconName } from '../../../components/Icon'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, type PatientCard, type PlanItem, type Visit } from './card'
@@ -138,7 +139,7 @@ export function HeroKpi({ card, onBook }: Props) {
     body = (
       <>
         {active.length ? active.map((it) => <PlanRow key={it.id} it={it} labels={card.options.plan_labels} />) : <p className="hint dp-m0">— {T.emptyPlan} —</p>}
-        <a className="lmore" href="#plan" onClick={close}>{T.openPlan} ›</a>
+        <AppLink className="lmore" href="#plan" onClick={close}>{T.openPlan} ›</AppLink>
       </>
     )
   } else if (panel === 'last') {
@@ -181,10 +182,10 @@ export function HeroKpi({ card, onBook }: Props) {
             ))}
           </div>
           <div className="hero-acts">
-            {p.phone && <a href={`tel:${p.phone}`}><Icon name="phone" /> {T.call}</a>}
-            {p.email && <a href={`mailto:${p.email}`}><Icon name="mail" /> {T.mail}</a>}
+            {p.phone && <AppLink href={`tel:${p.phone}`}><Icon name="phone" /> {T.call}</AppLink>}
+            {p.email && <AppLink href={`mailto:${p.email}`}><Icon name="mail" /> {T.mail}</AppLink>}
             <button type="button" onClick={onBook}><Icon name="cal" /> {T.book}</button>
-            <a href={`/admin/patient/${card.id}/fisa043`}><Icon name="file" /> {T.fisa}</a>
+            <AppLink href={`/admin/patient/${card.id}/fisa043`}><Icon name="file" /> {T.fisa}</AppLink>
           </div>
         </div>
         <div className="hero-side">

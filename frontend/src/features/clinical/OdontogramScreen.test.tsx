@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
@@ -71,10 +71,10 @@ const toothState = () => within(inspector()).getByLabelText('Starea dintelui') a
 const sfBtn = (name: string) => within(inspector()).getByRole('button', { name: new RegExp(`^${name}$`) })
 const unsaved = () => screen.queryByText('Nesalvat')
 
-/* Пациента даёт путь маршрута, зуб из адреса (?t=) остаётся пропом экрана. */
+/* Пациента даёт путь маршрута, зуб — адрес (?t=): экран читает его сам (B4.3). */
 const open = (t?: number, navigate?: (url: string) => void) => openScreen(
-  '/admin/patient/:pid/odontograma', '/admin/patient/5/odontograma',
-  <OdontogramScreen pid={5} {...(t !== undefined ? { t } : {})} {...(navigate ? { navigate } : {})} />,
+  '/admin/patient/:pid/odontograma', `/admin/patient/5/odontograma${t !== undefined ? `?t=${t}` : ''}`,
+  <OdontogramScreen pid={5} {...(navigate ? { navigate } : {})} />,
   loadOdontogram, navigate)
 
 beforeEach(() => {
@@ -292,6 +292,17 @@ describe('C22: поверхность как первичный жест, чер
     expect(sfState().value).toBe('carie')
     expect(unsaved()).toBeNull()
     expect(post).not.toHaveBeenCalled()                    // цикл ничего не пишет сам
+  })
+
+  it('B4.3: ?t= сменился на том же пути (переход роутером) — фокус уходит к новому зубу без перезагрузки', async () => {
+    const { router } = open(16)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    expect(document.activeElement).toBe(btn(16))
+    /* Узел документа тут ни при чём: зуб читается из АДРЕСА, и адрес сменился
+       на месте — загрузчик не перезапускается, дуга та же. */
+    await act(() => router.navigate('/admin/patient/5/odontograma?t=21', { replace: true }))
+    await waitFor(() => expect(document.activeElement).toBe(btn(21)))
+    expect(get).toHaveBeenCalledTimes(1)
   })
 
   it('клавиатура: стрелки — сосед по ряду и та же позиция другой челюсти, буквы — поверхность, P только сверху', async () => {

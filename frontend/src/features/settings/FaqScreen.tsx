@@ -1,4 +1,5 @@
 import { Icon, iconName } from '../../components/Icon'
+import { AppLink } from '../../components/AppLink'
 import { LoadFailed } from '../../components/LoadFailed'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
@@ -37,7 +38,7 @@ export function FaqScreen({ navigate = defaultNavigate }: Props) {
       {data && (
         <>
           <p className="hint" style={{ marginTop: 0 }}>
-            {T.hintA}<a href={`mailto:${data.contact}`}>{data.contact}</a>.
+            {T.hintA}<AppLink href={`mailto:${data.contact}`}>{data.contact}</AppLink>.
           </p>
           {data.items.map((it) => (
             <details key={it.question} className="faq dp-faq">

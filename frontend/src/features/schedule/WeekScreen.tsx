@@ -70,18 +70,18 @@ export function WeekScreen({ navigate = defaultNavigate }: Props) {
     <section className="dp-react-root">
       <div className="nav">
         <b>{m.span} · {m.total} {T.counted}</b>
-        <a href={`/admin/week?date=${m.prev}`}
+        <AppLink href={`/admin/week?date=${m.prev}`}
            onClick={(e) => { e.preventDefault(); go(m.prev) }}>
           <Icon name="chev-l" /> {T.week}
-        </a>
-        <a href="/admin/week" onClick={(e) => { e.preventDefault(); go('') }}>{T.today}</a>
-        <a href={`/admin/week?date=${m.next}`}
+        </AppLink>
+        <AppLink href="/admin/week" onClick={(e) => { e.preventDefault(); go('') }}>{T.today}</AppLink>
+        <AppLink href={`/admin/week?date=${m.next}`}
            onClick={(e) => { e.preventDefault(); go(m.next) }}>
           {T.week} <Icon name="chev-r" />
-        </a>
+        </AppLink>
         {/* Вкладка дня — переход без перезагрузки (B4.1): сайдбар и шапка на месте. */}
         <AppLink href={`/admin?date=${m.day}`}>{T.day}</AppLink>
-        <a className="primary" href={`/admin/week?date=${m.day}`}>{T.title}</a>
+        <AppLink className="primary" href={`/admin/week?date=${m.day}`}>{T.title}</AppLink>
       </div>
       <div className="week">
         {m.days.map((d) => <WeekColumn key={d.date} day={d} />)}
@@ -95,7 +95,7 @@ function WeekColumn({ day }: { day: WeekDay }) {
   return (
     <div className="wcol">
       <div className={`wh${day.today ? ' tdy' : ''}`}>
-        <a href={`/admin?date=${day.date}`}>{day.label} {day.dm}</a>
+        <AppLink href={`/admin?date=${day.date}`}>{day.label} {day.dm}</AppLink>
         <small>{day.count} {T.counted}</small>
       </div>
       <div className="wb">

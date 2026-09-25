@@ -117,6 +117,13 @@ export function screenRoute(
  */
 export const queryParam = (q: URLSearchParams, name: string): string => q.getAll(name).at(-1) ?? ''
 
+/** Целое из query (`?t=16`) или `null`: пусто, не число, дробь. */
+export function intParam(q: URLSearchParams, name: string): number | null {
+  const v = queryParam(q, name)
+  const n = v ? Number(v) : null
+  return Number.isInteger(n) ? n : null
+}
+
 const LOADING = { status: 'loading' } as const
 
 /**

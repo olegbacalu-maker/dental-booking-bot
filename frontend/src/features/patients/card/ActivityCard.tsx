@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AppLink } from '../../../components/AppLink'
 import { Icon, iconName } from '../../../components/Icon'
 import type { Activity } from './card'
 
@@ -30,10 +31,10 @@ export function ActivityCard({ activity, onViews }: Props) {
       <h3>
         {T.title} <small>· {T.sub}</small> ·{' '}
         {activity.views
-          ? <a href="?" className="dp-views" onClick={(e) => { e.preventDefault(); onViews(false) }}>{T.hideViews}</a>
-          : <a href="?views=1" className="dp-views" title={T.viewsTitle} onClick={(e) => { e.preventDefault(); onViews(true) }}>
+          ? <AppLink href="?" className="dp-views" onClick={(e) => { e.preventDefault(); onViews(false) }}>{T.hideViews}</AppLink>
+          : <AppLink href="?views=1" className="dp-views" title={T.viewsTitle} onClick={(e) => { e.preventDefault(); onViews(true) }}>
               <Icon name="eye" /> {T.views}
-            </a>}
+            </AppLink>}
       </h3>
       {items.length ? items.map((it) => (
         <div key={it.id} className="acti">

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -157,7 +158,7 @@ export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
                 <td>
                   {up.icon && <><Icon name={iconName(up.icon)} /> </>}
                   {up.url ? (
-                    <a href={up.url} target="_blank" rel="noreferrer">{up.text}</a>
+                    <AppLink href={up.url} target="_blank" rel="noreferrer">{up.text}</AppLink>
                   ) : (
                     up.text
                   )}
@@ -203,7 +204,7 @@ export function SystemSettingsScreen({ navigate = defaultNavigate }: Props) {
               )}
               <tr>
                 <th>{T.feedback}</th>
-                <td><a href={`mailto:${data.feedback}`}>{data.feedback}</a></td>
+                <td><AppLink href={`mailto:${data.feedback}`}>{data.feedback}</AppLink></td>
               </tr>
             </tbody>
           </table>

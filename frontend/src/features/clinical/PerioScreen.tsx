@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { useNavigate, useNavigation } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -198,7 +199,7 @@ export function PerioScreen({ pid, navigate = defaultNavigate }: Props) {
 
   const head = (
     <div className="odop-top">
-      <a className="odop-back" href={base}><Icon name="pat" /> {model.patient.name}</a>
+      <AppLink className="odop-back" href={base}><Icon name="pat" /> {model.patient.name}</AppLink>
       <h2>{T.title} <small>· {T.sub}</small></h2>
       <div className="odo-actions">
         {model.exams.length > 0 && (
@@ -222,16 +223,16 @@ export function PerioScreen({ pid, navigate = defaultNavigate }: Props) {
         >
           <Icon name="plus" /> {T.newExam}
         </button>
-        <a className="odo-more" href={`${base}/odontograma`}><Icon name="tooth" /> {T.odo}</a>
+        <AppLink className="odo-more" href={`${base}/odontograma`}><Icon name="tooth" /> {T.odo}</AppLink>
         {model.exam && (
           /* ⛔ Без target="_blank": окно программы отдаёт «новое окно»
              системному браузеру, где нет куки входа — см. AnamnezaCard. */
-          <a
+          <AppLink
             className="odo-more"
             href={`${base}/parodontograma/print?exam=${model.exam.id}`}
           >
             <Icon name="print" /> {T.print}
-          </a>
+          </AppLink>
         )}
       </div>
     </div>

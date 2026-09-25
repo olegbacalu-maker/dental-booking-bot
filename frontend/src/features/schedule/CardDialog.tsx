@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import type { StatusAction, VisitCardView } from './day'
@@ -96,13 +97,13 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
         <div className="dp-card-info">{info}</div>
         {card.pid ? (
           <>
-            <a className="dp-card-link" href={`/admin/patient/${card.pid}`}>
+            <AppLink className="dp-card-link" href={`/admin/patient/${card.pid}`}>
               <Icon name="id" /> {T.fisa}
-            </a>
-            <a className="dp-card-link"
+            </AppLink>
+            <AppLink className="dp-card-link"
                href={`/admin/visit/${id}?back=${encodeURIComponent(back)}`}>
               <Icon name="med" /> {card.rec ? T.visitOld : T.visitNew}
-            </a>
+            </AppLink>
           </>
         ) : null}
         <form onSubmit={save} className="dp-card-cmt">

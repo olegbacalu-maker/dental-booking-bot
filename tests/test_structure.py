@@ -15,6 +15,42 @@ import re
 
 from harness import BOT, ROOT, Result
 
+# Исходники клиента. Как и BOT, перевешивается мутацией на копию дерева.
+FRONTEND = ROOT / "frontend" / "src"
+
+# Где ссылка между экранами обязана быть `AppLink` (B4): всё, что рисуется
+# внутри дерева роутера. `app/` (корень и таблица маршрутов), `hooks/`,
+# `services/`, `utils/` разметки ссылок не держат.
+_LINK_DIRS = ("features", "components", "layouts")
+# Голый `<a href>` законен ровно в двух файлах: сам `AppLink` (его запасная
+# ветка для адресов вне карты) и быстрый поиск — он смонтирован РЯДОМ с
+# роутером, а не внутри, и `Link` там бросит. Список включающий: якорь ниже
+# проверяет, что оба файла ещё существуют.
+_RAW_ANCHOR_OK = {"components/AppLink.tsx", "features/quickfind/QuickFind.tsx"}
+
+
+def _raw_anchors(text: str) -> list[int]:
+    """Строки, где в разметке стоит `<a … href=…>`. Комментарии `/* */`
+    (в JSX — `{/* */}`) не считаются; скобки в атрибутах (`onClick={(e) => …}`)
+    не обрывают тег на своём `>`."""
+    text = re.sub(r"/\*.*?\*/", lambda m: " " * len(m.group(0)), text, flags=re.S)
+    out, i = [], 0
+    while (m := re.compile(r"<a(?=[\s>/])").search(text, i)) is not None:
+        j, depth = m.end(), 0
+        while j < len(text):
+            ch = text[j]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            elif ch == ">" and depth == 0:
+                break
+            j += 1
+        if "href=" in text[m.start():j]:
+            out.append(text.count("\n", 0, m.start()) + 1)
+        i = j + 1
+    return out
+
 # Файлы, которые `desktop.py` зовёт ДО того, как собрано приложение: импортов
 # проекта в них нет и быть не может, и лежать они обязаны в корне app/.
 # Переезд любого из них в подпапку ломает запуск у клиники, не тронув запуск
@@ -1002,6 +1038,35 @@ def suite(res: Result) -> None:
         bad.append("icons.ts отстал от layout._I — python scripts/gen_icons.py")
     res.ok("icons.ts свежий: иконки клиента из layout._I", not bad,
            "React рисовал бы не те значки, что сервер: " + "; ".join(bad))
+
+    # ---- ссылки экранов — AppLink (B4, 25.09) ----
+    # Переход между экранами идёт роутером, и держит это ОДНО место —
+    # `components/AppLink.tsx`: он сам решает, экран это (переход без
+    # перезагрузки) или страница сервера (документ). Голый `<a href>` в экране
+    # — переход перезагрузкой: с B1 оболочку рисует бандл, и окно гаснет
+    # целиком. Ломается молча: ссылка работает, только с миганием — ровно то,
+    # что Олег увидел на канарейке 1.30.0.
+    # ⚠️ Полярность опасная: файлы обязаны НАЙТИСЬ, и `<AppLink` — встретиться
+    # хоть раз, иначе правило зелено на пустой папке и на переименованном
+    # компоненте.
+    bad, found, links = [], 0, 0
+    for f in sorted(FRONTEND.rglob("*.tsx")) if FRONTEND.exists() else []:
+        rel = f.relative_to(FRONTEND).as_posix()
+        if f.name.endswith(".test.tsx") or rel.split("/")[0] not in _LINK_DIRS:
+            continue
+        found += 1
+        text = f.read_text(encoding="utf-8")
+        links += text.count("<AppLink")
+        if rel not in _RAW_ANCHOR_OK:
+            bad += [f"{rel}:{ln}" for ln in _raw_anchors(text)]
+    if found < 20:
+        bad.append(f"файлов клиента нашлось {found} — обход сломан, правило пусто")
+    if not links:
+        bad.append("ни одного <AppLink> — компонент переименован, правило ищет не то")
+    bad += [f"исключение протухло: нет {p}" for p in sorted(_RAW_ANCHOR_OK)
+            if not (FRONTEND / p).exists()]
+    res.ok("ссылки экранов — AppLink, а не голый <a href>", not bad,
+           "переход перезагрузит документ, и окно мигнёт целиком: " + "; ".join(bad))
 
     # ---- цвет врача считает ОДИН `_doc_hue` (19.09) ----
     # Палитра `_DOC_HUES` — внутренность формулы, а не общее добро: взять её

@@ -1,4 +1,5 @@
 import { useLocation } from 'react-router'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import {
   filtersToQuery, isDirty, type Filters, type PatientRow, type PatientsPage,
@@ -145,13 +146,13 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
           >
             <Icon name="eye" />
           </button>
-          <a
+          <AppLink
             href={`/admin/patient/${p.id}`}
             title={T.openCard}
             onClick={(e) => e.stopPropagation()}
           >
             <Icon name="id" />
-          </a>
+          </AppLink>
         </td>
       </tr>
     )
@@ -184,10 +185,10 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
         <Icon name="search" />
         <b>{T.nothing}</b>
         <span>{T.nothingHint}</span>
-        <a className="pl-btn" href={pathname} onClick={(e) => {
+        <AppLink className="pl-btn" href={pathname} onClick={(e) => {
           e.preventDefault()
           onFilters({ ...filters, q: '', med: '', st: '', ch: '', dat: '', page: 1 })
-        }}>{T.seeAll}</a>
+        }}>{T.seeAll}</AppLink>
       </div>
     )
   } else if (page.n_arh) {

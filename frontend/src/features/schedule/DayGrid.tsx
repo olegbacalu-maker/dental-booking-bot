@@ -1,4 +1,5 @@
 import type { DragEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { DayCell, DayItem, DayModel } from './day'
 import { dragOf, halfAt, type Drag, type Target } from './move'
@@ -47,7 +48,7 @@ export function DayGrid({ model, drag, hover, onDrag, onHover, onDrop, onPlus, o
               <th className="gh-t" />
               {model.doctors.map((dc) => (
                 <th key={dc.id}>
-                  <a className="dh-n" href={`/admin/doctor/${dc.id}?date=${model.date}`}>{dc.name}</a>
+                  <AppLink className="dh-n" href={`/admin/doctor/${dc.id}?date=${model.date}`}>{dc.name}</AppLink>
                   <span className="dh-s">{dc.spec}</span>
                 </th>
               ))}
@@ -129,8 +130,8 @@ function Cell({ cell, dk, name, hour, drag, hovered, onDrag, onHover, onDrop,
   if (cell.kind === 'free') {
     return (
       <td className={cls} {...zone}>
-        <a className="free" href="#addform"
-           onClick={(e) => { e.preventDefault(); onPlus(dk, name, label) }}>+</a>
+        <AppLink className="free" href="#addform"
+           onClick={(e) => { e.preventDefault(); onPlus(dk, name, label) }}>+</AppLink>
       </td>
     )
   }

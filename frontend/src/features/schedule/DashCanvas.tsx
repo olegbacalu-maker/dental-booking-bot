@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon, iconName } from '../../components/Icon'
 import { clinicNow, clinicTz, nowlineRows, useFitAppts, useFitGrid, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
@@ -196,7 +197,7 @@ function DocCard({ col, date }: { col: DashColumn; date: string }) {
         </span>
         <div className="nm">
           {col.id
-            ? <a href={`/admin/doctor/${col.id}?date=${date}`} title={col.title}>{col.name}</a>
+            ? <AppLink href={`/admin/doctor/${col.id}?date=${date}`} title={col.title}>{col.name}</AppLink>
             : <a>{col.name}</a>}
           <small>{col.orphan ? `${T.outside} · ${col.count} ${T.prog}` : sub}</small>
           {!col.orphan && (

@@ -36,10 +36,13 @@ tsc) + набор `tests/test_<раздел>.py`. Загрузка данных 
 экран экспортирует `loadXxx: RouteLoad<T>`, `App.tsx › LOADS` его подключает,
 экран читает `hooks/useRouteLoad` (загрузка / готово / отказ / 401 → вход);
 `hooks/useLoad` остаётся у экранов, ещё не переехавших. Отказ рисует
-`components/LoadFailed`. Ссылка на ДРУГОЙ экран — `components/AppLink`
-(B4): переход без перезагрузки, оболочку нового адреса приносит документ
-этого адреса (`services/doc.ts`); голый `<a href>` между экранами гасит всё
-окно на каждом переходе. Стенд — `python scripts/spa_nav.py` (нужен Edge).
+`components/LoadFailed`. Любая ссылка в экране — `components/AppLink` (B4):
+экран из карты — переход без перезагрузки (оболочку нового адреса приносит
+документ этого адреса, `services/doc.ts`), остальное — обычная ссылка, и
+решает это `AppLink`. ⛔ Голого `<a href>` в `features/`, `components/`,
+`layouts/` нет — держит `test_structure` («ссылки экранов — AppLink»): он
+гасил бы всё окно на каждом переходе. Стенд — `python scripts/spa_nav.py`
+(нужен Edge).
 
 ⚠️ `npm run dev` ждёт, что движок поднят на **8099**:
 

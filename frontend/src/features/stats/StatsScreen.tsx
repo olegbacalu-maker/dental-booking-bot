@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { useNavigate } from 'react-router'
 import { Count } from '../../components/Count'
 import { Icon, iconName } from '../../components/Icon'
@@ -156,11 +157,11 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
       <div className="nav">
         <b>{d.period.label}</b>
         {d.presets.map((p) => (
-          <a
+          <AppLink
             key={p.key}
             href={periodUrl(p.from, p.to)}
             onClick={(e) => { e.preventDefault(); go(p.from, p.to) }}
-          >{p.label}</a>
+          >{p.label}</AppLink>
         ))}
         <form
           className="dpickf"
@@ -176,8 +177,8 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
           />
           <button className="searchf dp-ok-btn">{T.apply}</button>
         </form>
-        <a href={d.export_url}><Icon name="download" /> {T.excel}</a>
-        <a href="/admin"><Icon name="home" /> {T.panel}</a>
+        <AppLink href={d.export_url}><Icon name="download" /> {T.excel}</AppLink>
+        <AppLink href="/admin"><Icon name="home" /> {T.panel}</AppLink>
       </div>
 
       <div className="tiles">
@@ -288,9 +289,9 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
                 ))}
               </small>
               {m.link && (
-                <a className="ag-all" href={m.link.href}>
+                <AppLink className="ag-all" href={m.link.href}>
                   <Icon name={iconName(m.link.icon)} /> {m.link.label}
-                </a>
+                </AppLink>
               )}
             </div>
           ))}
@@ -321,7 +322,7 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
                   <b>{a.text}</b>
                   <small>
                     {a.patient_id !== null
-                      ? <a href={`/admin/patient/${a.patient_id}`}>{a.name}</a>
+                      ? <AppLink href={`/admin/patient/${a.patient_id}`}>{a.name}</AppLink>
                       : a.name} · {a.who}
                   </small>
                 </div>

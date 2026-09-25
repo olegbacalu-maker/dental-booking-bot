@@ -1,4 +1,5 @@
 import { Icon, iconName } from '../../components/Icon'
+import { AppLink } from '../../components/AppLink'
 import { useState } from 'react'
 import { waitLabel } from './dashFx'
 import { canAnimate } from '../../utils/fx'
@@ -73,9 +74,9 @@ function MiniCal({ cal }: { cal: DashMiniCal }) {
   return (
     <div className="mcal">
       <div className="mhead">
-        <a href={cal.prev.href}>{T.prev}</a>
+        <AppLink href={cal.prev.href}>{T.prev}</AppLink>
         <b>{cal.title}</b>
-        <a href={cal.next.href}>{T.next}</a>
+        <AppLink href={cal.next.href}>{T.next}</AppLink>
       </div>
       <table>
         <tbody>
@@ -84,8 +85,8 @@ function MiniCal({ cal }: { cal: DashMiniCal }) {
             <tr key={week[0]!.date}>
               {week.map((c) => (
                 <td key={c.date}>
-                  <a className={[c.other && 'oth', c.today && 'tdy', c.selected && 'seld']
-                    .filter(Boolean).join(' ')} href={c.href}>{c.day}</a>
+                  <AppLink className={[c.other && 'oth', c.today && 'tdy', c.selected && 'seld']
+                    .filter(Boolean).join(' ')} href={c.href}>{c.day}</AppLink>
                 </td>
               ))}
             </tr>
@@ -139,10 +140,10 @@ function Agenda(
                     целиком, и без этого одно нажатие делало бы два действия —
                     открывало карточку ЗАОДНО с одонтограммой. */}
                 {it.patient_id !== null && (
-                  <a className="ag-odo" href={`/admin/patient/${it.patient_id}/odontograma`}
+                  <AppLink className="ag-odo" href={`/admin/patient/${it.patient_id}/odontograma`}
                     onClick={(e) => e.stopPropagation()}>
                     <Icon name="tooth" />{T.odo}
-                  </a>
+                  </AppLink>
                 )}
               </div>
               <span className={`pl-badge ${it.badge.cls}`}>{it.badge.label}</span>
@@ -150,7 +151,7 @@ function Agenda(
           )
         })}
       </div>
-      <a className="ag-all" href={`/admin/all?date=${date}`}>{T.all}</a>
+      <AppLink className="ag-all" href={`/admin/all?date=${date}`}>{T.all}</AppLink>
     </div>
   )
 }
@@ -167,7 +168,7 @@ function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccup
           клиники с замороженным ботом не рисуется вовсе. Поэтому список, а не
           набор именованных полей — иначе на её месте была бы пустая плитка. */}
       {tiles.map((t) => (
-        <a key={t.key} className={`rk-i${t.cls ? ` ${t.cls}` : ''}`} href={t.href}>
+        <AppLink key={t.key} className={`rk-i${t.cls ? ` ${t.cls}` : ''}`} href={t.href}>
           <span className="ico" style={{ background: t.soft, color: t.tone }}>
             <Icon name={iconName(t.icon)} />
           </span>
@@ -175,7 +176,7 @@ function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccup
           <span className="rk-l">{t.label}</span>
           <Trend sub={t.sub} />
           <Spark series={t.series} tone={t.tone} />
-        </a>
+        </AppLink>
       ))}
       {/* ⚠️ Порядок детей у загрузки ДРУГОЙ: число стоит после подписи и
           переносится на свой ряд — так в макете. */}

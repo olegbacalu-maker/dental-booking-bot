@@ -38,6 +38,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
+    // предел ожидания findBy/waitFor — см. src/test/setup.ts
+    setupFiles: ['src/test/setup.ts'],
   },
 
   build: {

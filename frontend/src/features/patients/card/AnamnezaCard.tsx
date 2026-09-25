@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { AppLink } from '../../../components/AppLink'
 import { Icon } from '../../../components/Icon'
 import type { CardActions } from './actions'
 import { patientCard, type Anamneza, type PatientCard } from './card'
@@ -71,9 +72,9 @@ export function AnamnezaCard({ card, a }: Props) {
           браузеру: там нет куки входа, бланк просит PIN, а ссылка «назад» с
           него уводит весь журнал в браузер. Бланк печатается кнопкой и
           возвращает ссылкой — новая вкладка ему не нужна. */}
-      <a className="anprint" href={`/admin/patient/${card.id}/anamneza/print`}>
+      <AppLink className="anprint" href={`/admin/patient/${card.id}/anamneza/print`}>
         <Icon name="print" /> {T.print}
-      </a>
+      </AppLink>
       <details className="anform" open={!an.filled}>
         <summary><Icon name="pen" /> {T.form}</summary>
         <form className="fform" onSubmit={onSubmit}>

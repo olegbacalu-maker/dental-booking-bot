@@ -39,11 +39,15 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_structure  # noqa: E402
-from harness import BOT, Result  # noqa: E402
+from harness import BOT, ROOT, Result  # noqa: E402
 
 sys.path.insert(0, str(BOT))
 
 from app import db as appdb  # noqa: E402 — только константа, не соединение
+
+# Исходники клиента копируются рядом с bot/ (в `_frontend`): правило про
+# ссылки экранов читает их, и мутация обязана уметь его сломать.
+FRONTEND_SRC = ROOT / "frontend" / "src"
 
 # Мутация «версия схемы отстала от шагов» ссылается на САМУ версию, и числом
 # она уезжала бы при каждом новом шаге: правка «поднять SCHEMA_VERSION» падала
@@ -294,6 +298,8 @@ MUTATIONS = [
      ("async def verify_source_pin(", "async def confirm_source(")),
     # Вторая формула хеша PIN — самый вероятный обход запрета звать verify_pin:
     # «просто прочитаю json и посчитаю сам».
+    ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramScreen.tsx",
+     ('<AppLink className="odop-back"', '<a className="odop-back"')),
     ("PIN проверяет один модуль", "app/relocate.py",
      "\n_mut = _derive(\"1234\", \"salt\")\n"),
 ]
@@ -329,6 +335,9 @@ LEGAL = [
      "\n_mut = verify_source_pin(_src, _pin, destination_attempts())\n"),
     ("PIN проверяет один модуль", "app/modules/settings/routes.py",
      "\n_mut = [u for u in all_users()]\n"),
+    # ссылка в КОММЕНТАРИИ — не разметка: правило про <a href> обязано молчать
+    ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramScreen.tsx",
+     '\n/* пример для чтения: <a href="/admin/week">săptămâna</a> */\n'),
 ]
 
 
@@ -347,8 +356,9 @@ def _apply(text: str, patch, rel: str, label: str, bad: list) -> str:
 
 
 def _run(bot: pathlib.Path) -> Result:
-    """Прогнать набор по указанному дереву исходников."""
+    """Прогнать набор по указанному дереву исходников (клиент — в `_frontend`)."""
     test_structure.BOT = bot
+    test_structure.FRONTEND = bot / "_frontend"
     res = Result()
     test_structure.suite(res)
     return res
@@ -356,6 +366,7 @@ def _run(bot: pathlib.Path) -> Result:
 
 def _copy(dst: pathlib.Path) -> pathlib.Path:
     shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(FRONTEND_SRC, dst / "_frontend")
     return dst
 
 
@@ -413,6 +424,7 @@ def main() -> int:
     finally:
         shutil.rmtree(base, ignore_errors=True)
         test_structure.BOT = BOT                # вернуть на настоящее дерево
+        test_structure.FRONTEND = FRONTEND_SRC
 
     print()
     for line in bad:

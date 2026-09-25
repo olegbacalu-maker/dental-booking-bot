@@ -47,11 +47,6 @@ export type { MountNode } from './doc'
 
 type Draw = (p: Record<string, string>) => ReactNode
 
-function intOrNull(v: string | undefined): number | null {
-  const n = v ? Number(v) : null
-  return Number.isInteger(n) ? n : null
-}
-
 /**
  * Экран по имени. ⭐ `Record<ScreenName, …>`: имя, появившееся в карте и не
  * получившее здесь строки, — ошибка tsc, а не «экран не существует» у клиники.
@@ -78,7 +73,8 @@ export const SCREENS: Record<ScreenName, Draw> = {
   // не читается: адрес визита разбирает роутер, а имена у них РАЗНЫЕ. `back`
   // загрузчик берёт из АДРЕСА (B2.3), экран показывает только эхо сервера.
   visit: (p) => <VisitScreen aid={Number(p.appt_id)} />,
-  odontogram: (p) => <OdontogramScreen pid={Number(p.pid)} t={intOrNull(p.t)} />,
+  // `?t=` (зуб в фокус) экран читает из АДРЕСА сам (B4.3); узел его ещё шлёт.
+  odontogram: (p) => <OdontogramScreen pid={Number(p.pid)} />,
   // ⛔ Панель параметров узла не читает: день берёт из АДРЕСА сама, шапку — из
   // эха живого канала. День из узла застывал на моменте загрузки документа.
   schedule_dash: () => <DashScreen />,

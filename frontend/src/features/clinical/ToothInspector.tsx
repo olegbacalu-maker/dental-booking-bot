@@ -1,4 +1,5 @@
 import { Icon } from '../../components/Icon'
+import { AppLink } from '../../components/AppLink'
 import { Tooth } from './Tooth'
 import { ToothForm } from './ToothForm'
 import { JAW_RO, bridgeOf, surfaceLetter, type Odontogram, type View } from './chart'
@@ -90,9 +91,9 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
         <div className="i-perio">
           <span>{T.perio} · {perio.at}</span>
           <b>{perio.text}</b>
-          <a href={`/admin/patient/${model.patient.id}/parodontograma?exam=${perio.exam}`}>
+          <AppLink href={`/admin/patient/${model.patient.id}/parodontograma?exam=${perio.exam}`}>
             {T.openPerio}
-          </a>
+          </AppLink>
         </div>
       )}
       {info && n !== null && !inBr && !info.milk && onBridgeFrom && (

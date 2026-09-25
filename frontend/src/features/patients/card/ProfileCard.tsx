@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { AppLink } from '../../../components/AppLink'
 import { Icon } from '../../../components/Icon'
 import type { IconName } from '../../../components/icons'
 import type { CardActions } from './actions'
@@ -192,12 +193,12 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, navigate, onFail }:
               onClick={() => { void a.act(() => patientCard.archive(a.pid, a.views, !card.archived)) }}>
         <Icon name={card.archived ? 'undo' : 'box'} /> {card.archived ? T.unarchive : T.archive}
       </button>
-      <a className="dp-pc-btn dp-pc-sec" href={`/admin/patient/${card.id}/export`} title={T.exportTitle}>
+      <AppLink className="dp-pc-btn dp-pc-sec" href={`/admin/patient/${card.id}/export`} title={T.exportTitle}>
         <Icon name="download" /> {T.export}
-      </a>
-      <a className="dp-pc-btn dp-pc-sec" href={`/admin/patient/${card.id}/acord`} title={T.acordTitle}>
+      </AppLink>
+      <AppLink className="dp-pc-btn dp-pc-sec" href={`/admin/patient/${card.id}/acord`} title={T.acordTitle}>
         <Icon name="clipboard" /> {T.acord}
-      </a>
+      </AppLink>
       <details className="dp-erase">
         <summary>{T.eraseTitle}</summary>
         <div className="dp-erase-box">

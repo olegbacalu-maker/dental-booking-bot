@@ -25,7 +25,10 @@
      url_state_f5, но на этом адресе);
   5. оболочка (B4.2): пункт сайдбара «Setări», крошка «Panou» из раздела
      настроек, поиск из шапки (набор в поле + Enter) и «+ Programare nouă» с
-     якорем формы — каждый переходом, свидетель жив, экран нарисован.
+     якорем формы — каждый переходом, свидетель жив, экран нарисован;
+  6. ссылки внутри экранов (B4.3): фиша → одонтограмма (сайдбар сужается в
+     рельс по модели нового документа) → назад в фишу, день → панель, список
+     врачей → карточка врача — каждый переходом.
 
 ⛔ Пара (без неё стенд ничего не доказывает): та же ссылка, лишённая роутера
 (узел подменён клоном без обработчиков React), обязана перезагрузить документ
@@ -82,6 +85,8 @@ STATE = """(() => {
     week: !!document.querySelector('.dp-react-root .week'),
     dash: !!document.querySelector('.dp-react-root .dash'),
     hub: !!document.querySelector('.dp-react-root .set-hub'),
+    rail: !!document.querySelector('aside.side-rail'),
+    odop: !!document.querySelector('.dp-react-root .odop'),
     rows: document.querySelectorAll('.pl-card tbody tr').length,
     addform: (() => { const el = document.getElementById('addform'); if (!el) return null;
       const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight; })(),
@@ -130,7 +135,7 @@ def main() -> int:
     preconditions(s1.dir)
     s1.extra_env["DENTART_ENV_FILE"] = str(s1.dir / "dental.env")
     with s1:
-        seed(Client(s1.url).login(PIN), day)
+        ids = seed(Client(s1.url).login(PIN), day)
     # ⭐ Пин наборов снимается: проверяется то, что клиника увидит по умолчанию.
     cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
     cfg.pop("ui", None)
@@ -295,6 +300,35 @@ def main() -> int:
             errs = cdp.errors()
             if errs:
                 bad.append("ошибки консоли (оболочка): " + "; ".join(errs[:3]))
+
+            # 6. ссылки внутри экранов (B4.3)
+            pid = ids["pid"]
+            page.go(f"/admin/patient/{pid}")
+            settle(page, lambda st: st["busy"] == "false" or (st["busy"] != "true" and st["busy"] != "none"))
+            s7 = shell_step("фиша → одонтограмма",
+                            lambda: click_el(page, "[...document.querySelectorAll('.odo-more')]"
+                                                   ".find(a => a.getAttribute('href').endsWith('/odontograma'))"),
+                            lambda st: st["href"].endswith("/odontograma") and st["odop"], "odontogram")
+            if not s7["rail"]:
+                bad.append("фиша → одонтограмма: сайдбар не сузился в рельс — модель нового документа не применена")
+            s8 = shell_step("одонтограмма → фиша",
+                            lambda: click_el(page, "document.querySelector('.odop-back')"),
+                            lambda st: st["href"] == f"/admin/patient/{pid}", "fișa pacientului")
+            if s8["rail"]:
+                bad.append("одонтограмма → фиша: сайдбар остался рельсом")
+            page.go("/admin/all")
+            settle(page, lambda st: st["busy"] != "true" and st["busy"] != "none")
+            shell_step("день → панель", lambda: click(page, "Panou"),
+                       lambda st: st["href"].startswith("/admin?date=") and st["dash"], "panou principal")
+            page.go("/admin/medici")
+            settle(page, lambda st: st["busy"] != "true" and st["busy"] != "none")
+            shell_step("врачи → карточка врача",
+                       lambda: click_el(page, "document.querySelector('a[href^=\"/admin/doctor-card/\"]')"),
+                       lambda st: st["href"].startswith("/admin/doctor-card/"), "")
+
+            errs = cdp.errors()
+            if errs:
+                bad.append("ошибки консоли (экраны): " + "; ".join(errs[:3]))
 
             # ⛔ Пара: обычная ссылка перезагружает документ — свидетель пропадает
             page.go("/admin")

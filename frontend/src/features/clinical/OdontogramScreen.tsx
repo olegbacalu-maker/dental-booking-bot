@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
+import { useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
-import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import {
+  intParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
+} from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { DentalArch } from './DentalArch'
@@ -41,16 +45,26 @@ const ARROWS = new Set<string>(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown
 
 interface Props {
   pid: number
-  /** Зуб из адреса (?t=): выбор переживает перезагрузку. */
-  t?: number | null
   navigate?: (url: string) => void
 }
 
-/** Данные экрана грузит роутер (B2.2), App.tsx › LOADS. */
-export const loadOdontogram: RouteLoad<Odontogram> = (signal, params) => chart.get(Number(params.pid), signal)
+/**
+ * Данные экрана грузит роутер (B2.2), App.tsx › LOADS. ⭐ Смена query на том
+ * же пути (`?t=` — зуб в фокус) загрузчик НЕ перезапускает (B4.3): карта та же,
+ * а повторный GET лишь гонял бы ту же одонтограмму по кругу на каждый фокус.
+ */
+export const loadOdontogram: ScreenData = {
+  load: ((signal, params) => chart.get(Number(params.pid), signal)) satisfies RouteLoad<Odontogram>,
+  shouldRevalidate: searchChangeKeepsData,
+}
 
-export function OdontogramScreen({ pid, t = null, navigate = defaultNavigate }: Props) {
+export function OdontogramScreen({ pid, navigate = defaultNavigate }: Props) {
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<Odontogram>(navigate)
+  /* Зуб в фокус — из АДРЕСА (`?t=`), а не из узла документа (B4.3): узел
+     описывает адрес первой загрузки, и после перехода без перезагрузки он
+     остался бы от чужого адреса. Выбор переживает перезагрузку, как и раньше. */
+  const [q] = useSearchParams()
+  const t = intParam(q, 't')
   const [toast, setToast] = useState<ToastState | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
   const say = useCallback((x: ToastState) => setToast(x), [])
@@ -150,14 +164,14 @@ export function OdontogramScreen({ pid, t = null, navigate = defaultNavigate }: 
     <section className="dp-react-root">
       <div ref={root} className="odop odo" id="odo" data-view={c.view} tabIndex={0} onKeyDown={onKey}>
         <div className="odop-top">
-          <a className="odop-back" href={base}><Icon name="pat" /> {model.patient.name}</a>
+          <AppLink className="odop-back" href={base}><Icon name="pat" /> {model.patient.name}</AppLink>
           <h2>{T.title} <small>· {T.sub}</small></h2>
           <div className="odo-actions">
             <ViewSwitch view={c.view} onChange={c.setView} />
             <button type="button" className="odo-more" onClick={() => { setBrMode(true); setPicked([]) }}>
               <Icon name="plus" /> {T.newBridge}
             </button>
-            <a className="odo-more" href={`${base}/parodontograma`}><Icon name="tooth" /> {T.perio}</a>
+            <AppLink className="odo-more" href={`${base}/parodontograma`}><Icon name="tooth" /> {T.perio}</AppLink>
             <button type="button" className="odo-more" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
           </div>
         </div>

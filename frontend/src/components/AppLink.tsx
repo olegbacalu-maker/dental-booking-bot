@@ -1,5 +1,5 @@
 import { useCallback, type AnchorHTMLAttributes, type MouseEvent } from 'react'
-import { Link, matchRoutes, useNavigate } from 'react-router'
+import { Link, matchRoutes, useInRouterContext, useNavigate } from 'react-router'
 import { ROUTES } from '../app/routes'
 
 /* Таблица путей — та же, по которой выбирает экран роутер (routes.ts, производная
@@ -46,9 +46,13 @@ type Props = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & { href: str
  * только простой щелчок. ⛔ Адрес не из карты маршрутов остаётся обычной
  * ссылкой: иначе переход привёл бы к экрану «такого экрана нет», а не к
  * странице, которую сервер по этому адресу отдаёт.
+ * ⚠️ Вне дерева роутера (кусок экрана, открытый в проверке сам по себе) —
+ * тоже обычная ссылка: `Link` без роутера бросает, а ссылка документом —
+ * ровно то, что было до B4.
  */
 export function AppLink({ href, ...rest }: Props) {
-  return isAppHref(href) ? <Link to={href} {...rest} /> : <a href={href} {...rest} />
+  const routed = useInRouterContext()
+  return routed && isAppHref(href) ? <Link to={href} {...rest} /> : <a href={href} {...rest} />
 }
 
 /**

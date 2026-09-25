@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
 import { asApiError } from '../../services/api'
@@ -74,7 +75,7 @@ export function OdontogramCard({ pid, views, say, onFail, onChanged, open = null
   if (failed) {
     return (
       <div className="fcard">
-        <p className="hint dp-m0">{T.failed} <a href={`${base}/odontograma`}>{T.open}</a></p>
+        <p className="hint dp-m0">{T.failed} <AppLink href={`${base}/odontograma`}>{T.open}</AppLink></p>
       </div>
     )
   }
@@ -88,8 +89,8 @@ export function OdontogramCard({ pid, views, say, onFail, onChanged, open = null
           <h3>{T.title} <small>· {T.sub}</small></h3>
           <div className="odo-actions">
             <ViewSwitch view={c.view} onChange={c.setView} />
-            <a className="odo-more" href={`${base}/parodontograma`}><Icon name="tooth" /> {T.perio}</a>
-            <a className="odo-more" href={`${base}/odontograma`}><Icon name="eye" /> {T.detail}</a>
+            <AppLink className="odo-more" href={`${base}/parodontograma`}><Icon name="tooth" /> {T.perio}</AppLink>
+            <AppLink className="odo-more" href={`${base}/odontograma`}><Icon name="eye" /> {T.detail}</AppLink>
           </div>
         </div>
         <DentalArch

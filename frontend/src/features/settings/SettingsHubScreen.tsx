@@ -1,4 +1,5 @@
 import { Icon, iconName } from '../../components/Icon'
+import { AppLink } from '../../components/AppLink'
 import { LoadFailed } from '../../components/LoadFailed'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { settings, type HintPart, type HubData } from './settings'
@@ -19,7 +20,7 @@ export function SettingsHubScreen() {
 
   if (state.status === 'leaving') return null
   const nav = (
-    <div className="nav"><a href="/admin"><Icon name="home" /> {T.panel}</a></div>
+    <div className="nav"><AppLink href="/admin"><Icon name="home" /> {T.panel}</AppLink></div>
   )
   if (state.status === 'failed') {
     return <section className="dp-react-root">{nav}<LoadFailed error={state.error} onRetry={retry} /></section>
@@ -31,13 +32,13 @@ export function SettingsHubScreen() {
       <div className="pl-head"><div><h2>{T.title}</h2><p>{T.sub}</p></div></div>
       <div className="pl-tiles set-hub">
         {tiles.map((t) => (
-          <a key={t.href} className="pl-tile" href={t.href}>
+          <AppLink key={t.href} className="pl-tile" href={t.href}>
             <span className={`ico ${t.tone}`}><Icon name={iconName(t.icon)} /></span>
             <div className="pl-tv">
               <span>{t.label}</span>
               <small><Hint parts={t.hint} /></small>
             </div>
-          </a>
+          </AppLink>
         ))}
       </div>
     </section>

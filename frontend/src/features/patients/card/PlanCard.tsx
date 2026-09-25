@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { AppLink } from '../../../components/AppLink'
 import { Icon } from '../../../components/Icon'
 import type { CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
@@ -118,9 +119,9 @@ export function PlanCard({ card, a, onTooth }: Props) {
       <h3>
         {T.title} <small>· {T.active} {mdl(plan.total)} {T.mdl}</small>
         {plan.items.length > 0 && (
-          <a className="pacord" href={`/admin/patient/${card.id}/plan-acord`} title={T.acordTitle}>
+          <AppLink className="pacord" href={`/admin/patient/${card.id}/plan-acord`} title={T.acordTitle}>
             <Icon name="clipboard" /> {T.acord}
-          </a>
+          </AppLink>
         )}
       </h3>
       {plan.items.length > 0 && (

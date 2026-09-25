@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -83,8 +84,8 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
 
   const nav = (
     <div className="nav">
-      <a href="/admin"><Icon name="home" /> {T.panel}</a>
-      <a href="/admin/settings"><Icon name="set" /> {T.settings}</a>
+      <AppLink href="/admin"><Icon name="home" /> {T.panel}</AppLink>
+      <AppLink href="/admin/settings"><Icon name="set" /> {T.settings}</AppLink>
     </div>
   )
 
@@ -162,7 +163,7 @@ export function DoctorsListScreen({ navigate = defaultNavigate }: Props) {
 /** Карточка врача в сетке — та же разметка, что у серверной _med_card_html. */
 function DoctorTile({ d, states }: { d: DoctorSummary; states: Record<string, string> }) {
   return (
-    <a
+    <AppLink
       className={d.status === 'activ' ? 'medcard' : 'medcard off'}
       href={`/admin/doctor-card/${encodeURIComponent(d.id)}`}
     >
@@ -186,6 +187,6 @@ function DoctorTile({ d, states }: { d: DoctorSummary; states: Record<string, st
         <div><b>{d.stats.pct}%</b><span>{T.statPct}</span></div>
         <div><b>{d.stats.noshow}</b><span>{T.statNoshow}</span></div>
       </div>
-    </a>
+    </AppLink>
   )
 }

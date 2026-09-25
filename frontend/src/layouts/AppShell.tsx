@@ -130,9 +130,9 @@ function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLE
             <small>{identity.role_label} · {clinic.name}</small>
           </div>
           {/* выход — не экран: обычная ссылка, сервер снимает куку и уводит на вход */}
-          <a className="who-out" href="/admin/logout" title={T.logout}>
+          <AppLink className="who-out" href="/admin/logout" title={T.logout}>
             <Icon name="power" />
-          </a>
+          </AppLink>
         </div>
       )}
     </div>
@@ -177,9 +177,9 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
       </div>
       <div className="brandcorner">
         <Icon name="tooth" /> <b>DentPilot</b> ·{' '}
-        <a href={m.frame.feedback.href} title={m.frame.feedback.email}>
+        <AppLink href={m.frame.feedback.href} title={m.frame.feedback.email}>
           <Icon name="chat" /> {T.feedback}
-        </a>
+        </AppLink>
       </div>
     </>
   )

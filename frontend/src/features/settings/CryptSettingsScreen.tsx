@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -128,9 +129,9 @@ export function CryptSettingsScreen({ navigate = defaultNavigate }: Props) {
           {data.blocks.limit && <div dangerouslySetInnerHTML={{ __html: data.blocks.limit }} />}
           {data.state !== 'off' && (
             <div className="nav">
-              <a className={data.state === 'pending' ? 'primary' : undefined} href={data.sheet}>
+              <AppLink className={data.state === 'pending' ? 'primary' : undefined} href={data.sheet}>
                 <Icon name="print" /> {data.state === 'pending' ? T.sheetOpen : T.sheet}
-              </a>
+              </AppLink>
             </div>
           )}
           {data.state === 'on' && (

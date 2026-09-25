@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { AppLink } from '../../components/AppLink'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
@@ -84,9 +85,9 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
 
   const nav = (
     <div className="nav">
-      <a href="/admin/medici"><Icon name="med" /> {T.all}</a>
-      <a href={`/admin/doctor/${encodeURIComponent(dk)}`}><Icon name="cal" /> {T.day}</a>
-      <a href="/admin"><Icon name="home" /> {T.panel}</a>
+      <AppLink href="/admin/medici"><Icon name="med" /> {T.all}</AppLink>
+      <AppLink href={`/admin/doctor/${encodeURIComponent(dk)}`}><Icon name="cal" /> {T.day}</AppLink>
+      <AppLink href="/admin"><Icon name="home" /> {T.panel}</AppLink>
     </div>
   )
 
@@ -174,7 +175,7 @@ export function DoctorCardScreen({ dk, navigate = defaultNavigate }: Props) {
             <div className="frow"><span>{T.rows.noshow}</span><span className="v">{card.stats.noshow}</span></div>
             <div className="frow"><span>{T.rows.future}</span><span className="v">{card.future}</span></div>
             <p className="hint" style={{ margin: '8px 0 0' }}>
-              <a href="/admin/stats">{T.statsLink} <Icon name="out" /></a>
+              <AppLink href="/admin/stats">{T.statsLink} <Icon name="out" /></AppLink>
             </p>
           </div>
         </div>

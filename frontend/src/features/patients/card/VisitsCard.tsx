@@ -1,4 +1,5 @@
 import { Icon } from '../../../components/Icon'
+import { AppLink } from '../../../components/AppLink'
 import type { PatientCard } from './card'
 
 /* Ближайший визит своей карточкой и история — те же слова, что на старой
@@ -44,14 +45,14 @@ export function VisitsCard({ card }: Props) {
             <small>{v.doctor}</small>
             {v.consult === 'rec' && (
               <small className="dp-consult">
-                <Icon name="med" /> <a href={v.url}>{T.consult}</a>{v.diag ? `: ${v.diag}` : ''}
+                <Icon name="med" /> <AppLink href={v.url}>{T.consult}</AppLink>{v.diag ? `: ${v.diag}` : ''}
               </small>
             )}
-            {v.consult === 'invite' && <small><a href={v.url}>{T.invite}</a></small>}
+            {v.consult === 'invite' && <small><AppLink href={v.url}>{T.invite}</AppLink></small>}
           </div>
         </div>
       )) : <p className="hint dp-m0">{T.empty}</p>}
-      <a href={`/admin/search?q=${encodeURIComponent(card.name)}`} className="dp-hist-all">{T.all}</a>
+      <AppLink href={`/admin/search?q=${encodeURIComponent(card.name)}`} className="dp-hist-all">{T.all}</AppLink>
     </div>
   )
 }

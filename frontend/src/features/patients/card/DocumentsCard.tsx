@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { AppLink } from '../../../components/AppLink'
 import { Icon, iconName } from '../../../components/Icon'
 import { asApiError } from '../../../services/api'
 import type { CardActions } from './actions'
@@ -83,14 +84,14 @@ export function DocumentsCard({ card, a, onFail, navigate }: Props) {
         <div className="docgrid">
           {card.documents.map((d) => (
             <div key={d.id} className="doccard">
-              <a href={`/admin/doc/${d.id}`} title={d.filename} onClick={(e) => { e.preventDefault(); open(d) }}>
+              <AppLink href={`/admin/doc/${d.id}`} title={d.filename} onClick={(e) => { e.preventDefault(); open(d) }}>
                 <div className="thumb">
                   {d.view === 'img'
                     ? <img src={`/admin/doc/${d.id}?thumb=1`} alt="" loading="lazy" />
                     : <Icon name={iconName(d.icon)} />}
                 </div>
                 <div className="dmeta"><b>{d.filename}</b><small>{d.when} · {d.size}</small></div>
-              </a>
+              </AppLink>
               <div className="del">
                 <form onSubmit={(e) => { e.preventDefault(); void del(d) }}>
                   <button title={T.del} aria-label={`${T.del}: ${d.filename}`} disabled={a.busy}><Icon name="close" /></button>
@@ -125,7 +126,7 @@ export function DocumentsCard({ card, a, onFail, navigate }: Props) {
           {viewing && (
             <button type="button" onClick={() => { void sysOpen(viewing.id) }}><Icon name="monitor" /> {T.openExt}</button>
           )}
-          {viewing && <a href={`/admin/doc/${viewing.id}`}><Icon name="download" /> {T.save}</a>}
+          {viewing && <AppLink href={`/admin/doc/${viewing.id}`}><Icon name="download" /> {T.save}</AppLink>}
         </div>
       </dialog>
     </div>

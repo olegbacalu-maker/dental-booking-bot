@@ -282,20 +282,20 @@ export function DashScreen() {
     return (
       <div className="nav">
         {m ? <b>{m.day_label}</b> : null}
-        <a href={`/admin?date=${shift(on, -7)}`} title={T.wkPrev}>
+        <AppLink href={`/admin?date=${shift(on, -7)}`} title={T.wkPrev}>
           <Icon name="chevs-l" />
-        </a>
-        <a href={`/admin?date=${shift(on, -1)}`}>
+        </AppLink>
+        <AppLink href={`/admin?date=${shift(on, -1)}`}>
           <Icon name="chev-l" /> {dm(shift(on, -1))}
-        </a>
-        <a href="/admin">{T.today}</a>
-        <a href={`/admin?date=${shift(on, 1)}`}>
+        </AppLink>
+        <AppLink href="/admin">{T.today}</AppLink>
+        <AppLink href={`/admin?date=${shift(on, 1)}`}>
           {dm(shift(on, 1))} <Icon name="chev-r" />
-        </a>
-        <a href={`/admin?date=${shift(on, 7)}`} title={T.wkNext}>
+        </AppLink>
+        <AppLink href={`/admin?date=${shift(on, 7)}`} title={T.wkNext}>
           <Icon name="chevs-r" />
-        </a>
-        <a className="primary" href={`/admin?date=${on}`}>{T.day}</a>
+        </AppLink>
+        <AppLink className="primary" href={`/admin?date=${on}`}>{T.day}</AppLink>
         <AppLink href={`/admin/week?date=${on}`}>{T.week}</AppLink>
       </div>
     )
@@ -313,7 +313,7 @@ export function DashScreen() {
           <button type="button" className="savebtn" onClick={retry}>
             <Icon name="refresh" /> {T.retry}
           </button>
-          <a href="/admin?ui=legacy">{T.legacy}</a>
+          <AppLink href="/admin?ui=legacy">{T.legacy}</AppLink>
         </p>
       </section>
     )
@@ -323,7 +323,7 @@ export function DashScreen() {
       <section className="dp-react-root">
         {navNode()}
         <div className="banner err" role="alert">
-          {T.stopped} <a href="/admin?ui=legacy">{T.legacy}</a>.
+          {T.stopped} <AppLink href="/admin?ui=legacy">{T.legacy}</AppLink>.
         </div>
       </section>
     )
@@ -346,7 +346,7 @@ export function DashScreen() {
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
             onDrop={onDrop} fresh={fresh} />
           <p className="hint">
-            {T.hint} <a href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</a>.
+            {T.hint} <AppLink href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</AppLink>.
           </p>
         </div>
         <div className="rail" ref={rail}>

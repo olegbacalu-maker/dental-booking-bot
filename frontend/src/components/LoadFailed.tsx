@@ -1,4 +1,5 @@
 import { Icon } from './Icon'
+import { AppLink } from '../components/AppLink'
 import { legacyUrl } from '../utils/legacy'
 import type { ApiError } from '../types/api'
 
@@ -31,7 +32,7 @@ export function LoadFailed({ error, onRetry, text }: Props) {
             <Icon name="refresh" /> {T.retry}
           </button>
         )}
-        <a href={legacyUrl()}>{T.legacy}</a>
+        <AppLink href={legacyUrl()}>{T.legacy}</AppLink>
       </p>
     </>
   )
