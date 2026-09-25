@@ -1,7 +1,7 @@
 {
   "name": "dentpilot-frontend",
   "private": true,
-  "version": "1.30.2",
+  "version": "1.30.3",
   "type": "module",
   "description": "React-клиент DentPilot 2.0 поверх существующего Python/FastAPI движка",
   "scripts": {
