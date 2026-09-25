@@ -2193,6 +2193,19 @@
     Держит их вместе проверка `суженный сайдбар совпадает с оконным` в
     tests\test_teeth.py — она сверяет объявления двух блоков дословно. */
  .side.side-rail{width:56px;flex:0 0 56px}
+ /* B4 (25.09): переход фиша ↔ одонтограмма идёт БЕЗ перезагрузки, и рельс
+    включается на глазах — 160px одним кадром, весь .main прыгает влево
+    (замер CDP: layout-shift 0.37; Олег на канарейке 1.30.1 — «дергания на
+    Detaliat»). Ширина едет плавно, содержимое следует за ней. При полной
+    загрузке класс стоит с первого кадра — переход не стартует, документ
+    рисуется как прежде. Без .anim и при reduced-motion — одним кадром, как
+    было: правило только про движение, конечный вид тот же. */
+ .anim .side{transition:width .22s cubic-bezier(.22,.61,.36,1),flex-basis .22s cubic-bezier(.22,.61,.36,1);
+   overflow-x:hidden}
+ /* на обратном ходе (рельс → полный) подписи появляются, пока бар ещё узкий:
+    без nowrap они переносились бы по две строки на середине хода и дёргали
+    высоту пунктов; теперь их просто подрезает край бара, пока он едет */
+ .anim .side nav a span,.anim .side .sec,.anim .side .sfoot{white-space:nowrap}
  .side.side-rail .brand .txt,.side.side-rail .sec,.side.side-rail nav a span,.side.side-rail nav a .dot,.side.side-rail .sfoot{display:none}
  .side.side-rail .brand{justify-content:center;padding:14px 0}
  .side.side-rail nav a{justify-content:center;margin:2px 8px;padding:9px 0}
