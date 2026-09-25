@@ -55,6 +55,11 @@ openssl rand -hex 32                                                     # → D
 Заполнить в `cloud.env`: хеш, секрет, `DP_SMTP_PASS`, `DP_BANK_*`.
 Комментарии в этом файле — только отдельными строками (см. шапку примера).
 
+Форма пробного (L14): `DP_TRIAL_MODE=approve` — заявки ждут кнопки в админке
+(первое время так и держать); `auto` — файл уходит сразу. На сайте поставить
+ссылку «Perioadă de probă 14 zile» на `https://cloud.dentpilot.md/proba`
+(`docs/site/README.md`); письма о заявках приходят на `DP_TRIAL_NOTIFY`.
+
 Карты (L12): в кабинете maibmerchants завести проект, взять `Project ID`,
 `Project Secret` и `Signature Key` → `DP_MAIB_*`; там же указать адреса
 возврата и callback — `https://cloud.dentpilot.md/pay/ok`, `/pay/fail`,

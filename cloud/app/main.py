@@ -5,7 +5,8 @@
 клиники, выдача файла, письмо с файлом (L7), платежи переводом (L8),
 ежедневная задача с напоминаниями и журнал (L9), оплата картой через maib —
 ссылка, callback, проверка статуса (L12), ответ программе клиники на её
-суточный запрос нового файла (L13, /v1/license).
+суточный запрос нового файла (L13, /v1/license), публичная форма пробного
+периода /proba и заявки с неё в админке (L14).
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import auth, config, db, jobs, license, maib, mail, payments, views
+from . import auth, config, db, jobs, license, maib, mail, payments, trial, views
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -144,13 +145,73 @@ _CLINICS_SQL = """SELECT c.*, s.plan, s.valid_until, s.grace_days,
                   ORDER BY c.created_at DESC"""
 
 
+_REQUESTS_SQL = """SELECT c.* FROM clinics c WHERE c.origin = 'form' AND c.declined_at IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.clinic_id = c.id)
+                   ORDER BY c.requested_at DESC"""
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def clinics(request: Request, msg: str = "") -> Response:
     if (deny := _guard(request)) is not None:
         return deny
     with db.connect() as con:
         rows = con.execute(_CLINICS_SQL).fetchall()
-    return HTMLResponse(views.clinics_page(rows, auth.current_user(request), msg))
+        requests = con.execute(_REQUESTS_SQL).fetchall()
+    return HTMLResponse(views.clinics_page(rows, auth.current_user(request), msg, requests=requests))
+
+
+# ---------- форма пробного периода (L14): публичная, без куки ----------
+
+
+@app.get("/proba", response_class=HTMLResponse)
+def trial_form() -> Response:
+    return HTMLResponse(views.trial_page())
+
+
+@app.post("/proba", response_class=HTMLResponse)
+def trial_submit(request: Request, name: str = Form(""), idno: str = Form(""), contact_name: str = Form(""),
+                 email: str = Form(""), phone: str = Form(""), consent: str = Form(""),
+                 website: str = Form("")) -> Response:
+    """Заявка: лимит с адреса, скрытое поле, чистые поля, одна клиника на IDNO/e-mail
+    (trial.submit), письмо Олегу; в approve — клинике «принято», в auto — файл."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    ip = _ip(request)
+    if trial.limited(ip):
+        return HTMLResponse(views.trial_page("limited"), status_code=429)
+    fields = {"name": name, "idno": idno, "contact_name": contact_name, "email": email, "phone": phone,
+              "consent": consent}
+    f, code = trial.clean(fields)
+    if code:
+        return HTMLResponse(views.trial_page(code, f), status_code=400)
+    trial.note(ip)
+    if website.strip():
+        # бот заполнил поле, которого человек не видит: ему «принято», нам — строка в лог
+        log.warning("форма пробного: скрытое поле заполнено, %s, %s", ip, f["email"])
+        return HTMLResponse(views.trial_done_page(trial.REQUESTED, f["email"]))
+    with db.connect() as con:
+        outcome, clinic = trial.submit(con, f, ip)
+    if outcome != trial.DUPLICATE:
+        trial.notify(clinic, outcome, ip)
+        if outcome == trial.REQUESTED:
+            trial.acknowledge(clinic)
+    return HTMLResponse(views.trial_done_page(outcome, f["email"]))
+
+
+@app.post("/admin/clinics/{cid}/decline")
+def trial_decline(request: Request, cid: str) -> Response:
+    """Скрыть заявку с формы: пробный не выдан, клиника остаётся (и её IDNO/e-mail —
+    в правиле «второго пробного нет»)."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        if _clinic(con, cid) is None:
+            return Response(status_code=404)
+        con.execute("UPDATE clinics SET declined_at=? WHERE id=?", (db.now_iso(), cid))
+        db.audit(con, auth.current_user(request), "trial_declined", cid, "")
+    return RedirectResponse("/admin?msg=trial_declined", status_code=303)
 
 
 def _clean(name: str, idno: str) -> str:

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -65,6 +65,14 @@ MIGRATIONS = {
     3: [
         "ALTER TABLE payments ADD COLUMN pay_url TEXT",
         "ALTER TABLE payments ADD COLUMN provider_status TEXT NOT NULL DEFAULT ''",
+    ],
+    # L14, форма пробного периода: откуда клиника (admin | form), когда попросила,
+    # когда согласилась с условиями, когда заявку скрыли (пробный не выдан).
+    4: [
+        "ALTER TABLE clinics ADD COLUMN origin TEXT NOT NULL DEFAULT 'admin'",
+        "ALTER TABLE clinics ADD COLUMN requested_at TEXT",
+        "ALTER TABLE clinics ADD COLUMN consent_at TEXT",
+        "ALTER TABLE clinics ADD COLUMN declined_at TEXT",
     ],
 }
 

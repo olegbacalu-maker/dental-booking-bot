@@ -28,6 +28,7 @@ SMTP_PASS = env("DP_SMTP_PASS")
 MAIL_FROM = env("DP_MAIL_FROM", SMTP_USER or "dentpilotpro@gmail.com")
 MAIL_OUTBOX = env("DP_MAIL_OUTBOX")          # папка сухого прогона: письма ложатся файлами
 SUPPORT_EMAIL = "dentpilotpro@gmail.com"
+SITE_URL = "https://dentpilot.md"           # сайт: условия и политика, на которые ссылается форма
 # Реквизиты для перевода — в письме клинике. Пусто = письмо с реквизитами не
 # отправляется (платёж при этом создаётся), пока Олег не заполнит окружение.
 BANK = {"beneficiary": env("DP_BANK_BENEFICIARY"), "iban": env("DP_BANK_IBAN"),
@@ -38,4 +39,8 @@ MAIB_BASE_URL = env("DP_MAIB_BASE_URL", "https://api.maibmerchants.md/v1")
 MAIB_PROJECT_ID = env("DP_MAIB_PROJECT_ID")
 MAIB_PROJECT_SECRET = env("DP_MAIB_PROJECT_SECRET")
 MAIB_SIGNATURE_KEY = env("DP_MAIB_SIGNATURE_KEY")   # подпись callback
+# Форма пробного периода (L14): approve — заявка ждёт админа, auto — файл сразу.
+# Уведомление о заявке — на этот ящик; пусто = SUPPORT_EMAIL.
+TRIAL_MODE = env("DP_TRIAL_MODE", "approve")
+TRIAL_NOTIFY = env("DP_TRIAL_NOTIFY") or SUPPORT_EMAIL
 SUPPORT_PHONE = "+373 60 508 048"

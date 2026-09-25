@@ -22,6 +22,7 @@ import test_maib  # noqa: E402
 import test_payments  # noqa: E402
 import test_pure  # noqa: E402
 import test_renew  # noqa: E402
+import test_trial  # noqa: E402
 from harness import run  # noqa: E402
 
 SUITES = [
@@ -40,6 +41,8 @@ SUITES = [
     ("Сервер: карта maib — ссылка, четыре callback, проверка, новая ссылка", test_maib.suite_flow),
     ("Сервер: карта maib — ежедневная задача, maib молчит", test_maib.suite_daily),
     ("Сервер: карта maib — без DP_MAIB_* всё как в шаге 1", test_maib.suite_off),
+    ("Сервер: форма пробного — auto, один пробный на IDNO/e-mail, спам", test_trial.suite_auto),
+    ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

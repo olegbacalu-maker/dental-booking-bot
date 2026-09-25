@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
-from . import config, license, maib
+from . import config, license, maib, trial
 
 esc = html.escape
 
@@ -45,6 +45,7 @@ MSG = {
     "card_none": ("err", "У этого платежа нет ссылки maib — сначала «Ссылка на карту»"),
     "card_link": ("ok", "Ссылка maib создана — у клиники нет e-mail, передайте её сами"),
     "card_link_mailed": ("ok", "Ссылка maib создана и отправлена письмом"),
+    "trial_declined": ("ok", "Заявка скрыта — пробный не выдан; клиника остаётся в списке"),
     "daily_done": ("ok", "Ежедневная задача выполнена — итог строкой в журнале"),
     "daily_failed": ("err", "Ежедневная задача: часть писем не ушла — смотрите журнал и лог сервера"),
     "login_bad": ("err", "Неверный логин или пароль"),
@@ -132,7 +133,28 @@ def _renew_short(r) -> str:
     return f" <span class='tag warn' title='программа спрашивала {esc(r['renew_at'][:16])}'>у программы {r['renew_seq'] or 0}</span>"
 
 
-def clinics_page(rows: list, user: str, msg: str = "") -> str:
+def _requests_block(requests: list) -> str:
+    """Заявки с формы /proba, ещё без файла и не скрытые (L14)."""
+    if not requests:
+        return ""
+    trs = "".join(
+        f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a></td>"
+        f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['contact_name'] or '—')}</td>"
+        f"<td>{esc(r['email'])}<br><span class='muted'>{esc(r['phone'] or '')}</span></td>"
+        f"<td>{esc((r['requested_at'] or '')[:16].replace('T', ' '))}</td>"
+        f"<td><form method='post' action='/admin/clinics/{esc(r['id'])}/issue' style='display:inline'>"
+        f"<input type='hidden' name='kind' value='trial'><input type='hidden' name='send' value='1'>"
+        f"<input type='hidden' name='reason' value='заявка с формы'>"
+        f"<button class='primary'>Выдать пробный и отправить</button></form> "
+        f"<form method='post' action='/admin/clinics/{esc(r['id'])}/decline' style='display:inline'>"
+        f"<button>Скрыть</button></form></td></tr>"
+        for r in requests)
+    return (f"<h2>Заявки на пробный период ({len(requests)})</h2><div class='card'>"
+            f"<table><tr><th>Клиника</th><th>IDNO</th><th>Контакт</th><th>E-mail · телефон</th>"
+            f"<th>Подана</th><th></th></tr>{trs}</table></div>")
+
+
+def clinics_page(rows: list, user: str, msg: str = "", requests: list = ()) -> str:
     now = datetime.now(timezone.utc)
     trs = "".join(
         f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a></td>"
@@ -160,7 +182,70 @@ def clinics_page(rows: list, user: str, msg: str = "") -> str:
             "<div><label>Телефон</label><input name='phone'></div>"
             "<div><label>Адрес</label><input name='address'></div></div>"
             "<p><button class='primary'>Завести</button></p></form></div>")
-    return page("Клиники", table + form, user, msg)
+    return page("Клиники", _requests_block(list(requests)) + table + form, user, msg)
+
+
+# ---------- форма пробного периода (L14): публичные страницы, по-румынски ----------
+
+TRIAL_MSG = {
+    "bad_name": "Indicați denumirea clinicii (2–120 de caractere).",
+    "bad_idno": "IDNO are exact 13 cifre — sau lăsați câmpul gol pentru perioada de probă.",
+    "bad_email": "Indicați o adresă de e-mail valabilă: pe ea vine fișierul de licență.",
+    "too_long": "Persoana de contact sau telefonul sunt prea lungi.",
+    "no_consent": "Bifați acordul cu Termenii și condițiile și Politica de confidențialitate.",
+    "limited": "Prea multe cereri de la această adresă — încercați peste o oră sau scrieți-ne.",
+}
+
+
+def _public(title: str, inner: str) -> str:
+    return (f"<!doctype html><html lang='ro'><head><meta charset='utf-8'>"
+            f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+            f"<title>{esc(title)} — DentPilot</title><style>{_CSS}"
+            f".box{{max-width:560px;margin:32px auto;padding:0 16px}}.hp{{position:absolute;left:-9999px}}"
+            f"label.chk{{display:flex;gap:8px;align-items:flex-start;color:#16232B;font-size:14px}}"
+            f"label.chk input{{width:auto;margin-top:3px}}</style></head>"
+            f"<body><div class='box'>{inner}"
+            f"<p class='muted'>Întrebări: {esc(config.SUPPORT_EMAIL)} · {esc(config.SUPPORT_PHONE)}</p>"
+            f"</div></body></html>")
+
+
+def trial_page(msg: str = "", values: dict | None = None) -> str:
+    v = {k: esc((values or {}).get(k, "")) for k in ("name", "idno", "contact_name", "email", "phone")}
+    err = f"<div class='banner err'>{esc(TRIAL_MSG.get(msg, msg))}</div>" if msg else ""
+    site = config.SITE_URL.rstrip("/")
+    inner = (f"<h1>Perioadă de probă DentPilot — {license.TRIAL_DAYS} zile</h1>"
+             f"<div class='card'><p>Completați formularul și primiți pe e-mail fișierul de licență pentru "
+             f"{license.TRIAL_DAYS} zile, fără plată și fără obligații. Programul se descarcă de pe "
+             f"<a href='{esc(site)}'>dentpilot.md</a>; datele pacienților rămân pe calculatorul clinicii.</p>"
+             f"{err}<form method='post' action='/proba'>"
+             f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}'>"
+             f"<label>IDNO (13 cifre, opțional pentru probă)</label><input name='idno' value='{v['idno']}' maxlength='13' inputmode='numeric'>"
+             f"<label>Persoana de contact</label><input name='contact_name' value='{v['contact_name']}' maxlength='{trial.CONTACT_MAX}'>"
+             f"<label>E-mail *</label><input name='email' type='email' value='{v['email']}' required maxlength='{trial.EMAIL_MAX}'>"
+             f"<label>Telefon</label><input name='phone' value='{v['phone']}' maxlength='{trial.PHONE_MAX}'>"
+             f"<div class='hp' aria-hidden='true'><label>Website</label>"
+             f"<input name='{trial.HONEYPOT}' tabindex='-1' autocomplete='off'></div>"
+             f"<p><label class='chk'><input type='checkbox' name='consent' value='1'> Am citit și accept "
+             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
+             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
+             f"</label></p><p><button class='primary'>Solicit perioada de probă</button></p></form></div>")
+    return _public("Perioadă de probă", inner)
+
+
+def trial_done_page(outcome: str, email: str) -> str:
+    if outcome == trial.ISSUED:
+        title, text = ("Fișierul a fost trimis", f"Fișierul de licență pentru {license.TRIAL_DAYS} zile a "
+                       f"plecat la {email}, împreună cu pașii de activare. Dacă nu îl găsiți în câteva "
+                       f"minute, verificați dosarul Spam sau scrieți-ne.")
+    elif outcome == trial.REQUESTED:
+        title, text = ("Cererea a fost primită", f"Vă trimitem fișierul de licență pentru {license.TRIAL_DAYS} "
+                       f"zile la {email} în cel mult o zi lucrătoare, împreună cu pașii de activare.")
+    else:
+        title, text = ("Această clinică este deja înregistrată",
+                       "Avem deja o cerere sau un fișier de licență pentru acest IDNO sau e-mail, iar "
+                       "perioada de probă se acordă o singură dată. Dacă nu ați primit fișierul sau vreți "
+                       "un abonament, scrieți-ne — vă răspundem în aceeași zi.")
+    return _public(title, f"<div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p></div>")
 
 
 def _ts(s):

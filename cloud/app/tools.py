@@ -41,7 +41,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import auth, config, db, keys, license, maib
+from . import auth, config, db, keys, license, maib, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 
@@ -257,6 +257,10 @@ def check() -> list[tuple[str, str]]:
             out.append((BAD, f"maib не отвечает: {e}"))
     else:
         out.append((WARN, "DP_MAIB_* пусты: оплата картой выключена, платежи только переводом"))
+    out.append((OK if trial.mode() == trial.MODE_APPROVE else WARN,
+                f"форма пробного {config.BASE_URL.rstrip('/')}/proba: режим {trial.mode()} "
+                f"({'заявка ждёт админа' if trial.mode() == trial.MODE_APPROVE else 'файл уходит сразу'}), "
+                f"уведомления на {config.TRIAL_NOTIFY}"))
     if config.SMTP_HOST:
         try:
             with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as s:

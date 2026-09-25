@@ -166,6 +166,29 @@ RENEW_NOTE = ("Dacă programul este deja activat și are acces la internet, prei
               "fișierul nou în cel mult o zi — nu trebuie să faceți nimic.")
 
 
+def trial_received(clinic: str) -> tuple[str, str]:
+    """Клинике: заявка с формы принята (режим approve), файл придёт отдельным письмом."""
+    subject = f"DentPilot: cererea de probă pentru {clinic} a fost primită"
+    body = (f"Bună ziua,\n\n"
+            f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. Fișierul de licență "
+            f"pentru 14 zile vine pe acest e-mail în cel mult o zi lucrătoare, împreună cu pașii de "
+            f"activare. Programul se descarcă de pe dentpilot.md.\n\n{FOOTER}")
+    return subject, body
+
+
+def trial_notice(clinic, outcome: str, ip: str) -> tuple[str, str]:
+    """Олегу: заявка с формы — кто, что вышло, ссылка на карточку. По-русски: письмо своё."""
+    what = {"issued": "пробный файл выдан и отправлен клинике",
+            "requested": "ждёт решения: выдать пробный кнопкой в админке"}.get(outcome, outcome)
+    subject = f"DentPilot Cloud: заявка на пробный — {clinic['name']}"
+    body = (f"Заявка с формы /proba ({ip}):\n\n"
+            f"  Клиника: {clinic['name']}\n  IDNO: {clinic['idno'] or '—'}\n"
+            f"  Контакт: {clinic['contact_name'] or '—'}\n  E-mail: {clinic['email']}\n"
+            f"  Телефон: {clinic['phone'] or '—'}\n\n"
+            f"Итог: {what}.\nКарточка: {config.BASE_URL.rstrip('/')}/admin/clinics/{clinic['id']}\n")
+    return subject, body
+
+
 def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False) -> tuple[str, str]:
     """Тема и текст письма с файлом — по-румынски, как интерфейс программы.
     `renew` — в файле есть адрес автообновления (L13): письмо говорит, что
