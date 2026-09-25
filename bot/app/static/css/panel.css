@@ -1854,6 +1854,34 @@
     (большой цифры на этих плитках нет, и без этого имя тонуло в подсказке) */
  .set-hub .pl-tv span{font-size:var(--fs-l);font-weight:600;color:var(--text)}
  .set-hub .pl-tv small{margin-top:3px}
+ /* ---------- узел настроек как СПИСОК (B5, шаг 8) ----------
+    Как в «Параметрах» Windows 11: одна колонка, значок — подпись — состояние —
+    шеврон, тонкие разделители, подсветка строки при наведении. Плитки .pl-tile
+    остаются у списка пациентов (там это числа), здесь только раскладка узла;
+    ширина — потолок строки текста, а не окна (--measure — тот же довод, что у
+    подсказок). Шеврон — маской, тем же приёмом, что значок баннера: красится
+    currentColor и не просит знак у Windows. */
+ .pl-tiles.set-hub{display:flex;flex-direction:column;gap:0;max-width:calc(var(--measure) + 140px);
+   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+   box-shadow:var(--sh);overflow:hidden}
+ .set-hub .pl-tile{border:none;border-radius:0;box-shadow:none;padding:13px 18px;gap:14px;
+   border-bottom:1px solid var(--line2);transition:background-color .15s ease}
+ .set-hub .pl-tile:last-child{border-bottom:none}
+ .set-hub a.pl-tile:hover{transform:none;box-shadow:none;background:var(--line2)}
+ .set-hub a.pl-tile:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--teal)}
+ .set-hub .pl-tile .ico{width:40px;height:40px;flex:0 0 40px;border-radius:var(--r-chip)}
+ .set-hub .pl-tile .ico svg{width:20px;height:20px}
+ .set-hub .pl-tv{flex:1}
+ .set-hub .pl-tv span{font-size:var(--fs-body)}
+ .set-hub .pl-tv small{margin-top:1px}
+ /* куски подсказки («v1.31.3 · ✓ la zi») — в одну строку: правило плитки
+    `.pl-tv span{display:block}` ловит и вложенные <span>, и в плитке они
+    шли столбиком за нехваткой ширины; в строке места достаточно */
+ .set-hub .pl-tv small span{display:inline;font-size:inherit;color:inherit;font-weight:inherit}
+ .set-hub .pl-tv small .th-dot{display:inline-block;vertical-align:middle;margin-right:4px}
+ .set-hub .pl-tile::after{content:"";flex:0 0 16px;width:16px;height:16px;color:var(--text3);
+   background:currentColor;-webkit-mask:var(--chev) center/16px no-repeat;mask:var(--chev) center/16px no-repeat;
+   --chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9.5 5.5 7 6.5-7 6.5'/%3E%3C/svg%3E")}
  /* список + боковой предпросмотр */
  .pl-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
  .pl-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
