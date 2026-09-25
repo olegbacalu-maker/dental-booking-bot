@@ -1187,3 +1187,61 @@ def suite(res: Result) -> None:
            if name in _PIN_MATH]
     res.ok("PIN проверяет один модуль", not bad,
            "вторая формула хеша PIN вне auth.py: " + ", ".join(bad))
+
+    # ---- оформление: ступень, а не число (B5, 25.09) ------------------------
+    # Радиус, подскок при наведении и кольцо фокуса живут в :root panel.css
+    # ступенями (--r-*, --lift*, --ring): так стиль темы меняет форму ВСЕГО
+    # интерфейса одной записью в theme.STYLES. Число по месту — правило,
+    # до которого стиль не достаёт: у стиля с углами 4/8 оно останется с
+    # прежним углом, и увидит это клиника со своим стилем, а не разработчик на
+    # умолчании. До 25.09 таких чисел было 104 в двадцати разных значениях.
+    # ⚠️ Смотрятся ОБА файла: panel.css красит и старые страницы, и React;
+    # app.css — то, чего у старых страниц не бывает. Пилюля (999px), круг
+    # (50%), планки до 4px и половинки дуги моста (`6px 6px 0 0`, два
+    # значения) — форма, а не ступень, они законны числом.
+    def _blank(text: str) -> str:
+        """Комментарии — пробелами той же длины: номера строк остаются."""
+        return re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+                      text, flags=re.S)
+    def _sheet(p) -> str:
+        # на пустом дереве (канарейка мутации) файла нет — правила ниже тогда
+        # просто не находят правил, красное даёт «исходники нашлись»
+        return _blank(p.read_text(encoding="utf-8")) if p.exists() else ""
+    sheets = {"static/css/panel.css": _sheet(BOT / "app/static/css/panel.css"),
+              "frontend/app/app.css": _sheet(FRONTEND / "app" / "app.css")}
+    # 5…99px — число вместо ступени; от 100px — пилюля (в файле она 999px)
+    bad = [f"{name}:{text.count(chr(10), 0, m.start()) + 1} {m.group(0).strip()}"
+           for name, text in sheets.items()
+           for m in re.finditer(r"border-radius:\s*(\d+(?:\.\d+)?)px\s*(?=[;}])", text)
+           if 5 <= float(m.group(1)) < 100]
+    res.ok("радиус берётся ступенью, а не числом", not bad,
+           "число вместо --r-card/-block/-ctl/-chip/-s/-xs: " + "; ".join(bad[:8]))
+
+    # Подскок при наведении — та же история: translateY(-1px) в :hover стоял в
+    # семнадцати правилах, и стиль без подскоков не смог бы их убрать.
+    rules = [(name, " ".join(sel.split()), body)
+             for name, text in sheets.items()
+             for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text)]
+    bad = [f"{name}: {sel[-60:]}" for name, sel, body in rules
+           if ":hover" in sel and re.search(r"translateY\(\s*-\d", body)]
+    res.ok("подскок при наведении берётся ступенью", not bad,
+           "translateY(-Npx) вместо var(--lift*): " + "; ".join(bad[:8]))
+
+    # Кольцо фокуса — `var(--ring)`. Единственное законное число — кольцо
+    # ВЫБОРА у кнопки поверхности зуба: это состояние, а не фокус, и стиль с
+    # нижней чертой вместо кольца выбор так не отметит.
+    ring_ok = {".sfbtns .sfbtn.sel"}
+    bad = [f"{name}: {sel[-60:]}" for name, sel, body in rules
+           if "0 0 0 3px var(--teal-ring)" in body
+           and sel not in ring_ok and sel != ":root"]     # :root — сама ступень
+    res.ok("кольцо фокуса берётся ступенью", not bad,
+           "0 0 0 3px var(--teal-ring) вместо var(--ring): " + "; ".join(bad[:8]))
+
+    # ⚠️ Полярность: список исключений ВКЛЮЧАЮЩИЙ — переименуют кнопку
+    # поверхности, правило выше станет прощать несуществующий селектор и
+    # промолчит, если кольцо выбора однажды сдублируют. Якорь сверяется с
+    # самим файлом.
+    have = {sel for _name, sel, _body in rules}
+    gone = sorted(ring_ok - have)
+    res.ok("якорь кольца выбора не протух", not gone,
+           "в panel.css больше нет правила " + ", ".join(gone))

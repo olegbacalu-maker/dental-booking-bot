@@ -37,7 +37,7 @@
   background: var(--teal);
   color: var(--on-teal);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--r-s);
   padding: 5px 12px;
   cursor: pointer;
   font-size: 12.5px;
@@ -76,7 +76,7 @@
   min-width: 0;
   text-decoration: none;
   color: inherit;
-  border-radius: 10px;
+  border-radius: var(--r-chip);
   padding: 8px 6px;
   text-align: center;
 }
@@ -95,7 +95,7 @@
   margin-top: 6px;
   background: none;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-s);
   padding: 4px 10px;
   cursor: pointer;
   font-size: 12px;
@@ -124,7 +124,7 @@
   color: var(--on-teal);
   border: none;
   border-radius: var(--r-ctl);
-  height: 40px;
+  height: var(--h-ctl-m);
   padding: 0 18px;
   font-size: 13.5px;
   font-weight: 600;
@@ -134,7 +134,7 @@
 .dp-lan-btn {
   border: none;
   border-radius: var(--r-ctl);
-  height: 44px;
+  height: var(--h-ctl);
   padding: 0 22px;
   font-size: 14px;
   font-weight: 600;
@@ -237,7 +237,7 @@
   font-size: 12px;
   color: var(--text2);
   background: var(--bg);
-  border-radius: 8px;
+  border-radius: var(--r-s);
   padding: 8px 10px;
   margin-top: 8px;
 }
@@ -254,7 +254,7 @@
   background: none;
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  height: 40px;
+  height: var(--h-ctl-m);
   cursor: pointer;
   font-family: inherit;
   font-size: 13px;
@@ -340,7 +340,7 @@
 .dp-react-root .tplrow button {
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--r-chip);
   padding: 6px 12px;
   cursor: pointer;
   font-size: 12.5px;
@@ -391,7 +391,7 @@
   z-index: 70;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-ctl);
   box-shadow: var(--sh3);
   padding: 6px;
 }
@@ -406,7 +406,7 @@
   font-size: 13px;
   color: var(--text);
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--r-s);
   cursor: pointer;
 }
 .dp-cmenu-i:hover, .dp-cmenu-i:focus-visible { background: var(--teal-soft); color: var(--teal-d); outline: none; }
@@ -454,7 +454,7 @@
    а не убираем из компонента: на одонтограмме он несущий. */
 .dp-react-root .ptpic .num { display: none; }
 .dp-react-root .ptooth.absent .ptpic { opacity: .7; }
-.dp-react-root .pexam { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+.dp-react-root .pexam { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel); color: var(--text); }
 @media print { .dp-react-root .ptpic { display: none; } }
 /* замер пародонта в инспекторе: цифры сервера одной строкой + ссылка в лист */
 .dp-react-root .i-perio {
@@ -464,7 +464,7 @@
   margin: 10px 0 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--r-chip);
   background: var(--panel2, transparent);
 }
 .dp-react-root .i-perio span { font-size: 11.5px; color: var(--text3); }
@@ -523,7 +523,7 @@
   font-size: 10.5px;
   border: 1px solid var(--line);
   background: none;
-  border-radius: 6px;
+  border-radius: var(--r-xs);
   cursor: pointer;
 }
 .dp-react-root .dp-ag-empty { margin: 0; }
@@ -546,7 +546,7 @@
   background: #e8710a;
   color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-xs);
   padding: 6px 14px;
   cursor: pointer;
   font-size: 14px;
@@ -558,7 +558,7 @@
 .dp-check-btn {
   background: none;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-s);
   padding: 4px 10px;
   cursor: pointer;
   font-size: 12px;

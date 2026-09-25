@@ -302,6 +302,20 @@ MUTATIONS = [
      ('<AppLink className="odop-back"', '<a className="odop-back"')),
     ("PIN проверяет один модуль", "app/relocate.py",
      "\n_mut = _derive(\"1234\", \"salt\")\n"),
+    # Оформление (B5): число там, где положена ступень. Радиус — в panel.css,
+    # подскок — в app.css (правило обязано читать ОБА файла), кольцо — снова
+    # panel.css. Дописывание в конец: CSS разбирается правилами, порядок не
+    # важен.
+    ("радиус берётся ступенью", "app/static/css/panel.css",
+     "\n.mut{border-radius:9px}\n"),
+    ("подскок при наведении", "_frontend/app/app.css",
+     "\n.mut:hover{transform:translateY(-1px)}\n"),
+    ("кольцо фокуса", "app/static/css/panel.css",
+     "\n.mut:focus{box-shadow:0 0 0 3px var(--teal-ring)}\n"),
+    # ЯКОРЬ: кнопку поверхности переименовали — исключение прощает селектор,
+    # которого нет, и правило про кольцо промолчит на будущем дубле.
+    ("якорь кольца выбора", "app/static/css/panel.css",
+     (".sfbtns .sfbtn.sel{", ".sfbtns .sfbtn.chosen{")),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
@@ -338,6 +352,15 @@ LEGAL = [
     # ссылка в КОММЕНТАРИИ — не разметка: правило про <a href> обязано молчать
     ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramScreen.tsx",
      '\n/* пример для чтения: <a href="/admin/week">săptămâna</a> */\n'),
+    # Форма, а не ступень: планка до 4px, пилюля, круг, половинки дуги двумя
+    # значениями и число в КОММЕНТАРИИ — правило про радиус обязано молчать.
+    ("радиус берётся ступенью", "app/static/css/panel.css",
+     "\n/* border-radius:9px */.m1{border-radius:4px}.m2{border-radius:999px}"
+     ".m3{border-radius:50%}.m4{border-radius:6px 6px 0 0}\n"),
+    # Подскок ступенью, возврат в :active и подъём зуба через calc — законны.
+    ("подскок при наведении", "app/static/css/panel.css",
+     "\n.m5:hover{transform:translateY(var(--lift))}.m5:active{transform:translateY(0)}"
+     ".m6:hover{transform:translateY(calc(var(--arc,0px) - 3px))}\n"),
 ]
 
 

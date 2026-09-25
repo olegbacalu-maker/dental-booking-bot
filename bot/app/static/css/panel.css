@@ -72,7 +72,54 @@
    --sh:0 1px 2px rgba(15,23,42,.05),0 6px 18px rgba(15,23,42,.05);
    --sh2:0 2px 4px rgba(15,23,42,.05),0 10px 26px rgba(15,23,42,.07);
    --sh3:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10);
-   --sh-t:0 1px 2px rgba(15,23,42,.10),0 8px 20px var(--teal-glow)}
+   --sh-t:0 1px 2px rgba(15,23,42,.10),0 8px 20px var(--teal-glow);
+   /* ---------- ступени формы (B5, 25.09): то, чем стили отличаются ----------
+      Радиусы — ШКАЛА из шести ступеней, а не число по месту: до 25.09 в файле
+      стояло 20 разных значений (4…24px), и стилю с другими углами пришлось бы
+      переписать сотню правил. Ступень выбирается по РОЛИ: card — карточка,
+      окно, панель; block — блок внутри карточки и крупный значок; ctl —
+      контрол; chip — чип, внутренняя кнопка, малый значок; s — ячейка и
+      мелкий контрол; xs — бейдж, подсказка клавиши. Пилюля (999px) и круг
+      (50%) ступенями не являются: это форма, а не размер, и стиль их не
+      трогает. ⛔ Новое правило берёт ступень, а не число. */
+   --r-block:14px;--r-chip:10px;--r-s:8px;--r-xs:6px;
+   /* Высоты: --h-ctl — контрол; -s — компактный (вкладки, кнопки-иконки
+      списка); -m — средний (действия фиши); --h-nav — пункт меню; --h-top —
+      шапка. ⛔ Под пальцем высоты не уменьшаются: блок @media (pointer:coarse)
+      сразу за :root возвращает их с !important, и стиль, уменьшивший --h-ctl
+      для мыши, до сенсорного экрана не дотягивается. */
+   --h-ctl-s:36px;--h-ctl-m:40px;--h-nav:44px;--h-top:72px;
+   /* Меню: заливка, текст, плашки, линии — ОДНИМ набором, чтобы вариант меню
+      (фирменное / нейтральное) был выбором клиники, а не правкой правил. По
+      умолчанию — фирменная заливка, как с 08-17, и текст от --on-teal-d
+      (test_theme держит контраст). --nav-mark — ширина полоски у активного
+      пункта (0 — полоски нет), --side-mark — её цвет; --sec-* — подпись
+      раздела меню. */
+   --side-bg:var(--teal-d);--side-fg:var(--on-teal-d);
+   --side-hover:rgba(255,255,255,.12);--side-on:rgba(255,255,255,.16);
+   --side-line:rgba(255,255,255,.16);--side-off:rgba(255,255,255,.42);
+   --side-mark:var(--on-teal-d);--nav-mark:0px;--nav-fw:500;--nav-fw-on:600;
+   --sec-fs:10.5px;--sec-ls:.08em;--sec-tt:uppercase;
+   /* Шапка и слой содержимого. У сегодняшних стилей слой прозрачен и без
+      кромки, шапка белая, у поля поиска своя подложка. */
+   --top-bg:var(--panel);--field:#FBFDFE;
+   --layer-bg:transparent;--layer-line:transparent;--layer-r:0px;
+   /* Заголовки: размер и вес h1, планка слева (display) и размер h2. */
+   --fs-h1:32px;--fw-h1:700;--ls-h1:-.02em;--h1-mark:block;--fs-h2:18px;
+   /* Отклик контролов: кольцо фокуса и цвет рамки в фокусе, подскок при
+      наведении (кнопка / карточка / плитка), тень наведения у вторичной
+      кнопки. Стиль без подскоков ставит 0px, без колец — none. */
+   --ring:0 0 0 3px var(--teal-ring);--focus-line:var(--teal);
+   --lift:-1px;--lift-card:-2px;--lift-tile:-3px;
+   --sh-hover:0 4px 12px var(--teal-ring);
+   /* Шрифт — переменной: выбор клиники подставит сюда системный. */
+   --font:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif}
+ /* ⛔ Сенсорный экран: высоты «под палец» независимо от стиля. !important —
+    единственный способ перебить строку темы: она печатается в <head> ПОСЛЕ
+    этого файла и иначе выиграла бы порядком. Значения — стиля по умолчанию
+    (44px — минимум, ниже которого iOS зумит поля). */
+ @media (pointer:coarse){:root{--h-ctl:44px!important;--h-ctl-s:36px!important;
+   --h-ctl-m:40px!important;--h-nav:44px!important}}
  *{box-sizing:border-box}
  /* Место под полосу прокрутки держится ВСЕГДА. Длина страницы меняется на
     ровном месте — React-экран рисует содержимое после ответа API, живая
@@ -92,7 +139,7 @@
     Цена названа и принята (решение Олега 22.09): на короткой странице
     (Setări, FAQ) справа видна пустая дорожка полосы без бегунка. */
  html{overflow-y:scroll}
- body{font-family:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
+ body{font-family:var(--font);
    background:var(--bg);margin:0;color:var(--text);display:flex;min-height:100vh;
    line-height:1.5}
  a{color:var(--teal)}
@@ -116,7 +163,7 @@
     белым с прозрачностью: --text2/--text3 на ней исчезают, а --on-teal подобран
     под светлый --teal и при янтарной теме даёт тёмные буквы на тёмном фоне.
     Держит test_theme. */
- .side{width:216px;flex:0 0 216px;background:var(--teal-d);color:var(--on-teal-d);
+ .side{width:216px;flex:0 0 216px;background:var(--side-bg);color:var(--side-fg);
    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
  /* Шапка залита фирменным цветом клиники, и её имя — самое крупное слово в
     программе; «DentPilot» уходит в подпись (наш знак остаётся в заголовке
@@ -127,7 +174,7 @@
  /* ⚠️ Своей заливки у блока больше нет — она у всей панели. Отделяет его от
     меню тонкая светлая черта, иначе название клиники сливается с пунктами */
  .side .brand{display:flex;align-items:center;gap:10px;padding:16px 14px;
-   color:var(--on-teal-d);box-shadow:inset 0 -1px 0 rgba(255,255,255,.14)}
+   color:var(--side-fg);box-shadow:inset 0 -1px 0 rgba(255,255,255,.14)}
  /* знак идёт flat=True (bot/app/brand.py): своя тёмно-зелёная подложка тут
     была бы пятном на синей теме, поэтому фигуры берут currentColor */
  .side .brand .logo{width:32px;height:32px;flex:0 0 32px;display:block}
@@ -144,22 +191,26 @@
     светлом фоне — невидимо разработчику, у которого тема зелёная (грабля карты
     про зашитый #0E9F8A). Фон плашек белым с прозрачностью — можно: это накладка
     поверх --teal-d, а он тёмный по построению (test_theme держит контраст). */
- .side .sec{font-size:10.5px;font-weight:600;letter-spacing:.08em;
-   color:var(--on-teal-d);opacity:.55;padding:14px 18px 6px;text-transform:uppercase}
+ .side .sec{font-size:var(--sec-fs);font-weight:600;letter-spacing:var(--sec-ls);
+   color:var(--side-fg);opacity:.55;padding:14px 18px 6px;text-transform:var(--sec-tt)}
  .side nav a{display:flex;align-items:center;gap:12px;margin:2px 10px;padding:0 12px;
-   height:44px;border-radius:var(--r-ctl);text-decoration:none;
-   color:var(--on-teal-d);opacity:.86;
-   font-size:14px;font-weight:500;transition:background-color .2s ease,opacity .2s ease}
+   height:var(--h-nav);border-radius:var(--r-ctl);text-decoration:none;position:relative;
+   color:var(--side-fg);opacity:.86;
+   font-size:14px;font-weight:var(--nav-fw);transition:background-color .2s ease,opacity .2s ease}
  .side nav a svg{flex:0 0 16px}
  /* ⚠️ opacity возвращается в 1 вместе с плашкой: иначе прозрачность гасила бы
     и её саму, и подсветка вышла бы бледнее покоя */
- .side nav a:hover{background:rgba(255,255,255,.12);opacity:1}
- .side nav a.on{background:rgba(255,255,255,.16);opacity:1;font-weight:600}
+ .side nav a:hover{background:var(--side-hover);opacity:1}
+ .side nav a.on{background:var(--side-on);opacity:1;font-weight:var(--nav-fw-on)}
+ /* полоска у активного пункта (NavigationView): ширину даёт стиль
+    (--nav-mark, 0 — нет), цвет — вариант меню (--side-mark) */
+ .side nav a.on::before{content:"";position:absolute;left:0;top:50%;width:var(--nav-mark);
+   height:16px;margin-top:-8px;border-radius:2px;background:var(--side-mark)}
  .side nav a .dot{width:7px;height:7px;border-radius:50%;margin-left:auto}
  .side nav a .dot.ok{background:var(--green)}
  /* «выключено» на заливке: --text3 на ней не видно, а точка отвечает на вопрос
     «жив ли бот», и невидимая точка читается как «всё хорошо» */
- .side nav a .dot.off{background:rgba(255,255,255,.42)}
+ .side nav a .dot.off{background:var(--side-off)}
  /* «Setări» — в самом низу меню, над подвалом (просьба Олега 24.09): меню
     растёт колонкой, и последний пункт отжимается вниз своим полем. ⚠️ На
     телефоне (≤640) меню лежит СТРОКОЙ, там это поле снимается — иначе auto
@@ -167,15 +218,17 @@
  .side nav{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
  .side nav a[title="Setări"]{margin-top:auto}
  .side .sfoot{margin-top:auto;padding:12px 16px;
-   border-top:1px solid rgba(255,255,255,.16);
-   font-size:11.5px;color:var(--on-teal-d);opacity:.5}
- .main{flex:1;min-width:0;display:flex;flex-direction:column}
- .top{height:72px;flex:0 0 72px;background:var(--panel);border-bottom:1px solid var(--line);
+   border-top:1px solid var(--side-line);
+   font-size:11.5px;color:var(--side-fg);opacity:.5}
+ .main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--layer-bg);
+   box-shadow:inset 1px 0 0 var(--layer-line);border-top-left-radius:var(--layer-r)}
+ .top{height:var(--h-top);flex:0 0 var(--h-top);background:var(--top-bg);border-bottom:1px solid var(--line);
+   box-shadow:inset 1px 1px 0 var(--layer-line);border-top-left-radius:var(--layer-r);
    display:flex;align-items:center;gap:12px;padding:0 24px;position:sticky;top:0;z-index:20}
- .top form.searchf{display:flex;gap:0;align-items:center;background:#FBFDFE;
+ .top form.searchf{display:flex;gap:0;align-items:center;background:var(--field);
    border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 8px 0 14px;
    height:var(--h-ctl);width:440px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
- .top form.searchf:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
+ .top form.searchf:focus-within{border-color:var(--focus-line);box-shadow:var(--ring)}
  /* логотип клиники по центру шапки (галочка в Setări › Aspect, 08-21).
     Абсолют от .top (он sticky = containing block): центр не зависит от
     ширины поиска слева и кнопок справа. На узком окне прячется — лёг бы
@@ -189,12 +242,12 @@
  @media (max-width:1200px){.tb-logo{display:none}}
  .top form.searchf input{border:none;background:none;outline:none;font-size:14px;flex:1;color:var(--text)}
  .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;padding:4px 6px}
- .top .kbd{font-size:11px;color:var(--text3);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+ .top .kbd{font-size:11px;color:var(--text3);border:1px solid var(--line);border-radius:var(--r-xs);padding:2px 6px}
  .top .bell{position:relative;width:var(--h-ctl);height:var(--h-ctl);border-radius:var(--r-ctl);
    display:flex;align-items:center;justify-content:center;color:var(--text2);
    text-decoration:none;font-size:17px;transition:background-color .2s ease}
  .top .bell:hover{background:var(--line2)}
- .top .bell .n{position:absolute;top:5px;right:5px;min-width:16px;height:16px;border-radius:8px;
+ .top .bell .n{position:absolute;top:5px;right:5px;min-width:16px;height:16px;border-radius:999px;
    background:var(--red);color:#fff;font-size:10px;font-weight:600;line-height:16px;text-align:center;padding:0 4px}
  .top .newbtn{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 18px;
    border-radius:var(--r-ctl);background:var(--teal);color:var(--on-teal);font-size:14px;font-weight:600;
@@ -206,7 +259,7 @@
     То же правило у .savebtn, form.add button, .fform button, .pl-btn.primary,
     .b-arrived и шапки сайдбара. */
  .top .newbtn:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(-1px)}
+   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
  .top .newbtn:active{transform:translateY(0)}
  .top .newbtn .plus{width:20px;height:20px;flex:0 0 20px;border-radius:50%;
    background:rgba(255,255,255,.24);display:flex;align-items:center;
@@ -222,7 +275,7 @@
    overflow:hidden;text-overflow:ellipsis;max-width:170px}
  .who-n small{display:block;font-size:11px;color:var(--text3);white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis;max-width:170px}
- .who-out{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;
+ .who-out{width:32px;height:32px;border-radius:var(--r-chip);display:flex;align-items:center;
    justify-content:center;color:var(--text3);text-decoration:none;font-size:14px;
    transition:background-color .2s ease,color .2s ease}
  .who-out:hover{background:var(--red-soft);color:var(--red-t)}
@@ -283,7 +336,7 @@
  .content>.nav:not(.nav~.nav),.dp-react-root>.nav:not(.nav~.nav){grid-area:1/2/3/3;align-self:center;justify-self:start;margin:0}
  @media print{.content{display:block}}
  /* ---------- общие элементы ---------- */
- h1{font-size:32px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em;line-height:1.2;
+ h1{font-size:var(--fs-h1);margin:0 0 4px;font-weight:var(--fw-h1);letter-spacing:var(--ls-h1);line-height:1.2;
    display:flex;align-items:center;gap:.44em}
  /* Акцент — ПЛАНКА слева, а не заливка всего заголовка: 32px насыщенного teal
     на светлом фоне читаются декоративным баннером, а не шапкой раздела.
@@ -293,10 +346,10 @@
     перекрашивает систему разом; зашитый хекс тихо останется старым. Текст берёт
     --teal-d (4.8:1), а не --teal: тот на фоне даёт 3.2:1 — впритык к порогу для
     крупного и мало для чего угодно мельче. */
- h1::before{content:"";flex:0 0 4px;height:1em;border-radius:4px;background:var(--teal)}
+ h1::before{content:"";display:var(--h1-mark);flex:0 0 4px;height:1em;border-radius:4px;background:var(--teal)}
  h1 a{color:var(--teal-d);text-decoration:none;transition:color .2s ease}
  h1 a:hover{color:var(--teal)}
- h2{font-size:18px;color:var(--text);margin:24px 0 12px;font-weight:600}
+ h2{font-size:var(--fs-h2);color:var(--text);margin:24px 0 12px;font-weight:600}
  .sub{color:var(--text2);font-size:13px;margin-bottom:18px}
  .nav{margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
  /* Дата — не подпись, а ПЕРВЫЙ элемент панели: рядом с ней шесть кнопок
@@ -314,7 +367,7 @@
         color:var(--text2);font-size:14px;font-weight:500;
         transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
  .nav a:hover{border-color:var(--teal);color:var(--teal-d);
-   box-shadow:0 4px 12px var(--teal-ring);transform:translateY(-1px)}
+   box-shadow:var(--sh-hover);transform:translateY(var(--lift))}
  .nav a:active{transform:translateY(0)}
  .nav a.primary{background:var(--teal);color:var(--on-teal);border-color:var(--teal)}
  .nav form.dpickf{display:inline-flex;margin:0}
@@ -324,7 +377,7 @@
  .nav form.searchf input{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;width:240px;background:var(--panel);
    color:var(--text);outline:none}
- .nav form.searchf input:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
+ .nav form.searchf input:focus{border-color:var(--focus-line);box-shadow:var(--ring)}
  .nav form.searchf button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 16px;cursor:pointer;font-size:14px;font-weight:600}
  /* Баннер — сплошной текст, и на широкой странице он вырастал в строку через
@@ -368,7 +421,7 @@
    position:relative;padding-right:46px;border:1px solid rgba(15,23,42,.08);
    box-shadow:0 4px 10px rgba(15,23,42,.08),0 20px 44px rgba(15,23,42,.16)}
  .toastbox .t-x{position:absolute;top:50%;right:7px;transform:translateY(-50%);
-   width:30px;height:30px;padding:0;border:none;border-radius:9px;
+   width:30px;height:30px;padding:0;border:none;border-radius:var(--r-chip);
    background:none;color:inherit;opacity:.6;cursor:pointer;
    display:flex;align-items:center;justify-content:center}
  .toastbox .t-x:hover{opacity:1;background:rgba(15,23,42,.07)}
@@ -396,8 +449,8 @@
    align-items:flex-start}
  a.tile{text-decoration:none;color:inherit;
    transition:box-shadow .25s ease,transform .25s ease,border-color .2s ease}
- a.tile:hover{box-shadow:var(--sh3);transform:translateY(-2px)}
- .tile .ico{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;
+ a.tile:hover{box-shadow:var(--sh3);transform:translateY(var(--lift-card))}
+ .tile .ico{width:44px;height:44px;border-radius:var(--r-block);display:flex;align-items:center;
    justify-content:center;font-size:18px;flex:0 0 44px}
  /* Иконка плитки крупнее базовых 16px: _ic() отдаёт один размер на весь набор,
     а подложка тут 44px, и шестнадцатый пиксель в ней тонет. Цвет не задаём —
@@ -450,8 +503,8 @@
    .tiles{grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px;
      margin-bottom:14px}
    .tile{display:grid;grid-template-columns:32px minmax(0,1fr);gap:6px 10px;
-     align-items:start;align-content:start;padding:12px 13px;border-radius:14px}
-   .tile .ico{width:32px;height:32px;border-radius:10px}
+     align-items:start;align-content:start;padding:12px 13px;border-radius:var(--r-block)}
+   .tile .ico{width:32px;height:32px;border-radius:var(--r-chip)}
    .tile .ico svg{width:17px;height:17px}
    .tile b{font-size:21px}
    .tile span{font-size:12.5px}
@@ -477,7 +530,7 @@
  .rkpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    box-shadow:var(--sh);padding:13px 15px}
  .rkpi .rk-h{font-size:13px;font-weight:600;margin-bottom:2px}
- .rkpi .ico{width:34px;height:34px;border-radius:11px;display:flex;
+ .rkpi .ico{width:34px;height:34px;border-radius:var(--r-chip);display:flex;
    align-items:center;justify-content:center}
  .rkpi .ico svg{width:18px;height:18px}
  .rk-i{display:grid;grid-template-columns:34px auto auto minmax(0,1fr);gap:2px 10px;
@@ -489,7 +542,7 @@
     ряду плиток: тут он подпись к цифре, а не сама плитка. */
  .rk-i .spark{grid-column:1/-1;height:16px}
  .rk-i:hover{transform:translateX(2px)}
- .rk-i:focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:10px}
+ .rk-i:focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:var(--r-chip)}
  .rk-i b{font-size:21px;font-weight:600;line-height:1.1}
  .rk-i.warn b{color:var(--amber-t)}
  .rk-i.bad b{color:var(--red-t)}
@@ -518,9 +571,9 @@
  .gridhead .gh-time{width:56px;flex:0 0 56px}
  .gridhead .gh-doc{flex:1;min-width:0;padding:0 5px;display:flex}
  .gh-doc .dcard{flex:1;min-width:0;display:flex;gap:10px;align-items:center;
-   background:var(--panel);border-radius:16px;padding:12px;box-shadow:var(--sh);
+   background:var(--panel);border-radius:var(--r-block);padding:12px;box-shadow:var(--sh);
    border-left:4px solid var(--teal);transition:transform .18s ease,box-shadow .18s ease}
- .gh-doc .dcard:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
+ .gh-doc .dcard:hover{transform:translateY(var(--lift-card));box-shadow:var(--sh2)}
  .gh-doc .dcard.off{opacity:.72}
  .gh-doc .av{width:44px;height:44px;border-radius:50%;color:#fff;display:flex;align-items:center;
    justify-content:center;font-size:15px;font-weight:600;flex:0 0 44px;overflow:hidden}
@@ -546,14 +599,14 @@
     на себя цвет карточки; имя вместо многоточия переносится на вторую строку,
     место под неё в карточке есть. */
  .gridhead.tight .gh-doc{padding:0 3px}
- .gridhead.tight .dcard{gap:8px;padding:9px;border-radius:12px}
+ .gridhead.tight .dcard{gap:8px;padding:9px;border-radius:var(--r-ctl)}
  .gridhead.tight .av{width:34px;height:34px;flex:0 0 34px;font-size:12px}
  .gridhead.tight .nm a{font-size:12.5px;white-space:normal;line-height:1.22;
    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
  .gridhead.tight .nm small{display:none}
  .gridhead.tight .nm small.mt{display:block;font-size:10.5px;margin-top:1px}
  @media (max-width:1440px){
-   .gh-doc .dcard{gap:8px;padding:9px;border-radius:12px}
+   .gh-doc .dcard{gap:8px;padding:9px;border-radius:var(--r-ctl)}
    .gh-doc .av{width:34px;height:34px;flex:0 0 34px;font-size:12px}
    .gh-doc .nm a{font-size:12.5px;white-space:normal;line-height:1.22;
      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
@@ -575,7 +628,7 @@
     тему, подсказка обязана стать синей (грабля карты про зашитый #0E9F8A). */
  .gcell:hover::after{content:'Programare';position:absolute;inset:3px 4px;
    display:flex;align-items:center;justify-content:center;
-   border:1.5px dashed var(--teal);border-radius:9px;color:var(--teal-d);
+   border:1.5px dashed var(--teal);border-radius:var(--r-chip);color:var(--teal-d);
    font-size:11.5px;font-weight:600}
  .gcell.off{cursor:default;background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
  .gcell.off:hover{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
@@ -584,7 +637,7 @@
     их на дневной сетке бывает под тридцать, и страница перерисовывается каждые
     12 секунд. Двухслойная тень здесь стоит кадров, а не выглядит дороже.
     Всплытие при наведении честное — там уже --sh2. */
- .gappt{position:absolute;left:4px;right:4px;border-radius:9px;padding:5px 8px;overflow:hidden;
+ .gappt{position:absolute;left:4px;right:4px;border-radius:var(--r-chip);padding:5px 8px;overflow:hidden;
    font-size:11.5px;line-height:1.35;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06);z-index:2}
  .gappt:hover{box-shadow:var(--sh2)}
  .gappt b{font-size:12px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -673,12 +726,12 @@
    box-shadow:var(--sh);padding:var(--pad-block)}
  .mcal .mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
  .mcal .mhead b{font-size:13px;font-weight:600}
- .mcal .mhead a{text-decoration:none;color:var(--text2);padding:2px 8px;border-radius:7px}
+ .mcal .mhead a{text-decoration:none;color:var(--text2);padding:2px 8px;border-radius:var(--r-s)}
  .mcal .mhead a:hover{background:var(--line2)}
  .mcal table{width:100%;border-collapse:collapse}
  .mcal th{font-size:10px;color:var(--text3);font-weight:500;padding:2px 0}
  .mcal td{text-align:center;padding:1px 0}
- .mcal td a{display:inline-flex;width:26px;height:26px;border-radius:8px;align-items:center;
+ .mcal td a{display:inline-flex;width:26px;height:26px;border-radius:var(--r-s);align-items:center;
    justify-content:center;font-size:11.5px;color:var(--text2);text-decoration:none}
  .mcal td a:hover{background:var(--line2)}
  .mcal td a.oth{color:var(--text3);opacity:.5}
@@ -737,7 +790,7 @@
  td.hour.now{color:var(--teal-d);font-weight:700;background:var(--teal-line)}
  td.hour.now::before{content:"";display:inline-block;width:5px;height:5px;
    border-radius:50%;background:var(--teal);margin:0 4px 1px 0}
- .appt{border-radius:9px;padding:6px 9px;line-height:1.35;
+ .appt{border-radius:var(--r-chip);padding:6px 9px;line-height:1.35;
    transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
  .appt.confirmed{background:var(--green-soft);border-left:5px solid var(--green)}
  .appt.waiting{background:var(--violet-soft);border-left:5px solid #7C3AED}
@@ -755,7 +808,7 @@
  /* выбор получаса в модалке слота (08-13): клик по ячейке — час, запись — и
     на его половину. Чипы, а не select: два значения, видны оба сразу */
  .halfpick{display:flex;gap:8px}
- .halfpick .hp{flex:1;height:36px;border:1px solid var(--line);border-radius:var(--r-ctl);
+ .halfpick .hp{flex:1;height:var(--h-ctl-s);border:1px solid var(--line);border-radius:var(--r-ctl);
    background:var(--panel);color:var(--text2);font-size:13.5px;font-weight:600;
    cursor:pointer;font-variant-numeric:tabular-nums}
  .halfpick .hp.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal)}
@@ -764,7 +817,7 @@
  .appt .stw{margin-top:4px}
  .appt .stw .stat{font-size:11px;padding:2px 8px}
  .appt.clickable{cursor:pointer}
- .appt.clickable:hover{filter:brightness(.985);transform:translateY(-1px);box-shadow:var(--sh)}
+ .appt.clickable:hover{filter:brightness(.985);transform:translateY(var(--lift));box-shadow:var(--sh)}
  .appt .cmt{color:#92710A;font-size:11.5px;margin-top:2px}
  a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
  a.plink:hover{border-bottom-style:solid}
@@ -800,43 +853,43 @@
     `wide` (грабля 08-11). */
  table.set{border-collapse:collapse;width:100%;max-width:var(--measure-form);
    background:var(--panel);box-shadow:var(--sh);
-   border-radius:14px;overflow:hidden;margin-bottom:10px}
+   border-radius:var(--r-block);overflow:hidden;margin-bottom:10px}
  table.set.set-wide{max-width:none}
  table.set th,table.set td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
  table.set th{background:var(--bg);color:var(--text2);font-weight:600}
- table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px}
- table.set select{padding:6px 7px;border:1px solid var(--line);border-radius:8px;font-size:13px}
- .rowdel{background:var(--red-soft);color:var(--red-t);border:none;border-radius:7px;padding:4px 10px;cursor:pointer}
- .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:10px;padding:7px 15px;cursor:pointer;margin-bottom:16px}
+ table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:var(--r-s);font-size:13px}
+ table.set select{padding:6px 7px;border:1px solid var(--line);border-radius:var(--r-s);font-size:13px}
+ .rowdel{background:var(--red-soft);color:var(--red-t);border:none;border-radius:var(--r-s);padding:4px 10px;cursor:pointer}
+ .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:var(--r-chip);padding:7px 15px;cursor:pointer;margin-bottom:16px}
  .savebtn{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 26px;font-size:14px;font-weight:600;cursor:pointer;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  .savebtn:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(-1px)}
+   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
- .bstat{border:none;border-radius:8px;padding:9px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%;font-weight:500}
+ .bstat{border:none;border-radius:var(--r-s);padding:9px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%;font-weight:500}
  /* модалка стоит над затемнением, поэтому её тень намеренно сильнее --sh3:
     на приглушённом фоне слабая тень не читается вовсе */
- dialog{border:none;border-radius:16px;padding:0;width:430px;max-width:95vw;
+ dialog{border:none;border-radius:var(--r-card);padding:0;width:430px;max-width:95vw;
    box-shadow:0 4px 8px rgba(16,24,40,.10),0 24px 56px rgba(16,24,40,.24)}
  dialog::backdrop{background:rgba(15,23,42,.4)}
  .dlg-head{background:var(--panel);color:var(--text);padding:13px 16px;font-weight:600;font-size:14.5px;
    display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
  .dlg-head button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer}
  .dlg-tabs{display:flex;gap:6px;padding:12px 16px 0}
- .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:9px;cursor:pointer;font-size:13px;color:var(--text2)}
+ .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:var(--r-chip);cursor:pointer;font-size:13px;color:var(--text2)}
  .tabbtn.on{background:var(--teal);color:var(--on-teal);border-color:var(--teal);font-weight:600}
  .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
  .dlg-form input,.dlg-form select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none}
  .dlg-form textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
    font-size:14px;font-family:inherit;background:var(--panel);color:var(--text);outline:none}
- .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px var(--teal-ring)}
- .dlg-form button{background:var(--teal);color:var(--on-teal);border:none;border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
+ .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--focus-line);
+   box-shadow:var(--ring)}
+ .dlg-form button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-chip);padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
  a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;
-   padding:4px 0;border-radius:8px;transition:opacity .15s ease,color .15s ease,background-color .15s ease}
+   padding:4px 0;border-radius:var(--r-s);transition:opacity .15s ease,color .15s ease,background-color .15s ease}
  a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
  /* «+» в свободном часе гасится до наведения: сетка на весь день это сотня
     плюсов, и все вместе они перекрикивают то немногое, что в ней есть, —
@@ -865,14 +918,14 @@
  form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none;
    transition:border-color .2s ease,box-shadow .2s ease}
- form.add input:focus,form.add select:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px var(--teal-ring)}
+ form.add input:focus,form.add select:focus{border-color:var(--focus-line);
+   box-shadow:var(--ring)}
  form.add input::placeholder{color:var(--text3)}
  form.add button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 20px;cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  form.add button:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(-1px)}
+   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
  form.add button:active{transform:translateY(0)}
  table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
    border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
@@ -918,10 +971,10 @@
  .dlg-form .mv-no:hover{border-color:var(--text3)}
  .dlg-form button:disabled{background:var(--line2);color:var(--text3);cursor:not-allowed}
  .act{display:inline}
- .act button{border:none;border-radius:8px;height:30px;padding:0 11px;margin-right:4px;cursor:pointer;
+ .act button{border:none;border-radius:var(--r-s);height:30px;padding:0 11px;margin-right:4px;cursor:pointer;
    font-size:12px;font-weight:600;color:#fff;font-family:inherit;
    transition:filter .2s ease,transform .15s ease,box-shadow .15s ease}
- .act button:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:var(--sh)}
+ .act button:hover{filter:brightness(1.08);transform:translateY(var(--lift));box-shadow:var(--sh)}
  .act button:active{transform:translateY(0)}
  /* ⚠️ Исходы визита — РАЗНЫЕ цвета. С 08-13 самую частую кнопку дня жмут
     ДВАЖДЫ: «A venit» (фиолетовый, пациент в приёмной) и «În cabinet»
@@ -963,9 +1016,9 @@
  .botnew a:hover{background:var(--bg)}
  .botnew .dt{color:var(--teal-d);font-weight:600}
  .botnew .crt{color:var(--text3);font-size:11.5px}
- .botnew .nou{background:var(--amber-t);color:#fff;border-radius:5px;padding:1px 6px;font-size:10.5px;margin-left:6px;font-weight:600}
+ .botnew .nou{background:var(--amber-t);color:#fff;border-radius:var(--r-xs);padding:1px 6px;font-size:10.5px;margin-left:6px;font-weight:600}
  .brandcorner{position:fixed;right:14px;bottom:10px;font-size:11.5px;color:var(--text3);
-   background:rgba(255,255,255,.94);padding:5px 12px;border-radius:14px;box-shadow:var(--sh);z-index:50}
+   background:rgba(255,255,255,.94);padding:5px 12px;border-radius:var(--r-block);box-shadow:var(--sh);z-index:50}
  .brandcorner b{color:var(--teal-d)}
  .brandcorner a{color:var(--teal-d);text-decoration:none;font-weight:600}
  .brandcorner a:hover{text-decoration:underline}
@@ -979,7 +1032,7 @@
  .fcard h3{margin:0 0 14px;font-size:18px;font-weight:600}
  .fcard h3 small{color:var(--text2);font-weight:400;font-size:13px}
  .fhead{display:flex;align-items:center;gap:14px}
- .fhead .fav{width:56px;height:56px;border-radius:16px;background:var(--teal);color:var(--on-teal);
+ .fhead .fav{width:56px;height:56px;border-radius:var(--r-block);background:var(--teal);color:var(--on-teal);
    display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex:0 0 56px}
  .fhead b{font-size:20px;display:block;line-height:1.25;font-weight:600}
  .fhead small{color:var(--text2);font-size:13px}
@@ -1019,7 +1072,7 @@
     ⚠️ Наведение обязано СКЛАДЫВАТЬСЯ с ним, а не заменять: правило ниже пишет
     transform целиком, и без calc() зуб на наведении прыгал бы из дуги в
     линейку. Проверять глазом бесполезно — прыжок длится 0.2 с. */
- .tooth-btn{background:none;border:none;padding:4px 2px;cursor:pointer;border-radius:12px;
+ .tooth-btn{background:none;border:none;padding:4px 2px;cursor:pointer;border-radius:var(--r-ctl);
    display:flex;flex-direction:column;align-items:center;gap:4px;
    transform:translateY(var(--arc,0));
    transition:transform .2s ease,background-color .2s ease,box-shadow .2s ease}
@@ -1112,7 +1165,7 @@
  .pcell{display:flex;flex-direction:column;align-items:center;gap:2px}
  .pcell input{width:20px;height:21px;padding:0;text-align:center;
    font-size:11.5px;font-family:inherit;border:1px solid var(--line);
-   border-radius:5px;background:var(--panel);color:var(--text)}
+   border-radius:var(--r-xs);background:var(--panel);color:var(--text)}
  .pcell input:focus{outline:2px solid var(--teal);outline-offset:1px;
    border-color:var(--teal)}
  /* Карман ≥4 мм — цвет СМЫСЛА, а не темы: красный тут значит находку, и
@@ -1126,7 +1179,7 @@
  .pdot.on{background:var(--red);border-color:var(--red)}
  .pmf{display:flex;flex-direction:column;gap:2px;width:100%}
  .pmf select{width:100%;font-size:10.5px;padding:1px 2px;font-family:inherit;
-   border:1px solid var(--line);border-radius:5px;background:var(--panel);
+   border:1px solid var(--line);border-radius:var(--r-xs);background:var(--panel);
    color:var(--text2)}
  .pmid{display:flex;align-items:center;gap:10px;margin:12px 0;
    color:var(--text3);font-size:11px;text-transform:uppercase;
@@ -1171,13 +1224,13 @@
     кнопки диалога фирменным, и фишки ролей выходили наоборот (тело тёмное,
     опора бледная). Опора — главный зуб конструкции, выделена она. */
  .dlg-form .br-chip{border:1px solid var(--line);background:var(--bg);
-   color:var(--text);border-radius:10px;padding:6px 10px;height:auto;
+   color:var(--text);border-radius:var(--r-chip);padding:6px 10px;height:auto;
    font:inherit;font-size:12.5px;font-weight:400;cursor:pointer}
  .dlg-form .br-chip.stalp{background:var(--teal);border-color:var(--teal);
    color:var(--on-teal);font-weight:600}
  .i-bridge{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
    margin:8px 0 2px;padding:8px 10px;border:1px solid var(--line);
-   border-radius:10px;background:var(--bg);font-size:12.5px}
+   border-radius:var(--r-chip);background:var(--bg);font-size:12.5px}
  /* ⛔ Та же грабля, что строкой выше у .br-bar, и здесь она опаснее: без этого
     правила блок моста висит в инспекторе ВСЕГДА — сервер отдаёт его hidden,
     но display:flex сильнее UA-правила. До первого выбора у формы пустой
@@ -1217,7 +1270,7 @@
  .sfbtns{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
  .sfbtns .sfbtn{display:flex;flex-direction:column;align-items:center;gap:1px;
    height:46px;justify-content:center;border:1px solid var(--line);
-   border-radius:10px;font-size:13px;font-weight:700;color:var(--text2);
+   border-radius:var(--r-chip);font-size:13px;font-weight:700;color:var(--text2);
    cursor:pointer;transition:border-color .15s ease,background-color .15s ease,
    color .15s ease}
  .sfbtns .sfbtn small{font-size:9px;font-weight:500;color:var(--text3);
@@ -1234,7 +1287,7 @@
  .sfbtns .sfbtn.sf-carie{border-color:var(--red);background:var(--red-soft);color:var(--red-t)}
  .sfbtns .sfbtn.sf-obturatie{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
  .sfbtns .sfbtn.sel{box-shadow:0 0 0 3px var(--teal-ring);border-color:var(--teal)}
- .sfbtns .sfbtn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--teal-ring)}
+ .sfbtns .sfbtn:focus-visible{outline:none;box-shadow:var(--ring)}
  .sfstate{display:none;margin-top:10px}
  .sfstate label{display:block;font-size:12px;color:var(--text2);margin-bottom:5px}
  .sfstate label b{color:var(--text);font-weight:700}
@@ -1242,7 +1295,7 @@
  .insp-f button[disabled]{opacity:.45;cursor:default}
  .odo-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
  .odo-more{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 13px;
-   border:1px solid var(--line);border-radius:10px;background:var(--panel);
+   border:1px solid var(--line);border-radius:var(--r-chip);background:var(--panel);
    color:var(--teal-d);text-decoration:none;font-size:12.5px;font-weight:600;
    cursor:pointer;transition:border-color .18s ease,box-shadow .18s ease}
  .odo-more:hover{border-color:var(--teal);box-shadow:var(--sh)}
@@ -1263,9 +1316,9 @@
    gap:14px;flex-wrap:wrap;margin-bottom:14px}
  .odo-head h3{margin:0}
  .viewsw{display:inline-flex;gap:3px;padding:3px;border:1px solid var(--line);
-   border-radius:11px;background:var(--line2)}
+   border-radius:var(--r-ctl);background:var(--line2)}
  .viewsw button{border:none;background:none;font:inherit;font-size:12.5px;
-   font-weight:600;color:var(--text2);padding:7px 14px;border-radius:8px;
+   font-weight:600;color:var(--text2);padding:7px 14px;border-radius:var(--r-s);
    cursor:pointer;transition:background-color .18s ease,color .18s ease}
  .viewsw button:hover{color:var(--teal-d)}
  .viewsw button.on{background:var(--panel);color:var(--teal-d);box-shadow:var(--sh)}
@@ -1340,12 +1393,12 @@
  .mkrow{display:flex;flex-wrap:wrap;gap:10px}
  .mkrow .mkbox{display:flex;align-items:center;gap:6px;font-size:12.5px;
    font-weight:600;color:var(--green-t);cursor:pointer;
-   background:var(--green-soft);border-radius:9px;padding:5px 10px}
+   background:var(--green-soft);border-radius:var(--r-chip);padding:5px 10px}
  .mkrow input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;
    accent-color:var(--green);margin:0}
  /* анамнез: опросник раскрывается по клику, отметки видно и свёрнутым */
  .anlist{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
- .anlist span{background:var(--amber-soft);color:var(--amber-t);border-radius:7px;
+ .anlist span{background:var(--amber-soft);color:var(--amber-t);border-radius:var(--r-s);
    padding:3px 8px;font-size:12px;font-weight:600}
  .anprint{display:inline-block;margin:8px 0 0;font-size:12.5px;color:var(--teal-d);
    text-decoration:none;font-weight:600}
@@ -1405,7 +1458,7 @@
    color:var(--green-t)}
  .plan-row[data-st="refuzat"] .pdone{color:var(--red-t)}
  .pbadge{font-size:11px;font-weight:600;letter-spacing:.05em;padding:4px 9px;
-   border-radius:6px;text-transform:uppercase}
+   border-radius:var(--r-xs);text-transform:uppercase}
  .pbadge.planificat{border:1px solid var(--line);color:var(--text3)}
  .pbadge.in_lucru{background:var(--teal);color:var(--on-teal)}
  .pbadge.finalizat{background:var(--line2);color:var(--text2)}
@@ -1415,7 +1468,7 @@
  .plan-row .pm{width:96px;flex:0 0 96px;text-align:right;font-weight:600}
  .plan-row form{margin:0}
  .plan-row .pact{display:flex;gap:6px;align-items:center}
- .plan-row .pact button{height:30px;padding:0 12px;border-radius:8px;cursor:pointer;
+ .plan-row .pact button{height:30px;padding:0 12px;border-radius:var(--r-s);cursor:pointer;
    font-size:12.5px;font-weight:600;font-family:inherit;
    transition:background-color .2s ease,border-color .2s ease,color .2s ease}
  .plan-row .pact .pgo{background:none;border:1px solid var(--teal);color:var(--teal-d)}
@@ -1445,7 +1498,7 @@
  .ptotal b{font-size:16px;color:var(--text)}
  .ptotal .pt-done{font-size:12.5px;color:var(--text3)}
  /* платежи и баланс (08-07): долг/аванс — одной крупной строкой */
- .sold{display:flex;align-items:baseline;gap:12px;border-radius:14px;
+ .sold{display:flex;align-items:baseline;gap:12px;border-radius:var(--r-block);
    padding:12px 16px;margin-bottom:10px;background:var(--line2)}
  .sold span{font-size:12.5px;font-weight:600;color:var(--text2);
    text-transform:uppercase;letter-spacing:.04em}
@@ -1466,7 +1519,7 @@
  .pay-row .pn{flex:1;min-width:0;font-size:12.5px;color:var(--text2);
    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .pay-row form{margin:0}
- .pay-row button{background:none;border:1px solid var(--line);border-radius:8px;
+ .pay-row button{background:none;border:1px solid var(--line);border-radius:var(--r-s);
    width:28px;height:28px;cursor:pointer;color:var(--text3);
    transition:border-color .2s ease,color .2s ease}
  .pay-row button:hover{border-color:var(--red);color:var(--red-t)}
@@ -1477,7 +1530,7 @@
  .tline .tb{min-width:0;font-size:12.5px}
  .tline .tb small{display:block;color:var(--text3);font-size:11px}
  .doc{display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid var(--line);
-   border-radius:9px;margin-bottom:6px;font-size:12px}
+   border-radius:var(--r-chip);margin-bottom:6px;font-size:12px}
  .doc a{font-weight:500;color:var(--text);text-decoration:none;min-width:0;
    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .doc a:hover{color:var(--teal-d)}
@@ -1502,14 +1555,14 @@
  .fform textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
    font-size:14px;font-family:inherit;width:100%;background:var(--panel);color:var(--text);
    outline:none;transition:border-color .2s ease,box-shadow .2s ease}
- .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--teal);
-   box-shadow:0 0 0 3px var(--teal-ring)}
+ .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--focus-line);
+   box-shadow:var(--ring)}
  .fform input::placeholder,.fform textarea::placeholder{color:var(--text3)}
  .fform button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);cursor:pointer;font-size:14px;font-weight:600;
    transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  .fform button:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(-1px)}
+   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
  .fform button:active{transform:translateY(0)}
  .fform .r2{display:flex;gap:9px}
  @media (max-width:1400px){.fisa{flex-wrap:wrap}.fcol-l,.fcol-r{width:100%;flex:1 1 100%}}
@@ -1532,9 +1585,9 @@
  @media (max-width:1400px){.pv2{grid-template-columns:minmax(0,1fr)}
    .pv2-side{position:static}}
  .hero{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;
-   background:var(--panel);border:1px solid var(--line);border-radius:22px;
+   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    padding:24px 28px;box-shadow:var(--sh);margin-bottom:16px}
- .hero-av{width:92px;height:92px;flex:0 0 92px;border-radius:24px;background:var(--teal);
+ .hero-av{width:92px;height:92px;flex:0 0 92px;border-radius:var(--r-card);background:var(--teal);
    color:var(--on-teal);display:flex;align-items:center;justify-content:center;font-size:32px;
    /* аватар 92px — свечение шире кнопочного --sh-t, иначе теряется под ним */
    font-weight:600;box-shadow:0 2px 4px rgba(15,23,42,.10),0 14px 30px var(--teal-glow)}
@@ -1553,23 +1606,23 @@
  .hero-side .hs span{display:block;color:var(--text3);font-size:12px;margin-bottom:3px}
  .hero-side .hs b{font-weight:600;font-size:14.5px}
  .hero-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
- .hero-acts a,.hero-acts button{display:inline-flex;align-items:center;gap:7px;height:40px;
+ .hero-acts a,.hero-acts button{display:inline-flex;align-items:center;gap:7px;height:var(--h-ctl-m);
    padding:0 14px;border:1px solid var(--line);border-radius:var(--r-ctl);text-decoration:none;
    color:var(--text2);font-size:13.5px;font-weight:500;background:var(--panel);
    font-family:inherit;cursor:pointer;
    transition:border-color .2s ease,color .2s ease,transform .2s ease}
  .hero-acts a:hover,.hero-acts button:hover{border-color:var(--teal);color:var(--teal-d);
-   transform:translateY(-1px)}
+   transform:translateY(var(--lift))}
  /* внутренний номер фиши: справочная мелочь, копируется кликом */
  .idchip{cursor:pointer;border-bottom:1px dashed var(--line);color:var(--text3)}
  .idchip:hover{color:var(--teal-d);border-bottom-color:var(--teal)}
  .kpi5{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;
    margin-bottom:16px}
- .kpi{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;
+ .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);padding:18px;
    display:flex;gap:14px;align-items:center;
    transition:transform .2s ease,box-shadow .2s ease}
- .kpi:hover{transform:translateY(-2px);box-shadow:var(--sh3)}
- .kpi .ki{width:42px;height:42px;flex:0 0 42px;border-radius:13px;display:flex;
+ .kpi:hover{transform:translateY(var(--lift-card));box-shadow:var(--sh3)}
+ .kpi .ki{width:42px;height:42px;flex:0 0 42px;border-radius:var(--r-block);display:flex;
    align-items:center;justify-content:center;font-size:18px;background:var(--teal-soft)}
  .kpi b{display:block;font-size:22px;font-weight:600;line-height:1.15}
  .kpi span{font-size:12.5px;color:var(--text2)}
@@ -1605,7 +1658,7 @@
    text-decoration:none}
  .dvacts button:hover,.dvacts a:hover{border-color:var(--teal);color:var(--teal-d)}
  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
- .tabs button{height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--line);
+ .tabs button{height:var(--h-ctl-s);padding:0 14px;border-radius:999px;border:1px solid var(--line);
    background:var(--panel);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;
    transition:background-color .2s ease,border-color .2s ease,color .2s ease}
  .tabs button:hover{border-color:var(--teal);color:var(--teal-d)}
@@ -1617,10 +1670,10 @@
     ная нарезка, а из галереи лента. Пустое место справа от маленьких плиток —
     нормальный вид галереи, а не дыра в раскладке. */
  .docgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
- .doccard{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+ .doccard{position:relative;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;
    background:var(--panel);text-decoration:none;color:inherit;display:flex;
    flex-direction:column;transition:transform .2s ease,box-shadow .2s ease}
- .doccard:hover{transform:translateY(-3px);box-shadow:var(--sh3)}
+ .doccard:hover{transform:translateY(var(--lift-tile));box-shadow:var(--sh3)}
  .doccard .thumb{height:120px;background:var(--line2);display:flex;align-items:center;
    justify-content:center;font-size:30px;overflow:hidden}
  .doccard .thumb img{width:100%;height:100%;object-fit:cover;display:block}
@@ -1631,7 +1684,7 @@
  .doccard .del{position:absolute;top:8px;right:8px;opacity:0;transition:opacity .2s ease}
  .doccard:hover .del{opacity:1}
  .doccard .del button{border:none;background:rgba(255,255,255,.92);color:var(--red-t);
-   width:28px;height:28px;border-radius:9px;cursor:pointer;font-size:13px;box-shadow:var(--sh)}
+   width:28px;height:28px;border-radius:var(--r-chip);cursor:pointer;font-size:13px;box-shadow:var(--sh)}
  /* свой выбор файла: системный input рисует ОС на языке Windows */
  .filepick{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
  .filepick input[type=file]{position:absolute;width:1px;height:1px;opacity:0;
@@ -1641,18 +1694,18 @@
    background:var(--panel);color:var(--text2);font-size:13.5px;font-weight:500;
    cursor:pointer;transition:border-color .2s ease,color .2s ease}
  .filepick label:hover{border-color:var(--teal);color:var(--teal-d)}
- .filepick input[type=file]:focus-visible + label{border-color:var(--teal);
-   box-shadow:0 0 0 3px var(--teal-ring)}
+ .filepick input[type=file]:focus-visible + label{border-color:var(--focus-line);
+   box-shadow:var(--ring)}
  .filepick .fname{font-size:12.5px;color:var(--text3);min-width:0;
    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
  .filepick .fname.on{color:var(--text)}
  .qa{display:flex;gap:12px;flex-wrap:wrap}
  .qa a,.qa button{display:inline-flex;align-items:center;justify-content:center;gap:9px;
    height:48px;min-width:140px;padding:0 18px;border:1px solid var(--line);
-   border-radius:14px;background:var(--panel);color:var(--text);font-size:14px;
+   border-radius:var(--r-block);background:var(--panel);color:var(--text);font-size:14px;
    font-weight:500;text-decoration:none;cursor:pointer;
    transition:background-color .2s ease,transform .2s ease,border-color .2s ease}
- .qa a:hover,.qa button:hover{background:#F3F8FC;border-color:var(--teal);transform:translateY(-1px)}
+ .qa a:hover,.qa button:hover{background:#F3F8FC;border-color:var(--teal);transform:translateY(var(--lift))}
  @media print{
    .side,.top,.brandcorner,.qa,.tabs,.hero-acts,.doccard .del,
    .toastbox{display:none !important}
@@ -1672,13 +1725,13 @@
    border-bottom:1px solid var(--line2);transition:background-color .2s ease}
  .acti:last-of-type{border-bottom:none}
  .acti:hover{background:#F9FBFD}
- .acti .ai{width:44px;height:44px;flex:0 0 44px;border-radius:14px;display:flex;
+ .acti .ai{width:44px;height:44px;flex:0 0 44px;border-radius:var(--r-block);display:flex;
    align-items:center;justify-content:center;font-size:18px;background:var(--teal-soft)}
  .acti .ab{min-width:0;flex:1}
  .acti .ab b{display:block;font-size:13px;font-weight:500;line-height:1.4}
  .acti .ab small{color:var(--text3);font-size:11.5px}
  .acti .at{color:var(--text3);font-size:11.5px;white-space:nowrap}
- .actmore{margin-top:12px;width:100%;height:40px;border:1px solid var(--line);
+ .actmore{margin-top:12px;width:100%;height:var(--h-ctl-m);border:1px solid var(--line);
    border-radius:var(--r-ctl);background:none;color:var(--text2);font-size:13px;
    cursor:pointer}
  .actmore:hover{border-color:var(--teal);color:var(--teal-d)}
@@ -1688,7 +1741,7 @@
  .thist .th-r{font-size:12.5px;color:var(--text2);padding:4px 0;display:flex;gap:10px}
  .thist .th-r span{color:var(--text3);flex:0 0 76px}
  /* подсказка зуба — одна на всю дугу, летает за курсором */
- .toothtip{display:none;position:absolute;z-index:60;width:220px;border-radius:16px;
+ .toothtip{display:none;position:absolute;z-index:60;width:220px;border-radius:var(--r-card);
    padding:var(--pad-card);background:var(--panel);border:1px solid var(--line);
    box-shadow:var(--sh3);font-size:13px;pointer-events:none}
  .toothtip b.tt-n{font-size:14.5px;font-weight:600;display:block}
@@ -1717,13 +1770,13 @@
  .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:var(--pad-card);
    display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;
    transition:box-shadow .15s,transform .15s}
- a.medcard:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
+ a.medcard:hover{box-shadow:var(--sh2);transform:translateY(var(--lift))}
  .medcard.off{opacity:.72}
  .medhead{display:flex;align-items:center;gap:12px}
- .avatar{width:52px;height:52px;flex:0 0 52px;border-radius:14px;color:#fff;overflow:hidden;
+ .avatar{width:52px;height:52px;flex:0 0 52px;border-radius:var(--r-block);color:#fff;overflow:hidden;
    display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600}
  .avatar img{width:100%;height:100%;object-fit:cover;display:block}
- .avatar.big{width:96px;height:96px;flex:0 0 96px;border-radius:18px;font-size:30px}
+ .avatar.big{width:96px;height:96px;flex:0 0 96px;border-radius:var(--r-card);font-size:30px}
  .medhead b{font-size:15px;display:block;line-height:1.25}
  .medhead small{color:var(--text2);font-size:11.5px;display:block}
  .medmeta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--text2)}
@@ -1731,14 +1784,14 @@
  .medstats div{flex:1;min-width:0}
  .medstats b{display:block;font-size:16px;font-weight:600}
  .medstats span{font-size:11px;color:var(--text3)}
- .dbadge{font-size:10px;font-weight:600;letter-spacing:.04em;padding:3px 8px;border-radius:6px;
+ .dbadge{font-size:10px;font-weight:600;letter-spacing:.04em;padding:3px 8px;border-radius:var(--r-xs);
    text-transform:uppercase;white-space:nowrap}
  .dbadge.activ{background:var(--green-soft);color:var(--green-t)}
  .dbadge.concediu{background:var(--amber-soft);color:var(--amber-t)}
  .dbadge.arhivat{background:var(--line2);color:var(--text3)}
  .svcpick{display:flex;flex-direction:column;gap:2px;max-height:320px;overflow:auto}
  .svcpick label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;
-   border-radius:8px;cursor:pointer}
+   border-radius:var(--r-s);cursor:pointer}
  .svcpick label:hover{background:var(--bg)}
  .svcpick input{margin:0}
  .svcpick small{margin-left:auto;color:var(--text3);font-size:11px;white-space:nowrap}
@@ -1752,7 +1805,7 @@
  .wcol .wh a:hover{color:var(--teal-d)}
  .wcol .wh small{display:block;font-size:11px;color:var(--text3);margin-top:1px}
  .wcol .wb{padding:8px;display:flex;flex-direction:column;gap:5px;min-height:60px}
- .wchip{border-radius:8px;padding:4px 8px;font-size:11.5px;line-height:1.4;overflow:hidden}
+ .wchip{border-radius:var(--r-s);padding:4px 8px;font-size:11.5px;line-height:1.4;overflow:hidden}
  .wchip b{font-weight:600}
  .wchip small{opacity:.75;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .wchip.noshow{text-decoration:line-through;opacity:.7}
@@ -1770,7 +1823,7 @@
    background:var(--panel);border:1px solid var(--line);border-radius:var(--r-ctl);
    color:var(--text3);flex:0 1 320px;min-width:220px;
    transition:border-color .2s ease,box-shadow .2s ease}
- .pl-search:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-ring)}
+ .pl-search:focus-within{border-color:var(--focus-line);box-shadow:var(--ring)}
  .pl-search input{border:none;outline:none;background:none;font-size:14px;flex:1;
    min-width:0;color:var(--text);font-family:inherit}
  .pl-bar select{height:42px;padding:0 12px;border:1px solid var(--line);
@@ -1783,7 +1836,7 @@
    color:var(--text2);font-size:13.5px;font-weight:500;font-family:inherit;
    text-decoration:none;cursor:pointer;white-space:nowrap;
    transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
- .pl-btn:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(-1px)}
+ .pl-btn:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(var(--lift))}
  .pl-btn.primary{background:var(--teal);border-color:var(--teal);color:var(--on-teal);font-weight:600}
  .pl-btn.primary:hover{background:var(--teal-d);color:var(--on-teal-d);box-shadow:var(--sh-t)}
  /* три числа над списком; денежной карточки в этом разделе нет намеренно */
@@ -1793,8 +1846,8 @@
    border:1px solid var(--line);border-radius:var(--r-card);padding:20px 22px;
    box-shadow:var(--sh);text-decoration:none;color:inherit;min-width:0;
    transition:box-shadow .25s ease,transform .25s ease}
- a.pl-tile:hover{transform:translateY(-3px);box-shadow:var(--sh3)}
- .pl-tile .ico{width:52px;height:52px;flex:0 0 52px;border-radius:16px;display:flex;
+ a.pl-tile:hover{transform:translateY(var(--lift-tile));box-shadow:var(--sh3)}
+ .pl-tile .ico{width:52px;height:52px;flex:0 0 52px;border-radius:var(--r-block);display:flex;
    align-items:center;justify-content:center;font-size:21px}
  /* иконка рисуется stroke-контуром 24×24 (layout._ic отдаёт её 16px): в кружке
     52px это теряется, поэтому размер задаётся здесь, а не в самом svg — он
@@ -1820,7 +1873,7 @@
  .set-hub .pl-tv small{margin-top:3px}
  /* список + боковой предпросмотр */
  .pl-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
- .pl-card{background:var(--panel);border:1px solid var(--line);border-radius:20px;
+ .pl-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    box-shadow:var(--sh2);overflow:hidden;min-width:0}
  .pl-scroll{overflow-x:auto}
  .pl-tbl{width:100%;border-collapse:collapse}
@@ -1846,7 +1899,7 @@
  .pl-nm b{display:block;font-size:14px;font-weight:600;color:var(--text);
    overflow:hidden;text-overflow:ellipsis;max-width:230px}
  .pl-nm small{display:block;overflow:hidden;text-overflow:ellipsis;max-width:230px}
- .pl-badge{display:inline-block;padding:6px 12px;border-radius:30px;font-size:12px;
+ .pl-badge{display:inline-block;padding:6px 12px;border-radius:999px;font-size:12px;
    font-weight:600;white-space:nowrap}
  .pl-badge.act{background:var(--green-soft);color:var(--green-t)}
  .pl-badge.trt{background:var(--blue-soft);color:#1D4ED8}
@@ -1856,7 +1909,7 @@
  .pl-badge.arh{background:var(--line2);color:var(--text3)}
  .pl-acts{text-align:right}
  .pl-acts button,.pl-acts a{display:inline-flex;align-items:center;justify-content:center;
-   width:36px;height:36px;border-radius:10px;border:1px solid var(--line);
+   width:var(--h-ctl-s);height:var(--h-ctl-s);border-radius:var(--r-chip);border:1px solid var(--line);
    background:var(--panel);color:var(--text2);font-size:14px;cursor:pointer;
    text-decoration:none;margin-left:5px;
    transition:border-color .2s ease,background-color .2s ease,transform .2s ease}
@@ -1865,8 +1918,8 @@
  .pl-pag{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:var(--pad-block);
    border-top:1px solid var(--line);font-size:12.5px;color:var(--text2)}
  .pl-pgs{display:flex;gap:6px;margin-left:auto}
- .pl-pg{display:inline-flex;align-items:center;justify-content:center;min-width:36px;
-   height:36px;padding:0 8px;border:1px solid var(--line);border-radius:10px;
+ .pl-pg{display:inline-flex;align-items:center;justify-content:center;min-width:var(--h-ctl-s);
+   height:var(--h-ctl-s);padding:0 8px;border:1px solid var(--line);border-radius:var(--r-chip);
    background:var(--panel);color:var(--text2);text-decoration:none;font-size:13px;
    transition:border-color .2s ease,background-color .2s ease,color .2s ease}
  .pl-pg:hover{border-color:var(--teal);color:var(--teal-d)}
@@ -1875,7 +1928,7 @@
  .pl-pg.off{opacity:.4;pointer-events:none}
  .pl-gap{color:var(--text3);align-self:center}
  .pl-pag form{margin:0}
- .pl-pag select{height:36px;padding:0 8px;border:1px solid var(--line);border-radius:10px;
+ .pl-pag select{height:var(--h-ctl-s);padding:0 8px;border:1px solid var(--line);border-radius:var(--r-chip);
    background:var(--panel);color:var(--text2);font-size:12.5px;font-family:inherit;
    cursor:pointer}
  .pl-empty{display:flex;flex-direction:column;align-items:center;gap:8px;
@@ -1885,7 +1938,7 @@
  .pl-empty .pl-btn{margin-top:6px}
  /* правая панель: та же фиша, но без ухода со списка */
  .ppanel{position:sticky;top:88px;background:var(--panel);border:1px solid var(--line);
-   border-radius:20px;box-shadow:var(--sh2);padding:22px;min-width:0;
+   border-radius:var(--r-card);box-shadow:var(--sh2);padding:22px;min-width:0;
    max-height:calc(100vh - 108px);overflow-y:auto}
  .pp-x,.pp-veil{display:none}
  .pp-empty{display:flex;flex-direction:column;align-items:center;gap:10px;
@@ -1907,7 +1960,7 @@
  .pp-info{margin-bottom:12px}
  .ppanel>.pl-btn{width:100%;justify-content:center}
  .pp-b{border-top:1px solid var(--line2);padding:14px 0}
- .pp-b.next{border:none;border-radius:14px;background:var(--teal-soft);
+ .pp-b.next{border:none;border-radius:var(--r-block);background:var(--teal-soft);
    padding:12px 14px;margin-top:14px}
  .pp-t{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
    font-size:13px;font-weight:600;margin-bottom:6px}
@@ -1918,12 +1971,12 @@
  .pp-b .statbar{margin:8px 0 6px;border-radius:999px}
  .pp-b .statbar div{background:linear-gradient(90deg,var(--teal),var(--green));
    border-radius:999px}
- .pp-note{border-radius:12px;padding:11px 13px;font-size:12.5px;line-height:1.5;
+ .pp-note{border-radius:var(--r-ctl);padding:11px 13px;font-size:12.5px;line-height:1.5;
    margin-bottom:6px;border-left:4px solid var(--amber);background:#FFF8ED;
    color:var(--amber-t)}
  .pp-note.allergy{border-left-color:var(--red);background:var(--red-soft);color:var(--red-t)}
  .pp-note.info{border-left-color:var(--blue);background:var(--blue-soft);color:var(--text2)}
- .pp-doc{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:12px;
+ .pp-doc{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--r-ctl);
    background:#FAFBFD;margin-bottom:6px;text-decoration:none;color:inherit;
    transition:background-color .2s ease,box-shadow .2s ease}
  .pp-doc:hover{background:var(--panel);box-shadow:var(--sh2)}
@@ -1943,9 +1996,9 @@
      padding-top:52px;box-shadow:-14px 0 36px rgba(15,23,42,.14);
      transform:translateX(102%);transition:transform .28s ease}
    .ppanel.open{transform:none}
-   .pp-x{display:flex;position:absolute;top:12px;right:14px;width:36px;height:36px;
+   .pp-x{display:flex;position:absolute;top:12px;right:14px;width:var(--h-ctl-s);height:var(--h-ctl-s);
      align-items:center;justify-content:center;border:1px solid var(--line);
-     border-radius:10px;background:var(--panel);color:var(--text2);cursor:pointer;
+     border-radius:var(--r-chip);background:var(--panel);color:var(--text2);cursor:pointer;
      font-size:14px;font-family:inherit}
    .pp-x:hover{border-color:var(--teal);color:var(--teal-d)}
    .pp-veil{display:block;position:fixed;inset:0;background:rgba(15,23,42,.28);
@@ -1968,7 +2021,7 @@
  .ag-h span{font-size:11.5px;color:var(--text3)}
  .ag-l{max-height:320px;overflow-y:auto;margin:0 -4px;padding:0 4px}
  .ag-i{display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:5px;
-   border-left:3px solid var(--line);border-radius:10px;background:#FAFBFD;
+   border-left:3px solid var(--line);border-radius:var(--r-chip);background:#FAFBFD;
    cursor:pointer;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
  .ag-i:hover{background:var(--panel);box-shadow:var(--sh2);transform:translateX(2px)}
  .ag-i.past{opacity:.5}
@@ -2085,11 +2138,11 @@
  .th-style .th-card u.sh{width:62%;margin-top:6px}
  .th-style b{display:block;font-size:14px;margin-top:9px;font-weight:600}
  .th-style small{color:var(--text3);font-size:12px;line-height:1.4;display:block}
- .th-style:hover .th-card{transform:translateY(-2px)}
+ .th-style:hover .th-card{transform:translateY(var(--lift-card))}
  /* выбранное отмечено ОБВОДКОЙ, а не только галочкой: карточки стилей похожи
     между собой, и без явной рамки «какой сейчас» читается не с первого взгляда */
  .th-style input:checked + .th-card{outline:2.5px solid var(--teal);outline-offset:2px}
- .th-style input:focus-visible + .th-card{box-shadow:0 0 0 3px var(--teal-ring)}
+ .th-style input:focus-visible + .th-card{box-shadow:var(--ring)}
  .th-colors{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
  .th-c{cursor:pointer;line-height:0}
  .th-c input{position:absolute;opacity:0;pointer-events:none}
@@ -2097,11 +2150,11 @@
    box-shadow:inset 0 0 0 1px rgba(15,23,42,.10);transition:transform .18s ease}
  .th-c:hover span{transform:scale(1.1)}
  .th-c input:checked + span{outline:2.5px solid var(--text);outline-offset:3px}
- .th-c input:focus-visible + span{box-shadow:0 0 0 3px var(--teal-ring)}
+ .th-c input:focus-visible + span{box-shadow:var(--ring)}
  .th-c .pick{background:conic-gradient(#EF4444,#F59E0B,#10B981,#3B82F6,#7C3AED,#EF4444);
    display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1}
  .th-colors input[type=color]{width:44px;height:34px;padding:0;border:1px solid var(--line);
-   border-radius:9px;background:var(--panel);cursor:pointer}
+   border-radius:var(--r-chip);background:var(--panel);cursor:pointer}
  .th-dot{display:inline-block;width:9px;height:9px;border-radius:50%;
    margin:0 4px -1px 0;box-shadow:inset 0 0 0 1px rgba(15,23,42,.12)}
  .th-logowrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
@@ -2262,7 +2315,7 @@
    .gridbody{--cell:52px}
    .gcol-time,.gridhead .gh-time{width:42px;flex:0 0 42px}
    .gcol-time div{font-size:10px;padding:3px 5px 0}
-   .gappt{padding:4px 6px;border-radius:8px}
+   .gappt{padding:4px 6px;border-radius:var(--r-s)}
    .gappt b{font-size:11.5px}
    .gappt small{font-size:10.5px}
    /* неделя и KPI — в одну/две колонки */
