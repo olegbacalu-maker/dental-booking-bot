@@ -211,13 +211,11 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
   return (
     <section className="dp-react-root" aria-busy={data === null || busy}>
       {toast && <Toast {...toast} onClose={closeToast} />}
-      <div className="pl-head">
-        <div>
-          <h2>{T.title}</h2>
-          <p>{T.sub}</p>
-        </div>
-      </div>
-      <form className="pl-bar" onSubmit={onSearch}>
+      {/* ⭐ Фильтры — ПЕРВЫЙ `.nav` узла React: сетка `.content` кладёт его в ряд
+          с заголовком, как шапку дня на панели (Олег 25.09: «наверху теряем
+          место»). Своего заголовка «Pacienți» у экрана больше нет — раздел
+          называют сайдбар и подпись оболочки, а строка h2 стоила 60 px. */}
+      <form className="nav pl-bar" aria-label={T.title} onSubmit={onSearch}>
         <label className="pl-search">
           <Icon name="search" />
           <input
@@ -257,34 +255,40 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
             <Icon name="close" /> {T.reset}
           </AppLink>
         )}
-        <span style={{ flex: 1 }}></span>
-        <AppLink className="pl-btn" href={exportUrl} title={T.exportTitle}>
-          <Icon name="download" /> {T.exportBtn}
-        </AppLink>
-        <button type="button" className="pl-btn primary" onClick={() => setAdding(true)}>
-          {T.add}
-        </button>
+        {/* две правые кнопки — одной группой: в ряду с заголовком бар переносится,
+            и группа уходит на вторую строку целиком, к правому краю */}
+        <span className="pl-end">
+          <AppLink className="pl-btn" href={exportUrl} title={T.exportTitle}>
+            <Icon name="download" /> {T.exportBtn}
+          </AppLink>
+          <button type="button" className="pl-btn primary" onClick={() => setAdding(true)}>
+            {T.add}
+          </button>
+        </span>
       </form>
-      {data && (
-        <div className="pl-tiles">
-          {data.summary.tiles.map((t, i) => {
-            const inner = (
-              <>
-                <span className={`ico ${t.tone}`}><Icon name={iconName(t.icon)} /></span>
-                <div className="pl-tv">
-                  <span>{T.tiles[i] ?? ''}</span>
-                  <b>{t.value}</b>
-                  <small dangerouslySetInnerHTML={{ __html: t.foot }} />
-                </div>
-              </>
-            )
-            return t.href
-              ? <AppLink key={i} className="pl-tile" href={t.href}>{inner}</AppLink>
-              : <div key={i} className="pl-tile">{inner}</div>
-          })}
-        </div>
-      )}
       <div className="pl-grid">
+        {/* ⭐ Плитки — в правую колонку ПОД предпросмотр (шире 1400px), таблица
+            начинается выше; в разметке они первыми, чтобы на узком окне, где
+            колонка одна и предпросмотр — ящик, остаться НАД таблицей, как были. */}
+        {data && (
+          <div className="pl-tiles">
+            {data.summary.tiles.map((t, i) => {
+              const inner = (
+                <>
+                  <span className={`ico ${t.tone}`}><Icon name={iconName(t.icon)} /></span>
+                  <div className="pl-tv">
+                    <span>{T.tiles[i] ?? ''}</span>
+                    <b>{t.value}</b>
+                    <small dangerouslySetInnerHTML={{ __html: t.foot }} />
+                  </div>
+                </>
+              )
+              return t.href
+                ? <AppLink key={i} className="pl-tile" href={t.href}>{inner}</AppLink>
+                : <div key={i} className="pl-tile">{inner}</div>
+            })}
+          </div>
+        )}
         <div className="pl-card">
           {data && (
             <PatientsTable

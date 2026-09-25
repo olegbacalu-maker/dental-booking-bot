@@ -259,7 +259,7 @@ describe('PatientsSearchScreen', () => {
     const navigate = vi.fn()
     open('/admin/search', { navigate })
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
-    expect(screen.queryByText('Pacienți')).toBeNull()
+    expect(document.querySelector('.pl-grid')).toBeNull()
   })
 
   it('движок молчит — плашка и повтор', async () => {

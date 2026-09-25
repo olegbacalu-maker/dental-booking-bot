@@ -412,6 +412,23 @@
 .dp-cmenu-i:hover, .dp-cmenu-i:focus-visible { background: var(--teal-soft); color: var(--teal-d); outline: none; }
 .dp-cmenu-i.on { font-weight: 600; color: var(--teal-d); box-shadow: inset 3px 0 0 var(--teal); }
 .dp-cmenu-sep { height: 1px; background: var(--line2); margin: 4px 6px; }
+/* Pacienți (25.09, Олег: «наверху теряем место, как на главном экране»).
+   Фильтры — первый .nav узла React: сетка .content ставит его в ряд с
+   заголовком (panel.css › .content>.nav); растягиваем на всю ячейку, чтобы
+   «Exportă» и «Adaugă» остались у правого края. Плитки — в правую колонку под
+   предпросмотр, таблица тянется на обе строки; ниже 1400px колонка одна
+   (предпросмотр — ящик), и плитки остаются над таблицей, как были.
+   ⚠️ Только для React-экрана: классы .pl-* общие с легаси-списком. */
+.dp-react-root .pl-bar.nav { justify-self: stretch; margin: 0; }
+/* поле поиска уступает ширину, чтобы бар уместился в одну строку на 1900px;
+   правая пара кнопок — к краю и переносится вместе */
+.dp-react-root .pl-bar.nav .pl-search { flex: 1 1 240px; min-width: 268px; max-width: 360px; }
+.dp-react-root .pl-bar.nav .pl-end { margin-left: auto; display: flex; gap: 10px; }
+@media (min-width: 1401px) {
+  .dp-react-root .pl-grid > .pl-card { grid-column: 1; grid-row: 1 / span 2; }
+  .dp-react-root .pl-grid > .ppanel { grid-column: 2; grid-row: 1; }
+  .dp-react-root .pl-grid > .pl-tiles { grid-column: 2; grid-row: 2; grid-template-columns: 1fr; margin: 0; }
+}
 /* меню карточки визита (25.09): пункт-ссылка «Fișa pacientului» выглядит как
    кнопки рядом; занятый пункт (команда в полёте) — приглушён, не спрятан */
 .dp-cmenu a.dp-cmenu-i { text-decoration: none; display: flex; align-items: center; gap: 8px; }
