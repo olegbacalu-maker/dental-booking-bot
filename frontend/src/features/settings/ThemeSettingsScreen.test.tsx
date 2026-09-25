@@ -18,6 +18,15 @@ const THEME: ThemeData = {
     { key: 'modern', label: 'Modern', hint: 'implicit', vars: { '--r-card': '14px', '--bg': '#fff', '--line': '#ddd', '--sh': 'none', '--r-ctl': '8px' } },
     { key: 'calm', label: 'Calm', hint: 'moale', vars: { '--r-card': '20px', '--bg': '#f7f7f7', '--line': '#eee', '--sh': 'none', '--r-ctl': '12px' } },
   ],
+  menu: 'brand', font: 'inter',
+  menus: [
+    { key: 'brand', label: 'În culoarea clinicii', hint: 'ca până acum', vars: { '--side-bg': 'var(--teal-d)' } },
+    { key: 'neutral', label: 'Neutru', hint: 'fundal deschis', vars: { '--side-bg': 'var(--bg)' } },
+  ],
+  fonts: [
+    { key: 'inter', label: 'Inter', hint: 'inclus', stack: "'Inter',sans-serif" },
+    { key: 'system', label: 'Segoe UI', hint: 'Windows', stack: "'Segoe UI',sans-serif" },
+  ],
   presets: [{ hex: '#0E9F8A', name: 'Verde DentPilot' }, { hex: '#7C3AED', name: 'Violet' }],
   palettes: {
     modern: { '#0E9F8A': { '--teal': '#0E9F8A' }, '#7C3AED': { '--teal': '#7C3AED' } },
@@ -80,7 +89,28 @@ describe('ThemeSettingsScreen', () => {
     fireEvent.click(screen.getByDisplayValue('#7C3AED'))
     fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
     expect(await screen.findByText('Aspectul clinicii a fost salvat')).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/settings/theme', { style: 'calm', primary: '#7C3AED', custom: '#0E9F8A', logo_topbar: false })
+    expect(post).toHaveBeenCalledWith('/settings/theme', {
+      style: 'calm', primary: '#7C3AED', custom: '#0E9F8A', logo_topbar: false, menu: 'brand', font: 'inter',
+    })
+  })
+
+  it('меню и шрифт: выбор красит страницу переменными сервера и уезжает в сохранение', async () => {
+    get.mockResolvedValueOnce(ok(THEME))
+    post.mockResolvedValueOnce(ok({ ...THEME, menu: 'neutral', font: 'system' }, 'ok_theme', 'Aspectul salvat'))
+    open()
+    await screen.findByText('Modern')
+    expect((screen.getByDisplayValue('brand') as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(screen.getByDisplayValue('neutral'))
+    expect(document.documentElement.style.getPropertyValue('--side-bg')).toBe('var(--bg)')
+    fireEvent.click(screen.getByDisplayValue('system'))
+    expect(document.documentElement.style.getPropertyValue('--font')).toBe("'Segoe UI',sans-serif")
+    // предпросмотр — переменные с сервера, арифметики и запросов на клиенте нет
+    expect(get).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
+    expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/settings/theme', {
+      style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: false, menu: 'neutral', font: 'system',
+    })
   })
 
   it('логотип: загрузка multipart, галочка шапки, удаление', async () => {
@@ -98,7 +128,9 @@ describe('ThemeSettingsScreen', () => {
     expect(document.querySelector('img.th-logo')?.getAttribute('src')).toBe('/clinic-logo?v=1')
     fireEvent.click(screen.getByLabelText(/bara de sus/))
     expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
-    expect(post).toHaveBeenCalledWith('/settings/theme', { style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: true })
+    expect(post).toHaveBeenCalledWith('/settings/theme', {
+      style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: true, menu: 'brand', font: 'inter',
+    })
     fireEvent.click(screen.getByRole('button', { name: /Șterge/ }))
     expect(await screen.findByText('Logo șters')).toBeTruthy()
     expect(post).toHaveBeenLastCalledWith('/settings/theme/logo/delete', {})

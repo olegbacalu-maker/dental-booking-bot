@@ -166,6 +166,56 @@ STYLE_LABEL = {
     "fluent": ("Fluent", "Ca în Windows 11: colțuri mici, linii în loc de umbre, comenzi compacte."),
 }
 
+# ---------- меню и шрифт: два выбора рядом со стилем (B5, 25.09) ----------
+# Вариант меню — НАБОР переменных группы --side-* плюс кромка и угол слоя
+# содержимого, как стиль — набор своих. По умолчанию фирменное: заливка
+# тёмным фирменным и текст, посчитанный под него, — ровно то, что клиника
+# видит с 08-17 (`brand` обязан повторять :root, test_theme держит; решение
+# Олега 25.09: «меню фирменный цвет по умолчанию»). Нейтральное — на основе
+# окна, текстом интерфейса; полоска активного пункта и всё цветное остаётся
+# фирменным. ⚠️ У обоих один набор ключей — та же причина, что у стилей:
+# предпросмотр кладёт переменные инлайном на <html>.
+DEFAULT_MENU = "brand"
+MENUS: dict[str, dict[str, str]] = {
+    "brand": {
+        "--side-bg": "var(--teal-d)", "--side-fg": "var(--on-teal-d)",
+        "--side-hover": "rgba(255,255,255,.12)", "--side-on": "rgba(255,255,255,.16)",
+        "--side-line": "rgba(255,255,255,.16)", "--side-off": "rgba(255,255,255,.42)",
+        "--side-mark": "var(--on-teal-d)",
+        "--layer-line": "transparent", "--layer-r": "0px",
+    },
+    "neutral": {
+        "--side-bg": "var(--bg)", "--side-fg": "var(--text)",
+        "--side-hover": "rgba(0,0,0,.04)", "--side-on": "rgba(0,0,0,.06)",
+        "--side-line": "var(--line)", "--side-off": "var(--text3)",
+        "--side-mark": "var(--teal)",
+        # слой содержимого отделяется от нейтрального меню кромкой и
+        # скруглённым углом — иначе две одинаковые поверхности сливаются
+        "--layer-line": "var(--line)", "--layer-r": "8px",
+    },
+}
+MENU_LABEL = {
+    "brand": ("În culoarea clinicii", "Meniul preia culoarea principală — ca până acum."),
+    "neutral": ("Neutru", "Fundal deschis, ca în Windows 11; culoarea rămâne la butoane și accente."),
+}
+
+# Шрифт — значение `--font`. Inter вшит в программу и одинаков на любой
+# машине; «системный» — Segoe UI, которым написан сам Windows: на 10 и 11 он
+# немного разный (Variable есть только в 11), о чём подпись и говорит.
+# Страницы со своей вёрсткой (вход, PIN, восстановление) получают то же
+# значение заполнителем __FAMILY__ через layout.standalone.
+# ⚠️ Печатные бланки (043/e, acord, касса) выбора не знают и остаются на
+# Inter: документ не должен зависеть от настройки экрана.
+DEFAULT_FONT = "inter"
+FONTS = {
+    "inter": "'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif",
+    "system": "'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif",
+}
+FONT_LABEL = {
+    "inter": ("Inter (inclus în program)", "Același pe orice calculator, Windows 10 sau 11."),
+    "system": ("Segoe UI (fontul Windows)", "Fontul sistemului; pe Windows 10 și 11 arată puțin diferit."),
+}
+
 # Тёмный текст интерфейса — тот же --text, что в panel.css. Нужен здесь как
 # ЧИСЛО: по нему считается, чем писать на фирменной кнопке.
 _TEXT_DARK = (0x16, 0x20, 0x33)
@@ -300,9 +350,13 @@ def current() -> dict:
     rgb = parse_hex(raw.get("primary"))
     style = raw.get("style")
     logo = raw.get("logo")
+    menu = raw.get("menu")
+    font = raw.get("font")
     return {
         "primary": to_hex(rgb) if rgb else DEFAULT_PRIMARY,
         "style": style if style in STYLES else DEFAULT_STYLE,
+        "menu": menu if menu in MENUS else DEFAULT_MENU,
+        "font": font if font in FONTS else DEFAULT_FONT,
         "logo": logo if logo in LOGO_NAMES.values() else None,
         # логотип и в шапке журнала (галочка в Setări › Aspect, 08-21);
         # по умолчанию выключено — существующие клиники не должны проснуться
@@ -320,9 +374,18 @@ def vars_css() -> str:
     перебивает её."""
     th = current()
     values = dict(STYLES[th["style"]])
+    values.update(MENUS[th["menu"]])
+    values["--font"] = FONTS[th["font"]]
     values.update(palette(th["primary"], th["style"]))
     body = "".join(f"{k}:{v};" for k, v in values.items())
     return ":root{" + body + "}"
+
+
+def font_stack() -> str:
+    """Набор семейств для страниц СО СВОЕЙ вёрсткой (вход, PIN, восстановление):
+    `--font` из panel.css им не достаётся, значение подставляет
+    `layout.standalone` заполнителем __FAMILY__."""
+    return FONTS[current()["font"]]
 
 
 def accent() -> str:

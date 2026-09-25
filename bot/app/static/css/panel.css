@@ -114,7 +114,7 @@
    --lift:-1px;--lift-card:-2px;--lift-tile:-3px;
    --sh-hover:0 4px 12px var(--teal-ring);
    /* Шрифт — переменной: выбор клиники подставит сюда системный. */
-   --font:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif}
+   --font:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;}
  /* ⛔ Сенсорный экран: высоты «под палец» независимо от стиля. !important —
     единственный способ перебить строку темы: она печатается в <head> ПОСЛЕ
     этого файла и иначе выиграла бы порядком. Значения — стиля по умолчанию
@@ -2168,6 +2168,27 @@
  .th-topbar{display:flex;align-items:center;gap:8px;margin:10px 0 0;
    font-size:13px;cursor:pointer;color:var(--text2)}
  .th-topbar input{width:16px;height:16px;accent-color:var(--teal)}
+ /* Варианты меню и шрифта (B5): карточка с образцом — мини-меню в цвете
+    варианта или «Aa» тем самым набором семейств (style= с сервера, чтобы
+    образец не разошёлся с --font). Радиусы и тени — ступенями. */
+ .th-opts{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+ .th-opt{flex:1 1 220px;max-width:300px;cursor:pointer;display:block;position:relative}
+ .th-opt input{position:absolute;opacity:0;pointer-events:none}
+ .th-opt .th-box{display:flex;align-items:center;gap:12px;min-height:66px;padding:11px 14px;
+   border:1px solid var(--line);border-radius:var(--r-card);background:var(--panel);
+   box-shadow:var(--sh);font-size:14px;font-weight:600;color:var(--text);
+   transition:transform .18s ease,box-shadow .18s ease}
+ .th-opt:hover .th-box{transform:translateY(var(--lift-card))}
+ .th-opt small{color:var(--text3);font-size:12px;line-height:1.4;display:block;margin-top:8px}
+ .th-opt input:checked + .th-box{outline:2.5px solid var(--teal);outline-offset:2px}
+ .th-opt input:focus-visible + .th-box{box-shadow:var(--ring)}
+ .th-box .mm{width:40px;height:44px;flex:0 0 40px;border-radius:var(--r-s);
+   display:flex;flex-direction:column;gap:5px;padding:8px 6px}
+ .th-box .mm i{display:block;height:4px;border-radius:2px;background:currentColor;opacity:.7}
+ .th-box .mm i:first-child{opacity:1}
+ .th-box .mm.brand{background:var(--teal-d);color:var(--on-teal-d)}
+ .th-box .mm.neutral{background:var(--bg);color:var(--text);border:1px solid var(--line)}
+ .th-box .fs{font-size:24px;line-height:1;font-weight:600;flex:0 0 40px;text-align:center}
  /* ---------- движение ----------
     ВСЁ привязано к классу `anim` на <html>. Его выдаёт скрипт в шапке страницы
     и только при осмысленном открытии: журнал перезагружает себя каждые 12

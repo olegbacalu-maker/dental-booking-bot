@@ -10,6 +10,8 @@ import { settings, type ThemeData, type ThemeForm } from './settings'
 const T = {
   title: 'Aspectul clinicii',
   style: 'Stil interfață',
+  menu: 'Meniul lateral',
+  font: 'Font',
   color: 'Culoare principală',
   customTitle: 'Culoare personalizată',
   hint:
@@ -36,6 +38,8 @@ function formOf(d: ThemeData): ThemeForm {
     primary: d.custom ? 'custom' : d.primary,
     custom: d.primary,
     logo_topbar: d.logo_topbar,
+    menu: d.menu,
+    font: d.font,
   }
 }
 
@@ -74,11 +78,16 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
     setToast({ tone: 'err', text: err.text || T.offline })
   }
 
-  /** Применить выбор к странице: стиль из набора, цвет из набора или с сервера. */
+  /** Применить выбор к странице: стиль, меню и шрифт — переменными сервера,
+   *  цвет — из набора или с сервера. */
   async function preview(next: ThemeForm) {
     if (!data) return
     const st = data.styles.find((s) => s.key === next.style)
     if (st) put(st.vars)
+    const mn = data.menus.find((m) => m.key === next.menu)
+    if (mn) put(mn.vars)
+    const ft = data.fonts.find((x) => x.key === next.font)
+    if (ft) put({ '--font': ft.stack })
     const hex = (next.primary === 'custom' ? next.custom : next.primary).toUpperCase()
     const known = data.palettes[next.style]?.[hex]
     if (known) {
@@ -175,6 +184,37 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
                   </span>
                   <b>{s.label}</b>
                   <small>{s.hint}</small>
+                </label>
+              ))}
+            </div>
+
+            <h3 className="th-h">{T.menu}</h3>
+            <div className="th-opts">
+              {data.menus.map((m) => (
+                <label key={m.key} className="th-opt">
+                  <input type="radio" name="menu" value={m.key} checked={f.menu === m.key}
+                    disabled={busy} onChange={() => change({ menu: m.key })} />
+                  <span className="th-box">
+                    <span className={`mm ${m.key}`}><i /><i /><i /></span>
+                    <span>{m.label}</span>
+                  </span>
+                  <small>{m.hint}</small>
+                </label>
+              ))}
+            </div>
+
+            <h3 className="th-h">{T.font}</h3>
+            <div className="th-opts">
+              {data.fonts.map((ft) => (
+                <label key={ft.key} className="th-opt">
+                  <input type="radio" name="font" value={ft.key} checked={f.font === ft.key}
+                    disabled={busy} onChange={() => change({ font: ft.key })} />
+                  {/* образец — тем самым набором семейств, что уедет в --font */}
+                  <span className="th-box" style={{ fontFamily: ft.stack }}>
+                    <span className="fs">Aa</span>
+                    <span>{ft.label}</span>
+                  </span>
+                  <small>{ft.hint}</small>
                 </label>
               ))}
             </div>

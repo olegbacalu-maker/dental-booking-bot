@@ -1380,7 +1380,7 @@ def _age(birth_year) -> int | None:
 LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — acces</title><style>__FONTS__
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__BG__;display:flex;
+ body{font-family:__FAMILY__;background:__BG__;display:flex;
       align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
       padding:16px;box-sizing:border-box}
  form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
@@ -1423,7 +1423,7 @@ LOGIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — PIN</title><style>__FONTS__
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;display:flex;
+ body{font-family:__FAMILY__;background:__ACCENT__;display:flex;
       align-items:center;justify-content:center;height:100vh;margin:0}
  form{background:#fff;padding:30px 32px;border-radius:18px;
       box-shadow:0 4px 8px rgba(15,23,42,.12),0 22px 50px rgba(15,23,42,.26);
@@ -1458,7 +1458,7 @@ SETUP_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — recuperare</title><style>__FONTS__
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__BG__;display:flex;
+ body{font-family:__FAMILY__;background:__BG__;display:flex;
       align-items:center;justify-content:center;min-height:100vh;margin:0;color:#162033;
       padding:16px;box-sizing:border-box}
  form{background:#fff;padding:30px 32px;border-radius:18px;border:1px solid #E7EDF5;
@@ -1552,6 +1552,9 @@ def standalone(tmpl: str) -> str:
             .replace("__BG__", theme.STYLES[th["style"]]["--bg"])
             .replace("__LOGO__",
                      f"<img class='clogo' src='{logo}' alt=''>" if logo else "")
+            # выбор шрифта клиники (B5): те же семейства, что `--font` журнала.
+            # ⚠️ Не `__FONT__`: он префикс `__FONTS__` и испортил бы его.
+            .replace("__FAMILY__", theme.font_stack())
             .replace("__FONTS__", fonts_css()))
 
 

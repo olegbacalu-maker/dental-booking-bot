@@ -657,6 +657,27 @@ async def settings_theme(request: Request, msg: str = ""):
     pal_js = js_json({st: {c: theme.palette(c, st) for c in preset_hex}
                      for st in theme.STYLES})
     sty_js = js_json(theme.STYLES)
+    menu_js = js_json(theme.MENUS)
+    font_js = js_json(theme.FONTS)
+
+    # Меню и шрифт (B5) — карточки с образцом. Образец шрифта берёт набор
+    # семейств С СЕРВЕРА (style=): второй записи того же набора в CSS нет.
+    menus = "".join(
+        f"<label class='th-opt'>"
+        f"<input type='radio' name='menu' value='{e(k)}'"
+        f"{' checked' if k == th['menu'] else ''}>"
+        f"<span class='th-box'><span class='mm {e(k)}'><i></i><i></i><i></i></span>"
+        f"<span>{e(theme.MENU_LABEL[k][0])}</span></span>"
+        f"<small>{e(theme.MENU_LABEL[k][1])}</small></label>"
+        for k in theme.MENUS)
+    fonts = "".join(
+        f"<label class='th-opt'>"
+        f"<input type='radio' name='font' value='{e(k)}'"
+        f"{' checked' if k == th['font'] else ''}>"
+        f"<span class='th-box' style=\"font-family:{stack}\"><span class='fs'>Aa</span>"
+        f"<span>{e(theme.FONT_LABEL[k][0])}</span></span>"
+        f"<small>{e(theme.FONT_LABEL[k][1])}</small></label>"
+        for k, stack in theme.FONTS.items())
 
     styles = "".join(
         f"<label class='th-style'>"
@@ -704,6 +725,12 @@ async def settings_theme(request: Request, msg: str = ""):
 <h3 class='th-h'>Stil interfață</h3>
 <div class='th-styles'>{styles}</div>
 
+<h3 class='th-h'>Meniul lateral</h3>
+<div class='th-opts'>{menus}</div>
+
+<h3 class='th-h'>Font</h3>
+<div class='th-opts'>{fonts}</div>
+
 <h3 class='th-h'>Culoare principală</h3>
 <div class='th-colors'>{colors}
   <label class='th-c th-custom' title='Culoare personalizată'>
@@ -738,11 +765,13 @@ actualizarea programului — se păstrează lângă profilul clinicii.</p>
 
 <script>
 (function(){{
-  var PAL = {pal_js}, STY = {sty_js};
+  var PAL = {pal_js}, STY = {sty_js}, MENU = {menu_js}, FONT = {font_js};
   var f = document.getElementById('thf'), root = document.documentElement;
   function put(o){{ for (var k in o) root.style.setProperty(k, o[k]); }}
   function style(){{ var r = f.querySelector('input[name=style]:checked');
                      return r ? r.value : 'modern'; }}
+  function picked(name){{ var r = f.querySelector('input[name=' + name + ']:checked');
+                          return r ? r.value : ''; }}
   function color(){{ var r = f.querySelector('input[name=primary]:checked');
                      if (!r) return null;
                      return r.value === 'custom'
@@ -750,6 +779,8 @@ actualizarea programului — se păstrează lângă profilul clinicii.</p>
   function apply(){{
     var st = style(), c = color();
     put(STY[st] || {{}});
+    put(MENU[picked('menu')] || {{}});
+    if (FONT[picked('font')]) root.style.setProperty('--font', FONT[picked('font')]);
     if (!c) return;
     if (PAL[st] && PAL[st][c.toUpperCase()]) {{ put(PAL[st][c.toUpperCase()]); return; }}
     /* своего цвета в наборе нет — палитру считает сервер, здесь её не выводят */
@@ -1049,10 +1080,21 @@ def _val_theme(data: dict) -> dict:
                           else choice)
     if rgb is None:
         raise ValueError("primary")
-    keep = (eng.CONFIG.get("theme") or {}).get("logo")
+    cur = eng.CONFIG.get("theme") or {}
+    keep = cur.get("logo")
+    # Меню и шрифт (B5): нет поля — «не сообщали», прежний выбор остаётся
+    # (клиент без этих групп не имеет права их сбросить — прайор 08-16);
+    # есть, но незнакомое — отказ, как у стиля.
+    menu = data.get("menu") or cur.get("menu") or theme.DEFAULT_MENU
+    if menu not in theme.MENUS:
+        raise ValueError("menu")
+    font = data.get("font") or cur.get("font") or theme.DEFAULT_FONT
+    if font not in theme.FONTS:
+        raise ValueError("font")
     # галочка «логотип в шапке» приходит ИЗ ФОРМЫ каждый раз (флажок на
     # странице всегда нарисован, когда есть логотип): нет поля = снята
     return {"style": style, "primary": theme.to_hex(rgb),
+            "menu": menu, "font": font,
             "logo": keep if keep in theme.LOGO_NAMES.values() else None,
             "logo_topbar": bool(data.get("logo_topbar"))}
 
@@ -1436,6 +1478,8 @@ async def admin_settings_save(request: Request, payload: str = Form(""),
                 "style": form.get("style", ""),
                 "primary": form.get("primary", ""),
                 "custom": form.get("custom", ""),
+                "menu": form.get("menu", ""),
+                "font": form.get("font", ""),
                 "logo_topbar": form.get("logo_topbar", "")}))
         elif part == "clinic":
             form = await request.form()

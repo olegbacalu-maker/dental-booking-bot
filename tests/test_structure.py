@@ -137,7 +137,10 @@ _SYSGLYPH = re.compile("[🀀-🫿←-⇿∀-⋿⌀-⏿"
                        "■-➿⬀-⯿]")
 _BOT_TEXTS = ("app/engine.py", "app/telegram.py")
 
-_INTER = re.compile(r"font-family\s*:\s*['\"]?Inter")
+# ⚠️ С B5 такая страница может просить не 'Inter', а заполнитель __FAMILY__
+# (выбор шрифта клиники, подставляет layout.standalone) — объявление ей нужно
+# ровно так же: Inter — один из двух ответов.
+_INTER = re.compile(r"font-family\s*:\s*(?:['\"]?Inter|__FAMILY__)")
 _DECLARED = ("__FONTS__", "@font-face")
 
 # ---- разбор схем двух изданий ----

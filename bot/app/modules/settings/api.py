@@ -396,9 +396,17 @@ def _theme_data() -> dict:
     return {
         "style": th["style"], "primary": th["primary"],
         "custom": th["primary"] not in preset_hex,
+        "menu": th["menu"], "font": th["font"],
         "styles": [{"key": k, "label": theme.STYLE_LABEL[k][0],
                     "hint": theme.STYLE_LABEL[k][1], "vars": dict(v)}
                    for k, v in theme.STYLES.items()],
+        # меню и шрифт (B5): переменные и набор семейств — для предпросмотра
+        "menus": [{"key": k, "label": theme.MENU_LABEL[k][0],
+                   "hint": theme.MENU_LABEL[k][1], "vars": dict(v)}
+                  for k, v in theme.MENUS.items()],
+        "fonts": [{"key": k, "label": theme.FONT_LABEL[k][0],
+                   "hint": theme.FONT_LABEL[k][1], "stack": s}
+                  for k, s in theme.FONTS.items()],
         "presets": [{"hex": h, "name": n} for h, n in theme.PRESETS],
         "palettes": {st: {c: theme.palette(c, st) for c in preset_hex}
                      for st in theme.STYLES},
@@ -440,9 +448,10 @@ async def api_theme_save(request: Request):
         cfg = _finish_cfg(theme=_val_theme({
             "style": body.get("style", ""), "primary": str(body.get("primary") or ""),
             "custom": str(body.get("custom") or ""),
+            "menu": str(body.get("menu") or ""), "font": str(body.get("font") or ""),
             "logo_topbar": bool(body.get("logo_topbar"))}))
     except ValueError as e:
-        field = str(e) if str(e) in ("style", "primary") else ""
+        field = str(e) if str(e) in ("style", "primary", "menu", "font") else ""
         return msg_json(False, "bad_set", status=422, field=field)
     except (KeyError, TypeError):
         return msg_json(False, "bad_set", status=422)

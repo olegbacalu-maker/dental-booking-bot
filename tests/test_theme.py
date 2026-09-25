@@ -127,6 +127,19 @@ out["fallback"] = t.current()
 out["styles"] = t.STYLES
 out["labels"] = sorted(t.STYLE_LABEL)
 
+# меню и шрифт (B5): наборы, подписи, читаемость нейтрального меню в каждом
+# стиле (текст интерфейса на основе окна), откат битых значений
+out["menus"] = t.MENUS
+out["menu_labels"] = sorted(t.MENU_LABEL)
+out["fonts"] = t.FONTS
+out["font_labels"] = sorted(t.FONT_LABEL)
+out["weak_menu"] = [[st, round(t.contrast(t.parse_hex(v["--text"]), t.parse_hex(v["--bg"])), 2)]
+                    for st, v in t.STYLES.items()
+                    if t.contrast(t.parse_hex(v["--text"]), t.parse_hex(v["--bg"])) < 4.5]
+eng.CONFIG["theme"] = {{"menu": "розовое", "font": "Comic Sans"}}
+out["fallback2"] = [t.current()["menu"], t.current()["font"]]
+out["family"] = t.font_stack()
+
 print("@@" + json.dumps(out))
 """
 
@@ -253,6 +266,29 @@ def suite_palette(res: Result) -> None:
               [sorted(out["styles"]), out["labels"]],
               [["calm", "elegant", "fluent", "modern"]] * 2)
 
+    # Меню и шрифт — те же два инварианта, что у стилей: умолчание повторяет
+    # :root (фирменное меню = то, что клиника видит с 08-17; шрифт — вшитый
+    # Inter), и у вариантов один набор ключей.
+    menus = out["menus"]
+    drift = [k for k, v in menus["brand"].items() if _css_var(block, k) != v]
+    res.ok("меню по умолчанию повторяет :root в panel.css", not drift,
+           f"разошлись: {drift}")
+    res.ok("оба варианта меню задают один набор переменных",
+           sorted(menus["brand"]) == sorted(menus["neutral"]),
+           f"{sorted(menus['brand'])} против {sorted(menus['neutral'])}")
+    res.check("вариантов меню два, у каждого подпись",
+              [sorted(menus), out["menu_labels"]], [["brand", "neutral"]] * 2)
+    res.ok("нейтральное меню читаемо в каждом стиле", not out["weak_menu"],
+           f"контраст текста на основе окна ниже 4.5: {out['weak_menu']}")
+    res.check("шрифт по умолчанию — вшитый Inter, как в :root",
+              _css_var(block, "--font"), out["fonts"]["inter"])
+    res.check("шрифтов два, у каждого подпись",
+              [sorted(out["fonts"]), out["font_labels"]], [["inter", "system"]] * 2)
+    res.check("битые меню и шрифт откатываются к умолчаниям",
+              out["fallback2"], ["brand", "inter"])
+    res.check("страницам со своей вёрсткой уходит тот же набор семейств",
+              out["family"], out["fonts"]["inter"])
+
 
 # значения стиля modern держим здесь же, рядом с проверкой: тест обязан
 # сравнивать panel.css с ТРЕТЬЕЙ записью, иначе он сверяет код сам с собой.
@@ -320,6 +356,39 @@ def suite_pages(res: Result) -> None:
                "цвет не доехал")
         res.ok("полоса браузера перекрасилась вместе со стилем",
                'content="#F2F7F4"' in page, "theme-color остался прежним")
+
+        # меню и шрифт (B5) — тем же путём, что стиль и цвет
+        r = c.post("/admin/settings/save", part="theme", style="calm",
+                   primary="#7C3AED", custom="#000000", menu="neutral", font="system")
+        res.check("меню и шрифт сохраняются", r.msg, "ok_theme")
+        head = c.get("/admin").body.split("<style>:root{", 1)[1].split("</style>", 1)[0]
+        res.ok("нейтральное меню приехало в шапку", "--side-bg:var(--bg)" in head,
+               "меню осталось фирменным")
+        res.ok("системный шрифт приехал в шапку",
+               "--font:'Segoe UI Variable Text'" in head, "шрифт остался Inter")
+        login_f = anon.get("/admin/login").body
+        res.ok("экран входа взял тот же шрифт",
+               "font-family:'Segoe UI Variable Text'" in login_f
+               and "__FAMILY__" not in login_f,
+               "у входа своя вёрстка — заполнитель не подставился")
+        # ⚠️ Поля не прислали — «не сообщали», а не «сбросить»: старый клиент
+        # без групп меню и шрифта не имеет права вернуть их к умолчанию.
+        c.post("/admin/settings/save", part="theme", style="calm",
+               primary="#7C3AED", custom="")
+        res.check("без полей меню и шрифта прежний выбор цел",
+                  [_theme_of(s.clinic).get("menu"), _theme_of(s.clinic).get("font")],
+                  ["neutral", "system"])
+        r = c.post("/admin/settings/save", part="theme", style="calm",
+                   primary="#7C3AED", custom="", menu="розовое")
+        res.check("незнакомое меню не сохраняется", r.msg, "bad_set")
+        r = c.post("/admin/settings/save", part="theme", style="calm",
+                   primary="#7C3AED", custom="", font="Comic Sans")
+        res.check("незнакомый шрифт не сохраняется", r.msg, "bad_set")
+        res.ok("на экране вида есть меню и шрифт",
+               all(f"name='{n}' value='{v}'" in c.get("/admin/settings/theme").body
+                   for n, v in (("menu", "brand"), ("menu", "neutral"),
+                                ("font", "inter"), ("font", "system"))),
+               "группы меню и шрифта не отрисовались")
 
         login = anon.get("/admin/login").body
         res.ok("экран входа перекрашен", "#7C3AED" in login,

@@ -567,6 +567,37 @@ def suite_theme(res: Result) -> None:
         res.ok("логотипа нет", d["logo"] is None and d["logo_topbar"] is False, f"{d['logo']}")
         res.check("потолок логотипа 2 МБ", d["logo_max_mb"], 2)
 
+        # меню и шрифт (B5): умолчания, варианты для предпросмотра, сохранение,
+        # «не прислали — не трогали», отказ на незнакомом
+        res.ok("меню фирменное и шрифт Inter по умолчанию, варианты приехали",
+               d["menu"] == "brand" and d["font"] == "inter"
+               and [m["key"] for m in d["menus"]] == ["brand", "neutral"]
+               and [x["key"] for x in d["fonts"]] == ["inter", "system"]
+               and d["menus"][1]["vars"].get("--side-bg") == "var(--bg)"
+               and "Segoe" in d["fonts"][1]["stack"],
+               f"{d.get('menu')} {d.get('font')} {[m['key'] for m in d.get('menus', [])]}")
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A", "custom": "",
+                              "logo_topbar": False, "menu": "neutral", "font": "system"})
+        j = _j(r)
+        res.ok("меню и шрифт сохраняются",
+               r.status == 200 and j["data"]["menu"] == "neutral" and j["data"]["font"] == "system",
+               r.body[:160])
+        page = c.get("/admin").body
+        res.ok("нейтральное меню и системный шрифт в шапке",
+               "--side-bg:var(--bg)" in page and "--font:'Segoe UI Variable Text'" in page,
+               "не приехали")
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A", "custom": "",
+                              "logo_topbar": False})
+        j = _j(r)
+        res.ok("без полей меню и шрифта прежний выбор цел",
+               j["data"]["menu"] == "neutral" and j["data"]["font"] == "system", r.body[:160])
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A", "menu": "розовое"})
+        res.ok("незнакомое меню — 422, поле menu",
+               r.status == 422 and _j(r).get("field") == "menu", r.body)
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A", "font": "Comic Sans"})
+        res.ok("незнакомый шрифт — 422, поле font",
+               r.status == 422 and _j(r).get("field") == "font", r.body)
+
         r = c.post_json(api, {"style": "calm", "primary": "#7C3AED", "custom": "",
                               "logo_topbar": False})
         res.check("сохранение — 200", r.status, 200)

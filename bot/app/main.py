@@ -476,7 +476,7 @@ async def recover_apply(request: Request, code: str = Form("")) -> Response:
 
 RECOVER_DONE = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <title>__CLINIC__ — recuperare</title><style>__FONTS__
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;
+ body{font-family:__FAMILY__;background:__ACCENT__;
       color:__ON__;display:flex;flex-direction:column;align-items:center;
       justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
  p{max-width:520px;line-height:1.55}
@@ -713,7 +713,7 @@ async def admin_logout():
 # единственным директором. После установки обычный вход из сети работает.
 SETUP_LOCAL_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <title>__CLINIC__ — configurare</title><style>__FONTS__
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:__ACCENT__;
+ body{font-family:__FAMILY__;background:__ACCENT__;
       color:__ON__;display:flex;flex-direction:column;align-items:center;
       justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
  p{max-width:520px;line-height:1.55}

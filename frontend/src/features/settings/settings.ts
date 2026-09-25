@@ -92,11 +92,31 @@ export interface ThemeStyle {
   vars: Record<string, string>
 }
 
+/** Вариант меню (фирменное / нейтральное): переменные :root для предпросмотра. */
+export interface ThemeMenu {
+  key: string
+  label: string
+  hint: string
+  vars: Record<string, string>
+}
+
+/** Шрифт интерфейса: набор семейств — значение `--font`. */
+export interface ThemeFont {
+  key: string
+  label: string
+  hint: string
+  stack: string
+}
+
 export interface ThemeData {
   style: string
   primary: string
   custom: boolean
+  menu: string
+  font: string
   styles: ThemeStyle[]
+  menus: ThemeMenu[]
+  fonts: ThemeFont[]
   presets: { hex: string; name: string }[]
   /** Палитры сервера: стиль → hex набора → переменные :root. */
   palettes: Record<string, Record<string, Record<string, string>>>
@@ -112,6 +132,8 @@ export interface ThemeForm {
   primary: string
   custom: string
   logo_topbar: boolean
+  menu: string
+  font: string
 }
 
 export interface UserRow {
