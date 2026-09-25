@@ -230,6 +230,9 @@ async def startup() -> None:
     # Лицензия (L3): файл, память, состояние — до первого запроса к воротам
     # (L4) и баннеру (L5). Облако и демо без ключа: внутри no-op.
     await lic.startup()
+    # Автообновление файла (L13): суточный запрос к renew.url в фоне — как
+    # upd.check_async ниже: старт не ждёт, отказ молчит, без файла с renew — no-op.
+    lic.renew_async()
     # v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
     # идемпотентно (только NULL), на каждом старте — дёшево и самозалечивается
     doc_map = {name: k for k, name in eng.DOCTORS.items()}
@@ -496,6 +499,19 @@ async def license_install(request: Request, file: UploadFile | None = File(None)
     if code:
         return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
     return RedirectResponse("/admin?msg=license_ok", status_code=303)
+
+
+@app.post("/admin/license/renew")
+async def license_renew(request: Request) -> Response:
+    """Кнопка «Verifică acum» (L13): тот же запрос к renew.url, что суточный, —
+    только сейчас и с ответом словами. Право директора, как у импорта; в
+    белом списке ворот: новый файл нужен именно в режиме чтения."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    outcome = await lic.renew_once()
+    if outcome == lic.RENEWED:
+        return RedirectResponse("/admin?msg=license_renewed", status_code=303)
+    return RedirectResponse(f"/admin/license?msg={lic.RENEW_CODES[outcome]}", status_code=303)
 
 
 @app.get("/api/license")

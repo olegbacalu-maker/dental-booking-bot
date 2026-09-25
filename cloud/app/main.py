@@ -3,7 +3,8 @@
 Отдельная программа: ни одного импорта из bot/. Общее с движком — контракт
 файла лицензии и фикстуры tests/fixtures/license/. Здесь: вход администратора,
 клиники, выдача файла, письмо с файлом (L7), платежи переводом (L8),
-ежедневная задача с напоминаниями и журнал (L9).
+ежедневная задача с напоминаниями и журнал (L9), ответ программе клиники на
+её суточный запрос нового файла (L13, /v1/license).
 """
 from __future__ import annotations
 
@@ -44,6 +45,40 @@ def startup() -> None:
 @app.get("/health")
 def health() -> JSONResponse:
     return JSONResponse({"ok": True, "version": APP_VERSION})
+
+
+# ---------- автообновление файла (L13): программа клиники спрашивает сама ----------
+
+
+def _bearer(request: Request) -> str:
+    h = request.headers.get("authorization", "")
+    return h[7:].strip() if h[:7].lower() == "bearer " else ""
+
+
+@app.get(license.RENEW_PATH)
+def license_renew(request: Request, seq: int = 0) -> Response:
+    """`renew.url` из файла: последний выданный файл клинике, если он новее `seq`.
+
+    Без куки и админки — клинику называет токен из того же файла. 401 — токен
+    не признан; 204 — новее нет; 200 — файл, тот же текст, что скачивается и
+    уходит письмом. Каждый запрос оставляет след в карточке (когда, какой seq у
+    программы); выдача файла программе — строка в журнале."""
+    token = _bearer(request)
+    if not token:
+        return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    with db.connect() as con:
+        c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>''",
+                        (token,)).fetchone()
+        if c is None:
+            return JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
+        row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
+                          (c["id"],)).fetchone()
+        con.execute("UPDATE clinics SET renew_at=?, renew_seq=? WHERE id=?",
+                    (db.now_iso(), max(0, seq), c["id"]))
+        if row is None or row["seq"] <= seq:
+            return Response(status_code=204)
+        db.audit(con, "program", "renew", c["id"], f"файл {row['seq']} забран программой (у неё был {seq})")
+    return Response(license.issue_text(row), media_type="application/json")
 
 
 # ---------- вход ----------
@@ -343,7 +378,8 @@ def _send_latest(con, c, who: str) -> str:
     if not c["email"]:
         return "bad_email"
     plan = con.execute("SELECT plan FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
-    subject, body = mail.license_letter(c["name"], row["valid_until"], plan["plan"] if plan else "standard")
+    subject, body = mail.license_letter(c["name"], row["valid_until"], plan["plan"] if plan else "standard",
+                                        renew=license.renew_offered())
     try:
         where = mail.send(c["email"], subject, body,
                           ("license.json", license.issue_text(row).encode("utf-8")))

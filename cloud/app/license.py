@@ -8,11 +8,17 @@
 
 Состояние подписки не хранится — выводится из дат тем же правилом, что в
 программе (license_state.by_dates): active / grace / readonly.
+
+Автообновление (L13): в claim едет `renew` — адрес `/v1/license` этого сервера
+и токен клиники. Токен рождается с первой выдачей и дальше один и тот же:
+сменить его значит оставить без обновления все файлы, что уже у клиники.
 """
 from __future__ import annotations
 
 import base64
 import json
+import re
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -25,6 +31,12 @@ TRIAL_DAYS = 14
 TRIAL_GRACE_DAYS = 3
 GRACE_DAYS = 14
 PLANS = ("trial", "standard")
+RENEW_PATH = "/v1/license"
+RENEW_TOKEN_BYTES = 32          # token_urlsafe(32) — 43 знака; программа требует ≥ 32
+# То же правило, что у программы (rsa_verify._RENEW_URL): https — всегда, http —
+# только loopback. Адрес, который программа отвергла бы, в файл не пишется.
+_RENEW_URL = re.compile(
+    r"^(?:https://.|http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?(?:/|$))")
 
 _key: keys.Key | None = None
 
@@ -66,6 +78,27 @@ def state(valid_until: datetime | None, grace_days: int, now: datetime | None = 
     return "grace" if now < valid_until + timedelta(days=grace_days) else "readonly"
 
 
+def renew_url() -> str:
+    """Адрес, который программа спрашивает раз в сутки."""
+    return config.BASE_URL.rstrip("/") + RENEW_PATH
+
+
+def renew_offered() -> bool:
+    """Пишется ли `renew` в файлы: только адрес, который примет программа. На ПК
+    с Windows за http://127.0.0.1 поле есть, но до программы клиники не
+    достанет — автообновление требует публичного адреса (DEPLOY.md § 9)."""
+    return _RENEW_URL.match(renew_url()) is not None
+
+
+def renew_token(con: sqlite3.Connection, clinic: sqlite3.Row) -> str:
+    """Токен клиники: рождается с первой выдачей, дальше один и тот же."""
+    token = clinic["renew_token"] if "renew_token" in clinic.keys() else ""
+    if not token:
+        token = secrets.token_urlsafe(RENEW_TOKEN_BYTES)
+        con.execute("UPDATE clinics SET renew_token=? WHERE id=?", (token, clinic["id"]))
+    return token
+
+
 def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: datetime,
           grace_until: datetime, reason: str, who: str) -> tuple[int, str]:
     """Выпустить файл клинике. Возвращает (seq, текст файла). Подписка
@@ -85,6 +118,8 @@ def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: 
              "plan": plan, "country": clinic["country"] or "MD", "seq": seq,
              "issued_at": now.strftime(db.TS), "valid_until": valid_until.strftime(db.TS),
              "grace_until": grace_until.strftime(db.TS)}
+    if renew_offered():
+        claim["renew"] = {"url": renew_url(), "token": renew_token(con, clinic)}
     payload = claim_bytes(claim)
     sig = sign(payload)
     con.execute("""INSERT INTO issues(clinic_id, seq, kid, payload, sig, issued_at, valid_until,

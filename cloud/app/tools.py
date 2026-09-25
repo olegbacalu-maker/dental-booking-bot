@@ -41,7 +41,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import auth, config, db, keys
+from . import auth, config, db, keys, license
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 
@@ -243,6 +243,11 @@ def check() -> list[tuple[str, str]]:
                else (WARN, "DP_SECRET пуст: после рестарта сервера всех разлогинит"))
     if config.BASE_URL.startswith("https://") and not config.SECURE_COOKIES:
         out.append((WARN, "DP_SECURE_COOKIES не 1, а адрес https — кука пойдёт и по http"))
+    if license.renew_offered():
+        out.append((OK, f"автообновление: программы спрашивают {license.renew_url()}"))
+    else:
+        out.append((WARN, f"DP_BASE_URL={config.BASE_URL}: не https и не loopback — поле renew в файлы "
+                          "не пишется, программы клиник не обновятся сами"))
     if config.SMTP_HOST:
         try:
             with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as s:

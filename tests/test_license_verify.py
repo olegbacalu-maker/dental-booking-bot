@@ -184,6 +184,9 @@ def suite_claim(res: Result) -> None:
            code == "" and claim is not None and claim.renew == ok_renew["renew"])
     res.check("renew: null — как отсутствие",
               rv.open_envelope(_signed(dict(base, renew=None), k), keys)[0], "")
+    for url in ("http://127.0.0.1:8090/v1/license", "http://localhost/v1/license", "http://[::1]:1/x"):
+        res.check(f"renew по http на loopback — принят (стенд, сервер на том же ПК): {url}",
+                  rv.open_envelope(_signed(dict(base, renew={"url": url, "token": "t" * 32}), k), keys)[0], "")
 
     bad = {
         "seq = 0": dict(base, seq=0),
@@ -204,6 +207,11 @@ def suite_claim(res: Result) -> None:
         "grace_until < valid_until": dict(base, grace_until="2098-12-31T00:00:00Z"),
         "renew строкой": dict(base, renew="x"),
         "renew по http": dict(base, renew={"url": "http://cloud.dentpilot.md/", "token": "t" * 32}),
+        "renew по http в сети клиники": dict(base, renew={"url": "http://192.168.1.5:8090/", "token": "t" * 32}),
+        "renew: loopback как приставка чужого хоста":
+            dict(base, renew={"url": "http://127.0.0.1.evil.md/", "token": "t" * 32}),
+        "renew: localhost@чужой хост": dict(base, renew={"url": "http://localhost@evil.md/", "token": "t" * 32}),
+        "renew: https без хоста": dict(base, renew={"url": "https://", "token": "t" * 32}),
         "renew с коротким токеном": dict(base, renew={"url": "https://x/", "token": "t" * 31}),
         "без grace_until": {f: v for f, v in base.items() if f != "grace_until"},
     }

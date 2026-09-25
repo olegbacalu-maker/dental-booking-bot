@@ -20,6 +20,7 @@ import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
 import test_payments  # noqa: E402
 import test_pure  # noqa: E402
+import test_renew  # noqa: E402
 from harness import run  # noqa: E402
 
 SUITES = [
@@ -34,6 +35,7 @@ SUITES = [
     ("Сервер: окна напоминаний — подставная дата на каждую строку", test_jobs.suite_windows),
     ("Сервер: ежедневная задача — письма, повтор, новый период", test_jobs.suite_daily),
     ("Сервер: задача — пробный, без e-mail, без реквизитов, кнопка, журнал", test_jobs.suite_edges),
+    ("Сервер: автообновление — renew в файле, /v1/license, клиент программы", test_renew.suite_renew),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

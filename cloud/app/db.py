@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -50,6 +50,15 @@ MIGRATIONS = {
         """CREATE TABLE IF NOT EXISTS audit(
                id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, who TEXT NOT NULL,
                what TEXT NOT NULL, clinic_id TEXT, detail TEXT NOT NULL DEFAULT '')""",
+    ],
+    # L13, автообновление: токен клиники (уезжает в поле renew файла, рождается с
+    # первой выдачей — license.renew_token) и след последнего запроса программы:
+    # когда спрашивала и какой seq у неё был. Пусто у клиник до миграции — до их
+    # следующей выдачи.
+    2: [
+        "ALTER TABLE clinics ADD COLUMN renew_token TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE clinics ADD COLUMN renew_at TEXT",
+        "ALTER TABLE clinics ADD COLUMN renew_seq INTEGER",
     ],
 }
 

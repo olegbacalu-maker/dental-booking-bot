@@ -14,9 +14,17 @@
 ⚠️ Пустота картотеки берётся на старте и при `refresh()`, не на каждом
 вопросе: стена активации (L5) держит пустую картотеку пустой, а импорт файла
 идёт через `refresh()`.
+
+Автообновление (L13): если в принятом файле есть `renew`, программа раз в
+сутки спрашивает `renew.url` (провод — license_renew.py) и заменяет файл
+ТОЛЬКО на тот, чей `seq` выше принятого, проверив его тем же `open_envelope`,
+что и файл из письма. Сервера нет — программа живёт как жила: по файлу на
+диске и по памяти. Кнопка «Verifică acum» на странице лицензии делает тот же
+запрос сейчас.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -24,6 +32,7 @@ import pathlib
 from datetime import datetime, timedelta, timezone
 
 from .. import db, paths
+from . import license_renew as rn
 from . import license_state as st
 from . import rsa_verify
 
@@ -39,6 +48,14 @@ MISSING_CODE = "license_missing"           # то же для стены: фай
 # Адреса, открытые и за стеной: сама активация и всё, что нужно, чтобы до неё дойти
 WALL_FREE = ("/admin/license", "/admin/login", "/admin/logout", "/admin/setup",
              "/admin/recover")
+RENEW_EVERY = timedelta(days=1)            # суточный запрос к renew.url (L13)
+RENEW_TIMEOUT = rn.TIMEOUT
+# Исходы запроса — и коды баннера кнопки «Verifică acum» (MSG_BANNER в layout)
+RENEWED, RENEW_SAME, RENEW_OFFLINE, RENEW_REFUSED, RENEW_BAD, RENEW_NONE = (
+    "renewed", "same", "offline", "refused", "bad", "none")
+RENEW_CODES = {RENEWED: "license_renewed", RENEW_SAME: "license_renew_same",
+               RENEW_OFFLINE: "license_renew_offline", RENEW_REFUSED: "license_renew_refused",
+               RENEW_BAD: "license_renew_bad", RENEW_NONE: "license_renew_none"}
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -47,6 +64,9 @@ _status: st.Status | None = None
 _patients = False
 _written: datetime | None = None
 _keys_present = False
+_renew: dict = {"at": None, "outcome": "", "seq": 0}   # последняя попытка этого процесса
+_renew_task: asyncio.Task | None = None
+_renew_lock: asyncio.Lock | None = None
 
 
 def folder() -> pathlib.Path | None:
@@ -180,17 +200,12 @@ def walled(path: str, method: str = "GET") -> bool:
     return s is not None and applies() and s.wall
 
 
-async def install(text: str) -> str:
-    """Импорт файла со страницы активации: проверить, записать, перечитать.
-    Возвращает код отказа или '' — файл лежит и принят."""
+async def _put(text: str) -> st.Status | None:
+    """Записать файл рядом с clinic.json атомарно и перечитать. None — не записан.
+    Одна запись на оба пути — импорт со страницы и файл с сервера (L13)."""
     d = folder()
     if d is None:
-        return rsa_verify.MALFORMED
-    code, claim = rsa_verify.open_envelope(text, keys())
-    if code:
-        return code
-    if _mem.accepted_seq and claim.seq < _mem.accepted_seq:
-        return st.OLDER
+        return None
     p = d / FILE_NAME
     tmp = p.with_name(p.name + ".tmp")
     try:
@@ -198,13 +213,115 @@ async def install(text: str) -> str:
         os.replace(tmp, p)
     except OSError as e:
         log.warning("лицензия: %s не записан: %r", p.name, e)
+        return None
+    return await refresh()
+
+
+async def install(text: str) -> str:
+    """Импорт файла со страницы активации: проверить, записать, перечитать.
+    Возвращает код отказа или '' — файл лежит и принят."""
+    if folder() is None:
         return rsa_verify.MALFORMED
-    s = await refresh()
-    if s is not None and s.claim is not None:
+    code, claim = rsa_verify.open_envelope(text, keys())
+    if code:
+        return code
+    if _mem.accepted_seq and claim.seq < _mem.accepted_seq:
+        return st.OLDER
+    s = await _put(text)
+    if s is None:
+        return rsa_verify.MALFORMED
+    if s.claim is not None:
         await db.log_clinic_event(
             "license", f"Licența a fost activată: valabilă până la "
                        f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq})")
     return ""
+
+
+# ---------- автообновление (L13) ----------
+
+
+def renew_target() -> tuple[str, str] | None:
+    """(url, token) из файла на диске или None: файла нет, или в нём нет `renew`.
+
+    Берётся из результата проверки, а не из состояния: файл, отвергнутый как
+    старее принятого, всё равно знает адрес, по которому лежит новый."""
+    claim = _result[1] if _result is not None else None
+    if claim is None or claim.renew is None:
+        return None
+    return claim.renew["url"], claim.renew["token"]
+
+
+def last_renew() -> dict:
+    """Последняя попытка автообновления в этом процессе: страница и /api/license."""
+    return dict(_renew)
+
+
+def _agent() -> str:
+    from .. import engine as eng   # как в folder(): на уровне модуля замкнул бы круг
+    return f"DentPilot/{eng.APP_VERSION}"
+
+
+async def renew_once() -> str:
+    """Один запрос к renew.url: исход из RENEW_*; RENEW_NONE — спрашивать некого.
+
+    Файл заменяется ТОЛЬКО на seq выше принятого: ответ сервера проходит тот
+    же `open_envelope` и то же правило, что файл из письма. Всё, что не «новый
+    годный файл», оставляет диск и состояние как были — программа живёт по
+    файлу, который у неё есть, и без сервера (cloud.md › «Пять запретов»).
+    Сеть — в потоке, чтобы не держать цикл событий; замок — чтобы суточный
+    запрос и кнопка не писали файл наперегонки."""
+    global _renew_lock
+    target = renew_target()
+    if target is None or not applies():
+        return RENEW_NONE
+    if _renew_lock is None:
+        _renew_lock = asyncio.Lock()
+    async with _renew_lock:
+        url, token = target
+        had = _mem.accepted_seq
+        outcome, text = await asyncio.to_thread(rn.fetch, url, token, had, RENEW_TIMEOUT, _agent())
+        result = {rn.SAME: RENEW_SAME, rn.REFUSED: RENEW_REFUSED}.get(outcome, RENEW_OFFLINE)
+        if outcome == rn.NEWER:
+            code, claim = rsa_verify.open_envelope(text, keys())
+            if code:
+                result = RENEW_BAD
+            elif claim.seq <= had:
+                result = RENEW_SAME          # сервер прислал не новее: диск не трогаем
+            else:
+                s = await _put(text)
+                if s is None or s.claim is None:
+                    result = RENEW_BAD
+                else:
+                    result = RENEWED
+                    await db.log_clinic_event(
+                        "license", f"Licența a fost reînnoită automat: valabilă până la "
+                                   f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq})")
+        _renew.update(at=_now(), outcome=result, seq=_mem.accepted_seq)
+        # ⚠️ ASCII, как в _log: строку ищет тест в логе сервера на Windows.
+        # «Новее нет» — суточная рутина, info; замена файла и всякий отказ —
+        # warning, как состояния кроме active: сервер пишет лог с warning.
+        (log.info if result == RENEW_SAME else log.warning)(
+            "license: renew=%s seq=%d had=%d", result, _mem.accepted_seq, had)
+        return result
+
+
+async def _renew_loop() -> None:
+    while True:
+        try:
+            await renew_once()
+        except Exception as e:  # noqa: BLE001 — фон не имеет права умереть
+            log.warning("license: renew failed: %r", e)
+        await asyncio.sleep(RENEW_EVERY.total_seconds())
+
+
+def renew_async() -> None:
+    """Из хука старта main.py, после startup(): суточный запрос в фоне — тот же
+    приём, что update.check_async: старт не ждёт, таймаут есть, отказ молчит
+    (строкой в лог). Облако и демо без ключа — no-op."""
+    global _renew_task
+    if not db.IS_SQLITE or _renew_task is not None:
+        return
+    _renew_task = asyncio.get_running_loop().create_task(_renew_loop())
 
 
 def as_json() -> dict:
@@ -213,11 +330,15 @@ def as_json() -> dict:
     if s is None or not applies():
         return {"applies": False}
     c = s.claim
+    renew = None
+    if renew_target() is not None:
+        renew = {"at": st.fmt(_renew["at"]) if _renew["at"] else None,
+                 "outcome": _renew["outcome"], "seq": _renew["seq"]}
     return {"applies": True, "state": s.state, "code": s.code, "wall": s.wall,
             "valid_until": st.fmt(s.valid_until) if s.valid_until else None,
             "grace_until": st.fmt(s.grace_until) if s.grace_until else None,
             "clinic": c.clinic if c else "", "plan": c.plan if c else "",
-            "seq": _mem.accepted_seq}
+            "seq": _mem.accepted_seq, "renew": renew}
 
 
 def current() -> st.Status | None:

@@ -137,6 +137,18 @@ MSG_BANNER = {
     "license_bad_signature": ("err", "Semnătura fișierului nu corespunde conținutului — "
                                      "fișierul a fost modificat sau este corupt"),
     "license_older": ("err", "Fișierul este mai vechi decât licența deja activată"),
+    # Автообновление (L13): ответ кнопки «Verifică acum» на странице лицензии;
+    # коды — license.RENEW_CODES, по одному на исход запроса к серверу
+    "license_renewed": ("ok", "Fișierul de licență a fost reînnoit de pe serverul DentPilot"),
+    "license_renew_same": ("ok", "Nu există un fișier de licență mai nou pe serverul DentPilot"),
+    "license_renew_offline": ("err", "Serverul DentPilot nu a răspuns — verificați conexiunea "
+                                     "la internet; programul încearcă din nou zilnic"),
+    "license_renew_refused": ("err", "Serverul DentPilot nu a recunoscut licența acestei "
+                                     "clinici — contactați DentPilot"),
+    "license_renew_bad": ("err", "Fișierul primit de pe server nu a putut fi verificat — "
+                                 "contactați DentPilot"),
+    "license_renew_none": ("err", "Fișierul activat nu are adresă de reînnoire — fișierul "
+                                  "nou se activează manual, mai jos"),
     "ok": ("ok", "Programare adăugată"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),
@@ -686,6 +698,31 @@ def _tamper_banner() -> str:
 
 def _lic_date(d) -> str:
     return d.astimezone(eng.TZ).strftime("%d.%m.%Y")
+
+
+_RENEW_RO = {lic.RENEWED: "fișier nou primit", lic.RENEW_SAME: "nu există fișier mai nou",
+             lic.RENEW_OFFLINE: "serverul nu a răspuns",
+             lic.RENEW_REFUSED: "serverul nu a recunoscut licența",
+             lic.RENEW_BAD: "fișierul primit nu a putut fi verificat"}
+
+
+def _renew_line(director: bool) -> str:
+    """Автообновление (L13): что программа делает сама, когда спрашивала последний
+    раз, и кнопка «сейчас» — директору. Без `renew` в файле строки нет: обещать
+    нечего, новый файл активируется формой ниже."""
+    if lic.renew_target() is None:
+        return ""
+    last = lic.last_renew()
+    if last["at"] is None:
+        when = "de la pornire încă nu a verificat"
+    else:
+        when = (f"ultima verificare {last['at'].astimezone(eng.TZ):%d.%m.%Y %H:%M} — "
+                f"{_RENEW_RO.get(last['outcome'], last['outcome'])}")
+    # ⚠️ formaction, а не вторая форма: страница — одна форма, вложенных HTML не знает
+    btn = ("<button formaction='/admin/license/renew'>Verifică acum dacă există un fișier nou</button>"
+           if director else "")
+    return (f"<p>Programul verifică zilnic pe serverul DentPilot dacă există un fișier de "
+            f"licență mai nou și îl preia singur ({html.escape(when)}).</p>{btn}")
 
 
 def _license_banner() -> str:
@@ -1476,7 +1513,7 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
         details = (f"<dl><dt>Clinica</dt><dd>{html.escape(c.clinic)}</dd>"
                    f"<dt>Abonament</dt><dd>{html.escape(c.plan)}</dd>"
                    f"<dt>Valabil până la</dt><dd>{_lic_date(c.valid_until)}</dd>"
-                   f"<dt>Fișier</dt><dd>nr. {c.seq}</dd></dl>")
+                   f"<dt>Fișier</dt><dd>nr. {c.seq}</dd></dl>" + _renew_line(director))
         if s.state == lic.st.ACTIVE:
             title, tone, text = "Licența programului", "ok", "Abonamentul este activ."
         elif s.state == lic.st.GRACE:

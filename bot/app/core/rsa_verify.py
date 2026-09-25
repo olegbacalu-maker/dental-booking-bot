@@ -52,6 +52,11 @@ _COUNTRY = re.compile(r"^[A-Z]{2}$")
 _TS = "%Y-%m-%dT%H:%M:%SZ"
 _PLANS = ("trial", "standard")
 _RENEW_TOKEN_MIN = 32
+# renew.url (L13): https — всегда; http — только loopback (стенд, сервер на том
+# же ПК): токен не должен идти по сети открытым. После хоста допустимы только
+# порт, «/» или конец строки — «127.0.0.1.evil.md» и «localhost@evil.md» мимо.
+_RENEW_URL = re.compile(
+    r"^(?:https://.|http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?(?:/|$))")
 
 
 @dataclass(frozen=True)
@@ -66,7 +71,7 @@ class Claim:
     issued_at: datetime
     valid_until: datetime
     grace_until: datetime
-    renew: dict | None          # {"url", "token"} с шага 2; None, пока поля нет
+    renew: dict | None          # {"url", "token"} — автообновление (L13); None, если поля нет
 
 
 # ---------- математика ----------
@@ -144,7 +149,7 @@ def parse_claim(payload: bytes) -> Claim | None:
     renew = c.get("renew")
     if renew is not None:
         if (not isinstance(renew, dict) or type(renew.get("url")) is not str
-                or not renew["url"].startswith("https://")
+                or not _RENEW_URL.match(renew["url"])
                 or type(renew.get("token")) is not str
                 or len(renew["token"]) < _RENEW_TOKEN_MIN):
             return None

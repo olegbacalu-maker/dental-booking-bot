@@ -138,8 +138,14 @@ def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, gr
     return subject, f"Bună ziua,\n\n{intro}\n\n{how_to_pay(pay, price)}\n\n{FOOTER}"
 
 
-def license_letter(clinic: str, valid_until: str, plan: str) -> tuple[str, str]:
-    """Тема и текст письма с файлом — по-румынски, как интерфейс программы."""
+RENEW_NOTE = ("Dacă programul este deja activat și are acces la internet, preia singur "
+              "fișierul nou în cel mult o zi — nu trebuie să faceți nimic.")
+
+
+def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False) -> tuple[str, str]:
+    """Тема и текст письма с файлом — по-румынски, как интерфейс программы.
+    `renew` — в файле есть адрес автообновления (L13): письмо говорит, что
+    активированной программе делать ничего не нужно."""
     what = "perioada de probă" if plan == "trial" else "abonamentul"
     subject = f"DentPilot: fișierul de licență pentru {clinic}"
     body = (f"Bună ziua,\n\n"
@@ -150,6 +156,7 @@ def license_letter(clinic: str, valid_until: str, plan: str) -> tuple[str, str]:
             f"2. În DentPilot deschideți pagina Licență (meniul Setări sau adresa "
             f"/admin/license din program).\n"
             f"3. Alegeți fișierul și apăsați «Activează licența».\n\n"
+            + (f"{RENEW_NOTE}\n\n" if renew else "") +
             f"Fișierul este emis pentru clinica dumneavoastră și nu se transmite altora. "
             f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele.\n\n"
             f"{FOOTER}")

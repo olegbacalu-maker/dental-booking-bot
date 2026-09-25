@@ -99,8 +99,27 @@ def _tag(state: str) -> str:
     return f"<span class='tag {cls}'>{esc(text)}</span>"
 
 
+def _renew_info(c, latest_seq: int) -> str:
+    """Автообновление (L13): когда программа клиники спрашивала последний раз и
+    какой файл у неё был — видно, дошёл ли до неё выданный файл."""
+    at = c["renew_at"] if "renew_at" in c.keys() else None
+    if not at:
+        return "<span class='tag mute'>программа ещё не обращалась</span>"
+    have = c["renew_seq"] or 0
+    tag = ("<span class='tag ok'>файл у программы</span>" if have >= latest_seq
+           else f"<span class='tag warn'>у программы файл {have}, выдан {latest_seq}</span>")
+    return f"{esc(at[:16].replace('T', ' '))} UTC {tag}"
+
+
 def _d(s: str | None) -> str:
     return esc(s[:10]) if s else "—"
+
+
+def _renew_short(r) -> str:
+    """В списке: файл ещё не дошёл до программы — заметно; дошёл или не спрашивала — тихо."""
+    if not r["renew_at"] or (r["renew_seq"] or 0) >= (r["seq"] or 0):
+        return ""
+    return f" <span class='tag warn' title='программа спрашивала {esc(r['renew_at'][:16])}'>у программы {r['renew_seq'] or 0}</span>"
 
 
 def clinics_page(rows: list, user: str, msg: str = "") -> str:
@@ -110,7 +129,7 @@ def clinics_page(rows: list, user: str, msg: str = "") -> str:
         f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['plan'] or '—')}</td>"
         f"<td>{_d(r['valid_until'])}</td>"
         f"<td>{_tag(license.state(_ts(r['valid_until']), r['grace_days'] or 0, now))}</td>"
-        f"<td>{r['seq'] or 0}</td></tr>"
+        f"<td>{r['seq'] or 0}{_renew_short(r)}</td></tr>"
         for r in rows) or "<tr><td colspan='6' class='muted'>Пока ни одной клиники</td></tr>"
     counts = {k: 0 for k in STATE_RU}
     for r in rows:
@@ -201,6 +220,8 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
             f"<div><label>Срок до</label><div>{_d(sub['valid_until']) if sub else '—'} {_tag(st)}</div></div>"
             f"<div><label>Льгота</label><div>{sub['grace_days'] if sub else '—'} дн.</div></div>"
             f"<div><label>Идентификатор</label><div class='mono'>{esc(c['id'])}</div></div>"
+            f"<div><label>Программа спрашивала</label><div>"
+            f"{_renew_info(c, max((i['seq'] for i in issues), default=0))}</div></div>"
             f"</div></div>")
     edit = (f"<details><summary class='muted'>Изменить реквизиты</summary><div class='card'>"
             f"<form method='post' action='/admin/clinics/{esc(c['id'])}/edit'><div class='grid'>"
