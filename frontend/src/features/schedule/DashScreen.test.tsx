@@ -4,7 +4,7 @@ import { RouterProvider } from 'react-router/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screenRoute } from '../../hooks/useRouteLoad'
 import { shift } from '../../utils/date'
-import { DashScreen } from './DashScreen'
+import { DashScreen, loadDash } from './DashScreen'
 import { clinicNow } from './dashFx'
 import type { DashAppt, DashModel } from './dash'
 
@@ -114,10 +114,12 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
-/* Экран открывается ТЕМ ЖЕ маршрутом, что в App.tsx (загрузчика нет — данные
-   несёт живой канал), и на АДРЕСЕ: день он берёт из `?date=` сам. */
-function mount(url = `/admin?date=${TODAY}`) {
-  const router = createMemoryRouter([screenRoute('/admin', <DashScreen />)],
+/* Экран открывается ТЕМ ЖЕ маршрутом, что в App.tsx: загрузчик `loadDash`
+   добывает ПЕРВЫЙ ответ канала (B4), дальше опрашивает `useLive`; день —
+   из `?date=` адреса. ⚠️ Без загрузчика экран ждёт засев вечно — как и любой
+   экран на загрузчике, голым он не открывается. */
+function mount(url = `/admin?date=${TODAY}`, navigate: (u: string) => void = () => {}) {
+  const router = createMemoryRouter([screenRoute('/admin', <DashScreen />, loadDash, navigate)],
     { initialEntries: [url] })
   return { router, ...render(<RouterProvider router={router} />) }
 }
@@ -126,6 +128,38 @@ const show = async (url?: string) => {
   mount(url)
   await waitFor(() => expect(document.querySelector('.gridbody')).toBeTruthy())
 }
+
+describe('B4: первый ответ канала — загрузчиком', () => {
+  /* Маршрут ТОТ ЖЕ, что в App.tsx (`LOADS.schedule_dash`): загрузчик добывает
+     первый ответ, экран получает его засевом. */
+  const mountLoaded = (url = `/admin?date=${TODAY}`) => {
+    const router = createMemoryRouter([screenRoute('/admin', <DashScreen />, loadDash)],
+      { initialEntries: [url] })
+    return { router, ...render(<RouterProvider router={router} />) }
+  }
+
+  it('панель стоит в первом кадре маршрута: один запрос до отрисовки, опрос продолжается с его отпечатком', async () => {
+    const f = vi.fn(async () => reply(200, model(), { 'X-DP-Hash': 'h1' }))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    const { router } = mountLoaded()
+    /* пока загрузчик бежит, узел в ожидании, а не пуст без объяснения */
+    await waitFor(() => expect(router.state.initialized).toBe(true))
+    await waitFor(() => expect(document.querySelector('.gridbody')).toBeTruthy())
+    expect(f).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(f).toHaveBeenCalledTimes(2))
+    expect((f.mock.calls[1] as unknown as [string, RequestInit])[1].headers).toEqual({ 'X-DP-Hash': 'h1' })
+  })
+
+  it('загрузчик: сессия кончилась — уход на вход, как у всех экранов', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 401 })) as unknown as typeof fetch)
+    const leave = vi.fn()
+    const router = createMemoryRouter([screenRoute('/admin', <DashScreen />, loadDash, leave)],
+      { initialEntries: [`/admin?date=${TODAY}`] })
+    render(<RouterProvider router={router} />)
+    await waitFor(() => expect(leave).toHaveBeenCalledWith(expect.stringContaining('/admin/login')))
+  })
+})
 
 describe('C26.5.2: панель дня — экран целиком', () => {
   it('ОДИН конверт кормит все четыре блока сразу', async () => {

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import {
-  Outlet, ScrollRestoration, useLoaderData, useParams, useRouteError, useRouteLoaderData,
+  Outlet, ScrollRestoration, useLoaderData, useLocation, useNavigationType, useParams, useRouteError,
+  useRouteLoaderData,
   type DataRouter, type GetScrollRestorationKeyFunction, type HydrationState,
   type LoaderFunctionArgs, type RouteObject, type ShouldRevalidateFunction,
 } from 'react-router'
@@ -25,7 +26,7 @@ import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
 import { loadOdontogram, OdontogramScreen } from '../features/clinical/OdontogramScreen'
 import { loadPerio, PerioScreen } from '../features/clinical/PerioScreen'
-import { DashScreen } from '../features/schedule/DashScreen'
+import { DashScreen, loadDash } from '../features/schedule/DashScreen'
 import { DayScreen, loadDay } from '../features/schedule/DayScreen'
 import { loadWeek, WeekScreen } from '../features/schedule/WeekScreen'
 import { QuickFind } from '../features/quickfind/QuickFind'
@@ -113,6 +114,8 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   visit: loadVisit,
   patients_search: loadPatientsSearch,
   settings_clinic: loadClinicSettings,
+  // ⭐ Панель: загрузчик добывает ПЕРВЫЙ ответ живого канала (B4); опрос — `useLive`.
+  schedule_dash: loadDash,
 }
 
 /**
@@ -169,6 +172,26 @@ async function docLoader({ request }: LoaderFunctionArgs): Promise<MountNode> {
 const scrollKey: GetScrollRestorationKeyFunction = (loc) => (loc.hash ? loc.key : loc.pathname)
 
 /**
+ * Новый путь — СВЕРХУ, даже если на нём уже бывали. Ключ позиции — путь, и
+ * роутер вернул бы на PUSH прежнюю позицию этого пути (25.09: панель после
+ * недели открывалась на 6 px — там, где её оставили; пока панель ждала данные
+ * пустой, это пряталось за нулевой высотой). Слой-эффект стоит ПОСЛЕ
+ * `ScrollRestoration`, поэтому его слово последнее в том же кадре. «Назад»
+ * (POP) и `replace` на том же пути (листание, отбор) — как решил роутер;
+ * якорь — к якорю.
+ */
+function ScrollTop() {
+  const { pathname, hash } = useLocation()
+  const type = useNavigationType()
+  const prev = useRef(pathname)
+  useLayoutEffect(() => {
+    if (type === 'PUSH' && pathname !== prev.current && !hash) window.scrollTo(0, 0)
+    prev.current = pathname
+  }, [pathname, hash, type])
+  return null
+}
+
+/**
  * Экран маршрута. ⭐ Сервер остаётся СВИДЕТЕЛЕМ: `data-screen` говорит, что он
  * отдал по этому адресу, и расхождение с роутером — это бандл и сервер из
  * разных версий. Показать тогда «чужой» экран с чужими параметрами было бы
@@ -203,7 +226,7 @@ function Frame() {
   /* Голова нового адреса — в момент показа его кадра, а не раньше: переход
      могут перебить, и тема чужого адреса не должна лечь на прежний экран. */
   useLayoutEffect(() => { if (node.head) applyHead(node.head) }, [node.head])
-  const body = <><ScrollRestoration getKey={scrollKey} /><Outlet /></>
+  const body = <><ScrollRestoration getKey={scrollKey} /><ScrollTop /><Outlet /></>
   return node.shell ? <AppShell m={node.shell}>{body}</AppShell> : body
 }
 

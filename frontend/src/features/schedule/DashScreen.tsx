@@ -6,9 +6,11 @@ import { Toast, type ToastState } from '../../components/Toast'
 import { CardDialog } from './CardDialog'
 import { CardMenu, type CardMenuAt } from './CardMenu'
 import { asApiError, type ApiResult } from '../../services/api'
+import { pollLive } from '../../services/live'
+import { ApiError } from '../../types/api'
 import { dm, shift } from '../../utils/date'
-import { useLive } from '../../hooks/useLive'
-import { queryParam } from '../../hooks/useRouteLoad'
+import { useLive, type LiveSeed } from '../../hooks/useLive'
+import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
 import { MoveDialog } from './MoveDialog'
@@ -73,8 +75,29 @@ const T = {
 const LINE_MS = 30_000
 const WAIT_MS = 60_000
 
+/**
+ * Первый ответ канала — ЗАГРУЗЧИКОМ (B4, Олег на 1.31.2: «с любой страницы при
+ * переходе на Dashboard та же проблема» — панель появлялась пустой и
+ * заполнялась через круг по сети). Это не второй путь к данным: тот же
+ * `pollLive` по тому же пути, ответ отдаётся `useLive` засевом и проходит
+ * через тот же `nextLive`. Дальше — обычный опрос. Сессия кончилась —
+ * загрузчик уводит на вход, как у всех экранов.
+ */
+export const loadDash: RouteLoad<LiveSeed<DashModel>> = async (signal, _p, q) => {
+  const path = livePath(queryParam(q, 'date'))
+  const res = await pollLive<DashModel>(path, '', signal)
+  if (res.kind === 'signout') throw new ApiError({ kind: 'unauthenticated' }, 'signout')
+  return { data: { path, res }, code: '', text: '', tone: 'ok' }
+}
+
 export function DashScreen() {
   const at = useAddressDay()
+  /* Засев из загрузчика. Кадр ожидания (F5) — `'pending'`: канал ждёт, а не
+     шлёт второй такой же запрос; загрузчик отказал — `null`: канал грузит сам,
+     как и раньше, со своим отказом и повтором. */
+  const { state: seedState } = useRouteLoad<LiveSeed<DashModel>>()
+  const seed = seedState.status === 'ready' ? seedState.data
+    : seedState.status === 'loading' ? 'pending' : null
   const rail = useRef<HTMLDivElement | null>(null)
   /* ⚠️ Вместе с номером хранится СНИМОК записи на момент клика — он и
      станет надгробием, если запись исчезнет. Снимок берётся в
@@ -134,7 +157,7 @@ export function DashScreen() {
   }, [])
   const { state, retry, refresh } = useLive<DashModel>(
     livePath(at), 'react', version,
-    { hold: () => flying.current || dragging.current })
+    { hold: () => flying.current || dragging.current, seed })
   const lineTick = useClockTick(LINE_MS)
   const waitTick = useClockTick(WAIT_MS)
 
@@ -335,8 +358,9 @@ export function DashScreen() {
     )
   }
   if (!state.data) {
-    /* `loading` и `leaving`: на уходе форму не показываем даже кадр. */
-    return <section className="dp-react-root" />
+    /* `loading` и `leaving`: на уходе форму не показываем даже кадр.
+       `aria-busy` — на ожидании: это же и первый кадр F5 (`hydrateFallback`). */
+    return <section className="dp-react-root" aria-busy={state.status === 'loading' || undefined} />
   }
 
   const d = state.data

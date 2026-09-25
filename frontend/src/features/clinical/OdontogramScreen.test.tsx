@@ -296,8 +296,8 @@ describe('C22: поверхность как первичный жест, чер
 
   it('B4.3: ?t= сменился на том же пути (переход роутером) — фокус уходит к новому зубу без перезагрузки', async () => {
     const { router } = open(16)
-    await waitFor(() => expect(btn(16)).toBeTruthy())
-    expect(document.activeElement).toBe(btn(16))
+    /* фокус ставит эффект после кадра — ждём его, а не первый кадр дуги */
+    await waitFor(() => expect(document.activeElement).toBe(btn(16)))
     /* Узел документа тут ни при чём: зуб читается из АДРЕСА, и адрес сменился
        на месте — загрузчик не перезапускается, дуга та же. */
     await act(() => router.navigate('/admin/patient/5/odontograma?t=21', { replace: true }))

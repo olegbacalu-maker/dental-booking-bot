@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { LIVE_MS, nextLive, pollLive } from '../services/live'
+import { LIVE_MS, nextLive, pollLive, type LiveResult } from '../services/live'
 import { loginUrl } from '../services/api'
 
 /**
@@ -32,7 +32,24 @@ export const defaultReload = () => window.location.reload()
 const never = () => false
 const noop = () => { /* тик ещё не подписан */ }
 
-export interface LiveOptions {
+/**
+ * Первый ответ канала, добытый ЗАГРУЗЧИКОМ маршрута до первого кадра (B4):
+ * тот же `pollLive` по тому же пути, только раньше. ⛔ Это транспорт, а не
+ * второй путь: решает по нему тот же `nextLive`, что и по любому тику, и
+ * отпечаток двигается тем же местом. Путь — чтобы засев другого дня (адрес
+ * сменился, загрузчик ещё бежит) не лёг на новую подписку.
+ */
+export interface LiveSeed<T> {
+  path: string
+  res: LiveResult<T>
+}
+
+export interface LiveOptions<T = unknown> {
+  /** Засев загрузчика: применяется вместо первого запроса, ровно один раз.
+   *  `'pending'` — загрузчик ещё бежит (кадр ожидания F5): своего запроса не
+   *  слать, иначе первый кадр стоил бы ДВА одинаковых запроса. `null` —
+   *  засева не будет (загрузчик отказал), канал грузит сам. */
+  seed?: LiveSeed<T> | null | 'pending'
   /**
    * Придержать ПРИМЕНЕНИЕ новых данных — предикат, а не значение.
    *
@@ -62,13 +79,26 @@ export function useLive<T>(
   path: string,
   surface: string,
   version: string,
-  options: LiveOptions = {},
+  options: LiveOptions<T> = {},
 ) {
-  const { hold = never, everyMs = LIVE_MS,
+  const { hold = never, everyMs = LIVE_MS, seed = null,
     navigate = defaultNavigate, reload = defaultReload } = options
-  const [state, setState] = useState<LiveState<T>>({
-    status: 'loading', data: null, reason: null,
+  /* ⭐ Засев с ДАННЫМИ применяется ещё при первой отрисовке, а не эффектом:
+     эффект пассивный, он идёт после кадра, и панель успевала мигнуть пустым
+     `aria-busy` (зонд CDP 25.09: кадр 0 узлов между старым экраном и панелью,
+     не на каждом переходе — гонка с отрисовкой). Всё, что засев несёт КРОМЕ
+     данных (уход на вход, перезагрузка, остановка), — это побочные действия,
+     и они остаются эффекту: он увидит засев не применённым и разберёт его. */
+  const [first] = useState(() => {
+    if (seed && seed !== 'pending' && seed.path === path) {
+      const act = nextLive(seed.res, { surface, version }, false)
+      if (act.do === 'apply') {
+        return { state: { status: 'ready', data: act.data, reason: null } as LiveState<T>, tag: act.tag, seed }
+      }
+    }
+    return { state: { status: 'loading', data: null, reason: null } as LiveState<T>, tag: '', seed: null }
   })
+  const [state, setState] = useState<LiveState<T>>(first.state)
   const [attempt, setAttempt] = useState(0)
   /* Отпечаток, «держим», «данные уже были» и переходы живут в ref, а не в
      зависимостях: от них не зависит картинка, а перезапуск эффекта сбрасывал
@@ -79,8 +109,8 @@ export function useLive<T>(
      спрашивает сервер немедленно. Получается непрерывный опрос вместо раза в
      12 секунд: экран выглядит исправным, и заметить это можно только
      счётчиком запросов (поймано проверкой 19.09 — 252 запроса вместо одного). */
-  const tag = useRef('')
-  const loaded = useRef(false)
+  const tag = useRef(first.tag)
+  const loaded = useRef(first.seed !== null)
   /* Свежесть СОСТОЯНИЯ, а не порядок доставки. `sent` — номер последнего
      выпущенного запроса, `fresh` — номер того, чьё состояние уже на экране.
      ⛔ Без этого живёт гонка, от которой `hold` не спасает, потому что к
@@ -90,13 +120,22 @@ export function useLive<T>(
          состояние поверх свежего.
      Визит исчезает с канвы на двенадцать секунд, и регистратура записывает
      второй раз. Правило простое: номер не больше применённого — выбросить. */
-  const sent = useRef(0)
-  const fresh = useRef(0)
+  const sent = useRef(first.seed ? 1 : 0)
+  const fresh = useRef(first.seed ? 1 : 0)
   const ask = useRef<() => void>(noop)
+  /* Какой засев уже применён: повтор после отказа (`attempt`) и перезапуск с
+     тем же засевом обязаны идти в сеть, а не читать его второй раз. */
+  const seeded = useRef<LiveSeed<T> | null>(first.seed)
+  /* Засев лёг при первой отрисовке — первый тик подписки не нужен: данные
+     уже на экране, следующий опрос — через период. Ровно один раз. */
+  const restNow = useRef(first.seed !== null)
   const now = useRef({ hold, navigate, reload })
   useEffect(() => { now.current = { hold, navigate, reload } })
 
   useEffect(() => {
+    /* Загрузчик ещё несёт первый ответ — подписка подождёт его (эффект
+       перезапустится, когда засев приедет). */
+    if (seed === 'pending') return
     const ctl = new AbortController()
     const timers: { id?: ReturnType<typeof setInterval> } = {}
     let stopped = false
@@ -106,11 +145,8 @@ export function useLive<T>(
       if (timers.id !== undefined) clearInterval(timers.id)
     }
 
-    const tick = async () => {
-      if (stopped || document.hidden) return
-      const mine = ++sent.current
-      const res = await pollLive<T>(path, tag.current, ctl.signal)
-      if (stopped || ctl.signal.aborted) return
+    /* Один разбор на ответ из сети и на засев загрузчика: дверь одна. */
+    const handle = (res: LiveResult<T>, mine: number) => {
       /* ⚠️ Предикат читается ЗДЕСЬ, в момент решения, а не при подписке. */
       const act = nextLive(res, { surface, version }, now.current.hold())
       switch (act.do) {
@@ -150,13 +186,31 @@ export function useLive<T>(
       }
     }
 
+    const tick = async () => {
+      if (stopped || document.hidden) return
+      const mine = ++sent.current
+      const res = await pollLive<T>(path, tag.current, ctl.signal)
+      if (stopped || ctl.signal.aborted) return
+      handle(res, mine)
+    }
+
     const wake = () => { if (!document.hidden) void tick() }
     /* Немедленный тик наружу. ⛔ Отпечаток он не трогает и данных не несёт:
        это ТОТ ЖЕ путь, а не второй. Ради этого команда и не возвращает
        состояния — иначе у экрана появилось бы два источника истины. */
     ask.current = () => { void tick() }
 
-    void tick()
+    /* ⭐ Засев загрузчика — вместо первого запроса: панель стоит в первом же
+       кадре перехода, а не через круг по сети после него. Чужой путь или
+       уже применённый засев — обычный тик. */
+    if (restNow.current) {
+      restNow.current = false
+    } else if (seed && seed.path === path && seed !== seeded.current) {
+      seeded.current = seed
+      handle(seed.res, ++sent.current)
+    } else {
+      void tick()
+    }
     timers.id = setInterval(() => void tick(), everyMs)
     document.addEventListener('visibilitychange', wake)
     return () => {
@@ -164,7 +218,7 @@ export function useLive<T>(
       document.removeEventListener('visibilitychange', wake)
       ctl.abort()
     }
-  }, [path, surface, version, everyMs, attempt])
+  }, [path, surface, version, everyMs, attempt, seed])
 
   /** Повтор после неудачной ПЕРВОЙ загрузки. Отпечаток при этом не трогаем:
    *  данных на экране нет, и сравнивать не с чем. */

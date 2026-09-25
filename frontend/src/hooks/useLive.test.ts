@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useLive } from './useLive'
+import { useLive, type LiveSeed } from './useLive'
+import { pollLive } from '../services/live'
 
 /* Ответы канала. Пустое тело — 204 «состояние прежнее». */
 function reply(status: number, data: unknown, head: Record<string, string> = {}): Response {
@@ -66,6 +67,38 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     await vi.advanceTimersByTimeAsync(12_000)
     await waitFor(() => expect(result.current.state.data).toEqual(day(2)))
     expect(init(f, 1).headers).toEqual({ 'X-DP-Hash': 'h1' })
+  })
+
+  it('B4: засев загрузчика применяется ВМЕСТО первого запроса, отпечаток из него, дальше — опрос', async () => {
+    /* Засев — тот же pollLive, только вызванный раньше (загрузчиком). */
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' })))
+    const seed: LiveSeed<{ n: number }> = { path: '/schedule/live', res: await pollLive('/schedule/live', '') }
+    const f = vi.fn(async () => reply(200, day(2), { 'X-DP-Hash': 'h2' }))
+    vi.stubGlobal('fetch', f)
+
+    const o = opts({ seed })
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', o))
+    /* ⭐ данные на месте В ПЕРВОЙ ОТРИСОВКЕ (не после эффекта — иначе кадр
+       пустоты), и запроса в сеть не было */
+    expect(result.current.state.status).toBe('ready')
+    expect(result.current.state.data).toEqual(day(1))
+    expect(f).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(result.current.state.data).toEqual(day(2)))
+    /* отпечаток — из засева: канал знает, что клиент уже видел h1 */
+    expect(init(f, 0).headers).toEqual({ 'X-DP-Hash': 'h1' })
+  })
+
+  it('B4: засев ЧУЖОГО пути не применяется — идёт обычный первый запрос', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, day(9), { 'X-DP-Hash': 'h9' })))
+    const seed: LiveSeed<{ n: number }> = { path: '/schedule/live?date=2026-09-01', res: await pollLive('/schedule/live', '') }
+    const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
+    vi.stubGlobal('fetch', f)
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts({ seed })))
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    expect(result.current.state.data).toEqual(day(1))
+    expect(f).toHaveBeenCalledTimes(1)
   })
 
   it('204 не трогает данные и не делает экран «отказавшим»', async () => {
