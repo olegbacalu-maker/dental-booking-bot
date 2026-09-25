@@ -258,7 +258,7 @@ def main() -> int:
     ap.add_argument("--tag", help="имя снимка (папка build/shots/look/<tag>)")
     ap.add_argument("--against", help="эталон для сверки после съёмки")
     ap.add_argument("--compare", nargs=2, metavar=("BASE", "NEW"), help="только сверить")
-    ap.add_argument("--styles", default="modern,elegant,calm")
+    ap.add_argument("--styles", default="fluent,modern,elegant,calm")
     ap.add_argument("--menu", default="brand", help="вариант меню: brand | neutral")
     ap.add_argument("--font", default="inter", help="шрифт: inter | system")
     ap.add_argument("--only", default="", help="экраны через запятую")

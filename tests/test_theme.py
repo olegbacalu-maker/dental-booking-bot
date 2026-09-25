@@ -186,9 +186,9 @@ def suite_palette(res: Result) -> None:
     res.ok("исполняемый файл не считается картинкой", exe is None, f"опознан как {exe!r}")
     res.ok("пустой файл не считается картинкой", empty is None, f"опознан как {empty!r}")
 
-    res.check("битая тема откатывается к фирменной",
+    res.check("битая тема откатывается к фирменной и к стилю по умолчанию",
               [out["fallback"]["primary"], out["fallback"]["style"]],
-              ["#0E9F8A", "modern"])
+              ["#0E9F8A", "fluent"])
     res.ok("подстановка в CSS невозможна",
            "display:none" not in out["fallback_css"]
            and "}" not in out["fallback_css"][:-1],
@@ -312,8 +312,9 @@ def suite_pages(res: Result) -> None:
         anon = Client(s.url)
 
         page = c.get("/admin").body
-        res.ok("журнал открывается со стилем по умолчанию",
-               'data-style="modern"' in page, "нет data-style на <html>")
+        # ⭐ с 25.09 умолчание — Fluent (решение Олега); modern остался базой :root
+        res.ok("журнал открывается со стилем по умолчанию — Fluent",
+               'data-style="fluent"' in page, "нет data-style=fluent на <html>")
         res.ok("переопределение переменных приехало в шапку",
                "<style>:root{" in page and "--teal:#0E9F8A" in page,
                "нет блока темы")

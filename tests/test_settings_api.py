@@ -552,8 +552,8 @@ def suite_theme(res: Result) -> None:
         anon = Client(s.url)
         res.check("без входа — 401", anon.get(api).status, 401)
         d = _j(c.get(api))["data"]
-        res.ok("по умолчанию Modern и фирменный зелёный",
-               d["style"] == "modern" and d["primary"] == "#0E9F8A" and not d["custom"], f"{d}")
+        res.ok("по умолчанию Fluent и фирменный зелёный",
+               d["style"] == "fluent" and d["primary"] == "#0E9F8A" and not d["custom"], f"{d}")
         res.check("четыре стиля", [x["key"] for x in d["styles"]],
                   ["modern", "elegant", "calm", "fluent"])
         res.ok("стиль несёт подпись и переменные",
