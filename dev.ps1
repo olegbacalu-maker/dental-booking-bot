@@ -1,4 +1,4 @@
-# dev.ps1 - odna tochka vhoda dlya rutiny: test / mutate / up / check.
+# dev.ps1 - odna tochka vhoda dlya rutiny: test / mutate / up / check / bench.
 #
 # Vsya logika v scripts\dev.py, i eto namerenno. V PowerShell 5.1 stderr
 # nativnoi komandy (git!) stanovitsya oshibkoi, net operatora &&, a $_ vnutri

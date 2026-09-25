@@ -4,6 +4,7 @@ r"""Рутина разработки одной командой. Звать ч
     .\dev mutate          проверка сторожей test_structure на слом
     .\dev up [порт]       песочница из исходников на своей базе (по умолчанию 8099)
     .\dev check           готов ли к релизу: дерево, пуш, версия, тег
+    .\dev bench [фильтр]  стенды в живом Edge: переходы, сдвиги, ожидание, F5, монтаж, права
     .\dev memory          сколько памяти грузится в КАЖДУЮ сессию и не пора ли резать
 
 Зачем скрипт, если команды и так известны. Инструкция «в такой ситуации запусти
@@ -23,8 +24,10 @@ import errno
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
+import time
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
@@ -382,10 +385,63 @@ def cmd_memory(argv: list) -> int:
     return 0 if ok else 1
 
 
+# ---------- bench ----------
+
+# Стенды в живом Edge, в порядке «от дешёвого к дорогому». Каждый — свой
+# скрипт со своим портом отладки и своей парой (красное на сломанном).
+# ⛔ Не в `.\dev test` и не в CI: нужен Edge и websocket-client в СИСТЕМНОМ
+# Python (в `.venv-desktop` ничего не ставить — это окружение сборки).
+BENCHES = [
+    ("spa_nav", "переходы без перезагрузки: оболочка на месте, пара"),
+    ("shift_sweep", "сдвиги раскладки после первого кадра на всех экранах"),
+    ("loader_hold", "оболочка видна, пока загрузчик ждёт"),
+    ("url_state_f5", "F5 на адресе роутера даёт тот же экран"),
+    ("mount_sweep", "все экраны монтируются"),
+    ("perm_gate", "отказ в праве посреди сеанса уводит, как сервер"),
+]
+
+
+def cmd_bench(argv: list) -> int:
+    """Прогнать стенды подряд и показать по строке на каждый. Красный стенд
+    печатает свой хвост целиком: там названо, что именно разошлось.
+
+    ⭐ Зачем одной командой: 25.09 четыре выпуска за день, и перед каждым
+    стенды гонялись руками по одному — забыть один из шести проще простого,
+    а забытый стенд зелен ровно так же, как не запущенный."""
+    only = argv[0] if argv else ""
+    todo = [(n, d) for n, d in BENCHES if only in n]
+    if not todo:
+        print(f"Нет стенда по фильтру {only!r}. Есть: {', '.join(n for n, _ in BENCHES)}")
+        return 2
+    python = shutil.which("python") or shutil.which("py")
+    if not python:
+        print("Системный Python не найден: стенды зовут Edge через websocket-client, "
+              "которого в .venv-desktop нет намеренно.")
+        return 2
+    bad = 0
+    for name, what in todo:
+        t0 = time.time()
+        r = subprocess.run([python, str(ROOT / "scripts" / f"{name}.py")], cwd=str(ROOT),
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+        last = lines[-1] if lines else (r.stderr or "").strip().splitlines()[-1:] or ["(пусто)"]
+        last = last if isinstance(last, str) else last[0]
+        ok = r.returncode == 0
+        bad += not ok
+        print(f"{'OK ' if ok else 'RED'} {name:<13} {int(time.time() - t0):>4} с  {last}")
+        if not ok:
+            for ln in lines[-15:]:
+                print("      " + ln)
+            if r.stderr and r.stderr.strip():
+                print("      stderr: " + r.stderr.strip().splitlines()[-1])
+    print(f"\n{len(todo) - bad}/{len(todo)} стендов зелёные")
+    return 1 if bad else 0
+
+
 # ---------- точка входа ----------
 
 COMMANDS = {"test": cmd_test, "mutate": cmd_mutate, "up": cmd_up,
-            "check": cmd_check, "memory": cmd_memory}
+            "check": cmd_check, "memory": cmd_memory, "bench": cmd_bench}
 
 
 def main(argv: list) -> int:
