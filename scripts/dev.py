@@ -128,9 +128,16 @@ def cmd_up(argv: list) -> int:
         print(f"Прошлый сервер на {port} погашен (PID {pid}).")
 
     SANDBOX.mkdir(parents=True, exist_ok=True)
+    # Демо-профиль — КОПИЕЙ в папке песочницы (25.09): настройки, сохранённые
+    # в песочнице (стиль, цвет, часы), писались бы прямо в файл репозитория
+    # и всплывали бы грязным деревом у `.\dev check`. Свежая копия — только
+    # пока своей нет: песочница помнит выбор между запусками.
+    profile = SANDBOX / "clinic.json"
+    if not profile.exists():
+        profile.write_bytes((BOT / "app" / "clinic.json").read_bytes())
     env = os.environ.copy()
     env.update({
-        "CLINIC_CONFIG": str(BOT / "app" / "clinic.json"),   # демо-профиль
+        "CLINIC_CONFIG": str(profile),
         "DATABASE_URL": f"sqlite:///{SANDBOX / 'dental.db'}",
         "ADMIN_KEY": "test1234",   # иначе SQLite потребует экран установки PIN
     })

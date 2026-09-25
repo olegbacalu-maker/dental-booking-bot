@@ -554,14 +554,15 @@ def suite_theme(res: Result) -> None:
         d = _j(c.get(api))["data"]
         res.ok("по умолчанию Modern и фирменный зелёный",
                d["style"] == "modern" and d["primary"] == "#0E9F8A" and not d["custom"], f"{d}")
-        res.check("три стиля", [x["key"] for x in d["styles"]], ["modern", "elegant", "calm"])
+        res.check("четыре стиля", [x["key"] for x in d["styles"]],
+                  ["modern", "elegant", "calm", "fluent"])
         res.ok("стиль несёт подпись и переменные",
                d["styles"][0]["label"] == "Modern" and "--bg" in d["styles"][0]["vars"],
                f"{d['styles'][0]}")
         res.check("шесть цветов", len(d["presets"]), 6)
         res.ok("палитры посчитаны сервером для каждого стиля и цвета",
                d["palettes"]["modern"]["#0E9F8A"]["--teal"] == "#0E9F8A"
-               and set(d["palettes"]) == {"modern", "elegant", "calm"}
+               and set(d["palettes"]) == {"modern", "elegant", "calm", "fluent"}
                and len(d["palettes"]["calm"]) == 6, f"{list(d['palettes'])}")
         res.ok("логотипа нет", d["logo"] is None and d["logo_topbar"] is False, f"{d['logo']}")
         res.check("потолок логотипа 2 МБ", d["logo_max_mb"], 2)

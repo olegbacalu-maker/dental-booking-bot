@@ -123,6 +123,10 @@ css = t.vars_css()
 out["fallback_css"] = css
 out["fallback"] = t.current()
 
+# сами стили — сверить с :root panel.css ключ в ключ и между собой
+out["styles"] = t.STYLES
+out["labels"] = sorted(t.STYLE_LABEL)
+
 print("@@" + json.dumps(out))
 """
 
@@ -226,18 +230,36 @@ def suite_palette(res: Result) -> None:
     res.ok("в боковой панели цвет идёт только через группу меню",
            not direct, f"минуют --side-fg: {direct}")
 
-    # «Modern» = то, что клиника видит сегодня. Сверяем с самим panel.css.
+    # «Modern» = то, что клиника видит сегодня. Сверяем с самим panel.css — по
+    # ВСЕМ ключам стиля, а не по избранным: с B5 стиль достаёт до формы
+    # (радиусы, высоты, заголовки, отклик), и забытый ключ разошёлся бы молча.
     block = _root_block()
-    drift = [k for k in ("--bg", "--line", "--line2", "--r-card", "--r-ctl",
-                         "--sh", "--sh2", "--sh3")
-             if _css_var(block, k) != _MODERN.get(k)]
+    modern = out["styles"]["modern"]
+    drift = [f"{k}: {modern[k]!r} в STYLES, {_css_var(block, k)!r} в :root"
+             for k in modern if _css_var(block, k) != modern[k]]
     res.ok("стиль «Modern» повторяет :root в panel.css", not drift,
            f"разошлись: {drift}")
+    # ⭐ и с ТРЕТЬЕЙ записью здесь — иначе код сверялся бы сам с собой
+    third = [k for k, v in _MODERN.items() if modern.get(k) != v]
+    res.ok("«Modern» — те значения, что записаны в тесте", not third,
+           f"разошлись с записью теста: {third}")
+    # Один набор ключей у всех: предпросмотр кладёт переменные стиля инлайном
+    # на <html>, и ключ без пары у соседа пережил бы переключение назад.
+    keysets = {st: tuple(sorted(v)) for st, v in out["styles"].items()}
+    odd = [st for st, ks in keysets.items() if ks != keysets["modern"]]
+    res.ok("все стили задают один и тот же набор переменных", not odd,
+           f"набор ключей отличается у: {odd}")
+    res.check("стилей четыре, у каждого подпись",
+              [sorted(out["styles"]), out["labels"]],
+              [["calm", "elegant", "fluent", "modern"]] * 2)
 
 
 # значения стиля modern держим здесь же, рядом с проверкой: тест обязан
-# сравнивать panel.css с ТРЕТЬЕЙ записью, иначе он сверяет код сам с собой
+# сравнивать panel.css с ТРЕТЬЕЙ записью, иначе он сверяет код сам с собой.
+# С B5 ключей у стиля полсотни; здесь — те, что были у стиля с 08-09, плюс по
+# одному из каждой новой группы (форма, высота, отклик).
 _MODERN = {
+    "--r-block": "14px", "--h-ctl": "44px", "--lift": "-1px", "--h1-mark": "block",
     "--bg": "#F6FBF8", "--line": "#E7EDF5", "--line2": "#F1F6FA",
     "--r-card": "18px", "--r-ctl": "12px",
     "--sh": "0 1px 2px rgba(15,23,42,.05),0 6px 18px rgba(15,23,42,.05)",
@@ -275,8 +297,9 @@ def suite_pages(res: Result) -> None:
         # сохранение-то идёт отдельным маршрутом и работало бы
         form = c.get("/admin/settings/theme")
         res.check("экран вида открывается", form.status, 200)
-        res.ok("на экране все три стиля",
-               all(f"value='{k}'" in form.body for k in ("modern", "elegant", "calm")),
+        res.ok("на экране все четыре стиля",
+               all(f"value='{k}'" in form.body
+                   for k in ("modern", "elegant", "calm", "fluent")),
                "стили не отрисовались")
         res.ok("на экране все шесть цветов",
                all(f"value='{h}'" in form.body for h in

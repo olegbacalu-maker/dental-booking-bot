@@ -79,10 +79,10 @@
       переписать сотню правил. Ступень выбирается по РОЛИ: card — карточка,
       окно, панель; block — блок внутри карточки и крупный значок; ctl —
       контрол; chip — чип, внутренняя кнопка, малый значок; s — ячейка и
-      мелкий контрол; xs — бейдж, подсказка клавиши. Пилюля (999px) и круг
+      мелкий контрол; xs — бейдж, подсказка клавиши; tab — вкладки (сегодня пилюли). Пилюля (999px) и круг
       (50%) ступенями не являются: это форма, а не размер, и стиль их не
       трогает. ⛔ Новое правило берёт ступень, а не число. */
-   --r-block:14px;--r-chip:10px;--r-s:8px;--r-xs:6px;
+   --r-block:14px;--r-chip:10px;--r-s:8px;--r-xs:6px;--r-tab:999px;
    /* Высоты: --h-ctl — контрол; -s — компактный (вкладки, кнопки-иконки
       списка); -m — средний (действия фиши); --h-nav — пункт меню; --h-top —
       шапка. ⛔ Под пальцем высоты не уменьшаются: блок @media (pointer:coarse)
@@ -101,15 +101,16 @@
    --side-mark:var(--on-teal-d);--nav-mark:0px;--nav-fw:500;--nav-fw-on:600;
    --sec-fs:10.5px;--sec-ls:.08em;--sec-tt:uppercase;
    /* Шапка и слой содержимого. У сегодняшних стилей слой прозрачен и без
-      кромки, шапка белая, у поля поиска своя подложка. */
-   --top-bg:var(--panel);--field:#FBFDFE;
+      кромки, шапка белая, у поля поиска своя подложка; --field-line-b —
+      нижняя кромка полей ввода (Fluent красит её темнее верхней). */
+   --top-bg:var(--panel);--field:#FBFDFE;--field-line-b:var(--line);
    --layer-bg:transparent;--layer-line:transparent;--layer-r:0px;
-   /* Заголовки: размер и вес h1, планка слева (display) и размер h2. */
-   --fs-h1:32px;--fw-h1:700;--ls-h1:-.02em;--h1-mark:block;--fs-h2:18px;
+   /* Заголовки: размер, вес и цвет h1, планка слева (display), размер h2. */
+   --fs-h1:32px;--fw-h1:700;--ls-h1:-.02em;--h1-mark:block;--h1-fg:var(--teal-d);--fs-h2:18px;
    /* Отклик контролов: кольцо фокуса и цвет рамки в фокусе, подскок при
       наведении (кнопка / карточка / плитка), тень наведения у вторичной
       кнопки. Стиль без подскоков ставит 0px, без колец — none. */
-   --ring:0 0 0 3px var(--teal-ring);--focus-line:var(--teal);
+   --ring:0 0 0 3px var(--teal-ring);--focus-line:var(--teal);--focus-line-b:var(--teal);
    --lift:-1px;--lift-card:-2px;--lift-tile:-3px;
    --sh-hover:0 4px 12px var(--teal-ring);
    /* Шрифт — переменной: выбор клиники подставит сюда системный. */
@@ -226,9 +227,9 @@
    box-shadow:inset 1px 1px 0 var(--layer-line);border-top-left-radius:var(--layer-r);
    display:flex;align-items:center;gap:12px;padding:0 24px;position:sticky;top:0;z-index:20}
  .top form.searchf{display:flex;gap:0;align-items:center;background:var(--field);
-   border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 8px 0 14px;
+   border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);padding:0 8px 0 14px;
    height:var(--h-ctl);width:440px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
- .top form.searchf:focus-within{border-color:var(--focus-line);box-shadow:var(--ring)}
+ .top form.searchf:focus-within{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
  /* логотип клиники по центру шапки (галочка в Setări › Aspect, 08-21).
     Абсолют от .top (он sticky = containing block): центр не зависит от
     ширины поиска слева и кнопок справа. На узком окне прячется — лёг бы
@@ -347,7 +348,7 @@
     --teal-d (4.8:1), а не --teal: тот на фоне даёт 3.2:1 — впритык к порогу для
     крупного и мало для чего угодно мельче. */
  h1::before{content:"";display:var(--h1-mark);flex:0 0 4px;height:1em;border-radius:4px;background:var(--teal)}
- h1 a{color:var(--teal-d);text-decoration:none;transition:color .2s ease}
+ h1 a{color:var(--h1-fg);text-decoration:none;transition:color .2s ease}
  h1 a:hover{color:var(--teal)}
  h2{font-size:var(--fs-h2);color:var(--text);margin:24px 0 12px;font-weight:600}
  .sub{color:var(--text2);font-size:13px;margin-bottom:18px}
@@ -371,13 +372,13 @@
  .nav a:active{transform:translateY(0)}
  .nav a.primary{background:var(--teal);color:var(--on-teal);border-color:var(--teal)}
  .nav form.dpickf{display:inline-flex;margin:0}
- .nav input.dpick{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);
+ .nav input.dpick{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text2)}
  .nav form.searchf{display:flex;gap:8px;align-items:center;margin:0}
- .nav form.searchf input{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+ .nav form.searchf input{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);font-size:14px;width:240px;background:var(--panel);
    color:var(--text);outline:none}
- .nav form.searchf input:focus{border-color:var(--focus-line);box-shadow:var(--ring)}
+ .nav form.searchf input:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
  .nav form.searchf button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 16px;cursor:pointer;font-size:14px;font-weight:600}
  /* Баннер — сплошной текст, и на широкой странице он вырастал в строку через
@@ -857,8 +858,8 @@
  table.set.set-wide{max-width:none}
  table.set th,table.set td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
  table.set th{background:var(--bg);color:var(--text2);font-weight:600}
- table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:var(--r-s);font-size:13px}
- table.set select{padding:6px 7px;border:1px solid var(--line);border-radius:var(--r-s);font-size:13px}
+ table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-s);font-size:13px}
+ table.set select{padding:6px 7px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-s);font-size:13px}
  .rowdel{background:var(--red-soft);color:var(--red-t);border:none;border-radius:var(--r-s);padding:4px 10px;cursor:pointer}
  .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:var(--r-chip);padding:7px 15px;cursor:pointer;margin-bottom:16px}
  .savebtn{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
@@ -881,11 +882,11 @@
  .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:var(--r-chip);cursor:pointer;font-size:13px;color:var(--text2)}
  .tabbtn.on{background:var(--teal);color:var(--on-teal);border-color:var(--teal);font-weight:600}
  .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
- .dlg-form input,.dlg-form select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+ .dlg-form input,.dlg-form select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none}
- .dlg-form textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
+ .dlg-form textarea{padding:11px 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);
    font-size:14px;font-family:inherit;background:var(--panel);color:var(--text);outline:none}
- .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--focus-line);
+ .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
    box-shadow:var(--ring)}
  .dlg-form button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-chip);padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
  a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;
@@ -915,10 +916,10 @@
  form.add{background:var(--panel);padding:16px;border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
           display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px;
           width:fit-content;max-width:100%}
- form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+ form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none;
    transition:border-color .2s ease,box-shadow .2s ease}
- form.add input:focus,form.add select:focus{border-color:var(--focus-line);
+ form.add input:focus,form.add select:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
    box-shadow:var(--ring)}
  form.add input::placeholder{color:var(--text3)}
  form.add button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
@@ -1548,14 +1549,14 @@
     ⚠️ Потолок, а не ширина: в боковой колонке фиши (300px) форма по-прежнему
     берёт ширину колонки. */
  .fform{display:flex;flex-direction:column;gap:9px;max-width:var(--measure-form)}
- .fform input,.fform select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);
+ .fform input,.fform select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);font-size:14px;font-family:inherit;width:100%;
    background:var(--panel);color:var(--text);outline:none;
    transition:border-color .2s ease,box-shadow .2s ease}
- .fform textarea{padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
+ .fform textarea{padding:11px 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);
    font-size:14px;font-family:inherit;width:100%;background:var(--panel);color:var(--text);
    outline:none;transition:border-color .2s ease,box-shadow .2s ease}
- .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--focus-line);
+ .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
    box-shadow:var(--ring)}
  .fform input::placeholder,.fform textarea::placeholder{color:var(--text3)}
  .fform button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
@@ -1640,7 +1641,7 @@
  .lrow b{font-size:13.5px;font-weight:600}
  .lrow small{font-size:12px;color:var(--text2)}
  .lmore{display:inline-block;margin-top:12px;font-size:12.5px;font-weight:600}
- .lbtn{margin-top:12px;width:100%;height:42px;border:none;border-radius:var(--r-ctl);
+ .lbtn{margin-top:12px;width:100%;height:var(--h-ctl);border:none;border-radius:var(--r-ctl);
    background:var(--teal);color:var(--on-teal);font-size:13.5px;font-weight:600;cursor:pointer;
    font-family:inherit}
  .dlg-form .dlab{display:flex;flex-direction:column;gap:4px;font-size:11.5px;
@@ -1658,7 +1659,7 @@
    text-decoration:none}
  .dvacts button:hover,.dvacts a:hover{border-color:var(--teal);color:var(--teal-d)}
  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
- .tabs button{height:var(--h-ctl-s);padding:0 14px;border-radius:999px;border:1px solid var(--line);
+ .tabs button{height:var(--h-ctl-s);padding:0 14px;border-radius:var(--r-tab);border:1px solid var(--line);
    background:var(--panel);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;
    transition:background-color .2s ease,border-color .2s ease,color .2s ease}
  .tabs button:hover{border-color:var(--teal);color:var(--teal-d)}
@@ -1694,7 +1695,7 @@
    background:var(--panel);color:var(--text2);font-size:13.5px;font-weight:500;
    cursor:pointer;transition:border-color .2s ease,color .2s ease}
  .filepick label:hover{border-color:var(--teal);color:var(--teal-d)}
- .filepick input[type=file]:focus-visible + label{border-color:var(--focus-line);
+ .filepick input[type=file]:focus-visible + label{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
    box-shadow:var(--ring)}
  .filepick .fname{font-size:12.5px;color:var(--text3);min-width:0;
    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -1819,19 +1820,19 @@
  .pl-head h2{margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em}
  .pl-head p{margin:2px 0 0;color:var(--text2);font-size:13.5px}
  .pl-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
- .pl-search{display:flex;align-items:center;gap:9px;height:42px;padding:0 14px;
-   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-ctl);
+ .pl-search{display:flex;align-items:center;gap:9px;height:var(--h-ctl);padding:0 14px;
+   background:var(--panel);border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);
    color:var(--text3);flex:0 1 320px;min-width:220px;
    transition:border-color .2s ease,box-shadow .2s ease}
- .pl-search:focus-within{border-color:var(--focus-line);box-shadow:var(--ring)}
+ .pl-search:focus-within{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
  .pl-search input{border:none;outline:none;background:none;font-size:14px;flex:1;
    min-width:0;color:var(--text);font-family:inherit}
- .pl-bar select{height:42px;padding:0 12px;border:1px solid var(--line);
+ .pl-bar select{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);background:var(--panel);color:var(--text2);
    font-size:13.5px;font-family:inherit;cursor:pointer;
    transition:border-color .2s ease,color .2s ease}
  .pl-bar select:hover{border-color:var(--teal);color:var(--text)}
- .pl-btn{display:inline-flex;align-items:center;gap:7px;height:42px;padding:0 16px;
+ .pl-btn{display:inline-flex;align-items:center;gap:7px;height:var(--h-ctl);padding:0 16px;
    border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
    color:var(--text2);font-size:13.5px;font-weight:500;font-family:inherit;
    text-decoration:none;cursor:pointer;white-space:nowrap;
