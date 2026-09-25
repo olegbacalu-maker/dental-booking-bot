@@ -122,6 +122,11 @@
  @media (pointer:coarse){:root{--h-ctl:44px!important;--h-ctl-s:36px!important;
    --h-ctl-m:40px!important;--h-nav:44px!important}}
  *{box-sizing:border-box}
+ /* Контролы наследуют шрифт страницы (B5). Без этого <button>, <input> и
+    <select> рисуются шрифтом браузера по умолчанию — на Windows это Segoe
+    UI, — и «Salvează» стояла в чужом шрифте посреди страницы в Inter: тот же
+    класс расхождения, что жил у экрана входа до 08-11, только по кнопке. */
+ button,input,select,textarea{font-family:inherit}
  /* Место под полосу прокрутки держится ВСЕГДА. Длина страницы меняется на
     ровном месте — React-экран рисует содержимое после ответа API, живая
     панель подменяет #live, — и вместе с полосой туда-сюда ездит вся правая
@@ -242,7 +247,7 @@
  @media (max-width:1560px){.tb-logo img{max-width:140px}}
  @media (max-width:1200px){.tb-logo{display:none}}
  .top form.searchf input{border:none;background:none;outline:none;font-size:14px;flex:1;color:var(--text)}
- .top form.searchf button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;padding:4px 6px}
+ .top form.searchf button{color:var(--text3);font-size:15px;padding:4px 6px}
  .top .kbd{font-size:11px;color:var(--text3);border:1px solid var(--line);border-radius:var(--r-xs);padding:2px 6px}
  .top .bell{position:relative;width:var(--h-ctl);height:var(--h-ctl);border-radius:var(--r-ctl);
    display:flex;align-items:center;justify-content:center;color:var(--text2);
@@ -250,18 +255,13 @@
  .top .bell:hover{background:var(--line2)}
  .top .bell .n{position:absolute;top:5px;right:5px;min-width:16px;height:16px;border-radius:999px;
    background:var(--red);color:#fff;font-size:10px;font-weight:600;line-height:16px;text-align:center;padding:0 4px}
- .top .newbtn{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 18px;
-   border-radius:var(--r-ctl);background:var(--teal);color:var(--on-teal);font-size:14px;font-weight:600;
-   text-decoration:none;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .top .newbtn{display:flex;align-items:center;gap:8px}
  /* ⚠️ Фон стал ТЁМНЫМ фирменным — значит и текст берёт цвет, посчитанный под
     него (--on-teal-d, порог 4.5), а не --on-teal: тот подобран под светлый
     --teal и при светлом выборе клиники даёт тёмный текст на тёмном фоне
     (3.1:1). На зелёном по умолчанию обе переменные белые — глазами не видно.
     То же правило у .savebtn, form.add button, .fform button, .pl-btn.primary,
     .b-arrived и шапки сайдбара. */
- .top .newbtn:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
- .top .newbtn:active{transform:translateY(0)}
  .top .newbtn .plus{width:20px;height:20px;flex:0 0 20px;border-radius:50%;
    background:rgba(255,255,255,.24);display:flex;align-items:center;
    justify-content:center;font-size:14px;font-weight:700;line-height:1}
@@ -352,6 +352,62 @@
  h1 a:hover{color:var(--teal)}
  h2{font-size:var(--fs-h2);color:var(--text);margin:24px 0 12px;font-weight:600}
  .sub{color:var(--text2);font-size:13px;margin-bottom:18px}
+ /* ---------- контролы: одно определение на семейство (B5, шаг 6) ----------
+    До 25.09 фирменная кнопка была описана в 16 местах, контурная в 12, поле в
+    12 — и каждая копия чуть своя (11 размеров шрифта, 24 варианта отступов).
+    Здесь каждое семейство определено ОДИН раз; у правила семейства ниже по
+    файлу остаётся только его настоящее отличие: ширина, отступ снаружи, размер
+    (-m у действий фиши, компакт у таблиц настроек). ⛔ Новая кнопка или поле —
+    в список рецепта, а не копия объявлений. Состояния — здесь же: наведение,
+    нажатие, фокус с клавиатуры (кольцо, видно только при Tab), запрет.
+    Граница у фирменной снята рецептом (иначе <button> рисует свою серую по
+    умолчанию); одна `.nav a.primary` возвращает себе 1px — ровняется с
+    соседями по строке. Кнопки исходов визита (.act,
+    .bstat) и апдейта (.dp-upd-btn) красятся цветом СМЫСЛА — не здесь. */
+ .savebtn,form.add button,.fform button,.dlg-form button,.lbtn,.top .newbtn,
+ .nav a.primary,.nav form.searchf button,.dp-fw-btn,.dp-ok-btn{
+   background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
+   height:var(--h-ctl);padding:0 18px;font-size:14px;font-weight:600;
+   cursor:pointer;text-decoration:none;
+   transition:background-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .savebtn:hover,form.add button:hover,.fform button:hover,.dlg-form button:hover,.lbtn:hover,.top .newbtn:hover,.nav a.primary:hover,.nav form.searchf button:hover,.dp-fw-btn:hover,.dp-ok-btn:hover{
+   background:var(--teal-d);color:var(--on-teal-d);box-shadow:var(--sh-t);transform:translateY(var(--lift))}
+ .savebtn:active,form.add button:active,.fform button:active,.dlg-form button:active,.lbtn:active,.top .newbtn:active,.nav a.primary:active,.nav form.searchf button:active,.dp-fw-btn:active,.dp-ok-btn:active{transform:translateY(0)}
+ .savebtn:focus-visible,form.add button:focus-visible,.fform button:focus-visible,.dlg-form button:focus-visible,.lbtn:focus-visible,.top .newbtn:focus-visible,.nav a.primary:focus-visible,.nav form.searchf button:focus-visible,.dp-fw-btn:focus-visible,.dp-ok-btn:focus-visible{outline:none;box-shadow:var(--ring)}
+ .savebtn:disabled,form.add button:disabled,.fform button:disabled,.dlg-form button:disabled,.lbtn:disabled,.top .newbtn:disabled,.nav a.primary:disabled,.nav form.searchf button:disabled,.dp-fw-btn:disabled,.dp-ok-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+ .nav a,.pl-btn,.filepick label,.hero-acts a,.hero-acts button,.dvacts button,
+ .dvacts a,.dp-pc-btn,.actmore{
+   display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 16px;
+   border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
+   color:var(--text2);font-size:14px;font-weight:500;text-decoration:none;cursor:pointer;
+   white-space:nowrap;
+   transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
+ .nav a:hover,.pl-btn:hover,.filepick label:hover,.hero-acts a:hover,.hero-acts button:hover,.dvacts button:hover,.dvacts a:hover,.dp-pc-btn:hover,.actmore:hover{
+   border-color:var(--teal);color:var(--teal-d);box-shadow:var(--sh-hover);transform:translateY(var(--lift))}
+ .nav a:active,.pl-btn:active,.filepick label:active,.hero-acts a:active,.hero-acts button:active,.dvacts button:active,.dvacts a:active,.dp-pc-btn:active,.actmore:active{transform:translateY(0)}
+ .nav a:focus-visible,.pl-btn:focus-visible,.filepick label:focus-visible,.hero-acts a:focus-visible,.hero-acts button:focus-visible,.dvacts button:focus-visible,.dvacts a:focus-visible,.dp-pc-btn:focus-visible,.actmore:focus-visible{outline:none;box-shadow:var(--ring)}
+ .nav a:disabled,.pl-btn:disabled,.filepick label:disabled,.hero-acts a:disabled,.hero-acts button:disabled,.dvacts button:disabled,.dvacts a:disabled,.dp-pc-btn:disabled,.actmore:disabled{opacity:.45;cursor:default;transform:none;box-shadow:none;border-color:var(--line)}
+ /* средний размер — действия внутри фиши и карточки визита */
+ .hero-acts a,.hero-acts button,.dvacts button,.dvacts a,.dp-pc-btn,.actmore{height:var(--h-ctl-m);padding:0 14px;font-size:13.5px}
+ /* тихая кнопка: значок или слово без рамки — крестик диалога, лупа поиска */
+ .dlg-head button,.top form.searchf button,.alert button,.doc form button,button.pt{background:none;border:none;cursor:pointer}
+ .dlg-head button:focus-visible,.top form.searchf button:focus-visible,.alert button:focus-visible,.doc form button:focus-visible,button.pt:focus-visible{outline:none;box-shadow:var(--ring);border-radius:var(--r-s)}
+ /* поле: текст, список, многострочное — один вид, один фокус */
+ .nav input.dpick,.nav form.searchf input,.dlg-form input,.dlg-form select,
+ .dlg-form textarea,form.add input,form.add select,.fform input,.fform select,
+ .fform textarea,.pl-bar select,.pl-pag select,table.set input[type=text],
+ table.set input[type=number],table.set select{
+   height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
+   border-radius:var(--r-ctl);background:var(--panel);color:var(--text);font-size:14px;outline:none;
+   transition:border-color .2s ease,box-shadow .2s ease}
+ .dlg-form textarea,.fform textarea{height:auto;padding:11px 14px}
+ .nav input.dpick:focus,.nav form.searchf input:focus,.dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus,form.add input:focus,form.add select:focus,.fform input:focus,.fform select:focus,.fform textarea:focus,.pl-bar select:focus,.pl-pag select:focus,table.set input[type=text]:focus,table.set input[type=number]:focus,table.set select:focus{
+   border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
+ .nav input.dpick::placeholder,.nav form.searchf input::placeholder,.dlg-form input::placeholder,.dlg-form select::placeholder,.dlg-form textarea::placeholder,form.add input::placeholder,form.add select::placeholder,.fform input::placeholder,.fform select::placeholder,.fform textarea::placeholder,.pl-bar select::placeholder,.pl-pag select::placeholder,table.set input[type=text]::placeholder,table.set input[type=number]::placeholder,table.set select::placeholder{color:var(--text3)}
+ /* компакт: таблицы настроек (шесть списков в строке программы работы) */
+ table.set input[type=text],table.set input[type=number],table.set select{
+   height:auto;padding:7px 9px;border-radius:var(--r-s);font-size:13px}
+
  .nav{margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
  /* Дата — не подпись, а ПЕРВЫЙ элемент панели: рядом с ней шесть кнопок
     перехода, и голый жирный текст в этом ряду читался как их продолжение.
@@ -363,24 +419,10 @@
    font-size:14px;font-weight:700;white-space:nowrap;box-shadow:var(--sh)}
  .nav b::before{content:"";width:7px;height:7px;border-radius:50%;
    background:var(--teal);flex:0 0 7px}
- .nav a{display:inline-flex;align-items:center;height:var(--h-ctl);background:var(--panel);
-        border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 16px;text-decoration:none;
-        color:var(--text2);font-size:14px;font-weight:500;
-        transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
- .nav a:hover{border-color:var(--teal);color:var(--teal-d);
-   box-shadow:var(--sh-hover);transform:translateY(var(--lift))}
- .nav a:active{transform:translateY(0)}
- .nav a.primary{background:var(--teal);color:var(--on-teal);border-color:var(--teal)}
+ .nav a.primary{border:1px solid var(--teal)}
  .nav form.dpickf{display:inline-flex;margin:0}
- .nav input.dpick{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
-   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text2)}
  .nav form.searchf{display:flex;gap:8px;align-items:center;margin:0}
- .nav form.searchf input{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
-   border-radius:var(--r-ctl);font-size:14px;width:240px;background:var(--panel);
-   color:var(--text);outline:none}
- .nav form.searchf input:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
- .nav form.searchf button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);padding:0 16px;cursor:pointer;font-size:14px;font-weight:600}
+ .nav form.searchf input{width:240px}
  /* Баннер — сплошной текст, и на широкой странице он вырастал в строку через
     весь монитор: «Protecția împotriva programărilor duble…» шло одной строкой
     на 2152px. Потолок тот же, что у остальной прозы. ⚠️ Плавающий ответ ниже
@@ -858,15 +900,9 @@
  table.set.set-wide{max-width:none}
  table.set th,table.set td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:left;font-size:13px}
  table.set th{background:var(--bg);color:var(--text2);font-weight:600}
- table.set input[type=text],table.set input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-s);font-size:13px}
- table.set select{padding:6px 7px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-s);font-size:13px}
+ table.set input[type=text],table.set input[type=number]{width:100%}
  .rowdel{background:var(--red-soft);color:var(--red-t);border:none;border-radius:var(--r-s);padding:4px 10px;cursor:pointer}
  .addrow{background:none;border:1px dashed var(--teal);color:var(--teal-d);border-radius:var(--r-chip);padding:7px 15px;cursor:pointer;margin-bottom:16px}
- .savebtn{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);padding:0 26px;font-size:14px;font-weight:600;cursor:pointer;
-   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .savebtn:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
  .dlg-status{display:flex;gap:6px;padding:0 14px 14px}
  .dlg-status form{flex:1;margin:0}
  .bstat{border:none;border-radius:var(--r-s);padding:9px 4px;color:#fff;cursor:pointer;font-size:13px;width:100%;font-weight:500}
@@ -877,18 +913,11 @@
  dialog::backdrop{background:rgba(15,23,42,.4)}
  .dlg-head{background:var(--panel);color:var(--text);padding:13px 16px;font-weight:600;font-size:14.5px;
    display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
- .dlg-head button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer}
+ .dlg-head button{color:var(--text3);font-size:16px}
  .dlg-tabs{display:flex;gap:6px;padding:12px 16px 0}
  .tabbtn{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);border-radius:var(--r-chip);cursor:pointer;font-size:13px;color:var(--text2)}
  .tabbtn.on{background:var(--teal);color:var(--on-teal);border-color:var(--teal);font-weight:600}
  .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
- .dlg-form input,.dlg-form select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
-   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none}
- .dlg-form textarea{padding:11px 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);
-   font-size:14px;font-family:inherit;background:var(--panel);color:var(--text);outline:none}
- .dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
-   box-shadow:var(--ring)}
- .dlg-form button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-chip);padding:10px;cursor:pointer;font-size:13.5px;font-weight:600}
  a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:16px;
    padding:4px 0;border-radius:var(--r-s);transition:opacity .15s ease,color .15s ease,background-color .15s ease}
  a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
@@ -916,18 +945,6 @@
  form.add{background:var(--panel);padding:16px;border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);
           display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px;
           width:fit-content;max-width:100%}
- form.add input,form.add select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
-   border-radius:var(--r-ctl);font-size:14px;background:var(--panel);color:var(--text);outline:none;
-   transition:border-color .2s ease,box-shadow .2s ease}
- form.add input:focus,form.add select:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
-   box-shadow:var(--ring)}
- form.add input::placeholder{color:var(--text3)}
- form.add button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);padding:0 20px;cursor:pointer;font-size:14px;font-weight:600;
-   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- form.add button:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
- form.add button:active{transform:translateY(0)}
  table.list{border-collapse:collapse;width:100%;background:var(--panel);box-shadow:var(--sh);
    border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
  table.list th,table.list td{padding:11px 14px;border-bottom:1px solid var(--line2);
@@ -968,9 +985,8 @@
  .mv-act button{flex:1}
  /* «Anulează» — вторичное действие, и оно СЛЕВА: подтверждение переноса стоит
     там же, где у остальных диалогов, — справа под большим пальцем. */
- .dlg-form .mv-no{background:none;border:1px solid var(--line);color:var(--text2)}
+ .dlg-form .mv-no,.dlg-form .mv-no:hover{background:none;border:1px solid var(--line);color:var(--text2);box-shadow:none}
  .dlg-form .mv-no:hover{border-color:var(--text3)}
- .dlg-form button:disabled{background:var(--line2);color:var(--text3);cursor:not-allowed}
  .act{display:inline}
  .act button{border:none;border-radius:var(--r-s);height:30px;padding:0 11px;margin-right:4px;cursor:pointer;
    font-size:12px;font-weight:600;color:#fff;font-family:inherit;
@@ -1049,7 +1065,7 @@
  .alert{display:flex;align-items:center;gap:9px;border-radius:var(--r-ctl);padding:10px 12px;
    font-size:13px;font-weight:600;margin-bottom:8px}
  .alert form{margin-left:auto}
- .alert button{background:none;border:none;cursor:pointer;color:inherit;opacity:.55;font-size:13px}
+ .alert button{color:inherit;font-size:13px}
  .alert.allergy{background:var(--red-soft);color:var(--red-t)}
  .alert.medication{background:var(--amber-soft);color:var(--amber-t)}
  .alert.warning{background:var(--amber-soft);color:var(--amber-t)}
@@ -1224,10 +1240,10 @@
  /* селектор с .dlg-form — специфичность: общий `.dlg-form button` красит все
     кнопки диалога фирменным, и фишки ролей выходили наоборот (тело тёмное,
     опора бледная). Опора — главный зуб конструкции, выделена она. */
- .dlg-form .br-chip{border:1px solid var(--line);background:var(--bg);
+ .dlg-form .br-chip,.dlg-form .br-chip:hover{border:1px solid var(--line);background:var(--bg);box-shadow:none;transform:none;
    color:var(--text);border-radius:var(--r-chip);padding:6px 10px;height:auto;
    font:inherit;font-size:12.5px;font-weight:400;cursor:pointer}
- .dlg-form .br-chip.stalp{background:var(--teal);border-color:var(--teal);
+ .dlg-form .br-chip.stalp,.dlg-form .br-chip.stalp:hover{background:var(--teal);border-color:var(--teal);
    color:var(--on-teal);font-weight:600}
  .i-bridge{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
    margin:8px 0 2px;padding:8px 10px;border:1px solid var(--line);
@@ -1281,7 +1297,10 @@
     флажок отвечает «затронута или нет», а вопрос экрана — «чем именно».
     Значит и видимое состояние рисуется классом от JS, а не :has() по вводу;
     правило ниже только снимает с кнопки её фон и шрифт по умолчанию. */
- .sfbtns .sfbtn{background:none;font:inherit}
+ /* ⚠️ Внутри `.dlg-form` эти кнопки попадают под рецепт фирменной (padding
+    0 18px): пять клеток в сетке 1fr тогда не помещаются, пятая вылезает за
+    карточку. Отступ свой и малый — подпись «vestibular» и так впритык. */
+ .sfbtns .sfbtn{background:none;font:inherit;padding:0 4px}
  /* Кнопка поверхности красится ЕЁ состоянием, а не фирменным цветом: рядом
     лежит зуб, где та же поверхность залита тем же смыслом, и «выбрано» и
     «кариес» обязаны читаться разными признаками — цветом и рамкой выбора */
@@ -1537,7 +1556,7 @@
  .doc a:hover{color:var(--teal-d)}
  .doc small{color:var(--text3);white-space:nowrap}
  .doc form{margin-left:auto}
- .doc form button{background:none;border:none;color:var(--text3);cursor:pointer}
+ .doc form button{color:var(--text3)}
  .doc form button:hover{color:var(--red)}
  /* ⚠️ Тот же потолок ряда, что у table.set, и по той же причине (08-16). Фиша
     таблицей не размечена, поэтому её формы не ограничивало НИЧТО: на 2560
@@ -1549,22 +1568,8 @@
     ⚠️ Потолок, а не ширина: в боковой колонке фиши (300px) форма по-прежнему
     берёт ширину колонки. */
  .fform{display:flex;flex-direction:column;gap:9px;max-width:var(--measure-form)}
- .fform input,.fform select{height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
-   border-radius:var(--r-ctl);font-size:14px;font-family:inherit;width:100%;
-   background:var(--panel);color:var(--text);outline:none;
-   transition:border-color .2s ease,box-shadow .2s ease}
- .fform textarea{padding:11px 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);
-   font-size:14px;font-family:inherit;width:100%;background:var(--panel);color:var(--text);
-   outline:none;transition:border-color .2s ease,box-shadow .2s ease}
- .fform input:focus,.fform select:focus,.fform textarea:focus{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
-   box-shadow:var(--ring)}
- .fform input::placeholder,.fform textarea::placeholder{color:var(--text3)}
- .fform button{background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
-   height:var(--h-ctl);cursor:pointer;font-size:14px;font-weight:600;
-   transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
- .fform button:hover{background:var(--teal-d);color:var(--on-teal-d);
-   box-shadow:var(--sh-t);transform:translateY(var(--lift))}
- .fform button:active{transform:translateY(0)}
+ .fform input,.fform select{width:100%}
+ .fform textarea{width:100%}
  .fform .r2{display:flex;gap:9px}
  @media (max-width:1400px){.fisa{flex-wrap:wrap}.fcol-l,.fcol-r{width:100%;flex:1 1 100%}}
  /* фиша медика уже карточки пациента (нет формулы зубов) — на 1366×768,
@@ -1607,13 +1612,6 @@
  .hero-side .hs span{display:block;color:var(--text3);font-size:12px;margin-bottom:3px}
  .hero-side .hs b{font-weight:600;font-size:14.5px}
  .hero-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
- .hero-acts a,.hero-acts button{display:inline-flex;align-items:center;gap:7px;height:var(--h-ctl-m);
-   padding:0 14px;border:1px solid var(--line);border-radius:var(--r-ctl);text-decoration:none;
-   color:var(--text2);font-size:13.5px;font-weight:500;background:var(--panel);
-   font-family:inherit;cursor:pointer;
-   transition:border-color .2s ease,color .2s ease,transform .2s ease}
- .hero-acts a:hover,.hero-acts button:hover{border-color:var(--teal);color:var(--teal-d);
-   transform:translateY(var(--lift))}
  /* внутренний номер фиши: справочная мелочь, копируется кликом */
  .idchip{cursor:pointer;border-bottom:1px dashed var(--line);color:var(--text3)}
  .idchip:hover{color:var(--teal-d);border-bottom-color:var(--teal)}
@@ -1641,23 +1639,15 @@
  .lrow b{font-size:13.5px;font-weight:600}
  .lrow small{font-size:12px;color:var(--text2)}
  .lmore{display:inline-block;margin-top:12px;font-size:12.5px;font-weight:600}
- .lbtn{margin-top:12px;width:100%;height:var(--h-ctl);border:none;border-radius:var(--r-ctl);
-   background:var(--teal);color:var(--on-teal);font-size:13.5px;font-weight:600;cursor:pointer;
-   font-family:inherit}
+ .lbtn{margin-top:12px;width:100%}
  .dlg-form .dlab{display:flex;flex-direction:column;gap:4px;font-size:11.5px;
    font-weight:600;color:var(--text3)}
  .dlg-form .dlab select,.dlg-form .dlab input{width:100%}
- .dlg-form button[disabled]{opacity:.5;cursor:not-allowed}
  .dvbody{background:var(--line2);display:flex;align-items:center;justify-content:center;
    min-height:280px;max-height:70vh;overflow:auto}
  .dvbody img{max-width:100%;max-height:70vh;display:block}
  .dvbody iframe{width:100%;height:70vh;border:none;background:#fff}
  .dvacts{display:flex;gap:10px;padding:12px 16px;flex-wrap:wrap}
- .dvacts button,.dvacts a{height:38px;padding:0 14px;display:inline-flex;align-items:center;
-   gap:7px;border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
-   color:var(--text2);font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;
-   text-decoration:none}
- .dvacts button:hover,.dvacts a:hover{border-color:var(--teal);color:var(--teal-d)}
  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
  .tabs button{height:var(--h-ctl-s);padding:0 14px;border-radius:var(--r-tab);border:1px solid var(--line);
    background:var(--panel);color:var(--text2);font-size:13px;font-weight:500;cursor:pointer;
@@ -1690,11 +1680,6 @@
  .filepick{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
  .filepick input[type=file]{position:absolute;width:1px;height:1px;opacity:0;
    overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
- .filepick label{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);
-   padding:0 16px;border:1px solid var(--line);border-radius:var(--r-ctl);
-   background:var(--panel);color:var(--text2);font-size:13.5px;font-weight:500;
-   cursor:pointer;transition:border-color .2s ease,color .2s ease}
- .filepick label:hover{border-color:var(--teal);color:var(--teal-d)}
  .filepick input[type=file]:focus-visible + label{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);
    box-shadow:var(--ring)}
  .filepick .fname{font-size:12.5px;color:var(--text3);min-width:0;
@@ -1732,10 +1717,7 @@
  .acti .ab b{display:block;font-size:13px;font-weight:500;line-height:1.4}
  .acti .ab small{color:var(--text3);font-size:11.5px}
  .acti .at{color:var(--text3);font-size:11.5px;white-space:nowrap}
- .actmore{margin-top:12px;width:100%;height:var(--h-ctl-m);border:1px solid var(--line);
-   border-radius:var(--r-ctl);background:none;color:var(--text2);font-size:13px;
-   cursor:pointer}
- .actmore:hover{border-color:var(--teal);color:var(--teal-d)}
+ .actmore{margin-top:12px;width:100%}
  .thist{margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)}
  .thist .th-t{font-size:11px;letter-spacing:.06em;text-transform:uppercase;
    color:var(--text3);font-weight:600;margin-bottom:8px}
@@ -1827,17 +1809,8 @@
  .pl-search:focus-within{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
  .pl-search input{border:none;outline:none;background:none;font-size:14px;flex:1;
    min-width:0;color:var(--text);font-family:inherit}
- .pl-bar select{height:var(--h-ctl);padding:0 12px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
-   border-radius:var(--r-ctl);background:var(--panel);color:var(--text2);
-   font-size:13.5px;font-family:inherit;cursor:pointer;
-   transition:border-color .2s ease,color .2s ease}
+ .pl-bar select{cursor:pointer}
  .pl-bar select:hover{border-color:var(--teal);color:var(--text)}
- .pl-btn{display:inline-flex;align-items:center;gap:7px;height:var(--h-ctl);padding:0 16px;
-   border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
-   color:var(--text2);font-size:13.5px;font-weight:500;font-family:inherit;
-   text-decoration:none;cursor:pointer;white-space:nowrap;
-   transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
- .pl-btn:hover{border-color:var(--teal);color:var(--teal-d);transform:translateY(var(--lift))}
  .pl-btn.primary{background:var(--teal);border-color:var(--teal);color:var(--on-teal);font-weight:600}
  .pl-btn.primary:hover{background:var(--teal-d);color:var(--on-teal-d);box-shadow:var(--sh-t)}
  /* три числа над списком; денежной карточки в этом разделе нет намеренно */
@@ -1929,9 +1902,7 @@
  .pl-pg.off{opacity:.4;pointer-events:none}
  .pl-gap{color:var(--text3);align-self:center}
  .pl-pag form{margin:0}
- .pl-pag select{height:var(--h-ctl-s);padding:0 8px;border:1px solid var(--line);border-radius:var(--r-chip);
-   background:var(--panel);color:var(--text2);font-size:12.5px;font-family:inherit;
-   cursor:pointer}
+ .pl-pag select{height:var(--h-ctl-s);padding:0 8px;border-radius:var(--r-chip);font-size:12.5px;cursor:pointer}
  .pl-empty{display:flex;flex-direction:column;align-items:center;gap:8px;
    padding:56px 24px;text-align:center;font-size:32px;color:var(--text3)}
  .pl-empty b{font-size:16px;color:var(--text);font-weight:600}

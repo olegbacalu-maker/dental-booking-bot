@@ -120,15 +120,6 @@
 /* Кнопки страницы «Acces din rețea» (старая: инлайновые стили на формах). */
 .dp-fw-btn {
   margin: 0 0 12px;
-  background: var(--teal);
-  color: var(--on-teal);
-  border: none;
-  border-radius: var(--r-ctl);
-  height: var(--h-ctl-m);
-  padding: 0 18px;
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .dp-lan-btn {
@@ -245,21 +236,10 @@
 /* кнопки-ссылки профиля: правка, архив, копия данных, лист информирования */
 .dp-pc-btn {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
   width: 100%;
   box-sizing: border-box;
   margin-top: 8px;
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: var(--r-ctl);
-  height: var(--h-ctl-m);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text3);
-  text-decoration: none;
 }
 
 .dp-pc-edit {
@@ -483,9 +463,7 @@
    они ничего не запирали), и «Salvează examenul», заблокированная за
    отсутствием правок, казалась рабочей. Та же мера, что у инспектора
    одонтограммы (.insp-f button[disabled]). */
-.dp-react-root .pl-btn:disabled,
 .dp-react-root .odo-more:disabled { opacity: .45; cursor: default; }
-.dp-react-root .pl-btn:disabled:hover,
 .dp-react-root .odo-more:disabled:hover {
   transform: none;
   box-shadow: none;
@@ -578,17 +556,6 @@
 }
 
 /* Кнопка «OK» у выбора периода (старая: инлайн на форме аналитики). */
-.dp-ok-btn {
-  background: var(--teal);
-  color: var(--on-teal);
-  border: none;
-  border-radius: var(--r-ctl);
-  height: var(--h-ctl);
-  padding: 0 18px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-}
 
 /* --- Быстрый поиск (Ctrl+K) -------------------------------------------
    ⛔ Цвета ТОЛЬКО переменными темы: клиника выбирает свой цвет, и вшитый
