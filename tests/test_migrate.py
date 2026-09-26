@@ -1398,7 +1398,7 @@ def suite_slot_banner_roles(res: Result) -> None:
                 cl.post("/admin/login", password=pin, next="/admin")
                 page = cl.get("/admin").body
                 res.ok(f"{who} баннер не показан",
-                       page.count("Registrul Clinicii") > 0 and mark not in page,
+                       "<h1>Panoul principal</h1>" in page and mark not in page,
                        "несменяемое предупреждение висит у того, кто не может "
                        "его закрыть")
     finally:

@@ -49,7 +49,7 @@ const SHELL: ShellModel = {
     setup: { shown: false, html: '' },
   },
   frame: {
-    sub: 'setări', crumbs: [], rail: false, bell: null, sec_warn: '', update: '', msg: '',
+    title: 'Setări', sub: 'setări', crumbs: [], rail: false, bell: null, sec_warn: '', update: '', msg: '',
     feedback: { email: 'x@y.md', href: 'mailto:x@y.md' }, today: '2026-09-24',
   },
 }
@@ -122,7 +122,7 @@ describe('App', () => {
   it('экран на загрузчике: пока ответа нет, оболочка на месте, а экран в ожидании', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
     open('/admin/settings', node('settings_hub', {}, SHELL))
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Setări')
     expect(document.querySelector('section.dp-react-root')?.getAttribute('aria-busy')).toBe('true')
     expect(get).toHaveBeenCalledWith('/settings/hub', expect.anything())
   })
@@ -154,7 +154,7 @@ describe('App', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     open('/admin/settings/faq', node('settings_faq', {}, SHELL))
     expect(screen.getByRole('alert').textContent).toContain('nu a putut fi afișat')
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Setări')
     expect(screen.getByTitle('Setări')).toBeTruthy()
   })
 
@@ -163,7 +163,7 @@ describe('App', () => {
     open('/admin/stats', node('stats', {}, SHELL))
     await waitFor(() => expect(leave).toHaveBeenCalledWith('/admin?msg=no_access'))
     await waitFor(() => expect(document.querySelector('.dp-react-root')).toBeNull())
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Setări')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })
@@ -176,7 +176,7 @@ const SHELL_MED: ShellModel = {
     active: 'med',
     items: [...SHELL.nav.items, { key: 'med', href: '/admin/medici', icon: 'med', label: 'Medici' }],
   },
-  frame: { ...SHELL.frame, sub: 'medicii clinicii' },
+  frame: { ...SHELL.frame, title: 'Medici', sub: 'medicii clinicii' },
 }
 
 const OFFLINE = new ApiError({ kind: 'network', detail: 'x' }, 'x')
@@ -191,7 +191,7 @@ describe('B4: переход без перезагрузки', () => {
   it('первый кадр за документом не ходит: узел приехал инлайном', () => {
     get.mockReturnValue(new Promise(() => {}))
     open('/admin/settings', node('settings_hub', {}, SHELL))
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Registrul Clinicii')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Setări')
     expect(fetchDoc).not.toHaveBeenCalled()
   })
 
@@ -264,7 +264,7 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     nav: {
       ...SHELL.nav,
       items: [
-        { key: 'dash', href: '/admin', icon: 'home', label: 'Dashboard' },
+        { key: 'dash', href: '/admin', icon: 'home', label: 'Panoul principal' },
         { key: 'med', href: '/admin/medici', icon: 'med', label: 'Medici' },
         { key: 'set', href: '/admin/settings', icon: 'set', label: 'Setări' },
       ],

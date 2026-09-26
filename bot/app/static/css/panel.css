@@ -346,7 +346,7 @@
  .content>.nav:not(.nav~.nav),.dp-react-root>.nav:not(.nav~.nav){grid-area:1/2/3/3;align-self:center;justify-self:start;margin:0}
  @media print{.content{display:block}}
  /* ---------- общие элементы ---------- */
- h1{font-size:var(--fs-h1);margin:0 0 4px;font-weight:var(--fw-h1);letter-spacing:var(--ls-h1);line-height:1.2;
+ h1{font-size:var(--fs-h1);margin:0 0 4px;font-weight:var(--fw-h1);letter-spacing:var(--ls-h1);line-height:1.2;color:var(--h1-fg);
    display:flex;align-items:center;gap:.44em}
  /* Акцент — ПЛАНКА слева, а не заливка всего заголовка: 32px насыщенного teal
     на светлом фоне читаются декоративным баннером, а не шапкой раздела.

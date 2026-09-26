@@ -42,6 +42,10 @@ export interface ShellModel {
   nav: { active: string; items: NavItem[]; sync: NavItem[]; foot_title: string }
   signals: { tamper: Signal; split: Signal; slot: Signal; setup: Signal }
   frame: {
+    /** Заголовок страницы — имя РАЗДЕЛА (B5, шаг 10): «Pacienți», «Setări».
+     *  Считает сервер по активному пункту меню; до 26.09 здесь стояло
+     *  постоянное «Registrul Clinicii». */
+    title: string
     sub: string
     /**
      * Навигация раздела — сегодня её печатает `_sec_page`, одну и ту же на всех

@@ -973,7 +973,7 @@ def suite_live_shell(res: Result) -> None:
             # ложном красном стенде — поймано этим же стендом 24.09).
             res.check(f"{path}: серверного каркаса нет",
                       ('<aside class="side' in page, '<div class="top"' in page,
-                       "<h1><a href=" in page, 'src="/static/js/panel.js' in page),
+                       "<h1>" in page, 'src="/static/js/panel.js' in page),
                       (False, False, False, False))
 
 

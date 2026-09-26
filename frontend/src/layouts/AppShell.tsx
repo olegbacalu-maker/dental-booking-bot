@@ -14,7 +14,6 @@ import type { NavItem, ShellModel } from './shell'
    остаётся обычной ссылкой — это решает сам `AppLink`, не список здесь. */
 
 const T = t('shell', {
-  title: 'Registrul Clinicii',
   menu: 'Meniu',
   sync: 'Sincronizări',
   search: 'Caută pacient, telefon…',
@@ -155,7 +154,8 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
       <div className="main">
         <Topbar m={m} prose={prose} />
         <div className="content">
-          <h1><AppLink href="/admin">{T.title}</AppLink></h1>
+          {/* заголовок — имя раздела из модели (B5): текст меняется, узел тот же */}
+          <h1>{m.frame.title}</h1>
           <div className="sub">{m.frame.sub}{m.frame.sec_warn} · v{m.runtime.version}</div>
           {[sig.tamper, sig.split, sig.slot, sig.setup].map((s, i) =>
             s.shown ? <div key={i} onClick={prose} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}

@@ -882,12 +882,12 @@ def _sidebar(active: str, rail: bool = False) -> str:
   </div>
   <nav>
     <div class="sec">Meniu</div>
-    {item('dash', '/admin', 'home', 'Dashboard')}
-    {item('prog', '/admin/all', 'cal', 'Programări')}
-    {item('pat', '/admin/search', 'pat', 'Pacienți')}
-    {item('med', '/admin/medici', 'med', 'Medici') if show_docs else ''}
-    {item('stat', '/admin/stats', 'stat', 'Statistici') if show_money else ''}
-    {item('set', '/admin/settings', 'set', 'Setări') if show_set else ''}
+    {item('dash', '/admin', 'home', SECTION_TITLE['dash'])}
+    {item('prog', '/admin/all', 'cal', SECTION_TITLE['prog'])}
+    {item('pat', '/admin/search', 'pat', SECTION_TITLE['pat'])}
+    {item('med', '/admin/medici', 'med', SECTION_TITLE['med']) if show_docs else ''}
+    {item('stat', '/admin/stats', 'stat', SECTION_TITLE['stat']) if show_money else ''}
+    {item('set', '/admin/settings', 'set', SECTION_TITLE['set']) if show_set else ''}
     {sync}
   </nav>
   <div class="sfoot"{foot_title}>v{eng.APP_VERSION} · <span id="sf_clock" data-tz="{eng.TZ.key}"></span></div>
@@ -1112,6 +1112,19 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 </script></head>"""
 
 
+# Подписи разделов — ОДИН словарь для пунктов меню и для заголовка страницы
+# (B5, шаг 10): разойдись они, меню звало бы раздел одним словом, а страница —
+# другим. Ключи — значения `active`; страница вне меню (например, у роли без
+# этого пункта) получает имя программы.
+# «Panoul principal», не «Dashboard» — слово Олега 26.09 при показе заголовков.
+SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Pacienți",
+                 "med": "Medici", "stat": "Statistici", "set": "Setări"}
+
+
+def section_title(active: str) -> str:
+    return SECTION_TITLE.get(active, "DentPilot")
+
+
 def shell_model(active: str, sub: str, rail: bool = False,
                 bell: int | None = None, msg: str = "",
                 crumbs: list | None = None) -> dict:
@@ -1138,18 +1151,18 @@ def shell_model(active: str, sub: str, rail: bool = False,
     tg_on, tg_user = _tg_state()
     th = theme.current()
 
-    items = [{"key": "dash", "href": "/admin", "icon": "home", "label": "Dashboard"},
-             {"key": "prog", "href": "/admin/all", "icon": "cal", "label": "Programări"},
-             {"key": "pat", "href": "/admin/search", "icon": "pat", "label": "Pacienți"}]
+    items = [{"key": "dash", "href": "/admin", "icon": "home", "label": SECTION_TITLE["dash"]},
+             {"key": "prog", "href": "/admin/all", "icon": "cal", "label": SECTION_TITLE["prog"]},
+             {"key": "pat", "href": "/admin/search", "icon": "pat", "label": SECTION_TITLE["pat"]}]
     if show_docs:
         items.append({"key": "med", "href": "/admin/medici", "icon": "med",
-                      "label": "Medici"})
+                      "label": SECTION_TITLE["med"]})
     if show_money:
         items.append({"key": "stat", "href": "/admin/stats", "icon": "stat",
-                      "label": "Statistici"})
+                      "label": SECTION_TITLE["stat"]})
     if show_set:
         items.append({"key": "set", "href": "/admin/settings", "icon": "set",
-                      "label": "Setări"})
+                      "label": SECTION_TITLE["set"]})
     # Секция «Sincronizări» — только у клиники с уже настроенным ботом
     # (grandfather): Telegram заморожен. Пустой список = секции нет вовсе.
     sync = []
@@ -1182,7 +1195,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
                               if tg_configured() else ""},
         "signals": {"tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint())},
-        "frame": {"sub": sub, "rail": rail, "bell": bell,
+        "frame": {"title": section_title(active), "sub": sub, "rail": rail, "bell": bell,
                   "sec_warn": _sec_warn(),
                   "update": _update_banner().removeprefix(" · "),
                   "msg": msg_banner(msg) if msg else "",
@@ -1262,18 +1275,17 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
     # перебьёт :root. Цвет полосы браузера берётся из того же стиля: на
     # телефоне врача она занимает верх экрана и осталась бы от прежней темы.
     # ⚠️ В <h1> имени клиники НЕТ намеренно (08-09): оно и так на экране дважды —
-    # в подписи сайдбара и в чипе вошедшего («роль · клиника»), а строка
-    # «Clinica mea — registrul clinicii» съедала ширину ради третьего повтора.
-    # Заголовок один на ВСЕ страницы (имя раздела живёт в .sub, см. _sec_page),
-    # поэтому он называет ПРОГРАММУ, а не страницу — и обязан быть коротким.
-    # В <title> окна имя клиники остаётся: там оно различает установки в панели
-    # задач, а не повторяет соседний элемент.
+    # в подписи сайдбара и в чипе вошедшего («роль · клиника»). С 26.09 (B5,
+    # решение Олега) h1 называет РАЗДЕЛ — «Pacienți», «Setări», — как окно
+    # приложения Windows; постоянное «Registrul Clinicii» ушло: имя программы
+    # стоит в подписи меню («DENTPILOT»), а в <title> окна остаётся имя клиники.
+    # Подпись .sub по-прежнему уточняет страницу внутри раздела.
     return _doc_head() + f"""<body{reload_attr} data-v="{eng.APP_VERSION}">
 {_sidebar(active, rail)}
 <div class="main">
 {_topbar(bell)}
 <div class="content">
-<h1><a href="/admin">Registrul Clinicii</a></h1>
+<h1>{section_title(active)}</h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
 {_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
 {body}

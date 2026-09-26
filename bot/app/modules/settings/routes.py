@@ -345,9 +345,9 @@ async def admin_settings(request: Request, msg: str = ""):
         f"<section class='hub-g'><h3>{html.escape(g['label'])}</h3>"
         f"<div class='hub-list'>{''.join(row(t) for t in g['tiles'])}</div></section>"
         for g in hub_groups(_hub_tiles()))
-    body = (f"<div class='pl-head'><div><h2>Setări</h2>"
-            f"<p>Alegeți o secțiune — modificările se aplică imediat, "
-            f"fără repornire</p></div></div>"
+    # раздел уже в h1 оболочки (B5, шаг 10) — здесь только подсказка
+    body = (f"<p class='hint'>Alegeți o secțiune — modificările se aplică imediat, "
+            f"fără repornire</p>"
             f"<div class='pl-tiles set-hub'>{groups}</div>")
     return _shell(f"<div class='nav'><a href='/admin'>{_ic('home')} Panou</a></div>"
                   + msg_banner(msg) + body,

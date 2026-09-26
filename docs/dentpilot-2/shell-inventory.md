@@ -28,7 +28,7 @@
 |---|---|---|
 | `<aside class="side">`, `side-rail` (56 px) | `rail=True` — только одонтограмма и пародонтограмма | React Layout |
 | шапка: SVG-знак, имя клиники, «DentPilot» | всегда; имя из `clinic.json` | React Layout |
-| секция «Meniu»: Dashboard, Programări, Pacienți | всегда | React Layout |
+| секция «Meniu»: Panoul principal (до 26.09 — Dashboard), Programări, Pacienți | всегда | React Layout |
 | Medici, Statistici, Setări | по правам (`can(me, PERM_…)`) | React Layout |
 | секция «Sincronizări»: Telegram Bot + точка `ok/off`, QR pacienți | за `tg_configured()` — **заморожено** | React Layout, шов сохранить |
 | `class='on'` на активном пункте | `active` | React Layout |
@@ -69,7 +69,7 @@
 
 ## 3. Рамка содержимого (26 позиций)
 
-`.main` → `.content` → `<h1><a href="/admin">Registrul Clinicii</a></h1>` →
+`.main` → `.content` → `<h1>{имя раздела: Pacienți, Setări…}</h1>` (до 26.09 — постоянное «Registrul Clinicii») →
 `.sub` = `{sub}` + `_sec_warn()` + `· v{APP_VERSION}` → четыре системных
 баннера → тело → `.brandcorner` с `mailto`, несущим имя клиники и версию.
 

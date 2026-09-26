@@ -6,7 +6,6 @@ import { settings, type HintPart, type HubData } from './settings'
 
 const T = {
   panel: 'Panou',
-  title: 'Setări',
   sub: 'Alegeți o secțiune — modificările se aplică imediat, fără repornire',
 } as const
 
@@ -30,7 +29,8 @@ export function SettingsHubScreen() {
   return (
     <section className="dp-react-root" aria-busy={state.status !== 'ready'}>
       {nav}
-      <div className="pl-head"><div><h2>{T.title}</h2><p>{T.sub}</p></div></div>
+      {/* раздел уже в h1 оболочки (B5, шаг 10) — здесь только подсказка */}
+      <p className="hint">{T.sub}</p>
       <div className="pl-tiles set-hub">
         {/* группы и их порядок — с сервера (B5): пустая группа не рисуется,
             как и на старой странице */}

@@ -200,6 +200,7 @@ def suite_switch(res: Result) -> None:
         res.ok("рамка на месте: крошка к хабу, подпись раздела, активный пункт",
                [c["href"] for c in shell["frame"]["crumbs"]] == ["/admin/settings", "/admin"]
                and shell["frame"]["crumbs"][0]["label"] == "Setări"
+               and shell["frame"]["title"] == "Setări"
                and shell["frame"]["sub"] == "setări · clinica"
                and shell["nav"]["active"] == "set",
                f"{shell['frame']['crumbs']} {shell['frame']['sub']} {shell['nav']['active']}")

@@ -80,7 +80,10 @@ describe('SettingsHubScreen', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
     openHub()
     expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('true')
-    expect(screen.getByText('Setări')).toBeTruthy()
+    // заголовок раздела теперь печатает оболочка (B5, шаг 10); первый кадр
+    // экрана — его подсказка и пустой узел списка, а не пустота
+    expect(screen.getByText(/Alegeți o secțiune/)).toBeTruthy()
+    expect(document.querySelector('.set-hub')).toBeTruthy()
   })
 
   it('отказ: плашка с повтором, повтор перезапускает загрузчик и приносит плитки', async () => {

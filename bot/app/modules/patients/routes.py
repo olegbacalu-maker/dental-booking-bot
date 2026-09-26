@@ -2686,8 +2686,6 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
     banner = msg_banner(msg)
 
     body = f"""{banner}
-<div class='pl-head'><div><h2>Pacienți</h2>
-  <p>Gestionează și caută pacienții clinicii</p></div></div>
 {bar}
 {tiles}
 <div class='pl-grid'>
