@@ -206,8 +206,7 @@ def run(out: pathlib.Path) -> int:
             print("    ", f)
 
     day = (clinic_today() + timedelta(days=3)).isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     with s1:
         ids = _seed(Client(s1.url).login(), day)["ids"]
     cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
@@ -297,7 +296,7 @@ def run(out: pathlib.Path) -> int:
         if proc:
             proc.kill()
         time.sleep(0.5)
-        shutil.rmtree(s1.dir, ignore_errors=True)
+        s1.drop()
         shutil.rmtree(profile, ignore_errors=True)
 
     red = [(n, f) for n, f in results if f]

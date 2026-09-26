@@ -7,14 +7,14 @@
 import io
 import json
 import pathlib
-import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 import zipfile
 from datetime import date, timedelta
 
-from harness import BOT, TG_ON, Client, Result, Server, clinic_today
+from harness import BOT, TG_ON, Client, Result, Server, clinic_today, _rmtree_settled
 
 
 def _d(offset: int) -> str:
@@ -24,6 +24,21 @@ def _d(offset: int) -> str:
 def _pid(c: Client, phone: str) -> str:
     return c.get(f"/admin/search?q={phone}").body.split(
         "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+
+
+def _tmp_left(s: Server, prefix: str, budget: float = 3.0) -> list[str]:
+    """Что осталось в %TEMP% СЕРВЕРА от выдачи спустя budget секунд.
+
+    Архив выгрузки и бэкапа сносит фоновая задача ПОСЛЕ отдачи (~20 мс), а
+    лежит в нём у клиники копия личных данных пациента или всей картотеки —
+    забытый, он копился бы в %TEMP% с каждой выдачей. Сервер жив: смотрим,
+    что прибрал за собой сам продукт, а не харнесс, который его гасит."""
+    deadline = time.time() + budget
+    while True:
+        left = sorted(p.name for p in s.tmp.glob(prefix + "*"))
+        if not left or time.time() > deadline:
+            return left
+        time.sleep(0.05)
 
 
 def _seed(c: Client) -> str:
@@ -60,6 +75,10 @@ def suite_export(res: Result) -> None:
 
         r = c.get(f"/admin/patient/{pid}/export")
         res.check("выгрузка отдаётся", r.status, 200)
+        left = _tmp_left(s, "dp_export_")
+        res.ok("архив выгрузки не остаётся в %TEMP% сервера", not left,
+               f"после выдачи осталось {left}: копия данных пациента "
+               f"копилась бы у клиники с каждой выдачей")
         res.ok("отдаётся именно архивом", r.raw[:2] == b"PK",
                f"первые байты {r.raw[:8]!r}")
         res.ok("имя файла узнаваемо",
@@ -326,7 +345,7 @@ def suite_erase_marker(res: Result) -> None:
         res.ok("маркер не пережил обезличивание нигде",
                not found, f"уцелевшие следы: {found}")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_erase_marker_delete(res: Result) -> None:
@@ -353,7 +372,7 @@ def suite_erase_marker_delete(res: Result) -> None:
         res.ok("после полного удаления маркера нет нигде",
                not found, f"уцелевшие следы: {found}")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_access_log(res: Result) -> None:
@@ -532,6 +551,10 @@ def suite_backup(res: Result) -> None:
 
         r = c.post("/admin/backup/export", parola="parola-foarte-buna")
         res.check("бэкап отдаётся", r.status, 200)
+        left = _tmp_left(s, "dp_backup_")
+        res.ok("архив бэкапа не остаётся в %TEMP% сервера", not left,
+               f"после выдачи осталось {left}: снимок всей картотеки "
+               f"копился бы у клиники с каждым бэкапом")
         res.ok("это zip", r.raw[:2] == b"PK", f"байты {r.raw[:4]!r}")
 
         z = pyzipper.AESZipFile(io.BytesIO(r.raw))

@@ -25,12 +25,11 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import tempfile
 from datetime import date, timedelta
 
-from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server, clinic_today
+from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server, clinic_today, _rmtree_settled
 
 TELEGRAM_PY = BOT / "app" / "telegram.py"
 
@@ -243,7 +242,7 @@ def suite_move_reminder(res: Result) -> None:
         res.ok("тот же час — отметка на месте", got["after_doctor"] == [1, 0],
                f"флаги после смены врача: {got['after_doctor']}")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 4. состояние канала на странице «Stare sistem» ----------

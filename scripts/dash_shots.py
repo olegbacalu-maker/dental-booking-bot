@@ -275,8 +275,7 @@ def run(out: pathlib.Path) -> int:
     # ⚠️ День именно СЕГОДНЯШНИЙ: линия «сейчас» рисуется только на сегодня, а
     # без неё сцены 1 и 3 проверяли бы не свой предмет.
     day = clinic_today().isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     with s1:
         _seed(Client(s1.url).login(), day)
     cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
@@ -461,7 +460,7 @@ def run(out: pathlib.Path) -> int:
         for p in (proc, proc_b):
             if p is not None:
                 p.terminate()
-        s1.__exit__(None, None, None)
+        s1.drop()
 
     red = [n for n, f in results if f]
     print("\n" + "=" * 60)

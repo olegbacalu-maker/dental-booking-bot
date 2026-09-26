@@ -35,6 +35,7 @@ import test_day_forms  # noqa: E402
 import test_grid  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
+import test_harness_tmp  # noqa: E402
 import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
@@ -91,6 +92,9 @@ SUITES = [
      test_guards.suite_screen_map),
     ("Сторожа: карта маршрутов B2 не отстаёт от кода",
      test_guards.suite_route_map),
+    # Два сервера, пара секунд: сломанная уборка харнесса не краснеет нигде
+    # больше — её выдаёт только заполняющийся диск.
+    ("Сторожа: уборка временного прогона", test_harness_tmp.suite_run_tmp),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).

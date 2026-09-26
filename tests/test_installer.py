@@ -13,11 +13,10 @@ from __future__ import annotations
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import tempfile
 
-from harness import BOT, Result  # noqa: E402
+from harness import BOT, Result, _rmtree_settled  # noqa: E402
 
 ISS = BOT.parent / "installer" / "DentPilot.iss"
 
@@ -183,4 +182,4 @@ def suite_compiles(res: Result) -> None:
         res.ok("скрипт установщика компилируется", p.returncode == 0,
                (p.stdout or "")[-400:] + (p.stderr or "")[-200:])
     finally:
-        shutil.rmtree(out, ignore_errors=True)
+        _rmtree_settled(out)

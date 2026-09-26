@@ -37,7 +37,7 @@ import tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import test_structure  # noqa: E402
-from harness import BOT, ROOT, Result  # noqa: E402
+from harness import BOT, ROOT, Result, _rmtree_settled  # noqa: E402
 
 # 🖨 — чистое эмодзи, рисует система. Живёт в исходнике \-последовательностью
 # намеренно: сам этот файл правило не читает, но знак в нём сбивал бы с толку.
@@ -75,7 +75,7 @@ def _run(rel: str | None = None, patch=None) -> Result:
         return res
     finally:
         test_structure.BOT = BOT        # вернуть на настоящее дерево
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 _CLEAN: list[Result] = []

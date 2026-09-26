@@ -23,7 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app.core import dbkey  # noqa: E402
 
-from harness import FIXTURES, Client, Result, Server  # noqa: E402
+from harness import FIXTURES, Client, Result, Server, _rmtree_settled  # noqa: E402
 
 MARK = "Ionescu-Test-Criptare"
 
@@ -172,7 +172,7 @@ def suite_convert(res: Result) -> None:
                not db.with_name(db.name + "-wal").exists(),
                "старый WAL остался и докатится поверх новой базы")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 3. программа на зашифрованной базе ----------
@@ -231,7 +231,7 @@ def suite_live(res: Result) -> None:
         res.check("испорченный ключ виден как «не читается»",
                   dbkey.state(tmp), dbkey.UNREADABLE)
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 4. отложенный переезд (его делает лаунчер) ----------
@@ -310,7 +310,7 @@ def suite_pending(res: Result) -> None:
         res.ok("данные вернулись в открытый вид", MARK.encode() in db.read_bytes(),
                "база не расшифровалась")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 5. режим восстановления ----------
@@ -353,7 +353,7 @@ def suite_recover(res: Result) -> None:
             res.check("после перезапуска журнал открывается",
                       Client(s.url).login().get("/admin").status, 200)
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 6. выключение шифрования и ежедневные копии ----------
@@ -417,7 +417,7 @@ def suite_off_backups(res: Result) -> None:
         res.ok("и застрявшая копия расшифрована",
                MARK.encode() in c1.read_bytes(), "копия так и не вернулась")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 7. заказ на шифрование — только после подтверждения листа ----------
@@ -470,7 +470,7 @@ def suite_confirm(res: Result) -> None:
                    code in sheet2.body,
                    "второй ключ поверх — напечатанный лист стал ложным")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 8. экспорт бэкапа при нечитаемом ключе + инструкции про db.key ----
@@ -508,7 +508,10 @@ def suite_export_err(res: Result) -> None:
             # ключ «унесли» посреди работы (переезд учётки) — база живёт на
             # соединении, открытом при старте, а экспорт читает ключ заново
             (tmp / dbkey.KEY_FILE).write_text("dpapi:мусор", encoding="utf-8")
-            troot = pathlib.Path(tempfile.gettempdir())
+            # ⚠️ %TEMP% СЕРВЕРА, а не свой: у сервера он отдельный
+            # (harness.Server.tmp), и в своём такой снимок не появился бы
+            # никогда — проверка зеленела бы и на утечке
+            troot = s.tmp
             before = {p.name for p in troot.glob("dp_backup_*")}
             r = c.post("/admin/backup/export", parola="parola-foarte-buna")
             res.check("отказ показан баннером, а не 500", r.msg, "bad_bkp")
@@ -516,4 +519,4 @@ def suite_export_err(res: Result) -> None:
             res.ok("снимок базы не остался в %TEMP%", after == before,
                    f"остались: {sorted(after - before)}")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)

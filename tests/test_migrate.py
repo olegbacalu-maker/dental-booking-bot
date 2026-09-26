@@ -80,7 +80,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import db as appdb  # noqa: E402 — только константы схем, не соединение
 
-from harness import BOT, Client, Result, Server, clinic_today  # noqa: E402
+from harness import BOT, Client, Result, Server, clinic_today, _rmtree_settled  # noqa: E402
 
 # Предикат, который шаги 2–3 ставили ДО появления 'waiting' (08-13): ровно так
 # выглядят индексы у реальной клиники, чья база остановилась на версии 3.
@@ -322,7 +322,7 @@ def suite_v4(res: Result) -> None:
                              "uq_doctor_slot_id")),
                f"индексы после рестарта: {idx!r}")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def _schema_cookie(dbfile: pathlib.Path) -> int:
@@ -476,7 +476,7 @@ def suite_v4_conflict(res: Result) -> None:
         res.check("летопись называет то, что случилось: часы развели",
                   events[1] if len(events) > 1 else "", appdb.UQ_CLEARED_TEXT)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_v2_conflict(res: Result) -> None:
@@ -533,7 +533,7 @@ def suite_v2_conflict(res: Result) -> None:
                "<b>Medic:</b> Dr. Activ Doi · 13.01.2026 09:00" in body,
                "баннер не назвал переименованного врача")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_v0_conflict(res: Result) -> None:
@@ -627,7 +627,7 @@ def suite_v0_conflict(res: Result) -> None:
                f"страховка не встала сама: {idx!r}")
         res.check("метка снялась", _meta(dbfile, "uq_waiting_pending"), None)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_from_1200(res: Result) -> None:
@@ -729,7 +729,7 @@ def suite_from_1200(res: Result) -> None:
                f"страховка не встала сама: {idx!r}")
         res.check("метка снялась", _meta(dbfile, "uq_waiting_pending"), None)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_selfheal_narrow(res: Result) -> None:
@@ -783,7 +783,7 @@ def suite_selfheal_narrow(res: Result) -> None:
         res.check("исправная база строк в летопись не добавляет",
                   len(_activity(dbfile, "uq_guard")), 1)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_selfheal(res: Result) -> None:
@@ -843,7 +843,7 @@ def suite_selfheal(res: Result) -> None:
         res.check("исправная база строк в летопись не добавляет",
                   len(_activity(dbfile, "uq_guard")), 1)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_step4_list(res: Result) -> None:
@@ -879,7 +879,7 @@ def suite_step4_list(res: Result) -> None:
                "список шага 4 никто не исполняет: операция пропущена молча, а "
                "версия схемы говорит, что шаг сделан")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_slot_guard_no_data(res: Result) -> None:
@@ -928,7 +928,7 @@ def suite_slot_guard_no_data(res: Result) -> None:
                events and "0 ore" not in events[0],
                f"строка хранится готовой и навсегда: {events!r}")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_uq_apply_fails(res: Result) -> None:
@@ -1001,7 +1001,7 @@ def suite_uq_apply_fails(res: Result) -> None:
         res.check("метка держится до починки",
                   _meta(dbfile, "uq_waiting_pending") is not None, True)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
     # ---- отказ на ПЕРВОМ индексе: он не имеет права уносить соседей ----
     # DDL в SQLite идёт вне транзакции. Пока раскладка шла «сначала все три
@@ -1033,7 +1033,7 @@ def suite_uq_apply_fails(res: Result) -> None:
                "второй визит того же пациента на тот же час прошёл — "
                "картотека осталась без страховки, которой отказ не касался")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_uq_event_len(res: Result) -> None:
@@ -1150,7 +1150,7 @@ def suite_uq_all_gone(res: Result) -> None:
         res.ok("летопись зовёт поддержку", "suport tehnic" in text,
                f"в самом тревожном состоянии совет не доехал до базы: {text!r}")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_uq_state_unreadable(res: Result) -> None:
@@ -1220,7 +1220,7 @@ def suite_uq_state_unreadable(res: Result) -> None:
         res.ok("строка летописи не обрезана", len(text) < appdb.EVENT_TEXT_MAX,
                f"{len(text)} символов при потолке {appdb.EVENT_TEXT_MAX}")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_uq_cleared_no_conflict(res: Result) -> None:
@@ -1298,7 +1298,7 @@ def suite_uq_cleared_no_conflict(res: Result) -> None:
         res.check("летопись называет то, что случилось на самом деле",
                   text, appdb.UQ_COMPLETE_TEXT)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_uq_gone_still_blocks(res: Result) -> None:
@@ -1358,7 +1358,7 @@ def suite_uq_gone_still_blocks(res: Result) -> None:
                "состояние названо, но про первый пояс не сказано ничего — "
                "директор читает это как «записывать нельзя»")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_slot_banner_roles(res: Result) -> None:
@@ -1402,7 +1402,7 @@ def suite_slot_banner_roles(res: Result) -> None:
                        "несменяемое предупреждение висит у того, кто не может "
                        "его закрыть")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_backfill_tz(res: Result) -> None:
@@ -1439,7 +1439,7 @@ def suite_backfill_tz(res: Result) -> None:
                f"визит на 09:00 Кишинёва записан как {text!r} "
                f"(UTC был бы {utc_hhmm})")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_v5_marks(res: Result) -> None:
@@ -1524,4 +1524,4 @@ def suite_v5_marks(res: Result) -> None:
             con.close()
         res.check("повторный старт ничего не переводит заново", again, 0)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)

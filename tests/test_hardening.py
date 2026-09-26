@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 
-from harness import BOT, FIXTURES, PYTHON, Client, Result, Server, clinic_today
+from harness import BOT, FIXTURES, PYTHON, Client, Result, Server, clinic_today, _rmtree_settled
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -160,7 +160,7 @@ def suite_setup_local(res: Result) -> None:
         res.check("битый auth.json держит setup закрытым и локально",
                   got.get("broken_local_get"), "303")
     finally:
-        shutil.rmtree(base, ignore_errors=True)
+        _rmtree_settled(base)
 
 
 # ---------- ШАГ 2: битый clinic.json не подменяется демо-клиникой ----------
@@ -483,7 +483,7 @@ def suite_stale_session(res: Result) -> None:
         res.check("живой конфиг бронирует как раньше", got.get("alive_booked"),
                   "True")
     finally:
-        shutil.rmtree(base, ignore_errors=True)
+        _rmtree_settled(base)
 
 
 # ---------- ШАГ 5: удаление пациента атомарно ----------
@@ -568,7 +568,7 @@ def suite_delete_rollback(res: Result) -> None:
         res.check("повторное удаление сносит всё", got.get("all_deleted"),
                   "True")
     finally:
-        shutil.rmtree(base, ignore_errors=True)
+        _rmtree_settled(base)
 
 
 # ---------- ШАГ 6: сессии диалога — TTL и очистка PII ----------
@@ -691,7 +691,7 @@ def suite_session_pii(res: Result) -> None:
         res.check("живая сессия для session_alive жива",
                   got.get("alive_alive"), "True")
     finally:
-        shutil.rmtree(base, ignore_errors=True)
+        _rmtree_settled(base)
 
 
 # ---------- ШАГ 7: CSRF на маршрутах без куки ----------
@@ -779,7 +779,7 @@ def suite_authfail_atomic(res: Result) -> None:
     finally:
         auth._fail_path = orig_path
         os.fsync = orig_fsync
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        _rmtree_settled(tmp_dir)
 
 
 def suite_doc_ownership(res: Result) -> None:

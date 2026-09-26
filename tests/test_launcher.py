@@ -24,7 +24,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import envfile  # noqa: E402
 
-from harness import BOT, Result  # noqa: E402
+from harness import BOT, Result, _rmtree_settled  # noqa: E402
 
 _GENERIC_READ = 0x80000000
 _FILE_SHARE_WRITE = 0x2
@@ -143,7 +143,7 @@ def suite_envfile(res: Result) -> None:
                "truncate+write: обрыв питания оставляет усечённый dental.env")
     finally:
         import shutil
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 # ---------- 2. DENTART_PORT ----------
@@ -470,7 +470,7 @@ def suite_autobackup(res: Result) -> None:
                    f"и вытеснит исправные копии из ротации")
         finally:
             import shutil
-            shutil.rmtree(bad_dir, ignore_errors=True)
+            _rmtree_settled(bad_dir)
 
         # -- ротация видит только финальные имена --
         for i in range(20):
@@ -485,4 +485,4 @@ def suite_autobackup(res: Result) -> None:
                "desktop.py копирует сам — логика раздвоится и уйдёт из-под тестов")
     finally:
         import shutil
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)

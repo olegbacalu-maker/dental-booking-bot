@@ -76,8 +76,7 @@ def run() -> int:
         else:
             print(f"OK  {name}: {got!r}")
 
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     with s1:
         c = Client(s1.url).login()
         d = _seed(c)
@@ -135,6 +134,7 @@ def run() -> int:
     finally:
         if proc:
             proc.kill()
+        s1.drop()
     print("\n" + ("ВСЁ ЗЕЛЁНОЕ" if not fails else f"КРАСНЫХ: {len(fails)}"))
     return 1 if fails else 0
 

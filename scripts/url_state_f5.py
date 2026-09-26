@@ -137,8 +137,7 @@ def run_case(page: Page, cdp: CDP, case, ids) -> dict:
 
 def main() -> int:
     day = clinic_today().isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     preconditions(s1.dir)
     s1.extra_env["DENTART_ENV_FILE"] = str(s1.dir / "dental.env")
     with s1:
@@ -168,7 +167,7 @@ def main() -> int:
     finally:
         if proc:
             proc.kill()
-        s1.__exit__(None, None, None)
+        s1.drop()
 
     red = 0
     for r in results:

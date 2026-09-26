@@ -6,14 +6,13 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import tempfile
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from harness import BOT, PIN, PYTHON, Client, Result, Server, clinic_today
+from harness import BOT, PIN, PYTHON, Client, Result, Server, clinic_today, _rmtree_settled
 
 
 def _d(offset: int) -> str:
@@ -1628,7 +1627,7 @@ def suite_lan(res: Result) -> None:
                    "Sincronizări" in page and "Telegram Bot" in page,
                    "у клиники с ботом пропал раздел из меню")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 def suite_pure(res: Result) -> None:

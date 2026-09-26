@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import atexit
 import http.cookiejar
 import json
 import os
@@ -60,10 +61,18 @@ class Server:
 
     def __init__(self, clinic: str = "clinic_test.json", env: dict | None = None,
                  dir_: pathlib.Path | None = None,
-                 bot: pathlib.Path | None = None):
+                 bot: pathlib.Path | None = None, keep_dir: bool = False):
         """dir_ — переиспользовать папку данных ПРЕЖНЕГО сервера: так
         проверяется то, что живёт через рестарт (сигнализация auth.json,
         миграции). Чужую папку не удаляем — прибирает тот, кто её создал.
+
+        keep_dir — СВОЮ папку на выходе не сносить: её подхватит следующий
+        сервер (`Server(dir_=s1.dir)`) — так стенды сеют данные первым
+        сервером и смотрят вторым. Сносит её потом `s1.drop()`.
+        ⛔ Раньше стенды ставили `s1._own_dir = False` и в конце звали
+        `s1.__exit__()`, считая это уборкой, — а флаг так и стоял, и каждый
+        прогон стенда оставлял в %TEMP% свою `dp_test_*` навсегда (26.09: 156
+        папок за три дня, цепочками по шесть — ровно `.\\dev bench`).
 
         bot — поднять сервер из КОПИИ дерева `bot\\` (тот же приём, что в
         mutate.py). Нужен там, где проверяется поведение, которое иначе не
@@ -72,7 +81,8 @@ class Server:
         вносится в КОПИЮ; настоящее дерево не трогается никогда."""
         self.port = free_port()
         self.bot = pathlib.Path(bot) if bot else BOT
-        self._own_dir = dir_ is None
+        self._made_dir = dir_ is None
+        self._own_dir = self._made_dir and not keep_dir
         self.dir = pathlib.Path(dir_) if dir_ else pathlib.Path(
             tempfile.mkdtemp(prefix="dp_test_"))
         self.clinic = self.dir / "clinic.json"
@@ -81,6 +91,9 @@ class Server:
             self._pin_legacy()
         self.extra_env = env or {}
         self.proc: subprocess.Popen | None = None
+        # %TEMP% самого сервера — заводится на старте, уходит вместе с ним
+        # (почему свой — в __enter__)
+        self.tmp: pathlib.Path | None = None
 
     def _pin_legacy(self) -> None:
         """Пин СТАРОЙ страницы в фикстуре, которую скопировали мы сами.
@@ -116,6 +129,15 @@ class Server:
         return f"http://127.0.0.1:{self.port}"
 
     def __enter__(self) -> "Server":
+        # ⭐ У сервера СВОЙ %TEMP% — рядом с песочницей, а не в ней: бэкап
+        # пакует папку данных, и временное легло бы в архив. Выгрузка пациента
+        # и бэкап пишут туда архив и сносят его фоновой задачей через ~20 мс
+        # после отдачи, а набор гасит сервер сразу за последним запросом — и
+        # `dp_export_*`/`dp_backup_*` оставались в %TEMP% (замер 26.09: 2
+        # гашения из 4; при живом сервере продукт чист 20 выдач из 20). Своё
+        # временное уходит вместе с сервером, а набору, которому важно, что
+        # продукт прибрал за собой САМ, `self.tmp` виден, пока сервер жив.
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_srvtmp_"))
         env = dict(os.environ)
         env.update({
             "CLINIC_CONFIG": str(self.clinic),
@@ -123,6 +145,7 @@ class Server:
             "ADMIN_KEY": PIN,
             "DENTART_NO_RESTART": "1",       # тест-хук: не перезапускать процесс
             "TELEGRAM_TOKEN": "",            # адаптер Telegram не поднимать
+            "TMPDIR": str(self.tmp), "TEMP": str(self.tmp), "TMP": str(self.tmp),
         })
         env.update(self.extra_env)
         # ⛔ Вывод сервера идёт в ФАЙЛ, а не в трубу. Труба здесь была, и её
@@ -141,14 +164,25 @@ class Server:
         deadline = time.time() + 40
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                out = self.proc.stdout.read() if self.proc.stdout else ""
-                raise RuntimeError(f"сервер упал при старте:\n{out[-2000:]}")
+                raise self._startup_failed("сервер упал при старте")
             try:
                 with urllib.request.urlopen(self.url + "/health", timeout=1):
                     return self
             except Exception:  # noqa: BLE001 — ещё не поднялся
                 time.sleep(0.3)
-        raise RuntimeError("сервер не ответил на /health за 40 секунд")
+        raise self._startup_failed("сервер не ответил на /health за 40 секунд")
+
+    def _startup_failed(self, why: str) -> RuntimeError:
+        """Старт не удался. Исключение вылетает из __enter__, и `with` уже НЕ
+        позовёт __exit__ — поэтому прибираем здесь: процесс (если ещё жив),
+        его %TEMP% и свою папку. Без этого каждый несостоявшийся старт
+        оставлял песочницу навсегда.
+        ⚠️ Хвост server.log — в само сообщение: после уборки прочитать его
+        негде. (Прежде сюда шёл `proc.stdout`, которого нет — вывод идёт в
+        файл, — и «упал при старте» приходило с пустой причиной.)"""
+        tail = self.log_text()[-2000:]
+        self.__exit__(None, None, None)
+        return RuntimeError(f"{why}:\n{tail}")
 
     def log_text(self) -> str:
         """Что сервер написал за свою жизнь. Файл, а не труба, — см. запуск."""
@@ -169,10 +203,59 @@ class Server:
             self._log.close()         # до удаления папки: файл лежит в ней
         except (OSError, AttributeError):
             pass
+        _wait_released(getattr(self, "_log_path", None))
+        if self.tmp is not None:
+            _rmtree_settled(self.tmp)
+            self.tmp = None
         if self._own_dir:
             _rmtree_settled(self.dir)
         else:
             _settle_db(self.dir / "dental.db")
+
+    def drop(self) -> None:
+        """Погасить (если ещё жив) и снести папку, которую завёл харнесс, — в
+        том числе оставленную `keep_dir`. Чужую (`dir_=`) не трогает никогда:
+        её прибирает тот, кто создал."""
+        self.__exit__(None, None, None)
+        if self._made_dir:
+            _rmtree_settled(self.dir)
+
+
+def _wait_released(log: pathlib.Path | None, budget: float = 10.0) -> None:
+    """Дождаться, пока НАСТОЯЩИЙ процесс сервера отпустит свои файлы.
+
+    ⛔ `Server.proc` — это ЛАУНЧЕР venv: `.venv-desktop\\Scripts\\python.exe`
+    сам ничего не исполняет, а запускает базовый интерпретатор дочерним
+    процессом. `terminate()` + `wait()` дожидаются ЛАУНЧЕРА; сервер Windows
+    гасит следом (задание с KILL_ON_JOB_CLOSE), и ещё ~7 мс он держит базу,
+    лог и свою РАБОЧУЮ папку (замер 26.09: шесть серверов из шести). В это
+    окно попадала уборка `shutil.rmtree(…, ignore_errors=True)` у наборов,
+    поднимающих сервер из копии `bot` (она и есть `cwd` сервера): пустая
+    `bot` оставалась в %TEMP% навсегда, а флаг отказ проглатывал.
+    Признак смерти — server.log: сервер унаследовал его дескриптор без права
+    удаления, и переименовать файл Windows даёт, лишь когда закрыты ВСЕ
+    дескрипторы. Не дождались за budget — выходим: оставшееся поймает сторож
+    уборки в `run()`, это честнее, чем висеть.
+    """
+    if os.name != "nt" or log is None or not log.exists():
+        return                   # POSIX переименует и открытый файл: признака нет
+    probe = log.with_name(log.name + ".probe")
+    deadline = time.time() + budget
+    while True:
+        try:
+            os.replace(log, probe)
+        except PermissionError:
+            if time.time() > deadline:
+                return
+            time.sleep(0.02)
+            continue
+        except OSError:
+            return
+        try:
+            os.replace(probe, log)   # имя вернуть: наборы читают лог и после гашения
+        except OSError:
+            pass
+        return
 
 
 def _rmtree_settled(path: pathlib.Path, budget: float = 5.0) -> None:
@@ -235,6 +318,169 @@ def _settle_db(path: pathlib.Path, budget: float = 5.0) -> None:
             time.sleep(0.15)
         except sqlite3.DatabaseError:
             return                       # шифрованная база или чужой формат
+
+
+# ---------- временное прогона: одна папка на процесс ----------
+#
+# ⭐ Всё, что заводит процесс харнесса, — песочницы серверов, их %TEMP%, папки
+# наборов, временное дочерних процессов и стендов (профиль Edge) — живёт в
+# ОДНОЙ папке `%TEMP%\dp_run_*` и уходит одним сносом на выходе. Раньше каждое
+# место прибирало за собой само, и каждое по-своему не прибирало: 26.09 в
+# %TEMP% лежало 387 папок `dp_*` от 24–26.09, и ни одна не выдала себя ничем,
+# кроме заполняющегося диска C.
+
+_RUN_PREFIX = "dp_run_"
+
+
+def _sweep_dead_runs(base: pathlib.Path) -> None:
+    """Снести временное прогонов, чей хозяин умер, не прибравшись.
+
+    Прогон, убитый снаружи (таймаут сессии, Ctrl+C, закрытое окно), до уборки
+    не доходит вовсе, и всё, что он завёл, осталось бы в %TEMP% навсегда.
+    ⛔ Чистить по ВОЗРАСТУ нельзя: рядом идут прогоны других сессий, их
+    песочницы живые, и «уборка» посреди прогона однажды уже заставила его
+    перезапускать. Признак — не время, а замок: живой прогон держит `.lock`
+    открытым без права удаления, и Windows не даст его стереть. Стёрся —
+    хозяина нет, папку можно сносить.
+    ⚠️ Только Windows: POSIX удаляет и открытый файл, признак там ничего не
+    значит (а раннеры CI живут по одному прогону).
+    ⚠️ Свежую папку (моложе минуты) не трогаем: между `mkdtemp` и открытием
+    замка у только что стартовавшего прогона есть мгновение без замка.
+    ⚠️ Бюджет короткий: то, что держится через минуту после смерти хозяина,
+    держит осиротевший процесс, и ждать его на каждом старте незачем —
+    следующий старт попробует снова.
+    """
+    if os.name != "nt":
+        return
+    for d in base.glob(_RUN_PREFIX + "*"):
+        try:
+            if time.time() - d.stat().st_mtime < 60:
+                continue
+            (d / ".lock").unlink(missing_ok=True)
+        except OSError:
+            continue                     # замок держит живой прогон
+        _rmtree_settled(d, budget=1.0)
+
+
+def _children_die_with_us():
+    """Все процессы, которые заведёт прогон, — в задании Windows, гасящем их,
+    когда умирает сам процесс харнесса.
+
+    ⛔ Прогон, убитый не деревом, а ОДНИМ процессом (Stop-Process, «Снять
+    задачу», таймаут, гасящий только прямого потомка), оставлял серверы
+    сиротами: venv-лаунчер разрешает внукам молча выйти из своего задания, и
+    uvicorn жил дальше вечно, держа песочницу от уборки (26.09, опыт: после
+    Stop-Process верхнего процесса сервер жил; с заданием — 0 выживших).
+    Задание с KILL_ON_JOB_CLOSE закрывается вместе с последним дескриптором,
+    то есть со смертью этого процесса, как бы она ни случилась. Дети
+    попадают в него сами: выход из задания оно не разрешает, и молчаливый
+    выход, разрешённый лаунчером, на него не действует.
+    ⚠️ Лучшее из возможного: не вышло (не Windows, запрет среды) — работаем
+    как раньше; брошенное подметёт `_sweep_dead_runs`, если его не держат.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Io(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_ulonglong) for n in
+                        ("read", "write", "other", "read_b", "write_b", "other_b")]
+
+        class _Basic(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                        ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t),
+                        ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class _Extended(ctypes.Structure):   # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+            _fields_ = [("Basic", _Basic), ("Io", _Io),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateJobObjectW.restype = wintypes.HANDLE
+        k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                                ctypes.c_void_p, wintypes.DWORD]
+        k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        job = k32.CreateJobObjectW(None, None)
+        info = _Extended()
+        info.Basic.LimitFlags = 0x2000       # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not (job and k32.SetInformationJobObject(job, 9, ctypes.byref(info),
+                                                    ctypes.sizeof(info))
+                and k32.AssignProcessToJobObject(job, k32.GetCurrentProcess())):
+            return None
+        return job                           # дескриптор живёт, пока жив процесс
+    except (OSError, AttributeError):
+        return None
+
+
+_KIDS_JOB = _children_die_with_us()
+
+
+def _open_run_root() -> tuple[pathlib.Path, object]:
+    """Завести папку прогона и направить в неё всё временное процесса.
+
+    `tempfile.tempdir` — для самого процесса, TEMP/TMP/TMPDIR — для дочерних:
+    сервер, подпроцесс набора, Edge стенда наследуют окружение. Замок держится
+    открытым до выхода — по нему `_sweep_dead_runs` отличает живой прогон от
+    убитого; внутри — кто хозяин, чтобы брошенную папку можно было узнать
+    глазами."""
+    base = pathlib.Path(tempfile.gettempdir())
+    _sweep_dead_runs(base)
+    root = pathlib.Path(tempfile.mkdtemp(prefix=_RUN_PREFIX, dir=base))
+    lock = open(root / ".lock", "w", encoding="utf-8")
+    lock.write(f"pid {os.getpid()}: {' '.join(sys.argv)}\n")
+    lock.flush()
+    tempfile.tempdir = str(root)
+    for key in ("TMPDIR", "TEMP", "TMP"):
+        os.environ[key] = str(root)
+    return root, lock
+
+
+RUN_TMP, _RUN_LOCK = _open_run_root()
+
+
+@atexit.register
+def _close_run_root() -> None:
+    _RUN_LOCK.close()
+    _rmtree_settled(RUN_TMP)
+
+
+def _run_entries() -> set[str]:
+    return {p.name for p in RUN_TMP.iterdir()} - {".lock"}
+
+
+def _check_left(res: "Result", suite: str, before: set[str]) -> None:
+    """⭐ Уборка — тоже поведение, только без падения и без красноты: утечку
+    выдаёт один заполняющийся диск. Поэтому набор, оставивший что-то в папке
+    прогона, краснеет СВОИМ именем, а оставленное сносится сразу, чтобы
+    следующий набор не унаследовал чужое (и чтобы красное не повторялось на
+    каждом следующем)."""
+    left = sorted(_run_entries() - before)
+    if not left:
+        return
+    res.failed.append((f"{suite}: оставил временное",
+                       ", ".join(left[:5]) + (" …" if len(left) > 5 else "")))
+    for name in left:
+        path = RUN_TMP / name
+        if path.is_dir():
+            _rmtree_settled(path)
+        else:
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 # Часовой пояс клиники — тот же, что engine.TZ (harness приложение не
@@ -408,6 +654,7 @@ def run(suites: list) -> int:
     for name, fn in suites:
         print(f"\n=== {name} ===")
         before = len(res.passed) + len(res.failed)
+        tmp_before = _run_entries()
         try:
             fn(res)
         except Exception as e:  # noqa: BLE001 — падение набора не должно съесть отчёт
@@ -417,8 +664,17 @@ def run(suites: list) -> int:
             tb = traceback.extract_tb(e.__traceback__)
             where = f" — {pathlib.Path(tb[-1].filename).name}:{tb[-1].lineno}" if tb else ""
             res.failed.append((f"{name}: набор упал", repr(e) + where))
+        _check_left(res, name, tmp_before)
         done = len(res.passed) + len(res.failed) - before
         print(f"    проверок: {done}")
+    # ⚠️ Сторож уборки выше слеп, если временное пишется МИМО папки прогона:
+    # чистая папка тогда значит «сюда не писали», а не «прибрали».
+    print("\n=== Уборка: временное прогона ===")
+    res.ok("всё временное прогона живёт в его папке",
+           tempfile.gettempdir() == str(RUN_TMP) == os.environ.get("TEMP"),
+           f"tempfile → {tempfile.gettempdir()}, TEMP → {os.environ.get('TEMP')}, "
+           f"а папка прогона {RUN_TMP}")
+    print("    проверок: 1")
     print("\n" + "=" * 60)
     for label, why in res.failed:
         print(f"  ✗ {label}: {why}")

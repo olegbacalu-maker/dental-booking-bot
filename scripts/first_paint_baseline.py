@@ -168,8 +168,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
 
     day = clinic_today().isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     with s1:
         _seed(Client(s1.url).login(), day)
     # ⛔ Харнесс пинит `ui.react = []` во ВСЕХ фикстурах (harness._pin_legacy):
@@ -232,7 +231,7 @@ def main() -> int:
     finally:
         if proc:
             proc.kill()
-        s1.__exit__(None, None, None)
+        s1.drop()
 
     out.write_text(json.dumps(runs, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\nряды сохранены: {out}")

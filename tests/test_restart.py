@@ -22,16 +22,17 @@
 import json
 import os
 import subprocess
+import tempfile
 
 from harness import BOT, PYTHON, Result
 
 _TOKEN = "123456789:AAExampleTokenAAExampleTokenAAExampleT"
 
 _CODE = r'''
-import asyncio, json, os, pathlib, sys, tempfile
+import asyncio, json, os, pathlib, sys
 sys.path.insert(0, r"%s")
 
-tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_restart_"))
+tmp = pathlib.Path(os.environ["DP_TEST_DIR"])   # папку заводит и сносит родитель
 (tmp / "dental.env").write_text("", encoding="utf-8")
 os.environ["DENTART_ENV_FILE"] = str(tmp / "dental.env")
 os.environ["DATABASE_URL"] = "sqlite:///" + str(tmp / "dental.db")
@@ -112,8 +113,12 @@ def _run_code(res: Result) -> dict | None:
     (~секунда), а спрашиваем мы у него одно и то же."""
     if _MEASURED:
         return _MEASURED[0]
-    p = subprocess.run([str(PYTHON), "-c", _CODE], cwd=str(BOT), text=True,
-                       capture_output=True, env=dict(os.environ))
+    # ⛔ Папку заводит и сносит РОДИТЕЛЬ: подпроцесс за собой не прибирал, и
+    # каждый прогон оставлял в %TEMP% свою `dp_restart_*` (48 штук к 26.09).
+    with tempfile.TemporaryDirectory(prefix="dp_restart_") as work:
+        p = subprocess.run([str(PYTHON), "-c", _CODE], cwd=str(BOT), text=True,
+                           capture_output=True,
+                           env={**os.environ, "DP_TEST_DIR": work})
     if p.returncode != 0:
         res.failed.append(("перезапуск: запуск проверок", p.stderr[-600:]))
         _MEASURED.append(None)

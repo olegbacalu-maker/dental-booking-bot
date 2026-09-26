@@ -96,8 +96,7 @@ def run(out: pathlib.Path) -> int:
             print("    ", f)
 
     day = clinic_today().isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     with s1:
         _seed(Client(s1.url).login(), day)
     cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
@@ -242,7 +241,7 @@ def run(out: pathlib.Path) -> int:
     finally:
         if proc:
             proc.kill()
-        s1.__exit__(None, None, None)
+        s1.drop()
 
     bad = [n for n, f in results if f]
     print(f"\n{len(results) - len(bad)}/{len(results)} сцен прошло; кадры: {out}")

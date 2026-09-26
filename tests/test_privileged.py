@@ -26,7 +26,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import privileged  # noqa: E402
-from harness import Result  # noqa: E402
+from harness import Result, _rmtree_settled  # noqa: E402
 
 LAB_KEY = r"Software\DentPilot-Lab\UninstallProba"
 
@@ -298,7 +298,7 @@ def suite_route(res: Result) -> None:
                       other.post_json("/api/settings/system/uninstall-sync", {}).status,
                       401)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 
 def suite_route_quiet(res: Result) -> None:
@@ -336,7 +336,7 @@ def suite_route_quiet(res: Result) -> None:
             res.ok("и окна UAC не просил", not mark.exists(),
                    "права запрошены там, где чинить нечего")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree_settled(work)
 
 def _lab(tmp: pathlib.Path, *, size: int = 5_200_000, head: bytes = b"MZ",
          request: dict | None = None) -> tuple:

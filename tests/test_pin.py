@@ -9,12 +9,11 @@ import hashlib
 import json
 import os
 import pathlib
-import shutil
 import sys
 import tempfile
 import time
 
-from harness import BOT, Client, Result, Server
+from harness import BOT, Client, Result, Server, _rmtree_settled
 
 NO_KEY = {"ADMIN_KEY": ""}          # без него издание уходит веткой ADMIN_KEY
 
@@ -378,7 +377,7 @@ def suite_tamper(res: Result) -> None:
             res.ok("сброс через удаление файла виден",
                    marker in body and "șters" in body, "тихий сброс остался тихим")
     finally:
-        shutil.rmtree(base, ignore_errors=True)
+        _rmtree_settled(base)
 
 
 def suite_broken(res: Result) -> None:
@@ -464,7 +463,7 @@ def suite_atomic(res: Result) -> None:
     finally:
         auth._auth_path = orig_path
         pathlib.Path.write_text = orig_write
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        _rmtree_settled(tmp_dir)
 
 
 def suite_change(res: Result) -> None:
@@ -608,4 +607,4 @@ def suite_env_token(res: Result) -> None:
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)

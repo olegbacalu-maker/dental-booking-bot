@@ -124,8 +124,7 @@ def loaded_paths() -> list[str]:
 def main(argv: list[str]) -> int:
     paths = [a for a in argv if a.startswith("/")] or loaded_paths()
     day = clinic_today().isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     # ⭐ Предусловия и засев — те же, что у mount_sweep: без них «Rețea» и
     # «Securitate» уводят на хаб, а одонтограмме некого открыть.
     preconditions(s1.dir)
@@ -159,7 +158,7 @@ def main(argv: list[str]) -> int:
     finally:
         if proc:
             proc.kill()
-        s1.__exit__(None, None, None)
+        s1.drop()
 
     red = 0
     for r in results:

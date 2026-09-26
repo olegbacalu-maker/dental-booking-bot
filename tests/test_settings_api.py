@@ -8,10 +8,9 @@ import html
 import json
 import pathlib
 import re
-import shutil
 import tempfile
 
-from harness import FIXTURES, TG_ON, Client, Result, Server
+from harness import FIXTURES, TG_ON, Client, Result, Server, _rmtree_settled
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 FLAGS = ["settings_clinic", "doctors_list", "doctor_card", "settings_hub",
@@ -111,7 +110,7 @@ def suite_hub(res: Result) -> None:
             res.ok("без токена плитки Telegram нет", "/admin/settings/telegram" not in by,
                    f"{list(by)}")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 def suite_lan(res: Result) -> None:
@@ -174,7 +173,7 @@ def suite_lan(res: Result) -> None:
             res.check("брандмауэр без входа — 401",
                       Client(s.url).post_json("/api/settings/lan/firewall", {}).status, 401)
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
 
 def suite_system(res: Result) -> None:
@@ -819,7 +818,7 @@ def suite_switch(res: Result) -> None:
                    json.loads(s.clinic.read_text(encoding="utf-8")).get("ui") == {"react": FLAGS},
                    "флаги потеряны")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree_settled(tmp)
 
     s = _server_with_flags(env={"ADMIN_KEY": ""})
     with s:

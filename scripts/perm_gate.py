@@ -71,8 +71,7 @@ def state(page: Page) -> dict:
 
 
 def main() -> int:
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     preconditions(s1.dir)            # auth.json: директор с ПИНом
     s1.extra_env["DENTART_ENV_FILE"] = str(s1.dir / "dental.env")
     with s1:
@@ -126,7 +125,7 @@ def main() -> int:
     finally:
         if proc:
             proc.kill()
-        s1.__exit__(None, None, None)
+        s1.drop()
 
     for b in bad:
         print(f"    ✗ {b}")

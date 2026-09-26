@@ -16,6 +16,7 @@ test_admin) — иначе подмена subprocess.run и threading.Timer ос
 import json
 import os
 import subprocess
+import tempfile
 
 from harness import BOT, PIN, PYTHON, Client, Result, Server
 
@@ -173,7 +174,7 @@ out["timers_made"] = len(made)
 out["timers_alive"] = sum(1 for t in made if t.alive)
 
 # --- 2. провал планировщика виден, и программа остаётся жива ---
-tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_upd_"))
+tmp = pathlib.Path(os.environ["DP_TEST_DIR"])   # папку заводит и сносит родитель
 exe = tmp / "DentPilot.exe"
 exe.write_bytes(b"x")
 real_exec, real_run, real_open = sys.executable, subprocess.run, urllib.request.urlopen
@@ -288,9 +289,13 @@ print(json.dumps(out))
 
 
 def _run_code(res: Result) -> dict | None:
-    env = dict(os.environ)
-    p = subprocess.run([str(PYTHON), "-c", _CODE], cwd=str(BOT), text=True,
-                       capture_output=True, env=env)
+    # ⛔ Папку `dp_upd_*` заводит и сносит РОДИТЕЛЬ: в подпроцессе её имя
+    # затиралось второй временной папкой ниже, и сносилась только вторая —
+    # каждый прогон оставлял первую в %TEMP% (48 штук к 26.09).
+    with tempfile.TemporaryDirectory(prefix="dp_upd_") as work:
+        p = subprocess.run([str(PYTHON), "-c", _CODE], cwd=str(BOT), text=True,
+                           capture_output=True,
+                           env={**os.environ, "DP_TEST_DIR": work})
     if p.returncode != 0:
         res.failed.append(("update.py: запуск проверок", p.stderr[-600:]))
         return None

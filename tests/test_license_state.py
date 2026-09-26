@@ -173,7 +173,7 @@ def suite_memory(res: Result) -> None:
         res.check("память: seq не бывает булевым",
                   lst.from_dict({"accepted_seq": True}).accepted_seq, 0)
     finally:
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree_settled(d)
 
     a = lst.Memory(_t("2026-09-05T00:00:00Z"), _t("2026-09-20T00:00:00Z"), 2,
                    _t("2026-10-01T00:00:00Z"), _t("2026-10-15T00:00:00Z"))
@@ -221,7 +221,7 @@ def suite_keys(res: Result) -> None:
         res.check("битый файл ключа: только константа",
                   lst.keys_from(base, str(d / "garbage.json"), False), base)
     finally:
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree_settled(d)
 
 
 def _state(d: pathlib.Path) -> dict:

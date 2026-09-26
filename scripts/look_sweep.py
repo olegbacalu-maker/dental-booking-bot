@@ -139,8 +139,7 @@ def shoot(tag: str, styles: list[str], only: set[str] | None, legacy: bool,
                                    encoding="utf-8")
 
     day = clinic_today().isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     preconditions(s1.dir)
     s1.extra_env["DENTART_ENV_FILE"] = str(s1.dir / "dental.env")
     with s1:
@@ -192,7 +191,7 @@ def shoot(tag: str, styles: list[str], only: set[str] | None, legacy: bool,
         if proc:
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                            capture_output=True)
-        s1.__exit__(None, None, None)
+        s1.drop()
     print(f"снято {n} кадров → {out}")
     return out
 

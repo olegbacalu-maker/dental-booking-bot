@@ -159,8 +159,7 @@ def run(out: pathlib.Path) -> int:
         for f in fails:
             print("    ", f)
 
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     with s1:
         c = Client(s1.url).login()
         d = _seed(c)
@@ -244,7 +243,7 @@ def run(out: pathlib.Path) -> int:
     finally:
         if proc:
             proc.kill()
-        shutil.rmtree(s1.dir, ignore_errors=True)
+        s1.drop()
         shutil.rmtree(profile, ignore_errors=True)
 
     red = [(n, f) for n, f, _ in results if f]

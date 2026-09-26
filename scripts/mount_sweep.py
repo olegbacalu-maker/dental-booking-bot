@@ -172,8 +172,7 @@ def run(out: pathlib.Path, only: set[str] | None) -> int:
     out.mkdir(parents=True, exist_ok=True)
 
     day = clinic_today().isoformat()
-    s1 = Server()
-    s1._own_dir = False
+    s1 = Server(keep_dir=True)
     preconditions(s1.dir)
     s1.extra_env["DENTART_ENV_FILE"] = str(s1.dir / "dental.env")
     with s1:
@@ -244,7 +243,7 @@ def run(out: pathlib.Path, only: set[str] | None) -> int:
     finally:
         if proc:
             proc.kill()
-        s1.__exit__(None, None, None)
+        s1.drop()
 
     bad = [n for n, _p, f in results if f]
     print(f"\n{len(results) - len(bad)}/{len(results)} экранов смонтировались; "
