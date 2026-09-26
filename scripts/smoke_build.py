@@ -17,6 +17,7 @@
 
     <lab>\\DentPilot.exe   копия собранного
     <lab>\\dental.env      grandfather-состояние (см. ниже)
+    <lab>\\tmp\\           её TEMP: сюда onefile распаковывает себя (_MEI*)
     $DENTART_DATA_DIR = <lab>
 
 ⛔ **Корень данных объявляется ЯВНО и до старта.** С P1 лаунчер больше не
@@ -87,9 +88,15 @@ def src_version() -> str:
 
 def start(lab: pathlib.Path, port: int):
     env = dict(os.environ)
+    # ⛔ (09-26) TEMP — внутри лаборатории. Загрузчик onefile убирает свою
+    # распаковку (_MEI*, 52 МБ) только при штатном выходе, а stop() гасит его
+    # taskkill /F: каждая сборка оставляла в %TEMP% три такие папки (25.09 —
+    # 1.2 ГБ за день). Отсюда распаковка уходит вместе с лабораторией.
+    tmp = lab / "tmp"
+    tmp.mkdir(exist_ok=True)
     env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
                 "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
-                "DENTART_DATA_DIR": str(lab)})
+                "DENTART_DATA_DIR": str(lab), "TEMP": str(tmp), "TMP": str(tmp)})
     proc = subprocess.Popen([str(lab / "DentPilot.exe")], cwd=str(lab), env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}"

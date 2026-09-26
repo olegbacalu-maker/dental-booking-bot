@@ -297,6 +297,26 @@ def suite_port(res: Result) -> None:
                f"нет строки {want!r} — лаборатория запустит exe поверх "
                "настоящей картотеки машины")
 
+    # ⛔ (09-26) И TEMP программы — внутри лаборатории. Стенд гасит exe через
+    # taskkill /F, а загрузчик onefile убирает свою распаковку (_MEI*, 52 МБ)
+    # только при штатном выходе: каждая сборка оставляла в %TEMP% три такие
+    # папки, 25.09 — 1.2 ГБ за день на диске C в 100 ГБ. Список ОБЯЗАН совпадать
+    # с BENCHES: новый стенд без этой строки снова течёт молча.
+    TEMP_IN_LAB = {"Build-Installer.ps1": "$env:TEMP = $tmp",
+                   "scripts/check_slot_guard.py": '"TEMP": str(tmp)',
+                   "scripts/smoke_build.py": '"TEMP": str(tmp)',
+                   "scripts/check_relocate_live.py": '"TEMP": str(tmp)',
+                   "scripts/check_split_live.py": '"TEMP": str(tmp)'}
+    res.ok("у каждого стенда есть правило про TEMP", set(TEMP_IN_LAB) == set(BENCHES),
+           f"списки разошлись: {sorted(set(TEMP_IN_LAB) ^ set(BENCHES))}")
+    for rel, want in TEMP_IN_LAB.items():
+        f = BOT.parent / rel
+        if f.exists():
+            res.ok(f"стенд {rel} распаковывает exe внутри лаборатории",
+                   want in f.read_text(encoding="utf-8", errors="replace"),
+                   f"нет строки {want!r} — после taskkill в %TEMP% останется "
+                   "распаковка _MEI* на 52 МБ")
+
     # ⭐ И обратная сторона, без которой список выше — как раз тот гниющий
     # список-включатель из прайора карты: он проверяет ровно тех, кого в нём
     # назвали, и НОВЫЙ стенд проходит мимо молча. Поэтому ищем нарушителей:
