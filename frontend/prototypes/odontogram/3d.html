@@ -124,6 +124,8 @@ button{font:inherit;color:inherit}
 .notes p{margin:0;font-size:13px;line-height:1.55;max-width:62ch}
 .notes b{color:var(--text)}
 .notes code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;background:var(--line-2);padding:1px 5px;border-radius:4px}
+@keyframes flash2d{0%{filter:brightness(1)}35%{filter:brightness(1.45) saturate(1.25)}100%{filter:brightness(1)}}
+.flash{animation:flash2d .55s ease-out}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* ---- 3D ---- */
@@ -175,12 +177,14 @@ button{font:inherit;color:inherit}
           <button type="button" class="tog" data-tog="labels" aria-pressed="true">Numere</button>
           <button type="button" class="tog" data-tog="upper" aria-pressed="true">Maxilar</button>
           <button type="button" class="tog" data-tog="lower" aria-pressed="true">Mandibular</button>
+          <button type="button" class="tog" data-tog="closed" aria-pressed="false">Ocluzie</button>
+          <button type="button" class="tog" data-tog="rotate" aria-pressed="false">Rotire</button>
         </div>
       </div>
       <div class="stage" id="stage">
         <div class="hover3" id="hover3"></div>
         <div class="jaw3 up">MAXILAR</div><div class="jaw3 lo">MANDIBULAR</div>
-        <div class="tip3">Trage: rotește · rotița: zoom · clic pe suprafață: — → carie → obturație → —</div>
+        <div class="tip3">Trage: rotește · rotița: zoom · clic pe suprafață: — → carie → obturație → — · starea din inspector se animează în 3D</div>
       </div>
     </section>
     <section class="card">
@@ -226,6 +230,7 @@ const SAMPLE={
   bridges:[{teeth:[[24,'stalp'],[25,'corp'],[26,'stalp']],material:'metaloceramică'}]
 };
 let teeth={}, bridges=[], sel=16, tpl='arcada';
+var flashN=null;   // зуб, который только что изменили: вспышка в 2D после перерисовки
 function load(){ teeth={}; for(const n of ALL){ const s=SAMPLE.teeth[n]||{}; teeth[n]={state:s.state||'ok',sf:Object.assign({},s.sf||{}),marks:(s.marks||[]).slice()}; }
   bridges=SAMPLE.bridges.map(b=>({teeth:b.teeth.map(t=>t.slice()),material:b.material})); }
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -403,6 +408,7 @@ function renderInspector(){
   h+=`<div class="row"><span class="lbl">Stare</span><div class="pills">`+STATES.map(s=>`<button type="button" class="pill${s===st?' on':''}" data-state="${s}" aria-pressed="${s===st}"><i style="background:${s==='ok'?'var(--t-line)':P.COLORS[s]}"></i>${P.STATE_RO[s]}</button>`).join('')+`</div></div>`;
   h+=`<div class="row"><span class="lbl">Suprafețe</span><div class="chips">`+['O','V','L','M','D'].map(L=>{ const s=t.sf[L], letter=(L==='L'&&up)?'P':L, name=(L==='L'&&up)?'palatinal':SFNAME[L];
     return `<button type="button" class="chip${s?' on':''}" data-sf="${L}" aria-pressed="${!!s}"${canSf?'':' disabled'}><span class="code">${letter}</span><span class="cl">${name}</span>${s?`<span class="cs" style="color:${P.COLORS[s]}">${P.STATE_RO[s]}</span>`:''}</button>`; }).join('')+`</div>`+(canSf?'':`<p class="note">Suprafețele nu se marchează pe un dinte cu coroană, implant, extras sau lipsă.</p>`)+`</div>`;
+  if(st==='implant') h+=`<p class="note">Implant: șurub de titan în os și coroană pe implant. În vederea 3D șurubul se vede prin gingie, cu inel violet la colet; „Rădăcini” îl arată în întregime.</p>`;
   const on=t.marks.includes('tratament');
   h+=`<div class="row"><span class="lbl">Marcaj</span><div class="pills"><button type="button" class="pill${on?' on':''}" data-mark="tratament" aria-pressed="${on}"><i style="background:${P.MARK_COLORS.tratament}"></i>${P.MARK_RO.tratament}</button></div></div>`;
   if(br) h+=`<div class="row"><span class="lbl">Punte</span><p class="brinfo">${br.teeth[0][0]}–${br.teeth[br.teeth.length-1][0]} · ${esc(br.material)} · rol: <b>${br.role==='stalp'?'stâlp':'corp de punte'}</b></p></div>`;
@@ -419,15 +425,15 @@ function renderSummary(){
   if(tr) parts.push(`<span><i style="background:${P.MARK_COLORS.tratament}"></i>${P.MARK_RO.tratament} ${tr}</span>`);
   document.getElementById('sum').innerHTML=parts.join('');
 }
-function render(){ const c=document.getElementById('chart'); c.innerHTML=tpl==='arcada'?renderArch():tpl==='schema'?renderSchema():renderPanorama(); document.getElementById('insp').innerHTML=renderInspector(); renderSummary(); if(typeof paint3D==='function') paint3D(); }
+function render(){ const c=document.getElementById('chart'); c.innerHTML=tpl==='arcada'?renderArch():tpl==='schema'?renderSchema():renderPanorama(); if(flashN!==null){ c.querySelectorAll(`[data-n="${flashN}"]`).forEach(el=>el.classList.add('flash')); flashN=null; } document.getElementById('insp').innerHTML=renderInspector(); renderSummary(); if(typeof paint3D==='function') paint3D(); }
 
 /* ---------- действия ---------- */
 function select(n){ sel=n; render(); }
-function setState(n,s){ const t=teeth[n]; if(s==='ok'){t.state='ok';t.sf={};} else if(s==='carie'||s==='obturatie'){ for(const L in t.sf) t.sf[L]=s; t.state=s; } else {t.state=s;t.sf={};} render(); }
+function setState(n,s){ const t=teeth[n]; flashN=n; if(s==='ok'){t.state='ok';t.sf={};} else if(s==='carie'||s==='obturatie'){ for(const L in t.sf) t.sf[L]=s; t.state=s; } else {t.state=s;t.sf={};} render(); }
 function cycleSf(n,L){ const t=teeth[n], st=effState(t); if(!(st==='ok'||st==='carie'||st==='obturatie')) return; const cur=t.sf[L];
-  if(!cur) t.sf[L]='carie'; else if(cur==='carie') t.sf[L]='obturatie'; else delete t.sf[L];
+  flashN=n; if(!cur) t.sf[L]='carie'; else if(cur==='carie') t.sf[L]='obturatie'; else delete t.sf[L];
   if(!Object.keys(t.sf).length) t.state='ok'; render(); }
-function toggleMark(n,m){ const t=teeth[n]; const i=t.marks.indexOf(m); if(i>=0) t.marks.splice(i,1); else t.marks.push(m); render(); }
+function toggleMark(n,m){ const t=teeth[n]; flashN=n; const i=t.marks.indexOf(m); if(i>=0) t.marks.splice(i,1); else t.marks.push(m); render(); }
 function neighbour(n,key){ for(const [up,lo] of [[UPPER,LOWER]]){ const iu=up.indexOf(n), il=lo.indexOf(n); const row=iu>=0?up:lo, i=iu>=0?iu:il;
   if(key==='ArrowLeft') return row[i-1]??null; if(key==='ArrowRight') return row[i+1]??null; if(key==='ArrowUp') return il>=0?up[i]:null; if(key==='ArrowDown') return iu>=0?lo[i]:null; } return null; }
 const chart=document.getElementById('chart');
@@ -456,7 +462,7 @@ const PROF={molar:[[0,.80,.80],[.16,.92,.92],[.34,1,1],[.62,.99,.99],[.86,.95,.9
   premolar:[[0,.80,.80],[.16,.92,.92],[.34,1,1],[.62,.98,.98],[.86,.92,.92],[1,.86,.86]],
   canine:[[0,.80,.85],[.2,.95,1],[.45,1,.95],[.7,.9,.7],[.88,.65,.42],[1,.30,.16]],
   incisor:[[0,.78,.85],[.2,.9,1],[.45,1,.9],[.7,1.02,.62],[.88,1,.36],[1,.96,.14]]};
-const ENAMEL3=0xe9e1d1, DENTIN3=0xd6c2a4, GOLD3=0xF2A93B, GUM3=0xECB3AE, SOCKET3=0x8b949e, TITAN3=0xb9bec6, GLOW3=0x0b6b7a;
+const ENAMEL3=0xe9e1d1, CERAMIC3=0xf4f0e8, DENTIN3=0xd6c2a4, GOLD3=0xF2A93B, GUM3=0xECB3AE, SOCKET3=0x8b949e, TITAN3=0xb9bec6, GLOW3=0x0b6b7a;
 const profOf=cls=>PROF[cls.startsWith('incisor')?'incisor':cls];
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 const smooth=(e0,e1,x)=>{const t=clamp((x-e0)/(e1-e0),0,1);return t*t*(3-2*t);};
@@ -536,60 +542,74 @@ function init3D(){
   const key=new THREE.DirectionalLight(0xfff4e8,2.3); key.position.set(40,80,90); scene.add(key);
   const fill=new THREE.DirectionalLight(0xdfeaf2,.9); fill.position.set(-70,20,50); scene.add(fill);
   const rim=new THREE.DirectionalLight(0xffffff,.7); rim.position.set(-20,40,-120); scene.add(rim);
-  const low=new THREE.DirectionalLight(0xfff4e8,.8); low.position.set(20,-80,60); scene.add(low);   // вид снизу на верхнюю челюсть тоже должен быть освещён
+  const low=new THREE.DirectionalLight(0xfff4e8,.8); low.position.set(20,-80,60); scene.add(low);
   const gumMat=new THREE.MeshStandardMaterial({color:GUM3,roughness:.78,metalness:0,side:THREE.DoubleSide});
-  const dentinMat=new THREE.MeshStandardMaterial({color:DENTIN3,roughness:.62,metalness:0});
-  const titanMat=new THREE.MeshStandardMaterial({color:TITAN3,roughness:.35,metalness:.9});
-  const socketMat=new THREE.MeshStandardMaterial({color:SOCKET3,roughness:.95,metalness:0});
   const upperG=new THREE.Group(), lowerG=new THREE.Group(); scene.add(upperG,lowerG);
-  const GAP=26;
+  const reduced=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // --- твины: кадры только пока что-то движется ---
+  const tweens=[]; const ease=k=>k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;
+  function tween(dur,fn,done,delay=0,tag=null){ if(reduced||dur<=0){ fn(1); if(done) done(); return; } tweens.push({t0:performance.now()+delay,dur,fn,done,tag}); invalidate(); }
+  function killTweens(tag){ for(let i=tweens.length-1;i>=0;i--) if(tweens[i].tag===tag) tweens.splice(i,1); }
+  function stepTweens(now){ for(let i=tweens.length-1;i>=0;i--){ const tw=tweens[i]; if(now<tw.t0) continue; const k=Math.min(1,(now-tw.t0)/tw.dur); tw.fn(ease(k)); if(k>=1){ tweens.splice(i,1); if(tw.done) tw.done(); } } return tweens.length>0; }
+  // --- челюсти: смыкание и уход из кадра — оба через сдвиг группы ---
+  const GAP=26, GAP_CLOSED=18;
+  const jaw={upper:{grp:upperG,closeY:0,hideY:0,dir:1},lower:{grp:lowerG,closeY:0,hideY:0,dir:-1}};
+  function placeJaws(){ upperG.position.y=-jaw.upper.closeY+jaw.upper.hideY; lowerG.position.y=jaw.lower.closeY+jaw.lower.hideY; }
   function buildArch(list,upper){
     const dims=list.map(n=>({n,hmd:G[n].occ.hw*MM,hbl:G[n].occ.hd*MM})); const widths=dims.map(d=>2*d.hmd+.3); const sum=widths.reduce((a,b)=>a+b,0);
-    const unit=curve(1,1.6,0,-1), sc=sum/unit.total, A=sc, D=1.6*sc, apex=upper?2:0, cv=curve(A,D,apex,-1), yBase=upper?GAP/2:-GAP/2, grp=upper?upperG:lowerG;
+    const unit=curve(1,1.6,0,-1), sc=sum/unit.total, A=sc, D=1.6*sc, apex=upper?2:-2.5, cv=curve(A,D,apex,-1), yBase=upper?GAP/2:-GAP/2, grp=upper?upperG:lowerG;
     const ridge=new THREE.Mesh(buildRidge(A,D,apex,yBase,upper?1:-1),gumMat); ridge.raycast=()=>{}; grp.add(ridge);
     let acc=0;
     dims.forEach((d,i)=>{ const s=acc+widths[i]/2; acc+=widths[i]; const p=cv.at(s); const n=d.n, g=G[n], cls=g.cls, H=CROWN_H[cls][upper?0:1], len=ROOT_L[cls][upper?0:1];
       const mats=SURF3.map(()=>new THREE.MeshStandardMaterial({color:ENAMEL3,roughness:.32,metalness:0,emissive:new THREE.Color(GLOW3),emissiveIntensity:0}));
       const crown=new THREE.Mesh(buildCrown(d.hmd,d.hbl,H,cls,upper),mats); crown.userData.n=n; crowns3.push(crown);
-      const roots=new THREE.Mesh(buildRoots(d.hmd,d.hbl,cls,g.roots.length,len),dentinMat); roots.raycast=()=>{};
-      const screw=new THREE.Mesh(buildScrew(Math.min(d.hmd,d.hbl)*.9),titanMat); screw.raycast=()=>{};
+      const roots=new THREE.Mesh(buildRoots(d.hmd,d.hbl,cls,g.roots.length,len),new THREE.MeshStandardMaterial({color:DENTIN3,roughness:.62,metalness:0})); roots.raycast=()=>{};
+      const screw=new THREE.Mesh(buildScrew(Math.min(d.hmd,d.hbl)*.9),new THREE.MeshStandardMaterial({color:TITAN3,roughness:.35,metalness:.9})); screw.raycast=()=>{};
+      // Винт виден ВСЕГДА, даже сквозь десну: та же геометрия поверх всего, полупрозрачная, с фиолетовым свечением состояния
+      const screwX=new THREE.Mesh(screw.geometry,new THREE.MeshStandardMaterial({color:TITAN3,roughness:.35,metalness:.6,transparent:true,opacity:.62,depthTest:false,depthWrite:false,emissive:new THREE.Color(0x8B5CF6),emissiveIntensity:.35})); screwX.renderOrder=20; screwX.raycast=()=>{}; screw.add(screwX);
       const mkRing=(color,y)=>{ const m=new THREE.Mesh(new THREE.TorusGeometry(d.hbl*1.06,.34,8,48),new THREE.MeshBasicMaterial({color})); m.rotation.x=Math.PI/2; m.scale.set(d.hmd/d.hbl,1,1); m.position.y=y; m.raycast=()=>{}; return m; };
       const ringT=mkRing(0x16A34A,1.6), ringI=mkRing(0x8B5CF6,1.1), ringS=mkRing(0x0f7b8a,2.1);
-      const socket=new THREE.Mesh(new THREE.CircleGeometry(1,32),socketMat); socket.scale.set(d.hmd*.85,d.hbl*.85,1); socket.rotation.x=-Math.PI/2; socket.position.y=.78; socket.raycast=()=>{};
+      const socket=new THREE.Mesh(new THREE.CircleGeometry(1,32),new THREE.MeshStandardMaterial({color:SOCKET3,roughness:.95,metalness:0})); socket.scale.set(d.hmd*.85,d.hbl*.85,1); socket.rotation.x=-Math.PI/2; socket.position.y=.78; socket.raycast=()=>{};
       const tex=[labelTex(n,false),labelTex(n,true)]; const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex[0],transparent:true,depthTest:true})); sprite.scale.set(3.9,3.9,1); sprite.position.set(0,-2.4,8.8); sprite.raycast=()=>{};
       const grpT=new THREE.Group(); grpT.add(crown,roots,screw,ringT,ringI,ringS,socket,sprite);
       const P=new THREE.Vector3(p.x,yBase,p.y), Bv=new THREE.Vector3(p.nx,0,p.ny).normalize(), Tv=new THREE.Vector3(p.tx,0,p.ty).normalize(); if(p.x>0) Tv.negate();
       grpT.matrixAutoUpdate=false; grpT.matrix.makeBasis(Tv.clone().negate(),new THREE.Vector3(0,upper?-1:1,0),Bv).setPosition(P);
-      grp.add(grpT); T3[n]={crown,mats,roots,screw,ringT,ringI,ringS,socket,sprite,tex}; });
+      grp.add(grpT); T3[n]={crown,mats,roots,screw,screwX,ringT,ringI,ringS,socket,sprite,tex,sx:d.hmd/d.hbl,look:null}; });
   }
   buildArch(UPPER,true); buildArch(LOWER,false);
   // --- камера и орбита ---
   const cam=new THREE.PerspectiveCamera(30,1,1,1000), target=new THREE.Vector3(0,0,-16);
   const rad=THREE.MathUtils.degToRad; const VIEWS={frontal:[0,80,172],sus:[0,152,180],jos:[0,28,180],dreapta:[-62,82,175],stanga:[62,82,175]};
   const orb={theta:0,phi:rad(80),r:172,tt:0,tp:rad(80),tr:172};
-  const togs={xray:false,labels:true,upper:true,lower:true};
+  const togs={xray:false,labels:true,upper:true,lower:true,closed:false,rotate:false};
   function applyCam(){ const sp=Math.sin(orb.phi); cam.position.set(target.x+orb.r*sp*Math.sin(orb.theta),target.y+orb.r*Math.cos(orb.phi),target.z+orb.r*sp*Math.cos(orb.theta)); cam.lookAt(target); }
   let frame=0, anim=false;
-  function draw(){ frame=0; if(anim){ const k=.18; orb.theta+=(orb.tt-orb.theta)*k; orb.phi+=(orb.tp-orb.phi)*k; orb.r+=(orb.tr-orb.r)*k; if(Math.abs(orb.tt-orb.theta)<.002&&Math.abs(orb.tp-orb.phi)<.002&&Math.abs(orb.tr-orb.r)<.2){ orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; } }
-    applyCam(); renderer.render(scene,cam); if(anim) invalidate(); }
+  function draw(now){ frame=0; const busy=stepTweens(now||performance.now());
+    if(anim){ const k=.18; orb.theta+=(orb.tt-orb.theta)*k; orb.phi+=(orb.tp-orb.phi)*k; orb.r+=(orb.tr-orb.r)*k; if(Math.abs(orb.tt-orb.theta)<.002&&Math.abs(orb.tp-orb.phi)<.002&&Math.abs(orb.tr-orb.r)<.2){ orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; } }
+    if(togs.rotate&&!anim){ orb.theta+=.0035; orb.tt=orb.theta; }
+    applyCam(); renderer.render(scene,cam); if(anim||busy||togs.rotate) invalidate(); }
   function invalidate(){ if(!frame) frame=requestAnimationFrame(draw); }
-  const reduced=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function setView(name){ const v=VIEWS[name]; if(!v) return; orb.tt=rad(v[0]); orb.tp=rad(v[1]); orb.tr=v[2]; if(reduced){ orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; } else anim=true;
-    document.querySelectorAll('#views button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===name)));
-    // вид на жевательные поверхности одной челюсти невозможен, пока другая стоит перед камерой — она прячется, кнопки это показывают
-    setJaw('upper', name!=='jos'); setJaw('lower', name!=='sus'); invalidate(); }
-  function setJaw(k,on){ togs[k]=on; (k==='upper'?upperG:lowerG).visible=on; const b=document.querySelector(`#togs .tog[data-tog="${k}"]`); if(b) b.setAttribute('aria-pressed',String(on)); const lab=stage.querySelector(k==='upper'?'.jaw3.up':'.jaw3.lo'); if(lab) lab.hidden=!on; }
   function clearView(){ document.querySelectorAll('#views button').forEach(b=>b.setAttribute('aria-pressed','false')); }
+  function setView(name){ const v=VIEWS[name]; if(!v) return; orb.tt=rad(v[0]); orb.tp=rad(v[1]); orb.tr=v[2]; if(reduced){ orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; } else anim=true;
+    if(togs.rotate){ togs.rotate=false; const b=document.querySelector('#togs .tog[data-tog="rotate"]'); if(b) b.setAttribute('aria-pressed','false'); }
+    document.querySelectorAll('#views button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===name)));
+    // вид на жевательные поверхности одной челюсти невозможен, пока другая стоит перед камерой — она уезжает из кадра, кнопки это показывают
+    setJaw('upper', name!=='jos'); setJaw('lower', name!=='sus'); invalidate(); }
+  function setJaw(k,on){ const J=jaw[k]; togs[k]=on; const b=document.querySelector(`#togs .tog[data-tog="${k}"]`); if(b) b.setAttribute('aria-pressed',String(on)); const lab=stage.querySelector(k==='upper'?'.jaw3.up':'.jaw3.lo'); if(lab) lab.hidden=!on;
+    const from=J.hideY, to=on?0:J.dir*70; if(from===to&&J.grp.visible===on) return; killTweens('jaw-'+k); if(on) J.grp.visible=true;
+    tween(420,t=>{ J.hideY=from+(to-from)*t; placeJaws(); },()=>{ if(!on) J.grp.visible=false; },0,'jaw-'+k); }
+  function setClosed(on){ const fu=jaw.upper.closeY, fl=jaw.lower.closeY, c=on?(GAP-GAP_CLOSED)/2:0; killTweens('close');
+    tween(700,k=>{ jaw.upper.closeY=fu+(c-fu)*k; jaw.lower.closeY=fl+(c-fl)*k; placeJaws(); },null,0,'close'); }
   // --- размер ---
   let lw=0,lh=0; function resize(){ const w=Math.max(1,Math.round(stage.clientWidth)), h=Math.max(1,Math.round(stage.clientHeight)); if(w===lw&&h===lh) return; lw=w; lh=h; renderer.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix(); invalidate(); }
   new ResizeObserver(resize).observe(stage); resize();
   // --- указатель: орбита, наведение, клик ---
   const ray=new THREE.Raycaster(), ndc=new THREE.Vector2(); const ptrs=new Map(); let drag=false, downX=0, downY=0, moved=false, pinch0=0, r0=0;
   function pick(ev){ const rc=canvas.getBoundingClientRect(); if(!rc.width||!rc.height) return null; ndc.x=((ev.clientX-rc.left)/rc.width)*2-1; ndc.y=-((ev.clientY-rc.top)/rc.height)*2+1; ray.setFromCamera(ndc,cam);
-    const hit=ray.intersectObjects(crowns3,false)[0]; if(!hit||!hit.face) return null; return {n:hit.object.userData.n,L:SURF3[hit.face.materialIndex]}; }
+    const hit=ray.intersectObjects(crowns3.filter(c=>c.visible&&c.parent.parent.visible),false)[0]; if(!hit||!hit.face) return null; return {n:hit.object.userData.n,L:SURF3[hit.face.materialIndex]}; }
   const hoverEl=document.getElementById('hover3');
   function setHover(h){ const same=(h&&hover3&&h.n===hover3.n&&h.L===hover3.L)||(!h&&!hover3); if(same) return; hover3=h; canvas.classList.toggle('pick',!!h);
-    hoverEl.textContent=h?`${h.n} · ${(h.L==='L'&&G[h.n].up)?'palatinal':SFNAME[h.L]} · ${P.STATE_RO[effState(teeth[h.n])]}`:''; paint3D(); }
+    hoverEl.textContent=h?`${h.n} · ${(h.L==='L'&&G[h.n].up)?'palatinal':SFNAME[h.L]} · ${P.STATE_RO[effState(teeth[h.n])]}`:''; paintGlow(); }
   let pend=null, hf=0; function runHover(){ hf=0; const ev=pend; pend=null; if(!ev||drag) return; setHover(pick(ev)); }
   canvas.addEventListener('pointerdown',ev=>{ canvas.setPointerCapture(ev.pointerId); ptrs.set(ev.pointerId,[ev.clientX,ev.clientY]); if(ptrs.size===1){ drag=true; moved=false; downX=ev.clientX; downY=ev.clientY; canvas.classList.add('drag'); } else if(ptrs.size===2){ const a=[...ptrs.values()]; pinch0=Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1]); r0=orb.r; } });
   canvas.addEventListener('pointermove',ev=>{ if(ptrs.has(ev.pointerId)){ const prev=ptrs.get(ev.pointerId); ptrs.set(ev.pointerId,[ev.clientX,ev.clientY]);
@@ -605,24 +625,65 @@ function init3D(){
   canvas.addEventListener('webglcontextlost',ev=>{ ev.preventDefault(); });
   document.querySelectorAll('#views button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
   document.querySelectorAll('#togs .tog').forEach(b=>b.addEventListener('click',()=>{ const k=b.dataset.tog; togs[k]=!togs[k]; b.setAttribute('aria-pressed',String(togs[k]));
-    if(k==='xray'){ gumMat.transparent=togs.xray; gumMat.opacity=togs.xray?.28:1; gumMat.depthWrite=!togs.xray; } if(k==='upper'||k==='lower') setJaw(k,togs[k]); paint3D(); }));
-  R3={renderer,scene,cam,invalidate,togs};
+    if(k==='xray'){ gumMat.transparent=togs.xray; gumMat.opacity=togs.xray?.28:1; gumMat.depthWrite=!togs.xray; }
+    else if(k==='upper'||k==='lower') setJaw(k,togs[k]); else if(k==='closed') setClosed(togs.closed); else if(k==='rotate'&&togs.rotate) clearView();
+    paint3D(); }));
+  R3={renderer,scene,cam,invalidate,togs,tween,killTweens};
   const h3=(location.hash||'').slice(1); if(h3.startsWith('3d-')){ for(const part of h3.slice(3).split('-')){ if(VIEWS[part]){ setView(part); orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; }
       else if(togs.hasOwnProperty(part)){ const b=document.querySelector(`#togs .tog[data-tog="${part}"]`); if(b) b.click(); } } }
   applyCam(); paint3D();
 }
 function on3DClick(n,L){ const t=teeth[n], st=effState(t); sel=n; if(st==='ok'||st==='carie'||st==='obturatie') cycleSf(n,L); else render(); }
-function paint3D(){ if(!R3) return; const togs=R3.togs;
-  for(const n of ALL){ const T=T3[n]; if(!T) continue; const t=teeth[n], st=effState(t), br=bridgeOf(n), pontic=!!(br&&br.role==='corp'), gone=st==='extras';
-    T.crown.visible=!gone; T.socket.visible=gone; T.roots.visible=!gone&&st!=='implant'&&st!=='lipsa'&&!pontic; T.screw.visible=st==='implant';
-    T.ringT.visible=!gone&&t.marks.includes('tratament'); T.ringI.visible=st==='implant'; T.ringS.visible=n===sel&&!gone; T.sprite.visible=togs.labels;
-    const want=T.tex[n===sel?1:0]; if(T.sprite.material.map!==want){ T.sprite.material.map=want; T.sprite.material.needsUpdate=true; }
-    const ghost=st==='lipsa'&&!pontic, gold=st==='coroana'||pontic, sf=sfMap(t), whole=(st==='carie'||st==='obturatie')&&!Object.keys(sf).length;
-    SURF3.forEach((L,i)=>{ const m=T.mats[i]; m.transparent=ghost; m.opacity=ghost?.22:1; m.depthWrite=!ghost;
-      if(gold){ m.color.setHex(GOLD3); m.metalness=.85; m.roughness=.28; }
-      else { m.metalness=0; m.roughness=.32; m.color.setHex(ENAMEL3); if(sf[L]) m.color.lerp(new THREE.Color(P.COLORS[sf[L]]),.6); else if(whole) m.color.lerp(new THREE.Color(P.COLORS[st]),.32); }
-      m.emissiveIntensity=(hover3&&hover3.n===n&&hover3.L===L)?.16:(n===sel?.05:0); }); }
-  R3.invalidate(); }
+/* Целевой вид зуба по данным: что видно и какого цвета каждая поверхность. */
+function targetLook(n){ const t=teeth[n], st=effState(t), br=bridgeOf(n), pontic=!!(br&&br.role==='corp'), gone=st==='extras', ghost=st==='lipsa'&&!pontic, gold=st==='coroana'||pontic, implant=st==='implant';
+  const sf=sfMap(t), whole=(st==='carie'||st==='obturatie')&&!Object.keys(sf).length;
+  const cols=SURF3.map(L=>{ const c=new THREE.Color(gold?GOLD3:implant?CERAMIC3:ENAMEL3); if(!gold&&!implant){ if(sf[L]) c.lerp(new THREE.Color(P.COLORS[sf[L]]),.6); else if(whole) c.lerp(new THREE.Color(P.COLORS[st]),.32); } return c; });
+  return {st,pontic,gone,ghost,gold,implant,cols,mark:t.marks.includes('tratament')}; }
+const setOp=(T,v)=>T.mats.forEach(m=>{ m.transparent=true; m.opacity=v; });
+/* Применить вид: мгновенно (первый кадр, конец анимации) или твином по цвету. */
+function applyLook(T,look,instant){ const {tween}=R3;
+  T.crown.visible=!look.gone; T.socket.visible=look.gone; T.roots.visible=!look.gone&&!look.implant&&!look.ghost&&!look.pontic; T.screw.visible=look.implant;
+  T.crown.position.y=0; T.roots.position.y=0; T.screw.position.y=0; T.screw.rotation.y=0; T.crown.scale.setScalar(1); T.roots.material.opacity=1; T.roots.material.transparent=false; T.socket.material.opacity=1; T.socket.material.transparent=false;
+  const op=look.ghost?.22:1, met=look.gold?.85:0, rough=look.gold?.28:look.implant?.22:.32;
+  SURF3.forEach((L,i)=>{ const m=T.mats[i], c=look.cols[i];
+    if(instant){ m.color.copy(c); m.metalness=met; m.roughness=rough; m.opacity=op; m.transparent=look.ghost; m.depthWrite=!look.ghost; return; }
+    const c0=m.color.clone(), met0=m.metalness, r0=m.roughness, op0=m.opacity; if(c0.equals(c)&&met0===met&&op0===op){ m.roughness=rough; m.transparent=look.ghost; m.depthWrite=!look.ghost; return; }
+    m.transparent=true; tween(380,k=>{ m.color.copy(c0).lerp(c,k); m.metalness=met0+(met-met0)*k; m.roughness=r0+(rough-r0)*k; m.opacity=op0+(op-op0)*k; },()=>{ m.transparent=look.ghost; m.depthWrite=!look.ghost; },0,T); }); }
+function fadeRoots(T,on){ const {tween}=R3, rm=T.roots.material; rm.transparent=true; if(on){ T.roots.visible=true; rm.opacity=0; } const o0=rm.opacity, o1=on?1:0;
+  tween(320,k=>{ rm.opacity=o0+(o1-o0)*k; },()=>{ if(!on) T.roots.visible=false; rm.opacity=1; rm.transparent=false; },0,T); }
+/* Смена состояния зуба — маленькая сцена: имплант вкручивается, удалённый выходит из лунки, отсутствующий тает, коронка садится. */
+function animateStruct(T,prev,look){ const {tween,killTweens}=R3; killTweens(T); const finish=()=>applyLook(T,look,true);
+  if(look.implant){ if(T.roots.visible) fadeRoots(T,false);
+    T.crown.visible=false; T.screw.visible=true; T.screw.position.y=16; T.screw.rotation.y=0;
+    tween(900,k=>{ T.screw.position.y=16*(1-k); T.screw.rotation.y=k*Math.PI*6; },null,0,T);
+    T.mats.forEach((m,i)=>{ m.color.copy(look.cols[i]); m.metalness=0; m.roughness=.22; }); setOp(T,0);
+    tween(520,k=>{ T.crown.visible=true; T.crown.position.y=12*(1-k); setOp(T,k); },finish,820,T); return; }
+  if(look.gone){ const rm=T.roots.material, rootsOn=T.roots.visible; rm.transparent=true; const op0=T.mats[0].opacity;
+    T.socket.visible=true; const sm=T.socket.material; sm.transparent=true; sm.opacity=0;
+    tween(720,k=>{ T.crown.position.y=16*k; T.roots.position.y=16*k; T.screw.position.y=16*k; setOp(T,op0*(1-k)); if(rootsOn) rm.opacity=1-k; sm.opacity=k; },finish,0,T); return; }
+  if(look.ghost){ const op0=T.mats[0].opacity; T.mats.forEach((m,i)=>m.color.copy(look.cols[i])); if(T.roots.visible) fadeRoots(T,false); if(T.screw.visible){ tween(500,k=>{ T.screw.position.y=16*k; },null,0,T); }
+    tween(500,k=>setOp(T,op0+(.22-op0)*k),finish,0,T); return; }
+  if(look.gold){ if(T.roots.visible&&look.pontic) fadeRoots(T,false); if(!T.roots.visible&&!look.pontic&&!prev.gone&&!prev.implant) fadeRoots(T,true);
+    if(prev.gone||prev.implant||prev.ghost){ T.crown.visible=true; T.mats.forEach((m,i)=>{ m.color.copy(look.cols[i]); m.metalness=.85; m.roughness=.28; }); setOp(T,prev.ghost?.22:0); if(prev.implant) tween(600,k=>{ T.screw.position.y=16*k; T.screw.rotation.y=-k*Math.PI*6; },null,0,T);
+      tween(480,k=>{ T.crown.position.y=(prev.ghost?0:-4)*(1-k); setOp(T,(prev.ghost?.22:0)+(1-(prev.ghost?.22:0))*k); },finish,0,T); }
+    else { applyLook(T,look,false); tween(440,k=>{ T.crown.scale.setScalar(1+.07*Math.sin(Math.PI*k)); },()=>T.crown.scale.setScalar(1),0,T); }
+    return; }
+  // живой зуб возвращается: из лунки, из-под импланта, из призрака или из-под коронки
+  if(prev.implant) tween(600,k=>{ T.screw.position.y=16*k; T.screw.rotation.y=-k*Math.PI*6; },null,0,T);
+  if(prev.gone){ const sm=T.socket.material; sm.transparent=true; tween(300,k=>{ sm.opacity=1-k; },null,0,T); }
+  if(!T.roots.visible) fadeRoots(T,true);
+  if(prev.gone||prev.implant||prev.ghost){ T.crown.visible=true; T.mats.forEach((m,i)=>{ m.color.copy(look.cols[i]); m.metalness=0; m.roughness=.32; }); const o0=prev.ghost?.22:0; setOp(T,o0);
+    tween(480,k=>{ T.crown.position.y=(prev.ghost?0:-4)*(1-k); setOp(T,o0+(1-o0)*k); },finish,0,T); }
+  else applyLook(T,look,false);
+}
+function paintGlow(){ if(!R3) return; for(const n of ALL){ const T=T3[n]; if(!T) continue; SURF3.forEach((L,i)=>{ T.mats[i].emissiveIntensity=(hover3&&hover3.n===n&&hover3.L===L)?.16:(n===sel?.05:0); }); } R3.invalidate(); }
+function paint3D(){ if(!R3) return; const {togs,tween}=R3;
+  for(const n of ALL){ const T=T3[n]; if(!T) continue; const look=targetLook(n), prev=T.look; T.look=look;
+    T.sprite.visible=togs.labels; const want=T.tex[n===sel?1:0]; if(T.sprite.material.map!==want){ T.sprite.material.map=want; T.sprite.material.needsUpdate=true; }
+    T.ringT.visible=!look.gone&&look.mark; T.ringI.visible=look.implant;
+    const selNow=n===sel&&!look.gone; if(selNow&&!T.ringS.visible){ T.ringS.visible=true; const sx=T.sx; tween(220,k=>{ const s=.55+.45*k; T.ringS.scale.set(sx*s,1,s); },()=>T.ringS.scale.set(sx,1,1),0,'sel'); } else if(!selNow) T.ringS.visible=false;
+    if(!prev) applyLook(T,look,true); else if(prev.st!==look.st||prev.pontic!==look.pontic) animateStruct(T,prev,look); else applyLook(T,look,false); }
+  paintGlow(); }
 init3D();
 </script>
 </body>

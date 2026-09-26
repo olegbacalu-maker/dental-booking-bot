@@ -124,6 +124,8 @@ button{font:inherit;color:inherit}
 .notes p{margin:0;font-size:13px;line-height:1.55;max-width:62ch}
 .notes b{color:var(--text)}
 .notes code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;background:var(--line-2);padding:1px 5px;border-radius:4px}
+@keyframes flash2d{0%{filter:brightness(1)}35%{filter:brightness(1.45) saturate(1.25)}100%{filter:brightness(1)}}
+.flash{animation:flash2d .55s ease-out}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -179,6 +181,7 @@ const SAMPLE={
   bridges:[{teeth:[[24,'stalp'],[25,'corp'],[26,'stalp']],material:'metaloceramică'}]
 };
 let teeth={}, bridges=[], sel=16, tpl='arcada';
+var flashN=null;   // зуб, который только что изменили: вспышка в 2D после перерисовки
 function load(){ teeth={}; for(const n of ALL){ const s=SAMPLE.teeth[n]||{}; teeth[n]={state:s.state||'ok',sf:Object.assign({},s.sf||{}),marks:(s.marks||[]).slice()}; }
   bridges=SAMPLE.bridges.map(b=>({teeth:b.teeth.map(t=>t.slice()),material:b.material})); }
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -356,6 +359,7 @@ function renderInspector(){
   h+=`<div class="row"><span class="lbl">Stare</span><div class="pills">`+STATES.map(s=>`<button type="button" class="pill${s===st?' on':''}" data-state="${s}" aria-pressed="${s===st}"><i style="background:${s==='ok'?'var(--t-line)':P.COLORS[s]}"></i>${P.STATE_RO[s]}</button>`).join('')+`</div></div>`;
   h+=`<div class="row"><span class="lbl">Suprafețe</span><div class="chips">`+['O','V','L','M','D'].map(L=>{ const s=t.sf[L], letter=(L==='L'&&up)?'P':L, name=(L==='L'&&up)?'palatinal':SFNAME[L];
     return `<button type="button" class="chip${s?' on':''}" data-sf="${L}" aria-pressed="${!!s}"${canSf?'':' disabled'}><span class="code">${letter}</span><span class="cl">${name}</span>${s?`<span class="cs" style="color:${P.COLORS[s]}">${P.STATE_RO[s]}</span>`:''}</button>`; }).join('')+`</div>`+(canSf?'':`<p class="note">Suprafețele nu se marchează pe un dinte cu coroană, implant, extras sau lipsă.</p>`)+`</div>`;
+  if(st==='implant') h+=`<p class="note">Implant: șurub de titan în os și coroană pe implant. În vederea 3D șurubul se vede prin gingie, cu inel violet la colet; „Rădăcini” îl arată în întregime.</p>`;
   const on=t.marks.includes('tratament');
   h+=`<div class="row"><span class="lbl">Marcaj</span><div class="pills"><button type="button" class="pill${on?' on':''}" data-mark="tratament" aria-pressed="${on}"><i style="background:${P.MARK_COLORS.tratament}"></i>${P.MARK_RO.tratament}</button></div></div>`;
   if(br) h+=`<div class="row"><span class="lbl">Punte</span><p class="brinfo">${br.teeth[0][0]}–${br.teeth[br.teeth.length-1][0]} · ${esc(br.material)} · rol: <b>${br.role==='stalp'?'stâlp':'corp de punte'}</b></p></div>`;
@@ -372,15 +376,15 @@ function renderSummary(){
   if(tr) parts.push(`<span><i style="background:${P.MARK_COLORS.tratament}"></i>${P.MARK_RO.tratament} ${tr}</span>`);
   document.getElementById('sum').innerHTML=parts.join('');
 }
-function render(){ const c=document.getElementById('chart'); c.innerHTML=tpl==='arcada'?renderArch():tpl==='schema'?renderSchema():renderPanorama(); document.getElementById('insp').innerHTML=renderInspector(); renderSummary(); if(typeof paint3D==='function') paint3D(); }
+function render(){ const c=document.getElementById('chart'); c.innerHTML=tpl==='arcada'?renderArch():tpl==='schema'?renderSchema():renderPanorama(); if(flashN!==null){ c.querySelectorAll(`[data-n="${flashN}"]`).forEach(el=>el.classList.add('flash')); flashN=null; } document.getElementById('insp').innerHTML=renderInspector(); renderSummary(); if(typeof paint3D==='function') paint3D(); }
 
 /* ---------- действия ---------- */
 function select(n){ sel=n; render(); }
-function setState(n,s){ const t=teeth[n]; if(s==='ok'){t.state='ok';t.sf={};} else if(s==='carie'||s==='obturatie'){ for(const L in t.sf) t.sf[L]=s; t.state=s; } else {t.state=s;t.sf={};} render(); }
+function setState(n,s){ const t=teeth[n]; flashN=n; if(s==='ok'){t.state='ok';t.sf={};} else if(s==='carie'||s==='obturatie'){ for(const L in t.sf) t.sf[L]=s; t.state=s; } else {t.state=s;t.sf={};} render(); }
 function cycleSf(n,L){ const t=teeth[n], st=effState(t); if(!(st==='ok'||st==='carie'||st==='obturatie')) return; const cur=t.sf[L];
-  if(!cur) t.sf[L]='carie'; else if(cur==='carie') t.sf[L]='obturatie'; else delete t.sf[L];
+  flashN=n; if(!cur) t.sf[L]='carie'; else if(cur==='carie') t.sf[L]='obturatie'; else delete t.sf[L];
   if(!Object.keys(t.sf).length) t.state='ok'; render(); }
-function toggleMark(n,m){ const t=teeth[n]; const i=t.marks.indexOf(m); if(i>=0) t.marks.splice(i,1); else t.marks.push(m); render(); }
+function toggleMark(n,m){ const t=teeth[n]; flashN=n; const i=t.marks.indexOf(m); if(i>=0) t.marks.splice(i,1); else t.marks.push(m); render(); }
 function neighbour(n,key){ for(const [up,lo] of [[UPPER,LOWER]]){ const iu=up.indexOf(n), il=lo.indexOf(n); const row=iu>=0?up:lo, i=iu>=0?iu:il;
   if(key==='ArrowLeft') return row[i-1]??null; if(key==='ArrowRight') return row[i+1]??null; if(key==='ArrowUp') return il>=0?up[i]:null; if(key==='ArrowDown') return iu>=0?lo[i]:null; } return null; }
 const chart=document.getElementById('chart');
