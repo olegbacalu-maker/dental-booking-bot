@@ -53,6 +53,20 @@ from harness import Client, Server, clinic_today  # noqa: E402
 from mount_sweep import PIN, pin_cookie, preconditions, seed  # noqa: E402
 from odo_shots import CDP, Page, start_edge  # noqa: E402
 
+
+def section_title(key: str) -> str:
+    """Подпись раздела — из ЕДИНСТВЕННОГО словаря `layout.SECTION_TITLE`, разбором
+    исходника: стенд идёт на системном Python без FastAPI, импортировать `app`
+    ему нечем. ⭐ 26.09 переименование «Dashboard» → «Panoul principal» (слово
+    Олега) покраснило стенд, а не продукт: литерал в стенде — второй источник
+    правды, и он протух молча."""
+    import ast
+    src = (ROOT / "bot" / "app" / "core" / "layout.py").read_text(encoding="utf-8")
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.Assign) and any(getattr(x, "id", "") == "SECTION_TITLE" for x in node.targets):
+            return ast.literal_eval(node.value)[key]
+    raise RuntimeError("SECTION_TITLE не найден в core/layout.py")
+
 # Окно НИЗКОЕ намеренно: прокрутку иначе не проверить — экраны в 950 px
 # помещаются целиком.
 SIZE = (1500, 500)
@@ -190,8 +204,9 @@ def main() -> int:
                 bad.append("обратно: сайдбар или шапка пересозданы")
             if "panou principal" not in c["sub"]:
                 bad.append(f"обратно: подпись не от документа панели: «{c['sub']}»")
-            if c["active"] != "Dashboard":
-                bad.append(f"активный пункт меню: «{c['active']}», ждали «Dashboard»")
+            want = section_title("dash")
+            if c["active"] != want:
+                bad.append(f"активный пункт меню: «{c['active']}», ждали «{want}»")
 
             # 3. прокрутка: новый путь — сверху, «Назад» — где были. Окно на
             # время шага ещё ниже: неделя с засевом умещается и в 500 px.
