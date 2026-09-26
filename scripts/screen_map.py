@@ -221,6 +221,7 @@ FLAG = {"/admin/settings/clinic": "settings_clinic",
         "/admin/week": "schedule_week",
         "/admin/all": "schedule_all",
         "/admin/doctor/{dk}": "schedule_doctor",
+        "/admin/cabinet": "chair",
         "/admin": "schedule_dash"}
 # Что нужно маршруту сверх имени экрана: параметры узла и загрузчик (B2).
 # ⭐ Лежит РЯДОМ с FLAG намеренно. Два словаря в разных файлах разъезжаются
@@ -238,6 +239,9 @@ B2 = {
     "/admin/week": ("date", "GET /api/schedule/week", ""),
     "/admin/all": ("date, f?", "GET /api/schedule/day", "экран DayScreen, общий с днём врача"),
     "/admin/doctor/{dk}": ("date, dk", "GET /api/schedule/day", "тот же DayScreen, отличается dk"),
+    "/admin/cabinet": ("doctor?", "GET /api/chair",
+                       "экран «у кресла»: врач — из адреса или привязки учётки; "
+                       "опрос того же маршрута раз в 15 с (POLL_MS)"),
     "/admin/search": ("q?, med?, st?, ch?, dat?, sort?, page?, per?",
                       "GET /api/patients/summary + GET /api/patients",
                       "ДВА запроса разом (Promise.all) — loader обязан ждать оба"),

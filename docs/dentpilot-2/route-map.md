@@ -14,13 +14,14 @@
 ради роутера.
 
 
-Поверхностей **23**.
+Поверхностей **24**.
 
 
 | адрес FastAPI | маршрут React | экран | параметры узла | загрузчик |
 |---|---|---|---|---|
 | `/admin` | `/admin` | `schedule_dash` | — | GET /api/schedule/live |
 | `/admin/all` | `/admin/all` | `schedule_all` | date, f? | GET /api/schedule/day |
+| `/admin/cabinet` | `/admin/cabinet` | `chair` | doctor? | GET /api/chair |
 | `/admin/medici` | `/admin/medici` | `doctors_list` | — | GET /api/doctors |
 | `/admin/search` | `/admin/search` | `patients_search` | q?, med?, st?, ch?, dat?, sort?, page?, per? | GET /api/patients/summary + GET /api/patients |
 | `/admin/settings` | `/admin/settings` | `settings_hub` | — | GET /api/settings/hub |
@@ -47,6 +48,7 @@
 
 - `/admin` — живой КАНАЛ, а не разовая загрузка: 204 «не менялось», отпечаток; день — из АДРЕСА (пусто — сегодня сервера), шапка — эхо канала
 - `/admin/all` — экран DayScreen, общий с днём врача
+- `/admin/cabinet` — экран «у кресла»: врач — из адреса или привязки учётки; опрос того же маршрута раз в 15 с (POLL_MS)
 - `/admin/search` — ДВА запроса разом (Promise.all) — loader обязан ждать оба
 - `/admin/doctor-card/{dk}` — ⛔ НЕ путать с /admin/doctor/{dk} — это день врача в журнале
 - `/admin/doctor/{dk}` — тот же DayScreen, отличается dk

@@ -737,3 +737,72 @@
   font-size: var(--fs-s);
   color: var(--text2);
 }
+
+/* Экран «у кресла» (docs/dentpilot-2/chair-mode.md): планшет над креслом,
+   палец в перчатке. Крупно только то, что нужно у кресла, — имя в кресле и
+   действия; всё — ступенями B5, цели не ниже --h-ctl (44px под пальцем). */
+.chair-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.chair-head select { min-height: var(--h-ctl); font-size: var(--fs-l); }
+.chair-docs { display: flex; flex-wrap: wrap; gap: 10px; }
+.chair-docs .pl-btn { min-height: var(--h-ctl); font-size: var(--fs-l); }
+.chair-now {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  padding: 16px 18px;
+  margin: 12px 0;
+}
+.chair-lbl {
+  color: var(--text2);
+  font-size: var(--fs-s);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.chair-now .who { font-size: var(--fs-big); font-weight: 700; line-height: 1.15; margin: 4px 0; }
+.chair-now .what { color: var(--text2); font-size: var(--fs-body); }
+.chair-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chair-acts .pl-btn,
+.chair-acts .bstat,
+.chair-stale .bstat,
+.chair-queue .bstat { min-height: var(--h-ctl); }
+/* `.bstat` в диалоге визита — колонка во всю ширину; у кресла — кнопка в ряд */
+.chair-acts .bstat,
+.chair-stale .bstat,
+.chair-queue .bstat {
+  width: auto;
+  padding: 0 18px;
+  font-size: var(--fs-body);
+}
+.chair-empty { font-size: var(--fs-l); color: var(--text2); margin: 12px 0; }
+.chair-stale {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border: 1px dashed var(--amber);
+  border-radius: var(--r-block);
+  padding: 8px 12px;
+  margin: 0 0 12px;
+  font-size: var(--fs-body);
+}
+.chair-qh { margin: 20px 0 8px; }
+.chair-queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.chair-queue li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  background: var(--panel);
+  padding: 8px 12px;
+  min-height: var(--h-ctl);
+}
+.chair-queue .t { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 3.5em; }
+.chair-queue .n { flex: 1; min-width: 0; }

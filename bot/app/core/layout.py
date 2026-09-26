@@ -1110,7 +1110,10 @@ REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            # объявляется (см. `_shell`). Имя было заведено
                            # раньше самого экрана — чтобы ветку «этот экран
                            # больше не живой» исполняла хоть одна проверка.
-                           "schedule_dash"})
+                           "schedule_dash",
+                           # Экран «у кресла» (26.09): старой страницы у него
+                           # НЕТ — без React адрес ведёт в день врача.
+                           "chair"})
 
 
 def react_flag(screen: str) -> bool:

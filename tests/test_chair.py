@@ -185,3 +185,34 @@ def suite_api(res: Result) -> None:
         j = get(f"?doctor=d3&date={day}")
         res.check("кресло другого врача — его записи",
                   [x["name"] for x in j["queue"]], ["Dina Alta"])
+
+
+def suite_page(res: Result) -> None:
+    """Адрес экрана: у клиники — оболочка React с врачом в узле; без React
+    (аварийный выключатель) — день врача, старой страницы у кресла нет."""
+    s = Server()
+    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
+    cfg["ui"] = {"react": ["chair"]}
+    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    with s:
+        r = Client(s.url).get("/admin/cabinet")
+        res.ok("без входа — на вход", r.status == 303 and "/admin/login" in r.location,
+               f"{r.status} {r.location!r}")
+        c = Client(s.url).login()
+        page = c.get("/admin/cabinet?doctor=d2")
+        res.ok("узел React экрана кресла", page.status == 200
+               and 'data-screen="chair"' in page.body, f"код {page.status}")
+        res.ok("врач из адреса — в параметрах узла", "&quot;doctor&quot;: &quot;d2&quot;" in page.body,
+               "нет data-params с врачом")
+        page = c.get("/admin/cabinet")
+        res.ok("без врача — узел без параметров (экран предложит выбор)",
+               'data-screen="chair"' in page.body and "data-params" not in page.body.split('data-screen="chair"')[1][:200],
+               "параметры есть")
+    with Server() as s2:                    # фикстура: ui.react = [] — старое везде
+        c = Client(s2.url).login()
+        r = c.get("/admin/cabinet?doctor=d2")
+        res.ok("без React — день врача", r.status == 303 and r.location.endswith("/admin/doctor/d2"),
+               f"{r.status} {r.location!r}")
+        r = c.get("/admin/cabinet")
+        res.ok("без React и без врача — панель", r.status == 303 and r.location.endswith("/admin"),
+               f"{r.status} {r.location!r}")

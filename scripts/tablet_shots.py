@@ -43,7 +43,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import odo_shots as odo  # noqa: E402  (CDP, Page, login_cookie, start_edge, BTN)
-from harness import Client, Server  # noqa: E402
+from harness import Client, Server, clinic_today  # noqa: E402
 from test_odontogram_api import _seed  # noqa: E402
 
 PORT = 9483
@@ -128,7 +128,15 @@ def run(out: pathlib.Path) -> int:
     s = Server()
     s._own_dir = False
     with s:
-        pid = _seed(Client(s.url).login())["pid"]
+        c = Client(s.url).login()
+        pid = _seed(c)["pid"]
+        # Кресло (26.09): тот же пациент сегодня у d2 и уже «în cabinet» — экран
+        # кресла обязан показать его зубы с первого экрана
+        c.post("/admin/add", adate=clinic_today().isoformat(), atime="09:00",
+               adoctor="d2", aservice="consult", aname="Odonto Pin", aphone="069300300")
+        q = json.loads(c.get("/api/chair?doctor=d2").body)["data"]["queue"]
+        if q:
+            c.post_json(f"/api/schedule/appointments/{q[0]['id']}/status", {"to": "arrived"})
     cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
     cfg.pop("ui", None)              # как у установки: React везде, где он есть
     s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
@@ -152,14 +160,24 @@ def run(out: pathlib.Path) -> int:
                 scenes = [("panou", "/admin"), ("zi", "/admin/all"),
                           ("fisa_odonto", f"/admin/patient/{pid}?tab=odonto"),
                           ("fisa_vizite", f"/admin/patient/{pid}?tab=vizite"),
-                          ("odontograma", f"/admin/patient/{pid}/odontograma")]
+                          ("odontograma", f"/admin/patient/{pid}/odontograma"),
+                          ("cabinet", "/admin/cabinet?doctor=d2")]
                 for sc, path in scenes:
                     page.go(path)
                     cdp.drain(0.8)
                     m = json.loads(page.js(MEASURE_JS))
                     m["errors"] = cdp.errors()
                     page.png(out / f"{name}__{sc}.png", full=False)
-                    if sc in ("fisa_odonto", "odontograma"):
+                    if sc == "cabinet":
+                        # кресло: имя в кресле и дуга на ПЕРВОМ экране
+                        m["chair"] = json.loads(page.js(
+                            "JSON.stringify((() => { const w = document.querySelector('.chair-now .who');"
+                            " const a = document.querySelector('.odop .arch');"
+                            " const H = innerHeight;"
+                            " return {who: w ? w.textContent : null,"
+                            " arch_top: a ? Math.round(a.getBoundingClientRect().top) : null,"
+                            " arch_on_screen: a ? a.getBoundingClientRect().top < H - 60 : false} })())"))
+                    if sc in ("fisa_odonto", "odontograma", "cabinet"):
                         # касание зуба 16 → выбран, и где инспектор; долгое нажатие на 21 → меню?
                         try:
                             x, y = page.center(odo.BTN.format(n=16))
@@ -179,6 +197,7 @@ def run(out: pathlib.Path) -> int:
                           + (f"tap={m.get('tap_sel')} panou_vizibil={m.get('insp_visible')}"
                              f"(top={m.get('insp_top')}) long={m.get('longpress_menu')} "
                              if "tap_sel" in m else "")
+                          + (f"kreslo={m['chair']} " if "chair" in m else "")
                           + ("FALLBACK " if m["fallback"] else "")
                           + (f"err={m['errors'][:2]}" if m["errors"] else ""))
                     if m["sample"]:

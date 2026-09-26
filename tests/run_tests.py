@@ -219,6 +219,7 @@ SUITES = [
     ("Врачи: React-экраны и старые страницы", test_doctors.suite_switch),
     ("Кресло: кто в кресле — правило", test_chair.suite_rule),
     ("Кресло: API", test_chair.suite_api),
+    ("Кресло: адрес экрана", test_chair.suite_page),
     ("Настройки: хаб (JSON)", test_settings_api.suite_hub),
     ("Настройки: сеть (JSON)", test_settings_api.suite_lan),
     ("Сеть: вердикт брандмауэра по правилам exe", test_netcheck.suite_verdict),

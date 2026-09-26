@@ -17,6 +17,7 @@ import { CryptSettingsScreen, loadCryptSettings } from '../features/settings/Cry
 import { FaqScreen, loadFaq } from '../features/settings/FaqScreen'
 import { HoursSettingsScreen, loadHoursSettings } from '../features/settings/HoursSettingsScreen'
 import { LanSettingsScreen, loadLanSettings } from '../features/settings/LanSettingsScreen'
+import { ChairScreen, loadChair } from '../features/schedule/ChairScreen'
 import { loadSecuritySettings, SecuritySettingsScreen } from '../features/settings/SecuritySettingsScreen'
 import { loadServicesSettings, ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
 import { loadSystemSettings, SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
@@ -84,6 +85,8 @@ export const SCREENS: Record<ScreenName, Draw> = {
   // ⛔ Не путать с doctor_card: тот же `dk`, но это день врача в журнале.
   schedule_doctor: (p) => <DayScreen doctor={p.dk ?? ''} />,
   perio: (p) => <PerioScreen pid={Number(p.pid)} />,
+  // Экран «у кресла»: врача берёт из АДРЕСА загрузчик (`?doctor=`), не узел.
+  chair: () => <ChairScreen />,
 }
 
 /**
@@ -116,6 +119,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   settings_clinic: loadClinicSettings,
   // ⭐ Панель: загрузчик добывает ПЕРВЫЙ ответ живого канала (B4); опрос — `useLive`.
   schedule_dash: loadDash,
+  chair: loadChair,
 }
 
 /**

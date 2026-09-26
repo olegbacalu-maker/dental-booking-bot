@@ -37,6 +37,7 @@ from ...core.visits import (SVC_PALETTE, _STATUS_ICON, _card_modal,
                             _move_modal, _parse_date, _photo_path,
                             all_status_actions)
 from . import canvas as pcanvas
+from . import chair as pchair
 from . import day as pday
 from . import panel as ppanel
 from . import week as pweek
@@ -1494,6 +1495,26 @@ async def admin_all(
                          if tg_configured()
                          else f"toți medicii · {_ic('pen')} recepție / {_ic('note')} notițe"),
                   active="prog")
+
+
+@router.get("/admin/cabinet", response_class=HTMLResponse)
+async def admin_cabinet(request: Request, doctor: str = ""):
+    """Экран «у кресла» (контракт docs/dentpilot-2/chair-mode.md): планшет
+    врача над креслом. Кто в кресле — `GET /api/chair`, здесь только оболочка.
+
+    ⚠️ Экран живёт ТОЛЬКО в React: старой страницы у кресла не было и не
+    будет. Без React (аварийный выключатель `ui.react`, `?ui=legacy`) адрес
+    ведёт в день врача — ближайшее, что есть на старой стороне; врача не
+    нашли — на панель.
+    """
+    if (deny := _guard(request)) is not None:
+        return deny
+    dk = pchair.resolve_doctor(doctor, request_user(), eng.DOCTORS)
+    if not react_on(request, "chair"):
+        return RedirectResponse(f"/admin/doctor/{dk}" if dk else "/admin",
+                                status_code=303)
+    return react_shell("chair", "/admin/cabinet", shell_model("prog", "cabinet"),
+                       {"doctor": dk} if dk else None)
 
 
 @router.get("/admin/doctor/{dk}", response_class=HTMLResponse)
