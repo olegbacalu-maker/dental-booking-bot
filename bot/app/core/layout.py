@@ -137,6 +137,8 @@ MSG_BANNER = {
     "license_bad_signature": ("err", "Semnătura fișierului nu corespunde conținutului — "
                                      "fișierul a fost modificat sau este corupt"),
     "license_older": ("err", "Fișierul este mai vechi decât licența deja activată"),
+    "license_terms": ("err", "Bifați acceptarea Termenilor și condițiilor, apoi alegeți "
+                             "din nou fișierul de licență"),
     # Автообновление (L13): ответ кнопки «Verifică acum» на странице лицензии;
     # коды — license.RENEW_CODES, по одному на исход запроса к серверу
     "license_renewed": ("ok", "Fișierul de licență a fost reînnoit de pe serverul DentPilot"),
@@ -725,9 +727,12 @@ def _renew_line(director: bool) -> str:
     else:
         when = (f"ultima verificare {last['at'].astimezone(eng.TZ):%d.%m.%Y %H:%M} — "
                 f"{_RENEW_RO.get(last['outcome'], last['outcome'])}")
-    # ⚠️ formaction, а не вторая форма: страница — одна форма, вложенных HTML не знает
-    btn = ("<button formaction='/admin/license/renew'>Verifică acum dacă există un fișier nou</button>"
-           if director else "")
+    # ⚠️ formaction, а не вторая форма: страница — одна форма, вложенных HTML не знает.
+    # formnovalidate — потому что в той же форме `required` галочка условий: без
+    # него браузер не пустил бы запрос к серверу, пока её не поставят, а файл с
+    # сервера договор не заключает — он продлевает уже принятый
+    btn = ("<button formaction='/admin/license/renew' formnovalidate>Verifică acum dacă există "
+           "un fișier nou</button>" if director else "")
     return (f"<p>Programul verifică zilnic pe serverul DentPilot dacă există un fișier de "
             f"licență mai nou și îl preia singur ({html.escape(when)}).</p>{btn}")
 
@@ -1637,6 +1642,8 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  .state.ok{background:#ECFDF5;color:#065F46}.state.warn{background:#FFFBEB;color:#B45309}
  .state.bad{background:#FEF2F2;color:#B91C1C}
  .contacts{font-size:13px}a{color:__ACCENT_D__}
+ .terms{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.5;color:#162033}
+ .terms input{width:auto;margin:3px 0 0;padding:0;flex:none}
 </style></head><body>
 <form class="box" method="post" action="/admin/license" enctype="multipart/form-data">
   <h1>__ICON__ __TITLE__</h1>
@@ -1650,10 +1657,18 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 </form></body></html>"""
 LICENSE_TMPL = LICENSE_TMPL.replace("__ICON__", _ic("key"))
 
+# Галочка условий — перед кнопкой: активация и есть принятие договора (п. 1
+# условий), а летопись пишет, кто её поставил. Ссылка с target=_blank уходит
+# в системный браузер (окно программы так отдаёт «новые окна»), и программа
+# остаётся на месте.
 _LICENSE_FORM = """<p><b>Fișierul de licență</b> (license.json): alegeți-l sau lipiți conținutul lui.</p>
   <input type="file" name="file" accept=".json,application/json">
   <textarea name="text" placeholder='{"v": 1, "kid": "...", "payload": "...", "sig": "..."}'></textarea>
-  <button>Activează licența</button>"""
+  <label class="terms"><input type="checkbox" name="terms" value="1" required>
+  <span>Am citit și accept <a href="__TERMS_URL__" target="_blank" rel="noopener">Termenii și
+  condițiile</a> DentPilot (versiunea din __TERMS_VERSION__)</span></label>
+  <button>Activează licența</button>""".replace(
+    "__TERMS_URL__", lic.TERMS_URL).replace("__TERMS_VERSION__", lic.TERMS_VERSION)
 
 
 def license_page(msg: str = "", *, director: bool, walled: bool) -> str:

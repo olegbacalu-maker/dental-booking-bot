@@ -486,16 +486,24 @@ async def license_view(request: Request, msg: str = "") -> Response:
 
 @app.post("/admin/license")
 async def license_install(request: Request, file: UploadFile | None = File(None),
-                          text: str = Form("")) -> Response:
-    """Файл из поля или вставленный текст → проверка → license.json → перечитать."""
+                          text: str = Form(""), terms: str = Form("")) -> Response:
+    """Файл из поля или вставленный текст → проверка → license.json → перечитать.
+
+    Без галочки условий файл не принимается: активация и есть заключение
+    договора (п. 1 условий), и летопись пишет имя того, кто её поставил.
+    `required` у галочки держит браузер; этот отказ — для всего остального."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if terms != "1":
+        return RedirectResponse(f"/admin/license?msg={lic.TERMS_CODE}", status_code=303)
     raw = b""
     if file is not None and file.filename:
         raw = await file.read()
     if not raw.strip():
         raw = text.encode("utf-8")
-    code = await lic.install(raw.decode("utf-8", "replace"))
+    me = current_user(request)
+    code = await lic.install(raw.decode("utf-8", "replace"),
+                             actor=(me or {}).get("name") or "director")
     if code:
         return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
     return RedirectResponse("/admin?msg=license_ok", status_code=303)

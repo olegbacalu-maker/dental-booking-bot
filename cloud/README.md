@@ -25,6 +25,7 @@ DP_ADMIN_HASH=$(python -m app.tools hash-password) DP_LICENSE_KEY=../tests/fixtu
 | `DP_BANK_BENEFICIARY`, `DP_BANK_IBAN`, `DP_BANK_NAME`, `DP_BANK_CODE` | реквизиты в письме о переводе; без них платёж создаётся, письмо не уходит |
 | `DP_MAIB_PROJECT_ID`, `DP_MAIB_PROJECT_SECRET`, `DP_MAIB_SIGNATURE_KEY` | проект maib ecommerce (L12): оплата картой по ссылке; пусто — только переводом. `DP_MAIB_BASE_URL` — адрес API, меняют только тесты |
 | `DP_TRIAL_MODE`, `DP_TRIAL_NOTIFY` | форма пробного `/proba` (L14): `approve` (по умолчанию) — заявка ждёт кнопки в админке, `auto` — файл сразу; письмо о каждой заявке на `DP_TRIAL_NOTIFY` (пусто = ящик поддержки) |
+| `DP_DECLARATION` | подписанный PDF декларации поставщика (закон 195, текст — `docs/site/declaratie-195.html`): вложением в каждое письмо с файлом лицензии; пусто или не PDF — письма без него, `check` предупреждает |
 
 **Ежедневная задача** — напоминания по таблице `cloud.md › «Напоминания»`
 (счёт за 14 дней, за 3 дня, в день срока, накануне и в день режима чтения).

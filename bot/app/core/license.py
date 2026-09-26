@@ -45,6 +45,14 @@ META_FIRST, META_SEEN, META_ACCEPTED = "lic_first", "lic_seen", "lic_accepted"
 STATE_WRITE_EVERY = timedelta(days=1)      # last_seen пишется на старте и раз в сутки
 READONLY_CODE = "license_readonly"         # код отказа: в MSG_BANNER, в ?msg= и в JSON
 MISSING_CODE = "license_missing"           # то же для стены: файла нет, картотека пуста
+TERMS_CODE = "license_terms"               # импорт без галочки «accept Termenii»
+# Договор с клиникой — публичные условия сайта (п. 1: действуют с активации
+# первого файла). Директор принимает их галочкой на странице активации, и
+# летопись пишет, КТО принял и КАКУЮ версию: версия — дата «Ultima
+# actualizare» страницы. `test_structure` сверяет оба значения с
+# docs/site/termeni.html — поменялись условия, меняется и дата здесь.
+TERMS_URL = "https://dentpilot.md/termeni.html"
+TERMS_VERSION = "26.09.2026"
 # Адреса, открытые и за стеной: сама активация и всё, что нужно, чтобы до неё дойти
 WALL_FREE = ("/admin/license", "/admin/login", "/admin/logout", "/admin/setup",
              "/admin/recover")
@@ -217,9 +225,13 @@ async def _put(text: str) -> st.Status | None:
     return await refresh()
 
 
-async def install(text: str) -> str:
+async def install(text: str, actor: str = "sistem") -> str:
     """Импорт файла со страницы активации: проверить, записать, перечитать.
-    Возвращает код отказа или '' — файл лежит и принят."""
+    Возвращает код отказа или '' — файл лежит и принят.
+
+    `actor` — имя директора, поставившего галочку условий: строка летописи и
+    есть след принятия договора (кто, когда, какая версия). Файл, пришедший
+    автообновлением, сюда не идёт — там договор уже принят."""
     if folder() is None:
         return rsa_verify.MALFORMED
     code, claim = rsa_verify.open_envelope(text, keys())
@@ -233,7 +245,8 @@ async def install(text: str) -> str:
     if s.claim is not None:
         await db.log_clinic_event(
             "license", f"Licența a fost activată: valabilă până la "
-                       f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq})")
+                       f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq}); "
+                       f"acceptați Termenii și condițiile din {TERMS_VERSION}", actor=actor)
     return ""
 
 

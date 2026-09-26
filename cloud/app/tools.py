@@ -41,7 +41,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import auth, config, db, keys, license, maib, trial
+from . import auth, config, db, keys, license, mail, maib, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 
@@ -275,6 +275,14 @@ def check() -> list[tuple[str, str]]:
     b = config.BANK
     out.append((OK, f"реквизиты: {b['beneficiary']}, IBAN {b['iban']}") if b["iban"] and b["beneficiary"]
                else (WARN, "DP_BANK_* пусты: письма о платеже уйдут без реквизитов"))
+    if not config.DECLARATION:
+        out.append((WARN, "DP_DECLARATION пуст: письма с файлом лицензии уйдут без декларации "
+                          "поставщика (Legea 195)"))
+    elif mail.declaration() is None:
+        out.append((WARN, f"DP_DECLARATION={config.DECLARATION}: файла нет или это не PDF — "
+                          "письма с файлом лицензии уйдут без декларации"))
+    else:
+        out.append((OK, f"декларация поставщика {config.DECLARATION} едет в каждое письмо с файлом"))
     return out
 
 

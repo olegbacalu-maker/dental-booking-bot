@@ -1355,6 +1355,23 @@ def suite(res: Result) -> None:
             bad.append("termeni.html: нет пункта «N zile de la prima pornire» для обновившейся клиники")
         elif int(m.group(1)) != days:
             bad.append(f"termeni.html обещает {m.group(1)} дней без файла, программа даёт {days}")
+    # Галочка на странице активации принимает условия ПО АДРЕСУ и в ВЕРСИИ,
+    # которые называет программа (license.TERMS_URL, TERMS_VERSION), и
+    # летопись пишет эту версию навсегда. Страницу поправили, а дату в
+    # программе нет — клиника «приняла» версию, которой уже нет на сайте.
+    consts = {t.id: n.value.value for n in ast.walk(by_path.get("app/core/license.py") or ast.Module(
+                  body=[], type_ignores=[]))
+              if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+              for t in n.targets if isinstance(t, ast.Name) and t.id in ("TERMS_URL", "TERMS_VERSION")}
+    if set(consts) != {"TERMS_URL", "TERMS_VERSION"}:
+        bad.append("app/core/license.py: нет TERMS_URL / TERMS_VERSION — якорь пропал")
+    else:
+        m = re.search(r"Ultima actualizare: (\d\d\.\d\d\.\d{4})", page)
+        if not m or m.group(1) != consts["TERMS_VERSION"]:
+            bad.append(f"termeni.html обновлена {m.group(1) if m else '?'}, а программа принимает "
+                       f"версию {consts['TERMS_VERSION']}")
+        if f'<link rel="canonical" href="{consts["TERMS_URL"]}">' not in page:
+            bad.append(f"TERMS_URL {consts['TERMS_URL']} — не адрес termeni.html")
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
 

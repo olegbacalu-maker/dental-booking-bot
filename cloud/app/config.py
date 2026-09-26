@@ -43,6 +43,10 @@ MAIB_SIGNATURE_KEY = env("DP_MAIB_SIGNATURE_KEY")   # подпись callback
 # Уведомление о заявке — на этот ящик; пусто = SUPPORT_EMAIL.
 TRIAL_MODE = env("DP_TRIAL_MODE", "approve")
 TRIAL_NOTIFY = env("DP_TRIAL_NOTIFY") or SUPPORT_EMAIL
+# Декларация поставщика по закону 195 — PDF, подписанный Олегом (текст —
+# docs/site/declaratie-195.html). Едет вложением в каждое письмо с файлом
+# лицензии; пусто или не PDF — письма уходят без неё, и `tools check` это говорит.
+DECLARATION = env("DP_DECLARATION")
 SUPPORT_PHONE = "+373 60 508 048"
 # Прайс — тот же, что на сайте (dentpilot.md › #preturi, с 24.09.2026): месяц
 # 499 MDL, год — 11 месячных (5 489 MDL, «o lună gratuită»). Сроки и счёт

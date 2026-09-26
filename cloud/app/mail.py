@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import logging
 import pathlib
 import smtplib
 import time
@@ -18,16 +19,21 @@ from email.message import EmailMessage
 
 from . import config
 
+log = logging.getLogger("cloud.mail")
 
-def send(to: str, subject: str, body: str,
-         attachment: tuple[str, bytes] | None = None) -> str:
+# Тип вложения — по расширению имени: файл лицензии и PDF декларации
+_MIME = {".json": ("application", "json"), ".pdf": ("application", "pdf")}
+
+
+def send(to: str, subject: str, body: str, *attachments: tuple[str, bytes]) -> str:
     """Возвращает 'smtp' или путь файла в outbox. Бросает RuntimeError, когда некуда."""
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = config.MAIL_FROM, to, subject
     msg.set_content(body)
-    if attachment:
-        name, data = attachment
-        msg.add_attachment(data, maintype="application", subtype="json", filename=name)
+    for name, data in attachments:
+        maintype, subtype = _MIME.get(pathlib.PurePath(name).suffix.lower(),
+                                      ("application", "octet-stream"))
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
     if config.SMTP_HOST:
         with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as s:
             s.starttls()
@@ -205,10 +211,39 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None) -> t
     return subject, body
 
 
-def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False) -> tuple[str, str]:
+# Имя вложения — без диакритики: почтовые программы клиник переносят его как есть
+DECLARATION_NAME = "Declaratie-furnizor-DentPilot-Legea-195.pdf"
+DECLARATION_NOTE = ("Tot în atașament este Declarația furnizorului privind datele pacienților "
+                    "(Legea nr. 195/2024), care confirmă acest lucru: păstrați-o în mapa "
+                    "„Legea 195” a clinicii.")
+
+
+def declaration() -> tuple[str, bytes] | None:
+    """Подписанная декларация поставщика вложением: (имя, байты) или None.
+
+    Читается при каждом письме, а не на старте: Олег кладёт PDF на машину,
+    когда подпишет, и перезапуск сервера для этого не нужен. Не PDF (подложили
+    не тот файл, обрезался при копировании) — не вложение: письмо с файлом
+    лицензии уходит без декларации, а не с мусором от имени поставщика."""
+    if not config.DECLARATION:
+        return None
+    try:
+        data = pathlib.Path(config.DECLARATION).read_bytes()
+    except OSError as e:
+        log.warning("декларация %s не прочитана: %r", config.DECLARATION, e)
+        return None
+    if not data.startswith(b"%PDF-"):
+        log.warning("декларация %s — не PDF, письмо уйдёт без неё", config.DECLARATION)
+        return None
+    return DECLARATION_NAME, data
+
+
+def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False,
+                   declaration: bool = False) -> tuple[str, str]:
     """Тема и текст письма с файлом — по-румынски, как интерфейс программы.
     `renew` — в файле есть адрес автообновления (L13): письмо говорит, что
-    активированной программе делать ничего не нужно."""
+    активированной программе делать ничего не нужно. `declaration` — к письму
+    приложена декларация поставщика: письмо называет её только тогда."""
     what = "perioada de probă" if plan == "trial" else "abonamentul"
     subject = f"DentPilot: fișierul de licență pentru {clinic}"
     body = (f"Bună ziua,\n\n"
@@ -218,9 +253,11 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
             f"1. Salvați fișierul license.json pe calculatorul clinicii.\n"
             f"2. În DentPilot deschideți pagina Licență (meniul Setări sau adresa "
             f"/admin/license din program).\n"
-            f"3. Alegeți fișierul și apăsați «Activează licența».\n\n"
+            f"3. Alegeți fișierul, bifați acceptarea Termenilor și condițiilor și apăsați "
+            f"«Activează licența».\n\n"
             + (f"{RENEW_NOTE}\n\n" if renew else "") +
             f"Fișierul este emis pentru clinica dumneavoastră și nu se transmite altora. "
-            f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele.\n\n"
+            f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele."
+            + (f" {DECLARATION_NOTE}" if declaration else "") + "\n\n"
             f"{FOOTER}")
     return subject, body

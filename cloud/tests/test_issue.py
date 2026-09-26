@@ -9,7 +9,11 @@ import email
 import email.policy
 import json
 import pathlib
+import shutil
 import sqlite3
+import subprocess
+import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 from harness import (CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path,
@@ -126,6 +130,8 @@ def suite_mail(res: Result) -> None:
         body = msg.get_body(preferencelist=("plain",)).get_content()
         res.ok("текст письма: как активировать и контакты",
                "Activează licența" in body and "+373 60 508 048" in body and "perioada de probă" in body)
+        res.ok("без DP_DECLARATION: одно вложение, декларация не названа",
+               len(list(msg.iter_attachments())) == 1 and "Declarația furnizorului" not in body)
         r = c.post(f"/admin/clinics/{cid}/email")
         res.check("повторная отправка последнего файла", r.location, f"/admin/clinics/{cid}?msg=mailed")
         res.check("в outbox два письма", len(list(s.outbox.glob("*.eml"))), 2)
@@ -140,3 +146,61 @@ def suite_mail(res: Result) -> None:
         finally:
             con.close()
         res.check("журнал: заведена, выдан, письмо, письмо", kinds, ["clinic_new", "issue", "mail", "mail"])
+
+
+# Подписанный PDF декларации — в тесте любой файл с заголовком PDF: сервер
+# проверяет только, что это PDF, и отдаёт его байт в байт.
+PDF = b"%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"
+
+
+def suite_declaration(res: Result) -> None:
+    """Декларация поставщика (закон 195) — вложением в письмо с файлом лицензии."""
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_decl_"))
+    pdf = tmp / "declaratie-195.pdf"
+    pdf.write_bytes(PDF)
+    try:
+        with Server(env={"DP_DECLARATION": str(pdf)}) as s:
+            c = Client(s.url).login()
+            cid = _new_clinic(c)
+            r = c.post(f"/admin/clinics/{cid}/issue", kind="trial", send="1")
+            res.check("выдать и отправить", r.location, f"/admin/clinics/{cid}?msg=issued_mailed")
+            files = sorted(s.outbox.glob("*.eml"))
+            msg = email.message_from_bytes(files[-1].read_bytes(), policy=email.policy.default)
+            att = {p.get_filename(): p for p in msg.iter_attachments()}
+            res.check("вложения: файл лицензии и декларация", sorted(att),
+                      sorted(["license.json", "Declaratie-furnizor-DentPilot-Legea-195.pdf"]))
+            decl = att.get("Declaratie-furnizor-DentPilot-Legea-195.pdf")
+            res.ok("декларация — тот же PDF байт в байт, тип application/pdf",
+                   decl is not None and decl.get_payload(decode=True) == PDF
+                   and decl.get_content_type() == "application/pdf")
+            code, _claim = rv.open_envelope(att["license.json"].get_payload(decode=True).decode("utf-8"), KEYS)
+            res.check("файл лицензии рядом по-прежнему принимает движок", code, "")
+            body = msg.get_body(preferencelist=("plain",)).get_content()
+            res.ok("письмо называет декларацию и папку «Legea 195»",
+                   "Declarația furnizorului" in body and "„Legea 195”" in body, body[-400:])
+            # подменили файл не-PDF'ом: письмо уходит, но без вложения и без упоминания
+            pdf.write_bytes(b"<html>not a pdf</html>")
+            r = c.post(f"/admin/clinics/{cid}/email")
+            res.check("повторная отправка с битой декларацией проходит", r.location,
+                      f"/admin/clinics/{cid}?msg=mailed")
+            files = sorted(s.outbox.glob("*.eml"))
+            msg = email.message_from_bytes(files[-1].read_bytes(), policy=email.policy.default)
+            body = msg.get_body(preferencelist=("plain",)).get_content()
+            res.ok("не PDF: только файл лицензии, декларация не названа",
+                   [p.get_filename() for p in msg.iter_attachments()] == ["license.json"]
+                   and "Declarația furnizorului" not in body)
+            con = sqlite3.connect(s.dir / "cloud.db")
+            try:
+                notes = [r[0] for r in con.execute(
+                    "SELECT detail FROM audit WHERE clinic_id=? AND what='mail' ORDER BY id", (cid,))]
+            finally:
+                con.close()
+            res.ok("журнал: письмо с декларацией помечено, без неё — нет",
+                   len(notes) == 2 and "+ декларация" in notes[0] and "+ декларация" not in notes[1],
+                   repr(notes))
+            out = subprocess.run(
+                [sys.executable, "-m", "app.tools", "check"], cwd=str(CLOUD), env=s.env,
+                capture_output=True, text=True, encoding="utf-8")
+            res.ok("check: декларация не PDF — предупреждение", "не PDF" in out.stdout, out.stdout[-300:])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

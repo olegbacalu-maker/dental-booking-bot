@@ -32,6 +32,7 @@ SUITES = [
     ("Сервер: клиники", test_clinics.suite),
     ("Сервер: выдача файла — проходит проверку движка", test_issue.suite_issue),
     ("Сервер: письмо с файлом", test_issue.suite_mail),
+    ("Сервер: декларация поставщика во вложении", test_issue.suite_declaration),
     ("Сервер: правило продления на неудобных датах", test_payments.suite_rules),
     ("Сервер: платёж переводом — ожидание, подтверждение, отказ", test_payments.suite_flow),
     ("Сервер: окна напоминаний — подставная дата на каждую строку", test_jobs.suite_windows),

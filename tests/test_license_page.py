@@ -75,6 +75,9 @@ def suite_wall(res: Result) -> None:
                    and "+373 60 508 048" in page.body and 'name="file"' in page.body
                    and "@font-face{" in page.body and "__FONTS__" not in page.body,
                    page.body[:200])
+            res.ok("страница: галочка условий — обязательная, со ссылкой на termeni.html",
+                   'name="terms"' in page.body and "required" in page.body
+                   and "https://dentpilot.md/termeni.html" in page.body, page.body[-600:])
             res.ok("за стеной ссылки «назад в журнал» нет", "Înapoi la registru" not in page.body)
             r = c.post_json("/api/patients", {})
             res.ok("за стеной запись отказывает кодом license_missing",
@@ -93,11 +96,12 @@ def suite_wall(res: Result) -> None:
                                ("unknown-kid", "license_key_unknown"),
                                ("tampered", "license_bad_signature")):
                 r = c.post_file("/admin/license", "file", "license.json",
-                                (FIX / f"{name}.json").read_bytes(), mime="application/json")
+                                (FIX / f"{name}.json").read_bytes(), mime="application/json",
+                                terms="1")
                 res.ok(f"импорт {name}: {want}",
                        r.status == 303 and r.location == f"/admin/license?msg={want}",
                        f"{r.status} {r.location!r}")
-            r = c.post("/admin/license", text="{ not a licence")
+            r = c.post("/admin/license", text="{ not a licence", terms="1")
             res.ok("импорт мусора текстом: license_malformed",
                    r.status == 303 and r.location == "/admin/license?msg=license_malformed",
                    f"{r.status} {r.location!r}")
@@ -105,9 +109,19 @@ def suite_wall(res: Result) -> None:
             page = c.get("/admin/license?msg=license_bad_signature").body
             res.ok("страница показывает причину отказа", "Semnătura fișierului" in page)
 
-            # импорт годного: файл на диске, стена снята, состояние active
+            # годный файл без галочки условий: договор не принят — файла нет
             r = c.post_file("/admin/license", "file", "license.json",
                             (FIX / "valid.json").read_bytes(), mime="application/json")
+            res.ok("импорт без галочки условий: license_terms",
+                   r.status == 303 and r.location == "/admin/license?msg=license_terms",
+                   f"{r.status} {r.location!r}")
+            res.ok("без галочки файла на диске нет", not (d / "license.json").exists())
+            res.ok("страница называет причину: галочка условий",
+                   "Bifați acceptarea Termenilor" in c.get("/admin/license?msg=license_terms").body)
+
+            # импорт годного: файл на диске, стена снята, состояние active
+            r = c.post_file("/admin/license", "file", "license.json",
+                            (FIX / "valid.json").read_bytes(), mime="application/json", terms="1")
             res.ok("импорт valid: 303 в журнал с license_ok",
                    r.status == 303 and r.location == "/admin?msg=license_ok", f"{r.status} {r.location!r}")
             res.ok("файл записан рядом с clinic.json", (d / "license.json").exists())
@@ -122,7 +136,7 @@ def suite_wall(res: Result) -> None:
             res.ok("страница при active: абонемент активен, ссылка назад",
                    "Abonamentul este activ" in page and "Înapoi la registru" in page)
             r = c.post_file("/admin/license", "file", "license.json",
-                            (FIX / "expired.json").read_bytes(), mime="application/json")
+                            (FIX / "expired.json").read_bytes(), mime="application/json", terms="1")
             res.ok("импорт файла старее принятого: license_older",
                    r.status == 303 and r.location == "/admin/license?msg=license_older",
                    f"{r.status} {r.location!r}")
@@ -131,11 +145,16 @@ def suite_wall(res: Result) -> None:
                    == json.loads((FIX / "valid.json").read_text(encoding="utf-8"))["sig"])
         con = sqlite3.connect(d / "dental.db")
         try:
-            rows = con.execute("SELECT text FROM activity WHERE kind = 'license'").fetchall()
+            rows = con.execute("SELECT text, actor FROM activity WHERE kind = 'license'").fetchall()
         finally:
             con.close()
         res.ok("летопись клиники: «Licența a fost activată … (fișier 3)»",
                any("Licența a fost activată" in r[0] and "(fișier 3)" in r[0] for r in rows), repr(rows))
+        # Принятие договора — строкой летописи: версия условий и ИМЯ вошедшего
+        # (у директора харнесса имени нет — вместо него подпись роли), не «sistem»
+        res.ok("летопись: условия приняты — версия и кто",
+               any("acceptați Termenii și condițiile din" in t and a == "Director" for t, a in rows),
+               repr(rows))
     finally:
         _rmtree_settled(d)
 

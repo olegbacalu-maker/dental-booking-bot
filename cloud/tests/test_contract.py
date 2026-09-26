@@ -65,6 +65,24 @@ def suite(res: Result) -> None:
                and f"https://{host}/proba" in page)
         res.ok(f"{name}: в стиле сайта, со ссылками на условия и политику",
                all(x in page for x in ("@font-face", 'class="top"', "<footer", "termeni.html", "privacy.html")))
+    # Декларация поставщика (закон 195): её подписанный PDF едет в каждое письмо с
+    # файлом (DP_DECLARATION). Говорит ровно то, что п. 9 условий и § 5 политики:
+    # подписанная бумага, разошедшаяся с договором, хуже, чем никакой.
+    decl = " ".join((SITE / "declaratie-195.html").read_text(encoding="utf-8").split())
+    flat_terms, flat_privacy = " ".join(terms.split()), " ".join(privacy.split())
+    res.ok("декларация: нет доступа к данным пациентов, не persoană împuternicită — как п. 9 условий",
+           all(x in decl and x in flat_terms for x in ("nu are acces la datele pacienților",
+                                                        "persoană împuternicită")))
+    lic_file = "fișierul de licență conține doar denumirea clinicii, idno, tipul și termenul abonamentului"
+    res.ok("декларация: состав файла лицензии — словами политики § 5",
+           lic_file in decl.lower() and lic_file in flat_privacy.lower())
+    res.ok("декларация: предупреждение об изменениях за 30 дней — как п. 13 условий",
+           "cu cel puțin 30 de zile înainte" in decl and "cu cel puțin 30 de zile înainte" in flat_terms)
+    res.ok("декларация: IDNO, телефон и почта — те же, что в условиях",
+           set(re.findall(r"IDNO (\d{13})", decl)) == set(re.findall(r"IDNO (\d{13})", terms))
+           and config.SUPPORT_PHONE in decl and config.SUPPORT_EMAIL in decl)
+    res.ok("декларация: письмо называет её тем же именем, что страница",
+           "Declarația furnizorului" in decl and "Declarația furnizorului" in mail.DECLARATION_NOTE)
     # IDNO вписан 26.09 (был плейсхолдер): один и тот же номер на обеих страницах.
     idnos = set(re.findall(r"IDNO (\d{13})", terms)) | set(re.findall(r"IDNO (\d{13})", privacy))
     res.ok("IDNO — один и тот же номер на обеих страницах, плейсхолдера нет",

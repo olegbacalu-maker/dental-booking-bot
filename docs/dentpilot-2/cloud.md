@@ -146,11 +146,14 @@ React монтируется внутри `{body}` (`REACT_MOUNT_MARK`), поэ�
 файла, контакты (`FEEDBACK_EMAIL`, `SUPPORT_PHONE` в layout.py — менять вместе
 с сайтом) и форму импорта: файл или вставленный текст. Вход нужен всем,
 импорт — директору; регистратура видит просьбу позвать директора, а не петлю
-`no_access` → стена. Импорт: проверка тем же `open_envelope`, отказ своим
-кодом (`license_malformed`, `license_key_unknown`, `license_bad_signature`,
-`license_older`) обратно на страницу, приём — атомарная запись рядом с
-`clinic.json`, `refresh()`, 303 в журнал с `license_ok` и строка в летописи
-клиники «Licența a fost activată: valabilă până la …».
+`no_access` → стена. Импорт: сначала галочка условий (`terms`; без неё —
+`license_terms`, файл не читается), затем проверка тем же `open_envelope`,
+отказ своим кодом (`license_malformed`, `license_key_unknown`,
+`license_bad_signature`, `license_older`) обратно на страницу, приём —
+атомарная запись рядом с `clinic.json`, `refresh()`, 303 в журнал с
+`license_ok` и строка в летописи клиники «Licența a fost activată: valabilă
+până la …; acceptați Termenii și condițiile din `TERMS_VERSION`» с именем
+директора (26.09: акцепт договора, п. 1 условий).
 
 Стена — в том же шлюзе, что ворота: пустая картотека без годного файла →
 каждый GET под `/admin` ведёт на `/admin/license`, кроме входа, установки PIN,
@@ -583,6 +586,14 @@ cron на 06:05 UTC (README).
 ✅ L11 (24.09): текст условий — `docs/site/termeni.html`, разбор по-русски и
 вопросы юристу — [contract.md](contract.md). Каждое обещание страницы
 привязано к коду и сторожится тестами (см. таблицу там же).
+
+✅ 26.09: без бумаги между поставщиком и клиникой. Условия клиника принимает
+галочкой на странице активации (без неё файл не принимается), летопись пишет
+имя директора и версию условий (`license.TERMS_VERSION` = «Ultima
+actualizare» страницы, сторожит `test_structure`). Двусторонний
+`3-acord-furnizor.html` заменён декларацией поставщика
+`docs/site/declaratie-195.html`: подписанный PDF (`DP_DECLARATION`) едет
+вложением в каждом письме с файлом лицензии.
 
 ## Сайт
 

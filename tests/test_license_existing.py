@@ -112,7 +112,7 @@ def suite_existing(res: Result) -> None:
 
             # 5. импорт файла возвращает работу
             r = c.post_file("/admin/license", "file", "license.json",
-                            (FIX / "valid.json").read_bytes(), mime="application/json")
+                            (FIX / "valid.json").read_bytes(), mime="application/json", terms="1")
             res.ok("импорт файла: 303 в журнал с license_ok",
                    r.status == 303 and r.location == "/admin?msg=license_ok", f"{r.status} {r.location!r}")
             res.check("после импорта: active", _api(c).get("state"), "active")
