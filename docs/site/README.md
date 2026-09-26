@@ -9,8 +9,9 @@
 
 ```
 termeni.html       Termeni și condiții — заменяет прежний файл сайта ЦЕЛИКОМ
-privacy.html       Politica de confidențialitate — версия 24.09 с разделом 5
-                   «Datele contului clinicii»; прежние разделы 5–6 стали 6–7
+privacy.html       Politica de confidențialitate — ЖИВАЯ страница сайта (с
+                   разделом Google Analytics) плюс § 5 «Datele contului
+                   clinicii» (26.09); прежние разделы 5–6 стали 6–7
 descarca.html      Înainte de descărcare: Legea 195/2024 — текст перед кнопкой
                    «Descarcă» (L15); новая страница
 descarca-ru.html   она же по-русски (перевод; опорная — румынская)
@@ -18,28 +19,34 @@ declaratie-195.html  Declarația furnizorului (Legea 195) — текст дек�
                    подписанный PDF едет в каждом письме с файлом лицензии
 ```
 
-Как выложить: скопировать оба файла в корень репозитория сайта как есть.
-Ссылки из футера `index.html`/`ru.html` на `termeni.html` и `privacy.html`
-уже стоят, в `sitemap.xml` оба адреса есть — поправить только `<lastmod>`.
-Плейсхолдер `IDNO [____]` — заполнить тем же номером, что в футере сайта
-(три места: футер, privacy, termeni).
+Как выложить: скопировать файлы в корень репозитория сайта как есть —
+`privacy.html` здесь уже ЖИВАЯ страница сайта (раздел Google Analytics и
+ссылка «Setări cookie» на месте; до 26.09 здесь лежала копия до GA, и
+копирование стёрло бы её), IDNO вписан. Ссылки из футера `index.html`/`ru.html`
+на `termeni.html` и `privacy.html` уже стоят.
+⛔ «Ultima actualizare» в `termeni.html` в день выкладки НЕ менять: это
+`TERMS_VERSION` программы — дата на галочке активации; меняются условия —
+меняются обе даты (тест держит равенство здесь, у репозитория сайта тестов
+нет).
 
-Форма пробного периода (L14) живёт на сервере лицензий, а не на сайте:
-поставить на `index.html`/`ru.html` ссылку «Perioadă de probă 14 zile» →
-`https://cloud.dentpilot.md/proba` (ссылка, не форма: без CORS и без второго
-origin). Страница сама ссылается на `termeni.html` и `privacy.html` сайта.
+⭐ Готовая к выкладке ветка — `draft/cloud-legal` репозитория сайта (26.09):
+эти страницы, `declaratie-195.html`, `sitemap.xml` с `<lastmod>` 2026-09-26 и
+ссылка «sau începeți perioada de probă gratuită» → `https://cloud.dentpilot.md/proba`
+под кнопкой цены в `index.html`/`ru.html` (ссылка, не форма: без CORS и без
+второго origin). Выкладывается в день запуска сервера лицензий — раньше
+ссылка на `/proba` мёртвая. Правишь страницу здесь — повтори в ветке.
 
 Что в этих текстах привязано к коду и проверяется:
 
 | Текст на странице | Откуда в коде |
 |---|---|
-| «perioadă de probă de 14 zile» | `cloud/app/license.py` `TRIAL_DAYS` |
+| «perioadă de probă de 30 de zile» (месяц, 26.09) | `cloud/app/license.py` `TRIAL_DAYS` |
 | «încă 3 zile (perioada pentru abonare)» | `TRIAL_GRACE_DAYS` |
 | «încă 14 zile (perioada de plată)» | `GRACE_DAYS` |
 | «14 zile de la prima pornire» | `bot/app/core/license_state.py` `NO_FILE_GRACE` |
 | «Datele se pot consulta, tipări și exporta» | баннер `license_readonly` в `bot/app/core/layout.py` |
 | «Datele pacienților se pot consulta, tipări și exporta, iar copia de rezervă…» | письма `cloud/app/mail.py` |
-| «1, 3, 6 sau 12 luni» | `cloud/app/payments.py` `MONTHS` |
+| «pe o lună sau pe un an (12 luni)» | `cloud/app/payments.py` `MONTHS`, `BILLED` (год — 11 месячных) |
 | «oricare este mai târzie» — правило продления | `payments.extend_from` |
 | `cloud.dentpilot.md` в privacy | `DP_BASE_URL` в `cloud/app/config.py` |
 | «…» на `descarca*.html` — надписи экранов | исходники клиента `frontend/src` |
