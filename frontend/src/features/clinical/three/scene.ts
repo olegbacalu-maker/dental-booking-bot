@@ -5,6 +5,7 @@ import type { Three } from './loadThree'
 import { COLOR, structChanged, targetLook, type Look } from './look'
 import type { RawMesh } from './mesh'
 import { buildCrown, buildRoots, buildScrew, SURF, type Letter } from './toothGeometry'
+import { comesFrom, MS, sceneFor, startLift, startOpacity } from './transition'
 import { createTweens, type Tweens } from './tween'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
@@ -252,10 +253,14 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     t.screwX.visible = look.screw
     t.crown.position.y = 0
     t.roots.position.y = 0
-    t.screw.position.y = 0
+    screwY(t, 0)
+    screwSpin(t, 0)
     t.crown.scale.setScalar(1)
     t.rootMat.opacity = 1
     t.rootMat.transparent = false
+    const sm = t.socket.material as T3.MeshStandardMaterial
+    sm.opacity = 1
+    sm.transparent = false
     SURF.forEach((_L, i) => {
       const m = t.mats[i]
       const c = look.cols[i]
@@ -291,6 +296,143 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         m.depthWrite = !look.ghost
       }, 0, t)
     })
+  }
+
+  const setOpacity = (t: ToothNodes, v: number): void => {
+    for (const m of t.mats) {
+      m.transparent = true
+      m.opacity = v
+    }
+  }
+  const screwY = (t: ToothNodes, y: number): void => {
+    t.screw.position.y = y
+    t.screwX.position.y = y
+  }
+  const screwSpin = (t: ToothNodes, a: number): void => {
+    t.screw.rotation.y = a
+    t.screwX.rotation.y = a
+  }
+  function fadeRoots(t: ToothNodes, on: boolean): void {
+    const rm = t.rootMat
+    rm.transparent = true
+    if (on) {
+      t.roots.visible = true
+      rm.opacity = 0
+    }
+    const o0 = rm.opacity
+    const o1 = on ? 1 : 0
+    tweens.add(MS.roots, (k) => { rm.opacity = o0 + (o1 - o0) * k }, () => {
+      if (!on) t.roots.visible = false
+      rm.opacity = 1
+      rm.transparent = false
+    }, 0, t)
+  }
+
+  /** Смена состояния — маленькая сцена (ступень 6): что именно играется, решает
+   *  `transition.ts`; в конце всегда `applyLook(…, true)` — вид сходится с данными
+   *  независимо от того, дожил твин до конца или его сняли следующей сменой. */
+  function animateStruct(t: ToothNodes, prev: Look, look: Look): void {
+    tweens.kill(t)
+    const finish = (): void => applyLook(t, look, true)
+    const from = comesFrom(prev)
+    const paintCols = (metal: number, rough: number): void => {
+      t.mats.forEach((m, i) => {
+        const c = look.cols[i]
+        if (c !== undefined) m.color.setHex(c)
+        m.metalness = metal
+        m.roughness = rough
+      })
+    }
+    switch (sceneFor(look)) {
+      case 'implant': {
+        if (t.roots.visible) fadeRoots(t, false)
+        t.crown.visible = false
+        t.screw.visible = true
+        t.screwX.visible = true
+        screwY(t, 16)
+        screwSpin(t, 0)
+        tweens.add(MS.screwIn, (k) => { screwY(t, 16 * (1 - k)); screwSpin(t, k * Math.PI * 6) }, null, 0, t)
+        paintCols(0, 0.22)
+        setOpacity(t, 0)
+        tweens.add(MS.crownSeat, (k) => {
+          t.crown.visible = true
+          t.crown.position.y = 12 * (1 - k)
+          setOpacity(t, k)
+        }, finish, MS.crownSeatDelay, t)
+        return
+      }
+      case 'extract': {
+        const rm = t.rootMat
+        const rootsOn = t.roots.visible
+        rm.transparent = true
+        const op0 = t.mats[0]?.opacity ?? 1
+        t.socket.visible = true
+        const sm = t.socket.material as T3.MeshStandardMaterial
+        sm.transparent = true
+        sm.opacity = 0
+        tweens.add(MS.extract, (k) => {
+          t.crown.position.y = 16 * k
+          t.roots.position.y = 16 * k
+          screwY(t, 16 * k)
+          setOpacity(t, op0 * (1 - k))
+          if (rootsOn) rm.opacity = 1 - k
+          sm.opacity = k
+        }, () => { sm.transparent = false; sm.opacity = 1; finish() }, 0, t)
+        return
+      }
+      case 'ghost': {
+        const op0 = t.mats[0]?.opacity ?? 1
+        t.mats.forEach((m, i) => { const c = look.cols[i]; if (c !== undefined) m.color.setHex(c) })
+        if (t.roots.visible) fadeRoots(t, false)
+        if (t.screw.visible) tweens.add(MS.ghost, (k) => screwY(t, 16 * k), null, 0, t)
+        tweens.add(MS.ghost, (k) => setOpacity(t, op0 + (0.22 - op0) * k), finish, 0, t)
+        return
+      }
+      case 'gold': {
+        if (t.roots.visible && look.pontic) fadeRoots(t, false)
+        if (!t.roots.visible && !look.pontic && from !== 'gone' && from !== 'implant') fadeRoots(t, true)
+        if (from) {
+          t.crown.visible = true
+          paintCols(0.85, 0.28)
+          setOpacity(t, startOpacity(from))
+          if (from === 'implant') tweens.add(MS.screwOut, (k) => screwY(t, 16 * k), null, 0, t)
+          const o0 = startOpacity(from)
+          const lift = startLift(from)
+          tweens.add(MS.crownReturn, (k) => {
+            t.crown.position.y = lift * (1 - k)
+            setOpacity(t, o0 + (1 - o0) * k)
+          }, finish, 0, t)
+        } else {
+          applyLook(t, look, false)
+          tweens.add(MS.breath, (k) => t.crown.scale.setScalar(1 + 0.07 * Math.sin(Math.PI * k)),
+            () => t.crown.scale.setScalar(1), 0, t)
+        }
+        return
+      }
+      default: {
+        // живой зуб возвращается: из лунки, из-под импланта, из призрака или из-под коронки
+        if (from === 'implant') tweens.add(MS.screwOut, (k) => { screwY(t, 16 * k); screwSpin(t, -k * Math.PI * 6) }, null, 0, t)
+        if (from === 'gone') {
+          const sm = t.socket.material as T3.MeshStandardMaterial
+          sm.transparent = true
+          tweens.add(MS.socketFade, (k) => { sm.opacity = 1 - k }, () => { sm.transparent = false; sm.opacity = 1 }, 0, t)
+        }
+        if (!t.roots.visible) fadeRoots(t, true)
+        if (from) {
+          t.crown.visible = true
+          paintCols(0, 0.32)
+          const o0 = startOpacity(from)
+          const lift = startLift(from)
+          setOpacity(t, o0)
+          tweens.add(MS.crownReturn, (k) => {
+            t.crown.position.y = lift * (1 - k)
+            setOpacity(t, o0 + (1 - o0) * k)
+          }, finish, 0, t)
+        } else {
+          applyLook(t, look, false)
+        }
+      }
+    }
   }
 
   function paintGlow(): void {
@@ -331,8 +473,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       } else if (!selNow) {
         t.ringS.visible = false
       }
-      // сцены смены состояния — ступень 6; до неё смена структуры применяется сразу
-      if (!prev || structChanged(prev, look)) applyLook(t, look, true)
+      if (!prev) applyLook(t, look, true)
+      else if (structChanged(prev, look)) animateStruct(t, prev, look)
       else applyLook(t, look, false)
     }
     paintGlow()
