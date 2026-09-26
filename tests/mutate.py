@@ -347,6 +347,18 @@ MUTATIONS = [
     ("договор согласован с программой", "app/core/layout.py",
      ('"expirat. Datele se pot consulta, tipări și exporta; "',
       '"expirat. Datele se pot consulta și tipări; "')),
+    # ---- текст перед скачиванием (закон 195, L15) ----
+    # Кнопку фиши переименовали в клиенте — сайт отправляет искать старую.
+    ("текст перед скачиванием", "_frontend/features/patients/card/ProfileCard.tsx",
+     ("export: 'Descarcă datele pacientului',", "export: 'Exportă datele pacientului',")),
+    # Ссылку журнала переименовали: «accesările» осталось только в комментарии
+    # и внутри 'ascunde accesările'. На экране такой надписи уже нет, а
+    # правило, ищущее подстроку или читающее комментарии, этого не увидит.
+    ("текст перед скачиванием", "_frontend/features/patients/card/ActivityCard.tsx",
+     ("views: 'accesările',", "views: 'vizualizări',")),
+    # Плитку настроек переименовали — путь «Setări › Copie de rezervă» ведёт в никуда.
+    ("текст перед скачиванием", "app/modules/settings/routes.py",
+     ('"save", "b", "Copie de rezervă",', '"save", "b", "Arhivă de rezervă",')),
     # ---- баннер в обеих оболочках (посадка L5 на B1) ----
     # Ровно то, что было до посадки: баннер лицензии печатает старая страница,
     # а в модель React-оболочки его не положили.
@@ -416,6 +428,10 @@ LEGAL = [
     ("договор согласован с программой", "app/core/layout.py",
      ('    "license_ok": ("ok", "Licența a fost activată"),',
       '    "license_ok": ("ok", "Licența a fost activată"),\n    "license_note": ("ok", "Notă"),')),
+    # ⭐ Законно: подсказка у кнопки переписана, надпись та же — сайт прав.
+    ("текст перед скачиванием", "_frontend/features/patients/card/ProfileCard.tsx",
+     ("exportTitle: 'Copie completă a datelor — pentru cererea pacientului (Legea 195)',",
+      "exportTitle: 'Copia datelor, la cererea pacientului',")),
     # ⭐ Законно: порядок баннеров в оболочке — оформление, а не пропажа.
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
      ("[sig.license, sig.tamper, sig.split, sig.slot, sig.setup]",
