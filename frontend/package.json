@@ -12,7 +12,8 @@
     "test": "vitest run",
     "preview": "vite preview",
     "dev:dental3d": "vite --open /prototypes/dental3d/index.html",
-    "typecheck:dental3d": "tsc -p prototypes/tsconfig.json --noEmit"
+    "typecheck:dental3d": "tsc -p prototypes/tsconfig.json --noEmit",
+    "dev:odontogram": "vite --open /prototypes/odontogram/index.html"
   },
   "dependencies": {
     "react": "^19.2.0",

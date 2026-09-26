@@ -36,6 +36,13 @@ npm run dev:dental3d     # откроет /prototypes/dental3d/index.html
 Или вручную: `npm run dev` и адрес
 `http://localhost:5173/prototypes/dental3d/index.html`.
 
+Второй прототип — раскладки одонтограммы, один HTML без сборки:
+
+```powershell
+npm run dev:odontogram                          # откроет /prototypes/odontogram/index.html
+python ..\frontend\prototypes\odontogram\gen.py  # пересобрать из bot/app/teeth_svg.py (из любого каталога)
+```
+
 Типы прототипов проверяются отдельной командой — у них свой `tsconfig.json`,
 не подключённый к сборке:
 
@@ -51,4 +58,5 @@ npm run typecheck:dental3d
 2. Прототип **не ходит в API** и ничего не сохраняет.
 3. Прототип не считается частью программы: его можно удалить одним `rm -r`,
    и единственный след — две строки в `devDependencies` (`three`,
-   `@types/three`) и два скрипта в `package.json`.
+   `@types/three`) и скрипты в `package.json` (`dev:dental3d`,
+   `typecheck:dental3d`, `dev:odontogram`).
