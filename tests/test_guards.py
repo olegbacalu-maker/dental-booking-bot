@@ -256,6 +256,30 @@ def suite_version_source(res: Result) -> None:
            and '"OriginalFilename", "DentPilot.exe"' in info,
            "ресурс описывает не то")
 
+    # Издатель (26.09, «A.I. Oleg Bacalu»): один и тот же в установщике и в
+    # свойствах exe. ⚠️ Пара, как у номера клиента: сверка обязана КРАСНЕТЬ на
+    # разошедшемся установщике — иначе зелёное выше ничего не доказывает.
+    res.check("издатель установщика = компания в свойствах exe",
+              mod.installer_publisher(), mod.COMPANY)
+    res.ok("ресурс свойств несёт издателя и копирайт",
+           f'"CompanyName", "{mod.COMPANY}"' in info
+           and f'"LegalCopyright", "{mod.COPYRIGHT}"' in info and mod.COMPANY in mod.COPYRIGHT,
+           "ресурс описывает не того издателя")
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = pathlib.Path(tmp) / "DentPilot.iss"
+        # с BOM, как настоящий файл установщика
+        fake.write_text('﻿#define AppName "DentPilot"\n#define AppPublisher "Altcineva"\n',
+                        encoding="utf-8")
+        real = mod.INSTALLER
+        mod.INSTALLER = fake
+        try:
+            drift = mod.check()
+        finally:
+            mod.INSTALLER = real
+    res.ok("разъехавшийся издатель установщика даёт находку",
+           any("DentPilot.iss" in d and "Altcineva" in d for d in drift),
+           f"молчит: {drift}")
+
 
 def suite_route_map(res: Result) -> None:
     """Карта маршрутов B2 не отстаёт от кода.

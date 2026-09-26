@@ -19,7 +19,11 @@
 
 #define AppName    "DentPilot"
 #define AppExeName "DentPilot.exe"
-#define AppPublisher "DentPilot"
+; Издатель — ТОТ ЖЕ, что CompanyName в свойствах DentPilot.exe (scripts/sync_version.py,
+; COMPANY): разойдутся — `sync_version --check` и прогон красные. ⚠️ Окно UAC и
+; SmartScreen берут издателя ТОЛЬКО из цифровой подписи — эта строка его не меняет,
+; она про «Установленные приложения» и свойства файла (решение Олега 26.09).
+#define AppPublisher "A.I. Oleg Bacalu"
 #define AppEmail   "dentpilotpro@gmail.com"
 
 [Setup]
@@ -32,6 +36,7 @@ AppPublisher={#AppPublisher}
 AppSupportURL=mailto:{#AppEmail}
 VersionInfoVersion={#AppVersion}
 VersionInfoCompany={#AppPublisher}
+VersionInfoCopyright=© {#AppPublisher}
 VersionInfoDescription={#AppName} — registrul clinicii (setup)
 
 DefaultDirName={commonpf}\{#AppName}

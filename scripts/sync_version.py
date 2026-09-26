@@ -28,14 +28,19 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "bot" / "app" / "engine.py"
 PACKAGE = ROOT / "frontend" / "package.json"
 VERSION_FILE = ROOT / "build" / "version_info.txt"
+INSTALLER = ROOT / "installer" / "DentPilot.iss"
 
 # Свойства файла, которые видит Windows. ⚠️ Имена полей фиксированы Microsoft;
 # «DentPilot» здесь — и ProductName, и InternalName, потому что обновление
 # ищет ассет по имени файла `DentPilot.exe` (RELEASE.md, правило 2).
-COMPANY = "DentPilot"
+# Издатель — поставщик, а не продукт (решение Олега 26.09): тот же, что
+# `AppPublisher` установщика; `check()` сверяет их. ⚠️ Окно UAC и SmartScreen
+# берут издателя ТОЛЬКО из цифровой подписи — «неизвестный издатель» там
+# уходит сертификатом, а не этой строкой (docs/dentpilot-2/installer.md).
+COMPANY = "A.I. Oleg Bacalu"
 PRODUCT = "DentPilot"
 DESCRIPTION = "DentPilot — registrul clinicii stomatologice"
-COPYRIGHT = "© DentPilot"
+COPYRIGHT = f"© {COMPANY}"
 
 
 def app_version() -> str:
@@ -84,12 +89,26 @@ def package_version() -> str:
     return json.loads(PACKAGE.read_text(encoding="utf-8")).get("version", "")
 
 
+def installer_publisher() -> str:
+    """`#define AppPublisher "…"` из установщика — имя в «Установленных
+    приложениях». Файл с BOM, поэтому utf-8-sig."""
+    m = re.search(r'^#define\s+AppPublisher\s+"([^"]*)"',
+                  INSTALLER.read_text(encoding="utf-8-sig"), flags=re.M)
+    return m.group(1) if m else ""
+
+
 def check() -> list[str]:
     """Расхождения словами. Пустой список — всё сходится."""
     v = app_version()
     bad = []
     if package_version() != v:
         bad.append(f"frontend/package.json: {package_version()!r}, а в engine.py {v!r}")
+    # Издатель в двух местах — установщик и свойства exe. Разъедутся — в списке
+    # программ одно имя, в свойствах файла другое, и заметно это только
+    # человеку, открывшему оба окна; отсюда сверка здесь, рядом с версией.
+    if installer_publisher() != COMPANY:
+        bad.append(f"installer/DentPilot.iss: издатель {installer_publisher()!r}, "
+                   f"а в свойствах exe {COMPANY!r}")
     # ⚠️ Отсутствие ресурса — НЕ расхождение: `build\` в .gitignore, и на
     # чистом клоне его нет по замыслу. Его делает сборка (Build-Desktop.ps1
     # зовёт этот же скрипт первым шагом). Красным здесь он был бы красным
