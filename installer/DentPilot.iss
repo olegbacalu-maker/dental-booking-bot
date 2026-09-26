@@ -38,6 +38,14 @@ VersionInfoVersion={#AppVersion}
 VersionInfoCompany={#AppPublisher}
 VersionInfoCopyright=© {#AppPublisher}
 VersionInfoDescription={#AppName} — registrul clinicii (setup)
+#ifdef SignTool
+; Подпись (Authenticode): команду «dpsign» передаёт Build-Installer.ps1
+; (/Sdpsign=… → Sign-File.ps1). Inno подписывает ею и сам мастер, и
+; деинсталлятор — без SignedUninstaller unins000.exe остался бы без подписи.
+; Без /DSignTool (сертификата ещё нет) мастер собирается без подписи.
+SignTool=dpsign
+SignedUninstaller=yes
+#endif
 
 DefaultDirName={commonpf}\{#AppName}
 UsePreviousAppDir=yes

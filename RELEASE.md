@@ -44,6 +44,11 @@ git status --porcelain     # должно быть пусто
 .\dev bench
 
 # 3. собрать и проверить (сборка сама откажется на грязном дереве)
+#    С сертификатом (DENTPILOT_SIGN_THUMBPRINT задан): СНАЧАЛА войти в
+#    SimplySign Desktop — сборка подписывает exe, мастер и деинсталлятор и
+#    остановится, если ключ недоступен. Последняя строка вывода — «podpis:»;
+#    без сертификата там «NET», и Windows покажет «неизвестный издатель».
+#    (docs/dentpilot-2/installer.md › «Подпись»)
 powershell -File Build-Installer.ps1
 
 # 3a. ТОЛЬКО если правка тронула миграции (bot/app/db.py: MIGRATIONS_*,

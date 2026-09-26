@@ -281,6 +281,62 @@ def suite_version_source(res: Result) -> None:
            f"молчит: {drift}")
 
 
+def signing_problems(build: str, iss: str, signer: str) -> list[str]:
+    """Нарушения порядка подписи словами; пустой список — порядок верен.
+
+    Тексты, а не файлы: так та же функция проверяется и на испорченных копиях.
+    """
+    bad = []
+    at_sign = build.find('Sign-File.ps1" -Path "dist\\DentPilot.exe"')
+    at_build = build.find("Build-Desktop.ps1")
+    at_smoke = build.find("smoke_exe.py")
+    if at_sign < 0:
+        bad.append("Build-Installer.ps1 не подписывает dist\\DentPilot.exe")
+    elif not (0 <= at_build < at_sign < at_smoke):
+        bad.append("подпись exe не между сборкой (Build-Desktop) и дымовым тестом")
+    if "/DSignTool" not in build or "/Sdpsign=" not in build:
+        bad.append("Build-Installer.ps1 не передаёт Inno команду подписи (/DSignTool, /Sdpsign)")
+    block = re.search(r"#ifdef SignTool(.*?)#endif", iss, flags=re.S)
+    if not block or "SignTool=dpsign" not in block.group(1):
+        bad.append("DentPilot.iss: нет SignTool=dpsign под #ifdef SignTool")
+    elif "SignedUninstaller=yes" not in block.group(1):
+        bad.append("DentPilot.iss: деинсталлятор не подписывается (нет SignedUninstaller=yes)")
+    if "TimeStamperCertificate" not in signer:
+        bad.append("Sign-File.ps1 не проверяет метку времени")
+    return bad
+
+
+def suite_signing(res: Result) -> None:
+    """Подпись кода: exe — до дымового теста, мастер и деинсталлятор — через Inno.
+
+    ⚠️ Все три нарушения тихие. Подписать только мастер — худший вариант:
+    обновление в один клик скачивает `DentPilot.exe` напрямую, и первая же
+    самообновка вернула бы клинике неподписанный файл (SmartScreen при этом не
+    показывается — заметить некому). Подпись после дымового теста — клинике
+    уехал бы не тот файл, что проверялся. Без `SignedUninstaller` Windows
+    покажет «неизвестный издатель» при удалении. Без метки времени подпись
+    умирает вместе со сроком сертификата — задним числом, у всех клиник.
+    Настоящую подпись прогон не делает (сертификата в CI нет): механика
+    проверена одноразовым сертификатом 26.09 — installer.md › «Подпись».
+    """
+    build = (ROOT / "Build-Installer.ps1").read_text(encoding="utf-8", errors="replace")
+    iss = (ROOT / "installer" / "DentPilot.iss").read_text(encoding="utf-8-sig")
+    signer = (ROOT / "Sign-File.ps1").read_text(encoding="utf-8")
+    res.check("сегодня порядок подписи верен", signing_problems(build, iss, signer), [])
+    # Сторож обязан краснеть: каждая порча — своей находкой.
+    at = build.find("# --- 1b.")
+    smoke = build.find("# --- 2. dymovoi test")
+    moved = build[:at] + build[smoke:] + build[at:smoke] if 0 <= at < smoke else build
+    res.ok("подпись exe после дымового теста — находка",
+           any("дымовым тестом" in b for b in signing_problems(moved, iss, signer)))
+    res.ok("мастер без подписи деинсталлятора — находка",
+           any("SignedUninstaller" in b for b in
+               signing_problems(build, iss.replace("SignedUninstaller=yes", ""), signer)))
+    res.ok("подпись без проверки метки времени — находка",
+           any("метку времени" in b for b in
+               signing_problems(build, iss, signer.replace("TimeStamperCertificate", "Status"))))
+
+
 def suite_route_map(res: Result) -> None:
     """Карта маршрутов B2 не отстаёт от кода.
 

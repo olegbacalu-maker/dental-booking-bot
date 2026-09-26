@@ -80,6 +80,23 @@ if ($SkipApp) {
     if (-not (Test-Path "dist\DentPilot.exe")) { Fail "PyInstaller ne sozdal dist\DentPilot.exe" }
 }
 
+# --- 1b. podpis programmy (Authenticode) ---
+# Podpisyvaetsya exe, a NE tolko master: obnovlenie v odin klik kachaet
+# dist\DentPilot.exe napryamuyu, i nepodpisannyi fail molcha vernulsya by klinike
+# pri pervoi zhe samoobnovke (SmartScreen pri etom ne pokazyvaetsya - nekomu
+# zametit). Podpis - DO dymovogo testa: proveryaetsya rovno tot fail, kotoryi
+# uedet klinike; i do zaliva asseta - podpis menyaet bayty (sha256).
+# Sertifikat ne zadan - sborka idet, no gromko "BEZ PODPISI" (do pokupki
+# sertifikata tak i budet). Podrobno - Sign-File.ps1, docs/dentpilot-2/installer.md.
+$signOn = [bool]$env:DENTPILOT_SIGN_THUMBPRINT
+if ($signOn) {
+    Write-Host "Podpis dist\DentPilot.exe ..."
+    & "$PSScriptRoot\Sign-File.ps1" -Path "dist\DentPilot.exe"
+    if ($LASTEXITCODE -ne 0) { Fail "podpis dist\DentPilot.exe ne udalas" }
+} else {
+    Write-Host "!! BEZ PODPISI: DENTPILOT_SIGN_THUMBPRINT ne zadan - Windows pokazhet klinike 'neizvestnyi izdatel'" -ForegroundColor Yellow
+}
+
 # --- 2. dymovoi test: exe voobshche zapuskaetsya, i chto on o sebe govorit? ---
 # Eto edinstvennaya proverka, kotoraya lovit zabytyi hidden-import: takoi exe
 # molcha zakryvaetsya, a bez testa uehal by vsem klinikam.
@@ -191,11 +208,24 @@ $iscc = @(
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { Fail "ISCC.exe ne naiden. winget install --id JRSoftware.InnoSetup" }
 
-& $iscc "/DAppVersion=$version" "installer\DentPilot.iss" | Out-Null
+$isccArgs = @("/DAppVersion=$version")
+if ($signOn) {
+    # Inno podpisyvaet toi zhe komandoi i sam master, i deinstallyator
+    # (SignTool/SignedUninstaller pod #ifdef SignTool v .iss). $q - kavychka,
+    # $f - put k failu: ih podstavlyaet Inno, poetomu - v ODINARNYH kavychkah,
+    # inache PowerShell podstavil by svoi peremennye. Nastoyashchih kavychek
+    # vnutri argumenta net: PowerShell 5.1 lomaet ih pri peredache v exe.
+    $isccArgs += "/DSignTool"
+    $isccArgs += ('/Sdpsign=powershell.exe -NoProfile -ExecutionPolicy Bypass -File $q' + "$PSScriptRoot\Sign-File.ps1" + '$q -Path $f')
+}
+& $iscc @isccArgs "installer\DentPilot.iss" | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "ISCC upal" }
 
 $setup = "dist\DentPilot-Setup-$version.exe"
 if (-not (Test-Path $setup)) { Fail "ISCC ne sozdal $setup" }
+if ($signOn -and (Get-AuthenticodeSignature -LiteralPath $setup).Status -ne "Valid") {
+    Fail "master ustanovki ne podpisan: $((Get-AuthenticodeSignature -LiteralPath $setup).Status)"
+}
 
 # --- 5. zip dlya reliza ---
 $zip = "dist\DentPilot-Setup-$version.zip"
@@ -233,3 +263,9 @@ Write-Host ("  dist\DentPilot.exe                 {0} MB  -> asset reliza (ego k
 Write-Host ("  DentPilot-Setup-$version.exe" + (" " * [Math]::Max(1, 18 - $version.Length)) + "{0} MB  -> USB / pryamaya peredacha klinike" -f (& $mb $setup))
 Write-Host ("  DentPilot-Setup-$version.zip" + (" " * [Math]::Max(1, 18 - $version.Length)) + "{0} MB  -> asset reliza (zip, chtoby ne stalo dvuh .exe)" -f (& $mb $zip))
 if ($copied) { Write-Host ("  $copied" + (" " * 4) + "-> otdat klinike (odin fail, bez dist)") -ForegroundColor Cyan }
+$sigExe = Get-AuthenticodeSignature -LiteralPath "dist\DentPilot.exe"
+if ($sigExe.Status -eq "Valid") {
+    Write-Host ("  podpis: " + $sigExe.SignerCertificate.Subject + " (metka vremeni: " + [bool]$sigExe.TimeStamperCertificate + ")") -ForegroundColor Green
+} else {
+    Write-Host ("  podpis: NET (" + $sigExe.Status + ") - Windows pokazhet 'neizvestnyi izdatel'") -ForegroundColor Yellow
+}

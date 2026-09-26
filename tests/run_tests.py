@@ -99,6 +99,7 @@ SUITES = [
     ("Сторожа: уборка временного прогона", test_harness_tmp.suite_run_tmp),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
+    ("Выпуск: подпись — exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
     ("Лицензия: формат файла и фикстуры", test_license_format.suite),
     ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),
