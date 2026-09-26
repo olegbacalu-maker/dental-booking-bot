@@ -1299,6 +1299,16 @@ async def admin_export_xlsx(
 _TILE_FILTERS = pday.TILE_FILTERS
 
 
+def _of_doctor(r: dict, dk: str) -> bool:
+    """Строка дня принадлежит врачу `dk`: по `doctor_id`, а у легаси-строки
+    без него — по снимку имени. ⛔ Одно правило на всех, кто режет день по
+    врачу (сетка врача, его страница, экран кресла): третья копия условия
+    однажды забыла бы легаси-ветку, и старая запись пропала бы с одного экрана,
+    оставаясь на другом."""
+    return (r.get("doctor_id") == dk
+            or (not r.get("doctor_id") and r["doctor"] == eng.DOCTORS.get(dk)))
+
+
 async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
     """Данные сетки дня — одни на «Toți medicii» и на день врача.
 
@@ -1312,9 +1322,7 @@ async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
         if doctor not in eng.DOCTORS:
             return None
         name = eng.DOCTORS[doctor]
-        rows = [r for r in rows
-                if r.get("doctor_id") == doctor
-                or (not r.get("doctor_id") and r["doctor"] == name)]
+        rows = [r for r in rows if _of_doctor(r, doctor)]
         items = [(doctor, name)]
         # у выключенного врача формы нет вовсе — как на его странице
         form_items = (items if eng.DOCTOR_META.get(doctor, {}).get("active", True)
@@ -1509,8 +1517,7 @@ async def admin_doctor(
                            {"date": d.isoformat(), "dk": dk})
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = [r for r in await db.day_appointments(day_start, day_start + timedelta(days=1))
-            if r.get("doctor_id") == dk
-            or (not r.get("doctor_id") and r["doctor"] == name)]
+            if _of_doctor(r, dk)]
     active = _active_map(rows)
     items = [(dk, name)]
     base = f"/admin/doctor/{dk}"

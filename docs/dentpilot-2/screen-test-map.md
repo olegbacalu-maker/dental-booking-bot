@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **194** · наборов **53** · мест вызова `res.ok`/`res.check` в исходниках — **3858**.
+Маршрутов **195** · наборов **55** · мест вызова `res.ok`/`res.check` в исходниках — **3918**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -36,7 +36,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `POST /admin/backup/export` | FILE | 40 | dbcrypt, license_existing, pin, privacy, settings_api | 567 | — |
+| `POST /admin/backup/export` | FILE | 40 | dbcrypt, license_existing, pin, privacy, settings_api | 569 | — |
 | `POST /admin/lan/firewall` | 303 | 9 | **—** | — | — |
 | `POST /admin/lan/save` | HTML | 11 | admin, settings_api | 681 | — |
 | `GET /admin/settings` | HTML | 23 | admin, api, pin, settings_api, theme | 960 | settings_hub |
@@ -56,7 +56,7 @@
 | `GET /admin/settings/system` | HTML | 7 | admin, pin, settings_api | 784 | settings_system |
 | `GET /admin/settings/telegram` | HTML | 19 | admin, settings_api | 681 | — |
 | `GET /admin/settings/theme` | HTML | 169 | settings_api, theme | 349 | settings_theme |
-| `POST /admin/settings/theme/logo` | 303 | 15 | privacy, theme | 207 | — |
+| `POST /admin/settings/theme/logo` | 303 | 15 | privacy, theme | 209 | — |
 | `GET /admin/settings/theme/palette` | JSON | 11 | theme | 96 | — |
 | `POST /admin/telegram/save` | HTML | 26 | **—** | — | — |
 | `POST /admin/update/check` | 303 | 7 | **—** | — | — |
@@ -99,7 +99,7 @@
 | `GET /admin/doctor-card/{dk}` | HTML | 157 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 1011 | doctor_card |
 | `POST /admin/doctor-card/{dk}/photo` | 303 | 7 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 1011 | — |
 | `POST /admin/doctor-card/{dk}/photo/del` | 303 | 6 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 1011 | — |
-| `POST /admin/doctor-card/{dk}/save` | 303 | 14 | admin, admin_canvas, anamneza, api, day_actions, day_forms, doctors, license_page, license_renew, migrate, patient_card, patients_api, perio_api, pin, plan_acord, privacy, review2, review3, review3_auth, settings_api, stats_api, theme, visit, visit_api | 2421 | — |
+| `POST /admin/doctor-card/{dk}/save` | 303 | 14 | admin, admin_canvas, anamneza, api, day_actions, day_forms, doctors, license_page, license_renew, migrate, patient_card, patients_api, perio_api, pin, plan_acord, privacy, review2, review3, review3_auth, settings_api, stats_api, theme, visit, visit_api | 2423 | — |
 | `POST /admin/doctor-card/{dk}/services` | 303 | 7 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review2, review3, settings_api | 1283 | — |
 | `GET /admin/doctor-photo/{dk}` | FILE | 9 | doctors | 116 | — |
 | `GET /admin/medici` | HTML | 53 | admin, doctors, pin, settings_api | 900 | doctors_list |
@@ -138,43 +138,43 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin/doc/{doc_id}` | FILE | 25 | hardening, patient_card, privacy | 347 | — |
-| `POST /admin/doc/{doc_id}/open` | JSON | 5 | hardening, license_gate, patient_card, privacy | 363 | — |
-| `GET /admin/patient/{pid}` | HTML | 836 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | patient_card |
-| `GET /admin/patient/{pid}/acord` | HTML | 16 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/alert` | 303 | 7 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/alert/{aid}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/anamneza` | 303 | 9 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `GET /admin/patient/{pid}/anamneza/print` | HTML | 10 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/appoint` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/archive` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2098 | — |
-| `POST /admin/patient/{pid}/bridge` | 303 | 17 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/bridge/{bid}/del` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/doc` | 303 | 7 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/doc/{doc_id}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/erase` | 303 | 9 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `GET /admin/patient/{pid}/export` | FILE | 27 | activity, admin, anamneza, booking, bot, day_forms, dbcrypt, doctors, guards, hardening, license_existing, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, settings_api, teeth, visit, visit_api | 2435 | — |
-| `GET /admin/patient/{pid}/fisa043` | HTML | 28 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `GET /admin/patient/{pid}/odontograma` | HTML | 38 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | odontogram |
-| `GET /admin/patient/{pid}/parodontograma` | HTML | 49 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | perio |
-| `GET /admin/patient/{pid}/parodontograma/print` | HTML | 19 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/pay` | 303 | 7 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/pay/{pay_id}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `GET /admin/patient/{pid}/peek` | HTML | 11 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/perio` | 303 | 29 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/perio/new` | 303 | 9 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/perio/{eid}/del` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/plan` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `GET /admin/patient/{pid}/plan-acord` | HTML | 24 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/plan/{item_id}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/plan/{item_id}/status` | other | 5 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, schedule_api, teeth, visit, visit_api | 2200 | — |
-| `POST /admin/patient/{pid}/save` | 303 | 8 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_actions, day_forms, doctors, guards, hardening, license_page, license_renew, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, review3_auth, settings_api, stats_api, teeth, theme, visit, visit_api | 2881 | — |
-| `GET /admin/patient/{pid}/slots` | JSON | 6 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
-| `POST /admin/patient/{pid}/tooth` | 303 | 54 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2082 | — |
+| `GET /admin/doc/{doc_id}` | FILE | 25 | hardening, patient_card, privacy | 349 | — |
+| `POST /admin/doc/{doc_id}/open` | JSON | 5 | hardening, license_gate, patient_card, privacy | 365 | — |
+| `GET /admin/patient/{pid}` | HTML | 836 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | patient_card |
+| `GET /admin/patient/{pid}/acord` | HTML | 16 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/alert` | 303 | 7 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/alert/{aid}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/anamneza` | 303 | 9 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `GET /admin/patient/{pid}/anamneza/print` | HTML | 10 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/appoint` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/archive` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2100 | — |
+| `POST /admin/patient/{pid}/bridge` | 303 | 17 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/bridge/{bid}/del` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/doc` | 303 | 7 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/doc/{doc_id}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/erase` | 303 | 9 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `GET /admin/patient/{pid}/export` | FILE | 27 | activity, admin, anamneza, booking, bot, day_forms, dbcrypt, doctors, guards, hardening, license_existing, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, settings_api, teeth, visit, visit_api | 2437 | — |
+| `GET /admin/patient/{pid}/fisa043` | HTML | 28 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `GET /admin/patient/{pid}/odontograma` | HTML | 38 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | odontogram |
+| `GET /admin/patient/{pid}/parodontograma` | HTML | 49 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | perio |
+| `GET /admin/patient/{pid}/parodontograma/print` | HTML | 19 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/pay` | 303 | 7 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/pay/{pay_id}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `GET /admin/patient/{pid}/peek` | HTML | 11 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/perio` | 303 | 29 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/perio/new` | 303 | 9 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/perio/{eid}/del` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/plan` | 303 | 8 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `GET /admin/patient/{pid}/plan-acord` | HTML | 24 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/plan/{item_id}/del` | other | 4 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/plan/{item_id}/status` | other | 5 | activity, admin, anamneza, booking, bot, chair, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, schedule_api, teeth, visit, visit_api | 2242 | — |
+| `POST /admin/patient/{pid}/save` | 303 | 8 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_actions, day_forms, doctors, guards, hardening, license_page, license_renew, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, review3_auth, settings_api, stats_api, teeth, theme, visit, visit_api | 2883 | — |
+| `GET /admin/patient/{pid}/slots` | JSON | 6 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
+| `POST /admin/patient/{pid}/tooth` | 303 | 54 | activity, admin, anamneza, booking, bot, day_forms, doctors, guards, hardening, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, teeth, visit, visit_api | 2084 | — |
 | `GET /admin/patients.csv` | FILE | 34 | admin, review2 | 447 | — |
 | `GET /admin/patients.xlsx` | FILE | 48 | admin, patients_api | 506 | — |
 | `POST /admin/patients/new` | 303 | 16 | admin, anamneza, dbcrypt, doctors, hardening, odontogram_api, patient_card, patients_api, perio, perio_api, pin, review2, teeth, visit | 1569 | — |
-| `GET /admin/search` | HTML | 323 | activity, admin, anamneza, booking, bot, day_forms, dbcrypt, hardening, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, review3, teeth, visit, visit_api | 1895 | patients_search |
+| `GET /admin/search` | HTML | 323 | activity, admin, anamneza, booking, bot, day_forms, dbcrypt, hardening, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, review2, review3, teeth, visit, visit_api | 1897 | patients_search |
 | `GET /admin/visit/{appt_id}` | HTML | 20 | day_forms, patient_card, plan_acord, visit, visit_api | 408 | visit |
 | `POST /admin/visit/{appt_id}` | 303 | 13 | day_forms, patient_card, plan_acord, visit, visit_api | 408 | visit |
 | `POST /api/documents/{doc_id}/open` | JSON | 8 | hardening, license_gate, patient_card | 252 | — |
@@ -185,14 +185,14 @@
 | `GET /api/patients/{pid}/activity` | JSON | 10 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/alerts` | JSON | 9 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/alerts/{aid}/delete` | JSON | 7 | doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, pin, settings_api | 920 | — |
-| `POST /api/patients/{pid}/anamneza` | JSON | 12 | anamneza, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, privacy | 636 | — |
+| `POST /api/patients/{pid}/anamneza` | JSON | 12 | anamneza, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, privacy | 638 | — |
 | `POST /api/patients/{pid}/appoint` | JSON | 13 | admin, booking, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 962 | — |
 | `POST /api/patients/{pid}/archive` | JSON | 11 | admin, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 876 | — |
 | `POST /api/patients/{pid}/bridges` | JSON | 16 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/bridges/{bid}/delete` | JSON | 10 | doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, pin, settings_api | 920 | — |
 | `POST /api/patients/{pid}/documents` | JSON | 10 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/documents/{doc_id}/delete` | JSON | 7 | doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, pin, settings_api | 920 | — |
-| `POST /api/patients/{pid}/erase` | JSON | 13 | anamneza, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio, perio_api, privacy, teeth, visit | 902 | — |
+| `POST /api/patients/{pid}/erase` | JSON | 13 | anamneza, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio, perio_api, privacy, teeth, visit | 904 | — |
 | `GET /api/patients/{pid}/odontogram` | JSON | 9 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/payments` | JSON | 11 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/payments/{pay_id}/delete` | JSON | 8 | doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, pin, settings_api | 920 | — |
@@ -201,9 +201,9 @@
 | `POST /api/patients/{pid}/perio/exams` | JSON | 9 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/perio/{eid}` | JSON | 33 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/perio/{eid}/delete` | JSON | 14 | doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, pin, settings_api | 920 | — |
-| `POST /api/patients/{pid}/plan` | JSON | 11 | activity, admin, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, plan_acord, privacy, review2, teeth, visit, visit_api | 1359 | — |
+| `POST /api/patients/{pid}/plan` | JSON | 11 | activity, admin, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, plan_acord, privacy, review2, teeth, visit, visit_api | 1361 | — |
 | `POST /api/patients/{pid}/plan/{item_id}/delete` | JSON | 7 | doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, pin, settings_api | 920 | — |
-| `POST /api/patients/{pid}/plan/{item_id}/status` | JSON | 12 | activity, admin, doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, plan_acord, privacy, review2, schedule_api, visit, visit_api | 1412 | — |
+| `POST /api/patients/{pid}/plan/{item_id}/status` | JSON | 12 | activity, admin, chair, doctors, license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api, plan_acord, privacy, review2, schedule_api, visit, visit_api | 1454 | — |
 | `POST /api/patients/{pid}/profile` | JSON | 11 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `GET /api/patients/{pid}/slots` | JSON | 9 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
 | `POST /api/patients/{pid}/teeth/{tooth}` | JSON | 36 | license_existing, license_gate, odontogram_api, patient_card, patients_api, perio_api | 448 | — |
@@ -216,20 +216,21 @@
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
 | `GET /admin` | HTML | 187 | admin, admin_canvas, api, booking, day_forms, dbcrypt, doctors, hardening, license_existing, license_gate, license_page, license_renew, migrate, panel_model, patient_card, patients_api, pin, react_default, review3_auth, schedule_api, settings_api, split, stats_api, structure, theme, visit_api | 2487 | schedule_dash |
-| `POST /admin/add` | other | 14 | activity, admin, admin_canvas, booking, bot, day_actions, day_forms, doctor_windows, doctors, hardening, migrate, patient_card, patients_api, plan_acord, privacy, react_default, review2, review3, review3_bot, schedule_api, stats_api, visit, visit_api | 1904 | — |
-| `GET /admin/all` | HTML | 64 | activity, admin, admin_canvas, api, booking, bot, day_actions, day_forms, doctor_windows, doctors, hardening, migrate, panel_model, patient_card, patients_api, pin, plan_acord, privacy, react_default, review2, review3, review3_bot, schedule_api, stats_api, visit, visit_api | 2156 | schedule_all |
-| `POST /admin/comment/{appt_id}` | other | 5 | day_actions, day_forms, privacy, visit_api | 290 | — |
-| `GET /admin/doctor/{dk}` | HTML | 57 | admin, admin_canvas, api, day_forms, doctor_windows, grid, pin, review3, schedule_api | 1017 | schedule_doctor |
+| `POST /admin/add` | other | 14 | activity, admin, admin_canvas, booking, bot, chair, day_actions, day_forms, doctor_windows, doctors, hardening, migrate, patient_card, patients_api, plan_acord, privacy, react_default, review2, review3, review3_bot, schedule_api, stats_api, visit, visit_api | 1946 | — |
+| `GET /admin/all` | HTML | 64 | activity, admin, admin_canvas, api, booking, bot, day_actions, day_forms, doctor_windows, doctors, hardening, migrate, panel_model, patient_card, patients_api, pin, plan_acord, privacy, react_default, review2, review3, review3_bot, schedule_api, stats_api, visit, visit_api | 2158 | schedule_all |
+| `POST /admin/comment/{appt_id}` | other | 5 | day_actions, day_forms, privacy, visit_api | 292 | — |
+| `GET /admin/doctor/{dk}` | HTML | 56 | admin, admin_canvas, api, day_forms, doctor_windows, grid, pin, review3, schedule_api | 1017 | schedule_doctor |
 | `GET /admin/export` | FILE | 35 | admin | 428 | — |
 | `GET /admin/export.xlsx` | FILE | 39 | admin, day_forms | 508 | — |
 | `POST /admin/move/{appt_id}` | other | 9 | booking, day_actions, day_forms, doctor_windows | 240 | — |
-| `POST /admin/note` | other | 9 | admin, admin_canvas, booking, day_actions, day_forms, schedule_api | 862 | — |
-| `POST /admin/status/{appt_id}` | 303 | 11 | activity, admin, admin_canvas, booking, day_forms, doctor_windows, panel_model, patient_card, plan_acord, privacy, review3, schedule_api, visit, visit_api | 1398 | — |
+| `POST /admin/note` | other | 9 | admin, admin_canvas, booking, chair, day_actions, day_forms, schedule_api | 902 | — |
+| `POST /admin/status/{appt_id}` | 303 | 11 | activity, admin, admin_canvas, booking, day_forms, doctor_windows, panel_model, patient_card, plan_acord, privacy, review3, schedule_api, visit, visit_api | 1400 | — |
 | `GET /admin/week` | HTML | 41 | admin, schedule_api | 546 | schedule_week |
+| `GET /api/chair` | JSON | 29 | chair | 40 | — |
 | `POST /api/schedule/appointments` | JSON | 22 | day_actions | 44 | — |
-| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 16 | day_actions, doctors, schedule_api | 278 | — |
-| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 18 | booking, day_actions, doctor_windows, doctors, schedule_api | 394 | — |
-| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 18 | activity, admin, day_actions, doctors, patient_card, patients_api, plan_acord, privacy, review2, schedule_api, visit, visit_api | 1248 | — |
+| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 16 | chair, day_actions, doctors, schedule_api | 318 | — |
+| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 18 | booking, chair, day_actions, doctor_windows, doctors, schedule_api | 434 | — |
+| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 18 | activity, admin, chair, day_actions, doctors, patient_card, patients_api, plan_acord, privacy, review2, schedule_api, visit, visit_api | 1290 | — |
 | `GET /api/schedule/canvas` | JSON | 13 | admin_canvas, schedule_api | 224 | — |
 | `GET /api/schedule/day` | JSON | 17 | day_actions, schedule_api | 162 | — |
 | `GET /api/schedule/live` | JSON | 36 | panel_model, schedule_api | 187 | — |
@@ -244,7 +245,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, installer, launcher, legacy, license_existing, license_format, license_gate, license_page, license_renew, license_state, license_verify, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, privileged, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, split, srcpin, structure, teeth, theme, visit, visit_api | 3766 | — |
+| `GET /` | HTML | 6 | activity, admin, admin_canvas, anamneza, api, booking, bot, chair, day_forms, dbcrypt, doctor_windows, doctors, grid, guards, hardening, harness_tmp, installer, launcher, legacy, license_existing, license_format, license_gate, license_page, license_renew, license_state, license_verify, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, privileged, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, schedule_api, settings_api, split, srcpin, structure, teeth, theme, visit, visit_api | 3826 | — |
 | `GET /admin/license` | HTML | 9 | license_existing, license_page, license_renew | 166 | — |
 | `POST /admin/license` | 303 | 22 | license_existing, license_page, license_renew | 166 | — |
 | `POST /admin/license/renew` | 303 | 10 | license_renew | 99 | — |

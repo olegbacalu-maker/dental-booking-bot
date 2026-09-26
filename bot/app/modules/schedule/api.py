@@ -24,17 +24,21 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Query, Request
 
+from ... import db
 from ... import engine as eng
 from ...core.api import api_body, api_guard, live_envelope, live_reply
+from ...core.auth import request_user
 from ...core.layout import msg_json, react_flag
-from ...core.visits import _parse_date
-from .routes import (_add_appt, _add_note, _canvas_model, _day_model,
-                     _move_appt, _panel_live, _set_comment, _set_status,
-                     _week_model)
+from ...core.visits import _collect_cards, _parse_date, all_status_actions
+from . import chair as pchair
+from . import panel as ppanel
+from .routes import (_AG_CLS, _add_appt, _add_note, _canvas_model, _day_model,
+                     _move_appt, _of_doctor, _panel_live, _set_comment,
+                     _set_status, _svc_colors, _week_model)
 
 router = APIRouter()
 
@@ -271,6 +275,38 @@ async def api_comment(request: Request, appt_id: int,
         return msg_json(False, "bad", field="comment", status=422)
     return await _done(await _set_comment(appt_id, _s(body, "comment")),
                        _screen(date_q), doctor, f=f, screen=screen)
+
+
+@router.get("/api/chair")
+async def api_chair(request: Request, doctor: str = Query(""),
+                    date_q: str = Query("", alias="date")):
+    """Экран «у кресла» (контракт `docs/dentpilot-2/chair-mode.md`): кто у
+    врача в кресле, кто не завершён, кто в очереди, и матрица кнопок исхода.
+
+    Чей экран — `chair.resolve_doctor`: `?doctor=`, иначе врач учётки;
+    никого — `doctor: null` и список врачей для выбора. `?date=` — для
+    проверок и «посмотреть вчера»; экран живёт сегодняшним днём.
+    ⚠️ Строки берутся тем же `_of_doctor`, что у сетки врача, а слово статуса
+    и форма строки — той же `panel.agenda`, что у панели: второй сборки нет.
+    """
+    if (deny := api_guard(request)) is not None:
+        return deny
+    d = _screen(date_q)
+    dk = pchair.resolve_doctor(doctor, request_user(), eng.DOCTORS)
+    data = {"date": d.isoformat(),
+            "doctors": [{"dk": k, "name": n} for k, n in eng.ACTIVE_DOCTORS.items()],
+            "doctor": None, "chair": None, "stale": [], "queue": [],
+            "actions": all_status_actions()}
+    if not dk:
+        return msg_json(True, data=data)
+    start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
+    rows = [r for r in await db.day_appointments(start, start + timedelta(days=1))
+            if _of_doctor(r, dk)]
+    agenda = ppanel.agenda(d, rows, _collect_cards(rows), _svc_colors, _AG_CLS,
+                           datetime.now(eng.TZ))
+    data.update(pchair.model(rows, agenda["items"]),
+                doctor={"dk": dk, "name": eng.DOCTORS[dk]}, today=agenda["today"])
+    return msg_json(True, data=data)
 
 
 @router.post("/api/schedule/appointments/{appt_id}/status")

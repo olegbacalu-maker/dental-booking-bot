@@ -27,6 +27,7 @@ import test_admin_canvas  # noqa: E402
 import test_anamneza  # noqa: E402
 import test_api  # noqa: E402
 import test_booking  # noqa: E402
+import test_chair  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
@@ -216,6 +217,8 @@ SUITES = [
     ("Врачи: старые POST без проверок", test_doctors.suite_legacy),
     ("Врачи: JSON API", test_doctors.suite_api),
     ("Врачи: React-экраны и старые страницы", test_doctors.suite_switch),
+    ("Кресло: кто в кресле — правило", test_chair.suite_rule),
+    ("Кресло: API", test_chair.suite_api),
     ("Настройки: хаб (JSON)", test_settings_api.suite_hub),
     ("Настройки: сеть (JSON)", test_settings_api.suite_lan),
     ("Сеть: вердикт брандмауэра по правилам exe", test_netcheck.suite_verdict),
