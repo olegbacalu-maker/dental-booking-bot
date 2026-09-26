@@ -6,7 +6,7 @@ import { LoadFailed } from '../../../components/LoadFailed'
 import { Toast, type ToastState } from '../../../components/Toast'
 import { defaultNavigate } from '../../../hooks/useLoad'
 import {
-  queryParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
+  intParam, queryParam, searchChangeKeepsData, useRouteLoad, type RouteLoad, type ScreenData,
 } from '../../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../../services/api'
 import type { ApiError } from '../../../types/api'
@@ -19,17 +19,21 @@ import { FinanceCard } from './FinanceCard'
 import { HeroKpi } from './HeroKpi'
 import { chart, type Odontogram } from '../../clinical/chart'
 import { OdontogramTab } from '../../clinical/OdontogramTab'
+import { PerioTab } from '../../clinical/PerioTab'
+import { VisitTab } from '../../visits/VisitTab'
+import { examOf } from '../../clinical/perio'
 import { PlanCard } from './PlanCard'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
 import type { CardActions } from './actions'
-import { patientCard, type PatientCard } from './card'
+import { patientCard, type PatientCard, type Visit } from './card'
 
 /* Фиша пациента (C18) — с 26.09 рабочее место с вкладками (B6, слово Олега:
    «не растянуто на весь экран, а по вкладкам»): шапка с пятью цифрами всегда
    сверху, ниже — одна вкладка за раз: Rezumat (ближайший визит, быстрые
    действия, летопись; справа предупреждения и история визитов), Odontogramă,
-   Plan și plăți, Vizite, Documente, Date pacient (профиль и анамнез). Порядок
+   Parodontogramă, Plan și plăți, Vizite, Documente, Date pacient (профиль и
+   анамнез). Порядок
    карточек внутри — от старой страницы (решение Олега 08-09). Все расчёты и
    правила — на сервере; здесь состояния и формы. */
 const T = {
@@ -66,18 +70,24 @@ const viewsOf = (q: URLSearchParams): boolean => queryParam(q, 'views') === '1'
    без `odontogram`, и карточка одонтограммы при возврате грузит свежую модель
    сама (её запрос — не открытие фиши). */
 const TABS = [
-  ['rezumat', 'Rezumat'], ['odonto', 'Odontogramă'], ['plan', 'Plan și plăți'],
-  ['vizite', 'Vizite'], ['docs', 'Documente'], ['date', 'Date pacient'],
+  ['rezumat', 'Rezumat'], ['odonto', 'Odontogramă'], ['perio', 'Parodontogramă'],
+  ['plan', 'Plan și plăți'], ['vizite', 'Vizite'], ['docs', 'Documente'], ['date', 'Date pacient'],
 ] as const
 type Tab = (typeof TABS)[number][0]
 const tabOf = (q: URLSearchParams): Tab => {
   const t = queryParam(q, 'tab')
   return (TABS.some(([k]) => k === t) ? t : 'rezumat') as Tab
 }
-/** Query адреса из вкладки и режима ленты; умолчания не пишутся, прежний ?msg= не тянется. */
-const qs = (tab: Tab, views: boolean): string => {
+/** Параметр, которым владеет САМА вкладка: осмотр у пародонтограммы, визит у
+ *  истории; у остальных его нет, и смена вкладки его не тянет. */
+const SUB: Partial<Record<Tab, string>> = { perio: 'exam', vizite: 'visit' }
+/** Query адреса из вкладки, её параметра и режима ленты; умолчания не пишутся,
+ *  прежний ?msg= не тянется. */
+const qs = (tab: Tab, views: boolean, sub: number | null = null): string => {
   const p = new URLSearchParams()
   if (tab !== 'rezumat') p.set('tab', tab)
+  const key = SUB[tab]
+  if (key && sub !== null) p.set(key, String(sub))
   if (views) p.set('views', '1')
   const s = p.toString()
   return s ? `?${s}` : ''
@@ -120,6 +130,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const [q] = useSearchParams()
   const views = viewsOf(q)
   const tab = tabOf(q)
+  /* параметр вкладки — тоже адресом: осмотр (как `?exam=` страницы
+     пародонтограммы) или визит, чей дневник открыт в истории */
+  const sub = tab === 'perio' ? examOf(q) : tab === 'vizite' ? intParam(q, 'visit') : null
   const { pathname } = useLocation()
   const to = useNavigate()
   const [busy, setBusy] = useState(false)
@@ -167,12 +180,12 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       const r = await patientCard.activity(pid, on)
       startTransition(() => {
         replace({ ...card, activity: r.data })
-        void to(`${pathname}${qs(tab, on)}`, { replace: true })
+        void to(`${pathname}${qs(tab, on, sub)}`, { replace: true })
       })
     } catch (e) {
       fail(e)
     }
-  }, [state, pid, replace, fail, to, pathname, tab])
+  }, [state, pid, replace, fail, to, pathname, tab, sub])
 
   /* зуб из плана выбирается в рабочем столе одонтограммы (инспектор); запрос
      — объектом с меткой, чтобы повторный клик по тому же зубу тоже сработал.
@@ -184,6 +197,14 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     if (t !== tab) void to(`${pathname}${qs(t, views)}`, { replace: true })
   }, [to, pathname, views, tab])
   const onTooth = useCallback((n: number) => { setToothReq({ n, k: Date.now() }); goTab('odonto') }, [goTab])
+  /* смена осмотра во вкладке пародонтограммы — тем же адресом, replace */
+  const goExam = useCallback((id: number | null) => {
+    void to(`${pathname}${qs('perio', views, id)}`, { replace: true })
+  }, [to, pathname, views])
+  /* дневник визита — во вкладке Vizite, визит адресом (`?visit=`): ссылки
+     истории ведут туда переходом, закрытие — та же вкладка без визита */
+  const visitHref = useCallback((v: Visit) => `${pathname}${qs('vizite', views, v.id)}`, [pathname, views])
+  const closeVisit = useCallback(() => { void to(`${pathname}${qs('vizite', views)}`, { replace: true }) }, [to, pathname, views])
   /* ←/→ (Home/End) ходят по вкладкам по кругу, фокус идёт следом: кнопки все в
      DOM, активной — tabIndex 0, остальным -1 (одна остановка Tab на полосу). */
   const onTabKey = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
@@ -271,7 +292,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
             </div>
             <div className="pv2-side">
               <AlertsCard card={card} a={a} />
-              <VisitsCard card={card} />
+              <VisitsCard card={card} hrefOf={visitHref} />
             </div>
           </div>
         )}
@@ -279,15 +300,19 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           <OdontogramTab pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
             initial={card.odontogram ?? null} />
         )}
+        {tab === 'perio' && <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} />}
         {tab === 'plan' && (
           <>
             <PlanCard card={card} a={a} onTooth={onTooth} />
             <FinanceCard card={card} a={a} />
           </>
         )}
-        {tab === 'vizite' && (
+        {tab === 'vizite' && sub !== null && (
+          <VisitTab pid={pid} aid={sub} onClose={closeVisit} say={say} onFail={failCb} />
+        )}
+        {tab === 'vizite' && sub === null && (
           <div className="pv2">
-            <div className="pv2-main"><VisitsCard card={card} /></div>
+            <div className="pv2-main"><VisitsCard card={card} hrefOf={visitHref} /></div>
             <div className="pv2-side"><NextVisitCard card={card} /></div>
           </div>
         )}

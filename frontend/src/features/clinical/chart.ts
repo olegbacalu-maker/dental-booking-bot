@@ -6,7 +6,9 @@ import { api } from '../../services/api'
    поверхностей `data-s`), клиент — композицией и интерактивом. Второго
    словаря состояний и второй геометрии здесь нет. */
 
-export type View = 'frontal' | 'ocluzal'
+/** Вид одонтограммы: два рисунка сервера и объёмный (B7); 2D-компоненты
+ *  различают только «ocluzal», для них 3D — то же, что frontal. */
+export type View = 'frontal' | 'ocluzal' | '3d'
 export type Jaw = 'sus' | 'jos'
 
 /** Что нужно, чтобы НАРИСОВАТЬ зуб, и ничего сверх того: рисунок сервера и
@@ -16,6 +18,18 @@ export interface ToothVisual {
   /** Подпись зуба словами — та же, что title кнопки старой страницы. */
   title: string
   svg: { frontal: string; occlusal: string }
+}
+
+/** Размеры зуба для объёмного вида, мм, — с сервера (`teeth_svg.tooth_geom`):
+ *  клиент строит по ним форму, но ничего клинического не считает (B7). */
+export interface ToothGeom {
+  md: number
+  bl: number
+  crown: number
+  root: number
+  roots: number
+  cls: string
+  upper: boolean
 }
 
 export interface ToothInfo extends ToothVisual {
@@ -37,6 +51,8 @@ export interface ToothInfo extends ToothVisual {
   mkx: string
   milk: boolean
   bridge: { role: string; material: string } | null
+  /** есть у каждого зуба модели с B7 ступени 1; необязателен, пока 3D не читает его */
+  geom?: ToothGeom
 }
 
 export interface Bridge {
@@ -70,6 +86,8 @@ export interface Odontogram {
   bridges: Bridge[]
   legend: { frontal: LegendItem[]; occlusal: LegendItem[] }
   states: Record<string, string>
+  /** цвет состояния — тот же, что у 2D и легенды (`teeth_svg.COLORS`) */
+  palette?: Record<string, string>
   marks: Record<string, string>
   surfaces: Record<string, string>
   surface_states: string[]
@@ -123,7 +141,8 @@ export const VIEW_KEY = 'dp_odo_view'
 
 export function savedView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'ocluzal' ? 'ocluzal' : 'frontal'
+    const v = localStorage.getItem(VIEW_KEY)
+    return v === 'ocluzal' || v === '3d' ? v : 'frontal'
   } catch {
     return 'frontal'
   }

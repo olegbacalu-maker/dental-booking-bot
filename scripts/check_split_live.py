@@ -16,6 +16,7 @@ PyInstaller. Харнесс поднимает `app.main` напрямую и `d
 
     <lab>\\Old\\      DentPilot.exe + профиль + data\\{dental.db, auth.json, метка}
     <lab>\\Anchor\\   профиль + data\\dental.db          ← назначение, картотека есть
+    <lab>\\tmp\\      TEMP программы: распаковка onefile (_MEI*)
     $DENTART_DATA_DIR = <lab>\\Anchor
 
 ⭐ Источник опознаётся признаком `self`: exe лежит В ПАПКЕ с маркерами данных,
@@ -119,11 +120,16 @@ def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathl
 
 def run_lab(old: pathlib.Path, anchor: pathlib.Path, port: int, seconds: int = 90):
     env = dict(os.environ)
+    # ⛔ (09-26) TEMP — внутри лаборатории, но вне Old и Anchor (их сверяют
+    # снимками): stop() гасит загрузчик onefile через taskkill /F, и свою
+    # распаковку (_MEI*, 52 МБ) он уже не убирает — она оставалась в %TEMP%.
+    tmp = old.parent / "tmp"
+    tmp.mkdir(exist_ok=True)
     # ⛔ Назначение объявляем ЯВНО: без этого лаунчер ушёл бы в
     # %ProgramData%\DentPilot, то есть в живую картотеку машины, и не упал бы.
     env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
                 "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
-                "DENTART_DATA_DIR": str(anchor)})
+                "DENTART_DATA_DIR": str(anchor), "TEMP": str(tmp), "TMP": str(tmp)})
     # ⚠️ Переменную вердикта в окружение НЕ кладём: её обязан поставить сам
     # лаунчер. Положили бы — стенд проверял бы собственную подсказку.
     env.pop("DENTART_SPLIT_SOURCE", None)

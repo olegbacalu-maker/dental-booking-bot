@@ -529,6 +529,25 @@
 .dp-react-root .wpanel .odop-top .odo-actions { margin-left: 0; }
 /* «Deschide planul» в окне KPI — теперь кнопка (вкладка), выглядит ссылкой */
 .dp-react-root button.lmore { border: none; background: none; padding: 0; color: var(--teal-d); cursor: pointer; font: inherit; font-size: var(--fs-s); font-weight: 600; }
+/* «Vizite» над дневником во вкладке — кнопка (закрывает дневник адресом), выглядит ссылкой рядом */
+.dp-react-root .dp-vnav button { border: none; background: none; padding: 0; color: var(--teal-d); cursor: pointer; font: inherit; }
+
+/* ---- B7: объёмный вид одонтограммы (26.09) ----
+   Сцена фиксированной высоты и `contain: paint`: размер не зависит от
+   наведения и данных, без transition на контейнере (мерцание — открытая
+   проблема продукта, и 3D не имеет права добавить новое). Тема клиники красит
+   только рамку и кнопки: зуб — материал, а не интерфейс. */
+.dp-react-root .odo-3d { display: flex; flex-direction: column; gap: 10px; }
+.dp-react-root .odo-3d-bar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+.dp-react-root .odo-3d-togs { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.dp-react-root .odo-3d-togs .odo-more { height: var(--h-ctl-s); padding: 0 10px; font-size: var(--fs-s); }
+.dp-react-root .odo-3d-togs .odo-more[aria-pressed="true"] { border-color: var(--teal); color: var(--teal-d); background: var(--teal-glow); }
+.dp-react-root .odo-stage { position: relative; height: 520px; contain: paint; overflow: hidden;
+  border-radius: var(--r-block); background: var(--panel); }
+.dp-react-root .odo-stage canvas { display: block; width: 100%; height: 100%; outline: none; }
+.dp-react-root .odo-stage canvas:focus-visible { box-shadow: inset var(--ring); }
+.dp-react-root .odo-3d-msg { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; text-align: center; padding: 24px; }
+@media (max-width: 880px) { .dp-react-root .odo-stage { height: 400px; } }
 
 /* ---- «Stare sistem» (C10) ---- */
 

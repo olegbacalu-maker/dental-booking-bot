@@ -4,6 +4,15 @@ import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
 import { ApiError } from '../../types/api'
 import { loadOdontogram, OdontogramScreen } from './OdontogramScreen'
+
+/* three.js — по требованию и только в браузере: в jsdom нет WebGL, поэтому
+   загрузчик подменяется отказом. Экран обязан показать текст и оставить 2D. */
+vi.mock('./three/loadThree', () => ({
+  loadThree: () => Promise.reject(new Error('nu')),
+  assetVer: () => '',
+  threeUrl: () => '/static/js/three.js',
+  resetThree: () => undefined,
+}))
 import { neighbour, surfaceLetter, surfaceName, type Odontogram, type ToothInfo } from './chart'
 import { cycleState } from './useChart'
 
@@ -437,5 +446,37 @@ describe('замер пародонта в инспекторе', () => {
     open(21, () => {})
     await waitFor(() => expect(btn(21)).toBeTruthy())
     expect(document.querySelector('.i-perio')).toBeNull()
+  })
+})
+
+describe('вид 3D (B7)', () => {
+  it('третья кнопка ставит data-view="3d" и помнит выбор; без three — текст отказа, инспектор и 2D-кнопки живы', async () => {
+    open(16)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    const b3 = screen.getByRole('button', { name: '3D' })
+    expect(b3.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(b3)
+    expect(root().getAttribute('data-view')).toBe('3d')
+    expect(localStorage.getItem('dp_odo_view')).toBe('3d')
+    expect(await screen.findByText('3D nu s-a încărcat. Vederea frontală și cea ocluzală funcționează.')).toBeTruthy()
+    expect(document.querySelector('.odo-stage')).toBeTruthy()
+    expect(btn(16)).toBeNull()
+    /* инспектор остался с выбранным зубом; кнопки сцены выключены, пока сцены нет */
+    expect(inspector().textContent).toContain('16')
+    expect((screen.getByRole('button', { name: 'Frontal' }) as HTMLButtonElement).disabled).toBe(true)
+    /* обратно в 2D — дуга на месте */
+    fireEvent.click(screen.getByRole('button', { name: 'Vedere ocluzală' }))
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    expect(root().getAttribute('data-view')).toBe('ocluzal')
+  })
+
+  it('сохранённый вид 3d открывается сразу в 3D; молочный ряд — надпись про 2D', async () => {
+    localStorage.setItem('dp_odo_view', '3d')
+    get.mockResolvedValue(ok({ ...MODEL, milk_open: true }))
+    open()
+    await waitFor(() => expect(root()).toBeTruthy())
+    expect(root().getAttribute('data-view')).toBe('3d')
+    expect(await screen.findByText(/Dinții de lapte/)).toBeTruthy()
+    localStorage.removeItem('dp_odo_view')
   })
 })

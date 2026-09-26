@@ -1,7 +1,7 @@
 {
   "name": "dentpilot-frontend",
   "private": true,
-  "version": "1.32.0",
+  "version": "1.33.0",
   "type": "module",
   "description": "React-клиент DentPilot 2.0 поверх существующего Python/FastAPI движка",
   "scripts": {
@@ -12,7 +12,9 @@
     "test": "vitest run",
     "preview": "vite preview",
     "dev:dental3d": "vite --open /prototypes/dental3d/index.html",
-    "typecheck:dental3d": "tsc -p prototypes/tsconfig.json --noEmit"
+    "typecheck:dental3d": "tsc -p prototypes/tsconfig.json --noEmit",
+    "dev:odontogram": "vite --open /prototypes/odontogram/index.html",
+    "dev:odontogram3d": "vite --open /prototypes/odontogram/3d.html"
   },
   "dependencies": {
     "react": "^19.2.0",

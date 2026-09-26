@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -29,8 +30,27 @@ const DEV_ENGINE = 'http://127.0.0.1:8099'
  */
 const ASSET_RULE = /^[a-z0-9_-]+$/
 
+// three.js едет ОТДЕЛЬНЫМ файлом (B7, docs/dentpilot-2/odontogram-3d.md,
+// решение 3 — вариант B): бандл его не импортирует, клиент грузит
+// `/static/js/three.js?v=…` динамическим import() только при открытии вида 3D.
+// Копия делается на сборке, файл в .gitignore, как bundle.js. ⛔ Не через
+// assetFileNames — тот бросает на любом ассете кроме css, и это правильно; и
+// не через import из src — inlineDynamicImports вклеил бы 340 КБ в каждую
+// страницу программы. Имя `three.js` проходит шаблон маршрута выше.
+const THREE_SRC = resolve(HERE, 'node_modules/three/build/three.module.min.js')
+const THREE_OUT = resolve(ENGINE_STATIC, 'js/three.js')
+function copyThree() {
+  return {
+    name: 'dentpilot-copy-three',
+    closeBundle() {
+      mkdirSync(dirname(THREE_OUT), { recursive: true })
+      copyFileSync(THREE_SRC, THREE_OUT)
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), copyThree()],
 
   // Тесты компонентов: jsdom вместо браузера, только src/**/*.test.{ts,tsx}.
   // Подмена движка в них — фикстуры ТОЛЬКО тестов (§26): бандл ничего из

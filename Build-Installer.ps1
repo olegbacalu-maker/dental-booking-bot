@@ -115,7 +115,20 @@ Set-Content -Path (Join-Path $lab "dental.env") -Encoding utf8 -Value @(
     "TELEGRAM_TOKEN=dpapi:smoke-nu-rasshifruesh",
     "ADMIN_KEY=smoke1234"
 )
-$proc = Start-Process (Join-Path $lab "DentPilot.exe") -WorkingDirectory $lab -PassThru -WindowStyle Hidden
+# TEMP - vnutri laboratorii (09-26). Zagruzchik onefile ubiraet svoyu raspakovku
+# (_MEI*, 52 MB) tolko pri shtatnom vyhode, a taskkill /F nizhe ego ne puskaet:
+# kazhdaya sborka ostavlyala v %TEMP% tri takie papki (25.09 - 1.2 GB za den).
+# Otsyuda raspakovka uhodit vmeste s laboratoriei. TEMP menyaem TOLKO dlya exe
+# i srazu vozvrashchaem: python i ISCC nizhe pishut v nastoyashchii.
+$tmp = Join-Path $lab "tmp"
+New-Item -ItemType Directory -Force $tmp | Out-Null
+$oldTemp = $env:TEMP; $oldTmp = $env:TMP
+$env:TEMP = $tmp; $env:TMP = $tmp
+try {
+    $proc = Start-Process (Join-Path $lab "DentPilot.exe") -WorkingDirectory $lab -PassThru -WindowStyle Hidden
+} finally {
+    $env:TEMP = $oldTemp; $env:TMP = $oldTmp
+}
 $health = $null
 foreach ($i in 1..45) {
     try { $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 2; break }
@@ -140,7 +153,14 @@ if ($health) {
 # ponimaet, chto vsyo horosho. Eto ta zhe grablya, chto opisana v karte pro git.
 try { & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null } catch { }
 Start-Sleep -Milliseconds 800
-Remove-Item $lab -Recurse -Force -EA SilentlyContinue
+# V laboratorii teper i raspakovka exe, a Windows otpuskaet faily ubitogo
+# processa s zaderzhkoi: povtoryaem, i VSLUH, esli ne pomoglo.
+foreach ($i in 1..10) {
+    Remove-Item $lab -Recurse -Force -EA SilentlyContinue
+    if (-not (Test-Path $lab)) { break }
+    Start-Sleep -Milliseconds 500
+}
+if (Test-Path $lab) { Write-Host "VNIMANIE: laboratoriya ne udalena: $lab" }
 $env:DENTART_BROWSER_MODE = $null; $env:DENTART_NO_BROWSER = $null; $env:DENTART_PORT = $null; $env:DENTART_DATA_DIR = $null
 $env:ADMIN_KEY = $null
 

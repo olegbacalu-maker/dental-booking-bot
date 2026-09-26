@@ -1154,3 +1154,29 @@ def suite_punte(res: Result) -> None:
         r = c.post(f"/admin/patient/{pid3}/erase", confirm="STERG")
         res.check("пациент с одним мостом обезличивается, не стирается",
                   r.msg, "ok_anon")
+
+
+def suite_geom(res: Result) -> None:
+    """Размеры для объёмного вида (B7, ступень 1): сервер владеет ими целиком,
+    и они стоят на тех же числах, что рисунок сверху."""
+    from app import teeth_svg as tsvg          # noqa: E402
+    g16, g14, g41, g11, g55 = (tsvg.tooth_geom(n) for n in (16, 14, 41, 11, 55))
+    res.check("16: первый моляр 10,5 мм мезио-дистально, три корня", (g16["md"], g16["roots"]), (10.5, 3))
+    res.ok("16: вестибуло-язычно шире, чем 10 мм", g16["bl"] > 10.0, str(g16["bl"]))
+    res.check("14: верхний первый премоляр — два корня", g14["roots"], 2)
+    res.ok("41 уже 11: нижний резец мельче верхнего", g41["md"] < g11["md"], f"{g41['md']} vs {g11['md']}")
+    res.check("41: один корень, нижняя челюсть, центральный резец", (g41["roots"], g41["upper"], g41["cls"]),
+              (1, False, "incisor_c"))
+    res.check("55: молочный моляр — три корня, коронка ниже постоянного", (g55["roots"], g55["crown"] < g16["crown"]),
+              (3, True))
+    res.check("коронка и корни — из таблиц по классу и челюсти", (g16["crown"], g16["root"], g41["crown"], g41["root"]),
+              (7.5, 11.2, 9.0, 11.2))
+    every = [tsvg.tooth_geom(n) for n in tsvg.FDI_ALL] if hasattr(tsvg, "FDI_ALL") else None
+    if every is None:
+        from app.modules.patients import odontogram as podo   # noqa: E402
+        every = [tsvg.tooth_geom(n) for n in podo.FDI_ALL]
+    res.check("у всех 52 зубов семь полей и положительные размеры",
+              (len(every), all(set(g) == {"md", "bl", "crown", "root", "roots", "cls", "upper"} for g in every),
+               all(g["md"] > 0 and g["bl"] > 0 and g["crown"] > 0 and g["root"] > 0 for g in every)),
+              (52, True, True))
+    res.check("пропорция — та же, что у рисунка: 36,3 ед. = 10,5 мм", round(tsvg.MM_PER_UNIT * 36.3, 6), 10.5)

@@ -33,7 +33,11 @@ def _raw_anchors(text: str) -> list[int]:
     """Строки, где в разметке стоит `<a … href=…>`. Комментарии `/* */`
     (в JSX — `{/* */}`) не считаются; скобки в атрибутах (`onClick={(e) => …}`)
     не обрывают тег на своём `>`."""
-    text = re.sub(r"/\*.*?\*/", lambda m: " " * len(m.group(0)), text, flags=re.S)
+    # Комментарий гасится пробелами, но его переводы строк остаются: иначе
+    # каждая строка многострочного `/* */` выше ссылки сдвигала бы номер в
+    # сообщении сторожа (в OdontogramWorkbench.tsx он называл 135 вместо 149).
+    text = re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+                  text, flags=re.S)
     out, i = [], 0
     while (m := re.compile(r"<a(?=[\s>/])").search(text, i)) is not None:
         j, depth = m.end(), 0

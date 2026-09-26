@@ -22,6 +22,7 @@
 
     <lab>\\Old\\      DentPilot.exe + clinic.json + dental.env  ← «старая установка»
     <lab>\\Anchor\\   пусто                                      ← назначение
+    <lab>\\tmp\\      TEMP программы: распаковка onefile (_MEI*)
     $DENTART_DATA_DIR = <lab>\\Anchor
 
 ⛔ **Настоящая `%ProgramData%\\DentPilot` не участвует ни одной стороной.**
@@ -98,12 +99,17 @@ def build_lab(lab: pathlib.Path, exe: pathlib.Path) -> tuple[pathlib.Path, pathl
 
 def run_lab(old: pathlib.Path, anchor: pathlib.Path, port: int, seconds: int = 90):
     env = dict(os.environ)
+    # ⛔ (09-26) TEMP — внутри лаборатории, но вне Old и Anchor: stop() гасит
+    # загрузчик onefile через taskkill /F, и свою распаковку (_MEI*, 52 МБ) он
+    # уже не убирает — она оставалась в %TEMP% после каждой сборки.
+    tmp = old.parent / "tmp"
+    tmp.mkdir(exist_ok=True)
     # ⛔ Назначение объявляем ЯВНО. Без этого лаунчер ушёл бы в
     # %ProgramData%\DentPilot — то есть проверял бы не лабораторию, а живую
     # картотеку машины, и не упал бы при этом.
     env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
                 "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
-                "DENTART_DATA_DIR": str(anchor)})
+                "DENTART_DATA_DIR": str(anchor), "TEMP": str(tmp), "TMP": str(tmp)})
     proc = subprocess.Popen([str(old / "DentPilot.exe")], cwd=str(old), env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}"

@@ -216,12 +216,17 @@ def inject_renamed(db: pathlib.Path):
 
 def run_lab(lab: pathlib.Path, exe_name: str, port: int, seconds: int = 90):
     env = dict(os.environ)
+    # ⛔ (09-26) TEMP — внутри песочницы: stop() гасит загрузчик onefile через
+    # taskkill /F, и свою распаковку (_MEI*, 52 МБ) он уже не убирает — три
+    # запуска этой проверки оставляли в %TEMP% три такие папки.
+    tmp = lab / "tmp"
+    tmp.mkdir(exist_ok=True)
     # ⛔ DENTART_DATA_DIR обязателен с P1: лаунчер больше не считает папку
     # данных от места exe. Без него лаборатория запустила бы exe поверх
     # НАСТОЯЩЕЙ картотеки в %ProgramData%, а проверяла бы подготовленную копию.
     env.update({"DENTART_BROWSER_MODE": "1", "DENTART_NO_BROWSER": "1",
                 "DENTART_PORT": str(port), "ADMIN_KEY": KEY,
-                "DENTART_DATA_DIR": str(lab)})
+                "DENTART_DATA_DIR": str(lab), "TEMP": str(tmp), "TMP": str(tmp)})
     proc = subprocess.Popen([str(lab / exe_name)], cwd=str(lab), env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}"
@@ -412,7 +417,15 @@ def main() -> int:
         return 1
     print("ИТОГ: всё сошлось. Клиника с двойной бронью запустится и узнает,")
     print("      какие часы развести; после этого страховка встанет сама.")
-    shutil.rmtree(lab, ignore_errors=True)
+    # в песочнице теперь и распаковки exe (_MEI*, 52 МБ на запуск), а Windows
+    # отпускает файлы убитого процесса с задержкой: повтор, и вслух, если нет
+    for _ in range(10):
+        shutil.rmtree(lab, ignore_errors=True)
+        if not lab.exists():
+            break
+        time.sleep(0.5)
+    else:
+        print(f"⚠️  песочница НЕ удалена: {lab}")
     return 0
 
 

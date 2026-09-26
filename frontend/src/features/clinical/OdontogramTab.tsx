@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import type { ToastState } from '../../components/Toast'
 import { asApiError } from '../../services/api'
@@ -50,17 +50,21 @@ export function OdontogramTab({ pid, views, say, onFail, onChanged, open = null,
     setGot({ pid, model: fresh, failed: false })
     onChanged(card)
   }, [pid, onChanged])
-  const fail = useCallback((e: unknown) => onFail(asApiError(e)), [onFail])
+  /* отказ — через ref: личность `onFail` меняется вслед за адресом, а запрос
+     модели от неё зависеть не должен (иначе обрыв и повтор) */
+  const onFailRef = useRef(onFail)
+  useEffect(() => { onFailRef.current = onFail }, [onFail])
+  const fail = useCallback((e: unknown) => onFailRef.current(asApiError(e)), [])
 
   useEffect(() => {
     if (seeded || (got && got.pid === pid)) return   // модель уже есть — запрос не нужен
     const ctl = new AbortController()
     chart.get(pid, ctl.signal).then(
       (r) => { if (!ctl.signal.aborted) setGot({ pid, model: r.data, failed: false }) },
-      (e: unknown) => { if (!ctl.signal.aborted) { setGot({ pid, model: null, failed: true }); onFail(asApiError(e)) } },
+      (e: unknown) => { if (!ctl.signal.aborted) { setGot({ pid, model: null, failed: true }); onFailRef.current(asApiError(e)) } },
     )
     return () => ctl.abort()
-  }, [pid, onFail, seeded, got])
+  }, [pid, seeded, got])
 
   const base = `/admin/patient/${pid}`
   if (failed) {

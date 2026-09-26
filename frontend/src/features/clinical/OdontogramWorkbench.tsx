@@ -8,6 +8,7 @@ import { ToothInspector } from './ToothInspector'
 import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ViewSwitch } from './ViewSwitch'
 import { neighbour, type Arrow, type Odontogram } from './chart'
+import { Odontogram3D } from './three/Odontogram3D'
 import { useChart } from './useChart'
 
 /* Рабочий стол одонтограммы (C21–C22; с 26.09 ОДИН на два места): дуга крупно +
@@ -98,6 +99,11 @@ export function OdontogramWorkbench({
     if (brMode) return
     setMenu({ n, x: e.clientX, y: e.clientY })
   }
+  /* меню из 3D — те же координаты курсора, без события кнопки */
+  const onMenuAt = (n: number, x: number, y: number) => {
+    if (brMode) return
+    setMenu({ n, x, y })
+  }
   const menuState = (n: number, st: string) => { c.setState(n, st); setMenu(null); focusTooth(n) }
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -154,7 +160,9 @@ export function OdontogramWorkbench({
             <button type="button" className="odo-more" onClick={() => { setBrMode(true); setPicked([]) }}>
               <Icon name="plus" /> {T.newBridge}
             </button>
-            <AppLink className="odo-more" href={`${base}/parodontograma`}><Icon name="tooth" /> {T.perio}</AppLink>
+            <AppLink className="odo-more" href={embedded ? `${base}?tab=perio` : `${base}/parodontograma`}>
+              <Icon name="tooth" /> {T.perio}
+            </AppLink>
             {embedded && <AppLink className="odo-more" href={`${base}/odontograma`}><Icon name="eye" /> {T.full}</AppLink>}
             <button type="button" className="odo-more" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
           </div>
@@ -163,16 +171,22 @@ export function OdontogramWorkbench({
         <div className="odop-grid">
           <div className="odop-main">
             <div className="fcard">
-              <DentalArch
-                model={model}
-                view={c.view}
-                selected={brMode ? null : c.selected}
-                picked={new Set(picked)}
-                dirty={c.dirtyTeeth}
-                onSelect={onSelect}
-                onSurface={onSurface}
-                onMenu={onMenu}
-              />
+              {c.view === '3d' ? (
+                /* B7: объёмный вид — тот же контроллер, те же действия; выбор,
+                   поверхность и меню идут в инспектор, как из дуги */
+                <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenuAt} />
+              ) : (
+                <DentalArch
+                  model={model}
+                  view={c.view}
+                  selected={brMode ? null : c.selected}
+                  picked={new Set(picked)}
+                  dirty={c.dirtyTeeth}
+                  onSelect={onSelect}
+                  onSurface={onSurface}
+                  onMenu={onMenu}
+                />
+              )}
             </div>
           </div>
           <aside className="odop-side">

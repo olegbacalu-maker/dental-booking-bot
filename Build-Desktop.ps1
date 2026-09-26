@@ -31,6 +31,9 @@ if (-not (Test-Path "frontend\node_modules")) {
 cmd /c "cd /d ""$PSScriptRoot\frontend"" && npm run build 2>&1"
 if ($LASTEXITCODE -ne 0) { Write-Host "npm run build exit $LASTEXITCODE"; exit 1 }
 if (-not (Test-Path "bot\app\static\js\bundle.js")) { Write-Host "BUNDLE MISSING"; exit 1 }
+# three.js dlya obemnoi odontogrammy (B7) kladet ta zhe sborka otdelnym failom;
+# bez nego exe uedet bez 3D, a uvidit eto tolko klinika (smoke_exe eto lovit).
+if (-not (Test-Path "bot\app\static\js\three.js")) { Write-Host "THREE MISSING"; exit 1 }
 
 # SQLCipher importiruetsya VNUTRI funkcii (db._sqlite_driver): modul nuzhen
 # tolko klinike s shifrovaniem. Bez --hidden-import PyInstaller mozhet ego ne

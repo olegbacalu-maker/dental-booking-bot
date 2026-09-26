@@ -29,6 +29,7 @@ frontend/node_modules/
 bot/app/static/js/bundle.js
 bot/app/static/css/bundle.css
 bot/app/static/js/bundle.js.map
+bot/app/static/js/three.js
 # rust (PHASE 7)
 src-tauri/target/
 

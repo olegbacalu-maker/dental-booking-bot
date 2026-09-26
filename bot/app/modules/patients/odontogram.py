@@ -436,6 +436,8 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
         teeth[str(n)] = {
             **infos[str(n)], "milk": milk, "title": tooth_title(n, tmap, bmap),
             "bridge": {"role": br[0], "material": br[1]} if br else None,
+            # размеры для объёмного вида (B7): сервер владеет ими, клиент рендерит
+            "geom": tsvg.tooth_geom(n),
             "svg": {
                 "frontal": tsvg.tooth_svg(n, st, width=28 if milk else 38, interactive=True,
                                           surfaces=sfmap, marks=mk, hit=True),
@@ -466,6 +468,8 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
         "bridges": rows,
         "legend": {"frontal": legend_items(False), "occlusal": legend_items(True)},
         "states": dict(STATES), "marks": dict(MARKS),
+        # цвета состояний — те же, что у 2D и легенды; 3D красит ими же
+        "palette": dict(tsvg.COLORS),
         "surfaces": dict(TOOTH_SURFACES), "surface_states": list(tsvg.SURFACE_STATES),
         "bridge_roles": dict(tsvg.BRIDGE_RO),
         "materials": [{"id": k, "label": v} for k, v in BRIDGE_MATERIALS],
