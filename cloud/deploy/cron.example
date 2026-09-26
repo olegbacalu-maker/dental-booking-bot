@@ -1,0 +1,11 @@
+# crontab пользователя, под которым идёт сервер (crontab -e). Время — UTC сервера:
+# 06:05 UTC = 09:05 Кишинёв летом / 08:05 зимой. Оба задания идут с тем же окружением, что сервер.
+#
+# Docker:
+5 6 * * *   docker exec dentpilot-cloud python -m app.jobs daily                       >> /var/log/dentpilot/jobs.log 2>&1
+35 5 * * *  docker exec dentpilot-cloud python -m app.tools backup --dir /srv/data/backups --keep 30 >> /var/log/dentpilot/backup.log 2>&1
+50 5 * * *  /srv/cloud/deploy/backup.sh                                                >> /var/log/dentpilot/backup.log 2>&1
+#
+# Без Docker (systemd + venv):
+# 5 6 * * *   cd /srv/cloud && set -a && . /srv/dentpilot/cloud.env && set +a && .venv/bin/python -m app.jobs daily
+# 35 5 * * *  cd /srv/cloud && set -a && . /srv/dentpilot/cloud.env && set +a && .venv/bin/python -m app.tools backup --dir /srv/dentpilot/data/backups --keep 30

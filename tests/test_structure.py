@@ -1273,3 +1273,87 @@ def suite(res: Result) -> None:
            if re.search(r"transition\s*:[^;]*(?<![\w.])\.\d+s\b", body)]
     res.ok("длительность перехода берётся ступенью", not bad,
            "секунды числом вместо var(--dur*): " + "; ".join(bad[:8]))
+    # ---- ворота лицензии стоят в шлюзе, белый список — константа (L4) ----
+    # Ворота одни: шлюз в main.py зовёт lic.refuses(...) ДО маршрутизации, и
+    # ни один маршрут не решает про readonly сам. Второе решение разошлось бы
+    # с белым списком молча — у клиники, не в тесте: маршрут, «просто
+    # проверивший состояние» у себя, отказал бы бэкапу или пустил бы запись.
+    # Три якоря: вызов в шлюзе, кортеж READONLY_ALLOW из адресов под /admin и
+    # /api/, и строка кода отказа только там, где ей место.
+    bad = []
+    main_tree = by_path.get("app/main.py")
+    gate = [n for n in ast.walk(main_tree) if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute) and n.func.attr == "refuses"] if main_tree else []
+    if not gate:
+        bad.append("app/main.py: шлюз не зовёт lic.refuses — ворот нет")
+    allow = None
+    lst_tree = by_path.get("app/core/license_state.py")
+    for n in ast.walk(lst_tree) if lst_tree else ():
+        if (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "READONLY_ALLOW"
+                                              for t in n.targets)
+                and isinstance(n.value, ast.Tuple)):
+            allow = [e.value for e in n.value.elts
+                     if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+    if allow is None:
+        bad.append("app/core/license_state.py: нет кортежа READONLY_ALLOW — якорь правила пропал")
+    else:
+        bad += [f"READONLY_ALLOW: {t} — не под /admin и не под /api/"
+                for t in allow if not t.startswith(("/admin", "/api/"))]
+    _GATE_HOME = ("app/core/license.py", "app/core/license_state.py",
+                  "app/core/layout.py", "app/main.py")
+    bad += [f"{rel}:{ln} — второе решение про readonly вне шлюза"
+            for rel, tree in src if rel not in _GATE_HOME
+            for ln, text in _ui_texts(tree) if text == "license_readonly"]
+    res.ok("ворота лицензии стоят в шлюзе, белый список — константа", not bad,
+           "запись в readonly решается в двух местах или не решается вовсе: "
+           + "; ".join(bad))
+
+    # ---- договор согласован с программой дословно (L11) ----
+    # Сайт обещает клинике то, что делает программа: режим чтения — теми же
+    # словами, что баннер license_readonly, и 14 дней без файла у обновившейся
+    # клиники — тем же числом, что NO_FILE_GRACE. Расхождение — обещание,
+    # которого программа не выполняет, и заметит его клиника, а не мы.
+    # Страница лежит в docs/site/ (сам сайт — отдельный репозиторий), чтобы
+    # правило могло её прочитать; числа и фразы берутся из КОДА, не из теста.
+    bad = []
+    terms_path = ROOT / "docs" / "site" / "termeni.html"
+    # Страница переносит строки внутри фраз — сравниваем с одинарными пробелами.
+    page = " ".join(terms_path.read_text(encoding="utf-8").split()) if terms_path.exists() else ""
+    if not page:
+        bad.append("docs/site/termeni.html не найден — договора нет")
+    readonly_text = ""
+    lay_tree = by_path.get("app/core/layout.py")
+    for n in ast.walk(lay_tree) if lay_tree else ():
+        if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Dict)
+                and any(isinstance(t, ast.Name) and t.id == "MSG_BANNER" for t in n.targets)):
+            for k, v in zip(n.value.keys, n.value.values):
+                if (isinstance(k, ast.Constant) and k.value == "license_readonly"
+                        and isinstance(v, ast.Tuple) and len(v.elts) == 2
+                        and isinstance(v.elts[1], ast.Constant)):
+                    readonly_text = v.elts[1].value
+    if not readonly_text:
+        bad.append("app/core/layout.py: в MSG_BANNER нет license_readonly — якорь пропал")
+    else:
+        m = re.search(r"(Datele se pot [^;.]+)", readonly_text)
+        phrase = m.group(1).strip() if m else readonly_text
+        if phrase not in page:
+            bad.append(f"termeni.html не повторяет слова программы о режиме чтения: «{phrase}»")
+        if "regim de citire" not in readonly_text or "regim de citire" not in page:
+            bad.append("«regim de citire» должно быть и в баннере, и в договоре")
+    days = None
+    for n in ast.walk(lst_tree) if lst_tree else ():
+        if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+                and any(isinstance(t, ast.Name) and t.id == "NO_FILE_GRACE" for t in n.targets)):
+            for kw in n.value.keywords:
+                if kw.arg == "days" and isinstance(kw.value, ast.Constant):
+                    days = kw.value.value
+    if days is None:
+        bad.append("app/core/license_state.py: нет NO_FILE_GRACE = timedelta(days=N) — якорь пропал")
+    else:
+        m = re.search(r"(\d+) zile de la prima pornire", page)
+        if not m:
+            bad.append("termeni.html: нет пункта «N zile de la prima pornire» для обновившейся клиники")
+        elif int(m.group(1)) != days:
+            bad.append(f"termeni.html обещает {m.group(1)} дней без файла, программа даёт {days}")
+    res.ok("договор согласован с программой дословно", not bad,
+           "сайт обещает не то, что делает программа: " + "; ".join(bad))

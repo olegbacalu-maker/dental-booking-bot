@@ -325,6 +325,22 @@ MUTATIONS = [
      (".sfbtns .sfbtn small{", ".sfbtns .sfbtn .cap{")),
     ("длительность перехода", "app/static/css/panel.css",
      "\n.mut{transition:color .2s ease}\n"),
+    # ---- ворота лицензии (L4) ----
+    # Шлюз перестал звать refuses: запись в readonly проходит везде. Замена,
+    # а не дописывание: нарушение — исчезновение вызова.
+    ("ворота лицензии стоят в шлюзе", "app/main.py",
+     ("lic.refuses(", "lic.refuses_nowhere(")),
+    # Маршрут решил про readonly сам — второй вычислитель рядом с белым списком.
+    ("ворота лицензии стоят в шлюзе", "app/modules/settings/routes.py",
+     "\n_mut = \"license_readonly\"\n"),
+    # ---- договор (L11) ----
+    # Программа стала давать обновившейся клинике 13 дней, а сайт обещает 14.
+    ("договор согласован с программой", "app/core/license_state.py",
+     ("NO_FILE_GRACE = timedelta(days=14)", "NO_FILE_GRACE = timedelta(days=13)")),
+    # Баннер режима чтения сказал клинике меньше, чем обещает договор.
+    ("договор согласован с программой", "app/core/layout.py",
+     ('"expirat. Datele se pot consulta, tipări și exporta; "',
+      '"expirat. Datele se pot consulta și tipări; "')),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
@@ -377,6 +393,15 @@ LEGAL = [
     ("длительность перехода", "app/static/css/panel.css",
      "\n.m10{transition:color var(--dur) ease,transform var(--dur-fast)}"
      ".m11{animation:dp-in .3s ease}\n"),
+    # ⭐ Законно: ещё один маршрут в белом списке — так туда ляжет импорт
+    # лицензии (L5). Правило обязано молчать: список — его, а не чужой.
+    ("ворота лицензии стоят в шлюзе", "app/core/license_state.py",
+     ('    "/admin/login", "/admin/setup",', '    "/admin/login", "/admin/setup", "/api/license/renew",')),
+    # ⭐ Законно: ещё один код баннера рядом с лицензионными — договор про
+    # него ничего не обещает, и правило обязано молчать.
+    ("договор согласован с программой", "app/core/layout.py",
+     ('    "license_ok": ("ok", "Licența a fost activată"),',
+      '    "license_ok": ("ok", "Licența a fost activată"),\n    "license_note": ("ok", "Notă"),')),
 ]
 
 

@@ -38,6 +38,13 @@ import test_hardening  # noqa: E402
 import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
 import test_legacy  # noqa: E402
+import test_license_format  # noqa: E402
+import test_license_verify  # noqa: E402
+import test_license_state  # noqa: E402
+import test_license_gate  # noqa: E402
+import test_license_page  # noqa: E402
+import test_license_existing  # noqa: E402
+import test_license_renew  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
 import test_split  # noqa: E402
@@ -86,6 +93,27 @@ SUITES = [
      test_guards.suite_route_map),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
+    # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
+    ("Лицензия: формат файла и фикстуры", test_license_format.suite),
+    ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),
+    ("Лицензия: конверт и четыре отказа", test_license_verify.suite_envelope),
+    ("Лицензия: claim по таблице схемы", test_license_verify.suite_claim),
+    ("Лицензия: модуль проверки чистый", test_license_verify.suite_pure),
+    ("Лицензия: пол часов и три состояния", test_license_state.suite_states),
+    ("Лицензия: память между запусками", test_license_state.suite_memory),
+    ("Лицензия: таблица ключей и окружение", test_license_state.suite_keys),
+    ("Лицензия: файл и память на живом сервере", test_license_state.suite_server),
+    ("Лицензия: ворота — сопоставление и белый список", test_license_gate.suite_matcher),
+    ("Лицензия: ворота в readonly по всем маршрутам", test_license_gate.suite_readonly),
+    ("Лицензия: ворота молчат при действующем файле", test_license_gate.suite_active),
+    ("Лицензия: стена активации и импорт файла", test_license_page.suite_wall),
+    ("Лицензия: баннер и /api/license", test_license_page.suite_banner),
+    ("Лицензия: без ключа выдачи не применяется", test_license_page.suite_no_keys),
+    ("Лицензия: обновившаяся клиника без файла", test_license_existing.suite_existing),
+    ("Лицензия: автообновление — провод к серверу", test_license_renew.suite_client),
+    ("Лицензия: автообновление на живом сервере — замена только по seq выше",
+     test_license_renew.suite_live),
+    ("Лицензия: автообновление — кнопка «Verifică acum»", test_license_renew.suite_button),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),

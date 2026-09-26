@@ -83,5 +83,6 @@ git tag → GitHub Actions → GitHub Release
 · **[migration-contract.md](migration-contract.md) — P2, контракт миграции 21.09**
 · **[i18n.md](i18n.md) — язык и слой Country, развилки 21.09 (кода нет, работа не запланирована)**
 · **[tasks.md](tasks.md) — конкретный список работ**
+· **[cloud.md](cloud.md) — лицензия, оплата, самообслуживание: план v3, 24.09**
 
 Аудит, с которого всё началось — [../migration-audit.md](../migration-audit.md).

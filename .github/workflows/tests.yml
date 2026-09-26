@@ -121,3 +121,32 @@ jobs:
       - name: Сборка
         if: ${{ !cancelled() }}
         run: npm run build
+
+  # Сервер лицензий (cloud/, шаг 1 плана cloud.md): своя программа, свой прогон.
+  # Ubuntu, а не Windows: серверу жить на VPS, и ничего родного Windows в нём
+  # нет. Ключ выдачи в прогоне — тестовый из tests/fixtures/license/, тот же,
+  # что знают тесты движка: выданный файл обязан пройти проверку движка.
+  cloud:
+    name: Облако (сервер лицензий)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cloud
+
+    steps:
+      - name: Забрать исходники
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Поставить Python 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: cloud/requirements.txt
+
+      - name: Зависимости
+        run: python -m pip install -r requirements.txt
+
+      - name: Прогон сервера
+        run: python tests/run_tests.py

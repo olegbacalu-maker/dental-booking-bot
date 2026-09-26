@@ -1,0 +1,24 @@
+# Вариант без Docker: venv в /srv/cloud/.venv, код в /srv/cloud, Caddy на том же хосте
+# (в Caddyfile тогда `reverse_proxy 127.0.0.1:8090`). Секреты — в /srv/dentpilot/cloud.env (0600).
+#   sudo cp dentpilot-cloud.service /etc/systemd/system/ && sudo systemctl enable --now dentpilot-cloud
+[Unit]
+Description=DentPilot Cloud (сервер лицензий)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dentpilot
+Group=dentpilot
+WorkingDirectory=/srv/cloud
+EnvironmentFile=/srv/dentpilot/cloud.env
+ExecStart=/srv/cloud/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8090 --proxy-headers
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/dentpilot/data
+
+[Install]
+WantedBy=multi-user.target

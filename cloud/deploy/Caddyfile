@@ -1,0 +1,18 @@
+# Caddy перед сервером лицензий: TLS от Let's Encrypt сам, http → https сам.
+# Домен — тот же, что DP_BASE_URL. Upstream `cloud:8090` — имя службы в
+# docker-compose.yml; без Docker (systemd) — 127.0.0.1:8090.
+cloud.dentpilot.md {
+	encode gzip
+	# формы админки и /proba — килобайты; поток гигабайт в публичную форму — нет
+	request_body {
+		max_size 256KB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+	reverse_proxy cloud:8090
+}
