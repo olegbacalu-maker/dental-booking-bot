@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../../services/api'
 import { openScreen } from '../../../test/openScreen'
 import { ApiError } from '../../../types/api'
+import type { PerioModel } from '../../clinical/perio'
 import type { PatientCard } from './card'
 import { mdl } from './card'
 import { loadPatientCard, PatientCardScreen } from './PatientCardScreen'
@@ -30,6 +31,25 @@ const ODO = {
   surface_states: ['carie', 'obturatie'], bridge_roles: { stalp: 'Stâlp', corp: 'Corp de punte' },
   materials: [{ id: 'zirconiu', label: 'Zirconiu' }], patient: { id: 5, name: 'Pin Test', primary_doctor: '' },
   doctors: ['Dr. Activ Doi'],
+}
+
+/* пародонтограмма — минимальный осмотр: два зуба, шесть точек */
+const PEXAM = { id: 9, at: '18.09.2026', doctor: 'Dr. Activ Doi', note: '', teeth: 1 }
+const PERIO: PerioModel = {
+  patient: { id: 5, name: 'Pin Test' }, rev: 'r1', exams: [PEXAM, { id: 4, at: '01.03.2026', doctor: '', note: '', teeth: 0 }], exam: PEXAM,
+  rows: { '16': { tooth: 16, pd: [3, 2, 3, 4, 2, 5], rec: [0, 0, 0, 0, 0, 0], bop: '000000', mob: 0, furc: 0, cal: [3, 2, 3, 4, 2, 5] } },
+  teeth: {
+    '16': { state: 'ok', absent: false, title: '16 · Sănătos', svg: { frontal: '', occlusal: '' } },
+    '46': { state: 'ok', absent: false, title: '46 · Sănătos', svg: { frontal: '', occlusal: '' } },
+  },
+  arches: { upper: [16], lower: [46] },
+  sites: [
+    { key: 'MV', label: 'mezio-vestibular' }, { key: 'V', label: 'vestibular' }, { key: 'DV', label: 'disto-vestibular' },
+    { key: 'ML', label: 'mezio-lingual' }, { key: 'L', label: 'lingual / palatinal' }, { key: 'DL', label: 'disto-lingual' },
+  ],
+  summary: { teeth: 1, sites: 6, bop: 0, pd_mean: 3.2, cal_mean: 3.2, deep: 2, severe: 0, mob: [], furc: [] },
+  limits: { mm_max: 12, mob_max: 3, furc_max: 3, deep: 4, severe: 6 },
+  grades: { mob: { '1': 'gr. I' }, furc: { '1': 'gr. I' } }, doctors: ['Dr. Activ Doi'],
 }
 
 const CARD: PatientCard = {
@@ -133,6 +153,12 @@ function serve(card: PatientCard = CARD) {
     if (path === '/patients/5/odontogram') return Promise.resolve(ok(ODO))
     if (path.startsWith('/patients/5/activity')) return Promise.resolve(ok(feed(card, path.includes('views=1'))))
     if (path.startsWith('/patients/5/slots')) return Promise.resolve(ok({ slots: ['09:00', '09:30'] }))
+    if (path.startsWith('/patients/5/perio')) {
+      /* как сервер: осмотр из адреса; неизвестный или без адреса — свежий */
+      const id = new URLSearchParams(path.split('?')[1] ?? '').get('exam')
+      const ex = PERIO.exams.find((x) => String(x.id) === id) ?? PERIO.exam
+      return Promise.resolve(ok({ ...PERIO, exam: ex, rows: ex?.id === PERIO.exam?.id ? PERIO.rows : {} }))
+    }
     return Promise.reject(new Error(`unexpected ${path}`))
   })
 }
@@ -206,7 +232,7 @@ describe('PatientCardScreen', () => {
     expect(kpi).toEqual(['3', '3', '1 zile', '20.09', '1'])
     // B6: шесть вкладок, открыта «Rezumat»; с других вкладок ничего не смонтировано
     expect(strip().getAllByRole('tab').map((x) => x.textContent))
-      .toEqual(['Rezumat', 'Odontogramă', 'Plan și plăți', 'Vizite', 'Documente', 'Date pacient'])
+      .toEqual(['Rezumat', 'Odontogramă', 'Parodontogramă', 'Plan și plăți', 'Vizite', 'Documente', 'Date pacient'])
     expect(tabOn()).toBe('Rezumat')
     expect(router.state.location.search).toBe('')
     expect(document.querySelector('#odo')).toBeNull()
@@ -694,7 +720,7 @@ describe('PatientCardScreen', () => {
     const { router } = open()
     await screen.findByText('Pin Test', { selector: 'h2' })
     const list = screen.getByRole('tablist', { name: 'Secțiunile fișei' })
-    expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1])
+    expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1, -1])
     fireEvent.keyDown(list, { key: 'ArrowRight' })
     await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
     expect(document.activeElement?.textContent).toBe('Odontogramă')
@@ -709,6 +735,42 @@ describe('PatientCardScreen', () => {
     fireEvent.keyDown(list, { key: 'Home' })
     await strip().findByRole('tab', { name: 'Rezumat', selected: true })
     expect(document.activeElement?.textContent).toBe('Rezumat')
-    expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1])
+    expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1, -1])
+  })
+
+  it('B6 вкладка Parodontogramă: лист грузит себя сам по осмотру из адреса; смена осмотра и новый осмотр — адресом', async () => {
+    serve()
+    const { router } = open('/admin/patient/5?tab=perio&exam=4')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    /* осмотр из адреса — в запрос; фиша не перечитывалась */
+    await waitFor(() => expect(document.querySelector('.ptooth[data-tooth="16"]')).toBeTruthy())
+    expect(get).toHaveBeenCalledWith('/patients/5/perio?exam=4', expect.anything())
+    expect(opens()).toBe(1)
+    expect(screen.getByText('Pe tot ecranul').closest('a')?.getAttribute('href')).toBe('/admin/patient/5/parodontograma?exam=4')
+    expect(screen.queryByText('Odontogramă', { selector: '.odo-more' })).toBeNull()
+    /* выбор другого осмотра — адрес (replace), лист снят на время ответа, потом новый запрос */
+    const gets = () => get.mock.calls.filter(([p]) => String(p).startsWith('/patients/5/perio')).length
+    const before = gets()
+    fireEvent.change(screen.getByLabelText('Examen'), { target: { value: '9' } })
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=perio&exam=9'))
+    await waitFor(() => expect(gets()).toBe(before + 1))
+    expect(get).toHaveBeenLastCalledWith('/patients/5/perio?exam=9', expect.anything())
+    await waitFor(() => expect(document.querySelector('.ptooth[data-tooth="16"]')).toBeTruthy())
+    /* новый осмотр: ответ POST уже на экране, адрес ведёт к нему БЕЗ нового GET */
+    const made = { ...PERIO, exams: [{ ...PEXAM, id: 12, teeth: 0 }, ...PERIO.exams], exam: { ...PEXAM, id: 12, teeth: 0 }, rows: {} }
+    post.mockResolvedValueOnce(ok(made, 'ok_perio_new', 'Examen nou'))
+    const after = gets()
+    fireEvent.click(screen.getByText('Examen nou'))
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=perio&exam=12'))
+    expect(post).toHaveBeenCalledWith('/patients/5/perio/exams', expect.anything())
+    expect(gets()).toBe(after)
+    expect(opens()).toBe(1)
+    /* другая вкладка снимает лист и осмотр из адреса; обратно — свежий */
+    await tabTo('Odontogramă')
+    expect(router.state.location.search).toBe('?tab=odonto')
+    expect(document.querySelector('.perio')).toBeNull()
+    fireEvent.click(screen.getByText('Parodontogramă', { selector: '.odo-more' }))
+    await strip().findByRole('tab', { name: 'Parodontogramă', selected: true })
+    await waitFor(() => expect(get).toHaveBeenLastCalledWith('/patients/5/perio', expect.anything()))
   })
 })

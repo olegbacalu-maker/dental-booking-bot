@@ -199,6 +199,20 @@ export function mm1(value: number): string {
 
 const P = (pid: number) => `/patients/${pid}/perio`
 
+/**
+ * Осмотр из адреса (`?exam=`) — правилом СТРАНИЦЫ сервера: обрезанное
+ * значение из одних цифр ASCII — номер, всё прочее — «самый свежий» (null).
+ * ⚠️ Не `Number` по сырому значению: «4.0», «+4», «0x4», «1e1» открыли бы
+ * конкретный осмотр там, где страница отдаёт свежий. И не сырая строка в API:
+ * полноширинную «４» Python читает как 4. Бесконечность (сотни цифр) —
+ * тоже свежий, как и было. Один разбор на страницу и на вкладку фиши (B6).
+ */
+export function examOf(q: URLSearchParams): number | null {
+  const raw = (q.getAll('exam').at(-1) ?? '').trim()
+  const n = Number(raw)
+  return /^\d+$/.test(raw) && Number.isInteger(n) ? n : null
+}
+
 export const perio = {
   get: (pid: number, exam: number | null, signal?: AbortSignal) =>
     api.get<PerioModel>(`${P(pid)}${exam ? `?exam=${exam}` : ''}`, signal ? { signal } : {}),

@@ -154,7 +154,9 @@ export function OdontogramWorkbench({
             <button type="button" className="odo-more" onClick={() => { setBrMode(true); setPicked([]) }}>
               <Icon name="plus" /> {T.newBridge}
             </button>
-            <AppLink className="odo-more" href={`${base}/parodontograma`}><Icon name="tooth" /> {T.perio}</AppLink>
+            <AppLink className="odo-more" href={embedded ? `${base}?tab=perio` : `${base}/parodontograma`}>
+              <Icon name="tooth" /> {T.perio}
+            </AppLink>
             {embedded && <AppLink className="odo-more" href={`${base}/odontograma`}><Icon name="eye" /> {T.full}</AppLink>}
             <button type="button" className="odo-more" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
           </div>
