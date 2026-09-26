@@ -55,6 +55,16 @@ def suite(res: Result) -> None:
            and all(x in privacy for x in ("@font-face", 'class="top"', "<footer", "termeni.html")))
     res.ok("телефон и почта поддержки те же, что в письмах",
            config.SUPPORT_PHONE in terms and config.SUPPORT_EMAIL in terms)
+    # Текст о законе 195 перед кнопкой «Descarcă» (L15), обе версии: контакты
+    # и форма пробного — те же, что у сервера. Надписи программы на нём
+    # сторожит tests/test_structure.py движка.
+    for name in ("descarca.html", "descarca-ru.html"):
+        page = (SITE / name).read_text(encoding="utf-8")
+        res.ok(f"{name}: телефон, почта и форма пробного — как у сервера",
+               config.SUPPORT_PHONE in page and config.SUPPORT_EMAIL in page
+               and f"https://{host}/proba" in page)
+        res.ok(f"{name}: в стиле сайта, со ссылками на условия и политику",
+               all(x in page for x in ("@font-face", 'class="top"', "<footer", "termeni.html", "privacy.html")))
     # IDNO вписан 26.09 (был плейсхолдер): один и тот же номер на обеих страницах.
     idnos = set(re.findall(r"IDNO (\d{13})", terms)) | set(re.findall(r"IDNO (\d{13})", privacy))
     res.ok("IDNO — один и тот же номер на обеих страницах, плейсхолдера нет",

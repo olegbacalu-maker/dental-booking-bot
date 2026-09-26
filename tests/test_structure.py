@@ -1358,6 +1358,60 @@ def suite(res: Result) -> None:
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
 
+    # ---- текст перед скачиванием называет программу её словами (26.09) ----
+    # docs/site/descarca*.html — закон 195 перед кнопкой «Descarcă» (L15).
+    # Клиника, скачавшая программу сама, узнаёт о законе только из него, и он
+    # отправляет её к кнопкам фиши и к разделам настроек. Кнопка, которой нет,
+    # хуже молчания — тот же довод, что у FAQ. Запись на странице условная:
+    # «…» — только надписи экранов клиента (React — умолчание продукта), путь
+    # настроек — <b>Setări › X</b>, где X — плитка хаба (`_hub_tiles`). Обе
+    # версии называют одно и то же: перевод, потерявший кнопку, — другой текст.
+    # Надпись ищется ЦЕЛИКОМ — строкой в кавычках или текстом между тегами:
+    # «accesările» живёт и внутри 'ascunde accesările', и подстрока пережила бы
+    # переименование самой ссылки. Комментарии клиента не в счёт: надпись,
+    # оставшаяся только в пояснении, на экране уже не стоит.
+    # ⚠️ Полярность опасная: страницы, надписи, плитки и файлы клиента обязаны
+    # НАЙТИСЬ, иначе правило зелено на пустом месте.
+    bad, client = [], []
+    for f in sorted(FRONTEND.rglob("*.ts*")) if FRONTEND.exists() else []:
+        if ".test." in f.name:
+            continue
+        text = re.sub(r"/\*.*?\*/", " ", f.read_text(encoding="utf-8"), flags=re.S)
+        client.append(re.sub(r"(?<![:\w'\"])//[^\n]*", " ", text))
+    client_text = "\n".join(client)
+    if len(client) < 20:
+        bad.append(f"файлов клиента нашлось {len(client)} — обход сломан, правило пусто")
+    set_tree = by_path.get("app/modules/settings/routes.py")
+    hub = next((n for n in ast.walk(set_tree) if isinstance(n, ast.FunctionDef)
+                and n.name == "_hub_tiles"), None) if set_tree else None
+    tiles = {n.args[3].value for n in (ast.walk(hub) if hub else ())
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "tile" and len(n.args) >= 4
+             and isinstance(n.args[3], ast.Constant)}
+    if len(tiles) < 5:
+        bad.append(f"плиток хаба нашлось {len(tiles)} — `_hub_tiles` или `tile(…)` "
+                   "переименованы, правило ищет не то")
+    named = {}
+    for name in ("descarca.html", "descarca-ru.html"):
+        path = ROOT / "docs" / "site" / name
+        page = " ".join(path.read_text(encoding="utf-8").split()) if path.exists() else ""
+        labels = re.findall(r"«([^»]+)»", page)
+        paths = re.findall(r"<b>Setări › ([^<]+)</b>", page)
+        if not labels or not paths:
+            bad.append(f"docs/site/{name}: ни «надписей», ни путей Setări › — "
+                       "страницы нет или запись сменилась")
+        if page.count("Setări ›") != len(paths):
+            bad.append(f"{name}: путь Setări › вне <b>…</b> — правило его не видит")
+        bad += [f"{name}: «{t}» — такой надписи в клиенте нет" for t in labels
+                if not re.search(r"['\"`>]\s*" + re.escape(t) + r"\s*['\"`<]", client_text)]
+        bad += [f"{name}: Setări › {t} — такой плитки в настройках нет"
+                for t in paths if t not in tiles]
+        named[name] = (sorted(set(labels)), sorted(set(paths)))
+    if len(set(map(repr, named.values()))) > 1:
+        bad.append("descarca.html и descarca-ru.html называют разные кнопки или разделы")
+    res.ok("текст перед скачиванием называет кнопки программы её словами", not bad,
+           "сайт отправляет клинику к кнопке, которой нет: " + "; ".join(bad))
+
     # ---- каждый баннер каркаса — сигнал оболочки (посадка L5 на B1, 26.09) ----
     # Старая страница печатает баннеры в `_shell`, React-оболочка рисует
     # `shell_model()["signals"]` — и только их. Баннер, заведённый в одном месте,
