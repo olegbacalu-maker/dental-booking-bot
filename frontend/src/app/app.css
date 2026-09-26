@@ -529,6 +529,8 @@
 .dp-react-root .wpanel .odop-top .odo-actions { margin-left: 0; }
 /* «Deschide planul» в окне KPI — теперь кнопка (вкладка), выглядит ссылкой */
 .dp-react-root button.lmore { border: none; background: none; padding: 0; color: var(--teal-d); cursor: pointer; font: inherit; font-size: var(--fs-s); font-weight: 600; }
+/* «Vizite» над дневником во вкладке — кнопка (закрывает дневник адресом), выглядит ссылкой рядом */
+.dp-react-root .dp-vnav button { border: none; background: none; padding: 0; color: var(--teal-d); cursor: pointer; font: inherit; }
 
 /* ---- «Stare sistem» (C10) ---- */
 

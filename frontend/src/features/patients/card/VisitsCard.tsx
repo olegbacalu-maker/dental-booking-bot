@@ -1,6 +1,6 @@
 import { Icon } from '../../../components/Icon'
 import { AppLink } from '../../../components/AppLink'
-import type { PatientCard } from './card'
+import type { PatientCard, Visit } from './card'
 
 /* Ближайший визит своей карточкой и история — те же слова, что на старой
    странице; «следующий», «последний» и правило ссылки на дневник (заполнен /
@@ -17,6 +17,8 @@ const T = {
 
 interface Props {
   card: PatientCard
+  /** адрес дневника визита; без него — адрес сервера (страница из журнала) */
+  hrefOf?: (v: Visit) => string
 }
 
 export function NextVisitCard({ card }: Props) {
@@ -31,8 +33,9 @@ export function NextVisitCard({ card }: Props) {
   )
 }
 
-export function VisitsCard({ card }: Props) {
+export function VisitsCard({ card, hrefOf }: Props) {
   const hist = card.visits.history
+  const href = (v: Visit) => (hrefOf ? hrefOf(v) : v.url)
   return (
     <div className="fcard">
       <h3>{T.title} <small>· {T.last} {hist.length}</small></h3>
@@ -45,10 +48,10 @@ export function VisitsCard({ card }: Props) {
             <small>{v.doctor}</small>
             {v.consult === 'rec' && (
               <small className="dp-consult">
-                <Icon name="med" /> <AppLink href={v.url}>{T.consult}</AppLink>{v.diag ? `: ${v.diag}` : ''}
+                <Icon name="med" /> <AppLink href={href(v)}>{T.consult}</AppLink>{v.diag ? `: ${v.diag}` : ''}
               </small>
             )}
-            {v.consult === 'invite' && <small><AppLink href={v.url}>{T.invite}</AppLink></small>}
+            {v.consult === 'invite' && <small><AppLink href={href(v)}>{T.invite}</AppLink></small>}
           </div>
         </div>
       )) : <p className="hint dp-m0">{T.empty}</p>}

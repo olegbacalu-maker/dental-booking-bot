@@ -4,6 +4,7 @@ import type { ApiResult } from '../../../services/api'
 import { openScreen } from '../../../test/openScreen'
 import { ApiError } from '../../../types/api'
 import type { PerioModel } from '../../clinical/perio'
+import type { VisitPage } from '../../visits/visits'
 import type { PatientCard } from './card'
 import { mdl } from './card'
 import { loadPatientCard, PatientCardScreen } from './PatientCardScreen'
@@ -50,6 +51,22 @@ const PERIO: PerioModel = {
   summary: { teeth: 1, sites: 6, bop: 0, pd_mean: 3.2, cal_mean: 3.2, deep: 2, severe: 0, mob: [], furc: [] },
   limits: { mm_max: 12, mob_max: 3, furc_max: 3, deep: 4, severe: 6 },
   grades: { mob: { '1': 'gr. I' }, furc: { '1': 'gr. I' } }, doctors: ['Dr. Activ Doi'],
+}
+
+/* дневник визита — страница визита 3 этого пациента, `back` — эхо адреса вкладки */
+const VPAGE: VisitPage = {
+  appt: { id: 3, when: '20.09.2026 09:30', patient_id: 5, patient: 'Pin Test', service: 'Consultație',
+    doctor: 'Dr. Activ Doi', status: 'confirmed', status_label: 'confirmată', comment: '' },
+  record: null, editable: true, note: '',
+  fields: [
+    { id: 'acuze', label: 'Acuze / motivul prezentării', rows: 2, placeholder: '' },
+    { id: 'examen', label: 'Examen obiectiv', rows: 3, placeholder: '' },
+    { id: 'diagnostic', label: 'Diagnostic', rows: 2, placeholder: '' },
+    { id: 'tratament', label: 'Tratament efectuat', rows: 3, placeholder: '' },
+    { id: 'recomandari', label: 'Recomandări', rows: 2, placeholder: '' },
+  ],
+  templates: [], plan: { linked: [], open: [] },
+  back: '/admin/patient/5?tab=vizite',
 }
 
 const CARD: PatientCard = {
@@ -153,6 +170,7 @@ function serve(card: PatientCard = CARD) {
     if (path === '/patients/5/odontogram') return Promise.resolve(ok(ODO))
     if (path.startsWith('/patients/5/activity')) return Promise.resolve(ok(feed(card, path.includes('views=1'))))
     if (path.startsWith('/patients/5/slots')) return Promise.resolve(ok({ slots: ['09:00', '09:30'] }))
+    if (path.startsWith('/visits/3')) return Promise.resolve(ok(VPAGE))
     if (path.startsWith('/patients/5/perio')) {
       /* как сервер: осмотр из адреса; неизвестный или без адреса — свежий */
       const id = new URLSearchParams(path.split('?')[1] ?? '').get('exam')
@@ -240,7 +258,8 @@ describe('PatientCardScreen', () => {
     expect(document.querySelector('.dp-pedit')).toBeNull()
     // Rezumat: ближайший визит, история, предупреждения, летопись, быстрые действия
     expect(document.querySelector('.tline.next')?.textContent).toContain('20.09.2026 09:30')
-    expect((screen.getByText('+ Consultație') as HTMLAnchorElement).getAttribute('href')).toBe('/admin/visit/3?back=/admin/patient/5')
+    /* B6 шаг 4: дневник открывается во вкладке Vizite, визит — адресом */
+    expect((screen.getByText('+ Consultație') as HTMLAnchorElement).getAttribute('href')).toBe('/admin/patient/5?tab=vizite&visit=3')
     expect(screen.getByText(/: Pulpită 26/)).toBeTruthy()
     expect(screen.getByText('Următoarea vizită', { selector: '.dp-next h3' })).toBeTruthy()
     expect(document.querySelectorAll('.acti').length).toBe(10)
@@ -772,5 +791,41 @@ describe('PatientCardScreen', () => {
     fireEvent.click(screen.getByText('Parodontogramă', { selector: '.odo-more' }))
     await strip().findByRole('tab', { name: 'Parodontogramă', selected: true })
     await waitFor(() => expect(get).toHaveBeenLastCalledWith('/patients/5/perio', expect.anything()))
+  })
+
+  it('B6 вкладка Vizite: дневник визита открывается на месте, визит в адресе; запись без нового открытия фиши; закрытие — история', async () => {
+    serve()
+    post.mockResolvedValueOnce(ok({ ...VPAGE, record: { acuze: 'Durere nouă', examen: '', diagnostic: '', tratament: '', recomandari: '',
+      created: '26.09.2026 14:00', updated: '', author: 'Director' } }, 'ok_visit', 'Consultația a fost salvată'))
+    const { router } = open('/admin/patient/5?tab=vizite')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    fireEvent.click(screen.getByText('+ Consultație'))
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=vizite&visit=3'))
+    expect(await screen.findByText('Jurnalul consultației')).toBeTruthy()
+    const back = encodeURIComponent('/admin/patient/5?tab=vizite')
+    expect(get).toHaveBeenCalledWith(`/visits/3?back=${back}`, expect.anything())
+    expect(opens()).toBe(1)
+    /* имя пациента — текстом (мы уже в его фише), история и ближайший визит сняты */
+    expect(screen.queryByText('Istoric vizite')).toBeNull()
+    expect(document.querySelector('.frow .v a')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Acuze / motivul prezentării'), { target: { value: 'Durere nouă' } })
+    fireEvent.click(screen.getByText('Salvează consultația'))
+    expect(await screen.findByText('Consultația a fost salvată')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/visits/3', expect.objectContaining({ acuze: 'Durere nouă', done: [], back: '/admin/patient/5?tab=vizite' }))
+    expect(screen.getByText(/Înregistrat: 26.09.2026 14:00/)).toBeTruthy()
+    expect(opens()).toBe(1)
+    /* «Pe tot ecranul» — прежняя страница дневника с возвратом сюда */
+    expect(screen.getByText('Pe tot ecranul').closest('a')?.getAttribute('href')).toBe(`/admin/visit/3?back=${back}`)
+    /* закрытие — история визитов, адрес без визита; F5 на адресе дневника — снова дневник */
+    fireEvent.click(screen.getByText('Vizite', { selector: '.dp-vnav button' }))
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=vizite'))
+    expect(screen.getByText('Istoric vizite')).toBeTruthy()
+    expect(screen.queryByText('Jurnalul consultației')).toBeNull()
+    fireEvent.click(screen.getByText('+ Consultație'))
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=vizite&visit=3'))
+    const r2 = reopen(router)
+    expect(await screen.findByText('Jurnalul consultației')).toBeTruthy()
+    expect(r2.router.state.location.search).toBe('?tab=vizite&visit=3')
+    expect(opens()).toBe(1)
   })
 })
