@@ -31,6 +31,8 @@ if '--out' in sys.argv:
 # three.js — UMD-сборка r158 с jsDelivr (последняя версия с build/three.min.js;
 # артефакт claude.ai пускает скрипты только с cdnjs / jsdelivr / unpkg).
 THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js'
+# Номер версии страницы печатается в подвале: по нему видно, открыта ли свежая сборка.
+PAGE_VER = '3 · 26.09.2026 · анимации, имплант, белый фон'
 
 UP = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 LO = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
@@ -83,7 +85,7 @@ CSS3D = r'''
 /* ---- 3D ---- */
 .col{display:grid;gap:16px;min-width:0}
 .stage-head{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-bottom:10px}
-.seg{display:inline-flex;flex-wrap:wrap;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;background:var(--line-2);border:1px solid var(--line);border-radius:9px;padding:3px}
 .seg button{border:none;background:none;border-radius:7px;padding:5px 10px;cursor:pointer;color:var(--text-2);font-size:13px;font-weight:500}
 .seg button:hover{background:var(--line-2)}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);font-weight:600}
@@ -108,8 +110,8 @@ HEAD = r'''<title>__TITLE__</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <style>
 :root{
-  --bg:#f4f6f8;--panel:#ffffff;--line:#dde3e8;--line-2:#edf1f4;--text:#17242c;--text-2:#4a5a64;--text-3:#66747e;
-  --accent:#0f7b8a;--accent-soft:#e4f2f4;--on-accent:#ffffff;--band:#eef2f5;--cell:#ffffff;--gold-text:#B45309;--stage-top:#ffffff;--stage-bottom:#e4eaef;
+  --bg:#ffffff;--panel:#ffffff;--line:#dde3e8;--line-2:#edf1f4;--text:#17242c;--text-2:#4a5a64;--text-3:#66747e;
+  --accent:#0f7b8a;--accent-soft:#e4f2f4;--on-accent:#ffffff;--band:#eef2f5;--cell:#ffffff;--gold-text:#B45309;--stage-top:#ffffff;--stage-bottom:#ffffff;
   --t-line:#64748B;--t-soft:#94A3B8;--t-ghost:#CBD5E1;--f-extras:#E2E8F0;--f-carie:#FEF2F2;--f-obturatie:#EFF6FF;--f-coroana:#FFF7ED;--f-implant:#F5F3FF;
   --shadow:0 1px 2px rgba(23,36,44,.05),0 10px 28px rgba(23,36,44,.06);
   --r-card:14px;--r-ctl:9px;--r-sm:6px;
@@ -134,7 +136,7 @@ button{font:inherit;color:inherit}
 .top{max-width:1180px;margin:0 auto 14px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
 .top h1{font-size:22px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
 .top .sub{margin:4px 0 0;color:var(--text-2);max-width:60ch}
-.tabs{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:4px;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;background:var(--line-2);border:1px solid var(--line);border-radius:11px;padding:4px;flex-wrap:wrap}
 .tabs button{font-weight:500;color:var(--text-2);background:none;border:none;border-radius:8px;padding:7px 12px;cursor:pointer}
 .tabs button:hover{background:var(--line-2)}
 .tabs button[aria-selected="true"]{background:var(--accent);color:var(--on-accent);font-weight:600}
@@ -147,7 +149,7 @@ button{font:inherit;color:inherit}
 .pt .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
 .pt small{font-weight:500;color:var(--text-3)}
 .sum{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
-.sum span{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:var(--bg)}
+.sum span{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:var(--line-2)}
 .sum i{width:8px;height:8px;border-radius:2px;display:inline-block}
 .btn{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-ctl);padding:6px 12px;cursor:pointer;font-weight:500;color:var(--text-2)}
 .btn:hover{border-color:var(--accent);color:var(--accent)}
@@ -209,7 +211,7 @@ button{font:inherit;color:inherit}
 .pill.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
 .chips{display:grid;gap:6px}
 .chip{display:flex;align-items:center;gap:10px;width:100%;padding:5px 10px 5px 6px;border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);cursor:pointer;text-align:left;font-size:13px;color:var(--text-2)}
-.chip .code{width:22px;height:22px;border-radius:var(--r-sm);background:var(--bg);display:grid;place-items:center;font-weight:600;font-size:12px;color:var(--text);flex:none}
+.chip .code{width:22px;height:22px;border-radius:var(--r-sm);background:var(--line-2);display:grid;place-items:center;font-weight:600;font-size:12px;color:var(--text);flex:none}
 .chip .cl{flex:1}
 .chip .cs{font-size:12px;font-weight:600}
 .chip:hover{border-color:var(--accent)}
@@ -220,6 +222,7 @@ button{font:inherit;color:inherit}
 .brinfo{margin:0;font-size:13px;color:var(--text-2)}
 .notes{max-width:1180px;margin:22px auto 0;color:var(--text-2)}
 .notes h2{font-size:13px;font-weight:600;color:var(--text-3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+.notes .ver{font-weight:500;text-transform:none;letter-spacing:0}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 24px}
 .notes p{margin:0;font-size:13px;line-height:1.55;max-width:62ch}
 .notes b{color:var(--text)}
@@ -255,7 +258,7 @@ BODY = r'''
   <aside class="card insp" id="insp" aria-live="polite"></aside>
 </main>
 <section class="notes">
-  <h2>Откуда что взято</h2>
+  <h2>Откуда что взято <span class="ver">· версия __VER__</span></h2>
   <div class="notes-grid">
     <p><b>Зубы.</b> Контуры коронок, корней, фиссур, долек и зон поверхностей — те же, что рисует движок DentPilot (<code>teeth_svg.py</code>), перенесены на страницу как данные вместе с палитрой состояний. Новых форм зуба здесь нет; в программе геометрию по‑прежнему отдаёт сервер.</p>
     <p><b>Макеты.</b> Три стандартные раскладки: анатомическая дуга (как в Dentrix, Curve, Dentally и в открытой библиотеке react‑advanced‑odontogram), схема поверхностей MODVL пятизонным квадратом (немецкий «Zahnschema», латиноамериканская odontograma) и нынешняя панорама двумя рядами.</p>
@@ -315,7 +318,7 @@ BODY3D = r'''
   <aside class="card insp" id="insp" aria-live="polite"></aside>
 </main>
 <section class="notes">
-  <h2>Откуда что взято</h2>
+  <h2>Откуда что взято <span class="ver">· версия __VER__</span></h2>
   <div class="notes-grid">
     <p><b>3D‑зубы.</b> 32 процедурных зуба: мезио‑дистальная и вестибуло‑язычная ширина, число корней и раскладка по дуге — из движка DentPilot (<code>teeth_svg.py</code>); высота коронки и длина корней — по классам зуба; форма коронки, бугры и корни — по методу прототипа dental3d (суперэллипс, сплайн профиля, гауссианы бугров). Ни одной сторонней модели.</p>
     <p><b>Цвета в 3D те же, что в 2D.</b> Поверхность с кариесом краснеет, с пломбой синеет, коронка золотая, имплант — титановый винт с фиолетовым кольцом, удалённый зуб — лунка в десне, отсутствующий — полупрозрачный призрак, «în tratament» — зелёное кольцо у шейки. «Rădăcini» делает десну прозрачной.</p>
@@ -803,7 +806,7 @@ page = page.replace('__CSS3D__', CSS3D if MODE_3D else '')
 script = ('<script>\nconst G=' + json.dumps({int(k): v for k, v in G.items()}, ensure_ascii=False, separators=(',', ':'))
           + ';\nconst P=' + json.dumps(P, ensure_ascii=False, separators=(',', ':')) + ';\n'
           + JS.replace('__JS3D__', JS3D if MODE_3D else '') + '</script>\n')
-html = (page + DEFS + (BODY3D if MODE_3D else BODY)
+html = (page + DEFS + (BODY3D if MODE_3D else BODY).replace('__VER__', PAGE_VER)
         + (f"<script src='{THREE_URL}'></script>\n" if MODE_3D else '') + script)
 assert '</script' not in json.dumps(G) and '</script' not in json.dumps(P)
 if not ARTIFACT:
