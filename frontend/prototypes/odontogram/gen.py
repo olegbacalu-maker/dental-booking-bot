@@ -5,7 +5,8 @@
 состояний берутся из bot/app/teeth_svg.py и кладутся в страницу как данные;
 раскладки и интерактив живут в самой странице. Запуск из любого каталога:
 
-    python frontend/prototypes/odontogram/gen.py            # → index.html
+    python frontend/prototypes/odontogram/gen.py            # → index.html (2D)
+    python frontend/prototypes/odontogram/gen.py --3d       # → 3d.html (2D + 3D на three.js)
     python frontend/prototypes/odontogram/gen.py --artifact # тело без <html>, для публикации артефактом
 
 ⛔ Это прототип (frontend/prototypes/README.md): в сборку не входит, из src/
@@ -21,7 +22,16 @@ sys.path.insert(0, os.path.join(REPO, 'bot'))
 from app import teeth_svg as T  # noqa: E402  — без импортов проекта, тянется без fastapi
 
 ARTIFACT = '--artifact' in sys.argv
-OUT = os.path.join(HERE, 'odontogram.html' if ARTIFACT else 'index.html')
+MODE_3D = '--3d' in sys.argv
+_names = {(False, False): 'index.html', (True, False): '3d.html',
+          (False, True): 'odontogram.html', (True, True): 'odontogram3d.html'}
+OUT = os.path.join(HERE, _names[(MODE_3D, ARTIFACT)])
+if '--out' in sys.argv:
+    OUT = sys.argv[sys.argv.index('--out') + 1]
+# three.js — UMD-сборка r158 с jsDelivr (последняя версия с build/three.min.js;
+# артефакт claude.ai пускает скрипты только с cdnjs / jsdelivr / unpkg).
+THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js'
+
 UP = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
 LO = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
 
@@ -69,13 +79,37 @@ DEFS = ("<svg width='0' height='0' style='position:absolute' aria-hidden='true' 
         f"<stop offset='1' stop-color='{T.CROWN_GOLD[2]}'/></linearGradient>"
         f"{clips}</defs></svg>")
 
-HEAD = r'''<title>Одонтограмма DentPilot</title>
+CSS3D = r'''
+/* ---- 3D ---- */
+.col{display:grid;gap:16px;min-width:0}
+.stage-head{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px}
+.seg button{border:none;background:none;border-radius:7px;padding:5px 10px;cursor:pointer;color:var(--text-2);font-size:13px;font-weight:500}
+.seg button:hover{background:var(--line-2)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);font-weight:600}
+.seg button:focus-visible,.tog:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tog{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);cursor:pointer;font-size:13px;color:var(--text-2)}
+.tog:hover{border-color:var(--accent)}
+.tog[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.stage{position:relative;height:520px;border-radius:12px;overflow:hidden;contain:paint;border:1px solid var(--line);
+  background:linear-gradient(var(--stage-top),var(--stage-bottom))}
+@media (max-width:880px){.stage{height:400px}}
+.stage canvas{display:block;width:100%;height:100%;outline:none;touch-action:none;cursor:grab}
+.stage canvas.pick{cursor:pointer}.stage canvas.drag{cursor:grabbing}
+.stage .msg{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--text-3);font-size:13px}
+.stage .tip3{position:absolute;left:12px;bottom:10px;font-size:11.5px;color:var(--text-3);pointer-events:none}
+.stage .hover3{position:absolute;left:12px;top:10px;font-size:12.5px;font-weight:600;color:var(--text-2);pointer-events:none;min-height:18px}
+.stage .jaw3{position:absolute;right:12px;font-size:10px;font-weight:700;letter-spacing:.14em;color:var(--text-3);pointer-events:none}
+.stage .jaw3.up{top:10px}.stage .jaw3.lo{bottom:10px}
+'''
+
+HEAD = r'''<title>__TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <style>
 :root{
   --bg:#f4f6f8;--panel:#ffffff;--line:#dde3e8;--line-2:#edf1f4;--text:#17242c;--text-2:#4a5a64;--text-3:#66747e;
-  --accent:#0f7b8a;--accent-soft:#e4f2f4;--on-accent:#ffffff;--band:#eef2f5;--cell:#ffffff;--gold-text:#B45309;
+  --accent:#0f7b8a;--accent-soft:#e4f2f4;--on-accent:#ffffff;--band:#eef2f5;--cell:#ffffff;--gold-text:#B45309;--stage-top:#ffffff;--stage-bottom:#e4eaef;
   --t-line:#64748B;--t-soft:#94A3B8;--t-ghost:#CBD5E1;--f-extras:#E2E8F0;--f-carie:#FEF2F2;--f-obturatie:#EFF6FF;--f-coroana:#FFF7ED;--f-implant:#F5F3FF;
   --shadow:0 1px 2px rgba(23,36,44,.05),0 10px 28px rgba(23,36,44,.06);
   --r-card:14px;--r-ctl:9px;--r-sm:6px;
@@ -83,13 +117,13 @@ HEAD = r'''<title>Одонтограмма DentPilot</title>
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){color-scheme:dark;
     --bg:#10181c;--panel:#17202a;--line:#2a363d;--line-2:#212c34;--text:#eef3f5;--text-2:#b3c2ca;--text-3:#93a5ae;
-    --accent:#35a7b8;--accent-soft:#14333a;--on-accent:#04181c;--band:#1e2a31;--cell:#1b262e;--gold-text:#F5B453;
+    --accent:#35a7b8;--accent-soft:#14333a;--on-accent:#04181c;--band:#1e2a31;--cell:#1b262e;--gold-text:#F5B453;--stage-top:#1b2429;--stage-bottom:#121a1e;
     --t-line:#9AA8BA;--t-soft:#7C8AA0;--t-ghost:#4B5A6B;--f-extras:#3A4756;--f-carie:#3A2224;--f-obturatie:#1E2C44;--f-coroana:#3A2C14;--f-implant:#2B2547;
     --shadow:none}
 }
 :root[data-theme="dark"]{color-scheme:dark;
   --bg:#10181c;--panel:#17202a;--line:#2a363d;--line-2:#212c34;--text:#eef3f5;--text-2:#b3c2ca;--text-3:#93a5ae;
-  --accent:#35a7b8;--accent-soft:#14333a;--on-accent:#04181c;--band:#1e2a31;--cell:#1b262e;--gold-text:#F5B453;
+  --accent:#35a7b8;--accent-soft:#14333a;--on-accent:#04181c;--band:#1e2a31;--cell:#1b262e;--gold-text:#F5B453;--stage-top:#1b2429;--stage-bottom:#121a1e;
   --t-line:#9AA8BA;--t-soft:#7C8AA0;--t-ghost:#4B5A6B;--f-extras:#3A4756;--f-carie:#3A2224;--f-obturatie:#1E2C44;--f-coroana:#3A2C14;--f-implant:#2B2547;
   --shadow:none}
 *{box-sizing:border-box}
@@ -191,7 +225,7 @@ button{font:inherit;color:inherit}
 .notes b{color:var(--text)}
 .notes code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;background:var(--line-2);padding:1px 5px;border-radius:4px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-</style>
+__CSS3D__</style>
 '''
 
 BODY = r'''
@@ -226,6 +260,246 @@ BODY = r'''
     <p><b>Не нарисовано.</b> Молочный ряд, пародонтограмма, история и заметки зуба. Это макет для сравнения, а не экран программы: правки здесь никуда не сохраняются, «Resetează exemplul» возвращает исходный пример.</p>
   </div>
 </section>
+'''
+
+BODY3D = r'''
+<header class="top">
+  <div>
+    <h1>Odontogramă 2D/3D</h1>
+    <p class="sub">Обе челюсти в 3D и та же карта в 2D на одних данных. Клик по поверхности зуба в любом из видов меняет её состояние; вращение мышью, зум колёсиком.</p>
+  </div>
+  <div class="pt"><span class="dot"></span>Marian D. <small>· exemplu · 26.09.2026</small></div>
+</header>
+<main class="wrap">
+  <div class="col">
+    <section class="card">
+      <div class="stage-head">
+        <div class="seg" role="group" aria-label="Vedere 3D" id="views">
+          <button type="button" data-view="frontal" aria-pressed="true">Frontal</button>
+          <button type="button" data-view="sus" aria-pressed="false">Ocluzal sus</button>
+          <button type="button" data-view="jos" aria-pressed="false">Ocluzal jos</button>
+          <button type="button" data-view="dreapta" aria-pressed="false">Dreapta</button>
+          <button type="button" data-view="stanga" aria-pressed="false">Stânga</button>
+        </div>
+        <div class="pills" id="togs">
+          <button type="button" class="tog" data-tog="xray" aria-pressed="false">Rădăcini</button>
+          <button type="button" class="tog" data-tog="labels" aria-pressed="true">Numere</button>
+          <button type="button" class="tog" data-tog="upper" aria-pressed="true">Maxilar</button>
+          <button type="button" class="tog" data-tog="lower" aria-pressed="true">Mandibular</button>
+        </div>
+      </div>
+      <div class="stage" id="stage">
+        <div class="hover3" id="hover3"></div>
+        <div class="jaw3 up">MAXILAR</div><div class="jaw3 lo">MANDIBULAR</div>
+        <div class="tip3">Trage: rotește · rotița: zoom · clic pe suprafață: — → carie → obturație → —</div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="chart-head">
+        <div class="tabs" role="tablist" aria-label="Макет 2D">
+          <button type="button" role="tab" id="tab-arcada" data-tpl="arcada" aria-selected="true">Дуга</button>
+          <button type="button" role="tab" id="tab-schema" data-tpl="schema" aria-selected="false">Схема MODVL</button>
+          <button type="button" role="tab" id="tab-panorama" data-tpl="panorama" aria-selected="false">Панорама</button>
+        </div>
+        <div class="sum" id="sum" aria-live="polite"></div>
+        <button type="button" class="btn" id="reset">Resetează exemplul</button>
+      </div>
+      <div id="chart" class="chart"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+  </div>
+  <aside class="card insp" id="insp" aria-live="polite"></aside>
+</main>
+<section class="notes">
+  <h2>Откуда что взято</h2>
+  <div class="notes-grid">
+    <p><b>3D‑зубы.</b> 32 процедурных зуба: мезио‑дистальная и вестибуло‑язычная ширина, число корней и раскладка по дуге — из движка DentPilot (<code>teeth_svg.py</code>); высота коронки и длина корней — по классам зуба; форма коронки, бугры и корни — по методу прототипа dental3d (суперэллипс, сплайн профиля, гауссианы бугров). Ни одной сторонней модели.</p>
+    <p><b>Цвета в 3D те же, что в 2D.</b> Поверхность с кариесом краснеет, с пломбой синеет, коронка золотая, имплант — титановый винт с фиолетовым кольцом, удалённый зуб — лунка в десне, отсутствующий — полупрозрачный призрак, «în tratament» — зелёное кольцо у шейки. «Rădăcini» делает десну прозрачной.</p>
+    <p><b>Ограничения.</b> three.js грузится с cdn.jsdelivr.net, при первом открытии нужен интернет. Молочного ряда, пародонта, истории и заметок нет; правки не сохраняются. В программу 3D поедет через прототип dental3d и контракт клинического модуля, а не этой страницей.</p>
+  </div>
+</section>
+'''
+
+JS3D = r'''
+/* ================= 3D: обе челюсти, three.js (UMD r158, глобал THREE) ================= */
+var R3=null, hover3=null;
+const SURF3=['O','V','L','M','D'];
+const MM=0.2893;                       // мм в единице движка: моляр 36.3 ед. = 10.5 мм
+const CROWN_H={incisor_c:[10.5,9.0],incisor_l:[9.0,9.5],canine:[10.0,11.0],premolar:[8.5,8.0],molar:[7.5,7.5]};   // [верх, низ]
+const ROOT_L={incisor_c:[11.7,11.2],incisor_l:[11.7,11.7],canine:[14.5,14],premolar:[12.5,12.5],molar:[11.2,12.5]};   // ×0.9 от средних: корни остаются внутри гребня десны
+const SQUARE={incisor_c:2.4,incisor_l:2.4,canine:2.2,premolar:2.6,molar:3.2};
+const PROF={molar:[[0,.80,.80],[.16,.92,.92],[.34,1,1],[.62,.99,.99],[.86,.95,.95],[1,.90,.90]],
+  premolar:[[0,.80,.80],[.16,.92,.92],[.34,1,1],[.62,.98,.98],[.86,.92,.92],[1,.86,.86]],
+  canine:[[0,.80,.85],[.2,.95,1],[.45,1,.95],[.7,.9,.7],[.88,.65,.42],[1,.30,.16]],
+  incisor:[[0,.78,.85],[.2,.9,1],[.45,1,.9],[.7,1.02,.62],[.88,1,.36],[1,.96,.14]]};
+const ENAMEL3=0xe9e1d1, DENTIN3=0xd6c2a4, GOLD3=0xF2A93B, GUM3=0xECB3AE, SOCKET3=0x8b949e, TITAN3=0xb9bec6, GLOW3=0x0b6b7a;
+const profOf=cls=>PROF[cls.startsWith('incisor')?'incisor':cls];
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const smooth=(e0,e1,x)=>{const t=clamp((x-e0)/(e1-e0),0,1);return t*t*(3-2*t);};
+function profAt(prof,t){ const n=prof.length; let i=1; while(i<n-1&&t>prof[i][0]) i++; const p1=prof[i-1],p2=prof[i],p0=prof[i-2]||p1,p3=prof[i+1]||p2;
+  const span=p2[0]-p1[0], u=span>0?clamp((t-p1[0])/span,0,1):0, u2=u*u, u3=u2*u;
+  const cr=k=>0.5*((2*p1[k])+(-p0[k]+p2[k])*u+(2*p0[k]-5*p1[k]+4*p2[k]-p3[k])*u2+(-p0[k]+3*p1[k]-3*p2[k]+p3[k])*u3); return [cr(1),cr(2)]; }
+function crossSec(th,a,b,sq){ const c=Math.cos(th),s=Math.sin(th),p=2/sq; return [Math.sign(c)*Math.pow(Math.abs(c),p)*a, Math.sign(s)*Math.pow(Math.abs(s),p)*b]; }
+/* рельеф жевательной поверхности в долях полуосей (fx: мезиально = -1 … дистально = +1; fz: язычно -1 … щёчно +1), мм */
+function reliefFn(cls,upper){
+  const gs=(fx,fz,cx,cz,s)=>Math.exp(-0.5*(((fx-cx)/s)**2+((fz-cz)/s)**2));
+  if(cls==='molar'){ const cusps=upper?[[-.48,.51,2.0],[.51,.49,1.78],[-.5,-.53,1.88],[.53,-.45,1.38]]:[[-.5,.5,1.9],[.12,.56,1.62],[.66,.36,1.3],[-.45,-.5,1.9],[.42,-.5,1.62]];
+    return (fx,fz)=>{ let h=0; for(const [cx,cz,a] of cusps) h+=a*gs(fx,fz,cx,cz,.34); h-=1.15*gs(fx,fz,.02,0,.24);
+      h-=.7*Math.exp(-0.5*(fx/.1)**2)*clamp((fz+.05)/.35,0,1); h-=.55*Math.exp(-0.5*((fx-.35)/.1)**2)*clamp((-fz-.05)/.35,0,1); return Math.max(0,h); }; }
+  if(cls==='premolar'){ const lh=upper?1.6:1.0; return (fx,fz)=>{ let h=2.1*gs(fx,fz,0,.46,.42)+lh*gs(fx,fz,0,-.46,.4); h-=.7*Math.exp(-0.5*(fz/.16)**2)*clamp(1-Math.abs(fx)/.75,0,1); return Math.max(0,h); }; }
+  if(cls==='canine') return (fx,fz)=>1.3*gs(fx,fz,-.1,0,.45);
+  return ()=>0;
+}
+/* Коронка: стенка (θ × высота) + площадка (кольца к центру), пять групп треугольников = пять материалов.
+   Канон прототипа dental3d: +x дистально, -x мезиально, +z щёчно, +y окклюзионно, шейка y=0. */
+function buildCrown(hmd,hbl,H,cls,upper){
+  const TH=64, ROWS=22, RINGS=10, sq=SQUARE[cls], prof=profOf(cls), relief=reliefFn(cls,upper), rimK=(cls==='molar'||cls==='premolar')?.52:0;
+  const [topMD,topBL]=profAt(prof,1); const pos=[];
+  const ridge=th=>{ const [x,z]=crossSec(th,hmd*topMD,hbl*topBL,sq); return relief(x/hmd,z/hbl)*rimK; };
+  for(let r=0;r<=ROWS;r++){ const t=r/ROWS, [wm,wb]=profAt(prof,t), k=smooth(.72,1,t); for(let j=0;j<TH;j++){ const th=2*Math.PI*j/TH; const [x,z]=crossSec(th,hmd*wm,hbl*wb,sq); pos.push(x,t*H+ridge(th)*k,z); } }
+  const ringStart=[ROWS*TH];
+  for(let k=1;k<=RINGS;k++){ const s=1-k/RINGS; ringStart.push(pos.length/3); if(k===RINGS){ pos.push(0,H+relief(0,0),0); break; }
+    for(let j=0;j<TH;j++){ const th=2*Math.PI*j/TH; const [rx,rz]=crossSec(th,hmd*topMD,hbl*topBL,sq); const x=rx*s,z=rz*s, fade=1-smooth(.7,1,s); pos.push(x,H+relief(x/hmd,z/hbl)*fade+ridge(th)*(1-fade),z); } }
+  const B={O:[],V:[],L:[],M:[],D:[]}, step=360/TH;
+  const sector=deg=>{ let d=deg%360; if(d<-30)d+=360; if(d>=330)d-=360; if(d>=-30&&d<30) return 'D'; if(d<150) return 'V'; if(d<210) return 'M'; return 'L'; };
+  for(let r=0;r<ROWS;r++) for(let j=0;j<TH;j++){ const jn=(j+1)%TH,a=r*TH+j,b=r*TH+jn,c=(r+1)*TH+jn,d=(r+1)*TH+j; B[sector((j+.5)*step)].push(a,c,b,a,d,c); }
+  for(let k=0;k<RINGS;k++){ const o=ringStart[k],i=ringStart[k+1]; if(k===RINGS-1){ for(let j=0;j<TH;j++){ const jn=(j+1)%TH; B.O.push(o+j,i,o+jn); } } else for(let j=0;j<TH;j++){ const jn=(j+1)%TH; B.O.push(o+j,i+j,i+jn,o+j,i+jn,o+jn); } }
+  const geo=new THREE.BufferGeometry(), idx=[]; SURF3.forEach((L,slot)=>{ geo.addGroup(idx.length,B[L].length,slot); for(const v of B[L]) idx.push(v); });
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); geo.setIndex(idx); geo.computeVertexNormals(); geo.computeBoundingSphere(); return geo;
+}
+function rootSpecs(cls,n,hmd,hbl,len){
+  if(n===3) return [{x:-.34*hmd,z:.31*hbl,rx:.37*hmd,rz:.34*hbl,len:len*.95,ox:-.29*hmd,oz:.25*hbl},{x:.36*hmd,z:.32*hbl,rx:.35*hmd,rz:.32*hbl,len:len*.9,ox:.31*hmd,oz:.22*hbl},{x:.02*hmd,z:-.36*hbl,rx:.42*hmd,rz:.38*hbl,len:len*1.02,ox:.02*hmd,oz:-.44*hbl}];
+  if(n===2){ if(cls==='premolar') return [{x:0,z:.42*hbl,rx:.55*hmd,rz:.36*hbl,len,ox:0,oz:.2*hbl},{x:0,z:-.42*hbl,rx:.55*hmd,rz:.36*hbl,len:len*.96,ox:0,oz:-.2*hbl}];
+    return [{x:-.45*hmd,z:0,rx:.3*hmd,rz:.72*hbl,len,ox:-.1*hmd,oz:0},{x:.45*hmd,z:0,rx:.3*hmd,rz:.7*hbl,len:len*.95,ox:.25*hmd,oz:0}]; }
+  return [{x:0,z:0,rx:.72*hmd,rz:.72*hbl,len,ox:.08*hmd,oz:0}];
+}
+/* Шеечный переход + корни (эллиптические конусы, слегка расходятся и наклонены дистально). */
+function buildRoots(hmd,hbl,cls,nRoots,len){
+  const TH=48, COL=2.4, CR=6, sq=SQUARE[cls], [wm0,wb0]=profAt(profOf(cls),0), pos=[], idx=[];
+  for(let r=0;r<=CR;r++){ const t=r/CR, w=1-.14*smooth(0,1,t); for(let j=0;j<TH;j++){ const th=2*Math.PI*j/TH; const [x,z]=crossSec(th,hmd*wm0*w,hbl*wb0*w,sq); pos.push(x,-COL*t,z); } }
+  for(let r=0;r<CR;r++) for(let j=0;j<TH;j++){ const jn=(j+1)%TH,a=r*TH+j,b=r*TH+jn,c=(r+1)*TH+jn,d=(r+1)*TH+j; idx.push(a,b,c,a,c,d); }
+  const RS=20, RR=12;
+  for(const s of rootSpecs(cls,nRoots,hmd,hbl,len)){ const base=pos.length/3;
+    for(let r=0;r<=RR;r++){ const t=r/RR, y=-COL*.62-s.len*t, bend=t*t, cx=s.x+s.ox*bend, cz=s.z+s.oz*bend, k=Math.pow(1-t,.62)*(1+.1*Math.sin(Math.PI*t));
+      if(r===RR){ pos.push(cx,y,cz); break; } for(let j=0;j<RS;j++){ const th=2*Math.PI*j/RS; pos.push(cx+Math.cos(th)*s.rx*k,y,cz+Math.sin(th)*s.rz*k); } }
+    for(let r=0;r<RR;r++){ const o=base+r*RS,i=base+(r+1)*RS; if(r===RR-1){ const tip=base+RR*RS; for(let j=0;j<RS;j++){ const jn=(j+1)%RS; idx.push(o+j,o+jn,tip); } } else for(let j=0;j<RS;j++){ const jn=(j+1)%RS; idx.push(o+j,i+jn,i+j,o+j,o+jn,i+jn); } } }
+  const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); geo.setIndex(idx); geo.computeVertexNormals(); geo.computeBoundingSphere(); return geo;
+}
+function buildScrew(r){ const pts=[new THREE.Vector2(0,.4),new THREE.Vector2(r*.85,.4),new THREE.Vector2(r,0),new THREE.Vector2(r,-.9)];
+  for(let i=0;i<8;i++){ const y=-1.2-i*1.15, k=1-i*.055; pts.push(new THREE.Vector2(r*.78*k,y),new THREE.Vector2(r*k,y-.55)); }
+  pts.push(new THREE.Vector2(r*.45,-10.6),new THREE.Vector2(0,-11)); return new THREE.LatheGeometry(pts,24); }
+/* Десна: гребень эллиптического сечения вдоль той же параболы, чуть длиннее ряда. */
+function buildRidge(A,D,apex,yTop,dir){
+  const rx=6.0, ry=8.5, N=96, M=28, ext=4, yc=yTop+dir*(ry-.7), pos=[], idx=[];
+  for(let i=0;i<=N;i++){ const x=-(A+ext)+2*(A+ext)*i/N, z=apex-D*x*x/(A*A), dz=-2*D*x/(A*A), nn=Math.hypot(1,dz), tx=1/nn, tz=dz/nn, nx=-tz, nz=tx;
+    for(let j=0;j<M;j++){ const ph=2*Math.PI*j/M, ox=Math.cos(ph)*rx, oy=Math.sin(ph)*ry; pos.push(x+nx*ox,yc+oy,z+nz*ox); } }
+  for(let i=0;i<N;i++) for(let j=0;j<M;j++){ const jn=(j+1)%M,a=i*M+j,b=i*M+jn,c=(i+1)*M+jn,d=(i+1)*M+j; idx.push(a,c,b,a,d,c); }
+  for(const ring of [0,N]){ const c=pos.length/3; let cx=0,cy=0,cz=0; for(let j=0;j<M;j++){ cx+=pos[(ring*M+j)*3]; cy+=pos[(ring*M+j)*3+1]; cz+=pos[(ring*M+j)*3+2]; } pos.push(cx/M,cy/M,cz/M);
+    for(let j=0;j<M;j++){ const jn=(j+1)%M; idx.push(c,ring*M+j,ring*M+jn); } }
+  const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); geo.setIndex(idx); geo.computeVertexNormals(); geo.computeBoundingSphere(); return geo;
+}
+function labelTex(n,on){ const c=document.createElement('canvas'); c.width=c.height=96; const x=c.getContext('2d'); x.font='700 46px Inter, system-ui, sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.lineJoin='round'; x.lineWidth=9; x.strokeStyle='rgba(255,255,255,.88)'; x.strokeText(String(n),48,52); x.fillStyle=on?'#0f7b8a':'#3f4e58'; x.fillText(String(n),48,52); const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t; }
+
+const T3={}, crowns3=[];
+function init3D(){
+  const stage=document.getElementById('stage'); if(!stage) return;
+  if(typeof THREE==='undefined'){ stage.insertAdjacentHTML('beforeend','<div class="msg">3D nu s-a încărcat: biblioteca three.js vine de pe cdn.jsdelivr.net și nu a răspuns. Harta 2D de mai jos funcționează.</div>'); return; }
+  let renderer; try{ renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'}); }catch(e){ stage.insertAdjacentHTML('beforeend','<div class="msg">WebGL nu este disponibil în acest browser.</div>'); return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2)); renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=.95;
+  const canvas=renderer.domElement; canvas.setAttribute('aria-label','Odontogramă 3D'); canvas.tabIndex=0; stage.insertBefore(canvas,stage.firstChild);
+  const scene=new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xeef5f7,0xb9a692,1.1));
+  const key=new THREE.DirectionalLight(0xfff4e8,2.3); key.position.set(40,80,90); scene.add(key);
+  const fill=new THREE.DirectionalLight(0xdfeaf2,.9); fill.position.set(-70,20,50); scene.add(fill);
+  const rim=new THREE.DirectionalLight(0xffffff,.7); rim.position.set(-20,40,-120); scene.add(rim);
+  const low=new THREE.DirectionalLight(0xfff4e8,.8); low.position.set(20,-80,60); scene.add(low);   // вид снизу на верхнюю челюсть тоже должен быть освещён
+  const gumMat=new THREE.MeshStandardMaterial({color:GUM3,roughness:.78,metalness:0,side:THREE.DoubleSide});
+  const dentinMat=new THREE.MeshStandardMaterial({color:DENTIN3,roughness:.62,metalness:0});
+  const titanMat=new THREE.MeshStandardMaterial({color:TITAN3,roughness:.35,metalness:.9});
+  const socketMat=new THREE.MeshStandardMaterial({color:SOCKET3,roughness:.95,metalness:0});
+  const upperG=new THREE.Group(), lowerG=new THREE.Group(); scene.add(upperG,lowerG);
+  const GAP=26;
+  function buildArch(list,upper){
+    const dims=list.map(n=>({n,hmd:G[n].occ.hw*MM,hbl:G[n].occ.hd*MM})); const widths=dims.map(d=>2*d.hmd+.3); const sum=widths.reduce((a,b)=>a+b,0);
+    const unit=curve(1,1.6,0,-1), sc=sum/unit.total, A=sc, D=1.6*sc, apex=upper?2:0, cv=curve(A,D,apex,-1), yBase=upper?GAP/2:-GAP/2, grp=upper?upperG:lowerG;
+    const ridge=new THREE.Mesh(buildRidge(A,D,apex,yBase,upper?1:-1),gumMat); ridge.raycast=()=>{}; grp.add(ridge);
+    let acc=0;
+    dims.forEach((d,i)=>{ const s=acc+widths[i]/2; acc+=widths[i]; const p=cv.at(s); const n=d.n, g=G[n], cls=g.cls, H=CROWN_H[cls][upper?0:1], len=ROOT_L[cls][upper?0:1];
+      const mats=SURF3.map(()=>new THREE.MeshStandardMaterial({color:ENAMEL3,roughness:.32,metalness:0,emissive:new THREE.Color(GLOW3),emissiveIntensity:0}));
+      const crown=new THREE.Mesh(buildCrown(d.hmd,d.hbl,H,cls,upper),mats); crown.userData.n=n; crowns3.push(crown);
+      const roots=new THREE.Mesh(buildRoots(d.hmd,d.hbl,cls,g.roots.length,len),dentinMat); roots.raycast=()=>{};
+      const screw=new THREE.Mesh(buildScrew(Math.min(d.hmd,d.hbl)*.9),titanMat); screw.raycast=()=>{};
+      const mkRing=(color,y)=>{ const m=new THREE.Mesh(new THREE.TorusGeometry(d.hbl*1.06,.34,8,48),new THREE.MeshBasicMaterial({color})); m.rotation.x=Math.PI/2; m.scale.set(d.hmd/d.hbl,1,1); m.position.y=y; m.raycast=()=>{}; return m; };
+      const ringT=mkRing(0x16A34A,1.6), ringI=mkRing(0x8B5CF6,1.1), ringS=mkRing(0x0f7b8a,2.1);
+      const socket=new THREE.Mesh(new THREE.CircleGeometry(1,32),socketMat); socket.scale.set(d.hmd*.85,d.hbl*.85,1); socket.rotation.x=-Math.PI/2; socket.position.y=.78; socket.raycast=()=>{};
+      const tex=[labelTex(n,false),labelTex(n,true)]; const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex[0],transparent:true,depthTest:true})); sprite.scale.set(3.9,3.9,1); sprite.position.set(0,-2.4,8.8); sprite.raycast=()=>{};
+      const grpT=new THREE.Group(); grpT.add(crown,roots,screw,ringT,ringI,ringS,socket,sprite);
+      const P=new THREE.Vector3(p.x,yBase,p.y), Bv=new THREE.Vector3(p.nx,0,p.ny).normalize(), Tv=new THREE.Vector3(p.tx,0,p.ty).normalize(); if(p.x>0) Tv.negate();
+      grpT.matrixAutoUpdate=false; grpT.matrix.makeBasis(Tv.clone().negate(),new THREE.Vector3(0,upper?-1:1,0),Bv).setPosition(P);
+      grp.add(grpT); T3[n]={crown,mats,roots,screw,ringT,ringI,ringS,socket,sprite,tex}; });
+  }
+  buildArch(UPPER,true); buildArch(LOWER,false);
+  // --- камера и орбита ---
+  const cam=new THREE.PerspectiveCamera(30,1,1,1000), target=new THREE.Vector3(0,0,-16);
+  const rad=THREE.MathUtils.degToRad; const VIEWS={frontal:[0,80,172],sus:[0,152,180],jos:[0,28,180],dreapta:[-62,82,175],stanga:[62,82,175]};
+  const orb={theta:0,phi:rad(80),r:172,tt:0,tp:rad(80),tr:172};
+  const togs={xray:false,labels:true,upper:true,lower:true};
+  function applyCam(){ const sp=Math.sin(orb.phi); cam.position.set(target.x+orb.r*sp*Math.sin(orb.theta),target.y+orb.r*Math.cos(orb.phi),target.z+orb.r*sp*Math.cos(orb.theta)); cam.lookAt(target); }
+  let frame=0, anim=false;
+  function draw(){ frame=0; if(anim){ const k=.18; orb.theta+=(orb.tt-orb.theta)*k; orb.phi+=(orb.tp-orb.phi)*k; orb.r+=(orb.tr-orb.r)*k; if(Math.abs(orb.tt-orb.theta)<.002&&Math.abs(orb.tp-orb.phi)<.002&&Math.abs(orb.tr-orb.r)<.2){ orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; } }
+    applyCam(); renderer.render(scene,cam); if(anim) invalidate(); }
+  function invalidate(){ if(!frame) frame=requestAnimationFrame(draw); }
+  const reduced=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function setView(name){ const v=VIEWS[name]; if(!v) return; orb.tt=rad(v[0]); orb.tp=rad(v[1]); orb.tr=v[2]; if(reduced){ orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; } else anim=true;
+    document.querySelectorAll('#views button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===name)));
+    // вид на жевательные поверхности одной челюсти невозможен, пока другая стоит перед камерой — она прячется, кнопки это показывают
+    setJaw('upper', name!=='jos'); setJaw('lower', name!=='sus'); invalidate(); }
+  function setJaw(k,on){ togs[k]=on; (k==='upper'?upperG:lowerG).visible=on; const b=document.querySelector(`#togs .tog[data-tog="${k}"]`); if(b) b.setAttribute('aria-pressed',String(on)); const lab=stage.querySelector(k==='upper'?'.jaw3.up':'.jaw3.lo'); if(lab) lab.hidden=!on; }
+  function clearView(){ document.querySelectorAll('#views button').forEach(b=>b.setAttribute('aria-pressed','false')); }
+  // --- размер ---
+  let lw=0,lh=0; function resize(){ const w=Math.max(1,Math.round(stage.clientWidth)), h=Math.max(1,Math.round(stage.clientHeight)); if(w===lw&&h===lh) return; lw=w; lh=h; renderer.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix(); invalidate(); }
+  new ResizeObserver(resize).observe(stage); resize();
+  // --- указатель: орбита, наведение, клик ---
+  const ray=new THREE.Raycaster(), ndc=new THREE.Vector2(); const ptrs=new Map(); let drag=false, downX=0, downY=0, moved=false, pinch0=0, r0=0;
+  function pick(ev){ const rc=canvas.getBoundingClientRect(); if(!rc.width||!rc.height) return null; ndc.x=((ev.clientX-rc.left)/rc.width)*2-1; ndc.y=-((ev.clientY-rc.top)/rc.height)*2+1; ray.setFromCamera(ndc,cam);
+    const hit=ray.intersectObjects(crowns3,false)[0]; if(!hit||!hit.face) return null; return {n:hit.object.userData.n,L:SURF3[hit.face.materialIndex]}; }
+  const hoverEl=document.getElementById('hover3');
+  function setHover(h){ const same=(h&&hover3&&h.n===hover3.n&&h.L===hover3.L)||(!h&&!hover3); if(same) return; hover3=h; canvas.classList.toggle('pick',!!h);
+    hoverEl.textContent=h?`${h.n} · ${(h.L==='L'&&G[h.n].up)?'palatinal':SFNAME[h.L]} · ${P.STATE_RO[effState(teeth[h.n])]}`:''; paint3D(); }
+  let pend=null, hf=0; function runHover(){ hf=0; const ev=pend; pend=null; if(!ev||drag) return; setHover(pick(ev)); }
+  canvas.addEventListener('pointerdown',ev=>{ canvas.setPointerCapture(ev.pointerId); ptrs.set(ev.pointerId,[ev.clientX,ev.clientY]); if(ptrs.size===1){ drag=true; moved=false; downX=ev.clientX; downY=ev.clientY; canvas.classList.add('drag'); } else if(ptrs.size===2){ const a=[...ptrs.values()]; pinch0=Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1]); r0=orb.r; } });
+  canvas.addEventListener('pointermove',ev=>{ if(ptrs.has(ev.pointerId)){ const prev=ptrs.get(ev.pointerId); ptrs.set(ev.pointerId,[ev.clientX,ev.clientY]);
+      if(ptrs.size===2){ const a=[...ptrs.values()]; const d=Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1]); if(pinch0>0){ orb.r=clamp(r0*pinch0/d,70,420); orb.tr=orb.r; anim=false; invalidate(); } moved=true; return; }
+      const dx=ev.clientX-prev[0], dy=ev.clientY-prev[1]; if(Math.abs(ev.clientX-downX)>4||Math.abs(ev.clientY-downY)>4) moved=true;
+      if(moved){ orb.theta-=dx*.006; orb.phi=clamp(orb.phi-dy*.006,.08,Math.PI-.08); orb.tt=orb.theta; orb.tp=orb.phi; anim=false; clearView(); invalidate(); } return; }
+    pend=ev; if(!hf) hf=requestAnimationFrame(runHover); });
+  function up(ev){ if(!ptrs.has(ev.pointerId)) return; ptrs.delete(ev.pointerId); if(ptrs.size) return; drag=false; canvas.classList.remove('drag');
+    if(!moved){ const h=pick(ev); if(h) on3DClick(h.n,h.L); } }
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('pointerleave',()=>{ pend=null; if(!drag) setHover(null); });
+  canvas.addEventListener('wheel',ev=>{ ev.preventDefault(); orb.r=clamp(orb.r*(1+ev.deltaY*.0012),70,420); orb.tr=orb.r; invalidate(); },{passive:false});
+  canvas.addEventListener('webglcontextlost',ev=>{ ev.preventDefault(); });
+  document.querySelectorAll('#views button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+  document.querySelectorAll('#togs .tog').forEach(b=>b.addEventListener('click',()=>{ const k=b.dataset.tog; togs[k]=!togs[k]; b.setAttribute('aria-pressed',String(togs[k]));
+    if(k==='xray'){ gumMat.transparent=togs.xray; gumMat.opacity=togs.xray?.28:1; gumMat.depthWrite=!togs.xray; } if(k==='upper'||k==='lower') setJaw(k,togs[k]); paint3D(); }));
+  R3={renderer,scene,cam,invalidate,togs};
+  const h3=(location.hash||'').slice(1); if(h3.startsWith('3d-')){ for(const part of h3.slice(3).split('-')){ if(VIEWS[part]){ setView(part); orb.theta=orb.tt; orb.phi=orb.tp; orb.r=orb.tr; anim=false; }
+      else if(togs.hasOwnProperty(part)){ const b=document.querySelector(`#togs .tog[data-tog="${part}"]`); if(b) b.click(); } } }
+  applyCam(); paint3D();
+}
+function on3DClick(n,L){ const t=teeth[n], st=effState(t); sel=n; if(st==='ok'||st==='carie'||st==='obturatie') cycleSf(n,L); else render(); }
+function paint3D(){ if(!R3) return; const togs=R3.togs;
+  for(const n of ALL){ const T=T3[n]; if(!T) continue; const t=teeth[n], st=effState(t), br=bridgeOf(n), pontic=!!(br&&br.role==='corp'), gone=st==='extras';
+    T.crown.visible=!gone; T.socket.visible=gone; T.roots.visible=!gone&&st!=='implant'&&st!=='lipsa'&&!pontic; T.screw.visible=st==='implant';
+    T.ringT.visible=!gone&&t.marks.includes('tratament'); T.ringI.visible=st==='implant'; T.ringS.visible=n===sel&&!gone; T.sprite.visible=togs.labels;
+    const want=T.tex[n===sel?1:0]; if(T.sprite.material.map!==want){ T.sprite.material.map=want; T.sprite.material.needsUpdate=true; }
+    const ghost=st==='lipsa'&&!pontic, gold=st==='coroana'||pontic, sf=sfMap(t), whole=(st==='carie'||st==='obturatie')&&!Object.keys(sf).length;
+    SURF3.forEach((L,i)=>{ const m=T.mats[i]; m.transparent=ghost; m.opacity=ghost?.22:1; m.depthWrite=!ghost;
+      if(gold){ m.color.setHex(GOLD3); m.metalness=.85; m.roughness=.28; }
+      else { m.metalness=0; m.roughness=.32; m.color.setHex(ENAMEL3); if(sf[L]) m.color.lerp(new THREE.Color(P.COLORS[sf[L]]),.6); else if(whole) m.color.lerp(new THREE.Color(P.COLORS[st]),.32); }
+      m.emissiveIntensity=(hover3&&hover3.n===n&&hover3.L===L)?.16:(n===sel?.05:0); }); }
+  R3.invalidate(); }
+init3D();
 '''
 
 JS = r'''
@@ -436,7 +710,7 @@ function renderSummary(){
   if(tr) parts.push(`<span><i style="background:${P.MARK_COLORS.tratament}"></i>${P.MARK_RO.tratament} ${tr}</span>`);
   document.getElementById('sum').innerHTML=parts.join('');
 }
-function render(){ const c=document.getElementById('chart'); c.innerHTML=tpl==='arcada'?renderArch():tpl==='schema'?renderSchema():renderPanorama(); document.getElementById('insp').innerHTML=renderInspector(); renderSummary(); }
+function render(){ const c=document.getElementById('chart'); c.innerHTML=tpl==='arcada'?renderArch():tpl==='schema'?renderSchema():renderPanorama(); document.getElementById('insp').innerHTML=renderInspector(); renderSummary(); if(typeof paint3D==='function') paint3D(); }
 
 /* ---------- действия ---------- */
 function select(n){ sel=n; render(); }
@@ -461,9 +735,15 @@ function setTpl(v,save){ tpl=v; tabs.forEach(b=>b.setAttribute('aria-selected',S
 tabs.forEach(b=>b.addEventListener('click',()=>setTpl(b.dataset.tpl,true)));
 let start='arcada'; const hash=(location.hash||'').slice(1); if(['arcada','schema','panorama'].includes(hash)) start=hash; else { try{ const v=localStorage.getItem('odo_tpl'); if(['arcada','schema','panorama'].includes(v)) start=v; }catch(_){} }
 load(); renderLegend(); setTpl(start,false);
-'''
+__JS3D__'''
 
-html = HEAD + DEFS + BODY + '<script>\nconst G=' + json.dumps({int(k): v for k, v in G.items()}, ensure_ascii=False, separators=(',', ':')) + ';\nconst P=' + json.dumps(P, ensure_ascii=False, separators=(',', ':')) + ';\n' + JS + '</script>\n'
+page = HEAD.replace('__TITLE__', 'Одонтограмма 2D/3D' if MODE_3D else 'Одонтограмма DentPilot')
+page = page.replace('__CSS3D__', CSS3D if MODE_3D else '')
+script = ('<script>\nconst G=' + json.dumps({int(k): v for k, v in G.items()}, ensure_ascii=False, separators=(',', ':'))
+          + ';\nconst P=' + json.dumps(P, ensure_ascii=False, separators=(',', ':')) + ';\n'
+          + JS.replace('__JS3D__', JS3D if MODE_3D else '') + '</script>\n')
+html = (page + DEFS + (BODY3D if MODE_3D else BODY)
+        + (f"<script src='{THREE_URL}'></script>\n" if MODE_3D else '') + script)
 assert '</script' not in json.dumps(G) and '</script' not in json.dumps(P)
 if not ARTIFACT:
     # Артефакт claude.ai оборачивает тело сам; файлу в репозитории нужен полный документ.
