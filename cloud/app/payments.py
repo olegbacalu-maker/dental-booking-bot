@@ -25,7 +25,10 @@ from . import db, license, maib
 
 PENDING, PAID, REJECTED = "pending", "paid", "rejected"
 TRANSFER, CARD = "transfer", "card"
-MONTHS = (1, 3, 6, 12)
+# Сроки — как на сайте: месяц или год (решение Олега 26.09; 3 и 6 месяцев нет).
+# Год стоит 11 месячных — «o lună gratuită» в карточке цены сайта.
+MONTHS = (1, 12)
+BILLED = {1: 1, 12: 11}
 # Исходы settle: подтверждён сейчас · уже не в ожидании · maib ещё ждёт · не прошёл
 SETTLED_PAID, SETTLED_ALREADY, SETTLED_WAITING, SETTLED_FAILED = "paid", "already", "waiting", "failed"
 
@@ -36,6 +39,11 @@ def add_months(dt: datetime, n: int) -> datetime:
     year, month = dt.year + month0 // 12, month0 % 12 + 1
     day = min(dt.day, calendar.monthrange(year, month)[1])
     return dt.replace(year=year, month=month, day=day)
+
+
+def amount(months: int, price: int) -> int:
+    """Сумма по прайсу за срок из MONTHS: год — 11 месячных."""
+    return BILLED[months] * price
 
 
 def extend_from(valid_until: datetime | None, months: int, now: datetime) -> datetime:

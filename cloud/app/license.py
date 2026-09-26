@@ -30,7 +30,7 @@ from . import config, db, keys, mail
 
 log = logging.getLogger("cloud.license")
 
-TRIAL_DAYS = 14
+TRIAL_DAYS = 30        # «Prima lună — gratuită» на сайте (решение Олега 26.09; до того 14)
 TRIAL_GRACE_DAYS = 3
 GRACE_DAYS = 14
 PLANS = ("trial", "standard")
@@ -130,12 +130,15 @@ def issue(con: sqlite3.Connection, clinic: sqlite3.Row, plan: str, valid_until: 
                 (clinic["id"], seq, k.kid, b64u(payload), b64u(sig), claim["issued_at"],
                  claim["valid_until"], claim["grace_until"], reason))
     grace_days = max(0, (grace_until - valid_until).days)
-    con.execute("""INSERT INTO subscriptions(clinic_id, plan, valid_until, grace_days, updated_at)
-                   VALUES(?,?,?,?,?)
+    # Цена ставится при заведении подписки — прайсом дня (config.PRICE_MONTH):
+    # умолчание колонки в шаге 1 миграций (399) — прежний прайс, шаги не правят.
+    # Продление цену не трогает: у заведённой клиники она своя.
+    con.execute("""INSERT INTO subscriptions(clinic_id, plan, price, valid_until, grace_days, updated_at)
+                   VALUES(?,?,?,?,?,?)
                    ON CONFLICT(clinic_id) DO UPDATE SET plan=excluded.plan,
                        valid_until=excluded.valid_until, grace_days=excluded.grace_days,
                        updated_at=excluded.updated_at""",
-                (clinic["id"], plan, claim["valid_until"], grace_days, db.now_iso()))
+                (clinic["id"], plan, config.PRICE_MONTH, claim["valid_until"], grace_days, db.now_iso()))
     db.audit(con, who, "issue", clinic["id"],
              f"seq {seq}, {plan}, до {claim['valid_until']}, льгота до {claim['grace_until']}: {reason}")
     return seq, envelope(payload, sig, k.kid)

@@ -27,6 +27,7 @@ ul{padding-left:22px;margin:0 0 12px}
 .back{font-size:14px;font-weight:500;text-decoration:none}
 footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-size:13.5px;color:#7C8B91}
 </style>
+<script src="analytics.js" defer></script>
 </head>
 <body>
 <div class="top"><div class="top-in">
@@ -35,18 +36,35 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 </div></div>
 <div class="wrap">
   <h1>Politica de confidențialitate</h1>
-  <p class="upd">Ultima actualizare: 24.09.2026</p>
+  <p class="upd">Ultima actualizare: 26.09.2026</p>
 
   <h2>1. Cine suntem</h2>
   <p>Site-ul dentpilot.md este gestionat de Oleg Bacalu, antreprenor
-  independent (Legea nr. 228/2025), IDNO [____], e-mail:
+  independent (Legea nr. 228/2025), IDNO 1026023148339, e-mail:
   <a href="mailto:dentpilotpro@gmail.com">dentpilotpro@gmail.com</a>.
-  Această politică descrie ce date sunt prelucrate prin acest site.</p>
+  Această politică descrie ce date sunt prelucrate prin acest site și prin
+  serverul de licențe cloud.dentpilot.md.</p>
 
-  <h2>2. Ce date colectează site-ul</h2>
+  <h2 id="cookie">2. Ce date colectează site-ul</h2>
   <ul>
-    <li>Site-ul <b>nu folosește cookie-uri</b> și nu conține instrumente de
-    analiză sau urmărire.</li>
+    <li><b>Statistica vizitelor — doar cu acordul dvs.</b> La prima vizită
+    site-ul vă întreabă dacă acceptați Google Analytics. Până nu apăsați
+    „Accept”, nu se încarcă nimic de la Google și nu se pune niciun
+    cookie.</li>
+    <li>Dacă acceptați, Google Analytics 4 (furnizat de Google Ireland
+    Limited și Google LLC) pune cookie-urile <code>_ga</code> și
+    <code>_ga_…</code>, valabile cel mult 13 luni, iar noi vedem statistici
+    agregate: ce pagini se citesc, țara și orașul aproximativ, tipul de
+    dispozitiv și browser, de unde ați ajuns pe site. Nu vedem cine
+    sunteți; Google Analytics nu păstrează adresa IP. Semnalele Google
+    pentru publicitate sunt dezactivate. Datele se păstrează în Google
+    Analytics 2 luni. Google poate prelucra aceste date și pe servere din
+    afara Republicii Moldova, inclusiv în SUA
+    (<a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">cum folosește Google datele de pe site-uri</a>).</li>
+    <li>Alegerea dvs. se ține minte în browser (localStorage), fără cookie.
+    O puteți schimba oricând din linkul „Setări cookie” din subsolul
+    paginii principale; retragerea acordului șterge cookie-urile
+    Google Analytics.</li>
     <li>Formularul „Solicită o prezentare" deschide aplicația dvs. de
     e-mail; datele introduse (nume, clinică, telefon) ajung la noi doar
     dacă trimiteți mesajul.</li>
@@ -54,6 +72,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     răspunde și a programa prezentarea. Nu le transmitem terților și nu le
     folosim pentru marketing automat.</li>
   </ul>
+  <p><a href="#" data-dp-consent hidden>Setări cookie — schimbați alegerea</a></p>
 
   <h2>3. Găzduire</h2>
   <p>Site-ul este găzduit static pe GitHub Pages (GitHub, Inc.). Serverele
@@ -67,11 +86,12 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   pacienților.</p>
 
   <h2>5. Datele contului clinicii</h2>
-  <p>Dacă o clinică solicită perioada de probă prin formularul de pe
-  cloud.dentpilot.md sau activează programul (perioada de probă sau abonamentul),
-  furnizorul prelucrează, în calitate de operator, <b>datele contului
-  clinicii</b>: denumirea, IDNO, persoana de contact, e-mailul, telefonul,
-  adresa, fișierele de licență emise, notele de plată, plățile confirmate și
+  <p>Dacă o clinică solicită perioada de probă prin
+  <a href="https://cloud.dentpilot.md/proba">formularul de pe cloud.dentpilot.md</a>
+  sau activează programul (perioada de probă sau abonamentul), furnizorul
+  prelucrează, în calitate de operator, <b>datele contului clinicii</b>:
+  denumirea, IDNO, persoana de contact, e-mailul, telefonul, adresa,
+  fișierele de licență emise, notele de plată, plățile confirmate și
   jurnalul e-mailurilor trimise clinicii (nota de plată, notificările de
   expirare, fișierul de licență).</p>
   <ul>
@@ -79,8 +99,9 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     și notificările privind expirarea — executarea contractului cu clinica
     (<a href="termeni.html">Termeni și condiții</a>).</li>
     <li><b>Unde:</b> pe serverul de licențe cloud.dentpilot.md, administrat de
-    furnizor. Serverul nu este folosit de vizitatorii site-ului și nu are cont
-    de client; el nu folosește cookie-uri pentru vizitatori.</li>
+    furnizor și găzduit de Contabo GmbH (Germania) într-un centru de date din
+    Uniunea Europeană. Serverul nu este folosit de vizitatorii site-ului și nu
+    are cont de client; el nu folosește cookie-uri pentru vizitatori.</li>
     <li><b>Cât timp:</b> pe durata contractului; documentele de plată — pe
     termenul cerut de legislația contabilă. La cererea clinicii, după încetarea
     contractului, celelalte date ale contului sunt șterse.</li>
@@ -91,13 +112,15 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     <li><b>Verificarea zilnică:</b> programul activat, dacă are acces la
     internet, întreabă serverul o dată pe zi dacă există un fișier de licență
     mai nou. Cererea conține doar cheia fișierului de licență și numărul lui de
-    ordine; serverul reține data ultimei verificări. Nicio altă informație nu
-    se transmite.</li>
-    <li><b>Plata cu cardul:</b> datele cardului se introduc pe pagina securizată
-    a băncii (maib) și nu ajung la furnizor; furnizorul primește doar
-    confirmarea plății, suma și referința notei.</li>
+    ordine; serverul reține data ultimei verificări.</li>
+    <li><b>Adresa IP:</b> serverul vede adresa IP de la care vine fiecare
+    cerere. La trimiterea formularului de probă ea se păstrează împreună cu
+    cererea, pentru a limita abuzurile; în rest apare doar în jurnalele
+    tehnice ale serverului, care se șterg automat.</li>
     <li><b>Cine le vede:</b> doar furnizorul. Datele nu se transmit terților,
-    cu excepția furnizorului de e-mail prin care se trimit notificările.</li>
+    cu excepția furnizorului de găzduire a serverului (Contabo GmbH) și a
+    furnizorului de e-mail prin care se trimit notificările (Google, serviciul
+    Gmail), care le prelucrează doar pentru a presta aceste servicii.</li>
   </ul>
 
   <h2>6. Drepturile dvs.</h2>

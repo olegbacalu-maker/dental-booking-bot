@@ -26,15 +26,18 @@ def suite(res: Result) -> None:
         m = re.search(pattern, terms)
         return int(m.group(1)) if m else None
 
-    res.check("пробный период — TRIAL_DAYS", num(r"perioadă de probă de (\d+) zile"), license.TRIAL_DAYS)
+    res.check("пробный период — TRIAL_DAYS", num(r"perioadă de probă de (\d+) (?:de )?zile"), license.TRIAL_DAYS)
     res.check("после пробного — TRIAL_GRACE_DAYS", num(r"încă (\d+) zile \(perioada pentru abonare\)"),
               license.TRIAL_GRACE_DAYS)
     res.check("после абонемента — GRACE_DAYS", num(r"încă (\d+)\s+zile \(perioada de plată\)"), license.GRACE_DAYS)
     res.ok("режим чтения теми же словами, что письма", " ".join(mail._READONLY.split()) in " ".join(terms.split()),
            mail._READONLY)
     res.ok("правило продления: от большей из дат", "oricare este mai târzie" in terms)
-    months = ", ".join(str(m) for m in payments.MONTHS[:-1]) + f" sau {payments.MONTHS[-1]}"
-    res.ok(f"сроки абонемента — ряд MONTHS: {months}", f"{months} luni" in terms)
+    # Сроки — месяц или год, как в карточке цены сайта (26.09). Фраза договора
+    # привязана к ряду MONTHS: вернут 3 и 6 месяцев — прогон потребует слов.
+    res.ok("сроки абонемента — ряд MONTHS: месяц или год",
+           payments.MONTHS == (1, 12) and "pe o lună sau pe un an (12 luni)" in " ".join(terms.split()),
+           str(payments.MONTHS))
     res.ok("нота за 14 дней и уведомление за 3 — как окна задачи",
            "Cu 14 zile înainte de expirare" in terms and "cu 3 zile înainte" in terms)
     host = urlsplit(config.BASE_URL).hostname
@@ -52,8 +55,10 @@ def suite(res: Result) -> None:
            and all(x in privacy for x in ("@font-face", 'class="top"', "<footer", "termeni.html")))
     res.ok("телефон и почта поддержки те же, что в письмах",
            config.SUPPORT_PHONE in terms and config.SUPPORT_EMAIL in terms)
-    res.ok("IDNO — плейсхолдер один и тот же на обеих страницах",
-           terms.count("IDNO [____]") == 2 and privacy.count("IDNO [____]") == 1)
+    # IDNO вписан 26.09 (был плейсхолдер): один и тот же номер на обеих страницах.
+    idnos = set(re.findall(r"IDNO (\d{13})", terms)) | set(re.findall(r"IDNO (\d{13})", privacy))
+    res.ok("IDNO — один и тот же номер на обеих страницах, плейсхолдера нет",
+           len(idnos) == 1 and terms.count("IDNO ") >= 2 and "[____]" not in terms + privacy, str(idnos))
     res.ok("contract.md: суть, таблица «обещание ↔ программа», вопросы юристу",
            all(h in contract for h in ("## Суть по пунктам", "## Обещание ↔ программа", "## Вопросы юристу"))
            and "docs/site/termeni.html" in contract)

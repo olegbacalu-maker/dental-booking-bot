@@ -54,7 +54,8 @@ def suite_issue(res: Result) -> None:
                claim is not None and claim.clinic_id == cid and claim.idno == "1234567890123"
                and claim.plan == "trial" and claim.seq == 1 and claim.country == "MD"
                and claim.clinic == "Clinica Exemplu", repr(claim))
-        res.check("пробный: 14 дней", claim.valid_until - claim.issued_at, 14 * DAY)
+        res.check("пробный: TRIAL_DAYS — месяц, как на сайте", claim.valid_until - claim.issued_at, srv.TRIAL_DAYS * DAY)
+        res.check("пробный — 30 дней (решение 26.09, было 14)", srv.TRIAL_DAYS, 30)
         res.check("пробный: льгота 3 дня", claim.grace_until - claim.valid_until, 3 * DAY)
         st, _ = lst.evaluate(("", claim), datetime.now(timezone.utc), lst.Memory(), True)
         res.check("машина состояний движка: active", st.state, lst.ACTIVE)

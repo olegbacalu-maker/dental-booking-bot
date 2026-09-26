@@ -15,6 +15,7 @@ from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_
 
 sys.path.insert(0, str(CLOUD))
 from app import payments as pay  # noqa: E402 — чистые функции сервера
+from app import config  # noqa: E402 — прайс
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = __import__("json").loads((FIX / "test-key.json").read_text(encoding="utf-8"))
@@ -55,6 +56,10 @@ def suite_rules(res: Result) -> None:
               _t("2028-02-29T10:00:00Z"))
     res.check("30.11 + 3 = 28.02", pay.add_months(_t("2026-11-30T00:00:00Z"), 3), _t("2027-02-28T00:00:00Z"))
     res.check("+12 = тот же день через год", pay.add_months(_t("2026-09-24T12:00:00Z"), 12), _t("2027-09-24T12:00:00Z"))
+    res.check("сроки — месяц и год, как на сайте", pay.MONTHS, (1, 12))
+    res.check("прайс сайта: 499 в месяц, год 5 489 (11 месячных)",
+              (config.PRICE_MONTH, pay.amount(1, config.PRICE_MONTH), pay.amount(12, config.PRICE_MONTH)),
+              (499, 499, 5489))
     res.check("декабрь + 1 = январь", pay.add_months(_t("2026-12-15T00:00:00Z"), 1), _t("2027-01-15T00:00:00Z"))
     now = _t("2026-09-24T12:00:00Z")
     res.check("ранняя оплата: от конца срока", pay.extend_from(_t("2026-11-01T00:00:00Z"), 1, now),
@@ -77,7 +82,7 @@ def suite_flow(res: Result) -> None:
                   f"/admin/clinics/{cid}?msg=payment_created_mailed")
         card = c.get(f"/admin/clinics/{cid}").body
         res.ok("карточка: reference, сумма по тарифу, ожидает",
-               ref1 in card and "399 MDL" in card and "ожидает" in card, "нет в карточке")
+               ref1 in card and f"{config.PRICE_MONTH} MDL" in card and "ожидает" in card, "нет в карточке")
         res.ok("шапка считает ожидающие", "Платежи (1)" in card)
         res.ok("страница ожидающих показывает платёж и клинику",
                ref1 in c.get("/admin/payments").body and "Clinica Plată" in c.get("/admin/payments").body)
@@ -87,7 +92,7 @@ def suite_flow(res: Result) -> None:
         body = msg.get_body(preferencelist=("plain",)).get_content()
         res.ok("письмо: reference в теме и в назначении, IBAN, сумма",
                ref1 in msg["Subject"] and f"Destinația plății: {ref1}" in body
-               and "MD00TEST0000000000000001" in body and "399 MDL" in body, body[:300])
+               and "MD00TEST0000000000000001" in body and f"{config.PRICE_MONTH} MDL" in body, body[:300])
 
         pid = _pid(s, ref1)
         r = c.post(f"/admin/payments/{pid}/confirm")
@@ -113,21 +118,24 @@ def suite_flow(res: Result) -> None:
                   claim.valid_until.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
         # ранняя оплата: от конца действующего срока, не от сегодня
-        r = c.post(f"/admin/clinics/{cid}/payments", months="3", amount="1000", send="")
+        r = c.post(f"/admin/clinics/{cid}/payments", months="12", amount="1000", send="")
         ref2 = f"DP-{year}-000002"
         res.check("второй платёж: следующий номер, без письма", r.location, f"/admin/clinics/{cid}?msg=payment_created")
         res.ok("сумма своя", "1000 MDL" in c.get(f"/admin/clinics/{cid}").body)
         r = c.post(f"/admin/payments/{_pid(s, ref2)}/confirm")
         res.ok("ранняя оплата подтверждена", "payment_confirmed" in r.location, r.location)
         code, claim2 = rv.open_envelope(c.get(f"/admin/clinics/{cid}/issues/2/license.json").body, KEYS)
-        res.check("ранняя оплата не крадёт дни: 3 месяца от прежнего конца срока",
-                  claim2.valid_until, pay.add_months(claim.valid_until, 3))
+        res.check("ранняя оплата не крадёт дни: год от прежнего конца срока",
+                  claim2.valid_until, pay.add_months(claim.valid_until, 12))
         res.check("файл seq 2", claim2.seq, 2)
 
         # отказ
-        r = c.post(f"/admin/clinics/{cid}/payments", months="6", amount="", send="")
+        r = c.post(f"/admin/clinics/{cid}/payments", months="12", amount="", send="")
         ref3 = f"DP-{year}-000003"
         pid3 = _pid(s, ref3)
+        res.check("год по тарифу — 11 месячных, как на сайте",
+                  _sql(s, "SELECT months, amount FROM payments WHERE id=?", pid3)[0],
+                  (12, 11 * config.PRICE_MONTH))
         r = c.post(f"/admin/payments/{pid3}/reject", reason="поступления нет")
         res.check("отказ", r.location, f"/admin/clinics/{cid}?msg=payment_rejected")
         res.check("в базе: rejected", _sql(s, "SELECT status FROM payments WHERE id=?", pid3)[0][0], "rejected")
@@ -146,6 +154,9 @@ def suite_flow(res: Result) -> None:
 
         # проверки формы
         res.check("2 месяца — не из ряда", c.post(f"/admin/clinics/{cid}/payments", months="2").location,
+                  f"/admin/clinics/{cid}?msg=bad_months")
+        res.check("3 месяца — больше не из ряда (26.09: только месяц и год)",
+                  c.post(f"/admin/clinics/{cid}/payments", months="3").location,
                   f"/admin/clinics/{cid}?msg=bad_months")
         res.check("сумма буквами", c.post(f"/admin/clinics/{cid}/payments", months="1", amount="abc").location,
                   f"/admin/clinics/{cid}?msg=bad_amount")

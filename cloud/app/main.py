@@ -333,10 +333,12 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
             if c is None:
                 return Response(status_code=404)
             sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (cid,)).fetchone()
-            price = sub["price"] if sub else 399
+            price = sub["price"] if sub else config.PRICE_MONTH
             try:
                 m = int(months)
-                a = int(amount) if amount.strip() else m * price
+                # срок не из ряда — отказ даёт payments.create (bad_months), не KeyError здесь
+                a = (int(amount) if amount.strip()
+                     else payments.amount(m, price) if m in payments.MONTHS else 1)
             except ValueError:
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
             try:

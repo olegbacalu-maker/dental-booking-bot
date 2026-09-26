@@ -30,6 +30,7 @@ from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_
 sys.path.insert(0, str(CLOUD))
 from app import mail  # noqa: E402 — константы писем
 from app import payments as pay  # noqa: E402 — правило продления
+from app import config  # noqa: E402 — прайс
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
@@ -216,7 +217,7 @@ def suite_flow(res: Result) -> None:
                    and p["status"] == "pending", dict(p))
             body = fake.bodies[-1]
             res.ok("maib получил: orderId = reference, сумма по тарифу, MDL, адреса callback/ok/fail под DP_BASE_URL",
-                   body.get("orderId") == ref and body.get("amount") == 399.0 and body.get("currency") == "MDL"
+                   body.get("orderId") == ref and body.get("amount") == float(config.PRICE_MONTH) and body.get("currency") == "MDL"
                    and body.get("callbackUrl") == "https://cloud.dentpilot.md" + CALLBACK
                    and body.get("okUrl") == "https://cloud.dentpilot.md/pay/ok"
                    and body.get("failUrl") == "https://cloud.dentpilot.md/pay/fail"
@@ -282,7 +283,7 @@ def suite_flow(res: Result) -> None:
             res.check("после битых и чужого — выдач по-прежнему две", _sql(s, "SELECT count(*) FROM issues")[0][0], 2)
 
             # 6. кнопка «Проверить» — тот же вопрос maib; не прошёл → ждёт дальше со словами maib
-            r = c.post(f"/admin/clinics/{cid}/payments", months="3", amount="", send="", method="card")
+            r = c.post(f"/admin/clinics/{cid}/payments", months="12", amount="", send="", method="card")
             res.check("второй платёж картой, без письма", r.location, f"/admin/clinics/{cid}?msg=card_created")
             q = _payment(s, cid, 1)
             fake.set_status(q["provider_id"], "FAILED")

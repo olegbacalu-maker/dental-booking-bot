@@ -178,7 +178,7 @@ def notify(clinic: sqlite3.Row, outcome: str, ip: str, fields: dict | None = Non
 
 def acknowledge(clinic: sqlite3.Row) -> str:
     """Клинике в режиме approve: заявка принята, файл придёт. Отказ почты — молча."""
-    subject, body = mail.trial_received(clinic["name"])
+    subject, body = mail.trial_received(clinic["name"], license.TRIAL_DAYS)
     try:
         return mail.send(clinic["email"], subject, body)
     except (RuntimeError, OSError, ValueError):

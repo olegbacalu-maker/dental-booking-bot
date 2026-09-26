@@ -15,6 +15,8 @@ import sys
 from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, load_by_path
 
 rv = load_by_path("rsa_verify", ROOT / "bot" / "app" / "core" / "rsa_verify.py")
+sys.path.insert(0, str(CLOUD))
+from app import license, mail  # noqa: E402 — срок пробного и его слова
 KEY = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
 KEYS = {"test": (int(KEY["n"], 16), int(KEY["e"]))}
 GOOD = dict(name="Clinica Probă", idno="1234567890123", contact_name="Ana", email="proba@example.md",
@@ -51,7 +53,7 @@ def suite_auto(res: Result) -> None:
         res.ok("страница открыта всем, без куки, по-румынски, с полями и ссылками на условия",
                page.status == 200 and "set-cookie" not in page.headers and "Perioadă de probă" in page.body
                and all(f"name='{n}'" in page.body for n in ("name", "idno", "email", "consent", "website"))
-               and "termeni.html" in page.body and "privacy.html" in page.body and "14 zile" in page.body,
+               and "termeni.html" in page.body and "privacy.html" in page.body and mail.zile(license.TRIAL_DAYS) in page.body,
                page.body[:300])
         r = anon.post("/proba", **GOOD)
         res.ok("заявка принята: файл отправлен, страница называет адрес",

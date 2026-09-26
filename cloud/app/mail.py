@@ -51,6 +51,15 @@ def luni(months: int) -> str:
     return f"{months} {'lună' if months == 1 else 'luni'}"
 
 
+def zile(n: int) -> str:
+    """«3 zile», но «30 de zile»: от двадцати румынский ставит «de» между числом
+    и словом (и снова после ста — 120, но не 115). Пробный месяц (30) это и
+    выявил: «pentru 30 zile» на странице /proba читалось бы с ошибкой."""
+    if n == 1:
+        return "1 zi"
+    return f"{n} de zile" if n >= 20 and (n % 100 == 0 or n % 100 >= 20) else f"{n} zile"
+
+
 def bank_lines(reference: str, amount: int) -> str:
     """Реквизиты перевода строками. Требует заполненных DP_BANK_* — иначе RuntimeError."""
     b = config.BANK
@@ -139,13 +148,13 @@ def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, gr
     if kind == "invoice":
         subject = f"DentPilot: nota de plată {pay['reference']} — abonamentul expiră la {d}"
         intro = (f"Abonamentul DentPilot pentru {clinic} expiră la {d}. După această dată programul "
-                 f"funcționează complet încă {grace_days} zile, apoi trece în regim de citire.")
+                 f"funcționează complet încă {zile(grace_days)}, apoi trece în regim de citire.")
     elif kind == "expiring":
         subject = f"DentPilot: {what} expiră în 3 zile ({clinic})"
         intro = (f"{what_cap} DentPilot pentru {clinic} expiră la {d}. După această dată programul "
-                 f"funcționează complet încă {grace_days} zile (până la {g}), apoi trece în regim de citire.")
+                 f"funcționează complet încă {zile(grace_days)} (până la {g}), apoi trece în regim de citire.")
     elif kind == "expired":
-        subject = f"DentPilot: {what} a expirat — {grace_days} zile pentru {for_} ({clinic})"
+        subject = f"DentPilot: {what} a expirat — {zile(grace_days)} pentru {for_} ({clinic})"
         intro = (f"{what_cap} DentPilot pentru {clinic} a expirat la {d}. Programul funcționează complet "
                  f"până la {g}; după această dată trece în regim de citire. {_READONLY}")
     elif kind == "last_warning":
@@ -155,7 +164,7 @@ def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, gr
     elif kind == "readonly":
         subject = f"DentPilot: programul este în regim de citire ({clinic})"
         intro = (f"Din {g} programul DentPilot pentru {clinic} este în regim de citire: {what} a expirat "
-                 f"la {d}, iar perioada de {grace_days} zile pentru {for_} s-a încheiat. {_READONLY} "
+                 f"la {d}, iar perioada de {zile(grace_days)} pentru {for_} s-a încheiat. {_READONLY} "
                  f"După activarea noului fișier de licență programul revine la lucru complet.")
     else:
         raise ValueError(f"kind: {kind}")
@@ -166,12 +175,12 @@ RENEW_NOTE = ("Dacă programul este deja activat și are acces la internet, prei
               "fișierul nou în cel mult o zi — nu trebuie să faceți nimic.")
 
 
-def trial_received(clinic: str) -> tuple[str, str]:
+def trial_received(clinic: str, days: int) -> tuple[str, str]:
     """Клинике: заявка с формы принята (режим approve), файл придёт отдельным письмом."""
     subject = f"DentPilot: cererea de probă pentru {clinic} a fost primită"
     body = (f"Bună ziua,\n\n"
             f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. Fișierul de licență "
-            f"pentru 14 zile vine pe acest e-mail în cel mult o zi lucrătoare, împreună cu pașii de "
+            f"pentru {zile(days)} vine pe acest e-mail în cel mult o zi lucrătoare, împreună cu pașii de "
             f"activare; programul îl instalăm împreună, la telefon.\n\n{FOOTER}")
     return subject, body
 

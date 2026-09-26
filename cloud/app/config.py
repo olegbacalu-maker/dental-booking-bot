@@ -44,3 +44,8 @@ MAIB_SIGNATURE_KEY = env("DP_MAIB_SIGNATURE_KEY")   # подпись callback
 TRIAL_MODE = env("DP_TRIAL_MODE", "approve")
 TRIAL_NOTIFY = env("DP_TRIAL_NOTIFY") or SUPPORT_EMAIL
 SUPPORT_PHONE = "+373 60 508 048"
+# Прайс — тот же, что на сайте (dentpilot.md › #preturi, с 24.09.2026): месяц
+# 499 MDL, год — 11 месячных (5 489 MDL, «o lună gratuită»). Сроки и счёт
+# года — payments.MONTHS / payments.BILLED. Меняется цена — меняются сайт и
+# это число вместе; у заведённой подписки своя цена в subscriptions.price.
+PRICE_MONTH = 499

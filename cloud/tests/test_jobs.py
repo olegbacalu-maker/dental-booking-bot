@@ -18,6 +18,8 @@ from harness import CLOUD, Client, Result, Server, cid_from
 sys.path.insert(0, str(CLOUD))
 from app import jobs  # noqa: E402 — чистые функции сервера
 from app import payments as pay  # noqa: E402
+from app import config  # noqa: E402 — прайс
+from app import license  # noqa: E402 — срок пробного
 
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
             "DP_BANK_NAME": "Banca Test", "DP_BANK_CODE": "1234567890123"}
@@ -101,7 +103,7 @@ def suite_daily(res: Result) -> None:
                and f"Destinația plății: {ref1}" in body and to == "zilnic@example.md", subj + body[:200])
         res.check("платёж создан задачей: ожидает, 1 мес., по тарифу",
                   _sql(s, "SELECT status, months, amount FROM payments WHERE clinic_id=?", cid),
-                  [("pending", 1, 399)])
+                  [("pending", 1, config.PRICE_MONTH)])
         res.check("reminders: счёт за период", _kinds(s, cid), [("invoice", f"{v:%Y-%m-%d}")])
         rc, out = _run(s, v - 14 * D)
         res.ok("второй запуск в тот же день — ни одного письма", "писем: 0" in out and len(_letters(s)) == 1, out[-200:])
@@ -168,13 +170,13 @@ def suite_edges(res: Result) -> None:
         # пробный: свой текст, свой срок, платёж не заводится
         ct = _clinic(c, name="Clinica Probă", idno="", email="proba@example.md")
         c.post(f"/admin/clinics/{ct}/issue", kind="trial")
-        t = today + 14 * D
+        t = today + license.TRIAL_DAYS * D
         rc, out = _run(s, today)
         res.ok("пробному счёт не шлётся", "писем: 0" in out and not _letters(s), out[-200:])
         _run(s, t)
         subj, body, _ = _letters(s)[0]
         res.ok("пробный истёк: «perioada de probă … 3 zile pentru abonare», как оформить, без IBAN",
-               "perioada de probă a expirat — 3 zile pentru abonare" in subj and "399 MDL pe lună" in body
+               "perioada de probă a expirat — 3 zile pentru abonare" in subj and f"{config.PRICE_MONTH} MDL pe lună" in body
                and "IDNO" in body and "IBAN" not in body, subj + body[:200])
         res.check("платежей у пробного нет", _sql(s, "SELECT count(*) FROM payments WHERE clinic_id=?", ct)[0][0], 0)
         _run(s, t + 3 * D)

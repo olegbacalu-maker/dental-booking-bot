@@ -98,7 +98,7 @@ def open_payment(con: sqlite3.Connection, clinic: sqlite3.Row, who: str = WHO) -
     last = con.execute("SELECT months FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
                        (clinic["id"], payments.PAID)).fetchone()
     months = int(last["months"]) if last and int(last["months"]) in payments.MONTHS else 1
-    return payments.create(con, clinic, months, months * int(clinic["price"] or 0), who)
+    return payments.create(con, clinic, months, payments.amount(months, int(clinic["price"] or 0)), who)
 
 
 def _one(con: sqlite3.Connection, row: sqlite3.Row, now: datetime, send, who: str, rep: Report) -> None:

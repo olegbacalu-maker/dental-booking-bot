@@ -9,7 +9,8 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
-from . import config, license, maib, trial
+from . import config, license, maib, mail, trial
+from . import payments as pay  # ⚠️ не `payments`: так зовётся параметр карточки клиники (список строк)
 
 esc = html.escape
 
@@ -213,9 +214,9 @@ def trial_page(msg: str = "", values: dict | None = None) -> str:
     v = {k: esc((values or {}).get(k, "")) for k in ("name", "idno", "contact_name", "email", "phone")}
     err = f"<div class='banner err'>{esc(TRIAL_MSG.get(msg, msg))}</div>" if msg else ""
     site = config.SITE_URL.rstrip("/")
-    inner = (f"<h1>Perioadă de probă DentPilot — {license.TRIAL_DAYS} zile</h1>"
+    inner = (f"<h1>Perioadă de probă DentPilot — {mail.zile(license.TRIAL_DAYS)}</h1>"
              f"<div class='card'><p>Completați formularul și primiți pe e-mail fișierul de licență pentru "
-             f"{license.TRIAL_DAYS} zile, fără plată și fără obligații; programul îl instalăm împreună, "
+             f"{mail.zile(license.TRIAL_DAYS)}, fără plată și fără obligații; programul îl instalăm împreună, "
              f"la telefon. Datele pacienților rămân pe calculatorul clinicii.</p>"
              f"{err}<form method='post' action='/proba'>"
              f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}'>"
@@ -236,12 +237,12 @@ def trial_done_page(outcome: str, email: str) -> str:
     """Два лица: «отправлено» и «принято». Повтор и файл без письма показывают
     «принято» — форма не оракул о том, кто уже клиент; дальше отвечает Олег."""
     if outcome == trial.ISSUED:
-        title, text = ("Fișierul a fost trimis", f"Fișierul de licență pentru {license.TRIAL_DAYS} zile a "
+        title, text = ("Fișierul a fost trimis", f"Fișierul de licență pentru {mail.zile(license.TRIAL_DAYS)} a "
                        f"plecat la {email}, împreună cu pașii de activare. Dacă nu îl găsiți în câteva "
                        f"minute, verificați dosarul Spam sau scrieți-ne.")
     else:
         title, text = ("Cererea a fost primită", f"Vă răspundem la {email} în cel mult o zi lucrătoare — "
-                       f"cu fișierul de licență pentru {license.TRIAL_DAYS} zile și pașii de activare.")
+                       f"cu fișierul de licență pentru {mail.zile(license.TRIAL_DAYS)} și pașii de activare.")
     return _public(title, f"<div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p></div>")
 
 
@@ -371,8 +372,9 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                   f"<div><label>Основание</label><input name='reason' placeholder='платёж DP-2026-000001, демонстрация…'></div></div>"
                   f"<label><input type='checkbox' name='send' value='1' style='width:auto'> сразу отправить письмом на {esc(c['email'] or '— e-mail не указан')}</label>"
                   f"<p><button class='primary'>Выдать</button></p></form></div>")
-    price = sub["price"] if sub else 399
-    opts = "".join(f"<option value='{m}'>{m} мес. — {m * price} MDL</option>" for m in (1, 3, 6, 12))
+    price = sub["price"] if sub else config.PRICE_MONTH
+    opts = "".join(f"<option value='{m}'>{'месяц' if m == 1 else 'год'} — {pay.amount(m, price)} MDL</option>"
+                   for m in pay.MONTHS)
     if maib.enabled():
         method = ("<div><label>Как платит клиника</label><select name='method'>"
                   "<option value='transfer'>Переводом — реквизиты и reference в письме</option>"
