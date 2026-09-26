@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
-import { copyFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -37,14 +37,24 @@ const ASSET_RULE = /^[a-z0-9_-]+$/
 // assetFileNames — тот бросает на любом ассете кроме css, и это правильно; и
 // не через import из src — inlineDynamicImports вклеил бы 340 КБ в каждую
 // страницу программы. Имя `three.js` проходит шаблон маршрута выше.
-const THREE_SRC = resolve(HERE, 'node_modules/three/build/three.module.min.js')
-const THREE_OUT = resolve(ENGINE_STATIC, 'js/three.js')
+// ⚠️ С r170 `three.module.min.js` не самодостаточен: он импортирует
+// `./three.core.min.js`. Имя с точками маршрут не пропускает, поэтому ядро
+// копируется как `three-core.js`, а указатель внутри `three.js` переписывается;
+// комментарии sourceMappingURL снимаются (карт рядом нет — были бы 404).
+const THREE_DIR = resolve(HERE, 'node_modules/three/build')
+const THREE_OUT_DIR = resolve(ENGINE_STATIC, 'js')
 function copyThree() {
   return {
     name: 'dentpilot-copy-three',
     closeBundle() {
-      mkdirSync(dirname(THREE_OUT), { recursive: true })
-      copyFileSync(THREE_SRC, THREE_OUT)
+      mkdirSync(THREE_OUT_DIR, { recursive: true })
+      const strip = (s: string) => s.replace(/\/\/# sourceMappingURL=\S+\s*$/gm, '')
+      const core = readFileSync(resolve(THREE_DIR, 'three.core.min.js'), 'utf8')
+      writeFileSync(resolve(THREE_OUT_DIR, 'three-core.js'), strip(core))
+      const main = readFileSync(resolve(THREE_DIR, 'three.module.min.js'), 'utf8')
+      const rewired = strip(main).replaceAll('./three.core.min.js', './three-core.js')
+      if (rewired.includes('three.core.min.js')) throw new Error('three.js: остался импорт three.core.min.js')
+      writeFileSync(resolve(THREE_OUT_DIR, 'three.js'), rewired)
     },
   }
 }

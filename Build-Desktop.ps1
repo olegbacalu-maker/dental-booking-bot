@@ -34,6 +34,7 @@ if (-not (Test-Path "bot\app\static\js\bundle.js")) { Write-Host "BUNDLE MISSING
 # three.js dlya obemnoi odontogrammy (B7) kladet ta zhe sborka otdelnym failom;
 # bez nego exe uedet bez 3D, a uvidit eto tolko klinika (smoke_exe eto lovit).
 if (-not (Test-Path "bot\app\static\js\three.js")) { Write-Host "THREE MISSING"; exit 1 }
+if (-not (Test-Path "bot\app\static\js\three-core.js")) { Write-Host "THREE CORE MISSING"; exit 1 }
 
 # SQLCipher importiruetsya VNUTRI funkcii (db._sqlite_driver): modul nuzhen
 # tolko klinike s shifrovaniem. Bez --hidden-import PyInstaller mozhet ego ne
