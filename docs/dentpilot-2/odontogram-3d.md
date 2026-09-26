@@ -253,7 +253,7 @@ Vitest; в `scene.ts` — `animateStruct` (винт вкручивается с�
 `wake = invalidate`: в покое ноль (счётчик кадров — проверка глазами в
 песочнице, инструментом — вместе с кадрами Edge).
 
-### Ступень 7 — уборка и документы
+### Ступень 7 — уборка и документы ✅ 26.09.2026 (частично)
 
 - `frontend/prototypes/dental3d` и `frontend/prototypes/odontogram` —
   удалить, когда их код переехал (правило `prototypes/README.md`: как
@@ -263,6 +263,11 @@ Vitest; в `scene.ts` — `animateStruct` (винт вкручивается с�
   (в бандл не входит, копия делается на сборке).
 - `migration.md` — разбор этапа; `clinical-chart.md` — поправка по решению
   2 и строка о 3D в «чего нет намеренно»; `README.md` — абзац.
+- Сделано 26.09: `prototypes/dental3d` и его `tsconfig`/скрипты удалены;
+  `prototypes/odontogram` ОСТАВЛЕН — раскладки 2D ждут своих этапов (решение 4),
+  `3d.html` — макет-справка; `three` остаётся в devDependencies (копия на сборке);
+  `migration.md` этап 18, `clinical-chart.md`, `README.md`, README прототипов.
+  Открыто: кадры headless Edge для 3D и счётчик кадров в покое инструментом.
 
 ## 4. Точки интеграции
 

@@ -158,6 +158,9 @@ then a two-column workspace.
   the dialog lists that tooth's own history. The doctor's name is stored as a snapshot, so
   renaming a doctor never rewrites tooth history. All teeth are generated from one
   description rather than drawn — see *Design decisions*.
+  A third view, **3D**, shows both arches in three.js on the same server data (sizes, states,
+  colours) — a render of the same model, never a source of clinical truth; it loads on
+  demand and prints nothing.
 
   Three things there answer three *different* questions, and each of them used to be one
   column too few:
