@@ -8,6 +8,7 @@
 import email
 import email.policy
 import json
+import re
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
@@ -149,3 +150,70 @@ def suite_renew(res: Result) -> None:
         code, claim = rv.open_envelope(c.get(f"/admin/clinics/{cid}/issues/1/license.json").body, KEYS)
         res.ok("loopback: renew ведёт на http://127.0.0.1:8090/v1/license",
                code == "" and claim.renew == {"url": "http://127.0.0.1:8090/v1/license", "token": claim.renew["token"]})
+
+
+def suite_request(res: Result) -> None:
+    """Заявка из программы (26.09): ЕЁ провод (license_renew.request_trial) против ЭТОГО сервера.
+
+    Адрес и путь, которые программа знает сама, — те же, что у сервера; ответ
+    сервера программа понимает: токен и адрес, по которым её же fetch получает
+    204 до выдачи и файл после; отказ приходит словами."""
+    engine = (ROOT / "bot" / "app" / "core" / "license.py").read_text(encoding="utf-8")
+    config_src = (CLOUD / "app" / "config.py").read_text(encoding="utf-8")
+    m = re.search(r'^SERVER_URL = "([^"]+)"', engine, re.M)
+    base = re.search(r'"DP_BASE_URL", "([^"]+)"', config_src)
+    res.ok("адрес сервера в программе — умолчание DP_BASE_URL сервера",
+           bool(m and base) and m.group(1) == base.group(1), f"{m and m.group(1)} / {base and base.group(1)}")
+    from app import trial  # noqa: E402 — путь заявки
+    path = re.search(r'^TRIAL_PATH = "([^"]+)"', engine, re.M)
+    res.ok("путь заявки в программе — trial.API_PATH", bool(path) and path.group(1) == trial.API_PATH)
+
+    s = Server()
+    s.extra_env["DP_BASE_URL"] = s.url          # адрес в ответе — этот сервер (loopback)
+    with s:
+        fields = dict(name="Clinica Provod", idno="", contact_name="Ana", email="provod@example.md",
+                      phone="", consent="1")
+        outcome, data = rn.request_trial(s.url + trial.API_PATH, fields, timeout=10, agent="DentPilot/test")
+        res.ok("ACCEPTED: токен и адрес, который программа согласна спрашивать",
+               outcome == rn.ACCEPTED and rv.renew_url_ok(data.get("url"))
+               and data.get("url") == s.url + srv.RENEW_PATH and len(data.get("token", "")) >= 32, repr(data))
+        token = data.get("token", "")
+        res.check("её же fetch по токену до выдачи — SAME (204)", rn.fetch(data.get("url", ""), token, 0, timeout=10),
+                  (rn.SAME, ""))
+        c = Client(s.url).login()
+        cid = _sql(s, "SELECT id FROM clinics WHERE email=?", "provod@example.md")[0][0]
+        c.post(f"/admin/clinics/{cid}/issue", kind="trial", send="1", reason="заявка из программы")
+        outcome2, text = rn.fetch(data.get("url", ""), token, 0, timeout=10)
+        code, claim = rv.open_envelope(text, KEYS) if outcome2 == rn.NEWER else ("нет файла", None)
+        res.ok("после «Выдать» — NEWER: файл, который принимает движок, с тем же токеном",
+               code == "" and claim.renew["token"] == token, f"{outcome2} {code}")
+        outcome3, data3 = rn.request_trial(s.url + trial.API_PATH, fields, timeout=10)
+        res.ok("повтор — REJECTED со словами сервера", outcome3 == rn.REJECTED and "înregistrată" in data3.get("text", ""),
+               repr((outcome3, data3)))
+        # Новый компьютер той же клиники: код на её e-mail, провод /v1/verify — токен
+        vpath = re.search(r'^VERIFY_PATH = "([^"]+)"', engine, re.M)
+        res.ok("путь кода в программе — trial.VERIFY_PATH", bool(vpath) and vpath.group(1) == trial.VERIFY_PATH)
+        vid = data3.get("verify_id", "")
+        code = ""
+        for f in sorted(s.outbox.glob("*.eml")):
+            m = email.message_from_bytes(f.read_bytes(), policy=email.policy.default)
+            if m["To"] == "provod@example.md" and "codul de activare" in m["Subject"]:
+                hit = re.search(r"\b(\d{6})\b", m.get_body(preferencelist=("plain",)).get_content())
+                code = hit.group(1) if hit else ""
+        res.check("неверный код — REJECTED словами сервера",
+                  (lambda r: (r[0], "cod" in r[1].get("text", "")))(
+                      rn.verify_code(s.url + trial.VERIFY_PATH, vid, "000000" if code != "000000" else "111111", timeout=10)),
+                  (rn.REJECTED, True))
+        outcome5, data5 = rn.verify_code(s.url + trial.VERIFY_PATH, vid, code, timeout=10, agent="DentPilot/test")
+        res.ok("код из письма — ACCEPTED: тот же токен клиники и тот же адрес",
+               len(vid) >= 16 and len(code) == 6 and outcome5 == rn.ACCEPTED
+               and data5.get("token") == token and data5.get("url") == data.get("url"), repr((vid, code, data5)))
+        outcome6, text6 = rn.fetch(data5.get("url", ""), data5.get("token", ""), 0, timeout=10)
+        code6, _claim6 = rv.open_envelope(text6, KEYS) if outcome6 == rn.NEWER else ("нет файла", None)
+        res.ok("новый компьютер (seq 0) получает файл клиники, который принимает движок",
+               code6 == "", f"{outcome6} {code6}")
+        res.check("код одноразовый: второй раз — REJECTED",
+                  rn.verify_code(s.url + trial.VERIFY_PATH, vid, code, timeout=10)[0], rn.REJECTED)
+        outcome4, _ = rn.request_trial(s.url + "/v1/nu-exista", fields, timeout=10)
+        res.check("чужой путь (404) — OFFLINE, не отказ", outcome4, rn.OFFLINE)
+

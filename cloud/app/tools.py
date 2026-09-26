@@ -2,6 +2,7 @@
 
     python -m app.tools hash-password                 # спросит пароль, напечатает DP_ADMIN_HASH
     python -m app.tools keygen --kid 2026a --out /srv/dentpilot/keys/2026a.pem
+    python -m app.tools pubkey                        # ключ уже есть: его строка для KEYS ещё раз
     python -m app.tools check                         # окружение готово к работе? (код 1, если нет)
     python -m app.tools backup --dir /srv/data/backups --keep 30
     python -m app.tools verify-backup /srv/data/backups/cloud-20260924-060500.db
@@ -9,6 +10,8 @@
 
 `keygen` пишет приватный ключ с правами 0600 и печатает строку для таблицы
 KEYS в bot/app/core/rsa_verify.py — единственное, что уезжает в программу.
+`pubkey` печатает ту же строку по ключу из DP_LICENSE_KEY — если ключ сделан
+раньше, а строка не сохранилась; приватная часть файл не покидает.
 ⛔ Приватный ключ в репозиторий, в образ и в письмо не попадает никогда.
 
 `backup` снимает согласованную копию живой базы (sqlite3 backup API, WAL не
@@ -41,7 +44,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import auth, config, db, keys, license, maib, trial
+from . import auth, config, db, keys, license, mail, maib, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 
@@ -257,7 +260,8 @@ def check() -> list[tuple[str, str]]:
             out.append((BAD, f"maib не отвечает: {e}"))
     else:
         out.append((WARN, "DP_MAIB_* пусты: оплата картой выключена, платежи только переводом"))
-    out.append((OK if trial.mode() == trial.MODE_APPROVE else WARN,
+    # оба режима — законный выбор (боевой с 26.09 — auto): предупреждать не о чем
+    out.append((OK,
                 f"форма пробного {config.BASE_URL.rstrip('/')}/proba: режим {trial.mode()} "
                 f"({'заявка ждёт админа' if trial.mode() == trial.MODE_APPROVE else 'файл уходит сразу'}), "
                 f"уведомления на {config.TRIAL_NOTIFY}"))
@@ -275,6 +279,14 @@ def check() -> list[tuple[str, str]]:
     b = config.BANK
     out.append((OK, f"реквизиты: {b['beneficiary']}, IBAN {b['iban']}") if b["iban"] and b["beneficiary"]
                else (WARN, "DP_BANK_* пусты: письма о платеже уйдут без реквизитов"))
+    if not config.DECLARATION:
+        out.append((WARN, "DP_DECLARATION пуст: письма с файлом лицензии уйдут без декларации "
+                          "поставщика (Legea 195)"))
+    elif mail.declaration() is None:
+        out.append((WARN, f"DP_DECLARATION={config.DECLARATION}: файла нет или это не PDF — "
+                          "письма с файлом лицензии уйдут без декларации"))
+    else:
+        out.append((OK, f"декларация поставщика {config.DECLARATION} едет в каждое письмо с файлом"))
     return out
 
 
@@ -302,6 +314,7 @@ def main(argv=None) -> int:
     g.add_argument("--kid", required=True, help="имя ключа, например 2026a")
     g.add_argument("--out", required=True, help="куда положить PEM")
     g.add_argument("--bits", type=int, default=3072)
+    sub.add_parser("pubkey", help="строка для KEYS программы — по ключу DP_LICENSE_KEY")
     sub.add_parser("check", help="окружение готово к работе?")
     b = sub.add_parser("backup", help="согласованная копия базы")
     b.add_argument("--dir", required=True, help="папка копий")
@@ -326,6 +339,18 @@ def main(argv=None) -> int:
         print(f"приватный ключ: {out} (0600)")
         print("строка для KEYS в bot/app/core/rsa_verify.py:")
         print(keys.public_snippet(a.kid, n, e))
+        return 0
+    if a.cmd == "pubkey":
+        if not config.LICENSE_KEY:
+            print("DP_LICENSE_KEY пуст: ключа нет (python -m app.tools keygen)")
+            return 1
+        try:
+            k = keys.load(config.LICENSE_KEY, config.LICENSE_KID)
+        except (OSError, ValueError, KeyError) as e:
+            print(f"ключ выдачи не прочитан: {e!r}")
+            return 1
+        print("строка для KEYS в bot/app/core/rsa_verify.py:")
+        print(keys.public_snippet(k.kid, k.n, k.e))
         return 0
     if a.cmd == "check":
         rows = check()

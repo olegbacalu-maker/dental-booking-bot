@@ -5,6 +5,7 @@
 сервер на копии в чистой папке, и главное — файл лицензии из копии байт в
 байт тот же, что выдавал живой сервер.
 """
+import json
 import os
 import pathlib
 import re
@@ -14,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 
-from harness import CLOUD, ROOT, Client, Result, Server, cid_from, free_port
+from harness import CLOUD, FIX, ROOT, Client, Result, Server, cid_from, free_port
 
 sys.path.insert(0, str(CLOUD))
 from app.auth import make_hash  # noqa: E402
@@ -115,6 +116,18 @@ def suite_check(res: Result) -> None:
         env["DP_LICENSE_KEY"] = str(s.dir / "нет.pem")
         rc, out = _tools(s, "check", env=env)
         res.ok("ключ не читается — препятствие", rc == 1 and "не прочитан" in out, out)
+        # pubkey: строка для программы по ключу сервера — и ни одного числа приватной части
+        key = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
+        rc, out = _tools(s, "pubkey")
+        m = re.search(r'"([a-z0-9-]+)": \(int\("([0-9a-f]+)", 16\), (\d+)\),', out)
+        res.ok("pubkey: строка KEYS того же ключа, приватного в выводе нет",
+               rc == 0 and bool(m) and m.group(1) == key["kid"] and int(m.group(2), 16) == int(key["n"], 16)
+               and int(m.group(3)) == int(key["e"])
+               and all(f"{int(key[x], 16):x}" not in out for x in ("d", "p", "q")), out)
+        env = dict(s.env)
+        env["DP_LICENSE_KEY"] = ""
+        rc, out = _tools(s, "pubkey", env=env)
+        res.ok("pubkey без ключа — код 1 и совет keygen", rc == 1 and "keygen" in out, out)
 
 
 def suite_files(res: Result) -> None:

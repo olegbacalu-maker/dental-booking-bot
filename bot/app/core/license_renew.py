@@ -17,10 +17,18 @@
 чужой адрес. Сервер лицензий на этот адрес и не редиректит.
 ⛔ Тело читается с потолком: файл лицензии — полтора килобайта, и мегабайт
 чужого ответа не должен ни занять память, ни дойти до разбора.
+
+Заявка на пробный (26.09) — второй провод того же рода: POST JSON на
+`/v1/trial` со страницы активации. 200 с `ok` — клиника заведена, в ответе
+токен и адрес для запроса выше; 4xx с `text` — отказ словами сервера (поля,
+повтор, лимит), программа показывает их как есть; остальное — «сервера нет».
+Повтор несёт `verify_id`: код ушёл на e-mail клиники, и третий провод —
+`/v1/verify` — меняет код на тот же токен.
 """
 from __future__ import annotations
 
 import http.client
+import json
 import urllib.error
 import urllib.request
 
@@ -31,6 +39,8 @@ NEWER = "newer"                 # 200: в теле файл, который се
 SAME = "same"                   # 204: новее нет
 REFUSED = "refused"             # 401/403: токен не признан
 OFFLINE = "offline"             # сети нет, таймаут, 5xx, редирект, чужой ответ
+ACCEPTED = "accepted"           # заявка: 200 {"ok": true, "token", "url", "state"}
+REJECTED = "rejected"           # заявка: 4xx/503 с `text` — отказ словами сервера
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -66,3 +76,49 @@ def fetch(url: str, token: str, seq: int, timeout: float = TIMEOUT,
         return (REFUSED if e.code in (401, 403) else OFFLINE), ""
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return OFFLINE, ""
+
+
+def _json(raw: bytes) -> dict:
+    """Тело ответа как словарь; чужое (не JSON, не объект, сверх потолка) — пусто."""
+    if len(raw) > MAX_BODY:
+        return {}
+    try:
+        data = json.loads(raw.decode("utf-8", "replace"))
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def request_trial(url: str, fields: dict, timeout: float = TIMEOUT,
+                  agent: str = "DentPilot") -> tuple[str, dict]:
+    """Заявка на пробный: POST JSON на `url`. Возвращает (исход, ответ) и не бросает.
+
+    ACCEPTED — ответ сервера с `token` и `url` (проверяет их вызывающий);
+    REJECTED — отказ со словами сервера в `text` (у повтора — и `verify_id`);
+    OFFLINE — всё остальное, включая 404 у сервера без этого входа."""
+    return _post_json(url, fields, timeout, agent)
+
+
+def verify_code(url: str, verify_id: str, code: str, timeout: float = TIMEOUT,
+                agent: str = "DentPilot") -> tuple[str, dict]:
+    """Код из письма: POST JSON на `url` (/v1/verify). Исходы — как у заявки."""
+    return _post_json(url, {"verify_id": verify_id, "code": code}, timeout, agent)
+
+
+def _post_json(url: str, payload: dict, timeout: float, agent: str) -> tuple[str, dict]:
+    try:
+        req = urllib.request.Request(
+            url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), method="POST",
+            headers={"Content-Type": "application/json", "Accept": "application/json",
+                     "User-Agent": agent})
+        with _opener.open(req, timeout=timeout) as r:
+            data = _json(r.read(MAX_BODY + 1))
+            return (ACCEPTED, data) if r.status == 200 and data.get("ok") is True else (OFFLINE, {})
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 409, 429, 503):
+            data = _json(e.read(MAX_BODY + 1))
+            if isinstance(data.get("text"), str) and data["text"]:
+                return REJECTED, data
+        return OFFLINE, {}
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
+        return OFFLINE, {}

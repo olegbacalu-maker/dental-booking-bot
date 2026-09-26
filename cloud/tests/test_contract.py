@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from harness import CLOUD, ROOT, Result
 
 sys.path.insert(0, str(CLOUD))
-from app import config, license, mail, payments  # noqa: E402
+from app import config, license, mail, payments, trial  # noqa: E402
 
 SITE = ROOT / "docs" / "site"
 
@@ -65,6 +65,32 @@ def suite(res: Result) -> None:
                and f"https://{host}/proba" in page)
         res.ok(f"{name}: в стиле сайта, со ссылками на условия и политику",
                all(x in page for x in ("@font-face", 'class="top"', "<footer", "termeni.html", "privacy.html")))
+    # Декларация поставщика (закон 195): её подписанный PDF едет в каждое письмо с
+    # файлом (DP_DECLARATION). Говорит ровно то, что п. 9 условий и § 5 политики:
+    # подписанная бумага, разошедшаяся с договором, хуже, чем никакой.
+    decl = " ".join((SITE / "declaratie-195.html").read_text(encoding="utf-8").split())
+    flat_terms, flat_privacy = " ".join(terms.split()), " ".join(privacy.split())
+    res.ok("декларация: нет доступа к данным пациентов, не persoană împuternicită — как п. 9 условий",
+           all(x in decl and x in flat_terms for x in ("nu are acces la datele pacienților",
+                                                        "persoană împuternicită")))
+    lic_file = "fișierul de licență conține doar denumirea clinicii, idno, tipul și termenul abonamentului"
+    res.ok("декларация: состав файла лицензии — словами политики § 5",
+           lic_file in decl.lower() and lic_file in flat_privacy.lower())
+    res.ok("декларация: предупреждение об изменениях за 30 дней — как п. 13 условий",
+           "cu cel puțin 30 de zile înainte" in decl and "cu cel puțin 30 de zile înainte" in flat_terms)
+    res.ok("декларация: IDNO, телефон и почта — те же, что в условиях",
+           set(re.findall(r"IDNO (\d{13})", decl)) == set(re.findall(r"IDNO (\d{13})", terms))
+           and config.SUPPORT_PHONE in decl and config.SUPPORT_EMAIL in decl)
+    # Код на e-mail (новый компьютер той же клиники): срок в политике и в письме — CODE_TTL
+    minutes = int(trial.CODE_TTL.total_seconds() // 60)
+    res.ok("политика § 5 и декларация: код активации — со сроком, как у сервера",
+           "codul de activare" in flat_privacy.lower() and f"valabil {minutes} minute" in flat_privacy
+           and "codul primit pe e-mailul clinicii" in decl
+           and f"valabil {minutes} minute" in mail.activation_code("C", "123456", minutes)[1])
+    res.ok("условия п. 7: другой компьютер — кодом на e-mail или тем же файлом",
+           "codul de activare trimis pe e-mailul clinicii" in flat_terms)
+    res.ok("декларация: письмо называет её тем же именем, что страница",
+           "Declarația furnizorului" in decl and "Declarația furnizorului" in mail.DECLARATION_NOTE)
     # IDNO вписан 26.09 (был плейсхолдер): один и тот же номер на обеих страницах.
     idnos = set(re.findall(r"IDNO (\d{13})", terms)) | set(re.findall(r"IDNO (\d{13})", privacy))
     res.ok("IDNO — один и тот же номер на обеих страницах, плейсхолдера нет",

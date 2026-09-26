@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import logging
 import pathlib
 import smtplib
 import time
@@ -18,16 +19,21 @@ from email.message import EmailMessage
 
 from . import config
 
+log = logging.getLogger("cloud.mail")
 
-def send(to: str, subject: str, body: str,
-         attachment: tuple[str, bytes] | None = None) -> str:
+# Тип вложения — по расширению имени: файл лицензии и PDF декларации
+_MIME = {".json": ("application", "json"), ".pdf": ("application", "pdf")}
+
+
+def send(to: str, subject: str, body: str, *attachments: tuple[str, bytes]) -> str:
     """Возвращает 'smtp' или путь файла в outbox. Бросает RuntimeError, когда некуда."""
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = config.MAIL_FROM, to, subject
     msg.set_content(body)
-    if attachment:
-        name, data = attachment
-        msg.add_attachment(data, maintype="application", subtype="json", filename=name)
+    for name, data in attachments:
+        maintype, subtype = _MIME.get(pathlib.PurePath(name).suffix.lower(),
+                                      ("application", "octet-stream"))
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
     if config.SMTP_HOST:
         with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as s:
             s.starttls()
@@ -175,27 +181,41 @@ RENEW_NOTE = ("Dacă programul este deja activat și are acces la internet, prei
               "fișierul nou în cel mult o zi — nu trebuie să faceți nimic.")
 
 
-def trial_received(clinic: str, days: int) -> tuple[str, str]:
-    """Клинике: заявка с формы принята (режим approve), файл придёт отдельным письмом."""
+def trial_received(clinic: str, days: int, from_program: bool = False) -> tuple[str, str]:
+    """Клинике: заявка принята (режим approve). С формы — файл придёт письмом; из
+    программы — программа активируется сама, письмо с файлом — запасное."""
     subject = f"DentPilot: cererea de probă pentru {clinic} a fost primită"
+    if from_program:
+        rest = (f"Programul DentPilot se activează singur pentru {zile(days)} imediat ce aprobăm "
+                f"cererea — de obicei în aceeași zi lucrătoare; nu trebuie să faceți nimic. Fișierul "
+                f"de licență vine și pe acest e-mail, ca rezervă.")
+    else:
+        rest = (f"Fișierul de licență pentru {zile(days)} vine pe acest e-mail în cel mult o zi "
+                f"lucrătoare, împreună cu pașii de activare; programul îl instalăm împreună, la telefon.")
     body = (f"Bună ziua,\n\n"
-            f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. Fișierul de licență "
-            f"pentru {zile(days)} vine pe acest e-mail în cel mult o zi lucrătoare, împreună cu pașii de "
-            f"activare; programul îl instalăm împreună, la telefon.\n\n{FOOTER}")
+            f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. {rest}\n\n{FOOTER}")
     return subject, body
 
 
-def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None) -> tuple[str, str]:
-    """Олегу: заявка с формы — кто, что вышло, ссылка на карточку. По-русски: письмо
-    своё. При повторе `clinic` — та, что уже есть, а `fields` — что написали в форме."""
-    what = {"issued": "пробный файл выдан и отправлен клинике",
+def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
+                 origin: str = "form") -> tuple[str, str]:
+    """Олегу: заявка с формы или из программы — кто, что вышло, ссылка на карточку.
+    По-русски: письмо своё. При повторе `clinic` — та, что уже есть, а `fields` —
+    что написали в заявке."""
+    program = origin == "program"
+    what = {"issued": "пробный файл выдан и отправлен клинике"
+                      + (" — программа забирает его сама" if program else ""),
             "issued_unmailed": "файл выдан, но письмо клинике НЕ ушло — в карточке «Отправить последний файл письмом»",
-            "requested": "ждёт решения: выдать пробный кнопкой в админке",
-            "duplicate": "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме отвечено «принято» — "
-                         "ответьте клинике сами"}.get(outcome, outcome)
+            "requested": "ждёт решения: выдать пробный кнопкой в админке"
+                         + (" — программа активируется сама, как только файл выдан" if program else ""),
+            "duplicate": ("ПОВТОР из программы: клиника с этим IDNO или e-mail уже есть — на её "
+                          "e-mail ушёл код активации (новый компьютер?); если кода нет в журнале, "
+                          "ответьте клинике сами"
+                          if program else "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме "
+                          "отвечено «принято» — ответьте клинике сами")}.get(outcome, outcome)
     f = fields or {}
     subject = f"DentPilot Cloud: заявка на пробный — {f.get('name') or clinic['name']}"
-    body = (f"Заявка с формы /proba ({ip}):\n\n"
+    body = (f"Заявка {'из программы' if program else 'с формы /proba'} ({ip}):\n\n"
             f"  Клиника: {f.get('name') or clinic['name']}\n  IDNO: {f.get('idno') or clinic['idno'] or '—'}\n"
             f"  Контакт: {f.get('contact_name') or clinic['contact_name'] or '—'}\n"
             f"  E-mail: {f.get('email') or clinic['email']}\n"
@@ -205,10 +225,39 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None) -> t
     return subject, body
 
 
-def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False) -> tuple[str, str]:
+# Имя вложения — без диакритики: почтовые программы клиник переносят его как есть
+DECLARATION_NAME = "Declaratie-furnizor-DentPilot-Legea-195.pdf"
+DECLARATION_NOTE = ("Tot în atașament este Declarația furnizorului privind datele pacienților "
+                    "(Legea nr. 195/2024), care confirmă acest lucru: păstrați-o în mapa "
+                    "„Legea 195” a clinicii.")
+
+
+def declaration() -> tuple[str, bytes] | None:
+    """Подписанная декларация поставщика вложением: (имя, байты) или None.
+
+    Читается при каждом письме, а не на старте: Олег кладёт PDF на машину,
+    когда подпишет, и перезапуск сервера для этого не нужен. Не PDF (подложили
+    не тот файл, обрезался при копировании) — не вложение: письмо с файлом
+    лицензии уходит без декларации, а не с мусором от имени поставщика."""
+    if not config.DECLARATION:
+        return None
+    try:
+        data = pathlib.Path(config.DECLARATION).read_bytes()
+    except OSError as e:
+        log.warning("декларация %s не прочитана: %r", config.DECLARATION, e)
+        return None
+    if not data.startswith(b"%PDF-"):
+        log.warning("декларация %s — не PDF, письмо уйдёт без неё", config.DECLARATION)
+        return None
+    return DECLARATION_NAME, data
+
+
+def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False,
+                   declaration: bool = False) -> tuple[str, str]:
     """Тема и текст письма с файлом — по-румынски, как интерфейс программы.
     `renew` — в файле есть адрес автообновления (L13): письмо говорит, что
-    активированной программе делать ничего не нужно."""
+    активированной программе делать ничего не нужно. `declaration` — к письму
+    приложена декларация поставщика: письмо называет её только тогда."""
     what = "perioada de probă" if plan == "trial" else "abonamentul"
     subject = f"DentPilot: fișierul de licență pentru {clinic}"
     body = (f"Bună ziua,\n\n"
@@ -218,9 +267,27 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
             f"1. Salvați fișierul license.json pe calculatorul clinicii.\n"
             f"2. În DentPilot deschideți pagina Licență (meniul Setări sau adresa "
             f"/admin/license din program).\n"
-            f"3. Alegeți fișierul și apăsați «Activează licența».\n\n"
+            f"3. Alegeți fișierul, bifați acceptarea Termenilor și condițiilor și apăsați "
+            f"«Activează licența».\n\n"
             + (f"{RENEW_NOTE}\n\n" if renew else "") +
             f"Fișierul este emis pentru clinica dumneavoastră și nu se transmite altora. "
-            f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele.\n\n"
+            f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele."
+            + (f" {DECLARATION_NOTE}" if declaration else "") + "\n\n"
             f"{FOOTER}")
     return subject, body
+
+
+def activation_code(clinic: str, code: str, minutes: int) -> tuple[str, str]:
+    """Клинике: код для активации программы на новом компьютере (26.09). Идёт на
+    адрес, который у клиники уже записан, — код и есть доказательство, что
+    активирует она."""
+    subject = f"DentPilot: codul de activare pentru {clinic}"
+    body = (f"Bună ziua,\n\n"
+            f"Codul pentru activarea programului DentPilot pe un calculator al clinicii {clinic}: "
+            f"{code}\n\n"
+            f"Introduceți-l pe pagina de activare a programului. Codul este valabil {minutes} minute "
+            f"și se folosește o singură dată.\n\n"
+            f"Dacă nu ați cerut acest cod, ignorați mesajul: fără el nimeni nu poate activa "
+            f"programul în numele clinicii.\n\n{FOOTER}")
+    return subject, body
+

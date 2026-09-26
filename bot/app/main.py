@@ -486,19 +486,64 @@ async def license_view(request: Request, msg: str = "") -> Response:
 
 @app.post("/admin/license")
 async def license_install(request: Request, file: UploadFile | None = File(None),
-                          text: str = Form("")) -> Response:
-    """Файл из поля или вставленный текст → проверка → license.json → перечитать."""
+                          text: str = Form(""), terms: str = Form("")) -> Response:
+    """Файл из поля или вставленный текст → проверка → license.json → перечитать.
+
+    Без галочки условий файл не принимается: активация и есть заключение
+    договора (п. 1 условий), и летопись пишет имя того, кто её поставил.
+    `required` у галочки держит браузер; этот отказ — для всего остального."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
+    if terms != "1":
+        return RedirectResponse(f"/admin/license?msg={lic.TERMS_CODE}", status_code=303)
     raw = b""
     if file is not None and file.filename:
         raw = await file.read()
     if not raw.strip():
         raw = text.encode("utf-8")
-    code = await lic.install(raw.decode("utf-8", "replace"))
+    me = current_user(request)
+    code = await lic.install(raw.decode("utf-8", "replace"),
+                             actor=(me or {}).get("name") or "director")
     if code:
         return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
     return RedirectResponse("/admin?msg=license_ok", status_code=303)
+
+
+@app.post("/admin/license/request")
+async def license_request(request: Request, name: str = Form(""), idno: str = Form(""),
+                          contact_name: str = Form(""), email: str = Form(""),
+                          phone: str = Form(""), terms: str = Form("")) -> Response:
+    """Активация без файла (26.09): заявка на пробный уходит на сервер лицензий,
+    и программа активируется сама, как только файл выдан. Галочка условий — та
+    же, что у импорта файла: без неё заявка не уходит, с ней летопись пишет,
+    кто принял условия. Поля проверяет сервер (одни правила с формой /proba);
+    его отказ страница показывает словами сервера."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if terms != "1":
+        return RedirectResponse(f"/admin/license?msg={lic.TERMS_CODE}", status_code=303)
+    me = current_user(request)
+    code = await lic.request_trial(
+        {"name": name, "idno": idno, "contact_name": contact_name, "email": email, "phone": phone},
+        actor=(me or {}).get("name") or "director")
+    if code == "license_ok":
+        return RedirectResponse("/admin?msg=license_ok", status_code=303)
+    return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
+
+
+@app.post("/admin/license/verify")
+async def license_verify(request: Request, code: str = Form("")) -> Response:
+    """Новый компьютер той же клиники (26.09): код, который сервер прислал на её
+    e-mail в ответ на повтор заявки. Галочки здесь нет: код бывает только у заявки,
+    а её маршрут выше без галочки не отправит — договор принят ею, и летопись
+    пишет, кто активировал этот компьютер."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    me = current_user(request)
+    result = await lic.verify_code(code, actor=(me or {}).get("name") or "director")
+    if result == "license_ok":
+        return RedirectResponse("/admin?msg=license_ok", status_code=303)
+    return RedirectResponse(f"/admin/license?msg={result}", status_code=303)
 
 
 @app.post("/admin/license/renew")

@@ -160,14 +160,20 @@ def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
     if not clinic["email"]:
         return "bad_email"
     plan = con.execute("SELECT plan FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
+    # Декларация поставщика (закон 195) — в каждое письмо с файлом: клиника,
+    # потерявшая первое письмо, получает её с любым следующим
+    decl = mail.declaration()
     subject, body = mail.license_letter(clinic["name"], row["valid_until"],
-                                        plan["plan"] if plan else "standard", renew=renew_offered())
+                                        plan["plan"] if plan else "standard", renew=renew_offered(),
+                                        declaration=decl is not None)
+    files = [("license.json", issue_text(row).encode("utf-8"))] + ([decl] if decl else [])
     try:
-        where = mail.send(clinic["email"], subject, body, ("license.json", issue_text(row).encode("utf-8")))
+        where = mail.send(clinic["email"], subject, body, *files)
     except (RuntimeError, OSError, ValueError) as e:
         log.error("письмо клинике %s не отправлено: %r", clinic["id"], e)
         return "mail_failed"
-    db.audit(con, who, "mail", clinic["id"], f"seq {row['seq']} на {clinic['email']} ({where})")
+    db.audit(con, who, "mail", clinic["id"],
+             f"seq {row['seq']}{' + декларация' if decl else ''} на {clinic['email']} ({where})")
     return ""
 
 

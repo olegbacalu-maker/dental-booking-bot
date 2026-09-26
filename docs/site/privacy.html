@@ -86,14 +86,15 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   pacienților.</p>
 
   <h2>5. Datele contului clinicii</h2>
-  <p>Dacă o clinică solicită perioada de probă prin
+  <p>Dacă o clinică solicită perioada de probă din program (pagina de
+  activare) sau prin
   <a href="https://cloud.dentpilot.md/proba">formularul de pe cloud.dentpilot.md</a>
   sau activează programul (perioada de probă sau abonamentul), furnizorul
   prelucrează, în calitate de operator, <b>datele contului clinicii</b>:
   denumirea, IDNO, persoana de contact, e-mailul, telefonul, adresa,
   fișierele de licență emise, notele de plată, plățile confirmate și
   jurnalul e-mailurilor trimise clinicii (nota de plată, notificările de
-  expirare, fișierul de licență).</p>
+  expirare, fișierul de licență, codul de activare).</p>
   <ul>
     <li><b>Scopul și temeiul:</b> emiterea și reînnoirea licenței, facturarea
     și notificările privind expirarea — executarea contractului cu clinica
@@ -112,10 +113,17 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     <li><b>Verificarea zilnică:</b> programul activat, dacă are acces la
     internet, întreabă serverul o dată pe zi dacă există un fișier de licență
     mai nou. Cererea conține doar cheia fișierului de licență și numărul lui de
-    ordine; serverul reține data ultimei verificări.</li>
+    ordine; serverul reține data ultimei verificări. După o cerere de probă
+    trimisă din program, până la aprobarea ei, programul întreabă serverul o
+    dată pe minut, cu cheia primită la trimiterea cererii.</li>
+    <li><b>Codul de activare:</b> dacă programul se activează pe încă un
+    calculator al unei clinici deja înregistrate, serverul trimite un cod pe
+    e-mailul clinicii (cel înregistrat, nu cel introdus în cerere). Codul este
+    valabil 15 minute și se folosește o singură dată; serverul nu păstrează
+    codul, ci doar amprenta lui.</li>
     <li><b>Adresa IP:</b> serverul vede adresa IP de la care vine fiecare
-    cerere. La trimiterea formularului de probă ea se păstrează împreună cu
-    cererea, pentru a limita abuzurile; în rest apare doar în jurnalele
+    cerere. La trimiterea cererii de probă (din program sau prin formular) și la
+    activarea cu cod ea se păstrează împreună cu cererea, pentru a limita abuzurile; în rest apare doar în jurnalele
     tehnice ale serverului, care se șterg automat.</li>
     <li><b>Cine le vede:</b> doar furnizorul. Datele nu se transmit terților,
     cu excepția furnizorului de găzduire a serverului (Contabo GmbH) și a

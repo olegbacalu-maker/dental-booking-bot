@@ -188,7 +188,8 @@ def save(path: pathlib.Path, mem: Memory) -> None:
 # Маршруты, которым запись нужна и в `readonly`, — шаблонами ровно как в
 # декораторах. Три рода: доступ (вход, PIN, учётки, сигнализация, лицензия —
 # её импорт и запрос нового файла с сервера, L13: именно в readonly он и
-# нужен), права клиники на свои данные (бэкап, выгрузка пациента, право на
+# нужен; заявка на пробный из программы — за стеной у свежей установки),
+# права клиники на свои данные (бэкап, выгрузка пациента, право на
 # стирание, открыть документ, шифрование картотеки) и обслуживание программы
 # (обновление, сеть, раскладка). Всё, что трогает картотеку, расписание,
 # врачей, прайс и профиль клиники, здесь не значится — и потому отказывает.
@@ -196,7 +197,7 @@ def save(path: pathlib.Path, mem: Memory) -> None:
 # пишущий маршрут либо здесь, либо отказывает (tests/test_license_gate.py).
 READONLY_ALLOW = (
     "/admin/login", "/admin/setup", "/admin/license", "/admin/recover",
-    "/admin/pin/change", "/admin/license/renew",
+    "/admin/pin/change", "/admin/license/renew", "/admin/license/request", "/admin/license/verify",
     "/admin/security/ack", "/admin/users/save", "/admin/users/delete",
     "/admin/backup/export",
     "/admin/settings/crypt/prepare", "/admin/settings/crypt/confirm",
