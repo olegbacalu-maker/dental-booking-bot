@@ -15,6 +15,10 @@ Get-Content $envFile | ForEach-Object {
     $kv = $line -split "=", 2
     [Environment]::SetEnvironmentVariable($kv[0].Trim(), $kv[1].Trim(), "Process")
 }
+# UTF-8 режим Python: без него вывод в файл или трубу (Планировщик заданий,
+# перенаправление) идёт в cp1251, и первая румынская буква (ă, ț) роняет
+# задачу — в консоли этого не видно. Проверено прогоном cloud/tests на ПК 25.09.
+$env:PYTHONUTF8 = "1"
 $py = Join-Path $root ".venv\Scripts\python.exe"
 Set-Location $root
 if ($Check)        { & $py -m app.tools check; exit $LASTEXITCODE }

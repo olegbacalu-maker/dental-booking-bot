@@ -5,6 +5,7 @@
 сервер на копии в чистой папке, и главное — файл лицензии из копии байт в
 байт тот же, что выдавал живой сервер.
 """
+import os
 import pathlib
 import re
 import shutil
@@ -158,4 +159,12 @@ def suite_files(res: Result) -> None:
     res.ok("DEPLOY.md: три вещи для восстановления и вариант на Windows",
            "Три вещи" in deploy_md and "run-windows.ps1" in deploy_md and "Планировщик" in deploy_md)
     res.ok("run-windows.ps1: те же команды", all(x in ps1 for x in ("app.tools check", "app.tools backup", "app.jobs", "uvicorn")))
-    res.ok("backup.sh исполняемый", (DEPLOY / "backup.sh").stat().st_mode & 0o111 != 0)
+    # Бит исполняемости живёт в git (100755) — его и получает VPS при clone. У
+    # Windows прав на исполнение в файловой системе нет вовсе, поэтому там
+    # спрашиваем индекс git, а не диск.
+    if os.name == "nt":
+        mode = subprocess.run(["git", "ls-files", "-s", "deploy/backup.sh"], cwd=str(CLOUD),
+                              capture_output=True, text=True).stdout.split(" ")[0]
+        res.check("backup.sh исполняемый (режим в git)", mode, "100755")
+    else:
+        res.ok("backup.sh исполняемый", (DEPLOY / "backup.sh").stat().st_mode & 0o111 != 0)

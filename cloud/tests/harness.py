@@ -62,6 +62,10 @@ class Server:
                     "DP_ADMIN_USER": ADMIN_USER, "DP_ADMIN_HASH": ADMIN_HASH,
                     "DP_SECRET": "test-secret", "DP_MAIL_OUTBOX": str(self.outbox),
                     "DP_SMTP_HOST": ""})
+        # Как run-windows.ps1: на Windows без UTF-8 режима вывод в трубу и лог
+        # идёт в cp1251 — румынские ă/ț роняют печать, а кириллица приходит
+        # тесту не в той кодировке (25.09: 11 красных только на ПК).
+        env["PYTHONUTF8"] = "1"
         env.update(self.extra_env)
         self.env = env      # то же окружение — для запуска задач как из cron
         self._log = (self.dir / "server.log").open("wb")
