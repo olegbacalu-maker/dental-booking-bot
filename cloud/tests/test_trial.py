@@ -8,6 +8,7 @@
 import email
 import email.policy
 import json
+import re
 import sqlite3
 import subprocess
 import sys
@@ -317,3 +318,92 @@ def suite_program(res: Result) -> None:
                code == "" and claim.renew["token"] == d.get("token"), f"{r.status} {code}")
         res.ok("auto: письмо с файлом ушло клинике — запасной путь",
                any(t == "auto@example.md" and att for t, _s, _b, att in _letters(s)))
+
+
+# ---------- новый компьютер той же клиники: код на e-mail (26.09) ----------
+
+
+def _code_from(s: Server, to: str) -> str:
+    """Шестизначный код из последнего письма «codul de activare» на адрес `to`."""
+    for addr, subject, body, _att in reversed(_letters(s)):
+        if addr == to and "codul de activare" in subject:
+            m = re.search(r"\b(\d{6})\b", body)
+            return m.group(1) if m else ""
+    return ""
+
+
+def _verify(c: Client, vid: str, code: str) -> tuple[int, dict]:
+    r = c.post_raw("/v1/verify", json.dumps({"verify_id": vid, "code": code}).encode("utf-8"))
+    try:
+        return r.status, json.loads(r.body)
+    except ValueError:
+        return r.status, {}
+
+
+def _write(s: Server, sql: str, *args) -> None:
+    con = sqlite3.connect(s.dir / "cloud.db", timeout=10)
+    try:
+        con.execute(sql, args)
+        con.commit()
+    finally:
+        con.close()
+
+
+def suite_code(res: Result) -> None:
+    """Повтор из программы: код на записанный e-mail клиники, код → её токен → её файл."""
+    with Server(env={"DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
+        anon = Client(s.url)
+        first = dict(GOOD, name="Clinica Veche", email="veche@example.md")
+        st, d = _api(anon, first)
+        token = d.get("token", "")
+        res.ok("первый компьютер: заявка, файл сразу (auto)", st == 200 and d.get("state") == "issued", repr(d))
+
+        st, d = _api(anon, dict(first, email="alt@example.md"))       # тот же IDNO, другой ящик
+        vid = d.get("verify_id", "")
+        res.ok("повтор из программы: 409 с verify_id и словами «cod de activare»",
+               st == 409 and d.get("code") == "duplicate" and len(vid) >= 16
+               and "cod de activare" in d.get("text", ""), repr(d))
+        code = _code_from(s, "veche@example.md")
+        res.ok("код ушёл на ящик, записанный у клиники, а не на вписанный в заявку",
+               len(code) == 6 and not _code_from(s, "alt@example.md"), code)
+        res.ok("в базе кода открытым текстом нет",
+               not _sql(s, "SELECT 1 FROM activation_codes WHERE code_hash=? OR id=?", code, code))
+        wrong = "000000" if code != "000000" else "111111"
+        res.check("неверный код: 400 bad_code", (lambda r: (r[0], r[1].get("code")))(_verify(anon, vid, wrong)),
+                  (400, "bad_code"))
+        st, d = _verify(anon, vid, code)
+        res.ok("верный код: токен этой клиники и адрес /v1/license",
+               st == 200 and d.get("token") == token and d.get("url", "").endswith("/v1/license"), repr(d))
+        r = _poll(anon, d.get("token", ""))
+        code_, claim = rv.open_envelope(r.body, KEYS) if r.status == 200 else ("нет файла", None)
+        res.ok("по нему — файл этой клиники", code_ == "" and claim.clinic == "Clinica Veche", f"{r.status} {code_}")
+        res.check("код одноразовый: второй раз — 400", _verify(anon, vid, code)[0], 400)
+
+        _st, d = _api(anon, first)
+        vid2, code2 = d.get("verify_id", ""), _code_from(s, "veche@example.md")
+        bad = "999999" if code2 != "999999" else "888888"
+        for _ in range(5):
+            _verify(anon, vid2, bad)
+        res.check("пять ошибок сжигают код: и верный уже не принят", _verify(anon, vid2, code2)[0], 400)
+
+        _st, d = _api(anon, first)
+        vid3, code3 = d.get("verify_id", ""), _code_from(s, "veche@example.md")
+        _write(s, "UPDATE activation_codes SET expires_at='2000-01-01T00:00:00Z' WHERE id=?", vid3)
+        res.check("просроченный код — 400", _verify(anon, vid3, code3)[0], 400)
+
+        st, d = _api(anon, first)
+        res.ok("четвёртый код за час не шлётся: 409 без verify_id", st == 409 and "verify_id" not in d, repr(d))
+        notes = [b for t2, _s, b, _a in _letters(s) if t2 == "oleg@example.md"]
+        res.ok("Олегу: повтор из программы — код ушёл клинике", any("код активации" in b for b in notes))
+
+    # свой сервер: лимит заявок с адреса (5 в час) выше уже выбран
+    with Server(env={"DP_TRIAL_MODE": "auto"}) as s:
+        anon = Client(s.url)
+        hidden = dict(GOOD, name="Clinica Ascunsa", idno="", email="ascunsa@example.md")
+        _api(anon, hidden)
+        _st, d = _api(anon, hidden)
+        vid4, code4 = d.get("verify_id", ""), _code_from(s, "ascunsa@example.md")
+        _write(s, "UPDATE clinics SET declined_at='2026-09-26T10:00:00Z' WHERE email=?", "ascunsa@example.md")
+        res.ok("заявку скрыли, пока код шёл: верный код токена не даёт (400)",
+               len(code4) == 6 and _verify(anon, vid4, code4)[0] == 400, f"{vid4!r} {code4!r}")
+

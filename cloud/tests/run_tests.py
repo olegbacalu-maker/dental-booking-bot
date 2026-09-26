@@ -47,6 +47,7 @@ SUITES = [
     ("Сервер: форма пробного — auto, один пробный на IDNO/e-mail, спам", test_trial.suite_auto),
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
     ("Сервер: заявка из программы — токен, выдача, повтор, скрыть, auto", test_trial.suite_program),
+    ("Сервер: новый компьютер — код на e-mail клиники, код → токен → файл", test_trial.suite_code),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

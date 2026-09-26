@@ -22,6 +22,8 @@
 `/v1/trial` со страницы активации. 200 с `ok` — клиника заведена, в ответе
 токен и адрес для запроса выше; 4xx с `text` — отказ словами сервера (поля,
 повтор, лимит), программа показывает их как есть; остальное — «сервера нет».
+Повтор несёт `verify_id`: код ушёл на e-mail клиники, и третий провод —
+`/v1/verify` — меняет код на тот же токен.
 """
 from __future__ import annotations
 
@@ -92,11 +94,21 @@ def request_trial(url: str, fields: dict, timeout: float = TIMEOUT,
     """Заявка на пробный: POST JSON на `url`. Возвращает (исход, ответ) и не бросает.
 
     ACCEPTED — ответ сервера с `token` и `url` (проверяет их вызывающий);
-    REJECTED — отказ со словами сервера в `text`; OFFLINE — всё остальное,
-    включая 404 у сервера без этого входа: заявку там принять некому."""
+    REJECTED — отказ со словами сервера в `text` (у повтора — и `verify_id`);
+    OFFLINE — всё остальное, включая 404 у сервера без этого входа."""
+    return _post_json(url, fields, timeout, agent)
+
+
+def verify_code(url: str, verify_id: str, code: str, timeout: float = TIMEOUT,
+                agent: str = "DentPilot") -> tuple[str, dict]:
+    """Код из письма: POST JSON на `url` (/v1/verify). Исходы — как у заявки."""
+    return _post_json(url, {"verify_id": verify_id, "code": code}, timeout, agent)
+
+
+def _post_json(url: str, payload: dict, timeout: float, agent: str) -> tuple[str, dict]:
     try:
         req = urllib.request.Request(
-            url, data=json.dumps(fields, ensure_ascii=False).encode("utf-8"), method="POST",
+            url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), method="POST",
             headers={"Content-Type": "application/json", "Accept": "application/json",
                      "User-Agent": agent})
         with _opener.open(req, timeout=timeout) as r:

@@ -63,7 +63,7 @@ class Stand:
     def __init__(self):
         self.reply = {"status": 204, "body": "", "delay": 0.0}
         self.requests: list[dict] = []
-        self.post_reply = {"status": 404, "body": ""}     # заявка на пробный (26.09)
+        self.post_replies: dict[str, dict] = {}          # путь → ответ: /v1/trial, /v1/verify (26.09)
         self.posts: list[dict] = []
         stand = self
 
@@ -94,7 +94,7 @@ class Stand:
                     sent = None
                 stand.posts.append({"path": self.path, "json": sent,
                                     "type": self.headers.get("Content-Type", "")})
-                r = dict(stand.post_reply)
+                r = stand.post_replies.get(self.path, {"status": 404, "body": ""})
                 body = r["body"].encode("utf-8")
                 self.send_response(r["status"])
                 self.send_header("Content-Type", "application/json")
@@ -113,9 +113,9 @@ class Stand:
     def serve(self, status: int, body: str = "", delay: float = 0.0) -> None:
         self.reply = {"status": status, "body": body, "delay": delay}
 
-    def answer(self, status: int, data: dict | None = None) -> None:
-        """Ответ на заявку на пробный (POST /v1/trial)."""
-        self.post_reply = {"status": status, "body": json.dumps(data) if data is not None else ""}
+    def answer(self, status: int, data: dict | None = None, path: str = "/v1/trial") -> None:
+        """Ответ на POST: заявка на пробный (/v1/trial) или код из письма (/v1/verify)."""
+        self.post_replies[path] = {"status": status, "body": json.dumps(data) if data is not None else ""}
 
     def close(self) -> None:
         self.srv.shutdown()
@@ -550,6 +550,80 @@ def suite_request(res: Result) -> None:
                    "nu mai este activă" in page and "action='/admin/license/request'" in page, page[-1500:])
             res.ok("файла нет, стена на месте", not (d / "license.json").exists()
                    and c.get("/admin").location == "/admin/license")
+    finally:
+        stand.close()
+        for d in dirs:
+            _rmtree_settled(d)
+
+
+def suite_code(res: Result) -> None:
+    """Новый компьютер клиники, которая уже есть у DentPilot: повтор заявки → код на
+    e-mail клиники → код на странице → токен клиники → её файл, без файла из письма."""
+    stand = Stand()
+    dirs = [pathlib.Path(tempfile.mkdtemp(prefix=f"dp_code{i}_")) for i in range(2)]
+    env = dict(KEY_ENV, DENTART_LICENSE_SERVER=stand.base, DENTART_LICENSE_PENDING_S="1")
+    vid = "V" * 24
+    form = dict(name="Clinica Veche", idno="1003600012345", contact_name="Ana",
+                email="veche@example.md", phone="", terms="1")
+    try:
+        d = dirs[0]
+        with Server(dir_=d, env=env) as s:
+            c = Client(s.url)
+            c.login()
+            res.ok("форма заявки подсказывает путь второго компьютера",
+                   "trimitem un cod de activare" in c.get("/admin/license").body)
+            stand.answer(409, {"ok": False, "code": "duplicate", "verify_id": vid,
+                               "text": "Clinica este deja înregistrată la DentPilot. Am trimis un cod "
+                                       "de activare pe adresa de e-mail a clinicii."})
+            r = c.post("/admin/license/request", **form)
+            res.check("повтор с verify_id: license_request_code", r.location,
+                      "/admin/license?msg=license_request_code")
+            page = c.get("/admin/license?msg=license_request_code").body
+            res.ok("страница: слова сервера, поле кода; заявка — под «Nu a venit codul», файл — запасной",
+                   "Am trimis un cod" in page and "action='/admin/license/verify'" in page
+                   and "name='code'" in page and "autocomplete='one-time-code'" in page
+                   and "Nu a venit codul" in page and "Aveți deja fișierul de licență" in page, page[-3000:])
+            res.ok("ожидания нет: токена у программы ещё нет", not (d / "license.pending").exists())
+
+            stand.answer(400, {"ok": False, "code": "bad_code",
+                               "text": "Codul nu este corect sau a expirat."}, path="/v1/verify")
+            r = c.post("/admin/license/verify", code=" 123 456 ")
+            res.check("неверный код: license_code_bad", r.location, "/admin/license?msg=license_code_bad")
+            sent = stand.posts[-1] if stand.posts else {}
+            res.ok("код ушёл JSON-ом на /v1/verify: verify_id заявки, цифры без пробелов",
+                   sent.get("path") == "/v1/verify" and sent.get("json") == {"verify_id": vid, "code": "123456"},
+                   repr(sent))
+            page = c.get("/admin/license?msg=license_code_bad").body
+            res.ok("страница: слова сервера, поле кода на месте",
+                   "Codul nu este corect sau a expirat." in page and "name='code'" in page, page[-2000:])
+
+            stand.answer(200, {"ok": True, "url": stand.url, "token": TOKEN}, path="/v1/verify")
+            stand.serve(200, _file(3, {"url": stand.url, "token": TOKEN}))
+            r = c.post("/admin/license/verify", code="654321")
+            res.check("верный код: файл клиники — активация в том же запросе", r.location, "/admin?msg=license_ok")
+            res.ok("license.json на месте, заявки нет",
+                   (d / "license.json").exists() and not (d / "license.pending").exists())
+            res.check("состояние active", _api(c).get("state"), "active")
+            res.ok("по токену клиники, с seq 0: новый компьютер получает последний файл",
+                   any(q["auth"] == f"Bearer {TOKEN}" and "seq=0" in q["path"] for q in stand.requests))
+            ev = _actors(d)
+            res.ok("летопись: активация кодом и принятие условий — директором",
+                   any("codul trimis pe e-mailul clinicii" in t and a == "Director" for t, a in ev)
+                   and any("Licența a fost activată" in t and "acceptați Termenii și condițiile din 26.09.2026"
+                           in t and a == "Director" for t, a in ev), repr(ev))
+
+        d = dirs[1]
+        with Server(dir_=d, env=env) as s:
+            c = Client(s.url)
+            c.login()
+            posted = len(stand.posts)
+            r = c.post("/admin/license/verify", code="654321")
+            res.ok("код без заявки в этом запуске: license_code_bad, на сервер ничего",
+                   r.location == "/admin/license?msg=license_code_bad" and len(stand.posts) == posted,
+                   f"{r.location!r} {len(stand.posts) - posted}")
+            page = c.get("/admin/license?msg=license_code_bad").body
+            res.ok("страница: «trimiteți din nou cererea» и снова форма заявки",
+                   "trimiteți din nou cererea" in page and "action='/admin/license/request'" in page, page[-2000:])
     finally:
         stand.close()
         for d in dirs:

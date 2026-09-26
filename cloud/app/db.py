@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -73,6 +73,15 @@ MIGRATIONS = {
         "ALTER TABLE clinics ADD COLUMN requested_at TEXT",
         "ALTER TABLE clinics ADD COLUMN consent_at TEXT",
         "ALTER TABLE clinics ADD COLUMN declined_at TEXT",
+    ],
+    # Активация на новом компьютере (26.09): код на e-mail клиники. `id` — то,
+    # что знает программа (verify_id); сам код хранится только хешем.
+    5: [
+        """CREATE TABLE IF NOT EXISTS activation_codes(
+            id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            code_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0, used_at TEXT)""",
+        "CREATE INDEX IF NOT EXISTS ix_codes_clinic ON activation_codes(clinic_id, created_at)",
     ],
 }
 

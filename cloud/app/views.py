@@ -200,6 +200,12 @@ TRIAL_MSG = {
     # Только заявке из программы (JSON, trial.API_PATH): там повтор объявляется
     "duplicate": "Clinica este deja înregistrată la DentPilot (după IDNO sau e-mail). Activați "
                  "programul cu fișierul de licență primit pe e-mail sau scrieți-ne.",
+    "duplicate_code": "Clinica este deja înregistrată la DentPilot. Am trimis un cod de activare pe "
+                      "adresa de e-mail a clinicii — introduceți-l mai jos (este valabil "
+                      f"{int(trial.CODE_TTL.total_seconds() // 60)} minute).",
+    "bad_code": "Codul nu este corect sau a expirat — verificați e-mailul sau trimiteți din nou "
+                "cererea pentru un cod nou.",
+    "code_limited": "Prea multe încercări — încercați peste o oră sau scrieți-ne.",
     "bad_json": "Cererea nu a putut fi citită — actualizați programul sau scrieți-ne.",
     "no_renew": "Activarea automată nu este disponibilă acum — activați programul cu fișierul "
                 "de licență sau scrieți-ne.",

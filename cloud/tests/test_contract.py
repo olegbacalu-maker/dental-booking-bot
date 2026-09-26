@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from harness import CLOUD, ROOT, Result
 
 sys.path.insert(0, str(CLOUD))
-from app import config, license, mail, payments  # noqa: E402
+from app import config, license, mail, payments, trial  # noqa: E402
 
 SITE = ROOT / "docs" / "site"
 
@@ -81,6 +81,14 @@ def suite(res: Result) -> None:
     res.ok("декларация: IDNO, телефон и почта — те же, что в условиях",
            set(re.findall(r"IDNO (\d{13})", decl)) == set(re.findall(r"IDNO (\d{13})", terms))
            and config.SUPPORT_PHONE in decl and config.SUPPORT_EMAIL in decl)
+    # Код на e-mail (новый компьютер той же клиники): срок в политике и в письме — CODE_TTL
+    minutes = int(trial.CODE_TTL.total_seconds() // 60)
+    res.ok("политика § 5 и декларация: код активации — со сроком, как у сервера",
+           "codul de activare" in flat_privacy.lower() and f"valabil {minutes} minute" in flat_privacy
+           and "codul primit pe e-mailul clinicii" in decl
+           and f"valabil {minutes} minute" in mail.activation_code("C", "123456", minutes)[1])
+    res.ok("условия п. 7: другой компьютер — кодом на e-mail или тем же файлом",
+           "codul de activare trimis pe e-mailul clinicii" in flat_terms)
     res.ok("декларация: письмо называет её тем же именем, что страница",
            "Declarația furnizorului" in decl and "Declarația furnizorului" in mail.DECLARATION_NOTE)
     # IDNO вписан 26.09 (был плейсхолдер): один и тот же номер на обеих страницах.

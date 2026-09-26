@@ -148,6 +148,11 @@ MSG_BANNER = {
                                        "de licență"),
     "license_request_declined": ("err", "Cererea de perioadă de probă nu mai este activă — "
                                         "scrieți-ne sau trimiteți o cerere nouă"),
+    # Новый компьютер той же клиники: повтор заявки → код на e-mail клиники
+    "license_request_code": ("ok", "Clinica este deja înregistrată la DentPilot — am trimis un cod "
+                                   "de activare pe e-mailul clinicii"),
+    "license_code_bad": ("err", "Codul nu este corect sau a expirat — verificați e-mailul sau "
+                                "trimiteți din nou cererea pentru un cod nou"),
     # Автообновление (L13): ответ кнопки «Verifică acum» на странице лицензии;
     # коды — license.RENEW_CODES, по одному на исход запроса к серверу
     "license_renewed": ("ok", "Fișierul de licență a fost reînnoit de pe serverul DentPilot"),
@@ -1699,6 +1704,8 @@ def _request_form(v: dict) -> str:
     return (f"<form class='req' method='post' action='/admin/license/request'>"
             f"<p><b>Activare automată.</b> Completați datele clinicii: cererea pleacă la DentPilot, "
             f"iar programul se activează singur, fără fișier. Prima lună este gratuită.</p>"
+            f"<p>Clinica lucrează deja cu DentPilot pe alt calculator? Completați aceleași date "
+            f"(IDNO sau e-mail): trimitem un cod de activare pe e-mailul clinicii.</p>"
             f"<label for='r-name'>Denumirea clinicii *</label>"
             f"<input id='r-name' name='name' value='{val('name')}' required maxlength='120'>"
             f"<label for='r-idno'>IDNO (13 cifre, opțional pentru perioada de probă)</label>"
@@ -1713,10 +1720,18 @@ def _request_form(v: dict) -> str:
             f"<button>Trimite cererea și activează programul</button></form>")
 
 
-# Файл из письма — запасной путь: без интернета, на новом ПК, клинике, которая
-# уже есть у DentPilot (повтор заявки сервер не примет)
+# Файл из письма — запасной путь: без интернета или когда код не дошёл
 _FILE_ALT = ("<details><summary>Aveți deja fișierul de licență (license.json)?</summary>"
              + _LICENSE_FORM + "</details>")
+# Код из письма (новый компьютер той же клиники): галочки нет — код бывает только
+# у заявки, а заявку без галочки маршрут не отправит; договор принят ею
+_CODE_FORM = ("<form class='req' method='post' action='/admin/license/verify'>"
+              "<p><b>Codul de activare.</b> Introduceți codul din 6 cifre primit pe adresa de "
+              "e-mail a clinicii, înregistrată la DentPilot.</p>"
+              "<label for='v-code'>Codul din e-mail</label>"
+              "<input id='v-code' name='code' required maxlength='7' inputmode='numeric' "
+              "autocomplete='one-time-code' autofocus>"
+              "<button>Activează programul</button></form>")
 _PENDING_CHECK = ("<form method='post' action='/admin/license/renew'><button>Verifică acum dacă "
                   "cererea a fost aprobată</button></form>")
 
@@ -1788,12 +1803,19 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
         err = ""                               # то же говорит состояние страницы выше
     elif msg == lic.REQUEST_REFUSED and req["text"]:
         err = f"{err}: {req['text']}"          # словами сервера: поле, повтор, лимит
+    elif msg in (lic.REQUEST_CODE, lic.CODE_BAD) and req["text"]:
+        err = req["text"]                      # словами сервера: срок кода, попытки
     elif not msg and activate and pend is None and req["declined"]:
         err = MSG_BANNER[lic.REQUEST_DECLINED][1]
     if not director:
         form = "<p>Programul îl poate activa directorul clinicii.</p>"
+    elif activate and pend is not None:
+        form = _PENDING_CHECK + _FILE_ALT
+    elif activate and req["verify_id"]:
+        form = (_CODE_FORM + "<details><summary>Nu a venit codul? Trimiteți din nou cererea</summary>"
+                + _request_form(req["fields"]) + "</details>" + _FILE_ALT)
     elif activate:
-        form = (_PENDING_CHECK if pend is not None else _request_form(req["fields"])) + _FILE_ALT
+        form = _request_form(req["fields"]) + _FILE_ALT
     else:
         form = _LICENSE_FORM
     back = "" if walled else "<p><a href='/admin'>Înapoi la registru</a></p>"

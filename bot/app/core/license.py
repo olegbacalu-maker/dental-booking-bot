@@ -30,7 +30,10 @@
 нажмёт «Выдать». Файл проходит тот же `open_envelope`, заявка стирается, и
 программа живёт дальше обычным суточным автообновлением. 401 по токену
 заявки — её скрыли в админке: заявка стирается, страница говорит об этом.
-Файл из письма остаётся запасным путём — без интернета и на новом ПК.
+Новый компьютер клиники, которая уже есть у DentPilot: сервер не заводит её
+второй раз, а шлёт код на e-mail, записанный у неё, и отвечает `verify_id`;
+директор вводит код, `/v1/verify` отдаёт токен клиники — и дальше то же:
+`license.pending`, запрос файла. Файл из письма — запасной путь без интернета.
 """
 from __future__ import annotations
 
@@ -70,12 +73,14 @@ TERMS_VERSION = "26.09.2026"
 SERVER_URL = "https://cloud.dentpilot.md"
 SERVER_ENV = "DENTART_LICENSE_SERVER"
 TRIAL_PATH = "/v1/trial"
+VERIFY_PATH = "/v1/verify"                  # код из письма (новый компьютер) → токен
 PENDING_NAME = "license.pending"            # токен заявки, пока файл не выдан
 PENDING_EVERY = timedelta(minutes=1)        # пока заявка ждёт — спрашивать часто
 PENDING_EVERY_ENV = "DENTART_LICENSE_PENDING_S"   # стенд: секунды вместо минуты
 # Исходы заявки — коды для ?msg= (MSG_BANNER в layout)
 REQUEST_SENT, REQUEST_REFUSED = "license_requested", "license_request_refused"
 REQUEST_OFFLINE, REQUEST_DECLINED = "license_request_offline", "license_request_declined"
+REQUEST_CODE, CODE_BAD = "license_request_code", "license_code_bad"
 # Адреса, открытые и за стеной: сама активация и всё, что нужно, чтобы до неё дойти
 WALL_FREE = ("/admin/license", "/admin/login", "/admin/logout", "/admin/setup",
              "/admin/recover")
@@ -101,7 +106,7 @@ _renew_lock: asyncio.Lock | None = None
 _wake: asyncio.Event | None = None          # будит суточный цикл, когда появилась заявка
 # Последняя заявка этого процесса — для страницы: что написал сервер при отказе,
 # что вписал директор (форма заполняется заново), скрыта ли ждавшая заявка
-_request: dict = {"text": "", "fields": {}, "declined": False}
+_request: dict = {"text": "", "fields": {}, "declined": False, "verify_id": ""}
 
 
 def folder() -> pathlib.Path | None:
@@ -336,7 +341,7 @@ def _pending_drop() -> None:
 def last_request() -> dict:
     """Последняя заявка этого процесса: текст отказа сервера, поля формы, скрыта ли."""
     return {"text": _request["text"], "fields": dict(_request["fields"]),
-            "declined": _request["declined"]}
+            "declined": _request["declined"], "verify_id": _request["verify_id"]}
 
 
 async def request_trial(fields: dict, actor: str) -> str:
@@ -353,11 +358,16 @@ async def request_trial(fields: dict, actor: str) -> str:
     body = {k: " ".join(str(fields.get(k) or "").split())
             for k in ("name", "idno", "contact_name", "email", "phone")}
     body["consent"] = "1"
-    _request.update(text="", fields=body, declined=False)
+    _request.update(text="", fields=body, declined=False, verify_id="")
     outcome, data = await asyncio.to_thread(rn.request_trial, server_url() + TRIAL_PATH, body,
                                             RENEW_TIMEOUT, _agent())
     if outcome == rn.REJECTED:
         _request["text"] = str(data.get("text"))[:300]
+        vid = data.get("verify_id")
+        if isinstance(vid, str) and 16 <= len(vid) <= 64:
+            # клиника уже есть: код ушёл на её e-mail — страница спросит его
+            _request["verify_id"] = vid
+            return REQUEST_CODE
         return REQUEST_REFUSED
     url, token = data.get("url"), data.get("token")
     if (outcome != rn.ACCEPTED or not rsa_verify.renew_url_ok(url)
@@ -369,6 +379,40 @@ async def request_trial(fields: dict, actor: str) -> str:
         return REQUEST_OFFLINE
     await db.log_clinic_event("license", f"Cerere de perioadă de probă trimisă la DentPilot: "
                                          f"{body['name'][:60]}", actor=actor)
+    result = await renew_once()
+    wake()
+    return "license_ok" if result == RENEWED else REQUEST_SENT
+
+
+async def verify_code(code: str, actor: str) -> str:
+    """Код из письма — новый компьютер той же клиники → код для ?msg=.
+
+    Сервер меняет верный код на токен клиники, тот же, что в её файле; дальше —
+    как у заявки: `license.pending`, запрос файла сразу. У клиники файл уже
+    выдан, поэтому обычно это `license_ok` в этом же запросе."""
+    vid = _request["verify_id"]
+    if folder() is None or not applies():
+        return REQUEST_OFFLINE
+    if not vid:
+        _request["text"] = ""                    # кода нет (перезапуск): слова страницы
+        return CODE_BAD
+    outcome, data = await asyncio.to_thread(rn.verify_code, server_url() + VERIFY_PATH, vid,
+                                            "".join(str(code).split())[:12], RENEW_TIMEOUT, _agent())
+    if outcome == rn.REJECTED:
+        _request["text"] = str(data.get("text"))[:300]
+        return CODE_BAD
+    url, token = data.get("url"), data.get("token")
+    if (outcome != rn.ACCEPTED or not rsa_verify.renew_url_ok(url)
+            or not isinstance(token, str) or len(token) < 32):
+        return REQUEST_OFFLINE
+    f = _request["fields"]
+    if not _pending_write({"v": 1, "url": url, "token": token, "at": st.fmt(_now()),
+                           "actor": actor, "terms": TERMS_VERSION,
+                           "clinic": f.get("name", ""), "email": f.get("email", "")}):
+        return REQUEST_OFFLINE
+    _request.update(verify_id="", text="")
+    await db.log_clinic_event("license", "Activare pe acest calculator cu codul trimis pe "
+                                         "e-mailul clinicii", actor=actor)
     result = await renew_once()
     wake()
     return "license_ok" if result == RENEWED else REQUEST_SENT

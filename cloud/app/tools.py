@@ -257,7 +257,8 @@ def check() -> list[tuple[str, str]]:
             out.append((BAD, f"maib не отвечает: {e}"))
     else:
         out.append((WARN, "DP_MAIB_* пусты: оплата картой выключена, платежи только переводом"))
-    out.append((OK if trial.mode() == trial.MODE_APPROVE else WARN,
+    # оба режима — законный выбор (боевой с 26.09 — auto): предупреждать не о чем
+    out.append((OK,
                 f"форма пробного {config.BASE_URL.rstrip('/')}/proba: режим {trial.mode()} "
                 f"({'заявка ждёт админа' if trial.mode() == trial.MODE_APPROVE else 'файл уходит сразу'}), "
                 f"уведомления на {config.TRIAL_NOTIFY}"))

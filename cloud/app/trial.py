@@ -27,23 +27,41 @@ DentPilot»; о повторе узнаёт Олег письмом и отве�
 сразу отдаётся её токен (`license.renew_token`), и программа спрашивает по
 нему `/v1/license`, пока файл не выдан. ⚠️ Здесь повтор объявляется (409):
 программе нечем активироваться, а законный повтор — переустановка на новом
-компьютере, и ей нужен ответ «активируйте файлом из письма», а не вечное
-ожидание. Цена — ответ «эта клиника уже зарегистрирована»; перебор держит
-тот же лимит с адреса и общий потолок.
+компьютере, и ей нужен ответ, а не вечное ожидание. Цена — ответ «эта
+клиника уже зарегистрирована»; перебор держит тот же лимит с адреса и общий
+потолок.
+
+Новый компьютер той же клиники (26.09) — код на e-mail: на повтор из
+программы сервер шлёт шестизначный код на адрес, который у клиники УЖЕ
+записан (не на вписанный в заявку), и отдаёт программе `verify_id`. Верный
+код (`VERIFY_PATH`) меняется на токен клиники — дальше как у новой. Код живёт
+CODE_TTL, выдерживает CODE_ATTEMPTS ошибок и один успех, хранится хешем;
+кодов клинике — не больше CODES_PER_HOUR в час, проверок с адреса — не больше
+VERIFY_PER_HOUR. Чужой, вписавший IDNO клиники, получит «код отправлен», а
+код — владелец ящика.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
 import re
 import secrets
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 
 from . import config, db, license, mail
 
 MODE_AUTO, MODE_APPROVE = "auto", "approve"
 ORIGIN_FORM, ORIGIN_PROGRAM = "form", "program"   # clinics.origin: откуда пришла заявка
 API_PATH = "/v1/trial"           # заявка из программы (JSON), ответ — токен для /v1/license
+VERIFY_PATH = "/v1/verify"       # код из письма → токен клиники (новый компьютер)
+CODE_TTL = timedelta(minutes=15)
+CODE_ATTEMPTS = 5                # ошибок на один код; дальше код сгорает
+CODES_PER_HOUR = 3               # кодов одной клинике в час: письма не станут спамом
+VERIFY_PER_HOUR = 20             # проверок кода с одного адреса в час
+_verify_hits: dict[str, list[float]] = {}
 MAX_PER_HOUR = 5                 # заявок с одного адреса (IPv6 — с одной /64) в час
 MAX_TOTAL_PER_HOUR = 60          # заявок со всех адресов в час: потолок на случай ротации адресов
 _hits: dict[str, list[float]] = {}
@@ -201,3 +219,57 @@ def acknowledge(clinic: sqlite3.Row) -> str:
         return mail.send(clinic["email"], subject, body)
     except (RuntimeError, OSError, ValueError):
         return ""
+
+
+# ---------- код на e-mail: новый компьютер той же клиники (26.09) ----------
+
+
+def _code_hash(vid: str, code: str) -> str:
+    return hashlib.sha256(f"{vid}:{code}".encode("utf-8")).hexdigest()
+
+
+def new_code(con: sqlite3.Connection, clinic: sqlite3.Row, ip: str) -> tuple[str, str]:
+    """Код для клиники → (verify_id, код) или ('', ''): у клиники нет ящика или
+    лимит кодов за час исчерпан. Письмо шлёт вызывающий — после транзакции."""
+    now = datetime.now(timezone.utc)
+    hour_ago = (now - timedelta(hours=1)).strftime(db.TS)
+    recent = con.execute("SELECT count(*) FROM activation_codes WHERE clinic_id=? AND created_at > ?",
+                         (clinic["id"], hour_ago)).fetchone()[0]
+    if not clinic["email"] or recent >= CODES_PER_HOUR:
+        db.audit(con, "program", "code_limit", clinic["id"], ip)
+        return "", ""
+    vid = secrets.token_urlsafe(18)
+    code = f"{secrets.randbelow(10 ** 6):06d}"
+    con.execute("INSERT INTO activation_codes(id, clinic_id, code_hash, created_at, expires_at) "
+                "VALUES(?,?,?,?,?)", (vid, clinic["id"], _code_hash(vid, code), now.strftime(db.TS),
+                                      (now + CODE_TTL).strftime(db.TS)))
+    db.audit(con, "program", "code_sent", clinic["id"], f"на {clinic['email']}, {ip}")
+    return vid, code
+
+
+def verify_limited(ip: str) -> bool:
+    """Больше VERIFY_PER_HOUR проверок кода с адреса за час — отказ (перебор кодов)."""
+    now = time.time()
+    key = bucket(ip)
+    stamps = [t for t in _verify_hits.get(key, []) if now - t < 3600]
+    _verify_hits[key] = stamps + [now]
+    return len(stamps) >= VERIFY_PER_HOUR
+
+
+def check_code(con: sqlite3.Connection, vid: str, code: str, ip: str) -> sqlite3.Row | None:
+    """Верный живой код → клиника (код погашен); иначе None, и ошибка засчитана коду."""
+    row = con.execute("SELECT * FROM activation_codes WHERE id=?", (vid,)).fetchone()
+    now = datetime.now(timezone.utc)
+    if (row is None or row["used_at"] or row["attempts"] >= CODE_ATTEMPTS
+            or (db.parse_ts(row["expires_at"]) or now) <= now):
+        return None
+    if not hmac.compare_digest(row["code_hash"], _code_hash(vid, code)):
+        con.execute("UPDATE activation_codes SET attempts = attempts + 1 WHERE id=?", (vid,))
+        db.audit(con, "program", "code_bad", row["clinic_id"], ip)
+        return None
+    con.execute("UPDATE activation_codes SET used_at=? WHERE id=?", (now.strftime(db.TS), vid))
+    db.audit(con, "program", "code_ok", row["clinic_id"], ip)
+    # заявку скрыли, пока код шёл: токена скрытой клинике не будет (её IDNO и ящик свободны)
+    return con.execute("SELECT * FROM clinics WHERE id=? AND declined_at IS NULL",
+                       (row["clinic_id"],)).fetchone()
+

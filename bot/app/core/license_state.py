@@ -197,7 +197,7 @@ def save(path: pathlib.Path, mem: Memory) -> None:
 # пишущий маршрут либо здесь, либо отказывает (tests/test_license_gate.py).
 READONLY_ALLOW = (
     "/admin/login", "/admin/setup", "/admin/license", "/admin/recover",
-    "/admin/pin/change", "/admin/license/renew", "/admin/license/request",
+    "/admin/pin/change", "/admin/license/renew", "/admin/license/request", "/admin/license/verify",
     "/admin/security/ack", "/admin/users/save", "/admin/users/delete",
     "/admin/backup/export",
     "/admin/settings/crypt/prepare", "/admin/settings/crypt/confirm",

@@ -531,6 +531,21 @@ async def license_request(request: Request, name: str = Form(""), idno: str = Fo
     return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
 
 
+@app.post("/admin/license/verify")
+async def license_verify(request: Request, code: str = Form("")) -> Response:
+    """Новый компьютер той же клиники (26.09): код, который сервер прислал на её
+    e-mail в ответ на повтор заявки. Галочки здесь нет: код бывает только у заявки,
+    а её маршрут выше без галочки не отправит — договор принят ею, и летопись
+    пишет, кто активировал этот компьютер."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    me = current_user(request)
+    result = await lic.verify_code(code, actor=(me or {}).get("name") or "director")
+    if result == "license_ok":
+        return RedirectResponse("/admin?msg=license_ok", status_code=303)
+    return RedirectResponse(f"/admin/license?msg={result}", status_code=303)
+
+
 @app.post("/admin/license/renew")
 async def license_renew(request: Request) -> Response:
     """Кнопка «Verifică acum» (L13): тот же запрос к renew.url, что суточный, —

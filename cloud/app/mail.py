@@ -208,8 +208,9 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
             "issued_unmailed": "файл выдан, но письмо клинике НЕ ушло — в карточке «Отправить последний файл письмом»",
             "requested": "ждёт решения: выдать пробный кнопкой в админке"
                          + (" — программа активируется сама, как только файл выдан" if program else ""),
-            "duplicate": ("ПОВТОР: клиника с этим IDNO или e-mail уже есть, программе отвечено «уже "
-                          "зарегистрирована, активируйте файлом из письма» — ответьте клинике сами"
+            "duplicate": ("ПОВТОР из программы: клиника с этим IDNO или e-mail уже есть — на её "
+                          "e-mail ушёл код активации (новый компьютер?); если кода нет в журнале, "
+                          "ответьте клинике сами"
                           if program else "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме "
                           "отвечено «принято» — ответьте клинике сами")}.get(outcome, outcome)
     f = fields or {}
@@ -274,3 +275,19 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
             + (f" {DECLARATION_NOTE}" if declaration else "") + "\n\n"
             f"{FOOTER}")
     return subject, body
+
+
+def activation_code(clinic: str, code: str, minutes: int) -> tuple[str, str]:
+    """Клинике: код для активации программы на новом компьютере (26.09). Идёт на
+    адрес, который у клиники уже записан, — код и есть доказательство, что
+    активирует она."""
+    subject = f"DentPilot: codul de activare pentru {clinic}"
+    body = (f"Bună ziua,\n\n"
+            f"Codul pentru activarea programului DentPilot pe un calculator al clinicii {clinic}: "
+            f"{code}\n\n"
+            f"Introduceți-l pe pagina de activare a programului. Codul este valabil {minutes} minute "
+            f"și se folosește o singură dată.\n\n"
+            f"Dacă nu ați cerut acest cod, ignorați mesajul: fără el nimeni nu poate activa "
+            f"programul în numele clinicii.\n\n{FOOTER}")
+    return subject, body
+

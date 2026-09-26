@@ -115,6 +115,7 @@ SUITES = [
      test_license_renew.suite_live),
     ("Лицензия: автообновление — кнопка «Verifică acum»", test_license_renew.suite_button),
     ("Лицензия: активация без файла — заявка, ожидание, файл сам", test_license_renew.suite_request),
+    ("Лицензия: новый компьютер той же клиники — код на e-mail", test_license_renew.suite_code),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),
