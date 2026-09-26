@@ -341,6 +341,14 @@ MUTATIONS = [
     ("договор согласован с программой", "app/core/layout.py",
      ('"expirat. Datele se pot consulta, tipări și exporta; "',
       '"expirat. Datele se pot consulta și tipări; "')),
+    # ---- баннер в обеих оболочках (посадка L5 на B1) ----
+    # Ровно то, что было до посадки: баннер лицензии печатает старая страница,
+    # а в модель React-оболочки его не положили.
+    ("каждый баннер каркаса — сигнал оболочки", "app/core/layout.py",
+     ('"signals": {"license": _sig(_license_banner()),', '"signals": {')),
+    # Сервер сигнал отдаёт, а оболочка его не рисует — вторая половина той же дыры.
+    ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
+     ("[sig.license, sig.tamper,", "[sig.tamper,")),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
@@ -402,6 +410,10 @@ LEGAL = [
     ("договор согласован с программой", "app/core/layout.py",
      ('    "license_ok": ("ok", "Licența a fost activată"),',
       '    "license_ok": ("ok", "Licența a fost activată"),\n    "license_note": ("ok", "Notă"),')),
+    # ⭐ Законно: порядок баннеров в оболочке — оформление, а не пропажа.
+    ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
+     ("[sig.license, sig.tamper, sig.split, sig.slot, sig.setup]",
+      "[sig.tamper, sig.split, sig.slot, sig.setup, sig.license]")),
 ]
 
 

@@ -40,7 +40,7 @@ export interface ShellModel {
   clinic: { name: string; mark: string; logo_topbar: string }
   runtime: { version: string; tz: string }
   nav: { active: string; items: NavItem[]; sync: NavItem[]; foot_title: string }
-  signals: { tamper: Signal; split: Signal; slot: Signal; setup: Signal }
+  signals: { license: Signal; tamper: Signal; split: Signal; slot: Signal; setup: Signal }
   frame: {
     /** Заголовок страницы — имя РАЗДЕЛА (B5, шаг 10): «Pacienți», «Setări».
      *  Считает сервер по активному пункту меню; до 26.09 здесь стояло

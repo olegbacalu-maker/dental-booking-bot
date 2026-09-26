@@ -1357,3 +1357,38 @@ def suite(res: Result) -> None:
             bad.append(f"termeni.html обещает {m.group(1)} дней без файла, программа даёт {days}")
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
+
+    # ---- каждый баннер каркаса — сигнал оболочки (посадка L5 на B1, 26.09) ----
+    # Старая страница печатает баннеры в `_shell`, React-оболочка рисует
+    # `shell_model()["signals"]` — и только их. Баннер, заведённый в одном месте,
+    # у другого пропадает молча: так лицензия (L5 писался до B1) была видна на
+    # `?ui=legacy` и не видна на React-экране — у клиники, которой отказывают
+    # в записи. Тесты этого не видят: харнесс держит старый интерфейс.
+    # Имена берутся из КОДА: баннер — вызов `_…_banner()` / `_…_hint()` в `_shell`.
+    bad = []
+    lay_tree = by_path.get("app/core/layout.py")
+    funcs = {n.name: n for n in ast.walk(lay_tree)
+             if isinstance(n, ast.FunctionDef)} if lay_tree else {}
+
+    def _banner_calls(node) -> set:
+        return {c.func.id for c in ast.walk(node)
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                and re.fullmatch(r"_\w+_(banner|hint)", c.func.id)}
+    printed = _banner_calls(funcs["_shell"]) if "_shell" in funcs else set()
+    signals, keys = set(), []
+    for n in ast.walk(funcs["shell_model"]) if "shell_model" in funcs else ():
+        if isinstance(n, ast.Dict):
+            for k, v in zip(n.keys, n.values):
+                if isinstance(k, ast.Constant) and k.value == "signals" and isinstance(v, ast.Dict):
+                    signals = _banner_calls(v)
+                    keys = [kk.value for kk in v.keys if isinstance(kk, ast.Constant)]
+    if not printed:
+        bad.append("layout._shell: баннеров не найдено — якорь правила пропал")
+    if not keys:
+        bad.append("layout.shell_model: нет словаря signals — якорь правила пропал")
+    bad += [f"{name}() печатается в _shell, но не едет в signals" for name in sorted(printed - signals)]
+    shell_tsx = FRONTEND / "layouts" / "AppShell.tsx"
+    tsx = shell_tsx.read_text(encoding="utf-8") if shell_tsx.exists() else ""
+    bad += [f"AppShell.tsx не рисует sig.{k}" for k in keys if f"sig.{k}" not in tsx]
+    res.ok("каждый баннер каркаса — сигнал оболочки", not bad,
+           "баннер виден только одной из двух оболочек: " + "; ".join(bad))

@@ -43,6 +43,7 @@ const SHELL: ShellModel = {
     foot_title: '',
   },
   signals: {
+    license: { shown: false, html: '' },
     tamper: { shown: false, html: '' },
     split: { shown: false, html: '' },
     slot: { shown: false, html: '' },

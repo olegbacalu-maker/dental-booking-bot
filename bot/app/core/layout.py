@@ -1286,7 +1286,14 @@ def shell_model(active: str, sub: str, rail: bool = False,
         "nav": {"active": active, "items": items, "sync": sync,
                 "foot_title": (f"@{tg_user}" if tg_on else "neconectat")
                               if tg_configured() else ""},
-        "signals": {"tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
+        # ⛔ Каждый баннер, который `_shell` печатает над телом, едет и сюда:
+        # React-оболочка рисует РОВНО этот список, и баннер, забытый здесь,
+        # у старой страницы виден, а у React-экрана — нет. Так было с
+        # лицензией (L5 строился до B1): тесты зелёные — харнесс держит
+        # старый интерфейс, — а клиника видела бы отказ записи без баннера.
+        # Держит `test_structure` («каждый баннер каркаса — сигнал оболочки»).
+        "signals": {"license": _sig(_license_banner()),
+                    "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint())},
         "frame": {"title": section_title(active), "sub": sub, "rail": rail, "bell": bell,
                   "sec_warn": _sec_warn(),
