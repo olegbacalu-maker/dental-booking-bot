@@ -254,6 +254,14 @@ MUTATIONS = [
     ("icons.ts свежий", "app/core/layout.py",
      ("\"home\": \"<path d='M3 10.5 12 3l9 7.5M5.5 9.5V21h13V9.5'/>\",",
       "\"home\": \"<path d='M3 10 12 3l9 7'/>\",")),
+    # Ссылка экрана, откатившаяся к голому `<a href>`: переход перезагрузит
+    # документ, и окно мигнёт целиком — ровно то, что было на канарейке 1.30.0.
+    # ⚠️ Ломается в OdontogramWorkbench, а не в OdontogramScreen: с B6 (шаг 2,
+    # 26.09) разметку детальной одонтограммы — и ссылку «назад» к фише — рисует
+    # рабочий стол, а экран только грузит карту. По старому адресу замене нечего
+    # было заменить, и сторож остался непроверенным.
+    ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramWorkbench.tsx",
+     ('<AppLink className="odop-back"', '<a className="odop-back"')),
     # Экран, взявший палитру напрямую, — ровно та вторая формула, что жила на
     # канве панели до 19.09. Ломается ДОБАВЛЕНИЕМ: нарушение — сама ссылка на
     # палитру, а после сведения к одной формуле её вне visits.py нет ни одной.
@@ -298,8 +306,6 @@ MUTATIONS = [
      ("async def verify_source_pin(", "async def confirm_source(")),
     # Вторая формула хеша PIN — самый вероятный обход запрета звать verify_pin:
     # «просто прочитаю json и посчитаю сам».
-    ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramScreen.tsx",
-     ('<AppLink className="odop-back"', '<a className="odop-back"')),
     ("PIN проверяет один модуль", "app/relocate.py",
      "\n_mut = _derive(\"1234\", \"salt\")\n"),
     # Оформление (B5): число там, где положена ступень. Радиус — в panel.css,
@@ -383,7 +389,7 @@ LEGAL = [
     ("PIN проверяет один модуль", "app/modules/settings/routes.py",
      "\n_mut = [u for u in all_users()]\n"),
     # ссылка в КОММЕНТАРИИ — не разметка: правило про <a href> обязано молчать
-    ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramScreen.tsx",
+    ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramWorkbench.tsx",
      '\n/* пример для чтения: <a href="/admin/week">săptămâna</a> */\n'),
     # Форма, а не ступень: планка до 4px, пилюля, круг, половинки дуги двумя
     # значениями и число в КОММЕНТАРИИ — правило про радиус обязано молчать.
