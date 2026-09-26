@@ -18,7 +18,7 @@ import { DocumentsCard } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
 import { HeroKpi } from './HeroKpi'
 import { chart, type Odontogram } from '../../clinical/chart'
-import { OdontogramCard } from '../../clinical/OdontogramCard'
+import { OdontogramTab } from '../../clinical/OdontogramTab'
 import { PlanCard } from './PlanCard'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
@@ -174,7 +174,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     }
   }, [state, pid, replace, fail, to, pathname, tab])
 
-  /* зуб из плана открывается в компактной одонтограмме (диалог зуба); запрос
+  /* зуб из плана выбирается в рабочем столе одонтограммы (инспектор); запрос
      — объектом с меткой, чтобы повторный клик по тому же зубу тоже сработал.
      План и одонтограмма — на разных вкладках: сперва вкладка, карточка
      монтируется и применяет просьбу, как только у неё есть модель. */
@@ -276,7 +276,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           </div>
         )}
         {tab === 'odonto' && (
-          <OdontogramCard pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
+          <OdontogramTab pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
             initial={card.odontogram ?? null} />
         )}
         {tab === 'plan' && (

@@ -322,7 +322,8 @@ def main() -> int:
             page.go(f"/admin/patient/{pid}")
             settle(page, lambda st: st["busy"] == "false" or (st["busy"] != "true" and st["busy"] != "none"))
             # B6 (26.09): ссылка на детальную живёт на вкладке «Odontogramă» —
-            # сперва вкладка (тот же документ, адрес ?tab=odonto), потом ссылка.
+            # сперва вкладка (тот же документ, адрес ?tab=odonto), потом ссылка
+            # «Pe tot ecranul»; среди .odo-more есть и КНОПКИ без href (шаг 2).
             click_el(page, "[...document.querySelectorAll('.wtabs [role=tab]')]"
                            ".find(b => b.textContent.trim() === 'Odontogramă')")
             for _ in range(100):
@@ -333,7 +334,7 @@ def main() -> int:
                 bad.append("вкладка «Odontogramă» не открылась: ссылки на детальную нет")
             s7 = shell_step("фиша → одонтограмма",
                             lambda: click_el(page, "[...document.querySelectorAll('.odo-more')]"
-                                                   ".find(a => a.getAttribute('href').endsWith('/odontograma'))"),
+                                                   ".find(a => (a.getAttribute('href') || '').endsWith('/odontograma'))"),
                             lambda st: st["href"].endswith("/odontograma") and st["odop"], "odontogram")
             if not s7["rail"]:
                 bad.append("фиша → одонтограмма: сайдбар не сузился в рельс — модель нового документа не применена")

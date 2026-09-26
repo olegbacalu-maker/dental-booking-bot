@@ -524,6 +524,9 @@
 }
 .dp-react-root .wtabs [role=tab]:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .wpanel { display: flex; flex-direction: column; gap: 16px; }
+/* рабочий стол одонтограммы во вкладке (B6 шаг 2): без заголовка — панель
+   действий слева, а не прижата вправо к пустоте */
+.dp-react-root .wpanel .odop-top .odo-actions { margin-left: 0; }
 /* «Deschide planul» в окне KPI — теперь кнопка (вкладка), выглядит ссылкой */
 .dp-react-root button.lmore { border: none; background: none; padding: 0; color: var(--teal-d); cursor: pointer; font: inherit; font-size: var(--fs-s); font-weight: 600; }
 

@@ -255,9 +255,11 @@ describe('PatientCardScreen', () => {
     expect(screen.getByText('Alergii (medicamente, materiale): latex')).toBeTruthy()
     expect(screen.getByText('Completat: 18.09.2026 · Director')).toBeTruthy()
     expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(false)
-    // одонтограмма — свой компонент (C21): дуга с кнопками зубов, модель — из загрузчика, без второго запроса
+    // одонтограмма — рабочий стол детальной (инспектор рядом с дугой), модель — из загрузчика, без второго запроса
     await tabTo('Odontogramă')
     await odoReady()
+    expect(document.querySelector('.odop .insp')).toBeTruthy()
+    expect(screen.getByText('Pe tot ecranul').closest('a')?.getAttribute('href')).toBe('/admin/patient/5/odontograma')
     expect(get).toHaveBeenCalledWith('/patients/5', expect.anything())
     expect(get).toHaveBeenCalledWith('/patients/5/odontogram', expect.anything())
     expect(get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length).toBe(1)
@@ -554,9 +556,11 @@ describe('PatientCardScreen', () => {
     const saveTooth11 = async () => {
       await odoReady()
       fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
-      const dlg = screen.getByText('Dinte 11').closest('dialog') as HTMLElement
-      fireEvent.change(within(dlg).getByLabelText('Starea dintelui'), { target: { value: 'carie' } })
-      fireEvent.click(within(dlg).getByText('Salvează'))
+      /* B6 шаг 2: во вкладке тот же рабочий стол, что на детальной — инспектор, не диалог */
+      const insp = document.querySelector('.insp') as HTMLElement
+      expect(within(insp).getByText('11', { selector: '.insp-n b' })).toBeTruthy()
+      fireEvent.change(within(insp).getByLabelText('Starea dintelui'), { target: { value: 'carie' } })
+      fireEvent.click(within(insp).getByText('Salvează'))
       expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     }
     const pills = () => Array.from(document.querySelectorAll('.hero-badges .pill')).map((p) => p.textContent?.trim())
@@ -670,7 +674,9 @@ describe('PatientCardScreen', () => {
     fireEvent.click(rowOf('Coroană 11').querySelector('button.pt') as HTMLElement)
     await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
     await odoReady()
-    expect(await screen.findByText('Dinte 11')).toBeTruthy()
+    /* зуб выбран в инспекторе рабочего стола и в фокусе — клавиатура готова */
+    await waitFor(() => expect((document.querySelector('.insp-n b') as HTMLElement).textContent).toBe('11'))
+    expect((document.activeElement as HTMLElement).dataset.n).toBe('11')
     /* всё это — переходы одного адреса: фиша открыта один раз */
     expect(opens()).toBe(1)
     /* «Încarcă document» → Documente; «Notiță» → Date pacient с раскрытой формой */
