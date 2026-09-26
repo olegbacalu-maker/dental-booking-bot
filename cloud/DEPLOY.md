@@ -19,13 +19,62 @@
 - Ящик с паролем приложения (Gmail: «Пароли приложений» при включённой
   двухэтапной защите) и реквизиты банка для писем о переводе.
 
+## 0. Боевой сервер (с 26.09.2026)
+
+Contabo Cloud VPS 4, отдельная машина (не общая с другими проектами: ключ
+выдачи не должен быть досягаем чужим CI или чужим `docker`), Ubuntu 24.04,
+`79.143.180.16`, A-запись `cloud.dentpilot.md` в Cloudflare. Шаг 1 на нём уже
+сделан 26.09 — ниже он записан так, как делался, чтобы повторить на новой
+машине. Грабли, которых в первой версии этого файла не было, — все с живого
+сервера (своего и соседнего проекта на том же Contabo):
+
+- ⛔ **Вход по паролю образ Contabo включает сам**: `sshd_config.d/50-cloud-init.conf`
+  с `PasswordAuthentication yes`, а sshd берёт ПЕРВОЕ значение ключа. Правка
+  `sshd_config` поэтому ничего не выключает; выключает файл с именем `00-…`.
+  Проверять `sshd -T`, не `sshd -t` (второй только синтаксис).
+- ⛔ **Облако Cloudflare у `cloud` — серое (DNS only).** Оранжевое поставило бы
+  адреса Cloudflare перед Caddy: сертификат не выпустится, а лимит попыток
+  входа и формы `/proba` видел бы всех посетителей одним адресом.
+- ⛔ **AAAA-запись для `cloud` не заводить.** Сеть compose — только IPv4, и
+  соединение по IPv6 Docker проводит через свой прокси, подменяя адрес
+  клиента адресом моста: те же лимиты снова видят всех одним человеком.
+- ⚠️ **Порты, опубликованные Docker, обходят ufw.** Наружу публикуется только
+  Caddy (80/443); сервер на 8090 — никогда (так и стоит в `docker-compose.yml`).
+- ⚠️ **Часовой пояс образа — Europe/Berlin.** Даты сервера и строки
+  `cron.example` — UTC, поэтому машина переводится на UTC; `/etc/timezone`
+  `timedatectl` не трогает — править отдельно.
+- ⚠️ **Скрипт, отданный по `ssh host "bash -s"`, может съесть сам себя**: первая
+  команда, читающая stdin (`docker compose exec -T`, `apt` без `< /dev/null`),
+  проглатывает остаток, и bash выходит с кодом 0. Команды — аргументом ssh
+  или файлом с `< /dev/null`.
+- ⚠️ **Docker обновляет только `apt upgrade`** — unattended-upgrades берут
+  лишь пакеты безопасности Ubuntu. Раз в месяц-два руками, со снимком до.
+- **Копии у провайдера — дополнение, не замена.** Auto Backup Contabo (диск
+  целиком, 10 дней) спасает от умершего диска и неудачного обновления, но
+  живёт в том же аккаунте; копия базы увозится с машины (шаг 5), ключ — на
+  носителе (шаг 2). Перед обновлением сервера — ручной снимок в панели.
+
 ## 1. Машина
 
 ```
-ssh root@VPS
-apt update && apt install -y git ufw
-curl -fsSL https://get.docker.com | sh              # docker + compose plugin
-ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable
+ssh root@VPS                      # ключом: ключ кладётся при заказе или сразу после
+# вход только по ключу (см. «Боевой сервер»: 00- читается раньше 50-cloud-init.conf)
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\n' \
+    > /etc/ssh/sshd_config.d/00-hardening.conf
+sshd -t && systemctl reload ssh && sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '
+# ⚠️ новым окном проверить вход по ключу, и только потом закрывать это
+timedatectl set-timezone Etc/UTC && echo Etc/UTC > /etc/timezone && systemctl restart cron
+apt update && apt install -y git ufw fail2ban < /dev/null
+ufw default deny incoming && ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+# Docker — из репозитория Docker (docs.docker.com › Install on Ubuntu), не скриптом
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+gpg --show-keys --with-fingerprint /etc/apt/keyrings/docker.asc   # сверить: 9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+    > /etc/apt/sources.list.d/docker.list
+apt update < /dev/null && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin < /dev/null
+printf '{ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }\n' \
+    > /etc/docker/daemon.json && systemctl restart docker      # иначе логи контейнеров растут без края
 mkdir -p /srv/dentpilot/data /srv/dentpilot/keys /var/log/dentpilot
 git clone https://github.com/olegbacalu-maker/dental-booking-bot.git /srv/dentpilot/src
 cd /srv/dentpilot/src/cloud/deploy
@@ -56,9 +105,11 @@ openssl rand -hex 32                                                     # → D
 Комментарии в этом файле — только отдельными строками (см. шапку примера).
 
 Форма пробного (L14): `DP_TRIAL_MODE=approve` — заявки ждут кнопки в админке
-(первое время так и держать); `auto` — файл уходит сразу. На сайте поставить
-ссылку «Perioadă de probă 14 zile» на `https://cloud.dentpilot.md/proba`
-(`docs/site/README.md`); письма о заявках приходят на `DP_TRIAL_NOTIFY`.
+(первое время так и держать); `auto` — файл уходит сразу. Пробный — месяц
+(`TRIAL_DAYS = 30`, как «Prima lună — gratuită» на сайте). Ссылка на
+`https://cloud.dentpilot.md/proba` в карточке цены сайта готова в ветке
+`draft/cloud-legal` репозитория сайта и публикуется в день запуска
+сервера (`docs/site/README.md`); письма о заявках приходят на `DP_TRIAL_NOTIFY`.
 
 Карты (L12): в кабинете maibmerchants завести проект, взять `Project ID`,
 `Project Secret` и `Signature Key` → `DP_MAIB_*`; там же указать адреса
@@ -125,6 +176,13 @@ cp /srv/dentpilot/data/backups/cloud-….db /srv/dentpilot/data/cloud.db
 docker compose up -d && docker compose exec cloud python -m app.tools check
 ```
 
+⚠️ **Восстановление откатывает номера выдач.** Копия — до суток назад, и файлы,
+выданные после неё, сервер забывает; следующая выдача получит номер, который
+у клиники УЖЕ стоит, и программа такой файл не примет (берёт только номер
+выше). После любого восстановления — хоть из копии базы, хоть из Auto Backup
+Contabo — сверить выдачи последних суток с отправленными письмами в Gmail и
+выдать недостающим клиникам файл заново: номер у сервера пойдёт дальше.
+
 В админке должны быть те же клиники и те же файлы выдач. То же учение делает
 `cloud/tests/test_deploy.py` на каждом прогоне CI: копия живой базы, проверка,
 сервер на копии, файл лицензии из копии байт в байт.
@@ -163,6 +221,10 @@ copy deploy\cloud.env.example deploy\cloud.env       # заполнить: пу�
 .\deploy\run-windows.ps1 -Check
 .\deploy\run-windows.ps1                              # админка: http://127.0.0.1:8090/admin
 ```
+
+`run-windows.ps1` включает UTF-8 режим Python (`PYTHONUTF8=1`): без него вывод
+в файл или трубу идёт в cp1251, и первая румынская буква роняет задачу —
+в консоли этого не видно (так краснели 11 проверок `cloud/tests` на ПК 25.09).
 
 В Планировщике заданий два задания раз в сутки: `run-windows.ps1 -Job daily`
 и `run-windows.ps1 -Backup` (копии в `cloud\backups`, увозить на флешку или в
