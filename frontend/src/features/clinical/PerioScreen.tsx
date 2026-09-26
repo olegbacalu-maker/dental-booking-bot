@@ -199,7 +199,7 @@ export function PerioScreen({ pid, navigate = defaultNavigate }: Props) {
 
   const head = (
     <div className="odop-top">
-      <AppLink className="odop-back" href={base}><Icon name="pat" /> {model.patient.name}</AppLink>
+      <AppLink className="odop-back" href={`${base}?tab=odonto`}><Icon name="pat" /> {model.patient.name}</AppLink>
       <h2>{T.title} <small>· {T.sub}</small></h2>
       <div className="odo-actions">
         {model.exams.length > 0 && (

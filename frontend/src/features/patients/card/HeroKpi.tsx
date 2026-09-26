@@ -56,6 +56,8 @@ type PanelKey = 'visits' | 'active' | 'last' | 'next' | 'done'
 interface Props {
   card: PatientCard
   onBook: () => void
+  /** «Deschide planul» из окна активных позиций — вкладка плана (B6) */
+  onPlan: () => void
 }
 
 /** Давность последнего визита словами старой страницы: «azi» / «N zile». */
@@ -86,7 +88,7 @@ function PlanRow({ it, labels }: { it: PlanItem; labels: Record<string, string> 
   )
 }
 
-export function HeroKpi({ card, onBook }: Props) {
+export function HeroKpi({ card, onBook, onPlan }: Props) {
   const { profile: p, hero, kpi, plan } = card
   const dlg = useRef<HTMLDialogElement>(null)
   const [panel, setPanel] = useState<PanelKey | null>(null)
@@ -139,7 +141,7 @@ export function HeroKpi({ card, onBook }: Props) {
     body = (
       <>
         {active.length ? active.map((it) => <PlanRow key={it.id} it={it} labels={card.options.plan_labels} />) : <p className="hint dp-m0">— {T.emptyPlan} —</p>}
-        <AppLink className="lmore" href="#plan" onClick={close}>{T.openPlan} ›</AppLink>
+        <button type="button" className="lmore" onClick={() => { close(); onPlan() }}>{T.openPlan} ›</button>
       </>
     )
   } else if (panel === 'last') {

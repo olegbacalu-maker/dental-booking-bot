@@ -506,6 +506,27 @@
 }
 .dp-react-root .dp-ag-empty { margin: 0; }
 
+/* ---- B6 «patient workspace»: полоса вкладок фиши (26.09) ----
+   Всё ступенями B5: высота контрола, кегль, радиус, длительность; подчёркивание
+   активной — фирменный цвет. Клавиатура и роли — в PatientCardScreen. */
+.dp-react-root .wtabs { display: flex; gap: 2px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.dp-react-root .wtabs [role=tab] {
+  position: relative; height: var(--h-ctl-m); padding: 0 14px; border: none; background: none;
+  font: inherit; font-size: var(--fs-body); font-weight: 500; color: var(--text2); cursor: pointer;
+  border-radius: var(--r-ctl) var(--r-ctl) 0 0; white-space: nowrap;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.dp-react-root .wtabs [role=tab]:hover { background: var(--line2); color: var(--text); }
+.dp-react-root .wtabs [role=tab].on { color: var(--teal-d); font-weight: 600; }
+.dp-react-root .wtabs [role=tab].on::after {
+  content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px;
+  border-radius: 2px; background: var(--teal);
+}
+.dp-react-root .wtabs [role=tab]:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .wpanel { display: flex; flex-direction: column; gap: 16px; }
+/* «Deschide planul» в окне KPI — теперь кнопка (вкладка), выглядит ссылкой */
+.dp-react-root button.lmore { border: none; background: none; padding: 0; color: var(--teal-d); cursor: pointer; font: inherit; font-size: var(--fs-s); font-weight: 600; }
+
 /* ---- «Stare sistem» (C10) ---- */
 
 .dp-set-th {
