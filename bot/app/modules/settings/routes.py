@@ -205,6 +205,27 @@ def _sec_react(screen: str, path: str, sub: str, msg: str,
                        params)
 
 
+# Группы узла настроек (B5, шаг 9): порядок и подписи — ОДИН список, как в
+# «Параметрах» Windows; плитка знает свою группу по адресу. Группа без плиток
+# (нет auth.json — нет «Securitate», облако — нет «Date și rețea») не рисуется.
+HUB_GROUPS = [("general", "General"), ("programari", "Programări"),
+              ("medici", "Medici"), ("date", "Date și rețea"),
+              ("securitate", "Securitate"), ("ajutor", "Ajutor")]
+HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/settings/clinic": "general",
+                "/admin/settings/theme": "general", "/admin/settings/hours": "programari",
+                "/admin/settings/services": "programari",
+                "/admin/settings/telegram": "programari", "/admin/medici": "medici",
+                "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
+                "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
+                "/admin/settings/faq": "ajutor"}
+
+
+def hub_groups(tiles: list[dict]) -> list[dict]:
+    """Плитки по группам в порядке HUB_GROUPS; пустые группы выпадают."""
+    return [{"key": k, "label": label, "tiles": [t for t in tiles if t["group"] == k]}
+            for k, label in HUB_GROUPS if any(t["group"] == k for t in tiles)]
+
+
 def _lan_available() -> bool:
     """Секция сети — только у настольного издания: слушающий адрес выбирает
     лаунчер по dental.env, облаку переключатель не нужен."""
@@ -238,7 +259,10 @@ def _hub_tiles() -> list[dict]:
                else [{"t": " · "}, {"icon": "sos", "t": "BitLocker", "tone": "amber"}])
 
     def tile(href: str, icon: str, tone: str, label: str, hint: list) -> dict:
-        return {"href": href, "icon": icon, "tone": tone, "label": label, "hint": hint}
+        # группа — по адресу, из ОДНОГО словаря: плитка без группы уронит
+        # сборку хаба KeyError — громко, а не молча без строки
+        return {"href": href, "icon": icon, "tone": tone, "label": label, "hint": hint,
+                "group": HUB_GROUP_OF[href]}
 
     tiles = [tile("/admin/settings/system", "info", "b", "Stare sistem",
                   [{"t": f"v{eng.APP_VERSION} · "}, *up_short, *bl_flag]),
@@ -313,15 +337,18 @@ async def admin_settings(request: Request, msg: str = ""):
         # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
         return react_shell("settings_hub", request.url.path,
                            shell_model("set", "setările clinicii · pe secțiuni", msg=msg))
-    tiles = "".join(
-        f"<a class='pl-tile' href='{t['href']}'>"
-        f"<span class='ico {t['tone']}'>{_ic(t['icon'])}</span><div class='pl-tv'>"
-        f"<span>{t['label']}</span><small>{_hint_html(t['hint'])}</small></div></a>"
-        for t in _hub_tiles())
+    def row(t: dict) -> str:
+        return (f"<a class='pl-tile' href='{t['href']}'>"
+                f"<span class='ico {t['tone']}'>{_ic(t['icon'])}</span><div class='pl-tv'>"
+                f"<span>{t['label']}</span><small>{_hint_html(t['hint'])}</small></div></a>")
+    groups = "".join(
+        f"<section class='hub-g'><h3>{html.escape(g['label'])}</h3>"
+        f"<div class='hub-list'>{''.join(row(t) for t in g['tiles'])}</div></section>"
+        for g in hub_groups(_hub_tiles()))
     body = (f"<div class='pl-head'><div><h2>Setări</h2>"
             f"<p>Alegeți o secțiune — modificările se aplică imediat, "
             f"fără repornire</p></div></div>"
-            f"<div class='pl-tiles set-hub'>{tiles}</div>")
+            f"<div class='pl-tiles set-hub'>{groups}</div>")
     return _shell(f"<div class='nav'><a href='/admin'>{_ic('home')} Panou</a></div>"
                   + msg_banner(msg) + body,
                   "setările clinicii · pe secțiuni", active="set")

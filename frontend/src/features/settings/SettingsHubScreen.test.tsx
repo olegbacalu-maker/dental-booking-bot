@@ -16,13 +16,15 @@ vi.mock('../../services/api', async (importOriginal) => {
 
 const HUB: HubData = {
   tiles: [
-    { href: '/admin/settings/system', icon: 'info', tone: 'b', label: 'Stare sistem',
+    { href: '/admin/settings/system', icon: 'info', tone: 'b', label: 'Stare sistem', group: 'general',
       hint: [{ t: 'v1.26.0 · ' }, { icon: 'refresh', t: 'disponibilă 1.27.0', tone: 'amber' }] },
-    { href: '/admin/settings/clinic', icon: 'clinic', tone: 'g', label: 'Clinica', hint: [{ t: 'Clinica Test' }] },
-    { href: '/admin/settings/theme', icon: 'palette', tone: 'v', label: 'Aspectul clinicii',
+    { href: '/admin/settings/clinic', icon: 'clinic', tone: 'g', label: 'Clinica', group: 'general', hint: [{ t: 'Clinica Test' }] },
+    { href: '/admin/settings/theme', icon: 'palette', tone: 'v', label: 'Aspectul clinicii', group: 'general',
       hint: [{ t: 'Modern · ' }, { dot: '#0E9F8A' }, { t: '#0E9F8A' }] },
-    { href: '/admin/settings/faq', icon: 'nope', tone: 'v', label: 'Întrebări frecvente', hint: [{ t: 'copii' }] },
+    { href: '/admin/settings/faq', icon: 'nope', tone: 'v', label: 'Întrebări frecvente', group: 'ajutor', hint: [{ t: 'copii' }] },
   ],
+  // «medici» без плиток — группа не рисуется, как на старой странице
+  groups: [{ key: 'general', label: 'General' }, { key: 'medici', label: 'Medici' }, { key: 'ajutor', label: 'Ajutor' }],
 }
 
 const ok = <T,>(data: T): ApiResult<T> => ({ data, code: '', text: '', tone: 'ok' })
@@ -57,6 +59,13 @@ describe('SettingsHubScreen', () => {
     expect((document.querySelector('.th-dot') as HTMLElement).style.background).toBe('rgb(14, 159, 138)')
     expect(screen.getByText('Clinica Test')).toBeTruthy()
     expect(get).toHaveBeenCalledWith('/settings/hub', expect.anything())
+    // группы: подзаголовки в порядке сервера, пустая группа не рисуется,
+    // плитка стоит в списке своей группы
+    const heads = Array.from(document.querySelectorAll('.hub-g h3')).map((h) => h.textContent)
+    expect(heads).toEqual(['General', 'Ajutor'])
+    const lists = document.querySelectorAll('.hub-g .hub-list')
+    expect(lists[0]?.querySelectorAll('a.pl-tile').length).toBe(3)
+    expect(lists[1]?.querySelector('a.pl-tile')?.getAttribute('href')).toBe('/admin/settings/faq')
   })
 
   it('неизвестная иконка с сервера не роняет экран', async () => {

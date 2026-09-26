@@ -37,7 +37,7 @@ from ...core.visits import SVC_PALETTE
 from . import backup as bkp
 from . import crypt, faq, lan, system
 from .routes import (RESTART_NOTE, _PALETTE_RO, _apply_user, _drop_user,
-                     _finish_cfg, _hub_tiles, _lan_available, _last_logins,
+                     _finish_cfg, _hub_tiles, HUB_GROUPS, _lan_available, _last_logins,
                      _logo_action, _set_lan, _val_clinic, _val_hours,
                      _val_services, _val_theme, restart_text)
 
@@ -103,7 +103,9 @@ async def api_hub(request: Request):
     точка цвета) — те же данные, из которых собрана старая страница."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
-    return msg_json(True, data={"tiles": _hub_tiles()})
+    # группы — тем же порядком и теми же подписями, что у старой страницы
+    return msg_json(True, data={"tiles": _hub_tiles(),
+                                "groups": [{"key": k, "label": v} for k, v in HUB_GROUPS]})
 
 
 # ---------- сеть клиники ----------

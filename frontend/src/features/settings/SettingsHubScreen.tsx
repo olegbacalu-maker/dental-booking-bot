@@ -26,19 +26,29 @@ export function SettingsHubScreen() {
     return <section className="dp-react-root">{nav}<LoadFailed error={state.error} onRetry={retry} /></section>
   }
   const tiles = state.status === 'ready' ? state.data.tiles : []
+  const groups = state.status === 'ready' ? state.data.groups : []
   return (
     <section className="dp-react-root" aria-busy={state.status !== 'ready'}>
       {nav}
       <div className="pl-head"><div><h2>{T.title}</h2><p>{T.sub}</p></div></div>
       <div className="pl-tiles set-hub">
-        {tiles.map((t) => (
-          <AppLink key={t.href} className="pl-tile" href={t.href}>
-            <span className={`ico ${t.tone}`}><Icon name={iconName(t.icon)} /></span>
-            <div className="pl-tv">
-              <span>{t.label}</span>
-              <small><Hint parts={t.hint} /></small>
+        {/* группы и их порядок — с сервера (B5): пустая группа не рисуется,
+            как и на старой странице */}
+        {groups.filter((g) => tiles.some((t) => t.group === g.key)).map((g) => (
+          <section key={g.key} className="hub-g">
+            <h3>{g.label}</h3>
+            <div className="hub-list">
+              {tiles.filter((t) => t.group === g.key).map((t) => (
+                <AppLink key={t.href} className="pl-tile" href={t.href}>
+                  <span className={`ico ${t.tone}`}><Icon name={iconName(t.icon)} /></span>
+                  <div className="pl-tv">
+                    <span>{t.label}</span>
+                    <small><Hint parts={t.hint} /></small>
+                  </div>
+                </AppLink>
+              ))}
             </div>
-          </AppLink>
+          </section>
         ))}
       </div>
     </section>

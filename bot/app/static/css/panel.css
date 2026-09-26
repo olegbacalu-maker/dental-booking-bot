@@ -1861,9 +1861,11 @@
     ширина — потолок строки текста, а не окна (--measure — тот же довод, что у
     подсказок). Шеврон — маской, тем же приёмом, что значок баннера: красится
     currentColor и не просит знак у Windows. */
- .pl-tiles.set-hub{display:flex;flex-direction:column;gap:0;max-width:calc(var(--measure) + 140px);
-   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);overflow:hidden}
+ .pl-tiles.set-hub{display:flex;flex-direction:column;gap:18px;max-width:calc(var(--measure) + 140px)}
+ /* группы (шаг 9): подзаголовок + карточка-список; порядок и подписи — с сервера */
+ .hub-g h3{margin:0 0 8px;font-size:var(--fs-m);font-weight:600;color:var(--text2)}
+ .hub-list{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);
+   border-radius:var(--r-card);box-shadow:var(--sh);overflow:hidden}
  .set-hub .pl-tile{border:none;border-radius:0;box-shadow:none;padding:13px 18px;gap:14px;
    border-bottom:1px solid var(--line2);transition:background-color .15s ease}
  .set-hub .pl-tile:last-child{border-bottom:none}

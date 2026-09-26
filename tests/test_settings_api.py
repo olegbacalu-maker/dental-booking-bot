@@ -82,6 +82,21 @@ def suite_hub(res: Result) -> None:
                all(t["label"] in page for t in d["tiles"]), "подписи разошлись")
         res.ok("каждая ссылка плитки есть и на старой странице",
                all(f"href='{t['href']}'" in page for t in d["tiles"]), "адреса разошлись")
+        # группы (B5, шаг 9): порядок и подписи — с сервера, у каждой плитки
+        # группа из этого списка; на старой странице те же подзаголовки
+        keys = [g["key"] for g in d["groups"]]
+        res.check("группы в порядке «Параметров»",
+                  keys, ["general", "programari", "medici", "date", "securitate", "ajutor"])
+        res.ok("у каждой плитки группа из списка",
+               all(t["group"] in keys for t in d["tiles"]),
+               f"{[(t['href'], t.get('group')) for t in d['tiles']]}")
+        res.check("порядок внутри групп — прежний порядок плиток",
+                  [t["href"] for t in d["tiles"] if t["group"] == "general"],
+                  ["/admin/settings/system", "/admin/settings/clinic", "/admin/settings/theme"])
+        shown = {t["group"] for t in d["tiles"]}
+        res.ok("старая страница рисует подзаголовки только непустых групп",
+               all((f"<h3>{g['label']}</h3>" in page) == (g["key"] in shown) for g in d["groups"]),
+               f"группы с плитками: {sorted(shown)}")
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_hub_"))
     env_path = tmp / "dental.env"

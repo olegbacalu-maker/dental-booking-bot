@@ -18,10 +18,13 @@ export interface HubTile {
   tone: string
   label: string
   hint: HintPart[]
+  /** Ключ группы из `groups` (B5): порядок и подписи групп задаёт сервер. */
+  group: string
 }
 
 export interface HubData {
   tiles: HubTile[]
+  groups: { key: string; label: string }[]
 }
 
 export interface LanData {
