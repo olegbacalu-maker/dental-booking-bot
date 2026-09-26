@@ -6,7 +6,9 @@ import { api } from '../../services/api'
    поверхностей `data-s`), клиент — композицией и интерактивом. Второго
    словаря состояний и второй геометрии здесь нет. */
 
-export type View = 'frontal' | 'ocluzal'
+/** Вид одонтограммы: два рисунка сервера и объёмный (B7); 2D-компоненты
+ *  различают только «ocluzal», для них 3D — то же, что frontal. */
+export type View = 'frontal' | 'ocluzal' | '3d'
 export type Jaw = 'sus' | 'jos'
 
 /** Что нужно, чтобы НАРИСОВАТЬ зуб, и ничего сверх того: рисунок сервера и
@@ -139,7 +141,8 @@ export const VIEW_KEY = 'dp_odo_view'
 
 export function savedView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'ocluzal' ? 'ocluzal' : 'frontal'
+    const v = localStorage.getItem(VIEW_KEY)
+    return v === 'ocluzal' || v === '3d' ? v : 'frontal'
   } catch {
     return 'frontal'
   }
