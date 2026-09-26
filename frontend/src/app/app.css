@@ -549,6 +549,56 @@
 .dp-react-root .odo-3d-msg { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; text-align: center; padding: 24px; }
 @media (max-width: 880px) { .dp-react-root .odo-stage { height: 400px; } }
 
+/* ---- B7 · планшет: одонтограмма под палец (26.09) ----
+   Только (pointer: coarse): мышью рабочий стол прежний. Инспектор после касания
+   зуба — шторка снизу в портрете и панель справа в альбоме, ПОВЕРХ дуги и
+   всегда на экране (замер 26.09: без этого он уходил ниже края на всех
+   планшетах). Цели ≥ 44 px, у зуба нет выделения текста и выноски iOS. */
+.dp-react-root .insp-close { display: none; }
+.dp-react-root .st-palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+.dp-react-root .st-palette .stp {
+  display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--panel); color: var(--text); font: inherit; font-size: var(--fs-body); cursor: pointer;
+}
+.dp-react-root .st-palette .stp i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.dp-react-root .st-palette .stp.on { border-color: var(--teal); background: var(--teal-glow); color: var(--teal-d); font-weight: 600; }
+@media (pointer: coarse) {
+  .dp-react-root .odop-grid { grid-template-columns: minmax(0, 1fr); }
+  .dp-react-root .odop:not([data-sel]) .odop-side { display: none; }
+  .dp-react-root .odop[data-sel] { padding-bottom: 56vh; }
+  .dp-react-root .odop[data-sel] .odop-side {
+    position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
+    max-height: 56vh; overflow: auto; overscroll-behavior: contain;
+    background: var(--panel); border-top: 1px solid var(--line);
+    border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  .dp-react-root .odop[data-sel] .odop-side .insp { border: none; box-shadow: none; margin: 0; }
+  .dp-react-root .insp .insp-t:first-child { display: flex; align-items: center; justify-content: space-between; }
+  .dp-react-root .insp-close {
+    display: inline-grid; place-items: center; width: 44px; height: 44px; margin: -8px -8px -8px 0;
+    border: none; background: none; color: var(--text2); border-radius: var(--r-ctl); cursor: pointer;
+  }
+  .dp-react-root .tooth-btn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+  .dp-react-root .viewsw button, .dp-react-root .odo-more, .dp-react-root .odo-3d-togs .odo-more { min-height: 44px; }
+  .dp-cmenu .dp-cmenu-i { min-height: 44px; }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  /* панель поверх дуги, дуга своего размера: сторона — напротив выбранного зуба */
+  .dp-react-root .odop[data-sel] { padding-bottom: 0; }
+  .dp-react-root .odop[data-sel] .odop-side {
+    top: 0; left: auto; right: 0; width: min(360px, 38vw); max-height: none;
+    border-top: none; border-left: 1px solid var(--line);
+    border-radius: var(--r-block) 0 0 var(--r-block); box-shadow: -8px 0 24px rgba(15, 23, 42, .14);
+    padding: 12px calc(12px + env(safe-area-inset-right)) 12px 12px;
+  }
+  .dp-react-root .odop[data-sel][data-side="left"] .odop-side {
+    left: 0; right: auto; border-left: none; border-right: 1px solid var(--line);
+    border-radius: 0 var(--r-block) var(--r-block) 0; box-shadow: 8px 0 24px rgba(15, 23, 42, .14);
+    padding: 12px 12px 12px calc(12px + env(safe-area-inset-left));
+  }
+}
+
 /* ---- «Stare sistem» (C10) ---- */
 
 .dp-set-th {

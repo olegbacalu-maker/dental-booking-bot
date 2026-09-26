@@ -22,6 +22,7 @@ const T = {
   noHistory: '— fără înregistrări —',
   perio: 'Parodontogramă',
   openPerio: 'Deschide examenul',
+  close: 'Închide',
 } as const
 
 interface Props {
@@ -39,9 +40,11 @@ interface Props {
   onDiscard: () => void
   onDelBridge: (bid: number) => void
   onBridgeFrom?: (n: number) => void
+  /** Закрыть инспектор (пальцем он — шторка поверх дуги); мышью кнопки не видно. */
+  onClose?: () => void
 }
 
-export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, draft, dirty, onEdit, onSave, onDiscard, onDelBridge, onBridgeFrom }: Props) {
+export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, draft, dirty, onEdit, onSave, onDiscard, onDelBridge, onBridgeFrom, onClose }: Props) {
   const info = n !== null ? model.teeth[String(n)] : undefined
   const inBr = n !== null ? bridgeOf(model, n) : null
   const hist = n !== null ? (model.history[String(n)] ?? []) : []
@@ -50,7 +53,11 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
   const perio = n !== null ? model.perio?.[String(n)] : undefined
   return (
     <div className="fcard insp">
-      <div className="insp-t">{T.title}</div>
+      <div className="insp-t">{T.title}
+        {onClose && n !== null && (
+          <button type="button" className="insp-close" aria-label={T.close} title={T.close} onClick={onClose}><Icon name="close" /></button>
+        )}
+      </div>
       <div className="insp-n"><b>{n ?? '—'}</b><span>{info ? JAW_RO[info.jaw] : ''}</span></div>
       {inBr && (
         <div className="i-bridge">

@@ -1,5 +1,6 @@
 import type { CSSProperties, MouseEvent } from 'react'
 import type { ToothVisual, View } from './chart'
+import { useLongPress } from './touch'
 
 /*
  * Один зуб = слои поверх серверной геометрии:
@@ -13,6 +14,8 @@ import type { ToothVisual, View } from './chart'
  * Разметка кнопки — та же, что у старой страницы (.tooth-btn, .num), поэтому
  * panel.css красит её без единого нового правила. Правая кнопка (C22) —
  * контекстное меню родителя; путь не единственный, то же есть в инспекторе.
+ * Пальцем (B7 · планшет) меню открывает ДОЛГОЕ НАЖАТИЕ — iPad contextmenu
+ * на нём не шлёт (`touch.useLongPress`).
  */
 interface Props {
   n: number
@@ -31,8 +34,8 @@ interface Props {
   /** Клик по поверхности внутри рисунка. */
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
-  /** Правая кнопка по зубу. */
-  onMenu?: (n: number, e: MouseEvent<HTMLButtonElement>) => void
+  /** Меню зуба у точки: правая кнопка мыши или долгое нажатие пальцем. */
+  onMenu?: (n: number, x: number, y: number) => void
 }
 
 export function Tooth({ n, info, view, selected, picked, dirty, lower, arc, onSelect, onSurface, onHover, onMenu }: Props) {
@@ -41,6 +44,7 @@ export function Tooth({ n, info, view, selected, picked, dirty, lower, arc, onSe
   const html = lower ? svg + num : num + svg
   const cls = `tooth-btn${selected ? ' sel' : ''}${picked ? ' br-pick' : ''}${dirty ? ' dirty' : ''}`
   const style = arc ? ({ '--arc': `${arc}px` } as CSSProperties) : undefined
+  const press = useLongPress(onMenu ? (x, y) => onMenu(n, x, y) : undefined)
 
   function onClick(e: MouseEvent<HTMLButtonElement>) {
     const target = e.target as Element
@@ -61,7 +65,8 @@ export function Tooth({ n, info, view, selected, picked, dirty, lower, arc, onSe
       style={style}
       title={info.title}
       onClick={onClick}
-      onContextMenu={onMenu ? (e) => { e.preventDefault(); onMenu(n, e) } : undefined}
+      onContextMenu={onMenu ? (e) => { e.preventDefault(); onMenu(n, e.clientX, e.clientY) } : undefined}
+      {...press}
       onMouseEnter={onHover ? (e) => onHover(n, e.currentTarget) : undefined}
       onMouseLeave={onHover ? () => onHover(n, null) : undefined}
       onFocus={onHover ? (e) => onHover(n, e.currentTarget) : undefined}

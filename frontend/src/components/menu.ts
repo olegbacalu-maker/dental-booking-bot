@@ -9,16 +9,21 @@ import { useEffect, type RefObject } from 'react'
 /** Закрыть по клику мимо, Esc, прокрутке и смене размера окна. */
 export function useMenuDismiss(ref: RefObject<HTMLElement | null>, onClose: () => void): void {
   useEffect(() => {
+    /* ⚠️ Закрывает НАЖАТИЕ мимо — pointerdown, а не mousedown. Меню, открытое
+       долгим нажатием пальцем (B7 · планшет): отпускание пальца рождает у
+       браузера совместимые mousedown/mouseup/click, и по mousedown меню
+       закрывалось в тот же миг (замер в эмуляции iPad 26.09: открылось на
+       +511 мс, закрылось на отпускании). Отпускание не даёт pointerdown. */
     const down = (e: Event) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose()
     }
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('mousedown', down)
+    document.addEventListener('pointerdown', down)
     document.addEventListener('keydown', key)
     window.addEventListener('resize', onClose)
     window.addEventListener('scroll', onClose, true)
     return () => {
-      document.removeEventListener('mousedown', down)
+      document.removeEventListener('pointerdown', down)
       document.removeEventListener('keydown', key)
       window.removeEventListener('resize', onClose)
       window.removeEventListener('scroll', onClose, true)

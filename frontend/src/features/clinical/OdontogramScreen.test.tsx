@@ -480,3 +480,22 @@ describe('вид 3D (B7)', () => {
     localStorage.removeItem('dp_odo_view')
   })
 })
+
+describe('B7 · планшет: инспектор — шторка', () => {
+  it('выбранный зуб — в data-sel рабочего стола (по нему CSS пальцем показывает шторку); «Închide» снимает выбор и черновик', async () => {
+    open()
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    expect(root().getAttribute('data-sel')).toBeNull()
+    fireEvent.click(btn(16))
+    expect(root().getAttribute('data-sel')).toBe('16')
+    fireEvent.change(within(inspector()).getByLabelText('Notiță (opțional)'), { target: { value: 'ciornă' } })
+    expect(unsaved()).toBeTruthy()
+    fireEvent.click(within(inspector()).getByRole('button', { name: 'Închide' }))
+    expect(root().getAttribute('data-sel')).toBeNull()
+    expect(unsaved()).toBeNull()
+    expect(within(inspector()).queryByRole('button', { name: 'Închide' })).toBeNull()
+    // снова тот же зуб — черновика нет, заметка прежняя
+    fireEvent.click(btn(16))
+    expect((within(inspector()).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).not.toBe('ciornă')
+  })
+})

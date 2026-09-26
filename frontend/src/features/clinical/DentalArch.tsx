@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { Legend } from './Legend'
 import { Tooth } from './Tooth'
@@ -48,7 +48,7 @@ interface RowProps {
   onSelect: (n: number) => void
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
-  onMenu?: (n: number, e: MouseEvent<HTMLButtonElement>) => void
+  onMenu?: (n: number, x: number, y: number) => void
 }
 
 /** Мосты, все зубы которых стоят в этом ряду. */
@@ -154,7 +154,7 @@ interface Props {
   onSelect: (n: number) => void
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
-  onMenu?: (n: number, e: MouseEvent<HTMLButtonElement>) => void
+  onMenu?: (n: number, x: number, y: number) => void
   legend?: boolean
 }
 

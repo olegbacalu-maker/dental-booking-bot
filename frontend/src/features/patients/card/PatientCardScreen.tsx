@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useState, type KeyboardEvent } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../../components/Icon'
@@ -22,6 +22,7 @@ import { OdontogramTab } from '../../clinical/OdontogramTab'
 import { PerioTab } from '../../clinical/PerioTab'
 import { VisitTab } from '../../visits/VisitTab'
 import { examOf } from '../../clinical/perio'
+import { useCoarse } from '../../clinical/touch'
 import { PlanCard } from './PlanCard'
 import { ProfileCard } from './ProfileCard'
 import { NextVisitCard, VisitsCard } from './VisitsCard'
@@ -231,6 +232,23 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     if (fresh) replace(fresh as PatientCard)
   }, [replace])
 
+  /* B7 · планшет: у кресла шапка пациента и пять плиток занимают весь первый
+     экран альбомного iPad (замер 26.09: зуб 16 ниже края, касание в него не
+     попадало). Пальцем при открытии клинической вкладки полоса вкладок встаёт
+     под верхнюю панель — зубы сразу на экране. Мгновенно, без плавности: это
+     переход, а не анимация. Мышью ничего не меняется. */
+  const coarse = useCoarse()
+  const strip = useRef<HTMLDivElement>(null)
+  const ready = state.status === 'ready'
+  useEffect(() => {
+    if (!coarse || !ready || (tab !== 'odonto' && tab !== 'perio')) return
+    const el = strip.current
+    if (!el) return
+    const bar = document.querySelector('.main .top')?.getBoundingClientRect().bottom ?? 0
+    const dy = el.getBoundingClientRect().top - bar - 8
+    if (dy > 8) window.scrollBy({ top: dy, behavior: 'auto' })
+  }, [coarse, ready, tab])
+
   if (state.status === 'leaving') return null
 
   const nav = (
@@ -266,7 +284,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     <section className="dp-react-root" aria-busy={busy || undefined}>
       {nav}
       <HeroKpi card={card} onBook={() => setBooking(true)} onPlan={() => goTab('plan')} />
-      <div className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
+      <div ref={strip} className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
         {TABS.map(([k, label]) => (
           <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
             aria-controls="wpanel" tabIndex={tab === k ? 0 : -1} className={tab === k ? 'on' : ''}

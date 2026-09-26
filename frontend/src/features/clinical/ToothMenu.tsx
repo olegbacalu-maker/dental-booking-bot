@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { placeMenu, useMenuDismiss } from '../../components/menu'
+import { useCoarse } from './touch'
 import type { Odontogram } from './chart'
 
 /* Контекстное меню зуба (C22): состояния зуба — в ЧЕРНОВИК (запись — Save
@@ -29,11 +30,12 @@ interface Props {
 }
 
 const WIDTH = 236
-const ROW = 32
 
 export function ToothMenu({ model, at, current, onState, onBridge, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   useMenuDismiss(ref, onClose)
+  // строка меню: 32 px мышью, 44 px пальцем (та же высота задана в app.css)
+  const ROW = useCoarse() ? 44 : 32
 
   const info = model.teeth[String(at.n)]
   const states = Object.entries(model.states)

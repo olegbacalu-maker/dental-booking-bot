@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
@@ -9,6 +9,7 @@ import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ViewSwitch } from './ViewSwitch'
 import { neighbour, type Arrow, type Odontogram } from './chart'
 import { Odontogram3D } from './three/Odontogram3D'
+import { useCoarse } from './touch'
 import { useChart } from './useChart'
 
 /* Рабочий стол одонтограммы (C21–C22; с 26.09 ОДИН на два места): дуга крупно +
@@ -80,6 +81,29 @@ export function OdontogramWorkbench({
   }
   useEffect(() => { if (open) focusTooth(open.n) }, [open, focusTooth])
 
+  /* B7 · планшет: пальцем инспектор — шторка снизу (портрет) или панель справа
+     (альбом), поверх дуги. Выбранный зуб прокручивается в видимую часть: в
+     портрете — над шторкой (она до 56 % высоты). Мышью ничего не меняется. */
+  const coarse = useCoarse()
+  const sel = c.selected
+  /* в альбоме панель ложится ПОВЕРХ дуги с той стороны, где выбранного зуба нет:
+     сжатая панелью дуга во вкладке фиши давала зубы ~25 px — мельче пальца */
+  const [side, setSide] = useState<'left' | 'right'>('right')
+  useEffect(() => {
+    if (!coarse || sel === null) return
+    const el = root.current?.querySelector<HTMLElement>(`.arch .tooth-btn[data-n="${sel}"]`)
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const box = (root.current?.querySelector('.odop-main') ?? root.current)?.getBoundingClientRect()
+    if (box) setSide(r.left + r.width / 2 < box.left + box.width / 2 ? 'right' : 'left')
+    const portrait = window.innerHeight > window.innerWidth
+    const bottom = portrait ? window.innerHeight * 0.44 : window.innerHeight
+    const top = 72
+    if (r.top >= top && r.bottom <= bottom - 8) return
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollBy({ top: r.top - Math.max(top, (bottom - r.height) / 2), behavior: reduced ? 'auto' : 'smooth' })
+  }, [coarse, sel])
+
   const base = `/admin/patient/${pid}`
   const onSelect = (n: number) => {
     if (brMode) {
@@ -95,12 +119,8 @@ export function OdontogramWorkbench({
   }
   const stopBridge = () => { setBrMode(false); setPicked([]); setBrOpen(false) }
   const bridgeFrom = (n: number) => { setMenu(null); setBrMode(true); setPicked([n]); setBrOpen(false) }
-  const onMenu = (n: number, e: MouseEvent<HTMLButtonElement>) => {
-    if (brMode) return
-    setMenu({ n, x: e.clientX, y: e.clientY })
-  }
-  /* меню из 3D — те же координаты курсора, без события кнопки */
-  const onMenuAt = (n: number, x: number, y: number) => {
+  /* меню зуба у точки: правая кнопка мыши, долгое нажатие пальцем — в 2D и в 3D */
+  const onMenu = (n: number, x: number, y: number) => {
     if (brMode) return
     setMenu({ n, x, y })
   }
@@ -149,7 +169,7 @@ export function OdontogramWorkbench({
 
   return (
     <>
-      <div ref={root} className="odop odo" id="odo" data-view={c.view} tabIndex={0} onKeyDown={onKey}>
+      <div ref={root} className="odop odo" id="odo" data-view={c.view} data-sel={c.selected ?? undefined} data-side={side} tabIndex={0} onKeyDown={onKey}>
         <div className="odop-top">
           {!embedded && (
             <AppLink className="odop-back" href={`${base}?tab=odonto`}><Icon name="pat" /> {model.patient.name}</AppLink>
@@ -174,7 +194,7 @@ export function OdontogramWorkbench({
               {c.view === '3d' ? (
                 /* B7: объёмный вид — тот же контроллер, те же действия; выбор,
                    поверхность и меню идут в инспектор, как из дуги */
-                <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenuAt} />
+                <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenu} />
               ) : (
                 <DentalArch
                   model={model}
@@ -205,6 +225,7 @@ export function OdontogramWorkbench({
               onDiscard={c.discard}
               onDelBridge={(bid) => { void c.delBridge(bid) }}
               onBridgeFrom={bridgeFrom}
+              onClose={() => { c.discard(); c.select(null) }}
             />
           </aside>
         </div>

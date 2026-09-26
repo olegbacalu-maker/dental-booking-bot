@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
 import { surfaceLetter, surfaceName, type Odontogram, type ToothInfo } from './chart'
+import { useCoarse } from './touch'
 import type { ToothDraft } from './useChart'
 
 /* Форма зуба — ОДНА на инспектор детальной страницы и диалог компактной
@@ -46,6 +47,9 @@ export function ToothForm({ model, n, info, busy, sel, onSel, draft: d, dirty, o
   }
 
   const selState = d.sfst[sel] ?? ''
+  /* под пальцем состояние зуба — крупные кнопки (выпадающий список на планшете —
+     два касания и мелкий шрифт); мышью — прежний список, DOM не меняется */
+  const coarse = useCoarse()
   return (
     <form className="dlg-form insp-f" onSubmit={onSubmit}>
       <div className="insp-t">{T.surfaces}</div>
@@ -84,9 +88,20 @@ export function ToothForm({ model, n, info, busy, sel, onSel, draft: d, dirty, o
         </select>
       </div>
       <div className="insp-t">{T.state}</div>
-      <select aria-label={T.state} value={d.state} onChange={(e) => edit({ state: e.target.value })}>
-        {Object.entries(model.states).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-      </select>
+      {coarse ? (
+        <div className="st-palette" role="radiogroup" aria-label={T.state}>
+          {Object.entries(model.states).map(([k, v]) => (
+            <button key={k} type="button" role="radio" aria-checked={d.state === k}
+              className={`stp${d.state === k ? ' on' : ''}`} onClick={() => edit({ state: k })}>
+              <i style={{ background: model.palette?.[k] ?? 'currentColor' }} />{v}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <select aria-label={T.state} value={d.state} onChange={(e) => edit({ state: e.target.value })}>
+          {Object.entries(model.states).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      )}
       <div className="mkrow">
         {Object.entries(model.marks).map(([k, v]) => (
           <label key={k} className="mkbox">

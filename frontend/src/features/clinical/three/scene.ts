@@ -7,6 +7,7 @@ import type { RawMesh } from './mesh'
 import { buildCrown, buildDashedLoop, buildRoots, buildScrew, neckOutline, SURF, type Letter } from './toothGeometry'
 import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
+import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
    челюсти на дуге движка, десна, пять материалов на коронку (= пять
@@ -612,6 +613,13 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   let moved = false
   let pinch0 = 0
   let r0 = 0
+  let slop = 4
+  /* долгое нажатие пальцем → меню зуба (iPad не шлёт contextmenu) */
+  let longTimer: ReturnType<typeof setTimeout> | null = null
+  const stopLong = (): void => {
+    if (longTimer) clearTimeout(longTimer)
+    longTimer = null
+  }
 
   function pick(ev: { clientX: number; clientY: number }): Hit | null {
     const rc = canvas.getBoundingClientRect()
@@ -655,7 +663,23 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       moved = false
       downX = ev.clientX
       downY = ev.clientY
+      slop = slopOf(ev)
+      stopLong()
+      if (isFinger(ev)) {
+        const x = ev.clientX
+        const y = ev.clientY
+        longTimer = setTimeout(() => {
+          longTimer = null
+          if (moved || ptrs.size !== 1) return
+          const h = pick({ clientX: x, clientY: y })
+          if (!h) return
+          moved = true          // отпускание пальца — уже не щелчок
+          swallowNextClick()
+          opts.onMenu(h.n, x, y)
+        }, LONG_MS)
+      }
     } else if (ptrs.size === 2) {
+      stopLong()
       const a = [...ptrs.values()]
       const p0 = a[0]
       const p1 = a[1]
@@ -685,7 +709,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       }
       const dx = ev.clientX - prev[0]
       const dy = ev.clientY - prev[1]
-      if (Math.abs(ev.clientX - downX) > 4 || Math.abs(ev.clientY - downY) > 4) moved = true
+      if (Math.abs(ev.clientX - downX) > slop || Math.abs(ev.clientY - downY) > slop) {
+        moved = true
+        stopLong()
+      }
       if (moved) {
         orb.theta -= dx * 0.006
         orb.phi = clamp(orb.phi - dy * 0.006, 0.08, Math.PI - 0.08)
@@ -703,6 +730,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   const onUp = (ev: PointerEvent): void => {
     if (!ptrs.has(ev.pointerId)) return
     ptrs.delete(ev.pointerId)
+    stopLong()
     if (ptrs.size) return
     drag = false
     if (!moved) {
@@ -803,6 +831,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       disposed = true
       if (frame) cancelAnimationFrame(frame)
       if (hf) cancelAnimationFrame(hf)
+      stopLong()
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
