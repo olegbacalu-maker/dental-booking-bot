@@ -181,27 +181,40 @@ RENEW_NOTE = ("Dacă programul este deja activat și are acces la internet, prei
               "fișierul nou în cel mult o zi — nu trebuie să faceți nimic.")
 
 
-def trial_received(clinic: str, days: int) -> tuple[str, str]:
-    """Клинике: заявка с формы принята (режим approve), файл придёт отдельным письмом."""
+def trial_received(clinic: str, days: int, from_program: bool = False) -> tuple[str, str]:
+    """Клинике: заявка принята (режим approve). С формы — файл придёт письмом; из
+    программы — программа активируется сама, письмо с файлом — запасное."""
     subject = f"DentPilot: cererea de probă pentru {clinic} a fost primită"
+    if from_program:
+        rest = (f"Programul DentPilot se activează singur pentru {zile(days)} imediat ce aprobăm "
+                f"cererea — de obicei în aceeași zi lucrătoare; nu trebuie să faceți nimic. Fișierul "
+                f"de licență vine și pe acest e-mail, ca rezervă.")
+    else:
+        rest = (f"Fișierul de licență pentru {zile(days)} vine pe acest e-mail în cel mult o zi "
+                f"lucrătoare, împreună cu pașii de activare; programul îl instalăm împreună, la telefon.")
     body = (f"Bună ziua,\n\n"
-            f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. Fișierul de licență "
-            f"pentru {zile(days)} vine pe acest e-mail în cel mult o zi lucrătoare, împreună cu pașii de "
-            f"activare; programul îl instalăm împreună, la telefon.\n\n{FOOTER}")
+            f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. {rest}\n\n{FOOTER}")
     return subject, body
 
 
-def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None) -> tuple[str, str]:
-    """Олегу: заявка с формы — кто, что вышло, ссылка на карточку. По-русски: письмо
-    своё. При повторе `clinic` — та, что уже есть, а `fields` — что написали в форме."""
-    what = {"issued": "пробный файл выдан и отправлен клинике",
+def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
+                 origin: str = "form") -> tuple[str, str]:
+    """Олегу: заявка с формы или из программы — кто, что вышло, ссылка на карточку.
+    По-русски: письмо своё. При повторе `clinic` — та, что уже есть, а `fields` —
+    что написали в заявке."""
+    program = origin == "program"
+    what = {"issued": "пробный файл выдан и отправлен клинике"
+                      + (" — программа забирает его сама" if program else ""),
             "issued_unmailed": "файл выдан, но письмо клинике НЕ ушло — в карточке «Отправить последний файл письмом»",
-            "requested": "ждёт решения: выдать пробный кнопкой в админке",
-            "duplicate": "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме отвечено «принято» — "
-                         "ответьте клинике сами"}.get(outcome, outcome)
+            "requested": "ждёт решения: выдать пробный кнопкой в админке"
+                         + (" — программа активируется сама, как только файл выдан" if program else ""),
+            "duplicate": ("ПОВТОР: клиника с этим IDNO или e-mail уже есть, программе отвечено «уже "
+                          "зарегистрирована, активируйте файлом из письма» — ответьте клинике сами"
+                          if program else "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме "
+                          "отвечено «принято» — ответьте клинике сами")}.get(outcome, outcome)
     f = fields or {}
     subject = f"DentPilot Cloud: заявка на пробный — {f.get('name') or clinic['name']}"
-    body = (f"Заявка с формы /proba ({ip}):\n\n"
+    body = (f"Заявка {'из программы' if program else 'с формы /proba'} ({ip}):\n\n"
             f"  Клиника: {f.get('name') or clinic['name']}\n  IDNO: {f.get('idno') or clinic['idno'] or '—'}\n"
             f"  Контакт: {f.get('contact_name') or clinic['contact_name'] or '—'}\n"
             f"  E-mail: {f.get('email') or clinic['email']}\n"

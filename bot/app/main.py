@@ -509,6 +509,28 @@ async def license_install(request: Request, file: UploadFile | None = File(None)
     return RedirectResponse("/admin?msg=license_ok", status_code=303)
 
 
+@app.post("/admin/license/request")
+async def license_request(request: Request, name: str = Form(""), idno: str = Form(""),
+                          contact_name: str = Form(""), email: str = Form(""),
+                          phone: str = Form(""), terms: str = Form("")) -> Response:
+    """Активация без файла (26.09): заявка на пробный уходит на сервер лицензий,
+    и программа активируется сама, как только файл выдан. Галочка условий — та
+    же, что у импорта файла: без неё заявка не уходит, с ней летопись пишет,
+    кто принял условия. Поля проверяет сервер (одни правила с формой /proba);
+    его отказ страница показывает словами сервера."""
+    if (deny := require(request, PERM_SETTINGS)) is not None:
+        return deny
+    if terms != "1":
+        return RedirectResponse(f"/admin/license?msg={lic.TERMS_CODE}", status_code=303)
+    me = current_user(request)
+    code = await lic.request_trial(
+        {"name": name, "idno": idno, "contact_name": contact_name, "email": email, "phone": phone},
+        actor=(me or {}).get("name") or "director")
+    if code == "license_ok":
+        return RedirectResponse("/admin?msg=license_ok", status_code=303)
+    return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
+
+
 @app.post("/admin/license/renew")
 async def license_renew(request: Request) -> Response:
     """Кнопка «Verifică acum» (L13): тот же запрос к renew.url, что суточный, —

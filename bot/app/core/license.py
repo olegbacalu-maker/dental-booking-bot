@@ -21,6 +21,16 @@
 что и файл из письма. Сервера нет — программа живёт как жила: по файлу на
 диске и по памяти. Кнопка «Verifică acum» на странице лицензии делает тот же
 запрос сейчас.
+
+Активация без файла (26.09): на странице активации директор заполняет заявку
+на пробный, программа шлёт её на сервер (`/v1/trial`), получает токен своей
+новой клиники и кладёт его в `license.pending` рядом с `license.json`. Дальше
+тот же запрос `renew`, только по токену заявки и часто (`PENDING_EVERY`),
+пока сервер не выдаст файл: в режиме auto — сразу, в approve — когда Олег
+нажмёт «Выдать». Файл проходит тот же `open_envelope`, заявка стирается, и
+программа живёт дальше обычным суточным автообновлением. 401 по токену
+заявки — её скрыли в админке: заявка стирается, страница говорит об этом.
+Файл из письма остаётся запасным путём — без интернета и на новом ПК.
 """
 from __future__ import annotations
 
@@ -53,6 +63,19 @@ TERMS_CODE = "license_terms"               # импорт без галочки 
 # docs/site/termeni.html — поменялись условия, меняется и дата здесь.
 TERMS_URL = "https://dentpilot.md/termeni.html"
 TERMS_VERSION = "26.09.2026"
+# Активация без файла (26.09): заявка на пробный уходит на сервер лицензий.
+# Боевой адрес — здесь (тот же, что умолчание DP_BASE_URL сервера, сверяет
+# cloud/tests/test_renew.py); окружение — только для стенда тестов и только
+# https или loopback, как renew.url.
+SERVER_URL = "https://cloud.dentpilot.md"
+SERVER_ENV = "DENTART_LICENSE_SERVER"
+TRIAL_PATH = "/v1/trial"
+PENDING_NAME = "license.pending"            # токен заявки, пока файл не выдан
+PENDING_EVERY = timedelta(minutes=1)        # пока заявка ждёт — спрашивать часто
+PENDING_EVERY_ENV = "DENTART_LICENSE_PENDING_S"   # стенд: секунды вместо минуты
+# Исходы заявки — коды для ?msg= (MSG_BANNER в layout)
+REQUEST_SENT, REQUEST_REFUSED = "license_requested", "license_request_refused"
+REQUEST_OFFLINE, REQUEST_DECLINED = "license_request_offline", "license_request_declined"
 # Адреса, открытые и за стеной: сама активация и всё, что нужно, чтобы до неё дойти
 WALL_FREE = ("/admin/license", "/admin/login", "/admin/logout", "/admin/setup",
              "/admin/recover")
@@ -75,6 +98,10 @@ _keys_present = False
 _renew: dict = {"at": None, "outcome": "", "seq": 0}   # последняя попытка этого процесса
 _renew_task: asyncio.Task | None = None
 _renew_lock: asyncio.Lock | None = None
+_wake: asyncio.Event | None = None          # будит суточный цикл, когда появилась заявка
+# Последняя заявка этого процесса — для страницы: что написал сервер при отказе,
+# что вписал директор (форма заполняется заново), скрыта ли ждавшая заявка
+_request: dict = {"text": "", "fields": {}, "declined": False}
 
 
 def folder() -> pathlib.Path | None:
@@ -243,6 +270,7 @@ async def install(text: str, actor: str = "sistem") -> str:
     if s is None:
         return rsa_verify.MALFORMED
     if s.claim is not None:
+        _pending_drop()                 # файл из письма опередил сервер — ждать больше нечего
         await db.log_clinic_event(
             "license", f"Licența a fost activată: valabilă până la "
                        f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq}); "
@@ -251,6 +279,105 @@ async def install(text: str, actor: str = "sistem") -> str:
 
 
 # ---------- автообновление (L13) ----------
+
+
+# ---------- активация без файла: заявка на пробный (26.09) ----------
+
+
+def server_url() -> str:
+    """Сервер лицензий для заявки: боевой или стенд из окружения — только https
+    или loopback (`rsa_verify.renew_url_ok`), иначе боевой."""
+    u = os.environ.get(SERVER_ENV, "").strip().rstrip("/")
+    return u if u and rsa_verify.renew_url_ok(u + "/") else SERVER_URL
+
+
+def pending() -> dict | None:
+    """Заявка, по которой программа ждёт файл: {url, token, at, actor, terms,
+    clinic, email} — или None. Негодная запись (чужой адрес, короткий токен) —
+    None: слать токен туда программа не станет."""
+    d = folder()
+    raw = _read_file(d / PENDING_NAME) if d is not None else None
+    if not raw:
+        return None
+    try:
+        p = json.loads(raw)
+    except ValueError:
+        return None
+    if (not isinstance(p, dict) or not rsa_verify.renew_url_ok(p.get("url"))
+            or not isinstance(p.get("token"), str) or len(p["token"]) < 32):
+        return None
+    return p
+
+
+def _pending_write(p: dict) -> bool:
+    d = folder()
+    if d is None:
+        return False
+    f = d / PENDING_NAME
+    tmp = f.with_name(f.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(p, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, f)
+        return True
+    except OSError as e:
+        log.warning("лицензия: %s не записан: %r", f.name, e)
+        return False
+
+
+def _pending_drop() -> None:
+    d = folder()
+    if d is not None:
+        try:
+            (d / PENDING_NAME).unlink(missing_ok=True)
+        except OSError as e:
+            log.warning("лицензия: %s не удалён: %r", PENDING_NAME, e)
+
+
+def last_request() -> dict:
+    """Последняя заявка этого процесса: текст отказа сервера, поля формы, скрыта ли."""
+    return {"text": _request["text"], "fields": dict(_request["fields"]),
+            "declined": _request["declined"]}
+
+
+async def request_trial(fields: dict, actor: str) -> str:
+    """Заявка на пробный со страницы активации → код для ?msg=.
+
+    Сервер заводит клинику по правилам формы /proba и отдаёт её токен; токен
+    ложится в `license.pending`, и сразу же — первый запрос файла: в режиме
+    auto файл уже выдан, и программа активируется в этом же запросе
+    (`license_ok`). Иначе — `license_requested`, и дальше цикл спрашивает
+    сервер каждые PENDING_EVERY. Галочку условий проверил маршрут: серверу
+    уходит согласие («consent»), в летопись — кто его дал."""
+    if folder() is None or not applies():
+        return REQUEST_OFFLINE
+    body = {k: " ".join(str(fields.get(k) or "").split())
+            for k in ("name", "idno", "contact_name", "email", "phone")}
+    body["consent"] = "1"
+    _request.update(text="", fields=body, declined=False)
+    outcome, data = await asyncio.to_thread(rn.request_trial, server_url() + TRIAL_PATH, body,
+                                            RENEW_TIMEOUT, _agent())
+    if outcome == rn.REJECTED:
+        _request["text"] = str(data.get("text"))[:300]
+        return REQUEST_REFUSED
+    url, token = data.get("url"), data.get("token")
+    if (outcome != rn.ACCEPTED or not rsa_verify.renew_url_ok(url)
+            or not isinstance(token, str) or len(token) < 32):
+        return REQUEST_OFFLINE
+    if not _pending_write({"v": 1, "url": url, "token": token, "at": st.fmt(_now()),
+                           "actor": actor, "terms": TERMS_VERSION,
+                           "clinic": body["name"], "email": body["email"]}):
+        return REQUEST_OFFLINE
+    await db.log_clinic_event("license", f"Cerere de perioadă de probă trimisă la DentPilot: "
+                                         f"{body['name'][:60]}", actor=actor)
+    result = await renew_once()
+    wake()
+    return "license_ok" if result == RENEWED else REQUEST_SENT
+
+
+def wake() -> None:
+    """Разбудить цикл автообновления: появилась заявка — спрашивать часто, а не через сутки."""
+    if _wake is not None:
+        _wake.set()
 
 
 def renew_target() -> tuple[str, str] | None:
@@ -285,6 +412,10 @@ async def renew_once() -> str:
     запрос и кнопка не писали файл наперегонки."""
     global _renew_lock
     target = renew_target()
+    # Файла ещё нет, но заявка отправлена: тот же запрос по токену заявки
+    pend = pending() if target is None else None
+    if pend is not None:
+        target = (pend["url"], pend["token"])
     if target is None or not applies():
         return RENEW_NONE
     if _renew_lock is None:
@@ -306,9 +437,25 @@ async def renew_once() -> str:
                     result = RENEW_BAD
                 else:
                     result = RENEWED
-                    await db.log_clinic_event(
-                        "license", f"Licența a fost reînnoită automat: valabilă până la "
-                                   f"{s.claim.valid_until.strftime('%d.%m.%Y')} (fișier {s.claim.seq})")
+                    until = s.claim.valid_until.strftime('%d.%m.%Y')
+                    if pend is not None:
+                        # первая активация по заявке: договор принял тот, кто её отправил
+                        _pending_drop()
+                        await db.log_clinic_event(
+                            "license", f"Licența a fost activată: valabilă până la {until} "
+                                       f"(fișier {s.claim.seq}); acceptați Termenii și condițiile "
+                                       f"din {pend.get('terms') or TERMS_VERSION}",
+                            actor=str(pend.get("actor") or "director")[:60])
+                    else:
+                        await db.log_clinic_event(
+                            "license", f"Licența a fost reînnoită automat: valabilă până la "
+                                       f"{until} (fișier {s.claim.seq})")
+        elif outcome == rn.REFUSED and pend is not None:
+            # заявку скрыли в админке — токен отозван: ждать больше нечего
+            _pending_drop()
+            _request["declined"] = True
+            await db.log_clinic_event("license", "Cererea de perioadă de probă nu mai este activă "
+                                                 "(respinsă sau anulată de DentPilot)")
         _renew.update(at=_now(), outcome=result, seq=_mem.accepted_seq)
         # ⚠️ ASCII, как в _log: строку ищет тест в логе сервера на Windows.
         # «Новее нет» — суточная рутина, info; замена файла и всякий отказ —
@@ -318,13 +465,31 @@ async def renew_once() -> str:
         return result
 
 
+def _pending_every() -> float:
+    try:
+        s = float(os.environ.get(PENDING_EVERY_ENV, "") or 0)
+    except ValueError:
+        s = 0
+    return s if s > 0 else PENDING_EVERY.total_seconds()
+
+
 async def _renew_loop() -> None:
+    """Раз в сутки — или каждые PENDING_EVERY, пока заявка ждёт файла. `wake()`
+    прерывает сон: заявка, отправленная посреди суток, не ждёт следующих."""
+    global _wake
+    _wake = asyncio.Event()
     while True:
         try:
             await renew_once()
         except Exception as e:  # noqa: BLE001 — фон не имеет права умереть
             log.warning("license: renew failed: %r", e)
-        await asyncio.sleep(RENEW_EVERY.total_seconds())
+        _wake.clear()
+        wait = (_pending_every() if renew_target() is None and pending() is not None
+                else RENEW_EVERY.total_seconds())
+        try:
+            await asyncio.wait_for(_wake.wait(), timeout=wait)
+        except asyncio.TimeoutError:
+            pass
 
 
 def renew_async() -> None:

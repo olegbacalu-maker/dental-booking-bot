@@ -20,6 +20,16 @@ DentPilot»; о повторе узнаёт Олег письмом и отве�
 человек не видит и не заполняет; лимит заявок с одного адреса (IPv6 — сети
 /64) в час и общий потолок на всех; согласие галочкой. Всё, что за ними, —
 в журнале с адресом.
+
+Та же заявка приходит и из ПРОГРАММЫ (`API_PATH`, 26.09): директор заполняет
+её на странице активации, и программа активируется сама, без файла. Правила
+те же — `clean`, `existing`, `submit`, лимит; отличие одно: новой клинике
+сразу отдаётся её токен (`license.renew_token`), и программа спрашивает по
+нему `/v1/license`, пока файл не выдан. ⚠️ Здесь повтор объявляется (409):
+программе нечем активироваться, а законный повтор — переустановка на новом
+компьютере, и ей нужен ответ «активируйте файлом из письма», а не вечное
+ожидание. Цена — ответ «эта клиника уже зарегистрирована»; перебор держит
+тот же лимит с адреса и общий потолок.
 """
 from __future__ import annotations
 
@@ -32,6 +42,8 @@ import time
 from . import config, db, license, mail
 
 MODE_AUTO, MODE_APPROVE = "auto", "approve"
+ORIGIN_FORM, ORIGIN_PROGRAM = "form", "program"   # clinics.origin: откуда пришла заявка
+API_PATH = "/v1/trial"           # заявка из программы (JSON), ответ — токен для /v1/license
 MAX_PER_HOUR = 5                 # заявок с одного адреса (IPv6 — с одной /64) в час
 MAX_TOTAL_PER_HOUR = 60          # заявок со всех адресов в час: потолок на случай ротации адресов
 _hits: dict[str, list[float]] = {}
@@ -135,9 +147,11 @@ def existing(con: sqlite3.Connection, idno: str, email: str) -> sqlite3.Row | No
 # ---------- заявка ----------
 
 
-def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form") -> tuple[str, sqlite3.Row]:
+def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
+           origin: str = ORIGIN_FORM) -> tuple[str, sqlite3.Row]:
     """Заявка → (исход, клиника). Исход: DUPLICATE — уже есть, ничего не сделано;
-    REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен."""
+    REQUESTED — заведена, ждёт админа; ISSUED — пробный выдан и отправлен.
+    `origin` — форма сайта или программа: заявки из обеих ждут в одном списке."""
     old = existing(con, f["idno"], f["email"])
     if old is not None:
         # без clinic_id: чужой текст не должен ложиться в карточку клиники
@@ -148,14 +162,15 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form") -> tupl
     now = db.now_iso()
     con.execute("INSERT INTO clinics(id, name, idno, contact_name, email, phone, address, created_at, "
                 "origin, requested_at, consent_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (cid, f["name"], f["idno"], f["contact_name"], f["email"], f["phone"], "", now, "form", now, now))
+                (cid, f["name"], f["idno"], f["contact_name"], f["email"], f["phone"], "", now, origin, now, now))
     db.audit(con, who, "trial_request", cid, f"{f['name']}, IDNO {f['idno'] or '—'}, {f['email']}, {ip}")
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (cid,)).fetchone()
     if mode() != MODE_AUTO:
         return REQUESTED, clinic
     valid, grace = license.trial_dates()
     try:
-        license.issue(con, clinic, "trial", valid, grace, "formular de probă", who)
+        license.issue(con, clinic, "trial", valid, grace,
+                      "cerere din program" if origin == ORIGIN_PROGRAM else "formular de probă", who)
     except RuntimeError as e:
         # ключа выдачи нет: заявка остаётся заявкой, а не откатывается пятисотой
         db.audit(con, who, "trial_no_key", cid, str(e)[:200])
@@ -167,9 +182,10 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form") -> tupl
     return ISSUED, clinic
 
 
-def notify(clinic: sqlite3.Row, outcome: str, ip: str, fields: dict | None = None) -> str:
+def notify(clinic: sqlite3.Row, outcome: str, ip: str, fields: dict | None = None,
+           origin: str = ORIGIN_FORM) -> str:
     """Письмо Олегу о заявке — как вышло; отказ почты не ломает заявку."""
-    subject, body = mail.trial_notice(clinic, outcome, ip, fields)
+    subject, body = mail.trial_notice(clinic, outcome, ip, fields, origin)
     try:
         return mail.send(config.TRIAL_NOTIFY, subject, body)
     except (RuntimeError, OSError, ValueError):
@@ -177,8 +193,10 @@ def notify(clinic: sqlite3.Row, outcome: str, ip: str, fields: dict | None = Non
 
 
 def acknowledge(clinic: sqlite3.Row) -> str:
-    """Клинике в режиме approve: заявка принята, файл придёт. Отказ почты — молча."""
-    subject, body = mail.trial_received(clinic["name"], license.TRIAL_DAYS)
+    """Клинике в режиме approve: заявка принята, файл придёт (из программы — программа
+    активируется сама). Отказ почты — молча."""
+    subject, body = mail.trial_received(clinic["name"], license.TRIAL_DAYS,
+                                        from_program=clinic["origin"] == ORIGIN_PROGRAM)
     try:
         return mail.send(clinic["email"], subject, body)
     except (RuntimeError, OSError, ValueError):

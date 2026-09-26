@@ -76,7 +76,7 @@ def suite_wall(res: Result) -> None:
                    and "@font-face{" in page.body and "__FONTS__" not in page.body,
                    page.body[:200])
             res.ok("страница: галочка условий — обязательная, со ссылкой на termeni.html",
-                   'name="terms"' in page.body and "required" in page.body
+                   "name='terms'" in page.body and "required" in page.body
                    and "https://dentpilot.md/termeni.html" in page.body, page.body[-600:])
             res.ok("за стеной ссылки «назад в журнал» нет", "Înapoi la registru" not in page.body)
             r = c.post_json("/api/patients", {})

@@ -82,13 +82,15 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     operator.</li>
     <li><b>Ce primește furnizorul de la program.</b> Programul nu transmite
     furnizorului nicio informație despre pacienți, programări sau tratamente.
-    Legăturile programului cu furnizorul sunt doar două:
+    Legăturile programului cu furnizorul sunt doar trei:
       <ul>
         <li>actualizările — programul descarcă fișierele programului publicate
         de furnizor;</li>
-        <li>verificarea licenței, după activare — programul trimite serverului
-        furnizorului doar cheia și numărul de ordine al fișierului de
-        licență.</li>
+        <li>cererea de perioadă de probă, dacă clinica o trimite din program —
+        programul trimite datele contului clinicii: denumirea, IDNO, persoana
+        de contact, e-mailul și telefonul;</li>
+        <li>verificarea licenței — programul trimite serverului furnizorului
+        doar cheia și numărul de ordine al fișierului de licență.</li>
       </ul>
     Fișierul de licență conține doar denumirea clinicii, IDNO, tipul și
     termenul abonamentului.</li>

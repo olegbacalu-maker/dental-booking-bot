@@ -86,7 +86,8 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   pacienților.</p>
 
   <h2>5. Datele contului clinicii</h2>
-  <p>Dacă o clinică solicită perioada de probă prin
+  <p>Dacă o clinică solicită perioada de probă din program (pagina de
+  activare) sau prin
   <a href="https://cloud.dentpilot.md/proba">formularul de pe cloud.dentpilot.md</a>
   sau activează programul (perioada de probă sau abonamentul), furnizorul
   prelucrează, în calitate de operator, <b>datele contului clinicii</b>:
@@ -112,10 +113,12 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     <li><b>Verificarea zilnică:</b> programul activat, dacă are acces la
     internet, întreabă serverul o dată pe zi dacă există un fișier de licență
     mai nou. Cererea conține doar cheia fișierului de licență și numărul lui de
-    ordine; serverul reține data ultimei verificări.</li>
+    ordine; serverul reține data ultimei verificări. După o cerere de probă
+    trimisă din program, până la aprobarea ei, programul întreabă serverul o
+    dată pe minut, cu cheia primită la trimiterea cererii.</li>
     <li><b>Adresa IP:</b> serverul vede adresa IP de la care vine fiecare
-    cerere. La trimiterea formularului de probă ea se păstrează împreună cu
-    cererea, pentru a limita abuzurile; în rest apare doar în jurnalele
+    cerere. La trimiterea cererii de probă (din program sau prin formular) ea
+    se păstrează împreună cu cererea, pentru a limita abuzurile; în rest apare doar în jurnalele
     tehnice ale serverului, care se șterg automat.</li>
     <li><b>Cine le vede:</b> doar furnizorul. Datele nu se transmit terților,
     cu excepția furnizorului de găzduire a serverului (Contabo GmbH) și a

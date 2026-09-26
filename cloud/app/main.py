@@ -145,7 +145,7 @@ _CLINICS_SQL = """SELECT c.*, s.plan, s.valid_until, s.grace_days,
                   ORDER BY c.created_at DESC"""
 
 
-_REQUESTS_SQL = """SELECT c.* FROM clinics c WHERE c.origin = 'form' AND c.declined_at IS NULL
+_REQUESTS_SQL = """SELECT c.* FROM clinics c WHERE c.origin IN ('form', 'program') AND c.declined_at IS NULL
                    AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.clinic_id = c.id)
                    ORDER BY c.requested_at DESC"""
 
@@ -197,6 +197,68 @@ def trial_submit(request: Request, name: str = Form(""), idno: str = Form(""), c
     return HTMLResponse(views.trial_done_page(outcome, f["email"]))
 
 
+# ---------- заявка на пробный из программы (26.09): активация без файла ----------
+
+TRIAL_BODY_MAX = 16 * 1024       # заявка — полкилобайта; чужой мегабайт до разбора не доходит
+
+
+def _api_err(code: str, status: int) -> Response:
+    """Отказ программе: код и румынский текст — программа показывает его как есть."""
+    return JSONResponse({"ok": False, "code": code, "text": views.TRIAL_MSG.get(code, code)},
+                        status_code=status)
+
+
+def _trial_program(f: dict, ip: str) -> tuple[str, str]:
+    """Заявка из программы → (исход, токен или ''). В потоке: база и письма блокируют."""
+    with db.connect(immediate=True) as con:
+        outcome, clinic = trial.submit(con, f, ip, who="program", origin=trial.ORIGIN_PROGRAM)
+        token = ""
+        if outcome != trial.DUPLICATE:
+            # ⚠️ Строка клиники — ЗАНОВО: в режиме auto submit уже выдал файл, и токен
+            # родился внутри выдачи. По старой строке renew_token завёл бы второй и
+            # переписал первый — файл в руках программы перестал бы узнаваться (401).
+            fresh = con.execute("SELECT * FROM clinics WHERE id=?", (clinic["id"],)).fetchone()
+            token = license.renew_token(con, fresh)
+    trial.notify(clinic, outcome, ip, f, trial.ORIGIN_PROGRAM)
+    if outcome == trial.REQUESTED:
+        trial.acknowledge(clinic)
+    return outcome, token
+
+
+@app.post(trial.API_PATH)
+async def trial_api(request: Request) -> Response:
+    """Заявка на пробный со страницы активации программы: те же правила, что у
+    /proba (лимит с адреса, trial.clean, одна клиника на IDNO/e-mail), ответ — JSON.
+
+    Новой клинике — её токен сразу: по нему программа спрашивает /v1/license, пока
+    файл не выдан (auto — уже выдан, approve — кнопкой в админке), и дальше живёт
+    автообновлением (L13). Повтор — 409 с текстом (почему объявляется — trial.py).
+    Без куки и без Origin: зовёт не браузер, а программа; токен получает только
+    тот, кто завёл клинику этой заявкой."""
+    ip = _ip(request)
+    if not license.renew_offered():
+        return _api_err("no_renew", 503)
+    if trial.limited(ip):
+        return _api_err("limited", 429)
+    try:
+        body = json.loads((await request.body())[:TRIAL_BODY_MAX] or b"{}")
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return _api_err("bad_json", 400)
+    f, code = trial.clean({k: str(body.get(k) or "") for k in
+                           ("name", "idno", "contact_name", "email", "phone", "consent")})
+    if code:
+        return _api_err(code, 400)
+    trial.note(ip)
+    outcome, token = await run_in_threadpool(_trial_program, f, ip)
+    if outcome == trial.DUPLICATE:
+        return _api_err("duplicate", 409)
+    return JSONResponse({"ok": True,
+                         "state": "issued" if outcome in (trial.ISSUED, trial.ISSUED_UNMAILED) else "requested",
+                         "url": license.renew_url(), "token": token})
+
+
 @app.post("/admin/clinics/{cid}/decline")
 def trial_decline(request: Request, cid: str) -> Response:
     """Скрыть заявку с формы: пробный не выдан, клиника остаётся (и её IDNO/e-mail —
@@ -208,7 +270,9 @@ def trial_decline(request: Request, cid: str) -> Response:
     with db.connect() as con:
         if _clinic(con, cid) is None:
             return Response(status_code=404)
-        con.execute("UPDATE clinics SET declined_at=? WHERE id=?", (db.now_iso(), cid))
+        # токен — долой: программа, ждущая по этой заявке, получит 401 и скажет
+        # «cererea nu mai este activă», а не будет спрашивать вечно
+        con.execute("UPDATE clinics SET declined_at=?, renew_token='' WHERE id=?", (db.now_iso(), cid))
         db.audit(con, auth.current_user(request), "trial_declined", cid, "")
     return RedirectResponse("/admin?msg=trial_declined", status_code=303)
 

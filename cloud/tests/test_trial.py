@@ -232,3 +232,88 @@ def suite_approve(res: Result) -> None:
                and _sql(s, "SELECT count(*) FROM issues")[0][0] == 0
                and _sql(s, "SELECT count(*) FROM audit WHERE what='trial_no_key'")[0][0] == 1
                and "Заявки на пробный период (1)" in Client(s.url).login().get("/admin").body, f"{r.status}")
+
+
+# ---------- заявка из программы (26.09): активация без файла ----------
+
+API = "/v1/trial"
+
+
+def _api(c: Client, fields: dict) -> tuple[int, dict]:
+    """Заявка так, как её шлёт программа: JSON, без куки и без Origin."""
+    r = c.post_raw(API, json.dumps(fields).encode("utf-8"))
+    try:
+        return r.status, json.loads(r.body)
+    except ValueError:
+        return r.status, {}
+
+
+def _poll(c: Client, token: str, seq: int = 0):
+    return c.get(f"/v1/license?seq={seq}", headers={"Authorization": f"Bearer {token}"})
+
+
+def suite_program(res: Result) -> None:
+    """Заявка из программы: токен сразу, файл по нему после выдачи; повтор — 409; скрыть — 401."""
+    with Server(env={"DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:          # approve
+        anon = Client(s.url)
+        mine = dict(GOOD, idno="", name="Clinica Program", email="prog@example.md")
+        st, d = _api(anon, mine)
+        res.ok("approve: принято — state requested, токен ≥ 32 знаков и адрес /v1/license",
+               st == 200 and d.get("ok") is True and d.get("state") == "requested"
+               and len(d.get("token", "")) >= 32 and d.get("url", "").endswith("/v1/license"), repr(d))
+        token = d.get("token", "")
+        res.check("по токену до выдачи — 204, файла ещё нет", _poll(anon, token).status, 204)
+        rows = _clinics(s)
+        cid = rows[-1][0]
+        res.ok("клиника заведена заявкой из программы: origin program, согласие записано",
+               rows[-1][4] == "program" and rows[-1][6], repr(rows[-1]))
+        by_to = {t: (sub, body, att) for t, sub, body, att in _letters(s)}
+        res.ok("письма: клинике «программа активируется сама», Олегу «из программы»",
+               "se activează singur" in by_to.get("prog@example.md", ("", "", 0))[1]
+               and "из программы" in by_to.get("oleg@example.md", ("", "", 0))[1],
+               repr({t: v[1][:120] for t, v in by_to.items()}))
+        c = Client(s.url).login()
+        page = c.get("/admin").body
+        res.ok("заявка из программы — в списке заявок с меткой",
+               "Заявки на пробный период (1)" in page and "Clinica Program" in page and "программа" in page)
+        r = c.post(f"/admin/clinics/{cid}/issue", kind="trial", send="1", reason="заявка из программы")
+        res.check("кнопка «Выдать»", r.location, f"/admin/clinics/{cid}?msg=issued_mailed")
+        r = _poll(anon, token)
+        code, claim = rv.open_envelope(r.body, KEYS) if r.status == 200 else ("нет файла", None)
+        res.ok("по тому же токену — файл: движок принимает, внутри тот же токен",
+               code == "" and claim.plan == "trial" and claim.renew["token"] == token, f"{r.status} {code}")
+
+        st, d = _api(anon, dict(mine, name="Alta Clinica"))
+        res.ok("повтор по e-mail: 409 duplicate с текстом, без токена, вторая клиника не заведена",
+               st == 409 and d.get("code") == "duplicate" and "token" not in d
+               and "înregistrată" in d.get("text", "") and len(_clinics(s)) == 1, repr(d))
+        st, d = _api(anon, dict(GOOD, email="nu-e-email"))
+        res.ok("поле: 400 bad_email со словами формы", st == 400 and d.get("code") == "bad_email"
+               and "e-mail" in d.get("text", ""), repr(d))
+        st, d = _api(anon, dict(GOOD, consent=""))
+        res.check("без согласия: 400 no_consent", (st, d.get("code")), (400, "no_consent"))
+        r = anon.post_raw(API, b"<html>nu e json</html>")
+        res.check("не JSON: 400 bad_json", (r.status, json.loads(r.body).get("code")), (400, "bad_json"))
+        res.check("отказы полей клиник не заводят", len(_clinics(s)), 1)
+
+        st, d = _api(anon, dict(GOOD, name="De Ascuns", idno="1112223334445", email="skip@example.md"))
+        token2 = d.get("token", "")
+        cid2 = _clinics(s)[-1][0]
+        c.post(f"/admin/clinics/{cid2}/decline")
+        res.check("скрытая заявка: токен отозван — 401", _poll(anon, token2).status, 401)
+
+        codes = [_api(anon, dict(GOOD, name=f"Limita {i}", idno="", email=f"l{i}@example.md"))[1].get("code")
+                 for i in range(4)]
+        res.ok("лимит с адреса — тот же, что у формы: 429 limited",
+               "limited" in codes and codes.index("limited") <= 2, repr(codes))
+
+    with Server(env={"DP_TRIAL_MODE": "auto"}) as s:
+        anon = Client(s.url)
+        st, d = _api(anon, dict(GOOD, email="auto@example.md"))
+        res.ok("auto: state issued", st == 200 and d.get("state") == "issued", repr(d))
+        r = _poll(anon, d.get("token", ""))
+        code, claim = rv.open_envelope(r.body, KEYS) if r.status == 200 else ("нет файла", None)
+        res.ok("auto: файл сразу, и токен внутри файла — тот, что отдан программе",
+               code == "" and claim.renew["token"] == d.get("token"), f"{r.status} {code}")
+        res.ok("auto: письмо с файлом ушло клинике — запасной путь",
+               any(t == "auto@example.md" and att for t, _s, _b, att in _letters(s)))

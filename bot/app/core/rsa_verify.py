@@ -59,6 +59,12 @@ _RENEW_URL = re.compile(
     r"^(?:https://.|http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?(?:/|$))")
 
 
+def renew_url_ok(url: str) -> bool:
+    """Адрес, по которому программа согласна слать токен: то же правило, что у
+    `renew.url` в файле, — и для адреса из ответа на заявку (26.09)."""
+    return isinstance(url, str) and _RENEW_URL.match(url) is not None
+
+
 @dataclass(frozen=True)
 class Claim:
     """Проверенное содержимое файла. Даты — aware, UTC."""

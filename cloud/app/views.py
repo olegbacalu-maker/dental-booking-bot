@@ -135,17 +135,19 @@ def _renew_short(r) -> str:
 
 
 def _requests_block(requests: list) -> str:
-    """Заявки с формы /proba, ещё без файла и не скрытые (L14)."""
+    """Заявки с формы /proba и из программы, ещё без файла и не скрытые (L14).
+    Заявке из программы выдача — всё, что нужно: программа забирает файл сама."""
     if not requests:
         return ""
     trs = "".join(
-        f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a></td>"
+        f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a> "
+        f"<span class='tag'>{'программа' if r['origin'] == 'program' else 'форма'}</span></td>"
         f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['contact_name'] or '—')}</td>"
         f"<td>{esc(r['email'])}<br><span class='muted'>{esc(r['phone'] or '')}</span></td>"
         f"<td>{esc((r['requested_at'] or '')[:16].replace('T', ' '))}</td>"
         f"<td><form method='post' action='/admin/clinics/{esc(r['id'])}/issue' style='display:inline'>"
         f"<input type='hidden' name='kind' value='trial'><input type='hidden' name='send' value='1'>"
-        f"<input type='hidden' name='reason' value='заявка с формы'>"
+        f"<input type='hidden' name='reason' value='{'заявка из программы' if r['origin'] == 'program' else 'заявка с формы'}'>"
         f"<button class='primary'>Выдать пробный и отправить</button></form> "
         f"<form method='post' action='/admin/clinics/{esc(r['id'])}/decline' style='display:inline'>"
         f"<button>Скрыть</button></form></td></tr>"
@@ -195,6 +197,12 @@ TRIAL_MSG = {
     "too_long": "Persoana de contact sau telefonul sunt prea lungi.",
     "no_consent": "Bifați acordul cu Termenii și condițiile și Politica de confidențialitate.",
     "limited": "Prea multe cereri de la această adresă — încercați peste o oră sau scrieți-ne.",
+    # Только заявке из программы (JSON, trial.API_PATH): там повтор объявляется
+    "duplicate": "Clinica este deja înregistrată la DentPilot (după IDNO sau e-mail). Activați "
+                 "programul cu fișierul de licență primit pe e-mail sau scrieți-ne.",
+    "bad_json": "Cererea nu a putut fi citită — actualizați programul sau scrieți-ne.",
+    "no_renew": "Activarea automată nu este disponibilă acum — activați programul cu fișierul "
+                "de licență sau scrieți-ne.",
 }
 
 

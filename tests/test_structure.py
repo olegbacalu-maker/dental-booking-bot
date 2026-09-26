@@ -1372,6 +1372,22 @@ def suite(res: Result) -> None:
                        f"версию {consts['TERMS_VERSION']}")
         if f'<link rel="canonical" href="{consts["TERMS_URL"]}">' not in page:
             bad.append(f"TERMS_URL {consts['TERMS_URL']} — не адрес termeni.html")
+    # Политика обещает, как часто программа спрашивает сервер, пока заявка на
+    # пробный ждёт (активация без файла, 26.09): число — license.PENDING_EVERY.
+    pol_path = ROOT / "docs" / "site" / "privacy.html"
+    pol = " ".join(pol_path.read_text(encoding="utf-8").split()) if pol_path.exists() else ""
+    minutes = [kw.value.value for n in ast.walk(by_path.get("app/core/license.py") or ast.Module(
+                   body=[], type_ignores=[]))
+               if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+               and any(isinstance(t, ast.Name) and t.id == "PENDING_EVERY" for t in n.targets)
+               for kw in n.value.keywords if kw.arg == "minutes" and isinstance(kw.value, ast.Constant)]
+    if not minutes:
+        bad.append("app/core/license.py: нет PENDING_EVERY = timedelta(minutes=N) — якорь пропал")
+    else:
+        want = "o dată pe minut" if minutes[-1] == 1 else f"o dată la {minutes[-1]} minute"
+        if want not in pol:
+            bad.append(f"privacy.html не говорит «{want}»: программа спрашивает сервер раз в "
+                       f"{minutes[-1]} мин., пока заявка ждёт")
     res.ok("договор согласован с программой дословно", not bad,
            "сайт обещает не то, что делает программа: " + "; ".join(bad))
 
