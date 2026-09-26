@@ -158,6 +158,18 @@
   (имплант: винт есть, корней нет; тело моста: золото, корней нет; lipsă:
   призрак 0,22; extras: лунка); reduced‑motion → твин завершается сразу.
 
+- Сделано 26.09 (`clinical/three/`): `mesh.ts` — сырая сетка (`RawMesh`: позиции,
+  индекс, группы) и `lathe` вместо LatheGeometry — three грузится по требованию,
+  поэтому модули его НЕ импортируют, BufferGeometry делает сцена (ступень 4);
+  `toothGeometry.ts` — `buildCrown` (пять групп O V L M D), `buildRoots`,
+  `buildScrew`, `toCls` (незнакомый класс — моляр); `arch.ts` — `archCurve`,
+  `layoutArch` (базис зуба, `mirror` = квадранты 2 и 4), `buildRidge`, `toWorld`;
+  `look.ts` — `targetLook` с палитрой сервера, `effState`, `structChanged`;
+  `tween.ts` — `createTweens` с reduced-motion. 41 проверка Vitest, в том числе
+  «мезиальная сторона всех 32 зубов смотрит к средней линии» и «отражены ровно
+  квадранты 2 и 4». Третий корень верхнего моляра (нёбный): длина ×1.02, уход
+  нёбно 0.28·bl — в макете строка обрезана, числа выбраны по анатомии.
+
 ### Ступень 4 — сцена и компонент
 
 - `scene.ts` — из `prototypes/dental3d/scene.ts`: рендерер, свет, кадры
