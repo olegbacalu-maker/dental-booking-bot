@@ -18,6 +18,18 @@ export interface ToothVisual {
   svg: { frontal: string; occlusal: string }
 }
 
+/** Размеры зуба для объёмного вида, мм, — с сервера (`teeth_svg.tooth_geom`):
+ *  клиент строит по ним форму, но ничего клинического не считает (B7). */
+export interface ToothGeom {
+  md: number
+  bl: number
+  crown: number
+  root: number
+  roots: number
+  cls: string
+  upper: boolean
+}
+
 export interface ToothInfo extends ToothVisual {
   jaw: Jaw
   /** Где мезиальная сторона на экране — считает сервер по квадранту. */
@@ -37,6 +49,8 @@ export interface ToothInfo extends ToothVisual {
   mkx: string
   milk: boolean
   bridge: { role: string; material: string } | null
+  /** есть у каждого зуба модели с B7 ступени 1; необязателен, пока 3D не читает его */
+  geom?: ToothGeom
 }
 
 export interface Bridge {
@@ -70,6 +84,8 @@ export interface Odontogram {
   bridges: Bridge[]
   legend: { frontal: LegendItem[]; occlusal: LegendItem[] }
   states: Record<string, string>
+  /** цвет состояния — тот же, что у 2D и легенды (`teeth_svg.COLORS`) */
+  palette?: Record<string, string>
   marks: Record<string, string>
   surfaces: Record<string, string>
   surface_states: string[]

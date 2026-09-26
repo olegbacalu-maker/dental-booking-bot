@@ -184,7 +184,13 @@ def suite_api(res: Result) -> None:
         res.check("состав", sorted(d),
                   sorted(["teeth", "history", "arches", "arc", "milk_open", "bridges", "legend",
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
-                          "materials", "patient", "doctors", "perio"]))
+                          "materials", "patient", "doctors", "perio", "palette"]))
+        # B7 ступень 1: размеры и цвета для объёмного вида едут с сервера
+        res.check("палитра: цвет на каждое состояние, тем же порядком", list(d["palette"]), list(d["states"]))
+        res.check("размеры для 3D у всех зубов, 16 — 10,5 мм и три корня",
+                  (all(set(v["geom"]) == {"md", "bl", "crown", "root", "roots", "cls", "upper"} for v in d["teeth"].values()),
+                   d["teeth"]["16"]["geom"]["md"], d["teeth"]["16"]["geom"]["roots"], d["teeth"]["55"]["geom"]["cls"]),
+                  (True, 10.5, 3, "molar"))
         res.check("без пародонтального осмотра замеров нет — нулей не выдумываем",
                   d["perio"], {})
         teeth_old = _blob(page, "TEETH")

@@ -454,6 +454,37 @@ def occ_half(fdi: int) -> tuple:
     return hw, hw * _BL_K[(cls, is_upper(fdi))]
 
 
+# --- размеры для объёмного вида (B7, docs/dentpilot-2/odontogram-3d.md, ступень 1) ---
+# Миллиметры в единице вида сверху: первый моляр 10,5 мм = 36,3 ед.
+# (_MD_BASE["molar"] × OCC_ZOOM) — та же пропорция, на которой стоят все ширины
+# движка. Высота коронки и длина корней — таблицы по классу зуба, мм,
+# (верхняя челюсть, нижняя); длины корней — средние анатомические ×0.9, как в
+# макете `frontend/prototypes/odontogram/gen.py`. ⛔ Таблиц размеров в
+# TypeScript не будет: клиент рендерит то, что отдал сервер (контракт
+# clinical-chart.md › «3D — рендер, не истина»); в печать и 043/e это не едет.
+MM_PER_UNIT = 10.5 / 36.3
+CROWN_H = {"incisor_c": (10.5, 9.0), "incisor_l": (9.0, 9.5), "canine": (10.0, 11.0),
+           "premolar": (8.5, 8.0), "molar": (7.5, 7.5)}
+ROOT_L = {"incisor_c": (11.7, 11.2), "incisor_l": (11.7, 11.7), "canine": (14.5, 14.0),
+          "premolar": (12.5, 12.5), "molar": (11.2, 12.5)}
+
+
+def tooth_geom(fdi: int) -> dict:
+    """Размеры зуба для объёмного вида, мм: мезио-дистальная (`md`) и
+    вестибуло-язычная (`bl`) ширина коронки — из вида сверху (`occ_half`, тот же
+    источник, что у рисунка), высота коронки (`crown`) и длина корней (`root`) —
+    по классу и челюсти, число корней — `root_count`. Молочные — те же формулы
+    (они мельче через `_width_k`), коронка и корни ×0.8."""
+    cls = tooth_class(fdi)
+    up = is_upper(fdi)
+    hw, hd = occ_half(fdi)
+    k = 0.8 if is_milk(fdi) else 1.0
+    return {"md": round(2 * hw * MM_PER_UNIT, 2), "bl": round(2 * hd * MM_PER_UNIT, 2),
+            "crown": round(CROWN_H[cls][0 if up else 1] * k, 1),
+            "root": round(ROOT_L[cls][0 if up else 1] * k, 1),
+            "roots": root_count(fdi), "cls": cls, "upper": up}
+
+
 def occ_lobes(fdi: int) -> list:
     """Бугры как ДОЛЬКИ: [(x, y, rx, ry)] в каноне (мезиальная сторона справа).
 
