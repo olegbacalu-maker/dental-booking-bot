@@ -147,8 +147,22 @@ const open = (url = '/admin/patient/5', navigate?: (url: string) => void) => ope
 /** Сколько раз фиша ОТКРЫВАЛАСЬ (полная загрузка — на сервере это запись «Fișa deschisă»). */
 const opens = () => get.mock.calls.filter(([p]) => p === '/patients/5' || p === '/patients/5?views=1').length
 
-/** Фиша дорисована целиком: одонтограмма (свой запрос) уже пришла — дальше запросы только наши. */
-const settled = () => waitFor(() => expect(document.querySelector('#odo .tooth-btn[data-n="11"]')).toBeTruthy())
+/** Фиша дорисована: оба запроса загрузчика (фиша и карта — `Promise.all`) уже ушли,
+ *  дальше запросы только наши. Дуга — на вкладке «Odontogramă», см. `odoReady`. */
+const settled = () => screen.findByText('Pin Test', { selector: 'h2' })
+
+/** Дуга компактной одонтограммы нарисована (вкладка «Odontogramă» открыта). */
+const odoReady = () => waitFor(() => expect(document.querySelector('#odo .tooth-btn[data-n="11"]')).toBeTruthy())
+
+/** Полоса вкладок фиши (B6) — своим именем: у плана внутри свои вкладки. */
+const strip = () => within(screen.getByRole('tablist', { name: 'Secțiunile fișei' }))
+
+/** Щелчок по вкладке фиши и ожидание, пока роутер её откроет (адрес — `?tab=`). */
+const tabTo = async (name: string) => {
+  fireEvent.click(strip().getByRole('tab', { name }))
+  await strip().findByRole('tab', { name, selected: true })
+}
+const tabOn = () => strip().getByRole('tab', { selected: true }).textContent
 
 /** F5: свежий роутер на адресе, который оставил экран; подмена сети та же, счёт вызовов — с нуля. */
 const reopen = (router: ReturnType<typeof open>['router']) => {
@@ -179,9 +193,9 @@ describe('mdl', () => {
 })
 
 describe('PatientCardScreen', () => {
-  it('успех: шапка, пилюли, KPI, план по вкладке, сальдо, документы, история, летопись, анамнез, профиль', async () => {
+  it('успех: шапка и Rezumat сразу; остальное — по вкладкам, без нового открытия фиши', async () => {
     serve()
-    open()
+    const { router } = open()
     expect(await screen.findByText('Pin Test', { selector: 'h2' })).toBeTruthy()
     expect(screen.getByText('41 ani')).toBeTruthy()
     expect(screen.getByText('ID #5')).toBeTruthy()
@@ -190,7 +204,26 @@ describe('PatientCardScreen', () => {
     // KPI: пять цифр словами старой страницы
     const kpi = Array.from(document.querySelectorAll('.kpi5 .kpi b')).map((b) => b.textContent)
     expect(kpi).toEqual(['3', '3', '1 zile', '20.09', '1'])
-    // план: вкладка «Active» по умолчанию прячет закрытые; просрочка; отказ с причиной под вкладкой
+    // B6: шесть вкладок, открыта «Rezumat»; с других вкладок ничего не смонтировано
+    expect(strip().getAllByRole('tab').map((x) => x.textContent))
+      .toEqual(['Rezumat', 'Odontogramă', 'Plan și plăți', 'Vizite', 'Documente', 'Date pacient'])
+    expect(tabOn()).toBe('Rezumat')
+    expect(router.state.location.search).toBe('')
+    expect(document.querySelector('#odo')).toBeNull()
+    expect(screen.queryByText('Coroană 11', { selector: '.pp' })).toBeNull()
+    expect(document.querySelector('.dp-pedit')).toBeNull()
+    // Rezumat: ближайший визит, история, предупреждения, летопись, быстрые действия
+    expect(document.querySelector('.tline.next')?.textContent).toContain('20.09.2026 09:30')
+    expect((screen.getByText('+ Consultație') as HTMLAnchorElement).getAttribute('href')).toBe('/admin/visit/3?back=/admin/patient/5')
+    expect(screen.getByText(/: Pulpită 26/)).toBeTruthy()
+    expect(screen.getByText('Următoarea vizită', { selector: '.dp-next h3' })).toBeTruthy()
+    expect(document.querySelectorAll('.acti').length).toBe(10)
+    expect(screen.getByText('Toate evenimentele (12)')).toBeTruthy()
+    expect(screen.getByText(/Penicilină/, { selector: '.alert' })).toBeTruthy()
+    expect(screen.getByText('Acțiuni rapide')).toBeTruthy()
+    // план и платежи — вкладка «Plan și plăți»: вкладка «Active» прячет закрытые; просрочка; отказ с причиной
+    await tabTo('Plan și plăți')
+    expect(router.state.location.search).toBe('?tab=plan')
     expect(screen.getByText('Coroană 11', { selector: '.pp' })).toBeTruthy()
     expect(screen.queryByText('Detartraj', { selector: '.pp' })).toBeNull()
     expect(screen.getByTitle('Termen depășit').textContent).toContain('01.01.2020')
@@ -207,37 +240,34 @@ describe('PatientCardScreen', () => {
     expect(screen.getByText('- 100 MDL')).toBeTruthy()
     expect(screen.getAllByLabelText(/Șterge plata/).length).toBe(2)
     // документы: картинка миниатюрой, docx значком
+    await tabTo('Documente')
     expect(document.querySelector("img[src='/admin/doc/1?thumb=1']")).toBeTruthy()
     expect(screen.getByTitle('trimitere.docx').querySelector('svg')).toBeTruthy()
-    // визиты: следующий отмечен, приглашение и диагноз
-    expect(document.querySelector('.tline.next')?.textContent).toContain('20.09.2026 09:30')
-    expect((screen.getByText('+ Consultație') as HTMLAnchorElement).getAttribute('href')).toBe('/admin/visit/3?back=/admin/patient/5')
-    expect(screen.getByText(/: Pulpită 26/)).toBeTruthy()
-    expect(screen.getByText('Următoarea vizită', { selector: '.dp-next h3' })).toBeTruthy()
-    // летопись: 10 из 12 и кнопка
-    expect(document.querySelectorAll('.acti').length).toBe(10)
-    expect(screen.getByText('Toate evenimentele (12)')).toBeTruthy()
-    // анамнез: три риска, чипы, дата и автор, опросник свёрнут
-    expect(screen.getByText('3 de reținut')).toBeTruthy()
-    expect(screen.getByText('Alergii (medicamente, materiale): latex')).toBeTruthy()
-    expect(screen.getByText('Completat: 18.09.2026 · Director')).toBeTruthy()
-    expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(false)
-    // профиль: строки и заметка, форма свёрнута
+    // данные пациента: профиль (строки и заметка, форма свёрнута) и анамнез (три риска, чипы, дата и автор, опросник свёрнут)
+    await tabTo('Date pacient')
     expect(screen.getByText('07.03.1985')).toBeTruthy()
     expect(screen.getByText('F', { selector: '.v' })).toBeTruthy()
     expect(screen.getByText(/nota internă/, { selector: '.dp-notes' })).toBeTruthy()
     expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('none')
     expect(screen.getByText('Arhivează pacientul')).toBeTruthy()
     expect(screen.getByText('datele de identitate')).toBeTruthy()
-    // одонтограмма — свой запрос и свой компонент (C21): дуга с кнопками зубов
-    await waitFor(() => expect(document.querySelector('#odo .tooth-btn[data-n="11"]')).toBeTruthy())
+    expect(screen.getByText('3 de reținut')).toBeTruthy()
+    expect(screen.getByText('Alergii (medicamente, materiale): latex')).toBeTruthy()
+    expect(screen.getByText('Completat: 18.09.2026 · Director')).toBeTruthy()
+    expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(false)
+    // одонтограмма — свой компонент (C21): дуга с кнопками зубов, модель — из загрузчика, без второго запроса
+    await tabTo('Odontogramă')
+    await odoReady()
     expect(get).toHaveBeenCalledWith('/patients/5', expect.anything())
     expect(get).toHaveBeenCalledWith('/patients/5/odontogram', expect.anything())
+    expect(get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length).toBe(1)
+    // пять вкладок пройдены — фиша ОТКРЫТА один раз (в журнале доступа одна «Fișa deschisă»)
+    expect(opens()).toBe(1)
   })
 
   it('вкладки плана: Finalizate показывает закрытые, Toate — всё', async () => {
     serve()
-    open()
+    open('/admin/patient/5?tab=plan')
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByText('Finalizate (1)'))
     expect(screen.getByText('Detartraj', { selector: '.pp' })).toBeTruthy()
@@ -253,7 +283,7 @@ describe('PatientCardScreen', () => {
     serve()
     const after: PatientCard = { ...CARD, plan: { ...CARD.plan, default_tab: 'finalizat', n_act: 0 }, kpi: { ...CARD.kpi, active: 0 } }
     post.mockResolvedValueOnce(ok(after, 'ok_refuz', 'Refuzul a fost consemnat'))
-    open()
+    open('/admin/patient/5?tab=plan')
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(within(rowOf('Coroană 11')).getByText('Finalizează'))
     expect(await screen.findByText('Refuzul a fost consemnat')).toBeTruthy()
@@ -267,7 +297,7 @@ describe('PatientCardScreen', () => {
     serve()
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_refuz', text: 'Scrieți motivul refuzului', field: 'motiv' }, 'v'))
     post.mockResolvedValueOnce(ok(CARD, 'ok_refuz', 'Refuzul a fost consemnat'))
-    open()
+    open('/admin/patient/5?tab=plan')
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(within(rowOf('Coroană 11')).getByText('Refuz'))
     const area = screen.getByLabelText(/Motivul refuzului/) as HTMLTextAreaElement
@@ -316,7 +346,7 @@ describe('PatientCardScreen', () => {
   it('профиль: правка шлёт все поля; 422 bad_idnp подсвечивает IDNP и оставляет форму', async () => {
     serve()
     post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_idnp', text: 'IDNP trebuie să aibă exact 13 cifre', field: 'idnp' }, 'v'))
-    open()
+    open('/admin/patient/5?tab=date')
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByText('Editează profilul'))
     expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('flex')
@@ -335,7 +365,7 @@ describe('PatientCardScreen', () => {
   it('платёж: форма шлёт сумму, метод и заметку; без права — кнопок удаления нет', async () => {
     serve({ ...CARD, finance: { ...CARD.finance, can_delete: false } })
     post.mockResolvedValueOnce(ok(CARD, 'ok_pay', 'Plata a fost înregistrată'))
-    open()
+    open('/admin/patient/5?tab=plan')
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(screen.queryAllByLabelText(/Șterge plata/).length).toBe(0)
     fireEvent.change(screen.getByLabelText('Suma MDL (cu minus = restituire)'), { target: { value: '250' } })
@@ -348,7 +378,7 @@ describe('PatientCardScreen', () => {
 
   it('одонтограмма приезжает С ФИШЕЙ: дуга в том же кадре, что и шапка, и запрос один', async () => {
     serve()
-    open('/admin/patient/5')
+    open('/admin/patient/5?tab=odonto')
     await screen.findByText('Pin Test', { selector: 'h2' })
     /* без waitFor: дуга обязана быть УЖЕ в кадре шапки — иначе всё под ней прыгнет */
     expect(document.querySelector('#odo .tooth-btn[data-n="11"]')).toBeTruthy()
@@ -362,7 +392,7 @@ describe('PatientCardScreen', () => {
     get.mockImplementation((path: string) => (path === '/patients/5/odontogram'
       ? Promise.reject(new ApiError({ kind: 'network', detail: 'down' }, 'n'))
       : base(path)))
-    open('/admin/patient/5')
+    open('/admin/patient/5?tab=odonto')
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(await screen.findByText('Formula dentară nu s-a încărcat.')).toBeTruthy()
     expect(get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length).toBe(2)
@@ -372,7 +402,7 @@ describe('PatientCardScreen', () => {
     serve({ ...CARD, erasure: 'delete' })
     post.mockResolvedValueOnce(ok({ url: '/admin/search?msg=ok_del' }, 'ok_del', 'Fișa a fost ștearsă'))
     const navigate = vi.fn()
-    const { router } = open('/admin/patient/5', navigate)
+    const { router } = open('/admin/patient/5?tab=date', navigate)
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(screen.getByText('ștearsă definitiv')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('scrieți STERG'), { target: { value: 'sterg' } })
@@ -500,6 +530,7 @@ describe('PatientCardScreen', () => {
     open('/admin/patient/5?views=0&views=1')
     await screen.findByText('ascunde accesările')
     expect(get).toHaveBeenCalledWith('/patients/5?views=1', expect.anything())
+    await tabTo('Date pacient')
     fireEvent.click(screen.getByText('Arhivează pacientul'))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/archive?views=1', { on: true }))
     cleanup()
@@ -509,6 +540,7 @@ describe('PatientCardScreen', () => {
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByText('accesările'))
     await screen.findByText('ascunde accesările')
+    await tabTo('Date pacient')
     fireEvent.click(screen.getByText('Arhivează pacientul'))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/archive?views=1', { on: true }))
   })
@@ -520,7 +552,7 @@ describe('PatientCardScreen', () => {
       ...CARD, hero: { ...CARD.hero, pills: [...CARD.hero.pills.slice(0, 3), { tone: 'purple', icon: 'set', text: '2 implante' }] },
     }
     const saveTooth11 = async () => {
-      await settled()
+      await odoReady()
       fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
       const dlg = screen.getByText('Dinte 11').closest('dialog') as HTMLElement
       fireEvent.change(within(dlg).getByLabelText('Starea dintelui'), { target: { value: 'carie' } })
@@ -530,7 +562,7 @@ describe('PatientCardScreen', () => {
     const pills = () => Array.from(document.querySelectorAll('.hero-badges .pill')).map((p) => p.textContent?.trim())
     serve()
     post.mockResolvedValueOnce(ok({ ...ODO, card: after }, 'ok_card', 'Fișa pacientului a fost actualizată'))
-    open()
+    open('/admin/patient/5?tab=odonto')
     await screen.findByText('Pin Test', { selector: 'h2' })
     await saveTooth11()
     expect(opens()).toBe(1)
@@ -542,11 +574,12 @@ describe('PatientCardScreen', () => {
     get.mockClear()
     post.mockReset()
     post.mockResolvedValueOnce(ok({ ...ODO, card: { ...after, activity: feed(after, true) } }, 'ok_card', 'Fișa pacientului a fost actualizată'))
-    open('/admin/patient/5?views=1')
-    await screen.findByText('ascunde accesările')
+    open('/admin/patient/5?tab=odonto&views=1')
     await saveTooth11()
     expect(post).toHaveBeenCalledWith('/patients/5/teeth/11?card=1&views=1', expect.anything())
     await waitFor(() => expect(pills()).toContain('2 implante'))
+    /* лента из ответа записи — с просмотрами: видно на Rezumat, без нового открытия */
+    await tabTo('Rezumat')
     expect(screen.getByText('ascunde accesările')).toBeTruthy()
     expect(opens()).toBe(1)
   })
@@ -555,7 +588,7 @@ describe('PatientCardScreen', () => {
     serve()
     post.mockResolvedValueOnce(ok({ opened: false, reason: 'not_local' }))
     const navigate = vi.fn()
-    open('/admin/patient/5', navigate)
+    open('/admin/patient/5?tab=docs', navigate)
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.click(screen.getByTitle('trimitere.docx'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/doc/3'))
@@ -565,7 +598,7 @@ describe('PatientCardScreen', () => {
   it('архив: серая пилюля и кнопка возврата', async () => {
     serve({ ...CARD, archived: true, hero: { ...CARD.hero, pills: [{ tone: 'grey', icon: 'box', text: 'Arhivat' }] } })
     post.mockResolvedValueOnce(ok(CARD, 'ok_unarh', 'Pacient scos din arhivă'))
-    open()
+    open('/admin/patient/5?tab=date')
     await screen.findByText('Pin Test', { selector: 'h2' })
     expect(screen.getByText('Arhivat', { selector: '.pill' })).toBeTruthy()
     fireEvent.click(screen.getByText('Scoate din arhivă'))
@@ -582,5 +615,94 @@ describe('PatientCardScreen', () => {
     const navigate = vi.fn()
     open('/admin/patient/5', navigate)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
+  })
+
+  it('B6 вкладки: адрес ведёт вкладку, неизвестная — Rezumat; щелчок меняет адрес без нового открытия; F5 держит', async () => {
+    serve()
+    const { router } = open('/admin/patient/5?tab=xyz')
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    expect(tabOn()).toBe('Rezumat')
+    expect(document.querySelector('#odo')).toBeNull()
+    await tabTo('Odontogramă')
+    expect(router.state.location.search).toBe('?tab=odonto')
+    await odoReady()
+    expect(opens()).toBe(1)
+    /* F5 на этом адресе — та же вкладка; загрузчик снова просит обе разом */
+    const r2 = reopen(router)
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
+    await odoReady()
+    expect(opens()).toBe(1)
+    expect(r2.router.state.location.search).toBe('?tab=odonto')
+    /* назад к Rezumat — умолчание в адрес не пишется, одонтограмма размонтирована */
+    await tabTo('Rezumat')
+    expect(r2.router.state.location.search).toBe('')
+    expect(document.querySelector('#odo')).toBeNull()
+    expect(opens()).toBe(1)
+  })
+
+  it('B6 вкладка и режим ленты — один адрес; адрес действия вкладку не несёт', async () => {
+    serve()
+    post.mockResolvedValue(ok({ ...CARD, activity: feed(CARD, true) }))
+    const { router } = open('/admin/patient/5?views=1')
+    await screen.findByText('ascunde accesările')
+    await tabTo('Plan și plăți')
+    expect(router.state.location.search).toBe('?tab=plan&views=1')
+    await tabTo('Date pacient')
+    expect(router.state.location.search).toBe('?tab=date&views=1')
+    fireEvent.click(screen.getByText('Arhivează pacientul'))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/archive?views=1', { on: true }))
+    /* переключатель ленты снимает views и не трогает вкладку; обратно — Rezumat без query */
+    await tabTo('Rezumat')
+    expect(router.state.location.search).toBe('?views=1')
+    fireEvent.click(screen.getByText('ascunde accesările'))
+    await waitFor(() => expect(router.state.location.search).toBe(''))
+    expect(opens()).toBe(1)
+  })
+
+  it('B6 быстрые действия ведут на вкладки; зуб из плана открывает одонтограмму с этим зубом', async () => {
+    serve()
+    const { router } = open()
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    fireEvent.click(screen.getByText('Plan de tratament'))
+    await strip().findByRole('tab', { name: 'Plan și plăți', selected: true })
+    expect(router.state.location.search).toBe('?tab=plan')
+    fireEvent.click(rowOf('Coroană 11').querySelector('button.pt') as HTMLElement)
+    await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
+    await odoReady()
+    expect(await screen.findByText('Dinte 11')).toBeTruthy()
+    /* всё это — переходы одного адреса: фиша открыта один раз */
+    expect(opens()).toBe(1)
+    /* «Încarcă document» → Documente; «Notiță» → Date pacient с раскрытой формой */
+    await tabTo('Rezumat')
+    fireEvent.click(screen.getByText('Încarcă document'))
+    await strip().findByRole('tab', { name: 'Documente', selected: true })
+    await tabTo('Rezumat')
+    fireEvent.click(screen.getByText('Notiță'))
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+    expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('flex')
+  })
+
+  it('B6 клавиатура: ← → Home End ходят по вкладкам по кругу, фокус идёт следом', async () => {
+    serve()
+    const { router } = open()
+    await screen.findByText('Pin Test', { selector: 'h2' })
+    const list = screen.getByRole('tablist', { name: 'Secțiunile fișei' })
+    expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1])
+    fireEvent.keyDown(list, { key: 'ArrowRight' })
+    await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
+    expect(document.activeElement?.textContent).toBe('Odontogramă')
+    expect(router.state.location.search).toBe('?tab=odonto')
+    fireEvent.keyDown(list, { key: 'End' })
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+    fireEvent.keyDown(list, { key: 'ArrowRight' })
+    await strip().findByRole('tab', { name: 'Rezumat', selected: true })
+    expect(router.state.location.search).toBe('')
+    fireEvent.keyDown(list, { key: 'ArrowLeft' })
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+    fireEvent.keyDown(list, { key: 'Home' })
+    await strip().findByRole('tab', { name: 'Rezumat', selected: true })
+    expect(document.activeElement?.textContent).toBe('Rezumat')
+    expect(strip().getAllByRole('tab').map((x) => x.tabIndex)).toEqual([0, -1, -1, -1, -1, -1])
   })
 })

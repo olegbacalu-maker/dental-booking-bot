@@ -164,7 +164,7 @@ export function OdontogramScreen({ pid, navigate = defaultNavigate }: Props) {
     <section className="dp-react-root">
       <div ref={root} className="odop odo" id="odo" data-view={c.view} tabIndex={0} onKeyDown={onKey}>
         <div className="odop-top">
-          <AppLink className="odop-back" href={base}><Icon name="pat" /> {model.patient.name}</AppLink>
+          <AppLink className="odop-back" href={`${base}?tab=odonto`}><Icon name="pat" /> {model.patient.name}</AppLink>
           <h2>{T.title} <small>· {T.sub}</small></h2>
           <div className="odo-actions">
             <ViewSwitch view={c.view} onChange={c.setView} />

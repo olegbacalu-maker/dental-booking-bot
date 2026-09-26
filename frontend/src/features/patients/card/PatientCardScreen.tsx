@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useState } from 'react'
+import { startTransition, useCallback, useState, type KeyboardEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../../components/Icon'
@@ -25,15 +25,18 @@ import { NextVisitCard, VisitsCard } from './VisitsCard'
 import type { CardActions } from './actions'
 import { patientCard, type PatientCard } from './card'
 
-/* Фиша пациента (C18). Раскладка — та же, что у старой страницы: шапка,
-   пять цифр, слева формула, план, платежи, документы, быстрые действия;
-   справа ближайший визит, профиль, предупреждения, анамнез, летопись,
-   история визитов (порядок правой колонки — решение Олега 08-09). Все
-   расчёты и правила — на сервере; здесь состояния и формы. */
+/* Фиша пациента (C18) — с 26.09 рабочее место с вкладками (B6, слово Олега:
+   «не растянуто на весь экран, а по вкладкам»): шапка с пятью цифрами всегда
+   сверху, ниже — одна вкладка за раз: Rezumat (ближайший визит, быстрые
+   действия, летопись; справа предупреждения и история визитов), Odontogramă,
+   Plan și plăți, Vizite, Documente, Date pacient (профиль и анамнез). Порядок
+   карточек внутри — от старой страницы (решение Олега 08-09). Все расчёты и
+   правила — на сервере; здесь состояния и формы. */
 const T = {
   patients: 'Pacienți',
   schedule: 'Programări',
   quick: 'Acțiuni rapide',
+  tabs: 'Secțiunile fișei',
   newVisit: 'Vizită nouă',
   plan: 'Plan de tratament',
   upload: 'Încarcă document',
@@ -55,6 +58,30 @@ interface Props {
  * и том же адресе клиент и сервер показали бы разное.
  */
 const viewsOf = (q: URLSearchParams): boolean => queryParam(q, 'views') === '1'
+
+/* ⭐ Вкладка — в АДРЕСЕ (`?tab=`), как режим ленты: F5 и «Назад» её помнят, а
+   смена query на том же пути фишу не перечитывает (`searchChangeKeepsData`) —
+   журнал доступа лишнего «Fișa deschisă» не получает. Умолчание в адрес не
+   пишется. Неактивные вкладки НЕ смонтированы: после действия фиша приезжает
+   без `odontogram`, и карточка одонтограммы при возврате грузит свежую модель
+   сама (её запрос — не открытие фиши). */
+const TABS = [
+  ['rezumat', 'Rezumat'], ['odonto', 'Odontogramă'], ['plan', 'Plan și plăți'],
+  ['vizite', 'Vizite'], ['docs', 'Documente'], ['date', 'Date pacient'],
+] as const
+type Tab = (typeof TABS)[number][0]
+const tabOf = (q: URLSearchParams): Tab => {
+  const t = queryParam(q, 'tab')
+  return (TABS.some(([k]) => k === t) ? t : 'rezumat') as Tab
+}
+/** Query адреса из вкладки и режима ленты; умолчания не пишутся, прежний ?msg= не тянется. */
+const qs = (tab: Tab, views: boolean): string => {
+  const p = new URLSearchParams()
+  if (tab !== 'rezumat') p.set('tab', tab)
+  if (views) p.set('views', '1')
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
 
 /** Фиша плюс её одонтограмма — одним кадром. После ответа действия (`replace`)
  *  поля `odontogram` нет: карточка к тому моменту уже держит модель сама. */
@@ -92,6 +119,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
      переходы роутером — `to`. */
   const [q] = useSearchParams()
   const views = viewsOf(q)
+  const tab = tabOf(q)
   const { pathname } = useLocation()
   const to = useNavigate()
   const [busy, setBusy] = useState(false)
@@ -139,17 +167,37 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       const r = await patientCard.activity(pid, on)
       startTransition(() => {
         replace({ ...card, activity: r.data })
-        void to(`${pathname}${on ? '?views=1' : ''}`, { replace: true })
+        void to(`${pathname}${qs(tab, on)}`, { replace: true })
       })
     } catch (e) {
       fail(e)
     }
-  }, [state, pid, replace, fail, to, pathname])
+  }, [state, pid, replace, fail, to, pathname, tab])
 
   /* зуб из плана открывается в компактной одонтограмме (диалог зуба); запрос
-     — объектом с меткой, чтобы повторный клик по тому же зубу тоже сработал */
+     — объектом с меткой, чтобы повторный клик по тому же зубу тоже сработал.
+     План и одонтограмма — на разных вкладках: сперва вкладка, карточка
+     монтируется и применяет просьбу, как только у неё есть модель. */
   const [toothReq, setToothReq] = useState<{ n: number; k: number } | null>(null)
-  const onTooth = useCallback((n: number) => setToothReq({ n, k: Date.now() }), [])
+  /* вкладка — адресом, `replace`: щелчки по вкладкам не копят шаги «Назад» */
+  const goTab = useCallback((t: Tab) => {
+    if (t !== tab) void to(`${pathname}${qs(t, views)}`, { replace: true })
+  }, [to, pathname, views, tab])
+  const onTooth = useCallback((n: number) => { setToothReq({ n, k: Date.now() }); goTab('odonto') }, [goTab])
+  /* ←/→ (Home/End) ходят по вкладкам по кругу, фокус идёт следом: кнопки все в
+     DOM, активной — tabIndex 0, остальным -1 (одна остановка Tab на полосу). */
+  const onTabKey = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    const i = TABS.findIndex(([k]) => k === tab)
+    const n = e.key === 'ArrowRight' ? (i + 1) % TABS.length
+      : e.key === 'ArrowLeft' ? (i + TABS.length - 1) % TABS.length
+        : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1
+    const next = n < 0 ? undefined : TABS[n]
+    if (!next) return
+    e.preventDefault()
+    goTab(next[0])
+    const btn = e.currentTarget.children[n]
+    if (btn instanceof HTMLElement) btn.focus()
+  }, [tab, goTab])
 
   const failCb = useCallback((e: unknown) => { fail(e) }, [fail])
   const say = useCallback((t: ToastState) => setToast(t), [])
@@ -196,33 +244,62 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   return (
     <section className="dp-react-root" aria-busy={busy || undefined}>
       {nav}
-      <HeroKpi card={card} onBook={() => setBooking(true)} />
-      <div className="pv2">
-        <div className="pv2-main">
-          <OdontogramCard pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
-            initial={card.odontogram ?? null} />
-          <PlanCard card={card} a={a} onTooth={onTooth} />
-          <FinanceCard card={card} a={a} />
-          <DocumentsCard card={card} a={a} onFail={failCb} navigate={navigate} />
-          <div className="fcard">
-            <h3>{T.quick}</h3>
-            <div className="qa">
-              <button type="button" onClick={() => setBooking(true)}><Icon name="plus" /> {T.newVisit}</button>
-              <AppLink href="#plan"><Icon name="tooth" /> {T.plan}</AppLink>
-              <AppLink href="#docs"><Icon name="camera" /> {T.upload}</AppLink>
-              <button type="button" onClick={() => setEditOpen(true)}><Icon name="note" /> {T.note}</button>
-              <button type="button" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
+      <HeroKpi card={card} onBook={() => setBooking(true)} onPlan={() => goTab('plan')} />
+      <div className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
+        {TABS.map(([k, label]) => (
+          <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
+            aria-controls="wpanel" tabIndex={tab === k ? 0 : -1} className={tab === k ? 'on' : ''}
+            onClick={() => goTab(k)}>{label}</button>
+        ))}
+      </div>
+      <div id="wpanel" role="tabpanel" aria-labelledby={`wtab-${tab}`} className="wpanel">
+        {tab === 'rezumat' && (
+          <div className="pv2">
+            <div className="pv2-main">
+              <NextVisitCard card={card} />
+              <div className="fcard">
+                <h3>{T.quick}</h3>
+                <div className="qa">
+                  <button type="button" onClick={() => setBooking(true)}><Icon name="plus" /> {T.newVisit}</button>
+                  <button type="button" onClick={() => goTab('plan')}><Icon name="tooth" /> {T.plan}</button>
+                  <button type="button" onClick={() => goTab('docs')}><Icon name="camera" /> {T.upload}</button>
+                  <button type="button" onClick={() => { setEditOpen(true); goTab('date') }}><Icon name="note" /> {T.note}</button>
+                  <button type="button" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
+                </div>
+              </div>
+              <ActivityCard activity={card.activity} onViews={(on) => { void onViews(on) }} />
+            </div>
+            <div className="pv2-side">
+              <AlertsCard card={card} a={a} />
+              <VisitsCard card={card} />
             </div>
           </div>
-        </div>
-        <div className="pv2-side">
-          <NextVisitCard card={card} />
-          <ProfileCard card={card} a={a} editOpen={editOpen} onEditOpen={setEditOpen} navigate={navigate} onFail={failCb} />
-          <AlertsCard card={card} a={a} />
-          <AnamnezaCard card={card} a={a} />
-          <ActivityCard activity={card.activity} onViews={(on) => { void onViews(on) }} />
-          <VisitsCard card={card} />
-        </div>
+        )}
+        {tab === 'odonto' && (
+          <OdontogramCard pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
+            initial={card.odontogram ?? null} />
+        )}
+        {tab === 'plan' && (
+          <>
+            <PlanCard card={card} a={a} onTooth={onTooth} />
+            <FinanceCard card={card} a={a} />
+          </>
+        )}
+        {tab === 'vizite' && (
+          <div className="pv2">
+            <div className="pv2-main"><VisitsCard card={card} /></div>
+            <div className="pv2-side"><NextVisitCard card={card} /></div>
+          </div>
+        )}
+        {tab === 'docs' && <DocumentsCard card={card} a={a} onFail={failCb} navigate={navigate} />}
+        {tab === 'date' && (
+          <div className="pv2">
+            <div className="pv2-main">
+              <ProfileCard card={card} a={a} editOpen={editOpen} onEditOpen={setEditOpen} navigate={navigate} onFail={failCb} />
+            </div>
+            <div className="pv2-side"><AnamnezaCard card={card} a={a} /></div>
+          </div>
+        )}
       </div>
       <AppointDialog open={booking} name={card.name} appoint={card.appoint} a={a} onClose={() => setBooking(false)} />
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}

@@ -321,6 +321,16 @@ def main() -> int:
             pid = ids["pid"]
             page.go(f"/admin/patient/{pid}")
             settle(page, lambda st: st["busy"] == "false" or (st["busy"] != "true" and st["busy"] != "none"))
+            # B6 (26.09): ссылка на детальную живёт на вкладке «Odontogramă» —
+            # сперва вкладка (тот же документ, адрес ?tab=odonto), потом ссылка.
+            click_el(page, "[...document.querySelectorAll('.wtabs [role=tab]')]"
+                           ".find(b => b.textContent.trim() === 'Odontogramă')")
+            for _ in range(100):
+                if page.js("!!document.querySelector('.odo-more')"):
+                    break
+                time.sleep(0.1)
+            else:
+                bad.append("вкладка «Odontogramă» не открылась: ссылки на детальную нет")
             s7 = shell_step("фиша → одонтограмма",
                             lambda: click_el(page, "[...document.querySelectorAll('.odo-more')]"
                                                    ".find(a => a.getAttribute('href').endsWith('/odontograma'))"),
@@ -329,7 +339,7 @@ def main() -> int:
                 bad.append("фиша → одонтограмма: сайдбар не сузился в рельс — модель нового документа не применена")
             s8 = shell_step("одонтограмма → фиша",
                             lambda: click_el(page, "document.querySelector('.odop-back')"),
-                            lambda st: st["href"] == f"/admin/patient/{pid}", "fișa pacientului")
+                            lambda st: st["href"] == f"/admin/patient/{pid}?tab=odonto", "fișa pacientului")
             if s8["rail"]:
                 bad.append("одонтограмма → фиша: сайдбар остался рельсом")
             page.go("/admin/all")
