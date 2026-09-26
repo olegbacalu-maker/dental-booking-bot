@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/Icon'
 import type { Odontogram } from '../chart'
 import { loadThree } from './loadThree'
-import { createArchScene, type ArchScene, type Hit, type Toggle, type ViewName } from './scene'
+import { createArchScene, type ArchScene, type Hit, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
 
 /* Объёмный вид одонтограммы (B7, ступень 4): React владеет узлом и жизненным
@@ -38,6 +38,8 @@ interface Props {
 }
 
 type Status = 'loading' | 'ready' | 'failed' | 'nogl'
+/** зонд сцены на узле — стенды Edge читают его через CDP, тестов в jsdom это не касается */
+type Probed = HTMLDivElement & { __dp3d?: { inspect: (n: number) => ToothProbe | null } }
 
 export function Odontogram3D({ model, selected, onSurface, onMenu, onHover }: Props) {
   const host = useRef<HTMLDivElement | null>(null)
@@ -76,6 +78,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover }: Pr
           onViewLeft: () => setView((v) => (v === null ? v : null)),
         })
         sceneRef.current = scene
+        ;(host.current as Probed).__dp3d = { inspect: (n) => scene.inspect(n) }
         scene.setModel(modelRef.current)
         scene.setSelected(selRef.current)
         setStatus('ready')

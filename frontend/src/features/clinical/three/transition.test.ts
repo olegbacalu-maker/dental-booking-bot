@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { targetLook } from './look'
-import { comesFrom, sceneFor, startLift, startOpacity } from './transition'
+import { comesFrom, sceneFor, startLift } from './transition'
 
 /* Выбор сцены — таблица по виду зуба: имплант впереди всего, потом лунка,
    призрак, золото, живой зуб. */
@@ -28,9 +28,10 @@ describe('сцена по виду', () => {
     expect(comesFrom(look('ok'))).toBeNull()
   })
 
-  it('старт возврата: из призрака — с места и с его прозрачности, иначе снизу с нуля', () => {
-    expect([startOpacity('ghost'), startLift('ghost')]).toEqual([0.22, 0])
-    expect([startOpacity('gone'), startLift('gone')]).toEqual([0, -4])
-    expect([startOpacity(null), startLift(null)]).toEqual([0, -4])
+  it('старт возврата: на пустое место отсутствующего — проявляется на месте, иначе поднимается снизу', () => {
+    expect(startLift('ghost')).toBe(0)
+    expect(startLift('gone')).toBe(-4)
+    expect(startLift('implant')).toBe(-4)
+    expect(startLift(null)).toBe(-4)
   })
 })

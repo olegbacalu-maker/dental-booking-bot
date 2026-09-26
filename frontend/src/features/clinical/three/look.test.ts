@@ -66,11 +66,15 @@ describe('вид по состоянию', () => {
     expect([abutment.gold, abutment.roots]).toEqual([false, true])
   })
 
-  it('отсутствующий — призрак 0,22; удалённый — лунка вместо коронки', () => {
+  it('⭐ отсутствующий — пустое место с пунктиром шейки, БЕЗ коронки (26.09: призрак 0,22 читался целым зубом); удалённый — лунка', () => {
     const ghost = targetLook(tooth('lipsa'), PALETTE)
-    expect([ghost.ghost, ghost.opacity, ghost.roots, ghost.crown]).toEqual([true, 0.22, false, true])
+    expect([ghost.ghost, ghost.gap, ghost.crown, ghost.roots, ghost.socket]).toEqual([true, true, false, false, false])
     const gone = targetLook(tooth('extras'), PALETTE)
-    expect([gone.gone, gone.crown, gone.socket, gone.roots]).toEqual([true, false, true, false])
+    expect([gone.gone, gone.crown, gone.socket, gone.roots, gone.gap]).toEqual([true, false, true, false, false])
+    // тело моста на отсутствующем — золото, не пустое место
+    const pontic = targetLook(tooth('lipsa', {}, [], { role: 'corp', material: 'zr' }), PALETTE)
+    expect([pontic.gap, pontic.crown]).toEqual([false, true])
+    expect(targetLook(tooth('ok'), PALETTE).gap).toBe(false)
   })
 
   it('отметка «în tratament» — кольцо; пустая палитра не роняет, а даёт чёрный оттенок', () => {

@@ -196,6 +196,59 @@ export function buildCrown(g: CrownInput): RawMesh {
   return { positions: pos, index, groups }
 }
 
+/** Контур шейки зуба (x, z) — сечение коронки у самой десны. Им 3D рисует
+ *  ОТСУТСТВУЮЩИЙ зуб: как в 2D, только пунктирный контур, без коронки и
+ *  корней (`teeth_svg`: «отсутствует — только призрак контура, пунктиром»). */
+export function neckOutline(g: Pick<ToothGeom, 'md' | 'bl' | 'cls'>, segments = 48): [number, number][] {
+  const cls = toCls(g.cls)
+  const [wm, wb] = profAt(profOf(cls), 0)
+  const out: [number, number][] = []
+  for (let j = 0; j < segments; j++) {
+    const th = (2 * Math.PI * j) / segments
+    out.push(crossSec(th, (g.md / 2) * wm, (g.bl / 2) * wb, SQUARE[cls]))
+  }
+  return out
+}
+
+/** Пунктир вдоль замкнутого контура на высоте y: каждый чётный отрезок —
+ *  трубка радиуса r (шесть граней), нечётный — промежуток. Трубки, а не линия:
+ *  толщина линии в WebGL всегда 1 px, и пунктир на десне терялся бы. */
+export function buildDashedLoop(outline: [number, number][], y: number, r: number): RawMesh {
+  const SIDES = 6
+  const positions: number[] = []
+  const index: number[] = []
+  const n = outline.length
+  for (let k = 0; k < n; k += 2) {
+    const a = outline[k]
+    const b = outline[(k + 1) % n]
+    if (!a || !b) continue
+    const dx = b[0] - a[0]
+    const dz = b[1] - a[1]
+    const len = Math.hypot(dx, dz) || 1
+    // поперечник трубки: горизонталь поперёк контура и вертикаль
+    const hx = -dz / len
+    const hz = dx / len
+    const base = positions.length / 3
+    for (const [px, pz] of [a, b]) {
+      for (let s = 0; s < SIDES; s++) {
+        const ph = (2 * Math.PI * s) / SIDES
+        const c = Math.cos(ph) * r
+        const v = Math.sin(ph) * r
+        positions.push(px + hx * c, y + v, pz + hz * c)
+      }
+    }
+    for (let s = 0; s < SIDES; s++) {
+      const sn = (s + 1) % SIDES
+      const i0 = base + s
+      const i1 = base + sn
+      const j0 = base + SIDES + s
+      const j1 = base + SIDES + sn
+      index.push(i0, j0, i1, i1, j0, j1)
+    }
+  }
+  return oneGroup(positions, index)
+}
+
 interface RootSpec { x: number; z: number; rx: number; rz: number; len: number; ox: number; oz: number }
 
 /** Расположение корней: три у верхнего моляра (два щёчных и нёбный — длиннее

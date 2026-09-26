@@ -2,10 +2,10 @@ import type * as T3 from 'three'
 import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, buildRidge, GAP, GAP_CLOSED, layoutArch, type PlacedTooth } from './arch'
 import type { Three } from './loadThree'
-import { COLOR, structChanged, targetLook, type Look } from './look'
+import { COLOR, hex, lerpHex, structChanged, targetLook, type Look } from './look'
 import type { RawMesh } from './mesh'
-import { buildCrown, buildRoots, buildScrew, SURF, type Letter } from './toothGeometry'
-import { comesFrom, MS, sceneFor, startLift, startOpacity } from './transition'
+import { buildCrown, buildDashedLoop, buildRoots, buildScrew, neckOutline, SURF, type Letter } from './toothGeometry'
+import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
@@ -39,7 +39,22 @@ export interface SceneOptions {
   onViewLeft: () => void
 }
 
+/** Что сцена показывает для зуба — для стендов и разбора: вид, видимость
+ *  частей, прозрачность коронки, идёт ли ещё твин по этому зубу. */
+export interface ToothProbe {
+  look: Look | null
+  crown: boolean
+  roots: boolean
+  screw: boolean
+  socket: boolean
+  opacity: number
+  y: number
+  busy: boolean
+}
+
 export interface ArchScene {
+  /** зонд для стендов Edge и разбора; null — такого зуба в сцене нет */
+  inspect(n: number): ToothProbe | null
   setModel(model: Odontogram): void
   setSelected(n: number | null): void
   setView(name: ViewName): void
@@ -61,6 +76,9 @@ interface ToothNodes {
   ringI: T3.Mesh
   ringS: T3.Mesh
   socket: T3.Mesh
+  /** пустое место отсутствующего зуба — пунктир шейки у десны */
+  gap: T3.Mesh
+  gapMat: T3.MeshBasicMaterial
   sprite: T3.Sprite
   tex: [T3.CanvasTexture, T3.CanvasTexture]
   sx: number
@@ -225,6 +243,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     socket.rotation.x = -Math.PI / 2
     socket.position.y = 0.05
     socket.raycast = () => undefined
+    // пунктир чуть выше десны (она закрывает шейку на 0,7 мм), цветом «Lipsă» палитры, темнее для десны
+    const gapGeo = toGeometry(THREE, buildDashedLoop(neckOutline(g), 1.4, 0.2))
+    const gapMat = new THREE.MeshBasicMaterial({ color: lerpHex(hex(palette['lipsa'] ?? '#CBD5E1'), 0x64748b, 0.45), transparent: true })
+    const gap = new THREE.Mesh(gapGeo, gapMat)
+    gap.visible = false
+    gap.raycast = () => undefined
     const tex: [T3.CanvasTexture, T3.CanvasTexture] = [labelTexture(THREE, p.n, false), labelTexture(THREE, p.n, true)]
     const spriteMat = new THREE.SpriteMaterial({ map: tex[0], transparent: true, depthTest: true })
     const sprite = new THREE.Sprite(spriteMat)
@@ -232,15 +256,15 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     sprite.position.set(0, -2.4, 8.8)
     sprite.raycast = () => undefined
     const group = new THREE.Group()
-    group.add(crown, roots, screw, screwX, ringT, ringI, ringS, socket, sprite)
+    group.add(crown, roots, screw, screwX, ringT, ringI, ringS, socket, gap, sprite)
     group.matrixAutoUpdate = false
     group.matrix.makeBasis(
       new THREE.Vector3(...p.xAxis), new THREE.Vector3(...p.yAxis), new THREE.Vector3(...p.zAxis),
     ).setPosition(new THREE.Vector3(...p.position))
     grp.add(group)
-    disposables.push(crownGeo, rootsGeo, screwGeo, rootMat, screwMat, screwXMat, socketGeo, socketMat, spriteMat, tex[0], tex[1], ...mats)
+    disposables.push(crownGeo, rootsGeo, screwGeo, rootMat, screwMat, screwXMat, socketGeo, socketMat, gapGeo, gapMat, spriteMat, tex[0], tex[1], ...mats)
     teeth.set(p.n, {
-      n: p.n, group, crown, mats, roots, rootMat, screw, screwX, ringT, ringI, ringS, socket, sprite, tex, sx: hmd / hbl, look: null,
+      n: p.n, group, crown, mats, roots, rootMat, screw, screwX, ringT, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
     })
   }
 
@@ -248,6 +272,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   function applyLook(t: ToothNodes, look: Look, instant: boolean): void {
     t.crown.visible = look.crown
     t.socket.visible = look.socket
+    t.gap.visible = look.gap
+    t.gapMat.opacity = 1
     t.roots.visible = look.roots
     t.screw.visible = look.screw
     t.screwX.visible = look.screw
@@ -328,6 +354,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     }, 0, t)
   }
 
+  /** пунктир пустого места гаснет, когда на место возвращается коронка */
+  function gapOut(t: ToothNodes): void {
+    const gm = t.gapMat
+    tweens.add(MS.socketFade, (k) => { gm.opacity = 1 - k }, () => { t.gap.visible = false; gm.opacity = 1 }, 0, t)
+  }
+
   /** Смена состояния — маленькая сцена (ступень 6): что именно играется, решает
    *  `transition.ts`; в конце всегда `applyLook(…, true)` — вид сходится с данными
    *  независимо от того, дожил твин до конца или его сняли следующей сменой. */
@@ -381,11 +413,16 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         return
       }
       case 'ghost': {
-        const op0 = t.mats[0]?.opacity ?? 1
-        t.mats.forEach((m, i) => { const c = look.cols[i]; if (c !== undefined) m.color.setHex(c) })
+        // отсутствующий: коронка тает целиком, на её месте проявляется пунктир шейки
+        const op0 = t.crown.visible ? (t.mats[0]?.opacity ?? 1) : 0
         if (t.roots.visible) fadeRoots(t, false)
         if (t.screw.visible) tweens.add(MS.ghost, (k) => screwY(t, 16 * k), null, 0, t)
-        tweens.add(MS.ghost, (k) => setOpacity(t, op0 + (0.22 - op0) * k), finish, 0, t)
+        t.gap.visible = true
+        t.gapMat.opacity = 0
+        tweens.add(MS.ghost, (k) => {
+          setOpacity(t, op0 * (1 - k))
+          t.gapMat.opacity = k
+        }, finish, 0, t)
         return
       }
       case 'gold': {
@@ -394,13 +431,13 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         if (from) {
           t.crown.visible = true
           paintCols(0.85, 0.28)
-          setOpacity(t, startOpacity(from))
+          setOpacity(t, 0)
           if (from === 'implant') tweens.add(MS.screwOut, (k) => screwY(t, 16 * k), null, 0, t)
-          const o0 = startOpacity(from)
+          if (from === 'ghost') gapOut(t)
           const lift = startLift(from)
           tweens.add(MS.crownReturn, (k) => {
             t.crown.position.y = lift * (1 - k)
-            setOpacity(t, o0 + (1 - o0) * k)
+            setOpacity(t, k)
           }, finish, 0, t)
         } else {
           applyLook(t, look, false)
@@ -421,12 +458,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         if (from) {
           t.crown.visible = true
           paintCols(0, 0.32)
-          const o0 = startOpacity(from)
+          if (from === 'ghost') gapOut(t)
           const lift = startLift(from)
-          setOpacity(t, o0)
+          setOpacity(t, 0)
           tweens.add(MS.crownReturn, (k) => {
             t.crown.position.y = lift * (1 - k)
-            setOpacity(t, o0 + (1 - o0) * k)
+            setOpacity(t, k)
           }, finish, 0, t)
         } else {
           applyLook(t, look, false)
@@ -702,6 +739,14 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   applyCam()
 
   return {
+    inspect(n) {
+      const t = teeth.get(n)
+      if (!t) return null
+      return {
+        look: t.look, crown: t.crown.visible, roots: t.roots.visible, screw: t.screw.visible, socket: t.socket.visible,
+        opacity: t.mats[0]?.opacity ?? 1, y: t.crown.position.y, busy: tweens.has(t),
+      }
+    },
     setModel(model) {
       lastModel = model
       palette = model.palette ?? {}

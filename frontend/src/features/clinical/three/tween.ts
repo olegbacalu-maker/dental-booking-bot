@@ -25,6 +25,8 @@ export interface Tweens {
   kill(tag: unknown): void
   /** продвинуть до момента now; true — ещё есть что двигать */
   step(now: number): boolean
+  /** есть ли твины с этой меткой */
+  has(tag: unknown): boolean
   readonly size: number
 }
 
@@ -68,6 +70,7 @@ export function createTweens(opts: TweenOptions): Tweens {
       }
       return list.length > 0
     },
+    has(tag) { return list.some((tw) => tw.tag === tag) },
     get size() { return list.length },
   }
 }

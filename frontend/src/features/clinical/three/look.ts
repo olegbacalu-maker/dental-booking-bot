@@ -77,6 +77,8 @@ export interface Look {
   roots: boolean
   screw: boolean
   socket: boolean
+  /** пустое место отсутствующего зуба: пунктирный контур шейки, как в 2D */
+  gap: boolean
 }
 
 export function targetLook(t: Info, palette: Record<string, string>): Look {
@@ -100,13 +102,16 @@ export function targetLook(t: Info, palette: Record<string, string>): Look {
     st, pontic, gone, ghost, gold, implant,
     mark: (t.mk ?? []).includes('tratament'),
     cols,
-    opacity: ghost ? 0.22 : 1,
+    opacity: 1,
     metalness: gold ? 0.85 : 0,
     roughness: gold ? 0.28 : implant ? 0.22 : 0.32,
-    crown: !gone,
+    // ⭐ отсутствующий зуб НЕ рисуется (26.09, Олег: «удаление не убирает зуб»):
+    // призрак 0,22 на белом фоне читался сплошным белым зубом без корней
+    crown: !gone && !ghost,
     roots: !gone && !implant && !ghost && !pontic,
     screw: implant,
     socket: gone,
+    gap: ghost,
   }
 }
 

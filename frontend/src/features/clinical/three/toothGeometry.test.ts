@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { finite, triangles, vertices } from './mesh'
-import { buildCrown, buildRoots, buildScrew, crossSec, profAt, reliefFn, SURF, toCls, type Cls } from './toothGeometry'
+import { buildCrown, buildDashedLoop, buildRoots, buildScrew, crossSec, neckOutline, profAt, reliefFn, SURF, toCls, type Cls } from './toothGeometry'
 
 /* Геометрия зуба — чисто вычислимая: у каждого класса и челюсти коронка даёт
    ровно пять групп с треугольниками в порядке поверхностей, корни — по числу с
@@ -110,5 +110,30 @@ describe('корни и винт', () => {
     expect(Math.min(...ys)).toBe(-11)
     expect(Math.max(...ys)).toBeCloseTo(0.4, 5)
     expect(s.groups).toHaveLength(1)
+  })
+})
+
+describe('пустое место отсутствующего зуба', () => {
+  it('контур шейки: замкнутый, по размерам сервера у шейки (0,78–0,80 от коронки)', () => {
+    const o = neckOutline({ ...GEOM.molar, cls: 'molar' }, 48)
+    expect(o).toHaveLength(48)
+    const xs = o.map((p) => p[0])
+    const zs = o.map((p) => p[1])
+    expect(Math.max(...xs)).toBeCloseTo((GEOM.molar.md / 2) * 0.8, 5)
+    expect(Math.max(...zs)).toBeCloseTo((GEOM.molar.bl / 2) * 0.8, 5)
+    expect(o.every(([x, z]) => Number.isFinite(x) && Number.isFinite(z))).toBe(true)
+  })
+
+  it('пунктир: трубка на каждый второй отрезок, на заданной высоте, конечная сетка', () => {
+    const o = neckOutline({ ...GEOM.premolar, cls: 'premolar' }, 48)
+    const m = buildDashedLoop(o, 1.4, 0.2)
+    expect(finite(m)).toBe(true)
+    // 24 штриха × 2 кольца × 6 вершин; 24 × 6 граней × 2 треугольника
+    expect(vertices(m)).toBe(24 * 12)
+    expect(triangles(m)).toBe(24 * 12)
+    const ys = m.positions.filter((_v, i) => i % 3 === 1)
+    // шестигранная трубка: по высоте ±r·sin 60° вокруг заданной высоты
+    expect(Math.min(...ys)).toBeCloseTo(1.4 - 0.2 * Math.sin(Math.PI / 3), 9)
+    expect(Math.max(...ys)).toBeCloseTo(1.4 + 0.2 * Math.sin(Math.PI / 3), 9)
   })
 })
