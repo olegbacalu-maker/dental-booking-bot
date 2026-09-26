@@ -123,7 +123,12 @@
    --lift:-1px;--lift-card:-2px;--lift-tile:-3px;
    --sh-hover:0 4px 12px var(--teal-ring);
    /* Шрифт — переменной: выбор клиники подставит сюда системный. */
-   --font:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;}
+   --font:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
+   /* Длительности переходов (B5, шаг 11): три ступени вместо шести чисел.
+      fast — цвет, рамка, подсветка; dur — кнопка, поле, пункт меню; slow —
+      карточка и плитка. Стиль задаёт свои (Fluent короче). Анимации
+      появления (@keyframes) ступенями не являются — у них свой темп. */
+   --dur-fast:.15s;--dur:.2s;--dur-slow:.25s;}
  /* ⛔ Сенсорный экран: высоты «под палец» независимо от стиля. !important —
     единственный способ перебить строку темы: она печатается в <head> ПОСЛЕ
     этого файла и иначе выиграла бы порядком. Значения — стиля по умолчанию
@@ -211,7 +216,7 @@
  .side nav a{display:flex;align-items:center;gap:12px;margin:2px 10px;padding:0 12px;
    height:var(--h-nav);border-radius:var(--r-ctl);text-decoration:none;position:relative;
    color:var(--side-fg);opacity:.86;
-   font-size:var(--fs-body);font-weight:var(--nav-fw);transition:background-color .2s ease,opacity .2s ease}
+   font-size:var(--fs-body);font-weight:var(--nav-fw);transition:background-color var(--dur) ease,opacity var(--dur) ease}
  .side nav a svg{flex:0 0 16px}
  /* ⚠️ opacity возвращается в 1 вместе с плашкой: иначе прозрачность гасила бы
     и её саму, и подсветка вышла бы бледнее покоя */
@@ -242,7 +247,7 @@
    display:flex;align-items:center;gap:12px;padding:0 24px;position:sticky;top:0;z-index:20}
  .top form.searchf{display:flex;gap:0;align-items:center;background:var(--field);
    border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);padding:0 8px 0 14px;
-   height:var(--h-ctl);width:440px;margin:0;transition:border-color .2s ease,box-shadow .2s ease}
+   height:var(--h-ctl);width:440px;margin:0;transition:border-color var(--dur) ease,box-shadow var(--dur) ease}
  .top form.searchf:focus-within{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
  /* логотип клиники по центру шапки (галочка в Setări › Aspect, 08-21).
     Абсолют от .top (он sticky = containing block): центр не зависит от
@@ -260,7 +265,7 @@
  .top .kbd{font-size:var(--fs-xs);color:var(--text3);border:1px solid var(--line);border-radius:var(--r-xs);padding:2px 6px}
  .top .bell{position:relative;width:var(--h-ctl);height:var(--h-ctl);border-radius:var(--r-ctl);
    display:flex;align-items:center;justify-content:center;color:var(--text2);
-   text-decoration:none;font-size:var(--fs-l);transition:background-color .2s ease}
+   text-decoration:none;font-size:var(--fs-l);transition:background-color var(--dur) ease}
  .top .bell:hover{background:var(--line2)}
  .top .bell .n{position:absolute;top:5px;right:5px;min-width:16px;height:16px;border-radius:999px;
    background:var(--red);color:#fff;font-size:var(--fs-micro);font-weight:600;line-height:16px;text-align:center;padding:0 4px}
@@ -287,7 +292,7 @@
    overflow:hidden;text-overflow:ellipsis;max-width:170px}
  .who-out{width:32px;height:32px;border-radius:var(--r-chip);display:flex;align-items:center;
    justify-content:center;color:var(--text3);text-decoration:none;font-size:var(--fs-body);
-   transition:background-color .2s ease,color .2s ease}
+   transition:background-color var(--dur) ease,color var(--dur) ease}
  .who-out:hover{background:var(--red-soft);color:var(--red-t)}
  @media (max-width:1100px){.who-n{display:none}}
  /* Ширина окна отдаётся ВСЕМ разделам (08-16, просьба Олега: «на каждом экране
@@ -357,7 +362,7 @@
     --teal-d (4.8:1), а не --teal: тот на фоне даёт 3.2:1 — впритык к порогу для
     крупного и мало для чего угодно мельче. */
  h1::before{content:"";display:var(--h1-mark);flex:0 0 4px;height:1em;border-radius:4px;background:var(--teal)}
- h1 a{color:var(--h1-fg);text-decoration:none;transition:color .2s ease}
+ h1 a{color:var(--h1-fg);text-decoration:none;transition:color var(--dur) ease}
  h1 a:hover{color:var(--teal)}
  h2{font-size:var(--fs-h2);color:var(--text);margin:24px 0 12px;font-weight:600}
  .sub{color:var(--text2);font-size:var(--fs-m);margin-bottom:18px}
@@ -378,7 +383,7 @@
    background:var(--teal);color:var(--on-teal);border:none;border-radius:var(--r-ctl);
    height:var(--h-ctl);padding:0 18px;font-size:var(--fs-body);font-weight:600;
    cursor:pointer;text-decoration:none;
-   transition:background-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
+   transition:background-color var(--dur) ease,color var(--dur) ease,box-shadow var(--dur) ease,transform var(--dur) ease}
  .savebtn:hover,form.add button:hover,.fform button:hover,.dlg-form button:hover,.lbtn:hover,.top .newbtn:hover,.nav a.primary:hover,.nav form.searchf button:hover,.dp-fw-btn:hover,.dp-ok-btn:hover{
    background:var(--teal-d);color:var(--on-teal-d);box-shadow:var(--sh-t);transform:translateY(var(--lift))}
  .savebtn:active,form.add button:active,.fform button:active,.dlg-form button:active,.lbtn:active,.top .newbtn:active,.nav a.primary:active,.nav form.searchf button:active,.dp-fw-btn:active,.dp-ok-btn:active{transform:translateY(0)}
@@ -390,7 +395,7 @@
    border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--panel);
    color:var(--text2);font-size:var(--fs-body);font-weight:500;text-decoration:none;cursor:pointer;
    white-space:nowrap;
-   transition:border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease}
+   transition:border-color var(--dur) ease,color var(--dur) ease,box-shadow var(--dur) ease,transform var(--dur) ease}
  .nav a:hover,.pl-btn:hover,.filepick label:hover,.hero-acts a:hover,.hero-acts button:hover,.dvacts button:hover,.dvacts a:hover,.dp-pc-btn:hover,.actmore:hover{
    border-color:var(--teal);color:var(--teal-d);box-shadow:var(--sh-hover);transform:translateY(var(--lift))}
  .nav a:active,.pl-btn:active,.filepick label:active,.hero-acts a:active,.hero-acts button:active,.dvacts button:active,.dvacts a:active,.dp-pc-btn:active,.actmore:active{transform:translateY(0)}
@@ -408,7 +413,7 @@
  table.set input[type=number],table.set select{
    height:var(--h-ctl);padding:0 14px;border:1px solid var(--line);border-bottom-color:var(--field-line-b);
    border-radius:var(--r-ctl);background:var(--panel);color:var(--text);font-size:var(--fs-body);outline:none;
-   transition:border-color .2s ease,box-shadow .2s ease}
+   transition:border-color var(--dur) ease,box-shadow var(--dur) ease}
  .dlg-form textarea,.fform textarea{height:auto;padding:11px 14px}
  .nav input.dpick:focus,.nav form.searchf input:focus,.dlg-form input:focus,.dlg-form select:focus,.dlg-form textarea:focus,form.add input:focus,form.add select:focus,.fform input:focus,.fform select:focus,.fform textarea:focus,.pl-bar select:focus,.pl-pag select:focus,table.set input[type=text]:focus,table.set input[type=number]:focus,table.set select:focus{
    border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
@@ -467,7 +472,7 @@
     крестик и автозакрытие успеха вешает panel.js. */
  .toastbox{position:fixed;top:88px;left:0;right:0;z-index:80;display:flex;
    justify-content:center;padding:0 16px;pointer-events:none;
-   transition:opacity .22s ease}
+   transition:opacity var(--dur) ease}
  .toastbox.out{opacity:0}
  .toastbox .banner{pointer-events:auto;margin:0;max-width:600px;min-width:0;
    position:relative;padding-right:46px;border:1px solid rgba(15,23,42,.08);
@@ -500,7 +505,7 @@
    box-shadow:var(--sh);padding:16px;min-width:0;display:flex;gap:14px;
    align-items:flex-start}
  a.tile{text-decoration:none;color:inherit;
-   transition:box-shadow .25s ease,transform .25s ease,border-color .2s ease}
+   transition:box-shadow var(--dur-slow) ease,transform var(--dur-slow) ease,border-color var(--dur) ease}
  a.tile:hover{box-shadow:var(--sh3);transform:translateY(var(--lift-card))}
  .tile .ico{width:44px;height:44px;border-radius:var(--r-block);display:flex;align-items:center;
    justify-content:center;font-size:var(--fs-h3);flex:0 0 44px}
@@ -587,7 +592,7 @@
  .rkpi .ico svg{width:18px;height:18px}
  .rk-i{display:grid;grid-template-columns:34px auto auto minmax(0,1fr);gap:2px 10px;
    align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);
-   text-decoration:none;color:inherit;transition:transform .18s ease}
+   text-decoration:none;color:inherit;transition:transform var(--dur-fast) ease}
  /* Мини-график ВТОРОЙ строкой, на всю ширину карточки: рядом с цифрой ему в
     колонке 300px остаётся ~40px, а `preserveAspectRatio='none'` растянул бы по
     ним те же семь точек — из формы получился бы шум. Высота 16px против 26 в
@@ -624,7 +629,7 @@
  .gridhead .gh-doc{flex:1;min-width:0;padding:0 5px;display:flex}
  .gh-doc .dcard{flex:1;min-width:0;display:flex;gap:10px;align-items:center;
    background:var(--panel);border-radius:var(--r-block);padding:12px;box-shadow:var(--sh);
-   border-left:4px solid var(--teal);transition:transform .18s ease,box-shadow .18s ease}
+   border-left:4px solid var(--teal);transition:transform var(--dur-fast) ease,box-shadow var(--dur-fast) ease}
  .gh-doc .dcard:hover{transform:translateY(var(--lift-card));box-shadow:var(--sh2)}
  .gh-doc .dcard.off{opacity:.72}
  .gh-doc .av{width:44px;height:44px;border-radius:50%;color:#fff;display:flex;align-items:center;
@@ -843,7 +848,7 @@
  td.hour.now::before{content:"";display:inline-block;width:5px;height:5px;
    border-radius:50%;background:var(--teal);margin:0 4px 1px 0}
  .appt{border-radius:var(--r-chip);padding:6px 9px;line-height:1.35;
-   transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
+   transition:transform var(--dur-fast) ease,box-shadow var(--dur-fast) ease,filter var(--dur-fast) ease}
  .appt.confirmed{background:var(--green-soft);border-left:5px solid var(--green)}
  .appt.waiting{background:var(--violet-soft);border-left:5px solid #7C3AED}
  .appt.arrived{background:var(--teal-soft);border-left:5px solid var(--teal)}
@@ -928,7 +933,7 @@
  .tabbtn.on{background:var(--teal);color:var(--on-teal);border-color:var(--teal);font-weight:600}
  .dlg-form{display:flex;flex-direction:column;gap:9px;padding:13px 16px 16px}
  a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:var(--fs-l);
-   padding:4px 0;border-radius:var(--r-s);transition:opacity .15s ease,color .15s ease,background-color .15s ease}
+   padding:4px 0;border-radius:var(--r-s);transition:opacity var(--dur-fast) ease,color var(--dur-fast) ease,background-color var(--dur-fast) ease}
  a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
  /* «+» в свободном часе гасится до наведения: сетка на весь день это сотня
     плюсов, и все вместе они перекрикивают то немногое, что в ней есть, —
@@ -999,7 +1004,7 @@
  .act{display:inline}
  .act button{border:none;border-radius:var(--r-s);height:30px;padding:0 11px;margin-right:4px;cursor:pointer;
    font-size:var(--fs-s);font-weight:600;color:#fff;font-family:inherit;
-   transition:filter .2s ease,transform .15s ease,box-shadow .15s ease}
+   transition:filter var(--dur) ease,transform var(--dur-fast) ease,box-shadow var(--dur-fast) ease}
  .act button:hover{filter:brightness(1.08);transform:translateY(var(--lift));box-shadow:var(--sh)}
  .act button:active{transform:translateY(0)}
  /* ⚠️ Исходы визита — РАЗНЫЕ цвета. С 08-13 самую частую кнопку дня жмут
@@ -1101,9 +1106,9 @@
  .tooth-btn{background:none;border:none;padding:4px 2px;cursor:pointer;border-radius:var(--r-ctl);
    display:flex;flex-direction:column;align-items:center;gap:4px;
    transform:translateY(var(--arc,0));
-   transition:transform .2s ease,background-color .2s ease,box-shadow .2s ease}
+   transition:transform var(--dur) ease,background-color var(--dur) ease,box-shadow var(--dur) ease}
  .tooth-btn .num{font-size:var(--fs-s);font-weight:600;color:var(--text2);
-   transition:color .2s ease}
+   transition:color var(--dur) ease}
  .tooth-btn:hover{background:var(--teal-soft);box-shadow:var(--sh3);
    transform:translateY(calc(var(--arc,0px) - 3px)) scale(1.04)}
  .tooth-btn:hover .num{color:var(--teal-d)}
@@ -1121,7 +1126,7 @@
  .odop-back{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);
    padding:0 14px;border:1px solid var(--line);border-radius:var(--r-ctl);
    background:var(--panel);color:var(--text);text-decoration:none;font-weight:600;
-   font-size:var(--fs-m);transition:border-color .18s ease,box-shadow .18s ease}
+   font-size:var(--fs-m);transition:border-color var(--dur-fast) ease,box-shadow var(--dur-fast) ease}
  .odop-back:hover{border-color:var(--teal);box-shadow:var(--sh)}
  /* 340px, а не 320: сайдбар свёрнут, ширины хватает, а инспектор несёт пять
     кнопок поверхностей в ряд — на 320 они переносились по две на строку */
@@ -1297,8 +1302,8 @@
  .sfbtns .sfbtn{display:flex;flex-direction:column;align-items:center;gap:1px;
    height:46px;justify-content:center;border:1px solid var(--line);
    border-radius:var(--r-chip);font-size:var(--fs-m);font-weight:700;color:var(--text2);
-   cursor:pointer;transition:border-color .15s ease,background-color .15s ease,
-   color .15s ease}
+   cursor:pointer;transition:border-color var(--dur-fast) ease,background-color var(--dur-fast) ease,
+   color var(--dur-fast) ease}
  .sfbtns .sfbtn small{font-size:9px;font-weight:500;color:var(--text3);
    letter-spacing:.2px}
  .sfbtns .sfbtn:hover{border-color:var(--teal-line);background:var(--teal-soft)}
@@ -1326,7 +1331,7 @@
  .odo-more{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 13px;
    border:1px solid var(--line);border-radius:var(--r-chip);background:var(--panel);
    color:var(--teal-d);text-decoration:none;font-size:var(--fs-s);font-weight:600;
-   cursor:pointer;transition:border-color .18s ease,box-shadow .18s ease}
+   cursor:pointer;transition:border-color var(--dur-fast) ease,box-shadow var(--dur-fast) ease}
  .odo-more:hover{border-color:var(--teal);box-shadow:var(--sh)}
  /* печать: на лист уходит только формула — ни сайдбара, ни инспектора */
  @media print{
@@ -1348,7 +1353,7 @@
    border-radius:var(--r-ctl);background:var(--line2)}
  .viewsw button{border:none;background:none;font:inherit;font-size:var(--fs-s);
    font-weight:600;color:var(--text2);padding:7px 14px;border-radius:var(--r-s);
-   cursor:pointer;transition:background-color .18s ease,color .18s ease}
+   cursor:pointer;transition:background-color var(--dur-fast) ease,color var(--dur-fast) ease}
  .viewsw button:hover{color:var(--teal-d)}
  .viewsw button.on{background:var(--panel);color:var(--teal-d);box-shadow:var(--sh)}
  .odo[data-view=frontal] .v-ocluzal{display:none}
@@ -1499,7 +1504,7 @@
  .plan-row .pact{display:flex;gap:6px;align-items:center}
  .plan-row .pact button{height:30px;padding:0 12px;border-radius:var(--r-s);cursor:pointer;
    font-size:var(--fs-s);font-weight:600;font-family:inherit;
-   transition:background-color .2s ease,border-color .2s ease,color .2s ease}
+   transition:background-color var(--dur) ease,border-color var(--dur) ease,color var(--dur) ease}
  .plan-row .pact .pgo{background:none;border:1px solid var(--teal);color:var(--teal-d)}
  .plan-row .pact .pgo:hover{background:var(--teal);color:var(--on-teal)}
  .plan-row .pact .pgo.fin{border-color:var(--green);color:var(--green-t)}
@@ -1550,7 +1555,7 @@
  .pay-row form{margin:0}
  .pay-row button{background:none;border:1px solid var(--line);border-radius:var(--r-s);
    width:28px;height:28px;cursor:pointer;color:var(--text3);
-   transition:border-color .2s ease,color .2s ease}
+   transition:border-color var(--dur) ease,color var(--dur) ease}
  .pay-row button:hover{border-color:var(--red);color:var(--red-t)}
  .tline{display:flex;gap:10px;margin-bottom:10px}
  .tline .tdot{width:7px;flex:0 0 7px;display:flex;flex-direction:column;align-items:center}
@@ -1628,7 +1633,7 @@
    margin-bottom:16px}
  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);padding:18px;
    display:flex;gap:14px;align-items:center;
-   transition:transform .2s ease,box-shadow .2s ease}
+   transition:transform var(--dur) ease,box-shadow var(--dur) ease}
  .kpi:hover{transform:translateY(var(--lift-card));box-shadow:var(--sh3)}
  .kpi .ki{width:42px;height:42px;flex:0 0 42px;border-radius:var(--r-block);display:flex;
    align-items:center;justify-content:center;font-size:var(--fs-h3);background:var(--teal-soft)}
@@ -1660,7 +1665,7 @@
  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
  .tabs button{height:var(--h-ctl-s);padding:0 14px;border-radius:var(--r-tab);border:1px solid var(--line);
    background:var(--panel);color:var(--text2);font-size:var(--fs-m);font-weight:500;cursor:pointer;
-   transition:background-color .2s ease,border-color .2s ease,color .2s ease}
+   transition:background-color var(--dur) ease,border-color var(--dur) ease,color var(--dur) ease}
  .tabs button:hover{border-color:var(--teal);color:var(--teal-d)}
  .tabs button.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal)}
  /* ⛔ Здесь auto-FILL, и это НЕ забытое слово (проверено 08-16 при переводе
@@ -1672,7 +1677,7 @@
  .docgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
  .doccard{position:relative;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;
    background:var(--panel);text-decoration:none;color:inherit;display:flex;
-   flex-direction:column;transition:transform .2s ease,box-shadow .2s ease}
+   flex-direction:column;transition:transform var(--dur) ease,box-shadow var(--dur) ease}
  .doccard:hover{transform:translateY(var(--lift-tile));box-shadow:var(--sh3)}
  .doccard .thumb{height:120px;background:var(--line2);display:flex;align-items:center;
    justify-content:center;font-size:var(--fs-big);overflow:hidden}
@@ -1681,7 +1686,7 @@
  .doccard .dmeta b{display:block;font-weight:600;font-size:var(--fs-s);white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
  .doccard .dmeta small{color:var(--text3);font-size:var(--fs-xs)}
- .doccard .del{position:absolute;top:8px;right:8px;opacity:0;transition:opacity .2s ease}
+ .doccard .del{position:absolute;top:8px;right:8px;opacity:0;transition:opacity var(--dur) ease}
  .doccard:hover .del{opacity:1}
  .doccard .del button{border:none;background:rgba(255,255,255,.92);color:var(--red-t);
    width:28px;height:28px;border-radius:var(--r-chip);cursor:pointer;font-size:var(--fs-m);box-shadow:var(--sh)}
@@ -1699,7 +1704,7 @@
    height:48px;min-width:140px;padding:0 18px;border:1px solid var(--line);
    border-radius:var(--r-block);background:var(--panel);color:var(--text);font-size:var(--fs-body);
    font-weight:500;text-decoration:none;cursor:pointer;
-   transition:background-color .2s ease,transform .2s ease,border-color .2s ease}
+   transition:background-color var(--dur) ease,transform var(--dur) ease,border-color var(--dur) ease}
  .qa a:hover,.qa button:hover{background:#F3F8FC;border-color:var(--teal);transform:translateY(var(--lift))}
  @media print{
    .side,.top,.brandcorner,.qa,.tabs,.hero-acts,.doccard .del,
@@ -1717,7 +1722,7 @@
  }
  /* лента активности: что происходило с фишей */
  .acti{display:flex;gap:12px;align-items:flex-start;padding:14px 0;
-   border-bottom:1px solid var(--line2);transition:background-color .2s ease}
+   border-bottom:1px solid var(--line2);transition:background-color var(--dur) ease}
  .acti:last-of-type{border-bottom:none}
  .acti:hover{background:#F9FBFD}
  .acti .ai{width:44px;height:44px;flex:0 0 44px;border-radius:var(--r-block);display:flex;
@@ -1761,7 +1766,7 @@
  .medgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
  .medcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--sh);padding:var(--pad-card);
    display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;
-   transition:box-shadow .15s,transform .15s}
+   transition:box-shadow var(--dur-fast),transform var(--dur-fast)}
  a.medcard:hover{box-shadow:var(--sh2);transform:translateY(var(--lift))}
  .medcard.off{opacity:.72}
  .medhead{display:flex;align-items:center;gap:12px}
@@ -1814,7 +1819,7 @@
  .pl-search{display:flex;align-items:center;gap:9px;height:var(--h-ctl);padding:0 14px;
    background:var(--panel);border:1px solid var(--line);border-bottom-color:var(--field-line-b);border-radius:var(--r-ctl);
    color:var(--text3);flex:0 1 320px;min-width:220px;
-   transition:border-color .2s ease,box-shadow .2s ease}
+   transition:border-color var(--dur) ease,box-shadow var(--dur) ease}
  .pl-search:focus-within{border-color:var(--focus-line);border-bottom-color:var(--focus-line-b);box-shadow:var(--ring)}
  .pl-search input{border:none;outline:none;background:none;font-size:var(--fs-body);flex:1;
    min-width:0;color:var(--text);font-family:inherit}
@@ -1828,7 +1833,7 @@
  .pl-tile{display:flex;gap:16px;align-items:center;background:var(--panel);
    border:1px solid var(--line);border-radius:var(--r-card);padding:20px 22px;
    box-shadow:var(--sh);text-decoration:none;color:inherit;min-width:0;
-   transition:box-shadow .25s ease,transform .25s ease}
+   transition:box-shadow var(--dur-slow) ease,transform var(--dur-slow) ease}
  a.pl-tile:hover{transform:translateY(var(--lift-tile));box-shadow:var(--sh3)}
  .pl-tile .ico{width:52px;height:52px;flex:0 0 52px;border-radius:var(--r-block);display:flex;
    align-items:center;justify-content:center;font-size:var(--fs-xl)}
@@ -1867,7 +1872,7 @@
  .hub-list{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);
    border-radius:var(--r-card);box-shadow:var(--sh);overflow:hidden}
  .set-hub .pl-tile{border:none;border-radius:0;box-shadow:none;padding:13px 18px;gap:14px;
-   border-bottom:1px solid var(--line2);transition:background-color .15s ease}
+   border-bottom:1px solid var(--line2);transition:background-color var(--dur-fast) ease}
  .set-hub .pl-tile:last-child{border-bottom:none}
  .set-hub a.pl-tile:hover{transform:none;box-shadow:none;background:var(--line2)}
  .set-hub a.pl-tile:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--teal)}
@@ -1897,7 +1902,7 @@
  .pl-tbl th a:hover{color:var(--teal-d)}
  .pl-tbl td{height:66px;padding:8px 14px;font-size:var(--fs-m);color:var(--text2);
    border-bottom:1px solid var(--line2);white-space:nowrap}
- .pl-tbl tbody tr{cursor:pointer;transition:background-color .18s ease}
+ .pl-tbl tbody tr{cursor:pointer;transition:background-color var(--dur-fast) ease}
  .pl-tbl tbody tr:hover{background:#FAFCFE}
  .pl-tbl tbody tr.on{background:var(--teal-soft)}
  .pl-tbl tbody tr:last-child td{border-bottom:none}
@@ -1925,7 +1930,7 @@
    width:var(--h-ctl-s);height:var(--h-ctl-s);border-radius:var(--r-chip);border:1px solid var(--line);
    background:var(--panel);color:var(--text2);font-size:var(--fs-body);cursor:pointer;
    text-decoration:none;margin-left:5px;
-   transition:border-color .2s ease,background-color .2s ease,transform .2s ease}
+   transition:border-color var(--dur) ease,background-color var(--dur) ease,transform var(--dur) ease}
  .pl-acts button:hover,.pl-acts a:hover{border-color:var(--teal);
    background:var(--teal-soft);transform:scale(1.06)}
  .pl-pag{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:var(--pad-block);
@@ -1934,7 +1939,7 @@
  .pl-pg{display:inline-flex;align-items:center;justify-content:center;min-width:var(--h-ctl-s);
    height:var(--h-ctl-s);padding:0 8px;border:1px solid var(--line);border-radius:var(--r-chip);
    background:var(--panel);color:var(--text2);text-decoration:none;font-size:var(--fs-m);
-   transition:border-color .2s ease,background-color .2s ease,color .2s ease}
+   transition:border-color var(--dur) ease,background-color var(--dur) ease,color var(--dur) ease}
  .pl-pg:hover{border-color:var(--teal);color:var(--teal-d)}
  .pl-pg.on{background:var(--teal);border-color:var(--teal);color:var(--on-teal);font-weight:600;
    box-shadow:var(--sh-t)}
@@ -1989,7 +1994,7 @@
  .pp-note.info{border-left-color:var(--blue);background:var(--blue-soft);color:var(--text2)}
  .pp-doc{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--r-ctl);
    background:#FAFBFD;margin-bottom:6px;text-decoration:none;color:inherit;
-   transition:background-color .2s ease,box-shadow .2s ease}
+   transition:background-color var(--dur) ease,box-shadow var(--dur) ease}
  .pp-doc:hover{background:var(--panel);box-shadow:var(--sh2)}
  .pp-doc b{display:block;font-size:var(--fs-s);font-weight:500;white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis;max-width:210px}
@@ -2005,7 +2010,7 @@
    .ppanel{position:fixed;top:0;right:0;bottom:0;width:380px;max-width:92vw;z-index:60;
      border:none;border-left:1px solid var(--line);border-radius:0;max-height:none;
      padding-top:52px;box-shadow:-14px 0 36px rgba(15,23,42,.14);
-     transform:translateX(102%);transition:transform .28s ease}
+     transform:translateX(102%);transition:transform var(--dur-slow) ease}
    .ppanel.open{transform:none}
    .pp-x{display:flex;position:absolute;top:12px;right:14px;width:var(--h-ctl-s);height:var(--h-ctl-s);
      align-items:center;justify-content:center;border:1px solid var(--line);
@@ -2013,7 +2018,7 @@
      font-size:var(--fs-body);font-family:inherit}
    .pp-x:hover{border-color:var(--teal);color:var(--teal-d)}
    .pp-veil{display:block;position:fixed;inset:0;background:rgba(15,23,42,.28);
-     z-index:55;opacity:0;pointer-events:none;transition:opacity .28s ease}
+     z-index:55;opacity:0;pointer-events:none;transition:opacity var(--dur-slow) ease}
    .pp-veil.on{opacity:1;pointer-events:auto}
  }
  @media (max-width:1150px){.pl-hide{display:none}}
@@ -2033,7 +2038,7 @@
  .ag-l{max-height:320px;overflow-y:auto;margin:0 -4px;padding:0 4px}
  .ag-i{display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:5px;
    border-left:3px solid var(--line);border-radius:var(--r-chip);background:#FAFBFD;
-   cursor:pointer;transition:background-color .2s ease,box-shadow .2s ease,transform .2s ease}
+   cursor:pointer;transition:background-color var(--dur) ease,box-shadow var(--dur) ease,transform var(--dur) ease}
  .ag-i:hover{background:var(--panel);box-shadow:var(--sh2);transform:translateX(2px)}
  .ag-i.past{opacity:.5}
  .ag-t{font-size:var(--fs-s);font-weight:600;color:var(--text2);flex:0 0 auto}
@@ -2142,7 +2147,7 @@
  .th-style{flex:1 1 190px;max-width:260px;cursor:pointer;display:block}
  .th-style input{position:absolute;opacity:0;pointer-events:none}
  .th-style .th-card{display:block;height:78px;padding:12px;border:1px solid;
-   position:relative;transition:transform .18s ease}
+   position:relative;transition:transform var(--dur-fast) ease}
  .th-style .th-card i{display:block;width:52px;height:15px;background:var(--teal)}
  .th-style .th-card u{display:block;height:7px;border-radius:4px;background:var(--line);
    margin-top:9px;width:100%}
@@ -2158,7 +2163,7 @@
  .th-c{cursor:pointer;line-height:0}
  .th-c input{position:absolute;opacity:0;pointer-events:none}
  .th-c span{display:block;width:34px;height:34px;border-radius:50%;
-   box-shadow:inset 0 0 0 1px rgba(15,23,42,.10);transition:transform .18s ease}
+   box-shadow:inset 0 0 0 1px rgba(15,23,42,.10);transition:transform var(--dur-fast) ease}
  .th-c:hover span{transform:scale(1.1)}
  .th-c input:checked + span{outline:2.5px solid var(--text);outline-offset:3px}
  .th-c input:focus-visible + span{box-shadow:var(--ring)}
@@ -2187,7 +2192,7 @@
  .th-opt .th-box{display:flex;align-items:center;gap:12px;min-height:66px;padding:11px 14px;
    border:1px solid var(--line);border-radius:var(--r-card);background:var(--panel);
    box-shadow:var(--sh);font-size:var(--fs-body);font-weight:600;color:var(--text);
-   transition:transform .18s ease,box-shadow .18s ease}
+   transition:transform var(--dur-fast) ease,box-shadow var(--dur-fast) ease}
  .th-opt:hover .th-box{transform:translateY(var(--lift-card))}
  .th-opt small{color:var(--text3);font-size:var(--fs-s);line-height:1.4;display:block;margin-top:8px}
  .th-opt input:checked + .th-box{outline:2.5px solid var(--teal);outline-offset:2px}
@@ -2277,7 +2282,7 @@
     было: правило только про движение, конечный вид тот же.
     ⚠️ Стоит ВЫШЕ блока рельса намеренно: тот сверяется с оконной копией
     дословно (test_teeth), и правило о движении в нём было бы «расхождением». */
- .anim .side{transition:width .22s cubic-bezier(.22,.61,.36,1),flex-basis .22s cubic-bezier(.22,.61,.36,1);
+ .anim .side{transition:width var(--dur) cubic-bezier(.22,.61,.36,1),flex-basis var(--dur) cubic-bezier(.22,.61,.36,1);
    overflow-x:hidden}
  /* на обратном ходе (рельс → полный) подписи появляются, пока бар ещё узкий:
     без nowrap они переносились бы по две строки на середине хода и дёргали

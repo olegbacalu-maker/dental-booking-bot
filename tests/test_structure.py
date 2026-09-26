@@ -1248,3 +1248,28 @@ def suite(res: Result) -> None:
     gone = sorted(ring_ok - have)
     res.ok("якорь кольца выбора не протух", not gone,
            "в panel.css больше нет правила " + ", ".join(gone))
+
+    # Кегль — ступень шкалы `--fs-*` (шаг 7): 339 чисел в 30 значениях ушли
+    # разом, и число вернётся первым же новым правилом, если его не ловить.
+    # Законны два числа, оба — не размер текста ради вида: 16px у полей на
+    # телефоне (ниже — iOS зумит страницу при фокусе) и 9px подписи
+    # поверхности зуба (пять клеток сетки 1fr, «vestibular» впритык).
+    fs_ok = {(".dlg-form input,.dlg-form select,.dlg-form textarea, .top form.searchf input", "16px"),
+             (".sfbtns .sfbtn small", "9px")}
+    bad = [f"{name}: {sel[-50:]} {m.group(0)}"
+           for name, sel, body in rules
+           for m in re.finditer(r"font-size:\s*(\d+(?:\.\d+)?)px", body)
+           if (sel, m.group(1) + "px") not in fs_ok]
+    res.ok("кегль берётся ступенью", not bad,
+           "число вместо var(--fs-*): " + "; ".join(bad[:8]))
+    gone = sorted({s for s, _v in fs_ok} - have)
+    res.ok("якоря кеглей не протухли", not gone,
+           "в panel.css больше нет правила " + ", ".join(gone))
+
+    # Длительность перехода — ступень `--dur*` (шаг 11): стиль Fluent короче,
+    # и число по месту он не достанет. Анимации появления (@keyframes) —
+    # не переходы, у них свой темп, правило их не смотрит.
+    bad = [f"{name}: {sel[-50:]}" for name, sel, body in rules
+           if re.search(r"transition\s*:[^;]*(?<![\w.])\.\d+s\b", body)]
+    res.ok("длительность перехода берётся ступенью", not bad,
+           "секунды числом вместо var(--dur*): " + "; ".join(bad[:8]))

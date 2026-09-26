@@ -316,6 +316,15 @@ MUTATIONS = [
     # которого нет, и правило про кольцо промолчит на будущем дубле.
     ("якорь кольца выбора", "app/static/css/panel.css",
      (".sfbtns .sfbtn.sel{", ".sfbtns .sfbtn.chosen{")),
+    # Кегль числом — в app.css: правило обязано читать и клиентский файл.
+    ("кегль берётся ступенью", "_frontend/app/app.css",
+     "\n.mut{font-size:13px}\n"),
+    # Якорь исключения: подпись поверхности переименовали — 9px прощался бы
+    # селектору, которого нет.
+    ("якоря кеглей не протухли", "app/static/css/panel.css",
+     (".sfbtns .sfbtn small{", ".sfbtns .sfbtn .cap{")),
+    ("длительность перехода", "app/static/css/panel.css",
+     "\n.mut{transition:color .2s ease}\n"),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
@@ -361,6 +370,13 @@ LEGAL = [
     ("подскок при наведении", "app/static/css/panel.css",
      "\n.m5:hover{transform:translateY(var(--lift))}.m5:active{transform:translateY(0)}"
      ".m6:hover{transform:translateY(calc(var(--arc,0px) - 3px))}\n"),
+    # Кегль ступенью, наследованием и в em — законны; число в комментарии — тоже.
+    ("кегль берётся ступенью", "app/static/css/panel.css",
+     "\n/* font-size:13px */.m7{font-size:var(--fs-m)}.m8{font-size:inherit}.m9{font-size:1.2em}\n"),
+    # Переход ступенью и анимация появления числом — законны.
+    ("длительность перехода", "app/static/css/panel.css",
+     "\n.m10{transition:color var(--dur) ease,transform var(--dur-fast)}"
+     ".m11{animation:dp-in .3s ease}\n"),
 ]
 
 

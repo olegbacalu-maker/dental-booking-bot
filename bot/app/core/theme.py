@@ -108,6 +108,7 @@ _MODERN: dict[str, str] = {
     "--lift": "-1px", "--lift-card": "-2px", "--lift-tile": "-3px",
     "--nav-mark": "0px", "--nav-fw": "500", "--nav-fw-on": "600",
     "--sec-fs": "10.5px", "--sec-ls": ".08em", "--sec-tt": "uppercase",
+    "--dur-fast": ".15s", "--dur": ".2s", "--dur-slow": ".25s",
 }
 
 STYLES: dict[str, dict[str, str]] = {
@@ -160,6 +161,8 @@ STYLES: dict[str, dict[str, str]] = {
         "--lift": "0px", "--lift-card": "0px", "--lift-tile": "0px",
         "--nav-mark": "3px", "--nav-fw": "400", "--nav-fw-on": "600",
         "--sec-fs": "12px", "--sec-ls": "0", "--sec-tt": "none",
+        # Fluent 2: 100/150/200 мс — отклик короче, движения меньше
+        "--dur-fast": ".1s", "--dur": ".15s", "--dur-slow": ".2s",
     },
 }
 
