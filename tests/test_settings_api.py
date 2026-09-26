@@ -156,8 +156,27 @@ def suite_lan(res: Result) -> None:
             res.ok("советы приехали", "De știut" in d["blocks"]["tips"], "советов нет")
             res.ok("брандмауэр: да / нет / проверить нечем", d["firewall"] in (True, False, None),
                    f"{d['firewall']!r}")
-            res.ok("блок брандмауэра ровно тогда, когда правила нет",
-                   bool(d["blocks"]["firewall"]) == (d["firewall"] is False), f"{d['firewall']!r}")
+            fw = d["fw"]
+            res.ok("вердикт словами и сеть, в которой он получен",
+                   fw is None or (fw["verdict"] in ("ok", "missing", "blocked", "shut")
+                                  and {"category", "network"} <= set(fw)), f"{fw!r}")
+            res.ok("«да / нет» выведено из вердикта",
+                   (fw is None and d["firewall"] is None)
+                   or (fw is not None and d["firewall"] == (fw["verdict"] == "ok")),
+                   f"{fw!r} / {d['firewall']!r}")
+            # кнопка лечит отсутствие разрешения и запрет на exe; «закрыты все
+            # входящие» — настройка профиля Windows, и кнопка ей не поможет
+            res.ok("блок с кнопкой ровно тогда, когда кнопка лечит",
+                   bool(d["blocks"]["firewall"])
+                   == (fw is not None and fw["verdict"] in ("missing", "blocked")), f"{fw!r}")
+            res.ok("проверка связи под адресом",
+                   "Verificarea legăturii" in d["blocks"]["status"]
+                   or "nu pare conectat" in d["blocks"]["status"], d["blocks"]["status"][-200:])
+            res.ok("прогон ходит с петли — из сети не пришёл никто",
+                   "Încă niciun dispozitiv" in d["blocks"]["status"]
+                   or "nu pare conectat" in d["blocks"]["status"], d["blocks"]["status"][-200:])
+            res.ok("совета «сеть обязана быть Private» больше нет — кнопка разрешает и "
+                   "публичную", "«Private», nu «Public»" not in d["blocks"]["tips"], "совет остался")
             res.ok("старая страница видит включённый режим",
                    "Dezactivează accesul" in c.get("/admin/settings/lan").body, "не видит")
 

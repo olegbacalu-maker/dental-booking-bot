@@ -243,11 +243,11 @@ def entries() -> list[dict]:
            f"{p}Funcționează <b>doar în rețeaua clinicii</b> — de acasă nu "
            f"se deschide, iar asta e o protecție, nu un defect. Folosiți "
            f"rețeaua protejată a clinicii, nu cea pentru pacienți.{end}"
-           f"{p}Dacă telefonul nu se conectează: pe pagina «Acces din "
-           f"rețea» apăsați <b>«Creează regula de firewall»</b> și "
-           f"confirmați în fereastra Windows; verificați și ca rețeaua "
-           f"calculatorului să fie de tip «Private» în setările Windows."
-           f"{end}"),
+           f"{p}Dacă telefonul nu se conectează, deschideți pagina «Acces "
+           f"din rețea» pe calculatorul cu programul: ea verifică singură "
+           f"permisiunea Windows (și oferă butonul <b>«Creează regula de "
+           f"firewall»</b>, dacă lipsește), iar la «Verificarea legăturii» "
+           f"arată ce dispozitive au ajuns până la calculator.{end}"),
 
         _q("refresh", "Actualizarea programului șterge datele?",
            f"{p}<b>Nu.</b> Actualizarea înlocuiește doar fișierele "

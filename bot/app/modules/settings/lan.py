@@ -26,17 +26,19 @@
   не гостевая сеть». HTTPS и доступ из дома — слой 3 (туннель), отдельный
   шаг с отдельным разговором по закону 195.
 
-Firewall-правило НЕ может завести установщик: он намеренно
-PrivilegesRequired=lowest (per-user установка в Public — архитектурное
-решение, менять модель прав ради опциональной фичи нельзя). Поэтому правило
-создаёт САМА программа по кнопке — через ShellExecute «runas»: Windows
-показывает UAC, директор подтверждает, netsh выполняется с правами
-администратора. Это работает и у давно установленных копий, которым
+Правило брандмауэра создаёт САМА программа по кнопке — через ShellExecute
+«runas»: Windows показывает UAC, директор подтверждает, netsh выполняется с
+правами администратора. Это работает и у давно установленных копий, которым
 установщик больше не запускают (self-update установщик не прогоняет).
+⚠️ Прежний довод «установщик не может — он lowest» устарел с P1: установщик
+теперь от администратора и мог бы ставить правило сам (не сделано). Кнопка
+нужна и тогда: она же ЧИНИТ — правило на прежний путь exe, запрет от окна
+Windows, сеть, которую Windows назвала «Public».
 
-Чтение статуса — `netsh ... show rule`: смотреть только КОД возврата
-(0 — правило есть, 1 — нет); текст вывода локализован Windows-ом и потому
-не разбирается (та же грабля, что с текстами ошибок SQLite).
+Чтение статуса — `netcheck.probe`: правила по ПУТИ exe и тип сети адреса для
+телефона. ⛔ До 26.09 статус спрашивали по ИМЕНИ правила, и после переезда в
+`Program Files` страница говорила «всё в порядке» при закрытом входе (разбор —
+в `netcheck.py`). Текст `netsh` локализован и по-прежнему не разбирается.
 
 С 17.09 (DentPilot 2.0) текст страницы собран КУСКАМИ (`intro_html`,
 `status_html`, `firewall_html`, `tips_html`): старая страница склеивает их
@@ -48,13 +50,43 @@ from __future__ import annotations
 import html
 import os
 import socket
-import subprocess
 import sys
+import time
 import urllib.parse
 
 from ...core.layout import _ic
+from . import netcheck
 
 FIREWALL_RULE = "DentPilot"
+
+# Кто приходил из сети с запуска программы: адрес → (когда, что за
+# устройство). Только в памяти процесса: это проверка связи, а не журнал
+# доступа — тот ведётся отдельно и по людям, а не по адресам.
+_PEERS: dict[str, tuple[float, str]] = {}
+# Свои адреса — раз в минуту, а не на каждый запрос: getaddrinfo спрашивает
+# систему, а зовут нас на каждом /admin и /api всех рабочих мест.
+# ⚠️ Первый раз — всегда (None), а не «прошло больше минуты с нуля»: часы
+# monotonic идут от загрузки Windows, и у программы из автозапуска в первую
+# минуту свои адреса не исключались бы.
+_OWN: list = [None, set()]
+
+
+def _own() -> set[str]:
+    now = time.monotonic()
+    if _OWN[0] is None or now - _OWN[0] > 60:
+        _OWN[:] = [now, netcheck.own_addresses() | {lan_ip()}]
+    return _OWN[1]
+
+
+def note_peer(request) -> None:
+    """Зовёт промежуточный слой main на каждый /admin и /api. Запрос с
+    другого устройства сети становится строкой на странице «Acces din rețea»
+    — ответом на «телефон не открывает», который иначе ищут наугад. Сам этот
+    компьютер не записывается и по своему адресу в сети (`netcheck.note`)."""
+    host = request.client.host if request.client else ""
+    if not netcheck.is_network_peer(host):
+        return                      # петля — мимо, не спрашивая свои адреса
+    netcheck.note(_PEERS, host, request.headers.get("user-agent", ""), own=_own())
 
 
 def enabled() -> bool:
@@ -83,31 +115,49 @@ def lan_ip() -> str:
         return ""
 
 
-def firewall_rule_ok() -> bool | None:
-    """None = проверить нечем (не Windows / netsh недоступен, dev-режим)."""
-    try:
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # noconsole-сборка:
-        # без флага у клиники на долю секунды мигало бы чёрное окно
-        r = subprocess.run(
-            ["netsh", "advfirewall", "firewall", "show", "rule",
-             f"name={FIREWALL_RULE}"],
-            capture_output=True, timeout=4, creationflags=flags)
-        return r.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+def firewall_state() -> dict | None:
+    """Пустит ли Windows входящее к ЭТОМУ exe в сети адреса для телефона:
+    `netcheck.probe` + `verdict`. None — спросить нечем (не Windows).
+    ⚠️ Секунда-две (PowerShell): звать через `asyncio.to_thread`, иначе на это
+    время замрёт журнал у всех рабочих мест разом."""
+    st = netcheck.probe(sys.executable, lan_ip())
+    if st is not None:
+        st["verdict"] = netcheck.verdict(st)
+    return st
 
 
-def request_firewall_rule() -> bool:
+def firewall_ok(st: dict | None) -> bool | None:
+    """Для JSON: True — пустят, False — нет, None — проверить нечем."""
+    return None if st is None else st["verdict"] == "ok"
+
+
+def firewall_fixable(st: dict | None) -> bool:
+    """Кнопка лечит отсутствующее разрешение и запрет на exe. «Все входящие
+    закрыты» — настройка профиля сети, её кнопка не трогает (tips_html)."""
+    return st is not None and st["verdict"] in ("missing", "blocked")
+
+
+def request_firewall_rule(st: dict | None = None) -> bool:
     """Создать правило через UAC (ShellExecute «runas»). True = запрос Windows
     показан (не «правило создано»: итог UAC отсюда не виден — страница после
-    обновления перечитает статус). Пересоздание delete+add одним cmd-вызовом:
-    один UAC вместо двух, и правило со старым путём к exe (после переезда
-    папки) не остаётся дублем."""
+    обновления перечитает статус).
+
+    Одним cmd-вызовом, то есть одним UAC:
+      1. снять правила с НАШИМ именем — на любой путь (прежняя раскладка
+         оставляла «DentPilot» на `C:\\Users\\Public\\…`);
+      2. снять ВСЕ входящие правила этого exe — среди них запрет, который
+         Windows ставит, пока её окно ждёт ответа, и оставляет после
+         «Отмена»; запрет сильнее разрешения, и без этого шаг 3 не помог бы;
+      3. одно разрешение этому exe в профилях `netcheck.profiles_for`.
+    """
     exe = sys.executable
+    prof = netcheck.profiles_for((st or {}).get("category", ""))
     args = (f'/c netsh advfirewall firewall delete rule '
             f'name="{FIREWALL_RULE}" >nul 2>&1 & '
+            f'netsh advfirewall firewall delete rule name=all dir=in '
+            f'program="{exe}" >nul 2>&1 & '
             f'netsh advfirewall firewall add rule name="{FIREWALL_RULE}" '
-            f'dir=in action=allow program="{exe}" profile=private enable=yes')
+            f'dir=in action=allow program="{exe}" profile={prof} enable=yes')
     try:
         import ctypes
         # >32 = запуск удался (сам netsh отработает уже за UAC-ом)
@@ -145,8 +195,44 @@ def intro_html() -> str:
             f"ambele programe par că funcționează corect.</div>")
 
 
-def status_html(on: bool, ip: str, url: str) -> str:
-    """Состояние: выключено / включено с адресом и QR / включено без сети."""
+_CATEGORY_RO = {"Public": "publică", "Private": "privată",
+                "DomainAuthenticated": "de domeniu"}
+
+
+def _net_name(st: dict | None) -> str:
+    """«rețeaua «Orange…» (publică)» — имя и тип сети словами Windows."""
+    st = st or {}
+    kind = _CATEGORY_RO.get(st.get("category", ""), "")
+    name = html.escape(st.get("network", ""))
+    return (f"rețeaua «{name}»" if name else "această rețea") + (f" ({kind})" if kind else "")
+
+
+def seen_html(st: dict | None = None) -> str:
+    """Проверка связи: разрешает ли Windows и кто УЖЕ дошёл из сети. Второе —
+    единственный ответ на «телефон не открывает» без гадания: сам компьютер
+    себе этого не докажет, соединение к своему адресу брандмауэр не видит."""
+    head = f"<b>{_ic('wifi')} Verificarea legăturii</b><br>"
+    fw = ""
+    if st is not None and st.get("verdict") == "ok":
+        fw = (f"{_ic('check')} Windows lasă dispozitivele din {_net_name(st)} "
+              f"să intre în DentPilot.<br>")
+    seen = netcheck.lines(_PEERS)
+    if seen:
+        who = ("Au intrat din rețea de la pornirea programului:<br>"
+               + "<br>".join(f"· {html.escape(s)}" for s in seen))
+    else:
+        who = ("Încă niciun dispozitiv din rețea de la pornirea programului. "
+               "Deschideți adresa pe telefon sau pe al doilea calculator și "
+               "reîncărcați această pagină: dacă aici nu apare nimic, cererea "
+               "nu ajunge la acest calculator — alt Wi-Fi (poate cel pentru "
+               "oaspeți), routerul izolează dispozitivele sau le oprește "
+               "Windows.")
+    return f"<div {_WARN}>{head}{fw}{who}</div>"
+
+
+def status_html(on: bool, ip: str, url: str, st: dict | None = None) -> str:
+    """Состояние: выключено / включено с адресом и QR / включено без сети.
+    Включённое — с проверкой связи под адресом (`seen_html`)."""
     if not on:
         return (f"<div {_WARN}>Accesul este <b>oprit</b> — programul răspunde "
                 f"doar pe acest calculator (127.0.0.1), ca până acum. După "
@@ -173,23 +259,49 @@ def status_html(on: bool, ip: str, url: str) -> str:
             f"registrul se deschide apoi ca aplicație, pe tot ecranul; pe "
             f"Android rămâne o scurtătură către browser.</div>"
             f"<img src='/qr?data={q}' "
-            f"style='width:180px;height:180px'></div>")
+            f"style='width:180px;height:180px'></div>" + seen_html(st))
 
 
-def firewall_html(form: str = "") -> str:
-    """Правило брандмауэра отсутствует. `form` — кнопка старой страницы;
-    React-экран рисует свою и передаёт пустую строку."""
-    return (f"<div {_WARN}>{_ic('sos')} <b>Regula de firewall lipsește</b> — "
-            f"al doilea calculator și telefonul nu vor putea intra. "
-            f"Apăsați butonul și confirmați "
-            f"în fereastra Windows (UAC):{form}"
+def firewall_html(form: str = "", st: dict | None = None) -> str:
+    """Windows не пустит: разрешения для этой сети нет или exe запрещён.
+    `form` — кнопка старой страницы; React-экран рисует свою и передаёт
+    пустую строку. Звать только при `firewall_fixable(st)`."""
+    v = (st or {}).get("verdict", "missing")
+    if v == "blocked":
+        what = (f"<b>Windows blochează programul</b> — în fereastra lui de "
+                f"confirmare s-a apăsat «Anulează» sau nu s-a răspuns. "
+                f"Blocarea e mai puternică decât orice permisiune: al doilea "
+                f"calculator și telefonul nu intră. Apăsați butonul și "
+                f"confirmați în fereastra Windows (UAC) — blocarea se șterge, "
+                f"iar DentPilot primește permisiunea:")
+    elif (st or {}).get("category") == "Public":
+        what = (f"<b>DentPilot nu are încă permisiune în {_net_name(st)}</b> — "
+                f"așa marchează Windows orice Wi-Fi nou, iar al doilea "
+                f"calculator și telefonul nu vor putea intra. Apăsați butonul "
+                f"și confirmați în fereastra Windows (UAC): permisiunea se dă "
+                f"doar programului DentPilot, nu întregii rețele.")
+    else:
+        what = (f"<b>Regula de firewall lipsește</b> — al doilea calculator și "
+                f"telefonul nu vor putea intra. Apăsați butonul și confirmați "
+                f"în fereastra Windows (UAC):")
+    return (f"<div {_WARN}>{_ic('sos')} {what}{form}"
             f"<small style='color:var(--text3)'>Fereastra de confirmare "
             f"apare pe ecranul acestui calculator. După confirmare, "
             f"redeschideți pagina — starea se actualizează.</small></div>")
 
 
-def tips_html() -> str:
-    return (f"<div {_WARN}>De știut:<br>"
+def tips_html(st: dict | None = None) -> str:
+    """Советы; сверху — закрытый для ВСЕХ входящих профиль сети: это настройка
+    Windows, а не правило, и кнопка брандмауэра её не лечит."""
+    shut = ""
+    if st is not None and st.get("verdict") == "shut":
+        shut = (f"<div {_WARN}>{_ic('sos')} <b>Windows respinge toate "
+                f"conexiunile de intrare</b> în {_net_name(st)} — e bifată "
+                f"setarea «Blochează toate conexiunile de intrare» (Securitate "
+                f"Windows › Firewall și protecție rețea). Cât e bifată, nicio "
+                f"permisiune nu ajută: debifați-o sau cereți ajutorul "
+                f"administratorului.</div>")
+    return shut + (f"<div {_WARN}>De știut:<br>"
             f"· calculatorul acesta trebuie să fie <b>pornit</b> — cât timp "
             f"doarme sau e oprit, în cabinet nu se deschide nimic (opriți-i "
             f"modul «Sleep»);<br>"
@@ -204,8 +316,9 @@ def tips_html() -> str:
             f"e limitat la rețeaua locală, nu la internet;<br>"
             f"· de acasă NU funcționează — asta e o protecție, nu un "
             f"defect;<br>"
-            f"· dacă nu se conectează: rețeaua Windows a acestui "
-            f"calculator trebuie să fie «Private», nu «Public».</div>")
+            f"· dacă nu se conectează: priviți mai sus «Verificarea "
+            f"legăturii» — ea arată dacă cererea ajunge până la acest "
+            f"calculator.</div>")
 
 
 _FW_FORM = (f"<form method='post' action='/admin/lan/firewall' "
@@ -217,16 +330,18 @@ _FW_FORM = (f"<form method='post' action='/admin/lan/firewall' "
             f"</form>")
 
 
-def render() -> str:
+def render(st: dict | None = None) -> str:
+    """Старая страница. `st` — `firewall_state()`, посчитанный маршрутом в
+    потоке: здесь PowerShell не зовём, страница собирается в цикле событий."""
     on = enabled()
     ip, url = address(on)
     body = [f"<h2>{_ic('wifi')} Acces din rețea</h2>", intro_html(),
-            status_html(on, ip, url)]
+            status_html(on, ip, url, st)]
 
     if on:
-        if firewall_rule_ok() is False:
-            body.append(firewall_html(_FW_FORM))
-        body.append(tips_html())
+        if firewall_fixable(st):
+            body.append(firewall_html(_FW_FORM, st))
+        body.append(tips_html(st))
         btn_label, mode = "Dezactivează accesul", "off"
         tone, ink = "var(--red-t)", "#fff"  # красный — цвет смысла, теме не отдан
     else:

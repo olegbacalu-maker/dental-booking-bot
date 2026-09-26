@@ -19,6 +19,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, File, Request, UploadFile
 
 from ... import db
@@ -110,17 +112,23 @@ async def api_hub(request: Request):
 
 # ---------- сеть клиники ----------
 
-def _lan_data() -> dict:
+def _lan_data(st: dict | None) -> dict:
+    """`st` — `lan.firewall_state()`, посчитанный вызывающим в потоке.
+    `fw` — вердикт словами (ok / missing / blocked / shut) и сеть, в которой
+    он получен; `firewall` — прежнее «да / нет / проверить нечем»."""
     on = lan.enabled()
     ip, url = lan.address(on)
-    fw = lan.firewall_rule_ok() if on else None
+    st = st if on else None
     return {
-        "enabled": on, "ip": ip, "port": lan.port(), "url": url, "firewall": fw,
+        "enabled": on, "ip": ip, "port": lan.port(), "url": url,
+        "firewall": lan.firewall_ok(st),
+        "fw": ({"verdict": st["verdict"], "category": st["category"],
+                "network": st["network"]} if st is not None else None),
         "blocks": {
             "intro": lan.intro_html(),
-            "status": lan.status_html(on, ip, url),
-            "firewall": lan.firewall_html() if (on and fw is False) else "",
-            "tips": lan.tips_html() if on else "",
+            "status": lan.status_html(on, ip, url, st),
+            "firewall": lan.firewall_html("", st) if lan.firewall_fixable(st) else "",
+            "tips": lan.tips_html(st) if on else "",
         },
     }
 
@@ -131,7 +139,9 @@ async def api_lan_get(request: Request):
         return deny
     if not _lan_available():
         return msg_json(False, status=404)
-    return msg_json(True, data=_lan_data())
+    # PowerShell (секунда-две) — в потоке, как у старой страницы
+    st = await asyncio.to_thread(lan.firewall_state) if lan.enabled() else None
+    return msg_json(True, data=_lan_data(st))
 
 
 @router.post("/api/settings/lan")
@@ -166,7 +176,8 @@ async def api_lan_firewall(request: Request):
         return deny
     if not _lan_available():
         return msg_json(False, status=404)
-    return msg_json(True, data={"asked": lan.request_firewall_rule()})
+    st = await asyncio.to_thread(lan.firewall_state)
+    return msg_json(True, data={"asked": lan.request_firewall_rule(st)})
 
 
 # ---------- состояние системы ----------

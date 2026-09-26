@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import logging
@@ -395,7 +396,10 @@ async def settings_lan(request: Request, msg: str = ""):
     if react_on(request, "settings_lan"):
         return _sec_react("settings_lan", request.url.path,
                            "setări · acces din rețea", msg)
-    return _sec_page(lan.render(), "setări · acces din rețea", msg)
+    # PowerShell (секунда-две) — в потоке: цикл событий обслуживает журнал
+    # всех рабочих мест, и страница настроек не должна его останавливать
+    st = await asyncio.to_thread(lan.firewall_state) if lan.enabled() else None
+    return _sec_page(lan.render(st), "setări · acces din rețea", msg)
 
 
 def _set_lan(mode: str) -> str | None:
@@ -439,7 +443,8 @@ async def admin_lan_firewall(request: Request):
         return deny
     if not _lan_available():
         return RedirectResponse("/admin/settings", status_code=303)
-    lan.request_firewall_rule()
+    # тип сети решает, каким профилям разрешать (netcheck.profiles_for)
+    lan.request_firewall_rule(await asyncio.to_thread(lan.firewall_state))
     return RedirectResponse("/admin/settings/lan", status_code=303)
 
 

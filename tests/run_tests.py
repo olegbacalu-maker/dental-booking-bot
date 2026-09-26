@@ -51,6 +51,7 @@ import test_relocate  # noqa: E402
 import test_split  # noqa: E402
 import test_srcpin  # noqa: E402
 import test_migrate  # noqa: E402
+import test_netcheck  # noqa: E402
 import test_odontogram_api  # noqa: E402
 import test_bot  # noqa: E402
 import test_perio  # noqa: E402
@@ -217,6 +218,11 @@ SUITES = [
     ("Врачи: React-экраны и старые страницы", test_doctors.suite_switch),
     ("Настройки: хаб (JSON)", test_settings_api.suite_hub),
     ("Настройки: сеть (JSON)", test_settings_api.suite_lan),
+    ("Сеть: вердикт брандмауэра по правилам exe", test_netcheck.suite_verdict),
+    ("Сеть: профили нашего правила", test_netcheck.suite_profiles),
+    ("Сеть: кто пришёл из сети", test_netcheck.suite_peers),
+    ("Сеть: правило ищется по пути exe, не по имени", test_netcheck.suite_probe),
+    ("Сеть: приход из сети записывает приложение", test_netcheck.suite_peers_live),
     ("Настройки: справка (JSON)", test_settings_api.suite_faq),
     ("Настройки: часы (JSON)", test_settings_api.suite_hours),
     ("Настройки: услуги (JSON)", test_settings_api.suite_services),

@@ -52,6 +52,7 @@ from .modules.qr import routes as qr
 from .modules.schedule import api as schedule_api
 from .modules.schedule import routes as schedule
 from .modules.settings import api as settings_api
+from .modules.settings import lan as settings_lan
 from .modules.settings import routes as settings
 from .modules.stats import api as stats_api
 from .modules.stats import routes as stats
@@ -109,8 +110,12 @@ async def _identify(request: Request, call_next):
     молча записывалось бы как «recepție» — журнал доступа по 195-му врал бы
     об авторе. Держит test_patient_card.suite_actions.
     """
-    set_request_user(current_user(request)
-                     if request.url.path.startswith(("/admin", "/api")) else None)
+    journal = request.url.path.startswith(("/admin", "/api"))
+    set_request_user(current_user(request) if journal else None)
+    if journal:
+        # запрос с ДРУГОГО устройства сети — строка «Verificarea legăturii»
+        # на странице «Acces din rețea»; свой компьютер не записывается
+        settings_lan.note_peer(request)
     return await call_next(request)
 
 
