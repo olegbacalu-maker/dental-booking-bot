@@ -69,7 +69,9 @@ describe('ChairScreen', () => {
     expect(await screen.findByText('Ana Unu')).toBeTruthy()
     expect(screen.getByText('odontograma 102')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Fișa pacientului/ }).getAttribute('href')).toBe('/admin/patient/102')
-    expect(screen.getByRole('link', { name: /Fișa vizitei/ }).getAttribute('href')).toBe('/admin/visit/2')
+    // дневник визита возвращает в ЭТО кресло, а не в фишу
+    expect(screen.getByRole('link', { name: /Fișa vizitei/ }).getAttribute('href'))
+      .toBe('/admin/visit/2?back=%2Fadmin%2Fcabinet%3Fdoctor%3Dd2')
     expect(screen.getAllByRole('button', { name: 'Finalizat' })).toHaveLength(2)   // кресло + «не завершён»
     // отмена визита у кресла не предлагается — это дело регистратуры
     expect(screen.queryByRole('button', { name: 'Anulează' })).toBeNull()

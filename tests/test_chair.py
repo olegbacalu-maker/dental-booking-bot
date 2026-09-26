@@ -180,6 +180,14 @@ def suite_api(res: Result) -> None:
         j = get()
         res.check("отменённый ушёл из очереди", j["queue"], [])
 
+        # дневник визита, открытый из кресла, возвращает В КРЕСЛО: сервер эхом
+        # отдаёт `back` (`_visit_back` пропускает только /admin…) — сузь его до
+        # белого списка без кресла, и возврат сломается молча
+        v = json.loads(c.get(f"/api/visits/{names['Ana Unu']}"
+                             f"?back=%2Fadmin%2Fcabinet%3Fdoctor%3Dd2").body)
+        res.check("дневник из кресла возвращает в кресло",
+                  (v.get("data") or {}).get("back"), "/admin/cabinet?doctor=d2")
+
         j = get(f"?doctor=zz&date={day}")
         res.check("неизвестный врач без привязки — выбор", j["doctor"], None)
         j = get(f"?doctor=d3&date={day}")

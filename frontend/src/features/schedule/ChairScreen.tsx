@@ -160,7 +160,11 @@ export function ChairScreen({ navigate = defaultNavigate }: Props) {
                 <Icon name="user" /> {T.card}
               </AppLink>
             )}
-            <AppLink className="pl-btn" href={`/admin/visit/${c.id}`}>
+            {/* ⭐ `back` — назад в ЭТО кресло, а не в фишу: дневник пишут у кресла,
+                и после «Salvează» врач возвращается туда, где сидит пациент.
+                Адрес проверяет сервер (`_visit_back`: только `/admin…`). */}
+            <AppLink className="pl-btn"
+              href={`/admin/visit/${c.id}?back=${encodeURIComponent(`/admin/cabinet?doctor=${dk}`)}`}>
               <Icon name="note" /> {T.visit}
             </AppLink>
             {/* ⛔ Только «Finalizat»: отмена визита — дело регистратуры, а
