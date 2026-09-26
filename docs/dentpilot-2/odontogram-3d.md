@@ -95,7 +95,7 @@
   с семью полями, пропорция 36,3 ед. = 10,5 мм) и `test_odontogram_api.suite_api`
   (состав ответа с `palette`, палитра по порядку состояний, `geom` у всех зубов).
 
-### Ступень 2 — three.js в сборке (вариант B)
+### Ступень 2 — three.js в сборке (вариант B) ✅ 26.09.2026
 
 - `frontend/vite.config.ts`: плагин с хуком `closeBundle`, который копирует
   `node_modules/three/build/three.module.min.js` в
@@ -121,6 +121,12 @@
   щипок, пресеты), либо собирать `three + OrbitControls` в один файл своим
   скриптом esbuild. Предложение: своя — меньше движущихся частей.
 - Vitest: `loadThree` мокается (jsdom без WebGL).
+- Сделано 26.09: плагин `copyThree` в `vite.config.ts` (`closeBundle` →
+  `bot/app/static/js/three.js`, 339 КБ ESM-минификат), файл в `.gitignore`,
+  `Build-Desktop.ps1` → «THREE MISSING», `tests/smoke_exe.py` проверяет файл в
+  собранном exe; `clinical/three/loadThree.ts` — `assetVer()` из адреса бандла,
+  `threeUrl()`, `loadThree(importer)` (один промис, отказ не залипает) с тремя
+  проверками Vitest. Орбита — своя (ступень 4), `addons` не нужны.
 
 ### Ступень 3 — чистые модули без React и без WebGL
 
