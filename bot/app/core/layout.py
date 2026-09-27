@@ -332,7 +332,7 @@ MSG_BANNER = {
     "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
     "new_med": ("ok", "Medic adăugat — completați fișa lui"),
     "dup_med": ("err", "Există deja un medic cu acest nume — numele trebuie să fie unic"),
-    "ok_photo": ("ok", "Fotografia a fost salvată — rămâne local, lângă program"),
+    "ok_photo": ("ok", "Fotografia a fost salvată — rămâne local, pe acest calculator"),
     "bad_photo": ("err", "Doar JPEG / PNG / WebP, până la 5 MB"),
     "ok_svc_med": ("ok", "Serviciile medicului au fost actualizate"),
     "svc_empty": ("err", "Fiecare serviciu trebuie să rămână cu cel puțin un medic "

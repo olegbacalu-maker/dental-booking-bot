@@ -21,7 +21,7 @@ const T = {
   upload: 'Încarcă document',
   category: 'Categorie',
   hint:
-    'Click pe fișier — pozele și PDF-urile se deschid aici, restul în programul potrivit (Word, Excel). Fișierele rămân local, în folderul programului (data\\files).',
+    'Click pe fișier — pozele și PDF-urile se deschid aici, restul în programul potrivit (Word, Excel). Fișierele rămân local, pe acest calculator.',
   openExt: 'Deschide în alt program',
   save: 'Salvează pe disc',
   close: 'Închide',

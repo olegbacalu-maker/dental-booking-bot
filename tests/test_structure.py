@@ -17,6 +17,9 @@ from harness import BOT, ROOT, Result
 
 # Исходники клиента. Как и BOT, перевешивается мутацией на копию дерева.
 FRONTEND = ROOT / "frontend" / "src"
+# Скрипт мастера установки — тоже текст, который клиника читает, и тоже
+# перевешивается мутацией (правило про папку данных).
+INSTALLER = ROOT / "installer"
 
 # Где ссылка между экранами обязана быть `AppLink` (B4): всё, что рисуется
 # внутри дерева роутера. `app/` (корень и таблица маршрутов), `hooks/`,
@@ -147,6 +150,31 @@ _BOT_TEXTS = ("app/engine.py", "app/telegram.py")
 _INTER = re.compile(r"font-family\s*:\s*(?:['\"]?Inter|__FAMILY__)")
 _DECLARED = ("__FONTS__", "@font-face")
 
+# ---- место данных не пересказывают словами (P1 21.09; клиент и мастер 27.09) ----
+# Как тексты называли место данных до P1: «în folderul programului» и «lângă
+# program». С P1 обе фразы врут: папку данных назначает лаунчер
+# (`paths.data_root`), у установленной программы это `%ProgramData%\DentPilot`.
+# ⚠️ Между словами — ЛЮБОЙ пробел, перенос строки тоже: подсказка документов
+# старой фиши переносилась ровно между «folderul» и «programului», и поиск
+# подстроки не видел её с самого P1.
+# ⚠️ «program» — целым словом: «lângă programare» (рядом с записью) и «lângă
+# programul de lucru» — обычные слова журнала, а не адрес.
+# «langa» без диакритики — та же фраза: так пишется CITESTE-MA.txt в архиве.
+_DATA_PLACE = re.compile(r"folderul\s+programului|l[âaî]ng[ăa]\s+program\b",
+                         re.I)
+# Где фраза ПРАВДИВА: она описывает СТАРУЮ раскладку — ту, от которой клиника
+# переезжает, а не ту, в которой программа работает. Прощается кусок текста, а
+# не файл: вторая такая фраза в том же файле была бы уже про новую раскладку.
+# ⚠️ Прощение, которому больше нечего прощать, — красное: текст переписали, а
+# строка здесь молча простила бы ту же фразу, вернись она в файл по новой.
+_OLD_LAYOUT_OK = {
+    # экран «Două fișe de pacienți» (P2): карточка найденной старой установки
+    "app/modules/migration/routes.py": ("Fișa de lângă program",),
+    # отказ мастера ставиться поверх установки, где данные лежат у exe
+    "installer/DentPilot.iss": (
+        "o instalare mai veche a DentPilot, cu datele clinicii lângă program",),
+}
+
 # ---- разбор схем двух изданий ----
 # Сверяются ТОЛЬКО имена таблиц и колонок. Тип (`SERIAL` против `INTEGER
 # PRIMARY KEY AUTOINCREMENT`, `TIMESTAMPTZ` против `TEXT`), значения по
@@ -247,6 +275,37 @@ def _ui_texts(tree: ast.Module) -> list[tuple[int, str]]:
                                           and isinstance(v.value, str))))
         elif isinstance(n, ast.Constant) and isinstance(n.value, str):
             out.append((n.lineno, n.value))
+    return out
+
+
+def _client_code(text: str) -> str:
+    """Исходник клиента без комментариев — всё, что может доехать до экрана:
+    строки, шаблоны и текст JSX между тегами (он тоже экран, хотя строкой не
+    является). Комментарии гасятся пробелами, переводы строк остаются — номер
+    строки в сообщении сторожа совпадает с файлом."""
+    text = re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+                  text, flags=re.S)
+    return re.sub(r"(?<![:\w'\"])//[^\n]*", "", text)
+
+
+# Комментарий Pascal (`//…`, `{…}`, `(*…*)`) или строка в апострофах — одним
+# выражением: что встретилось раньше, то и есть. Поэтому `{` внутри строки
+# (`S[0] := '{';`) комментария не открывает, а апостроф в комментарии — строки.
+_PASCAL = re.compile(r"//[^\n]*|\{[^}]*\}|\(\*.*?\*\)|'((?:[^'\n]|'')*)'", re.S)
+
+
+def _iss_texts(text: str) -> list[tuple[int, str]]:
+    """Что из скрипта установщика доезжает до экрана: (строка, текст).
+
+    До `[Code]` — каждая строка, кроме комментариев `;`: сообщения мастера,
+    описания задач, директивы. В `[Code]` — только строки в апострофах: всё
+    остальное там код и комментарии Pascal."""
+    m = re.search(r"^\[code\]", text, re.M | re.I)
+    cut = m.start() if m else len(text)
+    out = [(i, ln) for i, ln in enumerate(text[:cut].splitlines(), 1)
+           if not ln.lstrip().startswith(";")]
+    out += [(text.count("\n", 0, s.start()) + 1, s.group(1))
+            for s in _PASCAL.finditer(text, cut) if s.group(1) is not None]
     return out
 
 
@@ -548,11 +607,55 @@ def suite(res: Result) -> None:
     # ошибки, и выглядит это как «архив оказался пустым».
     # ⭐ Поэтому правило на саму фразу: раскладку больше не пересказывают
     # словами, а показывают настоящий путь (`layout.data_folder`).
-    bad = [f"{rel}:{ln}" for rel, tree in src for ln, text in _ui_texts(tree)
-           if "folderul programului" in text.lower()]
+    # ⚠️ 27.09: правило читало только литералы Python и одну формулировку — и
+    # пять текстов пережили его. Подсказки документов фиши и фото врача в
+    # клиенте (с 21.09 их рисует React, а в клиент сторож не смотрел); мастер
+    # установки, обещавший на странице выбора папки базу «chiar lângă program»
+    # каждой НОВОЙ клинике; баннер фото врача (другими словами — «lângă
+    # program»); подсказка старой фиши (фраза разорвана переносом строки).
+    # Отсюда три области — сервер, клиент, мастер — и фразы выражением
+    # `_DATA_PLACE`, а не подстрокой.
+    # ⚠️ Полярность опасная: клиент и мастер обязаны НАЙТИСЬ, иначе правило
+    # зелено на пустом месте.
+    bad, used, client, scripts = [], set(), 0, 0
+
+    def _data_place(where: str, text: str) -> list[int]:
+        """Смещения фраз в тексте — за вычетом прощённых кусков."""
+        for ok in _OLD_LAYOUT_OK.get(where, ()):
+            if ok in text:
+                used.add((where, ok))
+                text = text.replace(ok, " " * len(ok))
+        return [m.start() for m in _DATA_PLACE.finditer(text)]
+
+    bad += [f"{rel}:{ln}" for rel, tree in src for ln, text in _ui_texts(tree)
+            if _data_place(rel, text)]
+    for f in sorted(FRONTEND.rglob("*.ts*")) if FRONTEND.exists() else []:
+        rel = f.relative_to(FRONTEND).as_posix()
+        if (f.suffix not in (".ts", ".tsx") or ".test." in f.name
+                or rel.startswith("test/")):
+            continue
+        client += 1
+        where = f"frontend/src/{rel}"
+        code = _client_code(f.read_text(encoding="utf-8"))
+        bad += [f"{where}:{code.count(chr(10), 0, p) + 1}"
+                for p in _data_place(where, code)]
+    for f in sorted(INSTALLER.glob("*.iss")) if INSTALLER.exists() else []:
+        scripts += 1
+        where = f"installer/{f.name}"
+        bad += [f"{where}:{ln}"
+                for ln, text in _iss_texts(f.read_text(encoding="utf-8-sig"))
+                if _data_place(where, text)]
+    if client < 20:
+        bad.append(f"файлов клиента нашлось {client} — обход сломан, правило пусто")
+    if not scripts:
+        bad.append(f"в {INSTALLER} нет ни одного .iss — обход сломан, правило пусто")
+    bad += [f"прощение протухло: в {where} больше нет «{ok}»"
+            for where, oks in _OLD_LAYOUT_OK.items() for ok in oks
+            if (where, ok) not in used]
     res.ok("интерфейс не обещает данные в папке программы", not bad,
-           "с переезда в Program Files данные лежат не там (paths.data_root); "
-           "настоящий путь даёт layout.data_folder: " + ", ".join(bad))
+           "с переезда в Program Files данные лежат не там (paths.data_root): "
+           "где есть путь — layout.data_folder, где нет — «local, pe acest "
+           "calculator»: " + ", ".join(bad))
 
     # ---- ответ на действие строит только layout (08-14) ----
     # msg_banner в layout — единственное место, где код из ?msg= становится

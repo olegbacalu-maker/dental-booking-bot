@@ -550,8 +550,8 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
   <button>{_ic('upload')} Încarcă document</button>
 </form>
 <p class='hint' style='margin-top:8px'>Click pe fișier — pozele și PDF-urile se deschid aici,
-restul în programul potrivit (Word, Excel). Fișierele rămân local, în folderul
-programului (data\\files).</p></div>"""
+restul în programul potrivit (Word, Excel). Fișierele rămân local, pe acest
+calculator.</p></div>"""
 
     # ---- hero: кто перед врачом, одним взглядом ----
     # бейджи собираются из УЖЕ имеющихся данных: алерты, страховка, импланты —

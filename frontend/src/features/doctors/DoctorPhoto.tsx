@@ -7,7 +7,7 @@ const T = {
   pick: 'Alege fotografia',
   noFile: 'niciun fișier ales',
   upload: 'Încarcă fotografia',
-  local: 'Rămâne local, în folderul programului; pacienții nu o văd.',
+  local: 'Rămâne local, pe acest calculator; pacienții nu o văd.',
   remove: 'Șterge fotografia',
   confirm: 'Ștergeți fotografia?',
 } as const

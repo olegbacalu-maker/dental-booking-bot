@@ -48,6 +48,10 @@ from app import db as appdb  # noqa: E402 — только константа, �
 # Исходники клиента копируются рядом с bot/ (в `_frontend`): правило про
 # ссылки экранов читает их, и мутация обязана уметь его сломать.
 FRONTEND_SRC = ROOT / "frontend" / "src"
+# Скрипт мастера установки — туда же, в `_installer`: правило про место данных
+# читает и его. Копируется ТОЛЬКО `*.iss`: рядом лежит бутстрэппер WebView2 на
+# 1.6 МБ, и возить его в каждую копию дерева незачем.
+INSTALLER_DIR = ROOT / "installer"
 
 # Мутация «версия схемы отстала от шагов» ссылается на САМУ версию, и числом
 # она уезжала бы при каждом новом шаге: правка «поднять SCHEMA_VERSION» падала
@@ -136,6 +140,38 @@ MUTATIONS = [
     # обещает данные в папке программы, а программа пишет в другую.
     ("не обещает данные в папке программы", "app/modules/settings/faq.py",
      "\n_MUT_FOLDER = \"Totul e în folderul programului\"\n"),
+    # Вторая формулировка — та, что жила в баннере фото врача до 27.09:
+    # правило, знавшее одну фразу, её не видело.
+    ("не обещает данные в папке программы", "app/core/layout.py",
+     "\n_MUT_NEAR = \"Fotografia a fost salvată — rămâne local, lângă program\"\n"),
+    # Фраза, разорванная переносом строки: так подсказка документов старой
+    # фиши пережила правило, искавшее подстроку.
+    ("не обещает данные в папке программы", "app/modules/patients/routes.py",
+     "\n_MUT_WRAP = \"\"\"Fișierele rămân local, în folderul\nprogramului.\"\"\"\n"),
+    # Клиент (27.09): подсказку документов фиши с 21.09 рисует React, а в
+    # клиент правило не смотрело. Строка в кавычках…
+    ("не обещает данные в папке программы",
+     "_frontend/features/patients/card/DocumentsCard.tsx",
+     "\nconst _MUT = 'Fișierele rămân local, în folderul programului.'\n"),
+    # …и текст JSX между тегами, с переносом между словами: тоже экран, хотя
+    # строкой не является, — правило, читающее только кавычки, его пропустит.
+    ("не обещает данные в папке программы", "_frontend/features/doctors/DoctorPhoto.tsx",
+     "\nexport const _Mut = () => <p>Rămâne local, lângă\n  program</p>\n"),
+    # Мастер установки: страница выбора папки обещала каждой новой клинике
+    # базу «chiar lângă program». Замена, а не дописывание: в конце файла
+    # лежит [Code], и строка сообщения там была бы кодом, а не текстом.
+    ("не обещает данные в папке программы", "_installer/DentPilot.iss",
+     ("SelectDirLabel3=",
+      "SelectDirLabel3=Baza de date a clinicii se păstrează chiar lângă program. ")),
+    # Строка в [Code]: MsgBox — тоже экран мастера.
+    ("не обещает данные в папке программы", "_installer/DentPilot.iss",
+     "\nprocedure MutNote;\nbegin\n"
+     "  MsgBox('Datele rămân în folderul programului.', mbInformation, MB_OK);\n"
+     "end;\n"),
+    # ЯКОРЬ прощения: карточку старой установки переименовали — прощение
+    # осталось на кусок, которого больше нет, и правило обязано это назвать.
+    ("не обещает данные в папке программы", "app/modules/migration/routes.py",
+     ('"Fișa de lângă program"', '"Fișa găsită"')),
     # Модуль, собравший баннер из словаря сам: сообщение вернётся строкой в
     # поток, и внизу страницы его опять не видно. Ломается ссылкой на ИМЯ —
     # правило разбирает синтаксис, дописанный код не исполняется.
@@ -444,6 +480,23 @@ LEGAL = [
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
      ("[sig.license, sig.tamper, sig.split, sig.slot, sig.setup]",
       "[sig.tamper, sig.split, sig.slot, sig.setup, sig.license]")),
+    # ⭐ Законно: фраза в КОММЕНТАРИИ клиента на экран не едет — правило,
+    # читающее файл целиком, краснело бы на любом пояснении истории.
+    ("не обещает данные в папке программы",
+     "_frontend/features/patients/card/DocumentsCard.tsx",
+     "\n/* до 27.09 тут было «în folderul programului» */\n"
+     "// и «lângă program» — неправда с P1\n"),
+    # ⭐ Законно: комментарии мастера — `;` в секциях, `//` и `{ }` в [Code].
+    ("не обещает данные в папке программы", "_installer/DentPilot.iss", [
+        ("[Messages]\n", "[Messages]\n; было: «…chiar lângă program»\n"),
+        ("function NoLegacyFound",
+         "// было: «datele lângă program»\n{ și «în folderul programului» }\n"
+         "function NoLegacyFound"),
+    ]),
+    # ⭐ Законно: «lângă programare» — рядом с ЗАПИСЬЮ, «programul de lucru» —
+    # часы работы. Слова журнала, а не адрес данных: «program» — целым словом.
+    ("не обещает данные в папке программы", "app/modules/schedule/routes.py",
+     "\n_MUT_OK = \"Nota apare lângă programare; orele — lângă programul de lucru\"\n"),
 ]
 
 
@@ -465,6 +518,7 @@ def _run(bot: pathlib.Path) -> Result:
     """Прогнать набор по указанному дереву исходников (клиент — в `_frontend`)."""
     test_structure.BOT = bot
     test_structure.FRONTEND = bot / "_frontend"
+    test_structure.INSTALLER = bot / "_installer"
     res = Result()
     test_structure.suite(res)
     return res
@@ -473,6 +527,9 @@ def _run(bot: pathlib.Path) -> Result:
 def _copy(dst: pathlib.Path) -> pathlib.Path:
     shutil.copytree(BOT, dst, ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(FRONTEND_SRC, dst / "_frontend")
+    (dst / "_installer").mkdir()
+    for iss in INSTALLER_DIR.glob("*.iss"):
+        shutil.copy2(iss, dst / "_installer" / iss.name)
     return dst
 
 
@@ -531,6 +588,7 @@ def main() -> int:
         shutil.rmtree(base, ignore_errors=True)
         test_structure.BOT = BOT                # вернуть на настоящее дерево
         test_structure.FRONTEND = FRONTEND_SRC
+        test_structure.INSTALLER = INSTALLER_DIR
 
     print()
     for line in bad:
