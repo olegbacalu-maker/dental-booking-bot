@@ -96,6 +96,80 @@ export interface StatDoctor {
   came: number
   pres: number
   pct: number
+  /** Аватар в строке врача: цвет, инициалы и фото считает сервер. */
+  id: string
+  spec: string
+  color: string
+  initials: string
+  photo: string
+}
+
+/** Метка в углу карточки: «+14%», «-3 p.p.», «nou». Цвет — из `dir`. */
+export interface Badge {
+  dir: '' | 'up' | 'dn'
+  icon: string
+  text: string
+}
+
+export interface KpiPart {
+  key: string
+  label: string
+  value: number
+  text: string
+  color: string
+  pct: number
+}
+
+export interface Kpi {
+  key: string
+  label: string
+  icon: string
+  text: string
+  value: number
+  badge: Badge
+  trend: Trend
+  /** Значение прошлого периода той же длины — «luna trecută: 295 850 MDL». */
+  prev: string
+  sub: string
+  /** Ряд по дням — спарклайн. */
+  series?: number[]
+  /** Доля 0–100 — шкала под процентом. */
+  pct?: number
+}
+
+export interface BoardSeries {
+  bucket: 'day' | 'week'
+  labels: string[]
+  hints: string[]
+  appts: number[]
+  income: number[]
+  income_text: string[]
+}
+
+export interface BoardSummaryPart {
+  total: string
+  avg: string
+  best: string
+}
+
+export interface Board {
+  /** Имя прошлого периода: «luna trecută», «săptămâna trecută». */
+  prev_name: string
+  kpis: Kpi[]
+  /** Способы оплаты — полоса долей в карточке «Bani». */
+  parts: KpiPart[]
+  series: BoardSeries
+  summary: { appts: BoardSummaryPart; income: BoardSummaryPart; work_days: number }
+  money: {
+    estimated: string
+    estimated_trend: Trend
+    cash: string
+    loss: string
+    noshow: number
+    today_cash: string
+    today_estimated: string
+    link: { href: string; label: string; icon: string }
+  }
 }
 
 export interface StatService {
@@ -103,6 +177,8 @@ export interface StatService {
   cnt: number
   /** 'cca 1 500 MDL' — сервер же и склеил. */
   val: string
+  /** Та же сумма числом: у бесплатной услуги суммы на экране нет. */
+  val_n: number
   pct: number
 }
 
@@ -128,6 +204,8 @@ export interface StatsData {
   doctors: StatDoctor[]
   services: StatService[]
   activity: StatEvent[]
+  /** Раскладка B8: карточки, график, деньги — из тех же агрегатов модели. */
+  board: Board
   hint: string
 }
 

@@ -44,6 +44,8 @@ PORT = 9344
 
 ROOT_A = "[...document.querySelectorAll('.dp-react-root .nav a')]"
 NAV_B = "(document.querySelector('.dp-react-root .nav b')||{}).textContent||''"
+# Статистика с B8 (27.09) пишет период строкой над карточками, а не в `.nav`.
+STATS_B = "(document.querySelector('.dp-react-root .stx-period b')||{}).textContent||''"
 
 # (имя, адрес, что нажать (JS → элемент) или None, ключ (JS → строка),
 #  образец запроса API, сравнивать ли запрос)
@@ -52,7 +54,7 @@ CASES = [
      NAV_B, "/api/schedule/week", True),
     ("день клиники", "/admin/all", f"{ROOT_A}[0]", NAV_B, "/api/schedule/day", True),
     ("день врача", "/admin/doctor/{dk}", f"{ROOT_A}[0]", NAV_B, "/api/schedule/day", True),
-    ("статистика", "/admin/stats", f"{ROOT_A}[0]", NAV_B, "/api/stats", True),
+    ("статистика", "/admin/stats", f"{ROOT_A}[0]", STATS_B, "/api/stats", True),
     ("пародонтограма", "/admin/patient/{pid}/parodontograma",
      "[...document.querySelectorAll('.dp-react-root button')]"
      ".find(b => /Examen nou|Începe primul examen/.test(b.textContent))",

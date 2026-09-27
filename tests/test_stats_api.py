@@ -10,6 +10,7 @@ React-экран собраны из одной `stats.model`, и подпись
 считает день по Кишинёву, CI — по UTC, и между 21:00 и 24:00 UTC даты разные.
 """
 import json
+from datetime import timedelta
 
 from harness import TG_ON, Client, Result, Server, clinic_today
 
@@ -156,6 +157,83 @@ def suite_stats(res: Result) -> None:
         res.ok("доли источников сходятся в целое",
                sum(p["value"] for p in d["sources"]["parts"]) == d["sources"]["total"],
                f"{d['sources']}")
+
+
+def suite_board(res: Result) -> None:
+    """Раскладка экрана B8 (27.09): карточки, график, деньги — из ТЕХ ЖЕ
+    агрегатов, что и старая страница. Цифра карточки, разошедшаяся с плиткой
+    `?ui=legacy`, выглядела бы правдоподобно — поэтому сверяется попарно."""
+    with Server() as s:
+        c = Client(s.url).login()
+        _seed(c)
+        # платежи сегодня — чтобы доли способов и ряд денег было с чем сверить
+        rows = _j(c.get("/api/patients?q=Stat%20API%20Unu"))["data"]["rows"]
+        pid = rows[0]["id"]
+        c.post(f"/admin/patient/{pid}/pay", amount="1500", method="card", note="")
+        c.post(f"/admin/patient/{pid}/pay", amount="500", method="numerar", note="")
+        d = _j(c.get("/api/stats"))["data"]
+        b = d["board"]
+        k = {x["key"]: x for x in b["kpis"]}
+        res.check("четыре карточки в порядке чтения директора",
+                  [x["key"] for x in b["kpis"]],
+                  ["incasari", "programari", "prezenta", "ocupare"])
+        res.check("прошлый период назван по имени, без «față de»",
+                  b["prev_name"], "săptămâna trecută")
+        res.check("деньги карточки = настоящие деньги старой страницы",
+                  k["incasari"]["value"], d["money"][0]["value"])
+        res.check("и строкой — та же", k["incasari"]["text"], d["money"][0]["text"])
+        res.check("записи карточки = плитка",
+                  k["programari"]["value"],
+                  next(t["value"] for t in d["tiles"] if t["key"] == "total"))
+        res.check("явка карточки = старая страница",
+                  k["prezenta"]["value"], d["chart"]["present_pct"])
+        res.check("загрузка — одной функцией со старой страницей",
+                  k["ocupare"]["value"], d["occupancy"]["pct"])
+        # прошлая неделя пуста: процентов от нуля не бывает
+        res.check("рост от нуля — «nou», а не «+∞%»", k["programari"]["badge"]["text"], "nou")
+        res.ok("доли сравниваются в процентных пунктах",
+               k["prezenta"]["badge"]["text"].endswith("p.p."), k["prezenta"]["badge"])
+        res.ok("минус — дефисом, а не U+2212 (его нет во вшитом Inter)",
+               all("−" not in x["badge"]["text"] for x in b["kpis"]), b["kpis"])
+        s_ = b["series"]
+        res.check("неделя — семь корзин по дням",
+                  (s_["bucket"], len(s_["labels"]), len(s_["appts"]), len(s_["hints"])),
+                  ("day", 7, 7, 7))
+        res.check("ряд записей сходится с карточкой", sum(s_["appts"]), k["programari"]["value"])
+        res.check("ряд денег сходится с карточкой", sum(s_["income"]), k["incasari"]["value"])
+        res.check("и у каждого дня есть строка денег", len(s_["income_text"]), 7)
+        res.check("способы оплаты — три", [p["key"] for p in b["parts"]],
+                  ["numerar", "card", "transfer"])
+        res.check("и в сумме — вся касса", sum(p["value"] for p in b["parts"]),
+                  k["incasari"]["value"])
+        res.check("доля карты", next(p["pct"] for p in b["parts"] if p["key"] == "card"), 75)
+        res.ok("у врача аватар считает сервер",
+               d["doctors"] and all(x["initials"] and x["color"] and "id" in x
+                                    for x in d["doctors"]), d["doctors"][:1])
+        res.ok("у услуги сумма есть и числом",
+               d["services"] and all(isinstance(x["val_n"], int) for x in d["services"]),
+               d["services"][:1])
+        res.check("лист кассы — за сегодня", b["money"]["link"]["href"], "/admin/casa")
+        res.ok("без бота доли бота в разборе нет",
+               "prin bot" not in k["programari"]["sub"], k["programari"]["sub"])
+        # длинный период — по неделям, и ряд всё равно сходится
+        d2 = clinic_today()
+        d1 = d2 - timedelta(days=59)
+        b2 = _j(c.get(f"/api/stats?from={d1.isoformat()}&to={d2.isoformat()}"))["data"]["board"]
+        res.check("60 дней — по неделям", b2["series"]["bucket"], "week")
+        res.ok("недель — от восьми до десяти", 8 <= len(b2["series"]["labels"]) <= 10,
+               b2["series"]["labels"])
+        res.check("и ряд по неделям сходится с карточкой", sum(b2["series"]["appts"]),
+                  next(x["value"] for x in b2["kpis"] if x["key"] == "programari"))
+
+    # клиника с живым ботом: кольца источников на экране нет — доля бота
+    # едет строкой разбора, иначе она пропала бы молча
+    with Server(env=TG_ON) as s:
+        c = Client(s.url).login()
+        _seed(c)
+        b = _j(c.get("/api/stats"))["data"]["board"]
+        sub = next(x["sub"] for x in b["kpis"] if x["key"] == "programari")
+        res.ok("с ботом — доля бота строкой разбора", "prin bot" in sub, sub)
 
 
 def suite_switch(res: Result) -> None:

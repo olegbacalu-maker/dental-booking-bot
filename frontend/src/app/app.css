@@ -806,3 +806,367 @@
 }
 .chair-queue .t { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 3.5em; }
 .chair-queue .n { flex: 1; min-width: 0; }
+
+/* ---- Statistici (B8, 27.09): раскладка SaaS-панели ----
+   Образец — открытые шаблоны shadcn/ui dashboard-01 (MIT) и Tremor Dashboard
+   OSS (Apache-2.0): карточки показателей с меткой сравнения, столбцы с
+   подсказкой, полоса долей, список-полосы. Код не копировался — только приёмы.
+   ⭐ Потолок ширины: на 2560 карточки не растягиваются в ленту, взгляд
+   собирает панель целиком. Числа ширины — сетка, а не текст (--measure). */
+.stx {
+  display: grid;
+  gap: 16px;
+  max-width: 1480px;
+  min-width: 0;
+}
+.nav.stx-head { gap: 10px; }
+
+/* Переключатель периода и показателя: сегменты в одной подложке. */
+.stx-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--line2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+}
+.stx-seg a,
+.stx-seg button,
+.nav .stx-seg a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(var(--h-ctl) - 8px);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-s);
+  background: transparent;
+  color: var(--text2);
+  font-size: var(--fs-m);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: none;
+  transform: none;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.stx-seg a:hover,
+.stx-seg button:hover,
+.nav .stx-seg a:hover {
+  color: var(--text);
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.stx-seg .on,
+.nav .stx-seg a.on {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--sh);
+}
+.stx-seg a:focus-visible,
+.stx-seg button:focus-visible { outline: none; box-shadow: var(--ring); }
+.stx-seg em { font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stx-seg-s a,
+.stx-seg-s button { height: calc(var(--h-ctl-s) - 8px); font-size: var(--fs-s); }
+
+.stx-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  padding: var(--pad-block);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  box-shadow: var(--sh);
+  justify-self: start;
+}
+.stx-range label { display: grid; gap: 4px; font-size: var(--fs-s); color: var(--text2); }
+.stx-range input {
+  height: var(--h-ctl);
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--field);
+  color: var(--text);
+}
+.stx-range input:focus { outline: none; border-color: var(--focus-line); box-shadow: var(--ring); }
+
+.stx-period { margin: -4px 0 0; color: var(--text2); font-size: var(--fs-m); }
+.stx-period b { color: var(--text); font-weight: 600; }
+
+/* ---- показатели ---- */
+.stx-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.fcard.stx-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--pad-tile) 18px;
+}
+.stx-kpi-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stx-kpi-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text2);
+  font-size: var(--fs-m);
+  font-weight: 500;
+}
+.stx-kpi-l svg { color: var(--teal); }
+.stx-kpi-v b {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--fs-big);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.stx-kpi-f { display: grid; gap: 8px; margin-top: auto; padding-top: 12px; }
+.stx-kpi-sub { margin: 0; font-size: var(--fs-s); color: var(--text2); }
+.stx-kpi .spark { display: block; }
+
+.stx-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--line2);
+  color: var(--text2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.stx-badge svg { width: 12px; height: 12px; }
+.stx-badge.up { background: var(--green-soft); color: var(--green-t); }
+.stx-badge.dn { background: var(--red-soft); color: var(--red-t); }
+
+.stx-trend { font-size: var(--fs-s); color: var(--text3); }
+.stx-trend .up { color: var(--green-t); font-weight: 600; }
+.stx-trend .dn { color: var(--red-t); font-weight: 600; }
+
+/* полоса долей (способы оплаты) */
+.stx-cat-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--line2);
+}
+.stx-cat-bar span { display: block; height: 100%; }
+.stx-cat-legend { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.stx-cat-legend li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-s);
+  color: var(--text2);
+}
+.stx-cat-legend i { width: 8px; height: 8px; border-radius: 50%; }
+.stx-cat-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.stx-meter { flex: 1; height: 6px; border-radius: 999px; background: var(--line2); overflow: hidden; }
+.stx-meter span { display: block; height: 100%; border-radius: 999px; }
+
+/* ---- ряды карточек ---- */
+.stx-row { display: grid; gap: 16px; align-items: stretch; }
+.stx-row-a { grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); }
+.stx-row-b { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.stx-card-h {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.stx-card-h h3 { margin: 0; }
+.stx-sub { display: block; margin-top: 2px; font-size: var(--fs-s); color: var(--text2); }
+
+/* график: столбцы и подсказка */
+.stx-cols { position: relative; }
+.stx-cols svg { display: block; overflow: visible; }
+.stx-grid { stroke: var(--line2); stroke-width: 1; }
+.stx-ax { fill: var(--text3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.stx-bar { opacity: 0.82; transition: opacity var(--dur-fast) ease; }
+.stx-bar.on { opacity: 1; }
+.stx-hit { fill: transparent; cursor: pointer; }
+.stx-tip {
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -6px);
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: var(--r-s);
+  background: var(--text);
+  color: var(--panel);
+  font-size: var(--fs-s);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--sh3);
+}
+.stx-tip span { opacity: 0.75; }
+.stx-sum {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line2);
+}
+.stx-sum span { display: block; font-size: var(--fs-s); color: var(--text2); }
+.stx-sum b { font-size: var(--fs-l); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* деньги */
+.stx-money { display: flex; flex-direction: column; }
+.stx-dl { margin: 0; display: grid; }
+.stx-dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line2);
+}
+.stx-dl dt { color: var(--text2); font-size: var(--fs-m); }
+.stx-dl dd {
+  margin: 0;
+  text-align: right;
+  font-size: var(--fs-l);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stx-dl dd small { display: block; font-size: var(--fs-xs); font-weight: 400; color: var(--text3); }
+.stx-dl .bad dd { color: var(--red-t); }
+.stx-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--teal-d);
+  font-size: var(--fs-m);
+  font-weight: 600;
+  text-decoration: none;
+}
+.stx-link:hover { text-decoration: underline; }
+.stx-note { margin: auto 0 0; padding-top: 12px; font-size: var(--fs-xs); color: var(--text3); }
+
+/* врачи */
+.stx-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-m); }
+.stx-tbl th {
+  padding: 0 8px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.stx-tbl td { padding: 10px 8px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+.stx-tbl tr:last-child td { border-bottom: 0; }
+.stx-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.stx-doc { display: flex; align-items: center; gap: 10px; }
+.stx-doc .avatar {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: var(--r-chip);
+  font-size: var(--fs-xs);
+}
+.stx-doc b { display: block; font-weight: 600; }
+.stx-doc small { display: block; color: var(--text3); font-size: var(--fs-xs); }
+.stx-pct { display: flex; align-items: center; gap: 8px; min-width: 110px; }
+.stx-pct em {
+  min-width: 36px;
+  text-align: right;
+  font-style: normal;
+  font-size: var(--fs-s);
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* услуги: полосы-строки */
+.stx-barlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.stx-barlist li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 32px;
+  padding: 0 10px;
+}
+.stx-bl-bar { position: absolute; inset: 0 auto 0 0; background: var(--teal-soft); border-radius: var(--r-s); }
+.stx-bl-l,
+.stx-bl-v { position: relative; font-size: var(--fs-m); }
+.stx-bl-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.stx-bl-v {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stx-bl-v small { font-size: var(--fs-xs); font-weight: 400; color: var(--text3); }
+
+/* лента событий — компактно, в две колонки на широком экране */
+.stx-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 32px;
+}
+.stx-feed li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line2);
+  font-size: var(--fs-m);
+}
+.stx-feed-t {
+  padding-top: 2px;
+  color: var(--text3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.stx-feed b { display: block; font-weight: 500; }
+.stx-feed small { color: var(--text3); font-size: var(--fs-xs); }
+
+@media (max-width: 1280px) {
+  .stx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stx-row-a,
+  .stx-row-b { grid-template-columns: minmax(0, 1fr); }
+  .stx-feed { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .stx-kpis { grid-template-columns: minmax(0, 1fr); }
+  .stx-sum { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* значение прошлого периода под числом (приём Tremor «from X») */
+.stx-prev { font-size: var(--fs-s); color: var(--text3); }
+.stx-prev b { color: var(--text2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stx-money .stx-cat { margin: 2px 0 6px; }
+.stx-dl > div.top { border-bottom: 0; padding-bottom: 8px; }
+.stx-dl > div.top dd { font-size: var(--fs-xl); }
+.stx-cat-legend em { font-style: normal; color: var(--text3); }
+.stx-empty { display: grid; place-items: center; min-height: 220px; margin: 0; }

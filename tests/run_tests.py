@@ -175,6 +175,7 @@ SUITES = [
     ("Края дневной сетки", test_admin.suite_grid_edges),
     ("Аналитика", test_admin.suite_analytics),
     ("Аналитика (JSON)", test_stats_api.suite_stats),
+    ("Аналитика: раскладка экрана (B8)", test_stats_api.suite_board),
     ("Аналитика: React-экран и право", test_stats_api.suite_switch),
     ("Заморозка бота: интерфейс", test_admin.suite_bot_ui),
     ("Карточка пациента", test_admin.suite_patient_card),

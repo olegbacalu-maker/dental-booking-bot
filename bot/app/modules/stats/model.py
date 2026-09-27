@@ -19,7 +19,17 @@ from datetime import date, datetime, timedelta
 
 from ... import db
 from ... import engine as eng
-from ...core.layout import tg_configured
+from ...core.layout import _initials, tg_configured
+from ...core.visits import _doc_hue, photo_url
+
+# Короткие дни недели для подсказок графика (понедельник — 0, как date.weekday).
+_WD = ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")
+# Способы оплаты на полосе «Încasări»: подпись и цвет доли. Это категории, а не
+# смысл, поэтому первая доля — фирменный цвет клиники.
+_METHODS = (("numerar", "Numerar", "var(--teal)"), ("card", "Card", "var(--blue)"),
+            ("transfer", "Transfer", "var(--violet)"))
+# Длиннее — график переходит с дней на недели: 60 столбиков в ряд уже не читаются.
+WEEKLY_FROM = 46
 
 # Цвет плитки и её мягкая подложка. ⛔ Цвета СМЫСЛА теме не отдаются: красные
 # отмены и зелёные записи — это значение, а не персонализация.
@@ -143,8 +153,68 @@ def trend_money(cur: int, prev: int, label: str) -> dict:
             "label": label, "note": ""}
 
 
+def trend_pp(cur: int, prev: int, label: str) -> dict:
+    """Доля (присутствие, загрузка) сравнивается в ПРОЦЕНТНЫХ ПУНКТАХ: «92% против
+    89%» — это +3 п.п., а «+3%» читалось бы как рост на три процента от 89."""
+    if cur == prev:
+        return {"dir": "", "icon": "", "value": "", "label": label, "note": ""}
+    up = cur > prev
+    return {"dir": "up" if up else "dn", "icon": "caret-u" if up else "caret-d",
+            "value": f"{'+' if up else '-'}{abs(cur - prev)} p.p.", "label": label, "note": ""}
+
+
+def badge(cur: int, prev: int, bad_up: bool = False, pp: bool = False) -> dict:
+    """Короткая метка в углу карточки: «+14%», «−3 p.p.», «nou». Цвет — из `dir`
+    (хорошо/плохо), а не из знака: рост отмен — стрелка вверх, но красная."""
+    if cur == prev:
+        return {"dir": "", "icon": "", "text": "0%" if not pp else "0 p.p."}
+    up = cur > prev
+    good = up != bad_up
+    # ⛔ Минус — дефис, а не U+2212: того знака нет во вшитом Inter (CLAUDE.md)
+    if pp:
+        text = f"{'+' if up else '-'}{abs(cur - prev)} p.p."
+    elif not prev:
+        text = "nou"
+    else:
+        text = f"{'+' if up else '-'}{abs(cur - prev) * 100 / prev:.0f}%"
+    return {"dir": "up" if good else "dn", "icon": "caret-u" if up else "caret-d", "text": text}
+
+
 def _dm(d: date) -> str:
     return d.strftime("%d.%m")
+
+
+def _occupancy(rows: list, days: list) -> tuple[int, int, int]:
+    """Загрузка активных врачей: (процент, занятые минуты, рабочие минуты).
+    Одна формула на текущий и прошлый период — иначе метка сравнения
+    сравнивала бы разное."""
+    cap_all = busy_all = 0
+    for dk, name in eng.DOCTORS.items():
+        if not eng.DOCTOR_META.get(dk, {}).get("active", True):
+            continue
+        mine = [r for r in rows if r.get("doctor_id") == dk
+                or (not r.get("doctor_id") and r["doctor"] == name)]
+        cap_all += sum(eng.work_minutes(dk, day) for day in days)
+        busy_all += sum(int(r.get("duration_min") or 60) for r in mine)
+    return (round(100 * busy_all / cap_all) if cap_all else 0), busy_all, cap_all
+
+
+def _buckets(days: list) -> tuple[list, list, list]:
+    """Корзины графика: по дню, а у длинных периодов — по неделе (с понедельника).
+    Отдаёт индекс корзины каждого дня, подписи оси и подписи подсказки."""
+    if len(days) < WEEKLY_FROM:
+        return (list(range(len(days))), [_dm(x) for x in days],
+                [f"{_WD[x.weekday()]}, {x.strftime('%d.%m.%Y')}" for x in days])
+    idx, labels, hints, starts = [], [], [], {}
+    for x in days:
+        wk = x - timedelta(days=x.weekday())
+        if wk not in starts:
+            starts[wk] = len(labels)
+            labels.append(_dm(max(wk, days[0])))
+            end = min(wk + timedelta(days=6), days[-1])
+            hints.append(f"Săptămâna {_dm(max(wk, days[0]))}–{_dm(end)}")
+        idx.append(starts[wk])
+    return idx, labels, hints
 
 
 async def build(d1: date, d2: date, today: date) -> dict:
@@ -239,7 +309,6 @@ async def build(d1: date, d2: date, today: date) -> dict:
     }
 
     # ---- загрузка и врачи ----
-    cap_all = busy_all = 0
     doctors = []
     for dk, name in eng.DOCTORS.items():
         mine = [r for r in cur["act"] if r.get("doctor_id") == dk
@@ -250,17 +319,21 @@ async def build(d1: date, d2: date, today: date) -> dict:
         came = sum(1 for r in mine if r["status"] in ("done", "arrived", "waiting"))
         cap = sum(eng.work_minutes(dk, day) for day in days)
         busy = sum(int(r.get("duration_min") or 60) for r in mine)
-        if not off:
-            cap_all += cap
-            busy_all += busy
         doctors.append({"name": name, "off": off, "n": len(mine), "came": came,
                         "pres": round(100 * came / len(mine)) if mine else 0,
-                        "pct": round(100 * busy / cap) if cap else 0})
+                        "pct": round(100 * busy / cap) if cap else 0,
+                        # аватар строки врача: цвет, инициалы и фото — как у
+                        # серверного _avatar, клиент их не считает
+                        "id": dk, "spec": eng.DOCTOR_SPEC.get(dk, ""),
+                        "color": _doc_hue(dk), "initials": _initials(name),
+                        "photo": photo_url(dk)})
     doctors.sort(key=lambda x: -x["pct"])
+    # загрузка клиники — ОДНОЙ функцией с прошлым периодом (метка сравнения)
+    occ_pct, busy_min, cap_min = _occupancy(cur["act"], days)
     # период называется ЦИФРАМИ прямо на карточке: «media pe perioadă» без дат
     # уже озадачила Олега — 3% за неделю выглядят ошибкой рядом с 86% за день
     occupancy = {
-        "pct": round(100 * busy_all / cap_all) if cap_all else 0,
+        "pct": occ_pct,
         "note": (f"media {_dm(d1)}–{_dm(d2)} ({span} zile) · minute ocupate din "
                  f"minutele de lucru ale medicilor activi"),
     }
@@ -331,7 +404,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
     top = sorted(svc.values(), key=lambda x: -x["cnt"])[:8]
     max_cnt = top[0]["cnt"] if top else 1
     services = [{"label": s["label"], "cnt": s["cnt"],
-                 "val": f"cca {fmt_mdl(s['val'])}",
+                 "val": f"cca {fmt_mdl(s['val'])}", "val_n": s["val"],
                  "pct": round(100 * s["cnt"] / max_cnt)} for s in top]
 
     # ---- последние события картотеки (летопись уже пишет ИМЯ вошедшего) ----
@@ -344,6 +417,100 @@ async def build(d1: date, d2: date, today: date) -> dict:
             "who": "bot" if a["actor"] == "bot" else (a["actor"] or "recepție"),
             "at": at.strftime("%d.%m %H:%M") if at else "",
         })
+
+    # ---- раскладка экрана (B8, 27.09): те же агрегаты, собранные под карточки ----
+    # ⛔ Ни одной новой формулы денег или визитов: всё ниже — cur/prev/pays выше.
+    # Старая страница (`?ui=legacy`) рисует поля выше, React-экран — `board`.
+    prev_days = [p1 + timedelta(days=i) for i in range(span)]
+    prev_present = round(100 * prev["done"] / prev["total"]) if prev["total"] else 0
+    prev_occ = _occupancy(prev["act"], prev_days)[0]
+    # имя прошлого периода без «față de»: «luna trecută: 295 850 MDL»
+    prev_name = plabel.removeprefix("față de ")
+    inc_by_day = [0] * span
+    n_pays = 0
+    for p in pays:
+        if p["at"] >= split:
+            dd = p["at"].astimezone(eng.TZ).date()
+            if dd in idx:
+                inc_by_day[idx[dd]] += p["amount_mdl"]
+                n_pays += 1
+    bidx, blabels, bhints = _buckets(days)
+    appts_b = [0] * len(blabels)
+    for r in cur["act"]:
+        appts_b[bidx[idx[r["starts_at"].astimezone(eng.TZ).date()]]] += 1
+    income_b = [0] * len(blabels)
+    for p in pays:
+        if p["at"] >= split:
+            dd = p["at"].astimezone(eng.TZ).date()
+            if dd in idx:
+                income_b[bidx[idx[dd]]] += p["amount_mdl"]
+    work_days = sum(1 for x in days if eng.hours_for(x))
+    best = max(range(len(appts_b)), key=lambda i: appts_b[i]) if appts_b else 0
+    parts = [{"key": m, "label": lbl, "value": by_m[m], "text": fmt_mdl(by_m[m]),
+              "color": color, "pct": round(100 * by_m[m] / inc_cur) if inc_cur else 0}
+             for m, lbl, color in _METHODS]
+    board = {
+        "prev_name": prev_name,
+        "kpis": [
+            {"key": "incasari", "label": "Încasări", "icon": "cash",
+             "text": fmt_mdl(inc_cur), "value": inc_cur,
+             "badge": badge(inc_cur, inc_prev), "trend": trend_money(inc_cur, inc_prev, plabel),
+             "prev": fmt_mdl(inc_prev),
+             "sub": (f"{n_pays} plăți · medie {fmt_mdl(round(inc_cur / n_pays))}"
+                     if n_pays else "nicio plată înregistrată"),
+             "series": inc_by_day},
+            {"key": "programari", "label": "Programări", "icon": "cal",
+             "text": str(cur["total"]), "value": cur["total"],
+             "badge": badge(cur["total"], prev["total"]),
+             "trend": trend(cur["total"], prev["total"], False, plabel),
+             "prev": str(prev["total"]),
+             # у клиники с живым ботом кольца источников больше нет — доля
+             # бота едет строкой разбора (tg_configured, как плитки выше)
+             "sub": (f"{cur['done']} au venit · {cur['cancel']} anulate"
+                     + (f" · {cur['bot']} prin bot" if tg_ui else "")),
+             "series": per_day["total"]},
+            {"key": "prezenta", "label": "Rata de prezență", "icon": "checkin",
+             "text": f"{present_pct}%", "value": present_pct,
+             "badge": badge(present_pct, prev_present, pp=True),
+             "trend": trend_pp(present_pct, prev_present, plabel),
+             "prev": f"{prev_present}%",
+             "sub": f"{cur['noshow']} neprezentări · cca {fmt_mdl(cur['loss'])} pierdut",
+             "pct": present_pct},
+            {"key": "ocupare", "label": "Grad de ocupare", "icon": "clock",
+             "text": f"{occ_pct}%", "value": occ_pct,
+             "badge": badge(occ_pct, prev_occ, pp=True),
+             "trend": trend_pp(occ_pct, prev_occ, plabel),
+             "prev": f"{prev_occ}%",
+             "sub": (f"{round(busy_min / 60):,} ore ocupate din {round(cap_min / 60):,} "
+                     f"ore de lucru").replace(",", " "),
+             "pct": occ_pct},
+        ],
+        "parts": parts,
+        "series": {
+            "bucket": "week" if len(days) >= WEEKLY_FROM else "day",
+            "labels": blabels, "hints": bhints,
+            "appts": appts_b, "income": income_b,
+            "income_text": [fmt_mdl(v) for v in income_b],
+        },
+        "summary": {
+            "appts": {"total": str(cur["total"]),
+                      "avg": f"{cur['total'] / work_days:.1f}".replace(".", ",") if work_days else "0",
+                      "best": (f"{bhints[best]} · {appts_b[best]}" if appts_b and appts_b[best] else "—")},
+            "income": {"total": fmt_mdl(inc_cur),
+                       "avg": fmt_mdl(round(inc_cur / work_days)) if work_days else fmt_mdl(0),
+                       "best": (f"{bhints[max(range(len(income_b)), key=lambda i: income_b[i])]}"
+                                f" · {fmt_mdl(max(income_b))}" if income_b and max(income_b) else "—")},
+            "work_days": work_days,
+        },
+        "money": {
+            "estimated": fmt_mdl(cur["value"]),
+            "estimated_trend": trend_money(cur["value"], prev["value"], plabel),
+            "cash": fmt_mdl(inc_cur),
+            "loss": f"cca {fmt_mdl(cur['loss'])}", "noshow": cur["noshow"],
+            "today_cash": fmt_mdl(inc_azi), "today_estimated": fmt_mdl(tv),
+            "link": {"href": "/admin/casa", "label": "Raport de casă (azi)", "icon": "print"},
+        },
+    }
 
     # ---- периоды ----
     presets = [("azi", "Azi", today, today),
@@ -366,6 +533,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
         "doctors": doctors,
         "services": services,
         "activity": activity,
+        "board": board,
         "hint": ("Prețurile sunt medii orientative din lista clinicii; "
                  "neprezentările = venit pierdut estimat. Notițele nu se "
                  "numără. Secțiunea este vizibilă doar directorului."),

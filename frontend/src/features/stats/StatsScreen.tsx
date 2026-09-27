@@ -1,79 +1,20 @@
 import { useCallback, useState } from 'react'
-import { AppLink } from '../../components/AppLink'
 import { useNavigate } from 'react-router'
-import { Count } from '../../components/Count'
-import { Icon, iconName } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
-import { Spark } from '../../components/Spark'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
 import { canAnimate } from '../../utils/fx'
 import { t } from '../../utils/i18n'
-import { Donut, Gauge, LineDays } from './StatsCharts'
-import { stats, type StatsData, type Trend as TrendModel } from './stats'
+import { StatsBoard } from './StatsBoard'
+import { stats, type StatsData } from './stats'
 
-/* Подписи экрана. Всё, что несёт ЦИФРУ или её объяснение (тренды, суммы,
-   период, подписи источников), приходит с сервера: деньги форматирует он же,
-   и второй форматировщик разошёлся бы с печатным отчётом кассы. */
+/* Здесь — владелец периода и данных; раскладка — `StatsBoard` (B8, 27.09).
+   Всё, что несёт ЦИФРУ или её объяснение, приходит с сервера. */
 const T = t('stats', {
-  sources: 'Surse programări',
-  total: 'Total',
-  occupancy: 'Grad de ocupare',
-  doctors: 'Performanța medicilor',
-  services: 'Top servicii',
-  activity: 'Activitate recentă',
-  noServices: '— încă fără programări —',
-  noActivity: '— încă nimic —',
-  colDoctor: 'Medic',
-  colAppts: 'Programări',
-  colCame: 'Au venit',
-  colPresence: 'Rata prezenței',
-  colBusy: 'Ocupare',
-  totalAppts: 'Total programări',
-  presence: 'Rata de prezență',
-  noshow: 'Neprezentări',
-  wait: 'Așteptare medie',
-  inactive: '· inactiv',
-  excel: 'Export Excel',
-  panel: 'Panou',
-  apply: 'OK',
-  unchanged: 'neschimbat',
-  fromLabel: 'De la',
-  toLabel: 'Până la',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
 } as const)
-
-/**
- * Сравнение с предыдущим периодом. ⛔ Цвет берётся из `dir`, а НЕ из знака
- * числа: рост неявок — стрелка вверх и КРАСНЫЙ, и вычисли цвет из знака, он
- * позеленел бы ровно там, где всё плохо.
- */
-function Trend({ trend }: { trend: TrendModel }) {
-  if (!trend.dir) {
-    return <span className="trend">{T.unchanged} {trend.label}</span>
-  }
-  return (
-    <span className="trend">
-      <span className={trend.dir}>
-        {trend.icon && <><Icon name={iconName(trend.icon)} /> </>}
-        {trend.value}
-      </span>
-      {' '}{trend.label}{trend.note}
-    </span>
-  )
-}
-
-/** Доля полоской: число слева, шкала справа — как на старой странице. */
-function Bar({ pct }: { pct: number }) {
-  return (
-    <div className="an-bar">
-      <span>{pct}%</span>
-      <div className="statbar"><div style={{ width: `${Math.min(pct, 100)}%` }} /></div>
-    </div>
-  )
-}
 
 interface Props {
   navigate?: (url: string) => void
@@ -154,185 +95,15 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
   return (
     <section className="dp-react-root">
       {toast && <Toast tone={toast.tone} text={toast.text} onClose={closeToast} />}
-      <div className="nav">
-        <b>{d.period.label}</b>
-        {d.presets.map((p) => (
-          <AppLink
-            key={p.key}
-            href={periodUrl(p.from, p.to)}
-            onClick={(e) => { e.preventDefault(); go(p.from, p.to) }}
-          >{p.label}</AppLink>
-        ))}
-        <form
-          className="dpickf"
-          onSubmit={(e) => { e.preventDefault(); void apply(pick.from, pick.to, d) }}
-        >
-          <input
-            className="dpick" type="date" value={pick.from} aria-label={T.fromLabel}
-            onChange={(e) => setDraft({ from: e.target.value, to: pick.to })}
-          />
-          <input
-            className="dpick" type="date" value={pick.to} aria-label={T.toLabel}
-            onChange={(e) => setDraft({ from: pick.from, to: e.target.value })}
-          />
-          <button className="searchf dp-ok-btn">{T.apply}</button>
-        </form>
-        <AppLink href={d.export_url}><Icon name="download" /> {T.excel}</AppLink>
-        <AppLink href="/admin"><Icon name="home" /> {T.panel}</AppLink>
-      </div>
-
-      <div className="tiles">
-        {d.tiles.map((tl) => (
-          <div key={tl.key} className={`tile sp${tl.bad ? ' bad' : ''}`}>
-            <span className="ico" style={{ background: tl.soft, color: tl.tone }}>
-              <Icon name={iconName(tl.icon)} />
-            </span>
-            <div>
-              <Count value={tl.value} live={live} />
-              <span>{tl.label}</span>
-              <Trend trend={tl.trend} />
-            </div>
-            <Spark series={tl.series} tone={tl.tone} />
-          </div>
-        ))}
-      </div>
-
-      <div className="an-grid">
-        <div className="an-main">
-          <div className="fcard an-chart">
-            <h3>{d.chart.title} <small>{d.chart.sub}</small></h3>
-            <LineDays labels={d.chart.labels} values={d.chart.values} tone="var(--teal)" />
-            <div className="an-foot">
-              <div>
-                <span>{T.totalAppts}</span><b>{d.chart.total}</b>
-                <Trend trend={d.chart.total_trend} />
-              </div>
-              <div>
-                <span>{T.presence}</span><b>{d.chart.present_pct}%</b>
-                <div className="statbar">
-                  <div style={{ width: `${d.chart.present_pct}%` }} />
-                </div>
-              </div>
-              <div>
-                <span>{T.noshow}</span><b>{d.chart.noshow}</b>
-                <small>{d.chart.loss}</small>
-              </div>
-              <div>
-                <span>{T.wait}</span><b data-wait="">{d.chart.wait.text}</b>
-                <small>{d.chart.wait.sub}</small>
-              </div>
-            </div>
-          </div>
-
-          <div className="fcard">
-            <h3>{T.doctors}</h3>
-            <table className="list an-tbl">
-              <thead>
-                <tr>
-                  <th>{T.colDoctor}</th><th>{T.colAppts}</th><th>{T.colCame}</th>
-                  <th>{T.colPresence}</th><th>{T.colBusy}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.doctors.map((doc) => (
-                  <tr key={doc.name}>
-                    <td>
-                      {doc.name}
-                      {doc.off && <small className="dp-muted"> {T.inactive}</small>}
-                    </td>
-                    <td>{doc.n}</td>
-                    <td>{doc.came}</td>
-                    <td><Bar pct={doc.pres} /></td>
-                    <td><Bar pct={doc.pct} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="an-side">
-          {d.sources.show && (
-            <div className="fcard">
-              <h3>{T.sources}</h3>
-              <div className="an-donut">
-                <Donut label={T.total} parts={d.sources.parts} />
-                <div className="an-legend">
-                  {d.sources.parts.map((p) => (
-                    <div key={p.label} className="an-src">
-                      <i style={{ background: p.color }} />{p.label}
-                      <b>{p.value}</b><small>{p.pct}%</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="fcard an-gauge">
-            <h3>{T.occupancy}</h3>
-            <Gauge pct={d.occupancy.pct} tone="var(--teal)" label={T.occupancy} />
-            <small>{d.occupancy.note}</small>
-          </div>
-
-          {d.money.map((m) => (
-            <div key={m.key} className="fcard an-money">
-              <h3>{m.title} <small>{m.sub}</small></h3>
-              <Count value={m.value} live={live} suffix={m.suffix} group />
-              <Trend trend={m.trend} />
-              <small>
-                {m.note.map((n, i) => (
-                  <span key={i}>
-                    {i > 0 && ' · '}
-                    {n.icon && <><Icon name={iconName(n.icon)} /> </>}{n.t}
-                  </span>
-                ))}
-              </small>
-              {m.link && (
-                <AppLink className="ag-all" href={m.link.href}>
-                  <Icon name={iconName(m.link.icon)} /> {m.link.label}
-                </AppLink>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="an-grid2">
-        <div className="fcard">
-          <h3>{T.services}</h3>
-          {d.services.length === 0
-            ? <p className="hint">{T.noServices}</p>
-            : d.services.map((s) => (
-              <div key={s.label} className="an-svc">
-                <div className="an-svc-t">
-                  <b>{s.label}</b><span>{s.cnt} prog. · {s.val}</span>
-                </div>
-                <div className="statbar"><div style={{ width: `${s.pct}%` }} /></div>
-              </div>
-            ))}
-        </div>
-        <div className="fcard">
-          <h3>{T.activity}</h3>
-          {d.activity.length === 0
-            ? <p className="hint">{T.noActivity}</p>
-            : d.activity.map((a, i) => (
-              <div key={i} className="an-act">
-                <div className="an-act-b">
-                  <b>{a.text}</b>
-                  <small>
-                    {a.patient_id !== null
-                      ? <AppLink href={`/admin/patient/${a.patient_id}`}>{a.name}</AppLink>
-                      : a.name} · {a.who}
-                  </small>
-                </div>
-                <span>{a.at}</span>
-              </div>
-            ))}
-        </div>
-      </div>
-
-      <p className="hint">{d.hint}</p>
+      <StatsBoard
+        d={d}
+        live={live}
+        pick={pick}
+        onPick={(f, t2) => setDraft({ from: f, to: t2 })}
+        onPreset={go}
+        onApply={() => { void apply(pick.from, pick.to, d) }}
+        periodUrl={periodUrl}
+      />
     </section>
   )
 }

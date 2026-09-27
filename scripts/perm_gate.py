@@ -59,7 +59,7 @@ PROBE = """(() => {
 
 STATE = """JSON.stringify({
   href: location.pathname + location.search,
-  stats: location.pathname === '/admin/stats' && !!document.querySelector('.dp-react-root .nav b'),
+  stats: location.pathname === '/admin/stats' && !!document.querySelector('.dp-react-root .stx-kpis'),
   alerted: (() => { try { return sessionStorage.getItem('dpg_alerted') === '1' } catch (e) { return false } })(),
   alertNow: !!document.querySelector('.dp-react-root [role=alert]'),
   banner: (document.querySelector('.content .banner, .content .msg') || {}).textContent || '',

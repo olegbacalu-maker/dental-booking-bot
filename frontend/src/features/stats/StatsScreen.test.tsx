@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
 import { ApiError } from '../../types/api'
-import type { StatsData } from './stats'
+import type { Board, StatsData } from './stats'
 import { loadStats, StatsScreen } from './StatsScreen'
+import { niceStep } from './StatsCharts'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post, postForm } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postForm: vi.fn() }))
@@ -12,6 +13,52 @@ vi.mock('../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/api')>()
   return { ...real, api: { get, post, postForm }, loginUrl: () => '/admin/login?next=x' }
 })
+
+const NONE = { dir: '' as const, icon: '', value: '', label: 'față de săptămâna trecută', note: '' }
+
+const BOARD: Board = {
+  prev_name: 'săptămâna trecută',
+  kpis: [
+    { key: 'incasari', label: 'Încasări', icon: 'cash', text: '4 200 MDL', value: 4200,
+      badge: { dir: 'up', icon: 'caret-u', text: '+40%' },
+      trend: { dir: 'up', icon: 'caret-u', value: '+1 200 MDL', label: 'față de săptămâna trecută', note: '' },
+      prev: '3 000 MDL', sub: '3 plăți · medie 1 400 MDL', series: [0, 1200, 0, 3000, 0, 0, 0] },
+    { key: 'programari', label: 'Programări', icon: 'cal', text: '24', value: 24,
+      badge: { dir: 'up', icon: 'caret-u', text: '+12%' }, trend: NONE,
+      prev: '21', sub: '20 au venit · 3 anulate', series: [2, 4, 6, 3, 5, 2, 2] },
+    /* ⛔ Рост ПЛОХОГО: стрелка вверх, а направление `dn` — цвет красный. */
+    { key: 'prezenta', label: 'Rata de prezență', icon: 'checkin', text: '83%', value: 83,
+      badge: { dir: 'dn', icon: 'caret-u', text: '+50%' }, trend: NONE,
+      prev: '85%', sub: '2 neprezentări · cca 1 000 MDL pierdut', pct: 83 },
+    { key: 'ocupare', label: 'Grad de ocupare', icon: 'clock', text: '61%', value: 61,
+      badge: { dir: '', icon: '', text: '0 p.p.' }, trend: NONE,
+      prev: '61%', sub: '51 ore ocupate din 84 ore de lucru', pct: 61 },
+  ],
+  parts: [
+    { key: 'numerar', label: 'Numerar', value: 2000, text: '2 000 MDL', color: 'var(--teal)', pct: 48 },
+    { key: 'card', label: 'Card', value: 2200, text: '2 200 MDL', color: 'var(--blue)', pct: 52 },
+    { key: 'transfer', label: 'Transfer', value: 0, text: '0 MDL', color: 'var(--violet)', pct: 0 },
+  ],
+  series: {
+    bucket: 'day',
+    labels: ['15.09', '16.09', '17.09', '18.09', '19.09', '20.09', '21.09'],
+    hints: ['Lu, 15.09.2026', 'Ma, 16.09.2026', 'Mi, 17.09.2026', 'Jo, 18.09.2026',
+            'Vi, 19.09.2026', 'Sâ, 20.09.2026', 'Du, 21.09.2026'],
+    appts: [2, 4, 6, 3, 5, 2, 0],
+    income: [0, 1200, 0, 3000, 0, 0, 0],
+    income_text: ['0 MDL', '1 200 MDL', '0 MDL', '3 000 MDL', '0 MDL', '0 MDL', '0 MDL'],
+  },
+  summary: {
+    appts: { total: '24', avg: '4,0', best: 'Mi, 17.09.2026 · 6' },
+    income: { total: '4 200 MDL', avg: '700 MDL', best: 'Jo, 18.09.2026 · 3 000 MDL' },
+    work_days: 6,
+  },
+  money: {
+    estimated: '5 000 MDL', estimated_trend: NONE, cash: '4 200 MDL',
+    loss: 'cca 1 000 MDL', noshow: 2, today_cash: '0 MDL', today_estimated: '0 MDL',
+    link: { href: '/admin/casa', label: 'Raport de casă (azi)', icon: 'print' },
+  },
+}
 
 const WEEK: StatsData = {
   period: { from: '2026-09-15', to: '2026-09-21', label: '15.09.2026 — 21.09.2026',
@@ -22,37 +69,26 @@ const WEEK: StatsData = {
   ],
   compare: 'față de săptămâna trecută',
   export_url: '/admin/export.xlsx?from=2026-09-15&to=2026-09-21',
-  tiles: [
-    { key: 'total', label: 'Programări', value: 24, icon: 'cal', tone: 'var(--green)',
-      soft: 'var(--green-soft)', bad: false, series: [2, 4, 6, 3, 5, 2, 2],
-      trend: { dir: 'up', icon: 'caret-u', value: '12%',
-               label: 'față de săptămâna trecută', note: '' } },
-    { key: 'cancel', label: 'Anulate', value: 3, icon: 'ban', tone: 'var(--red)',
-      soft: 'var(--red-soft)', bad: true, series: [1, 0, 1, 0, 1, 0, 0],
-      trend: { dir: 'dn', icon: 'caret-u', value: '50%',
-               label: 'față de săptămâna trecută', note: '' } },
-  ],
+  /* Поля старой страницы едут в том же конверте (её рисует сервер для
+     `?ui=legacy`); экран их не читает. */
+  tiles: [],
   chart: {
-    labels: ['15.09', '16.09'], values: [2, 4],
-    title: 'Programări pe zile', sub: '· 15.09 — 21.09.2026', total: 24,
-    total_trend: { dir: '', icon: '', value: '', label: 'față de săptămâna trecută', note: '' },
-    present_pct: 83, noshow: 2, loss: 'cca 1 000 MDL pierdut',
+    labels: [], values: [], title: 'Programări pe zile', sub: '', total: 24,
+    total_trend: NONE, present_pct: 83, noshow: 2, loss: 'cca 1 000 MDL pierdut',
     wait: { text: '7 min', sub: '3 vizite măsurate' },
   },
   sources: { show: false, total: 24, parts: [] },
-  occupancy: { pct: 61, note: 'media 15.09–21.09 (7 zile)' },
-  money: [
-    { key: 'incasari', title: 'Încasări', sub: '· bani reali, 15.09–21.09',
-      value: 4200, text: '4 200 MDL', suffix: ' MDL',
-      trend: { dir: 'up', icon: 'caret-u', value: '+1 200 MDL',
-               label: 'față de săptămâna trecută', note: '' },
-      note: [{ icon: 'cash', t: '2 000 MDL' }, { icon: 'card', t: '2 200 MDL' }],
-      link: { href: '/admin/casa', label: 'Raport de casă (azi) ›', icon: 'print' } },
+  occupancy: { pct: 61, note: '' },
+  money: [],
+  doctors: [{ name: 'Dr. Ana', off: false, n: 12, came: 10, pres: 83, pct: 61,
+              id: 'd1', spec: 'Terapie', color: '#0E9F8A', initials: 'DA', photo: '' }],
+  services: [
+    { label: 'Consultație', cnt: 5, val: 'cca 0 MDL', val_n: 0, pct: 100 },
+    { label: 'Tratament carie', cnt: 3, val: 'cca 4 500 MDL', val_n: 4500, pct: 60 },
   ],
-  doctors: [{ name: 'Dr. Ana', off: false, n: 12, came: 10, pres: 83, pct: 61 }],
-  services: [{ label: 'Consultație', cnt: 5, val: 'cca 1 500 MDL', pct: 100 }],
   activity: [{ text: 'Fișă actualizată', name: 'Ion P', patient_id: 7,
                who: 'Ana', at: '21.09 10:20' }],
+  board: BOARD,
   hint: 'Prețurile sunt medii orientative din lista clinicii.',
 }
 
@@ -79,6 +115,12 @@ const serve = (path: string) => {
 }
 const lastPath = () => get.mock.lastCall?.[0] as string
 
+/* Поля периода живут за кнопкой «Interval»: открыть и взять оба поля. */
+function dateFields() {
+  fireEvent.click(screen.getByRole('button', { name: /Interval/ }))
+  return screen.getAllByDisplayValue(/2026-09/) as [HTMLInputElement, HTMLInputElement]
+}
+
 /* ⭐ F5: СВЕЖИЙ роутер на адресе, который экран записал, обязан попросить у
    сервера ТОТ ЖЕ период, что показывал экран до перезагрузки. */
 async function reload(router: ReturnType<typeof open>['router']) {
@@ -99,42 +141,48 @@ afterEach(() => {
 })
 
 describe('StatsScreen', () => {
-  it('период, плитки, врачи, услуги и лента — всё из одного конверта', async () => {
+  it('период, показатели, график, врачи, услуги и лента — всё из одного конверта', async () => {
     get.mockResolvedValueOnce(ok(WEEK))
     open()
     expect(await screen.findByText('15.09.2026 — 21.09.2026')).toBeTruthy()
-    expect(screen.getByText('Programări pe zile')).toBeTruthy()
+    expect(screen.getByText('Evoluție')).toBeTruthy()
+    expect(document.querySelectorAll('.stx-kpi').length).toBe(4)
     expect(screen.getByText('Dr. Ana')).toBeTruthy()
     expect(screen.getByText('Consultație')).toBeTruthy()
     expect(screen.getByText('Fișă actualizată')).toBeTruthy()
     /* Ссылка на фишу пациента из ленты — как на старой странице. */
     expect(screen.getByRole('link', { name: 'Ion P' }).getAttribute('href'))
       .toBe('/admin/patient/7')
+    /* Кольца источников нет: у клиники без бота это тавтология, а долю бота
+       сервер при живом боте пишет строкой разбора «Programări». */
+    expect(screen.queryByText('Surse programări')).toBeNull()
   })
 
   it('деньги показываются СТРОКОЙ СЕРВЕРА и с суффиксом валюты', async () => {
     get.mockResolvedValueOnce(ok(WEEK))
     open()
+    await screen.findByText('15.09.2026 — 21.09.2026')
     /* ⛔ `data-count` равен значению ВСЕГДА: анимация — представление, а не
-       источник правды (у легаси это контракт, проверки читают атрибут). */
-    const b = await screen.findByText('4 200 MDL')
+       источник правды. */
+    const b = document.querySelector('[data-kpi="incasari"] b[data-count]')!
     expect(b.getAttribute('data-count')).toBe('4200')
     /* ⚠️ Разделитель тысяч у счётчика свой (текст переписывается на каждом
-       кадре), и он обязан СОВПАДАТЬ со строкой сервера — иначе цифра меняет
-       вид в момент, когда анимация кончилась. */
-    expect(b.textContent).toBe(WEEK.money[0]!.text)
+       кадре), и он обязан СОВПАДАТЬ со строкой сервера. */
+    expect(b.textContent).toBe(BOARD.kpis[0]!.text)
+    /* У каждой карточки — значение прошлого периода, названного по имени. */
+    expect(screen.getAllByText('săptămâna trecută:', { exact: false }).length).toBe(4)
     expect(screen.getByRole('link', { name: /Raport de casă/ }).getAttribute('href'))
       .toBe('/admin/casa')
   })
 
-  it('рост плохого — стрелка вверх, но цвет КРАСНЫЙ: тон берётся у сервера', async () => {
+  it('метка сравнения: рост плохого — стрелка вверх, но цвет КРАСНЫЙ', async () => {
     get.mockResolvedValueOnce(ok(WEEK))
     open()
-    await screen.findByText('Anulate')
-    /* Отмены выросли на 50%: направление `dn` (плохо) при стрелке вверх.
-       Вычисли класс из знака числа — и рост неявок позеленел бы. */
-    const bad = screen.getByText('50%').closest('span')
-    expect(bad?.className).toBe('dn')
+    await screen.findByText('Rata de prezență')
+    /* Вычисли класс из знака числа — и рост неявок позеленел бы. */
+    expect(screen.getByText('+50%').closest('.stx-badge')?.className).toBe('stx-badge dn')
+    expect(screen.getByText('+40%').closest('.stx-badge')?.className).toBe('stx-badge up')
+    expect(screen.getByText('0 p.p.').closest('.stx-badge')?.className).toBe('stx-badge')
   })
 
   it('«неизменно» — это СЛОВО, а не нулевой процент', async () => {
@@ -143,11 +191,50 @@ describe('StatsScreen', () => {
     expect(await screen.findByText(/neschimbat față de săptămâna trecută/)).toBeTruthy()
   })
 
-  it('один источник — кольца нет вовсе: это тавтология, а не разбивка', async () => {
+  it('график: подсказка показывает значение, «Încasări» — деньгами сервера', async () => {
     get.mockResolvedValueOnce(ok(WEEK))
     open()
-    await screen.findByText('Programări pe zile')
-    expect(screen.queryByText('Surse programări')).toBeNull()
+    await screen.findByText('Evoluție')
+    const hits = () => document.querySelectorAll('.stx-hit')
+    expect(hits().length).toBe(7)
+    fireEvent.pointerDown(hits()[2]!)
+    expect(document.querySelector('.stx-tip')?.textContent).toBe('Mi, 17.09.2026' + '6 programări')
+    expect(screen.getByText('Mi, 17.09.2026 · 6')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Încasări' }))
+    expect(screen.getByRole('button', { name: 'Încasări' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.pointerDown(hits()[3]!)
+    expect(document.querySelector('.stx-tip')?.textContent).toBe('Jo, 18.09.2026' + '3 000 MDL')
+    expect(screen.getByText('Jo, 18.09.2026 · 3 000 MDL')).toBeTruthy()
+    /* ⭐ Нулевой день — пустое место, а не столбик в пиксель. */
+    expect(document.querySelectorAll('.stx-bar').length).toBe(2)
+  })
+
+  it('пустой период: фраза вместо пустой сетки', async () => {
+    const empty: StatsData = {
+      ...WEEK,
+      board: { ...BOARD, series: { ...BOARD.series, appts: [0, 0, 0, 0, 0, 0, 0] } },
+    }
+    get.mockResolvedValueOnce(ok(empty))
+    open()
+    expect(await screen.findByText('— nimic în perioada aleasă —')).toBeTruthy()
+    expect(document.querySelector('.stx-cols')).toBeNull()
+  })
+
+  it('врач — с аватаром от сервера; бесплатная услуга — без «cca 0 MDL»', async () => {
+    get.mockResolvedValueOnce(ok(WEEK))
+    open()
+    expect(await screen.findByText('DA')).toBeTruthy()
+    expect(screen.getByText('Terapie')).toBeTruthy()
+    expect(screen.queryByText('cca 0 MDL')).toBeNull()
+    expect(screen.getByText('cca 4 500 MDL')).toBeTruthy()
+  })
+
+  it('шкала оси «круглая»: 1, 2, 2.5, 5 × 10^k', () => {
+    expect(niceStep(4.8)).toBe(5)
+    expect(niceStep(0.3)).toBe(1)
+    expect(niceStep(2.2)).toBe(2.5)
+    expect(niceStep(4790)).toBe(5000)
+    expect(niceStep(12)).toBe(20)
   })
 
   it('готовый период меняет отбор и АДРЕС — закладка открывает тот же', async () => {
@@ -159,6 +246,8 @@ describe('StatsScreen', () => {
     }))
     const { router } = open()
     await screen.findByText('15.09.2026 — 21.09.2026')
+    /* Текущий готовый период отмечен, «Interval» — нет. */
+    expect(screen.getByRole('link', { name: '7 zile' }).getAttribute('aria-current')).toBe('true')
     fireEvent.click(screen.getByRole('link', { name: 'Azi' }))
     expect(await screen.findByText('21.09.2026 — 21.09.2026')).toBeTruthy()
     expect(get).toHaveBeenLastCalledWith('/stats?from=2026-09-21&to=2026-09-21',
@@ -203,13 +292,13 @@ describe('StatsScreen', () => {
     let answer: (r: ApiResult<StatsData>) => void = () => {}
     const { router } = open()
     await screen.findByText('15.09.2026 — 21.09.2026')
-    const [from, to] = screen.getAllByDisplayValue(/2026-09/) as [HTMLInputElement, HTMLInputElement]
+    const [from, to] = dateFields()
     fireEvent.change(from, { target: { value: '2026-09-21' } })
     fireEvent.change(to, { target: { value: '2026-09-10' } })
     /* Ответ загрузчика придержан: видно, что стоит на экране в этот миг. */
     get.mockImplementationOnce(serve)
     get.mockImplementationOnce(() => new Promise((res) => { answer = res }))
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Aplică' }))
     /* Перевёрнутый период уходит на проверку как набран, а загрузчику и в
        адрес — уже развёрнутым: адрес описывает то, что сервер покажет и
        после F5. */
@@ -235,10 +324,10 @@ describe('StatsScreen', () => {
     get.mockImplementation(serve)
     const { router } = open('/admin/stats?from=2026-09-10&to=2026-09-21')
     await screen.findByText('10.09.2026 — 21.09.2026')
-    const [from, to] = screen.getAllByDisplayValue(/2026-09/) as [HTMLInputElement, HTMLInputElement]
+    const [from, to] = dateFields()
     fireEvent.change(from, { target: { value: '2026-09-21' } })
     fireEvent.change(to, { target: { value: '2026-09-10' } })
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Aplică' }))
     /* Переход на ТОТ ЖЕ адрес роутер отрабатывает загрузчиком заново — иначе
        набранные перевёрнутыми цифры так и стояли бы в полях. */
     await waitFor(() => expect(from.value).toBe('2026-09-10'))
@@ -261,10 +350,10 @@ describe('StatsScreen', () => {
     get.mockImplementation(serve)
     const { router } = open()
     await screen.findByText('15.09.2026 — 21.09.2026')
-    const [from, to] = screen.getAllByDisplayValue(/2026-09/) as [HTMLInputElement, HTMLInputElement]
+    const [from, to] = dateFields()
     fireEvent.change(from, { target: { value: '2026-09-21' } })
     fireEvent.change(to, { target: { value: '2026-09-01' } })
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Aplică' }))
     expect(await screen.findByText('01.09.2026 — 21.09.2026')).toBeTruthy()
     await reload(router)
     expect(await screen.findByText('01.09.2026 — 21.09.2026')).toBeTruthy()
@@ -276,9 +365,10 @@ describe('StatsScreen', () => {
       { kind: 'validation', code: 'bad_period', text: 'Perioada aleasă nu este validă' },
       'bad_period'))
     const { router } = open()
-    const inputs = await screen.findAllByDisplayValue(/2026-09/)
-    fireEvent.change(inputs[0]!, { target: { value: '0012-09-15' } })
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+    await screen.findByText('15.09.2026 — 21.09.2026')
+    const [from] = dateFields()
+    fireEvent.change(from, { target: { value: '0012-09-15' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplică' }))
     expect(await screen.findByText('Perioada aleasă nu este validă')).toBeTruthy()
     /* Цифры остались теми, что человек набрал: экран не подменил их своими. */
     await waitFor(() => expect(screen.getByDisplayValue('0012-09-15')).toBeTruthy())
