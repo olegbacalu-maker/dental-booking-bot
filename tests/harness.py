@@ -26,7 +26,7 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]      # …\app
@@ -61,7 +61,8 @@ class Server:
 
     def __init__(self, clinic: str = "clinic_test.json", env: dict | None = None,
                  dir_: pathlib.Path | None = None,
-                 bot: pathlib.Path | None = None, keep_dir: bool = False):
+                 bot: pathlib.Path | None = None, keep_dir: bool = False,
+                 clock: "Clock | None" = None):
         """dir_ — переиспользовать папку данных ПРЕЖНЕГО сервера: так
         проверяется то, что живёт через рестарт (сигнализация auth.json,
         миграции). Чужую папку не удаляем — прибирает тот, кто её создал.
@@ -78,8 +79,13 @@ class Server:
         mutate.py). Нужен там, где проверяется поведение, которое иначе не
         вызвать снаружи: исполняется ли список шага миграции, что говорит
         программа, когда отказал не CREATE, а сам подсчёт конфликтов. ⚠️ Правка
-        вносится в КОПИЮ; настоящее дерево не трогается никогда."""
+        вносится в КОПИЮ; настоящее дерево не трогается никогда.
+
+        clock — поддельные часы сервера (`Clock`). Не назван — сервер берёт
+        часы блока `with Clock(…)`, внутри которого стартует, а вне блока
+        живёт по настоящим."""
         self.port = free_port()
+        self.clock = clock
         self.bot = pathlib.Path(bot) if bot else BOT
         self._made_dir = dir_ is None
         self._own_dir = self._made_dir and not keep_dir
@@ -129,6 +135,13 @@ class Server:
         return f"http://127.0.0.1:{self.port}"
 
     def __enter__(self) -> "Server":
+        # Часы — первыми. Не заведённые (`Server(clock=Clock(…))` без `with`) —
+        # отказ до старта, и песочница, которую завёл __init__, не остаётся.
+        self.clock = self.clock or (_CLOCKS[-1] if _CLOCKS else None)
+        if self.clock is not None and self.clock.file is None:
+            self.__exit__(None, None, None)
+            raise RuntimeError("часы не заведены: сервер под Clock стартует "
+                               "внутри `with Clock(…)`")
         # ⭐ У сервера СВОЙ %TEMP% — рядом с песочницей, а не в ней: бэкап
         # пакует папку данных, и временное легло бы в архив. Выгрузка пациента
         # и бэкап пишут туда архив и сносят его фоновой задачей через ~20 мс
@@ -139,6 +152,10 @@ class Server:
         # продукт прибрал за собой САМ, `self.tmp` виден, пока сервер жив.
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_srvtmp_"))
         env = dict(os.environ)
+        # Часы сервера назначает Clock. FAKECLOCK_FILE, унаследованный от
+        # прогона (ручная подмена до 27.09 ставилась на сам прогон), двигал бы
+        # серверы молча, а clinic_today() — нет. Названный в `env=` — действует.
+        env.pop("FAKECLOCK_FILE", None)
         env.update({
             "CLINIC_CONFIG": str(self.clinic),
             "DATABASE_URL": f"sqlite:///{self.dir / 'dental.db'}",
@@ -148,6 +165,10 @@ class Server:
             "TMPDIR": str(self.tmp), "TEMP": str(self.tmp), "TMP": str(self.tmp),
         })
         env.update(self.extra_env)
+        # Часы — ПОСЛЕ extra_env: PYTHONPATH, переданный набором, дополняется
+        # ими, а не затирает их
+        if self.clock is not None:
+            env.update(self.clock.env(env.get("PYTHONPATH", "")))
         # ⛔ Вывод сервера идёт в ФАЙЛ, а не в трубу. Труба здесь была, и её
         # никто не вычитывал: стоит серверу напечатать больше буфера окна
         # (17 КБ трейсбека хватает), как он встаёт на write НАВСЕГДА — набор
@@ -167,9 +188,19 @@ class Server:
                 raise self._startup_failed("сервер упал при старте")
             try:
                 with urllib.request.urlopen(self.url + "/health", timeout=1):
-                    return self
+                    pass
             except Exception:  # noqa: BLE001 — ещё не поднялся
                 time.sleep(0.3)
+                continue
+            # ⛔ Часы, которые не встали, НЕ падают: PYTHONPATH не дошёл или
+            # sitecustomize упал при импорте — `site` печатает ошибку и идёт
+            # дальше, и сервер молча жил бы по настоящему времени, а набор
+            # проверял бы не тот день. Отметку часы пишут в лог сами.
+            if self.clock is not None and _CLOCK_MARK not in self.log_text():
+                raise self._startup_failed(
+                    f"сервер поднялся мимо поддельных часов — в логе нет «{_CLOCK_MARK}»: "
+                    f"PYTHONPATH не дошёл или sitecustomize упал")
+            return self
         raise self._startup_failed("сервер не ответил на /health за 40 секунд")
 
     def _startup_failed(self, why: str) -> RuntimeError:
@@ -493,8 +524,125 @@ def clinic_today() -> date:
     раннер CI живёт по UTC: между 21:00 и 24:00 UTC у них разные даты, и
     всё, что брало `date.today()`, ночью краснело — «сегодня закрытый день»,
     баннер прошедшего часа, дата завершения визита, пустой день кассы
-    (18.09, четыре проверки). На ПК с местным поясом значение то же."""
-    return datetime.now(TZ).date()
+    (18.09, четыре проверки). На ПК с местным поясом значение то же.
+    Внутри `with Clock(…)` — день поддельных часов."""
+    return clinic_now().date()
+
+
+def clinic_now() -> datetime:
+    """«Сейчас» клиники — по поддельным часам, если идёт блок `with Clock(…)`."""
+    return _CLOCKS[-1].now() if _CLOCKS else datetime.now(TZ)
+
+
+# ---------- поддельные часы: прогон и сервер в назначенном времени ----------
+
+FAKECLOCK = pathlib.Path(__file__).resolve().parent / "fakeclock"
+_CLOCK_MARK = "[fakeclock]"         # отметка sitecustomize в логе сервера
+_CLOCKS: list["Clock"] = []         # действующие блоки, внутренний — последним
+
+
+def _retry(fn, budget: float = 2.0):
+    """Файл часов в это мгновение может читать сервер, а Windows не даёт
+    заменить или стереть файл, открытый чужим процессом. Чтение — микросекунды,
+    поэтому хватает короткого ожидания."""
+    deadline = time.time() + budget
+    while True:
+        try:
+            return fn()
+        except PermissionError:
+            if time.time() > deadline:
+                raise
+            time.sleep(0.01)
+
+
+class Clock:
+    """Поддельные часы: прогон и серверы живут в назначенном времени.
+
+        with Clock(datetime(2026, 10, 4, 10, 0, tzinfo=TZ)) as clock:
+            clinic_today()             # 04.10 — у прогона
+            with Server() as s:        # и у сервера: 04.10, 10:00, часы идут
+                clock.set(…)           # переставить обоих, сервер не гасится
+
+    Внутри блока `clinic_today()`/`clinic_now()` и КАЖДЫЙ `Server()`,
+    стартовавший в нём, идут по этим часам. Так существующий набор целиком
+    переезжает в воскресенье или в полночь одной строкой, без правки самого
+    набора (`test_react_default.suite_fresh_day_off`). `Server(clock=…)`
+    называет часы явно; из вложенных блоков действует внутренний. Наивное
+    время — стенные часы КЛИНИКИ.
+
+    Устройство: сдвиг от настоящего времени, секундами, в файле папки
+    прогона. Сервер перечитывает его на каждом now() —
+    `tests/fakeclock/sitecustomize.py` через PYTHONPATH, там же разобрано,
+    чего он не достаёт; прогон считает здесь той же формулой.
+    ⭐ Дважды подмену собирали руками вне репозитория — 24.09 (полночь живого
+    /admin) и 27.09 (воскресная краснота `suite_fresh`); отсюда харнесс.
+    ⚠️ В процессе ПРОГОНА двигаются только `clinic_today()`/`clinic_now()`:
+    `datetime.now(TZ)`, написанный в наборе прямо, и `app.*`, исполняемый в
+    самом прогоне, живут по настоящим часам. Набор, который пойдёт под часы,
+    берёт время у харнесса.
+    """
+
+    def __init__(self, at: datetime):
+        self._at = at
+        self._shift = timedelta(0)
+        self.file: pathlib.Path | None = None
+
+    def __enter__(self) -> "Clock":
+        fd, name = tempfile.mkstemp(prefix="dp_clock_", suffix=".txt", dir=RUN_TMP)
+        os.close(fd)
+        self.file = pathlib.Path(name)
+        try:
+            self.set(self._at)
+        except BaseException:
+            self.__exit__(None, None, None)   # `with` его после отказа не позовёт
+            raise
+        _CLOCKS.append(self)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if self in _CLOCKS:
+            _CLOCKS.remove(self)
+        if self.file is None:
+            return
+        for path in (self.file, self._next()):
+            try:
+                _retry(lambda p=path: p.unlink(missing_ok=True))
+            except OSError:
+                pass                     # останется — назовёт сторож уборки
+        self.file = None
+
+    def _next(self) -> pathlib.Path:
+        return self.file.with_name(self.file.name + ".new")
+
+    def set(self, at: datetime) -> None:
+        """Переставить часы — у прогона и у живых серверов разом.
+
+        ⚠️ Файл ЗАМЕНЯЕТСЯ целиком, а не переписывается на месте: чтение
+        между усечением и записью дало бы серверу пустой файл. Сервер,
+        прочитавший пустое или битое, держит прежний сдвиг."""
+        if self.file is None:
+            raise RuntimeError("часы не заведены: Clock работает внутри `with`")
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=TZ)
+        text = repr((at - datetime.now(timezone.utc)).total_seconds())
+        nxt = self._next()
+        nxt.write_text(text, encoding="utf-8")
+        _retry(lambda: os.replace(nxt, self.file))
+        self._shift = timedelta(seconds=float(text))
+
+    def now(self, tz=TZ) -> datetime:
+        """⭐ Сдвиг — к UTC, пояс — потом, как у сервера: у aware-даты сложение
+        идёт по стенным часам, и `now(tz) + сдвиг` через переход на зимнее
+        время ошибся бы на час."""
+        return (datetime.now(timezone.utc) + self._shift).astimezone(tz)
+
+    def env(self, pythonpath: str = "") -> dict:
+        """Окружение сервера под этими часами; прежний PYTHONPATH сохраняется."""
+        if self.file is None:
+            raise RuntimeError("часы не заведены: сервер под Clock стартует "
+                               "внутри `with Clock(…)`")
+        return {"PYTHONPATH": os.pathsep.join(p for p in (str(FAKECLOCK), pythonpath) if p),
+                "FAKECLOCK_FILE": str(self.file)}
 
 
 class Reply:

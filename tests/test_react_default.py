@@ -29,14 +29,15 @@ import re
 import shutil
 import sys
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
 from app import engine as eng  # noqa: E402
 from app.core import auth  # noqa: E402
-from harness import BOT, Client, Result, Server, clinic_today  # noqa: E402
+from harness import (BOT, TZ, Client, Clock, Result, Server,  # noqa: E402
+                     clinic_today)
 
 PIN = "43219876"
 MOUNT = 'data-screen="'
@@ -74,6 +75,18 @@ def _open_day(profile: pathlib.Path) -> date:
         if hours.get(eng._DOW[d.weekday()]):
             return d
     raise ValueError(f"в {profile.name} нет ни одного рабочего дня")
+
+
+def _day_off(profile: pathlib.Path) -> date | None:
+    """Ближайший ВЫХОДНОЙ клиники, начиная с сегодняшнего, — по тому же
+    правилу, что `_open_day` (пусто = выходной). Нет ни одного — None."""
+    hours = json.loads(profile.read_text(encoding="utf-8")).get("hours", {})
+    today = clinic_today()
+    for i in range(7):
+        d = today + timedelta(days=i)
+        if not hours.get(eng._DOW[d.weekday()]):
+            return d
+    return None
 
 
 def _ids(c: Client, day: str) -> tuple[dict, str]:
@@ -166,6 +179,31 @@ def suite_fresh(res: Result) -> None:
             res.ok("?ui=legacy возвращает старую страницу на один запрос",
                    legacy.status == 200 and MOUNT not in legacy.body,
                    f"HTTP {legacy.status}, узел React {'есть' if MOUNT in legacy.body else 'нет'}")
+
+
+def suite_fresh_day_off(res: Result) -> None:
+    """`suite_fresh` целиком — в выходной новой клиники (у неё это воскресенье).
+
+    ⚠️ Ветка выходного (`_open_day` пишет на следующий рабочий день) иначе
+    исполнялась бы только по воскресеньям — и ломалась бы молча шесть дней из
+    семи: до 27.09 (dcf65a5) набор писал «на сегодня» и краснел раз в неделю
+    без единой правки кода. Поддельные часы (`harness.Clock`) ставят прогон и
+    сервер в ближайший выходной, 10:00 клиники, — ветка идёт в КАЖДОМ прогоне.
+    ⚠️ Метки — с приставкой «выходной:»: итог прогона печатает метки без имени
+    набора, и краснота выходного читалась бы как будничная.
+    """
+    day = _day_off(BOT / "app" / "clinic_new.json")
+    if not res.ok("у новой клиники есть выходной", day is not None,
+                  "в clinic_new.json все семь дней рабочие: ветки выходного у "
+                  "новой клиники нет, и набор проверял бы будний день дважды"):
+        return
+    sub = Result()
+    try:
+        with Clock(datetime.combine(day, time(10, 0), tzinfo=TZ)):
+            suite_fresh(sub)
+    finally:
+        res.passed += [f"выходной: {label}" for label in sub.passed]
+        res.failed += [(f"выходной: {label}", why) for label, why in sub.failed]
 
 
 def suite_switch_off(res: Result) -> None:

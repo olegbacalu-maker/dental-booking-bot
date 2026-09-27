@@ -36,6 +36,7 @@ import test_day_forms  # noqa: E402
 import test_grid  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
+import test_harness_clock  # noqa: E402
 import test_harness_tmp  # noqa: E402
 import test_launcher  # noqa: E402
 import test_installer  # noqa: E402
@@ -97,6 +98,9 @@ SUITES = [
     # Два сервера, пара секунд: сломанная уборка харнесса не краснеет нигде
     # больше — её выдаёт только заполняющийся диск.
     ("Сторожа: уборка временного прогона", test_harness_tmp.suite_run_tmp),
+    # Три сервера, секунды: часы, которые не встали, тоже не краснеют сами —
+    # набор под ними проверял бы не тот день, и зелёным.
+    ("Сторожа: поддельные часы харнесса", test_harness_clock.suite_clock),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Выпуск: подпись — exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
@@ -215,6 +219,8 @@ SUITES = [
     ("React-экран: рубильник и старая форма", test_api.suite_switch),
     ("Продукт: чистая установка открывается на React",
      test_react_default.suite_fresh),
+    ("Продукт: чистая установка — и в выходной клиники",
+     test_react_default.suite_fresh_day_off),
     ("Продукт: аварийный выключатель React", test_react_default.suite_switch_off),
     ("Врачи: старые POST без проверок", test_doctors.suite_legacy),
     ("Врачи: JSON API", test_doctors.suite_api),
