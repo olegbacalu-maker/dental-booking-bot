@@ -29,10 +29,12 @@ import re
 import shutil
 import sys
 import tempfile
+from datetime import date, timedelta
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
+from app import engine as eng  # noqa: E402
 from app.core import auth  # noqa: E402
 from harness import BOT, Client, Result, Server, clinic_today  # noqa: E402
 
@@ -54,15 +56,41 @@ def _fresh(dir_: pathlib.Path) -> None:
         encoding="utf-8")
 
 
-def _ids(c: Client, day: str) -> dict:
-    c.post("/admin/add", adate=day, atime="09:00", adoctor="d1",
-           aservice="consult", aname="Proba Noua", aphone="069000077",
-           back="/admin/all")
+def _open_day(profile: pathlib.Path) -> date:
+    """Ближайший день, когда клиника работает, начиная с сегодняшнего.
+
+    ⚠️ У новой клиники воскресенье закрыто (`"sun": null` в `clinic_new.json`),
+    и запись «на сегодня» по воскресеньям получала `outside`: ни пациента, ни
+    визита, экраны с номером в адресе отвечали 404 — набор краснел раз в
+    неделю без единой правки кода (27.09). Часы — из того профиля, который
+    читает СЕРВЕР, по правилу `engine.hours_for` (пусто = выходной). Сам
+    `hours_for` здесь не годится: engine в процессе прогона держит другой
+    профиль (демо или подменённый соседним набором), и ответ был бы про
+    чужую клинику."""
+    hours = json.loads(profile.read_text(encoding="utf-8")).get("hours", {})
+    today = clinic_today()
+    for i in range(7):
+        d = today + timedelta(days=i)
+        if hours.get(eng._DOW[d.weekday()]):
+            return d
+    raise ValueError(f"в {profile.name} нет ни одного рабочего дня")
+
+
+def _ids(c: Client, day: str) -> tuple[dict, str]:
+    """Номера для адресов экранов и код, которым журнал ответил на запись."""
+    r = c.post("/admin/add", adate=day, atime="09:00", adoctor="d1",
+               aservice="consult", aname="Proba Noua", aphone="069000077",
+               back="/admin/all")
     rows = json.loads(c.get("/api/patients?q=Proba").body)["data"]["rows"]
-    today = json.loads(c.get("/api/doctors/d1").body)["data"]["today"]
-    return {"pid": str(rows[0]["id"]) if rows else "",
-            "dk": "d1",
-            "appt_id": str(today[0]["id"]) if today else ""}
+    pid = str(rows[0]["id"]) if rows else ""
+    # ⚠️ Визит — из фиши пациента, а не из «сегодня» врача: день записи не
+    # обязан быть сегодняшним (`_open_day`). Отдельная ветка «если не сегодня»
+    # исполнялась бы только по воскресеньям — и проверялась бы тоже только
+    # по воскресеньям.
+    visits = (json.loads(c.get(f"/api/patients/{pid}").body)
+              ["data"]["visits"]["history"] if pid else [])
+    return ({"pid": pid, "dk": "d1",
+             "appt_id": str(visits[0]["id"]) if visits else ""}, r.msg)
 
 
 def _fill(path: str, ids: dict) -> str:
@@ -81,12 +109,19 @@ def suite_fresh(res: Result) -> None:
     with tempfile.TemporaryDirectory(prefix="dp_fresh_") as td:
         dir_ = pathlib.Path(td)
         _fresh(dir_)
-        day = clinic_today().isoformat()
+        day = _open_day(dir_ / "clinic.json").isoformat()
         with Server(dir_=dir_,
                     env={"DENTART_ENV_FILE": str(dir_ / "dental.env")}) as s:
             c = Client(s.url).login(PIN)
             res.check("вход ПИНом состоялся", c.get("/admin").status, 200)
-            ids = _ids(c, day)
+            ids, booked = _ids(c, day)
+            # ⭐ Предусловие — своей проверкой. Без номеров экраны ниже отвечают
+            # 404, и краснеет «поверхность не React» — не та причина; а
+            # обратная половина пропускает 404 как «своё предусловие» и молча
+            # проверяет меньше страниц.
+            res.ok("пациент и визит для адресов с номером заведены",
+                   bool(ids["pid"] and ids["appt_id"]),
+                   f"/admin/add на {day} 09:00 ответил {booked!r}")
 
             bad = []
             for r in rows:
