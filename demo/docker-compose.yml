@@ -1,0 +1,59 @@
+# Живое демо demo.dentpilot.md — свой проект compose, своя сеть, свои лимиты.
+# На сервере маркетплейса стоит РЯДОМ с его стеком, не внутри: ни их nginx,
+# ни их сети, ни их сертификаты не трогаются — наружу демо выходит только
+# через Cloudflare Tunnel (сервис tunnel), порт 8090 на хост не публикуется.
+#
+#   cd ~/dentpilot-demo/src/demo
+#   cp .env.example .env     # TUNNEL_TOKEN вписывает владелец, в репозиторий не едет
+#   docker compose up -d --build
+#
+# Локально (без туннеля, порт на 127.0.0.1): см. docker-compose.local.yml.
+name: dentpilot-demo
+
+services:
+  demo:
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+    image: dentpilot-demo:local
+    restart: unless-stopped
+    environment:
+      DEMO_SLOTS: ${DEMO_SLOTS:-6}
+      DEMO_TTL_MIN: ${DEMO_TTL_MIN:-60}
+      DEMO_SITE_URL: ${DEMO_SITE_URL:-https://dentpilot.md}
+      DEMO_SECURE_COOKIE: ${DEMO_SECURE_COOKIE:-1}
+    volumes:
+      # данные демо — в памяти и с потолком: копии живут час, а диск сервера
+      # общий с маркетплейсом; переполнение упрётся в этот предел, не в диск
+      - type: tmpfs
+        target: /data
+        tmpfs:
+          size: 1073741824
+          # процесс в образе — не root (uid 10001): без mode tmpfs ложится
+          # root-ом с 755, и шлюз не может создать даже шаблон
+          mode: 0o1777
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - demo
+    profiles: ["tunnel"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

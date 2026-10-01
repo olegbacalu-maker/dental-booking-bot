@@ -1,0 +1,10 @@
+# Локальная проверка образа — без туннеля, порт на loopback, кука без Secure:
+#   docker compose -f demo/docker-compose.yml -f demo/docker-compose.local.yml up -d --build
+#   http://127.0.0.1:8090/
+services:
+  demo:
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      DEMO_SECURE_COOKIE: "0"
+      DEMO_SLOTS: "2"

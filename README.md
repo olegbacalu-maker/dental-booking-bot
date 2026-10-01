@@ -460,6 +460,16 @@ DB credentials in compose are demo-only; Postgres is bound to loopback.
 `Backup-Db.ps1` / `Restore-Db.ps1` dump and restore the database (`--clean`, 14-backup
 retention) — the restore path is verified by a fire drill into a throwaway container.
 
+## Live demo (demo.dentpilot.md)
+
+The "Try the demo" button on the website opens the *real* desktop edition (SQLite) behind a
+small gate: every visitor gets a private copy of a fictional clinic, seeded from "today",
+reset after an hour. The program runs with `DENTART_DEMO=1` (`bot/app/core/demo.py`): one
+flag, one list of closed routes (update, database key, backup/restore, PIN and users, bot
+token, LAN, licence) that closes pages, JSON and the settings tiles alike, and a banner on
+every screen. The gate, the seed and the image live in [`demo/`](demo/README.md), outside
+`bot/`, so none of it ships to clinics.
+
 ## Data and privacy
 
 The patient card stores a full date of birth, sex, IDNP (validated), insurance, address,

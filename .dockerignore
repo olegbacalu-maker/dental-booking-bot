@@ -1,0 +1,27 @@
+# Контекст сборки образа демо (demo/Dockerfile) — корень репозитория.
+# Без этого файла в контекст уехали бы окружение сборки и node_modules.
+.git
+.venv-desktop
+.venv*
+frontend/node_modules
+frontend/dist
+dist
+build
+installer/Output
+**/__pycache__
+*.pyc
+*.exe
+*.log
+sandbox
+design
+review
+docs
+tests
+screens
+.env
+demo/.env
+bot/app/static/js/bundle.js
+bot/app/static/js/bundle.js.map
+bot/app/static/css/bundle.css
+bot/app/static/js/three.js
+bot/app/static/js/three-core.js
