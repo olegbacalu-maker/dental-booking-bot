@@ -873,8 +873,9 @@ def cont_register_submit(request: Request, name: str = Form(""), idno: str = For
                          contact_name: str = Form(""), phone: str = Form(""), consent: str = Form("")) -> Response:
     """Регистрация = заявка на пробный теми же правилами, что /proba (лимит с адреса,
     trial.clean, одна клиника на IDNO/e-mail); e-mail — ящик Google. Повтор по IDNO
-    объявляется (409) и уходит письмом Олегу: кабинет — не оракул о чужих клиниках,
-    но вошедший уже назвал себя Google-ящиком."""
+    (директор входит личным Gmail, а клиника заведена с другим ящиком) — код на
+    ящик клиники, как у программы на новом компьютере: страница кода, письмо
+    Олегу. Ящика у клиники нет или лимит — 409 словами."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
     with db.connect() as con:
@@ -891,16 +892,54 @@ def cont_register_submit(request: Request, name: str = Form(""), idno: str = For
     if code:
         return HTMLResponse(views.cont_register_page(acc, code, f), status_code=400)
     trial.note(ip)
+    vid = link_code = ""
     with db.connect(immediate=True) as con:
         outcome, clinic = account.register(con, acc, f, ip)
+        if outcome == trial.DUPLICATE:
+            vid, link_code = account.request_link(con, acc, clinic, ip)
+    if vid:
+        subject, body = mail.link_code(clinic["name"], link_code, int(trial.CODE_TTL.total_seconds() // 60),
+                                       acc["email"])
+        try:
+            mail.send(clinic["email"], subject, body)
+        except (RuntimeError, OSError, ValueError) as e:
+            log.error("код подключения клинике %s не отправлен: %r", clinic["id"], e)
+            vid = ""                   # кода у клиники нет — и вводить нечего
     trial.notify(clinic, outcome, ip, f, trial.ORIGIN_CONT)
     if outcome == trial.DUPLICATE:
+        if vid:
+            return HTMLResponse(views.cont_code_page(acc, vid))
         return HTMLResponse(views.cont_register_page(acc, "duplicate", f), status_code=409)
     if outcome == trial.REQUESTED:
         trial.acknowledge(clinic)
     issued = outcome in (trial.ISSUED, trial.ISSUED_UNMAILED)
     return RedirectResponse(f"/cont?msg={'registered_issued' if issued else 'registered_requested'}",
                             status_code=303)
+
+
+@app.post("/cont/inregistrare/cod", response_class=HTMLResponse)
+def cont_register_code(request: Request, verify_id: str = Form(""), code: str = Form("")) -> Response:
+    """Код с ящика клиники → Google-аккаунт привязан к клинике с этим IDNO. Тот же
+    activation_codes, что у программы на новом компьютере: одноразовый, CODE_TTL,
+    CODE_ATTEMPTS ошибок на код, VERIFY_PER_HOUR проверок с адреса."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        acc = _current_account(con, request)
+    if acc is None:
+        return _cont_login_redirect()
+    if acc["clinic_id"]:
+        return RedirectResponse("/cont", status_code=303)
+    ip = _ip(request)
+    vid = verify_id.strip()[:64]
+    code = "".join(code.split())[:12]
+    if trial.verify_limited(ip):
+        return HTMLResponse(views.cont_code_page(acc, vid, "code_limited"), status_code=429)
+    with db.connect(immediate=True) as con:
+        clinic = account.confirm_link(con, acc, vid, code, ip) if vid and code else None
+    if clinic is None:
+        return HTMLResponse(views.cont_code_page(acc, vid, "bad_code"), status_code=400)
+    return RedirectResponse("/cont?msg=linked", status_code=303)
 
 
 def _cont_clinic(request: Request, con):

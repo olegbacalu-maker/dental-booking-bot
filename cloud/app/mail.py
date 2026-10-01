@@ -213,9 +213,10 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
     program, cont = origin == "program", origin == "cont"
     if cont:
         dup = ("ПОВТОР из кабинета: клиника с этим IDNO уже есть, а вошедший Google-ящик — другой; "
-               "регистрации отказано словами «scrieți-ne». Если это та же клиника (новый директор?) — "
-               "впишите ей новый e-mail в карточке и отвяжите старую запись; кабинет откроется "
-               "при следующем входе")
+               "на ящик клиники ушёл код для подключения этого аккаунта (как у программы на новом "
+               "компьютере) — верный код привязывает его к клинике. Кода в журнале нет (у клиники "
+               "нет e-mail или лимит) — регистрации отказано словами «scrieți-ne»: ответьте клинике "
+               "сами (новый e-mail в карточке, старую запись отвязать)")
     elif program:
         dup = ("ПОВТОР из программы: клиника с этим IDNO или e-mail уже есть — на её e-mail ушёл "
                "код активации (новый компьютер?); если кода нет в журнале, ответьте клинике сами")
@@ -290,6 +291,21 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
             f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele."
             + (f" {DECLARATION_NOTE}" if declaration else "") + "\n\n"
             f"{FOOTER}")
+    return subject, body
+
+
+def link_code(clinic: str, code: str, minutes: int, google_email: str) -> tuple[str, str]:
+    """Клинике: код для подключения Google-аккаунта к её кабинету (01.10). Идёт на
+    ящик, записанный у клиники: кто его читает, тот и решает, пускать ли. Ящик
+    просителя назван — клиника видит, кто стучится."""
+    subject = f"DentPilot: codul pentru conectarea contului clinicii {clinic}"
+    body = (f"Bună ziua,\n\n"
+            f"Contul Google {google_email} cere acces la contul clinicii {clinic} pe {CONT_URL}. "
+            f"Dacă sunteți dvs. sau o persoană din clinică, introduceți în pagina de înregistrare "
+            f"codul: {code}\n\n"
+            f"Codul este valabil {minutes} minute și se folosește o singură dată.\n\n"
+            f"Dacă nu ați cerut acest cod, ignorați mesajul: fără el nimeni nu poate intra în contul "
+            f"clinicii.\n\n{FOOTER}")
     return subject, body
 
 

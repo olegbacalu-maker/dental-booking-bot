@@ -231,22 +231,23 @@ def _code_hash(vid: str, code: str) -> str:
     return hashlib.sha256(f"{vid}:{code}".encode("utf-8")).hexdigest()
 
 
-def new_code(con: sqlite3.Connection, clinic: sqlite3.Row, ip: str) -> tuple[str, str]:
+def new_code(con: sqlite3.Connection, clinic: sqlite3.Row, ip: str, who: str = "program") -> tuple[str, str]:
     """Код для клиники → (verify_id, код) или ('', ''): у клиники нет ящика или
-    лимит кодов за час исчерпан. Письмо шлёт вызывающий — после транзакции."""
+    лимит кодов за час исчерпан. Письмо шлёт вызывающий — после транзакции.
+    `who` — кто просит: программа или Google-аккаунт из кабинета (01.10)."""
     now = datetime.now(timezone.utc)
     hour_ago = (now - timedelta(hours=1)).strftime(db.TS)
     recent = con.execute("SELECT count(*) FROM activation_codes WHERE clinic_id=? AND created_at > ?",
                          (clinic["id"], hour_ago)).fetchone()[0]
     if not clinic["email"] or recent >= CODES_PER_HOUR:
-        db.audit(con, "program", "code_limit", clinic["id"], ip)
+        db.audit(con, who, "code_limit", clinic["id"], ip)
         return "", ""
     vid = secrets.token_urlsafe(18)
     code = f"{secrets.randbelow(10 ** 6):06d}"
     con.execute("INSERT INTO activation_codes(id, clinic_id, code_hash, created_at, expires_at) "
                 "VALUES(?,?,?,?,?)", (vid, clinic["id"], _code_hash(vid, code), now.strftime(db.TS),
                                       (now + CODE_TTL).strftime(db.TS)))
-    db.audit(con, "program", "code_sent", clinic["id"], f"на {clinic['email']}, {ip}")
+    db.audit(con, who, "code_sent", clinic["id"], f"на {clinic['email']}, {ip}")
     return vid, code
 
 
@@ -259,7 +260,8 @@ def verify_limited(ip: str) -> bool:
     return len(stamps) >= VERIFY_PER_HOUR
 
 
-def check_code(con: sqlite3.Connection, vid: str, code: str, ip: str) -> sqlite3.Row | None:
+def check_code(con: sqlite3.Connection, vid: str, code: str, ip: str,
+               who: str = "program") -> sqlite3.Row | None:
     """Верный живой код → клиника (код погашен); иначе None, и ошибка засчитана коду."""
     row = con.execute("SELECT * FROM activation_codes WHERE id=?", (vid,)).fetchone()
     now = datetime.now(timezone.utc)
@@ -268,10 +270,10 @@ def check_code(con: sqlite3.Connection, vid: str, code: str, ip: str) -> sqlite3
         return None
     if not hmac.compare_digest(row["code_hash"], _code_hash(vid, code)):
         con.execute("UPDATE activation_codes SET attempts = attempts + 1 WHERE id=?", (vid,))
-        db.audit(con, "program", "code_bad", row["clinic_id"], ip)
+        db.audit(con, who, "code_bad", row["clinic_id"], ip)
         return None
     con.execute("UPDATE activation_codes SET used_at=? WHERE id=?", (now.strftime(db.TS), vid))
-    db.audit(con, "program", "code_ok", row["clinic_id"], ip)
+    db.audit(con, who, "code_ok", row["clinic_id"], ip)
     # заявку скрыли, пока код шёл: токена скрытой клинике не будет (её IDNO и ящик свободны)
     return con.execute("SELECT * FROM clinics WHERE id=? AND declined_at IS NULL",
                        (row["clinic_id"],)).fetchone()

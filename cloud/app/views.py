@@ -458,8 +458,9 @@ CONT_MSG = {
                          "pe e-mail; îl găsiți și mai jos.",
     "registered_requested": "Clinica a fost înregistrată. Cererea de probă a fost primită — vă răspundem pe "
                             "e-mail în cel mult o zi lucrătoare.",
-    "duplicate": "O clinică cu acest IDNO este deja înregistrată la DentPilot. Am notat cererea și vă "
-                 "răspundem pe e-mail.",
+    "duplicate": "O clinică cu acest IDNO este deja înregistrată la DentPilot, dar codul de conectare nu a "
+                 "putut fi trimis pe e-mailul ei. Am notat cererea și vă răspundem pe e-mail.",
+    "linked": "Contul Google a fost conectat la clinică.",
     "saved": "Datele clinicii au fost salvate.",
     "idno_taken": "Acest IDNO este deja înregistrat la altă clinică — scrieți-ne.",
     "no_file": "Fișierul de licență nu a fost emis încă.",
@@ -471,7 +472,8 @@ CONT_MSG = {
     "bad_months": "Alegeți o lună sau un an.",
     "closed": "Cererea clinicii a fost închisă — scrieți-ne.",
 }
-_CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists"}
+_CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
+            "linked"}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
             "readonly": ("bad", "regim de citire"), "none": ("mute", "fără fișier")}
 PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
@@ -561,6 +563,24 @@ def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
              f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
              f"</label></p><p><button class='primary'>Înregistrez clinica</button></p></form></div>")
     return _cont_shell("Înregistrarea clinicii", inner, acc, msg)
+
+
+def cont_code_page(acc, vid: str, msg: str = "") -> str:
+    """Повтор по IDNO: код ушёл на ящик клиники (01.10). Сам ящик не называется —
+    страница не оракул о том, чей e-mail у клиники; письмо называет Google-ящик
+    просителя, чтобы клиника видела, кто стучится."""
+    minutes = int(trial.CODE_TTL.total_seconds() // 60)
+    inner = (f"<div class='card'><p>O clinică cu acest IDNO este deja înregistrată la DentPilot. Am trimis un "
+             f"cod de 6 cifre pe e-mailul înregistrat al clinicii: introduceți-l mai jos și contul Google "
+             f"<b>{esc(acc['email'])}</b> va fi conectat la clinică. Codul este valabil {minutes} minute.</p>"
+             f"<form method='post' action='/cont/inregistrare/cod'>"
+             f"<input type='hidden' name='verify_id' value='{esc(vid)}'>"
+             f"<label>Codul din e-mail</label><input name='code' inputmode='numeric' maxlength='12' "
+             f"autocomplete='one-time-code' required>"
+             f"<p><button class='primary'>Conectează contul</button></p></form>"
+             f"<p class='muted'>Nu aveți acces la e-mailul clinicii? <a href='/cont/inregistrare'>Înapoi la "
+             f"înregistrare</a> sau scrieți-ne.</p></div>")
+    return _cont_shell("Conectarea contului", inner, acc, msg)
 
 
 def _pay_tag_ro(status: str) -> str:

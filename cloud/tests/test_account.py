@@ -219,6 +219,13 @@ def _accounts(s: Server):
     return _sql(s, "SELECT id, subject, email, name, clinic_id FROM accounts ORDER BY created_at")
 
 
+def _acc_clinic(s: Server, email: str):
+    """clinic_id записи по ящику: created_at с точностью до секунды, порядок двух
+    записей одной секунды не определён — искать по ящику, не по индексу."""
+    rows = _sql(s, "SELECT clinic_id FROM accounts WHERE email=?", email)
+    return rows[0][0] if rows else "нет записи"
+
+
 def suite_login(res: Result) -> None:
     """Вход: без настройки — словами; с настройкой — state, nonce, кука, отказы токена, выход."""
     with Server() as s:
@@ -459,28 +466,78 @@ def suite_link_and_duplicate(res: Result) -> None:
         res.check("файл до выдачи — no_file", c.get("/cont/licenta.json").location, "/cont?msg=no_file")
         admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
         res.ok("после выдачи кабинет показывает файл", "/cont/licenta.json" in c.get("/cont").body)
-        # повтор по IDNO: другой Google-ящик вписывает чужой IDNO
-        g.identity = dict(sub="g-stranger", email="stranger@example.md", name="Ion", email_verified=True)
+        # повтор по IDNO: директор входит ЛИЧНЫМ Gmail (Олег 01.10), а клиника
+        # заведена с другим ящиком — код на ящик клиники, как у программы (L17)
+        g.identity = dict(sub="g-second", email="second@gmail.com", name="Ion", email_verified=True)
         d = Client(s.url)
         res.check("новый ящик — регистрация", _google_login(d, s, g).location, "/cont/inregistrare")
         n = len(_letters(s))
-        r = d.post("/cont/inregistrare", name="Clinica Străină", idno="1111111111111", consent="1")
-        res.ok("тот же IDNO: 409 словами, клиники нет, запись не привязана",
-               r.status == 409 and "deja înregistrată" in r.body and len(_sql(s, "SELECT 1 FROM clinics")) == 1
-               and _accounts(s)[1][4] is None, f"{r.status} {r.body[-500:]}")
-        last = _letters(s)[-1]
-        res.ok("Олегу письмо «ПОВТОР из кабинета» с тем, что вписали",
-               len(_letters(s)) == n + 1 and last[0] == "oleg@example.md" and "ПОВТОР из кабинета" in last[2]
-               and "stranger@example.md" in last[2] and "Clinica Străină" in last[1], last[2][-400:])
+        r = d.post("/cont/inregistrare", name="Clinica Veche", idno="1111111111111", consent="1")
+        res.ok("тот же IDNO: страница кода (200), ящик клиники не назван, клиники второй нет, запись не привязана",
+               r.status == 200 and "name='code'" in r.body and "name='verify_id'" in r.body
+               and "clinica-test.md" not in r.body.lower() and len(_sql(s, "SELECT 1 FROM clinics")) == 1
+               and _acc_clinic(s, "second@gmail.com") is None, f"{r.status} {r.body[-700:]}")
+        vid = re.search(r"name='verify_id' value='([^']+)'", r.body).group(1)
+        by_to = {t: (sub, body) for t, sub, body, _ in _letters(s)[n:]}
+        res.ok("два письма: код на ящик клиники с Google-ящиком просителя, Олегу «ПОВТОР из кабинета» с кодом в журнале",
+               len(by_to) == 2 and "conectarea contului" in by_to["Director@Clinica-Test.md"][0]
+               and "second@gmail.com" in by_to["Director@Clinica-Test.md"][1]
+               and "ПОВТОР из кабинета" in by_to["oleg@example.md"][1] and "second@gmail.com" in by_to["oleg@example.md"][1],
+               repr({t: v[0] for t, v in by_to.items()}))
+        code = re.search(r"codul: (\d{6})", by_to["Director@Clinica-Test.md"][1]).group(1)
         res.check("журнал: trial_duplicate без clinic_id",
                   _sql(s, "SELECT count(*) FROM audit WHERE what='trial_duplicate' AND clinic_id IS NULL")[0][0], 1)
-        # честная регистрация в режиме approve
+        res.check("журнал: code_sent от имени Google-ящика просителя, на карточке клиники",
+                  _sql(s, "SELECT who, clinic_id FROM audit WHERE what='code_sent'"), [("second@gmail.com", cid)])
+        wrong = "000000" if code != "000000" else "111111"
+        r = d.post("/cont/inregistrare/cod", verify_id=vid, code=wrong)
+        res.ok("неверный код — 400 словами, запись не привязана",
+               r.status == 400 and "nu este corect" in r.body and _acc_clinic(s, "second@gmail.com") is None, f"{r.status}")
+        r = d.post("/cont/inregistrare/cod", verify_id=vid, code=code)
+        res.ok("верный код: аккаунт привязан к клинике с этим IDNO, в кабинет",
+               r.status == 303 and r.location == "/cont?msg=linked" and _acc_clinic(s, "second@gmail.com") == cid,
+               f"{r.status} {r.location}")
+        home = d.get("/cont?msg=linked")
+        res.ok("кабинет второго человека — та же клиника", "Clinica Veche" in home.body and "conectat" in home.body)
+        res.ok("у клиники две записи кабинета — обе в карточке админки",
+               len(_sql(s, "SELECT 1 FROM accounts WHERE clinic_id=?", cid)) == 2
+               and all(e in admin.get(f"/admin/clinics/{cid}").body for e in ("Director@Clinica-Test.md", "second@gmail.com")))
+        res.ok("чужой Origin на коде — 403",
+               d.post("/cont/inregistrare/cod", verify_id="x", code="1",
+                      headers={"Origin": "http://evil.example", "Host": f"127.0.0.1:{s.port}"}).status == 403)
+        # код сгорает после CODE_ATTEMPTS ошибок — верный после них не пускает
+        g.identity = dict(sub="g-burn", email="burn@gmail.com", name="B", email_verified=True)
+        b = Client(s.url)
+        _google_login(b, s, g)
+        n = len(_letters(s))
+        r = b.post("/cont/inregistrare", name="Clinica Veche", idno="1111111111111", consent="1")
+        vid_b = re.search(r"name='verify_id' value='([^']+)'", r.body).group(1)
+        code_b = re.search(r"codul: (\d{6})", [body for t, _, body, _ in _letters(s)[n:] if t == "Director@Clinica-Test.md"][0]).group(1)
+        for _ in range(trial.CODE_ATTEMPTS):
+            b.post("/cont/inregistrare/cod", verify_id=vid_b, code="999999" if code_b != "999999" else "888888")
+        r = b.post("/cont/inregistrare/cod", verify_id=vid_b, code=code_b)
+        res.ok("после пяти ошибок верный код сгорел: 400, не привязано",
+               r.status == 400 and _acc_clinic(s, "burn@gmail.com") is None, f"{r.status}")
+        # клиника без ящика: кода не отправить — 409 словами
+        cid_nomail = cid_from(admin.post("/admin/clinics", name="Clinica Fără Mail", idno="2222222222222").location)
+        n = len(_letters(s))
+        r = b.post("/cont/inregistrare", name="Clinica Fără Mail", idno="2222222222222", consent="1")
+        res.ok("IDNO клиники без e-mail: 409 «codul nu a putut fi trimis», Олегу письмо, записи нет",
+               r.status == 409 and "nu a putut fi trimis" in r.body and _acc_clinic(s, "burn@gmail.com") is None
+               and len(_letters(s)) == n + 1 and _letters(s)[-1][0] == "oleg@example.md", f"{r.status}")
+        res.check("журнал: code_limit на карточке клиники без ящика",
+                  _sql(s, "SELECT count(*) FROM audit WHERE what='code_limit' AND clinic_id=?", cid_nomail)[0][0], 1)
+        # честная регистрация в режиме approve — третий ящик, своя клиника
+        g.identity = dict(sub="g-stranger", email="stranger@example.md", name="Ion", email_verified=True)
+        d = Client(s.url)
+        res.check("третий ящик — регистрация", _google_login(d, s, g).location, "/cont/inregistrare")
         n = len(_letters(s))
         r = d.post("/cont/inregistrare", name="Clinica Străină", idno="", contact_name="Ion", consent="1")
         res.ok("approve: заявка принята, в кабинет с «cererea primită»",
                r.location == "/cont?msg=registered_requested", r.location)
-        cid2 = _accounts(s)[1][4]
-        res.ok("клиника заведена без файла, привязана", cid2 and not _sql(s, "SELECT 1 FROM issues WHERE clinic_id=?", cid2))
+        cid2 = _acc_clinic(s, "stranger@example.md")
+        res.ok("клиника заведена без файла, привязана",
+               cid2 not in (None, "нет записи") and not _sql(s, "SELECT 1 FROM issues WHERE clinic_id=?", cid2))
         by_to = {t: (sub, body) for t, sub, body, _ in _letters(s)[n:]}
         res.ok("письма: Олегу «ждёт решения», клинике «primită» с адресом кабинета",
                "ждёт решения" in by_to["oleg@example.md"][1] and "/cont" in by_to["stranger@example.md"][1]
