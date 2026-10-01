@@ -160,7 +160,13 @@ then a two-column workspace.
   description rather than drawn — see *Design decisions*.
   A third view, **3D**, shows both arches in three.js on the same server data (sizes, states,
   colours) — a render of the same model, never a source of clinical truth; it loads on
-  demand and prints nothing.
+  demand and prints nothing. The camera flies to the selected tooth (F, the *Apropie*
+  button or a double-click) and a view button brings it back. The legend under either
+  view is a filter: press *Carie* and every tooth that is not about caries fades, in 2D
+  and in 3D alike, with a count next to each item; the filter is the screen's own and
+  never reaches a save or a print. A tooth's menu and its inspector offer *Adaugă în
+  plan*: a plan item with that tooth's number, posted to the same plan route as the form
+  in the card.
 
   Three things there answer three *different* questions, and each of them used to be one
   column too few:
