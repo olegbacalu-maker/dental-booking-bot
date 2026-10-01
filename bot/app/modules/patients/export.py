@@ -97,7 +97,9 @@ async def collect(pid: int) -> dict | None:
         "generat_la": datetime.now(eng.TZ).isoformat(timespec="seconds"),
         # кто оператор данных — первое, что должно быть видно в копии
         "clinica": {"nume": eng.CLINIC_NAME, "telefon": eng.CLINIC_PHONE,
-                    "adresa": (eng.CONFIG or {}).get("address", {})},
+                    "adresa": (eng.CONFIG or {}).get("address", {}),
+                    # оператор данных по 195-му — юрлицо, как на acord
+                    "denumirea_juridica": eng.CLINIC_LEGAL, "idno": eng.CLINIC_IDNO},
         "pacient": p,
         "programari": await db.patient_appointments(pid, _ALL),
         "atentionari": await db.patient_alerts(pid),

@@ -82,6 +82,11 @@ def _load_config() -> dict:
 CONFIG: dict = {}
 CLINIC_NAME = ""
 CLINIC_PHONE = ""
+# Юридическое лицо для подписываемых бумаг (01.10, просьба Олега): оператор
+# данных в acord 195, учреждение в шапке 043/e и prestator в acord informat.
+# Пусто — на листах стоит вывесочное имя и жёлтый пропуск под IDNO.
+CLINIC_LEGAL = ""      # «Denumirea juridică» (SRL …); пусто = как CLINIC_NAME
+CLINIC_IDNO = ""       # 13 цифр или пусто
 # Профиль клиники не прочитался, и запасной .bak тоже ('' = конфиг живой).
 # Ставит _load_config при старте; main.py по этому флагу НЕ открывает базу и
 # поднимает экран ошибки вместо журнала — работать на вшитой демо-клинике
@@ -258,10 +263,12 @@ def _prices_text(lang: str) -> str:
 
 def apply_config(cfg: dict) -> None:
     """Применяет конфиг клиники на лету: справочники, цены, тексты, приветствие."""
-    global CONFIG, CLINIC_NAME, CLINIC_PHONE, HELLO
+    global CONFIG, CLINIC_NAME, CLINIC_PHONE, CLINIC_LEGAL, CLINIC_IDNO, HELLO
     CONFIG = cfg
     CLINIC_NAME = cfg["name"]
     CLINIC_PHONE = cfg["phone"]
+    CLINIC_LEGAL = str(cfg.get("legal_name") or "").strip() or CLINIC_NAME
+    CLINIC_IDNO = str(cfg.get("idno") or "").strip()
     DOCTORS.clear()
     ACTIVE_DOCTORS.clear()
     DOCTOR_SPEC.clear()

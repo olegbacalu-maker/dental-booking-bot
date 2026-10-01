@@ -284,7 +284,11 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro") -> str:
     lang = lang if lang in LANGS else "ro"
     t = _T[lang]
     other = "ru" if lang == "ro" else "ro"
-    clinic = e(eng.CLINIC_NAME)
+    # prestator — юрлицо с IDNO (01.10), как оператор в acord 195: подписанный
+    # лист обязан называть, с кем именно договорился пациент
+    clinic = e(eng.CLINIC_LEGAL) + (
+        f" ({e(eng.CLINIC_NAME)})" if eng.CLINIC_LEGAL != eng.CLINIC_NAME else "")
+    idno = _fill(eng.CLINIC_IDNO, "«IDNO»")
     phone = e(eng.CLINIC_PHONE)
     addr = e((eng.CONFIG or {}).get("address", {}).get(lang, "")
              or (eng.CONFIG or {}).get("address", {}).get("ro", ""))
@@ -358,7 +362,7 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro") -> str:
 <b>{_fill(p.get("name"), t["name_blank"])}</b><br>
 {t["birth"]}: {_fill(dmy(p.get("birth_date")))} · IDNP: {_fill(p.get("idnp"))} ·
 {t["phone"]}: {_fill(p.get("phone"))} · {t["file"]} {e(file_no)}<br>
-{t["clinic_h"]}: <b>{clinic}</b>{(", " + addr) if addr else ""}, {phone}
+{t["clinic_h"]}: <b>{clinic}</b>, IDNO {idno}{(", " + addr) if addr else ""}, {phone}
 </div>
 
 <h2>{t["h_diag"]}</h2>

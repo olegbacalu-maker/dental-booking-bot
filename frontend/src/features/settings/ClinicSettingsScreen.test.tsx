@@ -19,6 +19,8 @@ const SAMPLE: ClinicSettings = {
   name: 'Clinica Test',
   phone: '+373 60 000 000',
   address: { ro: 'str. Test 1, Cahul', ru: '' },
+  legal_name: 'Dent Art SRL',
+  idno: '1003600012345',
   template: false,
   hint: 'Programul încă are datele de exemplu.',
 }
@@ -57,6 +59,9 @@ describe('ClinicSettingsScreen', () => {
     expect(input('Telefon').value).toBe('+373 60 000 000')
     expect(input('Adresa (RO)').value).toBe('str. Test 1, Cahul')
     expect(input('Adresa (RU)').value).toBe('')
+    expect(input('Denumirea juridică').value).toBe('Dent Art SRL')
+    expect(input('IDNO').value).toBe('1003600012345')
+    expect(input('IDNO').getAttribute('inputmode')).toBe('numeric')
     expect(input('Nume').disabled).toBe(false)
     expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('false')
     expect(get).toHaveBeenCalledWith('/settings/clinic', expect.anything())
@@ -91,6 +96,8 @@ describe('ClinicSettingsScreen', () => {
       name: '  Clinica Nouă  ',
       phone: '+373 60 000 000',
       address: { ro: 'str. Test 1, Cahul', ru: '' },
+      legal_name: 'Dent Art SRL',
+      idno: '1003600012345',
     })
     expect(input('Nume').value).toBe('Clinica Nouă')
     expect(screen.getByRole('status').getAttribute('data-kind')).toBe('ok')
@@ -122,6 +129,21 @@ describe('ClinicSettingsScreen', () => {
     expect(input('Nume').getAttribute('aria-invalid')).toBe('true')
     expect(input('Telefon').getAttribute('aria-invalid')).toBeNull()
     expect(input('Nume').disabled).toBe(false)
+  })
+
+  it('422 на IDNO: подсвечивается именно поле IDNO', async () => {
+    get.mockResolvedValueOnce(ok(SAMPLE))
+    post.mockRejectedValueOnce(new ApiError(
+      { kind: 'validation', code: 'bad_set', text: 'Setări invalide', field: 'idno' }, 'v'))
+    open()
+    await screen.findByDisplayValue('Clinica Test')
+    fireEvent.change(input('IDNO'), { target: { value: '12345' } })
+    fireEvent.click(screen.getByRole('button', { name: /Salvează/ }))
+    expect(await screen.findByText('Setări invalide')).toBeTruthy()
+    expect(input('IDNO').getAttribute('aria-invalid')).toBe('true')
+    expect(input('Nume').getAttribute('aria-invalid')).toBeNull()
+    expect(input('IDNO').value).toBe('12345')
+    expect(post).toHaveBeenCalledWith('/settings/clinic', expect.objectContaining({ idno: '12345' }))
   })
 
   it('500 (save_err): текст сервера, поля не подсвечены', async () => {
@@ -201,5 +223,7 @@ describe('ClinicSettingsScreen', () => {
     expect(input('Nume').maxLength).toBe(80)
     expect(input('Telefon').maxLength).toBe(30)
     expect(input('Adresa (RO)').maxLength).toBe(120)
+    expect(input('Denumirea juridică').maxLength).toBe(120)
+    expect(input('IDNO').maxLength).toBe(13)
   })
 })

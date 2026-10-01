@@ -323,7 +323,11 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
     t = _T[lang]
     other = "ru" if lang == "ro" else "ro"
     plan_ro = PLAN_RO if lang == "ro" else PLAN_RU
-    clinic = e(eng.CLINIC_NAME)
+    # учреждение в шапке бланка — юрлицо (01.10); вывесочное имя рядом, если
+    # отличается; IDNO из настроек, пустое — жёлтым под штамп, как раньше
+    clinic = e(eng.CLINIC_LEGAL) + (
+        f" ({e(eng.CLINIC_NAME)})" if eng.CLINIC_LEGAL != eng.CLINIC_NAME else "")
+    idno = _fill(eng.CLINIC_IDNO, "«IDNO»")
     addr = e((eng.CONFIG or {}).get("address", {}).get(lang, "")
              or (eng.CONFIG or {}).get("address", {}).get("ro", ""))
     phone = e(eng.CLINIC_PHONE)
@@ -433,7 +437,7 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
 
 <div class="hdr">
   <div>{theme.print_logo()}Ministerul Sănătății al Republicii Moldova<br>
-  <b>{clinic}</b> · IDNO <span class="fill">«IDNO»</span><br>
+  <b>{clinic}</b> · IDNO {idno}<br>
   {addr or "<span class='fill'>«adresa»</span>"} · tel. {phone}</div>
   <div class="r">Formularul nr. <b>043/e</b><br>
   aprobat prin Ordinul MS RM<br>nr. 828 din 31.10.2011</div>

@@ -17,9 +17,10 @@
 Юридические имена (Legea 195/2024, CNPDCP, IDNO/IDNP) не переводятся.
 
 Данные подставляются из фиши; незаполненное поле печатается жёлтым пропуском —
-приём из документов lege-195: на бумаге видно, что дописать ручкой. IDNO
-клиники в профиле нет — оно всегда жёлтым (вписывается один раз штампом или
-ручкой; заводить поле в настройках ради одной строки не стали).
+приём из документов lege-195: на бумаге видно, что дописать ручкой. Оператор
+данных — ЮРЛИЦО: «Denumirea juridică» и IDNO из настроек клиники (01.10,
+просьба Олега; до того IDNO всегда шло жёлтым под штамп). Пустое поле — по-
+прежнему жёлтый пропуск, а имя — вывесочное.
 
 Подписанный лист сканируют и грузят в документы пациента — так факт подписи
 попадает и в выгрузку по 195-му. Отметки «подписан» в базе нет намеренно:
@@ -206,7 +207,10 @@ def render(p: dict, lang: str = "ro") -> str:
     lang = lang if lang in LANGS else "ro"
     t = _T[lang]
     other = "ru" if lang == "ro" else "ro"
-    clinic = e(eng.CLINIC_NAME)
+    # оператор — юрлицо; вывесочное имя рядом в скобках, если отличается
+    clinic = e(eng.CLINIC_LEGAL) + (
+        f" ({e(eng.CLINIC_NAME)})" if eng.CLINIC_LEGAL != eng.CLINIC_NAME else "")
+    idno = _fill(eng.CLINIC_IDNO, "«IDNO»")
     phone = e(eng.CLINIC_PHONE)
     addr = e((eng.CONFIG or {}).get("address", {}).get(lang, "")
              or (eng.CONFIG or {}).get("address", {}).get("ro", ""))
@@ -238,7 +242,7 @@ def render(p: dict, lang: str = "ro") -> str:
 
 <h2>{t["h_op"]}</h2>
 <p>{t["op"]} <b>{clinic}</b>,
-IDNO <span class="fill">«IDNO»</span>, {addr or "<span class='fill'>«adresa»</span>"},
+IDNO {idno}, {addr or "<span class='fill'>«adresa»</span>"},
 {t["op_tel"]} {phone}.</p>
 
 <h2>{t["h_data"]}</h2>

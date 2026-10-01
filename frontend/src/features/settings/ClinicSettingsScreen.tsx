@@ -20,21 +20,30 @@ const T = {
   phone: 'Telefon',
   addrRo: 'Adresa (RO)',
   addrRu: 'Adresa (RU)',
+  legal: 'Denumirea juridică',
+  legalPh: 'ex. Dent Art SRL',
+  idno: 'IDNO',
+  idnoPh: '13 cifre',
   save: 'Salvează',
   hintA: 'Numele, telefonul și adresa apar în bot (',
   hintB:
     'contacte), în bara laterală a registrului și pe documentele tipărite ' +
-    '(043/e, acord, raport de casă). Restul secțiunilor nu sunt atinse la salvare.',
+    '(043/e, acord, raport de casă). Denumirea juridică și IDNO apar doar pe documentele ' +
+    'semnate de pacient (acord, 043/e); necompletate — rămân un spațiu galben, de completat cu ștampila. ' +
+    'Restul secțiunilor nu sunt atinse la salvare.',
   /* Единственный текст, которого сервер дать не может: его самого не было. */
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
   retry: 'Reîncearcă',
   legacy: 'Varianta clasică',
 } as const
 
-const EMPTY: ClinicForm = { name: '', phone: '', address: { ro: '', ru: '' } }
+const EMPTY: ClinicForm = { name: '', phone: '', address: { ro: '', ru: '' }, legal_name: '', idno: '' }
 
 function toForm(d: ClinicSettings): ClinicForm {
-  return { name: d.name, phone: d.phone, address: { ro: d.address.ro, ru: d.address.ru } }
+  return {
+    name: d.name, phone: d.phone, address: { ro: d.address.ro, ru: d.address.ru },
+    legal_name: d.legal_name, idno: d.idno,
+  }
 }
 
 interface Props {
@@ -124,6 +133,12 @@ export function ClinicSettingsScreen({ navigate = defaultNavigate }: Props) {
             <Row id="dp-addr-ru" label={T.addrRu} value={form.address.ru} max={120}
               invalid={false} disabled={busy}
               onChange={(v) => set({ address: { ...form.address, ru: v } })} />
+            <Row id="dp-legal" label={T.legal} value={form.legal_name} max={120}
+              invalid={false} disabled={busy} placeholder={T.legalPh}
+              onChange={(v) => set({ legal_name: v })} />
+            <Row id="dp-idno" label={T.idno} value={form.idno} max={13} numeric
+              invalid={invalid === 'idno'} disabled={busy} placeholder={T.idnoPh}
+              onChange={(v) => set({ idno: v })} />
           </tbody>
         </table>
         <p className="hint">{T.hintA}<Icon name="phone" /> {T.hintB}</p>
@@ -147,9 +162,12 @@ interface RowProps {
   onChange: (value: string) => void
   /** Первый ряд задаёт ширину колонки подписей — как у старой таблицы. */
   first?: boolean
+  placeholder?: string
+  /** Цифровая клавиатура на планшете (IDNO). */
+  numeric?: boolean
 }
 
-function Row({ id, label, value, max, invalid, disabled, onChange, first }: RowProps) {
+function Row({ id, label, value, max, invalid, disabled, onChange, first, placeholder, numeric }: RowProps) {
   return (
     <tr>
       <th style={first ? { width: 180 } : undefined}>
@@ -163,6 +181,8 @@ function Row({ id, label, value, max, invalid, disabled, onChange, first }: RowP
           maxLength={max}
           disabled={disabled}
           aria-invalid={invalid || undefined}
+          placeholder={placeholder}
+          inputMode={numeric ? 'numeric' : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       </td>

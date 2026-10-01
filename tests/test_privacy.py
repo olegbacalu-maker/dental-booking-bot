@@ -472,6 +472,36 @@ def suite_acord(res: Result) -> None:
                "06.05.1990" in b and "1990-05-06" not in b,
                "в шапке формуляра сырой ISO из базы")
 
+        # ⭐ Оператор данных — ЮРЛИЦО (01.10, просьба Олега): до заполнения
+        # IDNO стоит жёлтым пропуском под штамп, после — цифрами из настроек,
+        # и то же на 043/e и на acord informat к плану. Пустое юрлицо = имя.
+        res.ok("без IDNO в профиле — жёлтый пропуск «IDNO»",
+               "«IDNO»" in b and "class='fill'>«IDNO»" in b, "пропуска IDNO нет")
+        r = c.post_json("/api/settings/clinic",
+                        {"name": "Clinica Test", "phone": "+373 60 000 000",
+                         "address": {"ro": "str. Test 1, Cahul", "ru": ""},
+                         "legal_name": "Dent Art SRL", "idno": "1003 6000 12345"})
+        res.check("юрлицо и IDNO сохраняются (пробелы в IDNO срезаны)",
+                  json.loads(r.body)["data"]["idno"], "1003600012345")
+        for path, what in ((f"/admin/patient/{pid}/acord", "acord 195"),
+                           (f"/admin/patient/{pid}/fisa043", "043/e"),
+                           (f"/admin/patient/{pid}/plan-acord", "acord informat")):
+            page = c.get(path).body
+            res.ok(f"{what}: IDNO из настроек, пропуска нет",
+                   "1003600012345" in page and "«IDNO»" not in page,
+                   f"{what} не взял IDNO из профиля")
+            res.ok(f"{what}: юрлицо с вывесочным именем рядом",
+                   "Dent Art SRL" in page and "(Clinica Test)" in page,
+                   f"{what} не называет юрлицо")
+        r = c.post_json("/api/settings/clinic",
+                        {"name": "Clinica Test", "phone": "+373 60 000 000",
+                         "idno": "12345"})
+        res.check("IDNO не из 13 цифр — 422 с полем idno",
+                  (r.status, json.loads(r.body).get("field")), (422, "idno"))
+        res.ok("отказ не тронул профиль",
+               json.loads(s.clinic.read_text(encoding="utf-8"))["idno"] == "1003600012345",
+               "кривой IDNO записался")
+
 
 def suite_bot_notice(res: Result) -> None:
     """Уведомление об обработке — в момент, когда бот впервые просит имя."""

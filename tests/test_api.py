@@ -102,6 +102,8 @@ def suite_clinic(res: Result) -> None:
         res.check("GET: адрес RO", d["address"]["ro"], "str. Test 1, Cahul")
         res.check("GET: адрес RU", d["address"]["ru"], "ул. Тест 1, Кахул")
         res.check("GET: профиль не шаблонный", d["template"], False)
+        res.check("GET: юрлицо и IDNO есть в конверте, по умолчанию пустые",
+                  (d["legal_name"], d["idno"]), ("", ""))
         res.ok("GET: подсказка шаблона есть в конверте (для пустого состояния)",
                "datele de exemplu" in d["hint"], d["hint"])
         res.ok("GET: успех без кода — пустой текст, tone ok",
@@ -142,10 +144,18 @@ def suite_clinic(res: Result) -> None:
                "Clinica Nouă" in c.get("/admin/settings/clinic").body,
                "старая форма показывает не то, что сохранил API")
         r = c.post("/admin/settings/save", part="clinic", name="Clinica Veche",
-                   phone="+373 60 111 222", addr_ro="str. Nouă 2", addr_ru="")
+                   phone="+373 60 111 222", addr_ro="str. Nouă 2", addr_ru="",
+                   legal_name="Veche SRL", idno="1003600012345")
         res.check("старая форма всё ещё сохраняет", r.msg, "ok_set")
         res.check("API видит правку старой формы",
                   _j(c.get(API))["data"]["name"], "Clinica Veche")
+        res.check("старая форма пишет юрлицо и IDNO тем же путём",
+                  (_j(c.get(API))["data"]["legal_name"], _j(c.get(API))["data"]["idno"]),
+                  ("Veche SRL", "1003600012345"))
+        res.ok("старая форма показывает оба поля",
+               "name='legal_name'" in c.get("/admin/settings/clinic").body
+               and "1003600012345" in c.get("/admin/settings/clinic").body,
+               "полей юрлица нет на старой форме")
 
         # ---- отказы: тот же _val_clinic, что у формы, плюс имя поля ----
         r = c.post_json(API, {"name": "", "phone": "1"})

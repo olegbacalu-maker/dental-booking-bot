@@ -541,9 +541,13 @@ async def settings_clinic(request: Request, msg: str = ""):
 <tr><th>Telefon</th><td><input type='text' name='phone' value='{e(cfg["phone"])}'></td></tr>
 <tr><th>Adresa (RO)</th><td><input type='text' name='addr_ro' value='{e(cfg.get("address", {}).get("ro", ""))}'></td></tr>
 <tr><th>Adresa (RU)</th><td><input type='text' name='addr_ru' value='{e(cfg.get("address", {}).get("ru", ""))}'></td></tr>
+<tr><th>Denumirea juridică</th><td><input type='text' name='legal_name' maxlength='120' placeholder='ex. Dent Art SRL' value='{e(cfg.get("legal_name") or "")}'></td></tr>
+<tr><th>IDNO</th><td><input type='text' name='idno' maxlength='13' inputmode='numeric' placeholder='13 cifre' value='{e(cfg.get("idno") or "")}'></td></tr>
 </table>
 <p class='hint'>Numele, telefonul și adresa apar în bot ({_ic('phone')} contacte), în bara laterală
 a registrului și pe documentele tipărite (043/e, acord, raport de casă).
+Denumirea juridică și IDNO apar doar pe documentele semnate de pacient (acord, 043/e);
+necompletate — rămân un spațiu galben, de completat cu ștampila.
 Restul secțiunilor nu sunt atinse la salvare.</p>
 <button class='savebtn'>{_ic('save')} Salvează</button>
 </form>"""
@@ -1095,8 +1099,16 @@ def _val_clinic(data: dict) -> dict:
         raise ValueError("phone")
     addr_ro = str(data.get("address", {}).get("ro", "")).strip()[:120]
     addr_ru = str(data.get("address", {}).get("ru", "")).strip()[:120]
+    # юрлицо и IDNO — для подписываемых бумаг; оба необязательны (пустое =
+    # вывесочное имя и жёлтый пропуск на листе), но набранный IDNO обязан
+    # быть 13 цифрами: ошибка в нём уехала бы на acord и 043/e молча
+    legal = str(data.get("legal_name", "")).strip()[:120]
+    idno = re.sub(r"[\s.-]", "", str(data.get("idno", "")))
+    if idno and not re.fullmatch(r"\d{13}", idno):
+        raise ValueError("idno")
     return {"name": name, "phone": phone,
-            "address": {"ro": addr_ro, "ru": addr_ru}}
+            "address": {"ro": addr_ro, "ru": addr_ru},
+            "legal_name": legal, "idno": idno}
 
 
 def _val_theme(data: dict) -> dict:
@@ -1518,7 +1530,9 @@ async def admin_settings_save(request: Request, payload: str = Form(""),
             cfg = _finish_cfg(**_val_clinic({
                 "name": form.get("name", ""), "phone": form.get("phone", ""),
                 "address": {"ro": form.get("addr_ro", ""),
-                            "ru": form.get("addr_ru", "")}}))
+                            "ru": form.get("addr_ru", "")},
+                "legal_name": form.get("legal_name", ""),
+                "idno": form.get("idno", "")}))
         elif part == "hours":
             cfg = _finish_cfg(hours=_val_hours(json.loads(payload)))
         elif part == "services":

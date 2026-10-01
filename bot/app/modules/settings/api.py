@@ -55,6 +55,9 @@ def _clinic_data() -> dict:
         "name": cfg.get("name", ""),
         "phone": cfg.get("phone", ""),
         "address": {"ro": addr.get("ro", ""), "ru": addr.get("ru", "")},
+        # юрлицо и IDNO — только для подписываемых бумаг; пусто = как было
+        "legal_name": cfg.get("legal_name") or "",
+        "idno": cfg.get("idno") or "",
         # профиль ещё шаблонный (демо-данные): экран говорит об этом тем же
         # текстом, что и баннер каркаса, — источник у фразы один
         "template": bool(cfg.get("template")),
@@ -83,11 +86,13 @@ async def api_clinic_save(request: Request):
     try:
         cfg = _finish_cfg(**_val_clinic({
             "name": body.get("name", ""), "phone": body.get("phone", ""),
-            "address": {"ro": addr.get("ro", ""), "ru": addr.get("ru", "")}}))
+            "address": {"ro": addr.get("ro", ""), "ru": addr.get("ru", "")},
+            "legal_name": body.get("legal_name", ""),
+            "idno": body.get("idno", "")}))
     except ValueError as e:
-        # _val_clinic называет виновное поле («name» / «phone») — оно уезжает
-        # клиенту, чтобы подсветить именно его; прочие ValueError без поля
-        field = str(e) if str(e) in ("name", "phone") else ""
+        # _val_clinic называет виновное поле («name» / «phone» / «idno») — оно
+        # уезжает клиенту, чтобы подсветить именно его; прочие ValueError без поля
+        field = str(e) if str(e) in ("name", "phone", "idno") else ""
         return msg_json(False, "bad_set", status=422, field=field)
     except (KeyError, TypeError):
         return msg_json(False, "bad_set", status=422)
