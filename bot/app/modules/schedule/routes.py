@@ -39,6 +39,7 @@ from ...core.visits import (SVC_PALETTE, _STATUS_ICON, _card_modal,
 from . import canvas as pcanvas
 from . import chair as pchair
 from . import day as pday
+from . import desk as pdesk
 from . import panel as ppanel
 from . import week as pweek
 
@@ -1414,6 +1415,11 @@ async def _panel_live(d: date, now: datetime) -> dict:
         "note_actions": all_status_actions(is_note=True),
         "note_ends": pday.note_ends(d),
         "slotform": pday.slot_form(d),
+        # ---- «La recepție» (01.10): списки стойки — тем же конвертом ----
+        # ⭐ Про СЕГОДНЯ (`now`), а не про день, на который смотрят: звонки на
+        # завтра и касса не зависят от листания календаря. В конверте — чтобы
+        # отметка звонка со второго места доехала живым каналом, как запись.
+        "desk": await pdesk.desk_model(now),
     }
 
 

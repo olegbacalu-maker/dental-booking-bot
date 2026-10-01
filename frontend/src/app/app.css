@@ -1091,6 +1091,76 @@
 .stx-doc b { display: block; font-weight: 600; }
 .stx-doc small { display: block; color: var(--text3); font-size: var(--fs-xs); }
 
+/* «La recepție» (01.10): рабочие списки регистратуры в правой колонке главной
+   — вместо карточки «Azi». Карточка — тот же рецепт, что .rkpi в panel.css. */
+.desk {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--sh); padding: 13px 15px;
+}
+.dk-h { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.dk-h b { font-size: var(--fs-m); font-weight: 600; }
+.dk-h small { font-size: var(--fs-xs); color: var(--text3); }
+.dk-sec { border-top: 1px solid var(--line2); padding: 8px 0 4px; }
+.dk-sec > summary {
+  list-style: none; display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 2px 0;
+}
+.dk-sec > summary::-webkit-details-marker { display: none; }
+.dk-ico {
+  width: 28px; height: 28px; flex: 0 0 28px; border-radius: var(--r-chip);
+  display: flex; align-items: center; justify-content: center;
+}
+.dk-ico svg { width: 16px; height: 16px; }
+.dk-ico.blue, .dk-cnt.blue { background: var(--blue-soft); color: var(--blue); }
+.dk-ico.green, .dk-cnt.green { background: var(--green-soft); color: var(--green-t); }
+.dk-ico.amber, .dk-cnt.amber { background: var(--amber-soft); color: var(--amber-t); }
+.dk-ico.red, .dk-cnt.red { background: var(--red-soft); color: var(--red-t); }
+.dk-st { display: flex; flex-direction: column; min-width: 0; flex: 1; font-size: var(--fs-m); font-weight: 600; }
+.dk-st small { font-size: var(--fs-xs); font-weight: 400; color: var(--text3); }
+.dk-cnt { font-size: var(--fs-xs); font-weight: 600; padding: 2px 8px; border-radius: var(--r-tab); white-space: nowrap; }
+.dk-list {
+  display: flex; flex-direction: column; gap: 2px; margin: 6px -4px 0; padding: 0 4px;
+  max-height: 232px; overflow-y: auto;
+}
+.dk-row { display: flex; align-items: center; gap: 9px; padding: 6px 6px; border-radius: var(--r-s); }
+.dk-row:hover { background: var(--line2); }
+.dk-row.slim { padding: 4px 6px; }
+.dk-row.done { opacity: .55; }
+.dk-t { font-size: var(--fs-s); font-weight: 600; color: var(--text2); width: 38px; flex: 0 0 38px; font-variant-numeric: tabular-nums; }
+.dk-b { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dk-b a { text-decoration: none; color: inherit; }
+.dk-b a:hover b { color: var(--teal-d); }
+.dk-b b { font-size: var(--fs-m); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-b small { font-size: var(--fs-xs); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-b small svg { width: 12px; height: 12px; vertical-align: -2px; }
+.dk-ok { color: var(--green-t) !important; font-weight: 600; }
+.dk-no { color: var(--amber-t) !important; font-weight: 600; }
+.dk-act { display: flex; gap: 4px; flex: 0 0 auto; }
+.dk-btn {
+  width: 30px; height: 30px; border-radius: var(--r-s); border: 1px solid var(--line);
+  background: var(--panel); color: var(--text2); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0;
+}
+.dk-btn svg { width: 15px; height: 15px; }
+.dk-btn.ok:hover { background: var(--green-soft); color: var(--green-t); border-color: transparent; }
+.dk-btn.no:hover { background: var(--amber-soft); color: var(--amber-t); border-color: transparent; }
+.dk-btn:disabled { opacity: .5; cursor: default; }
+.dk-sum { font-size: var(--fs-s); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dk-sum.bad { color: var(--red-t); }
+.dk-when { font-size: var(--fs-s); font-weight: 600; color: var(--text2); white-space: nowrap; text-decoration: none; }
+.dk-when.today { color: var(--green-t); }
+.dk-more, .dk-lnk {
+  font-size: var(--fs-s); color: var(--teal-d); text-decoration: none; background: none; border: 0;
+  padding: 0; cursor: pointer; font-weight: 600;
+}
+.dk-more { padding: 4px 6px; }
+.dk-cash {
+  display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; padding: 8px 10px;
+  background: var(--line2); border-radius: var(--r-s); font-size: var(--fs-s);
+}
+.dk-cash svg { width: 16px; height: 16px; color: var(--text2); flex: 0 0 16px; }
+.dk-cash > span { flex: 1; min-width: 0; }
+.dk-cash small { color: var(--text3); }
+
 /* Полоса рисков под шапкой фиши (01.10): на всех вкладках, одной строкой;
    `soft` — анамнез не собирали (напоминание, не тревога). */
 .dp-react-root .hero-risk {

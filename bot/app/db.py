@@ -273,6 +273,14 @@ CREATE TABLE IF NOT EXISTS perio_teeth(
   PRIMARY KEY (exam_id, tooth)
 );
 CREATE INDEX IF NOT EXISTS ix_perio_patient ON perio_exams(patient_id, created_at DESC);
+-- Звонок-подтверждение визита регистратурой (01.10, список «De confirmat» на
+-- главной): одна строка на визит — дозвонились / не отвечает, кто и когда.
+CREATE TABLE IF NOT EXISTS appt_calls(
+  appointment_id INT PRIMARY KEY REFERENCES appointments(id),
+  result TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT '',
+  at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -533,6 +541,12 @@ CREATE TABLE IF NOT EXISTS perio_teeth(
   PRIMARY KEY (exam_id, tooth)
 );
 CREATE INDEX IF NOT EXISTS ix_perio_patient ON perio_exams(patient_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS appt_calls(
+  appointment_id INTEGER PRIMARY KEY REFERENCES appointments(id),
+  result TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -2040,6 +2054,50 @@ async def patients_debt() -> dict:
     for r in await _fetch(pay, pay):
         out[r["patient_id"]] = out.get(r["patient_id"], 0) - int(r["n"] or 0)
     return out
+
+
+# ---------- рабочие списки регистратуры на главной (01.10, schedule/desk) ----------
+
+async def plan_open_summary() -> list:
+    """Активный план по пациенту: сколько позиций, на какую сумму и с какого
+    дня висит — список «Plan fără programare». ⚠️ Псевдоним даты —
+    `created_at` (он в `_DT_COLS`): иначе в SQLite MIN() остался бы строкой
+    (прайор 08-06). Активное — перечислением, как везде."""
+    sql = ("SELECT patient_id, COUNT(*) AS n, COALESCE(SUM(price_mdl), 0) AS total, "
+           "MIN(created_at) AS created_at FROM plan_items "
+           "WHERE status IN ('planificat', 'in_lucru') GROUP BY patient_id")
+    return await _fetch(sql, sql)
+
+
+async def appt_calls(ids: list) -> dict:
+    """Отметки звонка-подтверждения по визитам: {appointment_id: строка}."""
+    if not ids:
+        return {}
+    pg = ",".join(f"${i + 1}" for i in range(len(ids)))
+    lite = ",".join("?" for _ in ids)
+    rows = await _fetch(
+        f"SELECT appointment_id, result, actor, at FROM appt_calls WHERE appointment_id IN ({pg})",
+        f"SELECT appointment_id, result, actor, at FROM appt_calls WHERE appointment_id IN ({lite})",
+        *ids)
+    return {r["appointment_id"]: r for r in rows}
+
+
+async def set_appt_call(aid: int, result: str) -> None:
+    """«ok» — дозвонились, визит подтверждён; «noanswer» — не ответил;
+    пустое — снять отметку. Автор — вошедший (ACTOR_HOOK), как в летописи."""
+    if not result:
+        await _execute("DELETE FROM appt_calls WHERE appointment_id = $1",
+                       "DELETE FROM appt_calls WHERE appointment_id = ?", aid)
+        return
+    now = datetime.now(timezone.utc)
+    await _execute(
+        """INSERT INTO appt_calls(appointment_id, result, actor, at) VALUES($1, $2, $3, $4)
+           ON CONFLICT (appointment_id) DO UPDATE SET result = EXCLUDED.result,
+             actor = EXCLUDED.actor, at = EXCLUDED.at""",
+        """INSERT INTO appt_calls(appointment_id, result, actor, at) VALUES(?, ?, ?, ?)
+           ON CONFLICT(appointment_id) DO UPDATE SET result = excluded.result,
+             actor = excluded.actor, at = excluded.at""",
+        aid, result, _actor_now(), now if not IS_SQLITE else _iso(now))
 
 
 # ---------- список пациентов: поиск, фильтры, порядок и страница — в SQL ----------

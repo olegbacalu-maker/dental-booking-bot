@@ -1,10 +1,12 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashRail } from './DashRail'
+import { Spark } from '../../components/Spark'
 import { sparkPoints } from '../../utils/chart'
 import type {
   DashAgenda, DashAgendaItem, DashMiniCal, DashOccupancy, DashTile,
 } from './dash'
+import type { Desk } from './desk'
 
 /* Правая колонка панели. Фикстуры ТОЛЬКО этих проверок. */
 
@@ -90,17 +92,41 @@ const OCC: DashOccupancy = {
   dir: 'up',
 }
 
+/* «La recepție» (01.10): списки стойки из того же конверта */
+const DESK: Desk = {
+  confirm: {
+    day: 'mâine', date: '2026-09-21', n: 3, n_ok: 1, n_left: 1,
+    items: [
+      { id: 11, pid: 17, time: '09:00', name: 'Ana Suna', phone: '069111222', doctor: 'Dr. Ion', service: 'Consultație', call: '', call_at: '', call_by: '' },
+      { id: 12, pid: 18, time: '10:00', name: 'Nu Raspunde', phone: '069111333', doctor: 'Dr. Ion', service: 'Consultație', call: 'noanswer', call_at: '09:41', call_by: 'Recepție' },
+      { id: 13, pid: 19, time: '11:00', name: 'Gata Confirmat', phone: '', doctor: 'Dr. Ana', service: 'Igienizare', call: 'ok', call_at: '09:30', call_by: 'Recepție' },
+    ],
+  },
+  unscheduled: { items: [{ pid: 20, name: 'Plan Fara', phone: '069111444', n: 2, total: 9000, total_s: '9 000', days: 12 }], n: 9, sum_s: '41 300' },
+  collect: {
+    items: [{ pid: 21, name: 'Datornic', time: '08:30', status: 'done', status_label: 'finalizată', debt: 300, debt_s: '300' }],
+    n: 1, sum_s: '300',
+    cash: { total_s: '1 700', parts: [{ method: 'numerar', sum_s: '1 200' }, { method: 'card', sum_s: '500' }] },
+    casa_href: '/admin/casa?d=2026-09-19',
+  },
+  free: [
+    { dk: 'd2', name: 'Dr. Ion', when: 'azi 11:00', today: true, href: '/admin?date=2026-09-19' },
+    { dk: 'd3', name: 'Dr. Ana', when: 'mâine 09:00', today: false, href: '/admin?date=2026-09-21' },
+  ],
+}
+
 const show = (over: Partial<Parameters<typeof DashRail>[0]> = {}) => render(
-  <DashRail minical={MINICAL} agenda={AGENDA} tiles={TILES} occupancy={OCC}
-    date="2026-09-19" waitTick={NOW} onCard={onCard} fresh={NO_FRESH} {...over} />)
+  <DashRail minical={MINICAL} agenda={AGENDA} tiles={TILES} occupancy={OCC} desk={DESK}
+    date="2026-09-19" waitTick={NOW} busy={false} onCard={onCard} onCall={onCall} fresh={NO_FRESH} {...over} />)
 
 /** Пустая пометка: подсветка приехавшего — дело экрана, рельс её получает. */
 
 const NO_FRESH: ReadonlySet<number> = new Set()
 
 const onCard = vi.fn()
+const onCall = vi.fn()
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); onCall.mockClear() })
 
 describe('C26.5.2: мини-календарь', () => {
   it('⛔ три метки НЕЗАВИСИМЫ и складываются', () => {
@@ -178,80 +204,77 @@ describe('C26.5.2: повестка дня', () => {
   })
 })
 
-describe('C26.5.2: плитки «Azi» и тренды', () => {
-  it('плиток столько, сколько прислал сервер: «Prin bot» может не быть вовсе', () => {
-    /* ⛔ Фиксированные пять позиций дали бы React дыру на месте четвёртой, и
-       он честно нарисовал бы пустую плитку там, где её нет на старом экране. */
+describe('01.10: «La recepție» — списки стойки', () => {
+  it('порядок колонки: календарь, повестка, списки (слово Олега 28.09)', () => {
+    const { container } = show()
+    expect(Array.from(container.children).map((e) => e.className)).toEqual(['mcal', 'agenda', 'desk'])
+  })
+
+  it('цифры дня — одной строкой в шапке; плиток «Azi» больше нет', () => {
     show()
-    expect(Array.from(document.querySelectorAll('.rk-i .rk-l')).map((x) => x.textContent))
-      .toEqual(['Programări', 'Recepție', 'Urgențe', 'Neprezentări'])
+    expect(document.querySelector('.dk-h small')?.textContent)
+      .toBe('Azi: 7 programări · 1 urgențe · 3 nu au venit · ocupare 86%')
+    expect(document.querySelector('.rk-i')).toBeNull()
+  })
+
+  it('De încasat azi и касса — только когда сервер их дал (PERM_MONEY); регистратура без них', () => {
+    show()
+    expect(screen.getByText('De încasat azi')).toBeTruthy()
+    const cash = document.querySelector('.dk-cash') as HTMLElement
+    expect(cash.textContent).toContain('1 700 MDL')
+    expect(cash.textContent).toContain('numerar 1 200 · card 500')
+    expect((cash.querySelector('a') as HTMLAnchorElement).getAttribute('href')).toBe('/admin/casa?d=2026-09-19')
     cleanup()
-    show({ tiles: [...TILES, tile({ key: 'bot', label: 'Prin bot', icon: 'bot', value: 2,
-      sub: { kind: 'bot_new', new: 3, text: 'azi' } })] })
-    expect(document.querySelectorAll('.rk-i').length).toBe(5)
+    show({ desk: { ...DESK, collect: null } })
+    expect(screen.queryByText('De încasat azi')).toBeNull()
+    expect(document.querySelector('.dk-cash')).toBeNull()
   })
 
-  it('число на плитке ведёт в список, из которого оно посчитано', () => {
-    /* ⭐ Самый дешёвый пин, которого не было: число и адрес проверялись
-       порознь, а СВЯЗЬ — ничем. */
+  it('De confirmat: «осталось из», отметки словами, кнопки по состоянию, команда с id и результатом', () => {
     show()
-    const links = Array.from(document.querySelectorAll('.rk-i'))
-      .map((a) => [a.querySelector('.rk-l')?.textContent, a.getAttribute('href')])
-    expect(links).toEqual([
-      ['Programări', '/admin/all?date=2026-09-19'],
-      ['Recepție', '/admin/all?date=2026-09-19&f=rec'],
-      ['Urgențe', '/admin/all?date=2026-09-19&f=urg'],
-      ['Neprezentări', '/admin/all?date=2026-09-19&f=noshow'],
+    const sec = screen.getByText(/De confirmat mâine/).closest('.dk-sec') as HTMLElement
+    expect(sec.querySelector('.dk-cnt')?.textContent).toBe('1 din 3')
+    const rows = Array.from(sec.querySelectorAll('.dk-row')) as HTMLElement[]
+    expect(rows.map((r) => r.className)).toEqual(['dk-row', 'dk-row', 'dk-row done'])
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Confirmat: Ana Suna' }))
+    expect(onCall).toHaveBeenCalledWith(11, 'ok')
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Nu răspunde: Ana Suna' }))
+    expect(onCall).toHaveBeenCalledWith(11, 'noanswer')
+    /* не ответил: отметка словами; снять можно, подтвердить — тоже */
+    expect(rows[1]!.textContent).toContain('nu răspunde 09:41')
+    expect(within(rows[1]!).getByRole('button', { name: 'Anulează bifa: Nu Raspunde' })).toBeTruthy()
+    expect(within(rows[1]!).getByRole('button', { name: 'Confirmat: Nu Raspunde' })).toBeTruthy()
+    /* подтверждён: только снять */
+    expect(within(rows[2]!).getAllByRole('button').map((b) => b.getAttribute('aria-label')))
+      .toEqual(['Anulează bifa: Gata Confirmat'])
+    fireEvent.click(within(rows[2]!).getByRole('button', { name: /Anulează bifa/ }))
+    expect(onCall).toHaveBeenCalledWith(13, '')
+    cleanup()
+    show({ desk: { ...DESK, confirm: { ...DESK.confirm, n_left: 0 } } })
+    expect(document.querySelector('.dk-cnt.green')?.textContent).toBe('toți 3')
+    cleanup()
+    show({ busy: true })
+    expect(screen.getByRole('button', { name: 'Confirmat: Ana Suna' })).toHaveProperty('disabled', true)
+  })
+
+  it('Primul loc liber: сегодняшнее окно зелёным и ссылкой в день; Plan fără programare — «încă N»', () => {
+    show()
+    const free = screen.getByText('Primul loc liber').closest('.dk-sec') as HTMLElement
+    const links = Array.from(free.querySelectorAll('a.dk-when')) as HTMLAnchorElement[]
+    expect(links.map((a) => [a.textContent, a.className, a.getAttribute('href')])).toEqual([
+      ['azi 11:00', 'dk-when today', '/admin?date=2026-09-19'],
+      ['mâine 09:00', 'dk-when', '/admin?date=2026-09-21'],
     ])
-  })
-
-  it('⛔ у неявок стрелка ВВЕРХ, а цвет КРАСНЫЙ: знак и полярность — разное', () => {
-    /* Возьми цвет из знака разницы — и рост неявок позеленел бы. Молча:
-       цифра при этом верная и меняется правильно. */
-    show()
-    const noshow = document.querySelectorAll('.rk-i')[3]!
-    const colored = noshow.querySelector('.trend > span')!
-    expect(colored.className).toBe('dn')
-    expect(colored.textContent).toContain('+2')
-    expect(noshow.className).toBe('rk-i bad')
-
-    const total = document.querySelectorAll('.rk-i')[0]!
-    expect(total.querySelector('.trend > span')?.className).toBe('up')
-  })
-
-  it('четыре формы подписи остаются четырьмя', () => {
-    show({ tiles: [...TILES, tile({ key: 'bot', label: 'Prin bot', icon: 'bot',
-      sub: { kind: 'bot_new', new: 3, text: 'azi' } })] })
-    const subs = Array.from(document.querySelectorAll('.rk-i .trend'))
-      .map((s) => s.textContent?.replace(/\s+/g, ' ').trim())
-    expect(subs).toEqual([
-      '+2 față de ieri', 'la fel ca ieri', 'intercalate azi', '+2 față de ieri',
-      '3 noi azi',
-    ])
-    /* у «столько же» и у статичной подписи цветного span нет вовсе */
-    expect(document.querySelectorAll('.rk-i')[1]!.querySelector('.trend > span')).toBeNull()
-    expect(document.querySelectorAll('.rk-i')[2]!.querySelector('.trend > span')).toBeNull()
-  })
-})
-
-describe('C26.5.2: загрузка кресел', () => {
-  it('говорит «было → стало», а не разницу в пунктах', () => {
-    /* ⚠️ Процентные пункты пришлось объяснять даже директору. */
-    show()
-    const occ = document.querySelector('.rk-occ')!
-    expect(occ.querySelector('.trend')?.textContent?.replace(/\s+/g, ' ').trim())
-      .toBe('ieri 70% › azi 86%')
-    expect(occ.querySelector('b')?.textContent).toBe('86%')
-  })
-
-  it('закрытый вчера день говорит «închis», а не «0%»', () => {
-    /* ⛔ Ноль процентов — это «работали и простояли», и на выходном он
-       читался бы как провал. */
-    show({ occupancy: { ...OCC, from: { label: 'ieri', value: 'închis' }, dir: null } })
-    const occ = document.querySelector('.rk-occ')!
-    expect(occ.querySelector('.trend')?.textContent).toContain('închis')
-    /* при равенстве стрелки нет вовсе */
-    expect(occ.querySelector('.trend > span')).toBeNull()
+    const plan = screen.getByText('Plan fără programare').closest('.dk-sec') as HTMLElement
+    expect(plan.textContent).toContain('9 000 MDL')
+    expect(plan.textContent).toContain('2 proc. · de 12 zile')
+    expect(plan.querySelector('.dk-more')?.textContent).toBe('încă 8 ›')
+    expect(plan.querySelector('.dk-cnt')?.textContent).toBe('9')
+    cleanup()
+    show({ desk: { ...DESK, unscheduled: { items: [], n: 0, sum_s: '0' },
+      confirm: { ...DESK.confirm, n: 0, items: [] } } })
+    expect(screen.queryByText('Plan fără programare')).toBeNull()
+    expect(screen.queryByText(/De confirmat/)).toBeNull()
   })
 })
 
@@ -272,87 +295,17 @@ describe('C26.5.2: спарклайн', () => {
 
   it('пустой ряд — это другое: графика нет вовсе', () => {
     expect(sparkPoints([])).toBe('')
-    show({ tiles: [tile({ series: [] })] })
-    expect(document.querySelector('.rk-i .spark')).toBeNull()
+    render(<Spark series={[]} tone="var(--teal)" />)
+    expect(document.querySelector('.spark')).toBeNull()
   })
 
   it('заливка замкнута снизу, а линия не масштабирует штрих', () => {
     /* ⛔ Без `vector-effect` `preserveAspectRatio="none"` размазал бы штрих
        вместе с координатами. */
-    show()
-    const svg = document.querySelector('.rk-i .spark')!
+    render(<Spark series={SERIES} tone="var(--teal)" />)
+    const svg = document.querySelector('.spark')!
     expect(svg.getAttribute('viewBox')).toBe('0 0 100 26')
     expect(svg.querySelector('.sp-a')?.getAttribute('points')).toMatch(/^0,26 .* 100,26$/)
     expect(svg.querySelector('.sp-l')?.getAttribute('vector-effect')).toBe('non-scaling-stroke')
-  })
-})
-
-describe('C26.5.4: цифра считает от нуля, но истина — значение', () => {
-  const anim = (on: boolean) => document.documentElement.classList.toggle('anim', on)
-  const num = () => document.querySelector('.rk-i b')
-  afterEach(() => { anim(false); vi.unstubAllGlobals() })
-
-  it('без класса `anim` цифра статична: перепоказ после действия не считает', () => {
-    /* Класс снимает каркас на 303-повторе и React — на первом же обновлении.
-       Считать в этот момент значило бы мигать цифрой на каждое действие. */
-    anim(false)
-    show()
-    expect(num()?.textContent).toBe('7')
-  })
-
-  it('⭐ с `anim` цифра идёт от нуля и приходит РОВНО к значению', async () => {
-    anim(true)
-    show()
-    expect(num()?.textContent).toBe('0')
-    await waitFor(() => expect(num()?.textContent).toBe('7'))
-  })
-
-  it('⛔ `data-count` равен значению ВСЕГДА — атрибут и есть контракт', () => {
-    /* У легаси проверки разбирают атрибут, а не текст, и это записано: текст
-       во время счёта врёт по замыслу, атрибут — никогда. */
-    anim(true)
-    show()
-    expect(num()?.getAttribute('data-count')).toBe('7')
-    expect(num()?.textContent).toBe('0')
-  })
-
-  it('⛔ приехавшее конвертом значение показывается СРАЗУ, без счёта', async () => {
-    anim(true)
-    const { rerender } = show()
-    await waitFor(() => expect(num()?.textContent).toBe('7'))
-    rerender(
-      <DashRail minical={MINICAL} agenda={AGENDA} occupancy={OCC}
-        tiles={[{ ...TILES[0]!, value: 40 }, ...TILES.slice(1)]}
-        date="2026-09-19" waitTick={NOW} onCard={onCard} fresh={NO_FRESH} />)
-    expect(num()?.textContent).toBe('40')
-  })
-
-  it('⚠️ ноль и единица не считаются: это мигание, а не движение', () => {
-    anim(true)
-    show({ tiles: [{ ...TILES[0]!, value: 1 }, ...TILES.slice(1)] })
-    expect(num()?.textContent).toBe('1')
-  })
-
-  it('⭐ просьбу системы уменьшить движение цифра УВАЖАЕТ', () => {
-    /* ⚠️ Расхождение с легаси, названное вслух: там счётчик живёт в JS и про
-       `prefers-reduced-motion` не знает вовсе, хотя оформление знает. */
-    anim(true)
-    vi.stubGlobal('matchMedia', (q: string) => ({
-      matches: q.includes('reduce'), media: q, onchange: null,
-      addListener: () => {}, removeListener: () => {},
-      addEventListener: () => {}, removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }))
-    show()
-    expect(num()?.textContent).toBe('7')
-  })
-
-  it('процент занятости считает так же и со своим знаком', async () => {
-    anim(true)
-    show()
-    const occ = () => document.querySelector('.rk-occ b')
-    expect(occ()?.textContent).toBe('0%')
-    await waitFor(() => expect(occ()?.textContent).toBe('86%'))
-    expect(occ()?.getAttribute('data-count')).toBe('86')
   })
 })

@@ -99,8 +99,11 @@ CHECK_JS = """(() => {
       .map(e => e.getAttribute('data-appt') + ':' + e.className),
     agenda: Array.from(document.querySelectorAll('.ag-i .ag-t')).map(t => t.textContent),
     agenda_count: (document.querySelector('.ag-h span') || {}).textContent || null,
-    tiles: Array.from(document.querySelectorAll('.rk-i .rk-l')).map(t => t.textContent),
-    occ: (document.querySelector('.rk-occ b') || {}).textContent || null,
+    /* 01.10: плиток «Azi» нет — цифры дня одной строкой в шапке «La recepție»,
+       списки стойки — секциями той же карточки */
+    tiles: (document.querySelector('.desk .dk-h small') || {}).textContent || null,
+    occ: Array.from(document.querySelectorAll('.desk .dk-sec summary .dk-st')).map(t => t.firstChild && t.firstChild.textContent),
+    desk: !!document.querySelector('.desk'),
     mcal: (document.querySelector('.mcal .mhead b') || {}).textContent || null,
     sparks: document.querySelectorAll('.spark').length,
     react: !!document.getElementById('root'),
@@ -313,7 +316,7 @@ def run(out: pathlib.Path) -> int:
             st = scene(page, "01_panel", {
                 "react": True, "live_wrap": False, "nowlines": line_n,
                 "agenda_count": "2 programări",
-                "tiles": ["Programări", "Recepție", "Urgențe", "Neprezentări"],
+                "desk": True,
             })
             base_geom = st["geom"]
             before = set(st["appts"])

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -61,6 +61,14 @@ function model(over: Partial<DashModel> = {}): DashModel {
     actions: { confirmed: [{ to: 'waiting', cls: 'b-wait', label: 'A venit', confirm: '' }] },
     note_actions: { confirmed: [{ to: 'cancelled', cls: 'b-cancel', label: 'Șterge', confirm: '' }] },
     note_ends: [10, 11, 12],
+    desk: {
+      confirm: { day: 'mâine', date: '2026-09-21', n: 1, n_ok: 0, n_left: 1, items: [
+        { id: 7, pid: 17, time: '09:00', name: 'Ion Popa', phone: '069000000', doctor: 'Dr. Ion', service: 'Consultație', call: '', call_at: '', call_by: '' },
+      ] },
+      unscheduled: { items: [], n: 0, sum_s: '0' },
+      collect: null,
+      free: [{ dk: 'd2', name: 'Dr. Ion', when: 'azi 11:00', today: true, href: `/admin?date=${TODAY}` }],
+    },
     slotform: { services: [{ id: 'consult', label: 'Consultație' }], birth_max: TODAY },
     minical: {
       title: 'Septembrie 2026', weekdays: ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'],
@@ -172,8 +180,24 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     expect(document.querySelectorAll('.gridbody .gcol').length).toBe(1)
     expect(document.querySelector('.mcal b')?.textContent).toBe('Septembrie 2026')
     expect(document.querySelector('.ag-h span')?.textContent).toBe('1 programări')
-    expect(document.querySelector('.rk-i .rk-l')?.textContent).toBe('Programări')
-    expect(document.querySelector('.rk-occ .rk-l')?.textContent).toBe('Grad de ocupare')
+    /* 01.10: плитки «Azi» ушли в строку шапки «La recepție», списки стойки — из того же конверта */
+    expect(document.querySelector('.desk .dk-h small')?.textContent).toBe('Azi: 1 programări · ocupare 13%')
+    expect(document.querySelector('.desk')?.textContent).toContain('De confirmat mâine')
+    expect(document.querySelector('.desk')?.textContent).toContain('Dr. Ion')
+  })
+
+  it('01.10: отметка звонка — командой панели без состояния, потом опрос канала', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/desk/call/')
+      ? cmdReply('', '')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmat: Ion Popa' }))
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/desk/call/7'))).toBe(true))
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/desk/call/'))!
+    expect(String(call[0])).toBe(`/api/schedule/desk/call/7?screen=panel&date=${TODAY}`)
+    expect(bodyOf(call)).toEqual({ result: 'ok' })
+    await waitFor(() => expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live'))
   })
 
   it('спрашивает СВОЙ адрес канала и шлёт отпечаток со второго запроса', async () => {

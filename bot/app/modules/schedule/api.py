@@ -109,6 +109,30 @@ async def _done(code: str, d: date, doctor: str, field: str | None = None,
     return msg_json(True, code, data=data)
 
 
+@router.post("/api/schedule/desk/call/{aid}")
+async def api_desk_call(request: Request, aid: int, screen: str = Query("")):
+    """Отметка звонка-подтверждения («De confirmat» на главной, 01.10):
+    {result: ok | noanswer | ""}. Состояния не возвращает — как остальные
+    команды панели: экран спрашивает живой канал, и отметка доезжает до всех
+    рабочих мест тем же конвертом."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    result = _s(body, "result")
+    if result not in ("ok", "noanswer", ""):
+        return msg_json(False, "bad", status=422)
+    a = await db.appointment_brief(aid)
+    if not a:
+        return msg_json(False, "mv_gone", status=409)
+    await db.set_appt_call(aid, result)
+    if a.get("patient_id") and result:
+        when = a["starts_at"].astimezone(eng.TZ).strftime("%d.%m %H:%M")
+        await db.log_event(a["patient_id"], "call",
+                           f"Confirmare telefonică ({when}): "
+                           + ("confirmat" if result == "ok" else "nu răspunde"))
+    return msg_json(True, "")
+
+
 @router.get("/api/schedule/week")
 async def api_week(request: Request, date_q: str = Query("", alias="date")):
     """Неделя, в которую попал день: колонки, чипы, итог, соседние недели.

@@ -382,9 +382,10 @@ export function DashScreen() {
         </div>
         <div className="rail" ref={rail}>
           <DashRail minical={d.minical} agenda={d.agenda} tiles={d.tiles}
-            occupancy={d.occupancy} date={d.date} waitTick={waitTick}
-            onCard={(id) => openById(d, id)}
-            onCardMenu={(id, x, y) => setMenu({ id, x, y })} fresh={fresh} />
+            occupancy={d.occupancy} desk={d.desk} date={d.date} waitTick={waitTick}
+            busy={busy} onCard={(id) => openById(d, id)}
+            onCardMenu={(id, x, y) => setMenu({ id, x, y })} fresh={fresh}
+            onCall={(id, result) => { void act(() => dash.call(d.date, id, result)) }} />
         </div>
       </div>
 

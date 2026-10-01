@@ -15,6 +15,7 @@
 
 import { api } from '../../services/api'
 import type { NewAppt, NewNote, NoteView, VisitCardView } from './day'
+import type { CallResult, Desk } from './desk'
 import type { SlotFormView } from './slot'
 
 /** Полоска «закрыто» вместо срезанных крайних часов. */
@@ -245,6 +246,8 @@ export interface DashModel {
   /** Часы, которыми может кончиться блокировка слота. */
   note_ends: number[]
   slotform: DashSlotForm
+  /** «La recepție» (01.10): списки стойки — тем же конвертом, про СЕГОДНЯ. */
+  desk: Desk
 }
 
 /**
@@ -309,6 +312,10 @@ export const dash = {
       { comment: text }),
   status: (date: string, id: number, to: string) =>
     api.post<void>(`/schedule/appointments/${id}/status${cmdQuery(date)}`, { to }),
+  /* отметка звонка-подтверждения («De confirmat», 01.10): как статус —
+     команда без состояния, экран спрашивает канал */
+  call: (date: string, id: number, result: CallResult) =>
+    api.post<void>(`/schedule/desk/call/${id}${cmdQuery(date)}`, { result }),
 }
 
 function cmdQuery(date: string): string {

@@ -1,33 +1,23 @@
-import { Icon, iconName } from '../../components/Icon'
+import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
-import { useState } from 'react'
 import { waitLabel } from './dashFx'
-import { canAnimate } from '../../utils/fx'
-import { Count } from '../../components/Count'
-import { Spark } from '../../components/Spark'
-import type {
-  DashAgenda, DashMiniCal, DashOccupancy, DashSub, DashTile,
-} from './dash'
+import { DeskCard } from './DeskCard'
+import type { DashAgenda, DashMiniCal, DashOccupancy, DashTile } from './dash'
+import type { CallResult, Desk } from './desk'
 
-/* Правая колонка панели: мини-календарь, повестка, карточка «Azi».
+/* Правая колонка панели: мини-календарь, повестка, «La recepție».
 
-   ⛔ Порядок блоков — решение макета (08-11), а не вкус: перестановка это уже
-   редизайн, а здесь перенос поведения.
+   ⛔ Порядок блоков — решение Олега (28.09 на показ: «поменял бы местами с
+   Agenda zilei, поставил бы наверх»): календарь, повестка, списки стойки.
+   Карточка «Azi» с плитками-аналитикой снята 01.10 — её цифры живут одной
+   строкой в шапке «La recepție», подробности — в Statistici.
    ⛔ Колокольчика и «Programări noi din bot» тут НЕТ: оба за `tg_configured()`,
-   живого grandfather нет ни у кого, и в конверте их тоже нет. Модель для
-   блока, которого не видно ни на одном экране, проверялась бы только тестом.
-   ⭐ Цифры плиток считают от нуля при ПЕРВОМ показе (C26.5.4) — перенос
-   `data-count` из `panel.js`, вместе с его условиями: только под классом
-   `anim`, только от двойки и выше, 620 мс. ⛔ На приехавшем конверте счёта
-   НЕТ и быть не должно: у легаси живая подмена счётчик не перезапускала и не
-   могла бы (`apply` снимает `anim` до неё), а цифра, ползущая на каждый ответ
-   канала, — это мигание, от которого ушли в 08-20. */
+   живого grandfather нет ни у кого, и в конверте их тоже нет. */
 
 const T = {
   agenda: 'Agenda zilei',
   empty: '— nicio programare —',
   all: 'Vezi toate programările ›',
-  today: 'Azi',
   odo: 'Odontogramă',
   prev: '‹',
   next: '›',
@@ -38,26 +28,30 @@ interface Props {
   agenda: DashAgenda
   tiles: DashTile[]
   occupancy: DashOccupancy
+  desk: Desk
   /** День экрана: ссылка «смотреть все» ведёт в список ЭТОГО дня. */
   date: string
   /** Метка времени для минут ожидания; меняется раз в минуту. */
   waitTick: number
+  busy: boolean
   onCard: (id: number) => void
   /** Правая кнопка по строке повестки: то же меню, что у блока в сетке. */
   onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
+  /** Отметка звонка в «De confirmat» — команда панели. */
+  onCall: (id: number, result: CallResult) => void
   /** Что приехало прямо сейчас: этим строкам ставится `fresh` (C26.5.4). */
   fresh: ReadonlySet<number>
 }
 
 export function DashRail(
-  { minical, agenda, tiles, occupancy, date, waitTick, onCard, onCardMenu, fresh }: Props,
+  { minical, agenda, tiles, occupancy, desk, date, waitTick, busy, onCard, onCardMenu, onCall, fresh }: Props,
 ) {
   return (
     <>
       <MiniCal cal={minical} />
       <Agenda agenda={agenda} date={date} waitTick={waitTick} onCard={onCard}
         onCardMenu={onCardMenu} fresh={fresh} />
-      <KpiCard tiles={tiles} occupancy={occupancy} />
+      <DeskCard desk={desk} tiles={tiles} occupancy={occupancy} busy={busy} onCall={onCall} />
     </>
   )
 }
@@ -159,76 +153,3 @@ function Agenda(
     </div>
   )
 }
-
-function KpiCard({ tiles, occupancy }: { tiles: DashTile[]; occupancy: DashOccupancy }) {
-  /* ⚠️ Решается ОДИН раз, при монтировании: `anim` снимает первое же
-     обновление (`DashScreen`), и спроси мы класс на каждом рендере — счёт
-     зависел бы от того, успел ли прийти конверт. */
-  const [live] = useState(canAnimate)
-  return (
-    <div className="rkpi">
-      <div className="rk-h"><b>{T.today}</b></div>
-      {/* ⛔ Плиток ЧЕТЫРЕ или пять: «Prin bot» живёт за tg_configured() и у
-          клиники с замороженным ботом не рисуется вовсе. Поэтому список, а не
-          набор именованных полей — иначе на её месте была бы пустая плитка. */}
-      {tiles.map((t) => (
-        <AppLink key={t.key} className={`rk-i${t.cls ? ` ${t.cls}` : ''}`} href={t.href}>
-          <span className="ico" style={{ background: t.soft, color: t.tone }}>
-            <Icon name={iconName(t.icon)} />
-          </span>
-          <Count value={t.value} live={live} />
-          <span className="rk-l">{t.label}</span>
-          <Trend sub={t.sub} />
-          <Spark series={t.series} tone={t.tone} />
-        </AppLink>
-      ))}
-      {/* ⚠️ Порядок детей у загрузки ДРУГОЙ: число стоит после подписи и
-          переносится на свой ряд — так в макете. */}
-      <div className="rk-occ">
-        <span className="ico" style={{ background: occupancy.soft, color: occupancy.tone }}>
-          <Icon name={iconName(occupancy.icon)} />
-        </span>
-        <span className="rk-l">{occupancy.label}</span>
-        <span className="trend">
-          {occupancy.dir && (
-            <span className={occupancy.dir}>
-              <Icon name={occupancy.dir === 'up' ? 'caret-u' : 'caret-d'} />
-            </span>
-          )}
-          {' '}
-          {occupancy.from.label} {occupancy.from.value} › {occupancy.to.label} {occupancy.to.value}
-        </span>
-        <Count value={occupancy.value} live={live} suffix="%" />
-        <Spark series={occupancy.series} tone={occupancy.tone} />
-      </div>
-    </div>
-  )
-}
-
-/**
- * Подпись под цифрой. ⛔ Четыре формы, и свести их к одной нельзя: «столько
- * же, сколько вчера», «на столько-то больше», «вперемешку сегодня» и
- * «было → стало» отвечают на разные вопросы.
- * ⛔ Стрелка идёт по ЗНАКУ разницы, а цвет — по ПОЛЯРНОСТИ, которую посчитал
- * сервер. У неявок они расходятся намеренно: рост неявок — стрелка вверх и
- * КРАСНЫЙ. Возьми цвет из знака — и стрелка позеленела бы на росте неявок.
- */
-function Trend({ sub }: { sub: DashSub }) {
-  if (sub.kind === 'static' || sub.kind === 'same') {
-    return <span className="trend">{sub.text}</span>
-  }
-  if (sub.kind === 'bot_new') {
-    /* ⛔ Класс всегда `up`: это не направление, а «есть новое». */
-    return <span className="trend"><span className="up">{sub.new} noi</span> {sub.text}</span>
-  }
-  return (
-    <span className="trend">
-      <span className={sub.dir}>
-        <Icon name={sub.diff > 0 ? 'caret-u' : 'caret-d'} />
-        {' '}{sub.diff > 0 ? `+${sub.diff}` : sub.diff}
-      </span>
-      {' '}{sub.text}
-    </span>
-  )
-}
-

@@ -755,7 +755,7 @@ def suite_dash_flag(res: Result) -> None:
                           'id="root"' in page, data["live"],
                           sorted(k for k in data if k not in ("screen", "date", "live"))),
                          (True, True, False, True,
-                          ["actions", "agenda", "canvas", "day_label", "minical",
+                          ["actions", "agenda", "canvas", "day_label", "desk", "minical",
                            "note_actions", "note_ends", "occupancy", "slotform",
                            "tiles"])):
             return
@@ -821,7 +821,7 @@ def suite_dash_flag(res: Result) -> None:
                   (live["live"], live["screen"], live["date"],
                    sorted(k for k in live if k not in ("screen", "date", "live"))),
                   (True, "panel", day,
-                   ["actions", "agenda", "canvas", "day_label", "minical",
+                   ["actions", "agenda", "canvas", "day_label", "desk", "minical",
                     "note_actions", "note_ends", "occupancy", "slotform", "tiles"]))
         # ⭐ B1: шапку дня печатает ЭКРАН, а не сервер. Проверяется ПАРОЙ —
         # ссылки на неделю в серверном HTML больше нет, а подпись дня, без

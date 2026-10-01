@@ -123,6 +123,8 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "export": "download", "acord": "clipboard", "plan_acord": "clipboard",
             "consult": "med", "fisa043": "print", "anamneza": "note",
             "anamneza_print": "print",
+            # звонок-подтверждение с главной (01.10)
+            "call": "phone",
             "view": "eye", "doc_view": "eye", "erase": "erase"}
 
 # сколько строк летописи фиша показывает сразу; остальные — за кнопкой
