@@ -7,4 +7,4 @@ services:
       - "127.0.0.1:8090:8090"
     environment:
       DEMO_SECURE_COOKIE: "0"
-      DEMO_SLOTS: "2"
+      DEMO_SLOTS: "4"
