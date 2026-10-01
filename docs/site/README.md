@@ -13,7 +13,8 @@ privacy.html       Politica de confidențialitate — ЖИВАЯ страниц�
                    разделом Google Analytics) плюс § 5 «Datele contului
                    clinicii» (26.09); прежние разделы 5–6 стали 6–7
 descarca.html      Înainte de descărcare: Legea 195/2024 — текст перед кнопкой
-                   «Descarcă» (L15); новая страница
+                   «Descarcă» (L15); кнопка ведёт на cloud.dentpilot.md/descarca
+                   (01.10: сервер отвечает 302 на установщик последнего выпуска)
 descarca-ru.html   она же по-русски (перевод; опорная — румынская)
 declaratie-195.html  Declarația furnizorului (Legea 195) — текст декларации;
                    подписанный PDF едет в каждом письме с файлом лицензии
@@ -52,6 +53,8 @@ declaratie-195.html  Declarația furnizorului (Legea 195) — текст дек�
 | «…» на `descarca*.html` — надписи экранов | исходники клиента `frontend/src` |
 | `Setări › X` на `descarca*.html` | плитки `_hub_tiles` в `bot/app/modules/settings/routes.py` |
 | телефон, почта, `…/proba` на `descarca*.html` | `cloud/app/config.py` |
+| `cloud.dentpilot.md/descarca` и `…/cont` на `descarca*.html` и в privacy § 5 | маршруты `cloud/app/main.py`: `/descarca` — 302 на установщик последнего выпуска, `/cont` — кабинет клиники (01.10) |
+| privacy § 5: cookie `dp_oauth` (10 minute) и `dp_cont` (7 zile) | `cloud/app/auth.py` `OAUTH_TTL`, `ACCOUNT_TTL` — держит `cloud/tests/test_contract.py` |
 | «Ultima actualizare» и адрес `termeni.html` | `TERMS_VERSION`, `TERMS_URL` в `bot/app/core/license.py` — галочка активации |
 | декларация: п. 9 условий, § 5 политики, 30 дней, IDNO | `termeni.html`, `privacy.html`, `mail.DECLARATION_NOTE` |
 
@@ -76,8 +79,13 @@ Legea 195 — vă ghidăm pas cu pas» из «Cum începem»: закон 195 е�
 
 - кнопка «Descarcă» на `index.html` ведёт на `descarca.html`, на `ru.html` —
   на `descarca-ru.html`; сам файл скачивается кнопкой в конце страницы;
-- `[LINK-DESCARCARE]` на обеих страницах — заменить ссылкой на подписанный
-  установщик из GitHub Releases (L15);
+- ✅ 01.10: кнопка в конце страницы ведёт на
+  `https://cloud.dentpilot.md/descarca` — сервер лицензий отвечает 302 на
+  `DentPilot-Setup-X.Y.Z.zip` последнего выпуска (ассет GitHub Releases),
+  поэтому номер версии на сайте не живёт и страницы не правятся на каждый
+  выпуск. ⚠️ Ссылка живёт с запуска сервера — выкладывать вместе с ним;
+- рядом с кнопкой — ссылка на кабинет клиники `https://cloud.dentpilot.md/cont`
+  (вход через Google, 01.10); та же ссылка — в privacy § 5;
 - в `sitemap.xml` — две записи с `hreflang`, как у `index.html`/`ru.html`.
 
 Правило записи, которое читает `tests/test_structure.py`: в «ёлочках» — только
