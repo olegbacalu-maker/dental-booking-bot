@@ -75,10 +75,18 @@ docker compose --profile tunnel up -d --build
 curl -s http://127.0.0.1:8090/demo/health || docker compose exec demo python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8090/demo/health').read())"
 ```
 
-Туннель: Cloudflare Zero Trust › Networks › Tunnels › Create → имя
-`dentpilot-demo`, коннектор Docker (токен — в `.env`), Public hostname:
-`demo.dentpilot.md` → `http://demo:8090`. Запись DNS Cloudflare создаёт сам
-(проксированная; апекс dentpilot.md остаётся DNS-only на GitHub Pages).
+Туннель (так и поднято 01.10): Cloudflare Zero Trust › Networks › Tunnels ›
+Create → тип Cloudflared, имя `dentpilot-demo`, коннектор Docker — из команды
+установки берётся только строка после `--token`, она идёт в `.env` на сервере
+(`sed -i "s|^TUNNEL_TOKEN=.*|TUNNEL_TOKEN=…|" .env`), потом
+`docker compose --profile tunnel up -d`. Вкладка Public Hostname: Subdomain
+`demo`, Domain `dentpilot.md`, Type HTTP, URL `demo:8090`. Запись DNS
+Cloudflare создаёт сам (проксированная; апекс dentpilot.md остаётся DNS-only
+на GitHub Pages). ⚠️ Zero Trust при первом входе просит выбрать план: Free
+($0), но с привязкой карты — туннели на нём бесплатны. ⚠️ Имя, проверенное
+ДО создания записи, полчаса сидит в кэше резолвера как «не существует»
+(SOA TTL 1800): `ipconfig /flushdns` или проверка через
+`curl --resolve demo.dentpilot.md:443:<IP Cloudflare>`.
 
 Обновление под выпуск: `~/dentpilot-demo/src/demo/update.sh vX.Y.Z`.
 
