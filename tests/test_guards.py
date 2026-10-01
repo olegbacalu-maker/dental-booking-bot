@@ -303,6 +303,9 @@ def signing_problems(build: str, iss: str, signer: str) -> list[str]:
         bad.append("DentPilot.iss: деинсталлятор не подписывается (нет SignedUninstaller=yes)")
     if "TimeStamperCertificate" not in signer:
         bad.append("Sign-File.ps1 не проверяет метку времени")
+    if 'GetEnvironmentVariable("DENTPILOT_SIGN_THUMBPRINT", "User")' not in build:
+        bad.append("Build-Installer.ps1 не добирает отпечаток из переменных пользователя — "
+                   "сборка из окна, открытого до записи переменной, уйдёт без подписи")
     return bad
 
 
@@ -316,8 +319,12 @@ def suite_signing(res: Result) -> None:
     уехал бы не тот файл, что проверялся. Без `SignedUninstaller` Windows
     покажет «неизвестный издатель» при удалении. Без метки времени подпись
     умирает вместе со сроком сертификата — задним числом, у всех клиник.
+    Отпечаток только из окружения процесса — сборка из окна (или приложения),
+    запущенного до записи переменной пользователя, ушла бы без подписи; след —
+    одна жёлтая строка в логе (поймано 29.09 при подключении сертификата).
     Настоящую подпись прогон не делает (сертификата в CI нет): механика
-    проверена одноразовым сертификатом 26.09 — installer.md › «Подпись».
+    проверена одноразовым сертификатом 26.09, настоящий Certum подписал копию
+    exe 29.09 — installer.md › «Подпись».
     """
     build = (ROOT / "Build-Installer.ps1").read_text(encoding="utf-8", errors="replace")
     iss = (ROOT / "installer" / "DentPilot.iss").read_text(encoding="utf-8-sig")
@@ -335,6 +342,11 @@ def suite_signing(res: Result) -> None:
     res.ok("подпись без проверки метки времени — находка",
            any("метку времени" in b for b in
                signing_problems(build, iss, signer.replace("TimeStamperCertificate", "Status"))))
+    process_only = build.replace('"DENTPILOT_SIGN_THUMBPRINT", "User"',
+                                 '"DENTPILOT_SIGN_THUMBPRINT", "Process"')
+    res.ok("отпечаток только из окружения процесса — находка",
+           any("переменных пользователя" in b for b in
+               signing_problems(process_only, iss, signer)))
 
 
 def suite_route_map(res: Result) -> None:

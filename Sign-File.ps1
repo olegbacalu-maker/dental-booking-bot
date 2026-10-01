@@ -39,6 +39,8 @@ $file = (Resolve-Path -LiteralPath $Path).Path
 if ($Pfx) {
     $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Pfx, $PfxPassword)
 } else {
+    # Okno, otkrytoe do zapisi peremennoi, ee ne vidit - berem iz reestra polzovatelya.
+    if (-not $Thumbprint) { $Thumbprint = [Environment]::GetEnvironmentVariable("DENTPILOT_SIGN_THUMBPRINT", "User") }
     if (-not $Thumbprint) { Fail "ne zadan DENTPILOT_SIGN_THUMBPRINT - otpechatok sertifikata podpisi koda" }
     $Thumbprint = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpper()
     $cert = @("Cert:\CurrentUser\My\$Thumbprint", "Cert:\LocalMachine\My\$Thumbprint") |

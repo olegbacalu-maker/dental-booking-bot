@@ -86,8 +86,16 @@ if ($SkipApp) {
 # pri pervoi zhe samoobnovke (SmartScreen pri etom ne pokazyvaetsya - nekomu
 # zametit). Podpis - DO dymovogo testa: proveryaetsya rovno tot fail, kotoryi
 # uedet klinike; i do zaliva asseta - podpis menyaet bayty (sha256).
-# Sertifikat ne zadan - sborka idet, no gromko "BEZ PODPISI" (do pokupki
-# sertifikata tak i budet). Podrobno - Sign-File.ps1, docs/dentpilot-2/installer.md.
+# Sertifikat ne zadan - sborka idet, no gromko "BEZ PODPISI".
+# Otpechatok zhivet v peremennoi POLZOVATELYA (sertifikat Certum s 29.09.2026).
+# !! Process, zapushchennyi DO ee zapisi (staroe okno terminala, prilozhenie
+# Claude), ee ne vidit - i sobral by vypusk bez podpisi. Poetomu pustoe
+# okruzhenie dobiraetsya iz reestra polzovatelya, a dochernie processy
+# (Sign-File, Inno) nasleduyut uzhe zapolnennoe.
+# Podrobno - Sign-File.ps1, docs/dentpilot-2/installer.md.
+if (-not $env:DENTPILOT_SIGN_THUMBPRINT) {
+    $env:DENTPILOT_SIGN_THUMBPRINT = [Environment]::GetEnvironmentVariable("DENTPILOT_SIGN_THUMBPRINT", "User")
+}
 $signOn = [bool]$env:DENTPILOT_SIGN_THUMBPRINT
 if ($signOn) {
     Write-Host "Podpis dist\DentPilot.exe ..."
