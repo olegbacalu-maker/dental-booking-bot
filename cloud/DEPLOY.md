@@ -139,6 +139,23 @@ openssl rand -hex 32                                                     # → D
 включением прогнать один платёж в песочнице maib и сверить имена полей с
 `app/maib.py`: документация читалась 25.09 по памяти, без доступа к сайту.
 
+Кабинет клиники (шаг 3, 01.10): вход через Google. В консоли Google Cloud
+(console.cloud.google.com; проект любой, можно тот же, где живёт ящик
+Gmail): «APIs & Services › OAuth consent screen» — тип External, название
+«DentPilot», e-mail поддержки, домен `dentpilot.md`, ссылки на
+`https://dentpilot.md/privacy.html` и `termeni.html`, scopes только
+`openid`, `email`, `profile`; статус перевести в «In production» (в
+«Testing» входят только вписанные тестовые ящики — клиника получила бы
+отказ). Затем «Credentials › Create credentials › OAuth client ID» — тип
+«Web application», Authorized redirect URI ровно
+`https://cloud.dentpilot.md/auth/google/callback` (без слеша в конце, не
+http) → `DP_GOOGLE_CLIENT_ID` и `DP_GOOGLE_CLIENT_SECRET` в `cloud.env`.
+Пока они пусты, сервер работает без кабинета: `/cont` говорит «не
+настроен», всё остальное как прежде. `check` печатает redirect URI — сверить
+с консолью: расхождение в одном символе даёт у Google
+`redirect_uri_mismatch`. Паролей клиник на сервере нет: вход держит Google,
+у нас — e-mail, имя и идентификатор аккаунта (политика § 5).
+
 ## 4. Первый запуск и проверка
 
 ```
@@ -150,6 +167,12 @@ curl -s https://cloud.dentpilot.md/health               # {"ok": true, ...}
 Открыть `https://cloud.dentpilot.md/admin`, войти, завести первую клинику,
 выдать пробный файл и отправить письмом на свой адрес. Письмо с вложением
 `license.json`, которое принимает программа, — и есть проверка сквозняком.
+
+Кабинет (шаг 3): открыть `https://cloud.dentpilot.md/cont`, войти своим
+Google-ящиком, зарегистрировать тестовую клинику — в кабинете должен
+появиться тот же `license.json`, что в её карточке в админке, а кнопка
+«Descarcă DentPilot» (`/descarca`) — вести на zip последнего выпуска с
+GitHub. Потом в карточке «Скрыть» заявку и «Отвязать» запись.
 
 Автообновление (L13) проверяется той же клиникой: активировать файл в
 программе, выдать ей второй файл в админке — и в течение суток (или сразу

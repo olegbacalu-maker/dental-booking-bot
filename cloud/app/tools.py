@@ -44,7 +44,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import auth, config, db, keys, license, mail, maib, trial
+from . import account, auth, config, db, keys, license, mail, maib, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 
@@ -265,6 +265,12 @@ def check() -> list[tuple[str, str]]:
                 f"форма пробного {config.BASE_URL.rstrip('/')}/proba: режим {trial.mode()} "
                 f"({'заявка ждёт админа' if trial.mode() == trial.MODE_APPROVE else 'файл уходит сразу'}), "
                 f"уведомления на {config.TRIAL_NOTIFY}"))
+    if account.enabled():
+        out.append((OK, f"кабинет клиники {config.BASE_URL.rstrip('/')}/cont: вход через Google, "
+                        f"redirect URI {account.callback_url()}"))
+    else:
+        out.append((WARN, "DP_GOOGLE_CLIENT_ID / DP_GOOGLE_CLIENT_SECRET пусты: кабинет клиники (/cont) "
+                          "закрыт, страница говорит об этом словами"))
     if config.SMTP_HOST:
         try:
             with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=10) as s:

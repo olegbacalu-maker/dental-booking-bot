@@ -12,6 +12,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import test_account  # noqa: E402
 import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
 import test_contract  # noqa: E402
@@ -48,6 +49,11 @@ SUITES = [
     ("Сервер: форма пробного — approve, кнопки, скрыть", test_trial.suite_approve),
     ("Сервер: заявка из программы — токен, выдача, повтор, скрыть, auto", test_trial.suite_program),
     ("Сервер: новый компьютер — код на e-mail клиники, код → токен → файл", test_trial.suite_code),
+    ("Кабинет: чистые правила — claim'ы токена, реквизиты, куки по видам", test_account.suite_rules),
+    ("Кабинет: вход через Google — стенд, state, кука, отказы токена, выход", test_account.suite_login),
+    ("Кабинет: регистрация, файл, нота, продление, админка, отвязка, вход по ящику", test_account.suite_cabinet),
+    ("Кабинет: клиника из админки, повтор по IDNO, approve, скрытые", test_account.suite_link_and_duplicate),
+    ("Сайт: /descarca — установщик последнего выпуска, память, API молчит", test_account.suite_download),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

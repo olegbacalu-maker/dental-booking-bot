@@ -172,6 +172,10 @@ def suite_files(res: Result) -> None:
     res.ok("DEPLOY.md: три вещи для восстановления и вариант на Windows",
            "Три вещи" in deploy_md and "run-windows.ps1" in deploy_md and "Планировщик" in deploy_md)
     res.ok("run-windows.ps1: те же команды", all(x in ps1 for x in ("app.tools check", "app.tools backup", "app.jobs", "uvicorn")))
+    readme = (CLOUD / "README.md").read_text(encoding="utf-8")
+    res.ok("DEPLOY.md и README: кабинет — OAuth-клиент Google, redirect URI, /descarca",
+           all(x in deploy_md for x in ("DP_GOOGLE_CLIENT_ID", "/auth/google/callback", "redirect_uri_mismatch"))
+           and all(x in readme for x in ("DP_GOOGLE_CLIENT_ID", "/descarca", "/cont")))
     # Бит исполняемости живёт в git (100755) — его и получает VPS при clone. У
     # Windows прав на исполнение в файловой системе нет вовсе, поэтому там
     # спрашиваем индекс git, а не диск.

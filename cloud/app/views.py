@@ -47,6 +47,7 @@ MSG = {
     "card_link": ("ok", "Ссылка maib создана — у клиники нет e-mail, передайте её сами"),
     "card_link_mailed": ("ok", "Ссылка maib создана и отправлена письмом"),
     "trial_declined": ("ok", "Заявка скрыта — пробный не выдан; клиника остаётся в списке"),
+    "account_detached": ("ok", "Учётная запись отвязана — следующий вход этого аккаунта Google начнётся с регистрации"),
     "daily_done": ("ok", "Ежедневная задача выполнена — итог строкой в журнале"),
     "daily_failed": ("err", "Ежедневная задача: часть писем не ушла — смотрите журнал и лог сервера"),
     "login_bad": ("err", "Неверный логин или пароль"),
@@ -134,20 +135,25 @@ def _renew_short(r) -> str:
     return f" <span class='tag warn' title='программа спрашивала {esc(r['renew_at'][:16])}'>у программы {r['renew_seq'] or 0}</span>"
 
 
+ORIGIN_RU = {"form": ("форма", "заявка с формы"), "program": ("программа", "заявка из программы"),
+             "cont": ("кабинет", "заявка из кабинета")}
+
+
 def _requests_block(requests: list) -> str:
-    """Заявки с формы /proba и из программы, ещё без файла и не скрытые (L14).
-    Заявке из программы выдача — всё, что нужно: программа забирает файл сама."""
+    """Заявки с формы /proba, из программы и из кабинета, ещё без файла и не
+    скрытые (L14). Заявке из программы выдача — всё, что нужно: программа
+    забирает файл сама; заявке из кабинета — файл появляется в кабинете."""
     if not requests:
         return ""
     trs = "".join(
         f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a> "
-        f"<span class='tag'>{'программа' if r['origin'] == 'program' else 'форма'}</span></td>"
+        f"<span class='tag'>{ORIGIN_RU.get(r['origin'], ORIGIN_RU['form'])[0]}</span></td>"
         f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['contact_name'] or '—')}</td>"
         f"<td>{esc(r['email'])}<br><span class='muted'>{esc(r['phone'] or '')}</span></td>"
         f"<td>{esc((r['requested_at'] or '')[:16].replace('T', ' '))}</td>"
         f"<td><form method='post' action='/admin/clinics/{esc(r['id'])}/issue' style='display:inline'>"
         f"<input type='hidden' name='kind' value='trial'><input type='hidden' name='send' value='1'>"
-        f"<input type='hidden' name='reason' value='{'заявка из программы' if r['origin'] == 'program' else 'заявка с формы'}'>"
+        f"<input type='hidden' name='reason' value='{ORIGIN_RU.get(r['origin'], ORIGIN_RU['form'])[1]}'>"
         f"<button class='primary'>Выдать пробный и отправить</button></form> "
         f"<form method='post' action='/admin/clinics/{esc(r['id'])}/decline' style='display:inline'>"
         f"<button>Скрыть</button></form></td></tr>"
@@ -353,7 +359,7 @@ def audit_page(rows: list, user: str, msg: str = "", pending: int = 0) -> str:
 
 
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
-                payments: list = (), pending: int = 0, reminders: list = ()) -> str:
+                payments: list = (), pending: int = 0, reminders: list = (), accounts: list = ()) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     head = (f"<div class='card'><div class='grid'>"
@@ -422,5 +428,246 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                   f"<td>{esc(a['what'])}</td><td>{esc(a['detail'])}</td></tr>" for a in audit)
     audit_html = (f"<h2>Журнал</h2><div class='card'><table><tr><th>Когда</th><th>Кто</th><th>Что</th>"
                   f"<th>Подробности</th></tr>{ars or '<tr><td colspan=4 class=muted>пусто</td></tr>'}</table></div>")
-    return page(c["name"], head + edit + pay_form + issue_form + issues_html + rem_html + audit_html, user,
-                msg, pending=pending)
+    acc_rows = "".join(
+        f"<tr><td>{esc(a['email'])}</td><td>{esc(a['name'] or '—')}</td><td>{esc((a['created_at'] or '')[:10])}</td>"
+        f"<td>{esc((a['last_login_at'] or '')[:16].replace('T', ' '))}</td>"
+        f"<td><form method='post' action='/admin/accounts/{esc(a['id'])}/detach' style='display:inline'>"
+        f"<button title='Запись удаляется; следующий вход этого аккаунта Google начнётся с регистрации'>"
+        f"Отвязать</button></form></td></tr>" for a in accounts)
+    acc_html = (f"<h2>Кабинет клиники</h2><div class='card'><p class='muted'>Кто входит в кабинет "
+                f"{esc(config.BASE_URL.rstrip('/'))}/cont через Google. Смена директора: впишите клинике новый "
+                f"e-mail (выше) и отвяжите старую запись — новый вход привяжется к клинике по ящику.</p>"
+                f"<table><tr><th>E-mail Google</th><th>Имя</th><th>С</th><th>Последний вход</th><th></th></tr>"
+                f"{acc_rows or '<tr><td colspan=5 class=muted>В кабинет ещё никто не входил</td></tr>'}</table></div>")
+    return page(c["name"], head + edit + acc_html + pay_form + issue_form + issues_html + rem_html + audit_html,
+                user, msg, pending=pending)
+
+
+# ---------- кабинет клиники (шаг 3, 01.10): страницы по-румынски ----------
+
+CONT_MSG = {
+    "google_off": "Contul clinicii nu este disponibil încă: autentificarea cu Google nu este configurată pe "
+                  "acest server. Scrieți-ne.",
+    "google_denied": "Autentificarea a fost anulată. Puteți încerca din nou.",
+    "google_expired": "Sesiunea de autentificare a expirat sau nu s-a potrivit — încercați din nou.",
+    "google_failed": "Google nu a confirmat autentificarea — încercați din nou peste un minut sau scrieți-ne.",
+    "google_unverified": "Adresa de e-mail a contului Google nu este confirmată de Google — folosiți alt cont "
+                         "Google sau scrieți-ne.",
+    "logged_out": "Ați ieșit din cont.",
+    "registered_issued": "Clinica a fost înregistrată. Fișierul de licență pentru perioada de probă a plecat "
+                         "pe e-mail; îl găsiți și mai jos.",
+    "registered_requested": "Clinica a fost înregistrată. Cererea de probă a fost primită — vă răspundem pe "
+                            "e-mail în cel mult o zi lucrătoare.",
+    "duplicate": "O clinică cu acest IDNO este deja înregistrată la DentPilot. Am notat cererea și vă "
+                 "răspundem pe e-mail.",
+    "saved": "Datele clinicii au fost salvate.",
+    "idno_taken": "Acest IDNO este deja înregistrat la altă clinică — scrieți-ne.",
+    "no_file": "Fișierul de licență nu a fost emis încă.",
+    "note_created": "Nota de plată a fost creată: datele pentru plată sunt mai jos și pe e-mail.",
+    "note_exists": "Aveți deja o notă de plată în așteptare — datele pentru plată sunt mai jos.",
+    "need_idno": "Pentru abonament completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
+    "maib_failed": "Pagina de plată cu cardul nu a putut fi creată acum — încercați din nou sau alegeți "
+                   "transferul bancar.",
+    "bad_months": "Alegeți o lună sau un an.",
+    "closed": "Cererea clinicii a fost închisă — scrieți-ne.",
+}
+_CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists"}
+STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
+            "readonly": ("bad", "regim de citire"), "none": ("mute", "fără fișier")}
+PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
+_CONT_CSS = """
+.cbar{background:#0B2B26;color:#fff;padding:12px 24px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.cbar a{color:#BFEFE6;text-decoration:none;font-weight:600}.cbar form{margin-left:auto}
+.cbar button{background:none;border:1px solid #BFEFE6;color:#BFEFE6;border-radius:8px;padding:4px 10px;cursor:pointer}
+.cwrap{max-width:860px;margin:0 auto;padding:24px 16px 48px}
+a.btn{display:inline-block;background:#0E9F8A;color:#fff;border-radius:9px;padding:10px 16px;font-weight:600;text-decoration:none}
+a.btn.second,a.gbtn{background:#fff;color:#16232B;border:1px solid #D8E2DF}
+a.gbtn{display:inline-flex;align-items:center;gap:10px;border-radius:9px;padding:10px 16px;font-weight:600;text-decoration:none}
+pre.pay{background:#F4F9F8;border:1px solid #E6EDEB;border-radius:10px;padding:12px 14px;font:inherit;white-space:pre-wrap;margin:8px 0}
+label.chk{display:flex;gap:8px;align-items:flex-start;color:#16232B;font-size:14px}label.chk input{width:auto;margin-top:3px}
+.lic{font-size:16px}.foot{font-size:13px;color:#7C8B91;margin-top:24px}
+"""
+_G = ("<svg width='18' height='18' viewBox='0 0 48 48' aria-hidden='true'>"
+      "<path fill='#EA4335' d='M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.7 17.7 9.5 24 9.5z'/>"
+      "<path fill='#4285F4' d='M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 2.9-2.2 5.4-4.7 7.1l7.6 5.9c4.4-4.1 6.9-10.1 6.9-17.5z'/>"
+      "<path fill='#FBBC05' d='M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.7l7.9-6.1z'/>"
+      "<path fill='#34A853' d='M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.2-13.5-10l-7.9 6.1C6.5 42.6 14.6 48 24 48z'/></svg>")
+
+
+def cont_text(code: str) -> str:
+    return CONT_MSG.get(code) or TRIAL_MSG.get(code) or code
+
+
+def _ro(s: str | None) -> str:
+    """ISO-дата сервера → как пишут в Молдове: 17.10.2026."""
+    if not s or len(s) < 10:
+        return "—"
+    return f"{s[8:10]}.{s[5:7]}.{s[0:4]}"
+
+
+def _cont_shell(title: str, inner: str, acc=None, msg: str = "") -> str:
+    site = config.SITE_URL.rstrip("/")
+    banner = ""
+    if msg:
+        banner = f"<div class='banner {'ok' if msg in _CONT_OK else 'err'}'>{esc(cont_text(msg))}</div>"
+    bar = (f"<div class='cbar'><a href='/cont'>DentPilot · Contul clinicii</a>"
+           f"<a href='{esc(site)}'>dentpilot.md</a>"
+           + (f"<form method='post' action='/cont/iesire'><button>Ieșire · {esc(acc['email'])}</button></form>"
+              if acc is not None else "") + "</div>")
+    foot = (f"<p class='foot'><a href='{esc(site)}/termeni.html'>Termeni și condiții</a> · "
+            f"<a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a> · "
+            f"Întrebări: {esc(config.SUPPORT_EMAIL)} · {esc(config.SUPPORT_PHONE)}</p>")
+    return (f"<!doctype html><html lang='ro'><head><meta charset='utf-8'>"
+            f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+            f"<meta name='robots' content='noindex'>"
+            f"<title>{esc(title)} — DentPilot</title><style>{_CSS}{_CONT_CSS}</style></head>"
+            f"<body>{bar}<div class='cwrap'><h1>{esc(title)}</h1>{banner}{inner}{foot}</div></body></html>")
+
+
+def cont_login_page(msg: str = "", enabled: bool = True) -> str:
+    site = config.SITE_URL.rstrip("/")
+    if enabled:
+        entry = (f"<p><a class='gbtn' href='/auth/google'>{_G} Continuați cu Google</a></p>"
+                 f"<p class='muted'>Prima dată: după intrare completați datele clinicii și primiți perioada de "
+                 f"probă de {mail.zile(license.TRIAL_DAYS)}, fără plată. Clinica deja înregistrată la DentPilot cu "
+                 f"același e-mail intră direct în cont.</p>")
+    else:
+        entry = f"<p class='muted'>{esc(CONT_MSG['google_off'])}</p>"
+    inner = (f"<div class='card'><p>Aici vedeți licența DentPilot a clinicii, descărcați programul și fișierul "
+             f"de licență, comandați nota de plată pentru abonament și vă actualizați datele clinicii. "
+             f"Datele pacienților nu ajung aici niciodată: ele rămân pe calculatorul clinicii.</p>{entry}"
+             f"<p class='muted'>De la Google primim doar adresa de e-mail, numele și identificatorul contului; "
+             f"parola rămâne la Google — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, "
+             f"§ 5.</p></div>")
+    return _cont_shell("Contul clinicii", inner, msg=msg)
+
+
+def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
+    v = {k: esc((values or {}).get(k, "")) for k in ("name", "idno", "contact_name", "phone")}
+    if not values:
+        v["contact_name"] = esc(acc["name"] or "")
+    site = config.SITE_URL.rstrip("/")
+    inner = (f"<div class='card'><p>Completați datele clinicii: primiți perioada de probă DentPilot de "
+             f"{mail.zile(license.TRIAL_DAYS)}, fără plată și fără obligații. Fișierul de licență vine pe "
+             f"<b>{esc(acc['email'])}</b> și apare aici, în cont; programul îl descărcați tot de aici.</p>"
+             f"<form method='post' action='/cont/inregistrare'>"
+             f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}'>"
+             f"<label>IDNO (13 cifre, opțional pentru probă)</label><input name='idno' value='{v['idno']}' maxlength='13' inputmode='numeric'>"
+             f"<label>Persoana de contact</label><input name='contact_name' value='{v['contact_name']}' maxlength='{trial.CONTACT_MAX}'>"
+             f"<label>Telefon</label><input name='phone' value='{v['phone']}' maxlength='{trial.PHONE_MAX}'>"
+             f"<label>E-mail</label><div class='mono'>{esc(acc['email'])} <span class='muted'>(contul Google)</span></div>"
+             f"<p><label class='chk'><input type='checkbox' name='consent' value='1'> Am citit și accept "
+             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
+             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
+             f"</label></p><p><button class='primary'>Înregistrez clinica</button></p></form></div>")
+    return _cont_shell("Înregistrarea clinicii", inner, acc, msg)
+
+
+def _pay_tag_ro(status: str) -> str:
+    cls, text = PAY_RO.get(status, ("mute", status))
+    return f"<span class='tag {cls}'>{esc(text)}</span>"
+
+
+def _card_link_ro(p) -> str:
+    """Ссылка maib у ожидающего платежа (L12) — в кабинете, по-румынски."""
+    if p["status"] != "pending" or not p["pay_url"]:
+        return ""
+    return f" · <a href='{esc(p['pay_url'])}' target='_blank' rel='noopener'>plata cu cardul</a>"
+
+
+def _cont_license(c, sub, issue, st: str) -> str:
+    if issue is None:
+        if c["declined_at"]:
+            return f"<p class='lic'>{esc(CONT_MSG['closed'])}</p>"
+        return (f"<p class='lic'>Cererea de probă a fost primită la {_ro(c['requested_at'] or c['created_at'])}. "
+                f"Fișierul de licență vine pe e-mail și apare aici; programul instalat se activează singur.</p>")
+    plan = sub["plan"] if sub else "trial"
+    what = "Perioada de probă" if plan == "trial" else "Abonamentul"
+    d, g = _ro(issue["valid_until"]), _ro(issue["grace_until"])
+    cls, tag = STATE_RO.get(st, ("mute", st))
+    if st == "active":
+        text = f"{what} {'este valabilă' if plan == 'trial' else 'este valabil'} până la <b>{d}</b>."
+    elif st == "grace":
+        text = (f"{what} a expirat la {d}. Programul funcționează complet până la <b>{g}</b>, apoi trece în "
+                f"regim de citire.")
+    else:
+        text = (f"Din {g} programul este în regim de citire: {esc(mail._READONLY)} După plată, noul fișier de "
+                f"licență ajunge în program automat.")
+    if c["renew_at"]:
+        check = (f"Programul a verificat licența ultima dată la {esc(c['renew_at'][:16].replace('T', ' '))} UTC "
+                 f"și are fișierul nr. {c['renew_seq'] or 0} (ultimul emis: nr. {issue['seq']}).")
+    else:
+        check = ("Programul instalat nu a verificat încă licența; activat și cu acces la internet, o face o "
+                 "dată pe zi.")
+    return (f"<p class='lic'>{text} <span class='tag {cls}'>{esc(tag)}</span></p>"
+            f"<p class='muted'>{check}</p>"
+            f"<p><a class='btn second' href='/cont/licenta.json'>Descarcă fișierul de licență (license.json)</a></p>"
+            f"<p class='muted'>Fișierul este nevoie doar dacă programul nu are acces la internet: în DentPilot "
+            f"deschideți pagina Licență (meniul Setări sau adresa /admin/license din program), alegeți fișierul "
+            f"și apăsați «Activează licența».</p>")
+
+
+def _cont_payments(c, sub, payments: list) -> str:
+    price = sub["price"] if sub else config.PRICE_MONTH
+    pending = [p for p in payments if p["status"] == "pending"]
+    if pending:
+        p = pending[0]
+        try:
+            ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], p['pay_url']))}</pre>"
+        except RuntimeError:
+            ways = "<p>Datele pentru plată le primiți pe e-mail.</p>"
+        top = (f"<p><b>Nota de plată {esc(p['reference'])}</b>: {p['amount']} MDL pentru "
+               f"{mail.luni(p['months'])}.</p>{ways}"
+               f"<p class='muted'>După confirmarea plății, noul fișier de licență ajunge în program automat "
+               f"și pe e-mail.</p>")
+    elif len(c["idno"] or "") == 13:
+        opts = "".join(f"<option value='{m}'>{'o lună' if m == 1 else 'un an (12 luni)'} — "
+                       f"{pay.amount(m, price)} MDL</option>" for m in pay.MONTHS)
+        method = ""
+        if maib.enabled():
+            method = ("<div><label>Cum plătiți</label><select name='method'>"
+                      "<option value='transfer'>Transfer bancar</option>"
+                      "<option value='card'>Cu cardul (link de plată maib)</option></select></div>")
+        top = (f"<form method='post' action='/cont/nota'><div class='grid'><div><label>Abonament</label>"
+               f"<select name='months'>{opts}</select></div>{method}</div>"
+               f"<p><button class='primary'>Comandă nota de plată</button></p></form>"
+               f"<p class='muted'>Nota de plată cu referința și datele pentru plată apare aici și vine pe e-mail; "
+               f"după confirmarea plății termenul se prelungește, iar programul preia singur noul fișier.</p>")
+    else:
+        top = (f"<p>Pentru abonament ({price} MDL pe lună sau {pay.amount(12, price)} MDL pe an) completați "
+               f"IDNO-ul clinicii în datele de mai jos, apoi comandați nota de plată.</p>")
+    rows = "".join(
+        f"<tr><td class='mono'>{esc(p['reference'])}</td><td>{p['amount']} MDL</td>"
+        f"<td>{esc(mail.luni(p['months']))}</td><td>{_ro(p['created_at'])}</td>"
+        f"<td>{_pay_tag_ro(p['status'])}{(' · ' + _ro(p['paid_at'])) if p['paid_at'] else ''}{_card_link_ro(p)}"
+        f"</td></tr>" for p in payments)
+    table = (f"<table><tr><th>Referința</th><th>Suma</th><th>Termen</th><th>Data</th><th>Stare</th></tr>"
+             f"{rows or '<tr><td colspan=5 class=muted>Nu sunt note de plată</td></tr>'}</table>") if payments else ""
+    return top + table
+
+
+def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "") -> str:
+    now = datetime.now(timezone.utc)
+    st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
+    site = config.SITE_URL.rstrip("/")
+    lic = f"<h2>Licența</h2><div class='card'>{_cont_license(c, sub, issue, st)}</div>"
+    ver = f" {esc(release.version)}" if release else ""
+    prog = (f"<h2>Programul</h2><div class='card'><p><a class='btn' href='/descarca'>Descarcă DentPilot{ver}</a></p>"
+            f"<p class='muted'>Arhivă zip cu instalatorul DentPilot-Setup{('-' + esc(release.version)) if release else ''}.exe, "
+            f"semnat digital. La prima pornire programul cere datele clinicii și se activează singur; pe un "
+            f"calculator nou al clinicii deja înregistrate cere codul trimis pe e-mail. Înainte de instalare "
+            f"citiți <a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p></div>")
+    pays = f"<h2>Abonament și plăți</h2><div class='card'>{_cont_payments(c, sub, list(payments))}</div>"
+    data = (f"<h2>Datele clinicii</h2><div class='card'><form method='post' action='/cont/date'><div class='grid'>"
+            f"<div><label>Denumirea clinicii *</label><input name='name' value='{esc(c['name'])}' required maxlength='{trial.NAME_MAX}'></div>"
+            f"<div><label>IDNO (13 cifre)</label><input name='idno' value='{esc(c['idno'])}' maxlength='13' inputmode='numeric'></div>"
+            f"<div><label>Persoana de contact</label><input name='contact_name' value='{esc(c['contact_name'])}' maxlength='{trial.CONTACT_MAX}'></div>"
+            f"<div><label>Telefon</label><input name='phone' value='{esc(c['phone'])}' maxlength='{trial.PHONE_MAX}'></div>"
+            f"<div><label>Adresa</label><input name='address' value='{esc(c['address'])}' maxlength='200'></div>"
+            f"<div><label>E-mail</label><div class='mono' style='padding:8px 0'>{esc(c['email'] or '—')}</div>"
+            f"<span class='muted'>pentru schimbare scrieți-ne</span></div></div>"
+            f"<p><button class='primary'>Salvează</button></p></form></div>")
+    acct = (f"<h2>Contul</h2><div class='card'><p>Autentificat cu Google: <b>{esc(acc['email'])}</b>"
+            f"{(' (' + esc(acc['name']) + ')') if acc['name'] else ''}.</p>"
+            f"<form method='post' action='/cont/iesire'><button>Ieșire</button></form></div>")
+    return _cont_shell(c["name"], lic + prog + pays + data + acct, acc, msg)

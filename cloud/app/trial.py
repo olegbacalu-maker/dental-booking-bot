@@ -54,7 +54,12 @@ from datetime import datetime, timedelta, timezone
 from . import config, db, license, mail
 
 MODE_AUTO, MODE_APPROVE = "auto", "approve"
-ORIGIN_FORM, ORIGIN_PROGRAM = "form", "program"   # clinics.origin: откуда пришла заявка
+# clinics.origin: откуда пришла заявка — форма /proba, программа, кабинет (вход Google, 01.10)
+ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT = "form", "program", "cont"
+ORIGINS = (ORIGIN_FORM, ORIGIN_PROGRAM, ORIGIN_CONT)
+# основание выдачи пробного — словами того входа, откуда заявка
+REASON = {ORIGIN_FORM: "formular de probă", ORIGIN_PROGRAM: "cerere din program",
+          ORIGIN_CONT: "cerere din contul clinicii"}
 API_PATH = "/v1/trial"           # заявка из программы (JSON), ответ — токен для /v1/license
 VERIFY_PATH = "/v1/verify"       # код из письма → токен клиники (новый компьютер)
 CODE_TTL = timedelta(minutes=15)
@@ -72,7 +77,7 @@ NAME_MAX, EMAIL_MAX, CONTACT_MAX, PHONE_MAX = 120, 120, 80, 40
 # Голый адрес: одна «@», без пробелов и знаков, которыми в заголовке письма
 # отделяют имя от адреса или один адрес от другого.
 _EMAIL = re.compile(r"^[^@\s<>\"(),;:\[\]]+@[^@\s<>\"(),;:\[\]]+\.[A-Za-z0-9-]{2,}$")
-_IDNO = re.compile(r"^[0-9]{13}$")
+IDNO_RE = re.compile(r"^[0-9]{13}$")
 _DOT_BLIND = ("gmail.com", "googlemail.com")   # точки в имени ящика ничего не значат
 
 
@@ -127,7 +132,7 @@ def clean(fields: dict) -> tuple[dict, str]:
     f["email"] = f["email"].replace(" ", "")
     if not 2 <= len(f["name"]) <= NAME_MAX:
         return f, "bad_name"
-    if f["idno"] and not _IDNO.match(f["idno"]):
+    if f["idno"] and not IDNO_RE.match(f["idno"]):
         return f, "bad_idno"
     if not f["email"] or len(f["email"]) > EMAIL_MAX or not _EMAIL.match(f["email"]):
         return f, "bad_email"
@@ -187,8 +192,7 @@ def submit(con: sqlite3.Connection, f: dict, ip: str, who: str = "form",
         return REQUESTED, clinic
     valid, grace = license.trial_dates()
     try:
-        license.issue(con, clinic, "trial", valid, grace,
-                      "cerere din program" if origin == ORIGIN_PROGRAM else "formular de probă", who)
+        license.issue(con, clinic, "trial", valid, grace, REASON.get(origin, REASON[ORIGIN_FORM]), who)
     except RuntimeError as e:
         # ключа выдачи нет: заявка остаётся заявкой, а не откатывается пятисотой
         db.audit(con, who, "trial_no_key", cid, str(e)[:200])
@@ -213,8 +217,7 @@ def notify(clinic: sqlite3.Row, outcome: str, ip: str, fields: dict | None = Non
 def acknowledge(clinic: sqlite3.Row) -> str:
     """Клинике в режиме approve: заявка принята, файл придёт (из программы — программа
     активируется сама). Отказ почты — молча."""
-    subject, body = mail.trial_received(clinic["name"], license.TRIAL_DAYS,
-                                        from_program=clinic["origin"] == ORIGIN_PROGRAM)
+    subject, body = mail.trial_received(clinic["name"], license.TRIAL_DAYS, origin=clinic["origin"])
     try:
         return mail.send(clinic["email"], subject, body)
     except (RuntimeError, OSError, ValueError):

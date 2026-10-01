@@ -181,14 +181,22 @@ RENEW_NOTE = ("Dacă programul este deja activat și are acces la internet, prei
               "fișierul nou în cel mult o zi — nu trebuie să faceți nimic.")
 
 
-def trial_received(clinic: str, days: int, from_program: bool = False) -> tuple[str, str]:
+CONT_URL = config.BASE_URL.rstrip("/") + "/cont"
+
+
+def trial_received(clinic: str, days: int, origin: str = "form") -> tuple[str, str]:
     """Клинике: заявка принята (режим approve). С формы — файл придёт письмом; из
-    программы — программа активируется сама, письмо с файлом — запасное."""
+    программы — программа активируется сама, письмо с файлом — запасное; из
+    кабинета — файл и программа ждут в кабинете."""
     subject = f"DentPilot: cererea de probă pentru {clinic} a fost primită"
-    if from_program:
+    if origin == "program":
         rest = (f"Programul DentPilot se activează singur pentru {zile(days)} imediat ce aprobăm "
                 f"cererea — de obicei în aceeași zi lucrătoare; nu trebuie să faceți nimic. Fișierul "
                 f"de licență vine și pe acest e-mail, ca rezervă.")
+    elif origin == "cont":
+        rest = (f"Fișierul de licență pentru {zile(days)} vine pe acest e-mail în cel mult o zi "
+                f"lucrătoare; îl găsiți și în contul clinicii, {CONT_URL}, de unde descărcați și "
+                f"programul. La prima pornire programul se activează singur.")
     else:
         rest = (f"Fișierul de licență pentru {zile(days)} vine pe acest e-mail în cel mult o zi "
                 f"lucrătoare, împreună cu pașii de activare; programul îl instalăm împreună, la telefon.")
@@ -202,20 +210,28 @@ def trial_notice(clinic, outcome: str, ip: str, fields: dict | None = None,
     """Олегу: заявка с формы или из программы — кто, что вышло, ссылка на карточку.
     По-русски: письмо своё. При повторе `clinic` — та, что уже есть, а `fields` —
     что написали в заявке."""
-    program = origin == "program"
+    program, cont = origin == "program", origin == "cont"
+    if cont:
+        dup = ("ПОВТОР из кабинета: клиника с этим IDNO уже есть, а вошедший Google-ящик — другой; "
+               "регистрации отказано словами «scrieți-ne». Если это та же клиника (новый директор?) — "
+               "впишите ей новый e-mail в карточке и отвяжите старую запись; кабинет откроется "
+               "при следующем входе")
+    elif program:
+        dup = ("ПОВТОР из программы: клиника с этим IDNO или e-mail уже есть — на её e-mail ушёл "
+               "код активации (новый компьютер?); если кода нет в журнале, ответьте клинике сами")
+    else:
+        dup = "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме отвечено «принято» — ответьте клинике сами"
     what = {"issued": "пробный файл выдан и отправлен клинике"
-                      + (" — программа забирает его сама" if program else ""),
+                      + (" — программа забирает его сама" if program else "")
+                      + (" — файл и программа ждут в кабинете" if cont else ""),
             "issued_unmailed": "файл выдан, но письмо клинике НЕ ушло — в карточке «Отправить последний файл письмом»",
             "requested": "ждёт решения: выдать пробный кнопкой в админке"
                          + (" — программа активируется сама, как только файл выдан" if program else ""),
-            "duplicate": ("ПОВТОР из программы: клиника с этим IDNO или e-mail уже есть — на её "
-                          "e-mail ушёл код активации (новый компьютер?); если кода нет в журнале, "
-                          "ответьте клинике сами"
-                          if program else "ПОВТОР: клиника с этим IDNO или e-mail уже есть, форме "
-                          "отвечено «принято» — ответьте клинике сами")}.get(outcome, outcome)
+            "duplicate": dup}.get(outcome, outcome)
     f = fields or {}
+    source = {"program": "из программы", "cont": "из кабинета (вход через Google)"}.get(origin, "с формы /proba")
     subject = f"DentPilot Cloud: заявка на пробный — {f.get('name') or clinic['name']}"
-    body = (f"Заявка {'из программы' if program else 'с формы /proba'} ({ip}):\n\n"
+    body = (f"Заявка {source} ({ip}):\n\n"
             f"  Клиника: {f.get('name') or clinic['name']}\n  IDNO: {f.get('idno') or clinic['idno'] or '—'}\n"
             f"  Контакт: {f.get('contact_name') or clinic['contact_name'] or '—'}\n"
             f"  E-mail: {f.get('email') or clinic['email']}\n"

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -82,6 +82,18 @@ MIGRATIONS = {
             code_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0, used_at TEXT)""",
         "CREATE INDEX IF NOT EXISTS ix_codes_clinic ON activation_codes(clinic_id, created_at)",
+    ],
+    # Кабинет клиники (шаг 3, 01.10): учётная запись — кто вошёл через Google
+    # (`subject` = sub из id_token, один навсегда), к какой клинике привязана.
+    # Пароля нет: его держит Google. `clinic_id` пуст у записи, которая вошла,
+    # но клинику ещё не зарегистрировала. `clinics.origin` получает значение `cont`.
+    6: [
+        """CREATE TABLE IF NOT EXISTS accounts(
+            id TEXT PRIMARY KEY, provider TEXT NOT NULL, subject TEXT NOT NULL,
+            email TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+            clinic_id TEXT REFERENCES clinics(id),
+            created_at TEXT NOT NULL, last_login_at TEXT, UNIQUE(provider, subject))""",
+        "CREATE INDEX IF NOT EXISTS ix_accounts_clinic ON accounts(clinic_id)",
     ],
 }
 

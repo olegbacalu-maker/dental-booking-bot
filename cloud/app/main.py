@@ -6,7 +6,8 @@
 ежедневная задача с напоминаниями и журнал (L9), оплата картой через maib —
 ссылка, callback, проверка статуса (L12), ответ программе клиники на её
 суточный запрос нового файла (L13, /v1/license), публичная форма пробного
-периода /proba и заявки с неё в админке (L14).
+периода /proba и заявки с неё в админке (L14), кабинет клиники со входом
+через Google и ссылка на скачивание программы (шаг 3, 01.10: /cont, /descarca).
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import auth, config, db, jobs, license, maib, mail, payments, trial, views
+from . import account, auth, config, db, download, jobs, license, maib, mail, payments, trial, views
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -145,7 +146,7 @@ _CLINICS_SQL = """SELECT c.*, s.plan, s.valid_until, s.grace_days,
                   ORDER BY c.created_at DESC"""
 
 
-_REQUESTS_SQL = """SELECT c.* FROM clinics c WHERE c.origin IN ('form', 'program') AND c.declined_at IS NULL
+_REQUESTS_SQL = """SELECT c.* FROM clinics c WHERE c.origin IN ('form', 'program', 'cont') AND c.declined_at IS NULL
                    AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.clinic_id = c.id)
                    ORDER BY c.requested_at DESC"""
 
@@ -371,8 +372,9 @@ def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
         rems = con.execute("SELECT * FROM reminders WHERE subscription_id=? ORDER BY sent_at DESC, rowid DESC",
                            (cid,)).fetchall()
         pending = _pending_count(con)
+        accounts = account.of_clinic(con, cid)
     return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
-                                          payments=pays, pending=pending, reminders=rems))
+                                          payments=pays, pending=pending, reminders=rems, accounts=accounts))
 
 
 def _pending_count(con) -> int:
@@ -744,3 +746,253 @@ def clinic_email(request: Request, cid: str) -> Response:
             return Response(status_code=404)
         code = _send_latest(con, c, auth.current_user(request)) or "mailed"
     return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
+
+
+@app.post("/admin/accounts/{aid}/detach")
+def account_detach(request: Request, aid: str) -> Response:
+    """Отвязать учётную запись кабинета от клиники (смена директора): запись
+    удаляется, следующий вход этого аккаунта Google начинается с регистрации."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        acc = account.get(con, aid)
+        if acc is None:
+            return Response(status_code=404)
+        cid = acc["clinic_id"]
+        account.detach(con, acc, auth.current_user(request))
+    return RedirectResponse(f"/admin/clinics/{cid}?msg=account_detached" if cid else "/admin", status_code=303)
+
+
+# ---------- кабинет клиники (шаг 3, 01.10): вход через Google, /cont ----------
+#
+# Публичная часть сервера по-румынски, своя кука (dp_cont), без админки.
+# Поток входа — account.py; здесь только маршруты: что показать и куда вести.
+
+
+def _cookie_args() -> dict:
+    return {"httponly": True, "samesite": "lax", "secure": config.SECURE_COOKIES}
+
+
+def _current_account(con, request: Request):
+    """Учётная запись из куки кабинета — строкой из базы (отвязанная не пускает)."""
+    aid = auth.current_account_id(request)
+    return account.get(con, aid) if aid else None
+
+
+def _cont_login_redirect() -> Response:
+    return RedirectResponse("/cont/login", status_code=303)
+
+
+@app.get("/cont", response_class=HTMLResponse)
+def cont_home(request: Request, msg: str = "") -> Response:
+    with db.connect() as con:
+        acc = _current_account(con, request)
+        if acc is None:
+            return _cont_login_redirect()
+        if not acc["clinic_id"]:
+            return RedirectResponse("/cont/inregistrare", status_code=303)
+        c = _clinic(con, acc["clinic_id"])
+        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+        issue = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
+                            (c["id"],)).fetchone()
+        pays = con.execute("SELECT * FROM payments WHERE clinic_id=? ORDER BY id DESC", (c["id"],)).fetchall()
+    # последний выпуск — из памяти или одним запросом к API; вне транзакции
+    return HTMLResponse(views.cont_page(acc, c, sub, issue, pays, download.latest(), msg))
+
+
+@app.get("/cont/login", response_class=HTMLResponse)
+def cont_login(request: Request, msg: str = "") -> Response:
+    with db.connect() as con:
+        if _current_account(con, request) is not None:
+            return RedirectResponse("/cont", status_code=303)
+    return HTMLResponse(views.cont_login_page(msg, enabled=account.enabled()))
+
+
+@app.get("/auth/google")
+def google_start(request: Request) -> Response:
+    """К Google: state и nonce — в подписанной куке на время входа."""
+    if not account.enabled():
+        return HTMLResponse(views.cont_login_page(account.OFF, enabled=False), status_code=503)
+    url, cookie = account.begin()
+    resp = RedirectResponse(url, status_code=302)
+    resp.set_cookie(auth.OAUTH_COOKIE, cookie, max_age=auth.OAUTH_TTL, path="/auth/google", **_cookie_args())
+    return resp
+
+
+def _google_login(ident: account.Identity, ip: str):
+    with db.connect(immediate=True) as con:
+        return account.login(con, ident, ip)
+
+
+@app.get(account.CALLBACK_PATH)
+async def google_callback(request: Request, code: str = "", state: str = "", error: str = "") -> Response:
+    """От Google: state против куки, код → id_token (в потоке: сеть), проверка
+    claim'ов, учётная запись. Клиника по ящику уже есть → кабинет; нет → регистрация."""
+    if not account.enabled():
+        return HTMLResponse(views.cont_login_page(account.OFF, enabled=False), status_code=503)
+    if error:
+        return RedirectResponse(f"/cont/login?msg={account.DENIED}", status_code=303)
+    ident, why = await run_in_threadpool(account.finish, code, state,
+                                         request.cookies.get(auth.OAUTH_COOKIE, ""))
+    if ident is None:
+        resp = RedirectResponse(f"/cont/login?msg={why}", status_code=303)
+        resp.delete_cookie(auth.OAUTH_COOKIE, path="/auth/google")
+        return resp
+    acc = await run_in_threadpool(_google_login, ident, _ip(request))
+    resp = RedirectResponse("/cont" if acc["clinic_id"] else "/cont/inregistrare", status_code=303)
+    resp.set_cookie(auth.ACCOUNT_COOKIE, auth.account_cookie(acc["id"]), max_age=auth.ACCOUNT_TTL, path="/",
+                    **_cookie_args())
+    resp.delete_cookie(auth.OAUTH_COOKIE, path="/auth/google")
+    return resp
+
+
+@app.post("/cont/iesire")
+def cont_logout(request: Request) -> Response:
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    resp = RedirectResponse("/cont/login?msg=logged_out", status_code=303)
+    resp.delete_cookie(auth.ACCOUNT_COOKIE, path="/")
+    return resp
+
+
+@app.get("/cont/inregistrare", response_class=HTMLResponse)
+def cont_register(request: Request, msg: str = "") -> Response:
+    with db.connect() as con:
+        acc = _current_account(con, request)
+    if acc is None:
+        return _cont_login_redirect()
+    if acc["clinic_id"]:
+        return RedirectResponse("/cont", status_code=303)
+    return HTMLResponse(views.cont_register_page(acc, msg))
+
+
+@app.post("/cont/inregistrare", response_class=HTMLResponse)
+def cont_register_submit(request: Request, name: str = Form(""), idno: str = Form(""),
+                         contact_name: str = Form(""), phone: str = Form(""), consent: str = Form("")) -> Response:
+    """Регистрация = заявка на пробный теми же правилами, что /proba (лимит с адреса,
+    trial.clean, одна клиника на IDNO/e-mail); e-mail — ящик Google. Повтор по IDNO
+    объявляется (409) и уходит письмом Олегу: кабинет — не оракул о чужих клиниках,
+    но вошедший уже назвал себя Google-ящиком."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        acc = _current_account(con, request)
+    if acc is None:
+        return _cont_login_redirect()
+    if acc["clinic_id"]:
+        return RedirectResponse("/cont", status_code=303)
+    ip = _ip(request)
+    if trial.limited(ip):
+        return HTMLResponse(views.cont_register_page(acc, "limited"), status_code=429)
+    f, code = trial.clean({"name": name, "idno": idno, "contact_name": contact_name, "email": acc["email"],
+                           "phone": phone, "consent": consent})
+    if code:
+        return HTMLResponse(views.cont_register_page(acc, code, f), status_code=400)
+    trial.note(ip)
+    with db.connect(immediate=True) as con:
+        outcome, clinic = account.register(con, acc, f, ip)
+    trial.notify(clinic, outcome, ip, f, trial.ORIGIN_CONT)
+    if outcome == trial.DUPLICATE:
+        return HTMLResponse(views.cont_register_page(acc, "duplicate", f), status_code=409)
+    if outcome == trial.REQUESTED:
+        trial.acknowledge(clinic)
+    issued = outcome in (trial.ISSUED, trial.ISSUED_UNMAILED)
+    return RedirectResponse(f"/cont?msg={'registered_issued' if issued else 'registered_requested'}",
+                            status_code=303)
+
+
+def _cont_clinic(request: Request, con):
+    """(учётная запись, клиника) кабинета или (None, None): без входа или без клиники."""
+    acc = _current_account(con, request)
+    if acc is None or not acc["clinic_id"]:
+        return None, None
+    return acc, _clinic(con, acc["clinic_id"])
+
+
+@app.post("/cont/date")
+def cont_edit(request: Request, name: str = Form(""), idno: str = Form(""), contact_name: str = Form(""),
+              phone: str = Form(""), address: str = Form("")) -> Response:
+    """Реквизиты клиники из кабинета. E-mail здесь не правится: по нему привязан
+    вход. IDNO другой живой клиники не присвоить."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    f, code = account.clean_edit({"name": name, "idno": idno, "contact_name": contact_name, "phone": phone,
+                                  "address": address})
+    with db.connect() as con:
+        acc, c = _cont_clinic(request, con)
+        if c is None:
+            return _cont_login_redirect()
+        if code:
+            return RedirectResponse(f"/cont?msg={code}", status_code=303)
+        if account.idno_taken(con, f["idno"], c["id"]):
+            return RedirectResponse("/cont?msg=idno_taken", status_code=303)
+        con.execute("UPDATE clinics SET name=?, idno=?, contact_name=?, phone=?, address=? WHERE id=?",
+                    (f["name"], f["idno"], f["contact_name"], f["phone"], f["address"], c["id"]))
+        db.audit(con, acc["email"], "clinic_edit", c["id"], f"{f['name']} (din cont)")
+    return RedirectResponse("/cont?msg=saved", status_code=303)
+
+
+@app.get("/cont/licenta.json")
+def cont_license_file(request: Request) -> Response:
+    """Последний выданный файл — тот же текст, что ушёл письмом и что забирает программа."""
+    with db.connect() as con:
+        acc, c = _cont_clinic(request, con)
+        if c is None:
+            return _cont_login_redirect()
+        row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
+                          (c["id"],)).fetchone()
+        if row is None:
+            return RedirectResponse("/cont?msg=no_file", status_code=303)
+        db.audit(con, acc["email"], "download_license", c["id"], f"seq {row['seq']} din cont")
+    return Response(license.issue_text(row), media_type="application/json",
+                    headers={"Content-Disposition": 'attachment; filename="license.json"'})
+
+
+@app.post("/cont/nota")
+def cont_note(request: Request, months: str = Form("1"), method: str = Form(payments.TRANSFER)) -> Response:
+    """Нота на абонемент из кабинета: тот же payments.create, что у админки и
+    ежедневной задачи; второй открытой ноты нет (долг один); карта — только при
+    настроенном maib. Письмо с нотой — как из админки."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    try:
+        m = int(months)
+    except ValueError:
+        m = 0
+    card = method == payments.CARD and maib.enabled()
+    try:
+        with db.connect(immediate=True) as con:
+            acc, c = _cont_clinic(request, con)
+            if c is None:
+                return _cont_login_redirect()
+            if m not in payments.MONTHS:
+                return RedirectResponse("/cont?msg=bad_months", status_code=303)
+            if len(c["idno"] or "") != 13:
+                return RedirectResponse("/cont?msg=need_idno", status_code=303)
+            if con.execute("SELECT 1 FROM payments WHERE clinic_id=? AND status='pending'", (c["id"],)).fetchone():
+                return RedirectResponse("/cont?msg=note_exists", status_code=303)
+            sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+            price = sub["price"] if sub else config.PRICE_MONTH
+            p = payments.create(con, c, m, payments.amount(m, price), acc["email"])
+            if card:
+                p = payments.attach_card(con, p, c, acc["email"], _ip(request))
+            _send_payment_letter(con, c, p, acc["email"])
+    except maib.MaibError as e:
+        log.error("maib: нота из кабинета не создана: %s", e)
+        return RedirectResponse("/cont?msg=maib_failed", status_code=303)
+    return RedirectResponse("/cont?msg=note_created", status_code=303)
+
+
+# ---------- скачивание с сайта (L15): /descarca ----------
+
+
+@app.get("/descarca")
+def descarca(request: Request) -> Response:
+    """302 на подписанный установщик последнего выпуска (GitHub Releases); API
+    молчит — на страницу выпусков. Кто скачивал — строкой в журнале."""
+    url, rel = download.target()
+    with db.connect() as con:
+        db.audit(con, "site", "download", None, f"{rel.asset if rel else 'pagina GitHub'} {_ip(request)}")
+    return RedirectResponse(url, status_code=302)

@@ -4,6 +4,10 @@
 HttpOnly/SameSite=Lax с HMAC, проверка Origin на POST, лимит попыток входа.
 Аргументов «второй администратор» и «роли» здесь нет намеренно — это
 инструмент одного человека (cloud.md › «Админка»).
+
+Кабинет клиники (шаг 3, 01.10) подписывает СВОИ куки тем же секретом, но в
+другом домене HMAC (`kind`): кука кабинета в поле админа не пройдёт, и
+наоборот — подпись считается над «вид|тело|срок», а не над телом.
 """
 from __future__ import annotations
 
@@ -19,6 +23,10 @@ from . import config
 
 COOKIE = "dp_admin"
 SESSION_TTL = 12 * 3600
+ACCOUNT_COOKIE = "dp_cont"          # кабинет клиники: сессия учётной записи
+ACCOUNT_TTL = 7 * 24 * 3600         # неделя: директор заходит нечасто, а вход — лишний клик у Google
+OAUTH_COOKIE = "dp_oauth"           # на время входа через Google: state и nonce
+OAUTH_TTL = 600
 KDF_ITER = 600_000
 MAX_FAILS = 5
 LOCK_SECONDS = 60
@@ -70,25 +78,56 @@ def note_ok(ip: str) -> None:
 # ---------- сессия ----------
 
 
-def _sign(user: str, exp: int) -> str:
-    return hmac.new(_SECRET, f"{user}|{exp}".encode("utf-8"), hashlib.sha256).hexdigest()
+def _sign(kind: str, body: str, exp: int) -> str:
+    return hmac.new(_SECRET, f"{kind}|{body}|{exp}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def session_cookie(user: str) -> str:
-    exp = int(time.time()) + SESSION_TTL
-    return f"{user}|{exp}|{_sign(user, exp)}"
+def _token(kind: str, body: str, ttl: int) -> str:
+    exp = int(time.time()) + ttl
+    return f"{body}|{exp}|{_sign(kind, body, exp)}"
 
 
-def current_user(request: Request) -> str | None:
-    raw = request.cookies.get(COOKIE, "")
+def _read(kind: str, raw: str) -> str | None:
+    """Тело подписанной куки этого вида или None: срок вышел, подпись не сошлась,
+    форма чужая. Тело может само содержать «|» — подпись и срок берутся с конца."""
     try:
-        user, exp_s, mac = raw.split("|")
+        body, exp_s, mac = raw.rsplit("|", 2)
         exp = int(exp_s)
     except ValueError:
         return None
-    if exp < time.time() or not hmac.compare_digest(mac, _sign(user, exp)):
+    if exp < time.time() or not hmac.compare_digest(mac, _sign(kind, body, exp)):
         return None
-    return user if user == config.ADMIN_USER else None
+    return body
+
+
+def session_cookie(user: str) -> str:
+    return _token("admin", user, SESSION_TTL)
+
+
+def current_user(request: Request) -> str | None:
+    user = _read("admin", request.cookies.get(COOKIE, ""))
+    return user if user is not None and user == config.ADMIN_USER else None
+
+
+# ---------- кабинет клиники ----------
+
+
+def account_cookie(aid: str) -> str:
+    return _token("account", aid, ACCOUNT_TTL)
+
+
+def current_account_id(request: Request) -> str | None:
+    """Идентификатор учётной записи из куки кабинета — или None. Сама запись
+    читается из базы: отвязанная (удалённая) запись перестаёт пускать сразу."""
+    return _read("account", request.cookies.get(ACCOUNT_COOKIE, ""))
+
+
+def oauth_cookie(body: str) -> str:
+    return _token("oauth", body, OAUTH_TTL)
+
+
+def read_oauth_cookie(raw: str) -> str | None:
+    return _read("oauth", raw)
 
 
 def same_origin_post(request: Request) -> bool:

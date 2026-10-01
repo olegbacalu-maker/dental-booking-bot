@@ -47,6 +47,21 @@ TRIAL_NOTIFY = env("DP_TRIAL_NOTIFY") or SUPPORT_EMAIL
 # docs/site/declaratie-195.html). Едет вложением в каждое письмо с файлом
 # лицензии; пусто или не PDF — письма уходят без неё, и `tools check` это говорит.
 DECLARATION = env("DP_DECLARATION")
+# Кабинет клиники (шаг 3, 01.10): вход через Google — OAuth-клиент «Web
+# application» из консоли Google Cloud, redirect URI = DP_BASE_URL/auth/google/callback
+# (DEPLOY.md § 3). Оба пусты = кабинет закрыт: /cont говорит об этом словами.
+GOOGLE_CLIENT_ID = env("DP_GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = env("DP_GOOGLE_CLIENT_SECRET")
+# адреса Google OpenID Connect; меняют только тесты (стенд Google в процессе теста)
+GOOGLE_AUTH_URL = env("DP_GOOGLE_AUTH_URL", "https://accounts.google.com/o/oauth2/v2/auth")
+GOOGLE_TOKEN_URL = env("DP_GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
+# Скачивание с сайта (L15): /descarca спрашивает у API GitHub последний выпуск и
+# ведёт на его установщик. Репозиторий — тот же, что REPO в bot/app/repo.py
+# (импорта из bot/ здесь нет — равенство держит cloud/tests). Адрес API меняют
+# только тесты; страница выпусков — запасной адрес, когда API молчит.
+RELEASES_API = env("DP_RELEASES_API",
+                   "https://api.github.com/repos/olegbacalu-maker/dental-booking-bot/releases/latest")
+RELEASES_PAGE = "https://github.com/olegbacalu-maker/dental-booking-bot/releases/latest"
 SUPPORT_PHONE = "+373 60 508 048"
 # Прайс — тот же, что на сайте (dentpilot.md › #preturi, с 24.09.2026): месяц
 # 499 MDL, год — 11 месячных (5 489 MDL, «o lună gratuită»). Сроки и счёт

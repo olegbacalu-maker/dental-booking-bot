@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from harness import CLOUD, ROOT, Result
 
 sys.path.insert(0, str(CLOUD))
-from app import config, license, mail, payments, trial  # noqa: E402
+from app import auth, config, license, mail, payments, trial  # noqa: E402
 
 SITE = ROOT / "docs" / "site"
 
@@ -101,3 +101,15 @@ def suite(res: Result) -> None:
     heads = re.findall(r"<h2>(\d+)\. ", terms)
     res.check("15 пунктов по порядку", heads, [str(i) for i in range(1, 16)])
     res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 16)))
+    # Кабинет клиники (шаг 3, 01.10): политика называет вход Google и оба cookie
+    # со сроками из auth.py; страницы скачивания ведут на /descarca и /cont сервера.
+    res.ok("политика § 5: кабинет — вход Google, cookie dp_oauth и dp_cont со сроками auth.py",
+           "cont Google" in privacy and "dp_oauth" in privacy and "dp_cont" in privacy
+           and f"({auth.OAUTH_TTL // 60} minute)" in flat_privacy and f"({auth.ACCOUNT_TTL // 86400} zile" in flat_privacy
+           and f"https://{host}/cont" in privacy and f"{host}/descarca" in privacy
+           and "Parola nu ajunge la noi" in flat_privacy)
+    for name in ("descarca.html", "descarca-ru.html"):
+        page = (SITE / name).read_text(encoding="utf-8")
+        res.ok(f"{name}: кнопка ведёт на /descarca сервера, кабинет назван, плейсхолдера нет",
+               f'href="https://{host}/descarca"' in page and f"https://{host}/cont" in page
+               and "[LINK-DESCARCARE]" not in page)
