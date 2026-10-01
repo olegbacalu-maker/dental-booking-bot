@@ -139,22 +139,65 @@ openssl rand -hex 32                                                     # → D
 включением прогнать один платёж в песочнице maib и сверить имена полей с
 `app/maib.py`: документация читалась 25.09 по памяти, без доступа к сайту.
 
-Кабинет клиники (шаг 3, 01.10): вход через Google. В консоли Google Cloud
-(console.cloud.google.com; проект любой, можно тот же, где живёт ящик
-Gmail): «APIs & Services › OAuth consent screen» — тип External, название
-«DentPilot», e-mail поддержки, домен `dentpilot.md`, ссылки на
-`https://dentpilot.md/privacy.html` и `termeni.html`, scopes только
-`openid`, `email`, `profile`; статус перевести в «In production» (в
-«Testing» входят только вписанные тестовые ящики — клиника получила бы
-отказ). Затем «Credentials › Create credentials › OAuth client ID» — тип
-«Web application», Authorized redirect URI ровно
-`https://cloud.dentpilot.md/auth/google/callback` (без слеша в конце, не
-http) → `DP_GOOGLE_CLIENT_ID` и `DP_GOOGLE_CLIENT_SECRET` в `cloud.env`.
-Пока они пусты, сервер работает без кабинета: `/cont` говорит «не
-настроен», всё остальное как прежде. `check` печатает redirect URI — сверить
-с консолью: расхождение в одном символе даёт у Google
-`redirect_uri_mismatch`. Паролей клиник на сервере нет: вход держит Google,
-у нас — e-mail, имя и идентификатор аккаунта (политика § 5).
+### Кабинет клиники (шаг 3, 01.10): OAuth-клиент Google
+
+Кабинет `/cont` входит через Google (OpenID Connect). Нужны две строки в
+`cloud.env` — `DP_GOOGLE_CLIENT_ID` и `DP_GOOGLE_CLIENT_SECRET`; их выдаёт
+консоль Google Cloud один раз на проект. Пока они пусты, сервер работает без
+кабинета: `/cont` говорит «не настроен», `/auth/google` отвечает 503, всё
+остальное как прежде. Паролей клиник на сервере нет: вход держит Google, у
+нас — e-mail, имя и идентификатор аккаунта (политика § 5). Scopes только
+`openid`, `email`, `profile` — они «non-sensitive», проверку приложения
+Google для них не требует, лимита на число пользователей нет.
+
+1. Войти в <https://console.cloud.google.com> ящиком `dentpilotpro@gmail.com`
+   (проект живёт под этим аккаунтом; личный ящик — тоже годится, но потом
+   переносить). Вверху «Select a project › New project»: имя `DentPilot`,
+   без организации → Create, выбрать его.
+2. Слева «APIs & Services › OAuth consent screen» — с 2025 это страница
+   «Google Auth Platform». Кнопка «Get started»: App name `DentPilot`,
+   User support email — `dentpilotpro@gmail.com`; Audience — **External**
+   (Internal есть только у Workspace); Contact information — тот же ящик;
+   согласиться с политикой → Create.
+3. «Branding»: App domain — Home page `https://dentpilot.md`, Privacy
+   policy `https://dentpilot.md/privacy.html`, Terms of service
+   `https://dentpilot.md/termeni.html`; Authorized domains —
+   `dentpilot.md`. Логотип НЕ загружать: с логотипом Google требует
+   проверку бренда, без него — нет. Save.
+4. «Data Access › Add or remove scopes»: отметить `.../auth/userinfo.email`,
+   `.../auth/userinfo.profile` и `openid` (все три в блоке non-sensitive)
+   → Update → Save. Больше ничего не добавлять: любой другой scope
+   включает проверку приложения.
+5. «Audience»: Publishing status → **Publish app** → Confirm. Пока статус
+   «Testing», входить могут только ящики из списка Test users, клиника
+   получила бы «Access blocked». Проверки Google после публикации для этих
+   scopes не будет.
+6. «Clients › + Create client»: Application type **Web application**, Name
+   `DentPilot Cloud`; Authorized JavaScript origins — можно не заполнять;
+   Authorized redirect URIs → `+ Add URI` →
+   `https://cloud.dentpilot.md/auth/google/callback` — ровно так: https,
+   без слеша в конце, без www. Create. Окно показывает **Client ID**
+   (`…apps.googleusercontent.com`) и **Client secret** (`GOCSPX-…`): секрет
+   виден один раз — скопировать сразу (или «Download JSON» и хранить его
+   там же, где `cloud.env` и ключ выдачи). Потом секрет можно только
+   пересоздать (Reset secret), старый перестанет работать.
+7. На сервере вписать оба значения в `/srv/dentpilot/src/cloud/deploy/cloud.env`
+   (`chmod 600`, не через чат и не в git), затем `docker compose up -d` и
+   `docker compose exec cloud python -m app.tools check` — строка
+   «кабинет клиники …: вход через Google, redirect URI
+   https://cloud.dentpilot.md/auth/google/callback» обязана совпасть с п. 6
+   символ в символ: расхождение даёт у Google `redirect_uri_mismatch`.
+8. Проверка сквозняком: открыть `https://cloud.dentpilot.md/cont`, нажать
+   «Continuați cu Google», выбрать свой ящик — должна открыться
+   регистрация; зарегистрировать тестовую клинику, в админке её «Скрыть» и
+   «Отвязать» запись. Ошибка «Access blocked: … has not completed the Google
+   verification process» означает, что п. 5 не сделан; «invalid_client» —
+   опечатка в id или секрете.
+
+⚠️ Секрет клиента и `cloud.env` — те же правила, что у ключа выдачи: копия
+вне сервера, в репозиторий и образ не попадает. Смена домена кабинета =
+новая строка redirect URI в п. 6 и `DP_BASE_URL` — иначе вход ломается
+молча для всех клиник.
 
 ## 4. Первый запуск и проверка
 
