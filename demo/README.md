@@ -69,7 +69,7 @@ docker compose -f demo/docker-compose.yml -f demo/docker-compose.local.yml up -d
 
 ```bash
 git clone https://github.com/olegbacalu-maker/dental-booking-bot.git ~/dentpilot-demo/src
-cd ~/dentpilot-demo/src && git checkout v1.36.0        # тег выпуска, в котором есть demo/
+cd ~/dentpilot-demo/src && git checkout main           # или тег выпуска, в котором уже есть demo/ (с 1.36.0)
 cd demo && cp .env.example .env && nano .env            # TUNNEL_TOKEN — владелец
 docker compose --profile tunnel up -d --build
 curl -s http://127.0.0.1:8090/demo/health || docker compose exec demo python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8090/demo/health').read())"
