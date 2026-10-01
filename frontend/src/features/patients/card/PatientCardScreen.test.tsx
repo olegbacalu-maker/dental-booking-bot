@@ -116,8 +116,14 @@ const CARD: PatientCard = {
     can_delete: true,
   },
   documents: [
-    { id: 3, filename: 'trimitere.docx', when: '18.09.2026', size: '0 KB', mime: '', category: 'trimitere', icon: 'mail', view: 'ext' },
-    { id: 1, filename: 'rx.png', when: '18.09.2026', size: '0 KB', mime: 'image/png', category: 'radiografie', icon: 'xray', view: 'img' },
+    { id: 3, filename: 'trimitere.docx', when: '18.09.2026', size: '0 KB', mime: '', category: 'trimitere', category_label: 'Trimitere', icon: 'mail', view: 'ext' },
+    { id: 1, filename: 'rx.png', when: '18.09.2026', size: '0 KB', mime: 'image/png', category: 'radiografie', category_label: 'Radiografie', icon: 'xray', view: 'img' },
+  ],
+  forms: [
+    { key: 'acord195', title: 'Informare și acord (Legea 195)', sheet: 'acord', category: 'acord195', printed: '', signed: null },
+    { key: 'acord_plan', title: 'Acord informat la planul de tratament', sheet: 'plan-acord', category: 'acord_plan', printed: '18.09.2026', signed: null, n_active: 2, total: 1900, stale: false },
+    { key: 'chestionar', title: 'Chestionar anamneză', sheet: 'anamneza/print', category: 'chestionar', printed: '', signed: null, filled: '18.09.2026' },
+    { key: 'fisa043', title: 'Fișa 043/e', sheet: 'fisa043', category: 'fisa043', printed: '', signed: null },
   ],
   visits: {
     history: [
@@ -144,7 +150,7 @@ const CARD: PatientCard = {
     alert_kinds: [{ id: 'allergy', label: 'Alergie' }, { id: 'info', label: 'Info' }],
     anamneza_flags: [{ id: 'cardio', label: 'Boli cardiovasculare / hipertensiune' }, { id: 'diabet', label: 'Diabet zaharat' }],
     anamneza_texts: [{ id: 'alergii', label: 'Alergii (medicamente, materiale)', placeholder: 'ex. penicilină' }],
-    doc_categories: [{ id: 'radiografie', label: 'Radiografie' }, { id: 'alt', label: 'Alt document' }],
+    doc_categories: [{ id: 'radiografie', label: 'Radiografie' }, { id: 'acord_plan', label: 'Acord informat la plan — semnat' }, { id: 'alt', label: 'Alt document' }],
     max_doc_mb: 25,
     pay_methods: [{ id: 'numerar', icon: 'cash' }, { id: 'card', icon: 'card' }],
     plan_labels: { planificat: 'Planificat', in_lucru: 'În lucru', finalizat: 'Finalizat', refuzat: 'Refuzat' },
@@ -277,8 +283,9 @@ describe('PatientCardScreen', () => {
     expect(screen.getByText('1/3 finalizate · 1 refuzate')).toBeTruthy()
     expect(within(rowOf('Coroană 11')).getByText('Finalizează')).toBeTruthy()
     expect(within(rowOf('Extracție 48')).getByText('Începe')).toBeTruthy()
-    expect(within(rowOf('Extracție 48')).getByLabelText(/Șterge poziția/)).toBeTruthy()
-    expect(within(rowOf('Coroană 11')).queryByLabelText(/Șterge poziția/)).toBeNull()
+    /* отказ и удаление — в меню «⋯» строки (01.10); что в нём — отдельная проверка ниже */
+    expect(within(rowOf('Extracție 48')).getByRole('button', { name: /Mai multe acțiuni/ })).toBeTruthy()
+    expect(within(rowOf('Extracție 48')).queryByLabelText(/Șterge poziția/)).toBeNull()
     expect(screen.getByText('1 900 MDL', { selector: '.ptotal b' })).toBeTruthy()
     // сальдо и платежи
     expect(screen.getByText('De achitat').nextElementSibling?.textContent).toBe('300 MDL')
@@ -346,7 +353,8 @@ describe('PatientCardScreen', () => {
     post.mockResolvedValueOnce(ok(CARD, 'ok_refuz', 'Refuzul a fost consemnat'))
     open('/admin/patient/5?tab=plan')
     await screen.findByText('Pin Test', { selector: 'h2' })
-    fireEvent.click(within(rowOf('Coroană 11')).getByText('Refuz'))
+    fireEvent.click(within(rowOf('Coroană 11')).getByRole('button', { name: /Mai multe acțiuni/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Refuz/ }))
     const area = screen.getByLabelText(/Motivul refuzului/) as HTMLTextAreaElement
     // пробелы проходят required браузера — отбивает СЕРВЕР (ст. 13(5))
     fireEvent.change(area, { target: { value: '  ' } })
@@ -873,8 +881,91 @@ describe('PatientCardScreen', () => {
     expect((screen.getByRole('link', { name: /Informare \/ acord/ }) as HTMLAnchorElement).getAttribute('href'))
       .toBe('/admin/patient/5/acord?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Ddate')
     await tabTo('Plan și plăți')
-    expect((screen.getByRole('link', { name: /Acord informat/ }) as HTMLAnchorElement).getAttribute('href'))
+    expect((within(screen.getByRole('note', { name: 'Acord informat' })).getByRole('link') as HTMLAnchorElement).getAttribute('href'))
       .toBe('/admin/patient/5/plan-acord?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Dplan')
+  })
+
+  /* ---- 01.10: Documente — центр бумаг, план уровня 1 ---- */
+
+  it('Documente: бланки со статусом над файлами; «Încarcă semnat» выбирает категорию', async () => {
+    serve()
+    open()
+    await settled()
+    await tabTo('Documente')
+    const form = (key: string) => document.querySelector(`.dp-form[data-form="${key}"]`) as HTMLElement
+    expect(form('acord_plan').textContent).toContain('2 proceduri · 1 900 MDL')
+    expect(form('acord_plan').textContent).toContain('tipărit 18.09.2026')
+    expect(form('acord_plan').textContent).toContain('nesemnat')
+    expect(form('chestionar').textContent).toContain('completat în program 18.09.2026')
+    expect(form('acord195').textContent).toContain('netipărit')
+    /* у 043/e подписи нет — только печать */
+    expect(within(form('fisa043')).queryByRole('button', { name: /Încarcă semnat/ })).toBeNull()
+    expect((within(form('acord195')).getByRole('link', { name: /Tipărește/ }) as HTMLAnchorElement).getAttribute('href'))
+      .toBe('/admin/patient/5/acord?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Ddocs')
+    fireEvent.click(within(form('acord_plan')).getByRole('button', { name: /Încarcă semnat/ }))
+    expect((screen.getByLabelText('Categorie') as HTMLSelectElement).value).toBe('acord_plan')
+    /* подпись к файлу — категория */
+    expect(screen.getByText('Radiografie', { selector: '.dcat' })).toBeTruthy()
+  })
+
+  it('Documente: подписанный скан — зелёная отметка, открывается просмотрщиком; план изменён после подписи — предупреждение', async () => {
+    const signed = {
+      ...CARD,
+      documents: [{ id: 9, filename: 'acord-semnat.png', when: '19.09.2026', size: '0 KB', mime: 'image/png', category: 'acord_plan', category_label: 'Acord informat la plan — semnat', icon: 'clipboard', view: 'img' as const }, ...CARD.documents],
+      forms: CARD.forms.map((f) => f.key === 'acord_plan' ? { ...f, signed: { doc_id: 9, when: '19.09.2026' }, stale: true } : f),
+    }
+    serve(signed)
+    open()
+    await settled()
+    await tabTo('Documente')
+    const form = document.querySelector('.dp-form[data-form="acord_plan"]') as HTMLElement
+    expect(form.textContent).toContain('semnat 19.09.2026')
+    expect(form.textContent).toContain('plan modificat după semnare')
+    fireEvent.click(within(form).getByRole('button', { name: /semnat 19.09.2026/ }))
+    /* `#docs dialog`: у шапки свой dialog.wide (окна KPI) */
+    await waitFor(() => expect((document.querySelector('#docs dialog.wide') as HTMLDialogElement).open).toBe(true))
+    expect(document.querySelector('.dvbody img')?.getAttribute('src')).toBe('/admin/doc/9?inline=1')
+  })
+
+  it('план уровня 1: шапка колонок, одна кнопка на строку, отказ и удаление в меню, полоса согласия ведёт в Documente', async () => {
+    serve()
+    open()
+    await settled()
+    await tabTo('Plan și plăți')
+    expect(document.querySelector('.plan-head')?.textContent).toBe('DinteProcedurăMedicTermenStarePreț')
+    const row = rowOf('Extracție 48')
+    expect(within(row).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['48', 'Începe', ''])
+    expect(within(row).queryByRole('button', { name: /Refuz/ })).toBeNull()
+    fireEvent.click(within(row).getByRole('button', { name: /Mai multe acțiuni/ }))
+    const menu = screen.getByRole('menu', { name: 'Extracție 48' })
+    expect(within(menu).getAllByRole('menuitem').map((b) => b.textContent?.trim())).toEqual(['Refuz', 'Șterge din plan'])
+    /* у начатой позиции удаления нет — только отказ */
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    fireEvent.click(within(rowOf('Coroană 11')).getByRole('button', { name: /Mai multe acțiuni/ }))
+    expect(within(screen.getByRole('menu', { name: 'Coroană 11' })).getAllByRole('menuitem').map((b) => b.textContent?.trim())).toEqual(['Refuz'])
+    fireEvent.keyDown(document, { key: 'Escape' })
+    /* полоса согласия: напечатан, не подписан → «Încarcă exemplarul semnat» ведёт в Documente с категорией */
+    const note = screen.getByRole('note', { name: 'Acord informat' })
+    expect(note.textContent).toContain('tipărit 18.09.2026')
+    fireEvent.click(within(note).getByRole('button', { name: /Încarcă exemplarul semnat/ }))
+    await strip().findByRole('tab', { name: 'Documente', selected: true })
+    expect((screen.getByLabelText('Categorie') as HTMLSelectElement).value).toBe('acord_plan')
+  })
+
+  it('план: «Finalizează» с ценой спрашивает и называет сумму, которая входит в сольд; отказ не шлёт', async () => {
+    serve()
+    open()
+    await settled()
+    await tabTo('Plan și plăți')
+    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    fireEvent.click(within(rowOf('Coroană 11')).getByRole('button', { name: /Finalizează/ }))
+    await waitFor(() => expect(ask).toHaveBeenCalledWith(expect.stringContaining('1 200 MDL intră în soldul')))
+    expect(post).not.toHaveBeenCalled()
+    ask.mockReturnValueOnce(true)
+    post.mockResolvedValueOnce(ok(CARD, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    fireEvent.click(within(rowOf('Coroană 11')).getByRole('button', { name: /Finalizează/ }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan/1/status', { to: 'finalizat', motiv: '' }))
   })
 
   it('анамнез: черновик переживает смену вкладки, вкладка помечена, уход с фиши спрашивает', async () => {

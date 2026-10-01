@@ -58,12 +58,19 @@ export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
   const { flags, texts } = cur
   const edit = (patch: Partial<AnDraft>) => onDraft({ ...cur, ...patch })
   const dirty = anDirty(draft, an)
-  const [open, setOpen] = useState(!an.filled)
+  /* раскрыт, пока опросник не собран — или когда его попросили из шапки
+     (карточка монтируется уже с просьбой: вкладка была другой) */
+  const [open, setOpen] = useState(!an.filled || focusTick > 0)
   const box = useRef<HTMLDivElement>(null)
-
+  /* повторная просьба раскрывает опросник ПРИ ОТРИСОВКЕ (правило хуков:
+     состояние из пропа — без эффекта); эффект ниже только подводит экран */
+  const [seenTick, setSeenTick] = useState(focusTick)
+  if (focusTick !== seenTick) {
+    setSeenTick(focusTick)
+    setOpen(true)
+  }
   useEffect(() => {
     if (!focusTick) return
-    setOpen(true)
     const el = box.current
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' })
   }, [focusTick])

@@ -1190,8 +1190,9 @@ async def patient_anamneza_print(request: Request, pid: int, lang: str = "",
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
-    # лист с именем пациента на руки — событие обработки, как acord и 043/e
-    await db.log_event(pid, "anamneza", "Chestionar medical generat pentru tipărire")
+    # лист с именем пациента на руки — событие обработки, как acord и 043/e;
+    # вид свой: «anamneza» пишет и сохранение опросника (см. card.FORMS)
+    await db.log_event(pid, "anamneza_print", "Chestionar medical generat pentru tipărire")
     return panam.render_form(p, _doc_lang(p, lang), _back_to_card(pid, back))
 
 

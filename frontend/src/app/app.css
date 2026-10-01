@@ -1112,6 +1112,60 @@
 .dp-react-root .wtab-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); margin-left: 6px; vertical-align: middle; }
 .dp-react-root .dp-unsaved { margin-left: 6px; }
 
+/* План лечения, уровень 1 (01.10): шапка колонок с теми же ширинами, что у
+   строк в panel.css; полоса согласия над списком; меню «⋯» у строки. */
+.dp-react-root .plan-head {
+  display: flex; gap: 12px; align-items: center; padding: 2px 0 6px;
+  font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text3);
+}
+.dp-react-root .plan-head .pt { width: 34px; flex: 0 0 34px; }
+.dp-react-root .plan-head .pp { flex: 1; min-width: 0; }
+.dp-react-root .plan-head .pd { width: 130px; flex: 0 0 130px; }
+.dp-react-root .plan-head .pdue { width: 110px; flex: 0 0 110px; }
+.dp-react-root .plan-head .pst { width: 92px; flex: 0 0 92px; }
+.dp-react-root .plan-head .pm { width: 96px; flex: 0 0 96px; text-align: right; }
+.dp-react-root .plan-head .pact { width: 128px; flex: 0 0 128px; }
+.dp-react-root .dp-consent {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; padding: 9px 12px;
+  border-radius: var(--r-chip); background: var(--amber-soft); color: var(--amber-t); font-size: var(--fs-m);
+}
+.dp-react-root .dp-consent.ok { background: var(--green-soft); color: var(--green-t); }
+.dp-react-root .dp-consent > svg { width: 16px; height: 16px; flex: 0 0 16px; }
+.dp-react-root .dp-consent .sp { flex: 1; min-width: 0; }
+.dp-react-root .dp-consent b { font-weight: 600; }
+.dp-react-root .dp-consent a, .dp-react-root .dp-consent .lnk {
+  color: inherit; font: inherit; font-weight: 600; text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap;
+}
+.dp-react-root .plan-row .pact .dp-more {
+  width: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  background: none; border: 1px solid var(--line); color: var(--text3);
+}
+.dp-react-root .plan-row .pact .dp-more:hover { border-color: var(--text3); color: var(--text); }
+.dp-react-root .plan-row .pact .dp-more i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.dp-react-root .dp-cmenu-i svg { width: 15px; height: 15px; vertical-align: -3px; margin-right: 6px; }
+
+/* Documente — центр бумаг (01.10): бланки со статусом над файлами */
+.dp-react-root .dp-forms { display: flex; flex-direction: column; gap: 6px; margin: 0 0 18px; }
+.dp-react-root .dp-form {
+  display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: var(--r-chip); border: 1px solid var(--line2);
+}
+.dp-react-root .dp-form .ico {
+  width: 32px; height: 32px; flex: 0 0 32px; border-radius: var(--r-chip); background: var(--teal-soft); color: var(--teal-d);
+  display: flex; align-items: center; justify-content: center;
+}
+.dp-react-root .dp-form .ico svg { width: 16px; height: 16px; }
+.dp-react-root .dp-form .ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.dp-react-root .dp-form .ttl b { font-size: var(--fs-m); font-weight: 600; }
+.dp-react-root .dp-form .st { display: flex; gap: 6px; flex-wrap: wrap; }
+.dp-react-root .dp-form .acts { display: flex; gap: 6px; flex: 0 0 auto; }
+.dp-react-root .dp-form .acts a, .dp-react-root .dp-form .acts button { height: 30px; padding: 0 10px; font-size: var(--fs-s); }
+.dp-react-root .pill.sm { padding: 2px 8px; font-size: var(--fs-xs); font-weight: 600; }
+.dp-react-root .pill.grey { background: var(--line2); color: var(--text2); }
+.dp-react-root .pill.lnk { border: 0; cursor: pointer; font: inherit; font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.dp-react-root .pill.lnk svg { width: 12px; height: 12px; }
+.dp-react-root .pill.lnk:hover { text-decoration: underline; }
+.dp-react-root .doccard .dcat { display: block; color: var(--teal-d); font-size: var(--fs-xs); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* Окно подтверждения (01.10, `ConfirmHost`): узкое, вопрос с иконкой, две
    кнопки справа — согласие под большим пальцем, как у остальных диалогов. */
 dialog.dp-ask { width: 400px; }

@@ -15,7 +15,7 @@ import { ActivityCard } from './ActivityCard'
 import { AlertsCard } from './AlertsCard'
 import { AnamnezaCard, anDirty, type AnDraft } from './AnamnezaCard'
 import { AppointDialog } from './AppointDialog'
-import { DocumentsCard } from './DocumentsCard'
+import { DocumentsCard, type DocsPick } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
 import { HeroKpi } from './HeroKpi'
 import { chart, type Odontogram } from '../../clinical/chart'
@@ -150,6 +150,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
      переживает вкладки; уход с ФИШИ с несохранённым — через вопрос. */
   const [anDraft, setAnDraft] = useState<AnDraft | null>(null)
   const [anTick, setAnTick] = useState(0)
+  /* «Încarcă exemplarul semnat» из плана: вкладка Documente с нужной категорией */
+  const [docsPick, setDocsPick] = useState<DocsPick | null>(null)
   const dirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
   const blocker = useBlocker(({ currentLocation, nextLocation }) =>
     dirty && currentLocation.pathname !== nextLocation.pathname)
@@ -348,7 +350,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         {tab === 'perio' && <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} />}
         {tab === 'plan' && (
           <>
-            <PlanCard card={card} a={a} onTooth={onTooth} />
+            <PlanCard card={card} a={a} onTooth={onTooth}
+              onUploadSigned={(category) => { setDocsPick({ category, k: Date.now() }); goTab('docs') }} />
             <FinanceCard card={card} a={a} />
           </>
         )}
@@ -361,7 +364,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
             <div className="pv2-side"><NextVisitCard card={card} /></div>
           </div>
         )}
-        {tab === 'docs' && <DocumentsCard card={card} a={a} onFail={failCb} navigate={navigate} />}
+        {tab === 'docs' && <DocumentsCard card={card} a={a} onFail={failCb} navigate={navigate} pick={docsPick} />}
         {tab === 'date' && (
           <div className="pv2">
             <div className="pv2-main">

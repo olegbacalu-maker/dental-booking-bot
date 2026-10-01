@@ -3045,13 +3045,33 @@ PLAN_CLOSED = ("finalizat", "refuzat")
 
 
 async def plan_items(pid: int) -> list:
+    # created_at — когда позиция появилась в плане: по нему статус «acord
+    # informat» говорит «план изменён после подписи» (01.10)
     return await _fetch(
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
-                  done_at, appointment_id, refuz_motiv
+                  done_at, appointment_id, refuz_motiv, created_at
            FROM plan_items WHERE patient_id = $1 ORDER BY id""",
         """SELECT id, tooth, procedure, doctor, status, price_mdl, due_date,
-                  done_at, appointment_id, refuz_motiv
+                  done_at, appointment_id, refuz_motiv, created_at
            FROM plan_items WHERE patient_id = ? ORDER BY id""", pid)
+
+
+async def last_events(pid: int, kinds: tuple) -> dict:
+    """Когда в последний раз случалось событие каждого вида — статусы бланков
+    фиши («tipărit DD.MM»). Лента фиши для этого не годится: она режется
+    шестьюдесятью строками, и печать месячной давности из неё выпадает.
+    ⚠️ Псевдоним `at` — в `_DT_COLS`: иначе в SQLite MAX() остался бы строкой."""
+    if not kinds:
+        return {}
+    pg = ",".join(f"${i + 2}" for i in range(len(kinds)))
+    lite = ",".join("?" for _ in kinds)
+    rows = await _fetch(
+        f"""SELECT kind, MAX(at) AS at FROM activity
+            WHERE patient_id = $1 AND kind IN ({pg}) GROUP BY kind""",
+        f"""SELECT kind, MAX(at) AS at FROM activity
+            WHERE patient_id = ? AND kind IN ({lite}) GROUP BY kind""",
+        pid, *kinds)
+    return {r["kind"]: r["at"] for r in rows}
 
 
 async def plan_item_status(item_id: int, pid: int) -> str | None:

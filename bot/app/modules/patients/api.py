@@ -299,6 +299,7 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
     anam = await db.anamneza(pid)
     acts = await db.patient_activity(pid, 60, include_views=views)
     erasure = await db.erasure_kind(pid)
+    last = await db.last_events(pid, pcard.FORM_KINDS)
     now = datetime.now(eng.TZ)
     base = f"/admin/patient/{pid}"
 
@@ -374,7 +375,10 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
                        "size": pcard.doc_size(d["size"]), "mime": d["mime"] or "",
                        "category": d["category"],
                        "icon": pcard.DOC_ICON.get(d["category"], "file"),
+                       "category_label": pcard.DOC_CATEGORIES.get(d["category"], ""),
                        "view": pcard.doc_view(d["mime"])} for d in docs],
+        # бланки программы со статусами: вкладка «Documente» — центр бумаг (01.10)
+        "forms": pcard.forms_view(last, docs, plan, anam),
         "visits": {
             "history": [_visit_row(v, base, nextv, recs, now) for v in visits[:pcard.HIST_SHOWN]],
             "live": [_visit_row(v, base, nextv, recs, now) for v in vv["live"]],

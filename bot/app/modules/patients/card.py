@@ -66,9 +66,32 @@ PLAN_REFUSABLE = ("planificat", "in_lucru")
 TAB_STATES = {"act": db.PLAN_ACTIVE, "finalizat": ("finalizat",),
               "refuzat": ("refuzat",)}
 
-DOC_CATEGORIES = {"radiografie": "Radiografie", "acord": "Acord / contract",
-                  "trimitere": "Trimitere", "alt": "Alt document"}
+# Категории документов. Четыре «semnat» (01.10) — подписанные экземпляры
+# бланков программы: по ним вкладка «Documente» говорит «semnat ✓ DD.MM», а
+# план — «acord semnat». ⭐ Отметки «подписан» в базе нет намеренно (acord.py):
+# подпись = загруженный скан, галочку без бумаги поставить нельзя. Старое
+# «acord» остаётся общим «Acord / contract» для чужих бумаг.
+DOC_CATEGORIES = {"radiografie": "Radiografie",
+                  "acord195": "Informare și acord (195) — semnat",
+                  "acord_plan": "Acord informat la plan — semnat",
+                  "chestionar": "Chestionar anamneză — semnat",
+                  "fisa043": "Fișa 043/e — semnată",
+                  "acord": "Acord / contract", "trimitere": "Trimitere",
+                  "alt": "Alt document"}
 MAX_DOC_MB = 25
+
+# Бланки программы и их статусы на вкладке «Documente» (01.10, Олег: вкладка
+# — центр всех бумаг). Ключ → (заголовок, адрес листа, вид события печати,
+# категория подписанного скана). ⚠️ Вид события печати — тот, что пишет
+# маршрут листа; `anamneza_print`, не `anamneza`: последним зовётся и
+# СОХРАНЕНИЕ опросника, и «tipărit» показывало бы дату заполнения.
+FORMS = (
+    ("acord195", "Informare și acord (Legea 195)", "acord", "acord", "acord195"),
+    ("acord_plan", "Acord informat la planul de tratament", "plan-acord", "plan_acord", "acord_plan"),
+    ("chestionar", "Chestionar anamneză", "anamneza/print", "anamneza_print", "chestionar"),
+    ("fisa043", "Fișa 043/e", "fisa043", "fisa043", "fisa043"),
+)
+FORM_KINDS = tuple(f[3] for f in FORMS)
 
 # растровые картинки, которые безопасно отдавать inline (для превью в фише).
 # ⛔ SVG и HTML сюда НЕ входят: файл с того же origin, показанный inline, — это
@@ -87,7 +110,9 @@ BAD_FIELD = {"bad_card": "name", "bad_bd": "birth_date", "bad_idnp": "idnp"}
 # живут в core/layout.
 ALERT_ICON = {"allergy": "sos", "medication": "pill", "warning": "alarm", "info": "info"}
 ALERT_TONE = {"allergy": "orange", "medication": "orange", "warning": "red"}
-DOC_ICON = {"radiografie": "xray", "acord": "note", "trimitere": "mail", "alt": "file"}
+DOC_ICON = {"radiografie": "xray", "acord": "note", "trimitere": "mail", "alt": "file",
+            "acord195": "clipboard", "acord_plan": "clipboard", "chestionar": "note",
+            "fisa043": "print"}
 PAY_ICON = {"numerar": "cash", "card": "card", "transfer": "bank"}
 ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "tooth": "tooth", "plan_add": "plus", "plan_status": "refresh",
@@ -97,6 +122,7 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             # в общей ленте оно обязано быть заметным, а не точкой по умолчанию
             "export": "download", "acord": "clipboard", "plan_acord": "clipboard",
             "consult": "med", "fisa043": "print", "anamneza": "note",
+            "anamneza_print": "print",
             "view": "eye", "doc_view": "eye", "erase": "erase"}
 
 # сколько строк летописи фиша показывает сразу; остальные — за кнопкой
@@ -252,6 +278,48 @@ def doc_view(mime: str | None) -> str:
 def doc_size(size: int) -> str:
     kb = (size or 0) // 1024
     return f"{kb} KB" if kb < 1024 else f"{kb / 1024:.1f} MB"
+
+
+def _dmy(v) -> str:
+    return v.astimezone(eng.TZ).strftime("%d.%m.%Y") if hasattr(v, "astimezone") else ""
+
+
+def forms_view(last: dict, docs: list, plan: list, anam: dict | None) -> list[dict]:
+    """Статусы бланков программы для вкладки «Documente» и полосы согласия в
+    плане: `printed` — дата последней печати (из летописи, `last_events`),
+    `signed` — последний загруженный скан этой категории (документы идут
+    id DESC, первый подходящий и есть последний). У согласия к плану ещё
+    `stale`: активная позиция появилась ПОСЛЕ подписи — бумага не покрывает
+    нынешний план, и это обязано быть видно до «Începe», а не на проверке.
+    У опросника `filled` — когда анамнез введён в фишу: это и есть его
+    настоящий статус, скан — дополнение."""
+    def signed(cat: str) -> dict | None:
+        for d in docs:
+            if d.get("category") == cat:
+                return {"doc_id": d["id"], "when": _dmy(d.get("uploaded_at")),
+                        "at": d.get("uploaded_at")}
+        return None
+
+    out = []
+    active = [it for it in plan if it["status"] in db.PLAN_ACTIVE]
+    for key, title, sheet, kind, cat in FORMS:
+        s = signed(cat)
+        f = {"key": key, "title": title, "sheet": sheet, "category": cat,
+             "printed": _dmy(last.get(kind)),
+             "signed": {"doc_id": s["doc_id"], "when": s["when"]} if s else None}
+        if key == "acord_plan":
+            f["n_active"] = len(active)
+            f["total"] = sum(it["price_mdl"] or 0 for it in active)
+            # `>=`, не `>`: даты в секундах, и позиция, заведённая в ту же
+            # секунду, что скан, — тоже после подписи (поймано прогоном)
+            f["stale"] = bool(s and any(
+                hasattr(it.get("created_at"), "astimezone") and it["created_at"] >= s["at"]
+                for it in active))
+        if key == "chestionar":
+            f["filled"] = _dmy((anam.get("updated_at") or anam.get("created_at"))
+                               if anam else None)
+        out.append(f)
+    return out
 
 
 # ---------- анамнез ----------

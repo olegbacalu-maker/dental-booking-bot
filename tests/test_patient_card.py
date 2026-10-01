@@ -384,7 +384,7 @@ def suite_api(res: Result) -> None:
         res.check("состав ответа", sorted(d),
                   sorted(["id", "name", "initials", "archived", "erasure", "profile", "hero",
                           "kpi", "alerts", "anamneza", "plan", "finance", "documents",
-                          "visits", "activity", "appoint", "options"]))
+                          "forms", "visits", "activity", "appoint", "options"]))
         res.check("шапка: те же пилюли в том же порядке",
                   [(pl["tone"], pl["text"]) for pl in d["hero"]["pills"]], _pills(page))
         res.ok("пилюли несут имена значков", all(pl["icon"] for pl in d["hero"]["pills"]),
@@ -458,7 +458,8 @@ def suite_api(res: Result) -> None:
                    an["when"], an["author"], an["texts"]["alergii"]),
                   ("risk", 3, ["cardio", "diabet"],
                    ["Boli cardiovasculare / hipertensiune", "Diabet zaharat"],
-                   [{"label": "Alergii (medicamente, materiale)", "text": "latex"}],
+                   [{"label": "Alergii (medicamente, materiale)", "text": "latex",
+                     "short": "Alergii"}],
                    _dmy(0), "Director", "latex"))
         res.check("предупреждения: те же четыре",
                   [(a["kind"], a["label"], a["text"]) for a in d["alerts"]],
@@ -487,7 +488,8 @@ def suite_api(res: Result) -> None:
                   (len(op["alert_kinds"]), len(op["anamneza_flags"]), len(op["anamneza_texts"]),
                    [x["id"] for x in op["doc_categories"]], [x["id"] for x in op["pay_methods"]],
                    op["teeth"][:3], op["milk"][:2], op["max_doc_mb"], op["doctors"]),
-                  (4, 12, 4, ["radiografie", "acord", "trimitere", "alt"],
+                  (4, 12, 4, ["radiografie", "acord195", "acord_plan", "chestionar", "fisa043",
+                              "acord", "trimitere", "alt"],
                    ["numerar", "card", "transfer"], [18, 17, 16], [55, 54], 25,
                    ["Dr. Arhivat Unu", "Dr. Activ Doi", "Dr. Activ Trei", "Dr. Activ Patru"]))
 
@@ -716,6 +718,36 @@ def suite_actions(res: Result) -> None:
         st, j = _act(c, pid, f"/documents/{exe_id}/delete")
         res.check("документ удалён — тихо, остался один", (st, [x["id"] for x in j["data"]["documents"]]),
                   (200, [doc_id]))
+
+        # ---- бланки со статусом (01.10): tipărit — из летописи, semnat — скан своей категории ----
+        forms = {f["key"]: f for f in j["data"]["forms"]}
+        res.check("четыре бланка, ни один не печатался и не подписан",
+                  (sorted(forms), [f["printed"] for f in forms.values()],
+                   [f["signed"] for f in forms.values()]),
+                  (["acord195", "acord_plan", "chestionar", "fisa043"], [""] * 4, [None] * 4))
+        c.get(f"/admin/patient/{pid}/plan-acord")
+        forms = {f["key"]: f for f in _j(c.get(f"/api/patients/{pid}"))["data"]["forms"]}
+        res.ok("после печати acord informat — дата печати, остальные пусты",
+               forms["acord_plan"]["printed"] and not forms["acord195"]["printed"],
+               f"{forms['acord_plan']} / {forms['acord195']}")
+        r = c.post_file(f"/api/patients/{pid}/documents", "file", "acord-semnat.png", PNG,
+                        mime="image/png", category="acord_plan")
+        j = _j(r)
+        forms = {f["key"]: f for f in j["data"]["forms"]}
+        signed_id = j["data"]["documents"][0]["id"]
+        res.check("скан категории acord_plan = подписан; план после подписи не менялся",
+                  (forms["acord_plan"]["signed"]["doc_id"], forms["acord_plan"]["stale"],
+                   j["data"]["documents"][0]["category_label"]),
+                  (signed_id, False, "Acord informat la plan — semnat"))
+        st, j = _act(c, pid, "/plan", {"tooth": "26", "procedure": "Obturație 26", "price": "900"})
+        forms = {f["key"]: f for f in j["data"]["forms"]}
+        res.check("позиция, добавленная ПОСЛЕ подписи, — план изменён после подписи",
+                  (st, forms["acord_plan"]["stale"], forms["acord_plan"]["n_active"]),
+                  (200, True, 1))
+        res.ok("опросник: статус — когда введён в фишу (выше в наборе), скана нет",
+               forms["chestionar"]["filled"] != "" and forms["chestionar"]["signed"] is None
+               and forms["chestionar"]["printed"] == "",
+               f"{forms['chestionar']}")
         res.check("уже удалённый документ — 404 doc_gone без фиши, форма — плашкой; строка одна",
                   (*_gone(c, pid, f"/documents/{exe_id}/delete", f"/doc/{exe_id}/del"),
                    sum(a["text"] == "Document șters: virus.exe" for a in _feed(c, pid))),

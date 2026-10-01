@@ -1,4 +1,5 @@
 import { api, type ApiResult } from '../../../services/api'
+import type { Sheet } from './print'
 
 /* Формы ответов — bot/app/modules/patients/api.py (`_card`). Все расчёты
    фиши (суммы плана, прогресс, долг, «следующий»/«последний» визит, пилюли,
@@ -127,8 +128,26 @@ export interface Doc {
   size: string
   mime: string
   category: string
+  category_label: string
   icon: string
   view: 'img' | 'pdf' | 'ext'
+}
+
+/** Бланк программы и его статус (01.10, `card.forms_view`): когда печатался,
+ *  есть ли подписанный скан (= документ своей категории); у согласия к плану —
+ *  сколько активных позиций покрывает и не изменился ли план после подписи;
+ *  у опросника — когда введён в фишу. */
+export interface Form {
+  key: 'acord195' | 'acord_plan' | 'chestionar' | 'fisa043'
+  title: string
+  sheet: Sheet
+  category: string
+  printed: string
+  signed: { doc_id: number; when: string } | null
+  n_active?: number
+  total?: number
+  stale?: boolean
+  filled?: string
 }
 
 export interface Visit {
@@ -196,6 +215,7 @@ export interface PatientCard {
   plan: Plan
   finance: Finance
   documents: Doc[]
+  forms: Form[]
   visits: { history: Visit[]; live: Visit[]; n_total: number }
   activity: Activity
   appoint: Appoint

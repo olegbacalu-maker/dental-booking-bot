@@ -1,7 +1,8 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useCallback, useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
+import { placeMenu, useMenuDismiss } from '../../../components/menu'
 import type { CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
@@ -10,7 +11,11 @@ import { printHref } from './print'
 /* План лечения — те же слова, кнопки и порядок, что у старой карточки.
    Переходы направленные: кнопку следующего шага, возможность отказа и
    удаления называет сервер у каждой позиции (PLAN_EDGES). Отказ требует
-   ТЕКСТ (ст. 13(5) Legea 263/2005) — сервер отбивает пустой. */
+   ТЕКСТ (ст. 13(5) Legea 263/2005) — сервер отбивает пустой.
+   ⭐ Уровень 1 (01.10, слово Олега «план непонятен»): шапка колонок; одна
+   главная кнопка на строку, «Refuz» и «Șterge» — в меню «⋯»; полоса согласия
+   над списком (tipărit → semnat ✓, «план изменён после подписи»);
+   «Finalizează» с ценой спрашивает — прайс входит в сольд молча. */
 const T = {
   title: 'Plan de tratament',
   active: 'plan activ:',
@@ -19,6 +24,7 @@ const T = {
   finalized: 'finalizate',
   refused: 'refuzate',
   tabs: { act: 'Active', finalizat: 'Finalizate', refuzat: 'Refuzate', all: 'Toate' },
+  head: { tooth: 'Dinte', proc: 'Procedură', doctor: 'Medic', term: 'Termen', state: 'Stare', price: 'Preț' },
   empty: '— plan gol —',
   total: 'Total plan activ',
   totalDone: 'finalizate:',
@@ -34,12 +40,16 @@ const T = {
   } as Record<string, [string, string]>,
   confirmReia: 'Pacientul a revenit asupra refuzului? „{what}" se întoarce în plan.',
   confirmReopen: 'Redeschideți „{what}" (înapoi în lucru)? Suma iese din sold până la o nouă finalizare.',
+  confirmFin: 'Marcați „{what}" ca finalizată? Prețul de {price} MDL intră în soldul pacientului.',
   reia: 'Reia',
   reopen: 'Redeschide',
+  fin: 'Finalizează',
   refuz: 'Refuz',
   refuzTitle: 'Pacientul refuză procedura — se consemnează în fișă',
-  del: 'Șterge poziția (doar cât nu a fost începută)',
+  del: 'Șterge din plan',
+  delTitle: 'Șterge poziția (doar cât nu a fost începută)',
   confirmDel: 'Ștergeți din plan „{what}"?',
+  more: 'Mai multe acțiuni',
   milk: 'Dinți de lapte',
   ph: { proc: 'Procedură (ex. Coroană zirconiu)', price: 'Preț MDL', due: 'Termen planificat', doctor: 'Medic —' },
   dueHint: 'termen (opțional)',
@@ -53,6 +63,16 @@ const T = {
   refuzGo: 'Înregistrează refuzul',
   close: 'Închide',
   mdl: 'MDL',
+  consent: {
+    procs: 'proceduri',
+    printed: 'tipărit',
+    notPrinted: 'încă netipărit — se semnează înainte de a începe',
+    print: 'Tipărește',
+    reprint: 'Tipărește din nou',
+    upload: 'Încarcă exemplarul semnat',
+    signed: 'semnat',
+    stale: 'plan modificat după semnare — de retipărit și resemnat',
+  },
 } as const
 
 interface Props {
@@ -61,9 +81,13 @@ interface Props {
   /** Клик по номеру зуба: диалог одонтограммы (точка интеграции) или
       детальная страница, если куска на экране нет. */
   onTooth: (n: number) => void
+  /** «Încarcă exemplarul semnat»: вкладка Documente с выбранной категорией. */
+  onUploadSigned: (category: string) => void
 }
 
-export function PlanCard({ card, a, onTooth }: Props) {
+interface MenuAt { it: PlanItem; x: number; y: number }
+
+export function PlanCard({ card, a, onTooth, onUploadSigned }: Props) {
   const plan = card.plan
   const tabs = card.options.tab_states
   /* вкладка: выбор человека живёт, пока сервер не сменил вкладку по
@@ -79,6 +103,8 @@ export function PlanCard({ card, a, onTooth }: Props) {
   const [refuz, setRefuz] = useState<PlanItem | null>(null)
   const [motiv, setMotiv] = useState('')
   const [motivBad, setMotivBad] = useState(false)
+  const [menu, setMenu] = useState<MenuAt | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
 
   async function onAdd(e: FormEvent) {
     e.preventDefault()
@@ -97,6 +123,11 @@ export function PlanCard({ card, a, onTooth }: Props) {
         && !await ask({ text: T.confirmReia.replace('{what}', what(it)), ok: T.reia })) return
     if (it.status === 'finalizat'
         && !await ask({ text: T.confirmReopen.replace('{what}', what(it)), ok: T.reopen })) return
+    /* ⭐ финал с ценой двигает деньги: прайс входит в сольд без отдельной
+       записи платежа — до 01.10 об этом говорила одна мелкая строка под
+       карточкой платежей */
+    if (it.status === 'in_lucru' && it.price
+        && !await ask({ text: T.confirmFin.replace('{what}', what(it)).replace('{price}', mdl(it.price)), ok: T.fin })) return
     await a.act(() => patientCard.planStatus(a.pid, a.views, it.id, it.next))
   }
 
@@ -123,17 +154,32 @@ export function PlanCard({ card, a, onTooth }: Props) {
 
   const shown = plan.items.filter((it) => tab === 'all' || (tabs[tab] ?? []).includes(it.status))
   const closedStates = [...(tabs.finalizat ?? []), ...(tabs.refuzat ?? [])]
+  const consent = card.forms.find((f) => f.key === 'acord_plan')
 
   return (
     <div className="fcard" id="plan">
       <h3>
         {T.title} <small>· {T.active} {mdl(plan.total)} {T.mdl}</small>
-        {plan.items.length > 0 && (
-          <AppLink className="pacord" href={printHref(card.id, 'plan-acord', a.back)} title={T.acordTitle}>
-            <Icon name="clipboard" /> {T.acord}
-          </AppLink>
-        )}
       </h3>
+      {/* полоса согласия — над списком: ст.13(2) требует подписи ДО
+          вмешательства, то есть пока план на экране и обсуждается */}
+      {consent && plan.n_act > 0 && (
+        <div className={`dp-consent${consent.signed ? (consent.stale ? ' stale' : ' ok') : ''}`} role="note" aria-label={T.acord}>
+          <Icon name={consent.signed ? (consent.stale ? 'excl' : 'check') : 'clipboard'} />
+          <span className="sp">
+            <b>{T.acord}</b> · {consent.n_active} {T.consent.procs} · {mdl(consent.total ?? 0)} {T.mdl}
+            {consent.signed
+              ? <> · {T.consent.signed} {consent.signed.when}{consent.stale && <> · {T.consent.stale}</>}</>
+              : <> · {consent.printed ? `${T.consent.printed} ${consent.printed}` : T.consent.notPrinted}</>}
+          </span>
+          <AppLink href={printHref(card.id, 'plan-acord', a.back)} title={T.acordTitle}>
+            {consent.printed || consent.signed ? T.consent.reprint : T.consent.print}
+          </AppLink>
+          {!consent.signed && consent.printed && (
+            <button type="button" className="lnk" onClick={() => onUploadSigned(consent.category)}>{T.consent.upload}</button>
+          )}
+        </div>
+      )}
       {plan.items.length > 0 && (
         <div className="plan-prog">
           <div className="statbar"><div style={{ width: `${plan.pct_done}%` }}></div></div>
@@ -152,11 +198,23 @@ export function PlanCard({ card, a, onTooth }: Props) {
         <button type="button" className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>{T.tabs.all} ({plan.items.length})</button>
       </div>
       {plan.items.length === 0 && <p className="hint dp-m6">{T.empty}</p>}
+      {shown.length > 0 && (
+        <div className="plan-head" aria-hidden="true">
+          <span className="pt">{T.head.tooth}</span>
+          <span className="pp">{T.head.proc}</span>
+          <span className="pd">{T.head.doctor}</span>
+          <span className="pdue">{T.head.term}</span>
+          <span className="pst">{T.head.state}</span>
+          <span className="pm">{T.head.price}</span>
+          <span className="pact"></span>
+        </div>
+      )}
       {shown.map((it) => {
         const [word, title] = T.next[it.status] ?? ['', '']
         const closed = closedStates.includes(it.status)
         const nextCls = it.status === 'planificat' ? 'pgo' : it.status === 'in_lucru' ? 'pgo fin' : 'pre'
         const nextIcon = it.status === 'planificat' ? 'play' : it.status === 'in_lucru' ? 'check' : 'undo'
+        const extra = it.refusable || it.deletable
         return (
           <div key={it.id} className={`plan-row${closed ? ' done' : ''}`} data-st={it.status}>
             {it.tooth
@@ -184,20 +242,22 @@ export function PlanCard({ card, a, onTooth }: Props) {
                   <Icon name={nextIcon} /> {word}
                 </button>
               )}
-              {it.refusable && (
-                <button type="button" className="pref" title={T.refuzTitle} disabled={a.busy} onClick={() => openRefuz(it)}>
-                  <Icon name="ban" /> {T.refuz}
-                </button>
-              )}
-              {it.deletable && (
-                <button type="button" className="pdel" title={T.del} aria-label={`${T.del}: ${it.procedure}`} disabled={a.busy} onClick={() => { void del(it) }}>
-                  <Icon name="close" />
+              {extra && (
+                <button type="button" className="dp-more" title={T.more} aria-label={`${T.more}: ${it.procedure}`}
+                  aria-haspopup="menu" disabled={a.busy}
+                  onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ it, x: r.right - 220, y: r.bottom + 4 }) }}>
+                  <i /><i /><i />
                 </button>
               )}
             </span>
           </div>
         )
       })}
+      {menu && (
+        <RowMenu at={menu} busy={a.busy} onClose={closeMenu}
+          onRefuz={(it) => { closeMenu(); openRefuz(it) }}
+          onDel={(it) => { closeMenu(); void del(it) }} />
+      )}
       <div className="ptotal">
         <span>{T.total}</span><b>{mdl(plan.total)} {T.mdl}</b>
         {plan.total_done > 0 && <span className="pt-done"> · {T.totalDone} {mdl(plan.total_done)} {T.mdl}</span>}
@@ -243,6 +303,33 @@ export function PlanCard({ card, a, onTooth }: Props) {
           <button disabled={a.busy}><Icon name="ban" /> {T.refuzGo}</button>
         </form>
       </dialog>
+    </div>
+  )
+}
+
+/** Меню «⋯» строки плана: отказ и удаление — редкие действия, им не место
+ *  тремя кнопками в каждой строке (01.10). Закрывается, как меню карточки. */
+function RowMenu({ at, busy, onClose, onRefuz, onDel }: {
+  at: MenuAt; busy: boolean; onClose: () => void
+  onRefuz: (it: PlanItem) => void; onDel: (it: PlanItem) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useMenuDismiss(ref, onClose)
+  const { it } = at
+  const { left, top } = placeMenu(at.x, at.y, 220, 40 + 32 * ((it.refusable ? 1 : 0) + (it.deletable ? 1 : 0)))
+  return (
+    <div ref={ref} className="dp-cmenu" role="menu" aria-label={it.procedure} style={{ left, top, width: 220 }}>
+      <div className="dp-cmenu-h">{it.procedure}</div>
+      {it.refusable && (
+        <button type="button" role="menuitem" className="dp-cmenu-i" title={T.refuzTitle} disabled={busy} onClick={() => onRefuz(it)}>
+          <Icon name="ban" /> {T.refuz}
+        </button>
+      )}
+      {it.deletable && (
+        <button type="button" role="menuitem" className="dp-cmenu-i" title={T.delTitle} disabled={busy} onClick={() => onDel(it)}>
+          <Icon name="trash" /> {T.del}
+        </button>
+      )}
     </div>
   )
 }
