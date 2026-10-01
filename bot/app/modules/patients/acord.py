@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import html
 from datetime import datetime
+from urllib.parse import quote
 
 from ... import engine as eng
 from ...core import theme
@@ -202,11 +203,21 @@ def _fill(value: str | None, blank: str = "________________") -> str:
     return html.escape(v) if v else f"<span class='fill'>{blank}</span>"
 
 
-def render(p: dict, lang: str = "ro") -> str:
+def sheet_nav(pid: int, path: str, lang: str, back: str) -> tuple[str, str]:
+    """Адреса кнопок листа: «другой язык» (тот же `back` едет дальше) и
+    «назад» — вкладка фиши, с которой лист открыли; пусто = сама фиша.
+    Один на четыре листа: acord, plan-acord, 043/e, анкета."""
+    back = back or f"/admin/patient/{pid}"
+    other = f"/admin/patient/{pid}/{path}?lang={lang}&back={quote(back, safe='')}"
+    return html.escape(other), html.escape(back)
+
+
+def render(p: dict, lang: str = "ro", back: str = "") -> str:
     e = html.escape
     lang = lang if lang in LANGS else "ro"
     t = _T[lang]
     other = "ru" if lang == "ro" else "ro"
+    other_href, back_href = sheet_nav(p["id"], "acord", other, back)
     # оператор — юрлицо; вывесочное имя рядом в скобках, если отличается
     clinic = e(eng.CLINIC_LEGAL) + (
         f" ({e(eng.CLINIC_NAME)})" if eng.CLINIC_LEGAL != eng.CLINIC_NAME else "")
@@ -225,8 +236,8 @@ def render(p: dict, lang: str = "ro") -> str:
 
 <div class="noprint">
   <button onclick="window.print()">{t["print"]}</button>
-  <a href="/admin/patient/{p["id"]}/acord?lang={other}">{t["other"]}</a>
-  <a href="/admin/patient/{p["id"]}">{t["back"]}</a>
+  <a href="{other_href}">{t["other"]}</a>
+  <a href="{back_href}">{t["back"]}</a>
 </div>
 
 {theme.print_logo("clogo c")}

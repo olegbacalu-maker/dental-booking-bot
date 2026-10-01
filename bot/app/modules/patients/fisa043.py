@@ -26,6 +26,7 @@ from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core import theme
 from ...core.layout import _ic
+from . import acord as pacord
 from . import visit as pvisit
 
 # буквенные коды одонтограммы; пустая клетка = sănătos / neexaminat.
@@ -308,7 +309,8 @@ def _diary_cell(r: dict, t: dict) -> tuple[str, str]:
 def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
            rx_count: int, age: int | None, anam: dict | None = None,
            flag_labels: dict | None = None, lang: str = "ro",
-           punti: list | None = None, perio_line: str = "") -> str:
+           punti: list | None = None, perio_line: str = "",
+           back: str = "") -> str:
     """`recs` — записи приёмов ХРОНОЛОГИЧЕСКИ (дневник читается сверху вниз).
     `anam` — опросник анамнеза, `flag_labels` — подписи его отметок."""
     e = html.escape
@@ -322,6 +324,7 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
     lang = lang if lang in LANGS else "ro"
     t = _T[lang]
     other = "ru" if lang == "ro" else "ro"
+    other_href, back_href = pacord.sheet_nav(p["id"], "fisa043", other, back)
     plan_ro = PLAN_RO if lang == "ro" else PLAN_RU
     # учреждение в шапке бланка — юрлицо (01.10); вывесочное имя рядом, если
     # отличается; IDNO из настроек, пустое — жёлтым под штамп, как раньше
@@ -431,8 +434,8 @@ def render(p: dict, alerts: list, teeth: dict, plan: list, recs: list,
 
 <div class="noprint">
   <button onclick="window.print()">{t["print"]}</button>
-  <a href="/admin/patient/{p["id"]}/fisa043?lang={other}">{t["other"]}</a>
-  <a href="/admin/patient/{p["id"]}">{t["back"]}</a>
+  <a href="{other_href}">{t["other"]}</a>
+  <a href="{back_href}">{t["back"]}</a>
 </div>
 
 <div class="hdr">

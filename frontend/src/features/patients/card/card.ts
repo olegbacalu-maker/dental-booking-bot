@@ -65,7 +65,8 @@ export interface Anamneza {
   flags: string[]
   texts: Record<string, string>
   marked: string[]
-  free: { label: string; text: string }[]
+  /** `short` — короткая подпись поля (как на печатном листе): для полосы рисков в шапке. */
+  free: { label: string; text: string; short: string }[]
   when: string
   author: string
 }

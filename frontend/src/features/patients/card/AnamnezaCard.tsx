@@ -1,12 +1,16 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { Icon } from '../../../components/Icon'
 import type { CardActions } from './actions'
 import { patientCard, type Anamneza, type PatientCard } from './card'
+import { printHref } from './print'
 
 /* Опросник анамнеза: свёрнутая секция обязана показывать САМО содержимое —
    врач смотрит на неё перед анестезией и раскрывать «Chestionar» не будет.
-   Риски (галочки И свободный текст) посчитаны на сервере. */
+   Риски (галочки И свободный текст) посчитаны на сервере.
+   ⭐ Черновик живёт у ЭКРАНА фиши, не у карточки (01.10): вкладки
+   размонтированы, и две галочки, поставленные до «Salvează», пропадали при
+   щелчке по соседней вкладке — молча, без вопроса. */
 const T = {
   title: 'Anamneză',
   risk: 'de reținut',
@@ -16,30 +20,53 @@ const T = {
   notFilled: 'Nu a fost completată — întrebați pacientul înainte de tratament',
   print: 'Formular pentru pacient',
   form: 'Chestionar',
+  unsaved: 'modificări nesalvate',
   save: 'Salvează anamneza',
 } as const
 
-interface Props {
-  card: PatientCard
-  a: CardActions
-}
-
-interface Draft {
+/** Черновик опросника, привязанный к анамнезу, с которого начат: свежая
+ *  фиша (другой объект `an`) даёт форме свои значения. */
+export interface AnDraft {
   an: Anamneza
   flags: string[]
   texts: Record<string, string>
 }
 
-export function AnamnezaCard({ card, a }: Props) {
+const same = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
+
+/** Есть ли в черновике то, чего нет в сохранённом анамнезе этой фиши. */
+export function anDirty(draft: AnDraft | null, an: Anamneza): boolean {
+  if (!draft || draft.an !== an) return false
+  if (!same(draft.flags, an.flags)) return true
+  const keys = new Set([...Object.keys(draft.texts), ...Object.keys(an.texts)])
+  return [...keys].some((k) => (draft.texts[k] ?? '').trim() !== (an.texts[k] ?? '').trim())
+}
+
+interface Props {
+  card: PatientCard
+  a: CardActions
+  draft: AnDraft | null
+  onDraft: (d: AnDraft) => void
+  /** Просьба показать опросник (кнопка «Anamneză» в шапке): раскрыть и подвести. */
+  focusTick: number
+}
+
+export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
   const an = card.anamneza
   const opts = card.options
-  /* черновик привязан к анамнезу, с которого начат: свежая фиша даёт форме
-     свои значения, отказ сервера ввод не трогает (выводится при отрисовке) */
-  const [draft, setDraft] = useState<Draft>(() => ({ an, flags: an.flags, texts: an.texts }))
-  const cur = draft.an === an ? draft : { an, flags: an.flags, texts: an.texts }
+  const cur: AnDraft = draft && draft.an === an ? draft : { an, flags: an.flags, texts: an.texts }
   const { flags, texts } = cur
-  const edit = (patch: Partial<Draft>) =>
-    setDraft((d) => ({ ...(d.an === an ? d : { an, flags: an.flags, texts: an.texts }), ...patch }))
+  const edit = (patch: Partial<AnDraft>) => onDraft({ ...cur, ...patch })
+  const dirty = anDirty(draft, an)
+  const [open, setOpen] = useState(!an.filled)
+  const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!focusTick) return
+    setOpen(true)
+    const el = box.current
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' })
+  }, [focusTick])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -57,8 +84,8 @@ export function AnamnezaCard({ card, a }: Props) {
   ]
 
   return (
-    <div className="fcard" id="anamneza">
-      <h3>{T.title} {head}</h3>
+    <div className="fcard" id="anamneza" ref={box}>
+      <h3>{T.title} {head}{dirty && <span className="pill orange dp-unsaved">{T.unsaved}</span>}</h3>
       {chips.length > 0 && (
         <div className="anlist">
           {chips.map((c, i) => <span key={i}><Icon name={c.icon} /> {c.text}</span>)}
@@ -72,10 +99,10 @@ export function AnamnezaCard({ card, a }: Props) {
           браузеру: там нет куки входа, бланк просит PIN, а ссылка «назад» с
           него уводит весь журнал в браузер. Бланк печатается кнопкой и
           возвращает ссылкой — новая вкладка ему не нужна. */}
-      <AppLink className="anprint" href={`/admin/patient/${card.id}/anamneza/print`}>
+      <AppLink className="anprint" href={printHref(card.id, 'anamneza/print', a.back)}>
         <Icon name="print" /> {T.print}
       </AppLink>
-      <details className="anform" open={!an.filled}>
+      <details className="anform" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
         <summary><Icon name="pen" /> {T.form}</summary>
         <form className="fform" onSubmit={onSubmit}>
           <div className="anbox">

@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
+import { ask } from '../../../components/confirm'
 import { Icon, iconName } from '../../../components/Icon'
 import type { CardActions } from './actions'
-import { mdl, patientCard, type PatientCard } from './card'
+import { mdl, patientCard, type PatientCard, type Payment } from './card'
 
 /* «Plăți și sold»: долг = финализированные позиции плана с ценой минус
    платежи (считает сервер). Записывает любая роль, удаляет директор —
@@ -16,7 +17,7 @@ const T = {
   paidUp: 'achitat integral',
   empty: '— încă fără plăți —',
   delTitle: 'Șterge plata (doar director)',
-  confirmDel: 'Ștergeți plata? Rămâne urmă în istoricul fișei.',
+  confirmDel: 'Ștergeți plata {what}? Soldul se recalculează; rămâne urmă în istoricul fișei.',
   ph: { amount: 'Suma MDL (cu minus = restituire)', note: 'Notă (opțional, ex. avans coroană)' },
   method: 'Metoda',
   add: '＋ Înregistrează plata',
@@ -47,9 +48,10 @@ export function FinanceCard({ card, a }: Props) {
     else if (!err) { setAmount(''); setNote('') }
   }
 
-  async function del(id: number) {
-    if (!window.confirm(T.confirmDel)) return
-    await a.act(() => patientCard.delPayment(a.pid, a.views, id))
+  async function del(pl: Payment) {
+    const what = `${pl.neg ? '- ' : ''}${mdl(pl.amount)} ${T.mdl} · ${pl.when}`
+    if (!await ask({ text: T.confirmDel.replace('{what}', what), danger: true })) return
+    await a.act(() => patientCard.delPayment(a.pid, a.views, pl.id))
   }
 
   const sold = fin.sold
@@ -66,7 +68,7 @@ export function FinanceCard({ card, a }: Props) {
           <b className="pa">{pl.neg ? '- ' : ''}{mdl(pl.amount)} {T.mdl}</b>
           <span className="pn">{pl.note}{pl.taken_by ? ` · ${pl.taken_by}` : ''}</span>
           {fin.can_delete && (
-            <form onSubmit={(e) => { e.preventDefault(); void del(pl.id) }}>
+            <form onSubmit={(e) => { e.preventDefault(); void del(pl) }}>
               <button title={T.delTitle} aria-label={`${T.delTitle}: ${pl.when}`} disabled={a.busy}><Icon name="close" /></button>
             </form>
           )}

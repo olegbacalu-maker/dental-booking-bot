@@ -1168,8 +1168,20 @@ async def patient_alert_add(request: Request, pid: int,
     return _card_redirect(pid, await _add_alert(pid, kind, text))
 
 
+def _back_to_card(pid: int, back: str) -> str:
+    """Куда ведёт «назад» с печатного листа: на ту ВКЛАДКУ фиши, с которой лист
+    открыли (`?back=` в адресе листа), а не на Rezumat (01.10, Олег: «назад»
+    с анкеты вёл не туда). Принимается только адрес ЭТОЙ фиши: чужой путь в
+    `back` — открытый редирект, и он молча заменяется фишей."""
+    base = f"/admin/patient/{pid}"
+    if back == base or back.startswith(base + "?"):
+        return back
+    return base
+
+
 @router.get("/admin/patient/{pid}/anamneza/print", response_class=HTMLResponse)
-async def patient_anamneza_print(request: Request, pid: int, lang: str = ""):
+async def patient_anamneza_print(request: Request, pid: int, lang: str = "",
+                                 back: str = ""):
     """Пустой бланк опросника пациенту на руки. Спрашивать двенадцать пунктов
     голосом через стойку долго и неловко: пациент заполняет лист, пока ждёт,
     рецепция переносит ответы в фишу."""
@@ -1178,7 +1190,9 @@ async def patient_anamneza_print(request: Request, pid: int, lang: str = ""):
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
-    return panam.render_form(p, _doc_lang(p, lang))
+    # лист с именем пациента на руки — событие обработки, как acord и 043/e
+    await db.log_event(pid, "anamneza", "Chestionar medical generat pentru tipărire")
+    return panam.render_form(p, _doc_lang(p, lang), _back_to_card(pid, back))
 
 
 async def _save_anamneza(pid: int, checked: set[str], fields: dict) -> str:
@@ -1999,7 +2013,7 @@ def _doc_lang(p: dict, lang: str) -> str:
 
 
 @router.get("/admin/patient/{pid}/acord", response_class=HTMLResponse)
-async def patient_acord(request: Request, pid: int, lang: str = ""):
+async def patient_acord(request: Request, pid: int, lang: str = "", back: str = ""):
     """Печатный «Informare și acord» с данными этого пациента (закон 195).
 
     Генерация формы пишется в летопись: выдача листа с персональными данными —
@@ -2014,11 +2028,12 @@ async def patient_acord(request: Request, pid: int, lang: str = ""):
         return RedirectResponse("/admin/search", status_code=303)
     await db.log_event(pid, "acord",
                        "Formular «Informare și acord» generat pentru tipărire")
-    return pacord.render(p, _doc_lang(p, lang))
+    return pacord.render(p, _doc_lang(p, lang), _back_to_card(pid, back))
 
 
 @router.get("/admin/patient/{pid}/plan-acord", response_class=HTMLResponse)
-async def patient_plan_acord(request: Request, pid: int, lang: str = ""):
+async def patient_plan_acord(request: Request, pid: int, lang: str = "",
+                             back: str = ""):
     """Печатный «Acord informat» к плану лечения (ст. 13 Legea 263/2005).
 
     ⚠️ Не путать с `/acord`: тот — информирование по 195-му (персональные
@@ -2041,7 +2056,7 @@ async def patient_plan_acord(request: Request, pid: int, lang: str = ""):
     await db.log_event(pid, "plan_acord",
                        "Acord informat la planul de tratament generat "
                        "pentru tipărire")
-    return pplan.render(p, plan, diag, _doc_lang(p, lang))
+    return pplan.render(p, plan, diag, _doc_lang(p, lang), _back_to_card(pid, back))
 
 
 # ---------- дневник визита (consultația) ----------
@@ -2132,7 +2147,7 @@ async def visit_save(request: Request, appt_id: int):
 
 
 @router.get("/admin/patient/{pid}/fisa043", response_class=HTMLResponse)
-async def patient_fisa043(request: Request, pid: int, lang: str = ""):
+async def patient_fisa043(request: Request, pid: int, lang: str = "", back: str = ""):
     """Печатная «Fișa medicală a bolnavului stomatologic» (formular 043/e).
 
     Генерация листа с меддокументацией — событие обработки, как и acord:
@@ -2159,7 +2174,8 @@ async def patient_fisa043(request: Request, pid: int, lang: str = ""):
     # «Diabet zaharat» в русской же строке «Перенесённые заболевания»
     return pfisa.render(p, alerts, teeth, plan, list(reversed(recs)), rx,
                         _p_age(p), anam, panam.labels(doc_lang), doc_lang,
-                        punti, pperio.summary_line(p_exam, p_rows, doc_lang))
+                        punti, pperio.summary_line(p_exam, p_rows, doc_lang),
+                        _back_to_card(pid, back))
 
 
 @router.get("/admin/patient/{pid}/export")

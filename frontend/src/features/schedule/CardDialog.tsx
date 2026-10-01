@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { when } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import type { StatusAction, VisitCardView } from './day'
@@ -116,8 +117,7 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
         {actions.map((a) => (
           <form key={a.to} onSubmit={(e) => {
             e.preventDefault()
-            if (a.confirm && !window.confirm(a.confirm)) return
-            void onStatus(a.to)
+            void when(a.confirm, () => { void onStatus(a.to) })
           }}>
             <button className={`bstat ${a.cls}`} disabled={busy}>
               {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}

@@ -177,6 +177,15 @@ MUTATIONS = [
     # правило разбирает синтаксис, дописанный код не исполняется.
     ("строит только layout", "app/modules/qr/routes.py",
      "\n_MUT_BANNER = MSG_BANNER\n"),
+    # Экран, вернувшийся к серому окну браузера: `window.confirm` и голый
+    # `confirm(` — оба ровно то, что жило в 17 местах до 01.10.
+    ("подтверждение — своим окном", "_frontend/features/patients/card/AlertsCard.tsx",
+     "\nconst _mut = () => window.confirm('Ștergeți?')\n"),
+    ("подтверждение — своим окном", "_frontend/features/doctors/DoctorPhoto.tsx",
+     "\nconst _mut2 = () => confirm('Ștergeți?')\n"),
+    # ЯКОРЬ: хост сняли с корня — все вопросы молча ушли бы в окно браузера.
+    ("подтверждение — своим окном", "_frontend/app/App.tsx",
+     ("<ConfirmHost />", "<></>")),
     # Ровно тот дефект, что жил с 08-13: шаг 4 есть в обоих словарях миграций,
     # версия осталась 3 — цикл _migrate до шага не доходит, и «missing
     # migration step» молчит (он ловит отсутствующие шаги, не лишние).
@@ -447,6 +456,10 @@ LEGAL = [
     # ссылка в КОММЕНТАРИИ — не разметка: правило про <a href> обязано молчать
     ("ссылки экранов — AppLink", "_frontend/features/clinical/OdontogramWorkbench.tsx",
      '\n/* пример для чтения: <a href="/admin/week">săptămâna</a> */\n'),
+    # ⭐ Законно: свойство `a.confirm` (серверный текст вопроса) и слово в
+    # комментарии — не вызов окна браузера.
+    ("подтверждение — своим окном", "_frontend/features/schedule/CardMenu.tsx",
+     "\n/* до 01.10 тут был window.confirm(a.confirm) */\nconst _ok = (a: { confirm: string }) => a.confirm\n"),
     # Форма, а не ступень: планка до 4px, пилюля, круг, половинки дуги двумя
     # значениями и число в КОММЕНТАРИИ — правило про радиус обязано молчать.
     ("радиус берётся ступенью", "app/static/css/panel.css",

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -64,7 +65,7 @@ export function CryptSettingsScreen({ navigate = defaultNavigate }: Props) {
   }
 
   async function stop() {
-    if (!window.confirm(T.confirm)) return
+    if (!await ask({ text: T.confirm, ok: T.stop })) return
     setBusy(true)
     try {
       const r = await settings.cryptStop()

@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
-import { useLocation, useNavigate, useSearchParams } from 'react-router'
+import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
+import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
 import { LoadFailed } from '../../../components/LoadFailed'
 import { Toast, type ToastState } from '../../../components/Toast'
@@ -12,7 +13,7 @@ import { asApiError, type ApiResult } from '../../../services/api'
 import type { ApiError } from '../../../types/api'
 import { ActivityCard } from './ActivityCard'
 import { AlertsCard } from './AlertsCard'
-import { AnamnezaCard } from './AnamnezaCard'
+import { AnamnezaCard, anDirty, type AnDraft } from './AnamnezaCard'
 import { AppointDialog } from './AppointDialog'
 import { DocumentsCard } from './DocumentsCard'
 import { FinanceCard } from './FinanceCard'
@@ -49,6 +50,9 @@ const T = {
   print: 'Printează fișa',
   notFound: 'Fișa nu există sau a fost ștearsă.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  unsaved: 'Anamneză nesalvată',
+  leaveUnsaved: 'Anamneza are modificări nesalvate. Părăsiți fișa fără să le salvați?',
+  leave: 'Părăsește',
 } as const
 
 interface Props {
@@ -141,6 +145,21 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const [booking, setBooking] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const closeToast = useCallback(() => setToast(null), [])
+  /* ⭐ Черновик анамнеза — у экрана (01.10): вкладка «Date pacient»
+     размонтируется при переходе, и набранное пропадало молча. Здесь он
+     переживает вкладки; уход с ФИШИ с несохранённым — через вопрос. */
+  const [anDraft, setAnDraft] = useState<AnDraft | null>(null)
+  const [anTick, setAnTick] = useState(0)
+  const dirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    dirty && currentLocation.pathname !== nextLocation.pathname)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    void ask({ text: T.leaveUnsaved, ok: T.leave, danger: true }).then((yes) => {
+      if (yes) blocker.proceed()
+      else blocker.reset()
+    })
+  }, [blocker])
 
   const fail = useCallback((e: unknown): ApiError => {
     const err = asApiError(e)
@@ -278,17 +297,25 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   }
 
   const card = state.data
-  const a: CardActions = { pid, views, busy, act }
+  /* адрес фиши с текущей вкладкой — куда вернёт «назад» с печатного листа */
+  const here = `${pathname}${qs(tab, views, sub)}`
+  const a: CardActions = { pid, views, busy, act, back: here }
 
   return (
     <section className="dp-react-root" aria-busy={busy || undefined}>
       {nav}
-      <HeroKpi card={card} onBook={() => setBooking(true)} onPlan={() => goTab('plan')} />
+      <HeroKpi card={card} back={here} onBook={() => setBooking(true)} onPlan={() => goTab('plan')}
+        onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }} />
       <div ref={strip} className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
         {TABS.map(([k, label]) => (
           <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
             aria-controls="wpanel" tabIndex={tab === k ? 0 : -1} className={tab === k ? 'on' : ''}
-            onClick={() => goTab(k)}>{label}</button>
+            title={k === 'date' && dirty ? T.unsaved : undefined}
+            onClick={() => goTab(k)}>
+            {label}
+            {/* точка — только глазу: имя вкладки для читалки и проверок остаётся прежним */}
+            {k === 'date' && dirty && <i className="wtab-dot" aria-hidden="true" />}
+          </button>
         ))}
       </div>
       <div id="wpanel" role="tabpanel" aria-labelledby={`wtab-${tab}`} className="wpanel">
@@ -340,7 +367,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
             <div className="pv2-main">
               <ProfileCard card={card} a={a} editOpen={editOpen} onEditOpen={setEditOpen} navigate={navigate} onFail={failCb} />
             </div>
-            <div className="pv2-side"><AnamnezaCard card={card} a={a} /></div>
+            <div className="pv2-side">
+              <AnamnezaCard card={card} a={a} draft={anDraft} onDraft={setAnDraft} focusTick={anTick} />
+            </div>
           </div>
         )}
       </div>

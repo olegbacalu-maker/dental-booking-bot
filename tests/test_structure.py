@@ -1178,6 +1178,38 @@ def suite(res: Result) -> None:
     res.ok("ссылки экранов — AppLink, а не голый <a href>", not bad,
            "переход перезагрузит документ, и окно мигнёт целиком: " + "; ".join(bad))
 
+    # ---- подтверждение — своим окном (01.10) ----
+    # Слово Олега 27.09: «перед любым удалением спросить» — и одним окном в
+    # стиле программы, которое называет, что именно удаляется. Окно рисует
+    # `ConfirmHost` рядом с роутером, вопрос задаёт `ask()` из
+    # `components/confirm.ts`. `window.confirm` в экране — это снова серое
+    # окно браузера без имени удаляемого; в нём же живёт и запасной путь (без
+    # хоста), поэтому он — единственное законное место. Ломается молча: окно
+    # браузера работает, только выглядит чужим и не говорит, что удаляет.
+    # ⚠️ Полярность опасная: хост обязан стоять в App.tsx, `ask(`/`when(` —
+    # встретиться в экранах; иначе правило зелено на удалённом компоненте.
+    bad, asks = [], 0
+    confirm_ok = "components/confirm.ts"
+    for f in sorted(FRONTEND.rglob("*.ts*")) if FRONTEND.exists() else []:
+        rel = f.relative_to(FRONTEND).as_posix()
+        if (f.suffix not in (".ts", ".tsx") or ".test." in f.name
+                or rel.startswith("test/") or rel == confirm_ok):
+            continue
+        code = _client_code(f.read_text(encoding="utf-8"))
+        asks += len(re.findall(r"(?<![\w.])(?:ask|when)\(", code))
+        bad += [f"{rel}:{code.count(chr(10), 0, m.start()) + 1}"
+                for m in re.finditer(r"(?:window\.|(?<![\w.$]))confirm\(", code)]
+    app_tsx = FRONTEND / "app" / "App.tsx"
+    if not app_tsx.exists() or "<ConfirmHost" not in _client_code(app_tsx.read_text(encoding="utf-8")):
+        bad.append("App.tsx не монтирует <ConfirmHost> — вопросы уйдут в окно браузера")
+    if not (FRONTEND / confirm_ok).exists():
+        bad.append(f"нет {confirm_ok} — исключение протухло")
+    if asks < 5:
+        bad.append(f"ask()/when() встречается {asks} раз — экраны больше не спрашивают этим путём")
+    res.ok("подтверждение — своим окном, а не window.confirm", not bad,
+           "вопрос перед удалением задаёт ask() из components/confirm, окно — ConfirmHost: "
+           + "; ".join(bad))
+
     # ---- цвет врача считает ОДИН `_doc_hue` (19.09) ----
     # Палитра `_DOC_HUES` — внутренность формулы, а не общее добро: взять её
     # напрямую значит завести второй способ ответить «какого цвета этот врач».

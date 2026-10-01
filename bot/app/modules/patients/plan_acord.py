@@ -46,6 +46,7 @@ from ... import db
 from ... import engine as eng
 from ...core import theme
 from ...core.layout import _ic, dmy
+from . import acord as pacord
 
 # сколько дней держится смета. Не настройка: 30 дней — обычный срок оферты, а
 # лишний переключатель в настройках клиники стоит дороже, чем правка тут
@@ -274,7 +275,7 @@ def medic_name(plan: list, patient: dict) -> str:
     return (patient.get("primary_doctor") or "").strip()
 
 
-def render(p: dict, plan: list, diag: str = "", lang: str = "ro") -> str:
+def render(p: dict, plan: list, diag: str = "", lang: str = "ro", back: str = "") -> str:
     """`plan` — ВСЕ позиции; активные идут в согласие, отказы — в блок отказа.
 
     Финализированное на лист не попадает: согласие подписывают ДО, а не после;
@@ -284,6 +285,7 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro") -> str:
     lang = lang if lang in LANGS else "ro"
     t = _T[lang]
     other = "ru" if lang == "ro" else "ro"
+    other_href, back_href = pacord.sheet_nav(p["id"], "plan-acord", other, back)
     # prestator — юрлицо с IDNO (01.10), как оператор в acord 195: подписанный
     # лист обязан называть, с кем именно договорился пациент
     clinic = e(eng.CLINIC_LEGAL) + (
@@ -350,8 +352,8 @@ def render(p: dict, plan: list, diag: str = "", lang: str = "ro") -> str:
 
 <div class="noprint">
   <button onclick="window.print()">{t["print"]}</button>
-  <a href="/admin/patient/{p["id"]}/plan-acord?lang={other}">{t["other"]}</a>
-  <a href="/admin/patient/{p["id"]}">{t["back"]}</a>
+  <a href="{other_href}">{t["other"]}</a>
+  <a href="{back_href}">{t["back"]}</a>
 </div>
 
 {theme.print_logo()}

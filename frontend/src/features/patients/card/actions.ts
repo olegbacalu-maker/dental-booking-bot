@@ -14,4 +14,6 @@ export interface CardActions {
   views: boolean
   busy: boolean
   act: (run: () => Promise<ApiResult<PatientCard>>) => Promise<ApiError | null>
+  /** Адрес фиши с ТЕКУЩЕЙ вкладкой — «назад» на печатных листах (`print.ts`). */
+  back: string
 }

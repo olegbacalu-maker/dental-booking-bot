@@ -31,6 +31,7 @@ import { DashScreen, loadDash } from '../features/schedule/DashScreen'
 import { DayScreen, loadDay } from '../features/schedule/DayScreen'
 import { loadWeek, WeekScreen } from '../features/schedule/WeekScreen'
 import { QuickFind } from '../features/quickfind/QuickFind'
+import { ConfirmHost } from '../components/ConfirmHost'
 import { defaultNavigate } from '../hooks/useLoad'
 import { screenRoute, type ScreenData } from '../hooks/useRouteLoad'
 import { fetchDoc } from '../services/doc'
@@ -262,10 +263,13 @@ export function App({ router }: { router: DataRouter }) {
      независимо от того, где в разметке стоит узел React. Открывает фишу он
      ПЕРЕХОДОМ (B4.2) — роутером напрямую, раз вне его дерева. */
   const go = useCallback((url: string) => { void router.navigate(url) }, [router])
+  /* ⭐ Окно подтверждения — тоже РЯДОМ с роутером, одно на все экраны:
+     вопрос «Ștergeți…?» задаёт `ask()` из любого места (`components/confirm`). */
   return (
     <>
       <RouterProvider router={router} />
       <QuickFind navigate={go} />
+      <ConfirmHost />
     </>
   )
 }

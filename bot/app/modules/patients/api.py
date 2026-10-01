@@ -36,6 +36,10 @@ from ...core.auth import PERM_MONEY, can, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json
 from . import anamneza as panam
 from . import card as pcard
+
+# подпись поля анамнеза → его ключ: `anamneza_view` отдаёт пары (подпись,
+# текст), а короткая подпись для шапки живёт по ключу в TEXT_LABELS
+_TEXT_KEY = {lab: k for k, lab, _ph in panam.TEXTS}
 from . import odontogram as podo
 from . import perio as pperio
 from . import visit as pvisit
@@ -340,7 +344,12 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
             "flags": [k for k in panam.FLAGS["ro"] if k in av["flags"]],
             "texts": {k: ((anam.get(k) if anam else "") or "") for k, *_ in panam.TEXTS},
             "marked": av["marked"],
-            "free": [{"label": lab, "text": txt} for lab, txt in av["free"]],
+            # `short` — короткая подпись поля (как на печатном листе): полоса
+            # рисков в шапке фиши читается одной строкой
+            "free": [{"label": lab, "text": txt,
+                      "short": panam.TEXT_LABELS["ro"].get(
+                          _TEXT_KEY.get(lab, ""), lab)}
+                     for lab, txt in av["free"]],
             "when": av["when"].astimezone(eng.TZ).strftime("%d.%m.%Y") if av["when"] else "",
             "author": av["author"],
         },

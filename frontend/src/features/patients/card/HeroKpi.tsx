@@ -3,6 +3,7 @@ import { AppLink } from '../../../components/AppLink'
 import { Icon, iconName } from '../../../components/Icon'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, type PatientCard, type PlanItem, type Visit } from './card'
+import { printHref } from './print'
 
 /* Слова шапки и пяти цифр — те же, что на старой странице; сами цифры,
    пилюли, «последний» и «следующий» визит посчитаны на сервере. */
@@ -17,6 +18,10 @@ const T = {
   mail: 'E-mail',
   book: 'Programează',
   fisa: 'Fișa 043/e',
+  anamneza: 'Anamneză',
+  riskLabel: 'Riscuri medicale',
+  riskNone: 'Anamneza nu a fost completată — întrebați pacientul înainte de tratament.',
+  fill: 'Completează',
   last: 'Ultima vizită',
   noVisits: 'încă fără vizite',
   doctor: 'Medic curant',
@@ -58,6 +63,10 @@ interface Props {
   onBook: () => void
   /** «Deschide planul» из окна активных позиций — вкладка плана (B6) */
   onPlan: () => void
+  /** «Anamneză» рядом с 043/e (01.10): вкладка «Date pacient», опросник раскрыт. */
+  onAnamneza: () => void
+  /** Адрес фиши с текущей вкладкой — «назад» на печатном листе. */
+  back: string
 }
 
 /** Давность последнего визита словами старой страницы: «azi» / «N zile». */
@@ -88,8 +97,19 @@ function PlanRow({ it, labels }: { it: PlanItem; labels: Record<string, string> 
   )
 }
 
-export function HeroKpi({ card, onBook, onPlan }: Props) {
+export function HeroKpi({ card, onBook, onPlan, onAnamneza, back }: Props) {
   const { profile: p, hero, kpi, plan } = card
+  /* ⭐ Риски — ОДНОЙ полосой под шапкой, на всех вкладках (01.10). До B6
+     анамнез стоял под предупреждениями на одной длинной странице; с вкладками
+     аллергия, записанная в анамнезе, была видна только в «Date pacient», а
+     «Atenționări» на Rezumat говорили «fără atenționări». Порядок: явные
+     предупреждения, галочки опросника, свободные поля (там чаще всего и
+     живёт аллергия). */
+  const risks = [
+    ...card.alerts.map((al) => `${al.label}: ${al.text}`),
+    ...card.anamneza.marked,
+    ...card.anamneza.free.map((f) => `${f.short}: ${f.text}`),
+  ]
   const dlg = useRef<HTMLDialogElement>(null)
   const [panel, setPanel] = useState<PanelKey | null>(null)
   const [copied, setCopied] = useState(false)
@@ -187,7 +207,8 @@ export function HeroKpi({ card, onBook, onPlan }: Props) {
             {p.phone && <AppLink href={`tel:${p.phone}`}><Icon name="phone" /> {T.call}</AppLink>}
             {p.email && <AppLink href={`mailto:${p.email}`}><Icon name="mail" /> {T.mail}</AppLink>}
             <button type="button" onClick={onBook}><Icon name="cal" /> {T.book}</button>
-            <AppLink href={`/admin/patient/${card.id}/fisa043`}><Icon name="file" /> {T.fisa}</AppLink>
+            <AppLink href={printHref(card.id, 'fisa043', back)}><Icon name="file" /> {T.fisa}</AppLink>
+            <button type="button" onClick={onAnamneza}><Icon name="note" /> {T.anamneza}</button>
           </div>
         </div>
         <div className="hero-side">
@@ -203,6 +224,18 @@ export function HeroKpi({ card, onBook, onPlan }: Props) {
           </div>
         </div>
       </div>
+      {risks.length > 0 ? (
+        <div className="hero-risk" role="note" aria-label={T.riskLabel}>
+          <Icon name="sos" />
+          <span className="hero-risk-list">{risks.map((r, i) => <span key={i}>{r}</span>)}</span>
+        </div>
+      ) : card.anamneza.state === 'none' ? (
+        <div className="hero-risk soft" role="note" aria-label={T.riskLabel}>
+          <Icon name="note" />
+          <span className="hero-risk-list"><span>{T.riskNone}</span></span>
+          <button type="button" className="hero-risk-go" onClick={onAnamneza}>{T.fill} ›</button>
+        </div>
+      ) : null}
       <div className="kpi5">
         {kpis.map((k) => (
           <button key={k.key} type="button" className="kpi" title={`${k.label} — ${T.clickHint}`} onClick={() => open(k.key)}>

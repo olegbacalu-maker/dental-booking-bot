@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -95,7 +96,7 @@ export function SecuritySettingsScreen({ navigate = defaultNavigate }: Props) {
   }
 
   async function removeUser(u: UserRow) {
-    if (!window.confirm(T.confirm.replace('{name}', u.name))) return
+    if (!await ask({ text: T.confirm.replace('{name}', u.name), danger: true })) return
     setBusy(true)
     try {
       const r = await settings.userDelete(u.id)

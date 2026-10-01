@@ -1,5 +1,6 @@
 import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
+import { when } from '../../components/confirm'
 import type { StatusAction, TodayRow, WeekCell } from './doctors'
 
 const T = {
@@ -98,8 +99,7 @@ export function DoctorWeek({ dk, week, today, actions, noteActions, busy, onStat
                       {((r.note ? noteActions : actions)[r.status] ?? []).map((a) => (
                         <form key={a.to} className="act" onSubmit={(e) => {
                           e.preventDefault()
-                          if (a.confirm && !window.confirm(a.confirm)) return
-                          onStatus(r.id, a.to)
+                          void when(a.confirm, () => onStatus(r.id, a.to))
                         }}>
                           <button className={a.cls} disabled={busy}>
                             {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}

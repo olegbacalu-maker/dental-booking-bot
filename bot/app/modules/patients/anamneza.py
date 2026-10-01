@@ -87,6 +87,7 @@ _FORM_T = {
                   "______________________"),
         "foot": ("Datele se prelucrează conform Legii nr. 195/2024 · "
                  "formular generat de DentPilot la {date}"),
+        "back": "Fișa pacientului", "other": "Русская версия",
     },
     "ru": {
         "title": "Медицинская анкета",
@@ -104,6 +105,7 @@ _FORM_T = {
         "foot": ("Данные обрабатываются согласно Закону № 195/2024 "
                  "(Legea nr. 195/2024) · бланк сформирован программой "
                  "DentPilot {date}"),
+        "back": "Карта пациента", "other": "Versiunea română",
     },
 }
 
@@ -138,16 +140,19 @@ _FORM_CSS = """
 """
 
 
-def render_form(p: dict, lang: str = "ro") -> str:
-    """Пустой бланк опросника с шапкой пациента — на принтер."""
+def render_form(p: dict, lang: str = "ro", back: str = "") -> str:
+    """Пустой бланк опросника с шапкой пациента — на принтер. `back` — вкладка
+    фиши, с которой открыли (кнопка «назад»); пусто = сама фиша."""
     import html
     from datetime import datetime
 
     from ... import engine as eng
+    from . import acord as pacord
 
     lang = lang if lang in FLAGS else "ro"
     t = _FORM_T[lang]
     other = "ru" if lang == "ro" else "ro"
+    other_href, back_href = pacord.sheet_nav(p["id"], "anamneza/print", other, back)
     e = html.escape
     today = datetime.now(eng.TZ).strftime("%d.%m.%Y")
     chk = "<span class='chk'></span>"
@@ -166,9 +171,8 @@ def render_form(p: dict, lang: str = "ro") -> str:
 
 <div class="noprint">
   <button onclick="window.print()">{_ic('print')} {t["title"]}</button>
-  <a href="/admin/patient/{p["id"]}/anamneza/print?lang={other}">
-    {"Русская версия" if lang == "ro" else "Versiunea română"}</a>
-  <a href="/admin/patient/{p["id"]}">{_ic('chev-l')} {e(eng.CLINIC_NAME)}</a>
+  <a href="{other_href}">{t["other"]}</a>
+  <a href="{back_href}">{_ic('chev-l')} {t["back"]}</a>
 </div>
 
 {theme.print_logo("clogo c")}

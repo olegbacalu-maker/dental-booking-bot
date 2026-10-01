@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -41,7 +42,7 @@ export function LanSettingsScreen({ navigate = defaultNavigate }: Props) {
   }
 
   async function toggle(mode: 'on' | 'off') {
-    if (!window.confirm(T.confirm)) return
+    if (!await ask(T.confirm)) return
     setBusy(true)
     try {
       const r = await settings.lanSave(mode)

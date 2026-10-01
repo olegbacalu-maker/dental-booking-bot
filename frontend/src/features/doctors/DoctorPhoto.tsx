@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import type { ApiResult } from '../../services/api'
 import { doctors } from './doctors'
@@ -9,7 +10,7 @@ const T = {
   upload: 'Încarcă fotografia',
   local: 'Rămâne local, pe acest calculator; pacienții nu o văd.',
   remove: 'Șterge fotografia',
-  confirm: 'Ștergeți fotografia?',
+  confirm: 'Ștergeți fotografia medicului? În registru va rămâne avatarul cu inițiale.',
 } as const
 
 interface Props {
@@ -43,7 +44,7 @@ export function DoctorPhoto({ dk, photo, maxMb, onDone, onFail }: Props) {
   }
 
   async function remove() {
-    if (!window.confirm(T.confirm)) return
+    if (!await ask({ text: T.confirm, danger: true })) return
     setBusy(true)
     try {
       const r = await doctors.deletePhoto(dk)

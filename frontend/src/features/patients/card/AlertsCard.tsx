@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
+import { ask } from '../../../components/confirm'
 import { Icon, iconName } from '../../../components/Icon'
 import type { CardActions } from './actions'
-import { patientCard, type PatientCard } from './card'
+import { patientCard, type Alert, type PatientCard } from './card'
 
 const T = {
   title: 'Atenționări medicale',
@@ -9,6 +10,7 @@ const T = {
   ph: 'ex. Alergie: Penicilină',
   add: '+ Adaugă',
   del: 'Șterge',
+  confirmDel: 'Ștergeți atenționarea „{what}"? Medicul nu o va mai vedea în fișă.',
 } as const
 
 interface Props {
@@ -30,13 +32,20 @@ export function AlertsCard({ card, a }: Props) {
     else if (!err) setText('')
   }
 
+  /* удаление — только после вопроса своим окном (01.10): до того крестик
+     стирал аллергию молча, одним щелчком */
+  async function del(al: Alert) {
+    if (!await ask({ text: T.confirmDel.replace('{what}', `${al.label}: ${al.text}`), danger: true })) return
+    await a.act(() => patientCard.delAlert(a.pid, a.views, al.id))
+  }
+
   return (
     <div className="fcard">
       <h3>{T.title}</h3>
       {card.alerts.length ? card.alerts.map((al) => (
         <div key={al.id} className={`alert ${al.kind}`}>
           <Icon name={iconName(al.icon)} /> {al.label} {al.text}
-          <form onSubmit={(e) => { e.preventDefault(); void a.act(() => patientCard.delAlert(a.pid, a.views, al.id)) }}>
+          <form onSubmit={(e) => { e.preventDefault(); void del(al) }}>
             <button title={T.del} aria-label={`${T.del}: ${al.text}`} disabled={a.busy}><Icon name="close" /></button>
           </form>
         </div>

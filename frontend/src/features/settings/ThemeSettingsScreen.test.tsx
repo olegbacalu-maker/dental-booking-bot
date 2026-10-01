@@ -131,6 +131,8 @@ describe('ThemeSettingsScreen', () => {
     expect(post).toHaveBeenCalledWith('/settings/theme', {
       style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: true, menu: 'brand', font: 'inter',
     })
+    /* удаление логотипа теперь спрашивает (01.10); без хоста окна — через confirm браузера */
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
     fireEvent.click(screen.getByRole('button', { name: /Șterge/ }))
     expect(await screen.findByText('Logo șters')).toBeTruthy()
     expect(post).toHaveBeenLastCalledWith('/settings/theme/logo/delete', {})

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppLink, useAppNavigate } from '../../components/AppLink'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -88,7 +89,7 @@ export function ChairScreen({ navigate = defaultNavigate }: Props) {
   }, [dk, refresh])
 
   async function act(item: ChairItem, a: StatusAction) {
-    if (a.confirm && !window.confirm(a.confirm)) return
+    if (a.confirm && !await ask(a.confirm)) return
     setBusy(true)
     try {
       await chair.status(item.id, a.to)

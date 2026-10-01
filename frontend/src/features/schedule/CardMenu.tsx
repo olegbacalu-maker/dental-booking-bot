@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { when } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { placeMenu, useMenuDismiss } from '../../components/menu'
 import type { StatusAction, VisitCardView } from './day'
@@ -56,10 +57,7 @@ export function CardMenu({ at, card, actions, busy, onStatus, onClose }: Props) 
           role="menuitem"
           className={`dp-cmenu-i dp-cmenu-${a.cls}`}
           disabled={busy}
-          onClick={() => {
-            if (a.confirm && !window.confirm(a.confirm)) return
-            void onStatus(a.to)
-          }}
+          onClick={() => { void when(a.confirm, () => { void onStatus(a.to) }) }}
         >
           {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}
         </button>

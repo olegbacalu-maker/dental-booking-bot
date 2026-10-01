@@ -1,9 +1,11 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
+import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
 import type { CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, patientCard, type PatientCard, type PlanForm, type PlanItem } from './card'
+import { printHref } from './print'
 
 /* План лечения — те же слова, кнопки и порядок, что у старой карточки.
    Переходы направленные: кнопку следующего шага, возможность отказа и
@@ -30,12 +32,14 @@ const T = {
     refuzat: ['Reia', 'Pacientul a revenit — înapoi în plan'],
     finalizat: ['Redeschide', 'Redeschide — înapoi în lucru'],
   } as Record<string, [string, string]>,
-  confirmReia: 'Pacientul a revenit asupra refuzului? Procedura se întoarce în plan.',
-  confirmReopen: 'Redeschideți procedura (înapoi în lucru)?',
+  confirmReia: 'Pacientul a revenit asupra refuzului? „{what}" se întoarce în plan.',
+  confirmReopen: 'Redeschideți „{what}" (înapoi în lucru)? Suma iese din sold până la o nouă finalizare.',
+  reia: 'Reia',
+  reopen: 'Redeschide',
   refuz: 'Refuz',
   refuzTitle: 'Pacientul refuză procedura — se consemnează în fișă',
   del: 'Șterge poziția (doar cât nu a fost începută)',
-  confirmDel: 'Ștergeți poziția din plan?',
+  confirmDel: 'Ștergeți din plan „{what}"?',
   milk: 'Dinți de lapte',
   ph: { proc: 'Procedură (ex. Coroană zirconiu)', price: 'Preț MDL', due: 'Termen planificat', doctor: 'Medic —' },
   dueHint: 'termen (opțional)',
@@ -84,9 +88,15 @@ export function PlanCard({ card, a, onTooth }: Props) {
     else if (!err) setForm({ tooth: '', procedure: '', doctor: '', price: '', due_date: '' })
   }
 
+  /* позиция словами — в каждом вопросе: «Ștergeți…?» без имени не говорит,
+     что именно уйдёт, а в плане бывает по три коронки подряд */
+  const what = (it: PlanItem) => `${it.procedure}${it.tooth ? ` · dintele ${it.tooth}` : ''}`
+
   async function step(it: PlanItem) {
-    if (it.status === 'refuzat' && !window.confirm(T.confirmReia)) return
-    if (it.status === 'finalizat' && !window.confirm(T.confirmReopen)) return
+    if (it.status === 'refuzat'
+        && !await ask({ text: T.confirmReia.replace('{what}', what(it)), ok: T.reia })) return
+    if (it.status === 'finalizat'
+        && !await ask({ text: T.confirmReopen.replace('{what}', what(it)), ok: T.reopen })) return
     await a.act(() => patientCard.planStatus(a.pid, a.views, it.id, it.next))
   }
 
@@ -107,7 +117,7 @@ export function PlanCard({ card, a, onTooth }: Props) {
   }
 
   async function del(it: PlanItem) {
-    if (!window.confirm(T.confirmDel)) return
+    if (!await ask({ text: T.confirmDel.replace('{what}', what(it)), danger: true })) return
     await a.act(() => patientCard.delPlan(a.pid, a.views, it.id))
   }
 
@@ -119,7 +129,7 @@ export function PlanCard({ card, a, onTooth }: Props) {
       <h3>
         {T.title} <small>· {T.active} {mdl(plan.total)} {T.mdl}</small>
         {plan.items.length > 0 && (
-          <AppLink className="pacord" href={`/admin/patient/${card.id}/plan-acord`} title={T.acordTitle}>
+          <AppLink className="pacord" href={printHref(card.id, 'plan-acord', a.back)} title={T.acordTitle}>
             <Icon name="clipboard" /> {T.acord}
           </AppLink>
         )}

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AppLink, useAppNavigate } from '../../../components/AppLink'
+import { ask } from '../../../components/confirm'
 import { Icon } from '../../../components/Icon'
 import type { IconName } from '../../../components/icons'
 import type { CardActions } from './actions'
 import { patientCard, type PatientCard, type ProfileForm } from './card'
+import { printHref } from './print'
 
 /* «Date pacient»: те же строки, та же форма и те же слова, что у старой
    карточки; правила (имя обязательно, дата не в будущем, IDNP из 13 цифр,
@@ -38,7 +40,8 @@ const T = {
   eraseAnonTail: ' (nume, telefon, IDNP, adresă…); tratamentul rămâne sub numărul fișei.',
   irreversible: ' Acțiunea este ',
   irreversibleB: 'ireversibilă',
-  eraseConfirm: 'Acțiunea este ireversibilă. Continuați?',
+  eraseConfirmDelete: 'Fișa „{name}" se șterge definitiv, împreună cu programările. Acțiunea este ireversibilă.',
+  eraseConfirmAnon: 'Datele de identitate ale pacientului „{name}" se șterg; tratamentul rămâne sub numărul fișei. Acțiunea este ireversibilă.',
   erasePh: 'scrieți STERG',
   eraseBtnDelete: 'Șterge definitiv', eraseBtnAnon: 'Șterge datele personale',
 } as const
@@ -104,7 +107,9 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, navigate, onFail }:
 
   async function onErase(e: FormEvent) {
     e.preventDefault()
-    if (!window.confirm(T.eraseConfirm)) return
+    const del = card.erasure === 'delete'
+    const text = (del ? T.eraseConfirmDelete : T.eraseConfirmAnon).replace('{name}', card.name)
+    if (!await ask({ title: T.eraseTitle, text, ok: del ? T.eraseBtnDelete : T.eraseBtnAnon, danger: true })) return
     setErasing(true)
     try {
       const r = await patientCard.erase(a.pid, a.views, confirm)
@@ -197,7 +202,7 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, navigate, onFail }:
       <AppLink className="dp-pc-btn dp-pc-sec" href={`/admin/patient/${card.id}/export`} title={T.exportTitle}>
         <Icon name="download" /> {T.export}
       </AppLink>
-      <AppLink className="dp-pc-btn dp-pc-sec" href={`/admin/patient/${card.id}/acord`} title={T.acordTitle}>
+      <AppLink className="dp-pc-btn dp-pc-sec" href={printHref(card.id, 'acord', a.back)} title={T.acordTitle}>
         <Icon name="clipboard" /> {T.acord}
       </AppLink>
       <details className="dp-erase">

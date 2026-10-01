@@ -1,5 +1,6 @@
 import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
+import { when } from '../../components/confirm'
 import type { DayListRow, DayModel } from './day'
 
 /* «Lista zilei» (C25.5c): все записи дня строками, с кнопками исхода.
@@ -121,8 +122,7 @@ function Row({ row, actions, clickable, busy, onCard, onCardMenu, onStatus }: Ro
         {actions.map((a) => (
           <form key={a.to} className="act" onSubmit={(e) => {
             e.preventDefault()
-            if (a.confirm && !window.confirm(a.confirm)) return
-            onStatus(row.id, a.to)
+            void when(a.confirm, () => onStatus(row.id, a.to))
           }}>
             <button className={a.cls} disabled={busy}>
               {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}

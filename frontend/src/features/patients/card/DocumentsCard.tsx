@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
+import { ask } from '../../../components/confirm'
 import { Icon, iconName } from '../../../components/Icon'
 import { asApiError } from '../../../services/api'
 import type { CardActions } from './actions'
@@ -15,7 +16,7 @@ const T = {
   max: 'max',
   empty: '— fără documente —',
   del: 'Șterge',
-  confirmDel: 'Ștergeți documentul?',
+  confirmDel: 'Ștergeți documentul „{name}"? Fișierul se șterge de pe disc.',
   pick: 'Alege fișierul',
   noFile: 'niciun fișier ales',
   upload: 'Încarcă document',
@@ -73,7 +74,7 @@ export function DocumentsCard({ card, a, onFail, navigate }: Props) {
   }
 
   async function del(d: Doc) {
-    if (!window.confirm(T.confirmDel)) return
+    if (!await ask({ text: T.confirmDel.replace('{name}', d.filename), danger: true })) return
     await a.act(() => patientCard.delDoc(a.pid, a.views, d.id))
   }
 

@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
@@ -24,6 +25,7 @@ const T = {
   pick: 'Alege fișier',
   upload: 'Încarcă',
   remove: 'Șterge',
+  confirmRemove: 'Ștergeți logoul clinicii? Ecranul de intrare și documentele tipărite rămân fără logo.',
   topbar: 'Afișează logo-ul și în bara de sus a registrului, pe centru',
   logoHint:
     'PNG sau JPEG, cel mult {mb} MB. Apare pe ecranul de intrare și în antetul ' +
@@ -145,6 +147,9 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
   }
 
   async function removeLogo() {
+    /* до 01.10 логотип стирался без вопроса — единственная кнопка настроек,
+       которая делала необратимое молча */
+    if (!await ask({ text: T.confirmRemove, danger: true })) return
     setBusy(true)
     try {
       const r = await settings.themeLogoDelete()
@@ -252,7 +257,7 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
               <div className="dp-logo-actions">
                 <button className="pl-btn primary" disabled={busy || !file}>{T.upload}</button>
                 {data.logo && (
-                  <button type="button" className="pl-btn" disabled={busy} onClick={removeLogo}>
+                  <button type="button" className="pl-btn" disabled={busy} onClick={() => { void removeLogo() }}>
                     <Icon name="trash" /> {T.remove}
                   </button>
                 )}

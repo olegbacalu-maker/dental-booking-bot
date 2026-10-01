@@ -7,6 +7,7 @@
 """
 import io
 import json
+import urllib.parse
 import zipfile
 from datetime import date, timedelta
 
@@ -424,3 +425,26 @@ def suite_form(res: Result) -> None:
         res.ok("без входа бланк не отдаётся",
                anon.get(f"/admin/patient/{pid}/anamneza/print").status == 303,
                "лист с именем пациента ушёл без входа")
+
+        # ⭐ «назад» с любого печатного листа — на ту ВКЛАДКУ фиши, с которой
+        # его открыли (01.10, Олег: «назад» с анкеты вёл на Rezumat), и тот же
+        # адрес едет дальше по ссылке на другой язык. Чужой адрес в `back`
+        # — открытый редирект, молча заменяется фишей.
+        back = f"/admin/patient/{pid}?tab=date"
+        q = urllib.parse.quote(back, safe="")
+        for path in ("anamneza/print", "acord", "plan-acord", "fisa043"):
+            b = c.get(f"/admin/patient/{pid}/{path}?back={q}").body
+            res.ok(f"{path}: «назад» ведёт на вкладку", f'href="{back}"' in b,
+                   "лист возвращает на Rezumat, а не туда, откуда открыт")
+            res.ok(f"{path}: другой язык несёт back дальше", f"back={q}" in b,
+                   "после смены языка «назад» потеряет вкладку")
+            evil = c.get(f"/admin/patient/{pid}/{path}?back=/admin/search").body
+            res.ok(f"{path}: чужой адрес в back не принимается",
+                   'href="/admin/search"' not in evil
+                   and f'href="/admin/patient/{pid}"' in evil,
+                   "лист повёл бы по адресу из строки запроса")
+        res.ok("анкета подписана «Fișa pacientului», а не именем клиники",
+               "Fișa pacientului" in b, "кнопка «назад» на анкете названа клиникой")
+        res.ok("выдача бланка анкеты попала в летопись",
+               "Chestionar medical generat" in c.get(f"/admin/patient/{pid}").body,
+               "лист с именем пациента ушёл без следа")

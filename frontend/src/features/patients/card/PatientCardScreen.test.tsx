@@ -94,7 +94,7 @@ const CARD: PatientCard = {
     filled: true, state: 'risk', n_risk: 3, flags: ['cardio', 'diabet'],
     texts: { boli: '', medicamente: '', alergii: 'latex', anestezie: '' },
     marked: ['Boli cardiovasculare / hipertensiune', 'Diabet zaharat'],
-    free: [{ label: 'Alergii (medicamente, materiale)', text: 'latex' }],
+    free: [{ label: 'Alergii (medicamente, materiale)', text: 'latex', short: 'Alergii' }],
     when: '18.09.2026', author: 'Director',
   },
   plan: {
@@ -827,5 +827,83 @@ describe('PatientCardScreen', () => {
     expect(await screen.findByText('Jurnalul consultației')).toBeTruthy()
     expect(r2.router.state.location.search).toBe('?tab=vizite&visit=3')
     expect(opens()).toBe(1)
+  })
+
+  /* ---- 01.10: риски в шапке, «Anamneză» рядом с 043/e, черновик, «назад» с листов ---- */
+
+  it('шапка: полоса рисков — предупреждения и анамнез одной строкой, на всех вкладках', async () => {
+    serve()
+    open()
+    await settled()
+    const risk = () => screen.getByRole('note', { name: 'Riscuri medicale' })
+    expect(risk().textContent).toContain('Alergie: Penicilină')
+    expect(risk().textContent).toContain('Diabet zaharat')
+    expect(risk().textContent).toContain('Alergii: latex')
+    await tabTo('Plan și plăți')
+    expect(risk().textContent).toContain('Alergii: latex')
+  })
+
+  it('шапка: без рисков полосы нет; анамнез не собирали — мягкое напоминание с кнопкой', async () => {
+    serve({ ...CARD, alerts: [], anamneza: { ...CARD.anamneza, state: 'ok', n_risk: 0, marked: [], free: [] } })
+    open()
+    await settled()
+    expect(screen.queryByRole('note', { name: 'Riscuri medicale' })).toBeNull()
+    cleanup()
+    serve({ ...CARD, alerts: [], anamneza: { ...CARD.anamneza, filled: false, state: 'none', n_risk: 0, marked: [], free: [] } })
+    open()
+    await settled()
+    const note = screen.getByRole('note', { name: 'Riscuri medicale' })
+    expect(note.className).toContain('soft')
+    fireEvent.click(within(note).getByRole('button', { name: /Completează/ }))
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+  })
+
+  it('«Anamneză» в шапке открывает Date pacient; печатные листы несут «назад» на текущую вкладку', async () => {
+    serve()
+    open()
+    await settled()
+    const fisa = () => screen.getByRole('link', { name: /Fișa 043\/e/ }) as HTMLAnchorElement
+    expect(fisa().getAttribute('href')).toBe('/admin/patient/5/fisa043?back=%2Fadmin%2Fpatient%2F5')
+    fireEvent.click(screen.getByRole('button', { name: /^Anamneză$/ }))
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+    expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(true)
+    expect(fisa().getAttribute('href')).toBe('/admin/patient/5/fisa043?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Ddate')
+    expect((screen.getByRole('link', { name: /Formular pentru pacient/ }) as HTMLAnchorElement).getAttribute('href'))
+      .toBe('/admin/patient/5/anamneza/print?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Ddate')
+    expect((screen.getByRole('link', { name: /Informare \/ acord/ }) as HTMLAnchorElement).getAttribute('href'))
+      .toBe('/admin/patient/5/acord?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Ddate')
+    await tabTo('Plan și plăți')
+    expect((screen.getByRole('link', { name: /Acord informat/ }) as HTMLAnchorElement).getAttribute('href'))
+      .toBe('/admin/patient/5/plan-acord?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Dplan')
+  })
+
+  it('анамнез: черновик переживает смену вкладки, вкладка помечена, уход с фиши спрашивает', async () => {
+    serve()
+    const { router } = open()
+    await settled()
+    await tabTo('Date pacient')
+    const diabet = () => screen.getByLabelText('Diabet zaharat') as HTMLInputElement
+    expect(diabet().checked).toBe(true)
+    fireEvent.click(diabet())
+    expect(diabet().checked).toBe(false)
+    expect(screen.getByText('modificări nesalvate')).toBeTruthy()
+    await tabTo('Rezumat')
+    expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeTruthy()
+    await tabTo('Date pacient')
+    /* до 01.10 вкладка размонтировалась и галочка возвращалась к сохранённой */
+    expect(diabet().checked).toBe(false)
+    /* уход с фиши — вопрос; отказ оставляет на месте */
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    fireEvent.click(screen.getByRole('link', { name: /Pacienți/ }))
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('nesalvate')))
+    expect(router.state.location.pathname).toBe('/admin/patient/5')
+    expect(diabet().checked).toBe(false)
+    /* сохранили — свежая фиша, черновика нет, точки нет */
+    post.mockResolvedValueOnce(ok({ ...CARD, anamneza: { ...CARD.anamneza, flags: ['cardio'] } }, 'ok_anam', 'Anamneza a fost salvată'))
+    fireEvent.click(screen.getByRole('button', { name: /Salvează anamneza/ }))
+    expect(await screen.findByText('Anamneza a fost salvată')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/anamneza', expect.objectContaining({ flags: ['cardio'] }))
+    expect(screen.queryByText('modificări nesalvate')).toBeNull()
+    expect(strip().getByRole('tab', { name: /Date pacient/ }).querySelector('.wtab-dot')).toBeNull()
   })
 })

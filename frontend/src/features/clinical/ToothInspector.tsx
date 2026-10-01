@@ -1,5 +1,6 @@
 import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
+import { ask } from '../../components/confirm'
 import { Tooth } from './Tooth'
 import { ToothForm } from './ToothForm'
 import { JAW_RO, bridgeOf, surfaceLetter, type Odontogram, type View } from './chart'
@@ -16,7 +17,7 @@ const T = {
   bridge: 'Punte',
   role: 'rol',
   delBridge: 'Șterge puntea',
-  confirmDel: 'Ștergeți puntea?',
+  confirmDel: 'Ștergeți puntea {span}? Dinții rămân cu starea lor.',
   bridgeFrom: 'Punte nouă de la acest dinte',
   history: 'Istoric',
   noHistory: '— fără înregistrări —',
@@ -65,7 +66,12 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
             {T.bridge} {inBr.bridge.teeth[0]?.[0]}-{inBr.bridge.teeth[inBr.bridge.teeth.length - 1]?.[0]}
             {inBr.bridge.material ? ` (${inBr.bridge.material})` : ''} - {T.role}: {model.bridge_roles[inBr.role] ?? inBr.role}
           </span>
-          <form onSubmit={(e) => { e.preventDefault(); if (window.confirm(T.confirmDel)) onDelBridge(inBr.bridge.id) }}>
+          <form onSubmit={(e) => {
+            e.preventDefault()
+            const span = `${inBr.bridge.teeth[0]?.[0]}-${inBr.bridge.teeth[inBr.bridge.teeth.length - 1]?.[0]}`
+            void ask({ text: T.confirmDel.replace('{span}', span), danger: true })
+              .then((yes) => { if (yes) onDelBridge(inBr.bridge.id) })
+          }}>
             <button className="pl-btn" disabled={busy}>{T.delBridge}</button>
           </form>
         </div>
