@@ -1,6 +1,7 @@
 import type * as T3 from 'three'
 import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, buildRidge, GAP, GAP_CLOSED, layoutArch, type PlacedTooth } from './arch'
+import { focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
 import { COLOR, hex, lerpHex, structChanged, targetLook, type Look } from './look'
 import type { RawMesh } from './mesh'
@@ -38,6 +39,18 @@ export interface SceneOptions {
   onMenu: (n: number, x: number, y: number) => void
   /** камера сошла с предустановки (перетаскивание) — снять подсветку кнопки вида */
   onViewLeft: () => void
+  /** двойной щелчок по зубу — камера к нему (01.10, `focus`) */
+  onDouble?: (n: number) => void
+}
+
+/** Где стоит камера — для стендов Edge и разбора. */
+export interface CameraProbe {
+  r: number
+  theta: number
+  phi: number
+  target: [number, number, number]
+  /** камера ещё едет (вид, фокус) */
+  moving: boolean
 }
 
 /** Что сцена показывает для зуба — для стендов и разбора: вид, видимость
@@ -56,16 +69,21 @@ export interface ToothProbe {
 export interface ArchScene {
   /** зонд для стендов Edge и разбора; null — такого зуба в сцене нет */
   inspect(n: number): ToothProbe | null
+  camera(): CameraProbe
   setModel(model: Odontogram): void
   setSelected(n: number | null): void
   setView(name: ViewName): void
   setToggle(k: Toggle, on: boolean): void
+  /** камера к зубу (цель — коронка, снаружи дуги) или назад к виду; null — назад */
+  focus(n: number | null): void
   invalidate(): void
   dispose(): void
 }
 
 interface ToothNodes {
   n: number
+  /** место на дуге — для фокуса камеры */
+  place: PlacedTooth
   group: T3.Group
   crown: T3.Mesh
   mats: T3.MeshStandardMaterial[]
@@ -265,7 +283,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     grp.add(group)
     disposables.push(crownGeo, rootsGeo, screwGeo, rootMat, screwMat, screwXMat, socketGeo, socketMat, gapGeo, gapMat, spriteMat, tex[0], tex[1], ...mats)
     teeth.set(p.n, {
-      n: p.n, group, crown, mats, roots, rootMat, screw, screwX, ringT, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
+      n: p.n, place: p, group, crown, mats, roots, rootMat, screw, screwX, ringT, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
     })
   }
 
@@ -519,10 +537,29 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
 
   // --- камера и орбита ---
+  // цель орбиты едет так же, как углы и радиус (`tgt` — куда, `target` — где):
+  // вид смотрит в середину дуги, фокус (01.10) — в коронку выбранного зуба
+  const HOME: [number, number, number] = [0, 0, -16]
   const cam = new THREE.PerspectiveCamera(30, 1, 1, 1000)
-  const target = new THREE.Vector3(0, 0, -16)
+  const target = new THREE.Vector3(...HOME)
+  const tgt = new THREE.Vector3(...HOME)
   const orb = { theta: 0, phi: rad(80), r: 172, tt: 0, tp: rad(80), tr: 172 }
+  /** радиус последнего вида — куда возвращается камера из фокуса */
+  let viewR = 172
   let anim = false
+  /** довести камеру до цели: твином кадров или сразу при reduced-motion */
+  const settle = (): void => {
+    if (opts.reduced) {
+      orb.theta = orb.tt
+      orb.phi = orb.tp
+      orb.r = orb.tr
+      target.copy(tgt)
+      anim = false
+    } else {
+      anim = true
+    }
+    invalidate()
+  }
   const applyCam = (): void => {
     const sp = Math.sin(orb.phi)
     cam.position.set(
@@ -542,10 +579,13 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       orb.theta += (orb.tt - orb.theta) * k
       orb.phi += (orb.tp - orb.phi) * k
       orb.r += (orb.tr - orb.r) * k
-      if (Math.abs(orb.tt - orb.theta) < 0.002 && Math.abs(orb.tp - orb.phi) < 0.002 && Math.abs(orb.tr - orb.r) < 0.2) {
+      target.lerp(tgt, k)
+      if (Math.abs(orb.tt - orb.theta) < 0.002 && Math.abs(orb.tp - orb.phi) < 0.002 && Math.abs(orb.tr - orb.r) < 0.2
+          && target.distanceTo(tgt) < 0.05) {
         orb.theta = orb.tt
         orb.phi = orb.tp
         orb.r = orb.tr
+        target.copy(tgt)
         anim = false
       }
     }
@@ -753,7 +793,13 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
   const onCtx = (ev: Event): void => ev.preventDefault()
   const onLost = (ev: Event): void => ev.preventDefault()
+  /* двойной щелчок — камера к зубу; два одиночных до него уже выбрали зуб (onPick) */
+  const onDbl = (ev: MouseEvent): void => {
+    const h = pick(ev)
+    if (h) opts.onDouble?.(h.n)
+  }
   canvas.addEventListener('pointerdown', onDown)
+  canvas.addEventListener('dblclick', onDbl)
   canvas.addEventListener('pointermove', onMove)
   canvas.addEventListener('pointerup', onUp)
   canvas.addEventListener('pointercancel', onUp)
@@ -792,24 +838,39 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       selected = n
       if (lastModel) paint(lastModel)
     },
+    camera() {
+      return { r: orb.r, theta: orb.theta, phi: orb.phi, target: [target.x, target.y, target.z], moving: anim }
+    },
     setView(name) {
       const v = VIEWS[name]
-      orb.tt = rad(v[0])
+      orb.tt = nearestTheta(orb.theta, rad(v[0]))
       orb.tp = rad(v[1])
       orb.tr = v[2]
-      if (opts.reduced) {
-        orb.theta = orb.tt
-        orb.phi = orb.tp
-        orb.r = orb.tr
-        anim = false
-      } else {
-        anim = true
-      }
+      viewR = v[2]
+      tgt.set(...HOME)
       togs.rotate = false
+      settle()
       // вид на жевательные поверхности одной челюсти невозможен, пока другая стоит перед камерой
       setJaw('upper', name !== 'jos')
       setJaw('lower', name !== 'sus')
-      invalidate()
+    },
+    focus(n) {
+      const t = n !== null ? teeth.get(n) : undefined
+      if (t) {
+        const upper = t.group.parent === upperG
+        const g = lastModel ? geomOf(lastModel.teeth[String(n)], upper) : { ...FALLBACK, upper }
+        const f = focusOrbit(t.place, g.crown, (upper ? upperG : lowerG).position.y, upper)
+        tgt.set(...f.target)
+        orb.tt = nearestTheta(orb.theta, f.theta)
+        orb.tp = f.phi
+        orb.tr = f.r
+        togs.rotate = false
+      } else {
+        // назад к виду: цель и радиус вида, углы — как человек их оставил
+        tgt.set(...HOME)
+        orb.tr = viewR
+      }
+      settle()
     },
     setToggle(k, on) {
       togs[k] = on
@@ -834,6 +895,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       stopLong()
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onDown)
+      canvas.removeEventListener('dblclick', onDbl)
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)

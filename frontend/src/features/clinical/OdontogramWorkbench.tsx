@@ -33,7 +33,12 @@ import { useChart } from './useChart'
    зуба шлёт позицию на маршрут плана фиши; в ответе приходит СВЕЖАЯ ФИША, и
    она уходит владельцу (`onCard`) — вкладка фиши подменяет ею карту, как после
    записи зуба; детальной странице и креслу фиша не нужна, им хватает плашки.
-   ⛔ Не через `useChart.act`: тот подменяет ответом МОДЕЛЬ одонтограммы. */
+   ⛔ Не через `useChart.act`: тот подменяет ответом МОДЕЛЬ одонтограммы.
+
+   Фокус камеры 3D (01.10): `zoom` — режим «камера у выбранного зуба»; пока он
+   включён, выбор другого зуба везёт камеру к нему. F / кнопка «Apropie» —
+   переключатель, двойной щелчок по зубу — выбрать и подъехать, кнопка вида —
+   выход. В 2D и в режиме моста фокуса нет. */
 const T = {
   title: 'Odontogramă',
   sub: 'notație FDI',
@@ -85,6 +90,9 @@ export function OdontogramWorkbench({
   const [planBusy, setPlanBusy] = useState(false)
   const [planBad, setPlanBad] = useState(false)
   const planFrom = (n: number) => { setMenu(null); setPlanBad(false); setPlan(n) }
+  const [zoom, setZoom] = useState(false)
+  const focus3d = zoom && !brMode && c.view === '3d' ? c.selected : null
+  const onDouble = (n: number) => { if (!brMode) { c.select(n); setZoom(true) } }
   const closePlan = useCallback(() => setPlan(null), [])
   const savePlan = async (body: PlanAdd): Promise<boolean> => {
     setPlanBusy(true)
@@ -194,6 +202,10 @@ export function OdontogramWorkbench({
     }
     if (!c.info || e.key.length !== 1) return
     const L = e.key.toUpperCase()
+    if (L === 'F') {
+      if (c.view === '3d') { e.preventDefault(); setZoom((z) => !z) }
+      return
+    }
     if (L === 'P') {
       if (c.info.jaw === 'sus') { e.preventDefault(); c.setSel('L') }
       return
@@ -232,7 +244,8 @@ export function OdontogramWorkbench({
               {c.view === '3d' ? (
                 /* B7: объёмный вид — тот же контроллер, те же действия; выбор,
                    поверхность и меню идут в инспектор, как из дуги */
-                <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenu} />
+                <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenu}
+                  focus={focus3d} onZoom={setZoom} onDouble={onDouble} />
               ) : (
                 <DentalArch
                   model={model}

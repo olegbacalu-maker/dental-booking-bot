@@ -1043,7 +1043,8 @@ describe('PatientCardScreen', () => {
     expect(post).toHaveBeenCalledWith('/patients/5/plan?views=1', {
       tooth: '11', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '3000', due_date: '',
     })
-    expect(dlg.hasAttribute('open')).toBe(false)
+    /* диалог закрывает эффект — после коммита плашки, поэтому ждём */
+    await waitFor(() => expect(dlg.hasAttribute('open')).toBe(false))
     expect(opens()).toBe(1)
     /* фиша из ответа — план уже с позицией; дуга НЕ перечитана и не перемонтирована:
        тот же узел, выбранный зуб на месте, ожидания не было */

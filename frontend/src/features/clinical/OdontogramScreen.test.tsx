@@ -470,6 +470,39 @@ describe('вид 3D (B7)', () => {
     expect(root().getAttribute('data-view')).toBe('ocluzal')
   })
 
+  it('фокус камеры (01.10): F и «Apropie» — переключатель на выбранном зубе, только в 3D; без сцены кнопка выключена, состояние живёт', async () => {
+    open(16)
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    key('f')                                                 // в 2D клавиша молчит
+    fireEvent.click(screen.getByRole('button', { name: '3D' }))
+    await screen.findByText(/3D nu s-a încărcat/)
+    const stage = () => document.querySelector('.odo-3d') as HTMLElement
+    const zoomBtn = () => screen.getByRole('button', { name: 'Apropie' }) as HTMLButtonElement
+    expect(stage().getAttribute('data-focus')).toBeNull()
+    expect(zoomBtn().disabled).toBe(true)                    // сцены нет — кнопке нечего двигать
+    expect(zoomBtn().getAttribute('aria-pressed')).toBe('false')
+    key('f')
+    expect(stage().getAttribute('data-focus')).toBe('16')
+    expect(zoomBtn().getAttribute('aria-pressed')).toBe('true')
+    /* режим держится за ВЫБРАННЫМ зубом: стрелка — камера к соседу, снятие выбора — фокуса нет */
+    key('ArrowRight')
+    expect(stage().getAttribute('data-focus')).toBe('15')
+    fireEvent.click(within(inspector()).getByRole('button', { name: 'Închide' }))
+    expect(stage().getAttribute('data-focus')).toBeNull()
+    expect(zoomBtn().disabled).toBe(true)
+    key('f')                                                 // без зуба — нечего приближать
+    expect(stage().getAttribute('data-focus')).toBeNull()
+    /* обратно в 2D и снова в 3D — режим не теряется, пока зуб выбран */
+    fireEvent.click(screen.getByRole('button', { name: 'Vedere frontală' }))
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.click(btn(21))
+    fireEvent.click(screen.getByRole('button', { name: '3D' }))
+    await screen.findByText(/3D nu s-a încărcat/)
+    expect(stage().getAttribute('data-focus')).toBe('21')
+    key('F')
+    expect(stage().getAttribute('data-focus')).toBeNull()
+  })
+
   it('сохранённый вид 3d открывается сразу в 3D; молочный ряд — надпись про 2D', async () => {
     localStorage.setItem('dp_odo_view', '3d')
     get.mockResolvedValue(ok({ ...MODEL, milk_open: true }))
@@ -523,7 +556,7 @@ describe('зуб → план (01.10)', () => {
     expect(post).toHaveBeenCalledWith('/patients/5/plan', {
       tooth: '16', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '1500', due_date: '',
     })
-    expect(dlg().hasAttribute('open')).toBe(false)
+    await waitFor(() => expect(dlg().hasAttribute('open')).toBe(false))
     /* ответ плана — ФИША, не одонтограмма: дуга на месте, второго GET нет */
     expect(btn(16)).toBeTruthy()
     expect(get).toHaveBeenCalledTimes(1)
