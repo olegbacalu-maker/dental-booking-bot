@@ -315,3 +315,15 @@ export const patientCard = {
 }
 
 export type CardResult = ApiResult<PatientCard>
+
+/** Сканер (01.10): есть ли он у ПК с программой; страницы одной сессии. */
+export interface ScanStatus { ok: boolean; name: string }
+export interface ScanPages { pages: number; previews: string[] }
+
+export const scan = {
+  status: (signal?: AbortSignal) => api.get<ScanStatus>('/scan/status', signal ? { signal } : {}),
+  page: (pid: number) => api.post<ScanPages>(`${P(pid)}/scan/page`, {}),
+  cancel: (pid: number) => api.post<{ pages: number }>(`${P(pid)}/scan/cancel`, {}),
+  finish: (pid: number, views: boolean, category: string, title: string) =>
+    api.post<PatientCard>(`${P(pid)}/scan/finish${V(views)}`, { category, title }),
+}

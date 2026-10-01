@@ -328,6 +328,11 @@ MSG_BANNER = {
     "self_user": ("err", "Nu vă puteți șterge propriul cont — cereți altui director"),
     "ok_doc": ("ok", "Document încărcat — rămâne local, pe acest calculator"),
     "bad_doc": ("err", "Fișier gol sau prea mare (max 25 MB)"),
+    # сканер (01.10): лист со сканера сразу в фишу, PDF-ом
+    "ok_scan": ("ok", "Document scanat și salvat în fișă"),
+    "scan_none": ("err", "Niciun scaner nu a fost găsit — verificați că este pornit și conectat la acest calculator"),
+    "scan_err": ("err", "Scanarea nu a reușit — verificați foaia și scanerul, apoi încercați din nou"),
+    "scan_empty": ("warn", "Nicio pagină scanată — apăsați mai întâi „Scanează”"),
     "ok_med": ("ok", "Datele medicului au fost salvate"),
     "bad_med": ("err", "Date invalide — verificați câmpurile medicului"),
     "new_med": ("ok", "Medic adăugat — completați fișa lui"),

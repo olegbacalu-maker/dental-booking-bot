@@ -1807,6 +1807,28 @@ async def _store_doc(pid: int, file: UploadFile, category: str) -> str:
     return "ok_doc"
 
 
+async def _store_bytes(pid: int, filename: str, data: bytes, mime: str,
+                       category: str) -> str:
+    """Готовый файл в документы пациента (скан, собранный программой, 01.10):
+    та же папка, тот же потолок и та же запись в базе, что у загрузки."""
+    if category not in DOC_CATEGORIES:
+        category = "alt"
+    if not data or len(data) > MAX_DOC_MB * 1024 * 1024:
+        return "bad_doc"
+    name = pathlib.Path(filename or "document").name[:120] or "document"
+    ext = pathlib.Path(name).suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,9}", ext):
+        ext = ""
+    stored = _files_dir(pid) / f"{secrets.token_hex(8)}{ext}"
+    try:
+        stored.write_bytes(data)
+    except OSError:
+        stored.unlink(missing_ok=True)
+        return "bad_doc"
+    await db.add_document(pid, name, str(stored), len(data), mime, category)
+    return "ok_doc"
+
+
 @router.post("/admin/patient/{pid}/doc")
 async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File(...),
                              category: str = Form("alt")):

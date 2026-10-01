@@ -23,6 +23,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+import re
 import urllib.parse
 from datetime import datetime, timedelta
 
@@ -36,12 +38,9 @@ from ...core.auth import PERM_MONEY, can, request_user
 from ...core.layout import ALERT_KINDS, STATUS_LABEL, _initials, msg_json
 from . import anamneza as panam
 from . import card as pcard
-
-# подпись поля анамнеза → его ключ: `anamneza_view` отдаёт пары (подпись,
-# текст), а короткая подпись для шапки живёт по ключу в TEXT_LABELS
-_TEXT_KEY = {lab: k for k, lab, _ph in panam.TEXTS}
 from . import odontogram as podo
 from . import perio as pperio
+from . import scan as pscan
 from . import visit as pvisit
 from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _add_alert, _add_bridge,
                      _add_pay, _add_plan, _appoint, _del_bridge, _drop_doc,
@@ -50,10 +49,14 @@ from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _add_alert, _add_bridge,
                      _pl_canal, _pl_dmy, _pl_money, _pl_new_foot,
                      _pl_stale_cut, _pl_status, _pl_terms, _pl_trend, _plan_del,
                      _plan_status, _save_anamneza, _save_perio, _save_profile,
-                     _save_tooth, _save_visit, _sf_letters, _sf_map, _store_doc,
-                     _visit_back, _visit_ctx)
+                     _save_tooth, _save_visit, _sf_letters, _sf_map, _store_bytes,
+                     _store_doc, _visit_back, _visit_ctx)
 
 router = APIRouter()
+
+# подпись поля анамнеза → его ключ: `anamneza_view` отдаёт пары (подпись,
+# текст), а короткая подпись для шапки живёт по ключу в TEXT_LABELS
+_TEXT_KEY = {lab: k for k, lab, _ph in panam.TEXTS}
 
 _SORTS = ("last", "name", "new", "debt")
 
@@ -209,7 +212,7 @@ async def api_patient_new(request: Request):
 _CONFLICT = {"bad_pdel", "bad_off", "past", "dup", "conflict"}
 _GONE = {"alert_gone", "plan_gone", "doc_gone", "pay_gone"}
 _OK = {"", "ok", "ok_card", "ok_tel_dup", "ok_arh", "ok_unarh", "ok_anam", "ok_pay",
-       "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz"}
+       "pay_del", "ok_doc", "ok_anon", "ok_del", "ok_refuz", "ok_scan"}
 
 
 def _reply(code: str, data=None, field: str = "", *, conflict: bool = False):
@@ -619,6 +622,71 @@ async def api_patient_doc_del(request: Request, pid: int, doc_id: int):
     if deny is not None:
         return deny
     return await _card_reply(request, pid, "" if await _drop_doc(pid, doc_id) else "doc_gone")
+
+
+# ---------- сканер (01.10): лист со сканера сразу в фишу ----------
+
+@router.get("/api/scan/status")
+async def api_scan_status(request: Request):
+    """{ok, name}: есть ли сканер у ПК с программой. Ответ кэшируется в
+    модуле на минуту — PowerShell холодный (секунда-две), а вкладку открывают часто."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return msg_json(True, data=await asyncio.to_thread(pscan.status))
+
+
+@router.post("/api/patients/{pid}/scan/page")
+async def api_scan_page(request: Request, pid: int):
+    """Один лист со сканера в сессию пациента; ответ — превью всех страниц.
+    ⚠️ Сканирование — в потоке: иначе на эти 10–30 секунд замер бы журнал
+    у всех рабочих мест."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    try:
+        data = await asyncio.to_thread(pscan.acquire)
+        previews = await asyncio.to_thread(pscan.add_page, pid, data)
+    except pscan.ScanError as e:
+        return msg_json(False, e.code, status=409 if e.code == "scan_none" else 503)
+    return msg_json(True, data={"pages": len(previews), "previews": previews})
+
+
+@router.post("/api/patients/{pid}/scan/cancel")
+async def api_scan_cancel(request: Request, pid: int):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    pscan.cancel(pid)
+    return msg_json(True, data={"pages": 0})
+
+
+@router.post("/api/patients/{pid}/scan/finish")
+async def api_scan_finish(request: Request, pid: int):
+    """{category, title}: страницы сессии → один PDF в документы пациента, с
+    именем «<бланк> — <пациент> — <дата>.pdf», и свежая фиша в ответе."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    body = await api_body(request)
+    category = _s(body, "category") or "alt"
+    if category not in pcard.DOC_CATEGORIES:
+        category = "alt"
+    try:
+        pdf = await asyncio.to_thread(pscan.finish, pid)
+    except Exception:                          # noqa: BLE001 — Pillow не собрал
+        pscan.cancel(pid)
+        return msg_json(False, "scan_err", status=503)
+    if pdf is None:
+        return msg_json(False, "scan_empty", status=409)
+    title = _s(body, "title").strip()[:60] or pcard.DOC_CATEGORIES[category].split(" — ")[0]
+    stamp = datetime.now(eng.TZ).strftime("%d.%m.%Y")
+    name = re.sub(r'[\\/:*?"<>|]+', " ", f"{title} - {p['name'] or pid} - {stamp}").strip()
+    code = await _store_bytes(pid, f"{name}.pdf", pdf, "application/pdf", category)
+    return await _card_reply(request, pid, "ok_scan" if code == "ok_doc" else code,
+                             "file" if code == "bad_doc" else "")
 
 
 @router.post("/api/documents/{doc_id}/open")

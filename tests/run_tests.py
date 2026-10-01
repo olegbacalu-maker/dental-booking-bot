@@ -50,6 +50,7 @@ import test_license_existing  # noqa: E402
 import test_license_renew  # noqa: E402
 import test_react_default  # noqa: E402
 import test_relocate  # noqa: E402
+import test_scan  # noqa: E402
 import test_split  # noqa: E402
 import test_srcpin  # noqa: E402
 import test_migrate  # noqa: E402
@@ -251,6 +252,7 @@ SUITES = [
     ("Фиша: JSON API повторяет страницу", test_patient_card.suite_api),
     ("Фиша: действия через JSON", test_patient_card.suite_actions),
     ("Фиша: React-экран и старая страница", test_patient_card.suite_switch),
+    ("Фиша: сканер — листы в один PDF", test_scan.suite_scan),
     ("Дневник визита: старая страница — эталон", test_visit_api.suite_pin),
     ("Дневник визита: JSON API", test_visit_api.suite_api),
     ("Дневник визита: React-экран и старая страница", test_visit_api.suite_switch),

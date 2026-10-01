@@ -174,6 +174,7 @@ function serve(card: PatientCard = CARD) {
     if (path === '/patients/5') return Promise.resolve(ok(card))
     if (path === '/patients/5?views=1') return Promise.resolve(ok({ ...card, activity: feed(card, true) }))
     if (path === '/patients/5/odontogram') return Promise.resolve(ok(ODO))
+    if (path === '/scan/status') return Promise.resolve(ok({ ok: true, name: 'Scaner de test' }))
     if (path.startsWith('/patients/5/activity')) return Promise.resolve(ok(feed(card, path.includes('views=1'))))
     if (path.startsWith('/patients/5/slots')) return Promise.resolve(ok({ slots: ['09:00', '09:30'] }))
     if (path.startsWith('/visits/3')) return Promise.resolve(ok(VPAGE))
@@ -951,6 +952,48 @@ describe('PatientCardScreen', () => {
     fireEvent.click(within(note).getByRole('button', { name: /Încarcă exemplarul semnat/ }))
     await strip().findByRole('tab', { name: 'Documente', selected: true })
     expect((screen.getByLabelText('Categorie') as HTMLSelectElement).value).toBe('acord_plan')
+  })
+
+  it('Documente: «Scanează semnat» — лист за листом в сессию, «Salvează» кладёт PDF с категорией бланка', async () => {
+    serve()
+    post.mockImplementation((path: string) => {
+      if (path === '/patients/5/scan/page') return Promise.resolve(ok({ pages: post.mock.calls.filter(([p]) => p === '/patients/5/scan/page').length, previews: ['data:image/png;base64,AAAA'] }))
+      if (path === '/patients/5/scan/finish') return Promise.resolve(ok({ ...CARD, forms: CARD.forms.map((f) => f.key === 'acord_plan' ? { ...f, signed: { doc_id: 9, when: '01.10.2026' } } : f) }, 'ok_scan', 'Document scanat și salvat în fișă'))
+      return Promise.reject(new Error(`unexpected ${path}`))
+    })
+    open()
+    await settled()
+    await tabTo('Documente')
+    expect(await screen.findByText(/Scaner: Scaner de test/)).toBeTruthy()
+    const form = document.querySelector('.dp-form[data-form="acord_plan"]') as HTMLElement
+    fireEvent.click(within(form).getByRole('button', { name: /Scanează semnat/ }))
+    /* первый лист — сразу, без второго щелчка */
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/scan/page', {}))
+    const box = await screen.findByRole('region', { name: 'Scanare' })
+    expect(box.textContent).toContain('Acord informat la plan — semnat')
+    await waitFor(() => expect(box.textContent).toContain('1 pagină'))
+    fireEvent.click(within(box).getByRole('button', { name: /Încă o pagină/ }))
+    await waitFor(() => expect(box.textContent).toContain('2 pagini'))
+    fireEvent.click(within(box).getByRole('button', { name: /Salvează în fișă/ }))
+    expect(await screen.findByText('Document scanat și salvat în fișă')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/scan/finish', { category: 'acord_plan', title: 'Acord informat la planul de tratament' })
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Scanare' })).toBeNull())
+    expect((document.querySelector('.dp-form[data-form="acord_plan"]') as HTMLElement).textContent).toContain('semnat 01.10.2026')
+  })
+
+  it('Documente: без сканера кнопок сканирования нет, подпись говорит, что его нет', async () => {
+    serve()
+    get.mockImplementation((path: string) => {
+      if (path === '/scan/status') return Promise.resolve(ok({ ok: false, name: '' }))
+      if (path === '/patients/5') return Promise.resolve(ok(CARD))
+      if (path === '/patients/5/odontogram') return Promise.resolve(ok(ODO))
+      return Promise.reject(new Error(`unexpected ${path}`))
+    })
+    open()
+    await settled()
+    await tabTo('Documente')
+    expect(await screen.findByText(/niciun scaner găsit/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Scanează/ })).toBeNull()
   })
 
   it('план: «Finalizează» с ценой спрашивает и называет сумму, которая входит в сольд; отказ не шлёт', async () => {

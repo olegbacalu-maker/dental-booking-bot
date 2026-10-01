@@ -5,8 +5,9 @@ import { Icon, iconName } from '../../../components/Icon'
 import { asApiError } from '../../../services/api'
 import type { CardActions } from './actions'
 import { hideDialog, showDialog } from './dialog'
-import { patientCard, type Doc, type Form, type PatientCard } from './card'
+import { patientCard, scan, type Doc, type Form, type PatientCard, type ScanStatus } from './card'
 import { printHref } from './print'
+import { ScanBox, type ScanJob } from './ScanBox'
 
 /* Документы: снимки и PDF открываются тут же, остальное — программой
    Windows через движок, а если тот не может (не локально, чужое
@@ -32,6 +33,10 @@ const T = {
   openExt: 'Deschide în alt program',
   save: 'Salvează pe disc',
   close: 'Închide',
+  scan: 'Scanează',
+  scanSigned: 'Scanează semnat',
+  scanner: 'Scaner:',
+  noScanner: 'niciun scaner găsit pe acest calculator',
   print: 'Tipărește',
   reprint: 'Tipărește din nou',
   uploadSigned: 'Încarcă semnat',
@@ -85,6 +90,19 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' })
     el?.focus()
   }, [pick])
+  /* сканер есть? — спрашиваем при показе вкладки; «Scanează» без сканера не
+     рисуется, а подпись говорит, что его нет (01.10) */
+  const [scanner, setScanner] = useState<ScanStatus | null>(null)
+  const [job, setJob] = useState<ScanJob | null>(null)
+  useEffect(() => {
+    const ctl = new AbortController()
+    scan.status(ctl.signal).then(
+      (r) => { if (!ctl.signal.aborted) setScanner(r.data) },
+      () => { if (!ctl.signal.aborted) setScanner({ ok: false, name: '' }) },
+    )
+    return () => ctl.abort()
+  }, [])
+  const label = (cat: string) => cats.find((c) => c.id === cat)?.label ?? cat
 
   async function onUpload(e: FormEvent) {
     e.preventDefault()
@@ -166,6 +184,12 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
               <AppLink className="pl-btn" href={printHref(card.id, f.sheet, a.back)}>
                 <Icon name="print" /> {f.printed ? T.reprint : T.print}
               </AppLink>
+              {f.key !== 'fisa043' && scanner?.ok && (
+                <button type="button" className="pl-btn" disabled={job !== null}
+                  onClick={() => setJob({ category: f.category, categoryLabel: label(f.category), title: f.title })}>
+                  <Icon name="print" /> {T.scanSigned}
+                </button>
+              )}
               {f.key !== 'fisa043' && (
                 <button type="button" className="pl-btn" onClick={() => wantSigned(f.category)}>
                   <Icon name="upload" /> {T.uploadSigned}
@@ -175,6 +199,7 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
           </div>
         ))}
       </div>
+      {job && <ScanBox a={a} job={job} onFail={onFail} onDone={() => setJob(null)} />}
       <h3>{T.title} <small>· {T.max} {card.options.max_doc_mb} MB</small></h3>
       {card.documents.length ? (
         <div className="docgrid">
@@ -211,8 +236,17 @@ export function DocumentsCard({ card, a, onFail, navigate, pick = null }: Props)
           <span className={`fname${file ? ' on' : ''}`}>{file ? file.name : T.noFile}</span>
         </div>
         <button disabled={a.busy || !file}><Icon name="upload" /> {T.upload}</button>
+        {scanner?.ok && (
+          <button type="button" className="pl-btn" disabled={a.busy || job !== null}
+            onClick={() => setJob({ category, categoryLabel: label(category), title: label(category).split(' — ')[0] ?? category })}>
+            <Icon name="print" /> {T.scan}
+          </button>
+        )}
       </form>
-      <p className="hint dp-mt8">{T.hint}</p>
+      <p className="hint dp-mt8">
+        {T.hint}
+        {scanner && <> {T.scanner} {scanner.ok ? scanner.name : T.noScanner}.</>}
+      </p>
       <dialog ref={dlg} className="wide" onClose={() => setViewing(null)}>
         <div className="dlg-head">
           <span>{viewing?.filename ?? '—'}</span>

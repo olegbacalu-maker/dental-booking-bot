@@ -1166,6 +1166,20 @@
 .dp-react-root .pill.lnk:hover { text-decoration: underline; }
 .dp-react-root .doccard .dcat { display: block; color: var(--teal-d); font-size: var(--fs-xs); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Сканирование в фишу (01.10): страницы превью, три действия */
+.dp-react-root .dp-scan {
+  border: 1px solid var(--teal-line); background: var(--teal-soft); border-radius: var(--r-chip);
+  padding: 12px 14px; margin: 0 0 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.dp-react-root .dp-scan-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-m); }
+.dp-react-root .dp-scan-h svg { width: 16px; height: 16px; color: var(--teal-d); }
+.dp-react-root .dp-scan-as { color: var(--text2); }
+.dp-react-root .dp-scan-n { margin-left: auto; color: var(--text3); font-size: var(--fs-s); }
+.dp-react-root .dp-scan-pages { display: flex; gap: 10px; flex-wrap: wrap; }
+.dp-react-root .dp-scan-pages figure { margin: 0; text-align: center; font-size: var(--fs-xs); color: var(--text3); }
+.dp-react-root .dp-scan-pages img { display: block; height: 120px; width: auto; border: 1px solid var(--line); border-radius: var(--r-s); background: #fff; }
+.dp-react-root .dp-scan-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* Окно подтверждения (01.10, `ConfirmHost`): узкое, вопрос с иконкой, две
    кнопки справа — согласие под большим пальцем, как у остальных диалогов. */
 dialog.dp-ask { width: 400px; }
