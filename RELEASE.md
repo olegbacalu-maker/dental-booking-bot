@@ -74,6 +74,11 @@ python scripts/release.py publish 1.11.0
 
 # 8. проверить опубликованное глазами клиники
 python scripts/release.py check 1.11.0
+
+# 9. демо на сайте (demo.dentpilot.md) — на ту же версию, что получили клиники
+#    (3–4 мин сборки на сервере, ~30 с без демо; копии посетителей сбрасываются)
+ssh deploy@13.140.191.129 '~/dentpilot-demo/src/demo/update.sh v1.11.0'
+curl -s https://demo.dentpilot.md/health      # version = 1.11.0
 ```
 
 ⛔ **Веб-формой релизы не трогать вообще.** За два дня она дала три разные
