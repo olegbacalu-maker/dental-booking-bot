@@ -284,6 +284,14 @@ docker compose exec cloud python -m app.tools check
 Миграции базы идут при старте (`db.py`, `SCHEMA_VERSION`). Перед обновлением
 — копия (шаг 6): откат = старый образ плюс старая копия.
 
+⚠️ **Изменился `Caddyfile` — пересоздать контейнер Caddy**, `up -d` его не
+трогает, а `caddy reload` перечитывает СТАРЫЙ файл: `Caddyfile` подключён
+в контейнер одиночным файлом, и `git pull` кладёт на его место новый inode,
+который контейнер не видит (01.10: политика Referrer осталась прежней после
+reload). Правильно: `docker compose up -d --force-recreate caddy` —
+сертификаты живут в томе, простой секунды. Проверить:
+`curl -sI https://cloud.dentpilot.md/health | grep -i referrer-policy`.
+
 ## 8. Без Docker
 
 Тот же сервер под systemd: `python3 -m venv /srv/cloud/.venv`, установить
