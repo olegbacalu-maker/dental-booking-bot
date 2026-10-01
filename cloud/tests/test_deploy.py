@@ -159,6 +159,13 @@ def suite_files(res: Result) -> None:
            and f"127.0.0.1:{port}" in unit)
     host = re.search(r'"DP_BASE_URL", "https://([^"]+)"', config).group(1)
     res.ok("Caddyfile: домен из умолчания DP_BASE_URL", host in caddy and host in example)
+    # 01.10, первый живой вход: Referrer-Policy no-referrer заставляет браузер
+    # слать Origin: null в POST обычной формы, и same_origin_post отвечает 403 на
+    # каждую форму за Caddy; fetch() и curl этого не воспроизводят. Политика —
+    # любая, кроме no-referrer; а Origin: null сервер обязан по-прежнему отвергать.
+    policy = re.search(r"^\s*Referrer-Policy\s+(\S+)", caddy, re.M)
+    res.ok("Caddyfile: Referrer-Policy не no-referrer (иначе Origin: null в формах → 403)",
+           policy is not None and policy.group(1) != "no-referrer", policy.group(0) if policy else "нет строки")
     res.ok("Caddy: X-Forwarded-For принимается только за прокси",
            '"--proxy-headers", "--forwarded-allow-ips", "*"' in compose and "8090" not in compose.split("ports:")[1].split("volumes:")[0])
     res.ok("контейнер назван так, как зовёт cron",

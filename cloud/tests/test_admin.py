@@ -21,6 +21,11 @@ def suite_login(res: Result) -> None:
         r = c.post("/admin/login", user=ADMIN_USER, password=ADMIN_PASS,
                    headers={"Origin": "http://evil.example", "Host": f"127.0.0.1:{s.port}"})
         res.check("чужой Origin на входе: 403", r.status, 403)
+        # «null» — то, что браузер шлёт из песочницы и при Referrer-Policy no-referrer
+        # (01.10): для сервера это чужой origin, а не отсутствие заголовка
+        r = c.post("/admin/login", user=ADMIN_USER, password=ADMIN_PASS,
+                   headers={"Origin": "null", "Host": f"127.0.0.1:{s.port}"})
+        res.check("Origin: null на входе: 403", r.status, 403)
         r = c.post("/admin/login", user=ADMIN_USER, password=ADMIN_PASS)
         res.ok("верный пароль: в журнал", r.status == 303 and r.location == "/admin", f"{r.status} {r.location!r}")
         res.ok("кука выдана HttpOnly", "httponly" in r.headers.get("set-cookie", "").lower())

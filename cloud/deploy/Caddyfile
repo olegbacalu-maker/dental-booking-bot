@@ -11,7 +11,13 @@ cloud.dentpilot.md {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
-		Referrer-Policy no-referrer
+		# ⛔ Не no-referrer: при этой политике браузер ставит в POST обычной формы
+		# Origin: null (Fetch, «append a request Origin header»), и проверка
+		# same_origin_post отвечает 403 на каждую форму — вход, регистрацию,
+		# заявку. fetch() этого не делает, поэтому тесты без Caddy зелёные
+		# (01.10, первый живой вход Олега). strict-origin-when-cross-origin —
+		# полный Referer внутри сайта, только origin наружу.
+		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
 	reverse_proxy cloud:8090
