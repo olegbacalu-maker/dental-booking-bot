@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
+import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { DentalArch } from './DentalArch'
+import { PlanDialog } from './PlanDialog'
 import { ToothInspector } from './ToothInspector'
 import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ViewSwitch } from './ViewSwitch'
-import { neighbour, type Arrow, type Odontogram } from './chart'
+import { chart, neighbour, type Arrow, type Odontogram, type PlanAdd } from './chart'
 import { Odontogram3D } from './three/Odontogram3D'
 import { useCoarse } from './touch'
 import { useChart } from './useChart'
@@ -25,7 +27,13 @@ import { useChart } from './useChart'
    Esc — сброс черновика (в режиме моста — выход из него). ⛔ Внутри
    input/textarea/select и при открытом диалоге клавиши — браузерные: Enter
    там зуб не сохраняет. Enter и стрелки гасятся (preventDefault), иначе
-   Enter на кнопке зуба в фокусе кликнул бы её же. */
+   Enter на кнопке зуба в фокусе кликнул бы её же.
+
+   «Adaugă în plan» (01.10) — из меню зуба и из инспектора: диалог с номером
+   зуба шлёт позицию на маршрут плана фиши; в ответе приходит СВЕЖАЯ ФИША, и
+   она уходит владельцу (`onCard`) — вкладка фиши подменяет ею карту, как после
+   записи зуба; детальной странице и креслу фиша не нужна, им хватает плашки.
+   ⛔ Не через `useChart.act`: тот подменяет ответом МОДЕЛЬ одонтограммы. */
 const T = {
   title: 'Odontogramă',
   sub: 'notație FDI',
@@ -54,10 +62,15 @@ interface Props {
   open?: { n: number; k: number } | null
   /** внутри фиши: без обратной ссылки и заголовка, со ссылкой «Pe tot ecranul» */
   embedded?: boolean
+  /** режим ленты фиши (`?views=1`) — едет в запрос позиции плана, как в запись зуба */
+  views?: boolean
+  /** свежая фиша из ответа «Adaugă în plan» — владельцу, который её показывает */
+  onCard?: (card: unknown) => void
 }
 
 export function OdontogramWorkbench({
   pid, model, replace, fail, say, initial = null, saveQuery = '', open = null, embedded = false,
+  views = false, onCard,
 }: Props) {
   const c = useChart(pid, model, replace, fail, say, initial, saveQuery)
   const [brMode, setBrMode] = useState(false)
@@ -66,6 +79,31 @@ export function OdontogramWorkbench({
   const [menu, setMenu] = useState<MenuAt | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const root = useRef<HTMLDivElement>(null)
+  /* зуб → план: диалог открыт для зуба `plan`; занятость и виновное поле — свои,
+     черновик зуба при этом не трогается */
+  const [plan, setPlan] = useState<number | null>(null)
+  const [planBusy, setPlanBusy] = useState(false)
+  const [planBad, setPlanBad] = useState(false)
+  const planFrom = (n: number) => { setMenu(null); setPlanBad(false); setPlan(n) }
+  const closePlan = useCallback(() => setPlan(null), [])
+  const savePlan = async (body: PlanAdd): Promise<boolean> => {
+    setPlanBusy(true)
+    setPlanBad(false)
+    try {
+      const r = await chart.addPlan(pid, body, views ? '?views=1' : '')
+      if (r.text) say({ tone: r.tone, text: r.text })
+      onCard?.(r.data)
+      setPlan(null)
+      return true
+    } catch (e) {
+      const err = asApiError(e)
+      if (err.field) setPlanBad(true)
+      fail(err)
+      return false
+    } finally {
+      setPlanBusy(false)
+    }
+  }
 
   const focusTooth = useCallback((n: number) => {
     root.current?.querySelector<HTMLElement>(`.arch .tooth-btn[data-n="${n}"]`)?.focus()
@@ -225,14 +263,16 @@ export function OdontogramWorkbench({
               onDiscard={c.discard}
               onDelBridge={(bid) => { void c.delBridge(bid) }}
               onBridgeFrom={bridgeFrom}
+              onPlan={planFrom}
               onClose={() => { c.discard(); c.select(null) }}
             />
           </aside>
         </div>
       </div>
       {menu && (
-        <ToothMenu model={model} at={menu} current={menuCurrent} onState={menuState} onBridge={bridgeFrom} onClose={closeMenu} />
+        <ToothMenu model={model} at={menu} current={menuCurrent} onState={menuState} onPlan={planFrom} onBridge={bridgeFrom} onClose={closeMenu} />
       )}
+      <PlanDialog model={model} n={plan} busy={planBusy} invalid={planBad} onClose={closePlan} onSave={savePlan} />
       <BridgeDialog
         model={model}
         open={brOpen}

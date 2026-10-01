@@ -124,6 +124,17 @@ export interface BridgeSave {
   doctor: string
 }
 
+/** Позиция плана С ЗУБА (01.10; Олег 27.09: «одонтограмма с планом не
+ *  связана»): те же поля и те же строки, что шлёт форма плана фиши
+ *  (`patients/card › PlanForm`) — правила у сервера одни (`_add_plan`). */
+export interface PlanAdd {
+  tooth: string
+  procedure: string
+  doctor: string
+  price: string
+  due_date: string
+}
+
 /** Подпись поверхности на экране: у верхней челюсти язычная — нёбная, «P»;
  *  ключ данных остаётся «L» (решение Олега 18.09). */
 export function surfaceLetter(letter: string, jaw: Jaw): string {
@@ -172,6 +183,10 @@ export const chart = {
     api.post<Odontogram>(`${P(pid)}/bridges`, body),
   delBridge: (pid: number, bid: number) =>
     api.post<Odontogram>(`${P(pid)}/bridges/${bid}/delete`, {}),
+  /** Позиция плана с зуба — маршрут плана фиши; в ответе СВЕЖАЯ ФИША (её тип
+   *  знает фиша, не этот модуль), `q` — режим ленты (`?views=1`), как у записи. */
+  addPlan: (pid: number, body: PlanAdd, q = '') =>
+    api.post<unknown>(`${P(pid)}/plan${q}`, body),
 }
 
 /** Мост, в котором стоит зуб, и его роль там. */

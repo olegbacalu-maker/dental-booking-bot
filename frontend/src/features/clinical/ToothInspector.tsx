@@ -19,6 +19,7 @@ const T = {
   delBridge: 'Șterge puntea',
   confirmDel: 'Ștergeți puntea {span}? Dinții rămân cu starea lor.',
   bridgeFrom: 'Punte nouă de la acest dinte',
+  plan: 'Adaugă în plan',
   history: 'Istoric',
   noHistory: '— fără înregistrări —',
   perio: 'Parodontogramă',
@@ -41,11 +42,13 @@ interface Props {
   onDiscard: () => void
   onDelBridge: (bid: number) => void
   onBridgeFrom?: (n: number) => void
+  /** позиция плана с этого зуба (01.10): то же, что в меню зуба */
+  onPlan?: (n: number) => void
   /** Закрыть инспектор (пальцем он — шторка поверх дуги); мышью кнопки не видно. */
   onClose?: () => void
 }
 
-export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, draft, dirty, onEdit, onSave, onDiscard, onDelBridge, onBridgeFrom, onClose }: Props) {
+export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, draft, dirty, onEdit, onSave, onDiscard, onDelBridge, onBridgeFrom, onPlan, onClose }: Props) {
   const info = n !== null ? model.teeth[String(n)] : undefined
   const inBr = n !== null ? bridgeOf(model, n) : null
   const hist = n !== null ? (model.history[String(n)] ?? []) : []
@@ -109,10 +112,19 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
           </AppLink>
         </div>
       )}
-      {info && n !== null && !inBr && !info.milk && onBridgeFrom && (
-        <button type="button" className="pl-btn dp-brfrom" disabled={busy} onClick={() => onBridgeFrom(n)}>
-          <Icon name="plus" /> {T.bridgeFrom}
-        </button>
+      {info && n !== null && (onPlan || (!inBr && !info.milk && onBridgeFrom)) && (
+        <div className="dp-insp-acts">
+          {onPlan && (
+            <button type="button" className="pl-btn dp-plan" disabled={busy} onClick={() => onPlan(n)}>
+              <Icon name="clipboard" /> {T.plan}
+            </button>
+          )}
+          {!inBr && !info.milk && onBridgeFrom && (
+            <button type="button" className="pl-btn dp-brfrom" disabled={busy} onClick={() => onBridgeFrom(n)}>
+              <Icon name="plus" /> {T.bridgeFrom}
+            </button>
+          )}
+        </div>
       )}
       <div className="thist">
         {n !== null && (hist.length ? (

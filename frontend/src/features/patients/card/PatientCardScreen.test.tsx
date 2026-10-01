@@ -1011,6 +1011,50 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/patients/5/plan/1/status', { to: 'finalizat', motiv: '' }))
   })
 
+  it('зуб → план из вкладки Odontogramă (01.10): позиция уходит на маршрут плана в режиме ленты, свежая фиша — из ответа, не новым открытием', async () => {
+    const added: PatientCard = {
+      ...CARD,
+      plan: {
+        ...CARD.plan, n_act: 3, total: 4900,
+        items: [
+          { id: 9, tooth: 11, procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', status: 'planificat', label: 'Planificat', price: 3000, due: '', overdue: false, done: '', motiv: '', next: 'in_lucru', refusable: true, deletable: true },
+          ...CARD.plan.items,
+        ],
+      },
+    }
+    serve()
+    post.mockResolvedValueOnce(ok({ ...added, activity: feed(added, true) }, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open('/admin/patient/5?tab=odonto&views=1')
+    await odoReady()
+    fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
+    const insp = document.querySelector('.insp') as HTMLElement
+    fireEvent.click(within(insp).getByRole('button', { name: 'Adaugă în plan' }))
+    const dlg = document.querySelector('dialog.dp-plan-dlg') as HTMLDialogElement
+    expect(dlg.hasAttribute('open')).toBe(true)
+    expect(dlg.isConnected).toBe(true)
+    fireEvent.change(within(dlg).getByLabelText('Procedură (ex. Coroană zirconiu)'), { target: { value: 'Coroană zirconiu' } })
+    /* врачи диалога — из модели одонтограммы (у зуба 11 врача нет — список пуст по умолчанию) */
+    expect((within(dlg).getByLabelText('Medic —') as HTMLSelectElement).value).toBe('')
+    expect(document.activeElement).toBe(within(dlg).getByLabelText('Procedură (ex. Coroană zirconiu)'))
+    fireEvent.change(within(dlg).getByLabelText('Medic —'), { target: { value: 'Dr. Activ Doi' } })
+    fireEvent.change(within(dlg).getByLabelText('Preț MDL'), { target: { value: '3000' } })
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Adaugă în plan' }))
+    expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/plan?views=1', {
+      tooth: '11', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '3000', due_date: '',
+    })
+    expect(dlg.hasAttribute('open')).toBe(false)
+    expect(opens()).toBe(1)
+    /* фиша из ответа — план уже с позицией; дуга НЕ перечитана и не перемонтирована:
+       тот же узел, выбранный зуб на месте, ожидания не было */
+    expect(get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length).toBe(1)
+    expect(dlg.isConnected).toBe(true)
+    expect(document.querySelector('.dp-odo-wait')).toBeNull()
+    expect(document.querySelector('#odo .tooth-btn[data-n="11"]')?.className).toContain('sel')
+    await tabTo('Plan și plăți')
+    expect(rowOf('Coroană zirconiu').querySelector('.pt')?.textContent).toBe('11')
+  })
+
   it('анамнез: черновик переживает смену вкладки, вкладка помечена, уход с фиши спрашивает', async () => {
     serve()
     const { router } = open()

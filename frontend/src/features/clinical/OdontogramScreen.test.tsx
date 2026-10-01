@@ -499,3 +499,60 @@ describe('B7 · планшет: инспектор — шторка', () => {
     expect((within(inspector()).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).not.toBe('ciornă')
   })
 })
+
+describe('зуб → план (01.10)', () => {
+  const dlg = () => document.querySelector('dialog.dp-plan-dlg') as HTMLDialogElement
+  const proc = () => within(dlg()).getByLabelText('Procedură (ex. Coroană zirconiu)') as HTMLInputElement
+
+  it('из меню зуба: диалог с номером, врач зуба подставлен, позиция уходит на маршрут плана; модель не тронута', async () => {
+    post.mockResolvedValueOnce(ok({ id: 5 }, 'ok_card', 'Fișa pacientului a fost actualizată'))
+    open()
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    fireEvent.contextMenu(btn(16), { clientX: 300, clientY: 200 })
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(dlg().hasAttribute('open')).toBe(true)
+    expect(within(dlg()).getByText('16', { selector: 'b' })).toBeTruthy()
+    expect(within(dlg()).getByText('16 · Carie · distal · Carie (M), Obturație (O)')).toBeTruthy()
+    expect((within(dlg()).getByLabelText('Medic —') as HTMLSelectElement).value).toBe('Dr. Activ Doi')
+    expect(post).not.toHaveBeenCalled()
+    fireEvent.change(proc(), { target: { value: 'Coroană zirconiu' } })
+    fireEvent.change(within(dlg()).getByLabelText('Preț MDL'), { target: { value: '1500' } })
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
+    expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/plan', {
+      tooth: '16', procedure: 'Coroană zirconiu', doctor: 'Dr. Activ Doi', price: '1500', due_date: '',
+    })
+    expect(dlg().hasAttribute('open')).toBe(false)
+    /* ответ плана — ФИША, не одонтограмма: дуга на месте, второго GET нет */
+    expect(btn(16)).toBeTruthy()
+    expect(get).toHaveBeenCalledTimes(1)
+    /* следующий зуб — чистая форма */
+    fireEvent.contextMenu(btn(21))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Adaugă în plan' }))
+    expect(within(dlg()).getByText('21', { selector: 'b' })).toBeTruthy()
+    expect(proc().value).toBe('')
+    expect((within(dlg()).getByLabelText('Medic —') as HTMLSelectElement).value).toBe('')
+  })
+
+  it('из инспектора: отказ сервера подсвечивает поле и оставляет диалог; «Închide» закрывает', async () => {
+    post.mockRejectedValueOnce(new ApiError({ kind: 'validation', code: 'bad_card', text: 'Date invalide', field: 'procedure' }, 'v'))
+    open(21)
+    await waitFor(() => expect(btn(21)).toBeTruthy())
+    fireEvent.click(within(inspector()).getByRole('button', { name: 'Adaugă în plan' }))
+    expect(within(dlg()).getByText('21', { selector: 'b' })).toBeTruthy()
+    fireEvent.change(proc(), { target: { value: '   ' } })
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Adaugă în plan' }))
+    expect(await screen.findByText('Date invalide')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/plan', expect.objectContaining({ tooth: '21', procedure: '   ' }))
+    expect(dlg().hasAttribute('open')).toBe(true)
+    expect(proc().getAttribute('aria-invalid')).toBe('true')
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Închide' }))
+    expect(dlg().hasAttribute('open')).toBe(false)
+    /* молочный зуб тоже планируется (как в форме плана фиши), моста у него нет */
+    fireEvent.contextMenu(btn(55))
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: 'Adaugă în plan' })).toBeTruthy()
+    expect(within(menu).queryByText('Punte nouă de la acest dinte')).toBeNull()
+  })
+})

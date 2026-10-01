@@ -364,7 +364,8 @@
 .dp-react-root .dp-save-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dp-react-root .dp-save-row .pl-btn { height: var(--h-ctl); }
 .dp-react-root .dp-draft { font-size: var(--fs-s); font-weight: 600; color: var(--amber-t); }
-.dp-react-root .dp-brfrom { margin-top: 10px; }
+/* инспектор: действия с зуба в ряд — «Adaugă în plan» (01.10) и мост от зуба */
+.dp-react-root .dp-insp-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 /* контекстное меню зуба — состояния сервера и мост от зуба */
 .dp-cmenu {
   position: fixed;
@@ -469,7 +470,7 @@
   box-shadow: none;
   border-color: var(--line);
 }
-@media print { .dp-cmenu, .dp-draft, .dp-brfrom { display: none; } }
+@media print { .dp-cmenu, .dp-draft, .dp-insp-acts { display: none; } }
 /* день (C25.5b): карточка визита и нижняя форма. Классы вместо инлайновых
    стилей старой страницы — те же величины, но красит их тема клиники, а не
    зашитый хекс (прайор 08-09). */
