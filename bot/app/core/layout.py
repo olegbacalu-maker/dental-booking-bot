@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from .. import brand, db, dpapi, paths, relocate
 from .. import engine as eng
 from .. import update as upd
+from . import demo
 from . import license as lic
 from . import theme
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
@@ -315,6 +316,8 @@ MSG_BANNER = {
                         "Dacă este altă persoană (numărul familiei), adăugați-o cu alt "
                         "număr sau fără număr"),
     "bad_pat": ("err", "Lipsește numele pacientului"),
+    # демо с сайта (core/demo.py): экран спрятан шлюзом, а не правом
+    "demo_off": ("err", "În versiunea demonstrativă această secțiune nu este disponibilă"),
     "no_access": ("err", "Secțiunea este rezervată directorului clinicii. "
                          "Dacă aveți nevoie de acces, cereți-i să vă schimbe rolul "
                          "în Setări › Utilizatori"),
@@ -679,6 +682,24 @@ def _update_banner() -> str:
                 f"style='color:#e8710a;font-weight:600'>{_ic('refresh')} versiune nouă "
                 f"{html.escape(upd.STATE['latest'])}</a>")
     return ""
+
+
+def _demo_banner() -> str:
+    """Полоса демо (core/demo.py) — на КАЖДОМ экране, не только на входе:
+    посетитель сайта обязан видеть, что данные вымышленные и живут час, где бы
+    он ни оказался по ссылке. «Începe din nou» ведёт в шлюз демо (`/demo/…`),
+    который и выдаёт свежую копию."""
+    if not demo.on():
+        return ""
+    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('info')} "
+            f"{DEMO_HINT[0]} <a href='/demo/reset'><b>{DEMO_HINT[1]}</b></a></div>")
+
+
+# Две части одной фразы: текст и подпись ссылки сброса — источник один на
+# старую страницу и на React-оболочку (та рисует готовую строку сигнала).
+DEMO_HINT = ("Versiune demonstrativă: datele sunt fictive și se șterg automat "
+             "după o oră. Nu introduceți date reale ale pacienților.",
+             "Începe din nou")
 
 
 def _setup_hint() -> str:
@@ -1318,7 +1339,8 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # Держит `test_structure` («каждый баннер каркаса — сигнал оболочки»).
         "signals": {"license": _sig(_license_banner()),
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
-                    "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint())},
+                    "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
+                    "demo": _sig(_demo_banner())},
         "frame": {"title": section_title(active), "sub": sub, "rail": rail, "bell": bell,
                   "sec_warn": _sec_warn(),
                   "update": _update_banner().removeprefix(" · "),
@@ -1411,7 +1433,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
 <div class="content">
 <h1>{section_title(active)}</h1>
 <div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
-{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
+{_demo_banner()}{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
 {body}
 </div></div>
 <div class="brandcorner">{_ic('tooth')} <b>DentPilot</b> ·

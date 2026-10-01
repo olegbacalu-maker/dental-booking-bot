@@ -1421,8 +1421,12 @@ def suite(res: Result) -> None:
     # /api/, и строка кода отказа только там, где ей место.
     bad = []
     main_tree = by_path.get("app/main.py")
+    # ⚠️ Именно `lic.refuses`, не любой `.refuses`: с 01.10 в том же шлюзе стоит
+    # `demo.refuses`, и правило «есть хоть один refuses» молчало бы, когда
+    # ворота лицензии вынесли, — поймано мутацией в день, когда появился демо.
     gate = [n for n in ast.walk(main_tree) if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Attribute) and n.func.attr == "refuses"] if main_tree else []
+            and isinstance(n.func, ast.Attribute) and n.func.attr == "refuses"
+            and isinstance(n.func.value, ast.Name) and n.func.value.id == "lic"] if main_tree else []
     if not gate:
         bad.append("app/main.py: шлюз не зовёт lic.refuses — ворот нет")
     allow = None
@@ -1618,3 +1622,63 @@ def suite(res: Result) -> None:
     bad += [f"AppShell.tsx не рисует sig.{k}" for k in keys if f"sig.{k}" not in tsx]
     res.ok("каждый баннер каркаса — сигнал оболочки", not bad,
            "баннер виден только одной из двух оболочек: " + "; ".join(bad))
+
+    # ---- список демо-отказов не протух (демо с сайта, 01.10) ----
+    # `core/demo.py` закрывает в демо адреса, меняющие машину и учётки, —
+    # списком ПРЕФИКСОВ, который ВКЛЮЧАЕТ запрет (полярность из карты):
+    # переименованный маршрут делает строку пустой, и запрет исчезает молча.
+    # Строка, под которую не подходит ни один живой маршрут, краснеет здесь.
+    # Вторая половина — сам отказ: шлюз в main.py и фильтр плиток хаба обязаны
+    # спрашивать `demo.refuses`; без них список — правда, которую никто не
+    # спрашивает. Адреса маршрутов собираются из декораторов, включая
+    # `PAGE + "/confirm"` раздвоения — константы модуля разворачиваются.
+    bad = []
+    demo_tree = by_path.get("app/core/demo.py")
+    blocked = []
+    for n in ast.walk(demo_tree) if demo_tree else ():
+        if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Tuple)
+                and any(isinstance(t, ast.Name) and t.id == "BLOCKED" for t in n.targets)):
+            blocked = [e.value for e in n.value.elts if isinstance(e, ast.Constant)]
+    if not blocked:
+        bad.append("app/core/demo.py: нет кортежа BLOCKED — якорь правила пропал")
+
+    def _route_str(node, consts: dict) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return consts.get(node.id)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = _route_str(node.left, consts), _route_str(node.right, consts)
+            return left + right if left is not None and right is not None else None
+        return None
+
+    routes = set()
+    for rel, tree in src:
+        consts = {t.id: n.value.value for n in tree.body if isinstance(n, ast.Assign)
+                  and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
+                  for t in n.targets if isinstance(t, ast.Name)}
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for d in n.decorator_list:
+                    if (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                            and d.func.attr in ("get", "post") and d.args):
+                        path = _route_str(d.args[0], consts)
+                        if path:
+                            routes.add(path)
+    if not routes:
+        bad.append("маршрутов не найдено — обход декораторов сломан")
+    for p in blocked:
+        head = p if p.endswith("/") else p + "/"
+        if not any(r == p or r.startswith(head) for r in routes):
+            bad.append(f"demo.BLOCKED: под «{p}» нет ни одного маршрута — адрес переименован?")
+
+    def _asks_demo(rel: str) -> bool:
+        tree = by_path.get(rel)
+        return bool(tree) and any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "refuses" and isinstance(n.func.value, ast.Name)
+            and n.func.value.id == "demo" for n in ast.walk(tree))
+    bad += [f"{rel} не зовёт demo.refuses — список есть, отказа нет"
+            for rel in ("app/main.py", "app/modules/settings/routes.py") if not _asks_demo(rel)]
+    res.ok("список демо-отказов не протух", not bad,
+           "демо закрывает не те адреса: " + "; ".join(bad))

@@ -48,6 +48,7 @@ const SHELL: ShellModel = {
     split: { shown: false, html: '' },
     slot: { shown: false, html: '' },
     setup: { shown: false, html: '' },
+    demo: { shown: false, html: '' },
   },
   frame: {
     title: 'Setări', sub: 'setări', crumbs: [], rail: false, bell: null, sec_warn: '', update: '', msg: '',

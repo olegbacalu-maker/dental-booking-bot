@@ -419,7 +419,17 @@ MUTATIONS = [
      ('"signals": {"license": _sig(_license_banner()),', '"signals": {')),
     # Сервер сигнал отдаёт, а оболочка его не рисует — вторая половина той же дыры.
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
-     ("[sig.license, sig.tamper,", "[sig.tamper,")),
+     ("sig.demo, sig.license, sig.tamper,", "sig.demo, sig.tamper,")),
+    # ---- демо-отказы (демо с сайта, 01.10) ----
+    # Маршрут переименовали, строка списка осталась — закрывает пустоту.
+    ("список демо-отказов не протух", "app/core/demo.py",
+     ('"/admin/settings/system",', '"/admin/settings/sistem",')),
+    # Шлюз перестал спрашивать список: демо открыло бы обновление и ключи.
+    ("список демо-отказов не протух", "app/main.py",
+     ("demo.refuses(", "demo.refuses_nowhere(")),
+    # Хаб перестал прятать плитки — экран обещает то, что шлюз отклонит.
+    ("список демо-отказов не протух", "app/modules/settings/routes.py",
+     ("demo.refuses(", "demo.refuses_nowhere(")),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
@@ -491,8 +501,13 @@ LEGAL = [
       "exportTitle: 'Copia datelor, la cererea pacientului',")),
     # ⭐ Законно: порядок баннеров в оболочке — оформление, а не пропажа.
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
-     ("[sig.license, sig.tamper, sig.split, sig.slot, sig.setup]",
-      "[sig.tamper, sig.split, sig.slot, sig.setup, sig.license]")),
+     ("[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup]",
+      "[sig.tamper, sig.split, sig.slot, sig.setup, sig.license, sig.demo]")),
+    # ⭐ Законно: ещё один живой адрес в списке демо — правило сверяет строки
+    # с маршрутами, а не судит, что закрывать.
+    ("список демо-отказов не протух", "app/core/demo.py",
+     ('"/admin/license", "/api/license", "/admin/migration",',
+      '"/admin/license", "/api/license", "/admin/migration", "/admin/settings/faq",')),
     # ⭐ Законно: фраза в КОММЕНТАРИИ клиента на экран не едет — правило,
     # читающее файл целиком, краснело бы на любом пояснении истории.
     ("не обещает данные в папке программы",

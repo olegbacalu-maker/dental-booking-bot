@@ -29,6 +29,7 @@ import test_api  # noqa: E402
 import test_booking  # noqa: E402
 import test_chair  # noqa: E402
 import test_dbcrypt  # noqa: E402
+import test_demo  # noqa: E402
 import test_desk  # noqa: E402
 import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
@@ -296,6 +297,8 @@ SUITES = [
     ("Закрытый день: «Zi liberă» с одним владельцем",
      test_schedule_api.suite_free_day_owner),
     ("Правая колонка: «La recepție» — списки стойки", test_desk.suite_desk),
+    ("Демо с сайта: флаг прячет машину и учётки, не журнал", test_demo.suite_demo),
+    ("Демо с сайта: засев ложится на схему программы", test_demo.suite_seed),
     ("Правая колонка: повестка — правила", test_panel_model.suite_agenda_pure),
     ("Правая колонка: повестка против страницы",
      test_panel_model.suite_agenda_parity),

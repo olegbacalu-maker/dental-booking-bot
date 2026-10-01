@@ -40,7 +40,7 @@ from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
                             _doc_hours_text, data_folder, msg_banner,
                             react_shell, shell_model, react_on, _shell, standalone,
                             tg_configured, tg_refresh_meta, tg_status)
-from ...core import bitlocker, dbkey, theme
+from ...core import bitlocker, dbkey, demo, theme
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
@@ -310,7 +310,10 @@ def _hub_tiles() -> list[dict]:
     # FAQ безусловно и последней: справка в конце списка — привычное место
     tiles.append(tile("/admin/settings/faq", "help", "v", "Întrebări frecvente",
                       [{"t": "copii de rezervă, mutare, Legea 195"}]))
-    return tiles
+    # Демо с сайта (core/demo.py): плитка раздела, который шлюз отклонит,
+    # обещала бы экран, которого нет. Тот же список, что у отказа в main.py, —
+    # не второй.
+    return [t for t in tiles if not demo.refuses(t["href"])]
 
 
 def _hint_html(parts: list[dict]) -> str:

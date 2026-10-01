@@ -37,7 +37,7 @@ from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         remember_auth_file, request_user, require,
                         same_origin_post, set_request_user, set_tamper_alert,
                         verify_pin)
-from .core import dbkey, theme
+from .core import dbkey, demo, theme
 from .core import license as lic
 from .core.api import api_guard
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
@@ -91,7 +91,9 @@ async def _limit_body_size(request: Request, call_next):
     во временный файл (сам по себе роут-кап 25MB срабатывает уже после)."""
     if request.method == "POST":
         cl = request.headers.get("content-length", "")
-        if cl.isdigit() and int(cl) > (26) * 1024 * 1024:  # 25MB файла + запас
+        # в демо потолок ниже (core/demo.py): копия живёт час, место общее
+        cap = demo.BODY_CAP if demo.on() else (26) * 1024 * 1024  # 25MB файла + запас
+        if cl.isdigit() and int(cl) > cap:
             return Response("Payload too large", status_code=413)
     return await call_next(request)
 
@@ -264,8 +266,11 @@ async def startup() -> None:
                 log.warning("прошлая версия убрана: %s", old.name)
         except OSError as e:  # noqa: BLE001 — уборка не имеет права ронять старт
             log.warning("прошлая версия не убрана (%r)", e)
-    upd.sync_uninstall_version()   # версия в «Программах и компонентах»
-    upd.check_async()
+    # Демо (core/demo.py) живёт в контейнере без GitHub и без реестра: ни
+    # сверки версии, ни запроса релизов — обновление не его дело.
+    if not demo.on():
+        upd.sync_uninstall_version()   # версия в «Программах и компонентах»
+        upd.check_async()
     if db.IS_SQLITE:
         # закон 195: диск с картотекой обязан быть зашифрован — программа
         # проверяет сама, а не верит подписанному акту (core/bitlocker.py)
@@ -424,6 +429,13 @@ async def _recovery_gate(request: Request, call_next):
             return Response(status_code=503)
     if RECOVERY and p.startswith("/admin") and not p.startswith("/admin/recover"):
         return RedirectResponse("/admin/recover", status_code=303)
+    # Демо (core/demo.py): адресов, меняющих машину и учётки, нет — отказ
+    # ЗДЕСЬ, до маршрута и разбора тела, одним кодом для страниц и JSON;
+    # плитки хаба прячет тот же список. Пул таких процессов держит demo/gate.py.
+    if demo.refuses(p):
+        if p.startswith("/api/"):
+            return msg_json(False, "demo_off", status=403)
+        return RedirectResponse("/admin/settings?msg=demo_off", status_code=303)
     # Стена активации (L5): пустая картотека без годного файла — показывать
     # нечего, и каждый адрес журнала ведёт на страницу активации. Как у
     # восстановления выше; при льготе и режиме чтения стены нет (баннер).
