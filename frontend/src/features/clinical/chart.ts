@@ -205,6 +205,39 @@ export function archIndex(model: Odontogram, n: number): number {
   return u >= 0 ? u : 100 + model.arches.lower.indexOf(n)
 }
 
+/** Легенда как фильтр (01.10): зуб «про это», если состояние у него целиком,
+ *  на любой поверхности или отметкой. Ключи — те же, что у легенды сервера
+ *  (`legend[].key`: состояния и отметки); второго словаря нет. */
+export function toothMatches(info: Pick<ToothInfo, 'state' | 'sfst' | 'mk'>, key: string): boolean {
+  return info.state === key || Object.values(info.sfst).includes(key) || info.mk.includes(key)
+}
+
+/** Зубы на экране: постоянные ряды и молочные, пока их ряд открыт. */
+export function shownTeeth(model: Odontogram): number[] {
+  const a = model.arches
+  return model.milk_open ? [...a.upper, ...a.lower, ...a.milk_upper, ...a.milk_lower] : [...a.upper, ...a.lower]
+}
+
+/** Сколько зубов на экране «про» каждый пункт легенды — подпись счётчика. */
+export function legendCounts(model: Odontogram, items: LegendItem[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  const shown = shownTeeth(model)
+  for (const it of items) {
+    out[it.key] = shown.filter((n) => { const t = model.teeth[String(n)]; return t ? toothMatches(t, it.key) : false }).length
+  }
+  return out
+}
+
+const NO_TEETH: ReadonlySet<number> = new Set()
+
+/** Зубы, которые фильтр ГАСИТ: все, что не про выбранный пункт; без фильтра — никого. */
+export function dimmedTeeth(model: Odontogram, key: string | null): ReadonlySet<number> {
+  if (key === null) return NO_TEETH
+  const out = new Set<number>()
+  for (const [k, t] of Object.entries(model.teeth)) if (!toothMatches(t, key)) out.add(Number(k))
+  return out
+}
+
 export type Arrow = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown'
 
 /** Сосед для стрелок (C22): влево/вправо — по ряду в порядке экрана,

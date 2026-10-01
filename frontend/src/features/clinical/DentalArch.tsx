@@ -1,13 +1,14 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
-import { Legend } from './Legend'
 import { Tooth } from './Tooth'
 import type { Bridge, Odontogram, View } from './chart'
 
-/* Обе дуги, молочный ряд и легенда — та же разметка, что у старой страницы
-   (.arch-wrap, .arch, .arch-mid, details.milk, .tleg). Показывается ОДИН
-   вид: переключает состояние экрана, а не CSS по data-view — второй набор
-   из 52 SVG в дереве не нужен, данные обоих видов уже в модели.
+/* Обе дуги и молочный ряд — та же разметка, что у старой страницы
+   (.arch-wrap, .arch, .arch-mid, details.milk). Показывается ОДИН вид:
+   переключает состояние экрана, а не CSS по data-view — второй набор из
+   52 SVG в дереве не нужен, данные обоих видов уже в модели. Легенда с 01.10
+   живёт у рабочего стола (она — фильтр и общая для 2D и 3D). Погашенные
+   фильтром зубы (`dim`) — классом на кнопке, как выбор и черновик.
    Скобки мостов меряются по кнопкам ВИДИМОГО ряда после раскладки. */
 const T = {
   upper: 'Maxilar',
@@ -45,6 +46,7 @@ interface RowProps {
   selected: number | null
   picked: ReadonlySet<number>
   dirty: ReadonlySet<number>
+  dim: ReadonlySet<number>
   onSelect: (n: number) => void
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
@@ -56,7 +58,7 @@ function bridgesIn(model: Odontogram, teeth: number[]): Bridge[] {
   return model.bridges.filter((b) => b.teeth.every((t) => teeth.includes(t[0])))
 }
 
-function ArchRow({ model, teeth, arcs, view, lower, milk, selected, picked, dirty, onSelect, onSurface, onHover, onMenu }: RowProps) {
+function ArchRow({ model, teeth, arcs, view, lower, milk, selected, picked, dirty, dim, onSelect, onSurface, onHover, onMenu }: RowProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [brackets, setBrackets] = useState<Bracket[]>([])
   const mine = useMemo(() => (milk ? [] : bridgesIn(model, teeth)), [model, teeth, milk])
@@ -122,6 +124,7 @@ function ArchRow({ model, teeth, arcs, view, lower, milk, selected, picked, dirt
             selected={selected === n}
             picked={picked.has(n)}
             dirty={dirty.has(n)}
+            dim={dim.has(n)}
             onSelect={onSelect}
             {...(onSurface ? { onSurface } : {})}
             {...(onHover ? { onHover } : {})}
@@ -151,19 +154,20 @@ interface Props {
   picked?: ReadonlySet<number>
   /** Зубы с незаписанной правкой. */
   dirty?: ReadonlySet<number>
+  /** Зубы, погашенные фильтром легенды. */
+  dim?: ReadonlySet<number>
   onSelect: (n: number) => void
   onSurface?: (n: number, letter: string) => void
   onHover?: (n: number, el: HTMLElement | null) => void
   onMenu?: (n: number, x: number, y: number) => void
-  legend?: boolean
 }
 
 const NONE: ReadonlySet<number> = new Set()
 
-export function DentalArch({ model, view, selected, picked = NONE, dirty = NONE, onSelect, onSurface, onHover, onMenu, legend = true }: Props) {
+export function DentalArch({ model, view, selected, picked = NONE, dirty = NONE, dim = NONE, onSelect, onSurface, onHover, onMenu }: Props) {
   const occ = view === 'ocluzal'
   const rowProps = {
-    model, view, selected, picked, dirty, onSelect,
+    model, view, selected, picked, dirty, dim, onSelect,
     ...(onSurface ? { onSurface } : {}), ...(onHover ? { onHover } : {}), ...(onMenu ? { onMenu } : {}),
   }
   return (
@@ -186,11 +190,6 @@ export function DentalArch({ model, view, selected, picked = NONE, dirty = NONE,
           </div>
         </div>
       </details>
-      {legend && (
-        <div className={`tleg odo-view v-${view}`}>
-          <Legend items={occ ? model.legend.occlusal : model.legend.frontal} />
-        </div>
-      )}
     </>
   )
 }

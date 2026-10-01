@@ -26,6 +26,8 @@ interface Props {
   picked?: boolean
   /** Есть незаписанная правка (черновик). */
   dirty?: boolean
+  /** Погашен фильтром легенды (01.10): не про выбранный пункт. */
+  dim?: boolean
   /** Нижняя дуга: номер идёт ПОСЛЕ рисунка (со стороны корней). */
   lower?: boolean
   /** Подъём в виде сверху, px (переменная --arc, как у старой страницы). */
@@ -38,11 +40,11 @@ interface Props {
   onMenu?: (n: number, x: number, y: number) => void
 }
 
-export function Tooth({ n, info, view, selected, picked, dirty, lower, arc, onSelect, onSurface, onHover, onMenu }: Props) {
+export function Tooth({ n, info, view, selected, picked, dirty, dim, lower, arc, onSelect, onSurface, onHover, onMenu }: Props) {
   const svg = view === 'ocluzal' ? info.svg.occlusal : info.svg.frontal
   const num = `<span class='num'>${n}</span>`
   const html = lower ? svg + num : num + svg
-  const cls = `tooth-btn${selected ? ' sel' : ''}${picked ? ' br-pick' : ''}${dirty ? ' dirty' : ''}`
+  const cls = `tooth-btn${selected ? ' sel' : ''}${picked ? ' br-pick' : ''}${dirty ? ' dirty' : ''}${dim ? ' dim' : ''}`
   const style = arc ? ({ '--arc': `${arc}px` } as CSSProperties) : undefined
   const press = useLongPress(onMenu ? (x, y) => onMenu(n, x, y) : undefined)
 

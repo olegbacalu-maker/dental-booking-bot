@@ -364,6 +364,23 @@
 .dp-react-root .dp-save-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dp-react-root .dp-save-row .pl-btn { height: var(--h-ctl); }
 .dp-react-root .dp-draft { font-size: var(--fs-s); font-weight: 600; color: var(--amber-t); }
+/* легенда-фильтр (01.10): пункт — кнопка; нажатый — кольцо фирменного цвета,
+   остальные при фильтре приглушены; счётчик зубов — мелко рядом с подписью.
+   Погашенный зуб на дуге прозрачен, выбранный или под курсором — читается;
+   в печати страницы гашения нет — на бумаге только правда зуба. */
+.dp-react-root .tleg button.lg { font: inherit; color: inherit; background: none; border: 1px solid transparent;
+  border-radius: var(--r-chip); padding: 2px 8px 2px 4px; cursor: pointer; }
+.dp-react-root .tleg button.lg:hover, .dp-react-root .tleg button.lg:focus-visible { background: var(--teal-soft); color: var(--teal-d); outline: none; }
+.dp-react-root .tleg button.lg.on { border-color: var(--teal); background: var(--teal-glow); color: var(--teal-d); }
+.dp-react-root .tleg[data-filter] button.lg:not(.on) { opacity: .55; }
+.dp-react-root .tleg .lg-pic { display: inline-flex; }
+.dp-react-root .tleg .lg-n { font-style: normal; font-weight: 600; color: var(--text3); margin-left: 2px; }
+.dp-react-root .tleg button.lg.on .lg-n { color: var(--teal-d); }
+.dp-react-root .odop .arch .tooth-btn { transition: transform var(--dur) ease, background-color var(--dur) ease,
+  box-shadow var(--dur) ease, opacity var(--dur) ease; }
+.dp-react-root .odop .arch .tooth-btn.dim { opacity: .22; }
+.dp-react-root .odop .arch .tooth-btn.dim:hover, .dp-react-root .odop .arch .tooth-btn.dim.sel { opacity: .6; }
+@media print { .dp-react-root .odop .arch .tooth-btn.dim { opacity: 1; } }
 /* инспектор: действия с зуба в ряд — «Adaugă în plan» (01.10) и мост от зуба */
 .dp-react-root .dp-insp-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 /* контекстное меню зуба — состояния сервера и мост от зуба */

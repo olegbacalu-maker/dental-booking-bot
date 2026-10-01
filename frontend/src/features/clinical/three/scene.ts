@@ -76,6 +76,8 @@ export interface ArchScene {
   setToggle(k: Toggle, on: boolean): void
   /** камера к зубу (цель — коронка, снаружи дуги) или назад к виду; null — назад */
   focus(n: number | null): void
+  /** зубы, погашенные фильтром легенды (01.10): полупрозрачные, без колец и с бледным номером */
+  setDim(teeth: ReadonlySet<number>): void
   invalidate(): void
   dispose(): void
 }
@@ -198,6 +200,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   let palette: Record<string, string> = {}
   let selected: number | null = null
   let hover: Hit | null = null
+  /** погашенные фильтром легенды; прозрачность коронки у них `DIM` */
+  let dimmed: ReadonlySet<number> = new Set()
+  const DIM = 0.16
   const togs: Record<Toggle, boolean> = { xray: false, labels: true, upper: true, lower: true, closed: false, rotate: false }
 
   const geomOf = (info: ToothInfo | undefined, upper: boolean): ToothGeom => info?.geom ?? { ...FALLBACK, upper }
@@ -301,11 +306,27 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     screwY(t, 0)
     screwSpin(t, 0)
     t.crown.scale.setScalar(1)
-    t.rootMat.opacity = 1
-    t.rootMat.transparent = false
+    // полупрозрачная коронка — призрак ИЛИ погашенный фильтром зуб (opacity < 1)
+    const see = look.ghost || look.opacity < 1
+    t.gapMat.opacity = look.opacity
     const sm = t.socket.material as T3.MeshStandardMaterial
-    sm.opacity = 1
-    sm.transparent = false
+    sm.opacity = look.opacity
+    sm.transparent = look.opacity < 1
+    const scm = t.screw.material as T3.MeshStandardMaterial
+    scm.opacity = look.opacity
+    scm.transparent = look.opacity < 1
+    ;(t.screwX.material as T3.MeshStandardMaterial).opacity = 0.62 * look.opacity
+    ;(t.sprite.material as T3.SpriteMaterial).opacity = look.opacity < 1 ? 0.35 : 1
+    // корни гаснут вместе с коронкой: сразу или тем же твином
+    const rm = t.rootMat
+    if (instant || rm.opacity === look.opacity) {
+      rm.opacity = look.opacity
+      rm.transparent = look.opacity < 1
+    } else {
+      const o0 = rm.opacity
+      rm.transparent = true
+      tweens.add(380, (k) => { rm.opacity = o0 + (look.opacity - o0) * k }, () => { rm.transparent = look.opacity < 1 }, 0, t)
+    }
     SURF.forEach((_L, i) => {
       const m = t.mats[i]
       const c = look.cols[i]
@@ -316,8 +337,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         m.metalness = look.metalness
         m.roughness = look.roughness
         m.opacity = look.opacity
-        m.transparent = look.ghost
-        m.depthWrite = !look.ghost
+        m.transparent = see
+        m.depthWrite = !see
         return
       }
       const c0 = m.color.clone()
@@ -326,8 +347,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       const op0 = m.opacity
       if (c0.equals(target) && met0 === look.metalness && op0 === look.opacity) {
         m.roughness = look.roughness
-        m.transparent = look.ghost
-        m.depthWrite = !look.ghost
+        m.transparent = see
+        m.depthWrite = !see
         return
       }
       m.transparent = true
@@ -337,8 +358,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         m.roughness = r0 + (look.roughness - r0) * k
         m.opacity = op0 + (look.opacity - op0) * k
       }, () => {
-        m.transparent = look.ghost
-        m.depthWrite = !look.ghost
+        m.transparent = see
+        m.depthWrite = !see
       }, 0, t)
     })
   }
@@ -507,6 +528,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       const info = model.teeth[String(t.n)]
       if (!info) continue
       const look = targetLook(info, palette)
+      // гашение — поверх вида данных, но не в данных: `targetLook` чист, фильтр — экрана
+      const dim = dimmed.has(t.n)
+      if (dim) look.opacity = DIM
       const prev = t.look
       t.look = look
       t.sprite.visible = togs.labels
@@ -516,8 +540,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         sm.map = want
         sm.needsUpdate = true
       }
-      t.ringT.visible = !look.gone && look.mark
-      t.ringI.visible = look.implant
+      t.ringT.visible = !look.gone && look.mark && !dim
+      t.ringI.visible = look.implant && !dim
       const selNow = t.n === selected && !look.gone
       if (selNow && !t.ringS.visible) {
         t.ringS.visible = true
@@ -885,6 +909,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       }
       if (lastModel) paint(lastModel)
       invalidate()
+    },
+    setDim(set) {
+      dimmed = set
+      if (lastModel) paint(lastModel)
     },
     invalidate,
     dispose() {

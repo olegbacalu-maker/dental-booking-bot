@@ -13,7 +13,7 @@ vi.mock('./three/loadThree', () => ({
   threeUrl: () => '/static/js/three.js',
   resetThree: () => undefined,
 }))
-import { neighbour, surfaceLetter, surfaceName, type Odontogram, type ToothInfo } from './chart'
+import { dimmedTeeth, legendCounts, neighbour, surfaceLetter, surfaceName, toothMatches, type Odontogram, type ToothInfo } from './chart'
 import { cycleState } from './useChart'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
@@ -146,7 +146,7 @@ describe('OdontogramScreen', () => {
     expect(btn(41).lastElementChild?.className).toBe('num')
     expect((document.querySelector('details.milk') as HTMLDetailsElement).open).toBe(true)
     expect(document.querySelector('.arch.lower.br-room')).toBeTruthy()
-    expect(screen.getByText('Carie', { selector: '.lg' })).toBeTruthy()
+    expect(screen.getByText('Carie', { selector: '.lg .lg-l' })).toBeTruthy()
     expect(screen.getByText('Odonto Pin')).toBeTruthy()
     expect(get).toHaveBeenCalledWith('/patients/5/odontogram', expect.anything())
   })
@@ -587,5 +587,62 @@ describe('зуб → план (01.10)', () => {
     const menu = screen.getByRole('menu')
     expect(within(menu).getByRole('menuitem', { name: 'Adaugă în plan' })).toBeTruthy()
     expect(within(menu).queryByText('Punte nouă de la acest dinte')).toBeNull()
+  })
+})
+
+describe('легенда-фильтр (01.10)', () => {
+  it('toothMatches: состояние целиком, на поверхности или отметкой; dimmedTeeth и счётчик по модели', () => {
+    const t16 = MODEL.teeth['16']!
+    expect(toothMatches(t16, 'carie')).toBe(true)          // M: carie при state carie
+    expect(toothMatches(t16, 'obturatie')).toBe(true)      // O: obturatie — только на поверхности
+    expect(toothMatches(t16, 'coroana')).toBe(false)
+    expect(toothMatches({ state: 'ok', sfst: {}, mk: ['tratament'] }, 'tratament')).toBe(true)
+    expect(toothMatches({ state: 'ok', sfst: {}, mk: [] }, 'ok')).toBe(true)
+    expect(dimmedTeeth(MODEL, null).size).toBe(0)
+    const d = dimmedTeeth(MODEL, 'carie')
+    expect(d.has(16)).toBe(false)
+    expect(d.has(21)).toBe(true)
+    expect(d.has(55)).toBe(true)
+    expect(d.size).toBe(Object.keys(MODEL.teeth).length - 1)
+    expect(legendCounts(MODEL, MODEL.legend.frontal)).toEqual({ carie: 1, tratament: 0 })
+    // молочный ряд закрыт — его зубы не считаются
+    expect(legendCounts({ ...MODEL, milk_open: false, teeth: { ...MODEL.teeth, '55': tooth(55, 'sus', { state: 'carie' }) } }, MODEL.legend.frontal).carie).toBe(1)
+    expect(legendCounts({ ...MODEL, teeth: { ...MODEL.teeth, '55': tooth(55, 'sus', { state: 'carie' }) } }, MODEL.legend.frontal).carie).toBe(2)
+  })
+
+  it('пункт легенды — кнопка: нажатие гасит зубы не про него (класс dim), счётчик виден, повтор снимает; фильтр переживает вид и стоит в 3D', async () => {
+    open()
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    const leg = () => document.querySelector('.odop .tleg') as HTMLElement
+    const carie = () => within(leg()).getByRole('button', { name: /Carie/ })
+    expect(carie().getAttribute('aria-pressed')).toBe('false')
+    expect(within(carie()).getByText('1', { selector: '.lg-n' })).toBeTruthy()
+    expect(within(leg()).getByRole('button', { name: /În tratament/ }).querySelector('.lg-n')).toBeNull()   // ноль — без счётчика
+    expect(leg().getAttribute('data-filter')).toBeNull()
+    fireEvent.click(carie())
+    expect(carie().getAttribute('aria-pressed')).toBe('true')
+    expect(leg().getAttribute('data-filter')).toBe('carie')
+    expect(btn(16).className).not.toContain('dim')
+    expect(btn(21).className).toContain('dim')
+    expect(btn(55).className).toContain('dim')
+    expect(document.querySelectorAll('.odop .arch .tooth-btn.dim').length).toBe(32)
+    /* выбор и правка под фильтром работают как обычно */
+    fireEvent.click(btn(21))
+    expect(btn(21).className).toContain('sel')
+    expect(btn(21).className).toContain('dim')
+    /* вид — фильтр остаётся (легенда окклюзии в модели пуста, но зубы погашены) */
+    fireEvent.click(screen.getByRole('button', { name: 'Vedere ocluzală' }))
+    expect(btn(21).className).toContain('dim')
+    fireEvent.click(screen.getByRole('button', { name: 'Vedere frontală' }))
+    /* 3D: легенда на месте, нажатый пункт — тоже */
+    fireEvent.click(screen.getByRole('button', { name: '3D' }))
+    await screen.findByText(/3D nu s-a încărcat/)
+    expect(carie().getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(carie())
+    expect(carie().getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: 'Vedere frontală' }))
+    await waitFor(() => expect(btn(16)).toBeTruthy())
+    expect(document.querySelectorAll('.odop .arch .tooth-btn.dim').length).toBe(0)
+    expect(leg().getAttribute('data-filter')).toBeNull()
   })
 })

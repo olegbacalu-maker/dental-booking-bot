@@ -50,13 +50,15 @@ interface Props {
   onZoom: (on: boolean) => void
   /** двойной щелчок по зубу в сцене */
   onDouble: (n: number) => void
+  /** зубы, погашенные фильтром легенды */
+  dim: ReadonlySet<number>
 }
 
 type Status = 'loading' | 'ready' | 'failed' | 'nogl'
 /** зонд сцены на узле — стенды Edge читают его через CDP, тестов в jsdom это не касается */
 type Probed = HTMLDivElement & { __dp3d?: { inspect: (n: number) => ToothProbe | null; camera: () => CameraProbe | null } }
 
-export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focus, onZoom, onDouble }: Props) {
+export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focus, onZoom, onDouble, dim }: Props) {
   const host = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<ArchScene | null>(null)
   const surfaceRef = useRef(onSurface)
@@ -66,6 +68,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   const modelRef = useRef(model)
   const selRef = useRef(selected)
   const focusRef = useRef(focus)
+  const dimRef = useRef(dim)
   const [status, setStatus] = useState<Status>('loading')
   const [view, setView] = useState<ViewName | null>('frontal')
   const [togs, setTogs] = useState<Record<Toggle, boolean>>({ xray: false, labels: true, upper: true, lower: true, closed: false, rotate: false })
@@ -80,6 +83,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
     modelRef.current = model
     selRef.current = selected
     focusRef.current = focus
+    dimRef.current = dim
     togsRef.current = togs
   })
 
@@ -102,6 +106,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
         sceneRef.current = scene
         ;(host.current as Probed).__dp3d = { inspect: (n) => scene.inspect(n), camera: () => scene.camera() }
         scene.setModel(modelRef.current)
+        if (dimRef.current.size) scene.setDim(dimRef.current)
         scene.setSelected(selRef.current)
         if (focusRef.current !== null) scene.focus(focusRef.current)
         setStatus('ready')
@@ -118,6 +123,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
 
   useEffect(() => { sceneRef.current?.setModel(model) }, [model])
   useEffect(() => { sceneRef.current?.setSelected(selected) }, [selected])
+  useEffect(() => { sceneRef.current?.setDim(dim) }, [dim])
   useEffect(() => {
     const sc = sceneRef.current
     if (focus !== null) {

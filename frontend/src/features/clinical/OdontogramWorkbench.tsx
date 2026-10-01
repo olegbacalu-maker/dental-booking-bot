@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { ToastState } from '../../components/Toast'
 import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { DentalArch } from './DentalArch'
+import { Legend } from './Legend'
 import { PlanDialog } from './PlanDialog'
 import { ToothInspector } from './ToothInspector'
 import { ToothMenu, type MenuAt } from './ToothMenu'
 import { ViewSwitch } from './ViewSwitch'
-import { chart, neighbour, type Arrow, type Odontogram, type PlanAdd } from './chart'
+import { chart, dimmedTeeth, legendCounts, neighbour, type Arrow, type Odontogram, type PlanAdd } from './chart'
 import { Odontogram3D } from './three/Odontogram3D'
 import { useCoarse } from './touch'
 import { useChart } from './useChart'
@@ -38,7 +39,12 @@ import { useChart } from './useChart'
    Фокус камеры 3D (01.10): `zoom` — режим «камера у выбранного зуба»; пока он
    включён, выбор другого зуба везёт камеру к нему. F / кнопка «Apropie» —
    переключатель, двойной щелчок по зубу — выбрать и подъехать, кнопка вида —
-   выход. В 2D и в режиме моста фокуса нет. */
+   выход. В 2D и в режиме моста фокуса нет.
+
+   Легенда-фильтр (01.10): легенда общая для 2D и 3D и стоит здесь, под
+   видом; нажатый пункт гасит зубы не про него (`dimmedTeeth` — классом на
+   дуге, прозрачностью в сцене), счётчик у пункта — сколько зубов про него.
+   Фильтр — экрана: в модель, в запись и в печать 043/e он не попадает. */
 const T = {
   title: 'Odontogramă',
   sub: 'notație FDI',
@@ -92,6 +98,11 @@ export function OdontogramWorkbench({
   const planFrom = (n: number) => { setMenu(null); setPlanBad(false); setPlan(n) }
   const [zoom, setZoom] = useState(false)
   const focus3d = zoom && !brMode && c.view === '3d' ? c.selected : null
+  const [filter, setFilter] = useState<string | null>(null)
+  const legendItems = c.view === 'ocluzal' ? model.legend.occlusal : model.legend.frontal
+  const dim = useMemo(() => dimmedTeeth(model, filter), [model, filter])
+  const counts = useMemo(() => legendCounts(model, legendItems), [model, legendItems])
+  const pickLegend = (k: string) => setFilter((f) => (f === k ? null : k))
   const onDouble = (n: number) => { if (!brMode) { c.select(n); setZoom(true) } }
   const closePlan = useCallback(() => setPlan(null), [])
   const savePlan = async (body: PlanAdd): Promise<boolean> => {
@@ -245,7 +256,7 @@ export function OdontogramWorkbench({
                 /* B7: объёмный вид — тот же контроллер, те же действия; выбор,
                    поверхность и меню идут в инспектор, как из дуги */
                 <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenu}
-                  focus={focus3d} onZoom={setZoom} onDouble={onDouble} />
+                  focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} />
               ) : (
                 <DentalArch
                   model={model}
@@ -253,11 +264,15 @@ export function OdontogramWorkbench({
                   selected={brMode ? null : c.selected}
                   picked={new Set(picked)}
                   dirty={c.dirtyTeeth}
+                  dim={dim}
                   onSelect={onSelect}
                   onSurface={onSurface}
                   onMenu={onMenu}
                 />
               )}
+              <div className="tleg" data-filter={filter ?? undefined}>
+                <Legend items={legendItems} active={filter} counts={counts} onPick={pickLegend} />
+              </div>
             </div>
           </div>
           <aside className="odop-side">
