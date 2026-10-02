@@ -61,51 +61,128 @@ KIND_RU = {"invoice": "счёт за 14 дней до конца срока", "e
            "expired": "срок истёк, идёт льгота", "last_warning": "завтра — только чтение",
            "readonly": "режим только чтения"}
 
-_CSS = """
-body{font-family:Inter,'Segoe UI',system-ui,sans-serif;margin:0;background:#F4F7F6;color:#16232B}
-a{color:#0B7F70}.top{background:#0B2B26;color:#fff;padding:12px 24px;display:flex;gap:18px;align-items:center}
-.top a{color:#BFEFE6;text-decoration:none;font-weight:600}.top form{margin-left:auto}
-.top button{background:none;border:1px solid #BFEFE6;color:#BFEFE6;border-radius:8px;padding:4px 10px;cursor:pointer}
-.wrap{max-width:1040px;margin:0 auto;padding:24px}h1{font-size:22px;margin:0 0 14px}h2{font-size:16px;margin:24px 0 8px}
-.card{background:#fff;border:1px solid #E6EDEB;border-radius:14px;padding:18px 20px;margin-bottom:16px}
-table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #EEF2F1;vertical-align:top}
-th{color:#5B6B72;font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em}
-input,select,textarea{font:inherit;padding:8px 10px;border:1px solid #D8E2DF;border-radius:9px;width:100%;box-sizing:border-box}
-label{display:block;font-size:13px;color:#5B6B72;margin:8px 0 4px}
-button.primary{background:#0E9F8A;color:#fff;border:none;border-radius:9px;padding:10px 16px;font-weight:600;cursor:pointer}
+# Шрифт сайта — с dentpilot.md (Pages отдаёт woff2 с CORS *): одна гарнитура на
+# сайт, кабинет и админку; без него страницы рисовались системным Segoe UI.
+_FONTS = (
+    "@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;"
+    "src:url('https://dentpilot.md/fonts/inter-latin-ext.woff2') format('woff2');"
+    "unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,"
+    "U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}"
+    "@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;"
+    "src:url('https://dentpilot.md/fonts/inter-cyrillic.woff2') format('woff2');"
+    "unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}"
+    "@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;"
+    "src:url('https://dentpilot.md/fonts/inter-latin.woff2') format('woff2');"
+    "unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,"
+    "U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}"
+)
+# Админка — инструмент одного человека, по-русски; с 02.10 («выглядит немного сыро»)
+# в тех же токенах, что сайт и кабинет: тёмная липкая шапка с разделами и активным
+# разделом, карточки с заголовками-значками, таблицы с подсветкой строки, кнопки и
+# поля как в кабинете. ⛔ Тексты страниц держат cloud/tests — слова не менять.
+_CSS = _FONTS + """
+:root{--ink:#16232B;--muted:#5B6B72;--line:#E6EDEB;--teal:#0E9F8A;--teal-d:#0B7F70;--teal-soft:#E9F6F3;--bg:#F4F8F7;--dark:#0B2B26;--shadow:0 1px 2px rgba(11,43,38,.04),0 14px 36px -20px rgba(11,43,38,.18)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;line-height:1.45;font-size:14.5px}
+a{color:var(--teal-d)}
+.top{position:sticky;top:0;z-index:5;background:var(--dark);color:#fff}
+.top-in{max-width:1180px;margin:0 auto;padding:0 24px;height:56px;display:flex;align-items:center;gap:4px}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:700;font-size:15px;margin-right:16px;white-space:nowrap}
+.brand .ic{width:28px;height:28px;border-radius:8px;background:var(--teal);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.brand .sub{color:#8FCFC3;font-weight:500;font-size:13px}
+.nav{display:flex;gap:2px;flex-wrap:wrap}
+.nav a{color:#CDEDE6;text-decoration:none;font-weight:600;font-size:14px;padding:7px 12px;border-radius:9px;white-space:nowrap}
+.nav a:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav a.on{background:rgba(255,255,255,.14);color:#fff}
+.top form{margin-left:auto;margin-bottom:0}
+.top form button{background:transparent;border:1px solid rgba(255,255,255,.35);color:#E6F4F1;border-radius:9px;padding:6px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.top form button:hover{border-color:#fff;color:#fff;background:rgba(255,255,255,.08)}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 24px 64px}
+.ph{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 18px}
+h1{font-size:24px;letter-spacing:-.02em;margin:0;line-height:1.2}
+.ph .lead{color:var(--muted);font-size:14px;margin:0;flex-basis:100%}
+h2{font-size:16px;margin:0;letter-spacing:-.01em}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow);overflow-x:auto}
+.card.alert{border-color:#F1D79E;background:linear-gradient(180deg,#FFFDF6,#fff 60%)}
+.chead{display:flex;align-items:center;gap:12px;margin:0 0 12px;flex-wrap:wrap}
+.chead .ico{width:34px;height:34px;border-radius:10px;background:var(--teal-soft);color:var(--teal-d);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.card.alert .chead .ico{background:#FFF3D6;color:#B45309}
+.chead h2{font-size:15.5px}.chead .sub{font-size:12.5px;color:var(--muted);margin:1px 0 0}
+.chead>div{flex:1;min-width:0}.chead .right{margin-left:auto;flex:none}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid #EEF2F1;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+tr:hover td{background:#F8FBFA}tr:last-child td{border-bottom:0}
+input,select,textarea{font:inherit;font-size:14px;padding:9px 11px;border:1px solid #D8E2DF;border-radius:9px;width:100%;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.18)}
+label{display:block;font-size:12.5px;color:var(--muted);margin:8px 0 4px;font-weight:500}
+label.chk{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px;font-weight:400;margin:12px 0 4px}
+label.chk input{width:auto;margin:0}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 18px}
+.kv label{margin:0 0 2px}.kv .v{font-size:14.5px;line-height:1.4}
+button{font:inherit;cursor:pointer}
+button.primary,a.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--teal);color:#fff;border:1px solid var(--teal);border-radius:9px;padding:9px 16px;font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap}
+button.primary:hover,a.btn:hover{background:var(--teal-d);border-color:var(--teal-d);color:#fff}
+button:not(.primary){background:#fff;border:1px solid #D8E2DF;color:var(--ink);border-radius:9px;padding:8px 13px;font-size:13.5px;font-weight:500;white-space:nowrap}
+button:not(.primary):hover{border-color:var(--teal);color:var(--teal-d)}
+.actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.actions form{display:inline-flex;gap:6px;align-items:center;margin:0}
+.actions input{width:150px;padding:7px 10px;font-size:13px}
+details summary{cursor:pointer;color:var(--teal-d);font-weight:600;font-size:14px;margin:-4px 0 14px;list-style:none;display:inline-flex;align-items:center;gap:8px}
+details summary::-webkit-details-marker{display:none}
+details summary:before{content:'';width:0;height:0;border:5px solid transparent;border-left-color:currentColor;margin-left:4px;transition:transform .15s}
+details[open] summary:before{transform:rotate(90deg)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 18px}
-.banner{padding:10px 14px;border-radius:10px;margin:0 0 16px;font-size:14px}
+.banner{padding:11px 14px;border-radius:11px;margin:0 0 16px;font-size:14px}
 .banner.ok{background:#ECFDF5;color:#065F46}.banner.err{background:#FEF2F2;color:#B91C1C}
-.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;vertical-align:middle}
 .tag.ok{background:#ECFDF5;color:#065F46}.tag.warn{background:#FFFBEB;color:#B45309}
 .tag.bad{background:#FEF2F2;color:#B91C1C}.tag.mute{background:#EEF2F1;color:#5B6B72}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}.muted{color:#7C8B91;font-size:13px}
+.login{max-width:400px;margin:40px auto 0}
+.login .mark{width:46px;height:46px;border-radius:13px;background:var(--teal);display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px}
+.login h1{font-size:22px;margin:0 0 4px}
+@media (max-width:760px){.top-in{padding:8px 14px;height:auto;flex-wrap:wrap}.top form{margin-left:auto}.wrap{padding:18px 14px 48px}.card{padding:14px;border-radius:14px}.nav a{padding:6px 9px}.chead .right{margin-left:0;flex-basis:100%}}
 """
 
 
-def page(title: str, body: str, user: str | None = None, msg: str = "", pending: int = 0) -> str:
+def page(title: str, body: str, user: str | None = None, msg: str = "", pending: int = 0,
+         active: str = "", lead: str = "", plain: bool = False) -> str:
+    """Каркас админки: тёмная шапка с разделами (активный подсвечен), выход;
+    заголовок с подписью; баннер сообщения; тело. Без входа — только бренд."""
     banner = ""
     if msg in MSG:
         cls, text = MSG[msg]
         banner = f"<div class='banner {cls}'>{esc(text)}</div>"
     pend = f" ({pending})" if pending else ""
-    nav = ("<div class='top'><a href='/admin'>DentPilot Cloud</a><a href='/admin'>Клиники</a>"
-           f"<a href='/admin/payments'>Платежи{pend}</a><a href='/admin/fleet'>Флот</a>"
-           f"<a href='/admin/audit'>Журнал</a>"
-           + (f"<form method='post' action='/admin/logout'><button>Выход · {esc(user)}</button></form>"
-              if user else "") + "</div>")
+
+    def item(href: str, text: str, key: str) -> str:
+        # ⚠️ порядок атрибутов: class, потом href — тест ищет «href='/admin/fleet'>Флот</a>»
+        return f"<a class='on' href='{href}'>{text}</a>" if active == key else f"<a href='{href}'>{text}</a>"
+
+    nav = (f"<div class='top'><div class='top-in'><a class='brand' href='/admin'><span class='ic'>{_TOOTH}</span>"
+           f"DentPilot Cloud <span class='sub'>· админка</span></a>"
+           + ((f"<nav class='nav'>{item('/admin', 'Клиники', 'clinics')}"
+               f"{item('/admin/payments', 'Платежи' + pend, 'payments')}{item('/admin/fleet', 'Флот', 'fleet')}"
+               f"{item('/admin/audit', 'Журнал', 'audit')}</nav>"
+               f"<form method='post' action='/admin/logout'><button>Выход · {esc(user)}</button></form>")
+              if user else "") + "</div></div>")
+    head = "" if plain else f"<div class='ph'><h1>{esc(title)}</h1>{('<p class=' + chr(39) + 'lead' + chr(39) + '>' + lead + '</p>') if lead else ''}</div>"
     return (f"<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+            f"<meta name='robots' content='noindex'>"
             f"<title>{esc(title)} — DentPilot Cloud</title><style>{_CSS}</style></head>"
-            f"<body>{nav}<div class='wrap'><h1>{esc(title)}</h1>{banner}{body}</div></body></html>")
+            f"<body>{nav}<div class='wrap'>{head}{banner}{body}</div></body></html>")
 
 
 def login_page(msg: str = "") -> str:
-    body = ("<div class='card' style='max-width:380px'><form method='post' action='/admin/login'>"
-            "<label>Логин</label><input name='user' autocomplete='username' required>"
-            "<label>Пароль</label><input name='password' type='password' autocomplete='current-password' required>"
-            "<p><button class='primary'>Войти</button></p></form></div>")
-    return page("Вход", body, msg=msg)
+    body = (f"<div class='card login'><span class='mark'>{_TOOTH_L}</span>"
+            f"<h1>Вход в админку</h1><p class='muted' style='margin:0 0 14px'>DentPilot Cloud — сервер лицензий.</p>"
+            f"<form method='post' action='/admin/login'>"
+            f"<label>Логин</label><input name='user' autocomplete='username' required autofocus>"
+            f"<label>Пароль</label><input name='password' type='password' autocomplete='current-password' required>"
+            f"<p style='margin:16px 0 0'><button class='primary' style='width:100%'>Войти</button></p></form></div>")
+    return page("Вход", body, msg=msg, plain=True)
 
 
 def _tag(state: str) -> str:
@@ -148,18 +225,18 @@ def _requests_block(requests: list) -> str:
         return ""
     trs = "".join(
         f"<tr><td><a href='/admin/clinics/{esc(r['id'])}'>{esc(r['name'])}</a> "
-        f"<span class='tag'>{ORIGIN_RU.get(r['origin'], ORIGIN_RU['form'])[0]}</span></td>"
+        f"<span class='tag mute'>{ORIGIN_RU.get(r['origin'], ORIGIN_RU['form'])[0]}</span></td>"
         f"<td class='mono'>{esc(r['idno'] or '—')}</td><td>{esc(r['contact_name'] or '—')}</td>"
         f"<td>{esc(r['email'])}<br><span class='muted'>{esc(r['phone'] or '')}</span></td>"
         f"<td>{esc((r['requested_at'] or '')[:16].replace('T', ' '))}</td>"
-        f"<td><form method='post' action='/admin/clinics/{esc(r['id'])}/issue' style='display:inline'>"
+        f"<td><div class='actions'><form method='post' action='/admin/clinics/{esc(r['id'])}/issue'>"
         f"<input type='hidden' name='kind' value='trial'><input type='hidden' name='send' value='1'>"
         f"<input type='hidden' name='reason' value='{ORIGIN_RU.get(r['origin'], ORIGIN_RU['form'])[1]}'>"
-        f"<button class='primary'>Выдать пробный и отправить</button></form> "
-        f"<form method='post' action='/admin/clinics/{esc(r['id'])}/decline' style='display:inline'>"
-        f"<button>Скрыть</button></form></td></tr>"
+        f"<button class='primary'>Выдать пробный и отправить</button></form>"
+        f"<form method='post' action='/admin/clinics/{esc(r['id'])}/decline'>"
+        f"<button>Скрыть</button></form></div></td></tr>"
         for r in requests)
-    return (f"<h2>Заявки на пробный период ({len(requests)})</h2><div class='card'>"
+    return (f"<div class='card alert'>{_chead('inbox', f'Заявки на пробный период ({len(requests)})', 'ждут кнопки «Выдать»: программа клиники заберёт файл сама, в кабинете он появится тут же')}"
             f"<table><tr><th>Клиника</th><th>IDNO</th><th>Контакт</th><th>E-mail · телефон</th>"
             f"<th>Подана</th><th></th></tr>{trs}</table></div>")
 
@@ -176,23 +253,24 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = ()) -> s
     counts = {k: 0 for k in STATE_RU}
     for r in rows:
         counts[license.state(_ts(r["valid_until"]), r["grace_days"] or 0, now)] += 1
-    summary = " · ".join(f"{STATE_RU[k][1]} {n}" for k, n in counts.items())
+    summary = " · ".join(f"<span class='tag {STATE_RU[k][0]}'>{STATE_RU[k][1]} {n}</span>" for k, n in counts.items())
     daily = ("<form method='post' action='/admin/jobs/daily' style='margin:0'>"
              "<button title='Напоминания по таблице cloud.md за сегодня; cron делает то же раз в сутки'>"
              "Запустить ежедневную задачу</button></form>")
-    table = (f"<div class='card'><div style='display:flex;justify-content:space-between;align-items:center;"
-             f"margin-bottom:8px'><span class='muted'>Состояния: {summary}</span>{daily}</div>"
+    table = (f"<div class='card'>{_chead('list', f'Все клиники ({len(rows)})', f'Состояния: {summary}', daily)}"
              "<table><tr><th>Клиника</th><th>IDNO</th><th>Тариф</th>"
              f"<th>Срок до</th><th>Состояние</th><th>Файлов</th></tr>{trs}</table></div>")
-    form = ("<h2>Новая клиника</h2><div class='card'><form method='post' action='/admin/clinics'>"
+    form = (f"<div class='card'>{_chead('plus', 'Новая клиника', 'заводится вручную — файл выдаётся из карточки')}"
+            "<form method='post' action='/admin/clinics'>"
             "<div class='grid'><div><label>Название *</label><input name='name' required maxlength='120'></div>"
             "<div><label>IDNO (13 цифр)</label><input name='idno' maxlength='13' pattern='[0-9]{13}'></div>"
             "<div><label>Контактное лицо</label><input name='contact_name'></div>"
             "<div><label>E-mail</label><input name='email' type='email'></div>"
             "<div><label>Телефон</label><input name='phone'></div>"
             "<div><label>Адрес</label><input name='address'></div></div>"
-            "<p><button class='primary'>Завести</button></p></form></div>")
-    return page("Клиники", _requests_block(list(requests)) + table + form, user, msg)
+            "<p style='margin:14px 0 0'><button class='primary'>Завести</button></p></form></div>")
+    return page("Клиники", _requests_block(list(requests)) + table + form, user, msg, active="clinics",
+                lead="Клиники, их файлы лицензии и заявки на пробный период.")
 
 
 # ---------- форма пробного периода (L14): публичные страницы, по-румынски ----------
@@ -296,18 +374,19 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
     for p in rows:
         actions = ""
         if p["status"] == "pending":
-            actions = (f"<form method='post' action='/admin/payments/{p['id']}/confirm' style='display:inline'>"
-                       f"<button class='primary'>Подтвердить</button></form> "
-                       f"<form method='post' action='/admin/payments/{p['id']}/reject' style='display:inline'>"
-                       f"<input name='reason' placeholder='причина' style='width:140px;display:inline'> "
+            actions = (f"<form method='post' action='/admin/payments/{p['id']}/confirm'>"
+                       f"<button class='primary'>Подтвердить</button></form>"
+                       f"<form method='post' action='/admin/payments/{p['id']}/reject'>"
+                       f"<input name='reason' placeholder='причина'>"
                        f"<button>Отклонить</button></form>")
             if p["provider_id"]:
-                actions += (f" <form method='post' action='/admin/payments/{p['id']}/check' style='display:inline'>"
+                actions += (f"<form method='post' action='/admin/payments/{p['id']}/check'>"
                             f"<button title='Спросить maib о статусе'>Проверить</button></form>")
             if maib.enabled():
-                actions += (f" <form method='post' action='/admin/payments/{p['id']}/link' style='display:inline'>"
+                actions += (f"<form method='post' action='/admin/payments/{p['id']}/link'>"
                             f"<button title='Ссылка на оплату картой к этому же reference'>"
                             f"{'Новая ссылка' if p['provider_id'] else 'Ссылка на карту'}</button></form>")
+            actions = f"<div class='actions'>{actions}</div>"
         clinic_td = (f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
                      if with_clinic else "")
         out.append(f"<tr><td class='mono'>{esc(p['reference'])}</td>{clinic_td}"
@@ -341,9 +420,11 @@ def pay_page(ok: bool) -> str:
 
 def payments_page(rows: list, user: str, msg: str = "") -> str:
     trs = _payment_rows(rows, with_clinic=True) or "<tr><td colspan='7' class='muted'>Ожидающих платежей нет</td></tr>"
-    body = (f"<div class='card'><table><tr><th>Reference</th><th>Клиника</th><th>Сумма</th><th>Срок</th>"
+    body = (f"<div class='card'>{_chead('card', f'В ожидании: {len(rows)}', 'подтверждение продлевает срок и выдаёт файл; письмо клинике уходит само')}"
+            f"<table><tr><th>Reference</th><th>Клиника</th><th>Сумма</th><th>Срок</th>"
             f"<th>Создан</th><th>Состояние</th><th></th></tr>{trs}</table></div>")
-    return page("Платежи в ожидании", body, user, msg, pending=len(rows))
+    return page("Платежи в ожидании", body, user, msg, pending=len(rows), active="payments",
+                lead="Переводы, которых ждём: сверить с выпиской и подтвердить.")
 
 
 def _reminder_rows(rows: list) -> str:
@@ -356,12 +437,13 @@ def audit_page(rows: list, user: str, msg: str = "", pending: int = 0) -> str:
     for a in rows:
         who = (f"<a href='/admin/clinics/{esc(a['clinic_id'])}'>{esc(a['clinic'] or a['clinic_id'])}</a>"
                if a["clinic_id"] else "—")
-        out.append(f"<tr><td>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
-                   f"<td>{esc(a['what'])}</td><td>{who}</td><td>{esc(a['detail'])}</td></tr>")
+        out.append(f"<tr><td class='mono'>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
+                   f"<td><span class='tag mute'>{esc(a['what'])}</span></td><td>{who}</td><td>{esc(a['detail'])}</td></tr>")
     trs = "".join(out)
-    body = (f"<div class='card'><table><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Клиника</th>"
+    body = (f"<div class='card'>{_chead('clock', 'Последние события', 'кто что сделал — выдачи, платежи, входы, коды')}"
+            f"<table><tr><th>Когда (UTC)</th><th>Кто</th><th>Что</th><th>Клиника</th>"
             f"<th>Подробности</th></tr>{trs or '<tr><td colspan=5 class=muted>пусто</td></tr>'}</table></div>")
-    return page("Журнал", body, user, msg, pending=pending)
+    return page("Журнал", body, user, msg, pending=pending, active="audit")
 
 
 def _device_rows(devices: list, latest: str = "") -> str:
@@ -383,10 +465,11 @@ def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0) -> str:
     """Флот (02.10): компьютеры клиник, версии, кто отстал от выпуска, кто молчит."""
     c = rep["counts"]
     latest = rep["latest"]
-    head = (f"<div class='card'><span class='muted'>Последний выпуск: <b>{esc(latest) or 'API GitHub не ответил'}</b>"
+    head = (f"<div class='card'>{_chead('monitor', 'Компьютеры клиник', 'как программы назвались серверу при последней связи')}"
+            f"<p style='margin:0 0 8px'>Последний выпуск: <b>{esc(latest) or 'API GitHub не ответил'}</b>"
             f" · компьютеров {c['devices']} у {c['clinics']} клиник · отстают {c['behind']}"
-            f" · молчат дольше недели {c['silent']}</span>"
-            f"<p class='muted'>Программа называет себя при каждом запросе файла (раз в сутки) и при активации: "
+            f" · молчат дольше недели {c['silent']}</p>"
+            f"<p class='muted' style='margin:0'>Программа называет себя при каждом запросе файла (раз в сутки) и при активации: "
             f"версия, канал, Windows, личность машины (device.json). Сервер только слушает — обновиться "
             f"программе никто не велит. JSON того же: <a href='/admin/api/fleet'>/admin/api/fleet</a>.</p></div>")
     rows = []
@@ -403,7 +486,8 @@ def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0) -> str:
              f"<th>Windows</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
              f"{''.join(rows) or '<tr><td colspan=7 class=muted>Ни один компьютер ещё не выходил на связь</td></tr>'}"
              f"</table></div>")
-    return page("Флот", head + table, user, msg, pending=pending)
+    return page("Флот", head + table, user, msg, pending=pending, active="fleet",
+                lead="Кто на какой версии и когда программа выходила на связь в последний раз.")
 
 
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
@@ -411,19 +495,19 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 devices: list = ()) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
-    head = (f"<div class='card'><div class='grid'>"
-            f"<div><label>IDNO</label><div class='mono'>{esc(c['idno'] or '—')}</div></div>"
-            f"<div><label>Контакт</label><div>{esc(c['contact_name'] or '—')}</div></div>"
-            f"<div><label>E-mail</label><div>{esc(c['email'] or '—')}</div></div>"
-            f"<div><label>Телефон</label><div>{esc(c['phone'] or '—')}</div></div>"
-            f"<div><label>Тариф</label><div>{esc(sub['plan']) if sub else '—'}</div></div>"
-            f"<div><label>Срок до</label><div>{_d(sub['valid_until']) if sub else '—'} {_tag(st)}</div></div>"
-            f"<div><label>Льгота</label><div>{sub['grace_days'] if sub else '—'} дн.</div></div>"
-            f"<div><label>Идентификатор</label><div class='mono'>{esc(c['id'])}</div></div>"
-            f"<div><label>Программа спрашивала</label><div>"
+    head = (f"<div class='card'><div class='kv'>"
+            f"<div><label>IDNO</label><div class='v mono'>{esc(c['idno'] or '—')}</div></div>"
+            f"<div><label>Контакт</label><div class='v'>{esc(c['contact_name'] or '—')}</div></div>"
+            f"<div><label>E-mail</label><div class='v'>{esc(c['email'] or '—')}</div></div>"
+            f"<div><label>Телефон</label><div class='v'>{esc(c['phone'] or '—')}</div></div>"
+            f"<div><label>Тариф</label><div class='v'>{esc(sub['plan']) if sub else '—'}</div></div>"
+            f"<div><label>Срок до</label><div class='v'>{_d(sub['valid_until']) if sub else '—'} {_tag(st)}</div></div>"
+            f"<div><label>Льгота</label><div class='v'>{sub['grace_days'] if sub else '—'} дн.</div></div>"
+            f"<div><label>Идентификатор</label><div class='v mono'>{esc(c['id'])}</div></div>"
+            f"<div><label>Программа спрашивала</label><div class='v'>"
             f"{_renew_info(c, max((i['seq'] for i in issues), default=0))}</div></div>"
             f"</div></div>")
-    edit = (f"<details><summary class='muted'>Изменить реквизиты</summary><div class='card'>"
+    edit = (f"<details><summary>Изменить реквизиты</summary><div class='card'>"
             f"<form method='post' action='/admin/clinics/{esc(c['id'])}/edit'><div class='grid'>"
             f"<div><label>Название *</label><input name='name' value='{esc(c['name'])}' required></div>"
             f"<div><label>IDNO</label><input name='idno' value='{esc(c['idno'])}' maxlength='13'></div>"
@@ -431,16 +515,17 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
             f"<div><label>E-mail</label><input name='email' value='{esc(c['email'])}'></div>"
             f"<div><label>Телефон</label><input name='phone' value='{esc(c['phone'])}'></div>"
             f"<div><label>Адрес</label><input name='address' value='{esc(c['address'])}'></div></div>"
-            f"<p><button class='primary'>Сохранить</button></p></form></div></details>")
-    issue_form = (f"<h2>Выдать файл</h2><div class='card'><form method='post' action='/admin/clinics/{esc(c['id'])}/issue'>"
+            f"<p style='margin:14px 0 0'><button class='primary'>Сохранить</button></p></form></div></details>")
+    issue_form = (f"<div class='card'>{_chead('key', 'Выдать файл', 'пробный или абонемент до даты; программа клиники заберёт файл сама')}"
+                  f"<form method='post' action='/admin/clinics/{esc(c['id'])}/issue'>"
                   f"<div class='grid'><div><label>Что выдать</label><select name='kind'>"
                   f"<option value='trial'>Пробный: {license.TRIAL_DAYS} дней + {license.TRIAL_GRACE_DAYS} льготы</option>"
                   f"<option value='dates'>Абонемент до даты</option></select></div>"
                   f"<div><label>Срок до (для абонемента)</label><input name='valid_until' type='date'></div>"
                   f"<div><label>Льгота, дней</label><input name='grace_days' type='number' value='{license.GRACE_DAYS}' min='0' max='60'></div>"
                   f"<div><label>Основание</label><input name='reason' placeholder='платёж DP-2026-000001, демонстрация…'></div></div>"
-                  f"<label><input type='checkbox' name='send' value='1' style='width:auto'> сразу отправить письмом на {esc(c['email'] or '— e-mail не указан')}</label>"
-                  f"<p><button class='primary'>Выдать</button></p></form></div>")
+                  f"<label class='chk'><input type='checkbox' name='send' value='1'> сразу отправить письмом на {esc(c['email'] or '— e-mail не указан')}</label>"
+                  f"<p style='margin:12px 0 0'><button class='primary'>Выдать</button></p></form></div>")
     price = sub["price"] if sub else config.PRICE_MONTH
     opts = "".join(f"<option value='{m}'>{'месяц' if m == 1 else 'год'} — {pay.amount(m, price)} MDL</option>"
                    for m in pay.MONTHS)
@@ -450,51 +535,58 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                   "<option value='card'>Картой — ссылка maib в письме (и reference для перевода)</option>"
                   "</select></div>")
     else:
-        method = ("<div><label>Как платит клиника</label><div class='muted'>только переводом: "
+        method = ("<div><label>Как платит клиника</label><div class='muted' style='padding:9px 0'>только переводом: "
                   "DP_MAIB_* не заданы, ссылки на карту нет</div></div>")
-    pay_form = (f"<h2>Платежи</h2><div class='card'><form method='post' action='/admin/clinics/{esc(c['id'])}/payments'>"
+    pay_form = (f"<div class='card'>{_chead('card', 'Платежи', f'{price} MDL в месяц · {pay.amount(12, price)} MDL в год')}"
+                f"<form method='post' action='/admin/clinics/{esc(c['id'])}/payments'>"
                 f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
                 f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div>"
                 f"{method}</div>"
-                f"<label><input type='checkbox' name='send' value='1' checked style='width:auto'> отправить письмо с нотой "
+                f"<label class='chk'><input type='checkbox' name='send' value='1' checked> отправить письмо с нотой "
                 f"на {esc(c['email'] or '— e-mail не указан')}</label>"
-                f"<p><button class='primary'>Создать платёж</button></p></form>"
+                f"<p style='margin:12px 0 16px'><button class='primary'>Создать платёж</button></p></form>"
                 f"<table><tr><th>Reference</th><th>Сумма</th><th>Срок</th><th>Создан</th><th>Состояние</th><th></th></tr>"
                 f"{_payment_rows(list(payments)) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table></div>")
     trs = "".join(
-        f"<tr><td>{i['seq']}</td><td>{esc(i['issued_at'][:16].replace('T', ' '))}</td>"
+        f"<tr><td>{i['seq']}</td><td class='mono'>{esc(i['issued_at'][:16].replace('T', ' '))}</td>"
         f"<td>{_d(i['valid_until'])}</td><td>{_d(i['grace_until'])}</td><td>{esc(i['reason'])}</td>"
         f"<td><a href='/admin/clinics/{esc(c['id'])}/issues/{i['seq']}/license.json'>license.json</a></td></tr>"
         for i in issues) or "<tr><td colspan='6' class='muted'>Файлов ещё не выдавали</td></tr>"
-    mail_btn = (f"<form method='post' action='/admin/clinics/{esc(c['id'])}/email' style='margin-top:10px'>"
+    mail_btn = (f"<form method='post' action='/admin/clinics/{esc(c['id'])}/email' style='margin:12px 0 0'>"
                 f"<button class='primary' title='Письмо о сроке лицензии; файла в письме нет (02.10) — программа "
                 f"забирает его сама'>Отправить письмо о лицензии</button></form>" if issues else "")
-    issues_html = (f"<h2>Выданные файлы</h2><div class='card'><table><tr><th>№</th><th>Выдан</th>"
+    issues_html = (f"<div class='card'>{_chead('file', 'Выданные файлы', 'каждый следующий — с номером выше; программа берёт только новее принятого')}"
+                   f"<table><tr><th>№</th><th>Выдан (UTC)</th>"
                    f"<th>Срок до</th><th>Льгота до</th><th>Основание</th><th>Файл</th></tr>{trs}</table>{mail_btn}</div>")
-    rem_html = (f"<h2>Напоминания</h2><div class='card'><table><tr><th>Письмо</th><th>Период до</th>"
+    rem_html = (f"<div class='card'>{_chead('bell', 'Напоминания', 'письма ежедневной задачи этой клинике')}"
+                f"<table><tr><th>Письмо</th><th>Период до</th>"
                 f"<th>Отправлено</th></tr>{_reminder_rows(list(reminders)) or '<tr><td colspan=3 class=muted>Напоминаний ещё не было</td></tr>'}"
                 f"</table></div>")
-    ars = "".join(f"<tr><td>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
-                  f"<td>{esc(a['what'])}</td><td>{esc(a['detail'])}</td></tr>" for a in audit)
-    audit_html = (f"<h2>Журнал</h2><div class='card'><table><tr><th>Когда</th><th>Кто</th><th>Что</th>"
+    ars = "".join(f"<tr><td class='mono'>{esc(a['at'][:16].replace('T', ' '))}</td><td>{esc(a['who'])}</td>"
+                  f"<td><span class='tag mute'>{esc(a['what'])}</span></td><td>{esc(a['detail'])}</td></tr>" for a in audit)
+    audit_html = (f"<div class='card'>{_chead('clock', 'Журнал', 'события этой клиники')}"
+                  f"<table><tr><th>Когда (UTC)</th><th>Кто</th><th>Что</th>"
                   f"<th>Подробности</th></tr>{ars or '<tr><td colspan=4 class=muted>пусто</td></tr>'}</table></div>")
     acc_rows = "".join(
-        f"<tr><td>{esc(a['email'])}</td><td>{esc(a['name'] or '—')}</td><td>{esc((a['created_at'] or '')[:10])}</td>"
+        f"<tr><td>{esc(a['email'])}</td><td>{esc(a['provider'] if 'provider' in a.keys() else 'google')}</td>"
+        f"<td>{esc(a['name'] or '—')}</td><td>{esc((a['created_at'] or '')[:10])}</td>"
         f"<td>{esc((a['last_login_at'] or '')[:16].replace('T', ' '))}</td>"
-        f"<td><form method='post' action='/admin/accounts/{esc(a['id'])}/detach' style='display:inline'>"
-        f"<button title='Запись удаляется; следующий вход этого аккаунта Google начнётся с регистрации'>"
+        f"<td><form method='post' action='/admin/accounts/{esc(a['id'])}/detach' style='margin:0'>"
+        f"<button title='Запись удаляется; следующий вход этого аккаунта начнётся с регистрации'>"
         f"Отвязать</button></form></td></tr>" for a in accounts)
-    acc_html = (f"<h2>Кабинет клиники</h2><div class='card'><p class='muted'>Кто входит в кабинет "
-                f"{esc(config.BASE_URL.rstrip('/'))}/cont через Google. Смена директора: впишите клинике новый "
+    acc_html = (f"<div class='card'>{_chead('user', 'Кабинет клиники', f'кто входит в кабинет {esc(config.BASE_URL.rstrip(chr(47)))}/cont — через Google или кодом на e-mail')}"
+                f"<p class='muted' style='margin:0 0 10px'>Смена директора: впишите клинике новый "
                 f"e-mail (выше) и отвяжите старую запись — новый вход привяжется к клинике по ящику.</p>"
-                f"<table><tr><th>E-mail Google</th><th>Имя</th><th>С</th><th>Последний вход</th><th></th></tr>"
-                f"{acc_rows or '<tr><td colspan=5 class=muted>В кабинет ещё никто не входил</td></tr>'}</table></div>")
-    dev_html = (f"<h2>Компьютеры</h2><div class='card'><table><tr><th>Компьютер</th><th>Версия</th><th>Канал</th>"
+                f"<table><tr><th>E-mail</th><th>Вход</th><th>Имя</th><th>С</th><th>Последний вход</th><th></th></tr>"
+                f"{acc_rows or '<tr><td colspan=6 class=muted>В кабинет ещё никто не входил</td></tr>'}</table></div>")
+    dev_html = (f"<div class='card'>{_chead('monitor', 'Компьютеры', 'как программа этой клиники назвалась серверу')}"
+                f"<table><tr><th>Компьютер</th><th>Версия</th><th>Канал</th>"
                 f"<th>Windows</th><th>С</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
                 f"{_device_rows(list(devices)) or '<tr><td colspan=7 class=muted>Программа этой клиники ещё не выходила на связь</td></tr>'}"
                 f"</table></div>")
+    lead = f"{_tag(st)} <span class='muted'>{esc(sub['plan']) if sub else 'без файла'} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
     return page(c["name"], head + edit + acc_html + dev_html + pay_form + issue_form + issues_html + rem_html
-                + audit_html, user, msg, pending=pending)
+                + audit_html, user, msg, pending=pending, active="clinics", lead=lead)
 
 
 # ---------- кабинет клиники (шаг 3, 01.10): страницы по-румынски ----------
@@ -543,9 +635,7 @@ PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "r
 # справа. Телефон — в один столбец. Админка остаётся на _CSS — инструмент одного
 # человека. ⛔ Тексты страниц — поведение: их держат cloud/tests (test_account,
 # test_fleet, test_contract); правя раскладку, слова не менять.
-_CONT_CSS = """
-@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('https://dentpilot.md/fonts/inter-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
-@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('https://dentpilot.md/fonts/inter-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+_CONT_CSS = _FONTS + """
 :root{--ink:#16232B;--muted:#5B6B72;--line:#E6EDEB;--teal:#0E9F8A;--teal-d:#0B7F70;--teal-soft:#E9F6F3;--bg:#F4F8F7;--shadow:0 1px 2px rgba(11,43,38,.04),0 18px 44px -22px rgba(11,43,38,.18)}
 *{box-sizing:border-box}
 html{background:var(--bg)}
@@ -657,6 +747,13 @@ _ICO = {
                 "<path d='M8 7h4M8 11h4M8 15h4'/><path d='M3 21h18'/>",
     "user": "<circle cx='12' cy='8' r='4'/><path d='M4 20c0-3.3 3.6-5.5 8-5.5s8 2.2 8 5.5'/>",
     "key": "<circle cx='8' cy='15' r='4'/><path d='M10.8 12.2L20 3'/><path d='M16 7l2 2M13 10l2 2'/>",
+    # админка
+    "inbox": "<path d='M4 13l2.5-7h11L20 13'/><path d='M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5h-5l-1.5 2h-3L9 13z'/>",
+    "list": "<path d='M8 6h12M8 12h12M8 18h12'/><circle cx='4' cy='6' r='1'/><circle cx='4' cy='12' r='1'/><circle cx='4' cy='18' r='1'/>",
+    "plus": "<path d='M12 5v14M5 12h14'/>",
+    "file": "<path d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/><path d='M14 3v5h5'/>",
+    "bell": "<path d='M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3z'/><path d='M10 20a2 2 0 0 0 4 0'/>",
+    "clock": "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/>",
 }
 
 
