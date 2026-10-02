@@ -10,6 +10,7 @@ import json
 import pathlib
 import shutil
 import sys
+import time
 import tempfile
 
 from harness import ROOT, Client, Result, Server
@@ -38,17 +39,37 @@ def _hub(c: Client) -> set:
     return {t["href"] for t in _j(c.get("/api/settings/hub"))["data"]["tiles"]}
 
 
+ABORTED = -1     # соединение оборвано, ответа нет (см. _upload)
+
+
 def _upload(c: Client, size: int) -> int:
-    """Код ответа на загрузку файла в `size` байт. Потолок срабатывает ДО
-    чтения тела, и сервер закрывает соединение, пока клиент ещё шлёт мегабайты:
-    под нагрузкой это приходит не ответом 413, а обрывом (WinError 10053) —
-    тот же отказ, и считать его падением набора нельзя (поймано полным
-    прогоном 01.10: один в один набор зелёный, в общем прогоне — обрыв)."""
+    """Код ответа на загрузку файла в `size` байт, или ABORTED. Потолок
+    срабатывает ДО чтения тела, и сервер закрывает соединение, пока клиент ещё
+    шлёт мегабайты: под нагрузкой это приходит не ответом 413, а обрывом
+    (WinError 10053) — для ПОТОЛКА это тот же отказ (поймано полным прогоном
+    01.10: один в один набор зелёный, в общем прогоне — обрыв).
+    ⚠️ Обрыв — не 413 (02.10): отрицательная проверка «без флага 9 МБ НЕ
+    упираются в потолок» на обрыве по любой другой причине (сосед-сервер
+    прогона занял машину) краснела как «потолок демо у клиники» — 5046/5047
+    при зелёном одиночном наборе. Обрыв возвращается своим кодом, и каждая
+    проверка решает сама: для потолка он годится, для «проходит» — повтор."""
     try:
         return c.post_file("/api/patients/1/doc", "file", "f.pdf", b"0" * size,
                            mime="application/pdf").status
     except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
-        return 413
+        return ABORTED
+
+
+def _upload_settled(c: Client, size: int, tries: int = 3) -> int:
+    """Загрузка, которая ОБЯЗАНА дойти до ответа: обрыв под нагрузкой — повтор,
+    не вердикт. Возвращает последний исход (ABORTED, если все попытки оборваны)."""
+    got = ABORTED
+    for _ in range(tries):
+        got = _upload(c, size)
+        if got != ABORTED:
+            return got
+        time.sleep(0.5)
+    return got
 
 
 def suite_demo(res: Result) -> None:
@@ -99,9 +120,10 @@ def suite_demo(res: Result) -> None:
         res.ok("плитки клиники, часов, услуг, вида и FAQ на месте", HUB_OPEN <= hrefs,
                str(sorted(HUB_OPEN - hrefs)))
         # потолок загрузки ниже: 9 МБ — 413 ещё до маршрута, 1 МБ проходит
-        res.check("загрузка 9 МБ в демо — 413", _upload(c, 9 * 1024 * 1024), 413)
-        small = _upload(c, 1024 * 1024)
-        res.ok("1 МБ проходит потолок демо", small != 413, str(small))
+        big = _upload(c, 9 * 1024 * 1024)
+        res.ok("загрузка 9 МБ в демо — 413 (или обрыв до чтения тела)", big in (413, ABORTED), str(big))
+        small = _upload_settled(c, 1024 * 1024)
+        res.ok("1 МБ проходит потолок демо", small not in (413, ABORTED), str(small))
     with Server() as s:
         c = Client(s.url).login()
         res.ok("без флага полосы демо нет", BANNER not in c.get("/admin").body,
@@ -109,8 +131,8 @@ def suite_demo(res: Result) -> None:
         res.check("без флага «Stare sistem» открыт", c.get("/admin/settings/system").status, 200)
         res.ok("без флага плитка системы на месте", "/admin/settings/system" in _hub(c),
                "плитка пропала без демо")
-        big = _upload(c, 9 * 1024 * 1024)
-        res.ok("без флага 9 МБ не упираются в потолок демо", big != 413, str(big))
+        big = _upload_settled(c, 9 * 1024 * 1024)
+        res.ok("без флага 9 МБ не упираются в потолок демо", big not in (413, ABORTED), str(big))
 
 
 def suite_seed(res: Result) -> None:

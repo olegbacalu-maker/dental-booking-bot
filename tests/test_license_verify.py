@@ -246,4 +246,9 @@ def suite_pure(res: Result) -> None:
     res.ok("подпись считается через pow", "pow" in names)
     res.ok("часы модулю не нужны", "now" not in attrs and "utcnow" not in attrs)
     res.check("KEYS: тестового ключа в программе нет", [k for k in rv.KEYS if k == "test"], [])
-    res.ok("KEYS: пока пусто — первый боевой ключ ложится с L7", rv.KEYS == {})
+    # Боевой ключ 2026a (02.10.2026, релиз 1.36.0) — публичная часть ключа сервера
+    # cloud.dentpilot.md: 3072 бита, e = 65537; ключ с другим kid — ротация, не замена.
+    res.check("KEYS: боевой ключ 2026a на месте", sorted(rv.KEYS), ["2026a"])
+    res.ok("KEYS: 2026a — RSA-3072 с e = 65537",
+           rv.KEYS["2026a"][0].bit_length() == 3072 and rv.KEYS["2026a"][1] == 65537
+           and rv.KEYS["2026a"][0] % 2 == 1)

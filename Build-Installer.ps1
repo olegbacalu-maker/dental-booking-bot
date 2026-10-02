@@ -147,26 +147,39 @@ Set-Content -Path (Join-Path $lab "dental.env") -Encoding utf8 -Value @(
 # i srazu vozvrashchaem: python i ISCC nizhe pishut v nastoyashchii.
 $tmp = Join-Path $lab "tmp"
 New-Item -ItemType Directory -Force $tmp | Out-Null
-$oldTemp = $env:TEMP; $oldTmp = $env:TMP
-$env:TEMP = $tmp; $env:TMP = $tmp
-try {
-    $proc = Start-Process (Join-Path $lab "DentPilot.exe") -WorkingDirectory $lab -PassThru -WindowStyle Hidden
-} finally {
-    $env:TEMP = $oldTemp; $env:TMP = $oldTmp
-}
-$health = $null
-foreach ($i in 1..45) {
-    try { $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 2; break }
-    catch { Start-Sleep -Milliseconds 700 }
-}
-# /health otvechaet BEZ edinogo faila na diske, poetomu poteryannyi --add-data
-# (static, clinic.json) on ne lovit. Otkryvaem realnye stranicy.
+# Dve fazy ODNOGO exe na odnoi laboratorii (02.10: klyuch licenzii v sborke,
+# rsa_verify.KEYS). "wall" - svezhaya ustanovka: kartoteka pusta, faila net,
+# kazhdyi adres zhurnala vedet na stranicu aktivacii, zapis otkazyvaet 423; v
+# konce dymovoi test zavodit pacienta pryamo v dental.db. "grace" - TOT ZHE exe
+# perezapuskaetsya na zhivoi kartoteke: lgota s bannerom, vse stranicy
+# otkryvayutsya. Perezapusk obyazatelen: pustotu kartoteki programma schitaet
+# na starte, a ne na kazhdom zaprose. Banner lgoty byvaet TOLKO pri klyuche -
+# tak proveryaetsya, chto klyuch deistvitelno vnutri sobrannogo faila.
 $smokeOut = ""
 $smokeCode = 1
-if ($health) {
-    $smokeOut = & ".venv-desktop\Scripts\python.exe" "tests\smoke_exe.py" "http://127.0.0.1:$port" "smoke1234" 2>&1 | Out-String
-    $smokeCode = $LASTEXITCODE
-}
+$health = $null
+foreach ($phase in @("wall", "grace")) {
+    $oldTemp = $env:TEMP; $oldTmp = $env:TMP
+    $env:TEMP = $tmp; $env:TMP = $tmp
+    try {
+        $proc = Start-Process (Join-Path $lab "DentPilot.exe") -WorkingDirectory $lab -PassThru -WindowStyle Hidden
+    } finally {
+        $env:TEMP = $oldTemp; $env:TMP = $oldTmp
+    }
+    $health = $null
+    foreach ($i in 1..45) {
+        try { $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 2; break }
+        catch { Start-Sleep -Milliseconds 700 }
+    }
+    # /health otvechaet BEZ edinogo faila na diske, poetomu poteryannyi --add-data
+    # (static, clinic.json) on ne lovit. Otkryvaem realnye stranicy.
+    if ($health) {
+        $out = & ".venv-desktop\Scripts\python.exe" "tests\smoke_exe.py" "http://127.0.0.1:$port" "smoke1234" $phase $lab 2>&1 | Out-String
+        $smokeCode = $LASTEXITCODE
+        $smokeOut += "[$phase]`n" + $out
+    } else {
+        $smokeCode = 1
+    }
 # Ubivaem DEREVO: onefile-sborka PyInstaller raspakovyvaetsya i zapuskaet
 # DOCHERNII process. Stop-Process po roditelyu ostavlyal ego zhit - on derzhal
 # port i vremennuyu papku, i kazhdaya sborka ostavlyala visyachii DentPilot.exe.
@@ -176,8 +189,10 @@ if ($health) {
 # oshibku. Sborka padala na poslednem shage, uzhe posle uspeshnogo dymovogo
 # testa: exe sobran, stranicy otkryvayutsya, a operator vidit krasnoe i ne
 # ponimaet, chto vsyo horosho. Eto ta zhe grablya, chto opisana v karte pro git.
-try { & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null } catch { }
-Start-Sleep -Milliseconds 800
+    try { & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null } catch { }
+    Start-Sleep -Milliseconds 800
+    if (-not $health -or $smokeCode -ne 0) { break }
+}
 # V laboratorii teper i raspakovka exe, a Windows otpuskaet faily ubitogo
 # processa s zaderzhkoi: povtoryaem, i VSLUH, esli ne pomoglo.
 foreach ($i in 1..10) {

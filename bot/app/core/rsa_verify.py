@@ -38,11 +38,18 @@ MALFORMED = "license_malformed"          # не файл лицензии, ил�
 KEY_UNKNOWN = "license_key_unknown"      # выдан ключом, которого эта версия не знает
 BAD_SIGNATURE = "license_bad_signature"  # подпись не сходится с содержимым
 
-# Публичные ключи выдачи: kid -> (n, e). Первый боевой ключ ложится сюда с L7 —
-# сервера ещё нет. ⛔ Тестовый ключ сюда не кладётся никогда: проверка получает
-# таблицу АРГУМЕНТОМ, а в программе её собирает license.py (L3) — из этой
-# константы и, только в незамороженном запуске, из DENTART_LICENSE_KEYS.
-KEYS: dict[str, tuple[int, int]] = {}
+# Публичные ключи выдачи: kid -> (n, e). Эта таблица и есть включатель лицензии
+# в программе (`license.applies()`): пустая — exe лицензию не проверяет вовсе.
+# Первый боевой ключ `2026a` лёг 02.10.2026 (релиз 1.36.0): это публичная часть
+# ключа сервера cloud.dentpilot.md (`/srv/dentpilot/keys/2026a.pem`), строку
+# печатает `python -m app.tools pubkey` в cloud/. Ротация = новый kid рядом в
+# следующем релизе, файлы под новым ключом — когда релиз доехал до клиник.
+# ⛔ Тестовый ключ сюда не кладётся никогда: проверка получает таблицу
+# АРГУМЕНТОМ, а в программе её собирает license.py (L3): в собранном exe — из
+# этой константы, вне exe — только из DENTART_LICENSE_KEYS (license_state.keys_from).
+KEYS: dict[str, tuple[int, int]] = {
+    "2026a": (int("d12fcb3a045f210f47a9276b5f62e238792e39e8db755d29a1f12956ed737b003a6c68dada51770bb6e92d44db412a76a0b7f9427a8e9bf3b97e7ee16e3d584d9d7e31a41e9d3de8626063d0a18bac87a1312efc4e865e11e05983d8812f6bb99e2db97db967e01fed186a3e8b747fc719579f3d657923742652748b45f738a6e4b7169607aef733cfeeaf6ee7734b51f474d947acdafbedb96151a00c506d46f7aa5884c26cef220ec8d83cb7c6e047e8f9590ee5f91ef6abfc5a09ababe6cd4d2c56895f3549e1710449397f125a85f8cfd545e05e448ad35ca82478aee9e9822a038c380ff3c338412722862a6c49f6ad9a039270be34001a91fac35e60d3766bc93800545b2d762081976704dfdb9735c194d1aaeaf37171555c411c6dbed2ba47cac8cc0a3127da2c483fdd422002bff8ef5727264424cf087d9ce92b25ea670a1a2f8d5f024c27882d395d321be381b9a51a11c09a6759179ff8771ec69609b89e4bcc826f3749269da97175cdf602ac0a99346cf03a535e0fa63a648d", 16), 65537),
+}
 
 _KID = re.compile(r"^[a-z0-9-]{1,16}$")
 _B64U = re.compile(r"^[A-Za-z0-9_-]*$")       # алфавит base64url, без «=»

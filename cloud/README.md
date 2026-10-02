@@ -147,4 +147,5 @@ python -m app.tools keygen --kid 2026a --out /srv/dentpilot/keys/2026a.pem
 
 Команда печатает строку для таблицы `KEYS` в `bot/app/core/rsa_verify.py` —
 её и только её кладут в программу. До этого шага лицензия в программе не
-применяется вовсе (`license.applies()`).
+применяется вовсе (`license.applies()`). ✅ Ключ `2026a` в программе с
+1.36.0 (02.10.2026); строку повторно печатает `python -m app.tools pubkey`.

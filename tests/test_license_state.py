@@ -193,19 +193,23 @@ def suite_memory(res: Result) -> None:
 
 
 def suite_keys(res: Result) -> None:
-    """Таблица ключей: константа плюс файл из окружения, и только вне exe."""
+    """Таблица ключей: в exe — константа и только она; вне exe — только файл из
+    окружения (02.10: иначе боевой ключ запер бы стеной каждый тестовый сервер)."""
     k = gen.load_key()
     path = str(FIX / "test-key.json")
     want = {"test": (k["n"], k["e"])}
     res.check("не заморожено: ключ из файла в таблице", lst.keys_from({}, path, False), want)
     base = {"prod": (12345, 65537)}
-    res.check("заморожено: файл не читается вовсе", lst.keys_from(base, path, True), base)
-    res.check("пустая переменная: только константа", lst.keys_from(base, "", False), base)
+    res.check("заморожено: файл не читается вовсе, только константа", lst.keys_from(base, path, True), base)
+    res.check("заморожено без переменной: константа", lst.keys_from(base, "", True), base)
+    res.check("не заморожено: константа НЕ действует — только файл", lst.keys_from(base, path, False), want)
+    res.check("не заморожено, пустая переменная: ключей нет — лицензия не применяется",
+              lst.keys_from(base, "", False), {})
     res.check("путь в кавычках: снимаются", lst.keys_from({}, f'"{path}"', False), want)
-    res.check("файла нет: только константа", lst.keys_from(base, str(FIX / "nope.json"), False), base)
-    res.check("файл лицензии вместо файла ключа: ничего не добавлено",
-              lst.keys_from(base, str(FIX / "valid.json"), False), base)
-    got = lst.keys_from(base, path, False)
+    res.check("файла нет: ключей нет", lst.keys_from(base, str(FIX / "nope.json"), False), {})
+    res.check("файл лицензии вместо файла ключа: ключей нет",
+              lst.keys_from(base, str(FIX / "valid.json"), False), {})
+    got = lst.keys_from(base, path, True)
     res.ok("константа не меняется, таблица — копия", base == {"prod": (12345, 65537)} and got is not base)
     d = pathlib.Path(tempfile.mkdtemp(prefix="dp_lic_"))
     try:
@@ -218,8 +222,8 @@ def suite_keys(res: Result) -> None:
         res.check("список ключей: годные взяты, негодные пропущены",
                   got, dict(want, two=(255, 3)))
         (d / "garbage.json").write_text("{", encoding="utf-8")
-        res.check("битый файл ключа: только константа",
-                  lst.keys_from(base, str(d / "garbage.json"), False), base)
+        res.check("битый файл ключа: ключей нет",
+                  lst.keys_from(base, str(d / "garbage.json"), False), {})
     finally:
         _rmtree_settled(d)
 
