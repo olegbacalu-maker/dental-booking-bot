@@ -47,6 +47,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from . import account, auth, config, db, keys, license, mail, maib, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
+PULL_MAX_DAYS = 3        # отметка вывоза копий старше — предупреждение (ПК выключен)
 
 
 # ---------- бэкап ----------
@@ -285,6 +286,21 @@ def check() -> list[tuple[str, str]]:
     b = config.BANK
     out.append((OK, f"реквизиты: {b['beneficiary']}, IBAN {b['iban']}") if b["iban"] and b["beneficiary"]
                else (WARN, "DP_BANK_* пусты: письма о платеже уйдут без реквизитов"))
+    # Вывоз копий (02.10, как у Cahul): pull-backups.ps1 на ПК ставит отметку рядом
+    # с базой; залежавшаяся отметка — выключенный ПК, и об этом говорит check, а
+    # не день аварии.
+    marker = config.DB_PATH.parent / "last-pull"
+    try:
+        pulled = datetime.strptime(marker.read_text(encoding="utf-8").strip(), "%Y-%m-%dT%H:%M:%SZ")
+        age = (datetime.now(timezone.utc) - pulled.replace(tzinfo=timezone.utc)).days
+        out.append((OK if age <= PULL_MAX_DAYS else WARN,
+                    f"копии вывезены с сервера {age} дн. назад ({marker})"
+                    + ("" if age <= PULL_MAX_DAYS else " — ПК с pull-backups.ps1 не выходил на связь")))
+    except OSError:
+        out.append((WARN, f"копии ещё ни разу не вывозили с сервера (нет {marker}): "
+                          "deploy/pull-backups.ps1 на ПК"))
+    except ValueError:
+        out.append((WARN, f"отметка вывоза {marker} не читается — pull-backups.ps1 пишет дату UTC"))
     if not config.DECLARATION:
         out.append((WARN, "DP_DECLARATION пуст: письма с файлом лицензии уйдут без декларации "
                           "поставщика (Legea 195)"))

@@ -116,6 +116,24 @@ def suite_check(res: Result) -> None:
         env["DP_LICENSE_KEY"] = str(s.dir / "нет.pem")
         rc, out = _tools(s, "check", env=env)
         res.ok("ключ не читается — препятствие", rc == 1 and "не прочитан" in out, out)
+        # отметка вывоза копий (02.10): нет — предупреждение; свежая — ok; старая — предупреждение
+        rc, out = _tools(s, "check")
+        res.ok("без отметки вывоза — предупреждение про pull-backups.ps1",
+               rc == 0 and "ни разу не вывозили" in out and "pull-backups.ps1" in out, out)
+        marker = s.dir / "last-pull"
+        from datetime import datetime, timedelta, timezone
+        marker.write_text(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), encoding="utf-8")
+        rc, out = _tools(s, "check")
+        res.ok("свежая отметка — ok", rc == 0 and "ok копии вывезены с сервера 0 дн." in out, out)
+        marker.write_text((datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                          encoding="utf-8")
+        rc, out = _tools(s, "check")
+        res.ok("отметке 5 дней — предупреждение, не препятствие",
+               rc == 0 and "5 дн. назад" in out and "не выходил на связь" in out, out)
+        marker.write_text("вчера", encoding="utf-8")
+        rc, out = _tools(s, "check")
+        res.ok("отметка не дата — предупреждение словами", rc == 0 and "не читается" in out, out)
+        marker.unlink()
         # pubkey: строка для программы по ключу сервера — и ни одного числа приватной части
         key = json.loads((FIX / "test-key.json").read_text(encoding="utf-8"))
         rc, out = _tools(s, "pubkey")
@@ -179,6 +197,15 @@ def suite_files(res: Result) -> None:
     res.ok("DEPLOY.md: три вещи для восстановления и вариант на Windows",
            "Три вещи" in deploy_md and "run-windows.ps1" in deploy_md and "Планировщик" in deploy_md)
     res.ok("run-windows.ps1: те же команды", all(x in ps1 for x in ("app.tools check", "app.tools backup", "app.jobs", "uvicorn")))
+    # Вывоз копий на ПК (02.10): скрипт с BOM (PowerShell 5.1 читает без него cp1251 —
+    # грабля Cahul), ставит отметку, которую читает check, и проверяет копию ключом.
+    pull_raw = (DEPLOY / "pull-backups.ps1").read_bytes()
+    pull = pull_raw.decode("utf-8-sig")
+    res.ok("pull-backups.ps1: UTF-8 с BOM, отметка last-pull, verify-backup, cloud.env и ключ",
+           pull_raw.startswith(b"\xef\xbb\xbf") and "last-pull" in pull and "verify-backup" in pull
+           and "cloud.env" in pull and "2026a.pem" in pull and "DP_LICENSE_KEY" in pull)
+    res.ok("DEPLOY.md и cron.example знают про вывоз на ПК",
+           "pull-backups.ps1" in deploy_md and "pull-backups.ps1" in cron and "last-pull" in deploy_md)
     readme = (CLOUD / "README.md").read_text(encoding="utf-8")
     res.ok("DEPLOY.md и README: кабинет — OAuth-клиент Google, redirect URI, /descarca",
            all(x in deploy_md for x in ("DP_GOOGLE_CLIENT_ID", "/auth/google/callback", "redirect_uri_mismatch"))
