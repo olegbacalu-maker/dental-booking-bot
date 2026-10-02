@@ -368,24 +368,23 @@ def suite_cabinet(res: Result) -> None:
         res.check("пробный файл выдан с основанием кабинета",
                   _sql(s, "SELECT seq, reason FROM issues WHERE clinic_id=?", cid), [(1, trial.REASON["cont"])])
         by_to = {t: (sub, body, att) for t, sub, body, att in _letters(s)}
-        res.ok("письма: клинике файл, Олегу уведомление «из кабинета»",
-               by_to[DIRECTOR["email"]][2] and "из кабинета" in by_to["oleg@example.md"][1]
+        res.ok("письма: клинике о лицензии без файла (02.10), Олегу уведомление «из кабинета»",
+               "licența" in by_to[DIRECTOR["email"]][0].lower() and not by_to[DIRECTOR["email"]][2]
+               and "из кабинета" in by_to["oleg@example.md"][1]
                and "ждут в кабинете" in by_to["oleg@example.md"][1], repr({t: v[0] for t, v in by_to.items()}))
         home = c.get("/cont?msg=registered_issued")
-        res.ok("кабинет: название, пробный до даты, файл, программа с версией из GitHub, просьба про IDNO",
+        res.ok("кабинет: название, пробный до даты, программа с версией из GitHub, никакого license.json",
                home.status == 200 and "Clinica Cont" in home.body and "Perioada de probă este valabilă" in home.body
-               and "/cont/licenta.json" in home.body and "Descarcă DentPilot 1.35.3" in home.body
+               and "license.json" not in home.body and "licenta.json" not in home.body
+               and "Descarcă DentPilot 1.35.3" in home.body
                and "DentPilot-Setup-1.35.3.exe" in home.body and "nu a verificat încă" in home.body
-               and "completați IDNO" not in home.body and "a plecat" in home.body, home.body[-2500:])
+               and "completați IDNO" not in home.body and "se activează singur" in home.body, home.body[-2500:])
         res.ok("кабинет не для роботов и без админских слов",
                "noindex" in home.body and "Клиники" not in home.body and "dentpilot.md/privacy.html" in home.body)
-        f = c.get("/cont/licenta.json")
         admin = Client(s.url).login()
-        res.ok("файл из кабинета — байт в байт тот, что в админке, и его принимает движок",
-               f.status == 200 and f.body == admin.get(f"/admin/clinics/{cid}/issues/1/license.json").body
-               and rv.open_envelope(f.body, KEYS)[0] == "" and "attachment" in f.headers.get("content-disposition", ""))
-        res.check("журнал: скачивание файла из кабинета",
-                  _sql(s, "SELECT count(*) FROM audit WHERE what='download_license' AND clinic_id=?", cid)[0][0], 1)
+        res.ok("файл из админки принимает движок; кабинет файла не отдаёт (02.10)",
+               rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/1/license.json").body, KEYS)[0] == ""
+               and c.get("/cont/licenta.json").status == 404)
         # абонемент: IDNO есть с регистрации → форма ноты
         res.ok("форма ноты: месяц и год по прайсу", "Comandă nota de plată" in home.body
                and f"{pay.amount(12, config.PRICE_MONTH)} MDL" in home.body and "name='method'" not in home.body)
@@ -410,9 +409,10 @@ def suite_cabinet(res: Result) -> None:
         pid = _sql(s, "SELECT id FROM payments WHERE reference=?", ref)[0][0]
         admin.post(f"/admin/payments/{pid}/confirm")
         home = c.get("/cont")
-        res.ok("после подтверждения: абонемент действует, платёж оплачен, новый файл",
+        res.ok("после подтверждения: абонемент действует, платёж оплачен, новый файл выдан (seq 2)",
                "Abonamentul este valabil" in home.body and "plătită" in home.body
-               and rv.open_envelope(c.get("/cont/licenta.json").body, KEYS)[1].seq == 2, home.body[-2500:])
+               and rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/2/license.json").body, KEYS)[1].seq == 2,
+               home.body[-2500:])
         # реквизиты
         r = c.post("/cont/date", name="Clinica Cont SRL", idno="1234567890123", contact_name="Ana P.",
                    phone="069000000", address="str. Test 1")
@@ -461,11 +461,11 @@ def suite_link_and_duplicate(res: Result) -> None:
         res.ok("ящик Google = ящик клиники из админки (регистр другой): привязка сразу, в кабинет",
                r.location == "/cont" and _accounts(s)[0][4] == cid, r.location)
         home = c.get("/cont")
-        res.ok("кабинет без файла: «cererea a fost primită» с датой, без ссылки на файл",
-               "Clinica Veche" in home.body and "a fost primită" in home.body and "/cont/licenta.json" not in home.body)
-        res.check("файл до выдачи — no_file", c.get("/cont/licenta.json").location, "/cont?msg=no_file")
+        res.ok("кабинет до выдачи: «cererea a fost primită» с датой, программа активируется сама",
+               "Clinica Veche" in home.body and "a fost primită" in home.body and "se activează singur" in home.body)
+        res.check("кабинет файла не отдаёт", c.get("/cont/licenta.json").status, 404)
         admin.post(f"/admin/clinics/{cid}/issue", kind="trial")
-        res.ok("после выдачи кабинет показывает файл", "/cont/licenta.json" in c.get("/cont").body)
+        res.ok("после выдачи кабинет показывает срок", "este valabilă până la" in c.get("/cont").body)
         # повтор по IDNO: директор входит ЛИЧНЫМ Gmail (Олег 01.10), а клиника
         # заведена с другим ящиком — код на ящик клиники, как у программы (L17)
         g.identity = dict(sub="g-second", email="second@gmail.com", name="Ion", email_verified=True)
@@ -545,9 +545,10 @@ def suite_link_and_duplicate(res: Result) -> None:
         lst = admin.get("/admin").body
         res.ok("список клиник: заявка с меткой «кабинет»", "Заявки на пробный период" in lst and ">кабинет<" in lst)
         r = admin.post(f"/admin/clinics/{cid2}/issue", kind="trial", send="1", reason="заявка из кабинета")
-        res.ok("выдача из админки — файл в кабинете, движок принимает",
+        res.ok("выдача из админки — кабинет показывает срок, файл из админки принимает движок",
                r.location == f"/admin/clinics/{cid2}?msg=issued_mailed"
-               and rv.open_envelope(d.get("/cont/licenta.json").body, KEYS)[0] == "")
+               and "este valabilă până la" in d.get("/cont").body
+               and rv.open_envelope(admin.get(f"/admin/clinics/{cid2}/issues/1/license.json").body, KEYS)[0] == "")
         # скрытая клиника: ящик свободен, вход даёт регистрацию, а не чужую клинику
         cid3 = cid_from(admin.post("/admin/clinics", name="Clinica Ascunsă", email="hidden@example.md").location)
         _sql(s, "UPDATE clinics SET declined_at='2026-09-30T00:00:00Z', origin='form' WHERE id=?", cid3)

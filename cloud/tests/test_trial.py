@@ -57,8 +57,9 @@ def suite_auto(res: Result) -> None:
                and "termeni.html" in page.body and "privacy.html" in page.body and mail.zile(license.TRIAL_DAYS) in page.body,
                page.body[:300])
         r = anon.post("/proba", **GOOD)
-        res.ok("заявка принята: файл отправлен, страница называет адрес",
-               r.status == 200 and "Fișierul a fost trimis" in r.body and "proba@example.md" in r.body, r.body[-600:])
+        res.ok("заявка принята: пробный активен, страница называет адрес и ведёт к скачиванию",
+               r.status == 200 and "Perioada de probă este activă" in r.body and "proba@example.md" in r.body
+               and "descarca.html" in r.body, r.body[-600:])
         rows = _clinics(s)
         res.ok("клиника заведена с формы, согласие записано",
                len(rows) == 1 and rows[0][4] == "form" and rows[0][5] and rows[0][6] and rows[0][3] == "proba@example.md",
@@ -67,8 +68,10 @@ def suite_auto(res: Result) -> None:
         res.check("пробный файл выдан: seq 1", _sql(s, "SELECT seq, reason FROM issues WHERE clinic_id=?", cid),
                   [(1, "formular de probă")])
         by_to = {t: (sub, body, att) for t, sub, body, att in _letters(s)}
-        res.ok("два письма: клинике с файлом, Олегу уведомление",
-               len(by_to) == 2 and by_to["proba@example.md"][2] and "заявка на пробный" in by_to["oleg@example.md"][0]
+        res.ok("два письма: клинике о лицензии БЕЗ файла (02.10), Олегу уведомление",
+               len(by_to) == 2 and "licența" in by_to["proba@example.md"][0].lower() and not by_to["proba@example.md"][2]
+               and "preia singur" in by_to["proba@example.md"][1]
+               and "заявка на пробный" in by_to["oleg@example.md"][0]
                and "выдан и отправлен" in by_to["oleg@example.md"][1]
                and f"/admin/clinics/{cid}" in by_to["oleg@example.md"][1], repr({t: v[0] for t, v in by_to.items()}))
         c = Client(s.url).login()
@@ -182,9 +185,9 @@ def suite_approve(res: Result) -> None:
                "Cererea a fost primită" in r.body and len(_clinics(s)) == 1)
         r = c.post(f"/admin/clinics/{cid}/issue", kind="trial", send="1", reason="заявка с формы")
         res.check("кнопка: пробный выдан и отправлен", r.location, f"/admin/clinics/{cid}?msg=issued_mailed")
-        res.ok("файл ушёл клинике, заявка исчезла из списка",
-               _letters(s)[-1][0] == "proba@example.md" and _letters(s)[-1][3]
-               and "Заявки на пробный период" not in c.get("/admin").body)
+        res.ok("письмо о лицензии ушло клинике (без файла), заявка исчезла из списка",
+               _letters(s)[-1][0] == "proba@example.md" and "licența" in _letters(s)[-1][1].lower()
+               and not _letters(s)[-1][3] and "Заявки на пробный период" not in c.get("/admin").body)
         code, claim = rv.open_envelope(c.get(f"/admin/clinics/{cid}/issues/1/license.json").body, KEYS)
         res.ok("файл принимает движок", code == "" and claim.plan == "trial")
 
@@ -316,8 +319,9 @@ def suite_program(res: Result) -> None:
         code, claim = rv.open_envelope(r.body, KEYS) if r.status == 200 else ("нет файла", None)
         res.ok("auto: файл сразу, и токен внутри файла — тот, что отдан программе",
                code == "" and claim.renew["token"] == d.get("token"), f"{r.status} {code}")
-        res.ok("auto: письмо с файлом ушло клинике — запасной путь",
-               any(t == "auto@example.md" and att for t, _s, _b, att in _letters(s)))
+        res.ok("auto: письмо о лицензии ушло клинике — без файла, программа забрала его сама",
+               any(t == "auto@example.md" and "licența" in sub.lower() and not att
+                   for t, sub, _b, att in _letters(s)))
 
 
 # ---------- новый компьютер той же клиники: код на e-mail (26.09) ----------

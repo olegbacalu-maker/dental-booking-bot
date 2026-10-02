@@ -254,7 +254,9 @@ def suite_flow(res: Result) -> None:
             res.ok("файл seq 2 выдан, движок принимает, срок +1 месяц от прежнего конца",
                    code == "" and claim.seq == 2 and claim.valid_until.date() == v2, f"{code} {claim!r}")
             letters = _letters(s)
-            res.ok("письмо с файлом ушло", len(letters) == n + 1 and letters[-1][2], repr(letters[-1][:2]))
+            res.ok("письмо о лицензии ушло (без файла — 02.10)",
+                   len(letters) == n + 1 and "licența" in letters[-1][0].lower() and not letters[-1][2],
+                   repr(letters[-1][:2]))
             res.check("журнал: payment_paid, issue, mail",
                       [r_[0] for r_ in _sql(s, "SELECT what FROM audit WHERE clinic_id=? ORDER BY id", cid)][-3:],
                       ["payment_paid", "issue", "mail"])
@@ -305,8 +307,9 @@ def suite_flow(res: Result) -> None:
             fake.set_status(q3["provider_id"], "OK")
             r = c.post(f"/admin/payments/{q['id']}/check")
             res.check("проверить: оплачен", r.location, f"/admin/clinics/{cid}?msg=card_paid")
-            res.ok("третий файл выдан, письмо с ним ушло",
-                   _sql(s, "SELECT count(*) FROM issues")[0][0] == 3 and _letters(s)[-1][2])
+            res.ok("третий файл выдан, письмо о лицензии ушло (без файла)",
+                   _sql(s, "SELECT count(*) FROM issues")[0][0] == 3 and "licența" in _letters(s)[-1][0].lower()
+                   and not _letters(s)[-1][2])
             r = c.post(f"/admin/payments/{q['id']}/check")
             res.check("проверить оплаченный: not_pending", r.location, f"/admin/clinics/{cid}?msg=payment_not_pending")
             res.check("ссылка к оплаченному не даётся", c.post(f"/admin/payments/{q['id']}/link").location,
@@ -369,7 +372,7 @@ def suite_daily(res: Result) -> None:
             res.ok("платёж оплачен задачей от имени daily, файл выдан и отправлен",
                    p2["status"] == "paid" and p2["confirmed_by"] == "daily"
                    and _sql(s, "SELECT count(*) FROM issues")[0][0] == 2 and len(_letters(s)) == n + 1
-                   and _letters(s)[-1][2], dict(p2))
+                   and "licența" in _letters(s)[-1][0].lower() and not _letters(s)[-1][2], dict(p2))
             v2 = pay.add_months(datetime(v.year, v.month, v.day, tzinfo=timezone.utc), 1).date()
             res.check("срок продлён на месяц от прежнего конца",
                       _sql(s, "SELECT valid_until FROM subscriptions WHERE clinic_id=?", cid)[0][0][:10], f"{v2:%Y-%m-%d}")

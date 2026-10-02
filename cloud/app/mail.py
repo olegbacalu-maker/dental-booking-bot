@@ -80,16 +80,16 @@ def bank_lines(reference: str, amount: int) -> str:
 
 
 _REFERENCE_NOTE = ("Important: indicați neapărat referința {reference} în destinația plății — după ea "
-                   "recunoaștem plata dumneavoastră. După confirmare primiți prin e-mail fișierul de "
-                   "licență cu noul termen.")
+                   "recunoaștem plata dumneavoastră. După confirmare termenul se prelungește automat în "
+                   "program; primiți confirmarea pe e-mail.")
 CARD_NOTE = "Plata cu cardul (Visa, Mastercard, Apple Pay, Google Pay), pe pagina securizată maib:"
 
 
 def card_lines(pay_url: str, amount: int) -> str:
-    """Ссылка на hosted-страницу maib (L12). После оплаты картой файл приходит сам."""
+    """Ссылка на hosted-страницу maib (L12). После оплаты картой программа продлевается сама."""
     return (f"{CARD_NOTE}\n  {pay_url}\n  Suma: {amount} MDL\n"
-            f"  După plata cu cardul nu trebuie să faceți nimic: fișierul de licență cu noul "
-            f"termen vine pe e-mail în câteva minute.\n")
+            f"  După plata cu cardul nu trebuie să faceți nimic: noul termen ajunge singur în program "
+            f"în câteva minute, iar confirmarea — pe e-mail.\n")
 
 
 def ways_to_pay(reference: str, amount: int, pay_url: str | None) -> str:
@@ -128,7 +128,7 @@ def how_to_pay(pay: dict | None, price: int) -> str:
     if pay is None:
         return (f"Pentru a continua cu un abonament ({price} MDL pe lună) răspundeți la acest e-mail "
                 f"sau sunați la {config.SUPPORT_PHONE}, indicând IDNO-ul clinicii — vă trimitem nota "
-                f"de plată, iar după plată noul fișier de licență.")
+                f"de plată, iar după plată termenul se prelungește automat în program.")
     try:
         ways = ways_to_pay(pay["reference"], pay["amount"], pay.get("url"))
     except RuntimeError:
@@ -171,14 +171,18 @@ def reminder_letter(kind: str, clinic: str, plan: str, valid_until: datetime, gr
         subject = f"DentPilot: programul este în regim de citire ({clinic})"
         intro = (f"Din {g} programul DentPilot pentru {clinic} este în regim de citire: {what} a expirat "
                  f"la {d}, iar perioada de {zile(grace_days)} pentru {for_} s-a încheiat. {_READONLY} "
-                 f"După activarea noului fișier de licență programul revine la lucru complet.")
+                 f"După plată programul revine singur la lucru complet.")
     else:
         raise ValueError(f"kind: {kind}")
     return subject, f"Bună ziua,\n\n{intro}\n\n{how_to_pay(pay, price)}\n\n{FOOTER}"
 
 
-RENEW_NOTE = ("Dacă programul este deja activat și are acces la internet, preia singur "
-              "fișierul nou în cel mult o zi — nu trebuie să faceți nimic.")
+# Файл лицензии клинике не показывается (решение Олега 02.10: клиник без
+# интернета нет): письмо говорит про СРОК, а файл программа забирает сама по
+# суточному запросу (L13) или при активации (L16/L17). В админке файл остаётся —
+# инструмент поддержки.
+RENEW_NOTE = ("Programul DentPilot preia singur noul termen când are acces la internet, în cel mult o zi "
+              "— nu trebuie să faceți nimic.")
 
 
 CONT_URL = config.BASE_URL.rstrip("/") + "/cont"
@@ -191,15 +195,17 @@ def trial_received(clinic: str, days: int, origin: str = "form") -> tuple[str, s
     subject = f"DentPilot: cererea de probă pentru {clinic} a fost primită"
     if origin == "program":
         rest = (f"Programul DentPilot se activează singur pentru {zile(days)} imediat ce aprobăm "
-                f"cererea — de obicei în aceeași zi lucrătoare; nu trebuie să faceți nimic. Fișierul "
-                f"de licență vine și pe acest e-mail, ca rezervă.")
+                f"cererea — de obicei în aceeași zi lucrătoare; nu trebuie să faceți nimic. Confirmarea "
+                f"vine pe acest e-mail.")
     elif origin == "cont":
-        rest = (f"Fișierul de licență pentru {zile(days)} vine pe acest e-mail în cel mult o zi "
-                f"lucrătoare; îl găsiți și în contul clinicii, {CONT_URL}, de unde descărcați și "
-                f"programul. La prima pornire programul se activează singur.")
+        rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
+                f"confirmăm pe acest e-mail. Programul îl descărcați din contul clinicii, {CONT_URL}; la "
+                f"prima pornire introduceți aceleași date și se activează singur.")
     else:
-        rest = (f"Fișierul de licență pentru {zile(days)} vine pe acest e-mail în cel mult o zi "
-                f"lucrătoare, împreună cu pașii de activare; programul îl instalăm împreună, la telefon.")
+        rest = (f"Perioada de probă de {zile(days)} se activează în cel mult o zi lucrătoare — vă "
+                f"confirmăm pe acest e-mail. Programul îl descărcați de pe {config.SITE_URL.rstrip('/')}/descarca.html; "
+                f"la prima pornire introduceți aceleași date și se activează singur. Instalăm împreună, la "
+                f"telefon, dacă doriți.")
     body = (f"Bună ziua,\n\n"
             f"Am primit cererea de perioadă de probă DentPilot pentru {clinic}. {rest}\n\n{FOOTER}")
     return subject, body
@@ -271,23 +277,21 @@ def declaration() -> tuple[str, bytes] | None:
 
 def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False,
                    declaration: bool = False) -> tuple[str, str]:
-    """Тема и текст письма с файлом — по-румынски, как интерфейс программы.
-    `renew` — в файле есть адрес автообновления (L13): письмо говорит, что
-    активированной программе делать ничего не нужно. `declaration` — к письму
-    приложена декларация поставщика: письмо называет её только тогда."""
-    what = "perioada de probă" if plan == "trial" else "abonamentul"
-    subject = f"DentPilot: fișierul de licență pentru {clinic}"
+    """Тема и текст письма о лицензии — по-румынски, как интерфейс программы.
+    Файла в письме НЕТ (02.10): программа забирает его сама — `renew` (адрес
+    автообновления в файле есть) добавляет RENEW_NOTE об этом. `declaration` —
+    к письму приложена декларация поставщика: письмо называет её только тогда."""
+    what = "Perioada de probă" if plan == "trial" else "Abonamentul"
+    valid = "este valabilă" if plan == "trial" else "este valabil"
+    site = config.SITE_URL.rstrip("/")
+    subject = f"DentPilot: licența pentru {clinic}"
     body = (f"Bună ziua,\n\n"
-            f"În atașament este fișierul de licență DentPilot pentru {clinic} — {what} "
-            f"este valabil până la {valid_until[:10]}.\n\n"
-            f"Cum se activează:\n"
-            f"1. Salvați fișierul license.json pe calculatorul clinicii.\n"
-            f"2. În DentPilot deschideți pagina Licență (meniul Setări sau adresa "
-            f"/admin/license din program).\n"
-            f"3. Alegeți fișierul, bifați acceptarea Termenilor și condițiilor și apăsați "
-            f"«Activează licența».\n\n"
+            f"{what} DentPilot pentru {clinic} {valid} până la {valid_until[:10]}.\n\n"
             + (f"{RENEW_NOTE}\n\n" if renew else "") +
-            f"Fișierul este emis pentru clinica dumneavoastră și nu se transmite altora. "
+            f"Programul îl descărcați de pe {site}/descarca.html sau din contul clinicii ({CONT_URL}). "
+            f"Pe un calculator nou, la prima pornire, introduceți datele clinicii: primiți un cod pe "
+            f"acest e-mail și programul se activează.\n\n"
+            f"Licența este emisă pentru clinica dumneavoastră și nu se transmite altora. "
             f"Datele pacienților rămân pe calculatorul clinicii; noi nu avem acces la ele."
             + (f" {DECLARATION_NOTE}" if declaration else "") + "\n\n"
             f"{FOOTER}")

@@ -18,8 +18,8 @@ MSG = {
     "clinic_ok": ("ok", "Клиника заведена"),
     "saved": ("ok", "Сохранено"),
     "issued": ("ok", "Файл выдан"),
-    "issued_mailed": ("ok", "Файл выдан и отправлен письмом"),
-    "mailed": ("ok", "Письмо отправлено"),
+    "issued_mailed": ("ok", "Файл выдан, письмо о лицензии отправлено (без файла: программа забирает его сама)"),
+    "mailed": ("ok", "Письмо о лицензии отправлено"),
     "bad_name": ("err", "Название клиники обязательно"),
     "bad_idno": ("err", "IDNO — ровно 13 цифр (для пробного файла можно оставить пустым)"),
     "bad_email": ("err", "У клиники нет e-mail — письмо отправить некуда"),
@@ -200,13 +200,13 @@ def clinics_page(rows: list, user: str, msg: str = "", requests: list = ()) -> s
 TRIAL_MSG = {
     "bad_name": "Indicați denumirea clinicii (2–120 de caractere).",
     "bad_idno": "IDNO are exact 13 cifre — sau lăsați câmpul gol pentru perioada de probă.",
-    "bad_email": "Indicați o adresă de e-mail valabilă: pe ea vine fișierul de licență.",
+    "bad_email": "Indicați o adresă de e-mail valabilă: pe ea primiți confirmarea și codurile de activare.",
     "too_long": "Persoana de contact sau telefonul sunt prea lungi.",
     "no_consent": "Bifați acordul cu Termenii și condițiile și Politica de confidențialitate.",
     "limited": "Prea multe cereri de la această adresă — încercați peste o oră sau scrieți-ne.",
     # Только заявке из программы (JSON, trial.API_PATH): там повтор объявляется
-    "duplicate": "Clinica este deja înregistrată la DentPilot (după IDNO sau e-mail). Activați "
-                 "programul cu fișierul de licență primit pe e-mail sau scrieți-ne.",
+    "duplicate": "Clinica este deja înregistrată la DentPilot (după IDNO sau e-mail), dar codul de activare "
+                 "nu a putut fi trimis pe e-mailul ei. Scrieți-ne și activăm programul împreună.",
     "duplicate_code": "Clinica este deja înregistrată la DentPilot. Am trimis un cod de activare pe "
                       "adresa de e-mail a clinicii — introduceți-l mai jos (este valabil "
                       f"{int(trial.CODE_TTL.total_seconds() // 60)} minute).",
@@ -214,8 +214,7 @@ TRIAL_MSG = {
                 "cererea pentru un cod nou.",
     "code_limited": "Prea multe încercări — încercați peste o oră sau scrieți-ne.",
     "bad_json": "Cererea nu a putut fi citită — actualizați programul sau scrieți-ne.",
-    "no_renew": "Activarea automată nu este disponibilă acum — activați programul cu fișierul "
-                "de licență sau scrieți-ne.",
+    "no_renew": "Activarea automată nu este disponibilă acum — încercați mai târziu sau scrieți-ne.",
 }
 
 
@@ -236,9 +235,11 @@ def trial_page(msg: str = "", values: dict | None = None) -> str:
     err = f"<div class='banner err'>{esc(TRIAL_MSG.get(msg, msg))}</div>" if msg else ""
     site = config.SITE_URL.rstrip("/")
     inner = (f"<h1>Perioadă de probă DentPilot — {mail.zile(license.TRIAL_DAYS)}</h1>"
-             f"<div class='card'><p>Completați formularul și primiți pe e-mail fișierul de licență pentru "
-             f"{mail.zile(license.TRIAL_DAYS)}, fără plată și fără obligații; programul îl instalăm împreună, "
-             f"la telefon. Datele pacienților rămân pe calculatorul clinicii.</p>"
+             f"<div class='card'><p>Completați formularul: perioada de probă de {mail.zile(license.TRIAL_DAYS)} "
+             f"se activează fără plată și fără obligații. Descărcați programul de pe "
+             f"<a href='{esc(site)}/descarca.html'>dentpilot.md</a> și, la prima pornire, introduceți aceleași "
+             f"date — programul se activează singur (dacă e nevoie, cu un cod trimis pe acest e-mail). "
+             f"Instalăm împreună, la telefon, dacă doriți. Datele pacienților rămân pe calculatorul clinicii.</p>"
              f"{err}<form method='post' action='/proba'>"
              f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}'>"
              f"<label>IDNO (13 cifre, opțional pentru probă)</label><input name='idno' value='{v['idno']}' maxlength='13' inputmode='numeric'>"
@@ -257,13 +258,17 @@ def trial_page(msg: str = "", values: dict | None = None) -> str:
 def trial_done_page(outcome: str, email: str) -> str:
     """Два лица: «отправлено» и «принято». Повтор и файл без письма показывают
     «принято» — форма не оракул о том, кто уже клиент; дальше отвечает Олег."""
+    site = config.SITE_URL.rstrip("/")
     if outcome == trial.ISSUED:
-        title, text = ("Fișierul a fost trimis", f"Fișierul de licență pentru {mail.zile(license.TRIAL_DAYS)} a "
-                       f"plecat la {email}, împreună cu pașii de activare. Dacă nu îl găsiți în câteva "
-                       f"minute, verificați dosarul Spam sau scrieți-ne.")
+        title, text = ("Perioada de probă este activă",
+                       f"Perioada de probă de {mail.zile(license.TRIAL_DAYS)} pentru {email} este activă, iar "
+                       f"confirmarea a plecat pe e-mail. Descărcați programul de pe {site}/descarca.html; la "
+                       f"prima pornire introduceți aceleași date și programul se activează singur. Dacă nu "
+                       f"găsiți e-mailul în câteva minute, verificați dosarul Spam sau scrieți-ne.")
     else:
         title, text = ("Cererea a fost primită", f"Vă răspundem la {email} în cel mult o zi lucrătoare — "
-                       f"cu fișierul de licență pentru {mail.zile(license.TRIAL_DAYS)} și pașii de activare.")
+                       f"cu confirmarea perioadei de probă de {mail.zile(license.TRIAL_DAYS)} și pașii de "
+                       f"instalare.")
     return _public(title, f"<div class='card'><h1>{esc(title)}</h1><p>{esc(text)}</p></div>")
 
 
@@ -318,9 +323,9 @@ def pay_page(ok: bool) -> str:
     """Куда maib возвращает браузер клиники (L12). Редирект — не истина о платеже,
     поэтому страница не говорит «оплачено»: подтверждение и файл придут письмом."""
     if ok:
-        title, text = ("Mulțumim!", "Plata a fost transmisă către bancă. După confirmare primiți pe e-mail "
-                                    "fișierul de licență cu noul termen — de obicei în câteva minute. "
-                                    "Programul DentPilot îl preia singur dacă are acces la internet.")
+        title, text = ("Mulțumim!", "Plata a fost transmisă către bancă. După confirmare termenul se "
+                                    "prelungește automat — de obicei în câteva minute: programul DentPilot "
+                                    "îl preia singur când are acces la internet, iar confirmarea vine pe e-mail.")
     else:
         title, text = ("Plata nu a reușit", "Banca nu a confirmat plata. Puteți încerca din nou din e-mailul "
                                             "cu nota de plată sau plăti prin transfer bancar cu referința din "
@@ -462,7 +467,8 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
         f"<td><a href='/admin/clinics/{esc(c['id'])}/issues/{i['seq']}/license.json'>license.json</a></td></tr>"
         for i in issues) or "<tr><td colspan='6' class='muted'>Файлов ещё не выдавали</td></tr>"
     mail_btn = (f"<form method='post' action='/admin/clinics/{esc(c['id'])}/email' style='margin-top:10px'>"
-                f"<button class='primary'>Отправить последний файл письмом</button></form>" if issues else "")
+                f"<button class='primary' title='Письмо о сроке лицензии; файла в письме нет (02.10) — программа "
+                f"забирает его сама'>Отправить письмо о лицензии</button></form>" if issues else "")
     issues_html = (f"<h2>Выданные файлы</h2><div class='card'><table><tr><th>№</th><th>Выдан</th>"
                    f"<th>Срок до</th><th>Льгота до</th><th>Основание</th><th>Файл</th></tr>{trs}</table>{mail_btn}</div>")
     rem_html = (f"<h2>Напоминания</h2><div class='card'><table><tr><th>Письмо</th><th>Период до</th>"
@@ -502,8 +508,8 @@ CONT_MSG = {
     "google_unverified": "Adresa de e-mail a contului Google nu este confirmată de Google — folosiți alt cont "
                          "Google sau scrieți-ne.",
     "logged_out": "Ați ieșit din cont.",
-    "registered_issued": "Clinica a fost înregistrată. Fișierul de licență pentru perioada de probă a plecat "
-                         "pe e-mail; îl găsiți și mai jos.",
+    "registered_issued": "Clinica a fost înregistrată, perioada de probă este activă. Descărcați programul: "
+                         "la prima pornire se activează singur.",
     "registered_requested": "Clinica a fost înregistrată. Cererea de probă a fost primită — vă răspundem pe "
                             "e-mail în cel mult o zi lucrătoare.",
     "duplicate": "O clinică cu acest IDNO este deja înregistrată la DentPilot, dar codul de conectare nu a "
@@ -511,7 +517,6 @@ CONT_MSG = {
     "linked": "Contul Google a fost conectat la clinică.",
     "saved": "Datele clinicii au fost salvate.",
     "idno_taken": "Acest IDNO este deja înregistrat la altă clinică — scrieți-ne.",
-    "no_file": "Fișierul de licență nu a fost emis încă.",
     "note_created": "Nota de plată a fost creată: datele pentru plată sunt mai jos și pe e-mail.",
     "note_exists": "Aveți deja o notă de plată în așteptare — datele pentru plată sunt mai jos.",
     "need_idno": "Pentru abonament completați mai întâi IDNO-ul clinicii (13 cifre), în datele clinicii.",
@@ -523,7 +528,7 @@ CONT_MSG = {
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
             "linked"}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
-            "readonly": ("bad", "regim de citire"), "none": ("mute", "fără fișier")}
+            "readonly": ("bad", "regim de citire"), "none": ("mute", "neactivată")}
 PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
 # Кабинет — в стиле САЙТА dentpilot.md (слово Олега 02.10: «немного дизайном
 # страницы регистрации»): тот же Inter с сайта (шрифты отдаются с CORS *), та же
@@ -632,7 +637,7 @@ def _cont_shell(title: str, inner: str, acc=None, msg: str = "", lead: str = "")
 
 _PERKS = [
     "Perioada de probă — o lună gratuită, fără card și fără obligații",
-    "Programul DentPilot și fișierul de licență, oricând",
+    "Programul DentPilot, de descărcat oricând — se activează singur",
     "Nota de plată pentru abonament, cu datele pentru plată",
     "Datele clinicii și calculatoarele pe care rulează programul",
 ]
@@ -651,7 +656,7 @@ def cont_login_page(msg: str = "", enabled: bool = True) -> str:
              f"<p class='lead' style='margin-bottom:0'>Un singur loc pentru licența DentPilot a clinicii: intrați cu "
              f"contul Google, fără altă parolă.</p>{entry}"
              f"<p class='muted'>Nu aveți cont Google? <a href='/proba'>Trimiteți cererea de probă prin formular</a> "
-             f"— fișierul de licență vine pe e-mail.</p>"
+             f"— confirmarea vine pe e-mail.</p>"
              f"<p class='muted'>De la Google primim doar adresa de e-mail, numele și identificatorul contului; "
              f"parola rămâne la Google — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, "
              f"§ 5.</p></div>"
@@ -678,7 +683,7 @@ def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
             f"</span></label><p style='margin:14px 0 0'><button class='primary'>Înregistrez clinica</button></p></form></div>")
-    aside = (f"<div class='card'><h2>Ce urmează</h2>{_perks(['Fișierul de licență pentru ' + mail.zile(license.TRIAL_DAYS) + ' pleacă pe e-mail și apare aici, în cont', 'Descărcați programul din cont; la prima pornire se activează singur', 'IDNO și adresa le completați oricând — sunt necesare doar pentru abonament'])}"
+    aside = (f"<div class='card'><h2>Ce urmează</h2>{_perks(['Perioada de probă de ' + mail.zile(license.TRIAL_DAYS) + ' se activează imediat; confirmarea vine pe e-mail', 'Descărcați programul din cont; la prima pornire introduceți aceleași date și se activează singur', 'IDNO și adresa le completați oricând — sunt necesare doar pentru abonament'])}"
              f"<p class='muted' style='margin-bottom:0'>Aveți deja DentPilot pe un calculator al clinicii? "
              f"Completați aceleași date: trimitem un cod pe e-mailul clinicii și contul se conectează.</p></div>")
     return _cont_shell("Înregistrarea clinicii", f"<div class='hero'>{form}{aside}</div>", acc, msg,
@@ -721,7 +726,8 @@ def _cont_license(c, sub, issue, st: str) -> str:
         if c["declined_at"]:
             return f"<p class='lic'>{esc(CONT_MSG['closed'])}</p>"
         return (f"<p class='lic'>Cererea de probă a fost primită la {_ro(c['requested_at'] or c['created_at'])}. "
-                f"Fișierul de licență vine pe e-mail și apare aici; programul instalat se activează singur.</p>")
+                f"Programul se activează singur imediat ce aprobăm cererea — de obicei în aceeași zi "
+                f"lucrătoare; vă anunțăm pe e-mail.</p>")
     plan = sub["plan"] if sub else "trial"
     what = "Perioada de probă" if plan == "trial" else "Abonamentul"
     d, g = _ro(issue["valid_until"]), _ro(issue["grace_until"])
@@ -732,20 +738,17 @@ def _cont_license(c, sub, issue, st: str) -> str:
         text = (f"{what} a expirat la {d}. Programul funcționează complet până la <b>{g}</b>, apoi trece în "
                 f"regim de citire.")
     else:
-        text = (f"Din {g} programul este în regim de citire: {esc(mail._READONLY)} După plată, noul fișier de "
-                f"licență ajunge în program automat.")
+        text = (f"Din {g} programul este în regim de citire: {esc(mail._READONLY)} După plată programul "
+                f"revine singur la lucru complet.")
     if c["renew_at"]:
-        check = (f"Programul a verificat licența ultima dată la {esc(c['renew_at'][:16].replace('T', ' '))} UTC "
-                 f"și are fișierul nr. {c['renew_seq'] or 0} (ultimul emis: nr. {issue['seq']}).")
+        behind = (c["renew_seq"] or 0) < issue["seq"]
+        check = (f"Programul a verificat licența ultima dată la {esc(c['renew_at'][:16].replace('T', ' '))} UTC"
+                 + (" — noul termen ajunge la următoarea verificare (o dată pe zi)." if behind else "."))
     else:
         check = ("Programul instalat nu a verificat încă licența; activat și cu acces la internet, o face o "
                  "dată pe zi.")
     return (f"<p class='lic'>{text} <span class='tag {cls}'>{esc(tag)}</span></p>"
-            f"<p class='muted'>{check}</p>"
-            f"<p><a class='btn second' href='/cont/licenta.json'>Descarcă fișierul de licență (license.json)</a></p>"
-            f"<p class='muted'>Fișierul este nevoie doar dacă programul nu are acces la internet: în DentPilot "
-            f"deschideți pagina Licență (meniul Setări sau adresa /admin/license din program), alegeți fișierul "
-            f"și apăsați «Activează licența».</p>")
+            f"<p class='muted'>{check}</p>")
 
 
 def _cont_payments(c, sub, payments: list) -> str:
@@ -759,8 +762,8 @@ def _cont_payments(c, sub, payments: list) -> str:
             ways = "<p>Datele pentru plată le primiți pe e-mail.</p>"
         top = (f"<p><b>Nota de plată {esc(p['reference'])}</b>: {p['amount']} MDL pentru "
                f"{mail.luni(p['months'])}.</p>{ways}"
-               f"<p class='muted'>După confirmarea plății, noul fișier de licență ajunge în program automat "
-               f"și pe e-mail.</p>")
+               f"<p class='muted'>După confirmarea plății termenul se prelungește automat — programul îl preia "
+               f"singur; primiți și confirmarea pe e-mail.</p>")
     elif len(c["idno"] or "") == 13:
         opts = "".join(f"<option value='{m}'>{'o lună' if m == 1 else 'un an (12 luni)'} — "
                        f"{pay.amount(m, price)} MDL</option>" for m in pay.MONTHS)
@@ -773,7 +776,7 @@ def _cont_payments(c, sub, payments: list) -> str:
                f"<select name='months'>{opts}</select></div>{method}</div>"
                f"<p><button class='primary'>Comandă nota de plată</button></p></form>"
                f"<p class='muted'>Nota de plată cu referința și datele pentru plată apare aici și vine pe e-mail; "
-               f"după confirmarea plății termenul se prelungește, iar programul preia singur noul fișier.</p>")
+               f"după confirmarea plății termenul se prelungește, iar programul îl preia singur.</p>")
     else:
         top = (f"<p>Pentru abonament ({price} MDL pe lună sau {pay.amount(12, price)} MDL pe an) completați "
                f"IDNO-ul clinicii în datele de mai jos, apoi comandați nota de plată.</p>")

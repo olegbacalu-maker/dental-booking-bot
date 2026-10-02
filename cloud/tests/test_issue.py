@@ -120,20 +120,20 @@ def suite_mail(res: Result) -> None:
         msg = email.message_from_bytes(files[0].read_bytes(), policy=email.policy.default)
         res.ok("тема и адресат", msg["To"] == "clinica@example.md" and "Clinica Exemplu" in msg["Subject"],
                f"{msg['To']} / {msg['Subject']}")
-        parts = [p for p in msg.walk() if p.get_filename() == "license.json"]
-        res.check("вложение license.json одно", len(parts), 1)
-        attached = parts[0].get_payload(decode=True).decode("utf-8")
+        # Файла в письме нет (02.10, Олег: клиник без интернета нет): письмо про срок,
+        # программа забирает файл сама; скачивание в админке остаётся для поддержки
+        res.ok("вложений нет, license.json в письме не упомянут",
+               not list(msg.iter_attachments()) and "license.json" not in str(msg))
         served = c.get(f"/admin/clinics/{cid}/issues/1/license.json").body
-        res.check("вложение — тот же файл, что скачивается", attached, served)
-        code, claim = rv.open_envelope(attached, KEYS)
-        res.check("вложение принимает движок", code, "")
+        code, claim = rv.open_envelope(served, KEYS)
+        res.check("файл из админки принимает движок", code, "")
         body = msg.get_body(preferencelist=("plain",)).get_content()
-        res.ok("текст письма: как активировать и контакты",
-               "Activează licența" in body and "+373 60 508 048" in body and "perioada de probă" in body)
-        res.ok("без DP_DECLARATION: одно вложение, декларация не названа",
-               len(list(msg.iter_attachments())) == 1 and "Declarația furnizorului" not in body)
+        res.ok("текст письма: срок, программа забирает сама, где скачать, контакты",
+               "este valabilă până la" in body and "preia singur" in body and "descarca.html" in body
+               and "+373 60 508 048" in body and "Perioada de probă" in body, body)
+        res.ok("без DP_DECLARATION: декларация не названа", "Declarația furnizorului" not in body)
         r = c.post(f"/admin/clinics/{cid}/email")
-        res.check("повторная отправка последнего файла", r.location, f"/admin/clinics/{cid}?msg=mailed")
+        res.check("повторная отправка письма о лицензии", r.location, f"/admin/clinics/{cid}?msg=mailed")
         res.check("в outbox два письма", len(list(s.outbox.glob("*.eml"))), 2)
         cid2 = _new_clinic(c, name="Fara Email", email="")
         r = c.post(f"/admin/clinics/{cid2}/issue", kind="trial", send="1")
@@ -167,14 +167,12 @@ def suite_declaration(res: Result) -> None:
             files = sorted(s.outbox.glob("*.eml"))
             msg = email.message_from_bytes(files[-1].read_bytes(), policy=email.policy.default)
             att = {p.get_filename(): p for p in msg.iter_attachments()}
-            res.check("вложения: файл лицензии и декларация", sorted(att),
-                      sorted(["license.json", "Declaratie-furnizor-DentPilot-Legea-195.pdf"]))
+            res.check("вложение одно — декларация (файла лицензии в письме нет с 02.10)", sorted(att),
+                      ["Declaratie-furnizor-DentPilot-Legea-195.pdf"])
             decl = att.get("Declaratie-furnizor-DentPilot-Legea-195.pdf")
             res.ok("декларация — тот же PDF байт в байт, тип application/pdf",
                    decl is not None and decl.get_payload(decode=True) == PDF
                    and decl.get_content_type() == "application/pdf")
-            code, _claim = rv.open_envelope(att["license.json"].get_payload(decode=True).decode("utf-8"), KEYS)
-            res.check("файл лицензии рядом по-прежнему принимает движок", code, "")
             body = msg.get_body(preferencelist=("plain",)).get_content()
             res.ok("письмо называет декларацию и папку «Legea 195»",
                    "Declarația furnizorului" in body and "„Legea 195”" in body, body[-400:])
@@ -186,8 +184,8 @@ def suite_declaration(res: Result) -> None:
             files = sorted(s.outbox.glob("*.eml"))
             msg = email.message_from_bytes(files[-1].read_bytes(), policy=email.policy.default)
             body = msg.get_body(preferencelist=("plain",)).get_content()
-            res.ok("не PDF: только файл лицензии, декларация не названа",
-                   [p.get_filename() for p in msg.iter_attachments()] == ["license.json"]
+            res.ok("не PDF: вложений нет, декларация не названа",
+                   [p.get_filename() for p in msg.iter_attachments()] == []
                    and "Declarația furnizorului" not in body)
             con = sqlite3.connect(s.dir / "cloud.db")
             try:

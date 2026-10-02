@@ -1010,22 +1010,6 @@ def cont_edit(request: Request, name: str = Form(""), idno: str = Form(""), cont
     return RedirectResponse("/cont?msg=saved", status_code=303)
 
 
-@app.get("/cont/licenta.json")
-def cont_license_file(request: Request) -> Response:
-    """Последний выданный файл — тот же текст, что ушёл письмом и что забирает программа."""
-    with db.connect() as con:
-        acc, c = _cont_clinic(request, con)
-        if c is None:
-            return _cont_login_redirect()
-        row = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
-                          (c["id"],)).fetchone()
-        if row is None:
-            return RedirectResponse("/cont?msg=no_file", status_code=303)
-        db.audit(con, acc["email"], "download_license", c["id"], f"seq {row['seq']} din cont")
-    return Response(license.issue_text(row), media_type="application/json",
-                    headers={"Content-Disposition": 'attachment; filename="license.json"'})
-
-
 @app.post("/cont/nota")
 def cont_note(request: Request, months: str = Form("1"), method: str = Form(payments.TRANSFER)) -> Response:
     """Нота на абонемент из кабинета: тот же payments.create, что у админки и

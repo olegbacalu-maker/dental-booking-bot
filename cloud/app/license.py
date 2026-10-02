@@ -166,14 +166,16 @@ def mail_latest(con: sqlite3.Connection, clinic: sqlite3.Row, who: str) -> str:
     subject, body = mail.license_letter(clinic["name"], row["valid_until"],
                                         plan["plan"] if plan else "standard", renew=renew_offered(),
                                         declaration=decl is not None)
-    files = [("license.json", issue_text(row).encode("utf-8"))] + ([decl] if decl else [])
+    # Файла в письме нет (02.10): клиник без интернета нет, программа забирает его
+    # сама (L13/L16/L17); письмо — про срок, вложение — только декларация
+    files = [decl] if decl else []
     try:
         where = mail.send(clinic["email"], subject, body, *files)
     except (RuntimeError, OSError, ValueError) as e:
         log.error("письмо клинике %s не отправлено: %r", clinic["id"], e)
         return "mail_failed"
     db.audit(con, who, "mail", clinic["id"],
-             f"seq {row['seq']}{' + декларация' if decl else ''} на {clinic['email']} ({where})")
+             f"письмо о сроке seq {row['seq']}{' + декларация' if decl else ''} на {clinic['email']} ({where})")
     return ""
 
 
