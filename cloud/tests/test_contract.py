@@ -106,6 +106,12 @@ def suite(res: Result) -> None:
     res.ok("политика § 5: суточная проверка называет версию, канал, Windows и идентификатор компьютера (флот, 02.10)",
            all(x in flat_privacy for x in ("versiunea programului", "canalul de actualizare",
                                            "identificator tehnic al calculatorului", "fără date ale pacienților")))
+    # Декларация — подпись Олега под теми же фактами: суточная проверка перечисляет
+    # то же, что § 5, иначе подписанная бумага расходится с политикой (02.10: флот
+    # попал в политику, а в декларацию — нет, и PDF чуть не ушёл на подпись устаревшим).
+    res.ok("декларация п. 3: суточная проверка — теми же словами, что политика § 5 (флот)",
+           all(x in decl for x in ("versiunea programului", "canalul de actualizare",
+                                   "identificator tehnic al calculatorului", "fără date ale pacienților")))
     res.ok("политика § 5: кабинет — вход Google, cookie dp_oauth и dp_cont со сроками auth.py",
            "cont Google" in privacy and "dp_oauth" in privacy and "dp_cont" in privacy
            and f"({auth.OAUTH_TTL // 60} minute)" in flat_privacy and f"({auth.ACCOUNT_TTL // 86400} zile" in flat_privacy
