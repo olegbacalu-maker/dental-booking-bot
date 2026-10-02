@@ -12,6 +12,9 @@ from app import config, paylink  # noqa: E402
 from app import payments as pay  # noqa: E402
 from test_account import BANK_ENV, _letters, _sql  # noqa: E402
 from test_maib import FakeMaib  # noqa: E402
+from test_renew import rn  # noqa: E402
+from urllib.parse import urlsplit  # noqa: E402
+from app import license as srv_license  # noqa: E402
 
 HDR = {"User-Agent": "DentPilot/1.36.1", "X-DentPilot-Device": "d_0a1b2c3d4e5f",
        "X-DentPilot-Channel": "stable", "X-DentPilot-OS": "Windows 11 (10.0.26200)"}
@@ -43,6 +46,18 @@ def suite_paylink(res: Result) -> None:
                r.status == 200 and url.startswith(config.BASE_URL.rstrip("/") + "/plata/")
                and json.loads(r.body).get("expires_at"), r.body[:200])
         res.check("повторный запрос программы — та же ссылка", _link(anon, tok)[1], url)
+        # ⭐ Провод ПРОГРАММЫ (bot/app/core/license_renew.py, грузится по пути) против
+        # ЭТОГО сервера — «Plătește acum» в 1.36.1. И её правило: браузер уходит только
+        # на страницу оплаты того же адреса, что renew.url в файле, — значит оба
+        # адреса сервер обязан строить от одного BASE_URL, иначе программа отвергала
+        # бы каждую ссылку («Serverul DentPilot nu a răspuns») молча для сервера.
+        out, data = rn.pay_link(s.url + paylink.API_PATH, tok, timeout=10, agent="DentPilot/test", extra=HDR)
+        res.ok("провод программы понимает сервер: ACCEPTED и та же ссылка",
+               out == rn.ACCEPTED and data.get("url") == url, repr((out, data)))
+        res.check("провод программы: чужой токен — REFUSED",
+                  rn.pay_link(s.url + paylink.API_PATH, "x" * 43, timeout=10), (rn.REFUSED, {}))
+        res.check("страница оплаты и renew.url файла — один адрес (правило программы)",
+                  urlsplit(url)[:2], urlsplit(srv_license.renew_url())[:2])
         res.ok("компьютер программы записан во флот", _sql(s, "SELECT clinic_id FROM devices WHERE id='d_0a1b2c3d4e5f'") == [(cid,)])
         path = "/plata/" + url.rsplit("/", 1)[1]
         page = anon.get(path)

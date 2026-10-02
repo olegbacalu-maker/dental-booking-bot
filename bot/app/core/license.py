@@ -34,6 +34,11 @@
 второй раз, а шлёт код на e-mail, записанный у неё, и отвечает `verify_id`;
 директор вводит код, `/v1/verify` отдаёт токен клиники — и дальше то же:
 `license.pending`, запрос файла. Файл из письма — запасной путь без интернета.
+
+Оплата из программы (02.10): «Plătește acum» в баннере и на странице лицензии —
+ссылка в системный браузер на `/plata/<ключ>` программы; та спрашивает у сервера,
+выдавшего файл, страницу оплаты (`/v1/pay-link`), переводит туда браузер и на
+два часа учащает запрос файла, чтобы оплата картой дошла до программы за минуты.
 """
 from __future__ import annotations
 
@@ -42,6 +47,8 @@ import json
 import logging
 import os
 import pathlib
+import secrets
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from .. import db, paths
@@ -97,6 +104,15 @@ RENEWED, RENEW_SAME, RENEW_OFFLINE, RENEW_REFUSED, RENEW_BAD, RENEW_NONE = (
 RENEW_CODES = {RENEWED: "license_renewed", RENEW_SAME: "license_renew_same",
                RENEW_OFFLINE: "license_renew_offline", RENEW_REFUSED: "license_renew_refused",
                RENEW_BAD: "license_renew_bad", RENEW_NONE: "license_renew_none"}
+# «Plătește acum» (02.10): страница оплаты у ТОГО ЖЕ сервера, что выдал файл
+# (origin `renew.url` + PAY_PATH), — токен не уходит туда, куда не уходит
+# суточный запрос. Ответ принимается, только если ведёт на его же PAY_PAGE:
+# иначе программа отправила бы браузер клиники по любому адресу из ответа.
+PAY_PATH = "/v1/pay-link"
+PAY_PAGE = "/plata/"
+PAY_WATCH = timedelta(hours=2)        # после нажатия спрашивать файл каждые PENDING_EVERY
+PAY_TICKET_TTL = timedelta(hours=2)   # ключ ссылки «Plătește acum» в странице программы
+PAY_OK, PAY_NONE, PAY_OFFLINE, PAY_REFUSED = "ok", "none", "offline", "refused"
 
 _dir: pathlib.Path | None = None
 _result: tuple[str, object | None] | None = None
@@ -112,6 +128,8 @@ _wake: asyncio.Event | None = None          # будит суточный цик
 # Последняя заявка этого процесса — для страницы: что написал сервер при отказе,
 # что вписал директор (форма заполняется заново), скрыта ли ждавшая заявка
 _request: dict = {"text": "", "fields": {}, "declined": False, "verify_id": ""}
+_pay: dict = {"until": None}           # частый опрос после «Plătește acum» — до этого момента
+_tickets: dict[str, datetime] = {}     # ключи ссылки «Plătește acum» → срок
 
 
 def folder() -> pathlib.Path | None:
@@ -448,6 +466,94 @@ def last_renew() -> dict:
     return dict(_renew)
 
 
+# ---------- оплата из программы (02.10) ----------
+
+
+def pay_endpoint() -> tuple[str, str] | None:
+    """(адрес /v1/pay-link, токен) у сервера, выдавшего файл, или None: файла с
+    `renew` нет. Адрес — origin `renew.url`: подпись файла заверяет его так же,
+    как адрес суточного запроса."""
+    t = renew_target()
+    if t is None:
+        return None
+    u = urllib.parse.urlsplit(t[0])
+    url = f"{u.scheme}://{u.netloc}{PAY_PATH}"
+    return (url, t[1]) if rsa_verify.renew_url_ok(url) else None
+
+
+def pay_available() -> bool:
+    """Есть ли кому платить: лицензия применяется, и файл знает свой сервер."""
+    return applies() and pay_endpoint() is not None
+
+
+def pay_ticket() -> str:
+    """Ключ ссылки «Plătește acum» для страницы, которую рисуют директору.
+
+    ⭐ Зачем ключ: ссылка уходит в СИСТЕМНЫЙ браузер (target=_blank — окно
+    программы отдаёт ему новые окна), а у того нет куки входа: вход в окне
+    программы и в браузере разный. Маршрут `/plata/<ключ>` поэтому без входа,
+    и пропуском служит ключ — его видит только тот, кому нарисовали кнопку.
+    Один живой ключ на процесс: страница рисуется часто, копить ключи незачем;
+    отдаётся ключ, у которого впереди больше половины срока, чтобы открытая
+    страница не держала почти истёкший."""
+    now = _now()
+    for k in [k for k, until in _tickets.items() if until <= now]:
+        del _tickets[k]
+    for k, until in _tickets.items():
+        if until - now > PAY_TICKET_TTL / 2:
+            return k
+    k = secrets.token_urlsafe(18)
+    _tickets[k] = now + PAY_TICKET_TTL
+    return k
+
+
+def pay_ticket_ok(key: str) -> bool:
+    until = _tickets.get(key or "")
+    return until is not None and until > _now()
+
+
+def _pay_page_ok(page, endpoint: str) -> bool:
+    """Адрес из ответа сервера — его же страница оплаты, и ничего другого."""
+    if not isinstance(page, str) or len(page) > 300:
+        return False
+    a, b = urllib.parse.urlsplit(page), urllib.parse.urlsplit(endpoint)
+    return ((a.scheme, a.netloc) == (b.scheme, b.netloc) and a.path.startswith(PAY_PAGE)
+            and len(a.path) > len(PAY_PAGE) and not a.query and not a.fragment)
+
+
+def paying() -> datetime | None:
+    """До какого момента программа спрашивает файл часто после «Plătește acum»;
+    None — не спрашивает (не нажимали, срок вышел или новый файл уже пришёл)."""
+    u = _pay["until"]
+    return u if u is not None and _now() < u else None
+
+
+async def pay_link() -> tuple[str, str]:
+    """«Plătește acum»: страница оплаты у сервера лицензий → (PAY_*, адрес или '').
+
+    Удача заводит частый опрос на PAY_WATCH: оплата картой продлевает срок за
+    минуты, и программа подхватывает новый файл сама, не дожидаясь суточного
+    запроса (тот же приём, что у заявки, — PENDING_EVERY). Перевод идёт дольше:
+    его подхватит суточный запрос или «Verifică acum»."""
+    ep = pay_endpoint()
+    if ep is None or not applies():
+        return PAY_NONE, ""
+    url, token = ep
+    outcome, data = await asyncio.to_thread(rn.pay_link, url, token, RENEW_TIMEOUT, _agent(),
+                                            identity())
+    if outcome == rn.REFUSED:
+        result, page = PAY_REFUSED, ""
+    elif outcome == rn.ACCEPTED and _pay_page_ok(data.get("url"), url):
+        result, page = PAY_OK, data["url"]
+        _pay["until"] = _now() + PAY_WATCH
+        wake()
+    else:
+        result, page = PAY_OFFLINE, ""
+    # ⚠️ ASCII, как в _log: строку ищет тест в логе сервера на Windows
+    log.warning("license: pay=%s", result)
+    return result, page
+
+
 def _agent() -> str:
     from .. import engine as eng   # как в folder(): на уровне модуля замкнул бы круг
     return f"DentPilot/{eng.APP_VERSION}"
@@ -529,6 +635,7 @@ async def renew_once() -> str:
                     result = RENEW_BAD
                 else:
                     result = RENEWED
+                    _pay["until"] = None     # оплата дошла: частый опрос своё отработал
                     until = s.claim.valid_until.strftime('%d.%m.%Y')
                     if pend is not None:
                         # первая активация по заявке: договор принял тот, кто её отправил
@@ -566,8 +673,9 @@ def _pending_every() -> float:
 
 
 async def _renew_loop() -> None:
-    """Раз в сутки — или каждые PENDING_EVERY, пока заявка ждёт файла. `wake()`
-    прерывает сон: заявка, отправленная посреди суток, не ждёт следующих."""
+    """Раз в сутки — или каждые PENDING_EVERY, пока заявка ждёт файла или идёт
+    оплата (`paying`). `wake()` прерывает сон: заявка, отправленная посреди
+    суток, и нажатая «Plătește acum» не ждут следующих."""
     global _wake
     _wake = asyncio.Event()
     while True:
@@ -576,8 +684,9 @@ async def _renew_loop() -> None:
         except Exception as e:  # noqa: BLE001 — фон не имеет права умереть
             log.warning("license: renew failed: %r", e)
         _wake.clear()
-        wait = (_pending_every() if renew_target() is None and pending() is not None
-                else RENEW_EVERY.total_seconds())
+        # часто — пока заявка ждёт файла или после «Plătește acum» (PAY_WATCH)
+        often = (renew_target() is None and pending() is not None) or paying() is not None
+        wait = _pending_every() if often else RENEW_EVERY.total_seconds()
         try:
             await asyncio.wait_for(_wake.wait(), timeout=wait)
         except asyncio.TimeoutError:
@@ -604,11 +713,13 @@ def as_json() -> dict:
     if renew_target() is not None:
         renew = {"at": st.fmt(_renew["at"]) if _renew["at"] else None,
                  "outcome": _renew["outcome"], "seq": _renew["seq"]}
+    watch = paying()
     return {"applies": True, "state": s.state, "code": s.code, "wall": s.wall,
             "valid_until": st.fmt(s.valid_until) if s.valid_until else None,
             "grace_until": st.fmt(s.grace_until) if s.grace_until else None,
             "clinic": c.clinic if c else "", "plan": c.plan if c else "",
-            "seq": _mem.accepted_seq, "renew": renew}
+            "seq": _mem.accepted_seq, "renew": renew,
+            "pay": pay_available(), "paying_until": st.fmt(watch) if watch else None}
 
 
 def current() -> st.Status | None:

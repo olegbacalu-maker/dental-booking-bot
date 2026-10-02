@@ -41,7 +41,7 @@ from .core import dbkey, demo, theme
 from .core import license as lic
 from .core.api import api_guard
 from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
-                          fonts_css, license_page, msg_json, standalone,
+                          fonts_css, license_page, license_pay_page, msg_json, standalone,
                           tg_configured)
 from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
@@ -574,6 +574,25 @@ async def license_renew(request: Request) -> Response:
     if outcome == lic.RENEWED:
         return RedirectResponse("/admin?msg=license_renewed", status_code=303)
     return RedirectResponse(f"/admin/license?msg={lic.RENEW_CODES[outcome]}", status_code=303)
+
+
+@app.get("/plata/{ticket}")
+async def license_pay(ticket: str) -> Response:
+    """«Plătește acum» (02.10): ссылка из баннера и со страницы лицензии.
+
+    ⭐ Приходит СИСТЕМНЫМ браузером и без куки входа: окно программы отдаёт
+    target=_blank браузеру Windows, а вход у них разный. Поэтому маршрут вне
+    /admin и без `_guard` — пропуском служит ключ в адресе (`lic.pay_ticket`),
+    который рисуют только директору. Отсюда — запрос страницы оплаты у сервера,
+    выдавшего файл, и переход туда; неудача — страница словами в том же браузере.
+    ⚠️ GET меняет только частоту запроса файла, а у сервера заводит (или отдаёт
+    ту же) ссылку на сутки: ни денег, ни данных клиники он не трогает."""
+    if not lic.applies() or not lic.pay_ticket_ok(ticket):
+        return HTMLResponse(license_pay_page("ticket"), status_code=404)
+    outcome, url = await lic.pay_link()
+    if outcome == lic.PAY_OK:
+        return RedirectResponse(url, status_code=303)
+    return HTMLResponse(license_pay_page(outcome), status_code=503)
 
 
 @app.get("/api/license")

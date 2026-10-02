@@ -24,6 +24,11 @@
 повтор, лимит), программа показывает их как есть; остальное — «сервера нет».
 Повтор несёт `verify_id`: код ушёл на e-mail клиники, и третий провод —
 `/v1/verify` — меняет код на тот же токен.
+
+Четвёртый (02.10) — «Plătește acum»: POST на `/v1/pay-link` с тем же Bearer,
+что у суточного запроса файла. 200 с `ok` — адрес страницы оплаты `/plata/<id>`
+и срок её жизни (проверяет адрес license.py); 401/403 — токен не признан;
+остальное — «сервера нет». Тела запрос не несёт: клинику сервер знает по токену.
 """
 from __future__ import annotations
 
@@ -105,6 +110,24 @@ def verify_code(url: str, verify_id: str, code: str, timeout: float = TIMEOUT,
                 agent: str = "DentPilot", extra: dict | None = None) -> tuple[str, dict]:
     """Код из письма: POST JSON на `url` (/v1/verify). Исходы — как у заявки."""
     return _post_json(url, {"verify_id": verify_id, "code": code}, timeout, agent, extra)
+
+
+def pay_link(url: str, token: str, timeout: float = TIMEOUT, agent: str = "DentPilot",
+             extra: dict | None = None) -> tuple[str, dict]:
+    """Ссылка на оплату (02.10): POST на `url` (/v1/pay-link) с Bearer-токеном файла.
+    Возвращает (исход, ответ) и не бросает: ACCEPTED — {url, expires_at}, адрес
+    проверяет вызывающий; REFUSED — 401/403; OFFLINE — всё остальное."""
+    try:
+        req = urllib.request.Request(url, data=b"{}", method="POST", headers={
+            "Authorization": f"Bearer {token}", "Content-Type": "application/json",
+            "Accept": "application/json", "User-Agent": agent, **(extra or {})})
+        with _opener.open(req, timeout=timeout) as r:
+            data = _json(r.read(MAX_BODY + 1))
+            return (ACCEPTED, data) if r.status == 200 and data.get("ok") is True else (OFFLINE, {})
+    except urllib.error.HTTPError as e:
+        return (REFUSED if e.code in (401, 403) else OFFLINE), {}
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
+        return OFFLINE, {}
 
 
 def _post_json(url: str, payload: dict, timeout: float, agent: str,

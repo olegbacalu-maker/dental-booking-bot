@@ -257,6 +257,29 @@ def entries() -> list[dict]:
            f"{p}Nu e nevoie de o copie de rezervă specială înainte de "
            f"actualizare — dar o copie recentă e oricum o idee bună.{end}"),
 
+        # ⚠️ Слова кнопок — те, что на экранах: «Plătește acum» (баннер, страница
+        # лицензии), плитка «Licența», «Verifică acum dacă există un termen nou»;
+        # подписи страницы оплаты — cloud/app/views.py (pay_link_page). Карта
+        # появляется на той странице только с договором maib — отсюда «dacă».
+        _q("card", "Cum plătesc abonamentul?",
+           f"{p}Din program: <b>Setări › Licența</b> și butonul <b>Plătește acum</b> — "
+           f"același buton apare și în bannerul de sus când abonamentul a expirat. Pagina "
+           f"de plată se deschide în browser, cu datele clinicii deja completate: alegeți "
+           f"perioada (o lună sau un an) și modul de plată.{end}"
+           f"{p}<b>Transfer bancar</b> — primiți nota de plată pe e-mail, cu referința ei "
+           f"(DP-…), pe care o treceți în ordinul de plată. Dacă pagina afișează "
+           f"<b>Plătește cu cardul</b>, puteți achita imediat cu cardul.{end}"
+           f"{p}Termenul nou ajunge în program singur: după «Plătește acum» programul "
+           f"verifică plata la fiecare minut timp de două ore, apoi o dată pe zi. Plata "
+           f"prin transfer se confirmă când banii ajung în contul DentPilot; ca să "
+           f"verificați imediat, apăsați <b>Verifică acum dacă există un termen nou</b> "
+           f"pe pagina licenței.{end}"
+           f"{p}Dacă abonamentul a expirat, programul lucrează în continuare până la data "
+           f"din banner, apoi trece în regim de citire: datele se pot consulta, tipări și "
+           f"exporta, iar copia de rezervă funcționează; programări și înregistrări noi se "
+           f"pot face din nou imediat după plată. Întrebări: "
+           f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.{end}"),
+
         _q("key", "Am uitat parola de intrare — ce fac?",
            f"{p}Dacă în clinică există alt <b>director</b>, el poate seta o "
            f"parolă nouă pentru oricine: <b>Setări › Securitate și "

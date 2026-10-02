@@ -73,6 +73,7 @@ import test_restart  # noqa: E402
 import test_panel_model  # noqa: E402
 import test_patient_card  # noqa: E402
 import test_patients_api  # noqa: E402
+import test_paylink  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
 import test_stats_api  # noqa: E402
@@ -130,6 +131,9 @@ SUITES = [
     ("Лицензия: автообновление — кнопка «Verifică acum»", test_license_renew.suite_button),
     ("Лицензия: активация без файла — заявка, ожидание, файл сам", test_license_renew.suite_request),
     ("Лицензия: новый компьютер той же клиники — код на e-mail", test_license_renew.suite_code),
+    ("Лицензия: «Plătește acum» — провод к /v1/pay-link", test_paylink.suite_wire),
+    ("Лицензия: «Plătește acum» — ключ, страница оплаты, новый срок сам", test_paylink.suite_pay),
+    ("Лицензия: «Plătește acum» — платить некому: ссылки нет", test_paylink.suite_off),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),

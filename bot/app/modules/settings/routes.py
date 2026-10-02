@@ -41,6 +41,7 @@ from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
                             react_shell, shell_model, react_on, _shell, standalone,
                             tg_configured, tg_refresh_meta, tg_status)
 from ...core import bitlocker, dbkey, demo, theme
+from ...core import license as lic
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
@@ -212,7 +213,8 @@ def _sec_react(screen: str, path: str, sub: str, msg: str,
 HUB_GROUPS = [("general", "General"), ("programari", "Programări"),
               ("medici", "Medici"), ("date", "Date și rețea"),
               ("securitate", "Securitate"), ("ajutor", "Ajutor")]
-HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/settings/clinic": "general",
+HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general",
+                "/admin/settings/clinic": "general",
                 "/admin/settings/theme": "general", "/admin/settings/hours": "programari",
                 "/admin/settings/services": "programari",
                 "/admin/settings/telegram": "programari", "/admin/medici": "medici",
@@ -225,6 +227,22 @@ def hub_groups(tiles: list[dict]) -> list[dict]:
     """Плитки по группам в порядке HUB_GROUPS; пустые группы выпадают."""
     return [{"key": k, "label": label, "tiles": [t for t in tiles if t["group"] == k]}
             for k, label in HUB_GROUPS if any(t["group"] == k for t in tiles)]
+
+
+def _lic_hint(s) -> list[dict]:
+    """Строка плитки «Licența» (02.10): срок словами страницы лицензии; при
+    льготе и чтении — тоном смысла, как баннер. Считает сервер, как у всех плиток."""
+    def d(x) -> str:
+        return x.astimezone(eng.TZ).strftime("%d.%m.%Y")
+    if s.claim is None:
+        return [{"t": "neactivată"}]
+    if s.state == lic.st.ACTIVE:
+        what = "perioadă de probă" if s.claim.plan == "trial" else "activă"
+        return [{"icon": "check", "t": f"{what} până la {d(s.valid_until)}"}]
+    if s.state == lic.st.GRACE:
+        return [{"icon": "sos", "t": f"expirată · funcționează până la {d(s.grace_until)}",
+                 "tone": "amber"}]
+    return [{"icon": "ban", "t": "regim de citire — Plătește acum", "tone": "red"}]
 
 
 def _lan_available() -> bool:
@@ -279,6 +297,11 @@ def _hub_tiles() -> list[dict]:
                   [{"t": f"{len(cfg['services'])} servicii"}]),
              tile("/admin/medici", "med", "b", "Medici",
                   [{"t": f"{n_docs} activi · se editează în secțiunea Medici"}])]
+    # Licența (02.10): срок и «Plătește acum» — на странице лицензии, плитка ведёт
+    # туда. Только где лицензия применяется (`lic.applies`): у песочницы, демо и
+    # облака срока нет, и плитка обещала бы пустую страницу.
+    if (ls := lic.current()) is not None and lic.applies():
+        tiles.insert(1, tile("/admin/license", "key", "g", "Licența", _lic_hint(ls)))
     if _lan_available():
         # Telegram заморожен (08-08): плитку видят только клиники с уже
         # настроенным токеном — grandfather, как секция в сайдбаре.

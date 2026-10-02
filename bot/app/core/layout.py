@@ -800,6 +800,14 @@ def _license_banner() -> str:
     if s.state == lic.st.GRACE and me is not None and not can(me, PERM_SETTINGS):
         return ""
     link = "<a href='/admin/license'>Licență</a>"
+    # «Plătește acum» (02.10) — директору, когда у файла есть свой сервер:
+    # ссылка в системный браузер с ключом (`lic.pay_ticket`, см. маршрут /plata)
+    pay = (s.claim is not None and lic.pay_available()
+           and me is not None and can(me, PERM_SETTINGS))
+    act = "achitați abonamentul" if pay else "activați abonamentul"
+    if pay:
+        link = (f"<a href='/plata/{lic.pay_ticket()}' target='_blank' rel='noopener'>"
+                f"Plătește acum</a> · {link}")
     if s.claim is None:
         head = f"Licența {'lipsește' if not s.code else _lic_why(s.code)}."
         until = (f" Programul funcționează încă până la {_lic_date(s.grace_until)}"
@@ -809,11 +817,11 @@ def _license_banner() -> str:
     elif s.state == lic.st.GRACE:
         text = (f"Abonamentul a expirat la {_lic_date(s.valid_until)}. Programul "
                 f"funcționează încă până la {_lic_date(s.grace_until)}; pentru a continua "
-                f"fără întrerupere, activați abonamentul — {link}.")
+                f"fără întrerupere, {act} — {link}.")
     else:
         text = (f"Programul este în regim de citire: abonamentul a expirat la "
                 f"{_lic_date(s.valid_until)}. Datele se pot consulta, tipări și exporta; "
-                f"pentru a continua lucrul, activați abonamentul — {link}.")
+                f"pentru a continua lucrul, {act} — {link}.")
     cls = "warn" if s.state == lic.st.GRACE else "err"
     return f"<div class='banner {cls}' style='margin-bottom:14px'>{_ic('key')} {text}</div>"
 
@@ -1701,6 +1709,8 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
  .terms input{width:auto;margin:3px 0 0;padding:0;flex:none}
  details>summary{cursor:pointer;font-size:13.5px;color:#5A6875}
  details[open]>summary{margin-bottom:12px}
+ a.pay{display:flex;align-items:center;justify-content:center;background:__ACCENT__;color:__ON__;
+       border-radius:12px;height:44px;font-size:15px;font-weight:600;text-decoration:none}
 </style></head><body>
 <div class="box">
   <h1>__ICON__ __TITLE__</h1>
@@ -1777,6 +1787,48 @@ def _pending_text(p: dict) -> str:
             f"lucrătoare; pagina se actualizează singură.")
 
 
+def _pay_block() -> str:
+    """«Plătește acum» на странице лицензии (02.10): ссылка в системный браузер
+    (target=_blank), где у программы нет входа, — поэтому с ключом
+    (`lic.pay_ticket`). Пока после нажатия идёт частый запрос файла — строка об
+    этом, а страница обновляется сама: новый срок появится без кнопок."""
+    if not lic.pay_available():
+        return ""
+    watch = lic.paying()
+    note = (f"<p>Programul verifică plata la fiecare minut până la "
+            f"{watch.astimezone(eng.TZ):%H:%M}; noul termen apare aici singur.</p>" if watch else
+            "<p>Pagina de plată se deschide în browser, cu datele clinicii deja completate: "
+            "alegeți perioada (o lună sau un an) și modul de plată.</p>")
+    return (f"<a class='pay' href='/plata/{lic.pay_ticket()}' target='_blank' rel='noopener'>"
+            f"Plătește acum</a>{note}")
+
+
+# Страница-ответ маршрута /plata, когда до страницы оплаты дойти не вышло. Её
+# видит СИСТЕМНЫЙ браузер, где у программы нет входа, — поэтому ни ссылки «в
+# журнал», ни кнопок: что случилось и что сделать в окне программы.
+_PAY_FAIL = {
+    "ticket": ("Linkul de plată a expirat",
+               "Deschideți din nou «Plătește acum» în program: pe pagina Licență sau în bannerul de sus."),
+    lic.PAY_NONE: ("Plata din program nu este disponibilă",
+                   "Licența de pe acest calculator nu are un server de reînnoire. Scrieți-ne — "
+                   "vă trimitem nota de plată."),
+    lic.PAY_OFFLINE: ("Serverul DentPilot nu a răspuns",
+                      "Verificați conexiunea la internet și apăsați din nou «Plătește acum» în program."),
+    lic.PAY_REFUSED: ("Serverul DentPilot nu a recunoscut licența",
+                      "Licența acestui calculator nu este recunoscută de serverul DentPilot. "
+                      "Scrieți-ne — vă ajutăm să achitați abonamentul."),
+}
+
+
+def license_pay_page(code: str) -> str:
+    title, text = _PAY_FAIL.get(code, _PAY_FAIL[lic.PAY_OFFLINE])
+    return (standalone(LICENSE_TMPL)
+            .replace("__REFRESH__", "").replace("__TITLE__", title).replace("__TONE__", "bad")
+            .replace("__TEXT__", text).replace("__DETAILS__", "").replace("__ERR__", "")
+            .replace("__FORM__", "<p>Puteți închide această filă.</p>").replace("__BACK__", "")
+            .replace("__EMAIL__", FEEDBACK_EMAIL).replace("__PHONE__", SUPPORT_PHONE))
+
+
 def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
     """Страница активации по текущему состоянию. `msg` — код из MSG_BANNER после
     303 (отказ импорта или заявки); текст берётся оттуда же, как у всех отказов.
@@ -1796,10 +1848,14 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
                              "cheie de emitere.")
     elif s.claim is not None:
         c = s.claim
+        pay = _pay_block() if director else ""
         details = (f"<dl><dt>Clinica</dt><dd>{html.escape(c.clinic)}</dd>"
                    f"<dt>Abonament</dt><dd>{html.escape(c.plan)}</dd>"
                    f"<dt>Valabil până la</dt><dd>{_lic_date(c.valid_until)}</dd>"
                    f"<dt>Licența</dt><dd>nr. {c.seq}</dd></dl>" + _renew_line(director))
+        # при льготе и чтении оплата — главное действие страницы, при активной —
+        # продление заранее, после срока и «Verifică acum»
+        details = (pay + details) if s.state != lic.st.ACTIVE else (details + pay)
         if s.state == lic.st.ACTIVE:
             title, tone, text = "Licența programului", "ok", "Abonamentul este activ."
         elif s.state == lic.st.GRACE:
@@ -1850,7 +1906,10 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
     else:
         form = ""                      # лицензия есть: срок и кнопка «Verifică acum» — в _renew_line
     back = "" if walled else "<p><a href='/admin'>Înapoi la registru</a></p>"
-    refresh = "<meta http-equiv='refresh' content='30'>" if pend is not None else ""
+    # самообновление — пока ждёт заявка или после «Plătește acum» идёт частый
+    # запрос файла: новый срок появится на странице без кнопок
+    refresh = ("<meta http-equiv='refresh' content='30'>"
+               if pend is not None or lic.paying() is not None else "")
     return (standalone(LICENSE_TMPL)
             .replace("__REFRESH__", refresh)
             .replace("__TITLE__", title).replace("__TONE__", tone)

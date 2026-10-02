@@ -66,7 +66,7 @@ class Stand:
     def __init__(self):
         self.reply = {"status": 204, "body": "", "delay": 0.0}
         self.requests: list[dict] = []
-        self.post_replies: dict[str, dict] = {}          # путь → ответ: /v1/trial, /v1/verify (26.09)
+        self.post_replies: dict[str, dict] = {}          # путь → ответ: /v1/trial, /v1/verify, /v1/pay-link
         self.posts: list[dict] = []
         stand = self
 
@@ -99,7 +99,10 @@ class Stand:
                 except ValueError:
                     sent = None
                 stand.posts.append({"path": self.path, "json": sent,
-                                    "type": self.headers.get("Content-Type", "")})
+                                    "type": self.headers.get("Content-Type", ""),
+                                    "auth": self.headers.get("Authorization", ""),
+                                    "agent": self.headers.get("User-Agent", ""),
+                                    "device": self.headers.get("X-DentPilot-Device", "")})
                 r = stand.post_replies.get(self.path, {"status": 404, "body": ""})
                 body = r["body"].encode("utf-8")
                 self.send_response(r["status"])
