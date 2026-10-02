@@ -525,18 +525,68 @@ _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", 
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
             "readonly": ("bad", "regim de citire"), "none": ("mute", "fără fișier")}
 PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
+# Кабинет — в стиле САЙТА dentpilot.md (слово Олега 02.10: «немного дизайном
+# страницы регистрации»): тот же Inter с сайта (шрифты отдаются с CORS *), та же
+# бирюза, карточки с мягкой тенью, липкая шапка с логотипом. Админка остаётся на
+# _CSS — это инструмент одного человека. Телефон — первым: директор откроет
+# кабинет с телефона чаще, чем с ПК.
 _CONT_CSS = """
-.cbar{background:#0B2B26;color:#fff;padding:12px 24px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-.cbar a{color:#BFEFE6;text-decoration:none;font-weight:600}.cbar form{margin-left:auto}
-.cbar button{background:none;border:1px solid #BFEFE6;color:#BFEFE6;border-radius:8px;padding:4px 10px;cursor:pointer}
-.cwrap{max-width:860px;margin:0 auto;padding:24px 16px 48px}
-a.btn{display:inline-block;background:#0E9F8A;color:#fff;border-radius:9px;padding:10px 16px;font-weight:600;text-decoration:none}
-a.btn.second,a.gbtn{background:#fff;color:#16232B;border:1px solid #D8E2DF}
-a.gbtn{display:inline-flex;align-items:center;gap:10px;border-radius:9px;padding:10px 16px;font-weight:600;text-decoration:none}
-pre.pay{background:#F4F9F8;border:1px solid #E6EDEB;border-radius:10px;padding:12px 14px;font:inherit;white-space:pre-wrap;margin:8px 0}
-label.chk{display:flex;gap:8px;align-items:flex-start;color:#16232B;font-size:14px}label.chk input{width:auto;margin-top:3px}
-.lic{font-size:16px}.foot{font-size:13px;color:#7C8B91;margin-top:24px}
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('https://dentpilot.md/fonts/inter-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('https://dentpilot.md/fonts/inter-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+:root{--ink:#16232B;--muted:#5B6B72;--line:#E6EDEB;--teal:#0E9F8A;--teal-d:#0B7F70;--teal-soft:#E9F6F3;--bg:#F6F9F8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--teal-d)}
+.top{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.top-in{max-width:960px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;gap:14px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-weight:700;font-size:16px}
+.logo .ic{width:28px;height:28px;border-radius:8px;background:var(--teal);display:inline-flex;align-items:center;justify-content:center}
+.logo .sub{font-weight:500;color:var(--muted);font-size:14px}
+.top form{margin-left:auto;margin-bottom:0}
+.top form button{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:7px 12px;font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;max-width:48vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrap{max-width:960px;margin:0 auto;padding:36px 20px 64px}
+h1{font-size:clamp(24px,3.4vw,30px);letter-spacing:-.02em;margin:0 0 6px}
+.lead{color:var(--muted);font-size:16px;line-height:1.55;margin:0 0 22px;max-width:46em}
+h2{font-size:17px;margin:28px 0 10px}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-bottom:16px;box-shadow:0 2px 6px rgba(11,43,38,.05),0 24px 60px -16px rgba(11,43,38,.10)}
+.card h2:first-child,.card p:first-child{margin-top:0}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 5px;font-weight:500}
+input,select{font:inherit;font-size:15px;padding:11px 13px;border:1px solid #D8E2DF;border-radius:10px;width:100%;background:#fff;color:var(--ink)}
+input:focus,select:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.18)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 20px}
+button.primary,a.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;background:var(--teal);color:#fff;border:1px solid var(--teal);border-radius:10px;padding:13px 24px;font:inherit;font-size:15.5px;font-weight:600;cursor:pointer;text-decoration:none}
+button.primary:hover,a.btn:hover{background:var(--teal-d);border-color:var(--teal-d);color:#fff}
+a.btn.second{background:#fff;color:var(--ink);border-color:#D8E2DF}a.btn.second:hover{background:var(--teal-soft);color:var(--teal-d);border-color:var(--teal)}
+button:not(.primary){background:#fff;border:1px solid #D8E2DF;color:var(--ink);border-radius:10px;padding:10px 16px;font:inherit;font-size:14.5px;font-weight:500;cursor:pointer}
+a.gbtn{display:inline-flex;align-items:center;justify-content:center;gap:12px;background:#fff;color:var(--ink);border:1px solid #D8E2DF;border-radius:10px;padding:13px 24px;font-size:15.5px;font-weight:600;text-decoration:none;width:100%;max-width:380px;box-shadow:0 1px 2px rgba(11,43,38,.06)}
+a.gbtn:hover{border-color:var(--teal);color:var(--teal-d)}
+.banner{padding:12px 16px;border-radius:12px;margin:0 0 18px;font-size:14.5px}
+.banner.ok{background:#ECFDF5;color:#065F46}.banner.err{background:#FEF2F2;color:#B91C1C}
+.tag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12.5px;font-weight:600;vertical-align:middle}
+.tag.ok{background:#ECFDF5;color:#065F46}.tag.warn{background:#FFFBEB;color:#B45309}.tag.bad{background:#FEF2F2;color:#B91C1C}.tag.mute{background:#EEF2F1;color:#5B6B72}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:13px}.muted{color:var(--muted);font-size:14px;line-height:1.5}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:9px 10px;border-bottom:1px solid #EEF2F1;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em}
+pre.pay{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font:inherit;white-space:pre-wrap;margin:10px 0}
+label.chk{display:flex;gap:10px;align-items:flex-start;color:var(--ink);font-size:14.5px;font-weight:400;margin:14px 0 4px}
+label.chk input{width:auto;margin-top:3px}
+.lic{font-size:16.5px;line-height:1.5}.foot{font-size:13px;color:#7C8B91;margin-top:28px;border-top:1px solid var(--line);padding-top:16px;line-height:1.6}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
+.perks{list-style:none;padding:0;margin:0}.perks li{display:flex;gap:10px;align-items:flex-start;font-size:14.5px;line-height:1.45;margin:0 0 10px}
+.perks svg{flex:none;margin-top:2px}.chip{display:inline-block;background:var(--teal-soft);color:var(--teal-d);border-radius:999px;padding:5px 12px;font-size:13.5px;font-weight:600}
+.narrow{max-width:560px}
+@media (max-width:720px){.hero{grid-template-columns:1fr}.wrap{padding:22px 16px 44px}.top-in{padding:0 16px}.logo .sub{display:none}.card{padding:18px 16px;border-radius:14px}button.primary,a.btn,a.gbtn{width:100%;max-width:none}}
 """
+_TOOTH = ("<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='#FFFFFF' stroke-width='1.8' "
+          "stroke-linecap='round' stroke-linejoin='round'><path d='M8.2 3.8C5.9 3.8 4 5.7 4 8.2c0 1.9.8 3.2 1.4 4.7.7 "
+          "1.7 1 4.4 1.8 6.6.3.9 1.5.9 1.8 0 .6-1.9.8-4 1.6-5.2.6-.9 1.7-.9 2.3 0 .8 1.2 1 3.3 1.6 5.2.3.9 1.5.9 1.8 0 "
+          ".8-2.2 1.1-4.9 1.8-6.6.6-1.5 1.4-2.8 1.4-4.7 0-2.5-1.9-4.4-4.2-4.4-1.1 0-1.9.5-3.1.5s-2-.5-3.2-.5z'/></svg>")
+_CHECK = ("<svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='#0E9F8A' stroke-width='2.2' "
+          "stroke-linecap='round' stroke-linejoin='round'><path d='M5 12.5l4.5 4.5L19 7'/></svg>")
+
+
+def _perks(items: list[str]) -> str:
+    return "<ul class='perks'>" + "".join(f"<li>{_CHECK}<span>{t}</span></li>" for t in items) + "</ul>"
 _G = ("<svg width='18' height='18' viewBox='0 0 48 48' aria-hidden='true'>"
       "<path fill='#EA4335' d='M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.7 17.7 9.5 24 9.5z'/>"
       "<path fill='#4285F4' d='M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 2.9-2.2 5.4-4.7 7.1l7.6 5.9c4.4-4.1 6.9-10.1 6.9-17.5z'/>"
@@ -555,42 +605,59 @@ def _ro(s: str | None) -> str:
     return f"{s[8:10]}.{s[5:7]}.{s[0:4]}"
 
 
-def _cont_shell(title: str, inner: str, acc=None, msg: str = "") -> str:
+def _cont_shell(title: str, inner: str, acc=None, msg: str = "", lead: str = "") -> str:
     site = config.SITE_URL.rstrip("/")
     banner = ""
     if msg:
         banner = f"<div class='banner {'ok' if msg in _CONT_OK else 'err'}'>{esc(cont_text(msg))}</div>"
-    bar = (f"<div class='cbar'><a href='/cont'>DentPilot · Contul clinicii</a>"
-           f"<a href='{esc(site)}'>dentpilot.md</a>"
-           + (f"<form method='post' action='/cont/iesire'><button>Ieșire · {esc(acc['email'])}</button></form>"
-              if acc is not None else "") + "</div>")
+    bar = (f"<div class='top'><div class='top-in'><a class='logo' href='/cont'><span class='ic'>{_TOOTH}</span>"
+           f"DentPilot <span class='sub'>· Contul clinicii</span></a>"
+           + (f"<form method='post' action='/cont/iesire'><button title='{esc(acc['email'])}'>Ieșire · "
+              f"{esc(acc['email'])}</button></form>" if acc is not None else
+              f"<a class='sub' href='{esc(site)}' style='margin-left:auto;text-decoration:none;color:#5B6B72;"
+              f"font-size:14px;font-weight:500'>dentpilot.md</a>")
+           + "</div></div>")
     foot = (f"<p class='foot'><a href='{esc(site)}/termeni.html'>Termeni și condiții</a> · "
             f"<a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a> · "
-            f"Întrebări: {esc(config.SUPPORT_EMAIL)} · {esc(config.SUPPORT_PHONE)}</p>")
+            f"Întrebări: <a href='mailto:{esc(config.SUPPORT_EMAIL)}'>{esc(config.SUPPORT_EMAIL)}</a> · "
+            f"{esc(config.SUPPORT_PHONE)}</p>")
     return (f"<!doctype html><html lang='ro'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"<meta name='robots' content='noindex'>"
-            f"<title>{esc(title)} — DentPilot</title><style>{_CSS}{_CONT_CSS}</style></head>"
-            f"<body>{bar}<div class='cwrap'><h1>{esc(title)}</h1>{banner}{inner}{foot}</div></body></html>")
+            f"<title>{esc(title)} — DentPilot</title><style>{_CONT_CSS}</style></head>"
+            f"<body>{bar}<div class='wrap'><h1>{esc(title)}</h1>"
+            f"{('<p class=' + chr(39) + 'lead' + chr(39) + '>' + lead + '</p>') if lead else ''}"
+            f"{banner}{inner}{foot}</div></body></html>")
+
+
+_PERKS = [
+    "Perioada de probă — o lună gratuită, fără card și fără obligații",
+    "Programul DentPilot și fișierul de licență, oricând",
+    "Nota de plată pentru abonament, cu datele pentru plată",
+    "Datele clinicii și calculatoarele pe care rulează programul",
+]
 
 
 def cont_login_page(msg: str = "", enabled: bool = True) -> str:
     site = config.SITE_URL.rstrip("/")
     if enabled:
-        entry = (f"<p><a class='gbtn' href='/auth/google'>{_G} Continuați cu Google</a></p>"
+        entry = (f"<p style='margin:18px 0 14px'><a class='gbtn' href='/auth/google'>{_G} Continuați cu Google</a></p>"
                  f"<p class='muted'>Prima dată: după intrare completați datele clinicii și primiți perioada de "
                  f"probă de {mail.zile(license.TRIAL_DAYS)}, fără plată. Clinica deja înregistrată la DentPilot cu "
                  f"același e-mail intră direct în cont.</p>")
     else:
         entry = f"<p class='muted'>{esc(CONT_MSG['google_off'])}</p>"
-    inner = (f"<div class='card'><p>Aici vedeți licența DentPilot a clinicii, descărcați programul și fișierul "
-             f"de licență, comandați nota de plată pentru abonament și vă actualizați datele clinicii. "
-             f"Datele pacienților nu ajung aici niciodată: ele rămân pe calculatorul clinicii.</p>{entry}"
+    inner = (f"<div class='hero'><div class='card'>"
+             f"<p class='lead' style='margin-bottom:0'>Un singur loc pentru licența DentPilot a clinicii: intrați cu "
+             f"contul Google, fără altă parolă.</p>{entry}"
              f"<p class='muted'>Nu aveți cont Google? <a href='/proba'>Trimiteți cererea de probă prin formular</a> "
              f"— fișierul de licență vine pe e-mail.</p>"
              f"<p class='muted'>De la Google primim doar adresa de e-mail, numele și identificatorul contului; "
              f"parola rămâne la Google — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, "
-             f"§ 5.</p></div>")
+             f"§ 5.</p></div>"
+             f"<div class='card'><h2>Ce găsiți în cont</h2>{_perks(_PERKS)}"
+             f"<p class='muted' style='margin-bottom:0'>Datele pacienților nu ajung aici niciodată: ele rămân pe "
+             f"calculatorul clinicii.</p></div></div>")
     return _cont_shell("Contul clinicii", inner, msg=msg)
 
 
@@ -599,20 +666,24 @@ def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
     if not values:
         v["contact_name"] = esc(acc["name"] or "")
     site = config.SITE_URL.rstrip("/")
-    inner = (f"<div class='card'><p>Completați datele clinicii: primiți perioada de probă DentPilot de "
-             f"{mail.zile(license.TRIAL_DAYS)}, fără plată și fără obligații. Fișierul de licență vine pe "
-             f"<b>{esc(acc['email'])}</b> și apare aici, în cont; programul îl descărcați tot de aici.</p>"
-             f"<form method='post' action='/cont/inregistrare'>"
-             f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}'>"
-             f"<label>IDNO (13 cifre, opțional pentru probă)</label><input name='idno' value='{v['idno']}' maxlength='13' inputmode='numeric'>"
-             f"<label>Persoana de contact</label><input name='contact_name' value='{v['contact_name']}' maxlength='{trial.CONTACT_MAX}'>"
-             f"<label>Telefon</label><input name='phone' value='{v['phone']}' maxlength='{trial.PHONE_MAX}'>"
-             f"<label>E-mail</label><div class='mono'>{esc(acc['email'])} <span class='muted'>(contul Google)</span></div>"
-             f"<p><label class='chk'><input type='checkbox' name='consent' value='1'> Am citit și accept "
-             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
-             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
-             f"</label></p><p><button class='primary'>Înregistrez clinica</button></p></form></div>")
-    return _cont_shell("Înregistrarea clinicii", inner, acc, msg)
+    form = (f"<div class='card'><form method='post' action='/cont/inregistrare'>"
+            f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}' autofocus>"
+            f"<div class='grid'><div>"
+            f"<label>IDNO (13 cifre, opțional pentru probă)</label><input name='idno' value='{v['idno']}' maxlength='13' inputmode='numeric'></div>"
+            f"<div><label>Telefon</label><input name='phone' value='{v['phone']}' maxlength='{trial.PHONE_MAX}'></div></div>"
+            f"<div class='grid'><div>"
+            f"<label>Persoana de contact</label><input name='contact_name' value='{v['contact_name']}' maxlength='{trial.CONTACT_MAX}'></div>"
+            f"<div><label>E-mail (contul Google)</label><div style='padding:11px 0'><span class='chip'>{esc(acc['email'])}</span></div></div></div>"
+            f"<label class='chk'><input type='checkbox' name='consent' value='1'> <span>Am citit și accept "
+            f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
+            f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
+            f"</span></label><p style='margin:14px 0 0'><button class='primary'>Înregistrez clinica</button></p></form></div>")
+    aside = (f"<div class='card'><h2>Ce urmează</h2>{_perks(['Fișierul de licență pentru ' + mail.zile(license.TRIAL_DAYS) + ' pleacă pe e-mail și apare aici, în cont', 'Descărcați programul din cont; la prima pornire se activează singur', 'IDNO și adresa le completați oricând — sunt necesare doar pentru abonament'])}"
+             f"<p class='muted' style='margin-bottom:0'>Aveți deja DentPilot pe un calculator al clinicii? "
+             f"Completați aceleași date: trimitem un cod pe e-mailul clinicii și contul se conectează.</p></div>")
+    return _cont_shell("Înregistrarea clinicii", f"<div class='hero'>{form}{aside}</div>", acc, msg,
+                       lead=f"Completați datele clinicii: primiți perioada de probă DentPilot de "
+                            f"{mail.zile(license.TRIAL_DAYS)}, fără plată și fără obligații.")
 
 
 def cont_code_page(acc, vid: str, msg: str = "") -> str:
@@ -620,15 +691,15 @@ def cont_code_page(acc, vid: str, msg: str = "") -> str:
     страница не оракул о том, чей e-mail у клиники; письмо называет Google-ящик
     просителя, чтобы клиника видела, кто стучится."""
     minutes = int(trial.CODE_TTL.total_seconds() // 60)
-    inner = (f"<div class='card'><p>O clinică cu acest IDNO este deja înregistrată la DentPilot. Am trimis un "
+    inner = (f"<div class='card narrow'><p>O clinică cu acest IDNO este deja înregistrată la DentPilot. Am trimis un "
              f"cod de 6 cifre pe e-mailul înregistrat al clinicii: introduceți-l mai jos și contul Google "
              f"<b>{esc(acc['email'])}</b> va fi conectat la clinică. Codul este valabil {minutes} minute.</p>"
              f"<form method='post' action='/cont/inregistrare/cod'>"
              f"<input type='hidden' name='verify_id' value='{esc(vid)}'>"
              f"<label>Codul din e-mail</label><input name='code' inputmode='numeric' maxlength='12' "
-             f"autocomplete='one-time-code' required>"
+             f"autocomplete='one-time-code' required autofocus style='font-size:22px;letter-spacing:.2em;max-width:240px'>"
              f"<p><button class='primary'>Conectează contul</button></p></form>"
-             f"<p class='muted'>Nu aveți acces la e-mailul clinicii? <a href='/cont/inregistrare'>Înapoi la "
+             f"<p class='muted' style='margin-bottom:0'>Nu aveți acces la e-mailul clinicii? <a href='/cont/inregistrare'>Înapoi la "
              f"înregistrare</a> sau scrieți-ne.</p></div>")
     return _cont_shell("Conectarea contului", inner, acc, msg)
 
