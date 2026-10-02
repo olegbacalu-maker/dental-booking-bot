@@ -21,7 +21,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, trial, views
+from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, trial, views
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
@@ -86,6 +86,88 @@ def license_renew(request: Request, seq: int = 0) -> Response:
             return Response(status_code=204)
         db.audit(con, "program", "renew", c["id"], f"файл {row['seq']} забран программой (у неё был {seq})")
     return Response(license.issue_text(row), media_type="application/json")
+
+
+@app.post(paylink.API_PATH)
+def pay_link_api(request: Request) -> Response:
+    """Программа просит ссылку оплаты (02.10): тот же Bearer, что у /v1/license.
+    Ответ — адрес страницы /plata/<id> (сутки); повтор в пределах суток — та же."""
+    token = _bearer(request)
+    if not token:
+        return JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    with db.connect(immediate=True) as con:
+        c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>''",
+                        (token,)).fetchone()
+        if c is None:
+            return JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
+        fleet.touch(con, c["id"], fleet.from_request(request))          # флот: компьютер вышел на связь
+        link = paylink.create(con, c, "program")
+    return JSONResponse({"ok": True, "url": paylink.url_for(link["id"]), "expires_at": link["expires_at"]})
+
+
+@app.get(paylink.PATH + "/{pid}", response_class=HTMLResponse)
+def pay_link_page(pid: str, msg: str = "") -> Response:
+    with db.connect() as con:
+        c = paylink.lookup(con, pid)
+        if c is None:
+            return HTMLResponse(views.pay_link_expired_page(), status_code=410)
+        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+        pending = con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
+                              (c["id"], payments.PENDING)).fetchone()
+    return HTMLResponse(views.pay_link_page(c, sub, pending, pid, msg, card_on=maib.enabled()))
+
+
+@app.post(paylink.PATH + "/{pid}", response_class=HTMLResponse)
+def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method: str = Form(payments.TRANSFER),
+                    idno: str = Form("")) -> Response:
+    """Со страницы оплаты: нота на выбранный срок (та же, что из админки и кабинета,
+    одна ожидающая на клинику) — картой сразу на страницу maib, переводом — нота с
+    реквизитами здесь и письмом. IDNO без него абонемента не бывает — заполняется тут же."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    ip = _ip(request)
+    back = f"{paylink.PATH}/{pid}"
+    if paylink.limited(ip):
+        return RedirectResponse(f"{back}?msg=limited", status_code=303)
+    try:
+        m = int(months)
+    except ValueError:
+        m = 0
+    idno = "".join(idno.split())
+    card = method == payments.CARD and maib.enabled()
+    with db.connect(immediate=True) as con:
+        c = paylink.lookup(con, pid)
+        if c is None:
+            return HTMLResponse(views.pay_link_expired_page(), status_code=410)
+        if m not in payments.MONTHS:
+            return RedirectResponse(f"{back}?msg=bad_months", status_code=303)
+        if idno and idno != (c["idno"] or ""):
+            if not trial.IDNO_RE.match(idno):
+                return RedirectResponse(f"{back}?msg=bad_idno", status_code=303)
+            if account.idno_taken(con, idno, c["id"]):
+                return RedirectResponse(f"{back}?msg=idno_taken", status_code=303)
+            con.execute("UPDATE clinics SET idno=? WHERE id=?", (idno, c["id"]))
+            db.audit(con, "program", "clinic_edit", c["id"], f"IDNO {idno} (pagina de plată)")
+            c = _clinic(con, c["id"])
+        if len(c["idno"] or "") != 13:
+            return RedirectResponse(f"{back}?msg=pay_need_idno", status_code=303)
+        sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
+        price = sub["price"] if sub else config.PRICE_MONTH
+        pending = con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
+                              (c["id"], payments.PENDING)).fetchone()
+        created = pending is None
+        p = pending or payments.create(con, c, m, payments.amount(m, price), "program")
+        if card and not p["pay_url"]:
+            try:
+                p = payments.attach_card(con, p, c, "program", ip)
+            except maib.MaibError as e:
+                log.warning("ссылка maib со страницы оплаты %s не создана: %s", p["reference"], e)
+                return RedirectResponse(f"{back}?msg=maib_failed", status_code=303)
+        if created:
+            _send_payment_letter(con, c, p, "program")
+    if card and p["pay_url"]:
+        return RedirectResponse(p["pay_url"], status_code=303)
+    return RedirectResponse(f"{back}?msg={'note_created' if created else 'note_exists'}", status_code=303)
 
 
 # ---------- вход ----------

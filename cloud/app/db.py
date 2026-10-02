@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -116,6 +116,14 @@ MIGRATIONS = {
             code_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0, used_at TEXT)""",
         "CREATE INDEX IF NOT EXISTS ix_login_codes_canon ON login_codes(canon, created_at)",
+    ],
+    # Оплата из программы (02.10, paylink.py): одноразовая ссылка /plata/<id> на сутки,
+    # которую программа получает по своему токену и открывает в браузере.
+    9: [
+        """CREATE TABLE IF NOT EXISTS pay_links(
+            id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            created_at TEXT NOT NULL, expires_at TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS ix_pay_links_clinic ON pay_links(clinic_id, expires_at)",
     ],
 }
 

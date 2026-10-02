@@ -619,6 +619,8 @@ CONT_MSG = {
     # вход кодом на e-mail (02.10)
     "bad_email": "Introduceți o adresă de e-mail validă.",
     "login_limited": "Prea multe coduri cerute — încercați peste o oră sau scrieți-ne.",
+    # страница оплаты из программы (02.10)
+    "pay_need_idno": "Pentru abonament indicați IDNO-ul clinicii (13 cifre) — îl puteți completa chiar aici.",
     "mail_failed": "Nu am putut trimite e-mailul cu codul — încercați din nou peste un minut sau scrieți-ne.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
@@ -1081,6 +1083,65 @@ def _cont_devices(devices: list, latest: str) -> str:
         f"</div><div class='when'>ultima verificare {esc((d['last_seen_at'] or '')[:16].replace('T', ' '))} UTC</div></div></li>"
         for d in devices)
     return f"<ul class='dev'>{rows}</ul>"
+
+
+def pay_link_page(c, sub, pending, pid: str, msg: str = "", card_on: bool = False) -> str:
+    """Страница оплаты по ссылке из программы (02.10, paylink.py): срок клиники, нота
+    с реквизитами (и кнопка maib, если настроен) — или выбор срока и способа.
+    Без входа: ссылка неугадываема и живёт сутки; кроме оплаты и IDNO здесь нет ничего."""
+    now = datetime.now(timezone.utc)
+    st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
+    price = sub["price"] if sub else config.PRICE_MONTH
+    plan = sub["plan"] if sub else "trial"
+    action = f"/plata/{esc(pid)}"
+    if sub is not None and sub["valid_until"]:
+        what = "Perioada de probă" if plan == "trial" else "Abonamentul"
+        cls, tag = STATE_RO.get(st, ("mute", st))
+        term = (f"{what} {'este valabilă' if plan == 'trial' else 'este valabil'} până la "
+                f"<b>{_ro(sub['valid_until'])}</b> <span class='tag {cls}'>{esc(tag)}</span>")
+    else:
+        term = "Licența nu este încă activată."
+    head = _chead("card", esc(c["name"]), f"abonament DentPilot · {price} MDL / lună · {pay.amount(12, price)} MDL / an")
+    if pending is not None:
+        p = pending
+        try:
+            ways = f"<pre class='pay'>{esc(mail.ways_to_pay(p['reference'], p['amount'], p['pay_url']))}</pre>"
+        except RuntimeError:
+            ways = "<p>Datele pentru plată le primiți pe e-mail.</p>"
+        if p["pay_url"]:
+            card = f"<p><a class='btn' href='{esc(p['pay_url'])}'>Plătește cu cardul</a></p>"
+        elif card_on:
+            card = (f"<form method='post' action='{action}'><input type='hidden' name='months' value='{p['months']}'>"
+                    f"<p><button class='primary' name='method' value='card'>Plătește cu cardul</button></p></form>")
+        else:
+            card = ""
+        body = (f"<p class='lic'>{term}</p>"
+                f"<p><b>Nota de plată {esc(p['reference'])}</b>: {p['amount']} MDL pentru {mail.luni(p['months'])}.</p>"
+                f"{card}{ways}"
+                f"<p class='muted' style='margin:0'>După confirmarea plății termenul se prelungește automat — programul "
+                f"îl preia singur, o dată pe zi sau cu «Verifică acum»; primiți și confirmarea pe e-mail.</p>")
+    else:
+        opts = "".join(f"<option value='{m}'>{'o lună' if m == 1 else 'un an (12 luni)'} — "
+                       f"{pay.amount(m, price)} MDL</option>" for m in pay.MONTHS)
+        idno = "" if len(c["idno"] or "") == 13 else (
+            "<label for='p-idno'>IDNO-ul clinicii (13 cifre) — necesar pentru abonament</label>"
+            "<input id='p-idno' name='idno' maxlength='16' inputmode='numeric' required>")
+        buttons = ((f"<button class='primary' name='method' value='card'>Plătește cu cardul</button>" if card_on else "")
+                   + f"<button class='{'' if card_on else 'primary'}' name='method' value='transfer'>"
+                     f"Transfer bancar — primesc nota de plată</button>")
+        body = (f"<p class='lic'>{term}</p>{_STEPS}<form method='post' action='{action}'>"
+                f"<label for='p-months'>Abonament</label><select id='p-months' name='months'>{opts}</select>{idno}"
+                f"<p style='margin:16px 0 0;display:flex;gap:10px;flex-wrap:wrap'>{buttons}</p></form>")
+    inner = f"<div class='card narrow' style='max-width:680px'>{head}{body}</div>"
+    return _cont_shell("Plata abonamentului", inner, msg=msg, eyebrow="DentPilot · plata din program",
+                       lead="Linkul deschis din program: aici plătiți abonamentul clinicii — fără parolă, fără cont.")
+
+
+def pay_link_expired_page() -> str:
+    inner = (f"<div class='card narrow'>{_chead('clock', 'Linkul de plată a expirat', 'linkul din program este valabil o zi')}"
+             f"<p>Deschideți din nou «Plătește acum» în program — primiți un link nou. Sau intrați în "
+             f"<a href='/cont'>contul clinicii</a>: acolo comandați nota de plată oricând.</p></div>")
+    return _cont_shell("Linkul a expirat", inner, eyebrow="DentPilot · plata din program")
 
 
 def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = ()) -> str:
