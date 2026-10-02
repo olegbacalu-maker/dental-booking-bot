@@ -530,64 +530,139 @@ _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", 
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
             "readonly": ("bad", "regim de citire"), "none": ("mute", "neactivată")}
 PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
-# Кабинет — в стиле САЙТА dentpilot.md (слово Олега 02.10: «немного дизайном
-# страницы регистрации»): тот же Inter с сайта (шрифты отдаются с CORS *), та же
-# бирюза, карточки с мягкой тенью, липкая шапка с логотипом. Админка остаётся на
-# _CSS — это инструмент одного человека. Телефон — первым: директор откроет
-# кабинет с телефона чаще, чем с ПК.
+# Кабинет клиники — СВОЙ стиль по токенам сайта dentpilot.md (Inter с сайта: шрифты
+# Pages отдаются с CORS *, бирюза, карточки с мягкой тенью, липкая шапка). 02.10,
+# слово Олега «под современный дизайн»: главная — дашборд, а не столбик карточек:
+# карточка состояния лицензии во всю ширину (срок, полоса дней, панель программы с
+# кнопкой скачивания и действием по оплате), ниже компьютеры клиники и аккаунт,
+# затем абонамент и платежи, данные клиники. Вход — панель бренда слева, карточка
+# справа. Телефон — в один столбец. Админка остаётся на _CSS — инструмент одного
+# человека. ⛔ Тексты страниц — поведение: их держат cloud/tests (test_account,
+# test_fleet, test_contract); правя раскладку, слова не менять.
 _CONT_CSS = """
-@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('https://dentpilot.md/fonts/inter-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('https://dentpilot.md/fonts/inter-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
 @font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('https://dentpilot.md/fonts/inter-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
-:root{--ink:#16232B;--muted:#5B6B72;--line:#E6EDEB;--teal:#0E9F8A;--teal-d:#0B7F70;--teal-soft:#E9F6F3;--bg:#F6F9F8}
+:root{--ink:#16232B;--muted:#5B6B72;--line:#E6EDEB;--teal:#0E9F8A;--teal-d:#0B7F70;--teal-soft:#E9F6F3;--bg:#F4F8F7;--shadow:0 1px 2px rgba(11,43,38,.04),0 18px 44px -22px rgba(11,43,38,.18)}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;line-height:1.5}
 a{color:var(--teal-d)}
-.top{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-.top-in{max-width:960px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;gap:14px}
+.top{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.88);backdrop-filter:blur(14px) saturate(1.2);border-bottom:1px solid var(--line)}
+.top-in{max-width:1120px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;gap:14px}
 .logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-weight:700;font-size:16px}
-.logo .ic{width:28px;height:28px;border-radius:8px;background:var(--teal);display:inline-flex;align-items:center;justify-content:center}
+.logo .ic{width:32px;height:32px;border-radius:9px;background:var(--teal);display:inline-flex;align-items:center;justify-content:center}
 .logo .sub{font-weight:500;color:var(--muted);font-size:14px}
-.top form{margin-left:auto;margin-bottom:0}
-.top form button{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:7px 12px;font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;max-width:48vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wrap{max-width:960px;margin:0 auto;padding:36px 20px 64px}
-h1{font-size:clamp(24px,3.4vw,30px);letter-spacing:-.02em;margin:0 0 6px}
-.lead{color:var(--muted);font-size:16px;line-height:1.55;margin:0 0 22px;max-width:46em}
-h2{font-size:17px;margin:28px 0 10px}
-.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-bottom:16px;box-shadow:0 2px 6px rgba(11,43,38,.05),0 24px 60px -16px rgba(11,43,38,.10)}
-.card h2:first-child,.card p:first-child{margin-top:0}
+.acc{margin-left:auto;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 6px 4px 4px}
+.acc .av{width:30px;height:30px;border-radius:50%;background:var(--teal-soft);color:var(--teal-d);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;flex:none}
+.acc .em{font-size:13.5px;color:var(--ink);max-width:28vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acc form{margin:0}.acc button{background:transparent;border:0;border-left:1px solid var(--line);border-radius:0;color:var(--muted);padding:4px 8px 4px 10px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+.acc button:hover{color:var(--teal-d)}
+.site{margin-left:auto;text-decoration:none;color:var(--muted);font-size:14px;font-weight:500}
+.wrap{max-width:1120px;margin:0 auto;padding:32px 24px 72px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal-d);margin:0 0 10px}
+.eyebrow:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--teal)}
+h1{font-size:clamp(26px,3.6vw,34px);letter-spacing:-.025em;margin:0 0 8px;line-height:1.15}
+.lead{color:var(--muted);font-size:16px;line-height:1.55;margin:0 0 22px;max-width:48em}
+.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px 24px;box-shadow:var(--shadow);margin:0 0 18px}
+.chead{display:flex;align-items:center;gap:12px;margin:0 0 14px;flex-wrap:wrap}
+.chead .ico{width:38px;height:38px;border-radius:11px;background:var(--teal-soft);color:var(--teal-d);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.chead h2{font-size:16.5px;margin:0;letter-spacing:-.01em}.chead .sub{font-size:13px;color:var(--muted);margin:2px 0 0}
+.chead .right{margin-left:auto}
+.grid2{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px;margin:0 0 18px}
+.grid2 .card{margin:0;display:flex;flex-direction:column}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) 340px;padding:0;overflow:hidden}
+.hero .main{padding:26px 28px}
+.hero .side{background:linear-gradient(160deg,#0E9F8A 0%,#0B7F70 100%);color:#fff;padding:26px 24px;display:flex;flex-direction:column;gap:10px}
+.hero .side .eyebrow{color:rgba(255,255,255,.78)}.hero .side .eyebrow:before{background:rgba(255,255,255,.6)}
+.hero .side .big{font-size:27px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.hero .side .small{font-size:13.5px;color:rgba(255,255,255,.82);line-height:1.5}
+.hero .side .small a{color:#fff}
+.hero .side .actions{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding-top:8px}
+.hero .side a.btn{background:#fff;color:var(--teal-d);border-color:#fff;width:100%}
+.hero .side a.btn:hover{background:var(--teal-soft);border-color:var(--teal-soft);color:var(--teal-d)}
+.hero .side a.btn.ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.55)}
+.hero .side a.btn.ghost:hover{background:rgba(255,255,255,.12);border-color:#fff;color:#fff}
+.lic{font-size:18px;line-height:1.45;margin:0 0 6px}
+.bar{height:8px;border-radius:999px;background:#E6EFEC;overflow:hidden;margin:16px 0 8px}
+.bar>span{display:block;height:100%;border-radius:999px;background:var(--teal)}
+.bar.warn>span{background:#D97706}.bar.bad>span{background:#DC2626}
+.days{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted)}.days span:first-child{white-space:nowrap}
+.dev{list-style:none;padding:0;margin:0}
+.dev li{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-top:1px solid #EEF2F1;font-size:14px;line-height:1.45}
+.dev li:first-child{border-top:0;padding-top:0}
+.dev .dot{width:8px;height:8px;border-radius:50%;background:var(--teal);margin-top:7px;flex:none}
+.dev .dot.old{background:#D97706}
+.dev .when{color:var(--muted);font-size:13px}
+.empty{color:var(--muted);font-size:14px;line-height:1.5;padding:12px 14px;background:var(--bg);border-radius:12px}
 label{display:block;font-size:13px;color:var(--muted);margin:10px 0 5px;font-weight:500}
 input,select{font:inherit;font-size:15px;padding:11px 13px;border:1px solid #D8E2DF;border-radius:10px;width:100%;background:#fff;color:var(--ink)}
 input:focus,select:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,159,138,.18)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 20px}
-button.primary,a.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;background:var(--teal);color:#fff;border:1px solid var(--teal);border-radius:10px;padding:13px 24px;font:inherit;font-size:15.5px;font-weight:600;cursor:pointer;text-decoration:none}
+button.primary,a.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;background:var(--teal);color:#fff;border:1px solid var(--teal);border-radius:10px;padding:12px 22px;font:inherit;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s,border-color .15s,color .15s}
 button.primary:hover,a.btn:hover{background:var(--teal-d);border-color:var(--teal-d);color:#fff}
 a.btn.second{background:#fff;color:var(--ink);border-color:#D8E2DF}a.btn.second:hover{background:var(--teal-soft);color:var(--teal-d);border-color:var(--teal)}
 button:not(.primary){background:#fff;border:1px solid #D8E2DF;color:var(--ink);border-radius:10px;padding:10px 16px;font:inherit;font-size:14.5px;font-weight:500;cursor:pointer}
-a.gbtn{display:inline-flex;align-items:center;justify-content:center;gap:12px;background:#fff;color:var(--ink);border:1px solid #D8E2DF;border-radius:10px;padding:13px 24px;font-size:15.5px;font-weight:600;text-decoration:none;width:100%;max-width:380px;box-shadow:0 1px 2px rgba(11,43,38,.06)}
+a.gbtn{display:inline-flex;align-items:center;justify-content:center;gap:12px;background:#fff;color:var(--ink);border:1px solid #D8E2DF;border-radius:12px;padding:14px 24px;font-size:15.5px;font-weight:600;text-decoration:none;width:100%;box-shadow:0 1px 2px rgba(11,43,38,.06)}
 a.gbtn:hover{border-color:var(--teal);color:var(--teal-d)}
 .banner{padding:12px 16px;border-radius:12px;margin:0 0 18px;font-size:14.5px}
 .banner.ok{background:#ECFDF5;color:#065F46}.banner.err{background:#FEF2F2;color:#B91C1C}
 .tag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12.5px;font-weight:600;vertical-align:middle}
 .tag.ok{background:#ECFDF5;color:#065F46}.tag.warn{background:#FFFBEB;color:#B45309}.tag.bad{background:#FEF2F2;color:#B91C1C}.tag.mute{background:#EEF2F1;color:#5B6B72}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:13px}.muted{color:var(--muted);font-size:14px;line-height:1.5}
-table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:9px 10px;border-bottom:1px solid #EEF2F1;vertical-align:top}
-th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em}
-pre.pay{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font:inherit;white-space:pre-wrap;margin:10px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:10px;border-bottom:1px solid #EEF2F1;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+tr:last-child td{border-bottom:0}
+pre.pay{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font:inherit;font-size:14.5px;white-space:pre-wrap;margin:12px 0;line-height:1.55}
+.price{display:inline-flex;gap:6px;align-items:baseline;background:var(--teal-soft);color:var(--teal-d);border-radius:10px;padding:6px 12px;font-size:13.5px;font-weight:600;white-space:nowrap}
 label.chk{display:flex;gap:10px;align-items:flex-start;color:var(--ink);font-size:14.5px;font-weight:400;margin:14px 0 4px}
 label.chk input{width:auto;margin-top:3px}
-.lic{font-size:16.5px;line-height:1.5}.foot{font-size:13px;color:#7C8B91;margin-top:28px;border-top:1px solid var(--line);padding-top:16px;line-height:1.6}
-.hero{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
+.foot{font-size:13px;color:#7C8B91;margin-top:36px;border-top:1px solid var(--line);padding-top:16px;line-height:1.6}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:18px;align-items:start}
+.split .card{margin:0}
 .perks{list-style:none;padding:0;margin:0}.perks li{display:flex;gap:10px;align-items:flex-start;font-size:14.5px;line-height:1.45;margin:0 0 10px}
 .perks svg{flex:none;margin-top:2px}.chip{display:inline-block;background:var(--teal-soft);color:var(--teal-d);border-radius:999px;padding:5px 12px;font-size:13.5px;font-weight:600}
-.narrow{max-width:560px}
-@media (max-width:720px){.hero{grid-template-columns:1fr}.wrap{padding:22px 16px 44px}.top-in{padding:0 16px}.logo .sub{display:none}.card{padding:18px 16px;border-radius:14px}button.primary,a.btn,a.gbtn{width:100%;max-width:none}}
+.narrow{max-width:560px;margin:0 auto}
+.auth{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-radius:22px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line);background:#fff;margin-top:6px}
+.auth .brand{background:linear-gradient(160deg,#0E9F8A 0%,#0B7F70 100%);color:#fff;padding:40px 36px;display:flex;flex-direction:column;gap:18px}
+.auth .brand .mark{width:48px;height:48px;border-radius:14px;background:rgba(255,255,255,.16);display:inline-flex;align-items:center;justify-content:center}
+.auth .brand h2{font-size:clamp(24px,3vw,30px);margin:0;letter-spacing:-.02em;line-height:1.15}
+.auth .brand p{margin:0;color:rgba(255,255,255,.85);font-size:15px;line-height:1.55}
+.auth .brand .perks li{color:#fff}.auth .brand .perks svg path{stroke:#fff}
+.auth .brand .fine{margin-top:auto;font-size:13px;color:rgba(255,255,255,.72);line-height:1.5}
+.auth .form{padding:40px 36px}
+.auth .form h2{margin:0 0 6px;font-size:22px;letter-spacing:-.015em}
+@media (max-width:900px){.hero{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.split{grid-template-columns:1fr}.auth{grid-template-columns:1fr}.auth .brand{padding:28px 22px}.auth .form{padding:26px 22px}}
+@media (max-width:720px){.chead .right{margin-left:0;flex-basis:100%}.price{white-space:normal}.wrap{padding:22px 16px 48px}.top-in{padding:0 16px;height:60px}.logo .sub{display:none}.acc .em{display:none}.card{padding:18px 16px;border-radius:16px}.hero .main{padding:20px 18px}.hero .side{padding:20px 18px}button.primary,a.btn,a.gbtn{width:100%}}
 """
 _TOOTH = ("<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='#FFFFFF' stroke-width='1.8' "
           "stroke-linecap='round' stroke-linejoin='round'><path d='M8.2 3.8C5.9 3.8 4 5.7 4 8.2c0 1.9.8 3.2 1.4 4.7.7 "
           "1.7 1 4.4 1.8 6.6.3.9 1.5.9 1.8 0 .6-1.9.8-4 1.6-5.2.6-.9 1.7-.9 2.3 0 .8 1.2 1 3.3 1.6 5.2.3.9 1.5.9 1.8 0 "
           ".8-2.2 1.1-4.9 1.8-6.6.6-1.5 1.4-2.8 1.4-4.7 0-2.5-1.9-4.4-4.2-4.4-1.1 0-1.9.5-3.1.5s-2-.5-3.2-.5z'/></svg>")
+_TOOTH_L = _TOOTH.replace("width='16' height='16'", "width='26' height='26'")
 _CHECK = ("<svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='#0E9F8A' stroke-width='2.2' "
           "stroke-linecap='round' stroke-linejoin='round'><path d='M5 12.5l4.5 4.5L19 7'/></svg>")
+# Значки карточек — currentColor, как на сайте: цвет берут у .chead .ico
+_ICO = {
+    "shield": "<path d='M12 3l7 3v5c0 5-3.5 8.6-7 10-3.5-1.4-7-5-7-10V6z'/><path d='M9 12l2 2 4-4'/>",
+    "download": "<path d='M12 4v11'/><path d='M7 10l5 5 5-5'/><path d='M4 20h16'/>",
+    "monitor": "<rect x='3' y='4' width='18' height='12' rx='2'/><path d='M8 20h8M12 16v4'/>",
+    "card": "<rect x='3' y='5' width='18' height='14' rx='2'/><path d='M3 10h18'/><path d='M7 15h4'/>",
+    "building": "<path d='M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16'/><path d='M16 9h2a2 2 0 0 1 2 2v10'/>"
+                "<path d='M8 7h4M8 11h4M8 15h4'/><path d='M3 21h18'/>",
+    "user": "<circle cx='12' cy='8' r='4'/><path d='M4 20c0-3.3 3.6-5.5 8-5.5s8 2.2 8 5.5'/>",
+    "key": "<circle cx='8' cy='15' r='4'/><path d='M10.8 12.2L20 3'/><path d='M16 7l2 2M13 10l2 2'/>",
+}
+
+
+def _ic(name: str, size: int = 18) -> str:
+    return (f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='none' stroke='currentColor' "
+            f"stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>{_ICO[name]}</svg>")
+
+
+def _chead(icon: str, title: str, sub: str = "", right: str = "") -> str:
+    return (f"<div class='chead'><span class='ico'>{_ic(icon)}</span><div><h2>{title}</h2>"
+            f"{('<p class=' + chr(39) + 'sub' + chr(39) + '>' + sub + '</p>') if sub else ''}</div>"
+            f"{('<div class=' + chr(39) + 'right' + chr(39) + '>' + right + '</div>') if right else ''}</div>")
 
 
 def _perks(items: list[str]) -> str:
@@ -610,18 +685,39 @@ def _ro(s: str | None) -> str:
     return f"{s[8:10]}.{s[5:7]}.{s[0:4]}"
 
 
-def _cont_shell(title: str, inner: str, acc=None, msg: str = "", lead: str = "") -> str:
+def _initials(acc) -> str:
+    """Две буквы для аватара: из имени Google, иначе первая буква ящика."""
+    # ⚠️ acc — строка sqlite (Row): доступ по ключу, метода .get у неё нет
+    name = (acc["name"] or "").strip()
+    parts = [p for p in name.replace("-", " ").split() if p]
+    if len(parts) >= 2:
+        return (parts[0][0] + parts[-1][0]).upper()
+    if parts:
+        return parts[0][:2].upper()
+    return (acc["email"] or "?")[:1].upper()
+
+
+def _cont_shell(title: str, inner: str, acc=None, msg: str = "", lead: str = "",
+                eyebrow: str = "Contul clinicii", plain: bool = False) -> str:
+    """Каркас кабинета: липкая шапка (логотип, чип аккаунта с выходом), заголовок
+    с надстрочником, баннер сообщения, тело, подвал. `plain` — без заголовка
+    (вход: его роль играет панель бренда)."""
     site = config.SITE_URL.rstrip("/")
     banner = ""
     if msg:
         banner = f"<div class='banner {'ok' if msg in _CONT_OK else 'err'}'>{esc(cont_text(msg))}</div>"
+    if acc is not None:
+        who = (f"<div class='acc'><span class='av'>{esc(_initials(acc))}</span>"
+               f"<span class='em' title='{esc(acc['email'])}'>{esc(acc['email'])}</span>"
+               f"<form method='post' action='/cont/iesire'><button title='{esc(acc['email'])}'>Ieșire</button></form></div>")
+    else:
+        who = f"<a class='site' href='{esc(site)}'>dentpilot.md</a>"
     bar = (f"<div class='top'><div class='top-in'><a class='logo' href='/cont'><span class='ic'>{_TOOTH}</span>"
-           f"DentPilot <span class='sub'>· Contul clinicii</span></a>"
-           + (f"<form method='post' action='/cont/iesire'><button title='{esc(acc['email'])}'>Ieșire · "
-              f"{esc(acc['email'])}</button></form>" if acc is not None else
-              f"<a class='sub' href='{esc(site)}' style='margin-left:auto;text-decoration:none;color:#5B6B72;"
-              f"font-size:14px;font-weight:500'>dentpilot.md</a>")
-           + "</div></div>")
+           f"DentPilot <span class='sub'>· Contul clinicii</span></a>{who}</div></div>")
+    head = "" if plain else (
+        f"{('<p class=' + chr(39) + 'eyebrow' + chr(39) + '>' + esc(eyebrow) + '</p>') if eyebrow else ''}"
+        f"<h1>{esc(title)}</h1>"
+        f"{('<p class=' + chr(39) + 'lead' + chr(39) + '>' + lead + '</p>') if lead else ''}")
     foot = (f"<p class='foot'><a href='{esc(site)}/termeni.html'>Termeni și condiții</a> · "
             f"<a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a> · "
             f"Întrebări: <a href='mailto:{esc(config.SUPPORT_EMAIL)}'>{esc(config.SUPPORT_EMAIL)}</a> · "
@@ -630,9 +726,7 @@ def _cont_shell(title: str, inner: str, acc=None, msg: str = "", lead: str = "")
             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"<meta name='robots' content='noindex'>"
             f"<title>{esc(title)} — DentPilot</title><style>{_CONT_CSS}</style></head>"
-            f"<body>{bar}<div class='wrap'><h1>{esc(title)}</h1>"
-            f"{('<p class=' + chr(39) + 'lead' + chr(39) + '>' + lead + '</p>') if lead else ''}"
-            f"{banner}{inner}{foot}</div></body></html>")
+            f"<body>{bar}<div class='wrap'>{head}{banner}{inner}{foot}</div></body></html>")
 
 
 _PERKS = [
@@ -651,19 +745,26 @@ def cont_login_page(msg: str = "", enabled: bool = True) -> str:
                  f"probă de {mail.zile(license.TRIAL_DAYS)}, fără plată. Clinica deja înregistrată la DentPilot cu "
                  f"același e-mail intră direct în cont.</p>")
     else:
-        entry = f"<p class='muted'>{esc(CONT_MSG['google_off'])}</p>"
-    inner = (f"<div class='hero'><div class='card'>"
-             f"<p class='lead' style='margin-bottom:0'>Un singur loc pentru licența DentPilot a clinicii: intrați cu "
-             f"contul Google, fără altă parolă.</p>{entry}"
-             f"<p class='muted'>Nu aveți cont Google? <a href='/proba'>Trimiteți cererea de probă prin formular</a> "
-             f"— confirmarea vine pe e-mail.</p>"
-             f"<p class='muted'>De la Google primim doar adresa de e-mail, numele și identificatorul contului; "
-             f"parola rămâne la Google — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, "
-             f"§ 5.</p></div>"
-             f"<div class='card'><h2>Ce găsiți în cont</h2>{_perks(_PERKS)}"
-             f"<p class='muted' style='margin-bottom:0'>Datele pacienților nu ajung aici niciodată: ele rămân pe "
-             f"calculatorul clinicii.</p></div></div>")
-    return _cont_shell("Contul clinicii", inner, msg=msg)
+        entry = f"<p class='muted' style='margin-top:18px'>{esc(CONT_MSG['google_off'])}</p>"
+    brand = (f"<div class='brand'><span class='mark'>{_TOOTH_L}</span>"
+             f"<h2>Contul clinicii DentPilot</h2>"
+             f"<p>Un singur loc pentru licența DentPilot a clinicii: intrați cu contul Google, fără altă parolă.</p>"
+             f"{_perks(_PERKS)}"
+             f"<p class='fine'>Datele pacienților nu ajung aici niciodată: ele rămân pe calculatorul clinicii.</p></div>")
+    form = (f"<div class='form'><h2>Intrați în cont</h2>"
+            f"<p class='muted' style='margin:0'>Cu contul Google al clinicii sau al directorului.</p>{entry}"
+            f"<p class='muted'>Nu aveți cont Google? <a href='/proba'>Trimiteți cererea de probă prin formular</a> "
+            f"— confirmarea vine pe e-mail.</p>"
+            f"<p class='muted' style='margin-bottom:0'>De la Google primim doar adresa de e-mail, numele și "
+            f"identificatorul contului; parola rămâne la Google — "
+            f"<a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p></div>")
+    if msg:
+        # баннер — над разворотом, в карточке формы, где глаз ищет ответ на свой клик
+        form = form.replace("<div class='form'>",
+                            f"<div class='form'><div class='banner {'ok' if msg in _CONT_OK else 'err'}'>"
+                            f"{esc(cont_text(msg))}</div>", 1)
+        msg = ""
+    return _cont_shell("Contul clinicii", f"<div class='auth'>{brand}{form}</div>", msg=msg, plain=True)
 
 
 def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
@@ -671,7 +772,8 @@ def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
     if not values:
         v["contact_name"] = esc(acc["name"] or "")
     site = config.SITE_URL.rstrip("/")
-    form = (f"<div class='card'><form method='post' action='/cont/inregistrare'>"
+    form = (f"<div class='card'>{_chead('building', 'Datele clinicii', 'Perioada de probă începe imediat după înregistrare')}"
+            f"<form method='post' action='/cont/inregistrare'>"
             f"<label>Denumirea clinicii *</label><input name='name' value='{v['name']}' required maxlength='{trial.NAME_MAX}' autofocus>"
             f"<div class='grid'><div>"
             f"<label>IDNO (13 cifre, opțional pentru probă)</label><input name='idno' value='{v['idno']}' maxlength='13' inputmode='numeric'></div>"
@@ -683,10 +785,10 @@ def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
             f"</span></label><p style='margin:14px 0 0'><button class='primary'>Înregistrez clinica</button></p></form></div>")
-    aside = (f"<div class='card'><h2>Ce urmează</h2>{_perks(['Perioada de probă de ' + mail.zile(license.TRIAL_DAYS) + ' se activează imediat; confirmarea vine pe e-mail', 'Descărcați programul din cont; la prima pornire introduceți aceleași date și se activează singur', 'IDNO și adresa le completați oricând — sunt necesare doar pentru abonament'])}"
+    aside = (f"<div class='card'>{_chead('shield', 'Ce urmează')}{_perks(['Perioada de probă de ' + mail.zile(license.TRIAL_DAYS) + ' se activează imediat; confirmarea vine pe e-mail', 'Descărcați programul din cont; la prima pornire introduceți aceleași date și se activează singur', 'IDNO și adresa le completați oricând — sunt necesare doar pentru abonament'])}"
              f"<p class='muted' style='margin-bottom:0'>Aveți deja DentPilot pe un calculator al clinicii? "
              f"Completați aceleași date: trimitem un cod pe e-mailul clinicii și contul se conectează.</p></div>")
-    return _cont_shell("Înregistrarea clinicii", f"<div class='hero'>{form}{aside}</div>", acc, msg,
+    return _cont_shell("Înregistrarea clinicii", f"<div class='split'>{form}{aside}</div>", acc, msg,
                        lead=f"Completați datele clinicii: primiți perioada de probă DentPilot de "
                             f"{mail.zile(license.TRIAL_DAYS)}, fără plată și fără obligații.")
 
@@ -696,7 +798,8 @@ def cont_code_page(acc, vid: str, msg: str = "") -> str:
     страница не оракул о том, чей e-mail у клиники; письмо называет Google-ящик
     просителя, чтобы клиника видела, кто стучится."""
     minutes = int(trial.CODE_TTL.total_seconds() // 60)
-    inner = (f"<div class='card narrow'><p>O clinică cu acest IDNO este deja înregistrată la DentPilot. Am trimis un "
+    inner = (f"<div class='card narrow'>{_chead('key', 'Codul din e-mailul clinicii', f'valabil {minutes} minute')}"
+             f"<p>O clinică cu acest IDNO este deja înregistrată la DentPilot. Am trimis un "
              f"cod de 6 cifre pe e-mailul înregistrat al clinicii: introduceți-l mai jos și contul Google "
              f"<b>{esc(acc['email'])}</b> va fi conectat la clinică. Codul este valabil {minutes} minute.</p>"
              f"<form method='post' action='/cont/inregistrare/cod'>"
@@ -721,13 +824,15 @@ def _card_link_ro(p) -> str:
     return f" · <a href='{esc(p['pay_url'])}' target='_blank' rel='noopener'>plata cu cardul</a>"
 
 
-def _cont_license(c, sub, issue, st: str) -> str:
+def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
+    """Состояние лицензии словами: `text` (с тегом), `check` (последняя проверка
+    программой), `bar` (полоса дней — только при выданном файле)."""
     if issue is None:
         if c["declined_at"]:
-            return f"<p class='lic'>{esc(CONT_MSG['closed'])}</p>"
-        return (f"<p class='lic'>Cererea de probă a fost primită la {_ro(c['requested_at'] or c['created_at'])}. "
-                f"Programul se activează singur imediat ce aprobăm cererea — de obicei în aceeași zi "
-                f"lucrătoare; vă anunțăm pe e-mail.</p>")
+            return {"text": esc(CONT_MSG["closed"]), "check": "", "bar": ""}
+        return {"text": (f"Cererea de probă a fost primită la {_ro(c['requested_at'] or c['created_at'])}. "
+                         f"Programul se activează singur imediat ce aprobăm cererea — de obicei în aceeași zi "
+                         f"lucrătoare; vă anunțăm pe e-mail."), "check": "", "bar": ""}
     plan = sub["plan"] if sub else "trial"
     what = "Perioada de probă" if plan == "trial" else "Abonamentul"
     d, g = _ro(issue["valid_until"]), _ro(issue["grace_until"])
@@ -740,6 +845,7 @@ def _cont_license(c, sub, issue, st: str) -> str:
     else:
         text = (f"Din {g} programul este în regim de citire: {esc(mail._READONLY)} După plată programul "
                 f"revine singur la lucru complet.")
+    text += f" <span class='tag {cls}'>{esc(tag)}</span>"
     if c["renew_at"]:
         behind = (c["renew_seq"] or 0) < issue["seq"]
         check = (f"Programul a verificat licența ultima dată la {esc(c['renew_at'][:16].replace('T', ' '))} UTC"
@@ -747,8 +853,26 @@ def _cont_license(c, sub, issue, st: str) -> str:
     else:
         check = ("Programul instalat nu a verificat încă licența; activat și cu acces la internet, o face o "
                  "dată pe zi.")
-    return (f"<p class='lic'>{text} <span class='tag {cls}'>{esc(tag)}</span></p>"
-            f"<p class='muted'>{check}</p>")
+    # полоса дней: от выдачи до конца срока; при льготе и чтении — полная, своим цветом
+    start, end = _ts(issue["issued_at"]), _ts(issue["valid_until"])
+    bar = ""
+    if start and end and end > start:
+        total = max(1, (end - start).days)
+        if st == "active":
+            passed = min(total, max(0, (now - start).days))
+            left = max(0, -(-(end - now).total_seconds() // 86400))      # дни до конца, вверх
+            pct = round(passed / total * 100)
+            l_text = "Începută azi" if passed == 0 else f"Au trecut {mail.zile(passed)}"
+            r_text = f"Mai sunt {mail.zile(int(left))} — până la {d}"
+            bar = (f"<div class='bar'><span style='width:{pct}%'></span></div>"
+                   f"<div class='days'><span>{l_text}</span><span>{r_text}</span></div>")
+        elif st == "grace":
+            bar = (f"<div class='bar warn'><span style='width:100%'></span></div>"
+                   f"<div class='days'><span>A expirat la {d}</span><span>Funcționează complet până la {g}</span></div>")
+        else:
+            bar = (f"<div class='bar bad'><span style='width:100%'></span></div>"
+                   f"<div class='days'><span>Regim de citire din {g}</span><span>Revine la lucru după plată</span></div>")
+    return {"text": text, "check": check, "bar": bar}
 
 
 def _cont_payments(c, sub, payments: list) -> str:
@@ -791,31 +915,62 @@ def _cont_payments(c, sub, payments: list) -> str:
 
 
 def _cont_devices(devices: list, latest: str) -> str:
-    """Calculatoarele clinicii: версия, Windows, последняя проверка (флот, 02.10)."""
+    """Calculatoare cu DentPilot: версия, Windows, последняя проверка (флот, 02.10).
+    Пусто — объяснение, не тишина: компьютер появляется после первой проверки."""
     if not devices:
-        return ""
+        return ("<div class='empty'>Niciun calculator nu a verificat încă licența. După activare, programul "
+                "o face o dată pe zi — atunci apare aici, cu versiunea și data ultimei verificări.</div>")
     from . import fleet
     rows = "".join(
-        f"<li>{esc(d['os'] or 'Windows')} — DentPilot {esc(d['version'] or '?')}"
+        f"<li><span class='dot{' old' if (d['version'] and latest and fleet.behind(d['version'], latest)) else ''}'></span>"
+        f"<div><div>{esc(d['os'] or 'Windows')} — DentPilot {esc(d['version'] or '?')}"
         f"{' <span class=tag warn>versiune veche</span>' if d['version'] and latest and fleet.behind(d['version'], latest) else ''}"
-        f", ultima verificare {esc((d['last_seen_at'] or '')[:16].replace('T', ' '))} UTC</li>" for d in devices)
-    return f"<p class='muted'>Calculatoare cu DentPilot:</p><ul class='muted'>{rows}</ul>"
+        f"</div><div class='when'>ultima verificare {esc((d['last_seen_at'] or '')[:16].replace('T', ' '))} UTC</div></div></li>"
+        for d in devices)
+    return f"<ul class='dev'>{rows}</ul>"
 
 
 def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = ()) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     site = config.SITE_URL.rstrip("/")
-    lic = (f"<h2>Licența</h2><div class='card'>{_cont_license(c, sub, issue, st)}"
-           f"{_cont_devices(list(devices), release.version if release else '')}</div>")
+    lic = _lic_parts(c, sub, issue, st, now)
     ver = f" {esc(release.version)}" if release else ""
-    prog = (f"<h2>Programul</h2><div class='card'><p><a class='btn' href='/descarca'>Descarcă DentPilot{ver}</a></p>"
-            f"<p class='muted'>Arhivă zip cu instalatorul DentPilot-Setup{('-' + esc(release.version)) if release else ''}.exe, "
-            f"semnat digital. La prima pornire programul cere datele clinicii și se activează singur; pe un "
-            f"calculator nou al clinicii deja înregistrate cere codul trimis pe e-mail. Înainte de instalare "
-            f"citiți <a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p></div>")
-    pays = f"<h2>Abonament și plăți</h2><div class='card'>{_cont_payments(c, sub, list(payments))}</div>"
-    data = (f"<h2>Datele clinicii</h2><div class='card'><form method='post' action='/cont/date'><div class='grid'>"
+    setup = f"DentPilot-Setup{('-' + esc(release.version)) if release else ''}.exe"
+    payments = list(payments)
+    pending = any(p["status"] == "pending" for p in payments)
+    # действие по оплате на панели программы — те же условия, что у формы ноты ниже
+    if pending:
+        act = "<a class='btn ghost' href='#plati'>Vezi nota de plată</a>"
+    elif len(c["idno"] or "") == 13 and issue is not None:
+        act = "<a class='btn ghost' href='#plati'>Comandă nota de plată</a>"
+    else:
+        act = ""
+    how = (f"<p class='muted' style='margin:14px 0 0'>La prima pornire programul cere datele clinicii și se "
+           f"activează singur; pe un calculator nou al clinicii deja înregistrate cere codul trimis pe e-mail. "
+           f"Înainte de instalare citiți <a href='{esc(site)}/descarca.html'>ce cere Legea 195</a>.</p>")
+    hero = (f"<div class='card hero'><div class='main'><p class='eyebrow'>Licența</p>"
+            f"<p class='lic'>{lic['text']}</p>{lic['bar']}"
+            f"{('<p class=' + chr(39) + 'muted' + chr(39) + ' style=' + chr(39) + 'margin:14px 0 0' + chr(39) + '>' + lic['check'] + '</p>') if lic['check'] else ''}"
+            f"{how}</div><div class='side'><p class='eyebrow'>Programul</p>"
+            f"<div class='big'>DentPilot{ver}</div>"
+            f"<p class='small'>Instalator semnat digital — arhivă zip cu {setup}.</p>"
+            f"<div class='actions'><a class='btn' href='/descarca'>{_ic('download')} Descarcă DentPilot{ver}</a>{act}</div>"
+            f"</div></div>")
+    devs = (f"<div class='card'>{_chead('monitor', 'Calculatoare cu DentPilot', 'versiunea programului și ultima verificare a licenței')}"
+            f"{_cont_devices(list(devices), release.version if release else '')}</div>")
+    acct = (f"<div class='card'>{_chead('user', 'Contul')}"
+            f"<p style='margin:0 0 6px'>Autentificat cu Google: <b>{esc(acc['email'])}</b>"
+            f"{(' (' + esc(acc['name']) + ')') if acc['name'] else ''}.</p>"
+            f"<p class='muted' style='margin:0 0 14px'>De la Google avem doar e-mailul, numele și identificatorul "
+            f"contului — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>"
+            f"<form method='post' action='/cont/iesire' style='margin-top:auto'><button>Ieșire</button></form></div>")
+    price = sub["price"] if sub else config.PRICE_MONTH
+    chip = f"<span class='price'>{price} MDL / lună · {pay.amount(12, price)} MDL / an</span>"
+    pays = (f"<div class='card' id='plati'>{_chead('card', 'Abonament și plăți', 'un singur abonament pentru toată clinica', chip)}"
+            f"{_cont_payments(c, sub, payments)}</div>")
+    data = (f"<div class='card'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
+            f"<form method='post' action='/cont/date'><div class='grid'>"
             f"<div><label>Denumirea clinicii *</label><input name='name' value='{esc(c['name'])}' required maxlength='{trial.NAME_MAX}'></div>"
             f"<div><label>IDNO (13 cifre)</label><input name='idno' value='{esc(c['idno'])}' maxlength='13' inputmode='numeric'></div>"
             f"<div><label>Persoana de contact</label><input name='contact_name' value='{esc(c['contact_name'])}' maxlength='{trial.CONTACT_MAX}'></div>"
@@ -823,8 +978,5 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"<div><label>Adresa</label><input name='address' value='{esc(c['address'])}' maxlength='200'></div>"
             f"<div><label>E-mail</label><div class='mono' style='padding:8px 0'>{esc(c['email'] or '—')}</div>"
             f"<span class='muted'>pentru schimbare scrieți-ne</span></div></div>"
-            f"<p><button class='primary'>Salvează</button></p></form></div>")
-    acct = (f"<h2>Contul</h2><div class='card'><p>Autentificat cu Google: <b>{esc(acc['email'])}</b>"
-            f"{(' (' + esc(acc['name']) + ')') if acc['name'] else ''}.</p>"
-            f"<form method='post' action='/cont/iesire'><button>Ieșire</button></form></div>")
-    return _cont_shell(c["name"], lic + prog + pays + data + acct, acc, msg)
+            f"<p style='margin:16px 0 0'><button class='primary'>Salvează</button></p></form></div>")
+    return _cont_shell(c["name"], hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + data, acc, msg)
