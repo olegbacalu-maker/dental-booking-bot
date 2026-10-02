@@ -126,9 +126,12 @@ def how_to_pay(pay: dict | None, price: int) -> str:
     (абонемент) или как оформить абонемент (пробный). Без ссылки и без
     DP_BANK_* — честная фраза, что нота придёт отдельно."""
     if pay is None:
-        return (f"Pentru a continua cu un abonament ({price} MDL pe lună) răspundeți la acest e-mail "
-                f"sau sunați la {config.SUPPORT_PHONE}, indicând IDNO-ul clinicii — vă trimitem nota "
-                f"de plată, iar după plată termenul se prelungește automat în program.")
+        # пробной клинике: сперва кабинет (сама заказывает ноту и платит), потом «напишите нам»
+        return (f"Pentru a continua cu un abonament ({price} MDL pe lună) intrați în contul clinicii "
+                f"({CONT_URL}) și comandați nota de plată: o plătiți prin transfer bancar cu referința din "
+                f"notă, iar după confirmare termenul se prelungește automat în program. Sau răspundeți la "
+                f"acest e-mail / sunați la {config.SUPPORT_PHONE}, indicând IDNO-ul clinicii — vă trimitem "
+                f"nota de plată noi.")
     try:
         ways = ways_to_pay(pay["reference"], pay["amount"], pay.get("url"))
     except RuntimeError:

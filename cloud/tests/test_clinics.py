@@ -20,7 +20,7 @@ def suite(res: Result) -> None:
         card = c.get(f"/admin/clinics/{cid}").body
         res.ok("карточка: IDNO, контакт, e-mail, форма выдачи",
                "1234567890123" in card and "Ion Popescu" in card and "clinica@example.md" in card
-               and "Выдать файл" in card and "Файлов ещё не выдавали" in card)
+               and "Лицензия вручную" in card and "Файлов ещё не выдавали" in card)
         r = c.post("/admin/clinics", name="", idno="")
         res.check("без названия: отказ", r.location, "/admin?msg=bad_name")
         r = c.post("/admin/clinics", name="X", idno="12345")

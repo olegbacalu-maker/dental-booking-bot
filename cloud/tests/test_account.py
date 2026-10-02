@@ -469,7 +469,8 @@ def suite_cabinet(res: Result) -> None:
                rv.open_envelope(admin.get(f"/admin/clinics/{cid}/issues/1/license.json").body, KEYS)[0] == ""
                and c.get("/cont/licenta.json").status == 404)
         # абонемент: IDNO есть с регистрации → форма ноты
-        res.ok("форма ноты: месяц и год по прайсу", "Comandă nota de plată" in home.body
+        res.ok("форма абонемента: месяц и год по прайсу, кнопка по цели (пробная → «Treci la abonament»), три шага",
+               "Treci la abonament" in home.body and "<ol class='steps'>" in home.body
                and f"{pay.amount(12, config.PRICE_MONTH)} MDL" in home.body and "name='method'" not in home.body)
         r = c.post("/cont/nota", months="6")
         res.check("срок не из ряда — bad_months", r.location, "/cont?msg=bad_months")
@@ -486,7 +487,8 @@ def suite_cabinet(res: Result) -> None:
                len(_letters(s)) == n + 1 and last[0] == DIRECTOR["email"] and ref in last[2] and "IBAN" in last[2])
         home = c.get("/cont")
         res.ok("кабинет: нота, реквизиты и reference на странице, формы ноты больше нет",
-               ref in home.body and "MD00TEST" in home.body and "Comandă nota" not in home.body
+               ref in home.body and "MD00TEST" in home.body and "Treci la abonament" not in home.body
+               and "Prelungește abonamentul" not in home.body
                and "în așteptare" in home.body, home.body[-2500:])
         res.check("вторая нота — note_exists", c.post("/cont/nota", months="1").location, "/cont?msg=note_exists")
         pid = _sql(s, "SELECT id FROM payments WHERE reference=?", ref)[0][0]

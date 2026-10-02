@@ -89,6 +89,9 @@ def suite(res: Result) -> None:
            and f"valabil {minutes} minute" in mail.activation_code("C", "123456", minutes)[1])
     res.ok("условия п. 7: другой компьютер — кодом на e-mail или тем же файлом",
            "codul de activare trimis pe e-mailul clinicii" in flat_terms)
+    # письма пробной клинике ведут в кабинет (02.10): тот же адрес, что на страницах
+    res.ok("письмо «как продолжить» без ноты ведёт в кабинет и называет ноту",
+           mail.CONT_URL in mail.how_to_pay(None, 499) and "nota de plată" in mail.how_to_pay(None, 499))
     res.ok("декларация: письмо называет её тем же именем, что страница",
            "Declarația furnizorului" in decl and "Declarația furnizorului" in mail.DECLARATION_NOTE)
     # IDNO вписан 26.09 (был плейсхолдер): один и тот же номер на обеих страницах.

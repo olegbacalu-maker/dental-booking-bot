@@ -27,15 +27,15 @@ MSG = {
     "no_key": ("err", "Ключ выдачи не настроен (DP_LICENSE_KEY) — выдавать нечем"),
     "mail_failed": ("err", "Письмо не отправлено — смотрите лог сервера"),
     "no_issue": ("err", "Файла ещё не выдавали"),
-    "payment_created": ("ok", "Платёж создан — reference в карточке"),
-    "payment_created_mailed": ("ok", "Платёж создан, письмо с реквизитами отправлено"),
+    "payment_created": ("ok", "Нота выставлена — reference в карточке; ждём перевод"),
+    "payment_created_mailed": ("ok", "Нота выставлена, письмо с реквизитами отправлено; ждём перевод"),
     "payment_confirmed": ("ok", "Платёж подтверждён, срок продлён, файл выдан"),
     "payment_confirmed_mailed": ("ok", "Платёж подтверждён, срок продлён, файл выдан и отправлен"),
     "payment_rejected": ("ok", "Платёж отклонён"),
     "payment_not_pending": ("err", "Этот платёж уже подтверждён или отклонён — второго продления не будет"),
     "bad_months": ("err", "Срок оплаты — 1, 3, 6 или 12 месяцев"),
     "bad_amount": ("err", "Сумма — целое число лей больше нуля"),
-    "no_bank": ("err", "Платёж создан, но реквизиты (DP_BANK_*) не заполнены — письмо не отправлено"),
+    "no_bank": ("err", "Нота выставлена, но реквизиты (DP_BANK_*) не заполнены — письмо не отправлено"),
     "card_created": ("ok", "Платёж картой создан — ссылка maib в карточке"),
     "card_created_mailed": ("ok", "Платёж картой создан, письмо со ссылкой отправлено"),
     "no_maib": ("err", "Оплата картой не настроена (DP_MAIB_*) — платёж не создан"),
@@ -516,7 +516,7 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
             f"<div><label>Телефон</label><input name='phone' value='{esc(c['phone'])}'></div>"
             f"<div><label>Адрес</label><input name='address' value='{esc(c['address'])}'></div></div>"
             f"<p style='margin:14px 0 0'><button class='primary'>Сохранить</button></p></form></div></details>")
-    issue_form = (f"<div class='card'>{_chead('key', 'Выдать файл', 'пробный или абонемент до даты; программа клиники заберёт файл сама')}"
+    issue_form = (f"<div class='card'>{_chead('key', 'Лицензия вручную (без оплаты)', 'пробный, демонстрация, договорённость; оплаченный срок выдаётся САМ при подтверждении платежа — программа клиники заберёт файл сама')}"
                   f"<form method='post' action='/admin/clinics/{esc(c['id'])}/issue'>"
                   f"<div class='grid'><div><label>Что выдать</label><select name='kind'>"
                   f"<option value='trial'>Пробный: {license.TRIAL_DAYS} дней + {license.TRIAL_GRACE_DAYS} льготы</option>"
@@ -537,14 +537,14 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
     else:
         method = ("<div><label>Как платит клиника</label><div class='muted' style='padding:9px 0'>только переводом: "
                   "DP_MAIB_* не заданы, ссылки на карту нет</div></div>")
-    pay_form = (f"<div class='card'>{_chead('card', 'Платежи', f'{price} MDL в месяц · {pay.amount(12, price)} MDL в год')}"
+    pay_form = (f"<div class='card'>{_chead('card', 'Ноты и платежи', f'нота = счёт клинике с reference; «Подтвердить» = перевод пришёл → срок продлён, файл выдан сам · {price} MDL в месяц · {pay.amount(12, price)} MDL в год')}"
                 f"<form method='post' action='/admin/clinics/{esc(c['id'])}/payments'>"
                 f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
                 f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div>"
                 f"{method}</div>"
                 f"<label class='chk'><input type='checkbox' name='send' value='1' checked> отправить письмо с нотой "
                 f"на {esc(c['email'] or '— e-mail не указан')}</label>"
-                f"<p style='margin:12px 0 16px'><button class='primary'>Создать платёж</button></p></form>"
+                f"<p style='margin:12px 0 16px'><button class='primary'>Выставить ноту</button></p></form>"
                 f"<table><tr><th>Reference</th><th>Сумма</th><th>Срок</th><th>Создан</th><th>Состояние</th><th></th></tr>"
                 f"{_payment_rows(list(payments)) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table></div>")
     trs = "".join(
@@ -708,6 +708,7 @@ th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;le
 tr:last-child td{border-bottom:0}
 pre.pay{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font:inherit;font-size:14.5px;white-space:pre-wrap;margin:12px 0;line-height:1.55}
 .price{display:inline-flex;gap:6px;align-items:baseline;background:var(--teal-soft);color:var(--teal-d);border-radius:10px;padding:6px 12px;font-size:13.5px;font-weight:600;white-space:nowrap}
+.steps{margin:0 0 16px;padding:0 0 0 22px;color:var(--muted);font-size:14px;line-height:1.5}.steps li{margin:0 0 6px}.steps b{color:var(--ink)}
 label.chk{display:flex;gap:10px;align-items:flex-start;color:var(--ink);font-size:14.5px;font-weight:400;margin:14px 0 4px}
 label.chk input{width:auto;margin-top:3px}
 .foot{font-size:13px;color:#7C8B91;margin-top:36px;border-top:1px solid var(--line);padding-top:16px;line-height:1.6}
@@ -1013,6 +1014,19 @@ def _lic_parts(c, sub, issue, st: str, now: datetime) -> dict:
     return {"text": text, "check": check, "bar": bar}
 
 
+def _subscribe_label(sub) -> str:
+    """Кнопка по цели, не по средству (02.10): пробной — «Treci la abonament»,
+    абонементу — «Prelungește abonamentul»; нота де плата остаётся средством."""
+    return "Treci la abonament" if (sub is None or sub["plan"] == "trial") else "Prelungește abonamentul"
+
+
+_STEPS = ("<ol class='steps'>"
+          "<li><b>Alegeți</b> o lună sau un an și comandați nota de plată — o primiți și pe e-mail, cu referința.</li>"
+          "<li><b>Plătiți</b> prin transfer bancar, cu referința din notă în destinația plății.</li>"
+          "<li><b>Confirmăm</b> plata în aceeași zi lucrătoare: termenul se prelungește, iar programul preia "
+          "singur noul termen — o dată pe zi sau cu «Verifică acum».</li></ol>")
+
+
 def _cont_payments(c, sub, payments: list) -> str:
     price = sub["price"] if sub else config.PRICE_MONTH
     pending = [p for p in payments if p["status"] == "pending"]
@@ -1034,14 +1048,15 @@ def _cont_payments(c, sub, payments: list) -> str:
             method = ("<div><label>Cum plătiți</label><select name='method'>"
                       "<option value='transfer'>Transfer bancar</option>"
                       "<option value='card'>Cu cardul (link de plată maib)</option></select></div>")
-        top = (f"<form method='post' action='/cont/nota'><div class='grid'><div><label>Abonament</label>"
+        top = (f"{_STEPS}<form method='post' action='/cont/nota'><div class='grid'><div><label>Abonament</label>"
                f"<select name='months'>{opts}</select></div>{method}</div>"
-               f"<p><button class='primary'>Comandă nota de plată</button></p></form>"
+               f"<p><button class='primary'>{_subscribe_label(sub)}</button></p></form>"
                f"<p class='muted'>Nota de plată cu referința și datele pentru plată apare aici și vine pe e-mail; "
                f"după confirmarea plății termenul se prelungește, iar programul îl preia singur.</p>")
     else:
-        top = (f"<p>Pentru abonament ({price} MDL pe lună sau {pay.amount(12, price)} MDL pe an) completați "
-               f"IDNO-ul clinicii în datele de mai jos, apoi comandați nota de plată.</p>")
+        top = (f"{_STEPS}<p>Pentru abonament ({price} MDL pe lună sau {pay.amount(12, price)} MDL pe an) completați "
+               f"IDNO-ul clinicii în datele de mai jos, apoi {_subscribe_label(sub).lower()[0] + _subscribe_label(sub)[1:]} "
+               f"— nota de plată apare aici.</p>")
     rows = "".join(
         f"<tr><td class='mono'>{esc(p['reference'])}</td><td>{p['amount']} MDL</td>"
         f"<td>{esc(mail.luni(p['months']))}</td><td>{_ro(p['created_at'])}</td>"
@@ -1081,7 +1096,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     if pending:
         act = "<a class='btn ghost' href='#plati'>Vezi nota de plată</a>"
     elif len(c["idno"] or "") == 13 and issue is not None:
-        act = "<a class='btn ghost' href='#plati'>Comandă nota de plată</a>"
+        act = f"<a class='btn ghost' href='#plati'>{_subscribe_label(sub)}</a>"
     else:
         act = ""
     how = (f"<p class='muted' style='margin:14px 0 0'>La prima pornire programul cere datele clinicii și se "
