@@ -825,7 +825,10 @@ def _cont_shell(title: str, inner: str, acc=None, msg: str = "", lead: str = "",
                f"<form method='post' action='/cont/iesire'><button title='{esc(acc['email'])}'>Ieșire</button></form></div>")
     else:
         who = f"<a class='site' href='{esc(site)}'>dentpilot.md</a>"
-    bar = (f"<div class='top'><div class='top-in'><a class='logo' href='/cont'><span class='ic'>{_TOOTH}</span>"
+    # логотип: со входом — в кабинет, без входа — на сайт (03.10, Олег: «выхожу, нажимаю
+    # на DentPilot, но на dentpilot.md не иду» — без входа /cont лишь возвращал на вход)
+    home = "/cont" if acc is not None else esc(site)
+    bar = (f"<div class='top'><div class='top-in'><a class='logo' href='{home}'><span class='ic'>{_TOOTH}</span>"
            f"DentPilot <span class='sub'>· Contul clinicii</span></a>{who}</div></div>")
     head = "" if plain else (
         f"{('<p class=' + chr(39) + 'eyebrow' + chr(39) + '>' + esc(eyebrow) + '</p>') if eyebrow else ''}"
