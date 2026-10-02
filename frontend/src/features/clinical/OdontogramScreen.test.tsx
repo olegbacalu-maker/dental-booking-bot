@@ -58,7 +58,7 @@ const MODEL: Odontogram = {
     occlusal: [],
   },
   states: { ok: 'Sănătos', carie: 'Carie', obturatie: 'Obturație', coroana: 'Coroană', implant: 'Implant', extras: 'Extras', lipsa: 'Lipsă' },
-  marks: { tratament: 'În tratament' },
+  marks: { tratament: 'În tratament', devital: 'Nerv extras' },
   surfaces: { M: 'mezial', O: 'ocluzal', D: 'distal', V: 'vestibular', L: 'lingual' },
   surface_states: ['carie', 'obturatie'],
   bridge_roles: { stalp: 'Stâlp', corp: 'Corp de punte' },
@@ -408,6 +408,17 @@ describe('C22: поверхность как первичный жест, чер
     expect(post).not.toHaveBeenCalled()                    // меню не пишет само
     fireEvent.contextMenu(btn(21))
     expect(within(screen.getByRole('menu')).getByRole('menuitemradio', { name: 'Coroană' }).getAttribute('aria-checked')).toBe('true')
+    // 03.10: отметки — на самом зубе, под чертой, НЕЗАВИСИМО от состояния
+    const nerv = within(screen.getByRole('menu')).getByRole('menuitemcheckbox', { name: 'Nerv extras' })
+    expect(nerv.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(nerv)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(toothState().value).toBe('coroana')                // коронка осталась — отметка поверх
+    expect((within(inspector()).getByLabelText('Nerv extras') as HTMLInputElement).checked).toBe(true)
+    fireEvent.contextMenu(btn(21))
+    expect(within(screen.getByRole('menu')).getByRole('menuitemcheckbox', { name: 'Nerv extras' }).getAttribute('aria-checked')).toBe('true')
+    expect(within(screen.getByRole('menu')).getByRole('menuitemcheckbox', { name: 'În tratament' }).getAttribute('aria-checked')).toBe('false')
+    expect(post).not.toHaveBeenCalled()                    // и отметку меню не пишет само
     key('Escape')
     expect(screen.queryByRole('menu')).toBeNull()
     expect(unsaved()).toBeTruthy()                         // Esc закрыл меню, черновик не тронул

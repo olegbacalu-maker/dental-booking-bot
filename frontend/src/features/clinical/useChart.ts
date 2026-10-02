@@ -74,6 +74,9 @@ export interface ChartApi {
   edit: (patch: Partial<ToothDraft>) => void
   /** Состояние зуба из контекстного меню: выбирает зуб и правит черновик. */
   setState: (n: number, state: string) => void
+  /** Отметка зуба из контекстного меню («În tratament», «Nerv extras»):
+   *  переключает её в черновике и выбирает зуб — запись, как у состояния. */
+  toggleMark: (n: number, mark: string) => void
   /** Сброс черновика выбранного зуба (Esc, «Renunță»). */
   discard: () => void
   busy: boolean
@@ -148,6 +151,13 @@ export function useChart(
     setSelected(n)
     put(n, x.base, { ...x.d, state })
   }
+  const toggleMark = (n: number, mark: string) => {
+    const x = draftFor(n)
+    if (!x) return
+    setSelected(n)
+    const on = x.d.marks.includes(mark)
+    put(n, x.base, { ...x.d, marks: on ? x.d.marks.filter((m) => m !== mark) : [...x.d.marks, mark] })
+  }
   const pickSurface = (n: number, letter: string) => {
     if (n === selected && letter === sel && cur && model) {
       const sfst = { ...cur.d.sfst }
@@ -195,7 +205,7 @@ export function useChart(
 
   return {
     view, setView, selected, info, select, sel, setSel, pickSurface,
-    draft, dirty, dirtyTeeth, edit, setState, discard, busy, save,
+    draft, dirty, dirtyTeeth, edit, setState, toggleMark, discard, busy, save,
     addBridge: (body) => act(() => chart.addBridge(pid, body)),
     delBridge: (bid) => act(() => chart.delBridge(pid, bid)),
   }

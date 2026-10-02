@@ -182,6 +182,7 @@ export function OdontogramWorkbench({
     setMenu({ n, x, y })
   }
   const menuState = (n: number, st: string) => { c.setState(n, st); setMenu(null); focusTooth(n) }
+  const menuMark = (n: number, mk: string) => { c.toggleMark(n, mk); setMenu(null); focusTooth(n) }
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return
@@ -227,6 +228,7 @@ export function OdontogramWorkbench({
 
   const menuInfo = menu ? model.teeth[String(menu.n)] : undefined
   const menuCurrent = menu && menu.n === c.selected && c.draft ? c.draft.state : (menuInfo?.state ?? '')
+  const menuMarks = menu && menu.n === c.selected && c.draft ? c.draft.marks : (menuInfo?.mk ?? [])
 
   return (
     <>
@@ -298,7 +300,8 @@ export function OdontogramWorkbench({
         </div>
       </div>
       {menu && (
-        <ToothMenu model={model} at={menu} current={menuCurrent} onState={menuState} onPlan={planFrom} onBridge={bridgeFrom} onClose={closeMenu} />
+        <ToothMenu model={model} at={menu} current={menuCurrent} onState={menuState} marks={menuMarks} onMark={menuMark}
+          onPlan={planFrom} onBridge={bridgeFrom} onClose={closeMenu} />
       )}
       <PlanDialog model={model} n={plan} busy={planBusy} invalid={planBad} onClose={closePlan} onSave={savePlan} />
       <BridgeDialog
