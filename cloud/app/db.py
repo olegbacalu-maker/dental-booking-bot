@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -124,6 +124,17 @@ MIGRATIONS = {
             id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
             created_at TEXT NOT NULL, expires_at TEXT NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS ix_pay_links_clinic ON pay_links(clinic_id, expires_at)",
+    ],
+    # 02.10, вопрос Олега «чтобы потом не проснуться с детской проблемой»:
+    # anchor_day — число, от которого считается помесячное продление (31.01 → 28.02 →
+    # 31.03, а не 28.03 навсегда); paid_via — чем ЗАКРЫТА нота. `method` ноты со ссылкой
+    # maib — «card» с момента ссылки, и по нему не понять, что карта пришла ВТОРОЙ,
+    # после подтверждённого перевода. Оплаченные до этого шага — только переводом:
+    # maib на боевом сервере не включался.
+    10: [
+        "ALTER TABLE subscriptions ADD COLUMN anchor_day INTEGER",
+        "ALTER TABLE payments ADD COLUMN paid_via TEXT",
+        "UPDATE payments SET paid_via='transfer' WHERE status='paid'",
     ],
 }
 

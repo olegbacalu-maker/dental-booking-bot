@@ -37,6 +37,11 @@ MSG = {
     "payment_mailed": ("ok", "Письмо с нотой отправлено ещё раз"),
     "payment_confirmed_mailed": ("ok", "Платёж подтверждён, срок продлён, файл выдан и отправлен"),
     "payment_rejected": ("ok", "Платёж отклонён"),
+    # повторный платёж по одной ноте (02.10): зачёт следующим периодом, payments.credit_again
+    "payment_repeat": ("ok", "Повторный перевод зачтён следующим периодом: новая строка, срок продлён, файл выдан"),
+    "payment_repeat_mailed": ("ok", "Повторный перевод зачтён следующим периодом: срок продлён, файл выдан, письмо отправлено"),
+    "payment_is_pending": ("err", "Нота ещё ожидает — её закрывает «Подтвердить», а не зачёт повторного перевода"),
+    "repeat_unsure": ("err", "Отметьте «перевод пришёл» — зачёт продлевает срок и выдаёт файл"),
     "payment_not_pending": ("err", "Этот платёж уже подтверждён или отклонён — второго продления не будет"),
     "bad_months": ("err", "Срок оплаты — 1, 3, 6 или 12 месяцев"),
     "bad_amount": ("err", "Сумма — целое число лей больше нуля"),
@@ -394,6 +399,12 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
                             f"<button title='Ссылка на оплату картой к этому же reference'>"
                             f"{'Новая ссылка' if p['provider_id'] else 'Ссылка на карту'}</button></form>")
             actions = f"<div class='actions'>{actions}</div>"
+        elif p["status"] in ("paid", "rejected"):
+            # второй платёж по этой же ноте (02.10): не теряем — следующий период
+            actions = (f"<div class='actions'><form method='post' action='/admin/payments/{p['id']}/repeat'>"
+                       f"<label title='По этой ноте пришёл ещё один перевод: зачесть его следующим периодом, "
+                       f"с новым reference, файлом и письмом'><input type='checkbox' name='sure' value='1' required> "
+                       f"перевод пришёл</label> <button>Зачесть повторный перевод</button></form></div>")
         clinic_td = (f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
                      if with_clinic else "")
         out.append(f"<tr><td class='mono'>{esc(p['reference'])}</td>{clinic_td}"
@@ -401,6 +412,7 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
                    f"<td>{esc(p['created_at'][:10])}</td><td>{_pay_tag(p['status'])}"
                    f"{(' · ' + esc(p['paid_at'][:10])) if p['paid_at'] else ''}"
                    f"{(' · ' + esc(p['confirmed_by'])) if p['confirmed_by'] and p['status'] == 'paid' else ''}"
+                   f"{(' · ' + ('картой' if p['paid_via'] == 'card' else 'переводом')) if p['status'] == 'paid' and p['paid_via'] else ''}"
                    f"{_card_cell(p)}</td><td>{actions}</td></tr>")
     return "".join(out)
 

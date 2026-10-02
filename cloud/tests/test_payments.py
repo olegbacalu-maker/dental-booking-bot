@@ -50,6 +50,67 @@ def _clinic(c: Client, **over) -> str:
     return cid_from(c.post("/admin/clinics", **f).location)
 
 
+def _note(c: Client, s: Server, cid: str) -> int:
+    """Нота переводом на месяц, без письма → id строки (последняя у клиники)."""
+    c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="", method="transfer")
+    return _sql(s, "SELECT id FROM payments WHERE clinic_id=? ORDER BY id DESC LIMIT 1", cid)[0][0]
+
+
+def _until(s: Server, cid: str) -> str:
+    return _sql(s, "SELECT valid_until FROM subscriptions WHERE clinic_id=?", cid)[0][0]
+
+
+def suite_anchor_repeat(res: Result) -> None:
+    """Живым сервером (02.10): число продления держит якорь; второй перевод по той же
+    ноте зачитывается следующим периодом — только с галочкой и только у закрытой ноты."""
+    with Server(env=BANK_ENV) as s:
+        c = Client(s.url).login()
+        cid = _clinic(c)
+        r = c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until="2027-01-31", grace_days="14")
+        res.ok("срок клиники — 31.01.2027", _until(s, cid) == "2027-01-31T00:00:00Z", r.location)
+        got = []
+        for _ in range(3):
+            c.post(f"/admin/payments/{_note(c, s, cid)}/confirm")
+            got.append(_until(s, cid)[:10])
+        res.check("три месяца подряд от 31-го: 28.02, 31.03, 30.04 — число не съехало",
+                  got, ["2027-02-28", "2027-03-31", "2027-04-30"])
+        res.check("якорь подписки — 31", _sql(s, "SELECT anchor_day FROM subscriptions WHERE clinic_id=?", cid)[0][0], 31)
+        res.check("оплаченные помечены: переводом",
+                  {r_[0] for r_ in _sql(s, "SELECT paid_via FROM payments WHERE clinic_id=?", cid)}, {"transfer"})
+
+        # второй перевод по уже оплаченной ноте
+        last = _sql(s, "SELECT id, reference FROM payments WHERE clinic_id=? ORDER BY id DESC LIMIT 1", cid)[0]
+        page = c.get(f"/admin/clinics/{cid}").body
+        res.ok("у оплаченной ноты — кнопка зачёта с обязательной галочкой",
+               f"/admin/payments/{last[0]}/repeat" in page and "name='sure'" in page and "переводом" in page)
+        n_issues = _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid)[0][0]
+        r = c.post(f"/admin/payments/{last[0]}/repeat")
+        res.check("без галочки — отказ, ничего не продлено", (r.location, _until(s, cid)[:10]),
+                  (f"/admin/clinics/{cid}?msg=repeat_unsure", "2027-04-30"))
+        r = c.post(f"/admin/payments/{last[0]}/repeat", sure="1")
+        res.check("с галочкой — зачтён, письмо ушло", r.location, f"/admin/clinics/{cid}?msg=payment_repeat_mailed")
+        new = _sql(s, "SELECT reference, status, paid_via, months, amount FROM payments WHERE clinic_id=? "
+                      "ORDER BY id DESC LIMIT 1", cid)[0]
+        res.ok("новая строка: новый reference, оплачена переводом, тот же месяц и сумма",
+               new[0] != last[1] and new[1:] == ("paid", "transfer", 1, config.PRICE_MONTH), repr(new))
+        res.check("срок продлён следующим периодом по якорю", _until(s, cid)[:10], "2027-05-31")
+        res.check("выдан ещё один файл", _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid)[0][0],
+                  n_issues + 1)
+        res.ok("журнал: payment_repeat называет обе ноты",
+               any(last[1] in d[0] and new[0] in d[0]
+                   for d in _sql(s, "SELECT detail FROM audit WHERE what='payment_repeat'")))
+
+        # ожидающую закрывает «Подтвердить», отклонённую — можно зачесть
+        pend = _note(c, s, cid)
+        res.check("ожидающая нота — не зачёт", c.post(f"/admin/payments/{pend}/repeat", sure="1").location,
+                  f"/admin/clinics/{cid}?msg=payment_is_pending")
+        c.post(f"/admin/payments/{pend}/reject", reason="другая сумма")
+        r = c.post(f"/admin/payments/{pend}/repeat", sure="1")
+        res.ok("по отклонённой ноте перевод всё же пришёл — зачтён", r.location.endswith("msg=payment_repeat_mailed")
+               and _until(s, cid)[:10] == "2027-06-30", f"{r.location} {_until(s, cid)}")
+        res.check("чужая строка — 404", c.post("/admin/payments/999/repeat", sure="1").status, 404)
+
+
 def suite_rules(res: Result) -> None:
     res.check("31.01 + 1 мес = 28.02", pay.add_months(_t("2026-01-31T10:00:00Z"), 1), _t("2026-02-28T10:00:00Z"))
     res.check("31.01.2028 + 1 = 29.02, високосный", pay.add_months(_t("2028-01-31T10:00:00Z"), 1),
@@ -68,6 +129,28 @@ def suite_rules(res: Result) -> None:
               _t("2026-10-24T12:00:00Z"))
     res.check("первая оплата: от сегодня", pay.extend_from(None, 3, now), _t("2026-12-24T12:00:00Z"))
     res.check("срок кончается ровно сейчас: от сейчас", pay.extend_from(now, 1, now), _t("2026-10-24T12:00:00Z"))
+
+    # ⭐ Якорь (02.10, вопрос Олега про «детскую проблему»): помесячное продление держит
+    # число первого периода. Без якоря цепочка шла 31.01 → 28.02 → 28.03 → 28.04: клиника
+    # теряла дни, а её число менялось навсегда — каждое продление считалось от прошлого конца
+    res.check("28.02 + 1 с якорем 31 = 31.03", pay.add_months(_t("2027-02-28T10:00:00Z"), 1, 31),
+              _t("2027-03-31T10:00:00Z"))
+    res.check("якорь 30 в феврале — 28.02", pay.add_months(_t("2027-01-30T10:00:00Z"), 1, 30),
+              _t("2027-02-28T10:00:00Z"))
+    v, a, out = _t("2027-01-31T10:00:00Z"), None, []
+    for _ in range(4):
+        a = pay.anchor_day(v, now, a)
+        v = pay.extend_from(v, 1, now, a)
+        out.append(v.strftime("%d.%m"))
+    res.check("помесячно от 31.01: после февраля число возвращается", out, ["28.02", "31.03", "30.04", "31.05"])
+    res.check("без якоря — число самого срока", pay.anchor_day(_t("2027-02-28T10:00:00Z"), now, None), 28)
+    res.check("срок сдвинут руками на 15-е: якорь 31 сброшен на 15",
+              pay.anchor_day(_t("2027-11-15T10:00:00Z"), now, 31), 15)
+    res.check("срок кончился: отсчёт с сегодняшнего числа", pay.anchor_day(_t("2026-08-31T10:00:00Z"), now, 31), 24)
+    res.check("29.02 високосного года при якоре 31 стоит на якоре",
+              pay.anchor_day(_t("2028-02-29T10:00:00Z"), now, 31), 31)
+    res.check("год с якорем: 28.02.2027 + 12 при якоре 29 = 29.02.2028",
+              pay.extend_from(_t("2027-02-28T10:00:00Z"), 12, now, 29), _t("2028-02-29T10:00:00Z"))
 
 
 def suite_flow(res: Result) -> None:

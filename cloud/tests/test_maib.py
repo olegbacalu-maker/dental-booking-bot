@@ -343,6 +343,90 @@ def suite_flow(res: Result) -> None:
         fake.close()
 
 
+def suite_duplicate(res: Result) -> None:
+    """Карта прошла ПОСЛЕ того, как нота закрыта другим путём (02.10): деньги клиники у нас
+    дважды — второй платёж зачитывается следующим периодом, один раз, и callback, и
+    ежедневная задача, если callback потерялся."""
+    fake = FakeMaib()
+    try:
+        with Server(env={**BANK_ENV, **fake.env}) as s:
+            c = Client(s.url).login()
+
+            def card_note(cid: str):
+                c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="", method="card")
+                return _payment(s, cid, len(_sql(s, "SELECT id FROM payments WHERE clinic_id=?", cid)) - 1)
+
+            # 1. нота со ссылкой на карту закрыта ПЕРЕВОДОМ, потом клиника платит картой
+            cid = _clinic(c)
+            c.post(f"/admin/clinics/{cid}/issue", kind="dates", valid_until="2027-01-31", grace_days="14")
+            p = card_note(cid)
+            c.post(f"/admin/payments/{p['id']}/confirm")
+            res.ok("нота закрыта переводом: paid, via transfer, ссылка maib осталась",
+                   (_payment(s, cid, 0)["status"], _payment(s, cid, 0)["paid_via"]) == ("paid", "transfer")
+                   and _payment(s, cid, 0)["provider_id"] == p["provider_id"], dict(_payment(s, cid, 0)))
+            fake.set_status(p["provider_id"], "OK")
+            n = len(_letters(s))
+            r = c.post_raw(CALLBACK, fake.callback(p["provider_id"]))
+            res.ok("callback карты по закрытой ноте: paid (зачтено), а не already",
+                   r.status == 200 and json.loads(r.body).get("outcome") == "paid", f"{r.status} {r.body}")
+            old, new = _payment(s, cid, 0), _payment(s, cid, 1)
+            res.ok("новая строка: новый reference, оплачена картой, payId переехал; у старой ссылки нет",
+                   new["reference"] != old["reference"] and new["status"] == "paid" and new["paid_via"] == "card"
+                   and new["provider_id"] == p["provider_id"] and old["provider_id"] is None, f"{dict(old)} {dict(new)}")
+            res.check("срок: два периода по якорю — 28.02 и 31.03",
+                      _sql(s, "SELECT valid_until FROM subscriptions WHERE clinic_id=?", cid)[0][0][:10], "2027-03-31")
+            res.ok("письмо о лицензии ушло", len(_letters(s)) == n + 1 and "licența" in _letters(s)[-1][0].lower())
+            res.check("журнал: payment_repeat", _sql(s, "SELECT count(*) FROM audit WHERE what='payment_repeat'")[0][0], 1)
+            issues = _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid)[0][0]
+            r = c.post_raw(CALLBACK, fake.callback(p["provider_id"]))
+            res.ok("повторный callback того же платежа: already, третьего периода нет",
+                   json.loads(r.body).get("outcome") == "already"
+                   and _sql(s, "SELECT count(*) FROM issues WHERE clinic_id=?", cid)[0][0] == issues, r.body)
+            res.ok("в карточке зачтённая строка — «картой»", "картой" in c.get(f"/admin/clinics/{cid}").body)
+
+            # 2. то же, но callback потерялся — зачитывает ежедневная задача
+            cid2 = _clinic(c, name="Clinica Fără Callback", email="fara@example.md")
+            c.post(f"/admin/clinics/{cid2}/issue", kind="dates", valid_until="2027-01-15", grace_days="14")
+            q = card_note(cid2)
+            c.post(f"/admin/payments/{q['id']}/confirm")
+            fake.set_status(q["provider_id"], "OK")
+            code, out = _run(s, datetime.now(timezone.utc).date())
+            res.ok("ежедневная задача нашла карту по закрытой ноте и зачла её",
+                   code == 0 and len(_sql(s, "SELECT id FROM payments WHERE clinic_id=?", cid2)) == 2
+                   and _payment(s, cid2, 1)["paid_via"] == "card", out[-400:])
+            res.check("срок второй клиники: 15.02 и 15.03",
+                      _sql(s, "SELECT valid_until FROM subscriptions WHERE clinic_id=?", cid2)[0][0][:10], "2027-03-15")
+            code, out = _run(s, datetime.now(timezone.utc).date())
+            res.check("второй проход задачи ничего не прибавляет",
+                      len(_sql(s, "SELECT id FROM payments WHERE clinic_id=?", cid2)), 2)
+
+            # 3. нота ОТКЛОНЕНА, а карта по её ссылке прошла — деньги тоже не теряем
+            cid3 = _clinic(c, name="Clinica Respinsă", email="resp@example.md")
+            c.post(f"/admin/clinics/{cid3}/issue", kind="dates", valid_until="2027-01-10", grace_days="14")
+            t = card_note(cid3)
+            c.post(f"/admin/payments/{t['id']}/reject", reason="другая сумма")
+            fake.set_status(t["provider_id"], "OK")
+            r = c.post_raw(CALLBACK, fake.callback(t["provider_id"]))
+            res.ok("карта по отклонённой ноте: зачтена, срок +1 месяц",
+                   json.loads(r.body).get("outcome") == "paid"
+                   and _sql(s, "SELECT valid_until FROM subscriptions WHERE clinic_id=?", cid3)[0][0][:10] == "2027-02-10",
+                   r.body)
+
+            # 4. оплаченная ЭТОЙ ЖЕ картой — по-прежнему already
+            cid4 = _clinic(c, name="Clinica Card Simplu", email="simplu@example.md")
+            c.post(f"/admin/clinics/{cid4}/issue", kind="dates", valid_until="2027-01-20", grace_days="14")
+            u = card_note(cid4)
+            fake.set_status(u["provider_id"], "OK")
+            c.post_raw(CALLBACK, fake.callback(u["provider_id"]))
+            r = c.post_raw(CALLBACK, fake.callback(u["provider_id"]))
+            res.ok("нота, закрытая этой картой: второй callback — already, строка одна",
+                   json.loads(r.body).get("outcome") == "already"
+                   and len(_sql(s, "SELECT id FROM payments WHERE clinic_id=?", cid4)) == 1
+                   and _payment(s, cid4, 0)["paid_via"] == "card", r.body)
+    finally:
+        fake.close()
+
+
 def suite_daily(res: Result) -> None:
     """Ежедневная задача с maib: ссылка в счёте, оплата картой замечена без callback."""
     fake = FakeMaib()

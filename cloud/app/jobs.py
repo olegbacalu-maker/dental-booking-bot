@@ -149,9 +149,15 @@ def settle_cards(who: str, rep: Report) -> None:
     падение задачи: письма клиникам от этого не зависят."""
     if not maib.enabled():
         return
+    # ⭐ И закрытые ДРУГИМ путём ноты с живой ссылкой maib за последний месяц: карта могла
+    # пройти уже после подтверждённого перевода, а её callback — потеряться. Без этого
+    # второй платёж клиники молча остался бы у нас (payments.credit_again).
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime(db.TS)
     with db.connect() as con:
-        rows = con.execute("SELECT * FROM payments WHERE status=? AND provider_id IS NOT NULL ORDER BY id",
-                           (payments.PENDING,)).fetchall()
+        rows = con.execute("""SELECT * FROM payments WHERE provider_id IS NOT NULL
+                                AND (status=? OR (COALESCE(paid_via, '')<>? AND created_at>=?))
+                              ORDER BY id""",
+                           (payments.PENDING, payments.CARD, since)).fetchall()
     for p in rows:
         try:
             truth = maib.info(p["provider_id"])

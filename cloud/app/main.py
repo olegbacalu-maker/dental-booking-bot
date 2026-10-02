@@ -773,6 +773,37 @@ def payment_confirm(request: Request, pid: int) -> Response:
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
+@app.post("/admin/payments/{pid}/repeat")
+def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response:
+    """«Зачесть повторный перевод» (02.10): по уже оплаченной или отклонённой ноте
+    пришёл ещё один перевод — следующий период отдельной строкой с новым reference,
+    файл и письмо как у «Подтвердить» (payments.credit_again). Галочка «перевод
+    пришёл» обязательна: кнопка продлевает и выдаёт файл, случайный клик — подарок.
+    Ожидающую ноту закрывает «Подтвердить», не эта кнопка."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    who = auth.current_user(request)
+    with db.connect() as con:
+        p = _payment(con, pid)
+        if p is None:
+            return Response(status_code=404)
+        back = _back(request, p)
+        if sure != "1":
+            return RedirectResponse(f"{back}?msg=repeat_unsure", status_code=303)
+        try:
+            payments.credit_again(con, p, payments.TRANSFER, who)
+        except ValueError as e:
+            code = {"pending": "payment_is_pending", "idno": "bad_idno"}.get(str(e), "payment_not_pending")
+            return RedirectResponse(f"{back}?msg={code}", status_code=303)
+        except RuntimeError:
+            return RedirectResponse(f"{back}?msg=no_key", status_code=303)
+        c = _clinic(con, p["clinic_id"])
+        code = "payment_repeat" if _send_latest(con, c, who) else "payment_repeat_mailed"
+    return RedirectResponse(f"{back}?msg={code}", status_code=303)
+
+
 @app.post("/admin/payments/{pid}/mail")
 def payment_mail(request: Request, pid: int) -> Response:
     """Письмо с ожидающей нотой ещё раз (03.10): та же нота, тот же reference —
