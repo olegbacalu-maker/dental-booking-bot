@@ -152,6 +152,32 @@ def suite_flow(res: Result) -> None:
         res.ok("подтверждение со страницы ожидающих ведёт обратно туда",
                r.location.startswith("/admin/payments?msg=payment_confirmed"), r.location)
 
+        # вторая ожидающая нота не выставляется (03.10)
+        c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="")
+        ref5 = f"DP-{year}-000005"
+        pid5 = _pid(s, ref5)
+        n_pay = _sql(s, "SELECT count(*) FROM payments")[0][0]
+        n_eml = len(list(s.outbox.glob("*.eml")))
+        r = c.post(f"/admin/clinics/{cid}/payments", months="12", amount="", send="1")
+        res.check("нота при ожидающей: вторая не выставлена, письмо с прежней ушло — note_pending_mailed",
+                  r.location, f"/admin/clinics/{cid}?msg=note_pending_mailed")
+        res.check("платежей не прибавилось", _sql(s, "SELECT count(*) FROM payments")[0][0], n_pay)
+        eml = sorted(s.outbox.glob("*.eml"))
+        res.ok("письмо одно и с прежним reference",
+               len(eml) == n_eml + 1 and ref5 in email.message_from_bytes(eml[-1].read_bytes(), policy=email.policy.default)["Subject"])
+        res.check("без галочки — note_pending, письма нет",
+                  (c.post(f"/admin/clinics/{cid}/payments", months="1", amount="", send="").location,
+                   len(list(s.outbox.glob("*.eml")))),
+                  (f"/admin/clinics/{cid}?msg=note_pending", n_eml + 1))
+        card = c.get(f"/admin/clinics/{cid}").body
+        res.ok("у ожидающей ноты кнопка «Письмо»", f"/admin/payments/{pid5}/mail" in card and ">Письмо<" in card)
+        res.check("«Письмо» — письмо ещё раз", c.post(f"/admin/payments/{pid5}/mail").location,
+                  f"/admin/clinics/{cid}?msg=payment_mailed")
+        res.check("писем стало на одно больше", len(list(s.outbox.glob("*.eml"))), n_eml + 2)
+        c.post(f"/admin/payments/{pid5}/reject", reason="проверка")
+        res.check("«Письмо» для отклонённой — not_pending", c.post(f"/admin/payments/{pid5}/mail").location,
+                  f"/admin/clinics/{cid}?msg=payment_not_pending")
+
         # проверки формы
         res.check("2 месяца — не из ряда", c.post(f"/admin/clinics/{cid}/payments", months="2").location,
                   f"/admin/clinics/{cid}?msg=bad_months")

@@ -573,6 +573,22 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
                      else payments.amount(m, price) if m in payments.MONTHS else 1)
             except ValueError:
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
+            # вторая ожидающая нота не выставляется (03.10): кабинет, страница оплаты и
+            # ежедневная задача её не плодят — админка тоже; письмо с прежней — по галочке
+            pending = con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
+                                  (cid, payments.PENDING)).fetchone()
+            if pending is not None:
+                if card and not pending["pay_url"]:
+                    # карта к УЖЕ ожидающей ноте: ссылка maib к ней, reference прежний; maib молчит — maib_failed ниже
+                    pending = payments.attach_card(con, pending, c, who, _ip(request))
+                    code = "card_link"
+                    if send == "1":
+                        code = _send_payment_letter(con, c, pending, who) or "card_link_mailed"
+                else:
+                    code = "note_pending"
+                    if send == "1":
+                        code = _send_payment_letter(con, c, pending, who) or "note_pending_mailed"
+                return RedirectResponse(f"/admin/clinics/{cid}?msg={code}", status_code=303)
             try:
                 p = payments.create(con, c, m, a, who)
             except ValueError as e:
@@ -755,6 +771,27 @@ def payment_confirm(request: Request, pid: int) -> Response:
         c = _clinic(con, p["clinic_id"])
         code = "payment_confirmed" if _send_latest(con, c, who) else "payment_confirmed_mailed"
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
+
+
+@app.post("/admin/payments/{pid}/mail")
+def payment_mail(request: Request, pid: int) -> Response:
+    """Письмо с ожидающей нотой ещё раз (03.10): та же нота, тот же reference —
+    когда бухгалтер клиники потерял первое или нота выставлена без письма."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    who = auth.current_user(request)
+    with db.connect() as con:
+        p = con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+        if p is None:
+            return Response(status_code=404)
+        c = _clinic(con, p["clinic_id"])
+        if p["status"] != payments.PENDING:
+            code = "payment_not_pending"
+        else:
+            code = _send_payment_letter(con, c, p, who) or "payment_mailed"
+    return RedirectResponse(f"/admin/clinics/{p['clinic_id']}?msg={code}", status_code=303)
 
 
 @app.post("/admin/payments/{pid}/reject")

@@ -30,6 +30,11 @@ MSG = {
     "payment_created": ("ok", "Нота выставлена — reference в карточке; ждём перевод"),
     "payment_created_mailed": ("ok", "Нота выставлена, письмо с реквизитами отправлено; ждём перевод"),
     "payment_confirmed": ("ok", "Платёж подтверждён, срок продлён, файл выдан"),
+    # вторая ожидающая нота не выставляется (03.10): у бухгалтера клиники был бы выбор из двух номеров
+    "note_pending": ("err", "У клиники уже есть ожидающая нота — вторую не выставляем (номер в таблице ниже). "
+                            "Переотправить её письмом — кнопка «Письмо»; другая сумма или срок — сначала «Отклонить» ожидающую"),
+    "note_pending_mailed": ("ok", "У клиники уже есть ожидающая нота — вторую не выставляем; письмо с ней отправлено ещё раз"),
+    "payment_mailed": ("ok", "Письмо с нотой отправлено ещё раз"),
     "payment_confirmed_mailed": ("ok", "Платёж подтверждён, срок продлён, файл выдан и отправлен"),
     "payment_rejected": ("ok", "Платёж отклонён"),
     "payment_not_pending": ("err", "Этот платёж уже подтверждён или отклонён — второго продления не будет"),
@@ -378,7 +383,9 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
                        f"<button class='primary'>Подтвердить</button></form>"
                        f"<form method='post' action='/admin/payments/{p['id']}/reject'>"
                        f"<input name='reason' placeholder='причина'>"
-                       f"<button>Отклонить</button></form>")
+                       f"<button>Отклонить</button></form>"
+                       f"<form method='post' action='/admin/payments/{p['id']}/mail'>"
+                       f"<button title='Письмо с нотой и реквизитами ещё раз — та же нота, тот же reference'>Письмо</button></form>")
             if p["provider_id"]:
                 actions += (f"<form method='post' action='/admin/payments/{p['id']}/check'>"
                             f"<button title='Спросить maib о статусе'>Проверить</button></form>")
