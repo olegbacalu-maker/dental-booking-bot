@@ -90,7 +90,8 @@ def page(title: str, body: str, user: str | None = None, msg: str = "", pending:
         banner = f"<div class='banner {cls}'>{esc(text)}</div>"
     pend = f" ({pending})" if pending else ""
     nav = ("<div class='top'><a href='/admin'>DentPilot Cloud</a><a href='/admin'>Клиники</a>"
-           f"<a href='/admin/payments'>Платежи{pend}</a><a href='/admin/audit'>Журнал</a>"
+           f"<a href='/admin/payments'>Платежи{pend}</a><a href='/admin/fleet'>Флот</a>"
+           f"<a href='/admin/audit'>Журнал</a>"
            + (f"<form method='post' action='/admin/logout'><button>Выход · {esc(user)}</button></form>"
               if user else "") + "</div>")
     return (f"<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
@@ -358,8 +359,51 @@ def audit_page(rows: list, user: str, msg: str = "", pending: int = 0) -> str:
     return page("Журнал", body, user, msg, pending=pending)
 
 
+def _device_rows(devices: list, latest: str = "") -> str:
+    from . import fleet
+    out = []
+    for d in devices:
+        tags = ""
+        if d["version"] and latest and fleet.behind(d["version"], latest):
+            tags += " <span class='tag warn'>отстаёт</span>"
+        out.append(f"<tr><td class='mono'>{esc(d['id'])}</td><td>{esc(d['version'] or '—')}{tags}</td>"
+                   f"<td>{esc(d['channel'] or '—')}</td><td>{esc(d['os'] or '—')}</td>"
+                   f"<td>{esc((d['first_seen_at'] or '')[:10])}</td>"
+                   f"<td>{esc((d['last_seen_at'] or '')[:16].replace('T', ' '))}</td>"
+                   f"<td>{d['last_seq'] if d['last_seq'] is not None else '—'}</td></tr>")
+    return "".join(out)
+
+
+def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0) -> str:
+    """Флот (02.10): компьютеры клиник, версии, кто отстал от выпуска, кто молчит."""
+    c = rep["counts"]
+    latest = rep["latest"]
+    head = (f"<div class='card'><span class='muted'>Последний выпуск: <b>{esc(latest) or 'API GitHub не ответил'}</b>"
+            f" · компьютеров {c['devices']} у {c['clinics']} клиник · отстают {c['behind']}"
+            f" · молчат дольше недели {c['silent']}</span>"
+            f"<p class='muted'>Программа называет себя при каждом запросе файла (раз в сутки) и при активации: "
+            f"версия, канал, Windows, личность машины (device.json). Сервер только слушает — обновиться "
+            f"программе никто не велит. JSON того же: <a href='/admin/api/fleet'>/admin/api/fleet</a>.</p></div>")
+    rows = []
+    for d in rep["devices"]:
+        tags = (" <span class='tag warn'>отстаёт</span>" if d["behind"] else "") + \
+               (" <span class='tag bad'>молчит</span>" if d["silent"] else "")
+        rows.append(f"<tr><td><a href='/admin/clinics/{esc(d['clinic_id'])}'>{esc(d['clinic'])}</a> {_tag(d['state'])}</td>"
+                    f"<td class='mono'>{esc(d['device'])}</td><td>{esc(d['version'] or '—')}{tags}</td>"
+                    f"<td>{esc(d['channel'] or '—')}</td><td>{esc(d['os'] or '—')}</td>"
+                    f"<td>{esc((d['last_seen_at'] or '')[:16].replace('T', ' '))}"
+                    f"{(' <span class=muted>(' + str(d['silent_days']) + ' дн.)</span>') if d['silent_days'] else ''}</td>"
+                    f"<td>{d['last_seq'] if d['last_seq'] is not None else '—'}</td></tr>")
+    table = (f"<div class='card'><table><tr><th>Клиника</th><th>Компьютер</th><th>Версия</th><th>Канал</th>"
+             f"<th>Windows</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
+             f"{''.join(rows) or '<tr><td colspan=7 class=muted>Ни один компьютер ещё не выходил на связь</td></tr>'}"
+             f"</table></div>")
+    return page("Флот", head + table, user, msg, pending=pending)
+
+
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
-                payments: list = (), pending: int = 0, reminders: list = (), accounts: list = ()) -> str:
+                payments: list = (), pending: int = 0, reminders: list = (), accounts: list = (),
+                devices: list = ()) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     head = (f"<div class='card'><div class='grid'>"
@@ -439,8 +483,12 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"e-mail (выше) и отвяжите старую запись — новый вход привяжется к клинике по ящику.</p>"
                 f"<table><tr><th>E-mail Google</th><th>Имя</th><th>С</th><th>Последний вход</th><th></th></tr>"
                 f"{acc_rows or '<tr><td colspan=5 class=muted>В кабинет ещё никто не входил</td></tr>'}</table></div>")
-    return page(c["name"], head + edit + acc_html + pay_form + issue_form + issues_html + rem_html + audit_html,
-                user, msg, pending=pending)
+    dev_html = (f"<h2>Компьютеры</h2><div class='card'><table><tr><th>Компьютер</th><th>Версия</th><th>Канал</th>"
+                f"<th>Windows</th><th>С</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
+                f"{_device_rows(list(devices)) or '<tr><td colspan=7 class=muted>Программа этой клиники ещё не выходила на связь</td></tr>'}"
+                f"</table></div>")
+    return page(c["name"], head + edit + acc_html + dev_html + pay_form + issue_form + issues_html + rem_html
+                + audit_html, user, msg, pending=pending)
 
 
 # ---------- кабинет клиники (шаг 3, 01.10): страницы по-румынски ----------
@@ -538,6 +586,8 @@ def cont_login_page(msg: str = "", enabled: bool = True) -> str:
     inner = (f"<div class='card'><p>Aici vedeți licența DentPilot a clinicii, descărcați programul și fișierul "
              f"de licență, comandați nota de plată pentru abonament și vă actualizați datele clinicii. "
              f"Datele pacienților nu ajung aici niciodată: ele rămân pe calculatorul clinicii.</p>{entry}"
+             f"<p class='muted'>Nu aveți cont Google? <a href='/proba'>Trimiteți cererea de probă prin formular</a> "
+             f"— fișierul de licență vine pe e-mail.</p>"
              f"<p class='muted'>De la Google primim doar adresa de e-mail, numele și identificatorul contului; "
              f"parola rămâne la Google — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, "
              f"§ 5.</p></div>")
@@ -666,11 +716,24 @@ def _cont_payments(c, sub, payments: list) -> str:
     return top + table
 
 
-def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "") -> str:
+def _cont_devices(devices: list, latest: str) -> str:
+    """Calculatoarele clinicii: версия, Windows, последняя проверка (флот, 02.10)."""
+    if not devices:
+        return ""
+    from . import fleet
+    rows = "".join(
+        f"<li>{esc(d['os'] or 'Windows')} — DentPilot {esc(d['version'] or '?')}"
+        f"{' <span class=tag warn>versiune veche</span>' if d['version'] and latest and fleet.behind(d['version'], latest) else ''}"
+        f", ultima verificare {esc((d['last_seen_at'] or '')[:16].replace('T', ' '))} UTC</li>" for d in devices)
+    return f"<p class='muted'>Calculatoare cu DentPilot:</p><ul class='muted'>{rows}</ul>"
+
+
+def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = ()) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     site = config.SITE_URL.rstrip("/")
-    lic = f"<h2>Licența</h2><div class='card'>{_cont_license(c, sub, issue, st)}</div>"
+    lic = (f"<h2>Licența</h2><div class='card'>{_cont_license(c, sub, issue, st)}"
+           f"{_cont_devices(list(devices), release.version if release else '')}</div>")
     ver = f" {esc(release.version)}" if release else ""
     prog = (f"<h2>Programul</h2><div class='card'><p><a class='btn' href='/descarca'>Descarcă DentPilot{ver}</a></p>"
             f"<p class='muted'>Arhivă zip cu instalatorul DentPilot-Setup{('-' + esc(release.version)) if release else ''}.exe, "

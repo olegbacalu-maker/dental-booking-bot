@@ -57,12 +57,14 @@ def request_url(url: str, seq: int) -> str:
 
 
 def fetch(url: str, token: str, seq: int, timeout: float = TIMEOUT,
-          agent: str = "DentPilot") -> tuple[str, str]:
-    """Один запрос. Возвращает (исход, текст файла или '') и не бросает."""
+          agent: str = "DentPilot", extra: dict | None = None) -> tuple[str, str]:
+    """Один запрос. Возвращает (исход, текст файла или '') и не бросает.
+    `extra` — заголовки личности машины (X-DentPilot-*, собирает license.py):
+    по ним сервер ведёт флот — кто на какой версии (02.10)."""
     try:
         req = urllib.request.Request(request_url(url, seq), headers={
             "Authorization": f"Bearer {token}", "Accept": "application/json",
-            "User-Agent": agent})
+            "User-Agent": agent, **(extra or {})})
         with _opener.open(req, timeout=timeout) as r:
             if r.status == 204:
                 return SAME, ""
@@ -90,27 +92,28 @@ def _json(raw: bytes) -> dict:
 
 
 def request_trial(url: str, fields: dict, timeout: float = TIMEOUT,
-                  agent: str = "DentPilot") -> tuple[str, dict]:
+                  agent: str = "DentPilot", extra: dict | None = None) -> tuple[str, dict]:
     """Заявка на пробный: POST JSON на `url`. Возвращает (исход, ответ) и не бросает.
 
     ACCEPTED — ответ сервера с `token` и `url` (проверяет их вызывающий);
     REJECTED — отказ со словами сервера в `text` (у повтора — и `verify_id`);
     OFFLINE — всё остальное, включая 404 у сервера без этого входа."""
-    return _post_json(url, fields, timeout, agent)
+    return _post_json(url, fields, timeout, agent, extra)
 
 
 def verify_code(url: str, verify_id: str, code: str, timeout: float = TIMEOUT,
-                agent: str = "DentPilot") -> tuple[str, dict]:
+                agent: str = "DentPilot", extra: dict | None = None) -> tuple[str, dict]:
     """Код из письма: POST JSON на `url` (/v1/verify). Исходы — как у заявки."""
-    return _post_json(url, {"verify_id": verify_id, "code": code}, timeout, agent)
+    return _post_json(url, {"verify_id": verify_id, "code": code}, timeout, agent, extra)
 
 
-def _post_json(url: str, payload: dict, timeout: float, agent: str) -> tuple[str, dict]:
+def _post_json(url: str, payload: dict, timeout: float, agent: str,
+               extra: dict | None = None) -> tuple[str, dict]:
     try:
         req = urllib.request.Request(
             url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), method="POST",
             headers={"Content-Type": "application/json", "Accept": "application/json",
-                     "User-Agent": agent})
+                     "User-Agent": agent, **(extra or {})})
         with _opener.open(req, timeout=timeout) as r:
             data = _json(r.read(MAX_BODY + 1))
             return (ACCEPTED, data) if r.status == 200 and data.get("ok") is True else (OFFLINE, {})

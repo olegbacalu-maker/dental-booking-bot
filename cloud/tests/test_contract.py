@@ -103,6 +103,9 @@ def suite(res: Result) -> None:
     res.ok("contract.md описывает каждый пункт", all(f"| {i} |" in contract for i in range(1, 16)))
     # Кабинет клиники (шаг 3, 01.10): политика называет вход Google и оба cookie
     # со сроками из auth.py; страницы скачивания ведут на /descarca и /cont сервера.
+    res.ok("политика § 5: суточная проверка называет версию, канал, Windows и идентификатор компьютера (флот, 02.10)",
+           all(x in flat_privacy for x in ("versiunea programului", "canalul de actualizare",
+                                           "identificator tehnic al calculatorului", "fără date ale pacienților")))
     res.ok("политика § 5: кабинет — вход Google, cookie dp_oauth и dp_cont со сроками auth.py",
            "cont Google" in privacy and "dp_oauth" in privacy and "dp_cont" in privacy
            and f"({auth.OAUTH_TTL // 60} minute)" in flat_privacy and f"({auth.ACCOUNT_TTL // 86400} zile" in flat_privacy

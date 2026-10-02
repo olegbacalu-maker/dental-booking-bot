@@ -53,6 +53,11 @@ log = logging.getLogger("license")
 
 FILE_NAME = "license.json"
 STATE_NAME = "license.state"
+# Личность машины (P7, 02.10): `device.json` рядом с clinic.json — переживает
+# переустановку, в бэкап не едет (белый список backup.py), на другой машине
+# заводится свой. Уходит серверу заголовком при каждом его запросе: по нему
+# сервер ведёт флот — какой компьютер на какой версии (cloud.md › «Флот»).
+DEVICE_NAME = "device.json"
 ENV_KEYS = "DENTART_LICENSE_KEYS"
 META_FIRST, META_SEEN, META_ACCEPTED = "lic_first", "lic_seen", "lic_accepted"
 STATE_WRITE_EVERY = timedelta(days=1)      # last_seen пишется на старте и раз в сутки
@@ -360,7 +365,7 @@ async def request_trial(fields: dict, actor: str) -> str:
     body["consent"] = "1"
     _request.update(text="", fields=body, declined=False, verify_id="")
     outcome, data = await asyncio.to_thread(rn.request_trial, server_url() + TRIAL_PATH, body,
-                                            RENEW_TIMEOUT, _agent())
+                                            RENEW_TIMEOUT, _agent(), identity())
     if outcome == rn.REJECTED:
         _request["text"] = str(data.get("text"))[:300]
         vid = data.get("verify_id")
@@ -397,7 +402,8 @@ async def verify_code(code: str, actor: str) -> str:
         _request["text"] = ""                    # кода нет (перезапуск): слова страницы
         return CODE_BAD
     outcome, data = await asyncio.to_thread(rn.verify_code, server_url() + VERIFY_PATH, vid,
-                                            "".join(str(code).split())[:12], RENEW_TIMEOUT, _agent())
+                                            "".join(str(code).split())[:12], RENEW_TIMEOUT, _agent(),
+                                            identity())
     if outcome == rn.REJECTED:
         _request["text"] = str(data.get("text"))[:300]
         return CODE_BAD
@@ -445,6 +451,45 @@ def _agent() -> str:
     return f"DentPilot/{eng.APP_VERSION}"
 
 
+def device_id() -> str:
+    """Идентификатор этой машины из `device.json` (P7); нет — завести. Пустая
+    строка — папки нет или не пишется: запрос уходит без личности, и сервер
+    считает компьютер неизвестным, а не падает."""
+    d = folder()
+    if d is None:
+        return ""
+    p = d / DEVICE_NAME
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        did = str(data.get("id") or "") if isinstance(data, dict) else ""
+        if len(did) == 14 and did.startswith("d_") and all(c in "0123456789abcdef" for c in did[2:]):
+            return did
+    except (OSError, ValueError):
+        pass
+    import secrets
+    did = "d_" + secrets.token_hex(6)
+    tmp = p.with_name(p.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps({"id": did, "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
+                                  ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError as e:
+        log.warning("лицензия: %s не записан: %r", DEVICE_NAME, e)
+        return ""
+    return did
+
+
+def identity() -> dict:
+    """Заголовки личности машины для сервера лицензий (флот, 02.10): компьютер,
+    канал обновления, Windows. Версия программы — в User-Agent (`_agent`). Без
+    имени пользователя и без данных пациентов — политика сайта § 5."""
+    import platform
+    from .. import update as upd   # отложенный импорт, как engine в folder()
+    return {"X-DentPilot-Device": device_id(), "X-DentPilot-Channel": upd.channel(),
+            "X-DentPilot-OS": " ".join(f"{platform.system()} {platform.release()} "
+                                       f"({platform.version()})".split())[:60]}
+
+
 async def renew_once() -> str:
     """Один запрос к renew.url: исход из RENEW_*; RENEW_NONE — спрашивать некого.
 
@@ -467,7 +512,8 @@ async def renew_once() -> str:
     async with _renew_lock:
         url, token = target
         had = _mem.accepted_seq
-        outcome, text = await asyncio.to_thread(rn.fetch, url, token, had, RENEW_TIMEOUT, _agent())
+        outcome, text = await asyncio.to_thread(rn.fetch, url, token, had, RENEW_TIMEOUT, _agent(),
+                                                identity())
         result = {rn.SAME: RENEW_SAME, rn.REFUSED: RENEW_REFUSED}.get(outcome, RENEW_OFFLINE)
         if outcome == rn.NEWER:
             code, claim = rsa_verify.open_envelope(text, keys())

@@ -18,7 +18,10 @@ import ast
 import http.server
 import importlib.util
 import json
+import os
 import pathlib
+import platform
+import re
 import shutil
 import sqlite3
 import sys
@@ -71,7 +74,10 @@ class Stand:
             def do_GET(self):
                 stand.requests.append({"path": self.path,
                                        "auth": self.headers.get("Authorization", ""),
-                                       "agent": self.headers.get("User-Agent", "")})
+                                       "agent": self.headers.get("User-Agent", ""),
+                                       "device": self.headers.get("X-DentPilot-Device", ""),
+                                       "channel": self.headers.get("X-DentPilot-Channel", ""),
+                                       "os": self.headers.get("X-DentPilot-OS", "")})
                 r = dict(stand.reply)
                 if r["delay"]:
                     time.sleep(r["delay"])
@@ -277,6 +283,13 @@ def suite_live(res: Result) -> None:
             res.ok("запрос программы: seq принятого, Bearer из файла, DentPilot в User-Agent",
                    req["path"] == "/v1/license?seq=5" and req["auth"] == f"Bearer {TOKEN}"
                    and req["agent"].startswith("DentPilot/"), repr(req))
+            # личность машины (флот, 02.10): device.json рядом с clinic.json, канал, Windows
+            dev = json.loads((d / "device.json").read_text(encoding="utf-8")) if (d / "device.json").exists() else {}
+            res.ok("запрос несёт личность машины: X-DentPilot-Device из device.json, канал, ОС без имени пользователя",
+                   re.fullmatch(r"d_[0-9a-f]{12}", req["device"] or "") is not None and dev.get("id") == req["device"]
+                   and req["channel"] in ("stable", "beta", "draft") and req["os"].startswith(platform.system())
+                   and os.environ.get("USERNAME", "§") not in req["os"], repr((req, dev)))
+            device_seen = req["device"]
             res.ok("лог: renew=renewed", "license: renew=renewed seq=6 had=5" in _log(s), _log(s)[-400:])
             page = c.get("/admin/license").body
             res.ok("страница лицензии: строка автообновления, последняя проверка, кнопка директору",
@@ -297,6 +310,7 @@ def suite_live(res: Result) -> None:
             res.check("на диске по-прежнему seq 6", _sig((d / "license.json").read_text(encoding="utf-8")), _sig(newer))
             res.ok("лог: «новее нет» — рутина, не предупреждение", "license: renew=" not in _log(s), _log(s)[-400:])
         res.check("каждый старт — ровно один запрос", len(stand.requests), n + 1)
+        res.check("личность машины одна и та же на втором старте", stand.requests[-1]["device"], device_seen)
 
         # 3. тот же seq — тоже не замена (иначе летопись писала бы «активирована» на пустом месте)
         stand.serve(200, newer)

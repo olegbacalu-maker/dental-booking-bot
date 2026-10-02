@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -94,6 +94,18 @@ MIGRATIONS = {
             clinic_id TEXT REFERENCES clinics(id),
             created_at TEXT NOT NULL, last_login_at TEXT, UNIQUE(provider, subject))""",
         "CREATE INDEX IF NOT EXISTS ix_accounts_clinic ON accounts(clinic_id)",
+    ],
+    # Флот (шаг 3, 02.10): компьютеры клиник, как они назвались серверу в
+    # заголовках X-DentPilot-* при запросе файла или заявке (fleet.py).
+    # `id` — личность машины из device.json программы (P7); версия — из
+    # User-Agent; `last_seq` — какой файл у программы был при последнем запросе.
+    7: [
+        """CREATE TABLE IF NOT EXISTS devices(
+            id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            version TEXT NOT NULL DEFAULT '', channel TEXT NOT NULL DEFAULT '',
+            os TEXT NOT NULL DEFAULT '', first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+            last_seq INTEGER)""",
+        "CREATE INDEX IF NOT EXISTS ix_devices_clinic ON devices(clinic_id, last_seen_at)",
     ],
 }
 

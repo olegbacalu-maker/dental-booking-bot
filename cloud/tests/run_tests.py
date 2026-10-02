@@ -17,6 +17,7 @@ import test_admin  # noqa: E402
 import test_clinics  # noqa: E402
 import test_contract  # noqa: E402
 import test_deploy  # noqa: E402
+import test_fleet  # noqa: E402
 import test_issue  # noqa: E402
 import test_jobs  # noqa: E402
 import test_maib  # noqa: E402
@@ -54,6 +55,9 @@ SUITES = [
     ("Кабинет: регистрация, файл, нота, продление, админка, отвязка, вход по ящику", test_account.suite_cabinet),
     ("Кабинет: клиника из админки, повтор по IDNO, approve, скрытые", test_account.suite_link_and_duplicate),
     ("Сайт: /descarca — установщик последнего выпуска, память, API молчит", test_account.suite_download),
+    ("Флот: чистые правила — заголовки, версии", test_fleet.suite_rules),
+    ("Флот: компьютеры из запросов программы, страница, карточка, JSON, кабинет", test_fleet.suite_devices),
+    ("Флот: активация из программы и кодом привязывает компьютер", test_fleet.suite_activation),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

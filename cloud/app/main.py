@@ -21,7 +21,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import account, auth, config, db, download, jobs, license, maib, mail, payments, trial, views
+from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, trial, views
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -80,6 +80,7 @@ def license_renew(request: Request, seq: int = 0) -> Response:
                           (c["id"],)).fetchone()
         con.execute("UPDATE clinics SET renew_at=?, renew_seq=? WHERE id=?",
                     (db.now_iso(), max(0, seq), c["id"]))
+        fleet.touch(con, c["id"], fleet.from_request(request), max(0, seq))   # флот (02.10)
         if row is None or row["seq"] <= seq:
             return Response(status_code=204)
         db.audit(con, "program", "renew", c["id"], f"файл {row['seq']} забран программой (у неё был {seq})")
@@ -209,9 +210,12 @@ def _api_err(code: str, status: int) -> Response:
                         status_code=status)
 
 
-def _trial_program(f: dict, ip: str) -> tuple[str, str, str]:
+def _trial_program(f: dict, ip: str, ident: dict | None = None) -> tuple[str, str, str]:
     """Заявка из программы → (исход, токен или '', verify_id или ''). В потоке: база
-    и письма блокируют. На повтор — код на e-mail, который у клиники уже записан."""
+    и письма блокируют. На повтор — код на e-mail, который у клиники уже записан.
+    `ident` — личность машины из заголовков (флот): компьютер привязывается к
+    новой клинике сразу, при повторе — только после кода (чужой IDNO в заявке
+    не должен приписать чужой компьютер клинике)."""
     vid = code = ""
     with db.connect(immediate=True) as con:
         outcome, clinic = trial.submit(con, f, ip, who="program", origin=trial.ORIGIN_PROGRAM)
@@ -224,6 +228,7 @@ def _trial_program(f: dict, ip: str) -> tuple[str, str, str]:
             # переписал первый — файл в руках программы перестал бы узнаваться (401).
             fresh = con.execute("SELECT * FROM clinics WHERE id=?", (clinic["id"],)).fetchone()
             token = license.renew_token(con, fresh)
+            fleet.touch(con, clinic["id"], ident)
     if vid:
         subject, body = mail.activation_code(clinic["name"], code,
                                              int(trial.CODE_TTL.total_seconds() // 60))
@@ -264,7 +269,7 @@ async def trial_api(request: Request) -> Response:
     if code:
         return _api_err(code, 400)
     trial.note(ip)
-    outcome, token, vid = await run_in_threadpool(_trial_program, f, ip)
+    outcome, token, vid = await run_in_threadpool(_trial_program, f, ip, fleet.from_request(request))
     if outcome == trial.DUPLICATE:
         if not vid:
             return _api_err("duplicate", 409)
@@ -275,11 +280,15 @@ async def trial_api(request: Request) -> Response:
                          "url": license.renew_url(), "token": token})
 
 
-def _verify_program(vid: str, code: str, ip: str) -> str:
-    """Код → токен клиники или ''. Строка клиники — свежая: токен мог родиться только что."""
+def _verify_program(vid: str, code: str, ip: str, ident: dict | None = None) -> str:
+    """Код → токен клиники или ''. Строка клиники — свежая: токен мог родиться только что.
+    Верный код — и компьютер привязан к клинике (флот)."""
     with db.connect(immediate=True) as con:
         clinic = trial.check_code(con, vid, code, ip)
-        return "" if clinic is None else license.renew_token(con, clinic)
+        if clinic is None:
+            return ""
+        fleet.touch(con, clinic["id"], ident)
+        return license.renew_token(con, clinic)
 
 
 @app.post(trial.VERIFY_PATH)
@@ -301,7 +310,8 @@ async def trial_verify(request: Request) -> Response:
         return _api_err("bad_json", 400)
     vid = str(body.get("verify_id") or "")[:64]
     code = "".join(str(body.get("code") or "").split())[:12]
-    token = await run_in_threadpool(_verify_program, vid, code, ip) if vid and code else ""
+    token = (await run_in_threadpool(_verify_program, vid, code, ip, fleet.from_request(request))
+             if vid and code else "")
     if not token:
         return _api_err("bad_code", 400)
     return JSONResponse({"ok": True, "url": license.renew_url(), "token": token})
@@ -373,8 +383,34 @@ def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
                            (cid,)).fetchall()
         pending = _pending_count(con)
         accounts = account.of_clinic(con, cid)
+        devices = fleet.of_clinic(con, cid)
     return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
-                                          payments=pays, pending=pending, reminders=rems, accounts=accounts))
+                                          payments=pays, pending=pending, reminders=rems, accounts=accounts,
+                                          devices=devices))
+
+
+# ---------- флот (шаг 3, 02.10): компьютеры клиник и их версии ----------
+
+
+@app.get("/admin/fleet", response_class=HTMLResponse)
+def fleet_page(request: Request, msg: str = "") -> Response:
+    if (deny := _guard(request)) is not None:
+        return deny
+    with db.connect() as con:
+        rep = fleet.report(con)
+        pending = _pending_count(con)
+    return HTMLResponse(views.fleet_page(rep, auth.current_user(request), msg, pending))
+
+
+@app.get("/admin/api/fleet")
+def fleet_api(request: Request) -> Response:
+    """Тот же отчёт JSON — для будущего интерфейса админки. Кука админа; без неё
+    401 JSON, а не 303 на вход (fetch принял бы форму входа за ответ)."""
+    if auth.current_user(request) is None:
+        return JSONResponse({"ok": False, "code": "login"}, status_code=401)
+    with db.connect() as con:
+        rep = fleet.report(con)
+    return JSONResponse({"ok": True, "data": rep})
 
 
 def _pending_count(con) -> int:
@@ -798,8 +834,9 @@ def cont_home(request: Request, msg: str = "") -> Response:
         issue = con.execute("SELECT * FROM issues WHERE clinic_id=? ORDER BY seq DESC LIMIT 1",
                             (c["id"],)).fetchone()
         pays = con.execute("SELECT * FROM payments WHERE clinic_id=? ORDER BY id DESC", (c["id"],)).fetchall()
+        devices = fleet.of_clinic(con, c["id"])
     # последний выпуск — из памяти или одним запросом к API; вне транзакции
-    return HTMLResponse(views.cont_page(acc, c, sub, issue, pays, download.latest(), msg))
+    return HTMLResponse(views.cont_page(acc, c, sub, issue, pays, download.latest(), msg, devices=devices))
 
 
 @app.get("/cont/login", response_class=HTMLResponse)
