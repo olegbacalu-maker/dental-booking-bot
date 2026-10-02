@@ -36,6 +36,14 @@
 = прочитан успешно). Поэтому даём честное состояние: токен есть, расшифровать
 нельзя — флаг выставит сам dpapi, а адаптер Telegram не стартует, значит сети во
 время сборки не будет.
+
+⭐ **Две фазы одного exe (02.10, ключ лицензии в сборке — `rsa_verify.KEYS`).**
+`wall` — свежая установка: картотека пуста, файла нет → стена активации, и в
+конце дымовой тест заводит пациента прямо в `dental.db` лаборатории. `grace` —
+ТОТ ЖЕ exe перезапускается на этой картотеке → льгота с баннером, все страницы
+открываются. Перезапуск обязателен: пустоту картотеки программа считает на
+старте. Баннер льготы бывает только при ключе — так проверяется, что ключ
+действительно внутри собранного файла. Фазы и проверки — `tests/smoke_exe.py`.
 """
 import argparse
 import json
@@ -169,26 +177,35 @@ def main() -> int:
             "TELEGRAM_TOKEN=dpapi:smoke-nu-rasshifruesh\n"
             f"ADMIN_KEY={KEY}\n", encoding="utf-8")
 
-        proc, base, health = start(lab, free_port())
-        if not health:
-            print("КРАСНО: собранный exe не отвечает на /health — он не "
-                  "запускается (проверьте hidden-imports).")
-            return 1
-        got, want = str(health.get("version", "")), src_version()
-        print(f"   exe отвечает и представляется как {got}")
-        if want and got != want:
-            bad.append(f"exe сообщает {got}, а в engine.py {want} — "
-                       "в dist\\ остался СТАРЫЙ бинарник")
+        # две фазы ОДНОГО exe на одной лаборатории: стена (свежая установка) →
+        # перезапуск на картотеке с пациентом, которого завёл дымовой тест → льгота
+        for phase in ("wall", "grace"):
+            proc, base, health = start(lab, free_port())
+            if not health:
+                print(f"КРАСНО [{phase}]: собранный exe не отвечает на /health — он не "
+                      "запускается (проверьте hidden-imports).")
+                return 1
+            if phase == "wall":
+                got, want = str(health.get("version", "")), src_version()
+                print(f"   exe отвечает и представляется как {got}")
+                if want and got != want:
+                    bad.append(f"exe сообщает {got}, а в engine.py {want} — "
+                               "в dist\\ остался СТАРЫЙ бинарник")
 
-        out = subprocess.run(
-            [sys.executable, str(ROOT / "tests" / "smoke_exe.py"), base, KEY],
-            capture_output=True, text=True, encoding="utf-8", errors="replace")
-        print((out.stdout or "").rstrip())
-        if (out.stderr or "").strip():
-            print((out.stderr or "").rstrip())
-        if out.returncode != 0:
-            bad.append("страницы собранной программы не открываются — см. выше "
-                       "(потерян --add-data? сбит путь к static?)")
+            print(f"   [{phase}]")
+            out = subprocess.run(
+                [sys.executable, str(ROOT / "tests" / "smoke_exe.py"), base, KEY, phase, str(lab)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace")
+            print((out.stdout or "").rstrip())
+            if (out.stderr or "").strip():
+                print((out.stderr or "").rstrip())
+            if out.returncode != 0:
+                bad.append(f"[{phase}] страницы собранной программы не открываются — см. выше "
+                           "(потерян --add-data? сбит путь к static?)")
+                break
+            # штатно гасим перед вторым стартом: порт и файлы должны освободиться
+            stop(proc)
+            proc = None
     finally:
         stop(proc)
         cleanup(lab)

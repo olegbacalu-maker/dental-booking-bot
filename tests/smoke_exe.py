@@ -22,8 +22,10 @@
           что ключ действительно внутри exe), и все страницы открываются.
 Без фазы (ручной запуск против песочницы без ключей) — только страницы.
 """
+import html
 import json
 import pathlib
+import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -223,6 +225,20 @@ def _seed_patient(root: pathlib.Path) -> bool:
         return False
 
 
+def _shell_signal(page: str, name: str) -> dict:
+    """Сигнал `name` из модели оболочки React (`data-shell="…"` — JSON в атрибуте,
+    экранированный как HTML). Пусто — атрибута нет или он не разбирается."""
+    m = re.search(r'data-shell="([^"]*)"', page)
+    if not m:
+        return {}
+    try:
+        model = json.loads(html.unescape(m.group(1)))
+    except ValueError:
+        return {}
+    sig = (model.get("signals") or {}).get(name)
+    return sig if isinstance(sig, dict) else {}
+
+
 def _pages(c: Client, check, password: str, *, grace: bool) -> None:
     """Живая картотека: страницы открываются; при ключе в exe — с баннером льготы."""
     r = c.get("/admin")
@@ -238,17 +254,28 @@ def _pages(c: Client, check, password: str, *, grace: bool) -> None:
               r.status == 200 and len(r.body) > 1000, f"код {r.status}, {len(r.body)} б")
     home = c.get("/admin")
     if grace:
-        # баннер бывает ТОЛЬКО когда ключ выдачи есть (lic.applies()): это и
-        # есть доказательство, что rsa_verify.KEYS уехал в сборку
-        check("льгота: баннер называет лицензию, срок и ссылку на активацию",
-              "banner warn" in home.body and "Licența lipsește" in home.body
-              and "href='/admin/license'" in home.body, "баннера льготы нет — ключа в exe нет?")
+        # Баннер бывает ТОЛЬКО когда ключ выдачи есть (lic.applies()): это и
+        # есть доказательство, что rsa_verify.KEYS уехал в сборку. У новой
+        # установки /admin — оболочка React: баннер едет в ней СИГНАЛОМ внутри
+        # модели, вшитой в атрибут data-shell (react_shell: JSON, экранированный
+        # как HTML-атрибут) — разбираем ровно так, как её читает клиент; старая
+        # страница по ?ui=legacy несёт тот же баннер готовой разметкой.
+        sig = _shell_signal(home.body, "license")
+        check("льгота: оболочка React получает сигнал лицензии со ссылкой на активацию",
+              bool(sig) and sig.get("shown") is True and "Licența lipsește" in sig.get("html", "")
+              and "/admin/license" in sig.get("html", ""),
+              "сигнала лицензии в модели оболочки нет — ключа в exe нет?" if not sig else repr(sig)[:200])
+        legacy = c.get("/admin?ui=legacy")
+        check("льгота: старая страница несёт баннер — лицензия, срок, ссылка",
+              legacy.status == 200 and "banner warn" in legacy.body
+              and "Licența lipsește" in legacy.body and "href='/admin/license'" in legacy.body,
+              f"код {legacy.status}, баннера льготы нет")
         check("льгота: стены нет, страница активации открывается",
               c.get("/admin/license").status == 200)
-        # запись при льготе разрешена: пациент из фазы wall находится поиском
-        r = c.get("/admin/search?q=Smoke")
-        check("пациент, заведённый в лаборатории, находится поиском",
-              r.status == 200 and "Pacient Smoke" in r.body, f"код {r.status}")
+        # картотека живая: пациент из фазы wall виден списку (JSON API, ASCII-имя)
+        r = c.get("/api/patients?q=Smoke")
+        check("пациент, заведённый в лаборатории, виден списку пациентов",
+              r.status == 200 and "Pacient Smoke" in r.body, f"код {r.status}, {r.body[:160]!r}")
 
     # ⭐ Живой канал панели — В СОБРАННОЙ программе. Страницы его не задевают
     # вовсе: `/admin` открывается и без него, а `/health` тем более. При этом
