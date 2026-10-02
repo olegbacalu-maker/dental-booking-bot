@@ -135,7 +135,8 @@ def suite_pin(res: Result) -> None:
                    [a for n, a in arcs if n in (47, 41, 31)], len(arcs)),
                   (["-5", "-10", "-22", "-22", "-5"], ["5", "22", "22"], 28 + 16))
         res.check("легенда: состояния без «здоров», потом отметки",
-                  _legend(page), ["Carie", "Obturație", "Coroană", "Implant", "Extras", "Lipsă", "În tratament"])
+                  _legend(page), ["Carie", "Obturație", "Coroană", "Implant", "Extras", "Lipsă",
+                                  "În tratament", "Nerv extras"])
         res.ok("молочный ряд раскрыт, когда по нему есть записи",
                "<details class='milk' open>" in page and "<details class='milk' open>" in card, "свёрнут")
         res.ok("выбор зуба из адреса", "selTooth(16)" in page, "нет")
@@ -186,7 +187,9 @@ def suite_api(res: Result) -> None:
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
                           "materials", "patient", "doctors", "perio", "palette"]))
         # B7 ступень 1: размеры и цвета для объёмного вида едут с сервера
-        res.check("палитра: цвет на каждое состояние, тем же порядком", list(d["palette"]), list(d["states"]))
+        # с 02.10 за состояниями идут отметки: 3D красит кольца тем же цветом, что ореол/каналы в 2D
+        res.check("палитра: цвет на каждое состояние и отметку, тем же порядком",
+                  list(d["palette"]), list(d["states"]) + list(d["marks"]))
         res.check("размеры для 3D у всех зубов, 16 — 10,5 мм и три корня",
                   (all(set(v["geom"]) == {"md", "bl", "crown", "root", "roots", "cls", "upper"} for v in d["teeth"].values()),
                    d["teeth"]["16"]["geom"]["md"], d["teeth"]["16"]["geom"]["roots"], d["teeth"]["55"]["geom"]["cls"]),
@@ -220,7 +223,7 @@ def suite_api(res: Result) -> None:
         res.check("словари: состояния, отметки, поверхности, роли, материалы, врачи",
                   (list(d["states"]), list(d["marks"]), list(d["surfaces"]), d["surface_states"],
                    d["bridge_roles"], [m["id"] for m in d["materials"]], d["doctors"][1]),
-                  (["ok", "carie", "obturatie", "coroana", "implant", "extras", "lipsa"], ["tratament"],
+                  (["ok", "carie", "obturatie", "coroana", "implant", "extras", "lipsa"], ["tratament", "devital"],
                    ["M", "O", "D", "V", "L"], ["carie", "obturatie"], {"stalp": "Stâlp", "corp": "Corp de punte"},
                    ["metalo-ceramică", "zirconiu", "ceramică", "metal", "acrilat", "alt"], "Dr. Activ Doi"))
         res.check("пациент", d["patient"], {"id": pid, "name": "Odonto Pin", "primary_doctor": ""})

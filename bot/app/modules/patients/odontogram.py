@@ -468,8 +468,9 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
         "bridges": rows,
         "legend": {"frontal": legend_items(False), "occlusal": legend_items(True)},
         "states": dict(STATES), "marks": dict(MARKS),
-        # цвета состояний — те же, что у 2D и легенды; 3D красит ими же
-        "palette": dict(tsvg.COLORS),
+        # цвета состояний И отметок — те же, что у 2D и легенды; 3D красит
+        # ими же (кольца отметок — цветом ореола и каналов, не своей копией)
+        "palette": {**tsvg.COLORS, **tsvg.MARK_COLORS},
         "surfaces": dict(TOOTH_SURFACES), "surface_states": list(tsvg.SURFACE_STATES),
         "bridge_roles": dict(tsvg.BRIDGE_RO),
         "materials": [{"id": k, "label": v} for k, v in BRIDGE_MATERIALS],

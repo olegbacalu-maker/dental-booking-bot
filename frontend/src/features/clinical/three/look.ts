@@ -20,6 +20,7 @@ export const COLOR = {
   titan: 0xb9bec6,
   glow: 0x0b6b7a,
   ringMark: 0x16a34a,
+  ringDevital: 0xbe185d,
   ringImplant: 0x8b5cf6,
   ringSelected: 0x0f7b8a,
 } as const
@@ -67,6 +68,8 @@ export interface Look {
   gold: boolean
   implant: boolean
   mark: boolean
+  /** «nerv extras»: кольцо у шейки ниже кольца «в работе» и подкрашенные корни */
+  devital: boolean
   /** цвет каждой поверхности в порядке `SURF` */
   cols: number[]
   opacity: number
@@ -101,6 +104,7 @@ export function targetLook(t: Info, palette: Record<string, string>): Look {
   return {
     st, pontic, gone, ghost, gold, implant,
     mark: (t.mk ?? []).includes('tratament'),
+    devital: (t.mk ?? []).includes('devital'),
     cols,
     opacity: 1,
     metalness: gold ? 0.85 : 0,

@@ -94,6 +94,7 @@ interface ToothNodes {
   screw: T3.Mesh
   screwX: T3.Mesh
   ringT: T3.Mesh
+  ringD: T3.Mesh
   ringI: T3.Mesh
   ringS: T3.Mesh
   socket: T3.Mesh
@@ -257,7 +258,11 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       disposables.push(geo, mat)
       return m
     }
-    const ringT = mkRing(COLOR.ringMark, 1.6)
+    // цвет кольца отметки — из палитры сервера (тот же, что у ореола и каналов в 2D); константа — запасной
+    const markCol = (k: string, fb: number): number => hex(palette[k] ?? '') || fb
+    const ringT = mkRing(markCol('tratament', COLOR.ringMark), 1.6)
+    // «nerv extras» — ниже кольца «в работе», над десной (она закрывает шейку на 0,7 мм)
+    const ringD = mkRing(markCol('devital', COLOR.ringDevital), 1.0)
     const ringI = mkRing(COLOR.ringImplant, 1.1)
     const ringS = mkRing(COLOR.ringSelected, 2.1)
     const socketGeo = new THREE.CircleGeometry(1, 32)
@@ -280,7 +285,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     sprite.position.set(0, -2.4, 8.8)
     sprite.raycast = () => undefined
     const group = new THREE.Group()
-    group.add(crown, roots, screw, screwX, ringT, ringI, ringS, socket, gap, sprite)
+    group.add(crown, roots, screw, screwX, ringT, ringD, ringI, ringS, socket, gap, sprite)
     group.matrixAutoUpdate = false
     group.matrix.makeBasis(
       new THREE.Vector3(...p.xAxis), new THREE.Vector3(...p.yAxis), new THREE.Vector3(...p.zAxis),
@@ -288,7 +293,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     grp.add(group)
     disposables.push(crownGeo, rootsGeo, screwGeo, rootMat, screwMat, screwXMat, socketGeo, socketMat, gapGeo, gapMat, spriteMat, tex[0], tex[1], ...mats)
     teeth.set(p.n, {
-      n: p.n, place: p, group, crown, mats, roots, rootMat, screw, screwX, ringT, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
+      n: p.n, place: p, group, crown, mats, roots, rootMat, screw, screwX, ringT, ringD, ringI, ringS, socket, gap, gapMat, sprite, tex, sx: hmd / hbl, look: null,
     })
   }
 
@@ -299,6 +304,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     t.gap.visible = look.gap
     t.gapMat.opacity = 1
     t.roots.visible = look.roots
+    // девитальный зуб — корни подкрашены цветом отметки (пролеченные каналы), видно сквозь прозрачную десну
+    t.rootMat.color.setHex(look.devital ? lerpHex(COLOR.dentin, COLOR.ringDevital, 0.4) : COLOR.dentin)
     t.screw.visible = look.screw
     t.screwX.visible = look.screw
     t.crown.position.y = 0
@@ -541,6 +548,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         sm.needsUpdate = true
       }
       t.ringT.visible = !look.gone && look.mark && !dim
+      // у импланта каналов нет — кольцо «nerv extras» там не показывается (и стояло бы вплотную к кольцу импланта)
+      t.ringD.visible = !look.gone && !look.implant && look.devital && !dim
       t.ringI.visible = look.implant && !dim
       const selNow = t.n === selected && !look.gone
       if (selNow && !t.ringS.visible) {

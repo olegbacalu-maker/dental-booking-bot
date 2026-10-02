@@ -79,6 +79,10 @@ describe('вид по состоянию', () => {
 
   it('отметка «în tratament» — кольцо; пустая палитра не роняет, а даёт чёрный оттенок', () => {
     expect(targetLook(tooth('ok', {}, ['tratament']), PALETTE).mark).toBe(true)
+    expect(targetLook(tooth('ok', {}, ['tratament']), PALETTE).devital).toBe(false)
+    // «nerv extras» живёт ПОВЕРХ коронки — ради этого отметка, а не состояние
+    expect(targetLook(tooth('coroana', {}, ['devital']), PALETTE).devital).toBe(true)
+    expect(targetLook(tooth('coroana', {}, ['devital']), PALETTE).gold).toBe(true)
     const l = targetLook(tooth('carie'), {})
     expect(l.cols[0]).toBe(lerpHex(COLOR.enamel, 0, 0.32))
   })

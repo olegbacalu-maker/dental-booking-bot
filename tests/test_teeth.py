@@ -842,6 +842,15 @@ def suite_marks(res: Result) -> None:
              or m not in fisa043._MARK_ABBR]
     res.ok("каждую отметку умеют назвать, нарисовать и напечатать", not blind,
            f"отметка есть в TOOTH_MARKS, но не во всех словарях: {blind}")
+    # ⚠️ Та же полярность у РИСУНКА: цвет в словаре есть, а рисовать отметку
+    # функция может и не уметь — тогда она есть словом в легенде и в подписи,
+    # а на дуге её не видно. Каждую отметку спрашиваем на здоровом зубе в обоих
+    # видах ЕЁ цветом (у «nerv extras» рисунок свой — каналы, не ореол).
+    unseen_any = [m for m in tsvg.TOOTH_MARKS
+                  if tsvg.MARK_COLORS[m] not in tsvg.tooth_svg(16, "ok", marks=(m,))
+                  or tsvg.MARK_COLORS[m] not in tsvg.occlusal_svg(16, "ok", marks=(m,))]
+    res.ok("каждую отметку видно на здоровом зубе в обоих видах", not unseen_any,
+           f"отметка названа, но не нарисована: {unseen_any}")
 
     # ---- 1. отметка видна на ЛЮБОМ состоянии, в обоих видах ----
     # ⚠️ Смысл ореола именно в этом: значок поверх зуба пришлось бы уводить от
@@ -1005,6 +1014,81 @@ def suite_marks(res: Result) -> None:
         res.ok("при живой находке отметка остаётся в хвосте",
                ">C MO T</td>" in f043,
                "порядок токенов клетки разъехался с легендой листа")
+
+        # ---- 12. вторая отметка — «Nerv extras» (02.10, просьба клиники) ----
+        # Девитальный зуб почти всегда несёт пломбу или коронку, поэтому это
+        # ОТМЕТКА, а не состояние: состоянием оно вытесняло бы пломбу с фиши и
+        # с подписываемой 043/e — та же потеря, что у «în tratament» до 08-17.
+        # Проверяется совместимость с коронкой и с первой отметкой РАЗОМ и
+        # доезд до тех же представлений: подпись, бланк, выгрузка, летопись,
+        # дуга на странице, легенда.
+        dv = tsvg.MARK_COLORS["devital"]
+        res.ok("каналы нарисованы и на коронке — ради этого отметка, а не состояние",
+               dv in tsvg.tooth_svg(16, "coroana", marks=("devital",))
+               and dv in tsvg.occlusal_svg(16, "coroana", marks=("devital",)),
+               "на коронке отметку не видно — врач выбирал бы одно из двух")
+        res.ok("каналов столько, сколько корней",
+               tsvg.tooth_svg(16, "ok", marks=("devital",)).count(f"stroke='{dv}'")
+               == tsvg.root_count(16) == 3
+               and tsvg.tooth_svg(11, "ok", marks=("devital",)).count(f"stroke='{dv}'") == 1
+               and tsvg.occlusal_svg(16, "ok", marks=("devital",)).count(f"fill='{dv}'") == 3,
+               "число линий каналов не совпало с числом корней")
+        res.ok("у импланта, удалённого и отсутствующего каналов нет",
+               not any(dv in tsvg.tooth_svg(16, st, marks=("devital",))
+                       or dv in tsvg.occlusal_svg(16, st, marks=("devital",))
+                       for st in ("implant", "extras", "lipsa")),
+               "каналы нарисованы там, где нет ни зуба, ни корней")
+        both = tsvg.tooth_svg(16, "carie", marks=("tratament", "devital"))
+        res.ok("две отметки не мешают друг другу в рисунке",
+               col in both and dv in both,
+               "одна из отметок пропала с рисунка, когда стоят обе")
+        res.ok("ореол остался только у «в работе»",
+               "stroke-width='6'" not in tsvg.tooth_svg(16, "ok", marks=("devital",)),
+               "у «nerv extras» появился второй ореол — на коронке их не различить")
+
+        r = c.post(f"{base}/tooth", tooth="27", state="coroana", mk0="1",
+                   mk=["devital", "tratament"])
+        res.check("коронка с обеими отметками принята", r.msg, "ok_card")
+        res.ok("подпись зуба называет коронку и обе отметки",
+               'title="27 · Coroană · În tratament · Nerv extras"' in c.get(base).body,
+               "одна из трёх величин потерялась — ровно та потеря, ради которой "
+               "это отметка, а не состояние")
+        f043 = c.get(f"{base}/fisa043").body
+        res.ok("бланк 043/e печатает код коронки и обе отметки",
+               ">Cor T Dv</td>" in f043,
+               "на подписываемом бланке пропала коронка или отметка")
+        res.ok("легенда бланка расшифровывает Dv", "Dv — devital" in f043,
+               "код на бланке есть, расшифровки нет")
+        z = zipfile.ZipFile(io.BytesIO(c.get(f"{base}/export").raw))
+        data = json.loads(z.read("date-pacient.json").decode("utf-8"))
+        marks = {t["tooth"]: t["marks"] for t in data["dinti"]}
+        res.check("машинная копия несёт обе отметки в каноническом порядке",
+                  marks.get(27), "tratament,devital")
+        res.ok("читаемая копия называет «Nerv extras»",
+               "Nerv extras" in z.read("fisa-pacient.html").decode("utf-8"),
+               "пациенту уехала фиша без второй отметки")
+        hist = _thist_json(c.get(f"{base}/odontograma?t=27").body)
+        res.ok("летопись зуба называет коронку и обе отметки",
+               any("Coroană · În tratament · Nerv extras" in x["text"]
+                   for x in hist.get("27", [])),
+               f"в истории зуба не все три величины: {hist.get('27')}")
+        for what, url in (("фиша", base), ("детальная", f"{base}/odontograma?t=27")):
+            body_ = c.get(url).body
+            btns = tooth_btns(body_, 27)
+            res.ok(f"каналы доехали до дуги на странице, в обоих видах ({what})",
+                   len(btns) == 2 and all(dv in b for b in btns),
+                   f"зуб «nerv extras» на дуге неотличим от обычного "
+                   f"(кнопок нашлось {len(btns)})")
+        odo = c.get(f"{base}/odontograma").body
+        res.ok("инспектор предлагает вторую отметку",
+               "name='mk' value='devital'" in odo
+               and "name='mk' value='devital'" in c.get(base).body,
+               "галочки «Nerv extras» нет ни в инспекторе, ни в диалоге фиши")
+        leg = odo.split("<div class='tleg", 1)[1].split("</div>", 1)[0]
+        tail = leg.split("lg-sep'></span>", 1)
+        res.ok("легенда рисует «Nerv extras» каналами за разделителем",
+               len(tail) == 2 and "Nerv extras" in tail[1] and dv in tail[1],
+               "второй отметки нет в легенде или она нарисована обычным зубом")
 
 
 def suite_punte(res: Result) -> None:

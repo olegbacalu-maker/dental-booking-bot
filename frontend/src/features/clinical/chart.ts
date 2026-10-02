@@ -86,7 +86,7 @@ export interface Odontogram {
   bridges: Bridge[]
   legend: { frontal: LegendItem[]; occlusal: LegendItem[] }
   states: Record<string, string>
-  /** цвет состояния — тот же, что у 2D и легенды (`teeth_svg.COLORS`) */
+  /** цвет состояния и отметки — тот же, что у 2D и легенды (`teeth_svg.COLORS` + `MARK_COLORS`) */
   palette?: Record<string, string>
   marks: Record<string, string>
   surfaces: Record<string, string>
