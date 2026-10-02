@@ -112,6 +112,10 @@ def suite(res: Result) -> None:
     res.ok("декларация п. 3: суточная проверка — теми же словами, что политика § 5 (флот)",
            all(x in decl for x in ("versiunea programului", "canalul de actualizare",
                                    "identificator tehnic al calculatorului", "fără date ale pacienților")))
+    # вход кодом на e-mail (02.10): политика называет его рядом с Google, срок кода — тот же CODE_TTL
+    res.ok("политика § 5: вход в кабинет — Google или код на e-mail, срок кода как у сервера",
+           "cod de 6 cifre" in flat_privacy and "cont Google" in flat_privacy
+           and f"valabil {minutes} minute" in flat_privacy)
     res.ok("политика § 5: кабинет — вход Google, cookie dp_oauth и dp_cont со сроками auth.py",
            "cont Google" in privacy and "dp_oauth" in privacy and "dp_cont" in privacy
            and f"({auth.OAUTH_TTL // 60} minute)" in flat_privacy and f"({auth.ACCOUNT_TTL // 86400} zile" in flat_privacy

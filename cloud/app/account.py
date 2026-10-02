@@ -4,6 +4,10 @@ cloud.md › «Кабинет клиники». Клиника входит на
 аккаунтом Google (OpenID Connect: код авторизации, обмен кода на id_token
 делает СЕРВЕР, с client_secret). Пароля у нас нет и не будет — его держит
 Google; нам приходят только идентификатор аккаунта (`sub`), e-mail и имя.
+С 02.10 есть и второй вход — кодом на e-mail (`login.py`, слово Олега «надо
+тоже сделать возможность»): учётная запись `provider='email'`, `subject` —
+ящик в канонической форме; пароля по-прежнему нет. Дальше обе записи живут
+одинаково: привязка к клинике по ящику, регистрация, код по IDNO.
 Учётная запись (`accounts`) — это «кто вошёл»; клиника — отдельная строка,
 к которой запись привязана (`clinic_id`), и у одной клиники записей может
 быть несколько (директор и администратор).
@@ -194,6 +198,32 @@ def login(con: sqlite3.Connection, ident: Identity, ip: str) -> sqlite3.Row:
             link(con, acc, same["id"], f"по e-mail {ident.email}")
             acc = get(con, aid)
     db.audit(con, ident.email, "account_login", acc["clinic_id"], ip)
+    return acc
+
+
+def login_email(con: sqlite3.Connection, email: str, ip: str) -> sqlite3.Row:
+    """Вход кодом на e-mail (02.10): запись provider='email' (новая или прежняя),
+    subject — ящик в канонической форме, e-mail — как ввели (строчными). Без
+    клиники — привязка к клинике с тем же ящиком, как у Google-входа."""
+    now = db.now_iso()
+    email = email.strip().lower()
+    canon = trial.canonical(email)
+    acc = con.execute("SELECT * FROM accounts WHERE provider='email' AND subject=?", (canon,)).fetchone()
+    if acc is None:
+        aid = "a_" + secrets.token_hex(6)
+        con.execute("INSERT INTO accounts(id, provider, subject, email, name, created_at, last_login_at) "
+                    "VALUES(?,?,?,?,?,?,?)", (aid, "email", canon, email, "", now, now))
+        db.audit(con, email, "account_new", None, f"e-mail, {ip}")
+    else:
+        aid = acc["id"]
+        con.execute("UPDATE accounts SET last_login_at=? WHERE id=?", (now, aid))
+    acc = get(con, aid)
+    if not acc["clinic_id"]:
+        same = trial.existing(con, "", email)
+        if same is not None:
+            link(con, acc, same["id"], f"по e-mail {email}")
+            acc = get(con, aid)
+    db.audit(con, email, "account_login", acc["clinic_id"], f"e-mail, {ip}")
     return acc
 
 

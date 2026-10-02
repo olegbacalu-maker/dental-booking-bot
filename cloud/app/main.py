@@ -22,6 +22,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, trial, views
+from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
@@ -847,6 +848,65 @@ def cont_login(request: Request, msg: str = "") -> Response:
     return HTMLResponse(views.cont_login_page(msg, enabled=account.enabled()))
 
 
+@app.post("/cont/login/email", response_class=HTMLResponse)
+def cont_login_email(request: Request, email: str = Form("")) -> Response:
+    """Вход без Google (02.10): код на введённый ящик. Ответ одинаков для любого
+    годного ящика; лимиты — login.py; письмо — после транзакции."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        if _current_account(con, request) is not None:
+            return RedirectResponse("/cont", status_code=303)
+    email = "".join(email.split()).lower()
+    on = account.enabled()
+    if not elogin.email_ok(email):
+        return HTMLResponse(views.cont_login_page("bad_email", enabled=on, values={"email": email}), status_code=400)
+    ip = _ip(request)
+    if elogin.request_limited(ip):
+        return HTMLResponse(views.cont_login_page("login_limited", enabled=on, values={"email": email}),
+                            status_code=429)
+    with db.connect(immediate=True) as con:
+        vid, code = elogin.new_code(con, email, ip)
+    if not vid:
+        return HTMLResponse(views.cont_login_page("login_limited", enabled=on, values={"email": email}),
+                            status_code=429)
+    subject, body = mail.login_code(code, int(elogin.CODE_TTL.total_seconds() // 60))
+    try:
+        mail.send(email, subject, body)
+    except (RuntimeError, OSError, ValueError) as e:
+        log.error("код входа на %s не отправлен: %r", email, e)
+        return HTMLResponse(views.cont_login_page("mail_failed", enabled=on, values={"email": email}),
+                            status_code=502)
+    return HTMLResponse(views.cont_email_code_page(vid, email))
+
+
+@app.post("/cont/login/cod", response_class=HTMLResponse)
+def cont_login_code(request: Request, verify_id: str = Form(""), code: str = Form(""),
+                    email: str = Form("")) -> Response:
+    """Код из письма → учётная запись e-mail и кука кабинета; клиника с этим
+    ящиком есть → кабинет, нет → регистрация. Одноразовый, CODE_TTL,
+    CODE_ATTEMPTS ошибок на код, VERIFY_PER_HOUR проверок с адреса."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    ip = _ip(request)
+    vid = verify_id.strip()[:64]
+    code = "".join(code.split())[:12]
+    email = "".join(email.split())[:trial.EMAIL_MAX].lower()
+    if trial.verify_limited(ip):
+        return HTMLResponse(views.cont_email_code_page(vid, email, "code_limited"), status_code=429)
+    acc = None
+    with db.connect(immediate=True) as con:
+        found = elogin.check_code(con, vid, code, ip) if vid and code else None
+        if found:
+            acc = account.login_email(con, found, ip)
+    if acc is None:
+        return HTMLResponse(views.cont_email_code_page(vid, email, "bad_code"), status_code=400)
+    resp = RedirectResponse("/cont" if acc["clinic_id"] else "/cont/inregistrare", status_code=303)
+    resp.set_cookie(auth.ACCOUNT_COOKIE, auth.account_cookie(acc["id"]), max_age=auth.ACCOUNT_TTL, path="/",
+                    **_cookie_args())
+    return resp
+
+
 @app.get("/auth/google")
 def google_start(request: Request) -> Response:
     """К Google: state и nonce — в подписанной куке на время входа."""
@@ -936,7 +996,7 @@ def cont_register_submit(request: Request, name: str = Form(""), idno: str = For
             vid, link_code = account.request_link(con, acc, clinic, ip)
     if vid:
         subject, body = mail.link_code(clinic["name"], link_code, int(trial.CODE_TTL.total_seconds() // 60),
-                                       acc["email"])
+                                       acc["email"], via="Google" if acc["provider"] == "google" else "e-mail")
         try:
             mail.send(clinic["email"], subject, body)
         except (RuntimeError, OSError, ValueError) as e:

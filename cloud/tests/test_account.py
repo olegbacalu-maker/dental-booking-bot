@@ -338,6 +338,89 @@ def _cookie(s: Server, name: str, value: str):
                                  None, False, None, None, {})
 
 
+def suite_email_login(res: Result) -> None:
+    """Вход без Google (02.10): код на e-mail — страница, письмо, неверный и верный код,
+    одноразовость, регистрация с ящиком входа, лимит кодов на ящик, вход в известную
+    клинику по её ящику, выход."""
+    with Server(env={"DP_TRIAL_MODE": "auto", "DP_TRIAL_NOTIFY": "oleg@example.md"}) as s:
+        anon = Client(s.url)
+        page = anon.get("/cont/login")
+        res.ok("без Google: страница входа несёт форму e-mail и ни одной ссылки на Google",
+               page.status == 200 and "action='/cont/login/email'" in page.body and "name='email'" in page.body
+               and "/auth/google" not in page.body and "cod de 6 cifre" in page.body, page.body[-900:])
+        r = anon.post("/cont/login/email", email="nu-e-mail")
+        res.ok("кривой ящик — 400 словами, ящик подставлен обратно",
+               r.status == 400 and "adresă de e-mail validă" in r.body and "value='nu-e-mail'" in r.body, repr(r)[:200])
+        res.check("чужой Origin — 403",
+                  anon.post("/cont/login/email", email="x@y.md",
+                            headers={"Origin": "http://evil.example", "Host": f"127.0.0.1:{s.port}"}).status, 403)
+        n0 = len(_letters(s))
+        r = anon.post("/cont/login/email", email=" Director@Clinica-Noua.md ")
+        vid = re.search(r"name='verify_id' value='([^']+)'", r.body)
+        res.ok("код запрошен: страница кода с verify_id, ящик показан строчными",
+               r.status == 200 and vid is not None and "director@clinica-noua.md" in r.body
+               and "Director@" not in r.body, r.body[-700:])
+        letters = _letters(s)
+        res.ok("письмо с кодом ушло на этот ящик, без имени клиники",
+               len(letters) == n0 + 1 and letters[-1][0] == "director@clinica-noua.md"
+               and "codul de intrare" in letters[-1][1].lower(), repr(letters[-1][:2]))
+        code = re.search(r": (\d{6})\n", letters[-1][2]).group(1)
+        wrong = "000000" if code != "000000" else "111111"
+        r = anon.post("/cont/login/cod", verify_id=vid.group(1), code=wrong, email="director@clinica-noua.md")
+        res.ok("неверный код — 400, куки нет",
+               r.status == 400 and "nu este corect" in r.body and "dp_cont" not in r.headers.get("set-cookie", ""))
+        r = anon.post("/cont/login/cod", verify_id=vid.group(1), code=code, email="director@clinica-noua.md")
+        ck = r.headers.get("set-cookie", "")
+        res.ok("верный код: кука dp_cont (HttpOnly), новый ящик — на регистрацию",
+               r.status == 303 and r.location == "/cont/inregistrare" and "dp_cont=" in ck
+               and "httponly" in ck.lower(), f"{r.status} {r.location} {ck}")
+        res.check("код одноразовый: тот же код снова — 400",
+                  Client(s.url).post("/cont/login/cod", verify_id=vid.group(1), code=code,
+                                     email="director@clinica-noua.md").status, 400)
+        acc = _sql(s, "SELECT provider, subject, email, name, clinic_id FROM accounts")
+        res.check("учётная запись: provider=email, subject канонический, без имени и клиники",
+                  acc, [("email", "director@clinica-noua.md", "director@clinica-noua.md", "", None)])
+        page = anon.get("/cont/inregistrare")
+        res.ok("регистрация: ящик входа показан, не редактируется, без слова Google",
+               page.status == 200 and "director@clinica-noua.md" in page.body and "name='email'" not in page.body
+               and "contul Google" not in page.body, page.body[-800:])
+        r = anon.post("/cont/inregistrare", **dict(CLINIC, name="Clinica Nouă E-mail", idno="3333333333333"))
+        res.ok("регистрация прошла: пробный выдан, запись привязана к новой клинике",
+               r.status == 303 and r.location == "/cont?msg=registered_issued"
+               and _sql(s, "SELECT c.email FROM accounts a JOIN clinics c ON c.id=a.clinic_id")
+               == [("director@clinica-noua.md",)], f"{r.status} {r.location}")
+        home = anon.get("/cont")
+        res.ok("кабинет: «Autentificat prin e-mail», пробный до даты, Google не упомянут в карточке аккаунта",
+               "Autentificat prin e-mail" in home.body and "Perioada de probă este valabilă" in home.body
+               and "Autentificat cu Google" not in home.body, home.body[-2500:])
+        # лимит кодов на один ящик за час
+        other = Client(s.url)
+        codes = [other.post("/cont/login/email", email="multe@clinica.md").status for _ in range(3)]
+        r = other.post("/cont/login/email", email="multe@clinica.md")
+        res.ok("три кода на ящик за час проходят, четвёртый — 429 словами",
+               codes == [200, 200, 200] and r.status == 429 and "Prea multe coduri" in r.body, f"{codes} {r.status}")
+        # ящик известной клиники (заведена в админке) → сразу кабинет
+        admin = Client(s.url).login()
+        cid = cid_from(admin.post("/admin/clinics", name="Clinica Veche", idno="4444444444444",
+                                  email="veche@clinica.md").location)
+        c2 = Client(s.url)
+        r = c2.post("/cont/login/email", email="veche@clinica.md")
+        vid2 = re.search(r"name='verify_id' value='([^']+)'", r.body).group(1)
+        code2 = re.search(r": (\d{6})\n", _letters(s)[-1][2]).group(1)
+        r = c2.post("/cont/login/cod", verify_id=vid2, code=code2, email="veche@clinica.md")
+        res.ok("ящик известной клиники: верный код → сразу в кабинет, запись привязана к ней",
+               r.status == 303 and r.location == "/cont"
+               and _sql(s, "SELECT clinic_id FROM accounts WHERE subject='veche@clinica.md'") == [(cid,)],
+               f"{r.status} {r.location}")
+        res.ok("карточка клиники в админке видит запись e-mail",
+               "veche@clinica.md" in admin.get(f"/admin/clinics/{cid}").body)
+        r = c2.post("/cont/iesire")
+        res.ok("выход: кука снята", r.status == 303 and 'dp_cont=""' in r.headers.get("set-cookie", ""))
+        res.ok("журнал: код выслан, код принят, вход по e-mail",
+               {w for (w,) in _sql(s, "SELECT what FROM audit")}
+               >= {"login_code_sent", "login_code_ok", "login_code_bad", "login_code_limit", "account_new"})
+
+
 def suite_cabinet(res: Result) -> None:
     """Регистрация из кабинета (auto): файл, письма, страница, файл байт в байт, реквизиты,
     нота на абонемент, продление, кабинет в админке, отвязка, вход по ящику."""

@@ -52,6 +52,7 @@ SUITES = [
     ("Сервер: новый компьютер — код на e-mail клиники, код → токен → файл", test_trial.suite_code),
     ("Кабинет: чистые правила — claim'ы токена, реквизиты, куки по видам", test_account.suite_rules),
     ("Кабинет: вход через Google — стенд, state, кука, отказы токена, выход", test_account.suite_login),
+    ("Кабинет: вход кодом на e-mail — без Google, лимиты, регистрация, известная клиника", test_account.suite_email_login),
     ("Кабинет: регистрация, файл, нота, продление, админка, отвязка, вход по ящику", test_account.suite_cabinet),
     ("Кабинет: клиника из админки, повтор по IDNO, approve, скрытые", test_account.suite_link_and_duplicate),
     ("Сайт: /descarca — установщик последнего выпуска, память, API молчит", test_account.suite_download),

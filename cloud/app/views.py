@@ -524,6 +524,10 @@ CONT_MSG = {
                    "transferul bancar.",
     "bad_months": "Alegeți o lună sau un an.",
     "closed": "Cererea clinicii a fost închisă — scrieți-ne.",
+    # вход кодом на e-mail (02.10)
+    "bad_email": "Introduceți o adresă de e-mail validă.",
+    "login_limited": "Prea multe coduri cerute — încercați peste o oră sau scrieți-ne.",
+    "mail_failed": "Nu am putut trimite e-mailul cu codul — încercați din nou peste un minut sau scrieți-ne.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
             "linked"}
@@ -631,6 +635,8 @@ label.chk input{width:auto;margin-top:3px}
 .auth .brand .fine{margin-top:auto;font-size:13px;color:rgba(255,255,255,.72);line-height:1.5}
 .auth .form{padding:40px 36px}
 .auth .form h2{margin:0 0 6px;font-size:22px;letter-spacing:-.015em}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;margin:4px 0 14px}
+.or:before,.or:after{content:'';flex:1;height:1px;background:var(--line)}
 @media (max-width:900px){.hero{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.split{grid-template-columns:1fr}.auth{grid-template-columns:1fr}.auth .brand{padding:28px 22px}.auth .form{padding:26px 22px}}
 @media (max-width:720px){.chead .right{margin-left:0;flex-basis:100%}.price{white-space:normal}.wrap{padding:22px 16px 48px}.top-in{padding:0 16px;height:60px}.logo .sub{display:none}.acc .em{display:none}.card{padding:18px 16px;border-radius:16px}.hero .main{padding:20px 18px}.hero .side{padding:20px 18px}button.primary,a.btn,a.gbtn{width:100%}}
 """
@@ -737,26 +743,41 @@ _PERKS = [
 ]
 
 
-def cont_login_page(msg: str = "", enabled: bool = True) -> str:
+def cont_login_page(msg: str = "", enabled: bool = True, values: dict | None = None) -> str:
+    """Вход: Google (если настроен) и код на e-mail (всегда, 02.10). `values` —
+    ящик, введённый перед отказом, чтобы не набирать заново."""
     site = config.SITE_URL.rstrip("/")
+    typed = esc((values or {}).get("email", ""))
+    by_mail = (f"<form method='post' action='/cont/login/email' style='margin-top:4px'>"
+               f"<label for='l-email'>E-mailul clinicii sau al dvs.</label>"
+               f"<input id='l-email' type='email' name='email' value='{typed}' required maxlength='{trial.EMAIL_MAX}' "
+               f"autocomplete='email' placeholder='nume@clinica.md'>"
+               f"<p style='margin:12px 0 0'><button class='primary' style='width:100%'>Trimite codul de intrare</button></p>"
+               f"</form><p class='muted' style='margin:10px 0 0'>Primiți pe e-mail un cod de 6 cifre, valabil "
+               f"{int(trial.CODE_TTL.total_seconds() // 60)} minute — fără parolă.</p>")
     if enabled:
         entry = (f"<p style='margin:18px 0 14px'><a class='gbtn' href='/auth/google'>{_G} Continuați cu Google</a></p>"
-                 f"<p class='muted'>Prima dată: după intrare completați datele clinicii și primiți perioada de "
+                 f"<div class='or'><span>sau cu e-mail</span></div>{by_mail}"
+                 f"<p class='muted' style='margin-top:18px'>Prima dată: după intrare completați datele clinicii și primiți perioada de "
                  f"probă de {mail.zile(license.TRIAL_DAYS)}, fără plată. Clinica deja înregistrată la DentPilot cu "
                  f"același e-mail intră direct în cont.</p>")
     else:
-        entry = f"<p class='muted' style='margin-top:18px'>{esc(CONT_MSG['google_off'])}</p>"
+        entry = (f"<div style='margin-top:18px'>{by_mail}</div>"
+                 f"<p class='muted' style='margin-top:18px'>Prima dată: după intrare completați datele clinicii și primiți perioada de "
+                 f"probă de {mail.zile(license.TRIAL_DAYS)}, fără plată. Clinica deja înregistrată la DentPilot cu "
+                 f"același e-mail intră direct în cont.</p>"
+                 f"<p class='muted'>Autentificarea cu Google nu este configurată pe acest server.</p>")
     brand = (f"<div class='brand'><span class='mark'>{_TOOTH_L}</span>"
              f"<h2>Contul clinicii DentPilot</h2>"
-             f"<p>Un singur loc pentru licența DentPilot a clinicii: intrați cu contul Google, fără altă parolă.</p>"
+             f"<p>Un singur loc pentru licența DentPilot a clinicii: intrați cu contul Google sau cu un cod primit pe e-mail — fără parolă.</p>"
              f"{_perks(_PERKS)}"
              f"<p class='fine'>Datele pacienților nu ajung aici niciodată: ele rămân pe calculatorul clinicii.</p></div>")
     form = (f"<div class='form'><h2>Intrați în cont</h2>"
-            f"<p class='muted' style='margin:0'>Cu contul Google al clinicii sau al directorului.</p>{entry}"
-            f"<p class='muted'>Nu aveți cont Google? <a href='/proba'>Trimiteți cererea de probă prin formular</a> "
+            f"<p class='muted' style='margin:0'>Cu contul Google sau cu un cod primit pe e-mail — fără parolă.</p>{entry}"
+            f"<p class='muted'>Preferați formularul? <a href='/proba'>Trimiteți cererea de probă</a> "
             f"— confirmarea vine pe e-mail.</p>"
             f"<p class='muted' style='margin-bottom:0'>De la Google primim doar adresa de e-mail, numele și "
-            f"identificatorul contului; parola rămâne la Google — "
+            f"identificatorul contului; parola rămâne la Google. Codul de pe e-mail îl păstrăm doar ca amprentă — "
             f"<a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p></div>")
     if msg:
         # баннер — над разворотом, в карточке формы, где глаз ищет ответ на свой клик
@@ -765,6 +786,24 @@ def cont_login_page(msg: str = "", enabled: bool = True) -> str:
                             f"{esc(cont_text(msg))}</div>", 1)
         msg = ""
     return _cont_shell("Contul clinicii", f"<div class='auth'>{brand}{form}</div>", msg=msg, plain=True)
+
+
+def cont_email_code_page(vid: str, email: str, msg: str = "") -> str:
+    """Код входа ушёл на ящик (02.10): страница с полем кода. Ящик показан — его
+    ввёл сам человек секунду назад, оракулом страница не становится."""
+    minutes = int(trial.CODE_TTL.total_seconds() // 60)
+    inner = (f"<div class='card narrow'>{_chead('key', 'Codul din e-mail', f'valabil {minutes} minute')}"
+             f"<p>Am trimis un cod de 6 cifre pe <b>{esc(email)}</b>. Introduceți-l mai jos — intrați în cont "
+             f"fără parolă. Nu vedeți mesajul? Verificați și dosarul Spam.</p>"
+             f"<form method='post' action='/cont/login/cod'>"
+             f"<input type='hidden' name='verify_id' value='{esc(vid)}'>"
+             f"<input type='hidden' name='email' value='{esc(email)}'>"
+             f"<label for='l-code'>Codul din e-mail</label><input id='l-code' name='code' inputmode='numeric' maxlength='12' "
+             f"autocomplete='one-time-code' required autofocus style='font-size:22px;letter-spacing:.2em;max-width:240px'>"
+             f"<p><button class='primary'>Intră în cont</button></p></form>"
+             f"<p class='muted' style='margin-bottom:0'>Ați greșit adresa sau codul a expirat? <a href='/cont/login'>Înapoi la "
+             f"intrare</a> — cereți alt cod.</p></div>")
+    return _cont_shell("Intrarea în cont", inner, msg=msg)
 
 
 def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
@@ -780,7 +819,8 @@ def cont_register_page(acc, msg: str = "", values: dict | None = None) -> str:
             f"<div><label>Telefon</label><input name='phone' value='{v['phone']}' maxlength='{trial.PHONE_MAX}'></div></div>"
             f"<div class='grid'><div>"
             f"<label>Persoana de contact</label><input name='contact_name' value='{v['contact_name']}' maxlength='{trial.CONTACT_MAX}'></div>"
-            f"<div><label>E-mail (contul Google)</label><div style='padding:11px 0'><span class='chip'>{esc(acc['email'])}</span></div></div></div>"
+            f"<div><label>{'E-mail (contul Google)' if acc['provider'] == 'google' else 'E-mail (adresa de intrare)'}</label>"
+            f"<div style='padding:11px 0'><span class='chip'>{esc(acc['email'])}</span></div></div></div>"
             f"<label class='chk'><input type='checkbox' name='consent' value='1'> <span>Am citit și accept "
             f"<a href='{esc(site)}/termeni.html' target='_blank' rel='noopener'>Termenii și condițiile</a> și "
             f"<a href='{esc(site)}/privacy.html' target='_blank' rel='noopener'>Politica de confidențialitate</a>."
@@ -800,8 +840,9 @@ def cont_code_page(acc, vid: str, msg: str = "") -> str:
     minutes = int(trial.CODE_TTL.total_seconds() // 60)
     inner = (f"<div class='card narrow'>{_chead('key', 'Codul din e-mailul clinicii', f'valabil {minutes} minute')}"
              f"<p>O clinică cu acest IDNO este deja înregistrată la DentPilot. Am trimis un "
-             f"cod de 6 cifre pe e-mailul înregistrat al clinicii: introduceți-l mai jos și contul Google "
-             f"<b>{esc(acc['email'])}</b> va fi conectat la clinică. Codul este valabil {minutes} minute.</p>"
+             f"cod de 6 cifre pe e-mailul înregistrat al clinicii: introduceți-l mai jos și contul "
+             f"{'Google ' if acc['provider'] == 'google' else ''}<b>{esc(acc['email'])}</b> va fi conectat la clinică. "
+             f"Codul este valabil {minutes} minute.</p>"
              f"<form method='post' action='/cont/inregistrare/cod'>"
              f"<input type='hidden' name='verify_id' value='{esc(vid)}'>"
              f"<label>Codul din e-mail</label><input name='code' inputmode='numeric' maxlength='12' "
@@ -959,11 +1000,16 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"</div></div>")
     devs = (f"<div class='card'>{_chead('monitor', 'Calculatoare cu DentPilot', 'versiunea programului și ultima verificare a licenței')}"
             f"{_cont_devices(list(devices), release.version if release else '')}</div>")
-    acct = (f"<div class='card'>{_chead('user', 'Contul')}"
-            f"<p style='margin:0 0 6px'>Autentificat cu Google: <b>{esc(acc['email'])}</b>"
-            f"{(' (' + esc(acc['name']) + ')') if acc['name'] else ''}.</p>"
-            f"<p class='muted' style='margin:0 0 14px'>De la Google avem doar e-mailul, numele și identificatorul "
-            f"contului — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>"
+    if acc["provider"] == "google":
+        who = (f"<p style='margin:0 0 6px'>Autentificat cu Google: <b>{esc(acc['email'])}</b>"
+               f"{(' (' + esc(acc['name']) + ')') if acc['name'] else ''}.</p>"
+               f"<p class='muted' style='margin:0 0 14px'>De la Google avem doar e-mailul, numele și identificatorul "
+               f"contului — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>")
+    else:
+        who = (f"<p style='margin:0 0 6px'>Autentificat prin e-mail: <b>{esc(acc['email'])}</b>.</p>"
+               f"<p class='muted' style='margin:0 0 14px'>Intrarea se face cu un cod trimis pe acest e-mail; parolă "
+               f"nu există — <a href='{esc(site)}/privacy.html'>Politica de confidențialitate</a>, § 5.</p>")
+    acct = (f"<div class='card'>{_chead('user', 'Contul')}{who}"
             f"<form method='post' action='/cont/iesire' style='margin-top:auto'><button>Ieșire</button></form></div>")
     price = sub["price"] if sub else config.PRICE_MONTH
     chip = f"<span class='price'>{price} MDL / lună · {pay.amount(12, price)} MDL / an</span>"

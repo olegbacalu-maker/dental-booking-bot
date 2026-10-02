@@ -298,18 +298,33 @@ def license_letter(clinic: str, valid_until: str, plan: str, renew: bool = False
     return subject, body
 
 
-def link_code(clinic: str, code: str, minutes: int, google_email: str) -> tuple[str, str]:
-    """Клинике: код для подключения Google-аккаунта к её кабинету (01.10). Идёт на
+def link_code(clinic: str, code: str, minutes: int, google_email: str, via: str = "Google") -> tuple[str, str]:
+    """Клинике: код для подключения учётной записи к её кабинету (01.10). Идёт на
     ящик, записанный у клиники: кто его читает, тот и решает, пускать ли. Ящик
-    просителя назван — клиника видит, кто стучится."""
+    просителя назван — клиника видит, кто стучится. `via` — Google или e-mail
+    (вход кодом, 02.10): письмо называет, как вошёл проситель."""
     subject = f"DentPilot: codul pentru conectarea contului clinicii {clinic}"
+    who = f"Contul Google {google_email}" if via == "Google" else f"Contul {google_email} (intrare prin e-mail)"
     body = (f"Bună ziua,\n\n"
-            f"Contul Google {google_email} cere acces la contul clinicii {clinic} pe {CONT_URL}. "
+            f"{who} cere acces la contul clinicii {clinic} pe {CONT_URL}. "
             f"Dacă sunteți dvs. sau o persoană din clinică, introduceți în pagina de înregistrare "
             f"codul: {code}\n\n"
             f"Codul este valabil {minutes} minute și se folosește o singură dată.\n\n"
             f"Dacă nu ați cerut acest cod, ignorați mesajul: fără el nimeni nu poate intra în contul "
             f"clinicii.\n\n{FOOTER}")
+    return subject, body
+
+
+def login_code(code: str, minutes: int) -> tuple[str, str]:
+    """На ящик, который ввели на странице входа (02.10): код входа в кабинет без
+    Google. Клиника не называется — ящик может быть ещё ничей."""
+    subject = "DentPilot: codul de intrare în contul clinicii"
+    body = (f"Bună ziua,\n\n"
+            f"Codul pentru intrarea în contul clinicii pe {CONT_URL}: {code}\n\n"
+            f"Introduceți-l în pagina de intrare. Codul este valabil {minutes} minute și se folosește o "
+            f"singură dată.\n\n"
+            f"Dacă nu ați cerut acest cod, ignorați mesajul: fără el nimeni nu poate intra în cont cu "
+            f"adresa dvs. de e-mail.\n\n{FOOTER}")
     return subject, body
 
 

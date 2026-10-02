@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -106,6 +106,16 @@ MIGRATIONS = {
             os TEXT NOT NULL DEFAULT '', first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
             last_seq INTEGER)""",
         "CREATE INDEX IF NOT EXISTS ix_devices_clinic ON devices(clinic_id, last_seen_at)",
+    ],
+    # Вход в кабинет кодом на e-mail (02.10, login.py): код хранится хешем,
+    # `canon` — ящик в канонической форме для лимита «кодов на ящик в час».
+    # Не activation_codes: тот привязан к клинике, а ящик при входе её может не иметь.
+    8: [
+        """CREATE TABLE IF NOT EXISTS login_codes(
+            id TEXT PRIMARY KEY, email TEXT NOT NULL, canon TEXT NOT NULL,
+            code_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0, used_at TEXT)""",
+        "CREATE INDEX IF NOT EXISTS ix_login_codes_canon ON login_codes(canon, created_at)",
     ],
 }
 
