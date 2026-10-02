@@ -293,7 +293,7 @@ def suite_live(res: Result) -> None:
             res.ok("лог: renew=renewed", "license: renew=renewed seq=6 had=5" in _log(s), _log(s)[-400:])
             page = c.get("/admin/license").body
             res.ok("страница лицензии: строка автообновления, последняя проверка, кнопка директору",
-                   "verifică zilnic" in page and "ultima verificare" in page and "fișier nou primit" in page
+                   "verifică zilnic" in page and "ultima verificare" in page and "termen nou primit" in page
                    and "action='/admin/license/renew'" in page, page[-1500:])
         res.ok("летопись клиники: «reînnoită automat … (fișier 6)»",
                any("reînnoită automat" in t and "(fișier 6)" in t for t in _events(d)), repr(_events(d)))
@@ -393,7 +393,7 @@ def suite_button(res: Result) -> None:
             res.ok("кнопка в readonly проходит ворота: 303 на страницу с исходом same",
                    r.status == 303 and r.location == "/admin/license?msg=license_renew_same", repr(r))
             res.ok("страница показывает исход словами",
-                   "Nu există un fișier de licență mai nou" in c.get("/admin/license?msg=license_renew_same").body)
+                   "Nu există o licență mai nouă" in c.get("/admin/license?msg=license_renew_same").body)
             fresh = _file(9, renew)
             stand.serve(200, fresh)
             r = c.post("/admin/license/renew")
@@ -404,7 +404,7 @@ def suite_button(res: Result) -> None:
                    a.get("state") == "active" and a.get("seq") == 9, repr(a))
             r = c.post_json("/api/patients", {"name": "Ok Test", "phone": "069000999"})
             res.check("запись снова работает", r.status, 200)
-            res.ok("журнал показывает баннер", "reînnoit de pe serverul DentPilot" in c.get("/admin?msg=license_renewed").body)
+            res.ok("журнал показывает баннер", "reînnoită de pe serverul DentPilot" in c.get("/admin?msg=license_renewed").body)
             r = c.post("/admin/license/renew")
             res.check("второй раз: same", r.location, "/admin/license?msg=license_renew_same")
             stand.serve(200, _tampered(_file(10, renew)))
@@ -477,10 +477,10 @@ def suite_request(res: Result) -> None:
             c = Client(s.url)
             c.login()
             page = c.get("/admin/license").body
-            res.ok("стена: главный путь — заявка (поля, условия и политика), файл — запасной",
+            res.ok("стена: главный путь — заявка (поля, условия и политика); формы файла на странице нет (02.10)",
                    "action='/admin/license/request'" in page and "name='email'" in page
-                   and "privacy.html" in page and "Aveți deja fișierul de licență" in page
-                   and 'name="file"' in page, page[-2500:])
+                   and "privacy.html" in page and "Aveți deja fișierul de licență" not in page
+                   and 'name="file"' not in page and "fișier" not in page, page[-2500:])
             r = c.post("/admin/license/request", **form)
             res.ok("без галочки: license_terms, на сервер ничего не ушло",
                    r.status == 303 and r.location == "/admin/license?msg=license_terms" and not stand.posts,
@@ -593,10 +593,11 @@ def suite_code(res: Result) -> None:
             res.check("повтор с verify_id: license_request_code", r.location,
                       "/admin/license?msg=license_request_code")
             page = c.get("/admin/license?msg=license_request_code").body
-            res.ok("страница: слова сервера, поле кода; заявка — под «Nu a venit codul», файл — запасной",
+            res.ok("страница: слова сервера, поле кода; заявка — под «Nu a venit codul»; файла нет (02.10)",
                    "Am trimis un cod" in page and "action='/admin/license/verify'" in page
                    and "name='code'" in page and "autocomplete='one-time-code'" in page
-                   and "Nu a venit codul" in page and "Aveți deja fișierul de licență" in page, page[-3000:])
+                   and "Nu a venit codul" in page and "Aveți deja fișierul de licență" not in page
+                   and 'name="file"' not in page, page[-3000:])
             res.ok("ожидания нет: токена у программы ещё нет", not (d / "license.pending").exists())
 
             stand.answer(400, {"ok": False, "code": "bad_code",

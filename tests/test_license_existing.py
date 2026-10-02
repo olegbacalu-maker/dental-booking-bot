@@ -61,8 +61,8 @@ def suite_existing(res: Result) -> None:
             c = Client(s.url).login()
             page = c.get("/admin")
             res.check("картотека открывается: стены нет", page.status, 200)
-            res.ok("баннер льготы: файл лишний раз не пугает, а называет срок и ссылку",
-                   "banner warn" in page.body and "Fișierul de licență lipsește" in page.body
+            res.ok("баннер льготы: не пугает файлом, а называет лицензию, срок и ссылку",
+                   "banner warn" in page.body and "Licența lipsește" in page.body
                    and "href='/admin/license'" in page.body, "баннера нет")
             mem = json.loads((d / "license.state").read_text(encoding="utf-8"))
             a = _api(c)
@@ -98,8 +98,8 @@ def suite_existing(res: Result) -> None:
             res.check("через 15 дней: readonly", a.get("state"), "readonly")
             page = c.get("/admin")
             res.check("картотека по-прежнему открывается", page.status, 200)
-            res.ok("баннер режима чтения называет файл",
-                   "banner err" in page.body and "Fișierul de licență lipsește" in page.body
+            res.ok("баннер режима чтения называет лицензию",
+                   "banner err" in page.body and "Licența lipsește" in page.body
                    and "regim de citire" in page.body, "баннера нет")
             r = c.post_json("/api/patients", {"name": "Tarziu Test", "phone": "069000555"})
             res.ok("запись отказывает license_readonly",

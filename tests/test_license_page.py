@@ -70,9 +70,10 @@ def suite_wall(res: Result) -> None:
                    r.status == 303 and r.location == "/admin/license", f"{r.status} {r.location!r}")
             page = c.get("/admin/license")
             res.check("страница активации открывается", page.status, 200)
-            res.ok("страница: заголовок, контакты, форма директору",
+            res.ok("страница: заголовок, контакты, заявка директору — без формы файла (02.10)",
                    "Activarea programului" in page.body and "dentpilotpro@gmail.com" in page.body
-                   and "+373 60 508 048" in page.body and 'name="file"' in page.body
+                   and "+373 60 508 048" in page.body and 'name="file"' not in page.body
+                   and "action='/admin/license/request'" in page.body
                    and "@font-face{" in page.body and "__FONTS__" not in page.body,
                    page.body[:200])
             res.ok("страница: галочка условий — обязательная, со ссылкой на termeni.html",
@@ -184,8 +185,9 @@ def suite_banner(res: Result) -> None:
         with Server(dir_=d, env=KEY_ENV) as s:
             c = Client(s.url).login()
             page = c.get("/admin").body
-            res.ok("файл старее принятого: льгота по памяти, баннер о файле",
-                   "banner warn" in page and "Fișierul de licență" in page, "баннера нет")
+            res.ok("файл старее принятого: льгота по памяти, баннер о лицензии (без слова «fișier» — 02.10)",
+                   "banner warn" in page and "Licența" in page and "fișier" not in page.split("banner warn")[1][:300],
+                   "баннера нет")
             a = _api(c)
             res.ok("/api/license: grace с кодом license_older",
                    a.get("state") == "grace" and a.get("code") == "license_older", repr(a))

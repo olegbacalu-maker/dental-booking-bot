@@ -127,8 +127,8 @@ MSG_BANNER = {
     "license_readonly": ("err", "Programul este în regim de citire: abonamentul a "
                                 "expirat. Datele se pot consulta, tipări și exporta; "
                                 "pentru a continua lucrul, activați abonamentul."),
-    "license_missing": ("err", "Programul nu are o licență activată — introduceți "
-                               "fișierul de licență pe pagina de activare."),
+    "license_missing": ("err", "Programul nu are o licență activată — trimiteți cererea "
+                               "pe pagina de activare."),
     "license_ok": ("ok", "Licența a fost activată"),
     "license_malformed": ("err", "Fișierul nu este un fișier de licență DentPilot "
                                  "sau este deteriorat"),
@@ -145,8 +145,7 @@ MSG_BANNER = {
                                 "singur imediat ce o aprobăm"),
     "license_request_refused": ("err", "DentPilot nu a primit cererea"),
     "license_request_offline": ("err", "Serverul DentPilot nu a răspuns — verificați conexiunea "
-                                       "la internet și încercați din nou sau activați cu fișierul "
-                                       "de licență"),
+                                       "la internet și încercați din nou"),
     "license_request_declined": ("err", "Cererea de perioadă de probă nu mai este activă — "
                                         "scrieți-ne sau trimiteți o cerere nouă"),
     # Новый компьютер той же клиники: повтор заявки → код на e-mail клиники
@@ -156,16 +155,17 @@ MSG_BANNER = {
                                 "trimiteți din nou cererea pentru un cod nou"),
     # Автообновление (L13): ответ кнопки «Verifică acum» на странице лицензии;
     # коды — license.RENEW_CODES, по одному на исход запроса к серверу
-    "license_renewed": ("ok", "Fișierul de licență a fost reînnoit de pe serverul DentPilot"),
-    "license_renew_same": ("ok", "Nu există un fișier de licență mai nou pe serverul DentPilot"),
+    # Файл клинике не показывается (02.10): слова — про лицензию и срок
+    "license_renewed": ("ok", "Licența a fost reînnoită de pe serverul DentPilot"),
+    "license_renew_same": ("ok", "Nu există o licență mai nouă pe serverul DentPilot"),
     "license_renew_offline": ("err", "Serverul DentPilot nu a răspuns — verificați conexiunea "
                                      "la internet; programul încearcă din nou zilnic"),
     "license_renew_refused": ("err", "Serverul DentPilot nu a recunoscut licența acestei "
                                      "clinici — contactați DentPilot"),
-    "license_renew_bad": ("err", "Fișierul primit de pe server nu a putut fi verificat — "
+    "license_renew_bad": ("err", "Răspunsul serverului DentPilot nu a putut fi verificat — "
                                  "contactați DentPilot"),
-    "license_renew_none": ("err", "Fișierul activat nu are adresă de reînnoire — fișierul "
-                                  "nou se activează manual, mai jos"),
+    "license_renew_none": ("err", "Licența activată nu are adresă de reînnoire — "
+                                  "contactați DentPilot"),
     "ok": ("ok", "Programare adăugată"),
     "conflict": ("err", "Intervalul este deja ocupat la acest medic"),
     "dup": ("err", "Pacientul are deja o programare la această oră"),
@@ -749,16 +749,27 @@ def _lic_date(d) -> str:
     return d.astimezone(eng.TZ).strftime("%d.%m.%Y")
 
 
-_RENEW_RO = {lic.RENEWED: "fișier nou primit", lic.RENEW_SAME: "nu există fișier mai nou",
+_RENEW_RO = {lic.RENEWED: "termen nou primit", lic.RENEW_SAME: "nu există termen mai nou",
              lic.RENEW_OFFLINE: "serverul nu a răspuns",
              lic.RENEW_REFUSED: "serverul nu a recunoscut licența",
-             lic.RENEW_BAD: "fișierul primit nu a putut fi verificat"}
+             lic.RENEW_BAD: "răspunsul serverului nu a putut fi verificat"}
+# Почему лицензии нет — словами про лицензию, не про файл (02.10): клиника файла
+# не видит, а код состояния у программы остаётся кодом файла на диске.
+_LIC_WHY = {"": "nu a fost găsită pe acest calculator",
+            "license_malformed": "de pe acest calculator este deteriorată",
+            "license_bad_signature": "de pe acest calculator este deteriorată",
+            "license_key_unknown": "a fost emisă cu o cheie pe care această versiune a programului nu o cunoaște",
+            "license_older": "de pe acest calculator este mai veche decât cea activată"}
+
+
+def _lic_why(code: str) -> str:
+    return _LIC_WHY.get(code or "", MSG_BANNER.get(code, ("err", code))[1].split(" — ")[0].lower())
 
 
 def _renew_line(director: bool) -> str:
     """Автообновление (L13): что программа делает сама, когда спрашивала последний
     раз, и кнопка «сейчас» — директору. Без `renew` в файле строки нет: обещать
-    нечего, новый файл активируется формой ниже."""
+    нечего. Слова — про срок лицензии: файла клиника не видит (02.10)."""
     if lic.renew_target() is None:
         return ""
     last = lic.last_renew()
@@ -769,9 +780,9 @@ def _renew_line(director: bool) -> str:
                 f"{_RENEW_RO.get(last['outcome'], last['outcome'])}")
     # Своя форма: у страницы их несколько (26.09), а вложенных HTML не знает
     btn = ("<form method='post' action='/admin/license/renew'><button>Verifică acum dacă "
-           "există un fișier nou</button></form>" if director else "")
-    return (f"<p>Programul verifică zilnic pe serverul DentPilot dacă există un fișier de "
-            f"licență mai nou și îl preia singur ({html.escape(when)}).</p>{btn}")
+           "există un termen nou</button></form>" if director else "")
+    return (f"<p>Programul verifică zilnic pe serverul DentPilot dacă există un termen nou "
+            f"al licenței și îl preia singur ({html.escape(when)}).</p>{btn}")
 
 
 def _license_banner() -> str:
@@ -790,9 +801,7 @@ def _license_banner() -> str:
         return ""
     link = "<a href='/admin/license'>Licență</a>"
     if s.claim is None:
-        why = ("lipsește" if not s.code
-               else MSG_BANNER.get(s.code, ("err", s.code))[1].split(" — ")[0].lower())
-        head = f"Fișierul de licență {why}."
+        head = f"Licența {'lipsește' if not s.code else _lic_why(s.code)}."
         until = (f" Programul funcționează încă până la {_lic_date(s.grace_until)}"
                  if s.state == lic.st.GRACE else
                  f" Programul este în regim de citire din {_lic_date(s.grace_until)}")
@@ -1699,8 +1708,8 @@ LICENSE_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
   __DETAILS__
   __ERR__
   __FORM__
-  <p class="contacts">Fișierul de licență îl primiți de la DentPilot prin e-mail.
-  Întrebări sau un fișier nou: <a href="mailto:__EMAIL__">__EMAIL__</a> · __PHONE__</p>
+  <p class="contacts">Întrebări despre licență sau abonament:
+  <a href="mailto:__EMAIL__">__EMAIL__</a> · __PHONE__</p>
   __BACK__
 </div></body></html>"""
 LICENSE_TMPL = LICENSE_TMPL.replace("__ICON__", _ic("key"))
@@ -1718,14 +1727,9 @@ def _terms_box(privacy: bool = False) -> str:
             f"</label>")
 
 
-_LICENSE_FORM = ("""<form method="post" action="/admin/license" enctype="multipart/form-data">
-  <p><b>Fișierul de licență</b> (license.json): alegeți-l sau lipiți conținutul lui.</p>
-  <input type="file" name="file" accept=".json,application/json">
-  <textarea name="text" placeholder='{"v": 1, "kid": "...", "payload": "...", "sig": "..."}'></textarea>
-  """ + _terms_box() + """
-  <button>Activează licența</button></form>""")
-
-
+# Формы импорта файла на странице НЕТ (решение Олега 02.10: клиник без интернета
+# нет, файл клиника не видит). Маршрут POST /admin/license остаётся — инструмент
+# поддержки и предмет tests/test_license_page.py.
 def _request_form(v: dict) -> str:
     """Активация без файла (26.09): заявка на пробный. Поля и правила — формы /proba
     сервера (проверяет сервер, отказ приходит его словами); подсказки длины — те же."""
@@ -1733,7 +1737,7 @@ def _request_form(v: dict) -> str:
         return html.escape(v.get(k) or "", quote=True)
     return (f"<form class='req' method='post' action='/admin/license/request'>"
             f"<p><b>Activare automată.</b> Completați datele clinicii: cererea pleacă la DentPilot, "
-            f"iar programul se activează singur, fără fișier. Prima lună este gratuită.</p>"
+            f"iar programul se activează singur. Prima lună este gratuită.</p>"
             f"<p>Clinica lucrează deja cu DentPilot pe alt calculator? Completați aceleași date "
             f"(IDNO sau e-mail): trimitem un cod de activare pe e-mailul clinicii.</p>"
             f"<label for='r-name'>Denumirea clinicii *</label>"
@@ -1750,9 +1754,6 @@ def _request_form(v: dict) -> str:
             f"<button>Trimite cererea și activează programul</button></form>")
 
 
-# Файл из письма — запасной путь: без интернета или когда код не дошёл
-_FILE_ALT = ("<details><summary>Aveți deja fișierul de licență (license.json)?</summary>"
-             + _LICENSE_FORM + "</details>")
 # Код из письма (новый компьютер той же клиники): галочки нет — код бывает только
 # у заявки, а заявку без галочки маршрут не отправит; договор принят ею
 _CODE_FORM = ("<form class='req' method='post' action='/admin/license/verify'>"
@@ -1782,7 +1783,8 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
 
     Без годного файла главный путь — заявка на пробный (26.09): программа
     активируется сама; пока заявка ждёт — её состояние и самообновление
-    страницы. Файл из письма — под «Aveți deja fișierul de licență?»."""
+    страницы. Файла клиника не видит (02.10): ни формы импорта, ни слова
+    «fișier» — только «licența» и её срок."""
     s = lic.current()
     applies = s is not None and lic.applies()
     details = ""
@@ -1791,13 +1793,13 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
     if s is None or not applies:
         title, tone, text = ("Licența programului", "warn",
                              "Această versiune a programului nu verifică licența: nu are nicio "
-                             "cheie de emitere. Fișierul de licență se poate păstra pentru mai târziu.")
+                             "cheie de emitere.")
     elif s.claim is not None:
         c = s.claim
         details = (f"<dl><dt>Clinica</dt><dd>{html.escape(c.clinic)}</dd>"
                    f"<dt>Abonament</dt><dd>{html.escape(c.plan)}</dd>"
                    f"<dt>Valabil până la</dt><dd>{_lic_date(c.valid_until)}</dd>"
-                   f"<dt>Fișier</dt><dd>nr. {c.seq}</dd></dl>" + _renew_line(director))
+                   f"<dt>Licența</dt><dd>nr. {c.seq}</dd></dl>" + _renew_line(director))
         if s.state == lic.st.ACTIVE:
             title, tone, text = "Licența programului", "ok", "Abonamentul este activ."
         elif s.state == lic.st.GRACE:
@@ -1808,23 +1810,22 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
             title, tone = "Programul este în regim de citire", "bad"
             text = (f"Abonamentul a expirat la {_lic_date(s.valid_until)}, iar perioada de plată s-a "
                     f"încheiat la {_lic_date(s.grace_until)}. Datele se pot consulta, tipări și "
-                    f"exporta; pentru a continua lucrul, activați un fișier de licență nou.")
+                    f"exporta; după plată programul preia singur noul termen.")
     else:
         title = "Activarea programului"
         activate = True
         pend = lic.pending()
-        reason = ("nu a fost găsit pe acest calculator" if not s.code
-                  else MSG_BANNER.get(s.code, ("err", s.code))[1].lower())
+        reason = _lic_why(s.code)
         if pend is not None:
             tone, text = "ok", _pending_text(pend)
         elif s.wall:
-            tone, text = "warn", ((f"Fișierul de licență {reason}. " if s.code else "")
+            tone, text = "warn", ((f"Licența {reason}. " if s.code else "")
                                   + "Programul nu este încă activat.")
         elif s.state == lic.st.GRACE:
-            tone, text = "warn", (f"Fișierul de licență {reason}. Programul funcționează încă până la "
+            tone, text = "warn", (f"Licența {reason}. Programul funcționează încă până la "
                                   f"{_lic_date(s.grace_until)}; după această dată trece în regim de citire.")
         else:
-            tone, text = "bad", (f"Fișierul de licență {reason}. Programul este în regim de citire din "
+            tone, text = "bad", (f"Licența {reason}. Programul este în regim de citire din "
                                  f"{_lic_date(s.grace_until)}: datele se pot consulta, tipări și exporta.")
     # Тон — из MSG_BANNER: «новее нет» и «заявка отправлена» — не красным
     msg_tone, err = MSG_BANNER.get(msg, ("", "")) if msg else ("", "")
@@ -1840,14 +1841,14 @@ def license_page(msg: str = "", *, director: bool, walled: bool) -> str:
     if not director:
         form = "<p>Programul îl poate activa directorul clinicii.</p>"
     elif activate and pend is not None:
-        form = _PENDING_CHECK + _FILE_ALT
+        form = _PENDING_CHECK
     elif activate and req["verify_id"]:
         form = (_CODE_FORM + "<details><summary>Nu a venit codul? Trimiteți din nou cererea</summary>"
-                + _request_form(req["fields"]) + "</details>" + _FILE_ALT)
+                + _request_form(req["fields"]) + "</details>")
     elif activate:
-        form = _request_form(req["fields"]) + _FILE_ALT
+        form = _request_form(req["fields"])
     else:
-        form = _LICENSE_FORM
+        form = ""                      # лицензия есть: срок и кнопка «Verifică acum» — в _renew_line
     back = "" if walled else "<p><a href='/admin'>Înapoi la registru</a></p>"
     refresh = "<meta http-equiv='refresh' content='30'>" if pend is not None else ""
     return (standalone(LICENSE_TMPL)
