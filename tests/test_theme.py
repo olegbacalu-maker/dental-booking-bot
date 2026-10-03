@@ -383,6 +383,10 @@ def suite_pages(res: Result) -> None:
                "меню осталось фирменным")
         res.ok("системный шрифт приехал в шапку",
                "--font:'Segoe UI Variable Text'" in head, "шрифт остался Inter")
+        # пара к «голова заранее просит шрифт» в test_admin: файлы Inter
+        # системному шрифту не нужны, и качать их на каждой странице незачем
+        res.ok("системному шрифту голова файлов Inter не просит",
+               'rel="preload"' not in c.get("/admin").body, "предзагрузка осталась")
         login_f = anon.get("/admin/login").body
         res.ok("экран входа взял тот же шрифт",
                "font-family:'Segoe UI Variable Text'" in login_f

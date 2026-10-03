@@ -1234,6 +1234,13 @@ def react_mount(screen: str, path: str, params: dict | None = None) -> str:
 # Новый абзац на новой странице берёт его же, а не заводит своё число.
 
 
+# Подмножества Inter, которые голова просит заранее (03.10): те два, без
+# которых не обходится ни один экран румынского интерфейса. Кириллицу браузер
+# просит сам, когда на экране есть русские имена; предзагружать её на каждой
+# странице значило бы почти всегда качать лишний файл.
+FONT_PRELOAD = ("latin", "latin-ext")
+
+
 def _doc_head() -> str:
     """<head> страницы журнала — ОДИН на серверную оболочку и на React (B1).
 
@@ -1245,12 +1252,25 @@ def _doc_head() -> str:
     th = theme.current()
     th_css = theme.vars_css()
     th_bg = theme.STYLES[th["style"]]["--bg"]
+    # ⭐ Шрифт просится ВМЕСТЕ со стилями (03.10). Иначе браузер узнаёт о файле,
+    # только когда раскладка встретит текст, — уже после бандла, — и на быстром
+    # экране ответ данных обгоняет шрифт: кадр содержимого раскладывался
+    # запасным шрифтом и перекладывался по приезде файла (стенд shift_sweep,
+    # «Securitate»). Гарантию на медленной сети держит ожидание у загрузчика
+    # экрана — frontend/src/services/fonts.ts; здесь — чтобы ждать было нечего.
+    # ⚠️ crossorigin обязателен: @font-face грузит файл в режиме CORS, и
+    # предзагрузка без него с запросом не совпала бы — шрифт скачался бы дважды.
+    # Адреса — те же, что в src у fonts.css (сверяет test_admin). Системному
+    # шрифту темы файлы не нужны вовсе.
+    pre = "".join(f'\n<link rel="preload" href="/static/fonts/inter-{s}.woff2" '
+                  'as="font" type="font/woff2" crossorigin>'
+                  for s in FONT_PRELOAD) if th["font"] == "inter" else ""
     return f"""<!doctype html><html lang="ro" data-style="{th['style']}" data-card="{th['card']}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="{th_bg}">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">{pwa_head()}
 <title>{html.escape(eng.CLINIC_NAME)} — registru</title>
-<link rel="stylesheet" href="/static/css/fonts.css?v={_asset_ver('css', 'fonts.css')}">
+<link rel="stylesheet" href="/static/css/fonts.css?v={_asset_ver('css', 'fonts.css')}">{pre}
 <link rel="stylesheet" href="/static/css/panel.css?v={_asset_ver('css', 'panel.css')}">
 <style>{th_css}</style>
 <script>/* Оживлять цифры и полосы можно только при ОСМЫСЛЕННОМ открытии страницы.

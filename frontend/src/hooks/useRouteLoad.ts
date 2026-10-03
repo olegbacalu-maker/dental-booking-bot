@@ -4,6 +4,7 @@ import {
   type RouteObject, type ShouldRevalidateFunction,
 } from 'react-router'
 import { asApiError, loginUrl, type ApiResult } from '../services/api'
+import { fontsFor } from '../services/fonts'
 import type { ApiError } from '../types/api'
 import { defaultNavigate, type LoadState } from './useLoad'
 
@@ -61,12 +62,16 @@ export const searchChangeKeepsData: ShouldRevalidateFunction = ({ currentUrl, ne
  * отказе сервера: брошенное ушло бы в ловушку ошибок маршрута, и экран
  * потерял бы свою плашку отказа с повтором и ссылкой на старую страницу.
  * Бросает он только то, чего не ждёт никто, — это и есть работа ловушки.
+ * ⭐ Ответ уходит роутеру вместе с готовым шрифтом (`services/fonts.ts`): кадр
+ * содержимого — и плашки отказа — рисуется сразу окончательным, а не
+ * перекладывается, когда файл шрифта приедет после данных (03.10).
  */
 export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => void = defaultNavigate) {
   return async ({ request, params }: LoaderFunctionArgs): Promise<LoadState<T>> => {
     const url = new URL(request.url)
     try {
       const r = await load(request.signal, params, url.searchParams)
+      await fontsFor(JSON.stringify(r.data) ?? '')
       return { status: 'ready', data: r.data }
     } catch (e) {
       const err = asApiError(e)
@@ -82,6 +87,7 @@ export function routeLoader<T>(load: RouteLoad<T>, navigate: (url: string) => vo
         navigate(NO_ACCESS_URL)
         return { status: 'leaving' }
       }
+      await fontsFor(err.text)
       return { status: 'failed', error: err }
     }
   }

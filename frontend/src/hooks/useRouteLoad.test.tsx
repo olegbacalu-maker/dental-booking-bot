@@ -22,6 +22,27 @@ describe('routeLoader', () => {
     expect(load.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal)
   })
 
+  it('данные уходят роутеру только с готовым шрифтом: кадр содержимого окончательный (03.10)', async () => {
+    let arrive = () => {}
+    const fontLoad = vi.fn<(font: string, text: string) => Promise<unknown>>(
+      () => new Promise((r) => { arrive = () => r([]) }))
+    Object.defineProperty(document, 'fonts', { configurable: true, value: { load: fontLoad } })
+    try {
+      let out: unknown = null
+      const p = routeLoader(vi.fn().mockResolvedValue(ok({ name: 'Иван' })), vi.fn())(args())
+        .then((r) => { out = r })
+      await vi.waitFor(() => expect(fontLoad).toHaveBeenCalled())
+      expect(out).toBeNull()
+      /* шрифт просится под ДАННЫЕ: кириллица имени приедет до кадра, а не после */
+      expect(fontLoad.mock.calls[0]?.[1]).toContain('Иван')
+      arrive()
+      await p
+      expect(out).toEqual({ status: 'ready', data: { name: 'Иван' } })
+    } finally {
+      delete (document as { fonts?: unknown }).fonts
+    }
+  })
+
   it('отказ сервера НЕ бросается: экран сам покажет плашку с повтором', async () => {
     const err = new ApiError({ kind: 'network', detail: 'x' }, 'x')
     const r = await routeLoader(vi.fn().mockRejectedValue(err), vi.fn())(args())
