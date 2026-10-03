@@ -848,6 +848,27 @@ def _verify_file(path: pathlib.Path, want_size: int, digest: str) -> str | None:
     return None
 
 
+def _watch_match(result: pathlib.Path) -> str:
+    """Строки сторожа, узнающие итог установщика: «ok»/«fail» — запустить
+    программу (`goto start`), «cancelled» — она жива сама (`goto done`).
+
+    ⛔ Не `findstr /x`. Итог пишется одной строкой, и не всегда с переводом
+    строки, а findstr не узнаёт ПОСЛЕДНЮЮ строку файла без перевода ни с /x,
+    ни с /e. Поймано на канарейке 03.10: установка 1.37.1 прошла за 3 секунды,
+    а программа открылась бы только по потолку ожидания, через 9 минут; отмена
+    («cancelled» пишет `_give_up` без перевода) дала бы через те же 9 минут
+    ВТОРУЮ копию поверх живой. `set /p` читает первую строку с переводом и
+    без; переменная сбрасывается каждый круг — иначе пустой файл оставил бы
+    прежнее значение."""
+    return (
+        'set "r="\r\n'
+        f'if exist "{result}" set /p r=<"{result}" 2>nul\r\n'
+        'if "%r%"=="ok" goto start\r\n'
+        'if "%r%"=="fail" goto start\r\n'
+        'if "%r%"=="cancelled" goto done\r\n'
+    )
+
+
 def _arm_restart_watch(result: pathlib.Path) -> str | None:
     """Задача планировщика ОТ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ, заведённая ДО запроса прав.
 
@@ -867,9 +888,7 @@ def _arm_restart_watch(result: pathlib.Path) -> str | None:
         ":wait\r\n"
         "ping -n 3 127.0.0.1 >nul\r\n"
         "set /a n+=1\r\n"
-        f'findstr /x /c:"ok" "{result}" >nul 2>&1 && goto start\r\n'
-        f'findstr /x /c:"fail" "{result}" >nul 2>&1 && goto start\r\n'
-        f'findstr /x /c:"cancelled" "{result}" >nul 2>&1 && goto done\r\n'
+        + _watch_match(result) +
         f"if %n% lss {_WATCH_ROUNDS} goto wait\r\n"
         ":start\r\n"
         f'start "" /D "{exe.parent}" "{exe}"\r\n'

@@ -101,6 +101,29 @@ if signed is not None:
     attempt("uac_hidden", {want: good})
     uac.update(shown=True, answer="установщик не новее стоящей программы")
     attempt("refused", {want: good})
+
+# --- сторож узнаёт итог НАСТОЯЩИМ cmd: с переводом строки и без (канарейка 03.10:
+# установщик пишет «ok» без перевода, и findstr /x его не видел — 9 минут ожидания) ---
+if sys.platform == "win32":
+    import subprocess
+    probe = tmp / "probe.result"
+    bat = tmp / "probe.bat"
+    bat.write_text("@echo off\r\n" + upd._watch_match(probe)
+                   + "echo none\r\nexit /b\r\n:start\r\necho start\r\nexit /b\r\n"
+                   + ":done\r\necho done\r\nexit /b\r\n", encoding="ascii")
+    cases = {"ok": b"ok", "ok+crlf": b"ok\r\n", "fail": b"fail", "cancelled": b"cancelled",
+             "cancelled+crlf": b"cancelled\r\n", "okay": b"okay", "empty": b"", "missing": None}
+    match = {}
+    for case, body in cases.items():
+        probe.unlink(missing_ok=True)
+        if body is not None:
+            probe.write_bytes(body)
+        r = subprocess.run(["cmd", "/c", str(bat)], capture_output=True, text=True)
+        match[case] = r.stdout.strip()
+    out["match"] = match
+else:
+    out["match"] = None
+
 out["signed"] = signed is not None
 out["result_path"] = str(result)
 print(json.dumps(out))
@@ -145,6 +168,16 @@ def suite_flow(res: Result) -> None:
                r["err"] and want in r["err"] and r["asked"] == [] and r["watch"] == [] and r["exits"] == 0
                and not r["zip_left"] and not r["new"], repr(r))
 
+    # ⭐ Сторож перезапуска — живым cmd, а не по тексту скрипта: текст с
+    # findstr /x выглядел верным, а «ok» без перевода строки не узнавал (03.10).
+    if o["match"] is None:
+        res.ok("сторож перезапуска: не Windows — живой cmd пропущен", True, "")
+    else:
+        res.check("сторож узнаёт итог настоящим cmd — и без перевода строки (канарейка 03.10)",
+                  o["match"], {"ok": "start", "ok+crlf": "start", "fail": "start", "cancelled": "done",
+                               "cancelled+crlf": "done", "okay": "none", "empty": "none",
+                               "missing": "none"})
+
     if not o["signed"]:
         res.ok("подписанного установщика на машине нет (dist\\, releases\\) — путь до «started» пропущен",
                True, "")
@@ -154,8 +187,9 @@ def suite_flow(res: Result) -> None:
            ok["err"] is None and ok["asked"] == ["install-setup"] and ok["exits"] == 1, repr(ok))
     res.ok("задача-сторож заведена ДО окна UAC и ждёт итога в файле",
            len(ok["watch"]) == 1 and ok["watch"][0]["name"] == "DentPilotUpdate"
-           and o["result_path"] in ok["watch"][0]["bat"] and '/c:"ok"' in ok["watch"][0]["bat"]
-           and '/c:"cancelled"' in ok["watch"][0]["bat"], repr(ok["watch"]))
+           and o["result_path"] in ok["watch"][0]["bat"] and '"%r%"=="ok"' in ok["watch"][0]["bat"]
+           and '"%r%"=="cancelled"' in ok["watch"][0]["bat"]
+           and "findstr" not in ok["watch"][0]["bat"], repr(ok["watch"]))
     res.ok("описание для перепроверки за UAC — размер и sha256 самого установщика, архив убран",
            ok["request"] == {"size": o["ok_size"], "sha256": o["ok_sha"], "version": "v99.0.0"}
            and ok["new"] and not ok["zip_left"], repr(ok["request"]))
