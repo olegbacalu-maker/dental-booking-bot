@@ -121,7 +121,8 @@ def cmd_up(argv: list) -> int:
     port = int(argv[0]) if argv and argv[0].isdigit() else 8099
     if port == INSTALLED_PORT:
         print(f"На {INSTALLED_PORT} работает УСТАНОВЛЕННАЯ программа "
-              f"(C:\\Users\\Public\\DentPilot). Песочница её не занимает и не "
+              f"(C:\\Program Files\\DentPilot, данные — C:\\ProgramData\\DentPilot). "
+              f"Песочница её не занимает и не "
               f"гасит — возьми другой порт, например `.\\dev up 8099`.")
         return 2
     for pid in _listener_pids(port):
