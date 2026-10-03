@@ -7,7 +7,7 @@ const ROOT = `<div id="root" data-screen="schedule_week" data-params='{"date":"2
   data-shell='{"frame":{"sub":"calendar săptămânal"}}'><p class="hint">Interfața nouă nu s-a încărcat.</p></div>`
 
 /** Документ React-страницы, как его печатает `layout.react_shell`. */
-const page = (v = 7, root = ROOT) => `<!doctype html><html lang="ro" data-style="calm"><head>
+const page = (v = 7, root = ROOT) => `<!doctype html><html lang="ro" data-style="calm" data-card="time"><head>
 <meta name="theme-color" content="#0E9F8A"><title>Clinica — registru</title>
 <link rel="stylesheet" href="/static/css/panel.css?v=${v}"><style>:root{--teal:#0E9F8A}</style>
 </head><body data-v="1.30.0"><link rel="stylesheet" href="/static/css/bundle.css?v=${v}">
@@ -39,7 +39,8 @@ describe('fetchDoc', () => {
         screen: 'schedule_week',
         params: { date: '2026-09-21' },
         shell: { frame: { sub: 'calendar săptămânal' } },
-        head: { title: 'Clinica — registru', style: 'calm', themeColor: '#0E9F8A', themeCss: ':root{--teal:#0E9F8A}' },
+        head: { title: 'Clinica — registru', style: 'calm', card: 'time', themeColor: '#0E9F8A',
+          themeCss: ':root{--teal:#0E9F8A}' },
       },
     })
     /* Тот же адрес, что открыл бы F5; кука своя; кеш — никогда: модель живая. */

@@ -1245,7 +1245,7 @@ def _doc_head() -> str:
     th = theme.current()
     th_css = theme.vars_css()
     th_bg = theme.STYLES[th["style"]]["--bg"]
-    return f"""<!doctype html><html lang="ro" data-style="{th['style']}"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="ro" data-style="{th['style']}" data-card="{th['card']}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="{th_bg}">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">{pwa_head()}

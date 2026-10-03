@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashCanvas } from './DashCanvas'
 import { clinicNow } from './dashFx'
@@ -345,6 +345,52 @@ describe('C26.5.2: блок записи', () => {
     expect(shown).toContain(LONG_NOTE.slice(0, 40))
     expect(shown).not.toContain(LONG_NOTE.slice(0, 41))
     expect(note.getAttribute('title')).toBe(LONG_NOTE)
+  })
+
+  it('вид карточки (03.10): обе раскладки в разметке, без карандаша, бот — значком', () => {
+    /* Выбор вида — у panel.css по `<html data-card>`, поэтому в разметке
+       сразу и интервал (.gtm, «время впереди»), и начало с длительностью
+       (.gt, «имя впереди» и сжатые виды). ⛔ Карандаш «записано вручную» снят:
+       с заморозкой бота так записано всё, и значок ничего не различал. */
+    show({
+      ...MODEL,
+      columns: [column({ blocks: [
+        appt({ id: 1, time: '09:00', dur: 60 }),
+        appt({ id: 2, time: '11:30', dur: 45, top: 2.5, height: 0.75, source: 'bot' }),
+      ] })],
+    })
+    const a = document.querySelector('[data-appt="1"]') as HTMLElement
+    expect(a.querySelector('.gtm')?.textContent).toBe('09:00–10:00')
+    expect(a.querySelector('small .gt')?.textContent).toBe('09:00 · 60′ · ')
+    expect(a.querySelector('small')?.textContent).toBe('09:00 · 60′ · Consultație')
+    expect(a.querySelector('b')?.textContent).toBe('Ion Popa')
+    expect(a.querySelector('b svg')).toBeNull()
+    /* цвет интервала — полоса услуги, переменной: затемняет её panel.css */
+    expect(a.style.getPropertyValue('--bar')).toBe('var(--green)')
+    const bot = document.querySelector('[data-appt="2"]') as HTMLElement
+    expect(bot.querySelector('.gtm')?.textContent).toBe('11:30–12:15')
+    expect(bot.querySelector('b svg')).toBeTruthy()
+  })
+
+  it('⭐ смена вида карточки перемеряет ступени сжатия сама, без нового опроса', async () => {
+    /* Голову чужого адреса кладёт оболочка ПОСЛЕ перемера блоков того же
+       кадра. jsdom геометрию не считает — «не влез» подставлен зависящим от
+       вида, чтобы проверка видела именно перемер на смене атрибута. */
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get() { return document.documentElement.dataset.card === 'time' ? 100 : 0 },
+    })
+    try {
+      document.documentElement.dataset.card = 'name'
+      show()
+      const a = () => document.querySelector('[data-appt="1"]') as HTMLElement
+      expect(a().classList.contains('slim')).toBe(false)
+      await act(async () => { document.documentElement.dataset.card = 'time' })
+      expect(a().classList.contains('slim')).toBe(true)
+    } finally {
+      delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight
+      document.documentElement.removeAttribute('data-card')
+    }
   })
 
   it('неявка помечена классом, а срочный подтверждённый — своим значком', () => {

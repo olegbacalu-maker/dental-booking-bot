@@ -15,6 +15,8 @@ export interface DocHead {
   title: string
   /** `<html data-style>` — стиль темы. */
   style: string
+  /** `<html data-card>` — вид карточки визита на сетках (name | time). */
+  card: string
   /** `<meta name="theme-color">` — цвет полосы окна. */
   themeColor: string
   /** `<style>` темы: переменные `:root`, посчитанные сервером. */
@@ -49,6 +51,7 @@ export function readHead(doc: Document): DocHead {
   return {
     title: doc.title,
     style: doc.documentElement.dataset.style ?? '',
+    card: doc.documentElement.dataset.card ?? '',
     themeColor: doc.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? '',
     themeCss: doc.head.querySelector('style')?.textContent ?? '',
   }
@@ -62,6 +65,7 @@ export function readHead(doc: Document): DocHead {
 export function applyHead(h: DocHead, doc: Document = document): void {
   if (doc.title !== h.title) doc.title = h.title
   if (h.style && doc.documentElement.dataset.style !== h.style) doc.documentElement.dataset.style = h.style
+  if (h.card && doc.documentElement.dataset.card !== h.card) doc.documentElement.dataset.card = h.card
   const meta = doc.querySelector('meta[name="theme-color"]')
   if (meta && h.themeColor && meta.getAttribute('content') !== h.themeColor) {
     meta.setAttribute('content', h.themeColor)

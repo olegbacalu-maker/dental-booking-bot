@@ -2,7 +2,7 @@ import type { DragEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { DayCell, DayItem, DayModel } from './day'
-import { dragOf, halfAt, type Drag, type Target } from './move'
+import { dragOf, endOf, halfAt, type Drag, type Target } from './move'
 
 /* Таблица дня: часы рядами, врачи колонками (C25.5a), с записью, карточкой и
    перетаскиванием (C25.5b).
@@ -189,12 +189,16 @@ function Appt({ item, dk, dragging, onDrag, onCard, onCardMenu }: ApptProps) {
          onContextMenu={item.clickable
            ? (e) => { e.preventDefault(); onCardMenu?.(item.id, e.clientX, e.clientY) }
            : undefined}>
-      <b>{item.time} · {item.name}</b>
-      {item.age ? <small className="dp-age"> {item.age} a.</small> : null}{' '}
-      <Icon name={item.source === 'bot' ? 'bot' : 'pen'} />
+      {/* Вид карточки — тот же выбор, что у панели дня (`<html data-card>`,
+          03.10): интервал (.gtm) у «времени впереди», начало (.gt) и
+          длительность (.gd) — у «имени впереди». Карандаш снят, бот остался. */}
+      <span className="gtm">{item.time}–{endOf(item.time, item.dur)}</span>
+      <b>{item.name}</b>
+      {item.age ? <small className="dp-age"> {item.age} a.</small> : null}
+      {item.source === 'bot' && <> <Icon name="bot" /></>}
       <br />
-      {item.urgent ? <><Icon name="sos" /> </> : null}{item.service}{' '}
-      <small>({item.dur}′)</small>
+      {item.urgent ? <><Icon name="sos" /> </> : null}<span className="gt">{item.time} · </span>{item.service}{' '}
+      <small className="gd">({item.dur}′)</small>
       <br /><small>{item.phone}</small>
       {item.status !== 'confirmed' && (
         <div className="stw"><span className={`stat s-${item.status}`}>{item.status_label}</span></div>

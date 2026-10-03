@@ -13,6 +13,8 @@ const T = {
   style: 'Stil interfață',
   menu: 'Meniul lateral',
   font: 'Font',
+  card: 'Cardul programării',
+  cardWhere: 'Se aplică pe panoul principal și în Programări.',
   color: 'Culoare principală',
   customTitle: 'Culoare personalizată',
   hint:
@@ -42,7 +44,20 @@ function formOf(d: ThemeData): ThemeForm {
     logo_topbar: d.logo_topbar,
     menu: d.menu,
     font: d.font,
+    card: d.card,
   }
+}
+
+/**
+ * Образец карточки визита для выбора вида — тот же, что у старой страницы
+ * (`settings/routes.py › _CARD_SAMPLE`). ⛔ Своими классами (`.cv`), а не
+ * правилами сетки: те читают `<html data-card>`, и образец невыбранного вида
+ * перерисовался бы под выбранный.
+ */
+function CardSample({ kind }: { kind: string }) {
+  return kind === 'time'
+    ? <span className="cv"><em>09:00–10:00</em><b>Ana Popescu</b><small>Control</small></span>
+    : <span className="cv"><b>Ana Popescu</b><small>09:00 · 60′ · Control</small></span>
 }
 
 /** Живой предпросмотр: переменные :root — ровно те, что сервер посчитал. */
@@ -117,6 +132,10 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
       const r = await settings.themeSave(next)
       replace(r.data)
       setForm(formOf(r.data))
+      /* вид карточки — атрибут документа, а не переменная: голову окна
+         обновил бы только следующий документ, а сетки этой вкладки должны
+         открыться уже в новом виде (перемер подписан на атрибут — dashFx) */
+      document.documentElement.dataset.card = r.data.card
       setToast({ tone: r.tone, text: r.text })
     } catch (e) {
       fail(e)
@@ -223,6 +242,22 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
                 </label>
               ))}
             </div>
+
+            <h3 className="th-h">{T.card}</h3>
+            <div className="th-opts">
+              {data.cards.map((c) => (
+                <label key={c.key} className="th-opt">
+                  <input type="radio" name="card" value={c.key} checked={f.card === c.key}
+                    disabled={busy} onChange={() => change({ card: c.key })} />
+                  <span className="th-box">
+                    <CardSample kind={c.key} />
+                    <span>{c.label}</span>
+                  </span>
+                  <small>{c.hint}</small>
+                </label>
+              ))}
+            </div>
+            <p className="hint">{T.cardWhere}</p>
 
             <h3 className="th-h">{T.color}</h3>
             <div className="th-colors">

@@ -42,6 +42,14 @@ export function hhmm(min: number): string {
   return `${String(h).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
 }
 
+/** Конец визита по началу «HH:MM» и длительности — для «09:00–10:00» на
+ *  карточке. Считается от того же `time`, что напечатан рядом: интервал
+ *  обязан начинаться ровно им. */
+export function endOf(time: string, dur: number): string {
+  const [h = 0, m = 0] = time.split(':').map(Number)
+  return hhmm((h * 60 + m + dur) % (24 * 60))
+}
+
 /**
  * Половина часа берётся из МЕСТА броска внутри ячейки, а не из её номера:
  * сетка стартов 30-минутная (`engine.GRID_STEP`), и «09:30 → 10:00» обязано

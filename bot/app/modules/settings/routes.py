@@ -692,6 +692,14 @@ async def settings_crypt_off(request: Request):
     return _restart_now(crypt.OFF_DONE, "/admin/settings/crypt")
 
 
+# Образцы карточки визита для выбора вида — те же, что рисует React-экран
+# (ThemeSettingsScreen › CardSample).
+_CARD_SAMPLE = {
+    "name": "<span class='cv'><b>Ana Popescu</b><small>09:00 · 60′ · Control</small></span>",
+    "time": "<span class='cv'><em>09:00–10:00</em><b>Ana Popescu</b><small>Control</small></span>",
+}
+
+
 @router.get("/admin/settings/theme", response_class=HTMLResponse)
 async def settings_theme(request: Request, msg: str = ""):
     """Как клиника выглядит: стиль, фирменный цвет, логотип.
@@ -740,6 +748,17 @@ async def settings_theme(request: Request, msg: str = ""):
         f"<span>{e(theme.FONT_LABEL[k][0])}</span></span>"
         f"<small>{e(theme.FONT_LABEL[k][1])}</small></label>"
         for k, stack in theme.FONTS.items())
+    # Вид карточки визита (03.10). ⛔ Образец — своими классами (.cv), а не
+    # правилами сетки: те читают `<html data-card>`, и образец невыбранного
+    # вида перерисовался бы под выбранный.
+    cards = "".join(
+        f"<label class='th-opt'>"
+        f"<input type='radio' name='card' value='{e(k)}'"
+        f"{' checked' if k == th['card'] else ''}>"
+        f"<span class='th-box'>{_CARD_SAMPLE[k]}"
+        f"<span>{e(theme.CARD_LABEL[k][0])}</span></span>"
+        f"<small>{e(theme.CARD_LABEL[k][1])}</small></label>"
+        for k in theme.CARD_LABEL)
 
     styles = "".join(
         f"<label class='th-style'>"
@@ -792,6 +811,10 @@ async def settings_theme(request: Request, msg: str = ""):
 
 <h3 class='th-h'>Font</h3>
 <div class='th-opts'>{fonts}</div>
+
+<h3 class='th-h'>Cardul programării</h3>
+<div class='th-opts'>{cards}</div>
+<p class='hint'>Se aplică pe panoul principal și în Programări.</p>
 
 <h3 class='th-h'>Culoare principală</h3>
 <div class='th-colors'>{colors}
@@ -1161,10 +1184,14 @@ def _val_theme(data: dict) -> dict:
     font = data.get("font") or cur.get("font") or theme.DEFAULT_FONT
     if font not in theme.FONTS:
         raise ValueError("font")
+    # вид карточки визита (03.10) — по тому же правилу, что меню и шрифт
+    card = data.get("card") or cur.get("card") or theme.DEFAULT_CARD
+    if card not in theme.CARD_LABEL:
+        raise ValueError("card")
     # галочка «логотип в шапке» приходит ИЗ ФОРМЫ каждый раз (флажок на
     # странице всегда нарисован, когда есть логотип): нет поля = снята
     return {"style": style, "primary": theme.to_hex(rgb),
-            "menu": menu, "font": font,
+            "menu": menu, "font": font, "card": card,
             "logo": keep if keep in theme.LOGO_NAMES.values() else None,
             "logo_topbar": bool(data.get("logo_topbar"))}
 
@@ -1550,6 +1577,7 @@ async def admin_settings_save(request: Request, payload: str = Form(""),
                 "custom": form.get("custom", ""),
                 "menu": form.get("menu", ""),
                 "font": form.get("font", ""),
+                "card": form.get("card", ""),
                 "logo_topbar": form.get("logo_topbar", "")}))
         elif part == "clinic":
             form = await request.form()

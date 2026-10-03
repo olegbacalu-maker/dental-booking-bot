@@ -27,6 +27,11 @@ const THEME: ThemeData = {
     { key: 'inter', label: 'Inter', hint: 'inclus', stack: "'Inter',sans-serif" },
     { key: 'system', label: 'Segoe UI', hint: 'Windows', stack: "'Segoe UI',sans-serif" },
   ],
+  card: 'name',
+  cards: [
+    { key: 'name', label: 'Numele întâi', hint: 'numele mare' },
+    { key: 'time', label: 'Ora întâi', hint: 'intervalul sus' },
+  ],
   presets: [{ hex: '#0E9F8A', name: 'Verde DentPilot' }, { hex: '#7C3AED', name: 'Violet' }],
   palettes: {
     modern: { '#0E9F8A': { '--teal': '#0E9F8A' }, '#7C3AED': { '--teal': '#7C3AED' } },
@@ -48,6 +53,7 @@ afterEach(() => {
   post.mockReset()
   postForm.mockReset()
   document.documentElement.removeAttribute('style')
+  document.documentElement.removeAttribute('data-card')
 })
 
 describe('ThemeSettingsScreen', () => {
@@ -91,6 +97,7 @@ describe('ThemeSettingsScreen', () => {
     expect(await screen.findByText('Aspectul clinicii a fost salvat')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/theme', {
       style: 'calm', primary: '#7C3AED', custom: '#0E9F8A', logo_topbar: false, menu: 'brand', font: 'inter',
+      card: 'name',
     })
   })
 
@@ -110,7 +117,27 @@ describe('ThemeSettingsScreen', () => {
     expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/theme', {
       style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: false, menu: 'neutral', font: 'system',
+      card: 'name',
     })
+  })
+
+  it('вид карточки: образцы обоих видов, выбор уезжает в сохранение и сразу ложится атрибутом документа', async () => {
+    get.mockResolvedValueOnce(ok(THEME))
+    post.mockResolvedValueOnce(ok({ ...THEME, card: 'time' }, 'ok_theme', 'Aspectul salvat'))
+    document.documentElement.dataset.card = 'name'
+    open()
+    await screen.findByText('Modern')
+    expect((screen.getByDisplayValue('name') as HTMLInputElement).checked).toBe(true)
+    /* образец «времени впереди» несёт интервал, «имени впереди» — нет */
+    const samples = [...document.querySelectorAll('.th-box .cv')].map((s) => s.textContent)
+    expect(samples).toEqual(['Ana Popescu09:00 · 60′ · Control', '09:00–10:00Ana PopescuControl'])
+    fireEvent.click(screen.getByDisplayValue('time'))
+    /* до сохранения сетки этой вкладки остаются в прежнем виде */
+    expect(document.documentElement.dataset.card).toBe('name')
+    fireEvent.click(screen.getByRole('button', { name: 'Salvează' }))
+    expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/settings/theme', expect.objectContaining({ card: 'time' }))
+    expect(document.documentElement.dataset.card).toBe('time')
   })
 
   it('логотип: загрузка multipart, галочка шапки, удаление', async () => {
@@ -130,6 +157,7 @@ describe('ThemeSettingsScreen', () => {
     expect(await screen.findByText('Aspectul salvat')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/settings/theme', {
       style: 'modern', primary: '#0E9F8A', custom: '#0E9F8A', logo_topbar: true, menu: 'brand', font: 'inter',
+      card: 'name',
     })
     /* удаление логотипа теперь спрашивает (01.10); без хоста окна — через confirm браузера */
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)

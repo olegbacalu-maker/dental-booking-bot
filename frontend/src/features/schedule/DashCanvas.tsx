@@ -1,10 +1,10 @@
 import { useRef } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon, iconName } from '../../components/Icon'
-import { clinicNow, clinicTz, nowlineRows, useFitAppts, useFitGrid, waitLabel } from './dashFx'
+import { clinicNow, clinicTz, nowlineRows, useCardView, useFitAppts, useFitGrid, waitLabel } from './dashFx'
 import type { DashAppt, DashBlock, DashCanvasModel, DashColumn } from './dash'
 import { hourLabel } from './slot'
-import { cellAtY, dragOf, type CellRect, type Drag, type Target } from './move'
+import { cellAtY, dragOf, endOf, type CellRect, type Drag, type Target } from './move'
 
 /* Канва панели дня: колонки врачей, ряды часов, блоки с геометрией.
 
@@ -76,8 +76,9 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
      ушли в 08-20 (поймано сценой браузера 19.09, не проверками). */
   const waits = model.columns.some(
     (c) => c.blocks.some((b) => b.kind === 'appt' && b.wait_since))
+  const view = useCardView()
   useFitGrid(body, rail, model.hours.length)
-  useFitAppts(body, waits ? waitTick : 0, model)
+  useFitAppts(body, waits ? waitTick : 0, model, view)
 
   if (model.empty) {
     return (
@@ -322,13 +323,21 @@ function ApptBlock(
   const wait = block.wait_since ? waitLabel(block.wait_since, waitTick) : null
   return (
     <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${fx}`}
-      data-appt={block.id} style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}` }}
+      data-appt={block.id}
+      style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}`,
+        '--bar': block.bar } as React.CSSProperties}
       title={block.title} onClick={() => onCard(block.id)}
       onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(block.id, e.clientX, e.clientY) }}
       {...grab}>
+      {/* Обе раскладки в разметке сразу, вид выбирает panel.css по
+          `<html data-card>`: интервал (.gtm) виден у «времени впереди», начало
+          с длительностью (.gt) — у «имени впереди» и в сжатых видах.
+          ⛔ Карандаш «записано вручную» снят (03.10): с заморозкой бота так
+          записано всё, значок ничего не различал. Бот остался — он отличает. */}
+      <span className="gtm">{block.time}–{endOf(block.time, block.dur)}</span>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
-      <b>{block.name} <Icon name={block.source === 'bot' ? 'bot' : 'pen'} /></b>
-      <small>{block.time} · {block.dur}′ · {block.service}</small>
+      <b>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}</b>
+      <small><span className="gt">{block.time} · {block.dur}′ · </span>{block.service}</small>
       {word && (
         <small className="stw">
           <span className={`stat s-${block.status}`}>{word}</span>

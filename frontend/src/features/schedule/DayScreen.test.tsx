@@ -222,6 +222,22 @@ describe('день журнала: чтение', () => {
     expect(card?.textContent).toContain('(60′)')
   })
 
+  it('вид карточки (03.10) — тот же выбор, что у панели: имя, начало, интервал; без карандаша', async () => {
+    /* Выбор вида — у panel.css по `<html data-card>`: «имя впереди» видит
+       имя и «09:00 · услуга (60′)», «время впереди» — интервал (.gtm) сверху
+       и прячет .gt/.gd. ⛔ Карандаш «записано вручную» снят, как и на панели. */
+    await show()
+    const card = cellsOf(0)[0]?.querySelector('[data-appt="1"]') as HTMLElement
+    expect(card.querySelector('b')?.textContent).toBe('Ion Popa')
+    expect(card.querySelector('.gtm')?.textContent).toBe('09:00–10:00')
+    expect(card.querySelector('.gt')?.textContent).toBe('09:00 · ')
+    expect(card.querySelector('.gd')?.textContent).toBe('(60′)')
+    /* значок источника стоял прямо в карточке; у этой записи есть только
+       значок комментария, и он внутри .cmt */
+    expect(card.querySelector(':scope > svg')).toBeNull()
+    expect(card.querySelectorAll('svg').length).toBe(card.querySelectorAll('.cmt svg').length)
+  })
+
   it('заметка стойки — своим видом и без телефона', async () => {
     await show()
     const note = cellsOf(3)[0]?.querySelector('[data-appt="9"]')

@@ -683,7 +683,7 @@
     показывает границы слота — какой именно час поймает клик.
     ⛔ Цвет фирменный (--teal), не зелёный хексом: у клиники, выбравшей синюю
     тему, подсказка обязана стать синей (грабля карты про зашитый #0E9F8A). */
- .gcell:hover::after{content:'Programare';position:absolute;inset:3px 4px;
+ .gcell:hover::after{content:'+\00a0 Programare';position:absolute;inset:3px 4px;
    display:flex;align-items:center;justify-content:center;
    border:1.5px dashed var(--teal);border-radius:var(--r-chip);color:var(--teal-d);
    font-size:var(--fs-s);font-weight:600}
@@ -698,7 +698,7 @@
    font-size:var(--fs-s);line-height:1.35;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06);z-index:2}
  .gappt:hover{box-shadow:var(--sh2)}
  .gappt b{font-size:var(--fs-s);font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- .gappt small{color:inherit;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+ .gappt small{color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
  .gappt .stt{position:absolute;top:5px;right:7px;font-size:var(--fs-xs)}
  /* Компактные виды блока. Класс ставит fitAppts ПО ЗАМЕРУ, а не по длительности:
     высоту ряда решает fitGrid из окна (см. _day_canvas), поэтому одна и та же
@@ -761,6 +761,64 @@
  .gappt .stw .stat{font-size:var(--fs-micro);padding:0 7px;line-height:1.45}
  .gappt.slim .stw,.gappt.tiny .stw,.gappt.bare .stw{display:none}
  .gappt.noshow{text-decoration:line-through;opacity:.75}
+ /* Вид карточки визита (03.10, выбор клиники в Setări › Aspect): «имя
+    впереди» — умолчание и всё, что без атрибута (старая страница); «время
+    впереди» — `<html data-card="time">`. Обе раскладки уже в разметке
+    (DashCanvas: интервал .gtm, начало с длительностью .gt), здесь только выбор.
+    ⛔ Правила полного вида — только вне .slim/.tiny/.bare: сжатые виды
+    fitAppts выбирает ПО ЗАМЕРУ, и чужой padding их переполнит.
+    ⚠️ Полный вид обязан уложиться в прежнюю высоту со словом статуса при полу
+    часа 66px (блок 60px, замер у бейджа выше). У «имени» имя крупнее за счёт
+    line-height, а не padding. У «времени» слово статуса встаёт в строку
+    интервала: четвёртая строка не влезла бы, и fitAppts свёл бы весь вид к
+    одной строке — выбор клиники исчез бы на ноутбуке молча.
+    Цвет интервала — полоса услуги, затемнённая до читаемого: чистый
+    янтарный на своей подложке даёт ~2:1.
+    ⛔ Телефон (≤640px) остаётся на своих правилах ниже — потому @media. */
+ .gappt .gtm{display:none}
+ @media (min-width:641px){
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote){padding:5px 30px 5px 10px}
+   .gappt:not(.slim):not(.tiny):not(.gnote) b{font-size:var(--fs-m);line-height:1.25;letter-spacing:-.005em}
+   /* ⚠️ <small> браузер сам уменьшает (font-size:smaller): без явного кегля
+      вторая строка 10px — ровно то «мелко и бледно», ради чего вид и менялся.
+      Строке слова статуса кегль ОСТАЁТСЯ мелким: её высоту задаёт сам бейдж,
+      а крупная опора строки съела бы запас блока 60px. */
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small{font-size:var(--fs-s)}
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stw{font-size:var(--fs-micro)}
+   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare) .stt{top:5px;right:6px;
+     width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.75);
+     display:flex;align-items:center;justify-content:center}
+   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare) .stt svg{width:13px;height:13px}
+   /* ⛔ Перенос строк flex-ом, а НЕ сеткой: строки сетки при нехватке высоты
+      ужимаются (у детей overflow:hidden минимум нулевой), текст режется ВНУТРИ
+      строк, а блок не переполняется — fitAppts не видит ничего, и получасовой
+      визит остаётся «полным» с обрезками вместо имени (замер 03.10). Строка
+      flex-переноса не ужимается: лишнее честно переполняет блок.
+      ⚠️ Только у блока С интервалом (`:has(> .gtm)`): старая страница
+      (?ui=legacy) его не печатает, и перенос без него поставил бы слово
+      статуса первой строкой. */
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote):has(> .gtm){display:flex;flex-wrap:wrap;
+     align-content:flex-start;align-items:center;column-gap:8px;
+     padding:4px 30px 4px 10px;line-height:1.25}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gtm{display:block;flex:none;
+     font-size:var(--fs-xs);font-weight:700;letter-spacing:.02em;font-variant-numeric:tabular-nums;
+     color:color-mix(in srgb,var(--bar) 65%,#000)}
+   /* слово статуса — в строке интервала и НЕ переносится: перенос дал бы
+      четвёртую строку и сжатие всего вида. Длинное ужимается многоточием
+      внутри бейджа; значок в углу и подсказка говорят статус целиком. */
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stw{order:1;flex:1 1 0;min-width:0}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stw .stat{display:inline-block;
+     max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b,
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw){order:2;flex:0 0 100%}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b{font-size:var(--fs-body)}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gt{display:none}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare) .stt{top:4px}
+   /* сжатая строка «времени впереди» тоже начинается временем */
+   [data-card="time"] .gappt.slim:not(.gnote) .gtm{display:inline;margin-right:5px;font-weight:700;
+     font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--bar) 65%,#000)}
+   [data-card="time"] .gappt.slim:not(.gnote) .gt{display:none}
+ }
  .gappt.gnote{border:1px dashed var(--line);background:repeating-linear-gradient(135deg,var(--line2) 0 6px,transparent 6px 12px);color:var(--text2)}
  /* Полоска вместо срезанных крайних закрытых рядов (08-11). Штриховка та же, что
     у .gcell.off, — это один и тот же смысл «клиника закрыта», и расходиться им
@@ -849,12 +907,13 @@
    border-radius:50%;background:var(--teal);margin:0 4px 1px 0}
  .appt{border-radius:var(--r-chip);padding:6px 9px;line-height:1.35;
    transition:transform var(--dur-fast) ease,box-shadow var(--dur-fast) ease,filter var(--dur-fast) ease}
- .appt.confirmed{background:var(--green-soft);border-left:5px solid var(--green)}
- .appt.waiting{background:var(--violet-soft);border-left:5px solid #7C3AED}
- .appt.arrived{background:var(--teal-soft);border-left:5px solid var(--teal)}
- .appt.done{background:var(--blue-soft);border-left:5px solid var(--blue)}
- .appt.noshow{background:var(--red-soft);border-left:5px solid var(--red)}
- .appt.urgent{background:var(--amber-soft);border-left:5px solid var(--amber)}
+ /* --bar — цвет полосы ещё и для интервала у вида «время впереди» (ниже) */
+ .appt.confirmed{background:var(--green-soft);border-left:5px solid var(--green);--bar:var(--green)}
+ .appt.waiting{background:var(--violet-soft);border-left:5px solid #7C3AED;--bar:#7C3AED}
+ .appt.arrived{background:var(--teal-soft);border-left:5px solid var(--teal);--bar:var(--teal)}
+ .appt.done{background:var(--blue-soft);border-left:5px solid var(--blue);--bar:var(--blue)}
+ .appt.noshow{background:var(--red-soft);border-left:5px solid var(--red);--bar:var(--red)}
+ .appt.urgent{background:var(--amber-soft);border-left:5px solid var(--amber);--bar:var(--amber)}
  .appt.note{background:var(--amber-soft);border-left:5px solid #EAB308;color:#713F12}
  .appt.busy{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px);
    color:var(--text3);text-align:center;font-size:var(--fs-s)}
@@ -876,6 +935,13 @@
  .appt.clickable{cursor:pointer}
  .appt.clickable:hover{filter:brightness(.985);transform:translateY(var(--lift));box-shadow:var(--sh)}
  .appt .cmt{color:#92710A;font-size:var(--fs-s);margin-top:2px}
+ /* Вид карточки и на таблице дня — тот же выбор клиники, что у .gappt
+    (03.10). У ячейки таблицы своей высоты нет, поэтому ступеней сжатия здесь
+    нет и строку интервала можно просто добавить. */
+ .appt .gtm{display:none}
+ [data-card="time"] .appt .gtm{display:block;font-size:var(--fs-xs);font-weight:700;letter-spacing:.02em;
+   font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--bar,var(--text2)) 65%,#000)}
+ [data-card="time"] .appt .gt,[data-card="time"] .appt .gd{display:none}
  a.plink{color:var(--teal-d);text-decoration:none;border-bottom:1px dashed var(--teal-line)}
  a.plink:hover{border-bottom-style:solid}
  .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
@@ -2204,6 +2270,15 @@
  .th-box .mm.brand{background:var(--teal-d);color:var(--on-teal-d)}
  .th-box .mm.neutral{background:var(--bg);color:var(--text);border:1px solid var(--line)}
  .th-box .fs{font-size:var(--fs-xl);line-height:1;font-weight:600;flex:0 0 40px;text-align:center}
+ /* образец карточки визита (выбор вида, 03.10) — своими классами, а не
+    правилами сетки: те читают <html data-card> и перерисовали бы образец
+    невыбранного вида под выбранный. Сбросы — против .th-opt small. */
+ .th-box .cv{flex:0 0 136px;min-width:0;border-left:4px solid var(--green);background:var(--green-soft);
+   border-radius:var(--r-s);padding:5px 8px;line-height:1.25;white-space:nowrap;overflow:hidden}
+ .th-box .cv em{display:block;font-style:normal;font-size:var(--fs-micro);font-weight:700;color:var(--green-t)}
+ .th-box .cv b{display:block;font-size:var(--fs-s);font-weight:600;color:var(--text)}
+ .th-box .cv small{display:block;margin:0;font-size:var(--fs-micro);line-height:1.25;color:var(--text2);
+   overflow:hidden;text-overflow:ellipsis}
  /* ---------- движение ----------
     ВСЁ привязано к классу `anim` на <html>. Его выдаёт скрипт в шапке страницы
     и только при осмысленном открытии: журнал перезагружает себя каждые 12

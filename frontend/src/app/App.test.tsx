@@ -250,13 +250,15 @@ describe('B4: переход без перезагрузки', () => {
 
   it('голова нового адреса ложится в окно вместе с его кадром', async () => {
     get.mockImplementation(hubWaitsDoctorsFail)
-    const head = { title: 'Clinica Nouă — registru', style: 'calm', themeColor: '#123456', themeCss: ':root{}' }
+    const head = { title: 'Clinica Nouă — registru', style: 'calm', card: 'time', themeColor: '#123456',
+      themeCss: ':root{}' }
     fetchDoc.mockResolvedValue({ kind: 'page', node: { ...node('doctors_list', {}, SHELL_MED), head } })
     const { router } = open('/admin/settings', node('settings_hub', {}, SHELL))
     expect(document.title).not.toBe(head.title)
     await act(() => router.navigate('/admin/medici'))
     expect(document.title).toBe(head.title)
     expect(document.documentElement.dataset.style).toBe('calm')
+    expect(document.documentElement.dataset.card).toBe('time')
   })
 })
 

@@ -631,6 +631,25 @@ def suite_theme(res: Result) -> None:
         res.ok("незнакомый шрифт — 422, поле font",
                r.status == 422 and _j(r).get("field") == "font", r.body)
 
+        # вид карточки визита (03.10): то же правило «не прислали — не трогали»
+        res.ok("вид карточки «имя впереди» по умолчанию, оба вида с подписями",
+               d["card"] == "name"
+               and [(x["key"], bool(x["label"]), bool(x["hint"])) for x in d["cards"]]
+               == [("name", True, True), ("time", True, True)],
+               f"{d.get('card')} {d.get('cards')}")
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A", "card": "time"})
+        res.ok("вид карточки сохраняется",
+               r.status == 200 and _j(r)["data"]["card"] == "time", r.body[:160])
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A"})
+        res.ok("без поля вида прежний выбор цел",
+               r.status == 200 and _j(r)["data"]["card"] == "time", r.body[:160])
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A", "card": "zigzag"})
+        res.ok("незнакомый вид карточки — 422, поле card",
+               r.status == 422 and _j(r).get("field") == "card", r.body)
+        r = c.post_json(api, {"style": "fluent", "primary": "#0E9F8A", "card": "name"})
+        res.ok("вид карточки возвращается к умолчанию",
+               r.status == 200 and _j(r)["data"]["card"] == "name", r.body[:160])
+
         r = c.post_json(api, {"style": "calm", "primary": "#7C3AED", "custom": "",
                               "logo_topbar": False})
         res.check("сохранение — 200", r.status, 200)

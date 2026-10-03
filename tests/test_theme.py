@@ -140,6 +140,17 @@ eng.CONFIG["theme"] = {{"menu": "розовое", "font": "Comic Sans"}}
 out["fallback2"] = [t.current()["menu"], t.current()["font"]]
 out["family"] = t.font_stack()
 
+# вид карточки визита (03.10): два вида, «имя впереди» по умолчанию, битое
+# значение — любого типа: из рук правленый clinic.json не роняет страницу
+out["cards"] = sorted(t.CARD_LABEL)
+out["card_default"] = t.DEFAULT_CARD
+out["card_fallback"] = []
+for junk in ("zigzag", ["time"], None, 7):
+    eng.CONFIG["theme"] = {{"card": junk}}
+    out["card_fallback"].append(t.current()["card"])
+eng.CONFIG["theme"] = {{"card": "time"}}
+out["card_kept"] = t.current()["card"]
+
 print("@@" + json.dumps(out))
 """
 
@@ -288,6 +299,11 @@ def suite_palette(res: Result) -> None:
               out["fallback2"], ["brand", "inter"])
     res.check("страницам со своей вёрсткой уходит тот же набор семейств",
               out["family"], out["fonts"]["inter"])
+    res.check("видов карточки два, по умолчанию «имя впереди»",
+              [out["cards"], out["card_default"]], [["name", "time"], "name"])
+    res.check("битый вид карточки любого типа откатывается к умолчанию",
+              out["card_fallback"], ["name"] * 4)
+    res.check("выбранный вид карточки читается как есть", out["card_kept"], "time")
 
 
 # значения стиля modern держим здесь же, рядом с проверкой: тест обязан
@@ -390,6 +406,29 @@ def suite_pages(res: Result) -> None:
                    for n, v in (("menu", "brand"), ("menu", "neutral"),
                                 ("font", "inter"), ("font", "system"))),
                "группы меню и шрифта не отрисовались")
+
+        # вид карточки визита (03.10) — тем же путём. ⚠️ Едет АТРИБУТОМ
+        # документа, а не переменной: у «времени впереди» другой порядок строк.
+        res.ok("по умолчанию документ несёт «имя впереди»",
+               'data-card="name"' in c.get("/admin").body, "атрибута нет")
+        r = c.post("/admin/settings/save", part="theme", style="calm",
+                   primary="#7C3AED", custom="", card="time")
+        res.check("вид карточки сохраняется", r.msg, "ok_theme")
+        # голова одна на старую страницу и на React (`layout._doc_head`)
+        res.ok("вид карточки приехал атрибутом документа",
+               'data-card="time"' in c.get("/admin").body, "атрибут не сменился")
+        c.post("/admin/settings/save", part="theme", style="calm",
+               primary="#7C3AED", custom="")
+        res.check("без поля вида прежний выбор цел",
+                  _theme_of(s.clinic).get("card"), "time")
+        r = c.post("/admin/settings/save", part="theme", style="calm",
+                   primary="#7C3AED", custom="", card="zigzag")
+        res.check("незнакомый вид карточки не сохраняется", r.msg, "bad_set")
+        theme_page = c.get("/admin/settings/theme").body
+        res.ok("на старом экране вида есть оба вида карточки, выбранный отмечен",
+               "name='card' value='name'>" in theme_page
+               and "name='card' value='time' checked>" in theme_page,
+               "группа вида карточки не отрисовалась")
 
         login = anon.get("/admin/login").body
         res.ok("экран входа перекрашен", "#7C3AED" in login,

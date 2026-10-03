@@ -429,8 +429,8 @@ def suite_install(res: Result) -> None:
 
 
 def _signed_setup() -> pathlib.Path | None:
-    """Настоящий подписанный установщик с этой машины: dist\ после сборки или
-    releases\ рядом с репозиторием. Нет — набор говорит пропуск вслух."""
+    """Настоящий подписанный установщик с этой машины: dist после сборки или
+    releases рядом с репозиторием. Нет — набор говорит пропуск вслух."""
     root = pathlib.Path(__file__).resolve().parents[1]
     for d in (root / "dist", root.parent / "releases"):
         found = sorted(d.glob("DentPilot-Setup-*.exe"))

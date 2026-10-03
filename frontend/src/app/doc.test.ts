@@ -24,18 +24,19 @@ describe('readNode', () => {
   })
 })
 
-const DOC = `<!doctype html><html data-style="calm"><head>
+const DOC = `<!doctype html><html data-style="calm" data-card="name"><head>
 <meta name="theme-color" content="#0E9F8A"><title>Clinica — registru</title>
 <link rel="stylesheet" href="/static/css/panel.css?v=7"><style>:root{--teal:#0E9F8A}</style>
 </head><body><link rel="stylesheet" href="/static/css/bundle.css?v=7">
 <script type="module" src="/static/js/bundle.js?v=7"></script></body></html>`
 
 describe('readHead / applyHead', () => {
-  it('голова нового адреса ложится в окно: тема, стиль, цвет полосы, заголовок', () => {
+  it('голова нового адреса ложится в окно: тема, стиль, вид карточки, цвет полосы, заголовок', () => {
     const win = parse(DOC)
-    applyHead({ title: 'Nou — registru', style: 'dark', themeColor: '#123456', themeCss: ':root{--teal:#123456}' }, win)
-    expect(readHead(win)).toEqual(
-      { title: 'Nou — registru', style: 'dark', themeColor: '#123456', themeCss: ':root{--teal:#123456}' })
+    applyHead({ title: 'Nou — registru', style: 'dark', card: 'time', themeColor: '#123456',
+      themeCss: ':root{--teal:#123456}' }, win)
+    expect(readHead(win)).toEqual({ title: 'Nou — registru', style: 'dark', card: 'time',
+      themeColor: '#123456', themeCss: ':root{--teal:#123456}' })
   })
 
   it('та же голова — ни одной записи в DOM (переход не трогает то, что не менялось)', () => {

@@ -414,7 +414,7 @@ def _theme_data() -> dict:
     return {
         "style": th["style"], "primary": th["primary"],
         "custom": th["primary"] not in preset_hex,
-        "menu": th["menu"], "font": th["font"],
+        "menu": th["menu"], "font": th["font"], "card": th["card"],
         "styles": [{"key": k, "label": theme.STYLE_LABEL[k][0],
                     "hint": theme.STYLE_LABEL[k][1], "vars": dict(v)}
                    for k, v in theme.STYLES.items()],
@@ -425,6 +425,9 @@ def _theme_data() -> dict:
         "fonts": [{"key": k, "label": theme.FONT_LABEL[k][0],
                    "hint": theme.FONT_LABEL[k][1], "stack": s}
                   for k, s in theme.FONTS.items()],
+        # вид карточки визита (03.10): образец рисует клиент, сервер — подписи
+        "cards": [{"key": k, "label": v[0], "hint": v[1]}
+                  for k, v in theme.CARD_LABEL.items()],
         "presets": [{"hex": h, "name": n} for h, n in theme.PRESETS],
         "palettes": {st: {c: theme.palette(c, st) for c in preset_hex}
                      for st in theme.STYLES},
@@ -467,9 +470,10 @@ async def api_theme_save(request: Request):
             "style": body.get("style", ""), "primary": str(body.get("primary") or ""),
             "custom": str(body.get("custom") or ""),
             "menu": str(body.get("menu") or ""), "font": str(body.get("font") or ""),
+            "card": str(body.get("card") or ""),
             "logo_topbar": bool(body.get("logo_topbar"))}))
     except ValueError as e:
-        field = str(e) if str(e) in ("style", "primary", "menu", "font") else ""
+        field = str(e) if str(e) in ("style", "primary", "menu", "font", "card") else ""
         return msg_json(False, "bad_set", status=422, field=field)
     except (KeyError, TypeError):
         return msg_json(False, "bad_set", status=422)

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 
 /**
  * То, что панель считает В БРАУЗЕРЕ, и почему это не уехало на сервер.
@@ -165,6 +165,29 @@ export function useFitGrid(
 }
 
 /**
+ * Вид карточки визита — атрибут `<html data-card>` (Setări › Aspect, 03.10).
+ *
+ * ⚠️ Подпиской, а не чтением атрибута при отрисовке: от вида зависит, влез ли
+ * текст, то есть ступени сжатия ниже. А голову ЧУЖОГО адреса кладёт слой
+ * раскладки оболочки (App.tsx › Frame) — уже ПОСЛЕ перемера блоков того же
+ * кадра, потому что эффекты детей идут раньше родительских. Без подписки
+ * ступени оставались бы посчитанными под прежний вид до следующего опроса.
+ */
+export function useCardView(): string {
+  return useSyncExternalStore(onCardView, cardView)
+}
+
+function cardView(): string {
+  return document.documentElement.dataset.card ?? ''
+}
+
+function onCardView(changed: () => void): () => void {
+  const mo = new MutationObserver(changed)
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-card'] })
+  return () => mo.disconnect()
+}
+
+/**
  * Ступени сжатия блока: `slim` → `tiny` → `bare`, каждая следующая только
  * если предыдущая не влезла.
  *
@@ -175,7 +198,7 @@ export function useFitGrid(
  * ПОСЛЕ замера, и блок на грани переполняется — поэтому `tick` в зависимостях.
  */
 export function useFitAppts(
-  body: React.RefObject<HTMLDivElement | null>, tick: number, deps: unknown,
+  body: React.RefObject<HTMLDivElement | null>, tick: number, deps: unknown, view = '',
 ): void {
   useLayoutEffect(() => {
     const gb = body.current
@@ -186,5 +209,5 @@ export function useFitAppts(
       if (a.scrollHeight > a.clientHeight) a.classList.add('tiny')
       if (a.scrollHeight > a.clientHeight) a.classList.add('bare')
     }
-  }, [body, tick, deps])
+  }, [body, tick, deps, view])
 }

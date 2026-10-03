@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { CELL_MAX, CELL_MIN, cellPx, clinicNow, nowlineRows, waitLabel } from './dashFx'
+import { act, render } from '@testing-library/react'
+import { createElement } from 'react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { CELL_MAX, CELL_MIN, cellPx, clinicNow, nowlineRows, useCardView, waitLabel } from './dashFx'
 
 describe('dashFx — высота часа', () => {
   it('держится между полом и потолком', () => {
@@ -79,5 +81,24 @@ describe('dashFx — часы КЛИНИКИ, а не устройства', () 
     const at = new Date(2026, 8, 19, 8, 5)
     expect(clinicNow('Nowhere/Nothing', at))
       .toEqual({ day: '2026-09-19', hh: 8, mm: 5 })
+  })
+})
+
+describe('dashFx — вид карточки визита', () => {
+  afterEach(() => document.documentElement.removeAttribute('data-card'))
+
+  function Probe() {
+    return createElement('i', null, useCardView() || '-')
+  }
+
+  it('⭐ атрибут документа сменился — экран перерисован, то есть ступени перемеряны', async () => {
+    /* Голову чужого адреса кладёт слой раскладки оболочки ПОСЛЕ перемера
+       блоков того же кадра: без подписки сжатые виды остались бы посчитанными
+       под прежний вид. Перемер зависит от того, что вернул хук. */
+    document.documentElement.dataset.card = 'name'
+    const { container } = render(createElement(Probe))
+    expect(container.textContent).toBe('name')
+    await act(async () => { document.documentElement.dataset.card = 'time' })
+    expect(container.textContent).toBe('time')
   })
 })

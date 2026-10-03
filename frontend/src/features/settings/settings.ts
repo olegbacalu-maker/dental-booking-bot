@@ -111,15 +111,24 @@ export interface ThemeFont {
   stack: string
 }
 
+/** Вид карточки визита на сетках (`<html data-card>`): name | time. */
+export interface ThemeCard {
+  key: string
+  label: string
+  hint: string
+}
+
 export interface ThemeData {
   style: string
   primary: string
   custom: boolean
   menu: string
   font: string
+  card: string
   styles: ThemeStyle[]
   menus: ThemeMenu[]
   fonts: ThemeFont[]
+  cards: ThemeCard[]
   presets: { hex: string; name: string }[]
   /** Палитры сервера: стиль → hex набора → переменные :root. */
   palettes: Record<string, Record<string, Record<string, string>>>
@@ -137,6 +146,7 @@ export interface ThemeForm {
   logo_topbar: boolean
   menu: string
   font: string
+  card: string
 }
 
 export interface UserRow {

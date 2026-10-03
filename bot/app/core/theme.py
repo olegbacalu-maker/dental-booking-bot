@@ -223,6 +223,18 @@ FONT_LABEL = {
     "system": ("Segoe UI (fontul Windows)", "Fontul sistemului; pe Windows 10 și 11 arată puțin diferit."),
 }
 
+# Вид карточки визита на сетках — панель дня и «Programări» (03.10, выбор
+# Олега из песочницы: варианты A и C). «Имя впереди» — умолчание: ближе всего
+# к прежнему блоку, обновление никого не удивит. ⚠️ Это НЕ набор переменных,
+# как стиль и меню: у «времени впереди» другой ПОРЯДОК строк, и переменной его
+# не выразить. Поэтому вид едет атрибутом `<html data-card>` (`_doc_head`), а
+# правила panel.css читают его.
+DEFAULT_CARD = "name"
+CARD_LABEL = {
+    "name": ("Numele întâi", "Numele pacientului mare; dedesubt ora, durata și serviciul."),
+    "time": ("Ora întâi", "Intervalul orar sus, colorat; dedesubt numele și serviciul."),
+}
+
 # Тёмный текст интерфейса — тот же --text, что в panel.css. Нужен здесь как
 # ЧИСЛО: по нему считается, чем писать на фирменной кнопке.
 _TEXT_DARK = (0x16, 0x20, 0x33)
@@ -359,11 +371,13 @@ def current() -> dict:
     logo = raw.get("logo")
     menu = raw.get("menu")
     font = raw.get("font")
+    card = raw.get("card")
     return {
         "primary": to_hex(rgb) if rgb else DEFAULT_PRIMARY,
         "style": style if style in STYLES else DEFAULT_STYLE,
         "menu": menu if menu in MENUS else DEFAULT_MENU,
         "font": font if font in FONTS else DEFAULT_FONT,
+        "card": card if isinstance(card, str) and card in CARD_LABEL else DEFAULT_CARD,
         "logo": logo if logo in LOGO_NAMES.values() else None,
         # логотип и в шапке журнала (галочка в Setări › Aspect, 08-21);
         # по умолчанию выключено — существующие клиники не должны проснуться

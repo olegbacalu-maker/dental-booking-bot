@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellAtY, clash, clashAmong, doctorName, dragOf, halfAt, hhmm, sameSlot } from './move'
+import { cellAtY, clash, clashAmong, doctorName, dragOf, endOf, halfAt, hhmm, sameSlot } from './move'
 import type { DayItem, DayModel } from './day'
 
 /* Договор перетаскивания по одному полю. Каждая проверка ломается ровно одним
@@ -67,6 +67,11 @@ describe('час и получас', () => {
   it('минуты превращаются в HH:MM с ведущими нулями', () => {
     expect([hhmm(0), hhmm(540), hhmm(570), hhmm(1290)])
       .toEqual(['00:00', '09:00', '09:30', '21:30'])
+  })
+
+  it('конец визита для интервала на карточке: от показанного начала, через полночь', () => {
+    expect([endOf('09:00', 60), endOf('08:15', 45), endOf('11:30', 90), endOf('23:30', 60)])
+      .toEqual(['10:00', '09:00', '13:00', '00:30'])
   })
 
   it('верх ячейки — ровный час, низ — половина', () => {
