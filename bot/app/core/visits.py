@@ -70,6 +70,13 @@ _NOTE_BUTTONS = {
 # следующий шаг приёма (так же ведёт себя «Redeschide» в плане лечения)
 _ASK_APPT = "Redeschideți programarea (înapoi la «programată»)?"
 _ASK_NOTE = "Restabiliți notița?"
+# 03.10, слово Олега: «Anulează сразу удаляет его из списка, нужно сначала
+# спросить». Отмена одним кликом убирает визит из сетки и повестки, а пункт
+# стоит в меню правой кнопки вплотную к соседним. Вернуть можно («Redeschide»
+# в «Lista zilei»), но в момент промаха этого никто не знает — вопрос это и
+# говорит. ⚠️ Только у визита: «Șterge» у заметки стойки не спрашивает.
+_ASK_CANCEL = ("Anulați programarea? Ea dispare din grila zilei; "
+               "o puteți redeschide din «Lista zilei».")
 
 
 def status_actions(status: str, is_note: bool = False) -> list[dict]:
@@ -83,7 +90,8 @@ def status_actions(status: str, is_note: bool = False) -> list[dict]:
     src = (_NOTE_BUTTONS if is_note else _ACT_BUTTONS).get(status, ())
     ask = _ASK_NOTE if is_note else _ASK_APPT
     return [{"to": to, "cls": cls, "label": label,
-             "confirm": ask if cls == "b-reopen" else ""}
+             "confirm": (ask if cls == "b-reopen"
+                         else _ASK_CANCEL if cls == "b-cancel" and not is_note else "")}
             for to, cls, label in src]
 
 
@@ -318,10 +326,10 @@ def _card_modal(cards: dict, back: str) -> str:
       <input type="hidden" name="back" value="{b}"><button class="bstat b-done">Finalizat</button></form>
     <form method="post" id="cs_noshow"><input type="hidden" name="to" value="noshow">
       <input type="hidden" name="back" value="{b}"><button class="bstat b-noshow">Nu a venit</button></form>
-    <form method="post" id="cs_cancel"><input type="hidden" name="to" value="cancelled">
+    <form method="post" id="cs_cancel" onsubmit="return confirm('{_ASK_CANCEL}')">
+      <input type="hidden" name="to" value="cancelled">
       <input type="hidden" name="back" value="{b}"><button class="bstat b-cancel">Anulează</button></form>
-    <form method="post" id="cs_reopen"
-      onsubmit="return confirm('Redeschideți programarea (înapoi la «programată»)?')">
+    <form method="post" id="cs_reopen" onsubmit="return confirm('{_ASK_APPT}')">
       <input type="hidden" name="to" value="confirmed">
       <input type="hidden" name="back" value="{b}">
       <button class="bstat b-reopen">{_ic('undo')} Redeschide</button></form>

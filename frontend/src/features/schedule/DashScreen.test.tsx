@@ -842,6 +842,36 @@ describe('C26.5.3-d: диалог заметки стойки', () => {
     await waitFor(() => expect(document.querySelector('.dp-cmenu')).toBeNull())
   })
 
+  it('03.10: «Anulează» в меню правой кнопки сначала СПРАШИВАЕТ (вопрос — с сервера); отказ — без запроса', async () => {
+    /* Слово Олега: «Anulează сразу удаляет его из списка, нужно сначала
+       спросить». Текст вопроса едет в матрице `actions` (core/visits._ASK_CANCEL). */
+    const Q = 'Anulați programarea? Ea dispare din grila zilei; o puteți redeschide din «Lista zilei».'
+    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const withCancel = model({ actions: { confirmed: [
+      { to: 'waiting', cls: 'b-waiting', label: 'A venit', confirm: '' },
+      { to: 'cancelled', cls: 'b-cancel', label: 'Anulează', confirm: Q },
+    ] } })
+    const f = vi.fn(async (url: string) => (String(url).includes('/status')
+      ? cmdReply('', '')
+      : reply(200, withCancel)))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    const open = () => fireEvent.contextMenu(document.querySelector('.gappt[data-appt="1"]') as HTMLElement,
+      { clientX: 120, clientY: 140 })
+    const cancelBtn = () => Array.from(document.querySelectorAll('.dp-cmenu button'))
+      .find((b) => b.textContent?.trim() === 'Anulează') as HTMLButtonElement
+    open()
+    fireEvent.click(cancelBtn())
+    await waitFor(() => expect(ask).toHaveBeenCalledWith(Q))
+    expect(f.mock.calls.some((c) => String(c[0]).includes('/status'))).toBe(false)
+    if (!document.querySelector('.dp-cmenu')) open()
+    fireEvent.click(cancelBtn())
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/status'))).toBe(true))
+    expect(ask).toHaveBeenCalledTimes(2)
+    expect(bodyOf(f.mock.calls.find((c) => String(c[0]).includes('/status'))!)).toEqual({ to: 'cancelled' })
+    ask.mockRestore()
+  })
+
   it('правая кнопка по строке повестки — то же меню; Esc закрывает без запроса', async () => {
     const f = vi.fn(async (url: string) => reply(200, model(), { 'X-DP-From': String(url).length ? 'x' : 'y' }))
     vi.stubGlobal('fetch', f as unknown as typeof fetch)

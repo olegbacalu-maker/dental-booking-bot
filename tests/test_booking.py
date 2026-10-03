@@ -356,6 +356,16 @@ def suite_status(res: Result) -> None:
                    for k in ("b-waiting", "b-arrived", "b-done", "b-noshow",
                              "b-cancel")),
                "в списке дня не хватает кнопок исхода")
+        # 03.10, слово Олега: «Anulează сразу удаляет… нужно сначала спросить» —
+        # вопрос у отмены, и ТОЛЬКО у неё среди шагов приёма
+        forms = re.findall(r"<form class='act'[^>]*>.*?</form>", page, re.S)
+        asks = {re.search(r"class='(b-[a-z]+)'", f_).group(1): "return confirm(" in f_ for f_ in forms
+                if re.search(r"class='(b-[a-z]+)'", f_)}
+        res.check("в списке дня спрашивает только «Anulează»",
+                  {k: v for k, v in asks.items() if k in ("b-waiting", "b-arrived", "b-done",
+                                                          "b-noshow", "b-cancel")},
+                  {"b-waiting": False, "b-arrived": False, "b-done": False, "b-noshow": False,
+                   "b-cancel": True})
 
         c.post(f"/admin/status/{bid}", to="arrived", back=day2)
         page = c.get(day2).body
