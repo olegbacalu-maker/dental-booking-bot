@@ -80,6 +80,7 @@ import test_stats_api  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
+import test_update_server  # noqa: E402
 import test_visit  # noqa: E402
 import test_visit_api  # noqa: E402
 from harness import run  # noqa: E402
@@ -134,6 +135,9 @@ SUITES = [
     ("Лицензия: «Plătește acum» — провод к /v1/pay-link", test_paylink.suite_wire),
     ("Лицензия: «Plătește acum» — ключ, страница оплаты, новый срок сам", test_paylink.suite_pay),
     ("Лицензия: «Plătește acum» — платить некому: ссылки нет", test_paylink.suite_off),
+    ("Обновления: сервер DentPilot — провод не верит ответу на слово", test_update_server.suite_wire),
+    ("Обновления: сервер первым, его молчание — путь к GitHub", test_update_server.suite_decision),
+    ("Обновления: живой сервер спрашивает при старте, харнесс — нет", test_update_server.suite_live),
     ("P4.1: граница прав HKLM", test_privileged.suite_boundary),
     ("P4.1: операция за UAC", test_privileged.suite_op),
     ("P4.1: что уходит в UAC", test_privileged.suite_request),

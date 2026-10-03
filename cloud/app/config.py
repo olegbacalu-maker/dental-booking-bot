@@ -62,6 +62,14 @@ GOOGLE_TOKEN_URL = env("DP_GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/tok
 RELEASES_API = env("DP_RELEASES_API",
                    "https://api.github.com/repos/olegbacalu-maker/dental-booking-bot/releases/latest")
 RELEASES_PAGE = "https://github.com/olegbacalu-maker/dental-booking-bot/releases/latest"
+# Сервер обновлений (03.10, updates.py): выпуск по тегу и атом-фид всех выпусков —
+# для канала beta; меняют только тесты. RELEASES_DOWNLOAD — единственный префикс
+# ссылок на файлы, который сервер отдаёт программам (и который программа примет).
+RELEASES_TAG_API = env("DP_RELEASES_TAG_API",
+                       "https://api.github.com/repos/olegbacalu-maker/dental-booking-bot/releases/tags/{tag}")
+RELEASES_ATOM = env("DP_RELEASES_ATOM", "https://github.com/olegbacalu-maker/dental-booking-bot/releases.atom")
+RELEASES_DOWNLOAD = "https://github.com/olegbacalu-maker/dental-booking-bot/releases/download/"
+UPDATE_CACHE_S = int(env("DP_UPDATE_CACHE_S", "300"))   # как часто сервер обновлений спрашивает GitHub
 SUPPORT_PHONE = "+373 60 508 048"
 # Прайс — тот же, что на сайте (dentpilot.md › #preturi, с 24.09.2026): месяц
 # 499 MDL, год — 11 месячных (5 489 MDL, «o lună gratuită»). Сроки и счёт

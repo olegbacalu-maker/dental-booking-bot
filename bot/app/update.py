@@ -1,4 +1,7 @@
 """Обновления через GitHub Releases.
+- Первым спрашивается сервер DentPilot (03.10, `update_server.py`): он сам знает
+  свежий выпуск канала и не упирается в лимит API GitHub. Молчит или ответил не
+  то — прежние пути к GitHub ниже, без изменений.
 - Проверка при старте и каждые 6 часов (баннер в шапке + блок в настройках).
 - self_update(): скачивает exe-ассет релиза, подменяет себя через bat-скрипт
   и перезапускается — «обновление в один клик» для desktop-издания.
@@ -23,6 +26,7 @@ from . import engine as eng
 from . import paths
 from . import privileged
 from . import repo
+from . import update_server as us
 
 log = logging.getLogger("update")
 
@@ -346,6 +350,34 @@ def _web_fallback(ch: str) -> dict | None:
             "asset_url": asset_url, "asset_size": size}
 
 
+def _from_server(ch: str) -> dict | None:
+    """Первый источник (03.10): сервер DentPilot отвечает, какая версия свежая для
+    канала, — один запрос, без лимита API GitHub (квота на адрес клиники делится
+    с чужими программами за NAT, 02.10 на машине Олега было 0 из 60).
+
+    None — сервер молчит или ответ не прошёл проверку провода: тогда прежние пути
+    к GitHub, как будто сервера нет. ⛔ Сервер не условие обновления.
+    Файлы и sha256 — те же, что отдаёт GitHub: сервер только пересказывает выпуск,
+    а провод пропускает ссылки лишь на выпуски нашего репозитория."""
+    try:
+        from .core import license as lic    # отложенно: license зовёт update так же
+        outcome, rel = us.ask(lic.server_url(), ch, eng.APP_VERSION, REPO,
+                              agent=f"DentPilot/{eng.APP_VERSION}", extra=lic.identity())
+    except Exception as e:  # noqa: BLE001 — сервер обновлений никогда не роняет проверку
+        log.warning("сервер обновлений: %r", e)
+        return None
+    if outcome == us.SAME:
+        return {"tag": f"v{eng.APP_VERSION}", "url": f"https://github.com/{REPO}/releases",
+                "asset_url": "", "asset_size": 0, "asset_digest": "", "prerelease": False}
+    if outcome != us.NEWER:
+        return None
+    exe = rel["exe"] or {}
+    return {"tag": rel["tag"], "url": rel["page"], "asset_url": exe.get("url", ""),
+            "asset_size": exe.get("size", 0),
+            "asset_digest": f"sha256:{exe['sha256']}" if exe else "",
+            "prerelease": rel["prerelease"]}
+
+
 # ⛔ Цепочка проверок — ОДНА на процесс. Таймер заводился в finally
 # безусловно, и каждое нажатие «Verifică acum» (а оно зовёт тот же _check)
 # добавляло вечную вторую цепочку: они не гаснут никогда и складываются. В
@@ -377,6 +409,14 @@ def _check() -> None:
         return
     try:
         ch = channel()
+        # Сервер DentPilot — первым (03.10); черновики видит только GitHub с токеном
+        srv = _from_server(ch) if ch in ("stable", "beta") else None
+        if srv is not None:
+            STATE.update(latest=srv["tag"], url=srv["url"], asset_url=srv["asset_url"],
+                         asset_size=srv["asset_size"], asset_digest=srv["asset_digest"],
+                         checked=True, error="", channel=ch, draft=False,
+                         prerelease=srv["prerelease"])
+            return
         if ch == "stable":
             # КЛИНИКА. Ровно один запрос, и именно тот, который по устройству
             # GitHub не отдаёт ни черновики, ни пре-релизы. Это и есть защита:

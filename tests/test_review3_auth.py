@@ -163,6 +163,7 @@ class FakeTimer:
     def cancel(self): self.alive = False
 upd._api = lambda path: (_ for _ in ()).throw(RuntimeError("сети нет"))
 upd._web_fallback = lambda ch: None
+upd._from_server = lambda ch: None      # и сервер обновлений молчит (03.10)
 real_timer = threading.Timer
 threading.Timer = FakeTimer
 try:

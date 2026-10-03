@@ -23,6 +23,7 @@ import test_jobs  # noqa: E402
 import test_maib  # noqa: E402
 import test_payments  # noqa: E402
 import test_paylink  # noqa: E402
+import test_update  # noqa: E402
 import test_pure  # noqa: E402
 import test_renew  # noqa: E402
 import test_trial  # noqa: E402
@@ -57,6 +58,7 @@ SUITES = [
     ("Кабинет: вход через Google — стенд, state, кука, отказы токена, выход", test_account.suite_login),
     ("Кабинет: вход кодом на e-mail — без Google, лимиты, регистрация, известная клиника", test_account.suite_email_login),
     ("Оплата из программы: ссылка по токену, страница /plata, нота, карта через стенд maib, IDNO, срок", test_paylink.suite_paylink),
+    ("Сервер обновлений: /v1/update — каналы, файлы, кэш, GitHub лёг; провод программы", test_update.suite_update),
     ("Кабинет: регистрация, файл, нота, продление, админка, отвязка, вход по ящику", test_account.suite_cabinet),
     ("Кабинет: клиника из админки, повтор по IDNO, approve, скрытые", test_account.suite_link_and_duplicate),
     ("Сайт: /descarca — установщик последнего выпуска, память, API молчит", test_account.suite_download),

@@ -161,6 +161,10 @@ class Server:
             "DATABASE_URL": f"sqlite:///{self.dir / 'dental.db'}",
             "ADMIN_KEY": PIN,
             "DENTART_NO_RESTART": "1",       # тест-хук: не перезапускать процесс
+            # тест-хук: не спрашивать обновления при старте — 300 серверов за
+            # прогон выедали квоту GitHub 60 в час (03.10); набор про обновления
+            # включает проверку сам, передав пустое значение в env=
+            "DENTART_UPDATE_CHECK": "off",
             "TELEGRAM_TOKEN": "",            # адаптер Telegram не поднимать
             "TMPDIR": str(self.tmp), "TEMP": str(self.tmp), "TMP": str(self.tmp),
         })

@@ -21,7 +21,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, trial, views
+from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, trial, updates, views
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
@@ -86,6 +86,18 @@ def license_renew(request: Request, seq: int = 0) -> Response:
             return Response(status_code=204)
         db.audit(con, "program", "renew", c["id"], f"файл {row['seq']} забран программой (у неё был {seq})")
     return Response(license.issue_text(row), media_type="application/json")
+
+
+@app.get(updates.API_PATH)
+def update_api(channel: str = "stable", current: str = "") -> Response:
+    """Сервер обновлений (03.10): какая версия свежая для канала программы.
+    200 — выпуск новее `current` (версия, страница, файлы со ссылкой, размером и
+    sha256); 204 — новее нет; 503 — сервер сам не знает, программа идёт к GitHub.
+    Без входа и без токена: выпуски публичны, а программа проверяет ответ сама."""
+    status, body = updates.answer(channel, current)
+    if body is None:
+        return Response(status_code=status)
+    return JSONResponse(body, status_code=status)
 
 
 @app.post(paylink.API_PATH)
