@@ -463,6 +463,87 @@ def _children_die_with_us():
 _KIDS_JOB = _children_die_with_us()
 
 
+def _end_children(budget: float = 5.0) -> None:
+    """Погасить всех, кто ещё жив в задании процесса, и ДОЖДАТЬСЯ их смерти.
+
+    ⛔ Задание гасит детей само, но в последний момент — когда процесс уже
+    умирает, то есть ПОСЛЕ atexit. Уборка папки прогона шла раньше, при живых
+    детях, и всё, что они писали в свой %TEMP% после неё, оставалось. Поймано
+    03.10 (дважды за день, в полном прогоне): «Сеть: приход из сети
+    записывает приложение: оставил временное: dp_run_…». Рабочий процесс
+    набора (`test_netcheck`; так же устроен `test_hardening` worker-setup)
+    импортирует харнесс — своя папка прогона внутри чужой, — а старт
+    приложения запускает в фоне проверку BitLocker через PowerShell. Рабочий
+    укладывается в секунды, atexit сносит папку, а не успевший стартовать
+    PowerShell СОЗДАЁТ недостающий %TEMP% заново (Windows PowerShell делает это
+    сам) и кладёт туда `__PSScriptPolicyTest_*`; задание гасит его уже потом.
+    Замер под нагрузкой (рабочие по 12 и по 24 параллельно): папку оставили 17
+    из 36 и 25 из 48; с этим порядком — 0 и 0.
+    ⭐ Порядок — дети, потом папка: гасим то же, что задание погасило бы
+    мгновением позже, только до уборки, а не после неё.
+    ⚠️ Вложенная папка тут ни при чём, и убирать её не надо: она — контейнер
+    всего дерева рабочего. Общая с родителем папка оставляла файлы
+    PowerShell, погашенного между их созданием и удалением, уже у родителя
+    (4 из 36), а рабочий без харнесса — без задания — делает PowerShell
+    сиротой, который пишет в папку прогона посреди СЛЕДУЮЩИХ наборов и красит
+    не тот.
+    ⚠️ Номер процесса Windows раздаёт заново: ребёнок мог умереть между
+    списком и OpenProcess, а номер достаться чужому. Гасим только того, кто
+    В НАШЕМ задании.
+    """
+    if _KIDS_JOB is None:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Ids(ctypes.Structure):          # JOBOBJECT_BASIC_PROCESS_ID_LIST
+            _fields_ = [("assigned", wintypes.DWORD), ("listed", wintypes.DWORD),
+                        ("ids", ctypes.c_size_t * 64)]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                                  ctypes.c_void_p, wintypes.DWORD,
+                                                  ctypes.c_void_p]
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        k32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE,
+                                       ctypes.POINTER(wintypes.BOOL)]
+        k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        me, skip = os.getpid(), set()
+        deadline = time.time() + budget
+        while time.time() < deadline:      # круг — ради детей, заведённых, пока гасили прежних
+            ids = _Ids()
+            # ERROR_MORE_DATA (234): детей больше, чем влезло в список, — он
+            # неполный, но годный: гасим этих и спрашиваем снова
+            if not (k32.QueryInformationJobObject(_KIDS_JOB, 3, ctypes.byref(ids),
+                                                  ctypes.sizeof(ids), None)
+                    or ctypes.get_last_error() == 234):
+                return
+            kids = [p for p in ids.ids[:ids.listed] if p != me and p not in skip]
+            if not kids:
+                return
+            for pid in kids:
+                skip.add(pid)      # каждого — один раз: неубиваемого не ждём по кругу
+                # TERMINATE | QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+                h = k32.OpenProcess(0x0001 | 0x1000 | 0x00100000, False, pid)
+                if not h:
+                    continue                   # уже умер или не даётся
+                try:
+                    inside = wintypes.BOOL()
+                    if (k32.IsProcessInJob(h, _KIDS_JOB, ctypes.byref(inside))
+                            and inside):
+                        k32.TerminateProcess(h, 1)
+                        k32.WaitForSingleObject(
+                            h, max(0, int((deadline - time.time()) * 1000)))
+                finally:
+                    k32.CloseHandle(h)
+    except (OSError, AttributeError):
+        return
+
+
 def _open_run_root() -> tuple[pathlib.Path, object]:
     """Завести папку прогона и направить в неё всё временное процесса.
 
@@ -488,8 +569,11 @@ RUN_TMP, _RUN_LOCK = _open_run_root()
 
 @atexit.register
 def _close_run_root() -> None:
-    _RUN_LOCK.close()
-    _rmtree_settled(RUN_TMP)
+    try:
+        _end_children()                  # сначала дети — почему, см. там
+    finally:                             # и что бы там ни случилось, уборка — всегда
+        _RUN_LOCK.close()
+        _rmtree_settled(RUN_TMP)
 
 
 def _run_entries() -> set[str]:

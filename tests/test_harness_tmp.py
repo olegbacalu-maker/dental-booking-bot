@@ -44,6 +44,23 @@ while not os.path.exists(sys.argv[1]) and time.time() < deadline:
 print("ready" if os.path.exists(sys.argv[1]) else "no-child", flush=True)
 time.sleep(60)
 """
+# Помощник для порядка уборки: тот же харнесс, но ребёнок держит файл в
+# СВОЕЙ папке прогона помощника, а сам помощник выходит штатно — atexit
+# отрабатывает при живом ребёнке. Ровно рабочий процесс набора с фоновым
+# PowerShell проверки BitLocker (03.10, `harness._end_children`).
+_HOLDER = ("import os, time; f = open(os.path.join(os.environ['TEMP'], 'held.txt'), 'w'); "
+           "time.sleep(60)")
+_EXITER = r"""
+import subprocess, sys, time
+sys.path.insert(0, sys.argv[1])
+import harness
+held = harness.RUN_TMP / "held.txt"
+subprocess.Popen([sys.executable, "-c", sys.argv[2]])
+deadline = time.time() + 20
+while not held.exists() and time.time() < deadline:
+    time.sleep(0.05)
+print(harness.RUN_TMP if held.exists() else "no-child", flush=True)
+"""
 
 
 def suite_run_tmp(res: Result) -> None:
@@ -141,7 +158,24 @@ def suite_run_tmp(res: Result) -> None:
                    f"помощник: {ready!r}; файл ребёнка {'свободен' if freed else 'ЗАНЯТ'} "
                    f"— сирота жив и держит своё от уборки")
 
-        # 5. Сервер: свой %TEMP%, keep_dir + drop(), несостоявшийся старт.
+            # 5. Процесс, вышедший САМ при живом ребёнке, уносит свою папку:
+            # дети гаснут до уборки, а не после неё. Задание гасило их только
+            # в момент смерти процесса, то есть ПОСЛЕ atexit, и уборка шла при
+            # живом ребёнке — набор краснел чужой `dp_run_*` (03.10).
+            exiter = subprocess.run(
+                [str(PYTHON), "-c", _EXITER, str(pathlib.Path(__file__).resolve().parent),
+                 _HOLDER],
+                capture_output=True, text=True, timeout=60,
+                env={**os.environ, "TMPDIR": str(lab), "TEMP": str(lab), "TMP": str(lab)})
+            own = (exiter.stdout or "").strip()
+            if res.ok("помощник вышел сам, пока ребёнок держал файл в его папке",
+                      exiter.returncode == 0 and own not in ("", "no-child"),
+                      f"rc={exiter.returncode}, вывод {own!r}: {(exiter.stderr or '')[-500:]}"):
+                res.ok("и папку прогона унёс: ребёнок погашен до уборки",
+                       not pathlib.Path(own).exists(),
+                       f"осталась {own} — уборка шла при живом ребёнке")
+
+        # 6. Сервер: свой %TEMP%, keep_dir + drop(), несостоявшийся старт.
         s = Server(keep_dir=True)
         with s:
             tmp = s.tmp
