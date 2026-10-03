@@ -29,6 +29,7 @@ const T = {
   prog: 'prog.',
   free: 'liber',
   minutes: 'minute de lucru',
+  comment: 'Comentariu',
 } as const
 
 /** Значок статуса — тот же словарь, что печатает сервер (`_STATUS_ICON`). */
@@ -326,7 +327,8 @@ function ApptBlock(
       data-appt={block.id}
       style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}`,
         '--bar': block.bar } as React.CSSProperties}
-      title={block.title} onClick={() => onCard(block.id)}
+      title={block.comment ? `${block.title}\n${T.comment}: ${block.comment}` : block.title}
+      onClick={() => onCard(block.id)}
       onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(block.id, e.clientX, e.clientY) }}
       {...grab}>
       {/* Обе раскладки в разметке сразу, вид выбирает panel.css по
@@ -336,7 +338,10 @@ function ApptBlock(
           записано всё, значок ничего не различал. Бот остался — он отличает. */}
       <span className="gtm">{block.time}–{endOf(block.time, block.dur)}</span>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
-      <b>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}</b>
+      {/* значок «есть комментарий» (03.10, просьба Олега): текст — в подсказке
+          блока и в карточке по нажатию */}
+      <b>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
+        {block.comment && <> <Icon name="chat" /></>}</b>
       <small><span className="gt">{block.time} · {block.dur}′ · </span>{block.service}</small>
       {word && (
         <small className="stw">

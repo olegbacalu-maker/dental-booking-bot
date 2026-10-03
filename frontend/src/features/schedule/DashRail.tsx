@@ -19,6 +19,7 @@ const T = {
   empty: '— nicio programare —',
   all: 'Vezi toate programările ›',
   odo: 'Odontogramă',
+  comment: 'Comentariu',
   prev: '‹',
   next: '›',
 } as const
@@ -129,7 +130,11 @@ function Agenda(
               onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(it.id, e.clientX, e.clientY) }}>
               <span className="ag-t">{it.time}</span>
               <div className="ag-b">
-                <b>{it.name}</b>
+                {/* значок «есть комментарий» (03.10, просьба Олега), текст — подсказкой */}
+                <b>{it.name}{it.comment && (
+                  <> <span className="ag-cmt" title={`${T.comment}: ${it.comment}`}>
+                    <Icon name="chat" /></span></>
+                )}</b>
                 <small>{it.service}</small>
                 {wait && <small className={`wait-min${wait.long ? ' long' : ''}`}>{wait.text}</small>}
                 {/* ⛔ Кнопка одонтограммы — только у визита С ПАЦИЕНТОМ: у

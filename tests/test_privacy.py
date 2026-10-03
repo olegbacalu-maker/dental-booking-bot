@@ -779,7 +779,7 @@ def suite_export_words(res: Result) -> None:
         # поля, а «→ in_lucru» в летописи пишет db.log_event и переписывать
         # задним числом уже записанное событие нельзя.
         page = _html_of(c, pid)
-        for code, word in (("confirmed", "confirmată"), ("manual", "recepție"),
+        for code, word in (("confirmed", "programată"), ("manual", "recepție"),
                            ("in_lucru", "în lucru"), ("allergy", "Alergie")):
             res.ok(f"вместо кода {code!r} в копии стоит {word!r}",
                    f"<td>{word}</td>" in page and f"<td>{code}</td>" not in page,

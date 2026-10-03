@@ -253,8 +253,8 @@ def suite_pin(res: Result) -> None:
         res.check("история: следующий отмечен, прошлый без дневника зовёт заполнить, "
                   "отменённый молчит, завершённый несёт диагноз",
                   _hist(page),
-                  [(f"{_dmy(2)} 09:30 · confirmată", "Consultație", ""),
-                   (f"{_dmy(-1)} 12:00 · confirmată", "Consultație",
+                  [(f"{_dmy(2)} 09:30 · programată", "Consultație", ""),
+                   (f"{_dmy(-1)} 12:00 · programată", "Consultație",
                     f"<small><a href='/admin/visit/{sd['v_last']}?back=/admin/patient/{pid}'>+ Consultație</a></small>"),
                    (f"{_dmy(-3)} 11:00 · anulată", "Igienizare", ""),
                    (f"{_dmy(-10)} 10:00 · finalizată", "Consultație",

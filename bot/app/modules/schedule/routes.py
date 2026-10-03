@@ -31,7 +31,7 @@ from ...core import xlsx
 from ...core.charts import spark as _spark
 from ...core.layout import (LIVE_STATUSES, STATUS_LABEL, _age, _banner, _ic,
                             _initials, _shell, _tg_state, js_json, react_shell, shell_model,
-                            react_on, tg_configured)
+                            react_on, status_view, tg_configured)
 from ...core.visits import (SVC_PALETTE, _STATUS_ICON, _card_modal,
                             _collect_cards, _doc_hue, _list, _move_attrs,
                             _move_modal, _parse_date, _photo_path,
@@ -510,8 +510,11 @@ def _mini_cal(sel: date, base: str = "/admin") -> str:
 # соседних экранах.
 # waiting — свой класс «wai» (фиолетовый), а не жёлтый «att»: цвет статуса
 # обязан совпадать со .stat s-waiting в списке дня — один статус, один цвет
-_AG_CLS = {"confirmed": "act", "waiting": "wai", "arrived": "trt",
-           "done": "off", "noshow": "bad"}
+# 03.10: «programată» — контуром (ещё не подтверждена), зелёный — только
+# «confirmată» после звонка, «nu răspunde» — янтарный. Ключи — из
+# layout.status_view, а не коды базы: звонок статуса не меняет.
+_AG_CLS = {"confirmed": "pln", "called": "act", "noanswer": "att",
+           "waiting": "wai", "arrived": "trt", "done": "off", "noshow": "bad"}
 
 
 def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
@@ -533,9 +536,9 @@ def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:
         st = r["starts_at"].astimezone(eng.TZ)
         end = st + timedelta(minutes=int(r.get("duration_min") or 60))
         urgent = r["service"] in eng.URGENT_LABELS and r["status"] == "confirmed"
+        view, word = status_view(r["status"], r.get("call_result"))
         cls, label = (("bad", "Urgent") if urgent else
-                      (_AG_CLS.get(r["status"], "off"),
-                       STATUS_LABEL.get(r["status"], r["status"]).capitalize()))
+                      (_AG_CLS.get(view, "off"), word.capitalize()))
         _bg, bar = _svc_colors(r)
         # прошедшее приглушается только на СЕГОДНЯ: в чужом дне «прошло» не
         # значит ничего, а тусклый список читался бы как отменённый

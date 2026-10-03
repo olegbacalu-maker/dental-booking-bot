@@ -17,7 +17,7 @@ import urllib.parse
 from datetime import date, datetime
 
 from .. import engine as eng
-from .layout import LIVE_STATUSES, STATUS_LABEL, _age, _ic, _initials, js_json
+from .layout import LIVE_STATUSES, _age, _ic, _initials, js_json, status_view
 from .storage import _data_dir
 
 
@@ -31,7 +31,7 @@ def _parse_date(value: str) -> date:
 # Кнопки исхода — ПО СОСТОЯНИЮ записи, а не один набор на все живые статусы.
 # Пациенту, который уже в кресле, «A sosit» повторяет сделанное, а «Nu a venit»
 # рядом с ним предлагает записать неправду.
-# ⭐ Закрытая запись получает ОДНУ кнопку — возврат в «confirmată». До 08-12
+# ⭐ Закрытая запись получает ОДНУ кнопку — возврат в «programată». До 08-12
 # промах по «Finalizat» был из журнала неисправим совсем: столбец «Acțiuni»
 # просто пустел, а маршрут `to=confirmed` при этом существовал и работал —
 # нажать его было нечем.
@@ -68,7 +68,7 @@ _NOTE_BUTTONS = {
 }
 # возврат спрашивают подтверждением: это отмена уже записанного факта, а не
 # следующий шаг приёма (так же ведёт себя «Redeschide» в плане лечения)
-_ASK_APPT = "Redeschideți programarea (înapoi la «confirmată»)?"
+_ASK_APPT = "Redeschideți programarea (înapoi la «programată»)?"
 _ASK_NOTE = "Restabiliți notița?"
 
 
@@ -118,6 +118,9 @@ def list_rows(rows: list) -> list[dict]:
     for r in rows:
         is_note = r["source"] == "note"
         st = r["status"]
+        # вид — с учётом звонка-подтверждения (03.10): «programată» до звонка,
+        # «confirmată» после ✓; `status` остаётся кодом — по нему кнопки
+        view, word = status_view(st, r.get("call_result"))
         out.append({
             "id": r["id"], "is_note": is_note,
             "time": r["starts_at"].astimezone(eng.TZ).strftime("%H:%M"),
@@ -134,7 +137,7 @@ def list_rows(rows: list) -> list[dict]:
             "source": "note" if is_note else r["source"],
             "source_label": "notiță" if is_note else (
                 "bot" if r["source"] == "bot" else "manual"),
-            "status": st, "status_label": STATUS_LABEL.get(st, st),
+            "status": st, "status_view": view, "status_label": word,
             "reminded": bool(r.get("reminded_day")),
             "rec": bool(r.get("has_rec")),
         })
@@ -177,7 +180,7 @@ def _list(rows: list, back: str, title: str = "Lista zilei") -> str:
             f"<td>{name_html}</td><td>{html.escape(v['phone'])}</td>"
             f"<td>{svc_txt}</td><td>{html.escape(v['doctor'])}</td>"
             f"<td>{src}</td>"
-            f"<td><span class='stat s-{v['status']}'>"
+            f"<td><span class='stat s-{v['status_view']}'>"
             f"{_STATUS_ICON.get(v['status'], '')}"
             f"{v['status_label']}</span>"
             f"{_REM_MARK if v['reminded'] else ''}"
@@ -318,7 +321,7 @@ def _card_modal(cards: dict, back: str) -> str:
     <form method="post" id="cs_cancel"><input type="hidden" name="to" value="cancelled">
       <input type="hidden" name="back" value="{b}"><button class="bstat b-cancel">Anulează</button></form>
     <form method="post" id="cs_reopen"
-      onsubmit="return confirm('Redeschideți programarea (înapoi la «confirmată»)?')">
+      onsubmit="return confirm('Redeschideți programarea (înapoi la «programată»)?')">
       <input type="hidden" name="to" value="confirmed">
       <input type="hidden" name="back" value="{b}">
       <button class="bstat b-reopen">{_ic('undo')} Redeschide</button></form>

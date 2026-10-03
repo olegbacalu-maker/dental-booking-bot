@@ -1473,7 +1473,12 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
 # ⚠️ Отсюда же берёт текст повестка дня (_AG_CLS в schedule/routes.py): новый
 # статус называется ЗДЕСЬ и нигде больше.
 STATUS_LABEL = {
-    "confirmed": "confirmată",
+    # 03.10, слово Олега: «надпись confirmat появляется после того как
+    # нажимаешь галочку» в «De confirmat». Запись до звонка — «programată»;
+    # «confirmată» даёт только звонок (`status_view` ниже). Код в базе прежний:
+    # меняется слово, а не данные. Летопись хранит ГОТОВЫЕ строки, и старые
+    # «confirmată» в ней не переписываются — это история, а не оформление.
+    "confirmed": "programată",
     # 08-13, вопрос Олега: «a sosit» ставили в момент ПРИХОДА, а называлось
     # это «în cabinet» — статус десять минут утверждал то, чего ещё нет.
     # Теперь конвейер честный: пришёл (waiting) → в кабинете (arrived).
@@ -1485,6 +1490,25 @@ STATUS_LABEL = {
     "noshow": "nu a venit",
     "cancelled": "anulată",
 }
+
+# Звонок-подтверждение поверх «programată» (03.10): отметка из «De confirmat»
+# (`appt_calls`, в строку дня приезжает колонкой `call_result`). Статус в базе
+# звонок не меняет — меняется то, как запись ВЫГЛЯДИТ: ключ вида (класс `.stat
+# s-*` и плашки повестки) и слово. У прочих статусов звонок не значит ничего:
+# пришедшему «nu răspunde» не нужно.
+CALL_LABEL = {"ok": "confirmată", "noanswer": "nu răspunde"}
+_CALL_VIEW = {"ok": "called", "noanswer": "noanswer"}
+
+
+def status_view(status: str, call: str | None = "") -> tuple[str, str]:
+    """(ключ вида, слово) статуса записи с учётом звонка-подтверждения.
+
+    ⛔ Одно место на все экраны — повестку обеих оболочек и «Lista zilei»:
+    второй расчёт «confirmată или programată» разошёлся бы с первым ровно так,
+    как расходились словари статусов (08-12, 08-16)."""
+    if status == "confirmed" and call in _CALL_VIEW:
+        return _CALL_VIEW[call], CALL_LABEL[call]
+    return status, STATUS_LABEL.get(status, status)
 
 
 # статусы, при которых слот занят — единый источник правды в db.py

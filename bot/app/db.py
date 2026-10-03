@@ -1921,6 +1921,9 @@ async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
 
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     # has_rec — «консультация записана»: не дата, в _DT_COLS ему не место
+    # call_result — отметка звонка-подтверждения (`appt_calls`, 03.10): по ней
+    # «programată» становится «confirmată» в повестке и списке дня. Ключ
+    # первичный — строк не размножает. ⚠️ Не `AS call`: в PG это слово занято.
     # ⛔ Тай-брейк `a.id` в ORDER BY несущий, а не косметика. Ничья по
     # (starts_at, doctor) достижима — заметка стойки и визит на одну минуту у
     # одного врача (`_conflicts` заметки не стережёт), две заметки в слоте, — и
@@ -1936,18 +1939,20 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
                   a.starts_at, a.duration_min, a.status, a.source,
                   a.reminded_day, a.comment, a.waiting_at, a.arrived_at,
                   p.name, p.phone, p.birth_year,
-                  (vr.id IS NOT NULL) AS has_rec
+                  (vr.id IS NOT NULL) AS has_rec, ac.result AS call_result
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
+                LEFT JOIN appt_calls ac ON ac.appointment_id = a.id
            WHERE a.starts_at >= $1 AND a.starts_at < $2
            ORDER BY a.starts_at, a.doctor, a.id""",
         """SELECT a.id, a.patient_id, a.service, a.doctor, a.doctor_id, a.service_id,
                   a.starts_at, a.duration_min, a.status, a.source,
                   a.reminded_day, a.comment, a.waiting_at, a.arrived_at,
                   p.name, p.phone, p.birth_year,
-                  (vr.id IS NOT NULL) AS has_rec
+                  (vr.id IS NOT NULL) AS has_rec, ac.result AS call_result
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
+                LEFT JOIN appt_calls ac ON ac.appointment_id = a.id
            WHERE a.starts_at >= ? AND a.starts_at < ?
            ORDER BY a.starts_at, a.doctor, a.id""",
         *((day_start, day_end) if not IS_SQLITE

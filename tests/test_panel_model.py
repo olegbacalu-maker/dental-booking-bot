@@ -55,8 +55,10 @@ def _row(hh: int, mm: int = 0, **kw) -> dict:
          "status": kw.get("status", "confirmed"),
          "source": kw.get("source", "panel"),
          "name": kw.get("name", "Pacient"), "phone": "069000000",
-         "birth_year": None, "comment": "", "reminded_day": None,
-         "waiting_at": kw.get("waiting_at"), "arrived_at": None, "has_rec": False}
+         "birth_year": None, "comment": kw.get("comment", ""), "reminded_day": None,
+         "waiting_at": kw.get("waiting_at"), "arrived_at": None, "has_rec": False,
+         # отметка звонка-подтверждения (03.10) — колонка той же выборки
+         "call_result": kw.get("call_result")}
     return r
 
 
@@ -89,9 +91,25 @@ def suite_agenda_pure(res: Result) -> None:
     words = _ag([_row(9, status="confirmed"), _row(10, status="waiting"),
                  _row(11, status="arrived"), _row(12, status="done"),
                  _row(13, status="noshow")])
-    res.check("класс бейджа — из _AG_CLS, по одному на статус",
+    res.check("класс бейджа — из _AG_CLS, по одному на статус; запись до звонка — контуром",
               [x["badge"]["cls"] for x in words["items"]],
-              ["act", "wai", "trt", "off", "bad"])
+              ["pln", "wai", "trt", "off", "bad"])
+
+    # --- звонок-подтверждение (03.10, слово Олега: «confirmat» — только после
+    # галочки в «De confirmat»): статус тот же, меняются слово и класс ---
+    calls = _ag([_row(9, name="Nesunat"), _row(10, name="Da", call_result="ok"),
+                 _row(11, name="Nu", call_result="noanswer"),
+                 _row(12, name="Venit", status="waiting", call_result="ok"),
+                 _row(13, name="Urg", service=urgent_svc, call_result="ok")])
+    res.check("до звонка «Programată», после ✓ «Confirmată», после ✗ «Nu răspunde»; "
+              "пришедшему и срочной звонок слова не меняет",
+              [(x["name"], x["badge"]["cls"], x["badge"]["label"]) for x in calls["items"]],
+              [("Nesunat", "pln", "Programată"), ("Da", "act", "Confirmată"),
+               ("Nu", "att", "Nu răspunde"), ("Venit", "wai", "A venit"),
+               ("Urg", "bad", "Urgent")])
+    res.check("комментарий визита едет в строку повестки полностью (значок и подсказка)",
+              [x["comment"] for x in _ag([_row(9, comment="alergie"), _row(10)])["items"]],
+              ["alergie", ""])
     res.ok("слово состояния приходит ГОТОВЫМ и с заглавной",
            all(x["badge"]["label"] and x["badge"]["label"][0].isupper()
                for x in words["items"])

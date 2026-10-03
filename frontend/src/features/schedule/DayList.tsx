@@ -110,7 +110,8 @@ function Row({ row, actions, clickable, busy, onCard, onCardMenu, onStatus }: Ro
         {' '}{row.source_label}
       </td>
       <td>
-        <span className={`stat s-${row.status}`}>{row.status_label}</span>
+        {/* вид, а не код: «confirmată» даёт звонок-подтверждение (03.10) */}
+        <span className={`stat s-${row.status_view}`}>{row.status_label}</span>
         {row.reminded ? (
           <span className="rem-mark" title={T.reminded}><Icon name="bell" /></span>
         ) : null}

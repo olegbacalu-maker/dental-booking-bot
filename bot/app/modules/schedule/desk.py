@@ -28,11 +28,13 @@ from datetime import date, datetime, timedelta
 from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, can, request_user
+from ...core.layout import status_view
 
 _WD = ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")
-# статусы, при которых пациент «сегодня был/будет» — перечислением
-_ST = {"confirmed": "confirmată", "waiting": "a venit", "arrived": "în cabinet",
-       "done": "finalizată"}
+# статусы, при которых пациент «сегодня был/будет» — перечислением. Слово —
+# из layout.status_view: свой словарь здесь разошёлся бы с повесткой (03.10 он
+# ещё звал запись до звонка «confirmată»)
+_ST = ("confirmed", "waiting", "arrived", "done")
 SHOW = 8          # строк «Plan fără programare» в колонке; остальное — «încă N»
 SLOT_MIN = 30     # «primul loc liber» — под консультацию
 FREE_DAYS = 10    # сколько дней вперёд искать окно
@@ -126,7 +128,8 @@ async def _collect(today: date) -> dict:
         if owe > 0:
             items.append({"pid": pid, "name": r["name"] or "—",
                           "time": _local(r["starts_at"]).strftime("%H:%M"),
-                          "status": r["status"], "status_label": _ST[r["status"]],
+                          "status": r["status"],
+                          "status_label": status_view(r["status"], r.get("call_result"))[1],
                           "debt": owe, "debt_s": _money(owe)})
     by: dict = {}
     for p in await db.payments_day(s, e):

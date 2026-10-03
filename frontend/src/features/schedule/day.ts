@@ -191,6 +191,9 @@ export interface DayListRow {
   source: string
   source_label: string
   status: string
+  /** Вид статуса с учётом звонка (03.10): `confirmed` → `called`/`noanswer`
+   *  после отметки в «De confirmat». Класс плашки — по нему, кнопки — по `status`. */
+  status_view: string
   status_label: string
   reminded: boolean
   rec: boolean

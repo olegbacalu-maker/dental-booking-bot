@@ -44,7 +44,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
         id: 1, time: '09:00', dur: 60, name: 'Ion Popa', service: 'Consultație',
         status: 'confirmed', badge: { cls: 'act', label: 'Confirmată' }, urgent: false,
         bar: 'var(--green)', state: 'future', clickable: true, patient_id: 17,
-        wait_since: null,
+        wait_since: null, comment: '',
       }],
     },
     tiles: [{
@@ -1028,7 +1028,7 @@ describe('C26.5.4: подсветка приехавшей записи', () => 
         id: 2, time: '10:00', dur: 60, name: 'Maria Rusu', service: 'Consultație',
         status: 'confirmed', badge: { cls: 'act', label: 'Confirmată' },
         urgent: false, bar: 'var(--green)', state: 'future' as const,
-        clickable: true, patient_id: 18, wait_since: null,
+        clickable: true, patient_id: 18, wait_since: null, comment: '',
       }],
     }
     return m

@@ -39,7 +39,7 @@ function item(over: Partial<DashAgendaItem> = {}): DashAgendaItem {
     id: 1, time: '09:00', dur: 60, name: 'Ion Popa', service: 'Consultație',
     status: 'confirmed', badge: { cls: 'act', label: 'Confirmată' }, urgent: false,
     bar: 'var(--green)', state: 'future', clickable: true, patient_id: 17,
-    wait_since: null, ...over,
+    wait_since: null, comment: '', ...over,
   }
 }
 
@@ -183,6 +183,18 @@ describe('C26.5.2: повестка дня', () => {
       .toEqual(['pl-badge off', 'pl-badge wai', 'pl-badge bad'])
     expect(rows.map((r) => r.querySelector('.pl-badge')?.textContent))
       .toEqual(['Finalizată', 'Așteaptă', 'Urgent'])
+  })
+
+  it('значок «есть комментарий» — только у визита с комментарием, текст в подсказке (03.10)', () => {
+    show({ agenda: { count: 2, today: true, items: [
+      item({ id: 1, comment: 'alergie la penicilină' }),
+      item({ id: 2, time: '10:00' }),
+    ] } })
+    const rows = Array.from(document.querySelectorAll('.ag-i'))
+    expect(rows[0]?.querySelector('.ag-cmt')?.getAttribute('title'))
+      .toBe('Comentariu: alergie la penicilină')
+    expect(rows[0]?.querySelector('.ag-cmt svg')).toBeTruthy()
+    expect(rows[1]?.querySelector('.ag-cmt')).toBeNull()
   })
 
   it('⛔ кнопка одонтограммы — ТОЛЬКО у визита с пациентом', () => {

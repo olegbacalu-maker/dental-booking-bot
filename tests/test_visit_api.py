@@ -107,7 +107,7 @@ def suite_pin(res: Result) -> None:
         res.check("шапка: пациент ссылкой, услуга, врач, статус словом, комментарий стойки",
                   _rows(page),
                   [("Pacient", "Vizita Test"), ("Serviciu", "Consultație"), ("Medic", "Dr. Activ Doi"),
-                   ("Status", "confirmată"), ("Comentariu recepție", "de sunat înainte")])
+                   ("Status", "programată"), ("Comentariu recepție", "de sunat înainte")])
         res.ok("пациент ведёт в фишу", f"<a href='/admin/patient/{pid}'>Vizita Test</a>" in page, "нет ссылки")
         res.ok("«Înapoi» — адрес из ?back, если он в журнале",
                f"<a href='/admin/all?date={_d(-2)}'>" in page, "back не принят")

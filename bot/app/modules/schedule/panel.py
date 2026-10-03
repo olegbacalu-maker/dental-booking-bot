@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from ... import engine as eng
-from ...core.layout import STATUS_LABEL
+from ...core.layout import status_view
 
 # Класс бейджа по статусу — тот же словарь, что печатает страница.
 # ⚠️ `_AG_CLS` живёт в `routes` рядом с разметкой, и второй его копии здесь
@@ -70,9 +70,11 @@ def agenda(d: date, rows: list, cards: dict | None, colors, ag_cls: dict,
         st = r["starts_at"].astimezone(eng.TZ)
         dur = int(r.get("duration_min") or 60)
         urgent = r["service"] in eng.URGENT_LABELS and r["status"] == "confirmed"
+        # слово и класс — с учётом звонка-подтверждения (03.10): «Programată»
+        # до звонка, «Confirmată» после ✓, «Nu răspunde» после ✗
+        view, word = status_view(r["status"], r.get("call_result"))
         cls, label = (("bad", "Urgent") if urgent else
-                      (ag_cls.get(r["status"], "off"),
-                       STATUS_LABEL.get(r["status"], r["status"]).capitalize()))
+                      (ag_cls.get(view, "off"), word.capitalize()))
         _bg, bar = colors(r)
         out.append({
             "id": r["id"], "time": st.strftime("%H:%M"), "dur": dur,
@@ -93,6 +95,10 @@ def agenda(d: date, rows: list, cards: dict | None, colors, ag_cls: dict,
             "wait_since": (int(r["waiting_at"].timestamp() * 1000)
                            if r["status"] == "waiting" and r.get("waiting_at")
                            else None),
+            # комментарий визита (03.10, просьба Олега: «хотя бы значок, что
+            # есть комментарий») — полностью: строка повестки показывает значок,
+            # текст уходит в подсказку
+            "comment": r.get("comment") or "",
         })
     return {"count": len(out), "today": d == now.date(), "items": out}
 

@@ -372,6 +372,22 @@ describe('C26.5.2: блок записи', () => {
     expect(bot.querySelector('b svg')).toBeTruthy()
   })
 
+  it('значок «есть комментарий» у имени и текст в подсказке блока (03.10)', () => {
+    show({
+      ...MODEL,
+      columns: [column({ blocks: [
+        appt({ id: 1, comment: 'de sunat înapoi' }),
+        appt({ id: 2, time: '11:00', top: 2 }),
+      ] })],
+    })
+    const a = document.querySelector('[data-appt="1"]') as HTMLElement
+    expect(a.querySelector('b svg')).toBeTruthy()
+    expect(a.getAttribute('title')).toBe('09:00 · 60′ · Consultație · Ion Popa\nComentariu: de sunat înapoi')
+    const b = document.querySelector('[data-appt="2"]') as HTMLElement
+    expect(b.querySelector('b svg')).toBeNull()
+    expect(b.getAttribute('title')).toBe('09:00 · 60′ · Consultație · Ion Popa')
+  })
+
   it('⭐ смена вида карточки перемеряет ступени сжатия сама, без нового опроса', async () => {
     /* Голову чужого адреса кладёт оболочка ПОСЛЕ перемера блоков того же
        кадра. jsdom геометрию не считает — «не влез» подставлен зависящим от

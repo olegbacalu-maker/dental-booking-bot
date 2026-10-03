@@ -162,6 +162,8 @@ export interface DashAgendaItem {
   clickable: boolean
   patient_id: number | null
   wait_since: number | null
+  /** Комментарий визита полностью: строка показывает значок, текст — подсказкой. */
+  comment: string
 }
 
 export interface DashAgenda {

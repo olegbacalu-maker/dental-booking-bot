@@ -100,14 +100,14 @@ const MODEL: DayModel = {
     { id: 1, is_note: false, time: '09:00', name: 'Ion Popa', age: 41,
       phone: '069000000', service: 'Consultație', urgent: false, comment: LONG, comment_cut: LONG.slice(0, 80),
       doctor: 'Dr. Activ Doi', source: 'panel', source_label: 'manual',
-      status: 'confirmed', status_label: 'Confirmat', reminded: false, rec: false },
+      status: 'confirmed', status_view: 'confirmed', status_label: 'Confirmat', reminded: false, rec: false },
     { id: 2, is_note: false, time: '10:00', name: 'Maria Rusu', age: 36,
       phone: '069000001', service: 'Durere acută', urgent: true, comment: '', comment_cut: '',
       doctor: 'Dr. Activ Trei', source: 'bot', source_label: 'bot',
-      status: 'noshow', status_label: 'Nu s-a prezentat', reminded: true, rec: true },
+      status: 'noshow', status_view: 'noshow', status_label: 'Nu s-a prezentat', reminded: true, rec: true },
     { id: 9, is_note: true, time: '19:00', name: '', age: null, phone: '',
       service: 'Livrare', urgent: false, comment: '', comment_cut: '', doctor: 'Dr. Activ Doi',
-      source: 'note', source_label: 'notiță', status: 'confirmed',
+      source: 'note', source_label: 'notiță', status: 'confirmed', status_view: 'confirmed',
       status_label: 'Confirmat', reminded: false, rec: false },
   ],
   filter: null,
@@ -584,6 +584,18 @@ describe('список дня', () => {
     fireEvent.click(document.querySelector('table.list .plink') as HTMLElement)
     await waitFor(() => expect(document.querySelector('dialog textarea')).toBeTruthy())
     expect((document.querySelector('dialog textarea') as HTMLTextAreaElement).value).toBe(LONG)
+  })
+
+  it('плашка статуса — по ВИДУ с учётом звонка, кнопки — по коду (03.10)', async () => {
+    /* «confirmată» даёт звонок из «De confirmat»: код записи остаётся
+       `confirmed` (по нему кнопки исхода), а вид и слово — `called`. */
+    get.mockResolvedValue(ok({ ...MODEL, list: MODEL.list.map((r) => (r.id === 1
+      ? { ...r, status_view: 'called', status_label: 'confirmată' } : r)) }))
+    await show()
+    const pill = list()[0]?.querySelector('.stat')
+    expect(pill?.className).toBe('stat s-called')
+    expect(pill?.textContent).toBe('confirmată')
+    expect(list()[0]?.className).toBe('confirmed')
   })
 
   it('источник и метки — словами сервера', async () => {

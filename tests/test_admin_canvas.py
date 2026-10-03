@@ -575,8 +575,30 @@ def suite_agenda(res: Result) -> None:
                ag["all"] == f"/admin/all?date={day}", f"{ag['all']}")
         res.check("СРОЧНАЯ подтверждённая помечена «Urgent», обычная — состоянием",
                   [(r["name"], r["cls"], r["label"]) for r in ag["rows"]],
-                  [("Ag Unu", "bad", "Urgent"), ("Ag Doi", "act", "Confirmată"),
+                  [("Ag Unu", "bad", "Urgent"), ("Ag Doi", "pln", "Programată"),
                    ("Ag Trei", "bad", "Urgent")])
+        # 03.10: «Confirmată» — только после звонка в «De confirmat»; та же
+        # отметка в «Lista zilei» (вид `called`), а статус в базе прежний
+        doi = ids[1]                       # 10:00 — обычная, не срочная
+        r = c.post_json(f"/api/schedule/desk/call/{doi}?screen=panel&date={day}",
+                        {"result": "ok"})
+        res.check("отметка звонка принята", r.status, 200)
+        row = next(r for r in _agenda(c.get(f"/admin?date={day}&ui=legacy").body)["rows"]
+                   if r["name"] == "Ag Doi")
+        res.check("после звонка ✓ повестка говорит «Confirmată» зелёным",
+                  (row["cls"], row["label"]), ("act", "Confirmată"))
+        lst = c.get(f"/admin/all?date={day}&ui=legacy").body
+        res.ok("и список дня — тем же видом и словом",
+               "class='stat s-called'" in lst and ">confirmată</span>" in lst,
+               "в «Lista zilei» вид звонка не доехал")
+        c.post_json(f"/api/schedule/desk/call/{doi}?screen=panel&date={day}",
+                    {"result": "noanswer"})
+        row = next(r for r in _agenda(c.get(f"/admin?date={day}&ui=legacy").body)["rows"]
+                   if r["name"] == "Ag Doi")
+        res.check("«не отвечает» — янтарным «Nu răspunde»",
+                  (row["cls"], row["label"]), ("att", "Nu răspunde"))
+        c.post_json(f"/api/schedule/desk/call/{doi}?screen=panel&date={day}",
+                    {"result": ""})
         res.ok("строка открывает карточку визита",
                all(r["click"] == r["id"] for r in ag["rows"]),
                "по строке повестки карточка не открывается")

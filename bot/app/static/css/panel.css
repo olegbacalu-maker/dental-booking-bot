@@ -1040,7 +1040,14 @@
     ничем не отличалась от телефона и услуги, хотя читают в списке именно её. */
  .stat{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
    font-size:var(--fs-s);font-weight:600;white-space:nowrap;background:var(--line2);color:var(--text2)}
- .stat.s-confirmed{background:var(--green-soft);color:var(--green-t)}
+ /* 03.10, слово Олега: «confirmat» — только после звонка. «programată» —
+    контуром (записана, ещё не подтверждена); зелёный — «confirmată» после ✓ в
+    «De confirmat», янтарный — «nu răspunde». Звонок статуса не меняет, меняет
+    ВИД (layout.status_view); те же цвета у плашки повестки (.pl-badge.pln/
+    .act/.att) — один вид, один цвет. */
+ .stat.s-confirmed{background:var(--panel);color:var(--text2);box-shadow:inset 0 0 0 1px var(--line)}
+ .stat.s-called{background:var(--green-soft);color:var(--green-t)}
+ .stat.s-noanswer{background:var(--amber-soft);color:var(--amber-t)}
  /* waiting — фиолетовый, а НЕ янтарный: янтарь занят срочными и долгами, и
     «пациент в приёмной» в цвете тревоги читался бы как проблема. Фиолетовый
     статуса един на всех экранах: бейдж, карточка сетки, агенда (.pl-badge.wai) */
@@ -1990,6 +1997,7 @@
  .pl-badge.att{background:var(--amber-soft);color:var(--amber-t)}
  .pl-badge.wai{background:var(--violet-soft);color:#6D28D9}
  .pl-badge.off{background:var(--line2);color:var(--text2)}
+ .pl-badge.pln{background:var(--panel);color:var(--text2);box-shadow:inset 0 0 0 1px var(--line)}
  .pl-badge.arh{background:var(--line2);color:var(--text3)}
  .pl-acts{text-align:right}
  .pl-acts button,.pl-acts a{display:inline-flex;align-items:center;justify-content:center;
@@ -2113,6 +2121,9 @@
    overflow:hidden;text-overflow:ellipsis}
  .ag-b small{display:block;font-size:var(--fs-xs);color:var(--text3);white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
+ /* значок «есть комментарий» у имени (03.10, просьба Олега): по строке видно,
+    что в карточке что-то написано; сам текст — в подсказке */
+ .ag-b b svg,.gappt b svg{width:13px;height:13px;vertical-align:-2px;color:var(--text3)}
  /* Кнопка одонтограммы в строке повестки. Своим цветом на белой плашке, а не
     ссылкой: строка целиком кликабельна, и обычная подчёркнутая ссылка внутри
     кликабельной строки читается как «одно из двух», а не как отдельное действие.
