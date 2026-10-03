@@ -1244,12 +1244,17 @@
  .br-arc.lo{border-bottom:2px solid var(--teal-d);border-top:none;
    border-radius:0 0 6px 6px}
  /* max-width: подпись с непрозрачным фоном (--panel) не шире самой скобки —
-    длинный материал на коротком мосту иначе накрывал бы соседние зубы */
- .br-arc span{position:relative;top:-9px;font-size:var(--fs-micro);line-height:1;
-   color:var(--teal-d);background:var(--panel);padding:0 5px;font-weight:600;
-   white-space:nowrap;max-width:calc(100% - 4px);overflow:hidden;
+    длинный материал на коротком мосту иначе накрывал бы соседние зубы.
+    ⛔ Высота подписи — СВОЯ, по строке (12px), а не от скобки: flex растягивал
+    её до 8px содержимого .br-arc, и overflow:hidden (он нужен для многоточия)
+    срезал низ букв — «zirconiu» под нижней скобкой читался половиной (кадр
+    Олега 03.10). Смещения пересчитаны под 12px: верхняя подпись стоит над
+    линией, как была; нижняя — центром на линии. */
+ .br-arc span{position:relative;top:-13px;height:12px;line-height:12px;align-self:flex-start;
+   font-size:var(--fs-micro);color:var(--teal-d);background:var(--panel);padding:0 5px;
+   font-weight:600;white-space:nowrap;max-width:calc(100% - 4px);overflow:hidden;
    text-overflow:ellipsis}
- .br-arc.lo span{top:5px}
+ .br-arc.lo span{top:3px}
  /* режим выбора зубов моста: пунктирная рамка на отмеченных */
  .tooth-btn.br-pick{outline:2px dashed var(--teal);outline-offset:2px}
  /* ---------- пародонтограмма (08-25) ---------- */
