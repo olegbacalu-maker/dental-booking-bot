@@ -410,10 +410,46 @@ BENCHES = [
     ("card_fit", "карточка визита влезает в блок на полу часа, оба вида"),
 ]
 
+# Сколько красных блоков печатать сверх хвоста: у стенда, покрасневшего
+# целиком (не поднялся Edge), их по числу адресов, и итог утонул бы в них.
+RED_BLOCKS = 10
+
+
+def red_report(lines: list, tail: int = 15) -> list:
+    """Строки красного стенда для бенча: каждый красный блок — строка «RED …»
+    и её подробности с отступом (адрес и «✗ что разошлось») — и хвост с итогом.
+
+    ⚠️ Одного хвоста мало (03.10): loader_hold печатает по три строки на адрес,
+    и красный адрес из середины списка в последние 15 строк не попал — бенч
+    перед 1.37.4 сказал «23/24» и не сказал, какой, а стенд, запущенный следом
+    отдельно, был зелёным: узнать адрес было уже неоткуда."""
+    start = max(0, len(lines) - tail)
+    keep, blocks = set(range(start, len(lines))), 0
+    for i, ln in enumerate(lines[:start]):
+        if not ln.startswith("RED"):
+            continue
+        blocks += 1
+        if blocks > RED_BLOCKS:
+            continue
+        keep.add(i)
+        j = i + 1
+        while j < len(lines) and lines[j][:1].isspace():
+            keep.add(j)
+            j += 1
+    out = [f"(красных блоков {blocks}, здесь первые {RED_BLOCKS})"] if blocks > RED_BLOCKS else []
+    prev = None
+    for i in sorted(keep):
+        if prev is not None and i != prev + 1:
+            out.append("…")
+        out.append(lines[i])
+        prev = i
+    return out
+
 
 def cmd_bench(argv: list) -> int:
     """Прогнать стенды подряд и показать по строке на каждый. Красный стенд
-    печатает свой хвост целиком: там названо, что именно разошлось.
+    печатает каждый свой блок «RED» и хвост с итогом: там названо, что именно
+    разошлось и где.
 
     ⭐ Зачем одной командой: 25.09 четыре выпуска за день, и перед каждым
     стенды гонялись руками по одному — забыть один из шести проще простого,
@@ -440,7 +476,7 @@ def cmd_bench(argv: list) -> int:
         bad += not ok
         print(f"{'OK ' if ok else 'RED'} {name:<13} {int(time.time() - t0):>4} с  {last}")
         if not ok:
-            for ln in lines[-15:]:
+            for ln in red_report(lines):
                 print("      " + ln)
             if r.stderr and r.stderr.strip():
                 print("      stderr: " + r.stderr.strip().splitlines()[-1])
