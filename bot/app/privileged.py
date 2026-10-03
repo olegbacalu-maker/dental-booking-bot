@@ -27,6 +27,19 @@ P4.1. Установщик с P1 работает от админа, поэто�
 ⛔ Ничего «на будущее» здесь не заводить. Новая операция = новая строка в `OPS`
 плюс её собственная проверка аргументов плюс отрицательный тест.
 
+⚠️ **Одно исключение из «здесь ничего не исполняется» — `install-setup`** (03.10,
+docs/dentpilot-2/updates.md › «Порядок с 03.10», шаг 2): установщик программы
+ЗАПУСКАЕТСЯ отсюда, потому что ставить в `Program Files` больше некому. Держится
+исключение не на доверии к просящему, а на трёх проверках ЗА UAC, и все — над
+КОПИЕЙ в папке программы, куда обычной учётке писать нельзя (исходник лежит в
+папке клиники и мог смениться после проверки): sha256 и размер из описания,
+подпись Authenticode именно нашим сертификатом (закрытый список `SIGNERS`, а не
+«любая действительная подпись» — её купит кто угодно) и версия файла новее
+стоящей программы (иначе настоящий старый установщик откатил бы программу назад
+поверх уже мигрированной базы). Запускается установщик ОТДЕЛЬНО, и операция
+сразу выходит: ждать она не может — установщик заменяет файлы программы, а этот
+процесс и есть программа.
+
 ⚠️ Предзагрузочный слой: из проекта не импортируется ничего. Модуль зовёт
 `desktop.py` первой же строкой, до того как приложение существует, — иначе
 привилегированный запуск поднял бы ещё и сервер.
@@ -36,6 +49,7 @@ from __future__ import annotations
 import re
 import shutil
 import sys
+import time
 
 # Метка привилегированного запуска. Своя, а не позиционная: случайный аргумент
 # (путь к файлу из «Открыть с помощью») не должен попадать в эту ветку.
@@ -204,10 +218,127 @@ def _install_update(args: list[str], data_root=None) -> str:
     return done("ok")
 
 
+# ---------- обновление установщиком (03.10) ----------
+
+# Имена, как и у install-update: обе стороны их знают, путей никто не передаёт.
+SETUP_NEW = "DentPilot-Setup.new.exe"     # в папке клиники: кладёт обычный процесс
+SETUP_DIR = "updates"                     # в папке программы: пишет только администратор
+SETUP_NAME = "DentPilot-Setup.exe"
+SETUP_LOG = "setup.log"
+STARTED = "started"                       # итог «начал»: программа гасит себя сама
+START_DELAY = 3.0                         # секунд дать программе уйти до установщика
+# Чьей подписи верить. ⛔ Закрытый список ОТПЕЧАТКОВ: действительную подпись
+# Authenticode купит кто угодно, и «подписан» значило бы «подписан кем-то».
+# Сертификат Certum на Oleg Bacalu действует до 29.09.2027 (code-signing-wired).
+# ⚠️ ПЕРЕД продлением — выпуск с ДВУМЯ отпечатками, старым и новым: программа,
+# знающая только старый, отвергнет установщик с новым, и обновить её можно будет
+# лишь подменой exe или выездом.
+SIGNERS = frozenset({"07D3BC7B7B63F6F0A54553034A2E27019D3A9C2C"})
+# Тихая установка поверх: без окон и вопросов, без перезагрузки; программу
+# установщик закроет сам (Restart Manager), если она ещё открыта.
+SETUP_FLAGS = ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS",
+               "/FORCECLOSEAPPLICATIONS", "/SP-")
+
+
+def _current_version(exe) -> tuple | None:
+    """Версия стоящей программы — из свойств её файла. Шов для проверок: из
+    исходников `sys.executable` — это python.exe со своей версией."""
+    from . import authenticode
+    return authenticode.file_version(exe)
+
+
+def _spawn_setup(setup, result, log) -> None:
+    """Запустить установщик ОТДЕЛЬНО и не ждать. Шов для проверок: настоящий
+    установщик в прогоне не запустить. ⛔ Без оболочки: список аргументов, и
+    первый — наша проверенная копия. Итог пишет сам установщик в `result`."""
+    import subprocess
+    detached = 0x00000008 | 0x00000200        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen([str(setup), *SETUP_FLAGS, f"/LOG={log}", f"/RESULT={result}"],
+                     creationflags=detached, close_fds=True)
+
+
+def _install_setup(args: list[str], data_root=None) -> str:
+    """Поставить новую версию подписанным установщиком. ⛔ Ни одного аргумента.
+
+    Источник — условленное имя в папке клиники, назначение копии — папка
+    программы (`SETUP_DIR` рядом с этим exe); оба исполнитель вычисляет сам.
+    Порядок: копия → проверки копии → итог «started» → пауза, чтобы программа
+    успела закрыться сама → установщик отдельно. Дальше итог («ok»/«fail») пишет
+    установщик, а перезапуск делает задача планировщика от обычного пользователя,
+    заведённая программой ДО запроса прав.
+    """
+    if args:
+        raise Refused(f"операция не принимает аргументов, получено {args!r}")
+    import hashlib
+    import json
+    import pathlib
+    from . import authenticode
+
+    exe = _self_exe()
+    root = data_root() if callable(data_root) else data_root
+    if root is None:
+        raise Refused("папка клиники не найдена — источник обновления неизвестен")
+    work = pathlib.Path(root) / WORK_SUBDIR
+    src = work / SETUP_NEW
+    result = work / RESULT_NAME
+
+    def done(text: str) -> str:
+        try:
+            result.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+        return text
+
+    if not src.exists():
+        return done("нет установщика")
+    try:
+        want = json.loads((work / REQUEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return done("нет описания обновления")
+    # ⛔ Дальше — только КОПИЯ: исходник в папке клиники мог смениться после проверки
+    dst = exe.parent / SETUP_DIR / SETUP_NAME
+    try:
+        dst.parent.mkdir(exist_ok=True)
+        dst.unlink(missing_ok=True)
+        shutil.copyfile(src, dst)
+    except OSError as e:
+        return done(f"установщик не скопирован: {e}")
+    size = dst.stat().st_size
+    if not MIN_EXE <= size <= MAX_EXE:
+        return done(f"размер не годится: {size}")
+    with open(dst, "rb") as f:
+        if f.read(2) != b"MZ":
+            return done("это не программа Windows")
+    if str(want.get("size")) != str(size):
+        return done("размер разошёлся с описанием")
+    h = hashlib.sha256()
+    with open(dst, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    if h.hexdigest() != str(want.get("sha256", "")).lower():
+        return done("отпечаток разошёлся с описанием")
+    signer = authenticode.signer_thumbprint(dst)
+    if signer not in SIGNERS:
+        return done("установщик подписан не DentPilot" if signer
+                    else "у установщика нет действительной подписи")
+    new = authenticode.file_version(dst)
+    cur = _current_version(exe)
+    if new is None or (cur is not None and tuple(new[:3]) <= tuple(cur[:3])):
+        return done("установщик не новее стоящей программы")
+    done(STARTED)
+    time.sleep(START_DELAY)
+    try:
+        _spawn_setup(dst, result, work / SETUP_LOG)
+    except OSError as e:
+        return done(f"установщик не запустился: {e}")
+    return STARTED
+
+
 # Закрытый список. Имя → обработчик. ⛔ Ни `getattr`, ни импорта по имени:
 # словарь и есть граница того, что вообще может случиться за UAC.
 OPS = {"uninstall-version": _set_uninstall_version,
-       "install-update": _install_update}
+       "install-update": _install_update,
+       "install-setup": _install_setup}
 
 
 def run_op(name: str, args: list[str], data_root=None) -> str:

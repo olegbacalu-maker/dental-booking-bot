@@ -81,6 +81,7 @@ import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
 import test_theme  # noqa: E402
 import test_update_server  # noqa: E402
+import test_update_setup  # noqa: E402
 import test_visit  # noqa: E402
 import test_visit_api  # noqa: E402
 from harness import run  # noqa: E402
@@ -146,6 +147,8 @@ SUITES = [
     ("P4.1: кнопка доходит до исполнителя", test_privileged.suite_route),
     ("P4.1: чинить нечего — окна нет", test_privileged.suite_route_quiet),
     ("P4.2: подмена программы за UAC", test_privileged.suite_install),
+    ("P4: обновление подписанным установщиком за UAC (install-setup)", test_privileged.suite_install_setup),
+    ("P4: обновление установщиком — сторона программы до окна UAC и после", test_update_setup.suite_flow),
     ("P4.2: рядом с exe ничего не пишется", test_privileged.suite_update_paths),
     ("P4.3: контракт исполнителя", test_privileged.suite_contract),
     ("Чистая логика расписания", test_admin.suite_pure),

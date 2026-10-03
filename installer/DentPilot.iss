@@ -203,6 +203,9 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; \
 ; и по 30 МБ каждый; их убираем поимённо, чтобы случайно не задеть данные.
 [UninstallDelete]
 Type: files; Name: "{app}\*.new.exe"
+; Копия установщика, которой программа обновлялась (03.10, привилегированная
+; операция install-setup кладёт её сюда) — тоже файл программы, не данные.
+Type: filesandordirs; Name: "{app}\updates"
 Type: files; Name: "{app}\*.old.exe"
 Type: files; Name: "{app}\DentPilot.exe.bak"
 Type: files; Name: "{app}\dentpilot_update.bat"
@@ -442,11 +445,42 @@ begin
   SaveStringsToUTF8FileWithoutBOM(ExpandConstant('{app}\install.json'), S, False);
 end;
 
+// Итог тихого обновления (03.10, docs/dentpilot-2/updates.md, шаг 2).
+// Привилегированная операция программы запускает этот установщик и сразу
+// выходит, а итога ждёт задача планировщика от обычного пользователя: по нему
+// она запускает программу. Путь к файлу итога приходит параметром /RESULT= —
+// его знает только программа (папка клиники). «ok» пишется в самом конце
+// успешной установки, «fail» — если установка до конца не дошла (отмена,
+// ошибка, отказ проверки). Без параметра — обычная установка, файла нет.
+var
+  SetupDone: Boolean;
+
+procedure WriteResult(const Text: String);
+var
+  Path: String;
+begin
+  Path := ExpandConstant('{param:RESULT|}');
+  if Path <> '' then
+    SaveStringToFile(Path, Text, False);
+end;
+
+procedure DeinitializeSetup();
+begin
+  if not SetupDone then
+    WriteResult('fail');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   RC: Integer;
   AclOk: Boolean;
 begin
+  if CurStep = ssDone then
+  begin
+    SetupDone := True;
+    WriteResult('ok');
+    Exit;
+  end;
   if CurStep <> ssPostInstall then
     Exit;
   AclOk := Exec(ExpandConstant('{sys}\icacls.exe'),

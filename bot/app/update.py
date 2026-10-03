@@ -3,6 +3,10 @@
   свежий выпуск канала и не упирается в лимит API GitHub. Молчит или ответил не
   то — прежние пути к GitHub ниже, без изменений.
 - Проверка при старте и каждые 6 часов (баннер в шапке + блок в настройках).
+- Установленная установщиком программа (Program Files) с 03.10 обновляется
+  ПОДПИСАННЫМ УСТАНОВЩИКОМ из того же выпуска (`_update_by_setup`, операция
+  `install-setup`), а не подменой одного exe: так переживёт переход на Tauri,
+  где программа станет папкой (updates.md › «Порядок с 03.10», шаг 2).
 - self_update(): скачивает exe-ассет релиза, подменяет себя через bat-скрипт
   и перезапускается — «обновление в один клик» для desktop-издания.
 Для теста механики без релиза: env DENTART_FAKE_UPDATE_URL=<url exe>."""
@@ -44,7 +48,13 @@ APP_ASSETS = ("dentpilot.exe", "dentart.exe")
 
 STATE = {"latest": "", "url": "", "asset_url": "", "asset_size": 0,
          "asset_digest": "", "checked": False, "error": "",
-         "channel": "stable", "draft": False, "prerelease": False}
+         "channel": "stable", "draft": False, "prerelease": False,
+         # установщик выпуска (zip): им обновляется программа из Program Files
+         "setup_url": "", "setup_size": 0, "setup_digest": ""}
+
+# Как называется установщик внутри выпуска: zip, потому что второй .exe в
+# выпуске запрещён (клиника выбрала бы его вместо программы, release.py).
+_SETUP_ZIP = re.compile(r"^DentPilot-Setup-(\d+\.\d+\.\d+)\.zip$")
 
 
 def _token() -> str:
@@ -205,13 +215,30 @@ def sync_uninstall_version() -> str:
     return "needs-admin"
 
 
+def installer_mode() -> bool:
+    """Обновлять установщиком: программа стоит установщиком (запись в «Программах
+    и компонентах» есть), её папка не пишется (Program Files), у выпуска есть
+    установщик. Переносимая раскладка и копия exe остаются на подмене файла.
+    ⚠️ `DENTART_UPDATE_VIA=exe` в dental.env — аварийный рычаг назад на подмену
+    exe; читает его ОБЫЧНЫЙ процесс, привилегированная сторона окружения не видит."""
+    if (os.environ.get("DENTART_UPDATE_VIA") or "").strip().lower() == "exe":
+        return False
+    # ⏳ Пока только канарейка (beta/draft). Клиникам (stable) путь установщиком
+    # включается выпуском ПОСЛЕ того, как канарейка обновилась им вживую: тихую
+    # установку из-под UAC прогон не исполняет, её проверяет только настоящая
+    # машина (updates.md › «Порядок с 03.10», шаг 2). До того stable — подмена exe.
+    if channel() == "stable":
+        return False
+    return bool(STATE["setup_url"]) and not exe_dir_writable() and uninstall_entry()["found"]
+
+
 def can_self_update() -> bool:
-    return is_desktop() and newer_available() and bool(STATE["asset_url"])
+    return is_desktop() and newer_available() and (bool(STATE["asset_url"]) or installer_mode())
 
 
 def asset_pending() -> bool:
-    """Новая версия видна, но файла в релизе нет — обновиться нечем."""
-    return newer_available() and not STATE["asset_url"]
+    """Новая версия видна, но обновиться нечем: ни файла программы, ни установщика."""
+    return newer_available() and not STATE["asset_url"] and not installer_mode()
 
 
 def _api(path: str) -> object:
@@ -276,6 +303,21 @@ def _pick_asset(rel: dict) -> tuple[str, int, str]:
         url = (a.get("url", "") if rel.get("draft")
                else a.get("browser_download_url", ""))
         return url, int(a.get("size") or 0), str(a.get("digest") or "")
+    return "", 0, ""
+
+
+def _pick_setup(rel: dict) -> tuple[str, int, str]:
+    """Установщик выпуска (zip): URL/размер/хеш. Только той же версии, что тег, и
+    только залитый; у черновика установщиком не обновляемся — нет публичной ссылки."""
+    if rel.get("draft"):
+        return "", 0, ""
+    want = str(rel.get("tag_name") or "").lstrip("vV")
+    for a in rel.get("assets", []):
+        m = _SETUP_ZIP.match(str(a.get("name") or ""))
+        if not m or m.group(1) != want or str(a.get("state", "uploaded")) != "uploaded":
+            continue
+        return (a.get("browser_download_url", ""), int(a.get("size") or 0),
+                str(a.get("digest") or ""))
     return "", 0, ""
 
 
@@ -368,14 +410,18 @@ def _from_server(ch: str) -> dict | None:
         return None
     if outcome == us.SAME:
         return {"tag": f"v{eng.APP_VERSION}", "url": f"https://github.com/{REPO}/releases",
-                "asset_url": "", "asset_size": 0, "asset_digest": "", "prerelease": False}
+                "asset_url": "", "asset_size": 0, "asset_digest": "", "prerelease": False,
+                "setup_url": "", "setup_size": 0, "setup_digest": ""}
     if outcome != us.NEWER:
         return None
     exe = rel["exe"] or {}
+    setup = rel["setup"] or {}
     return {"tag": rel["tag"], "url": rel["page"], "asset_url": exe.get("url", ""),
             "asset_size": exe.get("size", 0),
             "asset_digest": f"sha256:{exe['sha256']}" if exe else "",
-            "prerelease": rel["prerelease"]}
+            "prerelease": rel["prerelease"],
+            "setup_url": setup.get("url", ""), "setup_size": setup.get("size", 0),
+            "setup_digest": f"sha256:{setup['sha256']}" if setup else ""}
 
 
 # ⛔ Цепочка проверок — ОДНА на процесс. Таймер заводился в finally
@@ -415,7 +461,8 @@ def _check() -> None:
             STATE.update(latest=srv["tag"], url=srv["url"], asset_url=srv["asset_url"],
                          asset_size=srv["asset_size"], asset_digest=srv["asset_digest"],
                          checked=True, error="", channel=ch, draft=False,
-                         prerelease=srv["prerelease"])
+                         prerelease=srv["prerelease"], setup_url=srv["setup_url"],
+                         setup_size=srv["setup_size"], setup_digest=srv["setup_digest"])
             return
         if ch == "stable":
             # КЛИНИКА. Ровно один запрос, и именно тот, который по устройству
@@ -476,11 +523,13 @@ def _check() -> None:
             data = max(cand, key=lambda r: (_ver(str(r.get("tag_name", ""))),
                                             1 if _pick_asset(r)[0] else 0))
         asset_url, asset_size, asset_digest = _pick_asset(data)
+        setup_url, setup_size, setup_digest = _pick_setup(data)
         STATE.update(latest=data.get("tag_name", ""), url=data.get("html_url", ""),
                      asset_url=asset_url, asset_size=asset_size,
                      asset_digest=asset_digest, checked=True, error="",
                      channel=ch, draft=bool(data.get("draft")),
-                     prerelease=bool(data.get("prerelease")))
+                     prerelease=bool(data.get("prerelease")), setup_url=setup_url,
+                     setup_size=setup_size, setup_digest=setup_digest)
     except Exception as e:  # noqa: BLE001 — оффлайн/404 не должны ничего ломать
         # ⚠️ текст ошибки уходит в интерфейс и лог — токен туда попасть не должен
         err = _scrub(str(e))
@@ -495,18 +544,20 @@ def _check() -> None:
             # без sha256 (его знает только API), проверка суммы пропускается
             log.warning("API GitHub недоступен (%s) — релиз найден веб-путём: %s",
                         err, fb["tag"])
+            # ⚠️ Установщиком веб-путь не обновляет: sha256 он не знает, а
+            # подпись проверила бы лишь сторона за UAC — уже после окна UAC
             STATE.update(latest=fb["tag"], url=fb["url"],
                          asset_url=fb["asset_url"], asset_size=fb["asset_size"],
                          asset_digest="", checked=True, error="",
-                         channel=channel(), draft=False, prerelease=False)
+                         channel=channel(), draft=False, prerelease=False,
+                         setup_url="", setup_size=0, setup_digest="")
         else:
             STATE.update(checked=True, error=err, channel=channel())
     finally:
         # Релиз опубликован, но exe ещё не приложен (или как раз заливается,
         # 28 МБ) — перепроверяем через 5 минут, а не через 6 часов, иначе
         # клиника полдня видит «новая версия», которую нельзя поставить.
-        _schedule(300 if (newer_available() and not STATE["asset_url"])
-                  else 6 * 3600)
+        _schedule(300 if asset_pending() else 6 * 3600)
 
 
 def check_now() -> None:
@@ -775,6 +826,152 @@ def _verify_download(path: pathlib.Path) -> str | None:
     return None
 
 
+# ---------- обновление установщиком (03.10) ----------
+
+_WATCH_TASK = "DentPilotUpdate"
+_WATCH_ROUNDS = 270          # × ~2 с = ~9 минут: задача планировщика живёт не больше 10
+_ZIP_MAX = 300_000_000
+
+
+def _verify_file(path: pathlib.Path, want_size: int, digest: str) -> str | None:
+    """Скачанный файл — тот, что описан в выпуске? None = да, str = человеку."""
+    got = path.stat().st_size
+    if got < 5_000_000:
+        return "fișier descărcat invalid (prea mic)"
+    if want_size and got != want_size:
+        return f"descărcare incompletă ({got} din {want_size} baiți)"
+    want = digest.split(":")[-1].strip().lower()
+    if not want:
+        return "lipsește suma de control a fișierului de instalare"
+    if _sha256(path) != want:
+        return "fișier descărcat corupt (sumă de control greșită)"
+    return None
+
+
+def _arm_restart_watch(result: pathlib.Path) -> str | None:
+    """Задача планировщика ОТ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ, заведённая ДО запроса прав.
+
+    ⭐ Зачем заранее: тихий установщик закроет программу сам — вместе с этим
+    процессом, который иначе ждал бы итога и перезапускал. А запуск из-под
+    установщика пошёл бы от повышенного токена — при входе в UAC ДРУГОЙ
+    учёткой администратора `db.key` завернулся бы под чужой DPAPI.
+    Задача ждёт итога в файле и запускает `DentPilot.exe`, что бы там ни лежало:
+    «ok» — новая версия, «fail» — откатившаяся старая; «cancelled» — программа
+    сама отказалась от обновления и жива, запускать нечего. Не дождалась за
+    ~9 минут — запускает всё равно: лучше программа, чем пустой экран."""
+    exe = pathlib.Path(sys.executable).resolve()
+    bat = work_dir() / "dentpilot_update_watch.bat"
+    bat.write_text(
+        "@echo off\r\n"
+        "set n=0\r\n"
+        ":wait\r\n"
+        "ping -n 3 127.0.0.1 >nul\r\n"
+        "set /a n+=1\r\n"
+        f'findstr /x /c:"ok" "{result}" >nul 2>&1 && goto start\r\n'
+        f'findstr /x /c:"fail" "{result}" >nul 2>&1 && goto start\r\n'
+        f'findstr /x /c:"cancelled" "{result}" >nul 2>&1 && goto done\r\n'
+        f"if %n% lss {_WATCH_ROUNDS} goto wait\r\n"
+        ":start\r\n"
+        f'start "" /D "{exe.parent}" "{exe}"\r\n'
+        ":done\r\n"
+        f"schtasks /delete /tn {_WATCH_TASK} /f >nul 2>&1\r\n"
+        'del "%~f0"\r\n',
+        encoding="ascii",
+    )
+    return _spawn_via_scheduler(bat, _WATCH_TASK)
+
+
+def _give_up(result: pathlib.Path, new: pathlib.Path) -> None:
+    """Обновление не пошло: убрать установщик и описание (опоздавшее «да» в UAC
+    тогда найдёт пустое место и откажет) и сказать задаче-сторожу «cancelled»."""
+    for p in (new, work_dir() / privileged.REQUEST_NAME):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        result.write_text("cancelled", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _update_by_setup() -> str | None:
+    """Шаг 2 (03.10): новая версия — подписанным установщиком за UAC.
+    None = пошло (программа закроется сама), str = человеку; программа жива.
+
+    Порядок: скачать zip выпуска → сверить размер и sha256 → достать из него
+    ровно один установщик с ожидаемым именем → проверить его подпись здесь же
+    (чтобы не показывать окно UAC ради заведомого отказа) → описание для
+    перепроверки за UAC → задача-сторож перезапуска → окно UAC → ждать «started»
+    и закрыться. Решает и проверяет всё ещё раз сторона за UAC (`install-setup`)."""
+    import zipfile
+    from . import authenticode
+
+    work = work_dir()
+    zpath = work / "DentPilot-Setup.zip"
+    new = work / privileged.SETUP_NEW
+    result = work / privileged.RESULT_NAME
+    try:
+        req = urllib.request.Request(STATE["setup_url"], headers={"User-Agent": "dentpilot-desktop"})
+        with urllib.request.urlopen(req, timeout=180) as r, open(zpath, "wb") as f:
+            shutil.copyfileobj(r, f)
+    except Exception as e:  # noqa: BLE001
+        zpath.unlink(missing_ok=True)
+        return f"descărcarea a eșuat: {e}"
+    try:
+        if err := _verify_file(zpath, STATE["setup_size"], STATE["setup_digest"]):
+            return err
+        want = f"DentPilot-Setup-{STATE['latest'].lstrip('vV')}.exe"
+        with zipfile.ZipFile(zpath) as z:
+            exes = [i for i in z.infolist() if i.filename.lower().endswith(".exe")]
+            if [i.filename for i in exes] != [want] or not 5_000_000 <= exes[0].file_size <= _ZIP_MAX:
+                return "arhiva de actualizare nu conține programul de instalare așteptat"
+            with z.open(exes[0]) as src, open(new, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+    except (zipfile.BadZipFile, OSError) as e:
+        new.unlink(missing_ok=True)
+        return f"arhiva de actualizare nu se deschide: {e}"
+    finally:
+        zpath.unlink(missing_ok=True)
+    if authenticode.signer_thumbprint(new) not in privileged.SIGNERS:
+        new.unlink(missing_ok=True)
+        return "programul de instalare nu este semnat de DentPilot — actualizarea nu a fost pornită"
+    result.unlink(missing_ok=True)
+    (work / privileged.REQUEST_NAME).write_text(
+        json.dumps({"size": new.stat().st_size, "sha256": _sha256(new),
+                    "version": STATE["latest"]}), encoding="utf-8")
+    if err := _arm_restart_watch(result):
+        _give_up(result, new)
+        return err
+    try:
+        shown = privileged.request("install-setup")
+    except privileged.Refused as e:
+        _give_up(result, new)
+        return f"actualizarea nu a pornit: {e}"
+    if not shown:
+        _give_up(result, new)
+        return ("Windows nu a afișat cererea de drepturi de administrator — "
+                "actualizarea nu a fost instalată")
+    # ⚠️ Ждём «started», а не окно: человек может думать над UAC сколько угодно
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        try:
+            out = result.read_text(encoding="utf-8", errors="replace").strip() if result.exists() else ""
+        except OSError:
+            out = ""
+        if out == privileged.STARTED:
+            log.warning("обновление установщиком пошло: %s", STATE["latest"])
+            _exit_soon()
+            return None
+        if out:
+            _give_up(result, new)
+            return f"actualizarea nu a fost instalată: {out}"
+        time.sleep(0.5)
+    _give_up(result, new)
+    return ("actualizarea nu a fost confirmată — programul continuă să "
+            "funcționeze cu versiunea curentă")
+
+
 def self_update() -> str | None:
     """Скачивает новый exe и перезапускает программу. None = пошло, str = ошибка."""
     if not is_desktop():
@@ -786,7 +983,9 @@ def self_update() -> str | None:
     # приёма ради ничего (а на машине, обогнавшей канал, ещё и откатывала бы
     # программу назад поверх уже мигрированной базы).
     if not can_self_update():
-        return "обновляться нечем: в релизе нет exe-файла новее текущего"
+        return "обновляться нечем: в релизе нет файла программы новее текущего"
+    if installer_mode():
+        return _update_by_setup()
     exe = pathlib.Path(sys.executable).resolve()
     # имя производное от текущего exe: у старых установок он DentArt.exe,
     # у новых DentPilot.exe — bat в обоих случаях кладёт новый файл на место

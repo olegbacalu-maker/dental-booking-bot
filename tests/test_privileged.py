@@ -419,11 +419,158 @@ def suite_install(res: Result) -> None:
     # права, которых у него нет.
     src = (pathlib.Path(__file__).resolve().parents[1]
            / "bot" / "app" / "privileged.py").read_text(encoding="utf-8")
-    body = src[src.index("def _install_update"):src.index("# Закрытый список")]
+    # ⚠️ Ровно тело `_install_update`: ниже по файлу живёт `install-setup`, который
+    # установщик ЗАПУСКАЕТ намеренно (03.10) — его держит свой сторож ниже
+    body = src[src.index("def _install_update"):src.index("# ---------- обновление установщиком")]
     for token in ("subprocess", "os.system", "os.startfile", "Popen",
                   "ShellExecute", "exec(", "eval("):
         res.ok(f"подмена ничего не исполняет: нет {token}", token not in body,
                f"в операции появился запуск: {token}")
+
+
+def _signed_setup() -> pathlib.Path | None:
+    """Настоящий подписанный установщик с этой машины: dist\ после сборки или
+    releases\ рядом с репозиторием. Нет — набор говорит пропуск вслух."""
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for d in (root / "dist", root.parent / "releases"):
+        found = sorted(d.glob("DentPilot-Setup-*.exe"))
+        if found:
+            return found[-1]
+    return None
+
+
+def _setup_lab(tmp: pathlib.Path, src: pathlib.Path | None, *, flip: bool = False,
+               request: dict | None = None) -> tuple:
+    import hashlib
+    import shutil
+
+    prog = tmp / "Program Files" / "DentPilot"
+    prog.mkdir(parents=True)
+    exe = prog / "DentPilot.exe"
+    exe.write_bytes(b"STARAYA PROGRAMMA")
+    work = tmp / "data" / privileged.WORK_SUBDIR
+    work.mkdir(parents=True)
+    new = work / privileged.SETUP_NEW
+    if src is not None:
+        shutil.copyfile(src, new)
+        if flip:                                  # байт посередине: подпись больше не сходится
+            b = bytearray(new.read_bytes())
+            b[len(b) // 2] ^= 0xFF
+            new.write_bytes(bytes(b))
+        body = new.read_bytes()
+        if request is None:
+            request = {"size": len(body), "sha256": hashlib.sha256(body).hexdigest()}
+    if request is not None:
+        (work / privileged.REQUEST_NAME).write_text(json.dumps(request), encoding="utf-8")
+    return exe, work
+
+
+def suite_install_setup(res: Result) -> None:
+    """install-setup (03.10): подписанный установщик за UAC — по копии, по подписи, по версии.
+
+    ⭐ Единственная операция, которая ЗАПУСКАЕТ файл с правами администратора.
+    Поэтому каждый отказ проверяется на «установщик не запущен», а не только на
+    текст: отказ, после которого запуск всё же случился, был бы хуже отказа нет."""
+    import tempfile
+
+    from app import authenticode
+
+    real = (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
+            privileged.START_DELAY, authenticode.signer_thumbprint)
+    spawned: list = []
+    privileged._spawn_setup = lambda setup, result, log: spawned.append((setup, result, log))
+    privileged.START_DELAY = 0
+    signed = _signed_setup()
+
+    def run(tmp, exe, cur=(1, 0, 0, 0)):
+        privileged._self_exe = lambda: exe
+        privileged._current_version = lambda e: cur
+        del spawned[:]
+        return privileged.run_op("install-setup", [], lambda: tmp / "data")
+
+    try:
+        try:
+            privileged.run_op("install-setup", ["C:\\x.exe"], lambda: None)
+            res.ok("аргументы отвергаются", False, "операция приняла путь извне")
+        except privileged.Refused:
+            res.ok("аргументы отвергаются", True, "")
+
+        for name, kw, want in (("установщика нет", dict(src=None, request={"size": 1, "sha256": "0"}),
+                                "нет установщика"),
+                               ("описания нет", dict(src=signed, request=None), "нет описания")):
+            if kw["src"] is None and name != "установщика нет":
+                continue
+            with tempfile.TemporaryDirectory(prefix="dp_setup_") as td:
+                tmp = pathlib.Path(td)
+                exe, work = _setup_lab(tmp, kw["src"], request=kw["request"])
+                if name == "описания нет":
+                    (work / privileged.REQUEST_NAME).unlink(missing_ok=True)
+                out = run(tmp, exe)
+                res.ok(f"отказ: {name}", want in out and not spawned, f"{out!r} spawned={spawned}")
+
+        if signed is None:
+            res.ok("подписанного установщика на машине нет (dist\\, releases\\) — "
+                   "проверки подписи и версии пропущены", True, "")
+            return
+
+        with tempfile.TemporaryDirectory(prefix="dp_setup_ok_") as td:
+            tmp = pathlib.Path(td)
+            exe, work = _setup_lab(tmp, signed)
+            out = run(tmp, exe)
+            copy = exe.parent / privileged.SETUP_DIR / privileged.SETUP_NAME
+            res.check("подписанный и новее: started", out, privileged.STARTED)
+            res.ok("запущена КОПИЯ из папки программы, итог и журнал — в папку клиники",
+                   spawned == [(copy, work / privileged.RESULT_NAME, work / privileged.SETUP_LOG)]
+                   and copy.exists(), repr(spawned))
+            res.check("итог «started» записан до запуска",
+                      (work / privileged.RESULT_NAME).read_text(encoding="utf-8"), privileged.STARTED)
+            res.check("программа не тронута (ставит её установщик, не операция)",
+                      exe.read_bytes(), b"STARAYA PROGRAMMA")
+
+        cases = (
+            ("подпись не сходится (байт изменён)", dict(flip=True), {}, "нет действительной подписи"),
+            ("подписан не нашим сертификатом", {}, dict(foreign=True), "подписан не DentPilot"),
+            ("не новее стоящей", {}, dict(cur=(9, 9, 9, 0)), "не новее"),
+            ("та же версия", {}, dict(same=True), "не новее"),
+            ("sha256 не сошёлся", dict(request={"size": 0, "sha256": "0" * 64}), {}, "размер"),
+        )
+        for name, lab_kw, run_kw, want in cases:
+            with tempfile.TemporaryDirectory(prefix="dp_setup_bad_") as td:
+                tmp = pathlib.Path(td)
+                lab = dict(lab_kw)
+                if "request" in lab:
+                    import hashlib
+                    lab["request"] = {"size": signed.stat().st_size, "sha256": "0" * 64}
+                    want = "отпечаток"
+                exe, work = _setup_lab(tmp, signed, **lab)
+                if run_kw.get("foreign"):
+                    authenticode.signer_thumbprint = lambda p: "9BA3C2E210C7E8296C5056515BFC0B0BBA78AC48"
+                cur = run_kw.get("cur", (1, 0, 0, 0))
+                if run_kw.get("same"):
+                    cur = authenticode.file_version(signed)
+                try:
+                    out = run(tmp, exe, cur)
+                finally:
+                    authenticode.signer_thumbprint = real[4]
+                res.ok(f"отказ: {name} — установщик НЕ запущен", want in out and not spawned,
+                       f"{out!r} spawned={spawned}")
+    finally:
+        (privileged._self_exe, privileged._current_version, privileged._spawn_setup,
+         privileged.START_DELAY, authenticode.signer_thumbprint) = real
+
+    # ⛔ Сторож формы: запуск ровно один, без оболочки, и только ПОСЛЕ проверок
+    src = (pathlib.Path(__file__).resolve().parents[1] / "bot" / "app" / "privileged.py").read_text(encoding="utf-8")
+    spawn = src[src.index("def _spawn_setup"):src.index("def _install_setup")]
+    for token in ("shell=True", "cmd.exe", "powershell", "os.system", "os.startfile", "ShellExecute"):
+        res.ok(f"запуск установщика без оболочки: нет {token}", token not in spawn, f"появилось {token}")
+    body = src[src.index("def _install_setup"):src.index("# Закрытый список")]
+    res.ok("установщик запускается после проверки подписи и версии",
+           body.index("signer_thumbprint(dst)") < body.index("_spawn_setup(")
+           and body.index("_current_version(exe)") < body.index("_spawn_setup("),
+           "запуск стоит раньше проверок")
+    res.ok("операция больше ничего не запускает",
+           all(t_ not in body for t_ in ("subprocess", "Popen", "os.system", "ShellExecute", "startfile")),
+           "в теле операции появился свой запуск")
 
 
 def suite_update_paths(res: Result) -> None:
@@ -479,9 +626,20 @@ def suite_contract(res: Result) -> None:
                and n.body and isinstance(n.body[0], ast.Expr)
                and isinstance(n.body[0].value, ast.Constant)
                and isinstance(n.body[0].value.value, str)}
+    # ⚠️ Одно исключение (03.10): `_spawn_setup` ЗАПУСКАЕТ проверенный установщик
+    # (install-setup). Его узлы не входят в общий список вызовов, но shell= и
+    # имена оболочек ищутся и в нём, а форму запуска держит пункт 1а ниже.
+    spawn = next((n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_spawn_setup"), None)
+    spawn_ids = {id(x) for x in ast.walk(spawn)} if spawn is not None else set()
     called, texts, shell_kw, loose_getattr = set(), [], False, False
     for n in ast.walk(tree):
-        if isinstance(n, ast.Call):
+        if isinstance(n, ast.Call) and id(n) in spawn_ids:
+            if any(k.arg == "shell" for k in n.keywords):
+                shell_kw = True
+        elif isinstance(n, (ast.Import, ast.ImportFrom)) and id(n) in spawn_ids:
+            continue
+        elif isinstance(n, ast.Call):
             f = n.func
             name = f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
             mod = (f.value.id if isinstance(f, ast.Attribute)
@@ -521,6 +679,26 @@ def suite_contract(res: Result) -> None:
     res.ok("запускается ровно одно — свой exe",
            src.count("ShellExecuteW") == 1 and "sys.executable, line" in src,
            "второй способ что-то запустить")
+
+    # ---- 1а. единственный запуск файла — проверенный установщик ----
+    # ⭐ Якорь: исключение названо по имени, и без функции правило выше стало бы
+    # вечнозелёным (полярность списка-исключения, CLAUDE.md).
+    res.ok("исключение на месте: _spawn_setup", spawn is not None, "функция переименована")
+    if spawn is not None:
+        calls = [n for n in ast.walk(spawn) if isinstance(n, ast.Call)]
+        names = {(f"{n.func.value.id}." if isinstance(n.func, ast.Attribute)
+                  and isinstance(n.func.value, ast.Name) else "")
+                 + (n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", ""))
+                 for n in calls}
+        res.ok("в _spawn_setup — только subprocess.Popen и str", names <= {"subprocess.Popen", "str"},
+               f"вызовы: {sorted(names)}")
+        popen = next((n for n in calls if isinstance(n.func, ast.Attribute) and n.func.attr == "Popen"), None)
+        first = (popen.args[0].elts[0] if popen is not None and popen.args
+                 and isinstance(popen.args[0], ast.List) and popen.args[0].elts else None)
+        res.ok("Popen получает СПИСОК, и первым — проверенная копия `str(setup)`",
+               isinstance(first, ast.Call) and isinstance(first.func, ast.Name) and first.func.id == "str"
+               and first.args and isinstance(first.args[0], ast.Name) and first.args[0].id == "setup",
+               "запускается не копия из папки программы или строкой")
 
     # ---- 2. произвольный ПУТЬ ----
     # Ни одна операция не берёт путь снаружи: `run_op` получает только имя и
