@@ -122,10 +122,19 @@ def suite_model(res: Result) -> None:
                   {st: sorted(x["to"] for x in acts) for st, acts in m["actions"].items()},
                   {st: sorted(to_of[k] for k, v in cs.items() if st in v)
                    for st in m["actions"]})
-        res.ok("возврат несёт вопрос, а остальные кнопки — нет",
-               all(bool(x["confirm"]) == (x["cls"] == "b-reopen")
+        # 03.10, слово Олега: «Anulează сразу удаляет… нужно сначала спросить» —
+        # вопрос несут возврат и отмена визита, шаги приёма — нет
+        res.ok("возврат и отмена визита несут вопрос, а остальные кнопки — нет",
+               all(bool(x["confirm"]) == (x["cls"] in ("b-reopen", "b-cancel"))
                    for acts in m["actions"].values() for x in acts),
-               "подтверждение возврата разошлось со списком дня")
+               "подтверждение разошлось с правилом: спрашивают только возврат и отмена")
+        ask_of = {x["cls"]: x["confirm"] for acts in m["actions"].values() for x in acts
+                  if x["confirm"]}
+        legacy = {fid: re.search(r'id="' + fid + r'"[^>]*onsubmit="return confirm\(' + "'([^']*)'" + r'\)"', page)
+                  for fid in ("cs_cancel", "cs_reopen")}
+        res.check("старая карточка визита спрашивает ТЕМИ ЖЕ словами, что матрица",
+                  {k: (v.group(1) if v else None) for k, v in legacy.items()},
+                  {"cs_cancel": ask_of.get("b-cancel"), "cs_reopen": ask_of.get("b-reopen")})
 
         # --- список дня (C25.5c) ---
         c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
