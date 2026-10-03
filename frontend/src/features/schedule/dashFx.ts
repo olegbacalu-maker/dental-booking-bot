@@ -49,10 +49,16 @@ export function cellPx(avail: number, hours: number, over = 0): number {
  * ожиданием не считается, а «așteaptă 0 min» на каждом пришедшем — шум
  * (просьба Олега 08-21).
  */
+/** С какой минуты ожидание показывается (раньше — тишина, см. ниже). */
+export const WAIT_SHOW_MIN = 5
+/** С какой минуты ожидание — «засиделся», красным. ⛔ Порог ОДИН на повестку,
+ *  сетку и вкладки потока (`flow.ts`); у старой страницы — тот же в panel.js. */
+export const WAIT_LONG_MIN = 15
+
 export function waitLabel(since: number, now: number): { text: string; long: boolean } | null {
   const m = Math.max(0, Math.floor((now - since) / 60_000))
-  if (m < 5) return null
-  return { text: `așteaptă ${m} min`, long: m >= 15 }
+  if (m < WAIT_SHOW_MIN) return null
+  return { text: `așteaptă ${m} min`, long: m >= WAIT_LONG_MIN }
 }
 
 /** Часы клиники сейчас. ⛔ Пояс — КЛИНИКИ, а не устройства: в облаке через

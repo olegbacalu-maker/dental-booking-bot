@@ -164,6 +164,16 @@ export interface DashAgendaItem {
   wait_since: number | null
   /** Комментарий визита полностью: строка показывает значок, текст — подсказкой. */
   comment: string
+  /* поток пациента (03.10, вкладки над повесткой): отметки, не слова — минуты
+     считает браузер по тику (flow.ts) */
+  doctor: string
+  doctor_id: string
+  phone: string
+  start_ms: number
+  end_ms: number
+  /** плановый конец и вход в кабинет — HH:MM в поясе клиники ("" — не в кабинете) */
+  end: string
+  in_at: string
 }
 
 export interface DashAgenda {

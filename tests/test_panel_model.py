@@ -18,7 +18,7 @@
 import pathlib
 import re
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from harness import Client, Result, Server, clinic_today
 
@@ -56,7 +56,8 @@ def _row(hh: int, mm: int = 0, **kw) -> dict:
          "source": kw.get("source", "panel"),
          "name": kw.get("name", "Pacient"), "phone": "069000000",
          "birth_year": None, "comment": kw.get("comment", ""), "reminded_day": None,
-         "waiting_at": kw.get("waiting_at"), "arrived_at": None, "has_rec": False,
+         "waiting_at": kw.get("waiting_at"), "arrived_at": kw.get("arrived_at"),
+         "has_rec": False,
          # отметка звонка-подтверждения (03.10) — колонка той же выборки
          "call_result": kw.get("call_result")}
     return r
@@ -154,6 +155,31 @@ def suite_agenda_pure(res: Result) -> None:
     res.check("минуты ожидания НЕ считаются на сервере — уезжает отметка",
               [x["wait_since"] for x in waits["items"]],
               [int(ws.timestamp() * 1000), None, None])
+
+    # --- поток пациента (03.10): вкладки Întârzie / A venit / În cabinet ---
+    # ⛔ Минуты («опаздывает», «сверх плана») считает браузер: сервер шлёт
+    # только отметки и ГОТОВЫЕ часы в поясе клиники.
+    came = datetime(DAY.year, DAY.month, DAY.day, 7, 7, tzinfo=timezone.utc)  # 10:07 в Кишинёве
+    fl = _ag([_row(10, duration_min=45, status="arrived", arrived_at=came, name="InCab"),
+              _row(11, status="waiting", waiting_at=ws, arrived_at=came, name="Wait"),
+              _row(12, status="done", arrived_at=came, name="Done")])
+    st10 = datetime(DAY.year, DAY.month, DAY.day, 10, 0, tzinfo=eng.TZ)
+    res.check("поток: начало и плановый конец — отметками, конец и вход в кабинет — "
+              "часами в поясе клиники (база хранит UTC)",
+              {k: fl["items"][0][k] for k in ("start_ms", "end_ms", "end", "in_at")},
+              {"start_ms": int(st10.timestamp() * 1000),
+               "end_ms": int((st10 + timedelta(minutes=45)).timestamp() * 1000),
+               "end": "10:45", "in_at": "10:07"})
+    res.check("«в кабинете с» — только у того, кто в кабинете сейчас",
+              [x["in_at"] for x in fl["items"]], ["10:07", "", ""])
+    res.check("врач, его ключ и телефон пациента едут в строку (вкладки сводят по врачу)",
+              {k: fl["items"][1][k] for k in ("doctor", "doctor_id", "phone")},
+              {"doctor": "Dr. Activ Doi", "doctor_id": "d2", "phone": "069000000"})
+    late = NOW + timedelta(minutes=7)
+    res.check("⛔ модель повестки от минуты НЕ зависит (кроме перехода state) — "
+              "иначе отпечаток живого канала менялся бы каждый опрос",
+              [{k: v for k, v in x.items() if k != "state"} for x in _ag(day_rows, now=late)["items"]],
+              [{k: v for k, v in x.items() if k != "state"} for x in _ag(day_rows)["items"]])
 
     # --- кнопка зубов и карточка ---
     who = _ag([_row(9, name="Cu"), _row(10, patient_id=None, name="Fara")],

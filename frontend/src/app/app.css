@@ -1367,3 +1367,48 @@ dialog.dp-ask { width: 400px; }
 .stx-dl > div.top dd { font-size: var(--fs-xl); }
 .stx-cat-legend em { font-style: normal; color: var(--text3); }
 .stx-empty { display: grid; place-items: center; min-height: 220px; margin: 0; }
+
+/* Поток пациента (03.10): вкладки «Toate · Întârzie · A venit · În cabinet» над
+   «Agenda zilei». Цвета — смысла: фиолетовый «a venit» и синий «în cabinet» — как
+   плашки повестки (.pl-badge.wai/.trt в panel.css), красное — от 15 минут. */
+.fl-tabs { display: flex; gap: 3px; padding: 3px; margin: 0 0 8px; background: var(--line2); border-radius: var(--r-s); }
+.fl-tab {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  border: 0; background: none; border-radius: calc(var(--r-s) - 2px); padding: 5px 2px 4px; cursor: pointer;
+  font: inherit; color: var(--text3);
+}
+.fl-tab span { font-size: var(--fs-micro); font-weight: 600; white-space: nowrap; }
+.fl-tab b { font-size: var(--fs-m); font-weight: 700; color: var(--text2); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.fl-tab.on { background: var(--panel); box-shadow: var(--sh); color: var(--text2); }
+.fl-tab b.amber { color: var(--amber-t); }
+.fl-tab b.red { color: var(--red-t); }
+.fl-tab b.violet { color: #6D28D9; }
+.fl-tab b.blue { color: #1D4ED8; }
+.fl-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.fl-row { display: flex; align-items: center; gap: 8px; padding: 7px 6px; border-radius: var(--r-s); cursor: pointer; }
+.fl-row:hover { background: var(--line2); }
+.fl-row.over { background: var(--amber-soft); }
+.fl-b { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
+.fl-l1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fl-l1 a { text-decoration: none; color: inherit; min-width: 0; overflow: hidden; }
+.fl-l1 a:hover b { color: var(--teal-d); }
+.fl-l1 b { display: block; font-size: var(--fs-s); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fl-b small { font-size: var(--fs-xs); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fl-b small.fl-note { white-space: normal; }
+.fl-note.warn { color: var(--amber-t) !important; font-weight: 600; }
+.fl-note.free { color: var(--green-t) !important; font-weight: 600; }
+.fl-note svg { width: 12px; height: 12px; vertical-align: -2px; }
+.fl-chip {
+  flex: 0 0 auto; margin-left: auto; font-size: var(--fs-micro); font-weight: 600; padding: 2px 7px;
+  border-radius: var(--r-tab); white-space: nowrap;
+}
+.fl-chip.amber { background: var(--amber-soft); color: var(--amber-t); }
+.fl-chip.red { background: var(--red-soft); color: var(--red-t); }
+.fl-chip.violet { background: var(--violet-soft); color: #6D28D9; }
+.fl-chip.blue { background: var(--blue-soft); color: #1D4ED8; }
+.fl-row.over .fl-chip.amber { background: var(--panel); }
+.fl-empty { margin: 8px 0 4px; font-size: var(--fs-s); color: var(--text3); text-align: center; }
+.dk-btn.fl-waiting:hover { background: var(--violet-soft); color: #6D28D9; border-color: transparent; }
+.dk-btn.fl-arrived:hover { background: var(--blue-soft); color: #1D4ED8; border-color: transparent; }
+.dk-btn.fl-done:hover { background: var(--green-soft); color: var(--green-t); border-color: transparent; }
+.dk-btn.fl-noshow:hover { background: var(--red-soft); color: var(--red-t); border-color: transparent; }

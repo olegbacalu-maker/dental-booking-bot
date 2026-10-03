@@ -4,7 +4,7 @@ import { DashRail } from './DashRail'
 import { Spark } from '../../components/Spark'
 import { sparkPoints } from '../../utils/chart'
 import type {
-  DashAgenda, DashAgendaItem, DashMiniCal, DashOccupancy, DashTile,
+  DashActions, DashAgenda, DashAgendaItem, DashMiniCal, DashOccupancy, DashTile,
 } from './dash'
 import type { Desk } from './desk'
 
@@ -39,7 +39,8 @@ function item(over: Partial<DashAgendaItem> = {}): DashAgendaItem {
     id: 1, time: '09:00', dur: 60, name: 'Ion Popa', service: 'Consultație',
     status: 'confirmed', badge: { cls: 'act', label: 'Confirmată' }, urgent: false,
     bar: 'var(--green)', state: 'future', clickable: true, patient_id: 17,
-    wait_since: null, comment: '', ...over,
+    wait_since: null, comment: '',
+    doctor: 'Dr. Ion', doctor_id: 'd2', phone: '069 123 456', start_ms: 0, end_ms: 0, end: '10:00', in_at: '', ...over,
   }
 }
 
@@ -115,9 +116,22 @@ const DESK: Desk = {
   ],
 }
 
+/* Матрица кнопок исхода — как у сервера (`core/visits._ACT_BUTTONS`): из неё
+   и только из неё — слова статусов на вкладках потока и на их кнопках. */
+const ACTIONS: DashActions = {
+  confirmed: [
+    { to: 'waiting', cls: 'b-waiting', label: 'A venit', confirm: '' },
+    { to: 'arrived', cls: 'b-arrived', label: 'În cabinet', confirm: '' },
+    { to: 'done', cls: 'b-done', label: 'Finalizat', confirm: '' },
+  ],
+  waiting: [{ to: 'arrived', cls: 'b-arrived', label: 'În cabinet', confirm: '' }],
+  arrived: [{ to: 'done', cls: 'b-done', label: 'Finalizat', confirm: '' }],
+}
+
 const show = (over: Partial<Parameters<typeof DashRail>[0]> = {}) => render(
   <DashRail minical={MINICAL} agenda={AGENDA} tiles={TILES} occupancy={OCC} desk={DESK}
-    date="2026-09-19" waitTick={NOW} busy={false} onCard={onCard} onCall={onCall} fresh={NO_FRESH} {...over} />)
+    date="2026-09-19" waitTick={NOW} busy={false} onCard={onCard} onCall={onCall} fresh={NO_FRESH}
+    onFlow={onFlow} actions={ACTIONS} {...over} />)
 
 /** Пустая пометка: подсветка приехавшего — дело экрана, рельс её получает. */
 
@@ -125,8 +139,9 @@ const NO_FRESH: ReadonlySet<number> = new Set()
 
 const onCard = vi.fn()
 const onCall = vi.fn()
+const onFlow = vi.fn()
 
-afterEach(() => { cleanup(); onCall.mockClear() })
+afterEach(() => { cleanup(); onCall.mockClear(); onCard.mockClear(); onFlow.mockClear() })
 
 describe('C26.5.2: мини-календарь', () => {
   it('⛔ три метки НЕЗАВИСИМЫ и складываются', () => {
@@ -167,7 +182,13 @@ describe('C26.5.2: повестка дня', () => {
   })
 
   it('счётчик, порядок строк и ссылка в список ЭТОГО дня', () => {
+    /* 03.10: у СЕГОДНЯ счётчик — цифра вкладки «Toate»; у чужого дня — в шапке */
     show()
+    expect(document.querySelector('.ag-h span')).toBeNull()
+    expect(document.querySelector('.fl-tab.on span')?.textContent).toBe('Toate')
+    expect(document.querySelector('.fl-tab.on b')?.textContent).toBe('3')
+    cleanup()
+    show({ agenda: { ...AGENDA, today: false } })
     expect(document.querySelector('.ag-h span')?.textContent).toBe('3 programări')
     expect(Array.from(document.querySelectorAll('.ag-t')).map((t) => t.textContent))
       .toEqual(['09:00', '10:00', '11:00'])
@@ -213,6 +234,141 @@ describe('C26.5.2: повестка дня', () => {
       .map((r) => r.querySelector('.wait-min')?.textContent ?? null)
     expect(waits).toEqual([null, 'așteaptă 20 min', null])
     expect(document.querySelector('.wait-min')?.className).toBe('wait-min long')
+  })
+})
+
+describe('03.10: поток пациента — вкладки над повесткой (вариант A, слово Олега)', () => {
+  /* Сейчас 11:30. Отметки — как шлёт сервер: начало/конец и пришёл — числами,
+     часы — готовыми строками. Минуты считает браузер по тику. */
+  const T = (h: number, m: number) => new Date(2026, 8, 19, h, m).getTime()
+  const appt = (over: Partial<DashAgendaItem>) => item({ end: '', in_at: '', ...over })
+  const FLOW: DashAgenda = {
+    count: 8, today: true,
+    items: [
+      appt({ id: 42, time: '10:00', name: 'Over Run', status: 'arrived', doctor: 'Dr. Ana', doctor_id: 'd1',
+        start_ms: T(10, 0), end_ms: T(11, 0), end: '11:00', in_at: '10:05' }),
+      appt({ id: 21, time: '11:00', name: 'Late Long', status: 'confirmed', doctor: 'Dr. Dan', doctor_id: 'd4',
+        phone: '069 000 021', start_ms: T(11, 0), end_ms: T(11, 30) }),
+      appt({ id: 32, time: '11:00', name: 'Long Wait', status: 'waiting', wait_since: T(11, 10),
+        doctor: 'Dr. Ana', doctor_id: 'd1', start_ms: T(11, 0), end_ms: T(11, 30) }),
+      appt({ id: 41, time: '11:00', name: 'On Time', status: 'arrived', doctor: 'Dr. Ion', doctor_id: 'd2',
+        start_ms: T(11, 0), end_ms: T(12, 0), end: '12:00', in_at: '11:02' }),
+      appt({ id: 23, time: '11:22', name: 'Late Short', status: 'confirmed', doctor: 'Dr. Vlad', doctor_id: 'd3',
+        phone: '', start_ms: T(11, 22), end_ms: T(11, 52) }),
+      appt({ id: 22, time: '11:27', name: 'Not Yet', status: 'confirmed', doctor: 'Dr. Dan', doctor_id: 'd4',
+        start_ms: T(11, 27), end_ms: T(11, 57) }),
+      appt({ id: 33, time: '11:45', name: 'Free Doc', status: 'waiting', wait_since: T(11, 22),
+        doctor: 'Dr. Vlad', doctor_id: 'd3', start_ms: T(11, 45), end_ms: T(12, 15) }),
+      appt({ id: 31, time: '12:00', name: 'Just Came', status: 'waiting', wait_since: T(11, 28),
+        doctor: 'Dr. Ion', doctor_id: 'd2', start_ms: T(12, 0), end_ms: T(12, 30) }),
+    ],
+  }
+  const tabs = () => Array.from(document.querySelectorAll('.fl-tab')).map((t) => {
+    const b = t.querySelector('b')
+    return `${t.querySelector('span')?.textContent} ${b?.textContent}${b?.className ? ` ${b.className}` : ''}`
+  })
+  const open = (word: string) => fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${word}`) }))
+  const rows = () => Array.from(document.querySelectorAll('.fl-row')).map((r) => ({
+    id: r.getAttribute('data-appt'),
+    name: r.querySelector('.fl-l1 b')?.textContent,
+    chip: `${r.querySelector('.fl-chip')?.textContent} ${r.querySelector('.fl-chip')?.className.replace('fl-chip ', '')}`,
+    sub: r.querySelector('.fl-b > small')?.textContent,
+    note: r.querySelector('.fl-note')?.textContent?.trim() ?? null,
+    over: r.classList.contains('over'),
+  }))
+
+  it('вкладки — только у СЕГОДНЯ, с цифрами и цветом: красное ждёт/опаздывает 15+, янтарное — сверх плана', () => {
+    show({ agenda: FLOW })
+    expect(tabs()).toEqual(['Toate 8', 'Întârzie 2 red', 'A venit 3 red', 'În cabinet 2 amber'])
+    expect(screen.getByRole('tab', { name: /^Toate/ }).getAttribute('aria-selected')).toBe('true')
+    cleanup()
+    show({ agenda: { ...FLOW, today: false } })
+    expect(document.querySelector('.fl-tabs')).toBeNull()
+  })
+
+  it('⛔ слова статусов — из матрицы сервера, не свои: вкладки и кнопка', () => {
+    const other: DashActions = {
+      confirmed: [{ to: 'waiting', cls: 'b', label: 'Sosit', confirm: '' }],
+      waiting: [{ to: 'arrived', cls: 'b', label: 'La medic', confirm: '' }],
+      arrived: [{ to: 'done', cls: 'b', label: 'Gata', confirm: '' }],
+    }
+    show({ agenda: FLOW, actions: other })
+    expect(Array.from(document.querySelectorAll('.fl-tab span')).map((t) => t.textContent))
+      .toEqual(['Toate', 'Întârzie', 'Sosit', 'La medic'])
+    open('La medic')
+    expect(screen.getByRole('button', { name: 'Gata: Over Run' })).toBeTruthy()
+  })
+
+  it('Întârzie: с 5-й минуты, красное с 15, врач и телефон; одна кнопка — «A venit»', () => {
+    show({ agenda: FLOW })
+    open('Întârzie')
+    expect(rows()).toEqual([
+      { id: '21', name: 'Late Long', chip: '30 min red', sub: 'Dr. Dan · 069 000 021', note: null, over: false },
+      { id: '23', name: 'Late Short', chip: '8 min amber', sub: 'Dr. Vlad', note: null, over: false },
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'A venit: Late Long' }))
+    expect(onFlow).toHaveBeenCalledWith(21, 'waiting')
+    expect(onCard).not.toHaveBeenCalled()
+    expect(document.querySelectorAll('.fl-row .dk-btn').length).toBe(2)
+  })
+
+  it('A venit: «acum» до 5 минут, красное с 15; врач свободен / занят до / сверх плана', () => {
+    show({ agenda: FLOW })
+    open('A venit')
+    expect(rows()).toEqual([
+      { id: '32', name: 'Long Wait', chip: '20 min red', sub: 'Dr. Ana', note: 'medicul depășește cu 30 min', over: false },
+      { id: '33', name: 'Free Doc', chip: '8 min violet', sub: 'Dr. Vlad', note: 'medicul e liber', over: false },
+      { id: '31', name: 'Just Came', chip: 'acum violet', sub: 'Dr. Ion', note: 'medicul e ocupat până la 12:00', over: false },
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'În cabinet: Long Wait' }))
+    expect(onFlow).toHaveBeenCalledWith(32, 'arrived')
+  })
+
+  it('În cabinet: сверх плана — первым и янтарным, с тем, кого задержит; в срок — «încă N min»', () => {
+    show({ agenda: FLOW })
+    open('În cabinet')
+    expect(rows()).toEqual([
+      { id: '42', name: 'Over Run', chip: '+30 min amber', sub: 'Dr. Ana · 10:05–11:00',
+        note: 'Long Wait (11:00) așteaptă deja 20 min', over: true },
+      { id: '41', name: 'On Time', chip: 'încă 30 min blue', sub: 'Dr. Ion · 11:02–12:00', note: null, over: false },
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizat: Over Run' }))
+    expect(onFlow).toHaveBeenCalledWith(42, 'done')
+  })
+
+  it('кого задержит затянувшийся приём: ещё не пришёл — «va aștepta», никого — так и сказано', () => {
+    show({ agenda: { count: 3, today: true, items: [
+      appt({ id: 1, time: '10:00', name: 'A', status: 'arrived', doctor: 'Dr. Ana', doctor_id: 'd1',
+        start_ms: T(10, 0), end_ms: T(11, 0), end: '11:00', in_at: '10:00' }),
+      appt({ id: 2, time: '11:15', name: 'B', status: 'confirmed', doctor: 'Dr. Ana', doctor_id: 'd1',
+        start_ms: T(11, 15), end_ms: T(11, 45) }),
+      appt({ id: 3, time: '10:30', name: 'C', status: 'arrived', doctor: 'Dr. Ion', doctor_id: 'd2',
+        start_ms: T(10, 30), end_ms: T(11, 10), end: '11:10', in_at: '10:31' }),
+    ] } })
+    open('În cabinet')
+    expect(rows().map((r) => r.note)).toEqual(['B (11:15) va aștepta', 'nu mai are pacienți azi'])
+  })
+
+  it('клик по строке — карточка визита; «Toate» возвращает ТОТ ЖЕ узел списка', () => {
+    show({ agenda: FLOW })
+    const list = document.querySelector('.ag-l')
+    open('A venit')
+    expect((document.querySelector('.ag-l') as HTMLElement).hidden).toBe(true)
+    fireEvent.click(document.querySelector('.fl-row[data-appt="33"]')!)
+    expect(onCard).toHaveBeenCalledWith(33)
+    expect(onFlow).not.toHaveBeenCalled()
+    open('Toate')
+    expect(document.querySelector('.ag-l')).toBe(list)
+    expect((list as HTMLElement).hidden).toBe(false)
+    expect(document.querySelector('.fl-list')).toBeNull()
+  })
+
+  it('пустая вкладка говорит словами, а не пустотой', () => {
+    show({ agenda: { count: 1, today: true, items: [appt({ id: 9, start_ms: T(12, 0), end_ms: T(13, 0) })] } })
+    open('Întârzie')
+    expect(document.querySelector('.fl-empty')?.textContent).toBe('Nimeni nu întârzie')
+    open('În cabinet')
+    expect(document.querySelector('.fl-empty')?.textContent).toBe('Nimeni în cabinet')
   })
 })
 

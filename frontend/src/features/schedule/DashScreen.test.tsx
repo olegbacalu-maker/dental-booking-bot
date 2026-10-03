@@ -45,6 +45,8 @@ function model(over: Partial<DashModel> = {}): DashModel {
         status: 'confirmed', badge: { cls: 'act', label: 'Confirmată' }, urgent: false,
         bar: 'var(--green)', state: 'future', clickable: true, patient_id: 17,
         wait_since: null, comment: '',
+        doctor: 'Dr. Ion', doctor_id: 'd2', phone: '069 123 456',
+        start_ms: NOW - 150 * 60_000, end_ms: NOW - 90 * 60_000, end: '10:00', in_at: '',
       }],
     },
     tiles: [{
@@ -179,7 +181,9 @@ describe('C26.5.2: панель дня — экран целиком', () => {
 
     expect(document.querySelectorAll('.gridbody .gcol').length).toBe(1)
     expect(document.querySelector('.mcal b')?.textContent).toBe('Septembrie 2026')
-    expect(document.querySelector('.ag-h span')?.textContent).toBe('1 programări')
+    /* 03.10: у сегодняшнего дня счётчик — цифра вкладки «Toate» над повесткой */
+    expect(document.querySelector('.fl-tab.on span')?.textContent).toBe('Toate')
+    expect(document.querySelector('.fl-tab.on b')?.textContent).toBe('1')
     /* 01.10: плитки «Azi» ушли в строку шапки «La recepție», списки стойки — из того же конверта */
     expect(document.querySelector('.desk .dk-h small')?.textContent).toBe('Azi: 1 programări · ocupare 13%')
     expect(document.querySelector('.desk')?.textContent).toContain('De confirmat mâine')
@@ -197,6 +201,23 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     const call = f.mock.calls.find((c) => String(c[0]).includes('/desk/call/'))!
     expect(String(call[0])).toBe(`/api/schedule/desk/call/7?screen=panel&date=${TODAY}`)
     expect(bodyOf(call)).toEqual({ result: 'ok' })
+    await waitFor(() => expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live'))
+  })
+
+  it('03.10: поток пациента — кнопка во вкладке шлёт ОБЫЧНУЮ команду статуса, потом опрос канала', async () => {
+    /* «Întârzie» → «A venit»: та же команда, что у карточки и меню блока
+       (`/appointments/{id}/status`, тело {to}), слово кнопки — из матрицы. */
+    const f = vi.fn(async (url: string) => (String(url).includes('/status')
+      ? cmdReply('', '')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await show()
+    fireEvent.click(screen.getByRole('tab', { name: /^Întârzie/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'A venit: Ion Popa' }))
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/status'))).toBe(true))
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/status'))!
+    expect(String(call[0])).toBe(`/api/schedule/appointments/1/status?screen=panel&date=${TODAY}`)
+    expect(bodyOf(call)).toEqual({ to: 'waiting' })
     await waitFor(() => expect(String(f.mock.calls[f.mock.calls.length - 1]![0])).toContain('/schedule/live'))
   })
 
@@ -1029,6 +1050,7 @@ describe('C26.5.4: подсветка приехавшей записи', () => 
         status: 'confirmed', badge: { cls: 'act', label: 'Confirmată' },
         urgent: false, bar: 'var(--green)', state: 'future' as const,
         clickable: true, patient_id: 18, wait_since: null, comment: '',
+        doctor: 'Dr. Ion', doctor_id: 'd2', phone: '069 123 456', start_ms: 0, end_ms: 0, end: '10:00', in_at: '',
       }],
     }
     return m

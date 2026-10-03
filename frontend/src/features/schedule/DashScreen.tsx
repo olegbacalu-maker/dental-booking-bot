@@ -385,7 +385,9 @@ export function DashScreen() {
             occupancy={d.occupancy} desk={d.desk} date={d.date} waitTick={waitTick}
             busy={busy} onCard={(id) => openById(d, id)}
             onCardMenu={(id, x, y) => setMenu({ id, x, y })} fresh={fresh}
-            onCall={(id, result) => { void act(() => dash.call(d.date, id, result)) }} />
+            onCall={(id, result) => { void act(() => dash.call(d.date, id, result)) }}
+            onFlow={(id, to) => { void act(() => dash.status(d.date, id, to)) }}
+            actions={d.actions} />
         </div>
       </div>
 

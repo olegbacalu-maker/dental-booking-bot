@@ -99,6 +99,18 @@ def agenda(d: date, rows: list, cards: dict | None, colors, ag_cls: dict,
             # есть комментарий») — полностью: строка повестки показывает значок,
             # текст уходит в подсказку
             "comment": r.get("comment") or "",
+            # ---- поток пациента (03.10): вкладки Întârzie / A venit / În cabinet ----
+            # ⛔ Только ОТМЕТКИ: «опаздывает N мин», «затянулся», «кого задержит»
+            # считает браузер по тику, как минуты ожидания, — отпечаток стоит.
+            "doctor": r.get("doctor") or "",
+            "doctor_id": r.get("doctor_id") or "",
+            "phone": r.get("phone") or "",
+            "start_ms": int(st.timestamp() * 1000),
+            "end_ms": int((st + timedelta(minutes=dur)).timestamp() * 1000),
+            # часы — готовой строкой в поясе клиники: браузеру пояс не нужен
+            "end": (st + timedelta(minutes=dur)).strftime("%H:%M"),
+            "in_at": (r["arrived_at"].astimezone(eng.TZ).strftime("%H:%M")
+                      if r["status"] == "arrived" and r.get("arrived_at") else ""),
         })
     return {"count": len(out), "today": d == now.date(), "items": out}
 

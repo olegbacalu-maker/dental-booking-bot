@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
 import { waitLabel } from './dashFx'
 import { DeskCard } from './DeskCard'
-import type { DashAgenda, DashMiniCal, DashOccupancy, DashTile } from './dash'
+import { flowOf, type Flow } from './flow'
+import { FlowBar, FlowList, flowLabels, type FlowLabels, type FlowTab, type FlowTo } from './FlowTabs'
+import type { DashActions, DashAgenda, DashMiniCal, DashOccupancy, DashTile } from './dash'
 import type { CallResult, Desk } from './desk'
 
 /* Правая колонка панели: мини-календарь, повестка, «La recepție».
@@ -42,16 +45,24 @@ interface Props {
   onCall: (id: number, result: CallResult) => void
   /** Что приехало прямо сейчас: этим строкам ставится `fresh` (C26.5.4). */
   fresh: ReadonlySet<number>
+  /** Поток пациента (03.10): следующий статус одной кнопкой — команда панели. */
+  onFlow: (id: number, to: FlowTo) => void
+  /** Матрица кнопок исхода: из неё — слова статусов на вкладках потока. */
+  actions: DashActions
 }
 
 export function DashRail(
-  { minical, agenda, tiles, occupancy, desk, date, waitTick, busy, onCard, onCardMenu, onCall, fresh }: Props,
+  { minical, agenda, tiles, occupancy, desk, date, waitTick, busy, onCard, onCardMenu, onCall, fresh, onFlow,
+    actions }: Props,
 ) {
+  // поток — только у СЕГОДНЯ: в чужом дне «опаздывает» и «ждёт» не значат ничего
+  const flow = agenda.today ? flowOf(agenda.items, waitTick) : null
   return (
     <>
       <MiniCal cal={minical} />
       <Agenda agenda={agenda} date={date} waitTick={waitTick} onCard={onCard}
-        onCardMenu={onCardMenu} fresh={fresh} />
+        onCardMenu={onCardMenu} fresh={fresh} flow={flow} labels={flowLabels(actions)}
+        busy={busy} onFlow={onFlow} />
       <DeskCard desk={desk} tiles={tiles} occupancy={occupancy} busy={busy} onCall={onCall} />
     </>
   )
@@ -97,12 +108,15 @@ function MiniCal({ cal }: { cal: DashMiniCal }) {
 /** Пустой день — ДРУГОЕ дерево, а не пустой список: без счётчика, без списка
  *  и без ссылки «смотреть все». */
 function Agenda(
-  { agenda, date, waitTick, onCard, onCardMenu, fresh }: {
+  { agenda, date, waitTick, onCard, onCardMenu, fresh, flow, labels, busy, onFlow }: {
     agenda: DashAgenda; date: string; waitTick: number
     onCard: (id: number) => void; onCardMenu?: ((id: number, x: number, y: number) => void) | undefined
     fresh: ReadonlySet<number>
+    /** Вкладки потока над повесткой; null — чужой день, вкладок нет. */
+    flow: Flow | null; labels: FlowLabels; busy: boolean; onFlow: (id: number, to: FlowTo) => void
   },
 ) {
+  const [tab, setTab] = useState<FlowTab>('all')
   if (!agenda.items.length) {
     return (
       <div className="agenda">
@@ -111,14 +125,21 @@ function Agenda(
       </div>
     )
   }
+  const t: FlowTab = flow ? tab : 'all'
   return (
     <div className="agenda">
-      <div className="ag-h"><b>{T.agenda}</b><span>{agenda.count} programări</span></div>
+      <div className="ag-h"><b>{T.agenda}</b>{!flow && <span>{agenda.count} programări</span>}</div>
+      {flow && <FlowBar tab={t} onTab={setTab} flow={flow} total={agenda.count} labels={labels} />}
+      {flow && t !== 'all' && (
+        <FlowList kind={t} rows={flow[t]} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow} />
+      )}
       {/* ⛔ `.ag-l` — СТАБИЛЬНЫЙ узел с ключами по id: список прокручивается
           (max-height), и пересоздание контейнера роняло бы прокрутку при
           каждом ответе канала. Старая страница возвращала scrollTop руками
-          именно потому, что подмена innerHTML его теряла. */}
-      <div className="ag-l">
+          именно потому, что подмена innerHTML его теряла.
+          ⚠️ На вкладке потока узел ПРЯЧЕТСЯ, а не снимается — по той же
+          причине: прокрутка «Toate» переживает и переключение вкладок. */}
+      <div className="ag-l" hidden={t !== 'all'}>
         {agenda.items.map((it) => {
           const wait = it.wait_since ? waitLabel(it.wait_since, waitTick) : null
           return (
