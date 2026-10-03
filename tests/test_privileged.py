@@ -526,6 +526,29 @@ def suite_install_setup(res: Result) -> None:
                       (work / privileged.RESULT_NAME).read_text(encoding="utf-8"), privileged.STARTED)
             res.check("программа не тронута (ставит её установщик, не операция)",
                       exe.read_bytes(), b"STARAYA PROGRAMMA")
+            # канарейка 03.10: после «started» программа гасится и прибрать не может —
+            # исходник 38 МБ лежал в папке клиники до следующего обновления
+            res.ok("исходник из папки клиники убран — дальше всё над копией",
+                   not (work / privileged.SETUP_NEW).exists(), "38 МБ остались в папке клиники")
+
+        # ⚠️ Установщик не запустился уже ПОСЛЕ «started» (антивирус): программа
+        # закрылась, итог читает только сторож — первой строкой обязано быть «fail»,
+        # иначе он ждал бы потолка ~9 минут, чтобы поднять ту же программу
+        def refuse(setup, result, log):
+            raise PermissionError(5, "Acces refuzat")
+        privileged._spawn_setup = refuse
+        try:
+            with tempfile.TemporaryDirectory(prefix="dp_setup_spawn_") as td:
+                tmp = pathlib.Path(td)
+                exe, work = _setup_lab(tmp, signed)
+                out = run(tmp, exe)
+                raw = (work / privileged.RESULT_NAME).read_bytes()
+                res.ok("установщик не запустился после «started»: итог «fail» первой строкой, причина второй",
+                       out.startswith("fail\n") and raw.startswith(b"fail\r\n") and "Acces refuzat" in out,
+                       f"{out!r} {raw[:60]!r}")
+                res.check("и программа цела", exe.read_bytes(), b"STARAYA PROGRAMMA")
+        finally:
+            privileged._spawn_setup = lambda setup, result, log: spawned.append((setup, result, log))
 
         cases = (
             ("подпись не сходится (байт изменён)", dict(flip=True), {}, "нет действительной подписи"),

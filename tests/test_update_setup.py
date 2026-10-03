@@ -26,7 +26,7 @@ for k in ("DENTART_UPDATE_VIA", "DENTART_FAKE_UPDATE_URL", "DENTART_UPDATE_TOKEN
 from app import update as upd
 from app import privileged
 
-os.environ["DENTART_CHANNEL"] = "beta"          # путь установщика — пока канарейке
+os.environ["DENTART_CHANNEL"] = ""              # клиника (stable): с 1.37.3 тоже установщиком
 tmp = pathlib.Path(os.environ["DP_TEST_DIR"])
 signed = pathlib.Path(os.environ["DP_SIGNED_SETUP"]) if os.environ.get("DP_SIGNED_SETUP") else None
 out = {}
@@ -81,8 +81,8 @@ installed["found"] = False; m["в реестре не числится (копи
 installed["found"] = True
 upd.STATE["setup_url"] = ""; m["у выпуска нет установщика"] = upd.installer_mode()
 upd.STATE["setup_url"] = "https://x/DentPilot-Setup-99.0.0.zip"
-os.environ["DENTART_CHANNEL"] = ""; m["клиника (stable) — пока подмена exe"] = upd.installer_mode()
-os.environ["DENTART_CHANNEL"] = "beta"
+os.environ["DENTART_CHANNEL"] = "beta"; m["канарейка (beta) — тот же путь"] = upd.installer_mode()
+os.environ["DENTART_CHANNEL"] = ""
 out["mode"] = m
 
 junk = b"MZ" + b"\0" * 6_000_000
@@ -112,7 +112,10 @@ if sys.platform == "win32":
                    + "echo none\r\nexit /b\r\n:start\r\necho start\r\nexit /b\r\n"
                    + ":done\r\necho done\r\nexit /b\r\n", encoding="ascii")
     cases = {"ok": b"ok", "ok+crlf": b"ok\r\n", "fail": b"fail", "cancelled": b"cancelled",
-             "cancelled+crlf": b"cancelled\r\n", "okay": b"okay", "empty": b"", "missing": None}
+             "cancelled+crlf": b"cancelled\r\n", "okay": b"okay", "empty": b"", "missing": None,
+             # исполнитель не запустил установщик после «started»: причина второй строкой
+             "fail+reason": "fail\r\nустановщик не запустился: [WinError 5]".encode("utf-8"),
+             "started": b"started"}
     match = {}
     for case, body in cases.items():
         probe.unlink(missing_ok=True)
@@ -153,10 +156,10 @@ def suite_flow(res: Result) -> None:
     o = json.loads(p.stdout.strip().splitlines()[-1])
 
     m = o["mode"]
-    res.check("путь установщика: канарейка, установлена установщиком в Program Files, установщик в выпуске",
+    res.check("путь установщика: установлена установщиком в Program Files, установщик в выпуске — канал не важен",
               m, {"установлен установщиком, Program Files": True, "рычаг DENTART_UPDATE_VIA=exe": False,
                   "папка программы пишется (переносимая)": False, "в реестре не числится (копия exe)": False,
-                  "у выпуска нет установщика": False, "клиника (stable) — пока подмена exe": False})
+                  "у выпуска нет установщика": False, "канарейка (beta) — тот же путь": True})
 
     for key, want, name in (("sha", "corupt", "sha256 архива не сошёлся"),
                             ("short", "incompletă", "архив не того размера"),
@@ -176,7 +179,7 @@ def suite_flow(res: Result) -> None:
         res.check("сторож узнаёт итог настоящим cmd — и без перевода строки (канарейка 03.10)",
                   o["match"], {"ok": "start", "ok+crlf": "start", "fail": "start", "cancelled": "done",
                                "cancelled+crlf": "done", "okay": "none", "empty": "none",
-                               "missing": "none"})
+                               "missing": "none", "fail+reason": "start", "started": "none"})
 
     if not o["signed"]:
         res.ok("подписанного установщика на машине нет (dist\\, releases\\) — путь до «started» пропущен",
