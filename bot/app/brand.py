@@ -141,6 +141,38 @@ def _mark_body(uid: str, ink: str | None, sw: float = TOOTH_SW) -> str:
             f'<path d="{sp}" fill="{s_ink}"/>{head}')
 
 
+# Центровка знака в иконке (05.10, Олег: «на ярлыке значок не по центру, а
+# смещён вниз и в сторону»). Рамка знака 284x220 рисунком занята НЕ по центру:
+# над стрелкой и под зубом поля разные, и вписанная рамка сажала рисунок на
+# 11 единиц ниже (на ярлыке 48 px — 15 px поля сверху против 10 снизу).
+# Поэтому центрируется сам рисунок, по его краям (`_content_box`).
+# ⚠️ Не по центру масс: масса — зуб, он левее середины, и центровка по ней
+# уводила всю картинку вправо (поля 46/32 на 256) — то самое «в сторону».
+# Сравнение трёх вариантов — sandbox\brand-v2 (05.10).
+
+
+def _content_box(sw: float) -> tuple[float, float, float, float]:
+    """Края рисунка знака (лево, верх, право, низ) в координатах 284x220:
+    контур зуба с половиной толщины линии, лента и стрелка."""
+    half = sw * TOOTH_K / 2
+    pts = [(TOOTH_TX + x * TOOTH_K, TOOTH_TY + y * TOOTH_K) for x, y in _points(TOOTH)]
+    left = min(x for x, _ in pts) - half
+    right = max(x for x, _ in pts) + half
+    top = min(y for _, y in pts) - half
+    bottom = max(y for _, y in pts) + half
+    for x, y in list(SWOOSH) + list(ARROW):
+        left, right = min(left, x), max(right, x)
+        top, bottom = min(top, y), max(bottom, y)
+    return left, top, right, bottom
+
+
+def _icon_place() -> tuple[float, float, float]:
+    """Масштаб и сдвиг знака в иконке 256: (масштаб, x, y) для translate/scale."""
+    m = ICON_MARK_W / MARK_W
+    left, top, right, bottom = _content_box(ICON_TOOTH_SW)
+    return m, VB / 2 - (left + right) / 2 * m, VB / 2 - (top + bottom) / 2 * m
+
+
 def _icon_body(uid: str, small: bool) -> str:
     """Иконка 256x256: бирюзовый квадрат и белый знак (≤32 px — только зуб)."""
     plate = (f'<defs><linearGradient id="{uid}p" x1="0" y1="0" x2="1" y2="1">'
@@ -153,8 +185,7 @@ def _icon_body(uid: str, small: bool) -> str:
         return (plate + f'<path d="{TOOTH}" transform="translate({off:.1f} {off:.1f}) '
                 f'scale({k})" fill="none" stroke="#FFFFFF" stroke-width="{sw}" '
                 f'stroke-linecap="round" stroke-linejoin="round"/>')
-    s = ICON_MARK_W / MARK_W
-    x, y = (VB - MARK_W * s) / 2, (VB - MARK_H * s) / 2 + 4
+    s, x, y = _icon_place()
     return (plate + f'<g transform="translate({x:.1f} {y:.1f}) scale({s:.4f})">'
             f'{_mark_body(uid, "#FFFFFF", ICON_TOOTH_SW)}</g>')
 
@@ -390,8 +421,7 @@ def draw_pil(size: int, small: bool | None = None, rounded: bool = True):
         _stroke(d, [((off + px * k) * s, (off + py * k) * s) for px, py in _points(TOOTH)],
                 sw * k * s, 255)
     else:
-        m = ICON_MARK_W / MARK_W
-        ox, oy = (VB - MARK_W * m) / 2, (VB - MARK_H * m) / 2 + 4
+        m, ox, oy = _icon_place()
 
         def at(px, py):                       # координаты знака -> пиксели холста
             return ((ox + px * m) * s, (oy + py * m) * s)
