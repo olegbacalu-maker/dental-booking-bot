@@ -12,6 +12,7 @@ DENTART_BROWSER_MODE=1 — старый режим: консоль + систе�
 совместимости с dental.env уже установленных клиник.)"""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pathlib
@@ -358,6 +359,124 @@ def _browser_mode() -> None:
     _run_server()
 
 
+def _prepare(stage=lambda *a: None) -> None:
+    """Что лаунчер делает с базой до старта приложения: перевод (шифрование) и
+    копия. ⚠️ ПЕРЕД автобэкапом и перед стартом приложения: базу нельзя
+    переводить, пока её кто-то держит открытой. Здесь этого не делает ещё никто."""
+    try:
+        from app.core import dbkey
+        if (done := dbkey.apply_pending(data_dir)):
+            logging.warning("DB crypt: %s", done)
+    except Exception as e:  # noqa: BLE001 — переезд не должен блокировать старт
+        logging.error("DB crypt FAILED: %r", e)
+    stage("Se face copia de rezervă…", 38)
+    _auto_backup()
+
+
+SPLASH_MIN_S = 0.9               # заставка видна не меньше — иначе это вспышка
+
+
+class _Boot:
+    """Запуск под заставкой: перевод базы, копия, сервер — ровно ОДИН раз.
+
+    ⭐ С 05.10.2026 окно открывается СРАЗУ, с заставкой (`app/splash.py`), а
+    этот запуск идёт в потоке pywebview (`webview.start(func)`) и двигает её
+    полоску по настоящим этапам; готов журнал — окно уходит на его адрес, и
+    экран входа встаёт на том же фоне. Раньше окно появлялось только после
+    подъёма сервера: несколько секунд после двойного клика не было видно ничего.
+    ⭐ Запуск идёт ПАРАЛЛЕЛЬНО открытию окна, а не после: WebView2 сам
+    поднимается секунды три-четыре (лог 05.10: «DentPilot start» → начало
+    запуска 3.9 с), и в очередь эти две паузы складывались бы. Этапы, пришедшие
+    до готовности страницы, не теряются: последний ждёт в `_last` и уходит в
+    заставку, как только та загрузилась (`in_window`).
+    ⚠️ Замок — потому что запуск может понадобиться и без окна: WebView2 нет,
+    `webview.start` упал — тогда тот же запуск зовёт основной поток, и если
+    фон уже начал его, run() дождётся первого: второго сервера не будет.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._ok: bool | None = None
+        self._window = None
+        self._last: tuple = ("Se pornește DentPilot…", 6, 0)
+        self._t0 = time.monotonic()
+
+    def stage(self, text: str, pct: int, upto: int = 0) -> None:
+        """Этап запуска — в заставку, если она уже готова, иначе — до готовности."""
+        self._last = (text, pct, upto)
+        if self._window is not None:
+            self._push()
+
+    def _push(self) -> None:
+        text, pct, upto = self._last
+        try:
+            self._window.evaluate_js(f"dpStage({json.dumps(text)},{pct},{upto})")
+        except Exception:  # noqa: BLE001 — заставка украшает, запуск важнее
+            pass
+
+    def start(self) -> None:
+        """Запуск в фоне — сразу, не дожидаясь окна."""
+        threading.Thread(target=self.run, args=(self.stage,), daemon=True).start()
+
+    def run(self, stage=None) -> bool:
+        with self._lock:
+            if self._ok is None:
+                self._ok = self._go(stage or (lambda *a: None))
+            return self._ok
+
+    def _go(self, stage) -> bool:
+        t0 = time.monotonic()
+        stage("Se pregătește baza de date…", 16)
+        _prepare(stage)
+        t1 = time.monotonic()
+        stage("Se pornește registrul…", 55, 92)
+        threading.Thread(target=_run_server, daemon=True).start()
+        if _wait_ready() and _already_running():
+            # сколько клиника смотрит на заставку — и из чего это складывается
+            logging.warning("запуск: журнал готов за %.1f с (база и копия %.1f, сервер %.1f)",
+                            time.monotonic() - t0, t1 - t0, time.monotonic() - t1)
+            return True
+        # различаем ДВЕ разные беды: порт перехватили после нашей пробы ИЛИ
+        # сервер упал сам (раньше во втором случае врали про порт)
+        port_taken = not _port_free_probe() and not _already_running()
+        logging.error("Server did not start on port %s (port_taken=%s)", PORT, port_taken)
+        if port_taken:
+            warn = (f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
+                    f"Inchideti programul care ocupa portul sau setati DENTART_PORT in dental.env.")
+        else:
+            warn = ("DentPilot nu a putut porni din cauza unei erori interne.\n"
+                    "Detalii: data\\dentpilot.log (ultimele linii).\n"
+                    "Trimiteti fisierul la dentpilotpro@gmail.com — va ajutam.")
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)
+        except Exception:  # noqa: BLE001 — не-Windows/без user32
+            pass
+        return False
+
+    def in_window(self, window) -> None:
+        """Поток pywebview: заставка готова — догнать её этапом и дождаться
+        запуска, потом — журнал в том же окне."""
+        self._window = window
+        shown = time.monotonic()
+        logging.warning("заставка на экране через %.1f с", shown - self._t0)
+        self._push()                    # этап, пришедший раньше страницы
+        if not self.run():              # дождаться фонового запуска
+            window.destroy()            # сообщение уже показано — окно закрываем
+            return
+        # ⚠️ Запуск нередко готов РАНЬШЕ, чем WebView2 покажет страницу (05.10:
+        # журнал за 3.8 с, окно — за 3.9): заставка тогда мелькнула бы долей
+        # секунды, и это читалось бы сбоем. Минимум показа — только в этом
+        # случае; на медленной машине он ничего не добавляет.
+        time.sleep(max(0.0, SPLASH_MIN_S - (time.monotonic() - shown)))
+        try:
+            window.evaluate_js("dpDone()")
+            time.sleep(0.45)            # полоска дошла и погасла — без рывка
+        except Exception:  # noqa: BLE001
+            pass
+        window.load_url(URL)
+
+
 def main() -> None:
     import atexit
 
@@ -404,44 +523,18 @@ def main() -> None:
                 pass
         return
 
-    # ⚠️ ПЕРЕД автобэкапом и перед стартом приложения: базу нельзя переводить,
-    # пока её кто-то держит открытой. Здесь этого не делает ещё никто.
-    try:
-        from app.core import dbkey
-        if (done := dbkey.apply_pending(data_dir)):
-            logging.warning("DB crypt: %s", done)
-    except Exception as e:  # noqa: BLE001 — переезд не должен блокировать старт
-        logging.error("DB crypt FAILED: %r", e)
-    _auto_backup()
     if os.environ.get("DENTART_BROWSER_MODE") == "1":
+        _prepare()
         _browser_mode()
         return
     try:
         import webview  # pywebview: собственное окно приложения
     except Exception:  # noqa: BLE001 — нет WebView2? откат на браузер
         logging.warning("pywebview indisponibil - browser mode")
+        _prepare()
         _browser_mode()
         return
 
-    threading.Thread(target=_run_server, daemon=True).start()
-    if not _wait_ready() or not _already_running():
-        # различаем ДВЕ разные беды: порт перехватили после нашей пробы ИЛИ
-        # сервер упал сам (раньше во втором случае врали про порт)
-        port_taken = not _port_free_probe() and not _already_running()
-        logging.error("Server did not start on port %s (port_taken=%s)", PORT, port_taken)
-        if port_taken:
-            warn = (f"DentPilot nu a putut porni: portul {PORT} este ocupat de alt program.\n"
-                    f"Inchideti programul care ocupa portul sau setati DENTART_PORT in dental.env.")
-        else:
-            warn = ("DentPilot nu a putut porni din cauza unei erori interne.\n"
-                    "Detalii: data\\dentpilot.log (ultimele linii).\n"
-                    "Trimiteti fisierul la dentpilotpro@gmail.com — va ajutam.")
-        try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)
-        except Exception:  # noqa: BLE001 — не-Windows/без user32
-            pass
-        return
     # pywebview по умолчанию ставит ALLOW_DOWNLOADS=False и ОТМЕНЯЕТ любое
     # скачивание молча: ни диалога сохранения, ни ошибки, ни следа в окне.
     # Из-за этого «Salvează pe disc» в фише и «📥 Export CSV» в журнале были
@@ -458,16 +551,28 @@ def main() -> None:
     # исключение отсюда улетало в никуда: сборка --noconsole, значит ни окна,
     # ни консоли, ни сообщения — клиника кликала по ярлыку, и НЕ ПРОИСХОДИЛО
     # НИЧЕГО. Неотличимо от «программа сломана», и позвонить с этим нельзя.
-    # ⭐ Сервер к этому моменту уже поднят и отвечает, то есть программа
-    # работает целиком — не хватает только окна. Поэтому отказ окна переводит
-    # в браузер, а не гасит: клиника работает сегодня, а WebView2 ставится
+    # ⭐ Сервер к этому моменту поднят (или поднимается под заставкой — тогда
+    # его дожидается `boot.run()`), то есть программа работает целиком — не
+    # хватает только окна. Поэтому отказ окна переводит в браузер, а не гасит: клиника работает сегодня, а WebView2 ставится
     # потом. Модальное окно Windows тут и присутствие обозначает, и даёт
     # единственный способ остановить программу — своей кнопкой (иначе процесс
     # без окна нечем закрыть, кроме диспетчера задач).
+    # Цвет фона заставки — цвет темы клиники: экран входа после неё окрашен им
+    # же (layout.standalone), и на синей клинике иначе мелькнула бы бирюза.
+    # ⚠️ Тема не прочиталась — не повод не открыть окно: остаётся бирюза.
+    from app import brand, splash
     try:
-        webview.create_window(
-            "DentPilot — registrul clinicii", URL,
+        from app.core import theme
+        primary = theme.current()["primary"]
+    except Exception as e:  # noqa: BLE001
+        logging.warning("тема для заставки не прочиталась: %r", e)
+        primary = brand.hexc(brand.TEAL)
+    boot = _Boot()
+    try:
+        window = webview.create_window(
+            "DentPilot — registrul clinicii", html=splash.page(APP_VERSION, primary),
             width=1280, height=860, min_size=(960, 640),
+            background_color=brand.tint(primary, .06),
             confirm_close=True,
             localization={
                 "global.quitConfirmation":
@@ -475,9 +580,14 @@ def main() -> None:
                     "următoarea pornire.",
             },
         )
-        webview.start()
+        boot.start()                    # параллельно окну, а не после него
+        webview.start(boot.in_window, window)
     except Exception as e:  # noqa: BLE001 — что угодно вместо окна = браузер
         logging.error("Окно не открылось (%r) — переходим в браузер", e)
+        # окно могло упасть раньше, чем запуск успел начаться под заставкой:
+        # тогда он делается здесь, без неё; не поднялся сервер — сказано вслух
+        if not boot.run():
+            os._exit(0)
         try:
             webbrowser.open(URL)
         except Exception:  # noqa: BLE001

@@ -2,6 +2,10 @@
 
 Сам знак не рисуется здесь: он описан в bot/app/brand.py и оттуда же попадает
 в шапку программы. Иконка на рабочем столе и знак в интерфейсе — одна фигура.
+
+Каждый размер рисуется своим кадром, а не ужимается из 256: у мелких (16–32,
+панель задач и заголовок окна) своя геометрия — зуб крупнее, линия толще
+(brand.BOLD), иначе контур знака сливается в пятно.
 """
 import pathlib
 import sys
@@ -10,11 +14,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from bot.app import brand  # noqa: E402
 
+SIZES = (16, 24, 32, 48, 64, 128, 256)
+
 
 def main(out: str) -> None:
-    base = brand.draw_pil(256)
-    sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-    base.save(out, format="ICO", sizes=sizes)
+    frames = [brand.draw_pil(s) for s in SIZES]
+    frames[-1].save(out, format="ICO", sizes=[(s, s) for s in SIZES],
+                    append_images=frames[:-1])
     print(f"icon written: {out}")
 
 

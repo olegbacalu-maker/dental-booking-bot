@@ -197,7 +197,8 @@
    color:var(--side-fg);box-shadow:inset 0 -1px 0 rgba(255,255,255,.14)}
  /* знак идёт flat=True (bot/app/brand.py): своя тёмно-зелёная подложка тут
     была бы пятном на синей теме, поэтому фигуры берут currentColor */
- .side .brand .logo{width:32px;height:32px;flex:0 0 32px;display:block}
+ /* знак v2 (05.10) шире высоты — лента со стрелкой уходит вправо: 284x220 */
+ .side .brand .logo{width:40px;height:31px;flex:0 0 40px;display:block}
  .side .brand .txt{min-width:0}
  /* имя клиники бывает длинным ("Clinica Stomatologică ..."): две строки и
     обрезка, а не многоточие в середине первого слова */

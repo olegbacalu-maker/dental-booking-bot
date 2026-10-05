@@ -1029,7 +1029,7 @@ def _sidebar(active: str, rail: bool = False) -> str:
                 + item('qr', '/admin/qr-print', 'qr', 'QR pacienți'))
         foot_title = f' title="Telegram: {html.escape(tg_title)}"'
     return f"""<aside class="side{' side-rail' if rail else ''}">
-  <div class="brand">{brand.mark_svg(32, 'logo', flat=True)}
+  <div class="brand">{brand.mark_svg(40, 'logo', flat=True)}
     <div class="txt"><b title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</b><small>DentPilot</small></div>
   </div>
   <nav>
@@ -1362,7 +1362,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # баннеров: рисовать фирменный знак второй раз в TSX значило бы завести
         # второго владельца одной картинки.
         "clinic": {"name": eng.CLINIC_NAME,
-                   "mark": brand.mark_svg(32, "logo", flat=True),
+                   "mark": brand.mark_svg(40, "logo", flat=True),
                    "logo_topbar": (theme.logo_url() or "") if th.get("logo_topbar") else ""},
         "runtime": {"version": eng.APP_VERSION, "tz": eng.TZ.key},
         "nav": {"active": active, "items": items, "sync": sync,
@@ -1989,6 +1989,37 @@ def pwa_head() -> str:
             f'<meta name="apple-mobile-web-app-title" content="{name}">')
 
 
+_BACKDROP_JOIN = "</style></head><body>"
+
+
+def _backdrop(tmpl: str, color: str) -> str:
+    """Фон заставки за страницей со своей вёрсткой (05.10.2026): волны и бледный
+    зуб цветом клиники, внизу — «DentPilot v…».
+
+    ⭐ Окно программы открывается заставкой (`app/splash.py`) и переходит на
+    вход в ТОМ ЖЕ окне — слово Олега «окно с PIN-кодом оставить на том же
+    фоне». Фон одинаковый у заставки и у всех страниц этого класса (вход,
+    установка PIN, восстановление, лицензия): иначе первый экран клиники
+    выглядел бы одним, а соседний — другим.
+    ⚠️ Цвет — цвет темы клиники, а не бирюза: на синей клинике бирюзовый фон
+    под синей кнопкой — ровно та зашитая чужая краска, от которой нас бережёт
+    тема. Заставка берёт тот же цвет, поэтому переход без вспышки.
+    ⚠️ Вставка по стыку `</style></head><body>`: он есть у каждого шаблона
+    этого класса, и шаблон без него останется без фона, но не сломается."""
+    if _BACKDROP_JOIN not in tmpl:
+        return tmpl
+    css = (f"body{{--dp-c:{color};background:{brand.tint(color, .06)}!important}}"
+           f"{brand.BACKDROP_CSS}"
+           "body>:not(.dp-bg){position:relative;z-index:1}"
+           ".dp-by{position:fixed!important;left:0;right:0;bottom:18px;display:flex;"
+           "justify-content:center;align-items:center;gap:8px;font-size:12.5px;color:#6B7C85}"
+           ".dp-by svg{width:30px;height:auto}")
+    by = (f'<div class="dp-by">{brand.mark_svg(30, "dpby", flat=True)}'
+          f"<span>DentPilot v{eng.APP_VERSION}</span></div>")
+    return (tmpl.replace(_BACKDROP_JOIN, css + _BACKDROP_JOIN + brand.backdrop_svg(), 1)
+                .replace("</body>", by + "</body>", 1))
+
+
 def standalone(tmpl: str) -> str:
     """Подставить в страницу СО СВОЕЙ вёрсткой имя клиники, её цвет, логотип и
     объявление шрифта.
@@ -2011,6 +2042,7 @@ def standalone(tmpl: str) -> str:
     # чем встретит первую не-ASCII букву. Вставка по якорю, а не заполнителем:
     # заполнитель в новом экране просто забудут — ровно то, о чём docstring.
     tmpl = tmpl.replace(_PWA_ANCHOR, _PWA_ANCHOR + pwa_head(), 1)
+    tmpl = _backdrop(tmpl, pal["--teal"])
     return (tmpl.replace("__CLINIC__", html.escape(eng.CLINIC_NAME))
             .replace("__ACCENT_D__", pal["--teal-d"])
             .replace("__ACCENT__", pal["--teal"])
