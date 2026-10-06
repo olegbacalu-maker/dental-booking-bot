@@ -1,18 +1,25 @@
 import type * as T3 from 'three'
 import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
-import { archCurve, buildRidge, GAP, GAP_CLOSED, layoutArch, type PlacedTooth } from './arch'
+import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
 import { focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
 import { COLOR, hex, lerpHex, structChanged, targetLook, type Look } from './look'
 import type { RawMesh } from './mesh'
-import { buildCrown, buildDashedLoop, buildRoots, buildScrew, neckOutline, SURF, type Letter } from './toothGeometry'
+import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
+import { crownModel, type CrownModel } from './crown'
+import { posed } from './pose'
+import { anchorsFor, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint, type GumKind, type GumTooth } from './gum'
+import { studioEnv } from './env'
 import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
-   челюсти на дуге движка, десна, пять материалов на коронку (= пять
-   поверхностей), корни, винт импланта, кольца отметок и выбора, номера.
+   челюсти на дуге движка, пять материалов на коронку (= пять поверхностей),
+   корни, винт импланта, кольца отметок и выбора, номера. С 06.10 (кадры
+   до/после, слово Олега «нравится»): коронка `crown.ts`, постановка `pose.ts`,
+   десна по краю каждого зуба `gum.ts`, блики от карты окружения `env.ts`;
+   слой пародонта — рецессия, полосы карманов, BOP, зонды — `setPerio`.
    THREE приходит снаружи уже загруженным (`loadThree`), поэтому модуль
    импортирует только его ТИПЫ. Кадры — ТОЛЬКО по требованию: `invalidate()`
    просит один кадр, и цепочка живёт, пока идёт твин, переезд камеры или
@@ -41,6 +48,13 @@ export interface SceneOptions {
   onViewLeft: () => void
   /** двойной щелчок по зубу — камера к нему (01.10, `focus`) */
   onDouble?: (n: number) => void
+}
+
+/** Последний осмотр пародонтограммы с измерениями — числа сервера как есть:
+ *  рецессия ставит край десны, глубина — полосу и зонд, CAL здесь не считается. */
+export interface PerioInput {
+  rows: Record<string, { pd: number[]; rec: number[]; bop: string; mob: number; furc: number; cal: number[] }>
+  limits: { deep: number; severe: number }
 }
 
 /** Где стоит камера — для стендов Edge и разбора. */
@@ -78,6 +92,8 @@ export interface ArchScene {
   focus(n: number | null): void
   /** зубы, погашенные фильтром легенды (01.10): полупрозрачные, без колец и с бледным номером */
   setDim(teeth: ReadonlySet<number>): void
+  /** слой пародонта (край по рецессии, полосы карманов, BOP, зонды); null — снять */
+  setPerio(p: PerioInput | null): void
   invalidate(): void
   dispose(): void
 }
@@ -114,6 +130,7 @@ const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(
 function toGeometry(THREE: Three, m: RawMesh): T3.BufferGeometry {
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(m.positions, 3))
+  if (m.colors) g.setAttribute('color', new THREE.Float32BufferAttribute(m.colors, 3))
   g.setIndex(m.index)
   for (const gr of m.groups) g.addGroup(gr.start, gr.count, gr.materialIndex)
   g.computeVertexNormals()
@@ -160,18 +177,26 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   container.appendChild(canvas)
 
   const scene = new THREE.Scene()
-  scene.add(new THREE.HemisphereLight(0xeef5f7, 0xb9a692, 1.1))
-  const key = new THREE.DirectionalLight(0xfff4e8, 2.3)
+  // свет мягкий: форму и блики эмали даёт карта окружения (`env.ts`)
+  scene.add(new THREE.HemisphereLight(0xeef5f7, 0xb9a692, 0.42))
+  const key = new THREE.DirectionalLight(0xfff4e8, 1.55)
   key.position.set(40, 80, 90)
-  const fill = new THREE.DirectionalLight(0xdfeaf2, 0.9)
+  const fill = new THREE.DirectionalLight(0xdfeaf2, 0.5)
   fill.position.set(-70, 20, 50)
-  const rim = new THREE.DirectionalLight(0xffffff, 0.7)
+  const rim = new THREE.DirectionalLight(0xffffff, 0.55)
   rim.position.set(-20, 40, -120)
-  const low = new THREE.DirectionalLight(0xfff4e8, 0.8)
+  const low = new THREE.DirectionalLight(0xfff4e8, 0.35)
   low.position.set(20, -80, 60)
   scene.add(key, fill, rim, low)
+  const envTex = studioEnv(THREE, renderer)
+  scene.environment = envTex
+  renderer.toneMappingExposure = 1.0
 
-  const gumMat = new THREE.MeshStandardMaterial({ color: COLOR.gum, roughness: 0.78, metalness: 0, side: THREE.DoubleSide })
+  // цвет десны — в вершинах (`gum.ts`: свободная, прикреплённая, слизистая, полоса кармана)
+  const gumMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.4,
+    sheen: 0.45, sheenColor: new THREE.Color(0xffd2cc), sheenRoughness: 0.55, side: THREE.DoubleSide, envMapIntensity: 0.7,
+  })
   const upperG = new THREE.Group()
   const lowerG = new THREE.Group()
   scene.add(upperG, lowerG)
@@ -208,31 +233,162 @@ export function createArchScene(opts: SceneOptions): ArchScene {
 
   const geomOf = (info: ToothInfo | undefined, upper: boolean): ToothGeom => info?.geom ?? { ...FALLBACK, upper }
 
+  // --- десна по краю зуба и слой пародонта (06.10) ---
+  interface JawGum { lay: ArchLayout; list: number[]; upper: boolean; grp: T3.Group; mesh: T3.Mesh | null; geo: T3.BufferGeometry | null; marks: T3.Group }
+  const jawGum: JawGum[] = []
+  const shape = new Map<number, { place: PlacedTooth; g: ToothGeom; cm: CrownModel }>()
+  let perio: PerioInput | null = null
+  let perioVer = 0
+  let gumSig = ''
+  const siteCol = { deep: linRgb(0xf59e0b), severe: linRgb(0xdc2626) }
+  const dotGeo = new THREE.SphereGeometry(0.42, 14, 10)
+  const dotMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, emissive: 0x991b1b, emissiveIntensity: 0.45, roughness: 0.35 })
+  const probeMat = {
+    ok: new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.4, metalness: 0.3 }),
+    deep: new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.4, metalness: 0.1, emissive: 0x92400e, emissiveIntensity: 0.25 }),
+    severe: new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4, metalness: 0.1, emissive: 0x7f1d1d, emissiveIntensity: 0.3 }),
+  }
+
+  const kindOf = (t: ToothNodes | undefined): GumKind => {
+    const lk = t?.look
+    if (!lk) return 'tooth'
+    if (lk.gone) return 'socket'
+    if (lk.ghost) return 'missing'
+    if (lk.pontic) return 'pontic'
+    return 'tooth'
+  }
+  const ACROSS: Record<number, number> = { 1: 21, 2: 11, 3: 41, 4: 31 }
+  const mesialOf = (n: number): number => (n % 10 === 1 ? (ACROSS[Math.floor(n / 10)] ?? 0) : n - 1)
+  const distalOf = (n: number): number => (n % 10 < 8 ? n + 1 : 0)
+
+  function gumTooth(n: number): GumTooth | null {
+    const info = shape.get(n)
+    if (!info) return null
+    const { place, g, cm } = info
+    const gone = (m: number): boolean => {
+      const t = teeth.get(m)
+      return !t || kindOf(t) !== 'tooth'
+    }
+    const row = perio?.rows[String(n)]
+    const lim = perio?.limits
+    const sites = row && lim
+      ? row.pd.map((pd) => (pd >= lim.severe ? siteCol.severe : pd >= lim.deep ? siteCol.deep : null))
+      : null
+    return {
+      n, kind: kindOf(teeth.get(n)), s: place.s, md: g.md, bl: g.bl, root: g.root,
+      position: place.position, xAxis: place.xAxis, yAxis: place.yAxis, zAxis: place.zAxis,
+      surf: cm.surf,
+      anchors: anchorsFor(toCls(g.cls), row ? row.rec : null, gone(mesialOf(n)), gone(distalOf(n))),
+      stripe: stripesFor(sites),
+    }
+  }
+
+  function clearMarks(J: JawGum): void {
+    J.marks.traverse((o) => {
+      const m = o as T3.Mesh
+      if (m.isMesh && m.geometry !== dotGeo) m.geometry.dispose()
+    })
+    J.marks.clear()
+  }
+
+  /** BOP точками на краю; зонды (линия от края вниз на глубину кармана) — видны сквозь прозрачную десну. */
+  function buildMarks(J: JawGum, list: GumTooth[]): void {
+    clearMarks(J)
+    if (!perio) return
+    const lim = perio.limits
+    const probes = new THREE.Group()
+    probes.name = 'probes'
+    probes.visible = togs.xray
+    for (const t of list) {
+      if (t.kind !== 'tooth') continue
+      const row = perio.rows[String(t.n)]
+      if (!row) continue
+      SITE_DEG.forEach((deg, i) => {
+        const th = (deg * Math.PI) / 180
+        const hm = marginH(t.anchors, th)
+        if (row.bop[i] === '1') {
+          const p = wallPoint(t, th, hm + 0.1, 0.5)
+          const m = new THREE.Mesh(dotGeo, dotMat)
+          m.position.set(p[0], p[1], p[2])
+          m.raycast = () => undefined
+          J.marks.add(m)
+        }
+        const pd = row.pd[i] ?? 0
+        if (pd > 0) {
+          const pts: T3.Vector3[] = []
+          for (let k = 0; k <= 6; k++) {
+            const p = wallPoint(t, th, hm - (pd * k) / 6, 0.32)
+            pts.push(new THREE.Vector3(p[0], p[1], p[2]))
+          }
+          const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 10, 0.17, 6, false)
+          const mat = pd >= lim.severe ? probeMat.severe : pd >= lim.deep ? probeMat.deep : probeMat.ok
+          const m = new THREE.Mesh(geo, mat)
+          m.raycast = () => undefined
+          probes.add(m)
+        }
+      })
+    }
+    J.marks.add(probes)
+  }
+
+  function rebuildGums(): void {
+    if (!jawGum.length) return
+    const sig = [...teeth.values()].map((t) => t.n + kindOf(t)).join(',') + '|' + perioVer
+    if (sig === gumSig) return
+    gumSig = sig
+    for (const J of jawGum) {
+      const list = J.list.map(gumTooth).filter((x): x is GumTooth => x !== null)
+      const geo = toGeometry(THREE, buildGum({ A: J.lay.A, D: J.lay.D, apex: J.lay.apex, yBase: J.lay.yBase, occ: J.upper ? -1 : 1, teeth: list }))
+      if (J.mesh) {
+        J.geo?.dispose()
+        J.mesh.geometry = geo
+      } else {
+        J.mesh = new THREE.Mesh(geo, gumMat)
+        J.mesh.raycast = () => undefined
+        J.grp.add(J.mesh)
+      }
+      J.geo = geo
+      buildMarks(J, list)
+    }
+    invalidate()
+  }
+
   function buildArch(model: Odontogram, list: number[], upper: boolean): void {
     const sizes = list.map((n) => ({ n, md: geomOf(model.teeth[String(n)], upper).md }))
     const lay = layoutArch(sizes, upper)
     const grp = upper ? upperG : lowerG
-    const ridgeGeo = toGeometry(THREE, buildRidge(lay.A, lay.D, lay.apex, lay.yBase, lay.dir))
-    const ridge = new THREE.Mesh(ridgeGeo, gumMat)
-    ridge.raycast = () => undefined
-    grp.add(ridge)
-    disposables.push(ridgeGeo)
-    for (const p of lay.teeth) addTooth(model, p, upper, grp)
+    const models = new Map<number, CrownModel>()
+    for (const n of list) models.set(n, crownModel(geomOf(model.teeth[String(n)], upper)))
+    // окклюзионная плоскость — по вершине первого моляра этой челюсти (он остаётся на месте)
+    const ref = (upper ? [16, 26, 17, 27] : [36, 46, 37, 47]).map((n) => models.get(n)?.tip).find((x) => x !== undefined)
+      ?? Math.max(...[...models.values()].map((c) => c.tip))
+    const marks = new THREE.Group()
+    grp.add(marks)
+    jawGum.push({ lay, list, upper, grp, mesh: null, geo: null, marks })
+    for (const p0 of lay.teeth) {
+      const g = geomOf(model.teeth[String(p0.n)], upper)
+      const cm = models.get(p0.n) as CrownModel
+      const p = posed(p0, toCls(g.cls), upper, cm.tip, ref)
+      shape.set(p0.n, { place: p, g, cm })
+      addTooth(model, p, upper, grp, cm)
+    }
   }
 
-  function addTooth(model: Odontogram, p: PlacedTooth, upper: boolean, grp: T3.Group): void {
+  function addTooth(model: Odontogram, p: PlacedTooth, upper: boolean, grp: T3.Group, cm: CrownModel): void {
     const g = geomOf(model.teeth[String(p.n)], upper)
     const hmd = g.md / 2
     const hbl = g.bl / 2
-    const mats = SURF.map(() => new THREE.MeshStandardMaterial({
-      color: COLOR.enamel, roughness: 0.32, metalness: 0, emissive: new THREE.Color(COLOR.glow), emissiveIntensity: 0,
+    // эмаль с лаковым слоем: блик по форме коронки; цвет вершин — оттенок по высоте (`crown.ts`)
+    const mats: T3.MeshStandardMaterial[] = SURF.map(() => new THREE.MeshPhysicalMaterial({
+      color: COLOR.enamel, vertexColors: true, roughness: 0.34, metalness: 0, clearcoat: 0.55, clearcoatRoughness: 0.18,
+      emissive: new THREE.Color(COLOR.glow), emissiveIntensity: 0,
     }))
-    const crownGeo = toGeometry(THREE, buildCrown(g))
+    const crownGeo = toGeometry(THREE, cm.mesh)
     const crown = new THREE.Mesh(crownGeo, mats)
     crown.userData['n'] = p.n
     crowns.push(crown)
     const rootMat = new THREE.MeshStandardMaterial({ color: COLOR.dentin, roughness: 0.62, metalness: 0 })
-    const rootsGeo = toGeometry(THREE, buildRoots(g))
+    const rootsGeo = toGeometry(THREE, buildRoots(g, cm.neck))
     const roots = new THREE.Mesh(rootsGeo, rootMat)
     roots.raycast = () => undefined
     const screwGeo = toGeometry(THREE, buildScrew(Math.min(hmd, hbl) * 0.9))
@@ -272,8 +428,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     socket.rotation.x = -Math.PI / 2
     socket.position.y = 0.05
     socket.raycast = () => undefined
-    // пунктир чуть выше десны (она закрывает шейку на 0,7 мм), цветом «Lipsă» палитры, темнее для десны
-    const gapGeo = toGeometry(THREE, buildDashedLoop(neckOutline(g), 1.4, 0.2))
+    // пунктир шейки над беззубым гребнем (он на 0,4 мм ниже шейки), цветом «Lipsă» палитры, темнее для десны
+    const gapGeo = toGeometry(THREE, buildDashedLoop(cm.outline(48), 0.05, 0.2))
     const gapMat = new THREE.MeshBasicMaterial({ color: lerpHex(hex(palette['lipsa'] ?? '#CBD5E1'), 0x64748b, 0.45), transparent: true })
     const gap = new THREE.Mesh(gapGeo, gapMat)
     gap.visible = false
@@ -566,6 +722,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       else if (structChanged(prev, look)) animateStruct(t, prev, look)
       else applyLook(t, look, false)
     }
+    rebuildGums()
     paintGlow()
   }
 
@@ -911,6 +1068,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         gumMat.transparent = on
         gumMat.opacity = on ? 0.28 : 1
         gumMat.depthWrite = !on
+        for (const J of jawGum) {
+          const pr = J.marks.getObjectByName('probes')
+          if (pr) pr.visible = on
+        }
       } else if (k === 'upper' || k === 'lower') {
         setJaw(k, on)
       } else if (k === 'closed') {
@@ -922,6 +1083,11 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     setDim(set) {
       dimmed = set
       if (lastModel) paint(lastModel)
+    },
+    setPerio(p) {
+      perio = p
+      perioVer += 1
+      rebuildGums()
     },
     invalidate,
     dispose() {
@@ -941,6 +1107,14 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       canvas.removeEventListener('contextmenu', onCtx)
       canvas.removeEventListener('webglcontextlost', onLost)
       for (const d of disposables) d.dispose()
+      for (const J of jawGum) {
+        clearMarks(J)
+        J.geo?.dispose()
+      }
+      dotGeo.dispose()
+      dotMat.dispose()
+      for (const m of Object.values(probeMat)) m.dispose()
+      envTex?.dispose()
       renderer.dispose()
       // явно отпускаем контекст: браузер держит их считаное число
       renderer.forceContextLoss()

@@ -1,17 +1,16 @@
 import type { ToothGeom } from '../chart'
 import { lathe, oneGroup, type RawMesh } from './mesh'
 
-/* Форма зуба (B7, ступень 3) — перенос блока `JS3D` макета
-   `frontend/prototypes/odontogram/gen.py` и метода прототипа `dental3d`:
-   суперэллипс в поперечнике, профиль по высоте сплайном Катмулла–Рома, бугры
-   гауссианами, борозды вычитанием; корни — эллиптические конусы с дистальным
-   наклоном; винт импланта — тело вращения. Размеры (`md`, `bl`, `crown`,
-   `root`, `roots`, `cls`, `upper`) приходят С СЕРВЕРА (`teeth_svg.tooth_geom`),
-   здесь только форма — контракт clinical-chart.md › «3D — рендер, не истина».
+/* Части зуба, общие для всех видов коронки (B7): корни, винт импланта, пунктир
+   пустого места, рельеф жевательной поверхности и буквы поверхностей. Саму
+   коронку строит `crown.ts` (06.10: четыре полуоси сечения, наклон, цвет
+   вершин); размеры (`md`, `bl`, `crown`, `root`, `roots`, `cls`, `upper`)
+   приходят С СЕРВЕРА (`teeth_svg.tooth_geom`), здесь только форма — контракт
+   clinical-chart.md › «3D — рендер, не истина».
 
-   Канон прототипа dental3d: +x дистально, −x мезиально, +z щёчно,
-   +y окклюзионно, шейка y = 0. Пять групп треугольников коронки = пять
-   материалов = пять поверхностей в порядке `SURF`. */
+   Канон: +x дистально, −x мезиально, +z щёчно, +y окклюзионно, шейка y = 0.
+   Пять групп треугольников коронки = пять материалов = пять поверхностей в
+   порядке `SURF`. */
 
 export const SURF = ['O', 'V', 'L', 'M', 'D'] as const
 export type Letter = (typeof SURF)[number]
@@ -24,50 +23,10 @@ export function toCls(s: string): Cls {
   return (CLASSES as readonly string[]).includes(s) ? (s as Cls) : 'molar'
 }
 
-/** «Квадратность» поперечника: 2 — эллипс, больше — прямоугольнее. */
-const SQUARE: Record<Cls, number> = { incisor_c: 2.4, incisor_l: 2.4, canine: 2.2, premolar: 2.6, molar: 3.2 }
-
-/** Профиль по высоте: [t от шейки к режущему краю, доля md, доля bl]. */
-type Prof = [number, number, number][]
-const PROF: Record<'molar' | 'premolar' | 'canine' | 'incisor', Prof> = {
-  molar: [[0, 0.80, 0.80], [0.16, 0.92, 0.92], [0.34, 1, 1], [0.62, 0.99, 0.99], [0.86, 0.95, 0.95], [1, 0.90, 0.90]],
-  premolar: [[0, 0.80, 0.80], [0.16, 0.92, 0.92], [0.34, 1, 1], [0.62, 0.98, 0.98], [0.86, 0.92, 0.92], [1, 0.86, 0.86]],
-  canine: [[0, 0.80, 0.85], [0.2, 0.95, 1], [0.45, 1, 0.95], [0.7, 0.9, 0.7], [0.88, 0.65, 0.42], [1, 0.30, 0.16]],
-  incisor: [[0, 0.78, 0.85], [0.2, 0.9, 1], [0.45, 1, 0.9], [0.7, 1.02, 0.62], [0.88, 1, 0.36], [1, 0.96, 0.14]],
-}
-const profOf = (cls: Cls): Prof => PROF[cls === 'incisor_c' || cls === 'incisor_l' ? 'incisor' : cls]
-
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const smooth = (e0: number, e1: number, x: number): number => {
   const t = clamp((x - e0) / (e1 - e0), 0, 1)
   return t * t * (3 - 2 * t)
-}
-
-/** Доли md и bl на высоте t — сплайн Катмулла–Рома по опорным точкам профиля. */
-export function profAt(prof: Prof, t: number): [number, number] {
-  const n = prof.length
-  let i = 1
-  while (i < n - 1 && t > (prof[i]?.[0] ?? 1)) i++
-  const p1 = prof[i - 1] ?? prof[0] ?? [0, 1, 1]
-  const p2 = prof[i] ?? p1
-  const p0 = prof[i - 2] ?? p1
-  const p3 = prof[i + 1] ?? p2
-  const span = p2[0] - p1[0]
-  const u = span > 0 ? clamp((t - p1[0]) / span, 0, 1) : 0
-  const u2 = u * u
-  const u3 = u2 * u
-  const cr = (k: 1 | 2): number =>
-    0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * u + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * u2
-      + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * u3)
-  return [cr(1), cr(2)]
-}
-
-/** Точка суперэллипса с полуосями a (x) и b (z) под углом th. */
-export function crossSec(th: number, a: number, b: number, sq: number): [number, number] {
-  const c = Math.cos(th)
-  const s = Math.sin(th)
-  const p = 2 / sq
-  return [Math.sign(c) * Math.pow(Math.abs(c), p) * a, Math.sign(s) * Math.pow(Math.abs(s), p) * b]
 }
 
 /** Рельеф жевательной поверхности в долях полуосей (fx: мезиально −1 …
@@ -100,114 +59,6 @@ export function reliefFn(cls: Cls, upper: boolean): (fx: number, fz: number) => 
   }
   if (cls === 'canine') return (fx, fz) => 1.3 * gs(fx, fz, -0.1, 0, 0.45)
   return () => 0
-}
-
-export type CrownInput = Pick<ToothGeom, 'md' | 'bl' | 'crown' | 'cls' | 'upper'>
-
-/** Коронка: стенка (θ × высота) + площадка (кольца к центру); пять групп
- *  треугольников по секторам θ и площадке — пять материалов. */
-export function buildCrown(g: CrownInput): RawMesh {
-  const cls = toCls(g.cls)
-  const hmd = g.md / 2
-  const hbl = g.bl / 2
-  const H = g.crown
-  const TH = 64
-  const ROWS = 22
-  const RINGS = 10
-  const sq = SQUARE[cls]
-  const prof = profOf(cls)
-  const relief = reliefFn(cls, g.upper)
-  const rimK = cls === 'molar' || cls === 'premolar' ? 0.52 : 0
-  const [topMD, topBL] = profAt(prof, 1)
-  const pos: number[] = []
-  const ridge = (th: number): number => {
-    const [x, z] = crossSec(th, hmd * topMD, hbl * topBL, sq)
-    return relief(x / hmd, z / hbl) * rimK
-  }
-  for (let r = 0; r <= ROWS; r++) {
-    const t = r / ROWS
-    const [wm, wb] = profAt(prof, t)
-    const k = smooth(0.72, 1, t)
-    for (let j = 0; j < TH; j++) {
-      const th = (2 * Math.PI * j) / TH
-      const [x, z] = crossSec(th, hmd * wm, hbl * wb, sq)
-      pos.push(x, t * H + ridge(th) * k, z)
-    }
-  }
-  const ringStart: number[] = [ROWS * TH]
-  for (let k = 1; k <= RINGS; k++) {
-    const s = 1 - k / RINGS
-    ringStart.push(pos.length / 3)
-    if (k === RINGS) {
-      pos.push(0, H + relief(0, 0), 0)
-      break
-    }
-    for (let j = 0; j < TH; j++) {
-      const th = (2 * Math.PI * j) / TH
-      const [rx, rz] = crossSec(th, hmd * topMD, hbl * topBL, sq)
-      const x = rx * s
-      const z = rz * s
-      const fade = 1 - smooth(0.7, 1, s)
-      pos.push(x, H + relief(x / hmd, z / hbl) * fade + ridge(th) * (1 - fade), z)
-    }
-  }
-  const B: Record<Letter, number[]> = { O: [], V: [], L: [], M: [], D: [] }
-  const step = 360 / TH
-  const sector = (deg: number): Letter => {
-    let d = deg % 360
-    if (d < -30) d += 360
-    if (d >= 330) d -= 360
-    if (d >= -30 && d < 30) return 'D'
-    if (d < 150) return 'V'
-    if (d < 210) return 'M'
-    return 'L'
-  }
-  for (let r = 0; r < ROWS; r++) {
-    for (let j = 0; j < TH; j++) {
-      const jn = (j + 1) % TH
-      const a = r * TH + j
-      const b = r * TH + jn
-      const c = (r + 1) * TH + jn
-      const d = (r + 1) * TH + j
-      B[sector((j + 0.5) * step)].push(a, c, b, a, d, c)
-    }
-  }
-  for (let k = 0; k < RINGS; k++) {
-    const o = ringStart[k] ?? 0
-    const i = ringStart[k + 1] ?? 0
-    if (k === RINGS - 1) {
-      for (let j = 0; j < TH; j++) {
-        const jn = (j + 1) % TH
-        B.O.push(o + j, i, o + jn)
-      }
-    } else {
-      for (let j = 0; j < TH; j++) {
-        const jn = (j + 1) % TH
-        B.O.push(o + j, i + j, i + jn, o + j, i + jn, o + jn)
-      }
-    }
-  }
-  const index: number[] = []
-  const groups = SURF.map((L, slot) => {
-    const start = index.length
-    for (const v of B[L]) index.push(v)
-    return { start, count: B[L].length, materialIndex: slot }
-  })
-  return { positions: pos, index, groups }
-}
-
-/** Контур шейки зуба (x, z) — сечение коронки у самой десны. Им 3D рисует
- *  ОТСУТСТВУЮЩИЙ зуб: как в 2D, только пунктирный контур, без коронки и
- *  корней (`teeth_svg`: «отсутствует — только призрак контура, пунктиром»). */
-export function neckOutline(g: Pick<ToothGeom, 'md' | 'bl' | 'cls'>, segments = 48): [number, number][] {
-  const cls = toCls(g.cls)
-  const [wm, wb] = profAt(profOf(cls), 0)
-  const out: [number, number][] = []
-  for (let j = 0; j < segments; j++) {
-    const th = (2 * Math.PI * j) / segments
-    out.push(crossSec(th, (g.md / 2) * wm, (g.bl / 2) * wb, SQUARE[cls]))
-  }
-  return out
 }
 
 /** Пунктир вдоль замкнутого контура на высоте y: каждый чётный отрезок —
@@ -279,17 +130,16 @@ function rootSpecs(cls: Cls, n: number, hmd: number, hbl: number, len: number): 
 
 export type RootsInput = Pick<ToothGeom, 'md' | 'bl' | 'root' | 'roots' | 'cls'>
 
-/** Шеечный переход + корни (эллиптические конусы, слегка расходятся и
- *  наклонены дистально). Одна группа — один материал (дентин). */
-export function buildRoots(g: RootsInput): RawMesh {
+/** Шеечный переход (сечение шейки коронки, сужается на 14 %) + корни
+ *  (эллиптические конусы, слегка расходятся и наклонены дистально). Одна
+ *  группа — один материал (дентин). */
+export function buildRoots(g: RootsInput, neck: (th: number) => [number, number]): RawMesh {
   const cls = toCls(g.cls)
   const hmd = g.md / 2
   const hbl = g.bl / 2
   const TH = 48
   const COL = 2.4
   const CR = 6
-  const sq = SQUARE[cls]
-  const [wm0, wb0] = profAt(profOf(cls), 0)
   const pos: number[] = []
   const idx: number[] = []
   for (let r = 0; r <= CR; r++) {
@@ -297,7 +147,10 @@ export function buildRoots(g: RootsInput): RawMesh {
     const w = 1 - 0.14 * smooth(0, 1, t)
     for (let j = 0; j < TH; j++) {
       const th = (2 * Math.PI * j) / TH
-      const [x, z] = crossSec(th, hmd * wm0 * w, hbl * wb0 * w, sq)
+      // шейка коронки (`crown.ts`) — корень продолжает её сечение
+      const [nx, nz] = neck(th)
+      const x = nx * w
+      const z = nz * w
       pos.push(x, -COL * t, z)
     }
   }

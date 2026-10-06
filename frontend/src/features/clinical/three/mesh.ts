@@ -17,6 +17,9 @@ export interface RawMesh {
   /** тройки вершин */
   index: number[]
   groups: MeshGroup[]
+  /** цвет вершины r g b подряд, линейный (06.10: оттенок эмали по высоте,
+   *  цвета десны и полоса кармана); нет — материал красит одним цветом */
+  colors?: number[]
 }
 
 export const triangles = (m: RawMesh): number => m.index.length / 3

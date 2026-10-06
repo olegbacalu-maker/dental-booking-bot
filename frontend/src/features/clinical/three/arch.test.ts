@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { archCurve, buildRidge, det3, GAP, layoutArch, toWorld } from './arch'
-import { finite, triangles } from './mesh'
+import { archCurve, det3, GAP, layoutArch, toWorld } from './arch'
 
 /* Раскладка — числа, а не картинка: сумма ширин равна длине дуги, мезиальная
    сторона каждого зуба смотрит к средней линии, щёчная — наружу, отражены
@@ -82,19 +81,5 @@ describe('расстановка', () => {
       expect(dot(t.xAxis, t.zAxis)).toBeCloseTo(0, 9)
       expect(dot(t.yAxis, t.zAxis)).toBeCloseTo(0, 9)
     }
-  })
-})
-
-describe('десна', () => {
-  it('гребень — замкнутая конечная сетка длиннее ряда, над шейками верхней челюсти', () => {
-    const lay = layoutArch(row(UPPER), true)
-    const m = buildRidge(lay.A, lay.D, lay.apex, lay.yBase, 1)
-    expect(finite(m)).toBe(true)
-    expect(triangles(m)).toBeGreaterThan(5000)
-    const xs = m.positions.filter((_v, i) => i % 3 === 0)
-    expect(Math.min(...xs)).toBeLessThan(-lay.A)
-    expect(Math.max(...xs)).toBeGreaterThan(lay.A)
-    const ys = m.positions.filter((_v, i) => i % 3 === 1)
-    expect(Math.min(...ys)).toBeGreaterThan(lay.yBase - 1)
   })
 })

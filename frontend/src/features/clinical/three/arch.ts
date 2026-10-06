@@ -1,9 +1,8 @@
-import { oneGroup, type RawMesh } from './mesh'
-
 /* Раскладка по дуге (B7, ступень 3) — та же парабола, что у 2D-дуги макета:
    сумма ширин зубов растягивает дугу, зуб стоит щёчной стороной наружу,
    мезиальной — к средней линии. Здесь только числа: точка на кривой, базис
-   зуба, гребень десны; матрицы и группы three строит сцена (ступень 4).
+   зуба; матрицы и группы three строит сцена (ступень 4), десну по краю зубов —
+   `gum.ts` (06.10) на той же параболе.
 
    ⭐ Правило, которое ломается молча: квадранты 2 и 4 ОТРАЖАЮТСЯ (у базиса
    отрицательный определитель), потому что сетка зуба одна на все квадранты
@@ -152,57 +151,3 @@ export function toWorld(t: PlacedTooth, local: Vec3): Vec3 {
   ]
 }
 
-/** Десна: гребень эллиптического сечения вдоль той же параболы, чуть длиннее ряда. */
-export function buildRidge(A: number, D: number, apex: number, yTop: number, dir: number): RawMesh {
-  const rx = 6.0
-  const ry = 8.5
-  const N = 96
-  const M = 28
-  const ext = 4
-  const yc = yTop + dir * (ry - 0.7)
-  const pos: number[] = []
-  const idx: number[] = []
-  for (let i = 0; i <= N; i++) {
-    const x = -(A + ext) + (2 * (A + ext) * i) / N
-    const z = apex - (D * x * x) / (A * A)
-    const dz = (-2 * D * x) / (A * A)
-    const nn = Math.hypot(1, dz)
-    const tx = 1 / nn
-    const tz = dz / nn
-    const nx = -tz
-    const nz = tx
-    for (let j = 0; j < M; j++) {
-      const ph = (2 * Math.PI * j) / M
-      const ox = Math.cos(ph) * rx
-      const oy = Math.sin(ph) * ry
-      pos.push(x + nx * ox, yc + oy, z + nz * ox)
-    }
-  }
-  for (let i = 0; i < N; i++) {
-    for (let j = 0; j < M; j++) {
-      const jn = (j + 1) % M
-      const a = i * M + j
-      const b = i * M + jn
-      const c = (i + 1) * M + jn
-      const d = (i + 1) * M + j
-      idx.push(a, c, b, a, d, c)
-    }
-  }
-  for (const ring of [0, N]) {
-    const c = pos.length / 3
-    let cx = 0
-    let cy = 0
-    let cz = 0
-    for (let j = 0; j < M; j++) {
-      cx += pos[(ring * M + j) * 3] ?? 0
-      cy += pos[(ring * M + j) * 3 + 1] ?? 0
-      cz += pos[(ring * M + j) * 3 + 2] ?? 0
-    }
-    pos.push(cx / M, cy / M, cz / M)
-    for (let j = 0; j < M; j++) {
-      const jn = (j + 1) % M
-      idx.push(c, ring * M + j, ring * M + jn)
-    }
-  }
-  return oneGroup(pos, idx)
-}
