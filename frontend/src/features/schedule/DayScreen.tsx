@@ -5,7 +5,9 @@ import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
-import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
+import {
+  hashChangeKeepsData, queryParam, useRouteLoad, type RouteLoad, type ScreenData,
+} from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
 import { dm, shift } from '../../utils/date'
 import { AddDialog } from './AddDialog'
@@ -86,9 +88,16 @@ interface Props {
  * на `/admin/all` `?doctor=` и `?time_pre=` — предвыбор формы старой страницы
  * (её ссылка «+»), а у `/api/schedule/day` `doctor` значит «день одного
  * врача». Переслать адрес целиком — и общий журнал открылся бы днём врача.
+ * ⭐ Смена ОДНОГО якоря загрузчик не перезапускает (`hashChangeKeepsData`,
+ * 07.10, Олег): `#addform` — окно поверх того же дня, и его закрытие слало
+ * второй GET — окно висело до ответа, а отказ менял день на плашку отказа.
+ * Тот же адрес («Zi» на том же дне) и повтор перечитывают день, как и раньше.
  */
-export const loadDay: RouteLoad<DayModel> = (signal, p, q) =>
-  day.get(queryParam(q, 'date'), p.dk ?? '', queryParam(q, 'f'), signal)
+export const loadDay: ScreenData = {
+  load: ((signal, p, q) =>
+    day.get(queryParam(q, 'date'), p.dk ?? '', queryParam(q, 'f'), signal)) satisfies RouteLoad<DayModel>,
+  shouldRevalidate: hashChangeKeepsData,
+}
 
 export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DayModel>(navigate)
@@ -188,8 +197,10 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   /* ⭐ Окно записи открыто, пока в адресе `#addform`: с ним сюда ведёт кнопка
      «Programare nouă» шапки программы, и повторное нажатие той же кнопки —
      это тот же адрес, который снова откроет окно. Закрыть — убрать якорь
-     (`replace`, загрузчик на смену одного якоря не ходит). Своего флага у
-     экрана нет: адрес и есть состояние. */
+     (`replace`). День при этом НЕ перечитывается, но не сам по себе: снятие
+     якоря роутер считает перезагрузкой, её отменяет правило маршрута
+     (`loadDay` › `hashChangeKeepsData`). Своего флага у экрана нет: адрес и
+     есть состояние. */
   const adding = loc.hash === ADD_HASH
   const closeAdd = () => { void to(`${loc.pathname}${loc.search}`, { replace: true }) }
   const openCard = card !== null ? m.cards[String(card)] : undefined

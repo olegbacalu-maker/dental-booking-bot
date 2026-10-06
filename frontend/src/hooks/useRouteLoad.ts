@@ -58,6 +58,19 @@ export const searchChangeKeepsData: ShouldRevalidateFunction = ({ currentUrl, ne
     ? false : defaultShouldRevalidate
 
 /**
+ * Правило для экрана, у которого ЯКОРЬ адреса — окно поверх тех же данных
+ * (день журнала: `#addform` — окно записи): смена одного якоря на том же пути
+ * и query загрузчик не перезапускает. ⚠️ Роутер сам пропускает только
+ * постановку и смену якоря, а СНЯТИЕ (`#a` → без якоря) считает перезагрузкой
+ * (`isHashChangeOnly`): закрытие окна перечитывало день вторым GET (06.10).
+ * Повтор (тот же адрес, `revalidate`) и любой другой адрес — как обычно.
+ */
+export const hashChangeKeepsData: ShouldRevalidateFunction = ({ currentUrl, nextUrl, defaultShouldRevalidate }) =>
+  currentUrl.pathname === nextUrl.pathname && currentUrl.search === nextUrl.search
+    && currentUrl.hash !== nextUrl.hash
+    ? false : defaultShouldRevalidate
+
+/**
  * ⭐ Загрузчик отдаёт ту же `LoadState`, что и `useLoad`, и НЕ бросает на
  * отказе сервера: брошенное ушло бы в ловушку ошибок маршрута, и экран
  * потерял бы свою плашку отказа с повтором и ссылкой на старую страницу.

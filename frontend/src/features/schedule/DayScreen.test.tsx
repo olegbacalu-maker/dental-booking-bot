@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
+import { ApiError } from '../../types/api'
 import { DayScreen, loadDay } from './DayScreen'
 import type { DashBlock, DashCanvasModel } from './dash'
 import type { DayModel } from './day'
@@ -228,8 +229,9 @@ const show = (props: { date?: string; doctor?: string; f?: string } = {}) => {
 type Router = Awaited<ReturnType<typeof open>>['router']
 /** Адрес, которым владеет роутер: его и увидит F5.
  *  ⚠️ После перехода С ЗАГРУЗЧИКОМ роутер ВПЕРЕДИ экрана. Здесь это любая
- *  смена дня и закрытие окна записи: снятие якоря роутер считает переходом с
- *  загрузкой, в отличие от его постановки. Такой переход кончается уже вне
+ *  смена дня; закрытие окна записи — уже нет: снятие якоря роутер считает
+ *  перезагрузкой, но с 07.10 её отменяет правило маршрута дня
+ *  (`hashChangeKeepsData`). Переход с загрузкой кончается уже вне
  *  `act` щелчка, и `RouterProvider` отдаёт новое состояние React'у через
  *  `startTransition`: `router.state` новый, а экран ещё рисуется кусками по
  *  5 мс — под нагрузкой опрос `waitFor` попадает между ними. Поэтому сперва
@@ -367,6 +369,53 @@ describe('окно записи «Programare nouă»', () => {
     await waitFor(() => expect(addForm()).toBeNull())
     expect(router.state.location.hash).toBe('')
     expect(addr(router)).toBe('/admin/all?date=2026-09-22')
+  })
+
+  /* ⭐ (07.10, решение Олега) Закрытие окна день НЕ перечитывает. Снятие
+     якоря роутер по умолчанию считает перезагрузкой — в отличие от
+     постановки, — и «Închide» слал второй GET: окно висело до ответа, а
+     отказ этого GET менял весь день на плашку отказа. Свежесть дню дают
+     переход по дате и ответ действия, а не закрытие окна. */
+  it('«Închide» не перечитывает день: второго GET нет', async () => {
+    const { router } = await openAdd()
+    expect(get).toHaveBeenCalledTimes(1)
+    fireEvent.click(document.querySelector('dialog .dlg-head button') as HTMLElement)
+    await waitFor(() => expect(addForm()).toBeNull())
+    expect(router.state.location.hash).toBe('')
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('после записи окно закрывается без второго GET, и на экране — день из ответа', async () => {
+    /* Новая строка есть в ответе записи и нет в GET: перечитай экран день
+       после закрытия — и она пропала бы вместе с подменой. */
+    post.mockResolvedValue(ok({ ...MODEL, list: [...MODEL.list,
+      { ...MODEL.list[0]!, id: 3, time: '09:30', name: 'Vasile Lupu', age: null }] }))
+    await openAdd()
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+    fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
+    fireEvent.submit(addForm() as HTMLFormElement)
+    await waitFor(() => expect(addForm()).toBeNull())
+    expect(document.querySelector('table.list')?.textContent).toContain('Vasile Lupu')
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  /* ⛔ Правило — только про ЯКОРЬ. Тот же адрес без окна («Zi» на том же дне)
+     и повтор после отказа перечитывают день, как и раньше: правило вида «тот
+     же путь и query — не грузить» отняло бы у экрана обновление. */
+  it('«Zi» на том же дне без окна перечитывает день', async () => {
+    const { router } = await show({ date: '2026-09-23' })
+    fireEvent.click(navLink(DAY))
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(router.state.navigation.state).toBe('idle'))
+  })
+
+  it('повтор после отказа перечитывает день и с окном в адресе', async () => {
+    get.mockRejectedValueOnce(new ApiError({ kind: 'network', detail: 'x' }, 'x'))
+    openScreen('/admin/all', '/admin/all?date=2026-09-23#addform',
+      <DayScreen navigate={() => {}} />, loadDay)
+    fireEvent.click(await screen.findByRole('button', { name: /Reîncearcă/ }))
+    await waitFor(() => expect(addForm()).toBeTruthy())
+    expect(get).toHaveBeenCalledTimes(2)
   })
 
   it('врачи и часы — из формы сервера, а не из колонок канвы', async () => {
