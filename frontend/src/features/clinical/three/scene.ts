@@ -55,6 +55,8 @@ export interface SceneOptions {
 export interface PerioInput {
   rows: Record<string, { pd: number[]; rec: number[]; bop: string; mob: number; furc: number; cal: number[] }>
   limits: { deep: number; severe: number }
+  /** цвет полосы кармана по порогу — с сервера (`teeth_svg.PERIO_COLORS`) */
+  colors: { deep: string; severe: string }
 }
 
 /** Где стоит камера — для стендов Edge и разбора. */
@@ -240,7 +242,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   let perio: PerioInput | null = null
   let perioVer = 0
   let gumSig = ''
-  const siteCol = { deep: linRgb(0xf59e0b), severe: linRgb(0xdc2626) }
+  let siteCol = { deep: linRgb(0xf59e0b), severe: linRgb(0xdc2626) }
   const dotGeo = new THREE.SphereGeometry(0.42, 14, 10)
   const dotMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, emissive: 0x991b1b, emissiveIntensity: 0.45, roughness: 0.35 })
   const probeMat = {
@@ -691,6 +693,9 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       const info = model.teeth[String(t.n)]
       if (!info) continue
       const look = targetLook(info, palette)
+      // в режиме пародонта находки зубов приглушены: красный кариеса спорил бы с
+      // красным кармана и кровоточивости; коронка, имплант и отсутствие остаются
+      if (perio && !look.gold && !look.implant) look.cols = look.cols.map(() => COLOR.enamel)
       // гашение — поверх вида данных, но не в данных: `targetLook` чист, фильтр — экрана
       const dim = dimmed.has(t.n)
       if (dim) look.opacity = DIM
@@ -1086,7 +1091,16 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     },
     setPerio(p) {
       perio = p
+      if (p) {
+        // цвета полосы и зондов — те, что прислал сервер; свои — только запасные
+        const deep = hex(p.colors.deep) || 0xf59e0b
+        const severe = hex(p.colors.severe) || 0xdc2626
+        siteCol = { deep: linRgb(deep), severe: linRgb(severe) }
+        probeMat.deep.color.setHex(deep)
+        probeMat.severe.color.setHex(severe)
+      }
       perioVer += 1
+      if (lastModel) paint(lastModel)
       rebuildGums()
     },
     invalidate,

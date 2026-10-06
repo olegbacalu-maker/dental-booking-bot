@@ -458,6 +458,51 @@ describe('замер пародонта в инспекторе', () => {
     await waitFor(() => expect(btn(21)).toBeTruthy())
     expect(document.querySelector('.i-perio')).toBeNull()
   })
+
+  // 06.10: тот же осмотр числами — таблица шести точек вместо строки
+  const LAYER: NonNullable<Odontogram['perio_layer']> = {
+    exam: { id: 7, at: '18.09.2026' },
+    rows: { '16': { tooth: 16, pd: [3, 2, 3, 4, 2, 6], rec: [1, 0, 0, 0, 0, 2], bop: '010010', mob: 1, furc: 2, cal: [4, 2, 3, 4, 2, 8] } },
+    limits: { deep: 4, severe: 6 },
+    colors: { deep: '#F59E0B', severe: '#DC2626' },
+    sites: ['MV', 'V', 'DV', 'ML', 'L', 'DL'].map((key) => ({ key, label: key.toLowerCase() })),
+    grades: { mob: { '1': 'gr. I', '2': 'gr. II', '3': 'gr. III' }, furc: { '1': 'gr. I', '2': 'gr. II', '3': 'gr. III' } },
+  }
+
+  it('со слоем пародонта — таблица точек: P у верхней челюсти, CAL сервера, порог цветом, BOP точкой', async () => {
+    get.mockResolvedValue(ok({ ...MODEL, perio_layer: LAYER }))
+    open(16, () => {})
+    await waitFor(() => expect(document.querySelector('.i-ptab')).toBeTruthy())
+    const rows = [...document.querySelectorAll('.i-ptab tbody tr')].map((tr) =>
+      [...tr.children].map((c) => (c.querySelector('.i-bop') ? '●' : c.textContent)))
+    expect(rows).toEqual([
+      ['MV', '3', '1', '4', '–'],
+      ['V', '2', '·', '2', '●'],
+      ['DV', '3', '·', '3', '–'],
+      ['MP', '4', '·', '4', '–'],
+      ['P', '2', '·', '2', '●'],
+      ['DP', '6', '2', '8', '–'],
+    ])
+    const pd = [...document.querySelectorAll('.i-ptab tbody tr td:nth-of-type(1)')].map((c) => c.className)
+    expect(pd).toEqual(['', '', '', 'deep', '', 'sev'])
+    const box = document.querySelector('.i-perio') as HTMLElement
+    expect(box.textContent).toContain('Mobilitate gr. I · Furcație gr. II')
+    // строка сервера не дублирует таблицу, ссылка в тот же осмотр осталась
+    expect(box.textContent).not.toContain('PD 3 2 3 / 4 2 5')
+    expect(box.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/5/parodontograma?exam=7')
+  })
+
+  it('в 3D кнопка «Parodont»: без осмотра выключена и говорит почему, с осмотром — называет его дату', async () => {
+    localStorage.setItem('dp_odo_view', '3d')
+    open(16, () => {})
+    await waitFor(() => expect(document.querySelector('[data-mode="paro"]')).toBeTruthy())
+    expect(document.querySelector('[data-mode="paro"]')?.getAttribute('title')).toBe('Pacientul nu are încă o parodontogramă cu măsurători')
+    cleanup()
+    get.mockResolvedValue(ok({ ...MODEL, perio_layer: LAYER }))
+    open(16, () => {})
+    await waitFor(() => expect(document.querySelector('[data-mode="paro"]')).toBeTruthy())
+    expect(document.querySelector('[data-mode="paro"]')?.getAttribute('title')).toContain('18.09.2026')
+  })
 })
 
 describe('вид 3D (B7)', () => {

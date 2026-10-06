@@ -567,6 +567,27 @@
 .dp-react-root .odo-3d-msg { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; text-align: center; padding: 24px; }
 @media (max-width: 880px) { .dp-react-root .odo-stage { height: 400px; } }
 
+/* ---- пародонт в 3D (06.10) ----
+   Легенда режима «Parodont» над сценой: цвета полосы — с сервера (инлайн у
+   образца), кровоточивость — красная точка, рецессия — цвет дентина корня,
+   зонд — тонкая линия. Таблица шести точек в инспекторе: глубина от порога
+   «кармана» — цветом смысла (янтарный/красный), теме клиники не отдаётся. */
+.dp-react-root .odo-paro-leg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .odo-paro-leg b { color: var(--text); font-weight: 600; }
+.dp-react-root .odo-paro-leg span { display: inline-flex; align-items: center; gap: 6px; }
+.dp-react-root .odo-paro-leg .sw { width: 16px; height: 6px; border-radius: 3px; display: inline-block; }
+.dp-react-root .odo-paro-leg .sw.rec { background: #d6c2a4; }
+.dp-react-root .odo-paro-leg .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red-t); display: inline-block; }
+.dp-react-root .odo-paro-leg .probe { width: 2px; height: 14px; border-radius: 1px; background: var(--text3); display: inline-block; }
+.dp-react-root .i-ptab { width: 100%; border-collapse: collapse; font-size: var(--fs-s); font-variant-numeric: tabular-nums; margin: 2px 0; }
+.dp-react-root .i-ptab th, .dp-react-root .i-ptab td { padding: 3px 4px; text-align: center; border-bottom: 1px solid var(--line); }
+.dp-react-root .i-ptab thead th { color: var(--text3); font-weight: 600; }
+.dp-react-root .i-ptab tbody th { text-align: left; color: var(--text2); font-weight: 600; }
+.dp-react-root .i-ptab tbody tr:nth-child(3) th, .dp-react-root .i-ptab tbody tr:nth-child(3) td { border-bottom-color: var(--text3); }
+.dp-react-root .i-ptab td.deep { color: var(--amber-t); font-weight: 700; }
+.dp-react-root .i-ptab td.sev { color: var(--red-t); font-weight: 700; }
+.dp-react-root .i-ptab .i-bop { width: 8px; height: 8px; border-radius: 50%; background: var(--red-t); display: inline-block; }
+
 /* ---- B7 · планшет: одонтограмма под палец (26.09) ----
    Только (pointer: coarse): мышью рабочий стол прежний. Инспектор после касания
    зуба — шторка снизу в портрете и панель справа в альбоме, ПОВЕРХ дуги и

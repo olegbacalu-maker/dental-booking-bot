@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/Icon'
-import type { Odontogram } from '../chart'
+import type { Odontogram, PerioLayer } from '../chart'
 import { loadThree } from './loadThree'
-import { createArchScene, type ArchScene, type CameraProbe, type Hit, type Toggle, type ToothProbe, type ViewName } from './scene'
+import { createArchScene, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
 
 /* Объёмный вид одонтограммы (B7, ступень 4): React владеет узлом и жизненным
@@ -13,6 +13,13 @@ import type { Letter } from './toothGeometry'
    вспышка). three.js едет по требованию: до загрузки — ожидание, отказ —
    текст, 2D под рукой на соседней кнопке вида. Молочный ряд в 3D не
    показывается (решение 6): при открытом молочном ряде — надпись.
+
+   Режим «Parodont» (06.10, слово Олега «да» на «режим Parodont с таблицей
+   точек»): последний осмотр пародонтограммы с измерениями (`perio_layer`
+   модели — тот же, что в 043/e) ложится на десну: рецессия опускает край,
+   карман от порога — полоса у края, кровоточивость — точка, с «Rădăcini» —
+   зонд на глубину кармана. Находки зубов в этом режиме приглушены. Режим —
+   экрана: в модель, запись и печать не попадает.
 
    Фокус (01.10): камера едет к выбранному зубу — кнопкой «Apropie», клавишей
    F (рабочий стол) или двойным щелчком по зубу; кнопки видов возвращают.
@@ -31,7 +38,22 @@ const T = {
   group: 'Vedere 3D',
   focus: 'Apropie',
   focusTitle: 'Camera la dintele selectat (dublu-clic pe dinte sau tasta F); o vedere o aduce înapoi',
+  modes: 'Ce arată vederea 3D',
+  stare: 'Stare dinți',
+  paro: 'Parodont',
+  paroNone: 'Pacientul nu are încă o parodontogramă cu măsurători',
+  paroTitle: 'Parodontograma din {at} pe gingie: recesiune, pungi, sângerare',
+  exam: 'Examen din {at}',
+  pocket: 'Pungă {a}–{b} mm',
+  deepPocket: 'Pungă {a}+ mm',
+  bleed: 'Sângerare la sondare',
+  rec: 'Recesiune: rădăcina se vede',
+  probe: 'Sonda — cu „Rădăcini”',
 } as const
+
+type Mode = 'stare' | 'paro'
+
+const toInput = (l: PerioLayer): PerioInput => ({ rows: l.rows, limits: l.limits, colors: l.colors })
 
 const VIEW_ORDER: ViewName[] = ['frontal', 'sus', 'jos', 'dreapta', 'stanga']
 const TOG_ORDER: Toggle[] = ['xray', 'labels', 'upper', 'lower', 'closed', 'rotate']
@@ -73,6 +95,11 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   const [view, setView] = useState<ViewName | null>('frontal')
   const [togs, setTogs] = useState<Record<Toggle, boolean>>({ xray: false, labels: true, upper: true, lower: true, closed: false, rotate: false })
   const togsRef = useRef(togs)
+  const layer = model.perio_layer ?? null
+  const [mode, setMode] = useState<Mode>('stare')
+  // осмотра нет (или его сняли) — режим пародонта сам возвращается к состоянию зубов
+  const paro = mode === 'paro' && layer !== null
+  const paroRef = useRef<PerioInput | null>(null)
   // свежие пропсы — в ref после каждой отрисовки (не во время неё): сцена
   // читает их из асинхронной загрузки и из событий указателя
   useEffect(() => {
@@ -85,6 +112,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
     focusRef.current = focus
     dimRef.current = dim
     togsRef.current = togs
+    paroRef.current = paro && layer ? toInput(layer) : null
   })
 
   useEffect(() => {
@@ -109,6 +137,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
         if (dimRef.current.size) scene.setDim(dimRef.current)
         scene.setSelected(selRef.current)
         if (focusRef.current !== null) scene.focus(focusRef.current)
+        if (paroRef.current) scene.setPerio(paroRef.current)
         setStatus('ready')
       } catch {
         setStatus('nogl')
@@ -124,6 +153,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   useEffect(() => { sceneRef.current?.setModel(model) }, [model])
   useEffect(() => { sceneRef.current?.setSelected(selected) }, [selected])
   useEffect(() => { sceneRef.current?.setDim(dim) }, [dim])
+  useEffect(() => { sceneRef.current?.setPerio(paro && layer ? toInput(layer) : null) }, [paro, layer])
   useEffect(() => {
     const sc = sceneRef.current
     if (focus !== null) {
@@ -154,6 +184,14 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   return (
     <div className="odo-3d" data-focus={focus ?? undefined}>
       <div className="odo-3d-bar" role="group" aria-label={T.group}>
+        <div className="viewsw odo-mode" role="group" aria-label={T.modes}>
+          <button type="button" data-mode="stare" className={paro ? '' : 'on'} aria-pressed={!paro}
+            disabled={status !== 'ready'} onClick={() => setMode('stare')}>{T.stare}</button>
+          <button type="button" data-mode="paro" className={paro ? 'on' : ''} aria-pressed={paro}
+            disabled={status !== 'ready' || !layer}
+            title={layer ? T.paroTitle.replace('{at}', layer.exam.at) : T.paroNone}
+            onClick={() => setMode('paro')}>{T.paro}</button>
+        </div>
         <div className="viewsw">
           {VIEW_ORDER.map((v) => (
             <button key={v} type="button" data-v3={v} className={view === v ? 'on' : ''} aria-pressed={view === v}
@@ -171,7 +209,19 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
           ))}
         </div>
       </div>
-      <div ref={host} className="odo-stage" data-status={status}>
+      {paro && layer && (
+        <div className="odo-paro-leg" aria-label={T.exam.replace('{at}', layer.exam.at)}>
+          <b>{T.exam.replace('{at}', layer.exam.at)}</b>
+          <span><i className="sw" style={{ background: layer.colors.deep }} />
+            {T.pocket.replace('{a}', String(layer.limits.deep)).replace('{b}', String(layer.limits.severe - 1))}</span>
+          <span><i className="sw" style={{ background: layer.colors.severe }} />
+            {T.deepPocket.replace('{a}', String(layer.limits.severe))}</span>
+          <span><i className="dot" />{T.bleed}</span>
+          <span><i className="sw rec" />{T.rec}</span>
+          <span><i className="probe" />{T.probe}</span>
+        </div>
+      )}
+      <div ref={host} className="odo-stage" data-status={status} data-mode={paro ? 'paro' : 'stare'}>
         {status === 'loading' && <p className="hint odo-3d-msg" aria-busy="true">{T.loading}</p>}
         {status === 'failed' && <p className="hint odo-3d-msg">{T.failed}</p>}
         {status === 'nogl' && <p className="hint odo-3d-msg">{T.nogl}</p>}

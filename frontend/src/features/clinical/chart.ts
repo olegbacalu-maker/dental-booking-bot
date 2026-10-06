@@ -55,6 +55,30 @@ export interface ToothInfo extends ToothVisual {
   geom?: ToothGeom
 }
 
+/** Строка зуба последнего осмотра: шесть точек в порядке сервера MV V DV ML L DL. */
+export interface PerioLayerRow {
+  tooth: number
+  pd: number[]
+  rec: number[]
+  /** маска кровоточивости «010010» */
+  bop: string
+  mob: number
+  furc: number
+  /** CAL = PD + рецессия, считает сервер и только у измеренных точек */
+  cal: number[]
+}
+
+export interface PerioLayer {
+  exam: { id: number; at: string }
+  rows: Record<string, PerioLayerRow>
+  /** «карман» с deep мм, глубокий с severe — те же пороги, что в итогах листа и 043/e */
+  limits: { deep: number; severe: number }
+  /** цвет полосы кармана на десне по тем же ключам */
+  colors: { deep: string; severe: string }
+  sites: { key: string; label: string }[]
+  grades: { mob: Record<string, string>; furc: Record<string, string> }
+}
+
 export interface Bridge {
   id: number
   teeth: [number, string][]
@@ -100,6 +124,10 @@ export interface Odontogram {
    *  живут в `perio.py`, как `sfx` у поверхностей. Пусто, если осмотра с
    *  измерениями у пациента ещё не было. */
   perio?: Record<string, { at: string; exam: number; text: string }>
+  /** Тот же осмотр ЧИСЛАМИ (06.10) — слой пародонта в 3D и таблица точек в
+   *  инспекторе. CAL, пороги и цвета полосы — с сервера (`perio.layer`).
+   *  null — осмотра с измерениями нет. */
+  perio_layer?: PerioLayer | null
   /** Свежая фиша — ТОЛЬКО в ответе записи зуба, которая её попросила
    *  (`?card=1`, см. `saveTooth`). Её тип знает фиша, а не этот модуль. */
   card?: unknown

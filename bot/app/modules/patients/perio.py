@@ -246,6 +246,34 @@ def site_items() -> list:
     return [{"key": k, "label": tsvg.PERIO_SITE_RO[k]} for k in tsvg.PERIO_SITES]
 
 
+def layer(exam: dict | None, rows: list) -> dict | None:
+    """Последний осмотр С ИЗМЕРЕНИЯМИ числами — слой пародонта в 3D
+    одонтограммы (06.10; слово Олега «да» на «цифры осмотра с сервера»).
+
+    ⭐ Осмотр тот же, что строкой `tooth_lines` и в §4 формы 043/e
+    (`db.perio_last`): 3D своего не выбирает, и картинка не может показать
+    другой день, чем бумага.
+    Числа как есть: глубина, рецессия, кровоточивость, подвижность, фуркация —
+    и CAL, который считает `cal()` здесь: второй формулы в браузере нет.
+    Пороги и цвета полосы — отсюда же: «карман» с DEEP_MM, глубокий с
+    SEVERE_MM — те же числа, что в итогах листа и в 043/e.
+    None, если осмотра с измерениями нет: слоя нет, а не пустой слой —
+    молчание честнее нулей, которых никто не мерил.
+    """
+    if not exam or not rows:
+        return None
+    data = rows_map(rows)
+    return {
+        "exam": {"id": exam["id"], "at": _day(exam.get("created_at"))},
+        "rows": {str(n): {**r, "cal": cal(r)} for n, r in sorted(data.items())},
+        "limits": {"deep": DEEP_MM, "severe": SEVERE_MM},
+        "colors": dict(tsvg.PERIO_COLORS),
+        "sites": site_items(),
+        "grades": {"mob": {str(k): v for k, v in MOB_RO.items()},
+                   "furc": {str(k): v for k, v in FURC_RO.items()}},
+    }
+
+
 def tooth_lines(exam: dict | None, rows: list) -> dict:
     """Последний замер ПО ЗУБАМ — для инспектора одонтограммы.
 

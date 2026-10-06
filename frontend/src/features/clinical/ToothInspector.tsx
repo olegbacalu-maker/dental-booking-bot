@@ -3,7 +3,7 @@ import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
 import { Tooth } from './Tooth'
 import { ToothForm } from './ToothForm'
-import { JAW_RO, bridgeOf, surfaceLetter, type Odontogram, type View } from './chart'
+import { JAW_RO, bridgeOf, surfaceLetter, type Jaw, type Odontogram, type PerioLayer, type PerioLayerRow, type View } from './chart'
 import type { ToothDraft } from './useChart'
 
 /* Постоянный инспектор детальной страницы (.insp): номер и челюсть, мост,
@@ -24,6 +24,12 @@ const T = {
   noHistory: '— fără înregistrări —',
   perio: 'Parodontogramă',
   openPerio: 'Deschide examenul',
+  site: 'Punct',
+  bop: 'Sângerare la sondare',
+  noBop: 'fără sângerare',
+  notMeasured: 'nemăsurat',
+  mob: 'Mobilitate',
+  furc: 'Furcație',
   close: 'Închide',
 } as const
 
@@ -48,6 +54,43 @@ interface Props {
   onClose?: () => void
 }
 
+/** Шесть точек зуба таблицей (06.10): глубина, рецессия, CAL, кровоточивость.
+ *  ⛔ Ничего не считается: CAL и пороги — с сервера (`perio_layer`), ноль —
+ *  «не измеряли», а не «0 мм» (шапка perio.py), поэтому показывается точкой. */
+function PerioTable({ row, layer, jaw }: { row: PerioLayerRow; layer: PerioLayer; jaw: Jaw }) {
+  const L = surfaceLetter('L', jaw)
+  const codes = ['MV', 'V', 'DV', `M${L}`, L, `D${L}`]
+  const mm = (v: number | undefined) => (v ? String(v) : '·')
+  const band = (v: number) => (v >= layer.limits.severe ? 'sev' : v >= layer.limits.deep ? 'deep' : '')
+  const grade = (kind: 'mob' | 'furc', v: number) => (v ? `${kind === 'mob' ? T.mob : T.furc} ${layer.grades[kind][String(v)] ?? v}` : '')
+  const extra = [grade('mob', row.mob), grade('furc', row.furc)].filter(Boolean).join(' · ')
+  return (
+    <>
+      <table className="i-ptab">
+        <thead>
+          <tr><th scope="col">{T.site}</th><th scope="col">PD</th><th scope="col">REC</th><th scope="col">CAL</th><th scope="col">BOP</th></tr>
+        </thead>
+        <tbody>
+          {codes.map((code, i) => {
+            const pd = row.pd[i] ?? 0
+            const bleed = row.bop[i] === '1'
+            return (
+              <tr key={code} data-site={layer.sites[i]?.key}>
+                <th scope="row" title={layer.sites[i]?.label}>{code}</th>
+                <td className={band(pd)} title={pd ? undefined : T.notMeasured}>{mm(pd)}</td>
+                <td>{mm(row.rec[i])}</td>
+                <td>{mm(row.cal[i])}</td>
+                <td>{bleed ? <i className="i-bop" title={T.bop} aria-label={T.bop} /> : <span title={T.noBop}>–</span>}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      {extra && <b>{extra}</b>}
+    </>
+  )
+}
+
 export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, draft, dirty, onEdit, onSave, onDiscard, onDelBridge, onBridgeFrom, onPlan, onClose }: Props) {
   const info = n !== null ? model.teeth[String(n)] : undefined
   const inBr = n !== null ? bridgeOf(model, n) : null
@@ -55,6 +98,9 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
   // замер пародонта у ЭТОГО зуба: у одонтограммы и пародонтограммы один зуб,
   // и врачу не надо уходить со страницы, чтобы вспомнить глубину кармана
   const perio = n !== null ? model.perio?.[String(n)] : undefined
+  // те же точки числами (06.10): таблица вместо строки, когда сервер прислал слой
+  const layer = model.perio_layer ?? null
+  const prow = n !== null ? layer?.rows[String(n)] : undefined
   return (
     <div className="fcard insp">
       <div className="insp-t">{T.title}
@@ -106,7 +152,7 @@ export function ToothInspector({ model, n, view, busy, sel, onSel, onSurface, dr
       {perio && (
         <div className="i-perio">
           <span>{T.perio} · {perio.at}</span>
-          <b>{perio.text}</b>
+          {prow && layer && info ? <PerioTable row={prow} layer={layer} jaw={info.jaw} /> : <b>{perio.text}</b>}
           <AppLink href={`/admin/patient/${model.patient.id}/parodontograma?exam=${perio.exam}`}>
             {T.openPerio}
           </AppLink>

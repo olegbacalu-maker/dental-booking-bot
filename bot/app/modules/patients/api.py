@@ -818,6 +818,9 @@ async def _odontogram(pid: int, p: dict) -> dict:
     # же, что печатается в 043/e: `perio_last` пропускает пустые листы.
     exam, prows = await db.perio_last(pid)
     m["perio"] = pperio.tooth_lines(exam, prows)
+    # тот же осмотр числами — слой пародонта в 3D (06.10): край по рецессии,
+    # полоса кармана, кровоточивость, таблица точек в инспекторе
+    m["perio_layer"] = pperio.layer(exam, prows)
     return m
 
 

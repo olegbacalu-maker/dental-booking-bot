@@ -185,7 +185,7 @@ def suite_api(res: Result) -> None:
         res.check("состав", sorted(d),
                   sorted(["teeth", "history", "arches", "arc", "milk_open", "bridges", "legend",
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
-                          "materials", "patient", "doctors", "perio", "palette"]))
+                          "materials", "patient", "doctors", "perio", "perio_layer", "palette"]))
         # B7 ступень 1: размеры и цвета для объёмного вида едут с сервера
         # с 02.10 за состояниями идут отметки: 3D красит кольца тем же цветом, что ореол/каналы в 2D
         res.check("палитра: цвет на каждое состояние и отметку, тем же порядком",
@@ -196,6 +196,8 @@ def suite_api(res: Result) -> None:
                   (True, 10.5, 3, "molar"))
         res.check("без пародонтального осмотра замеров нет — нулей не выдумываем",
                   d["perio"], {})
+        res.check("и слоя пародонта для 3D нет — None, а не пустой слой",
+                  d["perio_layer"], None)
         teeth_old = _blob(page, "TEETH")
         res.check("зубы: те же данные, что TEETH старой страницы",
                   {k: {f: v[f] for f in teeth_old[k]} for k, v in d["teeth"].items()}, teeth_old)
@@ -326,6 +328,18 @@ def suite_api(res: Result) -> None:
         res.check("неизмеренный зуб строки не получает и осмотр назван номером",
                   (sorted(per), per["16"]["exam"], per["16"]["at"] == _dmy(0)),
                   (["16", "46"], eid, True))
+        # 06.10: тот же осмотр ЧИСЛАМИ — слой пародонта в 3D; CAL считает сервер
+        lay = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["perio_layer"]
+        res.check("слой пародонта: тот же осмотр, только измеренные зубы",
+                  (lay["exam"]["id"], lay["exam"]["at"] == _dmy(0), sorted(lay["rows"])),
+                  (eid, True, ["16", "46"]))
+        r16 = lay["rows"]["16"]
+        res.check("числа зуба как есть + CAL = PD + рецессия только у измеренных точек",
+                  (r16["pd"], r16["rec"], r16["bop"], r16["mob"], r16["furc"], r16["cal"]),
+                  ([3, 2, 3, 4, 2, 5], [1, 0, 0, 0, 0, 2], "010010", 1, 2, [4, 2, 3, 4, 2, 7]))
+        res.check("пороги и цвета полосы — с сервера, ключи совпадают",
+                  (lay["limits"], sorted(lay["colors"]), [x["key"] for x in lay["sites"]]),
+                  ({"deep": 4, "severe": 6}, ["deep", "severe"], ["MV", "V", "DV", "ML", "L", "DL"]))
 
 
 def _server_with_flag(env: dict | None = None) -> Server:
