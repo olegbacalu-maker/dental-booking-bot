@@ -214,6 +214,15 @@ def suite_switch(res: Result) -> None:
                and shell["frame"]["sub"] == "setări · clinica"
                and shell["nav"]["active"] == "set",
                f"{shell['frame']['crumbs']} {shell['frame']['sub']} {shell['nav']['active']}")
+        # Уголок (06.10): знак со словом — ссылка на сайт, почта — на домене
+        # сайта. Знак — SVG сервера со СВОЕЙ приставкой id, не та, что у сайдбара.
+        site, fb = shell["frame"].get("site") or {}, shell["frame"]["feedback"]
+        res.ok("уголок в модели: сайт, знак со своей приставкой, почта на домене сайта",
+               site.get("href") == "https://dentpilot.md"
+               and "bcmark" in site.get("mark", "") and "svg" in site.get("mark", "")
+               and fb["email"] == "contact@dentpilot.md"
+               and fb["href"].startswith("mailto:contact@dentpilot.md?subject="),
+               f"{site.get('href')!r} {fb}")
         res.ok("серверного каркаса на React-странице нет",
                "<aside" not in page and 'class="top"' not in page, "две оболочки разом")
         res.ok("формы старого экрана на React-странице нет", "name='name'" not in page,
@@ -226,6 +235,15 @@ def suite_switch(res: Result) -> None:
         legacy = c.get("/admin/settings/clinic?ui=legacy").body
         res.ok("?ui=legacy возвращает старую форму",
                "name='name'" in legacy and 'id="root"' not in legacy, "форма не вернулась")
+        # ⛔ Сайт — только в системном браузере: без target=_blank окно
+        # программы само ушло бы на сайт, и вернуться было бы нечем.
+        res.ok("старая оболочка: знак — ссылка на сайт с target=_blank, почта contact@",
+               'class="bc-site" href="https://dentpilot.md" target="_blank" rel="noopener"' in legacy
+               and 'href="mailto:contact@dentpilot.md?subject=' in legacy,
+               "уголок не тот")
+        res.ok("старая оболочка: под именем клиники нет подписи DentPilot (06.10)",
+               "<small>DentPilot</small>" not in legacy and '<div class="txt"><b' in legacy,
+               "подпись вернулась или сайдбар не тот")
         res.ok("хаб настроек не изменился (плитка клиники на месте)",
                "/admin/settings/clinic" in c.get("/admin/settings").body, "плитки нет")
         dash = c.get("/admin").body

@@ -24,7 +24,7 @@
 ; SmartScreen берут издателя ТОЛЬКО из цифровой подписи — эта строка его не меняет,
 ; она про «Установленные приложения» и свойства файла (решение Олега 26.09).
 #define AppPublisher "A.I. Oleg Bacalu"
-#define AppEmail   "dentpilotpro@gmail.com"
+#define AppEmail   "contact@dentpilot.md"
 
 [Setup]
 ; AppId менять НЕЛЬЗЯ — по нему Windows опознаёт обновление поверх старой версии.

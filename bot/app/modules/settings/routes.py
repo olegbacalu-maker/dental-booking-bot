@@ -570,11 +570,10 @@ async def settings_clinic(request: Request, msg: str = ""):
 <tr><th>Denumirea juridică</th><td><input type='text' name='legal_name' maxlength='120' placeholder='ex. Dent Art SRL' value='{e(cfg.get("legal_name") or "")}'></td></tr>
 <tr><th>IDNO</th><td><input type='text' name='idno' maxlength='13' inputmode='numeric' placeholder='13 cifre' value='{e(cfg.get("idno") or "")}'></td></tr>
 </table>
-<p class='hint'>Numele, telefonul și adresa apar în bot ({_ic('phone')} contacte), în bara laterală
-a registrului și pe documentele tipărite (043/e, acord, raport de casă).
-Denumirea juridică și IDNO apar doar pe documentele semnate de pacient (acord, 043/e);
-necompletate — rămân un spațiu galben, de completat cu ștampila.
-Restul secțiunilor nu sunt atinse la salvare.</p>
+<p class='hint'>Numele apare în bara laterală și pe documentele tipărite.
+Telefonul și adresa — pe documentele pentru pacient (043/e, acorduri, parodontogramă).
+Denumirea juridică și IDNO — doar pe documentele semnate de pacient (acord, 043/e);
+necompletate — rămân un spațiu galben, de completat cu ștampila.</p>
 <button class='savebtn'>{_ic('save')} Salvează</button>
 </form>"""
     return _sec_page(body, "setări · clinica", msg)

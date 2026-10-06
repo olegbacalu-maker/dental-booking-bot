@@ -30,8 +30,11 @@ from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
                    ROLE_LABEL, _sec_warn, can,
                    request_user, tamper_alert)
 
-FEEDBACK_EMAIL = "dentpilotpro@gmail.com"
+# Адрес на домене сайта (06.10, слово Олега): Cloudflare пересылает его в
+# рабочий ящик, и сменить ящик можно, не трогая ни одной установленной копии.
+FEEDBACK_EMAIL = "contact@dentpilot.md"
 SUPPORT_PHONE = "+373 60 508 048"     # страница активации лицензии; менять вместе с сайтом
+SITE_URL = "https://dentpilot.md"     # знак в уголке ведёт сюда — в системном браузере
 
 # Единый диапазон часов для ВСЕХ выпадающих списков: часы клиники, обед,
 # личное окно врача. Раньше их было три разных (0-23 / 6-21 / 7-23) — клиника
@@ -1030,7 +1033,7 @@ def _sidebar(active: str, rail: bool = False) -> str:
         foot_title = f' title="Telegram: {html.escape(tg_title)}"'
     return f"""<aside class="side{' side-rail' if rail else ''}">
   <div class="brand">{brand.mark_svg(40, 'logo', flat=True)}
-    <div class="txt"><b title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</b><small>DentPilot</small></div>
+    <div class="txt"><b title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</b></div>
   </div>
   <nav>
     <div class="sec">Meniu</div>
@@ -1389,6 +1392,11 @@ def shell_model(active: str, sub: str, rail: bool = False,
                   # бы в модель вёрстку, а решение «по active === set» на
                   # клиенте развело бы одно условие по двум местам.
                   "crumbs": crumbs or [],
+                  # Уголок: знак со словом «DentPilot» — ссылка на сайт. Знак
+                  # строкой сервера, как `clinic.mark`, и с СВОЕЙ приставкой id
+                  # (`bcmark`): два знака на странице не делят маску.
+                  "site": {"href": SITE_URL,
+                           "mark": brand.mark_svg(24, "bcmark", flat=True)},
                   "feedback": {
                       "email": FEEDBACK_EMAIL,
                       "href": (f"mailto:{FEEDBACK_EMAIL}?subject="
@@ -1460,9 +1468,16 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
     # ⚠️ В <h1> имени клиники НЕТ намеренно (08-09): оно и так на экране дважды —
     # в подписи сайдбара и в чипе вошедшего («роль · клиника»). С 26.09 (B5,
     # решение Олега) h1 называет РАЗДЕЛ — «Pacienți», «Setări», — как окно
-    # приложения Windows; постоянное «Registrul Clinicii» ушло: имя программы
-    # стоит в подписи меню («DENTPILOT»), а в <title> окна остаётся имя клиники.
-    # Подпись .sub по-прежнему уточняет страницу внутри раздела.
+    # приложения Windows; постоянное «Registrul Clinicii» ушло, а в <title> окна
+    # остаётся имя клиники. Подпись .sub по-прежнему уточняет страницу внутри
+    # раздела.
+    # ⭐ Имя программы живёт в уголке справа внизу, знаком и словом. Подписи
+    # «DENTPILOT» под именем клиники больше нет (06.10, Олег: рядом с названием
+    # клиники она путала, чьё это имя).
+    # ⛔ Знак в уголке уходит на сайт ТОЛЬКО с target=_blank: окно программы
+    # отдаёт такие ссылки системному браузеру, а обычная ссылка увела бы на
+    # сайт само окно — кнопки «назад» в нём нет, вернуться можно лишь
+    # перезапуском. Держит test_api (обе оболочки) и проверка клиента.
     return _doc_head() + f"""<body{reload_attr} data-v="{eng.APP_VERSION}">
 {_sidebar(active, rail)}
 <div class="main">
@@ -1473,9 +1488,10 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
 {_demo_banner()}{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
 {body}
 </div></div>
-<div class="brandcorner">{_ic('tooth')} <b>DentPilot</b> ·
+<div class="brandcorner"><a class="bc-site" href="{SITE_URL}" target="_blank" rel="noopener"
+   title="{SITE_URL.removeprefix('https://')}">{brand.mark_svg(24, 'bcmark', flat=True)}<b>DentPilot</b></a> ·
 <a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
-   title="{FEEDBACK_EMAIL}">{_ic('chat')} Feedback</a></div>
+   title="Feedback">{_ic('mail')} {FEEDBACK_EMAIL}</a></div>
 <script src="/static/js/panel.js?v={_asset_ver('js', 'panel.js')}"></script>
 </body></html>"""
 

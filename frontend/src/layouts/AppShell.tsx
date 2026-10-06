@@ -73,7 +73,7 @@ function Sidebar({ m }: { m: ShellModel }) {
         {/* знак приходит строкой сервера — второй его владелец не нужен */}
         <span dangerouslySetInnerHTML={{ __html: clinic.mark }} />
         <div className="txt">
-          <b title={clinic.name}>{clinic.name}</b><small>DentPilot</small>
+          <b title={clinic.name}>{clinic.name}</b>
         </div>
       </div>
       <nav>
@@ -175,10 +175,16 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
           {children}
         </div>
       </div>
+      {/* ⛔ Сайт — только target=_blank: окно программы отдаёт такую ссылку
+          системному браузеру, а обычная увела бы на сайт само окно, где нет
+          кнопки «назад». Адрес чужой, поэтому AppLink и так отдаёт <a>. */}
       <div className="brandcorner">
-        <Icon name="tooth" /> <b>DentPilot</b> ·{' '}
-        <AppLink href={m.frame.feedback.href} title={m.frame.feedback.email}>
-          <Icon name="chat" /> {T.feedback}
+        <AppLink className="bc-site" href={m.frame.site.href} target="_blank" rel="noopener"
+          title={m.frame.site.href.replace(/^https:\/\//, '')}>
+          <span dangerouslySetInnerHTML={{ __html: m.frame.site.mark }} /><b>DentPilot</b>
+        </AppLink>{' '}·{' '}
+        <AppLink href={m.frame.feedback.href} title={T.feedback}>
+          <Icon name="mail" /> {m.frame.feedback.email}
         </AppLink>
       </div>
     </>

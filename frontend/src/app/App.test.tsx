@@ -52,6 +52,7 @@ const SHELL: ShellModel = {
   },
   frame: {
     title: 'Setări', sub: 'setări', crumbs: [], rail: false, bell: null, sec_warn: '', update: '', msg: '',
+    site: { href: 'https://dentpilot.md', mark: '<svg class="bcmark"></svg>' },
     feedback: { email: 'x@y.md', href: 'mailto:x@y.md' }, today: '2026-09-24',
   },
 }
@@ -366,6 +367,26 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     await act(async () => { native = nativeClick(screen.getByTitle('Ieșire din cont')) })
     expect(native).toBe(true)
     expect(router.state.location.pathname).toBe(CLINIC_URL)
+  })
+
+  it('уголок (06.10): знак со словом — сайт в СИСТЕМНОМ браузере, почта — письмом; подписи у имени клиники нет', async () => {
+    get.mockReturnValue(new Promise(() => {}))
+    const { router } = open(CLINIC_URL, node('settings_clinic', {}, SHELL_FULL))
+    const site = document.querySelector('.brandcorner a.bc-site') as HTMLAnchorElement
+    expect(site.getAttribute('href')).toBe('https://dentpilot.md')
+    /* ⛔ Без target=_blank окно программы само ушло бы на сайт — кнопки
+       «назад» там нет, вернуться можно лишь перезапуском. */
+    expect(site.getAttribute('target')).toBe('_blank')
+    expect(site.querySelector('svg.bcmark')).toBeTruthy()
+    expect(site.textContent).toBe('DentPilot')
+    let native = false
+    await act(async () => { native = nativeClick(site) })
+    expect(native).toBe(true)
+    expect(router.state.location.pathname).toBe(CLINIC_URL)
+    const mail = screen.getByText('x@y.md').closest('a') as HTMLAnchorElement
+    expect(mail.getAttribute('href')).toBe('mailto:x@y.md')
+    expect(document.querySelector('aside .brand b')?.textContent).toBe('Clinica Test')
+    expect(document.querySelector('aside .brand small')).toBeNull()
   })
 
   it('быстрый поиск (Ctrl+K) открывает фишу переходом роутера', async () => {

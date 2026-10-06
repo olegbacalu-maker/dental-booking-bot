@@ -446,7 +446,7 @@ class _Boot:
         else:
             warn = ("DentPilot nu a putut porni din cauza unei erori interne.\n"
                     "Detalii: data\\dentpilot.log (ultimele linii).\n"
-                    "Trimiteti fisierul la dentpilotpro@gmail.com — va ajutam.")
+                    "Trimiteti fisierul la contact@dentpilot.md — va ajutam.")
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, warn, "DentPilot", 0x10)

@@ -62,6 +62,9 @@ export interface ShellModel {
     update: string
     /** Плашка ответа после 303 с `?msg=`. */
     msg: string
+    /** Уголок: знак со словом «DentPilot» — ссылка на сайт (06.10). `mark` —
+     *  SVG сервера, как `clinic.mark`; открывать только с target=_blank. */
+    site: { href: string; mark: string }
     feedback: { email: string; href: string }
     today: string
   }

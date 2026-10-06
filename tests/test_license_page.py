@@ -71,7 +71,7 @@ def suite_wall(res: Result) -> None:
             page = c.get("/admin/license")
             res.check("страница активации открывается", page.status, 200)
             res.ok("страница: заголовок, контакты, заявка директору — без формы файла (02.10)",
-                   "Activarea programului" in page.body and "dentpilotpro@gmail.com" in page.body
+                   "Activarea programului" in page.body and "contact@dentpilot.md" in page.body
                    and "+373 60 508 048" in page.body and 'name="file"' not in page.body
                    and "action='/admin/license/request'" in page.body
                    and "@font-face{" in page.body and "__FONTS__" not in page.body,

@@ -186,8 +186,9 @@
  .side{width:216px;flex:0 0 216px;background:var(--side-bg);color:var(--side-fg);
    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
  /* Шапка залита фирменным цветом клиники, и её имя — самое крупное слово в
-    программе; «DentPilot» уходит в подпись (наш знак остаётся в заголовке
-    окна, в уголке справа внизу и на экране входа).
+    программе. Подписи «DENTPILOT» под ним больше нет (06.10, Олег: рядом с
+    названием клиники непонятно, чьё это имя); имя программы — в уголке справа
+    внизу, знаком и словом, а ещё в заголовке окна и на экране входа.
     ⛔ Текст на этом фоне — ТОЛЬКО var(--on-teal-d), не var(--on-teal): второй
     подобран под светлый --teal и при жёлтом выборе клиники даёт тёмный текст,
     который на тёмной шапке нечитаем (3.3:1). Считает core/theme.py. */
@@ -204,8 +205,6 @@
     обрезка, а не многоточие в середине первого слова */
  .side .brand b{font-size:var(--fs-l);font-weight:600;line-height:1.22;overflow:hidden;
    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
- .side .brand small{font-size:var(--fs-micro);font-weight:600;letter-spacing:.06em;display:block;
-   opacity:.72;margin-top:3px;text-transform:uppercase}
  /* ⛔ Приглушение — ПРОЗРАЧНОСТЬЮ поверх var(--on-teal-d), а не белым хексом:
     --on-teal-d считает core/theme.py под выбранный клиникой цвет и белым бывает
     не всегда. Зашитый rgba(255,255,255,…) на светлой теме дал бы белые буквы на
@@ -1125,8 +1124,12 @@
  .brandcorner{position:fixed;right:14px;bottom:10px;font-size:var(--fs-s);color:var(--text3);
    background:rgba(255,255,255,.94);padding:5px 12px;border-radius:var(--r-block);box-shadow:var(--sh);z-index:50}
  .brandcorner b{color:var(--teal-d)}
- .brandcorner a{color:var(--teal-d);text-decoration:none;font-weight:600}
+ .brandcorner a{color:var(--teal-d);text-decoration:none;font-weight:600;
+   display:inline-flex;align-items:center;gap:5px;vertical-align:middle}
  .brandcorner a:hover{text-decoration:underline}
+ /* Знак со словом — одна ссылка на сайт (06.10). Знак flat=True, одним цветом
+    currentColor: берёт --teal-d клиники, как слово рядом, а не нашу бирюзу. */
+ .brandcorner .bc-site svg{width:24px;height:19px;flex:0 0 24px;display:block}
  /* ---------- карточка пациента ---------- */
  .fisa{display:flex;gap:16px;align-items:flex-start}
  .fcol-l{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}

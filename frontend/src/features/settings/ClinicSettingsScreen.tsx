@@ -25,12 +25,14 @@ const T = {
   idno: 'IDNO',
   idnoPh: '13 cifre',
   save: 'Salvează',
-  hintA: 'Numele, telefonul și adresa apar în bot (',
-  hintB:
-    'contacte), în bara laterală a registrului și pe documentele tipărite ' +
-    '(043/e, acord, raport de casă). Denumirea juridică și IDNO apar doar pe documentele ' +
-    'semnate de pacient (acord, 043/e); necompletate — rămân un spațiu galben, de completat cu ștampila. ' +
-    'Restul secțiunilor nu sunt atinse la salvare.',
+  /* Где что печатается — по коду (06.10): имя — сайдбар и все бумаги; телефон
+     и адрес — 043/e, оба acord и печать пародонтограммы. Бота в тексте нет:
+     он заморожен, у клиник его нет. */
+  hint:
+    'Numele apare în bara laterală și pe documentele tipărite. ' +
+    'Telefonul și adresa — pe documentele pentru pacient (043/e, acorduri, parodontogramă). ' +
+    'Denumirea juridică și IDNO — doar pe documentele semnate de pacient (acord, 043/e); ' +
+    'necompletate — rămân un spațiu galben, de completat cu ștampila.',
   /* Единственный текст, которого сервер дать не может: его самого не было. */
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
   retry: 'Reîncearcă',
@@ -141,7 +143,7 @@ export function ClinicSettingsScreen({ navigate = defaultNavigate }: Props) {
               onChange={(v) => set({ idno: v })} />
           </tbody>
         </table>
-        <p className="hint">{T.hintA}<Icon name="phone" /> {T.hintB}</p>
+        <p className="hint">{T.hint}</p>
         <button className="savebtn" disabled={busy}>
           <Icon name="save" /> {T.save}
         </button>

@@ -428,7 +428,7 @@ def suite_faq(res: Result) -> None:
         c = Client(s.url).login()
         d = _j(c.get("/api/settings/faq"))["data"]
         res.ok("вопросов не меньше десяти", len(d["items"]) >= 10, f"{len(d['items'])}")
-        res.check("контакт — почта поддержки", d["contact"], "dentpilotpro@gmail.com")
+        res.check("контакт — почта поддержки", d["contact"], "contact@dentpilot.md")
         first = d["items"][0]
         res.ok("первый вопрос — про копии", "copii de rezervă" in first["question"], first["question"])
         res.check("иконка — имя, не разметка", first["icon"], "save")

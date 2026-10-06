@@ -17,7 +17,7 @@ const FAQ: FaqData = {
     { icon: 'save', question: 'Cât de des fac copii de rezervă?', answer: '<p>O copie <b>pe săptămână</b>.</p>' },
     { icon: 'box', question: 'Cum deschid arhiva?', answer: '<p>Cu 7-Zip.</p>' },
   ],
-  contact: 'dentpilotpro@gmail.com',
+  contact: 'contact@dentpilot.md',
 }
 
 const ok = <T,>(data: T): ApiResult<T> => ({ data, code: '', text: '', tone: 'ok' })
@@ -41,8 +41,8 @@ describe('FaqScreen', () => {
     expect(details[0]?.querySelector('summary svg')).toBeTruthy()
     expect(details[0]?.querySelector('.dp-faq-a b')?.textContent).toBe('pe săptămână')
     expect(screen.getByText('Cu 7-Zip.')).toBeTruthy()
-    const mail = screen.getByRole('link', { name: 'dentpilotpro@gmail.com' })
-    expect(mail.getAttribute('href')).toBe('mailto:dentpilotpro@gmail.com')
+    const mail = screen.getByRole('link', { name: 'contact@dentpilot.md' })
+    expect(mail.getAttribute('href')).toBe('mailto:contact@dentpilot.md')
     expect(get).toHaveBeenCalledWith('/settings/faq', expect.anything())
   })
 })
