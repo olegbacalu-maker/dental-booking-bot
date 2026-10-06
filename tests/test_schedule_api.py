@@ -1000,8 +1000,9 @@ def suite_live_shell(res: Result) -> None:
     dk = next(d["id"] for d in cfg["doctors"] if d.get("status") != "arhivat")
     with srv:
         c = Client(srv.url).login()
+        # ⭐ С 06.10 неделя — раздел «Programări» (`prog`), а не панель.
         want = {"/admin": ("schedule_dash", "dash"),
-                "/admin/week": ("schedule_week", "dash"),
+                "/admin/week": ("schedule_week", "prog"),
                 "/admin/all": ("schedule_all", "prog"),
                 f"/admin/doctor/{dk}": ("schedule_doctor", "prog")}
         for path, (screen, active) in want.items():
