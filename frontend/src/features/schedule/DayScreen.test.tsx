@@ -167,6 +167,13 @@ const MODEL: DayModel = {
 }
 
 const ok = <T,>(data: T): ApiResult<T> => ({ data, code: 'ok', text: 'Programare adăugată', tone: 'ok' })
+/* День ответа — тот, что спрошен в адресе: иначе любой переход «приезжал»
+   бы тем же днём, и смена дня была бы невидима — ни окну записи, ни
+   проверке, которая ждёт новый день на ЭКРАНЕ (см. `addr`). */
+const dayOfUrl = (url: string) => {
+  const date = /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date
+  return Promise.resolve(ok({ ...MODEL, date, day_label: `Zi ${date}` }))
+}
 /* Места ссылок в шапке дня (06.10 — как у панели дня и старой шапки):
    «« -7 zile», «‹ день», «Azi», «день ›», «» +7 zile», потом Panou и прочее. */
 const WK_PREV = 0, PREV = 1, AZI = 2, NEXT = 3, WK_NEXT = 4, DAY = 5, WEEK = 6
@@ -219,7 +226,16 @@ const show = (props: { date?: string; doctor?: string; f?: string } = {}) => {
 }
 
 type Router = Awaited<ReturnType<typeof open>>['router']
-/** Адрес, которым владеет роутер: его и увидит F5. */
+/** Адрес, которым владеет роутер: его и увидит F5.
+ *  ⚠️ После перехода С ЗАГРУЗЧИКОМ роутер ВПЕРЕДИ экрана. Здесь это любая
+ *  смена дня и закрытие окна записи: снятие якоря роутер считает переходом с
+ *  загрузкой, в отличие от его постановки. Такой переход кончается уже вне
+ *  `act` щелчка, и `RouterProvider` отдаёт новое состояние React'у через
+ *  `startTransition`: `router.state` новый, а экран ещё рисуется кусками по
+ *  5 мс — под нагрузкой опрос `waitFor` попадает между ними. Поэтому сперва
+ *  ждать то, что видно на ЭКРАНЕ, и только потом сверять адрес; обратный
+ *  порядок проверяет DOM и обработчики ПРЕЖНЕЙ отрисовки и краснеет лишь в
+ *  полном прогоне (06.10). */
 const addr = (router: Router) => router.state.location.pathname + router.state.location.search
 
 /* ⭐ F5-паритет: адрес, записанный экраном, открытый ЗАНОВО — свежим роутером,
@@ -334,13 +350,6 @@ describe('окно записи «Programare nouă»', () => {
   const addDate = () => (addForm()?.querySelector('input[type="date"]') as HTMLInputElement).value
   const field = (ph: string) => addForm()?.querySelector(`input[placeholder="${ph}"]`) as HTMLInputElement
 
-  /* День ответа — тот, что спрошен в адресе: иначе любой переход «приезжал»
-     бы тем же днём, и смена дня для окна была бы невидима. */
-  const dayOfUrl = (url: string) => {
-    const date = /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date
-    return Promise.resolve(ok({ ...MODEL, date, day_label: `Zi ${date}` }))
-  }
-
   it('⛔ формы внизу страницы больше нет; без #addform нет и окна', async () => {
     await show()
     expect(document.querySelector('form.add')).toBeNull()
@@ -354,9 +363,10 @@ describe('окно записи «Programare nouă»', () => {
     expect(addForm()).toBeTruthy()
     expect(addDate()).toBe('2026-09-22')
     fireEvent.click(document.querySelector('dialog .dlg-head button') as HTMLElement)
-    await waitFor(() => expect(router.state.location.hash).toBe(''))
+    /* окно ушло с экрана — значит, и роутер уже без якоря (не наоборот, см. `addr`) */
+    await waitFor(() => expect(addForm()).toBeNull())
+    expect(router.state.location.hash).toBe('')
     expect(addr(router)).toBe('/admin/all?date=2026-09-22')
-    expect(addForm()).toBeNull()
   })
 
   it('врачи и часы — из формы сервера, а не из колонок канвы', async () => {
@@ -903,11 +913,14 @@ describe('адрес дня', () => {
   /* ⛔ Своя копия даты, засеянная первой загрузкой, слала бы действие в день,
      которого на экране давно нет. */
   it('после перехода действие шлёт день АДРЕСА', async () => {
+    get.mockImplementation(dayOfUrl)
     post.mockResolvedValue(ok(MODEL))
     const { router } = await show({ date: '2026-09-23' })
     nav(PREV)
-    await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22'))
-    await waitFor(() => expect(router.state.navigation.state).toBe('idle'))
+    /* ⚠️ Ждать новый день на ЭКРАНЕ, а не в роутере (см. `addr`): форма
+       прежней отрисовки несёт прежний день, и действие ушло бы в 23-е. */
+    await waitFor(() => expect(document.querySelector('.nav b')?.textContent).toBe('Zi 2026-09-22'))
+    expect(addr(router)).toBe('/admin/all?date=2026-09-22')
     fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       '/schedule/appointments/1/status?date=2026-09-22', { to: 'waiting' }))
