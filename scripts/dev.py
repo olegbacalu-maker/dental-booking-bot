@@ -152,6 +152,32 @@ def cmd_up(argv: list) -> int:
 
 # ---------- check ----------
 
+# Что едет в exe. Клиент тоже: frontend/src собирается сборкой в
+# bot/app/static/js/bundle.js (сам бандл в git не лежит), так что правка
+# экрана React — такое же содержание выпуска, как правка bot/.
+SHIPPED = ("bot/", "frontend/src/", "frontend/package.json", "frontend/vite.config.ts")
+
+# …кроме тестов клиента: они лежат В frontend/src (*.test.ts(x) рядом с
+# экраном, помощники — в src/test/), но в бандл не едет ни один — вход сборки
+# main.tsx (vite.config.ts), и подключает их только vitest. Фильтрует сам git,
+# и одно определение отвечает на оба вопроса: что не считать и сколько не
+# посчитано.
+# ⚠️ Шаблоны — только с glob-магией pathspec. Без неё `**/` значит «хоть одна
+# папка», и тест прямо в src/ (main.test.tsx) ушёл бы в счёт — молча: сегодня
+# такого файла нет, и без магии счёт совпадает.
+CLIENT_TESTS = ("frontend/src/**/*.test.*", "frontend/src/test/**")
+
+
+def shipped_since(base: str, head: str = "HEAD") -> tuple[list[str], int]:
+    """Строки `numstat` того, что едет в exe, между base и head — и сколько
+    файлов тестов клиента изменилось там же мимо счёта."""
+    stat = git("diff", "--numstat", f"{base}..{head}", "--", *SHIPPED,
+               *(f":(exclude,glob){p}" for p in CLIENT_TESTS))
+    tests = git("diff", "--name-only", f"{base}..{head}", "--",
+                *(f":(glob){p}" for p in CLIENT_TESTS))
+    return [l for l in stat.splitlines() if l.strip()], len(tests.splitlines())
+
+
 def cmd_check(argv: list) -> int:
     """Предполётная проверка релизной лестницы. Отвечает «чего не хватает»
     ДО сборки, а не на третьем её шаге."""
@@ -222,21 +248,24 @@ def cmd_check(argv: list) -> int:
             ok &= say(False, f"тег {tag} стоит на {at[:7]}, и этого коммита нет "
                              f"в HEAD {head[:7]} — тег описывает другую ветку")
 
-    # Есть ли что выпускать. В exe едет bot/ И клиент: frontend/src собирается
-    # сборкой в bot/app/static/js/bundle.js (сам бандл в git не лежит), так что
-    # правка экрана React — такое же содержание выпуска, как правка bot/.
+    # Есть ли что выпускать — что именно едет в exe, говорят SHIPPED и
+    # CLIENT_TESTS выше.
     # ⛔ 25.09: проверка считала только bot/ и на B4 (весь переход — в
     # frontend/) сказала «выпускать нечего» — ложно. Тесты, scripts, dev.ps1,
     # README и скриншоты не пакуются, и релиз с одними ими повёз бы клинике
     # 30 МБ ради новой строки версии.
+    # ⛔ 07.10 — та же ошибка с другой стороны: тесты клиента лежат ВНУТРИ
+    # frontend/src, и коммит из одних тестов (06.10: DayScreen.test и
+    # PatientCardScreen.test) дал «изменено файлов: 2» — повод для релиза,
+    # которого нет. Вычтенные тесты печатаются числом: голое «изменений нет»
+    # сразу после правки тестов читалось бы как слепота проверки, а не как
+    # её решение.
     # ⚠️ Информационно, не [!!]: сразу после релиза «пусто» — норма, и красная
     # строка тут горела бы постоянно (та же ловушка, что с тегом выше).
     base = git("describe", "--tags", "--abbrev=0").strip()
     empty = False
     if base:
-        stat = [l for l in git("diff", "--numstat", f"{base}..HEAD", "--", "bot/",
-                               "frontend/src/", "frontend/package.json",
-                               "frontend/vite.config.ts").splitlines() if l.strip()]
+        stat, tests = shipped_since(base)
         # подъём версии — строка в engine.py и её эхо в package.json
         # (sync_version): сам по себе он не содержание
         bump_files = {"bot/app/engine.py", "frontend/package.json"}
@@ -244,9 +273,10 @@ def cmd_check(argv: list) -> int:
             l.split("\t")[2].replace("\\", "/") in bump_files and l.split("\t")[:2] == ["1", "1"]
             for l in stat)
         empty = not stat or only_bump
-        say(True, f"в bot/ и frontend/src с {base} изменений нет" if not stat else
-                  f"с {base} только подъём версии" if only_bump else
-                  f"в bot/ и frontend/src с {base} изменено файлов: {len(stat)}")
+        skipped = f" (тесты клиента не в счёт: {tests})" if tests else ""
+        say(True, (f"в bot/ и frontend/src с {base} изменений нет" if not stat else
+                   f"с {base} только подъём версии" if only_bump else
+                   f"в bot/ и frontend/src с {base} изменено файлов: {len(stat)}") + skipped)
 
     print()
     if not ok:

@@ -31,6 +31,7 @@ import test_chair  # noqa: E402
 import test_dbcrypt  # noqa: E402
 import test_demo  # noqa: E402
 import test_desk  # noqa: E402
+import test_dev  # noqa: E402
 import test_doctors  # noqa: E402
 import test_doctor_windows  # noqa: E402
 import test_day_actions  # noqa: E402
@@ -110,6 +111,7 @@ SUITES = [
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Выпуск: подпись — exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
+    ("Выпуск: тесты клиента — не повод для релиза (dev check)", test_dev.suite_release_content),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
     ("Лицензия: формат файла и фикстуры", test_license_format.suite),
     ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),
