@@ -17,7 +17,8 @@
      (свидетель — переменная окна, поставленная до щелчка), сайдбар и шапка —
      те же узлы DOM, подпись раздела — от документа нового адреса, и этот
      документ был запрошен fetch-ем;
-  2. неделя → «Zi»: то же в обратную сторону;
+  2. неделя → «Zi»: то же, в день журнала (с 06.10 неделя — раздел
+     «Programări», и «Zi» ведёт в его день, а не на панель);
   3. прокрутка: новый путь открывается сверху, «Назад» возвращает прежнюю
      позицию (окно 500 px высотой, чтобы было куда прокручивать; если
      страница не выше окна — SKIP с причиной, а не тихая зелень);
@@ -98,6 +99,9 @@ STATE = """(() => {
     busy: r ? r.getAttribute('aria-busy') : 'none',
     week: !!document.querySelector('.dp-react-root .week'),
     dash: !!document.querySelector('.dp-react-root .dash'),
+    /* день журнала («Programări»): канва БЕЗ обёртки панели (06.10) */
+    zi: !!document.querySelector('.dp-react-root .gridbody')
+      && !document.querySelector('.dp-react-root .dash'),
     hub: !!document.querySelector('.dp-react-root .set-hub'),
     rail: !!document.querySelector('aside.side-rail'),
     odop: !!document.querySelector('.dp-react-root .odop'),
@@ -193,18 +197,21 @@ def main() -> int:
             if not b["week"]:
                 bad.append("экран недели не нарисован")
 
-            # 2. неделя → панель
+            # 2. неделя → день. ⭐ С 06.10 неделя — раздел «Programări» (Олег), и
+            # её «Zi» ведёт в день ЖУРНАЛА (`/admin/all`), а не на панель.
             tok = page.js(MARK)
             click(page, "Zi")
-            c = settle(page, lambda s: s["href"].startswith("/admin?") and s["dash"])
-            print(f"неделя → панель: {b['href']} → {c['href']}  «{c['sub'][:40]}»")
+            c = settle(page, lambda s: s["href"].startswith("/admin/all?") and s["zi"])
+            print(f"неделя → день журнала: {b['href']} → {c['href']}  «{c['sub'][:40]}»")
+            if not c["href"].startswith("/admin/all?date="):
+                bad.append(f"«Zi» недели не привёл в день журнала: {c['href']}")
             if c["tok"] != tok:
                 bad.append("обратно: документ ПЕРЕЗАГРУЖЕН")
             if not (c["aside"] and c["top"]):
                 bad.append("обратно: сайдбар или шапка пересозданы")
-            if "panou principal" not in c["sub"]:
-                bad.append(f"обратно: подпись не от документа панели: «{c['sub']}»")
-            want = section_title("dash")
+            if "toți medicii" not in c["sub"]:
+                bad.append(f"обратно: подпись не от документа дня журнала: «{c['sub']}»")
+            want = section_title("prog")
             if c["active"] != want:
                 bad.append(f"активный пункт меню: «{c['active']}», ждали «{want}»")
 
@@ -224,18 +231,18 @@ def main() -> int:
                 time.sleep(0.2)
                 y0 = state(page)["y"]
                 click(page, "Zi")
-                e = settle(page, lambda s: s["dash"] and s["busy"] != "true")
+                e = settle(page, lambda s: s["zi"] and s["busy"] != "true")
                 time.sleep(0.3)
                 e = state(page)
-                if not e["dash"]:
-                    bad.append(f"прокрутка: щелчок «Zi» не привёл на панель: {e['href']}")
+                if not e["zi"]:
+                    bad.append(f"прокрутка: щелчок «Zi» не привёл в день журнала: {e['href']}")
                 elif e["y"] != 0:
                     bad.append(f"новый путь открылся не сверху: scrollY={e['y']}")
                 page.js("history.back()")
                 f = settle(page, lambda s: s["href"].startswith("/admin/week") and s["week"] and s["busy"] != "true")
                 time.sleep(0.5)
                 f = state(page)
-                print(f"прокрутка: неделя@{y0} → панель y={e['y']} → назад y={f['y']}")
+                print(f"прокрутка: неделя@{y0} → день y={e['y']} → назад y={f['y']}")
                 if y0 == 0:
                     skipped.append("прокрутка «Назад»: ссылка «Zi» видна без прокрутки — возврат позиции не отличим от верха")
                 elif abs(f["y"] - y0) > 4:
