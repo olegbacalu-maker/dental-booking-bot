@@ -40,6 +40,18 @@ export function focusOrbit(p: PlacedTooth, crown: number, jawY: number, upper: b
   }
 }
 
+/**
+ * Камера у зуба для листа пародонтограммы (06.10): сверху на жевательную
+ * поверхность со щёчной стороны — видны ВСЕ шесть точек края сразу, щёчные и
+ * язычные. Иначе курсор, идущий по точкам листа (три щёчные, три язычные),
+ * гонял бы камеру вокруг зуба каждые три цифры. Ниже минимума колеса —
+ * намеренно: смотрим на один зуб, а не на дугу.
+ */
+export function focusOcclusal(p: PlacedTooth, crown: number, jawY: number, upper: boolean): FocusOrbit {
+  const f = focusOrbit(p, crown, jawY, upper)
+  return { ...f, phi: rad(upper ? 138 : 42), r: 58 }
+}
+
 /** Ближайший поворот от `from` к азимуту `to`: орбита после перетаскивания
  *  может стоять на 7 рад, и прямое равенство цели гнало бы камеру кругом. */
 export function nearestTheta(from: number, to: number): number {

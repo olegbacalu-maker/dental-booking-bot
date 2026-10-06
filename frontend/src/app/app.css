@@ -587,6 +587,11 @@
 .dp-react-root .i-ptab td.deep { color: var(--amber-t); font-weight: 700; }
 .dp-react-root .i-ptab td.sev { color: var(--red-t); font-weight: 700; }
 .dp-react-root .i-ptab .i-bop { width: 8px; height: 8px; border-radius: 50%; background: var(--red-t); display: inline-block; }
+/* 3D над листом пародонтограммы: ниже, чем у одонтограммы — лист под ним
+   остаётся на экране, ассистент печатает и видит десну одновременно */
+.dp-react-root .perio-3d-card { margin-bottom: 14px; }
+.dp-react-root .perio-3d .odo-stage { height: 360px; }
+@media (max-width: 880px) { .dp-react-root .perio-3d .odo-stage { height: 300px; } }
 
 /* ---- B7 · планшет: одонтограмма под палец (26.09) ----
    Только (pointer: coarse): мышью рабочий стол прежний. Инспектор после касания

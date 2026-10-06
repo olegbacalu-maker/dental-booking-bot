@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/Icon'
 import type { Odontogram, PerioLayer } from '../chart'
 import { loadThree } from './loadThree'
+import { PerioLegend } from './PerioLegend'
 import { createArchScene, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
 
@@ -43,12 +44,6 @@ const T = {
   paro: 'Parodont',
   paroNone: 'Pacientul nu are încă o parodontogramă cu măsurători',
   paroTitle: 'Parodontograma din {at} pe gingie: recesiune, pungi, sângerare',
-  exam: 'Examen din {at}',
-  pocket: 'Pungă {a}–{b} mm',
-  deepPocket: 'Pungă {a}+ mm',
-  bleed: 'Sângerare la sondare',
-  rec: 'Recesiune: rădăcina se vede',
-  probe: 'Sonda — cu „Rădăcini”',
 } as const
 
 type Mode = 'stare' | 'paro'
@@ -209,18 +204,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
           ))}
         </div>
       </div>
-      {paro && layer && (
-        <div className="odo-paro-leg" aria-label={T.exam.replace('{at}', layer.exam.at)}>
-          <b>{T.exam.replace('{at}', layer.exam.at)}</b>
-          <span><i className="sw" style={{ background: layer.colors.deep }} />
-            {T.pocket.replace('{a}', String(layer.limits.deep)).replace('{b}', String(layer.limits.severe - 1))}</span>
-          <span><i className="sw" style={{ background: layer.colors.severe }} />
-            {T.deepPocket.replace('{a}', String(layer.limits.severe))}</span>
-          <span><i className="dot" />{T.bleed}</span>
-          <span><i className="sw rec" />{T.rec}</span>
-          <span><i className="probe" />{T.probe}</span>
-        </div>
-      )}
+      {paro && layer && <PerioLegend at={layer.exam.at} limits={layer.limits} colors={layer.colors} />}
       <div ref={host} className="odo-stage" data-status={status} data-mode={paro ? 'paro' : 'stare'}>
         {status === 'loading' && <p className="hint odo-3d-msg" aria-busy="true">{T.loading}</p>}
         {status === 'failed' && <p className="hint odo-3d-msg">{T.failed}</p>}

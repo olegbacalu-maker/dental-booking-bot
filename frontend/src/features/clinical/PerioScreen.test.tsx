@@ -10,6 +10,8 @@ import { hasData, roundLikeServer, rowOf, summarize, type PerioEdit, type PerioM
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+// 3D над листом (06.10): в jsdom WebGL нет — three «не загрузился», лист обязан жить
+vi.mock('./three/loadThree', () => ({ loadThree: () => Promise.reject(new Error('nu')) }))
 vi.mock('../../services/api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/api')>()
   return { ...real, api: { get, post }, loginUrl: () => '/admin/login?next=x' }
@@ -50,6 +52,7 @@ const MODEL: PerioModel = {
   ],
   summary: { teeth: 2, sites: 12, bop: 17, pd_mean: 2.6, cal_mean: 2.8, deep: 2, severe: 0, mob: [[16, 1]], furc: [[16, 2]] },
   limits: LIMITS,
+  colors: { deep: '#F59E0B', severe: '#DC2626' },
   grades: { mob: { '1': 'gr. I', '2': 'gr. II', '3': 'gr. III' }, furc: { '1': 'gr. I', '2': 'gr. II', '3': 'gr. III' } },
   doctors: ['Dr. Activ Doi', 'Dr. Activ Trei'],
 }
@@ -70,6 +73,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  localStorage.removeItem('dp_perio_3d')
   get.mockReset()
   post.mockReset()
 })
@@ -99,6 +103,27 @@ const deferred = <T,>() => {
   const promise = new Promise<T>((resolve) => { go = resolve })
   return { promise, go }
 }
+
+describe('3D над листом (06.10)', () => {
+  it('кнопка «3D» включает сцену и выбор помнится; без three — текст отказа, а лист пишется как обычно', async () => {
+    await show()
+    const b = document.querySelector('[data-perio3d]') as HTMLButtonElement
+    expect(b.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(b)
+    expect(document.querySelector('.perio-3d')).toBeTruthy()
+    expect(localStorage.getItem('dp_perio_3d')).toBe('1')
+    await waitFor(() => expect(screen.getByText(/3D nu s-a încărcat/)).toBeTruthy())
+    // курсор в клетке и цифра — лист работает при открытом 3D
+    cell(11, 'pd', 0).focus()
+    fireEvent.change(cell(11, 'pd', 0), { target: { value: '5' } })
+    expect(cell(11, 'pd', 0).value).toBe('5')
+    fireEvent.click(document.querySelector('[data-perio3d]') as HTMLButtonElement)
+    expect(document.querySelector('.perio-3d')).toBeNull()
+    expect(localStorage.getItem('dp_perio_3d')).toBe('0')
+    // ⚠️ запас по времени: лист из 384 полей плюс сцена под нагрузкой ПОЛНОГО прогона
+    // переваливал за 5 с умолчания (один — около секунды); краснота была бы ложной
+  }, 15_000)
+})
 
 describe('лист пародонтограммы', () => {
   it('рисует обе дуги, шесть точек на зуб и измерения выбранного осмотра', async () => {

@@ -179,7 +179,9 @@ def suite_api(res: Result) -> None:
         res.check("состав", sorted(j),
                   sorted(["patient", "exams", "exam", "rev", "rows", "teeth",
                           "arches", "sites", "summary", "limits", "grades",
-                          "doctors"]))
+                          "doctors", "colors"]))
+        res.check("цвета полосы кармана для 3D над листом — по ключам порогов",
+                  sorted(j["colors"]), ["deep", "severe"])
         res.check("осмотр выбран свежий, с датой, врачом, заметкой и счётом зубов",
                   ({k: v for k, v in j["exam"].items() if k != "at"},
                    bool(re.fullmatch(r"\d\d\.\d\d\.\d{4}", j["exam"]["at"])), len(j["exams"])),

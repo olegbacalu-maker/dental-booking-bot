@@ -50,6 +50,7 @@ const PERIO: PerioModel = {
   ],
   summary: { teeth: 1, sites: 6, bop: 0, pd_mean: 3.2, cal_mean: 3.2, deep: 2, severe: 0, mob: [], furc: [] },
   limits: { mm_max: 12, mob_max: 3, furc_max: 3, deep: 4, severe: 6 },
+  colors: { deep: '#F59E0B', severe: '#DC2626' },
   grades: { mob: { '1': 'gr. I' }, furc: { '1': 'gr. I' } }, doctors: ['Dr. Activ Doi'],
 }
 

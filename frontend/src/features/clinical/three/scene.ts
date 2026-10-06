@@ -1,7 +1,7 @@
 import type * as T3 from 'three'
 import type { Odontogram, ToothGeom, ToothInfo } from '../chart'
 import { archCurve, GAP, GAP_CLOSED, layoutArch, type ArchLayout, type PlacedTooth } from './arch'
-import { focusOrbit, nearestTheta } from './focus'
+import { focusOcclusal, focusOrbit, nearestTheta } from './focus'
 import type { Three } from './loadThree'
 import { COLOR, hex, lerpHex, structChanged, targetLook, type Look } from './look'
 import type { RawMesh } from './mesh'
@@ -53,7 +53,8 @@ export interface SceneOptions {
 /** Последний осмотр пародонтограммы с измерениями — числа сервера как есть:
  *  рецессия ставит край десны, глубина — полосу и зонд, CAL здесь не считается. */
 export interface PerioInput {
-  rows: Record<string, { pd: number[]; rec: number[]; bop: string; mob: number; furc: number; cal: number[] }>
+  /** CAL сцене не нужен (она ставит край по рецессии и зонд по глубине) — у черновика листа его нет */
+  rows: Record<string, { pd: number[]; rec: number[]; bop: string; mob: number; furc: number; cal?: number[] }>
   limits: { deep: number; severe: number }
   /** цвет полосы кармана по порогу — с сервера (`teeth_svg.PERIO_COLORS`) */
   colors: { deep: string; severe: string }
@@ -90,8 +91,11 @@ export interface ArchScene {
   setSelected(n: number | null): void
   setView(name: ViewName): void
   setToggle(k: Toggle, on: boolean): void
-  /** камера к зубу (цель — коронка, снаружи дуги) или назад к виду; null — назад */
-  focus(n: number | null): void
+  /** камера к зубу (цель — коронка, снаружи дуги) или назад к виду; null — назад.
+   *  'occlusal' (лист пародонтограммы) — сверху на зуб, видны все шесть точек */
+  focus(n: number | null, how?: 'buccal' | 'occlusal'): void
+  /** точка листа под курсором (06.10): маркер у края в этой точке; null — снять */
+  setActiveSite(n: number | null, site: number | null): void
   /** зубы, погашенные фильтром легенды (01.10): полупрозрачные, без колец и с бледным номером */
   setDim(teeth: ReadonlySet<number>): void
   /** слой пародонта (край по рецессии, полосы карманов, BOP, зонды); null — снять */
@@ -251,6 +255,28 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     severe: new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4, metalness: 0.1, emissive: 0x7f1d1d, emissiveIntensity: 0.3 }),
   }
 
+  // маркер точки листа под курсором: бирюзовый шарик чуть снаружи края
+  const siteGeo = new THREE.SphereGeometry(0.62, 18, 12)
+  const siteMat = new THREE.MeshStandardMaterial({ color: COLOR.ringSelected, emissive: COLOR.ringSelected, emissiveIntensity: 0.55, roughness: 0.3 })
+  const siteMark = new THREE.Mesh(siteGeo, siteMat)
+  siteMark.visible = false
+  siteMark.raycast = () => undefined
+  let activeSite: { n: number; site: number } | null = null
+  function placeSite(): void {
+    siteMark.visible = false
+    if (!activeSite) return
+    const t = gumTooth(activeSite.n)
+    const node = teeth.get(activeSite.n)
+    if (!t || !node || t.kind !== 'tooth') return
+    const th = ((SITE_DEG[activeSite.site] ?? 90) * Math.PI) / 180
+    const p = wallPoint(t, th, marginH(t.anchors, th) + 0.2, 1.1)
+    const grp = node.group.parent
+    if (!grp) return
+    if (siteMark.parent !== grp) grp.add(siteMark)
+    siteMark.position.set(p[0], p[1], p[2])
+    siteMark.visible = true
+  }
+
   const kindOf = (t: ToothNodes | undefined): GumKind => {
     const lk = t?.look
     if (!lk) return 'tooth'
@@ -352,6 +378,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       J.geo = geo
       buildMarks(J, list)
     }
+    placeSite()
     invalidate()
   }
 
@@ -1049,12 +1076,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       setJaw('upper', name !== 'jos')
       setJaw('lower', name !== 'sus')
     },
-    focus(n) {
+    focus(n, how = 'buccal') {
       const t = n !== null ? teeth.get(n) : undefined
       if (t) {
         const upper = t.group.parent === upperG
         const g = lastModel ? geomOf(lastModel.teeth[String(n)], upper) : { ...FALLBACK, upper }
-        const f = focusOrbit(t.place, g.crown, (upper ? upperG : lowerG).position.y, upper)
+        const f = (how === 'occlusal' ? focusOcclusal : focusOrbit)(t.place, g.crown, (upper ? upperG : lowerG).position.y, upper)
         tgt.set(...f.target)
         orb.tt = nearestTheta(orb.theta, f.theta)
         orb.tp = f.phi
@@ -1088,6 +1115,11 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     setDim(set) {
       dimmed = set
       if (lastModel) paint(lastModel)
+    },
+    setActiveSite(n, site) {
+      activeSite = n !== null && site !== null ? { n, site } : null
+      placeSite()
+      invalidate()
     },
     setPerio(p) {
       perio = p
@@ -1127,6 +1159,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       }
       dotGeo.dispose()
       dotMat.dispose()
+      siteGeo.dispose()
+      siteMat.dispose()
       for (const m of Object.values(probeMat)) m.dispose()
       envTex?.dispose()
       renderer.dispose()

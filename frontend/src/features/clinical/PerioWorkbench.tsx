@@ -1,8 +1,9 @@
-import { useRef, type KeyboardEvent } from 'react'
+import { useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { PerioSummaryCard } from './PerioSummary'
 import { PerioTooth } from './PerioTooth'
+import { Perio3D } from './three/Perio3D'
 import type { PerioModel } from './perio'
 import type { Kind, PerioApi } from './usePerio'
 
@@ -21,7 +22,11 @@ import type { Kind, PerioApi } from './usePerio'
    ставится клавишей «b» с того же места. Без этого карту просто не ведут.
    ⛔ Enter здесь НЕ сохраняет, в отличие от одонтограммы: руки ассистента не
    уходят с цифровой клавиатуры, и Enter — это «следующая точка». Осмотр
-   записывается кнопкой, одной на весь лист. */
+   записывается кнопкой, одной на весь лист.
+
+   3D над листом (06.10, ступень 4 плана, слово Олега «да»): кнопка «3D» в шапке,
+   выбор помнит браузер. Сцена берёт ЧЕРНОВИК листа — десна меняется на каждой
+   цифре, без записи; курсор в клетке ведёт камеру к зубу и маркер к точке. */
 const T = {
   title: 'Parodontogramă',
   sub: '6 puncte pe dinte',
@@ -40,6 +45,8 @@ const T = {
   notePh: 'ex. reevaluare după detartraj',
   upper: 'Maxilar',
   lower: 'Mandibular',
+  view3d: '3D',
+  view3dTitle: 'Gingia în 3D după foaie: se schimbă pe măsură ce introduceți cifrele',
   hint: 'Rânduri: adâncimea de sondare și recesiunea, dinspre vestibular spre oral. '
     + 'Punctul roșu = sângerare (tasta «b»). Cifra trece singură la punctul următor.',
 } as const
@@ -56,8 +63,31 @@ interface Props {
   embedded?: boolean
 }
 
+const KEY_3D = 'dp_perio_3d'
+function saved3d(): boolean {
+  try {
+    return localStorage.getItem(KEY_3D) === '1'
+  } catch {
+    return false
+  }
+}
+
 export function PerioWorkbench({ pid, model, c, goExam, afterExam, embedded = false }: Props) {
   const root = useRef<HTMLDivElement>(null)
+  const [show3d, setShow3d] = useState(saved3d)
+  /** клетка под курсором — для 3D: зуб и точка листа */
+  const [active, setActive] = useState<{ n: number; site: number } | null>(null)
+  const toggle3d = () => {
+    const on = !show3d
+    setShow3d(on)
+    try { localStorage.setItem(KEY_3D, on ? '1' : '0') } catch { /* без памяти — только на этот раз */ }
+  }
+  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
+    const el = e.target as HTMLElement
+    const n = Number(el.dataset.n)
+    const i = Number(el.dataset.i)
+    if (el.tagName === 'INPUT' && n > 0 && i >= 0 && i < 6) setActive((a) => (a?.n === n && a.site === i ? a : { n, site: i }))
+  }
   const base = `/admin/patient/${pid}`
   const cells = () =>
     Array.from(root.current?.querySelectorAll<HTMLInputElement>('.pcell input[data-k]') ?? [])
@@ -152,6 +182,11 @@ export function PerioWorkbench({ pid, model, c, goExam, afterExam, embedded = fa
         >
           <Icon name="plus" /> {T.newExam}
         </button>
+        {model.exam && (
+          <button type="button" className="odo-more" data-perio3d aria-pressed={show3d} title={T.view3dTitle} onClick={toggle3d}>
+            <Icon name="tooth" /> {T.view3d}
+          </button>
+        )}
         {!embedded && <AppLink className="odo-more" href={`${base}/odontograma`}><Icon name="tooth" /> {T.odo}</AppLink>}
         {embedded && (
           <AppLink className="odo-more" href={`${base}/parodontograma${model.exam ? `?exam=${model.exam.id}` : ''}`}>
@@ -196,12 +231,24 @@ export function PerioWorkbench({ pid, model, c, goExam, afterExam, embedded = fa
   return (
       <div className="perio" ref={root}>
         {head}
+        {show3d && (
+          <div className="fcard perio-3d-card">
+            <Perio3D
+              pid={pid}
+              rows={Object.fromEntries(c.shown.map((n) => [String(n), c.row(n)]))}
+              limits={model.limits}
+              colors={model.colors}
+              active={active}
+              onPickTooth={pickTooth}
+            />
+          </div>
+        )}
         <div className="pgrid">
           <div className="fcard">
             <p className="hint">{T.hint}</p>
             {/* Клавиши листа — делегатом на обёртке дуг: обработчик один на
                 384 поля, и «b» работает из той точки, где стоит курсор. */}
-            <div onKeyDown={onKey}>
+            <div onKeyDown={onKey} onFocus={onFocus}>
               {arch(model.arches.upper)}
               <div className="pmid"><span>{T.upper}</span><i /><span>{T.lower}</span></div>
               {arch(model.arches.lower, true)}

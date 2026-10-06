@@ -357,6 +357,9 @@ def model(patient: dict, exams: list, exam: dict | None, rows: list,
         "limits": {"mm_max": tsvg.PERIO_MM_MAX, "mob_max": tsvg.PERIO_MOB_MAX,
                    "furc_max": tsvg.PERIO_FURC_MAX,
                    "deep": DEEP_MM, "severe": SEVERE_MM},
+        # 3D над листом (06.10): цвет полосы кармана — тот же, что у слоя
+        # одонтограммы (`layer`), ключи — как у порогов
+        "colors": dict(tsvg.PERIO_COLORS),
         "grades": {"mob": {str(k): v for k, v in MOB_RO.items()},
                    "furc": {str(k): v for k, v in FURC_RO.items()}},
         "doctors": list(doctors),

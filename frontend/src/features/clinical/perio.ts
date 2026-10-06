@@ -85,6 +85,8 @@ export interface PerioModel {
   sites: { key: string; label: string }[]
   summary: PerioSummary
   limits: PerioLimits
+  /** цвет полосы кармана в 3D над листом (06.10) — тот же, что у слоя одонтограммы */
+  colors: { deep: string; severe: string }
   grades: { mob: Record<string, string>; furc: Record<string, string> }
   doctors: string[]
 }
