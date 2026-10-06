@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiResult } from '../../services/api'
 import { openScreen } from '../../test/openScreen'
 import { DayScreen, loadDay } from './DayScreen'
+import type { DashBlock, DashCanvasModel } from './dash'
 import type { DayModel } from './day'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
@@ -23,10 +24,62 @@ const appt = (id: number, time: string, name: string, extra = {}) => ({
 
 const LONG = 'Alergie la penicilină; de sunat cu o zi înainte; vine cu mama; dimineața'
 
+/* Блок канвы — тот же вид записи, что у панели (`canvas.blocks` из
+   `day.appt_view`) плюс геометрия. */
+const block = (id: number, time: string, name: string,
+  extra: Partial<Extract<DashBlock, { kind: 'appt' }>> = {}): Extract<DashBlock, { kind: 'appt' }> => ({
+  kind: 'appt', id, time, name, service: 'Consultație', phone: '069000000',
+  status: 'confirmed', status_label: 'Confirmat', urgent: false, source: 'panel', dur: 60,
+  comment: '', comment_cut: '', age: null, clickable: true,
+  bg: 'var(--green-soft)', bar: 'var(--green)', min: 540, busy: true, movable: true,
+  doctor: 'Dr. Activ Doi', pid: 7, rec: false, top: 0, height: 1, col: 0, of: 1,
+  title: `${time} · 60′ · Consultație · ${name}`, wait_since: null, ...extra,
+})
+
+/* ⭐ Сетка дня с 06.10 — КАНВА панели (`DashCanvas`), а не таблица. Часы 9–12,
+   ряды по 40 пикселей с сотого (подмена геометрии ниже). У Doi закрыт 12:00,
+   в 11:00 у него заметка стойки; Trei выключен и принимает весь день. */
+const HOURS = [9, 10, 11, 12]
+const CANVAS: DashCanvasModel = {
+  date: '2026-09-23', empty: false, base_min: 540, tight: false,
+  hours: HOURS.map((h) => ({ h, label: `${String(h).padStart(2, '0')}:00`, now: h === 10 })),
+  bands: { top: null, bottom: null },
+  columns: [
+    {
+      key: 'k:d2', id: 'd2', name: 'Dr. Activ Doi', orphan: false, spec: 'Terapeut', off: false,
+      hue: 'var(--teal)', photo: '', initials: 'AD', count: 1, free: '10:00',
+      occupancy: { busy: 60, cap: 480, pct: 13 }, title: 'Dr. Activ Doi',
+      cells: [true, true, true, false],
+      blocks: [
+        block(1, '09:00', 'Ion Popa', { comment: LONG, comment_cut: LONG.slice(0, 60) }),
+        { kind: 'note', id: 9, time: '11:00', min: 660, dur: 60, busy: true, movable: true,
+          status: 'confirmed', top: 2, height: 1, col: 0, of: 1,
+          title: 'Livrare', text: 'Livrare', label: 'Livrare' },
+      ],
+      relink: null,
+    },
+    {
+      key: 'k:d3', id: 'd3', name: 'Dr. Activ Trei', orphan: false, spec: 'Ortodont', off: true,
+      hue: 'var(--violet)', photo: '', initials: 'AT', count: 1, free: '09:00',
+      occupancy: null, title: 'Dr. Activ Trei', cells: [true, true, true, true],
+      blocks: [block(2, '10:00', 'Maria Rusu', {
+        min: 600, top: 1, status: 'noshow', status_label: 'Nu s-a prezentat', urgent: true,
+        service: 'Durere acută', age: 36, comment: 'sună înainte', comment_cut: 'sună înainte',
+        bg: 'var(--red-soft)', bar: 'var(--red)', movable: false, busy: false,
+        doctor: 'Dr. Activ Trei', pid: 8, rec: true,
+      })],
+      relink: null,
+    },
+  ],
+}
+
 /* ⛔ Две колонки, и вторая пустая в 09:00: если ячейки раскладывать не по
    позиции в списке врачей, запись переедет к соседу — и это выглядит нормально. */
 const MODEL: DayModel = {
   date: '2026-09-23',
+  day_label: 'Mi 23.09.2026',
+  canvas: CANVAS,
+  source_col: true,
   doctors: [
     { id: 'd2', name: 'Dr. Activ Doi', spec: 'Terapeut' },
     { id: 'd3', name: 'Dr. Activ Trei', spec: 'Ortodont · inactiv' },
@@ -114,29 +167,36 @@ const MODEL: DayModel = {
 }
 
 const ok = <T,>(data: T): ApiResult<T> => ({ data, code: 'ok', text: 'Programare adăugată', tone: 'ok' })
-const rows = () => Array.from(document.querySelectorAll('tr.hrow'))
-const cellsOf = (i: number) => Array.from(rows()[i]?.querySelectorAll('td') ?? []).slice(1)
-const dt = () => ({ setData: vi.fn(), dropEffect: '', effectAllowed: '' })
+/* Места ссылок в шапке дня (06.10 — как у панели дня и старой шапки):
+   «« -7 zile», «‹ день», «Azi», «день ›», «» +7 zile», потом Panou и прочее. */
+const WK_PREV = 0, PREV = 1, AZI = 2, NEXT = 3, WK_NEXT = 4, DAY = 5, WEEK = 6
+const navLink = (i: number) => document.querySelectorAll('.nav a')[i] as HTMLElement
+/* Канва: колонка врача, её час, блок записи. */
+const colOf = (dk: string) => document.querySelector(`.gridbody > .gcol[data-dk="${dk}"]`) as HTMLElement
+const cellOf = (dk: string, h: number) => colOf(dk)?.querySelector(`.gcell[data-h="${h}"]`) as HTMLElement
+const blk = (id: number) => document.querySelector(`.gridbody [data-appt="${id}"]`) as HTMLElement
+const canvasShown = () => !!document.querySelector('.gridbody')
 
-/* ⚠️ Координату броска приходится доставлять руками: jsdom не знает DragEvent,
-   и fireEvent.drop({clientY}) роняет её по дороге — обработчик получает
-   undefined, а половина часа считается ИМЕННО по ней. Мышиное событие с тем
-   же именем доносит и координату, и объект переноса. */
-const fireAt = (el: Element, type: string, y: number) => {
-  const ev = new MouseEvent(type, { clientY: y, bubbles: true, cancelable: true })
-  Object.defineProperty(ev, 'dataTransfer', { value: dt() })
-  act(() => { el.dispatchEvent(ev) })
-}
+/* ⚠️ Координату броска приходится доставлять руками: в jsdom нет `DragEvent`,
+   и fireEvent.drop({clientY}) роняет её по дороге — мишень всегда пустая.
+   Мышиное событие того же имени React разбирает так же, а координата в нём
+   настоящая (тот же приём, что в DashCanvas.test). */
+const dropAt = (el: Element, type: 'dragover' | 'drop', clientY: number) =>
+  act(() => { fireEvent(el, new MouseEvent(type, { bubbles: true, cancelable: true, clientY })) })
 
-/* jsdom всем элементам возвращает нулевой прямоугольник, а половина часа
-   считается ИМЕННО по нему: без подмены любой бросок оказывался бы на :30. */
-const RECT = { top: 100, height: 60, bottom: 160, left: 0, right: 0, width: 0,
-  x: 0, y: 100, toJSON: () => ({}) }
-
+/* jsdom не считает геометрию: ряды канвы подставляются по `data-h`, по 40
+   пикселей начиная со сотого (9:00 — 100–140, 10:00 — 140–180…). Без этого
+   мишень переноса и половина часа не проверяются вовсе. */
 beforeEach(() => {
   get.mockResolvedValue(ok(MODEL))
-  vi.spyOn(HTMLTableCellElement.prototype, 'getBoundingClientRect')
-    .mockReturnValue(RECT as DOMRect)
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+    function rect(this: Element) {
+      const h = (this as HTMLElement).dataset?.h
+      const i = h === undefined ? -1 : HOURS.indexOf(Number(h))
+      const top = i < 0 ? 0 : 100 + i * 40
+      return { top, height: i < 0 ? 0 : 40, bottom: top + 40,
+        left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) } as DOMRect
+    })
 })
 afterEach(() => { cleanup(); get.mockReset(); post.mockReset(); vi.restoreAllMocks() })
 
@@ -146,7 +206,7 @@ const open = async (url: string) => {
   const dk = /^\/admin\/doctor\/([^/?]+)/.exec(url)?.[1] ?? ''
   const r = openScreen(dk ? '/admin/doctor/:dk' : '/admin/all', url,
     <DayScreen doctor={dk} navigate={() => {}} />, loadDay)
-  await waitFor(() => expect(rows().length).toBeGreaterThan(0))
+  await waitFor(() => expect(canvasShown()).toBe(true))
   return r
 }
 
@@ -175,80 +235,83 @@ const reloadParity = async (router: Router) => {
   expect(get.mock.lastCall?.[0]).toBe(before)
 }
 
+/* ⭐ (06.10) Сетка «Programări» — КАНВА панели: те же шапки врачей, те же
+   блоки, те же цвета. Сама канва проверена в DashCanvas.test; здесь — что
+   экран дня рисует ИМЕННО её, из своей модели, и что старой таблицы с «+»
+   больше нет. */
 describe('день журнала: чтение', () => {
-  it('колонки — врачи сервера, с подписями и ссылкой в их день', async () => {
+  it('сетка — канва панели: шапки врачей сервера, ссылка в их день, выключенный назван', async () => {
     await show()
-    const heads = Array.from(document.querySelectorAll('.dh-n'))
+    const heads = Array.from(document.querySelectorAll('.gridhead .gh-doc .nm a'))
     expect(heads.map((h) => h.textContent)).toEqual(['Dr. Activ Doi', 'Dr. Activ Trei'])
     expect(heads[0]?.getAttribute('href')).toBe('/admin/doctor/d2?date=2026-09-23')
-    expect(document.querySelectorAll('.dh-s')[1]?.textContent).toContain('inactiv')
+    expect(document.querySelectorAll('.gridhead .gh-doc')[1]?.textContent).toContain('inactiv')
+    /* шапка с цветом врача и загрузкой — как у панели */
+    expect(document.querySelectorAll('.gridhead .dcard .av')[0]?.textContent).toBe('AD')
+    expect(document.querySelector('.gridhead .occ b')?.textContent).toBe('13%')
   })
 
-  it('запись стоит в колонке своего врача, у соседа в этот час «+»', async () => {
+  it('⛔ старой таблицы нет: ни рядов с «+», ни ссылок в форму', async () => {
     await show()
-    const c = cellsOf(0)
-    expect(c[0]?.querySelector('[data-appt="1"]')).toBeTruthy()
-    expect(c[1]?.querySelector('.free')).toBeTruthy()
+    expect(document.querySelector('table.grid')).toBeNull()
+    expect(document.querySelector('a.free')).toBeNull()
+    expect(cellOf('d3', 9)?.textContent).toBe('')
   })
 
-  it('закрытый час называет себя, и ячейки в нём пустые', async () => {
+  it('запись стоит в колонке своего врача, а свободный час — пустая ячейка', async () => {
     await show()
-    expect(rows()[2]?.querySelector('.hour')?.textContent).toContain('pauză')
-    expect(rows()[3]?.querySelector('.hour')?.textContent).toContain('închis')
-    expect(cellsOf(2).every((td) => td.className === 'goff')).toBe(true)
+    expect(colOf('d2').querySelector('[data-appt="1"]')).toBeTruthy()
+    expect(colOf('d3').querySelector('[data-appt="1"]')).toBeNull()
+    expect(cellOf('d3', 9)).toBeTruthy()
   })
 
-  it('час под длинным визитом говорит «занято», а не «+»', async () => {
+  it('закрытый час — штриховка без мишени', async () => {
     await show()
-    const c = cellsOf(1)
-    expect(c[0]?.textContent).toContain('ocupat')
-    expect(c[0]?.querySelector('.free')).toBeNull()
+    expect(colOf('d2').querySelectorAll('.gcell.off')).toHaveLength(1)
+    expect(cellOf('d2', 12)).toBeFalsy()
   })
 
   it('текущий час подсвечен ровно один раз', async () => {
     await show()
-    expect(document.querySelectorAll('tr.hrow.now')).toHaveLength(1)
-    expect(rows()[1]?.className).toContain('now')
+    const nowh = document.querySelectorAll('.gcol-time .nowh')
+    expect(nowh).toHaveLength(1)
+    expect(nowh[0]?.textContent).toBe('10:00')
   })
 
-  it('карточка несёт слово статуса сервера, срочность, возраст и комментарий', async () => {
+  it('блок несёт слово статуса сервера, его цвет и значок комментария', async () => {
     await show()
-    const card = cellsOf(1)[1]?.querySelector('[data-appt="2"]')
-    expect(card?.className).toContain('noshow')
-    expect(card?.className).toContain('urgent')
-    expect(card?.textContent).toContain('Nu s-a prezentat')   // а не «noshow»
-    expect(card?.textContent).toContain('36 a.')
-    expect(card?.textContent).toContain('sună înainte')
-    expect(card?.textContent).toContain('(60′)')
+    const card = blk(2)
+    expect(card.className).toContain('noshow')
+    expect(card.textContent).toContain('Nu s-a prezentat')   // а не «noshow»
+    expect(card.style.background).toBe('var(--red-soft)')
+    /* полный комментарий — в подсказке блока; на самом блоке — значок */
+    expect(card.title).toContain('sună înainte')
   })
 
-  it('вид карточки (03.10) — тот же выбор, что у панели: имя, начало, интервал; без карандаша', async () => {
+  it('вид блока (03.10) — тот же выбор, что у панели: имя, начало, интервал', async () => {
     /* Выбор вида — у panel.css по `<html data-card>`: «имя впереди» видит
-       имя и «09:00 · услуга (60′)», «время впереди» — интервал (.gtm) сверху
-       и прячет .gt/.gd. ⛔ Карандаш «записано вручную» снят, как и на панели. */
+       имя и «09:00 · 60′ · услуга», «время впереди» — интервал (.gtm). */
     await show()
-    const card = cellsOf(0)[0]?.querySelector('[data-appt="1"]') as HTMLElement
-    expect(card.querySelector('b')?.textContent).toBe('Ion Popa')
+    const card = blk(1)
+    expect(card.querySelector('b')?.textContent?.trim()).toBe('Ion Popa')
     expect(card.querySelector('.gtm')?.textContent).toBe('09:00–10:00')
-    expect(card.querySelector('.gt')?.textContent).toBe('09:00 · ')
-    expect(card.querySelector('.gd')?.textContent).toBe('(60′)')
-    /* значок источника стоял прямо в карточке; у этой записи есть только
-       значок комментария, и он внутри .cmt */
-    expect(card.querySelector(':scope > svg')).toBeNull()
-    expect(card.querySelectorAll('svg').length).toBe(card.querySelectorAll('.cmt svg').length)
+    expect(card.querySelector('.gt')?.textContent).toBe('09:00 · 60′ · ')
   })
 
-  it('заметка стойки — своим видом и без телефона', async () => {
+  it('заметка стойки — своим видом, и нажатие открывает ЕЁ окно с кнопкой сервера', async () => {
     await show()
-    const note = cellsOf(3)[0]?.querySelector('[data-appt="9"]')
-    expect(note?.className).toContain('note')
-    expect(note?.textContent).toContain('Livrare')
-    expect(note?.textContent).not.toContain('069000000')
+    const note = blk(9)
+    expect(note.className).toContain('gnote')
+    expect(note.textContent).toContain('Livrare')
+    fireEvent.click(note)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(Array.from(document.querySelectorAll('dialog button'))
+      .map((b) => b.textContent?.trim())).toContain('Șterge')
   })
 
   it('соседний день запрашивается у сервера', async () => {
     const { router } = await show({ date: '2026-09-23' })
-    fireEvent.click(document.querySelectorAll('.nav a')[0] as HTMLElement)
+    fireEvent.click(navLink(PREV))
     await waitFor(() => expect(get).toHaveBeenCalledWith(
       '/schedule/day?date=2026-09-22', expect.anything()))
     /* ⭐ Адрес ведёт РОУТЕР, а не запись мимо него. */
@@ -261,108 +324,117 @@ describe('день журнала: чтение', () => {
   })
 })
 
-describe('форма записи', () => {
-  it('врачи и часы — из формы сервера, а не из колонок сетки', async () => {
+/* ⭐ (06.10, Олег) Ручная запись — ОКНОМ «Programare nouă», а не формой внизу
+   страницы. Открывает его `#addform` в адресе: туда ведёт кнопка шапки
+   программы, и адрес — единственное состояние окна. */
+describe('окно записи «Programare nouă»', () => {
+  const openAdd = (date = '2026-09-23') => open(`/admin/all?date=${date}#addform`)
+  const addForm = () => document.querySelector('dialog form.dp-addform') as HTMLFormElement | null
+  const sel = (i: number) => addForm()?.querySelectorAll('select')[i] as HTMLSelectElement
+  const addDate = () => (addForm()?.querySelector('input[type="date"]') as HTMLInputElement).value
+  const field = (ph: string) => addForm()?.querySelector(`input[placeholder="${ph}"]`) as HTMLInputElement
+
+  /* День ответа — тот, что спрошен в адресе: иначе любой переход «приезжал»
+     бы тем же днём, и смена дня для окна была бы невидима. */
+  const dayOfUrl = (url: string) => {
+    const date = /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date
+    return Promise.resolve(ok({ ...MODEL, date, day_label: `Zi ${date}` }))
+  }
+
+  it('⛔ формы внизу страницы больше нет; без #addform нет и окна', async () => {
     await show()
-    const sel = (i: number) => document.querySelectorAll('form.add select')[i] as HTMLSelectElement
+    expect(document.querySelector('form.add')).toBeNull()
+    expect(document.getElementById('addform')).toBeNull()
+    expect(addForm()).toBeNull()
+  })
+
+  it('#addform открывает окно на дне экрана; «Închide» закрывает его и убирает якорь', async () => {
+    get.mockImplementation(dayOfUrl)
+    const { router } = await openAdd('2026-09-22')
+    expect(addForm()).toBeTruthy()
+    expect(addDate()).toBe('2026-09-22')
+    fireEvent.click(document.querySelector('dialog .dlg-head button') as HTMLElement)
+    await waitFor(() => expect(router.state.location.hash).toBe(''))
+    expect(addr(router)).toBe('/admin/all?date=2026-09-22')
+    expect(addForm()).toBeNull()
+  })
+
+  it('врачи и часы — из формы сервера, а не из колонок канвы', async () => {
+    await openAdd()
     expect(Array.from(sel(1).options).map((o) => o.value)).toEqual(['d2', 'd4'])
     expect(Array.from(sel(0).options).map((o) => o.value)).toEqual(['09:00', '09:30', '10:00'])
   })
 
   it('смена врача переписывает часы', async () => {
-    await show()
-    const sel = (i: number) => document.querySelectorAll('form.add select')[i] as HTMLSelectElement
+    await openAdd()
     fireEvent.change(sel(1), { target: { value: 'd4' } })
     expect(Array.from(sel(0).options).map((o) => o.value)).toEqual(['14:00', '14:30'])
   })
 
   it('галочка «fără telefon» гасит поле и снимает требование', async () => {
-    await show()
-    const form = document.querySelector('form.add') as HTMLFormElement
-    const phone = form.querySelector('input[placeholder="Telefon"]') as HTMLInputElement
-    expect(phone.required).toBe(true)
-    fireEvent.click(form.querySelector('.nophone input') as HTMLElement)
-    expect(phone.disabled).toBe(true)
-    expect(phone.required).toBe(false)
+    await openAdd()
+    expect(field('Telefon').required).toBe(true)
+    fireEvent.click(addForm()?.querySelector('.nophone input') as HTMLElement)
+    expect(field('Telefon').disabled).toBe(true)
+    expect(field('Telefon').required).toBe(false)
   })
 
-  it('отправка шлёт выбранное и показывает плашку сервера', async () => {
+  it('отправка шлёт выбранное, показывает плашку сервера и закрывает окно', async () => {
     post.mockResolvedValue(ok(MODEL))
-    await show()
-    const form = document.querySelector('form.add') as HTMLFormElement
-    fireEvent.change(form.querySelector('input[placeholder="Nume pacient"]') as HTMLElement,
-      { target: { value: 'Vasile Lupu' } })
-    fireEvent.change(form.querySelector('input[placeholder="Telefon"]') as HTMLElement,
-      { target: { value: '069112233' } })
-    fireEvent.submit(form)
-    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments', {
+    const { router } = await openAdd()
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+    fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
+    fireEvent.submit(addForm() as HTMLFormElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments?date=2026-09-23', {
       date: '2026-09-23', time: '09:00', doctor: 'd2', service: 'consult',
       name: 'Vasile Lupu', phone: '069112233', nophone: false, birth: '',
     }))
     await waitFor(() => expect(document.querySelector('.toastbox')?.textContent)
       .toContain('Programare adăugată'))
+    await waitFor(() => expect(router.state.location.hash).toBe(''))
   })
 
-  /* День ответа — тот, что спрошен в адресе: иначе любой переход «приезжал»
-     бы тем же днём, и смена дня для формы была бы невидима. */
-  const dayOfUrl = (url: string) =>
-    Promise.resolve(ok({ ...MODEL, date: /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date }))
-  const formDate = () =>
-    (document.querySelector('form.add > input[type="date"]') as HTMLInputElement).value
-
-  /* ⛔ Поле даты засевалось ОДИН раз, первой загрузкой: после «zi ›» на экране
-     новый день, а форма показывала прежний — и записывала пациента в него.
-     Недонабранное смена дня стирает, как перезагрузка старой страницы (Олег
-     24.09). */
-  it('день сменился — дата формы и запись идут за днём экрана', async () => {
-    get.mockImplementation(dayOfUrl)
-    post.mockResolvedValue(ok({ ...MODEL, date: '2026-09-23' }))
-    await show({ date: '2026-09-22' })
-    expect(formDate()).toBe('2026-09-22')
-    const nameOf = () => document.querySelector(
-      'form.add input[placeholder="Nume pacient"]') as HTMLInputElement
-    fireEvent.change(nameOf(), { target: { value: 'Ion Popa' } })
-    fireEvent.click(document.querySelectorAll('.nav a')[2] as HTMLElement)
-    await waitFor(() => expect(document.querySelector('.nav b')?.textContent).toBe('2026-09-23'))
-    expect(formDate()).toBe('2026-09-23')
-    expect(nameOf().value).toBe('')
-    const form = document.querySelector('form.add') as HTMLFormElement
-    fireEvent.change(nameOf(), { target: { value: 'Vasile Lupu' } })
-    fireEvent.change(form.querySelector('input[placeholder="Telefon"]') as HTMLElement,
-      { target: { value: '069112233' } })
-    fireEvent.submit(form)
-    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments?date=2026-09-23',
-      expect.objectContaining({ date: '2026-09-23', name: 'Vasile Lupu' })))
-  })
-
-  /* А свою дату человек вписал сам — её не трогает действие, вернувшее свежий
-     ТОТ ЖЕ день (статус из списка посреди набора записи). */
-  it('вписанная дата переживает действие, вернувшее тот же день', async () => {
-    get.mockImplementation(dayOfUrl)
-    post.mockResolvedValue(ok({ ...MODEL, date: '2026-09-22' }))
-    await show({ date: '2026-09-22' })
-    const form = document.querySelector('form.add') as HTMLFormElement
-    const name = form.querySelector('input[placeholder="Nume pacient"]') as HTMLInputElement
-    fireEvent.change(form.querySelector(':scope > input[type="date"]') as HTMLElement,
-      { target: { value: '2026-09-30' } })
-    fireEvent.change(name, { target: { value: 'Vasile Lupu' } })
-    fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
+  /* ⛔ Окно закрывается ТОЛЬКО на удаче: закрыть форму, из которой ничего не
+     записалось, значит потерять ввод и не сказать почему. */
+  it('отказ: окно остаётся открытым с набранным', async () => {
+    post.mockRejectedValue(new Error('interval ocupat'))
+    const { router } = await openAdd()
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Vasile Lupu' } })
+    fireEvent.change(field('Telefon'), { target: { value: '069112233' } })
+    fireEvent.submit(addForm() as HTMLFormElement)
     await waitFor(() => expect(document.querySelector('.toastbox')).toBeTruthy())
-    expect(formDate()).toBe('2026-09-30')
-    expect(name.value).toBe('Vasile Lupu')
+    expect(router.state.location.hash).toBe('#addform')
+    expect(field('Nume pacient').value).toBe('Vasile Lupu')
   })
 
-  it('у выключенного врача формы нет вовсе', async () => {
+  /* ⛔ Смена дня — это новая запись, как перезагрузка старой страницы (Олег
+     24.09): переход по дню убирает якорь, и окно, открытое снова, засевает
+     НОВЫЙ день, а недонабранное не переезжает. */
+  it('смена дня закрывает окно; открытое снова — на новом дне и чистое', async () => {
+    get.mockImplementation(dayOfUrl)
+    const { router } = await openAdd('2026-09-22')
+    fireEvent.change(field('Nume pacient'), { target: { value: 'Ion Popa' } })
+    fireEvent.click(navLink(NEXT))
+    await waitFor(() => expect(document.querySelector('.nav b')?.textContent).toBe('Zi 2026-09-23'))
+    expect(addForm()).toBeNull()
+    await act(async () => { await router.navigate('/admin/all?date=2026-09-23#addform') })
+    await waitFor(() => expect(addForm()).toBeTruthy())
+    expect(addDate()).toBe('2026-09-23')
+    expect(field('Nume pacient').value).toBe('')
+  })
+
+  it('у выключенного врача окна нет вовсе, даже по #addform', async () => {
     get.mockResolvedValue(ok({ ...MODEL, form: null }))
-    await show({ doctor: 'd3' })
-    expect(document.querySelector('form.add')).toBeNull()
+    await open('/admin/doctor/d3#addform')
+    expect(addForm()).toBeNull()
   })
 })
 
-describe('диалог «+»', () => {
+describe('окно свободного часа', () => {
+  /* Пустой час канвы — клик по самой ячейке, как на панели (знака «+» нет). */
   const openSlot = async () => {
     await show()
-    fireEvent.click(cellsOf(0)[1]?.querySelector('.free') as HTMLElement)
+    fireEvent.click(cellOf('d3', 9))
     await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
   }
 
@@ -404,23 +476,18 @@ describe('диалог «+»', () => {
 })
 
 describe('карточка визита', () => {
-  const openCard = async (id: number, row = 0, col = 0) => {
+  const openCard = async (id: number) => {
     await show()
-    fireEvent.click(cellsOf(row)[col]?.querySelector(`[data-appt="${id}"]`) as HTMLElement)
+    fireEvent.click(blk(id))
     await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
   }
 
-  /* ⛔ До 19.09 проверка была зелена по НЕВЕРНОЙ причине: у этой записи
-     комментарий в сетке был пуст, и «в сетке не полный» выполнялось само
-     собой. Теперь в ячейке лежит обрезок (60), в диалоге — полное значение, и
-     они РАЗНЫЕ: подмени диалогу источник — станет красным. */
-  it('в ячейке сетки обрезок, а правится ПОЛНОЕ значение', async () => {
-    await show()
-    const cut = cellsOf(0)[0]?.querySelector('.cmt')?.textContent?.trim()
-    expect(cut).toBe(LONG.slice(0, 60))
-    expect(cut).not.toBe(LONG)
-
+  /* ⛔ Правится ПОЛНОЕ значение из `cards`, а не обрезок: на блоке канвы —
+     только значок комментария (как у панели), в списке — обрезок сервера, и
+     ни один из них не имеет права стать источником для диалога. */
+  it('на блоке — значок комментария, а правится ПОЛНОЕ значение', async () => {
     await openCard(1)
+    expect(blk(1).querySelector('b svg')).toBeTruthy()
     expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe(LONG)
   })
 
@@ -430,10 +497,10 @@ describe('карточка визита', () => {
       .map((b) => b.textContent?.trim())).toEqual(['A venit', 'Finalizat'])
   })
 
-  it('правая кнопка по записи в сетке — меню с ТЕМИ ЖЕ исходами, «Finalizat» шлёт статус', async () => {
+  it('правая кнопка по записи на канве — меню с ТЕМИ ЖЕ исходами, «Finalizat» шлёт статус', async () => {
     post.mockResolvedValue(ok(MODEL))
     await show({ date: '2026-09-23' })
-    fireEvent.contextMenu(document.querySelector('.appt[data-appt="1"]') as HTMLElement, { clientX: 200, clientY: 200 })
+    fireEvent.contextMenu(blk(1), { clientX: 200, clientY: 200 })
     const menu = document.querySelector('.dp-cmenu') as HTMLElement
     expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
       .toEqual(['A venit', 'Finalizat'])
@@ -448,7 +515,7 @@ describe('карточка визита', () => {
     post.mockResolvedValue(ok(MODEL))
     const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
     await show({ date: '2026-09-23' })
-    fireEvent.contextMenu(document.querySelector('.appt[data-appt="2"]') as HTMLElement, { clientX: 200, clientY: 200 })
+    fireEvent.contextMenu(blk(2), { clientX: 200, clientY: 200 })
     fireEvent.click(Array.from(document.querySelectorAll('.dp-cmenu button'))
       .find((b) => /Redeschide/.test(b.textContent ?? '')) as HTMLButtonElement)
     expect(ask).toHaveBeenCalledWith('Redeschideți programarea (înapoi la «confirmată»)?')
@@ -458,7 +525,7 @@ describe('карточка визита', () => {
   it('возврат закрытой записи спрашивает подтверждение', async () => {
     post.mockResolvedValue(ok(MODEL))
     const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    await openCard(2, 1, 1)
+    await openCard(2)
     fireEvent.submit(document.querySelector('.dlg-status form') as HTMLFormElement)
     expect(ask).toHaveBeenCalledWith('Redeschideți programarea (înapoi la «confirmată»)?')
     expect(post).not.toHaveBeenCalled()
@@ -469,7 +536,7 @@ describe('карточка визита', () => {
     expect(document.querySelectorAll('.dp-card-link')[1]?.textContent)
       .toContain('Completează')
     cleanup()
-    await openCard(2, 1, 1)
+    await openCard(2)
     expect(document.querySelectorAll('.dp-card-link')[1]?.textContent).toContain('Vezi')
   })
 
@@ -484,79 +551,91 @@ describe('карточка визита', () => {
   })
 })
 
+/* Перенос — по канве, как у панели: мишень — КОЛОНКА, ячейка под курсором
+   ищется по координате среди `.gcell[data-h]` (ряды по 40 px со сотого:
+   9:00 — 100–140, 10:00 — 140–180, 12:00 у Doi закрыт). */
 describe('перетаскивание', () => {
-  const dragTo = async (row: number, col: number, y: number) => {
-    const src = cellsOf(0)[0]?.querySelector('[data-appt="1"]') as HTMLElement
-    fireEvent.dragStart(src, { dataTransfer: dt() })
-    const cell = cellsOf(row)[col] as HTMLElement
-    fireAt(cell, 'dragover', y)
-    fireAt(cell, 'drop', y)
+  const dragTo = (dk: string, y: number, id = 1) => {
+    fireEvent.dragStart(blk(id))
+    dropAt(colOf(dk), 'dragover', y)
+    dropAt(colOf(dk), 'drop', y)
   }
 
   it('закрытый визит не тащится вовсе', async () => {
     await show()
-    const done = cellsOf(1)[1]?.querySelector('[data-appt="2"]') as HTMLElement
-    expect(done.getAttribute('draggable')).toBeNull()
-    expect(done.getAttribute('data-mv')).toBeNull()
+    expect(blk(2).getAttribute('draggable')).toBeNull()
   })
 
   it('бросок в верх ячейки даёт ровный час, в низ — половину', async () => {
     await show()
-    await dragTo(1, 0, 110)
+    dragTo('d2', 150)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     expect(document.querySelectorAll('.mv-rows b')[2]?.textContent)
       .toBe('Dr. Activ Doi · 10:00')
     fireEvent.click(document.querySelector('.mv-no') as HTMLElement)
 
-    await dragTo(1, 0, 150)
+    dragTo('d2', 170)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     expect(document.querySelectorAll('.mv-rows b')[2]?.textContent)
       .toBe('Dr. Activ Doi · 10:30')
   })
 
-  it('диалог говорит, КОГО и ОТКУДА двигают', async () => {
+  it('диалог говорит, КОГО и ОТКУДА двигают — и к какому врачу', async () => {
     await show()
-    await dragTo(1, 0, 110)
+    dragTo('d3', 110)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     const b = document.querySelectorAll('.mv-rows b')
-    expect([b[0]?.textContent, b[1]?.textContent])
-      .toEqual(['Ion Popa', 'Dr. Activ Doi · 09:00'])
+    expect([b[0]?.textContent, b[1]?.textContent, b[2]?.textContent])
+      .toEqual(['Ion Popa', 'Dr. Activ Doi · 09:00', 'Dr. Activ Trei · 09:00'])
   })
 
   it('БРОСОК НА СВОЁ ЖЕ МЕСТО диалога не открывает и запроса не шлёт', async () => {
     await show()
-    await dragTo(0, 0, 110)
+    dragTo('d2', 110)
     expect(document.querySelector('.mv-rows')).toBeNull()
     expect(post).not.toHaveBeenCalled()
   })
 
   it('закрытый час не принимает бросок', async () => {
     await show()
-    await dragTo(2, 0, 110)
+    dragTo('d2', 230)
     expect(document.querySelector('.mv-rows')).toBeNull()
   })
 
+  /* ⚠️ На 10:00, а не на 10:30: в 11:00 у Doi заметка стойки, и 10:30–11:30
+     с ней пересекается — подтверждение там честно заперто (см. ниже). */
   it('подтверждение шлёт час, врача и дату экрана', async () => {
     post.mockResolvedValue(ok(MODEL))
     await show()
-    await dragTo(1, 0, 150)
+    dragTo('d2', 150)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     fireEvent.click(document.querySelectorAll('.mv-act button')[1] as HTMLElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/appointments/1/move',
-      { date: '2026-09-23', time: '10:30', doctor: 'd2' }))
+      { date: '2026-09-23', time: '10:00', doctor: 'd2' }))
   })
 
-  it('занятый интервал предупреждает и не даёт подтвердить', async () => {
+  it('заметка стойки занимает свой час: перенос на 10:30 предупреждает и заперт', async () => {
+    await show()
+    dragTo('d2', 170)
+    await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
+    expect(document.querySelector('.banner.err')?.textContent)
+      .toContain('Medicul are deja o programare la 11:00.')
+    expect((document.querySelectorAll('.mv-act button')[1] as HTMLButtonElement).disabled)
+      .toBe(true)
+  })
+
+  it('занятый интервал предупреждает и не даёт подтвердить — по блокам КАНВЫ', async () => {
+    const [doi, trei] = CANVAS.columns
     get.mockResolvedValue(ok({
       ...MODEL,
-      hours: MODEL.hours.map((h) => (h.h !== 10 ? h : {
-        ...h,
-        cells: [{ kind: 'appts' as const, drop: true,
-          items: [appt(5, '10:00', 'Ocupa Ora', { min: 600 })] }, h.cells[1]!],
-      })),
+      canvas: { ...CANVAS, columns: [
+        { ...doi!, blocks: [...doi!.blocks,
+          block(5, '10:00', 'Ocupa Ora', { min: 600, top: 1 })] },
+        trei!,
+      ] },
     }))
     await show()
-    await dragTo(1, 0, 110)
+    dragTo('d2', 150)
     await waitFor(() => expect(document.querySelector('.mv-rows')).toBeTruthy())
     expect(document.querySelector('.banner.err')?.textContent)
       .toContain('Medicul are deja o programare la 10:00.')
@@ -622,6 +701,41 @@ describe('список дня', () => {
       '/schedule/appointments/1/status', { to: 'waiting' }))
   })
 
+  /* ⭐ (06.10, Олег) Пять цветных кнопок в строке перекрикивали список: у
+     визита — ОДНА, следующий шаг (первое действие матрицы сервера), остальное
+     — в «⋯», то же меню, что по правой кнопке. */
+  it('у визита — следующий шаг и «⋯»; «⋯» открывает меню с ТЕМИ ЖЕ исходами и фишей', async () => {
+    post.mockResolvedValue(ok(MODEL))
+    await show()
+    expect(Array.from(list()[0]?.querySelectorAll('form.act button') ?? [])
+      .map((b) => b.textContent?.trim())).toEqual(['A venit'])
+    fireEvent.click(list()[0]?.querySelector('.dp-more') as HTMLElement)
+    const menu = document.querySelector('.dp-cmenu') as HTMLElement
+    expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
+      .toEqual(['A venit', 'Finalizat'])
+    expect(menu.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/7')
+    fireEvent.click(Array.from(menu.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Finalizat') as HTMLButtonElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/schedule/appointments/1/status', { to: 'done' }))
+  })
+
+  it('у заметки «⋯» нет — её единственная кнопка и так на месте', async () => {
+    await show()
+    expect(list()[2]?.querySelector('.dp-more')).toBeNull()
+  })
+
+  /* ⭐ «Sursă» — только у клиники с ботом: без него там везде «manual». */
+  it('без бота колонки «Sursă» нет — ни в шапке, ни в строках', async () => {
+    get.mockResolvedValue(ok({ ...MODEL, source_col: false }))
+    await show()
+    const head = Array.from(document.querySelectorAll('table.list th')).map((th) => th.textContent)
+    expect(head).not.toContain('Sursă')
+    expect(head).toHaveLength(8)
+    expect(cells(0)).toHaveLength(8)
+    expect(cells(2)?.join('|')).not.toContain('notiță')
+  })
+
   it('возврат неявки спрашивает подтверждение записи, а не заметки', async () => {
     const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
     await show()
@@ -677,7 +791,44 @@ describe('адрес дня', () => {
     ...MODEL, list: [MODEL.list[0]!],
     filter: { key: 'noshow', label: 'neprezentări', count: 1 },
   })
-  const nav = (i: number) => fireEvent.click(document.querySelectorAll('.nav a')[i] as HTMLElement)
+  const nav = (i: number) => fireEvent.click(navLink(i))
+
+  /* ⭐ Шапка как у панели дня и у старой страницы (06.10). React-экран
+     показывал голую ISO-дату и «‹ zi / zi ›», а листать неделями было нечем —
+     при переезде потерялось то, что у старой шапки было. */
+  it('шапка: подпись дня — с сервера, соседние дни — числом, «« »» — на неделю', async () => {
+    await show({ date: '2026-09-23' })
+    expect(document.querySelector('.nav b')?.textContent).toBe('Mi 23.09.2026')
+    const hrefs = [WK_PREV, PREV, AZI, NEXT, WK_NEXT].map((i) => navLink(i).getAttribute('href'))
+    expect(hrefs).toEqual(['/admin/all?date=2026-09-16', '/admin/all?date=2026-09-22', '/admin/all',
+      '/admin/all?date=2026-09-24', '/admin/all?date=2026-09-30'])
+    expect([navLink(PREV).textContent?.trim(), navLink(NEXT).textContent?.trim()]).toEqual(['22.09', '24.09'])
+    expect([navLink(WK_PREV).title, navLink(WK_NEXT).title]).toEqual(['-7 zile', '+7 zile'])
+  })
+
+  /* ⭐ (06.10, Олег) Неделя — вкладка этого же раздела, рядом с днём. */
+  it('«Zi / Săptămâna»: день выделен, неделя — этого же дня', async () => {
+    await show({ date: '2026-09-23' })
+    expect(navLink(DAY).textContent).toBe('Zi')
+    expect(navLink(DAY).className).toBe('primary')
+    expect(navLink(WEEK).textContent).toBe('Săptămâna')
+    expect(navLink(WEEK).getAttribute('href')).toBe('/admin/week?date=2026-09-23')
+  })
+
+  it('«» » у дня врача: неделя вперёд, врач в пути и отбор остаются; F5 — тот же запрос', async () => {
+    get.mockResolvedValue(FILTERED)
+    const { router } = await show({ doctor: 'd2', date: '2026-09-23', f: 'noshow' })
+    nav(WK_NEXT)
+    await waitFor(() => expect(addr(router)).toBe('/admin/doctor/d2?date=2026-09-30&f=noshow'))
+    expect(get.mock.lastCall?.[0]).toBe('/schedule/day?date=2026-09-30&doctor=d2&f=noshow')
+    await reloadParity(router)
+  })
+
+  it('⛔ «Varianta clasică» в шапке нет (Олег 06.10: «это не нужно»)', async () => {
+    await show()
+    expect(document.querySelector('.nav a[href*="ui=legacy"]')).toBeNull()
+    expect(document.querySelector('.nav')?.textContent).not.toContain('clasic')
+  })
 
   it('открытие по адресу: день и отбор загрузчик берёт из адреса', async () => {
     await open('/admin/all?date=2026-09-20&f=noshow')
@@ -693,18 +844,18 @@ describe('адрес дня', () => {
     expect(get).toHaveBeenCalledWith('/schedule/day?date=2026-09-23', expect.anything())
   })
 
-  it('«zi» назад: адрес — день и отбор, без хвоста; F5 — тот же запрос', async () => {
+  it('день назад: адрес — день и отбор, без хвоста; F5 — тот же запрос', async () => {
     get.mockResolvedValue(FILTERED)
     const { router } = await open('/admin/all?date=2026-09-23&f=noshow&msg=ok_add')
-    nav(0)
+    nav(PREV)
     await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22&f=noshow'))
     expect(get.mock.lastCall?.[0]).toBe('/schedule/day?date=2026-09-22&f=noshow')
     await reloadParity(router)
   })
 
-  it('«zi» вперёд у дня врача: врач остаётся в пути; F5 — тот же запрос', async () => {
+  it('день вперёд у дня врача: врач остаётся в пути; F5 — тот же запрос', async () => {
     const { router } = await show({ doctor: 'd2', date: '2026-09-23' })
-    nav(2)
+    nav(NEXT)
     await waitFor(() => expect(addr(router)).toBe('/admin/doctor/d2?date=2026-09-24'))
     expect(get.mock.lastCall?.[0]).toBe('/schedule/day?date=2026-09-24&doctor=d2')
     await reloadParity(router)
@@ -713,7 +864,7 @@ describe('адрес дня', () => {
   it('«Azi»: адрес без даты, отбор остаётся; F5 — тот же запрос', async () => {
     get.mockResolvedValue(FILTERED)
     const { router } = await show({ date: '2026-09-20', f: 'noshow' })
-    nav(1)
+    nav(AZI)
     await waitFor(() => expect(addr(router)).toBe('/admin/all?f=noshow'))
     expect(get.mock.lastCall?.[0]).toBe('/schedule/day?f=noshow')
     await reloadParity(router)
@@ -736,7 +887,7 @@ describe('адрес дня', () => {
     fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       '/schedule/appointments/1/status?date=2026-09-23', { to: 'waiting' }))
-    nav(0)
+    nav(PREV)
     await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22'))
   })
 
@@ -754,7 +905,7 @@ describe('адрес дня', () => {
   it('после перехода действие шлёт день АДРЕСА', async () => {
     post.mockResolvedValue(ok(MODEL))
     const { router } = await show({ date: '2026-09-23' })
-    nav(0)
+    nav(PREV)
     await waitFor(() => expect(addr(router)).toBe('/admin/all?date=2026-09-22'))
     await waitFor(() => expect(router.state.navigation.state).toBe('idle'))
     fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
@@ -765,10 +916,10 @@ describe('адрес дня', () => {
   it('пока новый день грузится, на экране прежний, а не загрузка', async () => {
     const { router } = await show({ date: '2026-09-23' })
     get.mockReturnValueOnce(new Promise(() => {}))
-    nav(2)
+    nav(NEXT)
     await waitFor(() => expect(router.state.navigation.state).toBe('loading'))
     expect(document.querySelector('[aria-busy="true"]')).toBeNull()
-    expect(rows().length).toBeGreaterThan(0)
-    expect(document.querySelector('.nav b')?.textContent).toBe('2026-09-23')
+    expect(canvasShown()).toBe(true)
+    expect(document.querySelector('.nav b')?.textContent).toBe('Mi 23.09.2026')
   })
 })

@@ -11,6 +11,7 @@ export const ICONS = {
   "bot": "<rect x='3.5' y='7.5' width='17' height='12' rx='3'/><path d='M12 7.5V4'/><circle cx='9' cy='13.5' r='1' fill='currentColor' stroke='none'/><circle cx='15' cy='13.5' r='1' fill='currentColor' stroke='none'/>",
   "qr": "<rect x='4' y='4' width='6.5' height='6.5' rx='1'/><rect x='13.5' y='4' width='6.5' height='6.5' rx='1'/><rect x='4' y='13.5' width='6.5' height='6.5' rx='1'/><path d='M13.5 13.5h6.5v6.5h-6.5z'/>",
   "search": "<circle cx='11' cy='11' r='7'/><path d='m20 20-3.6-3.6'/>",
+  "more": "<circle cx='5.5' cy='12' r='1.4' fill='currentColor'/><circle cx='12' cy='12' r='1.4' fill='currentColor'/><circle cx='18.5' cy='12' r='1.4' fill='currentColor'/>",
   "phone": "<path d='M6.5 3.5h3l1.5 4-2 1.2a12 12 0 0 0 5.3 5.3l1.2-2 4 1.5v3a1.5 1.5 0 0 1-1.7 1.5C10.6 17.4 6.6 13.4 5 5.2A1.5 1.5 0 0 1 6.5 3.5z'/>",
   "phone-off": "<path d='M6.5 3.5h3l1.5 4-2 1.2a12 12 0 0 0 5.3 5.3l1.2-2 4 1.5v3a1.5 1.5 0 0 1-1.7 1.5C10.6 17.4 6.6 13.4 5 5.2A1.5 1.5 0 0 1 6.5 3.5z'/><path d='M4.5 19.5 19.5 4.5'/>",
   "mail": "<rect x='3' y='5.5' width='18' height='13' rx='2.5'/><path d='m3.8 7 8.2 6 8.2-6'/>",

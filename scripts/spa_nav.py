@@ -103,8 +103,9 @@ STATE = """(() => {
     odop: !!document.querySelector('.dp-react-root .odop'),
     rows: document.querySelectorAll('.pl-card tbody tr').length,
     peek_link: !!document.querySelector('.ppanel.open a[href^="/admin/patient/"]'),
-    addform: (() => { const el = document.getElementById('addform'); if (!el) return null;
-      const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight; })(),
+    /* (06.10) «Programare nouă» открывает ОКНО записи (`#addform` в адресе),
+       а не прокручивает к форме внизу страницы: формы там больше нет. */
+    addform: document.querySelector('dialog[open] form.dp-addform') ? true : null,
     docs: docs,
     y: window.scrollY,
     tall: document.documentElement.scrollHeight - window.innerHeight,
@@ -310,7 +311,7 @@ def main() -> int:
                             lambda st: st["href"].startswith("/admin/all?date=") and st["addform"] is not None,
                             "toți medicii")
             if s6["addform"] is not True:
-                bad.append(f"«+ Programare nouă»: форма записи не в окне (якорь #addform): {s6['addform']}")
+                bad.append(f"«+ Programare nouă»: окно записи не открылось (якорь #addform): {s6['addform']}")
 
             errs = cdp.errors()
             if errs:

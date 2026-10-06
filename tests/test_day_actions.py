@@ -72,10 +72,13 @@ def suite_model(res: Result) -> None:
         c.post(f"/admin/comment/{aid}", comment=long_text, back=f"/admin/all?date={day}")
 
         m = _day(c, day)
-        res.check("в модели есть всё, чем живут форма, диалоги и список",
+        # 06.10: `day_label` — подпись шапки дня (её строит сервер, как у
+        # панели), `canvas` — канва панели, которой экран рисует день,
+        # `source_col` — показывать ли «Sursă» (только при боте).
+        res.check("в модели есть всё, чем живут шапка, канва, окна и список",
                   sorted(set(m) - {"date", "doctors", "hours"}),
-                  ["actions", "cards", "filter", "form", "list", "note_actions",
-                   "note_ends"])
+                  ["actions", "canvas", "cards", "day_label", "filter", "form", "list",
+                   "note_actions", "note_ends", "source_col"])
 
         page = c.get(f"/admin/all?date={day}").body
         res.check("КАРТОЧКИ — те же, что печатает страница, поле в поле",

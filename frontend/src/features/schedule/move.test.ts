@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { cellAtY, clash, clashAmong, doctorName, dragOf, endOf, halfAt, hhmm, sameSlot } from './move'
-import type { DayItem, DayModel } from './day'
+import { cellAtY, clashAmong, dragOf, endOf, halfAt, hhmm, sameSlot } from './move'
+import { canvasBlocks, canvasColName, type DashCanvasModel } from './dash'
+import type { DayItem } from './day'
 
 /* Договор перетаскивания по одному полю. Каждая проверка ломается ровно одним
    изменением в move.ts — так и задумано: половина договора хуже его
@@ -13,19 +14,6 @@ const appt = (id: number, min: number, extra: Partial<DayItem> = {}): DayItem =>
   bg: 'var(--green-soft)', bar: 'var(--green)', min, busy: true, movable: true,
   ...extra,
 } as DayItem)
-
-const model = (items: DayItem[][]): DayModel => ({
-  date: '2026-09-23',
-  doctors: [{ id: 'd2', name: 'Dr. Activ Doi', spec: '' },
-    { id: 'd3', name: 'Dr. Activ Trei', spec: '' }],
-  hours: [9, 10, 11].map((h, i) => ({
-    h, label: hhmm(h * 60), closed: '' as const, now: false,
-    cells: [{ kind: 'appts' as const, drop: true, items: items[i] ?? [] },
-      { kind: 'free' as const, drop: true, items: [] }],
-  })),
-  form: null, note_ends: [], cards: {}, actions: {}, note_actions: {},
-  list: [], filter: null,
-})
 
 describe('C26.5.3-f: ячейка по координате и помеха над списком', () => {
   /* Ряды по 40 пикселей, начиная с 100: 9-й час 100–140, 10-й 140–180. */
@@ -122,43 +110,55 @@ describe('бросок на своё место', () => {
   })
 })
 
-describe('подсказка о занятости', () => {
-  const m = model([[appt(1, 540)], [appt(2, 600)], []])
+/* С 06.10 оба экрана дня — панель и «Programări» — живут одной канвой, и
+   помеху считает `clashAmong` по блокам колонки; табличный `clash` ушёл с
+   таблицей. Его правила остались здесь — над тем, чем экраны живут сейчас. */
+describe('подсказка о занятости по блокам колонки', () => {
+  const col = [appt(1, 540), appt(2, 600)]
 
   it('пересечение находится и называет минуту помехи', () => {
-    expect(clash(m, { dk: 'd2', min: 630 }, 60, 1)).toBe(600)
+    expect(clashAmong(col, 630, 60, 1)).toBe(600)
   })
 
   it('стык впритык помехой не считается', () => {
-    expect(clash(m, { dk: 'd2', min: 660 }, 60, 1)).toBe(-1)
+    expect(clashAmong(col, 660, 60, 1)).toBe(-1)
   })
 
   it('себя запись не находит — иначе перенос к соседу всегда «занято»', () => {
-    expect(clash(m, { dk: 'd2', min: 540 }, 60, 1)).toBe(-1)
-  })
-
-  it('чужая колонка не мешает', () => {
-    expect(clash(m, { dk: 'd3', min: 600 }, 60, 1)).toBe(-1)
+    expect(clashAmong([appt(1, 540)], 540, 60, 1)).toBe(-1)
   })
 
   it('завершённый визит места не занимает', () => {
-    const done = model([[appt(1, 540)], [appt(2, 600, { busy: false })], []])
-    expect(clash(done, { dk: 'd2', min: 600 }, 60, 1)).toBe(-1)
+    expect(clashAmong([appt(1, 540), appt(2, 600, { busy: false })], 600, 60, 1)).toBe(-1)
   })
 
   it('длительность соседа учитывается, а не «час по умолчанию»', () => {
-    const long = model([[appt(1, 540, { dur: 120 })], [], []])
-    expect(clash(long, { dk: 'd2', min: 630 }, 30, 7)).toBe(540)
-  })
-
-  it('неизвестная колонка — не мишень', () => {
-    expect(clash(m, { dk: 'd9', min: 600 }, 60, 1)).toBe(-1)
+    expect(clashAmong([appt(1, 540, { dur: 120 })], 630, 30, 7)).toBe(540)
   })
 })
 
-describe('имя колонки', () => {
-  it('берётся из модели, а не из ссылок страницы', () => {
-    expect(doctorName(model([]), 'd3')).toBe('Dr. Activ Trei')
-    expect(doctorName(model([]), 'nimeni')).toBe('—')
+describe('вопросы к канве (общие у панели и «Programări»)', () => {
+  const canvas: DashCanvasModel = {
+    date: '2026-09-23', empty: false, base_min: 540, tight: false,
+    hours: [{ h: 9, label: '09:00', now: false }],
+    bands: { top: null, bottom: null },
+    columns: [
+      { key: 'k:d2', id: 'd2', name: 'Dr. Activ Doi', orphan: false, spec: '', off: false,
+        hue: 'var(--teal)', photo: '', initials: 'AD', count: 0, free: null, occupancy: null,
+        title: '', cells: [true], blocks: [], relink: null },
+      { key: 'k:d3', id: 'd3', name: 'Dr. Activ Trei', orphan: false, spec: '', off: false,
+        hue: 'var(--teal)', photo: '', initials: 'AT', count: 0, free: null, occupancy: null,
+        title: '', cells: [true], blocks: [], relink: null },
+    ],
+  }
+
+  it('имя колонки — из канвы; неизвестный врач — прочерк', () => {
+    expect(canvasColName(canvas, 'd3')).toBe('Dr. Activ Trei')
+    expect(canvasColName(canvas, 'nimeni')).toBe('—')
+    expect(canvasColName(null, 'd3')).toBe('—')
+  })
+
+  it('у неизвестной колонки блоков нет — и помехи, значит, тоже', () => {
+    expect(canvasBlocks(canvas, 'd9')).toEqual([])
   })
 })

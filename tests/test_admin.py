@@ -2064,8 +2064,10 @@ def suite_live_stable(res: Result) -> None:
 # сколько записей, что написано в чипе, — не проверялось ни одним символом.
 # Перенос в React без этого терял бы поведение молча, а выглядел бы рабочим.
 
+# ⚠️ День из шапки колонки — день ЖУРНАЛА (`/admin/all`, 06.10): неделя с тех
+# пор — раздел «Programări», а не панель.
 _WEEK_COL = re.compile(r"<div class='wcol'><div class='wh( tdy)?'>"
-                       r"<a href='/admin\?date=(\d{4}-\d\d-\d\d)'>([^<]+)</a>"
+                       r"<a href='/admin/all\?date=(\d{4}-\d\d-\d\d)'>([^<]+)</a>"
                        r"<small>(\d+) programări</small></div>"
                        r"<div class='wb'>(.*?)</div></div>", re.S)
 
@@ -2197,8 +2199,10 @@ def suite_week(res: Result) -> None:
                f"{monday.strftime('%d.%m')} – "
                f"{(monday + timedelta(days=6)).strftime('%d.%m.%Y')}" in nav,
                "диапазон недели показан неверно")
-        res.ok("клик по шапке дня ведёт в день",
-               f"/admin?date={d(2)}" in page, "нет ссылки на день")
+        res.ok("клик по шапке дня ведёт в день журнала («Programări»)",
+               f"/admin/all?date={d(2)}" in page, "нет ссылки на день")
+        res.ok("вкладка «Zi» недели — день журнала, а не панель",
+               f"href='/admin/all?date={d(2)}'>Zi" in nav, "«Zi» ведёт не туда")
 
         res.check("на будущей неделе не подсвечен никто",
                   sum(1 for x in cols if x["today"]), 0)

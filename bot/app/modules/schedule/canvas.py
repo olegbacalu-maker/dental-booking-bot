@@ -312,8 +312,14 @@ def _orphan_column(key: str, by_col: dict, live: list, hours: list[int],
     }
 
 
-def model(d: date, rows: list, cards: dict | None, colors) -> dict:
+def model(d: date, rows: list, cards: dict | None, colors, only: str = "") -> dict:
     """Канва дня данными: ряды часов, колонки и блоки с их геометрией.
+
+    `only` — день ОДНОГО врача (раздел «Programări», 06.10): колонка только
+    его, а строки вызывающий уже отобрал (`routes._of_doctor`, вместе с его
+    легаси-строками по снимку имени — они встанут своей колонкой-сиротой, как
+    на панели). ⛔ Колонка есть и у выключенного врача: его день открывают,
+    чтобы посмотреть записи, и пустая канва на месте его колонки соврала бы.
 
     ⛔ Это НЕ `day.model` другими словами, и подменять одну другой нельзя.
     Ключ колонки здесь свой (`row_col`): легаси-строка без `doctor_id`, но с
@@ -343,7 +349,10 @@ def model(d: date, rows: list, cards: dict | None, colors) -> dict:
     by_col: dict = {}
     for r in live:
         by_col.setdefault(row_col(r), []).append(r)
-    shown = shown_doctors(by_col)
+    if only:
+        shown = [(only, eng.DOCTORS[only])] if only in eng.DOCTORS else []
+    else:
+        shown = shown_doctors(by_col)
     hours, band_l, band_r = trim_edges(hours, open_hours(d, shown) | rh)
     base_min = hours[0] * 60
     now = datetime.now(eng.TZ)

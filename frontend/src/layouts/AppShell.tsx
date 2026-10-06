@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Form } from 'react-router'
+import { Form, useLocation } from 'react-router'
 import { AppLink, useProseLinks } from '../components/AppLink'
 import { Icon, iconName } from '../components/Icon'
 import { t } from '../utils/i18n'
@@ -95,6 +95,14 @@ function Sidebar({ m }: { m: ShellModel }) {
 
 function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLElement>) => void }) {
   const { identity, clinic, frame } = m
+  const loc = useLocation()
+  /* «Programare nouă» открывает окно записи дня журнала (`#addform`, 06.10).
+     ⭐ Уже стоишь на дне журнала (общем или врача) — окно открывается на ЭТОМ
+     дне и у этого врача, а не уводит на сегодня: регистратура смотрит четверг
+     и записывает на четверг. С любой другой страницы — сегодня, как и было. */
+  const onDay = loc.pathname === '/admin/all' || loc.pathname.startsWith('/admin/doctor/')
+  const addHref = onDay ? `${loc.pathname}${loc.search}#addform`
+    : `/admin/all?date=${frame.today}#addform`
   return (
     <div className="top">
       {/* ⭐ Поиск из шапки — переход роутером (B4.2): `Form` с методом GET
@@ -118,7 +126,7 @@ function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLE
           {frame.bell > 0 && <span className="n">{frame.bell}</span>}
         </AppLink>
       )}
-      <AppLink className="newbtn" href={`/admin/all?date=${frame.today}#addform`}>
+      <AppLink className="newbtn" href={addHref}>
         <span className="plus">+</span><span className="nb-t">{T.newAppt}</span>
       </AppLink>
       {identity && (

@@ -25,8 +25,24 @@ from datetime import date, datetime
 
 from ... import db
 from ... import engine as eng
-from ...core.layout import STATUS_LABEL
+from ...core.layout import STATUS_LABEL, tg_configured
 from ...core.visits import _age, all_status_actions, list_rows
+
+
+def day_title(d: date) -> str:
+    """Подпись дня в шапке: «Jo 24.09.2026».
+
+    ⚠️ Дата ОДИН раз. До 08-11 шапка печатала `{lbl} {d.isoformat()}`, то есть
+    «Ma 11.08 2026-08-11» — один и тот же день двумя записями подряд и без
+    разделителя. Год берётся из `d.year`, а не из ISO: day_label даёт только
+    день с месяцем, и без года шапка не сказала бы, какой это август.
+    ⛔ Сборка ОДНА на старую шапку (`routes._date_nav`), живой канал панели
+    (`_panel_live` › `day_label`) и модель дня (`model` › `day_label`, экран
+    «Programări»): сокращения дней недели румынские, и вторая сборка разошлась
+    бы с первой молча — у старой и новой страницы один и тот же день назывался
+    бы по-разному. Живёт здесь, а не в routes: модель дня routes не импортирует.
+    """
+    return f"{eng.day_label(eng.Session(lang='ro'), d)}.{d.year}"
 
 
 def active_map(rows: list) -> tuple[dict, set]:
@@ -328,7 +344,8 @@ def model(d, items: list, active: tuple, cards: dict | None, colors,
         hours.append({"h": h, "label": f"{h:02d}:00", "closed": kind,
                       "now": h == nh, "cells": cells})
     return {
-        "date": d.isoformat(), "doctors": cols, "hours": hours,
+        "date": d.isoformat(), "day_label": day_title(d),
+        "doctors": cols, "hours": hours,
         "form": form_spec(d, form_items) if form_items is not None else None,
         "note_ends": note_ends(d),
         # ключи строками: так их печатает `js_json(cards)` на странице, и так
@@ -337,6 +354,10 @@ def model(d, items: list, active: tuple, cards: dict | None, colors,
         "cards": {str(k): v for k, v in (cards or {}).items()},
         "actions": all_status_actions(),
         "note_actions": all_status_actions(is_note=True),
+        # «Sursă» в «Lista zilei» — только у клиники с ботом (06.10): без него
+        # там везде «manual», и колонка ничего не различает. Тот же признак
+        # прячет и весь остальной интерфейс бота (`tg_configured`).
+        "source_col": tg_configured(),
         **_list_part(rows or [], f),
     }
 

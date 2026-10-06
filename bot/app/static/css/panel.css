@@ -1001,16 +1001,27 @@
  a.free{display:block;text-align:center;color:var(--text3);text-decoration:none;font-size:var(--fs-l);
    padding:4px 0;border-radius:var(--r-s);transition:opacity var(--dur-fast) ease,color var(--dur-fast) ease,background-color var(--dur-fast) ease}
  a.free:hover{color:var(--teal-d);background:var(--teal-soft)}
- /* «+» в свободном часе гасится до наведения: сетка на весь день это сотня
-    плюсов, и все вместе они перекрикивают то немногое, что в ней есть, —
-    записи. ⚠️ ТОЛЬКО там, где наведение существует: на телефоне (слой 1 PWA,
-    врач смотрит день с телефона) hover не наступает никогда, и спрятанный «+»
-    означал бы, что записать пациента нельзя вовсе.
-    ⚠️ :focus-visible обязателен — иначе плюс пропадает и для клавиатуры. */
+ /* «+» в свободном часе на компьютере не виден до наведения: сетка на весь
+    день это сотня плюсов, и все вместе они перекрикивают то немногое, что в
+    ней есть, — записи. ⚠️ ТОЛЬКО там, где наведение существует: на телефоне
+    (слой 1 PWA, врач смотрит день с телефона) hover не наступает никогда, и
+    спрятанный «+» означал бы, что записать пациента нельзя вовсе.
+    ⚠️ :focus-visible обязателен — иначе подсказка пропадает и для клавиатуры. */
  @media (hover:hover) and (pointer:fine){
-   table.grid td a.free{opacity:.28}
-   table.grid td:hover a.free,table.grid td a.free:focus-visible{opacity:1}
-   table.grid td a.free:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+   /* (06.10, Олег: «осталась старая графика, просто плюсик»). Голого «+» на
+      компьютере больше нет: свободный час под мышью рисует то же, что канва
+      панели дня (.gcell:hover::after) — рамку внутри слота и слово. Знак
+      остаётся в разметке (держит высоту ряда и нужен телефону), но не виден.
+      ⚠️ Рамка — от ЯЧЕЙКИ, а не от ссылки: в ряду, где у соседа запись,
+      ячейка выше ссылки, и рамка по ссылке покрыла бы только её верх. */
+   table.grid td:has(> a.free){position:relative}
+   table.grid td a.free{color:transparent}
+   table.grid td a.free:hover{background:none}
+   table.grid td:hover a.free::after,table.grid td a.free:focus-visible::after{
+     content:'+\00a0 Programare';position:absolute;inset:3px 4px;
+     display:flex;align-items:center;justify-content:center;
+     border:1.5px dashed var(--teal);border-radius:var(--r-chip);color:var(--teal-d);
+     background:var(--teal-soft);font-size:var(--fs-s);font-weight:600}
  }
  /* ⭐ Панель обнимает СВОЁ содержимое, а не окно (08-16). Здесь потолок не
     годится: все поля этой формы заданы шириной в разметке (ни одно не тянется),
@@ -1102,6 +1113,21 @@
    color:var(--text3);font-weight:600}
  .act .b-reopen:hover,.bstat.b-reopen:hover{border-color:var(--amber);color:var(--amber-t)}
  .act .b-reopen svg,.bstat.b-reopen svg{width:13px;height:13px;vertical-align:-2px}
+ /* «Lista zilei» (06.10, Олег): у визита — следующий шаг и «⋯», остальные исходы
+    в меню. Ячейка не переносит кнопки на вторую строку: две кнопки вместо
+    пяти и помещаются, а пятёрка ломала строку надвое. */
+ td.dp-acts{white-space:nowrap}
+ .dp-more{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;
+   width:30px;height:30px;border:1px solid var(--line);border-radius:var(--r-s);
+   background:var(--panel);color:var(--text2);cursor:pointer;
+   transition:border-color var(--dur-fast) ease,color var(--dur-fast) ease}
+ .dp-more:hover{border-color:var(--teal);color:var(--teal-d)}
+ .dp-more:disabled{opacity:.5;cursor:not-allowed}
+ .dp-more svg{width:16px;height:16px}
+ /* окно «Programare nouă»: дата и час в один ряд, остальное — столбцом */
+ .dp-addrow{display:flex;gap:10px}
+ .dp-addrow .dlab{flex:1;min-width:0}
+ .dp-adddoc{font-size:var(--fs-m)}
  /* значок статуса в плашке списка: 16px _ic() распирал бы пилюлю в 12px —
     gap:5px у .stat как раз под него и заводился */
  .stat svg{width:13px;height:13px}

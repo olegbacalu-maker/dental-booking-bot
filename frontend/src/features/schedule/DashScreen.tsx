@@ -17,7 +17,10 @@ import { MoveDialog } from './MoveDialog'
 import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
 import { clinicNow, clinicTz, useClockTick } from './dashFx'
-import { dash, livePath, type DashAppt, type DashBlock, type DashModel, type DashNote } from './dash'
+import {
+  canvasAppt, canvasBlocks, canvasColName, canvasNote, dash, livePath,
+  type DashAppt, type DashModel, type DashNote,
+} from './dash'
 import type { Slot } from './slot'
 import { freshOf, readSeen, writeSeen, FRESH_MS } from './fresh'
 import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
@@ -376,9 +379,9 @@ export function DashScreen() {
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
             onDrop={onDrop} fresh={fresh} />
-          <p className="hint">
-            {T.hint} <AppLink href={`/admin?date=${d.date}&ui=legacy`}>{T.legacy}</AppLink>.
-          </p>
+          {/* ⛔ Без «Deschideți varianta clasică» (Олег 06.10: «это не нужно»):
+              старая панель — только аварийный выход, ниже в отказе и остановке. */}
+          <p className="hint">{T.hint}</p>
         </div>
         <div className="rail" ref={rail}>
           <DashRail minical={d.minical} agenda={d.agenda} tiles={d.tiles}
@@ -510,35 +513,9 @@ function idsOf(m: DashModel): string[] {
   return out
 }
 
-/** Имя колонки по ключу врача — для строк «De la» / «La». ⛔ Из КАНВЫ, а не
- *  из модели дня: ключ колонки здесь свой, и у выпавшего из справочника врача
- *  колонка отдельная. */
-function colName(m: DashModel, dk: string): string {
-  return m.canvas.columns.find((c) => c.id === dk)?.name ?? '—'
-}
-
-/** Блоки ЭТОЙ колонки — по ним считается подсказка о помехе. */
-function blocksOf(m: DashModel, dk: string) {
-  return m.canvas.columns.find((c) => c.id === dk)?.blocks ?? []
-}
-
-/** Блок по номеру — в той канве, что сейчас на экране. ⚠️ Номер один на
- *  визиты и заметки (заметка это строка `appointments` с `source='note'`),
- *  поэтому ищется блок, а вид уточняется после. */
-function findBlock(m: DashModel | null, id: number): DashBlock | null {
-  if (!m) return null
-  for (const col of m.canvas.columns) {
-    for (const b of col.blocks) if (b.id === id) return b
-  }
-  return null
-}
-
-function findAppt(m: DashModel | null, id: number): DashAppt | null {
-  const b = findBlock(m, id)
-  return b && b.kind === 'appt' ? b : null
-}
-
-function findNote(m: DashModel | null, id: number): DashNote | null {
-  const b = findBlock(m, id)
-  return b && b.kind === 'note' ? b : null
-}
+/* Вопросы к канве — общие с «Programări» (`dash.ts`, 06.10): та же канва на
+   двух экранах, и по копии на экран они не заводятся. */
+const colName = (m: DashModel, dk: string) => canvasColName(m.canvas, dk)
+const blocksOf = (m: DashModel, dk: string) => canvasBlocks(m.canvas, dk)
+const findAppt = (m: DashModel | null, id: number): DashAppt | null => canvasAppt(m?.canvas, id)
+const findNote = (m: DashModel | null, id: number): DashNote | null => canvasNote(m?.canvas, id)

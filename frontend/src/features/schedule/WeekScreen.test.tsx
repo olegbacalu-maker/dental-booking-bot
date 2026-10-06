@@ -60,8 +60,10 @@ const show = async (date = '') => {
 describe('недельный календарь', () => {
   it('рисует ровно те дни, что прислал сервер, и в его порядке', async () => {
     await show()
+    /* ⭐ (06.10) Неделя — раздел «Programări»: день из её шапки — день журнала,
+       а не панель. */
     expect(cols().map((c) => c.querySelector('.wh a')?.getAttribute('href')))
-      .toEqual(MODEL.days.map((d) => `/admin?date=${d.date}`))
+      .toEqual(MODEL.days.map((d) => `/admin/all?date=${d.date}`))
   })
 
   it('скрытое воскресенье не сдвигает субботу', async () => {

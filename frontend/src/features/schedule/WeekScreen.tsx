@@ -79,8 +79,10 @@ export function WeekScreen({ navigate = defaultNavigate }: Props) {
            onClick={(e) => { e.preventDefault(); go(m.next) }}>
           {T.week} <Icon name="chev-r" />
         </AppLink>
-        {/* Вкладка дня — переход без перезагрузки (B4.1): сайдбар и шапка на месте. */}
-        <AppLink href={`/admin?date=${m.day}`}>{T.day}</AppLink>
+        {/* Вкладка дня — переход без перезагрузки (B4.1): сайдбар и шапка на месте.
+            ⭐ С 06.10 неделя — раздел «Programări» (Олег), и «Zi» ведёт в ЕГО
+            день, а не на панель. */}
+        <AppLink href={`/admin/all?date=${m.day}`}>{T.day}</AppLink>
         <AppLink className="primary" href={`/admin/week?date=${m.day}`}>{T.title}</AppLink>
       </div>
       <div className="week">
@@ -95,7 +97,7 @@ function WeekColumn({ day }: { day: WeekDay }) {
   return (
     <div className="wcol">
       <div className={`wh${day.today ? ' tdy' : ''}`}>
-        <AppLink href={`/admin?date=${day.date}`}>{day.label} {day.dm}</AppLink>
+        <AppLink href={`/admin/all?date=${day.date}`}>{day.label} {day.dm}</AppLink>
         <small>{day.count} {T.counted}</small>
       </div>
       <div className="wb">

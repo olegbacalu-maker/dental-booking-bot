@@ -1,4 +1,5 @@
 import { api } from '../../services/api'
+import type { DashCanvasModel } from './dash'
 
 /* Сетка дня (C25). Формы ответа — bot/app/modules/schedule/api.py и day.py:
    состав колонок, диапазон часов, исход ячейки и цвет считает СЕРВЕР.
@@ -208,6 +209,20 @@ export interface DayFilter {
 
 export interface DayModel {
   date: string
+  /** Подпись дня для шапки: «Mi 07.10.2026». ⛔ Строит СЕРВЕР (`day.day_title`,
+   *  та же, что у старой шапки и у панели дня): дни недели по-румынски знает
+   *  только он. */
+  day_label: string
+  /** Канва дня — та же, что у панели (`canvas.model`, 06.10): экран рисует её
+   *  тем же компонентом, что «Panoul principal», а не таблицей. У дня врача в
+   *  ней одна колонка (плюс сироты его легаси-строк). ⛔ Ключ колонки у канвы
+   *  СВОЙ, не тот, что у таблицы (`doctors`/`hours`), и подменять одно другим
+   *  нельзя — разбор в `canvas.model`. */
+  canvas: DashCanvasModel
+  /** Показывать ли «Sursă» в «Lista zilei»: только у клиники с ботом
+   *  (`tg_configured`), как и весь остальной интерфейс бота. Без бота там
+   *  везде одно слово «manual», и колонка ничего не различает. */
+  source_col: boolean
   doctors: DayColumn[]
   hours: DayHour[]
   /** `null` — формы нет (страница выключенного врача). */

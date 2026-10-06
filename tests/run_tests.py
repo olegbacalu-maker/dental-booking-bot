@@ -283,6 +283,7 @@ SUITES = [
     ("Сетка дня: измерение врача", test_grid.suite_doctors),
     ("Сетка дня: легаси-имена без doctor_id", test_grid.suite_orphan),
     ("Сетка дня: паритет модели и страницы", test_schedule_api.suite_day_parity),
+    ("Сетка дня: «Sursă» — у клиники с ботом", test_schedule_api.suite_day_source),
     ("Сетка дня: легаси-колонка в паритете", test_schedule_api.suite_day_orphan),
     ("Дневные экраны: флаг и живой опрос", test_schedule_api.suite_day_switch),
     ("День: форма записи — что она предлагает (C25.5b)", test_day_forms.suite_form),

@@ -241,7 +241,7 @@ export interface DashModel {
    *  сервера», и в полночь эхо меняется само: шапка и ссылки строятся ОТСЮДА,
    *  а не из адреса и не из узла. */
   date: string
-  /** Подпись дня для шапки: «Jo 24.09.2026». ⛔ Строит СЕРВЕР (`_day_title`,
+  /** Подпись дня для шапки: «Jo 24.09.2026». ⛔ Строит СЕРВЕР (`day.day_title`,
    *  та же, что у старой шапки): сокращения дней недели румынские, и второй их
    *  список в браузере разошёлся бы с первым молча (08-12, 08-16). Едет ОДНИМ
    *  конвертом с `date` — новый день приезжает датой и подписью разом. */
@@ -280,6 +280,41 @@ export type _DashSlotFormFitsDialog = Fits<DashSlotForm extends SlotFormView ? t
 /** ⛔ И у заметки: пропадёт `status` — диалог остался бы без кнопок молча,
  *  потому что `note_actions[undefined]` это просто пустой список. */
 export type _DashNoteFitsDialog = Fits<DashNote extends NoteView ? true : false>
+
+/* Канва глазами экрана — ОДНИ на панель и на «Programări» (06.10): оба
+   экрана рисуют одну канву, и вопросы к ней («чья колонка», «что в ней
+   лежит», «какой блок под этим номером») не заводят по копии на экран. */
+
+/** Имя колонки по ключу врача — для строк «De la» / «La». ⛔ Из КАНВЫ, а не
+ *  из модели дня: ключ колонки здесь свой, и у выпавшего из справочника врача
+ *  колонка отдельная. */
+export function canvasColName(c: DashCanvasModel | null | undefined, dk: string): string {
+  return c?.columns.find((col) => col.id === dk)?.name ?? '—'
+}
+
+/** Блоки ЭТОЙ колонки — по ним считается подсказка о помехе переноса. */
+export function canvasBlocks(c: DashCanvasModel | null | undefined, dk: string): DashBlock[] {
+  return c?.columns.find((col) => col.id === dk)?.blocks ?? []
+}
+
+/** Блок по номеру. ⚠️ Номер один на визиты и заметки (заметка — строка
+ *  `appointments` с `source='note'`), поэтому ищется блок, а вид — после. */
+export function canvasBlock(c: DashCanvasModel | null | undefined, id: number): DashBlock | null {
+  for (const col of c?.columns ?? []) {
+    for (const b of col.blocks) if (b.id === id) return b
+  }
+  return null
+}
+
+export function canvasAppt(c: DashCanvasModel | null | undefined, id: number): DashAppt | null {
+  const b = canvasBlock(c, id)
+  return b && b.kind === 'appt' ? b : null
+}
+
+export function canvasNote(c: DashCanvasModel | null | undefined, id: number): DashNote | null {
+  const b = canvasBlock(c, id)
+  return b && b.kind === 'note' ? b : null
+}
 
 /** Адрес живого канала панели. Путь — без `/api`, как у `api.get`.
  *  ⛔ `date` — день АДРЕСА как есть: пусто значит «сегодня сервера», и так и

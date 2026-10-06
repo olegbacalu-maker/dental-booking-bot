@@ -407,19 +407,21 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     await expectTransition(router, '/admin/patient/33')
   })
 
-  it('B4.3: ссылка ВНУТРИ экрана (колонка недели → день панели) — переход роутером', async () => {
+  /* ⭐ С 06.10 неделя — раздел «Programări», и день из её шапки — день
+     журнала (`/admin/all`), а не панель. */
+  it('B4.3: ссылка ВНУТРИ экрана (колонка недели → день журнала) — переход роутером', async () => {
     const wk = { monday: '2026-09-21', sunday: '2026-09-27', prev: '2026-09-14', next: '2026-09-28',
       span: '21.09 – 27.09.2026', total: 0, day: '2026-09-21',
       days: [{ date: '2026-09-23', label: 'Mi', dm: '23.09', count: 0, today: false, items: [] }] }
     get.mockImplementation((path: string) => path.startsWith('/schedule/week')
       ? Promise.resolve({ data: wk, code: '', text: '', tone: 'ok' })
       : Promise.reject(OFFLINE))
-    fetchDoc.mockResolvedValue({ kind: 'page', node: node('schedule_dash', {}, SHELL_MED) })
+    fetchDoc.mockResolvedValue({ kind: 'page', node: node('schedule_all', {}, SHELL_MED) })
     const { router } = open('/admin/week', node('schedule_week', {}, SHELL_FULL))
     const col = await screen.findByText('Mi 23.09')
     let native = true
     await act(async () => { native = nativeClick(col) })
     expect(native).toBe(false)
-    await expectTransition(router, '/admin?date=2026-09-23')
+    await expectTransition(router, '/admin/all?date=2026-09-23')
   })
 })

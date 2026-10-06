@@ -113,21 +113,6 @@ def _day_tabs(d: date) -> str:
             f"<a href='/admin/week?date={d.isoformat()}'>Săptămâna</a>")
 
 
-def _day_title(d: date) -> str:
-    """Подпись дня в шапке: «Jo 24.09.2026».
-
-    ⚠️ Дата ОДИН раз. До 08-11 шапка печатала `{lbl} {d.isoformat()}`, то есть
-    «Ma 11.08 2026-08-11» — один и тот же день двумя записями подряд и без
-    разделителя. Год берётся из `d.year`, а не из ISO: day_label даёт только
-    день с месяцем, и без года шапка не сказала бы, какой это август.
-    ⛔ Сборка ОДНА на старую шапку (`_date_nav`) и на живой канал панели
-    (`_panel_live` › `day_label`): сокращения дней недели румынские, и вторая
-    сборка разошлась бы с первой молча — у старой и новой панели один и тот же
-    день назывался бы по-разному.
-    """
-    return f"{eng.day_label(eng.Session(lang='ro'), d)}.{d.year}"
-
-
 def _date_nav(d: date, base: str, extra: str = "") -> str:
     prev_d, next_d = d - timedelta(days=1), d + timedelta(days=1)
     wk_prev, wk_next = d - timedelta(days=7), d + timedelta(days=7)
@@ -135,7 +120,7 @@ def _date_nav(d: date, base: str, extra: str = "") -> str:
     # произвольного дня живёт в мини-календаре правой колонки, а третья запись
     # той же даты в шапке только съедала ширину — ровно те 150px, которых не
     # хватало, чтобы шапка дня встала в один ряд с заголовком на 1366.
-    return (f"<div class='nav'><b>{_day_title(d)}</b>"
+    return (f"<div class='nav'><b>{pday.day_title(d)}</b>"
             f"<a href='{base}?date={wk_prev.isoformat()}' title='-7 zile'>{_ic('chevs-l')}</a>"
             f"<a href='{base}?date={prev_d.isoformat()}'>{_ic('chev-l')} {prev_d.strftime('%d.%m')}</a>"
             f"<a href='{base}'>Azi</a>"
@@ -1178,14 +1163,16 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
     if react_on(request, "schedule_week"):
         # DentPilot 2.0 (C24): данные — GET /api/schedule/week.
         # ⛔ Живой опрос у этой страницы ВЫКЛЮЧАЕТСЯ сам: `_shell` не
-        # объявляет живой страницу с узлом React. Ключ `dash` при этом общий с
-        # днём, и день остаётся живым — снимать ключ из LIVE_RELOAD нельзя до
-        # C26, иначе погаснет и он.
+        # объявляет живой страницу с узлом React.
+        # ⭐ (06.10, Олег) Неделя — раздел «Programări», а не панель: ключ
+        # `prog` подсвечивает его пункт меню и называет страницу его словом.
+        # Живость старой страницы недели от этого не меняется: `prog`, как и
+        # `dash`, в LIVE_RELOAD.
         if (st := _live_stale(request)) is not None:
             return st
         # ⭐ B1: оболочку рисует React.
         return react_shell("schedule_week", "/admin/week",
-                           shell_model("dash",
+                           shell_model("prog",
                                        "calendar săptămânal · culori după tipul procedurii"),
                            {"date": d.isoformat()})
     m = await _week_model(d)
@@ -1197,20 +1184,20 @@ async def admin_week(request: Request, date_q: str = Query("", alias="date")):
                          "text-align:center;padding:12px 0'>— liber —</div>")
         cols.append(
             f"<div class='wcol'><div class='wh{' tdy' if col['today'] else ''}'>"
-            f"<a href='/admin?date={col['date']}'>{col['label']} {col['dm']}</a>"
+            f"<a href='/admin/all?date={col['date']}'>{col['label']} {col['dm']}</a>"
             f"<small>{col['count']} programări</small></div>"
             f"<div class='wb'>{''.join(chips)}</div></div>")
     nav = (f"<div class='nav'><b>{m['span']} · {m['total']} programări</b>"
            f"<a href='/admin/week?date={m['prev']}'>{_ic('chev-l')} săpt.</a>"
            f"<a href='/admin/week'>Azi</a>"
            f"<a href='/admin/week?date={m['next']}'>săpt. {_ic('chev-r')}</a>"
-           f"<a href='/admin?date={d.isoformat()}'>Zi</a>"
+           f"<a href='/admin/all?date={d.isoformat()}'>Zi</a>"
            f"<a class='primary' href='/admin/week?date={d.isoformat()}'>Săptămâna</a></div>")
     body = nav + f"<div class='week'>{''.join(cols)}</div>" + \
         "<p class='hint'>Click pe ziua din antet — deschide programul zilei.</p>"
     if (fr := _live_fragment(request, body)) is not None:
         return fr
-    return _shell(body, "calendar săptămânal · culori după tipul procedurii", active="dash")
+    return _shell(body, "calendar săptămânal · culori după tipul procedurii", active="prog")
 
 
 @router.get("/admin/export")
@@ -1342,8 +1329,15 @@ async def _day_model(d: date, doctor: str = "", f: str = "") -> dict | None:
         # ⛔ форме — АКТИВНЫЕ справочника, ровно то же, что передаёт `_form`
         form_items = list(eng.ACTIVE_DOCTORS.items()) or items
     # ⚠️ фильтр плитки — только у общего дня: страница врача его не читает
-    return pday.model(d, items, pday.active_map(rows), _collect_cards(rows),
-                      _svc_colors, form_items, rows, "" if doctor else f)
+    cards = _collect_cards(rows)
+    m = pday.model(d, items, pday.active_map(rows), cards,
+                   _svc_colors, form_items, rows, "" if doctor else f)
+    # ⭐ (06.10) Экран «Programări» рисует ТУ ЖЕ канву, что панель дня: те же
+    # шапки врачей, цвета и геометрия. Канва строится тем же `canvas.model`
+    # из тех же строк — у общего дня она совпадает с канвой панели того же
+    # дня (держит test_schedule_api), у дня врача в ней одна колонка.
+    m["canvas"] = pcanvas.model(d, rows, cards, _svc_colors, only=doctor)
+    return m
 
 
 async def _panel_live(d: date, now: datetime) -> dict:
@@ -1392,7 +1386,7 @@ async def _panel_live(d: date, now: datetime) -> dict:
         # вместе, как у старой панели, которая опрашивает свой адрес. Из узла
         # подпись застывала на моменте загрузки. Отпечаток она не шевелит:
         # для одного дня она одна и та же, меняется ровно вместе с датой.
-        "day_label": _day_title(d),
+        "day_label": pday.day_title(d),
         "canvas": pcanvas.model(d, rows, cards, _svc_colors),
         "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now),
         "tiles": ppanel.tiles(d, ppanel.counts(rows), ppanel.counts(by_day[prev_day]),

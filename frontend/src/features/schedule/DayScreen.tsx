@@ -1,27 +1,38 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { AppLink } from '../../components/AppLink'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError, type ApiResult } from '../../services/api'
-import { shift } from '../../utils/date'
-import { AddForm } from './AddForm'
+import { dm, shift } from '../../utils/date'
+import { AddDialog } from './AddDialog'
 import { CardDialog } from './CardDialog'
 import { CardMenu, type CardMenuAt } from './CardMenu'
-import { DayGrid } from './DayGrid'
+import { DashCanvas } from './DashCanvas'
 import { DayList } from './DayList'
 import { MoveDialog } from './MoveDialog'
+import { NoteDialog } from './NoteDialog'
 import { SlotDialog } from './SlotDialog'
+import { canvasBlocks, canvasColName, canvasNote, type DashNote } from './dash'
+import { useClockTick } from './dashFx'
 import { day, type DayModel } from './day'
 import type { Slot } from './slot'
-import { clash, doctorName, sameSlot, type Drag, type Target } from './move'
+import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
 
-/* День журнала: «Toți medicii» и день одного врача — один экран, разница
-   только в параметре `doctor` (C25.5a), с записью, карточкой и переносом
-   (C25.5b).
+/* День журнала — раздел «Programări»: «Toți medicii» и день одного врача —
+   один экран, разница только в параметре `doctor` (C25.5a), с записью,
+   карточкой и переносом (C25.5b).
+
+   ⭐ (06.10, Олег: «проверь эту вкладку, мы про неё забыли») Сетка дня — ТА ЖЕ
+   канва, что у «Panoul principal» (`DashCanvas` по `canvas.model`): шапки
+   врачей с цветом и загрузкой, цвет по типу процедуры, срочный красным,
+   длительность — высотой блока, линия «сейчас». До того здесь жила старая
+   таблица со своей раскраской по статусу и «+» в каждом свободном часе — два
+   экрана одного дня говорили разными цветами. Запись — окном (`#addform`), не
+   формой внизу страницы; неделя — вкладкой «Săptămâna» этого же раздела.
 
    ⛔ Экран НЕ живой, как и неделя: React-дерево внутри #live умирает при
    первой подмене. Сервер сам перестаёт объявлять страницу живой, увидев узел
@@ -30,14 +41,36 @@ import { clash, doctorName, sameSlot, type Drag, type Target } from './move'
    ⛔ Перезагрузки страницы после действия больше нет, поэтому не нужна и
    починка прокрутки из panel.js: место на экране не теряется вовсе. */
 const T = {
-  prevDay: 'zi',
+  /* ⚠️ Шапка дня — те же слова, что у панели дня и у старой шапки
+     (`routes._date_nav`): подпись дня с сервера, соседний день числом,
+     «-7 zile» / «+7 zile» на двойных стрелках. До 06.10 здесь стояли голая
+     ISO-дата и «‹ zi / zi ›», а листать неделями было нечем — при переезде
+     в React шапка потеряла то, что у старой страницы было (Олег 06.10). */
   today: 'Azi',
+  wkPrev: '-7 zile',
+  wkNext: '+7 zile',
+  day: 'Zi',
+  week: 'Săptămâna',
   all: 'Toți medicii',
   panel: 'Panou',
-  legacy: 'Varianta clasică',
   excel: 'Excel',
+  /* Подсказка называет МЕСТО, а не знак — как у панели дня. */
+  hint: 'Click pe o programare — detalii și statusuri; pe o oră liberă — '
+    + 'programare nouă sau notiță. Trageți o programare pentru a o muta la altă oră sau alt medic.',
+  /* Слово своё — у сервера его нет (снятие блокировки отвечает пустым кодом);
+     то же, что у панели дня. */
+  noteGone: 'Notița nu mai există.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
 } as const
+
+/* Два разных периода, как и у панели дня: линия «сейчас» — раз в 30 с,
+   минуты ожидания — раз в минуту. */
+const LINE_MS = 30_000
+const WAIT_MS = 60_000
+/** Подсветки «только что приехал» здесь нет: экран не живой, приезжать нечему. */
+const NO_FRESH: ReadonlySet<number> = new Set()
+/** Якорь «Programare nouă»: с ним сюда ведёт кнопка шапки программы. */
+const ADD_HASH = '#addform'
 
 interface Props {
   /** Врач из ПУТИ (`/admin/doctor/:dk`): пусто — все. */
@@ -60,6 +93,7 @@ export const loadDay: RouteLoad<DayModel> = (signal, p, q) =>
 export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<DayModel>(navigate)
   const to = useNavigate()
+  const loc = useLocation()
   const [q] = useSearchParams()
   /* День действий — дата АДРЕСА как есть, без своей копии: пусто так и
      уходит пустым, и «сегодня» решает сервер в момент запроса (после
@@ -69,13 +103,20 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [slot, setSlot] = useState<Slot | null>(null)
   const [card, setCard] = useState<number | null>(null)
-  /* Меню по правой кнопке — те же исходы, что в диалоге, у курсора. */
+  /* Заметка — со СНИМКОМ, как у панели: после действия день приезжает
+     свежим, и убранная заметка остаётся в окне тем, что человек открывал. */
+  const [note, setNote] = useState<{ id: number; at: DashNote } | null>(null)
+  /* Меню по правой кнопке и по «⋯» списка — те же исходы, что в диалоге. */
   const [menu, setMenu] = useState<CardMenuAt | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const [drag, setDrag] = useState<Drag | null>(null)
   const [hover, setHover] = useState('')
   const [move, setMove] = useState<{ drag: Drag; target: Target } | null>(null)
   const closeToast = useCallback(() => setToast(null), [])
+  /* Рельса у этого экрана нет: сетка тянется по окну (`useFitGrid`). */
+  const noRail = useRef<HTMLDivElement | null>(null)
+  const lineTick = useClockTick(LINE_MS)
+  const waitTick = useClockTick(WAIT_MS)
 
   /* Одно действие на все формы и диалоги: удача подменяет день и показывает
      плашку сервера, отказ — только плашку. Возвращает «получилось ли», чтобы
@@ -135,9 +176,32 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
     const tail = next.toString()
     void to(tail ? `${base}?${tail}` : base, { replace: true })
   }
+  /* Соседний день и соседняя неделя — одна и та же ссылка: адрес настоящий
+     (Ctrl, средняя кнопка работают), простой щелчок ведёт роутер с отбором. */
+  const dayLink = (days: number, body: ReactNode, title = '') => {
+    const iso = shift(m.date, days)
+    return (
+      <AppLink href={`${base}?date=${iso}`} {...(title ? { title } : {})}
+         onClick={(e) => { e.preventDefault(); go(iso) }}>{body}</AppLink>
+    )
+  }
+  /* ⭐ Окно записи открыто, пока в адресе `#addform`: с ним сюда ведёт кнопка
+     «Programare nouă» шапки программы, и повторное нажатие той же кнопки —
+     это тот же адрес, который снова откроет окно. Закрыть — убрать якорь
+     (`replace`, загрузчик на смену одного якоря не ходит). Своего флага у
+     экрана нет: адрес и есть состояние. */
+  const adding = loc.hash === ADD_HASH
+  const closeAdd = () => { void to(`${loc.pathname}${loc.search}`, { replace: true }) }
   const openCard = card !== null ? m.cards[String(card)] : undefined
   const menuCard = menu !== null ? m.cards[String(menu.id)] : undefined
   const openMenu = (id: number, x: number, y: number) => setMenu({ id, x, y })
+  const openNote = (id: number) => {
+    const n = canvasNote(m.canvas, id)
+    if (n) setNote({ id, at: n })
+  }
+  const foundNote = note === null ? null : canvasNote(m.canvas, note.id)
+  const shownNote = foundNote ?? note?.at ?? null
+  const noteGone = note !== null && foundNote === null
   const listNode = (
     <DayList model={m} busy={busy} onCard={setCard} onCardMenu={openMenu} onAll={() => go(m.date, '')}
              onStatus={(id, to) => { void act(() => day.status(at, doctor, tile, id, to)) }} />
@@ -147,16 +211,17 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
     <section className="dp-react-root">
       {toast ? <Toast tone={toast.tone} text={toast.text} onClose={closeToast} /> : null}
       <div className="nav">
-        <b>{m.date}</b>
-        <AppLink href={`${base}?date=${shift(m.date, -1)}`}
-           onClick={(e) => { e.preventDefault(); go(shift(m.date, -1)) }}>
-          <Icon name="chev-l" /> {T.prevDay}
-        </AppLink>
+        <b>{m.day_label}</b>
+        {dayLink(-7, <Icon name="chevs-l" />, T.wkPrev)}
+        {dayLink(-1, <><Icon name="chev-l" /> {dm(shift(m.date, -1))}</>)}
         <AppLink href={base} onClick={(e) => { e.preventDefault(); go('') }}>{T.today}</AppLink>
-        <AppLink href={`${base}?date=${shift(m.date, 1)}`}
-           onClick={(e) => { e.preventDefault(); go(shift(m.date, 1)) }}>
-          {T.prevDay} <Icon name="chev-r" />
-        </AppLink>
+        {dayLink(1, <>{dm(shift(m.date, 1))} <Icon name="chev-r" /></>)}
+        {dayLink(7, <Icon name="chevs-r" />, T.wkNext)}
+        {/* ⭐ «Zi / Săptămâna» — как у панели: неделя с 06.10 живёт в этом же
+            разделе (Олег), и её вкладка рядом с днём. */}
+        <AppLink className="primary" href={`${base}?date=${m.date}`}
+           onClick={(e) => { e.preventDefault(); go(m.date) }}>{T.day}</AppLink>
+        <AppLink href={`/admin/week?date=${m.date}`}>{T.week}</AppLink>
         <AppLink href={`/admin?date=${m.date}`}><Icon name="home" /> {T.panel}</AppLink>
         {doctor ? null : (
           <AppLink href={`/admin/export.xlsx?from=${m.date}&to=${m.date}`}>
@@ -166,30 +231,36 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
         {doctor
           ? <AppLink href={`/admin/all?date=${m.date}`}><Icon name="clipboard" /> {T.all}</AppLink>
           : null}
-        <AppLink className="primary" href={`${base}?date=${m.date}&ui=legacy`}>{T.legacy}</AppLink>
+        {/* ⛔ «Varianta clasică» из шапки убрана (Олег 06.10: «это не нужно»):
+            старая страница осталась только аварийным выходом — на экране
+            отказа загрузки (`LoadFailed`). */}
       </div>
 
       {/* ⚠️ Место списка зависит от отбора, и это не косметика: пришедший с
-          плитки панели дня должен увидеть СВОИ строки сразу, а не под сеткой
-          и формой. Полный список остаётся внизу, как на старой странице. */}
+          плитки панели дня должен увидеть СВОИ строки сразу, а не под сеткой.
+          Полный список остаётся внизу, как на старой странице. */}
       {m.filter ? listNode : null}
 
-      <DayGrid model={m} drag={drag} hover={hover}
-               onDrag={setDrag} onHover={setHover} onDrop={onDrop}
-               onPlus={(dk, name, hour) => setSlot({ dk, name, hour })}
-               onCard={setCard} onCardMenu={openMenu} />
-
-      {/* ⛔ Ключ — день экрана. Форма засевает дату один раз, а переход по
-          дням идёт роутером и экземпляр не пересоздаёт: без ключа форма
-          показывала первый день вкладки и записывала в него. Смена дня
-          начинает форму заново, как перезагрузка старой страницы (Олег
-          24.09); ответ действия приносит тот же день, и набор не трогает. */}
-      {m.form
-        ? <AddForm key={m.date} form={m.form} date={m.date} busy={busy}
-                   onAdd={(b) => act(() => day.add(at, doctor, tile, b))} />
-        : null}
+      <DashCanvas model={m.canvas} rail={noRail} waitTick={waitTick} lineTick={lineTick}
+                  onCard={setCard} onCardMenu={openMenu}
+                  onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+                  onNote={openNote}
+                  drag={drag} hover={hover} onDrag={setDrag} onHover={setHover} onDrop={onDrop}
+                  fresh={NO_FRESH} />
+      <p className="hint">{T.hint}</p>
 
       {m.filter ? null : listNode}
+
+      {/* ⛔ Ключ — день экрана. Окно засевает дату при открытии, а переход по
+          дням идёт роутером и экземпляр не пересоздаёт: без ключа окно
+          показывало бы первый день вкладки и записывало в него. Смена дня
+          начинает запись заново, как перезагрузка старой страницы (Олег
+          24.09). */}
+      {adding && m.form
+        ? <AddDialog key={m.date} open form={m.form} date={m.date} busy={busy}
+                     onClose={closeAdd}
+                     onAdd={(b) => act(() => day.add(at, doctor, tile, b))} />
+        : null}
 
       {slot && m.form
         ? <SlotDialog key={`${slot.dk}|${slot.hour}`} open slot={slot}
@@ -223,24 +294,32 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       }} />
         : null}
 
+      {note !== null && shownNote
+        ? <NoteDialog key={note.id} open note={shownNote}
+                      actions={noteGone ? [] : m.note_actions[shownNote.status] ?? []}
+                      gone={noteGone ? T.noteGone : ''}
+                      busy={busy} onClose={() => setNote(null)}
+                      onStatus={async (to) => {
+                        const ok = await act(() => day.status(at, doctor, tile, note.id, to))
+                        if (ok) setNote(null)
+                        return ok
+                      }} />
+        : null}
+
       {move
         ? <MoveDialog open drag={move.drag} target={move.target} busy={busy}
-                      fromName={doctorName(m, move.drag.dk)}
-                      toName={doctorName(m, move.target.dk)}
-                      busyAt={clash(m, move.target, move.drag.dur, move.drag.id)}
+                      fromName={canvasColName(m.canvas, move.drag.dk)}
+                      toName={canvasColName(m.canvas, move.target.dk)}
+                      busyAt={clashAmong(canvasBlocks(m.canvas, move.target.dk), move.target.min,
+                        move.drag.dur, move.drag.id)}
                       onClose={() => setMove(null)}
                       onMove={() => {
                         const { drag: d, target: t } = move
                         setMove(null)
                         void act(() => day.move(at, doctor, tile, d.id,
-                          { date: m.date, time: hhmmOf(t.min), doctor: t.dk }))
+                          { date: m.date, time: hhmm(t.min), doctor: t.dk }))
                       }} />
         : null}
     </section>
   )
-}
-
-/** Минуты в «HH:MM» — тем же видом, что ждёт сервер (`mtime`). */
-function hhmmOf(min: number): string {
-  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
 }

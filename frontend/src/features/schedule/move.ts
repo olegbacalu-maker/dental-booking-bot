@@ -1,4 +1,4 @@
-import type { DayItem, DayModel } from './day'
+import type { DayItem } from './day'
 
 /* Договор перетаскивания (C25.5b) — правила без единого узла DOM, поэтому их
    можно проверить по одному.
@@ -109,25 +109,12 @@ export function sameSlot(d: Drag, t: Target): boolean {
 
 /**
  * Занят ли интервал у ЭТОГО врача — теми же статусами, что считает
- * `db._conflicts` (поле `busy`). Возвращает минуту помехи или −1.
+ * `db._conflicts` (поле `busy`). Возвращает минуту помехи или −1. Список —
+ * блоки колонки канвы: ею с 06.10 живут оба экрана дня, панель и
+ * «Programări» (табличный `clash` по модели дня ушёл вместе с таблицей).
  *
  * ⚠️ Себя запись исключает по id: иначе визит нашёл бы САМ СЕБЯ и перенос к
  * другому врачу на тот же час всегда «сталкивался» бы.
- */
-export function clash(model: DayModel, t: Target, dur: number, id: number): number {
-  const col = model.doctors.findIndex((x) => x.id === t.dk)
-  if (col < 0) return -1
-  const items = model.hours.flatMap((row) => row.cells[col]?.items ?? [])
-  return clashAmong(items, t.min, dur, id)
-}
-
-/**
- * То же правило над ГОТОВЫМ списком занятых — им живёт канва панели, где
- * записи лежат не в ячейках, а в колонке.
- *
- * ⛔ Одно правило на два экрана: разойдись они, подсказка о занятости
- * загоралась бы на одном и молчала на другом при одинаковых данных, и
- * увидеть это можно было бы, только открыв оба.
  */
 export interface Occupies {
   id: number
@@ -145,9 +132,4 @@ export function clashAmong(items: Occupies[], min: number, dur: number,
     if (s < min + dur && min < e) return s
   }
   return -1
-}
-
-/** Имя колонки для строк «De la» / «La» — из модели, а не из ссылок страницы. */
-export function doctorName(model: DayModel, dk: string): string {
-  return model.doctors.find((x) => x.id === dk)?.name ?? '—'
 }

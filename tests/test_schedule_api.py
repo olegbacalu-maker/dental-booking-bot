@@ -12,7 +12,7 @@
 import json
 import re
 
-from harness import TZ, Client, Result, Server, clinic_today
+from harness import TG_ON, TZ, Client, Result, Server, clinic_today
 from datetime import datetime, timedelta
 
 from test_admin import _week_cols
@@ -155,6 +155,12 @@ def suite_switch(res: Result) -> None:
         res.check("дата экрана — параметром узла", params,
                   {"date": monday.isoformat()})
         res.ok("старой разметки нет", "class='wcol'" not in page, "две разметки")
+        # ⭐ (06.10, Олег) Неделя — раздел «Programări»: его пункт меню
+        # подсвечен, и страница называется его словом, а не «Panoul principal».
+        shell = json.loads(page.split('data-shell="', 1)[1].split('"', 1)[0]
+                           .replace("&quot;", '"'))
+        res.check("неделя — раздел «Programări»: пункт меню и заголовок",
+                  (shell["nav"]["active"], shell["frame"]["title"]), ("prog", "Programări"))
 
         res.check("НЕДЕЛЯ БОЛЬШЕ НЕ ЖИВАЯ: ни обёртки, ни метки опроса",
                   ('id="live"' in page, 'data-reload="12"' in page),
@@ -280,6 +286,34 @@ def suite_day_parity(res: Result) -> None:
         model = _model_of(_j(c.get(f"/api/schedule/day?date={day}"))["data"])
         res.check("колонки: имена совпадают", model["heads"], page["heads"])
         res.check("колонки: подписи совпадают", model["specs"], page["specs"])
+        # Шапка дня (06.10): React-экран «Programări» показывал голую ISO-дату и
+        # «‹ zi / zi ›» — подпись дня и «« »» старой шапки потерялись при
+        # переезде. Подпись едет моделью, и сборка у неё одна (`day.day_title`).
+        m_nav = re.search(r"<div class='nav'><b>([^<]+)</b>",
+                          c.get(f"/admin/all?date={day}").body)
+        res.check("подпись дня в модели — та же, что у старой шапки",
+                  _j(c.get(f"/api/schedule/day?date={day}"))["data"].get("day_label"),
+                  m_nav.group(1) if m_nav else "<нет шапки>")
+        # ⭐ (06.10) «Programări» рисует ТУ ЖЕ канву, что панель: у общего дня
+        # канва модели дня обязана совпасть с канвой живого канала панели того
+        # же дня — иначе два экрана одного дня снова заговорят разным видом.
+        canvas_day = _j(c.get(f"/api/schedule/day?date={day}"))["data"].get("canvas")
+        canvas_panel = _j(c.get(f"/api/schedule/live?screen=panel&date={day}"))["data"]["canvas"]
+        res.ok("канва общего дня — та же, что у панели этого дня",
+               canvas_day == canvas_panel,
+               f"колонки {[x['id'] for x in (canvas_day or {}).get('columns', [])]} против "
+               f"{[x['id'] for x in canvas_panel.get('columns', [])]}")
+        d2_ids = sorted(b["id"] for x in canvas_panel["columns"] if x["id"] == "d2"
+                        for b in x["blocks"])
+        one = _j(c.get(f"/api/schedule/day?date={day}&doctor=d2"))["data"]["canvas"]
+        res.ok("у врача d2 в этом дне есть записи — иначе проверка ниже пустая",
+               len(d2_ids) >= 2, f"{d2_ids}")
+        res.check("у дня врача в канве — только его колонка, с его записями",
+                  ([x["id"] for x in one["columns"]],
+                   sorted(b["id"] for b in one["columns"][0]["blocks"]) if one["columns"] else []),
+                  (["d2"], d2_ids))
+        res.check("«Sursă» без бота не показывается",
+                  _j(c.get(f"/api/schedule/day?date={day}"))["data"].get("source_col"), False)
         res.check("ряды часов: те же метки и в том же порядке",
                   [r["hour"] for r in model["rows"]], [r["hour"] for r in page["rows"]])
         res.check("закрытые часы названы одинаково",
@@ -331,6 +365,17 @@ def suite_day_parity(res: Result) -> None:
                   [[c_["ids"] for c_ in r["cells"]] for r in page1["rows"]])
         res.check("чужой врач — 404, а не пустая сетка",
                   c.get("/api/schedule/day?doctor=d999").status, 404)
+
+
+def suite_day_source(res: Result) -> None:
+    """«Sursă» в «Lista zilei» — по боту (06.10): у клиники с ботом колонка есть.
+
+    ⚠️ Половина «без бота — нет» живёт в `suite_day_parity`; без этой
+    половины флаг мог бы быть просто всегда ложным, и обе проверки молчали бы."""
+    with Server(env=TG_ON) as s:
+        c = Client(s.url).login()
+        res.check("у клиники с ботом «Sursă» показывается",
+                  _j(c.get("/api/schedule/day"))["data"].get("source_col"), True)
 
 
 def suite_day_orphan(res: Result) -> None:
@@ -705,7 +750,7 @@ def suite_live_envelope(res: Result) -> None:
         after = clinic_today().isoformat()
 
         def old_label(on: str) -> str | None:
-            """Подпись старой шапки того же дня: сборка одна (`_day_title`)."""
+            """Подпись старой шапки того же дня: сборка одна (`day.day_title`)."""
             m_nav = re.search(r"<div class='nav'><b>([^<]+)</b>",
                               c.get(f"/admin?date={on}").body)
             return m_nav.group(1) if m_nav else None
@@ -827,7 +872,7 @@ def suite_dash_flag(res: Result) -> None:
         # ссылки на неделю в серверном HTML больше нет, а подпись дня, без
         # которой экран шапку не нарисует, едет КАНАЛОМ рядом с эхом даты
         # (24.09) — и это та же подпись, что печатает старая шапка этого дня:
-        # сборка одна (`_day_title`). Одной половины мало: «сервер не печатает»
+        # сборка одна (`day.day_title`). Одной половины мало: «сервер не печатает»
         # само по себе зеленело бы и на экране, потерявшем шапку совсем.
         # ⚠️ Цена названа: подпись больше не в первом кадре, она приходит с
         # панелью первым ответом канала. Прежний довод «из канала шапка мигала

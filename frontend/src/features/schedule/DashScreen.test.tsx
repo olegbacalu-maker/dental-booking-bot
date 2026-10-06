@@ -284,8 +284,10 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     await show()
     const hint = document.querySelector('.dashmain .hint')!
     expect(hint.textContent).toContain('Click pe o programare')
-    expect(hint.textContent).toContain('varianta clasică')
-    expect(hint.querySelector('a')?.getAttribute('href')).toBe(`/admin?date=${TODAY}&ui=legacy`)
+    /* ⛔ И в старую панель она больше не зовёт (Олег 06.10: «это не нужно»):
+       старая страница — только аварийный выход, в отказе и в остановке. */
+    expect(hint.textContent).not.toContain('clasic')
+    expect(hint.querySelector('a')).toBeNull()
   })
 
   it('⛔ класс anim снимается на ПЕРВОМ ОБНОВЛЕНИИ, и снять его больше некому', async () => {
@@ -372,8 +374,6 @@ describe('24.09: день — из адреса, шапка — из эха ка
     await waitFor(() => expect(nav().label).toBe('Du 20.09.2026'))
     expect(nav().links).toEqual(linksOf(NEXT))
     expect(document.querySelector('[data-appt="5"] b')?.textContent).toContain('Ana Dimineață')
-    expect(document.querySelector('.dashmain .hint a')?.getAttribute('href'))
-      .toBe(`/admin?date=${NEXT}&ui=legacy`)
     /* и адрес опроса НЕ застыл на вчерашнем дне */
     expect(new Set(urls(f))).toEqual(new Set(['/api/schedule/live?screen=panel']))
   })
