@@ -6,7 +6,7 @@
 данных + свой случайный ADMIN_KEY. Посетитель получает куку `dp_demo` со
 слотом и случайной меткой; шлюз сам входит в слот ключом и подставляет куку
 входа программы в каждый проксируемый запрос — посетитель ключа не знает и
-экрана входа не видит. Через DEMO_TTL_MIN (60) слот сбрасывается: процесс
+экрана входа не видит. Через DEMO_TTL_MIN (30) слот сбрасывается: процесс
 гасится, папка заменяется копией ШАБЛОНА, засев раскладывается от «сейчас»
 (demo/seed.py), процесс поднимается заново. Сброс делает фоновый цикл,
 поэтому свободный слот почти всегда тёплый; когда тёплых нет, посетитель
@@ -23,7 +23,7 @@
 предзагрузка, /robots.txt, статика без куки слота не получают: до 07.10
 получали все, и шесть таких запросов закрывали демо людям на час. Слот,
 выданный навигацией, ждёт PENDING, придёт ли браузер за страницей (стили,
-бандл, API — уже не навигацией); не пришёл — слот на сброс, а не на час.
+бандл, API — уже не навигацией); не пришёл — слот на сброс, а не на весь срок.
 Строка «слот N выдан» в логе называет способ, адрес и User-Agent (адреса IP
 шлюз не пишет — privacy сайта, п. 6), `/demo/health` — версию программы,
 выдачи, отказы и «все заняты» с запуска.
@@ -66,7 +66,7 @@ from starlette.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                  RedirectResponse, Response)
 from starlette.routing import Route
 
-from . import admit
+from . import admit, words
 from . import seed as demo_seed
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -80,7 +80,11 @@ APP_DIR = pathlib.Path(_env("DEMO_APP_DIR", str(HERE.parent / "bot")))   # гд�
 PYTHON = _env("DEMO_PYTHON", sys.executable)
 DATA = pathlib.Path(_env("DEMO_DATA", str(HERE.parent / "sandbox" / "demo-data")))
 SLOTS = int(_env("DEMO_SLOTS", "6"))
-TTL = timedelta(minutes=int(_env("DEMO_TTL_MIN", "60")))
+# Срок копии. Называют его страницы шлюза, полоса демо в программе (шлюз
+# передаёт ей фразу в DENTART_DEMO_TTL) и сайт — см. demo/words.py.
+TTL_MIN = int(_env("DEMO_TTL_MIN", "30"))
+TTL = timedelta(minutes=TTL_MIN)
+TTL_RO, TTL_RU = words.ttl_ro(TTL_MIN), words.ttl_ru(TTL_MIN)
 PORT = int(_env("DEMO_PORT", "8090"))
 HOST = _env("DEMO_HOST", "127.0.0.1")
 CHILD_PORT = int(_env("DEMO_CHILD_PORT", "9101"))
@@ -95,7 +99,7 @@ SWEEP_S = int(_env("DEMO_SWEEP_S", "20"))   # как часто фоновый �
 # Слот, выданный навигацией, ждёт, что браузер придёт за страницей: стили,
 # бандл, первый запрос API — с той же кукой и уже НЕ навигацией. Не пришёл за
 # это время (робот с заголовками браузера, закрытая вкладка) — слот на сброс,
-# а не на час. Две минуты — с запасом на бандл по медленной сети.
+# а не на весь срок. Две минуты — с запасом на бандл по медленной сети.
 PENDING = timedelta(seconds=int(_env("DEMO_PENDING_S", "120")))
 # Свободный слот, засеянный давно, пересевается: «сейчас» в его данных
 # (кто в кабинете, кто ждёт) уехало бы от часов посетителя на полчаса
@@ -175,6 +179,7 @@ def _child_env(d: pathlib.Path, key: str) -> dict:
         "DENTART_DATA_DIR": str(d),
         "ADMIN_KEY": key,
         "DENTART_DEMO": "1",
+        "DENTART_DEMO_TTL": TTL_RO,     # полоса демо называет срок словами шлюза
         "PYTHONUNBUFFERED": "1",
     })
     return env
@@ -430,7 +435,7 @@ __BODY__
 <p><a href="__SITE__">dentpilot.md</a></p></body></html>"""
 
 _BUSY = ("<h1>Toate locurile demo sunt ocupate</h1>\n"
-         "<p>Demo-ul oferă fiecărui vizitator o copie proprie a programului pentru o oră.\n"
+         "<p>Demo-ul oferă fiecărui vizitator o copie proprie a programului pentru __TTL_RO__.\n"
          "Acum toate copiile sunt în uz — pagina se reîncarcă singură; încercați peste câteva\n"
          "minute.</p>\n"
          "<p style=\"color:#5b6b72\">Все демо-копии заняты, страница обновится сама.</p>")
@@ -440,17 +445,17 @@ _BUSY = ("<h1>Toate locurile demo sunt ocupate</h1>\n"
 # слот не выдан навигацией. Кнопка — POST: роботы форм не жмут.
 _START = ("<h1>DentPilot — demo online</h1>\n"
           "<p>Programul adevărat, cu o clinică fictivă: fiecare vizitator primește o copie\n"
-          "proprie pentru o oră.</p>\n"
+          "proprie pentru __TTL_RO__.</p>\n"
           "<form method=\"post\" action=\"__ACTION__\"><button type=\"submit\">Deschide demo-ul</button></form>\n"
           "<p style=\"color:#5b6b72\">Настоящая программа с вымышленной клиникой: каждому\n"
-          "посетителю — своя копия на час.</p>")
+          "посетителю — своя копия на __TTL_RU__.</p>")
 _START_HEAD = (
     "\n<meta name=\"description\" content=\"__DESC__\">"
     "\n<meta property=\"og:title\" content=\"DentPilot — demo online\">"
     "\n<meta property=\"og:description\" content=\"__DESC__\">"
     # картинка — карточка самого сайта: своей у демо нет
     "\n<meta property=\"og:image\" content=\"__SITE__/shots/og.png\">")
-_START_DESC = ("Programul DentPilot cu o clinică fictivă: o copie proprie pentru o oră, "
+_START_DESC = ("Programul DentPilot cu o clinică fictivă: o copie proprie pentru __TTL_RO__, "
                "direct în browser.")
 
 _COOKIES = ("<h1>Demo-ul are nevoie de cookie-uri</h1>\n"
@@ -464,7 +469,8 @@ _COOKIES = ("<h1>Demo-ul are nevoie de cookie-uri</h1>\n"
 
 def _html(body: str, head: str = "") -> str:
     return (_PAGE.replace("__HEAD__", head).replace("__BODY__", body)
-            .replace("__SITE__", html.escape(SITE_URL.rstrip("/"))))
+            .replace("__SITE__", html.escape(SITE_URL.rstrip("/")))
+            .replace("__TTL_RO__", TTL_RO).replace("__TTL_RU__", TTL_RU))
 
 
 def _action(nxt: str) -> str:
@@ -496,14 +502,14 @@ async def health(request: Request) -> Response:
     return JSONResponse({"ok": bool(ready), "slots": SLOTS, "ready": len(ready),
                          "busy": sum(1 for s in ready if s.owner),
                          "pending": sum(1 for s in ready if s.owner and s.pending_until),
-                         "ttl_min": int(TTL.total_seconds() // 60),
+                         "ttl_min": TTL_MIN,
                          "version": ", ".join(sorted({s.version for s in ready if s.version})),
                          **stats},
                         status_code=200 if ready else 503)
 
 
 async def robots(request: Request) -> Response:
-    """Роботам демо закрыто целиком: копия на час — не страница для поиска.
+    """Роботам демо закрыто целиком: копия на срок демо — не страница для поиска.
     Слот робот и так не получит (admit), это — чтобы не ходил вовсе."""
     return PlainTextResponse(admit.ROBOTS_TXT)
 
@@ -638,7 +644,7 @@ async def proxy(request: Request) -> Response:
     s = _owned(request)
     if s is not None:
         if s.pending_until is not None and not admit.navigation(request.headers):
-            s.pending_until = None    # браузер пришёл за страницей: слот его на час
+            s.pending_until = None    # браузер пришёл за страницей: слот его на весь срок
     else:
         kind = admit.classify(request.method, request.url.path, request.headers,
                               COOKIE in request.cookies)
@@ -674,7 +680,7 @@ async def proxy(request: Request) -> Response:
 
 class _NoIndex:
     """`X-Robots-Tag` на КАЖДЫЙ ответ шлюза, включая ответы программы: копия
-    демо на час не должна попасть в поиск ни одной страницей."""
+    демо на её срок не должна попасть в поиск ни одной страницей."""
 
     def __init__(self, app) -> None:
         self.app = app

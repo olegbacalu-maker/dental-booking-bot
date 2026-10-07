@@ -18,8 +18,8 @@ services:
     image: dentpilot-demo:local
     restart: unless-stopped
     environment:
-      DEMO_SLOTS: ${DEMO_SLOTS:-6}
-      DEMO_TTL_MIN: ${DEMO_TTL_MIN:-60}
+      DEMO_SLOTS: ${DEMO_SLOTS:-12}
+      DEMO_TTL_MIN: ${DEMO_TTL_MIN:-30}
       DEMO_SITE_URL: ${DEMO_SITE_URL:-https://dentpilot.md}
       DEMO_SECURE_COOKIE: ${DEMO_SECURE_COOKIE:-1}
     volumes:

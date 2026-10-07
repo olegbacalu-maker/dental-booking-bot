@@ -34,6 +34,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SLOTS = 2
 PENDING_S = 8          # сколько слот ждёт, придёт ли браузер за страницей
+TTL_MIN = 30           # срок копии: его называют страница шлюза и полоса программы
 CHROME = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
 SAFARI15 = ("Mozilla/5.0 (iPhone; CPU iPhone OS 15_8 like Mac OS X) AppleWebKit/605.1.15 "
@@ -136,12 +137,15 @@ def scenarios() -> None:
     ok("/demo/health называет версию программы", h0.get("version") == app_version(),
        f"{h0.get('version')!r} против {app_version()!r}")
     ok("на старте свободно всё", h0.get("busy") == 0, str(h0))
+    ok("срок копии — 30 минут", h0.get("ttl_min") == TTL_MIN, str(h0))
 
     print("\nБез куки, не браузер — слота нет")
     r = call("GET", "/robots.txt", {"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)"})
     ok("/robots.txt шлюза закрывает всё", r.status == 200 and "Disallow: /" in r.body, repr(r))
     ok("X-Robots-Tag на ответах шлюза", "noindex" in r.h("x-robots-tag"), r.h("x-robots-tag"))
     r = call("GET", "/admin", {"User-Agent": "curl/8.9.1", "Accept": "*/*"})
+    ok("страница демо называет срок (RO и RU)",
+       "pentru 30 de minute" in r.body and "на 30 минут" in r.body, r.body[:300])
     ok("curl на журнал — страница демо с кнопкой", r.status == 200 and "Deschide demo-ul" in r.body,
        repr(r))
     ok("…и кука-проба, не слот", r.cookie == "new", str(r.cookie))
@@ -183,6 +187,8 @@ def scenarios() -> None:
     r = call("GET", "/admin", NAV, cookie=probe or "")
     a = r.cookie or ""
     ok("навигация с пробой — журнал и кука слота", r.status == 200 and "." in a, f"{r!r} {a!r}")
+    ok("полоса демо в программе называет срок шлюза", "după 30 de minute" in r.body
+       and "după o oră" not in r.body, "в полосе не срок шлюза")
     ok("X-Robots-Tag и на странице программы", "noindex" in r.h("x-robots-tag"), r.h("x-robots-tag"))
     h = health()
     ok("слот выдан и ждёт страницу", h["busy"] == 1 and h["pending"] == 1, str(h))
@@ -209,7 +215,8 @@ def scenarios() -> None:
     h = health()
     ok("занято два, один ждёт страницу", h["busy"] == 2 and h["pending"] == 1, str(h))
     r = call("GET", "/admin", NAV, cookie="new")
-    ok("третий посетитель — «все заняты»", r.status == 503 and "ocupate" in r.body, repr(r))
+    ok("третий посетитель — «все заняты»", r.status == 503 and "ocupate" in r.body
+       and "pentru 30 de minute" in r.body, repr(r))
 
     print(f"\nB так и не пришёл за страницей — слот отдаётся через {PENDING_S} с, не через час")
     h = wait_health(lambda h: h.get("unused", 0) >= 1 and h["busy"] == 1 and h["ready"] == SLOTS,
@@ -269,7 +276,8 @@ def main() -> int:
     env = {**os.environ, "DEMO_SLOTS": str(SLOTS), "DEMO_PORT": str(PORT),
            "DEMO_HOST": "127.0.0.1", "DEMO_CHILD_PORT": str(free_run(SLOTS + 1)),
            "DEMO_DATA": str(data), "DEMO_SECURE_COOKIE": "0", "DEMO_PENDING_S": str(PENDING_S),
-           "DEMO_SWEEP_S": "1", "DEMO_PYTHON": str(venv if venv.exists() else sys.executable)}
+           "DEMO_SWEEP_S": "1", "DEMO_TTL_MIN": str(TTL_MIN),
+           "DEMO_PYTHON": str(venv if venv.exists() else sys.executable)}
     print(f"шлюз на :{PORT}, данные {data}, журнал {log_path}")
     with open(log_path, "w", encoding="utf-8") as log:
         gate = subprocess.Popen([sys.executable, "-X", "utf8", "-m", "demo.gate"],

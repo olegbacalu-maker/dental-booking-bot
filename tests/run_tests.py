@@ -314,6 +314,7 @@ SUITES = [
     ("Демо с сайта: флаг прячет машину и учётки, не журнал", test_demo.suite_demo),
     ("Демо с сайта: засев ложится на схему программы", test_demo.suite_seed),
     ("Демо с сайта: шлюз даёт слот только навигации браузера", test_demo.suite_gate_admit),
+    ("Демо с сайта: срок копии словами", test_demo.suite_gate_words),
     ("Правая колонка: повестка — правила", test_panel_model.suite_agenda_pure),
     ("Правая колонка: повестка против страницы",
      test_panel_model.suite_agenda_parity),

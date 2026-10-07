@@ -693,19 +693,22 @@ def _update_banner() -> str:
 
 def _demo_banner() -> str:
     """Полоса демо (core/demo.py) — на КАЖДОМ экране, не только на входе:
-    посетитель сайта обязан видеть, что данные вымышленные и живут час, где бы
-    он ни оказался по ссылке. «Începe din nou» ведёт в шлюз демо (`/demo/…`),
-    который и выдаёт свежую копию."""
+    посетитель сайта обязан видеть, что данные вымышленные и сколько они живут,
+    где бы он ни оказался по ссылке. Срок называет шлюз (`demo.ttl_text`).
+    «Începe din nou» ведёт в шлюз демо (`/demo/…`), который и выдаёт свежую
+    копию."""
     if not demo.on():
         return ""
+    text = DEMO_HINT[0].replace("__TTL__", html.escape(demo.ttl_text()))
     return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('info')} "
-            f"{DEMO_HINT[0]} <a href='/demo/reset'><b>{DEMO_HINT[1]}</b></a></div>")
+            f"{text} <a href='/demo/reset'><b>{DEMO_HINT[1]}</b></a></div>")
 
 
 # Две части одной фразы: текст и подпись ссылки сброса — источник один на
 # старую страницу и на React-оболочку (та рисует готовую строку сигнала).
+# __TTL__ — срок копии словами шлюза, «o oră» без него.
 DEMO_HINT = ("Versiune demonstrativă: datele sunt fictive și se șterg automat "
-             "după o oră. Nu introduceți date reale ale pacienților.",
+             "după __TTL__. Nu introduceți date reale ale pacienților.",
              "Începe din nou")
 
 

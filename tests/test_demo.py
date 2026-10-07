@@ -85,6 +85,10 @@ def suite_demo(res: Result) -> None:
         r = c.get("/admin")
         res.check("после входа журнал открыт", r.status, 200)
         res.ok("баннер демо на журнале", BANNER in r.body, "полосы демо нет")
+        # срок называет шлюз (DENTART_DEMO_TTL); без шлюза — час, и заготовка
+        # срока на экран не уезжает
+        res.ok("без шлюза полоса называет срок «o oră»",
+               "după o oră" in r.body and "__TTL__" not in r.body, "срока в полосе нет")
         res.ok("баннер ведёт в шлюз: /demo/reset", "href='/demo/reset'" in r.body,
                "ссылки сброса нет")
         res.ok("баннер демо и на списке пациентов", BANNER in c.get("/admin/search").body,
@@ -128,6 +132,13 @@ def suite_demo(res: Result) -> None:
         res.ok("загрузка 9 МБ в демо — 413 (или обрыв до чтения тела)", big in (413, ABORTED), str(big))
         small = _upload_settled(c, 1024 * 1024)
         res.ok("1 МБ проходит потолок демо", small not in (413, ABORTED), str(small))
+    with Server(env={**DEMO, "DENTART_DEMO_TTL": "30 de minute"}) as s:
+        c = Client(s.url).login()
+        for path in ("/admin", "/admin/search?ui=legacy"):
+            body = c.get(path).body
+            res.ok(f"{path}: срок в полосе — словами шлюза",
+                   "după 30 de minute" in body and "după o oră" not in body
+                   and "__TTL__" not in body, "в полосе не срок шлюза")
     with Server() as s:
         c = Client(s.url).login()
         res.ok("без флага полосы демо нет", BANNER not in c.get("/admin").body,
@@ -351,3 +362,23 @@ def suite_gate_admit(res: Result) -> None:
                       ("/admin/login?next=/admin/week", "/admin"), ("/admin/logout", "/admin"),
                       ("/demo/reset", "/admin"), ("/admin/x\r\nSet-Cookie: a=b", "/admin")):
         res.check(f"next {raw!r}", admit.safe_next(raw), want)
+
+
+def suite_gate_words(res: Result) -> None:
+    """Срок копии словами (demo/words.py, 07.10): шлюз называет его на своих
+    страницах и передаёт полосе демо в программе. Румынское «de» после 20 и
+    русские падежи — то место, где «30 minute» или «на 21 минут» уехали бы
+    посетителю без единой ошибки в логе."""
+    sys.path.insert(0, str(ROOT))
+    from demo import words  # noqa: E402 — пакет демо лежит в корне репозитория
+    for minutes, ro, ru in ((60, "o oră", "час"), (30, "30 de minute", "30 минут"),
+                            (45, "45 de minute", "45 минут"), (15, "15 minute", "15 минут"),
+                            (19, "19 minute", "19 минут"), (20, "20 de minute", "20 минут"),
+                            (21, "21 de minute", "21 минуту"), (22, "22 de minute", "22 минуты"),
+                            (11, "11 minute", "11 минут"), (1, "un minut", "1 минуту"),
+                            (2, "două minute", "2 минуты"), (90, "90 de minute", "90 минут"),
+                            (101, "101 minute", "101 минуту"), (112, "112 minute", "112 минут"),
+                            (120, "două ore", "2 часа"), (300, "5 ore", "5 часов"),
+                            (1200, "20 de ore", "20 часов")):
+        res.check(f"{minutes} мин по-румынски", words.ttl_ro(minutes), ro)
+        res.check(f"{minutes} мин по-русски", words.ttl_ru(minutes), ru)
