@@ -5,6 +5,10 @@ BLOCKED) — страницы, JSON и плитки хаба одним спис
 баннер демо на каждом экране; вход по ключу остаётся входом (демо не
 открывает журнал без куки); потолок загрузки ниже. Без флага ничего из этого
 не происходит — иначе клиника получила бы «демо» вместо программы.
+
+Шлюз перед демо (demo/gate.py) сам в прогон не поднимается: ему нужен httpx,
+а в окружение сборки лишнее не ставится. Здесь — его решение «кому слот»
+(demo/admit.py, чистая функция); вживую шлюз проверяет demo/check_gate.py.
 """
 import json
 import pathlib
@@ -188,3 +192,162 @@ def suite_seed(res: Result) -> None:
             res.ok("аналитика считается на засеве", st.get("ok") is True, str(st)[:200])
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+# Заголовки и User-Agent — как их шлют на самом деле (Chrome 141, Firefox 143,
+# Safari 17 и 15, браузеры мессенджеров, роботы и превью ссылок)
+_CHROME = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
+_UA = {
+    "Chrome": _CHROME,
+    "Edge": _CHROME + " Edg/141.0.0.0",
+    "Firefox": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0",
+    "Safari 17": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+                  "(KHTML, like Gecko) Version/17.6 Safari/605.1.15"),
+    "Safari 15 (iOS)": ("Mozilla/5.0 (iPhone; CPU iPhone OS 15_8 like Mac OS X) "
+                        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 "
+                        "Mobile/15E148 Safari/604.1"),
+    "Yandex Browser": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/138.0.0.0 YaBrowser/25.8.0.0 Safari/537.36"),
+    "браузер Telegram": ("Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, "
+                         "like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36 "
+                         "Telegram-Android/12.0.1 (Samsung SM-A546B; Android 14; SDK 34; AVERAGE)"),
+    "браузер Facebook": ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+                         "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22A3354 "
+                         "[FBAN/FBIOS;FBAV/480.0.0.40.103;FBDV/iPhone15,2;FBSN/iOS;FBLC/ro_RO]"),
+    "headless Edge": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"),
+    "Googlebot": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Googlebot Smartphone": ("Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) "
+                             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.7390.54 "
+                             "Mobile Safari/537.36 (compatible; Googlebot/2.1; "
+                             "+http://www.google.com/bot.html)"),
+    "bingbot": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+    "YandexBot": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+    "TelegramBot": "TelegramBot (like TwitterBot)",
+    "Facebook": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    "WhatsApp": "WhatsApp/2.23.20.0 A",
+    "Skype": "Mozilla/5.0 (Windows NT 6.1; WOW64) SkypeUriPreview Preview/0.5",
+    "Slack": "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+    "Discord": "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
+    "curl": "curl/8.9.1",
+    "python-requests": "python-requests/2.32.3",
+    "Go": "Go-http-client/2.0",
+    "пустой": "",
+}
+_NAV = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Site": "same-site", "Sec-Fetch-User": "?1",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+_FETCH = {"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty",
+          "Sec-Fetch-Site": "same-origin", "Accept": "*/*"}
+_SCRIPT = {"Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "script",
+           "Sec-Fetch-Site": "same-origin"}
+_OLD = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+
+
+def _hd(base: dict, ua: str, **extra) -> dict:
+    return {**base, "User-Agent": _UA[ua], **extra}
+
+
+def suite_gate_admit(res: Result) -> None:
+    """Шлюз демо даёт слот только навигации браузера (demo/admit.py, 07.10).
+
+    До 07.10 слот на час получал любой запрос без куки — робот, превью
+    ссылки, /robots.txt, `curl …/health`, — и шести таких хватало, чтобы
+    Олег увидел «Toate locurile demo sunt ocupate». Здесь — таблица
+    решений, которую исполняет шлюз, на заголовках настоящих браузеров и
+    роботов, в обе стороны: слот получают люди (иначе демо закрыто уже
+    ПРАВИЛОМ) и не получают остальные."""
+    sys.path.insert(0, str(ROOT))
+    from demo import admit  # noqa: E402 — пакет демо лежит в корне репозитория
+    res.ok("решение шлюза берётся из репозитория",
+           pathlib.Path(admit.__file__).resolve() == (ROOT / "demo" / "admit.py").resolve(),
+           admit.__file__)
+
+    cases = []
+    # люди: навигация вкладки — слот; без куки вовсе — сперва проба
+    for ua in ("Chrome", "Edge", "Firefox", "Safari 17", "Yandex Browser",
+               "браузер Telegram", "браузер Facebook"):
+        cases.append((f"{ua}: переход на журнал — слот", "GET", "/admin", _hd(_NAV, ua), True,
+                      admit.SLOT))
+    cases += [
+        ("Chrome без куки вовсе — проба, не слот", "GET", "/admin", _hd(_NAV, "Chrome"), False,
+         admit.PROBE),
+        ("Chrome: глубокая ссылка журнала — слот", "GET", "/admin/patient/5",
+         _hd(_NAV, "Chrome"), True, admit.SLOT),
+        # безголовый браузер — как посетитель: кадры сайта снимаются так
+        ("headless Edge (кадры сайта) — слот", "GET", "/admin", _hd(_NAV, "headless Edge"), True,
+         admit.SLOT),
+        ("браузер без Sec-Fetch (Safari 15) — страница с кнопкой", "GET", "/admin",
+         _hd(_OLD, "Safari 15 (iOS)"), True, admit.PAGE),
+        ("переход внутри iframe — не слот", "GET", "/admin",
+         _hd(_NAV, "Chrome", **{"Sec-Fetch-Dest": "iframe", "Sec-Fetch-Site": "cross-site"}),
+         True, admit.PAGE),
+        ("предзагрузка — не слот", "GET", "/admin",
+         _hd(_NAV, "Chrome", **{"Sec-Purpose": "prefetch"}), True, admit.LATER),
+        ("prerender — не слот", "GET", "/admin",
+         _hd(_NAV, "Chrome", **{"Sec-Purpose": "prefetch;prerender"}), True, admit.LATER),
+        ("робот, назвавшийся в UA, с заголовками навигации — не слот", "GET", "/admin",
+         _hd(_NAV, "Googlebot Smartphone"), True, admit.PAGE),
+        ("пустой User-Agent с заголовками навигации — не слот", "GET", "/admin",
+         _hd(_NAV, "пустой"), True, admit.PAGE),
+        # клиент без куки: fetch страницы (переход B4), API, формы
+        ("fetch страницы (переход без перезагрузки) — не слот", "GET", "/admin/week",
+         _hd(_FETCH, "Chrome"), True, admit.PAGE),
+        ("GET /api/… — 401, не слот", "GET", "/api/schedule/live", _hd(_FETCH, "Chrome"), True,
+         admit.API),
+        ("POST /api/… — 401, не слот", "POST", "/api/patients", _hd(_FETCH, "Chrome"), True,
+         admit.API),
+        ("навигация на /api — 401, не слот", "GET", "/api", _hd(_NAV, "Chrome"), True, admit.API),
+        ("форма без слота — на /admin", "POST", "/admin/appointment/add", _hd(_NAV, "Chrome"),
+         True, admit.HOME),
+        ("DELETE fetch без слота — 401", "DELETE", "/admin/x", _hd(_FETCH, "Chrome"), True,
+         admit.API),
+        ("HEAD журнала — не слот", "HEAD", "/admin", _hd(_NAV, "Chrome"), True, admit.PAGE),
+        ("HEAD мимо журнала — 404", "HEAD", "/wp-login.php", _hd(_OLD, "curl"), False, admit.NONE),
+        ("неизвестный адрес навигацией — на /admin", "GET", "/oricare", _hd(_NAV, "Chrome"), True,
+         admit.HOME),
+        ("сканер на /wp-login.php — 404", "GET", "/wp-login.php", _hd(_OLD, "curl"), False,
+         admit.NONE),
+        ("сканер на /.env — 404", "GET", "/.env", _hd(_OLD, "python-requests"), False, admit.NONE),
+    ]
+    for path, headers in (("/static/js/bundle.js", _hd(_SCRIPT, "Chrome")),
+                          ("/static/css/panel.css", _hd(_OLD, "Googlebot")),
+                          ("/favicon.ico", _hd(_OLD, "Googlebot")),
+                          ("/manifest.webmanifest", _hd(_FETCH, "Chrome")),
+                          ("/icon-180.png", _hd(_OLD, "Safari 15 (iOS)")),
+                          ("/health", _hd(_OLD, "curl"))):
+        cases.append((f"{path} без куки — отдаётся без слота", "GET", path, headers, False,
+                      admit.PUBLIC))
+    # роботы, превью ссылок, скрипты: без заголовков навигации — страница демо
+    for ua in ("Googlebot", "bingbot", "YandexBot", "TelegramBot", "Facebook", "WhatsApp",
+               "Skype", "Slack", "Discord", "curl", "python-requests", "Go"):
+        cases.append((f"{ua} на журнал — страница демо, не слот", "GET", "/admin",
+                      _hd(_OLD, ua), True, admit.PAGE))
+    res.ok("таблица решений не пуста", len(cases) > 40, str(len(cases)))
+    for label, method, path, headers, has_cookie, want in cases:
+        res.check(label, admit.classify(method, path, headers, has_cookie), want)
+
+    # второй рубеж — строка UA: роботы ловятся, браузеры нет (YaBrowser рядом
+    # с YandexBot, браузеры внутри мессенджеров, безголовый Edge)
+    for ua in ("Googlebot", "bingbot", "YandexBot", "TelegramBot", "Facebook", "Skype",
+               "Slack", "Discord", "curl", "python-requests", "Go", "пустой"):
+        res.ok(f"робот по UA: {ua}", admit.robot(_UA[ua]), _UA[ua])
+    for ua in ("Chrome", "Edge", "Firefox", "Safari 17", "Safari 15 (iOS)", "Yandex Browser",
+               "браузер Telegram", "браузер Facebook", "headless Edge"):
+        res.ok(f"браузер не робот: {ua}", not admit.robot(_UA[ua]), _UA[ua])
+
+    res.ok("robots.txt закрывает всё", "Disallow: /\n" in admit.ROBOTS_TXT
+           and "User-agent: *" in admit.ROBOTS_TXT, admit.ROBOTS_TXT)
+
+    # куда вести после выдачи: только журнал, не вход/выход и не чужой хост
+    for raw, want in (("/admin", "/admin"),
+                      ("/admin/patient/5?tab=odo", "/admin/patient/5?tab=odo"),
+                      ("/admin?d=2026-10-07", "/admin?d=2026-10-07"),
+                      ("/admin/search?q=Ștefan", "/admin/search?q=Ștefan"),
+                      ("", "/admin"), ("/administrator", "/admin"),
+                      ("//evil.example/admin", "/admin"), ("https://evil.example/admin", "/admin"),
+                      ("/admin//evil.example", "/admin"), ("/admin/\\evil.example", "/admin"),
+                      ("/admin/login?next=/admin/week", "/admin"), ("/admin/logout", "/admin"),
+                      ("/demo/reset", "/admin"), ("/admin/x\r\nSet-Cookie: a=b", "/admin")):
+        res.check(f"next {raw!r}", admit.safe_next(raw), want)

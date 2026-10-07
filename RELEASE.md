@@ -78,7 +78,10 @@ python scripts/release.py check 1.11.0
 # 9. демо на сайте (demo.dentpilot.md) — на ту же версию, что получили клиники
 #    (3–4 мин сборки на сервере, ~30 с без демо; копии посетителей сбрасываются)
 ssh deploy@13.140.191.129 '~/dentpilot-demo/src/demo/update.sh v1.11.0'
-curl -s https://demo.dentpilot.md/health      # version = 1.11.0
+curl -s https://demo.dentpilot.md/demo/health # version = 1.11.0, ready = slots
+#    ⛔ Только /demo/health: его отвечает сам шлюз, слота он не берёт. До 07.10
+#    шлюз давал слот на час любому запросу без куки, и проверка `…/health`
+#    занимала одну из шести копий демо на каждый выпуск.
 ```
 
 ⛔ **Веб-формой релизы не трогать вообще.** За два дня она дала три разные
