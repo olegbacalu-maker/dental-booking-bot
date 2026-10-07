@@ -25,6 +25,8 @@ COPY --from=client /src/bot/app/static/js/bundle.js /srv/bot/app/static/js/bundl
 COPY --from=client /src/bot/app/static/css/bundle.css /srv/bot/app/static/css/bundle.css
 COPY --from=client /src/bot/app/static/js/three.js /srv/bot/app/static/js/three.js
 COPY --from=client /src/bot/app/static/js/three-core.js /srv/bot/app/static/js/three-core.js
+# свои модели зубов (1.39.1): без копии 3D не падает, а молча строит формулы
+COPY --from=client /src/bot/app/static/js/teeth.js /srv/bot/app/static/js/teeth.js
 COPY demo /srv/demo
 RUN useradd --create-home --uid 10001 demo && mkdir -p /data && chown demo:demo /data
 USER demo
