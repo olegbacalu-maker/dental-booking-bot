@@ -811,6 +811,32 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(get).toHaveBeenLastCalledWith('/patients/5/perio', expect.anything()))
   })
 
+  it('осмотр пародонта записан во вкладке — одонтограмма при возврате грузится заново, а не с фишей (Олег 07.10: «Parodont не работает»)', async () => {
+    serve()
+    const { router } = open('/admin/patient/5?tab=odonto')
+    await settled()
+    await odoReady()
+    const odos = () => get.mock.calls.filter(([p]) => p === '/patients/5/odontogram').length
+    expect(odos()).toBe(1)
+    /* без записи осмотра вкладка берёт модель, приехавшую с фишей, — второго запроса нет */
+    await tabTo('Parodontogramă')
+    await waitFor(() => expect(document.querySelector('.ptooth[data-tooth="16"]')).toBeTruthy())
+    await tabTo('Odontogramă')
+    await odoReady()
+    expect(odos()).toBe(1)
+    /* новый осмотр: модель с фишей его не знает (слой Parodont, таблица точек) — вкладка грузит свою */
+    await tabTo('Parodontogramă')
+    await waitFor(() => expect(document.querySelector('.ptooth[data-tooth="16"]')).toBeTruthy())
+    const made = { ...PERIO, exams: [{ ...PEXAM, id: 12, teeth: 0 }, ...PERIO.exams], exam: { ...PEXAM, id: 12, teeth: 0 }, rows: {} }
+    post.mockResolvedValueOnce(ok(made, 'ok_perio_new', 'Examen nou'))
+    fireEvent.click(screen.getByText('Examen nou'))
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=perio&exam=12'))
+    await tabTo('Odontogramă')
+    await odoReady()
+    expect(odos()).toBe(2)
+    expect(opens()).toBe(1)
+  })
+
   it('B6 вкладка Vizite: дневник визита открывается на месте, визит в адресе; запись без нового открытия фиши; закрытие — история', async () => {
     serve()
     post.mockResolvedValueOnce(ok({ ...VPAGE, record: { acuze: 'Durere nouă', examen: '', diagnostic: '', tratament: '', recomandari: '',

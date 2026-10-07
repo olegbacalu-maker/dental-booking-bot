@@ -27,9 +27,12 @@ interface Props {
   onExam: (id: number | null) => void
   say: (t: ToastState) => void
   onFail: (e: unknown) => void
+  /** осмотр изменён на сервере (запись, новый, снятие пустого): одонтограмма,
+      приехавшая с фишей, его не знает, и фиша снимает её засев (07.10) */
+  onChanged?: () => void
 }
 
-export function PerioTab({ pid, exam, onExam, say, onFail }: Props) {
+export function PerioTab({ pid, exam, onExam, say, onFail, onChanged }: Props) {
   /* `req` — осмотр, ДЛЯ КОТОРОГО модель на экране (запрошенный или отвечённый
      записью); расхождение с адресом = загрузка, и лист снят с экрана */
   const [got, setGot] = useState<{ pid: number; req: number | null; model: PerioModel | null; failed: boolean } | null>(null)
@@ -37,6 +40,10 @@ export function PerioTab({ pid, exam, onExam, say, onFail }: Props) {
   const fresh = mine !== null && mine.req === exam
   const model = fresh ? mine.model : null
   const failed = fresh && Boolean(mine?.failed)
+  /* сигнал «осмотр изменён» — через ref, по той же причине, что отказ ниже:
+     его личность меняется вслед за данными фиши, а `replace` — нет */
+  const onChangedRef = useRef(onChanged)
+  useEffect(() => { onChangedRef.current = onChanged }, [onChanged])
   /* Ответ POST (запись, новый осмотр, снятие пустого) — на экран, и адрес вслед
      за ним, к ЕГО осмотру по номеру. ⚠️ ОДНОЙ отрисовкой: переход роутера React
      рисует переходом (transition), а подмену модели — обычным обновлением, и
@@ -49,6 +56,7 @@ export function PerioTab({ pid, exam, onExam, say, onFail }: Props) {
       setGot({ pid, req: id, model: m, failed: false })
       if (id !== exam) onExam(id)
     })
+    onChangedRef.current?.()
   }, [pid, exam, onExam])
   /* отказ — через ref: личность `onFail` меняется вслед за адресом (хук
      загрузки фиши), а перезапуск эффекта по ней обрывал бы запрос и слал

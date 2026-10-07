@@ -252,6 +252,16 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const onToothSaved = useCallback((fresh: unknown) => {
     if (fresh) replace(fresh as PatientCard)
   }, [replace])
+  /* ⭐ Осмотр пародонта записан во вкладке Parodontogramă — одонтограмма,
+     приехавшая С ФИШЕЙ, его уже не знает: слой «Parodont» в 3D и таблица точек
+     в инспекторе показали бы прежний осмотр, а у пациента без осмотров кнопка
+     «Parodont» осталась бы выключенной (Олег 07.10: «кнопка Parodont не
+     работает»). Засев ЭТИХ данных фиши снимается, и вкладка одонтограммы при
+     возврате грузит модель сама; новая загрузка фиши засевает снова. */
+  const [perioStale, setPerioStale] = useState<CardData | null>(null)
+  const onPerioChanged = useCallback(() => {
+    if (state.status === 'ready') setPerioStale(state.data)
+  }, [state])
 
   /* B7 · планшет: у кресла шапка пациента и пять плиток занимают весь первый
      экран альбомного iPad (замер 26.09: зуб 16 ниже края, касание в него не
@@ -345,9 +355,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         )}
         {tab === 'odonto' && (
           <OdontogramTab pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
-            initial={card.odontogram ?? null} />
+            initial={perioStale === card ? null : card.odontogram ?? null} />
         )}
-        {tab === 'perio' && <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} />}
+        {tab === 'perio' && <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} onChanged={onPerioChanged} />}
         {tab === 'plan' && (
           <>
             <PlanCard card={card} a={a} onTooth={onTooth}
