@@ -20,7 +20,12 @@ import type { Cls } from './toothGeometry'
    Данные пародонтограммы сюда приходят только через опоры: рецессия опускает
    опору ниже шейки (h = −REC), потерянный сосочек — проксимальную опору;
    карман глубже порога красит полосу у края (`stripe`, цвета вершин). Ничего
-   клинического не считается: пороги и числа — с сервера. */
+   клинического не считается: пороги и числа — с сервера.
+
+   Ниже края — тело десны (прикреплённая, слизистая, низ): оно строится по
+   огибающей краёв и гладко вдоль дуги, а край ребра в него только ВХОДИТ.
+   Рецессия до 3 мм ведёт тело за собой, глубже — врезается в него расщелиной
+   до корня, низ челюсти остаётся ровным (07.10, «плавник» у 15 DV). */
 
 export type GumKind = 'tooth' | 'pontic' | 'missing' | 'socket'
 
@@ -346,7 +351,52 @@ const withStripe = (base: number[], c: number[], k: number): number[] => mix(bas
 const NS = 10 // точек ската от края до боковой точки
 const NF = 3 // из них — свободная десна у края
 const NB = 9 // точек низа между боковыми
+const NA = NS - 1 - NF // рядов прикреплённой десны
+const SQUEEZE = 0.1 // доля тела под входом края, куда поджимаются ряды выше него
+const REC_BODY = 3 // мм рецессии, до которых край ведёт за собой тело десны; глубже — расщелина
 const EXT = 4.5 // десна за последним зубом, мм
+/** Ребро по кругу: B + щёчный скат + боковая + низ + боковая + язычный скат + L + M1 C M2.
+ *  Наружу — для проверок формы (`gum.test.ts`). */
+export const RIB = {
+  verts: 1 + (NS - 1) + 1 + NB + 1 + (NS - 1) + 1 + 3,
+  sideB: NS,
+  mid: NS + 1 + (NB - 1) / 2,
+  sideL: NS + 1 + NB,
+  L: 2 * NS + 1 + NB,
+}
+
+/** Одна сторона тела десны в её собственных w (наружу — плюс): прикреплённая
+ *  десна от (E, vA) до боковой точки (W, vS), дальше четверть эллипса низа до
+ *  его середины. `pS` — доля параметра на скат, `pe` — где в тело входит край. */
+interface Side { E: number; W: number; vA: number; vS: number; c: number; rw: number; rv: number; pS: number; pe: number; ve: number }
+
+/** Точка тела при параметре p: 0 — начало прикреплённой, pS — боковая точка, 1 — середина низа. */
+function along(s: Side, p: number): [number, number] {
+  if (p <= s.pS) {
+    const f2 = s.pS > 0 ? p / s.pS : 1
+    return [s.E + (s.W - s.E) * smooth(0, 1, f2) + 0.35 * Math.sin(Math.PI * f2), s.vA - (s.vA - s.vS) * f2]
+  }
+  const ph = (Math.PI / 2) * ((p - s.pS) / (1 - s.pS))
+  return [s.c + s.rw * Math.cos(ph), s.vS - s.rv * Math.sin(ph)]
+}
+
+/** Цвет тела при параметре p: прикреплённая → слизистая → низ (как ряды до 07.10 при pe = 0). */
+function bodyCol(s: Side, p: number): number[] {
+  if (p <= s.pS) {
+    const f2 = s.pS > 0 ? p / s.pS : 1
+    const k = NA * Math.pow(f2, 1 / 1.25)
+    return natural(Math.pow((NF + 1 + k) / NS, 1.6))
+  }
+  return mix(GUM.muc, GUM.deep, Math.sin((Math.PI / 2) * ((p - s.pS) / (1 - s.pS))))
+}
+
+/** Параметр тела на высоте v (по v тело монотонно); низ не достаётся — его держит глубина челюсти. */
+function entryOf(s: Side, v: number): number {
+  if (v >= s.vA) return 0
+  if (v >= s.vS) return (s.pS * (s.vA - v)) / (s.vA - s.vS)
+  const k = Math.min(0.97, (s.vS - v) / s.rv)
+  return s.pS + ((1 - s.pS) * Math.asin(k)) / (Math.PI / 2)
+}
 
 export function buildGum(inp: GumInput): RawMesh {
   const F = archFrame(inp.A, inp.D, inp.apex)
@@ -411,18 +461,13 @@ export function buildGum(inp: GumInput): RawMesh {
     return sw > 1e-6 ? s / sw : 6
   }
 
-  /** глубина низа десны под станцией: ниже верхушек корней соседних зубов на 1,2 мм, не мельче 16 мм */
-  // ⚠️ одна глубина на всю челюсть: местная (под каждым корнем) давала волнистый низ —
-  // кость челюсти гладкая, бугор над корнем клыка — дело щёчной стороны, а не низа
-  let jawDepth = 16
-  for (const x of neckV) jawDepth = Math.max(jawDepth, -(x.v - 1.5 - 1.05 * x.t.root) + 1.8)
-  const depthAt = (): number => jawDepth
   // B + щёчный скат + SB + низ + SL + язычный скат + L + M1 C M2
-  const M = 1 + (NS - 1) + 1 + NB + 1 + (NS - 1) + 1 + 3
+  const M = RIB.verts
   const pos: number[] = []
   const col: number[] = []
   const R = 1.6 // длина перехода от зуба к беззубому гребню
-  interface Rib { u: number; B: TopPt; L: TopPt; mid: TopPt[]; crestness: number; face: boolean }
+  /** `neck` — высота шейки зуба ребра-«лица» (у прочих 0, огибающая их не берёт) */
+  interface Rib { u: number; B: TopPt; L: TopPt; mid: TopPt[]; crestness: number; face: boolean; neck: number }
 
   // --- проход 1: верх каждого ребра — B (щёчно), M1 C M2, L (язычно) в координатах (w, v)
   const ribs: Rib[] = stations.map((u) => {
@@ -434,7 +479,10 @@ export function buildGum(inp: GumInput): RawMesh {
         w: Lp.w + (B.w - Lp.w) * f, v: Lp.v + (B.v - Lp.v) * f, c: Lp.c.map((x, i) => x + ((B.c[i] ?? x) - x) * f),
       }))
       // «лицо» зуба — середина щёчной/язычной стороны: по ней строится огибающая скатов
-      return { u, B, L: Lp, mid, crestness: 0, face: Math.abs(u - L.u0) < 0.3 * L.tooth.md }
+      return {
+        u, B, L: Lp, mid, crestness: 0, face: Math.abs(u - L.u0) < 0.3 * L.tooth.md,
+        neck: (L.tooth.position[1] - yBase) * occ,
+      }
     }
     const left = [...loops].reverse().find((L) => L.uMax < u) ?? null
     const right = loops.find((L) => L.uMin > u) ?? null
@@ -452,7 +500,7 @@ export function buildGum(inp: GumInput): RawMesh {
         v: pa.v + (pb.v - pa.v) * f - dip,
         c: pa.c.map((x, i) => (i < 3 ? x + ((pb.c[i] ?? x) - x) * f : Math.max(x, pb.c[i] ?? 0))),
       }
-      return { u, B: q, L: q, mid: [q, q, q], crestness: 0, face: false }
+      return { u, B: q, L: q, mid: [q, q, q], crestness: 0, face: false, neck: 0 }
     }
     // беззубый участок или конец дуги: округлый гребень, у зуба сходится в его крайнюю точку
     const cr = crestOf(u)
@@ -473,7 +521,7 @@ export function buildGum(inp: GumInput): RawMesh {
     }
     const drop = (1 - cr.flat) * Math.min(1, W / 3) * 0.9
     return {
-      u, crestness: k, face: false,
+      u, crestness: k, face: false, neck: 0,
       B: { w: wc + W / 2, v: v - drop, c },
       L: { w: wc - W / 2, v: v - drop, c },
       mid: [{ w: wc - W / 4, v: v - drop * 0.25, c }, { w: wc, v, c }, { w: wc + W / 4, v: v - drop * 0.25, c }],
@@ -498,45 +546,92 @@ export function buildGum(inp: GumInput): RawMesh {
   })
   const eB = env((r) => r.B.w, (r) => r.B.w + 0.4)
   const eL = env((r) => -r.L.w, (r) => -r.L.w + 0.4)
-  const vB = env((r) => r.B.v, (r) => r.B.v - 0.6)
-  const vL = env((r) => r.L.v, (r) => r.L.v - 0.6)
+  // ⚠️ глубже REC_BODY рецессия тело не тянет: одна точка в 10 мм опускала огибающую
+  // у всего зуба и соседнего сосочка, и бок десны над ним шёл крутой складкой (07.10)
+  const vB = env((r) => Math.max(r.B.v, r.neck - REC_BODY), (r) => r.B.v - 0.6)
+  const vL = env((r) => Math.max(r.L.v, r.neck - REC_BODY), (r) => r.L.v - 0.6)
 
-  // --- проход 3: скаты, низ, цвета
-  ribs.forEach((rb, ri) => {
-    const { u, B, L: Lp, mid, crestness } = rb
+  // --- проход 3: тело десны (прикреплённая, слизистая, низ) — ТОЛЬКО по огибающей.
+  // ⭐ Край ребра в тело ВХОДИТ на своей высоте, а не тащит его за собой: глубокая
+  // рецессия врезается в десну расщелиной до корня. До 07.10 боковая точка и низ
+  // шли от СВОЕГО края ребра, и рецессия 10 мм у 15 DV выдавила из челюсти
+  // «плавник» в четыре ребра шириной на 3,3 мм за низ (кадр Олега 07.10).
+  const sides = ribs.map((rb, ri): { b: Side; l: Side } => {
+    const { u, B, L: Lp } = rb
     const EB = smax((eB[ri] ?? 0) + 0.75, B.w + 0.45)
     const EL = smax((eL[ri] ?? 0) + 0.75, -Lp.w + 0.45)
-    const vAB = smin((vB[ri] ?? 0) - 0.5, B.v - 0.3)
-    const vAL = smin((vL[ri] ?? 0) - 0.5, Lp.v - 0.3)
+    const vAB = (vB[ri] ?? 0) - 0.5
+    const vAL = (vL[ri] ?? 0) - 0.5
     const vS = smin(-8, smin(vAB, vAL) - 3, 1)
     const Wb = widthAt(u)
     const Wo = smax(Wb, EB + 0.8)
     const Wi = smax(Wb, EL + 0.8)
-    /** скат одной стороны в положительных w: свободная десна от края до огибающей, дальше прикреплённая до боковой точки */
-    const sheet = (w0: number, v0: number, E: number, vA: number, W: number): [number, number][] => {
-      const out: [number, number][] = []
-      // свободная десна: три ряда от края до начала прикреплённой (у каждого ребра своя высота)
+    const wc0 = (Wo - Wi) / 2
+    const rw = (Wo + Wi) / 2
+    // свободная десна кончается чуть ниже края — там и вход в тело
+    const veB = smin(vAB, B.v - 0.3)
+    const veL = smin(vAL, Lp.v - 0.3)
+    return {
+      b: { E: EB, W: Wo, vA: vAB, vS, c: wc0, rw, rv: 0, pS: 0, pe: 0, ve: veB },
+      l: { E: EL, W: Wi, vA: vAL, vS, c: -wc0, rw, rv: 0, pS: 0, pe: 0, ve: veL },
+    }
+  })
+  // ⚠️ одна глубина на всю челюсть: местная (под каждым корнем) давала волнистый низ —
+  // кость челюсти гладкая, бугор над корнем клыка — дело щёчной стороны, а не низа.
+  // Ниже верхушек корней на 1,2 мм, ниже тела на 6 мм, ниже самого глубокого края на
+  // 2,5 мм (рецессия до 15 мм опускает весь низ, а не выдавливает его под одним зубом).
+  let jawDepth = 16
+  for (const x of neckV) jawDepth = Math.max(jawDepth, -(x.v - 1.5 - 1.05 * x.t.root) + 1.8)
+  for (const { b, l } of sides) jawDepth = Math.max(jawDepth, -b.vS + 6, -b.ve + 2.5, -l.ve + 2.5)
+  for (const { b, l } of sides) {
+    for (const s of [b, l]) {
+      s.rv = jawDepth + s.vS
+      const lenS = Math.hypot(s.W - s.E, s.vA - s.vS)
+      const lenE = (Math.PI / 2) * Math.sqrt((s.rw * s.rw + s.rv * s.rv) / 2)
+      s.pS = lenS / (lenS + lenE)
+      s.pe = entryOf(s, s.ve)
+    }
+  }
+
+  // --- проход 4: рёбра. Ряды тела — на ОДНИХ долях у всех рёбер (без перекоса
+  // четырёхугольников); у ребра с глубоким входом поджаты только ряды выше входа.
+  ribs.forEach((rb, ri) => {
+    const { u, B, L: Lp, mid, crestness } = rb
+    const { b: sb, l: sl } = sides[ri] as { b: Side; l: Side }
+    /* доля тела → место ряда: ряды выше входа поджимаются к нему, остальные — на
+       своих местах, как у соседних рёбер. Сжимать ВСЕ ряды (07.10, первая версия)
+       нельзя: ряд j ребра с расщелиной уезжал от ряда j соседа на 4 мм по кривой
+       низа, и хорды между ними оставляли складку от расщелины до низа челюсти */
+    const at = (s: Side, p: number): number => {
+      const top = s.pe + SQUEEZE
+      return p >= top ? p : s.pe + (p / top) * SQUEEZE
+    }
+    /** скат одной стороны в своих w: свободная десна от края до входа, дальше тело */
+    const sheet = (w0: number, v0: number, s: Side): [number, number, number[]][] => {
+      const out: [number, number, number[]][] = []
+      const [we, ve] = along(s, s.pe)
       for (let k = 1; k <= NF; k++) {
         const f = k / (NF + 1)
-        out.push([w0 + (E - w0) * (1 - (1 - f) * (1 - f)), v0 - (v0 - vA) * f])
+        out.push([w0 + (we - w0) * (1 - (1 - f) * (1 - f)), v0 - (v0 - ve) * f, natural(Math.pow(k / NS, 1.6))])
       }
-      // прикреплённая: ряды на ОДНИХ долях между vA и vS у всех рёбер — без перекоса четырёхугольников
-      const na = NS - 1 - NF
-      for (let k = 0; k < na; k++) {
-        const f2 = Math.pow(k / na, 1.25)
-        out.push([E + (W - E) * smooth(0, 1, f2) + 0.35 * Math.sin(Math.PI * f2), vA - (vA - vS) * f2])
+      for (let k = 0; k < NA; k++) {
+        const p = at(s, s.pS * Math.pow(k / NA, 1.25))
+        out.push([...along(s, p), bodyCol(s, p)])
       }
       return out
     }
-    const buc = sheet(B.w, B.v, EB, vAB, Wo)
-    const lng = sheet(-Lp.w, Lp.v, EL, vAL, Wi).map(([w, v]) => [-w, v] as [number, number])
-    const wc0 = (Wo - Wi) / 2
-    const rw = (Wo + Wi) / 2
-    const rv = Math.max(6, depthAt() + vS)
-    const bottom: [number, number][] = []
+    const bodyPt = (s: Side, p: number, sign: number): [number, number, number[]] => {
+      const [w, v] = along(s, p)
+      return [sign * w, v, bodyCol(s, p)]
+    }
+    const buc = sheet(B.w, B.v, sb)
+    const lng = sheet(-Lp.w, Lp.v, sl).map(([w, v, c]) => [-w, v, c] as [number, number, number[]])
+    const bottom: [number, number, number[]][] = []
     for (let k = 1; k <= NB; k++) {
-      const ph = (Math.PI * k) / (NB + 1)
-      bottom.push([wc0 + rw * Math.cos(ph), vS - rv * Math.sin(ph)])
+      // четверть низа на сторону: k-я точка — доля 2k/(NB+1) от боковой до середины
+      if (2 * k < NB + 1) bottom.push(bodyPt(sb, at(sb, sb.pS + (1 - sb.pS) * ((2 * k) / (NB + 1))), 1))
+      else if (2 * k === NB + 1) bottom.push([sb.c, sb.vS - sb.rv, GUM.deep])
+      else bottom.push(bodyPt(sl, at(sl, sl.pS + (1 - sl.pS) * ((2 * (NB + 1 - k)) / (NB + 1))), -1))
     }
 
     // --- ребро по кругу: B → щёчный скат → низ → язычный скат (вверх) → L → M1 C M2
@@ -544,7 +639,7 @@ export function buildGum(inp: GumInput): RawMesh {
     // за последним зубом десна скругляется к торцу, а не обрывается цилиндром
     const over = u < 0 ? -u : u > F.total ? u - F.total : 0
     const q = 1 - 0.55 * (over / EXT) ** 2
-    const vMid = (B.v + vS - rv) / 2
+    const vMid = (B.v - jawDepth) / 2
     const put = (w0: number, v0: number, c: number[]): void => {
       const w = w0 * q
       const v = vMid + (v0 - vMid) * (0.35 + 0.65 * q)
@@ -556,17 +651,13 @@ export function buildGum(inp: GumInput): RawMesh {
     // полоса кармана — по РАССТОЯНИЮ от края (мм), а не по рядам: у середины зуба
     // свободная десна занимает полмиллиметра, и полоса по рядам была бы не видна
     const band = (d: number): number => 0.92 * Math.exp(-((d / 1.5) ** 2))
-    buc.forEach(([w, v], i) => {
-      const tau = Math.pow((i + 1) / NS, 1.6)
-      put(w, v, withStripe(natural(tau), B.c, band(B.v - v)))
-    })
-    put(Wo, vS, GUM.muc)
-    bottom.forEach(([w, v], i) => put(w, v, mix(GUM.muc, GUM.deep, Math.sin((Math.PI * (i + 1)) / (NB + 1)))))
-    put(-Wi, vS, GUM.muc)
+    for (const [w, v, c] of buc) put(w, v, withStripe(c, B.c, band(B.v - v)))
+    put(...bodyPt(sb, at(sb, sb.pS), 1))
+    for (const [w, v, c] of bottom) put(w, v, c)
+    put(...bodyPt(sl, at(sl, sl.pS), -1))
     for (let i = lng.length - 1; i >= 0; i--) {
-      const p = lng[i] as [number, number]
-      const tau = Math.pow((i + 1) / NS, 1.6)
-      put(p[0], p[1], withStripe(natural(tau), Lp.c, band(Lp.v - p[1])))
+      const [w, v, c] = lng[i] as [number, number, number[]]
+      put(w, v, withStripe(c, Lp.c, band(Lp.v - v)))
     }
     put(Lp.w, Lp.v, withStripe(topCol, Lp.c, 0.92))
     for (const m of mid) put(m.w, m.v, withStripe(topCol, m.c, 0.6))

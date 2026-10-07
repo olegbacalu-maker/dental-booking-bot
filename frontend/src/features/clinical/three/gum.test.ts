@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { layoutArch } from './arch'
 import { crownModel } from './crown'
-import { anchorsFor, buildGum, linRgb, marginPoint, stripesFor, type GumKind, type GumTooth } from './gum'
+import { anchorsFor, buildGum, linRgb, marginPoint, RIB, stripesFor, type GumKind, type GumTooth } from './gum'
 import { finite } from './mesh'
 import { posed } from './pose'
 import { toCls } from './toothGeometry'
@@ -104,6 +104,88 @@ describe('десна по краю', () => {
     const along = (h[0] - q[0]) * t.yAxis[0] + (h[1] - q[1]) * t.yAxis[1] + (h[2] - q[2]) * t.yAxis[2]
     expect(along).toBeCloseTo(3.9, 6)
     expect(nearest(gum.positions, q)).toBeLessThan(0.3)
+  })
+
+  /** Тело десны по рёбрам: низ каждого ребра, глубже всего, и самая большая ступень
+   *  ширины (щека — нёбо/язык) у низа между соседними рёбрами в пределах зубов a..b. */
+  function body(list: number[], upper: boolean, o: Opts, a: number, b: number) {
+    const { gum, teeth, lay } = jaw(list, upper, o)
+    const P = gum.positions
+    const ribs = (P.length / 3 - 2) / RIB.verts
+    expect(Number.isInteger(ribs)).toBe(true)
+    const at = (i: number, j: number): number[] => [0, 1, 2].map((k) => P[(i * RIB.verts + j) * 3 + k] ?? 0)
+    /** высота над шейкой первого моляра: к коронке плюс, к низу минус */
+    const v = (i: number, j: number): number => ((at(i, j)[1] ?? 0) - lay.yBase) * (upper ? -1 : 1)
+    const xOf = (n: number): number => (teeth.find((x) => x.n === n) as GumTooth).position[0]
+    const inside = (i: number, n1: number, n2: number): boolean => {
+      const x = at(i, 0)[0] ?? 0
+      return x >= Math.min(xOf(n1), xOf(n2)) && x <= Math.max(xOf(n1), xOf(n2))
+    }
+    const ends = upper ? [18, 28] : [48, 38]
+    // за крайними зубами десна скругляется к торцу — там низ поднимается намеренно
+    const lows: number[] = []
+    for (let i = 0; i < ribs; i++) {
+      if (!inside(i, ends[0] as number, ends[1] as number)) continue
+      let lo = Infinity
+      for (let j = 0; j < RIB.verts; j++) lo = Math.min(lo, v(i, j))
+      lows.push(lo)
+    }
+    const deepest = Math.min(...lows)
+    const level = deepest + 1.5
+    const cross = (i: number, path: number[]): number[] | null => {
+      for (let k = 0; k + 1 < path.length; k++) {
+        const va = v(i, path[k] as number)
+        const vb = v(i, path[k + 1] as number)
+        if (va >= level && vb < level) {
+          const f = (va - level) / (va - vb)
+          const pa = at(i, path[k] as number)
+          const pb = at(i, path[k + 1] as number)
+          return pa.map((x, n) => x + ((pb[n] ?? x) - x) * f)
+        }
+      }
+      return null
+    }
+    const buccal = Array.from({ length: RIB.mid + 1 }, (_, j) => j)
+    const lingual = Array.from({ length: RIB.L - RIB.mid + 1 }, (_, j) => RIB.L - j)
+    let prev: number | null = null
+    let step = 0
+    let seen = 0
+    for (let i = 0; i < ribs; i++) {
+      const bp = inside(i, a, b) ? cross(i, buccal) : null
+      const lp = bp ? cross(i, lingual) : null
+      if (!bp || !lp) { prev = null; continue }
+      const width = Math.hypot((bp[0] ?? 0) - (lp[0] ?? 0), (bp[2] ?? 0) - (lp[2] ?? 0))
+      if (prev !== null) step = Math.max(step, Math.abs(width - prev))
+      prev = width
+      seen++
+    }
+    return { gum, teeth, flat: Math.max(...lows) - deepest, deepest, step, seen, vOf: (y: number) => (y - lay.yBase) * (upper ? -1 : 1) }
+  }
+
+  it('глубокая рецессия врезается в десну, а не выдавливает её: низ ровный, тело гладкое (кадр Олега 07.10)', () => {
+    // 15 DV — 10 мм: до 07.10 низ четырёх рёбер уходил на 3,3 мм за низ челюсти «плавником»,
+    // и ширина десны у низа скакала у них на 3–4 мм
+    const r = body(UP, true, { rec: { 15: [1, 2, 10, 0, 0, 0], 16: [0, 2, 0, 0, 0, 0] } }, 17, 13)
+    expect(r.flat).toBeLessThan(0.01)
+    expect(r.deepest).toBeGreaterThan(body(UP, true, {}, 17, 13).deepest - 0.5)
+    expect(r.seen).toBeGreaterThan(40)
+    expect(r.step).toBeLessThan(0.4)
+    // а край на месте: расщелина доходит до точки DV на корне
+    const t = r.teeth.find((x) => x.n === 15) as GumTooth
+    expect(nearest(r.gum.positions, marginPoint(t, (50 * Math.PI) / 180))).toBeLessThan(0.3)
+  })
+
+  it('рецессия до предела (15 мм) — низ опускается у всей челюсти, а не под одним зубом', () => {
+    const r = body(LO, false, { rec: { 41: [0, 8, 0, 0, 0, 0], 31: [0, 15, 0, 0, 0, 0] } }, 43, 33)
+    expect(finite(r.gum)).toBe(true)
+    expect(r.flat).toBeLessThan(0.01)
+    expect(r.seen).toBeGreaterThan(40)
+    expect(r.step).toBeLessThan(0.4)
+    // под краем 31 (15 мм ниже шейки) десна ещё есть — низ глубже него
+    const t = r.teeth.find((x) => x.n === 31) as GumTooth
+    const edge = marginPoint(t, Math.PI / 2)
+    expect(nearest(r.gum.positions, edge)).toBeLessThan(0.3)
+    expect(r.deepest).toBeLessThan(r.vOf(edge[1]) - 2)
   })
 
   it('на месте отсутствующего зуба — гребень, а не дыра: десна есть прямо над его шейкой', () => {
