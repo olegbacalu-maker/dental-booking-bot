@@ -30,12 +30,22 @@ interface Props {
   /** осмотр изменён на сервере (запись, новый, снятие пустого): одонтограмма,
       приехавшая с фишей, его не знает, и фиша снимает её засев (07.10) */
   onChanged?: () => void
+  /** лист, приехавший с фишей (загрузчик): первый кадр вкладки — сразу лист, без
+      «Se încarcă…» и прыжка страницы (07.10); не о том осмотре — не берётся */
+  initial?: PerioModel | null
 }
 
-export function PerioTab({ pid, exam, onExam, say, onFail, onChanged }: Props) {
+/** Засев о том ли осмотре, что в адресе: без номера — о самом свежем (его сервер
+ *  и отдаёт по умолчанию; осмотры приходят свежими сверху). */
+const fits = (m: PerioModel, pid: number, exam: number | null): boolean =>
+  m.patient.id === pid && (m.exam?.id ?? null) === (exam === null ? (m.exams[0]?.id ?? null) : exam)
+
+export function PerioTab({ pid, exam, onExam, say, onFail, onChanged, initial = null }: Props) {
   /* `req` — осмотр, ДЛЯ КОТОРОГО модель на экране (запрошенный или отвечённый
-     записью); расхождение с адресом = загрузка, и лист снят с экрана */
-  const [got, setGot] = useState<{ pid: number; req: number | null; model: PerioModel | null; failed: boolean } | null>(null)
+     записью); расхождение с адресом = загрузка, и лист снят с экрана. Засев
+     фиши — только как начальное состояние: дальше лист ведёт себя сам */
+  const [got, setGot] = useState<{ pid: number; req: number | null; model: PerioModel | null; failed: boolean } | null>(
+    () => (initial && fits(initial, pid, exam) ? { pid, req: exam, model: initial, failed: false } : null))
   const mine = got && got.pid === pid ? got : null
   const fresh = mine !== null && mine.req === exam
   const model = fresh ? mine.model : null

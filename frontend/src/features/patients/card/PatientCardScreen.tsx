@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { ask } from '../../../components/confirm'
@@ -22,7 +22,7 @@ import { chart, type Odontogram } from '../../clinical/chart'
 import { OdontogramTab } from '../../clinical/OdontogramTab'
 import { PerioTab } from '../../clinical/PerioTab'
 import { VisitTab } from '../../visits/VisitTab'
-import { examOf } from '../../clinical/perio'
+import { examOf, perio, type PerioModel } from '../../clinical/perio'
 import { useCoarse } from '../../clinical/touch'
 import { PlanCard } from './PlanCard'
 import { ProfileCard } from './ProfileCard'
@@ -98,23 +98,78 @@ const qs = (tab: Tab, views: boolean, sub: number | null = null): string => {
   return s ? `?${s}` : ''
 }
 
-/** Фиша плюс её одонтограмма — одним кадром. После ответа действия (`replace`)
- *  поля `odontogram` нет: карточка к тому моменту уже держит модель сама. */
-type CardData = PatientCard & { odontogram?: Odontogram | null }
+/** Фиша плюс её одонтограмма и лист пародонтограммы — одним кадром. После ответа
+ *  действия (`replace`) этих полей нет: вкладки к тому моменту держат модели сами. */
+type CardData = PatientCard & { odontogram?: Odontogram | null; perioSheet?: PerioModel | null }
 
 /* ⭐ Одонтограмма — ВМЕСТЕ с фишей, до первого кадра. Своим запросом после
    монтирования она приезжала на ~50 мс позже фиши и роняла всё, что под ней,
    на треть экрана (зонд CDP 25.09: layout-shift 0.046 при КАЖДОМ открытии
    фиши — Олег: «прыгание страницы» после «Vezi profilul complet»). Отказ
    карты фишу не валит: карточка тогда грузит её сама и покажет отказ. Журнал
-   доступа этот GET не трогает — «Fișa deschisă» пишет только GET фиши. */
+   доступа этот GET не трогает — «Fișa deschisă» пишет только GET фиши.
+   Лист пародонтограммы — тем же путём (07.10): своим запросом вкладка первым
+   кадром рисовала «Se încarcă…», страница укорачивалась, и прокрутка прыгала
+   наверх (Олег: «прыжок страницы»). Осмотр — из адреса, если фиша открыта на
+   этой вкладке, иначе свежий; не тот осмотр вкладка не возьмёт (`PerioTab`). */
 const loadCard: RouteLoad<CardData> = async (signal, params, q) => {
   const pid = Number(params.pid)
-  const [r, odontogram] = await Promise.all([
+  const exam = tabOf(q) === 'perio' ? examOf(q) : null
+  const [r, odontogram, perioSheet] = await Promise.all([
     patientCard.get(pid, viewsOf(q), signal),
     Promise.resolve().then(() => chart.get(pid, signal)).then((x) => x.data, () => null),
+    Promise.resolve().then(() => perio.get(pid, exam, signal)).then((x) => x.data, () => null),
   ])
-  return { ...r, data: { ...r.data, odontogram } }
+  return { ...r, data: { ...r.data, odontogram, perioSheet } }
+}
+
+/**
+ * Панель вкладок держит прежнюю высоту, пока новая вкладка грузит своё.
+ *
+ * ⭐ Вкладка без данных (лист после записи осмотра, одонтограмма без засева,
+ * другой осмотр, дневник визита) первым кадром рисует ожидание: панель
+ * схлопывалась, страница укорачивалась, браузер поджимал прокрутку к началу — и
+ * содержимое приезжало уже там (Олег 07.10: «прыжок страницы»). Высота — от
+ * ResizeObserver, то есть ДО смены; держится, пока у панели есть ожидающий
+ * ребёнок (`aria-busy`), и не дольше 4 с. Вкладка, нарисованная сразу, не
+ * держится вовсе. Ожидание сцены 3D (внутри, своего размера) не считается.
+ */
+function useHoldPanel(key: string, ready: boolean): RefObject<HTMLDivElement | null> {
+  const panel = useRef<HTMLDivElement>(null)
+  const lastH = useRef(0)
+  const prev = useRef(key)
+  const off = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    const el = panel.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => { if (!el.style.minHeight) lastH.current = el.offsetHeight })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ready])
+  useEffect(() => () => off.current?.(), [])
+  useLayoutEffect(() => {
+    if (prev.current === key) return
+    prev.current = key
+    const el = panel.current
+    if (!el || typeof MutationObserver === 'undefined' || !lastH.current) return
+    off.current?.()
+    const busy = (): boolean => [...el.children].some((c) => c.getAttribute('aria-busy') === 'true')
+    if (!busy()) return
+    el.style.minHeight = `${lastH.current}px`
+    let timer = 0
+    let mo: MutationObserver | null = null
+    const release = (): void => {
+      mo?.disconnect()
+      window.clearTimeout(timer)
+      el.style.minHeight = ''
+      off.current = null
+    }
+    mo = new MutationObserver(() => { if (!busy()) release() })
+    mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy'] })
+    timer = window.setTimeout(release, 4000)
+    off.current = release
+  }, [key])
+  return panel
 }
 
 /* ⭐ Смена ОДНОГО query на том же пути — переключатель ленты: её экран уже
@@ -280,6 +335,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     if (dy > 8) window.scrollBy({ top: dy, behavior: 'auto' })
   }, [coarse, ready, tab])
 
+  /* панель вкладок: прежняя высота, пока новая вкладка (или осмотр, визит) грузит своё */
+  const panel = useHoldPanel(`${tab}:${sub ?? ''}`, ready)
+
   if (state.status === 'leaving') return null
 
   const nav = (
@@ -330,7 +388,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           </button>
         ))}
       </div>
-      <div id="wpanel" role="tabpanel" aria-labelledby={`wtab-${tab}`} className="wpanel">
+      <div ref={panel} id="wpanel" role="tabpanel" aria-labelledby={`wtab-${tab}`} className="wpanel">
         {tab === 'rezumat' && (
           <div className="pv2">
             <div className="pv2-main">
@@ -357,7 +415,10 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
           <OdontogramTab pid={pid} views={views} say={say} onFail={failCb} onChanged={onToothSaved} open={toothReq}
             initial={perioStale === card ? null : card.odontogram ?? null} />
         )}
-        {tab === 'perio' && <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} onChanged={onPerioChanged} />}
+        {tab === 'perio' && (
+          <PerioTab pid={pid} exam={sub} onExam={goExam} say={say} onFail={failCb} onChanged={onPerioChanged}
+            initial={perioStale === card ? null : card.perioSheet ?? null} />
+        )}
         {tab === 'plan' && (
           <>
             <PlanCard card={card} a={a} onTooth={onTooth}

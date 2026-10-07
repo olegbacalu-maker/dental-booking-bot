@@ -811,6 +811,79 @@ describe('PatientCardScreen', () => {
     await waitFor(() => expect(get).toHaveBeenLastCalledWith('/patients/5/perio', expect.anything()))
   })
 
+  it('лист пародонтограммы приезжает С ФИШЕЙ: вкладка рисует лист сразу, без «Se încarcă» и второго запроса (Олег 07.10: «прыжок страницы»)', async () => {
+    serve()
+    open('/admin/patient/5')
+    await settled()
+    const sheets = () => get.mock.calls.filter(([p]) => String(p).startsWith('/patients/5/perio')).length
+    expect(get).toHaveBeenCalledWith('/patients/5/perio', expect.anything())
+    expect(sheets()).toBe(1)
+    fireEvent.click(strip().getByRole('tab', { name: 'Parodontogramă' }))
+    await strip().findByRole('tab', { name: 'Parodontogramă', selected: true })
+    /* без waitFor: лист обязан быть уже в кадре вкладки */
+    expect(document.querySelector('.ptooth[data-tooth="16"]')).toBeTruthy()
+    expect(document.querySelector('#wpanel > [aria-busy="true"]')).toBeNull()
+    expect(sheets()).toBe(1)
+    expect(opens()).toBe(1)
+  })
+
+  it('фиша открыта на осмотре из адреса — загрузчик несёт ЕГО лист; не тот осмотр вкладка не берёт', async () => {
+    serve()
+    const { router } = open('/admin/patient/5?tab=perio&exam=4')
+    await settled()
+    expect(get).toHaveBeenCalledWith('/patients/5/perio?exam=4', expect.anything())
+    expect(document.querySelector('.ptooth[data-tooth="16"]')).toBeTruthy()
+    const sheets = () => get.mock.calls.filter(([p]) => String(p).startsWith('/patients/5/perio')).length
+    expect(sheets()).toBe(1)
+    /* вкладка снова, уже без осмотра в адресе: засев о четвёртом — не свежий, лист грузится сам */
+    await tabTo('Odontogramă')
+    await tabTo('Parodontogramă')
+    expect(router.state.location.search).toBe('?tab=perio')
+    await waitFor(() => expect(get).toHaveBeenLastCalledWith('/patients/5/perio', expect.anything()))
+    expect(sheets()).toBe(2)
+  })
+
+  it('вкладка, грузящая своё, держит высоту панели, пока ждёт: страница не укорачивается и прокрутка не прыгает', async () => {
+    /* раскладки в jsdom нет: высоту панели и ResizeObserver подставляем */
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe(): void { this.cb([], this as unknown as ResizeObserver) }
+      unobserve(): void {}
+      disconnect(): void {}
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.id === 'wpanel' ? 900 : 0
+    })
+    try {
+      serve()
+      const base = get.getMockImplementation()!
+      const { router } = open('/admin/patient/5?tab=perio')
+      await settled()
+      await waitFor(() => expect(document.querySelector('.ptooth[data-tooth="16"]')).toBeTruthy())
+      /* новый осмотр — засев одонтограммы снят, вкладка будет ждать свой запрос */
+      const made = { ...PERIO, exams: [{ ...PEXAM, id: 12, teeth: 0 }, ...PERIO.exams], exam: { ...PEXAM, id: 12, teeth: 0 }, rows: {} }
+      post.mockResolvedValueOnce(ok(made, 'ok_perio_new', 'Examen nou'))
+      fireEvent.click(screen.getByText('Examen nou'))
+      await waitFor(() => expect(router.state.location.search).toBe('?tab=perio&exam=12'))
+      let answer: (() => void) | null = null
+      get.mockImplementation((path: string) => (path === '/patients/5/odontogram'
+        ? new Promise((res) => { answer = () => res(ok(ODO)) })
+        : base(path)))
+      await tabTo('Odontogramă')
+      const panel = document.getElementById('wpanel') as HTMLElement
+      expect(document.querySelector('#wpanel > [aria-busy="true"]')).toBeTruthy()
+      expect(panel.style.minHeight).toBe('900px')
+      ;(answer as unknown as () => void)()
+      await odoReady()
+      await waitFor(() => expect(panel.style.minHeight).toBe(''))
+      /* вкладка, нарисованная сразу, высоту не держит вовсе */
+      await tabTo('Rezumat')
+      expect(panel.style.minHeight).toBe('')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('осмотр пародонта записан во вкладке — одонтограмма при возврате грузится заново, а не с фишей (Олег 07.10: «Parodont не работает»)', async () => {
     serve()
     const { router } = open('/admin/patient/5?tab=odonto')
