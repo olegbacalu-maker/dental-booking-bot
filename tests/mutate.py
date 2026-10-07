@@ -430,6 +430,40 @@ MUTATIONS = [
     # Хаб перестал прятать плитки — экран обещает то, что шлюз отклонит.
     ("список демо-отказов не протух", "app/modules/settings/routes.py",
      ("demo.refuses(", "demo.refuses_nowhere(")),
+    # ---- файлы сборки клиента: образ демо и оба игнора (07.10) ----
+    # Ровно 1.39.1 до 892d69b: модели зубов есть в конфиге и в обоих игнорах,
+    # а копии в образе демо нет — 3D там молча строил бы коронки-формулы.
+    ("файл сборки клиента", "_build/demo/Dockerfile",
+     ("COPY --from=client /src/bot/app/static/js/teeth.js "
+      "/srv/bot/app/static/js/teeth.js\n", "")),
+    # Закомментированная копия — не копия; поиск подстроки засчитал бы и её.
+    ("файл сборки клиента", "_build/demo/Dockerfile",
+     ("COPY --from=client /src/bot/app/static/js/teeth.js",
+      "# COPY --from=client /src/bot/app/static/js/teeth.js")),
+    # Копия мимо папки: файл в образе есть, а /static/js/teeth.js отвечает 404.
+    ("файл сборки клиента", "_build/demo/Dockerfile",
+     ("/srv/bot/app/static/js/teeth.js", "/srv/bot/app/static/teeth.js")),
+    # Строку игнора закомментировали: артефакт виден git, а локальная копия
+    # едет в образ через `COPY bot/app` и прячет пропавшую строку Dockerfile.
+    ("файл сборки клиента", "_build/.gitignore",
+     ("bot/app/static/js/teeth.js", "# bot/app/static/js/teeth.js")),
+    ("файл сборки клиента", "_build/.dockerignore",
+     ("bot/app/static/js/teeth.js", "# bot/app/static/js/teeth.js")),
+    # Новый файл сборки, дописанный только в конфиг, — так появился и teeth.js.
+    # Имена правило берёт из конфига, а не из своего списка, и доказывает это
+    # только эта строка: мутации выше прошёл бы и сторож с пятью вшитыми именами.
+    ("файл сборки клиента", "_build/frontend/vite.config.ts",
+     "\nfunction copyPerio() {\n"
+     "  writeFileSync(resolve(THREE_OUT_DIR, 'perio.js'), '')\n}\n"),
+    # ЯКОРЬ: имя бандла перестало быть литералом — разбор его не видит, и сверка
+    # шла бы без главного файла: пропажу его строки в образе правило проспало бы.
+    ("файл сборки клиента", "_build/frontend/vite.config.ts",
+     ("entryFileNames: 'js/bundle.js'", "entryFileNames: 'js/[name].js'")),
+    # ЯКОРЬ: копию переписали через переменную — разбор не видит teeth.js, и
+    # пропажа его строки в образе прошла бы молча.
+    ("файл сборки клиента", "_build/frontend/vite.config.ts",
+     ("writeFileSync(resolve(THREE_OUT_DIR, 'teeth.js'), ",
+      "const out = resolve(THREE_OUT_DIR, 'teeth.js')\n      writeFileSync(out, ")),
 ]
 
 # Правки ЗАКОННЫЕ: расхождения схем в них нет, и правило обязано остаться
@@ -525,6 +559,24 @@ LEGAL = [
     # часы работы. Слова журнала, а не адрес данных: «program» — целым словом.
     ("не обещает данные в папке программы", "app/modules/schedule/routes.py",
      "\n_MUT_OK = \"Nota apare lângă programare; orele — lângă programul de lucru\"\n"),
+    # ⭐ Законно: порядок строк образа — оформление, а не пропажа.
+    ("файл сборки клиента", "_build/demo/Dockerfile",
+     ("COPY --from=client /src/bot/app/static/js/bundle.js /srv/bot/app/static/js/bundle.js\n"
+      "COPY --from=client /src/bot/app/static/css/bundle.css /srv/bot/app/static/css/bundle.css\n",
+      "COPY --from=client /src/bot/app/static/css/bundle.css /srv/bot/app/static/css/bundle.css\n"
+      "COPY --from=client /src/bot/app/static/js/bundle.js /srv/bot/app/static/js/bundle.js\n")),
+    # ⭐ Законно: две копии одной строкой — с переносом и папкой назначения.
+    ("файл сборки клиента", "_build/demo/Dockerfile",
+     ("COPY --from=client /src/bot/app/static/js/three.js /srv/bot/app/static/js/three.js\n"
+      "COPY --from=client /src/bot/app/static/js/three-core.js "
+      "/srv/bot/app/static/js/three-core.js\n",
+      "COPY --from=client /src/bot/app/static/js/three.js "
+      "/src/bot/app/static/js/three-core.js \\\n    /srv/bot/app/static/js/\n")),
+    # ⭐ Законно: имя в КОММЕНТАРИИ конфига файлом сборки не становится — ни
+    # литералом rollup, ни записью плагина.
+    ("файл сборки клиента", "_build/frontend/vite.config.ts",
+     "\n// до 2.0 бандл звался 'js/main.js', а стиль — 'css/app.css'\n"
+     "/* копия моделей: writeFileSync(resolve(THREE_OUT_DIR, 'old-teeth.js')) */\n"),
 ]
 
 
@@ -547,6 +599,7 @@ def _run(bot: pathlib.Path) -> Result:
     test_structure.BOT = bot
     test_structure.FRONTEND = bot / "_frontend"
     test_structure.INSTALLER = bot / "_installer"
+    test_structure.BUILD = bot / "_build"
     res = Result()
     test_structure.suite(res)
     return res
@@ -558,6 +611,12 @@ def _copy(dst: pathlib.Path) -> pathlib.Path:
     (dst / "_installer").mkdir()
     for iss in INSTALLER_DIR.glob("*.iss"):
         shutil.copy2(iss, dst / "_installer" / iss.name)
+    # Файлы сборки — в `_build`, с раскладкой от корня репозитория
+    # (`_build/demo/Dockerfile`): правило про статику клиента сверяет конфиг
+    # vite с образом демо и обоими игнорами. Копируются ровно они, не корень.
+    for rel in test_structure.BUILD_FILES:
+        (dst / "_build" / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / rel, dst / "_build" / rel)
     return dst
 
 
@@ -617,6 +676,7 @@ def main() -> int:
         test_structure.BOT = BOT                # вернуть на настоящее дерево
         test_structure.FRONTEND = FRONTEND_SRC
         test_structure.INSTALLER = INSTALLER_DIR
+        test_structure.BUILD = ROOT
 
     print()
     for line in bad:

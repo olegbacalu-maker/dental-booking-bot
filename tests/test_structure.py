@@ -20,6 +20,15 @@ FRONTEND = ROOT / "frontend" / "src"
 # Скрипт мастера установки — тоже текст, который клиника читает, и тоже
 # перевешивается мутацией (правило про папку данных).
 INSTALLER = ROOT / "installer"
+# Файлы СБОРКИ, которым положено знать имена статики клиента (07.10): конфиг
+# vite её пишет, образ демо копирует поимённо, оба игнора прячут. Корень тот же
+# ROOT, но под своим именем: мутация перевешивает его на копию, как FRONTEND и
+# INSTALLER, и копирует ровно эти четыре файла.
+BUILD = ROOT
+_VITE_CONFIG = "frontend/vite.config.ts"
+_DEMO_IMAGE = "demo/Dockerfile"
+_IGNORES = (".gitignore", ".dockerignore")
+BUILD_FILES = (_VITE_CONFIG, _DEMO_IMAGE, *_IGNORES)
 
 # Где ссылка между экранами обязана быть `AppLink` (B4): всё, что рисуется
 # внутри дерева роутера. `app/` (корень и таблица маршрутов), `hooks/`,
@@ -309,6 +318,79 @@ def _iss_texts(text: str) -> list[tuple[int, str]]:
     out += [(text.count("\n", 0, s.start()) + 1, s.group(1))
             for s in _PASCAL.finditer(text, cut) if s.group(1) is not None]
     return out
+
+
+# ---- выход сборки клиента (vite.config.ts) ----
+# Путь от статики движка (`bot/app/static`): `js/three.js`. Свои файлы rollup
+# называет литералом (`entryFileNames: 'js/bundle.js'`, `return
+# 'css/bundle.css'`), плагины копий — `writeFileSync(resolve(ПАПКА, 'имя'), …)`,
+# где ПАПКА — константа `resolve(ENGINE_STATIC, 'js')` или сама ENGINE_STATIC.
+_VITE_NAMED = re.compile(r"""(['"`])((?:js|css)/[a-z0-9_-]+\.(?:js|css))\1""")
+_VITE_DIR = re.compile(
+    r"""const\s+(\w+)\s*=\s*resolve\(\s*ENGINE_STATIC\s*,\s*['"]([a-z]+)['"]\s*\)""")
+_VITE_WRITE = re.compile(
+    r"""writeFileSync\(\s*resolve\(\s*(\w+)\s*,\s*['"]([^'"]+)['"]\s*\)""")
+# Любая запись файла в конфиге. Каждая обязана разобраться формой выше: имена —
+# список ВКЛЮЧАЮЩИЙ, и копия, переписанная через переменную, выпала бы из
+# сверки молча — а с ней и правило для её файла.
+_VITE_ANY_WRITE = re.compile(
+    r"\b(?:writeFileSync|writeFile|copyFileSync|copyFile|cpSync|createWriteStream)\(")
+
+
+def _vite_outputs(code: str) -> tuple[set[str], list[str]]:
+    """Что сборка клиента кладёт в статику движка — и записи, которых разбор не
+    понял. `code` — конфиг без комментариев (`_client_code`): имя в пояснении
+    файлом сборки не становится."""
+    dirs = {"ENGINE_STATIC": "", **dict(_VITE_DIR.findall(code))}
+    names = {m.group(2) for m in _VITE_NAMED.finditer(code)}
+    blind = []
+    for m in _VITE_ANY_WRITE.finditer(code):
+        where = f"{_VITE_CONFIG}:{code.count(chr(10), 0, m.start()) + 1}"
+        w = _VITE_WRITE.match(code, m.start())
+        if w is None:
+            blind.append(f"{where}: запись не вида writeFileSync(resolve(ПАПКА, "
+                         "'имя')) — её файл выпал из сверки")
+        elif w.group(1) not in dirs:
+            blind.append(f"{where}: папка {w.group(1)} — не resolve(ENGINE_STATIC, "
+                         "…), куда идёт файл, правило не знает")
+        else:
+            names.add(f"{dirs[w.group(1)]}/{w.group(2)}".lstrip("/"))
+    return names, blind
+
+
+def _docker_copies(text: str) -> list[tuple[list[str], str]]:
+    """`COPY --from=…` образа: (источники, назначение).
+
+    Комментарий в Dockerfile — только строка, НАЧАТАЯ `#` (в середине строки
+    это обычный знак), и вырезается он и внутри продолжения `\\`.
+    Закомментированная копия — не копия, а поиск подстроки засчитал бы и её."""
+    out, cur = [], []
+    for line in text.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        cur.append(line.rstrip().removesuffix("\\"))
+        if line.rstrip().endswith("\\"):
+            continue
+        words, cur = " ".join(cur).split(), []
+        args = [w for w in words[1:] if not w.startswith("--")]
+        if (words and words[0].upper() == "COPY" and len(args) >= 2
+                and any(w.startswith("--from=") for w in words[1:])):
+            out.append((args[:-1], args[-1]))
+    return out
+
+
+def _copied_to(copies: list[tuple[list[str], str]], path: str) -> list[str]:
+    """Куда образ кладёт `static/<path>` из стадии сборки — назначения COPY."""
+    return [dst for srcs, dst in copies for src in srcs
+            if src.endswith(f"/static/{path}")]
+
+
+def _ignore_entries(text: str) -> set[str]:
+    """Шаблоны .gitignore/.dockerignore — без комментариев, пустых строк и
+    ведущего `/` (шаблон со `/` внутри оба и так читают от корня).
+    Закомментированная строка ничего не прячет."""
+    return {ln.strip().lstrip("/") for ln in text.splitlines()
+            if ln.strip() and not ln.strip().startswith("#")}
 
 
 def _sources() -> list[tuple[str, ast.Module]]:
@@ -1684,3 +1766,52 @@ def suite(res: Result) -> None:
             for rel in ("app/main.py", "app/modules/settings/routes.py") if not _asks_demo(rel)]
     res.ok("список демо-отказов не протух", not bad,
            "демо закрывает не те адреса: " + "; ".join(bad))
+
+    # ---- каждый файл сборки клиента — в образе демо и в обоих игнорах (07.10) ----
+    # Сборка клиента кладёт файлы в статику движка (vite.config.ts). В exe они
+    # едут ПАПКОЙ (`--add-data`, новое имя подхватится само), а образ демо
+    # копирует их из стадии `client` ПОИМЁННО. Свои модели зубов (`teeth.js`,
+    # 1.39.1) дописали в конфиг и в оба игнора, а в Dockerfile — нет, и ничего
+    # не покраснело: 3D на demo.dentpilot.md не упал бы, а молча строил
+    # коронки-формулы (поймано перед обновлением демо, 892d69b).
+    # Каждое имя выхода обязано стоять в трёх местах:
+    #   demo/Dockerfile — `COPY --from=… …/static/<kind>/<имя>` в static/
+    #                     приложения;
+    #   .gitignore      — это артефакт: закоммиченная копия отстала бы от
+    #                     источника;
+    #   .dockerignore   — иначе локальная копия уехала бы в образ через
+    #                     `COPY bot/app` и спрятала пропавшую строку у того, кто
+    #                     собирает образ у себя, — а на сервере, из чистого
+    #                     checkout, файла нет.
+    # ⚠️ Полярность опасная: имена — список ВКЛЮЧАЮЩИЙ, собранный разбором
+    # конфига. Разбор, переставший видеть файл, выключил бы для него правило
+    # молча, поэтому каждая запись файла в конфиге обязана разобраться, а среди
+    # имён обязаны быть оба бандла.
+    # ⚠️ Копию папкой или маской правило не разбирает и прочтёт как пропажу:
+    # образ копирует поимённо, строкой на файл, — эту запись оно и держит.
+    bad, text = [], {}
+    for rel in BUILD_FILES:
+        p = BUILD / rel
+        text[rel] = p.read_text(encoding="utf-8-sig") if p.exists() else ""
+        if not text[rel]:
+            bad.append(f"нет {rel} — сверять не с чем")
+    outputs, blind = _vite_outputs(_client_code(text[_VITE_CONFIG]))
+    bad += blind
+    bad += [f"{_VITE_CONFIG}: среди выходов нет {name} — разбор его потерял, "
+            "правило сверяет не тот список"
+            for name in ("js/bundle.js", "css/bundle.css") if name not in outputs]
+    copies = _docker_copies(text[_DEMO_IMAGE])
+    hidden = {rel: _ignore_entries(text[rel]) for rel in _IGNORES}
+    for path in sorted(outputs):
+        # маршрут отдаёт файл из static/<kind>/: туда файлом или в папку
+        kind, dests = path.rpartition("/")[0], _copied_to(copies, path)
+        if not dests:
+            bad.append(f"{_DEMO_IMAGE} не копирует static/{path} из сборки клиента")
+        elif not any(d.endswith((f"/static/{path}", f"/static/{kind}/")) for d in dests):
+            bad.append(f"{_DEMO_IMAGE} кладёт static/{path} мимо static/{kind}/ "
+                       f"приложения: {', '.join(dests)}")
+        bad += [f"{rel}: нет bot/app/static/{path}" for rel in _IGNORES
+                if f"bot/app/static/{path}" not in hidden[rel]]
+    res.ok("каждый файл сборки клиента — в образе демо и в обоих игнорах", not bad,
+           "файл, который сборка пишет, а образ демо не везёт, ничего не роняет — "
+           "экран молча работает без него (teeth.js, 07.10): " + "; ".join(bad))
