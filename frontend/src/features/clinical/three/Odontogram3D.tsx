@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/Icon'
 import type { Odontogram, PerioLayer } from '../chart'
-import { loadThree } from './loadThree'
+import { load3d } from './loadTeeth'
 import { PerioLegend } from './PerioLegend'
 import { createArchScene, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
@@ -114,12 +114,12 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
     let alive = true
     const el = host.current
     if (!el) return
-    loadThree().then((THREE) => {
+    load3d().then(({ THREE, teeth }) => {
       if (!alive || !host.current) return
       const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
       try {
         const scene = createArchScene({
-          THREE, container: host.current, reduced,
+          THREE, teeth, container: host.current, reduced,
           onHover: (h) => hoverRef.current?.(h),
           onPick: (h) => surfaceRef.current(h.n, h.letter),
           onMenu: (n, x, y) => menuRef.current(n, x, y),

@@ -59,8 +59,24 @@ function copyThree() {
   }
 }
 
+// Свои модели зубов (07.10) едут так же, как three.js: таблицы — около 0,5 МБ
+// чисел, вклеенные в бандл они грузились бы с каждой страницей программы. Файл
+// `models/teeth.js` пишет scripts/teeth/bake.py; здесь — только копия рядом с
+// бандлом (имя `teeth.js` проходит шаблон маршрута), клиент берёт её
+// `loadTeeth()` при открытии вида 3D. Копия в .gitignore, как three.js.
+const TEETH_SRC = resolve(HERE, 'models/teeth.js')
+function copyTeeth() {
+  return {
+    name: 'dentpilot-copy-teeth',
+    closeBundle() {
+      mkdirSync(THREE_OUT_DIR, { recursive: true })
+      writeFileSync(resolve(THREE_OUT_DIR, 'teeth.js'), readFileSync(TEETH_SRC, 'utf8'))
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), copyThree()],
+  plugins: [react(), copyThree(), copyTeeth()],
 
   // Тесты компонентов: jsdom вместо браузера, только src/**/*.test.{ts,tsx}.
   // Подмена движка в них — фикстуры ТОЛЬКО тестов (§26): бандл ничего из

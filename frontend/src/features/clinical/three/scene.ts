@@ -7,6 +7,7 @@ import { COLOR, hex, lerpHex, structChanged, targetLook, type Look } from './loo
 import type { RawMesh } from './mesh'
 import { buildDashedLoop, buildRoots, buildScrew, SURF, toCls, type Letter } from './toothGeometry'
 import { crownModel, type CrownModel } from './crown'
+import { sculptModel, type SculptSet } from './sculpt'
 import { posed } from './pose'
 import { anchorsFor, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint, type GumKind, type GumTooth } from './gum'
 import { studioEnv } from './env'
@@ -48,6 +49,8 @@ export interface SceneOptions {
   onViewLeft: () => void
   /** двойной щелчок по зубу — камера к нему (01.10, `focus`) */
   onDouble?: (n: number) => void
+  /** свои модели зубов (`loadTeeth`); нет — коронки-формулы `crown.ts` */
+  teeth?: SculptSet | null
 }
 
 /** Последний осмотр пародонтограммы с измерениями — числа сервера как есть:
@@ -387,17 +390,35 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const lay = layoutArch(sizes, upper)
     const grp = upper ? upperG : lowerG
     const models = new Map<number, CrownModel>()
-    for (const n of list) models.set(n, crownModel(geomOf(model.teeth[String(n)], upper)))
+    // окклюзионная плоскость — по вершине коронки-ФОРМУЛЫ первого моляра, даже
+    // когда у всех зубов своя модель: дуга и зазор между челюстями рассчитаны под
+    // неё, а своя модель анатомически ниже (моляр 7,5 мм до бугра, формула ~9,5;
+    // слово Олега 07.10 «сделай по анатомии»). Каждый свой зуб встаёт бугром в
+    // эту плоскость, шейка поднимается — и десна вместе с ней (`gum.ts`).
+    // Без файла моделей (`teeth.js` не загрузился) — формулы, как до 07.10.
+    const poseTip = new Map<number, number>()
+    /** вершины коронок-формул — по ним эталонный моляр (плоскость не прыгает) */
+    const poseRef = new Map<number, number>()
+    for (const n of list) {
+      const g = geomOf(model.teeth[String(n)], upper)
+      const formula = crownModel(g)
+      const tab = opts.teeth?.SCULPT[opts.teeth.SCULPT_OF[n] ?? '']
+      const cm = tab ? sculptModel(tab, g) : formula
+      // своя модель встаёт по СВОЕЙ вершине: бугры — в общую окклюзионную плоскость
+      poseTip.set(n, cm.tip)
+      if (!tab) poseRef.set(n, formula.tip)
+      models.set(n, cm)
+    }
     // окклюзионная плоскость — по вершине первого моляра этой челюсти (он остаётся на месте)
-    const ref = (upper ? [16, 26, 17, 27] : [36, 46, 37, 47]).map((n) => models.get(n)?.tip).find((x) => x !== undefined)
-      ?? Math.max(...[...models.values()].map((c) => c.tip))
+    const ref = (upper ? [16, 26, 17, 27] : [36, 46, 37, 47]).map((n) => poseRef.get(n) ?? crownModel(geomOf(model.teeth[String(n)], upper)).tip)
+      .find((x) => x !== undefined) ?? Math.max(...[...poseTip.values()])
     const marks = new THREE.Group()
     grp.add(marks)
     jawGum.push({ lay, list, upper, grp, mesh: null, geo: null, marks })
     for (const p0 of lay.teeth) {
       const g = geomOf(model.teeth[String(p0.n)], upper)
       const cm = models.get(p0.n) as CrownModel
-      const p = posed(p0, toCls(g.cls), upper, cm.tip, ref)
+      const p = posed(p0, toCls(g.cls), upper, poseTip.get(p0.n) ?? cm.tip, ref)
       shape.set(p0.n, { place: p, g, cm })
       addTooth(model, p, upper, grp, cm)
     }

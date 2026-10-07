@@ -154,8 +154,10 @@ def cmd_up(argv: list) -> int:
 
 # Что едет в exe. Клиент тоже: frontend/src собирается сборкой в
 # bot/app/static/js/bundle.js (сам бандл в git не лежит), так что правка
-# экрана React — такое же содержание выпуска, как правка bot/.
-SHIPPED = ("bot/", "frontend/src/", "frontend/package.json", "frontend/vite.config.ts")
+# экрана React — такое же содержание выпуска, как правка bot/. Таблицы своих
+# моделей зубов (frontend/models/teeth.js, 07.10) сборка копирует рядом с бандлом
+# — новое запекание моделей тоже повод для выпуска.
+SHIPPED = ("bot/", "frontend/src/", "frontend/models/", "frontend/package.json", "frontend/vite.config.ts")
 
 # …кроме тестов клиента: они лежат В frontend/src (*.test.ts(x) рядом с
 # экраном, помощники — в src/test/), но в бандл не едет ни один — вход сборки

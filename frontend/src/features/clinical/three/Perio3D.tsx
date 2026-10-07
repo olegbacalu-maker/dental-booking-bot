@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { chart, type Odontogram } from '../chart'
-import { loadThree } from './loadThree'
+import { load3d } from './loadTeeth'
 import { PerioLegend } from './PerioLegend'
 import { createArchScene, type ArchScene, type CameraProbe, type PerioInput, type ToothProbe, type ViewName } from './scene'
 
@@ -68,12 +68,12 @@ export function Perio3D({ pid, rows, limits, colors, active, onPickTooth }: Prop
   useEffect(() => {
     if (!model) return
     let alive = true
-    loadThree().then((THREE) => {
+    load3d().then(({ THREE, teeth }) => {
       if (!alive || !host.current) return
       const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
       try {
         const scene = createArchScene({
-          THREE, container: host.current, reduced,
+          THREE, teeth, container: host.current, reduced,
           onHover: () => undefined,
           onPick: (h) => pickRef.current(h.n),
           onMenu: (n) => pickRef.current(n),

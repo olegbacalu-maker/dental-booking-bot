@@ -47,8 +47,10 @@ export function posed(p: PlacedTooth, cls: Cls, upper: boolean, tip: number, tip
     p.xAxis[1] * v[0] + p.yAxis[1] * v[1] + p.zAxis[1] * v[2],
     p.xAxis[2] * v[0] + p.yAxis[2] * v[1] + p.zAxis[2] * v[2],
   ]
-  // к корню — против окклюзионной оси; выше моляров зуб не поднимается больше чем на 1,5 мм
-  const shift = Math.max(-1.5, tip - tipRef + spec.extra)
+  // к корню — против окклюзионной оси; выше эталона зуб поднимается не больше
+  // чем на 2,5 мм: своя модель моляра на ~2 мм ниже формулы, по которой стоит
+  // плоскость (07.10), а коронка-обломок не должна подлетать к плоскости
+  const shift = Math.max(-2.5, tip - tipRef + spec.extra)
   const position: Vec3 = [
     p.position[0] - p.yAxis[0] * shift,
     p.position[1] - p.yAxis[1] * shift,
