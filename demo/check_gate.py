@@ -287,8 +287,12 @@ def main() -> int:
         if "выдан" in line or "не пришли" in line or "ERROR" in line or "Traceback" in line:
             print("  " + line)
     shutil.rmtree(data, ignore_errors=True)
-    print(f"\n{'ВСЁ ЗЕЛЁНОЕ' if not failed else f'КРАСНОЕ: {len(failed)}'}")
-    return 1 if failed else 0
+    if failed:
+        print(f"\nКРАСНОЕ: {len(failed)}; журнал шлюза оставлен: {log_path}")
+        return 1
+    log_path.unlink(missing_ok=True)
+    print("\nВСЁ ЗЕЛЁНОЕ")
+    return 0
 
 
 if __name__ == "__main__":
