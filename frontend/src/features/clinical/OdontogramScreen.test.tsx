@@ -74,11 +74,13 @@ const inspector = () => document.querySelector('.insp') as HTMLElement
 const root = () => document.querySelector('.odop') as HTMLElement
 const key = (k: string, target: Element = root()) => fireEvent.keyDown(target, { key: k })
 const hitOf = (n: number, s: string) => btn(n).querySelector(`[data-s='${s}']`) as Element
-const picHit = (s: string) => document.querySelector(`.insp-pic [data-s='${s}']`) as Element
 const sfState = () => within(inspector()).getByLabelText(/Starea suprafeței/) as HTMLSelectElement
-const toothState = () => within(inspector()).getByLabelText('Starea dintelui') as HTMLSelectElement
+/* состояние зуба — сетка кнопок (08.10): нажатая = состояние, ни одной — «ok» */
+const toothState = () => within(inspector()).getByRole('group', { name: 'Starea dintelui' })
+const stateOf = () => toothState().querySelector('button[aria-pressed="true"]')?.getAttribute('data-state') ?? 'ok'
+const setState = (k: string) => fireEvent.click(within(toothState()).getByRole('button', { name: MODEL.states[k]! }))
 const sfBtn = (name: string) => within(inspector()).getByRole('button', { name: new RegExp(`^${name}$`) })
-const unsaved = () => screen.queryByText('Nesalvat')
+const unsaved = () => screen.queryByText('Modificări nesalvate')
 
 /* Пациента даёт путь маршрута, зуб — адрес (?t=): экран читает его сам (B4.3). */
 const open = (t?: number, navigate?: (url: string) => void) => openScreen(
@@ -158,11 +160,11 @@ describe('OdontogramScreen', () => {
     const insp = inspector()
     expect(within(insp).getByText('16', { selector: 'b' })).toBeTruthy()
     expect(within(insp).getByText('Maxilar')).toBeTruthy()
-    expect((within(insp).getByLabelText('Starea dintelui') as HTMLSelectElement).value).toBe('carie')
+    expect(stateOf()).toBe('carie')
     expect((within(insp).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).toBe('distal')
     expect(within(insp).getByText(/Carie \(MO\)/)).toBeTruthy()
     // поверхности: первая отмеченная выбрана, у верхней челюсти P вместо L
-    expect(within(insp).getByRole('button', { name: /^M mezial$/ }).className).toContain('sel')
+    expect(within(insp).getByRole('button', { name: /^M mezial$/ }).className).toContain('on')
     expect(within(insp).getByRole('button', { name: /^P palatinal$/ })).toBeTruthy()
     fireEvent.click(btn(47))
     expect(within(inspector()).getByText('47', { selector: 'b' })).toBeTruthy()
@@ -176,7 +178,7 @@ describe('OdontogramScreen', () => {
     fireEvent.click(hitOf(16, 'O'))
     const insp = inspector()
     expect(within(insp).getByText('16', { selector: 'b' })).toBeTruthy()
-    expect(within(insp).getByRole('button', { name: /^O ocluzal$/ }).className).toContain('sel')
+    expect(within(insp).getByRole('button', { name: /^O ocluzal$/ }).className).toContain('on')
     expect(sfState().value).toBe('obturatie')
   })
 
@@ -188,7 +190,7 @@ describe('OdontogramScreen', () => {
     const insp = inspector()
     fireEvent.click(within(insp).getByRole('button', { name: /^D distal$/ }))
     fireEvent.change(sfState(), { target: { value: 'carie' } })
-    fireEvent.change(toothState(), { target: { value: 'obturatie' } })
+    setState('obturatie')
     fireEvent.click(within(insp).getByLabelText('În tratament'))
     expect(unsaved()).toBeTruthy()
     fireEvent.click(within(insp).getByText('Salvează'))
@@ -290,11 +292,11 @@ describe('C22: поверхность как первичный жест, чер
     expect(sfState().value).toBe('obturatie')
     expect(unsaved()).toBeNull()
     expect(btn(16).className).not.toContain('dirty')
-    // рисунок в инспекторе — тот же путь: первый клик выбирает M, второй крутит
-    fireEvent.click(picHit('M'))
-    expect(sfBtn('M mezial').className).toContain('sel')
+    // крест поверхностей в панели (08.10) — тот же путь: первый клик выбирает M, второй крутит
+    fireEvent.click(sfBtn('M mezial'))
+    expect(sfBtn('M mezial').className).toContain('on')
     expect(sfState().value).toBe('carie')
-    fireEvent.click(picHit('M'))
+    fireEvent.click(sfBtn('M mezial'))
     expect(sfState().value).toBe('obturatie')
     expect(unsaved()).toBeTruthy()
     fireEvent.click(screen.getByText('Renunță'))
@@ -332,18 +334,18 @@ describe('C22: поверхность как первичный жест, чер
     key('ArrowUp')
     expect(btn(18).className).toContain('sel')             // выше верхней челюсти нет
     key('d')
-    expect(sfBtn('D distal').className).toContain('sel')
+    expect(sfBtn('D distal').className).toContain('on')
     key('p')
-    expect(sfBtn('P palatinal').className).toContain('sel') // алиас L на верхней челюсти
+    expect(sfBtn('P palatinal').className).toContain('on') // алиас L на верхней челюсти
     key('ArrowDown')
     expect(btn(48).className).toContain('sel')
     key('p')
-    expect(sfBtn('L lingual').className).not.toContain('sel') // внизу P ничего не значит
-    expect(sfBtn('O ocluzal').className).toContain('sel')
+    expect(sfBtn('L lingual').className).not.toContain('on') // внизу P ничего не значит
+    expect(sfBtn('O ocluzal').className).toContain('on')
     key('v')
-    expect(sfBtn('V vestibular').className).toContain('sel')
+    expect(sfBtn('V vestibular').className).toContain('on')
     key('x')                                               // чужая буква — ничего
-    expect(sfBtn('V vestibular').className).toContain('sel')
+    expect(sfBtn('V vestibular').className).toContain('on')
   })
 
   it('Enter записывает черновик, когда карта в фокусе; в поле ввода — нет; Esc сбрасывает', async () => {
@@ -361,7 +363,7 @@ describe('C22: поверхность как первичный жест, чер
     expect(unsaved()).toBeTruthy()
     fireEvent.keyDown(within(inspector()).getByLabelText('Notiță (opțional)'), { key: 'Enter' })
     expect(post).not.toHaveBeenCalled()                    // в поле ввода Enter — браузерный
-    fireEvent.keyDown(toothState(), { key: 'Escape' })
+    fireEvent.keyDown(sfState(), { key: 'Escape' })
     expect(unsaved()).toBeTruthy()                         // и Esc в списке черновик не трогает
     key('Escape')
     expect(unsaved()).toBeNull()
@@ -381,14 +383,14 @@ describe('C22: поверхность как первичный жест, чер
   it('черновик держится за зубом: клик по соседу правку не теряет, на дуге зуб помечен', async () => {
     open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
-    fireEvent.change(toothState(), { target: { value: 'coroana' } })
+    setState('coroana')
     expect(btn(16).className).toContain('dirty')
     fireEvent.click(btn(21))
     expect(unsaved()).toBeNull()                           // у 21 правки нет
     expect(btn(16).className).toContain('dirty')           // а у 16 есть — видно на дуге
     expect(btn(16).className).not.toContain('sel')
     fireEvent.click(btn(16))
-    expect(toothState().value).toBe('coroana')
+    expect(stateOf()).toBe('coroana')
     expect(unsaved()).toBeTruthy()
   })
 
@@ -403,7 +405,7 @@ describe('C22: поверхность как первичный жест, чер
     expect(screen.queryByRole('menu')).toBeNull()
     expect(btn(21).className).toContain('sel')
     expect(btn(21).className).toContain('dirty')
-    expect(toothState().value).toBe('coroana')
+    expect(stateOf()).toBe('coroana')
     expect(unsaved()).toBeTruthy()
     expect(post).not.toHaveBeenCalled()                    // меню не пишет само
     fireEvent.contextMenu(btn(21))
@@ -413,7 +415,7 @@ describe('C22: поверхность как первичный жест, чер
     expect(nerv.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(nerv)
     expect(screen.queryByRole('menu')).toBeNull()
-    expect(toothState().value).toBe('coroana')                // коронка осталась — отметка поверх
+    expect(stateOf()).toBe('coroana')                // коронка осталась — отметка поверх
     expect((within(inspector()).getByLabelText('Nerv extras') as HTMLInputElement).checked).toBe(true)
     fireEvent.contextMenu(btn(21))
     expect(within(screen.getByRole('menu')).getByRole('menuitemcheckbox', { name: 'Nerv extras' }).getAttribute('aria-checked')).toBe('true')
@@ -520,7 +522,8 @@ describe('вид 3D (B7)', () => {
     /* инспектор остался с выбранным зубом; кнопки сцены выключены, пока сцены нет */
     expect(inspector().textContent).toContain('16')
     expect((screen.getByRole('button', { name: 'Frontal' }) as HTMLButtonElement).disabled).toBe(true)
-    /* обратно в 2D — дуга на месте */
+    /* обратно в 2D — кнопкой «2D» той же полосы, дуга на месте */
+    fireEvent.click(screen.getByRole('button', { name: '2D' }))
     fireEvent.click(screen.getByRole('button', { name: 'Vedere ocluzală' }))
     await waitFor(() => expect(btn(16)).toBeTruthy())
     expect(root().getAttribute('data-view')).toBe('ocluzal')
@@ -533,7 +536,7 @@ describe('вид 3D (B7)', () => {
     fireEvent.click(screen.getByRole('button', { name: '3D' }))
     await screen.findByText(/3D nu s-a încărcat/)
     const stage = () => document.querySelector('.odo-3d') as HTMLElement
-    const zoomBtn = () => screen.getByRole('button', { name: 'Apropie' }) as HTMLButtonElement
+    const zoomBtn = () => screen.getByRole('button', { name: 'Camera la dinte' }) as HTMLButtonElement
     expect(stage().getAttribute('data-focus')).toBeNull()
     expect(zoomBtn().disabled).toBe(true)                    // сцены нет — кнопке нечего двигать
     expect(zoomBtn().getAttribute('aria-pressed')).toBe('false')
@@ -549,7 +552,7 @@ describe('вид 3D (B7)', () => {
     key('f')                                                 // без зуба — нечего приближать
     expect(stage().getAttribute('data-focus')).toBeNull()
     /* обратно в 2D и снова в 3D — режим не теряется, пока зуб выбран */
-    fireEvent.click(screen.getByRole('button', { name: 'Vedere frontală' }))
+    fireEvent.click(screen.getByRole('button', { name: '2D' }))
     await waitFor(() => expect(btn(16)).toBeTruthy())
     fireEvent.click(btn(21))
     fireEvent.click(screen.getByRole('button', { name: '3D' }))
@@ -696,7 +699,7 @@ describe('легенда-фильтр (01.10)', () => {
     expect(carie().getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(carie())
     expect(carie().getAttribute('aria-pressed')).toBe('false')
-    fireEvent.click(screen.getByRole('button', { name: 'Vedere frontală' }))
+    fireEvent.click(screen.getByRole('button', { name: '2D' }))
     await waitFor(() => expect(btn(16)).toBeTruthy())
     expect(document.querySelectorAll('.odop .arch .tooth-btn.dim').length).toBe(0)
     expect(leg().getAttribute('data-filter')).toBeNull()

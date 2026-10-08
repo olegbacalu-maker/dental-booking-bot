@@ -97,6 +97,9 @@ export interface ArchScene {
   /** камера к зубу (цель — коронка, снаружи дуги) или назад к виду; null — назад.
    *  'occlusal' (лист пародонтограммы) — сверху на зуб, видны все шесть точек */
   focus(n: number | null, how?: 'buccal' | 'occlusal'): void
+  /** камера ближе/дальше (08.10, кнопки «−»/«+»): радиус орбиты = радиус
+   *  вида (или фокуса) × 100/pct; 100 — как у вида. Углы и цель не трогает. */
+  zoomTo(pct: number): void
   /** точка листа под курсором (06.10): маркер у края в этой точке; null — снять */
   setActiveSite(n: number | null, site: number | null): void
   /** зубы, погашенные фильтром легенды (01.10): полупрозрачные, без колец и с бледным номером */
@@ -789,6 +792,8 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   const orb = { theta: 0, phi: rad(80), r: 172, tt: 0, tp: rad(80), tr: 172 }
   /** радиус последнего вида — куда возвращается камера из фокуса */
   let viewR = 172
+  /** радиус фокуса на зубе (01.10); null — камера у вида. База для зума. */
+  let focusR: number | null = null
   let anim = false
   /** довести камеру до цели: твином кадров или сразу при reduced-motion */
   const settle = (): void => {
@@ -1090,6 +1095,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       orb.tp = rad(v[1])
       orb.tr = v[2]
       viewR = v[2]
+      focusR = null
       tgt.set(...HOME)
       togs.rotate = false
       settle()
@@ -1107,12 +1113,19 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         orb.tt = nearestTheta(orb.theta, f.theta)
         orb.tp = f.phi
         orb.tr = f.r
+        focusR = f.r
         togs.rotate = false
       } else {
         // назад к виду: цель и радиус вида, углы — как человек их оставил
         tgt.set(...HOME)
         orb.tr = viewR
+        focusR = null
       }
+      settle()
+    },
+    zoomTo(pct) {
+      const base = focusR ?? viewR
+      orb.tr = clamp(base * (100 / clamp(pct, 40, 300)), 20, 600)
       settle()
     },
     setToggle(k, on) {

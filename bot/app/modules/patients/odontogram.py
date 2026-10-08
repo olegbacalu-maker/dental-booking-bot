@@ -374,6 +374,27 @@ def tooth_data(tmap: dict, tooth_acts: list) -> tuple:
     return js_json(teeth), js_json(hist)
 
 
+# Анатомическое название по позиции в квадранте (последняя цифра FDI) и
+# сторона пациента по квадранту — подпись панели зуба (08.10, макет «Stare
+# dinți»). ⛔ Слово клиническое, значит живёт здесь, а не в браузере: второго
+# словаря зубов у клиента нет (clinical-chart.md). Молочный ряд — пять позиций.
+TOOTH_NAMES = ("Incisiv central", "Incisiv lateral", "Canin", "Premolar I",
+               "Premolar II", "Molar I", "Molar II", "Molar III")
+MILK_NAMES = ("Incisiv central", "Incisiv lateral", "Canin", "Molar I", "Molar II")
+
+
+def tooth_name(n: int) -> str:
+    q, p = divmod(n, 10)
+    names = MILK_NAMES if q >= 5 else TOOTH_NAMES
+    return names[p - 1] if 1 <= p <= len(names) else ""
+
+
+def tooth_side(n: int) -> str:
+    """«dreapta»/«stânga» — сторона ПАЦИЕНТА: квадранты 1, 4 (и молочные 5, 8)
+    справа, 2, 3 (6, 7) слева."""
+    return "dreapta" if n // 10 in (1, 4, 5, 8) else "stânga"
+
+
 def tooth_title(n: int, tmap: dict, bmap: dict | None = None) -> str:
     """Подпись зуба словами: номер, состояние, отметки, мост с ролью и
     материалом, заметка, поверхности. Сырой текст — одна на title кнопки
@@ -435,6 +456,8 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
         br = bmap.get(n)
         teeth[str(n)] = {
             **infos[str(n)], "milk": milk, "title": tooth_title(n, tmap, bmap),
+            # подпись панели зуба (08.10): название и сторона — словами сервера
+            "name": tooth_name(n), "side": tooth_side(n),
             "bridge": {"role": br[0], "material": br[1]} if br else None,
             # размеры для объёмного вида (B7): сервер владеет ими, клиент рендерит
             "geom": tsvg.tooth_geom(n),

@@ -621,8 +621,8 @@ describe('PatientCardScreen', () => {
       fireEvent.click(document.querySelector('#odo .tooth-btn[data-n="11"]') as HTMLElement)
       /* B6 шаг 2: во вкладке тот же рабочий стол, что на детальной — инспектор, не диалог */
       const insp = document.querySelector('.insp') as HTMLElement
-      expect(within(insp).getByText('11', { selector: '.insp-n b' })).toBeTruthy()
-      fireEvent.change(within(insp).getByLabelText('Starea dintelui'), { target: { value: 'carie' } })
+      expect(within(insp).getByText('11', { selector: '.dp-tp-num' })).toBeTruthy()
+      fireEvent.click(within(insp).getByRole('button', { name: 'Carie' }))
       fireEvent.click(within(insp).getByText('Salvează'))
       expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     }
@@ -738,7 +738,7 @@ describe('PatientCardScreen', () => {
     await strip().findByRole('tab', { name: 'Odontogramă', selected: true })
     await odoReady()
     /* зуб выбран в инспекторе рабочего стола и в фокусе — клавиатура готова */
-    await waitFor(() => expect((document.querySelector('.insp-n b') as HTMLElement).textContent).toBe('11'))
+    await waitFor(() => expect((document.querySelector('.insp .dp-tp-num') as HTMLElement).textContent).toBe('11'))
     expect((document.activeElement as HTMLElement).dataset.n).toBe('11')
     /* всё это — переходы одного адреса: фиша открыта один раз */
     expect(opens()).toBe(1)
@@ -806,7 +806,7 @@ describe('PatientCardScreen', () => {
     await tabTo('Odontogramă')
     expect(router.state.location.search).toBe('?tab=odonto')
     expect(document.querySelector('.perio')).toBeNull()
-    fireEvent.click(screen.getByText('Parodontogramă', { selector: '.odo-more' }))
+    fireEvent.click(screen.getByText('Parodontogramă', { selector: '.dp-odo-lnk' }))
     await strip().findByRole('tab', { name: 'Parodontogramă', selected: true })
     await waitFor(() => expect(get).toHaveBeenLastCalledWith('/patients/5/perio', expect.anything()))
   })

@@ -204,6 +204,15 @@ def suite_api(res: Result) -> None:
         res.check("подписи зубов — те же, что title кнопок",
                   {n: d["teeth"][str(n)]["title"] for n in (11, 16, 31, 47, 46, 12)},
                   {n: t for n, t in _titles(page).items() if n in (11, 16, 31, 47, 46, 12)})
+        # подпись панели зуба (08.10): название по позиции и сторона пациента —
+        # слова сервера, у клиента словаря зубов нет
+        res.check("название зуба и сторона — с сервера",
+                  {n: (d["teeth"][str(n)]["name"], d["teeth"][str(n)]["side"])
+                   for n in (11, 13, 24, 36, 48, 55, 85)},
+                  {11: ("Incisiv central", "dreapta"), 13: ("Canin", "dreapta"),
+                   24: ("Premolar I", "stânga"), 36: ("Molar I", "stânga"),
+                   48: ("Molar III", "dreapta"), 55: ("Molar II", "dreapta"),
+                   85: ("Molar II", "dreapta")})
         res.check("история — та же", d["history"], _blob(page, "THIST"))
         res.check("мосты: зубы, роли, материал, врач",
                   [(b["teeth"], b["material"], b["doctor"]) for b in d["bridges"]],

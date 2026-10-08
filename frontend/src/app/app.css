@@ -1518,3 +1518,250 @@ dialog.dp-ask { width: 400px; }
 .dp-free .dk-cash small { font-size: var(--fs-m); }
 /* списки стойки: без шапки — первая секция без верхней черты */
 .desk > .dk-sec:first-child { border-top: 0; padding-top: 2px; }
+
+/* ---- одонтограмма по макету Олега (08.10, design/redesign-2026-10, промпт 3) ----
+   Классы `odop`, `odop-grid`, `odop-main`, `odop-side`, `insp`, `insp-close`
+   остались на узлах — на них держатся печать и шторка под палец (ниже и в
+   panel.css); раскладка мышью переопределена здесь. Старая страница
+   (?ui=legacy) своих классов не теряет. */
+.dp-react-root .dp-odo { display: flex; flex-direction: column; gap: 16px; }
+.dp-react-root .dp-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--sh);
+}
+.dp-react-root .dp-lbl {
+  display: block; font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text3);
+}
+/* шапка: вкладки-подчёркивания и справа счётчик с действиями */
+.dp-react-root .dp-odo-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+.dp-react-root .dp-tabs { display: flex; }
+.dp-react-root .dp-tab {
+  height: var(--h-ctl); padding: 0 4px; margin-right: 20px; border: 0; border-bottom: 3px solid transparent;
+  background: none; font: inherit; font-size: var(--fs-l); font-weight: 600; color: var(--text2); cursor: pointer;
+}
+.dp-react-root .dp-tab.on { color: var(--text); border-bottom-color: var(--teal); }
+.dp-react-root .dp-tab:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-tab:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r-xs); }
+.dp-react-root .dp-odo-headr { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; }
+.dp-react-root .dp-odo-count { font-size: var(--fs-m); color: var(--text3); margin-right: 8px; }
+.dp-react-root .dp-odo-count b { color: var(--text); font-weight: 600; }
+.dp-react-root .dp-odo-lnk {
+  display: inline-flex; align-items: center; gap: 6px; height: var(--h-ctl); padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text);
+  font: inherit; font-size: var(--fs-m); font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.dp-react-root .dp-odo-lnk:hover { background: var(--bg); }
+.dp-react-root .dp-odo-lnk:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-odo-lnk svg { width: 16px; height: 16px; }
+/* кнопка-иконка 44px (та же, что у стрелок дня на главной) */
+.dp-react-root .dp-ibtn {
+  width: var(--h-ctl); height: var(--h-ctl); display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text2);
+  padding: 0; font: inherit; cursor: pointer; text-decoration: none;
+}
+.dp-react-root .dp-ibtn:hover { background: var(--bg); color: var(--text); }
+.dp-react-root .dp-ibtn:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-ibtn:disabled { opacity: .45; cursor: default; }
+.dp-react-root .dp-ibtn.on { background: var(--teal-soft); border-color: var(--teal); color: var(--teal-d); }
+.dp-react-root .dp-ibtn svg { width: 18px; height: 18px; }
+
+/* две колонки: вьюпорт с картой и панель зуба */
+.dp-react-root .dp-odo .odop-grid { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.dp-react-root .dp-odo .odop-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.dp-react-root .dp-odo .odop-side { flex: 1 1 380px; min-width: 0; max-width: 440px; position: sticky; top: 16px; }
+@media (max-width: 1100px) { .dp-react-root .dp-odo .odop-side { position: static; max-width: none; } }
+
+/* карточка вьюпорта: полоса видов и зума, тело со слоями и сценой, легенда */
+.dp-react-root .dp-vp { overflow: hidden; }
+.dp-react-root .dp-vp-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+}
+.dp-react-root .dp-seg > button {
+  height: calc(var(--h-ctl) - 10px); padding: 0 14px; border: 0; border-radius: calc(var(--r-ctl) - 3px);
+  background: none; font: inherit; font-size: var(--fs-m); color: var(--text2); cursor: pointer;
+}
+.dp-react-root .dp-seg > button:hover { color: var(--text); }
+.dp-react-root .dp-seg > button.on { background: var(--teal); color: var(--on-teal); font-weight: 600; }
+.dp-react-root .dp-seg > button:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-seg > button:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-seg-sep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--line); }
+.dp-react-root .dp-zoom { display: flex; align-items: center; gap: 6px; }
+.dp-react-root .dp-zoom-l { min-width: 48px; text-align: center; font-size: var(--fs-m); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dp-react-root .dp-vp-body {
+  display: flex; flex-wrap: wrap; align-items: stretch;
+  background: linear-gradient(180deg, var(--panel), var(--line2));
+}
+.dp-react-root .dp-vp-2d { padding: 18px 16px; display: block; }
+.dp-react-root .dp-layers { width: 150px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 14px; }
+.dp-react-root .dp-layers .dp-lbl { margin-bottom: 4px; }
+.dp-react-root .dp-lay {
+  display: flex; align-items: center; gap: 8px; min-height: var(--h-ctl); padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel);
+  font: inherit; font-size: var(--fs-m); color: var(--text2); text-align: left; cursor: pointer;
+}
+.dp-react-root .dp-lay .box {
+  width: 16px; height: 16px; flex: none; border-radius: var(--r-xs); border: 1.5px solid var(--text3);
+  display: inline-flex; align-items: center; justify-content: center; color: transparent;
+}
+.dp-react-root .dp-lay .box svg { width: 12px; height: 12px; }
+.dp-react-root .dp-lay.on { background: var(--teal-soft); border-color: var(--teal); color: var(--text); }
+.dp-react-root .dp-lay.on .box { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.dp-react-root .dp-lay:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-lay:focus-visible { outline: none; box-shadow: var(--ring); }
+/* сцена 500px (макет), без переходов — высота не зависит от наведения */
+.dp-react-root .dp-vp-body .odo-stage { flex: 1 1 300px; min-width: 0; height: 500px; }
+@media (max-width: 880px) { .dp-react-root .dp-vp-body .odo-stage { height: 400px; } }
+@media (max-width: 760px) { .dp-react-root .dp-layers { width: auto; flex-basis: 100%; flex-direction: row; flex-wrap: wrap; } }
+.dp-react-root .dp-vp-milk { padding: 8px 14px; }
+.dp-react-root .dp-vp .odo-paro-leg { padding: 8px 14px 0; }
+/* легенда чипами: квадрат палитры, подпись, счётчик; нажатый — подложкой и кромкой */
+.dp-react-root .dp-vp-legend { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; padding: 8px 10px; border-top: 1px solid var(--line); margin: 0; }
+.dp-react-root .dp-vp-legend button.lg {
+  display: inline-flex; align-items: center; gap: 8px; min-height: var(--h-ctl); padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--r-ctl); background: none; font: inherit; font-size: var(--fs-m);
+  color: var(--text2); cursor: pointer;
+}
+.dp-react-root .dp-vp-legend button.lg:hover, .dp-react-root .dp-vp-legend button.lg:focus-visible { background: var(--bg); color: var(--text); outline: none; }
+.dp-react-root .dp-vp-legend button.lg.on { background: var(--teal-soft); border-color: var(--teal); color: var(--text); }
+.dp-react-root .dp-vp-legend .sw { width: 12px; height: 12px; border-radius: var(--r-xs); flex: none; }
+.dp-react-root .dp-vp-legend .lg-n { font-style: normal; font-weight: 600; color: var(--text); min-width: 8px; margin: 0; }
+
+/* карта зубов */
+.dp-react-root .dp-tm { padding: 16px 16px 18px; }
+.dp-react-root .dp-tm-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.dp-react-root .dp-tm-hint { font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-tm-scroll { overflow-x: auto; }
+.dp-react-root .dp-tm-rows { min-width: 640px; display: flex; flex-direction: column; gap: 8px; }
+.dp-react-root .dp-tm-cap { display: flex; justify-content: space-between; font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-tm-cap.bottom { justify-content: center; }
+.dp-react-root .dp-tm-row { display: flex; gap: 14px; }
+.dp-react-root .dp-tm-q { flex: 1; display: grid; gap: 6px; }
+.dp-react-root .dp-tm-mid { width: 1px; background: var(--line); }
+.dp-react-root .dp-tm-row.milk .dp-tm-q { padding: 0 12%; }
+.dp-react-root .dp-tm-btn {
+  position: relative; min-width: 0; height: 58px; display: flex; flex-direction: column; align-items: center;
+  justify-content: space-between; padding: 6px 4px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); font: inherit; font-size: var(--fs-m); font-weight: 600; color: var(--text);
+  font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background-color var(--dur) ease, box-shadow var(--dur) ease, opacity var(--dur) ease;
+}
+.dp-react-root .dp-tm-btn.low { flex-direction: column-reverse; }
+.dp-react-root .dp-tm-btn:hover { border-color: var(--text3); }
+.dp-react-root .dp-tm-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-tm-btn.sel { border-color: var(--teal); background: var(--teal-soft); box-shadow: inset 0 0 0 1px var(--teal); }
+.dp-react-root .dp-tm-btn.pick { outline: 2px dashed var(--teal); outline-offset: 2px; }
+.dp-react-root .dp-tm-btn.dirty { box-shadow: 0 0 0 2px var(--amber); }
+.dp-react-root .dp-tm-btn.sel.dirty { box-shadow: inset 0 0 0 1px var(--teal), 0 0 0 2px var(--amber); }
+.dp-react-root .dp-tm-btn.dim { opacity: .3; }
+.dp-react-root .dp-tm-btn.dim:hover, .dp-react-root .dp-tm-btn.dim.sel { opacity: .7; }
+.dp-react-root .dp-tm-btn.miss { border-style: dashed; color: var(--text3); }
+.dp-react-root .dp-tm-btn .bar { width: 70%; height: 5px; border-radius: 3px; }
+.dp-react-root .dp-tm-btn .flag { position: absolute; right: 4px; width: 7px; height: 7px; border-radius: 50%; }
+@media print { .dp-react-root .dp-tm-btn.dim { opacity: 1; } }
+
+/* панель зуба: секции через линию, крупный номер, крест, сетка состояний */
+.dp-react-root .dp-tp { display: flex; flex-direction: column; padding: 0; margin: 0; }
+.dp-react-root .dp-tp-sec { padding: 16px 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.dp-react-root .dp-tp-head { display: flex; align-items: center; gap: 16px; padding: 18px 20px; }
+.dp-react-root .dp-tp-num {
+  font-size: calc(var(--fs-big) * 1.75); line-height: 1; font-weight: 700; color: var(--teal-d);
+  font-variant-numeric: tabular-nums;
+}
+.dp-react-root .dp-tp-who { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.dp-react-root .dp-tp-name { font-size: var(--fs-h3); line-height: 27px; font-weight: 600; }
+.dp-react-root .dp-tp-who small { font-size: var(--fs-m); color: var(--text3); }
+.dp-react-root .dp-tp-none .dp-tp-name { color: var(--text3); font-weight: 500; }
+.dp-react-root .dp-tp-empty { display: grid; place-items: center; padding: 24px; color: var(--text3); border-top: 1px solid var(--line); }
+.dp-react-root .dp-tp-empty svg { width: 40px; height: 40px; }
+.dp-react-root .dp-tp-form { display: contents; }
+.dp-react-root .dp-tp-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dp-react-root .dp-tp-note { font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-tp .i-bridge { margin: 0; border-radius: 0; background: var(--bg); flex-direction: row; align-items: center; }
+/* крест поверхностей 3×3 (64×58) и подпись справа */
+.dp-react-root .dp-sfx { display: flex; gap: 16px; align-items: center; }
+.dp-react-root .dp-sfx-grid { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 58px); gap: 6px; flex: none; }
+.dp-react-root .dp-sf {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); font: inherit; color: var(--text); cursor: pointer;
+  padding: 0;
+}
+.dp-react-root .dp-sf:hover { background: var(--bg); }
+.dp-react-root .dp-sf:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-sf .l {
+  width: 22px; height: 22px; border-radius: var(--r-xs); background: var(--bg); display: inline-flex; align-items: center;
+  justify-content: center; font-size: var(--fs-m); font-weight: 700;
+}
+.dp-react-root .dp-sf .n { font-size: var(--fs-xs); color: var(--text3); }
+.dp-react-root .dp-sf.on { background: var(--teal-soft); border: 2px solid var(--teal); }
+.dp-react-root .dp-sf.on .l { background: var(--teal); color: var(--on-teal); }
+/* бейдж с состоянием поверхности — цвет палитры инлайном, текст белый */
+.dp-react-root .dp-sf.has .l { color: #fff; }
+.dp-react-root .dp-sfx-info { min-width: 0; font-size: var(--fs-m); line-height: 19px; color: var(--text2); display: flex; flex-direction: column; gap: 2px; }
+.dp-react-root .dp-sfx-info b { font-size: var(--fs-l); line-height: 22px; color: var(--text); }
+.dp-react-root .dp-sfx-info em { font-style: normal; font-weight: 600; }
+.dp-react-root .dp-tp-sfst { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-s); color: var(--text2); }
+.dp-react-root .dp-tp-sfst b { color: var(--text); }
+/* состояние сеткой 2 колонки; переключатели отметок */
+.dp-react-root .dp-st { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.dp-react-root .dp-stb {
+  display: flex; align-items: center; gap: 8px; min-height: var(--h-ctl); padding: 0 10px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); background: var(--panel); font: inherit; font-size: var(--fs-m); color: var(--text); text-align: left; cursor: pointer;
+}
+.dp-react-root .dp-stb:hover { background: var(--bg); }
+.dp-react-root .dp-stb:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-stb.on { background: var(--teal-soft); border: 2px solid var(--teal); padding: 0 9px; font-weight: 600; }
+.dp-react-root .dp-stb:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-stb i { width: 12px; height: 12px; border-radius: var(--r-xs); flex: none; }
+.dp-react-root .dp-tp-sw { display: flex; flex-direction: column; }
+.dp-react-root .dp-sw { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--h-ctl); font-size: var(--fs-body); cursor: pointer; }
+.dp-react-root .dp-sw input {
+  appearance: none; -webkit-appearance: none; margin: 0; width: 40px; height: 22px; border-radius: 999px;
+  background: var(--text3); position: relative; flex: none; cursor: pointer;
+}
+.dp-react-root .dp-sw input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+.dp-react-root .dp-sw input:checked { background: var(--teal); }
+.dp-react-root .dp-sw input:checked::after { left: 21px; }
+.dp-react-root .dp-sw input:focus-visible { outline: none; box-shadow: var(--ring); }
+/* поля, кнопки панели */
+.dp-react-root .dp-fld {
+  width: 100%; box-sizing: border-box; min-height: var(--h-ctl); padding: 0 12px; border: 1px solid var(--text3);
+  border-radius: var(--r-ctl); background: var(--panel); font: inherit; font-size: var(--fs-body); color: var(--text);
+}
+.dp-react-root textarea.dp-fld { padding: 10px 12px; resize: vertical; line-height: 21px; }
+.dp-react-root .dp-fld:focus { outline: none; border-color: var(--teal); box-shadow: var(--ring); }
+.dp-react-root .dp-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: var(--h-ctl);
+  border-radius: var(--r-ctl); font: inherit; font-size: var(--fs-body); font-weight: 600; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text); cursor: pointer; padding: 0 14px;
+}
+.dp-react-root .dp-btn:hover { background: var(--bg); }
+.dp-react-root .dp-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-btn:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-btn.pri { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.dp-react-root .dp-btn.pri:hover { background: var(--teal-d); border-color: var(--teal-d); color: var(--on-teal-d); }
+.dp-react-root .dp-btn.ghost { border-color: transparent; color: var(--teal-d); }
+.dp-react-root .dp-btn svg { width: 16px; height: 16px; }
+.dp-react-root .dp-tp-status { min-height: 18px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-tp-status .dp-saved { color: var(--green-t); font-weight: 600; }
+.dp-react-root .dp-link { border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-s); font-weight: 600; color: var(--teal-d); cursor: pointer; text-decoration: underline; }
+.dp-react-root .dp-tp-acts { gap: 6px; padding: 12px 20px; }
+.dp-react-root .dp-tp .i-perio { margin: 0; }
+/* история — шторка */
+.dp-react-root .dp-tp-hist { border-top: 1px solid var(--line); margin: 0; padding: 0; }
+.dp-react-root .dp-tp-hist summary {
+  display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 20px; cursor: pointer; list-style: none;
+}
+.dp-react-root .dp-tp-hist summary::-webkit-details-marker { display: none; }
+.dp-react-root .dp-tp-hist summary svg { width: 16px; height: 16px; color: var(--text3); transition: transform var(--dur) ease; }
+.dp-react-root .dp-tp-hist[open] summary svg { transform: rotate(90deg); }
+.dp-react-root .dp-tp-hist .th-r, .dp-react-root .dp-tp-hist .hint { padding-left: 20px; padding-right: 20px; }
+.dp-react-root .dp-tp-hist .hint { padding-bottom: 12px; }
+.dp-react-root .dp-tp-hist .th-r:last-child { padding-bottom: 12px; }
+@media (pointer: coarse) {
+  .dp-react-root .dp-odo .odop-side { max-width: none; }
+  .dp-react-root .dp-odo[data-sel] .odop-side .dp-tp { border: none; box-shadow: none; }
+}

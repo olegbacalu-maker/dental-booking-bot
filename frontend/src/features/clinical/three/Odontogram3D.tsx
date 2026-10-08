@@ -12,18 +12,25 @@ import type { Letter } from './toothGeometry'
    императивно (`setModel`, `setSelected`, `setView`, `setToggle`), колбэки
    живут в ref, чтобы сцена создавалась ОДИН раз (новый контекст WebGL —
    вспышка). three.js едет по требованию: до загрузки — ожидание, отказ —
-   текст, 2D под рукой на соседней кнопке вида. Молочный ряд в 3D не
+   текст, 2D под рукой на соседней кнопке. Молочный ряд в 3D не
    показывается (решение 6): при открытом молочном ряде — надпись.
 
-   Режим «Parodont» (06.10, слово Олега «да» на «режим Parodont с таблицей
-   точек»): последний осмотр пародонтограммы с измерениями (`perio_layer`
-   модели — тот же, что в 043/e) ложится на десну: рецессия опускает край,
-   карман от порога — полоса у края, кровоточивость — точка, с «Rădăcini» —
-   зонд на глубину кармана. Находки зубов в этом режиме приглушены. Режим —
-   экрана: в модель, запись и печать не попадает.
+   Раскладка по макету Олега (08.10, «Stare dinți»): полоса сверху — сегмент
+   пяти видов (и кнопка «2D» назад к рисункам сервера) и группа зума
+   «− 100% +», сброс и камера к зубу; слева от сцены колонка «Straturi» —
+   шесть переключателей чекбоксами; сцена 500px. Зум — `scene.zoomTo`:
+   радиус орбиты от радиуса вида (или фокуса), вид и фокус возвращают 100%.
 
-   Фокус (01.10): камера едет к выбранному зубу — кнопкой «Apropie», клавишей
-   F (рабочий стол) или двойным щелчком по зубу; кнопки видов возвращают.
+   Режим «Parodont» (06.10, слово Олега «да» на «режим Parodont с таблицей
+   точек»; с 08.10 — вкладка страницы, состояние у рабочего стола): последний
+   осмотр пародонтограммы с измерениями (`perio_layer` модели — тот же, что
+   в 043/e) ложится на десну: рецессия опускает край, карман от порога —
+   полоса у края, кровоточивость — точка, с «Rădăcini» — зонд на глубину
+   кармана. Находки зубов в этом режиме приглушены. Режим — экрана: в
+   модель, запись и печать не попадает.
+
+   Фокус (01.10): камера едет к выбранному зубу — кнопкой, клавишей F
+   (рабочий стол) или двойным щелчком по зубу; кнопки видов возвращают.
    Решает рабочий стол (`focus` — номер или null), здесь — исполнение: если
    челюсть зуба спрятана, она возвращается, иначе камера подъехала бы к
    пустому месту. Движение — только вслед за действием человека, при
@@ -37,21 +44,26 @@ const T = {
   views: { frontal: 'Frontal', sus: 'Ocluzal sus', jos: 'Ocluzal jos', dreapta: 'Dreapta', stanga: 'Stânga' } as Record<ViewName, string>,
   togs: { xray: 'Rădăcini', labels: 'Numere', upper: 'Maxilar', lower: 'Mandibular', closed: 'Ocluzie', rotate: 'Rotire' } as Record<Toggle, string>,
   group: 'Vedere 3D',
-  focus: 'Apropie',
+  flat: '2D',
+  flatTitle: 'Desenele frontal și ocluzal',
+  layers: 'Straturi',
+  zoom: 'Apropiere',
+  zoomIn: 'Apropie',
+  zoomOut: 'Depărtează',
+  reset: 'Resetează vizualizarea',
+  focus: 'Camera la dinte',
   focusTitle: 'Camera la dintele selectat (dublu-clic pe dinte sau tasta F); o vedere o aduce înapoi',
-  modes: 'Ce arată vederea 3D',
-  stare: 'Stare dinți',
-  paro: 'Parodont',
-  paroNone: 'Pacientul nu are încă o parodontogramă cu măsurători',
-  paroTitle: 'Parodontograma din {at} pe gingie: recesiune, pungi, sângerare',
 } as const
 
-type Mode = 'stare' | 'paro'
+export type Mode = 'stare' | 'paro'
 
 const toInput = (l: PerioLayer): PerioInput => ({ rows: l.rows, limits: l.limits, colors: l.colors })
 
 const VIEW_ORDER: ViewName[] = ['frontal', 'sus', 'jos', 'dreapta', 'stanga']
 const TOG_ORDER: Toggle[] = ['xray', 'labels', 'upper', 'lower', 'closed', 'rotate']
+const ZOOM_STEP = 20
+const ZOOM_MIN = 60
+const ZOOM_MAX = 200
 
 interface Props {
   model: Odontogram
@@ -63,19 +75,23 @@ interface Props {
   onHover?: (h: Hit | null) => void
   /** зуб, к которому подъехала камера; null — вид целиком */
   focus: number | null
-  /** кнопка «Apropie» и кнопки видов: включить/выключить фокус на выбранном */
+  /** кнопка камеры и кнопки видов: включить/выключить фокус на выбранном */
   onZoom: (on: boolean) => void
   /** двойной щелчок по зубу в сцене */
   onDouble: (n: number) => void
   /** зубы, погашенные фильтром легенды */
   dim: ReadonlySet<number>
+  /** вкладка страницы «Stare dinți» / «Parodont» — решает рабочий стол */
+  mode: Mode
+  /** назад к рисункам сервера (frontal / ocluzal) */
+  onFlat: () => void
 }
 
 type Status = 'loading' | 'ready' | 'failed' | 'nogl'
 /** зонд сцены на узле — стенды Edge читают его через CDP, тестов в jsdom это не касается */
 type Probed = HTMLDivElement & { __dp3d?: { inspect: (n: number) => ToothProbe | null; camera: () => CameraProbe | null } }
 
-export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focus, onZoom, onDouble, dim }: Props) {
+export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focus, onZoom, onDouble, dim, mode, onFlat }: Props) {
   const host = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<ArchScene | null>(null)
   const surfaceRef = useRef(onSurface)
@@ -90,8 +106,8 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   const [view, setView] = useState<ViewName | null>('frontal')
   const [togs, setTogs] = useState<Record<Toggle, boolean>>({ xray: false, labels: true, upper: true, lower: true, closed: false, rotate: false })
   const togsRef = useRef(togs)
+  const [zoom, setZoom] = useState(100)
   const layer = model.perio_layer ?? null
-  const [mode, setMode] = useState<Mode>('stare')
   // осмотра нет (или его сняли) — режим пародонта сам возвращается к состоянию зубов
   const paro = mode === 'paro' && layer !== null
   const paroRef = useRef<PerioInput | null>(null)
@@ -160,6 +176,8 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
       }
     }
     sc?.focus(focus)
+    // фокус и возврат ставят свой радиус — зум от него заново
+    setZoom(100)
   }, [focus])
 
   const pickView = (v: ViewName): void => {
@@ -167,6 +185,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
     // вид на одну челюсть прячет другую — кнопки челюстей следуют за сценой
     setTogs((t) => ({ ...t, upper: v !== 'jos', lower: v !== 'sus', rotate: false }))
     sceneRef.current?.setView(v)
+    setZoom(100)
     onZoom(false)
   }
   const flip = (k: Toggle): void => {
@@ -175,42 +194,60 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
     if (k === 'rotate' && on) setView(null)
     sceneRef.current?.setToggle(k, on)
   }
+  const zoomTo = (pct: number): void => {
+    const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pct))
+    setZoom(z)
+    sceneRef.current?.zoomTo(z)
+  }
+  const reset = (): void => {
+    // сброс = вид заново: углы, цель и радиус вида, фокус снят
+    const v = view ?? 'frontal'
+    pickView(v)
+  }
+  const ready = status === 'ready'
 
   return (
     <div className="odo-3d" data-focus={focus ?? undefined}>
-      <div className="odo-3d-bar" role="group" aria-label={T.group}>
-        <div className="viewsw odo-mode" role="group" aria-label={T.modes}>
-          <button type="button" data-mode="stare" className={paro ? '' : 'on'} aria-pressed={!paro}
-            disabled={status !== 'ready'} onClick={() => setMode('stare')}>{T.stare}</button>
-          <button type="button" data-mode="paro" className={paro ? 'on' : ''} aria-pressed={paro}
-            disabled={status !== 'ready' || !layer}
-            title={layer ? T.paroTitle.replace('{at}', layer.exam.at) : T.paroNone}
-            onClick={() => setMode('paro')}>{T.paro}</button>
-        </div>
-        <div className="viewsw">
+      <div className="dp-vp-bar">
+        <div className="dp-seg dp-views" role="group" aria-label={T.group}>
           {VIEW_ORDER.map((v) => (
             <button key={v} type="button" data-v3={v} className={view === v ? 'on' : ''} aria-pressed={view === v}
-              disabled={status !== 'ready'} onClick={() => pickView(v)}>{T.views[v]}</button>
+              disabled={!ready} onClick={() => pickView(v)}>{T.views[v]}</button>
           ))}
-          <button type="button" data-v3="focus" className={`odo-focus${focus !== null ? ' on' : ''}`} aria-pressed={focus !== null}
-            title={T.focusTitle} disabled={status !== 'ready' || selected === null} onClick={() => onZoom(focus === null)}>
-            <Icon name="search" /> {T.focus}
-          </button>
+          <span className="dp-seg-sep" />
+          <button type="button" data-v3="2d" title={T.flatTitle} onClick={onFlat}>{T.flat}</button>
         </div>
-        <div className="odo-3d-togs">
-          {TOG_ORDER.map((k) => (
-            <button key={k} type="button" className="odo-more" data-tog={k} aria-pressed={togs[k]}
-              disabled={status !== 'ready'} onClick={() => flip(k)}>{T.togs[k]}</button>
-          ))}
+        <div className="dp-zoom" role="group" aria-label={T.zoom}>
+          <button type="button" className="dp-ibtn" aria-label={T.zoomOut} title={T.zoomOut} disabled={!ready || zoom <= ZOOM_MIN}
+            onClick={() => zoomTo(zoom - ZOOM_STEP)}><Icon name="minus" /></button>
+          <span className="dp-zoom-l" aria-live="polite">{zoom}%</span>
+          <button type="button" className="dp-ibtn" aria-label={T.zoomIn} title={T.zoomIn} disabled={!ready || zoom >= ZOOM_MAX}
+            onClick={() => zoomTo(zoom + ZOOM_STEP)}><Icon name="plus" /></button>
+          <button type="button" className={`dp-ibtn odo-focus${focus !== null ? ' on' : ''}`} data-v3="focus"
+            aria-pressed={focus !== null} aria-label={T.focus} title={T.focusTitle}
+            disabled={!ready || selected === null} onClick={() => onZoom(focus === null)}><Icon name="search" /></button>
+          <button type="button" className="dp-ibtn" aria-label={T.reset} title={T.reset} disabled={!ready}
+            onClick={reset}><Icon name="refresh" /></button>
         </div>
       </div>
       {paro && layer && <PerioLegend at={layer.exam.at} limits={layer.limits} colors={layer.colors} />}
-      <div ref={host} className="odo-stage" data-status={status} data-mode={paro ? 'paro' : 'stare'}>
-        {status === 'loading' && <p className="hint odo-3d-msg" aria-busy="true">{T.loading}</p>}
-        {status === 'failed' && <p className="hint odo-3d-msg">{T.failed}</p>}
-        {status === 'nogl' && <p className="hint odo-3d-msg">{T.nogl}</p>}
+      <div className="dp-vp-body">
+        <div className="dp-layers" role="group" aria-label={T.layers}>
+          <span className="dp-lbl">{T.layers}</span>
+          {TOG_ORDER.map((k) => (
+            <button key={k} type="button" className={`dp-lay${togs[k] ? ' on' : ''}`} data-tog={k} aria-pressed={togs[k]}
+              disabled={!ready} onClick={() => flip(k)}>
+              <span className="box"><Icon name="check" /></span>{T.togs[k]}
+            </button>
+          ))}
+        </div>
+        <div ref={host} className="odo-stage" data-status={status} data-mode={paro ? 'paro' : 'stare'}>
+          {status === 'loading' && <p className="hint odo-3d-msg" aria-busy="true">{T.loading}</p>}
+          {status === 'failed' && <p className="hint odo-3d-msg">{T.failed}</p>}
+          {status === 'nogl' && <p className="hint odo-3d-msg">{T.nogl}</p>}
+        </div>
       </div>
-      {model.milk_open && <p className="hint dp-m0"><Icon name="tooth" /> {T.milk}</p>}
+      {model.milk_open && <p className="hint dp-m0 dp-vp-milk"><Icon name="tooth" /> {T.milk}</p>}
     </div>
   )
 }

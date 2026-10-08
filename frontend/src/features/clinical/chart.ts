@@ -50,6 +50,10 @@ export interface ToothInfo extends ToothVisual {
   mk: string[]
   mkx: string
   milk: boolean
+  /** Название по позиции («Incisiv central») и сторона пациента («dreapta»/
+   *  «stânga») — слова сервера для панели зуба (08.10, макет). */
+  name?: string
+  side?: string
   bridge: { role: string; material: string } | null
   /** есть у каждого зуба модели с B7 ступени 1; необязателен, пока 3D не читает его */
   geom?: ToothGeom

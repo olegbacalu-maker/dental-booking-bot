@@ -5,22 +5,30 @@ import type { ToastState } from '../../components/Toast'
 import { asApiError } from '../../services/api'
 import { BridgeBar, BridgeDialog } from './BridgeTool'
 import { DentalArch } from './DentalArch'
-import { Legend } from './Legend'
+import { LegendFilter } from './LegendFilter'
 import { PlanDialog } from './PlanDialog'
-import { ToothInspector } from './ToothInspector'
+import { ToothMap } from './ToothMap'
 import { ToothMenu, type MenuAt } from './ToothMenu'
-import { ViewSwitch } from './ViewSwitch'
-import { chart, dimmedTeeth, legendCounts, neighbour, type Arrow, type Odontogram, type PlanAdd } from './chart'
-import { Odontogram3D } from './three/Odontogram3D'
+import { ToothPanel } from './ToothPanel'
+import { chart, dimmedTeeth, legendCounts, neighbour, shownTeeth, type Arrow, type Odontogram, type PlanAdd } from './chart'
+import { Odontogram3D, type Mode } from './three/Odontogram3D'
 import { useCoarse } from './touch'
 import { useChart } from './useChart'
 
-/* Рабочий стол одонтограммы (C21–C22; с 26.09 ОДИН на два места): дуга крупно +
-   постоянный инспектор справа, режим «Punte nouă», меню зуба, клавиатура —
-   раскладка и классы старой страницы (.odop, .odop-top, .odop-grid, .odop-side).
-   Детальная страница `/odontograma` показывает его на всю ширину (сайдбар-рельс
-   даёт сервер), вкладка Odontogramă фиши — внутри рабочего места (B6, шаг 2):
+/* Рабочий стол одонтограммы (C21–C22; с 26.09 ОДИН на два места): вьюпорт
+   (3D или рисунки сервера) с легендой-фильтром, карта зубов и постоянная
+   панель зуба справа, режим «Punte nouă», меню зуба, клавиатура. Детальная
+   страница `/odontograma` показывает его на всю ширину (сайдбар-рельс даёт
+   сервер), вкладка Odontogramă фиши — внутри рабочего места (B6, шаг 2):
    инструмент один, а не «компактный» и «детальный» с разными возможностями.
+
+   Вид — по макету Олега (08.10, design/redesign-2026-10, промпт 3): вкладки
+   «Stare dinți | Parodont» и счётчик записанных зубов в шапке; карточка
+   вьюпорта (полоса видов и зума, слои слева, сцена, легенда чипами); новая
+   карточка «Harta dinților» — плоская карта кнопками, тот же выбор, что в
+   сцене; панель зуба — `ToothPanel`. Рисунки сервера (frontal / ocluzal)
+   остались за кнопкой «2D» в той же полосе. Логика, API и движок не
+   менялись: `useChart`, `scene.ts` (плюс один метод зума).
 
    C22 — клавиатура ТОЛЬКО когда карта в фокусе (контейнер .odop с
    tabIndex): стрелки — соседний зуб / другая челюсть, M O D V L —
@@ -30,28 +38,38 @@ import { useChart } from './useChart'
    там зуб не сохраняет. Enter и стрелки гасятся (preventDefault), иначе
    Enter на кнопке зуба в фокусе кликнул бы её же.
 
-   «Adaugă în plan» (01.10) — из меню зуба и из инспектора: диалог с номером
+   «Adaugă în plan» (01.10) — из меню зуба и из панели: диалог с номером
    зуба шлёт позицию на маршрут плана фиши; в ответе приходит СВЕЖАЯ ФИША, и
    она уходит владельцу (`onCard`) — вкладка фиши подменяет ею карту, как после
    записи зуба; детальной странице и креслу фиша не нужна, им хватает плашки.
    ⛔ Не через `useChart.act`: тот подменяет ответом МОДЕЛЬ одонтограммы.
 
    Фокус камеры 3D (01.10): `zoom` — режим «камера у выбранного зуба»; пока он
-   включён, выбор другого зуба везёт камеру к нему. F / кнопка «Apropie» —
+   включён, выбор другого зуба везёт камеру к нему. F / кнопка камеры —
    переключатель, двойной щелчок по зубу — выбрать и подъехать, кнопка вида —
    выход. В 2D и в режиме моста фокуса нет.
 
-   Легенда-фильтр (01.10): легенда общая для 2D и 3D и стоит здесь, под
-   видом; нажатый пункт гасит зубы не про него (`dimmedTeeth` — классом на
-   дуге, прозрачностью в сцене), счётчик у пункта — сколько зубов про него.
-   Фильтр — экрана: в модель, в запись и в печать 043/e он не попадает. */
+   Легенда-фильтр (01.10): легенда общая для 2D, 3D и карты и стоит под
+   вьюпортом; нажатый пункт гасит зубы не про него (`dimmedTeeth` — классом
+   на дуге и карте, прозрачностью в сцене), счётчик у пункта — сколько зубов
+   про него. Фильтр — экрана: в модель, в запись и в печать 043/e он не
+   попадает. */
 const T = {
-  title: 'Odontogramă',
-  sub: 'notație FDI',
+  stare: 'Stare dinți',
+  paro: 'Parodont',
+  modes: 'Ce arată vederea',
+  paroNone: 'Pacientul nu are încă o parodontogramă cu măsurători',
+  paroTitle: 'Parodontograma din {at} pe gingie: recesiune, pungi, sângerare',
+  recorded: 'dinți cu stare înregistrată',
+  back: 'Înapoi la fișă',
   newBridge: 'Punte nouă',
   perio: 'Parodontogramă',
   full: 'Pe tot ecranul',
   print: 'Printează',
+  views: 'Vedere',
+  frontal: 'Vedere frontală',
+  ocluzal: 'Vedere ocluzală',
+  three: '3D',
 } as const
 
 const FIELD = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
@@ -71,12 +89,21 @@ interface Props {
   /** просьба открыть зуб снаружи (номер в плане) — объект с меткой, чтобы
       повторный клик по тому же зубу тоже сработал */
   open?: { n: number; k: number } | null
-  /** внутри фиши: без обратной ссылки и заголовка, со ссылкой «Pe tot ecranul» */
+  /** внутри фиши: без обратной ссылки, со ссылкой «Pe tot ecranul» */
   embedded?: boolean
   /** режим ленты фиши (`?views=1`) — едет в запрос позиции плана, как в запись зуба */
   views?: boolean
   /** свежая фиша из ответа «Adaugă în plan» — владельцу, который её показывает */
   onCard?: (card: unknown) => void
+}
+
+/** Сколько зубов на экране с записанной находкой: состояние, поверхность или
+ *  отметка. Подпись шапки, не клиническая величина. */
+function recordedCount(model: Odontogram): number {
+  return shownTeeth(model).filter((n) => {
+    const t = model.teeth[String(n)]
+    return Boolean(t && (t.state !== 'ok' || Object.keys(t.sfst).length > 0 || t.mk.length > 0))
+  }).length
 }
 
 export function OdontogramWorkbench({
@@ -99,12 +126,25 @@ export function OdontogramWorkbench({
   const [zoom, setZoom] = useState(false)
   const focus3d = zoom && !brMode && c.view === '3d' ? c.selected : null
   const [filter, setFilter] = useState<string | null>(null)
+  /* вкладка страницы: «Parodont» живёт в 3D — слой осмотра на десне */
+  const [mode, setMode] = useState<Mode>('stare')
+  const layer = model.perio_layer ?? null
+  const paroOn = mode === 'paro' && c.view === '3d' && layer !== null
   const legendItems = c.view === 'ocluzal' ? model.legend.occlusal : model.legend.frontal
   const dim = useMemo(() => dimmedTeeth(model, filter), [model, filter])
   const counts = useMemo(() => legendCounts(model, legendItems), [model, legendItems])
+  const recorded = useMemo(() => recordedCount(model), [model])
   const pickLegend = (k: string) => setFilter((f) => (f === k ? null : k))
   const onDouble = (n: number) => { if (!brMode) { c.select(n); setZoom(true) } }
   const closePlan = useCallback(() => setPlan(null), [])
+  /* «Salvat pentru dintele N» — зуб последней удачной записи; живёт до
+     следующей правки (dirty) и показывается только на нём */
+  const [savedN, setSavedN] = useState<number | null>(null)
+  const doSave = async () => {
+    const n = c.selected
+    const ok = await c.save()
+    if (ok) setSavedN(n)
+  }
   const savePlan = async (body: PlanAdd): Promise<boolean> => {
     setPlanBusy(true)
     setPlanBad(false)
@@ -124,10 +164,11 @@ export function OdontogramWorkbench({
     }
   }
 
+  /* кнопка зуба — на дуге (2D) или на карте (всегда): первая видимая в документе */
   const focusTooth = useCallback((n: number) => {
-    root.current?.querySelector<HTMLElement>(`.arch .tooth-btn[data-n="${n}"]`)?.focus()
+    root.current?.querySelector<HTMLElement>(`.arch .tooth-btn[data-n="${n}"], .dp-tm-btn[data-n="${n}"]`)?.focus()
   }, [])
-  // зуб из адреса — в фокус, как только дуга нарисована: клавиатура работает сразу
+  // зуб из адреса — в фокус, как только карта нарисована: клавиатура работает сразу
   useEffect(() => { if (initial !== null) focusTooth(initial) }, [initial, focusTooth])
   // просьба открыть зуб применяется один раз на метку — при отрисовке, без
   // эффекта (правило хуков); фокус — следом, эффектом
@@ -138,17 +179,16 @@ export function OdontogramWorkbench({
   }
   useEffect(() => { if (open) focusTooth(open.n) }, [open, focusTooth])
 
-  /* B7 · планшет: пальцем инспектор — шторка снизу (портрет) или панель справа
-     (альбом), поверх дуги. Выбранный зуб прокручивается в видимую часть: в
+  /* B7 · планшет: пальцем панель — шторка снизу (портрет) или панель справа
+     (альбом), поверх карты. Выбранный зуб прокручивается в видимую часть: в
      портрете — над шторкой (она до 56 % высоты). Мышью ничего не меняется. */
   const coarse = useCoarse()
   const sel = c.selected
-  /* в альбоме панель ложится ПОВЕРХ дуги с той стороны, где выбранного зуба нет:
-     сжатая панелью дуга во вкладке фиши давала зубы ~25 px — мельче пальца */
+  /* в альбоме панель ложится ПОВЕРХ карты с той стороны, где выбранного зуба нет */
   const [side, setSide] = useState<'left' | 'right'>('right')
   useEffect(() => {
     if (!coarse || sel === null) return
-    const el = root.current?.querySelector<HTMLElement>(`.arch .tooth-btn[data-n="${sel}"]`)
+    const el = root.current?.querySelector<HTMLElement>(`.arch .tooth-btn[data-n="${sel}"], .dp-tm-btn[data-n="${sel}"]`)
     if (!el) return
     const r = el.getBoundingClientRect()
     const box = (root.current?.querySelector('.odop-main') ?? root.current)?.getBoundingClientRect()
@@ -176,7 +216,7 @@ export function OdontogramWorkbench({
   }
   const stopBridge = () => { setBrMode(false); setPicked([]); setBrOpen(false) }
   const bridgeFrom = (n: number) => { setMenu(null); setBrMode(true); setPicked([n]); setBrOpen(false) }
-  /* меню зуба у точки: правая кнопка мыши, долгое нажатие пальцем — в 2D и в 3D */
+  /* меню зуба у точки: правая кнопка мыши, долгое нажатие пальцем — на карте, дуге и в 3D */
   const onMenu = (n: number, x: number, y: number) => {
     if (brMode) return
     setMenu({ n, x, y })
@@ -203,7 +243,7 @@ export function OdontogramWorkbench({
     if (e.key === 'Enter') {
       if (c.selected === null) return
       e.preventDefault()
-      if (c.dirty && !c.busy) void c.save()
+      if (c.dirty && !c.busy) void doSave()
       return
     }
     if (ARROWS.has(e.key)) {
@@ -225,76 +265,99 @@ export function OdontogramWorkbench({
     if (LETTERS.has(L) && L in model.surfaces) { e.preventDefault(); c.setSel(L) }
   }
 
-
   const menuInfo = menu ? model.teeth[String(menu.n)] : undefined
   const menuCurrent = menu && menu.n === c.selected && c.draft ? c.draft.state : (menuInfo?.state ?? '')
   const menuMarks = menu && menu.n === c.selected && c.draft ? c.draft.marks : (menuInfo?.mk ?? [])
+  const pickedSet = new Set(picked)
 
   return (
     <>
-      <div ref={root} className="odop odo" id="odo" data-view={c.view} data-sel={c.selected ?? undefined} data-side={side} tabIndex={0} onKeyDown={onKey}>
-        <div className="odop-top">
-          {!embedded && (
-            <AppLink className="odop-back" href={`${base}?tab=odonto`}><Icon name="pat" /> {model.patient.name}</AppLink>
-          )}
-          {!embedded && <h2>{T.title} <small>· {T.sub}</small></h2>}
-          <div className="odo-actions">
-            <ViewSwitch view={c.view} onChange={c.setView} />
-            <button type="button" className="odo-more" onClick={() => { setBrMode(true); setPicked([]) }}>
+      <div ref={root} className="odop odo dp-odo" id="odo" data-view={c.view} data-sel={c.selected ?? undefined} data-side={side} tabIndex={0} onKeyDown={onKey}>
+        <div className="dp-odo-head">
+          <div className="dp-tabs" role="group" aria-label={T.modes}>
+            <button type="button" data-mode="stare" className={`dp-tab${paroOn ? '' : ' on'}`} aria-pressed={!paroOn}
+              onClick={() => setMode('stare')}>{T.stare}</button>
+            <button type="button" data-mode="paro" className={`dp-tab${paroOn ? ' on' : ''}`} aria-pressed={paroOn}
+              disabled={layer === null}
+              title={layer ? T.paroTitle.replace('{at}', layer.exam.at) : T.paroNone}
+              onClick={() => { if (c.view !== '3d') c.setView('3d'); setMode('paro') }}>{T.paro}</button>
+          </div>
+          <div className="dp-odo-headr">
+            <span className="dp-odo-count"><b>{recorded}</b> {T.recorded}</span>
+            {!embedded && (
+              <AppLink className="dp-odo-lnk" href={`${base}?tab=odonto`} title={T.back}><Icon name="pat" /> {model.patient.name}</AppLink>
+            )}
+            <button type="button" className="dp-odo-lnk" onClick={() => { setBrMode(true); setPicked([]) }}>
               <Icon name="plus" /> {T.newBridge}
             </button>
-            <AppLink className="odo-more" href={embedded ? `${base}?tab=perio` : `${base}/parodontograma`}>
+            <AppLink className="dp-odo-lnk" href={embedded ? `${base}?tab=perio` : `${base}/parodontograma`}>
               <Icon name="tooth" /> {T.perio}
             </AppLink>
-            {embedded && <AppLink className="odo-more" href={`${base}/odontograma`}><Icon name="eye" /> {T.full}</AppLink>}
-            <button type="button" className="odo-more" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
+            {embedded && <AppLink className="dp-odo-lnk" href={`${base}/odontograma`}><Icon name="eye" /> {T.full}</AppLink>}
+            <button type="button" className="dp-ibtn" aria-label={T.print} title={T.print} onClick={() => window.print()}><Icon name="print" /></button>
           </div>
         </div>
         <BridgeBar model={model} active={brMode} picked={picked} onCancel={stopBridge} onContinue={() => setBrOpen(true)} />
-        <div className="odop-grid">
-          <div className="odop-main">
-            <div className="fcard">
+        <div className="odop-grid dp-odo-cols">
+          <div className="odop-main dp-odo-main">
+            <div className="dp-card dp-vp">
               {c.view === '3d' ? (
                 /* B7: объёмный вид — тот же контроллер, те же действия; выбор,
-                   поверхность и меню идут в инспектор, как из дуги */
+                   поверхность и меню идут в панель, как из карты */
                 <Odontogram3D model={model} selected={brMode ? null : c.selected} onSurface={onSurface} onMenu={onMenu}
-                  focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} />
+                  focus={focus3d} onZoom={setZoom} onDouble={onDouble} dim={dim} mode={mode}
+                  onFlat={() => c.setView('frontal')} />
               ) : (
-                <DentalArch
-                  model={model}
-                  view={c.view}
-                  selected={brMode ? null : c.selected}
-                  picked={new Set(picked)}
-                  dirty={c.dirtyTeeth}
-                  dim={dim}
-                  onSelect={onSelect}
-                  onSurface={onSurface}
-                  onMenu={onMenu}
-                />
+                <>
+                  <div className="dp-vp-bar">
+                    <div className="dp-seg dp-views" role="group" aria-label={T.views}>
+                      {(['frontal', 'ocluzal'] as const).map((v) => (
+                        <button key={v} type="button" data-v={v} className={c.view === v ? 'on' : ''} aria-pressed={c.view === v}
+                          onClick={() => c.setView(v)}>{T[v]}</button>
+                      ))}
+                      <span className="dp-seg-sep" />
+                      <button type="button" data-v="3d" aria-pressed={false} onClick={() => c.setView('3d')}>{T.three}</button>
+                    </div>
+                  </div>
+                  <div className="dp-vp-body dp-vp-2d">
+                    <DentalArch
+                      model={model}
+                      view={c.view}
+                      selected={brMode ? null : c.selected}
+                      picked={pickedSet}
+                      dirty={c.dirtyTeeth}
+                      dim={dim}
+                      onSelect={onSelect}
+                      onSurface={onSurface}
+                      onMenu={onMenu}
+                    />
+                  </div>
+                </>
               )}
-              <div className="tleg" data-filter={filter ?? undefined}>
-                <Legend items={legendItems} active={filter} counts={counts} onPick={pickLegend} />
+              <div className="tleg dp-vp-legend" data-filter={filter ?? undefined}>
+                <LegendFilter items={legendItems} palette={model.palette} active={filter} counts={counts} onPick={pickLegend} />
               </div>
             </div>
+            <ToothMap model={model} selected={brMode ? null : c.selected} picked={pickedSet} dirty={c.dirtyTeeth}
+              dim={dim} onSelect={onSelect} onMenu={onMenu} />
           </div>
-          <aside className="odop-side">
-            <ToothInspector
+          <aside className="odop-side dp-odo-side">
+            <ToothPanel
               model={model}
               n={c.selected}
-              view={c.view}
               busy={c.busy}
               sel={c.sel}
-              onSel={c.setSel}
-              onSurface={c.pickSurface}
+              onSurface={onSurface}
               draft={c.draft}
               dirty={c.dirty}
               onEdit={c.edit}
-              onSave={() => { void c.save() }}
+              onSave={() => { void doSave() }}
               onDiscard={c.discard}
               onDelBridge={(bid) => { void c.delBridge(bid) }}
               onBridgeFrom={bridgeFrom}
               onPlan={planFrom}
               onClose={() => { c.discard(); c.select(null) }}
+              saved={savedN}
             />
           </aside>
         </div>

@@ -2,9 +2,8 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMenuDismiss } from '../../components/menu'
-import type { Odontogram, ToothInfo } from './chart'
 import { Tooth } from './Tooth'
-import { ToothForm } from './ToothForm'
+import { StatusPicker } from './StatusPicker'
 import { LONG_MS, slopOf, TOUCH_SLOP, useCoarse } from './touch'
 
 /* Одонтограмма под палец (B7 · планшет): долгое нажатие открывает меню зуба
@@ -111,38 +110,31 @@ describe('устройство ввода', () => {
   })
 })
 
-describe('крупные кнопки состояний', () => {
-  const MODEL = {
-    states: { ok: 'Sănătos', carie: 'Carie', extras: 'Extras', lipsa: 'Lipsă' },
-    palette: { ok: '#1F2937', carie: '#EF4444', extras: '#64748B', lipsa: '#CBD5E1' },
-    surfaces: { M: 'mezial', O: 'ocluzal', D: 'distal', V: 'vestibular', L: 'lingual' },
-    surface_states: ['carie'], marks: { tratament: 'În tratament' }, doctors: [],
-  } as unknown as Odontogram
-  const TINFO = { jaw: 'sus', mez: 'right', state: 'ok', sfst: {} } as unknown as ToothInfo
-  const DRAFT = { state: 'ok', note: '', doctor: '', sfst: {}, marks: [] }
-  const form = (onEdit = vi.fn()) => {
-    render(<ToothForm model={MODEL} n={16} info={TINFO} busy={false} sel="O" onSel={() => undefined}
-      draft={DRAFT} dirty={false} onEdit={onEdit} onSave={() => undefined} onDiscard={() => undefined} />)
-    return onEdit
+describe('состояние зуба — сетка кнопок (08.10: одна и та же мышью и пальцем)', () => {
+  const STATES = { ok: 'Sănătos', carie: 'Carie', extras: 'Extras', lipsa: 'Lipsă' }
+  const PALETTE = { carie: '#EF4444', extras: '#94A3B8', lipsa: '#CBD5E1' }
+  const pick = (value: string, onChange = vi.fn()) => {
+    render(<StatusPicker states={STATES} palette={PALETTE} value={value} onChange={onChange} />)
+    return onChange
   }
 
-  it('пальцем — кнопки по одной на состояние с цветом палитры; касание правит черновик', () => {
-    coarse(true)
-    const onEdit = form()
-    const group = screen.getByRole('radiogroup', { name: 'Starea dintelui' })
-    const radios = [...group.querySelectorAll('[role=radio]')]
-    expect(radios.map((r) => r.textContent)).toEqual(['Sănătos', 'Carie', 'Extras', 'Lipsă'])
-    expect(radios[0]?.getAttribute('aria-checked')).toBe('true')
-    expect((radios[1]?.querySelector('i') as HTMLElement).style.background).toBe('rgb(239, 68, 68)')
-    fireEvent.click(screen.getByRole('radio', { name: 'Extras' }))
-    expect(onEdit).toHaveBeenCalledWith({ state: 'extras' })
+  it('по кнопке на состояние сервера с цветом палитры; «здоров» — ничего не нажато', () => {
+    const onChange = pick('ok')
+    const group = screen.getByRole('group', { name: 'Starea dintelui' })
+    const btns = [...group.querySelectorAll('button')]
+    expect(btns.map((b) => b.textContent)).toEqual(['Carie', 'Extras', 'Lipsă'])
+    expect(btns.every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true)
+    expect((btns[0]?.querySelector('i') as HTMLElement).style.background).toBe('rgb(239, 68, 68)')
+    fireEvent.click(screen.getByRole('button', { name: 'Extras' }))
+    expect(onChange).toHaveBeenCalledWith('extras')
     expect(screen.queryByLabelText('Starea dintelui', { selector: 'select' })).toBeNull()
   })
 
-  it('мышью — прежний выпадающий список, кнопок нет', () => {
-    form()
-    expect(screen.getByLabelText('Starea dintelui', { selector: 'select' })).toBeTruthy()
-    expect(screen.queryByRole('radiogroup')).toBeNull()
+  it('повторное нажатие на выбранном снимает состояние — зуб здоров', () => {
+    const onChange = pick('carie')
+    expect(screen.getByRole('button', { name: 'Carie' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Carie' }))
+    expect(onChange).toHaveBeenCalledWith('ok')
   })
 })
 
