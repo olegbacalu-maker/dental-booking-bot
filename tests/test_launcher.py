@@ -284,7 +284,10 @@ def suite_port(res: Result) -> None:
                "scripts/check_relocate_live.py": '"DENTART_DATA_DIR": str(anchor)',
                # ⚠️ И у этого назначение — изолируемая папка: он проверяет, что
                # подтверждение в неё почти ничего не пишет.
-               "scripts/check_split_live.py": '"DENTART_DATA_DIR": str(anchor)'}
+               "scripts/check_split_live.py": '"DENTART_DATA_DIR": str(anchor)',
+               # лаунчер из исходников, с окном (08.10): данные, профиль окна и
+               # TEMP — в лаборатории, порт свой
+               "scripts/launcher_accept.py": '"DENTART_DATA_DIR": str(lab)'}
     for rel, want in BENCHES.items():
         f = BOT.parent / rel
         # сторож за сторожом: переименуют файл — правило обязано упасть, а не
@@ -306,7 +309,8 @@ def suite_port(res: Result) -> None:
                    "scripts/check_slot_guard.py": '"TEMP": str(tmp)',
                    "scripts/smoke_build.py": '"TEMP": str(tmp)',
                    "scripts/check_relocate_live.py": '"TEMP": str(tmp)',
-                   "scripts/check_split_live.py": '"TEMP": str(tmp)'}
+                   "scripts/check_split_live.py": '"TEMP": str(tmp)',
+                   "scripts/launcher_accept.py": '"TEMP": str(tmp)'}
     res.ok("у каждого стенда есть правило про TEMP", set(TEMP_IN_LAB) == set(BENCHES),
            f"списки разошлись: {sorted(set(TEMP_IN_LAB) ^ set(BENCHES))}")
     for rel, want in TEMP_IN_LAB.items():
@@ -418,6 +422,40 @@ def suite_port(res: Result) -> None:
 
 
 # ---------- 3. автокопия базы при старте ----------
+
+def suite_window(res: Result) -> None:
+    """Окно программы (08.10): постоянный профиль WebView2, вход по режиму,
+    один экземпляр без второго окна. ⚠️ Поведение живёт только в desktop.py и
+    прогоном недостижимо — правила текстом; живое поведение доказывает стенд
+    `scripts/launcher_accept.py` (`.\dev bench launcher`)."""
+    desk = (BOT / "desktop.py").read_text(encoding="utf-8")
+    # ⭐ Ищем САМ вызов с аргументами, а не имя параметра в комментарии.
+    res.ok("окно идёт с постоянным профилем (storage_path в webview.start)",
+           "storage_path=storage)" in desk and "private_mode=storage is None" in desk,
+           "webview.start без storage_path — профиль снова временный: мусор в TEMP "
+           "и PIN при каждом запуске")
+    res.ok("профиль — своя папка учётки Windows, не папка клиники",
+           '/ "DentPilot" / "webview"' in desk and 'LOCALAPPDATA' in desk,
+           "профиль ушёл из %LOCALAPPDATA%: в ProgramData кука входа одного "
+           "человека досталась бы другому")
+    res.ok("профиль читается ДО слияния dental.env",
+           desk.index("PROFILE_DIR = profile_dir()") < desk.index("envfile.read_all(env_path)"),
+           "строка DENTART_PROFILE_DIR в dental.env уводила бы профиль")
+    res.ok("общий ПК — вход не переживает перезапуск (clear_cookies по политике)",
+           '"clear" if mode == "shared_pc" else "keep"' in desk
+           and "self._window.clear_cookies()" in desk,
+           "политика режима или снятие куки пропали — на общем ПК учётка "
+           "останется открытой следующему человеку")
+    res.ok("второй запуск: мьютекс + фокус первого окна",
+           "CreateMutexW(None, False" in desk and "SetForegroundWindow(hwnd)" in desk,
+           "второй экземпляр снова откроет окно или сервер")
+    # ⛔ Второго окна больше нет: единственный create_window — заставка
+    res.check("create_window ровно один — окно с заставкой", desk.count("webview.create_window("), 1)
+    res.ok("окно первого экземпляра ищется ровно по заголовку (с портом)",
+           "buf.value == TITLE" in desk and 'f" · :{PORT}" if PORT != 8088' in desk,
+           "по префиксу «DentPilot» второй запуск фокусировал бы чужое окно "
+           "(установка клиники рядом со стендом)")
+
 
 def suite_autobackup(res: Result) -> None:
     try:

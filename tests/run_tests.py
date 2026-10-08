@@ -424,6 +424,7 @@ SUITES = [
     ("Лаунчер: dental.env из Блокнота", test_launcher.suite_envfile),
     ("Лаунчер: DENTART_PORT", test_launcher.suite_port),
     ("Лаунчер: автокопия базы", test_launcher.suite_autobackup),
+    ("Лаунчер: окно — профиль, вход, один экземпляр", test_launcher.suite_window),
     ("P3-min: происхождение старой установки", test_legacy.suite_origin),
     ("P3-min: где ищем ярлыки (свои и общие)", test_legacy.suite_shortcut_places),
     ("P3-min: программа без картотеки — не старая раскладка",

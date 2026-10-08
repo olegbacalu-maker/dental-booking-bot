@@ -7,6 +7,12 @@ ADMIN_KEY), data/dental.db (SQLite), data/dentpilot.log (лог).
 на чтение. Рядом с exe остаётся лишь то, что кладёт СБОРКА (`demo.flag`,
 `portable.flag`). Обычный режим — собственное окно приложения
 (WebView2); закрытие окна останавливает программу.
+Профиль окна (куки, кэш, localStorage) ПОСТОЯННЫЙ и свой у каждой учётки
+Windows (`profile_dir()`), а вход переживает перезапуск по РЕЖИМУ установки
+(`_session_policy`): постоянный профиль ≠ постоянный вход. Второй запуск
+(двойной клик по ярлыку при открытой программе) выводит окно первого
+экземпляра на передний план и выходит — второго окна нет (`_claim_instance`,
+`_focus_existing`).
 DENTART_BROWSER_MODE=1 — старый режим: консоль + системный браузер.
 (env-переменные исторически с префиксом DENTART_ — не трогаем ради
 совместимости с dental.env уже установленных клиник.)"""
@@ -135,6 +141,33 @@ data_dir = ROOT / "data"
 # 2. Приложение (`paths.data_root()`) читает ровно эту переменную и обязано
 #    получить ТО ЖЕ значение, которое лаунчер уже использовал для mkdir.
 os.environ["DENTART_DATA_DIR"] = str(ROOT)
+
+
+def profile_dir() -> pathlib.Path:
+    """Папка профиля WebView2 (куки входа, кэш, localStorage) — ПОСТОЯННАЯ.
+
+    ⭐ С 08.10.2026. До того окно шло в приватном режиме: pywebview заводил
+    временный профиль на каждый запуск и не убирал его (`os._exit` минует
+    уборку) — ~15 МБ мусора в %TEMP% за запуск у любой клиники, и кука входа
+    лежала в этом профиле, поэтому PIN спрашивался при КАЖДОМ старте — не по
+    замыслу, а побочно.
+    ⛔ Своя у каждой учётки Windows (`%LOCALAPPDATA%\\DentPilot\\webview`), а не в
+    папке клиники: `ProgramData` общая на всех учёток, и кука входа одного
+    человека досталась бы другому. И не рядом с exe: `Program Files` только на
+    чтение. `portable.flag` (флешка, выезд) — всё в одной папке: `ROOT\\webview`.
+    ⚠️ Читается из окружения ПРОЦЕССА (`DENTART_PROFILE_DIR` — стенд), ДО слияния
+    `dental.env`: строка в файле клиники не должна уводить профиль в другое место.
+    """
+    raw = os.environ.get("DENTART_PROFILE_DIR", "").strip().strip("\"'")
+    if raw and pathlib.Path(raw).is_absolute():
+        return pathlib.Path(raw)
+    if (BASE / "portable.flag").exists():
+        return ROOT / "webview"
+    local = os.environ.get("LOCALAPPDATA") or str(pathlib.Path.home() / "AppData" / "Local")
+    return pathlib.Path(local) / "DentPilot" / "webview"
+
+
+PROFILE_DIR = profile_dir()
 
 # ⛔ И вердикт — туда же, ЖЁСТКО и ОБЕИМИ ветками. Причина та же, что у строки
 # выше, но здесь она острее: ниже окружение пополняется всеми ключами
@@ -293,6 +326,120 @@ if _port_raw and envfile.parse_port(_port_raw) is None:
 # Окно программы и single-instance guard ходят через loopback в обоих режимах.
 HOST = "0.0.0.0" if os.environ.get("DENTART_LAN", "").strip() == "1" else "127.0.0.1"
 URL = f"http://127.0.0.1:{PORT}/admin"
+# Заголовок окна — по нему второй запуск находит первое окно; у нестандартного
+# порта (DENTART_PORT, стенд) — с портом, иначе две программы на одной машине
+# (клиника и стенд) путали бы окна друг друга
+TITLE = "DentPilot — registrul clinicii" + (f" · :{PORT}" if PORT != 8088 else "")
+
+
+def _install_mode() -> str:
+    """Режим установки (deployment-modes.md): `install.json` рядом с программой;
+    без файла (исходники, стенд) — `DENTART_MODE`, и только у несобранной."""
+    try:
+        info = install_info.read(BASE)
+    except install_info.InstallInfoError:
+        info = None
+    if info:
+        return info["mode"]
+    if not getattr(sys, "frozen", False):
+        m = os.environ.get("DENTART_MODE", "").strip()
+        if m in install_info.MODES:
+            return m
+    return install_info.MODE_DEFAULT
+
+
+def _session_policy(mode: str) -> str:
+    """Переживает ли ВХОД перезапуск окна. `keep` — standalone, clinic_server,
+    clinic_client: открыл DentPilot — сразу работаешь. `clear` — shared_pc (одна
+    учётка Windows на нескольких людей): куки входа снимаются при каждом старте и
+    при закрытии окна, следующий запуск — экран входа; профиль (кэш, настройки
+    интерфейса) при этом постоянный. ⭐ Постоянный профиль ≠ постоянный вход.
+    Клиника может решить сама: `DENTART_SESSION=keep|clear` в dental.env."""
+    raw = os.environ.get("DENTART_SESSION", "").strip().lower()
+    if raw in ("keep", "clear"):
+        return raw
+    return "clear" if mode == "shared_pc" else "keep"
+
+
+_MUTEX = None
+
+
+def _claim_instance() -> bool:
+    """Первый ли это экземпляр на этом порту: именованный мьютекс Windows, живёт
+    ровно столько, сколько процесс. Второй запуск узнаёт о первом за миллисекунду
+    и ДО того, как тот поднял сервер (заставка). Не Windows — считаем первым,
+    порт проверит `/health`, как раньше."""
+    global _MUTEX
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        _MUTEX = k32.CreateMutexW(None, False, f"Local\\DentPilot-{PORT}")
+        return k32.GetLastError() != 183          # ERROR_ALREADY_EXISTS
+    except Exception:  # noqa: BLE001 — не Windows / нет kernel32
+        return True
+
+
+def _focus_existing(timeout: float = 8.0) -> bool:
+    """Вывести окно ПЕРВОГО экземпляра на передний план: верхнее видимое окно
+    другого процесса с заголовком программы (`TITLE`, ровно таким); свёрнутое — развернуть. Первый
+    может ещё подниматься (заставка) — ждём до `timeout`.
+    ⚠️ Windows отдаёт передний план не всякому: процесс, не получавший ввода,
+    может лишь мигнуть кнопкой в панели задач. Присоединение к очереди ввода
+    переднего окна (`AttachThreadInput`) снимает замок без побочных нажатий;
+    не вышло — мигаем кнопкой в панели задач (`FlashWindowEx`)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u32 = ctypes.windll.user32
+    except Exception:  # noqa: BLE001 — не Windows
+        return False
+    me = os.getpid()
+    proto = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+    def find() -> int:
+        found: list = []
+
+        def cb(hwnd, _):
+            if not u32.IsWindowVisible(hwnd):
+                return True
+            n = u32.GetWindowTextLengthW(hwnd)
+            if n <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(n + 1)
+            u32.GetWindowTextW(hwnd, buf, n + 1)
+            if buf.value == TITLE:
+                pid = wintypes.DWORD()
+                u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value != me:
+                    found.append(hwnd)
+            return True
+        u32.EnumWindows(proto(cb), 0)
+        return found[0] if found else 0
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if (hwnd := find()):
+            if u32.IsIconic(hwnd):
+                u32.ShowWindow(hwnd, 9)                      # SW_RESTORE
+            k32 = ctypes.windll.kernel32
+            fg = u32.GetForegroundWindow()
+            tid_fg = u32.GetWindowThreadProcessId(fg, None) if fg else 0
+            tid_me = k32.GetCurrentThreadId()
+            joined = bool(tid_fg) and tid_fg != tid_me and bool(u32.AttachThreadInput(tid_fg, tid_me, True))
+            u32.BringWindowToTop(hwnd)
+            ok = bool(u32.SetForegroundWindow(hwnd))
+            if joined:
+                u32.AttachThreadInput(tid_fg, tid_me, False)
+            if not ok:
+                class FLASH(ctypes.Structure):
+                    _fields_ = [("cbSize", wintypes.UINT), ("hwnd", wintypes.HWND),
+                                ("dwFlags", wintypes.DWORD), ("uCount", wintypes.UINT),
+                                ("dwTimeout", wintypes.DWORD)]
+                f = FLASH(ctypes.sizeof(FLASH), hwnd, 3, 5, 0)   # FLASHW_ALL
+                u32.FlashWindowEx(ctypes.byref(f))
+            return True
+        time.sleep(0.3)
+    return False
 
 
 def _already_running() -> bool:
@@ -394,10 +541,11 @@ class _Boot:
     фон уже начал его, run() дождётся первого: второго сервера не будет.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, policy: str = "keep") -> None:
         self._lock = threading.Lock()
         self._ok: bool | None = None
         self._window = None
+        self.policy = policy
         self._last: tuple = ("Se pornește DentPilot…", 6, 0)
         self._t0 = time.monotonic()
 
@@ -474,7 +622,18 @@ class _Boot:
             time.sleep(0.45)            # полоска дошла и погасла — без рывка
         except Exception:  # noqa: BLE001
             pass
+        if self.policy == "clear":
+            self.forget_session()       # общий ПК: каждый запуск — с экрана входа
         window.load_url(URL)
+
+    def forget_session(self) -> None:
+        """Снять куки входа из постоянного профиля (режим `clear`): кэш и
+        настройки интерфейса остаются, учётка — нет."""
+        try:
+            if self._window is not None:
+                self._window.clear_cookies()
+        except Exception as e:  # noqa: BLE001 — профиль важнее, чем уборка в нём
+            logging.warning("cookie-urile nu s-au sters: %r", e)
 
 
 def main() -> None:
@@ -487,26 +646,32 @@ def main() -> None:
     atexit.register(lambda: logging.warning("DentPilot clean exit pid=%s", os.getpid()))
     sys.excepthook = lambda *a: logging.error("UNCAUGHT", exc_info=a)
 
-    if _already_running():
-        # второй запуск: свой сервер не поднимаем, просто ещё одно окно к первому
-        logging.warning("Already running on port %s - opening extra window only", PORT)
-        if os.environ.get("DENTART_BROWSER_MODE") == "1":
-            print("DentPilot este deja pornit - deschid jurnalul in browser.")
+    first = _claim_instance()
+    if not first or _already_running():
+        # ⭐ Второй запуск (08.10): свой сервер не поднимаем и ВТОРОГО ОКНА НЕ
+        # открываем — выводим окно первого экземпляра на передний план и выходим.
+        # До того второе окно шло во временном профиле (снова PIN), а закрытие
+        # первого гасило сервер под вторым — окно-зомби.
+        logging.warning("Already running on port %s - focusing the first window", PORT)
+        if os.environ.get("DENTART_BROWSER_MODE") != "1" and _focus_existing():
+            return
+        if _already_running():
+            # окна нет (браузерный режим, окно не открылось) — вкладка, как раньше
+            if os.environ.get("DENTART_BROWSER_MODE") == "1":
+                print("DentPilot este deja pornit - deschid jurnalul in browser.")
             if os.environ.get("DENTART_NO_BROWSER") != "1":
                 webbrowser.open(URL)
             return
-        try:
-            import webview
-            webview.settings["ALLOW_DOWNLOADS"] = True   # см. комментарий ниже
-            # БЕЗ confirm_close: закрытие доп-окна не гасит сервер первого
-            # экземпляра, переспрашивать здесь — ложная тревога
-            webview.create_window("DentPilot — registrul clinicii", URL,
-                                  width=1280, height=860, min_size=(960, 640))
-            webview.start()
-        except Exception:  # noqa: BLE001
+        # мьютекс чей-то есть, а ни окна, ни сервера нет: первый ещё не поднялся
+        # или застрял — ждём сервер ещё раз, иначе идём обычным путём (порт
+        # проверит _port_free_probe)
+        if _wait_ready(10.0) and _already_running():
+            if _focus_existing(2.0):
+                return
             if os.environ.get("DENTART_NO_BROWSER") != "1":
                 webbrowser.open(URL)
-        return
+            return
+        logging.warning("instance mutex held but no window and no server - starting anyway")
 
     if not _port_free_probe():
         # порт занят, но /health не наш → чужая программа, честно говорим и выходим
@@ -567,10 +732,21 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         logging.warning("тема для заставки не прочиталась: %r", e)
         primary = brand.hexc(brand.TEAL)
-    boot = _Boot()
+    mode = _install_mode()
+    policy = _session_policy(mode)
+    logging.warning("fereastra: profil %s, mod %s, sesiune %s", PROFILE_DIR, mode, policy)
+    # ⛔ Профиль создаётся ЗДЕСЬ: WebView2 не создаёт родителей, и без папки окно
+    # не открылось бы вовсе — программа ушла бы в браузер при здоровой машине.
+    storage: str | None = str(PROFILE_DIR)
+    try:
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logging.error("profilul ferestrei nu se poate crea (%r) - profil temporar", e)
+        storage = None
+    boot = _Boot(policy)
     try:
         window = webview.create_window(
-            "DentPilot — registrul clinicii", html=splash.page(APP_VERSION, primary),
+            TITLE, html=splash.page(APP_VERSION, primary),
             width=1280, height=860, min_size=(960, 640),
             background_color=brand.tint(primary, .06),
             confirm_close=True,
@@ -580,8 +756,15 @@ def main() -> None:
                     "următoarea pornire.",
             },
         )
+        if policy == "clear":
+            # общий ПК: закрыл окно — вышел из учётки, даже если следующий
+            # запуск не наш (куки снимаются и на старте, см. in_window)
+            window.events.closing += boot.forget_session
         boot.start()                    # параллельно окну, а не после него
-        webview.start(boot.in_window, window)
+        # ⭐ private_mode=False + storage_path: один профиль на все запуски —
+        # ни мусора в TEMP, ни PIN при каждом старте (profile_dir выше)
+        webview.start(boot.in_window, window, private_mode=storage is None,
+                      storage_path=storage)
     except Exception as e:  # noqa: BLE001 — что угодно вместо окна = браузер
         logging.error("Окно не открылось (%r) — переходим в браузер", e)
         # окно могло упасть раньше, чем запуск успел начаться под заставкой:
