@@ -4,6 +4,10 @@ import { when } from '../../components/confirm'
 import type { DayListRow, DayModel } from './day'
 
 /* «Lista zilei» (C25.5c): все записи дня строками, с кнопками исхода.
+   Вид — по макету Олега (08.10, промпт 2): карточка с заголовком и
+   счётчиком, колонки Ora · Pacient (ссылка на фишу + возраст) · Telefon ·
+   Serviciu (чип «Urgent» вместо значка) · Medic · Status (плашка) · Acțiuni
+   (кнопка следующего шага + «⋯» 44px). Колонки «#» больше нет.
 
    ⛔ Это НЕ сетка. Список показывает ОТМЕНЁННЫЕ записи (в сетке их нет) и
    заметки стойки, и только отсюда заметку можно убрать и вернуть: карточки
@@ -16,21 +20,24 @@ import type { DayListRow, DayModel } from './day'
    обрезанного укоротило бы его без единой правки.
    ⭐ (06.10, Олег) В строке визита — ОДНА кнопка, следующий шаг (первое
    действие матрицы сервера), остальное — в меню «⋯»: то же меню исходов, что
-   по правой кнопке, с теми же вопросами подтверждения и ссылкой на фишу. Пять
-   цветных кнопок в каждой строке перекрикивали сам список.
+   по правой кнопке, с теми же вопросами подтверждения, фишей и одонтограммой.
    ⭐ «Sursă» — только у клиники с ботом (`source_col`): без бота там везде
    «manual», и колонка ничего не различала. Заметку и так видно по значку в
    «Serviciu». */
 const T = {
   title: 'Lista zilei',
-  empty: '— nicio programare —',
+  empty: 'Nicio programare în această zi.',
   all: 'arată tot',
-  head: ['#', 'Ora', 'Pacient', 'Telefon', 'Serviciu', 'Medic', 'Sursă',
-    'Status', 'Acțiuni'],
+  head: ['Ora', 'Pacient', 'Telefon', 'Serviciu', 'Medic', 'Sursă', 'Status', 'Acțiuni'],
   source: 'Sursă',
-  more: 'Alte acțiuni',
+  more: 'Mai multe acțiuni',
   reminded: 'Reminder trimis',
   rec: 'Consultație completată',
+  urgent: 'Urgent',
+  noPhone: 'Fără telefon',
+  years: 'ani',
+  one: 'programare',
+  many: 'programări',
 } as const
 
 interface Props {
@@ -50,6 +57,7 @@ export function DayList({ model, busy, onCard, onCardMenu, onStatus, onAll }: Pr
     ? `${f.label} — ${model.date.split('-').reverse().join('.')}`
     : T.title
   const head = model.source_col ? T.head : T.head.filter((h) => h !== T.source)
+  const n = model.list.filter((r) => !r.is_note).length
 
   return (
     <>
@@ -62,20 +70,27 @@ export function DayList({ model, busy, onCard, onCardMenu, onStatus, onAll }: Pr
           </AppLink>
         </div>
       ) : null}
-      <h2>{title}</h2>
-      <table className="list">
-        <tbody>
-          <tr>{head.map((h) => <th key={h}>{h}</th>)}</tr>
-          {model.list.length === 0 ? (
-            <tr><td colSpan={head.length} className="dp-empty">{T.empty}</td></tr>
-          ) : model.list.map((row) => (
-            <Row key={row.id} row={row} busy={busy} source={model.source_col}
-                 actions={(row.is_note ? model.note_actions : model.actions)[row.status] ?? []}
-                 clickable={!row.is_note && !!model.cards[String(row.id)]}
-                 onCard={onCard} onCardMenu={onCardMenu} onStatus={onStatus} />
-          ))}
-        </tbody>
-      </table>
+      <section className="dp-card dp-dl">
+        <div className="dp-dl-h">
+          <h2>{title}</h2>
+          <span className="dp-dl-n">{n} {n === 1 ? T.one : T.many}</span>
+        </div>
+        <div className="dp-dl-scroll">
+          <table className="list">
+            <tbody>
+              <tr>{head.map((h) => <th key={h} className={h === 'Acțiuni' ? 'dp-dl-acts' : undefined}>{h}</th>)}</tr>
+              {model.list.length === 0 ? (
+                <tr><td colSpan={head.length} className="dp-empty">{T.empty}</td></tr>
+              ) : model.list.map((row) => (
+                <Row key={row.id} row={row} busy={busy} source={model.source_col}
+                     actions={(row.is_note ? model.note_actions : model.actions)[row.status] ?? []}
+                     clickable={!row.is_note && !!model.cards[String(row.id)]}
+                     onCard={onCard} onCardMenu={onCardMenu} onStatus={onStatus} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </>
   )
 }
@@ -99,25 +114,24 @@ function Row({ row, actions, clickable, busy, source, onCard, onCardMenu, onStat
   const shown = compact ? actions.slice(0, 1) : actions
   return (
     <tr className={row.status}>
-      <td>{row.id}</td>
-      <td>{row.time}</td>
+      <td className="dp-dl-time">{row.time}</td>
       <td>
         {clickable ? (
-          <>
-            <AppLink className="plink" href="#addform"
-               onClick={(e) => { e.preventDefault(); onCard(row.id) }}
-               onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(row.id, e.clientX, e.clientY) }}>{row.name}</AppLink>
-            {row.age ? <small className="dp-age"> ({row.age} ani)</small> : null}
-          </>
+          <AppLink className="plink" href="#addform"
+             onClick={(e) => { e.preventDefault(); onCard(row.id) }}
+             onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(row.id, e.clientX, e.clientY) }}>{row.name}</AppLink>
         ) : row.name}
+        {row.age ? <small className="dp-age"> {row.age} {T.years}</small> : null}
       </td>
-      <td>{row.phone}</td>
+      <td className="dp-dl-phone">{row.phone || <i className="dp-nophone">{T.noPhone}</i>}</td>
       <td>
-        {row.is_note ? <><Icon name="note" /> </>
-          : row.urgent ? <><Icon name="sos" /> </> : null}
-        {row.service}
+        <span className="dp-dl-svc">
+          {row.is_note ? <Icon name="note" /> : null}
+          {row.urgent ? <span className="chip urg"><Icon name="excl" />{T.urgent}</span> : null}
+          {row.service}
+        </span>
         {row.comment_cut ? (
-          <><br /><small className="dp-cmt"><Icon name="chat" /> {row.comment_cut}</small></>
+          <small className="dp-cmt"><Icon name="chat" /> {row.comment_cut}</small>
         ) : null}
       </td>
       <td>{row.doctor}</td>
@@ -137,22 +151,23 @@ function Row({ row, actions, clickable, busy, source, onCard, onCardMenu, onStat
           <span className="rec-mark" title={T.rec}><Icon name="med" /></span>
         ) : null}
       </td>
-      <td className="dp-acts">
+      <td className="dp-acts dp-dl-acts">
         {shown.map((a) => (
           <form key={a.to} className="act" onSubmit={(e) => {
             e.preventDefault()
             void when(a.confirm, () => onStatus(row.id, a.to))
           }}>
-            <button className={a.cls} disabled={busy}>
+            <button className={`${a.cls} dp-next`} disabled={busy}>
               {a.cls === 'b-reopen' ? <><Icon name="undo" /> </> : null}{a.label}
             </button>
           </form>
         ))}
         {compact ? (
           /* ⛔ Меню ТО ЖЕ, что по правой кнопке (`CardMenu` экрана): исходы
-             сервера, его вопросы подтверждения и фиша. Место — под кнопкой. */
-          <button type="button" className="dp-more" title={T.more} aria-label={T.more}
-                  disabled={busy}
+             сервера, его вопросы подтверждения, фиша и одонтограмма. Место —
+             под кнопкой. */
+          <button type="button" className="dp-more dp-ibtn" title={T.more} aria-label={T.more}
+                  aria-haspopup="menu" disabled={busy}
                   onClick={(e) => {
                     const r = e.currentTarget.getBoundingClientRect()
                     onCardMenu?.(row.id, r.left, r.bottom + 4)

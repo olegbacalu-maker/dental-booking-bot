@@ -405,8 +405,9 @@ def suite_switch(res: Result) -> None:
         # экране было бы по два сайдбара, и увидеть это можно только глазами.
         res.ok("список: серверного каркаса нет", "<aside" not in page
                and 'class="top"' not in page, "две оболочки разом")
+        # подпись раздела печатает сам экран (08.10) — сервер отдаёт пустую
         res.ok("список: рамка (подпись раздела и бандл)",
-               "medicii clinicii" in page and "/static/js/bundle.js?v=" in page, "рамка потеряна")
+               "medicii clinicii" not in page and "/static/js/bundle.js?v=" in page, "рамка потеряна")
         res.ok("список: старой разметки нет", "class='medgrid'" not in page, "две разметки")
         res.ok("список: не внутри #live", 'id="live"' not in page, "живой кусок на экране React")
         page = c.get("/admin/doctor-card/d2").body

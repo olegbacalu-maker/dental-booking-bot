@@ -5,12 +5,18 @@ import { hideDialog, showDialog } from './dialog'
 import { mdl, type PatientCard, type PlanItem, type Visit } from './card'
 import { printHref } from './print'
 
-/* Слова шапки и пяти цифр — те же, что на старой странице; сами цифры,
-   пилюли, «последний» и «следующий» визит посчитаны на сервере. */
+/* Шапка фиши по макету Олега (08.10, промпт 2): карточка с аватаром 80px,
+   имя и плашки, строка «41 ani · canal: recepție · pacient din 2026 · ID #5»,
+   кнопки «Sună», «Programează», «Fișa 043/e»; справа «Ultima vizită» и
+   «Medic curant» («Setează medicul», когда не задан). Под шапкой — баннер
+   «Anamneza nu a fost completată…» (role=alert) или полоса рисков; ниже пять
+   карточек-цифр без значков. Слова — те же, что на старой странице; сами
+   цифры, пилюли, «последний» и «следующий» визит посчитаны на сервере. */
 const T = {
   years: 'ani',
+  channel: 'canal:',
   dosar: 'dosar',
-  since: 'Pacient din',
+  since: 'pacient din',
   idTitle:
     'Numărul intern al fișei în program (adresa paginii, copiile de siguranță, suport). Click = copiază',
   copied: 'copiat',
@@ -20,13 +26,14 @@ const T = {
   fisa: 'Fișa 043/e',
   anamneza: 'Anamneză',
   riskLabel: 'Riscuri medicale',
-  riskNone: 'Anamneza nu a fost completată — întrebați pacientul înainte de tratament.',
-  fill: 'Completează',
+  noneA: 'Anamneza nu a fost completată.',
+  noneB: 'Întrebați pacientul înainte de tratament.',
+  fill: 'Completează anamneza',
   last: 'Ultima vizită',
   noVisits: 'încă fără vizite',
   doctor: 'Medic curant',
   ownDoctor: 'din fișa pacientului',
-  noDoctor: 'nesetat',
+  setDoctor: 'Setează medicul',
   kpi: {
     visits: ['Vizite în total', 'din'],
     active: ['Proceduri active', 'în planul de tratament'],
@@ -35,8 +42,9 @@ const T = {
     done: ['Proceduri finalizate', 'istoric complet'],
   },
   today: 'azi',
-  days: 'zile',
+  yesterday: 'ieri',
   ago: 'acum',
+  days: 'zile',
   clickHint: 'click pentru detalii',
   panels: {
     visits: 'Toate vizitele',
@@ -63,16 +71,22 @@ interface Props {
   onBook: () => void
   /** «Deschide planul» из окна активных позиций — вкладка плана (B6) */
   onPlan: () => void
-  /** «Anamneză» рядом с 043/e (01.10): вкладка «Date pacient», опросник раскрыт. */
+  /** «Completează anamneza» / «Anamneză ›»: вкладка «Date pacient», опросник раскрыт. */
   onAnamneza: () => void
+  /** «Setează medicul» — вкладка «Date pacient», форма профиля раскрыта. */
+  onDoctor: () => void
   /** Адрес фиши с текущей вкладкой — «назад» на печатном листе. */
   back: string
 }
 
-/** Давность последнего визита словами старой страницы: «azi» / «N zile». */
+/** Давность последнего визита словами: «azi» / «ieri» / «acum N zile».
+ *  ⚠️ Дни считает сервер по КАЛЕНДАРЮ клиники (card.days_ago): визит вчера
+ *  вечером — «ieri», а не «azi», сколько бы часов ни прошло. */
 export function daysLabel(days: number | null): string {
   if (days === null) return '—'
-  return days ? `${days} ${T.days}` : T.today
+  if (days === 0) return T.today
+  if (days === 1) return T.yesterday
+  return `${T.ago} ${days} ${T.days}`
 }
 
 function VisitRow({ v }: { v: Visit }) {
@@ -97,7 +111,7 @@ function PlanRow({ it, labels }: { it: PlanItem; labels: Record<string, string> 
   )
 }
 
-export function HeroKpi({ card, onBook, onPlan, onAnamneza, back }: Props) {
+export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, back }: Props) {
   const { profile: p, hero, kpi, plan } = card
   /* ⭐ Риски — ОДНОЙ полосой под шапкой, на всех вкладках (01.10). До B6
      анамнез стоял под предупреждениями на одной длинной странице; с вкладками
@@ -130,7 +144,7 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, back }: Props) {
 
   const meta = [
     p.age ? `${p.age} ${T.years}` : '',
-    p.channel,
+    p.channel ? `${T.channel} ${p.channel}` : '',
     p.file_no ? `${T.dosar} ${p.file_no}` : '',
     `${T.since} ${p.year}`,
   ].filter(Boolean)
@@ -141,12 +155,14 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, back }: Props) {
   const lastRow = live.find((v) => hero.last && v.when.startsWith(hero.last.date)) ?? null
   const nextRow = live.find((v) => v.is_next) ?? null
 
-  const kpis: { key: PanelKey; icon: string; value: string; label: string; sub: string }[] = [
-    { key: 'visits', icon: 'clipboard', value: String(kpi.visits), label: T.kpi.visits[0], sub: `${T.kpi.visits[1]} ${p.year}` },
-    { key: 'active', icon: 'tooth', value: String(kpi.active), label: T.kpi.active[0], sub: T.kpi.active[1] },
-    { key: 'last', icon: 'clock', value: hero.last ? daysLabel(hero.days_ago) : '—', label: T.kpi.last[0], sub: hero.last ? hero.last.date : '—' },
-    { key: 'next', icon: 'cal', value: hero.next ? hero.next.date.slice(0, 5) : '—', label: T.kpi.next[0], sub: hero.next ? hero.next.time : T.kpi.next[1] },
-    { key: 'done', icon: 'check', value: String(kpi.done), label: T.kpi.done[0], sub: T.kpi.done[1] },
+  /* «Ultima vizită» — ДАТОЙ, давность словом под ней (макет 08.10: «azi» при
+     дате вчерашнего дня читалось как ошибка). */
+  const kpis: { key: PanelKey; value: string; label: string; sub: string }[] = [
+    { key: 'visits', value: String(kpi.visits), label: T.kpi.visits[0], sub: `${T.kpi.visits[1]} ${p.year}` },
+    { key: 'active', value: String(kpi.active), label: T.kpi.active[0], sub: T.kpi.active[1] },
+    { key: 'last', value: hero.last ? hero.last.date : '—', label: T.kpi.last[0], sub: hero.last ? daysLabel(hero.days_ago) : T.noVisits },
+    { key: 'next', value: hero.next ? hero.next.date.slice(0, 5) : '—', label: T.kpi.next[0], sub: hero.next ? hero.next.time : T.kpi.next[1] },
+    { key: 'done', value: String(kpi.done), label: T.kpi.done[0], sub: T.kpi.done[1] },
   ]
 
   let body = null
@@ -168,7 +184,7 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, back }: Props) {
     body = lastRow ? (
       <>
         <VisitRow v={lastRow} />
-        <p className="hint">{hero.days_ago ? `${T.ago} ${hero.days_ago} ${T.days}` : T.today}</p>
+        <p className="hint">{daysLabel(hero.days_ago)}</p>
       </>
     ) : <p className="hint dp-m0">— {T.emptyVisits} —</p>
   } else if (panel === 'next') {
@@ -189,7 +205,14 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, back }: Props) {
       <div className="hero">
         <div className="hero-av">{card.initials}</div>
         <div className="hero-id">
-          <h2>{card.name || '—'}</h2>
+          <div className="hero-title">
+            <h2>{card.name || '—'}</h2>
+            <div className="hero-badges">
+              {hero.pills.map((pl, i) => (
+                <span key={i} className={`pill ${pl.tone}`}><Icon name={iconName(pl.icon)} /> {pl.text}</span>
+              ))}
+            </div>
+          </div>
           <div className="hero-meta">
             {meta.map((m) => <span key={m}>{m}</span>)}
             <span>
@@ -198,53 +221,52 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, back }: Props) {
               </span>
             </span>
           </div>
-          <div className="hero-badges">
-            {hero.pills.map((pl, i) => (
-              <span key={i} className={`pill ${pl.tone}`}><Icon name={iconName(pl.icon)} /> {pl.text}</span>
-            ))}
-          </div>
+          {/* «Anamneză» из шапки снята (08.10): за неё отвечают баннер под
+              шапкой и полоса рисков */}
           <div className="hero-acts">
             {p.phone && <AppLink href={`tel:${p.phone}`}><Icon name="phone" /> {T.call}</AppLink>}
-            {p.email && <AppLink href={`mailto:${p.email}`}><Icon name="mail" /> {T.mail}</AppLink>}
-            <button type="button" onClick={onBook}><Icon name="cal" /> {T.book}</button>
+            <button type="button" className="pri" onClick={onBook}><Icon name="cal" /> {T.book}</button>
             <AppLink href={printHref(card.id, 'fisa043', back)}><Icon name="file" /> {T.fisa}</AppLink>
-            <button type="button" onClick={onAnamneza}><Icon name="note" /> {T.anamneza}</button>
+            {p.email && <AppLink href={`mailto:${p.email}`}><Icon name="mail" /> {T.mail}</AppLink>}
           </div>
         </div>
-        <div className="hero-side">
-          <div className="hs">
-            <span>{T.last}</span>
-            <b>{hero.last ? hero.last.date : '—'}</b>
-            <div className="dp-hs-sub">{hero.last ? hero.last.service : T.noVisits}</div>
+        <dl className="hero-side">
+          <div>
+            <dt>{T.last}</dt>
+            <dd className="v num">{hero.last ? hero.last.date : '—'}</dd>
+            <dd className="s">{hero.last ? hero.last.service : T.noVisits}</dd>
           </div>
-          <div className="hs">
-            <span>{T.doctor}</span>
-            <b>{p.primary_doctor || '—'}</b>
-            <div className="dp-hs-sub">{p.primary_doctor ? T.ownDoctor : T.noDoctor}</div>
+          <div>
+            <dt>{T.doctor}</dt>
+            <dd className="v">{p.primary_doctor || '—'}</dd>
+            <dd className="s">
+              {p.primary_doctor
+                ? T.ownDoctor
+                : <button type="button" className="dp-link" onClick={onDoctor}>{T.setDoctor}</button>}
+            </dd>
           </div>
-        </div>
+        </dl>
       </div>
       {risks.length > 0 ? (
         <div className="hero-risk" role="note" aria-label={T.riskLabel}>
           <Icon name="sos" />
           <span className="hero-risk-list">{risks.map((r, i) => <span key={i}>{r}</span>)}</span>
+          <button type="button" className="hero-risk-go" onClick={onAnamneza}>{T.anamneza} ›</button>
         </div>
       ) : card.anamneza.state === 'none' ? (
-        <div className="hero-risk soft" role="note" aria-label={T.riskLabel}>
-          <Icon name="note" />
-          <span className="hero-risk-list"><span>{T.riskNone}</span></span>
-          <button type="button" className="hero-risk-go" onClick={onAnamneza}>{T.fill} ›</button>
+        /* баннер-предупреждение (макет 08.10): анамнез не собирали */
+        <div className="dp-abanner" role="alert">
+          <Icon name="excl" />
+          <span><b>{T.noneA}</b> {T.noneB}</span>
+          <button type="button" className="dp-btn" onClick={onAnamneza}>{T.fill}</button>
         </div>
       ) : null}
       <div className="kpi5">
         {kpis.map((k) => (
           <button key={k.key} type="button" className="kpi" title={`${k.label} — ${T.clickHint}`} onClick={() => open(k.key)}>
-            <span className="ki"><Icon name={iconName(k.icon)} /></span>
-            <div className="dp-kpi-body">
-              <b>{k.value}</b>
-              <span>{k.label}</span>
-              <small>{k.sub}</small>
-            </div>
+            <span className="kpi-l">{k.label}</span>
+            <b>{k.value}</b>
+            <small>{k.sub}</small>
           </button>
         ))}
       </div>

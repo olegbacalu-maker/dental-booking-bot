@@ -1,8 +1,7 @@
-import { useState } from 'react'
 import { groupThousands } from '../../utils/fx'
 
-/* Фигуры раздела «Statistici» (B8, 27.09). Как и остальные графики программы —
-   без библиотек: SVG и числа, цвета из темы клиники.
+/* Фигуры раздела «Statistici» (B8, 27.09; вид по макету Олега 08.10). Как и
+   остальные графики программы — без библиотек: разметка, числа и цвета темы.
    Приёмы взяты у открытых шаблонов shadcn/ui dashboard-01 (MIT) и Tremor
    Dashboard OSS (Apache-2.0), код не копировался: столбцы с подсказкой вместо
    подписи у каждой точки, полоса долей вместо кольца. */
@@ -19,82 +18,65 @@ export function niceStep(raw: number): number {
 interface ColumnsProps {
   labels: string[]
   hints: string[]
+  /** День недели над датой («Vi / 02.10») — только у дневных корзин. */
+  wdays?: string[] | undefined
   values: number[]
   /** Текст значения в подсказке — деньги форматирует сервер. */
   texts?: string[] | undefined
   unit: string
-  tone: string
   ariaLabel: string
   /** Фраза для периода без единого значения. */
   empty: string
 }
 
 /**
- * Столбцы по дням или неделям. Подписи у каждого столбца нет — число
- * показывает подсказка при наведении и касании, а ось Y даёт масштаб.
+ * Столбцы по дням или неделям (макет 08.10): один цвет, скругление сверху,
+ * ось Y на 3–4 деления, числом подписан только самый высокий столбец, у
+ * каждого — подсказка при наведении и фокусе. Столбец фокусируем и назван
+ * (`aria-label`): график читается и с клавиатуры.
  * ⚠️ Нулевой день (воскресенье, клиника закрыта) — пустое место, а не столбик
  * высотой в пиксель: «ничего не было» так и читается.
  */
-export function Columns({ labels, hints, values, texts, unit, tone, ariaLabel, empty }: ColumnsProps) {
-  const [hot, setHot] = useState<number | null>(null)
+export function Columns({ labels, hints, wdays, values, texts, unit, ariaLabel, empty }: ColumnsProps) {
   /* Пустой период — фраза вместо пустой сетки 0…1: сетка без столбиков
      выглядела бы как недогруженный график. */
   if (!values.some((v) => v > 0)) return <p className="hint stx-empty">{empty}</p>
-  const w = 720, h = 236, l = 56, r = 8, t = 10, b = 28
-  const iw = w - l - r, ih = h - t - b
-  /* Шаг — «круглый», засечек 1–5 по верху данных: потолок почти впритык к
-     максимуму, без полупустой шкалы (24 записи → ось до 25, а не до 40). */
   const max = Math.max(...values, 1)
-  const step = niceStep(max / 5)
+  /* Шаг — «круглый», засечек 3–4 по верху данных: потолок — ближайшая
+     засечка над максимумом, без полупустой шкалы. */
+  const step = niceStep(max / 4)
   const ticks = Math.max(1, Math.ceil(max / step))
   const top = step * ticks
-  const dx = iw / values.length
-  const bw = Math.max(3, Math.min(30, dx * 0.62))
-  const y = (v: number) => t + ih - ih * (v / top)
-  const every = Math.max(1, Math.ceil(labels.length / 10))
   const text = (i: number) => (texts ? texts[i] : `${values[i]} ${unit}`)
-  const tip = hot === null ? null : {
-    left: Math.min(92, Math.max(8, ((l + dx * (hot + 0.5)) / w) * 100)),
-    hint: hints[hot],
-    text: text(hot),
-  }
+  const best = values.indexOf(max)
+  const every = Math.max(1, Math.ceil(labels.length / 10))
   return (
-    <div className="stx-cols" onPointerLeave={() => setHot(null)}>
-      <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label={ariaLabel}>
-        {Array.from({ length: ticks + 1 }, (_, k) => k).map((k) => (
-          <g key={k}>
-            <line className="stx-grid" x1={l} x2={w - r} y1={y(step * k)} y2={y(step * k)} />
-            <text className="stx-ax" x={l - 8} y={y(step * k) + 4} textAnchor="end">
-              {groupThousands(Math.round(step * k))}
-            </text>
-          </g>
+    <div className="stx-cols" role="group" aria-label={ariaLabel}>
+      <div className="stx-plot">
+        {Array.from({ length: ticks + 1 }, (_, k) => (
+          <div key={k} className="stx-tick" style={{ bottom: `${(100 * k) / ticks}%` }} aria-hidden="true">
+            <span>{groupThousands(Math.round(step * k))}</span>
+          </div>
         ))}
-        {values.map((v, i) => {
-          const x = l + dx * i + (dx - bw) / 2
-          return (
-            <g key={i}>
-              {v > 0 && (
-                <rect className={hot === i ? 'stx-bar on' : 'stx-bar'} x={x} y={y(v)}
-                  width={bw} height={Math.max(1, y(0) - y(v))} rx={Math.min(4, bw / 3)}
-                  style={{ fill: tone }} />
-              )}
-              <rect className="stx-hit" x={l + dx * i} y={t} width={dx} height={ih}
-                onPointerEnter={() => setHot(i)} onPointerDown={() => setHot(i)}>
-                <title>{`${hints[i]}: ${text(i)}`}</title>
-              </rect>
-            </g>
-          )
-        })}
-        {labels.map((s, i) => (i % every === 0 || i === labels.length - 1) && (
-          <text key={i} className="stx-ax" x={l + dx * (i + 0.5)} y={h - 8} textAnchor="middle">{s}</text>
-        ))}
-      </svg>
-      {tip && (
-        <div className="stx-tip" style={{ left: `${tip.left}%` }}>
-          <span>{tip.hint}</span>
-          <b>{tip.text}</b>
+        <div className="stx-bars">
+          {values.map((v, i) => (
+            <div key={i} className="stx-bcol" tabIndex={0} aria-label={`${hints[i]}: ${text(i)}`}>
+              <span className="stx-tip" aria-hidden="true"><span>{hints[i]}:</span> <b>{text(i)}</b></span>
+              {i === best && <span className="stx-top" aria-hidden="true">{texts ? texts[i] : values[i]}</span>}
+              {v > 0 && <div className="stx-bar" style={{ height: `${(100 * v) / top}%` }} />}
+            </div>
+          ))}
         </div>
-      )}
+      </div>
+      <div className="stx-xax" aria-hidden="true">
+        {labels.map((s, i) => (
+          <div key={i}>
+            {(i % every === 0 || i === labels.length - 1) ? (
+              <>{wdays?.[i] ? <b>{wdays[i]}</b> : null}<span>{s}</span></>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -121,7 +103,7 @@ export function CategoryBar({ parts }: { parts: Part[] }) {
         {parts.map((p) => (
           <li key={p.key}>
             <i style={{ background: p.color }} />
-            <span>{p.label} <em>{p.pct}%</em></span>
+            <span>{p.label} <em>· {p.pct}%</em></span>
             <b>{p.text}</b>
           </li>
         ))}

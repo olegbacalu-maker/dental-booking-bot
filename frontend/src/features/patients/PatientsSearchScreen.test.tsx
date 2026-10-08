@@ -99,27 +99,33 @@ describe('filters', () => {
 })
 
 describe('PatientsSearchScreen', () => {
-  it('строки: имя, канал вместо e-mail, долг и аванс, статус словами сервера, врач с последнего визита', async () => {
+  it('строки: имя, «возраст · канал» второй строкой, долг и аванс, статус словами сервера, врач с последнего визита', async () => {
     serve()
     open()
     expect(await screen.findByText('Avans Popescu')).toBeTruthy()
+    /* макет 08.10: под именем «23 ani · recepție»; e-mail остаётся в предпросмотре */
     expect(screen.getByText('recepție', { selector: 'small' })).toBeTruthy()
-    expect(screen.getByText('dg@example.com')).toBeTruthy()
-    expect(screen.getByText('avans 300').className).toBe('pl-badge act')
-    expect(screen.getByText('1 200 MDL').className).toBe('pl-badge bad')
-    expect(screen.getByText('Activ', { selector: 'span' }).className).toBe('pl-badge act')
-    expect(screen.getByText('Necesită atenție', { selector: 'span' }).className).toBe('pl-badge att')
+    expect(screen.getByText('23 ani · recepție', { selector: 'small' })).toBeTruthy()
+    expect(screen.queryByText('dg@example.com')).toBeNull()
+    expect(screen.getByText('avans 300').className).toBe('chip ok')
+    expect(screen.getByText('1 200 MDL').className).toBe('chip bad')
+    expect(screen.getByText('Activ', { selector: 'span' }).className).toBe('chip ok')
+    expect(screen.getByText('Necesită atenție', { selector: 'span' }).className).toBe('chip warn')
     expect(screen.getByText('Dr. Activ Doi', { selector: 'td span' }).className).toBe('dim')
     expect(screen.getByText('› 20.09 10:00')).toBeTruthy()
-    expect(screen.getByTitle('Fără telefon')).toBeTruthy()
-    expect(screen.getByText(/23 ani/)).toBeTruthy()
+    expect(screen.getByText('Fără telefon').tagName).toBe('I')
+    /* подпись шапки — числа списка; кнопок «глаз»/«фиша» в строках нет */
+    expect(document.querySelector('.dp-react-root > .sub')?.textContent).toBe('2 afișați din 14 · +3 luna aceasta')
+    expect(document.querySelector('.pl-acts')).toBeNull()
     expect(screen.getByText('Total pacienți').parentElement?.querySelector('b')?.textContent).toBe('14')
     expect(screen.getByText(/Afișare 1–10 din 14 pacienți/)).toBeTruthy()
     expect(screen.getByText('arată')).toBeTruthy()
     expect((screen.getByText('Exportă').closest('a') as HTMLAnchorElement).getAttribute('href')).toBe('/admin/patients.xlsx')
     expect(screen.getByText('Ultima vizită').closest('a')?.querySelector('svg')).toBeTruthy()
-    const opts = Array.from((screen.getByLabelText('Toți medicii') as HTMLSelectElement).options).map((o) => o.value)
+    const opts = Array.from((screen.getByLabelText('Medic', { selector: 'select' }) as HTMLSelectElement).options).map((o) => o.value)
     expect(opts).toEqual(['', '-', 'Dr. Activ Doi', 'Dr. Activ Trei'])
+    expect(screen.queryByText('Caută')).toBeNull()
+    expect(screen.queryByText('Resetează')).toBeNull()
     expect(pageCalls()).toEqual(['/patients'])
   })
 
@@ -147,7 +153,7 @@ describe('PatientsSearchScreen', () => {
     const { router } = open('/admin/search?page=2')
     await screen.findByText('Avans Popescu')
     expect(pageCalls()).toEqual(['/patients?page=2'])
-    fireEvent.change(screen.getByLabelText('Toate statusurile'), { target: { value: 'atentie' } })
+    fireEvent.change(screen.getByLabelText('Status', { selector: 'select' }), { target: { value: 'atentie' } })
     await waitFor(() => expect(pageCalls()).toContain('/patients?st=atentie'))
     fireEvent.click(screen.getByText('Pacient'))
     await waitFor(() => expect(pageCalls()).toContain('/patients?st=atentie&sort=name'))
@@ -173,21 +179,21 @@ describe('PatientsSearchScreen', () => {
     get.mockImplementationOnce((path: string) => (path === '/patients/summary' ? Promise.resolve(ok(SUMMARY)) : Promise.resolve(ok(PAGE))))
     const base = get.getMockImplementation()!
     get.mockImplementation((path: string) => (path === '/patients/6/peek'
-      ? Promise.resolve(ok({ html: "<div class='pp-head'><b>Avans Popescu</b></div><a href='/admin/patient/6'>Editează fișa</a>" }))
+      ? Promise.resolve(ok({ html: "<div class='pp-head'><b>Avans Popescu</b></div><a href='/admin/patient/6'>Editează</a>" }))
       : base(path)))
     const { router } = open()
     fireEvent.click(await screen.findByText('Avans Popescu'))
-    expect(await screen.findByText('Editează fișa')).toBeTruthy()
+    expect(await screen.findByText('Editează')).toBeTruthy()
     expect(document.querySelector('aside')?.className).toBe('ppanel open')
     expect(document.getElementById('plr6')?.className).toBe('on')
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(document.querySelector('aside')?.className).toBe('ppanel')
-    expect(screen.queryByText('Editează fișa')).toBeNull()
+    expect(screen.queryByText('Editează')).toBeNull()
 
     /* B4: ссылка в прозе предпросмотра — переход роутером, не документ (голой
        она перезагружала окно — «дёргание» поиск → фиша на канарейке 1.30.2). */
     fireEvent.click(screen.getByText('Avans Popescu'))
-    const link = await screen.findByText('Editează fișa')
+    const link = await screen.findByText('Editează')
     let native = true
     await act(async () => { native = nativeClick(link) })
     expect(native).toBe(false)
@@ -213,7 +219,7 @@ describe('PatientsSearchScreen', () => {
     post.mockResolvedValueOnce(ok({ id: 9, url: '/admin/patient/9?msg=new_pat' }, 'new_pat', 'Pacient adăugat'))
     const { router } = open('/admin/search', { navigate })
     await screen.findByText('Avans Popescu')
-    fireEvent.click(screen.getByText('＋ Adaugă pacient'))
+    fireEvent.click(screen.getByRole('button', { name: 'Adaugă pacient' }))
     const form = document.querySelector('dialog form') as HTMLFormElement
     fireEvent.submit(form)
     expect(await screen.findByText('Lipsește numele')).toBeTruthy()
@@ -251,7 +257,7 @@ describe('PatientsSearchScreen', () => {
     expect(screen.getByText(/2 fișe arhivate/)).toBeTruthy()
     expect(screen.queryByText(/Afișare/)).toBeNull()
     fireEvent.change(screen.getByLabelText('Caută pacient, telefon, e-mail…'), { target: { value: 'zz' } })
-    expect(await screen.findByText('Nimic găsit')).toBeTruthy()
+    expect(await screen.findByText('Niciun pacient găsit')).toBeTruthy()
   })
 
   it('401 при загрузке — уходим на вход, экран не рисуется', async () => {
@@ -259,7 +265,7 @@ describe('PatientsSearchScreen', () => {
     const navigate = vi.fn()
     open('/admin/search', { navigate })
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
-    expect(document.querySelector('.pl-grid')).toBeNull()
+    expect(document.querySelector('.dp-pl-grid')).toBeNull()
   })
 
   it('движок молчит — плашка и повтор', async () => {
@@ -275,7 +281,7 @@ describe('PatientsSearchScreen', () => {
             '?st=atentie&sort=name': { ...PAGE, rows: [ROW2], total: 1, pages: 1, sort: 'name' } })
     open()
     await screen.findByText('Avans Popescu')
-    fireEvent.change(screen.getByLabelText('Toate statusurile'), { target: { value: 'atentie' } })
+    fireEvent.change(screen.getByLabelText('Status', { selector: 'select' }), { target: { value: 'atentie' } })
     await waitFor(() => expect(pageCalls()).toContain('/patients?st=atentie'))
     fireEvent.click(screen.getByText('Pacient'))
     await waitFor(() => expect(pageCalls()).toContain('/patients?st=atentie&sort=name'))
@@ -286,7 +292,7 @@ describe('PatientsSearchScreen', () => {
     serve({ '': PAGE, '?st=atentie': { ...PAGE, rows: [ROW2], total: 1, pages: 1 } })
     const { router } = open()
     await screen.findByText('Avans Popescu')
-    fireEvent.change(screen.getByLabelText('Toate statusurile'), { target: { value: 'atentie' } })
+    fireEvent.change(screen.getByLabelText('Status', { selector: 'select' }), { target: { value: 'atentie' } })
     await screen.findByText(/Afișare 1–1 din 1 pacienți/)
     const last = pageCalls().at(-1)
     const at = router.state.location.pathname + router.state.location.search
@@ -295,7 +301,7 @@ describe('PatientsSearchScreen', () => {
     open(at)
     expect(await screen.findByText(/Afișare 1–1 din 1 pacienți/)).toBeTruthy()
     expect(pageCalls()).toEqual([last])
-    expect((screen.getByLabelText('Toate statusurile') as HTMLSelectElement).value).toBe('atentie')
+    expect((screen.getByLabelText('Status', { selector: 'select' }) as HTMLSelectElement).value).toBe('atentie')
   })
 
   it('буква ждёт паузу: до неё адрес прежний, после — с q', async () => {
@@ -332,7 +338,7 @@ describe('PatientsSearchScreen', () => {
     serve({ '': PAGE })
     open()
     await screen.findByText('Avans Popescu')
-    fireEvent.change(screen.getByLabelText('Toate statusurile'), { target: { value: 'inactiv' } })
+    fireEvent.change(screen.getByLabelText('Status', { selector: 'select' }), { target: { value: 'inactiv' } })
     expect(await screen.findByText(/Programul nu răspunde/)).toBeTruthy()
     expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('false')
   })

@@ -55,10 +55,9 @@ async def admin_stats(
         # период уезжает ПАРАМЕТРАМИ узла, а не разбором адреса на клиенте:
         # адрес принадлежит серверу, и клиент не должен его угадывать
         # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        # подпись печатает сам экран (08.10): период и «comparat cu …»
         return react_shell("stats", request.url.path,
-                           shell_model("stat",
-                                       "statistici · perioadă selectabilă · doar director",
-                                       msg=msg),
+                           shell_model("stat", "", msg=msg),
                            {"from": d1.isoformat(), "to": d2.isoformat()})
     d = await model.build(d1, d2, today)
     return _shell(msg_banner(msg) + render.page(d),

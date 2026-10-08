@@ -721,13 +721,12 @@
    padding:0;background:transparent;cursor:pointer;position:relative;font:inherit;color:inherit;text-align:left}
  .gcell:hover,.gcell:focus-visible,.gcell.dropzone{background:var(--teal-soft)}
  .gcell:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--teal)}
- /* Наведение на свободный час: «+ HH:00» (макет 08.10) — час из data-hh,
-    фирменной подложкой и словом. ⛔ Цвет фирменный (--teal), не хекс: у
-    клиники с синей темой подсказка обязана стать синей. Старая страница без
-    data-hh получает прежнее «+ Programare» рамкой. */
- .gcell[data-hh]:hover::after,.gcell[data-hh]:focus-visible::after{content:'+\00a0' attr(data-hh);
-   position:absolute;left:10px;top:8px;color:var(--teal-d);font-size:var(--fs-s);font-weight:600}
- .gcell:not([data-hh]):hover::after{content:'+\00a0 Programare';position:absolute;inset:3px 4px;
+ /* Наведение на свободный час: «+ Programare» пунктирной рамкой — слово
+    Олега 08.10 («оставил бы как раньше»; макет предлагал «+ HH:00», час и так
+    стоит слева). Одно правило на React-ячейку (data-hh) и старую страницу.
+    ⛔ Цвет фирменный (--teal), не хекс: у клиники с синей темой подсказка
+    обязана стать синей. */
+ .gcell:hover::after,.gcell:focus-visible::after{content:'+\00a0 Programare';position:absolute;inset:3px 4px;
    display:flex;align-items:center;justify-content:center;
    border:1.5px dashed var(--teal);border-radius:var(--r-chip);color:var(--teal-d);
    font-size:var(--fs-s);font-weight:600}
@@ -2117,7 +2116,6 @@
    text-overflow:ellipsis;white-space:nowrap}
  .pp-row a:hover{color:var(--teal-d)}
  .pp-info{margin-bottom:12px}
- .ppanel>.pl-btn{width:100%;justify-content:center}
  .pp-b{border-top:1px solid var(--line2);padding:14px 0}
  .pp-b.next{border:none;border-radius:var(--r-block);background:var(--teal-soft);
    padding:12px 14px;margin-top:14px}
@@ -2144,7 +2142,8 @@
  .pp-doc small{display:block;font-size:var(--fs-xs);color:var(--text3)}
  .pp-foot{border-top:1px solid var(--line);margin-top:14px;padding-top:14px;
    display:flex;flex-direction:column;gap:9px;font-size:var(--fs-s);color:var(--text3)}
- .pp-foot .pl-btn{width:100%;justify-content:center}
+ .pp-btns{display:flex;gap:8px;flex-wrap:wrap}
+ .pp-btns .pl-btn{flex:1 1 auto;justify-content:center}
  /* 1366×768 — рабочий экран клиники: на пристыкованную панель ширины не
     хватает (таблице осталось бы ~740px из семи колонок), поэтому ниже 1400
     она выезжает поверх списка, как ящик. Разметка одна и та же. */

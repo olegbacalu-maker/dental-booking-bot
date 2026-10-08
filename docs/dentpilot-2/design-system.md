@@ -34,7 +34,7 @@
 подписи «Meniu» нет, подвал `.sfoot` несёт сайт (`.bc-site`, target=_blank),
 версию, часы и почту — уголок `.brandcorner` снят; `.sub` без версии и не
 печатается пустым. Панель дня: шапка врачей внутри `.gridcard` (sticky),
-ячейка-кнопка с «+ HH:00», «Nelucrător», блок с строкой интервала `.gl1`
+ячейка-кнопка с «+ Programare» при наведении (Олег 08.10: «оставил бы как раньше»; макет предлагал «+ HH:00»), «Nelucrător», блок с строкой интервала `.gl1`
 (чип «Urgent», слово статуса) и кнопкой одонтограммы `.apact`, линия
 «сейчас» с временем атрибутом `data-now`, плашка пустого дня `.dp-empty-day`;
 рельс 336px: календарь с точками `busy`, плитки потока, карточки повестки с
@@ -44,7 +44,7 @@
 
 Названные отступления от промпта (сказаны Олегу): слово статуса на блоке
 оставлено; кнопка одонтограммы в блоке 36px в углу, не 44 по центру; списки
-стойки остаются; часы в подвале остаются; «+ Programare» → «+ HH:00».
+стойки остаются; часы в подвале остаются; «+ Programare» оставлено по слову Олега (08.10) вместо «+ HH:00» макета.
 
 ## Одонтограмма по макету (редизайн, промпт 3 — 08.10.2026)
 
@@ -68,6 +68,86 @@
 страница (`?ui=legacy`) своих классов не теряет: новые — `dp-odo*`, `dp-tp*`,
 `dp-tm*`, `dp-sf*`, `dp-st*`, `dp-vp*`; `odop`, `odop-side`, `insp`,
 `insp-close` остались на узлах ради печати и шторки под палец.
+
+## Остальные экраны по макету (редизайн, промпт 2 — 08.10.2026)
+
+Промпт `prompts/CLAUDE_CODE_PROMPT_restul-ecranelor.md`: Programări, Pacienți,
+Fișa pacientului (Rezumat), Medici, Statistici — по одному, кадры
+`design/redesign-2026-10/shots/{programari,pacienti,pacient,medici,statistici}-{1440,390}.png`.
+Данные, API и логика не менялись; сервер тронут только в разметке и в пустых
+подписях раздела.
+
+Общие кирпичи (app.css, только под `.dp-react-root`): `.dp-sel` (выпадающий
+список 44px), `.dp-ring` / `.dp-ring.lg` (кольцо-аватар цветом врача 40/56),
+`.chip.ok/.warn/.bad/.info/.mute` (плашки состояния — цвета смысла, теме не
+отдаются), `.dp-btn` внутри `.nav` — по содержимому (`width:auto`).
+
+Подпись раздела печатает ЭКРАН у всех пяти (сервер отдаёт `shell_model(…, "")`,
+как у панели дня): Programări — «Joi, 8 octombrie 2026 · 2 programări · 5%
+ocupare» (`day_long` модели дня, счёт по списку и канве); Pacienți — «20
+afișați din 31 · +25 luna aceasta» (строки страницы + первая плитка сводки);
+Fișa — крошки `nav.sub.dp-crumbs` «Pacienți › Nume»; Medici — «4 activi ·
+statistici pe ultimele 30 de zile»; Statistici — «период · comparat cu
+săptămâna trecută» (`.stx-period b` остаётся — его читает `url_state_f5.py`).
+
+- **Programări:** инструменты дня — выбор врача `select.dp-sel` (адресом:
+  `/admin/doctor/{dk}` или `/admin/all`), стрелки `.dp-ibtn`, «Azi», сегмент
+  `.dp-seg` «Zi | Săptămâna», «Excel»; «Panou» и «±7 zile» сняты. Подсказка
+  одной строкой. «Lista zilei» — карточка `.dp-dl` без колонки «#»: Ora ·
+  Pacient (ссылка + возраст) · Telefon («Fără telefon» курсивом) · Serviciu
+  (чип «Urgent») · Medic · [Sursă] · Status · Acțiuni (кнопка следующего шага
+  44px + «⋯»). В меню записи под чертой ДВА пункта: одонтограмма, потом фиша.
+  На телефоне сетка прокручивается внутри `.dp-daymain`.
+- **Pacienți:** шапка — «Exportă» и «Adaugă pacient» (`.dp-btn`); фильтры
+  карточкой `.dp-pl-filters` (живой поиск, без «Caută»; «Resetează» только
+  при отборе); таблица `.dp-pl-tbl` без кнопок в строках — Pacient (кнопка
+  `.dp-pl-who`: аватар 40, имя, «23 ani · recepție»), Telefon, Data nașterii,
+  Medic, Ultima vizită ↓, Sold (чип), Status (чип по `cls` сервера); клик
+  выделяет строку (`tr.on`) и открывает предпросмотр. Сетка `.dp-pl-grid`:
+  список | предпросмотр `.ppanel` + KPI «Total pacienți» (`.dp-pl-kpi`);
+  ниже 1400 колонка одна, предпросмотр — ящик (panel.css), KPI спрятан (те
+  же числа стоят в подписи). Предпросмотр — разметка сервера (`_peek_html`):
+  блок «Ultima vizită» получил класс `last` (серый фон), кнопки «Editează» и
+  «Profil complet ›» — рядом в `.pp-btns` (легаси делит и слова, и ряд).
+  Пустой отбор — «Niciun pacient găsit / Schimbă filtrele sau caută după alt
+  nume.». Из таблицы ушёл e-mail (он в предпросмотре и в поиске) и две плитки
+  (новые за месяц — в «+N luna aceasta», записи месяца — в Statistici).
+- **Fișa (Rezumat):** шапка `.hero` — аватар 80 (`--r-card`), имя h2 + плашки
+  `.pill` в пропорциях чипа, «26 ani · canal: recepție · pacient din 2026 ·
+  ID #18», кнопки «Sună» / «Programează» (`.pri`) / «Fișa 043/e» (/ «E-mail»),
+  справа `dl.hero-side` «Ultima vizită» и «Medic curant» («Setează medicul» →
+  Date pacient с раскрытой формой). Кнопка «Anamneză» из шапки СНЯТА: не
+  собирали — баннер `.dp-abanner` (role=alert, янтарный) с «Completează
+  anamneza»; есть риски — полоса `.hero-risk` с «Anamneză ›». KPI `.kpi` без
+  значков: подпись / число 22·700 / пояснение; «Ultima vizită» — ДАТОЙ,
+  давность под ней словом (`daysLabel`: azi / ieri / acum N zile; дни считает
+  сервер по календарю клиники). Вкладки 44px, активная — подчёркивание 3px.
+  Rezumat: «Acțiuni rapide» сеткой `repeat(auto-fill,minmax(160px,1fr))`,
+  «Istoric activitate» — `ol.dp-actlist` с цветным кружком по значку события
+  (check — зелёный, checkin/door/cal — синий, ban/trash — красный),
+  «Atenționări medicale» — пустое состояние пунктиром, плашки с крестиком
+  44px, `select.dp-sel` + поле + «Adaugă atenționare» (заперта без текста),
+  «Istoric vizite» — визит серым блоком с чипом состояния. Карточка
+  «Următoarea vizită» оставлена.
+- **Medici:** карточки `.dp-doc` сеткой (кольцо цветом врача, имя → фиша,
+  специализация, чип состояния, кабинет/часы/телефон, три цифры между
+  линиями, выбор состояния `.dp-sel` + «Program ›»); архивные последними,
+  приглушены. Смена состояния — чтение карточки + полный `doctors.save`
+  (частичной записи у сервера нет). Форма «Adaugă medic» с подписями и
+  запертой кнопкой. Часы «ca clinica» (слово `layout._doc_hours_text`) →
+  «Programul clinicii».
+- **Statistici:** KPI — название 14·600, чип изменения (`.stx-badge` в
+  пропорциях чипа), число 32·700, «săptămâna trecută: …», спарклайн 40px
+  (2px, заливка 10%) или шкала, подвал через линию. График — HTML-столбцы
+  `.stx-bcol` (`tabindex=0`, `aria-label` «Mi, 17.09.2026: 6 programări»),
+  подсказка `.stx-tip` при наведении и фокусе, число только у самого
+  высокого (`.stx-top`), ось Y на 3–4 деления (`niceStep(max/4)`), подписи
+  «Vi / 02.10» (день недели — из подсказки дня сервера). Сегмент показателя
+  — фирменный. «Bani»: способы оплаты палитрой `PAY_COLORS` (numerar #0a8ea0,
+  card #c8691a, transfer #8a5cd6 — проверена на цветовую слепоту; цвет
+  сервера — запасной, легаси прежний), «Azi · încasat / estimat». «Medici» —
+  кольца `.dp-ring`. «Top servicii» — полосы `--teal-soft`. Лента событий
+  оставлена.
 
 ## Fluent — четвёртый стиль (B5, шаг 2 — 25.09.2026)
 

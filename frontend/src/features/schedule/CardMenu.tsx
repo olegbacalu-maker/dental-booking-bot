@@ -20,6 +20,7 @@ import type { StatusAction, VisitCardView } from './day'
  */
 const T = {
   fisa: 'Fișa pacientului',
+  odo: 'Deschide odontograma',
 } as const
 
 export interface CardMenuAt {
@@ -44,7 +45,8 @@ export function CardMenu({ at, card, actions, busy, onStatus, onClose }: Props) 
   const ref = useRef<HTMLDivElement>(null)
   useMenuDismiss(ref, onClose)
   const fisa = card.pid !== null
-  const height = 40 + actions.length * ROW + (fisa ? ROW + 9 : 0) + 12
+  /* фиша и одонтограмма (08.10, макет списка дня) — два пункта под чертой */
+  const height = 40 + actions.length * ROW + (fisa ? ROW * 2 + 9 : 0) + 12
   const { left, top } = placeMenu(at.x, at.y, WIDTH, height)
   return (
     <div ref={ref} className="dp-cmenu" role="menu" aria-label={`${card.time} — ${card.name}`}
@@ -65,6 +67,9 @@ export function CardMenu({ at, card, actions, busy, onStatus, onClose }: Props) 
       {fisa && (
         <>
           {actions.length > 0 && <div className="dp-cmenu-sep" />}
+          <AppLink role="menuitem" className="dp-cmenu-i" href={`/admin/patient/${card.pid}/odontograma`} onClick={onClose}>
+            <Icon name="tooth" /> {T.odo}
+          </AppLink>
           <AppLink role="menuitem" className="dp-cmenu-i" href={`/admin/patient/${card.pid}`} onClick={onClose}>
             <Icon name="id" /> {T.fisa}
           </AppLink>

@@ -144,8 +144,9 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         # ?msg= — плашку рисует msg_banner, как у любой React-страницы.
         params = {"pid": str(pid), **({"views": "1"} if views == "1" else {})}
         # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        # подпись печатает сам экран (08.10): крошки «Pacienți › Nume»
         return react_shell("patient_card", f"/admin/patient/{pid}",
-                           shell_model("pat", f"fișa pacientului · #{pid}", msg=msg),
+                           shell_model("pat", "", msg=msg),
                            params)
     e = html.escape
     # журнал доступа (закон 195): КТО открывал карту — такое же требование,
@@ -2527,10 +2528,10 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
         if per != 20:
             params["per"] = str(per)
         # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+        # подпись печатает сам экран (08.10): «12 afișați din 19 · +9 luna
+        # aceasta» — числа списка, а не описание раздела
         return react_shell("patients_search", request.url.path,
-                           shell_model("pat",
-                                       "pacienții clinicii · filtre, previzualizare, export",
-                                       msg=msg),
+                           shell_model("pat", "", msg=msg),
                            params or None)
     e = html.escape
     q = q.strip()[:60]
@@ -2890,11 +2891,12 @@ async def _peek_html(pid: int) -> str | None:
             + line("med", p.get("primary_doctor")
                    or (lastv["doctor"] if lastv else "")))
 
-    last_block = ("<div class='pp-b'><div class='pp-t'>Ultima vizită"
+    # `last` — экран React красит этот блок серым (макет 08.10)
+    last_block = ("<div class='pp-b last'><div class='pp-t'>Ultima vizită"
                   f"<span>{_pl_dmy(lastv['starts_at'])}</span></div>"
                   f"<b>{e(lastv['service'])}</b><small>{e(lastv['doctor'])}</small></div>"
                   if lastv else
-                  "<div class='pp-b'><div class='pp-t'>Ultima vizită</div>"
+                  "<div class='pp-b last'><div class='pp-t'>Ultima vizită</div>"
                   "<small>încă fără vizite</small></div>")
     next_block = (f"<div class='pp-b next'><div class='pp-t'>Următoarea vizită"
                   f"<span>{nextv['starts_at'].astimezone(eng.TZ).strftime('%d.%m.%Y · %H:%M')}"
@@ -2948,10 +2950,10 @@ async def _peek_html(pid: int) -> str | None:
     <span class='pl-badge {cls}'>{label}</span></div>
 </div>
 <div class='pp-info'>{info}</div>
-<a class='pl-btn' href='/admin/patient/{pid}'>{_ic('pen')} Editează fișa</a>
 {next_block}{last_block}{plan_block}{notes_block}{docs_block}
 <div class='pp-foot'><span>{len(live)} vizite în total</span>
-  <a class='pl-btn primary' href='/admin/patient/{pid}'>Vezi profilul complet ›</a></div>"""
+  <div class='pp-btns'><a class='pl-btn' href='/admin/patient/{pid}'>{_ic('pen')} Editează</a>
+  <a class='pl-btn primary' href='/admin/patient/{pid}'>Profil complet ›</a></div></div>"""
 
 
 @router.get("/admin/patients.csv")

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
-import { Icon, iconName } from '../../components/Icon'
+import { Icon } from '../../components/Icon'
 import { LoadFailed } from '../../components/LoadFailed'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
@@ -17,12 +17,20 @@ import {
   type Filters, type PatientsPage, type PatientsSummary,
 } from './patients'
 
-/* Подписи экрана — те же слова, что на старой странице «Pacienți». Числа
-   карточек, подписи под ними, врачи и каналы фильтра, статусы — с сервера. */
+/* «Pacienți» по макету Олега (08.10, промпт 2): в шапке — подзаголовок
+   «12 afișați din 19 · +9 luna aceasta», справа «Exportă» и «Adaugă pacient»;
+   фильтры одной карточкой (живой поиск без кнопки «Caută», «Resetează» —
+   только при активном отборе); таблица без кнопок в строках — клик по
+   пациенту выделяет строку и показывает предпросмотр справа, под ним —
+   маленькая карточка «Total pacienți». Числа, врачи и каналы фильтра,
+   статусы — с сервера; предпросмотр — его же разметкой (`_peek_html`). */
 const T = {
-  title: 'Pacienți',
-  sub: 'Gestionează și caută pacienții clinicii',
+  filters: 'Filtre pacienți',
   search: 'Caută pacient, telefon, e-mail…',
+  doctor: 'Medic',
+  status: 'Status',
+  channel: 'Canal',
+  sold: 'Sold',
   allDoctors: 'Toți medicii',
   noDoctor: '— fără medic —',
   allStatuses: 'Toate statusurile',
@@ -30,13 +38,14 @@ const T = {
   anySold: 'Orice sold',
   debtOnly: 'Doar cu datorie',
   advanceOnly: 'Doar cu avans',
-  find: 'Caută',
   reset: 'Resetează',
   resetTitle: 'Scoate toate filtrele',
   exportBtn: 'Exportă',
   exportTitle: 'Lista filtrată, ca registru Excel',
-  add: '＋ Adaugă pacient',
-  tiles: ['Total pacienți', 'Pacienți noi (luna aceasta)', 'Programări (luna aceasta)'],
+  add: 'Adaugă pacient',
+  shownOne: 'afișat din',
+  shownMany: 'afișați din',
+  total: 'Total pacienți',
   peekGone: 'Fișa nu mai există.',
   peekFail: 'Nu am putut încărca fișa.',
   offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
@@ -188,6 +197,7 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
     commit({ ...filters, ...next, page: next.page ?? 1 })
   }
 
+  /* Enter в поле — сразу, не дожидаясь паузы (кнопки «Caută» больше нет). */
   function onSearch(e: FormEvent) {
     e.preventDefault()
     if (typed !== null && typed !== filters.q) go({ ...filters, q: typed, page: 1 })
@@ -207,16 +217,34 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
   const cur = typed === null ? filters : { ...filters, q: typed }
   const dirty = isDirty(cur) || cur.sort !== 'last' || cur.per !== 20
   const exportUrl = `/admin/patients.xlsx${filtersToQuery(cur, false)}`
+  /* «12 afișați din 19 · +9 luna aceasta»: на экране — строки этой страницы,
+     всего — первая карточка сводки (та же, что «Total pacienți»), рост за
+     месяц — её подпись словами сервера. */
+  const kpi = data?.summary.tiles[0]
+  const shown = data?.page.rows.length ?? 0
 
   return (
     <section className="dp-react-root" aria-busy={data === null || busy}>
       {toast && <Toast {...toast} onClose={closeToast} />}
-      {/* ⭐ Фильтры — ПЕРВЫЙ `.nav` узла React: сетка `.content` кладёт его в ряд
-          с заголовком, как шапку дня на панели (Олег 25.09: «наверху теряем
-          место»). Своего заголовка «Pacienți» у экрана больше нет — раздел
-          называют сайдбар и подпись оболочки, а строка h2 стоила 60 px. */}
-      <form className="nav pl-bar" aria-label={T.title} onSubmit={onSearch}>
-        <label className="pl-search">
+      {/* ⭐ Первый `.nav` узла React сетка `.content` кладёт в ряд с заголовком,
+          `.sub` — под него (panel.css › .content>.nav). Своего заголовка
+          «Pacienți» у экрана нет — раздел называют сайдбар и подпись. */}
+      <div className="nav dp-pl-nav">
+        <AppLink className="dp-btn" href={exportUrl} title={T.exportTitle}>
+          <Icon name="download" /> {T.exportBtn}
+        </AppLink>
+        <button type="button" className="dp-btn pri" onClick={() => setAdding(true)}>
+          <Icon name="plus" /> {T.add}
+        </button>
+      </div>
+      {kpi && (
+        <div className="sub">
+          <b>{shown}</b> {shown === 1 ? T.shownOne : T.shownMany} {kpi.value}
+          {' · '}<span className="dp-pl-new" dangerouslySetInnerHTML={{ __html: kpi.foot }} />
+        </div>
+      )}
+      <form className="dp-card dp-pl-filters" role="search" aria-label={T.filters} onSubmit={onSearch}>
+        <label className="pl-search dp-pl-search">
           <Icon name="search" />
           <input
             name="q"
@@ -226,28 +254,27 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
             aria-label={T.search}
           />
         </label>
-        <select aria-label={T.allDoctors} value={filters.med} onChange={(e) => set({ med: e.target.value })}>
+        <select className="dp-sel" aria-label={T.doctor} value={filters.med} onChange={(e) => set({ med: e.target.value })}>
           <option value="">{T.allDoctors}</option>
           <option value="-">{T.noDoctor}</option>
           {(data?.summary.doctors ?? []).map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
-        <select aria-label={T.allStatuses} value={filters.st} onChange={(e) => set({ st: e.target.value })}>
+        <select className="dp-sel" aria-label={T.status} value={filters.st} onChange={(e) => set({ st: e.target.value })}>
           <option value="">{T.allStatuses}</option>
           {(data?.summary.statuses ?? []).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
-        <select aria-label={T.allChannels} value={filters.ch} onChange={(e) => set({ ch: e.target.value })}>
+        <select className="dp-sel" aria-label={T.channel} value={filters.ch} onChange={(e) => set({ ch: e.target.value })}>
           <option value="">{T.allChannels}</option>
           {(data?.summary.channels ?? []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select>
-        <select aria-label={T.anySold} value={filters.dat} onChange={(e) => set({ dat: e.target.value })}>
+        <select className="dp-sel" aria-label={T.sold} value={filters.dat} onChange={(e) => set({ dat: e.target.value })}>
           <option value="">{T.anySold}</option>
           <option value="da">{T.debtOnly}</option>
           <option value="avans">{T.advanceOnly}</option>
         </select>
-        <button className="pl-btn">{T.find}</button>
         {dirty && (
           <AppLink
-            className="pl-btn"
+            className="dp-btn ghost dp-pl-reset"
             href={pathname}
             title={T.resetTitle}
             onClick={(e) => { e.preventDefault(); setDraft(null); go(DEFAULT_FILTERS) }}
@@ -255,41 +282,9 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
             <Icon name="close" /> {T.reset}
           </AppLink>
         )}
-        {/* две правые кнопки — одной группой: в ряду с заголовком бар переносится,
-            и группа уходит на вторую строку целиком, к правому краю */}
-        <span className="pl-end">
-          <AppLink className="pl-btn" href={exportUrl} title={T.exportTitle}>
-            <Icon name="download" /> {T.exportBtn}
-          </AppLink>
-          <button type="button" className="pl-btn primary" onClick={() => setAdding(true)}>
-            {T.add}
-          </button>
-        </span>
       </form>
-      <div className="pl-grid">
-        {/* ⭐ Плитки — в правую колонку ПОД предпросмотр (шире 1400px), таблица
-            начинается выше; в разметке они первыми, чтобы на узком окне, где
-            колонка одна и предпросмотр — ящик, остаться НАД таблицей, как были. */}
-        {data && (
-          <div className="pl-tiles">
-            {data.summary.tiles.map((t, i) => {
-              const inner = (
-                <>
-                  <span className={`ico ${t.tone}`}><Icon name={iconName(t.icon)} /></span>
-                  <div className="pl-tv">
-                    <span>{T.tiles[i] ?? ''}</span>
-                    <b>{t.value}</b>
-                    <small dangerouslySetInnerHTML={{ __html: t.foot }} />
-                  </div>
-                </>
-              )
-              return t.href
-                ? <AppLink key={i} className="pl-tile" href={t.href}>{inner}</AppLink>
-                : <div key={i} className="pl-tile">{inner}</div>
-            })}
-          </div>
-        )}
-        <div className="pl-card">
+      <div className="dp-pl-grid">
+        <div className="dp-card dp-pl-list">
           {data && (
             <PatientsTable
               page={data.page}
@@ -302,7 +297,19 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
             />
           )}
         </div>
+        {/* ⭐ Предпросмотр и KPI — правая колонка (шире 1400px); ниже колонка
+            одна, предпросмотр — ящик, а KPI спрятан: те же числа в подписи. */}
         <PatientPeek peek={peek} onClose={() => setPeek(null)} />
+        {kpi && (
+          <div className="dp-card dp-pl-kpi">
+            <span className="dp-pl-kpi-ic"><Icon name="users" /></span>
+            <div className="dp-pl-kpi-v">
+              <span>{T.total}</span>
+              <b>{kpi.value}</b>
+              <small dangerouslySetInnerHTML={{ __html: kpi.foot }} />
+            </div>
+          </div>
+        )}
       </div>
       <NewPatientDialog
         open={adding}

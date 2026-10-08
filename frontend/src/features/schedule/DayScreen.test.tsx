@@ -79,6 +79,7 @@ const CANVAS: DashCanvasModel = {
 const MODEL: DayModel = {
   date: '2026-09-23',
   day_label: 'Mi 23.09.2026',
+  day_long: 'Miercuri, 23 septembrie 2026',
   canvas: CANVAS,
   source_col: true,
   doctors: [
@@ -173,12 +174,13 @@ const ok = <T,>(data: T): ApiResult<T> => ({ data, code: 'ok', text: 'Programare
    проверке, которая ждёт новый день на ЭКРАНЕ (см. `addr`). */
 const dayOfUrl = (url: string) => {
   const date = /date=([\d-]+)/.exec(url)?.[1] ?? MODEL.date
-  return Promise.resolve(ok({ ...MODEL, date, day_label: `Zi ${date}` }))
+  return Promise.resolve(ok({ ...MODEL, date, day_label: `Zi ${date}`, day_long: `Zi ${date}` }))
 }
-/* Места ссылок в шапке дня (06.10 — как у панели дня и старой шапки):
-   «« -7 zile», «‹ день», «Azi», «день ›», «» +7 zile», потом Panou и прочее. */
-const WK_PREV = 0, PREV = 1, AZI = 2, NEXT = 3, WK_NEXT = 4, DAY = 5, WEEK = 6
+/* Места ссылок в шапке дня (08.10, макет): «‹ день», «день ›», «Azi», сегмент
+   «Zi | Săptămâna», потом Excel. Подпись дня — в подзаголовке (.dp-daysub-date). */
+const PREV = 0, NEXT = 1, AZI = 2, DAY = 3, WEEK = 4
 const navLink = (i: number) => document.querySelectorAll('.nav a')[i] as HTMLElement
+const dayLabel = () => document.querySelector('.dp-daysub-date')?.textContent
 /* Канва: колонка врача, её час, блок записи. */
 const colOf = (dk: string) => document.querySelector(`.gridbody > .gcol[data-dk="${dk}"]`) as HTMLElement
 const cellOf = (dk: string, h: number) => colOf(dk)?.querySelector(`.gcell[data-h="${h}"]`) as HTMLElement
@@ -474,7 +476,7 @@ describe('окно записи «Programare nouă»', () => {
     const { router } = await openAdd('2026-09-22')
     fireEvent.change(field('Nume pacient'), { target: { value: 'Ion Popa' } })
     fireEvent.click(navLink(NEXT))
-    await waitFor(() => expect(document.querySelector('.nav b')?.textContent).toBe('Zi 2026-09-23'))
+    await waitFor(() => expect(dayLabel()).toBe('Zi 2026-09-23'))
     expect(addForm()).toBeNull()
     await act(async () => { await router.navigate('/admin/all?date=2026-09-23#addform') })
     await waitFor(() => expect(addForm()).toBeTruthy())
@@ -563,7 +565,8 @@ describe('карточка визита', () => {
     const menu = document.querySelector('.dp-cmenu') as HTMLElement
     expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
       .toEqual(['A venit', 'Finalizat'])
-    expect(menu.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/7')
+    expect(Array.from(menu.querySelectorAll('a')).map((a) => a.getAttribute('href')))
+      .toEqual(['/admin/patient/7/odontograma', '/admin/patient/7'])
     fireEvent.click(Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Finalizat') as HTMLButtonElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       '/schedule/appointments/1/status?date=2026-09-23', { to: 'done' }))
@@ -712,7 +715,7 @@ describe('список дня', () => {
     await show()
     expect(list()).toHaveLength(3)
     expect(list().map((r) => r.className)).toEqual(['confirmed', 'noshow', 'confirmed'])
-    expect(cells(0)?.slice(0, 4)).toEqual(['1', '09:00', 'Ion Popa (41 ani)', '069000000'])
+    expect(cells(0)?.slice(0, 3)).toEqual(['09:00', 'Ion Popa 41 ani', '069000000'])
   })
 
   it('комментарий строки — обрезанный сервером, а правится полный в карточке', async () => {
@@ -738,8 +741,8 @@ describe('список дня', () => {
 
   it('источник и метки — словами сервера', async () => {
     await show()
-    expect(cells(1)?.[6]).toBe('bot')
-    expect(cells(2)?.[6]).toBe('notiță')
+    expect(cells(1)?.[5]).toBe('bot')
+    expect(cells(2)?.[5]).toBe('notiță')
     expect(list()[1]?.querySelector('.rem-mark')).toBeTruthy()
     expect(list()[1]?.querySelector('.rec-mark')).toBeTruthy()
     expect(list()[0]?.querySelector('.rem-mark')).toBeNull()
@@ -772,7 +775,8 @@ describe('список дня', () => {
     const menu = document.querySelector('.dp-cmenu') as HTMLElement
     expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
       .toEqual(['A venit', 'Finalizat'])
-    expect(menu.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/7')
+    expect(Array.from(menu.querySelectorAll('a')).map((a) => a.getAttribute('href')))
+      .toEqual(['/admin/patient/7/odontograma', '/admin/patient/7'])
     fireEvent.click(Array.from(menu.querySelectorAll('button'))
       .find((b) => b.textContent?.trim() === 'Finalizat') as HTMLButtonElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith(
@@ -790,8 +794,8 @@ describe('список дня', () => {
     await show()
     const head = Array.from(document.querySelectorAll('table.list th')).map((th) => th.textContent)
     expect(head).not.toContain('Sursă')
-    expect(head).toHaveLength(8)
-    expect(cells(0)).toHaveLength(8)
+    expect(head).toHaveLength(7)
+    expect(cells(0)).toHaveLength(7)
     expect(cells(2)?.join('|')).not.toContain('notiță')
   })
 
@@ -855,33 +859,37 @@ describe('адрес дня', () => {
   /* ⭐ Шапка как у панели дня и у старой страницы (06.10). React-экран
      показывал голую ISO-дату и «‹ zi / zi ›», а листать неделями было нечем —
      при переезде потерялось то, что у старой шапки было. */
-  it('шапка: подпись дня — с сервера, соседние дни — числом, «« »» — на неделю', async () => {
+  it('шапка (08.10): дата словами и сводка в подзаголовке, стрелки на день с датой в подсказке, «Azi»', async () => {
     await show({ date: '2026-09-23' })
-    expect(document.querySelector('.nav b')?.textContent).toBe('Mi 23.09.2026')
-    const hrefs = [WK_PREV, PREV, AZI, NEXT, WK_NEXT].map((i) => navLink(i).getAttribute('href'))
-    expect(hrefs).toEqual(['/admin/all?date=2026-09-16', '/admin/all?date=2026-09-22', '/admin/all',
-      '/admin/all?date=2026-09-24', '/admin/all?date=2026-09-30'])
-    expect([navLink(PREV).textContent?.trim(), navLink(NEXT).textContent?.trim()]).toEqual(['22.09', '24.09'])
-    expect([navLink(WK_PREV).title, navLink(WK_NEXT).title]).toEqual(['-7 zile', '+7 zile'])
+    expect(dayLabel()).toBe('Miercuri, 23 septembrie 2026')
+    expect(document.querySelector('.dp-daysub')?.textContent).toContain('programări')
+    const hrefs = [PREV, NEXT, AZI].map((i) => navLink(i).getAttribute('href'))
+    expect(hrefs).toEqual(['/admin/all?date=2026-09-22', '/admin/all?date=2026-09-24', '/admin/all'])
+    expect([navLink(PREV).title, navLink(NEXT).title]).toEqual(['Ziua precedentă · 22.09', 'Ziua următoare · 24.09'])
+    /* выбор врача — список, ведёт на день врача адресом */
+    const sel = document.querySelector('.dp-daynav select') as HTMLSelectElement
+    expect(sel.value).toBe('')
+    expect(Array.from(sel.options).map((o) => o.textContent)).toEqual(['Toți medicii', 'Dr. Activ Doi', 'Dr. Activ Trei'])
   })
 
   /* ⭐ (06.10, Олег) Неделя — вкладка этого же раздела, рядом с днём. */
   it('«Zi / Săptămâna»: день выделен, неделя — этого же дня', async () => {
     await show({ date: '2026-09-23' })
     expect(navLink(DAY).textContent).toBe('Zi')
-    expect(navLink(DAY).className).toBe('primary')
+    expect(navLink(DAY).className).toBe('on')
     expect(navLink(WEEK).textContent).toBe('Săptămâna')
     expect(navLink(WEEK).getAttribute('href')).toBe('/admin/week?date=2026-09-23')
   })
 
-  it('«» » у дня врача: неделя вперёд, врач в пути и отбор остаются; F5 — тот же запрос', async () => {
+  it('«›» у дня врача с отбором: врач в пути и отбор остаются; F5 — тот же запрос', async () => {
     get.mockResolvedValue(FILTERED)
     const { router } = await show({ doctor: 'd2', date: '2026-09-23', f: 'noshow' })
-    nav(WK_NEXT)
-    await waitFor(() => expect(addr(router)).toBe('/admin/doctor/d2?date=2026-09-30&f=noshow'))
-    expect(get.mock.lastCall?.[0]).toBe('/schedule/day?date=2026-09-30&doctor=d2&f=noshow')
+    nav(NEXT)
+    await waitFor(() => expect(addr(router)).toBe('/admin/doctor/d2?date=2026-09-24&f=noshow'))
+    expect(get.mock.lastCall?.[0]).toBe('/schedule/day?date=2026-09-24&doctor=d2&f=noshow')
     await reloadParity(router)
   })
+
 
   it('⛔ «Varianta clasică» в шапке нет (Олег 06.10: «это не нужно»)', async () => {
     await show()
@@ -968,7 +976,7 @@ describe('адрес дня', () => {
     nav(PREV)
     /* ⚠️ Ждать новый день на ЭКРАНЕ, а не в роутере (см. `addr`): форма
        прежней отрисовки несёт прежний день, и действие ушло бы в 23-е. */
-    await waitFor(() => expect(document.querySelector('.nav b')?.textContent).toBe('Zi 2026-09-22'))
+    await waitFor(() => expect(dayLabel()).toBe('Zi 2026-09-22'))
     expect(addr(router)).toBe('/admin/all?date=2026-09-22')
     fireEvent.submit(document.querySelector('table.list form.act') as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith(
@@ -982,6 +990,6 @@ describe('адрес дня', () => {
     await waitFor(() => expect(router.state.navigation.state).toBe('loading'))
     expect(document.querySelector('[aria-busy="true"]')).toBeNull()
     expect(canvasShown()).toBe(true)
-    expect(document.querySelector('.nav b')?.textContent).toBe('Mi 23.09.2026')
+    expect(dayLabel()).toBe('Miercuri, 23 septembrie 2026')
   })
 })

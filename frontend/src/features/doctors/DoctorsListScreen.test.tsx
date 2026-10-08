@@ -45,31 +45,51 @@ describe('DoctorsListScreen', () => {
     get.mockReturnValueOnce(new Promise(() => {}))
     open()
     expect(document.querySelector('section')?.getAttribute('aria-busy')).toBe('true')
-    expect((screen.getByLabelText('Dr. Nume Prenume') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Nume și prenume') as HTMLInputElement).disabled).toBe(true)
   })
 
-  it('успех: карточки, подписи состояний с сервера, архив отдельно', async () => {
+  it('успех (08.10): карточки, плашки состояний с сервера, архивный приглушён в той же сетке', async () => {
     get.mockResolvedValueOnce(ok(LIST))
     open()
     expect(await screen.findByText('Dr. Activ Doi')).toBeTruthy()
-    expect(screen.getByText('Activ').className).toContain('dbadge activ')
-    expect(screen.getByText('Arhivat').className).toContain('dbadge arhivat')
-    expect(screen.getByText('Arhivă')).toBeTruthy()
+    expect(document.querySelector('.sub')?.textContent).toBe('1 activi · statistici pe ultimele 30 de zile')
+    const card = (dk: string) => document.querySelector(`.dp-doc[data-dk="${dk}"]`) as HTMLElement
+    expect(card('d2').querySelector('.chip')?.className).toContain('dbadge activ')
+    expect(card('d1').querySelector('.chip')?.className).toContain('dbadge arhivat')
+    expect(card('d1').className).toContain('off')
+    expect(screen.queryByText('Arhivă')).toBeNull()
     expect(screen.getByText('L–V 9:00–17:00')).toBeTruthy()
+    expect(screen.getByText('Programul clinicii')).toBeTruthy()
     expect(screen.getByText('25%')).toBeTruthy()
     const link = screen.getByText('Dr. Activ Doi').closest('a') as HTMLAnchorElement
     expect(link.getAttribute('href')).toBe('/admin/doctor-card/d2')
-    expect(link.className).toBe('medcard')
-    expect((screen.getByText('Dr. Arhivat Unu').closest('a') as HTMLAnchorElement).className).toBe('medcard off')
+    expect(card('d2').querySelector('.dp-doc-lnk')?.getAttribute('href')).toBe('/admin/doctor/d2')
     expect(document.querySelector('img')?.getAttribute('src')).toBe('/admin/doctor-photo/d1?v=x')
+    expect((card('d2').querySelector('.dp-ring') as HTMLElement).style.borderColor).toBe('rgb(59, 130, 246)')
     expect(screen.queryByText(/aceeași culoare/)).toBeNull()
+    /* кнопка добавления заперта, пока имя пустое */
+    expect((screen.getByRole('button', { name: 'Adaugă medic' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('состояние из карточки: профиль читается целиком и записывается с новым состоянием, список перечитывается', async () => {
+    get.mockResolvedValueOnce(ok(LIST))
+    get.mockResolvedValueOnce(ok({ name: 'Dr. Activ Doi', spec: 'Chirurgie', room: '3', phone: '101', email: 'a@b.md',
+      color: '#3B82F6', auto_color: false, work_from: 9, work_to: 17, status: 'activ' }))
+    post.mockResolvedValueOnce(ok(undefined, 'ok_med', 'Datele medicului au fost salvate'))
+    get.mockResolvedValueOnce(ok({ ...LIST, doctors: LIST.doctors.map((d) => (d.id === 'd2' ? { ...d, status: 'concediu' } : d)) }))
+    open()
+    await screen.findByText('Dr. Activ Doi')
+    fireEvent.change(screen.getByLabelText('Status: Dr. Activ Doi'), { target: { value: 'concediu' } })
+    expect(await screen.findByText('Datele medicului au fost salvate')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/doctors/d2', expect.objectContaining({ status: 'concediu', name: 'Dr. Activ Doi', phone: '101', email: 'a@b.md' }))
+    await waitFor(() => expect(document.querySelector('.dp-doc[data-dk="d2"] .chip')?.textContent).toBe('În concediu'))
   })
 
   it('пусто: ни одного врача — подсказка, форма открыта', async () => {
     get.mockResolvedValueOnce(ok({ ...LIST, doctors: [] }))
     open()
     expect(await screen.findByText(/Niciun medic/)).toBeTruthy()
-    expect((screen.getByLabelText('Dr. Nume Prenume') as HTMLInputElement).disabled).toBe(false)
+    expect((screen.getByLabelText('Nume și prenume') as HTMLInputElement).disabled).toBe(false)
   })
 
   it('добавление: шлёт имя и специализацию, уходит в фишу нового с плашкой сервера', async () => {
@@ -78,9 +98,9 @@ describe('DoctorsListScreen', () => {
     const navigate = vi.fn()
     const { router } = open(navigate)
     await screen.findByText('Dr. Activ Doi')
-    fireEvent.change(screen.getByLabelText('Dr. Nume Prenume'), { target: { value: 'Dr. Cinci' } })
-    fireEvent.change(screen.getByLabelText('Specializare (ex. Terapie)'), { target: { value: 'Orto' } })
-    fireEvent.click(screen.getByRole('button', { name: '+ Adaugă medic' }))
+    fireEvent.change(screen.getByLabelText('Nume și prenume'), { target: { value: 'Dr. Cinci' } })
+    fireEvent.change(screen.getByLabelText('Specializare'), { target: { value: 'Orto' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Adaugă medic' }))
     /* B4: в фишу нового — ПЕРЕХОДОМ (плашку несёт адрес); `navigate` экрана — входу */
     await waitFor(() => expect(router.state.location.pathname + router.state.location.search)
       .toBe('/admin/doctor-card/d5?msg=new_med'))
@@ -93,10 +113,10 @@ describe('DoctorsListScreen', () => {
     post.mockRejectedValueOnce(new ApiError({ kind: 'conflict', code: 'dup_med', text: 'Există deja un medic' }, 'c'))
     open()
     await screen.findByText('Dr. Activ Doi')
-    fireEvent.change(screen.getByLabelText('Dr. Nume Prenume'), { target: { value: 'Dr. Activ Doi' } })
-    fireEvent.click(screen.getByRole('button', { name: '+ Adaugă medic' }))
+    fireEvent.change(screen.getByLabelText('Nume și prenume'), { target: { value: 'Dr. Activ Doi' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Adaugă medic' }))
     expect(await screen.findByText('Există deja un medic')).toBeTruthy()
-    expect((screen.getByLabelText('Dr. Nume Prenume') as HTMLInputElement).disabled).toBe(false)
+    expect((screen.getByLabelText('Nume și prenume') as HTMLInputElement).disabled).toBe(false)
   })
 
   it('одинаковые цвета: подсказка и сброс перечитывают список', async () => {
@@ -125,6 +145,6 @@ describe('DoctorsListScreen', () => {
     const navigate = vi.fn()
     open(navigate)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/admin/login?next=x'))
-    expect(screen.queryByLabelText('Dr. Nume Prenume')).toBeNull()
+    expect(screen.queryByLabelText('Nume și prenume')).toBeNull()
   })
 })

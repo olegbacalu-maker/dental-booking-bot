@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/Icon'
@@ -49,16 +49,24 @@ const T = {
      ISO-дата и «‹ zi / zi ›», а листать неделями было нечем — при переезде
      в React шапка потеряла то, что у старой страницы было (Олег 06.10). */
   today: 'Azi',
-  wkPrev: '-7 zile',
-  wkNext: '+7 zile',
+  prevDay: 'Ziua precedentă',
+  nextDay: 'Ziua următoare',
+  period: 'Perioadă',
   day: 'Zi',
   week: 'Săptămâna',
   all: 'Toți medicii',
-  panel: 'Panou',
+  doctorSel: 'Medic',
   excel: 'Excel',
-  /* Подсказка называет МЕСТО, а не знак — как у панели дня. */
-  hint: 'Click pe o programare — detalii și statusuri; pe o oră liberă — '
-    + 'programare nouă sau notiță. Trageți o programare pentru a o muta la altă oră sau alt medic.',
+  /* подзаголовок (08.10): «Joi, 8 octombrie 2026 · 1 programare · 3% ocupare» */
+  one: 'programare',
+  many: 'programări',
+  occ: 'ocupare',
+  /* Подсказка одной строкой (08.10, макет): место — действие. */
+  hintFree: 'Interval liber',
+  hintFreeT: 'programare nouă sau notiță',
+  hintAppt: 'Programare',
+  hintApptT: 'detalii și statusuri',
+  hintDrag: 'Trage o programare pentru a o muta la altă oră sau alt medic.',
   /* Слово своё — у сервера его нет (снятие блокировки отвечает пустым кодом);
      то же, что у панели дня. */
   noteGone: 'Notița nu mai există.',
@@ -185,15 +193,6 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
     const tail = next.toString()
     void to(tail ? `${base}?${tail}` : base, { replace: true })
   }
-  /* Соседний день и соседняя неделя — одна и та же ссылка: адрес настоящий
-     (Ctrl, средняя кнопка работают), простой щелчок ведёт роутер с отбором. */
-  const dayLink = (days: number, body: ReactNode, title = '') => {
-    const iso = shift(m.date, days)
-    return (
-      <AppLink href={`${base}?date=${iso}`} {...(title ? { title } : {})}
-         onClick={(e) => { e.preventDefault(); go(iso) }}>{body}</AppLink>
-    )
-  }
   /* ⭐ Окно записи открыто, пока в адресе `#addform`: с ним сюда ведёт кнопка
      «Programare nouă» шапки программы, и повторное нажатие той же кнопки —
      это тот же адрес, который снова откроет окно. Закрыть — убрать якорь
@@ -218,33 +217,58 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
              onStatus={(id, to) => { void act(() => day.status(at, doctor, tile, id, to)) }} />
   )
 
+  /* Сводка дня для подзаголовка (08.10): число записей — по списку без заметок
+     и отменённых, загрузка — по канве (занятые минуты из рабочих у всех
+     колонок). Те же цифры, что считают шапки колонок; второго счёта нет. */
+  const count = m.list.filter((r) => !r.is_note && r.status !== 'cancelled').length
+  const occ = m.canvas.columns.reduce((a, c) => ({
+    busy: a.busy + (c.occupancy?.busy ?? 0), cap: a.cap + (c.occupancy?.cap ?? 0),
+  }), { busy: 0, cap: 0 })
+  const occPct = occ.cap ? Math.min(100, Math.round(100 * occ.busy / occ.cap)) : 0
+  const docName = doctor ? m.doctors.find((d) => d.id === doctor)?.name ?? '' : ''
+
   return (
     <section className="dp-react-root">
       {toast ? <Toast tone={toast.tone} text={toast.text} onClose={closeToast} /> : null}
-      <div className="nav">
-        <b>{m.day_label}</b>
-        {dayLink(-7, <Icon name="chevs-l" />, T.wkPrev)}
-        {dayLink(-1, <><Icon name="chev-l" /> {dm(shift(m.date, -1))}</>)}
+      {/* Инструменты дня по макету (08.10, промпт 2): врач, стрелки на день,
+          «Azi», сегмент «Zi | Săptămâna», «Excel». «Panou» и «±7 zile» сняты —
+          меню и стрелки их дублируют. Выбор врача — адресом: день одного врача
+          живёт на `/admin/doctor/{dk}`, и F5 его сохраняет. */}
+      <div className="nav dp-daynav">
+        <select className="dp-sel" aria-label={T.doctorSel} value={doctor}
+          onChange={(e) => {
+            const dk = e.target.value
+            void to(`${dk ? `/admin/doctor/${dk}` : '/admin/all'}?date=${m.date}`)
+          }}>
+          <option value="">{T.all}</option>
+          {m.doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <AppLink className="dp-ibtn" href={`${base}?date=${shift(m.date, -1)}`}
+           title={`${T.prevDay} · ${dm(shift(m.date, -1))}`} aria-label={T.prevDay}
+           onClick={(e) => { e.preventDefault(); go(shift(m.date, -1)) }}><Icon name="chev-l" /></AppLink>
+        <AppLink className="dp-ibtn" href={`${base}?date=${shift(m.date, 1)}`}
+           title={`${T.nextDay} · ${dm(shift(m.date, 1))}`} aria-label={T.nextDay}
+           onClick={(e) => { e.preventDefault(); go(shift(m.date, 1)) }}><Icon name="chev-r" /></AppLink>
         <AppLink href={base} onClick={(e) => { e.preventDefault(); go('') }}>{T.today}</AppLink>
-        {dayLink(1, <>{dm(shift(m.date, 1))} <Icon name="chev-r" /></>)}
-        {dayLink(7, <Icon name="chevs-r" />, T.wkNext)}
         {/* ⭐ «Zi / Săptămâna» — как у панели: неделя с 06.10 живёт в этом же
             разделе (Олег), и её вкладка рядом с днём. */}
-        <AppLink className="primary" href={`${base}?date=${m.date}`}
-           onClick={(e) => { e.preventDefault(); go(m.date) }}>{T.day}</AppLink>
-        <AppLink href={`/admin/week?date=${m.date}`}>{T.week}</AppLink>
-        <AppLink href={`/admin?date=${m.date}`}><Icon name="home" /> {T.panel}</AppLink>
+        <span className="dp-seg" role="group" aria-label={T.period}>
+          <AppLink className="on" href={`${base}?date=${m.date}`} aria-current="page"
+             onClick={(e) => { e.preventDefault(); go(m.date) }}>{T.day}</AppLink>
+          <AppLink href={`/admin/week?date=${m.date}`}>{T.week}</AppLink>
+        </span>
         {doctor ? null : (
           <AppLink href={`/admin/export.xlsx?from=${m.date}&to=${m.date}`}>
             <Icon name="download" /> {T.excel}
           </AppLink>
         )}
-        {doctor
-          ? <AppLink href={`/admin/all?date=${m.date}`}><Icon name="clipboard" /> {T.all}</AppLink>
-          : null}
         {/* ⛔ «Varianta clasică» из шапки убрана (Олег 06.10: «это не нужно»):
             старая страница осталась только аварийным выходом — на экране
             отказа загрузки (`LoadFailed`). */}
+      </div>
+      <div className="sub dp-daysub">
+        {docName ? <><b>{docName}</b> · </> : null}
+        <b className="dp-daysub-date">{m.day_long}</b> · {count} {count === 1 ? T.one : T.many} · {occPct}% {T.occ}
       </div>
 
       {/* ⚠️ Место списка зависит от отбора, и это не косметика: пришедший с
@@ -252,13 +276,19 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
           Полный список остаётся внизу, как на старой странице. */}
       {m.filter ? listNode : null}
 
-      <DashCanvas model={m.canvas} rail={noRail} waitTick={waitTick} lineTick={lineTick}
-                  onCard={setCard} onCardMenu={openMenu}
-                  onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
-                  onNote={openNote}
-                  drag={drag} hover={hover} onDrag={setDrag} onHover={setHover} onDrop={onDrop}
-                  fresh={NO_FRESH} />
-      <p className="hint">{T.hint}</p>
+      {/* на телефоне сетка прокручивается внутри обёртки (как .dashmain на
+          главной), а не растягивает страницу вбок */}
+      <div className="dp-daymain">
+        <DashCanvas model={m.canvas} rail={noRail} waitTick={waitTick} lineTick={lineTick}
+                    onCard={setCard} onCardMenu={openMenu}
+                    onSlot={(dk, name, hour) => setSlot({ dk, name, hour })}
+                    onNote={openNote}
+                    drag={drag} hover={hover} onDrag={setDrag} onHover={setHover} onDrop={onDrop}
+                    fresh={NO_FRESH} />
+      </div>
+      <p className="hint dp-dayhint">
+        <b>{T.hintFree}</b> — {T.hintFreeT} · <b>{T.hintAppt}</b> — {T.hintApptT} · {T.hintDrag}
+      </p>
 
       {m.filter ? null : listNode}
 

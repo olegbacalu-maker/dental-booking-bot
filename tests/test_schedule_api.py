@@ -1001,13 +1001,14 @@ def suite_live_shell(res: Result) -> None:
     with srv:
         c = Client(srv.url).login()
         # ⭐ С 06.10 неделя — раздел «Programări» (`prog`), а не панель.
-        # ⭐ С 08.10 панели сервер отдаёт ПУСТОЙ подзаголовок: дату словами и
-        # сводку печатает сам экран из конверта (`day_long`), двух подписей в
-        # одной области шапки не бывает. У остальных экранов подпись сервера.
+        # ⭐ С 08.10 панели и дню (промпт 2) сервер отдаёт ПУСТОЙ подзаголовок:
+        # дату словами и сводку печатает сам экран из конверта (`day_long`),
+        # двух подписей в одной области шапки не бывает. У недели подпись
+        # сервера.
         want = {"/admin": ("schedule_dash", "dash", False),
                 "/admin/week": ("schedule_week", "prog", True),
-                "/admin/all": ("schedule_all", "prog", True),
-                f"/admin/doctor/{dk}": ("schedule_doctor", "prog", True)}
+                "/admin/all": ("schedule_all", "prog", False),
+                f"/admin/doctor/{dk}": ("schedule_doctor", "prog", False)}
         for path, (screen, active, has_sub) in want.items():
             page = c.get(f"{path}?date={day}").body
             shell = _shell_of(page)

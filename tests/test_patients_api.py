@@ -298,9 +298,10 @@ def suite_switch(res: Result) -> None:
         c = Client(s.url).login()
         c.post("/admin/patients/new", name="Flag Test", phone="060333444")
         page = c.get("/admin/search").body
+        # подпись раздела печатает сам экран (08.10) — сервер отдаёт пустую
         res.ok("узел React в рамке раздела",
                '<div id="root" data-screen="patients_search"' in page
-               and "pacienții clinicii" in page and "/static/js/bundle.js?v=" in page, "узла нет")
+               and "pacienții clinicii" not in page and "/static/js/bundle.js?v=" in page, "узла нет")
         # ⭐ B1: модель оболочки приезжает ИНЛАЙНОМ тем же узлом.
         res.ok("модель оболочки на узле", 'data-shell="' in page, "модели нет")
         # ⛔ Негативный сторож B1: серверного каркаса на React-маршруте нет.

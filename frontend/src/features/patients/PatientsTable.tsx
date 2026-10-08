@@ -6,8 +6,13 @@ import {
   type PatientsSummary,
 } from './patients'
 
-/* Таблица списка, пустые виды и страницы — те же классы и слова, что у старой
-   страницы «Pacienți» (panel.css .pl-*). Цифры и статусы — с сервера. */
+/* Таблица списка по макету (08.10, промпт 2): Pacient (аватар-инициалы 40px,
+   имя, «26 ani · recepție» второй строкой) · Telefon («Fără telefon» курсивом)
+   · Data nașterii · Medic · Ultima vizită ↓ · Sold · Status. Кнопок «глаз» и
+   «фиша» в строке нет: клик по пациенту выделяет строку и открывает
+   предпросмотр, в фишу ведёт его «Profil complet ›». Пустые виды и страницы —
+   слова и классы старой страницы (panel.css .pl-pag). Цифры и статусы —
+   с сервера. */
 const T = {
   patient: 'Pacient',
   phone: 'Telefon',
@@ -22,10 +27,8 @@ const T = {
   derivedDoctor: 'Medicul ultimei vizite — în fișă nu este setat un medic curant',
   advance: 'avans',
   mdl: 'MDL',
-  preview: 'Previzualizare',
-  openCard: 'Deschide fișa',
-  nothing: 'Nimic găsit',
-  nothingHint: 'Încercați alt nume, telefon sau scoateți filtrele.',
+  nothing: 'Niciun pacient găsit',
+  nothingHint: 'Schimbă filtrele sau caută după alt nume.',
   seeAll: 'Vezi toți pacienții',
   allArchived: 'Toți pacienții sunt în arhivă',
   archivedOne: 'fișă arhivată',
@@ -34,7 +37,7 @@ const T = {
   showArchive: 'Arată arhiva',
   noPatients: 'Încă niciun pacient',
   noPatientsHint: 'Fișele apar aici odată cu prima programare — din registru sau din bot.',
-  addFirst: '＋ Adaugă primul pacient',
+  addFirst: 'Adaugă primul pacient',
   showing: 'Afișare',
   of: 'din',
   patients: 'pacienți',
@@ -43,6 +46,9 @@ const T = {
   show: 'arată',
   perPage: '/ pagină',
 } as const
+
+/** Тон плашки по классу статуса сервера — цвет смысла, не темы. */
+const TONE: Record<string, string> = { act: 'ok', att: 'warn', trt: 'info', off: 'mute', arh: 'mute' }
 
 /** 2550 → «2 550» — разделитель тысяч, как `_pl_money`. */
 export function money(n: number): string {
@@ -95,8 +101,8 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
 
   function sold(debt: number) {
     if (!debt) return <span className="dim">—</span>
-    if (debt > 0) return <span className="pl-badge bad">{money(debt)} {T.mdl}</span>
-    return <span className="pl-badge act">{T.advance} {money(debt)}</span>
+    if (debt > 0) return <span className="chip bad">{money(debt)} {T.mdl}</span>
+    return <span className="chip ok">{T.advance} {money(debt)}</span>
   }
 
   function doctor(p: PatientRow) {
@@ -107,53 +113,41 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
 
   function row(p: PatientRow) {
     const st = statuses.get(p.status)
+    const on = selected === p.id
+    // вторая строка имени: «23 ani · recepție» — возраст, если известен, и канал
+    const line2 = [p.age ? `${p.age} ${T.years}` : '', channels.get(p.channel) ?? p.channel]
+      .filter(Boolean).join(' · ')
     return (
       <tr
         key={p.id}
         id={`plr${p.id}`}
-        className={selected === p.id ? 'on' : undefined}
+        className={on ? 'on' : undefined}
         onClick={() => onPeek(p.id)}
       >
         <td>
-          <div className="pl-who">
-            <span className="pl-av">{p.initials}</span>
-            <div className="pl-nm">
+          {/* кнопка, а не голый текст: строку можно выбрать и с клавиатуры */}
+          <button
+            type="button"
+            className="dp-pl-who"
+            aria-pressed={on}
+            onClick={(e) => { e.stopPropagation(); onPeek(p.id) }}
+          >
+            <span className="dp-pl-av">{p.initials}</span>
+            <span className="dp-pl-nm">
               <b>{p.name || '—'}</b>
-              {p.email
-                ? <small>{p.email}</small>
-                : <small className="dim">{channels.get(p.channel) ?? p.channel}</small>}
-            </div>
-          </div>
+              <small>{line2}</small>
+            </span>
+          </button>
         </td>
-        <td>
-          {p.phone || <span className="pl-notel" title={T.noPhone}><Icon name="phone-off" /></span>}
-        </td>
-        <td className="pl-hide">
-          {p.birth || '—'}{p.age ? <small> · {p.age} {T.years}</small> : null}
-        </td>
+        <td className="num">{p.phone || <i className="dp-nophone">{T.noPhone}</i>}</td>
+        <td className="num pl-hide">{p.birth || '—'}</td>
         <td>{doctor(p)}</td>
-        <td>
+        <td className="num">
           {p.last || '—'}
           {p.next && <small className="nx" title={T.next}>› {p.next}</small>}
         </td>
         <td>{sold(p.debt)}</td>
-        <td><span className={`pl-badge ${st?.cls ?? ''}`}>{st?.label ?? p.status}</span></td>
-        <td className="pl-acts">
-          <button
-            type="button"
-            title={T.preview}
-            onClick={(e) => { e.stopPropagation(); onPeek(p.id) }}
-          >
-            <Icon name="eye" />
-          </button>
-          <AppLink
-            href={`/admin/patient/${p.id}`}
-            title={T.openCard}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Icon name="id" />
-          </AppLink>
-        </td>
+        <td><span className={`chip ${TONE[st?.cls ?? ''] ?? 'mute'}`}>{st?.label ?? p.status}</span></td>
       </tr>
     )
   }
@@ -162,7 +156,7 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
   if (page.rows.length) {
     table = (
       <div className="pl-scroll">
-        <table className="pl-tbl">
+        <table className="dp-pl-tbl">
           <thead>
             <tr>
               {head('name', T.patient)}
@@ -172,7 +166,6 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
               {head('last', T.last)}
               {head('debt', T.sold)}
               <th>{T.status}</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>{page.rows.map(row)}</tbody>
@@ -185,7 +178,7 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
         <Icon name="search" />
         <b>{T.nothing}</b>
         <span>{T.nothingHint}</span>
-        <AppLink className="pl-btn" href={pathname} onClick={(e) => {
+        <AppLink className="dp-btn" href={pathname} onClick={(e) => {
           e.preventDefault()
           onFilters({ ...filters, q: '', med: '', st: '', ch: '', dat: '', page: 1 })
         }}>{T.seeAll}</AppLink>
@@ -200,7 +193,7 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
         <span>
           {T.nobodyLeft} {page.n_arh} {page.n_arh === 1 ? T.archivedOne : T.archivedMany}.
         </span>
-        <a className="pl-btn" {...link({ st: 'arhivat', page: 1 })}>{T.showArchive}</a>
+        <a className="dp-btn" {...link({ st: 'arhivat', page: 1 })}>{T.showArchive}</a>
       </div>
     )
   } else {
@@ -209,7 +202,7 @@ export function PatientsTable({ page, summary, filters, selected, onFilters, onP
         <Icon name="users" />
         <b>{T.noPatients}</b>
         <span>{T.noPatientsHint}</span>
-        <button type="button" className="pl-btn primary" onClick={onAdd}>{T.addFirst}</button>
+        <button type="button" className="dp-btn pri" onClick={onAdd}><Icon name="plus" /> {T.addFirst}</button>
       </div>
     )
   }

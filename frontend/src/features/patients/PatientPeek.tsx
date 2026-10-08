@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function PatientPeek({ peek, onClose }: Props) {
-  /* Ссылки в прозе сервера («Editează fișa», «Vezi profilul complet») — тем
+  /* Ссылки в прозе сервера («Editează», «Profil complet ›») — тем
      же переходом, что и AppLink (B4): голыми они перезагружали документ, и
      переход поиск → фиша «дёргался» (Олег, канарейка 1.30.2). */
   const prose = useProseLinks()

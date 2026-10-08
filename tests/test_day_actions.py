@@ -77,7 +77,7 @@ def suite_model(res: Result) -> None:
         # `source_col` — показывать ли «Sursă» (только при боте).
         res.check("в модели есть всё, чем живут шапка, канва, окна и список",
                   sorted(set(m) - {"date", "doctors", "hours"}),
-                  ["actions", "canvas", "cards", "day_label", "filter", "form", "list",
+                  ["actions", "canvas", "cards", "day_label", "day_long", "filter", "form", "list",
                    "note_actions", "note_ends", "source_col"])
 
         page = c.get(f"/admin/all?date={day}").body

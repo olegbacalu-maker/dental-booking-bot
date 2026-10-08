@@ -224,9 +224,8 @@ async def admin_medici(request: Request, msg: str = ""):
         # ⛔ Старая разметка ниже НЕ трогается и отдаётся по ?ui=legacy: это
         # аварийный выход, и он обязан вести на полностью серверную страницу.
         return react_shell("doctors_list", request.url.path,
-                           shell_model("med",
-                                       "medicii clinicii · fișă, program, servicii",
-                                       msg=msg))
+                           # подзаголовок печатает экран (08.10): «N activi · 30 de zile»
+                           shell_model("med", "", msg=msg))
     today = datetime.now(eng.TZ).date()
     d1 = today - timedelta(days=29)
     start = datetime(d1.year, d1.month, d1.day, tzinfo=eng.TZ)

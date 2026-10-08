@@ -45,14 +45,19 @@ def day_title(d: date) -> str:
     return f"{eng.day_label(eng.Session(lang='ro'), d)}.{d.year}"
 
 
-def day_long(d: date, months) -> str:
-    """Дата словами под заголовком панели (08.10, макет): «Joi, 8 octombrie
-    2026». Дни недели — тот же словарь, что у графика работы в настройках
-    (`layout._DOW_FULL`), месяцы — список мини-календаря (`routes._RO_MONTHS`,
-    приходит аргументом, как в `panel.minical`): второго списка румынских
-    названий в программе не заводится."""
+# Месяцы словами — ОДИН список на мини-календарь (`routes`) и дату словами:
+# второго списка румынских названий в программе не заводится.
+RO_MONTHS = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie",
+             "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"]
+
+
+def day_long(d: date, months=None) -> str:
+    """Дата словами под заголовком панели и дня (08.10, макет): «Joi, 8
+    octombrie 2026». Дни недели — тот же словарь, что у графика работы в
+    настройках (`layout._DOW_FULL`), месяцы — `RO_MONTHS`."""
+    m = months or RO_MONTHS
     return (f"{_DOW_FULL[_DOW_ORDER[d.weekday()]]}, {d.day} "
-            f"{months[d.month - 1].lower()} {d.year}")
+            f"{m[d.month - 1].lower()} {d.year}")
 
 
 def active_map(rows: list) -> tuple[dict, set]:
@@ -355,6 +360,8 @@ def model(d, items: list, active: tuple, cards: dict | None, colors,
                       "now": h == nh, "cells": cells})
     return {
         "date": d.isoformat(), "day_label": day_title(d),
+        # дата словами — подзаголовок экрана «Programări» (08.10, макет)
+        "day_long": day_long(d),
         "doctors": cols, "hours": hours,
         "form": form_spec(d, form_items) if form_items is not None else None,
         "note_ends": note_ends(d),

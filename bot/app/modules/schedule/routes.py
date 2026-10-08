@@ -458,8 +458,8 @@ def _svc_colors(r) -> tuple[str, str]:
     return "var(--green-soft)", "var(--green)"
 
 
-_RO_MONTHS = ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie",
-              "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"]
+# месяцы словами — список модели дня (`day.RO_MONTHS`), он же у даты словами
+_RO_MONTHS = pday.RO_MONTHS
 
 
 def _mini_cal(sel: date, base: str = "/admin") -> str:
@@ -1473,7 +1473,8 @@ async def admin_all(
             params["f"] = f
         # ⭐ B1: оболочку рисует React.
         return react_shell("schedule_all", "/admin/all",
-                           shell_model("prog", "toți medicii"), params)
+                           # подзаголовок печатает экран (08.10): дата словами и сводка дня
+                           shell_model("prog", ""), params)
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = await db.day_appointments(day_start, day_start + timedelta(days=1))
     active = _active_map(rows)
@@ -1554,7 +1555,8 @@ async def admin_doctor(
             return st
         # ⭐ B1: оболочку рисует React.
         return react_shell("schedule_doctor", f"/admin/doctor/{dk}",
-                           shell_model("prog", f"ziua medicului · {name}"),
+                           # подзаголовок печатает экран (08.10): врач, дата словами, сводка
+                           shell_model("prog", ""),
                            {"date": d.isoformat(), "dk": dk})
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     rows = [r for r in await db.day_appointments(day_start, day_start + timedelta(days=1))

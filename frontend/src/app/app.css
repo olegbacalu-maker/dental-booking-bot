@@ -410,23 +410,9 @@
 .dp-cmenu-i:hover, .dp-cmenu-i:focus-visible { background: var(--teal-soft); color: var(--teal-d); outline: none; }
 .dp-cmenu-i.on { font-weight: 600; color: var(--teal-d); box-shadow: inset 3px 0 0 var(--teal); }
 .dp-cmenu-sep { height: 1px; background: var(--line2); margin: 4px 6px; }
-/* Pacienți (25.09, Олег: «наверху теряем место, как на главном экране»).
-   Фильтры — первый .nav узла React: сетка .content ставит его в ряд с
-   заголовком (panel.css › .content>.nav); растягиваем на всю ячейку, чтобы
-   «Exportă» и «Adaugă» остались у правого края. Плитки — в правую колонку под
-   предпросмотр, таблица тянется на обе строки; ниже 1400px колонка одна
-   (предпросмотр — ящик), и плитки остаются над таблицей, как были.
-   ⚠️ Только для React-экрана: классы .pl-* общие с легаси-списком. */
-.dp-react-root .pl-bar.nav { justify-self: stretch; margin: 0; }
-/* поле поиска уступает ширину, чтобы бар уместился в одну строку на 1900px;
-   правая пара кнопок — к краю и переносится вместе */
-.dp-react-root .pl-bar.nav .pl-search { flex: 1 1 240px; min-width: 268px; max-width: 360px; }
-.dp-react-root .pl-bar.nav .pl-end { margin-left: auto; display: flex; gap: 10px; }
-@media (min-width: 1401px) {
-  .dp-react-root .pl-grid > .pl-card { grid-column: 1; grid-row: 1 / span 2; }
-  .dp-react-root .pl-grid > .ppanel { grid-column: 2; grid-row: 1; }
-  .dp-react-root .pl-grid > .pl-tiles { grid-column: 2; grid-row: 2; grid-template-columns: 1fr; margin: 0; }
-}
+/* Pacienți — раздел «промпт 2 (08.10)» в конце файла: шапка, карточка
+   фильтров, таблица, предпросмотр и KPI. Бар фильтров в ряду с заголовком
+   (25.09) снят — в шапке остались две кнопки и подпись с числами. */
 /* меню карточки визита (25.09): пункт-ссылка «Fișa pacientului» выглядит как
    кнопки рядом; занятый пункт (команда в полёте) — приглушён, не спрятан */
 .dp-cmenu a.dp-cmenu-i { text-decoration: none; display: flex; align-items: center; gap: 8px; }
@@ -527,18 +513,18 @@
 /* ---- B6 «patient workspace»: полоса вкладок фиши (26.09) ----
    Всё ступенями B5: высота контрола, кегль, радиус, длительность; подчёркивание
    активной — фирменный цвет. Клавиатура и роли — в PatientCardScreen. */
-.dp-react-root .wtabs { display: flex; gap: 2px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.dp-react-root .wtabs { display: flex; gap: 4px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+/* вкладка 44px, активная — подчёркивание 3px фирменным (макет 08.10) */
 .dp-react-root .wtabs [role=tab] {
-  position: relative; height: var(--h-ctl-m); padding: 0 14px; border: none; background: none;
+  position: relative; height: var(--h-ctl); padding: 0 12px; border: none; background: none;
   font: inherit; font-size: var(--fs-body); font-weight: 500; color: var(--text2); cursor: pointer;
-  border-radius: var(--r-ctl) var(--r-ctl) 0 0; white-space: nowrap;
+  border-radius: var(--r-xs) var(--r-xs) 0 0; white-space: nowrap;
   transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 .dp-react-root .wtabs [role=tab]:hover { background: var(--line2); color: var(--text); }
-.dp-react-root .wtabs [role=tab].on { color: var(--teal-d); font-weight: 600; }
+.dp-react-root .wtabs [role=tab].on { color: var(--text); font-weight: 600; }
 .dp-react-root .wtabs [role=tab].on::after {
-  content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px;
-  border-radius: 2px; background: var(--teal);
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: var(--teal);
 }
 .dp-react-root .wtabs [role=tab]:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .wpanel { display: flex; flex-direction: column; gap: 16px; }
@@ -864,6 +850,7 @@
   min-width: 0;
 }
 .nav.stx-head { gap: 10px; }
+.dp-react-root .nav .dp-btn { width: auto; }
 
 /* Переключатель периода и показателя: сегменты в одной подложке. */
 .stx-seg {
@@ -915,6 +902,8 @@
 .stx-seg em { font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
 .stx-seg-s a,
 .stx-seg-s button { height: calc(var(--h-ctl-s) - 8px); font-size: var(--fs-s); }
+/* переключатель показателя — фирменный сегмент (макет 08.10) */
+.stx-seg-s .on { background: var(--teal); color: var(--on-teal); box-shadow: none; }
 
 .stx-range {
   display: flex;
@@ -939,8 +928,8 @@
 }
 .stx-range input:focus { outline: none; border-color: var(--focus-line); box-shadow: var(--ring); }
 
-.stx-period { margin: -4px 0 0; color: var(--text2); font-size: var(--fs-m); }
-.stx-period b { color: var(--text); font-weight: 600; }
+/* подпись периода — в шапке раздела (.sub), 08.10 */
+.stx-period b { font-variant-numeric: tabular-nums; }
 
 /* ---- показатели ---- */
 .stx-kpis {
@@ -955,28 +944,24 @@
   padding: var(--pad-tile) 18px;
 }
 .stx-kpi-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.stx-kpi-l {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text2);
-  font-size: var(--fs-m);
-  font-weight: 500;
-}
-.stx-kpi-l svg { color: var(--teal); }
+/* макет 08.10: название 14/600, число 32/700, подвал через линию */
+.fcard .stx-kpi-l { margin: 0; color: var(--text2); font-size: var(--fs-body); font-weight: 600; }
 .stx-kpi-v b {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: var(--fs-big);
   font-weight: 700;
   letter-spacing: -0.02em;
-  line-height: 1.1;
+  line-height: 40px;
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
-.stx-kpi-f { display: grid; gap: 8px; margin-top: auto; padding-top: 12px; }
-.stx-kpi-sub { margin: 0; font-size: var(--fs-s); color: var(--text2); }
-.stx-kpi .spark { display: block; }
+.stx-kpi-f { display: grid; gap: 8px; margin-top: auto; padding: 10px 0 6px; }
+.stx-kpi-sub { margin: 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--fs-s); color: var(--text3); }
+.stx-kpi .spark { display: block; height: 40px; }
+.stx-kpi .spark .sp-l { stroke-width: 2; }
+.stx-kpi .spark .sp-a { opacity: .1; }
+.stx-kpi .stx-meter { margin: 16px 0 12px; }
 
 .stx-badge {
   display: inline-flex;
@@ -984,10 +969,10 @@
   gap: 2px;
   height: 22px;
   padding: 0 8px;
-  border-radius: 999px;
-  background: var(--line2);
+  border-radius: var(--r-xs);
+  background: var(--bg);
   color: var(--text2);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-s);
   font-weight: 600;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1004,7 +989,7 @@
 .stx-cat-bar {
   display: flex;
   gap: 2px;
-  height: 8px;
+  height: 10px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--line2);
@@ -1019,7 +1004,7 @@
   font-size: var(--fs-s);
   color: var(--text2);
 }
-.stx-cat-legend i { width: 8px; height: 8px; border-radius: 50%; }
+.stx-cat-legend i { width: 10px; height: 10px; border-radius: 3px; }
 .stx-cat-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .stx-meter { flex: 1; height: 6px; border-radius: 999px; background: var(--line2); overflow: hidden; }
@@ -1039,30 +1024,37 @@
 .stx-card-h h3 { margin: 0; }
 .stx-sub { display: block; margin-top: 2px; font-size: var(--fs-s); color: var(--text2); }
 
-/* график: столбцы и подсказка */
-.stx-cols { position: relative; }
-.stx-cols svg { display: block; overflow: visible; }
-.stx-grid { stroke: var(--line2); stroke-width: 1; }
-.stx-ax { fill: var(--text3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.stx-bar { opacity: 0.82; transition: opacity var(--dur-fast) ease; }
-.stx-bar.on { opacity: 1; }
-.stx-hit { fill: transparent; cursor: pointer; }
-.stx-tip {
-  position: absolute;
-  top: 0;
-  transform: translate(-50%, -6px);
-  display: grid;
-  gap: 2px;
-  padding: 6px 10px;
-  border-radius: var(--r-s);
-  background: var(--text);
-  color: var(--panel);
-  font-size: var(--fs-s);
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: var(--sh3);
+/* график (макет 08.10): столбцы одного цвета, ось Y слева, подпись у самого
+   высокого, подсказка при наведении и фокусе — столбец фокусируем */
+.stx-cols { display: grid; gap: 8px; }
+.stx-plot { position: relative; height: 240px; margin: 16px 0 0 44px; }
+.stx-tick { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line2); }
+.stx-tick:first-child { border-top-color: var(--line); }
+.stx-tick span {
+  position: absolute; right: calc(100% + 8px); top: -9px; font-size: var(--fs-xs); line-height: 16px;
+  color: var(--text3); white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.stx-tip span { opacity: 0.75; }
+.stx-bars { position: absolute; inset: 0; display: flex; gap: 8px; }
+.stx-bcol {
+  flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end;
+  align-items: center; position: relative; outline: none; border-radius: var(--r-xs);
+}
+.stx-bcol:hover { background: var(--teal-soft); }
+.stx-bcol:focus-visible { box-shadow: var(--ring); }
+.stx-bar { width: 60%; max-width: 48px; background: var(--teal); border-radius: 4px 4px 0 0; }
+.stx-top { font-size: var(--fs-xs); font-weight: 700; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.stx-tip {
+  display: none; position: absolute; bottom: calc(100% - 8px); left: 50%; transform: translateX(-50%);
+  white-space: nowrap; background: var(--text); color: var(--panel); font-size: var(--fs-xs); line-height: 16px;
+  padding: 6px 8px; border-radius: var(--r-xs); z-index: 3; pointer-events: none;
+}
+.stx-bcol:hover .stx-tip, .stx-bcol:focus-visible .stx-tip { display: block; }
+.stx-tip span { opacity: .75; }
+.stx-xax { display: flex; gap: 8px; margin-left: 44px; }
+.stx-xax > div { flex: 1 1 0; min-width: 0; text-align: center; font-size: var(--fs-xs); line-height: 16px; color: var(--text2); }
+.stx-xax b { display: block; font-weight: 600; }
+.stx-xax span { font-variant-numeric: tabular-nums; }
+.stx-scroll { overflow-x: auto; }
 .stx-sum {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1125,13 +1117,7 @@
 .stx-tbl tr:last-child td { border-bottom: 0; }
 .stx-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
 .stx-doc { display: flex; align-items: center; gap: 10px; }
-.stx-doc .avatar {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  border-radius: var(--r-chip);
-  font-size: var(--fs-xs);
-}
+.stx-doc .dp-ring { width: 36px; height: 36px; flex-basis: 36px; font-size: var(--fs-xs); }
 .stx-doc b { display: block; font-weight: 600; }
 .stx-doc small { display: block; color: var(--text3); font-size: var(--fs-xs); }
 
@@ -1331,10 +1317,11 @@ dialog.dp-ask { width: 400px; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 32px;
-  padding: 0 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
 }
-.stx-bl-bar { position: absolute; inset: 0 auto 0 0; background: var(--teal-soft); border-radius: var(--r-s); }
+.stx-bl-bar { position: absolute; inset: 0 auto 0 0; background: var(--teal-soft); border-radius: var(--r-ctl); }
 .stx-bl-l,
 .stx-bl-v { position: relative; font-size: var(--fs-m); }
 .stx-bl-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
@@ -1342,7 +1329,7 @@ dialog.dp-ask { width: 400px; }
   display: inline-flex;
   align-items: baseline;
   gap: 10px;
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .stx-bl-v small { font-size: var(--fs-xs); font-weight: 400; color: var(--text3); }
@@ -1390,7 +1377,7 @@ dialog.dp-ask { width: 400px; }
 .stx-prev b { color: var(--text2); font-weight: 600; font-variant-numeric: tabular-nums; }
 .stx-money .stx-cat { margin: 2px 0 6px; }
 .stx-dl > div.top { border-bottom: 0; padding-bottom: 8px; }
-.stx-dl > div.top dd { font-size: var(--fs-xl); }
+.stx-dl > div.top dd { font-size: var(--fs-xl); font-weight: 700; }
 .stx-cat-legend em { font-style: normal; color: var(--text3); }
 .stx-empty { display: grid; place-items: center; min-height: 220px; margin: 0; }
 
@@ -1765,3 +1752,306 @@ dialog.dp-ask { width: 400px; }
   .dp-react-root .dp-odo .odop-side { max-width: none; }
   .dp-react-root .dp-odo[data-sel] .odop-side .dp-tp { border: none; box-shadow: none; }
 }
+
+/* ---- промпт 2 (08.10): общие кирпичи — выпадающий список, кольцо-аватар, чипы ---- */
+.dp-react-root .dp-sel {
+  height: var(--h-ctl); padding: 0 32px 0 12px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--fs-body); cursor: pointer; max-width: 100%;
+}
+.dp-react-root .dp-sel:focus-visible { outline: none; border-color: var(--teal); box-shadow: var(--ring); }
+.dp-react-root .dp-ring {
+  width: 40px; height: 40px; flex: 0 0 40px; border-radius: 50%; border: 3px solid var(--line);
+  background: var(--panel); color: var(--text); display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--fs-m); font-weight: 700; overflow: hidden;
+}
+.dp-react-root .dp-ring.lg { width: 56px; height: 56px; flex-basis: 56px; font-size: var(--fs-l); }
+.dp-react-root .dp-ring img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+/* плашки состояния (промпт 2): цвета смысла, теме не отдаются */
+.dp-react-root .chip.ok { background: var(--green-soft); color: var(--green-t); }
+.dp-react-root .chip.warn { background: var(--amber-soft); color: var(--amber-t); }
+.dp-react-root .chip.bad { background: var(--red-soft); color: var(--red-t); }
+.dp-react-root .chip.info { background: var(--blue-soft); color: #1F4F99; }
+.dp-react-root .chip.mute { background: var(--bg); color: var(--text2); }
+
+/* ---- Programări: подзаголовок, подсказка, «Lista zilei» карточкой ---- */
+.dp-react-root .dp-dayhint { margin: -4px 0 0; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-daymain { min-width: 0; }
+@media (max-width: 640px) { .dp-react-root .dp-daymain { overflow-x: auto; } }
+.dp-react-root .dp-dayhint b { color: var(--text); font-weight: 600; }
+.dp-react-root .dp-dl { padding: 0; overflow: clip; }
+.dp-react-root .dp-dl-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 16px 20px 8px; }
+.dp-react-root .dp-dl-h h2 { margin: 0; font-size: var(--fs-h3); font-weight: 600; }
+.dp-react-root .dp-dl-n { font-size: var(--fs-m); color: var(--text3); }
+.dp-react-root .dp-dl-scroll { overflow-x: auto; }
+.dp-react-root .dp-dl table.list { border: 0; border-radius: 0; box-shadow: none; min-width: 860px; }
+.dp-react-root .dp-dl table.list th { background: var(--panel); border-bottom: 1px solid var(--line); font-size: var(--fs-s); letter-spacing: .04em; }
+.dp-react-root .dp-dl table.list td { font-size: var(--fs-body); vertical-align: middle; }
+.dp-react-root .dp-dl-time { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dp-react-root .dp-dl .plink { color: var(--teal-d); font-weight: 600; text-decoration: none; }
+.dp-react-root .dp-dl .plink:hover { text-decoration: underline; }
+.dp-react-root .dp-dl .dp-age { color: var(--text3); font-size: var(--fs-m); }
+.dp-react-root .dp-dl-phone { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dp-react-root .dp-nophone { color: var(--text3); font-style: italic; }
+.dp-react-root .dp-dl-svc { display: inline-flex; align-items: center; gap: 6px; }
+.dp-react-root .dp-dl .dp-cmt { display: block; color: var(--text3); font-size: var(--fs-s); margin-top: 2px; }
+/* плашка статуса — пропорции чипа (слова и цвета — прежние, .stat.s-* в panel.css) */
+.dp-react-root .dp-dl .stat { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: var(--r-xs); font-size: var(--fs-s); font-weight: 600; white-space: nowrap; }
+.dp-react-root .dp-dl-acts { text-align: right; white-space: nowrap; }
+.dp-react-root .dp-dl td.dp-dl-acts { padding: 6px 12px; }
+.dp-react-root .dp-dl .dp-dl-acts form.act { display: inline-block; margin: 0 6px 0 0; vertical-align: middle; }
+/* кнопка следующего шага — фирменная 44px (макет); цвет смысла остаётся у меню */
+.dp-react-root .dp-dl .act button.dp-next {
+  height: var(--h-ctl); padding: 0 14px; border: 1px solid var(--teal); border-radius: var(--r-ctl);
+  background: var(--teal); color: var(--on-teal); font: inherit; font-size: var(--fs-m); font-weight: 600; cursor: pointer;
+}
+.dp-react-root .dp-dl .act button.dp-next:hover { background: var(--teal-d); border-color: var(--teal-d); color: var(--on-teal-d); }
+.dp-react-root .dp-dl .act button.dp-next.b-reopen { background: var(--panel); color: var(--text); border-color: var(--line); }
+.dp-react-root .dp-dl .act button.dp-next:disabled { opacity: .5; cursor: default; }
+.dp-react-root .dp-dl .dp-more { vertical-align: middle; }
+.dp-react-root .dp-dl tr.cancelled td { opacity: .55; }
+.dp-react-root .dp-dl tr.cancelled .plink { text-decoration: line-through; }
+.dp-react-root .dp-dl .dp-empty { padding: 24px; text-align: center; color: var(--text2); }
+
+/* ---- Medici: карточки врачей и форма ---- */
+.dp-react-root .dp-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; margin-bottom: 20px; }
+.dp-react-root .dp-doc { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.dp-react-root .dp-doc.off { opacity: .6; }
+.dp-react-root .dp-doc-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.dp-react-root .dp-doc-who { flex: 1; min-width: 0; }
+.dp-react-root .dp-doc-who h2 { margin: 0; font-size: var(--fs-l); font-weight: 600; line-height: 1.3; }
+.dp-react-root .dp-doc-who h2 a { color: var(--text); text-decoration: none; }
+.dp-react-root .dp-doc-who h2 a:hover { color: var(--teal-d); }
+.dp-react-root .dp-doc-who small { display: block; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-doc .chip { flex: none; }
+.dp-react-root .dp-doc-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-doc-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.dp-react-root .dp-doc-meta svg { width: 16px; height: 16px; }
+.dp-react-root .dp-doc-stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px 0;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.dp-react-root .dp-doc-stats b { display: block; font-size: var(--fs-xl); line-height: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dp-react-root .dp-doc-stats span { font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .dp-doc-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dp-react-root .dp-doc-status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-doc-lnk {
+  margin-left: auto; display: inline-flex; align-items: center; height: var(--h-ctl); padding: 0 16px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text);
+  font-size: var(--fs-body); font-weight: 600; text-decoration: none;
+}
+.dp-react-root .dp-doc-lnk:hover { background: var(--bg); }
+.dp-react-root .dp-doc-lnk:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-doc-add { padding: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+.dp-react-root .dp-doc-add h2 { margin: 0; font-size: var(--fs-h3); font-weight: 600; }
+.dp-react-root .dp-doc-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.dp-react-root .dp-doc-f { flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-doc-addbtn { width: auto; flex: none; }
+.dp-react-root .dp-doc-hint { margin: 0; font-size: var(--fs-m); line-height: 19px; color: var(--text2); }
+.dp-react-root .dp-doc-hint b { color: var(--text); }
+
+/* ---- Pacienți (08.10, промпт 2): шапка, карточка фильтров, таблица, предпросмотр, KPI ----
+   ⚠️ Только для React-экрана: .pl-search, .pl-empty, .pl-pag и .pp-* общие с
+   легаси-списком (panel.css), здесь они лишь дорисовываются под макет. */
+.dp-react-root .dp-pl-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.dp-react-root .sub .dp-pl-new .up { color: var(--green-t); font-weight: 600; }
+.dp-react-root .sub .dp-pl-new .dn { color: var(--red-t); font-weight: 600; }
+.dp-react-root .dp-pl-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px; margin: 0 0 20px; }
+.dp-react-root .dp-pl-search { flex: 1 1 260px; max-width: none; min-width: 200px; }
+.dp-react-root .dp-pl-filters .dp-sel { flex: 0 1 auto; }
+.dp-react-root .dp-pl-reset { width: auto; }
+/* список и правая колонка: предпросмотр сверху, «Total pacienți» под ним;
+   ниже 1400px (1366 — экран клиники) колонка одна, предпросмотр — ящик
+   (panel.css › .ppanel), а KPI спрятан: те же числа стоят в подзаголовке */
+.dp-react-root .dp-pl-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+.dp-react-root .dp-pl-grid > .dp-pl-list { grid-column: 1; grid-row: 1 / span 2; }
+.dp-react-root .dp-pl-grid > .ppanel { grid-column: 2; grid-row: 1; }
+.dp-react-root .dp-pl-grid > .dp-pl-kpi { grid-column: 2; grid-row: 2; }
+.dp-react-root .dp-pl-list { overflow: hidden; min-width: 0; }
+.dp-react-root .dp-pl-tbl { width: 100%; border-collapse: collapse; min-width: 760px; }
+.dp-react-root .dp-pl-tbl th {
+  text-align: left; padding: 12px 16px; font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text3); background: var(--bg); border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.dp-react-root .dp-pl-tbl th a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.dp-react-root .dp-pl-tbl th a:hover { color: var(--teal-d); }
+.dp-react-root .dp-pl-tbl th svg { width: 12px; height: 12px; }
+.dp-react-root .dp-pl-tbl td {
+  padding: 6px 16px; border-bottom: 1px solid var(--line); font-size: var(--fs-body); color: var(--text); vertical-align: middle;
+}
+.dp-react-root .dp-pl-tbl tbody tr { cursor: pointer; transition: background-color var(--dur-fast) ease; }
+.dp-react-root .dp-pl-tbl tbody tr:hover { background: var(--bg); }
+.dp-react-root .dp-pl-tbl tbody tr.on { background: var(--teal-soft); }
+.dp-react-root .dp-pl-tbl tbody tr:last-child td { border-bottom: 0; }
+.dp-react-root .dp-pl-tbl .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dp-react-root .dp-pl-tbl .dim { color: var(--text3); }
+.dp-react-root .dp-pl-tbl td small.nx { display: block; color: var(--teal-d); font-weight: 600; font-size: var(--fs-s); }
+.dp-react-root .dp-pl-tbl .chip { height: 22px; }
+.dp-react-root .dp-pl-who {
+  display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 4px; margin: 0 -4px; border: 0; background: none;
+  text-align: left; border-radius: var(--r-ctl); font: inherit; color: inherit; cursor: pointer; max-width: 100%;
+}
+.dp-react-root .dp-pl-who:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-react-root .dp-pl-av {
+  width: 40px; height: 40px; flex: 0 0 40px; border-radius: 50%; background: var(--teal); color: var(--on-teal);
+  font-size: var(--fs-s); font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+}
+.dp-react-root .dp-pl-nm { min-width: 0; line-height: 18px; }
+.dp-react-root .dp-pl-nm b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.dp-react-root .dp-pl-nm small { display: block; font-size: var(--fs-m); color: var(--text3); }
+.dp-react-root .pl-empty .dp-btn { width: auto; margin-top: 6px; }
+/* KPI «Total pacienți» — маленькая карточка под предпросмотром */
+.dp-react-root .dp-pl-kpi { display: flex; align-items: center; gap: 14px; padding: 16px 20px; }
+.dp-react-root .dp-pl-kpi-ic {
+  width: 44px; height: 44px; flex: 0 0 44px; border-radius: var(--r-block); background: var(--teal-soft); color: var(--teal-d);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dp-react-root .dp-pl-kpi-ic svg { width: 22px; height: 22px; }
+.dp-react-root .dp-pl-kpi-v { min-width: 0; }
+.dp-react-root .dp-pl-kpi-v > span { display: block; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-pl-kpi-v small { white-space: nowrap; }
+.dp-react-root .dp-pl-kpi-v b { font-size: var(--fs-xl); line-height: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dp-react-root .dp-pl-kpi-v small { font-size: var(--fs-m); font-weight: 600; color: var(--text3); margin-left: 6px; }
+.dp-react-root .dp-pl-kpi-v small .up { color: var(--green-t); }
+.dp-react-root .dp-pl-kpi-v small .dn { color: var(--red-t); }
+/* предпросмотр — разметка сервера (_peek_html), вид по макету: аватар 56,
+   имя, чип, строки с иконками, «Ultima vizită» серым блоком, две кнопки */
+.dp-react-root .ppanel { padding: 20px; box-shadow: var(--sh); }
+.dp-react-root .ppanel .pp-head { gap: 14px; margin-bottom: 16px; }
+.dp-react-root .ppanel .pp-av { width: 56px; height: 56px; flex-basis: 56px; font-size: var(--fs-l); font-weight: 700; background: var(--teal); }
+.dp-react-root .ppanel .pp-id b { font-size: var(--fs-h3); line-height: 27px; letter-spacing: 0; }
+.dp-react-root .ppanel .pl-badge {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--r-xs); font-size: var(--fs-s); font-weight: 600;
+}
+.dp-react-root .ppanel .pp-info { margin-bottom: 16px; }
+.dp-react-root .ppanel .pp-row { padding: 5px 0; font-size: var(--fs-body); color: var(--text); }
+.dp-react-root .ppanel .pp-row a { color: inherit; }
+.dp-react-root .ppanel .pp-b.last { border: 0; background: var(--bg); border-radius: var(--r-block); padding: 14px; margin-bottom: 4px; }
+.dp-react-root .ppanel .pp-b.last .pp-t {
+  font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text3);
+}
+.dp-react-root .ppanel .pp-b.last .pp-t span {
+  font-size: var(--fs-m); font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text2); font-variant-numeric: tabular-nums;
+}
+.dp-react-root .ppanel .pp-b.last b { font-size: var(--fs-l); font-weight: 600; margin-top: 6px; }
+.dp-react-root .ppanel .pp-b.last small { font-size: var(--fs-m); }
+.dp-react-root .ppanel .pp-foot { gap: 10px; }
+.dp-react-root .ppanel .pp-btns .pl-btn {
+  flex: 1 1 auto; height: var(--h-ctl); padding: 0 14px; border-radius: var(--r-ctl); font-size: var(--fs-body); font-weight: 600; color: var(--text);
+}
+.dp-react-root .ppanel .pp-btns .pl-btn.primary { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.dp-react-root .ppanel .pp-btns .pl-btn.primary:hover { background: var(--teal-d); border-color: var(--teal-d); color: var(--on-teal-d); }
+@media (max-width: 1400px) {
+  .dp-react-root .dp-pl-grid { grid-template-columns: minmax(0, 1fr); }
+  .dp-react-root .dp-pl-grid > .dp-pl-list { grid-row: auto; }
+  .dp-react-root .dp-pl-grid > .dp-pl-kpi { display: none; }
+  /* ящик (panel.css): место под крестик сверху */
+  .dp-react-root .ppanel { padding: 52px 20px 20px; }
+}
+
+/* ---- Fișa pacientului (08.10, промпт 2): крошки, шапка-карточка, баннер, KPI, Rezumat ----
+   ⚠️ .hero, .kpi, .alert, .tline, .qa, .acti общие с легаси-фишей (panel.css) —
+   здесь только дорисовка под макет, на React-экране. */
+.dp-react-root .dp-crumbs { display: flex; align-items: center; gap: 6px; font-size: var(--fs-m); color: var(--text3); }
+.dp-react-root .dp-crumbs a { color: var(--teal-d); font-weight: 600; text-decoration: none; }
+.dp-react-root .dp-crumbs a:hover { text-decoration: underline; }
+.dp-react-root .dp-crumbs b { color: var(--text); font-weight: 600; }
+.dp-react-root .hero { gap: 20px; padding: 20px 24px; margin-bottom: 12px; }
+.dp-react-root .hero-av {
+  width: 80px; height: 80px; flex-basis: 80px; border-radius: var(--r-card); font-size: var(--fs-num); font-weight: 700; box-shadow: none;
+}
+.dp-react-root .hero-id { display: flex; flex-direction: column; gap: 10px; flex: 1 1 320px; min-width: 0; }
+.dp-react-root .hero-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dp-react-root .hero-id h2 { font-size: var(--fs-h1); line-height: 34px; font-weight: 700; letter-spacing: 0; }
+.dp-react-root .hero-badges { margin: 0; gap: 6px; }
+.dp-react-root .hero-badges .pill {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--r-xs);
+  font-size: var(--fs-s); font-weight: 600;
+}
+.dp-react-root .hero-badges .pill svg { width: 12px; height: 12px; }
+.dp-react-root .hero-meta { margin: 0; gap: 0; font-size: var(--fs-body); color: var(--text2); }
+.dp-react-root .hero-meta > span + span::before { content: '·'; margin: 0 8px; color: var(--text3); }
+.dp-react-root .hero-meta .idchip { font-variant-numeric: tabular-nums; }
+.dp-react-root .hero-acts { margin-top: 4px; gap: 8px; }
+.dp-react-root .hero-acts a,
+.dp-react-root .hero-acts button { height: var(--h-ctl); padding: 0 16px; font-size: var(--fs-body); font-weight: 600; color: var(--text); }
+.dp-react-root .hero-acts .pri { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.dp-react-root .hero-acts .pri:hover { background: var(--teal-d); border-color: var(--teal-d); color: var(--on-teal-d); }
+.dp-react-root dl.hero-side {
+  margin: 0; display: grid; grid-template-columns: repeat(2, minmax(140px, auto)); gap: 4px 32px; align-content: start;
+}
+.dp-react-root .hero-side > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dp-react-root .hero-side dt {
+  font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text3);
+}
+.dp-react-root .hero-side dd { margin: 0; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .hero-side dd.v { font-size: var(--fs-l); font-weight: 600; color: var(--text); }
+.dp-react-root .hero-side .dp-link { text-decoration: none; font-size: var(--fs-m); }
+.dp-react-root .hero-side .dp-link:hover { text-decoration: underline; }
+/* баннер «Anamneza nu a fost completată» — янтарный, role=alert */
+.dp-react-root .dp-abanner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 8px 8px 16px;
+  background: var(--amber-soft); border: 1px solid var(--amber); border-radius: var(--r-block); color: var(--amber-t);
+  font-size: var(--fs-body);
+}
+.dp-react-root .dp-abanner > svg { width: 20px; height: 20px; flex: 0 0 20px; }
+.dp-react-root .dp-abanner > span { flex: 1 1 280px; }
+.dp-react-root .dp-abanner .dp-btn { width: auto; background: var(--panel); border-color: var(--amber); color: var(--amber-t); }
+.dp-react-root .hero-risk { margin: 0 0 12px; border-radius: var(--r-block); }
+/* пять цифр: подпись сверху, число 24/700, пояснение; значков нет (макет) */
+.dp-react-root .kpi5 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.dp-react-root .kpi {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 14px 16px; text-align: left;
+  font: inherit; color: var(--text); cursor: pointer;
+}
+.dp-react-root .kpi .kpi-l { font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .kpi b { font-size: var(--fs-xl); line-height: 32px; font-weight: 700; }
+.dp-react-root .kpi small { margin: 0; font-size: var(--fs-s); color: var(--text3); }
+.dp-react-root .kpi:focus-visible { outline: none; box-shadow: var(--ring); }
+/* Rezumat: быстрые действия сеткой, летопись списком с цветным кружком */
+.dp-react-root .qa { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.dp-react-root .qa a,
+.dp-react-root .qa button {
+  justify-content: flex-start; height: var(--h-ctl); min-width: 0; padding: 0 14px; border-radius: var(--r-ctl);
+  font-size: var(--fs-body); font-weight: 600;
+}
+.dp-react-root .qa a:hover,
+.dp-react-root .qa button:hover { background: var(--bg); border-color: var(--line); transform: none; }
+.dp-react-root .dp-actlist { list-style: none; margin: 0; padding: 0; }
+.dp-react-root .acti { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.dp-react-root .acti:hover { background: none; }
+.dp-react-root .acti .ai {
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; font-size: var(--fs-body); background: var(--bg); color: var(--text2);
+}
+.dp-react-root .acti .ai svg { width: 18px; height: 18px; }
+.dp-react-root .acti .ai.ok { background: var(--green-soft); color: var(--green-t); }
+.dp-react-root .acti .ai.info { background: var(--blue-soft); color: var(--blue); }
+.dp-react-root .acti .ai.warn { background: var(--amber-soft); color: var(--amber-t); }
+.dp-react-root .acti .ai.bad { background: var(--red-soft); color: var(--red-t); }
+.dp-react-root .acti .ab b { font-size: var(--fs-body); font-weight: 600; line-height: 1.3; }
+.dp-react-root .acti .ab small { display: block; font-size: var(--fs-m); color: var(--text2); margin-top: 2px; }
+.dp-react-root .acti .at { font-size: var(--fs-m); font-variant-numeric: tabular-nums; }
+/* правая колонка: предупреждения и история визитов */
+.dp-react-root .dp-alerts { display: flex; flex-direction: column; gap: 12px; }
+.dp-react-root .dp-alerts h3 { margin: 0; }
+.dp-react-root .dp-aempty { margin: 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--r-ctl); font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-alist { display: flex; flex-direction: column; gap: 6px; }
+.dp-react-root .dp-alist .alert { margin: 0; padding: 4px 4px 4px 12px; gap: 8px; font-weight: 400; font-size: var(--fs-body); }
+.dp-react-root .dp-alist .alert > svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.dp-react-root .dp-alist .alert > span { flex: 1; min-width: 0; }
+.dp-react-root .dp-alist .alert form { margin: 0; }
+.dp-react-root .dp-alist .alert .dp-ibtn { border: 0; background: none; color: inherit; }
+.dp-react-root .dp-alist .alert .dp-ibtn:hover { background: rgba(255, 255, 255, .5); }
+.dp-react-root .dp-aform { display: flex; flex-direction: column; gap: 8px; }
+.dp-react-root .dp-aform-r { display: flex; gap: 8px; flex-wrap: wrap; }
+.dp-react-root .dp-aform-r .dp-sel { flex: 0 0 auto; }
+.dp-react-root .dp-aform-r .dp-fld { flex: 1 1 140px; min-width: 0; height: var(--h-ctl); }
+.dp-react-root .dp-vlist { display: flex; flex-direction: column; gap: 10px; }
+.dp-react-root .tline {
+  display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 12px 14px; background: var(--bg); border-radius: var(--r-block);
+}
+.dp-react-root .tline.next { background: var(--teal-soft); }
+.dp-react-root .tline .tl-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .tline .dp-tb-svc { font-size: var(--fs-body); font-weight: 600; margin-top: 4px; }
+.dp-react-root .tline small { font-size: var(--fs-m); color: var(--text2); }
+.dp-react-root .dp-hist-all { display: inline-block; margin-top: 12px; font-size: var(--fs-body); font-weight: 600; color: var(--teal-d); text-decoration: none; }
+.dp-react-root .dp-hist-all:hover { text-decoration: underline; }

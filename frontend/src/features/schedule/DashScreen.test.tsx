@@ -835,7 +835,9 @@ describe('C26.5.3-d: диалог заметки стойки', () => {
     expect(document.querySelector('dialog[open]')).toBeNull()
     expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
       .toEqual(['A venit'])
-    expect(menu.querySelector('a')?.getAttribute('href')).toBe('/admin/patient/17')
+    /* две ссылки под чертой (08.10): одонтограмма и фиша */
+    expect(Array.from(menu.querySelectorAll('a')).map((x) => x.getAttribute('href')))
+      .toEqual(['/admin/patient/17/odontograma', '/admin/patient/17'])
     fireEvent.click(menu.querySelector('button') as HTMLButtonElement)
     await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/status'))).toBe(true))
     const call = f.mock.calls.find((c) => String(c[0]).includes('/status'))!

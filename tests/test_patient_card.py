@@ -896,9 +896,10 @@ def suite_switch(res: Result) -> None:
         c.post("/admin/patients/new", name="Flag Card", phone="069777000")
         pid = _pid(c, "069777000")
         page = c.get(f"/admin/patient/{pid}").body
+        # подпись раздела печатает сам экран (08.10, крошки) — сервер отдаёт пустую
         res.ok("узел React в рамке фиши",
                '<div id="root" data-screen="patient_card"' in page
-               and f"fișa pacientului · #{pid}" in page and "/static/js/bundle.js?v=" in page,
+               and f"fișa pacientului · #{pid}" not in page and "/static/js/bundle.js?v=" in page,
                "узла нет")
         params = json.loads(page.split("data-params=\"", 1)[1].split("\"", 1)[0]
                             .replace("&quot;", '"'))

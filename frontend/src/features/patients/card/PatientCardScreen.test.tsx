@@ -262,8 +262,12 @@ describe('PatientCardScreen', () => {
     const pills = Array.from(document.querySelectorAll('.hero-badges .pill')).map((p) => p.textContent?.trim())
     expect(pills).toEqual(['Pacient activ', 'Penicilină', 'De achitat: 300 MDL', '1 implant'])
     // KPI: пять цифр словами старой страницы
+    /* «Ultima vizită» — датой, давность словом под ней (08.10: «ieri», не «1 zile») */
     const kpi = Array.from(document.querySelectorAll('.kpi5 .kpi b')).map((b) => b.textContent)
-    expect(kpi).toEqual(['3', '3', '1 zile', '20.09', '1'])
+    expect(kpi).toEqual(['3', '3', '17.09.2026', '20.09', '1'])
+    expect(document.querySelectorAll('.kpi5 .kpi small')[2]?.textContent).toBe('ieri')
+    /* крошки «Pacienți › Nume» — подпись раздела */
+    expect(document.querySelector('.dp-react-root > .sub')?.textContent).toBe('Pacienți›Pin Test')
     // B6: шесть вкладок, открыта «Rezumat»; с других вкладок ничего не смонтировано
     expect(strip().getAllByRole('tab').map((x) => x.textContent))
       .toEqual(['Rezumat', 'Odontogramă', 'Parodontogramă', 'Plan și plăți', 'Vizite', 'Documente', 'Date pacient'])
@@ -280,7 +284,7 @@ describe('PatientCardScreen', () => {
     expect(screen.getByText('Următoarea vizită', { selector: '.dp-next h3' })).toBeTruthy()
     expect(document.querySelectorAll('.acti').length).toBe(10)
     expect(screen.getByText('Toate evenimentele (12)')).toBeTruthy()
-    expect(screen.getByText(/Penicilină/, { selector: '.alert' })).toBeTruthy()
+    expect(screen.getByText(/Penicilină/, { selector: '.alert span' })).toBeTruthy()
     expect(screen.getByText('Acțiuni rapide')).toBeTruthy()
     // план и платежи — вкладка «Plan și plăți»: вкладка «Active» прячет закрытые; просрочка; отказ с причиной
     await tabTo('Plan și plăți')
@@ -385,8 +389,8 @@ describe('PatientCardScreen', () => {
     await screen.findByText('Pin Test', { selector: 'h2' })
     fireEvent.change(screen.getByLabelText('Atenționări medicale'), { target: { value: 'info' } })
     fireEvent.change(screen.getByLabelText('ex. Alergie: Penicilină'), { target: { value: 'Vorbește rusă' } })
-    fireEvent.click(screen.getByText('+ Adaugă'))
-    expect(await screen.findByText(/Vorbește rusă/, { selector: '.alert' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Adaugă atenționare' }))
+    expect(await screen.findByText(/Vorbește rusă/, { selector: '.alert span' })).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/alerts', { kind: 'info', text: 'Vorbește rusă' })
     expect((screen.getByLabelText('ex. Alergie: Penicilină') as HTMLInputElement).value).toBe('')
     fireEvent.click(screen.getByLabelText('Șterge: Vorbește rusă'))
@@ -404,7 +408,7 @@ describe('PatientCardScreen', () => {
     expect(await screen.findByText('Atenționarea nu mai există — reîmprospătați pagina')).toBeTruthy()
     expect(post).toHaveBeenCalledWith('/patients/5/alerts/1/delete', {})
     expect(screen.getByText('Pin Test', { selector: 'h2' })).toBeTruthy()
-    expect(screen.getByText(/Penicilină/, { selector: '.alert' })).toBeTruthy()
+    expect(screen.getByText(/Penicilină/, { selector: '.alert span' })).toBeTruthy()
     expect(screen.queryByText('Fișa nu există sau a fost ștearsă.')).toBeNull()
   })
 
@@ -969,9 +973,11 @@ describe('PatientCardScreen', () => {
     serve({ ...CARD, alerts: [], anamneza: { ...CARD.anamneza, filled: false, state: 'none', n_risk: 0, marked: [], free: [] } })
     open()
     await settled()
-    const note = screen.getByRole('note', { name: 'Riscuri medicale' })
-    expect(note.className).toContain('soft')
-    fireEvent.click(within(note).getByRole('button', { name: /Completează/ }))
+    /* анамнез не собирали — баннер-предупреждение (08.10), не полоса рисков */
+    expect(screen.queryByRole('note', { name: 'Riscuri medicale' })).toBeNull()
+    const note = screen.getByRole('alert')
+    expect(note.textContent).toContain('Anamneza nu a fost completată.')
+    fireEvent.click(within(note).getByRole('button', { name: 'Completează anamneza' }))
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
   })
 
@@ -981,7 +987,8 @@ describe('PatientCardScreen', () => {
     await settled()
     const fisa = () => screen.getByRole('link', { name: /Fișa 043\/e/ }) as HTMLAnchorElement
     expect(fisa().getAttribute('href')).toBe('/admin/patient/5/fisa043?back=%2Fadmin%2Fpatient%2F5')
-    fireEvent.click(screen.getByRole('button', { name: /^Anamneză$/ }))
+    /* «Anamneză ›» — в полосе рисков (из шапки кнопка снята, 08.10) */
+    fireEvent.click(screen.getByRole('button', { name: /^Anamneză/ }))
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
     expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(true)
     expect(fisa().getAttribute('href')).toBe('/admin/patient/5/fisa043?back=%2Fadmin%2Fpatient%2F5%3Ftab%3Ddate')

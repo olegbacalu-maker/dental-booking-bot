@@ -40,7 +40,7 @@ import { patientCard, type PatientCard, type Visit } from './card'
    правила — на сервере; здесь состояния и формы. */
 const T = {
   patients: 'Pacienți',
-  schedule: 'Programări',
+  path: 'Cale',
   quick: 'Acțiuni rapide',
   tabs: 'Secțiunile fișei',
   newVisit: 'Vizită nouă',
@@ -340,11 +340,15 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
 
   if (state.status === 'leaving') return null
 
+  /* Хлебные крошки «Pacienți › Nume» (макет 08.10) — подпись раздела (`.sub`
+     под заголовком оболочки); сервер отдаёт ему пустую. Имя — когда фиша
+     приехала, до того — номер. */
   const nav = (
-    <div className="nav">
-      <AppLink href="/admin/search"><Icon name="chev-l" /> {T.patients}</AppLink>
-      <AppLink href="/admin/all"><Icon name="clipboard" /> {T.schedule}</AppLink>
-    </div>
+    <nav className="sub dp-crumbs" aria-label={T.path}>
+      <AppLink href="/admin/search">{T.patients}</AppLink>
+      <span className="dp-crumb-sep" aria-hidden="true">›</span>
+      <b>{state.status === 'ready' ? state.data.name || `#${pid}` : `#${pid}`}</b>
+    </nav>
   )
 
   if (state.status === 'failed') {
@@ -375,7 +379,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
     <section className="dp-react-root" aria-busy={busy || undefined}>
       {nav}
       <HeroKpi card={card} back={here} onBook={() => setBooking(true)} onPlan={() => goTab('plan')}
-        onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }} />
+        onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }}
+        onDoctor={() => { setEditOpen(true); goTab('date') }} />
       <div ref={strip} className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
         {TABS.map(([k, label]) => (
           <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
