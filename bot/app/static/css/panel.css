@@ -820,6 +820,11 @@
  @media (min-width:641px){
    .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote){display:flex;flex-direction:column;
      padding:4px 10px;line-height:1.25}
+   /* ⛔ Строки НЕ сжимаются (flex:none): у b/small overflow:hidden, и колонка
+      flex ужимала бы их до высоты блока — текст резался внутри строки, а
+      fitAppts (scrollHeight > clientHeight) не видел ничего и не переводил
+      30-минутный блок в slim/tiny (стенд card_fit, 08.10). */
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote)>*{flex:none}
    /* место под кнопку одонтограммы (36px в правом нижнем углу, .apact в
       app.css) отдают только имя и услуга: строка интервала идёт во всю
       ширину — на 1366 с четырьмя врачами колонке остаётся ~190px */

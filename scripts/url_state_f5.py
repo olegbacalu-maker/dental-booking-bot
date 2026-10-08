@@ -46,14 +46,16 @@ ROOT_A = "[...document.querySelectorAll('.dp-react-root .nav a')]"
 NAV_B = "(document.querySelector('.dp-react-root .nav b')||{}).textContent||''"
 # Статистика с B8 (27.09) пишет период строкой над карточками, а не в `.nav`.
 STATS_B = "(document.querySelector('.dp-react-root .stx-period b')||{}).textContent||''"
+# День (промпт 2, 08.10): дата словами стоит в подписи экрана, не в `.nav b`.
+DAY_B = "(document.querySelector('.dp-react-root .dp-daysub-date')||{}).textContent||''"
 
 # (имя, адрес, что нажать (JS → элемент) или None, ключ (JS → строка),
 #  образец запроса API, сравнивать ли запрос)
 CASES = [
     ("неделя", "/admin/week", f"{ROOT_A}.find(a => a.textContent.includes('săpt.'))",
      NAV_B, "/api/schedule/week", True),
-    ("день клиники", "/admin/all", f"{ROOT_A}[0]", NAV_B, "/api/schedule/day", True),
-    ("день врача", "/admin/doctor/{dk}", f"{ROOT_A}[0]", NAV_B, "/api/schedule/day", True),
+    ("день клиники", "/admin/all", f"{ROOT_A}[0]", DAY_B, "/api/schedule/day", True),
+    ("день врача", "/admin/doctor/{dk}", f"{ROOT_A}[0]", DAY_B, "/api/schedule/day", True),
     ("статистика", "/admin/stats", f"{ROOT_A}[0]", STATS_B, "/api/stats", True),
     ("пародонтограма", "/admin/patient/{pid}/parodontograma",
      "[...document.querySelectorAll('.dp-react-root button')]"
@@ -67,8 +69,8 @@ CASES = [
     # Поиск: смена отбора дочитывает только список (сводка — раз на открытие),
     # загрузчик её не видит; F5 обязан собрать тот же список по адресу.
     ("поиск: сортировка", "/admin/search",
-     "[...document.querySelectorAll('.pl-card thead th a')].find(a => a.textContent.trim() === 'Pacient')",
-     "([...document.querySelectorAll('.pl-card thead th a')].find(a => a.querySelector('svg'))||{}).textContent||''",
+     "[...document.querySelectorAll('.dp-pl-list thead th a')].find(a => a.textContent.trim() === 'Pacient')",
+     "([...document.querySelectorAll('.dp-pl-list thead th a')].find(a => a.querySelector('svg'))||{}).textContent||''",
      "/api/patients?", True),
     ("визит", "/admin/visit/{appt_id}?back=%2Fadmin%2Fall", None,
      "([...document.querySelectorAll('.dp-react-root a')].find(a => a.textContent.includes('Înapoi'))"

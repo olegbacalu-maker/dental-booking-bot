@@ -10,7 +10,7 @@
 Зачем. Высоту часа выбирает окно (`fitGrid`), ступень сжатия блока — замер
 (`fitAppts`), и обоих не видит набор без браузера. У бейджа статуса в panel.css
 написано «мерить браузером, а не арифметикой» — стенд и есть этот замер. Окно
-1366×768 сажает час на пол 66px (блок 60px): там запас кончается первым.
+1366×768 сажает час на пол 64px (блок 58px, три строки с 08.10): там запас кончается первым.
 
 Утверждения на каждый вид («имя впереди», «время впереди»):
   1. документ несёт `<html data-card>` выбранного вида;
@@ -96,7 +96,11 @@ MEASURE = r"""(() => {
         const [n1, p] = rows[i], [n2, q] = rows[j];
         const w = Math.min(p.right, q.right) - Math.max(p.left, q.left);
         const h = Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top);
-        if (w > 1 && h > 1) cut.push(n1 + ' наезжает на ' + n2);
+        /* (08.10) только СОСЕДНИЕ СТРОКИ: у сжатой строки в одну линию
+           многоточие контейнера дорисовывается к последнему видимому боксу, и
+           его прямоугольник накрывает спрятанный за ним следующий — это не
+           наезд, а усечение. Наезд — разные строки с общей высотой. */
+        if (w > 1 && h > 1 && Math.abs(p.top - q.top) > 2) cut.push(n1 + ' наезжает на ' + n2);
       }
     }
     const gtm = a.querySelector('.gtm'), b = a.querySelector('b');
@@ -160,8 +164,8 @@ def verdict(view: str, m: dict) -> list[str]:
     bad = []
     if m["card"] != view:
         bad.append(f"документ несёт data-card={m['card']!r}, а выбран {view!r}")
-    if m["cell"] != "66px":
-        bad.append(f"час не на полу: --cell={m['cell']} — запас 60px не проверен")
+    if m["cell"] != "64px":
+        bad.append(f"час не на полу: --cell={m['cell']} — запас 58px не проверен")
     if len(m["blocks"]) != len(ROWS):
         bad.append(f"блоков {len(m['blocks'])}, засеяно {len(ROWS)} — стенд мерил не то")
     for b in m["blocks"]:
@@ -212,17 +216,16 @@ def run(bot: pathlib.Path | None, label: str) -> list[str]:
     return problems
 
 
-# Первая версия «времени впереди» (03.10): слово статуса во второй колонке
-# сетки. Дописывается В КОНЕЦ таблицы копии и перебивает рабочие правила
+# Сломанная пара: три строки блока (08.10: .gl1, имя, услуга) разложены
+# сеткой, которая УЖИМАЕТ ряды под высоту блока (minmax(0,1fr)) — та самая
+# беда 03.10: строки режутся и наезжают, а fitAppts (scrollHeight) ничего не
+# видит. Дописывается В КОНЕЦ таблицы копии и перебивает рабочие правила
 # порядком — той же специфичностью.
 _GRID = """
 @media (min-width:641px){
- [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote):has(> .gtm){display:grid;
-   grid-template-columns:auto minmax(0,1fr);align-content:start}
- [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gtm{grid-area:1/1}
- [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stw{grid-area:1/2}
- [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b,
- [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw){grid-column:1/-1}
+ [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote):has(> .gl1){display:grid;
+   grid-template-rows:repeat(3,minmax(0,1fr));align-content:stretch}
+ [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote)>*{min-height:0}
 }
 """
 

@@ -105,7 +105,7 @@ STATE = """(() => {
     hub: !!document.querySelector('.dp-react-root .set-hub'),
     rail: !!document.querySelector('aside.side-rail'),
     odop: !!document.querySelector('.dp-react-root .odop'),
-    rows: document.querySelectorAll('.pl-card tbody tr').length,
+    rows: document.querySelectorAll('.dp-pl-list tbody tr').length,
     peek_link: !!document.querySelector('.ppanel.open a[href^="/admin/patient/"]'),
     /* (06.10) «Programare nouă» открывает ОКНО записи (`#addform` в адресе),
        а не прокручивает к форме внизу страницы: формы там больше нет. */
@@ -209,7 +209,8 @@ def main() -> int:
                 bad.append("обратно: документ ПЕРЕЗАГРУЖЕН")
             if not (c["aside"] and c["top"]):
                 bad.append("обратно: сайдбар или шапка пересозданы")
-            if "toți medicii" not in c["sub"]:
+            # (08.10) подпись дня печатает экран: «… · N programări · X% ocupare»
+            if "ocupare" not in c["sub"]:
                 bad.append(f"обратно: подпись не от документа дня журнала: «{c['sub']}»")
             want = section_title("prog")
             if c["active"] != want:
@@ -297,7 +298,7 @@ def main() -> int:
             shell_step("крошка «Panou»",
                        lambda: click_el(page, "[...document.querySelectorAll('.content .nav a')]"
                                               ".find(a => a.textContent.includes('Panou'))"),
-                       lambda st: st["href"] == "/admin" and st["dash"], "panou principal")
+                       lambda st: st["href"] == "/admin" and st["dash"], "ocupare")
 
             def search():
                 page.js("(() => { const q = document.getElementById('topq'); q.focus(); q.value = ''; })()")
@@ -310,13 +311,13 @@ def main() -> int:
                         windowsVirtualKeyCode=13)
             s5 = shell_step("поиск из шапки", search,
                             lambda st: st["href"] == "/admin/search?q=Proba" and st["rows"] > 0,
-                            "pacien")
+                            "afișa")
             if s5["rows"] < 1:
                 bad.append("поиск из шапки: список пациентов пуст")
             s6 = shell_step("«+ Programare nouă»",
                             lambda: click_el(page, "document.querySelector('.top .newbtn')"),
                             lambda st: st["href"].startswith("/admin/all?date=") and st["addform"] is not None,
-                            "toți medicii")
+                            "ocupare")
             if s6["addform"] is not True:
                 bad.append(f"«+ Programare nouă»: окно записи не открылось (якорь #addform): {s6['addform']}")
 
@@ -330,39 +331,43 @@ def main() -> int:
             settle(page, lambda st: st["busy"] == "false" or (st["busy"] != "true" and st["busy"] != "none"))
             # B6 (26.09): ссылка на детальную живёт на вкладке «Odontogramă» —
             # сперва вкладка (тот же документ, адрес ?tab=odonto), потом ссылка
-            # «Pe tot ecranul»; среди .odo-more есть и КНОПКИ без href (шаг 2).
+            # «Pe tot ecranul» (.dp-odo-lnk с 08.10); рядом ссылка на пародонтограмму.
             click_el(page, "[...document.querySelectorAll('.wtabs [role=tab]')]"
                            ".find(b => b.textContent.trim() === 'Odontogramă')")
             for _ in range(100):
-                if page.js("!!document.querySelector('.odo-more')"):
+                if page.js("!!document.querySelector('.dp-odo-lnk')"):
                     break
                 time.sleep(0.1)
             else:
                 bad.append("вкладка «Odontogramă» не открылась: ссылки на детальную нет")
             s7 = shell_step("фиша → одонтограмма",
-                            lambda: click_el(page, "[...document.querySelectorAll('.odo-more')]"
+                            lambda: click_el(page, "[...document.querySelectorAll('.dp-odo-lnk')]"
                                                    ".find(a => (a.getAttribute('href') || '').endsWith('/odontograma'))"),
                             lambda st: st["href"].endswith("/odontograma") and st["odop"], "odontogram")
             if not s7["rail"]:
                 bad.append("фиша → одонтограмма: сайдбар не сузился в рельс — модель нового документа не применена")
             s8 = shell_step("одонтограмма → фиша",
-                            lambda: click_el(page, "document.querySelector('.odop-back')"),
-                            lambda st: st["href"] == f"/admin/patient/{pid}?tab=odonto", "fișa pacientului")
+                            # (08.10) обратно в фишу ведёт ссылка с именем пациента (.dp-odo-lnk → ?tab=odonto)
+                            lambda: click_el(page, "[...document.querySelectorAll('.dp-odo-lnk')]"
+                                                   ".find(a => (a.getAttribute('href') || '').endsWith('?tab=odonto'))"),
+                            lambda st: st["href"] == f"/admin/patient/{pid}?tab=odonto", "Pacienți")
             if s8["rail"]:
                 bad.append("одонтограмма → фиша: сайдбар остался рельсом")
             page.go("/admin/all")
             settle(page, lambda st: st["busy"] != "true" and st["busy"] != "none")
-            shell_step("день → панель", lambda: click(page, "Panou"),
-                       lambda st: st["href"].startswith("/admin?date=") and st["dash"], "panou principal")
-            # проза сервера внутри экрана: предпросмотр пациента → «Editează fișa»
+            shell_step("день → панель",
+                       lambda: click_el(page, "document.querySelector('aside nav a[title=\"Panoul principal\"]')"),
+                       lambda st: (st["href"] == "/admin" or st["href"].startswith("/admin?date=")) and st["dash"],
+                       "ocupare")
+            # проза сервера внутри экрана: предпросмотр пациента → «Editează»
             page.go("/admin/search")
             settle(page, lambda st: st["rows"] > 0 and st["busy"] != "true")
-            click_el(page, "document.querySelector('.pl-card tbody tr')")
+            click_el(page, "document.querySelector('.dp-pl-list tbody tr')")
             settle(page, lambda st: st["peek_link"])
             shell_step("предпросмотр → фиша (проза сервера)",
                        lambda: click_el(page, "document.querySelector('.ppanel.open a[href^=\"/admin/patient/\"]')"),
-                       lambda st: st["href"].startswith("/admin/patient/") and "fișa pacientului" in st["sub"],
-                       "fișa pacientului")
+                       lambda st: st["href"].startswith("/admin/patient/") and "Pacienți" in st["sub"],
+                       "Pacienți")
             page.go("/admin/medici")
             settle(page, lambda st: st["busy"] != "true" and st["busy"] != "none")
             shell_step("врачи → карточка врача",
