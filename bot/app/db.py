@@ -1960,6 +1960,21 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     )
 
 
+async def appointment_days(start: datetime, end: datetime) -> list:
+    """Записи окна ТРЕМЯ колонками — для точек мини-календаря (08.10): день,
+    в который есть хоть одна живая запись. Полная выборка `day_appointments`
+    на шесть недель тянула бы пациентов и визиты ради одной даты на строку.
+    Что считается живой записью (без отменённых и заметок стойки), решает
+    вызывающий, как и у повестки: правило одно, живёт рядом с выборкой дня."""
+    return await _fetch(
+        """SELECT starts_at, status, source FROM appointments
+           WHERE starts_at >= $1 AND starts_at < $2""",
+        """SELECT starts_at, status, source FROM appointments
+           WHERE starts_at >= ? AND starts_at < ?""",
+        *((start, end) if not IS_SQLITE else (_iso(start), _iso(end))),
+    )
+
+
 _PLIST_COLS = ("id, name, phone, email, session_key, birth_year, birth_date, "
                "gender, insurance, primary_doctor, file_no, notes, created_at, "
                "archived")

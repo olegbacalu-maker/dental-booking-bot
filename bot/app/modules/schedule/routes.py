@@ -968,8 +968,11 @@ async def admin_home(request: Request, date_q: str = Query("", alias="date"), ms
         # запись осталась с тех пор, когда день был рабочим, баннер сообщал
         # «clinica este închisă» прямо над нарисованной записью. Владелец
         # остался один — холст, у него условие полное.
+        # ⭐ Подзаголовок панели печатает САМ экран (08.10, промпт 1): дата
+        # словами и сводка дня приезжают конвертом канала (`day_long`, повестка,
+        # загрузка), и у оболочки для него строки нет — пустая не рисуется.
         return react_shell("schedule_dash", "/admin",
-                           shell_model("dash", "panou principal", msg=msg))
+                           shell_model("dash", "", msg=msg))
     d = _parse_date(date_q) if date_q else datetime.now(eng.TZ).date()
     day_start = datetime(d.year, d.month, d.day, tzinfo=eng.TZ)
     # Две недели одним запросом вместо «сегодня» + «вчера» двумя: из этой же
@@ -1379,6 +1382,17 @@ async def _panel_live(d: date, now: datetime) -> dict:
         bot_new = sum(1 for x in recent
                       if x["created_at"].astimezone(eng.TZ).date() == now.date())
     occ_series = [ppanel.occupancy_pct(x, by_day[x], active_dks) for x in span]
+    # Точки мини-календаря (08.10): дни окна месяца с живой записью. Окно —
+    # те же полные недели, что рисует `panel.minical` (с понедельника перед
+    # первым числом, шесть недель с запасом); выборка лёгкая, три колонки.
+    # ⚠️ Правило «живая запись» то же, что у повестки и счётчиков: без
+    # отменённых и без заметок стойки.
+    first = d.replace(day=1)
+    m_start = first - timedelta(days=first.weekday())
+    m0 = datetime(m_start.year, m_start.month, m_start.day, tzinfo=eng.TZ)
+    busy_days = {r["starts_at"].astimezone(eng.TZ).date()
+                 for r in await db.appointment_days(m0, m0 + timedelta(days=42))
+                 if r["status"] != "cancelled" and r["source"] != "note"}
     return {
         # ⭐ Подпись дня для шапки — В КОНВЕРТЕ, рядом с эхом `date` (решение
         # Олега 24.09). Адрес панели без `?date=` значит «сегодня сервера», и в
@@ -1387,6 +1401,9 @@ async def _panel_live(d: date, now: datetime) -> dict:
         # подпись застывала на моменте загрузки. Отпечаток она не шевелит:
         # для одного дня она одна и та же, меняется ровно вместе с датой.
         "day_label": pday.day_title(d),
+        # дата словами — под заголовок панели (08.10, макет); та же причина
+        # быть в конверте, что у `day_label`
+        "day_long": pday.day_long(d, _RO_MONTHS),
         "canvas": pcanvas.model(d, rows, cards, _svc_colors),
         "agenda": ppanel.agenda(d, rows, cards, _svc_colors, _AG_CLS, now),
         "tiles": ppanel.tiles(d, ppanel.counts(rows), ppanel.counts(by_day[prev_day]),
@@ -1394,7 +1411,7 @@ async def _panel_live(d: date, now: datetime) -> dict:
         # ⚠️ `now.date()`, а не `d`: «сегодня» в календаре — это сегодня, а не
         # день, на который смотрят. Подставь `d` — и метка «tdy» поедет вслед
         # за листанием, перестав отвечать на вопрос, ради которого она есть.
-        "minical": ppanel.minical(d, now.date(), _RO_MONTHS),
+        "minical": ppanel.minical(d, now.date(), _RO_MONTHS, busy=busy_days),
         "occupancy": ppanel.occupancy(
             d, now, ppanel.occupancy_pct(d, rows, active_dks),
             ppanel.occupancy_pct(prev_day, by_day[prev_day], active_dks),

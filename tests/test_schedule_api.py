@@ -800,8 +800,8 @@ def suite_dash_flag(res: Result) -> None:
                           'id="root"' in page, data["live"],
                           sorted(k for k in data if k not in ("screen", "date", "live"))),
                          (True, True, False, True,
-                          ["actions", "agenda", "canvas", "day_label", "desk", "minical",
-                           "note_actions", "note_ends", "occupancy", "slotform",
+                          ["actions", "agenda", "canvas", "day_label", "day_long", "desk",
+                           "minical", "note_actions", "note_ends", "occupancy", "slotform",
                            "tiles"])):
             return
         # ⭐ Вторая половина отката (C26.5.2). Вкладка, открытая React-ом,
@@ -866,7 +866,7 @@ def suite_dash_flag(res: Result) -> None:
                   (live["live"], live["screen"], live["date"],
                    sorted(k for k in live if k not in ("screen", "date", "live"))),
                   (True, "panel", day,
-                   ["actions", "agenda", "canvas", "day_label", "desk", "minical",
+                   ["actions", "agenda", "canvas", "day_label", "day_long", "desk", "minical",
                     "note_actions", "note_ends", "occupancy", "slotform", "tiles"]))
         # ⭐ B1: шапку дня печатает ЭКРАН, а не сервер. Проверяется ПАРОЙ —
         # ссылки на неделю в серверном HTML больше нет, а подпись дня, без
@@ -1001,18 +1001,21 @@ def suite_live_shell(res: Result) -> None:
     with srv:
         c = Client(srv.url).login()
         # ⭐ С 06.10 неделя — раздел «Programări» (`prog`), а не панель.
-        want = {"/admin": ("schedule_dash", "dash"),
-                "/admin/week": ("schedule_week", "prog"),
-                "/admin/all": ("schedule_all", "prog"),
-                f"/admin/doctor/{dk}": ("schedule_doctor", "prog")}
-        for path, (screen, active) in want.items():
+        # ⭐ С 08.10 панели сервер отдаёт ПУСТОЙ подзаголовок: дату словами и
+        # сводку печатает сам экран из конверта (`day_long`), двух подписей в
+        # одной области шапки не бывает. У остальных экранов подпись сервера.
+        want = {"/admin": ("schedule_dash", "dash", False),
+                "/admin/week": ("schedule_week", "prog", True),
+                "/admin/all": ("schedule_all", "prog", True),
+                f"/admin/doctor/{dk}": ("schedule_doctor", "prog", True)}
+        for path, (screen, active, has_sub) in want.items():
             page = c.get(f"{path}?date={day}").body
             shell = _shell_of(page)
             res.check(f"{path}: узел экрана и модель оболочки на нём",
                       (f'<div id="root" data-screen="{screen}"' in page,
                        shell.get("nav", {}).get("active"),
                        bool(shell.get("frame", {}).get("sub"))),
-                      (True, active, True))
+                      (True, active, has_sub))
             # ⚠️ `panel.js` ищется ТЕГОМ, а не именем: имя встречается в
             # пояснении к скрипту анимаций, которое печатает голова документа,
             # и проверка по имени краснела бы на исправном коде (прайор о

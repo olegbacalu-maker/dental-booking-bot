@@ -17,7 +17,8 @@ const SERIES = [0, 1, 2, 3, 2, 4, 5, 3, 2, 6, 4, 3, 7, 5]
 
 function model(over: Partial<DashModel> = {}): DashModel {
   return {
-    screen: 'panel', date: TODAY, day_label: 'Sâ 19.09.2026', live: true,
+    screen: 'panel', date: TODAY, day_label: 'Sâ 19.09.2026',
+    day_long: 'Sâmbătă, 19 septembrie 2026', live: true,
     canvas: {
       date: TODAY, empty: false, base_min: 540, tight: false,
       hours: [{ h: 9, label: '09:00', now: false }, { h: 10, label: '10:00', now: true }],
@@ -75,7 +76,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
     minical: {
       title: 'Septembrie 2026', weekdays: ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'],
       weeks: [[
-        { date: TODAY, day: 19, other: false, today: true, selected: true,
+        { date: TODAY, day: 19, other: false, today: true, selected: true, busy: true,
           href: `/admin?date=${TODAY}` },
       ]],
       prev: { date: '2026-08-01', href: '/admin?date=2026-08-01' },
@@ -185,7 +186,10 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     expect(document.querySelector('.fl-tab.on span')?.textContent).toBe('Toate')
     expect(document.querySelector('.fl-tab.on b')?.textContent).toBe('1')
     /* 01.10: плитки «Azi» ушли в строку шапки «La recepție», списки стойки — из того же конверта */
-    expect(document.querySelector('.desk .dk-h small')?.textContent).toBe('Azi: 1 programări · ocupare 13%')
+    /* подзаголовок — из того же конверта (08.10): дата словами, число, загрузка */
+    expect(document.querySelector('.dp-react-root > .sub')?.textContent)
+      .toBe('Sâmbătă, 19 septembrie 2026 · 1 programare · 13% ocupare')
+    expect(document.querySelector('.mcal .dot')).toBeTruthy()
     expect(document.querySelector('.desk')?.textContent).toContain('De confirmat mâine')
     expect(document.querySelector('.desk')?.textContent).toContain('Dr. Ion')
   })
@@ -282,12 +286,10 @@ describe('C26.5.2: панель дня — экран целиком', () => {
        обещание, которое видит регистратура. */
     vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
     await show()
-    const hint = document.querySelector('.dashmain .hint')!
-    expect(hint.textContent).toContain('Click pe o programare')
-    /* ⛔ И в старую панель она больше не зовёт (Олег 06.10: «это не нужно»):
-       старая страница — только аварийный выход, в отказе и в остановке. */
-    expect(hint.textContent).not.toContain('clasic')
-    expect(hint.querySelector('a')).toBeNull()
+    /* 08.10 (макет): подсказки под сеткой нет; старую панель не зовёт нигде,
+       кроме отказа и остановки (Олег 06.10: «это не нужно») */
+    expect(document.querySelector('.dashmain .hint')).toBeNull()
+    expect(document.querySelector('.dp-react-root a[href="/admin?ui=legacy"]')).toBeNull()
   })
 
   it('⛔ класс anim снимается на ПЕРВОМ ОБНОВЛЕНИИ, и снять его больше некому', async () => {
@@ -329,18 +331,18 @@ describe('24.09: день — из адреса, шапка — из эха ка
   type Calls = { mock: { calls: unknown[] } }
   const urls = (f: Calls) => f.mock.calls.map((c) => (c as [string])[0])
   const url0 = (f: Calls) => urls(f)[0]
+  /* подпись дня — в подзаголовке (08.10), ссылки — стрелки на день, «Azi», сегмент */
   const nav = () => ({
-    label: document.querySelector('.nav b')?.textContent ?? null,
+    label: document.querySelector('.dp-react-root > .sub b')?.textContent ?? null,
     links: Array.from(document.querySelectorAll('.nav a')).map((a) => a.getAttribute('href')),
   })
   const linksOf = (day: string) => [
-    `/admin?date=${shift(day, -7)}`, `/admin?date=${shift(day, -1)}`, '/admin',
-    `/admin?date=${shift(day, 1)}`, `/admin?date=${shift(day, 7)}`,
+    `/admin?date=${shift(day, -1)}`, `/admin?date=${shift(day, 1)}`, '/admin',
     `/admin?date=${day}`, `/admin/week?date=${day}`,
   ]
   /** Утро после полуночи: другой день, другая подпись, другая запись. */
   const morning = (): DashModel => {
-    const m = model({ date: NEXT, day_label: 'Du 20.09.2026' })
+    const m = model({ date: NEXT, day_label: 'Du 20.09.2026', day_long: 'Duminică, 20 septembrie 2026' })
     const col = m.canvas.columns[0]!
     m.canvas = { ...m.canvas, date: NEXT,
       columns: [{ ...col, blocks: [{ ...(col.blocks[0] as DashAppt), id: 5, name: 'Ana Dimineață' }] }] }
@@ -360,7 +362,7 @@ describe('24.09: день — из адреса, шапка — из эха ка
   it('⭐ шапка — эхо канала: подпись и ссылки от дня, на который ОТВЕТИЛ сервер', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
     await show('/admin')
-    expect(nav()).toEqual({ label: 'Sâ 19.09.2026', links: linksOf(TODAY) })
+    expect(nav()).toEqual({ label: 'Sâmbătă, 19 septembrie 2026', links: linksOf(TODAY) })
   })
 
   it('⭐ полночь: новый день приезжает ОДНИМ ответом — шапка, ссылки и данные', async () => {
@@ -371,7 +373,7 @@ describe('24.09: день — из адреса, шапка — из эха ка
     f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
 
-    await waitFor(() => expect(nav().label).toBe('Du 20.09.2026'))
+    await waitFor(() => expect(nav().label).toBe('Duminică, 20 septembrie 2026'))
     expect(nav().links).toEqual(linksOf(NEXT))
     expect(document.querySelector('[data-appt="5"] b')?.textContent).toContain('Ana Dimineață')
     /* и адрес опроса НЕ застыл на вчерашнем дне */
@@ -406,7 +408,7 @@ describe('24.09: день — из адреса, шапка — из эха ка
     f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
 
-    await waitFor(() => expect(nav().label).toBe('Du 20.09.2026'))
+    await waitFor(() => expect(nav().label).toBe('Duminică, 20 septembrie 2026'))
     expect(document.querySelector('dialog')).toBeNull()
   })
 
@@ -425,7 +427,7 @@ describe('24.09: день — из адреса, шапка — из эха ка
     f.mockImplementation(async () => reply(200, morning(), { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
 
-    await waitFor(() => expect(nav().label).toBe('Du 20.09.2026'))
+    await waitFor(() => expect(nav().label).toBe('Duminică, 20 septembrie 2026'))
     expect(document.querySelector('dialog')).toBeNull()
   })
 
@@ -469,7 +471,7 @@ describe('24.09: день — из адреса, шапка — из эха ка
     await waitFor(() => expect(document.querySelector('.dp-react-root')).toBeTruthy())
     expect(document.querySelector('.nav')).toBeNull()
     answer(reply(200, model()))
-    await waitFor(() => expect(nav().label).toBe('Sâ 19.09.2026'))
+    await waitFor(() => expect(nav().label).toBe('Sâmbătă, 19 septembrie 2026'))
     expect(document.querySelector('.gridbody')).toBeTruthy()
   })
 })

@@ -271,8 +271,14 @@ def occupancy(d: date, now: datetime, occ: int, occ_prev: int,
 WEEKDAYS = ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")
 
 
-def minical(sel: date, today: date, months, base: str = "/admin") -> dict:
-    """Месяц ПОЛНЫМИ неделями Пн–Вс, с тремя метками и соседями.
+def minical(sel: date, today: date, months, base: str = "/admin",
+            busy: frozenset | set = frozenset()) -> dict:
+    """Месяц ПОЛНЫМИ неделями Пн–Вс, с тремя метками, точками и соседями.
+
+    ⭐ `busy` — дни, в которые есть хоть одна живая запись (08.10, макет: точка
+    под числом). Множество ДАТ приходит аргументом: правило «что считается
+    записью» (без отменённых и заметок стойки) живёт у вызывающего рядом с
+    выборкой, как и у повестки. Четвёртая метка независима от трёх прежних.
 
     ⛔ Недели полные, и первая начинается с понедельника, даже если он из
     прошлого месяца. Обрежь её — и числа поедут по столбцам: вторник встанет
@@ -300,6 +306,7 @@ def minical(sel: date, today: date, months, base: str = "/admin") -> dict:
         cells.append({"date": cur.isoformat(), "day": cur.day,
                       "other": cur.month != sel.month,
                       "today": cur == today, "selected": cur == sel,
+                      "busy": cur in busy,
                       "href": f"{base}?date={cur.isoformat()}"})
         cur += timedelta(days=1)
     return {

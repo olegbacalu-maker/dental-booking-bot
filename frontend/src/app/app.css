@@ -1397,15 +1397,18 @@ dialog.dp-ask { width: 400px; }
 /* Поток пациента (03.10): вкладки «Toate · Întârzie · A venit · În cabinet» над
    «Agenda zilei». Цвета — смысла: фиолетовый «a venit» и синий «în cabinet» — как
    плашки повестки (.pl-badge.wai/.trt в panel.css), красное — от 15 минут. */
-.fl-tabs { display: flex; gap: 3px; padding: 3px; margin: 0 0 8px; background: var(--line2); border-radius: var(--r-s); }
+.fl-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 12px; }
 .fl-tab {
-  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
-  border: 0; background: none; border-radius: calc(var(--r-s) - 2px); padding: 5px 2px 4px; cursor: pointer;
-  font: inherit; color: var(--text3);
+  min-width: 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0; border: 1px solid var(--line); background: var(--panel); border-radius: var(--r-block);
+  padding: 6px 4px; cursor: pointer; font: inherit; color: var(--text2);
+  transition: background-color var(--dur) ease, border-color var(--dur) ease;
 }
-.fl-tab span { font-size: var(--fs-micro); font-weight: 600; white-space: nowrap; }
-.fl-tab b { font-size: var(--fs-m); font-weight: 700; color: var(--text2); font-variant-numeric: tabular-nums; line-height: 1.2; }
-.fl-tab.on { background: var(--panel); box-shadow: var(--sh); color: var(--text2); }
+.fl-tab:hover { background: var(--bg); }
+.fl-tab:focus-visible { outline: none; box-shadow: var(--ring); }
+.fl-tab span { font-size: var(--fs-s); font-weight: 500; white-space: nowrap; }
+.fl-tab b { font-size: var(--fs-h3); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 24px; }
+.fl-tab.on { background: var(--teal-soft); border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); color: var(--text); }
 .fl-tab b.amber { color: var(--amber-t); }
 .fl-tab b.red { color: var(--red-t); }
 .fl-tab b.violet { color: #6D28D9; }
@@ -1438,3 +1441,80 @@ dialog.dp-ask { width: 400px; }
 .dk-btn.fl-arrived:hover { background: var(--blue-soft); color: #1D4ED8; border-color: transparent; }
 .dk-btn.fl-done:hover { background: var(--green-soft); color: var(--green-t); border-color: transparent; }
 .dk-btn.fl-noshow:hover { background: var(--red-soft); color: var(--red-t); border-color: transparent; }
+
+/* ---- панель дня по макету Олега (08.10, design/redesign-2026-10, промпт 1) ---- */
+/* инструменты дня справа от заголовка: кнопки-иконки 44px и сегмент Zi | Săptămâna */
+.dp-daynav .dp-ibtn { width: var(--h-ctl); padding: 0; justify-content: center; }
+.dp-daynav .dp-ibtn svg { width: 18px; height: 18px; }
+.dp-seg {
+  display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-ctl);
+  padding: 3px; gap: 2px;
+}
+.dp-seg a {
+  height: calc(var(--h-ctl) - 8px); padding: 0 14px; border: 0; border-radius: calc(var(--r-ctl) - 3px);
+  background: none; box-shadow: none; color: var(--text2);
+}
+.dp-seg a:hover { border: 0; box-shadow: none; transform: none; color: var(--text); }
+.dp-seg a.on { background: var(--teal); color: var(--on-teal); font-weight: 600; }
+.dp-seg a.on:hover { color: var(--on-teal); }
+/* подзаголовок панели: дата словами тёмным, сводка — цветом подписи */
+.dp-daysub { font-size: var(--fs-body); }
+.dp-daysub b { color: var(--text); font-weight: 600; }
+
+/* пустой день: карточка поверх сетки без событий мыши — слоты под ней живые */
+.dp-empty-day {
+  position: absolute; left: 56px; right: 0; top: 48px; display: flex; justify-content: center;
+  pointer-events: none; z-index: 3;
+}
+.dp-empty-day > div {
+  max-width: 320px; text-align: center; padding: 16px 20px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r-block); box-shadow: var(--sh2);
+}
+.dp-empty-day b { display: block; font-size: var(--fs-l); font-weight: 600; }
+.dp-empty-day span { display: block; font-size: var(--fs-m); color: var(--text2); margin-top: 4px; }
+
+/* кнопка одонтограммы в блоке визита: 36px в правом нижнем углу (44 из
+   макета в блоке часа 58px съедали бы и первую строку — на 1366 с четырьмя
+   врачами интервал с чипом туда не влезал); в сжатых видах её нет — там нет
+   места и для имени */
+.gappt .apact {
+  position: absolute; right: 3px; bottom: 3px; width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-ctl);
+  color: var(--teal-d); text-decoration: none;
+}
+.gappt .apact:hover { background: rgba(255, 255, 255, .7); }
+.gappt .apact:focus-visible { outline: none; box-shadow: var(--ring); }
+.gappt .apact svg { width: 20px; height: 20px; }
+.gappt.slim .apact, .gappt.tiny .apact, .gappt.bare .apact { display: none; }
+
+/* «Primul loc liber»: врач, ближайший свободный час, кнопка-контур; внизу касса */
+.dp-free {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--sh); padding: 16px; display: flex; flex-direction: column; gap: 4px;
+}
+.dp-free h2 { margin: 0 0 8px; font-size: var(--fs-h3); font-weight: 600; }
+.dp-free-row { display: flex; align-items: center; gap: 10px; min-height: 52px; }
+.dp-free .av {
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; border: 3px solid var(--line);
+  background: var(--panel); color: var(--text); display: inline-flex; align-items: center;
+  justify-content: center; font-size: var(--fs-s); font-weight: 700;
+}
+.dp-free-b { flex: 1; min-width: 0; line-height: 18px; }
+.dp-free-b b { display: block; font-size: var(--fs-body); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dp-free-b small { font-size: var(--fs-m); color: var(--text2); }
+.dp-free-btn {
+  display: inline-flex; align-items: center; justify-content: center; height: var(--h-ctl); padding: 0 16px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text);
+  font: inherit; font-size: var(--fs-body); font-weight: 600; cursor: pointer; white-space: nowrap;
+  transition: background-color var(--dur) ease;
+}
+.dp-free-btn:hover { background: var(--bg); }
+.dp-free-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.dp-free-btn:disabled { opacity: .5; cursor: default; }
+.dp-free .dk-cash {
+  margin: 8px 0 0; padding: 10px 0 0; background: none; border-top: 1px solid var(--line);
+  border-radius: 0; font-size: var(--fs-body); min-height: 44px;
+}
+.dp-free .dk-cash small { font-size: var(--fs-m); }
+/* списки стойки: без шапки — первая секция без верхней черты */
+.desk > .dk-sec:first-child { border-top: 0; padding-top: 2px; }

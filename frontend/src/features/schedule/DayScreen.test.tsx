@@ -266,7 +266,7 @@ describe('день журнала: чтение', () => {
     expect(document.querySelectorAll('.gridhead .gh-doc')[1]?.textContent).toContain('inactiv')
     /* шапка с цветом врача и загрузкой — как у панели */
     expect(document.querySelectorAll('.gridhead .dcard .av')[0]?.textContent).toBe('AD')
-    expect(document.querySelector('.gridhead .occ b')?.textContent).toBe('13%')
+    expect(document.querySelector('.gridhead .track')?.getAttribute('title')).toContain('13%')
   })
 
   it('⛔ старой таблицы нет: ни рядов с «+», ни ссылок в форму', async () => {

@@ -99,6 +99,11 @@
    --side-hover:rgba(255,255,255,.12);--side-on:rgba(255,255,255,.16);
    --side-line:rgba(255,255,255,.16);--side-off:rgba(255,255,255,.42);
    --side-mark:var(--on-teal-d);--nav-mark:0px;--nav-fw:500;--nav-fw-on:600;
+   /* активный пункт: цвет текста и тень плашки; плитка знака в шапке меню
+      (08.10: у светлого меню плашка белая с текстом фирменного цвета, плитка
+      залита фирменным — core/theme.MENUS) */
+   --side-on-fg:var(--on-teal-d);--side-on-sh:none;
+   --side-tile:rgba(255,255,255,.14);--side-tile-fg:var(--on-teal-d);
    --sec-fs:10.5px;--sec-ls:.08em;--sec-tt:uppercase;
    /* Шапка и слой содержимого. У сегодняшних стилей слой прозрачен и без
       кромки, шапка белая, у поля поиска своя подложка; --field-line-b —
@@ -199,7 +204,12 @@
  /* знак идёт flat=True (bot/app/brand.py): своя тёмно-зелёная подложка тут
     была бы пятном на синей теме, поэтому фигуры берут currentColor */
  /* знак v2 (05.10) шире высоты — лента со стрелкой уходит вправо: 284x220 */
- .side .brand .logo{width:40px;height:31px;flex:0 0 40px;display:block}
+ /* Плитка знака (08.10, макет): квадрат 40px с углом контрола, заливка и
+    цвет знака — вариант меню (--side-tile*); сам знак 28px по ширине. */
+ .side .brand .mk{width:40px;height:40px;flex:0 0 40px;border-radius:var(--r-ctl);
+   background:var(--side-tile);color:var(--side-tile-fg);
+   display:flex;align-items:center;justify-content:center}
+ .side .brand .logo{width:28px;height:22px;flex:0 0 28px;display:block}
  .side .brand .txt{min-width:0}
  /* имя клиники бывает длинным ("Clinica Stomatologică ..."): две строки и
     обрезка, а не многоточие в середине первого слова */
@@ -221,7 +231,8 @@
  /* ⚠️ opacity возвращается в 1 вместе с плашкой: иначе прозрачность гасила бы
     и её саму, и подсветка вышла бы бледнее покоя */
  .side nav a:hover{background:var(--side-hover);opacity:1}
- .side nav a.on{background:var(--side-on);opacity:1;font-weight:var(--nav-fw-on)}
+ .side nav a.on{background:var(--side-on);color:var(--side-on-fg);box-shadow:var(--side-on-sh);
+   opacity:1;font-weight:var(--nav-fw-on)}
  /* полоска у активного пункта (NavigationView): ширину даёт стиль
     (--nav-mark, 0 — нет), цвет — вариант меню (--side-mark) */
  .side nav a.on::before{content:"";position:absolute;left:0;top:50%;width:var(--nav-mark);
@@ -237,9 +248,20 @@
     по поперечной оси уронил бы пункт к низу таб-бара. */
  .side nav{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
  .side nav a[title="Setări"]{margin-top:auto}
- .side .sfoot{margin-top:auto;padding:12px 16px;
+ /* Подвал меню (08.10, макет): «DentPilot v1.39.1 · 16:01» и под ней почта
+    обратной связи. Уголок .brandcorner справа внизу снят, его две ссылки —
+    сайт (знак со словом, только target=_blank) и mailto — живут здесь.
+    ⚠️ Приглушение — прозрачностью поверх --side-fg, а не хексом: цвет текста
+    меню считает core/theme.py под выбранный вариант (грабля карты). */
+ .side .sfoot{margin-top:auto;padding:12px 16px 14px;
    border-top:1px solid var(--side-line);
-   font-size:var(--fs-s);color:var(--side-fg);opacity:.5}
+   font-size:var(--fs-s);line-height:18px;color:var(--side-fg)}
+ .side .sfoot .sf-v{opacity:.6}
+ .side .sfoot a{color:var(--side-on-fg);text-decoration:none;font-weight:600}
+ .side .sfoot a:hover{text-decoration:underline}
+ .side .sfoot .bc-site{display:inline-flex;align-items:center;gap:4px;vertical-align:bottom}
+ .side .sfoot .bc-site svg{width:18px;height:14px;flex:0 0 18px;display:block}
+ .side .sfoot .sf-mail{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--layer-bg);
    box-shadow:inset 1px 0 0 var(--layer-line);border-top-left-radius:var(--layer-r)}
  .top{height:var(--h-top);flex:0 0 var(--h-top);background:var(--top-bg);border-bottom:1px solid var(--line);
@@ -346,7 +368,11 @@
  .content{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:24px;align-content:start}
  .content>*,#root>*,.dp-react-root>*{grid-column:1/-1}
  .content>h1{grid-area:1/1/2/2;margin:0}
- .content>.sub{grid-area:2/1/3/2;margin:4px 0 18px}
+ .content>.sub,.dp-react-root>.sub{grid-area:2/1/3/2;margin:4px 0 18px}
+ /* Пустой подзаголовок не рисуется (08.10): версия из него снята, у панели
+    дня подпись печатает САМ экран (.dp-react-root>.sub — дата и сводка из
+    конверта канала), и сервер отдаёт ему пустую. */
+ .content>.sub:empty{display:none}
  #root,.dp-react-root{display:contents}
  .content>.nav:not(.nav~.nav),.dp-react-root>.nav:not(.nav~.nav){grid-area:1/2/3/3;align-self:center;justify-self:start;margin:0}
  @media print{.content{display:block}}
@@ -470,18 +496,28 @@
     z-index 80: над панелью предпросмотра (.ppanel 60); <dialog> живёт в top
     layer и остаётся выше без всяких чисел. Появление — в разделе «движение»;
     крестик и автозакрытие успеха вешает panel.js. */
- .toastbox{position:fixed;top:88px;left:0;right:0;z-index:80;display:flex;
-   justify-content:center;padding:0 16px;pointer-events:none;
+ /* Тост (макет 08.10): тёмная плашка справа внизу, не перекрывает кнопки
+    дня; тон — значком и кромкой слева (успех — галочка, отказ — красная
+    кромка), не только цветом. Поверх цветов .banner.ok/.err — специфичность
+    та же, правило ниже по файлу. */
+ .toastbox{position:fixed;right:24px;bottom:24px;left:auto;top:auto;z-index:80;display:flex;
+   justify-content:flex-end;padding:0;pointer-events:none;max-width:calc(100% - 48px);
    transition:opacity var(--dur) ease}
  .toastbox.out{opacity:0}
- .toastbox .banner{pointer-events:auto;margin:0;max-width:600px;min-width:0;
-   position:relative;padding-right:46px;border:1px solid rgba(15,23,42,.08);
-   box-shadow:0 4px 10px rgba(15,23,42,.08),0 20px 44px rgba(15,23,42,.16)}
- .toastbox .t-x{position:absolute;top:50%;right:7px;transform:translateY(-50%);
-   width:30px;height:30px;padding:0;border:none;border-radius:var(--r-chip);
-   background:none;color:inherit;opacity:.6;cursor:pointer;
+ .toastbox .banner,.toastbox .banner.ok,.toastbox .banner.err,.toastbox .banner.warn{
+   pointer-events:auto;margin:0;max-width:600px;min-width:0;position:relative;
+   display:flex;align-items:center;gap:10px;padding:12px 52px 12px 16px;
+   border:0;border-left:4px solid var(--green);border-radius:var(--r-block);
+   background:var(--text);color:#fff;font-size:var(--fs-body);box-shadow:var(--sh3)}
+ .toastbox .banner.err{border-left-color:var(--red)}
+ .toastbox .banner.warn{border-left-color:var(--amber)}
+ .toastbox .banner>svg{width:18px;height:18px;flex:0 0 18px;color:var(--green)}
+ .toastbox .banner a{color:#fff}
+ .toastbox .t-x{position:absolute;top:50%;right:4px;transform:translateY(-50%);
+   width:44px;height:44px;padding:0;border:none;border-radius:var(--r-ctl);
+   background:none;color:#fff;opacity:.75;cursor:pointer;
    display:flex;align-items:center;justify-content:center}
- .toastbox .t-x:hover{opacity:1;background:rgba(15,23,42,.07)}
+ .toastbox .t-x:hover{opacity:1;background:rgba(255,255,255,.12)}
  .statbar{background:var(--line2);border-radius:4px;height:8px;overflow:hidden}
  .statbar div{background:var(--teal);height:8px}
  /* ---------- KPI ---------- */
@@ -616,87 +652,112 @@
  .rk-occ b{grid-column:2/-1;font-size:var(--fs-xl);font-weight:600;line-height:1.15}
  .rk-occ .spark{grid-column:1/-1;margin-top:1px}
  /* ---------- дневная сетка (canvas) ---------- */
- .dash{display:flex;gap:16px;align-items:flex-start}
+ .dash{display:flex;gap:20px;align-items:flex-start}
  .dashmain{flex:1;min-width:0}
- .rail{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
+ /* рельс 336px (макет 08.10: 340, max 392): семь клеток календаря по 40px
+    с полями карточки; на 1366 трём врачам остаётся ~230px на колонку */
+ .rail{width:336px;flex:0 0 336px;display:flex;flex-direction:column;gap:16px}
+ /* ⚠️ overflow:clip, не hidden: hidden сделал бы карточку контейнером
+    прокрутки, и липкая шапка врачей прилипала бы к ней, а не к окну */
  .gridcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
-   box-shadow:var(--sh);overflow:hidden}
- /* полоса карточек врачей над расписанием (макет Олега 08-03): каждая ячейка
-    остаётся flex:1 и стоит над своей колонкой, а сама карточка живёт ВНУТРИ неё
-    с отступом — так вид «плавающих карточек» не ломает выравнивание с сеткой */
- .gridhead{display:flex;margin-bottom:14px;align-items:stretch}
+   box-shadow:var(--sh);overflow:clip}
+ /* Шапка врачей (макет 08.10): первая строка карточки сетки, липкая сверху.
+    Ячейка стоит над своей колонкой (flex:1, как колонки), внутри — аватар-
+    кольцо цветом врача, имя и специализация, строка «N programări · Liber de
+    la HH:MM» и полоска загрузки 4px цветом врача. Старая страница печатает ту
+    же шапку НАД карточкой (?ui=legacy) — правила общие, там она не липкая.
+    ⛔ Цвет врача — инлайном из модели (hue), как и была полоса слева. */
+ .gridhead{display:flex;align-items:stretch;background:var(--panel);
+   border-bottom:1px solid var(--line)}
+ .gridcard>.gridhead{position:sticky;top:0;z-index:6}
  .gridhead .gh-time{width:56px;flex:0 0 56px}
- .gridhead .gh-doc{flex:1;min-width:0;padding:0 5px;display:flex}
- .gh-doc .dcard{flex:1;min-width:0;display:flex;gap:10px;align-items:center;
-   background:var(--panel);border-radius:var(--r-block);padding:12px;box-shadow:var(--sh);
-   border-left:4px solid var(--teal);transition:transform var(--dur-fast) ease,box-shadow var(--dur-fast) ease}
- .gh-doc .dcard:hover{transform:translateY(var(--lift-card));box-shadow:var(--sh2)}
+ .gridhead .gh-doc{flex:1;min-width:0;display:flex;border-left:1px solid var(--line2)}
+ .gh-doc .dcard{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;padding:14px 16px}
  .gh-doc .dcard.off{opacity:.72}
- .gh-doc .av{width:44px;height:44px;border-radius:50%;color:#fff;display:flex;align-items:center;
-   justify-content:center;font-size:var(--fs-l);font-weight:600;flex:0 0 44px;overflow:hidden}
- .gh-doc .av img{width:100%;height:100%;object-fit:cover;display:block}
+ .gh-doc .dc-top{display:flex;gap:10px;align-items:center;min-width:0}
+ .gh-doc .av{width:44px;height:44px;border-radius:50%;border:3px solid var(--line);
+   background:var(--panel);color:var(--text);display:flex;align-items:center;
+   justify-content:center;font-size:var(--fs-body);font-weight:700;flex:0 0 44px;overflow:hidden}
+ .gh-doc .av img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
  .gh-doc .nm{min-width:0;flex:1}
  .gh-doc .nm a{font-size:var(--fs-body);font-weight:600;color:var(--text);text-decoration:none;
-   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:1.35}
  .gh-doc .nm a:hover{color:var(--teal-d)}
- .gh-doc .nm small{display:block;font-size:var(--fs-s);color:var(--text2);white-space:nowrap;
+ .gh-doc .nm small{display:block;font-size:var(--fs-m);color:var(--text2);white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
- .gh-doc .nm small.mt{color:var(--text3);font-size:var(--fs-xs)}
- .gh-doc .st{width:8px;height:8px;border-radius:50%;flex:0 0 8px;align-self:flex-start;
-   margin-top:3px}
- /* загрузка кресла: та же .statbar, что в «Statistici» — один компонент на
-    программу, поэтому процент на дашборде и в отчёте нельзя развести случайно */
- .gh-doc .occ{display:flex;align-items:center;gap:7px;margin-top:5px}
- .gh-doc .occ .statbar{flex:1;min-width:0;height:6px}
- .gh-doc .occ .statbar div{height:6px}
- .gh-doc .occ b{font-size:var(--fs-xs);font-weight:600;color:var(--text2);flex:0 0 auto}
- /* Плотный режим — когда карточка становится узкой: >4 врачей (класс ставит
-    сервер, он один знает их число) или окно уже 1440px (у клиники это 1366×768,
-    там на карточку остаётся ~170px). Специализация уходит первой — её роль берёт
-    на себя цвет карточки; имя вместо многоточия переносится на вторую строку,
-    место под неё в карточке есть. */
- .gridhead.tight .gh-doc{padding:0 3px}
- .gridhead.tight .dcard{gap:8px;padding:9px;border-radius:var(--r-ctl)}
- .gridhead.tight .av{width:34px;height:34px;flex:0 0 34px;font-size:var(--fs-s)}
- .gridhead.tight .nm a{font-size:var(--fs-s);white-space:normal;line-height:1.22;
+ .gh-doc .dc-load{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;
+   gap:0 8px;color:var(--text2)}
+ .gh-doc .dc-load small{font-size:var(--fs-s);white-space:nowrap;line-height:1.4}
+ .gh-doc .dc-free.full{color:var(--text3)}
+ .gh-doc .track{flex:0 0 100%;height:4px;border-radius:2px;background:var(--line2);
+   overflow:hidden;margin-top:6px}
+ .gh-doc .track i{display:block;height:100%;border-radius:2px;background:var(--teal)}
+ /* Плотный режим — когда ячейка узкая: >4 врачей (класс ставит сервер, он
+    один знает их число) или окно уже 1440px (у клиники 1366×768, там на врача
+    ~230px). Специализация уходит первой — её роль берёт цвет кольца; имя
+    переносится на вторую строку вместо многоточия. */
+ .gridhead.tight .dcard{gap:8px;padding:10px}
+ .gridhead.tight .av{width:36px;height:36px;flex:0 0 36px;font-size:var(--fs-s)}
+ .gridhead.tight .nm a{font-size:var(--fs-m);white-space:normal;line-height:1.22;
    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
  .gridhead.tight .nm small{display:none}
- .gridhead.tight .nm small.mt{display:block;font-size:var(--fs-micro);margin-top:1px}
  @media (max-width:1440px){
-   .gh-doc .dcard{gap:8px;padding:9px;border-radius:var(--r-ctl)}
-   .gh-doc .av{width:34px;height:34px;flex:0 0 34px;font-size:var(--fs-s)}
-   .gh-doc .nm a{font-size:var(--fs-s);white-space:normal;line-height:1.22;
+   .gh-doc .dcard{gap:8px;padding:10px}
+   .gh-doc .av{width:36px;height:36px;flex:0 0 36px;font-size:var(--fs-s)}
+   .gh-doc .nm a{font-size:var(--fs-m);white-space:normal;line-height:1.22;
      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
    .gh-doc .nm small{display:none}
-   .gh-doc .nm small.mt{display:block;font-size:var(--fs-micro);margin-top:1px}
  }
  .gridbody{display:flex;position:relative;--cell:56px}
  .gcol-time{width:56px;flex:0 0 56px;border-right:1px solid var(--line2);background:var(--bg)}
- .gcol-time div{height:var(--cell);font-size:var(--fs-xs);color:var(--text3);text-align:right;padding:4px 8px 0}
- .gcol-time div.nowh{color:var(--teal-d);font-weight:700}
+ .gcol-time div{height:var(--cell);font-size:var(--fs-s);color:var(--text3);text-align:right;padding:6px 8px 0;
+   font-variant-numeric:tabular-nums}
+ .gcol-time div.nowh{color:var(--text);font-weight:700}
  .gcol{flex:1;min-width:0;border-right:1px solid var(--line2);position:relative}
  .gcol:last-child{border-right:none}
- .gcell{height:var(--cell);border-bottom:1px solid var(--line2);cursor:pointer;position:relative}
- .gcell:hover{background:var(--teal-soft)}
- /* Наведение на свободный час: рамка внутри слота и слово, а не голый «+».
-    Плюс отвечал «сюда можно нажать», но не говорил ЧТО будет, а рамка заодно
-    показывает границы слота — какой именно час поймает клик.
-    ⛔ Цвет фирменный (--teal), не зелёный хексом: у клиники, выбравшей синюю
-    тему, подсказка обязана стать синей (грабля карты про зашитый #0E9F8A). */
- .gcell:hover::after{content:'+\00a0 Programare';position:absolute;inset:3px 4px;
+ /* Свободный час — настоящая кнопка (макет 08.10, React), на старой странице
+    — div: правила общие, сброс кнопочного вида безвреден для div. */
+ .gcell{display:block;width:100%;height:var(--cell);border:0;border-bottom:1px solid var(--line2);
+   padding:0;background:transparent;cursor:pointer;position:relative;font:inherit;color:inherit;text-align:left}
+ .gcell:hover,.gcell:focus-visible,.gcell.dropzone{background:var(--teal-soft)}
+ .gcell:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--teal)}
+ /* Наведение на свободный час: «+ HH:00» (макет 08.10) — час из data-hh,
+    фирменной подложкой и словом. ⛔ Цвет фирменный (--teal), не хекс: у
+    клиники с синей темой подсказка обязана стать синей. Старая страница без
+    data-hh получает прежнее «+ Programare» рамкой. */
+ .gcell[data-hh]:hover::after,.gcell[data-hh]:focus-visible::after{content:'+\00a0' attr(data-hh);
+   position:absolute;left:10px;top:8px;color:var(--teal-d);font-size:var(--fs-s);font-weight:600}
+ .gcell:not([data-hh]):hover::after{content:'+\00a0 Programare';position:absolute;inset:3px 4px;
    display:flex;align-items:center;justify-content:center;
    border:1.5px dashed var(--teal);border-radius:var(--r-chip);color:var(--teal-d);
    font-size:var(--fs-s);font-weight:600}
- .gcell.off{cursor:default;background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
- .gcell.off:hover{background:repeating-linear-gradient(135deg,var(--line2) 0 5px,transparent 5px 11px)}
+ /* нерабочее — серым, без штриховки (макет), с подписью на первой ячейке ряда */
+ .gcell.off{cursor:default;background:var(--line2)}
+ .gcell.off:hover{background:var(--line2)}
  .gcell.off:hover::after{content:''}
+ .gcell .gc-off{position:absolute;left:10px;top:8px;font-size:var(--fs-s);color:var(--text3);
+   pointer-events:none}
  /* ⚠️ блок записи — единственная тень, намеренно ОСТАВЛЕННАЯ однослойной:
     их на дневной сетке бывает под тридцать, и страница перерисовывается каждые
     12 секунд. Двухслойная тень здесь стоит кадров, а не выглядит дороже.
     Всплытие при наведении честное — там уже --sh2. */
- .gappt{position:absolute;left:4px;right:4px;border-radius:var(--r-chip);padding:5px 8px;overflow:hidden;
-   font-size:var(--fs-s);line-height:1.35;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.06);z-index:2}
- .gappt:hover{box-shadow:var(--sh2)}
+ .gappt{position:absolute;left:4px;right:4px;border-radius:var(--r-block);padding:5px 8px;overflow:hidden;
+   font-size:var(--fs-s);line-height:1.35;cursor:pointer;z-index:2;
+   box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bar) 40%,transparent)}
+ .gappt:hover{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bar) 40%,transparent),var(--sh2)}
+ /* Строка интервала с чипами (макет 08.10): интервал, «Urgent», слово статуса,
+    минуты ожидания. В полном виде «времени впереди» — первой строкой, у
+    «имени впереди» — третьей без интервала; в сжатых видах — только интервал
+    строкой. Чип и слово статуса не выше 16px: блок часа при --cell:64 — это
+    58px на три строки (16+18+16) и поля по 4px, запаса 0 — мерить браузером. */
+ .gappt .gl1{display:none;align-items:center;gap:6px;min-width:0;white-space:nowrap;
+   overflow:hidden;line-height:16px}
+ .gappt .gl1 .gtm{font-weight:700;font-variant-numeric:tabular-nums;font-size:var(--fs-s);
+   color:color-mix(in srgb,var(--bar) 65%,#000)}
+ .gappt .gl1 .stat{font-size:var(--fs-xs);padding:0 6px;line-height:16px;border-radius:var(--r-xs)}
+ .gappt .gl1 .wait-min{font-size:var(--fs-xs);margin:0}
+ .gappt .gl1 .chip{height:16px;line-height:16px;font-size:var(--fs-xs);padding:0 6px}
+ .gappt .gl1 .chip svg{width:10px;height:10px}
  .gappt b{font-size:var(--fs-s);font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .gappt small{color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
  .gappt .stt{position:absolute;top:5px;right:7px;font-size:var(--fs-xs)}
@@ -747,76 +808,45 @@
     было НИ ПРИ КАКОЙ высоте, а не потому, что мы её ждём. */
  .gappt.bare{padding:0}
  .gappt.bare b,.gappt.bare small,.gappt.bare .stt{display:none}
- /* слово статуса на блоке канвы (08-13): в сжатых видах места нет и для
-    имени — бейдж уходит первым, title остаётся единственным словом */
- /* ⚠️ Бейдж ужат намеренно и ровно настолько, чтобы блок 60-минутного визита
-    остался ДВУСТРОЧНЫМ (имя / время · услуга) вместе с ним. Замер на живой
-    программе (08-17): три строки просили 61px при блоке 58 — и fitAppts
-    схлопывал их в одну, поэтому услуга оказывалась приписанной к имени. После
-    ужатия содержимому нужно 57px, а пол высоты часа поднят до 66 (см. fitGrid),
-    что даёт блок 60px — три пикселя запаса.
-    ⛔ Трогая эти числа, мерить браузером, а не арифметикой: высоту часа считает
-    fitGrid из ОКНА, и на глаз разница видна только на одном размере экрана. */
- .gappt .stw{display:block;margin-top:0}
- .gappt .stw .stat{font-size:var(--fs-micro);padding:0 7px;line-height:1.45}
- .gappt.slim .stw,.gappt.tiny .stw,.gappt.bare .stw{display:none}
  .gappt.noshow{text-decoration:line-through;opacity:.75}
- /* Вид карточки визита (03.10, выбор клиники в Setări › Aspect): «имя
-    впереди» — умолчание и всё, что без атрибута (старая страница); «время
-    впереди» — `<html data-card="time">`. Обе раскладки уже в разметке
-    (DashCanvas: интервал .gtm, начало с длительностью .gt), здесь только выбор.
+ /* Вид карточки визита (03.10, выбор клиники в Setări › Aspect): «время
+    впереди» (`<html data-card="time">`) — раскладка макета 08.10: интервал с
+    чипами, имя, услуга; «имя впереди» — умолчание: имя, под ним начало с
+    длительностью и услуга (.gt), чипы третьей строкой.
     ⛔ Правила полного вида — только вне .slim/.tiny/.bare: сжатые виды
-    fitAppts выбирает ПО ЗАМЕРУ, и чужой padding их переполнит.
-    ⚠️ Полный вид обязан уложиться в прежнюю высоту со словом статуса при полу
-    часа 66px (блок 60px, замер у бейджа выше). У «имени» имя крупнее за счёт
-    line-height, а не padding. У «времени» слово статуса встаёт в строку
-    интервала: четвёртая строка не влезла бы, и fitAppts свёл бы весь вид к
-    одной строке — выбор клиники исчез бы на ноутбуке молча.
-    Цвет интервала — полоса услуги, затемнённая до читаемого: чистый
-    янтарный на своей подложке даёт ~2:1.
+    fitAppts выбирает ПО ЗАМЕРУ, и чужой padding их переполнит. Полный вид
+    обязан уложиться в 58px (блок часа при --cell:64): три строки
+    16+18+16 и поля 4px — ⛔ трогая кегли и поля, мерить браузером.
     ⛔ Телефон (≤640px) остаётся на своих правилах ниже — потому @media. */
- .gappt .gtm{display:none}
  @media (min-width:641px){
-   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote){padding:5px 30px 5px 10px}
-   .gappt:not(.slim):not(.tiny):not(.gnote) b{font-size:var(--fs-m);line-height:1.25;letter-spacing:-.005em}
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote){display:flex;flex-direction:column;
+     padding:4px 10px;line-height:1.25}
+   /* место под кнопку одонтограммы (36px в правом нижнем углу, .apact в
+      app.css) отдают только имя и услуга: строка интервала идёт во всю
+      ширину — на 1366 с четырьмя врачами колонке остаётся ~190px */
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b,
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw){padding-right:38px}
+   .gappt:not(.slim):not(.tiny):not(.gnote) b{font-size:var(--fs-body);line-height:18px;letter-spacing:-.005em}
    /* ⚠️ <small> браузер сам уменьшает (font-size:smaller): без явного кегля
-      вторая строка 10px — ровно то «мелко и бледно», ради чего вид и менялся.
-      Строке слова статуса кегль ОСТАЁТСЯ мелким: её высоту задаёт сам бейдж,
-      а крупная опора строки съела бы запас блока 60px. */
+      вторая строка 10px — ровно то «мелко и бледно», ради чего вид и менялся */
    .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small{font-size:var(--fs-s)}
-   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stw{font-size:var(--fs-micro)}
-   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare) .stt{top:5px;right:6px;
-     width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.75);
-     display:flex;align-items:center;justify-content:center}
-   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare) .stt svg{width:13px;height:13px}
-   /* ⛔ Перенос строк flex-ом, а НЕ сеткой: строки сетки при нехватке высоты
-      ужимаются (у детей overflow:hidden минимум нулевой), текст режется ВНУТРИ
-      строк, а блок не переполняется — fitAppts не видит ничего, и получасовой
-      визит остаётся «полным» с обрезками вместо имени (замер 03.10). Строка
-      flex-переноса не ужимается: лишнее честно переполняет блок.
-      ⚠️ Только у блока С интервалом (`:has(> .gtm)`): старая страница
-      (?ui=legacy) его не печатает, и перенос без него поставил бы слово
-      статуса первой строкой. */
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote):has(> .gtm){display:flex;flex-wrap:wrap;
-     align-content:flex-start;align-items:center;column-gap:8px;
-     padding:4px 30px 4px 10px;line-height:1.25}
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gtm{display:block;flex:none;
-     font-size:var(--fs-xs);font-weight:700;letter-spacing:.02em;font-variant-numeric:tabular-nums;
-     color:color-mix(in srgb,var(--bar) 65%,#000)}
-   /* слово статуса — в строке интервала и НЕ переносится: перенос дал бы
-      четвёртую строку и сжатие всего вида. Длинное ужимается многоточием
-      внутри бейджа; значок в углу и подсказка говорят статус целиком. */
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stw{order:1;flex:1 1 0;min-width:0}
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stw .stat{display:inline-block;
-     max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b,
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small:not(.stw){order:2;flex:0 0 100%}
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b{font-size:var(--fs-body)}
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small{line-height:16px}
+   /* значок статуса в углу — только в сжатых видах: в полном статус словом */
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .stt{display:none}
+   .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gl1{display:flex}
+   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gl1{order:3}
+   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gl1 .gtm{display:none}
+   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b{order:1}
+   html:not([data-card="time"]) .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small{order:2}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gl1{order:1}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b{order:2}
+   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small{order:3}
    [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gt{display:none}
-   [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare) .stt{top:4px}
-   /* сжатая строка «времени впереди» тоже начинается временем */
-   [data-card="time"] .gappt.slim:not(.gnote) .gtm{display:inline;margin-right:5px;font-weight:700;
-     font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--bar) 65%,#000)}
+   /* сжатая строка «времени впереди» тоже начинается временем: строка
+      интервала становится строчной, чипы в ней прячутся */
+   [data-card="time"] .gappt.slim:not(.gnote) .gl1{display:inline;margin-right:5px}
+   [data-card="time"] .gappt.slim:not(.gnote) .gl1 .chip,[data-card="time"] .gappt.slim:not(.gnote) .gl1 .stat,
+   [data-card="time"] .gappt.slim:not(.gnote) .gl1 .wait-min{display:none}
    [data-card="time"] .gappt.slim:not(.gnote) .gt{display:none}
  }
  .gappt.gnote{border:1px dashed var(--line);background:repeating-linear-gradient(135deg,var(--line2) 0 6px,transparent 6px 12px);color:var(--text2)}
@@ -835,23 +865,36 @@
  .gband.gb-top{border-bottom:1px solid var(--line2)}
  .gband.gb-bot{border-top:1px solid var(--line2)}
  .nowline{position:absolute;left:0;right:0;height:2px;background:var(--red);z-index:5;pointer-events:none}
- .nowline::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red)}
+ /* старая страница (panel.js) — линия с точкой; React несёт время атрибутом
+    data-now, и оно становится плашкой в колонке часов (макет 08.10) */
+ .nowline:not([data-now])::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red)}
+ .nowline[data-now]{left:56px}
+ .nowline[data-now]::before{content:attr(data-now);position:absolute;left:-52px;top:-10px;height:20px;
+   padding:0 6px;border-radius:var(--r-xs);background:var(--red);color:#fff;
+   font-size:var(--fs-s);font-weight:600;line-height:20px;font-variant-numeric:tabular-nums}
  /* ---------- правая колонка ---------- */
  .mcal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    box-shadow:var(--sh);padding:var(--pad-block)}
  .mcal .mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
- .mcal .mhead b{font-size:var(--fs-m);font-weight:600}
- .mcal .mhead a{text-decoration:none;color:var(--text2);padding:2px 8px;border-radius:var(--r-s)}
+ .mcal .mhead b{font-size:var(--fs-l);font-weight:600}
+ .mcal .mhead a{display:inline-flex;align-items:center;justify-content:center;width:var(--h-ctl);
+   height:var(--h-ctl);text-decoration:none;color:var(--text2);border-radius:var(--r-ctl);
+   font-size:var(--fs-l)}
  .mcal .mhead a:hover{background:var(--line2)}
  .mcal table{width:100%;border-collapse:collapse}
- .mcal th{font-size:var(--fs-micro);color:var(--text3);font-weight:500;padding:2px 0}
+ .mcal th{font-size:var(--fs-s);color:var(--text3);font-weight:600;padding:2px 0 4px}
  .mcal td{text-align:center;padding:1px 0}
- .mcal td a{display:inline-flex;width:26px;height:26px;border-radius:var(--r-s);align-items:center;
-   justify-content:center;font-size:var(--fs-s);color:var(--text2);text-decoration:none}
- .mcal td a:hover{background:var(--line2)}
- .mcal td a.oth{color:var(--text3);opacity:.5}
+ /* клетка 40px (макет 08.10); точка под числом — день с записями */
+ .mcal td a{position:relative;display:inline-flex;width:40px;height:40px;border-radius:var(--r-ctl);
+   align-items:center;justify-content:center;font-size:var(--fs-body);color:var(--text);
+   text-decoration:none;font-variant-numeric:tabular-nums}
+ .mcal td a:hover{background:var(--bg)}
+ .mcal td a.oth{color:var(--text3)}
  .mcal td a.tdy{box-shadow:inset 0 0 0 1.5px var(--teal);color:var(--teal-d);font-weight:600}
- .mcal td a.seld{background:var(--teal);color:var(--on-teal);font-weight:600}
+ .mcal td a.seld{background:var(--teal);color:var(--on-teal);font-weight:700}
+ .mcal td a .dot{position:absolute;left:50%;bottom:4px;margin-left:-2px;width:4px;height:4px;
+   border-radius:50%;background:var(--teal)}
+ .mcal td a.seld .dot{background:var(--on-teal)}
  /* ---------- старые страницы (перекрашены) ---------- */
  /* ⚠️ Разметки с этим классом в программе НЕТ (проверено грепом по .py, .js и
     .html 08-16) — правило пережило страницу, которую оформляло. Оставлено, но
@@ -1147,15 +1190,6 @@
  .botnew .dt{color:var(--teal-d);font-weight:600}
  .botnew .crt{color:var(--text3);font-size:var(--fs-s)}
  .botnew .nou{background:var(--amber-t);color:#fff;border-radius:var(--r-xs);padding:1px 6px;font-size:var(--fs-micro);margin-left:6px;font-weight:600}
- .brandcorner{position:fixed;right:14px;bottom:10px;font-size:var(--fs-s);color:var(--text3);
-   background:rgba(255,255,255,.94);padding:5px 12px;border-radius:var(--r-block);box-shadow:var(--sh);z-index:50}
- .brandcorner b{color:var(--teal-d)}
- .brandcorner a{color:var(--teal-d);text-decoration:none;font-weight:600;
-   display:inline-flex;align-items:center;gap:5px;vertical-align:middle}
- .brandcorner a:hover{text-decoration:underline}
- /* Знак со словом — одна ссылка на сайт (06.10). Знак flat=True, одним цветом
-    currentColor: берёт --teal-d клиники, как слово рядом, а не нашу бирюзу. */
- .brandcorner .bc-site svg{width:24px;height:19px;flex:0 0 24px;display:block}
  /* ---------- карточка пациента ---------- */
  .fisa{display:flex;gap:16px;align-items:flex-start}
  .fcol-l{width:300px;flex:0 0 300px;display:flex;flex-direction:column;gap:14px}
@@ -1815,7 +1849,7 @@
    transition:background-color var(--dur) ease,transform var(--dur) ease,border-color var(--dur) ease}
  .qa a:hover,.qa button:hover{background:#F3F8FC;border-color:var(--teal);transform:translateY(var(--lift))}
  @media print{
-   .side,.top,.brandcorner,.qa,.tabs,.hero-acts,.doccard .del,
+   .side,.top,.qa,.tabs,.hero-acts,.doccard .del,
    .toastbox{display:none !important}
    body{background:#fff}.content{padding:0;max-width:none}
    .pv2{grid-template-columns:1fr}.pv2-side{position:static}
@@ -2142,20 +2176,32 @@
  .agenda{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
    box-shadow:var(--sh);padding:var(--pad-block)}
  .ag-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
- .ag-h b{font-size:var(--fs-m);font-weight:600}
+ .ag-h b{font-size:var(--fs-h3);font-weight:600}
  .ag-h span{font-size:var(--fs-s);color:var(--text3)}
- .ag-l{max-height:320px;overflow-y:auto;margin:0 -4px;padding:0 4px}
- .ag-i{display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:5px;
-   border-left:3px solid var(--line);border-radius:var(--r-chip);background:#FAFBFD;
-   cursor:pointer;transition:background-color var(--dur) ease,box-shadow var(--dur) ease,transform var(--dur) ease}
- .ag-i:hover{background:var(--panel);box-shadow:var(--sh2);transform:translateX(2px)}
- .ag-i.past{opacity:.5}
- .ag-t{font-size:var(--fs-s);font-weight:600;color:var(--text2);flex:0 0 auto}
+ .ag-l{max-height:480px;overflow-y:auto;margin:0 -4px;padding:0 4px}
+ /* Пункт повестки — карточка (макет 08.10): время, имя, услуга, чипы и ряд
+    кнопок; полоса слева — цвет услуги, как у блока на сетке. Старая страница
+    печатает ту же строку без ряда кнопок — правила общие. */
+ .ag-i{display:flex;flex-direction:column;gap:10px;padding:12px;margin-bottom:8px;
+   border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r-block);
+   background:var(--panel);cursor:pointer;
+   transition:background-color var(--dur) ease,box-shadow var(--dur) ease}
+ .ag-i:hover{box-shadow:var(--sh2)}
+ /* старая страница (?ui=legacy) печатает время, тело и плашку прямыми детьми
+    строки, без ряда .ag-r — ей строка остаётся строкой */
+ .ag-i:not(:has(.ag-r)){flex-direction:row;align-items:center;gap:10px}
+ .ag-i.past{opacity:.55}
+ .ag-r{display:flex;align-items:flex-start;gap:12px;min-width:0}
+ .ag-t{font-size:var(--fs-body);font-weight:700;color:var(--text);flex:0 0 44px;line-height:22px;
+   font-variant-numeric:tabular-nums}
  .ag-b{min-width:0;flex:1}
- .ag-b b{display:block;font-size:var(--fs-s);font-weight:600;white-space:nowrap;
+ .ag-b b{display:block;font-size:var(--fs-body);font-weight:600;line-height:22px;white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
- .ag-b small{display:block;font-size:var(--fs-xs);color:var(--text3);white-space:nowrap;
+ .ag-b small{display:block;font-size:var(--fs-m);color:var(--text2);line-height:18px;white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
+ .ag-chips{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center}
+ .ag-acts{display:flex;gap:8px;flex-wrap:wrap}
+ .ag-acts .savebtn,.ag-acts .ag-odo{flex:1 1 0;margin:0;min-width:0}
  /* значок «есть комментарий» у имени (03.10, просьба Олега): по строке видно,
     что в карточке что-то написано; сам текст — в подсказке */
  .ag-b b svg,.gappt b svg{width:13px;height:13px;vertical-align:-2px;color:var(--text3)}
@@ -2164,13 +2210,21 @@
     кликабельной строки читается как «одно из двух», а не как отдельное действие.
     ⚠️ Строка от неё становится выше, значит в список 320px помещается меньше
     визитов — это цена, а не побочный эффект. */
- .ag-odo{display:inline-flex;align-items:center;gap:5px;margin-top:4px;
-   padding:2px 9px;border-radius:999px;font-size:var(--fs-xs);font-weight:600;
-   background:var(--panel);color:var(--teal-d);border:1px solid var(--teal-line);
-   text-decoration:none}
- .ag-odo:hover{background:var(--teal-soft);border-color:var(--teal)}
- .ag-odo svg{width:12px;height:12px}
- .ag-i .pl-badge{font-size:var(--fs-micro);padding:4px 9px;flex:0 0 auto}
+ /* кнопка-контур (макет 08.10): 44px, кромка, белый фон; та же у
+    «Programează» первого свободного часа (.dp-free-btn в app.css) */
+ .ag-odo{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+   height:var(--h-ctl);padding:0 16px;border-radius:var(--r-ctl);font-size:var(--fs-body);font-weight:600;
+   background:var(--panel);color:var(--text);border:1px solid var(--line);text-decoration:none;
+   white-space:nowrap;transition:background-color var(--dur) ease}
+ .ag-odo:hover{background:var(--bg)}
+ .ag-odo:focus-visible{outline:none;box-shadow:var(--ring)}
+ .ag-odo svg{width:16px;height:16px}
+ .ag-i .pl-badge{font-size:var(--fs-s);padding:0 8px;line-height:20px;border-radius:var(--r-xs);flex:0 0 auto}
+ /* чип срочности (макет): красный фон, белый текст и значок — не только цвет */
+ .chip{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border-radius:var(--r-xs);
+   font-size:var(--fs-s);font-weight:600;white-space:nowrap;line-height:20px}
+ .chip.urg{background:var(--red);color:#fff}
+ .chip svg{width:12px;height:12px;flex:0 0 12px}
  .pl-badge.bad{background:var(--red-soft);color:var(--red-t)}
  .ag-all{display:block;margin-top:8px;font-size:var(--fs-s);font-weight:600;
    color:var(--teal-d);text-decoration:none}
@@ -2180,9 +2234,8 @@
     отпечаток #live каждую минуту. Порог показа (5 мин) — тоже в JS.
     Красным — засидевшийся (15+; было жёлтым, слово Олега 03.10: «после ~15
     минут красным»): цвет смысла, теме не отдан. */
- .wait-min{font-size:var(--fs-xs);color:var(--text3)}
- .ag-b .wait-min{display:block}
- .gappt .wait-min{margin-left:5px;font-size:var(--fs-micro)}
+ .wait-min{font-size:var(--fs-s);color:var(--text3)}
+ .gappt .wait-min{margin-left:5px;font-size:var(--fs-xs)}
  .wait-min.long{color:var(--red-t);font-weight:600}
  /* ---------- аналитика (макет Олега 08-06) ----------
     Сетка 2:1 как у панели дня; на 1366×768 колонки складываются. Все фигуры —
@@ -2316,6 +2369,9 @@
  .th-box .mm i:first-child{opacity:1}
  .th-box .mm.brand{background:var(--teal-d);color:var(--on-teal-d)}
  .th-box .mm.neutral{background:var(--bg);color:var(--text);border:1px solid var(--line)}
+ /* светлое меню (08.10): тонированная подложка, первая полоска — белая плашка */
+ .th-box .mm.soft{background:var(--teal-soft);color:var(--teal-d);border:1px solid var(--teal-line)}
+ .th-box .mm.soft i:first-child{background:var(--panel);opacity:1;box-shadow:var(--sh2)}
  .th-box .fs{font-size:var(--fs-xl);line-height:1;font-weight:600;flex:0 0 40px;text-align:center}
  /* образец карточки визита (выбор вида, 03.10) — своими классами, а не
     правилами сетки: те читают <html data-card> и перерисовали бы образец
@@ -2357,7 +2413,7 @@
  /* плавающий ответ на действие въезжает сверху; без .anim просто стоит на
     месте. Анимация на ВНУТРЕННЕМ .banner, а не на .toastbox: у обёртки живёт
     transition для закрытия, и filled-анимация спорила бы с ним за opacity. */
- @keyframes dp-toast{from{opacity:0;transform:translateY(-10px)}}
+ @keyframes dp-toast{from{opacity:0;transform:translateY(10px)}}
  .anim .toastbox .banner{animation:dp-toast .3s ease both}
  /* Запись, приехавшая при открытом журнале. Единственная анимация, которая
     живёт КАК РАЗ на автоперезагрузке (класс ставит panel.js по сравнению id),
@@ -2455,7 +2511,7 @@
    .content{display:block}
    /* топбар: поиск на всю ширину, кнопка — только «+», лента апдейта скрыта */
    .top{height:56px;flex:0 0 56px;padding:0 10px;gap:8px}
-   .toastbox{top:64px}
+   .toastbox{right:12px;left:12px;bottom:calc(72px + env(safe-area-inset-bottom));max-width:none}
    .top .kbd{display:none}
    .top>span{display:none}
    .top form.searchf{width:auto;flex:1;min-width:0;padding:0 6px 0 10px}
@@ -2467,10 +2523,14 @@
    h1{font-size:var(--fs-xl)}
    h2{font-size:var(--fs-l);margin:18px 0 10px}
    .sub{font-size:var(--fs-s)}
-   .brandcorner{display:none}
    .nav{gap:6px}
    .nav a{height:40px;padding:0 12px;font-size:var(--fs-m)}
    /* сетка дня: узкая колонка времени, подписи мельче */
+   /* телефон (промпт 08.10): сетка в прокручиваемом контейнере, не уже 640px;
+      шапка врачей не липкая — иначе четыре колонки в 375px наезжали бы */
+   .dashmain{overflow-x:auto}
+   .gridcard{min-width:640px}
+   .gridcard>.gridhead{position:static}
    .gridbody{--cell:52px}
    .gcol-time,.gridhead .gh-time{width:42px;flex:0 0 42px}
    .gcol-time div{font-size:var(--fs-micro);padding:3px 5px 0}

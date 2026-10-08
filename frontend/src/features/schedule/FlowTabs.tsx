@@ -81,10 +81,12 @@ export function FlowBar({ tab, onTab, flow, total, labels }: BarProps) {
   return (
     <div className="fl-tabs" role="tablist">
       {tabs.map((t) => (
+        /* плитка (макет 08.10): число крупно над подписью */
         <button key={t.id} type="button" role="tab" aria-selected={tab === t.id}
+          aria-label={`${t.label} ${t.n}`}
           className={`fl-tab${tab === t.id ? ' on' : ''}`} onClick={() => onTab(t.id)}>
-          <span>{t.label}</span>
           <b className={t.tone}>{t.n}</b>
+          <span>{t.label}</span>
         </button>
       ))}
     </div>

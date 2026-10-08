@@ -2,19 +2,18 @@ import { type ReactNode } from 'react'
 import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import type { IconName } from '../../components/icons'
-import type { DashOccupancy, DashTile } from './dash'
 import type { CallResult, Desk, DeskConfirmItem } from './desk'
 
-/* «La recepție» (01.10): правая колонка главной — рабочие списки
-   регистратуры вместо карточки «Azi» с плитками. Слово Олега 28.09: «колонке
-   Azi там не место … то, что надо регистратуре»; на показ — «выглядит очень
-   серьёзно, мне очень нравится». Каждая строка — человек и одно действие;
-   пустой список не рисуется. Цифры дня — одной строкой в шапке.
+/* Списки стойки (01.10, «La recepție»): рабочие списки регистратуры — каждая
+   строка человек и одно действие; пустой список не рисуется, пустая карточка
+   тоже. Слово Олега 28.09: «колонке Azi там не место … то, что надо
+   регистратуре»; на показ — «выглядит очень серьёзно, мне очень нравится».
+   08.10 (макет): строка цифр дня снята — они в подзаголовке страницы;
+   «Primul loc liber» и касса — своей карточкой (`DashRail.FreeCard`).
    ⛔ Данные — из конверта живого канала (`desk`), не своим GET; отметка
    звонка — команда, после которой экран спрашивает канал (`onCall`). */
 
 const T = {
-  title: 'La recepție',
   confirm: 'De confirmat',
   confirmHint: 'sunați și bifați',
   ok: 'Confirmat',
@@ -28,41 +27,26 @@ const T = {
   unschedHint: 'au plan de tratament, dar nicio programare',
   more: 'încă',
   collect: 'De încasat azi',
-  cash: 'Casa azi',
-  casa: 'Raport de casă',
-  free: 'Primul loc liber',
-  freeHint: '30 min, pentru apel',
   proc: 'proc.',
   days: 'zile',
   mdl: 'MDL',
-  azi: 'Azi:',
-  occ: 'ocupare',
 } as const
-
-const TILE_WORD: Record<string, string> = {
-  total: 'programări', urg: 'urgențe', noshow: 'nu au venit',
-}
 
 interface Props {
   desk: Desk
-  tiles: DashTile[]
-  occupancy: DashOccupancy
   busy: boolean
   onCall: (id: number, result: CallResult) => void
 }
 
-export function DeskCard({ desk, tiles, occupancy, busy, onCall }: Props) {
-  const line = tiles.filter((t) => TILE_WORD[t.key]).map((t) => `${t.value} ${TILE_WORD[t.key]}`)
-  line.push(`${T.occ} ${occupancy.value}%`)
+export function DeskCard({ desk, busy, onCall }: Props) {
   const c = desk.confirm
 
+  /* Пустые списки не рисуются — и пустая карточка тоже: в тихий день колонка
+     кончается на «Primul loc liber», как в макете. */
+  const any = (desk.collect !== null && desk.collect.n > 0) || c.n > 0 || desk.unscheduled.n > 0
+  if (!any) return null
   return (
     <div className="desk">
-      <div className="dk-h">
-        <b>{T.title}</b>
-        <small>{T.azi} {line.join(' · ')}</small>
-      </div>
-
       {desk.collect && desk.collect.n > 0 && (
         <Section icon="money" title={T.collect} count={`${desk.collect.sum_s} ${T.mdl}`} tone="red">
           {desk.collect.items.map((it) => (
@@ -77,18 +61,6 @@ export function DeskCard({ desk, tiles, occupancy, busy, onCall }: Props) {
           ))}
         </Section>
       )}
-      {desk.collect && (
-        <div className="dk-cash">
-          <Icon name="cash" />
-          <span>{T.cash}: <b>{desk.collect.cash.total_s} {T.mdl}</b>
-            {desk.collect.cash.parts.length > 0 && (
-              <small> · {desk.collect.cash.parts.map((p) => `${p.method} ${p.sum_s}`).join(' · ')}</small>
-            )}
-          </span>
-          <AppLink className="dk-lnk" href={desk.collect.casa_href}>{T.casa} ›</AppLink>
-        </div>
-      )}
-
       {c.n > 0 && (
         <Section icon="phone" title={`${T.confirm} ${c.day}`}
           count={c.n_left ? `${c.n_left} ${T.of} ${c.n}` : `${T.all} ${c.n}`}
@@ -96,17 +68,6 @@ export function DeskCard({ desk, tiles, occupancy, busy, onCall }: Props) {
           {c.items.map((it) => <ConfirmRow key={it.id} it={it} busy={busy} onCall={onCall} />)}
         </Section>
       )}
-
-      <Section icon="clock" title={T.free} hint={T.freeHint} tone="green">
-        {desk.free.map((f) => (
-          <div key={f.dk} className="dk-row slim">
-            <div className="dk-b"><b>{f.name}</b></div>
-            {f.href
-              ? <AppLink className={`dk-when${f.today ? ' today' : ''}`} href={f.href}>{f.when}</AppLink>
-              : <span className="dk-when">{f.when}</span>}
-          </div>
-        ))}
-      </Section>
 
       {desk.unscheduled.n > 0 && (
         <Section icon="clipboard" title={T.unsched} count={`${desk.unscheduled.n}`}

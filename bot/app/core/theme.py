@@ -44,10 +44,11 @@ from .. import engine as eng
 # Фирменный зелёный DentPilot. Он же значение по умолчанию: клиника, которая
 # ничего не выбирала, обязана выглядеть ровно как до появления этого модуля.
 DEFAULT_PRIMARY = "#0E9F8A"
-# Fluent — умолчание с 25.09.2026 (решение Олега после показа в песочнице):
-# установка без выбора получает его, в том числе существующая при обновлении.
+# Clar — умолчание с 08.10.2026 (редизайн по макетам Олега,
+# design/redesign-2026-10): установка без выбора получает его, в том числе
+# существующая при обновлении — ровно так же, как 25.09 получила Fluent.
 # `modern` при этом остаётся БАЗОЙ :root panel.css — см. ниже у STYLES.
-DEFAULT_STYLE = "fluent"
+DEFAULT_STYLE = "clar"
 
 # Готовые цвета для экрана настроек. Ровно шесть плюс «свой»: длинная палитра
 # заставляет ВЫБИРАТЬ, короткая — УЗНАВАТЬ себя. Все шесть проверены на белом
@@ -164,13 +165,46 @@ STYLES: dict[str, dict[str, str]] = {
         # Fluent 2: 100/150/200 мс — отклик короче, движения меньше
         "--dur-fast": ".1s", "--dur": ".15s", "--dur-slow": ".2s",
     },
+    "clar": {
+        **_MODERN,
+        # Редизайн октября 2026 (макеты Олега в design/redesign-2026-10,
+        # промпт 1): серая основа окна и белые карточки с кромкой 1px вместо
+        # теней, углы 14 у карточек и 9 у контролов, контролы 44px и под мышью
+        # (промпт: «кнопки/поля ≥44px»), заголовок 28/700 без планки цветом
+        # текста, нейтральные серые подписи не светлее #66747E. Тексты темнее
+        # прежних — мелкая подпись 12px обязана читаться на сером.
+        # ⭐ Фирменный цвет и здесь не назван: палитра приезжает поверх.
+        "--bg": "#F4F6F8", "--line": "#DDE3E8", "--line2": "#EEF1F3",
+        "--text": "#17242C", "--text2": "#4A5A64", "--text3": "#66747E",
+        "--r-card": "14px", "--r-block": "9px", "--r-ctl": "9px", "--r-chip": "6px",
+        "--r-s": "6px", "--r-xs": "6px", "--r-tab": "9px",
+        "--sh": "none",
+        "--sh2": "0 1px 2px rgba(23,36,44,.08)",
+        "--sh3": "0 8px 24px rgba(23,36,44,.18)",
+        "--sh-t": "none", "--sh-hover": "none",
+        "--h-ctl": "44px", "--h-ctl-s": "36px", "--h-ctl-m": "44px",
+        "--h-nav": "44px", "--h-top": "72px",
+        "--top-bg": "var(--panel)", "--field": "#FFFFFF", "--field-line-b": "#7D8C96",
+        "--layer-bg": "transparent",
+        "--fs-h1": "28px", "--fw-h1": "700", "--ls-h1": "-.01em", "--h1-mark": "none",
+        "--h1-fg": "var(--text)", "--fs-h2": "18px",
+        # фокус — кольцо 2px фирменным цветом с белым зазором (промпт:
+        # «focus-visible outline 2px --accent»); у полей та же кромка
+        "--ring": "0 0 0 2px var(--panel),0 0 0 4px var(--teal)",
+        "--focus-line": "var(--teal)", "--focus-line-b": "var(--teal)",
+        "--lift": "0px", "--lift-card": "0px", "--lift-tile": "0px",
+        "--nav-mark": "0px", "--nav-fw": "400", "--nav-fw-on": "600",
+        "--sec-fs": "12px", "--sec-ls": "0", "--sec-tt": "none",
+        "--dur-fast": ".15s", "--dur": ".2s", "--dur-slow": ".25s",
+    },
 }
 
 STYLE_LABEL = {
     "modern": ("Modern", "Interfață luminoasă, colțuri rotunjite, umbre moi."),
     "elegant": ("Elegant", "Sobru, contururi fine, colțuri mici."),
     "calm": ("Calm", "Tonuri blânde, forme moi, umbre difuze."),
-    "fluent": ("Fluent", "Ca în Windows 11: colțuri mici, linii în loc de umbre, comenzi compacte — implicit."),
+    "fluent": ("Fluent", "Ca în Windows 11: colțuri mici, linii în loc de umbre, comenzi compacte."),
+    "clar": ("Clar", "Carduri rotunjite cu contur fin, fără umbre, comenzi mari — implicit."),
 }
 
 # ---------- меню и шрифт: два выбора рядом со стилем (B5, 25.09) ----------
@@ -182,27 +216,51 @@ STYLE_LABEL = {
 # окна, текстом интерфейса; полоска активного пункта и всё цветное остаётся
 # фирменным. ⚠️ У обоих один набор ключей — та же причина, что у стилей:
 # предпросмотр кладёт переменные инлайном на <html>.
-DEFAULT_MENU = "brand"
+# С 08.10.2026 умолчание — «soft»: светлое меню, тонированное фирменным
+# (макет Олега, design/redesign-2026-10: «фон --accent-soft вместо
+# насыщенного тёмного»), активный пункт — белая плашка с текстом фирменного
+# цвета. Тёмное фирменное и нейтральное остаются выбором.
+# Четыре ключа добавлены вместе с ним и есть у всех трёх: цвет текста и тень
+# АКТИВНОГО пункта (--side-on-fg, --side-on-sh) и плитка знака в шапке меню
+# (--side-tile, --side-tile-fg) — у тёмного меню плитка полупрозрачная, у
+# светлых залита фирменным.
+DEFAULT_MENU = "soft"
 MENUS: dict[str, dict[str, str]] = {
     "brand": {
         "--side-bg": "var(--teal-d)", "--side-fg": "var(--on-teal-d)",
         "--side-hover": "rgba(255,255,255,.12)", "--side-on": "rgba(255,255,255,.16)",
+        "--side-on-fg": "var(--on-teal-d)", "--side-on-sh": "none",
         "--side-line": "rgba(255,255,255,.16)", "--side-off": "rgba(255,255,255,.42)",
         "--side-mark": "var(--on-teal-d)",
+        "--side-tile": "rgba(255,255,255,.14)", "--side-tile-fg": "var(--on-teal-d)",
         "--layer-line": "transparent", "--layer-r": "0px",
     },
     "neutral": {
         "--side-bg": "var(--bg)", "--side-fg": "var(--text)",
         "--side-hover": "rgba(0,0,0,.04)", "--side-on": "rgba(0,0,0,.06)",
+        "--side-on-fg": "var(--text)", "--side-on-sh": "none",
         "--side-line": "var(--line)", "--side-off": "var(--text3)",
         "--side-mark": "var(--teal)",
+        "--side-tile": "var(--teal)", "--side-tile-fg": "var(--on-teal)",
         # слой содержимого отделяется от нейтрального меню кромкой и
         # скруглённым углом — иначе две одинаковые поверхности сливаются
         "--layer-line": "var(--line)", "--layer-r": "8px",
     },
+    "soft": {
+        "--side-bg": "var(--teal-soft)", "--side-fg": "var(--text2)",
+        "--side-hover": "rgba(255,255,255,.6)", "--side-on": "var(--panel)",
+        # активный пункт — белая плашка, текст фирменным тёмным (читаем на
+        # белом по построению палитры: --teal-d подобран под фон стиля)
+        "--side-on-fg": "var(--teal-d)", "--side-on-sh": "var(--sh2)",
+        "--side-line": "var(--teal-line)", "--side-off": "var(--text3)",
+        "--side-mark": "var(--teal)",
+        "--side-tile": "var(--teal)", "--side-tile-fg": "var(--on-teal)",
+        "--layer-line": "var(--line)", "--layer-r": "0px",
+    },
 }
 MENU_LABEL = {
-    "brand": ("În culoarea clinicii", "Meniul preia culoarea principală — ca până acum."),
+    "soft": ("Deschis, în nuanța clinicii", "Fundal deschis colorat ușor; pagina activă — pe alb. Implicit."),
+    "brand": ("În culoarea clinicii", "Meniul preia culoarea principală, pe fundal închis."),
     "neutral": ("Neutru", "Fundal deschis, ca în Windows 11; culoarea rămâne la butoane și accente."),
 }
 

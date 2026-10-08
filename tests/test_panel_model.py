@@ -464,6 +464,13 @@ def suite_minical_pure(res: Result) -> None:
            "клетки ведут на один адрес — по календарю нельзя перейти")
     res.check("шесть недель тоже бывает — март 2026 начинается в воскресенье",
               len(minical(date(2026, 3, 15), today, MONTHS)["weeks"]), 6)
+    # точки (08.10): четвёртая метка, независимая от трёх, по множеству дат
+    dotted = minical(sep, today, MONTHS, busy={date(2026, 9, 19), date(2026, 8, 31)})
+    res.check("день с записью помечен точкой, в том числе чужой и выбранный",
+              [c["date"] for w in dotted["weeks"] for c in w if c["busy"]],
+              ["2026-08-31", "2026-09-19"])
+    res.ok("без множества дат точек нет ни у кого",
+           not any(c["busy"] for c in flat), "точка без записи")
 
 
 def suite_minical_parity(res: Result) -> None:

@@ -369,10 +369,11 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     expect(router.state.location.pathname).toBe(CLINIC_URL)
   })
 
-  it('уголок (06.10): знак со словом — сайт в СИСТЕМНОМ браузере, почта — письмом; подписи у имени клиники нет', async () => {
+  it('подвал меню (08.10, был уголок 06.10): знак со словом — сайт в СИСТЕМНОМ браузере, почта — письмом; подписи у имени клиники нет', async () => {
     get.mockReturnValue(new Promise(() => {}))
     const { router } = open(CLINIC_URL, node('settings_clinic', {}, SHELL_FULL))
-    const site = document.querySelector('.brandcorner a.bc-site') as HTMLAnchorElement
+    expect(document.querySelector('.brandcorner')).toBeNull()
+    const site = document.querySelector('aside .sfoot a.bc-site') as HTMLAnchorElement
     expect(site.getAttribute('href')).toBe('https://dentpilot.md')
     /* ⛔ Без target=_blank окно программы само ушло бы на сайт — кнопки
        «назад» там нет, вернуться можно лишь перезапуском. */

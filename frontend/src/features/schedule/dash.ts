@@ -203,6 +203,8 @@ export interface DashMiniCalCell {
   other: boolean
   today: boolean
   selected: boolean
+  /** Есть живые записи в этот день — точка под числом (08.10). */
+  busy: boolean
   href: string
 }
 
@@ -246,6 +248,9 @@ export interface DashModel {
    *  список в браузере разошёлся бы с первым молча (08-12, 08-16). Едет ОДНИМ
    *  конвертом с `date` — новый день приезжает датой и подписью разом. */
   day_label: string
+  /** Дата словами для подзаголовка (08.10): «Joi, 8 octombrie 2026». Тоже
+   *  строит сервер — румынские дни и месяцы живут у него. */
+  day_long: string
   live: boolean
   canvas: DashCanvasModel
   agenda: DashAgenda

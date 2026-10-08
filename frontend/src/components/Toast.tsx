@@ -26,9 +26,13 @@ export function Toast({ tone, text, onClose }: ToastProps) {
     return () => window.clearTimeout(timer)
   }, [tone, onClose])
 
+  /* Тёмная плашка справа внизу (макет 08.10) — оформление в panel.css
+     `.toastbox`; галочка у успеха — значком, тон говорит и цветом, и формой. */
   return (
-    <div className="toastbox" data-kind={tone} role={tone === 'err' ? 'alert' : 'status'}>
+    <div className="toastbox" data-kind={tone} role={tone === 'err' ? 'alert' : 'status'}
+      aria-live={tone === 'err' ? undefined : 'polite'}>
       <div className={`banner ${tone}`}>
+        {tone === 'ok' && <Icon name="check" />}
         {text}
         <button className="t-x" type="button" aria-label="Închide" onClick={onClose}>
           <Icon name="close" />

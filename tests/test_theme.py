@@ -199,7 +199,7 @@ def suite_palette(res: Result) -> None:
 
     res.check("битая тема откатывается к фирменной и к стилю по умолчанию",
               [out["fallback"]["primary"], out["fallback"]["style"]],
-              ["#0E9F8A", "fluent"])
+              ["#0E9F8A", "clar"])
     res.ok("подстановка в CSS невозможна",
            "display:none" not in out["fallback_css"]
            and "}" not in out["fallback_css"][:-1],
@@ -273,9 +273,9 @@ def suite_palette(res: Result) -> None:
     odd = [st for st, ks in keysets.items() if ks != keysets["modern"]]
     res.ok("все стили задают один и тот же набор переменных", not odd,
            f"набор ключей отличается у: {odd}")
-    res.check("стилей четыре, у каждого подпись",
+    res.check("стилей пять, у каждого подпись",
               [sorted(out["styles"]), out["labels"]],
-              [["calm", "elegant", "fluent", "modern"]] * 2)
+              [["calm", "clar", "elegant", "fluent", "modern"]] * 2)
 
     # Меню и шрифт — те же два инварианта, что у стилей: умолчание повторяет
     # :root (фирменное меню = то, что клиника видит с 08-17; шрифт — вшитый
@@ -284,11 +284,11 @@ def suite_palette(res: Result) -> None:
     drift = [k for k, v in menus["brand"].items() if _css_var(block, k) != v]
     res.ok("меню по умолчанию повторяет :root в panel.css", not drift,
            f"разошлись: {drift}")
-    res.ok("оба варианта меню задают один набор переменных",
-           sorted(menus["brand"]) == sorted(menus["neutral"]),
-           f"{sorted(menus['brand'])} против {sorted(menus['neutral'])}")
-    res.check("вариантов меню два, у каждого подпись",
-              [sorted(menus), out["menu_labels"]], [["brand", "neutral"]] * 2)
+    res.ok("все варианты меню задают один набор переменных",
+           all(sorted(v) == sorted(menus["brand"]) for v in menus.values()),
+           f"{ {k: sorted(v) for k, v in menus.items()} }")
+    res.check("вариантов меню три, у каждого подпись",
+              [sorted(menus), out["menu_labels"]], [["brand", "neutral", "soft"]] * 2)
     res.ok("нейтральное меню читаемо в каждом стиле", not out["weak_menu"],
            f"контраст текста на основе окна ниже 4.5: {out['weak_menu']}")
     res.check("шрифт по умолчанию — вшитый Inter, как в :root",
@@ -296,7 +296,7 @@ def suite_palette(res: Result) -> None:
     res.check("шрифтов два, у каждого подпись",
               [sorted(out["fonts"]), out["font_labels"]], [["inter", "system"]] * 2)
     res.check("битые меню и шрифт откатываются к умолчаниям",
-              out["fallback2"], ["brand", "inter"])
+              out["fallback2"], ["soft", "inter"])
     res.check("страницам со своей вёрсткой уходит тот же набор семейств",
               out["family"], out["fonts"]["inter"])
     res.check("видов карточки два, по умолчанию «имя впереди»",
@@ -329,8 +329,8 @@ def suite_pages(res: Result) -> None:
 
         page = c.get("/admin").body
         # ⭐ с 25.09 умолчание — Fluent (решение Олега); modern остался базой :root
-        res.ok("журнал открывается со стилем по умолчанию — Fluent",
-               'data-style="fluent"' in page, "нет data-style=fluent на <html>")
+        res.ok("журнал открывается со стилем по умолчанию — Clar (08.10)",
+               'data-style="clar"' in page, "нет data-style=clar на <html>")
         res.ok("переопределение переменных приехало в шапку",
                "<style>:root{" in page and "--teal:#0E9F8A" in page,
                "нет блока темы")

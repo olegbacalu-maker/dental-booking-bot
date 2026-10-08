@@ -226,29 +226,31 @@ describe('C26.5.2: канва панели — колонки, часы и ге�
 })
 
 describe('C26.5.2: канва панели — шапка врача', () => {
-  it('счётчик, ближайший свободный час и точка состояния', () => {
+  it('счётчик и ближайший свободный час — строкой под именем (макет 08.10)', () => {
     show()
     const first = cards()[0]!
-    expect(first.querySelector('.mt')?.textContent).toBe('2 prog. · liber 11:00')
-    expect((first.querySelector('.st') as HTMLElement).style.background).toBe('var(--green)')
-    expect(first.querySelector('.st')?.getAttribute('title')).toBe('liber 11:00')
+    expect(first.querySelector('.mt')?.textContent).toBe('2 programări')
+    expect(first.querySelector('.dc-free')?.textContent).toBe('Liber de la 11:00')
+    expect(first.querySelector('.dc-free')?.className).toBe('dc-free')
+    /* кольцо аватара — цветом врача, заливки нет */
+    expect((first.querySelector('.av') as HTMLElement).style.borderColor).toBe('var(--teal)')
   })
 
-  it('полный день говорит «complet», и точка гаснет', () => {
+  it('полный день говорит «Complet» приглушённо', () => {
     show()
     const full = cards()[1]!
-    expect(full.querySelector('.mt')?.textContent).toBe('5 prog. · complet')
-    expect((full.querySelector('.st') as HTMLElement).style.background).toBe('var(--text3)')
+    expect(full.querySelector('.mt')?.textContent).toBe('5 programări')
+    expect(full.querySelector('.dc-free')?.textContent).toBe('Complet')
+    expect(full.querySelector('.dc-free')?.className).toBe('dc-free full')
   })
 
   it('⛔ перебронированный день показывает 130%, а сотней обрезана только ПОЛОСА', () => {
     /* Это единственный признак, по которому директор увидит перебронирование:
        обрежь само число — и день на 130% станет неотличим от ровно полного. */
     show()
-    const occ = cards()[1]!.querySelector('.occ')!
-    expect(occ.querySelector('b')?.textContent).toBe('130%')
-    expect((occ.querySelector('.statbar > div') as HTMLElement).style.width).toBe('100%')
-    expect(occ.getAttribute('title')).toBe('624 din 480 minute de lucru')
+    const track = cards()[1]!.querySelector('.track')!
+    expect(track.getAttribute('title')).toBe('624 din 480 minute de lucru · 130%')
+    expect((track.querySelector('i') as HTMLElement).style.width).toBe('100%')
   })
 
   it('выключенный врач помечен, и его карточка приглушена', () => {
@@ -302,8 +304,8 @@ describe('C26.5.2: колонка-сирота — единственный вх
 
   it('и она подписана «в afara listei» со счётчиком', () => {
     show()
-    expect(cards()[2]!.querySelector('small')?.textContent).toBe('în afara listei · 1 prog.')
-    expect(cards()[2]!.querySelector('.st')).toBeNull()
+    expect(cards()[2]!.querySelector('small')?.textContent).toBe('în afara listei · 1 programare')
+    expect(cards()[2]!.querySelector('.track')).toBeNull()
     expect(cards()[2]!.querySelector('a')?.getAttribute('href')).toBeNull()
   })
 })

@@ -585,26 +585,26 @@ def suite_theme(res: Result) -> None:
         anon = Client(s.url)
         res.check("без входа — 401", anon.get(api).status, 401)
         d = _j(c.get(api))["data"]
-        res.ok("по умолчанию Fluent и фирменный зелёный",
-               d["style"] == "fluent" and d["primary"] == "#0E9F8A" and not d["custom"], f"{d}")
-        res.check("четыре стиля", [x["key"] for x in d["styles"]],
-                  ["modern", "elegant", "calm", "fluent"])
+        res.ok("по умолчанию Clar (08.10) и фирменный зелёный",
+               d["style"] == "clar" and d["primary"] == "#0E9F8A" and not d["custom"], f"{d}")
+        res.check("пять стилей", [x["key"] for x in d["styles"]],
+                  ["modern", "elegant", "calm", "fluent", "clar"])
         res.ok("стиль несёт подпись и переменные",
                d["styles"][0]["label"] == "Modern" and "--bg" in d["styles"][0]["vars"],
                f"{d['styles'][0]}")
         res.check("шесть цветов", len(d["presets"]), 6)
         res.ok("палитры посчитаны сервером для каждого стиля и цвета",
                d["palettes"]["modern"]["#0E9F8A"]["--teal"] == "#0E9F8A"
-               and set(d["palettes"]) == {"modern", "elegant", "calm", "fluent"}
+               and set(d["palettes"]) == {"modern", "elegant", "calm", "fluent", "clar"}
                and len(d["palettes"]["calm"]) == 6, f"{list(d['palettes'])}")
         res.ok("логотипа нет", d["logo"] is None and d["logo_topbar"] is False, f"{d['logo']}")
         res.check("потолок логотипа 2 МБ", d["logo_max_mb"], 2)
 
         # меню и шрифт (B5): умолчания, варианты для предпросмотра, сохранение,
         # «не прислали — не трогали», отказ на незнакомом
-        res.ok("меню фирменное и шрифт Inter по умолчанию, варианты приехали",
-               d["menu"] == "brand" and d["font"] == "inter"
-               and [m["key"] for m in d["menus"]] == ["brand", "neutral"]
+        res.ok("меню светлое (soft, 08.10) и шрифт Inter по умолчанию, варианты приехали",
+               d["menu"] == "soft" and d["font"] == "inter"
+               and [m["key"] for m in d["menus"]] == ["brand", "neutral", "soft"]
                and [x["key"] for x in d["fonts"]] == ["inter", "system"]
                and d["menus"][1]["vars"].get("--side-bg") == "var(--bg)"
                and "Segoe" in d["fonts"][1]["stack"],

@@ -3,9 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DashRail } from './DashRail'
 import { Spark } from '../../components/Spark'
 import { sparkPoints } from '../../utils/chart'
-import type {
-  DashActions, DashAgenda, DashAgendaItem, DashMiniCal, DashOccupancy, DashTile,
-} from './dash'
+import type { DashActions, DashAgenda, DashAgendaItem, DashCanvasModel, DashMiniCal } from './dash'
 import type { Desk } from './desk'
 
 /* Правая колонка панели. Фикстуры ТОЛЬКО этих проверок. */
@@ -15,7 +13,7 @@ const SERIES = [0, 1, 2, 3, 2, 4, 5, 3, 2, 6, 4, 3, 7, 5]
 
 function cell(day: number, over: Partial<DashMiniCal['weeks'][0][0]> = {}) {
   const date = `2026-09-${String(day).padStart(2, '0')}`
-  return { date, day, other: false, today: false, selected: false,
+  return { date, day, other: false, today: false, selected: false, busy: false,
     href: `/admin?date=${date}`, ...over }
 }
 
@@ -60,37 +58,26 @@ const AGENDA: DashAgenda = {
   ],
 }
 
-function tile(over: Partial<DashTile> = {}): DashTile {
-  return {
-    key: 'total', label: 'Programări', value: 7, icon: 'cal',
-    soft: 'var(--green-soft)', tone: 'var(--green)', filter: '',
-    href: '/admin/all?date=2026-09-19', cls: '',
-    sub: { kind: 'delta', diff: 2, dir: 'up', text: 'față de ieri' },
-    series: SERIES, ...over,
-  }
+/* Канва дня — для «Primul loc liber» (08.10). Сейчас 11:30 (NOW): у Dr. Ion
+   заметка стойки в 11:00, свободен с 12:00; Dr. Ana заблокирована весь день. */
+function note(id: number, top: number, height: number) {
+  return { id, kind: 'note' as const, time: '11:00', min: 660, dur: 60 * height, busy: true,
+    movable: false, top, height, col: 0, of: 1, title: 'Pauză', text: 'Pauză', label: 'Pauză',
+    status: 'confirmed' }
 }
 
-const TILES: DashTile[] = [
-  tile(),
-  tile({ key: 'rec', label: 'Recepție', value: 4, icon: 'headset', filter: 'rec',
-    href: '/admin/all?date=2026-09-19&f=rec',
-    sub: { kind: 'same', diff: 0, dir: null, text: 'la fel ca ieri' } }),
-  tile({ key: 'urg', label: 'Urgențe', value: 1, icon: 'alarm', filter: 'urg', cls: 'warn',
-    href: '/admin/all?date=2026-09-19&f=urg',
-    sub: { kind: 'static', text: 'intercalate azi' } }),
-  /* ⛔ Неявки: рост — стрелка ВВЕРХ и класс `dn` (красный). Полярность
-     считает сервер, и она обратная. */
-  tile({ key: 'noshow', label: 'Neprezentări', value: 3, icon: 'ban', filter: 'noshow',
-    cls: 'bad', href: '/admin/all?date=2026-09-19&f=noshow',
-    sub: { kind: 'delta', diff: 2, dir: 'dn', text: 'față de ieri' } }),
-]
-
-const OCC: DashOccupancy = {
-  label: 'Grad de ocupare', icon: 'trend',
-  soft: 'var(--violet-soft)', tone: 'var(--violet)',
-  value: 86, series: SERIES,
-  from: { label: 'ieri', value: '70%' }, to: { label: 'azi', value: '86%' },
-  dir: 'up',
+const CANVAS: DashCanvasModel = {
+  date: '2026-09-19', empty: false, base_min: 540, tight: false,
+  hours: [9, 10, 11, 12].map((h) => ({ h, label: `${String(h).padStart(2, '0')}:00`, now: h === 11 })),
+  bands: { top: null, bottom: null },
+  columns: [
+    { key: 'k:d2', id: 'd2', name: 'Dr. Ion', orphan: false, spec: 'Terapie', off: false,
+      hue: 'var(--teal)', photo: '', initials: 'DI', count: 1, free: '12:00', occupancy: null,
+      title: 'Dr. Ion', cells: [true, true, true, true], relink: null, blocks: [note(1, 2, 1)] },
+    { key: 'k:d3', id: 'd3', name: 'Dr. Ana', orphan: false, spec: 'Chirurgie', off: false,
+      hue: 'var(--blue)', photo: '', initials: 'DA', count: 0, free: null, occupancy: null,
+      title: 'Dr. Ana', cells: [true, true, true, true], relink: null, blocks: [note(2, 0, 4)] },
+  ],
 }
 
 /* «La recepție» (01.10): списки стойки из того же конверта */
@@ -129,9 +116,9 @@ const ACTIONS: DashActions = {
 }
 
 const show = (over: Partial<Parameters<typeof DashRail>[0]> = {}) => render(
-  <DashRail minical={MINICAL} agenda={AGENDA} tiles={TILES} occupancy={OCC} desk={DESK}
+  <DashRail minical={MINICAL} agenda={AGENDA} canvas={CANVAS} desk={DESK}
     date="2026-09-19" waitTick={NOW} busy={false} onCard={onCard} onCall={onCall} fresh={NO_FRESH}
-    onFlow={onFlow} actions={ACTIONS} {...over} />)
+    onFlow={onFlow} actions={ACTIONS} onSlot={onSlot} {...over} />)
 
 /** Пустая пометка: подсветка приехавшего — дело экрана, рельс её получает. */
 
@@ -140,8 +127,9 @@ const NO_FRESH: ReadonlySet<number> = new Set()
 const onCard = vi.fn()
 const onCall = vi.fn()
 const onFlow = vi.fn()
+const onSlot = vi.fn()
 
-afterEach(() => { cleanup(); onCall.mockClear(); onCard.mockClear(); onFlow.mockClear() })
+afterEach(() => { cleanup(); onCall.mockClear(); onCard.mockClear(); onFlow.mockClear(); onSlot.mockClear() })
 
 describe('C26.5.2: мини-календарь', () => {
   it('⛔ три метки НЕЗАВИСИМЫ и складываются', () => {
@@ -182,9 +170,9 @@ describe('C26.5.2: повестка дня', () => {
   })
 
   it('счётчик, порядок строк и ссылка в список ЭТОГО дня', () => {
-    /* 03.10: у СЕГОДНЯ счётчик — цифра вкладки «Toate»; у чужого дня — в шапке */
+    /* 08.10: счётчик в шапке всегда; у СЕГОДНЯ он же — цифра плитки «Toate» */
     show()
-    expect(document.querySelector('.ag-h span')).toBeNull()
+    expect(document.querySelector('.ag-h span')?.textContent).toBe('3 programări')
     expect(document.querySelector('.fl-tab.on span')?.textContent).toBe('Toate')
     expect(document.querySelector('.fl-tab.on b')?.textContent).toBe('3')
     cleanup()
@@ -200,10 +188,25 @@ describe('C26.5.2: повестка дня', () => {
     show()
     const rows = Array.from(document.querySelectorAll('.ag-i'))
     expect(rows.map((r) => r.className)).toEqual(['ag-i past', 'ag-i', 'ag-i'])
-    expect(rows.map((r) => r.querySelector('.pl-badge')?.className))
-      .toEqual(['pl-badge off', 'pl-badge wai', 'pl-badge bad'])
-    expect(rows.map((r) => r.querySelector('.pl-badge')?.textContent))
+    /* срочность — чипом со значком (макет 08.10), остальное — плашкой сервера */
+    expect(rows.map((r) => r.querySelector('.pl-badge, .chip')?.className))
+      .toEqual(['pl-badge off', 'pl-badge wai', 'chip urg'])
+    expect(rows.map((r) => r.querySelector('.pl-badge, .chip')?.textContent))
       .toEqual(['Finalizată', 'Așteaptă', 'Urgent'])
+  })
+
+  it('08.10: кнопка следующего шага на каждой строке — только СЕГОДНЯ, словом из матрицы', () => {
+    /* записан → «A venit», пришёл → «În cabinet»; клик — команда, не карточка */
+    show()
+    expect(Array.from(document.querySelectorAll('.ag-i .ag-next')).map((b) => b.textContent))
+      .toEqual(['A venit', 'În cabinet', 'A venit'])
+    fireEvent.click(screen.getByRole('button', { name: 'În cabinet: Maria Rusu' }))
+    expect(onFlow).toHaveBeenCalledWith(2, 'arrived')
+    expect(onCard).not.toHaveBeenCalled()
+    cleanup()
+    show({ agenda: { ...AGENDA, today: false } })
+    expect(document.querySelector('.ag-next')).toBeNull()
+    expect(document.querySelectorAll('.ag-odo').length).toBe(2)
   })
 
   it('значок «есть комментарий» — только у визита с комментарием, текст в подсказке (03.10)', () => {
@@ -375,14 +378,19 @@ describe('03.10: поток пациента — вкладки над пове�
 describe('01.10: «La recepție» — списки стойки', () => {
   it('порядок колонки: календарь, повестка, списки (слово Олега 28.09)', () => {
     const { container } = show()
-    expect(Array.from(container.children).map((e) => e.className)).toEqual(['mcal', 'agenda', 'desk'])
+    expect(Array.from(container.children).map((e) => e.className))
+      .toEqual(['mcal', 'agenda', 'dp-free', 'desk'])
   })
 
-  it('цифры дня — одной строкой в шапке; плиток «Azi» больше нет', () => {
+  it('08.10: строки цифр дня и плиток «Azi» нет — цифры в подзаголовке страницы', () => {
     show()
-    expect(document.querySelector('.dk-h small')?.textContent)
-      .toBe('Azi: 7 programări · 1 urgențe · 3 nu au venit · ocupare 86%')
+    expect(document.querySelector('.dk-h')).toBeNull()
     expect(document.querySelector('.rk-i')).toBeNull()
+    /* тихий день: ни одного списка — карточки стойки нет вовсе */
+    cleanup()
+    show({ desk: { ...DESK, collect: null, unscheduled: { items: [], n: 0, sum_s: '0' },
+      confirm: { ...DESK.confirm, n: 0, items: [] } } })
+    expect(document.querySelector('.desk')).toBeNull()
   })
 
   it('De încasat azi и касса — только когда сервер их дал (PERM_MONEY); регистратура без них', () => {
@@ -425,14 +433,23 @@ describe('01.10: «La recepție» — списки стойки', () => {
     expect(screen.getByRole('button', { name: 'Confirmat: Ana Suna' })).toHaveProperty('disabled', true)
   })
 
-  it('Primul loc liber: сегодняшнее окно зелёным и ссылкой в день; Plan fără programare — «încă N»', () => {
+  it('Primul loc liber (08.10): по канве, сегодня от следующего целого часа; «Programează» — диалог часа', () => {
+    /* сейчас 11:30: Dr. Ion занят в 11, свободен с 12; Dr. Ana занята весь день */
     show()
-    const free = screen.getByText('Primul loc liber').closest('.dk-sec') as HTMLElement
-    const links = Array.from(free.querySelectorAll('a.dk-when')) as HTMLAnchorElement[]
-    expect(links.map((a) => [a.textContent, a.className, a.getAttribute('href')])).toEqual([
-      ['azi 11:00', 'dk-when today', '/admin?date=2026-09-19'],
-      ['mâine 09:00', 'dk-when', '/admin?date=2026-09-21'],
-    ])
+    const rows = Array.from(document.querySelectorAll('.dp-free-row')) as HTMLElement[]
+    expect(rows.map((r) => [r.querySelector('b')?.textContent, r.querySelector('small')?.textContent,
+      (r.querySelector('button') as HTMLButtonElement).disabled]))
+      .toEqual([['Dr. Ion', 'azi 12:00', false], ['Dr. Ana', 'Fără intervale libere', true]])
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Programează Dr. Ion 12:00' }))
+    expect(onSlot).toHaveBeenCalledWith('d2', 'Dr. Ion', '12:00')
+    /* чужой день — с начала рабочего дня, дата вместо «azi» */
+    cleanup()
+    show({ agenda: { ...AGENDA, today: false } })
+    expect(document.querySelector('.dp-free-row small')?.textContent).toBe('19.09 09:00')
+  })
+
+  it('Plan fără programare — «încă N», и пустые списки не рисуются', () => {
+    show()
     const plan = screen.getByText('Plan fără programare').closest('.dk-sec') as HTMLElement
     expect(plan.textContent).toContain('9 000 MDL')
     expect(plan.textContent).toContain('2 proc. · de 12 zile')

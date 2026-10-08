@@ -25,7 +25,7 @@ from datetime import date, datetime
 
 from ... import db
 from ... import engine as eng
-from ...core.layout import STATUS_LABEL, tg_configured
+from ...core.layout import _DOW_FULL, _DOW_ORDER, STATUS_LABEL, tg_configured
 from ...core.visits import _age, all_status_actions, list_rows
 
 
@@ -43,6 +43,16 @@ def day_title(d: date) -> str:
     бы по-разному. Живёт здесь, а не в routes: модель дня routes не импортирует.
     """
     return f"{eng.day_label(eng.Session(lang='ro'), d)}.{d.year}"
+
+
+def day_long(d: date, months) -> str:
+    """Дата словами под заголовком панели (08.10, макет): «Joi, 8 octombrie
+    2026». Дни недели — тот же словарь, что у графика работы в настройках
+    (`layout._DOW_FULL`), месяцы — список мини-календаря (`routes._RO_MONTHS`,
+    приходит аргументом, как в `panel.minical`): второго списка румынских
+    названий в программе не заводится."""
+    return (f"{_DOW_FULL[_DOW_ORDER[d.weekday()]]}, {d.day} "
+            f"{months[d.month - 1].lower()} {d.year}")
 
 
 def active_map(rows: list) -> tuple[dict, set]:

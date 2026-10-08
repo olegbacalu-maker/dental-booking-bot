@@ -1038,12 +1038,18 @@ def _sidebar(active: str, rail: bool = False) -> str:
                        'bot', 'Telegram Bot', tg_dot)
                 + item('qr', '/admin/qr-print', 'qr', 'QR pacienți'))
         foot_title = f' title="Telegram: {html.escape(tg_title)}"'
+    # Подвал меню (08.10, макет): сайт знаком со словом, версия, часы, почта.
+    # Уголок .brandcorner снят — его две ссылки переехали сюда, с теми же
+    # атрибутами (⛔ сайт только target=_blank: окно программы отдаёт такую
+    # ссылку системному браузеру, обычная увела бы само окно без «назад»).
+    fb_subject = urllib.parse.quote(
+        f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
+    fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
     return f"""<aside class="side{' side-rail' if rail else ''}">
-  <div class="brand">{brand.mark_svg(40, 'logo', flat=True)}
+  <div class="brand"><span class="mk">{brand.mark_svg(28, 'logo', flat=True)}</span>
     <div class="txt"><b title="{html.escape(eng.CLINIC_NAME)}">{html.escape(eng.CLINIC_NAME)}</b></div>
   </div>
   <nav>
-    <div class="sec">Meniu</div>
     {item('dash', '/admin', 'home', SECTION_TITLE['dash'])}
     {item('prog', '/admin/all', 'cal', SECTION_TITLE['prog'])}
     {item('pat', '/admin/search', 'pat', SECTION_TITLE['pat'])}
@@ -1052,7 +1058,10 @@ def _sidebar(active: str, rail: bool = False) -> str:
     {item('set', '/admin/settings', 'set', SECTION_TITLE['set']) if show_set else ''}
     {sync}
   </nav>
-  <div class="sfoot"{foot_title}>v{eng.APP_VERSION} · <span id="sf_clock" data-tz="{eng.TZ.key}"></span></div>
+  <div class="sfoot"{foot_title}><span class="sf-v"><a class="bc-site" href="{SITE_URL}" target="_blank" rel="noopener"
+   title="{SITE_URL.removeprefix('https://')}">{brand.mark_svg(18, 'bcmark', flat=True)}DentPilot</a> v{eng.APP_VERSION} · <span id="sf_clock" data-tz="{eng.TZ.key}"></span></span>
+    <a class="sf-mail" href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
+   title="Feedback">{FEEDBACK_EMAIL}</a></div>
 </aside>"""
 
 
@@ -1372,7 +1381,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # баннеров: рисовать фирменный знак второй раз в TSX значило бы завести
         # второго владельца одной картинки.
         "clinic": {"name": eng.CLINIC_NAME,
-                   "mark": brand.mark_svg(40, "logo", flat=True),
+                   "mark": brand.mark_svg(28, "logo", flat=True),
                    "logo_topbar": (theme.logo_url() or "") if th.get("logo_topbar") else ""},
         "runtime": {"version": eng.APP_VERSION, "tz": eng.TZ.key},
         "nav": {"active": active, "items": items, "sync": sync,
@@ -1403,7 +1412,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
                   # строкой сервера, как `clinic.mark`, и с СВОЕЙ приставкой id
                   # (`bcmark`): два знака на странице не делят маску.
                   "site": {"href": SITE_URL,
-                           "mark": brand.mark_svg(24, "bcmark", flat=True)},
+                           "mark": brand.mark_svg(18, "bcmark", flat=True)},
                   "feedback": {
                       "email": FEEDBACK_EMAIL,
                       "href": (f"mailto:{FEEDBACK_EMAIL}?subject="
@@ -1446,9 +1455,11 @@ def react_shell(screen: str, path: str, model: dict,
 
 def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
            rail: bool = False) -> str:
-    fb_subject = urllib.parse.quote(
-        f"Feedback DentPilot — {eng.CLINIC_NAME} (v{eng.APP_VERSION})")
-    fb_body = urllib.parse.quote("Ideea / problema mea:\n\n")
+    # Подзаголовок без версии (08.10, промпт 1: «версию из подзаголовка
+    # убрать» — она в подвале меню); пустой не печатается вовсе и строки
+    # сетки шапки не занимает.
+    sub_line = f"{sub}{_sec_warn()}"
+    sub_html = f'<div class="sub">{sub_line}</div>' if sub_line else ""
     # ⛔ React-узел НИКОГДА не внутри #live, и держит это правило само место,
     # где его можно нарушить, а не комментарий рядом. Раньше тут был только
     # комментарий: `react_on` про LIVE_RELOAD не знает ни строчкой, а проверка
@@ -1491,14 +1502,10 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
 {_topbar(bell)}
 <div class="content">
 <h1>{section_title(active)}</h1>
-<div class="sub">{sub}{_sec_warn()} · v{eng.APP_VERSION}</div>
+{sub_html}
 {_demo_banner()}{_license_banner()}{_tamper_banner()}{_split_banner()}{_slot_banner()}{_setup_hint()}
 {body}
 </div></div>
-<div class="brandcorner"><a class="bc-site" href="{SITE_URL}" target="_blank" rel="noopener"
-   title="{SITE_URL.removeprefix('https://')}">{brand.mark_svg(24, 'bcmark', flat=True)}<b>DentPilot</b></a> ·
-<a href="mailto:{FEEDBACK_EMAIL}?subject={fb_subject}&body={fb_body}"
-   title="Feedback">{_ic('mail')} {FEEDBACK_EMAIL}</a></div>
 <script src="/static/js/panel.js?v={_asset_ver('js', 'panel.js')}"></script>
 </body></html>"""
 

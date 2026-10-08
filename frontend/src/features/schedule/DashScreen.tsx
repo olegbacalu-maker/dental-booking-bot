@@ -49,8 +49,6 @@ import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
  * ними одним кадром.
  */
 const T = {
-  hint: 'Click pe o programare — detalii și statusuri; pe o oră liberă — '
-    + 'programare nouă. Trageți o programare pentru a o muta.',
   /* ⚠️ Слово взято у легаси (`MSG_BANNER["mv_gone"]`), а не придумано: та же
      ситуация там называется так же. Хвост «reîmprospătați pagina» убран —
      панель освежается сама, и советовать перезагрузку значило бы врать. */
@@ -59,10 +57,15 @@ const T = {
   /* Шапка дня. ⚠️ Слова те же, что печатал `_date_nav`/`_day_tabs`: это не
      новый текст, а переезд существующего к своему экрану. */
   today: 'Azi',
-  wkPrev: '-7 zile',
-  wkNext: '+7 zile',
+  prevDay: 'Ziua precedentă',
+  nextDay: 'Ziua următoare',
+  period: 'Perioadă',
   day: 'Zi',
   week: 'Săptămâna',
+  /* подзаголовок (08.10): «1 programare · 3% ocupare» */
+  one: 'programare',
+  many: 'programări',
+  occ: 'ocupare',
   /* ⚠️ Слово СВОЁ, и это названо: у сервера его нет вовсе (снятие блокировки
      отвечает пустым кодом), а чужое — «Programarea nu mai există» — назвало бы
      заметку программой. */
@@ -311,27 +314,42 @@ export function DashScreen() {
   const navNode = () => {
     const m = state.data
     const on = m ? m.date : linkDay(at)
+    /* Инструменты дня по макету (08.10, промпт 1): две стрелки на день,
+       «Azi», сегмент «Zi | Săptămâna». Подпись дня ушла в подзаголовок
+       (`subNode`), кнопки ±7 дней и соседние даты сняты — их нет в макете.
+       ⚠️ Стрелки — кнопки-иконки 44px с aria-label, дата соседнего дня —
+       подсказкой: слепой переход «куда-то назад» хуже подписанного. */
     return (
-      <div className="nav">
-        {m ? <b>{m.day_label}</b> : null}
-        <AppLink href={`/admin?date=${shift(on, -7)}`} title={T.wkPrev}>
-          <Icon name="chevs-l" />
+      <div className="nav dp-daynav">
+        <AppLink className="dp-ibtn" href={`/admin?date=${shift(on, -1)}`}
+          title={`${T.prevDay} · ${dm(shift(on, -1))}`} aria-label={T.prevDay}>
+          <Icon name="chev-l" />
         </AppLink>
-        <AppLink href={`/admin?date=${shift(on, -1)}`}>
-          <Icon name="chev-l" /> {dm(shift(on, -1))}
+        <AppLink className="dp-ibtn" href={`/admin?date=${shift(on, 1)}`}
+          title={`${T.nextDay} · ${dm(shift(on, 1))}`} aria-label={T.nextDay}>
+          <Icon name="chev-r" />
         </AppLink>
         <AppLink href="/admin">{T.today}</AppLink>
-        <AppLink href={`/admin?date=${shift(on, 1)}`}>
-          {dm(shift(on, 1))} <Icon name="chev-r" />
-        </AppLink>
-        <AppLink href={`/admin?date=${shift(on, 7)}`} title={T.wkNext}>
-          <Icon name="chevs-r" />
-        </AppLink>
-        <AppLink className="primary" href={`/admin?date=${on}`}>{T.day}</AppLink>
-        <AppLink href={`/admin/week?date=${on}`}>{T.week}</AppLink>
+        <span className="dp-seg" role="group" aria-label={T.period}>
+          <AppLink className="on" href={`/admin?date=${on}`} aria-current="page">{T.day}</AppLink>
+          <AppLink href={`/admin/week?date=${on}`}>{T.week}</AppLink>
+        </span>
       </div>
     )
   }
+
+  /* Подзаголовок панели — из конверта (08.10, макет): дата словами, число
+     записей и загрузка. Стоит в области подзаголовка шапки (сетка `.content`
+     кладёт `.dp-react-root>.sub` туда же, куда `.content>.sub` оболочки), а
+     оболочке сервер отдаёт пустую строку — двух подписей не бывает.
+     ⛔ Число — из повестки, загрузка — из `occupancy`: те же цифры, что
+     считали плитки, второго счёта здесь нет. Склонение: 1 → «programare». */
+  const subNode = (m: DashModel) => (
+    <div className="sub dp-daysub">
+      <b>{m.day_long}</b> · {m.agenda.count} {m.agenda.count === 1 ? T.one : T.many}
+      {' · '}{m.occupancy.value}% {T.occ}
+    </div>
+  )
 
   if (state.status === 'failed') {
     /* ⚠️ Свой отказ, а не общий `LoadFailed`: тому нужен `ApiError`, а у
@@ -370,6 +388,7 @@ export function DashScreen() {
   return (
     <section className="dp-react-root">
       {navNode()}
+      {subNode(d)}
       <div className="dash">
         <div className="dashmain">
           <DashCanvas model={d.canvas} rail={rail} waitTick={waitTick}
@@ -379,18 +398,19 @@ export function DashScreen() {
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
             onDrop={onDrop} fresh={fresh} />
-          {/* ⛔ Без «Deschideți varianta clasică» (Олег 06.10: «это не нужно»):
+          {/* ⛔ Без подсказки под сеткой и без «Deschideți varianta clasică»
+              (Олег 06.10: «это не нужно»; макет 08.10 — без строки-подсказки):
               старая панель — только аварийный выход, ниже в отказе и остановке. */}
-          <p className="hint">{T.hint}</p>
         </div>
         <div className="rail" ref={rail}>
-          <DashRail minical={d.minical} agenda={d.agenda} tiles={d.tiles}
-            occupancy={d.occupancy} desk={d.desk} date={d.date} waitTick={waitTick}
+          <DashRail minical={d.minical} agenda={d.agenda} canvas={d.canvas}
+            desk={d.desk} date={d.date} waitTick={waitTick}
             busy={busy} onCard={(id) => openById(d, id)}
             onCardMenu={(id, x, y) => setMenu({ id, x, y })} fresh={fresh}
             onCall={(id, result) => { void act(() => dash.call(d.date, id, result)) }}
             onFlow={(id, to) => { void act(() => dash.status(d.date, id, to)) }}
-            actions={d.actions} />
+            actions={d.actions}
+            onSlot={(dk, name, hour) => setSlot({ dk, name, hour })} />
         </div>
       </div>
 

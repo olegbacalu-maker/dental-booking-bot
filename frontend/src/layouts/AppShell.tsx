@@ -14,7 +14,6 @@ import type { NavItem, ShellModel } from './shell'
    остаётся обычной ссылкой — это решает сам `AppLink`, не список здесь. */
 
 const T = t('shell', {
-  menu: 'Meniu',
   sync: 'Sincronizări',
   search: 'Caută pacient, telefon…',
   kbd: 'Ctrl K',
@@ -70,14 +69,15 @@ function Sidebar({ m }: { m: ShellModel }) {
   return (
     <aside className={frame.rail ? 'side side-rail' : 'side'}>
       <div className="brand">
-        {/* знак приходит строкой сервера — второй его владелец не нужен */}
-        <span dangerouslySetInnerHTML={{ __html: clinic.mark }} />
+        {/* знак приходит строкой сервера — второй его владелец не нужен;
+            плитка под ним — вариант меню (08.10, макет) */}
+        <span className="mk" dangerouslySetInnerHTML={{ __html: clinic.mark }} />
         <div className="txt">
           <b title={clinic.name}>{clinic.name}</b>
         </div>
       </div>
       <nav>
-        <div className="sec">{T.menu}</div>
+        {/* без подписи «Meniu» (08.10, макет): пункты говорят сами */}
         {nav.items.map((it) => <Item key={it.key} it={it} active={nav.active} />)}
         {nav.sync.length > 0 && (
           <>
@@ -86,8 +86,22 @@ function Sidebar({ m }: { m: ShellModel }) {
           </>
         )}
       </nav>
+      {/* Подвал меню (08.10): сайт, версия, часы и почта — то, что до того
+          жило уголком `.brandcorner` справа внизу. Разметка та же, что печатает
+          `_sidebar` сервера.
+          ⛔ Сайт — только target=_blank: окно программы отдаёт такую ссылку
+          системному браузеру, а обычная увела бы на сайт само окно, где нет
+          кнопки «назад». Адрес чужой, поэтому AppLink и так отдаёт <a>. */}
       <div className="sfoot" {...(nav.foot_title ? { title: `Telegram: ${nav.foot_title}` } : {})}>
-        v{runtime.version} · <Clock tz={runtime.tz} />
+        <span className="sf-v">
+          <AppLink className="bc-site" href={frame.site.href} target="_blank" rel="noopener"
+            title={frame.site.href.replace(/^https:\/\//, '')}>
+            <span dangerouslySetInnerHTML={{ __html: frame.site.mark }} />DentPilot
+          </AppLink>{' '}v{runtime.version} · <Clock tz={runtime.tz} />
+        </span>
+        <AppLink className="sf-mail" href={frame.feedback.href} title={T.feedback}>
+          {frame.feedback.email}
+        </AppLink>
       </div>
     </aside>
   )
@@ -164,7 +178,12 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
         <div className="content">
           {/* заголовок — имя раздела из модели (B5): текст меняется, узел тот же */}
           <h1>{m.frame.title}</h1>
-          <div className="sub">{m.frame.sub}{m.frame.sec_warn} · v{m.runtime.version}</div>
+          {/* Подзаголовок без версии (08.10: она в подвале меню); пустой не
+              рисуется — у панели дня подпись печатает сам экран (`.sub` из
+              конверта канала), и сервер отдаёт ему пустую строку. */}
+          {(m.frame.sub || m.frame.sec_warn) && (
+            <div className="sub">{m.frame.sub}{m.frame.sec_warn}</div>
+          )}
           {[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup].map((s, i) =>
             s.shown ? <div key={i} onClick={prose} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}
           {/* ⚠️ Порядок тот же, что печатал сервер: системные баннеры, потом
@@ -182,18 +201,6 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
           {m.frame.msg && <div onClick={prose} dangerouslySetInnerHTML={{ __html: m.frame.msg }} />}
           {children}
         </div>
-      </div>
-      {/* ⛔ Сайт — только target=_blank: окно программы отдаёт такую ссылку
-          системному браузеру, а обычная увела бы на сайт само окно, где нет
-          кнопки «назад». Адрес чужой, поэтому AppLink и так отдаёт <a>. */}
-      <div className="brandcorner">
-        <AppLink className="bc-site" href={m.frame.site.href} target="_blank" rel="noopener"
-          title={m.frame.site.href.replace(/^https:\/\//, '')}>
-          <span dangerouslySetInnerHTML={{ __html: m.frame.site.mark }} /><b>DentPilot</b>
-        </AppLink>{' '}·{' '}
-        <AppLink href={m.frame.feedback.href} title={T.feedback}>
-          <Icon name="mail" /> {m.frame.feedback.email}
-        </AppLink>
       </div>
     </>
   )

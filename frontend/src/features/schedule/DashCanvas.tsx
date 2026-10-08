@@ -16,20 +16,36 @@ import { cellAtY, dragOf, endOf, type CellRect, type Drag, type Target } from '.
    ⛔ Мишень ищется ПО КООРДИНАТЕ внутри колонки, а не по `e.target`: блоки
    лежат ПОВЕРХ ячеек и приходятся им соседями, поэтому бросок на соседний
    визит целится в него, и ячейка под курсором в событии не участвует.
-   ⛔ Классы берутся у panel.css как есть: это перенос поведения, а не
-   редизайн. Своя вторая раскладка развела бы старую страницу и новую на
-   первом же правиле темы. */
+
+   Вид — по макету Олега (08.10, design/redesign-2026-10, промпт 1): шапка
+   врача ВНУТРИ карточки сетки и липкая сверху; свободный час — настоящая
+   кнопка с «+ HH:00» при наведении; нерабочее серым с подписью; блок —
+   интервал с чипом «Urgent», имя, услуга, кнопка одонтограммы справа; линия
+   «сейчас» с плашкой времени в колонке часов; пустой день — карточка поверх
+   сетки. Классы сетки те же, что у старой страницы (`.gridbody`, `.gcol`,
+   `.gcell`, `.gappt`, `.nowline`): перенос, пересчёт высоты и стенды живут на
+   них. ⚠️ Слово статуса на блоке ОСТАВЛЕНО (в макете его нет): «a venit»,
+   «în cabinet», «așteaptă N min» на сетке — работа регистратуры, а не
+   украшение; названо в отчёте Олегу. */
 
 const T = {
   empty: 'Zi liberă — clinica este închisă',
   closed: 'Închis',
   outside: 'în afara listei',
   off: 'inactiv',
-  full: 'complet',
-  prog: 'prog.',
-  free: 'liber',
+  offHours: 'Nelucrător',
+  full: 'Complet',
+  free: 'Liber de la',
+  one: 'programare',
+  many: 'programări',
   minutes: 'minute de lucru',
   comment: 'Comentariu',
+  book: 'Programează',
+  at: 'la',
+  urgent: 'Urgent',
+  odo: 'Deschide odontograma',
+  noAppts: 'Nicio programare în această zi',
+  noApptsHint: 'Alege un interval liber din calendar pentru a programa un pacient.',
 } as const
 
 /** Значок статуса — тот же словарь, что печатает сервер (`_STATUS_ICON`). */
@@ -67,6 +83,8 @@ interface Props {
   fresh: ReadonlySet<number>
 }
 
+const p2 = (n: number) => String(n).padStart(2, '0')
+
 export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu, onSlot, onNote,
   drag, hover, onDrag, onHover, onDrop, fresh }: Props) {
   const body = useRef<HTMLDivElement | null>(null)
@@ -89,59 +107,83 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
 
   const at = clinicNow(clinicTz(), new Date(lineTick))
   const rows = nowlineRows(model.hours.map((h) => h.h), model.date, at)
+  /* Пустой день — ни одного ВИЗИТА (заметка стойки днём не считается);
+     карточка лежит поверх сетки без событий мыши, ячейки под ней кликабельны. */
+  const noAppts = !model.columns.some((c) => c.blocks.some((b) => b.kind === 'appt'))
 
   return (
-    <>
+    <div className="gridcard">
+      {/* Шапка врачей — первая строка карточки, липкая (макет 08.10).
+          ⚠️ `.gridcard` с overflow:clip, а не hidden: hidden сделал бы карточку
+          контейнером прокрутки, и sticky прилипал бы к ней, а не к окну. */}
       <div className={`gridhead${model.tight ? ' tight' : ''}`}>
         <div className="gh-time" />
         {model.columns.map((col) => (
           <DocCard key={col.key} col={col} date={model.date} />
         ))}
       </div>
-      <div className="gridcard">
-        <Band band={model.bands.top} side="gb-top" />
-        <div className="gridbody" data-day={model.date} ref={body}>
-          <div className="gcol-time">
-            {model.hours.map((h) => (
-              <div key={h.h} className={h.now ? 'nowh' : undefined}>{h.label}</div>
+      <Band band={model.bands.top} side="gb-top" />
+      <div className="gridbody" data-day={model.date} ref={body}>
+        <div className="gcol-time">
+          {model.hours.map((h) => (
+            <div key={h.h} className={h.now ? 'nowh' : undefined}>{h.label}</div>
+          ))}
+        </div>
+        {model.columns.map((col) => (
+          <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}
+            {...(drag && col.id ? dropZone(col.id, onHover, onDrop) : {})}>
+            {col.cells.map((open, i) => {
+              /* ⛔ Закрытая ячейка БЕЗ `data-h`: «куда нельзя записать, туда
+                 нельзя и перенести». Признак ОДИН на класс, на `data-h` и на
+                 нажатие: разведи их — и появится ячейка, которая выглядит
+                 открытой и молчит в ответ.
+                 ⛔ Мишень — это ПАРА «врач + час», а у колонки-сироты врача
+                 нет: писать в неё некуда, и сервер говорит то же самое
+                 (`cells` сироты пусты). Здесь это сказано ТИПОМ. */
+              const h = model.hours[i]!.h
+              const dk = open ? col.id : null
+              if (!dk) {
+                /* подпись «Nelucrător» — на ПЕРВОЙ ячейке закрытого ряда, а не
+                   на каждой: ряд читается одним куском; у сироты ряда нет */
+                const first = !col.orphan && (i === 0 || col.cells[i - 1] === true)
+                return (
+                  <div key={h} className="gcell off" aria-hidden="true">
+                    {first && <span className="gc-off">{T.offHours}</span>}
+                  </div>
+                )
+              }
+              const hh = hourLabel(h)
+              return (
+                <button key={h} type="button" data-h={h} data-hh={hh}
+                  className={hover === dk + '|' + h ? 'gcell dropzone' : 'gcell'}
+                  aria-label={`${T.book} ${col.name} ${T.at} ${hh}`}
+                  onClick={() => onSlot(dk, col.name, hh)} />
+              )
+            })}
+            {col.blocks.map((b) => (
+              <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
+                onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
+                fresh={fresh.has(b.id)} />
             ))}
           </div>
-          {model.columns.map((col) => (
-            <div key={col.key} className="gcol" {...(col.id ? { 'data-dk': col.id } : {})}
-              {...(drag && col.id ? dropZone(col.id, onHover, onDrop) : {})}>
-              {col.cells.map((open, i) => {
-                /* ⛔ Закрытая ячейка БЕЗ `data-h`: «куда нельзя записать, туда
-                   нельзя и перенести». Признак ОДИН на класс, на `data-h` и на
-                   нажатие: разведи их — и появится ячейка, которая выглядит
-                   открытой и молчит в ответ.
-                   ⛔ Мишень — это ПАРА «врач + час», а у колонки-сироты врача
-                   нет: писать в неё некуда, и сервер говорит то же самое
-                   (`cells` сироты пусты). Здесь это сказано ТИПОМ. */
-                const h = model.hours[i]!.h
-                const dk = open ? col.id : null
-                if (!dk) return <div key={h} className="gcell off" />
-                return (
-                  <div key={h} data-h={h}
-                    className={hover === dk + '|' + h ? 'gcell dropzone' : 'gcell'}
-                    onClick={() => onSlot(dk, col.name, hourLabel(h))} />
-                )
-              })}
-              {col.blocks.map((b) => (
-                <Block key={b.id} block={b} waitTick={waitTick} dk={col.id ?? ''}
-                  onCard={onCard} onCardMenu={onCardMenu} onNote={onNote} onDrag={onDrag}
-                  fresh={fresh.has(b.id)} />
-              ))}
-            </div>
-          ))}
-          {/* ⚠️ Линия «сейчас» — единственное, что меняется непрерывно, и
-              потому её нет в модели: серверная строка с минутами делала бы
-              отпечаток живого состояния всегда другим. */}
-          {rows !== null
-            && <div className="nowline" style={{ top: `calc(${rows}*var(--cell))` }} />}
-        </div>
-        <Band band={model.bands.bottom} side="gb-bot" />
+        ))}
+        {/* ⚠️ Линия «сейчас» — единственное, что меняется непрерывно, и
+            потому её нет в модели: серверная строка с минутами делала бы
+            отпечаток живого состояния всегда другим.
+            ⚠️ Время плашки — АТРИБУТОМ, а не текстом внутри: стенд панели
+            считает мутации линии отдельно от остальных по узлу `.nowline`, а
+            смена текста вложенного узла легла бы в «мигание». */}
+        {rows !== null
+          && <div className="nowline" data-now={`${p2(at.hh)}:${p2(at.mm)}`}
+            style={{ top: `calc(${rows}*var(--cell))` }} />}
+        {noAppts && (
+          <div className="dp-empty-day" aria-hidden="true">
+            <div><b>{T.noAppts}</b><span>{T.noApptsHint}</span></div>
+          </div>
+        )}
       </div>
-    </>
+      <Band band={model.bands.bottom} side="gb-bot" />
+    </div>
   )
 }
 
@@ -191,40 +233,44 @@ function Band({ band, side }: { band: { from: string; to: string } | null; side:
   return <div className={`gband ${side}`} title={`${T.closed} · ${band.from} - ${band.to}`} />
 }
 
+/**
+ * Шапка колонки врача (макет 08.10): аватар-кольцо цветом врача, имя и
+ * специализация, строка «N programări · Liber de la HH:MM» и полоска
+ * загрузки цветом врача. Цвет — `hue` врача из модели, как и был у полосы
+ * слева; заливки аватара больше нет — кольцо.
+ * ⚠️ Полоса обрезана сотней только ШИРИНОЙ: подсказка говорит «130%», и это
+ * единственный признак перебронированного дня.
+ */
 function DocCard({ col, date }: { col: DashColumn; date: string }) {
-  const sub = [col.spec || ' ', col.off && !col.orphan ? ` · ${T.off}` : ''].join('')
+  const sub = [col.spec || ' ', col.off && !col.orphan ? ` · ${T.off}` : ''].join('')
+  const pct = col.occupancy ? Math.min(col.occupancy.pct, 100) : 0
   return (
     <div className="gh-doc">
-      <div className={`dcard${col.off ? ' off' : ''}`} style={{ borderLeftColor: col.hue }}>
-        <span className="av" style={{ background: col.hue }}>
-          {col.photo ? <img src={col.photo} alt="" /> : col.initials}
-        </span>
-        <div className="nm">
-          {col.id
-            ? <AppLink href={`/admin/doctor/${col.id}?date=${date}`} title={col.title}>{col.name}</AppLink>
-            : <a>{col.name}</a>}
-          <small>{col.orphan ? `${T.outside} · ${col.count} ${T.prog}` : sub}</small>
-          {!col.orphan && (
-            <small className="mt">
-              {col.count} {T.prog} · {col.free ? `${T.free} ${col.free}` : T.full}
-            </small>
-          )}
-          {col.occupancy && (
-            <div className="occ" title={`${col.occupancy.busy} din ${col.occupancy.cap} ${T.minutes}`}>
-              {/* ⚠️ Сотней обрезана только ШИРИНА полосы: само число говорит
-                  «130%», и это единственный признак перебронированного дня. */}
-              <div className="statbar">
-                <div style={{ width: `${Math.min(col.occupancy.pct, 100)}%` }} />
-              </div>
-              <b>{col.occupancy.pct}%</b>
-            </div>
-          )}
-          {col.relink && <Relink relink={col.relink} date={date} />}
+      <div className={`dcard${col.off ? ' off' : ''}`}>
+        <div className="dc-top">
+          <span className="av" style={{ borderColor: col.hue }}>
+            {col.photo ? <img src={col.photo} alt="" /> : col.initials}
+          </span>
+          <div className="nm">
+            {col.id
+              ? <AppLink href={`/admin/doctor/${col.id}?date=${date}`} title={col.title}>{col.name}</AppLink>
+              : <a>{col.name}</a>}
+            <small>{col.orphan ? `${T.outside} · ${col.count} ${col.count === 1 ? T.one : T.many}` : sub}</small>
+            {col.relink && <Relink relink={col.relink} date={date} />}
+          </div>
         </div>
         {!col.orphan && (
-          <span className="st"
-            style={{ background: col.free ? 'var(--green)' : 'var(--text3)' }}
-            title={col.free ? `${T.free} ${col.free}` : T.full} />
+          <div className="dc-load">
+            <small className="mt">{col.count} {col.count === 1 ? T.one : T.many}</small>
+            <small className={`dc-free${col.free ? '' : ' full'}`}>
+              {col.free ? `${T.free} ${col.free}` : T.full}
+            </small>
+            <div className="track"
+              title={col.occupancy
+                ? `${col.occupancy.busy} din ${col.occupancy.cap} ${T.minutes} · ${col.occupancy.pct}%` : undefined}>
+              <i style={{ width: `${pct}%`, background: col.hue }} />
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -314,8 +360,11 @@ function ApptBlock(
     fx: string
   },
 ) {
-  const ico = block.urgent && block.status === 'confirmed'
-    ? 'excl' : STATUS_ICON[block.status] ?? ''
+  /* Срочность — чипом в строке интервала (макет), а не только цветом: чип
+     со значком читается и без подложки. ⛔ Только у НЕ завершённого визита —
+     то же правило, что у повестки: срочность про то, что визита ждут. */
+  const urgent = block.urgent && block.status === 'confirmed'
+  const ico = urgent ? 'excl' : STATUS_ICON[block.status] ?? ''
   /* ⚠️ Имя иконки приходит от сервера строкой: неизвестное имя не имеет права
      уронить экран, поэтому оно проходит через `iconName`. */
   /* ⛔ Слово статуса печатается только у НЕ подтверждённого: у подтверждённого
@@ -323,7 +372,7 @@ function ApptBlock(
   const word = block.status === 'confirmed' ? '' : block.status_label
   const wait = block.wait_since ? waitLabel(block.wait_since, waitTick) : null
   return (
-    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${fx}`}
+    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${urgent ? ' urg' : ''}${fx}`}
       data-appt={block.id}
       style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}`,
         '--bar': block.bar } as React.CSSProperties}
@@ -332,22 +381,32 @@ function ApptBlock(
       onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(block.id, e.clientX, e.clientY) }}
       {...grab}>
       {/* Обе раскладки в разметке сразу, вид выбирает panel.css по
-          `<html data-card>`: интервал (.gtm) виден у «времени впереди», начало
-          с длительностью (.gt) — у «имени впереди» и в сжатых видах.
+          `<html data-card>`: строка интервала (.gl1 с .gtm) первой у «времени
+          впереди», имя первым у «имени впереди» (.gt — начало с длительностью).
           ⛔ Карандаш «записано вручную» снят (03.10): с заморозкой бота так
           записано всё, значок ничего не различал. Бот остался — он отличает. */}
-      <span className="gtm">{block.time}–{endOf(block.time, block.dur)}</span>
+      <span className="gl1">
+        <span className="gtm">{block.time}–{endOf(block.time, block.dur)}</span>
+        {urgent && <span className="chip urg"><Icon name="excl" />{T.urgent}</span>}
+        {word && <span className={`stat s-${block.status}`}>{word}</span>}
+        {wait && <span className={`wait-min${wait.long ? ' long' : ''}`}>{wait.text}</span>}
+      </span>
       {ico && <span className="stt"><Icon name={iconName(ico)} /></span>}
       {/* значок «есть комментарий» (03.10, просьба Олега): текст — в подсказке
           блока и в карточке по нажатию */}
       <b>{block.name}{block.source === 'bot' && <> <Icon name="bot" /></>}
         {block.comment && <> <Icon name="chat" /></>}</b>
       <small><span className="gt">{block.time} · {block.dur}′ · </span>{block.service}</small>
-      {word && (
-        <small className="stw">
-          <span className={`stat s-${block.status}`}>{word}</span>
-          {wait && <span className={`wait-min${wait.long ? ' long' : ''}`}>{wait.text}</span>}
-        </small>
+      {/* Кнопка одонтограммы в блоке (макет): только у визита С ПАЦИЕНТОМ, иначе
+          ссылка вела бы на `/None/`. ⛔ Всплытие клика останавливает — строка
+          кликабельна целиком; `draggable=false` — иначе браузер тащил бы ссылку
+          вместо блока. */}
+      {block.pid !== null && (
+        <AppLink className="apact" href={`/admin/patient/${block.pid}/odontograma`}
+          aria-label={`${T.odo}: ${block.name}`} title={T.odo} draggable={false}
+          onClick={(e) => e.stopPropagation()}>
+          <Icon name="tooth" />
+        </AppLink>
       )}
     </div>
   )

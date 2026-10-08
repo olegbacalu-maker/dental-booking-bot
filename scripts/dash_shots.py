@@ -101,7 +101,9 @@ CHECK_JS = """(() => {
     agenda_count: (document.querySelector('.ag-h span') || {}).textContent || null,
     /* 01.10: плиток «Azi» нет — цифры дня одной строкой в шапке «La recepție»,
        списки стойки — секциями той же карточки */
-    tiles: (document.querySelector('.desk .dk-h small') || {}).textContent || null,
+    /* 08.10 (макет): цифры дня — в подзаголовке страницы из конверта (дата
+       словами · N programări · % ocupare); карточки .desk в тихий день нет */
+    tiles: (document.querySelector('.dp-react-root > .sub') || {}).textContent || null,
     occ: Array.from(document.querySelectorAll('.desk .dk-sec summary .dk-st')).map(t => t.firstChild && t.firstChild.textContent),
     desk: !!document.querySelector('.desk'),
     mcal: (document.querySelector('.mcal .mhead b') || {}).textContent || null,
