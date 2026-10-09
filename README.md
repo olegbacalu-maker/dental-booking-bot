@@ -6,21 +6,26 @@ with an odontogram, treatment plans, an anamnesis questionnaire, payments and do
 and the medical form the Ministry of Health asks for (**043/e**) prints already filled in
 from the card.
 
-Two editions from one codebase: a **desktop app** (`DentPilot.exe`, SQLite next to the exe,
-one clinic, one Windows machine) and a **cloud** stack (Docker + PostgreSQL, one VPS
-serving many clinics). The desktop edition is the one clinics actually install — there is
-no account, no subscription and no server holding patient data.
+Two editions from one codebase: a **desktop app** (`DentPilot.exe`, SQLite in the clinic's
+own data folder, one clinic, one Windows machine — other workstations open the same journal
+over the clinic's network) and a **cloud** stack (Docker + PostgreSQL, one VPS serving many
+clinics). The desktop edition is the one clinics actually install. It runs on a monthly or
+yearly licence kept by a small separate service ([`cloud/`](cloud/README.md)) that knows
+the clinic, its computers and its payments and nothing about its patients: no server ever
+holds patient data.
 
 > Screenshots and `clinic.json` in this repo use synthetic data — invented patients,
 > invented doctors. Phone numbers, e-mail addresses and national ID numbers are masked in
-> the screenshots. One `clinic.json` = one clinic. The shots below are **v1.26.0**, taken
+> the screenshots. One `clinic.json` = one clinic. The shots below are **v1.40.1**, taken
 > on a staged clinic with two months of work behind it.
 
 ## Screenshots
 
-**Patient card** — odontogram, treatment plan, anamnesis and the activity feed, with
-medical alerts and insurance pinned in the header. Here 25 is missing and 24/26 carry the
-abutments of a metal-ceramic **bridge**, drawn as the brace a dentist would put on paper:
+**Patient card** — one header for the whole card (alerts, insurance, balance, the risks
+from the anamnesis in a red strip, the next visit) over seven tabs: summary, odontogram,
+periodontal chart, plan and payments, visits, documents, patient data. On the odontogram
+tab here 25 is missing and 24/26 carry the abutments of a metal-ceramic **bridge**, drawn
+as the brace a dentist would put on paper:
 
 ![Patient card](screenshots/patient-card.png)
 
@@ -31,16 +36,18 @@ the formula (`Co Cor` / `D A` / `Co Cor`) and as its own line under the grid:
 
 <img src="screenshots/fisa-043e.png" width="620" alt="Printed 043/e form">
 
-**Dashboard** — the day timeline: one column per doctor, every visit drawn to scale by
-duration and read in two lines (who, then when · how long · what), coloured by the kind of
-work with the status said in words next to it, the "now" line, tiles with a trend against
-yesterday and a 14-day sparkline each, the doctors on duty with their chair occupancy, and
-today's agenda in the right rail. The page keeps itself current without reloading:
+**Dashboard** — the day on one canvas: a column per doctor headed by that day's count, the
+hour the doctor is free from and a chair-occupancy bar; every visit drawn to scale by
+duration and read in three lines (who · when and how long and what · the status in words),
+coloured by the kind of work, with a no-show and acute pain in red; the "now" line; and in
+the right rail the month with busy days dotted and today's agenda, filtered by where the
+patient is — late, arrived, in the cabinet. The page keeps itself current without
+reloading:
 
 ![Dashboard](screenshots/admin-dashboard.png)
 
 **Patient list** — filters by doctor, status, channel and balance, derived statuses, a side
-preview with treatment-plan progress and CSV export:
+preview that opens a patient without leaving the list, and Excel export:
 
 ![Patient list](screenshots/patient-search.png)
 
@@ -71,22 +78,20 @@ Four views of the schedule:
 
 1. **Dashboard** — the day timeline: one column per doctor, every visit drawn to scale by
    its duration, a red "now" line on today, and overlapping visits split side by side so
-   nothing hides behind anything. A visit reads in **two lines** — the patient first, then
-   hour · duration · service — because the name is what the desk looks for; the status is
-   spelled out as a word next to its colour, and a patient marked *a venit* carries how
-   long they have been waiting (silent for the first five minutes, amber from fifteen: "a
-   venit and was called in at once" is not waiting, and a counter that shows zero on every
-   arrival stops being read). A free slot says what a click will do rather than showing a
-   bare "+"; a block is coloured by the *kind* of work, with a no-show and acute pain
-   overriding that to red; and the navigation rail alongside wears the clinic's own colour
-   end to end. Above it, day tiles with a trend against yesterday and a **14-day
-   sparkline** each, so a number reads as a trend rather than as today's accident; each
-   tile is clickable and opens the filtered list. Each doctor's card carries a
-   **chair-occupancy bar** —
-   busy minutes over that doctor's working minutes, the same formula and the same
-   `work_minutes()` the *Stats* page uses, so the two screens can never quote different
-   percentages for the same doctor. The right rail holds the month calendar and **today's
-   agenda** (the day as a time-ordered list, past entries dimmed).
+   nothing hides behind anything. A visit reads in **three lines** — the patient first,
+   then hour · duration · service, then the status as a word — because the name is what
+   the desk looks for, and a patient marked *a venit* carries how long they have been
+   waiting (silent for the first five minutes, amber from fifteen: "a venit and was called
+   in at once" is not waiting, and a counter that shows zero on every arrival stops being
+   read). A free hour says what a click will do (*+ Programare*) rather than showing a bare
+   "+"; a block is coloured by the *kind* of work, with a no-show and acute pain overriding
+   that to red; and the navigation rail alongside wears the clinic's own colour end to end.
+   Each doctor's header carries the day's count, the hour that doctor is free from and a
+   **chair-occupancy bar** — busy minutes over that doctor's working minutes, the same
+   formula and the same `work_minutes()` the *Stats* page uses, so the two screens can
+   never quote different percentages for the same doctor. The right rail holds the month
+   calendar with busy days dotted and **today's agenda**, split by the patient's flow:
+   *Întârzie* (late for the hour), *A venit*, *În cabinet*.
 2. **Doctor day view** — single-column schedule, add-form locked to that doctor.
 3. **Full grid** — all doctors side by side.
 4. **Week view** (`/admin/week`) — seven columns of compact chips with a per-week total.
@@ -95,7 +100,10 @@ Clicking **"+"** on any free slot opens a modal: *book a patient* or *leave a no
 the slot* ("lunch break", "seminar") — a note blocks a whole range. Clicking **any
 appointment** opens its card: patient info with age, an editable **reception comment**
 (allergies, call-back notes — never visible to patients), a link to the full patient card,
-and four status buttons: *arrived*, *finished*, *no-show*, *cancel*.
+and the status buttons the visit's current status allows — *arrived*, *in the cabinet*,
+*finished*, *no-show*, *cancel*; the same set opens on a right click over any visit. A
+booking reads *programată* until the call to the patient is marked as answered, and only then
+*confirmată*: "confirmed" is something the patient said, not something the form assumed.
 
 *Arrived* keeps the slot occupied — moving a patient into the cabinet never frees the hour.
 Returning a cancelled visit to an active status is refused if the interval has meanwhile
@@ -115,14 +123,15 @@ rendered by the server would make the fingerprint differ on every poll and bring
 flicker back through the back door. And inline scripts that carry page data are marked
 `data-live` and declare `var`, not `const`: the swap re-executes them, and a repeated
 `const` is a silent `SyntaxError` that would stop a freshly arrived appointment from
-opening.
+opening. The React screens of DentPilot 2.0 keep the same rule on a channel that carries
+data rather than an HTML fragment ([`docs/dentpilot-2/live-contract.md`](docs/dentpilot-2/live-contract.md)).
 
 ### Patient list
 
 `/admin/search` — the clinic's whole base in one working table: avatar and name, phone,
 birth date, doctor, last visit (with the next one flagged in green), balance, status,
 pages. Filters by doctor, status, channel and balance; sorting by name or by last visit;
-the current selection can be exported to CSV or previewed in a side panel that shows the
+the current selection can be exported to Excel (or CSV) or previewed in a side panel that shows the
 treatment-plan progress, alerts and documents without leaving the list. Search by name or
 phone digits (any format), e-mail or file number, ignoring Romanian diacritics and case
 ("Balan" finds "Bălan"). It also understands **a birth date the way it is dictated at the
@@ -147,7 +156,8 @@ fallback never reads as an assignment.
 `/admin/patient/{id}`, opened from search or from any appointment. An avatar with age,
 channel and file number; badges assembled from data already there (active / archived,
 medical alerts, insurance, implant count taken straight from the odontogram); a KPI row;
-then a two-column workspace.
+then seven tabs, each with its own address (`?tab=odonto`, `?tab=plan`…), so a link or a
+reload lands on the same tab.
 
 - **Odontogram** — 32 permanent teeth in FDI notation (upper 18→28, lower 48→38) plus the
   **primary dentition** (55→65, 85→75) on a second arch that opens on demand and unfolds by
@@ -267,16 +277,18 @@ then a two-column workspace.
 
 ### Analytics
 
-`/admin/stats`, director-only: KPI tiles, each with a sparkline of its own series and a
-trend **against the preceding period of the same length** (a week compares to the previous
-week, a day to yesterday — "vs. last month" for an arbitrary range would be a lie); a
-day-by-day line chart with axis labels that thin out on long ranges; booking sources as a
-donut — only the channels the program actually knows, nothing invented; average chair
-occupancy as a half-circle gauge plus a per-doctor table; **money taken at the desk shown
-separately from estimated revenue**, the latter explicitly labelled as a price-list estimate
-rather than accounting; top services with value bars; and a recent-activity feed signed with
-the *name* of the logged-in employee. All charts are inline SVG from `core/charts.py` — the
-program works offline, so a chart library would have to be bundled into the exe wholesale.
+`/admin/stats`, director-only, for today, seven days, this month, thirty days or any
+interval: four KPI cards — money taken, appointments, attendance, chair occupancy — each
+with a trend **against the preceding period of the same length** (a week compares to the
+previous week, a day to yesterday — "vs. last month" for an arbitrary range would be a
+lie); columns by day or by week, switchable between appointments and money, with only the
+tallest one labelled and the rest on hover; **money taken at the desk shown separately from
+estimated revenue**, the latter explicitly labelled as a price-list estimate rather than
+accounting, with the split by payment method and what the no-shows cost; a per-doctor table
+of attendance and occupancy; top services; a recent-activity feed signed with the *name* of
+the logged-in employee; and an Excel export. No chart library: the program works offline, so
+one would have to be bundled into the exe wholesale, and the figures are plain markup in the
+clinic's own colours.
 
 ### Accounts and roles
 
@@ -312,9 +324,9 @@ second copy of the program would come up with a second, empty database, and both
 perfectly healthy while the appointment booked at reception failed to appear in the surgery.
 The page shows a QR to `http://<lan-ip>:port`
 and says plainly what this is not: it does not reach the clinic from home. The firewall rule
-is created by the program itself through a UAC prompt, because the installer is deliberately
-per-user and cannot run `netsh`; its result is read from the **exit code**, never by parsing
-the localised text netsh prints.
+is created by the program itself, from a button on that page, through a UAC prompt the
+director confirms; its result is read from the **exit code**, never by parsing the
+localised text netsh prints.
 
 The `secure` flag is deliberately absent from the session cookie here: over plain HTTP on a
 LAN it would break login outright, and the clinic's Wi-Fi encrypts one layer below.
@@ -387,7 +399,8 @@ The run prints how many checks it did and how long it took — a figure written 
 would be stale by the next feature, and the number only ever grows. Standard library only,
 no pytest and no httpx. `.venv-desktop` is the *build* environment, and whatever is
 installed there eventually ends up inside the exe; tests must also run where nobody can
-install packages.
+install packages. The React client has its own checks in `frontend/`: `npm run typecheck`,
+`npm run lint` and `npm test` (vitest).
 
 Each suite starts **its own server on a free port with its own temporary database** (Windows
 happily lets a second process bind a busy port and then routes requests to the first one, so
@@ -401,7 +414,9 @@ holds the layout rules that otherwise live only in prose: no `__file__` outside 
 modules allowed to know where the program sits, no module name computed from `__package__`,
 no role compared as a string instead of asking the permission table, no write to `auth.json`
 without re-recording its fingerprint. Those are the mistakes that break the *packaged* exe
-while leaving a source run perfectly green.
+while leaving a source run perfectly green. Every such rule is proven by
+`tests/mutate.py`, which breaks it in a copy of the tree and demands red: a guard that
+cannot fail is not a guard.
 
 `tests/smoke_exe.py` is separate and answers a different question — does the **built**
 program open its pages. `/health` replies without a single file on disk, so it never notices
@@ -410,8 +425,10 @@ a lost `--add-data` or a broken path to `static`; those break only in the exe, a
 
 ## Desktop edition
 
-A single `DentPilot.exe` (PyInstaller, ~30 MB): native app window (WebView2), SQLite next to
-the exe, no ports open to the outside. Build with `Build-Desktop.ps1`.
+A single code-signed `DentPilot.exe` (PyInstaller, ~35 MB): native app window (WebView2)
+with a persistent profile, SQLite in the clinic's data folder (see *Installer* below), no
+ports open to the outside. A second launch brings the open window forward instead of
+starting a second copy over the same database. Build with `Build-Desktop.ps1`.
 
 - **First launch writes an empty clinic** — one placeholder doctor, six generic services,
   Mon–Fri 07:00–18:00, Sat 07:00–14:00, no prices borrowed from someone else's list. The demo
@@ -434,18 +451,25 @@ the exe, no ports open to the outside. Build with `Build-Desktop.ps1`.
   only values the clinic can re-enter are ever encrypted this way.
 - **Automatic backup on every start** into `data\backups\` through the SQLite backup API —
   consistent even after a crash with WAL — keeping the last 14.
-- **One-click self-update** from GitHub Releases, verified before the swap and reversible if
-  it fails — see *Design decisions*.
+- **One-click update** from GitHub Releases, with the release's own signed installer behind
+  a UAC prompt, checked before that prompt ever appears — see *Design decisions*.
 
 **Installer**: `Build-Installer.ps1` wraps that exe into a single
 `DentPilot-Setup-<version>.exe` (Inno Setup, [`installer/DentPilot.iss`](installer/DentPilot.iss))
-— a normal Windows wizard, entirely in Romanian, per-user and x64, no administrator rights.
-DentPilot keeps `clinic.json`, `dental.env` and `data\` next to the exe, which decides where
-it may be installed: the wizard probes the chosen folder by actually writing to it (Program
-Files is rejected), and the default is the **shared** `C:\Users\Public\DentPilot` rather than
-a user profile — a clinic where two shifts log in under different Windows accounts must not
-end up with two separate databases. Upgrades reuse the existing folder: the database is never
-touched, and uninstalling removes only the program, its shortcuts and the update leftovers.
+— a normal Windows wizard, entirely in Romanian, x64, installed per machine. The exe, the
+wizard and its uninstaller are signed (Certum), so the UAC prompt and SmartScreen name a
+publisher instead of "unknown". A release carries the wizard **zipped**: the updater picks
+its asset by name, and a second `.exe` next to `DentPilot.exe` would sort first and be
+downloaded as the program.
+
+Program and data are kept apart. The program goes to `C:\Program Files\DentPilot` and is
+read-only while it runs; the clinic's `clinic.json`, `dental.env` and `data\` live in
+`C:\ProgramData\DentPilot`, a folder shared by every Windows account on the machine — a
+clinic where two shifts log in under different accounts must not end up with two separate
+databases. The launcher hands that folder to the app before it starts, and recognises an
+install from before September 2026, when the data still sat next to the exe, rather than
+guessing. Upgrades never touch the data folder, and uninstalling removes only the program,
+its shortcuts and the update leftovers.
 
 **Update channels.** Clinics stay on `stable` and see only published releases.
 `DENTART_CHANNEL=beta` in `dental.env` makes one machine see pre-releases ahead of the
@@ -453,6 +477,27 @@ clinics, **with no credential at all**; `draft` additionally needs a GitHub toke
 access. A non-stable machine says so in Settings, so a canary box cannot be mistaken for a
 clinic's install. Why it is built this way: *Design decisions*. Release procedure:
 [RELEASE.md](RELEASE.md).
+
+### Licence and the clinic account
+
+The desktop edition runs on a **signed licence file**, checked offline by the program
+against a public key compiled into it — the clinic's journal never depends on a server
+being up. A new install asks the licence service for a free month by itself; a new computer
+of a clinic the service already knows is activated with a code sent to the clinic's e-mail,
+and the clinic accepts the terms on the activation page. A month or a year is paid by bank
+transfer.
+
+When a paid period ends without renewal, fourteen days of grace follow, and after them the
+program turns **read-only rather than locked**: no new appointments or visit records, while
+the card index, printing (043/e, the consent sheet, the periodontal chart), the patient
+export and the backup stay open. The records belong to the clinic, and it has to be able
+to read them and hand them over whatever happens to the licence.
+
+The service itself is [`cloud/`](cloud/README.md) — a separate program with its own tests
+and no imports from `bot/`. It keeps the clinic account, the licences, the computers each
+clinic runs on and the payments, plus a cabinet at `cloud.dentpilot.md` where the clinic
+signs in with Google or with a one-time code by e-mail; there is no password to leak. It has
+no route that accepts or returns medical data.
 
 ## Cloud edition — quick start
 
@@ -470,7 +515,9 @@ retention) — the restore path is verified by a fire drill into a throwaway con
 
 The "Try the demo" button on the website opens the *real* desktop edition (SQLite) behind a
 small gate: every visitor gets a private copy of a fictional clinic, seeded from "today",
-reset after an hour. The program runs with `DENTART_DEMO=1` (`bot/app/core/demo.py`): one
+for thirty minutes, out of a pool of twelve. A copy goes only to a browser tab's own
+navigation, so link previews and crawlers do not burn the pool. The program runs with
+`DENTART_DEMO=1` (`bot/app/core/demo.py`): one
 flag, one list of closed routes (update, database key, backup/restore, PIN and users, bot
 token, LAN, licence) that closes pages, JSON and the settings tiles alike, and a banner on
 every screen. The gate, the seed and the image live in [`demo/`](demo/README.md), outside
@@ -524,6 +571,13 @@ to start without `ADMIN_KEY` (HMAC cookie).
 
 - FastAPI + Uvicorn; PostgreSQL 16 + asyncpg in the cloud, SQLite + aiosqlite on the desktop
   — one schema, two dialects, additive migrations.
+- **DentPilot 2.0** (since September 2026): the screens are a React + TypeScript client
+  ([`frontend/`](frontend/), Vite), built into the exe as one bundle and moved over one
+  screen at a time on top of the same engine. The server decides per clinic
+  (`clinic.json → ui.react`), and `?ui=legacy` still returns the server-rendered page of a
+  screen for one request. JSON routes under `/api/` have their own guard that answers
+  401/403 instead of redirecting, so a fetch can never mistake the login form for success.
+  The 3D odontogram is three.js on the same server data.
 - The dialog engine is channel-agnostic (`engine.handle()`): the web chat and the Telegram
   adapter (aiogram, inline keyboards; enabled by setting `TELEGRAM_TOKEN`) are two thin
   adapters over the same engine and database.
@@ -631,6 +685,16 @@ exe in silence. The swap moves the running program aside and puts it back if the
 does not land, so a failed update is distinguishable from a deleted one. The asset name is
 matched exactly, because the installer sitting next to it in the same release would otherwise
 be pulled in as the program.
+
+Moving the program to Program Files took that swap away from the clinic's own Windows
+account: replacing a file there needs administrator rights. So the update became the
+release's **signed installer** behind a UAC prompt, and the prompt is the last step rather
+than the first — size, SHA-256 and the Authenticode signature against the one publisher
+the program trusts are checked *before* Windows asks anybody anything, so a clinic is never
+asked to elevate a file the program has not already recognised. Which release to fetch is
+asked first of a small update server; its answer is checked like any other input (this
+repository, the same tag, the exact file name, a newer version), and when the server is
+silent the program goes to GitHub as before.
 
 Migrations are additive by rule — new columns, never a rewrite — because the desktop edition
 upgrades in place on a machine nobody administers, and there is no way to roll a clinic back
