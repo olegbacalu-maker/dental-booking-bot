@@ -27,7 +27,7 @@ const T = {
   agenda: 'Agenda zilei',
   empty: '— nicio programare —',
   all: 'Vezi toate programările ›',
-  odo: 'Odontogramă',
+  cons: 'Consultație',
   comment: 'Comentariu',
   prev: '‹',
   next: '›',
@@ -215,8 +215,11 @@ function Agenda(
                   </div>
                 </div>
               </div>
-              {/* ⛔ Кнопка одонтограммы — только у визита С ПАЦИЕНТОМ: у
-                  легаси-строки без него ссылка вела бы на `/None/`.
+              {/* Вторая кнопка — «Consultație» (09.10, слово Олега: зуб уже
+                  стоит на блоке сетки, в повестке врачу нужнее запись приёма
+                  этого визита): страница /admin/visit/{id}, «Înapoi» — в этот
+                  же день панели. ⛔ Только у визита С ПАЦИЕНТОМ: у легаси-строки
+                  без него приёму некуда писаться.
                   ⛔ Обе кнопки останавливают всплытие: строка кликабельна
                   целиком, и без этого одно нажатие делало бы два действия. */}
               {(to || it.patient_id !== null) && (
@@ -229,9 +232,9 @@ function Agenda(
                     </button>
                   )}
                   {it.patient_id !== null && (
-                    <AppLink className="ag-odo" href={`/admin/patient/${it.patient_id}/odontograma`}
+                    <AppLink className="ag-odo" href={`/admin/visit/${it.id}?back=${encodeURIComponent(`/admin?date=${date}`)}`}
                       onClick={(e) => e.stopPropagation()}>
-                      <Icon name="tooth" />{T.odo}
+                      <Icon name="med" />{T.cons}
                     </AppLink>
                   )}
                 </div>

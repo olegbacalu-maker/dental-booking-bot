@@ -221,14 +221,15 @@ describe('C26.5.2: повестка дня', () => {
     expect(rows[1]?.querySelector('.ag-cmt')).toBeNull()
   })
 
-  it('⛔ кнопка одонтограммы — ТОЛЬКО у визита с пациентом', () => {
-    /* У легаси-строки без пациента ссылка вела бы на `/admin/patient/None/`. */
+  it('⛔ кнопка «Consultație» — ТОЛЬКО у визита с пациентом; ведёт в запись приёма ЭТОГО визита, «Înapoi» — в этот день', () => {
+    /* 09.10 (слово Олега): вместо «Odontogramă» (зуб уже на блоке сетки) — запись
+       приёма визита. У легаси-строки без пациента приёму некуда писаться. */
     show()
-    const odo = Array.from(document.querySelectorAll('.ag-i'))
-      .map((r) => r.querySelector('.ag-odo')?.getAttribute('href') ?? null)
-    expect(odo).toEqual([
-      '/admin/patient/17/odontograma', '/admin/patient/17/odontograma', null,
+    const rows = Array.from(document.querySelectorAll('.ag-i'))
+    expect(rows.map((r) => r.querySelector('.ag-odo')?.getAttribute('href') ?? null)).toEqual([
+      '/admin/visit/1?back=%2Fadmin%3Fdate%3D2026-09-19', '/admin/visit/2?back=%2Fadmin%3Fdate%3D2026-09-19', null,
     ])
+    expect(rows[0]?.querySelector('.ag-odo')?.textContent).toBe('Consultație')
   })
 
   it('минуты ожидания считает браузер, и только там, где есть отметка', () => {
