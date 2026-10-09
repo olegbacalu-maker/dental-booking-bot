@@ -290,9 +290,8 @@ export function OdontogramWorkbench({
             <button type="button" className="dp-odo-lnk" onClick={() => { setBrMode(true); setPicked([]) }}>
               <Icon name="plus" /> {T.newBridge}
             </button>
-            <AppLink className="dp-odo-lnk" href={embedded ? `${base}?tab=perio` : `${base}/parodontograma`}>
-              <Icon name="tooth" /> {T.perio}
-            </AppLink>
+            {/* «Parodontogramă» здесь снята (09.10, разбор): к листу ведут вкладка
+                фиши и режим «Parodont» выше — третий вход только путал. */}
             {embedded && <AppLink className="dp-odo-lnk" href={`${base}/odontograma`}><Icon name="eye" /> {T.full}</AppLink>}
             <button type="button" className="dp-ibtn" aria-label={T.print} title={T.print} onClick={() => window.print()}><Icon name="print" /></button>
           </div>

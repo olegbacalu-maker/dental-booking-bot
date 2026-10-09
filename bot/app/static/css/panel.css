@@ -1111,7 +1111,7 @@
     статуса един на всех экранах: бейдж, карточка сетки, агенда (.pl-badge.wai) */
  .stat.s-waiting{background:var(--violet-soft);color:#6D28D9}
  .stat.s-arrived{background:var(--teal-soft);color:var(--teal-d)}
- .stat.s-done{background:var(--blue-soft);color:#1D4ED8}
+ .stat.s-done{background:var(--green-soft);color:var(--green-t)}
  .stat.s-noshow{background:var(--red-soft);color:var(--red-t)}
  /* ---- перенос визита перетаскиванием ---- */
  /* Тянущийся блок гасим, а не прячем: пустое место на прежнем часе читается

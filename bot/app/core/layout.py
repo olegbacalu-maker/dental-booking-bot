@@ -1321,7 +1321,7 @@ def section_title(active: str) -> str:
 
 def shell_model(active: str, sub: str, rail: bool = False,
                 bell: int | None = None, msg: str = "",
-                crumbs: list | None = None) -> dict:
+                crumbs: list | None = None, title: str = "") -> dict:
     """Оболочка ДАННЫМИ — одна модель на серверную страницу и на React (B1).
 
     ⭐ Живёт рядом с `_shell`, а не в своём модуле: ей нужны `auth`, `theme`,
@@ -1397,7 +1397,9 @@ def shell_model(active: str, sub: str, rail: bool = False,
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
                     "demo": _sig(_demo_banner())},
-        "frame": {"title": section_title(active), "sub": sub, "rail": rail, "bell": bell,
+        # `title` — страница с собственным именем (фиша: имя пациента, 09.10 по
+        # разбору: H1 «Pacienți» дублировал крошку); пустой — имя раздела
+        "frame": {"title": title or section_title(active), "sub": sub, "rail": rail, "bell": bell,
                   "sec_warn": _sec_warn(),
                   "update": _update_banner().removeprefix(" · "),
                   "msg": msg_banner(msg) if msg else "",

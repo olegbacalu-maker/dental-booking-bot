@@ -810,7 +810,8 @@ describe('PatientCardScreen', () => {
     await tabTo('Odontogramă')
     expect(router.state.location.search).toBe('?tab=odonto')
     expect(document.querySelector('.perio')).toBeNull()
-    fireEvent.click(screen.getByText('Parodontogramă', { selector: '.dp-odo-lnk' }))
+    // ссылки «Parodontogramă» на экране одонтограммы больше нет (09.10) — обратно вкладкой фиши
+    fireEvent.click(strip().getByRole('tab', { name: 'Parodontogramă' }))
     await strip().findByRole('tab', { name: 'Parodontogramă', selected: true })
     await waitFor(() => expect(get).toHaveBeenLastCalledWith('/patients/5/perio', expect.anything()))
   })

@@ -371,11 +371,17 @@ function ApptBlock(
      оно ничего не добавляет, а место в блоке решает, влезет ли имя. */
   const word = block.status === 'confirmed' ? '' : block.status_label
   const wait = block.wait_since ? waitLabel(block.wait_since, waitTick) : null
+  /* Завершённый визит — приглушённый, без цвета категории (09.10, разбор:
+     «Durere acută» после приёма оставалась красной, и важное с сделанным
+     выглядели одинаково). Цвет категории — про то, что визита ждут. */
+  const done = block.status === 'done'
+  const bg = done ? 'var(--line2)' : block.bg
+  const bar = done ? 'var(--text3)' : block.bar
   return (
-    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${urgent ? ' urg' : ''}${fx}`}
+    <div className={`gappt${block.status === 'noshow' ? ' noshow' : ''}${done ? ' done' : ''}${urgent ? ' urg' : ''}${fx}`}
       data-appt={block.id}
-      style={{ ...pos, background: block.bg, borderLeft: `5px solid ${block.bar}`,
-        '--bar': block.bar } as React.CSSProperties}
+      style={{ ...pos, background: bg, borderLeft: `5px solid ${bar}`,
+        '--bar': bar } as React.CSSProperties}
       title={block.comment ? `${block.title}\n${T.comment}: ${block.comment}` : block.title}
       onClick={() => onCard(block.id)}
       onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(block.id, e.clientX, e.clientY) }}

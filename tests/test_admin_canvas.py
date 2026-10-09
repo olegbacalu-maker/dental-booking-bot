@@ -611,8 +611,9 @@ def suite_agenda(res: Result) -> None:
         c.post(f"/admin/status/{ids[0]}", to="done", back=f"/admin?date={day}")
         done = next(r for r in _agenda(c.get(f"/admin?date={day}&ui=legacy").body)["rows"]
                     if r["name"] == "Ag Unu")
+        # «Finalizată» — зелёная с 09.10 (разбор: серая на серой не читалась)
         res.check("у ЗАВЕРШЁННОЙ срочность больше не горит — состояние словом",
-                  (done["cls"], done["label"]), ("off", "Finalizată"))
+                  (done["cls"], done["label"]), ("act", "Finalizată"))
 
         # минуты ожидания — ШТАМП, а не текст сервера
         c.post(f"/admin/status/{ids[1]}", to="waiting", back=f"/admin?date={day}")

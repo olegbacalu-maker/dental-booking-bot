@@ -94,7 +94,7 @@ def suite_agenda_pure(res: Result) -> None:
                  _row(13, status="noshow")])
     res.check("класс бейджа — из _AG_CLS, по одному на статус; запись до звонка — контуром",
               [x["badge"]["cls"] for x in words["items"]],
-              ["pln", "wai", "trt", "off", "bad"])
+              ["pln", "wai", "trt", "act", "bad"])
 
     # --- звонок-подтверждение (03.10, слово Олега: «confirmat» — только после
     # галочки в «De confirmat»): статус тот же, меняются слово и класс ---
@@ -125,7 +125,7 @@ def suite_agenda_pure(res: Result) -> None:
               [(x["name"], x["urgent"], x["badge"]["cls"], x["badge"]["label"])
                for x in urg["items"]],
               [("Acum", True, "bad", "Urgent"),
-               ("Gata", False, "off",
+               ("Gata", False, "act",
                 urg["items"][1]["badge"]["label"])])
     res.ok("и слово у завершённой — не «Urgent»",
            urg["items"][1]["badge"]["label"] != "Urgent",

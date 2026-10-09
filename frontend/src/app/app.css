@@ -513,7 +513,10 @@
 /* ---- B6 «patient workspace»: полоса вкладок фиши (26.09) ----
    Всё ступенями B5: высота контрола, кегль, радиус, длительность; подчёркивание
    активной — фирменный цвет. Клавиатура и роли — в PatientCardScreen. */
-.dp-react-root .wtabs { display: flex; gap: 4px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.dp-react-root .wtabs { display: flex; gap: 4px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+/* Строка вкладок прокручивается, когда не влезает, но без системного скроллбара:
+   классические стрелки ▲▼ Windows рисовались справа от вкладок (разбор 08.10). */
+.dp-react-root .wtabs::-webkit-scrollbar { display: none; }
 /* вкладка 44px, активная — подчёркивание 3px фирменным (макет 08.10) */
 .dp-react-root .wtabs [role=tab] {
   position: relative; height: var(--h-ctl); padding: 0 12px; border: none; background: none;
@@ -1384,6 +1387,13 @@ dialog.dp-ask { width: 400px; }
 /* Поток пациента (03.10): вкладки «Toate · Întârzie · A venit · În cabinet» над
    «Agenda zilei». Цвета — смысла: фиолетовый «a venit» и синий «în cabinet» — как
    плашки повестки (.pl-badge.wai/.trt в panel.css), красное — от 15 минут. */
+/* Повестка: вкладка потока ложится ПОВЕРХ невидимого списка «Toate», а не вместо
+   него — высота блока не меняется при переключении, и колонка под ним не
+   прыгает (разбор 09.10, замер: 639 → 177 px). Невидимый список не ловит клики. */
+.dp-react-root .ag-stack { display: grid; }
+.dp-react-root .ag-stack > * { grid-area: 1 / 1; min-width: 0; }
+.dp-react-root .ag-stack > .ag-l.off { visibility: hidden; pointer-events: none; }
+.dp-react-root .ai-n { color: var(--text3); font-weight: 500; }
 .fl-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 12px; }
 .fl-tab {
   min-width: 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center;

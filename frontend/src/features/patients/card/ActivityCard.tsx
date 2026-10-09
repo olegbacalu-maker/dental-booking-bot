@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { Icon, iconName } from '../../../components/Icon'
-import type { Activity } from './card'
+import type { Activity, ActivityItem } from './card'
 
 /* Летопись фиши: что с ней происходило. Вид по макету (08.10): список `<ol>`,
    у события — цветной кружок по виду (визит завершён — зелёная галочка,
@@ -27,6 +27,20 @@ const TONE: Record<string, string> = {
   ban: 'bad', trash: 'bad', minus: 'bad', erase: 'bad', sos: 'warn', eye: 'mute',
 }
 
+/** Подряд одинаковые события (текст, автор, вид) — одной строкой с «×N»: два
+ *  сохранения фиши подряд давали две строки «Fișa pacientului a fost actualizată»
+ *  (разбор 09.10). ⛔ Склейка только в показе: сами записи `activity` — летопись,
+ *  ответ на «кто что сделал», и остаются по одной. */
+export function squash(items: ActivityItem[]): (ActivityItem & { n: number })[] {
+  const out: (ActivityItem & { n: number })[] = []
+  for (const it of items) {
+    const last = out[out.length - 1]
+    if (last && last.text === it.text && last.who === it.who && last.kind === it.kind) last.n += 1
+    else out.push({ ...it, n: 1 })
+  }
+  return out
+}
+
 interface Props {
   activity: Activity
   onViews: (views: boolean) => void
@@ -34,7 +48,7 @@ interface Props {
 
 export function ActivityCard({ activity, onViews }: Props) {
   const [all, setAll] = useState(false)
-  const items = all ? activity.items : activity.items.slice(0, activity.shown)
+  const items = squash(all ? activity.items : activity.items.slice(0, activity.shown))
   const rest = activity.items.length - activity.shown
   return (
     <div className="fcard">
@@ -51,7 +65,7 @@ export function ActivityCard({ activity, onViews }: Props) {
           {items.map((it) => (
             <li key={it.id} className="acti">
               <span className={`ai ${TONE[it.icon] ?? 'mute'}`}>{it.icon ? <Icon name={iconName(it.icon)} /> : '•'}</span>
-              <div className="ab"><b>{it.text}</b><small>{it.when} · {it.who}</small></div>
+              <div className="ab"><b>{it.text}{it.n > 1 && <span className="ai-n"> ×{it.n}</span>}</b><small>{it.when} · {it.who}</small></div>
               <span className="at num">{it.hhmm}</span>
             </li>
           ))}

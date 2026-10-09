@@ -125,6 +125,8 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "anamneza_print": "print",
             # звонок-подтверждение с главной (01.10)
             "call": "phone",
+            # платёж (09.10, разбор: точка у «Plată 2000 MDL» ничего не говорила)
+            "pay": "money", "pay_del": "minus",
             "view": "eye", "doc_view": "eye", "erase": "erase"}
 
 # сколько строк летописи фиша показывает сразу; остальные — за кнопкой

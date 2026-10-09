@@ -165,16 +165,23 @@ function Agenda(
         <span>{agenda.count} {agenda.count === 1 ? T.one : T.many}</span>
       </div>
       {flow && <FlowBar tab={t} onTab={setTab} flow={flow} total={agenda.count} labels={labels} />}
-      {flow && t !== 'all' && (
-        <FlowList kind={t} rows={flow[t]} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow} />
-      )}
       {/* ⛔ `.ag-l` — СТАБИЛЬНЫЙ узел с ключами по id: список прокручивается
           (max-height), и пересоздание контейнера роняло бы прокрутку при
           каждом ответе канала. Старая страница возвращала scrollTop руками
           именно потому, что подмена innerHTML его теряла.
           ⚠️ На вкладке потока узел ПРЯЧЕТСЯ, а не снимается — по той же
-          причине: прокрутка «Toate» переживает и переключение вкладок. */}
-      <div className="ag-l" hidden={t !== 'all'}>
+          причине: прокрутка «Toate» переживает и переключение вкладок.
+          ⛔ Прячется НЕВИДИМОСТЬЮ, а не `hidden`, и вкладка ложится поверх
+          него в одной клетке сетки `.ag-stack` (09.10, Олег: «нажимаю A venit —
+          прыгает страница»; замер на 1903×1033: блок 639 → 177 px, колонка
+          под ним подскакивала, на короткой странице уезжала и прокрутка).
+          Высота блока на любой вкладке — высота списка «Toate». */}
+      <div className="ag-stack">
+        {flow && t !== 'all' && (
+          <FlowList kind={t} rows={flow[t]} labels={labels} busy={busy} onCard={onCard} onFlow={onFlow} />
+        )}
+        {/* `aria-hidden` — невидимый список и для читалки, и для запросов по роли */}
+        <div className={`ag-l${t !== 'all' ? ' off' : ''}`} aria-hidden={t !== 'all' || undefined}>
         {agenda.items.map((it) => {
           const wait = it.wait_since ? waitLabel(it.wait_since, waitTick) : null
           /* кнопка следующего шага — только СЕГОДНЯ: в чужом дне «пришёл»
@@ -182,9 +189,11 @@ function Agenda(
           const to = flow ? NEXT_OF[it.status] : undefined
           return (
             <div key={it.id}
-              className={`ag-i${it.state === 'past' ? ' past' : ''}`
+              className={`ag-i${it.state === 'past' ? ' past' : ''}${it.status === 'done' ? ' done' : ''}`
                 + (fresh.has(it.id) ? ' fresh' : '')}
-              data-appt={it.id} style={{ borderLeftColor: it.bar }}
+              data-appt={it.id}
+              /* завершённый — серая полоса, не цвет услуги (09.10, как у блока сетки) */
+              style={{ borderLeftColor: it.status === 'done' ? 'var(--text3)' : it.bar }}
               onClick={() => onCard(it.id)}
               onContextMenu={(e) => { e.preventDefault(); onCardMenu?.(it.id, e.clientX, e.clientY) }}>
               <div className="ag-r">
@@ -230,6 +239,7 @@ function Agenda(
             </div>
           )
         })}
+        </div>
       </div>
       <AppLink className="ag-all" href={`/admin/all?date=${date}`}>{T.all}</AppLink>
     </div>

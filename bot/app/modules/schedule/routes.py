@@ -498,8 +498,10 @@ def _mini_cal(sel: date, base: str = "/admin") -> str:
 # 03.10: «programată» — контуром (ещё не подтверждена), зелёный — только
 # «confirmată» после звонка, «nu răspunde» — янтарный. Ключи — из
 # layout.status_view, а не коды базы: звонок статуса не меняет.
+# «finalizată» — зелёная (09.10, разбор: серая на серой карточке не читалась),
+# тот же цвет, что у слова статуса на блоке сетки (.stat.s-done в panel.css).
 _AG_CLS = {"confirmed": "pln", "called": "act", "noanswer": "att",
-           "waiting": "wai", "arrived": "trt", "done": "off", "noshow": "bad"}
+           "waiting": "wai", "arrived": "trt", "done": "act", "noshow": "bad"}
 
 
 def _agenda_block(d: date, rows: list, cards: dict, now: datetime) -> str:

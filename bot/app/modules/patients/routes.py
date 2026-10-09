@@ -146,7 +146,7 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
         # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
         # подпись печатает сам экран (08.10): крошки «Pacienți › Nume»
         return react_shell("patient_card", f"/admin/patient/{pid}",
-                           shell_model("pat", "", msg=msg),
+                           shell_model("pat", "", msg=msg, title=p["name"]),
                            params)
     e = html.escape
     # журнал доступа (закон 195): КТО открывал карту — такое же требование,
@@ -1256,7 +1256,7 @@ async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
         # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
         return react_shell("odontogram", f"/admin/patient/{pid}/odontograma",
                            shell_model("pat", f"odontogramă · #{pid}",
-                                       rail=True, msg=msg),
+                                       rail=True, msg=msg, title=p["name"]),
                            params)
     tmap = await db.teeth_map(pid)
     tooth_acts = await db.tooth_activity(pid)
@@ -1457,7 +1457,7 @@ async def patient_perio(request: Request, pid: int, exam: str = Query(""),
         # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
         return react_shell("perio", f"/admin/patient/{pid}/parodontograma",
                            shell_model("pat", f"parodontogramă · #{pid}",
-                                       rail=True, msg=msg),
+                                       rail=True, msg=msg, title=p["name"]),
                            params)
     base = f"/admin/patient/{pid}"
     exams, cur = await _perio_ctx(pid, exam)
@@ -2149,7 +2149,8 @@ async def visit_page(request: Request, appt_id: int, back: str = "",
         # адресом возврата; данные — у GET /api/visits/{aid}
         # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
         return react_shell("visit", f"/admin/visit/{appt_id}",
-                           shell_model("pat", f"consultație · vizita #{appt_id}", msg=msg),
+                           shell_model("pat", f"consultație · vizita #{appt_id}", msg=msg,
+                                       title=a.get("name") or ""),
                            {"aid": str(appt_id), "back": back})
     return HTMLResponse(pvisit.page(a, rec, items, back, msg))
 
