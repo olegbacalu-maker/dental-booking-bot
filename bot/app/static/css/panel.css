@@ -2205,7 +2205,7 @@
    overflow:hidden;text-overflow:ellipsis}
  .ag-chips{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center}
  .ag-acts{display:flex;gap:8px;flex-wrap:wrap}
- .ag-acts .savebtn,.ag-acts .ag-odo{flex:1 1 0;margin:0;min-width:0}
+ .ag-acts .savebtn,.ag-acts .ag-odo,.ag-acts .ag-anam{flex:1 1 0;margin:0;min-width:0}
  /* значок «есть комментарий» у имени (03.10, просьба Олега): по строке видно,
     что в карточке что-то написано; сам текст — в подсказке */
  .ag-b b svg,.gappt b svg{width:13px;height:13px;vertical-align:-2px;color:var(--text3)}
@@ -2216,13 +2216,15 @@
     визитов — это цена, а не побочный эффект. */
  /* кнопка-контур (макет 08.10): 44px, кромка, белый фон; та же у
     «Programează» первого свободного часа (.dp-free-btn в app.css) */
- .ag-odo{display:inline-flex;align-items:center;justify-content:center;gap:8px;
-   height:var(--h-ctl);padding:0 16px;border-radius:var(--r-ctl);font-size:var(--fs-body);font-weight:600;
+ /* с 09.10 в строке ТРИ кнопки (шаг потока, Consultație, Anamneză): поля и
+    кегль у ссылок меньше, чтобы ряд оставался одной строкой при ширине колонки */
+ .ag-odo,.ag-anam{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+   height:var(--h-ctl);padding:0 10px;border-radius:var(--r-ctl);font-size:var(--fs-m);font-weight:600;
    background:var(--panel);color:var(--text);border:1px solid var(--line);text-decoration:none;
    white-space:nowrap;transition:background-color var(--dur) ease}
- .ag-odo:hover{background:var(--bg)}
- .ag-odo:focus-visible{outline:none;box-shadow:var(--ring)}
- .ag-odo svg{width:16px;height:16px}
+ .ag-odo:hover,.ag-anam:hover{background:var(--bg)}
+ .ag-odo:focus-visible,.ag-anam:focus-visible{outline:none;box-shadow:var(--ring)}
+ .ag-odo svg,.ag-anam svg{width:16px;height:16px}
  .ag-i .pl-badge{font-size:var(--fs-s);padding:0 8px;line-height:20px;border-radius:var(--r-xs);flex:0 0 auto}
  /* чип срочности (макет): красный фон, белый текст и значок — не только цвет */
  .chip{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border-radius:var(--r-xs);

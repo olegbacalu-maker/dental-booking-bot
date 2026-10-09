@@ -2051,6 +2051,9 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-alist .alert form { margin: 0; }
 .dp-react-root .dp-alist .alert .dp-ibtn { border: 0; background: none; color: inherit; }
 .dp-react-root .dp-alist .alert .dp-ibtn:hover { background: rgba(255, 255, 255, .5); }
+/* риски анамнеза в сводном блоке (09.10): серые, пунктиром — «не отсюда правится» */
+.dp-react-root .dp-anam-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text3); }
+.dp-react-root .dp-alist .alert.anam { background: var(--bg); color: var(--text2); border: 1px dashed var(--line); }
 .dp-react-root .dp-aform { display: flex; flex-direction: column; gap: 8px; }
 .dp-react-root .dp-aform-r { display: flex; gap: 8px; flex-wrap: wrap; }
 .dp-react-root .dp-aform-r .dp-sel { flex: 0 0 auto; }

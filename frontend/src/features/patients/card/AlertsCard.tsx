@@ -7,10 +7,19 @@ import { patientCard, type Alert, type PatientCard } from './card'
 /* «Atenționări medicale» по макету (08.10): пустое состояние пунктиром, список
    плашек с кнопкой удаления 44px, выбор типа + поле + «Adaugă atenționare»
    (заперта, пока поле пустое). Типы — с сервера (`alert_kinds`); цвет плашки —
-   по типу (аллергия — красный, лекарство — янтарный), не одним цветом. */
+   по типу (аллергия — красный, лекарство — янтарный), не одним цветом.
+   ⭐ С 09.10 блок СВОДНЫЙ (разбор: полоса в шапке показывала болезни из
+   анамнеза, а блок писал «Nicio atenționare» — два противоречащих сообщения):
+   после ручных пометок — риски анамнеза (галочки и свободный текст, те же, что
+   в полосе шапки), серыми, без удаления — правятся в самом опроснике, куда
+   ведёт «Anamneză ›». На вкладке «Date pacient» блок стоит под опросником и
+   риски анамнеза не повторяет (`withAnamneza={false}`) — они рядом. */
 const T = {
   title: 'Atenționări medicale',
   empty: 'Nicio atenționare înregistrată.',
+  fromAnam: 'Din anamneză',
+  editAnam: 'Modifică în Anamneză ›',
+  anamHint: 'Din chestionarul de anamneză — se modifică acolo',
   kind: 'Tip atenționare',
   ph: 'ex. Alergie: Penicilină',
   add: 'Adaugă atenționare',
@@ -21,9 +30,13 @@ const T = {
 interface Props {
   card: PatientCard
   a: CardActions
+  /** Открыть опросник анамнеза (вкладка «Date pacient»); без него ссылки нет. */
+  onAnamneza?: (() => void) | undefined
+  /** Показывать ли риски анамнеза под пометками (на вкладке с опросником — нет). */
+  withAnamneza?: boolean
 }
 
-export function AlertsCard({ card, a }: Props) {
+export function AlertsCard({ card, a, onAnamneza, withAnamneza = true }: Props) {
   const kinds = card.options.alert_kinds
   const [kind, setKind] = useState(kinds[0]?.id ?? 'allergy')
   const [text, setText] = useState('')
@@ -44,9 +57,15 @@ export function AlertsCard({ card, a }: Props) {
     await a.act(() => patientCard.delAlert(a.pid, a.views, al.id))
   }
 
+  const an = card.anamneza
+  const anRows = withAnamneza
+    ? [...an.marked.map((m) => ({ k: `m:${m}`, head: '', text: m })),
+       ...an.free.map((f) => ({ k: `f:${f.short}`, head: f.short, text: f.text }))]
+    : []
   return (
     <div className="fcard dp-alerts">
       <h3>{T.title}</h3>
+      {card.alerts.length === 0 && anRows.length === 0 && <p className="dp-aempty">{T.empty}</p>}
       {card.alerts.length ? (
         <div className="dp-alist">
           {card.alerts.map((al) => (
@@ -59,7 +78,21 @@ export function AlertsCard({ card, a }: Props) {
             </div>
           ))}
         </div>
-      ) : <p className="dp-aempty">{T.empty}</p>}
+      ) : null}
+      {anRows.length > 0 && (
+        <div className="dp-alist dp-anam">
+          <div className="dp-anam-h">
+            <span>{T.fromAnam}</span>
+            {onAnamneza && <button type="button" className="hero-risk-go" onClick={onAnamneza}>{T.editAnam}</button>}
+          </div>
+          {anRows.map((r) => (
+            <div key={r.k} className="alert anam" title={T.anamHint}>
+              <Icon name="note" />
+              <span>{r.head ? <><b>{r.head}:</b> {r.text}</> : r.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <form className="dp-aform" onSubmit={onSubmit}>
         <div className="dp-aform-r">
           {/* ⚠️ aria-label списка — имя карточки: так его находят проверки и читалка */}

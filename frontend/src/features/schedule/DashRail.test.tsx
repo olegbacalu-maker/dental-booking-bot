@@ -230,6 +230,10 @@ describe('C26.5.2: повестка дня', () => {
       '/admin/visit/1?back=%2Fadmin%3Fdate%3D2026-09-19', '/admin/visit/2?back=%2Fadmin%3Fdate%3D2026-09-19', null,
     ])
     expect(rows[0]?.querySelector('.ag-odo')?.textContent).toBe('Consultație')
+    /* «Anamneză» — фиша на «Date pacient» с раскрытым опросником; тоже только с пациентом */
+    expect(rows.map((r) => r.querySelector('.ag-anam')?.getAttribute('href') ?? null)).toEqual([
+      '/admin/patient/17?tab=date&anamneza=1', '/admin/patient/17?tab=date&anamneza=1', null,
+    ])
   })
 
   it('минуты ожидания считает браузер, и только там, где есть отметка', () => {

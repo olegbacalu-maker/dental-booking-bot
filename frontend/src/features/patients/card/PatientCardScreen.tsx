@@ -204,7 +204,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
      размонтируется при переходе, и набранное пропадало молча. Здесь он
      переживает вкладки; уход с ФИШИ с несохранённым — через вопрос. */
   const [anDraft, setAnDraft] = useState<AnDraft | null>(null)
-  const [anTick, setAnTick] = useState(0)
+  /* `?anamneza=1` (кнопка «Anamneză» в повестке панели, 09.10): фиша
+     открывается сразу с раскрытым опросником — та же просьба, что из шапки */
+  const [anTick, setAnTick] = useState(q.get('anamneza') ? 1 : 0)
   /* «Încarcă exemplarul semnat» из плана: вкладка Documente с нужной категорией */
   const [docsPick, setDocsPick] = useState<DocsPick | null>(null)
   const dirty = state.status === 'ready' && anDirty(anDraft, state.data.anamneza)
@@ -411,7 +413,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
               <ActivityCard activity={card.activity} onViews={(on) => { void onViews(on) }} />
             </div>
             <div className="pv2-side">
-              <AlertsCard card={card} a={a} />
+              <AlertsCard card={card} a={a} onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }} />
               <VisitsCard card={card} hrefOf={visitHref} />
             </div>
           </div>
@@ -448,6 +450,9 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
             </div>
             <div className="pv2-side">
               <AnamnezaCard card={card} a={a} draft={anDraft} onDraft={setAnDraft} focusTick={anTick} />
+              {/* пометки — тут же, под опросником (09.10, Олег: «в той же вкладке Anamneza»):
+                  врач заполняет анамнез и ставит пометки в одном месте */}
+              <AlertsCard card={card} a={a} withAnamneza={false} />
             </div>
           </div>
         )}

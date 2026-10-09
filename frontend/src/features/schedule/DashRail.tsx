@@ -28,6 +28,7 @@ const T = {
   empty: '— nicio programare —',
   all: 'Vezi toate programările ›',
   cons: 'Consultație',
+  anam: 'Anamneză',
   comment: 'Comentariu',
   prev: '‹',
   next: '›',
@@ -235,6 +236,14 @@ function Agenda(
                     <AppLink className="ag-odo" href={`/admin/visit/${it.id}?back=${encodeURIComponent(`/admin?date=${date}`)}`}
                       onClick={(e) => e.stopPropagation()}>
                       <Icon name="med" />{T.cons}
+                    </AppLink>
+                  )}
+                  {/* «Anamneză» (09.10, слово Олега: «кнопку на главной возле
+                      Consultație»): фиша на «Date pacient» с раскрытым опросником */}
+                  {it.patient_id !== null && (
+                    <AppLink className="ag-anam" href={`/admin/patient/${it.patient_id}?tab=date&anamneza=1`}
+                      onClick={(e) => e.stopPropagation()}>
+                      <Icon name="note" />{T.anam}
                     </AppLink>
                   )}
                 </div>

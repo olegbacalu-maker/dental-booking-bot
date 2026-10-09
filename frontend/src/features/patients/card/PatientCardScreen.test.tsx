@@ -982,6 +982,46 @@ describe('PatientCardScreen', () => {
     await strip().findByRole('tab', { name: 'Date pacient', selected: true })
   })
 
+  it('09.10: блок «Atenționări» на Rezumat сводный — пометки + риски анамнеза серыми; «Modifică în Anamneză ›» ведёт в опросник; на Date pacient блок с формой под опросником', async () => {
+    serve()
+    open()
+    await settled()
+    const block = document.querySelector('.dp-alerts') as HTMLElement
+    expect(block.querySelectorAll('.alert:not(.anam)').length).toBe(1)
+    expect(Array.from(block.querySelectorAll('.alert.anam')).map((e) => e.textContent))
+      .toEqual(['Boli cardiovasculare / hipertensiune', 'Diabet zaharat', 'Alergii: latex'])
+    expect(block.querySelector('.dp-aempty')).toBeNull()
+    fireEvent.click(block.querySelector('button.hero-risk-go') as HTMLButtonElement)
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+    expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(true)
+    /* под опросником — тот же блок с формой, без повтора рисков анамнеза */
+    const side = document.querySelector('.dp-alerts') as HTMLElement
+    expect(side.querySelector('.alert.anam')).toBeNull()
+    expect(side.querySelector('.alert:not(.anam)')).toBeTruthy()
+    expect(screen.getByLabelText('Atenționări medicale')).toBeTruthy()
+  })
+
+  it('09.10: без пометок и без рисков анамнеза — пустое состояние; риски без пометок — не пустое', async () => {
+    serve({ ...CARD, alerts: [], anamneza: { ...CARD.anamneza, state: 'ok', n_risk: 0, marked: [], free: [] } })
+    open()
+    await settled()
+    expect(document.querySelector('.dp-alerts .dp-aempty')).toBeTruthy()
+    cleanup()
+    serve({ ...CARD, alerts: [] })
+    open()
+    await settled()
+    expect(document.querySelector('.dp-alerts .dp-aempty')).toBeNull()
+    expect(document.querySelectorAll('.dp-alerts .alert.anam').length).toBe(3)
+  })
+
+  it('09.10: ?tab=date&anamneza=1 (кнопка «Anamneză» в повестке) открывает фишу сразу с раскрытым опросником', async () => {
+    serve()
+    open('/admin/patient/5?tab=date&anamneza=1')
+    await settled()
+    expect(tabOn()).toBe('Date pacient')
+    expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(true)
+  })
+
   it('«Anamneză» в шапке открывает Date pacient; печатные листы несут «назад» на текущую вкладку', async () => {
     serve()
     open()
