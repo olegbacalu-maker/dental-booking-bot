@@ -29,6 +29,15 @@ as the brace a dentist would put on paper:
 
 ![Patient card](screenshots/patient-card.png)
 
+**The same odontogram in 3D** — both arches in three.js on the same server data, with
+side and occlusal views, layers (roots, numbers, either arch, occlusion) and a camera
+that flies to the selected tooth. Here the right side: 16 is selected, its mesial and
+occlusal fillings show on the crown and in the inspector, 45 carries caries and 47 has
+been extracted. It is a render of the model, never a source of clinical truth, and it
+prints nothing:
+
+![3D odontogram](screenshots/odontogram-3d.png)
+
 **Form 043/e, printed from the card** — letterhead, general data, a numeric odontogram
 with its legend, the plan and the visit journal come from the database; the yellow gaps
 and the blank rows at the bottom stay for the pen. The bridge prints twice: as codes in
