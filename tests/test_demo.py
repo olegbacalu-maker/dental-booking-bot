@@ -16,8 +16,9 @@ import shutil
 import sys
 import time
 import tempfile
+from datetime import timedelta
 
-from harness import ROOT, Client, Result, Server
+from harness import ROOT, Client, Result, Server, clinic_now
 
 DEMO = {"DENTART_DEMO": "1"}
 CLOSED_PAGES = ("/admin/settings/system", "/admin/settings/crypt",
@@ -162,7 +163,13 @@ def suite_seed(res: Result) -> None:
         shutil.copy(ROOT / "demo" / "clinic.json", work / "clinic.json")
         with Server(env=DEMO, dir_=work):
             pass                                   # схема и миграции — от программы
-        counts = dseed.seed(work / "dental.db", work / "clinic.json")
+        # ⚠️ «Сегодня» — ближайший РАБОЧИЙ день по часам клиники: демо-клиника по
+        # воскресеньям закрыта (`sun: null`), и засев от настоящего воскресенья
+        # оставлял «сегодня» пустым — красный прогон без единой правки (11.10)
+        at = clinic_now().replace(hour=12, minute=40, second=0, microsecond=0)
+        while at.weekday() >= 5:
+            at += timedelta(days=1)
+        counts = dseed.seed(work / "dental.db", work / "clinic.json", now=at)
         res.ok("засев: пациенты, визиты, план, оплаты",
                counts["patients"] > 200 and counts["appointments"] > 400
                and counts["plan_items"] > 100 and counts["payments"] > 100, str(counts))

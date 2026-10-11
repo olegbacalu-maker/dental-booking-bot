@@ -307,6 +307,107 @@ def scenario_shared(res: list) -> None:
         lab.drop()
 
 
+def _watch_window(before: set, timeout: float = 40.0) -> int:
+    """Окно сторожа — верхнее видимое с заголовком «DentPilot» (без порта), новое."""
+    def find():
+        out = []
+        proto = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+        def cb(hwnd, _):
+            if not U32.IsWindowVisible(hwnd) or hwnd in before:
+                return True
+            n = U32.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            U32.GetWindowTextW(hwnd, buf, n + 1)
+            if buf.value == "DentPilot":
+                out.append(hwnd)
+            return True
+        U32.EnumWindows(proto(cb), 0)
+        return out[0] if out else 0
+    return wait(find, timeout) or 0
+
+
+def scenario_watch(res: list) -> None:
+    """Сторож перезапуска `--watch` (11.10): вместо чёрного cmd — заставка.
+    Настоящий `desktop.py --watch …`: окно, текст этапа, снимок; итог «ok» →
+    программа запущена (здесь — скрипт-метка), окно закрыто, выход 0;
+    «cancelled» → тихий выход без запуска."""
+    lab = Lab("standalone")
+    shots = ROOT.parent / "design" / "redesign-2026-10" / "shots"
+    shots.mkdir(parents=True, exist_ok=True)
+    try:
+        tmp = lab.tmp
+        marker = tmp / "launched.txt"
+        launch = [str(PY), "-c", f"open({str(marker)!r}, 'w').write('ok')"]
+
+        def start(case: str):
+            result = tmp / f"{case}.result"
+            proof = tmp / f"{case}.run"
+            argv = [str(PY), str(BOT / "desktop.py"), "--watch", str(proof), f"DentPilotWatchProbe{case}",
+                    str(result), "0", "1.40.2 › 1.40.3", "#0E9F8A", str(tmp / "watch-profile"), *launch]
+            before = set()
+            proto = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+            U32.EnumWindows(proto(lambda h, _: (before.add(h), True)[1]), 0)
+            proc = subprocess.Popen(argv, cwd=str(BOT), env=lab.env(),
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return proc, result, proof, before
+
+        # --- «ok»: заставка, снимок, запуск, закрытие ---
+        proc, result, proof, before = start("ok")
+        hwnd = _watch_window(before)
+        res.append(("W окно сторожа открылось (без консоли)", bool(hwnd), ""))
+        res.append(("W метка «пошёл» написана первой", bool(wait(lambda: proof.exists(), 10.0)), str(proof)))
+
+        def target():
+            raw = http_ok(f"http://127.0.0.1:{CDP_PORT}/json/list", 1.0)
+            if not raw:
+                return None
+            pages = [t for t in json.loads(raw) if t.get("type") == "page"]
+            return pages[0]["webSocketDebuggerUrl"] if pages else None
+        ws = wait(target, 30.0)
+        text = ""
+        if ws:
+            cdp = CDP(ws)
+            for dom in ("Page", "Runtime"):
+                cdp.cmd(f"{dom}.enable")
+            page = Page(cdp, "")
+            text = wait(lambda: pick(page.js("document.getElementById('s')?.textContent || ''"),
+                                     lambda t: "actualizarea" in t), 15.0) or page.js("document.getElementById('s')?.textContent || ''")
+            time.sleep(1.2)
+            try:
+                page.png(str(shots / "watch-splash.png"))
+            except Exception:  # noqa: BLE001 — снимок украшает, стенд важнее
+                pass
+        res.append(("W на заставке — этап установки", "Se instalează actualizarea" in (text or ""), repr(text)))
+        res.append(("W программа ещё не запускалась", not marker.exists(), ""))
+        result.write_text("ok", encoding="utf-8")
+        res.append(("W итог «ok» → программа запущена", bool(wait(lambda: marker.exists(), 20.0)), ""))
+        try:
+            code = proc.wait(30)
+        except subprocess.TimeoutExpired:
+            code = None
+        res.append(("W сторож вышел сам, код 0", code == 0, f"код {code}"))
+        res.append(("W окно сторожа закрыто", not U32.IsWindow(hwnd) or not U32.IsWindowVisible(hwnd), ""))
+        if proc.poll() is None:
+            proc.kill()
+
+        # --- «cancelled»: тихий выход без запуска ---
+        marker.unlink(missing_ok=True)
+        proc, result, proof, before = start("cancelled")
+        hwnd = _watch_window(before)
+        res.append(("C окно сторожа открылось", bool(hwnd), ""))
+        result.write_text("cancelled" + chr(13) + chr(10), encoding="utf-8")
+        try:
+            code = proc.wait(30)
+        except subprocess.TimeoutExpired:
+            code = None
+        res.append(("C «cancelled» → вышел без запуска программы", code == 0 and not marker.exists(), f"код {code}"))
+        if proc.poll() is None:
+            proc.kill()
+    finally:
+        lab.drop()
+
+
 def main(argv: list[str]) -> int:
     only = argv[0] if argv else ""
     if not PY.exists():
@@ -318,6 +419,8 @@ def main(argv: list[str]) -> int:
             scenario_standalone(res)
         if only in ("", "shared_pc"):
             scenario_shared(res)
+        if only in ("", "watch"):
+            scenario_watch(res)
     except Exception as e:  # noqa: BLE001
         res.append((f"стенд оборван: {e.__class__.__name__}", False, str(e)[:200]))
     bad = [r for r in res if not r[1]]

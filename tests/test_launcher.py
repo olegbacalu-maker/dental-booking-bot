@@ -449,8 +449,15 @@ def suite_window(res: Result) -> None:
     res.ok("второй запуск: мьютекс + фокус первого окна",
            "CreateMutexW(None, False" in desk and "SetForegroundWindow(hwnd)" in desk,
            "второй экземпляр снова откроет окно или сервер")
-    # ⛔ Второго окна больше нет: единственный create_window — заставка
-    res.check("create_window ровно один — окно с заставкой", desk.count("webview.create_window("), 1)
+    # ⛔ Второго окна у ПРОГРАММЫ нет: один create_window — заставка в main();
+    # второй — окно сторожа перезапуска (`_watch_mode`, 11.10): другой процесс,
+    # живёт только пока ставится обновление
+    res.check("create_window ровно два — заставка программы и заставка сторожа",
+              desk.count("webview.create_window("), 2)
+    res.ok("окно сторожа — внутри _watch_mode, не в main()",
+           desk.index("def _watch_mode(") < desk.index("webview.create_window(")
+           < desk.index("def main(") < desk.rindex("webview.create_window("),
+           "второе окно уехало в main() — второй экземпляр снова откроет окно")
     res.ok("окно первого экземпляра ищется ровно по заголовку (с портом)",
            "buf.value == TITLE" in desk and 'f" · :{PORT}" if PORT != 8088' in desk,
            "по префиксу «DentPilot» второй запуск фокусировал бы чужое окно "

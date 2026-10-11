@@ -23,6 +23,7 @@ import logging
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -112,6 +113,96 @@ from app import privileged  # noqa: E402 — предзагрузочный сл
 # молча. ⛔ Окружение сюда не доезжает: повышенный процесс запускает Windows,
 # а не мы, и `$DENTART_DATA_DIR`, выставленный лаунчером, в нём не виден.
 if (_code := privileged.handle_argv(sys.argv[1:], data_root)) is not None:
+    raise SystemExit(_code)
+
+# ⭐ Сторож перезапуска (11.10): планировщик зовёт этот же exe (копию — см.
+# `app/restartwatch.py`) с `--watch …`, и вместо чёрного окна cmd на экране
+# заставка «Se instalează actualizarea…». Так же рано, как привилегированный
+# запуск: ни корня, ни лога, ни сервера — одно дело и выход.
+from app import brand, restartwatch, splash  # noqa: E402 — предзагрузочный слой
+
+
+def _watch_mode(argv: list[str]) -> int | None:
+    """`None` — обычный запуск; число — код возврата сторожа."""
+    try:
+        plan = restartwatch.parse(argv)
+    except ValueError as e:
+        print(f"supraveghetorul nu a pornit: {e}", file=sys.stderr)
+        return 2
+    if plan is None:
+        return None
+    try:
+        plan.proof.write_text(".", encoding="ascii")   # «пошёл» — это ждёт update._schtasks_run
+    except OSError:
+        pass
+    no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    verdict: dict = {"v": "", "text": None}
+
+    def work(stage) -> None:
+        stage("Se instalează actualizarea…" if plan.result else "Se repornește DentPilot…", 12, 70)
+        verdict["v"] = restartwatch.wait_for(plan, stage)
+        verdict["text"] = restartwatch.read_result(plan.result)
+        if verdict["v"] == "start":
+            stage(restartwatch.outcome_text(verdict["text"]), 96)
+
+    def launch() -> None:
+        if verdict["v"] != "start" or not plan.launch:
+            return
+        try:
+            flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
+                     | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+            subprocess.Popen(plan.launch, cwd=str(pathlib.Path(plan.launch[0]).parent),
+                             creationflags=flags, close_fds=True)
+        except OSError as e:
+            print(f"programul nu a pornit: {e}", file=sys.stderr)
+
+    def finish() -> None:
+        # задачу планировщика снимаем за собой — так делал и bat
+        try:
+            subprocess.run(["schtasks", "/delete", "/tn", plan.task, "/f"],
+                           creationflags=no_win, capture_output=True, check=False)
+        except OSError:
+            pass
+
+    try:
+        import webview
+        plan.profile.mkdir(parents=True, exist_ok=True)
+        window = webview.create_window(
+            "DentPilot", html=splash.page(plan.label, plan.primary),
+            width=1280, height=860, min_size=(960, 640),
+            background_color=brand.tint(plan.primary, .06))
+    except Exception as e:  # noqa: BLE001 — без окна сторож всё равно обязан перезапустить
+        print(f"fara fereastra ({e!r}) - supraveghere fara ecran", file=sys.stderr)
+        work(lambda *a: None)
+        launch()
+        finish()
+        return 0
+
+    def in_window(win) -> None:
+        def stage(text: str, pct: int, upto: int = 0) -> None:
+            try:
+                win.evaluate_js(f"dpStage({json.dumps(text)},{pct},{upto})")
+            except Exception:  # noqa: BLE001 — заставка украшает, перезапуск важнее
+                pass
+        work(stage)
+        launch()
+        if verdict["v"] == "start":
+            time.sleep(1.5)             # новое окно успело появиться — без пустого экрана
+        try:
+            win.evaluate_js("dpDone()")
+            time.sleep(0.4)
+        except Exception:  # noqa: BLE001
+            pass
+        win.destroy()
+
+    # ⛔ Свой профиль WebView2 (`plan.profile`): профиль программы занят ею самой
+    # (она ещё закрывается), и второе окно на нём не открылось бы.
+    webview.start(in_window, window, private_mode=False, storage_path=str(plan.profile))
+    finish()
+    return 0
+
+
+if (_code := _watch_mode(sys.argv[1:])) is not None:
     raise SystemExit(_code)
 
 ROOT = data_root()

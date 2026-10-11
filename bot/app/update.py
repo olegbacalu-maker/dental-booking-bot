@@ -30,6 +30,8 @@ from . import engine as eng
 from . import paths
 from . import privileged
 from . import repo
+from . import restartwatch
+from . import brand
 from . import update_server as us
 
 log = logging.getLogger("update")
@@ -595,7 +597,7 @@ _TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
   </Settings>
-  <Actions Context="Author"><Exec><Command>{cmd}</Command></Exec></Actions>
+  <Actions Context="Author"><Exec><Command>{cmd}</Command>{args}</Exec></Actions>
 </Task>"""
 
 # Сколько ждать доказательства, что скрипт ПОШЁЛ. Планировщик отвечает раньше,
@@ -607,6 +609,11 @@ _SPAWN_PROOF_WAIT = 10.0
 def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
     """Запускает bat сервисом планировщика — вне нашего Job-объекта.
     None = скрипт ТОЧНО пошёл, str = не вышло.
+
+    ⚠️ С 11.10 так идёт только подмена exe в ПЕРЕНОСИМОЙ раскладке
+    (`dentpilot_update.bat`, папка программы пишется). Сторожа перезапуска
+    запускает `_spawn_watch` — сам exe в режиме `--watch`, с заставкой вместо
+    чёрного окна cmd. Доводы ниже общие для обоих.
 
     ⛔ Код возврата обязателен. Вызывающие сразу после этого гасят процесс
     (`_exit_soon`), и проглоченный отказ schtasks (политика домена, урезанные
@@ -654,13 +661,31 @@ def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
     except OSError as e:
         return f"nu s-a putut pregăti scriptul ({e})"
 
-    xml = bat.with_name(bat.stem + ".xml")
-    cmd = str(bat).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return _schtasks_run(task_name, str(bat), [], proof, _SPAWN_PROOF_WAIT)
+
+
+def _xml_text(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _schtasks_run(task_name: str, command: str, arguments: list[str], proof: pathlib.Path,
+                  wait_s: float) -> str | None:
+    """Задача планировщика «прямо сейчас»: описание XML (батарея — см. `_TASK_XML`),
+    запасной `/create /tr`, `/run` и ожидание метки `proof`, которую первым делом
+    пишет САМ запущенный (bat — строкой, сторож — `restartwatch`). None = пошёл,
+    str = не вышло (задача снята, процесс гасить нельзя).
+    ⚠️ `/tr` запасного пути вмещает 261 знак: команда сторожа с восемью путями в
+    него не влезает — на старой Windows без описаний XML сторож не заведётся, и
+    отказ дойдёт до экрана словами, а программа останется открытой."""
+    no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    xml = proof.with_suffix(".xml")
+    quoted = " ".join(f'"{a}"' for a in arguments)
+    args_xml = f"<Arguments>{_xml_text(quoted)}</Arguments>" if arguments else ""
     created = False
     try:
         # ⚠️ UTF-16 с BOM — требование schtasks к файлу описания. Это НЕ тот
         # случай, когда BOM вредит: он тут обязателен, а файл временный.
-        xml.write_text(_TASK_XML.format(cmd=cmd), encoding="utf-16")
+        xml.write_text(_TASK_XML.format(cmd=_xml_text(command), args=args_xml), encoding="utf-16")
         p = subprocess.run(["schtasks", "/create", "/tn", task_name,
                             "/xml", str(xml), "/f"],
                            creationflags=no_win, capture_output=True, check=False)
@@ -673,13 +698,13 @@ def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
         log.warning("описание задачи не записалось: %r", e)
     finally:
         xml.unlink(missing_ok=True)
-
     if not created:
         # Описание не приняли (старая Windows, политика) — заводим как раньше.
         # Хуже, но лучше отказа: на сетевом питании такая задача работает, а
         # на батарее сработает ожидание метки ниже и программа останется жива.
-        p = subprocess.run(["schtasks", "/create", "/tn", task_name, "/tr",
-                            f'"{bat}"', "/sc", "once", "/st", "23:59", "/f"],
+        tr = f'"{command}"' + (f" {quoted}" if quoted else "")
+        p = subprocess.run(["schtasks", "/create", "/tn", task_name, "/tr", tr,
+                            "/sc", "once", "/st", "23:59", "/f"],
                            creationflags=no_win, capture_output=True, check=False)
         if p.returncode != 0:
             why = (p.stderr or p.stdout or b"").decode("utf-8", "replace")
@@ -687,7 +712,6 @@ def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
                         why.strip()[:200])
             return (f"planificatorul Windows nu a putut porni programul "
                     f"(schtasks /create, cod {p.returncode})")
-
     p = subprocess.run(["schtasks", "/run", "/tn", task_name],
                        creationflags=no_win, capture_output=True, check=False)
     if p.returncode != 0:
@@ -695,16 +719,14 @@ def _spawn_via_scheduler(bat: pathlib.Path, task_name: str) -> str | None:
         log.warning("schtasks /run — код %s: %s", p.returncode, why.strip()[:200])
         return (f"planificatorul Windows nu a putut porni programul "
                 f"(schtasks /run, cod {p.returncode})")
-
-    end = time.time() + _SPAWN_PROOF_WAIT
+    end = time.time() + wait_s
     while time.time() < end:
         if proof.exists():
             return None
         time.sleep(0.25)
-    # Задача принята и «запущена», но скрипт не начался. Гасить процесс здесь
-    # нельзя ни в коем случае — вернуть его будет некому.
-    log.warning("задача %s принята, но скрипт не стартовал за %.0f с",
-                task_name, _SPAWN_PROOF_WAIT)
+    # Задача принята и «запущена», но запущенный не начался. Гасить процесс
+    # здесь нельзя ни в коем случае — вернуть его будет некому.
+    log.warning("задача %s принята, но не стартовала за %.0f с", task_name, wait_s)
     subprocess.run(["schtasks", "/delete", "/tn", task_name, "/f"],
                    creationflags=no_win, capture_output=True, check=False)
     return ("Windows a acceptat sarcina, dar nu a pornit-o "
@@ -725,22 +747,10 @@ def restart_app() -> str | None:
         return "restart доступен только в desktop-версии"
     if os.environ.get("DENTART_NO_RESTART") == "1":  # тест-хук
         return None
-    exe = pathlib.Path(sys.executable).resolve()
-    # ⛔ Скрипт — в папку КЛИНИКИ, а не рядом с exe: в `Program Files` запись
-    # запрещена, и перезапуск отказывал бы ровно там, где он нужен чаще всего
-    # (смена токена, применение настроек).
-    # ⚠️ Раз скрипт лежит не рядом с программой, пути в нём обязаны быть
-    # АБСОЛЮТНЫМИ: `%~dp0` указывает теперь на папку клиники.
-    bat = work_dir() / "dentpilot_restart.bat"
-    bat.write_text(
-        "@echo off\r\n"
-        "ping -n 3 127.0.0.1 >nul\r\n"
-        f'start "" /D "{exe.parent}" "{exe}"\r\n'
-        "schtasks /delete /tn DentPilotRestart /f >nul 2>&1\r\n"
-        'del "%~f0"\r\n',
-        encoding="ascii",
-    )
-    if err := _spawn_via_scheduler(bat, "DentPilotRestart"):
+    # ⭐ С 11.10 — сторож с заставкой (`_spawn_watch`), а не bat с чёрным окном
+    # cmd. Файла итога нет: сторож ждёт только выхода ЭТОГО процесса и запускает
+    # программу снова. Копия exe не нужна — файлы программы не меняются.
+    if err := _spawn_watch(None, "DentPilotRestart", eng.APP_VERSION, copy=False):
         # планировщик не отработал: гасить процесс нельзя — вернуть его будет
         # некому, а экран уже умеет сказать «закройте и откройте сами»
         return err
@@ -827,7 +837,8 @@ def _verify_download(path: pathlib.Path) -> str | None:
 # ---------- обновление установщиком (03.10) ----------
 
 _WATCH_TASK = "DentPilotUpdate"
-_WATCH_ROUNDS = 270          # × ~2 с = ~9 минут: задача планировщика живёт не больше 10
+_WATCH_EXE = "DentPilot-watch.exe"   # копия программы в папке клиники — сторож с заставкой
+_SPAWN_PROOF_WAIT_EXE = 30.0         # копия распаковывается (onefile) дольше, чем стартует cmd
 _ZIP_MAX = 300_000_000
 
 
@@ -846,56 +857,70 @@ def _verify_file(path: pathlib.Path, want_size: int, digest: str) -> str | None:
     return None
 
 
-def _watch_match(result: pathlib.Path) -> str:
-    """Строки сторожа, узнающие итог установщика: «ok»/«fail» — запустить
-    программу (`goto start`), «cancelled» — она жива сама (`goto done`).
+def _program_cmd() -> list[str]:
+    """Команда запуска программы: сам exe; из исходников — лаунчер интерпретатором
+    (стенд `launcher_accept`, прогон)."""
+    exe = str(pathlib.Path(sys.executable).resolve())
+    if paths.is_frozen():
+        return [exe]
+    return [exe, str(paths.resource().parent / "desktop.py")]
 
-    ⛔ Не `findstr /x`. Итог пишется одной строкой, и не всегда с переводом
-    строки, а findstr не узнаёт ПОСЛЕДНЮЮ строку файла без перевода ни с /x,
-    ни с /e. Поймано на канарейке 03.10: установка 1.37.1 прошла за 3 секунды,
-    а программа открылась бы только по потолку ожидания, через 9 минут; отмена
-    («cancelled» пишет `_give_up` без перевода) дала бы через те же 9 минут
-    ВТОРУЮ копию поверх живой. `set /p` читает первую строку с переводом и
-    без; переменная сбрасывается каждый круг — иначе пустой файл оставил бы
-    прежнее значение."""
-    return (
-        'set "r="\r\n'
-        f'if exist "{result}" set /p r=<"{result}" 2>nul\r\n'
-        'if "%r%"=="ok" goto start\r\n'
-        'if "%r%"=="fail" goto start\r\n'
-        'if "%r%"=="cancelled" goto done\r\n'
-    )
+
+def _watch_command(copy: bool) -> list[str] | str:
+    """Чем запускать сторожа. С установщиком — КОПИЯ exe в папке клиники:
+    установщик закрывает всё, что держит заменяемые файлы (`/CLOSEAPPLICATIONS`),
+    а запущенный exe держит собственный образ — сторож из `Program Files`
+    погиб бы вместе с программой (разбор в `restartwatch`). Без установки —
+    сам exe. Из исходников — интерпретатор + лаунчер. str = копия не записалась."""
+    cmd = _program_cmd()
+    if not copy or not paths.is_frozen():
+        return cmd
+    dst = work_dir() / _WATCH_EXE
+    try:
+        shutil.copy2(cmd[0], dst)
+    except OSError as e:
+        return f"copia programului pentru repornire nu s-a putut scrie ({e})"
+    return [str(dst)]
+
+
+def _primary() -> str:
+    """Цвет темы клиники для заставки сторожа; без него — фирменный."""
+    try:
+        from .core import theme
+        return theme.current()["primary"]
+    except Exception:  # noqa: BLE001 — цвет украшает, перезапуск важнее
+        return brand.hexc(brand.TEAL)
+
+
+def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool) -> str | None:
+    """Сторож перезапуска задачей планировщика ОТ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ (11.10):
+    сам exe в режиме `--watch` с заставкой (`desktop._watch_mode`) вместо bat
+    с чёрным окном cmd. `result` — файл итога установщика (None — простой
+    перезапуск), `label` — слово на заставке. None = пошёл, str = не вышло.
+    ⭐ Заводится ДО запроса прав — те же причины, что и у прежнего bat: тихий
+    установщик закроет программу сам, а запуск из-под установщика шёл бы от
+    повышенного токена, и `db.key` завернулся бы под чужой DPAPI."""
+    cmd = _watch_command(copy)
+    if isinstance(cmd, str):
+        return cmd
+    work = work_dir()
+    proof = work / f"{task}.run"
+    proof.unlink(missing_ok=True)
+    plan = restartwatch.Plan(proof=proof, task=task, result=result, pid=os.getpid(),
+                             label=label, primary=_primary(), profile=work / "watch-profile",
+                             launch=_program_cmd())
+    return _schtasks_run(task, cmd[0], [*cmd[1:], *restartwatch.argv_for(plan)], proof,
+                         _SPAWN_PROOF_WAIT_EXE if paths.is_frozen() else _SPAWN_PROOF_WAIT)
 
 
 def _arm_restart_watch(result: pathlib.Path) -> str | None:
-    """Задача планировщика ОТ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ, заведённая ДО запроса прав.
-
-    ⭐ Зачем заранее: тихий установщик закроет программу сам — вместе с этим
-    процессом, который иначе ждал бы итога и перезапускал. А запуск из-под
-    установщика пошёл бы от повышенного токена — при входе в UAC ДРУГОЙ
-    учёткой администратора `db.key` завернулся бы под чужой DPAPI.
-    Задача ждёт итога в файле и запускает `DentPilot.exe`, что бы там ни лежало:
-    «ok» — новая версия, «fail» — откатившаяся старая; «cancelled» — программа
-    сама отказалась от обновления и жива, запускать нечего. Не дождалась за
+    """Сторож перезапуска для обновления установщиком: ждёт итог в файле и
+    запускает `DentPilot.exe`, что бы там ни лежало: «ok» — новая версия, «fail»
+    — откатившаяся старая; «cancelled» — программа жива сама. Не дождался за
     ~9 минут — запускает всё равно: лучше программа, чем пустой экран."""
-    exe = pathlib.Path(sys.executable).resolve()
-    bat = work_dir() / "dentpilot_update_watch.bat"
-    bat.write_text(
-        "@echo off\r\n"
-        "set n=0\r\n"
-        ":wait\r\n"
-        "ping -n 3 127.0.0.1 >nul\r\n"
-        "set /a n+=1\r\n"
-        + _watch_match(result) +
-        f"if %n% lss {_WATCH_ROUNDS} goto wait\r\n"
-        ":start\r\n"
-        f'start "" /D "{exe.parent}" "{exe}"\r\n'
-        ":done\r\n"
-        f"schtasks /delete /tn {_WATCH_TASK} /f >nul 2>&1\r\n"
-        'del "%~f0"\r\n',
-        encoding="ascii",
-    )
-    return _spawn_via_scheduler(bat, _WATCH_TASK)
+    return _spawn_watch(result, _WATCH_TASK,
+                        # ⛔ «›», не «→»: стрелки нет в вшитом подмножестве Inter (CLAUDE.md)
+                        f"{eng.APP_VERSION} › {STATE['latest'].lstrip('vV')}", copy=True)
 
 
 def _give_up(result: pathlib.Path, new: pathlib.Path) -> None:

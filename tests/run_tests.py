@@ -364,6 +364,7 @@ SUITES = [
     ("Перезапуск: один заказ планировщику", test_restart.suite_once),
     ("Перезапуск: отказ планировщика на экране", test_restart.suite_failed),
     ("Перезапуск: издания без перезапуска", test_restart.suite_dev_banner),
+    ("Перезапуск: сторож --watch (аргументы, вердикт, ожидание)", test_restart.suite_watch),
     ("Список пациентов", test_admin.suite_patients_list),
     ("Долги в списке и касса дня", test_admin.suite_money),
     ("Настройки и горячая перезагрузка", test_admin.suite_settings),

@@ -266,6 +266,16 @@ async def startup() -> None:
                 log.warning("прошлая версия убрана: %s", old.name)
         except OSError as e:  # noqa: BLE001 — уборка не имеет права ронять старт
             log.warning("прошлая версия не убрана (%r)", e)
+        # копия exe, из которой шёл сторож перезапуска (11.10): убирается тем же
+        # доказательством работоспособности; ещё жив (окно гаснет через секунду
+        # после нашего старта) — не вышло, уберём при следующем старте
+        try:
+            watch = upd.work_dir() / upd._WATCH_EXE
+            if watch.exists():
+                watch.unlink()
+                log.warning("copia supraveghetorului убрана: %s", watch.name)
+        except OSError:
+            pass
     # Демо (core/demo.py) живёт в контейнере без GitHub и без реестра: ни
     # сверки версии, ни запроса релизов — обновление не его дело.
     if not demo.on():

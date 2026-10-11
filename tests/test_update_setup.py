@@ -37,7 +37,7 @@ upd.is_desktop = lambda: True
 upd.exe_dir_writable = lambda: False
 installed = {"found": True}
 upd.uninstall_entry = lambda: {"found": installed["found"], "version": "1.0.0", "stale": False, "hive": "HKLM"}
-upd._spawn_via_scheduler = lambda bat, name: (watch.append({"name": name, "bat": pathlib.Path(bat).read_text()}), None)[1]
+upd._spawn_watch = lambda result, task, label, copy: (watch.append({"name": task, "result": str(result), "label": label, "copy": copy}), None)[1]
 upd._exit_soon = lambda: exits.append(1)
 uac = {"answer": "started", "shown": True}
 def fake_request(name):
@@ -102,30 +102,15 @@ if signed is not None:
     uac.update(shown=True, answer="установщик не новее стоящей программы")
     attempt("refused", {want: good})
 
-# --- сторож узнаёт итог НАСТОЯЩИМ cmd: с переводом строки и без (канарейка 03.10:
-# установщик пишет «ok» без перевода, и findstr /x его не видел — 9 минут ожидания) ---
-if sys.platform == "win32":
-    import subprocess
-    probe = tmp / "probe.result"
-    bat = tmp / "probe.bat"
-    bat.write_text("@echo off\r\n" + upd._watch_match(probe)
-                   + "echo none\r\nexit /b\r\n:start\r\necho start\r\nexit /b\r\n"
-                   + ":done\r\necho done\r\nexit /b\r\n", encoding="ascii")
-    cases = {"ok": b"ok", "ok+crlf": b"ok\r\n", "fail": b"fail", "cancelled": b"cancelled",
-             "cancelled+crlf": b"cancelled\r\n", "okay": b"okay", "empty": b"", "missing": None,
-             # исполнитель не запустил установщик после «started»: причина второй строкой
-             "fail+reason": "fail\r\nустановщик не запустился: [WinError 5]".encode("utf-8"),
-             "started": b"started"}
-    match = {}
-    for case, body in cases.items():
-        probe.unlink(missing_ok=True)
-        if body is not None:
-            probe.write_bytes(body)
-        r = subprocess.run(["cmd", "/c", str(bat)], capture_output=True, text=True)
-        match[case] = r.stdout.strip()
-    out["match"] = match
-else:
-    out["match"] = None
+# --- сторож узнаёт итог (11.10 — `restartwatch.decide`, прежде bat с живым cmd):
+# с переводом строки и без (канарейка 03.10: установщик пишет «ok» без перевода) ---
+from app import restartwatch as rw
+cases = {"ok": "ok", "ok+crlf": "ok\r\n", "fail": "fail", "cancelled": "cancelled",
+         "cancelled+crlf": "cancelled\r\n", "okay": "okay", "empty": "", "missing": None,
+         # исполнитель не запустил установщик после «started»: причина второй строкой
+         "fail+reason": "fail\r\nустановщик не запустился: [WinError 5]",
+         "started": "started"}
+out["match"] = {case: rw.decide(text) for case, text in cases.items()}
 
 out["signed"] = signed is not None
 out["result_path"] = str(result)
@@ -171,15 +156,12 @@ def suite_flow(res: Result) -> None:
                r["err"] and want in r["err"] and r["asked"] == [] and r["watch"] == [] and r["exits"] == 0
                and not r["zip_left"] and not r["new"], repr(r))
 
-    # ⭐ Сторож перезапуска — живым cmd, а не по тексту скрипта: текст с
-    # findstr /x выглядел верным, а «ok» без перевода строки не узнавал (03.10).
-    if o["match"] is None:
-        res.ok("сторож перезапуска: не Windows — живой cmd пропущен", True, "")
-    else:
-        res.check("сторож узнаёт итог настоящим cmd — и без перевода строки (канарейка 03.10)",
-                  o["match"], {"ok": "start", "ok+crlf": "start", "fail": "start", "cancelled": "done",
-                               "cancelled+crlf": "done", "okay": "none", "empty": "none",
-                               "missing": "none", "fail+reason": "start", "started": "none"})
+    # ⭐ Сторож перезапуска (11.10 — `restartwatch.decide` вместо bat): «ok» без
+    # перевода строки — тоже «ok» (канарейка 03.10), чужое слово — ждать дальше.
+    res.check("сторож узнаёт итог — и без перевода строки (канарейка 03.10)",
+              o["match"], {"ok": "start", "ok+crlf": "start", "fail": "start", "cancelled": "done",
+                           "cancelled+crlf": "done", "okay": "wait", "empty": "wait",
+                           "missing": "wait", "fail+reason": "start", "started": "wait"})
 
     if not o["signed"]:
         res.ok("подписанного установщика на машине нет (dist\\, releases\\) — путь до «started» пропущен",
@@ -188,11 +170,10 @@ def suite_flow(res: Result) -> None:
     ok = o["ok"]
     res.ok("подписанный установщик: окно UAC на install-setup, программа гасит себя по «started»",
            ok["err"] is None and ok["asked"] == ["install-setup"] and ok["exits"] == 1, repr(ok))
-    res.ok("задача-сторож заведена ДО окна UAC и ждёт итога в файле",
+    res.ok("задача-сторож заведена ДО окна UAC и ждёт итога в файле — копией exe, с номером версии на заставке",
            len(ok["watch"]) == 1 and ok["watch"][0]["name"] == "DentPilotUpdate"
-           and o["result_path"] in ok["watch"][0]["bat"] and '"%r%"=="ok"' in ok["watch"][0]["bat"]
-           and '"%r%"=="cancelled"' in ok["watch"][0]["bat"]
-           and "findstr" not in ok["watch"][0]["bat"], repr(ok["watch"]))
+           and ok["watch"][0]["result"] == o["result_path"] and ok["watch"][0]["copy"] is True
+           and ok["watch"][0]["label"].endswith("› 99.0.0"), repr(ok["watch"]))
     res.ok("описание для перепроверки за UAC — размер и sha256 самого установщика, архив убран",
            ok["request"] == {"size": o["ok_size"], "sha256": o["ok_sha"], "version": "v99.0.0"}
            and ok["new"] and not ok["zip_left"], repr(ok["request"]))

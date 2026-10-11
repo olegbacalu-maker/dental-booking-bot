@@ -607,7 +607,9 @@ def suite_update_paths(res: Result) -> None:
     res.ok("исходник на месте", len(src) > 5000, "файл переехал")
     for need, why in (
             ('work_dir() / "dentpilot_update.bat"', "скрипт обновления"),
-            ('work_dir() / "dentpilot_restart.bat"', "скрипт перезапуска"),
+            # 11.10: перезапуск — сторожем-exe, его метка и копия тоже в папке клиники
+            ('work / f"{task}.run"', "метка сторожа перезапуска"),
+            ('work_dir() / _WATCH_EXE', "копия exe для сторожа"),
             ('work_dir() / (exe.stem + ".new.exe")', "скачанный файл")):
         res.ok(f"{why} — в папке клиники", need in src,
                f"{why} снова пишется рядом с exe")

@@ -49,7 +49,7 @@ sys.executable = str(exe)
 spawns, exits, fail = [], [], [None]
 upd.is_desktop = lambda: True                # настольное издание
 upd._exit_soon = lambda: exits.append(1)     # гасить свой же процесс не будем
-upd._spawn_via_scheduler = lambda bat, task: (spawns.append(task), fail[0])[1]
+upd._spawn_watch = lambda result, task, label, copy: (spawns.append(task), fail[0])[1]
 st.require = lambda *a, **kw: None           # права проверяет свой набор
 
 TOKEN = "%s"
@@ -178,3 +178,57 @@ def suite_dev_banner(res: Result) -> None:
         res.ok(f"{what}: с баннером {msg}", f"msg={msg}" in v[key + "_loc"],
                f"location {v[key + '_loc']!r}")
         res.check(f"{what}: и планировщик не трогается", v[key + "_spawns"], 0)
+
+
+def suite_watch(res: Result) -> None:
+    """Сторож перезапуска (11.10, `app/restartwatch.py`): аргументы туда и
+    обратно, вердикт по файлу итога, ожидание с поддельными часами."""
+    import pathlib
+    import tempfile
+    from app import restartwatch as rw
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        plan = rw.Plan(proof=tmp / "DentPilotUpdate.run", task="DentPilotUpdate",
+                       result=tmp / "install.result", pid=0, label="1.40.2 › 1.40.3",
+                       primary="#0E9F8A", profile=tmp / "watch-profile",
+                       launch=[str(tmp / "DentPilot.exe")])
+        back = rw.parse(rw.argv_for(plan))
+        res.check("аргументы --watch разбираются обратно в тот же план", back, plan)
+        res.check("обычный запуск — не сторож", rw.parse(["C:/x.pdf"]), None)
+        res.check("без итога (простой перезапуск) — `-`",
+                  rw.argv_for(rw.Plan(plan.proof, plan.task, None, 7, "x", "#000000", plan.profile, ["a"]))[3],
+                  rw.NO_RESULT)
+        try:
+            rw.parse([rw.FLAG, "only"])
+            res.ok("усечённые аргументы — отказ", False, "принято")
+        except ValueError:
+            res.ok("усечённые аргументы — отказ", True, "")
+
+        # ожидание: часы и сон поддельные — итог приходит на третьем шаге
+        ticks = {"t": 0.0}
+        stages: list = []
+
+        def clock():
+            return ticks["t"]
+
+        def sleep(_s):
+            ticks["t"] += 0.5
+            if ticks["t"] >= 1.5 and not plan.result.exists():
+                plan.result.write_text("ok", encoding="utf-8")
+
+        v = rw.wait_for(plan, stage=lambda *a: stages.append(a), clock=clock, sleep=sleep)
+        res.check("итог «ok» дождались — «start»", v, "start")
+        res.ok("ждали, а не стартовали сразу", ticks["t"] >= 1.5, f"t={ticks['t']}")
+        plan.result.write_text("cancelled", encoding="utf-8")
+        ticks["t"] = 0.0
+        res.check("«cancelled» — программа жива сама, «done»",
+                  rw.wait_for(plan, clock=clock, sleep=sleep), "done")
+        plan.result.unlink()
+        ticks["t"] = 0.0
+        res.check("итога нет за весь срок — всё равно «start» (лучше программа, чем пустой экран)",
+                  rw.wait_for(plan, clock=clock, sleep=lambda _s: ticks.__setitem__("t", ticks["t"] + 100),
+                              timeout=300), "start")
+        res.check("слово для заставки по откату", rw.outcome_text("fail motiv")[:17], "Actualizarea nu s")
+        res.check("слово для заставки при успехе", rw.outcome_text("ok"), "Se pornește versiunea nouă…")
+        res.check("простой перезапуск: файла итога нет — читается как «ok»", rw.read_result(None), "ok")
