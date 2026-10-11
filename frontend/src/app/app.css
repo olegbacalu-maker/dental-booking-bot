@@ -1712,9 +1712,13 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-tp-sfst b { color: var(--text); }
 /* кисть (11.10): те же кнопки, что у состояния зуба; с кистью курсор над
    поверхностями — крест; старая запись «на весь зуб» — строкой с выбором */
-.dp-react-root .dp-brush .dp-stb.on { border-color: var(--text); background: var(--bg); }
+.dp-react-root .dp-brush .dp-stb.on { border-color: var(--brush); background: var(--brush); color: #fff; }
+.dp-react-root .dp-brush-on { font-weight: 600; }
 .dp-react-root .dp-odo[data-brush] .dp-sf, .dp-react-root .dp-odo[data-brush] .tooth-svg [data-s],
 .dp-react-root .dp-odo[data-brush] .odo-stage canvas { cursor: crosshair; }
+/* кисть в руке: клетки креста — цели, пунктиром; наведение — рамка цветом текста */
+.dp-react-root .dp-odo[data-brush] .dp-sf { border-style: dashed; }
+.dp-react-root .dp-odo[data-brush] .dp-sf:hover { border-color: var(--text); border-style: solid; }
 .dp-react-root .dp-tp-old {
   display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--r-ctl);
   background: var(--bg); font-size: var(--fs-s); color: var(--text2);

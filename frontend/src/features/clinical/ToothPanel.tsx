@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
 import { ask } from '../../components/confirm'
@@ -41,8 +42,8 @@ const T = {
   close: 'Închide',
   surfaces: 'Suprafețe',
   brush: 'Pensulă',
-  brushOff: 'Alege pensula, apoi apasă pe suprafețele dintelui — aici, pe desen sau în 3D',
-  brushOn: 'Apasă pe suprafețe: pune „{s}”, a doua apăsare o scoate. Esc — lasă pensula',
+  brushOff: 'Apasă „Carie” sau „Obturație” — pensula rămâne în mână până o lași',
+  brushOn: 'Pensula „{s}” este în mână: apasă pe suprafețele dintelui (aici, pe desen sau în 3D) — pune, a doua apăsare scoate. Esc sau încă o apăsare pe buton — lasă pensula',
   brushNo: 'Dintele are o stare pe tot dintele — suprafețele nu se marchează',
   old: '{s} pe tot dintele, din evidența veche (fără suprafețe)',
   remark: 'Remarchează pe suprafețe',
@@ -195,18 +196,22 @@ export function ToothPanel({
             <div className="dp-st dp-brush" role="group" aria-label={T.brush}>
               {model.surface_states.map((s) => {
                 const on = brush === s
+                const color = model.palette?.[s] ?? 'currentColor'
                 return (
                   <button key={s} type="button" data-brush={s} className={`dp-stb${on ? ' on' : ''}`}
+                    style={{ '--brush': color } as CSSProperties}
                     aria-pressed={on} disabled={busy || whole} onClick={() => onBrush(s)}>
-                    <i style={{ background: model.palette?.[s] ?? 'currentColor' }} />
-                    <span>{model.states[s] ?? s}</span>
+                    <i style={{ background: on ? '#fff' : color }} />
+                    <span>{on ? `${model.states[s] ?? s} — în mână` : model.states[s] ?? s}</span>
                   </button>
                 )
               })}
             </div>
-            <span className="dp-tp-note">
-              {whole ? T.brushNo : brush ? T.brushOn.replace('{s}', model.states[brush] ?? brush) : T.brushOff}
-            </span>
+            {whole
+              ? <span className="dp-tp-note">{T.brushNo}</span>
+              : brush
+                ? <b className="dp-tp-note dp-brush-on" style={{ color: model.palette?.[brush] }}>{T.brushOn.replace('{s}', model.states[brush] ?? brush)}</b>
+                : <span className="dp-tp-note">{T.brushOff}</span>}
             {oldWhole && (
               <div className="dp-tp-old" data-old={d.state}>
                 <span>{T.old.replace('{s}', model.states[d.state] ?? d.state)}</span>
