@@ -13,6 +13,7 @@ import { anchorsFor, buildGum, linRgb, marginH, SITE_DEG, stripesFor, wallPoint,
 import { studioEnv } from './env'
 import { comesFrom, MS, sceneFor, startLift } from './transition'
 import { createTweens, type Tweens } from './tween'
+import { EMPTY_BOUNDS, fillAt, fitRadius, isEmpty, union, type Bounds } from './fit'
 import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
 
 /* Сцена одонтограммы (B7, ступень 4) — чистый three.js, без React: обе
@@ -28,11 +29,27 @@ import { isFinger, LONG_MS, slopOf, swallowNextClick } from '../touch'
    Данные не считаются: что видно и какого цвета — `look.targetLook` от модели
    и палитры сервера; сцены смены состояния — ступень 6. */
 
+/** Углы камеры по видам (азимут, от оси y), градусы. Дистанции здесь нет с
+ *  11.10: её считает `fit.ts` под размер окна (`fitR`), прежние числа 172–180
+ *  держали дугу одного размера в пикселях и на ноутбуке, и на мониторе. */
 export const VIEWS = {
-  frontal: [0, 80, 172], sus: [0, 152, 180], jos: [0, 28, 180], dreapta: [-62, 82, 175], stanga: [62, 82, 175],
+  frontal: [0, 80], sus: [0, 152], jos: [0, 28], dreapta: [-62, 82], stanga: [62, 82],
 } as const
 export type ViewName = keyof typeof VIEWS
 export type Toggle = 'xray' | 'labels' | 'upper' | 'lower' | 'closed' | 'rotate'
+
+/** Номера по умолчанию выключены (11.10): во фронтальном виде моляры стоят друг
+ *  за другом в перспективе, и 14/15/16 наезжали. На окклюзионных видах зубы не
+ *  перекрываются, и там номера включаются сами — ОДНО правило на сцену и на
+ *  кнопку «Numere» компонента (она следует за сценой, как кнопки челюстей). */
+export const labelsFor = (v: ViewName): boolean => v === 'sus' || v === 'jos'
+
+/** Пределы радиуса орбиты — колесо, щипок и подгонка под окно. */
+const R_MIN = 70
+const R_MAX = 420
+/** Размер спрайта номера, мм: обычный и у выбранного зуба (он виден всегда). */
+const LABEL = 3.9
+const LABEL_SEL = 5.6
 
 export interface Hit { n: number; letter: Letter }
 
@@ -71,6 +88,11 @@ export interface CameraProbe {
   target: [number, number, number]
   /** камера ещё едет (вид, фокус) */
   moving: boolean
+  /** радиус вида, подобранный под окно (`fit.ts`) — база зума */
+  viewR: number
+  /** какую долю кадра по ширине и высоте занимает габарит видимых челюстей при текущем радиусе */
+  fill: { w: number; h: number } | null
+  aspect: number
 }
 
 /** Что сцена показывает для зуба — для стендов и разбора: вид, видимость
@@ -84,6 +106,9 @@ export interface ToothProbe {
   opacity: number
   y: number
   busy: boolean
+  /** номер показан (слой «Numere» или выбранный зуб) и его размер */
+  label: boolean
+  labelScale: number
 }
 
 export interface ArchScene {
@@ -241,12 +266,16 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   /** погашенные фильтром легенды; прозрачность коронки у них `DIM` */
   let dimmed: ReadonlySet<number> = new Set()
   const DIM = 0.16
-  const togs: Record<Toggle, boolean> = { xray: false, labels: true, upper: true, lower: true, closed: false, rotate: false }
+  const togs: Record<Toggle, boolean> = { xray: false, labels: labelsFor('frontal'), upper: true, lower: true, closed: false, rotate: false }
 
   const geomOf = (info: ToothInfo | undefined, upper: boolean): ToothGeom => info?.geom ?? { ...FALLBACK, upper }
 
   // --- десна по краю зуба и слой пародонта (06.10) ---
-  interface JawGum { lay: ArchLayout; list: number[]; upper: boolean; grp: T3.Group; mesh: T3.Mesh | null; geo: T3.BufferGeometry | null; marks: T3.Group }
+  interface JawGum {
+    lay: ArchLayout; list: number[]; upper: boolean; grp: T3.Group; mesh: T3.Mesh | null; geo: T3.BufferGeometry | null; marks: T3.Group
+    /** габарит челюсти в её системе (коронки по матрицам зубов + тело десны) — камера под окно */
+    box: Bounds
+  }
   const jawGum: JawGum[] = []
   const shape = new Map<number, { place: PlacedTooth; g: ToothGeom; cm: CrownModel }>()
   let perio: PerioInput | null = null
@@ -383,6 +412,20 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       }
       J.geo = geo
       buildMarks(J, list)
+      // габарит для камеры под окно: коронки в системе челюсти (матрица зуба —
+      // его место на дуге) и тело десны, под которым стоят корни; сдвиги
+      // группы челюсти (смыкание 4 мм, уход из кадра) здесь не учитываются
+      const bb = new THREE.Box3()
+      for (const n of J.list) {
+        const t = teeth.get(n)
+        if (!t) continue
+        t.crown.geometry.computeBoundingBox()
+        const cb = t.crown.geometry.boundingBox
+        if (cb) bb.union(cb.clone().applyMatrix4(t.group.matrix))
+      }
+      geo.computeBoundingBox()
+      if (geo.boundingBox) bb.union(geo.boundingBox)
+      J.box = { min: [bb.min.x, bb.min.y, bb.min.z], max: [bb.max.x, bb.max.y, bb.max.z] }
     }
     placeSite()
     invalidate()
@@ -417,7 +460,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       .find((x) => x !== undefined) ?? Math.max(...[...poseTip.values()])
     const marks = new THREE.Group()
     grp.add(marks)
-    jawGum.push({ lay, list, upper, grp, mesh: null, geo: null, marks })
+    jawGum.push({ lay, list, upper, grp, mesh: null, geo: null, marks, box: EMPTY_BOUNDS })
     for (const p0 of lay.teeth) {
       const g = geomOf(model.teeth[String(p0.n)], upper)
       const cm = models.get(p0.n) as CrownModel
@@ -490,7 +533,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     const tex: [T3.CanvasTexture, T3.CanvasTexture] = [labelTexture(THREE, p.n, false), labelTexture(THREE, p.n, true)]
     const spriteMat = new THREE.SpriteMaterial({ map: tex[0], transparent: true, depthTest: true })
     const sprite = new THREE.Sprite(spriteMat)
-    sprite.scale.set(3.9, 3.9, 1)
+    sprite.scale.set(LABEL, LABEL, 1)
     sprite.position.set(0, -2.4, 8.8)
     sprite.raycast = () => undefined
     const group = new THREE.Group()
@@ -752,8 +795,12 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       if (dim) look.opacity = DIM
       const prev = t.look
       t.look = look
-      t.sprite.visible = togs.labels
-      const want = t.tex[t.n === selected ? 1 : 0]
+      // номер: слой «Numere» — у всех, у выбранного зуба — всегда и крупнее
+      const selNum = t.n === selected
+      t.sprite.visible = togs.labels || selNum
+      const ls = selNum ? LABEL_SEL : LABEL
+      if (t.sprite.scale.x !== ls) t.sprite.scale.set(ls, ls, 1)
+      const want = t.tex[selNum ? 1 : 0]
       const sm = t.sprite.material as T3.SpriteMaterial
       if (sm.map !== want) {
         sm.map = want
@@ -789,11 +836,25 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   const cam = new THREE.PerspectiveCamera(30, 1, 1, 1000)
   const target = new THREE.Vector3(...HOME)
   const tgt = new THREE.Vector3(...HOME)
-  const orb = { theta: 0, phi: rad(80), r: 172, tt: 0, tp: rad(80), tr: 172 }
-  /** радиус последнего вида — куда возвращается камера из фокуса */
-  let viewR = 172
+  const R0 = 172
+  const orb = { theta: 0, phi: rad(VIEWS.frontal[1]), r: R0, tt: 0, tp: rad(VIEWS.frontal[1]), tr: R0 }
+  /** радиус вида — подобран под окно (`fitR`); куда возвращается камера из фокуса, база зума */
+  let viewR = R0
   /** радиус фокуса на зубе (01.10); null — камера у вида. База для зума. */
   let focusR: number | null = null
+  /** габарит челюстей, которые вид показывает (спрятанная не в счёт) */
+  const visibleBox = (): Bounds => {
+    let box = EMPTY_BOUNDS
+    for (const J of jawGum) if (togs[J.upper ? 'upper' : 'lower']) box = union(box, J.box)
+    return box
+  }
+  /** Радиус вида под окно (11.10, `fit.ts`): габарит видимых челюстей занимает
+   *  долю FILL кадра по ограничивающей оси. Пока сцена не построена — прежний. */
+  const fitR = (theta: number, phi: number): number => {
+    const box = visibleBox()
+    if (isEmpty(box)) return viewR
+    return clamp(fitRadius(box, HOME, theta, phi, cam.fov, cam.aspect), R_MIN, R_MAX)
+  }
   let anim = false
   /** довести камеру до цели: твином кадров или сразу при reduced-motion */
   const settle = (): void => {
@@ -885,6 +946,15 @@ export function createArchScene(opts: SceneOptions): ArchScene {
     renderer.setSize(w, h, false)
     cam.aspect = w / h
     cam.updateProjectionMatrix()
+    // окно изменилось — вид подгоняется заново (без твина: это не действие
+    // человека), доля зума колесом или «−/+» сохраняется множителем
+    if (focusR === null) {
+      const r = fitR(orb.tt, orb.tp)
+      const k = r / viewR
+      viewR = r
+      orb.tr *= k
+      orb.r *= k
+    }
     invalidate()
   }
   const observer = new ResizeObserver(resize)
@@ -987,7 +1057,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         const p1 = a[1]
         if (p0 && p1 && pinch0 > 0) {
           const d = Math.hypot(p0[0] - p1[0], p0[1] - p1[1])
-          orb.r = clamp((r0 * pinch0) / d, 70, 420)
+          orb.r = clamp((r0 * pinch0) / d, R_MIN, R_MAX)
           orb.tr = orb.r
           anim = false
           invalidate()
@@ -1035,7 +1105,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
   }
   const onWheel = (ev: WheelEvent): void => {
     ev.preventDefault()
-    orb.r = clamp(orb.r * (1 + ev.deltaY * 0.0012), 70, 420)
+    orb.r = clamp(orb.r * (1 + ev.deltaY * 0.0012), R_MIN, R_MAX)
     orb.tr = orb.r
     invalidate()
   }
@@ -1067,6 +1137,7 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       return {
         look: t.look, crown: t.crown.visible, roots: t.roots.visible, screw: t.screw.visible, socket: t.socket.visible,
         opacity: t.mats[0]?.opacity ?? 1, y: t.crown.position.y, busy: tweens.has(t),
+        label: t.sprite.visible, labelScale: t.sprite.scale.x,
       }
     },
     setModel(model) {
@@ -1078,6 +1149,10 @@ export function createArchScene(opts: SceneOptions): ArchScene {
         buildArch(model, model.arches.upper, true)
         buildArch(model, model.arches.lower, false)
         placeJaws()
+        paint(model)
+        // первый кадр — камера под окно (габариты есть после первой покраски: десна построена)
+        orb.r = orb.tr = viewR = fitR(orb.tt, orb.tp)
+        return
       }
       paint(model)
     },
@@ -1087,21 +1162,29 @@ export function createArchScene(opts: SceneOptions): ArchScene {
       if (lastModel) paint(lastModel)
     },
     camera() {
-      return { r: orb.r, theta: orb.theta, phi: orb.phi, target: [target.x, target.y, target.z], moving: anim }
+      const box = visibleBox()
+      return {
+        r: orb.r, theta: orb.theta, phi: orb.phi, target: [target.x, target.y, target.z], moving: anim,
+        viewR, aspect: cam.aspect,
+        fill: isEmpty(box) ? null : fillAt(box, HOME, orb.theta, orb.phi, cam.fov, cam.aspect, orb.r),
+      }
     },
     setView(name) {
       const v = VIEWS[name]
       orb.tt = nearestTheta(orb.theta, rad(v[0]))
       orb.tp = rad(v[1])
-      orb.tr = v[2]
-      viewR = v[2]
       focusR = null
       tgt.set(...HOME)
       togs.rotate = false
-      settle()
-      // вид на жевательные поверхности одной челюсти невозможен, пока другая стоит перед камерой
+      // вид на жевательные поверхности одной челюсти невозможен, пока другая
+      // стоит перед камерой — и радиус считается уже без неё
       setJaw('upper', name !== 'jos')
       setJaw('lower', name !== 'sus')
+      orb.tr = viewR = fitR(orb.tt, orb.tp)
+      // номера — по виду (`labelsFor`); кнопка компонента ставит то же
+      togs.labels = labelsFor(name)
+      if (lastModel) paint(lastModel)
+      settle()
     },
     focus(n, how = 'buccal') {
       const t = n !== null ? teeth.get(n) : undefined

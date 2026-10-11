@@ -3,7 +3,7 @@ import { Icon } from '../../../components/Icon'
 import type { Odontogram, PerioLayer } from '../chart'
 import { load3d } from './loadTeeth'
 import { PerioLegend } from './PerioLegend'
-import { createArchScene, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
+import { createArchScene, labelsFor, type ArchScene, type CameraProbe, type Hit, type PerioInput, type Toggle, type ToothProbe, type ViewName } from './scene'
 import type { Letter } from './toothGeometry'
 
 /* Объёмный вид одонтограммы (B7, ступень 4): React владеет узлом и жизненным
@@ -20,6 +20,11 @@ import type { Letter } from './toothGeometry'
    «− 100% +», сброс и камера к зубу; слева от сцены колонка «Straturi» —
    шесть переключателей чекбоксами; сцена 500px. Зум — `scene.zoomTo`:
    радиус орбиты от радиуса вида (или фокуса), вид и фокус возвращают 100%.
+   100 % вида — не число, а подгонка под окно (11.10, `three/fit.ts`): дуга
+   занимает ~80 % кадра по ограничивающей оси и пересчитывается при смене
+   размера. Слой «Numere» по умолчанию выключен и следует за видом
+   (`labelsFor`: окклюзионные виды — включён), как кнопки челюстей; у
+   выбранного зуба номер в сцене виден всегда.
 
    Режим «Parodont» (06.10, слово Олега «да» на «режим Parodont с таблицей
    точек»; с 08.10 — вкладка страницы, состояние у рабочего стола): последний
@@ -104,7 +109,7 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
   const dimRef = useRef(dim)
   const [status, setStatus] = useState<Status>('loading')
   const [view, setView] = useState<ViewName | null>('frontal')
-  const [togs, setTogs] = useState<Record<Toggle, boolean>>({ xray: false, labels: true, upper: true, lower: true, closed: false, rotate: false })
+  const [togs, setTogs] = useState<Record<Toggle, boolean>>({ xray: false, labels: labelsFor('frontal'), upper: true, lower: true, closed: false, rotate: false })
   const togsRef = useRef(togs)
   const [zoom, setZoom] = useState(100)
   const layer = model.perio_layer ?? null
@@ -182,8 +187,9 @@ export function Odontogram3D({ model, selected, onSurface, onMenu, onHover, focu
 
   const pickView = (v: ViewName): void => {
     setView(v)
-    // вид на одну челюсть прячет другую — кнопки челюстей следуют за сценой
-    setTogs((t) => ({ ...t, upper: v !== 'jos', lower: v !== 'sus', rotate: false }))
+    // вид решает слои, кнопки следуют за сценой: вид на одну челюсть прячет
+    // другую, окклюзионные виды показывают номера (`labelsFor` — то же правило, что в сцене)
+    setTogs((t) => ({ ...t, upper: v !== 'jos', lower: v !== 'sus', labels: labelsFor(v), rotate: false }))
     sceneRef.current?.setView(v)
     setZoom(100)
     onZoom(false)

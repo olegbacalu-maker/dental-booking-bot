@@ -571,6 +571,53 @@ describe('вид 3D (B7)', () => {
     expect(await screen.findByText(/Dinții de lapte/)).toBeTruthy()
     localStorage.removeItem('dp_odo_view')
   })
+
+  it('слой «Numere» по умолчанию выключен (11.10), остальные слои — как прежде', async () => {
+    localStorage.setItem('dp_odo_view', '3d')
+    open()
+    await screen.findByText(/3D nu s-a încărcat/)
+    const tog = (k: string) => document.querySelector(`[data-tog="${k}"]`)?.getAttribute('aria-pressed')
+    expect(tog('labels')).toBe('false')
+    expect(tog('upper')).toBe('true')
+    expect(tog('lower')).toBe('true')
+    expect(tog('xray')).toBe('false')
+  })
+})
+
+describe('карта зубов коронками (11.10)', () => {
+  const mapBtn = (n: number) => document.querySelector(`.dp-tm-btn[data-n="${n}"]`) as HTMLButtonElement
+
+  it('кнопка карты — тот же окклюзионный SVG сервера и номер со стороны корней; полоски и точек нет', async () => {
+    get.mockResolvedValue(ok({ ...MODEL, milk_open: true }))
+    open(16)
+    await waitFor(() => expect(mapBtn(16)).toBeTruthy())
+    // столько же кнопок, сколько зубов в модели (32 постоянных + молочный 55), у каждой рисунок сервера
+    expect(document.querySelectorAll('.dp-tm-btn').length).toBe(33)
+    expect(document.querySelectorAll('.dp-tm-btn .pic svg.tooth-svg').length).toBe(33)
+    expect(mapBtn(16).querySelector(".pic svg[aria-label='16']")).toBeTruthy()
+    expect(mapBtn(16).querySelector('.pic')?.getAttribute('aria-hidden')).toBe('true')
+    expect(mapBtn(16).querySelector('.num')?.textContent).toBe('16')
+    expect(mapBtn(16).className).toContain(' up')
+    expect(mapBtn(41).className).toContain(' low')
+    expect(mapBtn(16).getAttribute('aria-label')).toBe('16 · Carie · distal · Carie (M), Obturație (O)')
+    expect(document.querySelector('.dp-tm-btn .bar')).toBeNull()
+    expect(document.querySelector('.dp-tm-btn .flag')).toBeNull()
+    expect(mapBtn(16).className).toContain('sel')
+    expect(mapBtn(16).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('клик по карте — тот же выбор, что на дуге; клик по цели поверхности внутри рисунка выбирает ЗУБ, не поверхность', async () => {
+    open(16)
+    await waitFor(() => expect(mapBtn(16)).toBeTruthy())
+    fireEvent.click(mapBtn(21))
+    expect(btn(21).className).toContain('sel')
+    expect(mapBtn(21).className).toContain('sel')
+    expect(inspector().textContent).toContain('21')
+    fireEvent.click(mapBtn(16).querySelector("[data-s='D']") as Element)
+    expect(mapBtn(16).className).toContain('sel')
+    expect(sfBtn('M mezial').getAttribute('aria-pressed')).toBe('true')   // поверхность осталась прежней
+    expect(unsaved()).toBeNull()
+  })
 })
 
 describe('B7 · планшет: инспектор — шторка', () => {

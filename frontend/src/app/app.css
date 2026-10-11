@@ -1610,7 +1610,11 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-lay:disabled { opacity: .5; cursor: default; }
 .dp-react-root .dp-lay:focus-visible { outline: none; box-shadow: var(--ring); }
 /* сцена 500px (макет), без переходов — высота не зависит от наведения */
-.dp-react-root .dp-vp-body .odo-stage { flex: 1 1 300px; min-width: 0; height: 500px; }
+/* сцена 500px по макету; на широком окне растёт (11.10): камера подгоняет
+   дугу под высоту кадра, и при 500px на мониторе 1920 дуга висела мелкой
+   посреди широкой сцены — высота идёт за шириной окна до 720px, но не выше
+   64 % окна, чтобы карта зубов оставалась видна под сценой */
+.dp-react-root .dp-vp-body .odo-stage { flex: 1 1 300px; min-width: 0; height: clamp(500px, min(36vw, 64vh), 720px); }
 @media (max-width: 880px) { .dp-react-root .dp-vp-body .odo-stage { height: 400px; } }
 @media (max-width: 760px) { .dp-react-root .dp-layers { width: auto; flex-basis: 100%; flex-direction: row; flex-wrap: wrap; } }
 .dp-react-root .dp-vp-milk { padding: 8px 14px; }
@@ -1632,21 +1636,26 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-tm-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .dp-react-root .dp-tm-hint { font-size: var(--fs-s); color: var(--text3); }
 .dp-react-root .dp-tm-scroll { overflow-x: auto; }
-.dp-react-root .dp-tm-rows { min-width: 640px; display: flex; flex-direction: column; gap: 8px; }
+.dp-react-root .dp-tm-rows { min-width: 680px; display: flex; flex-direction: column; gap: 8px; }
 .dp-react-root .dp-tm-cap { display: flex; justify-content: space-between; font-size: var(--fs-s); color: var(--text3); }
 .dp-react-root .dp-tm-cap.bottom { justify-content: center; }
 .dp-react-root .dp-tm-row { display: flex; gap: 14px; }
-.dp-react-root .dp-tm-q { flex: 1; display: grid; gap: 6px; }
+.dp-react-root .dp-tm-q { flex: 1; display: grid; gap: 4px; }
 .dp-react-root .dp-tm-mid { width: 1px; background: var(--line); }
 .dp-react-root .dp-tm-row.milk .dp-tm-q { padding: 0 12%; }
+/* кнопка карты (11.10): номер со стороны корней и коронка — SVG сервера вида
+   «ocluzal», сжатый до ширины ячейки (не больше 40px); на 1366 ячейка 46px,
+   коронка 40. Тень рисунка панорамы здесь снята: в 40px она читается грязью. */
 .dp-react-root .dp-tm-btn {
-  position: relative; min-width: 0; height: 58px; display: flex; flex-direction: column; align-items: center;
-  justify-content: space-between; padding: 6px 4px; border: 1px solid var(--line); border-radius: var(--r-ctl);
-  background: var(--panel); font: inherit; font-size: var(--fs-m); font-weight: 600; color: var(--text);
+  position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 3px 2px 4px; border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--panel); font: inherit; font-size: var(--fs-s); line-height: 16px; font-weight: 600; color: var(--text);
   font-variant-numeric: tabular-nums; cursor: pointer;
   transition: background-color var(--dur) ease, box-shadow var(--dur) ease, opacity var(--dur) ease;
 }
 .dp-react-root .dp-tm-btn.low { flex-direction: column-reverse; }
+.dp-react-root .dp-tm-btn .pic { display: block; width: 100%; max-width: 40px; }
+.dp-react-root .dp-tm-btn .tooth-svg { width: 100%; height: auto; max-width: none; filter: none; }
 .dp-react-root .dp-tm-btn:hover { border-color: var(--text3); }
 .dp-react-root .dp-tm-btn:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-tm-btn.sel { border-color: var(--teal); background: var(--teal-soft); box-shadow: inset 0 0 0 1px var(--teal); }
@@ -1655,9 +1664,8 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-tm-btn.sel.dirty { box-shadow: inset 0 0 0 1px var(--teal), 0 0 0 2px var(--amber); }
 .dp-react-root .dp-tm-btn.dim { opacity: .3; }
 .dp-react-root .dp-tm-btn.dim:hover, .dp-react-root .dp-tm-btn.dim.sel { opacity: .7; }
-.dp-react-root .dp-tm-btn.miss { border-style: dashed; color: var(--text3); }
-.dp-react-root .dp-tm-btn .bar { width: 70%; height: 5px; border-radius: 3px; }
-.dp-react-root .dp-tm-btn .flag { position: absolute; right: 4px; width: 7px; height: 7px; border-radius: 50%; }
+/* отсутствующий: пунктир рисует сама коронка сервера, рамка остаётся сплошной */
+.dp-react-root .dp-tm-btn.miss { color: var(--text3); }
 @media print { .dp-react-root .dp-tm-btn.dim { opacity: 1; } }
 
 /* панель зуба: секции через линию, крупный номер, крест, сетка состояний */
