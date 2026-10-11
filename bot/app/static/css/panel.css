@@ -125,7 +125,7 @@
       наведении (кнопка / карточка / плитка), тень наведения у вторичной
       кнопки. Стиль без подскоков ставит 0px, без колец — none. */
    --ring:0 0 0 3px var(--teal-ring);--focus-line:var(--teal);--focus-line-b:var(--teal);
-   --lift:-1px;--lift-card:-2px;--lift-tile:-3px;
+   --lift:-1px;--lift-card:-2px;--lift-tile:-3px;--lift-agenda:-2px;
    --sh-hover:0 4px 12px var(--teal-ring);
    /* Шрифт — переменной: выбор клиники подставит сюда системный. */
    --font:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,Roboto,sans-serif;
@@ -2191,12 +2191,14 @@
     Наведение (Олег 11.10): карточка чуть приподнимается и берёт тень —
     «навёл мышку, карточка интерактивная». Только transform и тень: раскладка
     не меняется, соседи не прыгают; без .anim и при reduced-motion — тот же
-    конечный вид, просто без перехода. */
+    конечный вид, просто без перехода. ⚠️ Ступень своя (--lift-agenda), не
+    --lift-card: плоские стили fluent и clar (умолчание у клиник) гасят
+    --lift* в 0, а эта карточка приподнимается при любом стиле — слово Олега. */
  .ag-i{display:flex;flex-direction:column;gap:10px;padding:12px;margin-bottom:8px;
    border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r-block);
    background:var(--panel);cursor:pointer;
    transition:background-color var(--dur) ease,box-shadow var(--dur) ease,transform var(--dur) ease}
- .ag-i:hover{box-shadow:var(--sh3);transform:translateY(var(--lift-card))}
+ .ag-i:hover{box-shadow:var(--sh3);transform:translateY(var(--lift-agenda))}
  /* старая страница (?ui=legacy) печатает время, тело и плашку прямыми детьми
     строки, без ряда .ag-r — ей строка остаётся строкой */
  .ag-i:not(:has(.ag-r)){flex-direction:row;align-items:center;gap:10px}

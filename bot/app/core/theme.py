@@ -107,6 +107,10 @@ _MODERN: dict[str, str] = {
     "--ring": "0 0 0 3px var(--teal-ring)", "--focus-line": "var(--teal)",
     "--focus-line-b": "var(--teal)",
     "--lift": "-1px", "--lift-card": "-2px", "--lift-tile": "-3px",
+    # карточка повестки дня приподнимается при наведении ПРИ ЛЮБОМ стиле — слово
+    # Олега 11.10 («карточка немного интерактивная»); плоские стили (fluent,
+    # clar) гасят --lift*, а этот не трогают намеренно
+    "--lift-agenda": "-2px",
     "--nav-mark": "0px", "--nav-fw": "500", "--nav-fw-on": "600",
     "--sec-fs": "10.5px", "--sec-ls": ".08em", "--sec-tt": "uppercase",
     "--dur-fast": ".15s", "--dur": ".2s", "--dur-slow": ".25s",
