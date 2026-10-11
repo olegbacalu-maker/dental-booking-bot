@@ -62,8 +62,15 @@ export interface ChartApi {
   select: (n: number | null) => void
   sel: string
   setSel: (letter: string) => void
-  /** Клик по поверхности на рисунке: выбирает зуб и поверхность; повторный
-   *  клик по УЖЕ выбранной поверхности крутит её состояние (быстрый цикл). */
+  /** Кисть (11.10): состояние поверхности, которым красит клик — `carie`,
+   *  `obturatie` или null (клик только выбирает). Липкая: держится между
+   *  зубами, снимается повтором, Esc или сама — когда состояний поверхностей
+   *  у зуба быть не может (коронка, имплант, удалён, отсутствует). */
+  brush: string | null
+  setBrush: (k: string | null) => void
+  /** Клик по поверхности на рисунке, в сцене или по клетке креста: выбирает
+   *  зуб и поверхность; с кистью — ставит её состояние на поверхность, по уже
+   *  такой же — снимает. */
   pickSurface: (n: number, letter: string) => void
   /** Черновик выбранного зуба (модель, пока его не правили). */
   draft: ToothDraft | null
@@ -101,6 +108,8 @@ export function useChart(
   const [pick, setPick] = useState<{ n: number; sel: string } | null>(null)
   const [boxes, setBoxes] = useState<Record<number, Box>>({})
   const [busy, setBusy] = useState(false)
+  const [brush, setBrushState] = useState<string | null>(null)
+  const setBrush = useCallback((k: string | null) => setBrushState((cur) => (k === null || k === cur ? null : k)), [])
 
   const setView = useCallback((v: View) => { rememberView(v); setViewState(v) }, [])
   const select = useCallback((n: number | null) => setSelected(n), [])
@@ -159,16 +168,18 @@ export function useChart(
     put(n, x.base, { ...x.d, marks: on ? x.d.marks.filter((m) => m !== mark) : [...x.d.marks, mark] })
   }
   const pickSurface = (n: number, letter: string) => {
-    if (n === selected && letter === sel && cur && model) {
-      const sfst = { ...cur.d.sfst }
-      const next = cycleState(sfst[letter] ?? '', model.surface_states)
-      if (next) sfst[letter] = next
-      else delete sfst[letter]
-      put(n, cur.base, { ...cur.d, sfst })
-      return
-    }
     setSelected(n)
     setPick({ n, sel: letter })
+    if (!brush || !model || !model.surface_states.includes(brush)) return
+    const x = draftFor(n)
+    if (!x) return
+    // кисть красит только там, где у поверхностей бывает состояние: под
+    // коронкой, имплантом, удалённым и отсутствующим зубом клик — выбор
+    if (!(x.d.state === 'ok' || model.surface_states.includes(x.d.state))) return
+    const sfst = { ...x.d.sfst }
+    if (sfst[letter] === brush) delete sfst[letter]
+    else sfst[letter] = brush
+    put(n, x.base, { ...x.d, sfst })
   }
   const discard = () => {
     if (selected === null) return
@@ -204,7 +215,7 @@ export function useChart(
   }
 
   return {
-    view, setView, selected, info, select, sel, setSel, pickSurface,
+    view, setView, selected, info, select, sel, setSel, brush, setBrush, pickSurface,
     draft, dirty, dirtyTeeth, edit, setState, toggleMark, discard, busy, save,
     addBridge: (body) => act(() => chart.addBridge(pid, body)),
     delBridge: (bid) => act(() => chart.delBridge(pid, bid)),

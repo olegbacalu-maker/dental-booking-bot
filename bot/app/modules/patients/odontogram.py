@@ -491,6 +491,10 @@ def model(tmap: dict, tooth_acts: list, bridges: list | None) -> dict:
         "bridges": rows,
         "legend": {"frontal": legend_items(False), "occlusal": legend_items(True)},
         "states": dict(STATES), "marks": dict(MARKS),
+        # состояния, сказанные про ВЕСЬ зуб (прототип кисти, 11.10): `carie` и
+        # `obturatie` вводятся только по поверхностям; список — здесь, чтобы у
+        # клиента не завёлся второй словарь состояний
+        "tooth_states": {k: v for k, v in STATES.items() if k not in tsvg.SURFACE_STATES},
         # цвета состояний И отметок — те же, что у 2D и легенды; 3D красит
         # ими же (кольца отметок — цветом ореола и каналов, не своей копией)
         "palette": {**tsvg.COLORS, **tsvg.MARK_COLORS},

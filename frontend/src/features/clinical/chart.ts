@@ -114,6 +114,9 @@ export interface Odontogram {
   bridges: Bridge[]
   legend: { frontal: LegendItem[]; occlusal: LegendItem[] }
   states: Record<string, string>
+  /** состояния про ВЕСЬ зуб (коронка, имплант, удалён, отсутствует + ok):
+   *  `carie`/`obturatie` вводятся только по поверхностям кистью (11.10) */
+  tooth_states: Record<string, string>
   /** цвет состояния и отметки — тот же, что у 2D и легенды (`teeth_svg.COLORS` + `MARK_COLORS`) */
   palette?: Record<string, string>
   marks: Record<string, string>

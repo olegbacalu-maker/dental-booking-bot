@@ -49,7 +49,8 @@ export function ToothMenu({ model, at, current, onState, marks, onMark, onPlan, 
   const ROW = useCoarse() ? 44 : 32
 
   const info = model.teeth[String(at.n)]
-  const states = Object.entries(model.states)
+  // в меню — состояния про весь зуб; кариес и пломба ставятся кистью по поверхностям (11.10)
+  const states = Object.entries(model.tooth_states)
   const markList = Object.entries(model.marks)
   const bridge = Boolean(info && !info.milk)
   const extra = (onPlan ? ROW : 0) + (bridge ? ROW : 0)

@@ -29,7 +29,8 @@ const ODO = {
   milk_open: false, bridges: [], legend: { frontal: [], occlusal: [] },
   states: { ok: 'Sănătos', carie: 'Carie' }, marks: { tratament: 'În tratament' },
   surfaces: { M: 'mezial', O: 'ocluzal', D: 'distal', V: 'vestibular', L: 'lingual' },
-  surface_states: ['carie', 'obturatie'], bridge_roles: { stalp: 'Stâlp', corp: 'Corp de punte' },
+  surface_states: ['carie', 'obturatie'],
+  tooth_states: { ok: 'Sănătos', coroana: 'Coroană', implant: 'Implant', extras: 'Extras', lipsa: 'Lipsă' }, bridge_roles: { stalp: 'Stâlp', corp: 'Corp de punte' },
   materials: [{ id: 'zirconiu', label: 'Zirconiu' }], patient: { id: 5, name: 'Pin Test', primary_doctor: '' },
   doctors: ['Dr. Activ Doi'],
 }

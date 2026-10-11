@@ -61,6 +61,7 @@ const MODEL: Odontogram = {
   marks: { tratament: 'În tratament', devital: 'Nerv extras' },
   surfaces: { M: 'mezial', O: 'ocluzal', D: 'distal', V: 'vestibular', L: 'lingual' },
   surface_states: ['carie', 'obturatie'],
+  tooth_states: { ok: 'Sănătos', coroana: 'Coroană', implant: 'Implant', extras: 'Extras', lipsa: 'Lipsă' },
   bridge_roles: { stalp: 'Stâlp', corp: 'Corp de punte' },
   materials: [{ id: 'zirconiu', label: 'Zirconiu' }, { id: 'alt', label: 'Alt material…' }],
   patient: { id: 5, name: 'Odonto Pin', primary_doctor: '' },

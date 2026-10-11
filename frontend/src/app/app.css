@@ -1710,6 +1710,16 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-sfx-info em { font-style: normal; font-weight: 600; }
 .dp-react-root .dp-tp-sfst { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-s); color: var(--text2); }
 .dp-react-root .dp-tp-sfst b { color: var(--text); }
+/* кисть (11.10): те же кнопки, что у состояния зуба; с кистью курсор над
+   поверхностями — крест; старая запись «на весь зуб» — строкой с выбором */
+.dp-react-root .dp-brush .dp-stb.on { border-color: var(--text); background: var(--bg); }
+.dp-react-root .dp-odo[data-brush] .dp-sf, .dp-react-root .dp-odo[data-brush] .tooth-svg [data-s],
+.dp-react-root .dp-odo[data-brush] .odo-stage canvas { cursor: crosshair; }
+.dp-react-root .dp-tp-old {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--r-ctl);
+  background: var(--bg); font-size: var(--fs-s); color: var(--text2);
+}
+.dp-react-root .dp-tp-old-acts { display: flex; gap: 14px; }
 /* состояние сеткой 2 колонки; переключатели отметок */
 .dp-react-root .dp-st { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .dp-react-root .dp-stb {

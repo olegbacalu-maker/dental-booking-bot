@@ -40,8 +40,13 @@ const T = {
   furc: 'Furcație',
   close: 'Închide',
   surfaces: 'Suprafețe',
-  surfaceState: 'Starea suprafeței',
-  none: '— fără leziune',
+  brush: 'Pensulă',
+  brushOff: 'Alege pensula, apoi apasă pe suprafețele dintelui — aici, pe desen sau în 3D',
+  brushOn: 'Apasă pe suprafețe: pune „{s}”, a doua apăsare o scoate. Esc — lasă pensula',
+  brushNo: 'Dintele are o stare pe tot dintele — suprafețele nu se marchează',
+  old: '{s} pe tot dintele, din evidența veche (fără suprafețe)',
+  remark: 'Remarchează pe suprafețe',
+  del: 'Șterge',
   state: 'Starea dintelui',
   stateOn: 'Apasă din nou pentru a șterge',
   stateOff: 'Sănătos / fără stare',
@@ -60,8 +65,11 @@ interface Props {
   busy: boolean
   /** Выбранная поверхность — состояние рабочего стола (её выбирают и из сцены). */
   sel: string
-  /** Клик по клетке креста: выбрать поверхность, повторный — крутить её состояние. */
+  /** Клик по клетке креста: выбрать поверхность; с кистью — покрасить её. */
   onSurface: (n: number, letter: string) => void
+  /** Кисть (11.10): состояние, которым красят поверхности, и её переключатель. */
+  brush: string | null
+  onBrush: (k: string | null) => void
   draft: ToothDraft | null
   dirty: boolean
   onEdit: (patch: Partial<ToothDraft>) => void
@@ -115,7 +123,7 @@ function PerioTable({ row, layer, jaw }: { row: PerioLayerRow; layer: PerioLayer
 }
 
 export function ToothPanel({
-  model, n, busy, sel, onSurface, draft: d, dirty, onEdit: edit, onSave, onDiscard, onDelBridge,
+  model, n, busy, sel, onSurface, brush, onBrush, draft: d, dirty, onEdit: edit, onSave, onDiscard, onDelBridge,
   onBridgeFrom, onPlan, onClose, saved,
 }: Props) {
   const info = n !== null ? model.teeth[String(n)] : undefined
@@ -127,8 +135,11 @@ export function ToothPanel({
   const layer = model.perio_layer ?? null
   const prow = n !== null ? layer?.rows[String(n)] : undefined
   const cur = info && sel in model.surfaces ? sel : 'O'
-  const selState = d?.sfst[cur] ?? ''
   const canBridge = Boolean(info && n !== null && !inBr && !info.milk && onBridgeFrom)
+  /* состояние про весь зуб (коронка, имплант…) — поверхности не красятся;
+     старая запись «carie/obturatie без поверхностей» — строкой с выбором */
+  const whole = Boolean(d && d.state !== 'ok' && d.state in model.tooth_states)
+  const oldWhole = Boolean(d && model.surface_states.includes(d.state) && Object.keys(d.sfst).length === 0)
 
   return (
     <div className="dp-card insp dp-tp" aria-label={T.title}>
@@ -175,28 +186,44 @@ export function ToothPanel({
           <section className="dp-tp-sec">
             <span className="dp-lbl">{T.surfaces}</span>
             <SurfaceCross model={model} n={n} info={info} sel={cur} sfst={d.sfst} onSurface={onSurface} />
-            {/* состояние ВЫБРАННОЙ поверхности — тот же выбор, что крутит
-                повторный клик по клетке; список сервера (`surface_states`) */}
-            <label className="dp-tp-sfst">
-              <span>{T.surfaceState} <b>{surfaceLetter(cur, info.jaw)}</b></span>
-              <select className="dp-fld" value={selState} onChange={(e) => {
-                const next = { ...d.sfst }
-                if (e.target.value) next[cur] = e.target.value
-                else delete next[cur]
-                edit({ sfst: next })
-              }}>
-                <option value="">{T.none}</option>
-                {model.surface_states.map((s) => <option key={s} value={s}>{model.states[s] ?? s}</option>)}
-              </select>
-            </label>
+            {/* кисть (11.10): кариес и пломба ставятся ТОЛЬКО по поверхностям —
+                выбрал кисть, клик по поверхности красит, повтор снимает;
+                список сервера (`surface_states`), цвета — его палитра */}
+            <div className="dp-tp-row">
+              <span className="dp-lbl">{T.brush}</span>
+            </div>
+            <div className="dp-st dp-brush" role="group" aria-label={T.brush}>
+              {model.surface_states.map((s) => {
+                const on = brush === s
+                return (
+                  <button key={s} type="button" data-brush={s} className={`dp-stb${on ? ' on' : ''}`}
+                    aria-pressed={on} disabled={busy || whole} onClick={() => onBrush(s)}>
+                    <i style={{ background: model.palette?.[s] ?? 'currentColor' }} />
+                    <span>{model.states[s] ?? s}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <span className="dp-tp-note">
+              {whole ? T.brushNo : brush ? T.brushOn.replace('{s}', model.states[brush] ?? brush) : T.brushOff}
+            </span>
+            {oldWhole && (
+              <div className="dp-tp-old" data-old={d.state}>
+                <span>{T.old.replace('{s}', model.states[d.state] ?? d.state)}</span>
+                <span className="dp-tp-old-acts">
+                  <button type="button" className="dp-link" onClick={() => onBrush(d.state)}>{T.remark}</button>
+                  <button type="button" className="dp-link" onClick={() => edit({ state: 'ok' })}>{T.del}</button>
+                </span>
+              </div>
+            )}
           </section>
 
           <section className="dp-tp-sec">
             <div className="dp-tp-row">
               <span className="dp-lbl">{T.state}</span>
-              <span className="dp-tp-note">{d.state !== 'ok' ? T.stateOn : T.stateOff}</span>
+              <span className="dp-tp-note">{whole ? T.stateOn : T.stateOff}</span>
             </div>
-            <StatusPicker states={model.states} palette={model.palette} value={d.state} disabled={busy}
+            <StatusPicker states={model.tooth_states} palette={model.palette} value={d.state} disabled={busy}
               onChange={(state) => edit({ state })} />
             <div className="dp-tp-sw">
               {Object.entries(model.marks).map(([k, v]) => (

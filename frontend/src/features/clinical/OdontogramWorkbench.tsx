@@ -236,6 +236,7 @@ export function OdontogramWorkbench({
     if (e.key === 'Escape') {
       e.preventDefault()
       if (brMode) stopBridge()
+      else if (c.brush) c.setBrush(null)        // сперва кисть, потом черновик
       else if (c.dirty) c.discard()
       return
     }
@@ -258,11 +259,13 @@ export function OdontogramWorkbench({
       if (c.view === '3d') { e.preventDefault(); setZoom((z) => !z) }
       return
     }
+    // буква поверхности: с кистью — красит, без — выбирает
+    const hit = (letter: string) => { if (c.brush && c.selected !== null) c.pickSurface(c.selected, letter); else c.setSel(letter) }
     if (L === 'P') {
-      if (c.info.jaw === 'sus') { e.preventDefault(); c.setSel('L') }
+      if (c.info.jaw === 'sus') { e.preventDefault(); hit('L') }
       return
     }
-    if (LETTERS.has(L) && L in model.surfaces) { e.preventDefault(); c.setSel(L) }
+    if (LETTERS.has(L) && L in model.surfaces) { e.preventDefault(); hit(L) }
   }
 
   const menuInfo = menu ? model.teeth[String(menu.n)] : undefined
@@ -272,7 +275,8 @@ export function OdontogramWorkbench({
 
   return (
     <>
-      <div ref={root} className="odop odo dp-odo" id="odo" data-view={c.view} data-sel={c.selected ?? undefined} data-side={side} tabIndex={0} onKeyDown={onKey}>
+      <div ref={root} className="odop odo dp-odo" id="odo" data-view={c.view} data-sel={c.selected ?? undefined} data-side={side}
+        data-brush={c.brush ?? undefined} tabIndex={0} onKeyDown={onKey}>
         <div className="dp-odo-head">
           <div className="dp-tabs" role="group" aria-label={T.modes}>
             <button type="button" data-mode="stare" className={`dp-tab${paroOn ? '' : ' on'}`} aria-pressed={!paroOn}
@@ -347,6 +351,8 @@ export function OdontogramWorkbench({
               busy={c.busy}
               sel={c.sel}
               onSurface={onSurface}
+              brush={brMode ? null : c.brush}
+              onBrush={c.setBrush}
               draft={c.draft}
               dirty={c.dirty}
               onEdit={c.edit}
