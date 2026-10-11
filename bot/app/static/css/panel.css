@@ -2182,15 +2182,21 @@
  .ag-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
  .ag-h b{font-size:var(--fs-h3);font-weight:600}
  .ag-h span{font-size:var(--fs-s);color:var(--text3)}
- .ag-l{max-height:480px;overflow-y:auto;margin:0 -4px;padding:0 4px}
+ /* поля 4px со всех сторон — чтобы приподнятая карточка и её тень не
+    резались краем прокручиваемого списка (overflow режет и по верху) */
+ .ag-l{max-height:480px;overflow-y:auto;margin:-4px -4px 0;padding:4px 4px 0}
  /* Пункт повестки — карточка (макет 08.10): время, имя, услуга, чипы и ряд
     кнопок; полоса слева — цвет услуги, как у блока на сетке. Старая страница
-    печатает ту же строку без ряда кнопок — правила общие. */
+    печатает ту же строку без ряда кнопок — правила общие.
+    Наведение (Олег 11.10): карточка чуть приподнимается и берёт тень —
+    «навёл мышку, карточка интерактивная». Только transform и тень: раскладка
+    не меняется, соседи не прыгают; без .anim и при reduced-motion — тот же
+    конечный вид, просто без перехода. */
  .ag-i{display:flex;flex-direction:column;gap:10px;padding:12px;margin-bottom:8px;
    border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r-block);
    background:var(--panel);cursor:pointer;
-   transition:background-color var(--dur) ease,box-shadow var(--dur) ease}
- .ag-i:hover{box-shadow:var(--sh2)}
+   transition:background-color var(--dur) ease,box-shadow var(--dur) ease,transform var(--dur) ease}
+ .ag-i:hover{box-shadow:var(--sh3);transform:translateY(var(--lift-card))}
  /* старая страница (?ui=legacy) печатает время, тело и плашку прямыми детьми
     строки, без ряда .ag-r — ей строка остаётся строкой */
  .ag-i:not(:has(.ag-r)){flex-direction:row;align-items:center;gap:10px}
