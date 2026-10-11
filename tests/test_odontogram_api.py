@@ -12,6 +12,7 @@
 import html
 import json
 import re
+import sqlite3
 from datetime import timedelta
 
 from harness import Client, Result, Server, clinic_today
@@ -185,7 +186,12 @@ def suite_api(res: Result) -> None:
         res.check("состав", sorted(d),
                   sorted(["teeth", "history", "arches", "arc", "milk_open", "bridges", "legend",
                           "states", "marks", "surfaces", "surface_states", "bridge_roles",
-                          "materials", "patient", "doctors", "perio", "perio_layer", "palette"]))
+                          "materials", "patient", "doctors", "perio", "perio_layer", "palette",
+                          "tooth_states"]))
+        # кисть (11.10): кариес и пломба ставятся только по поверхностям, сетка
+        # состояний зуба получает СПИСОК СЕРВЕРА — второго словаря у клиента нет
+        res.check("tooth_states: состояния про весь зуб — словарь состояний без поверхностных, тем же порядком",
+                  list(d["tooth_states"]), [k for k in d["states"] if k not in d["surface_states"]])
         # B7 ступень 1: размеры и цвета для объёмного вида едут с сервера
         # с 02.10 за состояниями идут отметки: 3D красит кольца тем же цветом, что ореол/каналы в 2D
         res.check("палитра: цвет на каждое состояние и отметку, тем же порядком",
@@ -291,6 +297,38 @@ def suite_api(res: Result) -> None:
         res.check("здоров без заметки — строка ушла, зуб пуст",
                   (_j(r)["data"]["teeth"]["26"]["state"], _j(r)["data"]["teeth"]["26"]["sfst"]), ("ok", {}))
         res.ok("история зуба пополнилась", len(_j(r)["data"]["history"]["26"]) >= 3, "нет")
+
+        # ---- пересохранение БЕЗ единой правки тождественно на ОБОИХ путях (11.10) ----
+        # Одну запись правят два экрана с разным словарём: панель React шлёт
+        # карту поверхностей (с кистью — только её), диалог старой страницы —
+        # буквы флажками. Четыре вида записей, которые живут у клиник: кариес
+        # буквами без карты (старше 08-16), смесь состояний по карте, «C на
+        # весь зуб» без поверхностей (до кисти — с кнопки панели), коронка с
+        # буквами под ней. Прайор 08-16: так пломба уходила с подписываемой 043/e.
+        t = f"/admin/patient/{pid}/tooth"
+        c.post(t, tooth="27", state="carie", doctor="Dr. Activ Doi")        # «C» без поверхностей
+        c.post(t, tooth="25", state="coroana", sf=["M", "O", "D"])          # коронка с буквами под ней
+        con = sqlite3.connect(str(s.dir / "dental.db"))                     # запись старше 08-16: карты нет
+        con.execute("UPDATE teeth SET surface_states = '' WHERE patient_id = ? AND tooth = 11", (pid,))
+        con.commit()
+        con.close()
+
+        def info(n: int) -> dict:
+            x = dict(_j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["teeth"][str(n)])
+            x.pop("at", None)                                               # дата записи меняется по праву
+            return x
+
+        for n in (11, 16, 27, 25):
+            before = info(n)
+            what = f"{n} ({before['state']}, {before['sf'] or 'fără suprafețe'}, карта {before['sfst'] or '—'})"
+            body = {"state": before["state"], "state0": before["state"], "note": before["note"],
+                    "doctor": before["doctor"], "surfaces": before["sfst"], "marks": before["mk"]}
+            r = c.post_json(f"/api/patients/{pid}/teeth/{n}", body)
+            res.check(f"панель React: пересохранение {what} тождественно", (r.status, info(n)), (200, before))
+            r = c.post(t, tooth=str(n), state=before["state"], state0=before["state"], note=before["note"],
+                       doctor=before["doctor"], sf=list(before["sf"]), mk=before["mk"], mk0="1")
+            res.check(f"диалог старой страницы: пересохранение {what} тождественно",
+                      (r.msg, info(n)), ("ok_card", before))
 
         # ---- мосты ----
         r = c.post_json(f"/api/patients/{pid}/bridges", {"teeth": [[16, "stalp"], [14, "stalp"]], "material": "metal"})

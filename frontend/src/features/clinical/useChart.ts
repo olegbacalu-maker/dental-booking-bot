@@ -36,14 +36,6 @@ export function sameDraft(a: ToothDraft, b: ToothDraft): boolean {
     && ka.length === kb.length && ka.every((k, i) => k === kb[i] && a.sfst[k] === b.sfst[k])
 }
 
-/** Быстрый цикл состояния поверхности: «—» → первое частое → … → «—».
- *  Список — сервера (`surface_states`), новых состояний здесь не бывает. */
-export function cycleState(cur: string, states: readonly string[]): string {
-  const i = states.indexOf(cur)
-  if (i < 0) return states[0] ?? ''
-  return states[i + 1] ?? ''
-}
-
 /** Поверхность, выбранная по умолчанию: первая отмеченная, иначе жевательная —
  *  поверхность выбирается СРАЗУ, иначе список её состояния скрыт до первого
  *  клика по букве, а догадаться, что по букве надо кликать, неоткуда. */

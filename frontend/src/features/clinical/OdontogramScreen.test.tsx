@@ -14,7 +14,6 @@ vi.mock('./three/loadThree', () => ({
   resetThree: () => undefined,
 }))
 import { dimmedTeeth, legendCounts, neighbour, surfaceLetter, surfaceName, toothMatches, type Odontogram, type ToothInfo } from './chart'
-import { cycleState } from './useChart'
 
 /* Подмена слоя сети — ТОЛЬКО в этих проверках (§26). */
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
@@ -75,7 +74,11 @@ const inspector = () => document.querySelector('.insp') as HTMLElement
 const root = () => document.querySelector('.odop') as HTMLElement
 const key = (k: string, target: Element = root()) => fireEvent.keyDown(target, { key: k })
 const hitOf = (n: number, s: string) => btn(n).querySelector(`[data-s='${s}']`) as Element
-const sfState = () => within(inspector()).getByLabelText(/Starea suprafeței/) as HTMLSelectElement
+/* кисть (11.10): кнопки «Carie»/«Obturație» в группе «Pensulă»; состояние
+   поверхности читается с клетки креста (класс sf-…), списка больше нет */
+const brushBtn = (name: string) =>
+  within(within(inspector()).getByRole('group', { name: 'Pensulă' })).getByRole('button', { name: new RegExp(`^${name}`) }) as HTMLButtonElement
+const sfStateOf = (name: string) => (Array.from(sfBtn(name).classList).find((c) => c.startsWith('sf-')) ?? '').slice(3)
 /* состояние зуба — сетка кнопок (08.10): нажатая = состояние, ни одной — «ok» */
 const toothState = () => within(inspector()).getByRole('group', { name: 'Starea dintelui' })
 const stateOf = () => toothState().querySelector('button[aria-pressed="true"]')?.getAttribute('data-state') ?? 'ok'
@@ -113,14 +116,6 @@ describe('surface labels', () => {
 })
 
 describe('C22: чистые правила', () => {
-  it('быстрый цикл идёт по списку сервера и возвращается к «—»', () => {
-    const s = ['carie', 'obturatie']
-    expect(cycleState('', s)).toBe('carie')
-    expect(cycleState('carie', s)).toBe('obturatie')
-    expect(cycleState('obturatie', s)).toBe('')
-    expect(cycleState('coroana', s)).toBe('carie')   // не из списка — с начала
-    expect(cycleState('', [])).toBe('')
-  })
 
   it('сосед по стрелкам: ряд, другая челюсть, край, молочные в своей паре', () => {
     expect(neighbour(MODEL, null, 'ArrowRight')).toBe(18)
@@ -161,7 +156,10 @@ describe('OdontogramScreen', () => {
     const insp = inspector()
     expect(within(insp).getByText('16', { selector: 'b' })).toBeTruthy()
     expect(within(insp).getByText('Maxilar')).toBeTruthy()
-    expect(stateOf()).toBe('carie')
+    // кариес живёт на поверхностях (11.10): в сетке «Starea dintelui» ничего не нажато, кисть доступна
+    expect(stateOf()).toBe('ok')
+    expect(within(toothState()).queryByRole('button', { name: 'Carie' })).toBeNull()
+    expect(brushBtn('Carie').disabled).toBe(false)
     expect((within(insp).getByLabelText('Notiță (opțional)') as HTMLInputElement).value).toBe('distal')
     expect(within(insp).getByText(/Carie \(MO\)/)).toBeTruthy()
     // поверхности: первая отмеченная выбрана, у верхней челюсти P вместо L
@@ -179,28 +177,29 @@ describe('OdontogramScreen', () => {
     fireEvent.click(hitOf(16, 'O'))
     const insp = inspector()
     expect(within(insp).getByText('16', { selector: 'b' })).toBeTruthy()
-    expect(within(insp).getByRole('button', { name: /^O ocluzal$/ }).className).toContain('on')
-    expect(sfState().value).toBe('obturatie')
+    expect(within(insp).getByRole('button', { name: /^O ocluzal/ }).className).toContain('on')
+    expect(sfStateOf('O ocluzal')).toBe('obturatie')
+    expect(unsaved()).toBeNull()                           // без кисти клик — только выбор
   })
 
   it('сохранение зуба: намерение явным полем, модель подменяется, плашка сервера', async () => {
-    const after: Odontogram = { ...MODEL, teeth: { ...MODEL.teeth, '16': tooth(16, 'sus', { state: 'obturatie', title: '16 · Obturație' }) } }
+    const after: Odontogram = { ...MODEL, teeth: { ...MODEL.teeth, '16': tooth(16, 'sus', { state: 'carie', title: '16 · Carie · MOD' }) } }
     post.mockResolvedValueOnce(ok(after, 'ok_card', 'Fișa pacientului a fost actualizată'))
     open(16)
     await waitFor(() => expect(btn(16)).toBeTruthy())
     const insp = inspector()
-    fireEvent.click(within(insp).getByRole('button', { name: /^D distal$/ }))
-    fireEvent.change(sfState(), { target: { value: 'carie' } })
-    setState('obturatie')
+    fireEvent.click(brushBtn('Carie'))                     // кисть в руке — крест красит
+    fireEvent.click(within(insp).getByRole('button', { name: /^D distal/ }))
     fireEvent.click(within(insp).getByLabelText('În tratament'))
     expect(unsaved()).toBeTruthy()
     fireEvent.click(within(insp).getByText('Salvează'))
     expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    // состояние зуба форма показала как есть («carie» из модели) — state0 = state, карта — намерение
     expect(post).toHaveBeenCalledWith('/patients/5/teeth/16', {
-      state: 'obturatie', state0: 'carie', note: 'distal', doctor: 'Dr. Activ Doi',
+      state: 'carie', state0: 'carie', note: 'distal', doctor: 'Dr. Activ Doi',
       surfaces: { M: 'carie', O: 'obturatie', D: 'carie' }, marks: ['tratament'],
     })
-    expect(btn(16).getAttribute('title')).toBe('16 · Obturație')
+    expect(btn(16).getAttribute('title')).toBe('16 · Carie · MOD')
     expect(unsaved()).toBeNull()                       // свежая модель — черновика нет
     expect(btn(16).className).not.toContain('dirty')
   })
@@ -276,34 +275,79 @@ describe('OdontogramScreen', () => {
 })
 
 describe('C22: поверхность как первичный жест, черновик, клавиатура, меню', () => {
-  it('быстрый цикл: повторный клик по выбранной поверхности крутит её состояние, черновик явный', async () => {
+  it('кисть (11.10): «Carie»/«Obturație» в руке красят поверхности на рисунке и на кресте, повтор снимает, кисть липкая, Esc отпускает; без кисти клик — выбор', async () => {
     open()
     await waitFor(() => expect(btn(16)).toBeTruthy())
-    fireEvent.click(hitOf(16, 'O'))                        // выбор зуба и поверхности — без правки
-    expect(sfState().value).toBe('obturatie')
+    fireEvent.click(hitOf(16, 'O'))                        // без кисти — выбор зуба и поверхности, не правка
+    expect(sfBtn('O ocluzal').className).toContain('on')
     expect(unsaved()).toBeNull()
-    fireEvent.click(hitOf(16, 'O'))                        // obturatie → «—»
-    expect(sfState().value).toBe('')
+    fireEvent.click(hitOf(16, 'O'))                        // повтор без кисти ничего не крутит
+    expect(unsaved()).toBeNull()
+    expect(root().getAttribute('data-brush')).toBeNull()
+    fireEvent.click(brushBtn('Carie'))                     // кисть в руке — кнопка нажата, рабочий стол знает
+    expect(brushBtn('Carie').getAttribute('aria-pressed')).toBe('true')
+    expect(brushBtn('Carie').textContent).toContain('în mână')
+    expect(root().getAttribute('data-brush')).toBe('carie')
+    fireEvent.click(hitOf(16, 'D'))                        // рисунок: D → carie
+    expect(sfStateOf('D distal')).toBe('carie')
     expect(unsaved()).toBeTruthy()
     expect(btn(16).className).toContain('dirty')
-    fireEvent.click(hitOf(16, 'O'))                        // «—» → carie
-    expect(sfState().value).toBe('carie')
-    expect(sfBtn('O ocluzal').className).toContain('sf-carie')
-    fireEvent.click(hitOf(16, 'O'))                        // carie → obturatie: как в модели, черновика больше нет
-    expect(sfState().value).toBe('obturatie')
-    expect(unsaved()).toBeNull()
-    expect(btn(16).className).not.toContain('dirty')
-    // крест поверхностей в панели (08.10) — тот же путь: первый клик выбирает M, второй крутит
-    fireEvent.click(sfBtn('M mezial'))
-    expect(sfBtn('M mezial').className).toContain('on')
-    expect(sfState().value).toBe('carie')
-    fireEvent.click(sfBtn('M mezial'))
-    expect(sfState().value).toBe('obturatie')
+    fireEvent.click(sfBtn('O ocluzal'))                    // крест: O obturatie → carie (перекраска)
+    expect(sfStateOf('O ocluzal')).toBe('carie')
+    fireEvent.click(sfBtn('O ocluzal'))                    // та же кисть по той же поверхности — снять
+    expect(sfStateOf('O ocluzal')).toBe('')
+    fireEvent.click(brushBtn('Obturație'))                 // другая кисть — перекраска без снятия первой
+    expect(brushBtn('Carie').getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(sfBtn('D distal'))
+    expect(sfStateOf('D distal')).toBe('obturatie')
+    fireEvent.click(btn(17))                               // кисть липкая: сосед — та же в руке
+    expect(root().getAttribute('data-brush')).toBe('obturatie')
+    fireEvent.click(hitOf(17, 'M'))
+    expect(sfStateOf('M mezial')).toBe('obturatie')
+    expect(btn(17).className).toContain('dirty')
+    key('Escape')                                          // Esc — сперва кисть, черновик цел
+    expect(root().getAttribute('data-brush')).toBeNull()
+    expect(brushBtn('Obturație').getAttribute('aria-pressed')).toBe('false')
     expect(unsaved()).toBeTruthy()
-    fireEvent.click(screen.getByText('Renunță'))
-    expect(sfState().value).toBe('carie')
+    key('Escape')                                          // второй Esc — черновик 17 сброшен
     expect(unsaved()).toBeNull()
-    expect(post).not.toHaveBeenCalled()                    // цикл ничего не пишет сам
+    expect(btn(16).className).toContain('dirty')           // черновик 16 держится за своим зубом
+    expect(post).not.toHaveBeenCalled()                    // кисть ничего не пишет сама
+  })
+
+  it('кисть: в сетке и в меню только состояния про весь зуб; под коронкой кисть выключена; старая запись «на весь зуб» — строкой с «Remarchează»/«Șterge»', async () => {
+    const old: Odontogram = {
+      ...MODEL,
+      teeth: { ...MODEL.teeth, '24': tooth(24, 'sus', { state: 'coroana', title: '24 · Coroană' }), '27': tooth(27, 'sus', { state: 'carie', title: '27 · Carie' }) },
+    }
+    get.mockResolvedValue(ok(old))
+    open(24)
+    await waitFor(() => expect(btn(24)).toBeTruthy())
+    expect(within(toothState()).queryByRole('button', { name: 'Carie' })).toBeNull()
+    expect(within(toothState()).queryByRole('button', { name: 'Obturație' })).toBeNull()
+    expect(within(toothState()).getByRole('button', { name: 'Coroană' }).getAttribute('aria-pressed')).toBe('true')
+    expect(brushBtn('Carie').disabled).toBe(true)
+    expect(screen.getByText('Dintele are o stare pe tot dintele — suprafețele nu se marchează')).toBeTruthy()
+    fireEvent.contextMenu(btn(24), { clientX: 300, clientY: 200 })
+    const menu = screen.getByRole('menu')
+    expect(within(menu).queryByRole('menuitemradio', { name: 'Carie' })).toBeNull()
+    expect(within(menu).getByRole('menuitemradio', { name: 'Implant' })).toBeTruthy()
+    key('Escape')
+    // старая запись «C» без поверхностей: рисуется и печатается как раньше, в панели — строка
+    fireEvent.click(btn(27))
+    expect(screen.getByText('Carie pe tot dintele, din evidența veche (fără suprafețe)')).toBeTruthy()
+    expect(stateOf()).toBe('ok')                           // в сетке зуба ей места нет
+    fireEvent.click(screen.getByRole('button', { name: 'Remarchează pe suprafețe' }))
+    expect(root().getAttribute('data-brush')).toBe('carie')
+    fireEvent.click(sfBtn('M mezial'))
+    expect(screen.queryByText(/din evidența veche/)).toBeNull()   // поверхность названа — старой записи больше нет
+    expect(sfStateOf('M mezial')).toBe('carie')
+    fireEvent.click(screen.getByText('Renunță'))
+    expect(screen.getByText(/din evidența veche/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Șterge' }))
+    expect(screen.queryByText(/din evidența veche/)).toBeNull()
+    expect(unsaved()).toBeTruthy()
+    expect(post).not.toHaveBeenCalled()
   })
 
   it('B4.3: ?t= сменился на том же пути (переход роутером) — фокус уходит к новому зубу без перезагрузки', async () => {
@@ -359,17 +403,21 @@ describe('C22: поверхность как первичный жест, чер
     await waitFor(() => expect(btn(16)).toBeTruthy())
     key('Enter')
     expect(post).not.toHaveBeenCalled()                    // нечего записывать
-    fireEvent.click(hitOf(16, 'O'))
-    fireEvent.click(hitOf(16, 'O'))                        // O: obturatie → «—»
+    fireEvent.click(brushBtn('Obturație'))
+    fireEvent.click(hitOf(16, 'O'))                        // та же кисть по O: obturatie → снято
     expect(unsaved()).toBeTruthy()
     fireEvent.keyDown(within(inspector()).getByLabelText('Notiță (opțional)'), { key: 'Enter' })
     expect(post).not.toHaveBeenCalled()                    // в поле ввода Enter — браузерный
-    fireEvent.keyDown(sfState(), { key: 'Escape' })
+    fireEvent.keyDown(within(inspector()).getByLabelText('Medic'), { key: 'Escape' })
     expect(unsaved()).toBeTruthy()                         // и Esc в списке черновик не трогает
-    key('Escape')
+    key('Escape')                                          // первый Esc отпускает кисть
+    expect(root().getAttribute('data-brush')).toBeNull()
+    expect(unsaved()).toBeTruthy()
+    key('Escape')                                          // второй — сбрасывает черновик
     expect(unsaved()).toBeNull()
-    expect(sfState().value).toBe('obturatie')
-    fireEvent.click(hitOf(16, 'O'))                        // поверхность O всё ещё выбрана — сразу цикл
+    expect(sfStateOf('O ocluzal')).toBe('obturatie')
+    fireEvent.click(brushBtn('Obturație'))
+    fireEvent.click(hitOf(16, 'O'))                        // снова снять O
     expect(unsaved()).toBeTruthy()
     fireEvent.keyDown(btn(16), { key: 'Enter' })           // фокус на зубе внутри карты
     expect(post).toHaveBeenCalledWith('/patients/5/teeth/16', {

@@ -627,7 +627,9 @@ describe('PatientCardScreen', () => {
       /* B6 шаг 2: во вкладке тот же рабочий стол, что на детальной — инспектор, не диалог */
       const insp = document.querySelector('.insp') as HTMLElement
       expect(within(insp).getByText('11', { selector: '.dp-tp-num' })).toBeTruthy()
-      fireEvent.click(within(insp).getByRole('button', { name: 'Carie' }))
+      // кисть (11.10): кариес — только по поверхностям: кисть в руку, клик по O на кресте
+      fireEvent.click(within(insp).getByRole('button', { name: /^Carie/ }))
+      fireEvent.click(within(insp).getByRole('button', { name: /^O ocluzal/ }))
       fireEvent.click(within(insp).getByText('Salvează'))
       expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
     }
@@ -638,7 +640,7 @@ describe('PatientCardScreen', () => {
     await screen.findByText('Pin Test', { selector: 'h2' })
     await saveTooth11()
     expect(opens()).toBe(1)
-    expect(post).toHaveBeenCalledWith('/patients/5/teeth/11?card=1', expect.objectContaining({ state: 'carie', state0: 'ok' }))
+    expect(post).toHaveBeenCalledWith('/patients/5/teeth/11?card=1', expect.objectContaining({ state: 'ok', state0: 'ok', surfaces: { O: 'carie' } }))
     await waitFor(() => expect(pills()).toContain('2 implante'))
     expect(opens()).toBe(1)
     /* режим ленты адреса едет и в запись: фиша в ответе — с просмотрами */
