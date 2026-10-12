@@ -91,11 +91,32 @@ def suite_acl(res: Result) -> None:
     # ⛔ По SID, а не по имени: на румынской Windows группа зовётся Utilizatori
     res.ok("права выдаются по SID", "*S-1-5-32-545" in s,
            "/grant по имени группы на румынской Windows не найдёт ничего")
-    grant = next((ln for ln in s.splitlines() if "/grant" in ln), "")
-    res.ok("у icacls нет /C", "/C" not in grant,
+    # ⚠️ Строка САМОЙ команды, а не первая с «/grant»: до 12.10 ею оказывалась
+    # строка комментария («/grant Users: не найдёт…»), и проверка смотрела мимо
+    # команды — зелёная при любом ключе. Отсюда и «нашлась».
+    grant = next((ln for ln in s.splitlines()
+                  if "/grant *S-1-5-32-545" in ln and "'" in ln), "")
+    res.ok("строка команды icacls нашлась", bool(grant),
+           "проверка ключей смотрела бы в пустоту")
+    res.ok("у icacls нет /C", bool(grant) and "/C" not in grant,
            "/C велит продолжать после ошибок — код возврата перестаёт значить")
     res.ok("результат icacls проверяется", "(RC = 0)" in s,
            "код возврата не читается — тихо неверные права")
+
+    # Канарейка 1.41.0 (12.10): тихое обновление встало на окне о правах —
+    # обычный MsgBox ключ /SUPPRESSMSGBOXES не гасит. Окно о правах — только
+    # SuppressibleMsgBox; и текст не обещает остановку: шаг идёт ПОСЛЕ установки.
+    acl_box = re.findall(r"(\w*MsgBox)\(FmtMessage\(CustomMessage\('AclText'\)", s)
+    res.ok("окно о правах гасится тихим режимом",
+           acl_box == ["SuppressibleMsgBox"],
+           f"найдено: {acl_box} — тихое обновление встанет на окне до нажатия OK")
+    acl_text = next((ln for ln in s.splitlines() if ln.startswith("ro.AclText=")), "")
+    res.ok("текст о правах не обещает остановку установки",
+           bool(acl_text) and "a fost oprită" not in acl_text,
+           "шаг прав идёт после установки — «oprită» неправда")
+    res.ok("отказ icacls пишется в журнал и повторяется",
+           "ExecAndLogOutput(" in s and "for Attempt := 1 to 3" in s,
+           "вывод icacls выбрасывается — отказ не назовёт файл")
 
 
 def suite_first_run(res: Result) -> None:

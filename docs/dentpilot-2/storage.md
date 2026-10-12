@@ -238,10 +238,12 @@ Name: "{commonappdata}\DentPilot\data";         Permissions: users-modify
 Name: "{commonappdata}\DentPilot\data\backups"; Permissions: users-modify
 Name: "{commonappdata}\DentPilot\data\files";   Permissions: users-modify
 
-[Run]
-Filename: "{sys}\icacls.exe"; Flags: runhidden; Parameters: \
-    """{commonappdata}\DentPilot"" /grant *S-1-5-32-545:(OI)(CI)M /T /C /Q"
+[Code] (GrantDataAcl, шаг ssPostInstall)
+icacls "{commonappdata}\DentPilot" /grant *S-1-5-32-545:(OI)(CI)M /T
 ```
+
+⛔ Без `/C` и `/Q`: `/C` велит `icacls` продолжать после ошибок, и код возврата
+перестаёт что-либо значить (держит `test_installer.suite_acl`).
 
 ⛔ Права выдавать **по SID** (`*S-1-5-32-545`), не по имени: на румынской
 Windows группа называется `Utilizatori`, и `/grant Users:` там не найдёт
@@ -251,6 +253,25 @@ Windows группа называется `Utilizatori`, и `/grant Users:` та
 ⚠️ SQLite в режиме WAL создаёт `-wal` и `-shm` рядом с базой, значит право
 нужно на **каталог**, а не только на файл. Прав только на `dental.db`
 недостаточно.
+
+⚠️ **Канарейка 1.41.0 (12.10): `icacls /T` отказал при тихом обновлении.**
+Сама установка прошла, права от прошлых установок остались на месте, но шаг
+выдачи прав вернул ненулевой код, и мастер показал окно о правах. Подозреваемый
+номер один — заставка сторожа перезапуска: её профиль WebView2 лежал внутри папки
+данных (`updates\watch-profile`) и писал туда в ту же секунду. Простой опыт
+«писатель создаёт и удаляет файлы» отказ не повторил, а какой файл отказал,
+неизвестно: вывод `icacls` выбрасывался. С 1.41.1:
+- профиль заставки — рядом с профилем окна (`%LOCALAPPDATA%\DentPilot\webview-watch`,
+  путь даёт лаунчер через `DENTART_WATCH_PROFILE`); старый сносится, когда
+  программа заводит следующего сторожа;
+- выдача прав — до трёх попыток, вывод `icacls` идёт в журнал установки
+  (`ExecAndLogOutput`; тихое обновление всегда передаёт `/LOG`), так что
+  следующий отказ назовёт файл;
+- ⛔ окно о правах — `SuppressibleMsgBox`: обычный `MsgBox` ключ
+  `/SUPPRESSMSGBOXES` не гасит, и тихое обновление стояло на этом окне, пока
+  человек не нажмёт OK. Текст больше не говорит «Instalarea a fost oprită»:
+  шаг прав идёт ПОСЛЕ установки.
+Держат `test_installer.suite_acl`, `test_restart.suite_watch`, `test_launcher`.
 
 ---
 

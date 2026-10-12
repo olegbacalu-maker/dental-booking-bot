@@ -441,6 +441,13 @@ def suite_window(res: Result) -> None:
     res.ok("профиль читается ДО слияния dental.env",
            desk.index("PROFILE_DIR = profile_dir()") < desk.index("envfile.read_all(env_path)"),
            "строка DENTART_PROFILE_DIR в dental.env уводила бы профиль")
+    # 12.10, канарейка 1.41.0: профиль заставки сторожа в папке данных ронял
+    # выдачу прав установщиком. Путь даёт лаунчер, ПОСЛЕ слияния dental.env.
+    watch = 'os.environ["DENTART_WATCH_PROFILE"] = str(PROFILE_DIR.with_name('
+    res.ok("профиль сторожа — рядом с профилем окна, ставится после dental.env",
+           watch in desk
+           and desk.index(watch) > desk.index("envfile.read_all(env_path)"),
+           "приложение вернётся к папке данных, или строка в dental.env перебьёт путь")
     res.ok("общий ПК — вход не переживает перезапуск (clear_cookies по политике)",
            '"clear" if mode == "shared_pc" else "keep"' in desk
            and "self._window.clear_cookies()" in desk,

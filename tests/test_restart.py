@@ -40,6 +40,7 @@ os.environ.pop("DENTART_NO_RESTART", None)   # иначе restart_app выйде
 
 from app import update as upd
 from app.modules.settings import routes as st
+_real_spawn = upd._spawn_watch               # набор 4 зовёт настоящий
 
 # exe, рядом с которым restart_app пишет свой bat
 exe = tmp / "DentPilot.exe"
@@ -100,6 +101,34 @@ for key, coro in (("lan_dev", lambda: st.admin_lan_save(None, mode="off")),
     out[key + "_spawns"] = len(spawns)
     out[key + "_status"] = r["status"]
     out[key + "_loc"] = r["loc"]
+
+# --- 4. профиль заставки сторожа (12.10, 1.41.1): путь даёт лаунчер, и он не
+# в папке данных; старый профиль в папке данных сносится при запуске сторожа ---
+from app import restartwatch as rw
+os.environ.pop("DENTART_WATCH_PROFILE", None)
+out["watch_default"] = str(upd.watch_profile())
+own = tmp / "local" / "DentPilot" / "webview-watch"
+os.environ["DENTART_WATCH_PROFILE"] = str(own)
+out["watch_launcher"] = str(upd.watch_profile())
+out["watch_own"] = str(own)
+out["work_dir"] = str(upd.work_dir())
+old = upd.work_dir() / "watch-profile"
+(old / "EBWebView").mkdir(parents=True, exist_ok=True)
+(old / "EBWebView" / "Local State").write_text("{}", encoding="utf-8")
+seen = {}
+
+
+def fake_schtasks(task, command, arguments, proof, wait):
+    seen["args"] = arguments
+    return None
+
+
+upd._watch_command = lambda copy: [str(exe)]
+upd._schtasks_run = fake_schtasks
+out["spawn"] = _real_spawn(None, "DentPilotRestart", "x", False)
+out["old_gone"] = not old.exists()
+plan = rw.parse(seen.get("args", []))
+out["plan_profile"] = str(plan.profile) if plan else ""
 
 print(json.dumps(out))
 ''' % (str(BOT), _TOKEN)
@@ -232,3 +261,19 @@ def suite_watch(res: Result) -> None:
         res.check("слово для заставки по откату", rw.outcome_text("fail motiv")[:17], "Actualizarea nu s")
         res.check("слово для заставки при успехе", rw.outcome_text("ok"), "Se pornește versiunea nouă…")
         res.check("простой перезапуск: файла итога нет — читается как «ok»", rw.read_result(None), "ok")
+
+    # Профиль заставки (12.10, 1.41.1): установщик выдаёт права `icacls /T` на
+    # всю папку данных, и WebView2 заставки, писавший в ней же, ронял этот шаг
+    # (канарейка 1.41.0). Подпроцесс — общий с наборами выше.
+    m = _run_code(res)
+    if m:
+        res.check("без лаунчера — прежнее место (исходники, прогон)",
+                  m["watch_default"], str(pathlib.Path(m["work_dir"]) / "watch-profile"))
+        res.check("с лаунчером — его путь, а не папка данных",
+                  m["watch_launcher"], m["watch_own"])
+        res.ok("папка данных не содержит профиль сторожа",
+               not m["watch_launcher"].startswith(m["work_dir"]), m["watch_launcher"])
+        res.check("запуск сторожа прошёл", m["spawn"], None)
+        res.check("сторож получил профиль лаунчера", m["plan_profile"], m["watch_own"])
+        res.ok("старый профиль в папке данных снесён при запуске сторожа",
+               m["old_gone"], "остался — icacls установщика снова обойдёт чужой кэш")

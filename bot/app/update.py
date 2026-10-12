@@ -892,6 +892,20 @@ def _primary() -> str:
         return brand.hexc(brand.TEAL)
 
 
+# Прежнее место профиля заставки (до 1.41.1) — внутри папки данных.
+_OLD_WATCH_PROFILE = "watch-profile"
+
+
+def watch_profile() -> pathlib.Path:
+    """Профиль WebView2 заставки сторожа. Путь даёт ЛАУНЧЕР
+    (`DENTART_WATCH_PROFILE`: рядом с профилем окна, у своей учётки Windows) —
+    не в папке данных, которую установщик обходит `icacls /T` (12.10, канарейка
+    1.41.0: заставка писала в дереве ровно тогда, и выдача прав отказала).
+    Без лаунчера (исходники, прогон) установщика нет — прежнее место годится."""
+    raw = os.environ.get("DENTART_WATCH_PROFILE", "").strip()
+    return pathlib.Path(raw) if raw else work_dir() / _OLD_WATCH_PROFILE
+
+
 def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool) -> str | None:
     """Сторож перезапуска задачей планировщика ОТ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ (11.10):
     сам exe в режиме `--watch` с заставкой (`desktop._watch_mode`) вместо bat
@@ -906,8 +920,15 @@ def _spawn_watch(result: pathlib.Path | None, task: str, label: str, copy: bool)
     work = work_dir()
     proof = work / f"{task}.run"
     proof.unlink(missing_ok=True)
+    profile = watch_profile()
+    # Старый профиль в папке данных больше никто не пишет, и прямо сейчас он
+    # свободен: прежние сторожа закрылись вместе с прошлым обновлением, а новый
+    # ещё не запущен. Не снёсся (файл держит антивирус) — снесётся в следующий раз.
+    old = work / _OLD_WATCH_PROFILE
+    if old != profile and old.exists():
+        shutil.rmtree(old, ignore_errors=True)
     plan = restartwatch.Plan(proof=proof, task=task, result=result, pid=os.getpid(),
-                             label=label, primary=_primary(), profile=work / "watch-profile",
+                             label=label, primary=_primary(), profile=profile,
                              launch=_program_cmd())
     return _schtasks_run(task, cmd[0], [*cmd[1:], *restartwatch.argv_for(plan)], proof,
                          _SPAWN_PROOF_WAIT_EXE if paths.is_frozen() else _SPAWN_PROOF_WAIT)

@@ -375,6 +375,15 @@ os.environ.setdefault("DATABASE_URL", f"sqlite:///{data_dir / 'dental.db'}")
 # путь к env-файлу — для страницы настроек (правка токена из UI)
 os.environ["DENTART_ENV_FILE"] = str(env_path)
 
+# Профиль заставки сторожа перезапуска — РЯДОМ с профилем окна, у той же учётки
+# Windows (12.10, 1.41.1). До того он жил в папке данных (`updates\watch-profile`),
+# и установщик, выдающий права `icacls /T` на всю папку данных, обходил дерево в
+# ту же секунду, когда WebView2 заставки в нём писал: канарейка 1.41.0 — окно
+# «Nu am putut acorda drepturi». Путь знает лаунчер (profile_dir выше), приложение
+# получает его готовым — второго вычисления того же места нет. Ставится ПОСЛЕ
+# слияния dental.env: строка в файле клиники его не перебьёт.
+os.environ["DENTART_WATCH_PROFILE"] = str(PROFILE_DIR.with_name(PROFILE_DIR.name + "-watch"))
+
 
 def _auto_backup() -> None:
     """Копия базы при каждом старте. Сама логика (шифрованные копии, ротация,

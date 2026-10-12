@@ -144,7 +144,7 @@ ro.DataKeptText=Programul a fost șters, dar datele clinicii NU au fost șterse:
 ro.LegacyTitle=Există deja o instalare mai veche
 ro.LegacyText=Pe acest calculator există o instalare mai veche a DentPilot, cu datele clinicii lângă program:%n%n%1%n%nMutarea datelor în noua așezare nu este încă disponibilă în această versiune. Instalarea a fost oprită ca să nu rămână două evidențe separate.
 ro.AclTitle=Drepturile pe dosarul cu date
-ro.AclText=Nu am putut acorda drepturi de scriere pe «%1».%n%nFără ele, a doua tură nu va putea lucra. Instalarea a fost oprită.
+ro.AclText=Programul este instalat, dar nu am putut acorda drepturi de scriere pe «%1».%n%nFără ele, un alt cont Windows de pe acest calculator (a doua tură) nu va putea lucra în program. Porniți instalarea încă o dată.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -474,9 +474,35 @@ begin
     WriteResult('fail');
 end;
 
+// Права на папку данных — до трёх попыток (12.10, канарейка 1.41.0).
+// icacls /T обходит ВСЁ дерево, и один отказ на лету ронял весь шаг: в ту же
+// секунду в дереве писала заставка сторожа перезапуска (её профиль WebView2
+// до 1.41.1 лежал в папке данных). Какой файл отказал — неизвестно: вывод
+// icacls выбрасывался. Теперь он идёт в журнал установки (ExecAndLogOutput;
+// тихое обновление всегда передаёт /LOG), и следующий отказ назовёт файл.
+function GrantDataAcl(): Boolean;
+var
+  RC, Attempt: Integer;
+begin
+  Result := False;
+  for Attempt := 1 to 3 do
+  begin
+    if Attempt > 1 then
+      Sleep(2000);
+    Log(Format('ACL: popytka %d', [Attempt]));
+    if ExecAndLogOutput(ExpandConstant('{sys}\icacls.exe'),
+                        '"' + DataRoot() + '" /grant *S-1-5-32-545:(OI)(CI)M /T',
+                        '', SW_SHOWNORMAL, ewWaitUntilTerminated, RC, nil) and (RC = 0) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Log(Format('ACL: kod vozvrata %d', [RC]));
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  RC: Integer;
   AclOk: Boolean;
 begin
   if CurStep = ssDone then
@@ -487,12 +513,14 @@ begin
   end;
   if CurStep <> ssPostInstall then
     Exit;
-  AclOk := Exec(ExpandConstant('{sys}\icacls.exe'),
-                '"' + DataRoot() + '" /grant *S-1-5-32-545:(OI)(CI)M /T',
-                '', SW_HIDE, ewWaitUntilTerminated, RC) and (RC = 0);
+  AclOk := GrantDataAcl();
   WriteInstallJson(AclOk);
+  // ⛔ SuppressibleMsgBox, не MsgBox: обычный MsgBox ключ /SUPPRESSMSGBOXES не
+  // гасит, и тихое обновление (12.10) стояло на этом окне, пока человек не
+  // нажмёт OK, — в клинике без человека у экрана до потолка сторожа.
   if not AclOk then
-    MsgBox(FmtMessage(CustomMessage('AclText'), [DataRoot()]), mbError, MB_OK);
+    SuppressibleMsgBox(FmtMessage(CustomMessage('AclText'), [DataRoot()]),
+                       mbError, MB_OK, IDOK);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
