@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import atexit
+import http.client
 import http.cookiejar
 import json
 import os
@@ -762,9 +763,75 @@ class Reply:
         return f"<{self.status} msg={self.msg!r} loc={self.location!r}>"
 
 
+class _OneWrite(http.client.HTTPConnection):
+    """Соединение клиента прогона: небольшой запрос уходит в сокет ОДНОЙ
+    записью — строка запроса, заголовки и тело вместе.
+
+    ⛔ Штатный http.client пишет заголовки и тело ДВУМЯ `sendall`, а urllib
+    всегда просит `Connection: close`. Маршрут, которому тело не нужно,
+    отвечает по одним заголовкам — ворота лицензии (423 в шлюзе до разбора
+    тела), отказ прав, 404, — и uvicorn по `close` сразу закрывает сокет.
+    Застрянь клиент между двумя записями (замер 12.10: первая `sendall`
+    возвращалась через 3–27 мс, когда сервер уже ответил и закрыл), тело
+    приходит в закрытый сокет, сервер отвечает RST, и Windows выбрасывает
+    УЖЕ ПРИШЕДШИЙ ответ: чтение падает `ConnectionAbortedError` 10053 вместо
+    423. «Ворота в readonly» падали так раз в 3–15 прогонов, каждый раз на
+    другом JSON-POST: тело приходило позже начала ответа на 6–19 запросах из
+    42 в КАЖДОМ прогоне, а падал тот, где закрытие успевало раньше тела.
+    Признак класса — «набор упал: ConnectionAbortedError … socket.py», а не
+    красная проверка; повтор «лечил», потому что окно узкое.
+    ⭐ Чинится клиент, а не ворота: браузер (WebView2) держит соединение
+    (keep-alive), и uvicorn после раннего ответа сам дочитывает тело и
+    отвечает на следующий запрос в том же сокете (проверено сырыми сокетами
+    12.10). Ранний отказ без чтения тела — законный HTTP; ломалась только
+    пара «close + две записи», которой у браузера нет.
+    ⚠️ Одной записью — только запрос до `MERGE_MAX` (обычные JSON и формы):
+    он приходит серверу одним куском, заголовков без тела у того не бывает. Крупнее — штатно, двумя записями: одним куском он не придёт
+    всё равно, а раннему отказу на мегабайтах одна запись ВРЕДИТ (замер
+    12.10, 9 МБ на 404 до чтения тела: штатно ответ 10/10, одной записью
+    обрыв 10/10; 1 МБ — обрыв 2/10 против 6/10). Мегабайты на маршрут,
+    отвечающий до тела, обрываются и штатно — см. `test_demo._upload`.
+    """
+
+    # С запасом меньше и сегмента петли (~64 КБ), и одного чтения сервера
+    # (буфер proactor — 64 КБ): запрос не дробится ни там, ни там.
+    MERGE_MAX = 32 * 1024
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pending = b""
+
+    def send(self, data):
+        # Подключение — сразу, как у http.client: отказ соединения остаётся
+        # внутри request(), и urllib по-прежнему заворачивает его в URLError.
+        if self.sock is None:
+            self.connect()
+        data = bytes(data)
+        if len(self._pending) + len(data) <= self.MERGE_MAX:
+            self._pending += data
+            return
+        self._flush()            # крупное — как у http.client: сразу, по отдельности
+        super().send(data)
+
+    def _flush(self):
+        data, self._pending = self._pending, b""
+        if data:
+            super().send(data)
+
+    def getresponse(self):
+        self._flush()
+        return super().getresponse()
+
+
+class _OneWriteHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_OneWrite, req)
+
+
 class Client:
     """HTTP-клиент с куками и БЕЗ следования редиректам: код ответа и Location —
-    это и есть проверяемое поведение журнала."""
+    это и есть проверяемое поведение журнала. Небольшой запрос уходит одной
+    записью (`_OneWrite`) — иначе ранний отказ сервера обрывался 10053."""
 
     def __init__(self, base: str):
         self.base = base
@@ -775,7 +842,7 @@ class Client:
                 return None
 
         self.opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(self.jar), _NoRedirect)
+            urllib.request.HTTPCookieProcessor(self.jar), _NoRedirect, _OneWriteHandler)
 
     def _do(self, path: str, data: bytes | None = None,
             headers: dict | None = None) -> Reply:

@@ -39,6 +39,7 @@ import test_day_forms  # noqa: E402
 import test_grid  # noqa: E402
 import test_guards  # noqa: E402
 import test_hardening  # noqa: E402
+import test_harness_client  # noqa: E402
 import test_harness_clock  # noqa: E402
 import test_harness_tmp  # noqa: E402
 import test_launcher  # noqa: E402
@@ -108,6 +109,11 @@ SUITES = [
     # Три сервера, секунды: часы, которые не встали, тоже не краснеют сами —
     # набор под ними проверял бы не тот день, и зелёным.
     ("Сторожа: поддельные часы харнесса", test_harness_clock.suite_clock),
+    # Сервер — поток в этом же процессе, доли секунды: клиент, пишущий
+    # заголовки и тело двумя записями, не краснеет сам — он роняет набор
+    # 10053 раз в несколько прогонов, на случайном маршруте (12.10).
+    ("Сторожа: клиент прогона пишет запрос одной записью",
+     test_harness_client.suite_one_write),
     ("Выпуск: версия с «v» в check_release", test_guards.suite_release_arg),
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Выпуск: подпись — exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
