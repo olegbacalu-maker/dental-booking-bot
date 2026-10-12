@@ -312,6 +312,35 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     expect(document.querySelector('aside nav a.on')?.getAttribute('title')).toBe('Medici')
   })
 
+  it('12.10: «Restrânge meniul» — узкий сайдбар тем же классом, что у одонтограммы; выбор помнит компьютер', async () => {
+    localStorage.removeItem('dp_side')
+    openClinic()
+    const aside = document.querySelector('aside.side') as HTMLElement
+    const btn = screen.getByRole('button', { name: 'Restrânge meniul' })
+    expect(aside.className).toBe('side')
+    expect(btn.getAttribute('aria-pressed')).toBe('false')
+    await act(async () => { fireEvent.click(btn) })
+    expect(aside.className).toBe('side side-rail')
+    expect(localStorage.getItem('dp_side')).toBe('rail')
+    expect(screen.getByRole('button', { name: 'Extinde meniul' }).getAttribute('aria-pressed')).toBe('true')
+    /* перезапуск окна: первый же кадр — узкий (выбор читается в первом рендере) */
+    cleanup()
+    openClinic()
+    expect((document.querySelector('aside.side') as HTMLElement).className).toBe('side side-rail')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Extinde meniul' })) })
+    expect((document.querySelector('aside.side') as HTMLElement).className).toBe('side')
+    expect(localStorage.getItem('dp_side')).toBeNull()
+  })
+
+  it('12.10: на экране, где узость задал сервер (одонтограмма, `rail`), кнопки нет', () => {
+    localStorage.removeItem('dp_side')
+    get.mockImplementation(hubWaitsDoctorsFail)
+    open(CLINIC_URL, node('settings_clinic', {}, { ...SHELL_FULL, frame: { ...SHELL_FULL.frame, rail: true } }))
+    expect((document.querySelector('aside.side') as HTMLElement).className).toBe('side side-rail')
+    expect(screen.queryByRole('button', { name: 'Restrânge meniul' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Extinde meniul' })).toBeNull()
+  })
+
   it('пункт «Sincronizări» на страницу, которой нет у роутера, — обычная ссылка', async () => {
     const { router } = openClinic()
     let native = false

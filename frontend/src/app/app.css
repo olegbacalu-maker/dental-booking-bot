@@ -2090,3 +2090,81 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .tline small { font-size: var(--fs-m); color: var(--text2); }
 .dp-react-root .dp-hist-all { display: inline-block; margin-top: 12px; font-size: var(--fs-body); font-weight: 600; color: var(--teal-d); text-decoration: none; }
 .dp-react-root .dp-hist-all:hover { text-decoration: underline; }
+
+/* ---- 12.10: пять правок главной (слово Олега) ---- */
+/* Сворачиваемые блоки правой колонки (`Fold`): заголовок — summary без
+   маркера браузера, справа шеврон; свёрнутый — шеврон вправо, открытый — вниз. */
+.dp-fold > summary { list-style: none; cursor: pointer; }
+.dp-fold > summary::-webkit-details-marker { display: none; }
+.dp-fold > summary:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r-xs); }
+.dp-fold-c { display: inline-flex; flex: 0 0 auto; color: var(--text3); }
+.dp-fold-c svg { width: 14px; height: 14px; transition: transform var(--dur) ease; }
+.dp-fold[open] > summary .dp-fold-c svg { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .dp-fold-c svg { transition: none; } }
+/* Agenda zilei: имя слева, счётчик и шеврон справа; свёрнутая — без хвоста под заголовком */
+.dp-react-root .agenda.dp-fold > summary.ag-h { justify-content: flex-start; align-items: center; gap: 8px; }
+.dp-react-root .agenda.dp-fold > summary.ag-h b { margin-right: auto; }
+.dp-react-root .agenda.dp-fold:not([open]) > summary.ag-h { margin-bottom: 0; }
+/* Primul loc liber: заголовок — summary с h2; касса под ним не сворачивается */
+.dp-free-f > summary { display: flex; align-items: center; gap: 8px; }
+.dp-free-f > summary h2 { flex: 1; }
+.dp-free-f:not([open]) > summary h2 { margin-bottom: 0; }
+.dp-free-f:not([open]) + .dk-cash { margin-top: 8px; }
+/* разделы стойки: шеврон после счётчика */
+.dk-sec.dp-fold > summary .dp-fold-c { margin-left: 2px; }
+
+/* Шапка врача: фото — ссылка на врача; навели на фото — подсвечено и имя */
+.gh-doc a.av { text-decoration: none; cursor: pointer; transition: box-shadow var(--dur) ease; }
+/* тень-ступень, не кольцо: кольцо — фокус (`--ring`), у наведения свой знак */
+.gh-doc a.av:hover { box-shadow: var(--sh2); }
+.gh-doc .dc-top:has(a.av:hover) .nm a { color: var(--teal-d); }
+/* кабинет — значком двери в начале строки под именем */
+.gh-doc .dc-room { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; color: var(--text); }
+.gh-doc .dc-room svg { width: 13px; height: 13px; flex: 0 0 13px; }
+/* ⚠️ Плотный режим panel.css прячет строку под именем целиком (специализацию
+   заменяет цвет кольца). Строка С КАБИНЕТОМ остаётся, уходит только
+   специализация: селекторы на класс длиннее — перебивают оба правила там. */
+.gridhead.tight .nm small.has-room { display: block; }
+.gridhead.tight .nm small.has-room .dc-spec { display: none; }
+@media (max-width: 1440px) {
+  .gh-doc .nm small.has-room { display: block; }
+  .gh-doc .nm small.has-room .dc-spec { display: none; }
+}
+
+/* Кнопка «Restrânge / Extinde meniul» — внизу меню, вид пункта меню.
+   Узкое окно (≤1000) сужает меню само — там кнопка не нужна. */
+.side .side-fold {
+  display: flex; align-items: center; gap: 12px; margin: 4px 10px 6px; padding: 0 12px;
+  height: var(--h-nav); border: 0; border-radius: var(--r-ctl); background: none;
+  color: var(--side-fg); opacity: .7; font: inherit; font-size: var(--fs-m); cursor: pointer;
+  text-align: left; transition: background-color var(--dur) ease, opacity var(--dur) ease;
+}
+.side .side-fold svg { flex: 0 0 16px; width: 16px; height: 16px; }
+.side .side-fold:hover { background: var(--side-hover); opacity: 1; }
+.side .side-fold:focus-visible { outline: none; box-shadow: var(--ring); }
+.side.side-rail .side-fold { justify-content: center; margin: 4px 8px 10px; padding: 9px 0; }
+.side.side-rail .side-fold span { display: none; }
+.anim .side .side-fold span { white-space: nowrap; }
+@media (max-width: 1000px) { .side .side-fold { display: none; } }
+
+/* Карточка визита: строка подтверждения звонком (12.10) — те же кнопки, что у «De confirmat» */
+.dp-react-root .dp-card-call {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-block); background: var(--bg); font-size: var(--fs-m);
+}
+.dp-react-root .dp-card-call-l { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text2); }
+.dp-react-root .dp-card-call-l svg, .dp-react-root .dp-card-call .dk-ok svg, .dp-react-root .dp-card-call .dk-no svg { width: 14px; height: 14px; }
+.dp-react-root .dp-card-call-b { display: flex; gap: 6px; margin-left: auto; }
+/* ⚠️ Общий `.dlg-form button` красит любую кнопку диалога фирменной заливкой
+   (0,1,1, а его :hover — 0,2,1): кнопки звонка — вторичные, как в «De confirmat»,
+   поэтому вид задаётся здесь целиком и селектором длиннее. */
+.dp-react-root .dlg-form .dp-card-call .dk-btn, .dp-react-root .dlg-form .dp-card-call .dk-btn:hover {
+  width: auto; height: 30px; padding: 0 10px; gap: 6px; font: inherit; font-size: var(--fs-m); font-weight: 600;
+  background: var(--panel); color: var(--text2); border: 1px solid var(--line); box-shadow: none; transform: none;
+}
+.dp-react-root .dlg-form .dp-card-call .dk-btn.ok:hover { background: var(--green-soft); color: var(--green-t); border-color: transparent; }
+.dp-react-root .dlg-form .dp-card-call .dk-btn.no:hover { background: var(--amber-soft); color: var(--amber-t); border-color: transparent; }
+.dp-react-root .dlg-form .dp-card-call .dk-btn:not(.ok):not(.no):hover { border-color: var(--text3); color: var(--text); }
+/* меню правой кнопки: пункты звонка — цветом своего исхода при наведении */
+.dp-cmenu-call.ok:hover { background: var(--green-soft); color: var(--green-t); }
+.dp-cmenu-call.noanswer:hover { background: var(--amber-soft); color: var(--amber-t); }

@@ -1,5 +1,6 @@
 import { api } from '../../services/api'
 import type { DashCanvasModel } from './dash'
+import type { CallResult } from './desk'
 
 /* Сетка дня (C25). Формы ответа — bot/app/modules/schedule/api.py и day.py:
    состав колонок, диапазон часов, исход ячейки и цвет считает СЕРВЕР.
@@ -108,6 +109,9 @@ export interface VisitCardView {
   status: string
   pid: number | null
   rec: boolean
+  /** Отметка звонка и можно ли её ставить (12.10) — поля сервера. */
+  call: CallResult
+  callable: boolean
 }
 
 /**
@@ -148,6 +152,10 @@ export interface DayCard {
   pid: number | null
   /** Дневник визита уже заполнен. */
   rec: boolean
+  /** Отметка звонка-подтверждения (12.10) и можно ли её ставить — сервер,
+   *  `core.visits.call_fields`; дату в браузере не считает никто. */
+  call: CallResult
+  callable: boolean
 }
 
 /** Кнопка исхода — сервер говорит и слово, и класс, и нужен ли вопрос. */
@@ -291,4 +299,9 @@ export const day = {
          body: { date: string; time: string; doctor: string }) =>
     api.post<DayModel>(
       `/schedule/appointments/${id}/move${screen(at, doctor, f)}`, body),
+
+  /** Отметка звонка-подтверждения из карточки и меню (12.10) — тот же маршрут,
+   *  что у «De confirmat» панели; дню журнала он отвечает свежим днём. */
+  call: (at: string, doctor: string, f: string, id: number, result: CallResult) =>
+    api.post<DayModel>(`/schedule/desk/call/${id}${screen(at, doctor, f)}`, { result }),
 }

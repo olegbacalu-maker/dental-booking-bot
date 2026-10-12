@@ -24,7 +24,7 @@ function appt(over: Partial<Extract<DashBlock, { kind: 'appt' }>> = {})
     name: 'Ion Popa', service: 'Consultație', phone: '069000000',
     status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'manual',
     comment: '', comment_cut: '', age: null,
-    doctor: 'Dr. Ion', pid: 17, rec: false, clickable: true,
+    doctor: 'Dr. Ion', pid: 17, rec: false, call: '', callable: true, clickable: true,
     bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null, ...over,
   }
 }
@@ -257,6 +257,40 @@ describe('C26.5.2: канва панели — шапка врача', () => {
     show()
     expect(cards()[0]!.querySelector('.dcard')?.className).toBe('dcard')
     expect(cards()[1]!.querySelector('.dcard')?.className).toBe('dcard off')
+  })
+
+  it('12.10: фото — ссылка на страницу врача (как имя), вне обхода Tab и для читалки одна ссылка', () => {
+    show()
+    const first = cards()[0]!
+    const av = first.querySelector('a.av') as HTMLAnchorElement
+    const name = first.querySelector('.nm a') as HTMLAnchorElement
+    expect(av.getAttribute('href')).toBe(name.getAttribute('href'))
+    expect(av.getAttribute('href')).toMatch(/^\/admin\/doctor\/d2\?date=/)
+    expect(av.getAttribute('tabindex')).toBe('-1')
+    expect(av.getAttribute('aria-hidden')).toBe('true')
+    expect(av.style.borderColor).toBe('var(--teal)')
+    // сирота — без ссылки: врача в списке нет
+    cleanup()
+    show({ ...MODEL, columns: [ORPHAN] })
+    expect(document.querySelector('.gh-doc a.av')).toBeNull()
+    expect(document.querySelector('.gh-doc span.av')).toBeTruthy()
+  })
+
+  it('12.10: кабинет — значком двери в строке под именем; плотный режим прячет только специализацию', () => {
+    show()
+    const small = cards()[0]!.querySelector('.nm small') as HTMLElement
+    expect(small.className).toBe('has-room')
+    expect(small.querySelector('.dc-room svg')).toBeTruthy()
+    expect(small.querySelector('.dc-room')?.textContent).toBe('12')
+    expect(small.querySelector('.dc-room')?.getAttribute('title')).toBe('Cabinetul 12')
+    expect(small.querySelector('.dc-spec')?.textContent).toBe(' · Terapeut')
+    // врач без кабинета — строка прежняя, без класса
+    cleanup()
+    show({ ...MODEL, columns: [column({ room: '' })] })
+    const plain = cards()[0]!.querySelector('.nm small') as HTMLElement
+    expect(plain.querySelector('.dc-room')).toBeNull()
+    expect(plain.className).toBe('')
+    expect(plain.textContent).toBe('Terapeut')
   })
 })
 

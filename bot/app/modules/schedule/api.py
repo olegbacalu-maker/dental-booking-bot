@@ -110,11 +110,15 @@ async def _done(code: str, d: date, doctor: str, field: str | None = None,
 
 
 @router.post("/api/schedule/desk/call/{aid}")
-async def api_desk_call(request: Request, aid: int, screen: str = Query("")):
-    """Отметка звонка-подтверждения («De confirmat» на главной, 01.10):
-    {result: ok | noanswer | ""}. Состояния не возвращает — как остальные
-    команды панели: экран спрашивает живой канал, и отметка доезжает до всех
-    рабочих мест тем же конвертом."""
+async def api_desk_call(request: Request, aid: int,
+                        date_q: str = Query("", alias="date"),
+                        doctor: str = Query(""), f: str = Query(""),
+                        screen: str = Query("")):
+    """Отметка звонка-подтверждения («De confirmat» на главной, 01.10; с 12.10
+    и из карточки визита и меню на «Programări»): {result: ok | noanswer | ""}.
+    Панели состояния не возвращает — как остальные её команды: экран спрашивает
+    живой канал, и отметка доезжает до всех рабочих мест тем же конвертом.
+    Дню журнала — свежий день в его отборе (`_done`), как после смены статуса."""
     if (deny := api_guard(request)) is not None:
         return deny
     body = await api_body(request)
@@ -130,7 +134,7 @@ async def api_desk_call(request: Request, aid: int, screen: str = Query("")):
         await db.log_event(a["patient_id"], "call",
                            f"Confirmare telefonică ({when}): "
                            + ("confirmat" if result == "ok" else "nu răspunde"))
-    return msg_json(True, "")
+    return await _done("", _screen(date_q), doctor, field="", f=f, screen=screen)
 
 
 @router.get("/api/schedule/week")

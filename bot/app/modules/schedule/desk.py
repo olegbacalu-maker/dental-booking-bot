@@ -8,7 +8,8 @@
 
 1. De confirmat — визиты следующего рабочего дня; звонок регистратуры вместо
    замороженных напоминаний бота. Отметка звонка — `appt_calls`, строка в
-   летописи пациента.
+   летописи пациента. С 12.10 рядом «De confirmat azi» — сегодняшние, кого не
+   подтвердили вчера (`_confirm_today`).
 2. De încasat azi — сегодняшние пациенты с долгом + касса дня (PERM_MONEY:
    директор; регистратура блока не видит).
 3. Primul loc liber — ближайшее свободное время у каждого врача (под
@@ -75,6 +76,29 @@ async def _confirm(today: date) -> dict:
     rows = [r for r in await db.day_appointments(*_bounds(d))
             if r["patient_id"] and r["status"] == "confirmed"]
     calls = await db.appt_calls([r["id"] for r in rows])
+    return _confirm_list(d, today, rows, calls)
+
+
+async def _confirm_today(today: date) -> dict:
+    """«De confirmat azi» (12.10, слово Олега: «вчера не сделал — хочу сегодня»):
+    сегодняшние «programată» с пациентом, кого ещё не подтвердили. Отметка,
+    поставленная СЕГОДНЯ, строку не убирает — виден ход обзвона и «Anulează
+    bifa», как у списка на завтра; подтверждённые раньше (вчера, из списка на
+    завтра) — сделаны и не показываются. Пришедший уходит сам: его статус уже
+    не `confirmed`. ⚠️ Записанный сегодня на сегодня тоже в списке — как и
+    записанный сегодня на завтра в списке на завтра: правило у двух дней одно."""
+    rows = [r for r in await db.day_appointments(*_bounds(today))
+            if r["patient_id"] and r["status"] == "confirmed"]
+    calls = await db.appt_calls([r["id"] for r in rows])
+    done_before = {aid for aid, c in calls.items()
+                   if c["result"] == "ok" and (_local(c["at"]) or datetime.max).date() < today}
+    rows = [r for r in rows if r["id"] not in done_before]
+    return _confirm_list(today, today, rows, calls)
+
+
+def _confirm_list(d: date, today: date, rows: list, calls: dict) -> dict:
+    """Список обзвона одного дня: строки, отметки, счётчики — одна форма на
+    «azi» и «mâine», ConfirmRow экрана рисует обе."""
     items = []
     for r in rows:
         c = calls.get(r["id"])
@@ -169,6 +193,7 @@ async def desk_model(now: datetime) -> dict:
     today = now.date()
     money = can(request_user(), PERM_MONEY)
     return {
+        "confirm_today": await _confirm_today(today),
         "confirm": await _confirm(today),
         "unscheduled": await _unscheduled(now),
         "collect": await _collect(today) if money else None,

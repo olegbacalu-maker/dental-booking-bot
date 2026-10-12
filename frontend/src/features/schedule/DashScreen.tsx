@@ -421,7 +421,8 @@ export function DashScreen() {
             const ok = await act(() => dash.status(d.date, menu.id, to))
             if (ok) setMenu(null)
             return ok
-          }} />
+          }}
+          onCall={(result) => act(() => dash.call(d.date, menu.id, result))} />
       )}
       {card !== null && openCard && (
         <CardDialog key={card.id} open id={card.id} card={openCard}
@@ -436,7 +437,8 @@ export function DashScreen() {
             const ok = await act(() => dash.status(d.date, card.id, to))
             if (ok) setCard(null)
             return ok
-          }} />
+          }}
+          onCall={(result) => act(() => dash.call(d.date, card.id, result))} />
       )}
       {note !== null && openNote && (
         /* ⛔ Кнопка приходит С СЕРВЕРА по состоянию заметки — той же матрицей,

@@ -43,8 +43,13 @@ export interface DeskFree {
   href: string
 }
 
+/** Список обзвона одного дня — одна форма на «azi» и «mâine». */
+export interface DeskConfirm { day: string; date: string; items: DeskConfirmItem[]; n: number; n_ok: number; n_left: number }
+
 export interface Desk {
-  confirm: { day: string; date: string; items: DeskConfirmItem[]; n: number; n_ok: number; n_left: number }
+  /** Сегодняшние, кого не подтвердили вчера (12.10, слово Олега). */
+  confirm_today: DeskConfirm
+  confirm: DeskConfirm
   unscheduled: { items: DeskUnscheduledItem[]; n: number; sum_s: string }
   /** `null` — роли деньги не положены (PERM_MONEY): блока нет вовсе. */
   collect: {
@@ -58,3 +63,16 @@ export interface Desk {
 }
 
 export type CallResult = '' | 'ok' | 'noanswer'
+
+/** Слова отметки звонка — ОДНИ на «De confirmat», карточку визита и меню
+ *  правой кнопки (12.10): три места с тремя наборами слов разошлись бы молча,
+ *  как расходились слова статусов (08-12, 08-16). Слово вида записи после
+ *  звонка («confirmată») — сервера (`layout.CALL_LABEL`), здесь только кнопки. */
+export const CALL_WORDS = {
+  call: 'Confirmare telefonică',
+  ok: 'Confirmat',
+  no: 'Nu răspunde',
+  undo: 'Anulează bifa',
+  okDone: 'confirmat',
+  noDone: 'nu răspunde',
+} as const

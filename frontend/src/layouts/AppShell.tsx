@@ -21,7 +21,38 @@ const T = t('shell', {
   logout: 'Ieșire din cont',
   bell: 'Programări noi din bot',
   feedback: 'Feedback',
+  fold: 'Restrânge meniul',
+  unfold: 'Extinde meniul',
 } as const)
+
+/* Свёрнутое меню (12.10, слово Олега: «убрать боковую панель, как на экране
+   с одонтограммой») — выбор ЭТОГО компьютера, на всех экранах: localStorage,
+   удобство места, а не данные клиники; недоступно — меню развёрнуто.
+   ⚠️ Читается В ПЕРВОМ рендере: оболочку рисует React (сервер печатает только
+   узел монтирования, `layout.react_shell`), значит первый кадр уже узкий —
+   без сдвига, который ловит стенд `shift_sweep`.
+   ⛔ Узким меню делает ТОТ ЖЕ класс `side-rail`, что ставит сервер на
+   одонтограмме: второго набора правил нет (их два и так — класс и окно ≤1000,
+   сверяет `test_teeth`). На экранах, где узость задал сервер, кнопки нет:
+   там ширина нужна дуге зубов. */
+const SIDE_KEY = 'dp_side'
+
+function storedFold(): boolean {
+  try {
+    return localStorage.getItem(SIDE_KEY) === 'rail'
+  } catch {
+    return false
+  }
+}
+
+function rememberFold(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(SIDE_KEY, 'rail')
+    else localStorage.removeItem(SIDE_KEY)
+  } catch {
+    /* приватный режим: только до перезапуска */
+  }
+}
 
 /** Пункт меню. Пустой `href` — строка без ссылки (см. модель). */
 function Item({ it, active }: { it: NavItem; active: string }) {
@@ -66,8 +97,14 @@ function Clock({ tz }: { tz: string }) {
 
 function Sidebar({ m }: { m: ShellModel }) {
   const { nav, clinic, runtime, frame } = m
+  const [folded, setFolded] = useState(storedFold)
+  const flip = () => {
+    const on = !folded
+    setFolded(on)
+    rememberFold(on)
+  }
   return (
-    <aside className={frame.rail ? 'side side-rail' : 'side'}>
+    <aside className={frame.rail || folded ? 'side side-rail' : 'side'}>
       <div className="brand">
         {/* знак приходит строкой сервера — второй его владелец не нужен;
             плитка под ним — вариант меню (08.10, макет) */}
@@ -92,6 +129,12 @@ function Sidebar({ m }: { m: ShellModel }) {
           ⛔ Сайт — только target=_blank: окно программы отдаёт такую ссылку
           системному браузеру, а обычная увела бы на сайт само окно, где нет
           кнопки «назад». Адрес чужой, поэтому AppLink и так отдаёт <a>. */}
+      {!frame.rail && (
+        <button type="button" className="side-fold" onClick={flip} aria-pressed={folded}
+          title={folded ? T.unfold : T.fold} aria-label={folded ? T.unfold : T.fold}>
+          <Icon name={folded ? 'chevs-r' : 'chevs-l'} /><span>{T.fold}</span>
+        </button>
+      )}
       <div className="sfoot" {...(nav.foot_title ? { title: `Telegram: ${nav.foot_title}` } : {})}>
         <span className="sf-v">
           <AppLink className="bc-site" href={frame.site.href} target="_blank" rel="noopener"

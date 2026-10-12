@@ -75,6 +75,9 @@ export interface DashAppt extends BlockBase {
   pid: number | null
   /** Дневник визита уже заполнен. */
   rec: boolean
+  /** Отметка звонка и можно ли её ставить (12.10) — `core.visits.call_fields`. */
+  call: CallResult
+  callable: boolean
   clickable: boolean
   bg: string
   bar: string

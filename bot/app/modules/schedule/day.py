@@ -26,7 +26,7 @@ from datetime import date, datetime
 from ... import db
 from ... import engine as eng
 from ...core.layout import _DOW_FULL, _DOW_ORDER, STATUS_LABEL, tg_configured
-from ...core.visits import _age, all_status_actions, list_rows
+from ...core.visits import _age, all_status_actions, call_fields, list_rows
 
 
 def day_title(d: date) -> str:
@@ -311,6 +311,9 @@ def appt_view(r, dk: str, cards: dict | None, colors) -> dict:
         "doctor": r["doctor"] or "",
         "pid": r.get("patient_id"),
         "rec": bool(r.get("has_rec")),
+        # отметка звонка и «можно ли её ставить» — тем же правилом, что у
+        # карточки дня (`core.visits.call_fields`, 12.10)
+        **call_fields(r),
         "clickable": bool(cards is not None and r["id"] in cards),
         "bg": bg, "bar": bar,
         # перетаскивание — теми же полями, что у _move_attrs

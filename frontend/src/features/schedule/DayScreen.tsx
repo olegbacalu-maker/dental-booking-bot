@@ -319,7 +319,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                       const ok = await act(() => day.status(at, doctor, tile, menu.id, to))
                       if (ok) setMenu(null)
                       return ok
-                    }} />
+                    }}
+                    onCall={(result) => act(() => day.call(at, doctor, tile, menu.id, result))} />
         : null}
 
       {card !== null && openCard
@@ -332,7 +333,8 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
                         const ok = await act(() => day.status(at, doctor, tile, card, to))
                         if (ok) setCard(null)
                         return ok
-                      }} />
+                      }}
+                      onCall={(result) => act(() => day.call(at, doctor, tile, card, result))} />
         : null}
 
       {note !== null && shownNote

@@ -266,6 +266,22 @@ def _move_modal(d: date, back: str) -> str:
 </dialog>"""
 
 
+def call_fields(r) -> dict:
+    """Отметка звонка-подтверждения на карточке визита (12.10, слово Олега:
+    «вчера не позвонил — хочу подтвердить сегодня»).
+
+    `call` — отметка как есть (`appt_calls`: ok / noanswer / пусто); `callable` —
+    можно ли её ставить: запись «programată» (код `confirmed`) с пациентом, на
+    сегодня или позже по часам клиники. ⛔ Одно правило на карточку дня, блок
+    канвы панели и меню правой кнопки — все берут ЭТИ поля; дату в браузере не
+    считает никто. Сервер отметку принимает у любой записи — граница здесь.
+    ⚠️ `callable` меняется в полночь: живое тело дня меняется тогда же и так."""
+    st = r["starts_at"].astimezone(eng.TZ)
+    return {"call": r.get("call_result") or "",
+            "callable": (r["status"] == "confirmed" and bool(r.get("patient_id"))
+                         and st.date() >= datetime.now(eng.TZ).date())}
+
+
 def _collect_cards(rows: list) -> dict:
     """Данные карточек для модалки — по ВСЕМ записям дня (вкл. отменённые), кроме заметок."""
     cards: dict = {}
@@ -291,6 +307,7 @@ def _collect_cards(rows: list) -> dict:
             "pid": r.get("patient_id"),
             # .get: не всякий вызывающий тянет флаг дневника из day_appointments
             "rec": bool(r.get("has_rec")),
+            **call_fields(r),
         }
     return cards
 

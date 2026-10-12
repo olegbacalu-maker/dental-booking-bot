@@ -4,6 +4,7 @@ import { when } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
 import { hideDialog, showDialog } from '../patients/card/dialog'
 import type { StatusAction, VisitCardView } from './day'
+import { CALL_WORDS, type CallResult } from './desk'
 
 /* Карточка визита по клику (C25.5b): что это за визит, комментарий стойки и
    кнопки исхода.
@@ -44,10 +45,14 @@ interface Props {
   onClose: () => void
   onComment: (text: string) => Promise<boolean>
   onStatus: (to: string) => Promise<boolean>
+  /** Отметка звонка-подтверждения (12.10, слово Олега: «вчера не позвонил —
+   *  хочу подтвердить сегодня»). Строка видна, только когда сервер сказал
+   *  `callable`; диалог остаётся открытым — отметка приезжает с каналом. */
+  onCall?: (result: CallResult) => Promise<boolean>
 }
 
 export function CardDialog({ open, id, card, actions, note = '', back, busy,
-  onClose, onComment, onStatus }: Props) {
+  onClose, onComment, onStatus, onCall }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
   const [text, setText] = useState(card.comment)
   /* ⭐ Черновик держит СЕБЯ, а не экран (C26.5.3-b). Пока его не трогали —
@@ -107,6 +112,31 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
             </AppLink>
           </>
         ) : null}
+        {card.callable && onCall && !note && (
+          <div className="dp-card-call" role="group" aria-label={CALL_WORDS.call}>
+            <span className="dp-card-call-l"><Icon name="phone" /> {CALL_WORDS.call}</span>
+            {card.call && (
+              <span className={card.call === 'ok' ? 'dk-ok' : 'dk-no'}>
+                <Icon name={card.call === 'ok' ? 'check' : 'phone-off'} />
+                {' '}{card.call === 'ok' ? CALL_WORDS.okDone : CALL_WORDS.noDone}
+              </span>
+            )}
+            <span className="dp-card-call-b">
+              {card.call !== 'ok' && (
+                <button type="button" className="dk-btn ok" disabled={busy}
+                  onClick={() => { void onCall('ok') }}><Icon name="check" /> {CALL_WORDS.ok}</button>
+              )}
+              {!card.call && (
+                <button type="button" className="dk-btn no" disabled={busy}
+                  onClick={() => { void onCall('noanswer') }}><Icon name="phone-off" /> {CALL_WORDS.no}</button>
+              )}
+              {card.call && (
+                <button type="button" className="dk-btn" disabled={busy}
+                  onClick={() => { void onCall('') }}><Icon name="undo" /> {CALL_WORDS.undo}</button>
+              )}
+            </span>
+          </div>
+        )}
         <form onSubmit={save} className="dp-card-cmt">
           <textarea value={text} rows={3} maxLength={300} placeholder={T.comment}
                     onChange={(e) => setText(e.target.value)} />

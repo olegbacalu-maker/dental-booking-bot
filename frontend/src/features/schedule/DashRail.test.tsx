@@ -82,6 +82,7 @@ const CANVAS: DashCanvasModel = {
 
 /* «La recepție» (01.10): списки стойки из того же конверта */
 const DESK: Desk = {
+  confirm_today: { day: 'azi', date: '2026-09-20', n: 0, n_ok: 0, n_left: 0, items: [] },
   confirm: {
     day: 'mâine', date: '2026-09-21', n: 3, n_ok: 1, n_left: 1,
     items: [
@@ -129,7 +130,7 @@ const onCall = vi.fn()
 const onFlow = vi.fn()
 const onSlot = vi.fn()
 
-afterEach(() => { cleanup(); onCall.mockClear(); onCard.mockClear(); onFlow.mockClear(); onSlot.mockClear() })
+afterEach(() => { cleanup(); onCall.mockClear(); onCard.mockClear(); onFlow.mockClear(); onSlot.mockClear(); localStorage.clear() })
 
 describe('C26.5.2: мини-календарь', () => {
   it('⛔ три метки НЕЗАВИСИМЫ и складываются', () => {
@@ -385,7 +386,8 @@ describe('03.10: поток пациента — вкладки над пове�
 describe('01.10: «La recepție» — списки стойки', () => {
   it('порядок колонки: календарь, повестка, списки (слово Олега 28.09)', () => {
     const { container } = show()
-    expect(Array.from(container.children).map((e) => e.className))
+    // первый класс блока: повестка с 12.10 ещё и `dp-fold` (сворачивается)
+    expect(Array.from(container.children).map((e) => e.classList[0]))
       .toEqual(['mcal', 'agenda', 'dp-free', 'desk'])
   })
 
@@ -467,6 +469,62 @@ describe('01.10: «La recepție» — списки стойки', () => {
       confirm: { ...DESK.confirm, n: 0, items: [] } } })
     expect(screen.queryByText('Plan fără programare')).toBeNull()
     expect(screen.queryByText(/De confirmat/)).toBeNull()
+  })
+
+  it('12.10: «De confirmat azi» — над списком на завтра, те же кнопки и та же команда', () => {
+    const today = { ...DESK.confirm, day: 'azi', date: '2026-09-20', n: 1, n_ok: 0, n_left: 1,
+      items: [{ id: 21, pid: 30, time: '15:00', name: 'Azi Nesunat', phone: '069111999', doctor: 'Dr. Ion',
+        service: 'Consultație', call: '' as const, call_at: '', call_by: '' }] }
+    show({ desk: { ...DESK, confirm_today: today } })
+    const secs = Array.from(document.querySelectorAll('.dk-sec')).map((s) => s.getAttribute('data-fold'))
+    expect(secs.indexOf('desk:confirm_today')).toBeLessThan(secs.indexOf('desk:confirm'))
+    const sec = screen.getByText(/De confirmat azi/).closest('.dk-sec') as HTMLElement
+    expect(sec.querySelector('.dk-cnt')?.textContent).toBe('1 din 1')
+    fireEvent.click(within(sec).getByRole('button', { name: 'Confirmat: Azi Nesunat' }))
+    expect(onCall).toHaveBeenCalledWith(21, 'ok')
+  })
+})
+
+describe('12.10: блоки колонки сворачиваются и помнят это на компьютере (слово Олега)', () => {
+  it('Agenda zilei, Primul loc liber и разделы стойки — заголовком; свёрнутое запомнено, развернул — забыто', () => {
+    show()
+    const folds = Array.from(document.querySelectorAll('details.dp-fold')).map((d) => d.getAttribute('data-fold'))
+    expect(folds).toEqual(expect.arrayContaining(['agenda', 'free', 'desk:collect', 'desk:confirm', 'desk:unsched']))
+    const agenda = document.querySelector('details[data-fold="agenda"]') as HTMLDetailsElement
+    expect(agenda.open).toBe(true)
+    // свёрнутая повестка держит счётчик дня в заголовке
+    expect(agenda.querySelector('summary')?.textContent).toContain('3 programări')
+    agenda.open = false
+    fireEvent(agenda, new Event('toggle'))
+    expect(localStorage.getItem('dp_fold:agenda')).toBe('0')
+    cleanup()
+    show()
+    expect((document.querySelector('details[data-fold="agenda"]') as HTMLDetailsElement).open).toBe(false)
+    expect((document.querySelector('details[data-fold="free"]') as HTMLDetailsElement).open).toBe(true)
+    const again = document.querySelector('details[data-fold="agenda"]') as HTMLDetailsElement
+    again.open = true
+    fireEvent(again, new Event('toggle'))
+    expect(localStorage.getItem('dp_fold:agenda')).toBeNull()
+  })
+
+  it('касса под «Primul loc liber» не сворачивается вместе с врачами', () => {
+    show()
+    const free = document.querySelector('details[data-fold="free"]') as HTMLElement
+    expect(free.querySelector('.dk-cash')).toBeNull()
+    expect(document.querySelector('.dp-free > .dk-cash')).toBeTruthy()
+  })
+
+  it('⛔ сворачивание держит высоту колонки (без прыжка у низа страницы), открытие — нет', () => {
+    render(<div className="dash"><div className="dashmain" /><div className="rail">
+      <DashRail minical={MINICAL} agenda={AGENDA} canvas={CANVAS} desk={DESK}
+        date="2026-09-19" waitTick={NOW} busy={false} onCard={onCard} onCall={onCall} fresh={NO_FRESH}
+        onFlow={onFlow} actions={ACTIONS} onSlot={onSlot} />
+    </div></div>)
+    const rail = document.querySelector('.rail') as HTMLElement
+    Object.defineProperty(rail, 'offsetHeight', { configurable: true, value: 1900 })
+    const head = document.querySelector('details[data-fold="desk:confirm"] > summary') as HTMLElement
+    fireEvent.click(head)
+    expect(rail.style.minHeight).toBe('1900px')
   })
 })
 

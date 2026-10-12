@@ -3,6 +3,7 @@ import { Icon } from '../../components/Icon'
 import { AppLink } from '../../components/AppLink'
 import { clinicNow, clinicTz, waitLabel } from './dashFx'
 import { DeskCard } from './DeskCard'
+import { Fold } from './Fold'
 import { flowOf, type Flow } from './flow'
 import { FlowBar, FlowList, flowLabels, type FlowLabels, type FlowTab, type FlowTo } from './FlowTabs'
 import { freeSlots } from './free'
@@ -159,12 +160,15 @@ function Agenda(
     )
   }
   const t: FlowTab = flow ? tab : 'all'
+  /* Сворачивается заголовком (12.10, слово Олега) и помнит это на компьютере;
+     свёрнутая оставляет счётчик дня. Почему без прыжка — `Fold`. */
   return (
-    <div className="agenda">
-      <div className="ag-h">
+    <Fold id="agenda" className="agenda" headClass="ag-h" head={
+      <>
         <b>{T.agenda}</b>
         <span>{agenda.count} {agenda.count === 1 ? T.one : T.many}</span>
-      </div>
+      </>
+    }>
       {flow && <FlowBar tab={t} onTab={setTab} flow={flow} total={agenda.count} labels={labels} />}
       {/* ⛔ `.ag-l` — СТАБИЛЬНЫЙ узел с ключами по id: список прокручивается
           (max-height), и пересоздание контейнера роняло бы прокрутку при
@@ -254,7 +258,7 @@ function Agenda(
         </div>
       </div>
       <AppLink className="ag-all" href={`/admin/all?date=${date}`}>{T.all}</AppLink>
-    </div>
+    </Fold>
   )
 }
 
@@ -276,7 +280,10 @@ function FreeCard({ canvas, today, date, waitTick, desk, busy, onSlot }: {
   if (!rows.length && !cash) return null
   return (
     <div className="dp-free">
-      {rows.length > 0 && <h2>{T.free}</h2>}
+      {/* врачи сворачиваются заголовком (12.10), касса под ними видна всегда:
+          это другая строка, не «первое свободное место» */}
+      {rows.length > 0 && (
+        <Fold id="free" className="dp-free-f" head={<h2>{T.free}</h2>}>
       {rows.map((r) => (
         <div key={r.dk} className="dp-free-row">
           <span className="av sm" style={{ borderColor: r.hue }}>{r.initials}</span>
@@ -291,6 +298,8 @@ function FreeCard({ canvas, today, date, waitTick, desk, busy, onSlot }: {
           </button>
         </div>
       ))}
+        </Fold>
+      )}
       {cash && (
         <div className="dk-cash">
           <span>{T.cash}: <b>{cash.cash.total_s} {T.mdl}</b>

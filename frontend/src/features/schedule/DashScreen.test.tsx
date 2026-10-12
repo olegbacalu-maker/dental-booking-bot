@@ -34,7 +34,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
           name: 'Ion Popa', service: 'Consultație', phone: '069000000',
           status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'manual',
           comment: '', comment_cut: '', age: null,
-          doctor: 'Dr. Ion', pid: 17, rec: false, clickable: true,
+          doctor: 'Dr. Ion', pid: 17, rec: false, call: '', callable: true, clickable: true,
           bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
         }],
       }],
@@ -65,6 +65,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
     note_actions: { confirmed: [{ to: 'cancelled', cls: 'b-cancel', label: 'Șterge', confirm: '' }] },
     note_ends: [10, 11, 12],
     desk: {
+      confirm_today: { day: 'azi', date: '2026-09-20', n: 0, n_ok: 0, n_left: 0, items: [] },
       confirm: { day: 'mâine', date: '2026-09-21', n: 1, n_ok: 0, n_left: 1, items: [
         { id: 7, pid: 17, time: '09:00', name: 'Ion Popa', phone: '069000000', doctor: 'Dr. Ion', service: 'Consultație', call: '', call_at: '', call_by: '' },
       ] },
@@ -251,7 +252,7 @@ describe('C26.5.2: панель дня — экран целиком', () => {
       name: 'Maria Rusu', service: 'Consultație', phone: '069000001',
       status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'bot',
       comment: '', comment_cut: '', age: null,
-      doctor: 'Dr. Ion', pid: 18, rec: false, clickable: true,
+      doctor: 'Dr. Ion', pid: 18, rec: false, call: '', callable: true, clickable: true,
       bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
     })
     second.agenda = { count: 2, today: true, items: [...model().agenda.items] }
@@ -483,6 +484,38 @@ describe('C26.5.3-b: диалог визита', () => {
     await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
   }
 
+  it('12.10: «Confirmare telefonică» в карточке — отметка командой панели, окно остаётся открытым', async () => {
+    const f = vi.fn(async (url: string) => (String(url).includes('/desk/call/')
+      ? cmdReply('', '')
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openFirst()
+    const row = document.querySelector('dialog .dp-card-call') as HTMLElement
+    expect(row).toBeTruthy()
+    expect(Array.from(row.querySelectorAll('button')).map((b) => b.textContent?.trim()))
+      .toEqual(['Confirmat', 'Nu răspunde'])
+    fireEvent.click(row.querySelector('button') as HTMLButtonElement)
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).includes('/desk/call/'))).toBe(true))
+    const call = f.mock.calls.find((c) => String(c[0]).includes('/desk/call/'))!
+    expect(String(call[0])).toBe(`/api/schedule/desk/call/1?screen=panel&date=${TODAY}`)
+    expect(bodyOf(call)).toEqual({ result: 'ok' })
+    expect(document.querySelector('dialog[open]')).toBeTruthy()
+  })
+
+  it('12.10: где сервер сказал «нельзя» (callable false) — ни строки в карточке, ни пунктов в меню', async () => {
+    const m = model()
+    const b = m.canvas.columns[0]!.blocks[0]!
+    if (b.kind === 'appt') b.callable = false
+    vi.stubGlobal('fetch', vi.fn(async () => reply(200, m)))
+    await show()
+    fireEvent.click(document.querySelector('[data-appt="1"]') as HTMLElement)
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(document.querySelector('dialog .dp-card-call')).toBeNull()
+    fireEvent.click(document.querySelector('dialog [aria-label]') as HTMLElement)
+    fireEvent.contextMenu(document.querySelector('.gappt[data-appt="1"]') as HTMLElement, { clientX: 120, clientY: 140 })
+    expect(document.querySelector('.dp-cmenu .dp-cmenu-call')).toBeNull()
+  })
+
   it('карточка открывается и по блоку канвы, и по строке повестки', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
     await openFirst()
@@ -537,7 +570,7 @@ describe('C26.5.3-b: диалог визита', () => {
       service: 'Consultație', phone: '069000001', status: 'confirmed',
       status_label: 'confirmată', urgent: false, source: 'bot', comment: '',
       comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
-      clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
+      call: '', callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
     })
     f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
@@ -673,7 +706,7 @@ describe('C26.5.3-c: диалог пустого часа', () => {
       service: 'Consultație', phone: '069000001', status: 'confirmed',
       status_label: 'confirmată', urgent: false, source: 'bot', comment: '',
       comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
-      clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
+      call: '', callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
     })
     f.mockImplementation(async () => reply(200, second, { 'X-DP-Hash': 'h2' }))
     await vi.advanceTimersByTimeAsync(12_000)
@@ -833,8 +866,9 @@ describe('C26.5.3-d: диалог заметки стойки', () => {
     expect(menu).toBeTruthy()
     /* диалога по правой кнопке НЕТ — это меню, а не карточка */
     expect(document.querySelector('dialog[open]')).toBeNull()
+    /* исходы сервера, потом звонок (12.10: запись programată сегодня — `callable`) */
     expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
-      .toEqual(['A venit'])
+      .toEqual(['A venit', 'Confirmat', 'Nu răspunde'])
     /* две ссылки под чертой (08.10): одонтограмма и фиша */
     expect(Array.from(menu.querySelectorAll('a')).map((x) => x.getAttribute('href')))
       .toEqual(['/admin/patient/17/odontograma', '/admin/patient/17'])
@@ -979,7 +1013,7 @@ describe('C26.5.3-f: перенос перетаскиванием', () => {
       service: 'Consultație', phone: '069000001', status: 'confirmed',
       status_label: 'confirmată', urgent: false, source: 'manual', comment: '',
       comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18, rec: false,
-      clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
+      call: '', callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)', wait_since: null,
     })
     return m
   }
@@ -1070,7 +1104,7 @@ describe('C26.5.4: подсветка приехавшей записи', () => 
     name: 'Maria Rusu', service: 'Consultație', phone: '069000001',
     status: 'confirmed', status_label: 'confirmată', urgent: false, source: 'bot',
     comment: '', comment_cut: '', age: null, doctor: 'Dr. Ion', pid: 18,
-    rec: false, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)',
+    rec: false, call: '' as const, callable: true, clickable: true, bg: 'var(--green-soft)', bar: 'var(--green)',
     wait_since: null,
   }
   const withNew = () => {

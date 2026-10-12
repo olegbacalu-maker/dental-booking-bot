@@ -319,9 +319,11 @@ def suite_card(res: Result) -> None:
         body = c.get(back).body
         cards = _js_var(body, "CARDS")
 
+        # call/callable (12.10) — отметка звонка и «можно ли её ставить»
+        # (`core.visits.call_fields`): тот же словарь едет и старой странице
         res.check("состав карточки", sorted(cards[ids[0]]),
                   sorted(["name", "phone", "service", "doctor", "time", "comment",
-                          "age", "status", "pid", "rec"]))
+                          "age", "status", "pid", "rec", "call", "callable"]))
         res.check("КОММЕНТАРИЙ В КАРТОЧКЕ ПОЛНЫЙ, а в сетке обрезан до 60",
                   (cards[ids[0]]["comment"], long_text[:60] in _grid_card(body, ids[0]),
                    long_text in _grid_card(body, ids[0])),

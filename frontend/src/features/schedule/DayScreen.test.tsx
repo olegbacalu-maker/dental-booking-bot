@@ -31,7 +31,7 @@ const block = (id: number, time: string, name: string,
   extra: Partial<Extract<DashBlock, { kind: 'appt' }>> = {}): Extract<DashBlock, { kind: 'appt' }> => ({
   kind: 'appt', id, time, name, service: 'Consultație', phone: '069000000',
   status: 'confirmed', status_label: 'Confirmat', urgent: false, source: 'panel', dur: 60,
-  comment: '', comment_cut: '', age: null, clickable: true,
+  comment: '', comment_cut: '', age: null, clickable: true, call: '', callable: true,
   bg: 'var(--green-soft)', bar: 'var(--green)', min: 540, busy: true, movable: true,
   doctor: 'Dr. Activ Doi', pid: 7, rec: false, top: 0, height: 1, col: 0, of: 1,
   title: `${time} · 60′ · Consultație · ${name}`, wait_since: null, ...extra,
@@ -135,10 +135,10 @@ const MODEL: DayModel = {
   cards: {
     1: { name: 'Ion Popa', phone: '069000000', service: 'Consultație',
       doctor: 'Dr. Activ Doi', time: '09:00', comment: LONG, age: 41,
-      status: 'confirmed', pid: 7, rec: false },
+      status: 'confirmed', pid: 7, rec: false, call: '', callable: true },
     2: { name: 'Maria Rusu', phone: '069000001', service: 'Durere acută',
       doctor: 'Dr. Activ Trei', time: '10:00', comment: '', age: 36,
-      status: 'noshow', pid: 8, rec: true },
+      status: 'noshow', pid: 8, rec: true, call: '', callable: false },
   },
   actions: {
     confirmed: [{ to: 'waiting', cls: 'b-waiting', label: 'A venit', confirm: '' },
@@ -564,13 +564,36 @@ describe('карточка визита', () => {
     fireEvent.contextMenu(blk(1), { clientX: 200, clientY: 200 })
     const menu = document.querySelector('.dp-cmenu') as HTMLElement
     expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
-      .toEqual(['A venit', 'Finalizat'])
+      .toEqual(['A venit', 'Finalizat', 'Confirmat', 'Nu răspunde'])  // + звонок (12.10, `callable`)
     expect(Array.from(menu.querySelectorAll('a')).map((a) => a.getAttribute('href')))
       .toEqual(['/admin/patient/7/odontograma', '/admin/patient/7'])
     fireEvent.click(Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Finalizat') as HTMLButtonElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       '/schedule/appointments/1/status?date=2026-09-23', { to: 'done' }))
     await waitFor(() => expect(document.querySelector('.dp-cmenu')).toBeNull())
+  })
+
+  it('12.10: «Confirmat» из карточки — тот же маршрут, что у «De confirmat»; день отвечает свежим днём', async () => {
+    const after = { ...MODEL, cards: { ...MODEL.cards, 1: { ...MODEL.cards[1]!, call: 'ok' as const } } }
+    post.mockResolvedValue(ok(after))
+    await show({ date: '2026-09-23' })
+    fireEvent.click(blk(1))
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-call')).toBeTruthy())
+    fireEvent.click(Array.from(document.querySelectorAll('dialog .dp-card-call button'))
+      .find((b) => b.textContent?.includes('Confirmat')) as HTMLButtonElement)
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/schedule/desk/call/1?date=2026-09-23', { result: 'ok' }))
+    /* ответ — свежий день: в окне отметка и «Anulează bifa», окно открыто */
+    await waitFor(() => expect(document.querySelector('dialog .dp-card-call .dk-ok')?.textContent).toContain('confirmat'))
+    expect(Array.from(document.querySelectorAll('dialog .dp-card-call button')).map((b) => b.textContent?.trim()))
+      .toEqual(['Anulează bifa'])
+    expect(document.querySelector('dialog[open]')).toBeTruthy()
+  })
+
+  it('12.10: у закрытой записи (callable false) строки звонка в карточке нет', async () => {
+    await show()
+    fireEvent.click(blk(2))
+    await waitFor(() => expect(document.querySelector('dialog')).toBeTruthy())
+    expect(document.querySelector('dialog .dp-card-call')).toBeNull()
   })
 
   it('возврат из меню спрашивает то же серверное подтверждение, что и диалог', async () => {
@@ -774,7 +797,7 @@ describe('список дня', () => {
     fireEvent.click(list()[0]?.querySelector('.dp-more') as HTMLElement)
     const menu = document.querySelector('.dp-cmenu') as HTMLElement
     expect(Array.from(menu.querySelectorAll('button')).map((b) => b.textContent?.trim()))
-      .toEqual(['A venit', 'Finalizat'])
+      .toEqual(['A venit', 'Finalizat', 'Confirmat', 'Nu răspunde'])  // + звонок (12.10, `callable`)
     expect(Array.from(menu.querySelectorAll('a')).map((a) => a.getAttribute('href')))
       .toEqual(['/admin/patient/7/odontograma', '/admin/patient/7'])
     fireEvent.click(Array.from(menu.querySelectorAll('button'))

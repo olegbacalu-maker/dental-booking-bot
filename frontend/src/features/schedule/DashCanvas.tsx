@@ -45,6 +45,7 @@ const T = {
   urgent: 'Urgent',
   odo: 'Deschide odontograma',
   noAppts: 'Nicio programare în această zi',
+  room: 'Cabinetul',
   noApptsHint: 'Alege un interval liber din calendar pentru a programa un pacient.',
 } as const
 
@@ -240,22 +241,37 @@ function Band({ band, side }: { band: { from: string; to: string } | null; side:
  * слева; заливки аватара больше нет — кольцо.
  * ⚠️ Полоса обрезана сотней только ШИРИНОЙ: подсказка говорит «130%», и это
  * единственный признак перебронированного дня.
+ * 12.10 (слово Олега): фото ведёт на страницу врача, как имя, — ссылкой с
+ * `tabIndex=-1` и `aria-hidden`: для клавиатуры и читалки ссылка остаётся
+ * одна. Кабинет (поле «Cabinet» профиля, `room` модели) — значком двери в
+ * начале строки под именем; пусто — строки кабинета нет.
  */
 function DocCard({ col, date }: { col: DashColumn; date: string }) {
-  const sub = [col.spec || ' ', col.off && !col.orphan ? ` · ${T.off}` : ''].join('')
+  const spec = [col.spec || ' ', col.off && !col.orphan ? ` · ${T.off}` : ''].join('')
   const pct = col.occupancy ? Math.min(col.occupancy.pct, 100) : 0
+  const href = col.id ? `/admin/doctor/${col.id}?date=${date}` : ''
+  const face = col.photo ? <img src={col.photo} alt="" /> : col.initials
   return (
     <div className="gh-doc">
       <div className={`dcard${col.off ? ' off' : ''}`}>
         <div className="dc-top">
-          <span className="av" style={{ borderColor: col.hue }}>
-            {col.photo ? <img src={col.photo} alt="" /> : col.initials}
-          </span>
+          {href
+            ? <AppLink className="av" href={href} tabIndex={-1} aria-hidden="true" style={{ borderColor: col.hue }}>{face}</AppLink>
+            : <span className="av" style={{ borderColor: col.hue }}>{face}</span>}
           <div className="nm">
-            {col.id
-              ? <AppLink href={`/admin/doctor/${col.id}?date=${date}`} title={col.title}>{col.name}</AppLink>
+            {href
+              ? <AppLink href={href} title={col.title}>{col.name}</AppLink>
               : <a>{col.name}</a>}
-            <small>{col.orphan ? `${T.outside} · ${col.count} ${col.count === 1 ? T.one : T.many}` : sub}</small>
+            {/* ⚠️ Плотный режим (окно ≤1440 или >4 врачей) прячет эту строку
+                целиком — специализация уходит первой. Кабинет остаётся: на
+                ноутбуке клиники (1366) он нужнее всего, поэтому у строки с
+                кабинетом прячется только `.dc-spec` (app.css). */}
+            <small className={!col.orphan && col.room ? 'has-room' : undefined}>{col.orphan
+              ? `${T.outside} · ${col.count} ${col.count === 1 ? T.one : T.many}`
+              : col.room
+                ? <><span className="dc-room" title={`${T.room} ${col.room}`}><Icon name="door" />{col.room}</span>
+                    <span className="dc-spec">{' · '}{spec}</span></>
+                : spec}</small>
             {col.relink && <Relink relink={col.relink} date={date} />}
           </div>
         </div>
