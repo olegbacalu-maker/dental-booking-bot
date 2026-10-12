@@ -5,7 +5,7 @@
 Такой пары на канарейке нет, поэтому её заводим искусственно — в КОПИИ базы.
 
   python scripts/check_slot_guard.py
-  python scripts/check_slot_guard.py --db "C:\\Users\\Public\\DentPilot\\data\\dental.db"
+  python scripts/check_slot_guard.py --db "D:\\другая\\копия\\data\\dental.db"
 
 ⛔ Живая база только ЧИТАЕТСЯ. Всё происходит в песочнице (копия exe + копия
 базы во временной папке), боевая установка на 8088 не запускается и не
@@ -44,7 +44,10 @@ import urllib.parse
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LIVE_DB = pathlib.Path(r"C:\Users\Public\DentPilot\data\dental.db")
+# С 21.09 (P1) данные живут в %ProgramData%, не рядом с программой: прежнее
+# `C:\Users\Public\DentPilot` после переезда ушло в `.hold`, и проверка по
+# умолчанию читала бы не ту картотеку или никакую (поймано на 1.41.0).
+LIVE_DB = pathlib.Path(r"C:\ProgramData\DentPilot\data\dental.db")
 KEY = "canary1234"
 MARK = "CANARY-SLOT-GUARD"          # по нему находим и убираем внесённую запись
 NARROW = "('confirmed','arrived')"  # предикат, каким он был до 1.20.0
