@@ -7,9 +7,17 @@ WIA (Windows Image Acquisition) через PowerShell и COM — так же, к
 `settings/netcheck` спрашивает брандмауэр: скрипт-константа, всё переменное
 окружением. ⛔ Без диалогов: `WIA.CommonDialog` показал бы окно на СЕРВЕРЕ,
 которого с планшета не видно, и запрос висел бы до таймаута. Берётся первый
-сканер, 200 dpi, оттенки серого, лист с планшета; страницы копятся в сессии
-в памяти процесса (по пациенту), «Salvează» склеивает их в PDF (Pillow — он
-уже в сборке ради миниатюр).
+сканер, оттенки серого, лист с планшета, разрешение — наименьшее из тех, что
+драйвер принимает, но не ниже 200 dpi (`_PS_PICK_DPI`); страницы копятся в
+сессии в памяти процесса (по пациенту), «Salvează» склеивает их в PDF (Pillow
+— он уже в сборке ради миниатюр).
+
+⚠️ Размер листа в PDF = пиксели ÷ разрешение, с которым лист СНЯЛИ, а не
+которое просили (12.10.2026, первый живой скан у Олега): Canon TS3400 через
+WIA принимает только 150/300/600, прежний скрипт ставил 200 молча мимо, лист
+приходил в 150 dpi, а PDF считал его двухсотым — страница 16×22 см вместо
+21,6×29,7, при печати «в натуральную величину» на четверть меньше листа.
+Скрипт теперь читает принятое разрешение обратно и отдаёт строкой `DPI x y`.
 
 ⚠️ Сканер — на ПК с программой. Второе рабочее место (браузер по сети)
 нажмёт кнопку, а лист должен лежать в сканере сервера: МФУ стоит у стойки,
@@ -23,6 +31,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -41,28 +50,71 @@ foreach ($d in $dm.DeviceInfos) { if ($d.Type -eq 1) { $out += [string]$d.Proper
 ConvertTo-Json -Compress @($out)
 """
 
+# Выбор разрешения: свойство 6147 описывает допустимое СПИСКОМ (SubType 2) или
+# ДИАПАЗОНОМ (SubType 1), а значение вне них драйвер отвергает. Берётся
+# наименьшее допустимое не ниже просимого (Canon TS3400: 150/300/600 → 300),
+# а если выше просимого ничего нет — наибольшее. ⚠️ Отдельной константой, а
+# не внутри `_PS_SCAN`: её же исполняет тест на поддельных свойствах —
+# настоящего WIA в прогоне нет.
+_PS_PICK_DPI = r"""
+function Pick-Dpi($p, [int]$want) {
+  try {
+    if ($p.SubType -eq 2) {
+      $vals = @($p.SubTypeValues | ForEach-Object { [int]$_ } | Sort-Object)
+      $up = @($vals | Where-Object { $_ -ge $want })
+      if ($up.Count -gt 0) { return $up[0] }
+      if ($vals.Count -gt 0) { return $vals[-1] }
+    } elseif ($p.SubType -eq 1) {
+      $min = [int]$p.SubTypeMin
+      $max = [int]$p.SubTypeMax
+      $step = [int]$p.SubTypeStep
+      $v = [Math]::Max($want, $min)
+      if ($step -gt 0) { $v = $min + [int][Math]::Ceiling(($v - $min) / $step) * $step }
+      return [int][Math]::Min($v, $max)
+    }
+  } catch {}
+  return $want
+}
+"""
+
+# После установки свойства читаются ОБРАТНО: в PDF идёт то, что драйвер
+# принял, — строкой `DPI x y` в конце вывода (`_parse_dpi`).
 _PS_SCAN = r"""
 $ErrorActionPreference = 'Stop'
+""" + _PS_PICK_DPI + r"""
 $dm = New-Object -ComObject WIA.DeviceManager
 $info = $null
 foreach ($d in $dm.DeviceInfos) { if ($d.Type -eq 1) { $info = $d; break } }
 if (-not $info) { exit 3 }
 $dev = $info.Connect()
 $item = $dev.Items.Item(1)
+$want = [int]$env:DP_SCAN_DPI
+$dpi = $want
+foreach ($p in $item.Properties) { if ([int]$p.PropertyID -eq 6147) { $dpi = Pick-Dpi $p $want } }
 foreach ($p in $item.Properties) {
   try {
     switch ([int]$p.PropertyID) {
       6146 { $p.Value = 2 }
-      6147 { $p.Value = [int]$env:DP_SCAN_DPI }
-      6148 { $p.Value = [int]$env:DP_SCAN_DPI }
+      6147 { $p.Value = $dpi }
+      6148 { $p.Value = $dpi }
     }
   } catch {}
 }
+$x = 0
+$y = 0
+foreach ($p in $item.Properties) {
+  switch ([int]$p.PropertyID) {
+    6147 { $x = [int]$p.Value }
+    6148 { $y = [int]$p.Value }
+  }
+}
 $img = $item.Transfer('{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}')
 $img.SaveFile($env:DP_SCAN_OUT)
+Write-Output "DPI $x $y"
 """
 
-DPI = 200
+DPI = 200                # не ниже этого; выше — если драйвер иначе не умеет
+MIN_SANE_DPI = 50        # меньше — не разрешение, а пустое поле заголовка
 NO_SCANNER_EXIT = 3
 LIST_TIMEOUT = 20.0
 SCAN_TIMEOUT = 180.0
@@ -121,13 +173,30 @@ def status(force: bool = False) -> dict:
     return {"ok": ok, "name": name}
 
 
-def acquire() -> bytes:
-    """Один лист со сканера — байты картинки (BMP у драйвера, что угодно у
-    подмены). Блокирует на время сканирования: звать из потока."""
+Dpi = tuple[float, float]
+
+
+def _parse_dpi(out: bytes | None) -> Dpi | None:
+    """`DPI x y` из вывода `_PS_SCAN` — разрешение, которое драйвер ПРИНЯЛ.
+    Строки нет или там нули — None: тогда разрешение скажет сама картинка
+    (`_dpi_of`)."""
+    m = re.search(rb"DPI\s+(\d+)\s+(\d+)", out or b"")
+    if not m:
+        return None
+    x, y = int(m.group(1)), int(m.group(2))
+    if x < MIN_SANE_DPI or y < MIN_SANE_DPI:
+        return None
+    return float(x), float(y)
+
+
+def acquire() -> tuple[bytes, Dpi | None]:
+    """Один лист со сканера: байты картинки (BMP у драйвера, что угодно у
+    подмены) и разрешение, с которым драйвер его снял (None — неизвестно).
+    Блокирует на время сканирования: звать из потока."""
     if _fake():
         try:
             with open(_fake(), "rb") as f:
-                return f.read()
+                return f.read(), None
         except OSError as e:
             raise ScanError("scan_err") from e
     if os.name != "nt":
@@ -150,7 +219,7 @@ def acquire() -> bytes:
         if r.returncode != 0 or not os.path.isfile(out):
             raise ScanError("scan_err")
         with open(out, "rb") as f:
-            return f.read()
+            return f.read(), _parse_dpi(r.stdout)
     finally:
         try:
             os.unlink(out)
@@ -160,7 +229,12 @@ def acquire() -> bytes:
 
 # ---------- сессия сканирования: страницы одного документа ----------
 
-_sessions: dict[int, list[bytes]] = {}
+# Страница сессии: серый PNG (без потерь, разрешение внутри), её разрешение и
+# готовое превью. ⚠️ Не сырой BMP драйвера: при 300 dpi лист A4 — 9–27 МБ, и
+# тридцать таких висели бы в памяти программы до «Salvează»; серый PNG того же
+# листа в разы меньше, а качество то же. Превью считается один раз, а не на
+# каждый новый лист заново.
+_sessions: dict[int, list[tuple[bytes, Dpi, str]]] = {}
 _sess_lock = threading.Lock()
 
 
@@ -171,29 +245,52 @@ def _image(data: bytes):
     return im
 
 
-def preview(data: bytes) -> str:
+def _dpi_of(im, given: Dpi | None) -> Dpi:
+    """Разрешение листа: что сказал драйвер → что записано в самой картинке
+    (BMP и PNG его несут) → DPI. ⛔ Не «что просили»: просьбу драйвер мог
+    не принять — ровно так страница и стала 75 % (12.10)."""
+    for cand in (given, im.info.get("dpi")):
+        try:
+            x, y = float(cand[0]), float(cand[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if x >= MIN_SANE_DPI and y >= MIN_SANE_DPI:
+            return x, y
+    return float(DPI), float(DPI)
+
+
+def _preview_of(im) -> str:
     """Маленький PNG строкой data: — карточке на экране, не файлом."""
-    im = _image(data).convert("L")
+    im = im.copy()
     im.thumbnail((PREVIEW_PX, PREVIEW_PX))
     buf = io.BytesIO()
     im.save(buf, "PNG", optimize=True)
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def add_page(pid: int, data: bytes) -> list[str]:
+def _page(data: bytes, dpi: Dpi | None) -> tuple[bytes, Dpi, str]:
+    """Лист драйвера → страница сессии (серый PNG, разрешение, превью)."""
+    im = _image(data)
+    d = _dpi_of(im, dpi)
+    gray = im.convert("L")
+    buf = io.BytesIO()
+    gray.save(buf, "PNG", dpi=d, compress_level=3)
+    return buf.getvalue(), d, _preview_of(gray)
+
+
+def add_page(pid: int, data: bytes, dpi: Dpi | None = None) -> list[str]:
     """Положить лист в сессию пациента; возвращает превью всех страниц.
     Битая картинка — scan_err, лист не кладётся."""
     try:
-        pv = preview(data)
+        page = _page(data, dpi)
     except Exception as e:                   # noqa: BLE001 — не картинка / экзотика
         raise ScanError("scan_err") from e
     with _sess_lock:
-        pages = _sessions.setdefault(pid, [])
-        if len(pages) >= MAX_PAGES:
+        pages_now = _sessions.setdefault(pid, [])
+        if len(pages_now) >= MAX_PAGES:
             raise ScanError("scan_err")
-        pages.append(data)
-        pages_now = list(pages)
-    return [preview(p) for p in pages_now]
+        pages_now.append(page)
+        return [pv for _, _, pv in pages_now]
 
 
 def pages(pid: int) -> int:
@@ -212,15 +309,33 @@ def finish(pid: int) -> bytes | None:
         pages_now = _sessions.pop(pid, None)
     if not pages_now:
         return None
-    return to_pdf(pages_now)
+    return to_pdf([(png, d) for png, d, _ in pages_now])
 
 
-def to_pdf(images: list[bytes]) -> bytes:
-    """Многостраничный PDF: оттенки серого, 200 dpi — читается как оригинал,
-    ~100–300 КБ на лист. Pillow пишет страницы JPEG-ом внутри PDF."""
-    ims = [_image(d).convert("L") for d in images]
+def to_pdf(pages_in: list) -> bytes:
+    """Многостраничный PDF: оттенки серого, JPEG внутри, ~100–300 КБ на лист
+    при 200 dpi. Страница — ИСТИННЫЙ размер листа: пиксели ÷ разрешение, с
+    которым лист сняли. Элемент — байты картинки или пара (байты, разрешение).
+    ⚠️ Pillow пишет одно разрешение на весь файл — от первой страницы;
+    страница с другим разрешением пересчитывается к нему, иначе её размер
+    соврал бы (в одной сессии одного сканера так не бывает, но правда о
+    размере листа важнее этой уверенности)."""
+    from PIL import Image
+    items = [p if isinstance(p, tuple) else (p, None) for p in pages_in]
+    ims, dpis = [], []
+    for data, given in items:
+        im = _image(data)
+        dpis.append(_dpi_of(im, given))
+        ims.append(im.convert("L"))
+    base = dpis[0]
+    for i in range(1, len(ims)):
+        dx, dy = dpis[i]
+        if (dx, dy) != base:
+            ims[i] = ims[i].resize((max(1, round(ims[i].width * base[0] / dx)),
+                                    max(1, round(ims[i].height * base[1] / dy))),
+                                   Image.Resampling.LANCZOS)
     buf = io.BytesIO()
     first, rest = ims[0], ims[1:]
     first.save(buf, "PDF", save_all=bool(rest), append_images=rest,
-               resolution=float(DPI), quality=80)
+               dpi=base, quality=80)
     return buf.getvalue()

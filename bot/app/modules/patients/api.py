@@ -646,8 +646,8 @@ async def api_scan_page(request: Request, pid: int):
     if deny is not None:
         return deny
     try:
-        data = await asyncio.to_thread(pscan.acquire)
-        previews = await asyncio.to_thread(pscan.add_page, pid, data)
+        data, dpi = await asyncio.to_thread(pscan.acquire)
+        previews = await asyncio.to_thread(pscan.add_page, pid, data, dpi)
     except pscan.ScanError as e:
         return msg_json(False, e.code, status=409 if e.code == "scan_none" else 503)
     return msg_json(True, data={"pages": len(previews), "previews": previews})

@@ -274,6 +274,7 @@ SUITES = [
     ("Фиша: действия через JSON", test_patient_card.suite_actions),
     ("Фиша: React-экран и старая страница", test_patient_card.suite_switch),
     ("Фиша: сканер — листы в один PDF", test_scan.suite_scan),
+    ("Фиша: сканер — разрешение и размер листа", test_scan.suite_scan_dpi),
     ("Дневник визита: старая страница — эталон", test_visit_api.suite_pin),
     ("Дневник визита: JSON API", test_visit_api.suite_api),
     ("Дневник визита: React-экран и старая страница", test_visit_api.suite_switch),
