@@ -264,7 +264,9 @@ def cmd_check(argv: list) -> int:
     # её решение.
     # ⚠️ Информационно, не [!!]: сразу после релиза «пусто» — норма, и красная
     # строка тут горела бы постоянно (та же ловушка, что с тегом выше).
-    base = git("describe", "--tags", "--abbrev=0").strip()
+    # ⚠️ Только теги версий: 12.10 появился архивный тег `archive/pg-edition`, и
+    # голый `describe --tags` назвал бы «последним выпуском» его.
+    base = git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*").strip()
     empty = False
     if base:
         stat, tests = shipped_since(base)
@@ -317,6 +319,16 @@ def cmd_check(argv: list) -> int:
 # резать, а не двигать.
 MEMORY_BUDGET = 15_000
 
+# Потолок на ОДНО правило модуля (`..\.claude\rules\map\*.md`, 12.10). Карта
+# модулей выросла до 258 КБ ровно потому, что потолок был только у CLAUDE.md:
+# подсказка ниже советовала «увести в map-modules.md», а у карты потолка не
+# было — избыток утекал туда, где его никто не считал. Правило модуля грузится
+# само, когда сессия трогает его файлы, и правка двух-трёх модулей везёт два-три
+# правила разом. Основание числа — не сегодняшний факт, а совет Anthropic
+# держать файл инструкций в пределах ~200 строк («длиннее — хуже соблюдается»):
+# у нас это ~25 токенов на строку.
+RULE_BUDGET = 5_000
+
 # Кириллица — примерно 2.6 символа на токен. Оценка грубая и точной быть не
 # обязана: решение принимается по порядку величины, а не по сотням.
 _CHARS_PER_TOKEN = 2.6
@@ -365,33 +377,70 @@ def cmd_memory(argv: list) -> int:
                   reverse=True)
     grep = [(t, n) for t, n in rest if "chronicle" in n or "archive" in n]
     recall = [(t, n) for t, n in rest if (t, n) not in grep]
-    detail = _tok((ROOT.parent / "map-modules.md").read_text(encoding="utf-8")) \
-        if (ROOT.parent / "map-modules.md").exists() else 0
+
+    def _size(name: str) -> int:
+        p = ROOT.parent / name
+        return _tok(p.read_text(encoding="utf-8")) if p.exists() else 0
+
+    # Правила по путям. ⛔ Правило БЕЗ `paths:` Claude Code грузит в КАЖДУЮ
+    # сессию, и битый YAML шапки — тоже: файл молча переезжает в «всегда».
+    # Поэтому шапку проверяем здесь, а не надеемся на глаз.
+    rules, unscoped = [], []
+    for p in sorted((ROOT.parent / ".claude" / "rules").rglob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        t = _tok(text)
+        if re.match(r"---\r?\npaths:\r?\n(\s+- \"[^\"\n]+\"\r?\n)+---\r?\n", text):
+            rules.append((t, p.name))
+        else:
+            unscoped.append((t, p.name))
+    always += sum(t for t, _ in unscoped)
 
     print("Что сколько стоит (оценка, ~2.6 симв./токен)\n")
     print(f"  ГРУЗИТСЯ ВСЕГДА                    ~{always:6}"
           f"   потолок {MEMORY_BUDGET}")
     print(f"    CLAUDE.md                        ~{_tok(card.read_text('utf-8')):6}")
     print(f"    MEMORY.md (индекс)               ~{_tok(index.read_text('utf-8')):6}")
+    for t, n in unscoped:
+        print(f"    правило без paths: {n:<17}~{t:6}   ⛔ должно грузиться по путям")
+    print(f"  по путям: правила модулей ({len(rules)}){'':4}~{sum(t for t, _ in rules):6}"
+          f"   потолок {RULE_BUDGET} на файл")
     print(f"  по релевантности ({len(recall)} файлов){'':7}~{sum(t for t, _ in recall):6}")
-    print(f"  по ссылке из карты: map-modules    ~{detail:6}")
-    print(f"  только грепом ({len(grep)}){'':18}~{sum(t for t, _ in grep):6}"
-          f"   бюджет не тратит")
+    print(f"  по ссылке: map-modules (оглавление) ~{_size('map-modules.md'):5}")
+    print(f"  только грепом ({len(grep) + 1}){'':18}"
+          f"~{sum(t for t, _ in grep) + _size('map-archive.md'):6}   бюджет не тратит")
     print()
 
     # Полоса, а не порог. Настоящая беда здесь — дрейф за месяцы, а не два
     # процента сверху сегодня: красное на 10 194 против 10 000 горело бы почти
     # всегда, и его перестали бы читать (ровно как с тегом позади HEAD).
     hard = int(MEMORY_BUDGET * 1.25)
-    ok = always <= hard
+    ok = always <= hard and not unscoped
+    if unscoped:
+        say(False, f"правил без `paths:` — {len(unscoped)}: они едут в каждую "
+                   f"сессию. Шапка — `---`, `paths:`, строки `  - \"glob\"`, `---`")
     if always <= MEMORY_BUDGET:
         say(True, f"всегда-загружаемое в бюджете: {always} ≤ {MEMORY_BUDGET}")
-    elif ok:
+    elif always <= hard:
         say(True, f"всегда-загружаемое {always} — у потолка ({MEMORY_BUDGET}). "
-                  f"Не срочно, но присматривай, что увести в map-modules.md")
+                  f"Не срочно: прайор одного модуля — в его правило "
+                  f"(.claude\\rules\\map\\), историю — в сообщение коммита")
     else:
-        say(False, f"всегда-загружаемое {always} > {hard}: пора резать. Уводить "
-                   f"СПРАВКУ (её посмотрят в коде), прайоры оставлять")
+        say(False, f"всегда-загружаемое {always} > {hard}: пора резать. Прайор "
+                   f"одного модуля — в его правило, историю — в архив")
+
+    # ⚠️ У правил та же полоса, что выше, и тот же запрет поднимать потолок,
+    # потому что упёрлись. Перерос — делить по файлам кода (у одонтограммы
+    # 2D и 3D — разные файлы), а рассказ «как чинили» отдавать в map-archive.md.
+    over = [(t, n) for t, n in rules if t > RULE_BUDGET]
+    if over:
+        big = [(t, n) for t, n in over if t > int(RULE_BUDGET * 1.25)]
+        say(not big, f"правил выше потолка {RULE_BUDGET}: {len(over)}"
+                     + (f", из них за полосой {len(big)}" if big else ""))
+        for t, n in sorted(over, reverse=True):
+            print(f"          {n:<22}~{t:6}")
+        ok = ok and not big
+    elif rules:
+        say(True, f"правила модулей в потолке ({RULE_BUDGET} на файл)")
 
     # Индекс — таблица маршрутизации, а не конспект: дорожает он от длины
     # строк, а не от числа файлов. Сорок файлов по одному хуку дешевле
