@@ -108,6 +108,11 @@
    Действует сразу: установщик — из НОВОГО выпуска. Журнал прошлой попытки
    операция за UAC откладывает в `setup.prev.log` — это уже код стоящей версии,
    то есть с обновления, которое поведёт 1.41.3.
+   ✅ **Подтверждено вживую 12.10, канарейка 1.41.2 → 1.41.3** — встало с первого
+   раза (Олег). В `setup.log`: 23:00:36.391 «Zhdem vyhoda DentPilot.exe: processov
+   1» → 36.870 «otpushchen cherez 250 ms» → 36.898 «RestartManager found no
+   applications using one of our files». Тот самый задержавшийся процесс
+   дождались, и Restart Manager закрывать стало нечего.
 3. ⏳ **Оболочка Tauri** — [tauri.md](tauri.md), [sidecar.md](sidecar.md). Rust
    ставить с `CARGO_HOME`/`RUSTUP_HOME` на D: — на C: мало места.
 
