@@ -225,6 +225,7 @@ SETUP_NEW = "DentPilot-Setup.new.exe"     # в папке клиники: кла
 SETUP_DIR = "updates"                     # в папке программы: пишет только администратор
 SETUP_NAME = "DentPilot-Setup.exe"
 SETUP_LOG = "setup.log"
+SETUP_LOG_PREV = "setup.prev.log"         # журнал прошлой попытки: /LOG= перезаписывает
 STARTED = "started"                       # итог «начал»: программа гасит себя сама
 START_DELAY = 3.0                         # секунд дать программе уйти до установщика
 # Чьей подписи верить. ⛔ Закрытый список ОТПЕЧАТКОВ: действительную подпись
@@ -332,6 +333,15 @@ def _install_setup(args: list[str], data_root=None) -> str:
     cur = _current_version(exe)
     if new is None or (cur is not None and tuple(new[:3]) <= tuple(cur[:3])):
         return done("установщик не новее стоящей программы")
+    # Журнал прошлой попытки — в сторону, а не под новый: /LOG= установщика
+    # перезаписывает файл, и при «встало со второго раза» (канарейка 1.41.2,
+    # 12.10) журнал первой, неудачной, пропал — причину пришлось искать в
+    # журнале событий Windows.
+    try:
+        if (work / SETUP_LOG).exists():
+            (work / SETUP_LOG).replace(work / SETUP_LOG_PREV)
+    except OSError:
+        pass
     done(STARTED)
     time.sleep(START_DELAY)
     try:

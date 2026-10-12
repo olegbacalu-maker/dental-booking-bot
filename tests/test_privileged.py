@@ -516,6 +516,7 @@ def suite_install_setup(res: Result) -> None:
         with tempfile.TemporaryDirectory(prefix="dp_setup_ok_") as td:
             tmp = pathlib.Path(td)
             exe, work = _setup_lab(tmp, signed)
+            (work / privileged.SETUP_LOG).write_text("PROSHLAYA POPYTKA", encoding="utf-8")
             out = run(tmp, exe)
             copy = exe.parent / privileged.SETUP_DIR / privileged.SETUP_NAME
             res.check("подписанный и новее: started", out, privileged.STARTED)
@@ -530,6 +531,13 @@ def suite_install_setup(res: Result) -> None:
             # исходник 38 МБ лежал в папке клиники до следующего обновления
             res.ok("исходник из папки клиники убран — дальше всё над копией",
                    not (work / privileged.SETUP_NEW).exists(), "38 МБ остались в папке клиники")
+            # канарейка 1.41.2 (12.10): /LOG= перезаписывает журнал, и первая,
+            # неудачная попытка пропала под второй
+            prev = work / privileged.SETUP_LOG_PREV
+            res.ok("журнал прошлой попытки отложен, а не перезаписан",
+                   prev.exists() and prev.read_text(encoding="utf-8") == "PROSHLAYA POPYTKA"
+                   and not (work / privileged.SETUP_LOG).exists(),
+                   f"prev={prev.exists()} log={(work / privileged.SETUP_LOG).exists()}")
 
         # ⚠️ Установщик не запустился уже ПОСЛЕ «started» (антивирус): программа
         # закрылась, итог читает только сторож — первой строкой обязано быть «fail»,

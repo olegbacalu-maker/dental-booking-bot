@@ -393,6 +393,57 @@ begin
   Result := LegacyDir() = '';
 end;
 
+// Тихое обновление (/RESULT=) ждёт, пока DentPilot.exe не отпустит никто, и
+// только потом идёт проверка Restart Manager — она начинается ПОСЛЕ
+// PrepareToInstall (12.10, канарейка 1.41.2: обновление встало со второго раза).
+// Программу гасит она сама, а привилегированная часть — тот же DentPilot.exe —
+// выходит сразу за запуском установщика; загрузчик onefile после выхода ещё
+// ~0,5 с чистит свою временную папку и держит exe (замер: 0,42–0,58 с).
+// Restart Manager, заставший такой процесс, закрывает его принудительно — и
+// проигрывает гонку, когда процесс уходит сам: «could not be shut down»
+// (событие 10006 в журнале Application), тихий установщик отвечает Abort,
+// итог «fail», и сторож поднимает прежнюю версию. Не отпустили за 30 с
+// (программа открыта под другой учёткой Windows) — дальше, как раньше,
+// закрывает Restart Manager. -1 — WMI не ответил: не ждём, решает он же.
+function AppProcessCount(): Integer;
+var
+  Locator, Service, Procs: Variant;
+  Path: String;
+begin
+  Result := -1;
+  Path := ExpandConstant('{app}\{#AppExeName}');
+  StringChangeEx(Path, '\', '\\', True);
+  StringChangeEx(Path, '''', '\''', True);
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Procs := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE ExecutablePath = ''' + Path + '''');
+    Result := Procs.Count;
+  except
+    Log('WMI: ' + GetExceptionMessage);
+  end;
+end;
+
+procedure WaitAppExit();
+var
+  I, N: Integer;
+begin
+  for I := 1 to 120 do
+  begin
+    N := AppProcessCount();
+    if N <= 0 then
+    begin
+      if I > 1 then
+        Log(Format('DentPilot.exe otpushchen cherez %d ms', [(I - 1) * 250]));
+      Exit;
+    end;
+    if I = 1 then
+      Log(Format('Zhdem vyhoda DentPilot.exe: processov %d', [N]));
+    Sleep(250);
+  end;
+  Log('DentPilot.exe ne otpushchen za 30 s - zakryvaet Restart Manager');
+end;
+
 // ⛔ Блокировка, а не предупреждение. Пока переезд данных (P2) не написан,
 // установка поверх старой раскладки оставила бы клинику с двумя картотеками:
 // новая программа завела бы пустую базу в папке данных, а настоящая осталась
@@ -402,6 +453,8 @@ var
   Legacy: String;
 begin
   Result := '';
+  if ExpandConstant('{param:RESULT|}') <> '' then
+    WaitAppExit();
   Legacy := LegacyDir();
   if Legacy <> '' then
   begin

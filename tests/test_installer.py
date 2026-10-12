@@ -133,6 +133,21 @@ def suite_first_run(res: Result) -> None:
     res.ok("установка поверх старой раскладки заблокирована",
            "function PrepareToInstall" in s and "LegacyText" in s,
            "нет блокировки — клиника получит две картотеки сразу")
+
+    # ⛔ 12.10, канарейка 1.41.2 (обновление встало со второго раза): тихое
+    # обновление ждёт, пока DentPilot.exe не отпустит никто, ДО проверки
+    # Restart Manager. Иначе тот ловит загрузчик onefile на выходе (~0,5 с
+    # после программы) и проигрывает гонку: событие 10006, Abort, «fail».
+    # Ждать — только при /RESULT=: в мастере вручную это выглядело бы зависанием.
+    prep = s[s.index("function PrepareToInstall"):] if "function PrepareToInstall" in s else ""
+    prep = prep[:prep.find("\nend;")]
+    res.ok("тихое обновление ждёт выхода программы до Restart Manager",
+           "{param:RESULT|}" in prep and "WaitAppExit()" in prep
+           and prep.find("WaitAppExit()") < prep.find("LegacyDir()"),
+           "PrepareToInstall не ждёт — RM снова застанет выходящий процесс")
+    res.ok("ждём по пути exe программы",
+           "ExecutablePath = " in s and "{app}\\{#AppExeName}" in s,
+           "по имени попались бы чужие копии DentPilot.exe")
     res.ok("намерение установщика записывается",
            "install.json" in s and "procedure WriteInstallJson" in s, "")
     res.ok("канал берётся параметром, а не угадывается",
