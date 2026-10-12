@@ -427,7 +427,7 @@ def suite_window(res: Result) -> None:
     """Окно программы (08.10): постоянный профиль WebView2, вход по режиму,
     один экземпляр без второго окна. ⚠️ Поведение живёт только в desktop.py и
     прогоном недостижимо — правила текстом; живое поведение доказывает стенд
-    `scripts/launcher_accept.py` (`.\dev bench launcher`)."""
+    `scripts/launcher_accept.py` (`.\\dev bench launcher`)."""
     desk = (BOT / "desktop.py").read_text(encoding="utf-8")
     # ⭐ Ищем САМ вызов с аргументами, а не имя параметра в комментарии.
     res.ok("окно идёт с постоянным профилем (storage_path в webview.start)",
