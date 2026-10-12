@@ -14,7 +14,6 @@ import json
 import pathlib
 import shutil
 import sys
-import time
 import tempfile
 from datetime import timedelta
 
@@ -47,34 +46,36 @@ def _hub(c: Client) -> set:
 ABORTED = -1     # соединение оборвано, ответа нет (см. _upload)
 
 
-def _upload(c: Client, size: int) -> int:
-    """Код ответа на загрузку файла в `size` байт, или ABORTED. Потолок
-    срабатывает ДО чтения тела, и сервер закрывает соединение, пока клиент ещё
-    шлёт мегабайты: под нагрузкой это приходит не ответом 413, а обрывом
-    (WinError 10053) — для ПОТОЛКА это тот же отказ (поймано полным прогоном
-    01.10: один в один набор зелёный, в общем прогоне — обрыв).
-    ⚠️ Обрыв — не 413 (02.10): отрицательная проверка «без флага 9 МБ НЕ
-    упираются в потолок» на обрыве по любой другой причине (сосед-сервер
-    прогона занял машину) краснела как «потолок демо у клиники» — 5046/5047
-    при зелёном одиночном наборе. Обрыв возвращается своим кодом, и каждая
-    проверка решает сама: для потолка он годится, для «проходит» — повтор."""
+def _patient(c: Client) -> int:
+    """Фиша для загрузок: база сервера набора пуста."""
+    return _j(c.post_json("/api/patients", {"name": "Test Încărcare"}))["data"]["id"]
+
+
+def _docs(c: Client, pid: int) -> list:
+    return [d["filename"] for d in _j(c.get(f"/api/patients/{pid}"))["data"]["documents"]]
+
+
+def _upload(c: Client, pid: int, size: int, name: str) -> int:
+    """Код ответа на загрузку файла в `size` байт в фишу, или ABORTED.
+
+    Маршрут настоящий: `File(...)` в его подписи заставляет FastAPI дочитать
+    тело ДО обработчика, и ответ уходит, когда клиенту слать уже нечего.
+    ⛔ До 12.10 здесь стоял `/api/patients/1/doc` — адрес, которого НЕТ. 404
+    приходил по одним заголовкам, и проверки «проходит» зеленели на нём, ничего
+    не загрузив (404 — не 413). Тот же ранний ответ и рвал соединение: urllib
+    шлёт `Connection: close`, uvicorn закрывал сокет посреди мегабайтов,
+    непрочитанное тело давало сброс, и Windows выбрасывала уже пришедший
+    ответ — обрыв 10053, красневший в полном прогоне (5046/5047) и прятавшийся
+    за повтором. Замер 12.10: прежний адрес — 404 и около 10 % обрывов,
+    настоящий — 200 в 520 загрузках из 520, в том числе шестью копиями разом.
+    ⚠️ Потолок (`_limit_body_size`) отвечает ДО чтения тела и сейчас: на 9 МБ
+    в демо обрыв — тот же отказ, что 413 (поймано полным прогоном 01.10), а
+    что файл не лёг, показывает сама фиша."""
     try:
-        return c.post_file("/api/patients/1/doc", "file", "f.pdf", b"0" * size,
+        return c.post_file(f"/api/patients/{pid}/documents", "file", name, b"0" * size,
                            mime="application/pdf").status
     except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
         return ABORTED
-
-
-def _upload_settled(c: Client, size: int, tries: int = 3) -> int:
-    """Загрузка, которая ОБЯЗАНА дойти до ответа: обрыв под нагрузкой — повтор,
-    не вердикт. Возвращает последний исход (ABORTED, если все попытки оборваны)."""
-    got = ABORTED
-    for _ in range(tries):
-        got = _upload(c, size)
-        if got != ABORTED:
-            return got
-        time.sleep(0.5)
-    return got
 
 
 def suite_demo(res: Result) -> None:
@@ -128,11 +129,12 @@ def suite_demo(res: Result) -> None:
                str(sorted(hrefs & HUB_CLOSED)))
         res.ok("плитки клиники, часов, услуг, вида и FAQ на месте", HUB_OPEN <= hrefs,
                str(sorted(HUB_OPEN - hrefs)))
-        # потолок загрузки ниже: 9 МБ — 413 ещё до маршрута, 1 МБ проходит
-        big = _upload(c, 9 * 1024 * 1024)
+        # потолок загрузки ниже: 9 МБ — 413 ещё до маршрута, 1 МБ ложится в фишу
+        pid = _patient(c)
+        big = _upload(c, pid, 9 * 1024 * 1024, "mare.pdf")
         res.ok("загрузка 9 МБ в демо — 413 (или обрыв до чтения тела)", big in (413, ABORTED), str(big))
-        small = _upload_settled(c, 1024 * 1024)
-        res.ok("1 МБ проходит потолок демо", small not in (413, ABORTED), str(small))
+        res.check("1 МБ проходит потолок демо", _upload(c, pid, 1024 * 1024, "mic.pdf"), 200)
+        res.check("в фише только 1 МБ: отказ 9 МБ файла не оставил", _docs(c, pid), ["mic.pdf"])
     with Server(env={**DEMO, "DENTART_DEMO_TTL": "30 de minute"}) as s:
         c = Client(s.url).login()
         for path in ("/admin", "/admin/search?ui=legacy"):
@@ -147,8 +149,8 @@ def suite_demo(res: Result) -> None:
         res.check("без флага «Stare sistem» открыт", c.get("/admin/settings/system").status, 200)
         res.ok("без флага плитка системы на месте", "/admin/settings/system" in _hub(c),
                "плитка пропала без демо")
-        big = _upload_settled(c, 9 * 1024 * 1024)
-        res.ok("без флага 9 МБ не упираются в потолок демо", big not in (413, ABORTED), str(big))
+        res.check("без флага 9 МБ не упираются в потолок демо",
+                  _upload(c, _patient(c), 9 * 1024 * 1024, "mare.pdf"), 200)
 
 
 def suite_seed(res: Result) -> None:
