@@ -26,6 +26,7 @@ import test_paylink  # noqa: E402
 import test_update  # noqa: E402
 import test_pure  # noqa: E402
 import test_renew  # noqa: E402
+import test_robots  # noqa: E402
 import test_trial  # noqa: E402
 from harness import run  # noqa: E402
 
@@ -69,6 +70,7 @@ SUITES = [
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),
     ("Договор и сайт: страницы говорят то же, что сервер и письма", test_contract.suite),
+    ("Поисковики: noindex на каждом ответе, robots.txt обход не закрывает", test_robots.suite),
 ]
 
 if __name__ == "__main__":

@@ -21,12 +21,14 @@ from fastapi import FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, trial, updates, views
+from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, robots, trial, updates, views
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
 app = FastAPI(title="DentPilot Cloud", docs_url=None, redoc_url=None)
+# каждый ответ облака — мимо поисковой выдачи; почему заголовком, а не robots.txt, — robots.py
+app.add_middleware(robots.NoIndex)
 
 _IDNO = re.compile(r"^[0-9]{13}$")
 
@@ -51,6 +53,13 @@ def startup() -> None:
 @app.get("/health")
 def health() -> JSONResponse:
     return JSONResponse({"ok": True, "version": APP_VERSION})
+
+
+@app.get("/robots.txt")
+def robots_txt() -> Response:
+    """Обход открыт намеренно: запрет индексации едет заголовком с каждым ответом,
+    и поисковик обязан до него дойти (robots.py). Без этого маршрута — 404 JSON."""
+    return Response(robots.TXT, media_type="text/plain; charset=utf-8")
 
 
 # ---------- автообновление файла (L13): программа клиники спрашивает сама ----------
