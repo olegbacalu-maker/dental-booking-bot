@@ -1,8 +1,9 @@
 """Аналитика директора ДАННЫМИ: все цифры раздела, без единой строки разметки.
 
-Из `routes.py` сюда вынесено ровно то, что СЧИТАЕТ, — старая страница теперь
-рисует эту же модель, а JSON API отдаёт её как есть. Второй экземпляр расчётов
-разошёлся бы с первым молча: цифры выглядят правдоподобно всегда.
+JSON API (`api.py`) отдаёт эту модель React-экрану как есть. Старая страница,
+рисовавшая её же, снята 12.10 вместе с полями, которые читала только она
+(плитки, график, кольцо источников, денежные карточки). Второй экземпляр
+расчётов разошёлся бы с первым молча: цифры выглядят правдоподобно всегда.
 
 ⚠️ Считается здесь, а не в базе: в `db.py` нет ни одного агрегата. Цифры
 собираются из дневных выборок и прайса из `clinic.json`, поэтому «выручка» —
@@ -30,20 +31,6 @@ _METHODS = (("numerar", "Numerar", "var(--teal)"), ("card", "Card", "var(--blue)
             ("transfer", "Transfer", "var(--violet)"))
 # Длиннее — график переходит с дней на недели: 60 столбиков в ряд уже не читаются.
 WEEKLY_FROM = 46
-
-# Цвет плитки и её мягкая подложка. ⛔ Цвета СМЫСЛА теме не отдаются: красные
-# отмены и зелёные записи — это значение, а не персонализация.
-_SOFT = {"var(--green)": "var(--green-soft)", "var(--teal-d)": "var(--teal-soft)",
-         "var(--blue)": "var(--blue-soft)", "var(--violet)": "var(--violet-soft)",
-         "var(--red)": "var(--red-soft)", "var(--amber)": "var(--amber-soft)"}
-
-# Плитки макета: ключ, подпись, значок, цвет, «рост — это плохо».
-_TILES = (("total", "Programări", "cal", "var(--green)", False),
-          ("bot", "Prin bot", "bot", "var(--teal-d)", False),
-          ("man", "Recepție", "headset", "var(--blue)", False),
-          ("done", "Au venit", "checkin", "var(--violet)", False),
-          ("cancel", "Anulate", "ban", "var(--red)", True),
-          ("rem", "Remindere", "bell", "var(--amber)", False))
 
 # Границы периода. `_parse_date` проверяет только СИНТАКСИС даты, а
 # `<input type=date>` отдаёт и «0012-08-15»: промах по сегменту года — законная
@@ -100,22 +87,13 @@ def agg(rows: list) -> dict:
     return {
         "total": len(act),
         "bot": sum(1 for r in act if r["source"] == "bot"),
-        "man": sum(1 for r in act if r["source"] == "manual"),
-        "web": sum(1 for r in act if r["source"] not in ("bot", "manual")),
         # «пришли» = завершённые + в кабинете + ждущие в приёмной (waiting):
         # человек физически в клинике, для «Au venit» это уже факт
         "done": sum(1 for r in act if r["status"] in ("done", "arrived", "waiting")),
         "noshow": sum(1 for r in act if r["status"] == "noshow"),
         "cancel": len(appts) - len(act),
-        "rem": sum(1 for r in appts if r["reminded_day"]),
         "value": sum(price(r) for r in act if r["status"] != "noshow"),
         "loss": sum(price(r) for r in act if r["status"] == "noshow"),
-        # ⚠️ ТОТ ЖЕ фильтр, что у "value": подпись «botul a adus» печатается на
-        # карточке «Venituri estimate», и неявка, оставленная в ней, объявляла
-        # часть больше целого — та же 1000 MDL шла и в выручку бота, и в
-        # «pierdut» соседнего блока
-        "bot_value": sum(price(r) for r in act
-                         if r["source"] == "bot" and r["status"] != "noshow"),
         "act": act,
     }
 
@@ -218,7 +196,7 @@ def _buckets(days: list) -> tuple[list, list, list]:
 
 
 async def build(d1: date, d2: date, today: date) -> dict:
-    """Модель раздела целиком. Одна на старую страницу и на JSON."""
+    """Модель раздела целиком — то, что отдаёт JSON API."""
     days = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
     span = len(days)
 
@@ -232,81 +210,16 @@ async def build(d1: date, d2: date, today: date) -> dict:
     prev = agg([r for r in all_rows if r["starts_at"] < split])
     plabel = compare_label(span)
 
-    by_day: dict[date, int] = {x: 0 for x in days}
-    for r in cur["act"]:
-        by_day[r["starts_at"].astimezone(eng.TZ).date()] += 1
-    day_vals = [by_day[x] for x in days]
-
-    # спарклайн каждой плитки — её же ряд по дням текущего периода
-    per_day: dict[str, list[int]] = {k: [0] * span for k, *_ in _TILES}
+    # ряд записей по дням текущего периода — карточка «Programări»
     idx = {x: i for i, x in enumerate(days)}
+    total_by_day = [0] * span
     for r in cur["act"]:
-        i = idx[r["starts_at"].astimezone(eng.TZ).date()]
-        per_day["total"][i] += 1
-        if r["source"] == "bot":
-            per_day["bot"][i] += 1
-        elif r["source"] == "manual":
-            per_day["man"][i] += 1
-        if r["status"] in ("done", "arrived", "waiting"):
-            per_day["done"][i] += 1
-        if r["reminded_day"]:
-            per_day["rem"][i] += 1
-    for r in [r for r in all_rows if r["starts_at"] >= split
-              and r["source"] != "note" and r["status"] == "cancelled"]:
-        per_day["cancel"][idx[r["starts_at"].astimezone(eng.TZ).date()]] += 1
+        total_by_day[idx[r["starts_at"].astimezone(eng.TZ).date()]] += 1
 
-    # Telegram заморожен (tg_configured): у клиники без бота нет ни канала
-    # «Prin bot», ни напоминаний — плитки и донат источников прячутся.
-    # per_day выше собирается по ПОЛНОМУ списку намеренно: у клиники со
-    # снятым токеном исторические бот-записи не должны ронять цикл KeyError-ом
+    # Telegram заморожен (tg_configured): у клиники без бота доли «prin bot»
+    # в разборе карточки нет
     tg_ui = tg_configured()
-    tiles = [{"key": key, "label": lbl, "value": cur[key], "icon": ico,
-              "tone": tone, "soft": _SOFT[tone], "bad": bad,
-              "series": per_day[key],
-              "trend": trend(cur[key], prev[key], bad, plabel)}
-             for key, lbl, ico, tone, bad in _TILES
-             if tg_ui or key not in ("bot", "rem")]
-
-    # ---- график по дням ----
     present_pct = round(100 * cur["done"] / cur["total"]) if cur["total"] else 0
-    # Время ожидания в приёмной (08-13): пары штампов waiting_at → arrived_at.
-    # Считаются только визиты, где регистратура отметила ОБА шага — перескок
-    # confirmed→arrived пары не даёт, и это честно: мерить там нечего.
-    waits = [(r["arrived_at"] - r["waiting_at"]).total_seconds() / 60
-             for r in cur["act"]
-             if r.get("waiting_at") and r.get("arrived_at")
-             and r["arrived_at"] >= r["waiting_at"]]
-    chart = {
-        "labels": [_dm(x) for x in days],
-        "values": day_vals,
-        "title": "Programări pe zile",
-        "sub": f"· {_dm(d1)} — {d2.strftime('%d.%m.%Y')}",
-        "total": cur["total"],
-        "total_trend": trend(cur["total"], prev["total"], False, plabel),
-        "present_pct": present_pct,
-        "noshow": cur["noshow"],
-        "loss": f"cca {fmt_mdl(cur['loss'])} pierdut",
-        "wait": {
-            "text": f"{round(sum(waits) / len(waits))} min" if waits else "—",
-            "sub": (f"{len(waits)} vizite măsurate" if waits
-                    else "se măsoară din «A venit» › «În cabinet»"),
-        },
-    }
-
-    # ---- источники: только те, что программа ЗНАЕТ ----
-    # ⛔ Google и Instagram здесь нет и не будет: программа таких источников не
-    # знает, а нарисованное число директор примет за правду и решит про рекламу.
-    src = [("Telegram", cur["bot"], "var(--teal)"),
-           ("Recepție", cur["man"], "var(--blue)"),
-           ("Web-chat", cur["web"], "var(--violet)")]
-    sources = {
-        # один источник — не разбивка, а тавтология
-        "show": tg_ui,
-        "total": cur["total"],
-        "parts": [{"label": lbl, "value": val, "color": color,
-                   "pct": round(100 * val / cur["total"]) if cur["total"] else 0}
-                  for lbl, val, color in src],
-    }
 
     # ---- загрузка и врачи ----
     doctors = []
@@ -330,25 +243,12 @@ async def build(d1: date, d2: date, today: date) -> dict:
     doctors.sort(key=lambda x: -x["pct"])
     # загрузка клиники — ОДНОЙ функцией с прошлым периодом (метка сравнения)
     occ_pct, busy_min, cap_min = _occupancy(cur["act"], days)
-    # период называется ЦИФРАМИ прямо на карточке: «media pe perioadă» без дат
-    # уже озадачила Олега — 3% за неделю выглядят ошибкой рядом с 86% за день
-    occupancy = {
-        "pct": occ_pct,
-        "note": (f"media {_dm(d1)}–{_dm(d2)} ({span} zile) · minute ocupate din "
-                 f"minutele de lucru ale medicilor activi"),
-    }
 
     # ---- деньги ----
     # выручка ЗА СЕГОДНЯ — всегда про сегодня, какой бы период ни был выбран
     # сверху (идея Олега 08-07: пустое место под карточкой периода)
-    y0 = today - timedelta(days=1)
-    t_rows = await db.day_appointments(
-        datetime(y0.year, y0.month, y0.day, tzinfo=eng.TZ),
-        datetime(today.year, today.month, today.day, tzinfo=eng.TZ)
-        + timedelta(days=1))
     t_split = datetime(today.year, today.month, today.day, tzinfo=eng.TZ)
-    tv = agg([r for r in t_rows if r["starts_at"] >= t_split])["value"]
-    yv = agg([r for r in t_rows if r["starts_at"] < t_split])["value"]
+    tv = agg(await db.day_appointments(t_split, t_split + timedelta(days=1)))["value"]
 
     # ⭐ Încasări — НАСТОЯЩИЕ деньги (модуль финансов, 08-07): оценка по прайсу
     # выше это прогноз, а здесь то, что реально записала регистратура.
@@ -360,35 +260,6 @@ async def build(d1: date, d2: date, today: date) -> dict:
             for m in db.PAY_METHODS}
     inc_azi = sum(p["amount_mdl"] for p in await db.payments_range(
         t_split, t_split + timedelta(days=1)))
-
-    est_note = [{"icon": "", "t": "după lista de prețuri · nu e contabilitate"}]
-    if tg_ui:
-        est_note.append({"icon": "", "t": f"botul a adus cca {fmt_mdl(cur['bot_value'])}"})
-    money = [
-        {"key": "incasari", "title": "Încasări",
-         "sub": f"· bani reali, {_dm(d1)}–{_dm(d2)}",
-         "value": inc_cur, "text": fmt_mdl(inc_cur), "suffix": " MDL",
-         "trend": trend_money(inc_cur, inc_prev, plabel),
-         "note": [{"icon": "", "t": f"azi: {fmt_mdl(inc_azi)}"},
-                  {"icon": "cash", "t": fmt_mdl(by_m["numerar"])},
-                  {"icon": "card", "t": fmt_mdl(by_m["card"])},
-                  {"icon": "bank", "t": fmt_mdl(by_m["transfer"])},
-                  {"icon": "", "t": "plăți înregistrate la recepție"}],
-         # лист для сверки ящика в конце смены; ведёт на СЕГОДНЯ, а не на конец
-         # выбранного периода: касса сходится за смену, а не за произвольное окно
-         "link": {"href": "/admin/casa", "label": "Raport de casă (azi) ›",
-                  "icon": "print"}},
-        {"key": "estimat", "title": "Venituri estimate",
-         "sub": f"· {_dm(d1)}–{_dm(d2)}",
-         "value": cur["value"], "text": fmt_mdl(cur["value"]), "suffix": " MDL",
-         "trend": trend_money(cur["value"], prev["value"], plabel),
-         "note": est_note, "link": None},
-        {"key": "azi", "title": "Venituri azi", "sub": f"· {_dm(today)}",
-         "value": tv, "text": fmt_mdl(tv), "suffix": " MDL",
-         "trend": trend_money(tv, yv, "față de ieri"),
-         "note": [{"icon": "", "t": "estimare pe ziua curentă · după lista de prețuri"}],
-         "link": None},
-    ]
 
     # ---- услуги: группировка по service_id, RU и RO — одна строка ----
     svc: dict[str, dict] = {}
@@ -420,7 +291,6 @@ async def build(d1: date, d2: date, today: date) -> dict:
 
     # ---- раскладка экрана (B8, 27.09): те же агрегаты, собранные под карточки ----
     # ⛔ Ни одной новой формулы денег или визитов: всё ниже — cur/prev/pays выше.
-    # Старая страница (`?ui=legacy`) рисует поля выше, React-экран — `board`.
     prev_days = [p1 + timedelta(days=i) for i in range(span)]
     prev_present = round(100 * prev["done"] / prev["total"]) if prev["total"] else 0
     prev_occ = _occupancy(prev["act"], prev_days)[0]
@@ -468,7 +338,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
              # бота едет строкой разбора (tg_configured, как плитки выше)
              "sub": (f"{cur['done']} au venit · {cur['cancel']} anulate"
                      + (f" · {cur['bot']} prin bot" if tg_ui else "")),
-             "series": per_day["total"]},
+             "series": total_by_day},
             {"key": "prezenta", "label": "Rata de prezență", "icon": "checkin",
              "text": f"{present_pct}%", "value": present_pct,
              "badge": badge(present_pct, prev_present, pp=True),
@@ -523,13 +393,7 @@ async def build(d1: date, d2: date, today: date) -> dict:
                    "short": f"{_dm(d1)}–{_dm(d2)}", "days": span},
         "presets": [{"key": k, "label": lbl, "from": a.isoformat(), "to": b.isoformat()}
                     for k, lbl, a, b in presets],
-        "compare": plabel,
         "export_url": f"/admin/export.xlsx?from={d1.isoformat()}&to={d2.isoformat()}",
-        "tiles": tiles,
-        "chart": chart,
-        "sources": sources,
-        "occupancy": occupancy,
-        "money": money,
         "doctors": doctors,
         "services": services,
         "activity": activity,

@@ -4,6 +4,7 @@
 пациентов в одно кресло или потеряет визит в прошлом.
 """
 import re
+import sqlite3
 from datetime import date, datetime, timedelta
 
 from harness import TG_ON, Bot, Client, Result, Server, clinic_today, TZ
@@ -439,26 +440,28 @@ def suite_status(res: Result) -> None:
         c.post(f"/admin/status/{bid}", to="confirmed", back=day2)
 
         # --- время ожидания (08-13): пара штампов waiting_at→arrived_at ---
-        # полный конвейер на отдельном визите; секунды между кликами дают
-        # ~0 минут — важно, что метрика ИЗМЕРЕНА, а не «—»
+        # Полный конвейер на отдельном визите. Карточку «Așteptare medie»
+        # рисовала только старая страница статистики (снята 12.10), поэтому
+        # смотрим сами штампы в базе: пара обязана записаться.
+        def stamps(aid: str) -> tuple:
+            con = sqlite3.connect(str(s.dir / "dental.db"))
+            try:
+                return con.execute("SELECT waiting_at, arrived_at FROM appointments "
+                                   "WHERE id = ?", (int(aid),)).fetchone()
+            finally:
+                con.close()
+
         add(c, _d(3), "11:00", name="Metrica Wait", phone="022555777")
         page3 = c.get(f"/admin/all?date={_d(3)}").body
         wid = page3.split("/admin/status/", 1)[1].split("'")[0].split('"')[0]
         c.post(f"/admin/status/{wid}", to="waiting", back="/admin/all")
         c.post(f"/admin/status/{wid}", to="arrived", back="/admin/all")
-        st_page = c.get(f"/admin/stats?from={_d(3)}&to={_d(3)}").body
-        m = re.search(r"data-wait>([^<]*)<", st_page)
-        res.ok("«Așteptare medie» измерена, а не прочерк",
-               bool(m) and "min" in m.group(1),
-               f"ячейка ожидания: {m.group(1) if m else 'нет'!r}")
+        res.ok("пара штампов ожидания записана",
+               all(stamps(wid)), f"штампы: {stamps(wid)!r}")
         # возврат в confirmed стирает ОБА штампа: исправленный промах «A venit»
-        # не имеет права оставить мусорную пару в среднем
+        # не имеет права оставить мусорную пару в измерении
         c.post(f"/admin/status/{wid}", to="confirmed", back="/admin/all")
-        st_page = c.get(f"/admin/stats?from={_d(3)}&to={_d(3)}").body
-        m = re.search(r"data-wait>([^<]*)<", st_page)
-        res.ok("возврат в confirmed стирает измерение",
-               bool(m) and m.group(1).strip() == "—",
-               f"после reopen: {m.group(1) if m else 'нет'!r}")
+        res.check("возврат в confirmed стирает оба штампа", stamps(wid), (None, None))
 
         # --- возврат визита, когда занят ПАЦИЕНТ, а не врач (08-16) ---
         # ⛔ Отказ у смены статуса ОДИН, а причин две, и они чинятся

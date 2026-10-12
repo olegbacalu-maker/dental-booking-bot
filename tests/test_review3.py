@@ -16,7 +16,8 @@
   * опечатка в годе (<input type=date> принимает 0012-08-15) уводила
     /admin/stats в период на 735 000 дней и роняла страницу без ответа;
   * подпись «botul a adus» считала неявки, а число над ней — нет: подпись
-    объявляла часть больше целого.
+    объявляла часть больше целого (карточка снята 12.10 вместе со старой
+    страницей статистики, набор — вместе с ней).
 
 И согласование формы с сервером: список часов нижней формы журнала строился по
 часам КЛИНИКИ, а /admin/add отказывает по графику ВРАЧА (outside_doc).
@@ -24,7 +25,7 @@
 import re
 from datetime import date, timedelta
 
-from harness import BOT, TG_ON, Bot, Client, Result, Server, clinic_today
+from harness import BOT, Client, Result, Server, clinic_today
 
 CSS = BOT / "app" / "static" / "css" / "panel.css"
 # Экран услуг рисует React (12.10): таблица — в его разметке, не в routes.py
@@ -133,12 +134,12 @@ def suite_doc_services(res: Result) -> None:
     """
     with Server() as s:
         c = Client(s.url).login()
-        r = c.post("/admin/doctor-card/d3/services", svc="hygiene")
+        r = c.post_json("/api/doctors/d3/services", {"services": ["hygiene"]})
         res.check("чужая осиротевшая услуга не мешает сохранить свои",
                   r.msg, "ok_svc_med")
 
         # обратная сторона: СВОЮ последнюю услугу так не осиротить
-        r = c.post("/admin/doctor-card/d3/services", svc="consult")
+        r = c.post_json("/api/doctors/d3/services", {"services": ["consult"]})
         res.check("снять себя с услуги, где ты последний активный, нельзя",
                   r.msg, "svc_empty")
 
@@ -168,47 +169,7 @@ def suite_stats_period(res: Result) -> None:
         res.check("обычный период по-прежнему открывается", r.status, 200)
 
 
-# ---------- 5. «botul a adus» ----------
-
-def suite_stats_bot(res: Result) -> None:
-    """Подпись карточки считает те же визиты, что и само число: без неявок."""
-    with Server(clinic="clinic_split.json", env=TG_ON) as s:
-        day = _d(1)
-        for i, (name, phone) in enumerate((("Bot Unu", "069100100"),
-                                           ("Bot Doi", "069100200"))):
-            b = Bot(Client(s.url), f"bot-value-{i}")
-            b.say("/start"); b.say("lang:ro"); b.say("book")
-            b.say("svc:consult"); b.say("doc:db")
-            b.say(f"day:{day}"); b.say(f"time:{day}T15:00" if i == 0
-                                       else f"time:{day}T16:00")
-            b.say(name); b.say("skip_year"); b.say(phone)
-            b.say("confirm")
-
-        c = Client(s.url).login()
-        page = c.get(f"/admin/all?date={day}").body
-        row = ""
-        for m in re.finditer(r"<tr class='[^']*'>.*?</tr>", page, re.S):
-            if "Bot Doi" in m.group(0):
-                row = m.group(0)
-        aid = row.split("/admin/status/", 1)[1].split("'")[0]
-        c.post(f"/admin/status/{aid}", to="noshow", back=f"/admin/all?date={day}")
-
-        stats = c.get(f"/admin/stats?from={day}&to={day}").body
-        # ⚠️ Смотрим В ОДНУ карточку: число и подпись под ним обязаны считать
-        # одни и те же визиты, а «200 MDL» на странице есть законно — «Top
-        # servicii» перечисляет ЗАПИСИ, а не выручку
-        card = [x for x in stats.split("<div class='fcard an-money'>")
-                if "Venituri estimate" in x][0]
-        res.ok("выручка периода не считает неявку",
-               "data-count='100'" in card,
-               "число карточки изменилось — проверка потеряла опору")
-        res.ok("подпись «botul a adus» считает тем же правилом",
-               "botul a adus cca 100 MDL" in card,
-               "подпись включает неявку и превышает саму выручку: "
-               + card[card.find("botul a adus"):][:40])
-
-
-# ---------- 6. форма журнала и график врача ----------
+# ---------- 5. форма журнала и график врача ----------
 
 def _time_options(page: str) -> list[str]:
     form = page.split('<form class="add"', 1)[1].split("</form>", 1)[0]
@@ -245,7 +206,7 @@ def suite_form_hours(res: Result) -> None:
                "на странице нет часов по врачам — выбор врача не меняет список")
 
 
-# ---------- 7. ширина: страница во всё окно, строка — нет (08-16) ----------
+# ---------- 6. ширина: страница во всё окно, строка — нет (08-16) ----------
 
 # Носители сплошного текста. ⚠️ Список ВКЛЮЧАЕТ требование, значит гниёт молча
 # (полярность из CLAUDE.md): переименуют класс — правило станет искать имя,

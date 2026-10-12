@@ -27,6 +27,15 @@ def _v1_file(server: Server, pin: str) -> None:
         encoding="utf-8")
 
 
+def _feed(c: Client) -> str:
+    """Лента «Activitate recentă» экрана статистики — тексты из /api/stats
+    (старая страница, где её читали до 12.10, снята)."""
+    r = c.get("/api/stats")
+    if r.status != 200:
+        return ""
+    return "\n".join(a["text"] for a in json.loads(r.body)["data"]["activity"])
+
+
 def _rec(server: Server) -> dict:
     return json.loads((server.dir / "auth.json").read_text(encoding="utf-8"))
 
@@ -152,7 +161,7 @@ def suite_throttle(res: Result) -> None:
         ok = Client(s.url)
         ok.post("/admin/login", password="4321", next="/admin")
         res.ok("серия неудач записана в ленту клиники",
-               "încercări greșite la intrare" in ok.get("/admin/stats").body,
+               "încercări greșite la intrare" in _feed(ok),
                "подбор PIN у стойки не оставил следа")
 
 
@@ -224,15 +233,15 @@ def suite_roles(res: Result) -> None:
                    r.status == 303 and "no_access" in r.location,
                    f"код {r.status}, location {r.location!r}")
         # ⚠️ POST закрыт отдельно: форму отправляют не только из меню
-        for path, kw in (("/admin/backup/export", {"parola": "x"}),
-                         ("/admin/doctor-card/d2/photo/del", {}),
-                         ("/admin/doctor-card/d2/save", {"name": "Dr. Hack"})):
+        for path, kw in (("/admin/backup/export", {"parola": "x"}),):
             r = med.post(path, **kw)
             res.ok(f"врачу закрыт POST {path}",
                    r.status == 303 and "no_access" in r.location,
                    f"код {r.status}, location {r.location!r}")
-        # настройки и учётки сохраняет только API (формы сняты 12.10)
-        for path, body in (("/api/settings/clinic", {"name": "Hack"}),
+        # настройки, учётки и врачей сохраняет только API (формы сняты 12.10)
+        for path, body in (("/api/doctors/d2/photo/delete", {}),
+                           ("/api/doctors/d2", {"name": "Dr. Hack"}),
+                           ("/api/settings/clinic", {"name": "Hack"}),
                            ("/api/settings/users", {"uid": "z1", "name": "Z",
                                                     "role": "director", "pin": "9999"})):
             r = med.post_json(path, body)
@@ -355,7 +364,7 @@ def suite_tamper(res: Result) -> None:
             res.ok("директор видит предупреждение о подмене",
                    marker in body and "modificat" in body, "баннера нет")
             res.ok("событие попало в ленту аналитики",
-                   "auth.json" in c.get("/admin/stats").body,
+                   "auth.json" in _feed(c),
                    "в ленте нет следа")
             a = Client(s.url)
             a.post("/admin/login", password="3333", next="/admin")
@@ -499,7 +508,7 @@ def suite_change(res: Result) -> None:
 
         # --- журнал входов (08-13): вход перестал быть бесследным ---
         res.ok("вход записан в ленту клиники",
-               "A intrat în registru" in new.get("/admin/stats").body,
+               "A intrat în registru" in _feed(new),
                "входа нет в «Activitate recentă» — «кто входил вчера вечером» "
                "снова без ответа")
         sec = json.loads(new.get("/api/settings/security").body)["data"]["users"]

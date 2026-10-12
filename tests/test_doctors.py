@@ -1,10 +1,9 @@
-"""Врачи (этап 2 миграции): три старых POST, которые не проверял ни один
-набор, JSON API раздела и рубильник React/старая страница.
+"""Врачи: добавление, цвета и перепривязка, JSON API раздела, React-экраны.
 
-Главное, что здесь стережётся: старая форма и React-экран правят ОДИН
-clinic.json одними правилами (`_add_doctor`, `_save_doctor`, `_set_services`,
-`_store_photo`) — отказ, который отбивает форма, обязан отбивать и API, с тем
-же кодом и с тем же словом.
+Старые страницы и формы раздела сняты 12.10 (docs/dentpilot-2/legacy-removal.md):
+правят врачей только `/api/doctors*` одними правилами (`_add_doctor`,
+`_save_doctor`, `_set_services`, `_store_photo`); серверной осталась форма
+`/admin/relink` — её шлёт главная.
 """
 import json
 import sqlite3
@@ -70,40 +69,38 @@ def _server_with_flags() -> Server:
     return s
 
 
-def suite_legacy(res: Result) -> None:
-    """Старые POST без единой проверки: добавление врача, сброс цветов,
-    перепривязка сирот. Плюс их охрана правом (регистратура может, врач нет)."""
+def suite_actions(res: Result) -> None:
+    """Добавление врача, сброс цветов, перепривязка сирот — и их охрана правом
+    (регистратура может, врач нет)."""
     with Server() as s:
         c = Client(s.url).login()
-        r = c.post("/admin/medici/add", name="Dr. Cinci", spec="Ortodonție")
+        r = c.post_json("/api/doctors", {"name": "Dr. Cinci", "spec": "Ortodonție"})
         res.check("новый врач — new_med", r.msg, "new_med")
-        res.ok("ведёт в его фишу", r.location.startswith("/admin/doctor-card/d5"),
-               r.location)
+        res.check("ответ называет его id", _j(r)["data"]["id"], "d5")
         d5 = _doc(s, "d5")
         res.check("id по счётчику — d5 (d1..d4 заняты)", d5["id"], "d5")
         res.check("специализация записана", d5.get("spec"), "Ortodonție")
         res.check("новый врач активен", d5.get("status"), "activ")
         res.check("счётчик seq.doctor = 5", _cfg(s).get("seq", {}).get("doctor"), 5)
-        res.check("пустое имя — bad_med", c.post("/admin/medici/add", name="  ").msg,
-                  "bad_med")
+        res.check("пустое имя — bad_med",
+                  c.post_json("/api/doctors", {"name": "  "}).msg, "bad_med")
         res.check("тёзка (без учёта регистра) — dup_med",
-                  c.post("/admin/medici/add", name="dr. activ doi").msg, "dup_med")
+                  c.post_json("/api/doctors", {"name": "dr. activ doi"}).msg, "dup_med")
         res.check("врачей по-прежнему пять", len(_cfg(s)["doctors"]), 5)
 
-        # цвета: всем один и тот же → страница предлагает сброс → сброс чистит
+        # цвета: всем один и тот же → список предлагает сброс → сброс чистит
         for dk in ("d1", "d2", "d3", "d4", "d5"):
-            c.post(f"/admin/doctor-card/{dk}/save", name=_doc(s, dk)["name"],
-                   color="#112233", status=_doc(s, dk).get("status", "activ"))
-        res.ok("одинаковый цвет у всех — страница предлагает «Culori automate»",
-               "/admin/medici/colors" in c.get("/admin/medici").body,
-               "подсказки сброса нет")
-        r = c.post("/admin/medici/colors")
+            c.post_json(f"/api/doctors/{dk}", {"name": _doc(s, dk)["name"],
+                                              "color": "#112233",
+                                              "status": _doc(s, dk).get("status", "activ")})
+        res.check("одинаковый цвет у всех — список предлагает «Culori automate»",
+                  _j(c.get("/api/doctors"))["data"]["same_color"], True)
+        r = c.post_json("/api/doctors/colors", {})
         res.check("сброс цветов — ok_med", r.msg, "ok_med")
         res.ok("цвета сняты у всех", all("color" not in d for d in _cfg(s)["doctors"]),
                f"{[d.get('color') for d in _cfg(s)['doctors']]}")
-        res.ok("подсказка сброса исчезла",
-               "/admin/medici/colors" not in c.get("/admin/medici").body,
-               "подсказка осталась после сброса")
+        res.check("подсказка сброса исчезла",
+                  _j(c.get("/api/doctors"))["data"]["same_color"], False)
 
         # перепривязка: сирота (старое имя, doctor_id NULL) → к врачу d2
         pid = _new_patient(c, "Orfan Test", "060000111")
@@ -135,19 +132,29 @@ def suite_legacy(res: Result) -> None:
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         res.check("регистратура добавляет врача",
-                  ana.post("/admin/medici/add", name="Dr. Sase").msg, "new_med")
+                  ana.post_json("/api/doctors", {"name": "Dr. Sase"}).msg, "new_med")
         res.check("регистратура сбрасывает цвета",
-                  ana.post("/admin/medici/colors").msg, "ok_med")
+                  ana.post_json("/api/doctors/colors", {}).msg, "ok_med")
         res.check("регистратура перепривязывает",
                   ana.post("/admin/relink", old_name="X", dk="d2").msg, "ok_set")
         med = Client(s.url)
         med.post("/admin/login", password="2222", next="/admin")
+        for path, body in (("/api/doctors", {"name": "Dr. Hack"}),
+                           ("/api/doctors/colors", {})):
+            r = med.post_json(path, body)
+            res.ok(f"врачу закрыт POST {path}", r.status == 403 and r.msg == "no_access",
+                   f"{r!r}")
+        r = med.post("/admin/relink", old_name="X", dk="d2")
+        res.ok("врачу закрыт POST /admin/relink", r.status == 303 and r.msg == "no_access",
+               f"{r!r}")
+        # формы старых страниц сняты 12.10 — ни у кого их нет
         for path, kw in (("/admin/medici/add", {"name": "Dr. Hack"}),
                          ("/admin/medici/colors", {}),
-                         ("/admin/relink", {"old_name": "X", "dk": "d2"})):
-            r = med.post(path, **kw)
-            res.ok(f"врачу закрыт POST {path}", r.status == 303 and r.msg == "no_access",
-                   f"{r!r}")
+                         ("/admin/doctor-card/d2/save", {"name": "Dr. Hack"}),
+                         ("/admin/doctor-card/d2/services", {"svc": "consult"}),
+                         ("/admin/doctor-card/d2/photo/del", {})):
+            res.ok(f"старой формы {path} нет", boss.post(path, **kw).status in (404, 405),
+                   "форма жива")
 
 
 def suite_api(res: Result) -> None:
@@ -265,8 +272,8 @@ def suite_api(res: Result) -> None:
         f = _doc(s, "d2")
         res.ok("файл: поля записаны", f["name"] == "Dr. Doi Nou" and f["email"] == "doi@x.md"
                and f["work_from"] == 9 and f["color"] == "#123456", f"{f}")
-        res.ok("старая фиша видит новое имя (один файл)",
-               "Dr. Doi Nou" in c.get("/admin/doctor-card/d2").body, "старая фиша отстала")
+        res.ok("страница фиши видит новое имя (один файл)",
+               "Dr. Doi Nou" in c.get("/admin/doctor-card/d2").body, "подпись фиши отстала")
         before = s.clinic.read_bytes()
         c.post_json("/api/doctors/d2", body)
         res.ok("повторный POST того же тела тождествен", s.clinic.read_bytes() == before,
@@ -357,8 +364,9 @@ def suite_api(res: Result) -> None:
 
         # ---- цвета ----
         for dk in ("d1", "d2", "d3", "d4", "d5"):
-            c.post(f"/admin/doctor-card/{dk}/save", name=_doc(s, dk)["name"],
-                   color="#112233", status=_doc(s, dk).get("status", "activ"))
+            c.post_json(f"/api/doctors/{dk}", {"name": _doc(s, dk)["name"],
+                                              "color": "#112233",
+                                              "status": _doc(s, dk).get("status", "activ")})
         res.check("одинаковые цвета видны списку", _j(c.get("/api/doctors"))["data"]["same_color"], True)
         r = c.post_json("/api/doctors/colors", {})
         res.check("сброс — ok_med", _j(r)["code"], "ok_med")
@@ -383,16 +391,16 @@ def suite_api(res: Result) -> None:
 
 
 def suite_switch(res: Result) -> None:
-    """Флаги doctors_list и doctor_card: React-узел в той же рамке, параметры
-    экрана атрибутом, ?ui=legacy возвращает старую страницу, старые POST
-    работают при включённом флаге."""
+    """Экраны врачей — React при любом `ui.react` (старые страницы сняты 12.10):
+    узел в той же рамке, параметры экрана атрибутом, `?ui=legacy` отдаёт тот же
+    React, право стоит и на странице."""
     with Server() as s:
         c = Client(s.url).login()
-        page = c.get("/admin/medici").body
-        res.ok("без флага — старый список", "class='medgrid'" in page and 'id="root"' not in page,
-               "не старый список")
-        res.ok("без флага — старая фиша", "name='name'" in c.get("/admin/doctor-card/d2").body,
-               "не старая фиша")
+        res.ok("без флага — тоже React (старого списка нет)",
+               '<div id="root" data-screen="doctors_list"' in c.get("/admin/medici").body,
+               "узла нет")
+        res.ok("без флага — тоже React (старой фиши нет)",
+               'data-screen="doctor_card"' in c.get("/admin/doctor-card/d2").body, "узла нет")
 
     s = _server_with_flags()
     with s:
@@ -419,22 +427,20 @@ def suite_switch(res: Result) -> None:
         res.ok("фиша: подпись с именем врача", "fișa medicului · Dr. Activ Doi" in page, "подписи нет")
         res.ok("фиша: неизвестный врач по-прежнему ведёт в список",
                c.get("/admin/doctor-card/d9").location == "/admin/medici", "иначе")
-        res.ok("?ui=legacy — старый список",
-               "class='medgrid'" in c.get("/admin/medici?ui=legacy").body, "не вернулся")
-        res.ok("?ui=legacy — старая фиша",
-               "name='name'" in c.get("/admin/doctor-card/d2?ui=legacy").body, "не вернулась")
+        res.ok("?ui=legacy — тот же React-список",
+               'data-screen="doctors_list"' in c.get("/admin/medici?ui=legacy").body,
+               "старая страница вернулась")
+        res.ok("?ui=legacy — та же React-фиша",
+               'data-screen="doctor_card"' in c.get("/admin/doctor-card/d2?ui=legacy").body,
+               "старая страница вернулась")
         res.ok("?msg= на React-странице — плашка сервера",
                "dp_toast" in c.get("/admin/medici?msg=ok_med").body, "плашки нет")
-        r = c.post("/admin/medici/add", name="Dr. Flag")
-        res.ok("старый POST при флаге работает и ведёт в фишу",
-               r.msg == "new_med" and r.location.startswith("/admin/doctor-card/d5"), f"{r!r}")
-        res.ok("флаги пережили правку профиля", _cfg(s).get("ui") == {"react": FLAGS},
-               f"{_cfg(s).get('ui')}")
+        r = c.post_json("/api/doctors", {"name": "Dr. Flag"})
+        res.ok("флаги пережили добавление врача", r.msg == "new_med"
+               and _cfg(s).get("ui") == {"react": FLAGS}, f"{r!r} {_cfg(s).get('ui')}")
         r = c.post_json("/api/doctors/d5", {"name": "Dr. Flag", "status": "activ"})
         res.ok("флаги пережили правку через API", r.status == 200 and _cfg(s).get("ui") == {"react": FLAGS},
                f"{_cfg(s).get('ui')}")
-        res.ok("экран клиники всё ещё за флагом",
-               'data-screen="settings_clinic"' in c.get("/admin/settings/clinic").body, "иначе")
 
     s = _server_with_flags()
     s.extra_env = dict(NO_KEY)

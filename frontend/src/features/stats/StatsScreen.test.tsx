@@ -67,19 +67,7 @@ const WEEK: StatsData = {
     { key: 'azi', label: 'Azi', from: '2026-09-21', to: '2026-09-21' },
     { key: 'd7', label: '7 zile', from: '2026-09-15', to: '2026-09-21' },
   ],
-  compare: 'față de săptămâna trecută',
   export_url: '/admin/export.xlsx?from=2026-09-15&to=2026-09-21',
-  /* Поля старой страницы едут в том же конверте (её рисует сервер для
-     `?ui=legacy`); экран их не читает. */
-  tiles: [],
-  chart: {
-    labels: [], values: [], title: 'Programări pe zile', sub: '', total: 24,
-    total_trend: NONE, present_pct: 83, noshow: 2, loss: 'cca 1 000 MDL pierdut',
-    wait: { text: '7 min', sub: '3 vizite măsurate' },
-  },
-  sources: { show: false, total: 24, parts: [] },
-  occupancy: { pct: 61, note: '' },
-  money: [],
   doctors: [{ name: 'Dr. Ana', off: false, n: 12, came: 10, pres: 83, pct: 61,
               id: 'd1', spec: 'Terapie', color: '#0E9F8A', initials: 'DA', photo: '' }],
   services: [

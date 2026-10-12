@@ -1,18 +1,13 @@
-"""Аналитика клиники: KPI со сравнением периодов, график по дням, источники,
-загрузка, врачи, услуги, последние события. Раздел директора (PERM_MONEY).
+"""Аналитика клиники: страница раздела (оболочка React) и печатный отчёт кассы.
+Раздел директора (PERM_MONEY).
 
-⚠️ Считается здесь, а не в базе: в `db.py` нет ни одного агрегата. Цифры
-собираются из дневных выборок и прайса из `clinic.json`, поэтому «выручка» —
-это оценка по прайсу, а не бухгалтерия. Когда появятся настоящие деньги
-(оплаты, долги), у модуля появится свой repository, и вот тогда SQL.
+Цифры считает `model.py` (в `db.py` агрегатов нет: выборки дня и прайс из
+`clinic.json`, поэтому «выручка» — оценка по прайсу, а не бухгалтерия),
+отдаёт `api.py`, рисует React-экран (раскладка B8). Старая серверная страница
+снята 12.10 (docs/dentpilot-2/legacy-removal.md).
 
-Пересобран 08-06 по макету Олега. Чего из макета тут НЕТ и почему:
-- «Surse: Google / Instagram» — программа не знает таких источников; пациент
-  приходит из Telegram, от регистратуры или через веб-чат. Рисовать Google —
-  показать директору выдуманное число, по которому он решит про рекламу.
-- «Ocuparea cabinetelor» — кабинетов в модели нет, `room` у врача — подпись.
-- «Bună ziua, Liviu!» — приветствие живёт в топбаре (чип вошедшего), а не в
-  заголовке раздела.
+⛔ Источников, которых программа не знает (Google, Instagram), нет и не будет:
+нарисованное число директор примет за правду и решит по нему про рекламу.
 
 Каждый период сравнивается С ТАКИМ ЖЕ ПО ДЛИНЕ куском сразу перед ним: у
 недели это прошлая неделя, у «сегодня» — вчера. Сравнение с «прошлым месяцем»
@@ -28,10 +23,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from ... import db
 from ... import engine as eng
 from ...core.auth import PERM_MONEY, require
-from ...core.layout import (_shell, msg_banner, react_on,
-                            react_shell, shell_model)
+from ...core.layout import react_shell, shell_model
 from ...core.visits import _parse_date
-from . import casa, model, render
+from . import casa, model
 
 router = APIRouter()
 
@@ -51,18 +45,13 @@ async def admin_stats(
     d1, d2 = period(from_q, to_q, today)
     if not model.period_ok(d1, d2, today):
         return RedirectResponse("/admin/stats?msg=bad_period", status_code=303)
-    if react_on(request, "stats"):
-        # период уезжает ПАРАМЕТРАМИ узла, а не разбором адреса на клиенте:
-        # адрес принадлежит серверу, и клиент не должен его угадывать
-        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
-        # подпись печатает сам экран (08.10): период и «comparat cu …»
-        return react_shell("stats", request.url.path,
-                           shell_model("stat", "", msg=msg),
-                           {"from": d1.isoformat(), "to": d2.isoformat()})
-    d = await model.build(d1, d2, today)
-    return _shell(msg_banner(msg) + render.page(d),
-                  "statistici · perioadă selectabilă · doar director",
-                  active="stat")
+    # период уезжает ПАРАМЕТРАМИ узла, а не разбором адреса на клиенте:
+    # адрес принадлежит серверу, и клиент не должен его угадывать
+    # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+    # подпись печатает сам экран (08.10): период и «comparat cu …»
+    return react_shell("stats", request.url.path,
+                       shell_model("stat", "", msg=msg),
+                       {"from": d1.isoformat(), "to": d2.isoformat()})
 
 
 def period(from_q: str, to_q: str, today) -> tuple:

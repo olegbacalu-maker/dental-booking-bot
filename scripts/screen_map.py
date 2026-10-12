@@ -180,8 +180,6 @@ NOTE = {
     "/admin/relink": "перепривязка врача",
     "/admin/telegram/save": "сохранение токена бота (заморожен, но маршрут жив)",
     "/admin/doctor-photo/{dk}": "отдача фото врача",
-    "/admin/medici/add": "добавление врача",
-    "/admin/medici/colors": "цвета врачей",
     "/admin/settings/backup": "страница бэкапа (экспорт проверен отдельно)",
     "/qr": "печатная страница QR",
 }

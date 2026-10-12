@@ -23,20 +23,6 @@ export interface Trend {
   note: string
 }
 
-export interface StatTile {
-  key: string
-  label: string
-  value: number
-  icon: string
-  /** Цвет знака и спарклайна — переменная темы, не хекс. */
-  tone: string
-  soft: string
-  /** Рост — это плохо (неявки, отмены): стрелка вверх, но цвет красный. */
-  bad: boolean
-  series: number[]
-  trend: Trend
-}
-
 export interface StatPeriod {
   from: string
   to: string
@@ -52,41 +38,6 @@ export interface StatPreset {
   label: string
   from: string
   to: string
-}
-
-export interface StatChart {
-  labels: string[]
-  values: number[]
-  title: string
-  /** '· 15.09 — 21.09.2026' — период прямо в заголовке карточки. */
-  sub: string
-  total: number
-  total_trend: Trend
-  present_pct: number
-  noshow: number
-  /** «cca 1 000 MDL pierdut» — оценка по прайсу, отформатирована сервером. */
-  loss: string
-  wait: { text: string; sub: string }
-}
-
-export interface StatSource {
-  label: string
-  value: number
-  color: string
-  pct: number
-}
-
-export interface StatMoney {
-  key: string
-  title: string
-  /** '· bani reali, 15.09–21.09' — период прямо на карточке. */
-  sub: string
-  value: number
-  text: string
-  suffix: string
-  trend: Trend
-  note: { icon: string; t: string }[]
-  link: { href: string; label: string; icon: string } | null
 }
 
 export interface StatDoctor {
@@ -193,14 +144,7 @@ export interface StatEvent {
 export interface StatsData {
   period: StatPeriod
   presets: StatPreset[]
-  compare: string
   export_url: string
-  tiles: StatTile[]
-  chart: StatChart
-  /** Один источник — не разбивка, а тавтология: у клиники без бота кольца нет. */
-  sources: { show: boolean; total: number; parts: StatSource[] }
-  occupancy: { pct: number; note: string }
-  money: StatMoney[]
   doctors: StatDoctor[]
   services: StatService[]
   activity: StatEvent[]

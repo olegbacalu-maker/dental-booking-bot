@@ -179,7 +179,7 @@ def suite_model(res: Result) -> None:
                   None)
 
         # список ФОРМЫ — активные врачи, даже когда в сетке колонок больше
-        c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei", status="concediu")
+        c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "concediu"})
         m = _day(c, day)
         res.check("ВЫКЛЮЧЕННЫЙ ВРАЧ: колонка есть, в форме его нет",
                   ("d3" in [x["id"] for x in m["doctors"]],

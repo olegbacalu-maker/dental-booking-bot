@@ -160,7 +160,7 @@ def suite_form(res: Result) -> None:
                "поле рождения без потолка — «в будущем» отобьёт только сервер")
 
         # выключенный врач: колонка в сетке есть, строки в форме нет
-        c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei", status="concediu")
+        c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "concediu"})
         body = c.get(f"/admin/all?date={day}").body
         heads = re.findall(r"<a class='dh-n'[^>]*>([^<]+)</a>", body)
         res.check("ВЫКЛЮЧЕННЫЙ ВРАЧ: колонка в сетке осталась, из формы ушёл",
@@ -281,7 +281,7 @@ def suite_slot(res: Result) -> None:
         res.check("пустой текст — bad",
                   c.post("/admin/note", ndate=day, ntime="12:00", ndoctor="d3",
                          ntext="   ", back=back).msg, "bad")
-        c.post("/admin/doctor-card/d4/save", name="Dr. Activ Patru", status="concediu")
+        c.post_json("/api/doctors/d4", {"name": "Dr. Activ Patru", "status": "concediu"})
         res.check("выключенному врачу заметку не ставим — и это «bad», не «bad_off»",
                   c.post("/admin/note", ndate=day, ntime="12:00", ndoctor="d4",
                          ntext="Concediu", back=back).msg, "bad")

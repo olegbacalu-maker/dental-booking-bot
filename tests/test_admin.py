@@ -54,9 +54,11 @@ def suite_pages(res: Result) -> None:
             "/admin": "Clinica Test",
             f"/admin/all?date={_d(1)}": "Pagina Test",
             "/admin/week": "",
+            # статистика и врачи — React (12.10): данные приходят из /api/*,
+            # их содержимое стерегут test_stats_api и test_doctors
             "/admin/stats": "",
             "/admin/settings": "Clinica Test",
-            "/admin/medici": "Dr. Activ Doi",
+            "/admin/medici": "",
             "/admin/search?q=Pagina": "Pagina Test",
             "/admin/qr-print": "",
         }
@@ -125,12 +127,12 @@ def suite_pages(res: Result) -> None:
         # только клиент с большим монитором, на 1366 потолок не срабатывает).
         # Потолок самой СТРОКИ живёт в panel.css и проверяется там же
         # (test_review3.suite_width) — разметка о нём ничего не знает.
-        # ⚠️ Настроек в списке нет: их экраны рисует React (12.10), и ширину
-        # раскладки ведёт клиент, серверного `content` у оболочки нет.
+        # ⚠️ Настроек, статистики и врачей в списке нет: их экраны рисует React
+        # (12.10), и ширину раскладки ведёт клиент, серверного `content` у
+        # оболочки нет.
         shells = {}
         for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
-                     "/admin/doctor/d2", "/admin/search",
-                     "/admin/stats", "/admin/medici"):
+                     "/admin/doctor/d2", "/admin/search"):
             body = c.get(path).body
             m = re.search(r'<div class="(content[^"]*)"', body)
             shells[path] = m.group(1) if m else "—"
@@ -758,28 +760,27 @@ def suite_dashboard(res: Result) -> None:
                                  for b, cap, p in occ), f"{occ}")
         res.check("врач с визитами 60′+120′ — это 21% от 840",
                   next((p for b, _c, p in occ if b == "180"), None), "21")
-        st = c.get(f"/admin/stats?from={day}&to={day}").body
-        res.ok("тот же процент в «Statistici» за тот же день",
-               "<span>21%</span>" in st,
-               "дашборд и статистика разошлись в загрузке врача")
-        # деньги: период назван, суффикс MDL у счётчика, карточка «за сегодня»
-        res.ok("прошлый период назван по имени (день)",
-               "față de ziua precedentă" in st, "безымянное сравнение")
-        res.ok("карточка «Venituri azi» на месте",
-               "Venituri azi" in st and st.count("data-suffix=' MDL'") >= 2,
-               "нет дневной выручки или суффикса MDL")
+        # «Statistici» — экран React: та же цифра приходит в /api/stats
+        st = json.loads(c.get(f"/api/stats?from={day}&to={day}").body)["data"]
+        res.check("тот же процент в «Statistici» за тот же день",
+                  next((x["pct"] for x in st["doctors"] if x["id"] == "d2"), None), 21)
+        # деньги: период назван, настоящие деньги отдельно от оценки, «за сегодня»
+        stk = {x["key"]: x for x in st["board"]["kpis"]}
+        res.check("прошлый период назван по имени (день)",
+                  stk["incasari"]["trend"]["label"], "față de ziua precedentă")
+        res.ok("дневная выручка на месте",
+               {"today_cash", "today_estimated"} <= set(st["board"]["money"]),
+               f"{st['board']['money']}")
         res.ok("«Încasări» — настоящие деньги отдельно от оценки",
-               "Încasări" in st and "bani reali" in st
-               and "plăți înregistrate la recepție" in st,
+               stk["incasari"]["label"] == "Încasări"
+               and {"cash", "estimated"} <= set(st["board"]["money"]),
                "нет карточки реальных денег")
-        res.ok("у недельного периода имя недели",
-               "față de săptămâna trecută" in c.get("/admin/stats").body,
-               "7 дней не названы неделей")
+        res.check("у недельного периода имя недели",
+                  json.loads(c.get("/api/stats").body)["data"]["board"]["prev_name"],
+                  "săptămâna trecută")
         res.ok("счётчик группирует тысячи",
                "(\\d{3})" in c.get("/static/js/panel.js").body,
                "цифры без разделителя тысяч")
-        res.check("аналитика несёт свои шесть мини-графиков",
-                  st.count("class='spark'"), 6)
 
         res.check("в повестке все три визита", page.count("class='ag-i"), 3)
         res.check("повестка отсортирована по времени",
@@ -969,14 +970,15 @@ def suite_grid_edges(res: Result) -> None:
 
 
 def suite_analytics(res: Result) -> None:
-    """Аналитика: сравнение периодов, график по дням, источники, полукруг,
-    деньги, лента событий. Всё выведенное — ломается молча, страница 200.
+    """Аналитика: сравнение периодов, график по дням, загрузка, деньги, врачи,
+    лента событий — по ответу /api/stats. Всё выведенное ломается молча, а
+    ответ при этом 200.
 
     День завтрашний, как в suite_dashboard: сегодняшний зависит от часа прогона.
 
-    Сервер — grandfather-клиника (флаг «токен нечитаем» = tg_configured):
-    полная раскладка статистики с бот-плитками и донатом живёт только у
-    клиник с ботом; ветку «без бота» стережёт suite_bot_ui.
+    Сервер — grandfather-клиника (флаг «токен нечитаем» = tg_configured): доля
+    бота в разборе записей есть только у клиник с ботом; ветку «без бота»
+    стережёт suite_bot_ui.
     """
     with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
         c = Client(s.url).login()
@@ -993,48 +995,57 @@ def suite_analytics(res: Result) -> None:
                aservice="consult", aname="Stat Ieri", aphone="069000004",
                back="/admin/all")
 
-        page = c.get(f"/admin/stats?from={day}&to={day}").body
-        # «neschimbat …» — тоже тренд: нулевые плитки равны нулю. С 08-07
-        # прошлый период называется ПО ИМЕНИ (день/неделя/месяц), а не
-        # безымянной «perioada trecută»
-        res.ok("шесть KPI с трендом к прошлому периоду",
-               page.count("față de ziua precedentă") >= 8,  # 6 плиток + график + деньги
-               f"трендов {page.count('față de ziua precedentă')}")
-        res.ok("график по дням на месте", "linechart" in page, "нет графика")
-        res.ok("точки графика подписаны значениями", "class='ld-v'" in page,
-               "нет значений на точках")
-        res.ok("источники — только настоящие три",
-               "Telegram" in page and "Recepție" in page and "Web-chat" in page
-               and "Google" not in page and "Instagram" not in page,
-               "в источниках выдуманные каналы")
-        res.ok("кольцо источников рисуется", "class='donut'" in page, "нет кольца")
-        res.ok("полукруг загрузки рисуется", "class='gauge'" in page, "нет полукруга")
-        # 3 визита (60+120+60=240′) на 3 активных врача × 840′ = 240/2520 ≈ 10%
-        res.ok("средняя загрузка считается по активным врачам",
-               ">10%</text>" in page, "среднее не сходится (ждали 10%)")
-        res.ok("деньги подписаны как оценка по прайсу",
-               "nu e contabilitate" in page, "оценка выдаётся за бухгалтерию")
-        res.ok("лента событий с именем и пациентом",
-               "Activitate recentă" in page and "/admin/patient/" in page,
-               "нет ленты или ссылок на фиши")
-        res.ok("врачи отсортированы по загрузке",
-               page.find("Dr. Activ Doi") < page.find("Dr. Activ Trei"),
-               "врач с большей загрузкой не первый")
+        # Экран рисует React (старая страница снята 12.10): цифры — из /api/stats,
+        # той же модели, что видит директор (карточки `board`, врачи, лента).
+        def stats(a: str, b: str) -> dict:
+            return json.loads(c.get(f"/api/stats?from={a}&to={b}").body)["data"]
 
-        # пустой период: график рисует линию по полу (не «нет данных» — период
-        # существовал, записей ноль), кольцо честно говорит «fără date», среднее 0%
-        empty = c.get(f"/admin/stats?from={_d(40)}&to={_d(46)}").body
-        res.ok("пустой период не роняет страницу",
-               "linechart" in empty and ">0%</text>" in empty
-               and "fără date" in empty,
-               "пустой период сломал графики")
+        d = stats(day, day)
+        k = {x["key"]: x for x in d["board"]["kpis"]}
+        # С 08-07 прошлый период называется ПО ИМЕНИ (день/неделя/месяц), а не
+        # безымянной «perioada trecută» — у каждой из четырёх карточек
+        res.ok("четыре карточки с трендом к прошлому периоду",
+               len(k) == 4 and all(x["trend"]["label"] == "față de ziua precedentă"
+                                   for x in k.values()),
+               f"{[(x['key'], x['trend']['label']) for x in k.values()]}")
+        res.check("график по дням: один день — одна корзина с тремя записями",
+                  (d["board"]["series"]["bucket"], d["board"]["series"]["appts"]),
+                  ("day", [3]))
+        # у клиники с ботом его доля едет строкой разбора записей (кольца нет)
+        res.ok("доля бота названа в разборе записей",
+               "prin bot" in k["programari"]["sub"], k["programari"]["sub"])
+        res.ok("выдуманных источников нет нигде",
+               "Google" not in json.dumps(d) and "Instagram" not in json.dumps(d),
+               "в аналитике выдуманные каналы")
+        # 3 визита (60+120+60=240′) на 3 активных врача × 840′ = 240/2520 ≈ 10%
+        res.check("средняя загрузка считается по активным врачам",
+                  k["ocupare"]["value"], 10)
+        res.ok("деньги подписаны как оценка по прайсу",
+               "orientative" in d["hint"], "оценка выдаётся за бухгалтерию")
+        res.ok("лента событий с именем и пациентом",
+               any(a["name"] and isinstance(a["patient_id"], int) for a in d["activity"]),
+               f"{d['activity'][:2]}")
+        names = [x["name"] for x in d["doctors"]]
+        res.ok("врачи отсортированы по загрузке",
+               "Dr. Activ Doi" in names and "Dr. Activ Trei" in names
+               and names.index("Dr. Activ Doi") < names.index("Dr. Activ Trei"),
+               f"{names}")
+
+        # пустой период: записей ноль, но период существовал — карточки нулевые,
+        # ряд по дням есть и лежит по полу
+        empty = stats(_d(40), _d(46))
+        ke = {x["key"]: x for x in empty["board"]["kpis"]}
+        res.ok("пустой период не роняет аналитику",
+               ke["programari"]["value"] == 0 and ke["ocupare"]["value"] == 0
+               and empty["board"]["series"]["appts"] == [0] * 7,
+               f"{empty['board']['series']['appts']}")
 
         # у периода «сегодня» прошлый кусок той же длины — вчера (он пуст), и
         # сегодняшний визит 08:00 обязан дать «+1 … (atunci 0)», а не «neschimbat»
-        tdy = c.get(f"/admin/stats?from={_d(0)}&to={_d(0)}").body
-        res.ok("у «сегодня» прошлый период — вчера",
-               "față de ziua precedentă (atunci 0)" in tdy,
-               "нет сравнения на дне")
+        tr = {x["key"]: x for x in stats(_d(0), _d(0))["board"]["kpis"]}["programari"]["trend"]
+        res.check("у «сегодня» прошлый период — вчера",
+                  (tr["value"], tr["label"], tr["note"]),
+                  ("+1", "față de ziua precedentă", " (atunci 0)"))
 
 
 def suite_patients_list(res: Result) -> None:
@@ -1877,12 +1888,15 @@ def suite_bot_ui(res: Result) -> None:
         # не было — три дырки (фильтр, строка «Canal Telegram» в Stare sistem,
         # абзац токена в FAQ) прожили незамеченными. Слово и обе страницы
         # теперь в обходе.
+        # ⚠️ Экраны React (настройки, статистика, врачи) несут текст в ответах
+        # /api/*, а не в странице: обход страницы у них ничего не видит, и
+        # сторож молча становился пустым — поэтому их ответы в обходе тоже.
         leaks = []
-        for path in ("/admin", "/admin/all", "/admin/medici", "/admin/settings",
-                     "/admin/settings/clinic", "/admin/settings/hours",
-                     "/admin/settings/services", "/admin/settings/system",
-                     "/admin/settings/faq", "/admin/stats",
-                     "/admin/doctor-card/d2", "/admin/search"):
+        for path in ("/admin", "/admin/all", "/admin/search",
+                     "/api/settings/hub", "/api/settings/clinic",
+                     "/api/settings/hours", "/api/settings/services",
+                     "/api/settings/system", "/api/settings/faq", "/api/stats",
+                     "/api/doctors", "/api/doctors/d2"):
             body = c.get(path).body
             for word in ("botul", "botului", "prin bot", "🤖", "Telegram"):
                 if word in body:
@@ -1904,13 +1918,11 @@ def suite_bot_ui(res: Result) -> None:
         day = c.get(f"/admin/all?date={_d(1)}").body
         res.ok("список дня без бот-легенды в шапке", "🤖 bot" not in day,
                "легенда с ботом на /admin/all")
-        stats = c.get("/admin/stats").body
-        res.ok("статистика без «Prin bot» и «Remindere»",
-               "Prin bot" not in stats and "Remindere" not in stats,
-               "бот-плитки в статистике")
-        res.ok("нет доната «Surse programări»",
-               "Surse programări" not in stats,
-               "донат из одного источника — тавтология")
+        # экран статистики — React: его текст сервера едет в /api/stats
+        stats = c.get("/api/stats").body
+        res.ok("статистика без доли бота",
+               "prin bot" not in stats and "Prin bot" not in stats
+               and "Remindere" not in stats, "бот в разборе статистики")
         res.ok("нет «botul a adus»", "botul a adus" not in stats,
                "оценка вклада бота без бота")
 
@@ -1939,10 +1951,10 @@ def suite_bot_ui(res: Result) -> None:
                "колокольчик пропал у grandfather")
         res.ok("grandfather: Sincronizări в сайдбаре", "Sincronizări" in dash,
                "секция пропала у grandfather")
-        stats = c.get("/admin/stats").body
-        res.ok("grandfather: источники в статистике",
-               "Surse programări" in stats and "Prin bot" in stats,
-               "статистика урезана у grandfather")
+        kp = {x["key"]: x for x in
+              json.loads(c.get("/api/stats").body)["data"]["board"]["kpis"]}
+        res.ok("grandfather: доля бота в статистике",
+               "prin bot" in kp["programari"]["sub"], "статистика урезана у grandfather")
         res.ok("grandfather: строка канала Telegram в Stare sistem",
                bool(json.loads(c.get("/api/settings/system").body)["data"]["telegram"]),
                "строка канала пропала у клиники с ботом")
@@ -2331,8 +2343,7 @@ def suite_doctor_page(res: Result) -> None:
                   c.get("/admin/doctor/d999").status, 307)
 
         # выключенный врач остаётся доступен как история
-        r = c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei",
-                   status="concediu")
+        r = c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "concediu"})
         res.check("врач отправлен в отпуск (иначе проверка ниже пуста)",
                   r.msg, "ok_med")
         off = c.get(f"/admin/doctor/d3?date={day}").body

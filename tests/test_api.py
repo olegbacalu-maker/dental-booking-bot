@@ -231,7 +231,9 @@ def suite_switch(res: Result) -> None:
                "старая форма вернулась")
         # ⛔ Сайт — только в системном браузере: без target=_blank окно
         # программы само ушло бы на сайт, и вернуться было бы нечем.
-        old = c.get("/admin/stats").body
+        # Старая оболочка жива у журнала (его старый интерфейс снимается
+        # последним, docs/dentpilot-2/legacy-removal.md) — смотрим на неделе.
+        old = c.get("/admin/week").body
         res.ok("старая оболочка: знак — ссылка на сайт с target=_blank, почта contact@",
                'class="bc-site" href="https://dentpilot.md" target="_blank" rel="noopener"' in old
                and 'href="mailto:contact@dentpilot.md?subject=' in old,

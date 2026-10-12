@@ -444,7 +444,7 @@ def suite_head(res: Result) -> None:
                   ("complet", False, 7))
 
         # выключенный врач: колонка держится, пока есть записи, и помечена
-        c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei", status="concediu")
+        c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "concediu"})
         off = {h["name"]: h for h in
                _heads(c.get(f"/admin?date={day}&ui=legacy").body)}["Dr. Activ Trei"]
         res.check("ВЫКЛЮЧЕННЫЙ помечен и приглушён, но остаётся с записями",
@@ -1091,15 +1091,15 @@ def suite_model_empty(res: Result) -> None:
 
 
 def _card_hue(c: Client, dk: str) -> str:
-    """Цвет аватара на КАРТОЧКЕ врача — то, что рисует `core.visits._avatar`.
+    """Цвет аватара на КАРТОЧКЕ врача — то, что карточка получает от сервера.
 
-    ⚠️ Читается со страницы, а не считается формулой заново: проверка,
-    повторяющая формулу, зеленела бы вместе с ней — в том числе на двух
-    экранах, которые уже разъехались.
+    ⚠️ Читается из ответа `/api/doctors/{dk}`, а не считается формулой заново:
+    проверка, повторяющая формулу, зеленела бы вместе с ней — в том числе на
+    двух экранах, которые уже разъехались. (Старая страница карточки, чья
+    разметка читалась тут до 12.10, снята.)
     """
-    m = re.search(r"<span class='avatar big' style='background:([^']*)'>",
-                  c.get(f"/admin/doctor-card/{dk}").body)
-    return m.group(1) if m else ""
+    r = c.get(f"/api/doctors/{dk}")
+    return json.loads(r.body)["data"]["color"] if r.status == 200 else ""
 
 
 def _head_hues(c: Client, day: str) -> dict:
@@ -1161,8 +1161,8 @@ def suite_hue(res: Result) -> None:
                    if x["id"] == "d3"], [card])
         # ⚠️ Вторая половина `_doc_hue`, и без неё правило читалось бы как
         # «цвет всегда из палитры»: свой цвет врача сильнее места в справочнике.
-        c.post("/admin/doctor-card/d3/save", name="Dr. Activ Trei",
-               status="activ", color="#123456")
+        c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "activ",
+                                       "color": "#123456"})
         res.check("СВОЙ цвет врача сильнее палитры — и на панели, и на карточке",
                   (_head_hues(c, day_a).get("Dr. Activ Trei"), _card_hue(c, "d3")),
                   ("#123456", "#123456"))

@@ -273,7 +273,7 @@ def suite_api(res: Result) -> None:
                   (j5["exam"]["doctor"], j5["exam"]["note"]), ("", "a doua"))
         c.post_json(f"/api/patients/{pid}/perio/{eid}",
                     {"teeth": {}, "doctor": "Dr. Activ Doi"})
-        r = c.post("/admin/doctor-card/d2/save", name="Dr. Activ Doi Popescu")
+        r = c.post_json("/api/doctors/d2", {"name": "Dr. Activ Doi Popescu"})
         # ⚠️ Переименование обязано СОСТОЯТЬСЯ: проверка, которая бьёт мимо
         # маршрута, зеленела бы всегда — прежнее имя так и осталось бы в
         # справочнике, и стирать подпись было бы нечему.
