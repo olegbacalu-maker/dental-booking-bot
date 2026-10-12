@@ -177,10 +177,9 @@ export interface UserForm {
   pin: string
 }
 
-/** Что показывает раздел шифрования. `cloud` — не состояние ключа, а издание:
- *  у PostgreSQL файла базы нет вовсе. Четвёртого состояния («ключ не читается»)
+/** Что показывает раздел шифрования. Четвёртого состояния («ключ не читается»)
  *  здесь не бывает — оно уводит программу в режим восстановления при старте. */
-export type CryptState = 'cloud' | 'off' | 'pending' | 'on'
+export type CryptState = 'off' | 'pending' | 'on'
 
 export interface CryptData {
   state: CryptState

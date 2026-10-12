@@ -23,13 +23,11 @@ from __future__ import annotations
 
 import pathlib
 
-from ... import db
 from ...core import dbkey
 from ...core.layout import _ic
 
-# Что показывает раздел. `CLOUD` — не состояние шифрования, а издание: у
-# облака файла базы нет вовсе, и разговаривать не о чем.
-CLOUD, OFF, PENDING, ON = "cloud", "off", "pending", "on"
+# Что показывает раздел.
+OFF, PENDING, ON = "off", "pending", "on"
 
 
 def state(data_dir: pathlib.Path | None) -> str:
@@ -39,16 +37,9 @@ def state(data_dir: pathlib.Path | None) -> str:
     клиника, заказавшая расшифровку, ещё зашифрована, и сказать ей «активна»
     значило бы спрятать тот факт, что она уже нажала «остановить».
     """
-    if not db.IS_SQLITE:
-        return CLOUD
     if data_dir and (data_dir / dbkey.PENDING_FILE).exists():
         return PENDING
     return ON if dbkey.state(data_dir) == dbkey.OK else OFF
-
-
-def cloud_html() -> str:
-    return ("<p class='hint'>Ediția cloud folosește PostgreSQL — criptarea "
-            "fișierului nu se aplică.</p>")
 
 
 def pending_html() -> str:
@@ -117,7 +108,7 @@ def blocks(st: str) -> dict[str, str]:
     сравнивает куски со старой страницей по именам.
     """
     return {
-        "status": {CLOUD: cloud_html(), PENDING: pending_html(),
+        "status": {PENDING: pending_html(),
                    ON: on_html()}.get(st, off_html()),
         "what": what_html() if st == OFF else "",
         "cost": cost_html() if st == OFF else "",
@@ -142,10 +133,7 @@ _PREPARE_FORM = ("<form method='post' action='/admin/settings/crypt/prepare'>"
 
 
 def render(st: str) -> str:
-    """Тело старой страницы. Заголовок у облачной ветки не печатается — там
-    и раздела нет, только объяснение, почему его нет."""
-    if st == CLOUD:
-        return cloud_html()
+    """Тело старой страницы."""
     b = blocks(st)
     body = [f"<h2>{_ic('lock')} Criptarea evidenței</h2>", b["status"]]
     if st == PENDING:

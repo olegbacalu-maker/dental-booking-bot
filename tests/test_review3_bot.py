@@ -199,7 +199,6 @@ from app import db
 
 async def flags(appt_id):
     r = await db._fetch(
-        "SELECT reminded_day, reminded_2h FROM appointments WHERE id = $1",
         "SELECT reminded_day, reminded_2h FROM appointments WHERE id = ?", appt_id)
     return [int(r[0]["reminded_day"]), int(r[0]["reminded_2h"])]
 

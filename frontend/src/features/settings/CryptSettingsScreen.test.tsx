@@ -39,12 +39,6 @@ const PENDING: CryptData = {
             what: '', cost: '', limit: '', note: '' },
   sheet: SHEET,
 }
-const CLOUD: CryptData = {
-  state: 'cloud',
-  blocks: { status: '<p class="hint">Ediția cloud folosește PostgreSQL.</p>',
-            what: '', cost: '', limit: '', note: '' },
-  sheet: SHEET,
-}
 
 const ok = <T,>(data: T, code = '', text = ''): ApiResult<T> => ({ data, code, text, tone: 'ok' })
 
@@ -117,14 +111,5 @@ describe('CryptSettingsScreen', () => {
     expect(await screen.findByText('Criptarea este pregătită.')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Deschide foaia de recuperare/ })).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
-  })
-
-  it('облако: объяснение без заголовка раздела — как на старой странице', async () => {
-    get.mockResolvedValueOnce(ok(CLOUD))
-    open(vi.fn())
-    expect(await screen.findByText('Ediția cloud folosește PostgreSQL.')).toBeTruthy()
-    expect(screen.queryByRole('heading')).toBeNull()
-    expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.queryByRole('link')).toBeNull()
   })
 })

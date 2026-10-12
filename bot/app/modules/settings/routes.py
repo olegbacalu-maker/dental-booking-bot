@@ -246,9 +246,9 @@ def _lic_hint(s) -> list[dict]:
 
 
 def _lan_available() -> bool:
-    """Секция сети — только у настольного издания: слушающий адрес выбирает
-    лаунчер по dental.env, облаку переключатель не нужен."""
-    return bool(db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE"))
+    """Секция сети — только под лаунчером: слушающий адрес он выбирает по
+    dental.env, а без файла (прогон, песочница, демо) переключать нечего."""
+    return bool(os.environ.get("DENTART_ENV_FILE"))
 
 
 def _hub_tiles() -> list[dict]:
@@ -272,7 +272,7 @@ def _hub_tiles() -> list[dict]:
 
     bl_tone, _bl_txt = bitlocker.describe(bitlocker.STATE["code"],
                                           bitlocker.STATE["drive"])
-    bl_flag = ([] if bl_tone in ("ok", "unknown") or not db.IS_SQLITE
+    bl_flag = ([] if bl_tone in ("ok", "unknown")
                else [{"t": " · "}, {"icon": "ban", "t": "disc necriptat", "tone": "red"}]
                if bl_tone == "alarm"
                else [{"t": " · "}, {"icon": "sos", "t": "BitLocker", "tone": "amber"}])
@@ -317,13 +317,12 @@ def _hub_tiles() -> list[dict]:
                           [{"icon": "check", "t": "activ în rețeaua clinicii"}]
                           if lan.enabled()
                           else [{"t": "al doilea calculator, telefon — oprit"}]))
-    if db.IS_SQLITE:
-        _cs = dbkey.state()
-        tiles.append(tile("/admin/settings/crypt", "lock", "g", "Criptarea evidenței",
-                          {dbkey.OK: [{"icon": "check", "t": "activă"}],
-                           dbkey.UNREADABLE: [{"icon": "ban", "t": "cheia nu se citește",
-                                               "tone": "red"}]}.get(_cs, [{"t": "oprită"}])))
-    if db.IS_SQLITE and bkp.available():
+    _cs = dbkey.state()
+    tiles.append(tile("/admin/settings/crypt", "lock", "g", "Criptarea evidenței",
+                      {dbkey.OK: [{"icon": "check", "t": "activă"}],
+                       dbkey.UNREADABLE: [{"icon": "ban", "t": "cheia nu se citește",
+                                           "tone": "red"}]}.get(_cs, [{"t": "oprită"}])))
+    if bkp.available():
         tiles.append(tile("/admin/settings/backup", "save", "b", "Copie de rezervă",
                           [{"t": "arhivă criptată AES-256"}]))
     if _pin_rec():
@@ -395,7 +394,7 @@ async def settings_system(request: Request, msg: str = ""):
 async def settings_telegram(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if not (db.IS_SQLITE and os.environ.get("DENTART_ENV_FILE")):
+    if not os.environ.get("DENTART_ENV_FILE"):
         return RedirectResponse("/admin/settings", status_code=303)
     tok_set = bool(os.environ.get("TELEGRAM_TOKEN", "").strip())
     ph = ("••• token setat — introduceți altul pentru schimbare" if tok_set
@@ -478,7 +477,7 @@ async def admin_lan_firewall(request: Request):
 async def settings_backup(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if not (db.IS_SQLITE and bkp.available()):
+    if not bkp.available():
         return RedirectResponse("/admin/settings", status_code=303)
     if react_on(request, "settings_backup"):
         return _sec_react("settings_backup", request.url.path,
@@ -1458,7 +1457,7 @@ async def admin_telegram_save(request: Request, token: str = Form("")):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     env_file = os.environ.get("DENTART_ENV_FILE", "")
-    if not (db.IS_SQLITE and env_file):
+    if not env_file:
         return RedirectResponse("/admin/settings", status_code=303)
     tok = token.strip()
     if tok and not re.fullmatch(r"\d{6,12}:[\w-]{30,120}", tok):
@@ -1533,7 +1532,7 @@ def _restart_page(done: str, back_url: str, auto: bool) -> str:
     написанный «для применения токена и т.п.», — и просто не был подключён.
     Второй такой писать не стали, взяли этот.
     {_ic('sos')} Формулировка обязана оставаться правдой и тогда, когда перезапуск не
-    состоялся: планировщик Windows может не отработать, а в облачном издании
+    состоялся: планировщик Windows может не отработать, а в серверном запуске
     его нет вовсе. Поэтому текст говорит «закрываемся сейчас» и сразу даёт
     запасной ход — открыть с ярлыка. Обещать «окно вернётся само» без оговорки
     и было прошлой ошибкой.

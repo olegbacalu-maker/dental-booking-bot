@@ -1,41 +1,26 @@
 name: dental-sandbox
 
+# Серверный запуск того же кода: SQLite в томе, вход по ADMIN_KEY.
+# Postgres-издание снято 12.10.2026 (тег archive/pg-edition).
 services:
-  db:
-    image: postgres:16-alpine
-    container_name: dental_sandbox_db
-    environment:
-      POSTGRES_USER: dental
-      POSTGRES_PASSWORD: dental_demo_2026
-      POSTGRES_DB: dental
-    ports:
-      - "127.0.0.1:5544:5432"  # только loopback: БД не должна светиться в LAN
-    volumes:
-      - dbdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dental -d dental"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    mem_limit: 256m
-
   bot:
     build: ./bot
     container_name: dental_sandbox_bot
     environment:
-      DATABASE_URL: postgresql://dental:dental_demo_2026@db:5432/dental
+      DATABASE_URL: sqlite:////data/dental.db
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
-      ADMIN_KEY: ${ADMIN_KEY:-}
+      # ⛔ Обязателен: первичную установку PIN программа принимает только с
+      # этого же компьютера, а запрос в контейнер приходит из сети Docker —
+      # без ключа журнал заперт для всех.
+      ADMIN_KEY: ${ADMIN_KEY:?set ADMIN_KEY in .env}
       CLINIC_CONFIG: /config/clinic.json
       TZ: Europe/Chisinau
     volumes:
       # rw: страница настроек пишет конфиг обратно в этот файл
       - ./clinic.json:/config/clinic.json
+      - dbdata:/data
     ports:
       - "8088:8088"
-    depends_on:
-      db:
-        condition: service_healthy
     mem_limit: 256m
 
 volumes:

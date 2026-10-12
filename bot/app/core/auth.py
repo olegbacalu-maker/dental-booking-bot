@@ -43,7 +43,7 @@ from .storage import _data_dir
 # --- защита журнала ---
 # Desktop (SQLite): PIN 4–8 цифр, ставится в самом приложении (data/auth.json);
 # «забыл PIN» = удалить этот файл → снова экран установки.
-# Cloud (Postgres): по-прежнему ADMIN_KEY из .env.
+# Без PIN-файла (прогон, песочница, демо): ADMIN_KEY из .env.
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
 
 # --- формат auth.json ---
@@ -161,7 +161,7 @@ def auth_blocked() -> bool:
     ни одной строкой. Безусловный отказ запирал бы такую установку наглухо —
     с советом восстановить копию, которая этой беде не помогает.
     """
-    return not _secret() and db.IS_SQLITE and _auth_broken()
+    return not _secret() and _auth_broken()
 
 
 def _derive(pin: str, salt: str, kdf: str = KDF, iters: int = KDF_ITER) -> str:
@@ -189,12 +189,6 @@ def _secret() -> str:
             return rec.get("cookie_key", "")
         return rec.get("hash", "")                        # v1: подпись = хеш PIN
     return ADMIN_KEY
-
-
-def _sec_warn() -> str:
-    if _secret() or db.IS_SQLITE:
-        return ""
-    return " · fără parolă — setați ADMIN_KEY în .env"
 
 
 def _cookie_sig(uid: str = "", role: str = "", sid: str = "") -> str:
@@ -334,10 +328,8 @@ def _guard(request: Request) -> RedirectResponse | None:
             # файл есть, но битый: НЕ первичная установка (она бы молча
             # стёрла учётки) — экран входа объяснит, что делать
             return RedirectResponse("/admin/login?err=broken", status_code=303)
-        if db.IS_SQLITE:
-            # desktop без PIN — принудительная первичная установка
-            return RedirectResponse("/admin/setup", status_code=303)
-        return None  # облачный демо-режим без ключа
+        # без PIN — принудительная первичная установка
+        return RedirectResponse("/admin/setup", status_code=303)
     if current_user(request) is not None:
         return None
     q = str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
@@ -533,8 +525,7 @@ def _write_pin(pin: str, role: str = ROLE_DIRECTOR, uid: str = "clinic") -> None
 def _setup_allowed() -> bool:
     # _auth_broken отдельно: для _pin_rec битый файл тоже None, но предлагать
     # первичную установку поверх него нельзя — она бы стёрла живые учётки
-    return (db.IS_SQLITE and _pin_rec() is None and not ADMIN_KEY
-            and not _auth_broken())
+    return _pin_rec() is None and not ADMIN_KEY and not _auth_broken()
 
 
 def same_origin_post(request: Request) -> bool:
@@ -631,7 +622,7 @@ LOCK_STEP_COUNTS = tuple(cnt for cnt, _sec in _LOCK_STEPS)
 # Пауза на КАЖДОЙ неудаче, ещё до блокировки: превращает «10 000 попыток за
 # минуту» в часы, а живому человеку стоит одного мгновения.
 FAIL_DELAY = 0.7
-_fail_mem: dict = {}          # облачное издание: папки рядом нет, помним в ОЗУ
+_fail_mem: dict = {}          # без папки данных (нет DATABASE_URL) — помним в ОЗУ
 
 
 def _fail_path() -> pathlib.Path | None:

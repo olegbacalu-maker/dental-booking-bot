@@ -18,7 +18,6 @@ from __future__ import annotations
 import html
 import os
 
-from ... import db
 from ... import engine as eng
 from ... import update as upd
 from ...core import bitlocker
@@ -50,14 +49,8 @@ def tg_line(tg: dict) -> str:
     return "— fără token (secțiunea Telegram Bot)"
 
 
-def bitlocker_state() -> dict | None:
-    """Шифрование диска — то, чем закрыто требование закона 195.
-
-    None вне настольного издания: у облака диск не наш, и говорить о нём
-    нечего.
-    """
-    if not db.IS_SQLITE:
-        return None
+def bitlocker_state() -> dict:
+    """Шифрование диска — то, чем закрыто требование закона 195."""
     tone, txt = bitlocker.describe(bitlocker.STATE["code"],
                                    bitlocker.STATE["drive"])
     return {"tone": tone, "text": txt,
@@ -120,7 +113,7 @@ def access_state() -> dict:
 
 
 def db_label() -> str:
-    return "SQLite (local, data/dental.db)" if db.IS_SQLITE else "PostgreSQL"
+    return "SQLite (local, data/dental.db)"
 
 
 def privacy_html() -> str:

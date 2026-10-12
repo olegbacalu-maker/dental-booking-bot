@@ -224,9 +224,7 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
           {/* Подзаголовок без версии (08.10: она в подвале меню); пустой не
               рисуется — у панели дня подпись печатает сам экран (`.sub` из
               конверта канала), и сервер отдаёт ему пустую строку. */}
-          {(m.frame.sub || m.frame.sec_warn) && (
-            <div className="sub">{m.frame.sub}{m.frame.sec_warn}</div>
-          )}
+          {m.frame.sub && <div className="sub">{m.frame.sub}</div>}
           {[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup].map((s, i) =>
             s.shown ? <div key={i} onClick={prose} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}
           {/* ⚠️ Порядок тот же, что печатал сервер: системные баннеры, потом

@@ -19,9 +19,8 @@ import json
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 
-from .. import db
 from .. import engine as eng
-from .auth import _secret, auth_blocked, can, current_user, same_origin_post
+from .auth import _secret, can, current_user, same_origin_post
 from .layout import msg_json
 
 
@@ -120,20 +119,17 @@ def live_reply(request: Request, data, surface: str | None = None) -> Response:
 def api_guard(request: Request) -> JSONResponse | None:
     """Вошёл ли человек. Ветки те же, что у `_guard`, ответы — JSON.
 
-    Без секрета `_guard` ведёт на установку PIN (SQLite) или на экран «файл
-    битый»; API в обоих случаях отвечает 401 — клиент отправит человека на
-    /admin/login, а тот сам покажет нужное. Облачный демо-режим без ключа
-    (`_guard` пускает всех) повторяется как есть: иначе у демо React-экраны
-    были бы закрыты при открытых HTML-страницах.
+    Без секрета `_guard` ведёт на установку PIN или на экран «файл битый»;
+    API в обоих случаях отвечает 401 — клиент отправит человека на
+    /admin/login, а тот сам покажет нужное.
     ⚠️ Проверка Origin на изменяющих методах — та же, что у login/setup:
     кука SameSite=Lax чужой POST и так не понесёт, но один ответ на весь класс
     дешевле, чем помнить об этом в каждом маршруте. Без Origin (curl, тесты)
     — пропуск, как и там.
     """
     if not _secret():
-        if auth_blocked() or db.IS_SQLITE:
-            return msg_json(False, status=401)
-    elif current_user(request) is None:
+        return msg_json(False, status=401)
+    if current_user(request) is None:
         return msg_json(False, status=401)
     if request.method not in ("GET", "HEAD") and not same_origin_post(request):
         return msg_json(False, status=403)

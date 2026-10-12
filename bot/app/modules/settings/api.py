@@ -23,7 +23,6 @@ import asyncio
 
 from fastapi import APIRouter, File, Request, UploadFile
 
-from ... import db
 from ... import engine as eng
 from ... import privileged
 from ... import update as upd
@@ -592,6 +591,6 @@ async def api_backup(request: Request):
     ответ потоком, а отказ возвращается на страницу с ?msg=."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
-    if not (db.IS_SQLITE and bkp.available()):
+    if not bkp.available():
         return msg_json(False, status=404)
     return msg_json(True, data={"min_pass": bkp.MIN_PASS, "filename": bkp.archive_name()})

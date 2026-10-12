@@ -51,7 +51,7 @@ const SHELL: ShellModel = {
     demo: { shown: false, html: '' },
   },
   frame: {
-    title: 'Setări', sub: 'setări', crumbs: [], rail: false, bell: null, sec_warn: '', update: '', msg: '',
+    title: 'Setări', sub: 'setări', crumbs: [], rail: false, bell: null, update: '', msg: '',
     site: { href: 'https://dentpilot.md', mark: '<svg class="bcmark"></svg>' },
     feedback: { email: 'x@y.md', href: 'mailto:x@y.md' }, today: '2026-09-24',
   },

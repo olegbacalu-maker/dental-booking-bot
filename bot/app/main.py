@@ -197,10 +197,6 @@ PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofo
 
 @app.on_event("startup")
 async def startup() -> None:
-    if not db.IS_SQLITE and not ADMIN_KEY:
-        # Postgres = серверный режим: с v1.6.0 в журнале мед-данные и файлы,
-        # fail-open без ключа недопустим — падаем громко, а не открываемся тихо
-        raise RuntimeError("ADMIN_KEY is required for the Postgres edition — set it in .env")
     # летопись подписывается ИМЕНЕМ вошедшего. Хук, а не импорт: db лежит ниже
     # слоя доступа, и прямой импорт замкнул бы круг db → core.auth → db
     db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
@@ -226,7 +222,7 @@ async def startup() -> None:
     # ввести код с листа восстановления, — программа просто не открывалась бы.
     # Поэтому поднимаемся в режиме восстановления: база не тронута, работает
     # ровно один экран, и все прочие адреса ведут на него.
-    if db.IS_SQLITE and dbkey.state() == dbkey.UNREADABLE:
+    if dbkey.state() == dbkey.UNREADABLE:
         global RECOVERY
         RECOVERY = True
         logging.getLogger("startup").error(
@@ -286,12 +282,11 @@ async def startup() -> None:
         # проверка обновлений потом шла запасным путём (02.10: 0 из 60).
         if os.environ.get("DENTART_UPDATE_CHECK", "").strip().lower() != "off":
             upd.check_async()
-    if db.IS_SQLITE:
-        # закон 195: диск с картотекой обязан быть зашифрован — программа
-        # проверяет сама, а не верит подписанному акту (core/bitlocker.py)
-        from .core import bitlocker
-        from .core.storage import _data_dir
-        bitlocker.check_async(_data_dir())
+    # закон 195: диск с картотекой обязан быть зашифрован — программа
+    # проверяет сама, а не верит подписанному акту (core/bitlocker.py)
+    from .core import bitlocker
+    from .core.storage import _data_dir
+    bitlocker.check_async(_data_dir())
     token = os.environ.get("TELEGRAM_TOKEN", "").strip()
     if token:
         from . import telegram as tg
@@ -833,8 +828,6 @@ async def _check_auth_file() -> None:
     директора, пока тот не подтвердит. Ложная тревога недопустима — поэтому
     каждый маршрут, пишущий файл сам, обязан звать remember_auth_file().
     """
-    if not db.IS_SQLITE:
-        return                       # у облачного издания файла PIN нет
     if (alert := await db.get_meta("auth_alert")):
         set_tamper_alert(alert)      # непогашенное предупреждение живёт и после рестарта
     now_fp = auth_file_fp()

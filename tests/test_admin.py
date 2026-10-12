@@ -1580,7 +1580,7 @@ def suite_lan(res: Result) -> None:
         c0 = Client(s0.url).login()
         res.ok("без dental.env плитки НЕТ на хабе",
                "/admin/settings/lan" not in c0.get("/admin/settings").body,
-               "плитка видна без env-файла (облачное издание)")
+               "плитка видна без env-файла (запуск без лаунчера)")
         res.ok("без dental.env страница уводит на хаб",
                c0.get("/admin/settings/lan").status == 303,
                "страница открылась без env-файла")

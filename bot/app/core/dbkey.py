@@ -54,8 +54,8 @@ OFF, OK, UNREADABLE = "off", "ok", "unreadable"
 
 
 def key_path(data_dir: pathlib.Path | None = None) -> pathlib.Path | None:
-    """Рядом с самой базой. У облачного издания файловой базы нет — там None,
-    и весь модуль превращается в «шифрование недоступно»."""
+    """Рядом с самой базой. Без папки данных — None, и весь модуль
+    превращается в «шифрование недоступно»."""
     if data_dir is None:
         from .storage import _data_dir
         data_dir = _data_dir()

@@ -194,9 +194,7 @@ def _log(s: st.Status) -> None:
 
 
 async def startup() -> None:
-    """Из хука старта main.py, после db.init: облако и демо без ключа — no-op."""
-    if not db.IS_SQLITE:
-        return
+    """Из хука старта main.py, после db.init."""
     await refresh()
 
 
@@ -696,9 +694,9 @@ async def _renew_loop() -> None:
 def renew_async() -> None:
     """Из хука старта main.py, после startup(): суточный запрос в фоне — тот же
     приём, что update.check_async: старт не ждёт, таймаут есть, отказ молчит
-    (строкой в лог). Облако и демо без ключа — no-op."""
+    (строкой в лог)."""
     global _renew_task
-    if not db.IS_SQLITE or _renew_task is not None:
+    if _renew_task is not None:
         return
     _renew_task = asyncio.get_running_loop().create_task(_renew_loop())
 

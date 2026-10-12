@@ -107,16 +107,6 @@ export function CryptSettingsScreen({ navigate = defaultNavigate }: Props) {
   }
 
   const data = state.status === 'ready' ? state.data : null
-  /* ⛔ У облачного издания заголовка нет: файла базы там не существует, и
-     раздела тоже — есть только объяснение, почему его нет. Так же ведёт себя
-     старая страница. */
-  if (data && data.state === 'cloud') {
-    return (
-      <section className="dp-react-root">
-        <div dangerouslySetInnerHTML={{ __html: data.blocks.status }} />
-      </section>
-    )
-  }
 
   return (
     <section className="dp-react-root" aria-busy={data === null}>

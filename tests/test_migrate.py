@@ -859,8 +859,7 @@ def suite_step4_list(res: Result) -> None:
     try:
         bot = _patched_bot(work, "\n# тест: оператор, дописанный в шаг 4\n"
                                  "_MUT = \"CREATE TABLE step4_mark(x INTEGER)\"\n"
-                                 "MIGRATIONS_PG[4].append(_MUT)\n"
-                                 "MIGRATIONS_LITE[4].append(_MUT)\n")
+                                 "MIGRATIONS[4].append(_MUT)\n")
         data = work / "data"
         data.mkdir()
         with Server(dir_=data, bot=bot):

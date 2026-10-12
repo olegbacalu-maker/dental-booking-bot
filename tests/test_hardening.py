@@ -248,10 +248,8 @@ def suite_booking_race(res: Result) -> None:
     запись проходит, вторая получает честный conflict — и никогда две. Гонка
     настоящая: клиенты стартуют по общему барьеру из разных потоков.
 
-    ⚠️ Advisory-половину _slot_lock (Postgres, несколько воркеров) прогон НЕ
-    исполняет: все харнессы поднимают SQLite, облако заморожено (прайор
-    карты). Сторож класса — правило раскладки «замок брони берётся только
-    через _slot_lock» + мутации на него."""
+    Сторож класса — правило раскладки «замок брони берётся только через
+    _slot_lock» + мутации на него."""
     import concurrent.futures
     import threading
     from datetime import date, timedelta
@@ -506,10 +504,8 @@ def _worker_delete(tmpdir: str) -> None:
         out = {}
         for t in ("payments", "patient_alerts", "appointments", "activity"):
             out[t] = await db._fetchval(
-                f"SELECT COUNT(*) FROM {t} WHERE patient_id = $1",
                 f"SELECT COUNT(*) FROM {t} WHERE patient_id = ?", pid)
         out["patients"] = await db._fetchval(
-            "SELECT COUNT(*) FROM patients WHERE id = $1",
             "SELECT COUNT(*) FROM patients WHERE id = ?", pid)
         return out
 

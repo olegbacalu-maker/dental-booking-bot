@@ -27,7 +27,7 @@ from . import demo
 from . import license as lic
 from . import theme
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
-                   ROLE_LABEL, _sec_warn, can,
+                   ROLE_LABEL, can,
                    request_user, tamper_alert)
 
 # Адрес на домене сайта (06.10, слово Олега): Cloudflare пересылает его в
@@ -1400,7 +1400,6 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # `title` — страница с собственным именем (фиша: имя пациента, 09.10 по
         # разбору: H1 «Pacienți» дублировал крошку); пустой — имя раздела
         "frame": {"title": title or section_title(active), "sub": sub, "rail": rail, "bell": bell,
-                  "sec_warn": _sec_warn(),
                   "update": _update_banner().removeprefix(" · "),
                   "msg": msg_banner(msg) if msg else "",
                   # ⭐ Навигация раздела (сегодня её печатает `_sec_page`, одну
@@ -1460,7 +1459,7 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
     # Подзаголовок без версии (08.10, промпт 1: «версию из подзаголовка
     # убрать» — она в подвале меню); пустой не печатается вовсе и строки
     # сетки шапки не занимает.
-    sub_line = f"{sub}{_sec_warn()}"
+    sub_line = sub
     sub_html = f'<div class="sub">{sub_line}</div>' if sub_line else ""
     # ⛔ React-узел НИКОГДА не внутри #live, и держит это правило само место,
     # где его можно нарушить, а не комментарий рядом. Раньше тут был только

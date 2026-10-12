@@ -6,10 +6,12 @@ with an odontogram, treatment plans, an anamnesis questionnaire, payments and do
 and the medical form the Ministry of Health asks for (**043/e**) prints already filled in
 from the card.
 
-Two editions from one codebase: a **desktop app** (`DentPilot.exe`, SQLite in the clinic's
+One codebase, run two ways: a **desktop app** (`DentPilot.exe`, SQLite in the clinic's
 own data folder, one clinic, one Windows machine — other workstations open the same journal
-over the clinic's network) and a **cloud** stack (Docker + PostgreSQL, one VPS serving many
-clinics). The desktop edition is the one clinics actually install. It runs on a monthly or
+over the clinic's network) and the same engine as a **server** (Docker, SQLite in a volume,
+sign-in by `ADMIN_KEY`) — which is what the live demo runs. A PostgreSQL edition existed
+until October 2026 and was removed unused; the last code with it is the tag
+`archive/pg-edition`. The desktop edition is the one clinics actually install. It runs on a monthly or
 yearly licence kept by a small separate service ([`cloud/`](cloud/README.md)) that knows
 the clinic, its computers and its payments and nothing about its patients: no server ever
 holds patient data.
@@ -508,17 +510,18 @@ clinic runs on and the payments, plus a cabinet at `cloud.dentpilot.md` where th
 signs in with Google or with a one-time code by e-mail; there is no password to leak. It has
 no route that accepts or returns medical data.
 
-## Cloud edition — quick start
+## Server mode — quick start
 
 ```bash
+echo ADMIN_KEY=<a long random string> > .env
 docker compose up -d --build
 # clinic journal: http://localhost:8088/admin
 ```
 
-Reset to a fresh demo dataset: `docker compose down -v && docker compose up -d`.
-DB credentials in compose are demo-only; Postgres is bound to loopback.
-`Backup-Db.ps1` / `Restore-Db.ps1` dump and restore the database (`--clean`, 14-backup
-retention) — the restore path is verified by a fire drill into a throwaway container.
+`ADMIN_KEY` is required: the first-run PIN setup answers only a browser on the machine
+itself, and a request into the container comes from Docker's network. The database and the
+uploaded files live in the `dbdata` volume (`/data`). Reset to a fresh demo dataset:
+`docker compose down -v && docker compose up -d`.
 
 ## Live demo (demo.dentpilot.md)
 
@@ -551,11 +554,9 @@ machine — and to give the clinic the operations the law expects it to be able 
 - **Printed information sheet** for signature, plus a document set for the reception desk
   (patient information, processing register, a supplier agreement, a disk-encryption record).
 
-Patient files live on disk, not in the database, in `data/files/<patient_id>`. In the desktop
-edition that folder sits next to `dental.db` and survives updates and uninstall. **In the
-cloud edition it is inside the container with no volume behind it** — a
-`docker compose up -d --build` recreates the container and the uploads are gone, and
-`Backup-Db.ps1` dumps Postgres only. Add a volume before putting real files there.
+Patient files live on disk, not in the database, in `files/<patient_id>` next to
+`dental.db`: in the desktop edition that is the clinic's data folder, which survives updates
+and uninstall; in server mode it is the compose volume.
 
 **The card index itself can be encrypted** (`Setări › Criptarea evidenței`): the database
 moves to SQLCipher under a key the clinic never types, kept by Windows DPAPI. Three things
@@ -573,13 +574,13 @@ everything *around* the database, and the program reports its status on the secu
 Access: the desktop journal is behind the PIN, and an empty `ADMIN_KEY` does not mean an open
 journal — the setup screen appears instead, and only for a browser on the machine itself: on
 a clinic that has opened the journal to its own network, a first-run setup screen answering
-a second computer would hand the keys to whoever got there first. The cloud edition refuses
-to start without `ADMIN_KEY` (HMAC cookie).
+a second computer would hand the keys to whoever got there first. Server mode therefore
+signs in by `ADMIN_KEY` (HMAC cookie), and compose refuses to start without it.
 
 ## Stack
 
-- FastAPI + Uvicorn; PostgreSQL 16 + asyncpg in the cloud, SQLite + aiosqlite on the desktop
-  — one schema, two dialects, additive migrations.
+- FastAPI + Uvicorn; SQLite + aiosqlite (SQLCipher when the clinic turns encryption on),
+  additive migrations.
 - **DentPilot 2.0** (since September 2026): the screens are a React + TypeScript client
   ([`frontend/`](frontend/), Vite), built into the exe as one bundle and moved over one
   screen at a time on top of the same engine. The server decides per clinic
@@ -657,9 +658,9 @@ bookings impossible — until appointments got durations. 10:00 for sixty minute
 sixty minutes collide without sharing a start, and an index on the start column cannot see
 it. The real guard is an interval test and the insert under one lock.
 
-That lock is per process. Both editions run a single worker today (the desktop app has a
-single-instance guard), so it holds — and it is written down as a limit rather than left as
-an assumption for whoever scales the cloud edition past one worker.
+That lock is per process. The program runs a single worker (the desktop app has a
+single-instance guard), so it holds — and every path that books goes through one wrapper,
+so a second process would change the lock in one place.
 
 ### Never identify a failure by the engine's wording
 
