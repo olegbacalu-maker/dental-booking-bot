@@ -147,8 +147,8 @@ def seed(c: Client, day: str) -> None:
 
 
 def measure(page: Page, c: Client, view: str, day: str) -> dict:
-    r = c.post("/admin/settings/save", part="theme", style="fluent", primary="#0E9F8A",
-               custom="", card=view)
+    r = c.post_json("/api/settings/theme", {"style": "fluent", "primary": "#0E9F8A",
+                                            "custom": "", "card": view})
     if r.msg != "ok_theme":
         raise SystemExit(f"вид {view} не сохранился: {r.msg}")
     page.go(f"/admin?date={day}")

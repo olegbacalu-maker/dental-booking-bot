@@ -73,8 +73,8 @@ def suite_guard(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         res.check("регистратура заводится",
-                  boss.post("/admin/users/save", uid="ana", name="Ana R",
-                            role="receptie", pin="3333").msg, "ok_user")
+                  boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                        "role": "receptie", "pin": "3333"}).msg, "ok_user")
         res.check("директор — 200", boss.get(API).status, 200)
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
@@ -140,22 +140,16 @@ def suite_clinic(res: Result) -> None:
                s.clinic.read_bytes() == before, "файл изменился без правки")
 
         res.check("GET после сохранения", _j(c.get(API))["data"]["name"], "Clinica Nouă")
-        res.ok("старая форма видит то же имя (один файл на два экрана)",
-               "Clinica Nouă" in c.get("/admin/settings/clinic").body,
-               "старая форма показывает не то, что сохранил API")
-        r = c.post("/admin/settings/save", part="clinic", name="Clinica Veche",
-                   phone="+373 60 111 222", addr_ro="str. Nouă 2", addr_ru="",
-                   legal_name="Veche SRL", idno="1003600012345")
-        res.check("старая форма всё ещё сохраняет", r.msg, "ok_set")
-        res.check("API видит правку старой формы",
-                  _j(c.get(API))["data"]["name"], "Clinica Veche")
-        res.check("старая форма пишет юрлицо и IDNO тем же путём",
+        r = c.post_json(API, {"name": "Clinica Veche", "phone": "+373 60 111 222",
+                              "address": {"ro": "str. Nouă 2", "ru": ""},
+                              "legal_name": "Veche SRL", "idno": "1003600012345"})
+        res.check("юрлицо и IDNO сохраняются", r.msg, "ok_set")
+        res.check("API отдаёт юрлицо и IDNO",
                   (_j(c.get(API))["data"]["legal_name"], _j(c.get(API))["data"]["idno"]),
                   ("Veche SRL", "1003600012345"))
-        res.ok("старая форма показывает оба поля",
-               "name='legal_name'" in c.get("/admin/settings/clinic").body
-               and "1003600012345" in c.get("/admin/settings/clinic").body,
-               "полей юрлица нет на старой форме")
+        res.ok("старая форма настроек снята (12.10)",
+               c.post("/admin/settings/save", part="clinic", name="X").status in (404, 405),
+               "форма жива")
 
         # ---- отказы: тот же _val_clinic, что у формы, плюс имя поля ----
         r = c.post_json(API, {"name": "", "phone": "1"})
@@ -180,15 +174,17 @@ def suite_clinic(res: Result) -> None:
 
 
 def suite_switch(res: Result) -> None:
-    """Рубильник: без флага старая форма, с флагом узел React в той же рамке,
-    ?ui=legacy возвращает форму, флаг переживает оба пути сохранения."""
+    """Экран «Clinica» — только React (старая форма снята 12.10): узел в той же
+    рамке и без флага, и с `?ui=legacy`; флаг профиля переживает сохранение.
+    Старая оболочка (уголок, сайдбар) проверяется на странице, которая ещё
+    серверная, — статистике под пином харнесса."""
     with Server() as s:
         c = Client(s.url).login()
         page = c.get("/admin/settings/clinic").body
-        res.ok("без флага — старая форма",
-               "name='name'" in page and 'id="root"' not in page, "форма не та")
-        res.ok("без флага бандл не подключается", "bundle.js" not in page,
-               "бандл уехал на страницу без флага")
+        res.ok("и без флага — узел React (старой формы больше нет)",
+               'data-screen="settings_clinic"' in page and "name='name'" not in page,
+               "вернулась старая форма")
+        res.ok("бандл подключён", "/static/js/bundle.js?v=" in page, "нет бандла")
 
     s = _server_with_flag()
     with s:
@@ -202,9 +198,8 @@ def suite_switch(res: Result) -> None:
         res.ok("бандл и его стили подключены с версией",
                "/static/js/bundle.js?v=" in page and "/static/css/bundle.css?v=" in page,
                "нет ссылок на бандл")
-        res.ok("серверная заглушка со ссылкой на старую страницу",
-               "?ui=legacy" in page and "Deschideți varianta clasică" in page,
-               "пустой узел без объяснения")
+        res.ok("серверная заглушка с объяснением, если бандл не загрузился",
+               "Interfața nouă nu s-a încărcat" in page, "пустой узел без объяснения")
         # ⛔ Рамку больше не печатает сервер — она в модели. Проверяем ЗНАЧЕНИЯ,
         # а не литералы разметки: крошка, подпись раздела и активный пункт.
         res.ok("рамка на месте: крошка к хабу, подпись раздела, активный пункт",
@@ -225,37 +220,32 @@ def suite_switch(res: Result) -> None:
                f"{site.get('href')!r} {fb}")
         res.ok("серверного каркаса на React-странице нет",
                "<aside" not in page and 'class="top"' not in page, "две оболочки разом")
-        res.ok("формы старого экрана на React-странице нет", "name='name'" not in page,
-               "два экрана на одной странице")
         res.ok("узел React не внутри #live", 'id="live"' not in page,
                "panel.js подменит innerHTML под смонтированным деревом")
         res.ok("?msg= на React-странице показывает плашку сервера",
                "dp_toast" in c.get("/admin/settings/clinic?msg=ok_set").body,
                "ответ на действие потерян")
         legacy = c.get("/admin/settings/clinic?ui=legacy").body
-        res.ok("?ui=legacy возвращает старую форму",
-               "name='name'" in legacy and 'id="root"' not in legacy, "форма не вернулась")
+        res.ok("?ui=legacy — тот же React (старая форма снята)",
+               'data-screen="settings_clinic"' in legacy and "name='name'" not in legacy,
+               "старая форма вернулась")
         # ⛔ Сайт — только в системном браузере: без target=_blank окно
         # программы само ушло бы на сайт, и вернуться было бы нечем.
+        old = c.get("/admin/stats").body
         res.ok("старая оболочка: знак — ссылка на сайт с target=_blank, почта contact@",
-               'class="bc-site" href="https://dentpilot.md" target="_blank" rel="noopener"' in legacy
-               and 'href="mailto:contact@dentpilot.md?subject=' in legacy,
+               'class="bc-site" href="https://dentpilot.md" target="_blank" rel="noopener"' in old
+               and 'href="mailto:contact@dentpilot.md?subject=' in old,
                "уголок не тот")
         res.ok("старая оболочка: под именем клиники нет подписи DentPilot (06.10)",
-               "<small>DentPilot</small>" not in legacy and '<div class="txt"><b' in legacy,
+               "<small>DentPilot</small>" not in old and '<div class="txt"><b' in old,
                "подпись вернулась или сайдбар не тот")
         res.ok("хаб настроек не изменился (плитка клиники на месте)",
-               "/admin/settings/clinic" in c.get("/admin/settings").body, "плитки нет")
+               any(t["href"] == "/admin/settings/clinic"
+                   for t in _j(c.get("/api/settings/hub"))["data"]["tiles"]), "плитки нет")
         dash = c.get("/admin").body
         res.ok("живой журнал без узла React (#live и #root не встречаются)",
                'id="live"' in dash and 'id="root"' not in dash, "флаг задел журнал")
 
-        r = c.post("/admin/settings/save", part="clinic", name="Clinica Flag",
-                   phone="+373 1", addr_ro="", addr_ru="")
-        res.check("старая форма сохраняет при флаге", r.msg, "ok_set")
-        after = json.loads(s.clinic.read_text(encoding="utf-8"))
-        res.check("флаг пережил сохранение старой формой",
-                  after.get("ui"), {"react": ["settings_clinic"]})
         res.check("API сохраняет при флаге",
                   c.post_json(API, {"name": "Clinica Flag 2", "phone": "+373 2"}).status, 200)
         after = json.loads(s.clinic.read_text(encoding="utf-8"))
@@ -263,17 +253,17 @@ def suite_switch(res: Result) -> None:
                   after.get("ui"), {"react": ["settings_clinic"]})
         res.check("имя после API", after["name"], "Clinica Flag 2")
 
-    # право: React-страница закрыта той же require, что и старая
+    # право: React-страница закрыта той же require, что была у старой
     s = _server_with_flag()
     s.extra_env = dict(NO_KEY)
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         r = ana.get("/admin/settings/clinic")
-        res.ok("регистратуре React-страница закрыта, как и старая",
+        res.ok("регистратуре React-страница закрыта",
                r.status == 303 and r.msg == "no_access", f"{r!r}")
 
 

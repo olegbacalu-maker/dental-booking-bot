@@ -169,35 +169,38 @@ def suite_roles(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         res.check("врач заводится",
-                  boss.post("/admin/users/save", uid="d2", name="Dr. Liviu",
-                            role="medic", doctor_id="d2", pin="2222").msg, "ok_user")
+                  boss.post_json("/api/settings/users", {"uid": "d2", "name": "Dr. Liviu",
+                                                        "role": "medic", "doctor_id": "d2",
+                                                        "pin": "2222"}).msg, "ok_user")
         res.check("регистратура заводится",
-                  boss.post("/admin/users/save", uid="ana", name="Ana R",
-                            role="receptie", pin="3333").msg, "ok_user")
+                  boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                        "role": "receptie", "pin": "3333"}).msg, "ok_user")
 
         # вход возможен по ОДНОМУ паролю, значит одинаковых быть не должно —
         # иначе журнал доступа однажды назовёт не того человека
         res.check("чужой пароль повторить нельзя",
-                  boss.post("/admin/users/save", uid="x1", name="X", role="medic",
-                            pin="2222").msg, "dup_user")
+                  boss.post_json("/api/settings/users", {"uid": "x1", "name": "X",
+                                                        "role": "medic", "pin": "2222"}).msg, "dup_user")
         res.check("8-значный PIN сотрудника принимается",
-                  boss.post("/admin/users/save", uid="opt8", name="Opt C",
-                            role="receptie", pin="44445555").msg, "ok_user")
+                  boss.post_json("/api/settings/users", {"uid": "opt8", "name": "Opt C",
+                                                        "role": "receptie",
+                                                        "pin": "44445555"}).msg, "ok_user")
         res.check("9 цифр — отбой",
-                  boss.post("/admin/users/save", uid="n9", name="N",
-                            role="receptie", pin="444455556").msg, "bad_user")
+                  boss.post_json("/api/settings/users", {"uid": "n9", "name": "N",
+                                                        "role": "receptie",
+                                                        "pin": "444455556"}).msg, "bad_user")
         res.check("id только из безопасных символов",
-                  boss.post("/admin/users/save", uid="Ана!", name="X", role="medic",
-                            pin="4444").msg, "bad_user")
+                  boss.post_json("/api/settings/users", {"uid": "Ана!", "name": "X",
+                                                        "role": "medic", "pin": "4444"}).msg, "bad_user")
         res.check("новому нужен пароль",
-                  boss.post("/admin/users/save", uid="x2", name="X",
-                            role="medic").msg, "bad_user")
+                  boss.post_json("/api/settings/users", {"uid": "x2", "name": "X",
+                                                        "role": "medic"}).msg, "bad_user")
         # ⭐ последний директор запер бы настройки НАВСЕГДА: вернуть право некому
         res.check("последний директор не снимает с себя роль",
-                  boss.post("/admin/users/save", uid="clinic", name="D",
-                            role="medic").msg, "last_dir")
+                  boss.post_json("/api/settings/users", {"uid": "clinic", "name": "D",
+                                                        "role": "medic"}).msg, "last_dir")
         res.check("и не удаляет сам себя",
-                  boss.post("/admin/users/delete", uid="clinic").msg, "self_user")
+                  boss.post_json("/api/settings/users/clinic/delete", {}).msg, "self_user")
 
         med = Client(s.url)
         med.post("/admin/login", password="2222", next="/admin")
@@ -221,16 +224,20 @@ def suite_roles(res: Result) -> None:
                    r.status == 303 and "no_access" in r.location,
                    f"код {r.status}, location {r.location!r}")
         # ⚠️ POST закрыт отдельно: форму отправляют не только из меню
-        for path, kw in (("/admin/settings/save", {"payload": "{}"}),
-                         ("/admin/users/save", {"uid": "z1", "name": "Z",
-                                                "role": "director", "pin": "9999"}),
-                         ("/admin/backup/export", {"parola": "x"}),
+        for path, kw in (("/admin/backup/export", {"parola": "x"}),
                          ("/admin/doctor-card/d2/photo/del", {}),
                          ("/admin/doctor-card/d2/save", {"name": "Dr. Hack"})):
             r = med.post(path, **kw)
             res.ok(f"врачу закрыт POST {path}",
                    r.status == 303 and "no_access" in r.location,
                    f"код {r.status}, location {r.location!r}")
+        # настройки и учётки сохраняет только API (формы сняты 12.10)
+        for path, body in (("/api/settings/clinic", {"name": "Hack"}),
+                           ("/api/settings/users", {"uid": "z1", "name": "Z",
+                                                    "role": "director", "pin": "9999"})):
+            r = med.post_json(path, body)
+            res.ok(f"врачу закрыт POST {path}",
+                   r.status == 403 and r.msg == "no_access", f"{r!r}")
         res.ok("врач не смог завести себе директора",
                all(u.get("id") != "z1" for u in _rec(s)["users"]),
                "чужой POST создал учётку")
@@ -263,8 +270,9 @@ def suite_roles(res: Result) -> None:
 
         # смена пароля закрывает вкладки ИМЕННО этого человека
         key_before = _rec(s)["cookie_key"]
-        boss.post("/admin/users/save", uid="d2", name="Dr. Liviu", role="medic",
-                  doctor_id="d2", pin="5555")
+        boss.post_json("/api/settings/users", {"uid": "d2", "name": "Dr. Liviu",
+                                              "role": "medic", "doctor_id": "d2",
+                                              "pin": "5555"})
         # ⭐ замок на политику из карты: правка ЧУЖОЙ учётки не вращает ключ
         # подписи — иначе смена пароля врачу разлогинила бы всю клинику
         res.ok("правка чужой учётки не вращает ключ подписи",
@@ -277,7 +285,7 @@ def suite_roles(res: Result) -> None:
         med2 = Client(s.url)
         med2.post("/admin/login", password="5555", next="/admin")
         res.ok("новый пароль пускает", med2.get("/admin").status == 200, "не пустило")
-        boss.post("/admin/users/delete", uid="d2")
+        boss.post_json("/api/settings/users/d2/delete", {})
         res.ok("удалённая учётка перестаёт пускать НЕМЕДЛЕННО",
                med2.get("/admin").status == 303, "уволенный остался внутри")
 
@@ -328,8 +336,8 @@ def suite_tamper(res: Result) -> None:
         with Server(env=NO_KEY, dir_=base) as s:
             c = Client(s.url)
             c.post("/admin/setup", pin1="1111", pin2="1111")
-            c.post("/admin/users/save", uid="ana", name="Ana R",
-                   role="receptie", pin="3333")
+            c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                               "role": "receptie", "pin": "3333"})
             res.ok("после своих правок баннера нет",
                    marker not in c.get("/admin").body, "тревога на свою запись")
         # рестарт без изменений — тихо (свои записи запомнены отпечатком)
@@ -472,9 +480,9 @@ def suite_change(res: Result) -> None:
         c.post("/admin/setup", pin1="4321", pin2="4321")
         key_before = _rec(s)["cookie_key"]
 
-        r = c.post("/admin/pin/change", old_pin="9999", new1="5678", new2="5678")
+        r = c.post_json("/api/settings/pin", {"old_pin": "9999", "new1": "5678", "new2": "5678"})
         res.check("смена по неверному старому PIN отбита", r.msg, "bad_pin")
-        r = c.post("/admin/pin/change", old_pin="4321", new1="5678", new2="5678")
+        r = c.post_json("/api/settings/pin", {"old_pin": "4321", "new1": "5678", "new2": "5678"})
         res.check("смена по верному PIN принята", r.msg, "ok_pin")
         res.ok("подпись сессии обновлена",
                _rec(s)["cookie_key"] != key_before,
@@ -494,16 +502,17 @@ def suite_change(res: Result) -> None:
                "A intrat în registru" in new.get("/admin/stats").body,
                "входа нет в «Activitate recentă» — «кто входил вчера вечером» "
                "снова без ответа")
-        res.ok("у сотрудника видна последняя интрare",
-               "ultima intrare:" in new.get("/admin/settings/security").body,
-               "колонки последнего входа нет на «Securitate»")
+        sec = json.loads(new.get("/api/settings/security").body)["data"]["users"]
+        res.ok("у сотрудника виден последний вход",
+               any(u.get("last_login") for u in sec),
+               "последнего входа нет в данных «Securitate»")
 
         # --- потолок длины поднят до 8 (08-13, LAN) ---
-        r = new.post("/admin/pin/change", old_pin="5678",
-                     new1="123456789", new2="123456789")
+        r = new.post_json("/api/settings/pin", {"old_pin": "5678", "new1": "123456789",
+                                               "new2": "123456789"})
         res.check("9 цифр не принимаются", r.msg, "bad_pin")
-        r = new.post("/admin/pin/change", old_pin="5678",
-                     new1="87654321", new2="87654321")
+        r = new.post_json("/api/settings/pin", {"old_pin": "5678", "new1": "87654321",
+                                               "new2": "87654321"})
         res.check("8 цифр принимаются", r.msg, "ok_pin")
         eight = Client(s.url)
         eight.post("/admin/login", password="87654321", next="/admin")
@@ -514,8 +523,8 @@ def suite_change(res: Result) -> None:
                "maxlength остался 6 — восьмая цифра молча не наберётся")
         # дальше суита живёт с PIN 87654321 — вернуть 5678 для читаемости низа
         new = eight
-        new.post("/admin/pin/change", old_pin="87654321",
-                 new1="5678", new2="5678")
+        new.post_json("/api/settings/pin", {"old_pin": "87654321", "new1": "5678",
+                                           "new2": "5678"})
         new = Client(s.url)
         new.post("/admin/login", password="5678", next="/admin")
 
@@ -525,7 +534,7 @@ def suite_change(res: Result) -> None:
         burn = Client(s.url)
         for _ in range(5):
             burn.post("/admin/login", password="1111", next="/admin")
-        r = new.post("/admin/pin/change", old_pin="5678", new1="4321", new2="4321")
+        r = new.post_json("/api/settings/pin", {"old_pin": "5678", "new1": "4321", "new2": "4321"})
         res.check("во время блокировки форма смены не врёт про старый PIN",
                   r.msg, "lock_pin")
 

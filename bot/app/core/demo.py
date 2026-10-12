@@ -42,12 +42,12 @@ BLOCKED = (
     # копия и восстановление из копии
     "/admin/settings/backup", "/admin/backup/", "/api/settings/backup",
     # учётки и PIN
-    "/admin/settings/security", "/admin/users/", "/admin/pin/", "/admin/setup",
+    "/admin/settings/security", "/admin/setup",
     "/api/settings/security", "/api/settings/users", "/api/settings/pin",
     # токен бота: чужой токен запустил бы polling с демо-сервера
     "/admin/settings/telegram", "/admin/telegram/",
     # сеть машины и брандмауэр
-    "/admin/settings/lan", "/admin/lan/", "/api/settings/lan",
+    "/admin/settings/lan", "/api/settings/lan",
     # лицензия и раздвоение картотеки
     "/admin/license", "/api/license", "/admin/migration",
 )

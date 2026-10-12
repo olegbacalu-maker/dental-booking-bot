@@ -242,8 +242,8 @@ def suite_switch(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
-        boss.post("/admin/users/save", uid="ion", name="Ion M", role="medic", pin="4444")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
+        boss.post_json("/api/settings/users", {"uid": "ion", "name": "Ion M", "role": "medic", "pin": "4444"})
         page = boss.get("/admin/stats").body
         res.ok("узел React", 'data-screen="stats"' in page, "узла нет")
         res.ok("период уезжает параметрами узла", "data-params=" in page

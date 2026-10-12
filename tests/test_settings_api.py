@@ -1,10 +1,10 @@
-"""Настройки, пачка A (хаб, сеть, справка, часы): JSON API и рубильники.
+"""Настройки: JSON API экранов раздела.
 
-Главное, что стережётся: старая страница и React-экран собраны из ОДНИХ
-данных (`_hub_tiles`, `faq.entries`, `lan.*_html`, `_val_hours`) — подпись,
-которой нет на старой странице, не может появиться и в JSON, и наоборот.
+Старые серверные страницы настроек сняты 12.10.2026 — экраны рисует только
+React, а данные (`_hub_tiles`, `faq.entries`, `lan.*_html`, `_val_hours`) и
+правила сохранения отдаёт сервер. Сверки «как на старой странице» ушли вместе
+с ней; адрес экрана с `?ui=legacy` обязан отдавать тот же React.
 """
-import html
 import json
 import pathlib
 import re
@@ -42,13 +42,13 @@ def _server_with_flags(env: dict | None = None) -> Server:
 
 
 def suite_hub(res: Result) -> None:
-    """Плитки хаба — данными, и ровно те же, что рисует старая страница."""
+    """Плитки хаба — данными, с сервера."""
     with Server() as s:
         res.check("без входа — 401", Client(s.url).get("/api/settings/hub").status, 401)
         c = Client(s.url).login()
         d = _j(c.get("/api/settings/hub"))["data"]
         hrefs = [t["href"] for t in d["tiles"]]
-        res.check("порядок плиток — как на старой странице", hrefs[:6],
+        res.check("порядок плиток", hrefs[:6],
                   ["/admin/settings/system", "/admin/settings/clinic",
                    "/admin/settings/theme", "/admin/settings/hours",
                    "/admin/settings/services", "/admin/medici"])
@@ -76,13 +76,8 @@ def suite_hub(res: Result) -> None:
                by["/admin/settings/crypt"]["hint"] in ([{"t": "oprită"}],
                                                        [{"icon": "check", "t": "activă"}]),
                f"{by['/admin/settings/crypt']['hint']}")
-        page = c.get("/admin/settings").body
-        res.ok("каждая подпись плитки есть и на старой странице",
-               all(t["label"] in page for t in d["tiles"]), "подписи разошлись")
-        res.ok("каждая ссылка плитки есть и на старой странице",
-               all(f"href='{t['href']}'" in page for t in d["tiles"]), "адреса разошлись")
         # группы (B5, шаг 9): порядок и подписи — с сервера, у каждой плитки
-        # группа из этого списка; на старой странице те же подзаголовки
+        # группа из этого списка (старая страница хаба снята 12.10)
         keys = [g["key"] for g in d["groups"]]
         res.check("группы в порядке «Параметров»",
                   keys, ["general", "programari", "medici", "date", "securitate", "ajutor"])
@@ -92,10 +87,6 @@ def suite_hub(res: Result) -> None:
         res.check("порядок внутри групп — прежний порядок плиток",
                   [t["href"] for t in d["tiles"] if t["group"] == "general"],
                   ["/admin/settings/system", "/admin/settings/clinic", "/admin/settings/theme"])
-        shown = {t["group"] for t in d["tiles"]}
-        res.ok("старая страница рисует подзаголовки только непустых групп",
-               all((f"<h3>{g['label']}</h3>" in page) == (g["key"] in shown) for g in d["groups"]),
-               f"группы с плитками: {sorted(shown)}")
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_hub_"))
     env_path = tmp / "dental.env"
@@ -177,8 +168,6 @@ def suite_lan(res: Result) -> None:
                    or "nu pare conectat" in d["blocks"]["status"], d["blocks"]["status"][-200:])
             res.ok("совета «сеть обязана быть Private» больше нет — кнопка разрешает и "
                    "публичную", "«Private», nu «Public»" not in d["blocks"]["tips"], "совет остался")
-            res.ok("старая страница видит включённый режим",
-                   "Dezactivează accesul" in c.get("/admin/settings/lan").body, "не видит")
 
             r = c.post_json("/api/settings/lan", {"mode": "off"})
             res.check("выключение — ok_set", _j(r)["code"], "ok_set")
@@ -236,33 +225,21 @@ def suite_system(res: Result) -> None:
         # отправляет клинику искать раздел, который заморозка спрятала.
         res.check("без настроенного бота строки канала нет", d["telegram"], "")
 
-        # ⛔ Паритет: JSON и старая страница собраны из ОДНИХ кусков.
-        page = c.get("/admin/settings/system").body
-        res.ok("без пути строки о папке нет и на старой странице",
-               "Folderul cu date" not in page, "строка появилась без раскладки")
-        res.ok("слово об обновлении есть и на старой странице",
-               d["update"]["text"] in page, "строка обновления разошлась")
-        res.ok("проза о локальности есть и на старой странице",
-               "funcționează local" in page, "проза разошлась")
-
         r = c.post_json("/api/settings/system/check", {})
         res.check("проверка обновлений — 200", r.status, 200)
         res.ok("ответ — СВЕЖАЯ модель целиком, а не «проверено»",
                _j(r)["data"]["version"] == d["version"] and "update" in _j(r)["data"],
                f"{_j(r)['data'].keys()}")
 
-    # ⭐ Раскладка задана лаунчером — экран показывает ФАКТ, и тот же факт
-    # видит старая страница. Это единственное место, по которому директор
-    # сверяет, куда программа пишет, поэтому путь ЦЕЛИКОМ: сокращение вроде
-    # «%ProgramData%» с адресной строкой Проводника не сверить.
+    # ⭐ Раскладка задана лаунчером — экран показывает ФАКТ. Это единственное
+    # место, по которому директор сверяет, куда программа пишет, поэтому путь
+    # ЦЕЛИКОМ: сокращение вроде «%ProgramData%» с адресной строкой Проводника
+    # не сверить.
     with Server(env={"DENTART_DATA_DIR": str(FIXTURES)}) as s:
         c = Client(s.url).login()
         d = _j(c.get("/api/settings/system"))["data"]
         res.check("папка данных — та, что задал лаунчер", d["folder"]["path"],
                   str(FIXTURES))
-        res.ok("тот же путь на старой странице",
-               html.escape(str(FIXTURES)) in c.get("/admin/settings/system").body,
-               "путь разошёлся")
 
     # ⭐ Канал НЕ stable виден намеренно: на этой машине обновление приходит
     # раньше, чем клиникам, и перепутать её с боевой установкой нельзя.
@@ -271,8 +248,6 @@ def suite_system(res: Result) -> None:
         ch = _j(c.get("/api/settings/system"))["data"]["channel"]
         res.ok("beta названа и объяснена",
                ch and "beta" in ch["name"] and "ÎNAINTE" in ch["warn"], f"{ch}")
-        res.ok("та же строка есть и на старой странице",
-               ch and ch["name"] in c.get("/admin/settings/system").body, "разошлась")
 
     # клиника с настроенным ботом (grandfather) — строка канала возвращается
     with Server(env=TG_ON) as s:
@@ -285,12 +260,13 @@ def suite_system(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
         page = boss.get("/admin/settings/system").body
         res.ok("узел React", 'data-screen="settings_system"' in page, "узла нет")
         res.ok("старой таблицы нет", "Stare sistem</h2>" not in page, "две разметки")
-        res.ok("?ui=legacy: старая страница",
-               "Confidențialitate" in boss.get("/admin/settings/system?ui=legacy").body, "нет")
+        res.ok("?ui=legacy: тот же React (старая страница снята)",
+               'data-screen="settings_system"' in boss.get("/admin/settings/system?ui=legacy").body,
+               "старая страница вернулась")
         res.ok("вход по PIN виден как PIN",
                _j(boss.get("/api/settings/system"))["data"]["access"]["text"] == "PIN setat",
                "вход назван не так")
@@ -326,14 +302,6 @@ def suite_crypt(res: Result) -> None:
                b["cost"][:120])
         res.ok("сказано, чего НЕ делает", "Ce NU face" in b["limit"], b["limit"][:80])
         res.ok("заметки о копиях в выключенном состоянии нет", b["note"] == "", b["note"][:60])
-
-        # ⛔ Паритет: JSON и старая страница собраны из ОДНИХ кусков. Разойдись
-        # они — директор прочёл бы про риск на одной поверхности и не прочёл на
-        # другой, а увидеть это можно только открыв обе.
-        page = c.get("/admin/settings/crypt").body
-        res.ok("каждый кусок прозы есть и на старой странице",
-               all(part in page for part in (b["status"], b["what"], b["cost"], b["limit"])),
-               "проза разошлась")
 
         r = c.post_json("/api/settings/crypt/prepare", {})
         res.check("подготовка — 200", r.status, 200)
@@ -394,36 +362,32 @@ def suite_crypt(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
         page = boss.get("/admin/settings/crypt").body
         res.ok("узел React", 'data-screen="settings_crypt"' in page, "узла нет")
         res.ok("старой кнопки нет", "Pregătește criptarea" not in page, "две разметки")
-        res.ok("?ui=legacy: старая страница",
-               "Pregătește criptarea" in boss.get("/admin/settings/crypt?ui=legacy").body, "нет")
-        # ⛔ Лист остаётся серверным и при включённом флаге: он обязан
-        # открываться, когда бандл не загрузился.
+        res.ok("?ui=legacy: тот же React (старая страница снята)",
+               'data-screen="settings_crypt"' in boss.get("/admin/settings/crypt?ui=legacy").body,
+               "старая страница вернулась")
+        # ⛔ Лист остаётся серверным: он обязан открываться, когда бандл не
+        # загрузился, — иначе код, без которого база не откроется, показать нечем.
         boss.post_json("/api/settings/crypt/prepare", {})
-        res.ok("лист восстановления и под флагом серверный",
+        res.ok("лист восстановления серверный",
                "Foaie de recuperare" in boss.get("/admin/settings/crypt/sheet").body,
                "лист уехал в React")
-        # ⚠️ СТАРАЯ форма выключения не была покрыта ничем (карта экранов
-        # называла её поимённо). Она правится тем же `crypt.turn_off`, что и
-        # JSON, и при включённом флаге остаётся рабочим откатом.
-        boss.post("/admin/settings/crypt/off")
-        res.ok("старая форма выключения заказывает расшифровку",
-               (s.dir / "db-decrypt.request").exists(), "заказа нет")
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         res.check("регистратуре JSON закрыт", ana.get("/api/settings/crypt").status, 403)
         res.check("и подготовка закрыта",
                   ana.post_json("/api/settings/crypt/prepare", {}).status, 403)
-        r = ana.post("/admin/settings/crypt/off")
-        res.ok("и старая форма выключения тоже",
-               r.status == 303 and r.msg == "no_access", f"{r!r}")
+        res.check("и выключение закрыто",
+                  ana.post_json("/api/settings/crypt/off", {}).status, 403)
+        res.ok("форма выключения старой страницы снята",
+               ana.post("/admin/settings/crypt/off").status in (404, 405), "форма жива")
 
 
 def suite_faq(res: Result) -> None:
-    """Справка: те же вопросы и ответы, что на старой странице, данными."""
+    """Справка: вопросы и ответы данными, с сервера."""
     with Server() as s:
         c = Client(s.url).login()
         d = _j(c.get("/api/settings/faq"))["data"]
@@ -434,13 +398,10 @@ def suite_faq(res: Result) -> None:
         res.check("иконка — имя, не разметка", first["icon"], "save")
         res.ok("ответ — HTML с абзацами", "<p" in first["answer"] and "<svg" not in first["question"],
                first["answer"][:60])
-        res.ok("ответ про 7-Zip есть (как на старой странице)",
+        res.ok("ответ про 7-Zip есть",
                any("7-Zip" in it["answer"] for it in d["items"]), "нет")
         res.ok("без бота абзац про токен не отдаётся",
                not any("tokenul botului" in it["answer"] for it in d["items"]), "есть")
-        page = c.get("/admin/settings/faq").body
-        res.ok("старая страница задаёт те же вопросы",
-               all(it["question"] in page for it in d["items"]), "вопросы разошлись")
     with Server(env=TG_ON) as s:
         c = Client(s.url).login()
         d = _j(c.get("/api/settings/faq"))["data"]
@@ -478,8 +439,6 @@ def suite_hours(res: Result) -> None:
         before = s.clinic.read_bytes()
         c.post_json("/api/settings/hours", body)
         res.ok("повторный POST тождествен", s.clinic.read_bytes() == before, "файл изменился")
-        res.ok("старая страница видит среду закрытой",
-               "id='hc_wed' checked" in c.get("/admin/settings/hours").body, "не видит")
 
         r = c.post_json("/api/settings/hours", {"hours": {dd: None for dd in DAYS}})
         res.ok("вся неделя закрыта — 422 bad_set", r.status == 422 and _j(r)["code"] == "bad_set",
@@ -493,12 +452,6 @@ def suite_hours(res: Result) -> None:
         res.ok("отказы файл не тронули",
                json.loads(s.clinic.read_text(encoding="utf-8"))["hours"]["fri"] == [9, 18, 13, 14],
                "тронули")
-
-        r = c.post("/admin/settings/save", part="hours",
-                   payload=json.dumps({"hours": {dd: [8, 20] for dd in DAYS}}))
-        res.check("старая форма всё ещё сохраняет", r.msg, "ok_set")
-        res.check("API видит правку старой формы",
-                  _j(c.get("/api/settings/hours"))["data"]["hours"]["sun"], [8, 20])
 
 
 def suite_services(res: Result) -> None:
@@ -546,8 +499,6 @@ def suite_services(res: Result) -> None:
         before = s.clinic.read_bytes()
         c.post_json(api, {"services": current})
         res.ok("повторный POST того же тождествен", s.clinic.read_bytes() == before, "изменился")
-        res.ok("старая страница видит новую услугу",
-               "Albire" in c.get("/admin/settings/services").body, "не видит")
 
         dup = current + [{"id": "", "ro": "consultație", "ru": "", "price": "", "duration": 60,
                           "color": "", "urgent": False, "docs": []}]
@@ -567,13 +518,9 @@ def suite_services(res: Result) -> None:
         res.ok("orphan исчез из файла",
                "orphan" not in [x["id"] for x in _cfg(s)["services"]], "остался")
 
-        r = c.post("/admin/settings/save", part="services",
-                   payload=json.dumps({"services": [
-                       {"id": "consult", "ro": "Consultație", "ru": "Консультация",
-                        "price": "300 MDL", "duration": "30", "docs": ""}]}))
-        res.check("старая форма всё ещё сохраняет", r.msg, "ok_set")
-        res.check("API видит правку старой формы",
-                  [x["id"] for x in _j(c.get(api))["data"]["services"]], ["consult"])
+        # старая форма настроек снята 12.10: сохранять умеет только API
+        r = c.post("/admin/settings/save", part="services", payload="{}")
+        res.ok("старая форма сохранения снята", r.status in (404, 405), f"{r!r}")
 
 
 def suite_theme(res: Result) -> None:
@@ -700,8 +647,6 @@ def suite_theme(res: Result) -> None:
         res.ok("удаление — no_logo, логотипа нет",
                _j(r)["code"] == "no_logo" and _j(r)["data"]["logo"] is None, r.body[:120])
         res.check("файл логотипа удалён — 404", anon.get("/clinic-logo").status, 404)
-        res.ok("старая страница темы — прежняя",
-               "class='th-styles'" in c.get("/admin/settings/theme").body, "изменилась")
 
 
 def suite_security(res: Result) -> None:
@@ -762,8 +707,6 @@ def suite_security(res: Result) -> None:
         r = boss.post_json("/api/settings/users/r8/delete", {})
         res.ok("удаление — ok_user, r8 исчез", _j(r)["code"] == "ok_user"
                and "r8" not in [u["id"] for u in _j(r)["data"]["users"]], r.body[:160])
-        res.ok("старая страница видит новые учётки",
-               "Ana R" in boss.get("/admin/settings/security").body, "не видит")
 
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
@@ -815,7 +758,9 @@ def suite_backup(res: Result) -> None:
 
 
 def suite_switch(res: Result) -> None:
-    """Флаги настроек: узел React в той же рамке, ?ui=legacy, охрана."""
+    """Экраны настроек — только React (старые страницы сняты 12.10): узел в
+    той же рамке, `?ui=legacy` отдаёт тот же React, старые формы сняты,
+    охрана — та же, что была у страниц."""
     s = _server_with_flags()
     with s:
         c = Client(s.url).login()
@@ -824,19 +769,38 @@ def suite_switch(res: Result) -> None:
                                   ("/admin/settings/hours", "settings_hours", "id='hc_mon'"),
                                   ("/admin/settings/services", "settings_services", "id='svc_tb'"),
                                   ("/admin/settings/theme", "settings_theme", "class='th-styles'"),
-                                  ("/admin/settings/backup", "settings_backup", "name='parola'")):
+                                  ("/admin/settings/backup", "settings_backup", "name='parola'"),
+                                  ("/admin/settings/system", "settings_system", "Stare sistem</h2>"),
+                                  ("/admin/settings/clinic", "settings_clinic", "name='payload'"),
+                                  ("/admin/settings/crypt", "settings_crypt", "Pregătește criptarea")):
             page = c.get(path).body
             res.ok(f"{path}: узел React", f'data-screen="{screen}"' in page, "узла нет")
             res.ok(f"{path}: старой разметки нет", old not in page, "две разметки")
             res.ok(f"{path}: бандл подключён", "/static/js/bundle.js?v=" in page, "нет бандла")
             legacy = c.get(f"{path}?ui=legacy").body
-            res.ok(f"{path}?ui=legacy: старая разметка", old in legacy and 'id="root"' not in legacy,
-                   "не вернулась")
+            res.ok(f"{path}?ui=legacy: тот же React",
+                   f'data-screen="{screen}"' in legacy and old not in legacy,
+                   "старая страница вернулась")
         res.ok("хаб: рамка и плашка сервера",
                "setările clinicii" in c.get("/admin/settings").body
                and "dp_toast" in c.get("/admin/settings?msg=ok_set").body, "рамка потеряна")
-        res.ok("сеть без dental.env — по-прежнему на хаб, флаг не мешает",
+        res.ok("сеть без dental.env — по-прежнему на хаб",
                c.get("/admin/settings/lan").location == "/admin/settings", "иначе")
+        # формы старых страниц сняты — сохраняет только API
+        for path, kw in (("/admin/settings/save", {"payload": "{}"}),
+                         ("/admin/users/save", {"uid": "z", "name": "Z"}),
+                         ("/admin/users/delete", {"uid": "z"}),
+                         ("/admin/pin/change", {"old_pin": "1", "new1": "2", "new2": "2"}),
+                         ("/admin/lan/save", {"mode": "on"}),
+                         ("/admin/lan/firewall", {}),
+                         ("/admin/update/check", {}),
+                         ("/admin/settings/crypt/prepare", {}),
+                         ("/admin/settings/crypt/off", {}),
+                         ("/admin/settings/theme/logo", {})):
+            r = c.post(path, **kw)
+            res.ok(f"форма {path} снята", r.status in (404, 405), f"{r!r}")
+        res.ok("палитра старой страницы снята",
+               c.get("/admin/settings/theme/palette?c=%23123456").status in (404, 405), "жива")
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="dp_lanflag_"))
     env_path = tmp / "dental.env"
@@ -848,11 +812,12 @@ def suite_switch(res: Result) -> None:
             page = c.get("/admin/settings/lan").body
             res.ok("сеть: узел React", 'data-screen="settings_lan"' in page, "узла нет")
             res.ok("сеть: старой кнопки нет", "Activează accesul" not in page, "две разметки")
-            res.ok("сеть ?ui=legacy: старая страница",
-                   "Activează accesul" in c.get("/admin/settings/lan?ui=legacy").body, "нет")
-            r = c.post("/admin/lan/save", mode="on")
-            res.check("старая форма переключает при флаге", r.msg, "ok_set")
-            res.ok("флаги пережили правку профиля (сеть живёт в env, профиль цел)",
+            res.ok("сеть ?ui=legacy: тот же React",
+                   'data-screen="settings_lan"' in c.get("/admin/settings/lan?ui=legacy").body,
+                   "старая страница вернулась")
+            r = c.post_json("/api/settings/lan", {"mode": "on"})
+            res.check("сеть переключается API", r.msg, "ok_set")
+            res.ok("флаги пережили переключение (сеть живёт в env, профиль цел)",
                    json.loads(s.clinic.read_text(encoding="utf-8")).get("ui") == {"react": FLAGS},
                    "флаги потеряны")
     finally:
@@ -862,19 +827,20 @@ def suite_switch(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
         page = boss.get("/admin/settings/security").body
         res.ok("учётки: узел React", 'data-screen="settings_security"' in page, "узла нет")
         res.ok("учётки: старой формы нет", "name='old_pin'" not in page, "две разметки")
-        res.ok("учётки ?ui=legacy: старая форма",
-               "name='old_pin'" in boss.get("/admin/settings/security?ui=legacy").body, "нет")
-        r = boss.post("/admin/pin/change", old_pin="1111", new1="1234", new2="1234")
-        res.check("старая форма смены PIN при флаге работает", r.msg, "ok_pin")
+        res.ok("учётки ?ui=legacy: тот же React",
+               'data-screen="settings_security"' in boss.get("/admin/settings/security?ui=legacy").body,
+               "старая страница вернулась")
+        r = boss.post_json("/api/settings/pin", {"old_pin": "1111", "new1": "1234", "new2": "1234"})
+        res.check("смена PIN — API", r.msg, "ok_pin")
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         for path in ("/admin/settings", "/admin/settings/faq", "/admin/settings/hours",
                      "/admin/settings/security"):
             r = ana.get(path)
-            res.ok(f"регистратуре React-страница {path} закрыта, как и старая",
+            res.ok(f"регистратуре React-страница {path} закрыта",
                    r.status == 303 and r.msg == "no_access", f"{r!r}")
         res.check("регистратуре закрыт и JSON хаба", ana.get("/api/settings/hub").status, 403)

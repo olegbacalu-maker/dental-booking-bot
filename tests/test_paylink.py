@@ -180,7 +180,7 @@ def suite_pay(res: Result) -> None:
         stand.serve(204)
         with Server(dir_=d, env=KEY_ENV) as s:
             c = Client(s.url).login()
-            c.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+            c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
             ana = Client(s.url)
             ana.post("/admin/login", password="3333", next="/admin")
             banner = ana.get("/admin?ui=legacy").body
@@ -215,7 +215,10 @@ def suite_off(res: Result) -> None:
         res.ok("без ключей выдачи плитки «Licența» нет",
                not _tile(c) and any(t.get("href") == "/admin/settings/faq" for t in _hub(c)))
         res.check("маршрут — 404", Client(s.url).get("/plata/" + "z" * 24).status, 404)
-        faq = c.get("/admin/settings/faq?ui=legacy").body
+        items = json.loads(c.get("/api/settings/faq").body)["data"]["items"]
+        pay = next((it["answer"] for it in items
+                    if it["question"] == "Cum plătesc abonamentul?"), "")
         res.ok("FAQ отвечает, как платить, словами кнопок",
-               "Cum plătesc abonamentul?" in faq and "Plătește acum" in faq
-               and "Setări › Licența" in faq and "Verifică acum dacă există un termen nou" in faq)
+               "Plătește acum" in pay and "Setări › Licența" in pay
+               and "Verifică acum dacă există un termen nou" in pay,
+               "вопроса нет или ответ не называет кнопки")

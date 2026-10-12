@@ -177,7 +177,7 @@ def suite_desk(res: Result) -> None:
     with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
         res.ok("директор видит кассу и долги", isinstance(_desk(boss)["collect"], dict), "collect None")
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")

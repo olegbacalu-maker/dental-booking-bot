@@ -99,10 +99,10 @@ def suite_demo(res: Result) -> None:
         for path in CLOSED_PAGES:
             r = c.get(path)
             res.ok(f"{path}: в демо нет", r.status == 303 and r.msg == "demo_off", repr(r))
-        for path, fields in (("/admin/update/check", {}), ("/admin/backup/export", {}),
-                             ("/admin/users/save", {"name": "x"}), ("/admin/pin/change", {}),
+        # формы учёток и PIN у старых страниц сняты (12.10) — их закрывает API ниже
+        for path, fields in (("/admin/update/run", {}), ("/admin/backup/export", {}),
                              ("/admin/telegram/save", {"token": "1:x"}),
-                             ("/admin/settings/crypt/prepare", {})):
+                             ("/admin/settings/crypt/confirm", {"ack": "1"})):
             r = c.post(path, **fields)
             res.ok(f"POST {path}: в демо нет", r.status == 303 and r.msg == "demo_off", repr(r))
         # отказ стоит ДО маршрута: адрес под закрытым префиксом, которого нет,
@@ -115,9 +115,11 @@ def suite_demo(res: Result) -> None:
             r = c.get(path)
             res.ok(f"{path}: 403 demo_off", r.status == 403 and _j(r).get("code") == "demo_off",
                    repr(r)[:120])
-        r = c.post_json("/api/settings/users", {"name": "x"})
-        res.ok("POST /api/settings/users: 403 demo_off",
-               r.status == 403 and _j(r).get("code") == "demo_off", repr(r)[:120])
+        for path, body in (("/api/settings/users", {"name": "x"}),
+                           ("/api/settings/pin", {"old_pin": "1", "new1": "2", "new2": "2"})):
+            r = c.post_json(path, body)
+            res.ok(f"POST {path}: 403 demo_off",
+                   r.status == 403 and _j(r).get("code") == "demo_off", repr(r)[:120])
         # код отказа — слово для человека, не голый код
         res.ok("demo_off переводится в текст", _j(c.get("/api/license")).get("text", "").startswith("În versiunea"),
                _j(c.get("/api/license")).get("text", ""))

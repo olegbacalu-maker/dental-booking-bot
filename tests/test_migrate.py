@@ -1385,10 +1385,11 @@ def suite_slot_banner_roles(res: Result) -> None:
         with Server(dir_=work, env={"ADMIN_KEY": ""}) as s:
             boss = Client(s.url)
             boss.post("/admin/setup", pin1="1111", pin2="1111")
-            boss.post("/admin/users/save", uid="ana", name="Ana R",
-                      role="receptie", pin="3333")
-            boss.post("/admin/users/save", uid="d2", name="Dr. Liviu",
-                      role="medic", doctor_id="d2", pin="2222")
+            boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                  "role": "receptie", "pin": "3333"})
+            boss.post_json("/api/settings/users", {"uid": "d2", "name": "Dr. Liviu",
+                                                  "role": "medic", "doctor_id": "d2",
+                                                  "pin": "2222"})
             mark = "<b>Medic:</b> Dr. Activ Doi"
             res.ok("директор видит, что разводить", mark in boss.get("/admin").body,
                    "тот единственный, кто может починить, ничего не узнал")

@@ -421,7 +421,7 @@ def suite_button(res: Result) -> None:
             r = c.post("/admin/license/renew")
             res.check("сервера нет: license_renew_offline", r.location, "/admin/license?msg=license_renew_offline")
             # не директор: право то же, что у импорта
-            c.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
+            c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
             ana = Client(s.url)
             ana.post("/admin/login", password="3333", next="/admin")
             r = ana.post("/admin/license/renew")

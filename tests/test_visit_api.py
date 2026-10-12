@@ -248,7 +248,7 @@ def suite_api(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana", role="receptie", pin="2222")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana", "role": "receptie", "pin": "2222"})
         boss.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2", aservice="consult",
                   aname="Pin Vizita", aphone="069555999", back="/admin/all")
         aid = _aid(boss, _d(1))

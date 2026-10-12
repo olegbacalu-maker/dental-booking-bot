@@ -40,10 +40,9 @@ Windows, сеть, которую Windows назвала «Public».
 `Program Files` страница говорила «всё в порядке» при закрытом входе (разбор —
 в `netcheck.py`). Текст `netsh` локализован и по-прежнему не разбирается.
 
-С 17.09 (DentPilot 2.0) текст страницы собран КУСКАМИ (`intro_html`,
-`status_html`, `firewall_html`, `tips_html`): старая страница склеивает их
-со своими формами, JSON API отдаёт те же куски React-экрану, который
-рисует кнопки сам. Прозу здесь не дублируют — она одна.
+Текст страницы собран КУСКАМИ (`intro_html`, `status_html`, `firewall_html`,
+`tips_html`): JSON API отдаёт их React-экрану, который рисует кнопки сам
+(старая серверная страница снята 12.10). Прозу здесь не дублируют — она одна.
 """
 from __future__ import annotations
 
@@ -262,10 +261,9 @@ def status_html(on: bool, ip: str, url: str, st: dict | None = None) -> str:
             f"style='width:180px;height:180px'></div>" + seen_html(st))
 
 
-def firewall_html(form: str = "", st: dict | None = None) -> str:
+def firewall_html(st: dict | None = None) -> str:
     """Windows не пустит: разрешения для этой сети нет или exe запрещён.
-    `form` — кнопка старой страницы; React-экран рисует свою и передаёт
-    пустую строку. Звать только при `firewall_fixable(st)`."""
+    Кнопку рисует React-экран. Звать только при `firewall_fixable(st)`."""
     v = (st or {}).get("verdict", "missing")
     if v == "blocked":
         what = (f"<b>Windows blochează programul</b> — în fereastra lui de "
@@ -284,7 +282,7 @@ def firewall_html(form: str = "", st: dict | None = None) -> str:
         what = (f"<b>Regula de firewall lipsește</b> — al doilea calculator și "
                 f"telefonul nu vor putea intra. Apăsați butonul și confirmați "
                 f"în fereastra Windows (UAC):")
-    return (f"<div {_WARN}>{_ic('sos')} {what}{form}"
+    return (f"<div {_WARN}>{_ic('sos')} {what}"
             f"<small style='color:var(--text3)'>Fereastra de confirmare "
             f"apare pe ecranul acestui calculator. După confirmare, "
             f"redeschideți pagina — starea se actualizează.</small></div>")
@@ -320,41 +318,3 @@ def tips_html(st: dict | None = None) -> str:
             f"legăturii» — ea arată dacă cererea ajunge până la acest "
             f"calculator.</div>")
 
-
-_FW_FORM = (f"<form method='post' action='/admin/lan/firewall' "
-            f"style='margin:10px 0 0'>"
-            f"<button style='background:var(--teal);color:var(--on-teal);"
-            f"border:none;border-radius:var(--r-ctl);height:40px;"
-            f"padding:0 18px;font-size:13.5px;font-weight:600;"
-            f"cursor:pointer'>{_ic('shield')} Creează regula de firewall</button>"
-            f"</form>")
-
-
-def render(st: dict | None = None) -> str:
-    """Старая страница. `st` — `firewall_state()`, посчитанный маршрутом в
-    потоке: здесь PowerShell не зовём, страница собирается в цикле событий."""
-    on = enabled()
-    ip, url = address(on)
-    body = [f"<h2>{_ic('wifi')} Acces din rețea</h2>", intro_html(),
-            status_html(on, ip, url, st)]
-
-    if on:
-        if firewall_fixable(st):
-            body.append(firewall_html(_FW_FORM, st))
-        body.append(tips_html(st))
-        btn_label, mode = "Dezactivează accesul", "off"
-        tone, ink = "var(--red-t)", "#fff"  # красный — цвет смысла, теме не отдан
-    else:
-        btn_label, mode = "Activează accesul", "on"
-        tone, ink = "var(--teal)", "var(--on-teal)"
-
-    body.append(
-        f"<form method='post' action='/admin/lan/save' "
-        f"onsubmit=\"return confirm('Programul se va reporni pentru "
-        f"aplicare. Continuați?')\">"
-        f"<input type='hidden' name='mode' value='{mode}'>"
-        f"<button style='background:{tone};color:{ink};border:none;"
-        f"border-radius:var(--r-ctl);height:44px;padding:0 22px;"
-        f"font-size:14px;font-weight:600;cursor:pointer'>"
-        f"{btn_label}</button></form>")
-    return "".join(body)

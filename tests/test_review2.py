@@ -15,8 +15,7 @@
     ловила только колонку RO — серверный отказ по RU-дублю перерисовывал
     форму и стирал все правки таблицы.
 """
-import json
-from datetime import date, timedelta
+from datetime import timedelta
 
 from harness import Client, Result, Server, clinic_today
 
@@ -142,47 +141,23 @@ def suite_new_dup(res: Result) -> None:
 
 
 def suite_settings_ui(res: Result) -> None:
-    """Имя сотрудника не попадает в JS-код подтверждения удаления, а
-    клиентская проверка дублей услуг знает те же правила, что сервер."""
+    """Сотрудник с апострофом в имени заводится, а сервер режет RU-дубли и
+    перекрёстные ro/ru-дубли услуг."""
     with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         res.check("сотрудник с апострофом заводится",
-                  boss.post("/admin/users/save", uid="ob", name="O'Brien",
-                            role="receptie", pin="7777").msg, "ok_user")
-        body = boss.get("/admin/settings/security").body
-        # ⚠️ html.escape НЕ спасает внутри onsubmit: браузер декодирует
-        # &#x27; обратно в апостроф ДО компиляции обработчика, литерал рвётся,
-        # и форма удаления уходит БЕЗ confirm
-        res.ok("имя не вставляется в JS-литерал confirm",
-               "confirm('Ștergeți contul" not in body,
-               "имя внутри confirm('…') — апостроф ломает подтверждение")
-        res.ok("подтверждение живо и несёт имя данными, не кодом",
-               "confirm(this.dataset.msg)" in body
-               and "Ștergeți contul O&#x27;Brien?" in body,
-               "нет confirm(this.dataset.msg) с именем в data-атрибуте")
-
-        # услуги: клиентская проверка обязана резать то же, что сервер
-        # (_val_services) — RU-дубли и перекрёстные ro/ru, включая «пустой RU
-        # наследует RO»; иначе payload проходит браузер, сервер отвечает
-        # bad_set и перерисовка формы стирает все правки таблицы
-        svc_page = boss.get("/admin/settings/services").body
-        script = svc_page.split("function collectServices", 1)[1]
-        res.ok("клиентская проверка дублей знает колонку RU",
-               "seen[ru]" in script and "seen[ro]" in script,
-               "collectServices дедуплицирует только RO")
-        # сервер (правила, которые клиент зеркалит) — на месте
-        payload = json.dumps({"services": [
-            {"id": "", "ro": "Alfa", "ru": "Ceva"},
-            {"id": "", "ro": "Beta", "ru": "ceva"},
-        ]})
+                  boss.post_json("/api/settings/users", {"uid": "ob", "name": "O'Brien",
+                                                        "role": "receptie", "pin": "7777"}).msg, "ok_user")
+        # Старые страницы учёток и услуг (их JS: confirm с именем, collectServices)
+        # сняты 12.10 — экраны рисует React. Дубли подписей React-экран не
+        # повторяет: их режет только сервер (_val_services), а правки при отказе
+        # живут в состоянии экрана. Пустой RU наследует RO.
         res.check("сервер режет RU-дубль",
-                  boss.post("/admin/settings/save", part="services",
-                            payload=payload).msg, "bad_set")
-        payload = json.dumps({"services": [
-            {"id": "", "ro": "Gamma", "ru": ""},          # пустой RU ← RO
-            {"id": "", "ro": "Delta", "ru": "gamma"},
-        ]})
+                  boss.post_json("/api/settings/services", {"services": [
+                      {"id": "", "ro": "Alfa", "ru": "Ceva"},
+                      {"id": "", "ro": "Beta", "ru": "ceva"}]}).msg, "bad_set")
         res.check("сервер режет перекрёстный ro/ru-дубль",
-                  boss.post("/admin/settings/save", part="services",
-                            payload=payload).msg, "bad_set")
+                  boss.post_json("/api/settings/services", {"services": [
+                      {"id": "", "ro": "Gamma", "ru": ""},          # пустой RU ← RO
+                      {"id": "", "ro": "Delta", "ru": "gamma"}]}).msg, "bad_set")

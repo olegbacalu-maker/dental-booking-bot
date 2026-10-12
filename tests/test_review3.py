@@ -27,6 +27,9 @@ from datetime import date, timedelta
 from harness import BOT, TG_ON, Bot, Client, Result, Server, clinic_today
 
 CSS = BOT / "app" / "static" / "css" / "panel.css"
+# Экран услуг рисует React (12.10): таблица — в его разметке, не в routes.py
+SERVICES_TSX = (BOT.parent / "frontend" / "src" / "features" / "settings"
+                / "ServicesSettingsScreen.tsx")
 JS = BOT / "app" / "static" / "js" / "panel.js"
 
 # Знаки, которые рисует система: те же диапазоны, что стережёт
@@ -352,7 +355,8 @@ def suite_width(res: Result) -> None:
            "table.set без потолка: на 2560 поле «Telefon» становится 1500px, а "
            "шесть списков программы работы разъезжаются по 350px каждый")
     res.ok("потолок формы снимается модификатором, а не наоборот",
-           "table.set.set-wide" in css and "set-wide" in src,
+           "table.set.set-wide" in css
+           and "set-wide" in SERVICES_TSX.read_text(encoding="utf-8"),
            "нет пары «потолок по умолчанию + set-wide на таблице данных»: либо "
            "правило пропало, либо таблица услуг (восемь колонок) потеряла класс")
 
@@ -432,11 +436,12 @@ def suite_svc_table(res: Result) -> None:
     выданная модификатором ширина уходила в «Denumire». То есть обоснование
     обещало то, чего поведение не делало, а сама обрезка жила и на 1366.
     ⚠️ Ширина здесь набрана числом в РАЗМЕТКЕ, поэтому и сторож смотрит в
-    разметку: в panel.css этого числа нет и не будет.
+    разметку: в panel.css этого числа нет и не будет. С 12.10 разметка —
+    React-экран услуг: старой серверной таблицы больше нет.
     """
-    src = (BOT / "app" / "modules" / "settings" / "routes.py").read_text(
-        encoding="utf-8")
-    m = re.search(r"<th[^>]*style='[^']*width:(\d+)px[^']*'>\s*Preț", src)
+    src = SERVICES_TSX.read_text(encoding="utf-8")
+    m = (re.search(r"<th style=\{\{ width: (\d+) \}\}>\{T\.cols\.price\}</th>", src)
+         if "price: 'Preț'" in src else None)
     res.ok("колонка «Preț» вообще размечена шириной", bool(m),
            "в таблице услуг не нашлось <th> с шириной для «Preț» — либо "
            "колонку переименовали, либо ширину сняли, и проверка ниже "

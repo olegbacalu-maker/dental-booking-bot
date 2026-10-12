@@ -341,29 +341,25 @@ def suite_pages(res: Result) -> None:
         res.ok("цвета смысла тема не трогает", not painted,
                f"в теме оказались {painted} — «Urgențe» сменили бы цвет")
 
-        hub = c.get("/admin/settings").body
+        hub = json.loads(c.get("/api/settings/hub").body)["data"]["tiles"]
         res.ok("вид клиники есть в хабе настроек",
-               "/admin/settings/theme" in hub, "нет плитки")
+               any(t["href"] == "/admin/settings/theme" for t in hub), "нет плитки")
 
-        # ⚠️ экран собирается из трёх кусков разметки и куска JS: без этой
-        # проверки он мог бы отвечать 500, а набор остался бы зелёным —
-        # сохранение-то идёт отдельным маршрутом и работало бы
+        # Экран вида рисует React (старая страница снята 12.10); набор стилей,
+        # цветов, меню, шрифтов и видов карточки отдаёт /api/settings/theme —
+        # его держит test_settings_api.suite_theme. Здесь — что экран живой.
         form = c.get("/admin/settings/theme")
-        res.check("экран вида открывается", form.status, 200)
-        res.ok("на экране все четыре стиля",
-               all(f"value='{k}'" in form.body
-                   for k in ("modern", "elegant", "calm", "fluent")),
-               "стили не отрисовались")
-        res.ok("на экране все шесть цветов",
-               all(f"value='{h}'" in form.body for h in
-                   ("#0E9F8A", "#2563EB", "#7C3AED", "#0891B2", "#EA580C", "#E11D48")),
-               "палитра не отрисовалась")
-        res.ok("есть выбор своего цвета",
-               "type='color'" in form.body and "value='custom'" in form.body,
-               "нет поля своего цвета")
+        res.ok("экран вида открывается — узел React",
+               form.status == 200 and 'data-screen="settings_theme"' in form.body,
+               f"код {form.status}")
+        opts = json.loads(c.get("/api/settings/theme").body)["data"]
+        res.ok("на экран приезжают стили, шесть цветов и свой цвет",
+               {"modern", "elegant", "calm", "fluent"} <= {x["key"] for x in opts["styles"]}
+               and len(opts["presets"]) == 6 and "custom" in opts,
+               "варианты не приехали")
 
-        r = c.post("/admin/settings/save", part="theme", style="calm",
-                   primary="#7C3AED", custom="#000000")
+        r = c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                                "custom": "#000000"})
         res.check("тема сохраняется", r.msg, "ok_theme")
 
         page = c.get("/admin").body
@@ -375,8 +371,9 @@ def suite_pages(res: Result) -> None:
                'content="#F2F7F4"' in page, "theme-color остался прежним")
 
         # меню и шрифт (B5) — тем же путём, что стиль и цвет
-        r = c.post("/admin/settings/save", part="theme", style="calm",
-                   primary="#7C3AED", custom="#000000", menu="neutral", font="system")
+        r = c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                                "custom": "#000000", "menu": "neutral",
+                                                "font": "system"})
         res.check("меню и шрифт сохраняются", r.msg, "ok_theme")
         head = c.get("/admin").body.split("<style>:root{", 1)[1].split("</style>", 1)[0]
         res.ok("нейтральное меню приехало в шапку", "--side-bg:var(--bg)" in head,
@@ -394,45 +391,37 @@ def suite_pages(res: Result) -> None:
                "у входа своя вёрстка — заполнитель не подставился")
         # ⚠️ Поля не прислали — «не сообщали», а не «сбросить»: старый клиент
         # без групп меню и шрифта не имеет права вернуть их к умолчанию.
-        c.post("/admin/settings/save", part="theme", style="calm",
-               primary="#7C3AED", custom="")
+        c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                            "custom": ""})
         res.check("без полей меню и шрифта прежний выбор цел",
                   [_theme_of(s.clinic).get("menu"), _theme_of(s.clinic).get("font")],
                   ["neutral", "system"])
-        r = c.post("/admin/settings/save", part="theme", style="calm",
-                   primary="#7C3AED", custom="", menu="розовое")
+        r = c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                                "custom": "", "menu": "розовое"})
         res.check("незнакомое меню не сохраняется", r.msg, "bad_set")
-        r = c.post("/admin/settings/save", part="theme", style="calm",
-                   primary="#7C3AED", custom="", font="Comic Sans")
+        r = c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                                "custom": "", "font": "Comic Sans"})
         res.check("незнакомый шрифт не сохраняется", r.msg, "bad_set")
-        res.ok("на экране вида есть меню и шрифт",
-               all(f"name='{n}' value='{v}'" in c.get("/admin/settings/theme").body
-                   for n, v in (("menu", "brand"), ("menu", "neutral"),
-                                ("font", "inter"), ("font", "system"))),
-               "группы меню и шрифта не отрисовались")
 
         # вид карточки визита (03.10) — тем же путём. ⚠️ Едет АТРИБУТОМ
         # документа, а не переменной: у «времени впереди» другой порядок строк.
         res.ok("по умолчанию документ несёт «имя впереди»",
                'data-card="name"' in c.get("/admin").body, "атрибута нет")
-        r = c.post("/admin/settings/save", part="theme", style="calm",
-                   primary="#7C3AED", custom="", card="time")
+        r = c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                                "custom": "", "card": "time"})
         res.check("вид карточки сохраняется", r.msg, "ok_theme")
         # голова одна на старую страницу и на React (`layout._doc_head`)
         res.ok("вид карточки приехал атрибутом документа",
                'data-card="time"' in c.get("/admin").body, "атрибут не сменился")
-        c.post("/admin/settings/save", part="theme", style="calm",
-               primary="#7C3AED", custom="")
+        c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                            "custom": ""})
         res.check("без поля вида прежний выбор цел",
                   _theme_of(s.clinic).get("card"), "time")
-        r = c.post("/admin/settings/save", part="theme", style="calm",
-                   primary="#7C3AED", custom="", card="zigzag")
+        r = c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                                "custom": "", "card": "zigzag"})
         res.check("незнакомый вид карточки не сохраняется", r.msg, "bad_set")
-        theme_page = c.get("/admin/settings/theme").body
-        res.ok("на старом экране вида есть оба вида карточки, выбранный отмечен",
-               "name='card' value='name'>" in theme_page
-               and "name='card' value='time' checked>" in theme_page,
-               "группа вида карточки не отрисовалась")
+        res.check("экрану вида приезжает выбранный вид карточки",
+                  json.loads(c.get("/api/settings/theme").body)["data"]["card"], "time")
 
         login = anon.get("/admin/login").body
         res.ok("экран входа перекрашен", "#7C3AED" in login,
@@ -458,33 +447,35 @@ def suite_pages(res: Result) -> None:
                   [cfg["theme"]["style"], cfg["theme"]["primary"]],
                   ["calm", "#7C3AED"])
 
-        r = c.post("/admin/settings/save", part="theme", style="calm",
-                   primary="#fff}body{display:none", custom="")
+        r = c.post_json("/api/settings/theme", {"style": "calm",
+                                                "primary": "#fff}body{display:none",
+                                                "custom": ""})
         res.check("мусорный цвет не сохраняется", r.msg, "bad_set")
-        r = c.post("/admin/settings/save", part="theme", style="хакер",
-                   primary="#7C3AED", custom="")
+        r = c.post_json("/api/settings/theme", {"style": "хакер", "primary": "#7C3AED",
+                                                "custom": ""})
         res.check("незнакомый стиль не сохраняется", r.msg, "bad_set")
         res.check("после отказа тема прежняя",
                   _theme_of(s.clinic)["primary"], "#7C3AED")
 
-        r = c.post("/admin/settings/save", part="theme", style="modern",
-                   primary="custom", custom="#123456")
+        r = c.post_json("/api/settings/theme", {"style": "modern", "primary": "custom",
+                                                "custom": "#123456"})
         res.check("свой цвет сохраняется", r.msg, "ok_theme")
         res.check("свой цвет лёг в профиль",
                   _theme_of(s.clinic)["primary"], "#123456")
 
-        r = c.get("/admin/settings/theme/palette?c=%23123456&style=modern")
+        r = c.get("/api/settings/theme/palette?c=%23123456&style=modern")
         res.ok("предпросмотр своего цвета считает сервер",
-               r.status == 200 and json.loads(r.body)["--teal"] == "#123456",
+               r.status == 200 and json.loads(r.body)["data"]["--teal"] == "#123456",
                f"ответ {r.status}: {r.body[:120]}")
         res.check("мусор в предпросмотре отвергается",
-                  c.get("/admin/settings/theme/palette?c=red").status, 400)
+                  c.get("/api/settings/theme/palette?c=red").status, 422)
 
         res.ok("без входа экран вида не отдаётся",
                anon.get("/admin/settings/theme").status == 303, "отдался")
         res.ok("без входа тему не сохранить",
-               anon.post("/admin/settings/save", part="theme", style="calm",
-                         primary="#000000").status == 303, "сохранилось")
+               anon.post_json("/api/settings/theme",
+                              {"style": "calm", "primary": "#000000"}).status == 401,
+               "сохранилось")
 
 
 # ---------- 3. логотип ----------
@@ -496,7 +487,7 @@ def suite_logo(res: Result) -> None:
 
         res.check("без логотипа адрес пустой", anon.get("/clinic-logo").status, 404)
 
-        r = c.post_file("/admin/settings/theme/logo", "file", "logo.png", PNG)
+        r = c.post_file("/api/settings/theme/logo", "file", "logo.png", PNG)
         res.check("PNG принимается", r.msg, "ok_logo")
 
         got = anon.get("/clinic-logo")
@@ -511,11 +502,11 @@ def suite_logo(res: Result) -> None:
                "clogo" in c.get("/admin/casa").body, "нет в отчёте кассы")
 
         # ⚠️ главная проверка загрузки: имя файла ничего не значит
-        r = c.post_file("/admin/settings/theme/logo", "file", "logo.png", EXE)
+        r = c.post_file("/api/settings/theme/logo", "file", "logo.png", EXE)
         res.check("исполняемый файл под видом PNG отвергнут", r.msg, "bad_logo")
-        r = c.post_file("/admin/settings/theme/logo", "file", "logo.png", SVG)
+        r = c.post_file("/api/settings/theme/logo", "file", "logo.png", SVG)
         res.check("SVG под видом PNG отвергнут", r.msg, "bad_logo")
-        r = c.post_file("/admin/settings/theme/logo", "file", "big.png",
+        r = c.post_file("/api/settings/theme/logo", "file", "big.png",
                         PNG + b"\x00" * (3 * 1024 * 1024))
         res.check("слишком большой файл отвергнут", r.msg, "bad_logo")
         res.check("после отказов прежний логотип цел",
@@ -523,8 +514,8 @@ def suite_logo(res: Result) -> None:
 
         # смена цвета не имеет права уронить логотип: тема пишется секцией
         # целиком, и забытое поле стёрло бы картинку
-        c.post("/admin/settings/save", part="theme", style="elegant",
-               primary="#EA580C", custom="")
+        c.post_json("/api/settings/theme", {"style": "elegant", "primary": "#EA580C",
+                                            "custom": ""})
         res.ok("логотип пережил смену цвета",
                anon.get("/clinic-logo").status == 200 and
                _theme_of(s.clinic).get("logo") == "clinic-logo.png",
@@ -536,16 +527,17 @@ def suite_logo(res: Result) -> None:
         res.ok("по умолчанию шапка без логотипа",
                "tb-logo" not in c.get("/admin").body,
                "логотип встал в шапку без галочки")
-        res.ok("страница темы предлагает галочку при живом логотипе",
-               "logo_topbar" in c.get("/admin/settings/theme").body,
-               "галочки на странице нет")
-        r = c.post("/admin/settings/save", part="theme", style="elegant",
-                   primary="#EA580C", custom="", logo_topbar="1")
+        # галочку рисует React при живом логотипе — ему нужен адрес логотипа
+        res.ok("экрану вида приезжает живой логотип (условие галочки)",
+               json.loads(c.get("/api/settings/theme").body)["data"]["logo"] is not None,
+               "логотипа в данных экрана нет")
+        r = c.post_json("/api/settings/theme", {"style": "elegant", "primary": "#EA580C",
+                                                "custom": "", "logo_topbar": True})
         res.check("галочка сохраняется", r.msg, "ok_theme")
         res.ok("логотип встал в шапку журнала",
                "tb-logo" in c.get("/admin").body, "в шапке пусто")
 
-        r = c.post_file("/admin/settings/theme/logo", "file", "logo.jpg", JPG)
+        r = c.post_file("/api/settings/theme/logo", "file", "logo.jpg", JPG)
         res.check("JPEG принимается", r.msg, "ok_logo")
         res.check("тип отдачи сменился вместе с файлом",
                   anon.get("/clinic-logo").header("Content-Type"), "image/jpeg")
@@ -554,18 +546,18 @@ def suite_logo(res: Result) -> None:
         res.ok("галочка пережила замену файла логотипа",
                "tb-logo" in c.get("/admin").body,
                "замена файла молча сняла логотип с шапки")
-        c.post("/admin/settings/save", part="theme", style="elegant",
-               primary="#EA580C", custom="")
+        c.post_json("/api/settings/theme", {"style": "elegant", "primary": "#EA580C",
+                                            "custom": ""})
         res.ok("снятая галочка убирает логотип из шапки",
                "tb-logo" not in c.get("/admin").body,
                "логотип остался в шапке без галочки")
-        c.post("/admin/settings/save", part="theme", style="elegant",
-               primary="#EA580C", custom="", logo_topbar="1")
+        c.post_json("/api/settings/theme", {"style": "elegant", "primary": "#EA580C",
+                                            "custom": "", "logo_topbar": True})
         res.ok("прежний PNG не остался мусором на диске",
                not (s.dir / "clinic-logo.png").exists(),
                "старый файл лежит рядом и не используется")
 
-        r = c.post("/admin/settings/theme/logo", act="del")
+        r = c.post_json("/api/settings/theme/logo/delete", {})
         res.check("логотип удаляется", r.msg, "no_logo")
         res.check("после удаления адрес пустой", anon.get("/clinic-logo").status, 404)
         res.ok("удалённый логотип исчез и из шапки при живой галочке",
@@ -577,5 +569,5 @@ def suite_logo(res: Result) -> None:
                f"в профиле {_theme_of(s.clinic)}")
 
         res.ok("без входа логотип не подменить",
-               anon.post_file("/admin/settings/theme/logo", "file", "x.png",
-                              PNG).status == 303, "подменился")
+               anon.post_file("/api/settings/theme/logo", "file", "x.png",
+                              PNG).status == 401, "подменился")

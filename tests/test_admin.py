@@ -1,6 +1,7 @@
 """Охрана доступа, страницы журнала, настройки с горячей перезагрузкой,
 карточка пациента и чистые функции расписания.
 """
+import html
 import io
 import json
 import os
@@ -124,10 +125,12 @@ def suite_pages(res: Result) -> None:
         # только клиент с большим монитором, на 1366 потолок не срабатывает).
         # Потолок самой СТРОКИ живёт в panel.css и проверяется там же
         # (test_review3.suite_width) — разметка о нём ничего не знает.
+        # ⚠️ Настроек в списке нет: их экраны рисует React (12.10), и ширину
+        # раскладки ведёт клиент, серверного `content` у оболочки нет.
         shells = {}
         for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
-                     "/admin/doctor/d2", "/admin/settings", "/admin/search",
-                     "/admin/stats", "/admin/medici", "/admin/settings/faq"):
+                     "/admin/doctor/d2", "/admin/search",
+                     "/admin/stats", "/admin/medici"):
             body = c.get(path).body
             m = re.search(r'<div class="(content[^"]*)"', body)
             shells[path] = m.group(1) if m else "—"
@@ -139,8 +142,14 @@ def suite_pages(res: Result) -> None:
                len(set(shells.values())) == 1,
                f"каркасы разошлись — часть разделов снова у́же остальных, и "
                f"новая страница молча родится узкой: {shells}")
+        # справку рисует React: потолок строки — правило клиента `.dp-faq`
+        front = BOT.parent / "frontend" / "src"
+        faq_rule = re.search(r"\.dp-faq\s*\{[^}]*\}",
+                             (front / "app" / "app.css").read_text(encoding="utf-8"))
         res.ok("длинный текст справки держит свой потолок",
-               "max-width:var(--measure)" in c.get("/admin/settings/faq").body,
+               bool(faq_rule) and "max-width: var(--measure)" in faq_rule.group(0)
+               and "dp-faq" in (front / "features" / "settings" / "FaqScreen.tsx")
+               .read_text(encoding="utf-8"),
                "карточка FAQ растянулась вместе со страницей — на 2560 это "
                "строка ответа через весь монитор")
         for path in ("/admin/settings", "/admin/settings/faq", "/admin/stats",
@@ -213,10 +222,17 @@ def suite_pages(res: Result) -> None:
         # не поняли». Помощник один (layout.msg_banner, держит test_structure),
         # но канал проверяется на страницах ТРЁХ модулей: каждый маршрут зовёт
         # его сам, и забытый вызов уронил бы сообщение вовсе.
+        # Настройки рисует React (12.10): та же плашка едет строкой сервера в
+        # модели оболочки (`frame.msg`), её рисует AppShell.
+        def _shell_msg(page: str) -> str:
+            raw = page.split('data-shell="', 1)[1].split('"', 1)[0]
+            return json.loads(html.unescape(raw))["frame"]["msg"]
         for path in (f"/admin/all?date={_d(1)}&msg=conflict",
                      "/admin/settings?msg=ok_set",
                      "/admin/medici?msg=ok_med"):
             page_t = c.get(path).body
+            if 'data-shell="' in page_t:
+                page_t = _shell_msg(page_t)
             res.ok(f"{path.split('?')[0]} отвечает плавающей плашкой",
                    "id='dp_toast'" in page_t and "class='toastbox'" in page_t,
                    "msg рисуется строкой в потоке — внизу страницы его не видно")
@@ -940,10 +956,9 @@ def suite_grid_edges(res: Result) -> None:
                "class='hrow off'" not in before,
                "штриховка появилась там, где клиника работает весь день")
 
-        r = c.post("/admin/settings/save", part="hours",
-                   payload=json.dumps({"hours": {d: [7, 21, 13, 14] for d in
-                                                 ("mon", "tue", "wed", "thu",
-                                                  "fri", "sat", "sun")}}))
+        r = c.post_json("/api/settings/hours", {"hours": {d: [7, 21, 13, 14] for d in
+                                                          ("mon", "tue", "wed", "thu",
+                                                           "fri", "sat", "sun")}})
         res.check("обед введён задним числом", r.msg, "ok_set")
         after = c.get(f"/admin/all?date={day}").body
         res.ok("визит, накрытый новым обедом, остался в сетке",
@@ -1361,36 +1376,44 @@ def suite_settings(res: Result) -> None:
     with srv as s:
         c = Client(s.url).login()
 
-        hub = c.get("/admin/settings").body
-        res.ok("хаб — плитки, а не простыня",
-               "pl-tile" in hub and hub.count("/admin/settings/") >= 4,
-               "нет плиток секций")
+        # Экраны настроек рисует React (старые страницы сняты 12.10): данные —
+        # из /api/settings/*, страница отдаёт узел и рамку с крошкой на хаб.
+        hub = json.loads(c.get("/api/settings/hub").body)["data"]["tiles"]
+        hrefs = [t["href"] for t in hub]
+        res.ok("хаб — плитки секций",
+               sum(h.startswith("/admin/settings/") for h in hrefs) >= 4, f"{hrefs}")
         # страница без плитки для клиники не существует — маршрут проверен ниже,
         # а здесь стережётся именно вход с хаба
-        res.ok("плитка FAQ на хабе", "/admin/settings/faq" in hub,
+        res.ok("плитка FAQ на хабе", "/admin/settings/faq" in hrefs,
                "FAQ не находима с хаба")
-        for path, needle in {"/admin/settings/system": "Stare sistem",
-                             "/admin/settings/clinic": "Clinica Test",
-                             "/admin/settings/hours": "Luni",
-                             "/admin/settings/services": "Igienizare",
-                             # FAQ обязан называть 7-Zip: бэкап открывается им,
-                             # и это единственное место, где клиника об этом узнаёт
-                             "/admin/settings/faq": "7-Zip"}.items():
+        for path, screen in {"/admin/settings/system": "settings_system",
+                             "/admin/settings/clinic": "settings_clinic",
+                             "/admin/settings/hours": "settings_hours",
+                             "/admin/settings/services": "settings_services",
+                             "/admin/settings/faq": "settings_faq"}.items():
             b = c.get(path)
-            res.ok(f"секция {path} открывается",
-                   b.status == 200 and needle in b.body,
-                   f"код {b.status}, нет {needle!r}")
-            # 08-11: стрелка стала иконкой набора — U+2190 рисовала Windows.
-            # Проверяется сама ссылка на хаб, а не то, чем нарисован значок.
+            res.ok(f"секция {path} открывается — узел React",
+                   b.status == 200 and f'data-screen="{screen}"' in b.body,
+                   f"код {b.status}")
+            # крошка «Setări» едет в модели рамки (`_SEC_CRUMBS`) — путь назад;
+            # модель лежит в атрибуте data-shell, экранированная как HTML
+            crumbs = (json.loads(html.unescape(
+                b.body.split('data-shell="', 1)[1].split('"', 1)[0]))["frame"]["crumbs"]
+                if 'data-shell="' in b.body else [])
             res.ok(f"из секции {path} есть путь назад",
-                   "href='/admin/settings'>" in b.body and "Setări</a>" in b.body,
-                   "нет навигации на хаб")
+                   any(cr.get("href") == "/admin/settings" for cr in crumbs),
+                   f"нет крошки на хаб: {crumbs}")
+        faq_items = json.loads(c.get("/api/settings/faq").body)["data"]["items"]
+        # FAQ обязан называть 7-Zip: бэкап открывается им, и это единственное
+        # место, где клиника об этом узнаёт
+        res.ok("FAQ называет 7-Zip", any("7-Zip" in it["answer"] for it in faq_items),
+               "про 7-Zip ни слова")
 
         # Telegram заморожен (08-08): FAQ не продаёт бота — пункты про
         # «бот ночью/в выходные» изъяты вместе с интерфейсом бота
-        faq = c.get("/admin/settings/faq").body
         res.ok("FAQ не продаёт замороженного бота",
-               "Botul primește programări" not in faq,
+               not any("Botul primește programări" in it["question"] + it["answer"]
+                       for it in faq_items),
                "пункт про бот в выходные вернулся в FAQ")
 
         # ⭐ Папку показываем НАСТОЯЩУЮ, а не описываем словами: раскладок две
@@ -1398,25 +1421,22 @@ def suite_settings(res: Result) -> None:
         # следующем переезде. «Stare sistem» — якорь: на эту строку ссылаются
         # и FAQ, и CITESTE-MA.txt внутри вывозного архива, поэтому её пропажа
         # обесценивает оба текста разом.
-        # ⭐ Путь сверяется вместе с обрамлением, а не вхождением: папка базы
-        # содержит папку клиники как префикс, и подстрочная проверка не
-        # отличила бы верную папку от соседней (см. стенд выше).
-        sys_page = c.get("/admin/settings/system").body
-        res.ok("«Stare sistem» показывает настоящую папку данных",
-               "Folderul cu date" in sys_page and f"<code>{root}</code>" in sys_page,
-               f"нет строки с путём {root}")
+        # ⭐ Путь сверяется целиком, а не вхождением: папка базы содержит папку
+        # клиники как префикс, и подстрочная проверка не отличила бы верную
+        # папку от соседней (см. стенд выше).
+        folder = json.loads(c.get("/api/settings/system").body)["data"]["folder"]
+        res.check("«Stare sistem» показывает настоящую папку данных",
+                  folder["path"], str(root))
         res.ok("FAQ называет настоящую папку, а не «папку программы»",
-               f"<b>{root}</b>" in faq and "folderul programului" not in faq,
+               any(f"<b>{root}</b>" in it["answer"] for it in faq_items)
+               and not any("folderul programului" in it["answer"] for it in faq_items),
                "FAQ описывает раскладку, которой больше нет")
 
         # ---- сохранение по кускам: сосед не должен пострадать ----
-        # (идёт ДО цельного payload: тот прогоняет услуги через разбор формы и
-        # по своей природе плющит двуязычную цену — куски так делать не должны)
-        r = c.post("/admin/settings/save", part="clinic", name="Clinica Parțială",
-                   phone="+373 60 111 222", addr_ro="str. Nouă 2", addr_ru="")
+        r = c.post_json("/api/settings/clinic", {"name": "Clinica Parțială",
+                                                 "phone": "+373 60 111 222",
+                                                 "address": {"ro": "str. Nouă 2", "ru": ""}})
         res.check("кусок «клиника» сохраняется", r.msg, "ok_set")
-        res.ok("возврат на ту же секцию", "/admin/settings/clinic" in r.location,
-               f"увёл на {r.location!r}")
         after = json.loads(s.clinic.read_text(encoding="utf-8"))
         res.check("имя обновилось", after["name"], "Clinica Parțială")
         res.ok("услуги пережили сохранение клиники",
@@ -1428,11 +1448,10 @@ def suite_settings(res: Result) -> None:
                                if sv.get("id") == "consult"), dict),
                "price {'ro','ru'} перемолот в строку")
 
-        r = c.post("/admin/settings/save", part="hours",
-                   payload=json.dumps({"hours": {
-                       "mon": [9, 18], "tue": [9, 18], "wed": None,
-                       "thu": [9, 18], "fri": [9, 18, 13, 14],
-                       "sat": None, "sun": None}}))
+        r = c.post_json("/api/settings/hours", {"hours": {
+            "mon": [9, 18], "tue": [9, 18], "wed": None,
+            "thu": [9, 18], "fri": [9, 18, 13, 14],
+            "sat": None, "sun": None}})
         res.check("кусок «часы» сохраняется", r.msg, "ok_set")
         after = json.loads(s.clinic.read_text(encoding="utf-8"))
         res.ok("имя пережило сохранение часов",
@@ -1444,10 +1463,10 @@ def suite_settings(res: Result) -> None:
                "13" in after.get("contacts", {}).get("ro", ""),
                "contacts не отражает новый обед")
 
-        r = c.post("/admin/settings/save", part="services",
-                   payload=json.dumps({"services": [
-                       {"id": "consult", "ro": "Consultație", "ru": "Консультация",
-                        "price": "300 MDL", "duration": "30", "docs": ""}]}))
+        r = c.post_json("/api/settings/services", {"services": [
+            {"id": "consult", "ro": "Consultație", "ru": "Консультация",
+             "price": "300 MDL", "duration": 30, "color": "", "urgent": False,
+             "docs": []}]})
         res.check("кусок «услуги» сохраняется", r.msg, "ok_set")
         after = json.loads(s.clinic.read_text(encoding="utf-8"))
         res.check("услуг стало ровно столько, сколько прислали",
@@ -1457,19 +1476,15 @@ def suite_settings(res: Result) -> None:
         res.ok("часы пережили сохранение услуг",
                after["hours"]["wed"] is None, "услуги затёрли часы")
 
-        r = c.post("/admin/settings/save", part="hours",
-                   payload=json.dumps({"hours": {d: None for d in
-                                                 ("mon", "tue", "wed", "thu",
-                                                  "fri", "sat", "sun")}}))
+        r = c.post_json("/api/settings/hours", {"hours": {d: None for d in
+                                                          ("mon", "tue", "wed", "thu",
+                                                           "fri", "sat", "sun")}})
         res.check("вся неделя закрыта — отбито", r.msg, "bad_set")
-        res.ok("ошибка вернула на страницу часов",
-               "/admin/settings/hours" in r.location, f"{r.location!r}")
 
-        # старый цельный payload остаётся рабочим (горячая перезагрузка)
-        cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-        cfg["name"] = "Clinica Redenumită"
-        r = c.post("/admin/settings/save",
-                   payload=json.dumps(cfg, ensure_ascii=False))
+        # горячая перезагрузка: имя клиники видно сразу, без перезапуска
+        r = c.post_json("/api/settings/clinic", {"name": "Clinica Redenumită",
+                                                 "phone": "+373 60 111 222",
+                                                 "address": {"ro": "str. Nouă 2", "ru": ""}})
         res.check("настройки сохраняются", r.msg, "ok_set")
         res.ok("новое название видно сразу",
                "Clinica Redenumită" in c.get("/admin").body,
@@ -1558,11 +1573,14 @@ def suite_pwa(res: Result) -> None:
                "имя клиники поедет в браузер раньше, чем тот узнает кодировку")
 
         # цвет и имя принадлежат клинике: смена темы обязана дойти до манифеста
-        c.post("/admin/settings/save", part="theme", style="calm",
-               primary="#7C3AED", custom="")
+        c.post_json("/api/settings/theme", {"style": "calm", "primary": "#7C3AED",
+                                            "custom": ""})
         cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-        cfg["name"] = "Clinica Redenumită"
-        c.post("/admin/settings/save", payload=json.dumps(cfg, ensure_ascii=False))
+        addr = cfg.get("address") if isinstance(cfg.get("address"), dict) else {}
+        c.post_json("/api/settings/clinic", {"name": "Clinica Redenumită",
+                                             "phone": cfg.get("phone", ""),
+                                             "address": {"ro": addr.get("ro", ""),
+                                                         "ru": addr.get("ru", "")}})
         man2 = json.loads(c.get("/manifest.webmanifest").body)
         res.ok("цвет в манифесте едет за темой клиники",
                man2.get("theme_color") != man.get("theme_color"),
@@ -1576,10 +1594,15 @@ def suite_lan(res: Result) -> None:
     """Доступ с телефона (LAN, слой 2 PWA): секция живёт в dental.env, потому
     что слушающий адрес выбирает лаунчер до старта приложения. В тестах
     DENTART_NO_RESTART=1 — переключение отвечает баннером, а не перезапуском."""
+    def tiles(c: Client) -> list:
+        # ⛔ Плитки — из данных хаба, не из HTML: хаб рисует React (12.10), и
+        # «адреса нет в странице» было бы правдой при любом поведении.
+        return [t["href"] for t in json.loads(c.get("/api/settings/hub").body)["data"]["tiles"]]
+
     with Server() as s0:
         c0 = Client(s0.url).login()
         res.ok("без dental.env плитки НЕТ на хабе",
-               "/admin/settings/lan" not in c0.get("/admin/settings").body,
+               "/admin/settings/lan" not in tiles(c0),
                "плитка видна без env-файла (запуск без лаунчера)")
         res.ok("без dental.env страница уводит на хаб",
                c0.get("/admin/settings/lan").status == 303,
@@ -1597,36 +1620,35 @@ def suite_lan(res: Result) -> None:
                    f"код {r.status}, location {r.location!r}")
 
             c = Client(s.url).login()
-            res.ok("плитка на хабе",
-                   "/admin/settings/lan" in c.get("/admin/settings").body,
+            res.ok("плитка на хабе", "/admin/settings/lan" in tiles(c),
                    "нет плитки при живом env-файле")
             b = c.get("/admin/settings/lan")
-            res.ok("страница открывается",
-                   b.status == 200 and "Acces din rețea" in b.body,
+            res.ok("страница открывается — узел React",
+                   b.status == 200 and 'data-screen="settings_lan"' in b.body,
                    f"код {b.status}")
-            res.ok("по умолчанию доступ выключен", "Activează accesul" in b.body,
-                   "нет кнопки включения — состояние не «выключено»")
+            d = json.loads(c.get("/api/settings/lan").body)["data"]
+            res.ok("по умолчанию доступ выключен", d["enabled"] is False,
+                   "состояние не «выключено»")
             # Вторая установка = второй журнал, и оба «работают» (08-13).
             # Предупреждение обязано стоять и в ВЫКЛЮЧЕННОМ состоянии: директор
             # читает страницу до включения, а ставит exe на второй ПК — после.
             res.ok("предупреждение о второй установке видно до включения",
-                   "Nu instalați programul" in b.body,
-                   "страница не отговаривает от второй установки")
+                   "Nu instalați programul" in d["blocks"]["intro"],
+                   "экран не отговаривает от второй установки")
             res.ok("иконка нарисована, а не подставлена текстом",
-                   "{_ic(" not in b.body,
+                   all("{_ic(" not in v for v in d["blocks"].values()),
                    "литерал {_ic(…)} уехал на экран — забыт f-префикс")
 
-            r = c.post("/admin/lan/save", mode="on")
+            r = c.post_json("/api/settings/lan", {"mode": "on"})
             res.check("включение сохраняется", r.msg, "ok_set")
             res.ok("dental.env получил DENTART_LAN=1",
                    "DENTART_LAN=1" in env_path.read_text(encoding="utf-8"),
                    "флага нет в файле — лаунчер не узнает о включении")
-            b2 = c.get("/admin/settings/lan").body
-            res.ok("страница показывает активный режим",
-                   "Dezactivează accesul" in b2, "после включения нет кнопки "
-                   "выключения")
+            res.ok("экран показывает активный режим",
+                   json.loads(c.get("/api/settings/lan").body)["data"]["enabled"] is True,
+                   "после включения состояние не «включено»")
 
-            r = c.post("/admin/lan/save", mode="off")
+            r = c.post_json("/api/settings/lan", {"mode": "off"})
             res.check("выключение сохраняется", r.msg, "ok_set")
             res.ok("флаг в файле погашен",
                    "DENTART_LAN=1" not in env_path.read_text(encoding="utf-8"),
@@ -1642,7 +1664,7 @@ def suite_lan(res: Result) -> None:
                    "Sincronizări" not in page and "Telegram Bot" not in page,
                    "интерфейс замороженного бота виден клинике без токена")
             res.ok("без токена нет плитки Telegram на хабе",
-                   "/admin/settings/telegram" not in c.get("/admin/settings").body,
+                   "/admin/settings/telegram" not in tiles(c),
                    "плитка бота предлагается клинике без токена")
 
         # UNREADABLE-флаг = токен был (переезд ПК): раздел обязан ВЕРНУТЬСЯ,
@@ -1921,11 +1943,12 @@ def suite_bot_ui(res: Result) -> None:
         res.ok("grandfather: источники в статистике",
                "Surse programări" in stats and "Prin bot" in stats,
                "статистика урезана у grandfather")
-        res.ok("grandfather: строка «Canal Telegram» в Stare sistem",
-               "Canal Telegram" in c.get("/admin/settings/system").body,
+        res.ok("grandfather: строка канала Telegram в Stare sistem",
+               bool(json.loads(c.get("/api/settings/system").body)["data"]["telegram"]),
                "строка канала пропала у клиники с ботом")
         res.ok("grandfather: FAQ говорит про токен при переезде",
-               "tokenul botului Telegram" in c.get("/admin/settings/faq").body,
+               any("tokenul botului Telegram" in it["answer"] for it in
+                   json.loads(c.get("/api/settings/faq").body)["data"]["items"]),
                "клиника с ботом потеряет токен при переезде и не узнает об этом")
         # ⭐ Опция канала в фильтре — по ДАННЫМ, не по токену: grandfather БЕЗ
         # tg-пациентов её тоже не видит (канарейка-демо — ровно этот случай;

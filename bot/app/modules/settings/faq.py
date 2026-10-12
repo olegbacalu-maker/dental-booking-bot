@@ -2,8 +2,8 @@
 
 Программа офлайн и local-first: документации в облаке нет, ссылка «читайте на
 сайте» здесь не работает. Единственное место, где директор может что-то
-прочитать, — сама программа, поэтому FAQ живёт страницей в настройках и
-уезжает в сборку вместе с exe. Это же решает вопрос актуальности: текст
+прочитать, — сама программа, поэтому FAQ живёт экраном в настройках
+(`FaqScreen`, записи — `/api/settings/faq`) и уезжает в сборку вместе с exe. Это же решает вопрос актуальности: текст
 версионируется тем же коммитом, что и поведение, о котором он рассказывает.
 Меняешь поведение — правь ответ ЗДЕСЬ, в том же диффе.
 
@@ -16,9 +16,6 @@
 несуществующую кнопку, хуже молчания. Факты, на которые ссылается текст:
 MIN_PASS и CITESTE-MA.txt — backup.py; «токен не читается на другой машине» —
 dpapi.py; ступени блокировки входа — auth._LOCK_STEPS (30 с … 15 мин).
-
-Никакого JS: <details>/<summary> раскрываются браузером, и страница остаётся
-живой даже там, где скрипты не загрузились.
 """
 from __future__ import annotations
 
@@ -27,29 +24,11 @@ import html
 from ...core.layout import FEEDBACK_EMAIL, _ic, data_folder, tg_configured
 from . import backup as bkp
 
-# ⚠️ Потолок ширины — у КАРТОЧКИ, а не у текста внутри неё (08-16, когда
-# страницы стали во всю ширину окна). Своё число 720px стояло на <div> ответа, и
-# карточка вокруг него растягивалась на весь монитор: рамка через 2100px, а
-# текст в её левой трети. Потолок --measure (panel.css) держит и рамку, и
-# строку, и он один на всю программу — иначе следующий абзац заведёт третье
-# число рядом с 720 и 760.
-_CARD = ("style='border:1px solid var(--line);border-radius:var(--r-card);"
-         "background:var(--panel);padding:12px 16px;margin:10px 0;"
-         "max-width:var(--measure)'")
-_SUM = "style='cursor:pointer;font-weight:600;font-size:14px;color:var(--text)'"
-_BODY = ("style='margin-top:10px;font-size:13px;line-height:1.6;"
-         "color:var(--text2)'")
-
-
 def _q(icon: str, question: str, answer: str) -> dict:
     """Одна запись справки: имя иконки (из layout._I), вопрос, ответ HTML-ом.
-    Старая страница рисует её `_q_html`, JSON API отдаёт как есть."""
+    JSON API отдаёт её как есть; потолок ширины карточки — правило `.dp-faq`
+    клиента (`--measure`)."""
     return {"icon": icon, "question": question, "answer": answer}
-
-
-def _q_html(d: dict) -> str:
-    return (f"<details class='faq' {_CARD}><summary {_SUM}>{_ic(d['icon'])} "
-            f"{d['question']}</summary><div {_BODY}>{d['answer']}</div></details>")
 
 
 def entries() -> list[dict]:
@@ -351,10 +330,3 @@ def entries() -> list[dict]:
     ]
     return items
 
-
-def render() -> str:
-    return (f"<h2>{_ic('help')} Întrebări frecvente</h2>"
-            "<p class='hint' style='margin-top:0'>Apăsați pe o întrebare "
-            "pentru răspuns. Nu găsiți răspunsul? Scrieți-ne la "
-            f"<a href='mailto:{FEEDBACK_EMAIL}'>{FEEDBACK_EMAIL}</a>.</p>"
-            + "".join(_q_html(d) for d in entries()))

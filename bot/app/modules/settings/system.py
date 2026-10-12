@@ -9,9 +9,8 @@
 ловится ни импортом, ни тестом, ни ошибкой на экране. Отсюда правило этого
 модуля — показывать ФАКТ (`layout.data_folder()`), а не его описание.
 
-Куски собраны, как у `lan.py` и `crypt.py`: старая страница склеивает их со
-своими формами, JSON API отдаёт те же куски React-экрану, который рисует
-кнопки сам.
+Куски собраны, как у `lan.py` и `crypt.py`: JSON API отдаёт их React-экрану,
+который рисует кнопки сам (старая серверная страница снята 12.10).
 """
 from __future__ import annotations
 
@@ -155,67 +154,3 @@ def data() -> dict:
         # на каждом старте перестают читать. Кнопку нажимает человек.
         "uninstall": upd.uninstall_entry(),
     }
-
-
-# ---- разметка старой страницы, из тех же кусков ----
-
-_CHECK_FORM = ("<form method='post' action='/admin/update/check' style='display:inline'>"
-               "<button style='background:none;border:1px solid var(--line);"
-               "border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;"
-               f"color:var(--text2);margin-left:10px'>{_ic('refresh')} "
-               "Verifică acum</button></form>")
-
-_RUN_FORM = ("<form method='post' action='/admin/update/run' style='display:inline'>"
-             "<button style='background:#e8710a;color:#fff;border:none;"
-             "border-radius:6px;padding:6px 14px;cursor:pointer;font-size:14px;"
-             f"margin-left:8px'>{_ic('upload')} Actualizează acum</button></form>")
-
-
-def _row(label: str, value: str, width: str = "") -> str:
-    style = f" style='width:{width}'" if width else ""
-    return f"<tr><th{style}>{label}</th><td>{value}</td></tr>"
-
-
-def render() -> str:
-    d = data()
-    up = d["update"]
-    ico = f"{_ic(up['icon'])} " if up["icon"] else ""
-    if up["state"] == "link":
-        line = f"<a href='{html.escape(up['url'])}' target='_blank'>{ico}{up['text']}</a>"
-    else:
-        line = f"{ico}{up['text']}"
-    if up["state"] == "self":
-        line += _RUN_FORM
-    line += _CHECK_FORM
-
-    rows = [_row("Versiune", f"v{d['version']}", "180px"),
-            _row("Bază de date", d["db"])]
-    if d["folder"]["path"]:
-        rows.append(_row("Folderul cu date",
-                         f"<code>{html.escape(d['folder']['path'])}</code><br>"
-                         f"<span style='color:var(--text3);font-size:12px'>"
-                         f"{d['folder']['hint']}</span>"))
-    if d["telegram"]:
-        rows.append(_row("Canal Telegram", d["telegram"]))
-    rows.append(_row("Actualizări", line))
-    if d["channel"]:
-        rows.append(_row("Canal actualizări",
-                         f"<b style='color:var(--amber-t)'>{d['channel']['name']}</b> — "
-                         f"{d['channel']['warn']}{d['channel']['note']}"))
-    rows.append(_row("Acces jurnal",
-                     f"{_ic(d['access']['icon'])} {d['access']['text']}"))
-    if d["bitlocker"]:
-        bl = d["bitlocker"]
-        style = (" style='color:var(--red-t);font-weight:600'" if bl["tone"] == "alarm"
-                 else " style='color:var(--amber-t)'" if bl["tone"] == "warn" else "")
-        icon = f"{_ic(bl['icon'])} " if bl["icon"] else ""
-        rows.append(f"<tr><th>Criptare disc (BitLocker)</th>"
-                    f"<td{style}>{icon}{html.escape(bl['text'])}</td></tr>")
-    rows.append(_row("Feedback / suport",
-                     f"<a href='mailto:{d['feedback']}'>{d['feedback']}</a>"))
-
-    return (f"<h2>{_ic('info')} Stare sistem</h2>"
-            f"<table class='set'>{''.join(rows)}</table>"
-            f"<h2>{_ic('shield')} Confidențialitate</h2>"
-            f"<div class='pcard' style='max-width:var(--measure)'>"
-            f"{d['privacy']}</div>")

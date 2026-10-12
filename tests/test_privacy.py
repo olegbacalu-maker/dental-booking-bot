@@ -567,7 +567,7 @@ def suite_backup(res: Result) -> None:
         c = Client(s.url).login()
         pid = _seed(c)                     # чтобы в базе и файлах что-то было
         res.check("логотип клиники загружен", c.post_file(
-            "/admin/settings/theme/logo", "file", "logo.png",
+            "/api/settings/theme/logo", "file", "logo.png",
             b"\x89PNG\r\n\x1a\n" + b"x" * 64).msg, "ok_logo")
 
         r = c.post("/admin/backup/export", parola="scurt")
@@ -697,7 +697,7 @@ def suite_backup(res: Result) -> None:
         # "clinic-logo.png" прошло бы проверку выше и молча обокрало бы
         # клинику, у которой логотип в JPEG.
         res.check("логотип заменён на JPEG", c.post_file(
-            "/admin/settings/theme/logo", "file", "logo.jpg",
+            "/api/settings/theme/logo", "file", "logo.jpg",
             b"\xff\xd8\xff\xe0" + b"x" * 64).msg, "ok_logo")
         jn = pyzipper.AESZipFile(io.BytesIO(c.post(
             "/admin/backup/export", parola="parola-foarte-buna").raw)).namelist()

@@ -128,9 +128,10 @@ def suite_legacy(res: Result) -> None:
     with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
-        boss.post("/admin/users/save", uid="d2", name="Dr. Liviu", role="medic",
-                  doctor_id="d2", pin="2222")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
+        boss.post_json("/api/settings/users", {"uid": "d2", "name": "Dr. Liviu",
+                                              "role": "medic", "doctor_id": "d2",
+                                              "pin": "2222"})
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         res.check("регистратура добавляет врача",
@@ -366,9 +367,10 @@ def suite_api(res: Result) -> None:
     with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana R", role="receptie", pin="3333")
-        boss.post("/admin/users/save", uid="d2", name="Dr. Liviu", role="medic",
-                  doctor_id="d2", pin="2222")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
+        boss.post_json("/api/settings/users", {"uid": "d2", "name": "Dr. Liviu",
+                                              "role": "medic", "doctor_id": "d2",
+                                              "pin": "2222"})
         ana = Client(s.url)
         ana.post("/admin/login", password="3333", next="/admin")
         res.check("регистратуре API врачей открыт", ana.get("/api/doctors").status, 200)
@@ -439,8 +441,9 @@ def suite_switch(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="d2", name="Dr. Liviu", role="medic",
-                  doctor_id="d2", pin="2222")
+        boss.post_json("/api/settings/users", {"uid": "d2", "name": "Dr. Liviu",
+                                              "role": "medic", "doctor_id": "d2",
+                                              "pin": "2222"})
         med = Client(s.url)
         med.post("/admin/login", password="2222", next="/admin")
         for path in ("/admin/medici", "/admin/doctor-card/d2"):

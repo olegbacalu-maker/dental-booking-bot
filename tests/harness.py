@@ -755,9 +755,22 @@ class Reply:
 
     @property
     def msg(self) -> str:
-        """Код баннера из редиректа (?msg=…) — язык, которым журнал отвечает."""
+        """Код ответа — язык, которым журнал отвечает: у формы — из редиректа
+        (?msg=…), у JSON API — поле `code` конверта (`layout.msg_json`).
+        Словарь у них один (`MSG_BANNER`), поэтому и проверка одна, кто бы ни
+        ответил: перевод набора со старой формы на API (снятие старого
+        интерфейса, 12.10) меняет вызов, а не проверку."""
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.location).query)
-        return (q.get("msg") or [""])[0]
+        code = (q.get("msg") or [""])[0]
+        if code or self.location:
+            return code
+        if not self.header("content-type").startswith("application/json"):
+            return ""
+        try:
+            doc = json.loads(self.body)
+        except ValueError:
+            return ""
+        return str(doc.get("code") or "") if isinstance(doc, dict) else ""
 
     def __repr__(self) -> str:
         return f"<{self.status} msg={self.msg!r} loc={self.location!r}>"

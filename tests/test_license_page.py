@@ -84,7 +84,8 @@ def suite_wall(res: Result) -> None:
             res.ok("за стеной запись отказывает кодом license_missing",
                    r.status == 423 and json.loads(r.body).get("code") == "license_missing",
                    f"{r.status} {r.body[:120]}")
-            r = c.post("/admin/settings/save")
+            # живая пишущая форма (её шлёт React); формы старых страниц сняты 12.10
+            r = c.post("/admin/relink", old_name="Dr. X", dk="d1")
             res.ok("за стеной форма ведёт на активацию с кодом",
                    r.status == 303 and r.location == "/admin/license?msg=license_missing",
                    f"{r.status} {r.location!r}")

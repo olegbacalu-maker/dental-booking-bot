@@ -30,10 +30,10 @@ from . import update as upd
 from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                         PIN_MIN, PERM_SETTINGS, _as_user, _guard, _pin_rec,
                         _secret, _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_blocked, auth_file_fp, can, change_pin, chat_session,
+                        auth_blocked, auth_file_fp, can, chat_session,
                         client_is_local, current_user,
                         fail_count, find_user, lock_left, note_fail, note_ok,
-                        pin_free, pin_len_ok,
+                        pin_len_ok,
                         remember_auth_file, request_user, require,
                         same_origin_post, set_request_user, set_tamper_alert,
                         verify_pin)
@@ -79,12 +79,6 @@ app.include_router(stats_api.router)      # JSON API раздела (DentPilot 2
 app.include_router(qr.router)
 
 
-
-
-
-
-
-
 @app.middleware("http")
 async def _limit_body_size(request: Request, call_next):
     """Отсекает гигантские POST-тела ДО того, как Starlette спулит multipart
@@ -121,27 +115,6 @@ async def _identify(request: Request, call_next):
     return await call_next(request)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Логин НЕОБЯЗАТЕЛЕН: пароль у каждого свой (это стережёт pin_free), и
 # заставлять регистратуру набирать ещё и id — трение десятки раз в день. Поле
 # всё же есть: врачу с телефона вход по одному паролю неочевиден, а в клинике
@@ -153,46 +126,6 @@ PIN_INPUT = ("<input type='text' name='uid' placeholder='ID (opțional)' "
              f"inputmode='numeric' pattern='[0-9]*' maxlength='{PIN_MAX}' "
              "style='text-align:center;font-size:28px;letter-spacing:12px'>")
 PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @app.on_event("startup")
@@ -816,10 +749,6 @@ async def admin_login(request: Request, password: str = Form(...),
     return RedirectResponse(f"/admin/login?{q}&next={nxt}", status_code=303)
 
 
-
-
-
-
 async def _check_auth_file() -> None:
     """Сигнализация auth.json: файл переписали или удалили ВНЕ программы.
 
@@ -904,8 +833,6 @@ async def admin_setup_page(request: Request, err: str = ""):
     return standalone(SETUP_TMPL).replace("__ERR__", err_html)
 
 
-
-
 @app.post("/admin/setup")
 async def admin_setup(request: Request, pin1: str = Form(...),
                       pin2: str = Form(...)):
@@ -926,133 +853,22 @@ async def admin_setup(request: Request, pin1: str = Form(...),
                             find_user("clinic"))
 
 
-@app.post("/admin/pin/change")
-async def admin_pin_change(request: Request, old_pin: str = Form(...),
-                           new1: str = Form(...), new2: str = Form(...)):
-    if (deny := _guard(request)) is not None:
-        return deny
-    # правило одно на форму и на JSON API — core.auth.change_pin
-    code, who = await change_pin(old_pin, new1, new2)
-    resp = RedirectResponse(f"/admin/settings/security?msg={code}", status_code=303)
-    return _set_auth_cookie(resp, who) if code == "ok_pin" else resp
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ---------- настройки клиники ----------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # ---------- статистика ----------
 
 
-
-
-
 # ---------- экспорт CSV ----------
-
 
 
 # ---------- поиск пациента ----------
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ---------- общая сетка: все врачи ----------
 
 
-
-
-
 # ---------- страница одного врача ----------
-
 
 
 # ---------- раздел «Medici»: карточка врача (v1.9.0) ----------
@@ -1062,68 +878,12 @@ async def admin_pin_change(request: Request, old_pin: str = Form(...),
 # место правки врачей: таблица из Setări убрана, чтобы не было двух источников.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ---------- действия ----------
-
-
-
-
-
-
-
-
-
 
 
 # ---------- печатный QR для пациентов ----------
 
 
-
 # ---------- QR для демо ----------
-
 
 

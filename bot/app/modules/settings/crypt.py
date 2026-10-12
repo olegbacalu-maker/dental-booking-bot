@@ -4,10 +4,10 @@
 шага через отдельную печатную страницу с листом восстановления. Разбор — в
 `routes.settings_crypt`; здесь то, что нужно знать, правя этот файл.
 
-⭐ Проза собрана КУСКАМИ, как у `lan.py` и по той же причине: старая страница
-склеивает их со своими формами, JSON API отдаёт те же куски React-экрану,
-который рисует кнопки сам. Текст, объясняющий директору, чем он рискует,
-обязан быть ОДНИМ — разойдись две копии, и одна из них однажды пообещает не то.
+⭐ Проза собрана КУСКАМИ, как у `lan.py`: JSON API отдаёт их React-экрану,
+который рисует кнопки сам (старая серверная страница снята 12.10). Текст,
+объясняющий директору, чем он рискует, обязан быть ОДНИМ — разойдись две
+копии, и одна из них однажды пообещает не то.
 
 ⛔ Лист восстановления (`/admin/settings/crypt/sheet`) остаётся СЕРВЕРНЫМ и в
 куски не разбирается: это печатный документ со своим `<!doctype>` и `@media
@@ -24,14 +24,13 @@ from __future__ import annotations
 import pathlib
 
 from ...core import dbkey
-from ...core.layout import _ic
 
 # Что показывает раздел.
 OFF, PENDING, ON = "off", "pending", "on"
 
 
 def state(data_dir: pathlib.Path | None) -> str:
-    """Состояние раздела — ОДНА функция на старую страницу и на JSON.
+    """Состояние раздела (off / pending / on) для экрана.
 
     ⚠️ Порядок веток значим: заказ (pending-файл) старше включённого ключа —
     клиника, заказавшая расшифровку, ещё зашифрована, и сказать ей «активна»
@@ -101,11 +100,10 @@ def limit_html() -> str:
 
 
 def blocks(st: str) -> dict[str, str]:
-    """Проза состояния — то же, что видит старая страница, кусками.
+    """Проза состояния кусками.
 
     ⚠️ Ключи ФИКСИРОВАННЫЕ, пустая строка значит «в этом состоянии блока нет».
-    Так клиент не угадывает состав по наличию ключа, а сторож паритета
-    сравнивает куски со старой страницей по именам.
+    Так клиент не угадывает состав по наличию ключа.
     """
     return {
         "status": {PENDING: pending_html(),
@@ -115,34 +113,6 @@ def blocks(st: str) -> dict[str, str]:
         "limit": limit_html() if st == OFF else "",
         "note": on_note_html() if st == ON else "",
     }
-
-
-# Кнопки старой страницы. React рисует свои — ему уезжает только проза.
-_SHEET_LINK = (f"<div class='nav'><a class='primary' "
-               f"href='/admin/settings/crypt/sheet'>{_ic('print')} "
-               f"Deschide foaia de recuperare</a></div>")
-_SHEET_LINK_ON = (f"<div class='nav'><a href='/admin/settings/crypt/sheet'>"
-                  f"{_ic('print')} Foaia de recuperare</a></div>")
-_OFF_FORM = ("<form method='post' action='/admin/settings/crypt/off' "
-             "onsubmit=\"return confirm('Evidența va fi decriptată la "
-             "următoarea pornire. Continuați?')\">"
-             "<button class='rowdel'>Oprește criptarea</button></form>")
-_PREPARE_FORM = ("<form method='post' action='/admin/settings/crypt/prepare'>"
-                 "<button class='savebtn'>Pregătește criptarea ›</button>"
-                 "</form>")
-
-
-def render(st: str) -> str:
-    """Тело старой страницы."""
-    b = blocks(st)
-    body = [f"<h2>{_ic('lock')} Criptarea evidenței</h2>", b["status"]]
-    if st == PENDING:
-        body.append(_SHEET_LINK)
-    elif st == ON:
-        body += [b["note"], _SHEET_LINK_ON, _OFF_FORM]
-    else:
-        body += [b["what"], b["cost"], b["limit"], _PREPARE_FORM]
-    return "".join(body)
 
 
 # ---- заказ шифрования ----
@@ -156,14 +126,14 @@ def render(st: str) -> str:
 # потому, что перезапуск её стирает: не подтверждено = не заказано.
 _SHEET_KEY: bytes | None = None
 
-# Слово, которым экран перезапуска и JSON отвечают на выключение. ОДНО на оба:
-# разойдись они, клиника прочла бы у React-экрана не то, что у старой формы.
+# Слова, которыми программа отвечает на выключение (JSON) и на подтверждение
+# листа (экран перезапуска) — по одному месту на каждое.
 OFF_DONE = "Criptarea va fi oprită"
 ON_DONE = "Criptarea a fost activată"
 
 
 def prepare(data_dir: pathlib.Path | None) -> str | None:
-    """Приготовить ключ для листа. Код отказа или None — одно на форму и JSON.
+    """Приготовить ключ для листа. Код отказа или None (зовёт JSON API).
 
     ⛔ Второе нажатие НЕ создаёт новый ключ (найдено враждебным ревью 08-09).
     Раньше оно перезаписывало ожидающий ключ, и напечатанный лист переставал

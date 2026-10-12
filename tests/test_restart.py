@@ -40,6 +40,7 @@ os.environ.pop("DENTART_NO_RESTART", None)   # иначе restart_app выйде
 
 from app import update as upd
 from app.modules.settings import routes as st
+from app.modules.settings import api as sapi
 _real_spawn = upd._spawn_watch               # набор 4 зовёт настоящий
 
 # exe, рядом с которым restart_app пишет свой bat
@@ -52,6 +53,23 @@ upd.is_desktop = lambda: True                # настольное издани
 upd._exit_soon = lambda: exits.append(1)     # гасить свой же процесс не будем
 upd._spawn_watch = lambda result, task, label, copy: (spawns.append(task), fail[0])[1]
 st.require = lambda *a, **kw: None           # права проверяет свой набор
+sapi.api_require = lambda *a, **kw: None
+_LAN = {}
+
+
+async def _lan_body(_request):
+    return dict(_LAN)
+
+
+sapi.api_body = _lan_body
+
+
+def lan_save(mode):
+    """Сохранение сети — JSON API (старая форма /admin/lan/save снята 12.10).
+    Тот же `_set_lan` и тот же `restart_app`; ответ — JSON с текстом."""
+    _LAN["mode"] = mode
+    return sapi.api_lan_save(None)
+
 
 TOKEN = "%s"
 
@@ -71,7 +89,7 @@ MANUAL = "Închideți programul"     # «закройте программу и 
 out = {}
 
 # --- 1. планировщик отработал: ОДИН запуск на сохранение ---
-for key, coro in (("lan", lambda: st.admin_lan_save(None, mode="on")),
+for key, coro in (("lan", lambda: lan_save("on")),
                   ("tok", lambda: st.admin_telegram_save(None, token=TOKEN))):
     spawns.clear(); exits.clear()
     r = call(coro())
@@ -82,7 +100,7 @@ for key, coro in (("lan", lambda: st.admin_lan_save(None, mode="on")),
 
 # --- 2. планировщик отказал: тот же один запуск, но экран говорит правду ---
 fail[0] = "planificatorul Windows nu a putut porni programul (schtasks /create, cod 1)"
-for key, coro in (("lan_bad", lambda: st.admin_lan_save(None, mode="on")),
+for key, coro in (("lan_bad", lambda: lan_save("on")),
                   ("tok_bad", lambda: st.admin_telegram_save(None, token=TOKEN))):
     spawns.clear(); exits.clear()
     r = call(coro())
@@ -94,13 +112,18 @@ for key, coro in (("lan_bad", lambda: st.admin_lan_save(None, mode="on")),
 
 # --- 3. обратная полярность: издания без перезапуска остаются на баннере ---
 upd.is_desktop = lambda: False
-for key, coro in (("lan_dev", lambda: st.admin_lan_save(None, mode="off")),
+for key, coro in (("lan_dev", lambda: lan_save("off")),
                   ("tok_dev", lambda: st.admin_telegram_save(None, token=TOKEN))):
     spawns.clear()
     r = call(coro())
     out[key + "_spawns"] = len(spawns)
     out[key + "_status"] = r["status"]
     out[key + "_loc"] = r["loc"]
+    out[key + "_manual"] = MANUAL in r["body"]
+    try:
+        out[key + "_code"] = json.loads(r["body"]).get("code", "")
+    except ValueError:
+        out[key + "_code"] = ""
 
 # --- 4. профиль заставки сторожа (12.10, 1.41.1): путь даёт лаунчер, и он не
 # в папке данных; старый профиль в папке данных сносится при запуске сторожа ---
@@ -201,12 +224,17 @@ def suite_dev_banner(res: Result) -> None:
     v = _run_code(res)
     if v is None:
         return
-    for key, what, msg in (("lan_dev", "доступ из сети", "ok_set"),
-                           ("tok_dev", "токен бота", "ok_tok")):
-        res.check(f"{what}: без настольного издания — редирект", v[key + "_status"], 303)
-        res.ok(f"{what}: с баннером {msg}", f"msg={msg}" in v[key + "_loc"],
-               f"location {v[key + '_loc']!r}")
-        res.check(f"{what}: и планировщик не трогается", v[key + "_spawns"], 0)
+    # Токен — форма своей серверной страницы: редирект с баннером.
+    res.check("токен бота: без настольного издания — редирект", v["tok_dev_status"], 303)
+    res.ok("токен бота: с баннером ok_tok", "msg=ok_tok" in v["tok_dev_loc"],
+           f"location {v['tok_dev_loc']!r}")
+    res.check("токен бота: и планировщик не трогается", v["tok_dev_spawns"], 0)
+    # Сеть — JSON API (старая форма снята 12.10): тот же смысл ответом.
+    res.check("доступ из сети: без настольного издания — ответ «сохранено»",
+              (v["lan_dev_status"], v["lan_dev_code"]), (200, "ok_set"))
+    res.ok("доступ из сети: без экрана «закройте программу»",
+           not v["lan_dev_manual"], "текст о ручном перезапуске там, где перезапуска нет")
+    res.check("доступ из сети: и планировщик не трогается", v["lan_dev_spawns"], 0)
 
 
 def suite_watch(res: Result) -> None:

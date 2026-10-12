@@ -40,11 +40,11 @@ def suite_pin_dup(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         res.check("регистратура заводится",
-                  boss.post("/admin/users/save", uid="ana", name="Ana R",
-                            role="receptie", pin="3333").msg, "ok_user")
+                  boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                        "role": "receptie", "pin": "3333"}).msg, "ok_user")
 
-        r = boss.post("/admin/pin/change", old_pin="1111", new1="3333",
-                      new2="3333")
+        r = boss.post_json("/api/settings/pin", {"old_pin": "1111", "new1": "3333",
+                                                "new2": "3333"})
         res.check("смена своего PIN на ЧУЖОЙ отбита", r.msg, "dup_user")
         # файл не тронут: старый PIN директора работает, а 3333 — по-прежнему Ana
         again = Client(s.url)
@@ -61,8 +61,8 @@ def suite_pin_dup(res: Result) -> None:
         # ⭐ вторая половина правила: СВОЙ прежний пароль занятым не считается,
         # иначе форма отказала бы человеку сменить PIN «на всякий случай» на
         # тот же самый и выглядела бы сломанной
-        r = again.post("/admin/pin/change", old_pin="1111", new1="1111",
-                       new2="1111")
+        r = again.post_json("/api/settings/pin", {"old_pin": "1111", "new1": "1111",
+                                                 "new2": "1111"})
         res.check("свой прежний PIN не считается занятым", r.msg, "ok_pin")
 
 
@@ -79,8 +79,9 @@ def suite_login_uid_case(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         res.check("врач заводится",
-                  boss.post("/admin/users/save", uid="dr-ion", name="Dr. Ion",
-                            role="medic", pin="2222").msg, "ok_user")
+                  boss.post_json("/api/settings/users", {"uid": "dr-ion",
+                                                        "name": "Dr. Ion", "role": "medic",
+                                                        "pin": "2222"}).msg, "ok_user")
 
         med = Client(s.url)
         r = med.post("/admin/login", password="2222", uid="DR-ION", next="/admin")

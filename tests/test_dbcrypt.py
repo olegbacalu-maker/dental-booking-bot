@@ -11,6 +11,7 @@
 набор был бы зелёным и при выключенном шифровании: библиотека подключается и
 молча пишет обычный SQLite, если `PRAGMA key` не была первой операцией.
 """
+import json
 import os
 import pathlib
 import re
@@ -201,7 +202,7 @@ def suite_live(res: Result) -> None:
             # выполниться никогда, экран навсегда застревал на «подготовлено»,
             # а лист печатался с ключом, который не открывает ничего. Открытая
             # в соседней вкладке страница — обычное дело в регистратуре.
-            again = c.post("/admin/settings/crypt/prepare")
+            again = c.post_json("/api/settings/crypt/prepare", {})
             res.check("повторная подготовка при живом шифровании отклонена",
                       again.msg, "crypt_on")
             res.ok("второй ключ не заведён",
@@ -213,9 +214,11 @@ def suite_live(res: Result) -> None:
             # другой компьютер обещал, что заново вводить надо только токен
             # бота, — с шифрованием это враньё, и цена ему картотека: директор
             # увёз бы папку без листа восстановления.
-            faq = c.get("/admin/settings/faq").body
+            items = json.loads(c.get("/api/settings/faq").body)["data"]["items"]
+            move = next((it["answer"] for it in items
+                         if "Mutăm programul" in it["question"]), "")
             res.ok("FAQ про переезд называет лист восстановления",
-                   "Mutăm programul" in faq and "foaia de recuperare" in faq,
+                   "foaia de recuperare" in move,
                    "ответ про новый ПК молчит про лист — папку увезут без него")
 
         raw = (tmp / "dental.db").read_bytes()
@@ -433,9 +436,11 @@ def suite_confirm(res: Result) -> None:
         shutil.copy(FIXTURES / "clinic_test.json", tmp / "clinic.json")
         with Server(dir_=tmp) as s:
             c = Client(s.url).login()
-            r = c.post("/admin/settings/crypt/prepare")
+            r = c.post_json("/api/settings/crypt/prepare", {})
             res.ok("подготовка ведёт на лист",
-                   r.status == 303 and "sheet" in r.location, f"{r!r}")
+                   r.status == 200
+                   and json.loads(r.body)["data"]["sheet"] == "/admin/settings/crypt/sheet",
+                   f"{r!r}")
             res.ok("закрытая страница листа не оставляет заказа",
                    not (tmp / dbkey.PENDING_FILE).exists(),
                    "pending создан ДО подтверждения — следующий старт "
@@ -464,7 +469,7 @@ def suite_confirm(res: Result) -> None:
                       dbkey.load_pending(tmp), dbkey.parse_recovery(code))
 
             # повторная подготовка не перевыпускает ключ (находка 08-09)
-            c.post("/admin/settings/crypt/prepare")
+            c.post_json("/api/settings/crypt/prepare", {})
             sheet2 = c.get("/admin/settings/crypt/sheet")
             res.ok("код на листе не изменился от второго нажатия",
                    code in sheet2.body,
@@ -497,9 +502,9 @@ def suite_export_err(res: Result) -> None:
         with Server(dir_=tmp) as s:
             c = Client(s.url).login()
 
-            faq = c.get("/admin/settings/faq").body
-            seg = (faq.split("Cum deschid arhiva", 1)[1].split("<details", 1)[0]
-                   if "Cum deschid arhiva" in faq else "")
+            items = json.loads(c.get("/api/settings/faq").body)["data"]["items"]
+            seg = next((it["answer"] for it in items
+                        if "Cum deschid arhiva" in it["question"]), "")
             res.ok("FAQ про восстановление архива называет db.key",
                    "db.key" in seg,
                    "инструкция молчит про ключ — восстановленная база "

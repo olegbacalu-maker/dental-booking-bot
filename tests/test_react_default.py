@@ -174,8 +174,10 @@ def suite_fresh(res: Result) -> None:
                    "узел React там, где экрана нет: " + ", ".join(wrong))
 
             # ⚠️ Выход для регистратуры обязан работать и в продукте: один
-            # запрос старой страницы без правки профиля.
-            legacy = c.get("/admin/settings/clinic?ui=legacy")
+            # запрос старой страницы без правки профиля. Неделя журнала — потому
+            # что у настроек старой страницы больше нет (12.10), а журнал
+            # снимается последним (docs/dentpilot-2/legacy-removal.md).
+            legacy = c.get("/admin/week?ui=legacy")
             res.ok("?ui=legacy возвращает старую страницу на один запрос",
                    legacy.status == 200 and MOUNT not in legacy.body,
                    f"HTTP {legacy.status}, узел React {'есть' if MOUNT in legacy.body else 'нет'}")
@@ -222,7 +224,7 @@ def suite_switch_off(res: Result) -> None:
                                           encoding="utf-8")
         with Server(dir_=dir_) as s:
             c = Client(s.url).login(PIN)
-            got = c.get("/admin/settings/clinic")
+            got = c.get("/admin/week")
             res.ok("пустой список гасит React", MOUNT not in got.body,
                    "узел React остался при явно выключенном интерфейсе")
 
@@ -231,7 +233,7 @@ def suite_switch_off(res: Result) -> None:
                                           encoding="utf-8")
         with Server(dir_=dir_) as s:
             c = Client(s.url).login(PIN)
-            got = c.get("/admin/settings/clinic")
+            got = c.get("/admin/week")
             # ⚠️ `false` — понятная человеку запись, и падать на ней нельзя:
             # `screen in False` был бы отказом всей админки у клиники.
             res.check("«react: false» не роняет админку", got.status, 200)

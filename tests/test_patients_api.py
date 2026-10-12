@@ -329,7 +329,7 @@ def suite_switch(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana", role="receptie", pin="2222")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana", "role": "receptie", "pin": "2222"})
         rec = Client(s.url)
         rec.post("/admin/login", password="2222", next="/admin")
         res.ok("регистратуре список открыт и по PIN",

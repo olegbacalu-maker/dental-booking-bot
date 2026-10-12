@@ -5,17 +5,16 @@
 `main.py` — нет. Проверки и слияние профиля берутся ИЗ routes.py, а не
 переписываются: `_val_clinic`, `_val_hours`, `_val_services`, `_val_theme`,
 `_finish_cfg`, `_set_lan`, `_logo_action`, `_hub_tiles` — единственные, кто
-знает правило, а старая форма и новый экран правят ОДИН файл. Второй
-экземпляр этой логики разошёлся бы с первым молча.
+знает правило. Второй экземпляр этой логики разошёлся бы с первым молча.
 
 Адреса — от сущности, не от страницы (docs/dentpilot-2/api.md), и полным
 путём, без prefix у роутера: карта экранов и сторож раскладки читают адрес
 из декоратора.
 
-⚠️ Две секции отдают HTML-куски: справка (ответы с иконками) и проза страницы
-сети. Это ТЕКСТ СЕРВЕРА из тех же строк, что рисует старая страница, — не
-данные пользователя и не «отрисовка страницы через API»: кнопки, состояния
-и форму рисует клиент, сервер отдаёт только прозу, чтобы она не жила дважды.
+⚠️ Некоторые секции отдают HTML-куски: справка (ответы с иконками), проза
+сети, шифрования и «Stare sistem». Это ТЕКСТ СЕРВЕРА — не данные пользователя
+и не «отрисовка страницы через API»: кнопки, состояния и форму рисует клиент,
+сервер отдаёт только прозу, чтобы она не жила дважды.
 """
 from __future__ import annotations
 
@@ -73,9 +72,8 @@ async def api_clinic_get(request: Request):
 
 @router.post("/api/settings/clinic")
 async def api_clinic_save(request: Request):
-    """Тот же путь, что у `POST /admin/settings/save part=clinic`: проверка,
-    слияние с профилем, атомарная запись, обновление профиля бота. Отличие
-    одно — ответ JSON вместо 303 с ?msg=."""
+    """Проверка, слияние с профилем, атомарная запись, обновление профиля
+    бота; ответ — JSON."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     body = await api_body(request)
@@ -106,10 +104,10 @@ async def api_clinic_save(request: Request):
 @router.get("/api/settings/hub")
 async def api_hub(request: Request):
     """Плитки хаба со строкой состояния кусками (текст / иконка / тон /
-    точка цвета) — те же данные, из которых собрана старая страница."""
+    точка цвета)."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
-    # группы — тем же порядком и теми же подписями, что у старой страницы
+    # группы — порядок и подписи одним списком (`HUB_GROUPS`)
     return msg_json(True, data={"tiles": _hub_tiles(),
                                 "groups": [{"key": k, "label": v} for k, v in HUB_GROUPS]})
 
@@ -131,7 +129,7 @@ def _lan_data(st: dict | None) -> dict:
         "blocks": {
             "intro": lan.intro_html(),
             "status": lan.status_html(on, ip, url, st),
-            "firewall": lan.firewall_html("", st) if lan.firewall_fixable(st) else "",
+            "firewall": lan.firewall_html(st) if lan.firewall_fixable(st) else "",
             "tips": lan.tips_html(st) if on else "",
         },
     }
@@ -143,7 +141,7 @@ async def api_lan_get(request: Request):
         return deny
     if not _lan_available():
         return msg_json(False, status=404)
-    # PowerShell (секунда-две) — в потоке, как у старой страницы
+    # PowerShell (секунда-две) — в потоке: иначе на это время замер бы журнал
     st = await asyncio.to_thread(lan.firewall_state) if lan.enabled() else None
     return msg_json(True, data=_lan_data(st))
 
@@ -197,8 +195,8 @@ async def api_system_get(request: Request):
 def api_system_check(request: Request):
     """Проверить обновления прямо сейчас — не ждать следующего цикла.
 
-    ⚠️ Синхронный `def` › threadpool, как у формы старой страницы: сетевой
-    запрос не должен блокировать сервер.
+    ⚠️ Синхронный `def` › threadpool: сетевой запрос не должен блокировать
+    сервер.
     ⭐ Ответ — СВЕЖАЯ модель целиком, а не «проверено»: старая страница
     отвечала редиректом на себя же, то есть человек видел результат на
     перезагруженной странице. Второй запрос за состоянием был бы тем же самым
@@ -237,7 +235,7 @@ def api_uninstall_sync(request: Request):
 # ---------- шифрование картотеки ----------
 
 def _crypt_data() -> dict:
-    """Состояние раздела и его проза — те же куски, что у старой страницы.
+    """Состояние раздела и его проза кусками.
 
     ⛔ Адрес печатного листа едет ОТ СЕРВЕРА, а не склеивается в браузере:
     страницу обслуживает он, и клиенту нечем проверить, что она там же.
@@ -318,8 +316,8 @@ async def api_hours_get(request: Request):
 
 @router.post("/api/settings/hours")
 async def api_hours_save(request: Request):
-    """То же тело, что слал скрипт старой страницы (`{hours: {день: null |
-    [от, до] | [от, до, пауза от, пауза до]}}`), та же `_val_hours`."""
+    """Тело `{hours: {день: null | [от, до] | [от, до, пауза от, пауза до]}}`,
+    проверка — `_val_hours`."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     body = await api_body(request)
@@ -341,7 +339,7 @@ _DURATIONS = (15, 30, 45, 60, 90, 120)      # те же, что в <select> ст
 
 
 def _services_data() -> dict:
-    """Услуги так, как их показывала старая таблица: цена строкой (двуязычная
+    """Услуги для экрана: цена строкой (двуязычная
     — её RO), длительность числом (60 по умолчанию), цвет ключом палитры или
     пусто, врачи списком id (пусто = все)."""
     cfg = eng.CONFIG
@@ -407,7 +405,7 @@ async def api_services_save(request: Request):
 
 def _theme_data() -> dict:
     """Стиль, цвет, логотип — и всё, что нужно предпросмотру: палитры
-    считает СЕРВЕР (core/theme.py) и отдаёт готовыми, как и старой странице."""
+    считает СЕРВЕР (core/theme.py) и отдаёт готовыми."""
     th = theme.current()
     preset_hex = [c for c, _ in theme.PRESETS]
     return {
@@ -457,8 +455,8 @@ async def api_theme_palette(request: Request, c: str = "", style: str = ""):
 
 @router.post("/api/settings/theme")
 async def api_theme_save(request: Request):
-    """Те же поля, что у формы (`style`, `primary` или `custom` + hex,
-    `logo_topbar`), та же `_val_theme`."""
+    """Поля `style`, `primary` или `custom` + hex, `menu`, `font`, `card`,
+    `logo_topbar`; проверка — `_val_theme`."""
     if (deny := api_require(request, PERM_SETTINGS)) is not None:
         return deny
     body = await api_body(request)

@@ -9,44 +9,37 @@
 """
 from __future__ import annotations
 
-import asyncio
 import html
-import json
 import logging
 import os
 import pathlib
 import re
 import shutil
-import sys
 import tempfile
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse)
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse)
 from starlette.background import BackgroundTask
 
 from ... import db
 from ... import dpapi, envfile
 from ... import engine as eng
 from ... import update as upd
-from ...core.auth import (ADMIN_KEY, PERM_SETTINGS, PERM_USERS, PIN_MAX,
-                          ROLE_DIRECTOR, ROLE_LABEL, ROLE_MEDIC, _pin_rec,
-                          all_users, current_user, delete_user, find_user,
+from ...core.auth import (PERM_SETTINGS, ROLE_DIRECTOR, ROLE_LABEL, _pin_rec,
+                          all_users, delete_user, find_user,
                           n_directors, pin_free, pin_len_ok,
                           remember_auth_file, require, save_user)
-from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, js_json,
-                            _DOC_STATE_RO, _DOW_FULL, _DOW_ORDER, _ic,
-                            _doc_hours_text, data_folder, msg_banner,
-                            react_shell, shell_model, react_on, _shell, standalone,
-                            tg_configured, tg_refresh_meta, tg_status)
+from ...core.layout import (_DOW_ORDER, _ic,
+                            msg_banner,
+                            react_shell, shell_model, _shell, standalone,
+                            tg_configured, tg_status)
 from ...core import bitlocker, dbkey, demo, theme
 from ...core import license as lic
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
 from . import crypt
-from . import faq
 from . import system
 from . import lan
 
@@ -56,82 +49,6 @@ router = APIRouter()
 # безопасные символы — точка в нём разделила бы куку не там, где надо
 _UID_RE = re.compile(r"[a-z0-9_-]{2,20}")
 
-
-def _set_back(msg: str) -> RedirectResponse:
-    # учётки живут на странице «Securitate» — туда и возвращаем
-    return RedirectResponse(f"/admin/settings/security?msg={msg}", status_code=303)
-
-
-def _users_block(last_login: dict[str, str]) -> str:
-    """Сотрудники клиники: кто входит и что ему можно.
-
-    Вход идёт по ОДНОМУ паролю, без логина: регистратура набирает его десятки
-    раз в день, и требовать ещё и id — трение на ровном месте. Отсюда правило,
-    которое стережёт `pin_free`: пароли обязаны быть разными, иначе журнал
-    доступа начнёт называть чужое имя. Id при этом есть у каждого — он нужен
-    журналу и врачу на телефоне, где вход по одному паролю неочевиден.
-
-    `last_login` (uid → «13.08.2026 14:02») — гигиена доступа: учётка, в
-    которую не входили месяцами, — это либо уволенный, либо пароль, которым
-    никто не пользуется; и то и другое директор должен ВИДЕТЬ, а не помнить.
-    """
-    e = html.escape
-    doc_opts = "".join(f"<option value='{e(k)}'>{e(v)}</option>"
-                       for k, v in eng.DOCTORS.items())
-    rows = []
-    for u in all_users():
-        sel_role = "".join(
-            f"<option value='{k}'{' selected' if k == u['role'] else ''}>{v}</option>"
-            for k, v in ROLE_LABEL.items())
-        sel_doc = "".join(
-            f"<option value='{e(k)}'{' selected' if k == u['doctor_id'] else ''}>"
-            f"{e(v)}</option>" for k, v in eng.DOCTORS.items())
-        rows.append(
-            f"<tr><td><b>{e(u['name'])}</b><br>"
-            f"<small style='color:var(--text3)'>id: {e(u['id'])}</small><br>"
-            f"<small style='color:var(--text3)'>ultima intrare: "
-            f"{e(last_login.get(u['id'], '—'))}</small></td>"
-            f"<td><form method='post' action='/admin/users/save' "
-            f"style='display:flex;gap:6px;flex-wrap:wrap;align-items:center'>"
-            f"<input type='hidden' name='uid' value='{e(u['id'])}'>"
-            f"<input type='hidden' name='name' value=\"{e(u['name'])}\">"
-            f"<select name='role'>{sel_role}</select>"
-            f"<select name='doctor_id'><option value=''>— nu e medic —</option>"
-            f"{sel_doc}</select>"
-            f"<input type='password' name='pin' placeholder='PIN nou (opțional)' "
-            f"inputmode='numeric' maxlength='{PIN_MAX}' style='width:150px'>"
-            f"<button>Salvează</button></form></td>"
-            # ⚠️ имя — только в HTML-атрибуте, НЕ внутри JS-литерала: браузер
-            # декодирует &#x27; обратно в апостроф ДО компиляции onsubmit, и
-            # «O'Brien» рвал строку confirm('…') — форма уходила БЕЗ
-            # подтверждения, а подобранное имя исполнялось как JS
-            f"<td><form method='post' action='/admin/users/delete' "
-            f"data-msg=\"Ștergeți contul {e(u['name'])}?\" "
-            f"onsubmit=\"return confirm(this.dataset.msg)\">"
-            f"<input type='hidden' name='uid' value='{e(u['id'])}'>"
-            f"<button class='rowdel'>Șterge</button></form></td></tr>")
-    role_opts = "".join(f"<option value='{k}'"
-                        f"{' selected' if k == ROLE_MEDIC else ''}>{v}</option>"
-                        for k, v in ROLE_LABEL.items())
-    return f"""
-<h2>{_ic("users")} Utilizatori</h2>
-<table class='set'><tr><th style='width:220px'>Persoana</th><th>Acces</th><th></th></tr>
-{''.join(rows)}</table>
-<form class='add' method='post' action='/admin/users/save'>
-  <input name='name' placeholder='Nume și prenume' maxlength='60' required style='width:200px'>
-  <input name='uid' placeholder='id (ex. d2, ana)' maxlength='20' required style='width:130px'>
-  <select name='role'>{role_opts}</select>
-  <select name='doctor_id'><option value=''>— nu e medic —</option>{doc_opts}</select>
-  <input type='password' name='pin' placeholder='PIN 4–8 cifre' inputmode='numeric'
-         maxlength='{PIN_MAX}' required style='width:150px'>
-  <button>+ Adaugă utilizator</button>
-</form>
-<p class='hint'>Intrarea se face cu PIN-ul personal, fără nume de utilizator —
-de aceea PIN-ul trebuie să fie unic în clinică. <b>Director</b> vede banii și
-setările, <b>Recepție</b> și <b>Medic</b> — tot restul. Legătura cu un medic
-face ca jurnalul să scrie numele lui la fiecare deschidere de fișă.
-Pentru <b>director</b> recomandăm un PIN de 6+ cifre — el vede banii și
-setările; intrările în program se văd în «Activitate recentă» (Statistici).</p>"""
 
 _PALETTE_RO = {"green": "verde", "blue": "albastru", "amber": "portocaliu",
                "violet": "violet", "red": "roșu", "teal": "turcoaz"}
@@ -165,13 +82,6 @@ def _hours_summary(hours: dict, lang: str) -> str:
     return ", ".join(parts)
 
 
-def _hour_opts(sel: int, lo: int = HOUR_MIN, hi: int = HOUR_MAX) -> str:
-    return "".join(
-        f"<option value='{h}'{' selected' if h == sel else ''}>{h}:00</option>"
-        for h in range(lo, hi + 1)
-    )
-
-
 # ---------- раздел «Setări»: хаб + страницы-секции (просьба Олега 08-06) ----------
 #
 # Раньше всё лежало одной страницей и путалось; теперь /admin/settings — хаб из
@@ -199,8 +109,9 @@ def _sec_react(screen: str, path: str, sub: str, msg: str,
                params: dict | None = None) -> str:
     """Страница-секция настроек на React-оболочке (B1).
 
-    ⭐ Крошка едет в модели той же структурой, из которой её печатает и старая
-    страница: два владельца одной навигации разошлись бы молча.
+    ⭐ Крошка едет в модели той же структурой, из которой её печатает и
+    серверная секция (`_sec_page`, сегодня — Telegram): два владельца одной
+    навигации разошлись бы молча.
     """
     return react_shell(screen, path,
                        shell_model("set", sub, msg=msg, crumbs=_SEC_CRUMBS),
@@ -221,12 +132,6 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
                 "/admin/settings/faq": "ajutor"}
-
-
-def hub_groups(tiles: list[dict]) -> list[dict]:
-    """Плитки по группам в порядке HUB_GROUPS; пустые группы выпадают."""
-    return [{"key": k, "label": label, "tiles": [t for t in tiles if t["group"] == k]}
-            for k, label in HUB_GROUPS if any(t["group"] == k for t in tiles)]
 
 
 def _lic_hint(s) -> list[dict]:
@@ -253,8 +158,8 @@ def _lan_available() -> bool:
 
 def _hub_tiles() -> list[dict]:
     """Плитки хаба: адрес, иконка, тон, подпись и строка состояния КУСКАМИ —
-    текст / иконка с текстом (и тоном) / точка цвета. Одни данные на старую
-    страницу (`_hint_html`) и на JSON API; состояние считает только сервер."""
+    текст / иконка с текстом (и тоном) / точка цвета. Отдаёт их JSON API;
+    состояние считает только сервер."""
     cfg = eng.CONFIG
     # короткое состояние обновления — подробности на странице «Stare sistem»
     if upd.can_self_update() or upd.newer_available():
@@ -338,56 +243,22 @@ def _hub_tiles() -> list[dict]:
     return [t for t in tiles if not demo.refuses(t["href"])]
 
 
-def _hint_html(parts: list[dict]) -> str:
-    """Строка состояния плитки из кусков — та же разметка, что была инлайном."""
-    out = []
-    for p in parts:
-        if p.get("dot"):
-            out.append(f"<span class='th-dot' style='background:{html.escape(p['dot'])}'>"
-                       f"</span>")
-            continue
-        txt = html.escape(p.get("t", ""))
-        piece = f"{_ic(p['icon'])} {txt}" if p.get("icon") else txt
-        if p.get("tone"):
-            piece = f"<b style='color:var(--{p['tone']}-t)'>{piece}</b>"
-        out.append(piece)
-    return "".join(out)
-
-
 @router.get("/admin/settings", response_class=HTMLResponse)
 async def admin_settings(request: Request, msg: str = ""):
     """Хаб настроек: по плитке на секцию, на каждой — живая строка состояния."""
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_hub"):
-        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
-        return react_shell("settings_hub", request.url.path,
-                           shell_model("set", "setările clinicii · pe secțiuni", msg=msg))
-    def row(t: dict) -> str:
-        return (f"<a class='pl-tile' href='{t['href']}'>"
-                f"<span class='ico {t['tone']}'>{_ic(t['icon'])}</span><div class='pl-tv'>"
-                f"<span>{t['label']}</span><small>{_hint_html(t['hint'])}</small></div></a>")
-    groups = "".join(
-        f"<section class='hub-g'><h3>{html.escape(g['label'])}</h3>"
-        f"<div class='hub-list'>{''.join(row(t) for t in g['tiles'])}</div></section>"
-        for g in hub_groups(_hub_tiles()))
-    # раздел уже в h1 оболочки (B5, шаг 10) — здесь только подсказка
-    body = (f"<p class='hint'>Alegeți o secțiune — modificările se aplică imediat, "
-            f"fără repornire</p>"
-            f"<div class='pl-tiles set-hub'>{groups}</div>")
-    return _shell(f"<div class='nav'><a href='/admin'>{_ic('home')} Panou</a></div>"
-                  + msg_banner(msg) + body,
-                  "setările clinicii · pe secțiuni", active="set")
+    # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+    return react_shell("settings_hub", request.url.path,
+                       shell_model("set", "setările clinicii · pe secțiuni", msg=msg))
 
 
 @router.get("/admin/settings/system", response_class=HTMLResponse)
 async def settings_system(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_system"):
-        return _sec_react("settings_system", request.url.path,
-                           "setări · stare sistem", msg)
-    return _sec_page(system.render(), "setări · stare sistem", msg)
+    return _sec_react("settings_system", request.url.path,
+                       "setări · stare sistem", msg)
 
 
 @router.get("/admin/settings/telegram", response_class=HTMLResponse)
@@ -418,19 +289,13 @@ async def settings_lan(request: Request, msg: str = ""):
         return deny
     if not _lan_available():
         return RedirectResponse("/admin/settings", status_code=303)
-    if react_on(request, "settings_lan"):
-        return _sec_react("settings_lan", request.url.path,
-                           "setări · acces din rețea", msg)
-    # PowerShell (секунда-две) — в потоке: цикл событий обслуживает журнал
-    # всех рабочих мест, и страница настроек не должна его останавливать
-    st = await asyncio.to_thread(lan.firewall_state) if lan.enabled() else None
-    return _sec_page(lan.render(st), "setări · acces din rețea", msg)
+    return _sec_react("settings_lan", request.url.path,
+                       "setări · acces din rețea", msg)
 
 
 def _set_lan(mode: str) -> str | None:
     """Переключить доступ из сети в dental.env. Код отказа (`bad_env`) или
-    None. Одно на форму и на JSON API; применение — перезапуск программы,
-    у каждого пути свой ответ (`_restart_now` / JSON с текстом)."""
+    None; зовёт JSON API (`api.py`). Применение — перезапуск программы."""
     env_file = os.environ.get("DENTART_ENV_FILE", "")
     val = "1" if mode == "on" else ""
     try:
@@ -446,54 +311,14 @@ def _set_lan(mode: str) -> str | None:
     return None
 
 
-@router.post("/admin/lan/save", response_class=HTMLResponse)
-async def admin_lan_save(request: Request, mode: str = Form("")):
-    """Переключить доступ из сети клиники. Слушающий адрес выбирает ЛАУНЧЕР
-    при старте (bot/desktop.py), поэтому применение = перезапуск программы —
-    тот же путь, что смена токена бота."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if not _lan_available():
-        return RedirectResponse("/admin/settings", status_code=303)
-    if (err := _set_lan(mode)) is not None:
-        return RedirectResponse(f"/admin/settings/lan?msg={err}", status_code=303)
-    return _restart_now("Setare salvată", "/admin/settings/lan", "ok_set")
-
-
-@router.post("/admin/lan/firewall")
-async def admin_lan_firewall(request: Request):
-    """Кнопка «создай правило firewall»: UAC-запрос на ЭКРАНЕ ПК клиники —
-    доступ включают с этого компьютера, так что директор его и видит."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if not _lan_available():
-        return RedirectResponse("/admin/settings", status_code=303)
-    # тип сети решает, каким профилям разрешать (netcheck.profiles_for)
-    lan.request_firewall_rule(await asyncio.to_thread(lan.firewall_state))
-    return RedirectResponse("/admin/settings/lan", status_code=303)
-
-
 @router.get("/admin/settings/backup", response_class=HTMLResponse)
 async def settings_backup(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     if not bkp.available():
         return RedirectResponse("/admin/settings", status_code=303)
-    if react_on(request, "settings_backup"):
-        return _sec_react("settings_backup", request.url.path,
-                           "setări · copie de rezervă", msg)
-    body = f"""
-<h2>{_ic("save")} Copie de rezervă criptată</h2>
-<form class='add' method='post' action='/admin/backup/export'>
-  <input type='password' name='parola' placeholder='parolă (min. {bkp.MIN_PASS} caractere)'
-         minlength='{bkp.MIN_PASS}' required style='width:280px' autocomplete='new-password'>
-  <button>{_ic('download')} Exportă arhiva</button>
-</form>
-<p class='hint'>Arhivă ZIP criptată (AES-256) cu baza de date, profilul clinicii și
-documentele pacienților — pentru stick USB sau alt calculator. Se deschide cu 7-Zip
-prin parola aleasă. <b>Parola nu se salvează nicăieri</b> — fără ea arhiva nu poate
-fi citită de nimeni, nici de noi.</p>"""
-    return _sec_page(body, "setări · copie de rezervă", msg)
+    return _sec_react("settings_backup", request.url.path,
+                       "setări · copie de rezervă", msg)
 
 
 async def _last_logins() -> dict[str, str]:
@@ -518,19 +343,8 @@ async def settings_security(request: Request, msg: str = ""):
         return deny
     if not _pin_rec():
         return RedirectResponse("/admin/settings", status_code=303)
-    if react_on(request, "settings_security"):
-        return _sec_react("settings_security", request.url.path,
-                           "setări · securitate și utilizatori", msg)
-    last = await _last_logins()
-    body = f"""
-<h2>{_ic("key")} Schimbă PIN</h2>
-<form class='add' method='post' action='/admin/pin/change'>
-  <input type='password' name='old_pin' placeholder='PIN actual' inputmode='numeric' maxlength='{PIN_MAX}' required style='width:140px'>
-  <input type='password' name='new1' placeholder='PIN nou' inputmode='numeric' maxlength='{PIN_MAX}' required style='width:140px'>
-  <input type='password' name='new2' placeholder='repetați' inputmode='numeric' maxlength='{PIN_MAX}' required style='width:140px'>
-  <button>Schimbă</button>
-</form>""" + _users_block(last)
-    return _sec_page(body, "setări · securitate și utilizatori", msg)
+    return _sec_react("settings_security", request.url.path,
+                       "setări · securitate și utilizatori", msg)
 
 
 @router.get("/admin/settings/faq", response_class=HTMLResponse)
@@ -539,43 +353,17 @@ async def settings_faq(request: Request, msg: str = ""):
     # закон 195). Подсказки регистратуре — в самих экранах, не здесь.
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_faq"):
-        return _sec_react("settings_faq", request.url.path,
-                           "setări · întrebări frecvente", msg)
-    return _sec_page(faq.render(), "setări · întrebări frecvente", msg)
+    return _sec_react("settings_faq", request.url.path,
+                       "setări · întrebări frecvente", msg)
 
 
 @router.get("/admin/settings/clinic", response_class=HTMLResponse)
 async def settings_clinic(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_clinic"):
-        # React-экран (флаг в clinic.json): та же рамка, та же плашка ответа,
-        # а вместо формы — узел для бандла. Старая форма ниже остаётся как
-        # есть и отдаётся по ?ui=legacy — это откат без сборки и без правок.
-        return _sec_react("settings_clinic", request.url.path,
-                           "setări · clinica", msg)
-    cfg = eng.CONFIG
-    e = html.escape
-    body = f"""
-<h2>{_ic("clinic")} Clinica</h2>
-<form method='post' action='/admin/settings/save'>
-<input type='hidden' name='part' value='clinic'>
-<table class='set'>
-<tr><th style='width:180px'>Nume</th><td><input type='text' name='name' value='{e(cfg["name"])}'></td></tr>
-<tr><th>Telefon</th><td><input type='text' name='phone' value='{e(cfg["phone"])}'></td></tr>
-<tr><th>Adresa (RO)</th><td><input type='text' name='addr_ro' value='{e(cfg.get("address", {}).get("ro", ""))}'></td></tr>
-<tr><th>Adresa (RU)</th><td><input type='text' name='addr_ru' value='{e(cfg.get("address", {}).get("ru", ""))}'></td></tr>
-<tr><th>Denumirea juridică</th><td><input type='text' name='legal_name' maxlength='120' placeholder='ex. Dent Art SRL' value='{e(cfg.get("legal_name") or "")}'></td></tr>
-<tr><th>IDNO</th><td><input type='text' name='idno' maxlength='13' inputmode='numeric' placeholder='13 cifre' value='{e(cfg.get("idno") or "")}'></td></tr>
-</table>
-<p class='hint'>Numele apare în bara laterală și pe documentele tipărite.
-Telefonul și adresa — pe documentele pentru pacient (043/e, acorduri, parodontogramă).
-Denumirea juridică și IDNO — doar pe documentele semnate de pacient (acord, 043/e);
-necompletate — rămân un spațiu galben, de completat cu ștampila.</p>
-<button class='savebtn'>{_ic('save')} Salvează</button>
-</form>"""
-    return _sec_page(body, "setări · clinica", msg)
+    # Та же рамка и та же плашка ответа, а вместо формы — узел для бандла.
+    return _sec_react("settings_clinic", request.url.path,
+                       "setări · clinica", msg)
 
 
 @router.get("/admin/settings/crypt", response_class=HTMLResponse)
@@ -589,19 +377,8 @@ async def settings_crypt(request: Request, msg: str = ""):
     """
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_crypt"):
-        return _sec_react("settings_crypt", request.url.path,
-                           "setări · criptare", msg)
-    return _sec_page(crypt.render(crypt.state(_data_dir())), "setări · criptare", msg)
-
-
-@router.post("/admin/settings/crypt/prepare")
-async def settings_crypt_prepare(request: Request):
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if (err := crypt.prepare(_data_dir())) is not None:
-        return RedirectResponse(f"/admin/settings/crypt?msg={err}", status_code=303)
-    return RedirectResponse("/admin/settings/crypt/sheet", status_code=303)
+    return _sec_react("settings_crypt", request.url.path,
+                       "setări · criptare", msg)
 
 
 @router.get("/admin/settings/crypt/sheet", response_class=HTMLResponse)
@@ -681,15 +458,6 @@ async def settings_crypt_confirm(request: Request, ack: str = Form("")):
     return _restart_now(crypt.ON_DONE, "/admin/settings/crypt")
 
 
-@router.post("/admin/settings/crypt/off")
-async def settings_crypt_off(request: Request):
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if (err := crypt.turn_off(_data_dir())) is not None:
-        return RedirectResponse(f"/admin/settings/crypt?msg={err}", status_code=303)
-    return _restart_now(crypt.OFF_DONE, "/admin/settings/crypt")
-
-
 # Образцы карточки визита для выбора вида — те же, что рисует React-экран
 # (ThemeSettingsScreen › CardSample).
 _CARD_SAMPLE = {
@@ -710,216 +478,13 @@ async def settings_theme(request: Request, msg: str = ""):
     """
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_theme"):
-        return _sec_react("settings_theme", request.url.path,
-                           "setări · aspectul clinicii", msg)
-    th = theme.current()
-    e = html.escape
-    preset_hex = [c for c, _ in theme.PRESETS]
-    custom = th["primary"] not in preset_hex
-
-    # ⭐ Палитры считает СЕРВЕР и отдаёт готовыми. Живому предпросмотру нельзя
-    # повторять арифметику из core/theme.py: два расчёта неизбежно разойдутся, и
-    # клиника увидит при выборе один цвет, а после сохранения другой. Своего
-    # цвета в наборе нет — за ним предпросмотр сходит на /theme/palette.
-    pal_js = js_json({st: {c: theme.palette(c, st) for c in preset_hex}
-                     for st in theme.STYLES})
-    sty_js = js_json(theme.STYLES)
-    menu_js = js_json(theme.MENUS)
-    font_js = js_json(theme.FONTS)
-
-    # Меню и шрифт (B5) — карточки с образцом. Образец шрифта берёт набор
-    # семейств С СЕРВЕРА (style=): второй записи того же набора в CSS нет.
-    menus = "".join(
-        f"<label class='th-opt'>"
-        f"<input type='radio' name='menu' value='{e(k)}'"
-        f"{' checked' if k == th['menu'] else ''}>"
-        f"<span class='th-box'><span class='mm {e(k)}'><i></i><i></i><i></i></span>"
-        f"<span>{e(theme.MENU_LABEL[k][0])}</span></span>"
-        f"<small>{e(theme.MENU_LABEL[k][1])}</small></label>"
-        for k in theme.MENUS)
-    fonts = "".join(
-        f"<label class='th-opt'>"
-        f"<input type='radio' name='font' value='{e(k)}'"
-        f"{' checked' if k == th['font'] else ''}>"
-        f"<span class='th-box' style=\"font-family:{stack}\"><span class='fs'>Aa</span>"
-        f"<span>{e(theme.FONT_LABEL[k][0])}</span></span>"
-        f"<small>{e(theme.FONT_LABEL[k][1])}</small></label>"
-        for k, stack in theme.FONTS.items())
-    # Вид карточки визита (03.10). ⛔ Образец — своими классами (.cv), а не
-    # правилами сетки: те читают `<html data-card>`, и образец невыбранного
-    # вида перерисовался бы под выбранный.
-    cards = "".join(
-        f"<label class='th-opt'>"
-        f"<input type='radio' name='card' value='{e(k)}'"
-        f"{' checked' if k == th['card'] else ''}>"
-        f"<span class='th-box'>{_CARD_SAMPLE[k]}"
-        f"<span>{e(theme.CARD_LABEL[k][0])}</span></span>"
-        f"<small>{e(theme.CARD_LABEL[k][1])}</small></label>"
-        for k in theme.CARD_LABEL)
-
-    styles = "".join(
-        f"<label class='th-style'>"
-        f"<input type='radio' name='style' value='{e(key)}'"
-        f"{' checked' if key == th['style'] else ''}>"
-        f"<span class='th-card' style=\"border-radius:{v['--r-card']};"
-        f"background:{v['--bg']};border-color:{v['--line']};box-shadow:{v['--sh']}\">"
-        f"<i style=\"border-radius:{v['--r-ctl']}\"></i><u></u><u class='sh'></u></span>"
-        f"<b>{e(theme.STYLE_LABEL[key][0])}</b>"
-        f"<small>{e(theme.STYLE_LABEL[key][1])}</small></label>"
-        for key, v in theme.STYLES.items())
-
-    colors = "".join(
-        f"<label class='th-c' title='{e(name)}'>"
-        f"<input type='radio' name='primary' value='{e(hexv)}'"
-        f"{' checked' if hexv == th['primary'] else ''}>"
-        f"<span style='background:{e(hexv)}'></span></label>"
-        for hexv, name in theme.PRESETS)
-
-    logo = theme.logo_url()
-    logo_box = (f"<img class='th-logo' src='{e(logo)}' alt='logo'>" if logo
-                else "<div class='th-logo none'>fără logo</div>")
-    logo_del = (f"<button name='act' value='del' class='pl-btn'>{_ic('trash')} Șterge</button>"
-                if logo else "")
-    # Галочка «логотип и в шапке журнала» (просьба Олега 08-21). Стоит в
-    # секции логотипа, но принадлежит ГЛАВНОЙ форме темы (form='thf'): едет
-    # тем же part=theme. Сохраняется сразу по клику — отдельная кнопка
-    # «Salvează» у логотипа читалась бы как «загрузить файл ещё раз».
-    # Без логотипа не рисуется вовсе: галочка ни о чём сбивала бы с толку.
-    logo_topbar = ""
-    if logo:
-        chk = " checked" if th["logo_topbar"] else ""
-        logo_topbar = (
-            f"<label class='th-topbar'><input type='checkbox' "
-            f"name='logo_topbar' value='1' form='thf'{chk} "
-            f"onchange=\"document.getElementById('thf').requestSubmit()\">"
-            f"Afișează logo-ul și în bara de sus a registrului, pe centru"
-            f"</label>")
-
-    body = f"""
-<h2>{_ic("palette")} Aspectul clinicii</h2>
-<form method='post' action='/admin/settings/save' id='thf'>
-<input type='hidden' name='part' value='theme'>
-
-<h3 class='th-h'>Stil interfață</h3>
-<div class='th-styles'>{styles}</div>
-
-<h3 class='th-h'>Meniul lateral</h3>
-<div class='th-opts'>{menus}</div>
-
-<h3 class='th-h'>Font</h3>
-<div class='th-opts'>{fonts}</div>
-
-<h3 class='th-h'>Cardul programării</h3>
-<div class='th-opts'>{cards}</div>
-<p class='hint'>Se aplică pe panoul principal și în Programări.</p>
-
-<h3 class='th-h'>Culoare principală</h3>
-<div class='th-colors'>{colors}
-  <label class='th-c th-custom' title='Culoare personalizată'>
-    <input type='radio' name='primary' value='custom'{' checked' if custom else ''}>
-    <span class='pick'>{_ic('palette')}</span>
-  </label>
-  <input type='color' name='custom' id='thcustom' value='{e(th["primary"])}'>
-</div>
-<p class='hint'>Culoarea se aplică butoanelor, meniului și accentelor.
-Roșu pentru urgențe, galben pentru avertismente și verde pentru „confirmat”
-rămân neschimbate — acolo culoarea înseamnă ceva, nu decorează.</p>
-<button class='savebtn'>{_ic('save')} Salvează</button>
-</form>
-
-<h3 class='th-h'>Logo</h3>
-<div class='th-logowrap'>
-  {logo_box}
-  <form method='post' action='/admin/settings/theme/logo'
-        enctype='multipart/form-data' class='th-logof'>
-    <div class='filepick'>
-      <input type='file' name='file' id='thlogo' accept='image/png,image/jpeg'>
-      <label for='thlogo'>{_ic('clip')} Alege fișier…</label>
-    </div>
-    <button class='pl-btn primary'>Încarcă</button>
-    {logo_del}
-  </form>
-</div>
-{logo_topbar}
-<p class='hint'>PNG sau JPEG, cel mult 2 MB. Apare pe ecranul de intrare și în
-antetul documentelor tipărite (043/e, acord, raport de casă). Logoul rămâne la
-actualizarea programului — se păstrează lângă profilul clinicii.</p>
-
-<script>
-(function(){{
-  var PAL = {pal_js}, STY = {sty_js}, MENU = {menu_js}, FONT = {font_js};
-  var f = document.getElementById('thf'), root = document.documentElement;
-  function put(o){{ for (var k in o) root.style.setProperty(k, o[k]); }}
-  function style(){{ var r = f.querySelector('input[name=style]:checked');
-                     return r ? r.value : 'modern'; }}
-  function picked(name){{ var r = f.querySelector('input[name=' + name + ']:checked');
-                          return r ? r.value : ''; }}
-  function color(){{ var r = f.querySelector('input[name=primary]:checked');
-                     if (!r) return null;
-                     return r.value === 'custom'
-                       ? document.getElementById('thcustom').value : r.value; }}
-  function apply(){{
-    var st = style(), c = color();
-    put(STY[st] || {{}});
-    put(MENU[picked('menu')] || {{}});
-    if (FONT[picked('font')]) root.style.setProperty('--font', FONT[picked('font')]);
-    if (!c) return;
-    if (PAL[st] && PAL[st][c.toUpperCase()]) {{ put(PAL[st][c.toUpperCase()]); return; }}
-    /* своего цвета в наборе нет — палитру считает сервер, здесь её не выводят */
-    fetch('/admin/settings/theme/palette?c=' + encodeURIComponent(c)
-          + '&style=' + encodeURIComponent(st))
-      .then(function(r){{ return r.ok ? r.json() : null; }})
-      .then(function(p){{ if (p) put(p); }})
-      .catch(function(){{}});
-  }}
-  f.addEventListener('change', function(ev){{
-    if (ev.target.name === 'custom') {{
-      f.querySelector('input[name=primary][value=custom]').checked = true;
-    }}
-    apply();
-  }});
-  document.getElementById('thcustom').addEventListener('input', apply);
-}})();
-</script>"""
-    return _sec_page(body, "setări · aspectul clinicii", msg)
-
-
-@router.get("/admin/settings/theme/palette")
-async def settings_theme_palette(request: Request, c: str = "", style: str = ""):
-    """Палитра для своего цвета — единственный способ показать предпросмотр,
-    не переписывая расчёт на JavaScript. Отдаёт то же, что уедет в CSS при
-    сохранении, поэтому «увидел одно, получил другое» здесь невозможно."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    rgb = theme.parse_hex(c)
-    if rgb is None:
-        return JSONResponse({}, status_code=400)
-    st = style if style in theme.STYLES else theme.DEFAULT_STYLE
-    return JSONResponse(theme.palette(theme.to_hex(rgb), st))
-
-
-@router.post("/admin/settings/theme/logo")
-async def settings_theme_logo(request: Request, file: UploadFile = File(None),
-                              act: str = Form("")):
-    """Логотип клиники. Отдельным маршрутом, а не полем общей формы: файл идёт
-    multipart, и сваливать его в тот же обработчик, что правит профиль, значит
-    гонять картинку через разбор настроек на каждое сохранение цвета."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if act == "del":
-        data = None
-    else:
-        data = await file.read(theme.LOGO_MAX + 1) if file is not None else b""
-        if file is not None:
-            await file.close()
-    return RedirectResponse(f"/admin/settings/theme?msg={_logo_action(data)}",
-                            status_code=303)
+    return _sec_react("settings_theme", request.url.path,
+                       "setări · aspectul clinicii", msg)
 
 
 def _logo_action(data: bytes | None) -> str:
     """Логотип клиники: `data` — новый файл, None — убрать. Код ответа:
-    ok_logo / no_logo / bad_logo / save_err. Одно на форму и на JSON API."""
+    ok_logo / no_logo / bad_logo / save_err. Зовёт JSON API (`api.py`)."""
     th = theme.current()
     if data is None:
         theme.clear_logo()
@@ -946,187 +511,16 @@ def _logo_action(data: bytes | None) -> str:
 async def settings_hours(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_hours"):
-        return _sec_react("settings_hours", request.url.path,
-                           "setări · program de lucru", msg)
-    cfg = eng.CONFIG
-
-    def _break_opts(sel) -> str:
-        out = [f"<option value=''{' selected' if sel is None else ''}>—</option>"]
-        for x in range(HOUR_MIN, HOUR_MAX + 1):
-            out.append(f"<option value='{x}'{' selected' if sel == x else ''}>{x}:00</option>")
-        return "".join(out)
-
-    hours_rows = []
-    for day in _DOW_ORDER:
-        h = cfg.get("hours", {}).get(day)
-        closed = h is None
-        hv = list(h) if h else [9, 18]
-        f, t = int(hv[0]), int(hv[1])
-        bf = int(hv[2]) if len(hv) >= 4 else None
-        bt = int(hv[3]) if len(hv) >= 4 else None
-        hours_rows.append(
-            f"<tr><td>{_DOW_FULL[day]}</td>"
-            f"<td><input type='checkbox' id='hc_{day}'{' checked' if closed else ''}> închis</td>"
-            f"<td><select id='hf_{day}'>{_hour_opts(f)}</select></td>"
-            f"<td><select id='ht_{day}'>{_hour_opts(t, HOUR_MIN + 1, HOUR_MAX)}</select></td>"
-            f"<td><select id='hb_{day}'>{_break_opts(bf)}</select></td>"
-            f"<td><select id='he_{day}'>{_break_opts(bt)}</select></td></tr>"
-        )
-    body = f"""
-<h2>{_ic("clock")} Program de lucru</h2>
-<form method='post' action='/admin/settings/save' onsubmit='return collectHours()'>
-<input type='hidden' name='part' value='hours'>
-<input type='hidden' name='payload' id='payload'>
-<table class='set'>
-<tr><th>Ziua</th><th>Închis</th><th>De la</th><th>Până la</th>
-<th>Pauză de la</th><th>Pauză până la</th></tr>
-{''.join(hours_rows)}
-</table>
-<p class='hint'>Pauza (ex. prânz 13:00–14:00) dispare din calendarul zilei și din registru.
-«—» = fără pauză. Medicul își poate îngusta orele în fișa lui, dar nu le poate lărgi
-peste programul clinicii.</p>
-<button class='savebtn'>{_ic('save')} Salvează programul</button>
-</form>
-<script>
-function collectHours() {{
-  const days = ['mon','tue','wed','thu','fri','sat','sun'];
-  const hours = {{}};
-  for (const d of days) {{
-    if (document.getElementById('hc_' + d).checked) {{ hours[d] = null; continue; }}
-    const f = parseInt(document.getElementById('hf_' + d).value);
-    const t = parseInt(document.getElementById('ht_' + d).value);
-    const bf = document.getElementById('hb_' + d).value;
-    const bt = document.getElementById('he_' + d).value;
-    if (bf !== '' && bt !== '') hours[d] = [f, t, parseInt(bf), parseInt(bt)];
-    else hours[d] = [f, t];
-  }}
-  document.getElementById('payload').value = JSON.stringify({{hours: hours}});
-  return true;
-}}
-</script>"""
-    return _sec_page(body, "setări · program de lucru", msg)
+    return _sec_react("settings_hours", request.url.path,
+                       "setări · program de lucru", msg)
 
 
 @router.get("/admin/settings/services", response_class=HTMLResponse)
 async def settings_services(request: Request, msg: str = ""):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
-    if react_on(request, "settings_services"):
-        return _sec_react("settings_services", request.url.path,
-                           "setări · servicii", msg)
-    cfg = eng.CONFIG
-    e = html.escape
-
-    def _color_opts(sel: str) -> str:
-        out = [f"<option value=''{' selected' if not sel else ''}>auto</option>"]
-        for k, ro in _PALETTE_RO.items():
-            out.append(f"<option value='{k}'{' selected' if sel == k else ''}>{ro}</option>")
-        return "".join(out)
-
-    def _dur_opts(sel) -> str:
-        cur = int(sel) if sel else 60
-        return "".join(f"<option value='{x}'{' selected' if cur == x else ''}>{x} min</option>"
-                       for x in (15, 30, 45, 60, 90, 120))
-
-    svc_rows = "".join(
-        f"<tr><td><input type='hidden' class='s_id' value='{e(s['id'])}'>"
-        f"<input type='text' class='s_ro' value='{e(s['ro'])}'></td>"
-        f"<td><input type='text' class='s_ru' value='{e(s['ru'])}'></td>"
-        f"<td><input type='text' class='s_price' value='{e(str(s.get('price', '')) if not isinstance(s.get('price'), dict) else s['price'].get('ro', ''))}'></td>"
-        f"<td><select class='s_dur'>{_dur_opts(s.get('duration'))}</select></td>"
-        f"<td><select class='s_color'>{_color_opts(s.get('color', ''))}</select></td>"
-        f"<td style='text-align:center'><input type='checkbox' class='s_urg'{' checked' if s.get('urgent') else ''}></td>"
-        f"<td><input type='text' class='s_docs' value='{e(' '.join(s.get('docs', [])))}' placeholder='gol = toți'></td>"
-        f"<td><button type='button' class='rowdel' onclick='this.closest(\"tr\").remove()'>{_ic('close')}</button></td></tr>"
-        for s in cfg["services"]
-    )
-    doc_ids_hint = ", ".join(f"{d['id']}={e(d['name'])}" for d in cfg["doctors"])
-    # ⚠️ Ширины колонок ниже набраны числом в разметке, и «Preț» — та самая,
-    # из-за которой это важно: цена здесь не число, а строка от руки
-    # («1000–1200 MDL», «de la 2500 MDL», «gratuit»). При 120px поле показывало
-    # 78px текста и резало ЛЮБУЮ вилку цен — одинаково на 2560 и на рабочем
-    # 1366 (замер 08-16), то есть ширина ТАБЛИЦЫ тут ни при чём и `set-wide`
-    # этого не лечит. 150px — это 106px текста при самой длинной настоящей цене
-    # в 97px. Больше не берём: каждое число этой строки отнимает ширину у
-    # названий, а «Denumire (RU)» на 1366 и так впритык (185px текста при
-    # 192px поля). Держит tests\test_review3.suite_svc_table.
-    body = f"""
-<h2>{_ic("tooth")} Servicii</h2>
-<form method='post' action='/admin/settings/save' onsubmit='return collectServices()'>
-<input type='hidden' name='part' value='services'>
-<input type='hidden' name='payload' id='payload'>
-<table class='set set-wide' id='svc_t'>
-<tr><th>Denumire (RO)</th><th>Denumire (RU)</th><th style='width:150px'>Preț</th>
-<th style='width:90px'>Durată</th><th style='width:100px'>Culoare</th>
-<th style='width:40px'>{_ic('sos')}</th><th style='width:140px'>Medici (id)</th><th></th></tr>
-<tbody id='svc_tb'>{svc_rows}</tbody>
-</table>
-<button type='button' class='addrow' onclick='addSvc()'>+ Adaugă serviciu</button>
-<p class='hint'>Coloana «Medici»: id-uri separate prin spațiu ({doc_ids_hint}); gol = toți medicii.
-{_ic('sos')} = flux urgent (fără alegerea medicului, sloturi din ziua curentă).</p>
-<button class='savebtn'>{_ic('save')} Salvează serviciile</button>
-</form>
-
-<script>
-const SVC_COLORS = {js_json(_PALETTE_RO)};
-function addSvc() {{
-  const tb = document.getElementById('svc_tb');
-  const tr = document.createElement('tr');
-  let opts = "<option value=''>auto</option>";
-  for (const k in SVC_COLORS) opts += "<option value='" + k + "'>" + SVC_COLORS[k] + "</option>";
-  let dopts = "";
-  for (const x of [15, 30, 45, 60, 90, 120])
-    dopts += "<option value='" + x + "'" + (x === 60 ? " selected" : "") + ">" + x + " min</option>";
-  tr.innerHTML = "<td><input type='hidden' class='s_id' value=''>" +
-    "<input type='text' class='s_ro' placeholder='Serviciu'></td>" +
-    "<td><input type='text' class='s_ru' placeholder='Услуга'></td>" +
-    "<td><input type='text' class='s_price' placeholder='500 MDL'></td>" +
-    "<td><select class='s_dur'>" + dopts + "</select></td>" +
-    "<td><select class='s_color'>" + opts + "</select></td>" +
-    "<td style='text-align:center'><input type='checkbox' class='s_urg'></td>" +
-    "<td><input type='text' class='s_docs' placeholder='gol = toți'></td>" +
-    "<td><button type='button' class='rowdel' onclick='this.closest(\\"tr\\").remove()'>{_ic('close')}</button></td>";
-  tb.appendChild(tr);
-}}
-function collectServices() {{
-  const services = [];
-  document.querySelectorAll('#svc_tb tr').forEach(tr => {{
-    services.push({{ id: tr.querySelector('.s_id').value,
-                    ro: tr.querySelector('.s_ro').value,
-                    ru: tr.querySelector('.s_ru').value,
-                    price: tr.querySelector('.s_price').value,
-                    duration: tr.querySelector('.s_dur').value,
-                    color: tr.querySelector('.s_color').value,
-                    urgent: tr.querySelector('.s_urg').checked,
-                    docs: tr.querySelector('.s_docs').value }});
-  }});
-  // валидация ДО отправки: при серверной ошибке форма перерисуется из
-  // сохранённого конфига и все правки админа пропадут — не доводим до этого.
-  // Правила — ТЕ ЖЕ, что у сервера (_val_services): дубликат по RO, по RU и
-  // перекрёстный ro/ru, причём пустой RU наследует RO; иначе payload проходил
-  // клиента, бился об сервер — и правки таблицы всё равно терялись
-  const seen = {{}};
-  for (const s of services) {{
-    const roRaw = s.ro.trim().slice(0, 60);
-    if (!roRaw) continue;
-    const ruRaw = s.ru.trim().slice(0, 60) || roRaw;
-    const ro = roRaw.toLowerCase(), ru = ruRaw.toLowerCase();
-    const clash = seen[ro] === true ? roRaw
-                : (ru !== ro && seen[ru] === true) ? ruRaw : null;
-    if (clash !== null) {{
-      alert('Două rânduri au aceeași denumire de serviciu (RO sau RU): «' +
-            clash + '». Redenumiți unul dintre ele.');
-      return false;
-    }}
-    seen[ro] = true;
-    seen[ru] = true;
-  }}
-  document.getElementById('payload').value = JSON.stringify({{services: services}});
-  return true;
-}}
-</script>"""
-    return _sec_page(body, "setări · servicii", msg)
+    return _sec_react("settings_services", request.url.path,
+                       "setări · servicii", msg)
 
 
 # Валидаторы по секциям: каждая страница присылает свой кусок, и проверяется
@@ -1307,25 +701,6 @@ def _finish_cfg(**updates) -> dict:
     return cfg
 
 
-def _build_config(data: dict) -> dict:
-    """Полный payload одним куском — путь старой цельной формы. Живёт как
-    рабочий: на нём тесты горячей перезагрузки, и им же может пользоваться
-    что-то внешнее, собирающее конфиг целиком."""
-    services, seq = _val_services(data)
-    return _finish_cfg(**_val_clinic(data), hours=_val_hours(data),
-                       services=services, seq=seq)
-
-
-@router.post("/admin/update/check")
-def admin_update_check(request: Request):
-    """Проверить обновления прямо сейчас — не ждать следующего цикла.
-    Синхронный def › threadpool, сетевой запрос не блокирует сервер."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    upd.check_now()
-    return RedirectResponse("/admin/settings/system", status_code=303)
-
-
 @router.post("/admin/update/run", response_class=HTMLResponse)
 def admin_update_run(request: Request):
     """Одним кликом: скачать новый exe, подменить себя, перезапуститься.
@@ -1350,20 +725,9 @@ Această pagină se va reîncărca automat în ~18 secunde.</p>
 </body></html>""")
 
 
-@router.post("/admin/users/save")
-async def users_save(request: Request, uid: str = Form(...), name: str = Form(""),
-                     role: str = Form(ROLE_MEDIC), doctor_id: str = Form(""),
-                     pin: str = Form("")):
-    """Завести сотрудника или поправить его доступ."""
-    if (deny := require(request, PERM_USERS)) is not None:
-        return deny
-    return _set_back(await _apply_user(uid, name=name, role=role,
-                                       doctor_id=doctor_id, pin=pin))
-
-
 async def _apply_user(uid: str, *, name: str, role: str, doctor_id: str,
                       pin: str) -> str:
-    """Правила учётки — одни на форму и на JSON API. Код ответа:
+    """Правила учётки (зовёт JSON API, `api.py`). Код ответа:
     bad_user / dup_user / last_dir / ok_user."""
     uid, name, pin = uid.strip().lower()[:20], name.strip()[:60], pin.strip()
     if not _UID_RE.fullmatch(uid) or role not in ROLE_LABEL:
@@ -1390,7 +754,7 @@ async def _apply_user(uid: str, *, name: str, role: str, doctor_id: str,
 
 
 async def _drop_user(me_id: str, uid: str) -> str:
-    """Удаление учётки — одно на форму и на JSON API. Код ответа:
+    """Удаление учётки (зовёт JSON API, `api.py`). Код ответа:
     self_user / last_dir / ok_user."""
     if me_id and me_id == uid:
         return "self_user"
@@ -1399,14 +763,6 @@ async def _drop_user(me_id: str, uid: str) -> str:
     delete_user(uid)
     await remember_auth_file()
     return "ok_user"
-
-
-@router.post("/admin/users/delete")
-async def users_delete(request: Request, uid: str = Form(...)):
-    if (deny := require(request, PERM_USERS)) is not None:
-        return deny
-    me = current_user(request)
-    return _set_back(await _drop_user(str((me or {}).get("id") or ""), uid))
 
 
 @router.post("/admin/backup/export")
@@ -1554,48 +910,3 @@ def _restart_page(done: str, back_url: str, auto: bool) -> str:
 <a href="{back_url}">{_ic('chev-l')} Înapoi în setări</a>
 </body></html>""")
 
-
-@router.post("/admin/settings/save")
-async def admin_settings_save(request: Request, payload: str = Form(""),
-                              part: str = Form("")):
-    """Сохранение настроек. `part` говорит, КАКОЙ кусок пришёл; без него —
-    старый цельный payload. Ошибка возвращает на ТУ ЖЕ страницу-секцию:
-    человек правил часы — там и должен увидеть, что не так."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    back = {"clinic": "/admin/settings/clinic", "hours": "/admin/settings/hours",
-            "services": "/admin/settings/services",
-            "theme": "/admin/settings/theme"}.get(part, "/admin/settings")
-    try:
-        if part == "theme":
-            form = await request.form()
-            cfg = _finish_cfg(theme=_val_theme({
-                "style": form.get("style", ""),
-                "primary": form.get("primary", ""),
-                "custom": form.get("custom", ""),
-                "menu": form.get("menu", ""),
-                "font": form.get("font", ""),
-                "card": form.get("card", ""),
-                "logo_topbar": form.get("logo_topbar", "")}))
-        elif part == "clinic":
-            form = await request.form()
-            cfg = _finish_cfg(**_val_clinic({
-                "name": form.get("name", ""), "phone": form.get("phone", ""),
-                "address": {"ro": form.get("addr_ro", ""),
-                            "ru": form.get("addr_ru", "")},
-                "legal_name": form.get("legal_name", ""),
-                "idno": form.get("idno", "")}))
-        elif part == "hours":
-            cfg = _finish_cfg(hours=_val_hours(json.loads(payload)))
-        elif part == "services":
-            services, seq = _val_services(json.loads(payload))
-            cfg = _finish_cfg(services=services, seq=seq)
-        else:
-            cfg = _build_config(json.loads(payload))
-    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
-        return RedirectResponse(f"{back}?msg=bad_set", status_code=303)
-    if eng.save_config(cfg) is not None:
-        return RedirectResponse(f"{back}?msg=save_err", status_code=303)
-    tg_refresh_meta()   # имя/телефон/орар уезжают и в профиль бота
-    ok = "ok_theme" if part == "theme" else "ok_set"
-    return RedirectResponse(f"{back}?msg={ok}", status_code=303)

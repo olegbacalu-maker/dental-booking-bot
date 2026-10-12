@@ -839,7 +839,7 @@ def suite_actions(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana", role="receptie", pin="2222")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana", "role": "receptie", "pin": "2222"})
         boss.post("/admin/patients/new", name="Bani Test", phone="069555333")
         pid = _pid(boss, "069555333")
         rec = Client(s.url)
@@ -933,7 +933,7 @@ def suite_switch(res: Result) -> None:
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
-        boss.post("/admin/users/save", uid="ana", name="Ana", role="receptie", pin="2222")
+        boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana", "role": "receptie", "pin": "2222"})
         boss.post("/admin/patients/new", name="Flag Pin", phone="069777111")
         pid = _pid(boss, "069777111")
         rec = Client(s.url)
