@@ -1472,8 +1472,8 @@ dialog.dp-ask { width: 400px; }
 
 /* кнопка одонтограммы в блоке визита: 36px в правом нижнем углу (44 из
    макета в блоке часа 58px съедали бы и первую строку — на 1366 с четырьмя
-   врачами интервал с чипом туда не влезал); в сжатых видах её нет — там нет
-   места и для имени */
+   врачами интервал с чипом туда не влезал); в сжатых видах — меньше и по
+   центру строки (ниже) */
 .gappt .apact {
   position: absolute; right: 3px; bottom: 3px; width: 36px; height: 36px;
   display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-ctl);
@@ -1483,6 +1483,20 @@ dialog.dp-ask { width: 400px; }
 .gappt .apact:focus-visible { outline: none; box-shadow: var(--ring); }
 .gappt .apact svg { width: 20px; height: 20px; }
 .gappt.slim .apact, .gappt.tiny .apact, .gappt.bare .apact { display: none; }
+/* Сжатые виды на компьютере (13.10, вариант B — слово Олега): зуб и в
+   строке — справа по центру, меньше; место под него держит padding строки
+   в panel.css. У «только имя» и пустого блока его нет по-прежнему, телефон
+   живёт своей раскладкой блока. ⚠️ Кнопка не выше блока: абсолютный потомок
+   тоже растит scrollHeight, и fitAppts счёл бы строку непоместившейся. */
+@media (min-width: 641px) {
+  .gappt.slim:not(.tiny) .apact {
+    display: inline-flex; top: 50%; bottom: auto; transform: translateY(-50%);
+    width: 22px; height: 22px;
+  }
+  .gappt.slim:not(.tiny) .apact svg { width: 16px; height: 16px; }
+  .gappt.slim.duo:not(.tiny) .apact { width: 28px; height: 28px; }
+  .gappt.slim.duo:not(.tiny) .apact svg { width: 18px; height: 18px; }
+}
 
 /* «Primul loc liber»: врач, ближайший свободный час, кнопка-контур; внизу касса */
 .dp-free {

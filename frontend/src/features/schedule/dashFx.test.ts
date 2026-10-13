@@ -1,7 +1,7 @@
 import { act, render } from '@testing-library/react'
-import { createElement } from 'react'
+import { createElement, useRef } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CELL_MAX, CELL_MIN, cellPx, clinicNow, nowlineRows, useCardView, waitLabel } from './dashFx'
+import { CELL_MAX, CELL_MIN, cellPx, clinicNow, nowlineRows, useCardView, useFitAppts, waitLabel } from './dashFx'
 
 describe('dashFx — высота часа', () => {
   it('держится между полом и потолком', () => {
@@ -100,5 +100,43 @@ describe('dashFx — вид карточки визита', () => {
     expect(container.textContent).toBe('name')
     await act(async () => { document.documentElement.dataset.card = 'time' })
     expect(container.textContent).toBe('time')
+  })
+})
+
+describe('dashFx — ступени сжатия блока', () => {
+  /* jsdom геометрию не считает — сколько блок ПРОСИТ, подставлено по его
+     классам, а сколько у него есть — атрибутом: полный вид 58 px, две строки
+     40, одна строка 20, только имя 12, пустой блок — ноль. */
+  const NEED = (el: HTMLElement) => (el.classList.contains('bare') ? 0
+    : el.classList.contains('tiny') ? 12
+      : el.classList.contains('duo') ? 40
+        : el.classList.contains('slim') ? 20 : 58)
+  afterEach(() => {
+    delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight
+  })
+
+  function Probe({ heights }: { heights: number[] }) {
+    const body = useRef<HTMLDivElement>(null)
+    useFitAppts(body, 0, heights)
+    return createElement('div', { ref: body }, heights.map((h, i) =>
+      createElement('div', { key: i, className: 'gappt', 'data-h': h })))
+  }
+
+  it('⭐ две строки — раньше одной: блок берёт самый полный вид, какой влез (13.10)', () => {
+    /* До 13.10 ступени «две строки» не было: визит на 45 минут на ноутбуке
+       (блок 42 px) стоял одной строкой с пустотой под ней. Две строки —
+       разновидность сжатого вида (`slim duo`), а не своя ступень: правила
+       полного вида (`:not(.slim)`) её не задевают. */
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true, get() { return (this as HTMLElement).classList.contains('gappt') ? NEED(this) : 0 },
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true, get() { return Number((this as HTMLElement).dataset.h ?? 0) },
+    })
+    const { container } = render(createElement(Probe, { heights: [90, 42, 26, 14, 8] }))
+    expect([...container.querySelectorAll('.gappt')].map((a) => a.className)).toEqual([
+      'gappt', 'gappt slim duo', 'gappt slim', 'gappt slim tiny', 'gappt slim tiny bare',
+    ])
   })
 })

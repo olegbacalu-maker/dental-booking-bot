@@ -19,7 +19,11 @@
      внутри строки — и строки не наезжают друг на друга: сетка ужимала
      строки, и fitAppts не видел ничего (03.10);
   4. визит на 30 минут — сжат: полный туда не влезает;
-  5. у «времени впереди» сжатая строка начинается интервалом.
+  5. у «времени впереди» сжатая строка начинается интервалом;
+  6. (13.10, вариант B) визит на 15 минут — не ниже своего получасового слота
+     (пол блока — шаг сетки стартов);
+  7. в сжатом виде — имя и кнопка зуба, а статус словом: значка в углу нет;
+  8. визит на 45 минут при часе 64px — две строки (`slim duo`), а не одна.
 
 ⛔ Зелёный стенд сам по себе ничего не доказывает. Доказательство — ПАРА
 (`--pair`): та же раскладка сеткой вместо flex-переноса обязана дать красное
@@ -55,6 +59,8 @@ VIEWS = ("name", "time")
 
 # Длительности услуг стенда: короткая, средняя, длинная. 60 — у остальных.
 DUR = {"consult": 30, "hygiene": 45, "long": 120}
+# 15 минут — своя услуга: у фикстуры такой длины нет (13.10, вариант B)
+SHORT = {"id": "xray", "ro": "Radiografie dentară", "ru": "Рентген", "duration": 15}
 # (врач, час, услуга, имя, статус): у 60-минутных — каждое слово статуса,
 # которое печатается на блоке, и одно длинное имя.
 ROWS = [
@@ -66,6 +72,7 @@ ROWS = [
     ("d3", "10:00", "consult", "Proba Nu Venit", "noshow"),
     ("d4", "08:00", "long", "Proba Lung Popescu-Vasilescu", ""),
     ("d4", "10:00", "pain", "Proba In Cabinet", "arrived"),
+    ("d3", "11:00", "xray", "Proba Scurt", "waiting"),
 ]
 
 # Обрезанный по вертикали текст: за краем блока или внутри своей строки.
@@ -80,7 +87,9 @@ MEASURE = r"""(() => {
   const out = [];
   for (const a of document.querySelectorAll('.gappt:not(.gnote)')) {
     const r = a.getBoundingClientRect();
-    const mode = ['bare', 'tiny', 'slim'].find((c) => a.classList.contains(c)) || 'full';
+    const mode = ['bare', 'tiny', 'duo', 'slim'].find((c) => a.classList.contains(c)) || 'full';
+    const shown = (q) => { const e = a.querySelector(q); return !!e && getComputedStyle(e).display !== 'none' && e.getClientRects().length > 0; };
+    const nb = a.querySelector('b');
     const cut = [], rows = [];
     for (const k of a.querySelectorAll('b, small, .gtm, .stat')) {
       const s = getComputedStyle(k);
@@ -107,6 +116,8 @@ MEASURE = r"""(() => {
     const gtmShown = !!gtm && getComputedStyle(gtm).display !== 'none';
     out.push({
       title: a.getAttribute('title') || '', mode, h: Math.round(r.height * 10) / 10, cut,
+      odo: shown('.apact'), icon: shown('.stt'), word: shown('.gl1 .stat'),
+      nameW: nb && shown('b') ? Math.round(nb.getBoundingClientRect().width) : 0,
       startsWithTime: gtmShown && !!b && gtm.getBoundingClientRect().left <= b.getBoundingClientRect().left,
     });
   }
@@ -126,6 +137,7 @@ def prepare(dir_: pathlib.Path) -> None:
     for s in cfg.get("services", []):
         if s.get("id") in DUR:
             s["duration"] = DUR[s["id"]]
+    cfg["services"].append(SHORT)
     cfg.pop("ui", None)
     cfg.pop("_ui_comment", None)
     p.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
@@ -178,8 +190,21 @@ def verdict(view: str, m: dict) -> list[str]:
             bad.append(f"{who} ({dur}′): сжат в {b['mode']} — полный вид не влез в блок {b['h']}px")
         if dur <= 30 and b["mode"] == "full":
             bad.append(f"{who} ({dur}′): «полный» в блоке {b['h']}px — сжатие не сработало")
-        if view == "time" and b["mode"] == "slim" and not b["startsWithTime"]:
+        if view == "time" and b["mode"] in ("slim", "duo") and not b["startsWithTime"]:
             bad.append(f"{who} ({dur}′): сжатая строка «времени впереди» не начинается интервалом")
+        # 13.10, вариант B: короткий визит читается — имя, зуб, статус словом
+        half = int(m["cell"].rstrip("px") or 0) / 2 - 6
+        if dur < 30 and b["h"] < half - 0.5:
+            bad.append(f"{who} ({dur}′): блок {b['h']}px ниже своего слота ({half}px) — пол не держится")
+        if b["mode"] in ("slim", "duo"):
+            if not b["odo"]:
+                bad.append(f"{who} ({dur}′, {b['mode']}): нет кнопки зуба")
+            if b["nameW"] < 20:
+                bad.append(f"{who} ({dur}′, {b['mode']}): имени не видно ({b['nameW']}px)")
+            if b["icon"]:
+                bad.append(f"{who} ({dur}′, {b['mode']}): значок статуса в углу вместо слова")
+        if dur == 45 and m["cell"] == "64px" and b["mode"] != "duo":
+            bad.append(f"{who} (45′): при часе 64px — {b['mode']}, а не две строки")
     return bad
 
 

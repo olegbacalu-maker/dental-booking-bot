@@ -194,12 +194,17 @@ function onCardView(changed: () => void): () => void {
 }
 
 /**
- * Ступени сжатия блока: `slim` → `tiny` → `bare`, каждая следующая только
- * если предыдущая не влезла.
+ * Ступени сжатия блока, каждая следующая только если предыдущая не влезла:
+ * полный вид → `slim duo` (две строки: имя со временем и статусом, под ними
+ * услуга) → `slim` (одна строка) → `tiny` (только имя) → `bare`.
  *
+ * ⭐ Две строки — разновидность сжатого вида, а не своя ступень рядом: блок
+ * несёт и `slim`, поэтому правила полного вида (`:not(.slim)`) его не задевают.
+ * До 13.10 ступени не было, и визит на 45 минут на ноутбуке (блок 42 px)
+ * стоял одной строкой с пустотой под ней.
  * ⚠️ Ступень «только имя» появилась не сразу, и её отсутствие стоило релиза:
- * блок в 0.4 ячейки проваливался мимо slim прямо в «текста нет», и короткая
- * запись стояла в журнале безымянным пятном.
+ * короткий блок проваливался мимо slim прямо в «текста нет», и запись стояла
+ * в журнале безымянным пятном.
  * ⚠️ Перемер зависит от минут ожидания: текст «așteaptă N min» вписывается
  * ПОСЛЕ замера, и блок на грани переполняется — поэтому `tick` в зависимостях.
  */
@@ -209,11 +214,13 @@ export function useFitAppts(
   useLayoutEffect(() => {
     const gb = body.current
     if (!gb) return
+    const over = (a: HTMLElement) => a.scrollHeight > a.clientHeight
     for (const a of gb.querySelectorAll<HTMLElement>('.gappt')) {
-      a.classList.remove('slim', 'tiny', 'bare')
-      if (a.scrollHeight > a.clientHeight) a.classList.add('slim')
-      if (a.scrollHeight > a.clientHeight) a.classList.add('tiny')
-      if (a.scrollHeight > a.clientHeight) a.classList.add('bare')
+      a.classList.remove('slim', 'duo', 'tiny', 'bare')
+      if (over(a)) a.classList.add('slim', 'duo')
+      if (over(a)) a.classList.remove('duo')
+      if (over(a)) a.classList.add('tiny')
+      if (over(a)) a.classList.add('bare')
     }
   }, [body, tick, deps, view])
 }

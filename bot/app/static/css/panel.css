@@ -641,8 +641,9 @@
  .gappt.slim b svg,.gappt.slim .stt svg{width:12px;height:12px;vertical-align:-2px}
  /* tiny — не влезла и полная строка: остаётся ТОЛЬКО ИМЯ.
     ⚠️ Первая версия прятала здесь весь текст, и это была ошибка: самый низкий
-    блок, какой умеет сетка, — 0.4 ячейки (`_pos` держит этот пол), то есть 26px
-    при --cell:66 (было 16px, пока пол часа стоял на 56). Одиннадцатый кегль с
+    блок, какой умеет сетка, — полчаса (`canvas.pos` держит этот пол — шаг
+    сетки стартов), то есть 26px при --cell:64 (было 16px, пока пол часа стоял
+    на 56 и пол блока был 0.4 часа). Одиннадцатый кегль с
     line-height 1.1 — это 12.1px, и он туда
     входит, если убрать вертикальный padding и строчный значок у имени. Имя —
     единственное, что регистратура читает в блоке не наводя мышь, и прятать его,
@@ -663,7 +664,7 @@
  .gappt.tiny .stt{top:0}
  /* bare — страховка на случай, когда не влезает и имя: остаются цвет и полоса
     слева, то есть «кресло занято» и «какая работа», остальное в подсказке.
-    При нынешнем поле 0.4 ячейки и поле --cell 56px эта ветка недостижима, и
+    При нынешнем поле блока (полчаса) и полу часа 64px эта ветка недостижима, и
     пусть так и останется: она здесь ровно затем, чтобы обрезанного текста не
     было НИ ПРИ КАКОЙ высоте, а не потому, что мы её ждём. */
  .gappt.bare{padding:0}
@@ -707,12 +708,55 @@
    [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) b{order:2}
    [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small{order:3}
    [data-card="time"] .gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) .gt{display:none}
-   /* сжатая строка «времени впереди» тоже начинается временем: строка
-      интервала становится строчной, чипы в ней прячутся */
-   [data-card="time"] .gappt.slim:not(.gnote) .gl1{display:inline;margin-right:5px}
-   [data-card="time"] .gappt.slim:not(.gnote) .gl1 .chip,[data-card="time"] .gappt.slim:not(.gnote) .gl1 .stat,
-   [data-card="time"] .gappt.slim:not(.gnote) .gl1 .wait-min{display:none}
-   [data-card="time"] .gappt.slim:not(.gnote) .gt{display:none}
+   /* Сжатые виды (13.10, вариант B — слово Олега): одна строка (`slim`) или
+      две (`slim duo`) — время (у «времени впереди»), имя, статус СЛОВОМ,
+      услуга; кнопка зуба справа (app.css). Значка статуса в углу (`.stt`)
+      здесь нет — его не узнавали; он остаётся телефону.
+      Строка — flex, `.gl1` распускается (`display:contents`), и её чипы
+      встают ПОСЛЕ имени: в узкой колонке первой сжимается услуга, потом имя,
+      а время и слово статуса — нет. fitAppts мерит ВЫСОТУ, а у строки она
+      одна при любой ширине, поэтому порядок ступени не меняет.
+      ⛔ `:not(.tiny)` в каждом правиле: «только имя» тоже несёт `slim`
+      (ступени копятся), и без исключения ему вернулись бы время, статус
+      и услуга.
+      У двух строк — разрыв после имени (`::after` во всю ширину): первой
+      строкой время и имя, второй — слово статуса и услуга. Иначе в узкой
+      колонке (1366, четыре врача) статус съедал имя до 19px (card_fit).
+      Имя растёт с нулевого базиса: с базисом по тексту длинное имя ушло бы
+      на свою строку, и блок переполнился бы. */
+   .gappt.slim:not(.tiny):not(.gnote){display:flex;align-items:center;column-gap:6px;padding:2px 30px 2px 8px}
+   .gappt.slim.duo:not(.tiny):not(.gnote){flex-wrap:wrap;align-content:center;row-gap:1px;
+     padding-right:36px}
+   .gappt.slim:not(.tiny):not(.gnote) .gl1{display:contents}
+   .gappt.slim:not(.tiny):not(.gnote) .gtm{order:1;flex:none}
+   html:not([data-card="time"]) .gappt.slim:not(.tiny):not(.gnote) .gtm{display:none}
+   .gappt.slim:not(.tiny):not(.gnote) b{order:2;display:block;flex:0 1 auto;min-width:0;
+     font-size:var(--fs-m);overflow:hidden;text-overflow:ellipsis}
+   .gappt.slim.duo:not(.tiny):not(.gnote) b{flex:1 1 0}
+   .gappt.slim.duo:not(.tiny):not(.gnote)::after{content:'';order:3;flex-basis:100%;height:0}
+   .gappt.slim:not(.tiny):not(.gnote) .chip{order:3;flex:none}
+   /* слово статуса уступает имени ПЕРВЫМ: в узкой колонке (1366, три врача)
+      оно сжимается до цветной метки — полей чипа, — а имя остаётся целым */
+   .gappt.slim:not(.tiny):not(.gnote) .stat{order:3;flex:0 1000 auto;min-width:0;
+     overflow:hidden;text-overflow:ellipsis}
+   /* срочность — одним значком на красном: слово «Urgent» съело бы имя */
+   .gappt.slim:not(.tiny):not(.gnote) .chip.urg{font-size:0;gap:0;padding:0 4px}
+   /* минуты ожидания — в полном виде и в повестке; строке хватает слова статуса */
+   .gappt.slim:not(.tiny):not(.gnote) .wait-min{display:none}
+   .gappt.slim:not(.tiny):not(.gnote) small{order:4;display:block;flex:1 1 0;min-width:0;
+     overflow:hidden;text-overflow:ellipsis}
+   .gappt.slim.duo:not(.tiny):not(.gnote) .chip,.gappt.slim.duo:not(.tiny):not(.gnote) .stat{order:4;flex:none}
+   .gappt.slim.duo:not(.tiny):not(.gnote) small{order:5}
+   .gappt.slim:not(.tiny):not(.gnote) small::before{content:none}
+   [data-card="time"] .gappt.slim:not(.tiny):not(.gnote) .gt{display:none}
+   .gappt.slim:not(.tiny):not(.gnote) .stt{display:none}
+   /* Услуга в ОДНОЙ строке — только в широкой колонке: в узкой (1366, три
+      врача, ~230px) от неё оставался обрубок буквы. У «имени впереди» строка
+      услуги начинается временем и режется многоточием — её не прячем. */
+   .gcol{container-type:inline-size}
+   @container (max-width:280px){
+     [data-card="time"] .gappt.slim:not(.duo):not(.tiny):not(.gnote) small{display:none}
+   }
  }
  .gappt.gnote{border:1px dashed var(--line);background:repeating-linear-gradient(135deg,var(--line2) 0 6px,transparent 6px 12px);color:var(--text2)}
  /* Полоска вместо срезанных крайних закрытых рядов (08-11). Штриховка та же, что
@@ -1737,6 +1781,11 @@
  .ag-chips{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center}
  .ag-acts{display:flex;gap:8px;flex-wrap:wrap}
  .ag-acts .savebtn,.ag-acts .ag-odo,.ag-acts .ag-anam{flex:1 1 0;margin:0;min-width:0}
+ /* Три кнопки делят строку поровну (~87px в рельсе 336px), и «În cabinet» с
+    полями рецепта (18px) рвалась на две строки (13.10, Олег). Поля уже,
+    кегль — как у соседних ссылок, без переноса: влезает одной строкой. */
+ .ag-acts .savebtn{padding:0 8px;font-size:var(--fs-m);white-space:nowrap}
+ .ag-acts .ag-odo,.ag-acts .ag-anam{padding:0 6px}
  /* значок «есть комментарий» у имени (03.10, просьба Олега): по строке видно,
     что в карточке что-то написано; сам текст — в подсказке */
  .ag-b b svg,.gappt b svg{width:13px;height:13px;vertical-align:-2px;color:var(--text3)}
