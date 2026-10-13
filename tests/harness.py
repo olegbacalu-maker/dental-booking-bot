@@ -106,10 +106,15 @@ class Server:
     def _pin_legacy(self) -> None:
         """Пин СТАРОЙ страницы в фикстуре, которую скопировали мы сами.
 
-        ⛔ С 21.09 React отдаётся, когда ключа `ui.react` НЕТ: он стал
-        поверхностью продукта, а не рубильником выката. Почти каждый набор при
-        этом разбирает СТАРУЮ разметку как эталон — колонку времени дня, канву
-        панели, — и без пина двадцать наборов упали разбором чужой страницы.
+        ⚠️ С 13.10 пин НИЧЕГО не гасит: старых страниц у экранов больше нет
+        (сняты по разделам, журнал — последним), и рубильник, читавший ключ,
+        снят вместе с ними. Пин и ключ в фикстурах уходят шагом 6 снятия
+        старого интерфейса (docs/dentpilot-2/legacy-removal.md); наборы
+        `suite_switch` до тех пор проверяют, что ключ ничего не переключает.
+        До 13.10: с 21.09 React отдавался, когда ключа `ui.react` НЕТ, а почти
+        каждый набор разбирал СТАРУЮ разметку как эталон — колонку времени дня,
+        канву панели, — и без пина двадцать наборов упали бы разбором чужой
+        страницы.
         ⭐ Пин живёт ЗДЕСЬ, а не в четырёх файлах фикстур: список файлов —
         ровно та гниющая полярность, из-за которой следующая фикстура завелась
         бы без пина МОЛЧА, и набор на ней проверял бы не тот интерфейс.
@@ -946,6 +951,19 @@ def shell_model(page: str) -> dict:
     return json.loads(html.unescape(page.split('data-shell="', 1)[1].split('"', 1)[0]))
 
 
+def shell_signal(page: str, name: str) -> dict:
+    """Сигнал `name` оболочки React — `{"shown", "html"}`, баннер каркаса так,
+    как его рисует клиент. Проза баннера (`<b>`, `href='…'`) читается здесь
+    сырой: в странице она экранирована внутри атрибута.
+    ⛔ Модели на странице нет — AssertionError, а не пустой сигнал: проверка
+    «баннера нет» по странице без модели зеленела бы молча (журнал стал
+    оболочкой React 13.10, и проверки, читавшие разметку `/admin`, ослепли)."""
+    model = shell_model(page)
+    if not model:
+        raise AssertionError(f"на странице нет модели оболочки (data-shell): {page[:200]!r}")
+    return model["signals"][name]
+
+
 def pid_by_phone(c: Client, query: str) -> int:
     """id первой фиши, которую находит поиск списка (`GET /api/patients?q=`):
     телефон, имя, номер дела — как ищет стойка. Порядок — экрана (последний
@@ -954,6 +972,52 @@ def pid_by_phone(c: Client, query: str) -> int:
     rows = json.loads(r.body)["data"]["rows"] if r.status == 200 else []
     if not rows:
         raise AssertionError(f"поиск {query!r} никого не нашёл: {r.status} {r.body[:200]}")
+    return int(rows[0]["id"])
+
+
+# ---- журнал через JSON API (экраны журнала — только React с 13.10) ----
+# До снятия старого интерфейса наборы записывали визит формой `/admin/add` и
+# искали его номер разбором старой страницы дня (`/admin/status/<id>` в
+# «Lista zilei»). Тот же путь, которым это делает клиника, теперь — окно
+# «Programare nouă» и модель дня экрана «Programări».
+
+def add_appt(c: Client, day: str, time: str, name: str, phone: str = "",
+             doctor: str = "d2", service: str = "consult", **fields) -> Reply:
+    """Ручная запись (`POST /api/schedule/appointments`). Код — `reply.msg`
+    (`ok`, `ok_past`, `ok_other` — удача; остальное — отказ, как у окна)."""
+    return c.post_json("/api/schedule/appointments",
+                       {"date": day, "time": time, "doctor": doctor,
+                        "service": service, "name": name, "phone": phone, **fields})
+
+
+def day_model(c: Client, day: str = "", doctor: str = "", f: str = "") -> dict:
+    """День экрана «Programări» данными (`GET /api/schedule/day`): канва,
+    «Lista zilei», карточки, форма. Пустой `day` — сегодня сервера."""
+    q = urllib.parse.urlencode({k: v for k, v in (("date", day), ("doctor", doctor),
+                                                   ("f", f)) if v})
+    r = c.get("/api/schedule/day" + (f"?{q}" if q else ""))
+    if r.status != 200:
+        raise AssertionError(f"день {day!r} не отдан: {r.status} {r.body[:200]}")
+    return json.loads(r.body)["data"]
+
+
+def panel_live(c: Client, day: str = "") -> dict:
+    """Живое состояние «Panoul principal» (`GET /api/schedule/live?screen=panel`):
+    канва, повестка, мини-календарь, «La recepție». Пустой `day` — сегодня."""
+    r = c.get("/api/schedule/live?screen=panel" + (f"&date={day}" if day else ""))
+    if r.status != 200:
+        raise AssertionError(f"канал панели не ответил: {r.status} {r.body[:200]}")
+    return json.loads(r.body)["data"]
+
+
+def appt_id(c: Client, day: str, name: str = "") -> int:
+    """Номер визита дня — строка «Lista zilei» с этим именем пациента; без
+    имени — ПЕРВЫЙ визит дня по времени (так его находил разбор старого
+    списка). Заметки стойки не считаются: у них нет имени."""
+    rows = [r for r in day_model(c, day)["list"] if not r["is_note"]
+            and (not name or r["name"] == name)]
+    if not rows:
+        raise AssertionError(f"визита {name!r} на {day} нет в списке дня")
     return int(rows[0]["id"])
 
 

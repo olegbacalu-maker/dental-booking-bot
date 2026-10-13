@@ -49,8 +49,9 @@ def suite_desk(res: Result) -> None:
         res.check("следующий рабочий день по часам клиники — среда", nxt.isoformat(), "2026-10-07")
 
         def add(name: str, phone: str, d, t: str, doc: str = "d2") -> int:
-            c.post("/admin/add", adate=d.isoformat(), atime=t, adoctor=doc,
-                   aservice="consult", aname=name, aphone=phone, back="/admin/all")
+            c.post_json("/api/schedule/appointments", {"date": d.isoformat(), "time": t,
+                                                      "doctor": doc, "service": "consult",
+                                                      "name": name, "phone": phone})
             return _pid(c, phone)
 
         # сегодня, 09:00 (уже прошло): долг 300 после финала 500 и оплаты 200

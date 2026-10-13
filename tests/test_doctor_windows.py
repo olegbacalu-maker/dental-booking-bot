@@ -2,18 +2,19 @@
 
 Две родственные дыры одного корня (ревью 08-15): fits_clinic резал день обедом
 только при строгом зазоре с обеих сторон, а «Oricare disponibil» и серверные
-маршруты /admin/add и /admin/move проверяли занятость и окно КЛИНИКИ, но не
-окно ВРАЧА (work_from/work_to) — визит садился на час, когда врача нет.
+правила записи и переноса (`_add_appt`, `_move_appt`) проверяли занятость и
+окно КЛИНИКИ, но не окно ВРАЧА (work_from/work_to) — визит садился на час,
+когда врача нет.
 Ответ один на всех: eng.fits_doctor поверх тех же окон, что строит free_starts.
 """
 import json
 import os
-import re
 import subprocess
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from harness import BOT, PYTHON, TG_ON, Bot, Client, Result, Server, clinic_today
+from harness import (BOT, PYTHON, TG_ON, Bot, Client, Result, Server, appt_id, clinic_today,
+                     day_model)
 
 
 def _d(offset: int) -> str:
@@ -22,18 +23,14 @@ def _d(offset: int) -> str:
 
 def _add(c: Client, day: str, time: str, doctor: str, name: str,
          phone: str, service: str = "consult") -> str:
-    return c.post("/admin/add", adate=day, atime=time, adoctor=doctor,
-                  aservice=service, aname=name, aphone=phone,
-                  back="/admin/all").msg
+    return c.post_json("/api/schedule/appointments", {"date": day, "time": time,
+                                                     "doctor": doctor, "service": service,
+                                                     "name": name, "phone": phone}).msg
 
 
-def _row_of(page: str, name: str) -> str:
-    """Строка «Lista zilei» с этим пациентом (см. test_booking._row_of)."""
-    page = page.split("Lista zilei", 1)[-1]
-    for m in re.finditer(r"<tr class='[^']*'>.*?</tr>", page, re.S):
-        if name in m.group(0):
-            return m.group(0)
-    return ""
+def _row_of(c: Client, day: str, name: str) -> dict:
+    """Строка «Lista zilei» с этим пациентом — из модели дня."""
+    return next((r for r in day_model(c, day)["list"] if r["name"] == name), {})
 
 
 def suite_fits(res: Result) -> None:
@@ -125,18 +122,17 @@ def suite_any(res: Result) -> None:
                f"ответ бота: {texts[:160]!r}")
 
         c = Client(s.url).login()
-        row = _row_of(c.get(f"/admin/all?date={day}").body, "Ion Oricare")
-        res.ok("и в журнале визит стоит у вечернего врача",
-               "Zi Seara" in row and "Dimineata" not in row,
-               f"строка списка: {row[:160]!r}")
+        row = _row_of(c, day, "Ion Oricare")
+        res.check("и в журнале визит стоит у вечернего врача",
+                  row.get("doctor"), "Dr. Zi Seara")
 
 
 def suite_routes(res: Result) -> None:
-    """/admin/add и /admin/move проверяют график врача НА СЕРВЕРЕ.
+    """Запись и перенос проверяют график врача НА СЕРВЕРЕ.
 
-    Нижняя форма /admin/all предлагает любого врача и все получасы клиники,
-    а вкладка с журналом живёт с автообновлением — браузеру верить нельзя
-    (докстринг admin_move сам называет график врача причиной перепроверки).
+    Окно записи предлагает часы врача, но вкладка с журналом живёт долго, а
+    график меняется на другом экране — браузеру верить нельзя (докстринг
+    `_move_appt` сам называет график врача причиной перепроверки).
     """
     with Server(clinic="clinic_split.json") as s:
         c = Client(s.url).login()
@@ -163,19 +159,18 @@ def suite_routes(res: Result) -> None:
         # --- перенос ---
         day2 = _d(2)
         _add(c, day2, "15:00", "db", "Mutare Test", "022600500")
-        aid = _row_of(c.get(f"/admin/all?date={day2}").body,
-                      "Mutare Test").split("/admin/status/", 1)[1].split("'")[0]
+        aid = appt_id(c, day2, "Mutare Test")
 
         def move(to_time: str, to_doc: str) -> str:
-            return c.post(f"/admin/move/{aid}", mdate=day2, mtime=to_time,
-                          mdoctor=to_doc, back=f"/admin/all?date={day2}").msg
+            return c.post_json(f"/api/schedule/appointments/{aid}/move", {"date": day2,
+                                                                         "time": to_time,
+                                                                         "doctor": to_doc}).msg
 
         res.check("перенос утреннему врачу на 15:00 — отказ по его графику",
                   move("15:00", "da"), "outside_doc")
-        row = _row_of(c.get(f"/admin/all?date={day2}").body, "Mutare Test")
-        res.ok("отбитый визит остался у вечернего врача",
-               "Zi Seara" in row and "15:00" in row,
-               f"строка списка: {row[:160]!r}")
+        row = _row_of(c, day2, "Mutare Test")
+        res.check("отбитый визит остался у вечернего врача",
+                  (row.get("doctor"), row.get("time")), ("Dr. Zi Seara", "15:00"))
         res.check("перенос утреннему врачу на его утро — ok",
                   move("11:00", "da"), "ok_move")
         # переносу хватает 30 минут в окне врача — та же поблажка, что у
@@ -211,27 +206,37 @@ def suite_routes(res: Result) -> None:
 
 
 def suite_drop(res: Result) -> None:
-    """Ячейка С ЗАПИСЬЮ — тоже мишень перетаскивания (data-dk/data-h).
+    """Ячейка С ЗАПИСЬЮ — тоже мишень перетаскивания.
 
-    panel.js ищет цель через closest('td[data-h]'): без атрибута на занятой
-    ячейке бросок на 10:30 часа, где в 10:00 уже стоит визит, молча умирал —
-    хотя комментарий в _grid прямо требует «мишень, ЗАНЯТ час или нет».
+    Старая страница искала цель через closest('td[data-h]'), и без атрибута на
+    занятой ячейке бросок на 10:30 часа, где в 10:00 уже стоит визит, молча
+    умирал. У канвы (оба экрана журнала — 06.10) мишень — ячейка с
+    `cells[i] = true`: признак от ГРАФИКА врача, не от занятости, и визит
+    лежит поверх ячейки, а не вместо неё.
     """
     with Server() as s:
         c = Client(s.url).login()
         day = _d(1)
         _add(c, day, "10:00", "d2", "Drop Busy", "022600800")
-        for path in (f"/admin/all?date={day}", f"/admin/doctor/d2?date={day}"):
-            body = c.get(path).body
-            cell = re.search(r"<td data-dk='d2' data-h='10'>(?:(?!</td>).)*"
-                             r"Drop Busy", body, re.S)
-            res.ok(f"{path}: занятая ячейка несёт data-dk/data-h",
-                   bool(cell), "td с визитом 10:00 без drop-атрибутов")
+        for doctor in ("", "d2"):
+            canvas = day_model(c, day, doctor)["canvas"]
+            hours = [h["h"] for h in canvas["hours"]]
+            col = next((x for x in canvas["columns"] if x["id"] == "d2"), None)
+            where = f"день {'врача' if doctor else 'всех'}"
+            res.ok(f"{where}: занятый час 10:00 — мишень переноса",
+                   col is not None and 10 in hours and col["cells"][hours.index(10)],
+                   f"ячейка с визитом не принимает бросок: {col and col['cells']}")
+            res.ok(f"{where}: визит лежит в колонке своего врача",
+                   col is not None and any(b.get("name") == "Drop Busy"
+                                           for b in col["blocks"]),
+                   "блока визита нет в колонке d2")
     # обратная сторона: час ВНЕ приёма мишенью не стал
     with Server(clinic="clinic_hours.json") as s2:
         c2 = Client(s2.url).login()
-        grid = c2.get(f"/admin/all?date={_d(1)}").body
-        res.ok("закрытая ячейка по-прежнему не мишень",
-               "<td class='goff'></td>" in grid
-               and "goff' data-dk" not in grid,
-               "час вне приёма принимает бросок")
+        canvas = day_model(c2, _d(1))["canvas"]
+        hours = [h["h"] for h in canvas["hours"]]
+        lunch = [col["cells"][hours.index(13)] for col in canvas["columns"]
+                 if not col["orphan"]] if 13 in hours else []
+        res.ok("обед клиники — ряд, и его ячейки не мишени",
+               bool(lunch) and not any(lunch),
+               f"ряды {hours}, ячейки 13:00 {lunch}")

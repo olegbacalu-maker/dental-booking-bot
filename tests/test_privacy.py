@@ -14,8 +14,8 @@ import time
 import zipfile
 from datetime import date, timedelta
 
-from harness import (BOT, Client, Result, Server, TG_ON, _rmtree_settled, clinic_today,
-                     pid_by_phone)
+from harness import (BOT, Client, Result, Server, TG_ON, _rmtree_settled, appt_id,
+                     clinic_today, day_model, pid_by_phone)
 
 
 def _d(offset: int) -> str:
@@ -60,9 +60,9 @@ def _tmp_left(s: Server, prefix: str, budget: float = 3.0) -> list[str]:
 
 def _seed(c: Client) -> str:
     """Пациент со ВСЕМИ видами данных: визит, профиль, зуб, план, алерт, файл."""
-    c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
-           aservice="consult", aname="Export Test", aphone="022778899",
-           back="/admin/all")
+    c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00", "doctor": "d2",
+                                              "service": "consult", "name": "Export Test",
+                                              "phone": "022778899"})
     pid = _pid(c, "022778899")
     c.post_json(f"/api/patients/{pid}/profile", {"name": "Export Test", "phone": "022778899",
                                                 "email": "ex@example.com",
@@ -174,17 +174,18 @@ def suite_export_full(res: Result) -> None:
     """
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
-               aservice="consult", aname="Multi Vizite", aphone="022445566",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Multi Vizite", "phone": "022445566"})
         pid = _pid(c, "022445566")
         added = 1
         for i in range(2, 32):
             # день может оказаться выходным — считаем ПРИНЯТЫЕ, а не посланные,
             # иначе проверка зависит от того, на какой день недели её запустили
-            if c.post("/admin/add", adate=_d(i), atime="09:00", adoctor="d2",
-                      aservice="consult", aname="Multi Vizite",
-                      aphone="022445566", back="/admin/all").msg in ("ok", "ok_past"):
+            if c.post_json("/api/schedule/appointments", {"date": _d(i), "time": "09:00",
+                                                         "doctor": "d2", "service": "consult",
+                                                         "name": "Multi Vizite",
+                                                         "phone": "022445566"}).msg in ("ok", "ok_past"):
                 added += 1
         res.ok("для проверки набралось больше 20 визитов", added > 20,
                f"принято только {added} — проверка ничего не докажет")
@@ -201,9 +202,9 @@ def suite_erase(res: Result) -> None:
         c = Client(s.url).login()
 
         # --- ветка 1: контакт без лечения -> физическое удаление ---
-        c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
-               aservice="consult", aname="Doar Contact", aphone="022111222",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "10:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Doar Contact", "phone": "022111222"})
         pid = _pid(c, "022111222")
         res.check("фиша без лечения предлагает полное удаление", _card(c, pid)["erasure"], "delete")
 
@@ -218,7 +219,7 @@ def suite_erase(res: Result) -> None:
                c.get(f"/admin/patient/{pid}").status == 303, "фиша осталась")
         res.check("из поиска пациент исчез", _rows(c, "Doar+Contact"), [])
         res.ok("вместе с пациентом ушёл и его визит из журнала",
-               "Doar Contact" not in c.get(f"/admin/all?date={_d(1)}").body,
+               "Doar Contact" not in [r["name"] for r in day_model(c, _d(1))["list"]],
                "визит-сирота остался в журнале дня")
 
         # --- ветка 2: пациент с лечением -> обезличивание ---
@@ -259,9 +260,9 @@ def suite_erase(res: Result) -> None:
 
         # --- ветка 3: платёж БЕЗ лечения тоже запирает полное удаление ---
         # (вычеркнуть деньги = переписать кассу задним числом)
-        c.post("/admin/add", adate=_d(1), atime="11:00", adoctor="d3",
-               aservice="consult", aname="Doar Plata", aphone="022555777",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "11:00",
+                                                  "doctor": "d3", "service": "consult",
+                                                  "name": "Doar Plata", "phone": "022555777"})
         pid3 = _pid(c, "022555777")
         c.post_json(f"/api/patients/{pid3}/payments", {"amount": "300", "method": "card"})
         res.check("фиша с платежом предлагает только обезличивание",
@@ -321,9 +322,10 @@ def suite_erase_marker(res: Result) -> None:
     try:
         with Server(dir_=work) as s:
             c = Client(s.url).login()
-            c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
-                   aservice="consult", aname=f"Ion {_MARK}",
-                   aphone=_MARK_PHONE, back="/admin/all")
+            c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                      "doctor": "d2", "service": "consult",
+                                                      "name": f"Ion {_MARK}",
+                                                      "phone": _MARK_PHONE})
             pid = _pid(c, _MARK_PHONE)
             c.post_json(f"/api/patients/{pid}/profile", {"name": f"Ion {_MARK}",
                                                         "phone": _MARK_PHONE,
@@ -331,10 +333,8 @@ def suite_erase_marker(res: Result) -> None:
                                                         "address": f"str. {_MARK} 7",
                                                         "notes": f"vecin cu {_MARK}"})
             # комментарий визита — свободный текст рецепции
-            aid = c.get(f"/admin/all?date={_d(1)}").body.split(
-                "/admin/status/", 1)[1].split("'")[0].split('"')[0]
-            c.post(f"/admin/comment/{aid}", comment=f"vine cu {_MARK}",
-                   back="/admin/all")
+            aid = appt_id(c, _d(1))
+            c.post_json(f"/api/schedule/appointments/{aid}/comment", {"comment": f"vine cu {_MARK}"})
             # платёж с заметкой: note дублируется летописью («… — {note}»)
             c.post_json(f"/api/patients/{pid}/payments", {"amount": "500", "method": "numerar",
                                                          "note": f"transfer de la {_MARK}"})
@@ -367,17 +367,16 @@ def suite_erase_marker_delete(res: Result) -> None:
     try:
         with Server(dir_=work) as s:
             c = Client(s.url).login()
-            c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d3",
-                   aservice="consult", aname=f"Doar {_MARK}",
-                   aphone=_MARK_PHONE, back="/admin/all")
+            c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "10:00",
+                                                      "doctor": "d3", "service": "consult",
+                                                      "name": f"Doar {_MARK}",
+                                                      "phone": _MARK_PHONE})
             pid = _pid(c, _MARK_PHONE)
             c.post_json(f"/api/patients/{pid}/profile", {"name": f"Doar {_MARK}",
                                                         "phone": _MARK_PHONE,
                                                         "notes": f"ruda lui {_MARK}"})
-            aid = c.get(f"/admin/all?date={_d(1)}").body.split(
-                "/admin/status/", 1)[1].split("'")[0].split('"')[0]
-            c.post(f"/admin/comment/{aid}", comment=f"suna {_MARK}",
-                   back="/admin/all")
+            aid = appt_id(c, _d(1))
+            c.post_json(f"/api/schedule/appointments/{aid}/comment", {"comment": f"suna {_MARK}"})
             r = c.post_json(f"/api/patients/{pid}/erase", {"confirm": "STERG"})
             res.check("контакт без лечения удалён физически", r.msg, "ok_del")
         found = _scan_marker(work, (_MARK, _MARK_PHONE))
@@ -436,9 +435,9 @@ def suite_acord(res: Result) -> None:
     """
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
-               aservice="consult", aname="Acord Test", aphone="022556677",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "10:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Acord Test", "phone": "022556677"})
         pid = _pid(c, "022556677")
         # профиль с IDNP и адресом, но БЕЗ даты рождения — она должна
         # напечататься жёлтым пропуском
@@ -798,9 +797,8 @@ def suite_export_words(res: Result) -> None:
                    f"<td>{word}</td>" in page and f"<td>{code}</td>" not in page,
                    f"колонка осталась машинной: {code!r}")
 
-        aid = c.get(f"/admin/all?date={_d(1)}").body.split(
-            "/admin/status/", 1)[1].split("'")[0]
-        c.post(f"/admin/status/{aid}", to="noshow", back="/admin/all")
+        aid = appt_id(c, _d(1))
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "noshow"})
         page = _html_of(c, pid)
         res.ok("и «неявка» названа словом журнала",
                "<td>nu a venit</td>" in page and "<td>noshow</td>" not in page,

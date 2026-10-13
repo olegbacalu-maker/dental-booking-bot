@@ -11,27 +11,27 @@ function reply(status: number, body: unknown, head: Record<string, string> = {})
 
 const envelope = (data: unknown) => ({ ok: true, code: '', text: '', tone: 'ok', data })
 
-const SELF = { surface: 'react', version: '1.27.0' }
+const SELF = { version: '1.27.0' }
 const ok = <T,>(poll: {
-  fresh: boolean; data: T | null; tag?: string; version?: string; surface?: string
+  fresh: boolean; data: T | null; tag?: string; version?: string
 }): LiveResult<T> => ({
   kind: 'ok',
-  poll: { tag: 'h1', version: '1.27.0', surface: 'react', ...poll },
+  poll: { tag: 'h1', version: '1.27.0', ...poll },
 })
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('services/live — транспорт: четыре исхода, и ни один не исключение', () => {
-  it('200 отдаёт состояние, отпечаток, версию и ПОВЕРХНОСТЬ', async () => {
+  it('200 отдаёт состояние, отпечаток и версию', async () => {
     const f = vi.fn(async () => reply(200, envelope({ live: true, canvas: 1 }),
-      { 'X-DP-Hash': 'abc', 'X-DP-Surface': 'react' }))
+      { 'X-DP-Hash': 'abc' }))
     vi.stubGlobal('fetch', f)
 
     const r = await pollLive<{ live: boolean }>('/schedule/live?date=2026-09-19', '')
 
     expect(r).toEqual({
       kind: 'ok',
-      poll: { fresh: true, data: { live: true, canvas: 1 }, tag: 'abc', version: '1.27.0', surface: 'react' },
+      poll: { fresh: true, data: { live: true, canvas: 1 }, tag: 'abc', version: '1.27.0' },
     })
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('/api/schedule/live?date=2026-09-19')
@@ -46,14 +46,14 @@ describe('services/live — транспорт: четыре исхода, и н
     /* ⛔ Главная причина, по которой канал не ходит через api.request: там 204
        падает в default: и приезжает как «server 204», то есть ошибка сервера
        на самом частом ответе живого журнала. */
-    const f = vi.fn(async () => reply(204, null, { 'X-DP-Hash': 'abc', 'X-DP-Surface': 'react' }))
+    const f = vi.fn(async () => reply(204, null, { 'X-DP-Hash': 'abc' }))
     vi.stubGlobal('fetch', f)
 
     const r = await pollLive('/schedule/live', 'abc')
 
     expect(r).toEqual({
       kind: 'ok',
-      poll: { fresh: false, data: null, tag: 'abc', version: '1.27.0', surface: 'react' },
+      poll: { fresh: false, data: null, tag: 'abc', version: '1.27.0' },
     })
     const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
     expect(init.headers).toEqual({ 'X-DP-Hash': 'abc' })
@@ -100,18 +100,20 @@ describe('services/live — правило: что делать с ответо�
       .toEqual({ do: 'reload', why: 'version' })
   })
 
-  it('ЧУЖАЯ ПОВЕРХНОСТЬ → перезагрузка: это вторая половина отката', () => {
-    /* ⭐ Директор выключил флаг; сервер отдаёт по адресу старую страницу.
-       Узнать об этом открытая React-вкладка может только отсюда. */
-    expect(nextLive(ok({ fresh: true, data: { live: true }, surface: 'legacy' }), SELF))
-      .toEqual({ do: 'reload', why: 'surface' })
+  it('новую версию узнаёт даже в ТИХИЙ день, когда тела нет вовсе', () => {
+    /* ⛔ Ровно ради этого версия едет заголовком, а не полем data: на 204
+       поля не приехало бы никогда. */
+    expect(nextLive(ok({ fresh: false, data: null, version: '1.28.0' }), SELF))
+      .toEqual({ do: 'reload', why: 'version' })
   })
 
-  it('и узнаёт даже в ТИХИЙ день, когда тела нет вовсе', () => {
-    /* ⛔ Ровно ради этого поверхность едет заголовком, а не полем data: на 204
-       поля не приехало бы никогда. */
-    expect(nextLive(ok({ fresh: false, data: null, surface: 'legacy' }), SELF))
-      .toEqual({ do: 'reload', why: 'surface' })
+  it('⛔ поверхности больше нет: заголовок «legacy» ничего не перезагружает', async () => {
+    /* До 13.10 сервер говорил `X-DP-Surface`, какой экран живёт по адресу, и
+       вкладка перезагружалась на «legacy». Старой панели нет, и вопроса нет:
+       оставь правило — и профиль `ui.react: []` гонял бы панель по кругу. */
+    vi.stubGlobal('fetch', vi.fn(async () => reply(204, null,
+      { 'X-DP-Hash': 'abc', 'X-DP-Surface': 'legacy' })))
+    expect(nextLive(await pollLive('/schedule/live', 'abc'), SELF)).toEqual({ do: 'keep' })
   })
 
   it('пока человек тащит — не применяем, и отпечаток НЕ двигаем', () => {
@@ -124,7 +126,7 @@ describe('services/live — правило: что делать с ответо�
   })
 
   it('держим — сильнее перезагрузки: страницу не выдёргивают из-под мыши', () => {
-    expect(nextLive(ok({ fresh: true, data: { live: true }, surface: 'legacy' }), SELF, true))
+    expect(nextLive(ok({ fresh: true, data: { live: true }, version: '1.28.0' }), SELF, true))
       .toEqual({ do: 'keep' })
   })
 
@@ -149,7 +151,7 @@ describe('services/live — правило: что делать с ответо�
   it('пустая версия у одной из сторон перезагрузку НЕ вызывает', () => {
     /* ⚠️ Иначе страница, отданная без data-v, перезагружалась бы вечно. */
     expect(nextLive(ok({ fresh: false, data: null, version: '' }), SELF)).toEqual({ do: 'keep' })
-    expect(nextLive(ok({ fresh: false, data: null }), { surface: 'react', version: '' }))
+    expect(nextLive(ok({ fresh: false, data: null }), { version: '' }))
       .toEqual({ do: 'keep' })
   })
 })

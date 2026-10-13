@@ -25,7 +25,7 @@ React → отрисовка → раскладка. Красивая панел
      «ноль мутаций» в одиночку зелено и у намертво замершего экрана — самая
      частая форма ложного зелёного в этом проекте. Окно длиннее минуты
      намеренно (разбор у константы QUIET);
-  4. `?ui=legacy` возвращает старую панель, и она снова живая;
+  (4. `?ui=legacy` возвращал старую панель — сцена снята 13.10 вместе с ней);
   5. ⭐ ДВА БРАУЗЕРА (C26.5.3-g): A переносит визит мышью, B не делает ничего.
      Снимок A, снимок B и состояние БАЗЫ обязаны сойтись, а после команды у A
      не должно быть НИ ОДНОГО кадра с докомандным местом блока. ⚠️ Здесь
@@ -143,12 +143,14 @@ WATCH_JS = """(() => {
 
 def _seed(c: Client, day: str) -> None:
     """День с двумя врачами, заметкой стойки и ожидающим пациентом."""
-    c.post("/admin/add", adate=day, atime="09:00", adoctor="d2", aservice="consult",
-           aname="Ion Popa", aphone="069190190", back=f"/admin?date={day}")
-    c.post("/admin/add", adate=day, atime="12:00", adoctor="d3", aservice="consult",
-           aname="Maria Rusu", aphone="069190191", back=f"/admin?date={day}")
-    c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
-           ntext="Livrare materiale pentru cabinetul doi", back=f"/admin?date={day}")
+    c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00", "doctor": "d2",
+                                              "service": "consult", "name": "Ion Popa",
+                                              "phone": "069190190"})
+    c.post_json("/api/schedule/appointments", {"date": day, "time": "12:00", "doctor": "d3",
+                                              "service": "consult", "name": "Maria Rusu",
+                                              "phone": "069190191"})
+    c.post_json("/api/schedule/notes", {"date": day, "time": "15:00", "doctor": "d2",
+                                       "text": "Livrare materiale pentru cabinetul doi"})
 
 
 # Где стоит блок: `style.top` как его печатает React (доли ячейки в calc()).
@@ -325,9 +327,10 @@ def run(out: pathlib.Path) -> int:
 
             # --- 2. ⭐ второе рабочее место добавляет запись ---
             page.js(WATCH_JS)
-            other.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
-                       aservice="consult", aname="Vasile Nou", aphone="069190192",
-                       back=f"/admin?date={day}")
+            other.post_json("/api/schedule/appointments", {"date": day, "time": "10:00",
+                                                          "doctor": "d2", "service": "consult",
+                                                          "name": "Vasile Nou",
+                                                          "phone": "069190192"})
             t0 = time.time()
             arrived = None
             while time.time() - t0 < TICK:
@@ -456,11 +459,6 @@ def run(out: pathlib.Path) -> int:
                   f"{moved_at if moved_at is None else round(moved_at, 2)} с; "
                   f"кадров снято {len(frames)}")
             page_b.png(out / "05_two_clients_B.png")
-
-            # --- 4. мгновенный откат ---
-            page.go(f"/admin?date={day}&ui=legacy")
-            cdp.drain(1.0)
-            scene(page, "04_legacy", {"react": False, "live_wrap": True})
     finally:
         for p in (proc, proc_b):
             if p is not None:

@@ -23,8 +23,9 @@ def _seed(c: Client) -> dict[str, int]:
     диакритикой и добором до второй страницы. id идут по порядку заведения."""
 
     def add(name: str, phone: str, day: int, time: str, doc: str) -> int:
-        c.post("/admin/add", adate=_d(day), atime=time, adoctor=doc,
-               aservice="consult", aname=name, aphone=phone, back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(day), "time": time,
+                                                  "doctor": doc, "service": "consult",
+                                                  "name": name, "phone": phone})
         return pid_by_phone(c, phone)
 
     def charge(pid: int, price: int) -> None:

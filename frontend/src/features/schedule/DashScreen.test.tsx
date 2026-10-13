@@ -13,7 +13,6 @@ import type { DashAppt, DashModel } from './dash'
 
 const NOW = new Date(2026, 8, 19, 11, 30).getTime()
 const TODAY = clinicNow('', new Date(NOW)).day
-const SERIES = [0, 1, 2, 3, 2, 4, 5, 3, 2, 6, 4, 3, 7, 5]
 
 function model(over: Partial<DashModel> = {}): DashModel {
   return {
@@ -50,17 +49,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
         start_ms: NOW - 150 * 60_000, end_ms: NOW - 90 * 60_000, end: '10:00', in_at: '',
       }],
     },
-    tiles: [{
-      key: 'total', label: 'Programări', value: 1, icon: 'cal',
-      soft: 'var(--green-soft)', tone: 'var(--green)', filter: '',
-      href: `/admin/all?date=${TODAY}`, cls: '',
-      sub: { kind: 'same', diff: 0, dir: null, text: 'la fel ca ieri' }, series: SERIES,
-    }],
-    occupancy: {
-      label: 'Grad de ocupare', icon: 'trend', soft: 'var(--violet-soft)',
-      tone: 'var(--violet)', value: 13, series: SERIES,
-      from: { label: 'ieri', value: '10%' }, to: { label: 'azi', value: '13%' }, dir: 'up',
-    },
+    occupancy: { value: 13 },
     actions: { confirmed: [{ to: 'waiting', cls: 'b-wait', label: 'A venit', confirm: '' }] },
     note_actions: { confirmed: [{ to: 'cancelled', cls: 'b-cancel', label: 'Șterge', confirm: '' }] },
     note_ends: [10, 11, 12],
@@ -89,7 +78,7 @@ function model(over: Partial<DashModel> = {}): DashModel {
 
 function reply(status: number, data: unknown, head: Record<string, string> = {}): Response {
   const headers: Record<string, string> = {
-    'X-DP-V': '1.27.0', 'X-DP-Surface': 'react', 'X-DP-Hash': 'h1', ...head,
+    'X-DP-V': '1.27.0', 'X-DP-Hash': 'h1', ...head,
   }
   if (data !== null) headers['content-type'] = 'application/json'
   return new Response(
@@ -287,8 +276,8 @@ describe('C26.5.2: панель дня — экран целиком', () => {
        обещание, которое видит регистратура. */
     vi.stubGlobal('fetch', vi.fn(async () => reply(200, model())))
     await show()
-    /* 08.10 (макет): подсказки под сеткой нет; старую панель не зовёт нигде,
-       кроме отказа и остановки (Олег 06.10: «это не нужно») */
+    /* 08.10 (макет): подсказки под сеткой нет; старую панель не зовёт нигде
+       (Олег 06.10: «это не нужно»; с 13.10 её нет вовсе) */
     expect(document.querySelector('.dashmain .hint')).toBeNull()
     expect(document.querySelector('.dp-react-root a[href="/admin?ui=legacy"]')).toBeNull()
   })
@@ -315,11 +304,67 @@ describe('C26.5.2: панель дня — экран целиком', () => {
       expect(document.documentElement.classList.contains('anim')).toBe(false))
   })
 
-  it('движок молчит на первой загрузке → отказ с повтором, а не пустой экран', async () => {
+  it('движок молчит на первой загрузке → отказ с кнопкой, а не пустой экран', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
     mount()
     await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
-    expect(document.querySelector('.savebtn')).toBeTruthy()
+    expect(document.querySelector('.banner.err')!.textContent).toMatch(/Reîncercăm automat/)
+    expect(screen.getByRole('button', { name: /Reîncarcă/ })).toBeTruthy()
+    /* ⛔ Старой панели нет (13.10) — звать некуда */
+    expect(document.querySelector('a[href*="ui=legacy"]')).toBeNull()
+  })
+
+  it('⭐ отказ канала повторяется САМ: движок ожил — панель встала без человека', async () => {
+    /* Решение Олега 12.10: на упавшем канале — автоповтор и «Reîncarcă».
+       Типичный случай — движок перезапускается после тихого обновления, и
+       через несколько секунд отвечает снова. */
+    const f = vi.fn(async (): Promise<Response> => { throw new TypeError('offline') })
+    vi.stubGlobal('fetch', f)
+    mount()
+    await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
+    const before = f.mock.calls.length
+    f.mockImplementation(async () => reply(200, model()))
+    await vi.advanceTimersByTimeAsync(5_000)
+    await waitFor(() => expect(document.querySelector('.gridbody')).toBeTruthy())
+    expect(f.mock.calls.length).toBeGreaterThan(before)
+    expect(document.querySelector('.banner.err')).toBeNull()
+  })
+
+  it('пока движок молчит, повтор идёт раз в пять секунд — не чаще', async () => {
+    const f = vi.fn(async (): Promise<Response> => { throw new TypeError('offline') })
+    vi.stubGlobal('fetch', f)
+    mount()
+    await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
+    const before = f.mock.calls.length
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(f.mock.calls.length).toBe(before)
+    await vi.advanceTimersByTimeAsync(1_500)
+    await waitFor(() => expect(f.mock.calls.length).toBe(before + 1))
+    await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
+  })
+
+  it('«Reîncarcă» перезагружает документ', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
+    const reload = vi.fn()
+    const router = createMemoryRouter(
+      [screenRoute('/admin', <DashScreen reload={reload} />, loadDash)],
+      { initialEntries: [`/admin?date=${TODAY}`] })
+    render(<RouterProvider router={router} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Reîncarcă/ }))
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('непонятный ответ канала (4xx) → тоже повтор и кнопка, а не вечное молчание', async () => {
+    const f = vi.fn(async () => reply(200, model()))
+    vi.stubGlobal('fetch', f)
+    await show()
+    f.mockImplementation(async () => new Response('{}', { status: 422 }))
+    await vi.advanceTimersByTimeAsync(12_000)
+    await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
+    expect(document.querySelector('.banner.err')!.textContent).toMatch(/nu se mai actualizează/)
+    f.mockImplementation(async () => reply(200, model(), { 'X-DP-Hash': 'h9' }))
+    await vi.advanceTimersByTimeAsync(5_000)
+    await waitFor(() => expect(document.querySelector('.gridbody')).toBeTruthy())
   })
 })
 

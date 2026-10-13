@@ -9,12 +9,11 @@ import { loginUrl } from '../services/api'
  * места, где состав ответа разбирается по-своему, и они разойдутся; у старой
  * страницы этого не было по построению (тело и фрагмент считал один код), и
  * терять свойство на переезде нельзя.
- * ⚠️ Хук ничего не знает про панель: путь и поверхность приходят аргументами.
+ * ⚠️ Хук ничего не знает про панель: путь и версия приходят аргументами.
  * То, ЧТО делать с ответом, решает чистая `nextLive` (`services/live.ts`) —
  * здесь только таймер, видимость вкладки и хранение отпечатка.
- * ⛔ Поверхность и версия — ОТДЕЛЬНЫЕ строки, а не объект: объект-литерал от
- * вызывающего имеет новую ссылку на каждый рендер, и эффект перезапускался бы
- * вместе с таймером.
+ * ⛔ Версия — строкой, а не объектом: объект-литерал от вызывающего имеет
+ * новую ссылку на каждый рендер, и эффект перезапускался бы вместе с таймером.
  */
 export type LiveStatus = 'loading' | 'ready' | 'failed' | 'stopped' | 'leaving'
 
@@ -77,7 +76,6 @@ export interface LiveOptions<T = unknown> {
 
 export function useLive<T>(
   path: string,
-  surface: string,
   version: string,
   options: LiveOptions<T> = {},
 ) {
@@ -91,7 +89,7 @@ export function useLive<T>(
      и они остаются эффекту: он увидит засев не применённым и разберёт его. */
   const [first] = useState(() => {
     if (seed && seed !== 'pending' && seed.path === path) {
-      const act = nextLive(seed.res, { surface, version }, false)
+      const act = nextLive(seed.res, { version }, false)
       if (act.do === 'apply') {
         return { state: { status: 'ready', data: act.data, reason: null } as LiveState<T>, tag: act.tag, seed }
       }
@@ -148,7 +146,7 @@ export function useLive<T>(
     /* Один разбор на ответ из сети и на засев загрузчика: дверь одна. */
     const handle = (res: LiveResult<T>, mine: number) => {
       /* ⚠️ Предикат читается ЗДЕСЬ, в момент решения, а не при подписке. */
-      const act = nextLive(res, { surface, version }, now.current.hold())
+      const act = nextLive(res, { version }, now.current.hold())
       switch (act.do) {
         case 'leave':
           finish()
@@ -165,8 +163,8 @@ export function useLive<T>(
           return
         case 'apply':
           // ⛔ Ответ старее того, что уже на экране, — выбросить. Порядок
-          // проверяется ТОЛЬКО здесь: «сессия кончилась», «чужая поверхность»
-          // и «непонятный ответ» верны независимо от того, кто кого обогнал.
+          // проверяется ТОЛЬКО здесь: «сессия кончилась», «новая версия» и
+          // «непонятный ответ» верны независимо от того, кто кого обогнал.
           if (mine <= fresh.current) return
           fresh.current = mine
           // ⛔ Отпечаток двигается ТОЛЬКО здесь, вместе с данными: сдвинь его
@@ -218,7 +216,7 @@ export function useLive<T>(
       document.removeEventListener('visibilitychange', wake)
       ctl.abort()
     }
-  }, [path, surface, version, everyMs, attempt, seed])
+  }, [path, version, everyMs, attempt, seed])
 
   /** Повтор после неудачной ПЕРВОЙ загрузки. Отпечаток при этом не трогаем:
    *  данных на экране нет, и сравнивать не с чем. */

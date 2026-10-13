@@ -6,7 +6,7 @@ import { pollLive } from '../services/live'
 /* Ответы канала. Пустое тело — 204 «состояние прежнее». */
 function reply(status: number, data: unknown, head: Record<string, string> = {}): Response {
   const headers: Record<string, string> = {
-    'X-DP-V': '1.27.0', 'X-DP-Surface': 'react', ...head,
+    'X-DP-V': '1.27.0', ...head,
   }
   if (data !== null) headers['content-type'] = 'application/json'
   return new Response(
@@ -57,7 +57,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     vi.stubGlobal('fetch', f)
 
     const o = opts()
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', o))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', o))
 
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     expect(result.current.state.data).toEqual(day(1))
@@ -77,7 +77,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     vi.stubGlobal('fetch', f)
 
     const o = opts({ seed })
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', o))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', o))
     /* ⭐ данные на месте В ПЕРВОЙ ОТРИСОВКЕ (не после эффекта — иначе кадр
        пустоты), и запроса в сеть не было */
     expect(result.current.state.status).toBe('ready')
@@ -95,7 +95,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     const seed: LiveSeed<{ n: number }> = { path: '/schedule/live?date=2026-09-01', res: await pollLive('/schedule/live', '') }
     const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
     vi.stubGlobal('fetch', f)
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts({ seed })))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', opts({ seed })))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     expect(result.current.state.data).toEqual(day(1))
     expect(f).toHaveBeenCalledTimes(1)
@@ -104,7 +104,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
   it('204 не трогает данные и не делает экран «отказавшим»', async () => {
     const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
     vi.stubGlobal('fetch', f)
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts()))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', opts()))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
 
     f.mockImplementation(async () => reply(204, null, { 'X-DP-Hash': 'h1' }))
@@ -127,7 +127,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     const held = { now: false }
     const o = { ...opts(), hold: () => held.now }
     const { result } = renderHook(
-      () => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', o))
+      () => useLive<{ n: number }>('/schedule/live', '1.27.0', o))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
 
     held.now = true
@@ -154,7 +154,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     const f = vi.fn<Fetcher>(() => new Promise<Response>((res) => { gate.push(res) }))
     vi.stubGlobal('fetch', f)
     const { result } = renderHook(
-      () => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts()))
+      () => useLive<{ n: number }>('/schedule/live', '1.27.0', opts()))
 
     await waitFor(() => expect(gate.length).toBe(1))
     await act(async () => { gate[0]!(reply(200, day(1), { 'X-DP-Hash': 'h1' })) })
@@ -185,7 +185,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
     vi.stubGlobal('fetch', f)
     const { result } = renderHook(
-      () => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts()))
+      () => useLive<{ n: number }>('/schedule/live', '1.27.0', opts()))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     expect(f).toHaveBeenCalledTimes(1)
 
@@ -200,7 +200,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
        экономия у клиники, а не тонкость. */
     const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
     vi.stubGlobal('fetch', f)
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts()))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', opts()))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     expect(f).toHaveBeenCalledTimes(1)
 
@@ -213,15 +213,15 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     await waitFor(() => expect(f).toHaveBeenCalledTimes(2))
   })
 
-  it('ЧУЖАЯ ПОВЕРХНОСТЬ перезагружает страницу — и в тихий день тоже', async () => {
+  it('НОВАЯ ВЕРСИЯ перезагружает страницу — и в тихий день тоже', async () => {
     const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
     vi.stubGlobal('fetch', f)
     const o = opts()
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', o))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', o))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
 
-    /* 204: тела нет вовсе, и узнать об откате можно только по заголовку */
-    f.mockImplementation(async () => reply(204, null, { 'X-DP-Hash': 'h1', 'X-DP-Surface': 'legacy' }))
+    /* 204: тела нет вовсе, и узнать об обновлении можно только по заголовку */
+    f.mockImplementation(async () => reply(204, null, { 'X-DP-Hash': 'h1', 'X-DP-V': '1.28.0' }))
     await vi.advanceTimersByTimeAsync(12_000)
 
     await waitFor(() => expect(o.reload).toHaveBeenCalledTimes(1))
@@ -234,7 +234,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     const f = vi.fn(async () => reply(200, day(1), { 'X-DP-Hash': 'h1' }))
     vi.stubGlobal('fetch', f)
     const o = opts()
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', o))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', o))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
 
     f.mockImplementation(async () => new Response('{}', { status: 401, headers: { 'content-type': 'application/json' } }))
@@ -247,7 +247,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
   it('движок молчит на ПЕРВОЙ загрузке → «не удалось», а дальше — молча', async () => {
     const f = vi.fn<Fetcher>(async () => { throw new TypeError('offline') })
     vi.stubGlobal('fetch', f)
-    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', 'react', '1.27.0', opts()))
+    const { result } = renderHook(() => useLive<{ n: number }>('/schedule/live', '1.27.0', opts()))
 
     await waitFor(() => expect(result.current.state.status).toBe('failed'))
 
@@ -261,7 +261,7 @@ describe('useLive — первая загрузка и опрос ОДНИМ п�
     vi.stubGlobal('fetch', async () => new Response(
       JSON.stringify({ ok: false, code: '', text: '', tone: 'err', field: 'screen' }),
       { status: 422, headers: { 'content-type': 'application/json' } }))
-    const { result } = renderHook(() => useLive('/schedule/live?screen=nope', 'react', '1.27.0', opts()))
+    const { result } = renderHook(() => useLive('/schedule/live?screen=nope', '1.27.0', opts()))
 
     await waitFor(() => expect(result.current.state.status).toBe('stopped'))
     expect(result.current.state.reason).toBe('broken')

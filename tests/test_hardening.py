@@ -261,46 +261,48 @@ def suite_booking_race(res: Result) -> None:
         def race(entries: list[dict]) -> list[str]:
             barrier = threading.Barrier(len(entries))
 
-            def fire(kw: dict) -> str:
-                c = Client(s.url).login()     # вход ДО барьера: гонка — про add
+            def fire(body: dict) -> str:
+                c = Client(s.url).login()     # вход ДО барьера: гонка — про запись
                 barrier.wait()
-                return c.post("/admin/add", back="/admin/all", **kw).msg
+                return c.post_json("/api/schedule/appointments", body).msg
 
             with concurrent.futures.ThreadPoolExecutor(len(entries)) as ex:
                 return sorted(ex.map(fire, entries))
 
         got = race([
-            {"adate": day, "atime": "10:00", "adoctor": "d2",
-             "aservice": "consult", "aname": "Race Unu", "aphone": "060111111"},
-            {"adate": day, "atime": "10:00", "adoctor": "d2",
-             "aservice": "consult", "aname": "Race Doi", "aphone": "060222222"},
+            {"date": day, "time": "10:00", "doctor": "d2",
+             "service": "consult", "name": "Race Unu", "phone": "060111111"},
+            {"date": day, "time": "10:00", "doctor": "d2",
+             "service": "consult", "name": "Race Doi", "phone": "060222222"},
         ])
         res.check("тот же старт: ровно один успех", got, ["conflict", "ok"])
 
         # пересечение ДЛИТЕЛЬНОСТЬЮ, а не совпадение стартов: 14:00(60′) и
         # 14:30(60′) — уникальный индекс такое не ловит, только замок+_conflicts
         got = race([
-            {"adate": day, "atime": "14:00", "adoctor": "d2",
-             "aservice": "consult", "aname": "Race Trei", "aphone": "060333333"},
-            {"adate": day, "atime": "14:30", "adoctor": "d2",
-             "aservice": "consult", "aname": "Race Patru", "aphone": "060444444"},
+            {"date": day, "time": "14:00", "doctor": "d2",
+             "service": "consult", "name": "Race Trei", "phone": "060333333"},
+            {"date": day, "time": "14:30", "doctor": "d2",
+             "service": "consult", "name": "Race Patru", "phone": "060444444"},
         ])
         res.check("пересечение по длительности: ровно один успех",
                   got, ["conflict", "ok"])
 
         got = race([
-            {"adate": day, "atime": "16:00", "adoctor": "d3",
-             "aservice": "consult", "aname": "Race Cinci", "aphone": "060555555"},
-            {"adate": day, "atime": "16:00", "adoctor": "d4",
-             "aservice": "consult", "aname": "Race Sase", "aphone": "060666666"},
+            {"date": day, "time": "16:00", "doctor": "d3",
+             "service": "consult", "name": "Race Cinci", "phone": "060555555"},
+            {"date": day, "time": "16:00", "doctor": "d4",
+             "service": "consult", "name": "Race Sase", "phone": "060666666"},
         ])
         res.check("разные врачи не мешают друг другу", got, ["ok", "ok"])
 
         c = Client(s.url).login()
         res.check("слот после гонки действительно занят",
-                  c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
-                         aservice="consult", aname="Al Treilea",
-                         aphone="060777777", back="/admin/all").msg, "conflict")
+                  c.post_json("/api/schedule/appointments", {"date": day, "time": "10:00",
+                                                            "doctor": "d2",
+                                                            "service": "consult",
+                                                            "name": "Al Treilea",
+                                                            "phone": "060777777"}).msg, "conflict")
 
 
 def suite_punte_race(res: Result) -> None:

@@ -127,27 +127,6 @@ export interface DashCanvasModel {
   columns: DashColumn[]
 }
 
-/** Подпись под цифрой плитки. Четыре формы, и свести их к одной нельзя:
- *  они отвечают на разные вопросы. */
-export type DashSub =
-  | { kind: 'same'; diff: 0; dir: null; text: string }
-  | { kind: 'delta'; diff: number; dir: 'up' | 'dn'; text: string }
-  | { kind: 'static'; text: string }
-  | { kind: 'bot_new'; new: number; text: string }
-
-export interface DashTile {
-  key: string
-  label: string
-  value: number
-  icon: string
-  soft: string
-  tone: string
-  filter: string
-  href: string
-  cls: string
-  sub: DashSub
-  series: number[]
-}
 
 export interface DashAgendaItem {
   id: number
@@ -185,18 +164,11 @@ export interface DashAgenda {
   items: DashAgendaItem[]
 }
 
+/** Загрузка кресел дня — одно число для подзаголовка. ⚠️ Тренда к вчера и
+ *  ряда за две недели здесь больше нет: они жили на плитках «Azi», которые
+ *  React не рисует с 01.10, а сервер перестал считать 13.10. */
 export interface DashOccupancy {
-  label: string
-  icon: string
-  soft: string
-  tone: string
   value: number
-  series: number[]
-  /** «было → стало», а не разница в пунктах: п.п. пришлось объяснять даже
-   *  директору, и регистратура не обязана знать эту единицу. */
-  from: { label: string; value: string }
-  to: { label: string; value: string }
-  dir: 'up' | 'dn' | null
 }
 
 export interface DashMiniCalCell {
@@ -257,7 +229,6 @@ export interface DashModel {
   live: boolean
   canvas: DashCanvasModel
   agenda: DashAgenda
-  tiles: DashTile[]
   occupancy: DashOccupancy
   minical: DashMiniCal
   /* ---- то, чем живут диалоги (C26.5.3-a) ---- */

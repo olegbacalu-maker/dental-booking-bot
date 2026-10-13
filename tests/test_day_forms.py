@@ -1,124 +1,51 @@
-"""Договор дневных страниц с браузером (C25.5b): запись, карточка, перенос.
+"""Договор дня «Programări» с экраном (C25.5b): запись, заметка, карточка,
+перенос и «Lista zilei» — данными модели дня (`GET /api/schedule/day`).
 
-Сетку этих страниц уже держат `test_grid` (контракт построителя) и
-`test_schedule_api.suite_day_parity` (модель против разметки). Здесь —
-ВСЁ ОСТАЛЬНОЕ, что страница кладёт в браузер, чтобы журналом можно было
-пользоваться, а не только смотреть на него: список часов формы, диалог «+»,
-полезная нагрузка карточки визита и поля переноса.
+До 13.10 здесь пинилась разметка старой страницы (нижняя форма, диалог «+»,
+`CARDS`, `CS_SHOW`, таблица списка). Страницы нет; правила, ради которых пины
+писались, живут в модели, и проверяются в ней — каждое расходится молча:
 
-Пин пишется ДО переноса в React (порядок Олега), и вот почему именно эти
-места. Каждое из них расходится молча:
-
-* **Список врачей формы — НЕ колонки сетки.** `/admin/all` кормит форму
-  `eng.ACTIVE_DOCTORS`, а сетку — активными ПЛЮС выключенными, у которых есть
-  записи этого дня. Возьми React врачей из модели сетки — и регистратура
-  выберет выключенного, чтобы получить `bad_off` на ровном месте. У
-  разработчика такого врача обычно нет, и списки совпадают.
+* **Список врачей формы — НЕ врачи дня.** Форма — активные справочника, а
+  шапка дня — активные ПЛЮС выключенные, у которых есть записи этого дня.
+  Возьми экран врачей из шапки — и регистратура выберет выключенного, чтобы
+  получить `bad_off` на ровном месте. У разработчика такого врача обычно нет,
+  и списки совпадают.
 * **Часы в форме — часы ВРАЧА, и всегда на 30 минут**, независимо от
   длительности услуги. Пересчёт «по-умному» отнял бы 17:30 у получасового
   приёма — час, который сегодня законен.
-* **Пустое окно врача подменяется часами клиники** (`or half`): пустой
-  `<select>` не отправил бы поле вовсе, и вместо честного отказа вышел бы 422.
-* **Комментарий в карточке ПОЛНЫЙ, а в сетке обрезан до 60.** Возьми React
-  текст из карточки сетки — и пересохранение БЕЗ единой правки укоротит
-  комментарий (прайор 08-16: пересохранение обязано быть тождественным).
-* **CS_SHOW — транспонированный `_ACT_BUTTONS`.** Две записи одного правила;
-  разойдутся — закрытая запись потеряет кнопку возврата в одном месте и
-  сохранит в другом.
+* **Пустое окно врача подменяется часами клиники**: пустой выбор часа не
+  отправил бы время вовсе, и вместо честного отказа вышел бы отказ разбора.
+* **Комментарий в карточке ПОЛНЫЙ, в блоке канвы обрезан до 60, в списке —
+  до 80.** Возьми экран текст не оттуда — и пересохранение БЕЗ единой правки
+  укоротит комментарий (прайор 08-16: пересохранение обязано быть
+  тождественным).
 * **Перенос на СВОЁ место сервер принимает** (`ok_move` и строка в летописи).
-  Значит, «бросили туда же — ничего не делать» обязано жить в браузере, и это
-  не украшение.
+  Значит, «бросили туда же — ничего не делать» обязано жить в браузере.
 """
 import json
-import re
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today, pid_by_phone
-
-# --------------------------------------------------------------- разборщики
+from harness import Client, Result, Server, appt_id, clinic_today, day_model, pid_by_phone
 
 
-def _form(body: str) -> str:
-    """Нижняя форма записи целиком (пусто — формы на странице нет)."""
-    if '<form class="add"' not in body:
-        return ""
-    return body.split('<form class="add"', 1)[1].split("</form>", 1)[0]
+def _blocks(m: dict) -> list:
+    """Блоки канвы дня (все колонки)."""
+    return [b for col in m["canvas"]["columns"] for b in col["blocks"]]
 
 
-def _opts(block: str, name: str) -> list[str]:
-    """Значения <option> у поля с этим именем."""
-    if f"name='{name}'" in block:
-        tail = block.split(f"name='{name}'", 1)[1]
-    elif f'name="{name}"' in block:
-        tail = block.split(f'name="{name}"', 1)[1]
-    else:
-        return []
-    return re.findall(r"value='([^']*)'", tail.split("</select>", 1)[0])
-
-
-def _selected(block: str, name: str) -> str:
-    """Значение <option ... selected> — пусто, если предвыбора нет."""
-    if f"name='{name}'" in block:
-        tail = block.split(f"name='{name}'", 1)[1]
-    elif f'name="{name}"' in block:
-        tail = block.split(f'name="{name}"', 1)[1]
-    else:
-        return ""
-    m = re.search(r"value='([^']*)' selected", tail.split("</select>", 1)[0])
-    return m.group(1) if m else ""
-
-
-def _js_var(body: str, name: str):
-    """Значение инлайн-переменной страницы (`var CARDS = {…};`) как объект."""
-    tail = body.split(f"var {name} = ", 1)[1]
-    return json.loads(tail.split(";\n", 1)[0].rstrip(";"))
-
-
-def _cs_show(body: str) -> dict:
-    """CS_SHOW разобранный: {кнопка: [статусы]}. Литерал JS, не JSON."""
-    tail = body.split("var CS_SHOW = ", 1)[1].split("}}", 1)[0]
-    return {k: re.findall(r"'([a-z]+)'", v)
-            for k, v in re.findall(r"(\w+): \[([^\]]*)\]", tail)}
-
-
-def _row_actions(body: str, appt_id: str) -> list[str]:
-    """Статусы, которые предлагает кнопками строка списка дня."""
-    rows = re.findall(r"<tr class='[a-z]+'>(.*?)</tr>", body, re.S)
-    for tr in rows:
-        if f"<td>{appt_id}</td>" in tr[:40]:
-            return re.findall(r"name='to' value='([a-z]+)'", tr)
-    return []
-
-
-def _grid_card(body: str, appt_id: str) -> str:
-    """Блок записи В СЕТКЕ (а не в списке под ней)."""
-    grid = body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0]
-    m = re.search(r"<div class='appt[^']*' data-appt='" + appt_id + r"'.*?</div>\s*</td>",
-                  grid, re.S)
-    return m.group(0) if m else ""
-
-
-def _free_cell(body: str, dk: str, hour: int) -> str:
-    """Ячейка «+» этого врача в этом часу."""
-    m = re.search(r"<td data-dk='" + dk + r"' data-h='" + str(hour)
-                  + r"'><a class='free'.*?</a></td>", body, re.S)
-    return m.group(0) if m else ""
-
-
-def _seed(c: Client, day: str) -> list[str]:
+def _seed(c: Client, day: str) -> list[int]:
     """Шесть записей и заметка: по одной на каждое состояние конвейера."""
     for i, (hh, name) in enumerate((("08:00", "Sta Confirmat"), ("09:00", "Sta Venit"),
                                     ("10:00", "Sta Cabinet"), ("11:00", "Sta Finalizat"),
                                     ("12:00", "Sta Neprezentat"), ("13:00", "Sta Anulat"))):
-        c.post("/admin/add", adate=day, atime=hh, adoctor="d2", aservice="consult",
-               aname=name, aphone=f"06915010{i}", back=f"/admin/all?date={day}")
-    c.post("/admin/note", ndate=day, ntime="16:00", ndoctor="d2",
-           ntext="Livrare materiale", back=f"/admin/all?date={day}")
-    ids = re.findall(r"<tr class='[a-z]+'><td>(\d+)</td>",
-                     c.get(f"/admin/all?date={day}").body)
-    back = f"/admin/all?date={day}"
+        c.post_json("/api/schedule/appointments", {"date": day, "time": hh, "doctor": "d2",
+                                                  "service": "consult", "name": name,
+                                                  "phone": f"06915010{i}"})
+    c.post_json("/api/schedule/notes", {"date": day, "time": "16:00", "doctor": "d2",
+                                       "text": "Livrare materiale"})
+    ids = [r["id"] for r in day_model(c, day)["list"] if not r["is_note"]]
     for aid, to in zip(ids[1:], ("waiting", "arrived", "done", "noshow", "cancelled")):
-        c.post(f"/admin/status/{aid}", to=to, back=back)
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": to})
     return ids
 
 
@@ -126,85 +53,50 @@ def _seed(c: Client, day: str) -> list[str]:
 
 
 def suite_form(res: Result) -> None:
-    """Что нижняя форма предлагает выбрать — и чего не предлагает.
+    """Что окно записи предлагает выбрать — и чего не предлагает.
 
-    ⚠️ Часы у формы СВОИ, они не выводятся из сетки: сетка рисует непрерывный
-    диапазон с обеденным часом внутри (`hours_range`), а форма — только те
-    получасовые старты, куда влезает 30 минут приёма.
+    ⚠️ Часы у формы СВОИ, они не выводятся из канвы: канва рисует непрерывный
+    диапазон с обеденным часом внутри, а форма — только те получасовые старты,
+    куда влезает 30 минут приёма.
     """
     day = (clinic_today() + timedelta(days=3)).isoformat()
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=day, atime="09:00", adoctor="d3",
-               aservice="consult", aname="Pacient Trei", aphone="069151151",
-               back=f"/admin/all?date={day}")
-        body = c.get(f"/admin/all?date={day}").body
-        f = _form(body)
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00",
+                                                  "doctor": "d3", "service": "consult",
+                                                  "name": "Pacient Trei", "phone": "069151151"})
+        f = day_model(c, day)["form"]
 
         res.check("часы: получасовая сетка от открытия до последнего влезающего старта",
-                  (_opts(f, "atime")[:2], _opts(f, "atime")[-1]),
-                  (["07:00", "07:30"], "20:30"))
-        res.check("услуги — все из clinic.json, в его порядке и без предвыбора",
-                  (_opts(f, "aservice"), _selected(f, "aservice")),
-                  (["consult", "pain", "hygiene", "orphan", "long"], ""))
-        res.check("врачи формы — активные справочника",
-                  _opts(f, "adoctor"), ["d2", "d3", "d4"])
-        res.ok("дата — поле, а не подпись: записать можно и на другой день",
-               'type="date" name="adate"' in f and f'value="{day}"' in f,
-               "дата визита перестала быть полем")
-        res.ok("галочка «fără telefon» несёт имя поля и требование",
-               'name="anophone"' in f and 'data-for="aphone"' in f
-               and 'data-req="1"' in f, "галочка потеряла привязку к телефону")
-        res.ok("дата рождения ограничена сегодняшним днём",
-               'name="abirth"' in f and "max=" in f.split('name="abirth"', 1)[1][:40],
-               "поле рождения без потолка — «в будущем» отобьёт только сервер")
+                  (f["times"]["d2"][:2], f["times"]["d2"][-1]), (["07:00", "07:30"], "20:30"))
+        res.check("услуги — все из clinic.json, в его порядке",
+                  [x["id"] for x in f["services"]],
+                  ["consult", "pain", "hygiene", "orphan", "long"])
+        res.check("врачи формы — активные справочника", [x["id"] for x in f["doctors"]],
+                  ["d2", "d3", "d4"])
+        res.check("дата рождения ограничена сегодняшним днём клиники",
+                  f["birth_max"], clinic_today().isoformat())
 
-        # выключенный врач: колонка в сетке есть, строки в форме нет
+        # выключенный врач: в шапке дня он есть (у него записи), в форме — нет
         c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "concediu"})
-        body = c.get(f"/admin/all?date={day}").body
-        heads = re.findall(r"<a class='dh-n'[^>]*>([^<]+)</a>", body)
-        res.check("ВЫКЛЮЧЕННЫЙ ВРАЧ: колонка в сетке осталась, из формы ушёл",
-                  ("Dr. Activ Trei" in heads, "d3" in _opts(_form(body), "adoctor")),
+        m = day_model(c, day)
+        res.check("ВЫКЛЮЧЕННЫЙ ВРАЧ: в шапке дня остался, из формы ушёл",
+                  ("d3" in [x["id"] for x in m["doctors"]],
+                   "d3" in [x["id"] for x in m["form"]["doctors"]]),
                   (True, False))
-
-        # предвыбор из адреса
-        pre = _form(c.get(f"/admin/all?date={day}&doctor=d4&time_pre=10:30").body)
-        res.check("?doctor= и ?time_pre= предвыбирают врача и час",
-                  (_selected(pre, "adoctor"), _selected(pre, "atime")),
-                  ("d4", "10:30"))
-        res.check("час, которого нет в списке, предвыбора не даёт",
-                  _selected(_form(c.get(f"/admin/all?date={day}&time_pre=10:15").body),
-                            "atime"), "")
-
-        # фильтр плитки обязан пережить отправку формы
-        res.ok("back несёт фильтр плитки",
-               f'value="/admin/all?date={day}&amp;f=noshow"'
-               in _form(c.get(f"/admin/all?date={day}&f=noshow").body),
-               "после записи с отфильтрованной страницы фильтр потеряется")
-
-        # день врача: одна строка вместо выбора
-        doc = _form(c.get(f"/admin/doctor/d2?date={day}").body)
-        res.check("день врача: врач — скрытым полем, а не выпадающим списком",
-                  ("<input type='hidden' name='adoctor' value='d2'>" in doc,
-                   "name='adoctor'><option" in doc), (True, False))
-        res.ok("у выключенного врача формы нет вовсе",
-               _form(c.get(f"/admin/doctor/d3?date={day}").body) == "",
-               "страница выключенного врача предлагает в него записать")
+        res.check("день врача: в форме он один",
+                  [x["id"] for x in day_model(c, day, "d2")["form"]["doctors"]], ["d2"])
+        res.check("у выключенного врача формы нет вовсе",
+                  day_model(c, day, "d3")["form"], None)
 
     # часы ВРАЧА, а не клиники: два окна в одном дне
     with Server(clinic="clinic_split.json") as s:
         c = Client(s.url).login()
-        body = c.get(f"/admin/all?date={day}").body
-        times = _js_var(body, "DOC_TIMES")
-        res.check("DOC_TIMES: у каждого врача формы свои часы",
+        times = day_model(c, day)["form"]["times"]
+        res.check("у каждого врача формы свои часы",
                   ({"da", "db"} <= set(times), times["da"][0], times["da"][-1],
                    times["db"][0], times["db"][-1]),
                   (True, "09:00", "12:30", "14:00", "17:30"))
-        res.check("список в самом поле — часы врача, открытого по умолчанию",
-                  _opts(_form(body), "atime"), times["da"])
-        res.check("?doctor= меняет и список часов",
-                  _opts(_form(c.get(f"/admin/all?date={day}&doctor=db").body), "atime"),
-                  times["db"])
 
     # окно врача, целиком съеденное обедом: список подменяется часами клиники
     with Server(clinic="clinic_hours.json") as s:
@@ -214,7 +106,7 @@ def suite_form(res: Result) -> None:
                               {"name": "Dr. Activ Patru", "spec": "Protetică",
                                "work_from": 13, "work_to": 14,
                                "status": "activ", "auto_color": True}).status, 200)
-        times = _js_var(c.get(f"/admin/all?date={day}").body, "DOC_TIMES")
+        times = day_model(c, day)["form"]["times"]
         res.check("ПУСТОЕ ОКНО подменяется часами КЛИНИКИ, а не пустым списком",
                   (bool(times["d4"]), times["d4"][0], times["d4"][-1],
                    times["d4"] == times["d2"]),
@@ -226,79 +118,62 @@ def suite_form(res: Result) -> None:
                "форма предлагает записать в обед")
 
 
-# ---------------------------------------------------------- диалог «+» и заметки
+# ---------------------------------------------------------- заметки стойки
 
 
 def suite_slot(res: Result) -> None:
-    """Диалог свободной ячейки: чем его открывают и что он посылает."""
+    """Заметка стойки: концы блокировки и правила самой заметки."""
     day = (clinic_today() + timedelta(days=3)).isoformat()
     with Server() as s:
         c = Client(s.url).login()
-        body = c.get(f"/admin/all?date={day}").body
+        res.check("концы блокировки — час открытых слотов плюс один",
+                  day_model(c, day)["note_ends"], list(range(8, 22)))
 
-        cell = _free_cell(body, "d2", 10)
-        res.ok("«+» зовёт диалог с врачом, ЕГО ИМЕНЕМ и часом",
-               'openSlot.apply(null,[&quot;d2&quot;, &quot;Dr. Activ Doi&quot;, '
-               '&quot;10:00&quot;])' in cell,
-               f"проводка ячейки изменилась: {cell[:160]}")
-        res.ok("и остаётся ссылкой на страницу с тем же часом (без JS)",
-               f"href='/admin/all?date={day}&doctor=d2&time_pre=10:00#addform'" in cell,
-               "у «+» пропал запасной адрес")
+        def note_times() -> list[str]:
+            return [r["time"] for r in day_model(c, day)["list"] if r["is_note"]]
 
-        res.check("NOTE_ENDS: конец блокировки — час открытых слотов плюс один",
-                  _js_var(body, "NOTE_ENDS"), list(range(8, 22)))
-        res.ok("у диалога две вкладки: запись и заметка",
-               'id="tab_a"' in body and 'action="/admin/note"' in body
-               and 'id="m_until"' in body, "диалог «+» потерял вкладку")
-        res.ok("получас меняет только время ЗАПИСИ, не заметки",
-               "pickHalf" in body and "m_time_a" in body
-               and "m_time_n" not in body.split("function pickHalf", 1)[1].split("}", 1)[0],
-               "получас поехал в заметку — блокировки живут часами")
-        res.ok("текст заметки ограничен 120 знаками",
-               'name="ntext"' in body
-               and 'maxlength="120"' in body.split('name="ntext"', 1)[1][:120],
-               "ограничение длины заметки ушло из разметки")
-
-        # --- правила самой заметки (их переносит API, значит пин обязателен) ---
-        back = f"/admin/all?date={day}"
-        res.check("заметка на три часа: nuntil — ГОЛЫЙ час, граница верхняя открытая",
-                  c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
-                         ntext="Ședință", nuntil="18", back=back).msg, "ok_note")
-        rows = re.findall(r"<tr class='[a-z]+'><td>\d+</td><td>(\d\d:\d\d)</td>",
-                          c.get(f"/admin/all?date={day}").body)
+        res.check("заметка на три часа: until — ГОЛЫЙ час, граница верхняя открытая",
+                  c.post_json("/api/schedule/notes", {"date": day, "time": "15:00",
+                                                     "doctor": "d2", "text": "Ședință",
+                                                     "until": "18"}).msg, "ok_note")
         res.check("заблокированы 15, 16 и 17 — но не 18",
-                  [t for t in rows if t in ("15:00", "16:00", "17:00", "18:00")],
-                  ["15:00", "16:00", "17:00"])
+                  note_times(), ["15:00", "16:00", "17:00"])
         res.check("час занят — остальные лечь успели: part_note",
-                  c.post("/admin/note", ndate=day, ntime="17:00", ndoctor="d2",
-                         ntext="Altă pauză", nuntil="19", back=back).msg, "part_note")
+                  c.post_json("/api/schedule/notes", {"date": day, "time": "17:00",
+                                                     "doctor": "d2", "text": "Altă pauză",
+                                                     "until": "19"}).msg, "part_note")
         res.check("все часы заняты — conflict",
-                  c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
-                         ntext="A treia", nuntil="16", back=back).msg, "conflict")
+                  c.post_json("/api/schedule/notes", {"date": day, "time": "15:00",
+                                                     "doctor": "d2", "text": "A treia",
+                                                     "until": "16"}).msg, "conflict")
         res.check("конец раньше начала — bad",
-                  c.post("/admin/note", ndate=day, ntime="12:00", ndoctor="d2",
-                         ntext="Invers", nuntil="11", back=back).msg, "bad")
+                  c.post_json("/api/schedule/notes", {"date": day, "time": "12:00",
+                                                     "doctor": "d2", "text": "Invers",
+                                                     "until": "11"}).msg, "bad")
         res.check("пустой текст — bad",
-                  c.post("/admin/note", ndate=day, ntime="12:00", ndoctor="d3",
-                         ntext="   ", back=back).msg, "bad")
+                  c.post_json("/api/schedule/notes", {"date": day, "time": "12:00",
+                                                     "doctor": "d3", "text": "   "}).msg, "bad")
+        long_txt = "N" * 200
+        c.post_json("/api/schedule/notes", {"date": day, "time": "10:00", "doctor": "d3",
+                                           "text": long_txt})
+        res.check("текст заметки сервер режет до 120 знаков",
+                  [len(r["service"]) for r in day_model(c, day)["list"]
+                   if r["is_note"] and r["time"] == "10:00"], [120])
         c.post_json("/api/doctors/d4", {"name": "Dr. Activ Patru", "status": "concediu"})
         res.check("выключенному врачу заметку не ставим — и это «bad», не «bad_off»",
-                  c.post("/admin/note", ndate=day, ntime="12:00", ndoctor="d4",
-                         ntext="Concediu", back=back).msg, "bad")
+                  c.post_json("/api/schedule/notes", {"date": day, "time": "12:00",
+                                                     "doctor": "d4", "text": "Concediu"}).msg, "bad")
 
     with Server(clinic="clinic_hours.json") as s:
         c = Client(s.url).login()
         res.check("обед выпадает и из концов блокировки: 14:00 выбрать нельзя",
-                  _js_var(c.get(f"/admin/all?date={day}").body, "NOTE_ENDS"),
-                  list(range(8, 14)) + list(range(15, 22)))
+                  day_model(c, day)["note_ends"], list(range(8, 14)) + list(range(15, 22)))
         res.check("…ни в саму блокировку: обед перепрыгнут",
-                  c.post("/admin/note", ndate=day, ntime="12:00", ndoctor="d2",
-                         ntext="Peste pauză", nuntil="15",
-                         back=f"/admin/all?date={day}").msg, "ok_note")
-        rows = re.findall(r"<tr class='[a-z]+'><td>\d+</td><td>(\d\d:\d\d)</td>",
-                          c.get(f"/admin/all?date={day}").body)
+                  c.post_json("/api/schedule/notes", {"date": day, "time": "12:00",
+                                                     "doctor": "d2", "text": "Peste pauză",
+                                                     "until": "15"}).msg, "ok_note")
         res.check("заметка легла на 12 и 14, обеденного часа в ней нет",
-                  sorted(t for t in rows if t in ("12:00", "13:00", "14:00")),
+                  [r["time"] for r in day_model(c, day)["list"] if r["is_note"]],
                   ["12:00", "14:00"])
 
 
@@ -311,127 +186,100 @@ def suite_card(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         ids = _seed(c, day)
-        back = f"/admin/all?date={day}"
         long_text = "Alergie la penicilină; de sunat cu o zi înainte; " \
                     "vine cu mama; preferă dimineața"
-        res.check("длинный комментарий сохранён", len(long_text) > 60, True)
-        c.post(f"/admin/comment/{ids[0]}", comment=long_text, back=back)
-        body = c.get(back).body
-        cards = _js_var(body, "CARDS")
+        res.check("длинный комментарий длиннее блока", len(long_text) > 60, True)
+        c.post_json(f"/api/schedule/appointments/{ids[0]}/comment", {"comment": long_text})
+        m = day_model(c, day)
+        cards = m["cards"]
+        blk = next(b for b in _blocks(m) if b["id"] == ids[0])
 
         # call/callable (12.10) — отметка звонка и «можно ли её ставить»
-        # (`core.visits.call_fields`): тот же словарь едет и старой странице
-        res.check("состав карточки", sorted(cards[ids[0]]),
+        # (`core.visits.call_fields`)
+        res.check("состав карточки", sorted(cards[str(ids[0])]),
                   sorted(["name", "phone", "service", "doctor", "time", "comment",
                           "age", "status", "pid", "rec", "call", "callable"]))
-        res.check("КОММЕНТАРИЙ В КАРТОЧКЕ ПОЛНЫЙ, а в сетке обрезан до 60",
-                  (cards[ids[0]]["comment"], long_text[:60] in _grid_card(body, ids[0]),
-                   long_text in _grid_card(body, ids[0])),
-                  (long_text, True, False))
+        res.check("КОММЕНТАРИЙ В КАРТОЧКЕ ПОЛНЫЙ, в блоке канвы обрезок рядом — до 60",
+                  (cards[str(ids[0])]["comment"], blk["comment"], blk["comment_cut"]),
+                  (long_text, long_text, long_text[:60]))
         res.ok("заметки стойки карточки не имеют",
-               cards and all(v["service"] != "Livrare materiale"
-                             for v in cards.values()),
+               cards and all(v["service"] != "Livrare materiale" for v in cards.values()),
                "заметка попала в карточки — у неё нет ни пациента, ни исхода")
-        res.ok("ОТМЕНЁННАЯ запись карточку имеет, хотя из сетки исчезла",
-               cards.get(ids[5], {}).get("status") == "cancelled"
-               and f"data-appt='{ids[5]}'" not in
-               body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0],
+        res.ok("ОТМЕНЁННАЯ запись карточку имеет, хотя с канвы исчезла",
+               cards.get(str(ids[5]), {}).get("status") == "cancelled"
+               and ids[5] not in [b["id"] for b in _blocks(m)],
                "отменённую запись больше не открыть — вернуть её будет нечем")
         res.ok("карточка помнит фишу и наличие дневника",
-               cards[ids[0]]["pid"] and cards[ids[0]]["rec"] is False,
-               f"{cards[ids[0]]}")
+               cards[str(ids[0])]["pid"] and cards[str(ids[0])]["rec"] is False,
+               f"{cards[str(ids[0])]}")
 
-        # CS_SHOW и кнопки списка — одно правило в двух видах
-        cs = _cs_show(body)
-        to_of = {"waiting": "waiting", "arrived": "arrived", "done": "done",
-                 "noshow": "noshow", "cancel": "cancelled", "reopen": "confirmed"}
-        res.check("кнопок модалки шесть, и это весь конвейер",
-                  sorted(cs), sorted(to_of))
-        for i, st in enumerate(("confirmed", "waiting", "arrived", "done",
-                                "noshow", "cancelled")):
-            res.check(f"«{st}»: модалка и список предлагают одно и то же",
-                      sorted(_row_actions(body, ids[i])),
-                      sorted(to_of[k] for k, v in cs.items() if st in v))
+        # кнопки карточки — матрица `actions` по состоянию из карточки
+        res.check("на каждое состояние конвейера — свой набор кнопок",
+                  {st: [a["to"] for a in m["actions"][cards[str(aid)]["status"]]]
+                   for st, aid in zip(("confirmed", "waiting", "arrived", "done",
+                                       "noshow", "cancelled"), ids)},
+                  {"confirmed": ["waiting", "arrived", "done", "noshow", "cancelled"],
+                   "waiting": ["arrived", "done", "cancelled"],
+                   "arrived": ["done", "cancelled"],
+                   "done": ["confirmed"], "noshow": ["confirmed"],
+                   "cancelled": ["confirmed"]})
+        res.check("возврат спрашивают подтверждением",
+                  [a["confirm"] for a in m["actions"]["done"]],
+                  ["Redeschideți programarea (înapoi la «programată»)?"])
 
-        res.ok("возврат спрашивают подтверждением",
-               "Redeschideți programarea" in body, "возврат стал бесшумным")
-        res.ok("комментарий ограничен 300 знаками и в поле, и на сервере",
-               'maxlength="300"' in body, "ограничение ушло из разметки")
-        c.post(f"/admin/comment/{ids[1]}", comment="x" * 400, back=back)
+        c.post_json(f"/api/schedule/appointments/{ids[1]}/comment", {"comment": "x" * 400})
         res.check("длинный комментарий обрезан сервером",
-                  len(_js_var(c.get(back).body, "CARDS")[ids[1]]["comment"]), 300)
+                  len(day_model(c, day)["cards"][str(ids[1])]["comment"]), 300)
         res.check("комментарий стирается пустой строкой",
-                  (c.post(f"/admin/comment/{ids[1]}", comment="", back=back).msg,
-                   _js_var(c.get(back).body, "CARDS")[ids[1]]["comment"]),
+                  (c.post_json(f"/api/schedule/appointments/{ids[1]}/comment",
+                               {"comment": ""}).msg,
+                   day_model(c, day)["cards"][str(ids[1])]["comment"]),
                   ("ok_comment", ""))
 
         # отказы смены статуса
-        res.check("неизвестный статус — тихо назад, без баннера и без правки",
-                  (c.post(f"/admin/status/{ids[0]}", to="pending", back=back).msg,
-                   _js_var(c.get(back).body, "CARDS")[ids[0]]["status"]),
-                  ("", "confirmed"))
-        # час отменённой записи занят другим пациентом: возврат теперь отбивается
+        r = c.post_json(f"/api/schedule/appointments/{ids[0]}/status", {"to": "pending"})
+        res.check("неизвестный статус — отказ 422, запись не тронута",
+                  (r.status, r.msg, day_model(c, day)["cards"][str(ids[0])]["status"]),
+                  (422, "bad", "confirmed"))
+        # час отменённой записи занят другим пациентом: возврат отбивается
         res.check("час освободился и занят другим (иначе отказа ниже не будет)",
-                  c.post("/admin/add", adate=day, atime="13:00", adoctor="d2",
-                         aservice="consult", aname="Ocupa Ora",
-                         aphone="069151900", back=back).msg, "ok")
-        res.check("отказ уводит на СТРАНИЦУ, с которой пришли",
-                  c.post(f"/admin/status/{ids[5]}", to="confirmed",
-                         back=back).location.split("?")[0], "/admin/all")
-        res.check("а без внятного back — на панель дня",
-                  c.post(f"/admin/status/{ids[5]}", to="confirmed",
-                         back="http://evil.example").location, "/admin?msg=conflict")
+                  c.post_json("/api/schedule/appointments", {"date": day, "time": "13:00",
+                                                            "doctor": "d2",
+                                                            "service": "consult",
+                                                            "name": "Ocupa Ora",
+                                                            "phone": "069151900"}).msg, "ok")
+        r = c.post_json(f"/api/schedule/appointments/{ids[5]}/status", {"to": "confirmed"})
+        res.check("возврат в занятый час — отказ 409 «conflict»",
+                  (r.status, r.msg), (409, "conflict"))
 
 
 # ------------------------------------------------------------- перенос
 
 
 def suite_move(res: Result) -> None:
-    """Диалог переноса и то, что перетаскивание берёт из разметки.
+    """Перенос: бросок «туда же» и поля переноса у заметки.
 
-    Атрибуты самой записи (`data-min`/`data-dur`/`data-busy`/`data-mv`) пинит
-    `test_booking.suite_move`; здесь — остальные три четверти договора: имя в
-    диалоге, поля самого диалога и поведение сервера на бросок «туда же».
+    Поля самой записи (`min`/`dur`/`busy`/`movable`) пинит
+    `test_booking.suite_move`, мишени переноса — `test_doctor_windows.suite_drop`.
     """
     day = (clinic_today() + timedelta(days=3)).isoformat()
     with Server() as s:
         c = Client(s.url).login()
-        back = f"/admin/all?date={day}"
         long_name = "Alexandru-Constantin Popescu-Tăutu de la Ungheni"
-        res.check("имя длиннее сорока знаков", len(long_name) > 40, True)
-        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
-               aservice="consult", aname=long_name, aphone="069152152", back=back)
-        c.post("/admin/note", ndate=day, ntime="11:00", ndoctor="d2",
-               ntext="Livrare materiale", back=back)
-        body = c.get(back).body
-        ids = re.findall(r"<tr class='[a-z]+'><td>(\d+)</td>", body)
-
-        res.check("ИМЯ В ДИАЛОГЕ обрезано до сорока знаков",
-                  re.search(r"data-appt='" + ids[0] + r"'[^>]*data-nm=\"([^\"]*)\"",
-                            body).group(1), long_name[:40])
-        res.check("у заметки вместо имени пациента — её текст",
-                  re.search(r"data-appt='" + ids[1] + r"'[^>]*data-nm=\"([^\"]*)\"",
-                            body).group(1), "Livrare materiale")
-
-        for path in (back, f"/admin/doctor/d2?date={day}"):
-            page = c.get(path).body
-            missing = [x for x in ("movedlg", "mv_nm", "mv_from", "mv_to", "mv_time",
-                                   "mv_doc", "mv_warn", "mv_yes", "mv_form")
-                       if f'id="{x}"' not in page]
-            res.ok(f"{path}: диалог переноса на месте целиком",
-                   not missing, f"диалог потерял поля: {missing}")
-            res.ok(f"{path}: диалог несёт дату страницы и возврат",
-                   f'name="mdate" value="{day}"' in page
-                   and 'name="back"' in page.split('id="movedlg"', 1)[1],
-                   "перенос отправился бы без даты или без возврата")
-
-        res.ok("мишень переноса — приёмный час, ЗАНЯТЫЙ он или нет",
-               f"data-dk='d2' data-h='9'" in body,
-               "занятая ячейка перестала быть мишенью — 09:30 стало недоступно")
-
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": long_name, "phone": "069152152"})
+        c.post_json("/api/schedule/notes", {"date": day, "time": "11:00", "doctor": "d2",
+                                           "text": "Livrare materiale"})
+        m = day_model(c, day)
+        note = next(b for b in _blocks(m) if b["kind"] == "note")
+        res.check("заметку тоже можно перенести: она занимает час и тащится",
+                  (note["text"], note["busy"], note["movable"]),
+                  ("Livrare materiale", True, True))
+        aid = appt_id(c, day, long_name)
         res.check("БРОСОК НА СВОЁ МЕСТО сервер принимает как обычный перенос",
-                  c.post(f"/admin/move/{ids[0]}", mdate=day, mtime="09:00",
-                         mdoctor="d2", back=back).msg, "ok_move")
+                  c.post_json(f"/api/schedule/appointments/{aid}/move",
+                              {"date": day, "time": "09:00", "doctor": "d2"}).msg, "ok_move")
         pid = pid_by_phone(c, "069152152")
         feed = json.loads(c.get(f"/api/patients/{pid}").body)["data"]["activity"]["items"]
         res.ok("и пишет это в летопись пациента — значит охрана «туда же» "
@@ -444,121 +292,85 @@ def suite_move(res: Result) -> None:
 # ------------------------------------------------------- список дня
 
 
-def _rows(body: str) -> list[str]:
-    """Строки списка дня целиком (в порядке, в котором их печатает страница)."""
-    tail = body.split("<table class='list'>", 1)[1].split("</table>", 1)[0]
-    return re.findall(r"<tr class='[a-z]+'>.*?</tr>", tail, re.S)
-
-
-def _cells(tr: str) -> list[str]:
-    return re.findall(r"<td>(.*?)</td>", tr, re.S)
-
-
 def suite_list(res: Result) -> None:
-    """«Lista zilei»: что в строке, какие кнопки и как её фильтрует плитка.
+    """«Lista zilei»: что в строке, какие кнопки и как её режет отбор.
 
-    ⚠️ Список — НЕ сетка. Он показывает и отменённые записи (в сетке их нет), и
-    заметки стойки, и это единственное место, где заметку можно убрать и
+    ⚠️ Список — НЕ канва. Он показывает и отменённые записи (на канве их нет),
+    и заметки стойки, и это единственное место, где заметку можно убрать и
     вернуть: в карточку визита заметки не попадают по замыслу.
     ⛔ Один и тот же комментарий живёт на экране в ТРЁХ длинах: полный в
-    карточке, 80 знаков в списке, 60 в карточке сетки. Возьми в React не ту —
-    и пересохранение укоротит текст без единой правки (прайор 08-16).
+    карточке, 80 знаков в списке, 60 в блоке канвы. Возьми экран не ту — и
+    пересохранение укоротит текст без единой правки (прайор 08-16).
     """
     day = (clinic_today() + timedelta(days=3)).isoformat()
-    back = f"/admin/all?date={day}"
     with Server() as s:
         c = Client(s.url).login()
         long_cmt = "B" * 100
-        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2", aservice="pain",
-               aname="Ion Popa", aphone="069190190", back=back)
-        c.post("/admin/add", adate=day, atime="10:00", adoctor="d3", aservice="consult",
-               aname="Maria Rusu", aphone="069190191", back=back)
-        c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
-               ntext="Livrare materiale", back=back)
-        ids = re.findall(r"<tr class='[a-z]+'><td>(\d+)</td>", c.get(back).body)
-        c.post(f"/admin/comment/{ids[0]}", comment=long_cmt, back=back)
-        c.post(f"/admin/status/{ids[1]}", to="cancelled", back=back)
-        body = c.get(back).body
-        rows = _rows(body)
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00",
+                                                  "doctor": "d2", "service": "pain",
+                                                  "name": "Ion Popa", "phone": "069190190"})
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "10:00",
+                                                  "doctor": "d3", "service": "consult",
+                                                  "name": "Maria Rusu", "phone": "069190191"})
+        c.post_json("/api/schedule/notes", {"date": day, "time": "15:00", "doctor": "d2",
+                                           "text": "Livrare materiale"})
+        ids = [r["id"] for r in day_model(c, day)["list"]]
+        c.post_json(f"/api/schedule/appointments/{ids[0]}/comment", {"comment": long_cmt})
+        c.post_json(f"/api/schedule/appointments/{ids[1]}/status", {"to": "cancelled"})
+        m = day_model(c, day)
+        rows = m["list"]
 
         res.check("в списке ВСЕ записи дня, включая отменённую и заметку",
-                  len(rows), 3)
-        res.ok("а в сетке отменённой нет",
-               f"data-appt='{ids[1]}'" not in
-               body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0],
-               "отменённая запись осталась в сетке")
-        res.check("класс строки — состояние записи",
-                  [re.match(r"<tr class='([a-z]+)'>", r).group(1) for r in rows],
-                  ["confirmed", "cancelled", "confirmed"])
+                  [r["id"] for r in rows], ids)
+        res.ok("а на канве отменённой нет",
+               ids[1] not in [b["id"] for b in _blocks(m)],
+               "отменённая запись осталась на канве")
+        res.check("состояние строки — состояние записи",
+                  [r["status"] for r in rows], ["confirmed", "cancelled", "confirmed"])
 
-        first = _cells(rows[0])
-        res.check("колонки строки: номер, час, имя, телефон, услуга, врач, источник",
-                  (first[0], first[1], "069190190" in first[3],
-                   "Durere acută" in first[4], first[5]),
-                  (ids[0], "09:00", True, True, "Dr. Activ Doi"))
-        res.ok("имя открывает карточку визита, а не ведёт по ссылке",
-               f"openCard({ids[0]})" in first[2] and "class='plink'" in first[2],
-               "по имени в списке карточку больше не открыть")
-        res.ok("источник назван словом",
-               "manual" in first[6] and "notiță" in _cells(rows[2])[6],
-               "источник записи и заметки перестали различаться")
-        res.check("КОММЕНТАРИЙ В СПИСКЕ обрезан до 80 — не 60 и не полностью",
-                  (long_cmt[:80] in first[4], long_cmt[:81] in first[4],
-                   long_cmt[:60] in _grid_card(body, ids[0]),
-                   long_cmt[:61] in _grid_card(body, ids[0])),
-                  (True, False, True, False))
+        first = rows[0]
+        res.check("строка: час, имя, телефон, услуга, врач, срочность",
+                  (first["time"], first["name"], first["phone"], first["service"],
+                   first["doctor"], first["urgent"]),
+                  ("09:00", "Ion Popa", "069190190", "Durere acută", "Dr. Activ Doi", True))
+        res.check("источник назван словом",
+                  (first["source_label"], rows[2]["source_label"]), ("manual", "notiță"))
+        blk = next(b for b in _blocks(m) if b["id"] == ids[0])
+        res.check("КОММЕНТАРИЙ В СПИСКЕ обрезан до 80, в блоке канвы — до 60",
+                  (first["comment_cut"], first["comment"], blk["comment_cut"]),
+                  (long_cmt[:80], long_cmt, long_cmt[:60]))
 
-        note = _cells(rows[2])
+        note = rows[2]
         res.check("у заметки нет ни имени, ни телефона, а текст стоит услугой",
-                  (note[2].strip(), note[3].strip(), "Livrare materiale" in note[4]),
-                  ("", "", True))
+                  (note["is_note"], note["name"], note["phone"], note["service"]),
+                  (True, "", "", "Livrare materiale"))
         res.check("заметку можно убрать, и это её единственная кнопка",
-                  re.findall(r"name='to' value='([a-z]+)'", rows[2]), ["cancelled"])
-        c.post(f"/admin/status/{ids[2]}", to="cancelled", back=back)
-        gone = _rows(c.get(back).body)[2]
+                  [a["to"] for a in m["note_actions"][note["status"]]], ["cancelled"])
+        c.post_json(f"/api/schedule/appointments/{ids[2]}/status", {"to": "cancelled"})
+        m2 = day_model(c, day)
+        gone = m2["list"][2]
         res.check("убранная заметка предлагает вернуть — и спрашивает СВОИМ вопросом",
-                  (re.findall(r"name='to' value='([a-z]+)'", gone),
-                   "Restabiliți notița?" in gone,
-                   "Redeschideți programarea" in gone),
-                  (["confirmed"], True, False))
+                  [(a["to"], a["confirm"]) for a in m2["note_actions"][gone["status"]]],
+                  [("confirmed", "Restabiliți notița?")])
 
         # дневник визита помечает строку
         res.ok("визит записан в дневник (иначе метка ниже недостижима)",
                c.post_json(f"/api/visits/{ids[0]}", {"acuze": "Durere la rece",
-                                                    "diagnostic": "K02.1"}).msg.startswith("ok"), "дневник не сохранён")
-        res.ok("строка помечена «дневник заполнен»",
-               "rec-mark" in _rows(c.get(back).body)[0],
-               "по списку не видно, у кого консультация уже записана")
+                                                    "diagnostic": "K02.1"}).msg.startswith("ok"),
+               "дневник не сохранён")
+        res.check("строка помечена «дневник заполнен»",
+                  day_model(c, day)["list"][0]["rec"], True)
 
-        # плитка фильтрует СПИСОК, но не сетку
-        # ⚠️ сравнивать с СЕГОДНЯШНИМ состоянием страницы, а не со снимком выше:
-        # заметку между ними убрали, и она законно ушла из сетки
-        plain = c.get(back).body
-        f = c.get(f"{back}&f=urg").body
-        res.check("фильтр: свой заголовок с датой и только подходящие строки",
-                  (len(_rows(f)), _cells(_rows(f)[0])[0]), (1, ids[0]))
-        res.ok("баннер называет фильтр и счёт",
-               "Filtru:" in f and "urgențe" in f and "1 programări" in f,
-               "баннер фильтра изменился")
-        res.ok("второго, нефильтрованного списка на странице нет",
-               f.count("<table class='list'>") == 1, "список напечатан дважды")
-        res.check("сетка при фильтре не редеет",
-                  f.count("data-appt='"), plain.count("data-appt='"))
-        res.ok("выход из фильтра — ссылкой «arată tot»",
-               "arată tot" in f, "из фильтра нечем выйти")
-        # ⚠️ МЕСТО списка зависит от отбора: пришедший с плитки видит строки
-        # СРАЗУ, над сеткой, а полный список живёт внизу, под формой записи
-        res.check("отфильтрованный список стоит НАД сеткой, обычный — под формой",
-                  (f.index("<table class='list'>") < f.index("<table class='grid'>"),
-                   plain.index("<table class='list'>") > plain.index('<form class="add"')),
-                  (True, True))
+        # отбор режет СПИСОК, но не канву
+        plain = day_model(c, day)
+        f = day_model(c, day, f="urg")
+        res.check("отбор: только подходящие строки и подпись со счётом",
+                  ([r["id"] for r in f["list"]], f["filter"]),
+                  ([ids[0]], {"key": "urg", "label": "urgențe", "count": 1}))
+        res.check("канва при отборе не редеет", f["canvas"], plain["canvas"])
 
-        res.ok("Excel отдаётся ссылкой этого дня",
-               f"/admin/export.xlsx?from={day}&to={day}" in body, "ссылки на Excel нет")
-
-        doc = c.get(f"/admin/doctor/d2?date={day}").body
+        doc = day_model(c, day, "d2")
         res.check("день врача: список только его записей",
-                  [_cells(r)[5] for r in _rows(doc)], ["Dr. Activ Doi", "Dr. Activ Doi"])
-        res.ok("и Excel там не предлагается",
-               "/admin/export.xlsx" not in doc,
-               "у дня врача появилась выгрузка, которой не было")
+                  sorted({r["doctor"] for r in doc["list"]}), ["Dr. Activ Doi"])
+        res.check("у дня врача отбора нет вовсе",
+                  day_model(c, day, "d2", f="urg")["filter"], None)

@@ -123,10 +123,11 @@ def suite_api(res: Result) -> None:
                                ("10:00", "Bogdan Doi", "069400402", "d2"),
                                ("11:00", "Cezar Trei", "069400403", "d2"),
                                ("09:30", "Dina Alta", "069400404", "d3")):
-            c.post("/admin/add", adate=day, atime=hh, adoctor=dk,
-                   aservice="consult", aname=nm, aphone=ph)
-        c.post("/admin/note", ndate=day, ntime="12:00", ndoctor="d2",
-               ntext="Livrare materiale")
+            c.post_json("/api/schedule/appointments", {"date": day, "time": hh, "doctor": dk,
+                                                      "service": "consult", "name": nm,
+                                                      "phone": ph})
+        c.post_json("/api/schedule/notes", {"date": day, "time": "12:00", "doctor": "d2",
+                                           "text": "Livrare materiale"})
 
         def get(q=f"?doctor=d2&date={day}"):
             return json.loads(c.get("/api/chair" + q).body)["data"]
@@ -216,11 +217,14 @@ def suite_page(res: Result) -> None:
         res.ok("без врача — узел без параметров (экран предложит выбор)",
                'data-screen="chair"' in page.body and "data-params" not in page.body.split('data-screen="chair"')[1][:200],
                "параметры есть")
-    with Server() as s2:                    # фикстура: ui.react = [] — старое везде
+    with Server() as s2:                    # фикстура: ui.react = [] (пин харнесса)
         c = Client(s2.url).login()
+        # старой страницы у кресла не было никогда; до 13.10 без React адрес
+        # уводил в день врача — теперь рубильника нет, и экран один
         r = c.get("/admin/cabinet?doctor=d2")
-        res.ok("без React — день врача", r.status == 303 and r.location.endswith("/admin/doctor/d2"),
-               f"{r.status} {r.location!r}")
+        res.ok("при любом профиле — тот же React-экран", r.status == 200
+               and 'data-screen="chair"' in r.body, f"{r.status} {r.location!r}")
         r = c.get("/admin/cabinet")
-        res.ok("без React и без врача — панель", r.status == 303 and r.location.endswith("/admin"),
+        res.ok("и без врача — тоже он, без редиректа",
+               r.status == 200 and 'data-screen="chair"' in r.body,
                f"{r.status} {r.location!r}")

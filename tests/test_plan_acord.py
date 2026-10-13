@@ -21,7 +21,7 @@ import sys
 import zipfile
 from datetime import date, timedelta
 
-from harness import BOT, Client, Result, Server, clinic_today, pid_by_phone
+from harness import BOT, Client, Result, Server, appt_id, clinic_today, pid_by_phone
 
 
 def _pid(c: Client, phone: str) -> str:
@@ -54,9 +54,10 @@ def _iids(c: Client, pid) -> list:
 def _setup(c: Client) -> str:
     """Пациент с планом из трёх позиций: две останутся активными, одну
     отвергнет пациент."""
-    c.post("/admin/add", adate=(clinic_today() + timedelta(days=1)).isoformat(),
-           atime="09:00", adoctor="d2", aservice="consult",
-           aname="Refuz Test", aphone="022777888", back="/admin/all")
+    c.post_json("/api/schedule/appointments", {"date": (clinic_today() + timedelta(days=1)).isoformat(),
+                                              "time": "09:00", "doctor": "d2",
+                                              "service": "consult", "name": "Refuz Test",
+                                              "phone": "022777888"})
     pid = _pid(c, "022777888")
     c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Extracție 36", "tooth": "36",
                                              "price": "900", "doctor": "Dr. Ana"})
@@ -172,9 +173,7 @@ def suite_refuz_not_active(res: Result) -> None:
                   [(r["name"], r["status"]) for r in rows], [("Refuz Test", "tratament")])
 
         # визит не предлагает отметить отказанное как выполненное
-        aid = c.get(f"/admin/all?date="
-                    f"{(clinic_today() + timedelta(days=1)).isoformat()}"
-                    ).body.split("/admin/status/", 1)[1].split("'")[0]
+        aid = appt_id(c, (clinic_today() + timedelta(days=1)).isoformat())
         opened = [x["text"] for x in json.loads(c.get(f"/api/visits/{aid}").body)["data"]["plan"]["open"]]
         res.ok("в консультации нет галочки на отказанное",
                any("Obturație 26" in t for t in opened) and not any("Extracție 36" in t for t in opened),

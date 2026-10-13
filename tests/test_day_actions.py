@@ -1,36 +1,21 @@
 """Действия дня через JSON (C25.5b): запись, заметка, комментарий, статус, перенос.
 
-Пин самих правил — `test_day_forms` (что страница отдаёт браузеру) и
-`test_booking` (что сервер делает с формой). Здесь проверяется третье: JSON
-говорит О ТОМ ЖЕ.
-
-Два вопроса, на которые отвечает набор:
+Что модель дня отдаёт окнам — `test_day_forms`; что сервер делает с записью —
+`test_booking`. Здесь два вопроса:
 
 1. **Модель несёт всё, чем пользуются диалоги.** Список врачей ФОРМЫ (не
-   колонок сетки), их часы, услуги, концы блокировки, карточки визитов и
-   матрица кнопок. Карточки сверяются с литералом `CARDS` старой страницы —
-   поле в поле, потому что именно там лежит полный комментарий, который в
-   сетке обрезан до 60.
-2. **Один ввод — один код.** Форма отвечает редиректом с `?msg=`, API —
-   конвертом с тем же кодом. Разойдись они, React принимал бы визит, который
-   старая страница отвергает (или наоборот), и увидела бы это клиника.
-
-⚠️ Отказы проверяются ОБОИМИ путями на одном сервере намеренно: отказ ничего
-не меняет, поэтому сравнение честное. Удачи разведены по часам и врачам.
-
-⛔ Пустое поле в сравнении не участвует, и это не лень: ПУСТОЕ поле формы до
-сервера не доезжает вовсе (Starlette отбрасывает пустые значения urlencoded),
-и обязательный `Form(...)` отвечает 422 раньше нашего кода — а через JSON
-пустая строка доезжает и получает честный `bad_name`. Пустым полем сравнение
-проверяло бы транспорт, а не правило. Правило ловится ПРОБЕЛАМИ: их браузер
-пропускает (`required` доволен), сервер обрезает, и оба пути отвечают
-одинаково.
+   шапки дня), их часы, услуги, концы блокировки, карточки визитов и матрица
+   кнопок — и карточка с блоком канвы описывают ОДНУ запись поле в поле.
+2. **Действие отвечает кодом, удача — свежим днём экрана.** Отказ называет
+   себя кодом и полем (`MSG_BANNER`), и код один на все входы: окно записи
+   «Programări», диалог часа на панели и фиша зовут одно правило. До 13.10
+   третий вход — форма старой страницы — сверялся здесь с API отказ в отказ
+   (`suite_parity`); форм нет, и сверка стала буквальной таблицей кодов.
 """
 import json
-import re
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import Client, Result, Server, appt_id, clinic_today
 
 
 def _j(r) -> dict:
@@ -46,13 +31,9 @@ def _day_f(c: Client, date_: str, f: str) -> dict:
     return _j(c.get(f"/api/schedule/day?date={date_}&f={f}"))["data"]
 
 
-def _ids(c: Client, date_: str) -> list[str]:
-    return re.findall(r"<tr class='[a-z]+'><td>(\d+)</td>",
-                      c.get(f"/admin/all?date={date_}").body)
-
-
 def _items(model: dict) -> list[dict]:
-    return [x for h in model["hours"] for cl in h["cells"] for x in cl["items"]]
+    """Блоки канвы дня — визиты и заметки, которые видны на экране."""
+    return [b for col in model["canvas"]["columns"] for b in col["blocks"]]
 
 
 # ------------------------------------------------------------ модель
@@ -63,27 +44,24 @@ def suite_model(res: Result) -> None:
     day = (clinic_today() + timedelta(days=3)).isoformat()
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=day, atime="09:00", adoctor="d3",
-               aservice="consult", aname="Ion Popa", aphone="069160160",
-               back=f"/admin/all?date={day}")
-        aid = _ids(c, day)[0]
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00",
+                                                  "doctor": "d3", "service": "consult",
+                                                  "name": "Ion Popa", "phone": "069160160"})
+        aid = str(appt_id(c, day, "Ion Popa"))
         long_text = ("Alergie la penicilină; de sunat cu o zi înainte; "
                      "vine cu mama; preferă dimineața")
-        c.post(f"/admin/comment/{aid}", comment=long_text, back=f"/admin/all?date={day}")
+        c.post_json(f"/api/schedule/appointments/{aid}/comment", {"comment": long_text})
 
         m = _day(c, day)
         # 06.10: `day_label` — подпись шапки дня (её строит сервер, как у
         # панели), `canvas` — канва панели, которой экран рисует день,
         # `source_col` — показывать ли «Sursă» (только при боте).
+        # ⚠️ Таблицы старой страницы (`hours` с ячейками) в модели больше нет:
+        # клиент её не читал с 06.10, а страница снята 13.10.
         res.check("в модели есть всё, чем живут шапка, канва, окна и список",
-                  sorted(set(m) - {"date", "doctors", "hours"}),
+                  sorted(set(m) - {"date", "doctors"}),
                   ["actions", "canvas", "cards", "day_label", "day_long", "filter", "form", "list",
                    "note_actions", "note_ends", "source_col"])
-
-        page = c.get(f"/admin/all?date={day}").body
-        res.check("КАРТОЧКИ — те же, что печатает страница, поле в поле",
-                  m["cards"], json.loads(page.split("var CARDS = ", 1)[1]
-                                         .split(";\n", 1)[0].rstrip(";")))
         # ⛔ ТРИ значения, а не два (C26.5.2). Обрезок больше не носит имени
         # полного: в блоке сетки рядом лежат `comment` (полное, источник
         # правки и участник отпечатка живого канала) и `comment_cut` (60, то,
@@ -106,25 +84,20 @@ def suite_model(res: Result) -> None:
                   {k: blk.get(k) for k in shared},
                   {k: card.get(k) for k in shared})
 
-        res.check("часы формы — те же, что в DOC_TIMES страницы",
-                  m["form"]["times"],
-                  json.loads(page.split("var DOC_TIMES = ", 1)[1].split(";\n", 1)[0]))
-        res.check("концы блокировки — те же, что в NOTE_ENDS страницы",
-                  m["note_ends"],
-                  json.loads(page.split("var NOTE_ENDS = ", 1)[1].split(";\n", 1)[0]))
-        res.check("услуги — те же и в том же порядке",
+        res.check("часы формы — у каждого врача формы, от открытия до 20:30",
+                  {dk: (t[0], t[-1]) for dk, t in m["form"]["times"].items()},
+                  {dk: ("07:00", "20:30") for dk in ("d2", "d3", "d4")})
+        res.check("концы блокировки — открытые часы плюс один",
+                  m["note_ends"], list(range(8, 22)))
+        res.check("услуги — все из clinic.json, в его порядке",
                   [x["id"] for x in m["form"]["services"]],
-                  re.findall(r"<option value='([a-z]+)'>",
-                             page.split('name="aservice"', 1)[1].split("</select>", 1)[0]))
-
-        cs = {k: re.findall(r"'([a-z]+)'", v) for k, v in re.findall(
-            r"(\w+): \[([^\]]*)\]", page.split("var CS_SHOW = ", 1)[1].split("}}", 1)[0])}
-        to_of = {"waiting": "waiting", "arrived": "arrived", "done": "done",
-                 "noshow": "noshow", "cancel": "cancelled", "reopen": "confirmed"}
-        res.check("КНОПКИ — транспонированный CS_SHOW старой страницы",
+                  ["consult", "pain", "hygiene", "orphan", "long"])
+        res.check("КНОПКИ — матрица по состояниям, весь конвейер",
                   {st: sorted(x["to"] for x in acts) for st, acts in m["actions"].items()},
-                  {st: sorted(to_of[k] for k, v in cs.items() if st in v)
-                   for st in m["actions"]})
+                  {"confirmed": ["arrived", "cancelled", "done", "noshow", "waiting"],
+                   "waiting": ["arrived", "cancelled", "done"],
+                   "arrived": ["cancelled", "done"],
+                   "done": ["confirmed"], "noshow": ["confirmed"], "cancelled": ["confirmed"]})
         # 03.10, слово Олега: «Anulează сразу удаляет… нужно сначала спросить» —
         # вопрос несут возврат и отмена визита, шаги приёма — нет
         res.ok("возврат и отмена визита несут вопрос, а остальные кнопки — нет",
@@ -133,23 +106,22 @@ def suite_model(res: Result) -> None:
                "подтверждение разошлось с правилом: спрашивают только возврат и отмена")
         ask_of = {x["cls"]: x["confirm"] for acts in m["actions"].values() for x in acts
                   if x["confirm"]}
-        legacy = {fid: re.search(r'id="' + fid + r'"[^>]*onsubmit="return confirm\(' + "'([^']*)'" + r'\)"', page)
-                  for fid in ("cs_cancel", "cs_reopen")}
-        res.check("старая карточка визита спрашивает ТЕМИ ЖЕ словами, что матрица",
-                  {k: (v.group(1) if v else None) for k, v in legacy.items()},
-                  {"cs_cancel": ask_of.get("b-cancel"), "cs_reopen": ask_of.get("b-reopen")})
+        res.check("вопросы названы словами — отмена говорит, где её вернуть",
+                  ask_of, {"b-cancel": "Anulați programarea? Ea dispare din grila zilei; "
+                                       "o puteți redeschide din «Lista zilei».",
+                           "b-reopen": "Redeschideți programarea (înapoi la «programată»)?"})
 
         # --- список дня (C25.5c) ---
-        c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
-               ntext="Livrare materiale", back=f"/admin/all?date={day}")
-        c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
-               aservice="pain", aname="Urgent Unu", aphone="069160161",
-               back=f"/admin/all?date={day}")
+        c.post_json("/api/schedule/notes", {"date": day, "time": "15:00", "doctor": "d2",
+                                           "text": "Livrare materiale"})
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "11:00",
+                                                  "doctor": "d2", "service": "pain",
+                                                  "name": "Urgent Unu", "phone": "069160161"})
         m = _day(c, day)
-        page = c.get(f"/admin/all?date={day}").body
-        rows = re.findall(r"<tr class='([a-z]+)'><td>(\d+)</td><td>(\d\d:\d\d)</td>", page)
-        res.check("СПИСОК: те же строки, в том же порядке, с тем же состоянием",
-                  [(x["status"], str(x["id"]), x["time"]) for x in m["list"]], rows)
+        res.check("СПИСОК: строки дня по времени, вместе с заметкой",
+                  [(x["time"], x["name"] or x["service"]) for x in m["list"]],
+                  [("09:00", "Ion Popa"), ("11:00", "Urgent Unu"),
+                   ("15:00", "Livrare materiale")])
         note = next(x for x in m["list"] if x["is_note"])
         res.check("заметка в списке: без имени и телефона, со своим словом",
                   (note["name"], note["phone"], note["source_label"],
@@ -168,10 +140,7 @@ def suite_model(res: Result) -> None:
         res.check("ФИЛЬТР: только подходящие строки и подпись со счётом",
                   (len(mf["list"]), mf["filter"]),
                   (1, {"key": "urg", "label": "urgențe", "count": 1}))
-        res.ok("подпись — та же, что печатает баннер страницы",
-               "urgențe" in c.get(f"/admin/all?date={day}&f=urg").body,
-               "баннер и модель называют фильтр по-разному")
-        res.check("сетка при фильтре та же", len(mf["hours"]), len(m["hours"]))
+        res.check("канва при фильтре та же", mf["canvas"], m["canvas"])
         res.check("чужой фильтр — как будто его нет",
                   _day_f(c, day, "nimic")["filter"], None)
         res.check("у дня врача фильтра нет вовсе",
@@ -181,7 +150,7 @@ def suite_model(res: Result) -> None:
         # список ФОРМЫ — активные врачи, даже когда в сетке колонок больше
         c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "concediu"})
         m = _day(c, day)
-        res.check("ВЫКЛЮЧЕННЫЙ ВРАЧ: колонка есть, в форме его нет",
+        res.check("ВЫКЛЮЧЕННЫЙ ВРАЧ: в шапке дня есть, в форме его нет",
                   ("d3" in [x["id"] for x in m["doctors"]],
                    "d3" in [x["id"] for x in m["form"]["doctors"]]),
                   (True, False))
@@ -292,7 +261,7 @@ def suite_actions(res: Result) -> None:
                    next(x["status"] for x in _items(j["data"]) if x["id"] == aid)),
                   (200, "", "done"))
         r = c.post_json(f"/api/schedule/appointments/{aid}/status{q}", {"to": "pending"})
-        res.check("НЕБЫВАЛЫЙ статус: страница молчит, API отвечает отказом",
+        res.check("НЕБЫВАЛЫЙ статус — отказом, а не молчанием",
                   (r.status, _j(r)["code"]), (422, "bad"))
 
         # --- перенос ---
@@ -317,76 +286,50 @@ def suite_actions(res: Result) -> None:
         j = _j(c.post_json(f"/api/schedule/appointments{q}&doctor=d3",
                            {**ok, "time": "14:00", "doctor": "d3",
                             "name": "Doar La Trei", "phone": "069161777"}))
-        res.check("день врача в ответе — только его колонка",
-                  [x["id"] for x in j["data"]["doctors"]], ["d3"])
+        res.check("день врача в ответе — только он и его колонка",
+                  ([x["id"] for x in j["data"]["doctors"]],
+                   [x["id"] for x in j["data"]["canvas"]["columns"]]), (["d3"], ["d3"]))
 
 
-# ------------------------------------------------------- паритет кодов
+# ------------------------------------------------------- таблица отказов
 
 
 def suite_parity(res: Result) -> None:
-    """Один ввод — один код: форма и API отвечают одинаково.
+    """Каждый отказ называет себя СВОИМ кодом — таблицей, буквально.
 
-    ⚠️ Берутся ОТКАЗЫ: они ничего не меняют, поэтому оба пути можно пройти
-    подряд на одном сервере и сравнить честно. Удачи разведены по часам в
-    `suite_actions` — там сравнивать нечего, код виден сразу.
+    ⚠️ Берутся ОТКАЗЫ: они ничего не меняют, поэтому их можно пройти подряд на
+    одном сервере. До 13.10 тот же список сверял форму старой страницы с API
+    (один ввод — один код); правило, ради которого сверка жила, — код один на
+    все входы, — держит теперь то, что входы зовут ОДНО правило (`routes`), а
+    здесь закреплены сами коды.
     """
     day = (clinic_today() + timedelta(days=3)).isoformat()
-    back = f"/admin/all?date={day}"
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
-               aservice="consult", aname="Ocupa Ora", aphone="069162162", back=back)
-        aid = _ids(c, day)[0]
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Ocupa Ora", "phone": "069162162"})
+        aid = appt_id(c, day, "Ocupa Ora")
 
-        rows = [
-            {"date": day, "time": "x", "doctor": "d2", "service": "consult",
-             "name": "N", "phone": "069162001"},
-            {"date": day, "time": "10:15", "doctor": "d2", "service": "consult",
-             "name": "N", "phone": "069162002"},
-            {"date": day, "time": "10:00", "doctor": "d2", "service": "consult",
-             "name": "   ", "phone": "069162003"},
-            {"date": day, "time": "10:00", "doctor": "d2", "service": "consult",
-             "name": "N", "phone": "12"},
-            {"date": day, "time": "10:00", "doctor": "d1", "service": "consult",
-             "name": "N", "phone": "069162004"},
-            {"date": day, "time": "23:00", "doctor": "d2", "service": "consult",
-             "name": "N", "phone": "069162005"},
-            {"date": day, "time": "09:00", "doctor": "d2", "service": "consult",
-             "name": "N", "phone": "069162006"},
-            {"date": day, "time": "10:00", "doctor": "d2", "service": "consult",
-             "name": "N", "phone": "069162007", "birth": "3000-01-01"},
-        ]
-        for i, b in enumerate(rows):
-            form = c.post("/admin/add", adate=b["date"], atime=b["time"],
-                          adoctor=b["doctor"], aservice=b["service"],
-                          aname=b["name"], aphone=b["phone"],
-                          abirth=b.get("birth", ""), back=back).msg
-            api = _j(c.post_json(f"/api/schedule/appointments?date={day}", b))["code"]
-            res.check(f"запись, отказ {i + 1}: форма и API говорят одно",
-                      api, form)
+        base = {"date": day, "time": "10:00", "doctor": "d2", "service": "consult",
+                "name": "N", "phone": "069162001"}
+        for body, want in (({"time": "x"}, "bad"), ({"time": "10:15"}, "bad_time"),
+                           ({"name": "   "}, "bad_name"), ({"phone": "12"}, "bad_phone"),
+                           ({"doctor": "d1"}, "bad_off"), ({"time": "23:00"}, "outside"),
+                           ({"time": "09:00"}, "conflict"),
+                           ({"birth": "3000-01-01"}, "bad_bd")):
+            r = c.post_json(f"/api/schedule/appointments?date={day}", {**base, **body})
+            res.check(f"запись {body}: код «{want}»", _j(r)["code"], want)
 
-        notes = [
-            {"date": day, "time": "12:00", "doctor": "d2", "text": "  ", "until": 13},
-            {"date": day, "time": "12:00", "doctor": "d2", "text": "T", "until": 11},
-            {"date": day, "time": "12:00", "doctor": "nimeni", "text": "T", "until": 13},
-        ]
-        for i, b in enumerate(notes):
-            form = c.post("/admin/note", ndate=b["date"], ntime=b["time"],
-                          ndoctor=b["doctor"], ntext=b["text"],
-                          nuntil=str(b["until"]), back=back).msg
-            api = _j(c.post_json(f"/api/schedule/notes?date={day}", b))["code"]
-            res.check(f"заметка, отказ {i + 1}: форма и API говорят одно", api, form)
+        for body, want in (({"text": "  "}, "bad"), ({"until": 11}, "bad"),
+                           ({"doctor": "nimeni"}, "bad")):
+            r = c.post_json(f"/api/schedule/notes?date={day}",
+                            {"date": day, "time": "12:00", "doctor": "d2", "text": "T",
+                             "until": 13, **body})
+            res.check(f"заметка {body}: код «{want}»", _j(r)["code"], want)
 
-        moves = [
-            {"date": day, "time": "10:15", "doctor": "d2"},
-            {"date": day, "time": "10:00", "doctor": "d1"},
-            {"date": day, "time": "23:00", "doctor": "d2"},
-            {"date": "x", "time": "10:00", "doctor": "d2"},
-        ]
-        for i, b in enumerate(moves):
-            form = c.post(f"/admin/move/{aid}", mdate=b["date"], mtime=b["time"],
-                          mdoctor=b["doctor"], back=back).msg
-            api = _j(c.post_json(f"/api/schedule/appointments/{aid}/move?date={day}",
-                                 b))["code"]
-            res.check(f"перенос, отказ {i + 1}: форма и API говорят одно", api, form)
+        for body, want in (({"time": "10:15"}, "bad_time"), ({"doctor": "d1"}, "bad_off"),
+                           ({"time": "23:00"}, "outside"), ({"date": "x"}, "bad")):
+            r = c.post_json(f"/api/schedule/appointments/{aid}/move?date={day}",
+                            {"date": day, "time": "10:00", "doctor": "d2", **body})
+            res.check(f"перенос {body}: код «{want}»", _j(r)["code"], want)

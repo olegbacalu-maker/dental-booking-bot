@@ -14,7 +14,7 @@ import json
 import re
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today, pid_by_phone
+from harness import Client, Result, Server, clinic_today, day_model, pid_by_phone
 
 
 def _d(offset: int) -> str:
@@ -34,8 +34,8 @@ def _pid(c: Client, phone: str) -> int:
 
 
 def _aid(c: Client, day: str) -> int:
-    """id последней записи дня — со страницы дня, как в test_visit."""
-    return int(re.findall(r"/admin/status/(\d+)", c.get(f"/admin/all?date={day}").body)[-1])
+    """id последней по времени записи дня — из «Lista zilei» модели дня."""
+    return int([r["id"] for r in day_model(c, day)["list"] if not r["is_note"]][-1])
 
 
 def _seed(c: Client) -> dict:
@@ -46,13 +46,14 @@ def _seed(c: Client) -> dict:
     s = {}
 
     def visit(day: int, time: str, doc: str, svc: str = "consult") -> int:
-        c.post("/admin/add", adate=_d(day), atime=time, adoctor=doc, aservice=svc,
-               aname="Vizita Test", aphone="069123123", back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(day), "time": time,
+                                                  "doctor": doc, "service": svc,
+                                                  "name": "Vizita Test", "phone": "069123123"})
         return _aid(c, _d(day))
 
     s["a_rec"] = visit(-2, "10:00", "d2")
     pid = s["pid"] = _pid(c, "069123123")
-    c.post(f"/admin/comment/{s['a_rec']}", comment="de sunat înainte", back="/admin/all")
+    c.post_json(f"/api/schedule/appointments/{s['a_rec']}/comment", {"comment": "de sunat înainte"})
     c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Obturație 26", "tooth": "26",
                                              "price": "500"})
     c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Detartraj", "price": "300"})
@@ -68,9 +69,9 @@ def _seed(c: Client) -> dict:
                                              "done": [s["p_done"]]})
     s["a_canc"] = visit(-1, "11:00", "d3", "hygiene")
     c.post_json(f"/api/visits/{s['a_canc']}", {"acuze": "Igienă"})
-    c.post(f"/admin/status/{s['a_canc']}", to="cancelled", back="/admin/all")
+    c.post_json(f"/api/schedule/appointments/{s['a_canc']}/status", {"to": "cancelled"})
     s["a_noshow"] = visit(-1, "12:00", "d2")
-    c.post(f"/admin/status/{s['a_noshow']}", to="noshow", back="/admin/all")
+    c.post_json(f"/api/schedule/appointments/{s['a_noshow']}/status", {"to": "noshow"})
     s["a_new"] = visit(1, "12:00", "d2")
     return s
 
@@ -181,8 +182,9 @@ def suite_api(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana", "role": "receptie", "pin": "2222"})
-        boss.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2", aservice="consult",
-                  aname="Pin Vizita", aphone="069555999", back="/admin/all")
+        boss.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                     "doctor": "d2", "service": "consult",
+                                                     "name": "Pin Vizita", "phone": "069555999"})
         aid = _aid(boss, _d(1))
         rec = Client(s.url)
         rec.post("/admin/login", password="2222", next="/admin")
@@ -205,8 +207,9 @@ def suite_switch(res: Result) -> None:
     же React."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2", aservice="consult",
-               aname="Flag Vizita", aphone="069888000", back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Flag Vizita", "phone": "069888000"})
         aid = _aid(c, _d(1))
         res.ok("без флага — тоже React (старой страницы нет)",
                '<div id="root" data-screen="visit"' in c.get(f"/admin/visit/{aid}").body, "узла нет")
@@ -214,8 +217,9 @@ def suite_switch(res: Result) -> None:
     s = _server_with_flag()
     with s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2", aservice="consult",
-               aname="Flag Vizita", aphone="069888000", back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Flag Vizita", "phone": "069888000"})
         aid = _aid(c, _d(1))
         pid = _pid(c, "069888000")
         page = c.get(f"/admin/visit/{aid}?back=/admin/all?date={_d(1)}").body

@@ -13,8 +13,15 @@ import zipfile
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from harness import (BOT, PIN, PYTHON, Client, Result, Server, _rmtree_settled, clinic_today,
-                     new_patient, pid_by_phone)
+from harness import (BOT, PIN, PYTHON, Client, Result, Server, _rmtree_settled, add_appt,
+                     appt_id, clinic_today, day_model, new_patient, panel_live, pid_by_phone,
+                     shell_model)
+
+
+def _sync(page: str) -> list:
+    """Ключи пунктов секции «Sincronizări» меню React (`nav.sync` модели
+    оболочки; заголовок секции рисует клиент и только при непустом списке)."""
+    return [i["key"] for i in shell_model(page)["nav"]["sync"]]
 
 
 def _d(offset: int) -> str:
@@ -64,20 +71,17 @@ def suite_pages(res: Result) -> None:
     """Страницы отдаются и содержат то, ради чего открываются."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
-               aservice="consult", aname="Pagina Test", aphone="022321321",
-               back="/admin/all")
+        add_appt(c, _d(1), "10:00", "Pagina Test", "022321321")
 
         pages = {
             "/admin": "Clinica Test",
-            f"/admin/all?date={_d(1)}": "Pagina Test",
+            # журнал, статистика, врачи, пациенты — React (12–13.10): данные
+            # приходят из /api/*, их содержимое стерегут свои наборы
+            f"/admin/all?date={_d(1)}": "",
             "/admin/week": "",
-            # статистика и врачи — React (12.10): данные приходят из /api/*,
-            # их содержимое стерегут test_stats_api и test_doctors
             "/admin/stats": "",
             "/admin/settings": "Clinica Test",
             "/admin/medici": "",
-            # список пациентов — React (13.10), выдачу стережёт test_patients_api
             "/admin/search?q=Pagina": "",
             "/admin/qr-print": "",
         }
@@ -89,80 +93,35 @@ def suite_pages(res: Result) -> None:
                 res.ok(f"страница {path} содержит нужное", needle in r.body,
                        f"нет {needle!r}")
 
-        # Модалка слота выбирает и ПОЛЧАСА (08-13, Олег): клик по ячейке —
-        # час, но запись бывает на 10:30, и раньше её давала только нижняя
-        # форма. Обе дневные страницы несут переключатель и его механику.
-        for path in ("/admin", f"/admin/all?date={_d(1)}"):
-            body = c.get(path).body
-            res.ok(f"модалка {path} умеет полчаса",
-                   'id="hp_30"' in body and "pickHalf" in body,
-                   "в модалке слота нет выбора :30 — только нижняя форма")
-        # сервер принимает получасовой старт из модалки тем же маршрутом
-        res.check("запись на 10:30 из модалки принимается",
-                  c.post("/admin/add", adate=_d(1), atime="10:30", adoctor="d3",
-                         aservice="consult", aname="Jumatate Test",
-                         aphone="022321322", back="/admin/all").msg, "ok")
+        # Окно часа выбирает и ПОЛЧАСА (08-13, Олег): клик по ячейке — час, но
+        # запись бывает на 10:30. Переключатель живёт в окне React
+        # (`SlotDialog`), а сервер принимает получасовой старт тем же маршрутом.
+        res.check("запись на 10:30 принимается",
+                  add_appt(c, _d(1), "10:30", "Jumatate Test", "022321322", "d3").msg, "ok")
 
-        # ⭐ Подсветка «сейчас» в сетке дня (08-09) — это ЛОГИКА, а не
-        # оформление: строка текущего часа отмечается классом на сервере.
-        # Отметка на ЧУЖОМ дне была бы прямой ложью — регистратура читает её
-        # как «мы вот здесь», — и заметить такое на глаз почти нельзя:
-        # завтрашний день выглядит правдоподобно с подсветкой любого часа.
-        # ⚠️ Ожидание выводится ИЗ САМОЙ страницы, а не из «должен быть один»:
-        # клиника фикстуры работает 7–21, и жёсткая единица делала бы прогон
-        # красным по ночам. Сильная половина проверки — про чужой день — от
-        # времени суток не зависит и держится всегда.
-        now_h = datetime.now(ZoneInfo("Europe/Chisinau")).hour
-        today = c.get("/admin/all")
-        other = c.get(f"/admin/all?date={_d(1)}")
-        shown = [int(h) for h in re.findall(r"class='hour[^']*'>(\d\d):00", today.body)]
-        res.check("текущий час отмечен тогда и только тогда, когда он в сетке",
-                  today.body.count("class='hour now'"), 1 if now_h in shown else 0)
-        res.ok("на другом дне подсветки «сейчас» нет",
-               "class='hour now'" not in other.body,
-               "завтрашний день отмечен текущим часом — это враньё")
-        res.ok("сетка дня лежит в прокручиваемой обёртке",
-               "class='gridwrap'" in today.body,
-               "без обёртки широкая сетка распирает страницу на телефоне")
-        res.ok("статус в списке дня — отдельная плашка",
-               "class='stat s-" in other.body, "нет класса статуса")
-
-        # автоперезагрузка — ТОЛЬКО у живого расписания (data-reload на body):
+        # Автоперезагрузки (data-reload на <body>) нет НИ У ОДНОЙ страницы:
+        # живой у журнала только канал панели (`/api/schedule/live`, React), а
         # остальным она не даёт ничего и отнимает раскрытые <details> и
-        # позицию прокрутки — «вкладка FAQ закрывается сама» (Олег, 08-07)
+        # позицию прокрутки — «вкладка FAQ закрывается сама» (Олег, 08-07).
         for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
-                     "/admin/doctor/d2"):
-            res.ok(f"{path} перезагружает себя",
-                   'data-reload="12"' in c.get(path).body,
-                   "живая страница расписания без метки автообновления")
+                     "/admin/doctor/d2", "/admin/settings", "/admin/settings/faq",
+                     "/admin/stats", "/admin/medici", "/admin/search", "/admin/qr-print"):
+            res.ok(f"{path} НЕ перезагружает себя",
+                   "data-reload" not in c.get(path).body,
+                   "странице выдана автоперезагрузка — она снова будет терять "
+                   "раскрытые details")
 
         # Ширина (08-16, просьба Олега «справа много места»): окно отдаётся
-        # ВСЕМ разделам, а не двум дневным видам. Раньше здесь стоял обратный
-        # набор — `content wide` у расписания и голый `content` у остальных;
-        # тот второй список и был жалобой: на 27" он оставлял 844px пустоты
-        # справа. ⚠️ Сторожим ОБА конца: что широкую разметку получают все
-        # разделы И что двухуровневого деления больше нет — вернувшийся
-        # модификатор снова сделал бы часть страниц узкими молча (увидел бы это
-        # только клиент с большим монитором, на 1366 потолок не срабатывает).
-        # Потолок самой СТРОКИ живёт в panel.css и проверяется там же
-        # (test_review3.suite_width) — разметка о нём ничего не знает.
-        # ⚠️ Настроек, статистики, врачей и пациентов в списке нет: их экраны
-        # рисует React (12–13.10), и ширину раскладки ведёт клиент, серверного
-        # `content` у оболочки нет.
-        shells = {}
-        for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
-                     "/admin/doctor/d2"):
-            body = c.get(path).body
-            m = re.search(r'<div class="(content[^"]*)"', body)
-            shells[path] = m.group(1) if m else "—"
-            res.ok(f"{path} занимает всю ширину окна",
-                   'class="content"' in body,
-                   "раздел не получил широкий контент — справа останется "
-                   "пустое поле")
-        res.ok("у разделов ОДИН каркас ширины, а не два сорта страниц",
-               len(set(shells.values())) == 1,
-               f"каркасы разошлись — часть разделов снова у́же остальных, и "
-               f"новая страница молча родится узкой: {shells}")
+        # ВСЕМ разделам. Экраны React ведут ширину раскладкой клиента (серверного
+        # `content` у их оболочки нет); у страниц на серверной оболочке
+        # (`_shell`, до шага 6 снятия старого интерфейса) — тот же
+        # единственный каркас `content` без модификатора: вернувшийся
+        # `content wide` снова сделал бы часть страниц узкими молча. Потолок
+        # самой СТРОКИ живёт в panel.css (test_review3.suite_width).
+        body = c.get("/admin/qr-print").body
+        res.ok("серверная оболочка занимает всю ширину окна",
+               'class="content"' in body,
+               "раздел не получил широкий контент — справа останется пустое поле")
         # справку рисует React: потолок строки — правило клиента `.dp-faq`
         front = BOT.parent / "frontend" / "src"
         faq_rule = re.search(r"\.dp-faq\s*\{[^}]*\}",
@@ -173,16 +132,9 @@ def suite_pages(res: Result) -> None:
                .read_text(encoding="utf-8"),
                "карточка FAQ растянулась вместе со страницей — на 2560 это "
                "строка ответа через весь монитор")
-        for path in ("/admin/settings", "/admin/settings/faq", "/admin/stats",
-                     "/admin/medici", "/admin/search"):
-            res.ok(f"{path} НЕ перезагружает себя",
-                   "data-reload" not in c.get(path).body,
-                   "неживой странице выдана автоперезагрузка — она снова "
-                   "будет терять раскрытые details")
 
-        csv = c.get(f"/admin/export?from={_d(1)}&to={_d(1)}")
-        res.ok("экспорт CSV отдаётся", csv.status == 200 and "Pagina Test" in csv.body,
-               f"код {csv.status}")
+        res.check("CSV-выгрузки дня больше нет (слово Олега 12.10) — остаётся Excel",
+                  c.get(f"/admin/export?from={_d(1)}&to={_d(1)}").status, 404)
 
         # ---- выгрузка в Excel: проверяем ТИПЫ, а не код ответа (08-12) ----
         # ⛔ CSV типов не несёт, и Excel угадывает: телефон `022447788` он
@@ -237,18 +189,18 @@ def suite_pages(res: Result) -> None:
                "?v=1" in page and "?v=1.11" not in page,
                "в адресе версия программы, а не время файла")
 
-        # Ответ на действие — ПЛАВАЮЩЕЙ плашкой (08-14, фидбек клиники): форма
-        # записи стоит внизу, 303 открывает страницу с нулевой прокруткой, и
-        # баннер в потоке оставался за кадром — «сказали ок, а что случилось —
-        # не поняли». Помощник один (layout.msg_banner, держит test_structure),
-        # но канал проверяется на страницах ТРЁХ модулей: каждый маршрут зовёт
-        # его сам, и забытый вызов уронил бы сообщение вовсе.
-        # Настройки рисует React (12.10): та же плашка едет строкой сервера в
-        # модели оболочки (`frame.msg`), её рисует AppShell.
+        # Ответ на действие — ПЛАВАЮЩЕЙ плашкой (08-14, фидбек клиники): баннер
+        # в потоке оставался за кадром — «сказали ок, а что случилось — не
+        # поняли». Помощник один (layout.msg_banner, держит test_structure), но
+        # канал проверяется на страницах ТРЁХ модулей: каждый маршрут зовёт его
+        # сам, и забытый вызов уронил бы сообщение вовсе. Экраны React несут
+        # ту же плашку строкой сервера в модели оболочки (`frame.msg`), её
+        # рисует AppShell. На `/admin` приземляется отказ в правах со всей
+        # программы.
         def _shell_msg(page: str) -> str:
             raw = page.split('data-shell="', 1)[1].split('"', 1)[0]
             return json.loads(html.unescape(raw))["frame"]["msg"]
-        for path in (f"/admin/all?date={_d(1)}&msg=conflict",
+        for path in ("/admin?msg=no_access",
                      "/admin/settings?msg=ok_set",
                      "/admin/medici?msg=ok_med"):
             page_t = c.get(path).body
@@ -293,9 +245,11 @@ def suite_pages(res: Result) -> None:
                len(pre) == 2 and all(f"url('{u}')" in fonts.body for u in pre),
                f"предзагрузка: {pre}")
 
-        # поведение страниц вынесено тем же приёмом, что и оформление
-        res.ok("страница подключает общий скрипт",
-               "/static/js/panel.js?v=" in page, "нет <script src> на panel.js")
+        # поведение серверных страниц вынесено тем же приёмом, что и
+        # оформление (экраны React panel.js не грузят: у него там нет читателей)
+        res.ok("серверная страница подключает общий скрипт",
+               "/static/js/panel.js?v=" in c.get("/admin/qr-print").body,
+               "нет <script src> на panel.js")
         js = c.get("/static/js/panel.js")
         res.ok("скрипт отдаётся",
                js.status == 200 and "setInterval" in js.body
@@ -305,107 +259,6 @@ def suite_pages(res: Result) -> None:
                f"Content-Type: {js.header('Content-Type')!r}")
         res.ok("чужой тип статики не отдаётся",
                c.get("/static/txt/panel.txt").status == 404, "отдал не css/js")
-
-
-def suite_live_swap(res: Result) -> None:
-    """Живой журнал: опрос #live вместо перезагрузки страницы (08-20).
-
-    Контракт трёхсторонний — layout._shell (обёртка + data-hash),
-    schedule/routes._live_fragment (204/200 + X-DP-Hash) и panel.js (подмена).
-    Здесь проверяется серверная половина и стыковка: отпечаток в обёртке ОБЯЗАН
-    равняться отпечатку фрагмента, иначе первый же опрос привезёт «изменение»
-    на неизменном дне и подмена пойдёт каждые 12 секунд — мигание, от которого
-    уходили, вернётся молча.
-
-    ⚠️ День — БУДУЩИЙ: на сегодняшнем body несёт метки «сейчас» (подсветка
-    текущего часа, past у прошедших визитов), и два запроса по краям смены
-    минуты дали бы ложное расхождение."""
-    with Server() as s:
-        c = Client(s.url).login()
-        day = _d(14)
-        c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
-               aservice="consult", aname="Live Test", aphone="022444555",
-               back="/admin/all")
-        H = {"X-DP-Live": "1"}
-
-        for path in (f"/admin?date={day}", f"/admin/all?date={day}",
-                     f"/admin/week?date={day}", f"/admin/doctor/d2?date={day}"):
-            page = c.get(path)
-            m = re.search(r'<div id="live" data-hash="([0-9a-f]{32})">', page.body)
-            res.ok(f"{path.split('?')[0]} несёт обёртку живого куска",
-                   m is not None, "нет <div id=live data-hash=…> — опросу "
-                   "нечего подменять")
-            fr = c.get(path, headers=H)
-            res.ok(f"{path.split('?')[0]} отвечает на опрос фрагментом",
-                   fr.status == 200 and "<!doctype" not in fr.body
-                   and 'id="live"' not in fr.body,
-                   f"код {fr.status}; фрагмент обязан быть НАЧИНКОЙ обёртки, "
-                   "без каркаса страницы")
-            res.ok(f"{path.split('?')[0]}: отпечаток обёртки = отпечатку фрагмента",
-                   m is not None and fr.header("X-DP-Hash") == m.group(1),
-                   "разошлись data-hash и X-DP-Hash — первый опрос всегда "
-                   "«изменение», подмена каждые 12 секунд")
-            res.ok(f"{path.split('?')[0]}: фрагмент лежит в странице дословно",
-                   fr.body in page.body,
-                   "фрагмент отличается от куска страницы — два источника "
-                   "разметки")
-            same = c.get(path, headers={"X-DP-Live": "1",
-                                        "X-DP-Hash": fr.header("X-DP-Hash")})
-            res.ok(f"{path.split('?')[0]}: неизменный день -> 204",
-                   same.status == 204 and not same.body,
-                   f"код {same.status} — DOM дёргался бы без изменений")
-            res.ok(f"{path.split('?')[0]}: у фрагмента версия и запрет кеша",
-                   fr.header("X-DP-V") != "" and
-                   fr.header("Cache-Control") == "no-store",
-                   "без X-DP-V подмена вклеит новую разметку в старый каркас, "
-                   "без no-store WebView2 вправе отдать вчерашний ответ")
-
-        # изменение дня — фрагмент другой, и его видно по отпечатку
-        p0 = f"/admin/all?date={day}"
-        h0 = c.get(p0, headers=H).header("X-DP-Hash")
-        c.post("/admin/add", adate=day, atime="12:00", adoctor="d2",
-               aservice="consult", aname="Sosit Nou", aphone="022777888",
-               back="/admin/all")
-        fr2 = c.get(p0, headers={"X-DP-Live": "1", "X-DP-Hash": h0})
-        res.ok("новая запись меняет отпечаток и приезжает фрагментом",
-               fr2.status == 200 and "Sosit Nou" in fr2.body
-               and fr2.header("X-DP-Hash") != h0,
-               f"код {fr2.status} — приехавшая бронь не доехала бы до экрана")
-
-        # охрана: опрос без входа не отдаёт ни фрагмента, ни отпечатка
-        anon = Client(s.url).get("/admin", headers=H)
-        res.ok("опрос без входа отбивается охраной",
-               anon.status == 303 and "/admin/login" in anon.location,
-               f"код {anon.status} — фрагмент утекал бы мимо входа")
-
-        # неживая страница на заголовок не отзывается — отдаёт обычный каркас
-        st = c.get("/admin/settings", headers=H)
-        res.ok("неживая страница отвечает на опрос полным каркасом",
-               st.status == 200 and "<!doctype" in st.body,
-               "settings прикинулась фрагментом")
-
-        # линию «сейчас» сервер больше не рисует — она у panel.js: серверная
-        # строка с top из минут делала бы отпечаток всегда другим
-        today = c.get("/admin")
-        res.ok("линия «сейчас» не серверная",
-               "class='nowline'" not in today.body,
-               "nowline в body — отпечаток меняется каждую минуту, подмена "
-               "каждые 12 секунд")
-        pjs = c.get("/static/js/panel.js").body
-        res.ok("линию «сейчас» рисует panel.js",
-               "placeNowline" in pjs and ".nowline" in pjs,
-               "линия исчезла совсем: сервер не рисует, скрипт не подхватил")
-
-        # данные модалок обязаны переисполняться после подмены: data-live + var
-        # (const при повторном объявлении — SyntaxError, клик по свежей записи
-        # молча перестал бы открывать карточку)
-        allp = c.get(p0).body
-        res.ok("скрипты данных помечены data-live и объявляют var",
-               "<script data-live>" in allp and "var CARDS" in allp
-               and "var NOTE_ENDS" in allp and "const CARDS" not in allp
-               and "const NOTE_ENDS" not in allp,
-               "подмена не переисполнит данные модалок — карточка свежей "
-               "записи не откроется")
 
 
 def suite_nophone(res: Result) -> None:
@@ -419,20 +272,19 @@ def suite_nophone(res: Result) -> None:
         c = Client(s.url).login()
         day = _d(21)
 
-        def add(name, phone, t, **kw):
-            return c.post("/admin/add", adate=day, atime=t, adoctor="d2",
-                          aservice="consult", aname=name, aphone=phone,
-                          back="/admin/all", **kw)
+        def add(name, phone, t, nophone=False):
+            return add_appt(c, day, t, name, phone,
+                            **({"nophone": "1"} if nophone else {}))
 
-        # пустой телефон БЕЗ галочки — прежний отказ: это недозаполненная
-        # форма или устаревшая вкладка, а не намерение
+        # пустой телефон БЕЗ галочки — прежний отказ: это недозаполненное
+        # окно, а не намерение
         r = add("FaraTel Zero", "", "09:00")
         res.ok("пустой телефон без галочки отбивается", r.msg == "bad_phone",
                f"msg {r.msg!r}")
 
         # с галочкой — проходит; второй безтелефонный — ОТДЕЛЬНЫЙ человек
-        r1 = add("FaraTel Unu", "", "10:00", anophone="1")
-        r2 = add("FaraTel Doi", "", "11:00", anophone="1")
+        r1 = add("FaraTel Unu", "", "10:00", nophone=True)
+        r2 = add("FaraTel Doi", "", "11:00", nophone=True)
         res.ok("запись без телефона проходит с галочкой",
                r1.msg == "ok" and r2.msg == "ok", f"{r1.msg} / {r2.msg}")
         lst = _plist(c, "q=FaraTel")["rows"]
@@ -443,17 +295,17 @@ def suite_nophone(res: Result) -> None:
         res.ok("безтелефонный — пустым телефоном, а не выдуманным",
                all(r["phone"] == "" for r in lst), f"{[(r['name'], r['phone']) for r in lst]}")
 
-        # так шлёт НАСТОЯЩИЙ браузер: выключенное поле в POST отсутствует
-        # ВОВСЕ, а не приходит пустым — Form(...) на aphone давал бы 422
-        # раньше честного bad_phone (поймано при написании)
-        r = c.post("/admin/add", adate=day, atime="13:00", adoctor="d2",
-                   aservice="consult", aname="FaraTel Patru", anophone="1",
-                   back="/admin/all")
-        res.ok("POST без поля aphone (выключенный input) проходит",
+        # с галочкой поля телефона в теле может не быть вовсе: отказ «нет
+        # телефона» здесь был бы ложью (до 13.10 так слал браузер форму с
+        # выключенным полем — и Form(...) давал 422 раньше честного bad_phone)
+        r = c.post_json("/api/schedule/appointments", {"date": day, "time": "13:00",
+                                                      "doctor": "d2", "service": "consult",
+                                                      "name": "FaraTel Patru", "nophone": "1"})
+        res.ok("запись без поля телефона, но с галочкой проходит",
                r.msg == "ok", f"msg {r.msg!r}")
 
-        # галочка главнее набранного телефона (вкладка без JS): номер отброшен
-        r = add("FaraTel Trei", "069999888", "12:00", anophone="1")
+        # галочка главнее набранного телефона: номер отброшен
+        r = add("FaraTel Trei", "069999888", "12:00", nophone=True)
         res.ok("галочка отбрасывает набранный телефон", r.msg == "ok", r.msg)
         res.ok("отброшенный телефон не ищется",
                "FaraTel Trei" not in _names(c, "q=069999888"),
@@ -501,21 +353,16 @@ def suite_nophone(res: Result) -> None:
         res.ok("номер из notes находится поиском",
                "Sotie Aparte" in _names(c, "q=069555444"),
                "совет «номер второго — в notițe» делал бы человека ненаходимым")
-
-        # --- галочка в формах журнала (диалоги фиши и «Pacient nou» — React,
-        # их держат проверки клиента) ---
-        allp = c.get(f"/admin/all?date={day}").body
-        res.check("журнал: галочка в нижней форме и в модалке слота",
-                  allp.count('name="anophone"'), 2)
+        # (галочку «fără telefon» в окнах записи держат проверки клиента)
 
 
 def suite_patient_card(res: Result) -> None:
     """Фиша: профиль, зубная формула, план лечения, алерты, архив."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
-               aservice="consult", aname="Card Test", aphone="022654654",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Card Test", "phone": "022654654"})
         pid = pid_by_phone(c, "022654654")
 
         r = c.post_json(f"/api/patients/{pid}/profile", {"name": "Card Test Nou",
@@ -651,19 +498,17 @@ def suite_patient_card(res: Result) -> None:
 
 
 def suite_dashboard(res: Result) -> None:
-    """Панель: мини-графики, загрузка кресел, повестка дня, метки подсветки.
+    """Панель: подсказка блока, загрузка кресел, повестка, метки подсветки.
 
-    Всё перечисленное ломается МОЛЧА — страница остаётся кодом 200 и выглядит
-    целой. Отдельная ценность у процента загрузки: он обязан совпадать с тем,
-    что за тот же день показывает раздел «Statistici», иначе клиника увидит два
-    разных числа про одного врача и перестанет верить обоим.
+    Всё перечисленное ломается МОЛЧА — экран остаётся целым на вид. Отдельная
+    ценность у процента загрузки: он обязан совпадать с тем, что за тот же
+    день показывает раздел «Statistici», иначе клиника увидит два разных
+    числа про одного врача и перестанет верить обоим.
 
     День берётся завтрашний намеренно: сегодняшний зависит от часа прогона —
     к вечеру вся повестка «прошедшая», и проверки стали бы плавающими.
-
-    Сервер — grandfather-клиника (флаг «токен нечитаем» = tg_configured):
-    шесть плиток с бот-каналом видит только клиника с ботом; ветку «без
-    бота» (пять плиток, без блока noi din bot) стережёт suite_bot_ui.
+    (Плитки «Azi» с мини-графиками жили на старой панели и ушли с ней 13.10;
+    React их не рисует с 01.10.)
     """
     with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
         c = Client(s.url).login()
@@ -671,29 +516,17 @@ def suite_dashboard(res: Result) -> None:
         for time, doc, svc, name in (("09:00", "d2", "consult", "Ana Test"),
                                      ("11:00", "d2", "long", "Vlad Test"),
                                      ("10:00", "d3", "hygiene", "Marian Test")):
-            c.post("/admin/add", adate=day, atime=time, adoctor=doc, aservice=svc,
-                   aname=name, aphone="0691" + time.replace(":", ""),
-                   back="/admin/all")
-        page = c.get(f"/admin?date={day}").body
-
-        res.check("мини-график в каждой из шести плиток",
-                  page.count("class='spark'"), 6)
-        res.ok("график рисуется и там, где две недели нулей",
-               c.get(f"/admin?date={_d(60)}").body.count("class='spark'") == 6,
-               "плитка без данных осталась без графика — ряд плиток порябит")
+            add_appt(c, day, time, name, "0691" + time.replace(":", ""), doc, svc)
+        live = panel_live(c, day)
+        blocks = [b for col in live["canvas"]["columns"] for b in col["blocks"]]
 
         # ⚠️ Короткая запись не влезает в свой ряд: получасовая у клиники — 22px
-        # при содержимом на 43. fitAppts ужимает текст в строку, а совсем узкой
-        # записи убирает его совсем, и тогда title — единственное, что отвечает
-        # «кто это», не открывая карточку. Пиксели тут не проверить (набор без
-        # браузера), поэтому стережём то, что можно: подсказку и сам механизм.
-        tips = re.findall(r"title='(\d\d:\d\d · \d+′ · [^']+)'", page)
-        res.ok("подсказка блока несёт время, длительность, услугу и имя",
-               any("Ana Test" in t for t in tips), f"подсказки: {tips[:3]}")
-        res.ok("блок записи подгоняется под высоту ряда",
-               "fitAppts" in page and "'slim'" in page and "'tiny'" in page
-               and "'bare'" in page,
-               "нет подгонки — короткая запись снова обрежет текст молча")
+        # при содержимом на 43. Экран ужимает текст в строку, а совсем узкой
+        # записи убирает его совсем, и тогда подсказка — единственное, что
+        # отвечает «кто это», не открывая карточку. Собирает её СЕРВЕР.
+        res.check("подсказка блока несёт время, длительность, услугу и имя",
+                  next((b["title"] for b in blocks if b.get("name") == "Ana Test"), ""),
+                  "09:00 · 60′ · Consultație · Ana Test")
         # ⚠️ Ступень «только имя» уже терялась однажды: короткая запись
         # проваливалась мимо неё сразу в «текста нет» и стояла в журнале
         # безымянным цветным пятном. Имя прячет ТОЛЬКО последняя ступень.
@@ -707,7 +540,7 @@ def suite_dashboard(res: Result) -> None:
         # ⛔ Вид карточки «время впереди» (03.10) переносит строки flex-ом, а
         # не сеткой: строки сетки при нехватке высоты УЖИМАЮТСЯ (у детей
         # overflow:hidden, минимум нулевой), текст режется внутри строк, а блок
-        # не переполняется — fitAppts не видит ничего, и получасовой визит
+        # не переполняется — подгонка не видит ничего, и получасовой визит
         # остаётся «полным» с обрезками вместо имени. Поймано замером в Edge;
         # набор без браузера пикселей не видит, поэтому стережём само правило.
         grid = [sel.strip() for sel, body in
@@ -721,23 +554,12 @@ def suite_dashboard(res: Result) -> None:
         res.ok("вторая строка полного блока — с явным кеглем",
                ".gappt:not(.slim):not(.tiny):not(.bare):not(.gnote) small{font-size:var(--fs-s)}"
                in gcss, "кегль второй строки отдан браузеру — она снова 10px")
-        # ⚠️ Сторож ПУСТОТЫ, а не придирка: `all([])` — истина, и без него
-        # проверка зеленела бы на странице, где графиков нет ВООБЩЕ (например
-        # после переезда плиток в React). Та же форма, что у недели ниже:
-        # `bgs and all(...)`. Найдено разведкой C26.1.
-        pts = re.findall(r"<polyline class='sp-l' points='([^']+)'", page)
-        res.ok("ряд графика — ровно две недели, и графики вообще есть",
-               pts and all(len(x.split()) == 14 for x in pts),
-               f"рядов {len(pts)}, точек {[len(x.split()) for x in pts]}")
 
         # ⭐ 60′ + 120′ = 180 занятых из 840 рабочих (клиника фикстуры 07–21)
-        occ = re.findall(r"title='(\d+) din (\d+) minute de lucru'.*?<b>(\d+)%</b>",
-                         page, re.S)
-        res.ok("минуты сходятся с процентом на карточке",
-               bool(occ) and all(round(100 * int(b) / int(cap)) == int(p)
-                                 for b, cap, p in occ), f"{occ}")
-        res.check("врач с визитами 60′+120′ — это 21% от 840",
-                  next((p for b, _c, p in occ if b == "180"), None), "21")
+        d2 = next(col for col in live["canvas"]["columns"] if col["id"] == "d2")
+        res.check("загрузка кресла врача: минуты и процент",
+                  (d2["occupancy"]["busy"], d2["occupancy"]["cap"], d2["occupancy"]["pct"]),
+                  (180, 840, 21))
         # «Statistici» — экран React: та же цифра приходит в /api/stats
         st = json.loads(c.get(f"/api/stats?from={day}&to={day}").body)["data"]
         res.check("тот же процент в «Statistici» за тот же день",
@@ -756,58 +578,38 @@ def suite_dashboard(res: Result) -> None:
         res.check("у недельного периода имя недели",
                   json.loads(c.get("/api/stats").body)["data"]["board"]["prev_name"],
                   "săptămâna trecută")
-        res.ok("счётчик группирует тысячи",
-               "(\\d{3})" in c.get("/static/js/panel.js").body,
-               "цифры без разделителя тысяч")
 
-        res.check("в повестке все три визита", page.count("class='ag-i"), 3)
-        res.check("повестка отсортирована по времени",
-                  re.findall(r"<span class='ag-t'>([^<]+)</span>", page),
-                  ["09:00", "10:00", "11:00"])
-        res.ok("завтрашний день не приглушён как прошедший",
-               "ag-i past" not in page, "будущее показано серым")
-        aid = re.search(r"openCard\((\d+)\)", page).group(1)
-        c.post(f"/admin/status/{aid}", to="cancelled", back=f"/admin?date={day}")
+        ag = live["agenda"]
+        res.check("в повестке все три визита, по времени",
+                  [x["time"] for x in ag["items"]], ["09:00", "10:00", "11:00"])
+        res.check("завтрашний день не приглушён как прошедший — состояния нет",
+                  [x["state"] for x in ag["items"]], [None, None, None])
+        c.post_json(f"/api/schedule/appointments/{ag['items'][0]['id']}/status",
+                    {"to": "cancelled"})
         res.check("отменённый уходит из повестки",
-                  c.get(f"/admin?date={day}").body.count("class='ag-i"), 2)
+                  panel_live(c, day)["agenda"]["count"], 2)
 
         # ⭐ 60′+120′+60′ занятых из 3×840 рабочих (d1 в архиве, активны d2-d4)
-        res.ok("плитка загрузки на месте и с процентом",
-               "Grad de ocupare" in page and "data-suffix='%'" in page,
-               "нет шестой плитки")
-        res.ok("процент загрузки честный: 240 из 2520 минут = 10",
-               "data-count='10' data-suffix='%'>10%<" in page,
-               "цифра загрузки не сходится с минутами")
-        # 08-11: разделителем стал «›» вместо «→» — стрелка U+2192 не входит
-        # ни в одно вшитое подмножество Inter, значит её рисовала Windows.
-        res.ok("тренд загрузки — двумя значениями, без «pp»",
-               "0% › " in page and "10%</span>" in page,
-               "нет формы «ieri X% › azi Y%»")
-        res.ok("метки текущего часа нет в чужом дне", "nowh" not in page,
-               "завтрашний день подсвечен как «сейчас»")
-        res.ok("день помечен ключом подсветки", f"data-day='{day}'" in page,
-               "без data-day завтрашний день подсветится весь как новый")
-        res.ok("у записей есть метки для сравнения", page.count("data-appt=") >= 6,
-               f"меток {page.count('data-appt=')} (ждём и в сетке, и в повестке)")
+        res.check("загрузка кресел дня честная: 240 из 2520 минут = 10",
+                  live["occupancy"], {"value": 10})
+        res.check("метки текущего часа нет в чужом дне",
+                  [h["h"] for h in live["canvas"]["hours"] if h["now"]], [])
+        res.check("день канвы помечен своей датой (ключ подсветки приехавших)",
+                  live["canvas"]["date"], day)
 
         # ⚠️ выключатель анимаций обязан стоять В ШАПКЕ: уедет в конец body —
         # успеет отрисоваться конечный кадр, и анимация пойдёт рывком назад
-        head = page.split("<body>")[0]
+        head = c.get(f"/admin?date={day}").body.split("<body")[0]
         res.ok("выключатель анимаций стоит в <head>",
                "dp_auto" in head and "classList.add('anim')" in head,
                "скрипт не в шапке")
-        js = c.get("/static/js/panel.js").body
-        res.ok("автоперезагрузка помечает себя", "dp_auto" in js,
-               "цифры будут оживать каждые 12 секунд")
-        res.ok("подсветка пришедших записей на месте", "dp_seen_" in js,
-               "нет сравнения по id")
         css = c.get("/static/css/panel.css").body
         res.ok("движение выключается системной настройкой",
                "prefers-reduced-motion" in css, "нет уважения к настройке ОС")
 
 
 def suite_grid_edges(res: Result) -> None:
-    """Края дневной сетки: крайние ПОЛНОСТЬЮ закрытые часы уходят в полоску.
+    """Края канвы дня: крайние ПОЛНОСТЬЮ закрытые часы уходят в полоску.
 
     Своя клиника (`clinic_hours.json`): часы 07-21, у всех врачей 09-17, обед
     13-14. В `clinic_test.json` врачи наследуют часы клиники, поэтому закрытых
@@ -819,131 +621,78 @@ def suite_grid_edges(res: Result) -> None:
     посадит на него второго пациента. Это и стережёт вторая половина набора.
 
     ⚠️ Обед — тоже полностью закрытый час, но В СЕРЕДИНЕ. Он обязан остаться
-    рядом: время на канве линейно, блоки стоят множителями var(--cell) от первого
-    часа, и выкинутый средний час сдвинул бы все записи после обеда.
+    рядом: время на канве линейно, блоки стоят долями часа от первого ряда, и
+    выкинутый средний час сдвинул бы все записи после обеда.
+    (До 06.10 «Programări» рисовал таблицу со своими рядами — тот же день
+    говорил на двух экранах разное; с 06.10 канва одна, и проверка одна.)
     """
+    def hours(cv: dict) -> list[int]:
+        return [h["h"] for h in cv["hours"]]
+
+    def cells(cv: dict, dk: str) -> dict:
+        col = next(x for x in cv["columns"] if x["id"] == dk)
+        return dict(zip(hours(cv), col["cells"]))
+
     with Server(clinic="clinic_hours.json") as s:
         c = Client(s.url).login()
         day = _d(1)
-        page = c.get(f"/admin?date={day}").body
-        times = re.findall(r"<div(?: class='nowh')?>(\d\d):00</div>", page)
-
-        res.check("закрытые края ушли в полоску (две штуки)",
-                  page.count("class='gband"), 2)
-        # ⭐ Кто менял высоту часа, тот перекладывает линию «сейчас» (08-21,
-        # нашёл Олег на канарейке): первый fitGrid идёт при парсинге БЕЗ правой
-        # колонки, час встаёт на пол 66, а прогон на DOMContentLoaded растит
-        # его до 92-96 — и линия panel.js оставалась в старых пикселях на
-        # полтора часа выше, до 30-секундного интервала. Видно только на
-        # высоком окне (на 1366 финал = полу) и только после 303-перезагрузки,
-        # поэтому ни один прогон этого не видел — держим сам вызов в скрипте.
-        # вызов ищем ВНУТРИ тела fitGrid, а не по всей странице: подстрока
-        # нашлась бы и в чужом скрипте, и переезд вызова из функции остался
-        # бы зелёным (ревью 08-22)
-        fitgrid_body = page.split("function fitGrid()", 1)[-1].split(
-            "fitGrid();", 1)[0]
-        res.ok("fitGrid перекладывает линию «сейчас»",
-               "if (window.placeNowline) placeNowline();" in fitgrid_body,
-               "смена --cell не возвращает линию — после добавления записи "
-               "она видимо прыгает вверх до тика интервала")
-        res.ok("первый ряд — первый рабочий час, а не час клиники",
-               times[:1] == ["09"], f"колонка времени начинается с {times[:1]}")
-        res.ok("хвост после 17:00 срезан",
-               times[-1:] == ["16"], f"колонка времени кончается на {times[-1:]}")
-        res.ok("07:00 и 08:00 больше не занимают ряд",
-               "07" not in times and "08" not in times, f"часы: {times}")
-        res.ok("обед остался РЯДОМ, а не полоской", "13" in times,
-               "закрытый час в середине срезан — записи после обеда уедут")
-        res.ok("полоска объясняет себя подсказкой",
-               "Închis · 07:00 - 09:00" in page,
-               "нет title у полоски — часы негде прочитать")
+        cv = day_model(c, day)["canvas"]
+        res.check("закрытые края ушли в полоски — с часами закрытия",
+                  cv["bands"], {"top": {"from": "07:00", "to": "09:00"},
+                                "bottom": {"from": "17:00", "to": "21:00"}})
+        res.check("ряды — рабочие часы врачей, без дыр, обед РЯДОМ",
+                  hours(cv), list(range(9, 17)))
+        res.check("в обеденный ряд записать нельзя, в рабочий час — можно",
+                  (cells(cv, "d2")[13], cells(cv, "d2")[9]), (False, True))
 
         # запись вне графика: 07:00 у врача, который работает с 09:00.
-        # ⚠️ /admin/add такую больше НЕ принимает — сервер проверяет график
-        # врача (outside_doc, 08-15). Реальный путь появления такой записи —
-        # часы врача сузили ПОСЛЕ брони; сеем её маршрутом фиши, который
-        # график врача не перепроверяет, — сетке всё равно, откуда визит.
-        c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
-               aservice="consult", aname="Devreme Test", aphone="0690700",
-               back="/admin/all")
+        # ⚠️ Окно записи такую НЕ принимает — сервер проверяет график врача
+        # (outside_doc, 08-15). Реальный путь появления такой записи — часы
+        # врача сузили ПОСЛЕ брони; сеем её маршрутом фиши, который график
+        # врача не перепроверяет, — канве всё равно, откуда визит.
+        add_appt(c, day, "10:00", "Devreme Test", "0690700")
         pid_e = pid_by_phone(c, "0690700")
         c.post_json(f"/api/patients/{pid_e}/appoint", {"date": day, "time": "07:00",
                                                       "doctor": "d2", "service": "consult"})
-        page2 = c.get(f"/admin?date={day}").body
-        times2 = re.findall(r"<div(?: class='nowh')?>(\d\d):00</div>", page2)
-        res.ok("запись вне графика ДЕРЖИТ свой ряд", "07" in times2,
-               "ряд срезан вместе с записью — время выглядит свободным")
-        res.ok("она видна в сетке", "Devreme Test" in page2, "блока записи нет")
-        res.ok("полоска слева пропала, раз ряд занят",
-               page2.count("class='gband") == 1,
-               "полоска осталась при непустом крайнем часе")
-        res.ok("08:00 остался рядом — он больше не край",
-               "08" in times2, f"часы: {times2}")
-
-        # ---- та же пауза в таблице «Programări» (08-12) ----
-        # На канве обед виден штриховкой, а сетка-таблица строилась по
-        # day_slots и обеденный час выбрасывала совсем: 12:00 сменялось на
-        # 14:00 без следа. Два экрана про один день говорили разное.
-        grid = c.get(f"/admin/all?date={day}").body
-        ghours = re.findall(r"<td class='hour[^']*'>(\d\d):00", grid)
-        res.ok("часы таблицы идут непрерывно, обед не выпадает",
-               ghours == [f"{h:02d}" for h in range(7, 21)], f"часы: {ghours}")
-        pause_row = re.search(r"<tr class='hrow off'><td class='hour off'>13:00.*?</tr>",
-                              grid, re.S)
-        res.ok("обеденный ряд назван «pauză»",
-               bool(pause_row) and "<small>pauză</small>" in pause_row.group(0),
-               "ряд обеда не помечен — дырка в часах без объяснения")
-        res.ok("в обеденный ряд не предлагают записать",
-               bool(pause_row) and "class='free'" not in pause_row.group(0)
-               and "class='goff'" in pause_row.group(0),
-               "«+» в закрытый час: /admin/add отобьёт его через fits_clinic")
-        early = re.search(r"<tr class='hrow off'><td class='hour off'>07:00.*?</tr>",
-                          grid, re.S)
-        res.ok("час вне графика ВРАЧЕЙ закрытым не считается",
-               early is None and "Devreme Test" in grid,
-               "клиника открыта в 07:00 — закрывать час нельзя, там уже визит")
-
-        # ⭐ Час вне окна ВРАЧА: клиника открыта, но принимать некому. Канва
-        # штрихует такие ячейки и не даёт по ним кликнуть — таблица обязана
-        # говорить то же самое, иначе одна страница зовёт записать туда, где
-        # другая запрещает (и пациент приходит в пустой кабинет).
-        row7 = re.search(r"<tr class='hrow'><td class='hour'>07:00.*?</tr>", grid, re.S)
-        res.ok("вне графика врача «+» не предлагают — как на канве",
-               bool(row7) and "class='free'" not in row7.group(0)
-               and "class='goff'" in row7.group(0)
-               and "Devreme Test" in row7.group(0),
-               "таблица зовёт записать туда, где канва рисует штриховку")
-        row9 = re.search(r"<tr class='hrow'><td class='hour'>09:00.*?</tr>", grid, re.S)
-        res.ok("в рабочий час врача «+» на месте",
-               bool(row9) and "class='free'" in row9.group(0),
-               "рабочий час перестал принимать записи")
+        cv2 = day_model(c, day)["canvas"]
+        res.check("запись вне графика ДЕРЖИТ свой ряд, и 08:00 больше не край",
+                  hours(cv2)[:3], [7, 8, 9])
+        res.ok("она видна на канве",
+               any(b.get("name") == "Devreme Test" and b["time"] == "07:00"
+                   for col in cv2["columns"] for b in col["blocks"]),
+               "блока записи нет — время выглядит свободным")
+        res.check("полоска сверху пропала, раз ряд занят; нижняя на месте",
+                  (cv2["bands"]["top"], cv2["bands"]["bottom"]),
+                  (None, {"from": "17:00", "to": "21:00"}))
+        # ⭐ Час вне окна ВРАЧА: клиника открыта, но принимать некому — ряд
+        # есть (в нём визит), а записать туда нельзя (пациент пришёл бы в
+        # пустой кабинет)
+        res.check("вне графика врача записать нельзя, хоть ряд и есть",
+                  cells(cv2, "d2")[7], False)
 
     # ---- запись, которую обед накрыл ПОСЛЕ брони ----
-    # ⛔ Главная опасность этого набора в таблице: час без ряда никто не
-    # спрашивает у `starts`, поэтому вместе с рядом исчезал и визит. В списке
-    # дня он остаётся, слот занят — а сетка показывает пустоту, и регистратура
-    # сажает на это время второго пациента.
+    # ⛔ Час без ряда никто не спрашивает: вместе с рядом исчез бы и визит. В
+    # списке дня он остаётся, слот занят — а сетка показывает пустоту, и
+    # регистратура сажает на это время второго пациента.
     with Server() as s:
         c = Client(s.url).login()
         day = _d(1)
-        c.post("/admin/add", adate=day, atime="13:00", adoctor="d2",
-               aservice="consult", aname="Pauza Test", aphone="0690713",
-               back="/admin/all")
-        before = c.get(f"/admin/all?date={day}").body
+        add_appt(c, day, "13:00", "Pauza Test", "0690713")
         res.ok("у клиники без обеда закрытых рядов нет вовсе",
-               "class='hrow off'" not in before,
+               all(cells(day_model(c, day)["canvas"], "d2").values()),
                "штриховка появилась там, где клиника работает весь день")
 
         r = c.post_json("/api/settings/hours", {"hours": {d: [7, 21, 13, 14] for d in
                                                           ("mon", "tue", "wed", "thu",
                                                            "fri", "sat", "sun")}})
         res.check("обед введён задним числом", r.msg, "ok_set")
-        after = c.get(f"/admin/all?date={day}").body
-        res.ok("визит, накрытый новым обедом, остался в сетке",
-               "Pauza Test" in after, "визит исчез из сетки вместе с рядом")
-        res.ok("его ряд помечен паузой",
-               "<td class='hour off'>13:00<small>pauză</small>" in after,
-               "час выглядит рабочим, хотя клиника на обеде")
+        after = day_model(c, day)["canvas"]
+        res.ok("визит, накрытый новым обедом, остался на канве",
+               any(b.get("name") == "Pauza Test" for col in after["columns"]
+                   for b in col["blocks"]),
+               "визит исчез вместе с рядом")
+        res.check("его ряд есть, и записать в него нельзя — клиника на обеде",
+                  (13 in hours(after), cells(after, "d2").get(13)), (True, False))
 
 
 def suite_analytics(res: Result) -> None:
@@ -964,13 +713,14 @@ def suite_analytics(res: Result) -> None:
                 ("09:00", "d2", "consult", "Stat Unu", "069000001"),
                 ("11:00", "d2", "long", "Stat Doi", "069000002"),
                 ("10:00", "d3", "hygiene", "Stat Trei", "069000003")):
-            c.post("/admin/add", adate=day, atime=time, adoctor=doc, aservice=svc,
-                   aname=name, aphone=phone, back="/admin/all")
+            c.post_json("/api/schedule/appointments", {"date": day, "time": time,
+                                                      "doctor": doc, "service": svc,
+                                                      "name": name, "phone": phone})
         # прошлый период той же длины: одна запись «сегодня» для сравнения
-        # (08:00 — /admin/add намеренно принимает прошедший час текущего дня)
-        c.post("/admin/add", adate=_d(0), atime="08:00", adoctor="d4",
-               aservice="consult", aname="Stat Ieri", aphone="069000004",
-               back="/admin/all")
+        # (08:00 — ручная запись намеренно принимает прошедший час текущего дня)
+        c.post_json("/api/schedule/appointments", {"date": _d(0), "time": "08:00",
+                                                  "doctor": "d4", "service": "consult",
+                                                  "name": "Stat Ieri", "phone": "069000004"})
 
         # Экран рисует React (старая страница снята 12.10): цифры — из /api/stats,
         # той же модели, что видит директор (карточки `board`, врачи, лента).
@@ -1038,8 +788,9 @@ def suite_patients_list(res: Result) -> None:
         c = Client(s.url).login()
 
         def add(name: str, phone: str, day: int, time: str, doc: str) -> str:
-            c.post("/admin/add", adate=_d(day), atime=time, adoctor=doc,
-                   aservice="consult", aname=name, aphone=phone, back="/admin/all")
+            c.post_json("/api/schedule/appointments", {"date": _d(day), "time": time,
+                                                      "doctor": doc, "service": "consult",
+                                                      "name": name, "phone": phone})
             return str(pid_by_phone(c, phone))
 
         vechi = add("Elena Bălan", "068111222", -400, "10:00", "d2")
@@ -1202,9 +953,9 @@ def suite_money(res: Result) -> None:
         c = Client(s.url).login()
 
         def add(name: str, phone: str, at: str) -> str:
-            c.post("/admin/add", adate=_d(1), atime=at, adoctor="d2",
-                   aservice="consult", aname=name, aphone=phone,
-                   back="/admin/all")
+            c.post_json("/api/schedule/appointments", {"date": _d(1), "time": at,
+                                                      "doctor": "d2", "service": "consult",
+                                                      "name": name, "phone": phone})
             return pid_by_phone(c, phone)
 
         def charge(pid: int, price: int) -> None:
@@ -1628,10 +1379,7 @@ def suite_lan(res: Result) -> None:
 
             # --- Telegram заморожен (08-08): интерфейс бота видит только
             # клиника с УЖЕ настроенным токеном (grandfather) ---
-            page = c.get("/admin").body
-            res.ok("без токена секции «Sincronizări» нет",
-                   "Sincronizări" not in page and "Telegram Bot" not in page,
-                   "интерфейс замороженного бота виден клинике без токена")
+            res.check("без токена секции «Sincronizări» нет", _sync(c.get("/admin").body), [])
             res.ok("без токена нет плитки Telegram на хабе",
                    "/admin/settings/telegram" not in tiles(c),
                    "плитка бота предлагается клинике без токена")
@@ -1641,10 +1389,8 @@ def suite_lan(res: Result) -> None:
         with Server(env={"DENTART_ENV_FILE": str(env_path),
                          "DENTART_TOKEN_UNREADABLE": "1"}) as s2:
             c2 = Client(s2.url).login()
-            page = c2.get("/admin").body
-            res.ok("настроенный бот остаётся в меню (grandfather)",
-                   "Sincronizări" in page and "Telegram Bot" in page,
-                   "у клиники с ботом пропал раздел из меню")
+            res.check("настроенный бот остаётся в меню (grandfather)",
+                      _sync(c2.get("/admin").body), ["tg", "qr"])
     finally:
         _rmtree_settled(tmp)
 
@@ -1829,9 +1575,6 @@ def suite_bot_ui(res: Result) -> None:
     не нужен."""
     with Server() as s:  # токена нет — так выглядит новая клиника
         c = Client(s.url).login()
-        dash = c.get("/admin").body
-        res.ok("плиток дашборда — без «Prin bot»", "Prin bot" not in dash,
-               "плитка бота у клиники без бота")
 
         # ⛔ Заморозка прячет ЭКРАНЫ, но тексты про бота протекали мимо неё:
         # 08-10 Олег увидел в карточке врача «Activ — botul și formularele îl
@@ -1846,12 +1589,17 @@ def suite_bot_ui(res: Result) -> None:
         # не было — три дырки (фильтр, строка «Canal Telegram» в Stare sistem,
         # абзац токена в FAQ) прожили незамеченными. Слово и обе страницы
         # теперь в обходе.
-        # ⚠️ Экраны React (настройки, статистика, врачи, пациенты) несут текст
-        # в ответах /api/*, а не в странице: обход страницы у них ничего не
-        # видит, и сторож молча становился пустым — поэтому в обходе их ответы.
+        # ⚠️ Экраны React (все разделы с 13.10) несут текст в ответах /api/*,
+        # а не в странице: обход страницы у них видит пустую оболочку, и сторож
+        # молча становился пустым — поэтому в обходе их ответы. Журнал — в
+        # первую очередь: панель, день, неделя и кресло.
         bot_pid = new_patient(c, "Fara Bot", "069000777")
+        add_appt(c, _d(1), "10:00", "Fara Bot", "069000777")
         leaks = []
         for path in ("/admin", "/admin/all",
+                     "/api/schedule/live?screen=panel", f"/api/schedule/live?date={_d(1)}",
+                     f"/api/schedule/day?date={_d(1)}", f"/api/schedule/week?date={_d(1)}",
+                     "/api/chair?doctor=d2",
                      "/api/patients", "/api/patients/summary", f"/api/patients/{bot_pid}",
                      f"/api/patients/{bot_pid}/peek",
                      "/api/settings/hub", "/api/settings/clinic",
@@ -1864,21 +1612,8 @@ def suite_bot_ui(res: Result) -> None:
                     leaks.append(f"{path}: {word}")
         res.ok("клинике без бота о боте не рассказывают", not leaks,
                f"утечки заморозки: {leaks}")
-        # зеркало проверки suite_dashboard «шесть плиток»: без бота их пять
-        res.check("плиток-графиков — пять", dash.count("class='spark'"), 5)
-        res.ok("подзаголовок без бота", "🤖 bot" not in dash,
-               "шапка продаёт замороженный канал")
-        res.ok("нет блока «Programări noi din bot»",
-               "Programări noi din bot" not in dash, "блок бота остался")
-        res.ok("нет строки статуса бота", "Bot Telegram" not in dash
-               and "Sincronizat cu botul" not in dash, "строка статуса висит")
-        res.ok("нет колокольчика новых из бота", "class='bell'" not in dash,
-               "колокольчик ведёт к пустому блоку")
-        res.ok("подсказка канвы без бота", "prin bot apar automat" not in dash,
-               "подсказка обещает бот-записи")
-        day = c.get(f"/admin/all?date={_d(1)}").body
-        res.ok("список дня без бот-легенды в шапке", "🤖 bot" not in day,
-               "легенда с ботом на /admin/all")
+        res.check("«Sursă» в «Lista zilei» у клиники без бота не показывается",
+                  day_model(c, _d(1))["source_col"], False)
         # экран статистики — React: его текст сервера едет в /api/stats
         stats = c.get("/api/stats").body
         res.ok("статистика без доли бота",
@@ -1900,18 +1635,14 @@ def suite_bot_ui(res: Result) -> None:
                   c.get("/static/css/panel.css").status, 200)
         res.check("значок отдаётся", c.get("/favicon.ico").status, 200)
 
-    # grandfather: у клиники токен настроен — интерфейс остаётся полным
+    # grandfather: у клиники токен настроен — интерфейс бота виден.
+    # (Плитка «Prin bot», блок «Programări noi din bot» и колокольчик жили
+    # только на старой панели и ушли с ней 13.10; React их не рисовал.)
     with Server(env={"DENTART_TOKEN_UNREADABLE": "1"}) as s:
         c = Client(s.url).login()
-        dash = c.get("/admin").body
-        res.ok("grandfather: плитка «Prin bot» на месте", "Prin bot" in dash,
-               "заморозка отняла интерфейс у клиники с ботом")
-        res.ok("grandfather: блок новых из бота жив",
-               "Programări noi din bot" in dash, "блок пропал у grandfather")
-        res.ok("grandfather: колокольчик на месте", "class='bell'" in dash,
-               "колокольчик пропал у grandfather")
-        res.ok("grandfather: Sincronizări в сайдбаре", "Sincronizări" in dash,
-               "секция пропала у grandfather")
+        res.check("grandfather: Sincronizări в меню", _sync(c.get("/admin").body), ["tg", "qr"])
+        res.check("grandfather: «Sursă» в «Lista zilei» показывается",
+                  day_model(c)["source_col"], True)
         kp = {x["key"]: x for x in
               json.loads(c.get("/api/stats").body)["data"]["board"]["kpis"]}
         res.ok("grandfather: доля бота в статистике",
@@ -1938,32 +1669,32 @@ def suite_bot_ui(res: Result) -> None:
 
 
 def suite_live_stable(res: Result) -> None:
-    """Контракт живого протокола: тело ДЕТЕРМИНИРОВАНО при неизменных данных.
+    """Контракт живого канала: состояние ДЕТЕРМИНИРОВАНО при неизменных данных.
 
     ⭐ Это второе свойство протокола, и до 18.09 его не проверял никто.
-    `suite_live_swap` рядом сравнивает обёртку с фрагментом В ПРЕДЕЛАХ ОДНОГО
-    запроса — такое равенство держится само собой, потому что md5 считается от
-    одной строки. А вот что ДВА запроса подряд дадут одно и то же тело, не
-    следует ни из чего: достаточно одной серверной строки с минутами, случайного
-    id или неустойчивого порядка, и отпечаток становится другим каждые 12 секунд.
-    Подмена пойдёт на каждый опрос, мигание вернётся — то самое, от которого
-    ушли 08-20 по жалобе пилота, — и увидеть это можно, только простояв на
-    странице полминуты. Ни один набор столько не стоит.
+    Отпечаток, посчитанный от отправленного (`test_schedule_api.
+    suite_live_envelope`), держится сам собой. А вот что ДВА запроса подряд
+    дадут одно и то же состояние, не следует ни из чего: достаточно одной
+    серверной строки с минутами, случайного id или неустойчивого порядка, и
+    отпечаток становится другим каждые 12 секунд. Панель перерисовывается на
+    каждый опрос — мигание, от которого ушли 08-20 по жалобе пилота, — и
+    увидеть это можно, только простояв на странице полминуты. Ни один набор
+    столько не стоит.
 
     ⚠️ Проверяются ЖИВЫЕ данные, а не пустой день: в дне есть пациент в
     приёмной (`waiting_at`), запись «сейчас» и прошедшая. Минуты ожидания
-    обязан рисовать `panel.js` по штампу времени в атрибуте — если их однажды
-    напечатает сервер, отпечаток поедет ровно у той клиники, где кто-то ждёт.
+    обязан считать браузер по отметке времени — если их однажды напечатает
+    сервер, отпечаток поедет ровно у той клиники, где кто-то ждёт.
+    (До 13.10 то же требовалось от тела четырёх старых живых страниц; живой
+    у журнала теперь один канал — панели.)
     """
     with Server() as s:
         c = Client(s.url).login()
         day = clinic_today().isoformat()
-        c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
-               aservice="consult", aname="Live Stabil", aphone="069700700")
-        c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
-               aservice="consult", aname="Live Asteapta", aphone="069700701")
-        c.post("/admin/add", adate=day, atime="12:00", adoctor="d2",
-               aservice="consult", aname="Live Ghost", aphone="069700702")
+        for hh, nm, ph in (("10:00", "Live Stabil", "069700700"),
+                           ("11:00", "Live Asteapta", "069700701"),
+                           ("12:00", "Live Ghost", "069700702")):
+            add_appt(c, day, hh, nm, ph)
         # ⛔ НИЧЬЯ в сортировке дня: две строки с ОДНИМ `starts_at` и ОДНИМ
         # именем врача. Она достижима не «как угодно», а ровно в одном месте, и
         # это стоило проверки опытом: уникальный индекс слота ЧАСТИЧНЫЙ —
@@ -1977,115 +1708,87 @@ def suite_live_stable(res: Result) -> None:
         # законченных — между двумя законченными она не различает ничего, и
         # порядок остаётся тот, что пришёл из базы. Он решает `col`/`of`, то
         # есть геометрию. Без тай-брейка по `a.id` два опроса при неизменном дне
-        # дали бы разное тело. Правило держит `test_structure` («выборка дня
-        # упорядочена полностью»), здесь — сама ситуация.
+        # дали бы разное состояние. Правило держит `test_structure` («выборка
+        # дня упорядочена полностью»), здесь — сама ситуация.
         import sqlite3 as _sq
-        rows_by_name = {m.group(2): m.group(1) for m in re.finditer(
-            r"<tr class='[a-z]+'><td>(\d+)</td>.*?(Live \w+)",
-            c.get(f"/admin/all?date={day}").body, re.S)}
-        assert {"Live Stabil", "Live Ghost", "Live Asteapta"} <= set(rows_by_name), \
-            f"не все визиты фикстуры на месте: {sorted(rows_by_name)}"
+        ids = {nm: appt_id(c, day, nm) for nm in ("Live Stabil", "Live Asteapta", "Live Ghost")}
         for who in ("Live Stabil", "Live Ghost"):
-            c.post(f"/admin/status/{rows_by_name[who]}", to="done",
-                   back=f"/admin?date={day}")
+            c.post_json(f"/api/schedule/appointments/{ids[who]}/status", {"to": "done"})
         con = _sq.connect(s.dir / "dental.db")
         con.execute("UPDATE appointments SET starts_at ="
                     " (SELECT starts_at FROM appointments WHERE id = ?)"
-                    " WHERE id = ?", (rows_by_name["Live Stabil"],
-                                      rows_by_name["Live Ghost"]))
+                    " WHERE id = ?", (ids["Live Stabil"], ids["Live Ghost"]))
         con.commit()
         con.close()
-
         # пациент В ПРИЁМНОЙ: именно у него минуты ожидания и мог бы поехать
         # отпечаток, если бы их печатал сервер
-        page = c.get(f"/admin?date={day}").body
-        # ⚠️ Форм статуса на странице нет: статус меняют из модалки записи, и
-        # номер визита берётся из data-appt. Искать «/admin/status/» бесполезно.
-        aids = re.findall(r"data-appt='(\d+)'", page)
-        assert aids, "на дне нет ни одной записи — сеять нечего"
+        c.post_json(f"/api/schedule/appointments/{ids['Live Asteapta']}/status",
+                    {"to": "waiting"})
+        live = panel_live(c, day)
+        tie = [b for col in live["canvas"]["columns"] for b in col["blocks"]
+               if b["id"] in (ids["Live Stabil"], ids["Live Ghost"])]
         res.ok("ничья в сортировке в фикстуре ЕСТЬ: две строки на одну минуту "
-               "у одного имени",
-               page.count(f"data-appt='{rows_by_name['Live Ghost']}'") > 0
-               and "Live Ghost" in page,
-               "легаси-строка не доехала до дня — набор проверял бы "
-               "детерминизм мимо ничьей")
-        c.post(f"/admin/status/{rows_by_name['Live Asteapta']}", to="waiting",
-               back=f"/admin?date={day}")
+               "у одного врача, и обе на канве",
+               len(tie) == 2 and tie[0]["min"] == tie[1]["min"],
+               "ничьи нет — набор проверял бы детерминизм мимо неё")
 
-        H = {"X-DP-Live": "1"}
-        for path in (f"/admin?date={day}", f"/admin/all?date={day}",
-                     f"/admin/week?date={day}", f"/admin/doctor/d2?date={day}"):
-            name = path.split("?")[0]
-            a = c.get(path, headers=H)
-            b = c.get(path, headers=H)
-            if a.body != b.body:
-                # ⚠️ Могли пересечь границу часа между запросами: подсветка
-                # текущего часа дискретна и меняться ВПРАВЕ раз в час. Второй
-                # шанс отличает редкий переход от настоящего недетерминизма.
-                b = c.get(path, headers=H)
-                a = c.get(path, headers=H)
-            res.ok(f"{name}: два запроса подряд дают одно тело",
-                   a.body == b.body,
-                   "тело меняется само по себе — подмена пойдёт на КАЖДЫЙ опрос "
-                   "и мигание вернётся; ищите в теле время, минуты, случайный id "
-                   "или неустойчивый порядок")
-            res.ok(f"{name}: и один отпечаток",
-                   a.header("X-DP-Hash") == b.header("X-DP-Hash"),
-                   f"{a.header('X-DP-Hash')} против {b.header('X-DP-Hash')}")
+        url = f"/api/schedule/live?screen=panel&date={day}"
+        a, b = c.get(url), c.get(url)
+        if a.body != b.body:
+            # ⚠️ Могли пересечь границу часа между запросами: подсветка
+            # текущего часа дискретна и меняться ВПРАВЕ раз в час. Второй
+            # шанс отличает редкий переход от настоящего недетерминизма.
+            b, a = c.get(url), c.get(url)
+        res.ok("два запроса подряд дают одно состояние",
+               a.body == b.body,
+               "состояние меняется само по себе — перерисовка пойдёт на КАЖДЫЙ "
+               "опрос и мигание вернётся; ищите в нём время, минуты, случайный "
+               "id или неустойчивый порядок")
+        res.ok("и один отпечаток", a.header("X-DP-Hash") == b.header("X-DP-Hash"),
+               f"{a.header('X-DP-Hash')} против {b.header('X-DP-Hash')}")
 
         # Данные изменились — отпечаток ОБЯЗАН стать другим, иначе живой журнал
         # молчит о новой записи, и это вторая половина того же контракта.
-        before = c.get(f"/admin?date={day}", headers=H).header("X-DP-Hash")
-        c.post("/admin/add", adate=day, atime="15:30", adoctor="d2",
-               aservice="consult", aname="Live Nou", aphone="069700702")
-        after = c.get(f"/admin?date={day}", headers=H).header("X-DP-Hash")
+        before = c.get(url).header("X-DP-Hash")
+        add_appt(c, day, "15:30", "Live Nou", "069700703")
+        after = c.get(url).header("X-DP-Hash")
         res.ok("новая запись меняет отпечаток", before != after,
                "отпечаток не заметил новую запись — опрос вернёт 204, и стойка "
                "не увидит бронь из бота, пока не обновит страницу руками")
 
-        # Минуты ожидания рисует БРАУЗЕР по штампу времени: сервер печатает
-        # только data-since. Иначе тело менялось бы каждую минуту у любой
+        # Минуты ожидания считает БРАУЗЕР по отметке времени: сервер кладёт
+        # только `wait_since`. Иначе состояние менялось бы каждую минуту у любой
         # клиники, где кто-то сидит в приёмной.
-        page = c.get(f"/admin?date={day}").body
-        res.ok("пациент в приёмной на странице есть (иначе проверка ниже пуста)",
-               "wait-min" in page, "статус «в приёмной» не поставился")
-        res.ok("минуты ожидания — штампом для panel.js, а не текстом сервера",
-               "data-wait-since=" in page and not re.search(r"wait-min[^>]*>\s*\d+\s*min", page),
+        wait = next((x for x in panel_live(c, day)["agenda"]["items"]
+                     if x["name"] == "Live Asteapta"), {})
+        res.ok("пациент в приёмной в повестке есть (иначе проверка ниже пуста)",
+               wait.get("status") == "waiting", f"строка: {wait}")
+        res.ok("минуты ожидания — отметкой для браузера, а не текстом сервера",
+               isinstance(wait.get("wait_since"), int)
+               and not any(isinstance(v, str) and re.search(r"\d+\s*min", v)
+                           for v in wait.values()),
                "сервер печатает минуты сам — отпечаток поедет там, где ждут")
 
 
 # --- C24: неделя. Пин ПОВЕДЕНИЯ, а не разметки -----------------------------
 # ⚠️ До 18.09 неделя была покрыта двумя вещами: «отвечает 200» и участием в
-# живом протоколе. Всё, ради чего страница существует — какие дни показаны,
+# живом протоколе. Всё, ради чего экран существует — какие дни показаны,
 # сколько записей, что написано в чипе, — не проверялось ни одним символом.
-# Перенос в React без этого терял бы поведение молча, а выглядел бы рабочим.
+# С 13.10 старой страницы нет, и пин читает то, что получает экран:
+# `GET /api/schedule/week`.
 
-# ⚠️ День из шапки колонки — день ЖУРНАЛА (`/admin/all`, 06.10): неделя с тех
-# пор — раздел «Programări», а не панель.
-_WEEK_COL = re.compile(r"<div class='wcol'><div class='wh( tdy)?'>"
-                       r"<a href='/admin/all\?date=(\d{4}-\d\d-\d\d)'>([^<]+)</a>"
-                       r"<small>(\d+) programări</small></div>"
-                       r"<div class='wb'>(.*?)</div></div>", re.S)
-
-
-def _week_cols(body: str) -> list[dict]:
-    """Колонки недели по порядку: дата, подпись, счётчик, «сегодня», чипы."""
-    out = []
-    for tdy, date, label, count, inner in _WEEK_COL.findall(body):
-        out.append({"date": date, "label": label.strip(), "count": int(count),
-                    "today": bool(tdy), "chips": re.findall(r"<div class='wchip([^']*)'", inner),
-                    "inner": inner})
-    return out
+def _week(c: Client, day: str = "") -> dict:
+    return json.loads(c.get("/api/schedule/week" + (f"?date={day}" if day else "")).body)["data"]
 
 
 def _close_weekend(c: Client) -> bool:
-    """Закрыть субботу и воскресенье — тем же телом, что шлёт страница часов.
+    """Закрыть субботу и воскресенье — тем же телом, что шлёт экран часов.
 
-    ⚠️ Закрывать ПОСЛЕ сева: на нерабочий день запись через форму не
-    создаётся (`/admin/add` проверяет часы клиники), и это само по себе
-    поведение — см. проверку «на закрытый день записать нельзя». Поэтому
-    суббота сначала рабочая, запись в неё кладётся, и лишь затем день
-    закрывается — ровно так, как бывает у клиники, поменявшей график.
+    ⚠️ Закрывать ПОСЛЕ сева: на нерабочий день запись не создаётся (окно
+    записи проверяет часы клиники), и это само по себе поведение — см.
+    проверку «на закрытый день записать нельзя». Поэтому суббота сначала
+    рабочая, запись в неё кладётся, и лишь затем день закрывается — ровно
+    так, как бывает у клиники, поменявшей график.
     """
     hours = {"mon": [7, 21], "tue": [7, 21], "wed": [7, 21], "thu": [7, 21],
              "fri": [7, 21], "sat": None, "sun": None}
@@ -2093,7 +1796,7 @@ def _close_weekend(c: Client) -> bool:
 
 
 def suite_week(res: Result) -> None:
-    """Неделя: диапазон, колонки, счётчики, чипы, цвета, навигация."""
+    """Неделя: диапазон, колонки, счётчики, чипы, цвета, соседние недели."""
     with Server() as s:
         c = Client(s.url).login()
         # понедельник ближайшей ПОЛНОЙ будущей недели: прошлое не трогаем,
@@ -2112,206 +1815,83 @@ def suite_week(res: Result) -> None:
         # исключений в CLAUDE.md. Поэтому не ожидание подгоняется под день, а
         # вопрос задаётся там, где ответ один в любой день недели.
         res.check("на текущей неделе подсвечен ровно один день",
-                  sum(1 for x in _week_cols(c.get("/admin/week").body) if x["today"]), 1)
+                  sum(1 for x in _week(c)["days"] if x["today"]), 1)
 
         # суббота пока рабочая — кладём в неё запись, она переживёт закрытие дня
-        sat = c.post("/admin/add", adate=d(5), atime="11:00", adoctor="d2",
-                     aservice="consult", aname="Vasile Lupu", aphone="069800802")
+        sat = add_appt(c, d(5), "11:00", "Vasile Lupu", "069800802")
         res.ok("на рабочую субботу запись создаётся", sat.msg == "ok",
                f"код {sat.msg} — дальше проверять нечего")
         res.ok("выходные закрыты через настройки часов", _close_weekend(c),
                "часы не сохранились")
 
-        page = c.get(f"/admin/week?date={d(2)}").body
-        cols = _week_cols(page)
+        w = _week(c, d(2))
         res.check("пять рабочих дней плюс суббота с записью",
-                  [x["date"] for x in cols], [d(i) for i in range(6)])
-        res.ok("пустой рабочий день говорит «— liber —»", "— liber —" in page,
-               "пустой день молчит")
-        res.ok("воскресенье без записей скрыто", d(6) not in page,
+                  [x["date"] for x in w["days"]], [d(i) for i in range(6)])
+        res.check("пустой рабочий день — без чипов (экран скажет «— liber —»)",
+                  next(x["items"] for x in w["days"] if x["date"] == d(0)), [])
+        res.ok("воскресенье без записей скрыто",
+               d(6) not in [x["date"] for x in w["days"]],
                "пустой выходной обязан исчезнуть из недели")
-        bad = c.post("/admin/add", adate=d(6), atime="11:00", adoctor="d2",
-                     aservice="consult", aname="Nu Merge", aphone="069800809")
+        bad = add_appt(c, d(6), "11:00", "Nu Merge", "069800809")
         res.check("на закрытый день записать нельзя — «вне рабочих часов»",
                   bad.msg, "outside")
 
         # среда: две записи и заметка стойки
-        c.post("/admin/add", adate=d(2), atime="09:00", adoctor="d2",
-               aservice="consult", aname="Ion Popa", aphone="069800800")
-        c.post("/admin/add", adate=d(2), atime="10:30", adoctor="d2",
-               aservice="pain", aname="Maria Rusu", aphone="069800801")
-        c.post("/admin/note", ndate=d(2), ntime="12:00", ndoctor="d2",
-               ntext="Livrare materiale")
-        page = c.get(f"/admin/week?date={d(2)}").body
-        cols = _week_cols(page)
+        add_appt(c, d(2), "09:00", "Ion Popa", "069800800")
+        add_appt(c, d(2), "10:30", "Maria Rusu", "069800801", service="pain")
+        c.post_json("/api/schedule/notes", {"date": d(2), "time": "12:00", "doctor": "d2",
+                                           "text": "Livrare materiale"})
+        w = _week(c, d(2))
         res.check("состав колонок не поехал от новых записей",
-                  [x["date"] for x in cols], [d(i) for i in range(6)])
+                  [x["date"] for x in w["days"]], [d(i) for i in range(6)])
         res.ok("подпись дня — своя у каждой колонки, не по индексу",
-               len({x["label"] for x in cols}) == 6,
-               f"подписи повторяются: {[x['label'] for x in cols]}")
-        wed = next(x for x in cols if x["date"] == d(2))
+               len({x["label"] for x in w["days"]}) == 6,
+               f"подписи повторяются: {[x['label'] for x in w['days']]}")
+        wed = next(x for x in w["days"] if x["date"] == d(2))
         res.check("счётчик дня считает записи и НЕ считает заметку",
                   wed["count"], 2)
-        res.ok("итог недели — сумма записей без заметок",
-               "3 programări" in page, "итог недели посчитан неверно")
+        res.check("итог недели — сумма записей без заметок", w["total"], 3)
         res.check("в среду три чипа: две записи и заметка",
-                  (len(wed["chips"]), wed["chips"].count(" gnote")), (3, 1))
-        res.ok("чип записи несёт час, имя и услугу",
-               "<b>09:00</b> Ion Popa" in wed["inner"]
-               and "Consultație" in wed["inner"], "чип потерял содержимое")
-        res.ok("чип заметки пунктирный и без имени пациента",
-               "1px dashed" in wed["inner"] and "Livrare materiale" in wed["inner"],
-               "заметка выглядит как запись")
-
+                  [x["kind"] for x in wed["items"]], ["appt", "appt", "note"])
+        res.check("чип записи несёт час, имя и услугу",
+                  [(x["time"], x["name"], x["service"]) for x in wed["items"]
+                   if x["kind"] == "appt"][0], ("09:00", "Ion Popa", "Consultație"))
+        res.check("чип заметки — без имени пациента, своим видом",
+                  [x for x in wed["items"] if x["kind"] == "note"],
+                  [{"kind": "note", "time": "12:00", "text_cut": "Livrare materiale"}])
         # цвет — токеном темы, а не хексом: клиника выбирает свой цвет
-        bgs = re.findall(r"class='wchip'[^>]*background:([^;]+);", wed["inner"])
+        bgs = [x["bg"] for x in wed["items"] if x["kind"] == "appt"]
         res.ok("фон чипа — переменная темы, а не зашитый цвет",
-               bgs and all(b.strip().startswith("var(--") for b in bgs),
+               bgs and all(b.startswith("var(--") for b in bgs),
                f"в стиле чипа хекс: {bgs}")
 
-        # неявка: зачёркивание живёт классом, а не разметкой
-        aid = re.findall(r"data-appt='(\d+)'", c.get(f"/admin?date={d(2)}").body)
-        assert aid, "запись не нашлась на дне"
-        c.post(f"/admin/status/{aid[0]}", to="noshow", back=f"/admin?date={d(2)}")
-        wed = next(x for x in _week_cols(c.get(f"/admin/week?date={d(2)}").body)
-                   if x["date"] == d(2))
-        res.ok("неявка помечена классом noshow", " noshow" in wed["chips"],
-               "неявка неотличима от обычной записи")
+        # неявка: помечена полем, а не разметкой
+        aid = appt_id(c, d(2), "Ion Popa")
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "noshow"})
+        wed = next(x for x in _week(c, d(2))["days"] if x["date"] == d(2))
+        res.check("неявка помечена", [x.get("noshow") for x in wed["items"]
+                                      if x["kind"] == "appt"], [True, False])
 
-        # отменённая запись исчезает со страницы целиком
-        c.post(f"/admin/status/{aid[0]}", to="cancelled", back=f"/admin?date={d(2)}")
-        wed = next(x for x in _week_cols(c.get(f"/admin/week?date={d(2)}").body)
-                   if x["date"] == d(2))
+        # отменённая запись исчезает целиком
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "cancelled"})
+        wed = next(x for x in _week(c, d(2))["days"] if x["date"] == d(2))
         res.check("отменённая запись ушла из недели и из счётчика",
-                  (len(wed["chips"]), wed["count"]), (2, 1))
+                  (len(wed["items"]), wed["count"]), (2, 1))
 
-        # навигация: ровно ±7 дней от понедельника, «Azi» без параметра
-        nav = page.split("<div class='nav'>", 1)[1].split("</div>", 1)[0]
-        res.ok("навигация ведёт на ±7 дней и на сегодня",
-               f"/admin/week?date={(monday - timedelta(days=7)).isoformat()}" in nav
-               and f"/admin/week?date={(monday + timedelta(days=7)).isoformat()}" in nav
-               and "href='/admin/week'>Azi" in nav, "навигация недели сбита")
-        res.ok("в шапке — диапазон понедельник–воскресенье",
-               f"{monday.strftime('%d.%m')} – "
-               f"{(monday + timedelta(days=6)).strftime('%d.%m.%Y')}" in nav,
-               "диапазон недели показан неверно")
-        res.ok("клик по шапке дня ведёт в день журнала («Programări»)",
-               f"/admin/all?date={d(2)}" in page, "нет ссылки на день")
-        res.ok("вкладка «Zi» недели — день журнала, а не панель",
-               f"href='/admin/all?date={d(2)}'>Zi" in nav, "«Zi» ведёт не туда")
-
+        # соседние недели: ровно ±7 дней от понедельника
+        res.check("соседние недели — ±7 дней от понедельника, день открытия — эхом",
+                  (w["prev"], w["next"], w["day"]),
+                  ((monday - timedelta(days=7)).isoformat(),
+                   (monday + timedelta(days=7)).isoformat(), d(2)))
+        res.check("диапазон — понедельник–воскресенье", w["span"],
+                  f"{monday.strftime('%d.%m')} – "
+                  f"{(monday + timedelta(days=6)).strftime('%d.%m.%Y')}")
         res.check("на будущей неделе не подсвечен никто",
-                  sum(1 for x in cols if x["today"]), 0)
+                  sum(1 for x in w["days"] if x["today"]), 0)
 
-        # любая дата недели даёт ТУ ЖЕ неделю: страница ключуется понедельником
+        # любая дата недели даёт ТУ ЖЕ неделю: она ключуется понедельником
         res.check("любой день недели открывает одну и ту же неделю",
-                  [x["date"] for x in _week_cols(c.get(f"/admin/week?date={d(4)}").body)],
-                  [x["date"] for x in cols])
-        res.ok("кривая дата не роняет страницу",
-               c.get("/admin/week?date=2026-13-99").status == 200,
-               "кривая дата обязана молча открыть текущую неделю")
-
-
-# --- C25.2: пины страниц поверх проверенного построителя -------------------
-# ⚠️ Контракт самой сетки живёт в `test_grid.py` и проверяет функцию. Здесь
-# другое: что страница отдаёт построителю ТО, ЧТО НАДО, и кладёт результат
-# туда, куда надо. Одна и та же сетка на двух экранах, и данные в них разные:
-# «Toți medicii» — все врачи и все записи дня, день врача — один врач и
-# только его записи.
-
-def _grid_heads(body: str) -> list[str]:
-    """Имена колонок сетки по порядку."""
-    return re.findall(r"<a class='dh-n'[^>]*>([^<]+)</a>", body)
-
-
-def _grid_appts(body: str) -> list[str]:
-    """Номера записей, попавших в сетку (а не в список под ней)."""
-    grid = body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0]
-    return re.findall(r"data-appt='(\d+)'", grid)
-
-
-def _seed_day(c: Client, day: str) -> dict:
-    """День с двумя врачами, длинным визитом, заметкой и отменой."""
-    c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
-           aservice="consult", aname="Ion Popa", aphone="069140140")
-    c.post("/admin/add", adate=day, atime="10:00", adoctor="d3",
-           aservice="pain", aname="Maria Rusu", aphone="069140141")
-    c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
-           aservice="long", aname="Vasile Lupu", aphone="069140142")
-    c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
-           ntext="Livrare materiale")
-    ids = re.findall(r"data-appt='(\d+)'", c.get(f"/admin/all?date={day}").body)
-    return {"ids": ids}
-
-
-def suite_all_page(res: Result) -> None:
-    """`/admin/all`: все врачи, все записи дня, форма и список под сеткой."""
-    with Server() as s:
-        c = Client(s.url).login()
-        day = (clinic_today() + timedelta(days=3)).isoformat()
-        _seed_day(c, day)
-        body = c.get(f"/admin/all?date={day}").body
-
-        active_docs = [x["name"] for x in
-                       json.loads(c.get("/api/doctors").body)["data"]["doctors"]
-                       if not x.get("archived") and x.get("status") == "activ"]
-        res.check("колонки — активные врачи справочника, в его порядке",
-                  _grid_heads(body), active_docs)
-        res.ok("записи обоих врачей попали в сетку",
-               len(_grid_appts(body)) >= 3, "сетка недосчиталась записей")
-        res.ok("заметка стойки тоже в сетке",
-               "appt note" in body, "заметка стойки пропала")
-        res.ok("под сеткой — форма записи и список дня",
-               "id=\"addform\"" in body or "addform" in body,
-               "форма записи пропала со страницы")
-        res.ok("день открывается на нужной дате",
-               f"date={day}" in body, "страница не помнит дату")
-
-        # фильтр по плитке: список фильтруется, сетка остаётся целой
-        f = c.get(f"/admin/all?date={day}&f=noshow").body
-        res.ok("фильтр показывает свой баннер",
-               "Filtru:" in f, "фильтр не отработал")
-        res.check("сетка при фильтре не редеет",
-                  len(_grid_appts(f)), len(_grid_appts(body)))
-
-        res.ok("страница живая: обёртка и метка опроса",
-               'id="live"' in body and 'data-reload="12"' in body,
-               "«Toți medicii» перестала быть живой")
-
-
-def suite_doctor_page(res: Result) -> None:
-    """День одного врача: ТОЛЬКО его записи и одна колонка."""
-    with Server() as s:
-        c = Client(s.url).login()
-        day = (clinic_today() + timedelta(days=3)).isoformat()
-        _seed_day(c, day)
-        all_ids = set(_grid_appts(c.get(f"/admin/all?date={day}").body))
-        body = c.get(f"/admin/doctor/d2?date={day}").body
-
-        res.check("колонка одна и это выбранный врач",
-                  _grid_heads(body), ["Dr. Activ Doi"])
-        mine = set(_grid_appts(body))
-        res.ok("в сетке только записи этого врача",
-               mine and mine < all_ids, f"его записи: {mine}, все: {all_ids}")
-        res.ok("чужая запись не показана",
-               "Maria Rusu" not in body.split("<table class='grid'>", 1)[1],
-               "запись другого врача попала в день врача")
-        res.ok("в шапке имя врача и ссылки на панель и на всех",
-               "Dr. Activ Doi" in body and "/admin/all?date=" in body,
-               "шапка дня врача потеряла навигацию")
-        res.ok("страница живая", 'data-reload="12"' in body, "день врача не живой")
-        res.check("чужой врач в адресе — на журнал",
-                  c.get("/admin/doctor/d999").status, 307)
-
-        # выключенный врач остаётся доступен как история
-        r = c.post_json("/api/doctors/d3", {"name": "Dr. Activ Trei", "status": "concediu"})
-        res.check("врач отправлен в отпуск (иначе проверка ниже пуста)",
-                  r.msg, "ok_med")
-        off = c.get(f"/admin/doctor/d3?date={day}").body
-        res.ok("выключенный врач открывается и помечен как история",
-               "inactiv (istoric)" in off,
-               "выключенный врач исчез вместе с историей")
-        allb = c.get(f"/admin/all?date={day}").body
-        res.ok("и остаётся колонкой в общем дне, пока у него есть записи",
-               "Dr. Activ Trei" in _grid_heads(allb),
-               "записи выключенного врача негде смотреть")
+                  [x["date"] for x in _week(c, d(4))["days"]],
+                  [x["date"] for x in w["days"]])
+        res.check("кривая дата не роняет экран — открывает текущую неделю",
+                  c.get("/api/schedule/week?date=2026-13-99").status, 200)

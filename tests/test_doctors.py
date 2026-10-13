@@ -219,9 +219,10 @@ def suite_api(res: Result) -> None:
         # ⚠️ Час брони — ОДНОЙ константой на бронь и на ожидание «будущих» ниже:
         # две копии одного часа разошлись бы молча (поймано имитацией ночи).
         book_at = time(9, 0)
-        c.post("/admin/add", adate=day, atime=book_at.strftime("%H:%M"), adoctor="d2",
-               aservice="consult", aname="Medic Card Unu", aphone="069000031",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": day,
+                                                  "time": book_at.strftime("%H:%M"),
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Medic Card Unu", "phone": "069000031"})
         row = _j(c.get("/api/doctors/d2"))["data"]["today"][0]
         res.check("запись видна в сегодняшнем списке врача", row["status"], "confirmed")
         aid = row["id"]

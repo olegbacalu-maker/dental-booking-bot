@@ -21,7 +21,7 @@ import re
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server, clinic_today, pid_by_phone
+from harness import Client, Result, Server, appt_id, clinic_today, pid_by_phone
 
 # Знаки, которые рисует система (те же диапазоны, что стережёт
 # test_structure._SYSGLYPH): в тексте события им не место так же, как на экране,
@@ -48,9 +48,9 @@ def _istoric(c: Client, pid: str) -> list[str]:
 def suite_words(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
-               aservice="consult", aname="Cronica Test", aphone="022919191",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Cronica Test", "phone": "022919191"})
         pid = _pid(c, "022919191")
 
         # позиция плана: «planificat» не годится — у него код и слово совпадают,
@@ -69,9 +69,8 @@ def suite_words(res: Result) -> None:
         c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "obturatie", "doctor": "d2",
                                                      "surfaces": []})
 
-        aid = c.get(f"/admin/all?date={_d(1)}").body.split(
-            "/admin/status/", 1)[1].split("'")[0]
-        c.post(f"/admin/status/{aid}", to="noshow", back="/admin/all")
+        aid = appt_id(c, _d(1))
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "noshow"})
 
         acts = _istoric(c, pid)
 

@@ -9,7 +9,7 @@ import { asApiError, type ApiResult } from '../../services/api'
 import { pollLive } from '../../services/live'
 import { ApiError } from '../../types/api'
 import { dm, shift } from '../../utils/date'
-import { useLive, type LiveSeed } from '../../hooks/useLive'
+import { defaultReload, useLive, type LiveSeed } from '../../hooks/useLive'
 import { queryParam, useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { DashCanvas } from './DashCanvas'
 import { DashRail } from './DashRail'
@@ -40,10 +40,11 @@ import { clashAmong, hhmm, sameSlot, type Drag, type Target } from './move'
  * моделью оболочки (B1, `frame.msg`) и этого экрана не касается.
  * ⭐ ДЕНЬ — из АДРЕСА, шапка — из ЭХА КАНАЛА (решение Олега 24.09). Пустой
  * `?date=` уходит в канал пустым и значит «сегодня сервера»: в полночь канал
- * сам приносит новый день вместе с его подписью — как старая панель, которая
- * опрашивает свой адрес. До 24.09 день и подпись ехали параметрами узла, а
- * узел описывает ДОКУМЕНТ, то есть момент загрузки: вкладка, оставленная на
- * ночь, утром опрашивала и показывала вчера.
+ * сам приносит новый день вместе с его подписью. До 24.09 день и подпись ехали
+ * параметрами узла, а узел описывает ДОКУМЕНТ, то есть момент загрузки:
+ * вкладка, оставленная на ночь, утром опрашивала и показывала вчера.
+ * ⭐ Канал упал — экран повторяет сам и даёт «Reîncarcă» (решение Олега 12.10).
+ * До 13.10 отказ звал на старую панель (`?ui=legacy`); её больше нет.
  * ⚠️ Цена названа: шапка приходит вместе с панелью первым ответом канала, а не
  * первым кадром. Мигания нет — шапка не рисуется раньше данных, а приходит с
  * ними одним кадром.
@@ -53,7 +54,6 @@ const T = {
      ситуация там называется так же. Хвост «reîmprospătați pagina» убран —
      панель освежается сама, и советовать перезагрузку значило бы врать. */
   gone: 'Programarea nu mai există.',
-  legacy: 'Deschideți varianta clasică',
   /* Шапка дня. ⚠️ Слова те же, что печатал `_date_nav`/`_day_tabs`: это не
      новый текст, а переезд существующего к своему экрану. */
   today: 'Azi',
@@ -70,10 +70,19 @@ const T = {
      отвечает пустым кодом), а чужое — «Programarea nu mai există» — назвало бы
      заметку программой. */
   noteGone: 'Notița nu mai există.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
-  retry: 'Reîncearcă',
-  stopped: 'Panoul nu se mai actualizează singur. Reîncărcați pagina.',
+  /* отказ команды: ответа нет, а набранное в диалоге остаётся — повторить */
+  offline: 'Programul nu răspunde. Reîncercați.',
+  /* отказ канала (решение Олега 12.10): экран сам повторяет, кнопка — на
+     случай, когда повтор не помогает (например, страница устарела) */
+  down: 'Programul nu răspunde. Reîncercăm automat…',
+  stopped: 'Panoul nu se mai actualizează singur. Reîncercăm automat…',
+  reload: 'Reîncarcă',
 } as const
+
+/* Автоповтор упавшего канала. Короче периода опроса (12 с) намеренно: человек
+   смотрит на отказ, а не на панель, и ждать ему нечего. Запрос — по
+   127.0.0.1, повтор раз в пять секунд движку ничего не стоит. */
+const RETRY_MS = 5_000
 
 /* Два разных периода, как и в старом коде: линия «сейчас» — раз в 30 с,
    минуты ожидания — раз в минуту. Общий тик перерисовывал бы одно из них
@@ -96,7 +105,13 @@ export const loadDash: RouteLoad<LiveSeed<DashModel>> = async (signal, _p, q) =>
   return { data: { path, res }, code: '', text: '', tone: 'ok' }
 }
 
-export function DashScreen() {
+interface Props {
+  /** Полная перезагрузка документа («Reîncarcă»). Подменяется в проверках —
+   *  jsdom не умеет перезагрузок. */
+  reload?: () => void
+}
+
+export function DashScreen({ reload = defaultReload }: Props = {}) {
   const at = useAddressDay()
   /* Засев из загрузчика. Кадр ожидания (F5) — `'pending'`: канал ждёт, а не
      шлёт второй такой же запрос; загрузчик отказал — `null`: канал грузит сам,
@@ -144,8 +159,7 @@ export function DashScreen() {
   const flying = useRef(false)
   /* ⚠️ Версия — та, с которой загружена ЭТА страница: разошлась с ответом,
      значит exe обновили под открытой вкладкой, и новые данные нельзя
-     вклеивать в старый код. Поверхность — `react`: узнав от сервера, что по
-     адресу теперь живёт старая страница, вкладка перезагрузится сама. */
+     вклеивать в старый код — вкладка перезагрузится сама. */
   const version = document.body.dataset.v ?? ''
   /* ⛔ `hold` держит ровно два случая, и оба недолгие: команда в полёте и
      ИДУЩИЙ бросок. Открытый диалог сюда не входит — иначе рабочее место с
@@ -162,8 +176,21 @@ export function DashScreen() {
     setDrag(d)
   }, [])
   const { state, retry, refresh } = useLive<DashModel>(
-    livePath(at), 'react', version,
+    livePath(at), version,
     { hold: () => flying.current || dragging.current, seed })
+  /* ⭐ Автоповтор отказа (решение Олега 12.10). Повтор — ТОТ ЖЕ путь, что
+     кнопка «Reîncearcă» до него: `retry` сбрасывает состояние и заново
+     подписывает канал. Не помог — отказ вернётся, и эффект поставит
+     следующий таймер; ожил — экран станет панелью сам, без участия человека.
+     ⚠️ Таймер на смене признака, а не интервал: повтор переводит экран в
+     загрузку, признак гаснет и чистит таймер, и два повтора внахлёст
+     невозможны. */
+  const down = state.status === 'failed' || state.status === 'stopped'
+  useEffect(() => {
+    if (!down) return
+    const t = setTimeout(retry, RETRY_MS)
+    return () => clearTimeout(t)
+  }, [down, retry])
   const lineTick = useClockTick(LINE_MS)
   const waitTick = useClockTick(WAIT_MS)
 
@@ -299,9 +326,9 @@ export function DashScreen() {
 
   /*
    * Шапка дня — по ЭХУ канала: день, на который ответил сервер, и его подпись.
-   * ⚠️ Рисуется и при остановке канала (данные прежние остаются), и при отказе
-   * первой загрузки: листать дни надо и тогда, когда данных нет, — иначе на
-   * упавшем канале с экрана не уйти никуда, кроме легаси. Без данных ссылки
+   * ⚠️ Рисуется и при остановке канала, и при отказе первой загрузки: листать
+   * дни надо и тогда, когда данных нет, — иначе с упавшего канала было бы не
+   * уйти никуда. Без данных ссылки
    * строятся от дня АДРЕСА (пусто или криво — сегодня по часам клиники), а
    * подписи нет вовсе: дни недели по-румынски знает только сервер.
    * ⛔ При ЗАГРУЗКЕ шапки нет: пришла бы раньше данных — и подпись вставала
@@ -351,30 +378,22 @@ export function DashScreen() {
     </div>
   )
 
-  if (state.status === 'failed') {
+  if (down) {
     /* ⚠️ Свой отказ, а не общий `LoadFailed`: тому нужен `ApiError`, а у
-       живого канала исходов четыре и исключений среди них нет. Слова и
-       разметка — те же. */
-    return (
-      <section className="dp-react-root">
-        {navNode()}
-        <div className="banner err" role="alert">{T.offline}</div>
-        <p className="dp-actions">
-          <button type="button" className="savebtn" onClick={retry}>
-            <Icon name="refresh" /> {T.retry}
-          </button>
-          <AppLink href="/admin?ui=legacy">{T.legacy}</AppLink>
-        </p>
-      </section>
-    )
-  }
-  if (state.status === 'stopped') {
+       живого канала исходов четыре и исключений среди них нет. Повтор идёт
+       сам (эффект выше), кнопка — полная перезагрузка документа: она лечит и
+       то, что повтор не вылечит (устаревшая страница, сломанный кадр). */
     return (
       <section className="dp-react-root">
         {navNode()}
         <div className="banner err" role="alert">
-          {T.stopped} <AppLink href="/admin?ui=legacy">{T.legacy}</AppLink>.
+          {state.status === 'failed' ? T.down : T.stopped}
         </div>
+        <p className="dp-actions">
+          <button type="button" className="savebtn" onClick={() => reload()}>
+            <Icon name="refresh" /> {T.reload}
+          </button>
+        </p>
       </section>
     )
   }
@@ -398,9 +417,7 @@ export function DashScreen() {
             onNote={(id) => openNoteById(d, id)}
             drag={drag} hover={hover} onDrag={startDrag} onHover={setHover}
             onDrop={onDrop} fresh={fresh} />
-          {/* ⛔ Без подсказки под сеткой и без «Deschideți varianta clasică»
-              (Олег 06.10: «это не нужно»; макет 08.10 — без строки-подсказки):
-              старая панель — только аварийный выход, ниже в отказе и остановке. */}
+          {/* ⛔ Без подсказки под сеткой (макет 08.10 — без строки-подсказки). */}
         </div>
         <div className="rail" ref={rail}>
           <DashRail minical={d.minical} agenda={d.agenda} canvas={d.canvas}
@@ -523,9 +540,8 @@ function linkDay(at: string): string {
 const NO_FRESH: ReadonlySet<number> = new Set()
 
 /** Номера всего, что ВИДНО на панели: блоки канвы (визиты и заметки стойки) и
- *  строки повестки. ⛔ Тот же состав, что собирает легаси своим
- *  `[data-appt]`, — иначе две памяти одного дня разошлись бы, и переход на
- *  `?ui=legacy` дал бы вспышку всего экрана. */
+ *  строки повестки. ⚠️ Состав тот же, что собирала старая панель своим
+ *  `[data-appt]` (снята 13.10): память дня в хранилище у вкладки одна. */
 function idsOf(m: DashModel): string[] {
   const out: string[] = []
   for (const col of m.canvas.columns) {

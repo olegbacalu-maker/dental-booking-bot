@@ -14,7 +14,8 @@ import json
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server, clinic_today, new_patient, pid_by_phone
+from harness import (Client, Result, Server, appt_id, clinic_today, day_model, new_patient,
+                     pid_by_phone)
 
 
 def _d(offset: int) -> str:
@@ -26,9 +27,8 @@ def _pid(c: Client, phone: str) -> str:
 
 
 def _aid(c: Client, day: str) -> str:
-    """id визита со страницы дня — тем же сплитом, что в test_booking."""
-    return c.get(f"/admin/all?date={day}").body.split(
-        "/admin/status/", 1)[1].split("'")[0].split('"')[0]
+    """id первого по времени визита дня — из «Lista zilei» модели дня."""
+    return str(appt_id(c, day))
 
 
 def _visit(c: Client, aid) -> dict:
@@ -45,9 +45,9 @@ def suite(res: Result) -> None:
     """Базовый цикл: страница, сохранение, правка, видимость, охрана входа."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
-               aservice="consult", aname="Consult Test", aphone="022111222",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Consult Test", "phone": "022111222"})
         pid = _pid(c, "022111222")
         aid = _aid(c, _d(1))
 
@@ -94,15 +94,13 @@ def suite(res: Result) -> None:
                any(a["text"].startswith("Consultație") for a in card["activity"]["items"]),
                "летопись молчит")
 
-        day = c.get(f"/admin/all?date={_d(1)}").body
-        # маркер стал иконкой набора (08-11): эмодзи рисовала Windows своим
-        # шрифтом. Проверяется наличие самой пометки, а не её начертание.
-        res.ok("маркер дневника в списке дня", "rec-mark" in day,
+        # пометку рисует экран по признаку строки «Lista zilei» (`rec`)
+        res.ok("маркер дневника в списке дня",
+               any(r["rec"] for r in day_model(c, _d(1))["list"]),
                "журнал не показывает, что визит записан")
-        res.ok("флаг дневника уехал в карточку модалки", '"rec": true' in day,
-               "CARDS без rec — модалка не покажет «Vezi consultația»")
-        res.ok("модалка знает адрес консультации", "c_visit" in day,
-               "в модалке нет ссылки на дневник")
+        # адрес консультации диалог строит сам из номера (vitest DashScreen)
+        res.check("флаг дневника уехал в карточку диалога",
+                  day_model(c, _d(1))["cards"].get(str(aid), {}).get("rec"), True)
 
         anon = Client(s.url)
         res.ok("без входа страница не отдаётся",
@@ -122,9 +120,9 @@ def suite_plan(res: Result) -> None:
     """Привязка позиций плана к визиту и запрет записи отменённым визитам."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
-               aservice="consult", aname="Plan Vizita", aphone="022333444",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "10:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Plan Vizita", "phone": "022333444"})
         pid = _pid(c, "022333444")
         aid = _aid(c, _d(1))
 
@@ -167,11 +165,11 @@ def suite_plan(res: Result) -> None:
                "переоткрытая позиция осталась «выполненной на визите»")
 
         # отменённый визит консультацию не принимает
-        c.post("/admin/add", adate=_d(2), atime="11:00", adoctor="d2",
-               aservice="consult", aname="Plan Vizita", aphone="022333444",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(2), "time": "11:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Plan Vizita", "phone": "022333444"})
         aid2 = _aid(c, _d(2))
-        c.post(f"/admin/status/{aid2}", to="cancelled", back="/admin/all")
+        c.post_json(f"/api/schedule/appointments/{aid2}/status", {"to": "cancelled"})
         res.check("отменённому визиту запись не пишется",
                   c.post_json(f"/api/visits/{aid2}", {"diagnostic": "x"}).msg, "bad_vst")
         v2 = _visit(c, aid2)
@@ -187,9 +185,9 @@ def suite_195(res: Result) -> None:
         c = Client(s.url).login()
         # будущий подтверждённый визит БЕЗ других медданных: до дневника такая
         # фиша удалялась бы физически — с записью обязана обезличиваться
-        c.post("/admin/add", adate=_d(3), atime="09:30", adoctor="d2",
-               aservice="consult", aname="Erase Consult", aphone="022555666",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(3), "time": "09:30",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Erase Consult", "phone": "022555666"})
         pid = _pid(c, "022555666")
         aid = _aid(c, _d(3))
 
@@ -230,9 +228,9 @@ def suite_043(res: Result) -> None:
     """Печатная «Fișa 043/e»: титул, одонтограмма, план, дневник, следы."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
-               aservice="consult", aname="Fisa Print", aphone="022777888",
-               back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Fisa Print", "phone": "022777888"})
         pid = _pid(c, "022777888")
         aid = _aid(c, _d(1))
         c.post_json(f"/api/patients/{pid}/profile", {"name": "Fisa Print",
@@ -305,7 +303,7 @@ def suite_043(res: Result) -> None:
         # (visit.NO_FORM_STATUSES), а 043/e — первичная меддокументация со
         # сроком хранения 5 лет, и строка в ней читается как проведённое
         # лечение с подписью врача. Бумага не имеет права спорить с журналом.
-        c.post(f"/admin/status/{aid}", to="noshow", back="/admin/all")
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "noshow"})
         page = c.get(f"/admin/patient/{pid}/fisa043").body
         res.ok("запись отменённого визита ушла из дневника",
                "Durere la 26" not in page,

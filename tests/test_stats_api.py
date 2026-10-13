@@ -32,12 +32,12 @@ def _server_with_flags(env: dict | None = None) -> Server:
 def _seed(c: Client) -> str:
     """Две записи на сегодня: разным врачам, чтобы в модели было что делить."""
     d = clinic_today().isoformat()
-    c.post("/admin/add", adate=d, atime="09:00", adoctor="d2",
-           aservice="consult", aname="Stat API Unu", aphone="069000021",
-           back="/admin/all")
-    c.post("/admin/add", adate=d, atime="11:00", adoctor="d3",
-           aservice="consult", aname="Stat API Doi", aphone="069000022",
-           back="/admin/all")
+    c.post_json("/api/schedule/appointments", {"date": d, "time": "09:00", "doctor": "d2",
+                                              "service": "consult", "name": "Stat API Unu",
+                                              "phone": "069000021"})
+    c.post_json("/api/schedule/appointments", {"date": d, "time": "11:00", "doctor": "d3",
+                                              "service": "consult", "name": "Stat API Doi",
+                                              "phone": "069000022"})
     return d
 
 

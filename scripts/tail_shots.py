@@ -72,8 +72,9 @@ def _seed(c: Client, day: str) -> None:
     """Два визита сегодня у d2: одному экрану нужны цифры, другому — строки."""
     for hh, name, phone in (("09:00", "Coada Unu", "069000041"),
                             ("11:00", "Coada Doi", "069000042")):
-        c.post("/admin/add", adate=day, atime=hh, adoctor="d2",
-               aservice="consult", aname=name, aphone=phone, back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": day, "time": hh, "doctor": "d2",
+                                                  "service": "consult", "name": name,
+                                                  "phone": phone})
 
 
 def run(out: pathlib.Path) -> int:

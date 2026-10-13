@@ -25,7 +25,7 @@
 import re
 from datetime import date, timedelta
 
-from harness import BOT, Client, Result, Server, clinic_today
+from harness import BOT, Client, Result, Server, clinic_today, day_model
 
 CSS = BOT / "app" / "static" / "css" / "panel.css"
 # Экран услуг рисует React (12.10): таблица — в его разметке, не в routes.py
@@ -118,8 +118,9 @@ def suite_clock(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         # часы подвала живут в серверном каркасе (`_shell`): его страницы —
-        # журнал; экраны фиши с 13.10 — React, там пояс едет в модели оболочки
-        page = c.get("/admin/all").body
+        # QR без бота, раздвоение картотеки, Telegram (журнал и все разделы с
+        # 12–13.10 — React, там пояс едет в модели оболочки)
+        page = c.get("/admin/qr-print").body
         res.ok("сервер отдаёт часовой пояс клиники",
                'id="sf_clock" data-tz="Europe/Chisinau"' in page,
                "нет data-tz у #sf_clock")
@@ -173,39 +174,30 @@ def suite_stats_period(res: Result) -> None:
 
 # ---------- 5. форма журнала и график врача ----------
 
-def _time_options(page: str) -> list[str]:
-    form = page.split('<form class="add"', 1)[1].split("</form>", 1)[0]
-    block = form.split('name="atime"', 1)[1].split("</select>", 1)[0]
-    return re.findall(r"value='(\d\d:\d\d)'", block)
-
-
 def suite_form_hours(res: Result) -> None:
-    """Нижняя форма журнала предлагает часы ВЫБРАННОГО врача.
+    """Окно записи журнала предлагает часы ВЫБРАННОГО врача.
 
     Сервер отказывает outside_doc по личному графику (work_from/work_to), а
     список строился по часам клиники — форма предлагала 15:00 утреннему врачу
-    и получала отказ на то, что сама же и подсказала.
+    и получала отказ на то, что сама же и подсказала. Часы по врачам едут
+    моделью дня (`form.times`), окно меняет список вместе с врачом.
     """
     with Server(clinic="clinic_split.json") as s:
         c = Client(s.url).login()
         day = _d(1)
 
-        times = _time_options(c.get(f"/admin/doctor/da?date={day}").body)
+        times = day_model(c, day, "da")["form"]["times"]["da"]
         res.ok("день утреннего врача: только его часы (9-13)",
                times and times[0] == "09:00" and times[-1] == "12:30",
                f"предложено {times[:4]}…{times[-2:]} при окне 9-13")
-        times = _time_options(c.get(f"/admin/doctor/db?date={day}").body)
+        times = day_model(c, day, "db")["form"]["times"]["db"]
         res.ok("день вечернего врача: только его часы (14-18)",
                times and times[0] == "14:00" and times[-1] == "17:30",
                f"предложено {times[:4]}…{times[-2:]} при окне 14-18")
-
-        page = c.get(f"/admin/all?date={day}&doctor=da").body
-        res.ok("общий журнал: список открыт по выбранному врачу",
-               _time_options(page)[:1] == ["09:00"],
-               f"предложено {_time_options(page)[:4]} при окне da 9-13")
-        res.ok("смена врача в форме переписывает часы",
-               "DOC_TIMES" in page and '"db"' in page.split("DOC_TIMES", 1)[1][:400],
-               "на странице нет часов по врачам — выбор врача не меняет список")
+        allt = day_model(c, day)["form"]["times"]
+        res.ok("общий журнал: у каждого врача формы свой список",
+               allt.get("da", [None])[0] == "09:00" and allt.get("db", [None])[0] == "14:00",
+               f"часы формы: { {k: v[:2] for k, v in allt.items()} }")
 
 
 # ---------- 6. ширина: страница во всё окно, строка — нет (08-16) ----------

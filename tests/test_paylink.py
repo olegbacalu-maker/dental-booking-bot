@@ -19,7 +19,7 @@ import re
 import shutil
 import tempfile
 
-from harness import Client, Result, Server, _rmtree_settled
+from harness import Client, Result, Server, _rmtree_settled, shell_signal
 from test_license_renew import (FIX, KEY_ENV, TOKEN, Stand, _api, _file, _log, _until,
                                 _wait_renew, rn)
 
@@ -104,7 +104,7 @@ def suite_pay(res: Result) -> None:
             res.ok("страница лицензии: «Plătește acum» — ссылка в новое окно с ключом", bool(ticket), lp[-1500:])
             res.ok("в режиме чтения оплата стоит ПЕРВОЙ, раньше срока и «Verifică acum»",
                    0 < lp.find("Plătește acum") < lp.find("Valabil până la") < lp.find("/admin/license/renew"))
-            journal = c.get("/admin?ui=legacy").body
+            journal = shell_signal(c.get("/admin").body, "license")["html"]
             res.ok("баннер журнала: та же ссылка и «achitați abonamentul»",
                    f"href='/plata/{ticket}'" in journal and "achitați abonamentul" in journal)
             res.ok("ключ один на процесс: вторая отрисовка — тот же", _ticket(c.get("/admin/license").body) == ticket)
@@ -183,7 +183,7 @@ def suite_pay(res: Result) -> None:
             c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
             ana = Client(s.url)
             ana.post("/admin/login", password="3333", next="/admin")
-            banner = ana.get("/admin?ui=legacy").body
+            banner = shell_signal(ana.get("/admin").body, "license")["html"]
             res.ok("регистратуре в режиме чтения: баннер без ссылки оплаты, страница без кнопки",
                    "regim de citire" in banner and "activați abonamentul" in banner
                    and "/plata/" not in banner and "/plata/" not in ana.get("/admin/license").body,
@@ -202,9 +202,10 @@ def suite_off(res: Result) -> None:
             c = Client(s.url).login()
             a = _api(c)
             res.ok("файл без renew: оплата недоступна", a.get("pay") is False, repr(a))
+            sig = shell_signal(c.get("/admin").body, "license")
             res.ok("ни на странице, ни в баннере ссылки нет",
                    "/plata/" not in c.get("/admin/license").body
-                   and "/plata/" not in c.get("/admin?ui=legacy").body)
+                   and sig["shown"] and "/plata/" not in sig["html"], repr(sig))
             res.ok("плитка «Licența» есть и без сервера", _tile(c).get("label") == "Licența")
             res.check("маршрут без ключа — 404", Client(s.url).get("/plata/" + "y" * 24).status, 404)
     finally:

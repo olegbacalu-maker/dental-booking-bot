@@ -133,8 +133,9 @@ def prepare(dir_: pathlib.Path) -> None:
 
 def seed(c: Client, day: str) -> None:
     for i, (dk, at, svc, name, _) in enumerate(ROWS):
-        c.post("/admin/add", adate=day, atime=at, adoctor=dk, aservice=svc, aname=name,
-               aphone=f"069{i:06d}", back="/admin")
+        c.post_json("/api/schedule/appointments", {"date": day, "time": at, "doctor": dk,
+                                                  "service": svc, "name": name,
+                                                  "phone": f"069{i:06d}"})
     canvas = json.loads(c.get(f"/api/schedule/canvas?date={day}").body)["data"]
     ids = {b["name"]: b["id"] for col in canvas["columns"] for b in col["blocks"]
            if b["kind"] == "appt"}
@@ -143,7 +144,7 @@ def seed(c: Client, day: str) -> None:
         raise SystemExit(f"засев не удался, нет блоков: {missing}")
     for _, _, _, name, status in ROWS:
         if status:
-            c.post(f"/admin/status/{ids[name]}", to=status, back="/admin")
+            c.post_json(f"/api/schedule/appointments/{ids[name]}/status", {"to": status})
 
 
 def measure(page: Page, c: Client, view: str, day: str) -> dict:

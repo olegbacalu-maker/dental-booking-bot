@@ -81,7 +81,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import db as appdb  # noqa: E402 — только константы схем, не соединение
 
-from harness import BOT, Client, Result, Server, clinic_today, _rmtree_settled  # noqa: E402
+from harness import (BOT, Client, Result, Server, add_appt, clinic_today,  # noqa: E402
+                     _rmtree_settled, shell_signal)
+
+
+def _slot(c: Client) -> str:
+    """Баннер страховки слота журнала — сигнал `slot` оболочки React, проза
+    сырой (`<b>`). До 13.10 проверки читали разметку старой панели."""
+    return shell_signal(c.get("/admin").body, "slot")["html"]
 
 # Предикат, который шаги 2–3 ставили ДО появления 'waiting' (08-13): ровно так
 # выглядят индексы у реальной клиники, чья база остановилась на версии 3.
@@ -378,7 +385,7 @@ def suite_v4_conflict(res: Result) -> None:
             # сам факт входа в блок и есть главная проверка: до 08-16 сервер
             # не поднимался вовсе, и Server бросал «не ответил на /health»
             res.ok("программа стартует, несмотря на конфликт", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         res.check(f"версия схемы всё равно поднята до {_VER}",
                   _meta(dbfile, "version"), _VER)
@@ -460,7 +467,7 @@ def suite_v4_conflict(res: Result) -> None:
         con.close()
 
         with Server(dir_=work) as s:
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
         idx = _index_sql(dbfile)
         res.ok("после разведения индексы стали широкими",
                all("waiting" in idx.get(n, "") for n in _UQ),
@@ -509,7 +516,7 @@ def suite_v2_conflict(res: Result) -> None:
 
         with Server(dir_=work) as s:
             res.ok("клиника с версии 2 стартует, несмотря на конфликт", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
         idx = _index_sql(dbfile)
@@ -576,7 +583,7 @@ def suite_v0_conflict(res: Result) -> None:
 
         with Server(dir_=work) as s:
             res.ok("доверсионная база стартует", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
 
@@ -675,7 +682,7 @@ def suite_from_1200(res: Result) -> None:
 
         with Server(dir_=work) as s:
             res.ok("база от 1.20.0 стартует", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
 
@@ -816,7 +823,7 @@ def suite_selfheal(res: Result) -> None:
                "фикстура собрана неверно: индексы на месте, лечить нечего")
 
         with Server(dir_=work) as s:
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         res.ok("старт восстановил защиту слота",
                _blocked(dbfile, 2, "Dr. Activ Doi", at, "confirmed", "d2"),
@@ -910,7 +917,7 @@ def suite_slot_guard_no_data(res: Result) -> None:
 
         with Server(dir_=data, bot=bot) as s:
             res.ok("отказ подсчёта не роняет старт", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         idx = _index_sql(dbfile)
         res.ok("прежние узкие индексы остались на месте",
@@ -954,7 +961,7 @@ def suite_uq_apply_fails(res: Result) -> None:
 
         with Server(dir_=work) as s:
             res.ok("отказ раскладки не роняет старт", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         idx = _index_sql(dbfile)
         res.ok("индексы действительно легли не все", len(idx) < 3,
@@ -1133,7 +1140,7 @@ def suite_uq_all_gone(res: Result) -> None:
 
         with Server(dir_=work) as s:
             res.ok("отказ на всех трёх не роняет старт", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         res.ok("подделка сработала: индексов не осталось", not _index_sql(dbfile),
                f"набор ничего не проверяет: {_index_sql(dbfile)!r}")
@@ -1186,7 +1193,7 @@ def suite_uq_state_unreadable(res: Result) -> None:
 
         with Server(dir_=data, bot=bot) as s:
             res.ok("неудачное чтение не роняет старт", True)
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         idx = _index_sql(dbfile)
         res.ok("индексы на месте — подделка ничего не сломала",
@@ -1277,7 +1284,7 @@ def suite_uq_cleared_no_conflict(res: Result) -> None:
                   len(_activity(dbfile, "uq_guard")), 1)
 
         with Server(dir_=data) as s:             # старт 2: настоящее дерево
-            body = Client(s.url).login().get("/admin").body
+            body = _slot(Client(s.url).login())
 
         res.check("метка снялась", _meta(dbfile, "uq_waiting_pending"), None)
         idx = _index_sql(dbfile)
@@ -1329,13 +1336,10 @@ def suite_uq_gone_still_blocks(res: Result) -> None:
 
         with Server(dir_=work) as s:
             c = Client(s.url).login()
-            body = c.get("/admin").body
+            body = _slot(c)
 
             def add(time: str, doctor: str, name: str, phone: str) -> str:
-                return c.post("/admin/add", adate=day, atime=time,
-                              adoctor=doctor, aservice="consult", aname=name,
-                              aphone=phone, ayear="", abirth="",
-                              back="/admin/all").msg
+                return add_appt(c, day, time, name, phone, doctor).msg
 
             res.check("первая запись проходит",
                       add("10:00", "d2", "Ion Testescu", "022111222"), "ok")
@@ -1392,14 +1396,15 @@ def suite_slot_banner_roles(res: Result) -> None:
                                                   "role": "medic", "doctor_id": "d2",
                                                   "pin": "2222"})
             mark = "<b>Medic:</b> Dr. Activ Doi"
-            res.ok("директор видит, что разводить", mark in boss.get("/admin").body,
+            res.ok("директор видит, что разводить", mark in _slot(boss),
                    "тот единственный, кто может починить, ничего не узнал")
             for pin, who in (("3333", "регистратуре"), ("2222", "врачу")):
                 cl = Client(s.url)
                 cl.post("/admin/login", password=pin, next="/admin")
                 page = cl.get("/admin").body
                 res.ok(f"{who} баннер не показан",
-                       "<h1>Panoul principal</h1>" in page and mark not in page,
+                       'data-screen="schedule_dash"' in page
+                       and not shell_signal(page, "slot")["shown"],
                        "несменяемое предупреждение висит у того, кто не может "
                        "его закрыть")
     finally:

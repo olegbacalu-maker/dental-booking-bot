@@ -15,7 +15,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled
+from harness import BOT, ROOT, Client, Result, Server, _rmtree_settled, shell_signal
 
 FIX = ROOT / "tests" / "fixtures" / "license"
 KEY_ENV = {"DENTART_LICENSE_KEYS": str(FIX / "test-key.json")}
@@ -170,9 +170,11 @@ def suite_banner(res: Result) -> None:
             c = Client(s.url).login()
             page = c.get("/admin")
             res.check("льгота: журнал открыт", page.status, 200)
+            sig = shell_signal(page.body, "license")
             res.ok("льгота: баннер warn со ссылкой на лицензию",
-                   "Abonamentul a expirat la" in page.body and "banner warn" in page.body
-                   and "href='/admin/license'" in page.body, "баннера нет")
+                   sig["shown"] and "Abonamentul a expirat la" in sig["html"]
+                   and "banner warn" in sig["html"] and "href='/admin/license'" in sig["html"],
+                   "баннера нет")
             res.ok("льгота: запись работает", c.post_json("/api/patients", {}).status != 423)
             a = _api(c)
             res.ok("/api/license: grace, seq 4", a.get("state") == "grace" and a.get("seq") == 4, repr(a))
@@ -185,9 +187,9 @@ def suite_banner(res: Result) -> None:
         (d / "license.state").unlink()
         with Server(dir_=d, env=KEY_ENV) as s:
             c = Client(s.url).login()
-            page = c.get("/admin").body
+            sig = shell_signal(c.get("/admin").body, "license")["html"]
             res.ok("файл старее принятого: льгота по памяти, баннер о лицензии (без слова «fișier» — 02.10)",
-                   "banner warn" in page and "Licența" in page and "fișier" not in page.split("banner warn")[1][:300],
+                   "banner warn" in sig and "Licența" in sig and "fișier" not in sig,
                    "баннера нет")
             a = _api(c)
             res.ok("/api/license: grace с кодом license_older",
@@ -200,14 +202,14 @@ def suite_banner(res: Result) -> None:
         shutil.copy(FIX / "expired.json", d / "license.json")
         with Server(dir_=d, env=KEY_ENV) as s:
             c = Client(s.url).login()
-            page = c.get("/admin").body
-            res.ok("режим чтения: баннер err всем", "banner err" in page and "regim de citire" in page)
+            sig = shell_signal(c.get("/admin").body, "license")["html"]
+            res.ok("режим чтения: баннер err всем", "banner err" in sig and "regim de citire" in sig)
             res.ok("режим чтения: страница без стены", c.get("/admin/license").status == 200)
         shutil.copy(FIX / "valid.json", d / "license.json")
         with Server(dir_=d, env=KEY_ENV) as s:
             c = Client(s.url).login()
-            page = c.get("/admin").body
-            res.ok("active: баннера лицензии нет", "/admin/license" not in page)
+            res.ok("active: баннера лицензии нет",
+                   not shell_signal(c.get("/admin").body, "license")["shown"])
             res.check("/api/license без входа: 401", Client(s.url).get("/api/license").status, 401)
     finally:
         _rmtree_settled(d)
@@ -226,6 +228,7 @@ def suite_no_keys(res: Result) -> None:
             page = c.get("/admin/license").body
             res.ok("страница без ключей объясняет, что проверки нет",
                    "nu verifică licența" in page, page[:200])
-            res.ok("без ключей баннера нет", "/admin/license" not in c.get("/admin").body)
+            res.ok("без ключей баннера нет",
+                   not shell_signal(c.get("/admin").body, "license")["shown"])
     finally:
         _rmtree_settled(d)

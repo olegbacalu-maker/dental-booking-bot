@@ -91,8 +91,9 @@ def run(out: pathlib.Path | None) -> int:
         # Чуть жизни: таблицы и списки с одной строкой сдвигов не показывают.
         for i, (n, ph) in enumerate([("Marcel Gradinaru", "017689955"), ("Laura Tudor", "0600558999"),
                                      ("Maria Sandu", "0789455666")]):
-            c.post("/admin/add", adate=day, atime=f"{10 + i}:00", adoctor="d2", aservice="consult",
-                   aname=n, aphone=ph, back="/admin/all")
+            c.post_json("/api/schedule/appointments", {"date": day, "time": f"{10 + i}:00",
+                                                      "doctor": "d2", "service": "consult",
+                                                      "name": n, "phone": ph})
     cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
     cfg.pop("ui", None)
     cfg.pop("_ui_comment", None)

@@ -16,9 +16,10 @@
     форму и стирал все правки таблицы.
 """
 import json
+import sqlite3
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today, new_patient, pid_by_phone
+from harness import Client, Result, Server, add_appt, clinic_today, new_patient, pid_by_phone
 
 NO_KEY = {"ADMIN_KEY": ""}          # ветка PIN-файла: учётки живут в auth.json
 
@@ -93,12 +94,19 @@ def suite_birth_clear(res: Result) -> None:
         res.ok("возраст ушёл вместе с датой", row and row["age"] is None,
                f"возраст живёт от удалённой даты: {row!r}")
 
-        # пациент «только с годом» (запись из журнала со старой вкладки):
-        # пустое поле даты в фише не имеет права стирать его год
-        c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
-               aservice="consult", aname="An Doar", aphone="069555666",
-               ayear="1990", back="/admin/all")
+        # пациент «только с годом» (так пишет бот — кнопка года без даты — и
+        # так писал журнал до 08-07): пустое поле даты в фише не имеет права
+        # стирать его год. Состояние ставится прямо в базу: дверей, которые
+        # его создают, в журнале больше нет, а у бота нужен свой сервер.
+        add_appt(c, _d(1), "10:00", "An Doar", "069555666")
         an_pid = pid_by_phone(c, "069555666")
+        con = sqlite3.connect(str(s.dir / "dental.db"))
+        try:
+            con.execute("UPDATE patients SET birth_year = 1990, birth_date = NULL "
+                        "WHERE id = ?", (an_pid,))
+            con.commit()
+        finally:
+            con.close()
         c.post_json(f"/api/patients/{an_pid}/profile", {"name": "An Doar",
                                                        "phone": "069555666", "birth_date": ""})
         row = _list_row(c, "An Doar")

@@ -136,9 +136,11 @@ def suite(res: Result) -> None:
         if cancel:
             mine.say(cancel[0])
             c2 = Client(s.url).login()
-            free = c2.post("/admin/add", adate=tomorrow, atime="13:00",
-                           adoctor="d2", aservice="consult", aname="Dupa Anulare",
-                           aphone="022444555", back="/admin/all").msg
+            free = c2.post_json("/api/schedule/appointments", {"date": tomorrow,
+                                                              "time": "13:00", "doctor": "d2",
+                                                              "service": "consult",
+                                                              "name": "Dupa Anulare",
+                                                              "phone": "022444555"}).msg
             res.check("после отмены час освободился", free, "ok")
 
         # --- срочная запись ---

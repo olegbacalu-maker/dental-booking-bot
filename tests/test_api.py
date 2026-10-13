@@ -231,9 +231,10 @@ def suite_switch(res: Result) -> None:
                "старая форма вернулась")
         # ⛔ Сайт — только в системном браузере: без target=_blank окно
         # программы само ушло бы на сайт, и вернуться было бы нечем.
-        # Старая оболочка жива у журнала (его старый интерфейс снимается
-        # последним, docs/dentpilot-2/legacy-removal.md) — смотрим на неделе.
-        old = c.get("/admin/week").body
+        # Серверная оболочка (`_shell`) жива у страниц без React-экрана — QR
+        # без бота, раздвоение картотеки, Telegram; уходит шагом 6 снятия
+        # старого интерфейса (docs/dentpilot-2/legacy-removal.md).
+        old = c.get("/admin/qr-print").body
         res.ok("старая оболочка: знак — ссылка на сайт с target=_blank, почта contact@",
                'class="bc-site" href="https://dentpilot.md" target="_blank" rel="noopener"' in old
                and 'href="mailto:contact@dentpilot.md?subject=' in old,
@@ -245,8 +246,9 @@ def suite_switch(res: Result) -> None:
                any(t["href"] == "/admin/settings/clinic"
                    for t in _j(c.get("/api/settings/hub"))["data"]["tiles"]), "плитки нет")
         dash = c.get("/admin").body
-        res.ok("живой журнал без узла React (#live и #root не встречаются)",
-               'id="live"' in dash and 'id="root"' not in dash, "флаг задел журнал")
+        res.ok("журнал — свой узел React при любом флаге, и не живой страницей",
+               'data-screen="schedule_dash"' in dash and 'id="live"' not in dash,
+               "флаг настроек задел журнал")
 
         res.check("API сохраняет при флаге",
                   c.post_json(API, {"name": "Clinica Flag 2", "phone": "+373 2"}).status, 200)
@@ -303,10 +305,9 @@ def suite_live_react(res: Result) -> None:
            L.REACT_MOUNT_MARK in node and L._has_react_mount(node),
            "печать и проверка разошлись — правило перестанет срабатывать молча")
 
-    # ⚠️ Живых разделов два, а ЭКРАНОВ за ними четыре: dash — это /admin и
-    # /admin/week, prog — /admin/all и /admin/doctor/{dk}. Поэтому «убрать ключ
-    # в коммите C26» — не про один экран: снятие dash погасит живую неделю
-    # заодно. Проверка стоит здесь, чтобы это вспомнилось В МОМЕНТ правки.
+    # ⚠️ Ключи живых разделов — журнала. С 13.10 ни один его экран через
+    # `_shell` не идёт (журнал — только React), и список уходит шагом 6
+    # вместе с `_shell` и panel.js; до тех пор он не меняется молча.
     res.check("живых разделов по-прежнему два, оба — журнал",
               sorted(L.LIVE_RELOAD), ["dash", "prog"])
 
@@ -322,7 +323,7 @@ def suite_live_react(res: Result) -> None:
     from app.core import api as A
 
     d = _dt.date(2026, 9, 19)
-    full = A.live_envelope("panel", d, {"canvas": {"columns": []}, "tiles": []})
+    full = A.live_envelope("panel", d, {"canvas": {"columns": []}, "agenda": {}})
     empty = A.live_envelope("panel", d, None)
     res.check("состояние есть → live истинно И состав на месте",
               (full["live"], full["screen"], full["date"], "canvas" in full),
@@ -334,9 +335,10 @@ def suite_live_react(res: Result) -> None:
                for st in (None, {}, {"canvas": 1})),
            "live посчитан отдельно от состава — однажды разойдутся")
 
-    # ⛔ Поверхность НЕ ТЕЧЁТ В ОТПЕЧАТОК. Это и есть причина, по которой она
-    # едет заголовком: положи её в data — и включение флага у директора
-    # перерисовало бы панель, в дне которой не изменилось ничего.
+    # ⛔ Ни поверхность, ни версия, ни часы НЕ ТЕКУТ В ОТПЕЧАТОК: всё, что
+    # попало в data, попало и в отпечаток, и панель перерисовалась бы, хотя в
+    # дне не изменилось ничего. (Поверхность ехала заголовком до 13.10 — со
+    # снятием старой панели спрашивать её стало некому.)
     res.check("в конверте нет ни поверхности, ни версии, ни часов",
               [k for k in ("surface", "ui", "version", "updated") if k in full],
               [])

@@ -132,8 +132,10 @@ def run(out: pathlib.Path) -> int:
         pid = _seed(c)["pid"]
         # Кресло (26.09): тот же пациент сегодня у d2 и уже «în cabinet» — экран
         # кресла обязан показать его зубы с первого экрана
-        c.post("/admin/add", adate=clinic_today().isoformat(), atime="09:00",
-               adoctor="d2", aservice="consult", aname="Odonto Pin", aphone="069300300")
+        c.post_json("/api/schedule/appointments", {"date": clinic_today().isoformat(),
+                                                  "time": "09:00", "doctor": "d2",
+                                                  "service": "consult", "name": "Odonto Pin",
+                                                  "phone": "069300300"})
         q = json.loads(c.get("/api/chair?doctor=d2").body)["data"]["queue"]
         if q:
             c.post_json(f"/api/schedule/appointments/{q[0]['id']}/status", {"to": "arrived"})

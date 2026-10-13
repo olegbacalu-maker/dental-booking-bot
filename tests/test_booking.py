@@ -4,11 +4,11 @@
 пациентов в одно кресло или потеряет визит в прошлом.
 """
 import json
-import re
 import sqlite3
 from datetime import date, datetime, timedelta
 
-from harness import TG_ON, Bot, Client, Result, Server, clinic_today, pid_by_phone, TZ
+from harness import (TG_ON, TZ, Bot, Client, Result, Server, add_appt, appt_id, clinic_today,
+                     day_model, panel_live, pid_by_phone)
 
 PHONE = "022111222"
 
@@ -19,10 +19,9 @@ def _d(offset: int) -> str:
 
 def add(c: Client, day: str, time: str, doctor: str = "d2",
         service: str = "consult", name: str = "Ion Testescu",
-        phone: str = PHONE, year: str = "", birth: str = "") -> str:
-    return c.post("/admin/add", adate=day, atime=time, adoctor=doctor,
-                  aservice=service, aname=name, aphone=phone, ayear=year,
-                  abirth=birth, back="/admin/all").msg
+        phone: str = PHONE, birth: str = "") -> str:
+    """Ручная запись окном «Programare nouă» — код ответа."""
+    return add_appt(c, day, time, name, phone, doctor, service, birth=birth).msg
 
 
 def _rows(c: Client, q: str) -> list[dict]:
@@ -133,12 +132,9 @@ def suite(res: Result) -> None:
         res.check("дата рождения в будущем — именованный отказ",
                   add(c, _d(3), "14:30", name="Viitor", phone="022700800",
                       birth=_d(30)), "bad_bd")
-        res.check("год отдельным полем (устаревшая вкладка) ещё принимается",
-                  add(c, _d(3), "15:00", name="Doar An", phone="022700900",
-                      year="1980"), "ok")
 
         # --- визит задним числом пациенту из БОТА (08-07) ---
-        # раньше /admin/add искал по ключу manual:<цифры>, а у пациента из бота
+        # раньше ручная запись искала по ключу manual:<цифры>, а у пациента из бота
         # ключ свой (tg:… у Telegram, web:… у веб-чата) — и вчерашний визит
         # уезжал КАРТОЧКЕ-ДВОЙНИКУ. Теперь пациент ищется по цифрам номера
         # среди всех существующих.
@@ -207,46 +203,44 @@ def suite_card(res: Result) -> None:
                   [str(r["id"]) for r in _rows(c, "022123456")], [pid])
 
 
-def _row_of(page: str, name: str) -> str:
-    """Строка «Lista zilei» с этим пациентом — чтобы читать врача и час.
+def _row_of(c: Client, day: str, name: str) -> dict:
+    """Строка «Lista zilei» с этим пациентом — чтобы читать врача и час."""
+    return next((r for r in day_model(c, day)["list"] if r["name"] == name), {})
 
-    ⚠️ Ищем ПОСЛЕ заголовка списка: выше на странице стоит сетка дня, её ряды
-    тоже `<tr>` и тоже содержат имя пациента — но без кнопок статуса.
-    """
-    page = page.split("Lista zilei", 1)[-1]
-    for m in re.finditer(r"<tr class='[^']*'>.*?</tr>", page, re.S):
-        if name in m.group(0):
-            return m.group(0)
-    return ""
+
+def _block(canvas: dict, name: str = "", aid: int = 0) -> dict:
+    """Блок визита на канве — по номеру записи или по имени пациента (панель
+    и «Programări» рисуют одну канву — 06.10). ⚠️ У пациента может быть два
+    визита в дне: тогда искать по номеру, имя найдёт первый по колонкам."""
+    return next((b for col in canvas["columns"] for b in col["blocks"]
+                 if (b.get("id") == aid if aid else b.get("name") == name)), {})
 
 
 def suite_move(res: Result) -> None:
-    """Перенос визита перетаскиванием: /admin/move и разметка обеих страниц.
+    """Перенос визита перетаскиванием: маршрут переноса и поля канвы обоих
+    экранов дня.
 
-    ⚠️ Проверять надо СЕРВЕР, а не мышь: браузерное перетаскивание живёт в
-    panel.js, но решение принимает маршрут. Он же — единственная защита от
-    устаревшей вкладки: пока визит тянули, час мог занять бот.
+    ⚠️ Проверять надо СЕРВЕР, а не мышь: перетаскивание живёт в браузере
+    (`DashCanvas`), но решение принимает маршрут. Он же — единственная защита
+    от устаревшей вкладки: пока визит тянули, час мог занять бот.
     """
     with Server() as s:
         c = Client(s.url).login()
         day = _d(1)
         add(c, day, "10:00", doctor="d2", name="Mutat Unu", phone="022700111")
-        page = c.get(f"/admin/all?date={day}").body
-        aid = _row_of(page, "Mutat Unu").split("/admin/status/", 1)[1].split("'")[0]
+        aid = appt_id(c, day, "Mutat Unu")
 
-        def move(to_time: str, to_doc: str = "d3", appt: str = "") -> str:
-            return c.post(f"/admin/move/{appt or aid}", mdate=day, mtime=to_time,
-                          mdoctor=to_doc, back=f"/admin/all?date={day}").msg
+        def move(to_time: str, to_doc: str = "d3", appt: int = 0) -> str:
+            return c.post_json(f"/api/schedule/appointments/{appt or aid}/move",
+                               {"date": day, "time": to_time, "doctor": to_doc}).msg
 
         # --- перенос к другому врачу НА ТОТ ЖЕ ЧАС ---
         # ⛔ Тот самый случай, ради которого _patient_busy_at получил exclude_id:
         # визит находит САМ СЕБЯ на этом старте и без исключения отказал бы
         # «у пациента уже есть запись» — то есть из-за себя же.
         res.check("перенос к другому врачу на тот же час", move("10:00"), "ok_move")
-        page = c.get(f"/admin/all?date={day}").body
-        res.ok("визит переехал в колонку нового врача",
-               "Activ Trei" in _row_of(page, "Mutat Unu"),
-               "врач в списке не сменился")
+        res.check("визит переехал к новому врачу",
+                  _row_of(c, day, "Mutat Unu").get("doctor"), "Dr. Activ Trei")
 
         # ⚠️ Перенос — событие фиши, а не только сетки: закон 195 спрашивает
         # «кто именно двигал визит», и без строки в летописи ответить нечем.
@@ -257,68 +251,52 @@ def suite_move(res: Result) -> None:
 
         # --- полчаса и час ---
         res.check("перенос на полчаса вперёд", move("10:30"), "ok_move")
-        res.ok("новый час виден в списке",
-               "10:30" in _row_of(c.get(f"/admin/all?date={day}").body, "Mutat Unu"),
-               "час в списке прежний")
+        res.check("новый час виден в списке",
+                  _row_of(c, day, "Mutat Unu").get("time"), "10:30")
         res.check("четверть часа не принимается", move("10:15"), "bad_time")
         res.check("выключенному врачу не переносим", move("11:00", "d1"), "bad_off")
 
         # --- занятый интервал ---
         add(c, day, "12:00", doctor="d2", name="Ocupa Ora", phone="022700222")
         res.check("перенос в занятый интервал отбит", move("12:00", "d2"), "conflict")
-        page = c.get(f"/admin/all?date={day}").body
-        res.ok("отбитый визит остался на месте",
-               "10:30" in _row_of(page, "Mutat Unu"),
-               "визит уехал, хотя перенос отклонён")
+        res.check("отбитый визит остался на месте",
+                  _row_of(c, day, "Mutat Unu").get("time"), "10:30")
 
         # --- у ПАЦИЕНТА уже есть визит на этот час ---
         add(c, day, "15:00", doctor="d2", name="Mutat Unu", phone="022700111")
         res.check("двойник у пациента отбит", move("15:00", "d3"), "dup")
 
         # --- закрытые записи не двигаются ---
-        c.post(f"/admin/status/{aid}", to="done", back=f"/admin/all?date={day}")
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "done"})
         res.check("завершённый визит не переносится", move("16:00"), "mv_closed")
-        res.check("несуществующая запись", move("16:00", appt="999999"), "mv_gone")
+        res.check("несуществующая запись", move("16:00", appt=999999), "mv_gone")
 
-        # --- разметка перетаскивания: договор один на ОБЕ страницы ---
-        for path in (f"/admin?date={day}", f"/admin/all?date={day}"):
-            body = c.get(path).body
-            live = re.search(r"<div class='[^']*'[^>]*data-appt='\d+'[^>]*"
-                             r"data-nm=\"Ocupa Ora\"[^>]*>", body)
-            res.ok(f"{path}: активный визит можно тащить",
-                   bool(live) and "data-mv='1'" in live.group(0)
-                   and "draggable='true'" in live.group(0)
-                   and "data-busy='1'" in live.group(0),
-                   f"блок без атрибутов переноса: {live.group(0)[:120] if live else 'не найден'}")
-            done = re.search(r"<div class='[^']*'[^>]*data-appt='" + aid
-                             + r"'[^>]*data-nm=\"Mutat Unu\"[^>]*>", body)
-            res.ok(f"{path}: завершённый визит не тащится и не занимает час",
-                   bool(done) and "data-mv" not in done.group(0)
-                   and "data-busy" not in done.group(0),
-                   "закрытый визит остался перетаскиваемым")
-            res.ok(f"{path}: подсказка про перетаскивание на месте",
-                   "trageți o programare" in body.lower(),
-                   "страница не говорит, что визит можно перетащить")
+        # --- поля перетаскивания: договор один на ОБА экрана дня ---
+        for where, canvas in (("панель", panel_live(c, day)["canvas"]),
+                              ("«Programări»", day_model(c, day)["canvas"])):
+            live = _block(canvas, "Ocupa Ora")
+            res.check(f"{where}: активный визит можно тащить, и он занимает час",
+                      (live.get("movable"), live.get("busy")), (True, True))
+            done = _block(canvas, aid=aid)
+            res.check(f"{where}: завершённый визит не тащится и не занимает час",
+                      (done.get("id"), done.get("movable"), done.get("busy")),
+                      (aid, False, False))
 
-    # закрытый час не принимает бросок — ни на канве, ни в таблице
+    # закрытый час не принимает бросок: сервер отбивает, канва не предлагает
     # (клиника 07-21, врачи 09-17, обед 13-14)
     with Server(clinic="clinic_hours.json") as s:
         c = Client(s.url).login()
         day = _d(1)
         add(c, day, "10:00", doctor="d2", name="Pauza Drop", phone="022700333")
         res.check("перенос в обеденный час отбит",
-                  c.post(f"/admin/move/{_row_of(c.get(f'/admin/all?date={day}').body, 'Pauza Drop').split('/admin/status/', 1)[1].split(chr(39))[0]}",
-                         mdate=day, mtime="13:00", mdoctor="d2",
-                         back=f"/admin/all?date={day}").msg, "outside")
-        canvas = c.get(f"/admin?date={day}").body
-        res.ok("закрытая ячейка канвы не мишень",
-               "class='gcell off' data-h" not in canvas
-               and "<div class='gcell off'></div>" in canvas,
-               "закрытый час канвы принимает бросок")
-        grid = c.get(f"/admin/all?date={day}").body
-        res.ok("закрытая ячейка таблицы не мишень",
-               "<td class='goff'></td>" in grid and "goff' data-dk" not in grid,
-               "закрытый час таблицы принимает бросок")
+                  c.post_json(f"/api/schedule/appointments/{appt_id(c, day, 'Pauza Drop')}/move",
+                              {"date": day, "time": "13:00", "doctor": "d2"}).msg, "outside")
+        canvas = panel_live(c, day)["canvas"]
+        hours = [h["h"] for h in canvas["hours"]]
+        col = next((x for x in canvas["columns"] if x["id"] == "d2"), None)
+        res.ok("обеденная ячейка канвы не мишень",
+               col is not None and 13 in hours and not col["cells"][hours.index(13)],
+               f"закрытый час канвы принимает бросок: ряды {hours}")
 
 
 def suite_status(res: Result) -> None:
@@ -326,13 +304,11 @@ def suite_status(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         add(c, _d(1), "10:00", name="Status Test", phone="022555111")
-        row = c.get(f"/admin/all?date={_d(1)}").body
-        appt_id = row.split("/admin/status/", 1)[1].split("'")[0].split('"')[0]
-        res.ok("id визита найден в журнале", appt_id.isdigit(), f"id={appt_id!r}")
+        aid1 = appt_id(c, _d(1), "Status Test")
 
         for status in ("arrived", "done", "cancelled"):
-            r = c.post(f"/admin/status/{appt_id}", to=status, back="/admin/all")
-            res.ok(f"статус → {status}", r.status in (303, 200), f"код {r.status}")
+            r = c.post_json(f"/api/schedule/appointments/{aid1}/status", {"to": status})
+            res.check(f"статус → {status}", (r.status, r.msg), (200, ""))
 
         # отменённый час освободился
         res.check("после отмены час снова свободен",
@@ -343,103 +319,92 @@ def suite_status(res: Result) -> None:
         # Anulare», и возврат обязан ответить «intervalul e ocupat», а не
         # посадить двоих в одно кресло
         res.check("возврат в занятый час отбит",
-                  c.post(f"/admin/status/{appt_id}", to="confirmed",
-                         back="/admin/all").msg, "conflict")
+                  c.post_json(f"/api/schedule/appointments/{aid1}/status",
+                              {"to": "confirmed"}).msg, "conflict")
 
         # --- кнопки исхода зависят от СОСТОЯНИЯ записи (08-12) ---
-        # ⚠️ Ищем `class='b-…'` в одинарных кавычках — это список дня; у
-        # модалки карточки те же кнопки идут как class="bstat b-…", и без
-        # различия проверка была бы зелёной всегда.
+        # Кнопки карточки и «Lista zilei» экран берёт из матрицы `actions` по
+        # состоянию записи из `cards` — оба ответа сервера; своих кнопок у
+        # клиента нет. Поэтому и проверка идёт по ним.
         add(c, _d(2), "10:00", name="Buton Test", phone="022555444")
-        day2 = f"/admin/all?date={_d(2)}"
-        page = c.get(day2).body
-        bid = page.split("/admin/status/", 1)[1].split("'")[0].split('"')[0]
-        res.ok("подтверждённой записи предложены все пять исходов",
-               all(f"class='{k}'" in page
-                   for k in ("b-waiting", "b-arrived", "b-done", "b-noshow",
-                             "b-cancel")),
-               "в списке дня не хватает кнопок исхода")
+        bid = appt_id(c, _d(2), "Buton Test")
+
+        def buttons() -> dict:
+            """{куда: спрашивает ли} — кнопки исхода записи `bid` сейчас."""
+            m = day_model(c, _d(2))
+            st = m["cards"][str(bid)]["status"]
+            return {a["to"]: bool(a["confirm"]) for a in m["actions"][st]}
+
+        def row() -> dict:
+            return _row_of(c, _d(2), "Buton Test")
+
         # 03.10, слово Олега: «Anulează сразу удаляет… нужно сначала спросить» —
         # вопрос у отмены, и ТОЛЬКО у неё среди шагов приёма
-        forms = re.findall(r"<form class='act'[^>]*>.*?</form>", page, re.S)
-        asks = {re.search(r"class='(b-[a-z]+)'", f_).group(1): "return confirm(" in f_ for f_ in forms
-                if re.search(r"class='(b-[a-z]+)'", f_)}
-        res.check("в списке дня спрашивает только «Anulează»",
-                  {k: v for k, v in asks.items() if k in ("b-waiting", "b-arrived", "b-done",
-                                                          "b-noshow", "b-cancel")},
-                  {"b-waiting": False, "b-arrived": False, "b-done": False, "b-noshow": False,
-                   "b-cancel": True})
+        res.check("записи предложены все пять исходов, спрашивает только «Anulează»",
+                  buttons(), {"waiting": False, "arrived": False, "done": False,
+                              "noshow": False, "cancelled": True})
 
-        c.post(f"/admin/status/{bid}", to="arrived", back=day2)
-        page = c.get(day2).body
+        c.post_json(f"/api/schedule/appointments/{bid}/status", {"to": "arrived"})
+        b = buttons()
         res.ok("тому, кто уже в кресле, «A sosit» и «Nu a venit» не предлагают",
-               "class='b-arrived'" not in page and "class='b-noshow'" not in page
-               and "class='b-done'" in page,
-               "кнопки в кресле не сузились — предлагаем записать неправду")
+               "arrived" not in b and "noshow" not in b and "done" in b,
+               f"кнопки в кресле не сузились — предлагаем записать неправду: {b}")
 
-        c.post(f"/admin/status/{bid}", to="done", back=day2)
-        page = c.get(day2).body
-        res.ok("у закрытой записи остаётся ровно возврат",
-               "class='b-reopen'" in page and "class='b-done'" not in page,
-               "закрытая запись без кнопки возврата — промах неисправим")
+        c.post_json(f"/api/schedule/appointments/{bid}/status", {"to": "done"})
+        res.check("у закрытой записи остаётся ровно возврат",
+                  list(buttons()), ["confirmed"])
         # плашка обязана звать статус словом кнопки, а не «a venit»
-        badge = re.search(r"class='stat s-done'>(.*?)</span>", page, re.S)
-        res.ok("плашка статуса — «finalizată» со значком",
-               bool(badge) and "finalizat" in badge.group(1)
-               and "<svg" in badge.group(1),
-               f"плашка: {badge.group(1)[:80] if badge else 'нет'!r}")
-        res.ok("та же отметка стоит и в сетке «Programări»",
-               "class='appt done" in page and "class='stt'" in page,
-               "в сетке дня статус виден только фоном — на панели значок есть")
+        res.check("плашка статуса в списке — «finalizată»",
+                  (row().get("status"), row().get("status_label")), ("done", "finalizată"))
+        blk = _block(day_model(c, _d(2))["canvas"], "Buton Test")
+        res.check("та же отметка стоит и на канве «Programări»",
+                  (blk.get("status"), blk.get("status_label")), ("done", "finalizată"))
 
         res.check("возврат открывает запись заново",
-                  c.post(f"/admin/status/{bid}", to="confirmed", back=day2).msg, "")
-        page = c.get(day2).body
+                  c.post_json(f"/api/schedule/appointments/{bid}/status",
+                              {"to": "confirmed"}).msg, "")
+        b = buttons()
         res.ok("после возврата исходы снова доступны",
-               "class='b-arrived'" in page and "class='b-reopen'" not in page,
-               "возврат не вернул запись в работу")
+               "arrived" in b and "confirmed" not in b,
+               f"возврат не вернул запись в работу: {b}")
 
         # --- «A venit» (waiting, 08-13): пациент пришёл и ждёт в приёмной ---
-        r = c.post(f"/admin/status/{bid}", to="waiting", back=day2)
-        res.ok("статус → waiting принят", r.status == 303, f"код {r.status}")
-        page = c.get(day2).body
+        r = c.post_json(f"/api/schedule/appointments/{bid}/status", {"to": "waiting"})
+        res.check("статус → waiting принят", (r.status, r.msg), (200, ""))
+        b = buttons()
         res.ok("пришедшему не предлагают «Nu a venit», но дают ход дальше",
-               "class='b-noshow'" not in page and "class='b-arrived'" in page
-               and "class='b-done'" in page,
-               "кнопки waiting предлагают неправду или прячут следующий шаг")
-        badge = re.search(r"class='stat s-waiting'>(.*?)</span>", page, re.S)
-        res.ok("плашка «a venit» стоит словом на карточке сетки",
-               "class='appt waiting" in page and bool(badge)
-               and "a venit" in badge.group(1),
-               f"плашка waiting: {badge.group(1)[:60] if badge else 'нет'!r}")
-        # «așteaptă N min» (08-21): сервер кладёт ТОЛЬКО штамп data-wait-since
-        # (в повестку <small>, в сетку <span>), минуты рисует panel.js
-        # (paintWaits) — серверная строка минут делала бы отпечаток живого
-        # куска всегда другим, и подмена шла бы каждый опрос (ревью 08-22:
-        # фича была без единой проверки)
-        # дом ожидания — дневная панель /admin (канва + повестка); полный
-        # день /admin/all его не рисует по замыслу
-        day_home = c.get(f"/admin?date={_d(2)}").body
-        res.ok("штамп ожидания стоит на канве дня",
-               "<span class='wait-min' data-wait-since=" in day_home,
-               "data-wait-since не доехал до канвы — paintWaits нечего рисовать")
-        res.ok("штамп ожидания стоит в повестке",
-               "<small class='wait-min' data-wait-since=" in day_home,
-               "data-wait-since не доехал до повестки дня")
+               "noshow" not in b and "arrived" in b and "done" in b,
+               f"кнопки waiting предлагают неправду или прячут следующий шаг: {b}")
+        res.check("плашка «a venit» стоит словом и в списке, и на канве",
+                  (row().get("status_label"),
+                   _block(day_model(c, _d(2))["canvas"], "Buton Test").get("status_label")),
+                  ("a venit", "a venit"))
+        # «așteaptă N min» (08-21): сервер кладёт ТОЛЬКО отметку `wait_since`
+        # (блоку канвы и пункту повестки), минуты считает браузер — серверная
+        # строка минут делала бы отпечаток живого состояния всегда другим, и
+        # экран перерисовывался бы каждый опрос (ревью 08-22: фича была без
+        # единой проверки). Дом ожидания — панель дня (канва + повестка).
+        live = panel_live(c, _d(2))
+        item = next((x for x in live["agenda"]["items"] if x["name"] == "Buton Test"), {})
+        res.ok("отметка ожидания стоит на канве панели",
+               isinstance(_block(live["canvas"], "Buton Test").get("wait_since"), int),
+               "wait_since не доехал до канвы — браузеру нечего считать")
+        res.ok("отметка ожидания стоит в повестке",
+               isinstance(item.get("wait_since"), int),
+               f"wait_since не доехал до повестки дня: {item}")
         res.ok("минуты ожидания сервер не печатает",
-               "așteaptă" not in day_home,
-               "серверные минуты = недетерминированный live-отпечаток")
+               "așteaptă" not in json.dumps(live, ensure_ascii=False),
+               "серверные минуты = недетерминированный живой отпечаток")
         # слот пришедшего ЗАНЯТ: ACTIVE_STATUSES и предикаты uq-индексов
         # обязаны знать waiting, иначе двойная бронь проходит молча
         res.check("час пришедшего занят для новой записи",
                   add(c, _d(2), "10:00", name="Peste Waiting", phone="022555666"),
                   "conflict")
         # второй шаг конвейера необязателен: из приёмной можно сразу в финал
-        c.post(f"/admin/status/{bid}", to="done", back=day2)
-        res.ok("из «a venit» можно сразу в «finalizată»",
-               "class='b-reopen'" in c.get(day2).body,
-               "перескок waiting→done не сработал")
-        c.post(f"/admin/status/{bid}", to="confirmed", back=day2)
+        c.post_json(f"/api/schedule/appointments/{bid}/status", {"to": "done"})
+        res.check("из «a venit» можно сразу в «finalizată»",
+                  row().get("status"), "done")
+        c.post_json(f"/api/schedule/appointments/{bid}/status", {"to": "confirmed"})
 
         # --- время ожидания (08-13): пара штампов waiting_at→arrived_at ---
         # Полный конвейер на отдельном визите. Карточку «Așteptare medie»
@@ -454,15 +419,14 @@ def suite_status(res: Result) -> None:
                 con.close()
 
         add(c, _d(3), "11:00", name="Metrica Wait", phone="022555777")
-        page3 = c.get(f"/admin/all?date={_d(3)}").body
-        wid = page3.split("/admin/status/", 1)[1].split("'")[0].split('"')[0]
-        c.post(f"/admin/status/{wid}", to="waiting", back="/admin/all")
-        c.post(f"/admin/status/{wid}", to="arrived", back="/admin/all")
+        wid = appt_id(c, _d(3), "Metrica Wait")
+        c.post_json(f"/api/schedule/appointments/{wid}/status", {"to": "waiting"})
+        c.post_json(f"/api/schedule/appointments/{wid}/status", {"to": "arrived"})
         res.ok("пара штампов ожидания записана",
                all(stamps(wid)), f"штампы: {stamps(wid)!r}")
         # возврат в confirmed стирает ОБА штампа: исправленный промах «A venit»
         # не имеет права оставить мусорную пару в измерении
-        c.post(f"/admin/status/{wid}", to="confirmed", back="/admin/all")
+        c.post_json(f"/api/schedule/appointments/{wid}/status", {"to": "confirmed"})
         res.check("возврат в confirmed стирает оба штампа", stamps(wid), (None, None))
 
         # --- возврат визита, когда занят ПАЦИЕНТ, а не врач (08-16) ---
@@ -476,19 +440,18 @@ def suite_status(res: Result) -> None:
         res.check("визит к первому врачу заведён",
                   add(c, d4, "12:00", doctor="d2", name="Dubla Pacient",
                       phone="022555999"), "ok")
-        did = c.get(f"/admin/all?date={d4}").body.split(
-            "/admin/status/", 1)[1].split("'")[0].split('"')[0]
-        c.post(f"/admin/status/{did}", to="cancelled", back=f"/admin/all?date={d4}")
+        did = appt_id(c, d4, "Dubla Pacient")
+        c.post_json(f"/api/schedule/appointments/{did}/status", {"to": "cancelled"})
         res.check("тот же пациент записан на тот же час к другому врачу",
                   add(c, d4, "12:00", doctor="d3", name="Dubla Pacient",
                       phone="022555999"), "ok")
         res.check("возврат отбит словами про ПАЦИЕНТА, а не про медика",
-                  c.post(f"/admin/status/{did}", to="confirmed",
-                         back=f"/admin/all?date={d4}").msg, "dup")
+                  c.post_json(f"/api/schedule/appointments/{did}/status",
+                              {"to": "confirmed"}).msg, "dup")
 
         # заметка занимает слот врача
-        r = c.post("/admin/note", ndate=_d(1), ntime="14:00", ndoctor="d3",
-                   ntext="Pauză tehnică", back="/admin/all")
+        r = c.post_json("/api/schedule/notes", {"date": _d(1), "time": "14:00", "doctor": "d3",
+                                               "text": "Pauză tehnică"})
         res.ok("заметка сохранена", r.msg in ("ok_note", "part_note"),
                f"msg={r.msg!r}")
         res.check("час с заметкой занят для записи",

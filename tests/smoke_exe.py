@@ -262,21 +262,22 @@ def _pages(c: Client, check, password: str, *, grace: bool) -> None:
     home = c.get("/admin")
     if grace:
         # Баннер бывает ТОЛЬКО когда ключ выдачи есть (lic.applies()): это и
-        # есть доказательство, что rsa_verify.KEYS уехал в сборку. У новой
-        # установки /admin — оболочка React: баннер едет в ней СИГНАЛОМ внутри
-        # модели, вшитой в атрибут data-shell (react_shell: JSON, экранированный
-        # как HTML-атрибут) — разбираем ровно так, как её читает клиент; старая
-        # страница по ?ui=legacy несёт тот же баннер готовой разметкой.
+        # есть доказательство, что rsa_verify.KEYS уехал в сборку. /admin —
+        # оболочка React: баннер едет в ней СИГНАЛОМ внутри модели, вшитой в
+        # атрибут data-shell (react_shell: JSON, экранированный как
+        # HTML-атрибут) — разбираем ровно так, как её читает клиент.
         sig = _shell_signal(home.body, "license")
         check("льгота: оболочка React получает сигнал лицензии со ссылкой на активацию",
               bool(sig) and sig.get("shown") is True and "Licența lipsește" in sig.get("html", "")
               and "/admin/license" in sig.get("html", ""),
               "сигнала лицензии в модели оболочки нет — ключа в exe нет?" if not sig else repr(sig)[:200])
+        # старой панели в сборке нет (снята 13.10): адрес из закладки со
+        # `?ui=legacy` обязан открыть тот же экран, а не отказ
         legacy = c.get("/admin?ui=legacy")
-        check("льгота: старая страница несёт баннер — лицензия, срок, ссылка",
-              legacy.status == 200 and "banner warn" in legacy.body
-              and "Licența lipsește" in legacy.body and "href='/admin/license'" in legacy.body,
-              f"код {legacy.status}, баннера льготы нет")
+        check("льгота: ?ui=legacy — тот же React-экран с тем же сигналом",
+              legacy.status == 200 and 'data-screen="schedule_dash"' in legacy.body
+              and bool(_shell_signal(legacy.body, "license")),
+              f"код {legacy.status}")
         check("льгота: стены нет, страница активации открывается",
               c.get("/admin/license").status == 200)
         # картотека живая: пациент из фазы wall виден списку (JSON API, ASCII-имя)
@@ -296,9 +297,9 @@ def _pages(c: Client, check, password: str, *, grace: bool) -> None:
     except Exception:
         ok = False
     check("живой канал панели отвечает состоянием в сборке",
-          ok and r.header("X-DP-Hash") != "" and r.header("X-DP-Surface") != "",
+          ok and r.header("X-DP-Hash") != "" and r.header("X-DP-V") != "",
           f"код {r.status}, отпечаток {r.header('X-DP-Hash')!r}, "
-          f"поверхность {r.header('X-DP-Surface')!r}")
+          f"версия {r.header('X-DP-V')!r}")
 
     # Выгрузка в Excel собирается zip'ом на лету (core/xlsx). В СОБРАННОЙ
     # программе это стоит проверить отдельно: страницы её не задевают, а

@@ -15,7 +15,8 @@ import json
 import re
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today, new_patient, pid_by_phone
+from harness import (Client, Result, Server, clinic_today, day_model, new_patient,
+                     pid_by_phone)
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 64
 PDF = b"%PDF-1.4 " + b"x" * 64
@@ -38,8 +39,8 @@ def _pid(c: Client, phone: str) -> int:
 
 
 def _aid(c: Client, day: str) -> int:
-    """id последней записи дня — со страницы дня, как в test_visit."""
-    return int(re.findall(r"/admin/status/(\d+)", c.get(f"/admin/all?date={day}").body)[-1])
+    """id последней по времени записи дня — из «Lista zilei» модели дня."""
+    return int([r["id"] for r in day_model(c, day)["list"] if not r["is_note"]][-1])
 
 
 def _seed(c: Client) -> dict:
@@ -51,17 +52,18 @@ def _seed(c: Client) -> dict:
     трёх видов (картинка, PDF, чужая программа), два зуба, один из них
     имплант."""
     def visit(day: int, time: str, doc: str, svc: str = "consult") -> int:
-        c.post("/admin/add", adate=_d(day), atime=time, adoctor=doc, aservice=svc,
-               aname="Pin Test", aphone="069000111", back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": _d(day), "time": time,
+                                                  "doctor": doc, "service": svc,
+                                                  "name": "Pin Test", "phone": "069000111"})
         return _aid(c, _d(day))
 
     s = {}
     s["v_done"] = visit(-10, "10:00", "d2")
-    c.post(f"/admin/status/{s['v_done']}", to="done", back="/admin/all")
+    c.post_json(f"/api/schedule/appointments/{s['v_done']}/status", {"to": "done"})
     c.post_json(f"/api/visits/{s['v_done']}", {"acuze": "Durere", "diagnostic": "Pulpită 26",
                                               "tratament": "Trat"})
     s["v_canc"] = visit(-3, "11:00", "d3", "hygiene")
-    c.post(f"/admin/status/{s['v_canc']}", to="cancelled", back="/admin/all")
+    c.post_json(f"/api/schedule/appointments/{s['v_canc']}/status", {"to": "cancelled"})
     s["v_last"] = visit(-1, "12:00", "d2")
     s["v_next"] = visit(2, "09:30", "d2")
     pid = s["pid"] = _pid(c, "069000111")
@@ -569,7 +571,8 @@ def suite_actions(res: Result) -> None:
                   (200, "ok", 1, 1, "09:00", True))
         st, j = _act(c, pid, "/appoint", {"date": _d(3), "time": "09:00", "doctor": "d3", "service": "consult"})
         res.check("тот же час у пациента — 409 dup", (st, j["code"]), (409, "dup"))
-        res.ok("визит виден в журнале дня", "Act Test Nou" in c.get(f"/admin/all?date={_d(3)}").body, "нет")
+        res.ok("визит виден в журнале дня",
+               "Act Test Nou" in [r["name"] for r in day_model(c, _d(3))["list"]], "нет")
 
         # ---- зуб из фиши и журнал доступа ----
         # ⚠️ После записи зуба фиша перечитывала себя GET-ом фиши, а он —

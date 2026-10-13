@@ -127,9 +127,9 @@ def pin_cookie(origin: str) -> str:
 
 def seed(c: Client, day: str) -> dict:
     """Минимум, без которого параметрические адреса некуда направить."""
-    c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
-           aservice="consult", aname="Proba Mount", aphone="069000099",
-           back="/admin/all")
+    c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00", "doctor": "d2",
+                                              "service": "consult", "name": "Proba Mount",
+                                              "phone": "069000099"})
     rows = json.loads(c.get("/api/patients?q=Proba").body)["data"]["rows"]
     today = json.loads(c.get("/api/doctors/d2").body)["data"]["today"]
     if not rows or not today:

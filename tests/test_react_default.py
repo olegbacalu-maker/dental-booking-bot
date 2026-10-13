@@ -14,8 +14,10 @@
 ⚠️ Профиль здесь — НАСТОЯЩИЙ `bot/app/clinic_new.json`, тот самый, который
 лаунчер кладёт новой клинике. Своя фикстура проверяла бы свою выдумку: ключа
 `ui` в ней нет, и именно его отсутствие и есть проверяемое условие.
-⛔ Фикстура прогона (`clinic_test.json`) гасит React ЯВНО — там эталоном служит
-старая страница. Поэтому набор берёт профиль новой клиники, а не общий.
+⛔ Фикстура прогона (`clinic_test.json`) несёт `ui.react: []` — до 13.10 этим
+гасился React, и эталоном служила старая страница; рубильник снят вместе со
+старым журналом, ключ уходит шагом 6. Набор берёт профиль новой клиники, а не
+общий: проверяется то, что получает клиника.
 
 ⭐ Список экранов берётся из `parity_audit`, а он — из `REACT_SCREENS` разбором.
 Рукописный список в наборе разошёлся бы с кодом молча: новая поверхность просто
@@ -91,9 +93,9 @@ def _day_off(profile: pathlib.Path) -> date | None:
 
 def _ids(c: Client, day: str) -> tuple[dict, str]:
     """Номера для адресов экранов и код, которым журнал ответил на запись."""
-    r = c.post("/admin/add", adate=day, atime="09:00", adoctor="d1",
-               aservice="consult", aname="Proba Noua", aphone="069000077",
-               back="/admin/all")
+    r = c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00",
+                                                  "doctor": "d1", "service": "consult",
+                                                  "name": "Proba Noua", "phone": "069000077"})
     rows = json.loads(c.get("/api/patients?q=Proba").body)["data"]["rows"]
     pid = str(rows[0]["id"]) if rows else ""
     # ⚠️ Визит — из фиши пациента, а не из «сегодня» врача: день записи не
@@ -134,7 +136,7 @@ def suite_fresh(res: Result) -> None:
             # проверяет меньше страниц.
             res.ok("пациент и визит для адресов с номером заведены",
                    bool(ids["pid"] and ids["appt_id"]),
-                   f"/admin/add на {day} 09:00 ответил {booked!r}")
+                   f"запись на {day} 09:00 ответила {booked!r}")
 
             bad = []
             for r in rows:
@@ -173,13 +175,13 @@ def suite_fresh(res: Result) -> None:
             res.ok("нереализованные экраны остались серверными", not wrong,
                    "узел React там, где экрана нет: " + ", ".join(wrong))
 
-            # ⚠️ Выход для регистратуры обязан работать и в продукте: один
-            # запрос старой страницы без правки профиля. Неделя журнала — потому
-            # что у настроек старой страницы больше нет (12.10), а журнал
-            # снимается последним (docs/dentpilot-2/legacy-removal.md).
+            # ⚠️ Старых страниц у реализованных поверхностей больше нет (сняты
+            # 12–13.10, docs/dentpilot-2/legacy-removal.md): `?ui=legacy` из
+            # закладки или ссылки «varianta clasică» обязан открыть ТОТ ЖЕ экран,
+            # а не отказ.
             legacy = c.get("/admin/week?ui=legacy")
-            res.ok("?ui=legacy возвращает старую страницу на один запрос",
-                   legacy.status == 200 and MOUNT not in legacy.body,
+            res.ok("?ui=legacy отдаёт тот же React-экран",
+                   legacy.status == 200 and f'{MOUNT}schedule_week"' in legacy.body,
                    f"HTTP {legacy.status}, узел React {'есть' if MOUNT in legacy.body else 'нет'}")
 
 
@@ -209,33 +211,30 @@ def suite_fresh_day_off(res: Result) -> None:
 
 
 def suite_switch_off(res: Result) -> None:
-    """Аварийный выключатель: пустой список гасит React везде.
+    """Ключ `ui.react` в профиле больше ничего не гасит — и ничего не роняет.
 
-    ⛔ Это НЕ выкат и не канарейка. Это ответ на вопрос «что делать, если у
-    клиники новый интерфейс подвёл, а поддержка на телефоне»: одна строка в
-    профиле, без сборки и без обновления.
+    До 13.10 это был аварийный выключатель: пустой список возвращал старый
+    интерфейс везде, одной строкой в профиле, без сборки. Старые страницы сняты
+    по разделам, журнал — последним, и выключать стало некуда. Сам ключ
+    уходит из профилей шагом 6; до тех пор любое его значение обязано давать
+    тот же продукт.
     """
     with tempfile.TemporaryDirectory(prefix="dp_off_") as td:
         dir_ = pathlib.Path(td)
         _fresh(dir_)
         cfg = json.loads((dir_ / "clinic.json").read_text(encoding="utf-8"))
-        cfg["ui"] = {"react": []}
-        (dir_ / "clinic.json").write_text(json.dumps(cfg, ensure_ascii=False),
-                                          encoding="utf-8")
-        with Server(dir_=dir_) as s:
-            c = Client(s.url).login(PIN)
-            got = c.get("/admin/week")
-            res.ok("пустой список гасит React", MOUNT not in got.body,
-                   "узел React остался при явно выключенном интерфейсе")
-
-        cfg["ui"] = {"react": False}
-        (dir_ / "clinic.json").write_text(json.dumps(cfg, ensure_ascii=False),
-                                          encoding="utf-8")
-        with Server(dir_=dir_) as s:
-            c = Client(s.url).login(PIN)
-            got = c.get("/admin/week")
-            # ⚠️ `false` — понятная человеку запись, и падать на ней нельзя:
-            # `screen in False` был бы отказом всей админки у клиники.
-            res.check("«react: false» не роняет админку", got.status, 200)
-            res.ok("и тоже гасит React", MOUNT not in got.body,
-                   "булев выключатель не сработал")
+        for value in ([], False):
+            cfg["ui"] = {"react": value}
+            (dir_ / "clinic.json").write_text(json.dumps(cfg, ensure_ascii=False),
+                                              encoding="utf-8")
+            with Server(dir_=dir_) as s:
+                c = Client(s.url).login(PIN)
+                for path, screen in (("/admin", "schedule_dash"),
+                                     ("/admin/week", "schedule_week")):
+                    got = c.get(path)
+                    # ⚠️ `false` — понятная человеку запись, и падать на ней
+                    # нельзя: `screen in False` был бы отказом всей админки.
+                    res.ok(f"«react: {json.dumps(value)}»: {path} — React, без отказа",
+                           got.status == 200 and f'{MOUNT}{screen}"' in got.body,
+                           f"HTTP {got.status}, узел React "
+                           f"{'есть' if MOUNT in got.body else 'нет'}")

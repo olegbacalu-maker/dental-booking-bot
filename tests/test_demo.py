@@ -17,7 +17,7 @@ import sys
 import tempfile
 from datetime import timedelta
 
-from harness import ROOT, Client, Result, Server, clinic_now, shell_model
+from harness import ROOT, Client, Result, Server, clinic_now, shell_model, shell_signal
 
 DEMO = {"DENTART_DEMO": "1"}
 CLOSED_PAGES = ("/admin/settings/system", "/admin/settings/crypt",
@@ -93,12 +93,12 @@ def suite_demo(res: Result) -> None:
         c = Client(s.url).login()
         r = c.get("/admin")
         res.check("после входа журнал открыт", r.status, 200)
-        res.ok("баннер демо на журнале", BANNER in r.body, "полосы демо нет")
+        res.ok("баннер демо на журнале", BANNER in _banner_of(r.body), "полосы демо нет")
         # срок называет шлюз (DENTART_DEMO_TTL); без шлюза — час, и заготовка
         # срока на экран не уезжает
         res.ok("без шлюза полоса называет срок «o oră»",
-               "după o oră" in r.body and "__TTL__" not in r.body, "срока в полосе нет")
-        res.ok("баннер ведёт в шлюз: /demo/reset", "href='/demo/reset'" in r.body,
+               "după o oră" in _banner_of(r.body) and "__TTL__" not in r.body, "срока в полосе нет")
+        res.ok("баннер ведёт в шлюз: /demo/reset", "href='/demo/reset'" in _banner_of(r.body),
                "ссылки сброса нет")
         res.ok("баннер демо и на списке пациентов (сигнал оболочки React)",
                BANNER in _banner_of(c.get("/admin/search").body),
@@ -154,7 +154,7 @@ def suite_demo(res: Result) -> None:
                    and "__TTL__" not in body, "в полосе не срок шлюза")
     with Server() as s:
         c = Client(s.url).login()
-        res.ok("без флага полосы демо нет", BANNER not in c.get("/admin").body,
+        res.ok("без флага полосы демо нет", not shell_signal(c.get("/admin").body, "demo")["shown"],
                "полоса демо у клиники")
         res.check("без флага «Stare sistem» открыт", c.get("/admin/settings/system").status, 200)
         res.ok("без флага плитка системы на месте", "/admin/settings/system" in _hub(c),

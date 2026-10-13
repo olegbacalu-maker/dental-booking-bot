@@ -1956,19 +1956,6 @@ async def patient_lang(session_key: str) -> str | None:
     )
 
 
-async def recent_bot_appointments(since: datetime, limit: int = 10) -> list:
-    """Свежие записи ИЗ БОТА по времени создания — независимо от даты визита.
-    Урок полевого демо 07-31: запись на неделю вперёд невидима в дневных видах."""
-    return await _fetch(
-        """SELECT a.id, a.service, a.doctor, a.doctor_id, a.starts_at, a.created_at,
-                  p.name, p.phone
-           FROM appointments a JOIN patients p ON p.id = a.patient_id
-           WHERE a.source = 'bot' AND a.status = 'confirmed' AND a.created_at >= ?
-           ORDER BY a.created_at DESC LIMIT ?""",
-        _iso(since), limit,
-    )
-
-
 # Диакритика румынского: поиск «Balan» должен находить «Bălan» и наоборот.
 _DIA = str.maketrans("ăâîșşțţĂÂÎȘŞȚŢ", "aaissttAAISSTT")
 

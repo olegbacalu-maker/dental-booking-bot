@@ -18,7 +18,7 @@ import pathlib
 import re
 import subprocess
 
-from harness import BOT, PYTHON, Client, Result, Server
+from harness import BOT, PYTHON, Client, Result, Server, shell_model
 
 CSS = BOT / "app" / "static" / "css" / "panel.css"
 
@@ -523,9 +523,13 @@ def suite_logo(res: Result) -> None:
 
         # --- логотип в шапке журнала (галочка, 08-21) ---
         # выключено по умолчанию: существующая клиника не должна проснуться
-        # с новой шапкой; галочка рисуется только при живом логотипе
-        res.ok("по умолчанию шапка без логотипа",
-               "tb-logo" not in c.get("/admin").body,
+        # с новой шапкой; галочка рисуется только при живом логотипе.
+        # Шапку рисует React по `clinic.logo_topbar` модели оболочки (до 13.10
+        # проверка искала класс `tb-logo` старой страницы).
+        def topbar_logo() -> str:
+            return shell_model(c.get("/admin").body)["clinic"]["logo_topbar"]
+
+        res.ok("по умолчанию шапка без логотипа", topbar_logo() == "",
                "логотип встал в шапку без галочки")
         # галочку рисует React при живом логотипе — ему нужен адрес логотипа
         res.ok("экрану вида приезжает живой логотип (условие галочки)",
@@ -535,7 +539,7 @@ def suite_logo(res: Result) -> None:
                                                 "custom": "", "logo_topbar": True})
         res.check("галочка сохраняется", r.msg, "ok_theme")
         res.ok("логотип встал в шапку журнала",
-               "tb-logo" in c.get("/admin").body, "в шапке пусто")
+               topbar_logo().startswith("/clinic-logo"), "в шапке пусто")
 
         r = c.post_file("/api/settings/theme/logo", "file", "logo.jpg", JPG)
         res.check("JPEG принимается", r.msg, "ok_logo")
@@ -544,12 +548,11 @@ def suite_logo(res: Result) -> None:
         # тот же класс, что «смена цвета роняла логотип»: маршрут логотипа
         # пишет секцию темы целиком, и забытая галочка снималась бы молча
         res.ok("галочка пережила замену файла логотипа",
-               "tb-logo" in c.get("/admin").body,
+               topbar_logo().startswith("/clinic-logo"),
                "замена файла молча сняла логотип с шапки")
         c.post_json("/api/settings/theme", {"style": "elegant", "primary": "#EA580C",
                                             "custom": ""})
-        res.ok("снятая галочка убирает логотип из шапки",
-               "tb-logo" not in c.get("/admin").body,
+        res.ok("снятая галочка убирает логотип из шапки", topbar_logo() == "",
                "логотип остался в шапке без галочки")
         c.post_json("/api/settings/theme", {"style": "elegant", "primary": "#EA580C",
                                             "custom": "", "logo_topbar": True})
@@ -560,8 +563,7 @@ def suite_logo(res: Result) -> None:
         r = c.post_json("/api/settings/theme/logo/delete", {})
         res.check("логотип удаляется", r.msg, "no_logo")
         res.check("после удаления адрес пустой", anon.get("/clinic-logo").status, 404)
-        res.ok("удалённый логотип исчез и из шапки при живой галочке",
-               "tb-logo" not in c.get("/admin").body,
+        res.ok("удалённый логотип исчез и из шапки при живой галочке", topbar_logo() == "",
                "шапка ссылается на пропавший файл")
         res.ok("после удаления цвет и стиль на месте",
                _theme_of(s.clinic)["primary"] == "#EA580C"

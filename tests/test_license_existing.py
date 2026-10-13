@@ -18,7 +18,7 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-from harness import ROOT, Client, Result, Server, _rmtree_settled
+from harness import ROOT, Client, Result, Server, _rmtree_settled, shell_signal
 
 FIX = ROOT / "tests" / "fixtures" / "license"
 KEY_ENV = {"DENTART_LICENSE_KEYS": str(FIX / "test-key.json")}
@@ -61,9 +61,10 @@ def suite_existing(res: Result) -> None:
             c = Client(s.url).login()
             page = c.get("/admin")
             res.check("картотека открывается: стены нет", page.status, 200)
+            sig = shell_signal(page.body, "license")["html"]
             res.ok("баннер льготы: не пугает файлом, а называет лицензию, срок и ссылку",
-                   "banner warn" in page.body and "Licența lipsește" in page.body
-                   and "href='/admin/license'" in page.body, "баннера нет")
+                   "banner warn" in sig and "Licența lipsește" in sig
+                   and "href='/admin/license'" in sig, "баннера нет")
             mem = json.loads((d / "license.state").read_text(encoding="utf-8"))
             a = _api(c)
             res.ok("/api/license: grace, без стены, без кода, отсчёт от первого запуска",
@@ -98,9 +99,10 @@ def suite_existing(res: Result) -> None:
             res.check("через 15 дней: readonly", a.get("state"), "readonly")
             page = c.get("/admin")
             res.check("картотека по-прежнему открывается", page.status, 200)
+            sig = shell_signal(page.body, "license")["html"]
             res.ok("баннер режима чтения называет лицензию",
-                   "banner err" in page.body and "Licența lipsește" in page.body
-                   and "regim de citire" in page.body, "баннера нет")
+                   "banner err" in sig and "Licența lipsește" in sig
+                   and "regim de citire" in sig, "баннера нет")
             r = c.post_json("/api/patients", {"name": "Tarziu Test", "phone": "069000555"})
             res.ok("запись отказывает license_readonly",
                    r.status == 423 and json.loads(r.body).get("code") == "license_readonly",
@@ -118,7 +120,7 @@ def suite_existing(res: Result) -> None:
             res.check("после импорта: active", _api(c).get("state"), "active")
             r = c.post_json("/api/patients", {"name": "Dupa Test", "phone": "069000666"})
             res.check("после импорта запись работает", r.status, 200)
-            res.ok("баннера больше нет", "/admin/license" not in c.get("/admin").body)
+            res.ok("баннера больше нет", not shell_signal(c.get("/admin").body, "license")["shown"])
     finally:
         _rmtree_settled(d)
 

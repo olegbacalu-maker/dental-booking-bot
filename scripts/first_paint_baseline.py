@@ -119,8 +119,9 @@ def _seed(c: Client, day: str) -> None:
     for hh, name, phone in (("09:00", "Baza Unu", "069000051"),
                             ("10:00", "Baza Doi", "069000052"),
                             ("11:00", "Baza Trei", "069000053")):
-        c.post("/admin/add", adate=day, atime=hh, adoctor="d2",
-               aservice="consult", aname=name, aphone=phone, back="/admin/all")
+        c.post_json("/api/schedule/appointments", {"date": day, "time": hh, "doctor": "d2",
+                                                  "service": "consult", "name": name,
+                                                  "phone": phone})
 
 
 def measure(page: Page, cdp: CDP, path: str, settle: float = 6.0) -> dict:

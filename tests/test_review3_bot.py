@@ -80,10 +80,11 @@ def suite_chat_session(res: Result) -> None:
     with Server(env=TG_ON) as s:
         adm = Client(s.url).login()
         res.check("визит регистратуры заведён",
-                  adm.post("/admin/add", adate=_d(1), atime="10:00",
-                           adoctor="d2", aservice="consult",
-                           aname="Ion Popescu", aphone="069123456",
-                           back="/admin/all").msg, "ok")
+                  adm.post_json("/api/schedule/appointments", {"date": _d(1), "time": "10:00",
+                                                              "doctor": "d2",
+                                                              "service": "consult",
+                                                              "name": "Ion Popescu",
+                                                              "phone": "069123456"}).msg, "ok")
 
         anon = Client(s.url)          # ни одной куки, без входа
 
@@ -101,9 +102,11 @@ def suite_chat_session(res: Result) -> None:
         for appt_id in (1, 2, 3):
             chat(f"cancel:{appt_id}", key="manual:069123456")
         res.check("час так и остался занятым",
-                  adm.post("/admin/add", adate=_d(1), atime="10:00",
-                           adoctor="d2", aservice="consult", aname="Al Doilea",
-                           aphone="069000111", back="/admin/all").msg, "conflict")
+                  adm.post_json("/api/schedule/appointments", {"date": _d(1), "time": "10:00",
+                                                              "doctor": "d2",
+                                                              "service": "consult",
+                                                              "name": "Al Doilea",
+                                                              "phone": "069000111"}).msg, "conflict")
 
         # --- две ЧЕСТНЫЕ сессии не видят друг друга ---
         a, b = Bot(Client(s.url)), Bot(Client(s.url))

@@ -142,7 +142,7 @@ data rather than an HTML fragment ([`docs/dentpilot-2/live-contract.md`](docs/de
 `/admin/search` — the clinic's whole base in one working table: avatar and name, phone,
 birth date, doctor, last visit (with the next one flagged in green), balance, status,
 pages. Filters by doctor, status, channel and balance; sorting by name or by last visit;
-the current selection can be exported to Excel (or CSV) or previewed in a side panel that shows the
+the current selection can be exported to Excel or previewed in a side panel that shows the
 treatment-plan progress, alerts and documents without leaving the list. Search by name or
 phone digits (any format), e-mail or file number, ignoring Romanian diacritics and case
 ("Balan" finds "Bălan"). It also understands **a birth date the way it is dictated at the
@@ -376,7 +376,8 @@ LAN it would break login outright, and the clinic's Wi-Fi encrypts one layer bel
 A messenger-style booking chat and a **Telegram bot**, both Romanian and Russian, sit on the
 same engine and the same database, so a bot booking is already in the journal and a manual
 entry already blocks the slot. The whole interface for it — the sidebar section, the QR
-sheet, the dashboard tiles — appears only for a clinic that has configured a bot token.
+sheet, the "source" column of the day list — appears only for a clinic that has configured
+a bot token.
 Clinics told us a QR on the door reads as "anyone can book", and asked for reminders they
 control instead; the code stays, the shop window does not.
 
@@ -583,9 +584,9 @@ signs in by `ADMIN_KEY` (HMAC cookie), and compose refuses to start without it.
   additive migrations.
 - **DentPilot 2.0** (since September 2026): the screens are a React + TypeScript client
   ([`frontend/`](frontend/), Vite), built into the exe as one bundle and moved over one
-  screen at a time on top of the same engine. The server decides per clinic
-  (`clinic.json → ui.react`), and `?ui=legacy` still returns the server-rendered page of a
-  screen for one request. JSON routes under `/api/` have their own guard that answers
+  screen at a time on top of the same engine; the server-rendered pages they replaced were
+  removed section by section in October 2026 (print sheets, sign-in and recovery screens stay
+  server-rendered by design). JSON routes under `/api/` have their own guard that answers
   401/403 instead of redirecting, so a fetch can never mistake the login form for success.
   The 3D odontogram is three.js on the same server data.
 - The dialog engine is channel-agnostic (`engine.handle()`): the web chat and the Telegram

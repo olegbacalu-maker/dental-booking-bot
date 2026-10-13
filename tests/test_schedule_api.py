@@ -1,46 +1,58 @@
-"""Журнал (C24): `GET /api/schedule/week` повторяет старую страницу данными.
+"""JSON API журнала: неделя (C24), день «Programări» (C25), живой канал
+панели (C27) и команды экранов.
 
-Пин поведения самой страницы живёт в `test_admin.suite_week` — здесь
-проверяется, что JSON говорит О ТОМ ЖЕ: те же дни в том же порядке, те же
-счётчики, те же чипы и те же цвета. Расхождение здесь значит, что React-экран
-покажет не то, что показывает страница, а увидит это клиника.
+Экраны журнала с 13.10 рисует только React: всё, что видит регистратура, —
+ответы этих маршрутов. До снятия старых страниц здесь же сверялся JSON со
+страницей поле за полем (паритет C24/C25); паритет стал буквальными
+ожиданиями на известном засеве — сверка модели с самой собой не проверяла бы
+ничего.
 
-⚠️ Дни сверяются СПИСКОМ ДАТ, а не количеством: закрытый день исчезает из
-недели, только если в нём нет записей, поэтому колонок 5, 6 или 7, и
+⚠️ Дни недели сверяются СПИСКОМ ДАТ, а не количеством: закрытый день исчезает
+из недели, только если в нём нет записей, поэтому колонок 5, 6 или 7, и
 «столько же колонок» — не доказательство совпадения.
 """
 import json
-import re
-
-from harness import TG_ON, TZ, Client, Result, Server, clinic_today
 from datetime import datetime, timedelta
 
-from test_admin import _week_cols
+from harness import (TG_ON, Client, Result, Server, appt_id, clinic_today, day_model,
+                     shell_model)
+
+# Сокращения дней недели — те же, что у движка (`engine.RO_DOW`): подпись дня
+# в шапке «Jo 24.09.2026» строит сервер, и здесь она проверяется буквально.
+_DOW = ("Lu", "Ma", "Mi", "Jo", "Vi", "Sâ", "Du")
 
 
 def _j(r) -> dict:
     return json.loads(r.body)
 
 
+def _label(day: str) -> str:
+    """Подпись дня так, как её обязан построить сервер (`day.day_title`)."""
+    d = datetime.strptime(day, "%Y-%m-%d").date()
+    return f"{_DOW[d.weekday()]} {d.strftime('%d.%m')}.{d.year}"
+
+
 def _seed(c: Client, monday):
     """Неделя с записью, заметкой стойки, неявкой и отменой."""
     d = lambda i: (monday + timedelta(days=i)).isoformat()  # noqa: E731
-    c.post("/admin/add", adate=d(1), atime="09:00", adoctor="d2",
-           aservice="consult", aname="Ion Popa", aphone="069120120")
-    c.post("/admin/add", adate=d(1), atime="10:30", adoctor="d3",
-           aservice="pain", aname="Maria Rusu", aphone="069120121")
-    c.post("/admin/note", ndate=d(1), ntime="12:00", ndoctor="d2",
-           ntext="Livrare materiale")
-    c.post("/admin/add", adate=d(3), atime="16:00", adoctor="d2",
-           aservice="hygiene", aname="Vasile Lupu", aphone="069120122")
-    aids = re.findall(r"data-appt='(\d+)'", c.get(f"/admin?date={d(1)}").body)
-    if len(aids) >= 2:
-        c.post(f"/admin/status/{aids[0]}", to="noshow", back=f"/admin?date={d(1)}")
+    c.post_json("/api/schedule/appointments", {"date": d(1), "time": "09:00", "doctor": "d2",
+                                              "service": "consult", "name": "Ion Popa",
+                                              "phone": "069120120"})
+    c.post_json("/api/schedule/appointments", {"date": d(1), "time": "10:30", "doctor": "d3",
+                                              "service": "pain", "name": "Maria Rusu",
+                                              "phone": "069120121"})
+    c.post_json("/api/schedule/notes", {"date": d(1), "time": "12:00", "doctor": "d2",
+                                       "text": "Livrare materiale"})
+    c.post_json("/api/schedule/appointments", {"date": d(3), "time": "16:00", "doctor": "d2",
+                                              "service": "hygiene", "name": "Vasile Lupu",
+                                              "phone": "069120122"})
+    c.post_json(f"/api/schedule/appointments/{appt_id(c, d(1), 'Ion Popa')}/status",
+                {"to": "noshow"})
     return d
 
 
 def suite_api(res: Result) -> None:
-    """Состав ответа, паритет со страницей и охрана маршрута."""
+    """Неделя данными: состав, дни, счётчики, чипы, цвета — и охрана маршрута."""
     with Server() as s:
         res.check("без входа — 401",
                   Client(s.url).get("/api/schedule/week").status, 401)
@@ -57,31 +69,24 @@ def suite_api(res: Result) -> None:
                   (monday.isoformat(), d(6),
                    (monday - timedelta(days=7)).isoformat(),
                    (monday + timedelta(days=7)).isoformat(), d(1)))
-        res.check("диапазон словами — как в шапке страницы", j["span"],
+        res.check("диапазон словами — для шапки экрана", j["span"],
                   f"{monday.strftime('%d.%m')} – "
                   f"{(monday + timedelta(days=6)).strftime('%d.%m.%Y')}")
-
-        page = c.get(f"/admin/week?date={d(1)}").body
-        cols = _week_cols(page)
-        res.check("дни: тот же список дат и в том же порядке",
-                  [x["date"] for x in j["days"]], [x["date"] for x in cols])
-        res.check("счётчики дней совпадают",
-                  [x["count"] for x in j["days"]], [x["count"] for x in cols])
-        res.check("подписи дней совпадают",
-                  [x["label"] for x in j["days"]],
-                  [x["label"].split()[0] for x in cols])
-        res.check("«сегодня» отмечено там же",
-                  [x["today"] for x in j["days"]], [x["today"] for x in cols])
-        res.ok("итог недели — как в шапке страницы",
-               f"{j['total']} programări" in page,
-               f"в JSON {j['total']}, на странице иначе")
+        # у фикстуры открыты все семь дней — колонок семь, по порядку
+        res.check("дни: все семь, датами и по порядку",
+                  [x["date"] for x in j["days"]], [d(i) for i in range(7)])
+        res.check("счётчики дней — пациенты, без заметки",
+                  [x["count"] for x in j["days"]], [0, 2, 0, 1, 0, 0, 0])
+        res.check("подписи дней — сокращения по-румынски, с понедельника",
+                  [x["label"] for x in j["days"]], list(_DOW))
+        res.check("«сегодня» на будущей неделе не отмечено",
+                  [x["today"] for x in j["days"]], [False] * 7)
+        res.check("итог недели — сумма пациентов", j["total"], 3)
 
         tue = next(x for x in j["days"] if x["date"] == d(1))
-        page_tue = next(x for x in cols if x["date"] == d(1))
         res.check("во вторнике три чипа: две записи и заметка",
-                  ([x["kind"] for x in tue["items"]], len(page_tue["chips"])),
-                  (["appt", "appt", "note"], 3))
-        res.check("чип записи: час, имя, услуга — те же, что на странице",
+                  [x["kind"] for x in tue["items"]], ["appt", "appt", "note"])
+        res.check("чип записи: час, имя, услуга",
                   [(x["time"], x["name"], x["service"]) for x in tue["items"]
                    if x["kind"] == "appt"],
                   [("09:00", "Ion Popa", "Consultație"),
@@ -93,17 +98,15 @@ def suite_api(res: Result) -> None:
                all(x["bg"].startswith("var(--") and x["bar"].startswith("var(--")
                    for x in tue["items"] if x["kind"] == "appt"),
                "в JSON зашитый цвет — он останется зелёным на синей теме")
-        res.check("неявка помечена и там, и там",
-                  ([x["noshow"] for x in tue["items"] if x["kind"] == "appt"],
-                   " noshow" in page_tue["chips"]),
-                  ([True, False], True))
-        res.ok("цвет неявки — красный, как на странице",
+        res.check("неявка помечена",
+                  [x["noshow"] for x in tue["items"] if x["kind"] == "appt"], [True, False])
+        res.ok("цвет неявки — красный",
                next(x for x in tue["items"] if x.get("noshow"))["bg"] == "var(--red-soft)",
                "неявка не покраснела")
 
-        # отмена: запись исчезает из обоих представлений
+        # отмена: запись исчезает и из чипов, и из счётчика
         aid = next(x["id"] for x in tue["items"] if x["kind"] == "appt" and not x["noshow"])
-        c.post(f"/admin/status/{aid}", to="cancelled", back=f"/admin?date={d(1)}")
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "cancelled"})
         j2 = _j(c.get(f"/api/schedule/week?date={d(1)}"))["data"]
         tue2 = next(x for x in j2["days"] if x["date"] == d(1))
         res.check("отменённая запись ушла и из списка, и из счётчика",
@@ -119,250 +122,144 @@ def suite_api(res: Result) -> None:
                   (clinic_today() - timedelta(days=clinic_today().weekday())).isoformat())
 
 
-def _server_with_flag() -> Server:
-    s = Server()
+def _set_ui(s: Server, value) -> None:
+    """Ключ `ui.react` профиля ДО старта сервера: любым значением экраны
+    журнала остаются React (рубильник снят 13.10 вместе со старыми
+    страницами — снять его ключ из профиля предстоит шагом 6)."""
     cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["schedule_week"]}
+    cfg["ui"] = {"react": value}
     s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
+
+
+def _node_params(page: str) -> dict:
+    if 'data-params="' not in page:
+        return {}
+    return json.loads(page.split('data-params="', 1)[1].split('"', 1)[0]
+                      .replace("&quot;", '"'))
 
 
 def suite_switch(res: Result) -> None:
-    """Флаг `schedule_week`: узел React вместо колонок — и НИКАКОГО живого
-    опроса у недели, при этом день с тем же ключом остаётся живым.
+    """Неделя — React при любом профиле, и НИКАКОГО живого опроса.
 
-    ⛔ Это главная проверка C24. Ключ живого раздела `dash` один на две
-    страницы, а React-дерево внутри `#live` умирает при первой подмене:
-    panel.js переписывает innerHTML под смонтированным деревом, и клик по
-    свежему узлу молча перестаёт работать. Снять ключ насовсем нельзя — вместе
-    с неделей погас бы день, до которого очередь дойдёт только в C26.
+    ⛔ Главная проверка C24: React-дерево внутри `#live` умирает при первой
+    подмене — panel.js переписывает innerHTML под смонтированным деревом, и
+    клик по свежему узлу молча перестаёт работать. С 13.10 старой недели нет
+    вовсе, и `?ui=legacy` возвращает тот же экран.
     """
-    with Server() as s:
-        c = Client(s.url).login()
-        res.ok("без флага — старая неделя с колонками",
-               "class='wcol'" in c.get("/admin/week").body, "не старая")
-
-    s = _server_with_flag()
-    with s:
-        c = Client(s.url).login()
-        monday = clinic_today() + timedelta(days=7 - clinic_today().weekday())
-        page = c.get(f"/admin/week?date={monday.isoformat()}").body
-        res.ok("узел React на месте",
-               '<div id="root" data-screen="schedule_week"' in page
-               and "/static/js/bundle.js?v=" in page, "узла нет")
-        params = json.loads(page.split('data-params="', 1)[1].split('"', 1)[0]
-                            .replace("&quot;", '"'))
-        res.check("дата экрана — параметром узла", params,
-                  {"date": monday.isoformat()})
-        res.ok("старой разметки нет", "class='wcol'" not in page, "две разметки")
-        # ⭐ (06.10, Олег) Неделя — раздел «Programări»: его пункт меню
-        # подсвечен, и страница называется его словом, а не «Panoul principal».
-        shell = json.loads(page.split('data-shell="', 1)[1].split('"', 1)[0]
-                           .replace("&quot;", '"'))
-        res.check("неделя — раздел «Programări»: пункт меню и заголовок",
-                  (shell["nav"]["active"], shell["frame"]["title"]), ("prog", "Programări"))
-
-        res.check("НЕДЕЛЯ БОЛЬШЕ НЕ ЖИВАЯ: ни обёртки, ни метки опроса",
-                  ('id="live"' in page, 'data-reload="12"' in page),
-                  (False, False))
-        # ⚠️ Прежняя формулировка была «status != 200 ИЛИ в теле есть id=root»
-        # и зеленела по ВТОРОМУ дизъюнкту: сервер отвечал опросу 200 с ПОЛНЫМ
-        # документом, `panel.js` вклеивал его внутрь `#live`, сайдбар и шапка
-        # задваивались — каждые 12 секунд, пока открыта вкладка, отрисованная
-        # до включения флага. Проверка это разрешала. Теперь позитив: ответ
-        # ровно один и означает «перерисуйся целиком».
-        poll = c.get(f"/admin/week?date={monday.isoformat()}",
-                     headers={"X-DP-Live": "1"})
-        res.check("ОПРОС от старой вкладки получает 205, а не документ",
-                  (poll.status, poll.body.strip()), (205, ""))
-        res.ok("и несёт версию с запретом кеша — чтобы перезагрузка была честной",
-               poll.header("X-DP-V") != ""
-               and poll.header("Cache-Control") == "no-store",
-               "вкладка перезагрузится в кеш и увидит ту же старую разметку")
-
-        day = c.get("/admin").body
-        res.check("ДЕНЬ при этом остался живым: ключ dash снимать рано",
-                  ('id="live"' in day, 'data-reload="12"' in day), (True, True))
-        res.ok("день по-прежнему старый, без узла React",
-               'id="root"' not in day, "флаг недели задел день")
-
-        res.ok("?ui=legacy возвращает старую неделю",
-               "class='wcol'" in c.get("/admin/week?ui=legacy").body, "нет")
-        res.check("без входа закрыта", Client(s.url).get("/admin/week").status, 303)
+    for ui in ([], ["schedule_week"]):
+        s = Server()
+        _set_ui(s, ui)
+        with s:
+            c = Client(s.url).login()
+            monday = clinic_today() + timedelta(days=7 - clinic_today().weekday())
+            for path in (f"/admin/week?date={monday.isoformat()}",
+                         f"/admin/week?date={monday.isoformat()}&ui=legacy"):
+                page = c.get(path).body
+                where = f"ui.react={ui}, {path.split('?')[1]}"
+                res.ok(f"{where}: узел React на месте",
+                       '<div id="root" data-screen="schedule_week"' in page
+                       and "/static/js/bundle.js?v=" in page, "узла нет")
+                res.check(f"{where}: дата экрана — параметром узла",
+                          _node_params(page), {"date": monday.isoformat()})
+                res.check(f"{where}: старой разметки нет, и неделя НЕ живая",
+                          ("class='wcol'" in page, 'id="live"' in page,
+                           'data-reload="12"' in page), (False, False, False))
+                # ⭐ (06.10, Олег) Неделя — раздел «Programări»: его пункт меню
+                # подсвечен, и страница называется его словом.
+                shell = shell_model(page)
+                res.check(f"{where}: неделя — раздел «Programări»",
+                          (shell["nav"]["active"], shell["frame"]["title"]),
+                          ("prog", "Programări"))
+            res.check("без входа закрыта", Client(s.url).get("/admin/week").status, 303)
 
 
-# --- C25.4: паритет сетки дня ----------------------------------------------
-# ⚠️ Сверяется не «похоже», а поле за полем: колонки, ряды часов, исход каждой
-# ячейки, мишень переноса и поля самого перетаскивания. Расхождение здесь
-# значит, что React-экран покажет не то, что показывает страница, а увидит это
-# клиника — и увидит не сразу.
-
-_TR = re.compile(r"<tr class='(hrow[^']*)'>(.*?)</tr>", re.S)
-_TD = re.compile(r"(<td[^>]*>.*?</td>)", re.S)
-
-
-def _grid_of(body: str) -> dict:
-    """Разобрать таблицу страницы в сравнимый вид."""
-    grid = body.split("<table class='grid'>", 1)[1].split("</table>", 1)[0]
-    heads = re.findall(r"<a class='dh-n'[^>]*>([^<]+)</a>", grid)
-    specs = re.findall(r"<span class='dh-s'>([^<]*)</span>", grid)
-    rows = []
-    for cls, tr in _TR.findall(grid):
-        tds = _TD.findall(tr)
-        hour = re.sub(r"<[^>]+>", " ", tds[0]).split()[0]
-        closed = ("pauza" if "pauză" in tds[0] else
-                  "inchis" if "închis" in tds[0] else "")
-        cells = []
-        for td in tds[1:]:
-            if "class='goff'" in td:
-                kind = "off"
-            elif "appt busy" in td:
-                kind = "busy"
-            elif "data-appt=" in td:
-                kind = "appts"
-            else:
-                kind = "free"
-            cells.append({
-                "kind": kind,
-                "drop": " data-dk=" in td.split(">", 1)[0],
-                "ids": re.findall(r"data-appt='(\d+)'", td),
-                "min": re.findall(r"data-min='(\d+)'", td),
-                "dur": re.findall(r"data-dur='(\d+)'", td),
-                "busy": [bool(x) for x in re.findall(r"(data-busy='1')", td)],
-                "mv": [bool(x) for x in re.findall(r"(data-mv='1')", td)],
-            })
-        rows.append({"hour": hour, "closed": closed, "now": " now" in cls,
-                     "cells": cells})
-    return {"heads": heads, "specs": specs, "rows": rows}
-
-
-def _model_of(j: dict) -> dict:
-    """То же из JSON — теми же именами, чтобы сравнение было прямым."""
-    return {
-        "heads": [x["name"] for x in j["doctors"]],
-        "specs": [x["spec"] for x in j["doctors"]],
-        "rows": [{
-            "hour": h["label"], "closed": h["closed"], "now": h["now"],
-            "cells": [{
-                "kind": c["kind"], "drop": c["drop"],
-                "ids": [str(x["id"]) for x in c["items"]],
-                "min": [str(x["min"]) for x in c["items"]],
-                "dur": [str(x["dur"]) for x in c["items"]],
-                "busy": [True for x in c["items"] if x["busy"]],
-                "mv": [True for x in c["items"] if x["movable"]],
-            } for c in h["cells"]],
-        } for h in j["hours"]],
-    }
+# --- C25: день «Programări» данными -----------------------------------------
 
 
 def _seed_full(c: Client, day: str) -> None:
-    """День, задевающий каждое правило сетки."""
-    c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
-           aservice="consult", aname="Ion Popa", aphone="069170170")
-    c.post("/admin/add", adate=day, atime="10:00", adoctor="d3",
-           aservice="pain", aname="Maria Rusu", aphone="069170171")
-    c.post("/admin/add", adate=day, atime="11:00", adoctor="d2",
-           aservice="long", aname="Vasile Lupu", aphone="069170172")
-    c.post("/admin/add", adate=day, atime="12:30", adoctor="d2",
-           aservice="consult", aname="Ana Gheorghiu", aphone="069170173")
-    c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d2",
-           ntext="Livrare materiale")
-    ids = re.findall(r"data-appt='(\d+)'", c.get(f"/admin/all?date={day}").body)
-    if len(ids) >= 2:
-        c.post(f"/admin/status/{ids[0]}", to="noshow", back=f"/admin/all?date={day}")
-        c.post(f"/admin/status/{ids[1]}", to="cancelled", back=f"/admin/all?date={day}")
+    """День, задевающий каждое правило дня: два врача, длинный визит, неявка,
+    отмена и заметка стойки."""
+    c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00", "doctor": "d2",
+                                              "service": "consult", "name": "Ion Popa",
+                                              "phone": "069170170"})
+    c.post_json("/api/schedule/appointments", {"date": day, "time": "10:00", "doctor": "d3",
+                                              "service": "pain", "name": "Maria Rusu",
+                                              "phone": "069170171"})
+    c.post_json("/api/schedule/appointments", {"date": day, "time": "11:00", "doctor": "d2",
+                                              "service": "long", "name": "Vasile Lupu",
+                                              "phone": "069170172"})
+    c.post_json("/api/schedule/appointments", {"date": day, "time": "12:30", "doctor": "d2",
+                                              "service": "consult", "name": "Ana Gheorghiu",
+                                              "phone": "069170173"})
+    c.post_json("/api/schedule/notes", {"date": day, "time": "15:00", "doctor": "d2",
+                                       "text": "Livrare materiale"})
+    c.post_json(f"/api/schedule/appointments/{appt_id(c, day, 'Ion Popa')}/status",
+                {"to": "noshow"})
+    c.post_json(f"/api/schedule/appointments/{appt_id(c, day, 'Maria Rusu')}/status",
+                {"to": "cancelled"})
+
+
+def _blocks(canvas: dict) -> list:
+    return [b for col in canvas["columns"] for b in col["blocks"]]
 
 
 def suite_day_parity(res: Result) -> None:
-    """JSON сетки дня повторяет страницу поле за полем — на обоих экранах."""
+    """День «Programări»: шапка, врачи, канва — у общего дня и у дня врача."""
     with Server() as s:
         res.check("без входа — 401",
                   Client(s.url).get("/api/schedule/day").status, 401)
         c = Client(s.url).login()
         day = (clinic_today() + timedelta(days=3)).isoformat()
         _seed_full(c, day)
+        m = day_model(c, day)
 
-        page = _grid_of(c.get(f"/admin/all?date={day}").body)
-        model = _model_of(_j(c.get(f"/api/schedule/day?date={day}"))["data"])
-        res.check("колонки: имена совпадают", model["heads"], page["heads"])
-        res.check("колонки: подписи совпадают", model["specs"], page["specs"])
-        # Шапка дня (06.10): React-экран «Programări» показывал голую ISO-дату и
-        # «‹ zi / zi ›» — подпись дня и «« »» старой шапки потерялись при
-        # переезде. Подпись едет моделью, и сборка у неё одна (`day.day_title`).
-        m_nav = re.search(r"<div class='nav'><b>([^<]+)</b>",
-                          c.get(f"/admin/all?date={day}").body)
-        res.check("подпись дня в модели — та же, что у старой шапки",
-                  _j(c.get(f"/api/schedule/day?date={day}"))["data"].get("day_label"),
-                  m_nav.group(1) if m_nav else "<нет шапки>")
+        res.check("врачи дня: активные справочника, с подписью",
+                  [(x["id"], x["name"], x["spec"]) for x in m["doctors"]],
+                  [("d2", "Dr. Activ Doi", "Chirurgie"), ("d3", "Dr. Activ Trei", "Igienă"),
+                   ("d4", "Dr. Activ Patru", "Protetică")])
+        # Шапка дня (06.10): React-экран «Programări» показывал голую ISO-дату —
+        # подпись дня едет моделью, и сборка у неё одна (`day.day_title`).
+        res.check("подпись дня — сокращение дня недели и полная дата",
+                  m["day_label"], _label(day))
         # ⭐ (06.10) «Programări» рисует ТУ ЖЕ канву, что панель: у общего дня
         # канва модели дня обязана совпасть с канвой живого канала панели того
         # же дня — иначе два экрана одного дня снова заговорят разным видом.
-        canvas_day = _j(c.get(f"/api/schedule/day?date={day}"))["data"].get("canvas")
         canvas_panel = _j(c.get(f"/api/schedule/live?screen=panel&date={day}"))["data"]["canvas"]
         res.ok("канва общего дня — та же, что у панели этого дня",
-               canvas_day == canvas_panel,
-               f"колонки {[x['id'] for x in (canvas_day or {}).get('columns', [])]} против "
+               m["canvas"] == canvas_panel,
+               f"колонки {[x['id'] for x in m['canvas'].get('columns', [])]} против "
                f"{[x['id'] for x in canvas_panel.get('columns', [])]}")
         d2_ids = sorted(b["id"] for x in canvas_panel["columns"] if x["id"] == "d2"
                         for b in x["blocks"])
-        one = _j(c.get(f"/api/schedule/day?date={day}&doctor=d2"))["data"]["canvas"]
+        one = day_model(c, day, doctor="d2")["canvas"]
         res.ok("у врача d2 в этом дне есть записи — иначе проверка ниже пустая",
                len(d2_ids) >= 2, f"{d2_ids}")
         res.check("у дня врача в канве — только его колонка, с его записями",
                   ([x["id"] for x in one["columns"]],
                    sorted(b["id"] for b in one["columns"][0]["blocks"]) if one["columns"] else []),
                   (["d2"], d2_ids))
-        res.check("«Sursă» без бота не показывается",
-                  _j(c.get(f"/api/schedule/day?date={day}"))["data"].get("source_col"), False)
-        res.check("ряды часов: те же метки и в том же порядке",
-                  [r["hour"] for r in model["rows"]], [r["hour"] for r in page["rows"]])
-        res.check("закрытые часы названы одинаково",
-                  [r["closed"] for r in model["rows"]],
-                  [r["closed"] for r in page["rows"]])
-        res.check("подсветка текущего часа совпадает",
-                  [r["now"] for r in model["rows"]], [r["now"] for r in page["rows"]])
-        res.check("исход каждой ячейки совпадает",
-                  [[c_["kind"] for c_ in r["cells"]] for r in model["rows"]],
-                  [[c_["kind"] for c_ in r["cells"]] for r in page["rows"]])
-        res.check("мишень переноса стоит там же",
-                  [[c_["drop"] for c_ in r["cells"]] for r in model["rows"]],
-                  [[c_["drop"] for c_ in r["cells"]] for r in page["rows"]])
-        res.check("записи лежат в тех же ячейках и в том же порядке",
-                  [[c_["ids"] for c_ in r["cells"]] for r in model["rows"]],
-                  [[c_["ids"] for c_ in r["cells"]] for r in page["rows"]])
-        res.check("поля перетаскивания совпадают: минуты, длительность, занятость",
-                  [[(c_["min"], c_["dur"], c_["busy"], c_["mv"]) for c_ in r["cells"]]
-                   for r in model["rows"]],
-                  [[(c_["min"], c_["dur"], c_["busy"], c_["mv"]) for c_ in r["cells"]]
-                   for r in page["rows"]])
+        res.check("«Sursă» без бота не показывается", m["source_col"], False)
 
-        # содержимое карточки — то же, что печатает страница
-        j = _j(c.get(f"/api/schedule/day?date={day}"))["data"]
-        items = [x for h in j["hours"] for cl in h["cells"] for x in cl["items"]]
-        body = c.get(f"/admin/all?date={day}").body
-        appt = next(x for x in items if x["kind"] == "appt" and x["status"] == "noshow")
-        res.ok("неявка помечена и статусом, и цветом",
-               appt["bg"] == "var(--red-soft)" and "s-noshow" in body,
-               "неявка в модели и на странице разошлись")
-        note = next(x for x in items if x["kind"] == "note")
+        blocks = _blocks(m["canvas"])
+        noshow = next(b for b in blocks if b.get("status") == "noshow")
+        res.check("неявка на канве — своим словом и красным",
+                  (noshow["name"], noshow["status_label"], noshow["bg"]),
+                  ("Ion Popa", "nu a venit", "var(--red-soft)"))
+        note = next(b for b in blocks if b["kind"] == "note")
         res.check("заметка стойки — своим видом и текстом",
                   (note["kind"], note["text"]), ("note", "Livrare materiale"))
-        res.ok("отменённая запись не попала ни в модель, ни в сетку",
-               all(x["kind"] != "appt" or x["status"] != "cancelled" for x in items),
-               "отменённая запись видна в сетке")
+        res.check("отменённая запись не на канве, но в «Lista zilei» и в карточках",
+                  ("Maria Rusu" in [b.get("name") for b in blocks],
+                   [r["status"] for r in m["list"] if r["name"] == "Maria Rusu"],
+                   str(appt_id(c, day, "Maria Rusu")) in m["cards"]),
+                  (False, ["cancelled"], True))
 
         # --- день врача: тот же построитель, другие данные ---
-        page1 = _grid_of(c.get(f"/admin/doctor/d2?date={day}").body)
-        model1 = _model_of(_j(c.get(f"/api/schedule/day?date={day}&doctor=d2"))["data"])
-        res.check("день врача: одна колонка и та же",
-                  (model1["heads"], page1["heads"]),
-                  (["Dr. Activ Doi"], ["Dr. Activ Doi"]))
-        res.check("день врача: ряды и ячейки совпадают",
-                  [[c_["kind"] for c_ in r["cells"]] for r in model1["rows"]],
-                  [[c_["kind"] for c_ in r["cells"]] for r in page1["rows"]])
-        res.check("день врача: записи те же",
-                  [[c_["ids"] for c_ in r["cells"]] for r in model1["rows"]],
-                  [[c_["ids"] for c_ in r["cells"]] for r in page1["rows"]])
+        one_m = day_model(c, day, doctor="d2")
+        res.check("день врача: один врач, и в его списке только его записи",
+                  ([x["id"] for x in one_m["doctors"]],
+                   sorted({r["doctor"] for r in one_m["list"]})),
+                  (["d2"], ["Dr. Activ Doi"]))
         res.check("чужой врач — 404, а не пустая сетка",
                   c.get("/api/schedule/day?doctor=d999").status, 404)
 
@@ -379,113 +276,78 @@ def suite_day_source(res: Result) -> None:
 
 
 def suite_day_orphan(res: Result) -> None:
-    """Легаси-строка без `doctor_id` стоит в одной и той же колонке у обоих.
+    """Легаси-строка без `doctor_id` (имя — живого врача) на дне ЭТОГО врача.
 
-    ⚠️ Такую строку не создать через интерфейс: `/admin/add` всегда пишет
+    ⚠️ Такую строку не создать через интерфейс: запись всегда пишет
     `doctor_id`. Поэтому она делается прямо в базе песочницы — это ровно то,
-    что лежит у клиник, обновившихся с версий до v1.7.1, и единственный
-    способ проверить вторую половину правила «id, иначе снимок имени».
+    что лежит у клиник, обновившихся с версий до v1.7.1.
+    ⭐ День врача находит её по снимку имени (`routes._of_doctor`) и ставит
+    СВОЕЙ колонкой-сиротой рядом с колонкой врача (06.10, канва): в колонку
+    врача она не сливается, переносить её неоткуда — путь у неё один, relink.
     """
     import sqlite3
     with Server() as s:
         c = Client(s.url).login()
         day = (clinic_today() + timedelta(days=4)).isoformat()
-        c.post("/admin/add", adate=day, atime="09:00", adoctor="d2",
-               aservice="consult", aname="Legacy Pacient", aphone="069180180")
-        c.post("/admin/add", adate=day, atime="10:00", adoctor="d3",
-               aservice="consult", aname="Nou Pacient", aphone="069180181")
-        ids = re.findall(r"data-appt='(\d+)'", c.get(f"/admin/all?date={day}").body)
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "09:00",
+                                                  "doctor": "d2", "service": "consult",
+                                                  "name": "Legacy Pacient", "phone": "069180180"})
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "10:00",
+                                                  "doctor": "d3", "service": "consult",
+                                                  "name": "Nou Pacient", "phone": "069180181"})
+        legacy = appt_id(c, day, "Legacy Pacient")
         con = sqlite3.connect(s.dir / "dental.db")
-        con.execute("UPDATE appointments SET doctor_id = NULL WHERE id = ?", (ids[0],))
+        con.execute("UPDATE appointments SET doctor_id = NULL WHERE id = ?", (legacy,))
         con.commit()
         con.close()
 
-        page = _grid_of(c.get(f"/admin/all?date={day}").body)
-        model = _model_of(_j(c.get(f"/api/schedule/day?date={day}"))["data"])
-        res.check("легаси-запись стоит в той же ячейке, что на странице",
-                  [[c_["ids"] for c_ in r["cells"]] for r in model["rows"]],
-                  [[c_["ids"] for c_ in r["cells"]] for r in page["rows"]])
-        res.ok("и она вообще видна", any(ids[0] in c_["ids"] for r in model["rows"]
-                                         for c_ in r["cells"]),
-               "запись без doctor_id исчезла из модели")
-        res.ok("и не задвоилась у соседнего врача",
-               sum(1 for r in model["rows"] for c_ in r["cells"] if ids[0] in c_["ids"]) == 1,
-               "запись показана дважды")
-        # ⚠️ Запись-сирота ЛЕЖИТ В КОЛОНКЕ НАСТОЯЩЕГО врача (её нашли по снимку
-        # имени), поэтому тащить её можно: адрес переноса — id колонки, и он
-        # есть. Колонка-сирота, у которой своего id нет вовсе, бывает на канве
-        # дня — это уже C26, и правило про «переносить оттуда некуда» живёт там.
-        cell = next(c_ for r in model["rows"] for c_ in r["cells"] if ids[0] in c_["ids"])
-        res.check("из колонки настоящего врача запись-сироту перенести можно",
-                  cell["mv"], [True])
-
-
-def _server_day_flag() -> Server:
-    s = Server()
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["schedule_all", "schedule_doctor"]}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
+        one = day_model(c, day, doctor="d2")
+        cols = [(x["id"], x["name"], [b["id"] for b in x["blocks"]])
+                for x in one["canvas"]["columns"]]
+        res.check("день врача: его колонка и рядом сирота с легаси-записью",
+                  cols, [("d2", "Dr. Activ Doi", []), (None, "Dr. Activ Doi", [legacy])])
+        res.check("и в «Lista zilei» врача она есть",
+                  [r["id"] for r in one["list"]], [legacy])
+        everyone = _blocks(day_model(c, day)["canvas"])
+        res.check("на общем дне — ровно один раз, не задвоилась",
+                  sum(1 for b in everyone if b["id"] == legacy), 1)
+        res.check("из колонки-сироты переносить неоткуда — адреса у неё нет",
+                  [b["movable"] for b in _blocks(one["canvas"]) if b["id"] == legacy],
+                  [False])
 
 
 def suite_day_switch(res: Result) -> None:
-    """Флаги дневных экранов: узел React вместо таблицы, живой опрос снят у
-    обоих, а панель дня (`/admin`, ключ `dash`) остаётся живой.
+    """Дневные экраны — React при любом профиле, без живого опроса.
 
-    ⚠️ Оба экрана сидят на ключе `prog`. После этого коммита живых страниц у
-    ключа не остаётся — но снимать его нельзя до C26/C27: панель дня опрашивает
-    свой ключ, и правило «узел React не внутри #live» держится телом страницы,
-    а не именем ключа.
+    ⚠️ С 13.10 старой таблицы нет: `?ui=legacy` и `ui.react: []` отдают тот
+    же экран. Живой у журнала только канал панели (`/api/schedule/live`).
     """
-    with Server() as s:
-        c = Client(s.url).login()
-        res.ok("без флага — старая таблица",
-               "<table class='grid'>" in c.get("/admin/all").body, "не старая")
-
-    s = _server_day_flag()
-    with s:
-        c = Client(s.url).login()
-        day = (clinic_today() + timedelta(days=2)).isoformat()
-        page = c.get(f"/admin/all?date={day}").body
-        res.ok("узел React на «Toți medicii»",
-               '<div id="root" data-screen="schedule_all"' in page, "узла нет")
-        res.check("дата — параметром узла",
-                  json.loads(page.split('data-params="', 1)[1].split('"', 1)[0]
-                             .replace("&quot;", '"')), {"date": day})
-        res.check("«Toți medicii» больше не живая",
-                  ('id="live"' in page, 'data-reload="12"' in page), (False, False))
-        res.ok("старой таблицы нет", "<table class='grid'>" not in page, "две разметки")
-
-        doc = c.get(f"/admin/doctor/d2?date={day}").body
-        res.ok("узел React на дне врача",
-               '<div id="root" data-screen="schedule_doctor"' in doc, "узла нет")
-        res.check("врач и дата — параметрами узла",
-                  json.loads(doc.split('data-params="', 1)[1].split('"', 1)[0]
-                             .replace("&quot;", '"')), {"date": day, "dk": "d2"})
-        res.check("день врача больше не живой",
-                  ('id="live"' in doc, 'data-reload="12"' in doc), (False, False))
-
-        # ⛔ Вкладка, открытая ДО включения флага, продолжает опрашивать по
-        # старому договору — и узнать «я больше не живая» ей неоткуда: признак
-        # стоит на <body>, снаружи подменяемого куска. Ответ 205 — её
-        # единственный путь к перерисовке. Обоим дневным адресам, а не одному:
-        # флаг включают на каждый экран отдельно.
-        for path in (f"/admin/all?date={day}", f"/admin/doctor/d2?date={day}"):
-            poll = c.get(path, headers={"X-DP-Live": "1"})
-            res.check(f"опрос старой вкладки на {path.split('?')[0]} → 205",
-                      (poll.status, poll.body.strip()), (205, ""))
-
-        panel = c.get("/admin").body
-        res.check("ПАНЕЛЬ ДНЯ осталась живой и старой",
-                  ('id="live"' in panel, 'data-reload="12"' in panel,
-                   'id="root"' in panel), (True, True, False))
-
-        res.ok("?ui=legacy возвращает старую таблицу",
-               "<table class='grid'>" in c.get(f"/admin/all?date={day}&ui=legacy").body,
-               "нет")
-        res.check("чужой врач при флаге — на журнал",
-                  c.get("/admin/doctor/d999").status, 307)
-        res.check("без входа закрыта", Client(s.url).get("/admin/all").status, 303)
+    for ui in ([], ["schedule_all", "schedule_doctor"]):
+        s = Server()
+        _set_ui(s, ui)
+        with s:
+            c = Client(s.url).login()
+            day = (clinic_today() + timedelta(days=2)).isoformat()
+            for path, screen, params in (
+                    (f"/admin/all?date={day}", "schedule_all", {"date": day}),
+                    (f"/admin/all?date={day}&ui=legacy", "schedule_all", {"date": day}),
+                    (f"/admin/doctor/d2?date={day}", "schedule_doctor",
+                     {"date": day, "dk": "d2"})):
+                page = c.get(path).body
+                where = f"ui.react={ui}, {path}"
+                res.ok(f"{where}: узел React",
+                       f'<div id="root" data-screen="{screen}"' in page, "узла нет")
+                res.check(f"{where}: параметры узла", _node_params(page), params)
+                res.check(f"{where}: старой таблицы нет, и экран НЕ живой",
+                          ("<table class='grid'>" in page, 'id="live"' in page,
+                           'data-reload="12"' in page), (False, False, False))
+            res.check("отбор «Lista zilei» — параметром узла, только известный",
+                      (_node_params(c.get(f"/admin/all?date={day}&f=urg").body).get("f"),
+                       "f" in _node_params(c.get(f"/admin/all?date={day}&f=nope").body)),
+                      ("urg", False))
+            res.check("чужой врач в адресе — на журнал",
+                      c.get("/admin/doctor/d999").status, 307)
+            res.check("без входа закрыта", Client(s.url).get("/admin/all").status, 303)
 
 
 # ------------------------------------------- живой канал ДАННЫМИ (C27.1)
@@ -495,11 +357,10 @@ def suite_live_envelope(res: Result) -> None:
     """Конверт живого канала: `GET /api/schedule/live`.
 
     ⛔ Главное свойство живого журнала — сервер умеет сказать «не менялось».
-    У старого канала это держалось ПОСТРОЕНИЕМ: `data-hash` обёртки и
-    `X-DP-Hash` фрагмента считались от одной строки разметки, и второго рендера
-    «для опроса» не было. Здесь проверяется то же самое, но про ДАННЫЕ, и
-    именно про данные, а не про отпечаток HTML: отпечаток обязан считаться ОТ
-    ТОГО ЖЕ, что уехало клиенту.
+    У старого канала (опрос страницы, снят 13.10) это держалось ПОСТРОЕНИЕМ:
+    `data-hash` обёртки и `X-DP-Hash` фрагмента считались от одной строки
+    разметки. Здесь проверяется то же самое про ДАННЫЕ: отпечаток обязан
+    считаться ОТ ТОГО ЖЕ, что уехало клиенту.
 
     ⚠️ День собран из всего, обо что отпечаток спотыкается: пациент в приёмной
     (минуты ждать браузеру), визит «сейчас» (подсветка часа), и НИЧЬЯ в
@@ -512,25 +373,20 @@ def suite_live_envelope(res: Result) -> None:
     это усиление, а не потеря: `live` теперь ИМЯ ТОГО ЖЕ ФАКТА, что и состав
     конверта, а состав есть у всякого экрана, который вообще числится в
     `_LIVE_SCREENS`. Обе полярности исполняет чистая функция `live_envelope`
-    (`test_api.suite_live_react`), и исполняет в КАЖДОМ прогоне, а не только
-    когда у кого-то включён флаг. Чем ветка была раньше — «канал увидел флаг
-    React и отнял состояние у того самого клиента, ради которого делался», —
-    разобрано в `suite_dash_flag`.
+    (`test_api.suite_live_react`).
     """
     with Server() as s:
         c = Client(s.url).login()
         day = clinic_today().isoformat()
         for i, (hh, nm) in enumerate((("09:00", "Live Unu"), ("10:00", "Live Doi"),
                                       ("11:00", "Live Trei"))):
-            c.post("/admin/add", adate=day, atime=hh, adoctor="d2",
-                   aservice="consult", aname=nm, aphone=f"06980010{i}")
-        ids = {m.group(2): m.group(1) for m in re.finditer(
-            r"<tr class='[a-z]+'><td>(\d+)</td>.*?(Live \w+)",
-            c.get(f"/admin/all?date={day}").body, re.S)}
-        assert {"Live Unu", "Live Doi", "Live Trei"} <= set(ids), sorted(ids)
-        c.post(f"/admin/status/{ids['Live Unu']}", to="waiting", back="/admin")
+            c.post_json("/api/schedule/appointments", {"date": day, "time": hh, "doctor": "d2",
+                                                      "service": "consult", "name": nm,
+                                                      "phone": f"06980010{i}"})
+        ids = {nm: appt_id(c, day, nm) for nm in ("Live Unu", "Live Doi", "Live Trei")}
+        c.post_json(f"/api/schedule/appointments/{ids['Live Unu']}/status", {"to": "waiting"})
         for nm in ("Live Doi", "Live Trei"):
-            c.post(f"/admin/status/{ids[nm]}", to="done", back="/admin")
+            c.post_json(f"/api/schedule/appointments/{ids[nm]}/status", {"to": "done"})
         import sqlite3 as _sq
         con = _sq.connect(s.dir / "dental.db")
         con.execute("UPDATE appointments SET starts_at = (SELECT starts_at FROM"
@@ -550,6 +406,11 @@ def suite_live_envelope(res: Result) -> None:
 
         # --- 1. детерминизм: ДАННЫЕ, а не разметка ---
         b = c.get(url)
+        if a.body != b.body:
+            # ⚠️ Могли пересечь границу часа между запросами: подсветка
+            # текущего часа дискретна и меняться ВПРАВЕ раз в час. Второй шанс
+            # отличает редкий переход от настоящего недетерминизма.
+            a, b = c.get(url), c.get(url)
         res.check("два запроса при неизменном дне дают ОДНИ И ТЕ ЖЕ данные",
                   (a.body == b.body,
                    a.header("X-DP-Hash") == b.header("X-DP-Hash")),
@@ -577,10 +438,17 @@ def suite_live_envelope(res: Result) -> None:
                and same.header("Cache-Control") == "no-store",
                "без X-DP-V клиент не узнает об обновлении exe, без no-store "
                "WebView2 вправе отдать вчерашний ответ")
+        # ⛔ Заголовка поверхности больше нет (13.10): старой панели нет, и
+        # спрашивать «кто рисует экран» некому. Вернись он со значением
+        # «legacy» у профиля `ui.react: []` — React-панель перезагружалась бы
+        # по кругу (`nextLive` › reload).
+        res.check("заголовка поверхности нет ни на 200, ни на 204",
+                  (a.header("X-DP-Surface"), same.header("X-DP-Surface")), ("", ""))
 
         # --- 4. изменение двигает ИМЕННО относящееся ---
-        c.post("/admin/add", adate=day, atime="14:00", adoctor="d3",
-               aservice="consult", aname="Live Nou", aphone="069800199")
+        c.post_json("/api/schedule/appointments", {"date": day, "time": "14:00",
+                                                  "doctor": "d3", "service": "consult",
+                                                  "name": "Live Nou", "phone": "069800199"})
         after = c.get(url, headers={"X-DP-Hash": a.header("X-DP-Hash")})
         blocks = lambda r: [x["id"] for col in _j(r)["data"]["canvas"]["columns"]  # noqa: E731
                             for x in col["blocks"]]
@@ -602,7 +470,7 @@ def suite_live_envelope(res: Result) -> None:
         # ⚠️ Граница показа у комментария 60 знаков, у заметки 80. Тексты
         # длиннее границы и совпадают ДО неё: иначе проверка сравнивала бы не
         # то и зеленела бы по неверной причине.
-        aid = int(ids["Live Unu"])
+        aid = ids["Live Unu"]
         head = "Alergie la penicilina, de sunat inainte, vine cu mama, X"  # 56
         cmt_a = head + "AAAA" + "1" * 60
         cmt_b = head + "AAAA" + "2" * 60      # совпадает первые 60, дальше нет
@@ -635,8 +503,8 @@ def suite_live_envelope(res: Result) -> None:
         note_txt = "Sedinta de dimineata cu tot personalul clinicii, sala mare" \
                    " si proiectorul nou, " + "9" * 60
         assert len(note_txt) > 80
-        c.post("/admin/note", ndate=day, ntime="15:00", ndoctor="d3",
-               ntext=note_txt, back="/admin")
+        c.post_json("/api/schedule/notes", {"date": day, "time": "15:00", "doctor": "d3",
+                                           "text": note_txt})
         nb = next(b for col in _j(c.get(url))["data"]["canvas"]["columns"]
                   for b in col["blocks"] if b.get("kind") == "note")
         # ⚠️ 120 — потолок САМОЙ заметки (`_add_note`), а не показа: полным
@@ -646,7 +514,7 @@ def suite_live_envelope(res: Result) -> None:
                   (nb["text"], len(nb["title"]), len(nb["label"])),
                   (note_txt[:120], 80, 40))
 
-        # --- 4b. то, чем живут диалоги, и чего в конверте не было (C26.5.3-a) ---
+        # --- 4b. то, чем живут диалоги (C26.5.3-a) ---
         env = _j(c.get(url))["data"]
         res.check("диалог собирается из КОНВЕРТА: кнопки, концы заметки, форма",
                   (sorted(env["actions"]), "cancelled" in env["note_actions"],
@@ -659,8 +527,7 @@ def suite_live_envelope(res: Result) -> None:
         res.check("потолок даты рождения — сегодня КЛИНИКИ, а не машины",
                   env["slotform"]["birth_max"], clinic_today().isoformat())
         # --- 4c. заметка: состояние в блоке, и им ИНДЕКСИРУЕТСЯ матрица (d) ---
-        # ⛔ `note_actions` лежал в конверте с шага `a`, но спросить его было
-        # нечем: блок заметки состояния не нёс. Клиенту пришлось бы считать её
+        # ⛔ Без состояния в блоке клиенту пришлось бы считать заметку
         # «confirmed» по умолчанию — то есть завести в браузере ВТОРОЕ знание о
         # состоянии, а эта пара расходилась молча уже дважды (08-12, 08-16).
         # ⚠️ Матрица знает ДВА состояния из шести: у заметки нет прихода и
@@ -705,9 +572,8 @@ def suite_live_envelope(res: Result) -> None:
         # Этот сторож возможен ТОЛЬКО потому, что карточка не поехала в
         # конверт отдельной структурой: `_collect_cards` несёт отменённые, а
         # на панели их негде нажать — и правка у невидимой записи гнала бы
-        # перерисовку, в которой на экране не меняется ничего. Проверка
-        # доказывает, что решение осталось в силе.
-        c.post(f"/admin/status/{aid}", to="cancelled", back="/admin")
+        # перерисовку, в которой на экране не меняется ничего.
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "cancelled"})
         gone = c.get(url)
         res.ok("отменённая запись ушла с канвы",
                not any(b.get("id") == aid
@@ -731,7 +597,7 @@ def suite_live_envelope(res: Result) -> None:
         res.check("экран и дата возвращаются эхом",
                   (_j(a)["data"]["screen"], _j(a)["data"]["date"]), ("panel", day))
         bad = c.get("/api/schedule/live?date=31-31-31")
-        res.check("кривая дата молча открывает сегодняшний день — как у страницы",
+        res.check("кривая дата молча открывает сегодняшний день",
                   (bad.status, _j(bad)["data"]["date"]), (200, clinic_today().isoformat()))
         res.check("неизвестный экран отбивается с полем, а не молча пустотой",
                   (c.get("/api/schedule/live?screen=nope").status,
@@ -748,257 +614,96 @@ def suite_live_envelope(res: Result) -> None:
         before = clinic_today().isoformat()
         bare = _j(c.get("/api/schedule/live?screen=panel"))["data"]
         after = clinic_today().isoformat()
-
-        def old_label(on: str) -> str | None:
-            """Подпись старой шапки того же дня: сборка одна (`day.day_title`)."""
-            m_nav = re.search(r"<div class='nav'><b>([^<]+)</b>",
-                              c.get(f"/admin?date={on}").body)
-            return m_nav.group(1) if m_nav else None
-
-        res.check("без даты — сегодняшний день клиники и подпись ЭТОГО дня, как у старой шапки",
-                  (bare["date"] in (before, after), bare["day_label"] == old_label(bare["date"])),
+        res.check("без даты — сегодняшний день клиники и подпись ЭТОГО дня",
+                  (bare["date"] in (before, after), bare["day_label"] == _label(bare["date"])),
                   (True, True))
         # ⛔ И подпись идёт за ЭХОМ, а не за часами: собери её от `now` — и
         # оба «сегодняшних» случая выше зеленели бы, а панель любого другого
         # дня называла бы себя сегодняшним.
         other = (clinic_today() + timedelta(days=9)).isoformat()
         far = _j(c.get(f"/api/schedule/live?date={other}"))["data"]
-        res.check("подпись другого дня — его собственная, та же, что у старой шапки",
-                  (far["date"], far["day_label"] == old_label(other),
-                   far["day_label"] != bare["day_label"]),
-                  (other, True, True))
+        res.check("подпись другого дня — его собственная",
+                  (far["date"], far["day_label"], far["day_label"] != bare["day_label"]),
+                  (other, _label(other), True))
 
 
 def suite_dash_flag(res: Result) -> None:
-    """Флаг панели: что происходит с живым каналом и со старой вкладкой (C26.5.1).
+    """Панель дня — React при любом профиле; канал не спрашивает, кто рисует.
 
-    ⛔ Имя `schedule_dash` заведено РАНЬШЕ самого экрана, и это осознанный
-    риск: пока флаг включён, панель отдаёт пустой узел. Взамен ветка «этот
-    экран больше не живой» перестаёт быть непроверяемой — а отвечает она
-    вкладке, которую регистратура открыла ДО того, как директор включил флаг.
-
-    ⛔ Безопасность доказывается не словами «флаг выключен», а проверкой: при
-    ВЫКЛЮЧЕННОМ флаге ни страница, ни канал не меняются ни в чём.
-
-    ⭐ C26.5.2 развернул здесь главное: канал ДАННЫХ перестал спрашивать, кто
-    рисует экран. Раньше он отвечал `live:false` и пустотой, увидев флаг, —
-    ответ, у которого не было ни одного потребителя (старая вкладка
-    опрашивает адрес СТРАНИЦЫ и получает 205), зато будущая React-панель
-    оставалась без единственного источника данных. Теперь состояние одно и то
-    же при любом флаге, поверхность едет заголовком `X-DP-Surface`, и обе
-    половины отката проверяются здесь: 205 старой вкладке на включение флага и
-    «здесь теперь legacy» React-вкладке на выключение.
+    ⭐ До 13.10 здесь проверялись обе половины отката (C26.5.1–2): 205 старой
+    вкладке на включение флага и заголовок `X-DP-Surface` React-вкладке на
+    выключение. Старой панели больше нет, и откатывать некуда: панель — React
+    при любом `ui.react`, а заголовка поверхности нет вовсе. ⛔ Это НЕ
+    послабление: с заголовком «legacy» у профиля `ui.react: []` React-панель
+    перезагружалась бы по кругу, поэтому его отсутствие и проверяется.
     """
     day = clinic_today().isoformat()
+    keys = ["actions", "agenda", "canvas", "day_label", "day_long", "desk",
+            "minical", "note_actions", "note_ends", "occupancy", "slotform"]
+    for ui in ([], ["schedule_dash"]):
+        s = Server()
+        _set_ui(s, ui)
+        with s:
+            c = Client(s.url).login()
+            page = c.get(f"/admin?date={day}").body
+            res.check(f"ui.react={ui}: узел React, и панель НЕ живая страницей",
+                      ('<div id="root" data-screen="schedule_dash"' in page,
+                       'id="live"' in page, 'data-reload="12"' in page),
+                      (True, False, False))
+            res.check(f"ui.react={ui}: ?ui=legacy отдаёт тот же экран",
+                      '<div id="root" data-screen="schedule_dash"'
+                      in c.get(f"/admin?date={day}&ui=legacy").body, True)
+            # ⛔ Дня в узле НЕТ — ни даты, ни подписи (24.09, решение Олега).
+            # Узел описывает ДОКУМЕНТ, то есть момент загрузки, и день из него
+            # застывал: вкладка, оставленная на ночь, утром показывала вчера.
+            # Экран берёт день из адреса, шапку — из эха канала.
+            res.check(f"ui.react={ui}: в узле панели нет дня — ни даты, ни подписи",
+                      ("date" in _node_params(page), "day_label" in _node_params(page)),
+                      (False, False))
+            r = c.get(f"/api/schedule/live?date={day}")
+            live = _j(r)["data"]
+            res.check(f"ui.react={ui}: канал везёт состояние ЦЕЛИКОМ",
+                      (live["live"], live["screen"], live["date"],
+                       sorted(k for k in live if k not in ("screen", "date", "live"))),
+                      (True, "panel", day, keys))
+            res.check(f"ui.react={ui}: и не называет поверхность",
+                      r.header("X-DP-Surface"), "")
+            # ⛔ А `?msg=` — НЕ параметром узла (C26.5.2): баннер едет моделью
+            # оболочки и виден при ПЕРВОЙ отрисовке, первого ответа канала не
+            # ждёт. На `/admin` приземляется отказ в правах со всей программы.
+            deny = c.get("/admin?msg=no_access").body
+            res.check(f"ui.react={ui}: отказ в правах виден СРАЗУ, его печатает сервер",
+                      ("rezervată directorului" in shell_model(deny)["frame"]["msg"],
+                       "msg" in _node_params(deny)),
+                      (True, False))
+    # Загрузка кресел — подзаголовок панели: одно число, без тренда к вчера
+    # (тренд и мини-график жили на плитках «Azi», снятых со старой панелью).
     with Server() as s:
         c = Client(s.url).login()
-        page = c.get(f"/admin?date={day}").body
-        r_off = c.get(f"/api/schedule/live?date={day}")
-        data = _j(r_off)["data"]
-        if not res.check("ЯКОРЬ: с выключенным флагом всё по-прежнему",
-                         ('id="live"' in page, 'data-reload="12"' in page,
-                          'id="root"' in page, data["live"],
-                          sorted(k for k in data if k not in ("screen", "date", "live"))),
-                         (True, True, False, True,
-                          ["actions", "agenda", "canvas", "day_label", "day_long", "desk",
-                           "minical", "note_actions", "note_ends", "occupancy", "slotform",
-                           "tiles"])):
-            return
-        # ⭐ Вторая половина отката (C26.5.2). Вкладка, открытая React-ом,
-        # узнаёт о ВЫКЛЮЧЕНИИ флага единственным способом, который у неё есть:
-        # канал говорит, что по этому адресу теперь живёт другая поверхность.
-        # Прямая половина — 205 старой вкладке на ВКЛЮЧЕНИЕ флага — ниже.
-        res.check("с выключенным флагом канал называет поверхность «legacy»",
-                  r_off.header("X-DP-Surface"), "legacy")
-        # день в обоих профилях пустой и одинаковый — сравнение ниже про то,
-        # что от ФЛАГА состояние не зависит, а не про содержимое дня
-        body_off, hash_off = r_off.body, r_off.header("X-DP-Hash")
-        # ⚠️ Час снимаем ЗДЕСЬ: сравнение ниже идёт уже на ДРУГОМ сервере,
-        # а между ними — подъём второго процесса. Текущий час лежит в теле
-        # конверта законно (canvas: "now": h == nh), поэтому смена часа
-        # между снимками меняет тело на исправном коде (D0b, 20.09).
-        hour_off = datetime.now(TZ).hour
-
-    s2 = Server()
-    cfg = json.loads(s2.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["schedule_dash"]}
-    s2.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    with s2:
-        c2 = Client(s2.url).login()
-        page2 = c2.get(f"/admin?date={day}").body
-        res.check("с флагом — узел React, и панель БОЛЬШЕ НЕ ЖИВАЯ",
-                  ('<div id="root" data-screen="schedule_dash"' in page2,
-                   'id="live"' in page2, 'data-reload="12"' in page2),
-                  (True, False, False))
-        # ⛔ Дня в узле НЕТ — ни даты, ни подписи (24.09, решение Олега). Узел
-        # описывает ДОКУМЕНТ, то есть момент загрузки, и день из него застывал:
-        # вкладка, оставленная на ночь, утром опрашивала и показывала вчера,
-        # хотя старая панель на том же адресе переходила на новый день сама.
-        # Экран берёт день из адреса, шапку — из эха канала. Проверяется
-        # ОТСУТСТВИЕ, а не «клиент не читает»: оставленный параметр — готовое
-        # приглашение прочесть застывший день снова.
-        m_node = re.search(r'<div id="root" data-screen="schedule_dash"[^>]*?'
-                           r'data-params="([^"]*)"', page2)
-        params = (json.loads(m_node.group(1).replace("&quot;", '"'))
-                  if m_node else {})
-        res.check("в узле панели нет дня — ни даты, ни подписи",
-                  ("date" in params, "day_label" in params), (False, False))
-        # ⛔ А `?msg=` — НЕ параметром узла (переписано в C26.5.2). Прежняя
-        # проверка сверяла `data-params["msg"]` и была зелена по неверной
-        # причине: сервер параметр честно клал, а читать его в клиенте было
-        # некому — отказ в правах оставался молчаливым переходом на панель.
-        # Теперь баннер печатает СЕРВЕР снаружи узла, и виден он при ПЕРВОЙ
-        # отрисовке.
-        deny = c2.get("/admin?msg=no_access").body
-        res.check("отказ в правах виден СРАЗУ, и его печатает сервер",
-                  ("rezervată directorului" in deny, '"msg"' in deny,
-                   '<div id="root" data-screen="schedule_dash"' in deny),
-                  (True, False, True))
-        # --- канал НЕ СПРАШИВАЕТ, кто рисует экран (C26.5.2) ---
-        # ⛔ До 19.09 он отвечал здесь `live:false` и пустотой — то есть
-        # отнимал состояние ровно у того клиента, ради которого делался, а
-        # старая вкладка этого ответа не видела никогда (она опрашивает адрес
-        # СТРАНИЦЫ и получает 205 ниже). Теперь состояние одно и то же при
-        # любом флаге, а поверхность едет заголовком.
-        r_on = c2.get(f"/api/schedule/live?date={day}")
-        live = _j(r_on)["data"]
-        res.check("с включённым флагом канал везёт состояние ЦЕЛИКОМ",
-                  (live["live"], live["screen"], live["date"],
-                   sorted(k for k in live if k not in ("screen", "date", "live"))),
-                  (True, "panel", day,
-                   ["actions", "agenda", "canvas", "day_label", "day_long", "desk", "minical",
-                    "note_actions", "note_ends", "occupancy", "slotform", "tiles"]))
-        # ⭐ B1: шапку дня печатает ЭКРАН, а не сервер. Проверяется ПАРОЙ —
-        # ссылки на неделю в серверном HTML больше нет, а подпись дня, без
-        # которой экран шапку не нарисует, едет КАНАЛОМ рядом с эхом даты
-        # (24.09) — и это та же подпись, что печатает старая шапка этого дня:
-        # сборка одна (`day.day_title`). Одной половины мало: «сервер не печатает»
-        # само по себе зеленело бы и на экране, потерявшем шапку совсем.
-        # ⚠️ Цена названа: подпись больше не в первом кадре, она приходит с
-        # панелью первым ответом канала. Прежний довод «из канала шапка мигала
-        # бы на каждом переходе по дате» относился к шапке, нарисованной
-        # РАНЬШЕ данных; экран рисует её вместе с ними.
-        # ⛔ Поля выбора даты в шапке нет с 24.09: день выбирают в
-        # мини-календаре правой колонки, а третья запись даты съедала ширину,
-        # из-за которой шапка не вставала в ряд с заголовком на 1366.
-        old_nav = re.search(r"<div class='nav'><b>([^<]+)</b>",
-                            c2.get(f"/admin?date={day}&ui=legacy").body)
-        res.check("шапка дня уехала к экрану, подпись едет каналом — та же, что у старой",
-                  (f"/admin/week?date={day}" in page2,
-                   live["day_label"].endswith("." + day[:4]),
-                   live["day_label"] == (old_nav.group(1) if old_nav else None),
-                   "class='dpickf'" in page2),
-                  (False, True, True, False))
-        res.check("а поверхность отвечает ЗАГОЛОВКОМ, и это «react»",
-                  r_on.header("X-DP-Surface"), "react")
-        # ⛔ Отпечаток от флага не зависит. Течь поверхности в `data` — это
-        # перерисовка панели за чужое действие: директор включил флаг на
-        # соседнем рабочем месте, и день, в котором не изменилось ничего,
-        # приехал бы как изменившийся.
-        r_leg = c2.get(f"/api/schedule/live?date={day}&ui=legacy")
-        res.check("?ui=legacy НА КАНАЛЕ не меняет ни тела, ни отпечатка",
-                  (r_leg.body == r_on.body,
-                   r_leg.header("X-DP-Hash") == r_on.header("X-DP-Hash")),
-                  (True, True))
-        # ⛔ Час мог смениться между снимками — тогда тело разошлось ЗАКОННО,
-        # и требовать совпадения значит краснеть на исправном коде (D0b).
-        # ⛔ Ретрая тут нет и быть не должно: проверка стоит ради настоящей
-        # потери детерминизма (мигание панели, C26.5.2), а ретрай замаскировал
-        # бы именно её. Поэтому — пропуск, и обязательно ВСЛУХ: метку
-        # прошедшей проверки прогон не печатает, и молчаливый пропуск стал бы
-        # ложным зелёным.
-        if datetime.now(TZ).hour != hour_off:
-            print("    \u26a0\ufe0f  между снимками сменился час: сверка тела и "
-                  "отпечатка пропущена (D0b)")
-            res.ok("ОДИН И ТОТ ЖЕ день при разных флагах — час сменился, "
-                   "сверка пропущена", True, "")
-        else:
-            res.check("ОДИН И ТОТ ЖЕ день при разных флагах — один отпечаток",
-                      (r_on.body == body_off,
-                       r_on.header("X-DP-Hash") == hash_off),
-                      (True, True))
-        # ⭐ Вторая половина отката: заголовок едет и на 204, поэтому вкладка
-        # узнаёт «здесь больше не моя поверхность» даже в тихий день, когда
-        # тела нет вовсе. Поле в `data` на 204 не приехало бы никогда.
-        same = c2.get(f"/api/schedule/live?date={day}",
-                      headers={"X-DP-Hash": r_on.header("X-DP-Hash")})
-        res.check("на 204 поверхность тоже приезжает",
-                  (same.status, same.header("X-DP-Surface")), (204, "react"))
-
-        # --- старая вкладка узнаёт об этом и перерисовывается ---
-        poll = c2.get(f"/admin?date={day}", headers={"X-DP-Live": "1"})
-        res.check("ОПРОС старой вкладки на панели → 205, а не документ",
-                  (poll.status, poll.body.strip()), (205, ""))
-
-        # --- откат мгновенный ---
-        back = c2.get(f"/admin?date={day}&ui=legacy").body
-        res.check("?ui=legacy возвращает СТАРУЮ панель, и она снова живая",
-                  ('id="root"' in back, 'id="live"' in back,
-                   "Agenda zilei" in back), (False, True, True))
-
-        # --- соседние экраны флаг панели не задевает ---
-        allp = c2.get(f"/admin/all?date={day}").body
-        res.check("флаг панели не трогает день: он остался старым и живым",
-                  ('id="root"' in allp, 'id="live"' in allp), (False, True))
-
-        # --- граница владения с panel.js (C26.5.3-f) ---
-        # ⛔ Экранные куски скрипта ищут узлы сетки по классам и атрибутам — и
-        # находят React-овские. Перенос до этого шага молчал ПО СЛУЧАЙНОСТИ: у
-        # React-панели нет узла `movedlg`, и выход стоял на нём. Случайность
-        # снята охраной — а охрана обязана читать УЖЕ ПОСЧИТАННОЕ значение:
-        # `var` поднимается, значение нет, и охрана ВЫШЕ объявления прочитала бы
-        # `undefined`. Выглядела бы написанной и не работала.
-        js = c2.get("/static/js/panel.js").body
-        anchors = ("var dlg = document.getElementById('movedlg')",
-                   "function markFresh() {", "function placeNowline() {",
-                   "function paintWaits() {")
-        # ⭐ Список с ВКЛЮЧАЮЩЕЙ полярностью: он ПЕРЕЧИСЛЯЕТ куски, и
-        # переименуй кто-нибудь `placeNowline` — правило искало бы
-        # несуществующее имя, нашло бы ноль нарушителей и позеленело навсегда.
-        # Поэтому сперва проверяется, что имена ещё есть (прайор о полярности).
-        res.check("ЯКОРЬ: экранные куски panel.js на месте — список не протух",
-                  [a for a in anchors if a not in js], [])
-        decl = js.find("var DP_REACT")
-        guards = [m.start() for m in re.finditer(r"if \(DP_REACT\) return;", js)]
-        naked = [a for a in anchors if "if (DP_REACT) return;"
-                 not in js[max(0, js.find(a) - 300):js.find(a) + 300]]
-        res.check("каждый экранный кусок под охраной, и объявление ВЫШЕ охран",
-                  (naked, decl >= 0, bool(guards), all(g > decl for g in guards)),
-                  ([], True, True, True))
-
-def _shell_of(page: str) -> dict:
-    """Модель оболочки со страницы; `{}` — её на узле нет.
-
-    ⚠️ Пустой словарь, а не исключение: страница со СТАРОЙ оболочкой — это
-    ровно то, что сторож ловит, и падение набора назвало бы её «IndexError»
-    вместо «модели нет». Проверено парой: возврат одной поверхности на `_shell`
-    красит проверку, а не роняет набор.
-    """
-    if 'data-shell="' not in page:
-        return {}
-    return json.loads(page.split('data-shell="', 1)[1].split('"', 1)[0]
-                      .replace("&quot;", '"'))
+        tomorrow = (clinic_today() + timedelta(days=1)).isoformat()
+        c.post_json("/api/schedule/appointments", {"date": tomorrow, "time": "09:00",
+                                                  "doctor": "d2", "service": "long",
+                                                  "name": "Ocupat Lung", "phone": "069800300"})
+        # 120′ из 3 активных врачей × 14 рабочих часов (07–21) = 120/2520 ≈ 5%
+        res.check("загрузка кресел дня — одно число по активным врачам",
+                  _j(c.get(f"/api/schedule/live?date={tomorrow}"))["data"]["occupancy"],
+                  {"value": 5})
 
 
 def suite_live_shell(res: Result) -> None:
-    """Четыре живых экрана на ОБЩЕЙ оболочке React (B1, последняя вертикаль).
+    """Четыре экрана журнала на ОБЩЕЙ оболочке React (B1, последняя вертикаль).
 
     ⭐ Проверки СТРУКТУРНЫЕ, а не по литералу разметки: узел, модель оболочки,
     её значения — и отрицательная половина, что серверного каркаса на странице
-    больше нет. Литерал ломался бы от любого нового атрибута узла, и это уже
-    случилось: появление `data-shell` покрасило шесть проверок в пяти наборах.
+    больше нет. Литерал ломался бы от любого нового атрибута узла.
 
     ⛔ Отрицательная половина обязательна. «Узел с моделью есть» зеленело бы и
     на странице, где оболочку печатают ОБА — а это ровно то, что B1 исключает.
     """
     day = clinic_today().isoformat()
-    srv = Server()
-    cfg = json.loads(srv.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["schedule_dash", "schedule_week", "schedule_all",
-                           "schedule_doctor"]}
-    srv.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    dk = next(d["id"] for d in cfg["doctors"] if d.get("status") != "arhivat")
-    with srv:
+    with Server() as srv:
+        cfg = json.loads(srv.clinic.read_text(encoding="utf-8"))
+        dk = next(d["id"] for d in cfg["doctors"] if d.get("status") != "arhivat")
         c = Client(srv.url).login()
         # ⭐ С 06.10 неделя — раздел «Programări» (`prog`), а не панель.
         # ⭐ С 08.10 панели и дню (промпт 2) сервер отдаёт ПУСТОЙ подзаголовок:
@@ -1011,7 +716,7 @@ def suite_live_shell(res: Result) -> None:
                 f"/admin/doctor/{dk}": ("schedule_doctor", "prog", False)}
         for path, (screen, active, has_sub) in want.items():
             page = c.get(f"{path}?date={day}").body
-            shell = _shell_of(page)
+            shell = shell_model(page)
             res.check(f"{path}: узел экрана и модель оболочки на нём",
                       (f'<div id="root" data-screen="{screen}"' in page,
                        shell.get("nav", {}).get("active"),
@@ -1033,22 +738,19 @@ def suite_free_day_owner(res: Result) -> None:
     Фраза печаталась ДВАЖДЫ: баннером сервера по `eng.hours_for` (только
     график) и холстом React по `hours_of` (график И записи). Условия разные,
     поэтому в закрытом дне с уцелевшей записью баннер сообщал «clinica este
-    închisă» прямо над нарисованной записью.
+    închisă» прямо над нарисованной записью. (Баннер сервера жил на старой
+    панели и ушёл 13.10 вместе с ней.)
 
     ⛔ Фикстура с ЗАКРЫТЫМ днём обязательна: у `clinic_test.json` открыты все
     семь дней, и дубль на ней не воспроизводится вовсе — проверка зеленела бы,
     ничего не проверив. `clinic_panel.json` закрывает воскресенье (`sun: null`).
     """
-    srv = Server(clinic="clinic_panel.json")
-    cfg = json.loads(srv.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["schedule_dash"]}
-    srv.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    with srv:
+    with Server(clinic="clinic_panel.json") as srv:
         c = Client(srv.url).login()
         d = clinic_today()
         sun = d + timedelta(days=(6 - d.weekday()) % 7 or 7)
         page = c.get(f"/admin?date={sun.isoformat()}").body
-        res.check("закрытый день: сервер фразу больше НЕ печатает",
+        res.check("закрытый день: сервер фразу НЕ печатает",
                   page.count("Zi liber"), 0)
         # ⚠️ И вторая половина пары: владелец, который остался, эту фразу
         # действительно скажет — модель холста объявляет день пустым. Без неё
@@ -1125,8 +827,7 @@ def suite_panel_cmds(res: Result) -> None:
                   (409, "conflict", False, "text"))
 
         # --- перенос (C26.5.3-f): тот же договор у третьего маршрута ---
-        rows = _j(c.get(f"/api/schedule/day?date={day}"))["data"]["list"]
-        mid = next(r["id"] for r in rows if r["name"] == "Panel Doi")
+        mid = appt_id(c, day, "Panel Doi")
 
         def move(hh: str, panel: bool):
             q = f"?screen=panel&date={day}" if panel else f"?date={day}"
