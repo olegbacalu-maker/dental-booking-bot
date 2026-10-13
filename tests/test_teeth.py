@@ -526,14 +526,14 @@ def suite_surface_memory(res: Result) -> None:
     from app import teeth_svg as tsvg          # noqa: E402
 
     # ---- полярность списков: рисование ключуется не по своему словарю ----
-    # ⚠️ MARK_FILL/COLORS/FILLS и `.sf-*` ВКЛЮЧАЮТ требование, поэтому третье
+    # ⚠️ MARK_FILL/COLORS/FILLS ВКЛЮЧАЮТ требование, поэтому третье
     # поверхностное состояние они не уронят, а тихо не покрасят (грабля карты
-    # про PLAN_ACTIVE и _AUTH_WRITERS)
-    css = (__import__("harness").BOT / "app" / "static" / "css" / "panel.css"
-           ).read_text(encoding="utf-8")
+    # про PLAN_ACTIVE и _AUTH_WRITERS). Кнопку поверхности в React красит
+    # `model.palette`, то есть те же COLORS; CSS-палитра `.sf-*` была у кнопок
+    # старого инспектора и ушла с ним (13.10).
     blind = [st for st in tsvg.SURFACE_STATES
              if st not in tsvg.MARK_FILL or st not in tsvg.COLORS
-             or st not in tsvg.FILLS or f".sf-{st}" not in css]
+             or st not in tsvg.FILLS]
     res.ok("каждое поверхностное состояние умеют нарисовать", not blind,
            f"состояние есть в SURFACE_STATES, но не в палитре: {blind}")
     # ⚠️ Проверка ПОВЕДЕНИЕМ: третье состояние заводится тут же, в памяти, и

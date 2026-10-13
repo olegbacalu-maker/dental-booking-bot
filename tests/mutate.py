@@ -329,17 +329,13 @@ MUTATIONS = [
      "\n.mut:hover{transform:translateY(-1px)}\n"),
     ("кольцо фокуса", "app/static/css/panel.css",
      "\n.mut:focus{box-shadow:0 0 0 3px var(--teal-ring)}\n"),
-    # ЯКОРЬ: кнопку поверхности переименовали — исключение прощает селектор,
-    # которого нет, и правило про кольцо промолчит на будущем дубле.
-    ("якорь кольца выбора", "app/static/css/panel.css",
-     (".sfbtns .sfbtn.sel{", ".sfbtns .sfbtn.chosen{")),
     # Кегль числом — в app.css: правило обязано читать и клиентский файл.
     ("кегль берётся ступенью", "_frontend/app/app.css",
      "\n.mut{font-size:13px}\n"),
-    # Якорь исключения: подпись поверхности переименовали — 9px прощался бы
+    # Якорь исключения: поле поиска шапки переименовали — 16px прощался бы
     # селектору, которого нет.
     ("якоря кеглей не протухли", "app/static/css/panel.css",
-     (".sfbtns .sfbtn small{", ".sfbtns .sfbtn .cap{")),
+     (".top form.searchf input{font-size:16px}", ".top form.searchf .q{font-size:16px}")),
     ("длительность перехода", "app/static/css/panel.css",
      "\n.mut{transition:color .2s ease}\n"),
     # ---- ворота лицензии (L4) ----
