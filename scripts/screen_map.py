@@ -345,9 +345,10 @@ def render(rs: list[dict], checks: dict[str, int],
           "\n| стр | Маршрут | Наборов |\n|---|---|---|"]
     for r in sorted(rs, key=lambda r: -r["loc"])[:10]:
         L.append(f"| {r['loc']} | `{r['method']} {r['path']}` | {len(r['suites'])} |")
-    L.append("\n⛔ `GET /admin/patient/{pid}` — 909 строк одной функцией. §18 требует "
-             "разделить его логически; арифметика внутри сегодня проверяется только "
-             "через готовую страницу.\n")
+    # (до 13.10 здесь стояло «GET /admin/patient/{pid} — 909 строк одной
+    # функцией»: старая фиша снята, арифметика фиши — в card.py, и её держат
+    # проверки JSON API)
+    L.append("")
     return "\n".join(L)
 
 

@@ -10,41 +10,45 @@
     выгрузке, а кнопка «Șterge» до неё не дотягивается;
   * отказ не «активен»: он не ждёт работы, не считается в сумму плана и не
     предлагается на визите как «выполнено».
-⚠️ Проверять msg, а не код: у карточки оба исхода — 303 (см. прайор в
-CLAUDE.md про _card_redirect).
+⚠️ Проверять msg, а не только код ответа: «удалось» и «нельзя» различает
+код конверта (до 13.10 у форм старой фиши оба исхода были одним 303).
+Фиша и визит читаются через JSON API — их рисует React.
 """
 import io
-import re
+import json
+import sqlite3
 import sys
 import zipfile
 from datetime import date, timedelta
 
-from harness import BOT, Client, Result, Server, clinic_today
+from harness import BOT, Client, Result, Server, clinic_today, pid_by_phone
 
 
 def _pid(c: Client, phone: str) -> str:
-    return c.get(f"/admin/search?q={phone}").body.split(
-        "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+    return str(pid_by_phone(c, phone))
 
 
-def _plan_block(page: str) -> str:
-    """Только карточка плана.
-
-    ⚠️ Имя процедуры живёт на странице ДВАЖДЫ: в плане и в ленте событий
-    («Plan: - Detartraj», «Plan: … › REFUZAT (причина)»). Проверка по всей
-    странице зеленела бы на удалённой позиции и краснела бы на очищенной
-    причине — то есть врала бы в обе стороны.
-    """
-    return page.split("id='plan'", 1)[1].split("class='fcard'", 1)[0]
+def _card(c: Client, pid) -> dict:
+    """Фиша данными (`GET /api/patients/{pid}`)."""
+    return json.loads(c.get(f"/api/patients/{pid}").body)["data"]
 
 
-def _iids(page: str) -> list:
-    """id позиций плана в порядке появления на странице."""
-    seen = []
-    for m in re.findall(r"/plan/(\d+)/status", page):
-        if m not in seen:
-            seen.append(m)
-    return seen
+def _plan(c: Client, pid) -> dict:
+    """Позиции плана фиши по имени процедуры.
+
+    ⚠️ Имя процедуры живёт в фише ДВАЖДЫ: в плане и в ленте событий
+    («Plan: - Detartraj», «Plan: … › REFUZAT (причина)»). Поэтому план берётся
+    сам по себе, а лента — отдельно (`_feed`)."""
+    return {it["procedure"]: it for it in _card(c, pid)["plan"]["items"]}
+
+
+def _feed(c: Client, pid) -> list[str]:
+    return [a["text"] for a in _card(c, pid)["activity"]["items"]]
+
+
+def _iids(c: Client, pid) -> list:
+    """id позиций плана в порядке плана фиши."""
+    return [it["id"] for it in _card(c, pid)["plan"]["items"]]
 
 
 def _setup(c: Client) -> str:
@@ -54,12 +58,12 @@ def _setup(c: Client) -> str:
            atime="09:00", adoctor="d2", aservice="consult",
            aname="Refuz Test", aphone="022777888", back="/admin/all")
     pid = _pid(c, "022777888")
-    c.post(f"/admin/patient/{pid}/plan", procedure="Extracție 36", tooth="36",
-           price="900", doctor="Dr. Ana")
-    c.post(f"/admin/patient/{pid}/plan", procedure="Obturație 26", tooth="26",
-           price="600", doctor="Dr. Ana")
-    c.post(f"/admin/patient/{pid}/plan", procedure="Detartraj", price="500",
-           doctor="Dr. Ana")
+    c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Extracție 36", "tooth": "36",
+                                             "price": "900", "doctor": "Dr. Ana"})
+    c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Obturație 26", "tooth": "26",
+                                             "price": "600", "doctor": "Dr. Ana"})
+    c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Detartraj", "price": "500",
+                                             "doctor": "Dr. Ana"})
     return pid
 
 
@@ -68,15 +72,13 @@ def suite_refuz(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         pid = _setup(c)
-        page = c.get(f"/admin/patient/{pid}").body
-        i1, i2, i3 = _iids(page)[:3]
+        i1, i2, i3 = _iids(c, pid)[:3]
 
-        def flip(iid: str, to: str, **kw) -> str:
-            return c.post(f"/admin/patient/{pid}/plan/{iid}/status",
-                          to=to, **kw).msg
+        def flip(iid, to: str, **kw) -> str:
+            return c.post_json(f"/api/patients/{pid}/plan/{iid}/status", {"to": to, **kw}).msg
 
-        res.ok("кнопка отказа есть у запланированного",
-               f"data-id='{i1}'" in page and "openRefuz" in page,
+        res.ok("отказ предлагается у запланированного",
+               {it["id"]: it["refusable"] for it in _card(c, pid)["plan"]["items"]}[i1],
                "нет входа в отказ")
 
         # ⭐ Без причины отказ не принимается СЕРВЕРОМ: required в форме
@@ -89,36 +91,32 @@ def suite_refuz(res: Result) -> None:
                                             "i s-au explicat riscurile"),
                   "ok_refuz")
 
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("позиция осталась в фише", "Extracție 36" in _plan_block(page),
+        card = _card(c, pid)
+        plan = {it["procedure"]: it for it in card["plan"]["items"]}
+        res.ok("позиция осталась в фише", "Extracție 36" in plan,
                "отказ стёр позицию из плана")
         res.ok("причина видна прямо в строке",
-               "i s-au explicat riscurile" in _plan_block(page),
+               "i s-au explicat riscurile" in plan.get("Extracție 36", {}).get("motiv", ""),
                "причина не показана")
-        res.ok("бейдж отказа на месте", "data-st='refuzat'" in page,
-               "статус не отрисован")
-        res.ok("вкладка отказов появилась", "data-f='refuzat'" in page,
-               "нет вкладки Refuzate")
+        res.check("статус отказа на месте", plan["Extracție 36"]["status"], "refuzat")
+        res.check("вкладка отказов появилась (счёт отказов)",
+                  card["plan"]["counts"].get("refuzat"), 1)
 
         # ⛔ Удалять можно только НЕТРОНУТОЕ: иначе кнопка «Șterge» стирала бы
         # ровно то, что закон велит хранить
-        refuz_row = page.split("data-st='refuzat'", 1)[1][:900]
-        res.ok("у отказа нет кнопки удаления", "/del'" not in refuz_row,
-               "отказ можно стереть кнопкой")
+        res.check("у отказа нет удаления", plan["Extracție 36"]["deletable"], False)
         res.check("и удалить его запросом нельзя",
-                  c.post(f"/admin/patient/{pid}/plan/{i1}/del").msg, "bad_pdel")
-        res.ok("позиция пережила попытку удаления",
-               "Extracție 36" in _plan_block(c.get(f"/admin/patient/{pid}").body),
+                  c.post_json(f"/api/patients/{pid}/plan/{i1}/delete", {}).msg, "bad_pdel")
+        res.ok("позиция пережила попытку удаления", "Extracție 36" in _plan(c, pid),
                "запрос всё-таки стёр запись")
 
         # начатую тоже не стереть — она уже клинический факт
         res.check("начатую в работу — можно", flip(i2, "in_lucru"), "")
         res.check("начатую удалить нельзя",
-                  c.post(f"/admin/patient/{pid}/plan/{i2}/del").msg, "bad_pdel")
+                  c.post_json(f"/api/patients/{pid}/plan/{i2}/delete", {}).msg, "bad_pdel")
         res.check("нетронутую удалить можно",
-                  c.post(f"/admin/patient/{pid}/plan/{i3}/del").msg, "")
-        res.ok("нетронутая исчезла",
-               "Detartraj" not in _plan_block(c.get(f"/admin/patient/{pid}").body),
+                  c.post_json(f"/api/patients/{pid}/plan/{i3}/delete", {}).msg, "")
+        res.ok("нетронутая исчезла", "Detartraj" not in _plan(c, pid),
                "опечатку стереть не дали")
 
         # рёбра: отказаться от сделанного нельзя, вернуться можно только в план
@@ -132,14 +130,18 @@ def suite_refuz(res: Result) -> None:
         res.check("отказаться от сделанного нельзя",
                   flip(i2, "refuzat", motiv="prea târziu"), "bad_card")
 
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("возврат в план стёр прежнюю причину",
-               "amână tratamentul" not in _plan_block(page),
-               "старая причина отказа осталась на выполненной позиции")
+        # ⚠️ Смотрится сама запись в базе: фиша показывает причину только у
+        # отказа, и по ней «стёрлась ли» не проверить — она молчала бы в обоих случаях
+        con = sqlite3.connect(str(s.dir / "dental.db"))
+        try:
+            motiv = con.execute("SELECT refuz_motiv FROM plan_items WHERE id = ?", (i2,)).fetchone()[0]
+        finally:
+            con.close()
+        res.check("возврат в план стёр прежнюю причину", motiv or "", "")
         # ⭐ …но из ЛЕНТЫ она никуда не делась: отказ был, и запись о нём —
         # часть журнала доступа по 195-му, а не черновик
         res.ok("в летописи отказ остался с причиной",
-               "amână tratamentul" in page, "событие отказа исчезло из ленты")
+               any("amână tratamentul" in t for t in _feed(c, pid)), "событие отказа исчезло из ленты")
 
 
 def suite_refuz_not_active(res: Result) -> None:
@@ -149,45 +151,38 @@ def suite_refuz_not_active(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         pid = _setup(c)
-        i1 = _iids(c.get(f"/admin/patient/{pid}").body)[0]
+        i1 = _iids(c, pid)[0]
 
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("до отказа в плане три активных", "Active (3)" in page,
-               "не та отправная точка")
-        res.ok("и сумма плана — 2 000", "2 000 MDL" in page,
-               "сумма активного плана посчитана иначе")
+        plan = _card(c, pid)["plan"]
+        res.check("до отказа в плане три активных", plan["n_act"], 3)
+        res.check("и сумма плана — 2 000", plan["total"], 2000)
 
-        c.post(f"/admin/patient/{pid}/plan/{i1}/status", to="refuzat",
-               motiv="refuz documentat")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("активных стало два", "Active (2)" in page,
-               "отказ остался среди активных")
+        c.post_json(f"/api/patients/{pid}/plan/{i1}/status", {"to": "refuzat",
+                                                             "motiv": "refuz documentat"})
+        plan = _card(c, pid)["plan"]
+        res.check("активных стало два", plan["n_act"], 2)
         # 900 отказано → в «plan activ» обязано остаться 1 100
-        res.ok("цена отказа ушла из суммы плана",
-               "1 100 MDL" in page and "2 000 MDL" not in page,
-               "отказанная процедура всё ещё в счёте")
-        res.ok("прогресс не считает отказ в знаменателе",
-               "0/2 finalizate" in page and "1 refuzate" in page,
-               "отказ застрял в прогрессе")
+        res.check("цена отказа ушла из суммы плана", plan["total"], 1100)
+        res.check("прогресс не считает отказ в знаменателе (0/2, 1 отказ)",
+                  (plan["total_done"], plan["n_track"], plan["counts"].get("refuzat")), (0, 2, 1))
 
         # список пациентов: «в лечении» считается по активным позициям
-        lst = c.get("/admin/search?q=022777888").body
-        res.ok("в списке пациент числится с 2 позициями",
-               "2" in lst and "Refuz Test" in lst, "список не открылся")
+        rows = json.loads(c.get("/api/patients?q=022777888").body)["data"]["rows"]
+        res.check("в списке пациент числится в лечении (по активным позициям)",
+                  [(r["name"], r["status"]) for r in rows], [("Refuz Test", "tratament")])
 
         # визит не предлагает отметить отказанное как выполненное
         aid = c.get(f"/admin/all?date="
                     f"{(clinic_today() + timedelta(days=1)).isoformat()}"
                     ).body.split("/admin/status/", 1)[1].split("'")[0]
-        vis = c.get(f"/admin/visit/{aid}").body
+        opened = [x["text"] for x in json.loads(c.get(f"/api/visits/{aid}").body)["data"]["plan"]["open"]]
         res.ok("в консультации нет галочки на отказанное",
-               "Obturație 26" in vis and "Extracție 36" not in vis,
-               "отказ предложен как «выполнено на визите»")
+               any("Obturație 26" in t for t in opened) and not any("Extracție 36" in t for t in opened),
+               f"отказ предложен как «выполнено на визите»: {opened}")
         # ⚠️ и запросом мимо страницы тоже: устаревшая вкладка прислала бы id
-        c.post(f"/admin/visit/{aid}", acuze="test", done=i1)
-        res.ok("отказ не финализируется чужим запросом",
-               "data-st='refuzat'" in c.get(f"/admin/patient/{pid}").body,
-               "отказ молча стал выполненным")
+        c.post_json(f"/api/visits/{aid}", {"acuze": "test", "done": [i1]})
+        res.check("отказ не финализируется чужим запросом",
+                  _plan(c, pid)["Extracție 36"]["status"], "refuzat")
 
 
 def suite_acord_medic(res: Result) -> None:
@@ -224,11 +219,12 @@ def suite_acord(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         pid = _setup(c)
-        c.post(f"/admin/patient/{pid}/save", name="Refuz Test",
-               phone="022777888", birth_date="1990-05-06")
-        i1 = _iids(c.get(f"/admin/patient/{pid}").body)[0]
-        c.post(f"/admin/patient/{pid}/plan/{i1}/status", to="refuzat",
-               motiv="teama de intervenție; consecințe explicate")
+        c.post_json(f"/api/patients/{pid}/profile", {"name": "Refuz Test",
+                                                    "phone": "022777888",
+                                                    "birth_date": "1990-05-06"})
+        i1 = _iids(c, pid)[0]
+        c.post_json(f"/api/patients/{pid}/plan/{i1}/status", {"to": "refuzat",
+                                                             "motiv": "teama de intervenție; consecințe explicate"})
 
         r = c.get(f"/admin/patient/{pid}/plan-acord")
         res.ok("лист открывается", r.status == 200, f"код {r.status}")
@@ -281,7 +277,7 @@ def suite_acord(res: Result) -> None:
 
         # генерация листа — событие обработки, как acord и 043/e
         res.ok("выдача листа попала в летопись",
-               "Acord informat" in c.get(f"/admin/patient/{pid}").body,
+               any("Acord informat" in t for t in _feed(c, pid)),
                "нет записи в ленте фиши")
 
 
@@ -291,9 +287,9 @@ def suite_refuz_docs(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         pid = _setup(c)
-        i1 = _iids(c.get(f"/admin/patient/{pid}").body)[0]
-        c.post(f"/admin/patient/{pid}/plan/{i1}/status", to="refuzat",
-               motiv="motiv consemnat pentru 043")
+        i1 = _iids(c, pid)[0]
+        c.post_json(f"/api/patients/{pid}/plan/{i1}/status", {"to": "refuzat",
+                                                             "motiv": "motiv consemnat pentru 043"})
 
         f = c.get(f"/admin/patient/{pid}/fisa043").body
         res.ok("043/e показывает статус отказа", "REFUZAT" in f,

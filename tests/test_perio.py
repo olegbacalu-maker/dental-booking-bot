@@ -1,88 +1,84 @@
 """Пародонтограмма: шесть точек на зуб, датированным осмотром.
 
-Ломается такое молча: страница отвечает 200, а числа уехали на соседнюю точку
-или прошлый осмотр тихо переписан. Поэтому здесь проверяется не «форма
-сохранилась», а что измерения доехали до ЧЕТЫРЁХ представлений — экран,
-печатный лист, §4 печатной 043/e, выгрузка по 195-му, — что арифметика итога
-совпадает с посчитанной руками и что чужие зубы и прошлые осмотры не
-затираются.
+Ломается такое молча: ответ 200, а числа уехали на соседнюю точку или прошлый
+осмотр тихо переписан. Поэтому здесь проверяется не «запись прошла», а что
+измерения доехали до ЧЕТЫРЁХ представлений — экран (модель JSON API, которую
+рисует React; до 13.10 — старая страница), печатный лист, §4 печатной 043/e,
+выгрузка по 195-му, — что арифметика итога совпадает с посчитанной руками и
+что чужие зубы и прошлые осмотры не затираются.
 """
 import io
-import re
+import json
 import zipfile
 
-from harness import Client, Result, Server
-
-
-def _pid(c: Client, phone: str) -> str:
-    return c.get(f"/admin/search?q={phone}").body.split(
-        "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
-
-
-def _new_exam(c: Client, base: str) -> str:
-    """Новый осмотр и его id из адреса возврата."""
-    loc = c.post(f"{base}/perio/new").location or ""
-    m = re.search(r"exam=(\d+)", loc)
-    return m.group(1) if m else "0"
-
+from harness import Client, Result, Server, pid_by_phone
 
 # Все постоянные зубы. ⚠️ Целиком они попадают в поле `covers` только здесь:
 # проверки правят карту разом, а живой лист называет лишь ТРОНУТЫЕ зубы.
-ALL_TEETH = ",".join(str(n) for n in (
-    [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
-    + [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]))
+PERM = ([18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
+        + [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38])
+
+
+def _row(pd=None, rec=None, bop="000000", mob=0, furc=0) -> dict:
+    """Строка зуба ЦЕЛИКОМ — так её шлёт экран и только так принимает API."""
+    return {"pd": pd or [0] * 6, "rec": rec or [0] * 6, "bop": bop, "mob": mob, "furc": furc}
+
 
 # 16: шесть точек, две кровоточат, карманы 4 и 5 мм, подвижность I, фуркация II
 # 46: ровные двойки без кровоточивости
-CHART = ("16:3,2,3,4,2,5/1,0,0,0,0,2/010010/1/2;"
-         "46:2,2,2,2,2,2/0,0,0,0,0,0/000000/0/0")
+CHART = {"16": _row(pd=[3, 2, 3, 4, 2, 5], rec=[1, 0, 0, 0, 0, 2], bop="010010", mob=1, furc=2),
+         "46": _row(pd=[2] * 6)}
+
+
+def _new_exam(c: Client, api: str) -> int:
+    """Новый осмотр (`POST …/perio/exams`) и его id."""
+    return json.loads(c.post_json(f"{api}/perio/exams", {}).body)["data"]["exam"]["id"]
+
+
+def _model(c: Client, api: str, exam: int | None = None) -> dict:
+    """Пародонтограмма данными — то, что рисует экран."""
+    q = f"?exam={exam}" if exam else ""
+    return json.loads(c.get(f"{api}/perio{q}").body)["data"]
 
 
 def suite_perio(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Perio Test", phone="022676767")
-        pid = _pid(c, "022676767")
+        c.post_json("/api/patients", {"name": "Perio Test", "phone": "022676767"})
+        pid = pid_by_phone(c, "022676767")
         base = f"/admin/patient/{pid}"
+        api = f"/api/patients/{pid}"
 
         # --- пустое состояние: GET ничего не создаёт ---
-        page = c.get(f"{base}/parodontograma").body
-        res.ok("пустая карта предлагает начать осмотр",
-               "niciun examen parodontal" in page and "Începe primul" in page,
-               "нет экрана «осмотров ещё нет»")
+        res.check("пустая карта — осмотров нет, экран предложит начать",
+                  (_model(c, api)["exam"], _model(c, api)["exams"]), (None, []))
         c.get(f"{base}/parodontograma")
-        res.ok("GET не плодит осмотры",
-               "niciun examen parodontal" in c.get(f"{base}/parodontograma").body,
-               "обновление страницы завело осмотр — так их будут десятки")
+        res.check("GET (и страница, и данные) не плодит осмотры", _model(c, api)["exams"], [])
 
         # --- осмотр и первые измерения ---
-        eid = _new_exam(c, base)
-        r = c.post(f"{base}/perio", exam=eid, chart=CHART, covers=ALL_TEETH,
-                   doctor="Dr. Activ Doi", note="reevaluare")
+        eid = _new_exam(c, api)
+        r = c.post_json(f"{api}/perio/{eid}", {"teeth": CHART, "covers": PERM,
+                                               "doctor": "Dr. Activ Doi", "note": "reevaluare"})
         res.check("измерения сохраняются", r.msg, "ok_perio")
 
-        page = c.get(f"{base}/parodontograma").body
-        res.ok("значения доехали до полей",
-               "value='5'" in page and "value='3'" in page,
-               "чисел нет на странице")
-        res.ok("карман ≥4 мм подсвечен",
-               "pcell deep" in page,
-               "глубокий карман ничем не отличается от здоровой борозды")
-        res.ok("кровоточивость отмечена", "pdot on" in page,
-               "точка кровоточивости не сохранилась")
-
+        m = _model(c, api, eid)
+        res.check("значения доехали до своих точек",
+                  (m["rows"]["16"]["pd"], m["rows"]["16"]["rec"], m["rows"]["46"]["pd"]),
+                  ([3, 2, 3, 4, 2, 5], [1, 0, 0, 0, 0, 2], [2] * 6))
+        res.check("кровоточивость отмечена на своих точках", m["rows"]["16"]["bop"], "010010")
         # арифметика: 12 измеренных точек, 2 кровоточат → 17%;
         # сумма 31 мм / 12 = 2.6; карманов ≥4 мм — два (4 и 5)
-        res.ok("BOP считается от ИЗМЕРЕННЫХ точек", "<b>17%</b>" in page,
-               "процент кровоточивости не 17 — знаменатель не тот")
-        res.ok("средняя глубина", "<b>2.6 mm</b>" in page, "средняя не 2.6")
-        res.ok("карманы ≥4 мм посчитаны", "<b>2</b>" in page, "не два кармана")
+        sm = m["summary"]
+        res.check("BOP считается от ИЗМЕРЕННЫХ точек", (sm["sites"], sm["bop"]), (12, 17))
+        res.check("средняя глубина", sm["pd_mean"], 2.6)
+        res.check("карманы ≥4 мм посчитаны, глубоких 6+ нет", (sm["deep"], sm["severe"]), (2, 0))
+        res.check("порог глубокого кармана — серверный", m["limits"]["deep"], 4)
 
         # --- летопись говорит словами ---
-        card = c.get(base).body
+        feed = [a["text"] for a in json.loads(c.get(api).body)["data"]["activity"]["items"]]
         res.ok("летопись называет итог словами",
-               "BOP 17%" in card and "pungi 4+ mm: 2" in card,
-               "в ленте фиши нет строки пародонтограммы")
+               any("BOP 17%" in t and "pungi 4+ mm: 2" in t for t in feed),
+               f"в ленте фиши нет строки пародонтограммы: {feed}")
 
         # --- печатный лист ---
         sheet = c.get(f"{base}/parodontograma/print").body
@@ -116,74 +112,65 @@ def suite_perio(res: Result) -> None:
                "Parodontogramă" in doc and "MV 3" in doc,
                "в копии по 195-му измерений нет или они позиционным кодом")
 
-        # --- дисциплина разбора ---
-        eid2 = _new_exam(c, base)
-        c.post(f"{base}/perio", exam=eid2, covers=ALL_TEETH,
-               chart="55:3,3,3,3,3,3/0/000000/0/0;"      # молочный
-                     "99:3,3,3,3,3,3/0/000000/0/0;"      # чужой номер
-                     "17:99,99,99,99,99,99/0/000000/0/0;"  # 99 мм — опечатка
-                     "27:0,0,0,0,0,0/0/000000/0/0")      # пустой зуб
-        page2 = c.get(f"{base}/parodontograma?exam={eid2}").body
-        # ⚠️ Ищем именно ПОЛЕ ввода: «value='3'» есть и у <option> подвижности,
-        # и проверка без maxlength зеленела бы на любой странице.
-        res.ok("мусор не сохраняется",
-               "maxlength='2' value='3'" not in page2
-               and "<span>Dinți măsurați</span><b>0</b>" in page2,
-               "молочный, чужой номер, 99 мм или пустой зуб доехали до базы")
+        # --- дисциплина разбора: мусор до базы не доезжает ---
+        eid2 = _new_exam(c, api)
+        r = c.post_json(f"{api}/perio/{eid2}", {"teeth": {"55": _row(pd=[3] * 6),   # молочный
+                                                          "99": _row(pd=[3] * 6)},  # чужой номер
+                                                "covers": PERM})
+        res.check("молочный и чужой номер на лист не попадают",
+                  (r.msg, _model(c, api, eid2)["rows"]), ("ok_perio", {}))
+        for tooth, row, why in (("17", _row(pd=[99] * 6), "99 мм — опечатка ввода"),
+                                ("27", _row(), "пустой зуб")):
+            r = c.post_json(f"{api}/perio/{eid2}", {"teeth": {tooth: row}, "covers": PERM})
+            res.check(f"{why}: ни одного показания — отказ, а не запись нулями",
+                      (r.status, r.msg), (422, "bad_perio"))
+        res.check("после всех попыток лист пуст", _model(c, api, eid2)["summary"]["teeth"], 0)
 
-        # --- ⛔ зуб, о котором форма не сообщала, не стирается ---
-        r = c.post(f"{base}/perio", exam=eid, chart="16:3,2,3,4,2,5/1,0,0,0,0,2/010010/1/2",
-                   covers="16")
-        res.check("узкая форма сохраняется", r.msg, "ok_perio")
-        page = c.get(f"{base}/parodontograma?exam={eid}").body
-        res.ok("зуб, о котором не сообщали, НЕ стёрт",
-               "<b>2</b>" in page and "value='2'" in page,
-               "форма на один зуб стёрла остальные — «поля нет» приняли за "
-               "«стереть» (грабля 08-16)")
+        # --- ⛔ зуб, о котором запись не сообщала, не стирается ---
+        r = c.post_json(f"{api}/perio/{eid}", {"teeth": {"16": CHART["16"]}, "covers": [16]})
+        res.check("узкая запись сохраняется", r.msg, "ok_perio")
+        res.check("зуб, о котором не сообщали, НЕ стёрт",
+                  (sorted(_model(c, api, eid)["rows"]), _model(c, api, eid)["rows"]["46"]["pd"]),
+                  (["16", "46"], [2] * 6))
 
         # --- пересохранение без правок тождественно ---
-        before = c.get(f"{base}/parodontograma?exam={eid}").body
-        c.post(f"{base}/perio", exam=eid, chart=CHART, covers=ALL_TEETH,
-               doctor="Dr. Activ Doi", note="reevaluare")
-        after = c.get(f"{base}/parodontograma?exam={eid}").body
+        before = _model(c, api, eid)
+        c.post_json(f"{api}/perio/{eid}", {"teeth": CHART, "covers": PERM,
+                                           "doctor": "Dr. Activ Doi", "note": "reevaluare"})
+        after = _model(c, api, eid)
         res.ok("пересохранение без правок ничего не меняет",
-               before == after,
+               (before["rows"], before["summary"], before["exam"], before["rev"])
+               == (after["rows"], after["summary"], after["exam"], after["rev"]),
                "тот же ввод дал другой результат — где-то состояние копится")
 
         # --- осмотры независимы ---
-        c.post(f"{base}/perio", exam=eid2, chart="36:4,4,4,4,4,4/0/111111/0/0",
-               covers=ALL_TEETH)
-        first = c.get(f"{base}/parodontograma?exam={eid}").body
-        res.ok("прошлый осмотр не тронут новым",
-               "<b>17%</b>" in first,
-               "новый осмотр переписал измерения прошлого — сравнивать во "
-               "времени станет нечего")
+        c.post_json(f"{api}/perio/{eid2}", {"teeth": {"36": _row(pd=[4] * 6, bop="111111")},
+                                            "covers": PERM})
+        res.check("прошлый осмотр не тронут новым", _model(c, api, eid)["summary"]["bop"], 17)
 
         # --- удаление осмотров ---
-        empty = _new_exam(c, base)
-        r = c.post(f"{base}/perio/{empty}/del")
+        empty = _new_exam(c, api)
+        r = c.post_json(f"{api}/perio/{empty}/delete", {})
         res.check("пустой осмотр снимается", r.msg, "ok_perio_del")
-        r = c.post(f"{base}/perio/{eid}/del")
+        r = c.post_json(f"{api}/perio/{eid}/delete", {})
         res.check("осмотр с измерениями не удаляется", r.msg, "bad_perio_del")
 
         # --- чужой осмотр по прямому адресу ---
         other = Client(s.url).login()
-        other.post("/admin/patients/new", name="Perio Altul", phone="022686868")
-        pid2 = _pid(other, "022686868")
-        r = other.post(f"/admin/patient/{pid2}/perio", exam=eid,
-                       chart="11:3,3,3,3,3,3/0/000000/0/0", covers=ALL_TEETH)
+        other.post_json("/api/patients", {"name": "Perio Altul", "phone": "022686868"})
+        pid2 = pid_by_phone(other, "022686868")
+        r = other.post_json(f"/api/patients/{pid2}/perio/{eid}",
+                            {"teeth": {"11": _row(pd=[3] * 6)}, "covers": PERM})
         res.check("чужой id осмотра отбивается", r.msg, "bad_perio")
-        res.ok("чужие измерения не приписаны",
-               "<b>17%</b>" in c.get(f"{base}/parodontograma?exam={eid}").body,
-               "осмотр одного пациента дописан из фиши другого")
+        res.check("чужие измерения не приписаны", _model(c, api, eid)["summary"]["bop"], 17)
 
         # --- пародонтограмма — медицинская запись: фиша обезличивается ---
         third = Client(s.url).login()
-        third.post("/admin/patients/new", name="Perio Erase", phone="022696969")
-        pid3 = _pid(third, "022696969")
-        e3 = _new_exam(third, f"/admin/patient/{pid3}")
-        third.post(f"/admin/patient/{pid3}/perio", exam=e3, covers=ALL_TEETH,
-                   chart="21:3,3,3,3,3,3/0/000000/0/0")
-        r = third.post(f"/admin/patient/{pid3}/erase", confirm="STERG")
+        third.post_json("/api/patients", {"name": "Perio Erase", "phone": "022696969"})
+        pid3 = pid_by_phone(third, "022696969")
+        api3 = f"/api/patients/{pid3}"
+        e3 = _new_exam(third, api3)
+        third.post_json(f"{api3}/perio/{e3}", {"teeth": {"21": _row(pd=[3] * 6)}, "covers": PERM})
+        r = third.post_json(f"{api3}/erase", {"confirm": "STERG"})
         res.check("фиша с осмотром обезличивается, а не стирается",
                   r.msg, "ok_anon")

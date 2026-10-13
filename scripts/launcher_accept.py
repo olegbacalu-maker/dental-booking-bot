@@ -234,10 +234,11 @@ def scenario_standalone(res: list) -> None:
                     and "setup" not in href, href))
 
         c = Client(f"http://127.0.0.1:{PORT}").login(PIN)
-        r = c.post("/admin/patients/new", name="Proba Launcher", phone="069555001")
-        pid = (r.location or "").split("/admin/patient/")[-1].split("?")[0]
+        r = c.post_json("/api/patients", {"name": "Proba Launcher", "phone": "069555001"})
+        pid = json.loads(r.body)["data"]["id"]
         run.page.go(f"/admin/patient/{pid}")
-        ok = bool(wait(lambda: run.page.js("!!document.querySelector('.hero')"), 15.0))
+        # шапка фиши с инициалами — фиша приехала (у заглушки ожидания `.hero` пустой)
+        ok = bool(wait(lambda: run.page.js("!!document.querySelector('.hero .hero-av')"), 15.0))
         res.append(("2 фиша пациента открыта в окне", ok, run.href()))
         run.page.js("localStorage.setItem('dp_bench', 'ok'); 1")
 

@@ -13,11 +13,29 @@ import zipfile
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from harness import BOT, PIN, PYTHON, Client, Result, Server, clinic_today, _rmtree_settled
+from harness import (BOT, PIN, PYTHON, Client, Result, Server, _rmtree_settled, clinic_today,
+                     new_patient, pid_by_phone)
 
 
 def _d(offset: int) -> str:
     return (clinic_today() + timedelta(days=offset)).isoformat()
+
+
+# ---- экраны фиши и списка — React (13.10): то, что они показывают, это
+# ответы JSON API; страница несёт только узел ----
+
+def _card(c: Client, pid) -> dict:
+    """Фиша данными (`GET /api/patients/{pid}`)."""
+    return json.loads(c.get(f"/api/patients/{pid}").body)["data"]
+
+
+def _plist(c: Client, qs: str = "") -> dict:
+    """Страница списка «Pacienți» данными (`GET /api/patients?…`)."""
+    return json.loads(c.get("/api/patients" + (f"?{qs}" if qs else "")).body)["data"]
+
+
+def _names(c: Client, qs: str = "") -> list[str]:
+    return [r["name"] for r in _plist(c, qs)["rows"]]
 
 
 def suite_auth(res: Result) -> None:
@@ -59,7 +77,8 @@ def suite_pages(res: Result) -> None:
             "/admin/stats": "",
             "/admin/settings": "Clinica Test",
             "/admin/medici": "",
-            "/admin/search?q=Pagina": "Pagina Test",
+            # список пациентов — React (13.10), выдачу стережёт test_patients_api
+            "/admin/search?q=Pagina": "",
             "/admin/qr-print": "",
         }
         for path, needle in pages.items():
@@ -127,12 +146,12 @@ def suite_pages(res: Result) -> None:
         # только клиент с большим монитором, на 1366 потолок не срабатывает).
         # Потолок самой СТРОКИ живёт в panel.css и проверяется там же
         # (test_review3.suite_width) — разметка о нём ничего не знает.
-        # ⚠️ Настроек, статистики и врачей в списке нет: их экраны рисует React
-        # (12.10), и ширину раскладки ведёт клиент, серверного `content` у
-        # оболочки нет.
+        # ⚠️ Настроек, статистики, врачей и пациентов в списке нет: их экраны
+        # рисует React (12–13.10), и ширину раскладки ведёт клиент, серверного
+        # `content` у оболочки нет.
         shells = {}
         for path in ("/admin", f"/admin/all?date={_d(1)}", "/admin/week",
-                     "/admin/doctor/d2", "/admin/search"):
+                     "/admin/doctor/d2"):
             body = c.get(path).body
             m = re.search(r'<div class="(content[^"]*)"', body)
             shells[path] = m.group(1) if m else "—"
@@ -416,12 +435,13 @@ def suite_nophone(res: Result) -> None:
         r2 = add("FaraTel Doi", "", "11:00", anophone="1")
         res.ok("запись без телефона проходит с галочкой",
                r1.msg == "ok" and r2.msg == "ok", f"{r1.msg} / {r2.msg}")
-        lst = c.get("/admin/search?q=FaraTel").body
+        lst = _plist(c, "q=FaraTel")["rows"]
         res.ok("двое безтелефонных НЕ склеились и не переименованы",
-               "FaraTel Unu" in lst and "FaraTel Doi" in lst,
+               {"FaraTel Unu", "FaraTel Doi"} <= {r["name"] for r in lst},
                "второй перезаписал первого — ключ manual: снова общий")
-        res.ok("безтелефонный помечен перечёркнутой трубкой, а не прочерком",
-               "pl-notel" in lst, "метки нет — пустота неотличима от «забыли»")
+        # перечёркнутую трубку рисует экран по пустому телефону строки
+        res.ok("безтелефонный — пустым телефоном, а не выдуманным",
+               all(r["phone"] == "" for r in lst), f"{[(r['name'], r['phone']) for r in lst]}")
 
         # так шлёт НАСТОЯЩИЙ браузер: выключенное поле в POST отсутствует
         # ВОВСЕ, а не приходит пустым — Form(...) на aphone давал бы 422
@@ -436,68 +456,57 @@ def suite_nophone(res: Result) -> None:
         r = add("FaraTel Trei", "069999888", "12:00", anophone="1")
         res.ok("галочка отбрасывает набранный телефон", r.msg == "ok", r.msg)
         res.ok("отброшенный телефон не ищется",
-               "FaraTel Trei" not in c.get("/admin/search?q=069999888").body,
+               "FaraTel Trei" not in _names(c, "q=069999888"),
                "номер сохранился вопреки галочке")
 
-        # фиша безтелефонного: явная метка + галочка в форме правки
-        m = re.search(r"/admin/patient/(\d+)", lst)
-        card = c.get(f"/admin/patient/{m.group(1)}").body
-        # ⚠️ не искать "phone-off" в HTML: _ic() разворачивает ключ в чистый
-        # SVG, имени ключа в разметке нет — искать класс метки
-        res.ok("фиша говорит «fără telefon» словами и иконкой",
-               "fără telefon" in card and "class='v notel'" in card, "метки нет")
-        res.ok("в форме правки галочка взведена, поле выключено",
-               "placeholder='Telefon' disabled>" in card and
-               "name='nophone'" in card, "производная от пустого поля не взвелась")
+        # фиша безтелефонного: «fără telefon» и взведённую галочку правки экран
+        # выводит из пустого телефона (производная, своей колонки нет)
+        res.check("в фише телефон пуст — экран скажет «fără telefon»",
+                  _card(c, lst[0]["id"])["profile"]["phone"], "")
 
         # --- телефон задним числом, совпавший с чужим, называется вслух ---
-        pa = c.post("/admin/patients/new", name="Sot Comun", phone="068111222")
-        pid_a = re.search(r"/admin/patient/(\d+)", pa.location).group(1)
-        pb = c.post("/admin/patients/new", name="Sotie Aparte", phone="")
-        pid_b = re.search(r"/admin/patient/(\d+)", pb.location).group(1)
+        pid_a = new_patient(c, "Sot Comun", "068111222")
+        pid_b = new_patient(c, "Sotie Aparte")
         res.ok("двое заведены отдельно", pid_a != pid_b, "фиши склеились")
-        r = c.post(f"/admin/patient/{pid_b}/save", name="Sotie Aparte",
-                   phone="068 111 222")
+        r = c.post_json(f"/api/patients/{pid_b}/profile", {"name": "Sotie Aparte",
+                                                          "phone": "068 111 222"})
         res.ok("чужой номер в фише назван вслух", r.msg == "ok_tel_dup",
                f"msg {r.msg!r} — запись из журнала уедет непредсказуемо кому")
-        r = c.post(f"/admin/patient/{pid_a}/save", name="Sot Comun",
-                   phone="068111222")
+        r = c.post_json(f"/api/patients/{pid_a}/profile", {"name": "Sot Comun",
+                                                          "phone": "068111222"})
         res.ok("свой номер про себя не предупреждает… нельзя: дубль уже есть",
                r.msg == "ok_tel_dup", f"msg {r.msg!r}")
-        r = c.post(f"/admin/patient/{pid_b}/save", name="Sotie Aparte", phone="")
-        r = c.post(f"/admin/patient/{pid_a}/save", name="Sot Comun",
-                   phone="068111222")
+        r = c.post_json(f"/api/patients/{pid_b}/profile", {"name": "Sotie Aparte", "phone": ""})
+        r = c.post_json(f"/api/patients/{pid_a}/profile", {"name": "Sot Comun",
+                                                          "phone": "068111222"})
         res.ok("уникальный свой номер сохраняется без предупреждения",
                r.msg == "ok_card", f"msg {r.msg!r} — баннер кричал бы на "
                "каждом пересохранении, и его перестали бы читать")
 
         # --- поиск: дата рождения, как её диктуют (01.01.2003) ---
-        c.post("/admin/patients/new", name="Cautare Data",
-               birth_date="2003-01-01", phone="067000001")
-        found = c.get("/admin/search?q=01.01.2003").body
+        c.post_json("/api/patients", {"name": "Cautare Data", "birth_date": "2003-01-01",
+                                     "phone": "067000001"})
         res.ok("поиск 01.01.2003 находит по дате рождения",
-               "Cautare Data" in found, "формат стойки не понят")
+               "Cautare Data" in _names(c, "q=01.01.2003"), "формат стойки не понят")
         res.ok("поиск 1.1.2003 (без ведущих нулей) находит",
-               "Cautare Data" in c.get("/admin/search?q=1.1.2003").body,
+               "Cautare Data" in _names(c, "q=1.1.2003"),
                "ведущие нули стали обязательными")
         res.ok("чужая дата не находит",
-               "Cautare Data" not in c.get("/admin/search?q=02.01.2003").body,
+               "Cautare Data" not in _names(c, "q=02.01.2003"),
                "дата матчится слишком широко")
 
         # --- цифры ищутся и в notes: номер второго человека на семейном ---
-        c.post(f"/admin/patient/{pid_b}/save", name="Sotie Aparte", phone="",
-               notes="tel. propriu: 069 555 444 (numărul familiei la soț)")
+        c.post_json(f"/api/patients/{pid_b}/profile", {"name": "Sotie Aparte", "phone": "",
+                                                      "notes": "tel. propriu: 069 555 444 (numărul familiei la soț)"})
         res.ok("номер из notes находится поиском",
-               "Sotie Aparte" in c.get("/admin/search?q=069555444").body,
+               "Sotie Aparte" in _names(c, "q=069555444"),
                "совет «номер второго — в notițe» делал бы человека ненаходимым")
 
-        # --- галочка присутствует во всех четырёх формах ---
+        # --- галочка в формах журнала (диалоги фиши и «Pacient nou» — React,
+        # их держат проверки клиента) ---
         allp = c.get(f"/admin/all?date={day}").body
         res.check("журнал: галочка в нижней форме и в модалке слота",
                   allp.count('name="anophone"'), 2)
-        res.ok("диалог нового пациента несёт галочку",
-               "name='nophone'" in c.get("/admin/search").body,
-               "в npdlg галочки нет")
 
 
 def suite_patient_card(res: Result) -> None:
@@ -507,168 +516,137 @@ def suite_patient_card(res: Result) -> None:
         c.post("/admin/add", adate=_d(1), atime="09:00", adoctor="d2",
                aservice="consult", aname="Card Test", aphone="022654654",
                back="/admin/all")
-        pid = c.get("/admin/search?q=022654654").body.split(
-            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        pid = pid_by_phone(c, "022654654")
 
-        r = c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
-                   phone="022654654", email="test@example.com")
+        r = c.post_json(f"/api/patients/{pid}/profile", {"name": "Card Test Nou",
+                                                        "phone": "022654654",
+                                                        "email": "test@example.com"})
         res.check("профиль сохраняется", r.msg, "ok_card")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("новое имя видно в карточке", "Card Test Nou" in page,
-               "имя не обновилось")
+        res.check("новое имя видно в карточке", _card(c, pid)["name"], "Card Test Nou")
 
-        # Порядок правой колонки (1.19.0, по живому экрану Олега): кто это →
-        # чем опасен приём → журнал доступа. «Istoric activitate» нужен для
-        # 195-го и обязан быть виден, но наверху он занимал место у того, ради
-        # чего фишу вообще открывают. Проверяем ВНУТРИ pv2-side: те же слова
-        # встречаются в модалках и скриптах страницы.
-        side = page.split("class='pv2-side'", 1)[-1]
-        dp, at, an, ac = (side.find("Date pacient"),
-                          side.find("Atenționări medicale"),
-                          side.find("id='anamneza'"),
-                          side.find("Istoric activitate"))
-        res.ok("журнал доступа ниже профиля и медицины",
-               min(dp, at, an, ac) >= 0 and max(dp, at, an) < ac,
-               f"позиции profil={dp} alerts={at} anamneza={an} activitate={ac}")
-        res.ok("профиль выше медицинских карточек", dp < min(at, an),
-               f"позиции profil={dp} alerts={at} anamneza={an}")
+        # Порядок карточек фиши — раскладка экрана React (вкладки B6, 26.09;
+        # до 13.10 здесь проверялся порядок правой колонки старой страницы)
 
-        # отказ обязан НАЗВАТЬ поле и подсветить его в раскрытой форме —
-        # «Date invalide» без адреса читалось как «программа не работает»
-        r = c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
-                   idnp="123")
-        res.check("кривой IDNP — именованный отказ", r.msg, "bad_idnp")
-        page = c.get(f"/admin/patient/{pid}?msg=bad_idnp").body
-        res.ok("поле IDNP подсвечено красным",
-               "border-color:var(--red-t" in page, "подсветки нет")
-        res.ok("форма профиля раскрыта сама",
-               "id='pedit' method='post' action" in page
-               and "style='display:block" in page,
-               "форму с ошибкой надо открывать руками")
+        # отказ обязан НАЗВАТЬ поле — экран подсвечивает его и раскрывает
+        # форму: «Date invalide» без адреса читалось как «программа не работает»
+        r = c.post_json(f"/api/patients/{pid}/profile", {"name": "Card Test Nou", "idnp": "123"})
+        res.check("кривой IDNP — именованный отказ с полем",
+                  (r.msg, json.loads(r.body).get("field")), ("bad_idnp", "idnp"))
         res.check("дата рождения в будущем — именованный отказ",
-                  c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
-                         birth_date="2222-01-01").msg, "bad_bd")
+                  c.post_json(f"/api/patients/{pid}/profile", {"name": "Card Test Nou",
+                                                              "birth_date": "2222-01-01"}).msg, "bad_bd")
         res.check("нормальная дата сохраняется",
-                  c.post(f"/admin/patient/{pid}/save", name="Card Test Nou",
-                         phone="022654654", birth_date="1985-03-07").msg,
+                  c.post_json(f"/api/patients/{pid}/profile", {"name": "Card Test Nou",
+                                                              "phone": "022654654",
+                                                              "birth_date": "1985-03-07"}).msg,
                   "ok_card")
-        res.ok("в фише дата целиком, по-человечески",
-               "07.03.1985" in c.get(f"/admin/patient/{pid}").body,
-               "дата не видна или сырой ISO")
+        res.check("в фише дата целиком, по-человечески",
+                  _card(c, pid)["profile"]["birth"], "07.03.1985")
 
         # ⚠️ проверять msg, а не код: отказ «bad_card» — тоже 303, и с кодом
         # эта проверка была пустой. Состояние звалось "caries" (в справочнике
         # "carie"), зуб не сохранялся НИКОГДА, а тест был зелёным.
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie",
-                   note="test", doctor="d2")
+        r = c.post_json(f"/api/patients/{pid}/teeth/11", {"state": "carie", "note": "test",
+                                                         "doctor": "d2", "surfaces": []})
         res.check("зуб отмечается", r.msg, "ok_card")
-        res.ok("состояние зуба видно в формуле",
-               "11 · Carie · test" in c.get(f"/admin/patient/{pid}").body,
-               "зуб не сохранился")
+        res.check("состояние зуба видно в формуле",
+                  json.loads(r.body)["data"]["teeth"]["11"]["title"], "11 · Carie · test")
 
-        r = c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11",
-                   tooth="11", price="1200")
-        res.ok("пункт плана добавляется", r.status == 303, f"код {r.status}")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("пункт плана виден в карточке", "Plombă 11" in page,
-               "плана нет на странице")
+        r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Plombă 11", "tooth": "11",
+                                                     "price": "1200"})
+        res.check("пункт плана добавляется", (r.status, r.msg), (200, "ok_card"))
+        items = _card(c, pid)["plan"]["items"]
+        res.check("пункт плана виден в карточке", [it["procedure"] for it in items], ["Plombă 11"])
 
         # ---- статусы плана: НАПРАВЛЕННЫЕ рёбра, а не кольцо (08-07) ----
-        iid = re.search(r"/plan/(\d+)/status", page).group(1)
+        iid = items[0]["id"]
+
+        def plan() -> dict:
+            return _card(c, pid)["plan"]
 
         def flip(to: str) -> str:
-            return c.post(f"/admin/patient/{pid}/plan/{iid}/status", to=to).msg
+            return c.post_json(f"/api/patients/{pid}/plan/{iid}/status", {"to": to}).msg
 
         res.check("из Planificat сразу в финал нельзя", flip("finalizat"), "bad_card")
         res.check("Începe: в работу — можно", flip("in_lucru"), "")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("у работы кнопка «Finalizează»", "Finalizează" in page,
-               "нет глагола завершения")
+        res.check("у работы следующий шаг — «Finalizează»", plan()["items"][0]["next"], "finalizat")
         res.check("из работы назад в Planificat нельзя", flip("planificat"),
                   "bad_card")
         res.check("Finalizează — можно", flip("finalizat"), "")
-        page = c.get(f"/admin/patient/{pid}").body
-        today_ro = clinic_today().strftime("%d.%m.%Y")
-        # 08-11: галочка стала иконкой набора, поэтому дата идёт сразу за
-        # закрывающим </svg>. Проверяется по-прежнему ДАТА, а не знак.
-        res.ok("дата завершения видна", f"</svg> {today_ro}" in page,
-               "done_at не показан")
+        pl = plan()
+        res.check("дата завершения видна", pl["items"][0]["done"], clinic_today().strftime("%d.%m.%Y"))
         # активного не осталось — вкладка по умолчанию сама «Finalizate»,
         # а не пустой экран
-        res.ok("без активных открыта вкладка Finalizate",
-               "class='on' data-f='finalizat'" in page
-               and "style='display:none'" not in page,
-               "показали пустую вкладку Active")
-        res.ok("прогресс честный", "1/1 finalizate" in page, "нет прогресса")
+        res.check("без активных открыта вкладка Finalizate", pl["default_tab"], "finalizat")
+        res.check("прогресс честный (1/1 finalizate)",
+                  (pl["n_track"], pl["counts"].get("finalizat"), pl["pct_done"]), (1, 1, 100))
         # появился новый активный пункт — финал уходит с глаз по умолчанию
-        c.post(f"/admin/patient/{pid}/plan", procedure="Detartraj", price="500")
-        page = c.get(f"/admin/patient/{pid}").body
+        c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Detartraj", "price": "500"})
+        pl = plan()
+        shown = set(_card(c, pid)["options"]["tab_states"][pl["default_tab"]])
+        by = {it["procedure"]: it for it in pl["items"]}
         res.ok("законченное спрятано, когда есть активное",
-               "data-st='finalizat' style='display:none'" in page
-               and "class='on' data-f='act'" in page,
-               "финал остался в активной вкладке")
-        res.ok("активный пункт видим", "Detartraj" in page
-               and "data-st='planificat' style='display:none'" not in page,
+               pl["default_tab"] == "act" and by["Plombă 11"]["status"] not in shown,
+               f"финал остался в активной вкладке ({pl['default_tab']})")
+        res.ok("активный пункт видим", by["Detartraj"]["status"] in shown,
                "активное спрятали заодно")
-        fin_row = page.split("data-st='finalizat'", 1)[1][:700]
-        res.ok("у финала только «Redeschide», не «Începe»",
-               "Redeschide" in fin_row and "Începe" not in fin_row,
-               "строка финала предлагает лишние переходы")
+        res.check("у финала только «Redeschide», не «Începe» и не отказ",
+                  (by["Plombă 11"]["next"], by["Plombă 11"]["refusable"]), ("in_lucru", False))
         res.check("воскресить финал в Planificat нельзя", flip("planificat"),
                   "bad_card")
         res.check("Redeschide: назад в работу — можно", flip("in_lucru"), "")
 
         # ---- платежи и баланс (08-07): долг = финализированное − оплачено ----
         res.check("довершаем Plombă обратно", flip("finalizat"), "")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("долг равен цене финализированного",
-               "De achitat" in page and "1 200 MDL" in page,
-               "нет долга 1 200 после финализации")
-        res.check("платёж записывается",
-                  c.post(f"/admin/patient/{pid}/pay", amount="500",
-                         method="numerar", note="avans").msg, "ok_pay")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("долг уменьшился до 700", "700 MDL" in page, "баланс не пересчитан")
-        res.check("оплата остатка картой",
-                  c.post(f"/admin/patient/{pid}/pay", amount="700",
-                         method="card").msg, "ok_pay")
-        res.ok("после полной оплаты — achitat integral",
-               "achitat integral" in c.get(f"/admin/patient/{pid}").body,
-               "нет отметки полной оплаты")
-        c.post(f"/admin/patient/{pid}/pay", amount="300", method="numerar")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("переплата показана авансом", "Avans" in page and "300 MDL" in page,
-               "аванс не считается")
-        res.check("нулевая сумма отбита",
-                  c.post(f"/admin/patient/{pid}/pay", amount="0",
-                         method="numerar").msg, "bad_pay")
-        res.check("выдуманный метод отбит",
-                  c.post(f"/admin/patient/{pid}/pay", amount="100",
-                         method="crypto").msg, "bad_pay")
-        pay_id = re.search(r"/pay/(\d+)/del", page).group(1)
-        res.check("директор удаляет платёж",
-                  c.post(f"/admin/patient/{pid}/pay/{pay_id}/del").msg, "pay_del")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("после удаления снова полная оплата",
-               "achitat integral" in page, "баланс не вернулся")
-        res.ok("удаление оставило след в летописи",
-               "Plată ștearsă" in page, "летопись молчит про удаление")
 
-        r = c.post(f"/admin/patient/{pid}/alert", kind="allergy",
-                   text="Alergie la penicilină")
-        res.ok("предупреждение добавляется", r.status == 303, f"код {r.status}")
+        def fin() -> dict:
+            return _card(c, pid)["finance"]
+
+        res.check("долг равен цене финализированного",
+                  (fin()["debt"], fin()["sold"]), (1200, {"kind": "bad", "amount": 1200}))
+        res.check("платёж записывается",
+                  c.post_json(f"/api/patients/{pid}/payments", {"amount": "500",
+                                                               "method": "numerar",
+                                                               "note": "avans"}).msg, "ok_pay")
+        res.check("долг уменьшился до 700", fin()["debt"], 700)
+        res.check("оплата остатка картой",
+                  c.post_json(f"/api/patients/{pid}/payments", {"amount": "700",
+                                                               "method": "card"}).msg, "ok_pay")
+        res.check("после полной оплаты — achitat integral", fin()["sold"], {"kind": "ok", "amount": 0})
+        c.post_json(f"/api/patients/{pid}/payments", {"amount": "300", "method": "numerar"})
+        res.check("переплата показана авансом", fin()["sold"], {"kind": "plus", "amount": 300})
+        res.check("нулевая сумма отбита",
+                  c.post_json(f"/api/patients/{pid}/payments", {"amount": "0",
+                                                               "method": "numerar"}).msg, "bad_pay")
+        res.check("выдуманный метод отбит",
+                  c.post_json(f"/api/patients/{pid}/payments", {"amount": "100",
+                                                               "method": "crypto"}).msg, "bad_pay")
+        pay_id = fin()["payments"][0]["id"]          # свежий — аванс 300
+        res.check("директор удаляет платёж",
+                  c.post_json(f"/api/patients/{pid}/payments/{pay_id}/delete", {}).msg, "pay_del")
+        card = _card(c, pid)
+        res.check("после удаления снова полная оплата", card["finance"]["sold"], {"kind": "ok", "amount": 0})
+        res.ok("удаление оставило след в летописи",
+               any(a["text"].startswith("Plată ștearsă") for a in card["activity"]["items"]),
+               "летопись молчит про удаление")
+
+        r = c.post_json(f"/api/patients/{pid}/alerts", {"kind": "allergy",
+                                                       "text": "Alergie la penicilină"})
+        res.check("предупреждение добавляется", (r.status, r.msg), (200, "ok_card"))
         res.ok("предупреждение видно в карточке",
-               "penicilină" in c.get(f"/admin/patient/{pid}").body,
+               any("penicilină" in a["text"] for a in _card(c, pid)["alerts"]),
                "алерт не показан")
 
         # архив = скрыть из списка «недавних», но по явному запросу найти можно:
         # карточку с историей лечения нельзя терять, её именно прячут
-        c.post(f"/admin/patient/{pid}/archive", on="1")
-        res.ok("архивный ушёл из списка недавних",
-               "Card Test Nou" not in c.get("/admin/search").body,
-               "архивный всё ещё в недавних")
+        c.post_json(f"/api/patients/{pid}/archive", {"on": True})
+        lst = _plist(c)
+        # не «пусто, значит ушёл»: список признаётся, что спрятал одного
+        res.check("архивный ушёл из списка недавних (спрятан, а не потерян)",
+                  ("Card Test Nou" in [r["name"] for r in lst["rows"]], lst["hidden_arh"]),
+                  (False, 1))
         res.ok("архивный находится по явному поиску",
-               "Card Test Nou" in c.get("/admin/search?q=Card+Test").body,
+               "Card Test Nou" in _names(c, "q=Card+Test"),
                "архивный потерялся совсем")
 
 
@@ -888,10 +866,9 @@ def suite_grid_edges(res: Result) -> None:
         c.post("/admin/add", adate=day, atime="10:00", adoctor="d2",
                aservice="consult", aname="Devreme Test", aphone="0690700",
                back="/admin/all")
-        pid_e = c.get("/admin/search?q=0690700").body.split(
-            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
-        c.post(f"/admin/patient/{pid_e}/appoint", adate=day, atime="07:00",
-               adoctor="d2", aservice="consult")
+        pid_e = pid_by_phone(c, "0690700")
+        c.post_json(f"/api/patients/{pid_e}/appoint", {"date": day, "time": "07:00",
+                                                      "doctor": "d2", "service": "consult"})
         page2 = c.get(f"/admin?date={day}").body
         times2 = re.findall(r"<div(?: class='nowh')?>(\d\d):00</div>", page2)
         res.ok("запись вне графика ДЕРЖИТ свой ряд", "07" in times2,
@@ -1053,7 +1030,9 @@ def suite_patients_list(res: Result) -> None:
 
     Статуса пациента в базе НЕТ — он выводится из алертов, плана и давности
     визита. Именно это здесь и стережётся: выведенная цифра ломается молча,
-    страница остаётся кодом 200 и выглядит нормально.
+    экран остаётся кодом 200 и выглядит нормально. Экран — React (13.10):
+    проверяется то, что он получает (`/api/patients*`), и книга Excel — та
+    же выборка целиком.
     """
     with Server() as s:
         c = Client(s.url).login()
@@ -1061,8 +1040,7 @@ def suite_patients_list(res: Result) -> None:
         def add(name: str, phone: str, day: int, time: str, doc: str) -> str:
             c.post("/admin/add", adate=_d(day), atime=time, adoctor=doc,
                    aservice="consult", aname=name, aphone=phone, back="/admin/all")
-            body = c.get(f"/admin/search?q={phone}").body
-            return body.split("/admin/patient/", 1)[1].split("'")[0]
+            return str(pid_by_phone(c, phone))
 
         vechi = add("Elena Bălan", "068111222", -400, "10:00", "d2")
         alerg = add("Dumitru Ganea", "069222444", -5, "11:00", "d3")
@@ -1070,129 +1048,108 @@ def suite_patients_list(res: Result) -> None:
         arh = add("Svetlana Ciobanu", "078333555", -12, "13:00", "d4")
         add("Radu Marin", "079444666", 2, "14:00", "d2")
 
-        c.post(f"/admin/patient/{alerg}/alert", kind="allergy", text="Penicilină")
-        c.post(f"/admin/patient/{plan}/plan", procedure="Coroană", price="1200")
-        c.post(f"/admin/patient/{arh}/archive", on="1")
-        c.post(f"/admin/patient/{vechi}/save", name="Elena Bălan",
-               phone="068111222", email="elena@example.com")
+        c.post_json(f"/api/patients/{alerg}/alerts", {"kind": "allergy", "text": "Penicilină"})
+        c.post_json(f"/api/patients/{plan}/plan", {"procedure": "Coroană", "price": "1200"})
+        c.post_json(f"/api/patients/{arh}/archive", {"on": True})
+        c.post_json(f"/api/patients/{vechi}/profile", {"name": "Elena Bălan",
+                                                      "phone": "068111222",
+                                                      "email": "elena@example.com"})
         # добор до второй страницы: пагинацию нечем проверить на пяти строках
         for i in range(8):
-            c.post("/admin/patients/new", name=f"Pacient Masiv {i}",
-                   phone=f"0611000{i:02d}")
+            c.post_json("/api/patients", {"name": f"Pacient Masiv {i}",
+                                         "phone": f"0611000{i:02d}"})
 
-        page = c.get("/admin/search").body
-        res.ok("список рисуется таблицей", "pl-tbl" in page and "pl-tiles" in page,
-               "нет разметки списка")
-        res.ok("три числа над списком",
-               all(x in page for x in ("Total pacienți", "Pacienți noi",
-                                       "Programări (luna aceasta)")),
-               "не все карточки на месте")
-        res.ok("денежной карточки в разделе нет", "Venituri" not in page,
-               "«Venituri» вернулась на страницу пациентов")
+        sm = json.loads(c.get("/api/patients/summary").body)["data"]
+        res.check("три числа над списком, денежного среди них нет (раздел — не выручка)",
+                  [t["icon"] for t in sm["tiles"]], ["users", "med", "cal"])
 
-        def rows(path: str) -> int:
-            return c.get(path).body.count("<tr id='plr")
+        def rows(qs: str = "") -> list[dict]:
+            return _plist(c, qs)["rows"]
 
-        res.check("в списке все неархивные", rows("/admin/search"), 12)
-        res.ok("архивный скрыт по умолчанию", "Svetlana" not in page,
+        by = {r["name"]: r for r in rows()}
+        res.check("в списке все неархивные", len(by), 12)
+        res.ok("архивный скрыт по умолчанию", "Svetlana Ciobanu" not in by,
                "архивный виден без запроса")
         res.ok("архивный находится явным поиском",
-               "Svetlana" in c.get("/admin/search?q=Svetlana").body,
+               "Svetlana Ciobanu" in _names(c, "q=Svetlana"),
                "архивный потерялся совсем")
 
         # статусы выводятся, а не хранятся — проверяем каждую ветку
-        res.ok("аллергия даёт «Necesită atenție»",
-               "Necesită atenție" in page, "нет бейджа внимания")
-        res.check("фильтр «внимание» — только он", rows("/admin/search?st=atentie"), 1)
-        res.check("фильтр «в лечении» — только план",
-                  rows("/admin/search?st=tratament"), 1)
-        res.ok("год без визита = «Inactiv»", "Inactiv" in page, "нет бейджа неактивности")
-        res.check("фильтр «архив» показывает архивного",
-                  rows("/admin/search?st=arhivat"), 1)
+        res.check("аллергия даёт «Necesită atenție»", by["Dumitru Ganea"]["status"], "atentie")
+        res.check("фильтр «внимание» — только он", len(rows("st=atentie")), 1)
+        res.check("фильтр «в лечении» — только план", len(rows("st=tratament")), 1)
+        res.check("год без визита = «Inactiv»", by["Elena Bălan"]["status"], "inactiv")
+        res.check("фильтр «архив» показывает архивного", len(rows("st=arhivat")), 1)
 
-        res.check("фильтр по врачу", rows("/admin/search?med=Dr.+Activ+Trei"), 1)
-        res.check("фильтр по каналу «recepție»", rows("/admin/search?ch=manual"), 12)
-        res.check("фильтр по каналу «telegram»", rows("/admin/search?ch=tg"), 0)
+        res.check("фильтр по врачу", len(rows("med=Dr.+Activ+Trei")), 1)
+        res.check("фильтр по каналу «recepție»", len(rows("ch=manual")), 12)
+        res.check("фильтр по каналу «telegram»", len(rows("ch=tg")), 0)
         res.ok("поиск не замечает диакритику",
-               "Bălan" in c.get("/admin/search?q=balan").body, "«balan» не нашёл «Bălan»")
+               "Elena Bălan" in _names(c, "q=balan"), "«balan» не нашёл «Bălan»")
         res.ok("поиск по e-mail",
-               "Bălan" in c.get("/admin/search?q=elena@example").body, "e-mail не ищется")
+               "Elena Bălan" in _names(c, "q=elena@example"), "e-mail не ищется")
         res.ok("поиск по телефону в любом формате",
-               "Radu Marin" in c.get("/admin/search?q=444+666").body,
+               "Radu Marin" in _names(c, "q=444+666"),
                "пробел в номере ломает поиск")
-        res.ok("ничего не найдено — не пустая страница",
-               "Nimic găsit" in c.get("/admin/search?q=zzzzz").body, "нет пустого вида")
+        # «Nimic găsit» вместо пустой таблицы рисует экран — по пустой выдаче
+        res.check("ничего не найдено — пустая выдача, а не ошибка",
+                  (_plist(c, "q=zzzzz")["rows"], _plist(c, "q=zzzzz")["total"]), ([], 0))
 
-        res.check("страница ограничена per", rows("/admin/search?per=10"), 10)
-        res.ok("подпись страницы честная",
-               "Afișare 1–10 din 12" in c.get("/admin/search?per=10").body,
-               "не та подпись под списком")
-        res.check("вторая страница — остаток",
-                  rows("/admin/search?per=10&page=2"), 2)
-        res.ok("страница за пределом схлопывается на последнюю",
-               "Afișare 11–12 din 12" in c.get("/admin/search?per=10&page=99").body,
-               "page=99 отдал пустоту")
-        res.ok("чужое per отбрасывается, а не ломает страницу",
-               "Afișare 1–12 din 12" in c.get("/admin/search?per=7").body,
-               "per=7 не откатился к 20")
-        names = re.findall(r"<div class='pl-nm'><b>([^<]+)</b>",
-                           c.get("/admin/search?sort=name").body)
+        d = _plist(c, "per=10")
+        res.check("страница ограничена per, счёт честный (Afișare 1–10 din 12)",
+                  (len(d["rows"]), d["total"], d["page"], d["pages"]), (10, 12, 1, 2))
+        res.check("вторая страница — остаток", len(rows("per=10&page=2")), 2)
+        d = _plist(c, "per=10&page=99")
+        res.check("страница за пределом схлопывается на последнюю (Afișare 11–12)",
+                  (d["page"], len(d["rows"])), (2, 2))
+        d = _plist(c, "per=7")
+        res.check("чужое per отбрасывается, а не ломает страницу",
+                  (d["per"], len(d["rows"])), (20, 12))
+        names = _names(c, "sort=name")
         res.ok("сортировка по имени", names == sorted(names, key=str.lower),
                f"порядок {names}")
 
-        peek = c.get(f"/admin/patient/{plan}/peek")
+        peek = c.get(f"/api/patients/{plan}/peek")
+        frag = json.loads(peek.body)["data"]["html"] if peek.status == 200 else ""
         res.ok("предпросмотр отдаёт кусок разметки, не страницу",
-               peek.status == 200 and "Plan de tratament" in peek.body
-               and "<html" not in peek.body, f"код {peek.status}")
-        # ⚠️ журнал перезагружает себя каждые 12 с — панель обязана переживать
-        # это через sessionStorage, иначе она «исчезает» на глазах (жалоба 08-06)
-        page_js = c.get("/admin/search").body
-        res.ok("панель переживает автоперезагрузку",
-               "dp_peek" in page_js and "dp_peek_html" in page_js,
-               "нет восстановления предпросмотра после обновления страницы")
+               "Plan de tratament" in frag and "<html" not in frag, f"код {peek.status}")
         res.ok("предпросмотр показывает аллергию",
-               "Penicilină" in c.get(f"/admin/patient/{alerg}/peek").body,
+               "Penicilină" in json.loads(c.get(f"/api/patients/{alerg}/peek").body)["data"]["html"],
                "алерта нет в панели")
-        res.check("предпросмотр несуществующего", c.get("/admin/patient/9999/peek").status,
+        res.check("предпросмотр несуществующего", c.get("/api/patients/9999/peek").status,
                   404)
+        # CSV снят 13.10 (слово Олега 12.10: «CSV удаляем, остаётся xlsx»)
+        res.check("CSV-выгрузки списка больше нет — только книга",
+                  c.get("/admin/patients.csv").status, 404)
 
-        csv_r = c.get("/admin/patients.csv")
-        res.ok("экспорт отдаётся файлом",
-               csv_r.status == 200 and "attachment" in csv_r.header("Content-Disposition")
-               and csv_r.body.startswith("﻿"), f"код {csv_r.status}")
-        res.check("экспорт слушается фильтров (шапка + одна строка)",
-                  len(c.get("/admin/patients.csv?st=atentie").body.strip().split("\r\n")),
-                  2)
-
-        r = c.post("/admin/patients/new", name="Grigore Nou", phone="060777888",
-                   birth_date="1978-02-02", email="gn@example.com")
+        r = c.post_json("/api/patients", {"name": "Grigore Nou", "phone": "060777888",
+                                         "birth_date": "1978-02-02", "email": "gn@example.com"})
         res.check("новая фиша заводится", r.msg, "new_pat")
-        new_id = r.location.split("/admin/patient/")[1].split("?")[0]
-        res.ok("новый пациент попал в список",
-               "Grigore Nou" in c.get("/admin/search").body, "нет в списке")
+        new_id = json.loads(r.body)["data"]["id"]
+        res.ok("новый пациент попал в список", "Grigore Nou" in _names(c), "нет в списке")
         # ⭐ ключ manual:{цифры} склеивает по телефону: повтор обязан ОТКРЫТЬ
         # существующую фишу, а не переписать в ней имя
-        r = c.post("/admin/patients/new", name="Alt Nume", phone="060 777 888")
+        r = c.post_json("/api/patients", {"name": "Alt Nume", "phone": "060 777 888"})
         res.check("тот же телефон — не новый пациент", r.msg, "dup_pat")
-        res.ok("повтор ведёт в ту же фишу", f"/admin/patient/{new_id}" in r.location,
-               f"увёл на {r.location!r}")
-        res.ok("имя существующего не перезаписано",
-               "Grigore Nou" in c.get(f"/admin/patient/{new_id}").body,
-               "имя затёрлось повтором")
-        r = c.post("/admin/patients/new", name="Fara Telefon")
+        res.check("повтор ведёт в ту же фишу", json.loads(r.body)["data"]["id"], new_id)
+        res.check("имя существующего не перезаписано", _card(c, new_id)["name"], "Grigore Nou")
+        r = c.post_json("/api/patients", {"name": "Fara Telefon"})
         res.check("без телефона тоже заводится", r.msg, "new_pat")
         res.ok("заведённый на рецепции — канал «recepție»",
-               "Fara Telefon" in c.get("/admin/search?ch=manual").body,
+               "Fara Telefon" in _names(c, "ch=manual"),
                "канал определился неверно")
         res.check("без имени не заводится",
-                  c.post("/admin/patients/new", name="  ").msg, "bad_pat")
+                  c.post_json("/api/patients", {"name": "  "}).msg, "bad_pat")
 
         # ⭐ 08-13, скриншот Олега: «Exportă» отдавал CSV, и Excel съедал
         # ведущий ноль телефона, а даты показывал решёткой — та же беда, что
-        # у выгрузки дня до 1.19.23. Кнопка теперь ведёт на книгу.
+        # у выгрузки дня до 1.19.23. Кнопку рисует экран React: её адрес —
+        # книга, и в исходнике экрана CSV не упоминается.
+        screen = (BOT.parent / "frontend" / "src" / "features" / "patients"
+                  / "PatientsSearchScreen.tsx").read_text(encoding="utf-8")
         res.ok("кнопка «Exportă» ведёт на книгу, не на CSV",
-               "/admin/patients.xlsx" in c.get("/admin/search").body,
-               "кнопка всё ещё отдаёт CSV")
+               "/admin/patients.xlsx" in screen and "patients.csv" not in screen,
+               "кнопка списка отдаёт не книгу")
         xls = c.get("/admin/patients.xlsx")
         res.ok("экспорт-книга отдаётся",
                xls.status == 200 and xls.raw[:2] == b"PK",
@@ -1207,17 +1164,31 @@ def suite_patients_list(res: Result) -> None:
         res.ok("дата рождения — датой, а не текстом",
                f"<v>{serial}</v>" in sheet,
                "1978-02-02 не серийным числом — в Excel это текст")
-        res.check("экспорт-книга слушается фильтров",
-                  c.get("/admin/patients.xlsx?st=atentie").status, 200)
+        # ⭐ Книга — та же выборка, что экран (`_pl_select` + SQL, 13.10):
+        # фильтр режет строки, архив скрыт, пока его не спросили поиском
+        def book(qs: str) -> str:
+            r = c.get("/admin/patients.xlsx" + (f"?{qs}" if qs else ""))
+            return zipfile.ZipFile(io.BytesIO(r.raw)).read("xl/worksheets/sheet1.xml").decode("utf-8")
+
+        at = book("st=atentie")
+        res.ok("экспорт-книга слушается фильтров: шапка и один пациент",
+               at.count("<row ") == 2 and "Dumitru Ganea" in at,
+               f"строк {at.count('<row ')}")
+        full = book("")
+        res.ok("книга без фильтра — все живые, архивный скрыт",
+               full.count("<row ") == 15 and "Svetlana" not in full,
+               f"строк {full.count('<row ')} (ждём шапку и 14)")
+        res.ok("архивный уезжает в книгу, когда его спросили поиском",
+               "Svetlana" in book("q=Svetlana"), "поиск по архиву книга не слушает")
 
         anon = Client(s.url)
-        for path in ("/admin/search", "/admin/patients.csv",
-                     "/admin/patients.xlsx", "/admin/patient/1/peek"):
+        for path in ("/admin/search", "/admin/patients.xlsx"):
             res.ok(f"без входа {path} не отдаётся", anon.get(path).status == 303,
                    "отдал без входа")
-        res.ok("без входа пациент не заводится",
-               anon.post("/admin/patients/new", name="X").status == 303,
-               "завёл без входа")
+        res.check("без входа предпросмотр не отдаётся (JSON API — 401)",
+                  anon.get("/api/patients/1/peek").status, 401)
+        res.check("без входа пациент не заводится (JSON API — 401)",
+                  anon.post_json("/api/patients", {"name": "X"}).status, 401)
 
 
 def suite_money(res: Result) -> None:
@@ -1234,63 +1205,56 @@ def suite_money(res: Result) -> None:
             c.post("/admin/add", adate=_d(1), atime=at, adoctor="d2",
                    aservice="consult", aname=name, aphone=phone,
                    back="/admin/all")
-            return c.get(f"/admin/search?q={phone}").body.split(
-                "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+            return pid_by_phone(c, phone)
 
-        def charge(pid: str, price: int) -> None:
+        def charge(pid: int, price: int) -> None:
             """Начислить: пункт плана с ценой и довести его до finalizat —
             долг считается ТОЛЬКО по финализированным (как в фише)."""
-            c.post(f"/admin/patient/{pid}/plan", procedure="Plombă",
-                   tooth="11", price=str(price))
-            iid = re.findall(r"/plan/(\d+)/status",
-                             c.get(f"/admin/patient/{pid}").body)[-1]
-            c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="in_lucru")
-            c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="finalizat")
+            r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Plombă", "tooth": "11",
+                                                         "price": str(price)})
+            iid = json.loads(r.body)["data"]["plan"]["items"][0]["id"]
+            c.post_json(f"/api/patients/{pid}/plan/{iid}/status", {"to": "in_lucru"})
+            c.post_json(f"/api/patients/{pid}/plan/{iid}/status", {"to": "finalizat"})
 
-        def row(page: str, pid: str) -> str:
-            """Строка ИМЕННО этого пациента. Искать сумму по всей странице
-            нельзя: она встретится у соседа, и проверка станет пустой."""
-            mark = f"id='plr{pid}'"
-            return page.split(mark, 1)[1].split("</tr>", 1)[0] if mark in page else ""
+        def row(qs: str, pid: int) -> dict:
+            """Строка ИМЕННО этого пациента в выдаче списка (пустой словарь —
+            его в выдаче нет). Сумму ищем в его строке, а не по всей выдаче:
+            она встретилась бы у соседа, и проверка стала бы пустой."""
+            return next((r for r in _plist(c, qs)["rows"] if r["id"] == pid), {})
 
         dat = add("Datornic Unu", "022110011", "09:00")
         avn = add("Avansat Doi", "022220022", "10:00")
         charge(dat, 1200)
         charge(avn, 500)
         res.check("аванс записывается",
-                  c.post(f"/admin/patient/{avn}/pay", amount="800",
-                         method="card").msg, "ok_pay")
+                  c.post_json(f"/api/patients/{avn}/payments", {"amount": "800",
+                                                               "method": "card"}).msg, "ok_pay")
 
-        page = c.get("/admin/search").body
-        res.ok("колонка Sold есть в шапке", ">Sold<" in page, "нет заголовка")
-        res.ok("долг показан в строке должника", "1 200 MDL" in row(page, dat),
-               f"строка: {row(page, dat)[-160:]!r}")
-        res.ok("аванс показан зелёным", "avans 300" in row(page, avn),
-               f"строка: {row(page, avn)[-160:]!r}")
+        # колонку «Sold» (долг красным, аванс зелёным) рисует экран по числу
+        res.check("долг — в строке должника числом", row("", dat).get("debt"), 1200)
+        res.check("аванс — отрицательным долгом", row("", avn).get("debt"), -300)
 
-        only_debt = c.get("/admin/search?dat=da").body
-        res.ok("фильтр «с долгом» оставил должника", row(only_debt, dat) != "",
+        res.ok("фильтр «с долгом» оставил должника", row("dat=da", dat) != {},
                "должник пропал")
         res.ok("фильтр «с долгом» убрал переплатившего",
-               row(only_debt, avn) == "", "аванс попал в должники")
-        only_adv = c.get("/admin/search?dat=avans").body
+               row("dat=da", avn) == {}, "аванс попал в должники")
         res.ok("фильтр «с авансом» оставил переплатившего",
-               row(only_adv, avn) != "", "аванс пропал")
-        res.ok("фильтр «с авансом» убрал должника", row(only_adv, dat) == "",
+               row("dat=avans", avn) != {}, "аванс пропал")
+        res.ok("фильтр «с авансом» убрал должника", row("dat=avans", dat) == {},
                "должник попал в авансы")
 
-        sorted_page = c.get("/admin/search?sort=debt").body
+        order = [r["id"] for r in _plist(c, "sort=debt")["rows"]]
         res.ok("сортировка по долгу: должник выше аванса",
-               sorted_page.index(f"plr{dat}") < sorted_page.index(f"plr{avn}"),
-               "порядок не по сумме")
+               order.index(dat) < order.index(avn), "порядок не по сумме")
 
-        csv_body = c.get("/admin/patients.csv").body
-        res.ok("в CSV есть колонка Sold", "Sold (MDL)" in csv_body,
+        xls = c.get("/admin/patients.xlsx")
+        sheet = zipfile.ZipFile(io.BytesIO(xls.raw)).read("xl/worksheets/sheet1.xml").decode("utf-8")
+        res.ok("в книге есть колонка Sold", "Sold (MDL)" in sheet,
                "выгрузка отстала от экрана")
         # число со знаком, без пробелов и валюты: иначе Excel читает колонку
         # как текст, и по ней нельзя ни просуммировать, ни отсортировать
-        res.ok("в CSV долг числом", ";1200;" in csv_body, "долг не числом")
-        res.ok("в CSV аванс отрицательным", ";-300;" in csv_body,
+        res.ok("в книге долг числом", "<v>1200</v>" in sheet, "долг не числом")
+        res.ok("в книге аванс отрицательным", "<v>-300</v>" in sheet,
                "аванс не отличается от долга знаком")
 
         # ---- печатный отчёт кассы ----
@@ -1334,29 +1298,23 @@ def suite_money(res: Result) -> None:
         # ---- архив: куда девается пациент (вопрос Олега 08-09) ----
         # Архивация УБИРАЕТ фишу из списка. Пока это происходило молча, человек
         # возвращался в список, никого не находил и решал, что потерял запись.
-        r = c.post(f"/admin/patient/{avn}/archive", on="1")
+        r = c.post_json(f"/api/patients/{avn}/archive", {"on": True})
         res.check("архивация называет себя отдельным сообщением", r.msg, "ok_arh")
-        # проверяем ТЕКСТ на странице, а не словарь: «Arhivat» само по себе есть
-        # и в плашке статуса архивной фиши — по нему проверка была бы пустой
-        res.ok("баннер объясняет, что фиша ушла из списка",
-               "nu mai apare în listă" in c.get(
-                   f"/admin/patient/{avn}?msg=ok_arh").body,
-               "баннер не объясняет исчезновение")
-        page = c.get("/admin/search").body
-        res.ok("архивный ушёл из списка", row(page, avn) == "", "остался в списке")
-        res.ok("список признаётся, что кого-то прячет",
-               "arhivat" in page and "st=arhivat" in page,
-               "скрытые есть, а двери к ним нет")
-        arh = c.get("/admin/search?st=arhivat").body
-        res.ok("фильтр «Arhivat» показывает архивного", row(arh, avn) != "",
+        # проверяем ТЕКСТ ответа (его экран показывает плашкой), а не словарь:
+        # «Arhivat» само по себе есть и в плашке статуса архивной фиши
+        res.ok("плашка объясняет, что фиша ушла из списка",
+               "nu mai apare în listă" in json.loads(r.body)["text"],
+               "плашка не объясняет исчезновение")
+        res.ok("архивный ушёл из списка", row("", avn) == {}, "остался в списке")
+        res.check("список признаётся, что кого-то прячет (дверь «arată»)",
+                  _plist(c)["hidden_arh"], 1)
+        res.ok("фильтр «Arhivat» показывает архивного", row("st=arhivat", avn) != {},
                "по фильтру архив пуст")
         res.ok("поиск по имени находит архивного",
-               row(c.get("/admin/search?q=Avansat").body, avn) != "",
-               "архивного нельзя найти поиском")
-        r = c.post(f"/admin/patient/{avn}/archive", on="0")
+               row("q=Avansat", avn) != {}, "архивного нельзя найти поиском")
+        r = c.post_json(f"/api/patients/{avn}/archive", {"on": False})
         res.check("возврат из архива — своё сообщение", r.msg, "ok_unarh")
-        res.ok("вернулся в список", row(c.get("/admin/search").body, avn) != "",
-               "не вернулся")
+        res.ok("вернулся в список", row("", avn) != {}, "не вернулся")
 
 
 def suite_settings(res: Result) -> None:
@@ -1888,11 +1846,14 @@ def suite_bot_ui(res: Result) -> None:
         # не было — три дырки (фильтр, строка «Canal Telegram» в Stare sistem,
         # абзац токена в FAQ) прожили незамеченными. Слово и обе страницы
         # теперь в обходе.
-        # ⚠️ Экраны React (настройки, статистика, врачи) несут текст в ответах
-        # /api/*, а не в странице: обход страницы у них ничего не видит, и
-        # сторож молча становился пустым — поэтому их ответы в обходе тоже.
+        # ⚠️ Экраны React (настройки, статистика, врачи, пациенты) несут текст
+        # в ответах /api/*, а не в странице: обход страницы у них ничего не
+        # видит, и сторож молча становился пустым — поэтому в обходе их ответы.
+        bot_pid = new_patient(c, "Fara Bot", "069000777")
         leaks = []
-        for path in ("/admin", "/admin/all", "/admin/search",
+        for path in ("/admin", "/admin/all",
+                     "/api/patients", "/api/patients/summary", f"/api/patients/{bot_pid}",
+                     f"/api/patients/{bot_pid}/peek",
                      "/api/settings/hub", "/api/settings/clinic",
                      "/api/settings/hours", "/api/settings/services",
                      "/api/settings/system", "/api/settings/faq", "/api/stats",
@@ -1966,10 +1927,10 @@ def suite_bot_ui(res: Result) -> None:
         # tg-пациентов её тоже не видит (канарейка-демо — ровно этот случай;
         # фильтр по пустому множеству продавал бы замороженный канал на демо).
         # Обратная сторона — в test_bot: у клиники с bot-пациентом опция есть.
+        channels = [x["id"] for x in
+                    json.loads(c.get("/api/patients/summary").body)["data"]["channels"]]
         res.ok("grandfather без tg-пациентов: фильтр каналов без Telegram",
-               "<option value='tg'>Telegram</option>"
-               not in c.get("/admin/search").body,
-               "опция Telegram при нуле tg-пациентов")
+               channels and "tg" not in channels, f"опция Telegram при нуле tg-пациентов: {channels}")
         res.check("grandfather: лендинг самозаписи открыт", c.get("/").status, 200)
         res.check("grandfather: веб-чат отвечает",
                   c.post_json("/chat", {"session_id": "g", "message": "/start"}).status,

@@ -18,7 +18,8 @@ import subprocess
 import sys
 import tempfile
 
-from harness import BOT, FIXTURES, PYTHON, Client, Result, Server, clinic_today, _rmtree_settled
+from harness import (BOT, FIXTURES, PYTHON, Client, Result, Server, _rmtree_settled,
+                     clinic_today, new_patient)
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -313,21 +314,19 @@ def suite_punte_race(res: Result) -> None:
 
     with Server() as s:
         c0 = Client(s.url).login()
-        c0.post("/admin/patients/new", name="Punte Race", phone="022818181")
-        pid = c0.get("/admin/search?q=022818181").body.split(
-            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        pid = new_patient(c0, "Punte Race", "022818181")
 
         barrier = threading.Barrier(2)
 
-        def fire(teeth: str) -> str:
+        def fire(teeth: list) -> str:
             c = Client(s.url).login()
             barrier.wait()
-            return c.post(f"/admin/patient/{pid}/bridge",
-                          teeth=teeth, material="metal").msg
+            return c.post_json(f"/api/patients/{pid}/bridges",
+                               {"teeth": teeth, "material": "metal"}).msg
 
         with concurrent.futures.ThreadPoolExecutor(2) as ex:
-            got = sorted(ex.map(fire, ["26:stalp,27:corp",
-                                       "27:stalp,28:corp"]))
+            got = sorted(ex.map(fire, [[[26, "stalp"], [27, "corp"]],
+                                       [[27, "stalp"], [28, "corp"]]]))
         res.check("общий зуб 27: ровно один мост", got,
                   ["dup_punte", "ok_punte"])
 
@@ -784,11 +783,9 @@ def suite_doc_ownership(res: Result) -> None:
     patient_id и в маршруте, и в SQL."""
     with Server() as s:
         c = Client(s.url).login()
-        pid_a = c.post("/admin/patients/new", name="Doc Owner",
-                       phone="069010101").location.rsplit("/", 1)[-1].split("?")[0]
-        pid_b = c.post("/admin/patients/new", name="Alt Pacient",
-                       phone="069020202").location.rsplit("/", 1)[-1].split("?")[0]
-        r = c.post_file(f"/admin/patient/{pid_a}/doc", "file", "scan.png",
+        pid_a = new_patient(c, "Doc Owner", "069010101")
+        pid_b = new_patient(c, "Alt Pacient", "069020202")
+        r = c.post_file(f"/api/patients/{pid_a}/documents", "file", "scan.png",
                         b"\x89PNG\r\n\x1a\n" + b"x" * 64, category="alt")
         res.check("документ загружен", r.msg, "ok_doc")
         res.check("владелец скачивает", c.get("/admin/doc/1").status, 200)
@@ -798,16 +795,16 @@ def suite_doc_ownership(res: Result) -> None:
                anon.get("/admin/doc/1").status == 303
                and "/admin/login" in anon.get("/admin/doc/1").location,
                "файл пациента доступен без входа")
-        res.check("и «открыть программой» без входа закрыто",
-                  anon.post("/admin/doc/1/open").status, 303)
-        anon.post(f"/admin/patient/{pid_a}/doc/1/del")
+        res.check("и «открыть программой» без входа закрыто (JSON API — 401)",
+                  anon.post_json("/api/documents/1/open", {}).status, 401)
+        anon.post_json(f"/api/patients/{pid_a}/documents/1/delete", {})
         res.check("удаление без входа не прошло", c.get("/admin/doc/1").status,
                   200)
 
-        c.post(f"/admin/patient/{pid_b}/doc/1/del")   # чужая фиша в адресе
+        c.post_json(f"/api/patients/{pid_b}/documents/1/delete", {})   # чужая фиша в адресе
         res.check("удаление через чужую фишу не прошло",
                   c.get("/admin/doc/1").status, 200)
-        c.post(f"/admin/patient/{pid_a}/doc/1/del")
+        c.post_json(f"/api/patients/{pid_a}/documents/1/delete", {})
         res.check("удаление владельцем работает", c.get("/admin/doc/1").status,
                   303)
 

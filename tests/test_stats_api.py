@@ -121,8 +121,10 @@ def suite_board(res: Result) -> None:
         # платежи сегодня — чтобы доли способов и ряд денег было с чем сверить
         rows = _j(c.get("/api/patients?q=Stat%20API%20Unu"))["data"]["rows"]
         pid = rows[0]["id"]
-        c.post(f"/admin/patient/{pid}/pay", amount="1500", method="card", note="")
-        c.post(f"/admin/patient/{pid}/pay", amount="500", method="numerar", note="")
+        c.post_json(f"/api/patients/{pid}/payments", {"amount": "1500", "method": "card",
+                                                     "note": ""})
+        c.post_json(f"/api/patients/{pid}/payments", {"amount": "500", "method": "numerar",
+                                                     "note": ""})
         d = _j(c.get("/api/stats"))["data"]
         b = d["board"]
         k = {x["key"]: x for x in b["kpis"]}

@@ -1,5 +1,4 @@
-"""Пародонтограмма (C23): старая страница записана эталоном, `/api/…/perio`
-повторяет её данными, действия через JSON — теми же правилами, что формы.
+"""Пародонтограмма (C23): `/api/…/perio` — лист данными, действия через JSON.
 
 `test_perio.py` стережёт КЛИНИКУ: что измерения доехали до четырёх
 представлений (экран, печатный лист, §4 печатной 043/e, выгрузка по 195-му) и
@@ -10,6 +9,9 @@
 в выпадающем списке — и что запись стирает ровно то, о чём сообщила, не трогая
 работу второго рабочего места.
 
+До 13.10 эталоном служила старая страница листа (`suite_pin`); она снята, и
+её записанные руками ожидания живут в `suite_api` значениями.
+
 Контракт — docs/dentpilot-2/clinical-chart.md.
 """
 import json
@@ -17,16 +19,10 @@ import pathlib
 import re
 from datetime import datetime, timezone
 
-from harness import Client, Result, Server
-
-# Осмотр целиком в проволочном виде старой формы: 16 — карманы 4 и 5 мм, две
-# кровоточащие точки, подвижность I и фуркация II; 46 — ровные двойки.
-CHART = ("16:3,2,3,4,2,5/1,0,0,0,0,2/010010/1/2;"
-         "46:2,2,2,2,2,2/0,0,0,0,0,0/000000/0/0")
+from harness import Client, Result, Server, pid_by_phone
 
 PERM = ([18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
         + [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38])
-ALL_TEETH = ",".join(str(n) for n in PERM)
 
 
 def _j(r) -> dict:
@@ -34,126 +30,33 @@ def _j(r) -> dict:
 
 
 def _pid(c: Client, phone: str) -> int:
-    return int(c.get(f"/admin/search?q={phone}").body.split(
-        "<tr id='plr", 1)[1].split("'", 1)[0])
+    return pid_by_phone(c, phone)
 
 
-def _new_exam(c: Client, base: str) -> int:
-    loc = c.post(f"{base}/perio/new").location or ""
-    m = re.search(r"exam=(\d+)", loc)
-    return int(m.group(1)) if m else 0
+def _new_exam(c: Client, pid: int) -> int:
+    """Новый осмотр (`POST …/perio/exams`) и его id."""
+    return _j(c.post_json(f"/api/patients/{pid}/perio/exams", {}))["data"]["exam"]["id"]
 
 
 def _seed(c: Client) -> dict:
     """Пациент с осмотром: измеренные 16 и 46, отсутствующий 26 и удалённый 38
     в одонтограмме (карта обязана приглушить оба), врач и заметка осмотра."""
-    c.post("/admin/patients/new", name="Perio Pin", phone="069400400")
+    c.post_json("/api/patients", {"name": "Perio Pin", "phone": "069400400"})
     pid = _pid(c, "069400400")
-    t = f"/admin/patient/{pid}/tooth"
-    c.post(t, tooth="26", state="lipsa")
-    c.post(t, tooth="38", state="extras")
+    t = f"/api/patients/{pid}/teeth"
+    c.post_json(f"{t}/26", {"state": "lipsa", "surfaces": []})
+    c.post_json(f"{t}/38", {"state": "extras", "surfaces": []})
     base = f"/admin/patient/{pid}"
-    eid = _new_exam(c, base)
-    r = c.post(f"{base}/perio", exam=str(eid), chart=CHART, covers=ALL_TEETH,
-               doctor="Dr. Activ Doi", note="reevaluare")
-    assert r.msg == "ok_perio", r.location
+    eid = _new_exam(c, pid)
+    # 16 — карманы 4 и 5 мм, две кровоточащие точки, подвижность I и фуркация
+    # II; 46 — ровные двойки
+    r = c.post_json(f"/api/patients/{pid}/perio/{eid}", {
+        "teeth": {"16": _row(pd=[3, 2, 3, 4, 2, 5], rec=[1, 0, 0, 0, 0, 2], bop="010010",
+                             mob=1, furc=2),
+                  "46": _row(pd=[2] * 6)},
+        "covers": PERM, "doctor": "Dr. Activ Doi", "note": "reevaluare"})
+    assert r.msg == "ok_perio", r.body[:200]
     return {"pid": pid, "eid": eid, "base": base}
-
-
-def _col(page: str, tooth: int) -> str:
-    """Колонка одного зуба со старой страницы: кусок от её `data-tooth` до
-    начала следующей (внутри колонки вложенных `</div>` слишком много, чтобы
-    резать по закрывающему тегу)."""
-    for chunk in page.split("<div class='ptooth")[1:]:
-        if chunk.startswith(f" absent' data-tooth='{tooth}'") or chunk.startswith(
-                f"' data-tooth='{tooth}'"):
-            return chunk
-    raise AssertionError(f"нет колонки зуба {tooth}")
-
-
-def suite_pin(res: Result) -> None:
-    """Старая страница — эталон: состав листа, порядок точек, кровоточивость
-    только у глубины, приглушённые отсутствующие, итог справа."""
-    with Server() as s:
-        c = Client(s.url).login()
-        d = _seed(c)
-        pid, base = d["pid"], d["base"]
-        page = c.get(f"{base}/parodontograma").body
-
-        res.ok("шапка листа и подзаголовок про шесть точек",
-               "Parodontogramă" in page and "6 puncte pe dinte" in page,
-               "нет шапки")
-        res.ok("осмотр в списке: дата и счёт измеренных зубов",
-               re.search(r"<option value='\d+' selected>\d\d\.\d\d\.\d{4} · 2 dinți</option>",
-                         page) is not None,
-               "нет строки осмотра с датой и счётом")
-        res.check("форма несёт id осмотра, отпечаток и пустое поле covers",
-                  (f"name='exam' value='{d['eid']}'" in page,
-                   len(_hidden(page, "rev")) == 12,
-                   "name='covers' id='pcovers'" in page),
-                  (True, True, True))
-
-        col = _col(page, 16)
-        order = re.findall(r"data-k='(\w+)' data-i='(\d)'", col)
-        res.check("порядок в колонке: глубина V, рецессия V, номер, рецессия O, глубина O",
-                  order,
-                  [("pd", "0"), ("pd", "1"), ("pd", "2"),
-                   ("rec", "0"), ("rec", "1"), ("rec", "2"),
-                   ("rec", "3"), ("rec", "4"), ("rec", "5"),
-                   ("pd", "3"), ("pd", "4"), ("pd", "5")])
-        res.check("значения зуба 16 на местах",
-                  re.findall(r"value='(\d*)' data-k='(\w+)' data-i='(\d)'", col),
-                  [("3", "pd", "0"), ("2", "pd", "1"), ("3", "pd", "2"),
-                   ("1", "rec", "0"), ("", "rec", "1"), ("", "rec", "2"),
-                   ("", "rec", "3"), ("", "rec", "4"), ("2", "rec", "5"),
-                   ("4", "pd", "3"), ("2", "pd", "4"), ("5", "pd", "5")])
-        res.check("точка кровоточивости только у глубины, и ровно шесть на зуб",
-                  (col.count("class='pdot"), col.count("class='pdot on'")),
-                  (6, 2))
-        res.check("карман 4+ мм помечен на самой клетке",
-                  (col.count("class='pcell deep'"), _col(page, 46).count("class='pcell deep'")),
-                  (2, 0))
-        res.ok("подпись точки — словами, с номером зуба для чтения с экрана",
-               "aria-label='16 adâncime mezio-vestibular'" in col
-               and "title='recesiune · disto-lingual'" in col, "нет подписи точки")
-        res.check("подвижность и фуркация — у зуба целиком, 0–3, ноль показан прочерком",
-                  (col.count("<option value='0' selected>—</option>"),
-                   "data-k='mob'" in col, "data-k='furc'" in col,
-                   col.count("<option value='1' selected>")),
-                  (0, True, True, 1))
-
-        res.check("отсутствующий и удалённый зубы приглушены, здоровые — нет",
-                  (page.count("class='ptooth absent'"),
-                   "data-tooth='26'" in page.split("class='ptooth absent'", 1)[1][:40]),
-                  (2, True))
-        res.ok("подсказка объясняет приглушение",
-               "Dinte marcat absent în odontogramă" in page, "нет подсказки")
-
-        nums = [int(n) for n in re.findall(r"data-tooth='(\d+)'", page)]
-        res.check("на листе только постоянные зубы, обеими дугами по порядку",
-                  nums, PERM)
-
-        summary = page.split("class='psum'", 1)[1].split("</aside>", 1)[0]
-        res.check("итог справа: BOP, средняя глубина, карманы, измеренные зубы",
-                  re.findall(r"<b>([^<]+)</b>", summary),
-                  ["17%", "2.6 mm", "2", "2"])
-        res.ok("итог называет порог глубокого кармана и число тяжёлых",
-               "Pungi 4+ mm" in summary and "din care 6+ mm: 0" in summary, "нет порогов")
-        res.ok("CAL объяснён как вычислимое, а не поле ввода",
-               "se\n  calculează, nu se introduce" in page or "nu se introduce" in page,
-               "нет объяснения CAL")
-
-        foot = page.split("class='pfoot'", 1)[1].split("</div>", 1)[0]
-        res.ok("врач осмотра выбран в списке, заметка на месте",
-               "selected>Dr. Activ Doi<" in foot and "value='reevaluare'" in page,
-               "снимок врача или заметка потерялись")
-
-        c.post("/admin/patients/new", name="Perio Gol", phone="069400401")
-        empty = c.get(
-            f"/admin/patient/{_pid(c, '069400401')}/parodontograma").body
-        res.ok("пациент без осмотров: экран «начните», а не пустая карта",
-               "niciun examen parodontal" in empty and "Începe primul examen" in empty,
-               "нет экрана начала")
 
 
 def _row(pd=None, rec=None, bop="000000", mob=0, furc=0) -> dict:
@@ -167,14 +70,15 @@ def _strip_hits(svg: str) -> str:
 
 
 def suite_api(res: Result) -> None:
-    """`GET /api/patients/{pid}/perio` повторяет лист данными; запись через
-    JSON — теми же правилами, тем же разбором и теми же кодами, что форма."""
+    """`GET /api/patients/{pid}/perio` — лист данными; запись через JSON —
+    белыми списками разбора (`teeth_svg`), правилом `covers` и кодами
+    MSG_BANNER."""
     with Server() as s:
         res.check("без входа — 401", Client(s.url).get("/api/patients/1/perio").status, 401)
         c = Client(s.url).login()
         res.check("чужая фиша — 404", c.get("/api/patients/777/perio").status, 404)
         d = _seed(c)
-        pid, base, eid = d["pid"], d["base"], d["eid"]
+        pid, eid = d["pid"], d["eid"]
         j = _j(c.get(f"/api/patients/{pid}/perio"))["data"]
         res.check("состав", sorted(j),
                   sorted(["patient", "exams", "exam", "rev", "rows", "teeth",
@@ -184,9 +88,12 @@ def suite_api(res: Result) -> None:
                   sorted(j["colors"]), ["deep", "severe"])
         res.check("осмотр выбран свежий, с датой, врачом, заметкой и счётом зубов",
                   ({k: v for k, v in j["exam"].items() if k != "at"},
-                   bool(re.fullmatch(r"\d\d\.\d\d\.\d{4}", j["exam"]["at"])), len(j["exams"])),
+                   bool(re.fullmatch(r"\d\d\.\d\d\.\d{4}", j["exam"]["at"])), len(j["exams"]),
+                   j["exams"][0] == j["exam"]),
                   ({"id": eid, "doctor": "Dr. Activ Doi", "note": "reevaluare", "teeth": 2},
-                   True, 1))
+                   True, 1, True))
+        res.ok("отпечаток осмотра едет на экран — с ним запись и вернётся",
+               len(j["rev"]) == 12, f"rev {j['rev']!r}")
         res.check("измерения: шесть точек глубины и рецессии, маска кровоточивости, степени",
                   j["rows"]["16"],
                   {"tooth": 16, "pd": [3, 2, 3, 4, 2, 5], "rec": [1, 0, 0, 0, 0, 2],
@@ -206,13 +113,12 @@ def suite_api(res: Result) -> None:
                   _j(c.get(f"/api/patients/{pid}/perio"))["data"]["rows"]["16"]["rec"],
                   [1, 0, 0, 0, 0, 2])
 
-        page = c.get(f"{base}/parodontograma").body
         j = _j(c.get(f"/api/patients/{pid}/perio"))["data"]
-        res.check("сводка — те же числа, что справа на старой странице",
-                  [str(j["summary"][k]) for k in ("bop", "pd_mean", "deep", "teeth")],
-                  [x.replace("%", "").replace(" mm", "")
-                   for x in re.findall(r"<b>([^<]+)</b>",
-                                       page.split("class='psum'", 1)[1].split("</aside>", 1)[0])])
+        # 16 + 46 + одна точка 17: 13 измеренных, 2 кровоточат → 15%;
+        # 34 мм / 13 = 2.6; карманы 4 и 5 мм; три зуба
+        res.check("сводка: BOP от измеренных точек, средняя глубина, карманы, зубы",
+                  [j["summary"][k] for k in ("bop", "pd_mean", "deep", "teeth")],
+                  [15, 2.6, 2, 3])
         res.check("сводка целиком: тяжёлые карманы, подвижные зубы, фуркации, средний CAL",
                   {k: j["summary"][k] for k in ("sites", "severe", "mob", "furc", "cal_mean")},
                   {"sites": 13, "severe": 0, "mob": [[16, 1]], "furc": [[16, 2]], "cal_mean": 3.0})
@@ -293,7 +199,7 @@ def suite_api(res: Result) -> None:
                             {"teeth": {"16": {"pd": [99, -1, "3", None, 2, 3], "rec": [1],
                                               "bop": "zz1", "mob": 9, "furc": "2"}},
                              "covers": [16]}))["data"]
-        res.check("мусор отброшен теми же белыми списками, что у формы: длина шести точек цела",
+        res.check("мусор отброшен белыми списками разбора: длина шести точек цела",
                   j6["rows"]["16"],
                   {"tooth": 16, "pd": [0, 0, 3, 0, 2, 3], "rec": [1, 0, 0, 0, 0, 0],
                    "bop": "001000", "mob": 0, "furc": 2, "cal": [0, 0, 3, 0, 2, 3]})
@@ -349,7 +255,7 @@ def suite_api(res: Result) -> None:
         res.check("зуб 46 на месте",
                   _j(c.get(f"/api/patients/{pid}/perio"))["data"]["rows"]["46"]["pd"], [2] * 6)
         r = c.post_json(f"/api/patients/{pid}/perio/{eid}", {"teeth": {}, "covers": ["46"]})
-        res.check("номер зуба строкой понят так же, как формой: зуб стёрт",
+        res.check("номер зуба строкой понят так же, как числом: зуб стёрт",
                   ("46" in _j(r)["data"]["rows"], _j(r)["code"]), (False, "ok_perio"))
 
 
@@ -362,13 +268,18 @@ def _server_with_flag() -> Server:
 
 
 def suite_switch(res: Result) -> None:
-    """Флаг perio: узел React в рамке с узким сайдбаром, осмотр из адреса
-    параметром, ?ui=legacy — старая страница, печать и старые формы живы."""
+    """Пародонтограмма — React при любом `ui.react` (старая страница снята
+    13.10): узел в рамке с узким сайдбаром, осмотр из адреса параметром,
+    `?ui=legacy` отдаёт тот же React, печать — серверная."""
     with Server() as s:
         c = Client(s.url).login()
         d = _seed(c)
-        res.ok("без флага — старая страница",
-               "class='pcell" in c.get(f"{d['base']}/parodontograma").body, "не старая")
+        res.ok("без флага — тоже React (старой страницы нет)",
+               '<div id="root" data-screen="perio"' in c.get(f"{d['base']}/parodontograma").body,
+               "узла нет")
+        c.post_json("/api/patients", {"name": "Perio Gol", "phone": "069400401"})
+        res.check("пациент без осмотров: экран «начните» (осмотра в модели нет)",
+                  _j(c.get(f"/api/patients/{_pid(c, '069400401')}/perio"))["data"]["exam"], None)
 
     s = _server_with_flag()
     with s:
@@ -395,19 +306,16 @@ def suite_switch(res: Result) -> None:
                "лишний параметр")
         res.ok("старой разметки нет",
                "class='pcell" not in page and "PERIO_DEEP" not in page, "две разметки")
-        res.ok("?ui=legacy — старая страница",
-               "class='pcell" in c.get(f"{base}/parodontograma?ui=legacy").body, "нет")
+        res.ok("?ui=legacy — тот же React",
+               'data-screen="perio"' in c.get(f"{base}/parodontograma?ui=legacy").body,
+               "старая страница вернулась")
         res.ok("?msg= — плашка сервера",
                "dp_toast" in c.get(f"{base}/parodontograma?msg=ok_perio").body, "нет")
-        res.ok("печатный лист при флаге остаётся серверным",
+        res.ok("печатный лист остаётся серверным",
                "Parodontogramă" in c.get(f"{base}/parodontograma/print").body
                and "id=\"root\"" not in c.get(f"{base}/parodontograma/print").body,
                "печать уехала в React")
-        r = c.post(f"{base}/perio", exam=str(eid), chart="16:4,4,4,4,4,4/0,0,0,0,0,0/000000/0/0",
-                   covers=ALL_TEETH)
-        res.check("старая форма записи при флаге работает",
-                  (r.status, r.msg), (303, "ok_perio"))
-        res.check("чужая фиша при флаге — на список",
+        res.check("чужая фиша — на список",
                   c.get("/admin/patient/9999/parodontograma").status, 303)
         res.check("без входа закрыта",
                   Client(s.url).get(f"{base}/parodontograma").status, 303)
@@ -435,12 +343,6 @@ def suite_day(res: Result) -> None:
            f"зона движка: {eng.TZ}")
 
 
-def _hidden(page: str, name: str) -> str:
-    """Значение скрытого поля старой формы — она шлёт `covers` и `rev`."""
-    m = re.search(rf"name='{name}' value='([^']*)'", page)
-    return m.group(1) if m else ""
-
-
 def suite_two_seats(res: Result) -> None:
     """Два рабочих места в одном осмотре: ни одно не отнимает работу другого.
 
@@ -449,8 +351,8 @@ def suite_two_seats(res: Result) -> None:
     измерило соседнее место, — а `shown` у листа всегда все 32, и намерения он
     не описывал никак. Правило заменено на «сообщаем о ТРОНУТОМ» (`covers`), и
     набор переписан под него, а НЕ удалён: возврат к старому обязан краснеть.
-    ⚠️ Проверяются оба интерфейса: у клиник сегодня работает старая форма
-    (React-флаги у пилота выключены), и разойтись им на одних данных нельзя.
+    ⚠️ До 13.10 то же правило проверялось и на старой форме листа (её JS
+    собирал `covers` слепком); форма снята, правило держит один интерфейс.
     ⭐ Отпечаток `rev` — слово, а не замок: запись проходит всегда, но человек
     узнаёт, что лист под ним успело поправить второе место.
     """
@@ -504,33 +406,11 @@ def suite_two_seats(res: Result) -> None:
                   sorted(j3["rows"]), ["16", "26"])
 
         # --- сообщать нечего — не делается ничего, включая летопись ---
-        was = a.get(base).body.count("Parodontogramă")
+        def perio_lines() -> int:
+            items = _j(a.get(f"/api/patients/{pid}/activity"))["data"]["items"]
+            return sum("Parodontogramă" in x["text"] for x in items)
+
+        was = perio_lines()
         r0 = a.post_json(f"/api/patients/{pid}/perio/{eid}", {"teeth": {}, "covers": []})
         res.check("пустое сообщение принимается и летописи не пишет",
-                  (_j(r0)["code"], a.get(base).body.count("Parodontogramă")),
-                  ("ok_perio", was))
-
-        # --- та же пара мест на СТАРОЙ форме ---
-        c1 = Client(s.url).login()
-        c2 = Client(s.url).login()
-        page = c1.get(f"{base}/parodontograma?exam={eid}").body
-        rev1 = _hidden(page, "rev")
-        res.ok("старая форма несёт отпечаток осмотра", len(rev1) == 12, f"rev {rev1!r}")
-        res.ok("и поле covers, пустое: его заполняет сам лист",
-               "name='covers' id='pcovers'" in page, "нет скрытого поля covers")
-        f1 = c1.post(f"{base}/perio", exam=str(eid), covers="36",
-                     chart="36:4,4,4,4,4,4/0/000000/0/0", rev=rev1)
-        res.check("первое место дописало зуб с формы", f1.msg, "ok_perio")
-        f2 = c2.post(f"{base}/perio", exam=str(eid), covers="16",
-                     chart="16:5,5,5,5,5,5/0/000000/0/0", rev=rev1)
-        res.check("второе место со стары́м отпечатком: запись прошла и предупредила",
-                  f2.msg, "ok_perio_merged")
-        res.ok("и человек читает это на самой странице, а не в коде ответа",
-               "alt calculator" in c2.get(
-                   f"{base}/parodontograma?exam={eid}&msg={f2.msg}").body,
-               "баннера про второе рабочее место на листе нет")
-        after = _j(c1.get(f"/api/patients/{pid}/perio?exam={eid}"))["data"]
-        res.check("на старой форме работа обоих мест цела",
-                  (sorted(after["rows"]), after["rows"]["16"]["pd"],
-                   after["rows"]["36"]["pd"]),
-                  (["16", "26", "36"], [5] * 6, [4] * 6))
+                  (_j(r0)["code"], perio_lines()), ("ok_perio", was))

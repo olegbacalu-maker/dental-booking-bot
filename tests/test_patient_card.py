@@ -1,20 +1,21 @@
-"""Фиша пациента (C18): поведение старой страницы записано руками, а JSON API
-`/api/patients/{pid}` обязан повторять её цифры, порядок и слова.
+"""Фиша пациента (C18): JSON API `/api/patients/{pid}` — цифры, порядок и
+слова фиши, записанные руками на пациенте, у которого есть каждая ветка.
 
-Что стережётся. У `GET /admin/patient/{pid}` девятьсот строк одной функцией и
-пятнадцать обращений к базе; вся арифметика фиши (сумма активного плана,
-прогресс без отказов, долг, «следующий» и «последний» визит, пилюли шапки,
-цифры KPI, риски анамнеза) жила внутри f-строк и проверялась только через
-готовую разметку. Здесь она впервые получает СВОИ проверки: `suite_pin`
-записывает старую страницу как эталон на пациенте, у которого есть каждая
-ветка, `suite_api` сверяет с ней ответ API строка в строку, `suite_actions`
-гоняет действия фиши через JSON с теми же кодами, что у форм.
+Что стережётся. Вся арифметика фиши (сумма активного плана, прогресс без
+отказов, долг, «следующий» и «последний» визит, пилюли шапки, цифры KPI,
+риски анамнеза) до 18.09 жила внутри f-строк старой страницы и проверялась
+только через готовую разметку. С C18 она в `card.py`, а эталон — ожидания,
+записанные руками: до 13.10 их держала старая страница (`suite_pin`), а
+`suite_api` сверял с ней ответ API строка в строку; со снятием старой фиши
+те же ожидания перенесены в `suite_api` буквально, без пересчёта по формуле.
+`suite_actions` гоняет действия фиши через JSON: отказ проверки 422 с полем,
+спор с состоянием 409, удача — свежая фиша.
 """
 import json
 import re
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import Client, Result, Server, clinic_today, new_patient, pid_by_phone
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 64
 PDF = b"%PDF-1.4 " + b"x" * 64
@@ -33,8 +34,7 @@ def _j(r) -> dict:
 
 
 def _pid(c: Client, phone: str) -> int:
-    return int(c.get(f"/admin/search?q={phone}").body.split(
-        "<tr id='plr", 1)[1].split("'", 1)[0])
+    return pid_by_phone(c, phone)
 
 
 def _aid(c: Client, day: str) -> int:
@@ -58,299 +58,54 @@ def _seed(c: Client) -> dict:
     s = {}
     s["v_done"] = visit(-10, "10:00", "d2")
     c.post(f"/admin/status/{s['v_done']}", to="done", back="/admin/all")
-    c.post(f"/admin/visit/{s['v_done']}", acuze="Durere", diagnostic="Pulpită 26",
-           tratament="Trat")
+    c.post_json(f"/api/visits/{s['v_done']}", {"acuze": "Durere", "diagnostic": "Pulpită 26",
+                                              "tratament": "Trat"})
     s["v_canc"] = visit(-3, "11:00", "d3", "hygiene")
     c.post(f"/admin/status/{s['v_canc']}", to="cancelled", back="/admin/all")
     s["v_last"] = visit(-1, "12:00", "d2")
     s["v_next"] = visit(2, "09:30", "d2")
     pid = s["pid"] = _pid(c, "069000111")
-    c.post(f"/admin/patient/{pid}/save", name="Pin Test", phone="069000111",
-           birth_date="1985-03-07", gender="f", idnp="2000000000001",
-           email="pin@example.com", address="str. Pin 1", insurance="CNAM activă",
-           primary_doctor="Dr. Activ Doi", file_no="D-5", notes="nota internă")
-    c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie", note="distal",
-           doctor="Dr. Activ Doi")
-    c.post(f"/admin/patient/{pid}/tooth", tooth="36", state="implant", doctor="Dr. Activ Doi")
+    c.post_json(f"/api/patients/{pid}/profile", {"name": "Pin Test", "phone": "069000111",
+                                                "birth_date": "1985-03-07", "gender": "f",
+                                                "idnp": "2000000000001",
+                                                "email": "pin@example.com",
+                                                "address": "str. Pin 1",
+                                                "insurance": "CNAM activă",
+                                                "primary_doctor": "Dr. Activ Doi",
+                                                "file_no": "D-5", "notes": "nota internă"})
+    c.post_json(f"/api/patients/{pid}/teeth/11", {"state": "carie", "note": "distal",
+                                                 "doctor": "Dr. Activ Doi", "surfaces": []})
+    c.post_json(f"/api/patients/{pid}/teeth/36", {"state": "implant",
+                                                 "doctor": "Dr. Activ Doi", "surfaces": []})
     for proc, tooth, price, due in (("Coroană 11", "11", "1200", ""),
                                     ("Detartraj", "", "500", ""),
                                     ("Extracție 48", "48", "700", "2020-01-01"),
                                     ("Consult gratuit", "", "", ""),
                                     ("Implant 36", "36", "9000", "")):
-        c.post(f"/admin/patient/{pid}/plan", procedure=proc, tooth=tooth, price=price,
-               due_date=due, doctor="Dr. Activ Doi" if proc == "Coroană 11" else "")
-    page = c.get(f"/admin/patient/{pid}").body
-    ids = sorted({int(x) for x in re.findall(r"/plan/(\d+)/status", page)})
+        c.post_json(f"/api/patients/{pid}/plan", {"procedure": proc, "tooth": tooth,
+                                                 "price": price, "due_date": due,
+                                                 "doctor": "Dr. Activ Doi" if proc == "Coroană 11" else ""})
+    # id позиций — в порядке заведения (фиша отдаёт их в порядке плана)
+    ids = sorted(it["id"] for it in _card(c, pid)["plan"]["items"])
     s["p_lucru"], s["p_fin"], s["p_due"], s["p_free"], s["p_refuz"] = ids
-    c.post(f"/admin/patient/{pid}/plan/{s['p_lucru']}/status", to="in_lucru")
-    c.post(f"/admin/patient/{pid}/plan/{s['p_fin']}/status", to="in_lucru")
-    c.post(f"/admin/patient/{pid}/plan/{s['p_fin']}/status", to="finalizat")
-    c.post(f"/admin/patient/{pid}/plan/{s['p_refuz']}/status", to="refuzat",
-           motiv="refuză implantul")
-    c.post(f"/admin/patient/{pid}/pay", amount="300", method="numerar", note="avans")
-    c.post(f"/admin/patient/{pid}/pay", amount="-100", method="card", note="restituire")
+    c.post_json(f"/api/patients/{pid}/plan/{s['p_lucru']}/status", {"to": "in_lucru"})
+    c.post_json(f"/api/patients/{pid}/plan/{s['p_fin']}/status", {"to": "in_lucru"})
+    c.post_json(f"/api/patients/{pid}/plan/{s['p_fin']}/status", {"to": "finalizat"})
+    c.post_json(f"/api/patients/{pid}/plan/{s['p_refuz']}/status", {"to": "refuzat",
+                                                                   "motiv": "refuză implantul"})
+    c.post_json(f"/api/patients/{pid}/payments", {"amount": "300", "method": "numerar",
+                                                 "note": "avans"})
+    c.post_json(f"/api/patients/{pid}/payments", {"amount": "-100", "method": "card",
+                                                 "note": "restituire"})
     for kind, text in (("allergy", "Penicilină"), ("medication", "Anticoagulante"),
                        ("warning", "Leșină"), ("info", "Vorbește rusă")):
-        c.post(f"/admin/patient/{pid}/alert", kind=kind, text=text)
-    c.post(f"/admin/patient/{pid}/anamneza", fl=["diabet", "cardio"], alergii="latex")
-    c.post_file(f"/admin/patient/{pid}/doc", "file", "rx.png", PNG, mime="image/png",
-                category="radiografie")
-    c.post_file(f"/admin/patient/{pid}/doc", "file", "acord.pdf", PDF,
-                mime="application/pdf", category="acord")
-    c.post_file(f"/admin/patient/{pid}/doc", "file", "trimitere.docx", b"PK" + b"x" * 64,
-                category="trimitere")
+        c.post_json(f"/api/patients/{pid}/alerts", {"kind": kind, "text": text})
+    c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["diabet", "cardio"],
+                                                 "alergii": "latex"})
+    c.post_file(f"/api/patients/{pid}/documents", "file", "rx.png", PNG, mime="image/png", category="radiografie")
+    c.post_file(f"/api/patients/{pid}/documents", "file", "acord.pdf", PDF, mime="application/pdf", category="acord")
+    c.post_file(f"/api/patients/{pid}/documents", "file", "trimitere.docx", b"PK" + b"x" * 64, category="trimitere")
     return s
-
-
-# ---- разбор старой страницы: то, что сверяется с API ----
-
-def _plan_rows(page: str) -> list[tuple[str, str, bool]]:
-    """(статус, процедура, спрятана ли строка) в порядке страницы."""
-    return [(st, proc, "display:none" in attrs) for st, attrs, proc in re.findall(
-        r"<div class='plan-row[^>]*data-st='(\w+)'([^>]*)>.*?<span class='pp'>([^<]+)",
-        page, re.S)]
-
-
-def _pills(page: str) -> list[tuple[str, str]]:
-    block = page.split("<div class='hero-badges'>", 1)[1].split("</div>", 1)[0]
-    return [(tone, text.strip()) for tone, text in
-            re.findall(r"<span class='pill (\w+)'>(?:<svg.*?</svg>)?([^<]*)</span>", block, re.S)]
-
-
-def _kpi(page: str) -> list[tuple[str, str, str]]:
-    return re.findall(r"<b>([^<]*)</b><span>([^<]*)</span><small>([^<]*)</small></div></button>",
-                      page.split("<div class='kpi5'>", 1)[1].split("<div class='pv2'>", 1)[0])
-
-
-def _hist(page: str) -> list[tuple[str, str, str]]:
-    """(дата и статус, услуга, хвост дневника) строк истории визитов."""
-    block = page.split("<h3>Istoric vizite", 1)[1].split("Vezi tot istoricul", 1)[0]
-    return [(when, svc, re.sub(r"<svg.*?</svg> ", "", tail))
-            for when, svc, tail in re.findall(
-                r"<small>([^<]*)</small><b[^>]*>([^<]*)</b><small>[^<]*</small>(.*?)</div></div>",
-                block, re.S)]
-
-
-def _acti(page: str) -> list[str]:
-    return re.findall(r"<div class='ab'><b>([^<]*)</b>", page)
-
-
-def _frows(page: str) -> list[tuple[str, str]]:
-    return re.findall(r"<div class='frow'><span>([^<]*)</span><span class='v[^']*'>([^<]*)</span>",
-                      page.split("<h3>Date pacient</h3>", 1)[1].split("id='pedit'", 1)[0])
-
-
-def suite_pin(res: Result) -> None:
-    """Старая фиша — эталон, записанный руками на засеянном пациенте."""
-    with Server() as s:
-        c = Client(s.url).login()
-        sd = _seed(c)
-        pid = sd["pid"]
-        page = c.get(f"/admin/patient/{pid}").body
-
-        # ---- шапка ----
-        res.check("инициалы", re.search(r"<div class='hero-av'>([^<]*)<", page).group(1), "PT")
-        meta = re.findall(r"<span>([^<]*)</span>",
-                          page.split("<div class='hero-meta'>", 1)[1].split("</div>", 1)[0])
-        res.check("строка под именем: возраст, канал, дело, год фиши",
-                  meta[:4], ["41 ani", "recepție", "dosar D-5", "Pacient din " + _dmy(0)[-4:]])
-        res.ok("номер фиши копируется кликом", f"data-id='{pid}'" in page and f"ID #{pid}" in page,
-               "нет idchip")
-        res.check("пилюли: активен, ТРИ первых предупреждения, страховка, долг, импланты",
-                  _pills(page),
-                  [("green", "Pacient activ"), ("orange", "Penicilină"),
-                   ("orange", "Anticoagulante"), ("red", "Leșină"), ("green", "CNAM activă"),
-                   ("red", "De achitat: 300 MDL"), ("purple", "1 implant")])
-        res.check("сбоку: последний визит и медик курант",
-                  re.findall(r"<div class='hs'><span>([^<]*)</span><b>([^<]*)</b>(?:<div[^>]*>([^<]*)</div>)?", page),
-                  [("Ultima vizită", _dmy(-1), "Consultație"),
-                   ("Medic curant", "Dr. Activ Doi", "din fișa pacientului")])
-        res.ok("быстрые действия: звонок, письмо, запись, 043/e",
-               "href='tel:069000111'" in page and "href='mailto:pin@example.com'" in page
-               and "onclick='openAppt()'" in page and f"/admin/patient/{pid}/fisa043'" in page,
-               "не все действия")
-
-        # ---- KPI: пять цифр и откуда они ----
-        res.check("KPI: визиты без отменённого, активные, давность, следующий, готово",
-                  _kpi(page),
-                  [("3", "Vizite în total", "din " + _dmy(0)[-4:]),
-                   ("3", "Proceduri active", "în planul de tratament"),
-                   ("1 zile", "Ultima vizită", _dmy(-1)),
-                   (_dmy(2)[:5], "Următoarea vizită", "09:30"),
-                   ("1", "Proceduri finalizate", "istoric complet")])
-        kpi = json.loads(re.search(r"const KPI = (.*?);\n", page).group(1))
-        res.ok("список за цифрой «визиты» — три живых и строка про отменённый",
-               kpi["visits"][1].count("<div class='lrow'>") == 3
-               and "+ 1 anulate" in kpi["visits"][1], kpi["visits"][1][:200])
-        res.ok("за «активные» — три позиции и ссылка на план",
-               kpi["active"][1].count("<div class='lrow'>") == 3 and "#plan" in kpi["active"][1],
-               kpi["active"][1][:200])
-        res.ok("за «последний визит» — давность словами", "acum 1 zile" in kpi["last"][1],
-               kpi["last"][1])
-
-        # ---- план ----
-        res.check("порядок плана: в работе, планируемое по сроку, готовое, отказ; закрытые спрятаны",
-                  _plan_rows(page),
-                  [("in_lucru", "Coroană 11", False), ("planificat", "Extracție 48", False),
-                   ("planificat", "Consult gratuit", False), ("finalizat", "Detartraj", True),
-                   ("refuzat", "Implant 36", True)])
-        res.ok("активный план = в работе + запланированное с ценой, без отказа и без готового",
-               "plan activ: 1 900 MDL" in page and "<b>1 900 MDL</b>" in page
-               and "finalizate: 500 MDL" in page, "сумма плана не та")
-        res.ok("прогресс без отказа в знаменателе",
-               "<small>1/4 finalizate · 1 refuzate</small>" in page
-               and "style='width:25%'" in page, "прогресс не тот")
-        res.ok("вкладки со счётом, активная по умолчанию",
-               "class='on' data-f='act' onclick='planTab(this)'>Active (3)" in page
-               and ">Finalizate (1)<" in page and ">Refuzate (1)<" in page
-               and ">Toate (5)<" in page, "вкладки не те")
-        res.ok("просроченный срок подсвечен", "title='Termen depășit'" in page
-               and "01.01.2020" in page, "срок не подсвечен")
-        rows = page.split("<div class='plan-row")
-        lucru = next(r for r in rows if "Coroană 11" in r)
-        plan_ = next(r for r in rows if "Extracție 48" in r)
-        fin = next(r for r in rows if "data-st='finalizat'" in r)
-        ref = next(r for r in rows if "data-st='refuzat'" in r)
-        res.ok("в работе: Finalizează и Refuz, без удаления",
-               "Finalizează" in lucru and "Refuz" in lucru and "/del'" not in lucru, "кнопки не те")
-        res.ok("запланировано: Începe, Refuz и удаление",
-               "Începe" in plan_ and "Refuz" in plan_ and f"/plan/{sd['p_due']}/del" in plan_,
-               "кнопки не те")
-        res.ok("готово: только Redeschide и дата", "Redeschide" in fin and "Începe" not in fin
-               and "Refuz" not in fin and _dmy(0) in fin, "кнопки не те")
-        res.ok("отказ: причина под процедурой и Reia",
-               "<em class='pmotiv'>refuză implantul</em>" in ref and "Reia" in ref
-               and "Data refuzului" in ref, "отказ не тот")
-        res.ok("лист согласия в шапке плана", f"/admin/patient/{pid}/plan-acord" in page,
-               "нет acord")
-
-        # ---- платежи ----
-        res.ok("итоги: начислено 500, оплачено 200, долг 300",
-               "lucrări finalizate: 500 MDL · plătit: 200 MDL" in page
-               and "<div class='sold bad'><span>De achitat</span><b>300 MDL</b>" in page,
-               "сальдо не то")
-        pays = re.findall(r"<div class='pay-row( neg)?'>.*?<b class='pa'>([^<]*)</b><span class='pn'>([^<]*)</span>",
-                          page, re.S)
-        res.check("платежи: свежие первыми, возврат с минусом, кто принял",
-                  pays, [(" neg", "- 100 MDL", "restituire · Director"),
-                         ("", "300 MDL", "avans · Director")])
-        res.ok("директор видит удаление платежа", "/pay/" in page and "/del'" in page, "нет")
-
-        # ---- документы ----
-        docs = re.findall(r"<div class='doccard'><a href='/admin/doc/(\d+)'.*?<b>([^<]*)</b><small>([^<]*)</small>",
-                          page, re.S)
-        res.check("документы: свежие первыми, дата и размер",
-                  [(n, w) for _i, n, w in docs],
-                  [("trimitere.docx", _dmy(0) + " · 0 KB"), ("acord.pdf", _dmy(0) + " · 0 KB"),
-                   ("rx.png", _dmy(0) + " · 0 KB")])
-        dmeta = json.loads(re.search(r"const DOCS = (.*?);\n", page).group(1))
-        res.check("чем открывать: картинка у себя, PDF у себя, docx — программой Windows",
-                  [dmeta[i]["view"] for i, _n, _w in docs], ["ext", "pdf", "img"])
-        res.ok("у картинки миниатюра", f"src='/admin/doc/{docs[2][0]}?thumb=1'" in page,
-               "нет миниатюры")
-
-        # ---- визиты ----
-        res.check("история: следующий отмечен, прошлый без дневника зовёт заполнить, "
-                  "отменённый молчит, завершённый несёт диагноз",
-                  _hist(page),
-                  [(f"{_dmy(2)} 09:30 · programată", "Consultație", ""),
-                   (f"{_dmy(-1)} 12:00 · programată", "Consultație",
-                    f"<small><a href='/admin/visit/{sd['v_last']}?back=/admin/patient/{pid}'>+ Consultație</a></small>"),
-                   (f"{_dmy(-3)} 11:00 · anulată", "Igienizare", ""),
-                   (f"{_dmy(-10)} 10:00 · finalizată", "Consultație",
-                    f"<small style='overflow-wrap:anywhere'><a href='/admin/visit/{sd['v_done']}?back=/admin/patient/{pid}'>Consultație</a>: Pulpită 26</small>")])
-        res.ok("следующий визит — своей карточкой",
-               f"Următoarea vizită</h3><div style='font-size:13.5px;font-weight:600'>{_dmy(2)} · 09:30</div>" in page
-               and "Consultație · Dr. Activ Doi" in page, "карточки нет")
-        res.ok("класс next у будущего", "<div class='tline next'>" in page, "нет")
-
-        # ---- летопись ----
-        acts = _acti(page)
-        res.check("летопись: 29 событий, свежие первыми, показаны 10",
-                  (len(acts), acts[0], acts[-1], "Toate evenimentele (29)" in page),
-                  (29, "Document încărcat: trimitere.docx",
-                   f"Programare: Consultație · Dr. Activ Doi · {_dmy(-10)} 10:00", True))
-        res.ok("просмотров в ленте нет, ссылка на них есть",
-               "Fișa deschisă" not in page and f"/admin/patient/{pid}?views=1" in page, "нет")
-        res.check("с ?views=1 — плюс просмотры",
-                  len(_acti(c.get(f"/admin/patient/{pid}?views=1").body)) > 29, True)
-
-        # ---- анамнез, предупреждения, профиль ----
-        res.ok("анамнез: три риска — две галочки и свободный текст",
-               "<span class='pill orange'>3 de reținut</span>" in page
-               and "Alergii (medicamente, materiale): latex</span>" in page
-               and f"Completat: {_dmy(0)} · Director" in page
-               and "<details class='anform'>" in page, "анамнез не тот")
-        res.check("предупреждения: все четыре, по порядку, словом вида",
-                  re.findall(r"<div class='alert (\w+)'>(?:<svg.*?</svg>) ([^<]*)<form", page, re.S),
-                  [("allergy", "Alergie Penicilină"), ("medication", "Medicație Anticoagulante"),
-                   ("warning", "Atenție Leșină"), ("info", "Info Vorbește rusă")])
-        res.check("профиль: строки по порядку, дата рождения по-человечески",
-                  _frows(page),
-                  [("Telefon", "069000111"), ("Data nașterii", "07.03.1985"), ("Gen", "F"),
-                   ("IDNP", "2000000000001"), ("E-mail", "pin@example.com"),
-                   ("Adresă", "str. Pin 1"), ("Asigurare", "CNAM activă"),
-                   ("Medic curant", "Dr. Activ Doi"), ("Pacient din", _dmy(0))])
-        res.ok("заметка, свёрнутая форма, архив и обезличивание",
-               "nota internă" in page and "style='display:none;margin-top:10px'" in page
-               and "Arhivează pacientul" in page and "datele de identitate" in page,
-               "профиль не тот")
-        res.check("окно записи: врачи по услуге, медик курант выбран",
-                  (json.loads(re.search(r"const AP_DOCS = (.*?);\n", page).group(1)),
-                   re.search(r'const AP_PRIM = "(\w*)"', page).group(1)),
-                  ({"consult": ["d2", "d3", "d4"], "pain": ["d2"], "hygiene": ["d3"],
-                    "orphan": [], "long": ["d2"]}, "d2"))
-
-        # ---- ветки, которых у богатого пациента нет ----
-        c.post("/admin/patients/new", name="Gol Fără")
-        bare = _pid(c, "Gol")
-        page = c.get(f"/admin/patient/{bare}").body
-        res.check("пустая фиша: пилюля одна, KPI пустые",
-                  (_pills(page), [k[0] for k in _kpi(page)]),
-                  ([("green", "Pacient activ")], ["0", "0", "—", "—", "0"]))
-        res.ok("пустая фиша: план пуст без согласия, платежей нет, визитов нет, анамнез открыт",
-               "— plan gol —" in page and "plan-acord" not in page and "class='sold" not in page
-               and "încă fără plăți" in page and "încă fără vizite" in page
-               and "<details class='anform' open>" in page and "necompletată" in page
-               and "fără atenționări" in page, "пустые состояния не те")
-        res.ok("без телефона — явная метка и полное удаление",
-               "<span class='v notel'>fără telefon</span>" in page
-               and "ștearsă definitiv" in page and "neprogramat" in page, "не то")
-
-        # аванс, полная оплата, архив, вкладка одних отказов
-        c.post(f"/admin/patient/{bare}/plan", procedure="Sigilare", price="200")
-        iid = re.findall(r"/plan/(\d+)/status", c.get(f"/admin/patient/{bare}").body)[0]
-        c.post(f"/admin/patient/{bare}/plan/{iid}/status", to="in_lucru")
-        c.post(f"/admin/patient/{bare}/plan/{iid}/status", to="finalizat")
-        c.post(f"/admin/patient/{bare}/pay", amount="200", method="card")
-        page = c.get(f"/admin/patient/{bare}").body
-        res.ok("оплачено ровно — «achitat integral», без пилюли долга",
-               "<b>achitat integral</b>" in page and "De achitat" not in page
-               and "Avans" not in page, "сальдо не то")
-        c.post(f"/admin/patient/{bare}/pay", amount="50", method="card")
-        page = c.get(f"/admin/patient/{bare}").body
-        res.ok("переплата — аванс в сальдо и в шапке",
-               "<div class='sold plus'><span>Avans</span><b>50 MDL</b>" in page
-               and ("green", "Avans: 50 MDL") in _pills(page), "аванс не виден")
-        c.post(f"/admin/patient/{bare}/archive", on="1")
-        page = c.get(f"/admin/patient/{bare}").body
-        # ⚠️ в строке под именем архива НЕТ: строка `meta` в обработчике
-        # собирается, но не рисуется (мёртвый код с 1.19.0) — архив виден
-        # только пилюлей и кнопкой; API повторяет то, что на экране
-        res.ok("архив: серая пилюля вместо «активен», кнопка возврата",
-               ("grey", "Arhivat") in _pills(page)
-               and ("green", "Pacient activ") not in _pills(page)
-               and "<span>arhivat</span>" not in page
-               and "Scoate din arhivă" in page, "архив не виден")
-        c.post("/admin/patients/new", name="Doar Refuz")
-        rf = int(re.findall(r"/admin/patient/(\d+)", c.get("/admin/search?q=Doar").body)[0])
-        c.post(f"/admin/patient/{rf}/plan", procedure="Implant", price="100")
-        iid = re.findall(r"/plan/(\d+)/status", c.get(f"/admin/patient/{rf}").body)[0]
-        c.post(f"/admin/patient/{rf}/plan/{iid}/status", to="refuzat", motiv="nu vrea")
-        page = c.get(f"/admin/patient/{rf}").body
-        res.ok("план из одних отказов открывает вкладку Refuzate, прогресс 0/0",
-               "class='on' data-f='refuzat'" in page and "0/0 finalizate · 1 refuzate" in page
-               and "plan activ: 0 MDL" in page, "вкладка не та")
 
 
 def _card(c: Client, pid: int, views: bool = False) -> dict:
@@ -371,44 +126,49 @@ def _opens(c: Client, pid: int) -> int:
 
 
 def suite_api(res: Result) -> None:
-    """`GET /api/patients/{pid}` повторяет старую страницу цифра в цифру:
-    пилюли, KPI, план, сальдо, документы, визиты, летопись, анамнез, профиль."""
+    """`GET /api/patients/{pid}` на засеянном пациенте: пилюли, KPI, план,
+    сальдо, документы, визиты, летопись, анамнез, профиль — значениями,
+    записанными руками (до 13.10 — эталоном старой страницы, `suite_pin`)."""
     with Server() as s:
         res.check("без входа — 401", Client(s.url).get("/api/patients/1").status, 401)
         c = Client(s.url).login()
         res.check("чужая фиша — 404", c.get("/api/patients/777").status, 404)
         sd = _seed(c)
         pid = sd["pid"]
-        page = c.get(f"/admin/patient/{pid}").body
         d = _card(c, pid)
         res.check("состав ответа", sorted(d),
                   sorted(["id", "name", "initials", "archived", "erasure", "profile", "hero",
                           "kpi", "alerts", "anamneza", "plan", "finance", "documents",
                           "forms", "visits", "activity", "appoint", "options"]))
-        res.check("шапка: те же пилюли в том же порядке",
-                  [(pl["tone"], pl["text"]) for pl in d["hero"]["pills"]], _pills(page))
+        res.check("пилюли: активен, ТРИ первых предупреждения, страховка, долг, импланты",
+                  [(pl["tone"], pl["text"]) for pl in d["hero"]["pills"]],
+                  [("green", "Pacient activ"), ("orange", "Penicilină"),
+                   ("orange", "Anticoagulante"), ("red", "Leșină"), ("green", "CNAM activă"),
+                   ("red", "De achitat: 300 MDL"), ("purple", "1 implant")])
         res.ok("пилюли несут имена значков", all(pl["icon"] for pl in d["hero"]["pills"]),
                f"{d['hero']['pills']}")
-        k = _kpi(page)
-        res.check("KPI: те же цифры",
+        res.check("KPI: визиты без отменённого, активные, готово, отменённые, давность, "
+                  "следующий, последний",
                   (d["kpi"]["visits"], d["kpi"]["active"], d["kpi"]["done"], d["kpi"]["canc"],
                    d["hero"]["days_ago"], d["hero"]["next"]["date"][:5], d["hero"]["next"]["time"],
                    d["hero"]["last"]["date"], d["hero"]["last"]["service"]),
-                  (int(k[0][0]), int(k[1][0]), int(k[4][0]), 1, int(k[2][0].split()[0]),
-                   k[3][0], k[3][2], k[2][2], "Consultație"))
+                  (3, 3, 1, 1, 1, _dmy(2)[:5], "09:30", _dmy(-1), "Consultație"))
         pl = d["plan"]
         hidden = pl["items"] and [it["status"] not in d["options"]["tab_states"][pl["default_tab"]]
                                   for it in pl["items"]]
-        res.check("план: тот же порядок и те же спрятанные строки",
+        res.check("порядок плана: в работе, планируемое по сроку, готовое, отказ; закрытые "
+                  "спрятаны вкладкой по умолчанию",
                   [(it["status"], it["procedure"], h) for it, h in zip(pl["items"], hidden)],
-                  _plan_rows(page))
+                  [("in_lucru", "Coroană 11", False), ("planificat", "Extracție 48", False),
+                   ("planificat", "Consult gratuit", False), ("finalizat", "Detartraj", True),
+                   ("refuzat", "Implant 36", True)])
         res.check("план: суммы, прогресс, счёт, вкладка",
                   (pl["total"], pl["total_done"], pl["n_track"], pl["pct_done"], pl["counts"],
                    pl["default_tab"], pl["n_act"]),
                   (1900, 500, 4, 25, {"planificat": 2, "in_lucru": 1, "finalizat": 1, "refuzat": 1},
                    "act", 3))
         by = {it["procedure"]: it for it in pl["items"]}
-        res.check("план: кнопки по статусу — те же переходы, что у форм страницы",
+        res.check("план: кнопки по статусу — переходы по рёбрам плана",
                   [(it["status"], it["next"], it["refusable"], it["deletable"]) for it in pl["items"]],
                   [("in_lucru", "finalizat", True, False), ("planificat", "in_lucru", True, True),
                    ("planificat", "in_lucru", True, True), ("finalizat", "in_lucru", False, False),
@@ -422,7 +182,7 @@ def suite_api(res: Result) -> None:
         res.check("сальдо: начислено, оплачено, долг, плашка",
                   (fin["charged"], fin["paid"], fin["debt"], fin["sold"], fin["can_delete"]),
                   (500, 200, 300, {"kind": "bad", "amount": 300}, True))
-        res.check("платежи: те же строки",
+        res.check("платежи: свежие первыми, возврат с минусом, кто принял",
                   [(p_["neg"], p_["amount"], p_["method"], p_["note"], p_["taken_by"])
                    for p_ in fin["payments"]],
                   [(True, 100, "card", "restituire", "Director"),
@@ -434,20 +194,28 @@ def suite_api(res: Result) -> None:
                    ("acord.pdf", _dmy(0), "0 KB", "pdf", "acord"),
                    ("rx.png", _dmy(0), "0 KB", "img", "radiografie")])
         hist = d["visits"]["history"]
-        res.check("визиты: те же строки истории",
+        res.check("визиты: строки истории — свежие первыми, отменённый со своим словом",
                   [(f"{v['when']} · {v['status_label']}", v["service"]) for v in hist],
-                  [(w, sv) for w, sv, _t in _hist(page)])
+                  [(f"{_dmy(2)} 09:30 · programată", "Consultație"),
+                   (f"{_dmy(-1)} 12:00 · programată", "Consultație"),
+                   (f"{_dmy(-3)} 11:00 · anulată", "Igienizare"),
+                   (f"{_dmy(-10)} 10:00 · finalizată", "Consultație")])
         res.check("визиты: следующий, дневник и приглашение, диагноз, ссылка с возвратом",
                   [(v["is_next"], v["consult"], v["diag"]) for v in hist],
                   [(True, "", ""), (False, "invite", ""), (False, "", ""),
                    (False, "rec", "Pulpită 26")])
-        res.check("визиты: адрес дневника — как на странице",
-                  hist[3]["url"], f"/admin/visit/{sd['v_done']}?back=/admin/patient/{pid}")
+        res.check("визиты: адрес дневника — с возвратом в фишу (и у приглашения)",
+                  (hist[3]["url"], hist[1]["url"]),
+                  (f"/admin/visit/{sd['v_done']}?back=/admin/patient/{pid}",
+                   f"/admin/visit/{sd['v_last']}?back=/admin/patient/{pid}"))
         res.check("визиты: живые для списка за цифрой, всего",
                   (len(d["visits"]["live"]), d["visits"]["n_total"]), (3, 4))
         act = d["activity"]
-        res.check("летопись: те же 29 строк в том же порядке",
-                  [a["text"] for a in act["items"]], _acti(page))
+        res.check("летопись: 29 событий без просмотров, свежие первыми",
+                  (len(act["items"]), act["items"][0]["text"], act["items"][-1]["text"],
+                   any(a["kind"] == "view" for a in act["items"])),
+                  (29, "Document încărcat: trimitere.docx",
+                   f"Programare: Consultație · Dr. Activ Doi · {_dmy(-10)} 10:00", False))
         res.check("летопись: показ 10, без просмотров, автор и час",
                   (act["shown"], act["views"], act["items"][0]["who"],
                    len(act["items"][0]["hhmm"]), act["items"][0]["icon"]),
@@ -461,15 +229,16 @@ def suite_api(res: Result) -> None:
                    [{"label": "Alergii (medicamente, materiale)", "text": "latex",
                      "short": "Alergii"}],
                    _dmy(0), "Director", "latex"))
-        res.check("предупреждения: те же четыре",
+        res.check("предупреждения: все четыре, по порядку, словом вида",
                   [(a["kind"], a["label"], a["text"]) for a in d["alerts"]],
                   [("allergy", "Alergie", "Penicilină"), ("medication", "Medicație", "Anticoagulante"),
                    ("warning", "Atenție", "Leșină"), ("info", "Info", "Vorbește rusă")])
         pr = d["profile"]
-        res.check("профиль: те же значения, дата рождения и пол по-человечески",
+        res.check("профиль: значения, дата рождения и пол по-человечески",
                   [pr["phone"], pr["birth"], pr["gender_label"], pr["idnp"], pr["email"],
                    pr["address"], pr["insurance"], pr["primary_doctor"], pr["created"]],
-                  [v for _k, v in _frows(page)[:8]] + [_frows(page)[8][1]])
+                  ["069000111", "07.03.1985", "F", "2000000000001", "pin@example.com",
+                   "str. Pin 1", "CNAM activă", "Dr. Activ Doi", _dmy(0)])
         res.check("профиль: пол сырым значением для формы", pr["gender"], "f")
         res.check("профиль: возраст, канал, дело, заметка, язык, год",
                   (pr["age"], pr["channel"], pr["file_no"], pr["notes"], pr["lang"], pr["year"]),
@@ -477,7 +246,7 @@ def suite_api(res: Result) -> None:
         res.check("шапка: имя, инициалы, архив, ветка стирания",
                   (d["name"], d["initials"], d["archived"], d["erasure"]),
                   ("Pin Test", "PT", False, "anon"))
-        res.check("окно записи: врачи по услуге и медик курант — как на странице",
+        res.check("окно записи: врачи по услуге, медик курант выбран",
                   (d["appoint"]["doctors"], d["appoint"]["primary"],
                    [x["id"] for x in d["appoint"]["services"]], d["appoint"]["today"]),
                   ({"consult": ["d2", "d3", "d4"], "pain": ["d2"], "hygiene": ["d3"],
@@ -493,7 +262,7 @@ def suite_api(res: Result) -> None:
                    ["numerar", "card", "transfer"], [18, 17, 16], [55, 54], 25,
                    ["Dr. Arhivat Unu", "Dr. Activ Doi", "Dr. Activ Trei", "Dr. Activ Patru"]))
 
-        # журнал доступа: открытие через API пишется, как открытие страницы
+        # журнал доступа (закон 195): каждое открытие фиши пишется
         n_before = len(_card(c, pid, views=True)["activity"]["items"])
         res.ok("?views=1 — в ленте просмотры", any(
             a["kind"] == "view" for a in _card(c, pid, views=True)["activity"]["items"]),
@@ -506,15 +275,14 @@ def suite_api(res: Result) -> None:
                and len(_j(r)["data"]["items"]) == len(_card(c, pid, views=True)["activity"]["items"]) - 1,
                r.body[:200])
 
-        # одонтограмма — своей моделью (C21): та же карта зубов, что у страницы
+        # одонтограмма — своей моделью (C21): засеянные зубы, остальные здоровы
         odo = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
-        res.ok("модель одонтограммы: те же зубы, что в TEETH страницы",
-               {k: v["state"] for k, v in odo["teeth"].items()} ==
-               {k: v["state"] for k, v in json.loads(re.search(r"const TEETH = (.*?);\n", page).group(1)).items()},
-               "карта зубов разошлась")
+        res.check("модель одонтограммы: кариес 11 и имплант 36, остальные здоровы",
+                  {k: v["state"] for k, v in odo["teeth"].items() if v["state"] != "ok"},
+                  {"11": "carie", "36": "implant"})
 
         # пустая фиша — те же пустые состояния
-        c.post("/admin/patients/new", name="Gol Fără")
+        c.post_json("/api/patients", {"name": "Gol Fără"})
         bare = _pid(c, "Gol")
         d = _card(c, bare)
         res.check("пустая фиша: пилюля одна, KPI нули, план и сальдо пусты, анамнез не собран",
@@ -527,6 +295,33 @@ def suite_api(res: Result) -> None:
                    {"visits": 0, "active": 0, "done": 0, "canc": 0}, None, None, None,
                    [], "act", None, "none", [], [], [], "", "delete"))
 
+        # сальдо, архив и план из одних отказов — ветки, которые до 13.10 держал
+        # эталон старой фиши (`suite_pin`)
+        iid = _act(c, bare, "/plan", {"procedure": "Sigilare", "price": "200"})[1]["data"]["plan"]["items"][0]["id"]
+        _act(c, bare, f"/plan/{iid}/status", {"to": "in_lucru"})
+        _act(c, bare, f"/plan/{iid}/status", {"to": "finalizat"})
+        d = _act(c, bare, "/payments", {"amount": "200", "method": "card"})[1]["data"]
+        res.check("оплачено ровно — «achitat integral», без пилюли долга и аванса",
+                  (d["finance"]["sold"], [pl["text"] for pl in d["hero"]["pills"]
+                                         if pl["text"].startswith(("De achitat", "Avans"))]),
+                  ({"kind": "ok", "amount": 0}, []))
+        d = _act(c, bare, "/payments", {"amount": "50", "method": "card"})[1]["data"]
+        res.check("переплата — аванс в сальдо и в шапке",
+                  (d["finance"]["sold"],
+                   ("green", "Avans: 50 MDL") in [(pl["tone"], pl["text"]) for pl in d["hero"]["pills"]]),
+                  ({"kind": "plus", "amount": 50}, True))
+        d = _act(c, bare, "/archive", {"on": True})[1]["data"]
+        pills = [(pl["tone"], pl["text"]) for pl in d["hero"]["pills"]]
+        res.check("архив: серая пилюля вместо «активен»",
+                  (d["archived"], ("grey", "Arhivat") in pills, ("green", "Pacient activ") in pills),
+                  (True, True, False))
+        rf = new_patient(c, "Doar Refuz")
+        iid = _act(c, rf, "/plan", {"procedure": "Implant", "price": "100"})[1]["data"]["plan"]["items"][0]["id"]
+        pl = _act(c, rf, f"/plan/{iid}/status", {"to": "refuzat", "motiv": "nu vrea"})[1]["data"]["plan"]
+        res.check("план из одних отказов открывает вкладку Refuzate, прогресс 0/0, план 0 MDL",
+                  (pl["default_tab"], pl["n_track"], pl["counts"].get("refuzat"), pl["total"]),
+                  ("refuzat", 0, 1, 0))
+
 
 def _act(c: Client, pid: int, path: str, payload: dict | None = None) -> tuple:
     """(код HTTP, конверт) действия фиши."""
@@ -534,23 +329,24 @@ def _act(c: Client, pid: int, path: str, payload: dict | None = None) -> tuple:
     return r.status, _j(r)
 
 
-def _gone(c: Client, pid: int, api: str, form: str) -> tuple:
+def _gone(c: Client, pid: int, api: str) -> tuple:
     """Удаление того, чего в фише нет: (HTTP, код, есть ли текст, есть ли
-    данные) у JSON и плашка старой формы. Фиша в ответе на такое — чтение мимо
-    журнала доступа: удаление не состоялось и строки в летописи не оставило."""
+    данные). Фиша в ответе на такое — чтение мимо журнала доступа: удаление
+    не состоялось и строки в летописи не оставило. (До 13.10 рядом сверялась
+    плашка старой формы — тот же код.)"""
     r = c.post_json(f"/api/patients/{pid}{api}", {})
     j = _j(r)
-    return r.status, j["code"], bool(j["text"]), "data" in j, c.post(f"/admin/patient/{pid}{form}").msg
+    return r.status, j["code"], bool(j["text"]), "data" in j
 
 
 def suite_actions(res: Result) -> None:
-    """Действия фиши через JSON: те же коды, что у форм, отказ проверки 422 с
-    полем, спор с состоянием 409, удача — свежая фиша."""
+    """Действия фиши через JSON: коды MSG_BANNER, отказ проверки 422 с полем,
+    спор с состоянием 409, удача — свежая фиша."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Act Test", phone="069555000")
+        c.post_json("/api/patients", {"name": "Act Test", "phone": "069555000"})
         pid = _pid(c, "069555000")
-        c.post("/admin/patients/new", name="Alt Om", phone="069555111")
+        c.post_json("/api/patients", {"name": "Alt Om", "phone": "069555111"})
 
         # ---- профиль ----
         st, j = _act(c, pid, "/profile", {"name": " ", "phone": "069555000"})
@@ -570,8 +366,7 @@ def suite_actions(res: Result) -> None:
                    [(pl["tone"], pl["text"]) for pl in j["data"]["hero"]["pills"]]),
                   (200, "ok_card", "Act Test Nou", "06.05.1990", "ru", 36,
                    [("green", "Pacient activ"), ("green", "CNAM")]))
-        res.ok("старая страница видит правку API", "Act Test Nou" in c.get(f"/admin/patient/{pid}").body,
-               "не видит")
+        res.check("правка видна и при новом открытии фиши", _card(c, pid)["name"], "Act Test Nou")
         st, j = _act(c, pid, "/profile", {"name": "Act Test Nou", "phone": "069 555 111"})
         res.check("чужой номер — сохранено, но названо вслух (warn)",
                   (st, j["code"], j["tone"]), (200, "ok_tel_dup", "warn"))
@@ -604,21 +399,21 @@ def suite_actions(res: Result) -> None:
                    if a["kind"] == "alert_del"],
                   [("Atenționare ștearsă: Latex", "Director", "trash")])
         feed = _feed(c, pid)
-        res.check("уже снятое (вторая вкладка) — 404 alert_gone без фиши, форма — плашкой",
-                  _gone(c, pid, f"/alerts/{aid}/delete", f"/alert/{aid}/del"),
-                  (404, "alert_gone", True, False, "alert_gone"))
-        c.post("/admin/patients/new", name="Alt Alerta", phone="069555777")
+        res.check("уже снятое (вторая вкладка) — 404 alert_gone без фиши",
+                  _gone(c, pid, f"/alerts/{aid}/delete"),
+                  (404, "alert_gone", True, False))
+        c.post_json("/api/patients", {"name": "Alt Alerta", "phone": "069555777"})
         pid_alt = _pid(c, "069555777")
         oid = _act(c, pid_alt, "/alerts", {"kind": "info", "text": "Străin"})[1]["data"]["alerts"][0]["id"]
         res.check("чужое предупреждение через свою фишу — отказ, у владельца осталось",
-                  (_gone(c, pid, f"/alerts/{oid}/delete", f"/alert/{oid}/del"),
+                  (_gone(c, pid, f"/alerts/{oid}/delete"),
                    [a["text"] for a in _card(c, pid_alt)["alerts"]]),
-                  ((404, "alert_gone", True, False, "alert_gone"), ["Străin"]))
+                  ((404, "alert_gone", True, False), ["Străin"]))
         res.check("отказы не тронули ни летописи, ни журнала доступа", _feed(c, pid), feed)
         st, j = _act(c, pid, "/alerts", {"kind": "allergy", "text": "Iod"})
         aid = j["data"]["alerts"][0]["id"]
-        res.check("старая форма снимает так же — со строкой в летописи",
-                  (c.post(f"/admin/patient/{pid}/alert/{aid}/del").msg,
+        res.check("второе снятие — тоже строкой в летописи, свежие первыми",
+                  (c.post_json(f"/api/patients/{pid}/alerts/{aid}/delete", {}).msg,
                    [a["text"] for a in _feed(c, pid) if a["kind"] == "alert_del"]),
                   ("", ["Atenționare ștearsă: Iod", "Atenționare ștearsă: Latex"]))
 
@@ -666,10 +461,10 @@ def suite_actions(res: Result) -> None:
         st, j = _act(c, pid, f"/plan/{iid2}/delete")
         res.check("удалить нетронутую — можно, тихо", (st, j["code"], len(j["data"]["plan"]["items"])),
                   (200, "", 1))
-        res.check("уже удалённая позиция — 404 plan_gone без фиши, форма — плашкой; строка одна",
-                  (*_gone(c, pid, f"/plan/{iid2}/delete", f"/plan/{iid2}/del"),
+        res.check("уже удалённая позиция — 404 plan_gone без фиши; строка одна",
+                  (*_gone(c, pid, f"/plan/{iid2}/delete"),
                    sum(a["text"] == "Plan: - Coroană" for a in _feed(c, pid))),
-                  (404, "plan_gone", True, False, "plan_gone", 1))
+                  (404, "plan_gone", True, False, 1))
         res.check("чужая позиция — 409", _act(c, pid, "/plan/9999/status", {"to": "in_lucru"})[0], 409)
 
         # ---- платежи ----
@@ -692,9 +487,9 @@ def suite_actions(res: Result) -> None:
                    any("ștearsă" in a["text"] for a in j["data"]["activity"]["items"])),
                   (200, "pay_del", [], True))
         res.check("уже удалённый платёж — 404 pay_gone, а не «Plata a fost ștearsă»; строка одна",
-                  (*_gone(c, pid, f"/payments/{pay_id}/delete", f"/pay/{pay_id}/del"),
+                  (*_gone(c, pid, f"/payments/{pay_id}/delete"),
                    sum(a["kind"] == "pay_del" for a in _feed(c, pid))),
-                  (404, "pay_gone", True, False, "pay_gone", 1))
+                  (404, "pay_gone", True, False, 1))
 
         # ---- документы ----
         r = c.post_file(f"/api/patients/{pid}/documents", "file", "rx.png", PNG, mime="image/png",
@@ -748,10 +543,10 @@ def suite_actions(res: Result) -> None:
                forms["chestionar"]["filled"] != "" and forms["chestionar"]["signed"] is None
                and forms["chestionar"]["printed"] == "",
                f"{forms['chestionar']}")
-        res.check("уже удалённый документ — 404 doc_gone без фиши, форма — плашкой; строка одна",
-                  (*_gone(c, pid, f"/documents/{exe_id}/delete", f"/doc/{exe_id}/del"),
+        res.check("уже удалённый документ — 404 doc_gone без фиши; строка одна",
+                  (*_gone(c, pid, f"/documents/{exe_id}/delete"),
                    sum(a["text"] == "Document șters: virus.exe" for a in _feed(c, pid))),
-                  (404, "doc_gone", True, False, "doc_gone", 1))
+                  (404, "doc_gone", True, False, 1))
 
         # ---- запись ----
         j = _j(c.get(f"/api/patients/{pid}/slots?date={_d(3)}&doctor=d2&service=consult"))
@@ -780,7 +575,7 @@ def suite_actions(res: Result) -> None:
         # ⚠️ После записи зуба фиша перечитывала себя GET-ом фиши, а он —
         # ОТКРЫТИЕ: каждое сохранение зуба добавляло в журнал доступа (закон
         # 195) ложное «Fișa deschisă». Свежая фиша едет в ответе самой записи.
-        c.post("/admin/patients/new", name="Dinte Jurnal", phone="069555444")
+        c.post_json("/api/patients", {"name": "Dinte Jurnal", "phone": "069555444"})
         pt = _pid(c, "069555444")
         _card(c, pt)
         res.check("фиша открыта один раз — одна строка журнала доступа", _opens(c, pt), 1)
@@ -819,7 +614,7 @@ def suite_actions(res: Result) -> None:
         res.check("фиша с лечением — обезличена, ok_anon",
                   (st, j["code"], j["data"]["profile"]["phone"], j["data"]["profile"]["idnp"]),
                   (200, "ok_anon", "", ""))
-        c.post("/admin/patients/new", name="Doar Contact", phone="069555222")
+        c.post_json("/api/patients", {"name": "Doar Contact", "phone": "069555222"})
         pid2 = _pid(c, "069555222")
         st, j = _act(c, pid2, "/erase", {"confirm": "STERG"})
         res.check("контакт без лечения — удалён, адрес списка",
@@ -840,7 +635,7 @@ def suite_actions(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana", "role": "receptie", "pin": "2222"})
-        boss.post("/admin/patients/new", name="Bani Test", phone="069555333")
+        boss.post_json("/api/patients", {"name": "Bani Test", "phone": "069555333"})
         pid = _pid(boss, "069555333")
         rec = Client(s.url)
         rec.post("/admin/login", password="2222", next="/admin")
@@ -879,22 +674,20 @@ def _server_with_flag(env: dict | None = None) -> Server:
 
 
 def suite_switch(res: Result) -> None:
-    """Флаг patient_card: узел React с номером фиши и режимом ленты в той же
-    рамке, ?ui=legacy возвращает старую фишу, старые формы при флаге живут и
-    возвращают на React-страницу с плашкой сервера."""
+    """Фиша — React при любом `ui.react` (старая страница снята 13.10): узел
+    с номером фиши и режимом ленты в той же рамке, `?ui=legacy` отдаёт тот же
+    React, плашка сервера по `?msg=`, право стоит и на странице."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Flag Card", phone="069777000")
-        pid = _pid(c, "069777000")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("без флага — старая фиша", "class='hero'" in page and 'id="root"' not in page,
-               "не старая")
+        pid = new_patient(c, "Flag Card", "069777000")
+        res.ok("без флага — тоже React (старой фиши нет)",
+               '<div id="root" data-screen="patient_card"' in c.get(f"/admin/patient/{pid}").body,
+               "узла нет")
 
     s = _server_with_flag()
     with s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Flag Card", phone="069777000")
-        pid = _pid(c, "069777000")
+        pid = new_patient(c, "Flag Card", "069777000")
         page = c.get(f"/admin/patient/{pid}").body
         # подпись раздела печатает сам экран (08.10, крошки) — сервер отдаёт пустую
         res.ok("узел React в рамке фиши",
@@ -911,18 +704,18 @@ def suite_switch(res: Result) -> None:
         res.ok("старой разметки нет", "class='hero'" not in page and "id='plan'" not in page
                and "apptdlg" not in page, "две разметки")
         res.ok("не внутри #live", 'id="live"' not in page, "живой кусок")
-        res.ok("?ui=legacy — старая фиша", "class='hero'" in c.get(f"/admin/patient/{pid}?ui=legacy").body,
-               "не вернулась")
+        res.ok("?ui=legacy — та же React-фиша",
+               'data-screen="patient_card"' in c.get(f"/admin/patient/{pid}?ui=legacy").body,
+               "старая страница вернулась")
         res.ok("?msg= на React-странице — плашка сервера",
                "dp_toast" in c.get(f"/admin/patient/{pid}?msg=ok_card").body, "плашки нет")
-        res.check("чужая фиша при флаге — на список", c.get("/admin/patient/9999").status, 303)
-        # форма зуба из куска одонтограммы — старый маршрут, возврат сюда с ?msg=
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie", doctor="Dr. Activ Doi")
-        res.check("старая форма зуба при флаге работает и возвращает с плашкой",
-                  (r.status, r.location), (303, f"/admin/patient/{pid}?msg=ok_card"))
-        res.ok("зуб доехал до модели одонтограммы",
-               _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["teeth"]["11"]["state"] == "carie",
-               "не доехал")
+        res.check("чужая фиша — на список", c.get("/admin/patient/9999").status, 303)
+        r = c.post_json(f"/api/patients/{pid}/teeth/11", {"state": "carie", "doctor": "Dr. Activ Doi",
+                                                         "surfaces": []})
+        res.ok("запись зуба через API доехала до модели одонтограммы",
+               r.status == 200
+               and _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["teeth"]["11"]["state"] == "carie",
+               f"{r!r}")
         res.ok("флаг пережил правку профиля через API",
                _act(c, pid, "/profile", {"name": "Flag Card", "phone": "069777000"})[0] == 200
                and json.loads(s.clinic.read_text(encoding="utf-8")).get("ui") == {"react": ["patient_card"]},
@@ -934,8 +727,7 @@ def suite_switch(res: Result) -> None:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana", "role": "receptie", "pin": "2222"})
-        boss.post("/admin/patients/new", name="Flag Pin", phone="069777111")
-        pid = _pid(boss, "069777111")
+        pid = new_patient(boss, "Flag Pin", "069777111")
         rec = Client(s.url)
         rec.post("/admin/login", password="2222", next="/admin")
         res.ok("регистратуре фиша открыта и по PIN",

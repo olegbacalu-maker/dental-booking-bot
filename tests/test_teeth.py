@@ -1,9 +1,11 @@
 """Одонтограмма: поверхности зуба (M/O/D/V/L) и молочный прикус.
 
 Формула — единственное место, где клиника рисует диагноз картинкой, и ломается
-она молча: страница остаётся кодом 200, а зуб просто не тот. Поэтому здесь
-проверяется не «форма сохранилась», а что состояние доехало до ТРЁХ
-представлений: карточка, печатная 043/e и выгрузка по 195-му.
+она молча: ответ 200, а зуб просто не тот. Поэтому здесь проверяется не
+«запись прошла», а что состояние доехало до ТРЁХ представлений: экран (модель
+JSON API, которую рисует React; до 13.10 — старые страницы, карточка фиши и
+детальная одонтограмма), печатная 043/e и выгрузка по 195-му. Сам экран —
+флажки, инспектор, переключатель вида — держат проверки клиента (vitest).
 """
 import io
 import json
@@ -11,7 +13,7 @@ import re
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import Client, Result, Server, clinic_today, pid_by_phone, shell_model
 
 
 def _d(offset: int) -> str:
@@ -19,44 +21,56 @@ def _d(offset: int) -> str:
 
 
 def _pid(c: Client, phone: str) -> str:
-    return c.get(f"/admin/search?q={phone}").body.split(
-        "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+    return str(pid_by_phone(c, phone))
+
+
+def _odo(c: Client, pid) -> dict:
+    """Одонтограмма данными (`GET /api/patients/{pid}/odontogram`) — то, что
+    рисует экран: зубы с подписями и рисунками, история, мосты, легенда."""
+    return json.loads(c.get(f"/api/patients/{pid}/odontogram").body)["data"]
+
+
+def _title(c: Client, pid, n: int) -> str:
+    """Подпись зуба словами — та, что на кнопке и в подсказке."""
+    return _odo(c, pid)["teeth"][str(n)]["title"]
+
+
+def _feed(c: Client, pid) -> list[str]:
+    """Тексты летописи фиши (`GET …/activity`: лента без записи о просмотре)."""
+    r = c.get(f"/api/patients/{pid}/activity")
+    return [a["text"] for a in json.loads(r.body)["data"]["items"]]
 
 
 def suite_surfaces(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Suprafete Test", phone="022121212")
+        c.post_json("/api/patients", {"name": "Suprafete Test", "phone": "022121212"})
         pid = _pid(c, "022121212")
 
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="26", state="obturatie",
-                   note="compozit", doctor="d2", sf=["O", "M"])
+        r = c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "obturatie",
+                                                         "note": "compozit", "doctor": "d2",
+                                                         "surfaces": ["O", "M"]})
         res.check("поверхности сохраняются", r.msg, "ok_card")
 
-        page = c.get(f"/admin/patient/{pid}").body
+        odo = _odo(c, pid)
+        t26 = odo["teeth"]["26"]
         # ⚠️ порядок канонический MODVL, а не порядок галочек: «OM» и «MO» —
         # одно и то же, и в карте, и на печати это обязано читаться одинаково
-        res.ok("поверхности нормализованы в MO", '"sf": "MO"' in page,
-               "порядок поверхностей не канонический")
-        res.ok("подпись зуба не потеряла прежний формат",
-               "26 · Obturație · compozit · MO" in page,
-               "формат title изменился — сломается чтение карты")
-        res.ok("флажки поверхностей есть в диалоге",
-               "name='sf' value='O'" in page and "ocluzal" in page,
-               "нет выбора поверхностей")
-        res.ok("в карточке есть переключатель вида",
-               "Vedere ocluzală" in page and "data-view='frontal'" in page,
-               "вид сверху недоступен")
-        res.ok("обе дуги уехали в страницу",
-               "v-frontal" in page and "v-ocluzal" in page and "tooth-occ" in page,
+        res.check("поверхности нормализованы в MO", t26["sf"], "MO")
+        res.check("подпись зуба не потеряла прежний формат",
+                  t26["title"], "26 · Obturație · compozit · MO")
+        res.check("словарь поверхностей уезжает экрану (выбор поверхностей)",
+                  (odo["surfaces"].get("O"), list(odo["surfaces"])),
+                  ("ocluzal", ["M", "O", "D", "V", "L"]))
+        res.ok("у зуба оба вида рисунка — лицевой и сверху",
+               "<svg" in t26["svg"]["frontal"] and "<svg" in t26["svg"]["occlusal"]
+               and t26["svg"]["frontal"] != t26["svg"]["occlusal"],
                "один из видов не отрисован")
 
         res.check("выдуманная поверхность отбрасывается",
-                  c.post(f"/admin/patient/{pid}/tooth", tooth="26",
-                         state="carie", sf=["Z", "D"]).msg, "ok_card")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("осталась только настоящая буква", '"sf": "D"' in page,
-               "мусорная поверхность просочилась")
+                  c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "carie",
+                                                               "surfaces": ["Z", "D"]}).msg, "ok_card")
+        res.check("осталась только настоящая буква", _odo(c, pid)["teeth"]["26"]["sf"], "D")
 
         f043 = c.get(f"/admin/patient/{pid}/fisa043").body
         res.ok("поверхность напечатана рядом с кодом", ">C D</td>" in f043,
@@ -73,7 +87,7 @@ def suite_surfaces(res: Result) -> None:
                "HTML-копия без поверхностей")
 
         # зуб без поверхностей печатается как раньше — голой буквой
-        c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie")
+        c.post_json(f"/api/patients/{pid}/teeth/11", {"state": "carie", "surfaces": []})
         f043 = c.get(f"/admin/patient/{pid}/fisa043").body
         res.ok("зуб без поверхностей — только код", ">C</td>" in f043,
                "пустые поверхности замусорили клетку")
@@ -83,37 +97,29 @@ def suite_milk(res: Result) -> None:
     """Молочный прикус: номера 51-55/61-65/71-75/81-85."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Copil Test", phone="022131313")
+        c.post_json("/api/patients", {"name": "Copil Test", "phone": "022131313"})
         pid = _pid(c, "022131313")
 
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("молочная дуга есть на странице",
-               "Dentiție temporară" in page and "milk-arch" in page,
-               "нет молочного ряда")
-        res.ok("у взрослой фиши она свёрнута",
-               "<details class='milk'>" in page,
-               "молочный ряд раскрыт там, где по нему нет записей")
+        odo = _odo(c, pid)
+        res.check("молочная дуга уезжает экрану: обе челюсти и зубы в карте",
+                  (odo["arches"]["milk_upper"][:2], odo["arches"]["milk_lower"][-1],
+                   odo["teeth"]["54"]["milk"]), ([55, 54], 75, True))
+        res.check("у взрослой фиши она свёрнута", odo["milk_open"], False)
 
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="54", state="carie",
-                   note="lapte", doctor="d2")
+        r = c.post_json(f"/api/patients/{pid}/teeth/54", {"state": "carie", "note": "lapte",
+                                                         "doctor": "d2", "surfaces": []})
         res.check("молочный зуб принимается", r.msg, "ok_card")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("состояние молочного зуба видно",
-               "54 · Carie · lapte" in page, "молочный зуб не сохранился")
-        res.ok("с записями молочный ряд раскрыт сам",
-               "<details class='milk' open>" in page,
-               "детская фиша требует лишнего клика")
+        odo = _odo(c, pid)
+        res.check("состояние молочного зуба видно", odo["teeth"]["54"]["title"], "54 · Carie · lapte")
+        res.check("с записями молочный ряд раскрыт сам", odo["milk_open"], True)
 
         res.check("несуществующий номер отбит",
-                  c.post(f"/admin/patient/{pid}/tooth", tooth="99",
-                         state="carie").msg, "bad_card")
-        res.check("молочный зуб выбирается в плане лечения",
-                  c.post(f"/admin/patient/{pid}/plan", procedure="Obturație 54",
-                         tooth="54", price="300").status, 303)
-        res.ok("в плане номер молочного зуба сохранён",
-               ">54</button>" in c.get(f"/admin/patient/{pid}").body
-               or "54" in c.get(f"/admin/patient/{pid}").body,
-               "позиция плана потеряла зуб")
+                  c.post_json(f"/api/patients/{pid}/teeth/99", {"state": "carie", "surfaces": []}).msg, "bad_card")
+        r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Obturație 54",
+                                                     "tooth": "54", "price": "300"})
+        res.check("молочный зуб выбирается в плане лечения", (r.status, r.msg), (200, "ok_card"))
+        res.check("в плане номер молочного зуба сохранён",
+                  [it["tooth"] for it in json.loads(r.body)["data"]["plan"]["items"]], [54])
 
         f043 = c.get(f"/admin/patient/{pid}/fisa043").body
         res.ok("молочный ряд напечатан", ">54</td>" in f043 and ">85</td>" in f043,
@@ -342,78 +348,43 @@ def suite_occlusal(res: Result) -> None:
 def suite_odo_page(res: Result) -> None:
     """Детальная одонтограмма отдельной страницей.
 
-    Экран собран из ЧУЖИХ кусков: дуга та же, что в фише, форма уходит в тот же
-    маршрут. Отсюда и опасности — не в рисунке, а в стыках: обработчики от
-    другого экрана, возврат не туда, разъехавшийся узкий сайдбар.
+    С 13.10 это экран React (как и вкладка фиши): сервер отдаёт рамку с узким
+    сайдбаром и номером зуба из адреса, данные — один и тот же JSON API. До
+    этого стыки старых страниц (обработчики чужого экрана, возврат формы с
+    `back`, открытый редирект по нему) проверялись здесь же — они ушли вместе с
+    формой; узкий сайдбар остался.
     """
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Odonto Page", phone="022141414")
+        c.post_json("/api/patients", {"name": "Odonto Page", "phone": "022141414"})
         pid = _pid(c, "022141414")
-        c.post(f"/admin/patient/{pid}/tooth", tooth="16", state="carie",
-               note="test", sf=["M", "O"])
+        c.post_json(f"/api/patients/{pid}/teeth/16", {"state": "carie", "note": "test",
+                                                     "surfaces": ["M", "O"]})
 
         card = c.get(f"/admin/patient/{pid}").body
-        res.ok("из фиши есть переход", "Detaliat" in card
-               and f"/admin/patient/{pid}/odontograma" in card,
-               "детальную страницу не открыть из карточки")
-
         r = c.get(f"/admin/patient/{pid}/odontograma")
         page = r.body
         res.check("страница открывается", r.status, 200)
         res.ok("это HTML, а не строка в JSON", page.lstrip().startswith("<!doctype"),
                "маршрут отдаёт str без response_class — браузер покажет исходник")
-        res.ok("обе дуги на месте",
-               "v-frontal" in page and "v-ocluzal" in page and "tooth-occ" in page,
+        t16 = _odo(c, pid)["teeth"]["16"]
+        res.ok("у зуба оба вида рисунка",
+               "<svg" in t16["svg"]["frontal"] and "<svg" in t16["svg"]["occlusal"],
                "один из видов не отрисован")
-        res.ok("инспектор вместо модалки",
-               "insp-pic" in page and "toothdlg" not in page,
-               "на детальной странице осталась модалка")
-        # ⚠️ Кнопка зуба несёт обработчики ИНЛАЙНОМ. Оставить здесь вызовы
-        # toothTip — значит сыпать ошибками при каждом наведении: подсказки на
-        # этом экране нет, а функции нет тем более. Молча: консоль не видна.
-        res.ok("обработчиков чужого экрана нет",
-               "toothTip" not in page and "openTooth" not in page,
-               "кнопка зовёт функции, которых на этой странице не существует")
-        res.ok("сайдбар свёрнут", "side side-rail" in page,
-               "дуге не хватит ширины на 1366")
-        res.ok("в фише сайдбар обычный", "side-rail" not in card,
-               "узкий сайдбар уехал на все страницы")
+        # ⭐ B1: сайдбар рисует React по модели оболочки — флаг узкого в ней
+        res.check("сайдбар свёрнут", shell_model(page)["frame"]["rail"], True)
+        res.check("в фише сайдбар обычный", shell_model(card)["frame"]["rail"], False)
 
-        # выбор зуба переживает сохранение: маршрут возвращает СЮДА и с номером
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="26", state="obturatie",
-                   back="odontograma", sf=["O"])
+        # выбор зуба переживает сохранение: экран кладёт номер в адрес, сервер
+        # отдаёт его узлу параметром
+        r = c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "obturatie",
+                                                         "surfaces": ["O"]})
         res.check("сохранение принято", r.msg, "ok_card")
-        res.ok("вернулись на детальную страницу с тем же зубом",
-               "/odontograma" in r.location
-               and "t=26" in r.location,
-               f"возврат не туда: {r.location!r}")
         res.ok("выбор восстанавливается из адреса",
-               "selTooth(26)" in c.get(f"/admin/patient/{pid}/odontograma?t=26").body,
-               "после сохранения панель пуста")
-
-        # ⛔ `back` — выбор из двух известных экранов, а не адрес. Иначе это
-        # открытый редирект на маршруте, который вызывается формой из браузера
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="27", state="carie",
-                   back="https://evil.example/x")
-        res.ok("чужой адрес в back не уводит наружу",
-               r.location.startswith(f"/admin/patient/{pid}")
-               and "evil" not in r.location,
-               f"открытый редирект: {r.location!r}")
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="27", state="carie")
-        res.ok("без back возврат в фишу, как раньше",
-               r.location.rstrip("?msg=ok_card").endswith(str(pid))
-               or "/odontograma" not in r.location,
-               "пустой back увёл на детальную страницу")
-
-        # ⚠️ Отказ обязан вести туда же, куда успех: иначе врач, промахнувшийся
-        # номером, окажется в фише и решит, что страница «слетела»
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="99", state="carie",
-                   back="odontograma")
-        res.check("выдуманный зуб отбит", r.msg, "bad_card")
-        res.ok("отказ вернул на ту же страницу",
-               "/odontograma" in r.location,
-               "после отказа экран сменился")
+               "&quot;t&quot;: &quot;26&quot;" in c.get(f"/admin/patient/{pid}/odontograma?t=26").body,
+               "номер зуба из адреса не доехал до экрана")
+        r = c.post_json(f"/api/patients/{pid}/teeth/99", {"state": "carie", "surfaces": []})
+        res.check("выдуманный зуб отбит", (r.status, r.msg), (422, "bad_card"))
 
     # ---- узкий сайдбар: две копии правил обязаны совпадать ----
     # ⛔ Копия появилась вынужденно: медиазапрос не умеет навесить класс, а
@@ -482,34 +453,30 @@ def suite_surface_states(res: Result) -> None:
 
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Suprafete Mixt", phone="022151515")
+        c.post_json("/api/patients", {"name": "Suprafete Mixt", "phone": "022151515"})
         pid = _pid(c, "022151515")
 
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="17", state="obturatie",
-                   note="mixt", sfst="M:carie,O:obturatie")
+        r = c.post_json(f"/api/patients/{pid}/teeth/17", {"state": "obturatie", "note": "mixt",
+                                                         "surfaces": {"M": "carie", "O": "obturatie"}})
         res.check("смесь принята", r.msg, "ok_card")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("карта поверхностей доехала до браузера",
-               '"M": "carie"' in page and '"O": "obturatie"' in page,
-               "рисунок не узнает, чем поражена каждая поверхность")
-        res.ok("подпись зуба разворачивает смесь словами",
-               "Carie (M), Obturație (O)" in page,
-               "на зубе написано одно состояние вместо двух")
+        t17 = _odo(c, pid)["teeth"]["17"]
+        res.check("карта поверхностей доехала до экрана",
+                  t17["sfst"], {"M": "carie", "O": "obturatie"})
+        res.check("подпись зуба разворачивает смесь словами",
+                  t17["sfx"], "Carie (M), Obturație (O)")
         # ⚠️ состояние ЗУБА обязано стать самым тяжёлым, иначе счётчики и
         # печатная форма назовут пломбой зуб, у которого есть кариес
-        res.ok("зуб целиком назван по кариесу",
-               '"17": {' in page.replace("\n", "") or True,
-               "")
+        res.check("зуб целиком назван по кариесу", t17["state"], "carie")
         res.ok("состояние зуба поднялось до кариеса",
-               "17 · Carie · mixt" in page,
-               "смесь не подняла состояние зуба до самого тяжёлого")
+               t17["title"].startswith("17 · Carie · mixt"),
+               f"смесь не подняла состояние зуба до самого тяжёлого: {t17['title']!r}")
 
         f043 = c.get(f"/admin/patient/{pid}/fisa043").body
         res.ok("бланк печатает обе записи", ">C M, O O</td>" in f043,
                "на подписываемом бланке смесь свёрнута в одно состояние")
 
         # однородный зуб печатается КАК РАНЬШЕ — иначе сломан весь прежний архив
-        c.post(f"/admin/patient/{pid}/tooth", tooth="26", state="carie", sf=["M", "O"])
+        c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "carie", "surfaces": ["M", "O"]})
         f043 = c.get(f"/admin/patient/{pid}/fisa043").body
         res.ok("однородный зуб печатается как прежде", ">C MO</td>" in f043,
                "прежний вид клетки изменился без нужды")
@@ -525,47 +492,30 @@ def suite_surface_states(res: Result) -> None:
                "пациент увидит «MO» и не узнает, где пломба")
 
         # ---- мусор не проходит ----
-        c.post(f"/admin/patient/{pid}/tooth", tooth="27", state="carie",
-               sfst="Z:carie,M:coroana,O:carie")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("выдуманная буква и состояние зуба отброшены",
-               "27 · Carie · O" in page,
-               "в карту поверхностей просочилось лишнее")
+        c.post_json(f"/api/patients/{pid}/teeth/27", {"state": "carie",
+                                                     "surfaces": {"Z": "carie", "M": "coroana", "O": "carie"}})
+        res.check("выдуманная буква и состояние зуба отброшены",
+                  _title(c, pid, 27), "27 · Carie · O")
 
         # ---- состояние ЗУБА стирает КАРТУ, но не буквы ----
         # ⚠️ Поверхностного состояния у коронки не бывает, и карта снимается.
         # Буквы записи при этом остаются: их печатает 043/e, а инспектор, где
         # эта правка и делается, букв не шлёт вовсе — стереть их его молчанием
         # значило бы решать за подписываемый бланк (см. suite_surface_memory)
-        c.post(f"/admin/patient/{pid}/tooth", tooth="17", state="coroana",
-               sfst="M:carie,O:obturatie")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("коронка снимает поверхностные состояния",
-               'title="17 · Coroană · MO"' in page
-               and _teeth_json(page)["17"]["sfst"] == {},
-               "у коронки остались поверхностные состояния")
-
-
-def _teeth_json(page: str) -> dict:
-    """Объект TEETH, уехавший в браузер. Разбором, а не поиском подстроки:
-    подписи в нём не-ASCII, а js_json экранирует такие символы кодами — и
-    проверка, написанная строкой, читалась бы как шифр."""
-    raw = page.split("const TEETH = ", 1)[1].split(";\n", 1)[0]
-    return json.loads(raw.replace("<\\/", "</"))
-
-
-def _thist_json(page: str) -> dict:
-    """История зубов, уехавшая в браузер — тем же разбором и по той же причине."""
-    raw = page.split("const THIST = ", 1)[1].split(";\n", 1)[0]
-    return json.loads(raw.replace("<\\/", "</"))
+        c.post_json(f"/api/patients/{pid}/teeth/17", {"state": "coroana",
+                                                     "surfaces": {"M": "carie", "O": "obturatie"}})
+        t17 = _odo(c, pid)["teeth"]["17"]
+        res.check("коронка снимает поверхностные состояния",
+                  (t17["title"], t17["sfst"]), ("17 · Coroană · MO", {}))
 
 
 def suite_surface_memory(res: Result) -> None:
-    """Что зуб ПОМНИТ между сохранениями с двух разных экранов.
+    """Что зуб ПОМНИТ между сохранениями двумя словарями поверхностей.
 
-    Зуб правят две формы: диалог фиши (флажки букв, про состояния поверхностей
-    он не знает) и инспектор детальной страницы (карта состояний, про буквы он
-    не знает). Каждая отчитывается СВОИМ, и «поля нет» здесь не значит «пусто»:
+    Запись принимает поверхности буквами (так слал диалог старой фиши, снятой
+    13.10; путь остался в контракте API) и картой состояний (её шлёт панель
+    React, как слал инспектор детальной страницы). Каждый словарь отчитывается
+    СВОИМ, и «поля нет» здесь не значит «пусто»:
     принять молчание одной формы за стирание — значит терять клинику при
     сохранении, на которое врач смотрит как на пустое. Отсюда и проверки:
     пересохранение без единой правки обязано быть тождественным, а то, о чём
@@ -615,96 +565,75 @@ def suite_surface_memory(res: Result) -> None:
 
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Memorie Suprafete", phone="022161616")
+        c.post_json("/api/patients", {"name": "Memorie Suprafete", "phone": "022161616"})
         pid = _pid(c, "022161616")
         base = f"/admin/patient/{pid}"
+        api = f"/api/patients/{pid}"
 
         # ---- 1. поверхность на ЗДОРОВОМ зубе ----
         # инспектор состояние ЗУБА не поднимает: у нетронутого зуба в форме
         # стоит «Sănătos», а врач размечает поверхность — это и есть главный
         # сценарий экрана
-        r = c.post(f"{base}/tooth", tooth="16", state="ok",
-                   back="odontograma", sfst="M:carie")
+        r = c.post_json(f"{api}/teeth/16", {"state": "ok", "surfaces": {"M": "carie"}})
         res.check("отметка на здоровом зубе принята", r.msg, "ok_card")
-        page = c.get(base).body
-        res.ok("зуб назван по отмеченной поверхности",
-               'title="16 · Carie · M"' in page,
-               "отмеченный кариес пропал, зуб остался «Sănătos»")
+        res.check("зуб назван по отмеченной поверхности", _title(c, pid, 16), "16 · Carie · M")
         res.ok("бланк 043/e знает про этот кариес",
                ">C M</td>" in c.get(f"{base}/fisa043").body,
                "поверхность не доехала до подписываемого бланка")
 
         # ⛔ законный случай не сломан: вылеченный зуб уходит из карты
-        c.post(f"{base}/tooth", tooth="16", state="ok", back="odontograma",
-               sfst="")
-        res.ok("вылеченный зуб снова здоров",
-               'title="16 · Sănătos"' in c.get(base).body,
-               "пустая карта + «ok» перестали удалять строку зуба")
+        c.post_json(f"{api}/teeth/16", {"state": "ok", "surfaces": {}})
+        res.check("вылеченный зуб снова здоров", _title(c, pid, 16), "16 · Sănătos")
 
         # ---- 2. пересохранение из диалога фиши ничего не меняет ----
-        c.post(f"{base}/tooth", tooth="17", state="obturatie", note="mixt",
-               sfst="M:carie,O:obturatie")
+        c.post_json(f"{api}/teeth/17", {"state": "obturatie", "note": "mixt",
+                                       "surfaces": {"M": "carie", "O": "obturatie"}})
         res.ok("смесь записана", ">C M, O O</td>" in c.get(f"{base}/fisa043").body,
                "смесь не записалась")
         # ровно то, что шлёт диалог фиши: агрегат состояния, галочки, заметка.
         # Ни одного поля врач не менял
-        c.post(f"{base}/tooth", tooth="17", state="carie", note="mixt",
-               sf=["M", "O"])
-        page = c.get(base).body
-        res.ok("пересохранение из фиши тождественно",
-               'title="17 · Carie · mixt · Carie (M), Obturație (O)"' in page,
-               "сохранение без правок затёрло пломбу кариесом")
+        c.post_json(f"{api}/teeth/17", {"state": "carie", "note": "mixt", "surfaces": ["M", "O"]})
+        res.check("пересохранение буквами тождественно",
+                  _title(c, pid, 17), "17 · Carie · mixt · Carie (M), Obturație (O)")
         res.ok("бланк 043/e не потерял пломбу",
                ">C M, O O</td>" in c.get(f"{base}/fisa043").body,
                "с подписываемого бланка исчезла пломба")
 
         # ⚠️ обратное тоже обязано работать: смена состояния В ДИАЛОГЕ — это
         # законный ввод «одно состояние на все отмеченные»
-        c.post(f"{base}/tooth", tooth="17", state="obturatie", note="mixt",
-               sf=["M", "O"])
-        res.ok("сменённое в диалоге состояние ложится на все отмеченные",
-               'title="17 · Obturație · mixt · MO"' in c.get(base).body,
-               "диалог фиши перестал менять состояние поверхностей")
+        c.post_json(f"{api}/teeth/17", {"state": "obturatie", "note": "mixt",
+                                       "surfaces": ["M", "O"]})
+        res.check("сменённое состояние ложится на все отмеченные буквы",
+                  _title(c, pid, 17), "17 · Obturație · mixt · MO")
 
         # ---- 3. состояние ЗУБА не стирает буквы ----
-        c.post(f"{base}/tooth", tooth="36", state="carie", sf=["M", "O", "D"])
-        c.post(f"{base}/tooth", tooth="36", state="coroana",
-               back="odontograma", sfst="")
-        res.ok("буквы пережили правку с детальной страницы",
-               'title="36 · Coroană · MOD"' in c.get(base).body,
-               "инспектор букв не шлёт, и они стёрлись")
+        c.post_json(f"{api}/teeth/36", {"state": "carie", "surfaces": ["M", "O", "D"]})
+        c.post_json(f"{api}/teeth/36", {"state": "coroana", "surfaces": {}})
+        res.check("буквы пережили правку картой (панель букв не шлёт)",
+                  _title(c, pid, 36), "36 · Coroană · MOD")
         res.ok("бланк 043/e печатает буквы под коронкой",
                ">Cor MOD</td>" in c.get(f"{base}/fisa043").body,
                "из подписываемого бланка пропало, какие поверхности лечили")
         # а снять их из фиши по-прежнему можно — там флажки и есть сообщение
-        c.post(f"{base}/tooth", tooth="36", state="coroana", sf=[])
-        res.ok("снятые в фише флажки убирают буквы",
-               'title="36 · Coroană"' in c.get(base).body,
-               "буквы стало нечем снять")
+        c.post_json(f"{api}/teeth/36", {"state": "coroana", "surfaces": []})
+        res.check("пустой список букв их снимает", _title(c, pid, 36), "36 · Coroană")
 
         # ---- 4. снапшот врача переживает правку с детальной страницы ----
-        c.post(f"{base}/tooth", tooth="46", state="carie",
-               doctor="Dr. Arhivat Unu", sf=["O"])
-        sel = c.get(f"{base}/odontograma").body.split("id='i_doc'", 1)[1] \
-                                               .split("</select>", 1)[0]
-        res.ok("выключенный врач есть в списке детальной страницы",
-               "Dr. Arhivat Unu" in sel,
-               "имени нет в списке — браузер отдаст пустое, и снапшот сотрётся")
+        c.post_json(f"{api}/teeth/46", {"state": "carie", "doctor": "Dr. Arhivat Unu",
+                                       "surfaces": ["O"]})
+        res.ok("выключенный врач есть в списке врачей экрана",
+               "Dr. Arhivat Unu" in _odo(c, pid)["doctors"],
+               "имени нет в списке — экран отдаст пустое, и снапшот сотрётся")
 
         # ---- 5. подсказка зуба называет смесь честно ----
-        c.post(f"{base}/tooth", tooth="47", state="carie",
-               sfst="M:carie,O:obturatie")
-        page = c.get(base).body
-        res.check("подсказка получает смесь словами",
-                  _teeth_json(page)["47"]["sfx"], "Carie (M), Obturație (O)")
-        res.check("однородный зуб остаётся буквами",
-                  _teeth_json(page)["17"]["sfx"], "MO")
-        res.ok("подсказка берёт готовую подпись, а не голые буквы",
-               "tesc(t.sfx)" in page and "tesc(t.sf)" not in page,
-               "во всплывающей карточке смесь читается сплошным кариесом")
+        c.post_json(f"{api}/teeth/47", {"state": "carie",
+                                       "surfaces": {"M": "carie", "O": "obturatie"}})
+        teeth = _odo(c, pid)["teeth"]
+        res.check("подсказка получает смесь словами", teeth["47"]["sfx"], "Carie (M), Obturație (O)")
+        res.check("однородный зуб остаётся буквами", teeth["17"]["sfx"], "MO")
 
         # ---- 6. выгрузка по 195-му говорит словами ----
-        c.post(f"{base}/tooth", tooth="48", state="lipsa")
+        c.post_json(f"{api}/teeth/48", {"state": "lipsa", "surfaces": []})
         z = zipfile.ZipFile(io.BytesIO(c.get(f"{base}/export").raw))
         fisa = z.read("fisa-pacient.html").decode("utf-8")
         res.ok("состояние зуба в копии по 195-му — словом",
@@ -713,61 +642,60 @@ def suite_surface_memory(res: Result) -> None:
 
 
 def suite_surface_input(res: Result) -> None:
-    """Оба экрана как ВВОД: чем форма заряжена и куда деваются буквы.
+    """Запись зуба как ВВОД: чем экран заряжен и куда деваются буквы.
 
-    Прошлые проверки спрашивали, что зуб ПОМНИТ; эти — что он ПРИНИМАЕТ. Обе
-    формы отвечают «сохранено» одним и тем же 303, поэтому ввод, который никуда
-    не доехал, выглядит на экране ровно как удавшийся (грабля карты «303 не
-    отличает успех от отказа»), и заметить его можно только на бланке 043/e.
+    Прошлые проверки спрашивали, что зуб ПОМНИТ; эти — что он ПРИНИМАЕТ. Оба
+    словаря отвечают «сохранено» одним кодом, поэтому ввод, который никуда не
+    доехал, выглядит на экране ровно как удавшийся (грабля карты «303 не
+    отличает успех от отказа» — у JSON та же), и заметить его можно только на
+    бланке 043/e. Что экран шлёт `state0` (показанное состояние), держит
+    клиент: `useChart` (до 13.10 — поле `state0` старого диалога).
     """
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Intrare Suprafete", phone="022171717")
+        c.post_json("/api/patients", {"name": "Intrare Suprafete", "phone": "022171717"})
         pid = _pid(c, "022171717")
         base = f"/admin/patient/{pid}"
+        api = f"/api/patients/{pid}"
 
-        # ---- 1. «форма сообщила состояние» — факт ФОРМЫ, а не догадка по базе ----
+        # ---- 1. «экран сообщил состояние» — факт ВВОДА, а не догадка по базе ----
         # ⚠️ Сравнение с БАЗОЙ делало один и тот же ввод то правкой, то
         # пустышкой — по тому, что в базе, а этого врач на экране не видит
-        res.ok("диалог фиши сообщает, чем он заряжен",
-               "name='state0'" in c.get(base).body,
-               "диалог не шлёт показанное состояние — сервер вернётся к догадке")
 
-        c.post(f"{base}/tooth", tooth="45", state="carie",
-               sfst="M:carie,O:obturatie")
+        c.post_json(f"{api}/teeth/45", {"state": "carie",
+                                       "surfaces": {"M": "carie", "O": "obturatie"}})
         res.ok("смесь записана", ">C M, O O</td>" in c.get(f"{base}/fisa043").body,
                "смесь не записалась")
         # диалог показал «Obturație» (вкладку открыли до правки со второго
         # рабочего места), врач выбрал «Carie» и сохранил
-        r = c.post(f"{base}/tooth", tooth="45", state="carie", state0="obturatie",
-                   sf=["M", "O"])
+        r = c.post_json(f"{api}/teeth/45", {"state": "carie", "state0": "obturatie",
+                                           "surfaces": ["M", "O"]})
         res.check("ввод принят", r.msg, "ok_card")
-        res.ok("сменённое в диалоге состояние легло на обе поверхности",
-               'title="45 · Carie · MO"' in c.get(base).body,
-               "правка совпала с содержимым базы и молча стала пустышкой")
+        res.check("сменённое состояние легло на обе поверхности",
+                  _title(c, pid, 45), "45 · Carie · MO")
         res.ok("бланк 043/e показывает кариес на обеих",
                ">C MO</td>" in c.get(f"{base}/fisa043").body,
                "на подписываемом бланке осталась несуществующая пломба")
 
         # ⛔ обратное: состояние пришло ТЕМ ЖЕ, каким диалог его показал —
         # врач его не трогал, и прежняя смесь обязана уцелеть
-        c.post(f"{base}/tooth", tooth="46", state="carie",
-               sfst="M:carie,O:obturatie")
-        c.post(f"{base}/tooth", tooth="46", state="carie", state0="carie",
-               sf=["M", "O"])
+        c.post_json(f"{api}/teeth/46", {"state": "carie",
+                                       "surfaces": {"M": "carie", "O": "obturatie"}})
+        c.post_json(f"{api}/teeth/46", {"state": "carie", "state0": "carie",
+                                       "surfaces": ["M", "O"]})
         res.ok("нетронутое состояние не красит пломбу кариесом",
                ">C M, O O</td>" in c.get(f"{base}/fisa043").body,
                "пересохранение без правок затёрло пломбу")
 
         # ⚠️ Запрос БЕЗ поля (открытая вкладка, старая разметка) ведёт себя как
         # раньше: смысл уже отправляемых запросов молча меняться не имеет права
-        c.post(f"{base}/tooth", tooth="47", state="carie",
-               sfst="M:carie,O:obturatie")
-        c.post(f"{base}/tooth", tooth="47", state="carie", sf=["M", "O"])
+        c.post_json(f"{api}/teeth/47", {"state": "carie",
+                                       "surfaces": {"M": "carie", "O": "obturatie"}})
+        c.post_json(f"{api}/teeth/47", {"state": "carie", "surfaces": ["M", "O"]})
         res.ok("старый запрос сохранил прежний смысл",
                ">C M, O O</td>" in c.get(f"{base}/fisa043").body,
                "у запроса без нового поля изменилось поведение")
-        c.post(f"{base}/tooth", tooth="47", state="obturatie", sf=["M", "O"])
+        c.post_json(f"{api}/teeth/47", {"state": "obturatie", "surfaces": ["M", "O"]})
         res.ok("старый запрос по-прежнему кладёт смену на все отмеченные",
                ">O MO</td>" in c.get(f"{base}/fisa043").body,
                "диалог без нового поля перестал менять состояние поверхностей")
@@ -775,17 +703,12 @@ def suite_surface_input(res: Result) -> None:
         # ---- 2. переход «состояние ЗУБА → поверхностное» не теряет букв ----
         # у коронки карта пуста ПО ЗАМЫСЛУ, поэтому инспектор кнопок не зажигает
         # и прислать их не может — а буквы печатает бланк 043/e
-        c.post(f"{base}/tooth", tooth="36", state="carie", sf=["M", "O", "D"])
-        c.post(f"{base}/tooth", tooth="36", state="coroana", back="odontograma",
-               sfst="")
-        res.ok("буквы пережили коронку", 'title="36 · Coroană · MOD"' in c.get(base).body,
-               "буквы стёрлись ещё на коронке")
-        r = c.post(f"{base}/tooth", tooth="36", state="carie", back="odontograma",
-                   sfst="")
+        c.post_json(f"{api}/teeth/36", {"state": "carie", "surfaces": ["M", "O", "D"]})
+        c.post_json(f"{api}/teeth/36", {"state": "coroana", "surfaces": {}})
+        res.check("буквы пережили коронку", _title(c, pid, 36), "36 · Coroană · MOD")
+        r = c.post_json(f"{api}/teeth/36", {"state": "carie", "surfaces": {}})
         res.check("обратный переход принят", r.msg, "ok_card")
-        res.ok("буквы пережили обратный переход",
-               'title="36 · Carie · MOD"' in c.get(base).body,
-               "смена состояния с детальной страницы стёрла поверхности")
+        res.check("буквы пережили обратный переход", _title(c, pid, 36), "36 · Carie · MOD")
         res.ok("бланк 043/e не потерял поверхности",
                ">C MOD</td>" in c.get(f"{base}/fisa043").body,
                "из подписываемого бланка пропало, какие поверхности поражены")
@@ -793,24 +716,20 @@ def suite_surface_input(res: Result) -> None:
         # ---- 3. поверхности назначаются В ТОМ ЖЕ сохранении ----
         # ⛔ Экран, который принимает ввод и не сохраняет его, хуже экрана, где
         # ввода нет: кнопки M/O горят в момент нажатия «Salvează»
-        r = c.post(f"{base}/tooth", tooth="35", state="coroana",
-                   back="odontograma", sfst="M:carie,O:carie")
+        r = c.post_json(f"{api}/teeth/35", {"state": "coroana",
+                                           "surfaces": {"M": "carie", "O": "carie"}})
         res.check("коронка с поверхностями принята", r.msg, "ok_card")
-        res.ok("буквы под коронкой назначены с детальной страницы",
-               'title="35 · Coroană · MO"' in c.get(base).body,
-               "инспектор выбросил поверхности, которые сам же подсветил")
+        res.check("буквы под коронкой назначены картой", _title(c, pid, 35), "35 · Coroană · MO")
         res.ok("бланк 043/e печатает их",
                ">Cor MO</td>" in c.get(f"{base}/fisa043").body,
                "на бланке под коронкой не сказано, какие поверхности лечили")
 
         # ⛔ снять буквы с детальной страницы по-прежнему можно: у зуба с
         # поверхностным состоянием пустая карта и значит «поражения нет»
-        c.post(f"{base}/tooth", tooth="34", state="carie", sfst="M:carie,O:carie")
-        c.post(f"{base}/tooth", tooth="34", state="carie", back="odontograma",
-               sfst="")
-        res.ok("снятая карта убирает буквы",
-               'title="34 · Carie"' in c.get(base).body,
-               "буквы стало нечем снять с детальной страницы")
+        c.post_json(f"{api}/teeth/34", {"state": "carie",
+                                       "surfaces": {"M": "carie", "O": "carie"}})
+        c.post_json(f"{api}/teeth/34", {"state": "carie", "surfaces": {}})
+        res.check("снятая карта убирает буквы", _title(c, pid, 34), "34 · Carie")
 
 
 def suite_marks(res: Result) -> None:
@@ -869,60 +788,54 @@ def suite_marks(res: Result) -> None:
 
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Marcaje Test", phone="022181818")
+        c.post_json("/api/patients", {"name": "Marcaje Test", "phone": "022181818"})
         pid = _pid(c, "022181818")
         base = f"/admin/patient/{pid}"
+        api = f"/api/patients/{pid}"
 
         # ---- 2. то, ради чего всё затевалось ----
-        c.post(f"{base}/tooth", tooth="16", state="carie", sf=["M", "O"])
-        r = c.post(f"{base}/tooth", tooth="16", state="carie", state0="carie",
-                   sf=["M", "O"], mk0="1", mk=["tratament"])
+        c.post_json(f"{api}/teeth/16", {"state": "carie", "surfaces": ["M", "O"]})
+        r = c.post_json(f"{api}/teeth/16", {"state": "carie", "state0": "carie",
+                                           "surfaces": ["M", "O"], "marks": ["tratament"]})
         res.check("отметка принята", r.msg, "ok_card")
-        res.ok("зуб называется И находкой, И отметкой",
-               'title="16 · Carie · În tratament · MO"' in c.get(base).body,
-               "одна из двух величин потерялась — ровно то, что чинили")
+        res.check("зуб называется И находкой, И отметкой",
+                  _title(c, pid, 16), "16 · Carie · În tratament · MO")
         res.ok("бланк 043/e печатает обе", ">C MO T</td>" in c.get(f"{base}/fisa043").body,
                "на подписываемом бланке снова видно только одно из двух")
 
         # ---- 3. отметка ОДНА держит запись ----
         # «зуб здоров, но сейчас в работе» — законная запись; раньше строка с
         # state='ok' без заметки и врача удалялась, и экран отвечал «сохранено»
-        r = c.post(f"{base}/tooth", tooth="21", state="ok", mk0="1",
-                   mk=["tratament"])
+        r = c.post_json(f"{api}/teeth/21", {"state": "ok", "surfaces": [],
+                                           "marks": ["tratament"]})
         res.check("здоровый зуб в работе принят", r.msg, "ok_card")
-        res.ok("запись не удалилась вместе с состоянием",
-               'title="21 · Sănătos · În tratament"' in c.get(base).body,
-               "строка зуба удалена, а экран ответил «сохранено»")
+        res.check("запись не удалилась вместе с состоянием",
+                  _title(c, pid, 21), "21 · Sănătos · În tratament")
         res.ok("бланк печатает отметку и без находки",
                ">T</td>" in c.get(f"{base}/fisa043").body,
                "в клетке пусто, хотя зуб в работе")
 
         # ---- 4. снять отметку можно, и это НЕ трогает находку ----
-        c.post(f"{base}/tooth", tooth="16", state="carie", state0="carie",
-               sf=["M", "O"], mk0="1")
-        res.ok("снятая галочка убирает отметку",
-               'title="16 · Carie · MO"' in c.get(base).body,
-               "отметку стало нечем снять")
+        c.post_json(f"{api}/teeth/16", {"state": "carie", "state0": "carie",
+                                       "surfaces": ["M", "O"], "marks": []})
+        res.check("пустой список отметок её снимает", _title(c, pid, 16), "16 · Carie · MO")
 
         # ---- 5. «поля нет» ≠ «сняли» ----
-        # ⚠️ Снятый флажок не шлёт НИЧЕГО, поэтому о самом факте форма сообщает
-        # отдельно (`mk0`). Без этого сохранение из вкладки, открытой до 08-17,
-        # снимало бы «в работе» с каждого зуба, которого коснулись
-        c.post(f"{base}/tooth", tooth="26", state="carie", mk0="1",
-               mk=["tratament"])
-        c.post(f"{base}/tooth", tooth="26", state="carie", note="control")
-        res.ok("форма, не знающая про отметки, их не снимает",
-               'title="26 · Carie · În tratament · control"' in c.get(base).body,
-               "старая вкладка молча сняла отметку")
+        # ⚠️ Запись без поля `marks` (до 13.10 — старая форма без `mk0`) об
+        # отметках не сообщает и снимать их не вправе: иначе сохранение из
+        # вкладки, открытой до 08-17, снимало бы «в работе» с каждого зуба
+        c.post_json(f"{api}/teeth/26", {"state": "carie", "surfaces": [], "marks": ["tratament"]})
+        c.post_json(f"{api}/teeth/26", {"state": "carie", "note": "control", "surfaces": []})
+        res.check("запись, не знающая про отметки, их не снимает",
+                  _title(c, pid, 26), "26 · Carie · În tratament · control")
 
-        # ---- 6. вкладка из-до 08-17 шлёт state=tratament ----
-        # Отказать ей значило бы потерять ввод врача; принять как есть нельзя —
-        # состояния с таким именем больше нет. Переводим в отметку, как миграция
-        r = c.post(f"{base}/tooth", tooth="36", state="tratament")
-        res.check("старое состояние не отбито как мусор", r.msg, "ok_card")
-        res.ok("старое состояние стало отметкой",
-               'title="36 · Sănătos · În tratament"' in c.get(base).body,
-               "ввод из старой вкладки потерян или записан состоянием")
+        # ---- 6. состояния «tratament» больше нет ----
+        # До 13.10 форма зуба переводила его в отметку — совместимость со
+        # вкладкой, открытой до 08-17 (форма снята вместе со старой фишей).
+        # JSON API такое состояние не принимал никогда: оно отбивается, а не
+        # пишется состоянием, вытесняя находку
+        r = c.post_json(f"{api}/teeth/36", {"state": "tratament", "surfaces": []})
+        res.check("«tratament» состоянием — отказ", (r.status, r.msg), (422, "bad_card"))
 
         # ---- 7. выгрузка по 195-му ----
         z = zipfile.ZipFile(io.BytesIO(c.get(f"{base}/export").raw))
@@ -935,62 +848,43 @@ def suite_marks(res: Result) -> None:
                "пациенту уехала фиша без того, что зуб в работе")
 
         # ---- 8. летопись хранит ГОТОВУЮ строку, и в ней обе величины ----
-        # ⚠️ Разбором, а не подстрокой: js_json экранирует не-ASCII кодами,
-        # и проверка, написанная строкой, сверяла бы шифр (та же причина, что
-        # у `_teeth_json` выше)
-        hist = _thist_json(c.get(f"{base}/odontograma?t=16").body)
+        hist = _odo(c, pid)["history"]
         res.ok("летопись зуба называет находку и отметку",
                any("Carie (MO) · În tratament" in x["text"]
                    for x in hist.get("16", [])),
                f"в истории зуба осталось только одно из двух: {hist.get('16')}")
 
-        # ---- 9. ореол доехал до ДУГИ НА СТРАНИЦЕ, а не только до подписи ----
+        # ---- 9. ореол доехал до РИСУНКА зуба, а не только до подписи ----
         # ⛔ Проверка, которой не хватало: рисование сверялось прямыми вызовами
-        # `teeth_svg`, а страница — по `title`. Между ними лежит один аргумент
-        # (`marks=mk` в `_btn`), и без него зуб «в работе» неотличим от обычного,
-        # легенда обещает знак, которого на дуге нет, а прогон ЗЕЛЁНЫЙ — подпись
-        # и подсказка на месте. Ровно тот молчаливый исход, ради которого в этом
-        # наборе вообще проверяются ТРИ представления, а не «форма сохранилась».
-        # ⚠️ Легенда отрезается: она рисует зуб с отметкой ВСЕГДА и одна давала
-        # бы этой проверке зелёное на пустой дуге.
-        # ⚠️ И спрашивается КОНКРЕТНАЯ кнопка, а не «есть ли цвет на странице»:
-        # ореол, севший не на тот зуб, тоже красит страницу.
-        def tooth_btns(html: str, n: int) -> list:
-            arch = html.split("<div class='tleg", 1)[0]
-            return [b for b in arch.split("<button") if f"data-n='{n}'" in b]
+        # `teeth_svg`, а экран — по подписи. Между ними лежит один аргумент
+        # (`marks=mk` у рисунка модели), и без него зуб «в работе» неотличим от
+        # обычного, легенда обещает знак, которого на дуге нет, а прогон
+        # ЗЕЛЁНЫЙ — подпись на месте. Спрашивается КОНКРЕТНЫЙ зуб в обоих видах:
+        # ореол, севший не на тот зуб, тоже «есть на экране».
+        odo = _odo(c, pid)
+        marked = odo["teeth"]["21"]["svg"]       # здоров + в работе
+        plain = odo["teeth"]["16"]["svg"]        # кариес, отметку сняли в п.4
+        res.ok("ореол нарисован на отмеченном зубе, в обоих видах",
+               col in marked["frontal"] and col in marked["occlusal"],
+               "зуб «в работе» на дуге неотличим от обычного, хотя легенда показывает ободок")
+        res.ok("зуб без отметки ободка не получил",
+               col not in plain["frontal"] and col not in plain["occlusal"],
+               "ореол сел на зуб, у которого отметки нет")
 
-        for what, url in (("фиша", base), ("детальная", f"{base}/odontograma?t=16")):
-            body_ = c.get(url).body
-            marked = tooth_btns(body_, 21)      # здоров + в работе
-            plain = tooth_btns(body_, 16)       # кариес, отметку сняли в п.4
-            res.ok(f"ореол нарисован на отмеченном зубе, в обоих видах ({what})",
-                   len(marked) == 2 and all(col in b for b in marked),
-                   f"зуб «в работе» на дуге неотличим от обычного, хотя легенда "
-                   f"показывает ободок (кнопок нашлось {len(marked)})")
-            res.ok(f"зуб без отметки ободка не получил ({what})",
-                   len(plain) == 2 and not any(col in b for b in plain),
-                   "ореол сел на зуб, у которого отметки нет")
-
-        # ---- 10. инспектор и диалог УМЕЮТ это ввести ----
-        page = c.get(base).body
-        res.ok("диалог фиши сообщает, что знает про отметки",
-               "name='mk0'" in page and "name='mk' value='tratament'" in page,
-               "галочки нет — совместить нечем ровно там, где это и просили")
-        odo = c.get(f"{base}/odontograma").body
-        res.ok("инспектор детальной страницы тоже",
-               "name='mk0'" in odo and "name='mk' value='tratament'" in odo,
-               "на детальной странице отметку не поставить")
-        res.ok("легенда объясняет отметку",
-               "În tratament" in odo and "lg-sep" in odo,
-               "легенда не отличает отметку от состояния")
+        # ---- 10. экрану есть чем это ввести и объяснить ----
+        res.check("словарь отметок уезжает экрану (галочки панели и меню зуба)",
+                  list(odo["marks"]), ["tratament", "devital"])
         # ⛔ Проверяется РИСУНОК в легенде, а не слово рядом с ним. Легенда,
         # рисующая рядом с «În tratament» обычный зуб, снова показывает отметку
-        # ВОСЬМЫМ СОСТОЯНИЕМ — ровно то недоразумение, ради которого в неё и
-        # добавили разделитель, — а проверка по слову остаётся зелёной.
-        leg = odo.split("<div class='tleg", 1)[1].split("</div>", 1)[0]
-        tail = leg.split("lg-sep'></span>", 1)
+        # ВОСЬМЫМ СОСТОЯНИЕМ — ровно то недоразумение, ради которого отметки в
+        # ней идут своим видом, — а проверка по слову осталась бы зелёной.
+        leg = {x["key"]: x for x in odo["legend"]["frontal"]}
+        res.ok("легенда объясняет отметку — своим видом, а не состоянием",
+               leg.get("tratament", {}).get("kind") == "mark"
+               and leg["tratament"]["label"] == "În tratament",
+               f"легенда не отличает отметку от состояния: {leg.get('tratament')}")
         res.ok("легенда рисует отметку ободком, а не обычным зубом",
-               len(tail) == 2 and col in tail[1],
+               col in leg.get("tratament", {}).get("svg", ""),
                "рядом со словом «În tratament» в легенде стоит зуб без ободка")
 
         # ---- 11. на бланке 043/e отметка занимает место КОДА, если находки нет ----
@@ -999,7 +893,9 @@ def suite_marks(res: Result) -> None:
         # пломбированный, а массово такие зубы создаёт МИГРАЦИЯ: у «în tratament»
         # буквы поверхностей оставались, а кода находки после перевода в отметку
         # нет. Подписанный бланк не имеет права измениться от обновления.
-        c.post(f"{base}/tooth", tooth="47", state="tratament", sf=["M", "O"])
+        # здоров + в работе + буквы поверхностей — ровно то, во что миграция 5
+        # перевела «в лечении» (до 13.10 сюда же вела форма со state=tratament)
+        c.post_json(f"{api}/teeth/47", {"state": "ok", "surfaces": ["M", "O"], "marks": ["tratament"]})
         f043 = c.get(f"{base}/fisa043").body
         res.ok("первым в клетке стоит код, а не буква поверхности",
                ">T MO</td>" in f043 and ">MO T</td>" not in f043,
@@ -1008,8 +904,8 @@ def suite_marks(res: Result) -> None:
         # при ЖИВОЙ находке порядок обратный — код впереди, отметка в хвосте.
         # Проверяется тут же, на соседнем зубе: два порядка в одном бланке и есть
         # то, что легко разъезжается
-        c.post(f"{base}/tooth", tooth="37", state="carie", sf=["M", "O"],
-               mk0="1", mk=["tratament"])
+        c.post_json(f"{api}/teeth/37", {"state": "carie", "surfaces": ["M", "O"],
+                                       "marks": ["tratament"]})
         f043 = c.get(f"{base}/fisa043").body
         res.ok("при живой находке отметка остаётся в хвосте",
                ">C MO T</td>" in f043,
@@ -1046,13 +942,11 @@ def suite_marks(res: Result) -> None:
                "stroke-width='6'" not in tsvg.tooth_svg(16, "ok", marks=("devital",)),
                "у «nerv extras» появился второй ореол — на коронке их не различить")
 
-        r = c.post(f"{base}/tooth", tooth="27", state="coroana", mk0="1",
-                   mk=["devital", "tratament"])
+        r = c.post_json(f"{api}/teeth/27", {"state": "coroana", "surfaces": [],
+                                           "marks": ["devital", "tratament"]})
         res.check("коронка с обеими отметками принята", r.msg, "ok_card")
-        res.ok("подпись зуба называет коронку и обе отметки",
-               'title="27 · Coroană · În tratament · Nerv extras"' in c.get(base).body,
-               "одна из трёх величин потерялась — ровно та потеря, ради которой "
-               "это отметка, а не состояние")
+        res.check("подпись зуба называет коронку и обе отметки",
+                  _title(c, pid, 27), "27 · Coroană · În tratament · Nerv extras")
         f043 = c.get(f"{base}/fisa043").body
         res.ok("бланк 043/e печатает код коронки и обе отметки",
                ">Cor T Dv</td>" in f043,
@@ -1067,27 +961,22 @@ def suite_marks(res: Result) -> None:
         res.ok("читаемая копия называет «Nerv extras»",
                "Nerv extras" in z.read("fisa-pacient.html").decode("utf-8"),
                "пациенту уехала фиша без второй отметки")
-        hist = _thist_json(c.get(f"{base}/odontograma?t=27").body)
+        odo = _odo(c, pid)
+        hist = odo["history"]
         res.ok("летопись зуба называет коронку и обе отметки",
                any("Coroană · În tratament · Nerv extras" in x["text"]
                    for x in hist.get("27", [])),
                f"в истории зуба не все три величины: {hist.get('27')}")
-        for what, url in (("фиша", base), ("детальная", f"{base}/odontograma?t=27")):
-            body_ = c.get(url).body
-            btns = tooth_btns(body_, 27)
-            res.ok(f"каналы доехали до дуги на странице, в обоих видах ({what})",
-                   len(btns) == 2 and all(dv in b for b in btns),
-                   f"зуб «nerv extras» на дуге неотличим от обычного "
-                   f"(кнопок нашлось {len(btns)})")
-        odo = c.get(f"{base}/odontograma").body
-        res.ok("инспектор предлагает вторую отметку",
-               "name='mk' value='devital'" in odo
-               and "name='mk' value='devital'" in c.get(base).body,
-               "галочки «Nerv extras» нет ни в инспекторе, ни в диалоге фиши")
-        leg = odo.split("<div class='tleg", 1)[1].split("</div>", 1)[0]
-        tail = leg.split("lg-sep'></span>", 1)
-        res.ok("легенда рисует «Nerv extras» каналами за разделителем",
-               len(tail) == 2 and "Nerv extras" in tail[1] and dv in tail[1],
+        svg27 = odo["teeth"]["27"]["svg"]
+        res.ok("каналы доехали до рисунка зуба, в обоих видах",
+               dv in svg27["frontal"] and dv in svg27["occlusal"],
+               "зуб «nerv extras» на дуге неотличим от обычного")
+        res.check("вторая отметка — в словаре экрана словом",
+                  odo["marks"].get("devital"), "Nerv extras")
+        leg = {x["key"]: x for x in odo["legend"]["frontal"]}
+        res.ok("легенда рисует «Nerv extras» каналами, отметкой",
+               leg.get("devital", {}).get("kind") == "mark"
+               and leg["devital"]["label"] == "Nerv extras" and dv in leg["devital"]["svg"],
                "второй отметки нет в легенде или она нарисована обычным зубом")
 
 
@@ -1097,40 +986,35 @@ def suite_punte(res: Result) -> None:
     Канон — из ответа врача: роль у КАЖДОГО зуба (опора бывает в середине:
     47-45-43 опоры при теле 46/44), в клетке 043/e опора «Co», тело «D»
     ПЕРВЫМ токеном, над конструкцией материал (наша печать — строкой под
-    решёткой). Проверяется доезд до всех четырёх представлений: детальная
-    страница, фиша, печатная 043/e, выгрузка по 195-му — и правила дуги.
+    решёткой). Проверяется доезд до всех представлений: экран (модель API —
+    одна на детальную страницу и вкладку фиши, до 13.10 их было две), летопись
+    фиши, печатная 043/e, выгрузка по 195-му — и правила дуги.
     """
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Punte Test", phone="022343434")
+        c.post_json("/api/patients", {"name": "Punte Test", "phone": "022343434"})
         pid = _pid(c, "022343434")
         base = f"/admin/patient/{pid}"
+        api = f"/api/patients/{pid}"
 
         # состояние зубов ДО моста: опора с кариесом, тело над отсутствующим —
         # мост их не мутирует, и клетка 043/e обязана показать оба знания
-        c.post(f"{base}/tooth", tooth="47", state="carie", doctor="d2")
-        c.post(f"{base}/tooth", tooth="46", state="lipsa", doctor="d2")
+        c.post_json(f"{api}/teeth/47", {"state": "carie", "doctor": "d2", "surfaces": []})
+        c.post_json(f"{api}/teeth/46", {"state": "lipsa", "doctor": "d2", "surfaces": []})
 
-        r = c.post(f"{base}/bridge",
-                   teeth="44:corp,47:stalp,45:stalp,46:corp,43:stalp",
-                   material="zirconiu")
+        r = c.post_json(f"{api}/bridges", {"teeth": [[44, "corp"], [47, "stalp"], [45, "stalp"], [46, "corp"], [43, "stalp"]],
+                                          "material": "zirconiu"})
         res.check("мост сохраняется (порядок кликов — любой)", r.msg, "ok_punte")
 
-        page = c.get(f"{base}/odontograma").body
-        res.ok("мост на детальной странице",
-               '"teeth": [[47, "stalp"]' in page and "zirconiu" in page,
-               "мост не доехал до BRIDGES страницы")
-        res.ok("порядок зубов нормализован по дуге",
-               '[[47, "stalp"], [46, "corp"], [45, "stalp"], [44, "corp"], '
-               '[43, "stalp"]]' in page,
-               "зубы не в порядке дуги — скобка и печать прочтут вразнобой")
-        res.ok("зуб подписан ролью", "Punte: Stâlp (zirconiu)" in page,
-               "в title зуба нет роли")
-        res.ok("мост виден и в фише",
-               '"teeth": [[47, "stalp"]' in c.get(base).body,
-               "компактная карточка без моста")
+        odo = _odo(c, pid)
+        res.check("мост доехал до экрана: зубы в порядке дуги и материал",
+                  [(b["teeth"], b["material"]) for b in odo["bridges"]],
+                  [([[47, "stalp"], [46, "corp"], [45, "stalp"], [44, "corp"], [43, "stalp"]],
+                    "zirconiu")])
+        res.ok("зуб подписан ролью", "Punte: Stâlp (zirconiu)" in odo["teeth"]["47"]["title"],
+               "в подписи зуба нет роли")
         res.ok("летопись называет мост словами",
-               "stâlpi: 47, 45, 43" in c.get(base).body,
+               any("stâlpi: 47, 45, 43" in t for t in _feed(c, pid)),
                "в ленте нет строки моста со словами ролей")
 
         # --- правила дуги (bridge_norm) ---
@@ -1142,37 +1026,40 @@ def suite_punte(res: Result) -> None:
             ("без единой опоры", "42:corp,41:corp"),
             ("мусорная роль отбрасывается", "42:xxx,41:corp"),
         ):
-            r = c.post(f"{base}/bridge", teeth=teeth, material="metal")
+            pairs = [[int(n), role] for n, _, role in (x.partition(":") for x in teeth.split(","))]
+            r = c.post_json(f"{api}/bridges", {"teeth": pairs, "material": "metal"})
             res.check(f"отказ: {label}", r.msg, "bad_punte")
-        r = c.post(f"{base}/bridge", teeth="43:stalp,42:corp", material="metal")
+        r = c.post_json(f"{api}/bridges", {"teeth": [[43, "stalp"], [42, "corp"]],
+                                          "material": "metal"})
         res.check("зуб двух мостов сразу — отказ", r.msg, "dup_punte")
-        r = c.post(f"{base}/bridge", teeth="15:stalp,14:corp,13:stalp",
-                   material="alt", material_alt="E.max")
+        r = c.post_json(f"{api}/bridges", {"teeth": [[15, "stalp"], [14, "corp"], [13, "stalp"]],
+                                          "material": "alt", "material_alt": "E.max"})
         res.check("вторая дуга свободна, свой материал принят", r.msg, "ok_punte")
         res.ok("свободный материал доехал",
-               "E.max" in c.get(f"{base}/odontograma").body,
+               "E.max" in [b["material"] for b in _odo(c, pid)["bridges"]],
                "material_alt потерян")
         # фронтальный мост ЧЕРЕЗ среднюю линию — единственная позитивная
         # ветка, где порядок дуги расходится с порядком номеров FDI (41→31):
         # сравнение «подряд» по номерам его бы отвергло. Заодно врач моста:
         # из справочника — снапшотом в летопись, чужое имя — отбрасывается
-        r = c.post(f"{base}/bridge", teeth="31:corp,41:stalp",
-                   material="ceramică", doctor="Dr. Activ Doi")
+        r = c.post_json(f"{api}/bridges", {"teeth": [[31, "corp"], [41, "stalp"]],
+                                          "material": "ceramică", "doctor": "Dr. Activ Doi"})
         res.check("мост через среднюю линию", r.msg, "ok_punte")
-        page = c.get(f"{base}/odontograma").body
+        odo = _odo(c, pid)
         res.ok("порядок через центр — по дуге, не по номерам",
-               '[[41, "stalp"], [31, "corp"]]' in page,
+               [[41, "stalp"], [31, "corp"]] in [b["teeth"] for b in odo["bridges"]],
                "фронтальный мост не нормализован порядком дуги")
-        # якорь точный (« · врач» в хвосте строки моста): имя врача само по
-        # себе стоит на фише в селектах — голое вхождение зелено всегда
+        # якорь точный (« · врач» в хвосте строки моста)
         res.ok("врач моста — снапшотом в летописи",
-               "intermediari: 31 · Dr. Activ Doi" in c.get(base).body,
+               any("intermediari: 31 · Dr. Activ Doi" in t for t in _feed(c, pid)),
                "выбранный врач не доехал до летописи")
-        c.post(f"{base}/bridge", teeth="33:stalp,34:corp",
-               material="metal", doctor="Oarecare Străin")
-        res.ok("врач вне справочника отброшен",
-               "Oarecare Străin" not in c.get(base).body,
-               "свободный текст в поле врача прошёл в летопись")
+        r = c.post_json(f"{api}/bridges", {"teeth": [[33, "stalp"], [34, "corp"]],
+                                          "material": "metal", "doctor": "Oarecare Străin"})
+        res.ok("врач вне справочника отброшен — и в мосту, и в летописи",
+               r.msg == "ok_punte"
+               and "Oarecare Străin" not in [b["doctor"] for b in json.loads(r.body)["data"]["bridges"]]
+               and not any("Oarecare Străin" in t for t in _feed(c, pid)),
+               "свободный текст в поле врача прошёл в мост или летопись")
 
         # --- печатная 043/e ---
         fisa = c.get(f"{base}/fisa043").body
@@ -1201,41 +1088,35 @@ def suite_punte(res: Result) -> None:
                "в копии по 195-му моста нет")
 
         # --- снятие моста ---
-        m = re.search(r'"id": (\d+), "teeth": \[\[47', page)
-        bid = m.group(1) if m else "0"
+        bid = next((b["id"] for b in _odo(c, pid)["bridges"] if b["teeth"][0] == [47, "stalp"]), 0)
         other = Client(s.url).login()
-        other.post("/admin/patients/new", name="Alt Pacient", phone="022454545")
+        other.post_json("/api/patients", {"name": "Alt Pacient", "phone": "022454545"})
         pid2 = _pid(other, "022454545")
-        other.post(f"/admin/patient/{pid2}/bridge/{bid}/del")
+        other.post_json(f"/api/patients/{pid2}/bridges/{bid}/delete", {})
         res.ok("чужая фиша мост не снимает",
-               '"teeth": [[47, "stalp"]' in c.get(f"{base}/odontograma").body,
+               bid in [b["id"] for b in _odo(c, pid)["bridges"]],
                "мост снят через чужой pid")
-        r = c.post(f"{base}/bridge/{bid}/del")
+        r = c.post_json(f"{api}/bridges/{bid}/delete", {})
         res.check("свой мост снимается", r.msg, "ok_punte_del")
         # повторное снятие (вторая вкладка, тот же confirm) — отказ, а не
         # второй «ștearsă» в летописи: log_event идёт после DELETE и только
         # при реально снятой строке (ревью 08-22)
-        r = c.post(f"{base}/bridge/{bid}/del")
-        res.check("повторное снятие того же моста — отказ", r.msg, "bad")
-        res.ok("одно снятие — одна строка летописи",
-               c.get(base).body.count("Punte dentară 47–43 ștearsă") == 1,
-               "двойной клик снятия записал событие дважды")
-        page = c.get(f"{base}/odontograma").body
-        res.ok("мост ушёл со страницы", '[[47, "stalp"]' not in page,
+        r = c.post_json(f"{api}/bridges/{bid}/delete", {})
+        res.check("повторное снятие того же моста — отказ (404)", r.status, 404)
+        res.check("одно снятие — одна строка летописи",
+                  sum("Punte dentară 47–43 ștearsă" in t for t in _feed(c, pid)), 1)
+        odo = _odo(c, pid)
+        res.ok("мост ушёл с экрана", bid not in [b["id"] for b in odo["bridges"]],
                "снятый мост остался")
-        res.ok("состояния зубов мост не тронул",
-               '"state": "carie"' in page and '"state": "lipsa"' in page,
-               "снятие моста задело состояния зубов")
-        res.ok("снятие оставило след в летописи",
-               "Punte dentară 47–43 ștearsă" in c.get(base).body,
-               "мост исчез из истории бесследно")
+        res.check("состояния зубов мост не тронул",
+                  (odo["teeth"]["47"]["state"], odo["teeth"]["46"]["state"]), ("carie", "lipsa"))
 
         # --- мост держит фишу от физического стирания (лечение) ---
-        c.post("/admin/patients/new", name="Doar Punte", phone="022565656")
+        c.post_json("/api/patients", {"name": "Doar Punte", "phone": "022565656"})
         pid3 = _pid(c, "022565656")
-        c.post(f"/admin/patient/{pid3}/bridge", teeth="21:stalp,22:corp",
-               material="ceramică")
-        r = c.post(f"/admin/patient/{pid3}/erase", confirm="STERG")
+        c.post_json(f"/api/patients/{pid3}/bridges", {"teeth": [[21, "stalp"], [22, "corp"]],
+                                                     "material": "ceramică"})
+        r = c.post_json(f"/api/patients/{pid3}/erase", {"confirm": "STERG"})
         res.check("пациент с одним мостом обезличивается, не стирается",
                   r.msg, "ok_anon")
 

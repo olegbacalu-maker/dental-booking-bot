@@ -33,7 +33,7 @@ import json
 import re
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import Client, Result, Server, clinic_today, pid_by_phone
 
 # --------------------------------------------------------------- разборщики
 
@@ -432,11 +432,11 @@ def suite_move(res: Result) -> None:
         res.check("БРОСОК НА СВОЁ МЕСТО сервер принимает как обычный перенос",
                   c.post(f"/admin/move/{ids[0]}", mdate=day, mtime="09:00",
                          mdoctor="d2", back=back).msg, "ok_move")
-        pid = c.get("/admin/search?q=069152152").body.split(
-            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        pid = pid_by_phone(c, "069152152")
+        feed = json.loads(c.get(f"/api/patients/{pid}").body)["data"]["activity"]["items"]
         res.ok("и пишет это в летопись пациента — значит охрана «туда же» "
                "обязана стоять в браузере",
-               "Vizită mutată" in c.get(f"/admin/patient/{pid}").body,
+               any("Vizită mutată" in x["text"] for x in feed),
                "перенос в себя не оставил следа — правило браузера стало "
                "необязательным, и его можно потерять незаметно")
 
@@ -524,8 +524,8 @@ def suite_list(res: Result) -> None:
 
         # дневник визита помечает строку
         res.ok("визит записан в дневник (иначе метка ниже недостижима)",
-               c.post(f"/admin/visit/{ids[0]}", acuze="Durere la rece",
-                      diagnostic="K02.1").msg.startswith("ok"), "дневник не сохранён")
+               c.post_json(f"/api/visits/{ids[0]}", {"acuze": "Durere la rece",
+                                                    "diagnostic": "K02.1"}).msg.startswith("ok"), "дневник не сохранён")
         res.ok("строка помечена «дневник заполнен»",
                "rec-mark" in _rows(c.get(back).body)[0],
                "по списку не видно, у кого консультация уже записана")

@@ -15,9 +15,10 @@
     ловила только колонку RO — серверный отказ по RU-дублю перерисовывал
     форму и стирал все правки таблицы.
 """
+import json
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import Client, Result, Server, clinic_today, new_patient, pid_by_phone
 
 NO_KEY = {"ADMIN_KEY": ""}          # ветка PIN-файла: учётки живут в auth.json
 
@@ -27,16 +28,15 @@ def _d(offset: int) -> str:
 
 
 def _new_pid(c: Client, **fields) -> str:
-    """Создать пациента через «Pacient nou», вернуть id из редиректа."""
-    r = c.post("/admin/patients/new", **fields)
-    return r.location.split("/admin/patient/", 1)[1].split("?")[0]
+    """Создать пациента через «Pacient nou» (JSON API диалога), вернуть id."""
+    return str(new_patient(c, **fields))
 
 
-def _csv_row(c: Client, name: str) -> list:
-    for line in c.get("/admin/patients.csv").body.splitlines():
-        if name in line:
-            return line.split(";")
-    return []
+def _list_row(c: Client, name: str) -> dict:
+    """Строка пациента в списке «Pacienți» (`GET /api/patients`) — та же
+    выборка, что уезжает в книгу Excel. До 13.10 здесь читался CSV."""
+    rows = json.loads(c.get("/api/patients?q=" + name.replace(" ", "+")).body)["data"]["rows"]
+    return next((r for r in rows if r["name"] == name), {})
 
 
 def suite_peek_plan(res: Result) -> None:
@@ -46,29 +46,23 @@ def suite_peek_plan(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         pid = _new_pid(c, name="Peek Plan", phone="069111222")
-        base = f"/admin/patient/{pid}"
-        c.post(f"{base}/plan", procedure="Extractie 48", price="1000",
-               doctor="Dr. Ana")
-        c.post(f"{base}/plan", procedure="Obturatie 11", price="1000",
-               doctor="Dr. Ana")
-        page = c.get(base).body
-        iids = []
-        for part in page.split("/plan/")[1:]:
-            iid = part.split("/", 1)[0]
-            if iid.isdigit() and iid not in iids:
-                iids.append(iid)
-        i1, i2 = iids[:2]
+        api = f"/api/patients/{pid}"
+        c.post_json(f"{api}/plan", {"procedure": "Extractie 48", "price": "1000",
+                                   "doctor": "Dr. Ana"})
+        r = c.post_json(f"{api}/plan", {"procedure": "Obturatie 11", "price": "1000",
+                                       "doctor": "Dr. Ana"})
+        i1, i2 = [it["id"] for it in json.loads(r.body)["data"]["plan"]["items"]][:2]
         res.check("первая позиция уходит в отказ",
-                  c.post(f"{base}/plan/{i1}/status", to="refuzat",
-                         motiv="Pacientul refuză; riscurile explicate").msg,
+                  c.post_json(f"{api}/plan/{i1}/status", {"to": "refuzat",
+                                                         "motiv": "Pacientul refuză; riscurile explicate"}).msg,
                   "ok_refuz")
-        c.post(f"{base}/plan/{i2}/status", to="in_lucru")
-        c.post(f"{base}/plan/{i2}/status", to="finalizat")
+        c.post_json(f"{api}/plan/{i2}/status", {"to": "in_lucru"})
+        c.post_json(f"{api}/plan/{i2}/status", {"to": "finalizat"})
 
-        fisha = c.get(base).body
-        res.ok("фиша: отказ выпал из знаменателя", "1/1 finalizate" in fisha,
-               "в фише прогресс считает отказ")
-        peek = c.get(f"{base}/peek").body
+        plan = json.loads(c.get(api).body)["data"]["plan"]
+        res.check("фиша: отказ выпал из знаменателя (1/1 finalizate)",
+                  (plan["n_track"], plan["counts"].get("finalizat")), (1, 1))
+        peek = json.loads(c.get(f"{api}/peek").body)["data"]["html"]
         res.ok("peek: отказ выпал из знаменателя прогресса",
                "1 / 1 finalizate" in peek,
                "peek расходится с фишей — отказ в знаменателе")
@@ -84,18 +78,19 @@ def suite_birth_clear(res: Result) -> None:
         c = Client(s.url).login()
         pid = _new_pid(c, name="Data Test", phone="069333444",
                        birth_date="1950-04-02")
-        row = _csv_row(c, "Data Test")
-        res.ok("возраст виден, пока дата есть", row and row[4].strip() != "",
-               f"CSV без возраста: {row!r}")
+        row = _list_row(c, "Data Test")
+        res.ok("возраст виден, пока дата есть", row.get("age") is not None,
+               f"в списке без возраста: {row!r}")
 
         # регистратура заметила ошибку и очистила поле даты
         res.check("сохранение с пустой датой проходит",
-                  c.post(f"/admin/patient/{pid}/save", name="Data Test",
-                         phone="069333444", birth_date="").msg, "ok_card")
-        row = _csv_row(c, "Data Test")
-        res.ok("дата в CSV пуста", row and row[3].strip() == "",
+                  c.post_json(f"/api/patients/{pid}/profile", {"name": "Data Test",
+                                                              "phone": "069333444",
+                                                              "birth_date": ""}).msg, "ok_card")
+        row = _list_row(c, "Data Test")
+        res.ok("дата в списке пуста", row and row["birth"] == "",
                f"дата осталась: {row!r}")
-        res.ok("возраст ушёл вместе с датой", row and row[4].strip() == "",
+        res.ok("возраст ушёл вместе с датой", row and row["age"] is None,
                f"возраст живёт от удалённой даты: {row!r}")
 
         # пациент «только с годом» (запись из журнала со старой вкладки):
@@ -103,13 +98,12 @@ def suite_birth_clear(res: Result) -> None:
         c.post("/admin/add", adate=_d(1), atime="10:00", adoctor="d2",
                aservice="consult", aname="An Doar", aphone="069555666",
                ayear="1990", back="/admin/all")
-        an_pid = c.get("/admin/search?q=069555666").body.split(
-            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
-        c.post(f"/admin/patient/{an_pid}/save", name="An Doar",
-               phone="069555666", birth_date="")
-        row = _csv_row(c, "An Doar")
+        an_pid = pid_by_phone(c, "069555666")
+        c.post_json(f"/api/patients/{an_pid}/profile", {"name": "An Doar",
+                                                       "phone": "069555666", "birth_date": ""})
+        row = _list_row(c, "An Doar")
         res.ok("год из бота переживает сохранение фиши без даты",
-               row and row[4].strip() != "",
+               row.get("age") is not None,
                f"пустое поле формы стёрло год: {row!r}")
 
 
@@ -122,22 +116,18 @@ def suite_new_dup(res: Result) -> None:
         # фиша с ключом НЕ manual:{digits}: заведена без номера (manual:c…),
         # телефон дописан сохранением — ровно как у пациента из tg:…
         pid = _new_pid(c, name="Tg Pacient")
-        c.post(f"/admin/patient/{pid}/save", name="Tg Pacient",
-               phone="069123456")
+        c.post_json(f"/api/patients/{pid}/profile", {"name": "Tg Pacient", "phone": "069123456"})
 
-        r = c.post("/admin/patients/new", name="Dublura", phone="069 123 456")
+        r = c.post_json("/api/patients", {"name": "Dublura", "phone": "069 123 456"})
         res.check("совпадение цифр открывает существующую фишу", r.msg,
                   "dup_pat")
-        res.ok("и это ТА ЖЕ фиша, а не двойник",
-               f"/admin/patient/{pid}?" in r.location,
-               f"открыта другая фиша: {r.location!r}")
+        res.check("и это ТА ЖЕ фиша, а не двойник", json.loads(r.body)["data"]["id"], int(pid))
 
         # прежний путь (ключ manual:{digits}) продолжает склеивать как раньше
         pid2 = _new_pid(c, name="Manual Unu", phone="069777888")
-        r = c.post("/admin/patients/new", name="Manual Doi", phone="069777888")
+        r = c.post_json("/api/patients", {"name": "Manual Doi", "phone": "069777888"})
         res.check("manual-совпадение склеивает как раньше", r.msg, "dup_pat")
-        res.ok("к той же manual-фише", f"/admin/patient/{pid2}?" in r.location,
-               f"открыта другая фиша: {r.location!r}")
+        res.check("к той же manual-фише", json.loads(r.body)["data"]["id"], int(pid2))
 
 
 def suite_settings_ui(res: Result) -> None:

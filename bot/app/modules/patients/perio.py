@@ -19,6 +19,10 @@
 Отсюда знаменатель BOP% и средней глубины — только измеренные точки. Иначе
 половина рта, оставленная пустой, разбавляла бы оба числа вдвое, и лечение
 выглядело бы успешнее, чем оно есть.
+
+Экран — React (`model()` для `GET /api/patients/{pid}/perio`); здесь, кроме
+модели, — правила разбора, сводка, отпечаток осмотра и печатный лист. Старая
+страница с формой снята 13.10 (снятие старого интерфейса, шаг 4).
 """
 from __future__ import annotations
 
@@ -28,7 +32,6 @@ import html
 from ... import engine as eng
 from ... import teeth_svg as tsvg
 from ...core import theme
-from ...core.layout import _ic
 from .odontogram import FDI_LOWER, FDI_UPPER, tooth_title
 
 # Постоянные зубы обеих дуг. Молочных в пародонтальной карте не бывает: карта
@@ -83,7 +86,8 @@ def _norm(rows) -> list:
 
 
 def chart_norm(parsed: list) -> list:
-    """Разобранное с формы → то, что можно писать в базу.
+    """Разобранное (`tsvg.parse_perio`, его зовёт и JSON API) → то, что
+    можно писать в базу.
 
     ⛔ Только постоянные зубы: молочные отбрасываются (см. PERIO_TEETH).
     ⛔ Зуб без единого показания не хранится вовсе: пустая строка в базе
@@ -364,282 +368,6 @@ def model(patient: dict, exams: list, exam: dict | None, rows: list,
                    "furc": {str(k): v for k, v in FURC_RO.items()}},
         "doctors": list(doctors),
     }
-
-
-# --------------------------------------------------------------- экран
-
-def _cell(tooth: int, kind: str, i: int, value: int, bleed: bool) -> str:
-    """Одна точка. ⚠️ Ноль показывается ПУСТЫМ полем, а не нулём: ноль в базе
-    и значит «не измеряли», а написанный нолик врач прочитал бы измерением.
-    Точка кровоточивости живёт только у PD — у рецессии её не бывает, и второй
-    набор точек молча удваивал бы BOP при сборке формы."""
-    v = str(value) if value else ""
-    site = tsvg.PERIO_SITE_RO[tsvg.PERIO_SITES[i]]
-    what = "adâncime" if kind == "pd" else "recesiune"
-    deep = " deep" if kind == "pd" and value >= DEEP_MM else ""
-    dot = (f"<button type='button' class='pdot{' on' if bleed else ''}' "
-           f"data-i='{i}' title='Sângerare la sondare ({site})'></button>"
-           if kind == "pd" else "")
-    return (f"<div class='pcell{deep}'>"
-            f"<input type='text' inputmode='numeric' maxlength='2' value='{v}' "
-            f"data-k='{kind}' data-i='{i}' title='{what} · {site}' "
-            f"aria-label='{tooth} {what} {site}'>{dot}</div>")
-
-
-def _tooth_col(tooth: int, row: dict | None, absent: bool) -> str:
-    r = row or {"pd": [0] * 6, "rec": [0] * 6, "bop": "000000",
-                "mob": 0, "furc": 0}
-
-    def cells(kind: str, sl: slice) -> str:
-        return "".join(_cell(tooth, kind, i, r[kind][i], r["bop"][i] == "1")
-                       for i in range(*sl.indices(6)))
-
-    def pick(kind: str, top: int) -> str:
-        cur = r[kind]
-        opts = "".join(
-            f"<option value='{i}'{' selected' if i == cur else ''}>"
-            f"{i if i else '—'}</option>" for i in range(top + 1))
-        title = "Mobilitate (Miller)" if kind == "mob" else "Furcație (Hamp)"
-        return f"<select data-k='{kind}' title='{title}'>{opts}</select>"
-
-    tip = " title='Dinte marcat absent în odontogramă'" if absent else ""
-    return (f"<div class='ptooth{' absent' if absent else ''}' "
-            f"data-tooth='{tooth}'{tip}>"
-            f"<div class='prow'>{cells('pd', slice(0, 3))}</div>"
-            f"<div class='prow rec'>{cells('rec', slice(0, 3))}</div>"
-            f"<b class='pnum'>{tooth}</b>"
-            f"<div class='prow rec'>{cells('rec', slice(3, 6))}</div>"
-            f"<div class='prow'>{cells('pd', slice(3, 6))}</div>"
-            f"<div class='pmf'>{pick('mob', tsvg.PERIO_MOB_MAX)}"
-            f"{pick('furc', tsvg.PERIO_FURC_MAX)}</div></div>")
-
-
-def _arch(teeth, data: dict, absent: set) -> str:
-    return "<div class='parch'>" + "".join(
-        _tooth_col(n, data.get(n), n in absent) for n in teeth) + "</div>"
-
-
-def _sum_html(s: dict) -> str:
-    def box(label: str, value, sub: str = "") -> str:
-        return (f"<div class='psum-i'><span>{html.escape(label)}</span>"
-                f"<b>{value}</b>"
-                + (f"<small>{html.escape(sub)}</small>" if sub else "")
-                + "</div>")
-    return ("<div class='psum'>"
-            + box("BOP", f"{s['bop']}%", "sângerare la sondare")
-            + box("Adâncime medie", f"{s['pd_mean']} mm", "puncte măsurate")
-            + box(f"Pungi {DEEP_MM}+ mm", s["deep"],
-                  f"din care {SEVERE_MM}+ mm: {s['severe']}")
-            + box("Dinți măsurați", s["teeth"], f"{s['sites']} puncte")
-            + "</div>")
-
-
-def page(patient: dict, exam: dict, exams: list, rows: list, absent: set,
-         doc_opts: str, base: str) -> str:
-    """Лист пародонтограммы: две дуги, шесть точек на зуб, счёт справа.
-
-    ⚠️ Ввод рассчитан на ДИКТОВКУ: врач называет числа, ассистент печатает.
-    Поэтому поле само уходит к следующей точке, как только число не может
-    вырасти («3» — уже готовое значение, «1» ждёт вторую цифру), а
-    кровоточивость ставится клавишей «b» с того же места. Без этого карту из
-    192 чисел не заполняют — её просто не ведут.
-    """
-    e = html.escape
-    data = rows_map(rows)
-    s = summary(list(data.values()))
-    opts = "".join(
-        f"<option value='{x['id']}'{' selected' if x['id'] == exam['id'] else ''}>"
-        f"{_day(x['created_at'])} · {x['teeth']} dinți</option>" for x in exams)
-    note = e(exam.get("note") or "")
-    cur_doc = (exam.get("doctor") or "").strip()
-    docs = doc_opts.replace(f">{e(cur_doc)}<",
-                            f" selected>{e(cur_doc)}<") if cur_doc else doc_opts
-    rv = rev(exam, rows)
-    return f"""<div class='perio' id='perio'>
-<div class='odop-top'>
-  <a class='odop-back' href='{e(base)}'>{_ic('pat')} {e(patient['name'])}</a>
-  <h2>Parodontogramă <small>· 6 puncte pe dinte</small></h2>
-  <div class='odo-actions'>
-    <form method='get' class='pinline'>
-      <select name='exam' onchange='this.form.submit()'
-              title='Examen'>{opts}</select>
-    </form>
-    <form method='post' action='{e(base)}/perio/new' class='pinline'>
-      <button class='odo-more'>{_ic('plus')} Examen nou</button>
-    </form>
-    <a class='odo-more' href='{e(base)}/parodontograma/print'>{_ic('print')} Printează</a>
-  </div>
-</div>
-<form method='post' action='{e(base)}/perio' id='pform'>
-  <input type='hidden' name='exam' value='{exam['id']}'>
-  <input type='hidden' name='chart' id='pchart'>
-  <input type='hidden' name='covers' id='pcovers'>
-  <input type='hidden' name='rev' value='{rv}'>
-  <div class='pgrid'>
-    <div class='fcard'>
-      <p class='hint'>Rânduri: adâncimea de sondare și recesiunea, dinspre
-        vestibular spre oral. Punctul roșu = sângerare (tasta <b>b</b>).
-        Cifra trece singură la punctul următor.</p>
-      <div class='pscroll'>{_arch(FDI_UPPER, data, absent)}</div>
-      <div class='pmid'><span>Maxilar</span><i></i><span>Mandibular</span></div>
-      <div class='pscroll'>{_arch(FDI_LOWER, data, absent)}</div>
-      <div class='pfoot'>
-        <label>Medic <select name='doctor'><option value=''>—</option>{docs}</select></label>
-        <label class='pnote'>Notă <input type='text' name='note' value='{note}'
-          maxlength='200' placeholder='ex. reevaluare după detartraj'></label>
-        <button class='pl-btn primary'>{_ic('save')} Salvează examenul</button>
-      </div>
-    </div>
-    <aside class='fcard pside'>
-      <h3>Rezultatul examenului</h3>
-      {_sum_html(s)}
-      <p class='hint'>Nivelul de atașament (CAL) = adâncime + recesiune: se
-        calculează, nu se introduce.</p>
-    </aside>
-  </div>
-</form>
-<script>
-var PERIO_DEEP = {DEEP_MM};
-var PERIO_SEVERE = {SEVERE_MM};
-var PERIO_MM_MAX = {tsvg.PERIO_MM_MAX};
-{CHART_JS}
-</script>
-</div>"""
-
-
-CHART_JS = """
-(function () {
-  var form = document.getElementById('pform');
-  if (!form) return;
-  var cells = Array.prototype.slice.call(
-    form.querySelectorAll(".pcell input[type='text']"));
-
-  /* Итоги пересчитываются В БРАУЗЕРЕ тем же счётом, что на сервере: врач
-     видит BOP% сразу, не сохраняя. Сервер считает заново при отрисовке,
-     поэтому расхождение живёт максимум до перезагрузки страницы. */
-  function recalc() {
-    var sites = 0, bleed = 0, deep = 0, severe = 0, mm = 0, teeth = {};
-    form.querySelectorAll('.ptooth').forEach(function (col) {
-      col.querySelectorAll('.pcell').forEach(function (cell) {
-        var inp = cell.querySelector('input');
-        if (!inp || inp.dataset.k !== 'pd') return;
-        var v = parseInt(inp.value, 10);
-        if (!(v > 0)) return;
-        sites++; mm += v; teeth[col.dataset.tooth] = 1;
-        if (v >= PERIO_SEVERE) { severe++; deep++; }
-        else if (v >= PERIO_DEEP) { deep++; }
-        var dot = cell.querySelector('.pdot');
-        if (dot && dot.classList.contains('on')) bleed++;
-      });
-    });
-    var vals = form.querySelectorAll('.psum b');
-    if (vals.length < 4) return;
-    vals[0].textContent = (sites ? Math.round(100 * bleed / sites) : 0) + '%';
-    vals[1].textContent = (sites ? (Math.round(10 * mm / sites) / 10) : 0) + ' mm';
-    vals[2].textContent = deep;
-    vals[3].textContent = Object.keys(teeth).length;
-  }
-
-  /* Диктовка: значение уходит к следующей точке, как только не может вырасти.
-     «1» ждёт вторую цифру (бывает 12 мм), «3» — уже готовое число. Без этого
-     правила ассистент жмёт Tab сто девяносто два раза. */
-  form.addEventListener('input', function (ev) {
-    var inp = ev.target;
-    if (inp.tagName !== 'INPUT' || !inp.dataset || !inp.dataset.k) return;
-    inp.value = inp.value.replace(/[^0-9]/g, '').slice(0, 2);
-    var v = parseInt(inp.value, 10);
-    if (v > PERIO_MM_MAX) { inp.value = inp.value.slice(0, 1); v = parseInt(inp.value, 10); }
-    if (inp.dataset.k === 'pd') {
-      inp.parentNode.classList.toggle('deep', v >= PERIO_DEEP);
-    }
-    recalc();
-    if (inp.value.length === 2 || (v >= 2 && v <= 9)) next(inp);
-  });
-
-  form.addEventListener('keydown', function (ev) {
-    var inp = ev.target;
-    if (inp.tagName !== 'INPUT' || !inp.dataset || !inp.dataset.k) return;
-    if (ev.key === 'b' || ev.key === 'B') {
-      ev.preventDefault();
-      var dot = inp.parentNode.querySelector('.pdot');
-      if (dot) { dot.classList.toggle('on'); recalc(); }
-    } else if (ev.key === 'Enter') {
-      ev.preventDefault(); next(inp);
-    }
-  });
-
-  form.addEventListener('click', function (ev) {
-    var d = ev.target.closest ? ev.target.closest('.pdot') : null;
-    if (!d) return;
-    d.classList.toggle('on');
-    recalc();
-  });
-
-  function next(inp) {
-    var i = cells.indexOf(inp);
-    if (i >= 0 && i + 1 < cells.length) { cells[i + 1].focus(); cells[i + 1].select(); }
-  }
-
-  /* Проволочная строка ОДНОЙ колонки — та же, что уезжает в поле `chart`:
-     одно скрытое поле вместо двухсот, как мост уезжает «47:stalp,46:corp».
-     ВАЖНО: зуб без единого показания даёт ПУСТУЮ строку — сервер обязан
-     отличать «не измеряли» от «измерили, и там ноль». */
-  function wire(col) {
-    var r = {pd: [0,0,0,0,0,0], rec: [0,0,0,0,0,0], bop: [0,0,0,0,0,0],
-             mob: 0, furc: 0};
-    col.querySelectorAll('.pcell').forEach(function (cell) {
-      var inp = cell.querySelector('input');
-      if (!inp) return;
-      var i = parseInt(inp.dataset.i, 10);
-      r[inp.dataset.k][i] = parseInt(inp.value, 10) || 0;
-      var dot = cell.querySelector('.pdot');
-      if (dot && dot.classList.contains('on')) r.bop[i] = 1;
-    });
-    col.querySelectorAll('select').forEach(function (s) {
-      r[s.dataset.k] = parseInt(s.value, 10) || 0;
-    });
-    var any = r.pd.concat(r.rec, r.bop).some(function (x) { return x > 0; });
-    if (!any && !r.mob && !r.furc) return '';
-    return col.dataset.tooth + ':' + r.pd.join(',') + '/' + r.rec.join(',')
-           + '/' + r.bop.join('') + '/' + r.mob + '/' + r.furc;
-  }
-
-  /* Слепок листа НА ЗАГРУЗКЕ. Сохранение сообщает только о том, что тронули,
-     и поле `covers` называет эти зубы поимённо — сервер стирает ровно их.
-     ВАЖНО: без слепка лист уезжает целиком, и место, открывшее осмотр раньше,
-     сносит чужой зуб и возвращает чужие числа к тем, что видело само (18.09).
-     ВАЖНО: неизменённые подпись и заметку не отправляем ВОВСЕ — «поля нет»
-     значит «не сообщали», и стала́я вкладка иначе стёрла бы чужую подпись. */
-  var base = {}, head = {};
-  form.querySelectorAll('.ptooth').forEach(function (col) {
-    base[col.dataset.tooth] = wire(col);
-  });
-  ['doctor', 'note'].forEach(function (k) {
-    var el = form.querySelector("[name='" + k + "']");
-    if (!el) return;
-    el.dataset.f = k;
-    head[k] = el.value;
-  });
-
-  form.addEventListener('submit', function () {
-    var out = [], covers = [];
-    form.querySelectorAll('.ptooth').forEach(function (col) {
-      var now = wire(col);
-      if (now === base[col.dataset.tooth]) return;
-      covers.push(col.dataset.tooth);
-      if (now) out.push(now);
-    });
-    document.getElementById('pchart').value = out.join(';');
-    document.getElementById('pcovers').value = covers.join(',');
-    Object.keys(head).forEach(function (k) {
-      var el = form.querySelector("[data-f='" + k + "']");
-      if (el && el.value === head[k]) el.removeAttribute('name');
-    });
-  });
-
-  recalc();
-})();
-"""
 
 
 # --------------------------------------------------------------- печать

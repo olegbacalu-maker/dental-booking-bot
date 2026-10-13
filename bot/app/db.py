@@ -1097,9 +1097,9 @@ async def init(seed_rows: list | None = None) -> None:
     _CONN = await aiosqlite.Connection(connector, 64)
     _CONN.row_factory = sqlite3.Row
     # Функции для серверного списка пациентов (`patients_rows`): та же
-    # свёртка диакритики и те же «только цифры», что фильтруют в Python
-    # (`fold`, `_digits`), — иначе «Bălan» в SQL и на старой странице
-    # считались бы разными людьми. Только чтение: регистрируем на
+    # свёртка диакритики и те же «только цифры», что у Python (`fold`,
+    # `_digits`: ими разбирается запрос), — иначе «Bălan» запроса и «Bălan»
+    # картотеки считались бы разными людьми. Только чтение: регистрируем на
     # единственном соединении, которым ходит `_fetch`.
     await _CONN.create_function("dp_fold", 1, _fold, deterministic=True)
     await _CONN.create_function("dp_digits", 1, _digits, deterministic=True)
@@ -1601,17 +1601,10 @@ _PLIST_COLS = ("id, name, phone, email, session_key, birth_year, birth_date, "
                "archived")
 
 
-async def all_patients(include_archived: bool = False) -> list:
-    """Все пациенты клиники — основа списка «Pacienți» с фильтрами и страницами.
-
-    Отдаёт только СТРОКИ. Сколько у кого визитов, планов и предупреждений,
-    добирают соседние выборки (`patients_visits`, `patients_alert_counts`,
-    `patients_plan_counts`), а сводит их модуль. LIMIT/OFFSET здесь был бы
-    неверен: страница сортируется и фильтруется по этим самым агрегатам, и
-    база отрезала бы не тех. База клиники — тысячи строк, не миллионы.
-    """
-    if include_archived:
-        return await _fetch(f"SELECT {_PLIST_COLS} FROM patients ORDER BY id")
+async def all_patients() -> list:
+    """Живые (не архивные) пациенты клиники строками — для рабочих списков
+    стойки на главной (`schedule/desk`), которые сводят их с `patients_visits`
+    и `patients_debt` сами. Список «Pacienți» отбирает в SQL (`patients_rows`)."""
     return await _fetch(
         f"""SELECT {_PLIST_COLS} FROM patients
             WHERE COALESCE(archived, 0) = 0 ORDER BY id""")
@@ -1635,41 +1628,11 @@ async def patients_visits(now: datetime) -> list:
     )
 
 
-async def patients_last_doctor() -> list:
-    """Кто вёл ПОСЛЕДНИЙ визит — по пациенту. Колонка «Medic» в списке иначе
-    пуста почти у всех: `primary_doctor` в фише проставляют руками, а врач у
-    пациента фактически есть — тот, к кому он ходит. Оконная функция — SQLite с 3.25."""
-    sql = """SELECT patient_id, doctor FROM (
-               SELECT patient_id, doctor,
-                      ROW_NUMBER() OVER (PARTITION BY patient_id
-                                         ORDER BY starts_at DESC) AS rn
-                 FROM appointments
-                WHERE patient_id IS NOT NULL AND status <> 'cancelled') t
-             WHERE rn = 1"""
-    return await _fetch(sql)
-
-
-async def patients_alert_counts() -> list:
-    """Сколько медицинских предупреждений у каждого пациента (аллергии и т.п.)."""
-    sql = "SELECT patient_id, COUNT(*) AS n FROM patient_alerts GROUP BY patient_id"
-    return await _fetch(sql)
-
-
-async def patients_plan_counts() -> list:
-    """Незавершённые пункты плана — по ним пациент считается «в лечении».
-
-    ⚠️ Перечисляем активные статусы ПОИМЁННО, а не «<> finalizat»: отказанная
-    позиция закрыта, и пациент с одним отказом не находится в лечении."""
-    sql = ("SELECT patient_id, COUNT(*) AS n FROM plan_items "
-           "WHERE status IN ('planificat', 'in_lucru') GROUP BY patient_id")
-    return await _fetch(sql)
-
-
 async def patients_debt() -> dict:
     """Долг каждого пациента: финализированный план − оплачено. Минус = аванс.
 
     Та же формула, что в `patient_finance`, но на всю картотеку двумя запросами
-    вместо двух НА ПАЦИЕНТА: список зовёт это один раз на страницу.
+    вместо двух НА ПАЦИЕНТА (рабочие списки стойки зовут это раз на главную).
     Полного внешнего соединения в SQLite нет, поэтому две выборки сводятся в
     Python — заодно не приходится писать двум диалектам разный SQL.
     """
@@ -1725,17 +1688,12 @@ async def set_appt_call(aid: int, result: str) -> None:
 
 # ---------- список пациентов: поиск, фильтры, порядок и страница — в SQL ----------
 #
-# Старая страница «Pacienți» (`_pl_rows` в модуле) читает ВСЮ картотеку шестью
-# выборками выше и отбирает в Python; JSON API DentPilot 2.0 (`/api/patients`)
-# отдаёт только запрошенную страницу. Агрегаты — те же подзапросы, что стоят
-# выше по одному (`patients_visits`, `patients_alert_counts`,
-# `patients_plan_counts`, `patients_last_doctor`, `patients_debt`), только
-# соединённые с patients, чтобы WHERE, ORDER BY и LIMIT считала база.
-# ⚠️ Правила отбора и порядка повторяют модуль (`_pl_filter`, `_pl_match_q`,
-# `_pl_has_status`) на языке SQL — это второе место, и оно осознанное: старая
-# страница остаётся как есть до конца миграции. Расхождение ловит
-# `test_patients_api.suite_parity`, который сравнивает обе выдачи строка в
-# строку на одних данных; с уходом старой страницы уйдут и одиночные выборки.
+# Экран «Pacienți» (`/api/patients`) и книга `/admin/patients.xlsx` отбирают
+# ОДНОЙ выборкой: агрегаты (визиты, предупреждения, план, долг) — подзапросы,
+# соединённые с patients, чтобы WHERE, ORDER BY и LIMIT считала база. Отбор
+# словарём собирает модуль (`routes._pl_select`), статус строки выводит он же
+# (`_pl_status`). ⭐ До 13.10 то же правило жило ещё и в Python старой страницы
+# (паритет держал набор); она снята, и правило отбора теперь одно.
 
 
 def _digits(s) -> str:
@@ -1743,14 +1701,16 @@ def _digits(s) -> str:
     return "".join(ch for ch in (s or "") if ch.isdigit())
 
 
-# врач последнего визита (включая будущий — как `patients_last_doctor`):
-# подзапрос по индексу patient_id, а не оконная функция по всей таблице —
-# на 20 000 записей она стоила ~50 мс на КАЖДЫЙ запрос списка, а нужна
-# двадцати строкам страницы (и всем — только под фильтром по врачу)
+# врач последнего визита (включая будущий): подзапрос по индексу patient_id,
+# а не оконная функция по всей таблице — на 20 000 записей она стоила ~50 мс
+# на КАЖДЫЙ запрос списка, а нужна двадцати строкам страницы (и всем — только
+# под фильтром по врачу)
 _PL_LAST_DOC_OF = ("(SELECT a.doctor FROM appointments a WHERE a.patient_id = p.id "
                    "AND a.status <> 'cancelled' ORDER BY a.starts_at DESC LIMIT 1)")
 # врач строки: медик курант из фиши, а если его не проставили — тот, кто вёл
-# последний визит (тот же вывод, что `row["doctor"]` в `_pl_rows`)
+# последний визит (так его показывают экран и книга Excel): `primary_doctor`
+# проставляют руками, и без запасного колонка «Medic» пустовала бы почти у
+# всех, хотя врач у пациента фактически есть — тот, к кому он ходит
 _PL_DOCTOR = f"COALESCE(NULLIF(p.primary_doctor, ''), {_PL_LAST_DOC_OF}, '')"
 # долг = финализированный план − оплачено; минус — аванс (как `patients_debt`)
 _PL_DEBT = "(COALESCE(chg.n, 0) - COALESCE(pay.n, 0))"
@@ -1759,6 +1719,9 @@ _PL_DEBT = "(COALESCE(chg.n, 0) - COALESCE(pay.n, 0))"
 _PL_CANAL = ("CASE WHEN substr(p.session_key, 1, 3) = 'tg:' THEN 'tg' "
              "WHEN substr(p.session_key, 1, 7) = 'manual:' THEN 'manual' "
              "ELSE 'web' END")
+# pl — «в лечении»: активные статусы ПОИМЁННО (те же, что PLAN_ACTIVE), а не
+# «<> finalizat»: отказанная позиция закрыта, и пациент с одним отказом не
+# находится в лечении
 _PL_FROM = f"""
       FROM patients p
       LEFT JOIN (SELECT patient_id,
@@ -1779,7 +1742,7 @@ _PL_FROM = f"""
       LEFT JOIN (SELECT patient_id, COALESCE(SUM(amount_mdl), 0) AS n FROM payments
                   GROUP BY patient_id) pay ON pay.patient_id = p.id"""
 _PL_COLS = ("p.id, p.name, p.phone, p.email, p.session_key, p.birth_year, p.birth_date, "
-            "p.primary_doctor, p.file_no, p.notes, p.created_at, p.archived, "
+            "p.gender, p.primary_doctor, p.file_no, p.notes, p.created_at, p.archived, "
             "v.last_at, v.next_at, COALESCE(v.n_visits, 0) AS n_visits, "
             "COALESCE(al.n, 0) AS n_alerts, COALESCE(pl.n, 0) AS n_plan, "
             f"{_PL_LAST_DOC_OF} AS last_doctor, {_PL_DEBT} AS debt, "
@@ -1832,10 +1795,14 @@ class _PlQuery:
                 alts.append(f"substr(COALESCE(p.birth_date, ''), 1, 10) = "
                             f"{self.arg(t['birth'])}")
             if t.get("digits"):
+                # notes — номер второго человека на семейном телефоне (решение
+                # 08-18). ⚠️ РАЗДЕЛЬНО от телефона, не общей строкой: на стыке
+                # «конец телефона + начало заметки» находились бы номера,
+                # которых нет
                 for col in ("p.phone", "p.notes"):
                     alts.append(d["has"](d["digits"](col), self.arg(t["digits"])))
             # запрос без единого пригодного куска (одна буква) не находит
-            # никого — как `_pl_match_q`
+            # никого
             conds.append("(" + " OR ".join(alts) + ")" if alts else "1 = 0")
         med = f.get("med") or ""
         if med == "-":
@@ -1857,6 +1824,8 @@ class _PlQuery:
                          f"{self.arg(f['stale_cut'], dt=True)})")
         if f.get("ch"):
             conds.append(f"{_PL_CANAL} = {self.arg(f['ch'])}")
+        # ноль — ни в долг, ни в аванс: рассчитавшийся пациент не должен
+        # всплывать в списке, который регистратура открывает, чтобы звонить
         if f.get("dat") == "da":
             conds.append(f"{_PL_DEBT} > 0")
         elif f.get("dat") == "avans":
@@ -1868,11 +1837,13 @@ class _PlQuery:
         self.args.append(self.d["dt"](value) if dt else value)
         return self.d["ph"](len(self.args))
 
-    def page_sql(self, sort: str, limit: int, offset: int) -> str:
+    def page_sql(self, sort: str, limit: int | None, offset: int) -> str:
         order = _PL_ORDER.get(sort, _PL_ORDER["last"]).format(
             fold_name=self.d["fold"]("p.name"))
-        return (f"SELECT {_PL_COLS}{self.base}\n     ORDER BY {order}"
-                f"\n     LIMIT {self.arg(limit)} OFFSET {self.arg(offset)}")
+        sql = f"SELECT {_PL_COLS}{self.base}\n     ORDER BY {order}"
+        if limit is None:          # книга Excel: вся выборка, а не страница
+            return sql
+        return sql + f"\n     LIMIT {self.arg(limit)} OFFSET {self.arg(offset)}"
 
 
 async def patients_count(f: dict) -> int:
@@ -1890,12 +1861,13 @@ async def patients_count(f: dict) -> int:
     return int(n or 0)
 
 
-async def patients_rows(f: dict, sort: str, limit: int, offset: int) -> list:
+async def patients_rows(f: dict, sort: str, limit: int | None, offset: int) -> list:
     """Страница списка: строки с агрегатами (`last_at`, `next_at`, `n_visits`,
     `n_alerts`, `n_plan`, `last_doctor`, `debt`) в порядке `sort`
     (last / name / new / debt) и с `total` — счётом всего отбора в каждой
     строке (окно). Пустая страница счёта не несёт: тогда `patients_count`.
-    Статус строки выводит модуль (`_pl_status`)."""
+    `limit=None` — вся выборка (книга Excel). Статус строки выводит модуль
+    (`_pl_status`)."""
     q = _PlQuery(f)
     sql = q.page_sql(sort, limit, offset)
     return await _fetch(sql, *q.args)
@@ -2272,13 +2244,14 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     195-му рано или поздно показали бы «Carie», когда кариеса на зубе уже нет,
     и заметить это было бы нечем — обе читают только `state`.
 
-    ⚠️ `None` у `surfaces` и `sfmap` значит «форма об этом НЕ СООБЩАЛА», а не
-    «пусто». Зуб правят две формы, и знают они разное: диалог фиши шлёт буквы
-    флажками и про состояния поверхностей не знает, инспектор детальной
-    страницы шлёт карту и про буквы не знает. Принять молчание одной за
-    стирание — значит терять клинику на сохранении, в котором врач ничего не
-    менял: так пломба уходила с подписываемой 043/e. Поэтому не сообщённое
-    берётся ИЗ ЗАПИСИ, и решается это здесь же, где сходятся все три колонки.
+    ⚠️ `None` у `surfaces` и `sfmap` значит «экран об этом НЕ СООБЩАЛ», а не
+    «пусто». Запрос знает или буквы (`surfaces` списком — так до 13.10 слал
+    флажки диалог старой фиши, без состояний поверхностей), или карту (так
+    шлёт React и слал инспектор детальной страницы — буквы из неё
+    вычисляются). Принять молчание одного за стирание — значит терять клинику
+    на сохранении, в котором врач ничего не менял: так пломба уходила с
+    подписываемой 043/e. Поэтому не сообщённое берётся ИЗ ЗАПИСИ, и решается
+    это здесь же, где сходятся все три колонки.
     """
     # состояние в летопись — СЛОВОМ (см. log_event): «obturatie» и «lipsa» это
     # ключи одонтограммы, а строку читают регистратура и пациент в выгрузке
@@ -2291,15 +2264,17 @@ async def set_tooth(pid: int, tooth: int, state: str, note: str,
     prev = rows[0] if rows else None
     if surfaces is None:
         surfaces = (prev["surfaces"] or "") if prev else ""
-    # ⚠️ То же правило, что у поверхностей: «поля нет» ≠ «снято». Форма, не
-    # знающая про отметки (открытая вкладка со старой разметкой), молчит — и
-    # молчание обязано СОХРАНИТЬ отметку, а не снять её. Снятая галочка тоже
-    # ничего не шлёт, поэтому обе формы сообщают о самом факте отдельно (`mk0`);
-    # без этого «сохранить фишу» тихо снимало бы «в лечении» с каждого зуба.
+    # ⚠️ То же правило, что у поверхностей: «поля нет» ≠ «снято». Экран, не
+    # сообщивший про отметки (`marks` = None), молчит — и молчание обязано
+    # СОХРАНИТЬ отметку, а не снять её; снять все — пустой список. Иначе
+    # «сохранить фишу» тихо снимало бы «в лечении» с каждого зуба. (У форм
+    # старой фиши снятая галочка не слала ничего, и о факте они сообщали
+    # отдельным полем `mk0`; сняты 13.10.)
     marks = mark_list(marks if marks is not None
                       else (prev["marks"] or "") if prev else "")
     if sfmap is None:
-        # Форма флажков о состояниях не сообщала. Сохранённые — держим, а
+        # Буквы без карты (`surfaces` списком; до 13.10 так слали флажки
+        # диалога фиши) о состояниях не сообщают. Сохранённые — держим, а
         # буква, отмеченная ВПЕРВЫЕ, получает состояние зуба: «одно состояние
         # на все отмеченные» и есть смысл флажков.
         # ⚠️ Смена состояния В ДИАЛОГЕ — это и есть сообщение: тогда прежняя

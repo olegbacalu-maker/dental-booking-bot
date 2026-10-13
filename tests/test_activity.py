@@ -21,7 +21,7 @@ import re
 import zipfile
 from datetime import date, timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import Client, Result, Server, clinic_today, pid_by_phone
 
 # Знаки, которые рисует система (те же диапазоны, что стережёт
 # test_structure._SYSGLYPH): в тексте события им не место так же, как на экране,
@@ -35,8 +35,7 @@ def _d(offset: int) -> str:
 
 
 def _pid(c: Client, phone: str) -> str:
-    return c.get(f"/admin/search?q={phone}").body.split(
-        "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+    return str(pid_by_phone(c, phone))
 
 
 def _istoric(c: Client, pid: str) -> list[str]:
@@ -56,22 +55,19 @@ def suite_words(res: Result) -> None:
 
         # позиция плана: «planificat» не годится — у него код и слово совпадают,
         # и проверка на нём ничего бы не доказала
-        c.post(f"/admin/patient/{pid}/plan", procedure="Obturație 26",
-               tooth="26", price="600", doctor="Dr. Ana")
-        c.post(f"/admin/patient/{pid}/plan", procedure="Detartraj",
-               price="500", doctor="Dr. Ana")
-        page = c.get(f"/admin/patient/{pid}").body
-        iids = []
-        for m in re.findall(r"/plan/(\d+)/status", page):
-            if m not in iids:
-                iids.append(m)
+        c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Obturație 26", "tooth": "26",
+                                                 "price": "600", "doctor": "Dr. Ana"})
+        r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Detartraj", "price": "500",
+                                                     "doctor": "Dr. Ana"})
+        # позиции в порядке плана — тем, что видит фиша
+        iids = [it["id"] for it in json.loads(r.body)["data"]["plan"]["items"]]
         res.ok("две позиции плана заведены", len(iids) >= 2,
-               f"позиций на странице: {len(iids)}")
-        c.post(f"/admin/patient/{pid}/plan/{iids[0]}/status", to="in_lucru")
-        c.post(f"/admin/patient/{pid}/plan/{iids[1]}/del")
+               f"позиций в фише: {len(iids)}")
+        c.post_json(f"/api/patients/{pid}/plan/{iids[0]}/status", {"to": "in_lucru"})
+        c.post_json(f"/api/patients/{pid}/plan/{iids[1]}/delete", {})
 
-        c.post(f"/admin/patient/{pid}/tooth", tooth="26", state="obturatie",
-               doctor="d2")
+        c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "obturatie", "doctor": "d2",
+                                                     "surfaces": []})
 
         aid = c.get(f"/admin/all?date={_d(1)}").body.split(
             "/admin/status/", 1)[1].split("'")[0]
@@ -101,8 +97,9 @@ def suite_words(res: Result) -> None:
         res.ok("в текстах событий нет знаков от Windows", not bad,
                f"знак вне подмножеств вшитого Inter: {bad}")
 
-        # та же строка на самом экране — лента фиши читает её как есть
-        page = c.get(f"/admin/patient/{pid}").body
+        # та же строка в ленте фиши — экран читает её как есть
+        feed = [a["text"] for a in
+                json.loads(c.get(f"/api/patients/{pid}").body)["data"]["activity"]["items"]]
         res.ok("лента фиши показывает те же слова",
-               "Vizită nu a venit" in page and "› în lucru" in page,
-               "на экране лента расходится с записанным текстом")
+               any("Vizită nu a venit" in t for t in feed) and any("› în lucru" in t for t in feed),
+               f"лента фиши расходится с записанным текстом: {feed}")

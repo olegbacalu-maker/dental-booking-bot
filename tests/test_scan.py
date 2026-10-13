@@ -17,7 +17,7 @@ import sys
 import tempfile
 import zlib
 
-from harness import Client, Result, Server
+from harness import Client, Result, Server, pid_by_phone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 from app.modules.patients import scan as pscan  # noqa: E402
@@ -28,8 +28,7 @@ def _j(r) -> dict:
 
 
 def _pid(c: Client, phone: str) -> int:
-    return int(c.get(f"/admin/search?q={phone}").body.split(
-        "<tr id='plr", 1)[1].split("'", 1)[0])
+    return pid_by_phone(c, phone)
 
 
 def _png(w: int = 48, h: int = 64, dpi: int = 0) -> bytes:
@@ -131,7 +130,7 @@ def suite_scan_dpi(res: Result) -> None:
     try:
         with Server(env={"DENTART_SCAN_FAKE": path}) as s:
             c = Client(s.url).login()
-            c.post("/admin/patients/new", name="Scan Dpi", phone="069777002")
+            c.post_json("/api/patients", {"name": "Scan Dpi", "phone": "069777002"})
             pid = _pid(c, "069777002")
             c.post_json(f"/api/patients/{pid}/scan/page", {})
             r = c.post_json(f"/api/patients/{pid}/scan/finish", {"category": "alt"})
@@ -154,7 +153,7 @@ def suite_scan(res: Result) -> None:
             res.check("без входа статус закрыт — 401",
                       Client(s.url).get("/api/scan/status").status, 401)
             c = Client(s.url).login()
-            c.post("/admin/patients/new", name="Scan Test", phone="069777000")
+            c.post_json("/api/patients", {"name": "Scan Test", "phone": "069777000"})
             pid = _pid(c, "069777000")
             j = _j(c.get("/api/scan/status"))
             res.check("сканер есть (подмена)", (j["data"]["ok"], j["data"]["name"]),
@@ -212,7 +211,7 @@ def suite_scan(res: Result) -> None:
     # лист не берётся. ⛔ Настоящий путь (WIA) в прогоне не исполняется никогда.
     with Server(env={"DENTART_SCAN_FAKE": path}) as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Scan Fara", phone="069777001")
+        c.post_json("/api/patients", {"name": "Scan Fara", "phone": "069777001"})
         pid = _pid(c, "069777001")
         res.check("статус: сканера нет", _j(c.get("/api/scan/status"))["data"]["ok"], False)
         r = c.post_json(f"/api/patients/{pid}/scan/page", {})

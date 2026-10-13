@@ -3,8 +3,8 @@
 Бот и журнал делят один путь бронирования, поэтому здесь проверяется не диалог
 ради диалога, а что оба входа отвечают одинаково на одну и ту же занятость.
 """
+import json
 import os
-import re
 import subprocess
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -101,10 +101,8 @@ def suite(res: Result) -> None:
         # отказ не должен заводить пациента-сироту: upsert шёл до проверки
         # занятости, и «час занят» оставлял карточку без визитов (08-07)
         adm = Client(s.url).login()
-        res.ok("отказ бота НЕ завёл карточку-сироту",
-               not re.findall(r"/admin/patient/(\d+)",
-                              adm.get("/admin/search?q=069333444").body),
-               "пациент без визита появился в списке")
+        res.check("отказ бота НЕ завёл карточку-сироту",
+                  json.loads(adm.get("/api/patients?q=069333444").body)["data"]["rows"], [])
         # опция канала в фильтре списка идёт ПО ДАННЫМ (см. suite_bot_ui), а
         # tg-пациент рождается только у живого адаптера — /chat свой ключ
         # подписывает сам и чужой префикс не примет (записи выше ушли под «web»
@@ -113,10 +111,10 @@ def suite(res: Result) -> None:
             clinic_today() + timedelta(days=1), time(16, 0),
             tzinfo=ZoneInfo("Europe/Chisinau")))
         res.ok("tg-пациент заведён как адаптером", made.isdigit(), made)
+        channels = json.loads(adm.get("/api/patients/summary").body)["data"]["channels"]
         res.ok("фильтр каналов предлагает Telegram — tg-пациенты есть",
-               "<option value='tg'>Telegram</option>"
-               in adm.get("/admin/search").body,
-               "опция пропала у клиники с настоящим tg-пациентом")
+               {"id": "tg", "label": "Telegram"} in channels,
+               f"опция пропала у клиники с настоящим tg-пациентом: {channels}")
 
         # --- свой же час: сообщение должно быть про ПАЦИЕНТА, не про врача ---
         # ⚠️ до 1.11.1 здесь врали: «интервалul este ocupat»

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import atexit
+import html
 import http.client
 import http.cookiejar
 import json
@@ -916,6 +917,44 @@ class Client:
     def login(self, password: str = PIN) -> "Client":
         self.post("/admin/login", password=password, next="/admin")
         return self
+
+
+# ---- фиша пациента через JSON API (экраны фиши — только React с 13.10) ----
+# До снятия старого интерфейса наборы заводили фишу формой «Pacient nou» и
+# искали её id разбором старой страницы списка (`<tr id='plr…'>`). Тот же
+# путь, которым это делает клиника, теперь — JSON API экрана.
+
+def new_patient(c: Client, name: str, phone: str = "", **fields) -> int:
+    """Новая фиша (`POST /api/patients`, диалог «Pacient nou») — её id.
+    ⚠️ Совпавший телефон, как и в продукте, ОТКРЫВАЕТ существующую фишу
+    (`dup_pat`): id тогда чужой — набору, которому важна именно новая, код
+    ответа проверять самому."""
+    r = c.post_json("/api/patients", {"name": name, "phone": phone, **fields})
+    doc = json.loads(r.body)
+    if not doc.get("ok"):
+        raise AssertionError(f"фиша не заведена: {r.status} {r.body[:200]}")
+    return int(doc["data"]["id"])
+
+
+def shell_model(page: str) -> dict:
+    """Модель оболочки React со страницы — так её читает клиент: JSON в
+    атрибуте `data-shell="…"`, экранированный как HTML (`layout.react_shell`).
+    Баннеры каркаса (демо, лицензия, …) у React-экрана живут здесь сигналами,
+    а не разметкой. Узла нет (старая страница) — пустой словарь."""
+    if 'data-shell="' not in page:
+        return {}
+    return json.loads(html.unescape(page.split('data-shell="', 1)[1].split('"', 1)[0]))
+
+
+def pid_by_phone(c: Client, query: str) -> int:
+    """id первой фиши, которую находит поиск списка (`GET /api/patients?q=`):
+    телефон, имя, номер дела — как ищет стойка. Порядок — экрана (последний
+    визит); архивные находятся, раз их спросили поиском."""
+    r = c.get("/api/patients?q=" + urllib.parse.quote(query))
+    rows = json.loads(r.body)["data"]["rows"] if r.status == 200 else []
+    if not rows:
+        raise AssertionError(f"поиск {query!r} никого не нашёл: {r.status} {r.body[:200]}")
+    return int(rows[0]["id"])
 
 
 class Bot:

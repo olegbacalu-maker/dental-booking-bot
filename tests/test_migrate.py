@@ -68,6 +68,7 @@
 Фикстурная база собирается сырым sqlite3 — это ТЕСТ-СТОРОНА (как в
 test_dbcrypt._plain_db), программа по-прежнему ходит только через db.
 """
+import json
 import pathlib
 import shutil
 import sqlite3
@@ -1480,7 +1481,7 @@ def suite_v5_marks(res: Result) -> None:
 
         with Server(dir_=work) as s:
             c = Client(s.url).login()
-            body = c.get("/admin/patient/1").body
+            odo = json.loads(c.get("/api/patients/1/odontogram").body)["data"]
             f043 = c.get("/admin/patient/1/fisa043").body
 
         res.check(f"версия схемы доведена до {_VER}", _meta(dbfile, "version"), _VER)
@@ -1500,9 +1501,8 @@ def suite_v5_marks(res: Result) -> None:
         # ⚠️ Главное: то, что врач записал, ВИДНО. Колонка, доехавшая до базы,
         # но не до экрана, — ровно тот молчаливый исход, ради которого шаг и
         # заводился
-        res.ok("отметка доехала до фиши",
-               'title="16 · Sănătos · În tratament · canal · MO"' in body,
-               "после обновления зуб на экране больше не в лечении")
+        res.check("отметка доехала до фиши (подпись зуба в модели одонтограммы)",
+                  odo["teeth"]["16"]["title"], "16 · Sănătos · În tratament · canal · MO")
         # ⛔ И главное про бланк: 043/e ПОДПИСЫВАЮТ, поэтому обновление не имеет
         # права поменять то, что на нём написано. До миграции клетка зуба 16
         # печаталась «T MO» (код состояния, потом буквы); после обязана печататься

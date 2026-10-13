@@ -3,11 +3,12 @@
 Это ядро продукта — если что-то из этого молча изменится, клиника посадит двух
 пациентов в одно кресло или потеряет визит в прошлом.
 """
+import json
 import re
 import sqlite3
 from datetime import date, datetime, timedelta
 
-from harness import TG_ON, Bot, Client, Result, Server, clinic_today, TZ
+from harness import TG_ON, Bot, Client, Result, Server, clinic_today, pid_by_phone, TZ
 
 PHONE = "022111222"
 
@@ -22,6 +23,16 @@ def add(c: Client, day: str, time: str, doctor: str = "d2",
     return c.post("/admin/add", adate=day, atime=time, adoctor=doctor,
                   aservice=service, aname=name, aphone=phone, ayear=year,
                   abirth=birth, back="/admin/all").msg
+
+
+def _rows(c: Client, q: str) -> list[dict]:
+    """Строки списка «Pacienți» по поиску (`GET /api/patients?q=`)."""
+    return json.loads(c.get(f"/api/patients?q={q}").body)["data"]["rows"]
+
+
+def _card(c: Client, pid) -> dict:
+    """Фиша данными (`GET /api/patients/{pid}`) — то, что рисует экран."""
+    return json.loads(c.get(f"/api/patients/{pid}").body)["data"]
 
 
 def suite(res: Result) -> None:
@@ -51,10 +62,8 @@ def suite(res: Result) -> None:
                       phone=FAM, birth="2016-07-19"), "ok_other")
         res.check("то же имя на том же номере проходит молча",
                   add(c, _d(6), "13:00", name="Maria Popescu", phone=FAM), "ok")
-        card = c.get(f"/admin/search?q={FAM}").body
-        res.ok("дата рождения матери уцелела",
-               "1984" in card and "2016" not in card,
-               "дата ребёнка затёрла родительскую — так теряется анамнез")
+        res.check("дата рождения матери уцелела (в списке одна фиша, дата её)",
+                  [r["birth"] for r in _rows(c, FAM)], ["05.03.1984"])
 
         res.check("первая запись проходит", add(c, _d(1), "10:00"), "ok")
         res.check("час занят у этого врача",
@@ -69,10 +78,7 @@ def suite(res: Result) -> None:
         # карточку без единого визита — она копилась в списке пациентов
         res.check("занятый час — отказ", add(c, _d(1), "10:00",
                   name="Orfan Test", phone="022808080"), "conflict")
-        res.ok("отказ НЕ завёл карточку-сироту",
-               not re.findall(r"/admin/patient/(\d+)",
-                              c.get("/admin/search?q=022808080").body),
-               "пациент без визита появился в списке")
+        res.check("отказ НЕ завёл карточку-сироту", _rows(c, "022808080"), [])
 
         # --- дубль пациента: тот же человек на тот же час ---
         # ⚠️ ловилось по тексту ошибки SQLite и не срабатывало никогда (1.11.1)
@@ -122,11 +128,8 @@ def suite(res: Result) -> None:
         res.check("запись с датой рождения проходит",
                   add(c, _d(3), "14:00", name="Cu Data", phone="022700700",
                       birth="1990-05-15"), "ok")
-        pid = c.get("/admin/search?q=022700700").body.split(
-            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
-        card = c.get(f"/admin/patient/{pid}").body
-        res.ok("дата рождения видна в фише целиком (dd.mm.yyyy)",
-               "15.05.1990" in card, "в фише нет дня и месяца")
+        res.check("дата рождения видна в фише целиком (dd.mm.yyyy)",
+                  _card(c, pid_by_phone(c, "022700700"))["profile"]["birth"], "15.05.1990")
         res.check("дата рождения в будущем — именованный отказ",
                   add(c, _d(3), "14:30", name="Viitor", phone="022700800",
                       birth=_d(30)), "bad_bd")
@@ -147,15 +150,16 @@ def suite(res: Result) -> None:
         res.check("вчерашний визит tg-пациенту принимается (др. формат номера)",
                   add(c, _d(-2), "12:00", name="Ion T.",
                       phone="069 010 203"), "ok_past")
-        found = set(re.findall(r"/admin/patient/(\d+)",
-                               c.get("/admin/search?q=069010203").body))
+        found = [r["id"] for r in _rows(c, "069010203")]
         res.ok("карточка ОДНА — двойник не завёлся", len(found) == 1,
                f"нашлось {len(found)} карточек")
-        card = c.get(f"/admin/patient/{sorted(found)[0]}").body
-        res.ok("визит задним числом лёг в ту же карточку", "12:00" in card,
-               "вчерашнего визита нет в фише tg-пациента")
-        res.ok("имя из формы журнала не переименовало пациента",
-               "Ion Telegram" in card, "«Ion T.» затёр имя из бота")
+        card = _card(c, found[0])
+        res.ok("визит задним числом лёг в ту же карточку",
+               any(v["when"] == f"{(clinic_today() - timedelta(days=2)):%d.%m.%Y} 12:00"
+                   for v in card["visits"]["history"]),
+               f"вчерашнего визита нет в фише tg-пациента: {card['visits']['history']}")
+        res.check("имя из формы журнала не переименовало пациента",
+                  card["name"], "Ion Telegram")
 
         # --- прочие отказы, каждый со своим текстом ---
         res.check("пустое имя", add(c, _d(3), "10:30", name="   "), "bad_name")
@@ -174,14 +178,14 @@ def suite_card(res: Result) -> None:
         c = Client(s.url).login()
         add(c, _d(1), "09:00", name="Fisa Pacient", phone="022123456")
 
-        html = c.get("/admin/search?q=022123456").body
-        pid = html.split("/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+        pid = str(pid_by_phone(c, "022123456"))
         res.ok("пациент найден поиском", pid.isdigit(), f"pid={pid!r}")
 
         def appoint(day: str, time: str, doctor: str = "d3",
                     service: str = "consult") -> str:
-            return c.post(f"/admin/patient/{pid}/appoint", adate=day, atime=time,
-                          adoctor=doctor, aservice=service).msg
+            return c.post_json(f"/api/patients/{pid}/appoint", {"date": day, "time": time,
+                                                               "doctor": doctor,
+                                                               "service": service}).msg
 
         res.check("из фиши в будущее — проходит", appoint(_d(2), "15:00"), "ok")
         res.check("из фиши во вчера — запрет", appoint(_d(-1), "10:00"), "past")
@@ -195,12 +199,12 @@ def suite_card(res: Result) -> None:
                   appoint(_d(2), "15:00", doctor="d4"), "dup")
 
         # визит из фиши обязан лежать в ЭТОЙ карточке, а не у двойника
-        card = c.get(f"/admin/patient/{pid}").body
-        res.ok("визит виден в карточке пациента", "15:00" in card,
-               "в карточке нет времени 15:00")
-        res.ok("двойник не появился",
-               c.get("/admin/search?q=022123456").body.count("/admin/patient/") >= 1,
-               "пациент пропал из поиска")
+        hist = _card(c, pid)["visits"]["history"]
+        res.ok("визит виден в карточке пациента",
+               any(v["when"] == f"{(clinic_today() + timedelta(days=2)):%d.%m.%Y} 15:00"
+                   for v in hist), f"в карточке нет визита в 15:00: {hist}")
+        res.check("двойник не появился: по номеру в списке одна фиша, эта",
+                  [str(r["id"]) for r in _rows(c, "022123456")], [pid])
 
 
 def _row_of(page: str, name: str) -> str:
@@ -246,11 +250,9 @@ def suite_move(res: Result) -> None:
 
         # ⚠️ Перенос — событие фиши, а не только сетки: закон 195 спрашивает
         # «кто именно двигал визит», и без строки в летописи ответить нечем.
-        pid = c.get("/admin/search?q=022700111").body.split(
-            "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
-        card = c.get(f"/admin/patient/{pid}").body
-        res.ok("перенос записан в летопись пациента",
-               "Vizită mutată" in card and "Activ Trei" in card,
+        feed = [a["text"] for a in _card(c, pid_by_phone(c, "022700111"))["activity"]["items"]]
+        res.ok("перенос записан в летопись пациента — с новым врачом",
+               any("Vizită mutată" in t and "Activ Trei" in t for t in feed),
                "фиша не помнит переноса — по журналу доступа не восстановить, кто двигал")
 
         # --- полчаса и час ---

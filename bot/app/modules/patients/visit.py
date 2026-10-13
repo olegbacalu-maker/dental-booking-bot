@@ -1,4 +1,5 @@
-"""Страница «Consultație» — дневник визита (дневниковая часть будущей 043/e).
+"""«Consultație» — дневник визита (дневниковая часть формы 043/e): графы,
+шаблоны и подписи для JSON API (`GET/POST /api/visits/{aid}`, экран React).
 
 Одна запись 1:1 к визиту: acuze / examen obiectiv / diagnostic / tratament /
 recomandari — ровно графы дневника «Fișa medicală a bolnavului stomatologic».
@@ -19,28 +20,20 @@ recomandari — ровно графы дневника «Fișa medicală a bolna
 «Redeschide» в фише снимает привязку вместе с done_at (db.set_plan_status).
 
 Визиты cancelled/noshow записи не принимают (приёма не было — «лечение» на
-нём было бы ошибкой данных): POST отвечает bad_vst, страница показывает
+нём было бы ошибкой данных): POST отвечает bad_vst, экран показывает
 запись только для чтения, если она успела появиться до отмены.
 
-Рендер без ЗАПРОСОВ к db: данные приносит маршрут (паттерн acord.py). Сам
-модуль db импортируется — за словарями статусов (`db.PLAN_ACTIVE`), которые
-обязаны совпадать со схемой, а не быть переписаны здесь по памяти. Список
-полей обязан совпадать с db.VISIT_FIELDS — POST собирает форму по нему.
+Без маршрутов и без ЗАПРОСОВ к db: маршруты и правило сохранения живут в
+`routes.py`/`api.py` (`_visit_ctx`, `_save_visit`). Список полей обязан
+совпадать с db.VISIT_FIELDS — запись собирается по нему. Старая страница с
+формой снята 13.10 (снятие старого интерфейса, шаг 4).
 """
 from __future__ import annotations
-
-import html
-import json
-
-from ... import db
-from ... import engine as eng
-from ...core.layout import STATUS_LABEL, _ic, msg_banner, _shell, js_json
 
 # статусы визита, которым консультацию НЕ пишут
 NO_FORM_STATUSES = ("cancelled", "noshow")
 
-# что говорит страница вместо формы у отменённого/неявившегося визита —
-# одна строка на старую страницу и на JSON API
+# что говорит экран вместо формы у отменённого/неявившегося визита
 READONLY_NOTE = ("Vizita este anulată sau marcată «neprezentare» — "
                  "consultația nu se completează.")
 
@@ -123,60 +116,25 @@ _TEMPLATES = {
     },
 }
 
-# чекбоксы живут внутри .fform, где input растянут на 100% и h-ctl —
-# возвращаем им естественные размеры
-_CSS = """
-<style>
- /* overflow-wrap: неразрывный токен в клиническом тексте (URL, «====»)
-    иначе распирает mobile viewport — грабля из CLAUDE.md про таблицы */
- .vwrap{max-width:820px;display:flex;flex-direction:column;gap:14px;
-   overflow-wrap:anywhere}
- .tplrow{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 4px}
- .tplrow button{background:var(--bg);border:1px solid var(--line);border-radius:9px;
-   padding:6px 12px;cursor:pointer;font-size:12.5px;color:var(--text2)}
- .tplrow button:hover{border-color:var(--teal);color:var(--teal-d)}
- .vchk{display:flex;flex-direction:column;gap:6px;margin:2px 0 6px}
- .vchk label{display:flex;gap:8px;align-items:baseline;font-size:13.5px;cursor:pointer}
- .vchk input{width:auto;height:auto;accent-color:var(--teal)}
- .vdone{font-size:13px;color:var(--text2);margin:2px 0}
- .vmeta{color:var(--text3);font-size:12px;margin-top:6px}
- .vsec{margin:6px 0 0;font-size:13.5px}
-</style>"""
-
-_SCRIPT = """
-<script>
-const TPL = __TPL__;
-function applyTpl(k){
-  const t = TPL[k]; if (!t) return;
-  for (const f of ["acuze","examen","diagnostic","tratament","recomandari"]){
-    const el = document.getElementById('vf_' + f);
-    if (el && !el.value.trim() && t[f]) el.value = t[f];
-  }
-}
-</script>"""
-
-
-def _fmt(dt) -> str:
-    return dt.astimezone(eng.TZ).strftime("%d.%m.%Y %H:%M")
-
 
 def fields() -> list[dict]:
-    """Графы дневника данными — для JSON API (DentPilot 2.0): те же подписи,
-    высота и подсказки, что у старой формы; порядок — порядок бланка."""
+    """Графы дневника данными — для JSON API (DentPilot 2.0): подписи,
+    высота и подсказки; порядок — порядок бланка."""
     return [{"id": k, "label": lab, "rows": rows, "placeholder": ph}
             for k, lab, rows, ph in _FIELDS]
 
 
 def templates() -> list[dict]:
-    """Шаблоны-заготовки данными: клиент заполняет ими ТОЛЬКО пустые поля,
-    как applyTpl старой страницы; тексты живут здесь, у клиента копии нет."""
+    """Шаблоны-заготовки данными: клиент заполняет ими ТОЛЬКО пустые поля
+    (клик не должен стереть вписанное руками); тексты живут здесь, у клиента
+    копии нет."""
     return [{"id": k, "label": t["label"], "values": {f: t[f] for f, *_ in _FIELDS}}
             for k, t in _TEMPLATES.items()]
 
 
 def item_text(it: dict) -> str:
     """Позиция плана словами: «dinte 26 · Obturație 26 · 500 MDL» — сырой
-    текст, экранирует тот, кто рисует (страница — html, клиент — React)."""
+    текст, экранирует тот, кто рисует (клиент — React)."""
     parts = []
     if it.get("tooth"):
         parts.append(f"dinte {it['tooth']}")
@@ -185,107 +143,3 @@ def item_text(it: dict) -> str:
         parts.append(f"{it['price_mdl']} MDL")
     return " · ".join(parts)
 
-
-def _item_label(it: dict) -> str:
-    return html.escape(item_text(it))
-
-
-def page(appt: dict, rec: dict | None, items: list, back: str,
-         msg: str = "") -> str:
-    e = html.escape
-    pid = appt["patient_id"]
-    dt = appt["starts_at"].astimezone(eng.TZ)
-    status = appt.get("status") or ""
-    vals = {k: (rec.get(k) if rec else "") or "" for k, *_ in _FIELDS}
-
-    banner = msg_banner(msg)
-
-    comment_row = ""
-    if appt.get("comment"):
-        comment_row = (f"<div class='frow'><span>Comentariu recepție</span>"
-                       f"<span class='v'>{_ic('chat')} {e(appt['comment'])}</span></div>")
-    head = f"""
-<div class='fcard'>
-  <h3>Consultație <small>· {dt.strftime("%d.%m.%Y %H:%M")} · vizita #{appt["id"]}</small></h3>
-  <div class='frow'><span>Pacient</span><span class='v'>
-    <a href='/admin/patient/{pid}'>{e(appt.get("name") or "—")}</a></span></div>
-  <div class='frow'><span>Serviciu</span><span class='v'>{e(appt["service"])}</span></div>
-  <div class='frow'><span>Medic</span><span class='v'>{e(appt["doctor"])}</span></div>
-  <div class='frow'><span>Status</span><span class='v'>{e(STATUS_LABEL.get(status, status))}</span></div>
-  {comment_row}
-</div>"""
-
-    meta = ""
-    if rec:
-        meta = f"Înregistrat: {_fmt(rec['created_at'])}"
-        if rec.get("updated_at"):
-            meta += f" · actualizat: {_fmt(rec['updated_at'])}"
-        meta += f" · de {e(rec['author'] or '—')}"
-
-    if status in NO_FORM_STATUSES:
-        # приёма не было: запись (если успела появиться) — только для чтения
-        rows = "".join(
-            f"<p class='vsec'><b>{lab}:</b><br>{e(vals[k]).replace(chr(10), '<br>')}</p>"
-            for k, lab, *_ in _FIELDS if vals[k]
-        )
-        body_card = (f"<div class='fcard'><h3>Jurnalul consultației</h3>"
-                     f"<div class='banner warn'>{READONLY_NOTE}</div>{rows}"
-                     + (f"<div class='vmeta'>{meta}</div>" if rec else "")
-                     + "</div>")
-    else:
-        tpl_btns = "".join(
-            f"<button type='button' onclick=\"applyTpl('{k}')\">{e(t['label'])}</button>"
-            for k, t in _TEMPLATES.items())
-        fields_html = "".join(
-            f"<label class='dlab' for='vf_{k}'>{lab}</label>"
-            f"<textarea id='vf_{k}' name='{k}' rows='{rows}' maxlength='2000' "
-            f"placeholder='{ph}'>{e(vals[k])}</textarea>"
-            for k, lab, rows, ph in _FIELDS)
-
-        # ⚠️ Отмечают «выполнено» только АКТИВНОЕ. Позиция, от которой пациент
-        # отказался (refuzat), стоит в плане как запись по ст.13(5) — она не
-        # ждёт работы, и галочка рядом с ней означала бы «сделали то, от чего
-        # отказались». Раньше здесь было «не finalizat», и отказ бы попал сюда
-        open_items = [it for it in items if it["status"] in db.PLAN_ACTIVE]
-        linked = [it for it in items if it.get("appointment_id") == appt["id"]]
-        plan_html = ""
-        if linked:
-            plan_html += ("<div class='vsec'><b>Efectuate la această vizită</b></div>"
-                          + "".join(f"<div class='vdone'>{_ic('check')} {_item_label(it)}</div>"
-                                    for it in linked))
-        if open_items:
-            boxes = "".join(
-                f"<label><input type='checkbox' name='done' value='{it['id']}'>"
-                f"<span>{_item_label(it)}"
-                + (" <small>— în lucru</small>" if it["status"] == "in_lucru" else "")
-                + "</span></label>"
-                for it in open_items)
-            plan_html += (
-                "<div class='vsec'><b>Proceduri din plan efectuate la această "
-                "vizită</b> <small class='hint' style='margin:0'>— bifate devin "
-                "«Finalizat» în plan și se leagă de vizită</small></div>"
-                f"<div class='vchk'>{boxes}</div>")
-
-        body_card = f"""
-<div class='fcard'>
-  <h3>Jurnalul consultației <small>· partea de jurnal a fișei 043/e</small></h3>
-  <div class='tplrow'>{tpl_btns}</div>
-  <small class='hint' style='margin:0 0 8px'>Șablonul completează doar câmpurile goale</small>
-  <form method='post' action='/admin/visit/{appt["id"]}' class='fform'>
-    <input type='hidden' name='back' value='{e(back)}'>
-    {fields_html}
-    {plan_html}
-    <button class='savebtn'>{_ic('save')} Salvează consultația</button>
-    {f"<div class='vmeta'>{meta}</div>" if meta else ""}
-  </form>
-</div>"""
-
-    tpl_json = js_json({k: {f: t[f] for f, *_ in _FIELDS} for k, t in _TEMPLATES.items()})
-    body = (
-        _CSS + banner
-        + f"<p style='margin:0 0 12px'><a href='{e(back)}'>{_ic('chev-l')} Înapoi</a>"
-          f" &nbsp;·&nbsp; <a href='/admin/patient/{pid}'>{_ic('id')} Fișa pacientului</a></p>"
-        + f"<div class='vwrap'>{head}{body_card}</div>"
-        + _SCRIPT.replace("__TPL__", tpl_json)
-    )
-    return _shell(body, f"consultație · vizita #{appt['id']}", active="pat")

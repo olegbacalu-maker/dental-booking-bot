@@ -117,7 +117,9 @@ def suite_clock(res: Result) -> None:
            "чужой пояс, а весь остальной экран размечен часами клиники")
     with Server() as s:
         c = Client(s.url).login()
-        page = c.get("/admin/search").body
+        # часы подвала живут в серверном каркасе (`_shell`): его страницы —
+        # журнал; экраны фиши с 13.10 — React, там пояс едет в модели оболочки
+        page = c.get("/admin/all").body
         res.ok("сервер отдаёт часовой пояс клиники",
                'id="sf_clock" data-tz="Europe/Chisinau"' in page,
                "нет data-tz у #sf_clock")
@@ -246,6 +248,14 @@ def _sel(raw: str) -> str:
 def _py_sources() -> str:
     return "\n".join(p.read_text(encoding="utf-8")
                      for p in (BOT / "app").rglob("*.py"))
+
+
+def _tsx_sources() -> str:
+    """Разметка экранов React без проверок клиента: с 13.10 фишу рисует только
+    он (документы, анамнез), и классы её сеток живут в `className`."""
+    return "\n".join(p.read_text(encoding="utf-8")
+                     for p in (BOT.parent / "frontend" / "src").rglob("*.tsx")
+                     if not p.name.endswith(".test.tsx"))
 
 
 def suite_width(res: Result) -> None:
@@ -381,12 +391,14 @@ def suite_grids(res: Result) -> None:
            f"в списке имена, которых уже нет среди сеток на auto-fill: {stale}. "
            "Такой список молча разрешает чужой промах — сетку перевели или "
            "переименовали, а исключение осталось")
-    src = _py_sources()
+    # разметка — и серверная (class=), и React (className=): с 13.10 обе
+    # сетки-исключения рисует только React
+    src = _py_sources() + "\n" + _tsx_sources()
     gone = [x for x in _FILL_OK
-            if not re.search(rf"class=['\"][^'\"]*\b{x.lstrip('.')}\b", src)]
+            if not re.search(rf"class(?:Name)?=['\"][^'\"]*\b{x.lstrip('.')}\b", src)]
     res.ok("сетки-исключения ещё живут в разметке", not gone,
-           f"классов нет ни в одном class=: {gone} — правило про них ищет "
-           "несуществующее имя")
+           f"классов нет ни в одном class=/className=: {gone} — правило про "
+           "них ищет несуществующее имя")
 
 
 def suite_svc_table(res: Result) -> None:

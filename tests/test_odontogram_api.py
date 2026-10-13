@@ -1,21 +1,21 @@
-"""Одонтограмма (C21): данные старых страниц — компактной карточки фиши и
-детальной страницы — записаны как эталон; `GET /api/patients/{pid}/odontogram`
-повторяет их данными, действия через JSON — теми же правилами, что формы.
+"""Одонтограмма (C21): `GET /api/patients/{pid}/odontogram` — карта зубов
+данными, действия через JSON.
 
 `test_teeth.py` стережёт РИСУНОК (канон геометрии, поверхности, отметки,
-мосты). Здесь стережётся то, что уезжает в браузер помимо рисунка: карта
-зубов `TEETH` (состояние, поверхности и их состояния, отметки, врач, заметка,
-дата, челюсть и сторона), история зуба `THIST`, подпись кнопки, мосты и их
-роли, подъём дуги в виде сверху, легенда, раскрытие молочного ряда, выбор
-зуба из адреса. Контракт — docs/dentpilot-2/clinical-chart.md.
+мосты). Здесь стережётся то, что уезжает в браузер помимо рисунка: данные
+зуба (состояние, поверхности и их состояния, отметки, врач, заметка, дата,
+челюсть и сторона), история зуба, подпись, мосты и их роли, подъём дуги в
+виде сверху, легенда, раскрытие молочного ряда, выбор зуба из адреса.
+До 13.10 эталоном служили старые страницы (карточка фиши и детальная
+одонтограмма, `suite_pin`); они сняты, и записанные руками ожидания живут в
+`suite_api` значениями. Контракт — docs/dentpilot-2/clinical-chart.md.
 """
-import html
 import json
 import re
 import sqlite3
 from datetime import timedelta
 
-from harness import Client, Result, Server, clinic_today
+from harness import Client, Result, Server, clinic_today, pid_by_phone
 
 
 def _d(offset: int) -> str:
@@ -31,157 +31,49 @@ def _j(r) -> dict:
 
 
 def _pid(c: Client, phone: str) -> int:
-    return int(c.get(f"/admin/search?q={phone}").body.split(
-        "<tr id='plr", 1)[1].split("'", 1)[0])
+    return pid_by_phone(c, phone)
 
 
 def _seed(c: Client) -> dict:
     """Пациент с зубами в каждом состоянии: кариес с поверхностями, смесь
     состояний поверхностей, пломба, коронка, имплант, удалён, отсутствует,
     здоровый в работе (отметка), молочный с кариесом; мост 47–45 с ролями."""
-    c.post("/admin/patients/new", name="Odonto Pin", phone="069300300")
+    c.post_json("/api/patients", {"name": "Odonto Pin", "phone": "069300300"})
     pid = _pid(c, "069300300")
-    t = f"/admin/patient/{pid}/tooth"
-    c.post(t, tooth="11", state="carie", note="distal <b>", doctor="Dr. Activ Doi", sf=["M", "O"])
-    c.post(t, tooth="16", state="obturatie", sfst="M:carie,O:obturatie", doctor="Dr. Activ Doi")
-    c.post(t, tooth="21", state="obturatie", sf=["D"])
-    c.post(t, tooth="24", state="coroana")
-    c.post(t, tooth="36", state="implant", doctor="Dr. Activ Trei")
-    c.post(t, tooth="38", state="extras")
-    c.post(t, tooth="48", state="lipsa")
-    c.post(t, tooth="31", state="ok", note="în lucru", mk=["tratament"], mk0="1")
-    c.post(t, tooth="55", state="carie")
-    r = c.post(f"/admin/patient/{pid}/bridge", teeth="47:stalp,46:corp,45:stalp",
-               material="zirconiu", doctor="Dr. Activ Doi")
-    assert r.msg == "ok_punte", r.location
+    t = f"/api/patients/{pid}/teeth"
+    c.post_json(f"{t}/11", {"state": "carie", "note": "distal <b>", "doctor": "Dr. Activ Doi",
+                           "surfaces": ["M", "O"]})
+    c.post_json(f"{t}/16", {"state": "obturatie", "doctor": "Dr. Activ Doi",
+                           "surfaces": {"M": "carie", "O": "obturatie"}})
+    c.post_json(f"{t}/21", {"state": "obturatie", "surfaces": ["D"]})
+    c.post_json(f"{t}/24", {"state": "coroana", "surfaces": []})
+    c.post_json(f"{t}/36", {"state": "implant", "doctor": "Dr. Activ Trei", "surfaces": []})
+    c.post_json(f"{t}/38", {"state": "extras", "surfaces": []})
+    c.post_json(f"{t}/48", {"state": "lipsa", "surfaces": []})
+    c.post_json(f"{t}/31", {"state": "ok", "note": "în lucru", "surfaces": [],
+                           "marks": ["tratament"]})
+    c.post_json(f"{t}/55", {"state": "carie", "surfaces": []})
+    r = c.post_json(f"/api/patients/{pid}/bridges", {"teeth": [[47, "stalp"], [46, "corp"], [45, "stalp"]],
+                                                    "material": "zirconiu",
+                                                    "doctor": "Dr. Activ Doi"})
+    assert r.msg == "ok_punte", r.body[:200]
     return {"pid": pid}
-
-
-def _blob(page: str, name: str) -> dict | list:
-    m = re.search(rf"(?:const|var) {name} = (.*?);\n", page)
-    assert m, f"нет {name} на странице"
-    return json.loads(m.group(1))
-
-
-def _titles(page: str) -> dict[int, str]:
-    """Подпись каждой кнопки зуба лицевого вида (первое вхождение номера)."""
-    out: dict[int, str] = {}
-    for n, title in re.findall(r"<button type='button' class='tooth-btn' data-n='(\d+)'[^>]*?title=\"([^\"]*)\"", page):
-        out.setdefault(int(n), html.unescape(title))
-    return out
-
-
-def _arcs(page: str) -> list[tuple[int, str]]:
-    """(зуб, --arc) кнопок вида сверху: только там у зуба есть переменная."""
-    occ = page.split("<div class='odo-view v-ocluzal'>", 1)[1]
-    return [(int(n), a) for n, a in re.findall(r"data-n='(\d+)' style='--arc:(-?\d+)px'", occ)]
-
-
-def _legend(page: str) -> list[str]:
-    block = page.split("<div class='tleg odo-view v-frontal'>", 1)[1].split("</div>", 1)[0]
-    return re.findall(r"</svg> ([^<]+)</span>", block)
-
-
-def suite_pin(res: Result) -> None:
-    """Старые страницы — эталон: карточка фиши и детальная одонтограмма несут
-    одни данные зубов, подписи и мосты."""
-    with Server() as s:
-        c = Client(s.url).login()
-        pid = _seed(c)["pid"]
-        card = c.get(f"/admin/patient/{pid}").body
-        page = c.get(f"/admin/patient/{pid}/odontograma?t=16").body
-        teeth = _blob(page, "TEETH")
-        res.check("данные зубов одни на карточку и детальную страницу", _blob(card, "TEETH"), teeth)
-        res.check("карта зубов: все 52 номера, у нетронутого — здоров и пусто",
-                  (len(teeth), teeth["12"]),
-                  (52, {"jaw": "sus", "mez": "right", "state": "ok", "note": "", "doctor": "",
-                        "at": "", "sf": "", "sfx": "", "sfst": {}, "mk": [], "mkx": ""}))
-        res.check("кариес с поверхностями: буквы, карта, подпись буквами, заметка сырая, дата",
-                  teeth["11"],
-                  {"jaw": "sus", "mez": "right", "state": "carie", "note": "distal <b>",
-                   "doctor": "Dr. Activ Doi", "sf": "MO", "sfst": {"M": "carie", "O": "carie"},
-                   "mk": [], "mkx": "", "sfx": "MO", "at": _dmy(0)})
-        res.check("смесь состояний поверхностей: состояние зуба — тяжелейшее, подпись словами",
-                  (teeth["16"]["state"], teeth["16"]["sf"], teeth["16"]["sfst"], teeth["16"]["sfx"]),
-                  ("carie", "MO", {"M": "carie", "O": "obturatie"}, "Carie (M), Obturație (O)"))
-        res.check("отметка поверх здорового зуба: список и подпись",
-                  (teeth["31"]["state"], teeth["31"]["mk"], teeth["31"]["mkx"], teeth["31"]["note"]),
-                  ("ok", ["tratament"], "În tratament", "în lucru"))
-        res.check("остальные состояния и челюсти",
-                  {n: (teeth[n]["state"], teeth[n]["jaw"], teeth[n]["mez"])
-                   for n in ("21", "24", "36", "38", "48", "55")},
-                  {"21": ("obturatie", "sus", "left"), "24": ("coroana", "sus", "left"),
-                   "36": ("implant", "jos", "left"), "38": ("extras", "jos", "left"),
-                   "48": ("lipsa", "jos", "right"), "55": ("carie", "sus", "right")})
-        hist = _blob(page, "THIST")
-        res.check("история зуба: строка летописи с датой",
-                  (sorted(hist), hist["11"][0]["at"], hist["11"][0]["text"]),
-                  (["11", "16", "21", "24", "31", "36", "38", "48", "55"], _dmy(0),
-                   "Dinte 11: Carie (MO) · Dr. Activ Doi · distal <b>"))
-        titles = _titles(page)
-        res.check("подписи кнопок: состояние, отметка, мост с ролью и материалом, заметка, поверхности",
-                  (titles[11], titles[16], titles[31], titles[47], titles[46], titles[12]),
-                  ("11 · Carie · distal <b> · MO", "16 · Carie · Carie (M), Obturație (O)",
-                   "31 · Sănătos · În tratament · în lucru",
-                   "47 · Sănătos · Punte: Stâlp (zirconiu)",
-                   "46 · Sănătos · Punte: Corp de punte (zirconiu)", "12 · Sănătos"))
-        br = _blob(page, "BRIDGES")
-        res.check("мост: зубы в порядке дуги с ролями и материал",
-                  [(b["teeth"], b["material"]) for b in br],
-                  [([[47, "stalp"], [46, "corp"], [45, "stalp"]], "zirconiu")])
-        res.check("мосты карточки — те же", _blob(card, "BRIDGES"), br)
-        arcs = _arcs(page)
-        res.check("подъём дуги сверху: края на месте, середина выше; нижняя — вниз",
-                  ([a for n, a in arcs if n in (17, 16, 11, 21, 27)],
-                   [a for n, a in arcs if n in (47, 41, 31)], len(arcs)),
-                  (["-5", "-10", "-22", "-22", "-5"], ["5", "22", "22"], 28 + 16))
-        res.check("легенда: состояния без «здоров», потом отметки",
-                  _legend(page), ["Carie", "Obturație", "Coroană", "Implant", "Extras", "Lipsă",
-                                  "În tratament", "Nerv extras"])
-        res.ok("молочный ряд раскрыт, когда по нему есть записи",
-               "<details class='milk' open>" in page and "<details class='milk' open>" in card, "свёрнут")
-        res.ok("выбор зуба из адреса", "selTooth(16)" in page, "нет")
-        res.ok("сторона зеркала и челюсть считает сервер: правые квадранты — mez right",
-               teeth["18"]["mez"] == "right" and teeth["28"]["mez"] == "left"
-               and teeth["48"]["mez"] == "right" and teeth["38"]["mez"] == "left", "не то")
-        res.ok("у старых страниц целей поверхностей нет", "sfz" not in page and "sfz" not in card,
-               "hit уехал на старую страницу")
-        c.post("/admin/patients/new", name="Odonto Gol", phone="069300301")
-        bare = _pid(c, "069300301")
-        page = c.get(f"/admin/patient/{bare}/odontograma").body
-        res.ok("пустая карта: молочный ряд свёрнут, мостов нет, все здоровы",
-               "<details class='milk'>" in page and _blob(page, "BRIDGES") == []
-               and all(t["state"] == "ok" for t in _blob(page, "TEETH").values()), "не то")
 
 
 def _strip_hits(svg: str) -> str:
     return re.sub(r"<g class='sfz'[^>]*>.*?</g>", "", svg)
 
 
-def _btn_svgs(page: str, occ: bool) -> dict[int, str]:
-    """SVG каждой кнопки зуба одного вида старой страницы. Блоков вида
-    несколько (постоянные и молочные), берутся все нужного вида."""
-    want = "v-ocluzal" if occ else "v-frontal"
-    parts = re.split(r"(<div class='odo-view v-(?:frontal|ocluzal)'>)", page)
-    out: dict[int, str] = {}
-    for marker, seg in zip(parts[1::2], parts[2::2]):
-        if want not in marker:
-            continue
-        for n, svg in re.findall(r"<button type='button' class='tooth-btn' data-n='(\d+)'[^>]*>(?:<span class='num'>\d+</span>)?(<svg.*?</svg>)", seg, re.S):
-            out.setdefault(int(n), svg)
-    return out
-
-
 def suite_api(res: Result) -> None:
-    """`GET /api/patients/{pid}/odontogram` повторяет старые страницы данными;
-    рисунок зуба — тот же SVG плюс цели поверхностей; действия — теми же
-    правилами и кодами."""
+    """`GET /api/patients/{pid}/odontogram` на засеянном пациенте: данные
+    зубов, подписи, история, мосты, дуги, легенда — значениями, записанными
+    руками; рисунок несёт цели поверхностей; запись — белыми списками и
+    кодами MSG_BANNER."""
     with Server() as s:
         res.check("без входа — 401", Client(s.url).get("/api/patients/1/odontogram").status, 401)
         c = Client(s.url).login()
         res.check("чужая фиша — 404", c.get("/api/patients/777/odontogram").status, 404)
         pid = _seed(c)["pid"]
-        page = c.get(f"/admin/patient/{pid}/odontograma").body
         d = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]
         res.check("состав", sorted(d),
                   sorted(["teeth", "history", "arches", "arc", "milk_open", "bridges", "legend",
@@ -204,12 +96,38 @@ def suite_api(res: Result) -> None:
                   d["perio"], {})
         res.check("и слоя пародонта для 3D нет — None, а не пустой слой",
                   d["perio_layer"], None)
-        teeth_old = _blob(page, "TEETH")
-        res.check("зубы: те же данные, что TEETH старой страницы",
-                  {k: {f: v[f] for f in teeth_old[k]} for k, v in d["teeth"].items()}, teeth_old)
-        res.check("подписи зубов — те же, что title кнопок",
-                  {n: d["teeth"][str(n)]["title"] for n in (11, 16, 31, 47, 46, 12)},
-                  {n: t for n, t in _titles(page).items() if n in (11, 16, 31, 47, 46, 12)})
+        teeth = d["teeth"]
+        info = ("jaw", "mez", "state", "note", "doctor", "at", "sf", "sfx", "sfst", "mk", "mkx")
+        res.check("карта зубов: все 52 номера, у нетронутого — здоров и пусто",
+                  (len(teeth), {f: teeth["12"][f] for f in info}),
+                  (52, {"jaw": "sus", "mez": "right", "state": "ok", "note": "", "doctor": "",
+                        "at": "", "sf": "", "sfx": "", "sfst": {}, "mk": [], "mkx": ""}))
+        res.check("кариес с поверхностями: буквы, карта, подпись буквами, заметка сырая, дата",
+                  {f: teeth["11"][f] for f in info},
+                  {"jaw": "sus", "mez": "right", "state": "carie", "note": "distal <b>",
+                   "doctor": "Dr. Activ Doi", "sf": "MO", "sfst": {"M": "carie", "O": "carie"},
+                   "mk": [], "mkx": "", "sfx": "MO", "at": _dmy(0)})
+        res.check("смесь состояний поверхностей: состояние зуба — тяжелейшее, подпись словами",
+                  (teeth["16"]["state"], teeth["16"]["sf"], teeth["16"]["sfst"], teeth["16"]["sfx"]),
+                  ("carie", "MO", {"M": "carie", "O": "obturatie"}, "Carie (M), Obturație (O)"))
+        res.check("отметка поверх здорового зуба: список и подпись",
+                  (teeth["31"]["state"], teeth["31"]["mk"], teeth["31"]["mkx"], teeth["31"]["note"]),
+                  ("ok", ["tratament"], "În tratament", "în lucru"))
+        res.check("остальные состояния и челюсти",
+                  {n: (teeth[n]["state"], teeth[n]["jaw"], teeth[n]["mez"])
+                   for n in ("21", "24", "36", "38", "48", "55")},
+                  {"21": ("obturatie", "sus", "left"), "24": ("coroana", "sus", "left"),
+                   "36": ("implant", "jos", "left"), "38": ("extras", "jos", "left"),
+                   "48": ("lipsa", "jos", "right"), "55": ("carie", "sus", "right")})
+        res.ok("сторону зеркала и челюсть считает сервер: правые квадранты — mez right",
+               teeth["18"]["mez"] == "right" and teeth["28"]["mez"] == "left"
+               and teeth["48"]["mez"] == "right" and teeth["38"]["mez"] == "left", "не то")
+        res.check("подписи: состояние, отметка, мост с ролью и материалом, заметка, поверхности",
+                  {n: teeth[str(n)]["title"] for n in (11, 16, 31, 47, 46, 12)},
+                  {11: "11 · Carie · distal <b> · MO", 16: "16 · Carie · Carie (M), Obturație (O)",
+                   31: "31 · Sănătos · În tratament · în lucru",
+                   47: "47 · Sănătos · Punte: Stâlp (zirconiu)",
+                   46: "46 · Sănătos · Punte: Corp de punte (zirconiu)", 12: "12 · Sănătos"})
         # подпись панели зуба (08.10): название по позиции и сторона пациента —
         # слова сервера, у клиента словаря зубов нет
         res.check("название зуба и сторона — с сервера",
@@ -219,22 +137,29 @@ def suite_api(res: Result) -> None:
                    24: ("Premolar I", "stânga"), 36: ("Molar I", "stânga"),
                    48: ("Molar III", "dreapta"), 55: ("Molar II", "dreapta"),
                    85: ("Molar II", "dreapta")})
-        res.check("история — та же", d["history"], _blob(page, "THIST"))
+        hist = d["history"]
+        res.check("история зуба: строка летописи с датой",
+                  (sorted(hist), hist["11"][0]["at"], hist["11"][0]["text"]),
+                  (["11", "16", "21", "24", "31", "36", "38", "48", "55"], _dmy(0),
+                   "Dinte 11: Carie (MO) · Dr. Activ Doi · distal <b>"))
         res.check("мосты: зубы, роли, материал, врач",
                   [(b["teeth"], b["material"], b["doctor"]) for b in d["bridges"]],
                   [([[47, "stalp"], [46, "corp"], [45, "stalp"]], "zirconiu", "Dr. Activ Doi")])
         res.check("зуб знает свой мост", (d["teeth"]["47"]["bridge"], d["teeth"]["46"]["bridge"], d["teeth"]["11"]["bridge"]),
                   ({"role": "stalp", "material": "zirconiu"}, {"role": "corp", "material": "zirconiu"}, None))
-        res.check("дуги и подъём вида сверху — как на странице",
+        res.check("дуги и подъём вида сверху",
                   (d["arches"]["upper"][:3], d["arches"]["milk_lower"][-2:],
                    [str(a) for a in d["arc"]["upper"]][:4], d["arc"]["lower"][7], d["arc"]["milk_upper"]),
                   ([18, 17, 16], [74, 75], ["0", "-5", "-10", "-14"], 22, [0, -6, -10, -13, -15, -15, -13, -10, -6, 0]))
-        res.check("подъём: те же значения, что --arc кнопок",
-                  [str(a) for a in d["arc"]["upper"][1:15] + d["arc"]["lower"][1:15]
-                   + d["arc"]["milk_upper"][1:9] + d["arc"]["milk_lower"][1:9]],
-                  [a for _n, a in _arcs(page)])
-        res.check("легенда — те же подписи и порядок",
-                  [x["label"] for x in d["legend"]["frontal"]], _legend(page))
+        up, lo = d["arches"]["upper"], d["arches"]["lower"]
+        res.check("подъём сверху: края на месте, середина выше; нижняя — вниз",
+                  ([d["arc"]["upper"][up.index(n)] for n in (17, 16, 11, 21, 27)],
+                   [d["arc"]["lower"][lo.index(n)] for n in (47, 41, 31)]),
+                  ([-5, -10, -22, -22, -5], [5, 22, 22]))
+        res.check("легенда: состояния без «здоров», потом отметки",
+                  [x["label"] for x in d["legend"]["frontal"]],
+                  ["Carie", "Obturație", "Coroană", "Implant", "Extras", "Lipsă",
+                   "În tratament", "Nerv extras"])
         res.ok("легенда: рисунок зуба на каждый пункт", all("<svg" in x["svg"] for x in d["legend"]["occlusal"]), "нет")
         res.check("молочный ряд раскрыт", d["milk_open"], True)
         res.check("словари: состояния, отметки, поверхности, роли, материалы, врачи",
@@ -244,14 +169,12 @@ def suite_api(res: Result) -> None:
                    ["M", "O", "D", "V", "L"], ["carie", "obturatie"], {"stalp": "Stâlp", "corp": "Corp de punte"},
                    ["metalo-ceramică", "zirconiu", "ceramică", "metal", "acrilat", "alt"], "Dr. Activ Doi"))
         res.check("пациент", d["patient"], {"id": pid, "name": "Odonto Pin", "primary_doctor": ""})
-        # рисунок: тот же SVG, что у кнопки старой страницы, плюс цели поверхностей
-        old_f, old_o = _btn_svgs(page, False), _btn_svgs(page, True)
-        res.check("лицевой рисунок без целей — байт в байт как на странице",
-                  {n: _strip_hits(d["teeth"][str(n)]["svg"]["frontal"]) for n in (11, 16, 36, 48, 55)},
-                  {n: old_f[n] for n in (11, 16, 36, 48, 55)})
-        res.check("вид сверху без целей — байт в байт",
-                  {n: _strip_hits(d["teeth"][str(n)]["svg"]["occlusal"]) for n in (11, 16, 36, 48, 55)},
-                  {n: old_o[n] for n in (11, 16, 36, 48, 55)})
+        # рисунок: цели поверхностей поверх рисунка зуба. (До 13.10 здесь ещё
+        # сверялся рисунок без целей с кнопкой старой страницы байт в байт —
+        # второго рисовальщика больше нет, канон геометрии держит test_teeth.)
+        res.ok("у каждого зуба оба вида рисунка, без целей — это всё ещё зуб",
+               all("<svg" in _strip_hits(t["svg"][v]) for t in teeth.values()
+                   for v in ("frontal", "occlusal")), "рисунка нет")
         hits = {v: sorted(re.findall(r"data-s='(\w)'", d["teeth"]["16"]["svg"][v])) for v in ("frontal", "occlusal")}
         res.check("цели поверхностей: пять на зуб в обоих видах, и на отсутствующем тоже",
                   (hits, len(re.findall(r"data-s=", d["teeth"]["48"]["svg"]["occlusal"]))),
@@ -273,8 +196,7 @@ def suite_api(res: Result) -> None:
         res.check("зуб записан: буквы отфильтрованы и в каноне, заметка обрезана, врач из справочника",
                   (r.status, j["code"], t26["state"], t26["sf"], t26["sfst"], t26["note"], t26["doctor"]),
                   (200, "ok_card", "carie", "MO", {"M": "carie", "O": "carie"}, "test", "Dr. Activ Doi"))
-        res.ok("старая страница видит зуб API", "26 · Carie · test · MO" in html.unescape(
-            c.get(f"/admin/patient/{pid}/odontograma").body), "не видит")
+        res.check("подпись зуба собрана из записанного", t26["title"], "26 · Carie · test · MO")
         r = c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "carie", "state0": "carie", "note": "test",
                                                           "doctor": "Dr. Activ Doi", "surfaces": {"M": "carie", "O": "obturatie", "Q": "carie", "D": "zzz"}})
         t26 = _j(r)["data"]["teeth"]["26"]
@@ -298,16 +220,16 @@ def suite_api(res: Result) -> None:
                   (_j(r)["data"]["teeth"]["26"]["state"], _j(r)["data"]["teeth"]["26"]["sfst"]), ("ok", {}))
         res.ok("история зуба пополнилась", len(_j(r)["data"]["history"]["26"]) >= 3, "нет")
 
-        # ---- пересохранение БЕЗ единой правки тождественно на ОБОИХ путях (11.10) ----
-        # Одну запись правят два экрана с разным словарём: панель React шлёт
-        # карту поверхностей (с кистью — только её), диалог старой страницы —
-        # буквы флажками. Четыре вида записей, которые живут у клиник: кариес
-        # буквами без карты (старше 08-16), смесь состояний по карте, «C на
-        # весь зуб» без поверхностей (до кисти — с кнопки панели), коронка с
+        # ---- пересохранение БЕЗ единой правки тождественно на ОБОИХ словарях (11.10) ----
+        # API принимает поверхности двумя словарями: картой (её шлёт панель
+        # React, с кистью — только её) и буквами (так слал диалог старой фиши,
+        # снятой 13.10; путь остаётся в контракте API). Четыре вида записей,
+        # которые живут у клиник: кариес буквами без карты (старше 08-16),
+        # смесь состояний по карте, «C на весь зуб» без поверхностей, коронка с
         # буквами под ней. Прайор 08-16: так пломба уходила с подписываемой 043/e.
-        t = f"/admin/patient/{pid}/tooth"
-        c.post(t, tooth="27", state="carie", doctor="Dr. Activ Doi")        # «C» без поверхностей
-        c.post(t, tooth="25", state="coroana", sf=["M", "O", "D"])          # коронка с буквами под ней
+        t = f"/api/patients/{pid}/teeth"
+        c.post_json(f"{t}/27", {"state": "carie", "doctor": "Dr. Activ Doi", "surfaces": []})        # «C» без поверхностей
+        c.post_json(f"{t}/25", {"state": "coroana", "surfaces": ["M", "O", "D"]})          # коронка с буквами под ней
         con = sqlite3.connect(str(s.dir / "dental.db"))                     # запись старше 08-16: карты нет
         con.execute("UPDATE teeth SET surface_states = '' WHERE patient_id = ? AND tooth = 11", (pid,))
         con.commit()
@@ -325,9 +247,12 @@ def suite_api(res: Result) -> None:
                     "doctor": before["doctor"], "surfaces": before["sfst"], "marks": before["mk"]}
             r = c.post_json(f"/api/patients/{pid}/teeth/{n}", body)
             res.check(f"панель React: пересохранение {what} тождественно", (r.status, info(n)), (200, before))
-            r = c.post(t, tooth=str(n), state=before["state"], state0=before["state"], note=before["note"],
-                       doctor=before["doctor"], sf=list(before["sf"]), mk=before["mk"], mk0="1")
-            res.check(f"диалог старой страницы: пересохранение {what} тождественно",
+            r = c.post_json(f"{t}/{str(n)}", {"state": before["state"],
+                                             "state0": before["state"], "note": before["note"],
+                                             "doctor": before["doctor"],
+                                             "surfaces": list(before["sf"]),
+                                             "marks": before["mk"]})
+            res.check(f"буквами (словарь старой формы): пересохранение {what} тождественно",
                       (r.msg, info(n)), ("ok_card", before))
 
         # ---- мосты ----
@@ -344,7 +269,6 @@ def suite_api(res: Result) -> None:
                   (200, "ok_punte", ([[16, "stalp"], [15, "corp"], [14, "stalp"]], "aur", "Dr. Activ Trei"),
                    {"role": "corp", "material": "aur"}, True))
         bid = j["data"]["bridges"][1]["id"]
-        res.ok("старая страница видит мост API", f'"id": {bid}' in c.get(f"/admin/patient/{pid}/odontograma").body, "нет")
         r = c.post_json(f"/api/patients/{pid}/bridges/{bid}/delete", {})
         res.check("мост снят — ok_punte_del, остался один", (r.status, _j(r)["code"], len(_j(r)["data"]["bridges"])),
                   (200, "ok_punte_del", 1))
@@ -355,16 +279,12 @@ def suite_api(res: Result) -> None:
                               headers={"Origin": "http://evil.example"}).status, 403)
 
         # ---- замер пародонта у того же зуба (контракт: зуб один на оба
-        # инструмента). Осмотр заводится СТАРОЙ формой: так проверяется и то,
-        # что инспектор читает те же данные, что печатает 043/e.
-        loc = c.post(f"/admin/patient/{pid}/perio/new").location or ""
-        eid = int(re.search(r"exam=(\d+)", loc).group(1))
-        perm = ",".join(str(n) for n in (
-            [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
-            + [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]))
-        c.post(f"/admin/patient/{pid}/perio", exam=str(eid), shown=perm,
-               chart=("16:3,2,3,4,2,5/1,0,0,0,0,2/010010/1/2;"
-                      "46:2,2,2,2,2,2/0,0,0,0,0,0/000000/0/0"))
+        # инструмента): инспектор читает тот же осмотр, что печатает 043/e
+        eid = _j(c.post_json(f"/api/patients/{pid}/perio/exams", {}))["data"]["exam"]["id"]
+        c.post_json(f"/api/patients/{pid}/perio/{eid}", {"teeth": {
+            "16": {"pd": [3, 2, 3, 4, 2, 5], "rec": [1, 0, 0, 0, 0, 2], "bop": "010010",
+                   "mob": 1, "furc": 2},
+            "46": {"pd": [2] * 6, "rec": [0] * 6, "bop": "000000", "mob": 0, "furc": 0}}})
         per = _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["perio"]
         res.check("замер зуба — готовой фразой сервера, с рецессией и степенями",
                   per["16"]["text"],
@@ -398,13 +318,20 @@ def _server_with_flag(env: dict | None = None) -> Server:
 
 
 def suite_switch(res: Result) -> None:
-    """Флаг odontogram: узел React в рамке с узким сайдбаром, номер зуба из
-    адреса параметром, ?ui=legacy — старая страница, старая форма зуба при
-    флаге живёт и возвращает сюда."""
+    """Одонтограмма — React при любом `ui.react` (старая страница снята
+    13.10): узел в рамке с узким сайдбаром, номер зуба из адреса параметром,
+    `?ui=legacy` отдаёт тот же React."""
     with Server() as s:
         c = Client(s.url).login()
         pid = _seed(c)["pid"]
-        res.ok("без флага — старая страница", "insp-pic" in c.get(f"/admin/patient/{pid}/odontograma").body, "не старая")
+        res.ok("без флага — тоже React (старой страницы нет)",
+               '<div id="root" data-screen="odontogram"' in
+               c.get(f"/admin/patient/{pid}/odontograma").body, "узла нет")
+        c.post_json("/api/patients", {"name": "Odonto Gol", "phone": "069300301"})
+        bare = _j(c.get(f"/api/patients/{_pid(c, '069300301')}/odontogram"))["data"]
+        res.ok("пустая карта: молочный ряд свёрнут, мостов нет, все здоровы",
+               bare["milk_open"] is False and bare["bridges"] == []
+               and all(t["state"] == "ok" for t in bare["teeth"].values()), "не то")
 
     s = _server_with_flag()
     with s:
@@ -423,11 +350,13 @@ def suite_switch(res: Result) -> None:
         res.ok("серверного каркаса нет", "<aside" not in page, "две оболочки разом")
         params = json.loads(page.split("data-params=\"", 1)[1].split("\"", 1)[0].replace("&quot;", '"'))
         res.check("параметры: фиша и выбранный зуб", params, {"pid": str(pid), "t": "16"})
+        res.ok("чужой номер зуба в адресе параметром не едет",
+               '&quot;t&quot;' not in c.get(f"/admin/patient/{pid}/odontograma?t=99").body,
+               "зуб 99 уехал в узел")
         res.ok("старой разметки нет", "insp-pic" not in page and "selTooth" not in page, "две разметки")
-        res.ok("?ui=legacy — старая страница", "insp-pic" in c.get(f"/admin/patient/{pid}/odontograma?ui=legacy").body, "нет")
+        res.ok("?ui=legacy — тот же React",
+               'data-screen="odontogram"' in c.get(f"/admin/patient/{pid}/odontograma?ui=legacy").body,
+               "старая страница вернулась")
         res.ok("?msg= — плашка сервера", "dp_toast" in c.get(f"/admin/patient/{pid}/odontograma?msg=ok_punte").body, "нет")
-        r = c.post(f"/admin/patient/{pid}/tooth", tooth="26", state="carie", back="odontograma", sf=["O"])
-        res.check("старая форма зуба при флаге работает и возвращает сюда",
-                  (r.status, r.location), (303, f"/admin/patient/{pid}/odontograma?t=26&msg=ok_card"))
-        res.check("чужая фиша при флаге — на список", c.get("/admin/patient/9999/odontograma").status, 303)
+        res.check("чужая фиша — на список", c.get("/admin/patient/9999/odontograma").status, 303)
         res.check("без входа закрыта", Client(s.url).get(f"/admin/patient/{pid}/odontograma").status, 303)

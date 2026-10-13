@@ -14,7 +14,8 @@ import time
 import zipfile
 from datetime import date, timedelta
 
-from harness import BOT, TG_ON, Client, Result, Server, clinic_today, _rmtree_settled
+from harness import (BOT, Client, Result, Server, TG_ON, _rmtree_settled, clinic_today,
+                     pid_by_phone)
 
 
 def _d(offset: int) -> str:
@@ -22,8 +23,24 @@ def _d(offset: int) -> str:
 
 
 def _pid(c: Client, phone: str) -> str:
-    return c.get(f"/admin/search?q={phone}").body.split(
-        "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+    return str(pid_by_phone(c, phone))
+
+
+def _card(c: Client, pid, views: bool = False) -> dict:
+    """Фиша данными (`GET /api/patients/{pid}`) — то, что рисует экран. Это
+    ОТКРЫТИЕ фиши: оно пишется в журнал доступа, как открытие страницы."""
+    return json.loads(c.get(f"/api/patients/{pid}" + ("?views=1" if views else "")).body)["data"]
+
+
+def _feed(c: Client, pid) -> list[str]:
+    """Тексты летописи (`GET …/activity` — без записи о просмотре)."""
+    r = c.get(f"/api/patients/{pid}/activity")
+    return [a["text"] for a in json.loads(r.body)["data"]["items"]]
+
+
+def _rows(c: Client, q: str = "") -> list[dict]:
+    """Строки списка «Pacienți» (`GET /api/patients`)."""
+    return json.loads(c.get("/api/patients" + (f"?q={q}" if q else "")).body)["data"]["rows"]
 
 
 def _tmp_left(s: Server, prefix: str, budget: float = 3.0) -> list[str]:
@@ -47,19 +64,20 @@ def _seed(c: Client) -> str:
            aservice="consult", aname="Export Test", aphone="022778899",
            back="/admin/all")
     pid = _pid(c, "022778899")
-    c.post(f"/admin/patient/{pid}/save", name="Export Test", phone="022778899",
-           email="ex@example.com", idnp="2000000000000",
-           address="str. Testului 1", birth_date="1985-03-09")
-    c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie",
-           note="carie distală", doctor="d2")
-    c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11", tooth="11",
-           price="1200")
-    c.post(f"/admin/patient/{pid}/pay", amount="500", method="numerar",
-           note="avans plombă")
-    c.post(f"/admin/patient/{pid}/alert", kind="allergy",
-           text="Alergie la penicilină")
-    c.post_file(f"/admin/patient/{pid}/doc", "file", "radiografie.png",
-                b"\x89PNG\r\n\x1a\n" + b"x" * 64, category="radiografie")
+    c.post_json(f"/api/patients/{pid}/profile", {"name": "Export Test", "phone": "022778899",
+                                                "email": "ex@example.com",
+                                                "idnp": "2000000000000",
+                                                "address": "str. Testului 1",
+                                                "birth_date": "1985-03-09"})
+    c.post_json(f"/api/patients/{pid}/teeth/11", {"state": "carie", "note": "carie distală",
+                                                 "doctor": "d2", "surfaces": []})
+    c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Plombă 11", "tooth": "11",
+                                             "price": "1200"})
+    c.post_json(f"/api/patients/{pid}/payments", {"amount": "500", "method": "numerar",
+                                                 "note": "avans plombă"})
+    c.post_json(f"/api/patients/{pid}/alerts", {"kind": "allergy",
+                                               "text": "Alergie la penicilină"})
+    c.post_file(f"/api/patients/{pid}/documents", "file", "radiografie.png", b"\x89PNG\r\n\x1a\n" + b"x" * 64, category="radiografie")
     return pid
 
 
@@ -140,7 +158,7 @@ def suite_export(res: Result) -> None:
                f"нет строки {want!r} — пациенту показали чужой час")
 
         res.ok("выдача копии записана в летопись фиши",
-               "Copie a datelor personale" in c.get(f"/admin/patient/{pid}").body,
+               any("Copie a datelor personale" in t for t in _feed(c, pid)),
                "выдача копии не попала в историю — на проверке спросят именно её")
         res.ok("несуществующий пациент не роняет журнал",
                c.get("/admin/patient/999999/export").status == 303,
@@ -187,48 +205,41 @@ def suite_erase(res: Result) -> None:
                aservice="consult", aname="Doar Contact", aphone="022111222",
                back="/admin/all")
         pid = _pid(c, "022111222")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("фиша без лечения предлагает полное удаление",
-               "ștearsă definitiv" in page, "не та ветка в фише")
+        res.check("фиша без лечения предлагает полное удаление", _card(c, pid)["erasure"], "delete")
 
-        r = c.post(f"/admin/patient/{pid}/erase", confirm="greșit")
+        r = c.post_json(f"/api/patients/{pid}/erase", {"confirm": "greșit"})
         res.check("без слова подтверждения — отказ", r.msg, "bad_erase")
         res.ok("пациент на месте после отказа",
                c.get(f"/admin/patient/{pid}").status == 200, "удалён без подтверждения")
 
-        r = c.post(f"/admin/patient/{pid}/erase", confirm="STERG")
+        r = c.post_json(f"/api/patients/{pid}/erase", {"confirm": "STERG"})
         res.check("с подтверждением — удалён", r.msg, "ok_del")
         res.ok("фиша больше не открывается",
                c.get(f"/admin/patient/{pid}").status == 303, "фиша осталась")
-        # искать по ссылке на фишу, не по имени: имя эхом возвращается в поле
-        # поиска, и проверка по нему ловила бы собственный запрос
-        res.ok("из поиска пациент исчез",
-               f"/admin/patient/{pid}" not in
-               c.get("/admin/search?q=Doar+Contact").body,
-               "остался в поиске")
+        res.check("из поиска пациент исчез", _rows(c, "Doar+Contact"), [])
         res.ok("вместе с пациентом ушёл и его визит из журнала",
                "Doar Contact" not in c.get(f"/admin/all?date={_d(1)}").body,
                "визит-сирота остался в журнале дня")
 
         # --- ветка 2: пациент с лечением -> обезличивание ---
         pid2 = _seed(c)   # визит + профиль с IDNP + зуб + план + алерт + файл
-        page = c.get(f"/admin/patient/{pid2}").body
-        res.ok("фиша с лечением предлагает только обезличивание",
-               "datele de identitate" in page, "не та ветка в фише")
+        res.check("фиша с лечением предлагает только обезличивание",
+                  _card(c, pid2)["erasure"], "anon")
 
-        r = c.post(f"/admin/patient/{pid2}/erase", confirm="sterg")
+        r = c.post_json(f"/api/patients/{pid2}/erase", {"confirm": "sterg"})
         res.check("подтверждение принимается и строчными", r.msg, "ok_anon")
-        page = c.get(f"/admin/patient/{pid2}").body
-        res.ok("личность стёрта со страницы",
-               "Export Test" not in page and "2000000000000" not in page
-               and "022778899" not in page,
+        card = _card(c, pid2)
+        flat = json.dumps(card, ensure_ascii=False)
+        res.ok("личность стёрта с экрана фиши",
+               "Export Test" not in flat and "2000000000000" not in flat
+               and "022778899" not in flat,
                "имя, IDNP или телефон видны после обезличивания")
-        res.ok("фиша живёт под обезличенным именем",
-               f"Pacient anonimizat #{pid2}" in page, "нет обезличенного имени")
-        res.ok("клиника осталась: план лечения на месте", "Plombă 11" in page,
+        res.check("фиша живёт под обезличенным именем", card["name"], f"Pacient anonimizat #{pid2}")
+        res.ok("клиника осталась: план лечения на месте",
+               "Plombă 11" in [it["procedure"] for it in card["plan"]["items"]],
                "медзаписи пропали вместе с личностью")
-        res.ok("алерт остался (медицинское)", "penicilină" in page,
-               "алерт стёрт")
+        res.ok("алерт остался (медицинское)",
+               any("penicilină" in a["text"] for a in card["alerts"]), "алерт стёрт")
 
         z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid2}/export").raw))
         data = json.loads(z.read("date-pacient.json"))
@@ -252,15 +263,15 @@ def suite_erase(res: Result) -> None:
                aservice="consult", aname="Doar Plata", aphone="022555777",
                back="/admin/all")
         pid3 = _pid(c, "022555777")
-        c.post(f"/admin/patient/{pid3}/pay", amount="300", method="card")
-        res.ok("фиша с платежом предлагает только обезличивание",
-               "datele de identitate" in c.get(f"/admin/patient/{pid3}").body,
-               "платёж не удержал фишу от полного удаления")
+        c.post_json(f"/api/patients/{pid3}/payments", {"amount": "300", "method": "card"})
+        res.check("фиша с платежом предлагает только обезличивание",
+                  _card(c, pid3)["erasure"], "anon")
 
         # обезличенный скрыт из списков, как архивный
+        live = [r["name"] for r in _rows(c)]
         res.ok("обезличенный не показывается в живом списке",
-               f"Pacient anonimizat #{pid2}" not in c.get("/admin/search").body,
-               "обезличенный висит в списке")
+               live and f"Pacient anonimizat #{pid2}" not in live,
+               f"обезличенный висит в списке: {live}")
 
 
 def _scan_marker(work: pathlib.Path, needles: tuple[str, ...]) -> list[str]:
@@ -314,32 +325,32 @@ def suite_erase_marker(res: Result) -> None:
                    aservice="consult", aname=f"Ion {_MARK}",
                    aphone=_MARK_PHONE, back="/admin/all")
             pid = _pid(c, _MARK_PHONE)
-            c.post(f"/admin/patient/{pid}/save", name=f"Ion {_MARK}",
-                   phone=_MARK_PHONE, email=f"{_MARK}@exemplu.md",
-                   address=f"str. {_MARK} 7", notes=f"vecin cu {_MARK}")
+            c.post_json(f"/api/patients/{pid}/profile", {"name": f"Ion {_MARK}",
+                                                        "phone": _MARK_PHONE,
+                                                        "email": f"{_MARK}@exemplu.md",
+                                                        "address": f"str. {_MARK} 7",
+                                                        "notes": f"vecin cu {_MARK}"})
             # комментарий визита — свободный текст рецепции
             aid = c.get(f"/admin/all?date={_d(1)}").body.split(
                 "/admin/status/", 1)[1].split("'")[0].split('"')[0]
             c.post(f"/admin/comment/{aid}", comment=f"vine cu {_MARK}",
                    back="/admin/all")
             # платёж с заметкой: note дублируется летописью («… — {note}»)
-            c.post(f"/admin/patient/{pid}/pay", amount="500", method="numerar",
-                   note=f"transfer de la {_MARK}")
+            c.post_json(f"/api/patients/{pid}/payments", {"amount": "500", "method": "numerar",
+                                                         "note": f"transfer de la {_MARK}"})
             # медзаписи БЕЗ маркера — держат фишу в ветке обезличивания
-            c.post(f"/admin/patient/{pid}/tooth", tooth="11", state="carie",
-                   note="carie distală", doctor="d2")
-            c.post(f"/admin/patient/{pid}/plan", procedure="Plombă 11",
-                   tooth="11", price="800")
-            c.post(f"/admin/patient/{pid}/anamneza", fl=["diabet"])
+            c.post_json(f"/api/patients/{pid}/teeth/11", {"state": "carie",
+                                                         "note": "carie distală",
+                                                         "doctor": "d2", "surfaces": []})
+            c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Plombă 11", "tooth": "11",
+                                                     "price": "800"})
+            c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["diabet"]})
             # документ с маркером в ИМЕНИ (содержимое — снимок, остаётся)
-            c.post_file(f"/admin/patient/{pid}/doc", "file",
-                        f"radiografie-{_MARK}.png",
-                        b"\x89PNG\r\n\x1a\n" + b"x" * 64,
-                        category="radiografie")
-            r = c.post(f"/admin/patient/{pid}/erase", confirm="STERG")
+            c.post_file(f"/api/patients/{pid}/documents", "file", f"radiografie-{_MARK}.png", b"\x89PNG\r\n\x1a\n" + b"x" * 64, category="radiografie")
+            r = c.post_json(f"/api/patients/{pid}/erase", {"confirm": "STERG"})
             res.check("фиша с лечением обезличена", r.msg, "ok_anon")
-            page = c.get(f"/admin/patient/{pid}").body
-            res.ok("клиника уцелела: план на месте", "Plombă 11" in page,
+            res.ok("клиника уцелела: план на месте",
+                   "Plombă 11" in [it["procedure"] for it in _card(c, pid)["plan"]["items"]],
                    "медзаписи пропали вместе с личностью")
         found = _scan_marker(work, (_MARK, _MARK_PHONE))
         res.ok("маркер не пережил обезличивание нигде",
@@ -360,13 +371,14 @@ def suite_erase_marker_delete(res: Result) -> None:
                    aservice="consult", aname=f"Doar {_MARK}",
                    aphone=_MARK_PHONE, back="/admin/all")
             pid = _pid(c, _MARK_PHONE)
-            c.post(f"/admin/patient/{pid}/save", name=f"Doar {_MARK}",
-                   phone=_MARK_PHONE, notes=f"ruda lui {_MARK}")
+            c.post_json(f"/api/patients/{pid}/profile", {"name": f"Doar {_MARK}",
+                                                        "phone": _MARK_PHONE,
+                                                        "notes": f"ruda lui {_MARK}"})
             aid = c.get(f"/admin/all?date={_d(1)}").body.split(
                 "/admin/status/", 1)[1].split("'")[0].split('"')[0]
             c.post(f"/admin/comment/{aid}", comment=f"suna {_MARK}",
                    back="/admin/all")
-            r = c.post(f"/admin/patient/{pid}/erase", confirm="STERG")
+            r = c.post_json(f"/api/patients/{pid}/erase", {"confirm": "STERG"})
             res.check("контакт без лечения удалён физически", r.msg, "ok_del")
         found = _scan_marker(work, (_MARK, _MARK_PHONE))
         res.ok("после полного удаления маркера нет нигде",
@@ -380,11 +392,11 @@ def suite_access_log(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         pid = _seed(c)
-        c.get(f"/admin/patient/{pid}")            # ещё один просмотр
+        _card(c, pid)                              # ещё один просмотр
 
-        page = c.get(f"/admin/patient/{pid}").body
+        card = _card(c, pid)
         res.ok("лента фиши БЕЗ строк «Fișa deschisă»",
-               "Fișa deschisă" not in page,
+               not any(a["text"] == "Fișa deschisă" for a in card["activity"]["items"]),
                "просмотры засоряют ленту — рецепция откроет карту 30 раз в день")
 
         z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
@@ -406,14 +418,12 @@ def suite_access_log(res: Result) -> None:
 
         # журнал обязан ПОКАЗЫВАТЬСЯ, а не только писаться: «программа ведёт
         # журнал доступа» без экрана — заявление, которое нечем предъявить
-        page = c.get(f"/admin/patient/{pid}?views=1").body
-        res.ok("?views=1 показывает просмотры фиши", "Fișa deschisă" in page,
+        # (переключатель ленты на экране держит клиент — PatientCardScreen.test)
+        acts = [a["text"] for a in _card(c, pid, views=True)["activity"]["items"]]
+        res.ok("?views=1 показывает просмотры фиши", "Fișa deschisă" in acts,
                "журнал доступа не виден даже по клику")
-        res.ok("и просмотры документов", "Document deschis" in page,
+        res.ok("и просмотры документов", any(t.startswith("Document deschis") for t in acts),
                "открытия документов не видны в журнале")
-        res.ok("ссылка на журнал есть в обычной ленте",
-               "views=1" in c.get(f"/admin/patient/{pid}").body,
-               "к журналу нет пути с фиши")
 
 
 def suite_acord(res: Result) -> None:
@@ -432,8 +442,10 @@ def suite_acord(res: Result) -> None:
         pid = _pid(c, "022556677")
         # профиль с IDNP и адресом, но БЕЗ даты рождения — она должна
         # напечататься жёлтым пропуском
-        c.post(f"/admin/patient/{pid}/save", name="Acord Test",
-               phone="022556677", idnp="2011111111111", address="str. Acord 5")
+        c.post_json(f"/api/patients/{pid}/profile", {"name": "Acord Test",
+                                                    "phone": "022556677",
+                                                    "idnp": "2011111111111",
+                                                    "address": "str. Acord 5"})
 
         anon = Client(s.url)
         res.ok("без входа формуляр не отдаётся",
@@ -455,18 +467,20 @@ def suite_acord(res: Result) -> None:
         res.ok("согласия-галочки только про необязательное",
                "marketing" in r.body, "нет блока опциональных согласий")
 
-        res.ok("ссылка на формуляр есть в фише",
-               f"/admin/patient/{pid}/acord" in c.get(f"/admin/patient/{pid}").body,
+        res.ok("формуляр есть среди бланков фиши (ссылка на лист)",
+               "acord" in [f["sheet"] for f in _card(c, pid)["forms"]],
                "к формуляру нет пути с фиши")
         res.ok("генерация формуляра оставила след в летописи",
-               "Formular «Informare și acord»" in c.get(f"/admin/patient/{pid}").body,
+               any("Formular «Informare și acord»" in t for t in _feed(c, pid)),
                "выдача листа не записана")
 
         # заполненная дата рождения печатается ТЕМ ЖЕ форматом, что дата
         # подписи внизу листа: два формата на одном подписываемом бланке
-        c.post(f"/admin/patient/{pid}/save", name="Acord Test",
-               phone="022556677", idnp="2011111111111", address="str. Acord 5",
-               birth_date="1990-05-06")
+        c.post_json(f"/api/patients/{pid}/profile", {"name": "Acord Test",
+                                                    "phone": "022556677",
+                                                    "idnp": "2011111111111",
+                                                    "address": "str. Acord 5",
+                                                    "birth_date": "1990-05-06"})
         b = c.get(f"/admin/patient/{pid}/acord").body
         res.ok("дата рождения на формуляре — dd.mm.yyyy",
                "06.05.1990" in b and "1990-05-06" not in b,
@@ -770,9 +784,8 @@ def suite_export_words(res: Result) -> None:
         pid = _seed(c)
         # позиция плана в работе: у «planificat» код и слово совпадают, и
         # проверка на нём ничего бы не доказала
-        iid = c.get(f"/admin/patient/{pid}").body.split(
-            "/plan/", 1)[1].split("/status", 1)[0]
-        c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="in_lucru")
+        iid = _card(c, pid)["plan"]["items"][0]["id"]
+        c.post_json(f"/api/patients/{pid}/plan/{iid}/status", {"to": "in_lucru"})
 
         # ⚠️ Смотрим на ЯЧЕЙКУ целиком, а не на вхождение подстроки в страницу:
         # «manual:022778899» — это идентификатор канала, законное значение

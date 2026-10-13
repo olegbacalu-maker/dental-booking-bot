@@ -1,23 +1,21 @@
 """JSON API пациентов (DentPilot 2.0): список, предпросмотр, новая фиша —
 и сама фиша (C18) с её действиями.
 
-Старая страница «Pacienți» (`routes.admin_search`) читает всю картотеку в
-память (`_pl_rows`) и остаётся как есть. Здесь отбор, порядок и страница
-считаются базой (`db.patients_count` / `db.patients_rows`), а статус строки,
-подписи карточек, разбор запроса и правила новой фиши — те же функции
-модуля (`_pl_status`, `_pl_trend`, `_pl_terms`, `_new_patient`,
-`_peek_html`), чтобы у двух страниц не разошлись ни слова, ни цифры.
-Паритет выдачи со старой страницей держит `test_patients_api.suite_parity`.
+Список: отбор, порядок и страница считаются базой (`db.patients_count` /
+`db.patients_rows`), а отбор словарём, статус строки, подписи карточек,
+разбор запроса и правила новой фиши — функции `routes` (`_pl_select`,
+`_pl_status`, `_pl_trend`, `_new_patient`, `_peek_html`): ту же
+выборку отдаёт книга `/admin/patients.xlsx`, и у экрана с выгрузкой не
+разойтись ни людям, ни словам. Выдачу держит `test_patients_api`.
 
-Фиша (`GET /api/patients/{pid}` и `POST …/{pid}/…`) — те же пятнадцать
-выборок, что у старой страницы, и те же расчёты из `card.py`; правила
-действий — функции `routes._save_profile`, `_appoint`, `_add_alert`,
+Фиша (`GET /api/patients/{pid}` и `POST …/{pid}/…`) — расчёты из `card.py`;
+правила действий — функции `routes._save_profile`, `_appoint`, `_add_alert`,
 `_save_anamneza`, `_add_plan`, `_plan_status`, `_plan_del`, `_add_pay`,
-`_store_doc`, `_drop_doc`, `_open_doc`, `_erase`, одни на форму и на API.
-Удача действия возвращает СВЕЖУЮ фишу целиком: почти каждое действие
-двигает сразу несколько секций (план → KPI, сальдо, летопись), и клиент
-подменяет всё, а не гадает, что изменилось. Паритет с разметкой держит
-`test_patient_card.suite_api`.
+`_store_doc`, `_drop_doc`, `_open_doc`, `_erase` (до 13.10 те же правила
+звали и формы старой фиши). Удача действия возвращает СВЕЖУЮ фишу целиком:
+почти каждое действие двигает сразу несколько секций (план → KPI, сальдо,
+летопись), и клиент подменяет всё, а не гадает, что изменилось. Цифры и
+слова фиши держит `test_patient_card.suite_api`.
 
 Правило то же: `core`, `db`, `engine` — да, `main.py` — нет.
 """
@@ -42,23 +40,21 @@ from . import odontogram as podo
 from . import perio as pperio
 from . import scan as pscan
 from . import visit as pvisit
-from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _add_alert, _add_bridge,
-                     _add_pay, _add_plan, _appoint, _del_bridge, _drop_doc,
-                     _erase, _free_slots, _new_patient, _open_doc, _p_age,
-                     _peek_html, _perio_absent, _perio_ctx, _perio_del,
-                     _pl_canal, _pl_dmy, _pl_money, _pl_new_foot,
-                     _pl_stale_cut, _pl_status, _pl_terms, _pl_trend, _plan_del,
-                     _plan_status, _save_anamneza, _save_perio, _save_profile,
-                     _save_tooth, _save_visit, _sf_letters, _sf_map, _store_bytes,
-                     _store_doc, _visit_back, _visit_ctx)
+from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
+                     _add_bridge, _add_pay, _add_plan, _appoint, _del_bridge,
+                     _drop_doc, _erase, _free_slots, _new_patient, _open_doc,
+                     _p_age, _peek_html, _perio_absent, _perio_ctx, _perio_del,
+                     _pl_canal, _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
+                     _pl_status, _pl_trend, _plan_del, _plan_status,
+                     _save_anamneza, _save_perio, _save_profile, _save_tooth,
+                     _save_visit, _sf_letters, _sf_map, _store_bytes, _store_doc,
+                     _visit_back, _visit_ctx)
 
 router = APIRouter()
 
 # подпись поля анамнеза → его ключ: `anamneza_view` отдаёт пары (подпись,
 # текст), а короткая подпись для шапки живёт по ключу в TEXT_LABELS
 _TEXT_KEY = {lab: k for k, lab, _ph in panam.TEXTS}
-
-_SORTS = ("last", "name", "new", "debt")
 
 
 def _months(now: datetime) -> tuple[datetime, datetime, datetime]:
@@ -71,7 +67,8 @@ def _months(now: datetime) -> tuple[datetime, datetime, datetime]:
 
 def _row(p: dict, now: datetime) -> dict:
     """Строка списка для клиента: даты уже в поясе клиники и в том виде, в
-    каком их читает стойка; врач и статус выведены так же, как в `_pl_rows`."""
+    каком их читает стойка; врач — медик курант, иначе врач последнего визита
+    (так же его пишет книга `.xlsx`), статус — `_pl_status`."""
     row = dict(p)
     row["doctor"] = p["primary_doctor"] or p["last_doctor"] or ""
     nxt = p["next_at"]
@@ -100,20 +97,13 @@ async def api_patients(request: Request, q: str = "", med: str = "", st: str = "
                        ch: str = "", dat: str = "", sort: str = "last",
                        page: int = 1, per: int = 20):
     """Страница списка. Неизвестные st/ch/dat/sort/per откатываются к «все» и
-    «по умолчанию», как на старой странице; page за пределом — последняя."""
+    «по умолчанию» (`_pl_select`); page за пределом — последняя."""
     if (deny := api_guard(request)) is not None:
         return deny
     now = datetime.now(eng.TZ)
-    q = q.strip()[:60]
-    sort = sort if sort in _SORTS else "last"
-    st = st if st in _PL_BADGE else ""
-    ch = ch if ch in _PL_CANAL else ""
-    dat = dat if dat in ("da", "avans") else ""
+    sort = sort if sort in _PL_SORTS else "last"
     per = per if per in _PL_PER else 20
-    f = {"q": q, "terms": _pl_terms(q), "med": med, "st": st, "ch": ch, "dat": dat,
-         # архивные скрыты, пока их не спросили явно — поиском или фильтром
-         "show_archived": bool(q) or st == "arhivat",
-         "stale_cut": _pl_stale_cut(now), "now": now}
+    f = _pl_select(now, q, med, st, ch, dat)
     page = max(1, page)
     rows = await db.patients_rows(f, sort, per, (page - 1) * per)
     # счёт едет в строках; пустая страница за пределом — считаем и схлопываем
@@ -124,7 +114,7 @@ async def api_patients(request: Request, q: str = "", med: str = "", st: str = "
         rows = await db.patients_rows(f, sort, per, (page - 1) * per)
     n_arh = await db.patients_archived()
     # архивные спрятаны намеренно, но список обязан признаться, сколько прячет
-    hidden = n_arh if not (q or st == "arhivat") else 0
+    hidden = n_arh if not f["show_archived"] else 0
     return msg_json(True, data={
         "rows": [_row(p, now) for p in rows],
         "total": total, "page": page, "pages": pages, "per": per, "sort": sort,
@@ -146,7 +136,10 @@ async def api_patients_summary(request: Request):
     n_appt = sum(1 for r in appts if r["starts_at"] >= month_start)
     n_appt_prev = len(appts) - n_appt
     doctors = sorted(set(eng.DOCTORS.values()) | set(await db.patients_doctors()))
-    # Telegram в фильтре — ПО ДАННЫМ, не по tg_configured(): см. старую страницу
+    # Telegram в фильтре — ПО ДАННЫМ, не по tg_configured(): у демо-канарейки
+    # токен настроен (grandfather), а пациентов из бота нет, и «Telegram» в
+    # фильтре продавал бы замороженный канал на каждом показе (08-13, Олег).
+    # Клинике с tg-пациентами фильтр остаётся: происхождение — это данные
     has_tg = await db.patients_have_tg()
     return msg_json(True, data={
         "tiles": [
@@ -258,7 +251,7 @@ def _plan_item(it: dict, today) -> dict:
         "due": "" if due == "—" else due, "overdue": overdue,
         "done": pcard.done_view(it),
         "motiv": (it.get("refuz_motiv") or "") if st == "refuzat" else "",
-        # кнопки — по той же таблице, что рисует старая страница
+        # кнопки — по таблице переходов плана (card.PLAN_NEXT / PLAN_REFUSABLE)
         "next": pcard.PLAN_NEXT.get(st, ""),
         "refusable": st in pcard.PLAN_REFUSABLE,
         "deletable": st == "planificat",
@@ -434,7 +427,9 @@ def _s(body: dict | None, key: str) -> str:
 
 @router.get("/api/patients/{pid}")
 async def api_patient_card(request: Request, pid: int):
-    """Фиша целиком. Пишет открытие в журнал доступа, как старая страница."""
+    """Фиша целиком. Пишет открытие в журнал доступа (закон 195: КТО
+    открывал карту): поэтому действия перечитывают фишу не этим GET, а
+    получают её ответом (`_card_reply`)."""
     if (deny := api_guard(request)) is not None:
         return deny
     deny, p = await _owned(pid)
@@ -950,8 +945,8 @@ def _tok(value) -> str:
 
 
 def _perio_rows(raw) -> list:
-    """{"16": {pd, rec, bop, mob, furc}} → строки зубов ТЕМ ЖЕ разбором, что у
-    старой формы (`tsvg.parse_perio`).
+    """{"16": {pd, rec, bop, mob, furc}} → строки зубов разбором проволочного
+    вида (`tsvg.parse_perio`; до 13.10 тем же разбором шла старая форма).
 
     ⛔ Второго парсера у API нет намеренно: диапазоны, длина шести точек и
     отбрасывание чужих номеров живут в `teeth_svg`, и разойтись им негде.
@@ -996,7 +991,7 @@ def _perio_rows(raw) -> list:
                              or r["mob"] or r["furc"]):
             # ⛔ Строка прислана, а показаний из неё не вышло ни одного (дробные
             # миллиметры, слова, null) — это ОТКАЗ, а не удаление зуба. «Стереть»
-            # выражается иначе: зуб НЕ присылают, но называют в `shown`. Иначе
+            # выражается иначе: зуб НЕ присылают, но называют в `covers`. Иначе
             # `3.5` в шести точках молча снесло бы измеренный зуб с ответом 200.
             raise ValueError(f"tooth {n}: ни одного показания")
     return rows
@@ -1067,7 +1062,7 @@ async def api_perio_new(request: Request, pid: int):
 
 @router.post("/api/patients/{pid}/perio/{eid}")
 async def api_perio_save(request: Request, pid: int, eid: int):
-    """{teeth: {"16": {pd, rec, bop, mob, furc}}, shown: [16, …], doctor, note}.
+    """{teeth: {"16": {pd, rec, bop, mob, furc}}, covers: [16, …], rev, doctor, note}.
 
     Намерение — явными полями: `covers` называет зубы, О КОТОРЫХ запись
     сообщает (стираются только они и только неприсланные), `doctor`/`note` без

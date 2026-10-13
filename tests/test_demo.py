@@ -17,7 +17,7 @@ import sys
 import tempfile
 from datetime import timedelta
 
-from harness import ROOT, Client, Result, Server, clinic_now
+from harness import ROOT, Client, Result, Server, clinic_now, shell_model
 
 DEMO = {"DENTART_DEMO": "1"}
 CLOSED_PAGES = ("/admin/settings/system", "/admin/settings/crypt",
@@ -37,6 +37,13 @@ BANNER = "Versiune demonstrativă"
 
 def _j(r) -> dict:
     return json.loads(r.body)
+
+
+def _banner_of(page: str) -> str:
+    """Полоса демо страницы: у старой — в разметке, у React-экрана — сигнал
+    `demo` модели оболочки (`data-shell`), который оболочка рисует как есть."""
+    model = shell_model(page)
+    return model["signals"]["demo"]["html"] if model else page
 
 
 def _hub(c: Client) -> set:
@@ -93,7 +100,8 @@ def suite_demo(res: Result) -> None:
                "după o oră" in r.body and "__TTL__" not in r.body, "срока в полосе нет")
         res.ok("баннер ведёт в шлюз: /demo/reset", "href='/demo/reset'" in r.body,
                "ссылки сброса нет")
-        res.ok("баннер демо и на списке пациентов", BANNER in c.get("/admin/search").body,
+        res.ok("баннер демо и на списке пациентов (сигнал оболочки React)",
+               BANNER in _banner_of(c.get("/admin/search").body),
                "полоса есть только на главной")
         # закрытые адреса — страницы и формы, одним кодом
         for path in CLOSED_PAGES:
@@ -139,8 +147,8 @@ def suite_demo(res: Result) -> None:
         res.check("в фише только 1 МБ: отказ 9 МБ файла не оставил", _docs(c, pid), ["mic.pdf"])
     with Server(env={**DEMO, "DENTART_DEMO_TTL": "30 de minute"}) as s:
         c = Client(s.url).login()
-        for path in ("/admin", "/admin/search?ui=legacy"):
-            body = c.get(path).body
+        for path in ("/admin", "/admin/search"):
+            body = _banner_of(c.get(path).body)
             res.ok(f"{path}: срок в полосе — словами шлюза",
                    "după 30 de minute" in body and "după o oră" not in body
                    and "__TTL__" not in body, "в полосе не срок шлюза")
@@ -205,8 +213,8 @@ def suite_seed(res: Result) -> None:
                        "в 043/e нет пациента или IDNP")
                 res.ok("acord печатается с юрлицом демо", "Clinica Demo SRL" in c.get(f"/admin/patient/{pid}/acord").body,
                        "acord без юрлица")
-                res.ok("карточка пациента (старая страница) открывается",
-                       c.get(f"/admin/patient/{pid}?ui=legacy").status == 200, "")
+                res.ok("фиша пациента открывается",
+                       c.get(f"/admin/patient/{pid}").status == 200, "")
             for path in ("/admin/all", "/admin/week", "/admin/medici", "/admin/stats",
                          "/admin/search", "/admin/settings"):
                 res.check(f"{path} на засеве", c.get(path).status, 200)

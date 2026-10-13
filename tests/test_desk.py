@@ -6,11 +6,10 @@
 строкой в летописи, деньги — только тому, кому положены (PERM_MONEY).
 """
 import json
-import re
 import sqlite3
 from datetime import datetime, timedelta
 
-from harness import FIXTURES, TZ, Client, Clock, Result, Server
+from harness import Client, Clock, FIXTURES, Result, Server, TZ, pid_by_phone
 from test_api import NO_KEY
 
 _DOW = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -21,8 +20,7 @@ def _j(r) -> dict:
 
 
 def _pid(c: Client, phone: str) -> int:
-    return int(c.get(f"/admin/search?q={phone}").body.split(
-        "<tr id='plr", 1)[1].split("'", 1)[0])
+    return pid_by_phone(c, phone)
 
 
 def _hours() -> dict:
@@ -57,17 +55,20 @@ def suite_desk(res: Result) -> None:
 
         # сегодня, 09:00 (уже прошло): долг 300 после финала 500 и оплаты 200
         pa = add("Datornic Azi", "069800001", today, "09:00")
-        c.post(f"/admin/patient/{pa}/plan", procedure="Coroană", tooth="11", price="500")
-        iid = re.findall(r"/plan/(\d+)/status", c.get(f"/admin/patient/{pa}").body)[-1]
-        c.post(f"/admin/patient/{pa}/plan/{iid}/status", to="in_lucru")
-        c.post(f"/admin/patient/{pa}/plan/{iid}/status", to="finalizat")
-        c.post(f"/admin/patient/{pa}/pay", amount="200", method="numerar")
+        r = c.post_json(f"/api/patients/{pa}/plan", {"procedure": "Coroană", "tooth": "11",
+                                                    "price": "500"})
+        iid = json.loads(r.body)["data"]["plan"]["items"][0]["id"]
+        c.post_json(f"/api/patients/{pa}/plan/{iid}/status", {"to": "in_lucru"})
+        c.post_json(f"/api/patients/{pa}/plan/{iid}/status", {"to": "finalizat"})
+        c.post_json(f"/api/patients/{pa}/payments", {"amount": "200", "method": "numerar"})
         # план без записи вперёд (визит только сегодняшний, прошедший)
         pb = add("Plan Fara", "069800002", today, "09:30", "d3")
-        c.post(f"/admin/patient/{pb}/plan", procedure="Implant", tooth="36", price="9000")
+        c.post_json(f"/api/patients/{pb}/plan", {"procedure": "Implant", "tooth": "36",
+                                                "price": "9000"})
         # план И будущая запись — в список не попадает
         pc = add("Plan Cu", "069800003", nxt + timedelta(days=1), "11:00", "d3")
-        c.post(f"/admin/patient/{pc}/plan", procedure="Obturație", tooth="26", price="700")
+        c.post_json(f"/api/patients/{pc}/plan", {"procedure": "Obturație", "tooth": "26",
+                                                "price": "700"})
         # завтра: двое на подтверждение
         pd = add("Suna Unu", "069800004", nxt, "10:00")
         pe = add("Suna Doi", "069800005", nxt, "11:00", "d3")

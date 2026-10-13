@@ -3,7 +3,8 @@
 Проверяется не «форма сохранилась», а что ответ доехал до места, где он спасает
 приём: раздел 2 печатной 043/e и выгрузка по 195-му. Плюс граница закона:
 опросник — медзапись, значит держит фишу от физического стирания и переживает
-обезличивание под номером фиши.
+обезличивание под номером фиши. Фиша читается через JSON API (её рисует
+React; до 13.10 — старая страница с разметкой опросника).
 """
 import io
 import json
@@ -13,7 +14,7 @@ from datetime import date, timedelta
 
 import subprocess
 
-from harness import BOT, PYTHON, Client, Result, Server, clinic_today
+from harness import BOT, Client, PYTHON, Result, Server, clinic_today, pid_by_phone
 
 
 def _d(offset: int) -> str:
@@ -21,51 +22,57 @@ def _d(offset: int) -> str:
 
 
 def _pid(c: Client, phone: str) -> str:
-    return c.get(f"/admin/search?q={phone}").body.split(
-        "/admin/patient/", 1)[1].split("'")[0].split('"')[0].split("?")[0]
+    return str(pid_by_phone(c, phone))
+
+
+def _card(c: Client, pid) -> dict:
+    """Фиша данными (`GET /api/patients/{pid}`)."""
+    return json.loads(c.get(f"/api/patients/{pid}").body)["data"]
+
+
+def _feed(c: Client, pid) -> list[str]:
+    return [a["text"] for a in _card(c, pid)["activity"]["items"]]
 
 
 def suite(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Anamneza Test", phone="022141414")
+        c.post_json("/api/patients", {"name": "Anamneza Test", "phone": "022141414"})
         pid = _pid(c, "022141414")
 
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("секция анамнеза на месте", "Anamneză" in page, "нет секции")
-        res.ok("незаполненный анамнез виден как незаполненный",
-               "necompletată" in page, "пустой опросник выглядит собранным")
-        res.ok("опросник раскрыт, пока не заполнен",
-               "<details class='anform' open>" in page,
-               "чтобы заполнить впервые, нужен лишний клик")
+        card = _card(c, pid)
+        res.ok("секция анамнеза на месте", "anamneza" in card, "нет секции")
+        # экран раскрывает опросник, пока он не заполнен, — по этому состоянию
+        res.check("незаполненный анамнез виден как незаполненный",
+                  card["anamneza"]["state"], "none")
+        labels = ([x["label"] for x in card["options"]["anamneza_flags"]]
+                  + [x["label"] for x in card["options"]["anamneza_texts"]])
+        joined = " · ".join(labels)
         res.ok("вопросы на месте",
-               "Diabet zaharat" in page and "Sarcină" in page
-               and "Reacții la anestezice" in page, "нет вопросов опросника")
+               "Diabet zaharat" in joined and "Sarcină" in joined
+               and "Reacții la anestezice" in joined, f"нет вопросов опросника: {labels}")
 
         res.check("пустой опросник не сохраняется",
-                  c.post(f"/admin/patient/{pid}/anamneza", boli="  ").msg,
+                  c.post_json(f"/api/patients/{pid}/anamneza", {"boli": "  "}).msg,
                   "bad_anam")
 
-        r = c.post(f"/admin/patient/{pid}/anamneza", fl=["diabet", "cardio"],
-                   boli="ulcer gastric operat 2019",
-                   medicamente="Metformin 850 mg",
-                   alergii="penicilină", anestezie="lipotimie la lidocaină")
+        r = c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["diabet", "cardio"],
+                                                         "boli": "ulcer gastric operat 2019",
+                                                         "medicamente": "Metformin 850 mg",
+                                                         "alergii": "penicilină",
+                                                         "anestezie": "lipotimie la lidocaină"})
         res.check("опросник сохраняется", r.msg, "ok_anam")
 
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("отметки видны без раскрытия",
-               "de reținut" in page and "</svg> Diabet zaharat</span>" in page,
-               "риски не видны в свёрнутом виде")
-        res.ok("свободный текст вернулся в форму",
-               "ulcer gastric operat 2019" in page, "текст не сохранился")
-        res.ok("галочки отмечены",
-               "value='diabet' checked" in page, "флажок не восстановлен")
-        res.ok("заполненный опросник свёрнут",
-               "<details class='anform'>" in page, "форма осталась раскрытой")
-        res.ok("видно, кто и когда заполнил",
-               "Completat:" in page, "нет авторства опросника")
+        an = _card(c, pid)["anamneza"]
+        res.ok("отметки видны без раскрытия — риском, словами вопроса",
+               an["state"] == "risk" and "Diabet zaharat" in an["marked"],
+               f"риски не видны в свёрнутом виде: {an['state']} {an['marked']}")
+        res.check("свободный текст вернулся в форму", an["texts"]["boli"], "ulcer gastric operat 2019")
+        res.check("галочки отмечены", sorted(an["flags"]), ["cardio", "diabet"])
+        res.ok("видно, кто и когда заполнил", an["when"] and an["author"],
+               "нет авторства опросника")
         res.ok("событие попало в летопись",
-               "Anamneza completată" in page, "летопись молчит")
+               any(t.startswith("Anamneza completată") for t in _feed(c, pid)), "летопись молчит")
 
         # ⚠️ главное: опросник обязан ЗАКРЫТЬ жёлтые пропуски раздела 2 бланка
         f043 = c.get(f"/admin/patient/{pid}/fisa043").body
@@ -85,7 +92,7 @@ def suite(res: Result) -> None:
                "заполненный опросник оставил бланк пустым")
 
         # аллергия из ПРЕДУПРЕЖДЕНИЙ фиши печатается рядом с опросником
-        c.post(f"/admin/patient/{pid}/alert", kind="allergy", text="latex")
+        c.post_json(f"/api/patients/{pid}/alerts", {"kind": "allergy", "text": "latex"})
         sect = c.get(f"/admin/patient/{pid}/fisa043").body.split(
             "2. Anamneza", 1)[1].split("<h2>", 1)[0]
         res.ok("оба источника аллергий на бланке",
@@ -93,14 +100,13 @@ def suite(res: Result) -> None:
                "один из источников аллергий потерян")
 
         # правка
-        r = c.post(f"/admin/patient/{pid}/anamneza", fl=["diabet"],
-                   boli="ulcer gastric operat 2019")
+        r = c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["diabet"],
+                                                         "boli": "ulcer gastric operat 2019"})
         res.check("опросник правится", r.msg, "ok_anam")
-        page = c.get(f"/admin/patient/{pid}").body
-        res.ok("снятая галочка снялась",
-               "</svg> Boli cardiovasculare</span>" not in page
-               and "</svg> Diabet zaharat</span>" in page, "отметка не снялась")
-        res.ok("правка отмечена в летописи", "Anamneza actualizată" in page,
+        an = _card(c, pid)["anamneza"]
+        res.check("снятая галочка снялась", (an["flags"], an["marked"]), (["diabet"], ["Diabet zaharat"]))
+        res.ok("правка отмечена в летописи",
+               any(t.startswith("Anamneza actualizată") for t in _feed(c, pid)),
                "правка не отличается от первого заполнения")
 
         z = zipfile.ZipFile(io.BytesIO(c.get(f"/admin/patient/{pid}/export").raw))
@@ -111,9 +117,8 @@ def suite(res: Result) -> None:
                "HTML-копия без опросника")
 
         anon = Client(s.url)
-        res.ok("без входа опросник не пишется",
-               anon.post(f"/admin/patient/{pid}/anamneza",
-                         fl=["hiv"]).status == 303, "принял без входа")
+        res.check("без входа опросник не пишется (JSON API — 401)",
+                  anon.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["hiv"]}).status, 401)
 
 
 def suite_195(res: Result) -> None:
@@ -121,30 +126,24 @@ def suite_195(res: Result) -> None:
     обезличивание."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Erase Anamneza", phone="022151515")
+        c.post_json("/api/patients", {"name": "Erase Anamneza", "phone": "022151515"})
         pid = _pid(c, "022151515")
-        res.ok("без анамнеза фиша удаляется физически",
-               "Șterge definitiv" in c.get(f"/admin/patient/{pid}").body,
-               "ветка стирания уже не delete")
+        res.check("без анамнеза фиша удаляется физически", _card(c, pid)["erasure"], "delete")
 
-        c.post(f"/admin/patient/{pid}/anamneza", fl=["hepatita"])
-        page = c.get(f"/admin/patient/{pid}").body
+        c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["hepatita"]})
         # ⚠️ мутация: убери счётчик anamneza из erasure_kind — фиша с одним
         # опросником уйдёт в физическое удаление, и медзапись исчезнет
-        res.ok("с анамнезом — только обезличивание",
-               "Șterge datele personale" in page
-               and "Șterge definitiv" not in page,
-               "опросник не удержал фишу от удаления")
+        res.check("с анамнезом — только обезличивание", _card(c, pid)["erasure"], "anon")
 
         res.check("обезличивание проходит",
-                  c.post(f"/admin/patient/{pid}/erase", confirm="STERG").msg,
+                  c.post_json(f"/api/patients/{pid}/erase", {"confirm": "STERG"}).msg,
                   "ok_anon")
         sect = c.get(f"/admin/patient/{pid}/fisa043").body.split(
             "2. Anamneza", 1)[1].split("<h2>", 1)[0]
         res.ok("клиническая часть осталась под номером фиши",
                "Hepatită" in sect, "обезличивание стёрло медзапись")
         res.ok("личность стёрта",
-               "Pacient anonimizat" in c.get(f"/admin/patient/{pid}").body,
+               _card(c, pid)["name"].startswith("Pacient anonimizat"),
                "имя пережило обезличивание")
 
 
@@ -156,7 +155,7 @@ def suite_lang(res: Result) -> None:
     """
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Limba Test", phone="022161616")
+        c.post_json("/api/patients", {"name": "Limba Test", "phone": "022161616"})
         pid = _pid(c, "022161616")
 
         ro = c.get(f"/admin/patient/{pid}/fisa043").body
@@ -196,11 +195,9 @@ def suite_lang(res: Result) -> None:
 
         # язык пациента: ставится в профиле и становится ДЕФОЛТОМ печати
         res.check("язык сохраняется в профиле",
-                  c.post(f"/admin/patient/{pid}/save", name="Limba Test",
-                         phone="022161616", lang="ru").msg, "ok_card")
-        res.ok("выбор виден в форме профиля",
-               "value='ru' selected" in c.get(f"/admin/patient/{pid}").body,
-               "выбор языка не сохранился")
+                  c.post_json(f"/api/patients/{pid}/profile", {"name": "Limba Test",
+                                                              "phone": "022161616", "lang": "ru"}).msg, "ok_card")
+        res.check("выбор виден в профиле фиши", _card(c, pid)["profile"]["lang"], "ru")
         res.ok("бланк без параметра теперь русский",
                "МЕДИЦИНСКАЯ КАРТА" in c.get(f"/admin/patient/{pid}/fisa043").body,
                "язык пациента не стал дефолтом печати")
@@ -215,8 +212,8 @@ def suite_lang(res: Result) -> None:
         res.ok("выдуманный язык игнорируется",
                "МЕДИЦИНСКАЯ КАРТА" in c.get(f"/admin/patient/{pid}/fisa043?lang=de").body,
                "неизвестный язык сломал лист")
-        c.post(f"/admin/patient/{pid}/save", name="Limba Test",
-               phone="022161616", lang="ro")
+        c.post_json(f"/api/patients/{pid}/profile", {"name": "Limba Test",
+                                                    "phone": "022161616", "lang": "ro"})
         res.ok("у румынского пациента выдуманный язык даёт румынский",
                "FIȘA MEDICALĂ" in c.get(f"/admin/patient/{pid}/fisa043?lang=de").body,
                "откат не к языку пациента")
@@ -231,45 +228,49 @@ def suite_review(res: Result) -> None:
     """
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Review Probe", phone="022181818")
+        c.post_json("/api/patients", {"name": "Review Probe", "phone": "022181818"})
         pid = _pid(c, "022181818")
 
-        # 1. заметка зуба уезжает в innerHTML — экранировать обязан клиент
-        c.post(f"/admin/patient/{pid}/tooth", tooth="54", state="carie",
-               note="<img src=x onerror=alert(1)>", doctor="d2", sf=["M"])
-        card = c.get(f"/admin/patient/{pid}").body
-        res.ok("заметка зуба идёт через tesc(), а не сырьём в innerHTML",
-               "tesc(t.note)" in card and "tesc(x.text)" in card,
-               "значение попадёт в innerHTML сырым — XSS при наведении на зуб")
+        # 1. заметка зуба — ДАННЫЕ, а не разметка. React рисует её текстом, а
+        # серверный рисунок зуба вставляет как HTML (Tooth.tsx) — значит в
+        # рисунок заметка не попадает ни в каком виде. (До 13.10 здесь
+        # проверялся tesc() в JS старой страницы, собиравшей innerHTML.)
+        c.post_json(f"/api/patients/{pid}/teeth/54", {"state": "carie",
+                                                     "note": "<img src=x onerror=alert(1)>",
+                                                     "doctor": "d2", "surfaces": ["M"]})
+        t54 = json.loads(c.get(f"/api/patients/{pid}/odontogram").body)["data"]["teeth"]["54"]
+        res.ok("заметка зуба уезжает данными, а в рисунок (HTML) не попадает",
+               t54["note"] == "<img src=x onerror=alert(1)>"
+               and "<img" not in t54["svg"]["frontal"] and "<img" not in t54["svg"]["occlusal"],
+               "заметка зуба попала в разметку рисунка — XSS при вставке")
 
         # 2. свободный текст — тоже риск: аллергия там, а не в галочках
-        c.post(f"/admin/patient/{pid}/anamneza", alergii="PENICILINA")
-        card = c.get(f"/admin/patient/{pid}").body
+        c.post_json(f"/api/patients/{pid}/anamneza", {"alergii": "PENICILINA"})
+        an = _card(c, pid)["anamneza"]
         res.ok("нет зелёного «fără riscuri» над записанной аллергией",
-               "fără riscuri" not in card and "de reținut" in card,
-               "сводка врёт: текстовые поля не считаются риском")
-        res.ok("риск виден без раскрытия опросника", "PENICILINA" in card,
-               "аллергия спрятана в свёрнутом details")
+               an["state"] == "risk" and an["n_risk"] >= 1,
+               f"сводка врёт: текстовые поля не считаются риском ({an['state']}, {an['n_risk']})")
+        res.ok("риск виден без раскрытия опросника",
+               "PENICILINA" in [x["text"] for x in an["free"]],
+               "аллергия спрятана в свёрнутом опроснике")
 
         # 3. ошибочную отметку обязано быть можно снять
-        c.post(f"/admin/patient/{pid}/anamneza", fl=["hiv"])
-        res.ok("отметка ставится", "value='hiv' checked"
-               in c.get(f"/admin/patient/{pid}").body, "флажок не сохранился")
+        c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["hiv"]})
+        res.check("отметка ставится", _card(c, pid)["anamneza"]["flags"], ["hiv"])
         res.check("пустое сохранение снимает отметку",
-                  c.post(f"/admin/patient/{pid}/anamneza").msg, "ok_anam")
-        card = c.get(f"/admin/patient/{pid}").body
+                  c.post_json(f"/api/patients/{pid}/anamneza", {}).msg, "ok_anam")
         res.ok("снятая отметка исчезла и из фиши, и из бланка",
-               "value='hiv' checked" not in card
+               _card(c, pid)["anamneza"]["flags"] == []
                and "HIV" not in c.get(f"/admin/patient/{pid}/fisa043").body,
                "неверная запись осталась в первичной документации")
         # но на ПУСТОМ опроснике пустая форма по-прежнему промах
-        c.post("/admin/patients/new", name="Gol Anam", phone="022191919")
+        c.post_json("/api/patients", {"name": "Gol Anam", "phone": "022191919"})
         pid2 = _pid(c, "022191919")
         res.check("пустая форма на пустом опроснике — отказ",
-                  c.post(f"/admin/patient/{pid2}/anamneza").msg, "bad_anam")
+                  c.post_json(f"/api/patients/{pid2}/anamneza", {}).msg, "bad_anam")
 
         # 4. русский бланк — русские подписи отметок и легенда
-        c.post(f"/admin/patient/{pid}/anamneza", fl=["cardio", "diabet"])
+        c.post_json(f"/api/patients/{pid}/anamneza", {"flags": ["cardio", "diabet"]})
         ru = c.get(f"/admin/patient/{pid}/fisa043?lang=ru").body
         sect = ru.split("2. Анамнез", 1)[1].split("<h2>", 1)[0]
         res.ok("отметки анамнеза по-русски",
@@ -282,8 +283,8 @@ def suite_review(res: Result) -> None:
                "переведённый приказ — лист не опознают")
 
         # 5. поверхности печатаются и при состоянии «ok»
-        c.post(f"/admin/patient/{pid}/tooth", tooth="26", state="ok",
-               note="control", sf=["M", "O"])
+        c.post_json(f"/api/patients/{pid}/teeth/26", {"state": "ok", "note": "control",
+                                                     "surfaces": ["M", "O"]})
         res.ok("поверхности при «ok» не теряются на бланке",
                ">MO</td>" in c.get(f"/admin/patient/{pid}/fisa043").body,
                "карточка и выгрузка их показывают, а бланк молчит")
@@ -299,8 +300,9 @@ def suite_review(res: Result) -> None:
                   data["anamneza"]["flags"], "cardio,diabet")
 
         # 7. все состояния рисуются на всех номерах (легенда падала на extras)
-        res.check("страница фиши цела на всех состояниях",
-                  c.get(f"/admin/patient/{pid}").status, 200)
+        res.check("фиша и одонтограмма целы на всех состояниях",
+                  (c.get(f"/api/patients/{pid}").status,
+                   c.get(f"/api/patients/{pid}/odontogram").status), (200, 200))
 
     # ---------- находки аудита 08-10 ----------
 
@@ -386,18 +388,17 @@ def suite_form(res: Result) -> None:
     """Бумажный бланк опросника и место 043/e наверху фиши."""
     with Server() as s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Formular Test", phone="022202020")
+        c.post_json("/api/patients", {"name": "Formular Test", "phone": "022202020"})
         pid = _pid(c, "022202020")
-        c.post(f"/admin/patient/{pid}/save", name="Formular Test",
-               phone="022202020", birth_date="1990-04-04")
+        c.post_json(f"/api/patients/{pid}/profile", {"name": "Formular Test",
+                                                    "phone": "022202020",
+                                                    "birth_date": "1990-04-04"})
 
-        card = c.get(f"/admin/patient/{pid}").body
-        # 043/e — в шапке фиши, а не в конце страницы
-        hero = card.split("hero-acts", 1)[1].split("</div>", 1)[0]
-        res.ok("043/e стоит в шапке фиши", "/fisa043" in hero,
-               "документ спрятан внизу — за ним придётся скроллить")
-        res.ok("ссылка на бумажный бланк есть в секции анамнеза",
-               "/anamneza/print" in card, "нет печатного опросника")
+        # где на экране стоят ссылки (043/e — в шапке), держит клиент
+        # (PatientCardScreen.test); сервер отдаёт бланки фиши с адресами листов
+        sheets = [f["sheet"] for f in _card(c, pid)["forms"]]
+        res.ok("043/e и бумажный бланк анамнеза — среди бланков фиши",
+               "fisa043" in sheets and "anamneza/print" in sheets, f"бланки: {sheets}")
 
         r = c.get(f"/admin/patient/{pid}/anamneza/print")
         res.check("бланк отдаётся", r.status, 200)
@@ -446,5 +447,5 @@ def suite_form(res: Result) -> None:
         res.ok("анкета подписана «Fișa pacientului», а не именем клиники",
                "Fișa pacientului" in b, "кнопка «назад» на анкете названа клиникой")
         res.ok("выдача бланка анкеты попала в летопись",
-               "Chestionar medical generat" in c.get(f"/admin/patient/{pid}").body,
+               any("Chestionar medical generat" in t for t in _feed(c, pid)),
                "лист с именем пациента ушёл без следа")

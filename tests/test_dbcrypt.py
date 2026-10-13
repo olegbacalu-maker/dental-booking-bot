@@ -191,10 +191,11 @@ def suite_live(res: Result) -> None:
 
         with Server(dir_=tmp) as s:
             c = Client(s.url).login()
-            r = c.post("/admin/patients/new", name=MARK, phone="069555444")
+            r = c.post_json("/api/patients", {"name": MARK, "phone": "069555444"})
             res.ok("пациент заводится на зашифрованной базе",
                    r.status in (200, 303), f"код {r.status}")
-            res.ok("и находится поиском", MARK in c.get(f"/admin/search?q={MARK}").body,
+            found = json.loads(c.get(f"/api/patients?q={MARK}").body)["data"]["rows"]
+            res.ok("и находится поиском", [x["name"] for x in found] == [MARK],
                    "поиск не нашёл только что созданного пациента")
 
             # ⛔ Находка ревью 08-09: «Pregătește criptarea» при уже включённом

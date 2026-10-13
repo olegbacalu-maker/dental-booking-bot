@@ -1,25 +1,24 @@
-"""Фиша пациента: профиль, зубная формула, план лечения, документы, запись.
+"""Фиша пациента: правила действий, печатные листы, файлы и адреса экранов.
 
-Первый модуль, уехавший из main.py целиком. Внутри — пятнадцать маршрутов:
-сама страница `/admin/patient/{pid}`, действия над ней и документы (они живут
-на отдельных адресах `/admin/doc/…`, но принадлежат карточке — файл пациента
-без карточки смысла не имеет).
+С 13.10.2026 (снятие старого интерфейса, шаг 4) экраны фиши — только React:
+`/admin/patient/{pid}`, `/odontograma`, `/parodontograma`, `/admin/visit/{aid}`
+и `/admin/search` отдают рамку с узлом бандла, а данные и действия живут в
+JSON API (`api.py`). Здесь остались:
+- правила действий — функции, которые зовёт `api.py` (`_save_profile`,
+  `_appoint`, `_save_tooth`, `_save_perio`, `_erase`, …): каждая отвечает
+  КОДОМ из MSG_BANNER, а конверт строит API;
+- печатные листы (acord, plan-acord, 043/e, анкета анамнеза, пародонтограмма)
+  — серверные по замыслу: их печатает браузер, а не экран;
+- файлы: документ пациента `/admin/doc/{id}`, выгрузка по 195-му `/export`,
+  список книгой `/admin/patients.xlsx`.
 
 Правило границы: отсюда можно обращаться в `core` (каркас страницы, вход) и в
 `db`/`engine`, но НИКОГДА в main.py — иначе замкнётся круг: main подключает
 этот роутер, а роутер требовал бы main.
-
-Внутреннего деления на service/repository пока нет намеренно. Сейчас это
-перенос без единой переписанной строки — так видно, что поведение не менялось.
-Дробить содержимое (страница на 660 строк — очевидный кандидат) стоит отдельным
-шагом, когда за спиной уже есть зелёный прогон на новом месте.
 """
 from __future__ import annotations
 
-import csv
 import html
-import io
-import json
 import logging
 import os
 import pathlib
@@ -27,12 +26,10 @@ import re
 import secrets
 import shutil
 import tempfile
-import urllib.parse
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, File, Form, Query, Request, UploadFile
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse, Response)
+from fastapi import APIRouter, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 
 from ... import db
@@ -48,27 +45,16 @@ from . import perio as pperio
 from . import plan_acord as pplan
 from . import visit as pvisit
 from ...core import xlsx
-from ...core.auth import PERM_MONEY, _guard, can, request_user, require
-from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, STATUS_LABEL, js_json,
-                            _ic, _initials, msg_banner, react_shell, shell_model,
-                            react_on, _shell)
+from ...core.auth import _guard
+from ...core.layout import (ALERT_KINDS, LIVE_STATUSES, _ic, _initials, react_shell,
+                            shell_model)
 from ...core.storage import _data_dir
 
 log = logging.getLogger("patients")
 router = APIRouter()
 
 
-def _due_html(due, status: str) -> str:
-    """Срок позиции плана. Просроченное незавершённое подсвечиваем — иначе
-    дата в таблице ничем не отличается от любой другой даты."""
-    txt, overdue = pcard.due_view(due, status, datetime.now(eng.TZ).date())
-    if overdue:
-        return (f"<span style='color:var(--red-t);font-weight:600' "
-                f"title='Termen depășit'>{_ic('sos')} {txt}</span>")
-    return txt
-
-
-# ---------- карточка пациента (v1.6.0) ----------
+# ---------- фиша пациента ----------
 
 # ⚠️ Имена состояний зуба — ОДИН словарь на программу, как STATUS_LABEL у
 # статусов визита: дословная копия жила здесь и в teeth_svg, а с 08-16 те же
@@ -77,43 +63,23 @@ def _due_html(due, status: str) -> str:
 TOOTH_STATES = tsvg.STATE_RO
 
 
-# Номера и поверхности переехали в `odontogram.py` вместе с рисованием (08-16):
-# их спрашивает и он, а импорт возможен только В ОДНУ сторону (routes → odo),
-# иначе круг. Имена здесь сохранены — на них смотрит вся проверка форм ниже.
-_FDI_UPPER = podo.FDI_UPPER
-_FDI_LOWER = podo.FDI_LOWER
-_FDI_MILK_UPPER = podo.FDI_MILK_UPPER
-_FDI_MILK_LOWER = podo.FDI_MILK_LOWER
+# Номера и поверхности живут в `odontogram.py` (их спрашивает и модель
+# одонтограммы), а импорт возможен только В ОДНУ сторону (routes → odo),
+# иначе круг. Здесь — для проверки зуба и позиции плана ниже.
 _FDI_ALL = podo.FDI_ALL
 TOOTH_SURFACES = podo.TOOTH_SURFACES
-
-
-# ⛔ Значения уходят в <option>, куда разметку положить нельзя, поэтому знак не
-# заменён иконкой, а вынесен в СОСЕДНИЙ словарь. Раньше значок доставали из этой
-# же строки через .split()[0] — приём держался на том, что первым словом стоит
-# эмодзи, и молча сломался бы от любой правки текста.
-# ⚠️ Сами подписи (ALERT_KINDS) живут в core/layout.py: те же слова нужны
-# выгрузке по 195-му, а она routes.py импортировать не может — routes.py
-# импортирует её. Имена значков — в card.py (их же отдаёт JSON API), здесь
-# они завёрнуты в разметку.
-_ALERT_ICON = {k: _ic(v) for k, v in pcard.ALERT_ICON.items()}
 
 
 # справочник вопросов — в modules/patients/anamneza.py (его читают ещё печать
 # и выгрузка; см. докстринг там про то, почему он не здесь)
 ANAMNEZA_FLAGS = panam.FLAGS["ro"]
-ANAMNEZA_TEXTS = panam.TEXTS
 
 
-# Словари фиши (категории документов, переходы и подписи плана, потолок
-# файла) живут в card.py с 18.09 — их спрашивают и старая страница, и JSON API.
-# Имена здесь сохранены: на них смотрят маршруты действий ниже.
+# Словари фиши (категории документов, переходы плана, потолок файла) живут в
+# card.py с 18.09 — по ним же JSON API строит фишу. Здесь — для правил ниже.
 DOC_CATEGORIES = pcard.DOC_CATEGORIES
-_DOC_ICON = {k: _ic(v) for k, v in pcard.DOC_ICON.items()}
-_ACT_ICON = {k: _ic(v) for k, v in pcard.ACT_ICON.items()}
 _PLAN_EDGES = pcard.PLAN_EDGES
 _PLAN_NEEDS_MOTIV = pcard.PLAN_NEEDS_MOTIV
-_PLAN_LABEL = pcard.PLAN_LABEL
 MAX_DOC_MB = pcard.MAX_DOC_MB
 
 
@@ -136,879 +102,23 @@ async def admin_patient(request: Request, pid: int, msg: str = "", views: str = 
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
-    if react_on(request, "patient_card"):
-        # DentPilot 2.0 (C18): та же рамка, узел React с номером фиши и режимом
-        # ленты; данные и запись открытия в журнал доступа — у GET
-        # /api/patients/{pid}, который клиент зовёт сразу после монтирования.
-        # Форма зуба из куска одонтограммы по-прежнему возвращает сюда с
-        # ?msg= — плашку рисует msg_banner, как у любой React-страницы.
-        params = {"pid": str(pid), **({"views": "1"} if views == "1" else {})}
-        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
-        # подпись печатает сам экран (08.10): крошки «Pacienți › Nume»
-        return react_shell("patient_card", f"/admin/patient/{pid}",
-                           shell_model("pat", "", msg=msg, title=p["name"]),
-                           params)
-    e = html.escape
-    # журнал доступа (закон 195): КТО открывал карту — такое же требование,
-    # как «кто менял». В ленте фиши эти записи не показываются
-    # (patient_activity их прячет), но живут в данных и уходят в выгрузку.
-    await db.log_event(pid, "view", "Fișa deschisă")
-    alerts = await db.patient_alerts(pid)
-    tmap = await db.teeth_map(pid)
-    plan = await db.plan_items(pid)
-    pays = await db.payments(pid)
-    fin = await db.patient_finance(pid)
-    docs = await db.documents(pid)
-    visits = await db.patient_appointments(pid, 1000)
-    recs = await db.visit_records_map(pid)
-    anam = await db.anamneza(pid)
-    # ?views=1 — журнал доступа НА ЭКРАНЕ: лента дополняется просмотрами
-    # (view/doc_view). По умолчанию их нет — рецепция открывает фишу десятки
-    # раз в день; но по клику журнал обязан показываться, иначе «программа
-    # ведёт журнал доступа» — заявление, которое нечем предъявить проверке.
-    show_views = views == "1"
-    acts = await db.patient_activity(pid, 60, include_views=show_views)
-    tooth_acts = await db.tooth_activity(pid)
-    punti = await db.bridges(pid)
-    erasure = await db.erasure_kind(pid)
-    now = datetime.now(eng.TZ)
-    base = f"/admin/patient/{pid}"
-
-    banner = msg_banner(msg)
-
-    # -- левая колонка: профиль --
-    age = _p_age(p)
-    chan = pcard.channel(p)
-
-    def frow(label: str, val, icon: str = "") -> str:
-        ic = f"<span class='ic'>{_ic(icon)}</span>" if icon else "<span class='ic'></span>"
-        return (f"<div class='frow'><span>{label}</span>"
-                f"<span class='v'>{e(str(val)) if val else '—'}</span>{ic}</div>")
-
-    # дата рождения человеку — dd.mm.yyyy, а не сырой ISO из базы
-    bd_h = (_pl_dmy(p["birth_date"]) if p.get("birth_date")
-            else p.get("birth_year"))
-    # «fără telefon» — явной меткой, а не прочерком (08-20): прочерк читается
-    # «забыли вписать», а этим пациентам не уйдут SMS, когда пакет заработает,
-    # и причина обязана быть видна. Строка руками: frow экранирует значение,
-    # и SVG-иконка через него не проходит.
-    tel_row = (frow("Telefon", p.get("phone"), "phone") if p.get("phone") else
-               "<div class='frow'><span>Telefon</span>"
-               "<span class='v notel'>fără telefon</span>"
-               f"<span class='ic'>{_ic('phone-off')}</span></div>")
-    info_rows = (tel_row
-                 + frow("Data nașterii", bd_h, "cal")
-                 + frow("Gen", {"m": "M", "f": "F"}.get(p.get("gender") or "", p.get("gender")), "pat")
-                 + frow("IDNP", p.get("idnp"), "id")
-                 + frow("E-mail", p.get("email"), "mail")
-                 + frow("Adresă", p.get("address"), "pin")
-                 + frow("Asigurare", p.get("insurance"), "shield")
-                 + frow("Medic curant", p.get("primary_doctor"), "med")
-                 + frow("Pacient din",
-                        p["created_at"].astimezone(eng.TZ).strftime("%d.%m.%Y"), "cal"))
-    notes_html = (f"<div style='font-size:12px;color:var(--text2);background:var(--bg);"
-                  f"border-radius:8px;padding:8px 10px;margin-top:8px'>{_ic('note')} {e(p['notes'])}</div>"
-                  if p.get("notes") else "")
-
-    doc_opts = "".join(f"<option value='{e(n)}'"
-                       f"{' selected' if p.get('primary_doctor') == n else ''}>{e(n)}</option>"
-                       for n in eng.DOCTORS.values())
-    # отказ сохранения ПОКАЗЫВАЕТ виноватое поле: форма раскрыта, поле красное.
-    # Баннер «Date invalide» без этого заставлял искать ошибку перебором
-    bad_field = pcard.BAD_FIELD.get(msg, "")
-
-    def _inv(field: str) -> str:
-        return (" style='border-color:var(--red-t,#B91C1C);"
-                "box-shadow:0 0 0 3px rgba(185,28,28,.12)'"
-                if field == bad_field else "")
-
-    edit_form = f"""
-<form class='fform' id='pedit' method='post' action='{base}/save' style='display:{"block" if bad_field else "none"};margin-top:10px'>
-  <input name='name' value="{e(p['name'] or '')}" placeholder='Nume' required{_inv('name')}>
-  <input name='phone' value="{e(p['phone'] or '')}" placeholder='Telefon'{'' if p['phone'] else ' disabled'}>
-  <label class='nophone'><input type='checkbox' name='nophone' value='1'
-    data-for='phone' onchange='togglePhone(this)'{'' if p['phone'] else ' checked'}>
-    fără telefon</label>
-  <div class='r2'><input type='date' name='birth_date' value="{e(p.get('birth_date') or '')}"
-    max='{date.today().isoformat()}'{_inv('birth_date')}>
-  <select name='gender'><option value=''>Gen —</option>
-    <option value='m'{" selected" if p.get('gender') == 'm' else ''}>M</option>
-    <option value='f'{" selected" if p.get('gender') == 'f' else ''}>F</option></select></div>
-  <input name='idnp' value="{e(p.get('idnp') or '')}" placeholder='IDNP (opțional)'
-    maxlength='13' inputmode='numeric'{_inv('idnp')}>
-  <input name='email' value="{e(p.get('email') or '')}" placeholder='E-mail'>
-  <input name='address' value="{e(p.get('address') or '')}" placeholder='Adresă'>
-  <input name='insurance' value="{e(p.get('insurance') or '')}" placeholder='Asigurare (ex. CNAM activă)'>
-  <div class='r2'><select name='primary_doctor'><option value=''>Medic curant —</option>{doc_opts}</select>
-  <input name='file_no' value="{e(p.get('file_no') or '')}" placeholder='Nr. dosar'></div>
-  <select name='lang' title='Limba documentelor tipărite'>
-    <option value='ro'{" selected" if (p.get('lang') or 'ro') != 'ru' else ''}>Documente în română</option>
-    <option value='ru'{" selected" if p.get('lang') == 'ru' else ''}>Документы по-русски</option>
-  </select>
-  <textarea name='notes' rows='2' placeholder='Notițe interne'>{e(p.get('notes') or '')}</textarea>
-  <button>{_ic('save')} Salvează profilul</button>
-</form>"""
-
-    # -- анамнез: опросник, раскрывается по клику (заполняется один раз) --
-    # риски, дата и автор считаются в card.anamneza_view — те же, что у API
-    av = pcard.anamneza_view(anam)
-    an_flags = av["flags"]
-    an_boxes = "".join(
-        f"<label><input type='checkbox' name='fl' value='{k}'"
-        f"{' checked' if k in an_flags else ''}> {e(v)}</label>"
-        for k, v in ANAMNEZA_FLAGS.items())
-    an_texts = "".join(
-        f"<label class='dlab'>{e(lab)}"
-        f"<textarea name='{k}' rows='2' maxlength='500' placeholder='{e(ph)}'>"
-        f"{e((anam.get(k) if anam else '') or '')}</textarea></label>"
-        for k, lab, ph in ANAMNEZA_TEXTS)
-    an_marked, an_free = av["marked"], av["free"]
-    if anam:
-        an_sum = (f"<small class='hint' style='margin:0'>Completat: "
-                  f"{av['when'].astimezone(eng.TZ).strftime('%d.%m.%Y')} · "
-                  f"{e(av['author'] or '—')}</small>")
-        an_head = (f"<span class='pill orange'>{av['n_risk']} de reținut</span>"
-                   if av["n_risk"] else "<span class='pill green'>fără riscuri</span>")
-    else:
-        an_sum = ("<small class='hint' style='margin:0'>Nu a fost completată — "
-                  "întrebați pacientul înainte de tratament</small>")
-        an_head = "<span class='pill red'>necompletată</span>"
-    # свёрнутая секция обязана показывать САМО содержимое: врач смотрит на неё
-    # перед анестезией и раскрывать «Chestionar» не будет
-    an_chips = ([f"<span>{_ic('sos')} {e(x)}</span>" for x in an_marked]
-                + [f"<span>{_ic('note')} {e(lab)}: {e(val[:70])}</span>"
-                   for lab, val in an_free])
-    an_list = (f"<div class='anlist'>{''.join(an_chips)}</div>"
-               if an_chips else "")
-    anam_card = f"""<div class='fcard' id='anamneza'>
-<h3>Anamneză {an_head}</h3>{an_list}{an_sum}
-<a class='anprint' href='{base}/anamneza/print'>{_ic('print')} Formular
-  pentru pacient</a>
-<details class='anform'{' open' if not anam else ''}>
-  <summary>{_ic('pen')} Chestionar</summary>
-  <form class='fform' method='post' action='{base}/anamneza'>
-    <div class='anbox'>{an_boxes}</div>
-    {an_texts}
-    <button>{_ic('save')} Salvează anamneza</button>
-  </form>
-</details></div>"""
-
-    alerts_html = "".join(
-        f"<div class='alert {e(a['kind'])}'>{_ALERT_ICON.get(a['kind'], _ic('info'))} {ALERT_KINDS.get(a['kind'], '')} {e(a['text'])}"
-        f"<form method='post' action='{base}/alert/{a['id']}/del'>"
-        f"<button title='Șterge'>{_ic('close')}</button></form></div>"
-        for a in alerts) or "<p class='hint' style='margin:0'>— fără atenționări —</p>"
-    kind_opts = "".join(f"<option value='{k}'>{v}</option>" for k, v in ALERT_KINDS.items())
-    alerts_card = f"""<div class='fcard'><h3>Atenționări medicale</h3>{alerts_html}
-<form class='fform' method='post' action='{base}/alert' style='margin-top:9px'>
-  <div class='r2'><select name='kind' style='width:130px'>{kind_opts}</select>
-  <input name='text' placeholder='ex. Alergie: Penicilină' maxlength='120' required></div>
-  <button>+ Adaugă</button></form></div>"""
-
-    # -- центр: формула FDI + план --
-    teeth_card = podo.card(tmap, tooth_acts, doc_opts, base, punti)
-
-    # порядок, счёт, вкладка по умолчанию, суммы и прогресс — card.plan_view:
-    # та же сводка уезжает в JSON API, второго счёта у плана нет
-    pv = pcard.plan_view(plan)
-    cnt, n_act, default_tab = pv["cnt"], pv["n_act"], pv["default_tab"]
-    total, total_done = pv["total"], pv["total_done"]
-    # какие статусы показывает каждая вкладка — ОДИН словарь на сервер и на
-    # planTab(); пока правило жило выражением «не finalizat», отказ попадал в
-    # «Active» молча
-    tab_states = pcard.TAB_STATES
-    plan_rows = []
-    for it in pv["items"]:
-        st = it["status"]
-        refuz = (f"<button type='button' class='pref' data-id='{it['id']}' "
-                 f"data-p='{e(it['procedure'])}' onclick='openRefuz(this)' "
-                 f"title='Pacientul refuză procedura — se consemnează în fișă'>"
-                 f"{_ic('ban')} Refuz</button>")
-        if st == "planificat":
-            act = (f"<form method='post' action='{base}/plan/{it['id']}/status'>"
-                   f"<input type='hidden' name='to' value='in_lucru'>"
-                   f"<button class='pgo' title='Trece procedura în lucru'>"
-                   f"{_ic('play')} Începe</button></form>{refuz}")
-        elif st == "in_lucru":
-            act = (f"<form method='post' action='{base}/plan/{it['id']}/status'>"
-                   f"<input type='hidden' name='to' value='finalizat'>"
-                   f"<button class='pgo fin' title='Marchează ca finalizată'>"
-                   f"{_ic('check')} Finalizează</button></form>{refuz}")
-        elif st == "refuzat":
-            # возврат идёт в «Planificat», а не в работу: после отказа лечение
-            # начинается заново, с нового согласия пациента
-            act = (f"<form method='post' action='{base}/plan/{it['id']}/status' "
-                   f"onsubmit=\"return confirm('Pacientul a revenit asupra "
-                   f"refuzului? Procedura se întoarce în plan.')\">"
-                   f"<input type='hidden' name='to' value='planificat'>"
-                   f"<button class='pre' title='Pacientul a revenit — înapoi în plan'>"
-                   f"{_ic('undo')} Reia</button></form>")
-        else:
-            act = (f"<form method='post' action='{base}/plan/{it['id']}/status' "
-                   f"onsubmit=\"return confirm('Redeschideți procedura "
-                   f"(înapoi în lucru)?')\">"
-                   f"<input type='hidden' name='to' value='in_lucru'>"
-                   f"<button class='pre' title='Redeschide — înapoi în lucru'>"
-                   f"{_ic('undo')} Redeschide</button></form>")
-        da = it.get("done_at")
-        if st in db.PLAN_CLOSED and hasattr(da, "astimezone"):
-            mark, ttl = ((_ic("check"), "Data finalizării") if st == "finalizat"
-                         else (_ic("ban"), "Data refuzului"))
-            due_html = (f"<span class='pdone' title='{ttl}'>"
-                        f"{mark} {da.astimezone(eng.TZ).strftime('%d.%m.%Y')}</span>")
-        else:
-            due_html = f"<span class='pdue'>{_due_html(it.get('due_date'), st)}</span>"
-        tooth_html = (f"<button type='button' class='pt' onclick='openTooth({it['tooth']})' "
-                      f"title='Deschide dintele în formulă'>{it['tooth']}</button>"
-                      if it["tooth"] else "<span class='pt'>—</span>")
-        hidden = "" if st in tab_states[default_tab] else " style='display:none'"
-        # причина отказа стоит ПОД процедурой, а не в подсказке: это и есть
-        # запись по ст.13(5), и она обязана читаться с листа, а не с наведения
-        motiv = (f"<em class='pmotiv'>{e(it.get('refuz_motiv') or '')}</em>"
-                 if st == "refuzat" and it.get("refuz_motiv") else "")
-        # ⛔ удалять можно только НЕТРОНУТОЕ: начатая, выполненная или
-        # отказанная позиция — клинический факт, и закрывается статусом.
-        # Кнопка «Șterge» тут стирала бы ровно то, что закон велит хранить
-        pdel = (f"<form method='post' action='{base}/plan/{it['id']}/del' "
-                f"onsubmit=\"return confirm('Ștergeți poziția din plan?')\">"
-                f"<button class='pdel' title='Șterge poziția (doar cât nu a "
-                f"fost începută)'>{_ic('close')}</button></form>"
-                if st == "planificat" else "")
-        plan_rows.append(
-            f"<div class='plan-row{' done' if st in db.PLAN_CLOSED else ''}' "
-            f"data-st='{e(st)}'{hidden}>"
-            f"{tooth_html}"
-            f"<span class='pp'>{e(it['procedure'])}{motiv}</span>"
-            f"<span class='pd'>{e(it['doctor'] or '—')}</span>"
-            f"{due_html}"
-            f"<span class='pbadge {e(st)}'>{_PLAN_LABEL.get(st, st)}</span>"
-            f"<span class='pm'>{f'{it['price_mdl']:,}'.replace(',', ' ') + ' MDL' if it['price_mdl'] else '—'}</span>"
-            f"<span class='pact'>{act}{pdel}</span></div>")
-    plan_html = "".join(plan_rows) or "<p class='hint' style='margin:6px 0'>— plan gol —</p>"
-    # молочные — отдельной группой, иначе список из 52 номеров нечитаем
-    tooth_opts = (
-        "<option value=''>—</option>"
-        + "".join(f"<option value='{n}'>{n}</option>"
-                  for n in _FDI_UPPER + _FDI_LOWER)
-        + "<optgroup label='Dinți de lapte'>"
-        + "".join(f"<option value='{n}'>{n}</option>"
-                  for n in _FDI_MILK_UPPER + _FDI_MILK_LOWER)
-        + "</optgroup>")
-    def _tab(key: str, label: str, n: int) -> str:
-        on = " class='on'" if default_tab == key else ""
-        return (f"<button{on} data-f='{key}' onclick='planTab(this)'>"
-                f"{label} ({n})</button>")
-
-    # вкладка отказов появляется, только когда отказы есть: пустая «Refuzate
-    # (0)» на каждой фише — обещание проблемы, которой у клиники нет
-    tabs = ("<div class='tabs'>"
-            + _tab("act", "Active", n_act)
-            + _tab("finalizat", "Finalizate", cnt["finalizat"])
-            + (_tab("refuzat", "Refuzate", cnt["refuzat"]) if cnt["refuzat"] else "")
-            + f"<button data-f='all' onclick='planTab(this)'>Toate ({len(plan)})</button>"
-            "</div>")
-    # прогресс — от того, что клиника ещё может сделать (без отказов в
-    # знаменателе); счёт в card.plan_view
-    n_track, pct_done = pv["n_track"], pv["pct_done"]
-    prog = (f"<div class='plan-prog'><div class='statbar'>"
-            f"<div style='width:{pct_done}%'></div></div>"
-            f"<small>{cnt['finalizat']}/{n_track} finalizate"
-            + (f" · {cnt['refuzat']} refuzate" if cnt["refuzat"] else "")
-            + "</small></div>" if plan else "")
-    done_total_html = (f"<span class='pt-done'> · finalizate: "
-                       f"{f'{total_done:,}'.replace(',', ' ')} MDL</span>"
-                       if total_done else "")
-    # ⭐ Лист согласия стоит В ШАПКЕ плана, а не среди быстрых действий внизу:
-    # ст.13(2) Legea 263/2005 требует подписи ДО вмешательства, то есть ровно в
-    # тот момент, когда план на экране и обсуждается с пациентом
-    acord_link = (f"<a class='pacord' href='{base}/plan-acord' "
-                  f"title='Acord informat la plan — pentru semnătura pacientului "
-                  f"și a medicului (art. 13 Legea nr. 263/2005)'>"
-                  f"{_ic('clipboard')} Acord informat</a>" if plan else "")
-    plan_card = f"""<div class='fcard' id='plan'>
-<h3>Plan de tratament <small>· plan activ: {f'{total:,}'.replace(',', ' ')} MDL</small>{acord_link}</h3>
-{prog}{tabs}
-{plan_html}
-<div class='ptotal'><span>Total plan activ</span><b>{f'{total:,}'.replace(',', ' ')} MDL</b>{done_total_html}</div>
-<form class='fform' method='post' action='{base}/plan' style='margin-top:10px'>
-  <div class='r2'><select name='tooth' style='width:90px'>{tooth_opts}</select>
-  <input name='procedure' placeholder='Procedură (ex. Coroană zirconiu)' maxlength='120' required></div>
-  <div class='r2'><select name='doctor'><option value=''>Medic —</option>{doc_opts}</select>
-  <input name='price' type='number' min='0' max='1000000' placeholder='Preț MDL' style='width:130px'></div>
-  <div class='r2'><input type='date' name='due_date' title='Termen planificat'>
-  <span style='font-size:12px;color:var(--text3);align-self:center'>termen (opțional)</span></div>
-  <button>+ Adaugă în plan</button>
-</form></div>"""
-
-    # -- правая колонка: визиты + документы --
-    # следующий/последний визит, живые и отменённые — card.visits_view
-    vv = pcard.visits_view(visits, now)
-    nextv, lastv = vv["next"], vv["last"]
-    next_html = ""
-    if nextv:
-        dtv = nextv["starts_at"].astimezone(eng.TZ)
-        next_html = (f"<div class='fcard' style='background:var(--teal-soft)'>"
-                     f"<h3 style='color:var(--teal-d)'>Următoarea vizită</h3>"
-                     f"<div style='font-size:13.5px;font-weight:600'>{dtv.strftime('%d.%m.%Y · %H:%M')}</div>"
-                     f"<div style='font-size:12px;color:var(--text2);margin-top:3px'>"
-                     f"{e(nextv['service'])} · {e(nextv['doctor'])}</div></div>")
-    hist = []
-    for v in visits[:pcard.HIST_SHOWN]:
-        dtv = v["starts_at"].astimezone(eng.TZ)
-        is_next = nextv is not None and v["id"] == nextv["id"]
-        # дневник приёма: у заполненного визита — диагноз и ссылка, у
-        # состоявшегося пустого — приглашение заполнить (будущие не зовём:
-        # писать «лечение» вперёд — ошибка данных); правило — card.consult_kind
-        vurl = f"/admin/visit/{v['id']}?back={urllib.parse.quote(base)}"
-        r = recs.get(v["id"])
-        ck = pcard.consult_kind(v, r, now)
-        if ck == "rec":
-            diag = pcard.rec_diag(r)
-            consult = (f"<small style='overflow-wrap:anywhere'>{_ic('med')} "
-                       f"<a href='{vurl}'>Consultație</a>"
-                       + (f": {e(diag[:60])}" if diag else "") + "</small>")
-        elif ck == "invite":
-            consult = f"<small><a href='{vurl}'>+ Consultație</a></small>"
-        else:
-            consult = ""
-        hist.append(
-            f"<div class='tline{' next' if is_next else ''}'>"
-            f"<div class='tdot'><i></i></div><div class='tb'>"
-            f"<small>{dtv.strftime('%d.%m.%Y %H:%M')} · {STATUS_LABEL.get(v['status'], v['status'])}</small>"
-            f"<b style='font-size:12.5px'>{e(v['service'])}</b>"
-            f"<small>{e(v['doctor'])}</small>{consult}</div></div>")
-    hist_card = (f"<div class='fcard'><h3>Istoric vizite <small>· ultimele {len(visits[:pcard.HIST_SHOWN])}</small></h3>"
-                 + ("".join(hist) or "<p class='hint' style='margin:0'>— încă fără vizite —</p>")
-                 + f"<a href='/admin/search?q={urllib.parse.quote(p['name'] or '')}' "
-                 f"style='font-size:12px'>Vezi tot istoricul ›</a></div>")
-
-    doc_meta: dict = {}
-
-    def doc_card(dd) -> str:
-        # картинку показываем ею же: файлы лежат локально, отдельный рендер
-        # миниатюр — оптимизация следующего этапа, а не условие работы
-        mime = dd["mime"] or ""
-        is_img = mime.startswith("image/")
-        thumb = (f"<img src='/admin/doc/{dd['id']}?thumb=1' alt='' loading='lazy'>" if is_img
-                 else _DOC_ICON.get(dd["category"], _ic("file")))
-        when = dd["uploaded_at"].astimezone(eng.TZ).strftime("%d.%m.%Y")
-        size = pcard.doc_size(dd["size"])
-        # чем открывать файл: свой просмотрщик (растр, PDF) или программа
-        # Windows. href остаётся прежним — без JS карточка просто скачает файл
-        doc_meta[dd["id"]] = {"name": dd["filename"], "view": pcard.doc_view(mime)}
-        return (f"<div class='doccard'><a href='/admin/doc/{dd['id']}' "
-                f"onclick='return openDoc({dd['id']})' "
-                f"title='{e(dd['filename'])}'><div class='thumb'>{thumb}</div>"
-                f"<div class='dmeta'><b>{e(dd['filename'])}</b>"
-                f"<small>{when} · {size}</small></div></a>"
-                f"<div class='del'><form method='post' action='{base}/doc/{dd['id']}/del' "
-                f"onsubmit=\"return confirm('Ștergeți documentul?')\">"
-                f"<button title='Șterge'>{_ic('close')}</button></form></div></div>")
-
-    act_rows = []
-    for a in acts:
-        at = a["at"].astimezone(eng.TZ) if hasattr(a["at"], "astimezone") else None
-        when = at.strftime("%d.%m.%Y") if at else ""
-        hhmm = at.strftime("%H:%M") if at else ""
-        # с ролями подпись — это ИМЯ вошедшего; «recepție» осталось у событий,
-        # записанных до учёток, и у фоновых задач, где человека нет
-        who = e(pcard.who(a["actor"]))
-        act_rows.append(
-            f"<div class='acti'><span class='ai'>{_ACT_ICON.get(a['kind'], '•')}</span>"
-            f"<div class='ab'><b>{e(a['text'])}</b>"
-            f"<small>{when} · {who}</small></div><span class='at'>{hhmm}</span></div>")
-    shown, rest = act_rows[:pcard.ACT_SHOWN], act_rows[pcard.ACT_SHOWN:]
-    more = (f"<div id='actmore' style='display:none'>{''.join(rest)}</div>"
-            f"<button type='button' class='actmore' onclick=\"var m=document.getElementById('actmore');"
-            f"m.style.display='block';this.remove()\">Toate evenimentele ({len(acts)})</button>"
-            if rest else "")
-    views_link = (
-        f"<a href='{base}' style='font-size:12px;font-weight:400'>"
-        f"ascunde accesările</a>" if show_views else
-        f"<a href='{base}?views=1' style='font-size:12px;font-weight:400' "
-        f"title='Jurnalul accesărilor — cine și când a deschis fișa (Legea 195)'>"
-        f"{_ic('eye')} accesările</a>")
-    act_card = (f"<div class='fcard'><h3>Istoric activitate "
-                f"<small>· ce s-a întâmplat cu fișa</small> · {views_link}</h3>"
-                + ("".join(shown) + more if act_rows
-                   else "<p class='hint' style='margin:0'>— încă fără evenimente —</p>")
-                + "</div>")
-
-    docs_rows = ("<div class='docgrid'>" + "".join(doc_card(dd) for dd in docs) + "</div>"
-                 if docs else "<p class='hint' style='margin:0 0 8px'>— fără documente —</p>")
-    cat_opts = "".join(
-        f"<option value='{k}'{' selected' if k == 'alt' else ''}>{v}</option>"
-        for k, v in DOC_CATEGORIES.items())
-    docs_card = f"""<div class='fcard' id='docs'><h3>Documente și imagini <small>· max {MAX_DOC_MB} MB</small></h3>
-{docs_rows}
-<form class='fform' method='post' action='{base}/doc' enctype='multipart/form-data'>
-  <select name='category'>{cat_opts}</select>
-  <div class='filepick'>
-    <input type='file' name='file' id='docfile' required onchange='pickName(this)'>
-    <label for='docfile'>{_ic('clip')} Alege fișierul</label>
-    <span class='fname' id='docfile_n'>niciun fișier ales</span>
-  </div>
-  <button>{_ic('upload')} Încarcă document</button>
-</form>
-<p class='hint' style='margin-top:8px'>Click pe fișier — pozele și PDF-urile se deschid aici,
-restul în programul potrivit (Word, Excel). Fișierele rămân local, pe acest
-calculator.</p></div>"""
-
-    # ---- hero: кто перед врачом, одним взглядом ----
-    # бейджи собираются из УЖЕ имеющихся данных: алерты, страховка, импланты —
-    # состав считает card.pills, здесь только разметка
-    debt = pcard.debt_of(fin)
-    pills = [f"<span class='pill {pl['tone']}'>{_ic(pl['icon'])} {e(pl['text'])}</span>"
-             for pl in pcard.pills(p, alerts, debt, tmap)]
-
-    def hs(label: str, val: str, sub: str = "") -> str:
-        tail = (f"<div style='color:var(--text3);font-size:12px'>{sub}</div>" if sub else "")
-        return f"<div class='hs'><span>{label}</span><b>{val}</b>{tail}</div>"
-
-    acts = []
-    if p.get("phone"):
-        acts.append(f"<a href='tel:{e(p['phone'])}'>{_ic('phone')} Sună</a>")
-    if p.get("email"):
-        acts.append(f"<a href='mailto:{e(p['email'])}'>{_ic('mail')} E-mail</a>")
-    # запись делается ДЛЯ ЭТОГО пациента и прямо здесь: прежняя ссылка вела в
-    # общий журнал дня, где имя и телефон надо было вбивать заново
-    acts.append(f"<button type='button' onclick='openAppt()'>"
-                f"{_ic('cal')} Programează</button>")
-    # 043/e — документ, за которым тянутся чаще всего (проверка, выписка,
-    # передача пациента): его место наверху, а не в конце страницы среди
-    # быстрых действий, куда надо доскроллить
-    acts.append(f"<a href='{base}/fisa043'>{_ic('file')} Fișa 043/e</a>")
-
-    # ID — внутренний номер фиши в программе (адрес страницы, бэкап, обращение
-    # в поддержку). Клинике он нужен редко, поэтому уходит в конец строки и
-    # копируется одним кликом, а не переспрашивается голосом.
-    id_chip = (f"<span class='idchip' onclick='copyId(this)' data-id='{pid}' "
-               f"title='Numărul intern al fișei în program (adresa paginii, "
-               f"copiile de siguranță, suport). Click = copiază'>ID #{pid}</span>")
-    meta_bits = [f"{age} ani" if age else "", chan,
-                 f"dosar {e(p['file_no'])}" if p.get("file_no") else "",
-                 "Pacient din " + p["created_at"].astimezone(eng.TZ).strftime("%Y"),
-                 id_chip]
-    hero = f"""<div class='hero'>
-  <div class='hero-av'>{e(_initials(p['name'] or '?'))}</div>
-  <div class='hero-id'>
-    <h2>{e(p['name'] or '—')}</h2>
-    <div class='hero-meta'>{''.join(f'<span>{x}</span>' for x in meta_bits if x)}</div>
-    <div class='hero-badges'>{''.join(pills)}</div>
-    <div class='hero-acts'>{''.join(acts)}</div>
-  </div>
-  <div class='hero-side'>
-    {hs('Ultima vizită',
-        lastv['starts_at'].astimezone(eng.TZ).strftime('%d.%m.%Y') if lastv else '—',
-        e(lastv['service']) if lastv else 'încă fără vizite')}
-    {hs('Medic curant', e(p.get('primary_doctor') or '—'),
-        'din fișa pacientului' if p.get('primary_doctor') else 'nesetat')}
-  </div>
-</div>"""
-
-    # ---- KPI: пять цифр, которые спрашивают первыми ----
-    n_active, n_done = n_act, cnt["finalizat"]
-    days_ago = pcard.days_ago(lastv, now)
-    # каждая цифра кликабельна и открывает ТОТ САМЫЙ список, из которого она
-    # посчитана: цифра без расшифровки заставляет верить журналу на слово
-    def _vrow(v) -> str:
-        dtv = v["starts_at"].astimezone(eng.TZ)
-        return (f"<div class='lrow'><span class='lk'>{dtv.strftime('%d.%m.%Y · %H:%M')}</span>"
-                f"<b>{e(v['service'])}</b><small>{e(v['doctor'])} · "
-                f"{STATUS_LABEL.get(v['status'], v['status'])}</small></div>")
-
-    def _prow(it) -> str:
-        price = (f"{it['price_mdl']:,}".replace(",", " ") + " MDL") if it["price_mdl"] else "—"
-        return (f"<div class='lrow'><span class='lk'>"
-                f"{('dinte ' + str(it['tooth'])) if it['tooth'] else '—'}</span>"
-                f"<b>{e(it['procedure'])}</b><small>{e(it['doctor'] or '—')} · "
-                f"{_PLAN_LABEL.get(it['status'], it['status'])} · {price}</small></div>")
-
-    def _empty(txt: str) -> str:
-        return f"<p class='hint' style='margin:0'>— {txt} —</p>"
-
-    def _lmore(href: str, txt: str) -> str:
-        return f"<a class='lmore' href='{href}' onclick='closeKpi()'>{txt} ›</a>"
-
-    live_visits, canc = vv["live"], vv["canc"]
-    act_items = [it for it in plan if it["status"] in db.PLAN_ACTIVE]
-    done_items = [it for it in plan if it["status"] == "finalizat"]
-    kpi_panels = {
-        "visits": ("Toate vizitele",
-                   ("".join(_vrow(v) for v in live_visits) or _empty("încă fără vizite"))
-                   + (f"<p class='hint'>+ {canc} anulate (nu se numără)</p>" if canc else "")),
-        "active": ("Proceduri active",
-                   ("".join(_prow(it) for it in act_items) or _empty("planul este gol"))
-                   + _lmore("#plan", "Deschide planul de tratament")),
-        "last": ("Ultima vizită",
-                 (_vrow(lastv) + (f"<p class='hint'>acum {days_ago} zile</p>"
-                                  if days_ago else "<p class='hint'>astăzi</p>"))
-                 if lastv else _empty("încă fără vizite")),
-        "next": ("Următoarea vizită",
-                 _vrow(nextv) if nextv else
-                 (_empty("nicio vizită programată")
-                  + "<button type='button' class='lbtn' "
-                    f"onclick='closeKpi();openAppt()'>{_ic('cal')} Programează acum</button>")),
-        "done": ("Proceduri finalizate",
-                 "".join(_prow(it) for it in done_items)
-                 or _empty("încă nimic finalizat")),
-    }
-    kpis = [
-        ("visits", _ic("clipboard"), len(live_visits), "Vizite în total",
-         "din " + p["created_at"].astimezone(eng.TZ).strftime("%Y")),
-        ("active", _ic("tooth"), n_active, "Proceduri active", "în planul de tratament"),
-        ("last", _ic("clock"), (f"{days_ago} zile" if days_ago else "azi") if lastv else "—",
-         "Ultima vizită",
-         lastv["starts_at"].astimezone(eng.TZ).strftime("%d.%m.%Y") if lastv else "—"),
-        ("next", _ic("cal"), nextv["starts_at"].astimezone(eng.TZ).strftime("%d.%m") if nextv else "—",
-         "Următoarea vizită",
-         nextv["starts_at"].astimezone(eng.TZ).strftime("%H:%M") if nextv else "neprogramat"),
-        ("done", _ic("check"), n_done, "Proceduri finalizate", "istoric complet"),
-    ]
-    kpi_html = "<div class='kpi5'>" + "".join(
-        f"<button type='button' class='kpi' onclick=\"openKpi('{key}')\" "
-        f"title='{lbl} — click pentru detalii'>"
-        f"<span class='ki'>{ic}</span><div style='min-width:0'>"
-        f"<b>{val}</b><span>{lbl}</span><small>{sub}</small></div></button>"
-        for key, ic, val, lbl, sub in kpis) + "</div>"
-
-    arch_label = (_ic("undo") + " Scoate din arhivă" if p.get("archived")
-                  else _ic("box") + " Arhivează pacientul")
-    profile_card = f"""<div class='fcard'><h3>Date pacient</h3>
-{info_rows}{notes_html}
-<button style='width:100%;margin-top:12px;background:none;border:1px solid var(--line);
-  border-radius:var(--r-ctl);height:var(--h-ctl);cursor:pointer;font-size:14px;
-  font-weight:600;color:var(--text2)'
-  onclick="var f=document.getElementById('pedit');f.style.display=f.style.display==='none'?'flex':'none'">
-  {_ic('pen')} Editează profilul</button>
-{edit_form}
-<form method='post' action='{base}/archive' style='margin-top:8px'>
-  <input type='hidden' name='on' value='{"0" if p.get("archived") else "1"}'>
-  <button style='background:none;border:1px solid var(--line);border-radius:var(--r-ctl);
-    height:40px;cursor:pointer;font-size:13px;color:var(--text3);width:100%'>
-    {arch_label}</button>
-</form>
-<a href='{base}/export' style='display:block;margin-top:8px;text-align:center;
-  border:1px solid var(--line);border-radius:var(--r-ctl);height:40px;line-height:40px;
-  font-size:13px;color:var(--text3);text-decoration:none'
-  title='Copie completă a datelor — pentru cererea pacientului (Legea 195)'>
-  {_ic('download')} Descarcă datele pacientului</a>
-<a href='{base}/acord' style='display:block;margin-top:8px;text-align:center;
-  border:1px solid var(--line);border-radius:var(--r-ctl);height:40px;line-height:40px;
-  font-size:13px;color:var(--text3);text-decoration:none'
-  title='Formular de informare cu datele pacientului, pentru semnare (Legea 195)'>
-  {_ic('clipboard')} Informare / acord — tipărire</a>
-{_erase_block(base, erasure)}</div>"""
-
-    # ---- платежи и баланс (08-07, модуль финансов, шаг 1) ----
-    _PAY_ICO = {k: _ic(v) for k, v in pcard.PAY_ICON.items()}
-    can_del_pay = can(request_user(), PERM_MONEY)
-    chg = pcard.money(fin["charged"])
-    pd_s = pcard.money(fin["paid"])
-    # ветка сальдо — card.sold_view: долг / аванс / рассчитался / не начисляли
-    sv = pcard.sold_view(fin)
-    if sv and sv[0] == "bad":
-        sold = (f"<div class='sold bad'><span>De achitat</span>"
-                f"<b>{pcard.money(sv[1])} MDL</b></div>")
-    elif sv and sv[0] == "plus":
-        sold = (f"<div class='sold plus'><span>Avans</span>"
-                f"<b>{pcard.money(sv[1])} MDL</b></div>")
-    elif sv:
-        sold = "<div class='sold ok'><span>Sold</span><b>achitat integral</b></div>"
-    else:
-        sold = ""
-    pay_rows = []
-    for pl in pays:
-        when = (pl["at"].astimezone(eng.TZ).strftime("%d.%m.%Y %H:%M")
-                if hasattr(pl["at"], "astimezone") else "")
-        amt = f"{abs(pl['amount_mdl']):,}".replace(",", " ")
-        neg = pl["amount_mdl"] < 0
-        who = f" · {e(pl['taken_by'])}" if pl["taken_by"] else ""
-        del_f = (f"<form method='post' action='{base}/pay/{pl['id']}/del' "
-                 f"onsubmit=\"return confirm('Ștergeți plata? Rămâne urmă în "
-                 f"istoricul fișei.')\">"
-                 f"<button title='Șterge plata (doar director)'>{_ic('close')}</button></form>"
-                 if can_del_pay else "")
-        pay_rows.append(
-            f"<div class='pay-row{' neg' if neg else ''}'>"
-            f"<span class='pw'>{when}</span>"
-            f"<span class='pi' title='{e(pl['method'])}'>"
-            f"{_PAY_ICO.get(pl['method'], _ic('cash'))}</span>"
-            f"<b class='pa'>{'- ' if neg else ''}{amt} MDL</b>"
-            f"<span class='pn'>{e(pl['note'] or '')}{who}</span>{del_f}</div>")
-    method_opts = "".join(f"<option value='{m}'>{_PAY_ICO[m]} {m}</option>"
-                          for m in db.PAY_METHODS)
-    fin_card = f"""<div class='fcard' id='plati'>
-<h3>Plăți și sold <small>· lucrări finalizate: {chg} MDL · plătit: {pd_s} MDL</small></h3>
-{sold}
-{''.join(pay_rows) or "<p class='hint' style='margin:6px 0'>— încă fără plăți —</p>"}
-<form class='fform' method='post' action='{base}/pay' style='margin-top:10px'>
-  <div class='r2'>
-    <input name='amount' type='number' required min='-1000000' max='1000000'
-           placeholder='Suma MDL (cu minus = restituire)'>
-    <select name='method' style='width:160px'>{method_opts}</select></div>
-  <input name='note' placeholder='Notă (opțional, ex. avans coroană)' maxlength='120'>
-  <button>＋ Înregistrează plata</button>
-</form>
-<p class='hint' style='margin-top:8px'>Soldul = lucrările <b>finalizate</b> din plan
-(cu preț) minus plățile. Plata nu se leagă de o procedură anume — banii acoperă
-soldul fișei.</p></div>"""
-
-    quick = f"""<div class='fcard'><h3>Acțiuni rapide</h3><div class='qa'>
-  <button type='button' onclick='openAppt()'>{_ic('plus')} Vizită nouă</button>
-  <a href='#plan'>{_ic('tooth')} Plan de tratament</a>
-  <a href='#docs'>{_ic('camera')} Încarcă document</a>
-  <button type='button' onclick="openNote()">{_ic('note')} Notiță</button>
-  <button type='button' onclick="window.print()">{_ic('print')} Printează fișa</button>
-</div></div>"""
-
-    # ---- окно записи ДЛЯ ЭТОГО пациента ----
-    # услуга решает, кто из врачей её выполняет; дата и врач решают, какие часы
-    # свободны — часы тянем у того же движка, что обслуживает бота
-    ap = pcard.appoint_view(p)
-    ap_svc_docs, ap_prim = ap["svc_docs"], ap["prim"]
-    ap_svc_opts = "".join(f"<option value='{k}'>{e(v['ro'])}</option>"
-                          for k, v in eng.SERVICES.items())
-    today_iso = now.date().isoformat()
-    kpi_json = js_json(kpi_panels)
-    docs_json = js_json(doc_meta)
-    tabs_json = js_json({k: list(v) for k, v in tab_states.items()})
-    base_json = js_json(base)
-    dialogs = f"""<dialog id='apptdlg'>
-  <div class='dlg-head'><span>{_ic('cal')} Programare — {e(p['name'] or '—')}</span>
-    <button type='button' onclick="document.getElementById('apptdlg').close()">{_ic('close')}</button></div>
-  <form class='dlg-form' method='post' action='{base}/appoint'>
-    <label class='dlab'>Serviciu
-      <select name='aservice' id='ap_svc' onchange='apRefresh(1)'>{ap_svc_opts}</select></label>
-    <label class='dlab'>Medic
-      <select name='adoctor' id='ap_doc' onchange='apRefresh(0)'></select></label>
-    <label class='dlab'>Data
-      <input type='date' name='adate' id='ap_date' value='{today_iso}'
-        min='{today_iso}' onchange='apRefresh(0)'></label>
-    <label class='dlab'>Ora — doar intervalele libere
-      <select name='atime' id='ap_time' required></select></label>
-    <p class='hint' id='ap_hint' style='margin:0'></p>
-    <button id='ap_go'>Adaugă programarea</button>
-  </form>
-</dialog>
-<dialog id='kpidlg' class='wide'>
-  <div class='dlg-head'><span id='kpi_t'>—</span>
-    <button type='button' onclick='closeKpi()'>{_ic('close')}</button></div>
-  <div class='lbody' id='kpi_b'></div>
-</dialog>
-<dialog id='docdlg' class='wide'>
-  <div class='dlg-head'><span id='dv_t'>—</span>
-    <button type='button' onclick="document.getElementById('docdlg').close()">{_ic('close')}</button></div>
-  <div class='dvbody' id='dv_b'></div>
-  <div class='dvacts'>
-    <button type='button' onclick='sysOpen(DV_ID)'>{_ic('monitor')} Deschide în alt program</button>
-    <a id='dv_dl' href='#'>{_ic('download')} Salvează pe disc</a>
-  </div>
-</dialog>
-<dialog id='refuzdlg'>
-  <div class='dlg-head'><span>{_ic('ban')} Refuzul pacientului</span>
-    <button type='button' onclick="document.getElementById('refuzdlg').close()">{_ic('close')}</button></div>
-  <form class='dlg-form' method='post' id='refuzform'>
-    <input type='hidden' name='to' value='refuzat'>
-    <p class='hint' style='margin:0'>Procedura: <b id='rf_p'>—</b></p>
-    <label class='dlab'>Motivul refuzului și consecințele explicate pacientului
-      <textarea name='motiv' id='rf_m' rows='3' maxlength='300' required
-        placeholder='Ex.: pacientul refuză extracția; i s-au explicat riscul de infecție și pierderea dinților vecini'></textarea></label>
-    <p class='hint' style='margin:0'>Se consemnează în fișă și apare în Fișa
-      043/e și în acordul informat, conform art. 13 alin. (5) din Legea
-      nr. 263/2005. Foaia tipărită se semnează de pacient și de medic.</p>
-    <button>{_ic('ban')} Înregistrează refuzul</button>
-  </form>
-</dialog>"""
-
-    body = f"""{banner}
-<div class='nav'><a href='/admin/search'>{_ic('chev-l')} Pacienți</a>
-<a href='/admin/all'>{_ic('clipboard')} Programări</a></div>
-{hero}
-{kpi_html}
-<div class='pv2'>
-  <div class='pv2-main'>{teeth_card}{plan_card}{fin_card}{docs_card}{quick}</div>
-  <!-- Порядок правой колонки (Олег, 08-09, по живому экрану): ближайший визит,
-       кто это, чем опасен приём, что было. «Istoric activitate» — журнал
-       доступа по 195-му: он обязан быть виден, но наверху занимал место у
-       того, ради чего фишу открывают, и уехал вниз, к истории визитов. -->
-  <div class='pv2-side'>{next_html}{profile_card}{alerts_card}{anam_card}{act_card}{hist_card}</div>
-</div>
-{dialogs}
-<script>
-const BASE = "{base}";
-const AP_DOCS = {js_json(ap_svc_docs)};
-const AP_NAMES = {js_json(dict(eng.ACTIVE_DOCTORS))};
-const AP_PRIM = "{ap_prim}";
-const KPI = {kpi_json};
-const DOCS = {docs_json};
-let DV_ID = 0;
-let AP_SEQ = 0;
-// ---- запись прямо из фиши: пациент известен, спрашиваем только визит ----
-function openAppt() {{
-  document.getElementById('apptdlg').showModal();
-  apRefresh(1);
-}}
-function apRefresh(rebuild) {{
-  var svc = document.getElementById('ap_svc').value;
-  var sel = document.getElementById('ap_doc');
-  if (rebuild) {{
-    var keep = sel.value, list = AP_DOCS[svc] || [];
-    sel.innerHTML = '';
-    list.forEach(function (k) {{
-      var o = document.createElement('option');
-      o.value = k; o.textContent = AP_NAMES[k] || k; sel.appendChild(o);
-    }});
-    if (list.indexOf(keep) >= 0) sel.value = keep;
-    else if (list.indexOf(AP_PRIM) >= 0) sel.value = AP_PRIM;
-  }}
-  var t = document.getElementById('ap_time'), hint = document.getElementById('ap_hint');
-  var go = document.getElementById('ap_go'), d = document.getElementById('ap_date').value;
-  t.innerHTML = ''; go.disabled = true;
-  if (!sel.value) {{ hint.textContent = 'Niciun medic activ pentru acest serviciu.'; return; }}
-  hint.textContent = 'Caut orele libere…';
-  // Меняя услугу/врача/дату подряд, легко оставить два запроса в полёте. Оба
-  // писали в один список, и он склеивался из ЛЮБЫХ двух ответов независимо от
-  // порядка прихода: список с подписью «только свободные часы» показывал часы
-  // чужого дня или чужого врача. Пишет только самый свежий запрос.
-  var seq = ++AP_SEQ;
-  fetch(BASE + '/slots?date=' + encodeURIComponent(d) + '&doctor=' +
-        encodeURIComponent(sel.value) + '&service=' + encodeURIComponent(svc))
-    .then(function (r) {{ return r.json(); }})
-    .then(function (j) {{
-      if (seq !== AP_SEQ) return;
-      var s = j.slots || [];
-      t.innerHTML = '';
-      s.forEach(function (x) {{
-        var o = document.createElement('option');
-        o.value = x; o.textContent = x; t.appendChild(o);
-      }});
-      hint.textContent = s.length
-        ? s.length + ' intervale libere în această zi'
-        : 'Nicio oră liberă — alegeți altă zi sau alt medic.';
-      go.disabled = !s.length;
-    }})
-    .catch(function () {{
-      if (seq !== AP_SEQ) return;
-      hint.textContent = 'Nu am putut încărca orele libere.';
-    }});
-}}
-// ---- цифра -> список, из которого она посчитана ----
-function openKpi(k) {{
-  var p = KPI[k];
-  if (!p) return;
-  document.getElementById('kpi_t').textContent = p[0];
-  document.getElementById('kpi_b').innerHTML = p[1];
-  document.getElementById('kpidlg').showModal();
-}}
-function closeKpi() {{ document.getElementById('kpidlg').close(); }}
-function copyId(el) {{
-  if (navigator.clipboard) navigator.clipboard.writeText(el.dataset.id);
-  var was = el.textContent;
-  el.textContent = 'copiat';
-  setTimeout(function () {{ el.textContent = was; }}, 1200);
-}}
-// ---- документ открываем, а не скачиваем ----
-function openDoc(id) {{
-  var d = DOCS[id];
-  if (!d) return true;                     // нет данных — пусть сработает ссылка
-  if (d.view === 'ext') {{ sysOpen(id); return false; }}
-  DV_ID = id;
-  document.getElementById('dv_t').textContent = d.name;
-  document.getElementById('dv_dl').href = '/admin/doc/' + id;
-  document.getElementById('dv_b').innerHTML = (d.view === 'img')
-    ? '<img src="/admin/doc/' + id + '?inline=1" alt="">'
-    : '<iframe src="/admin/doc/' + id + '?inline=1"></iframe>';
-  document.getElementById('docdlg').showModal();
-  return false;
-}}
-// Word/Excel и прочее открывает Windows; облачный журнал так не умеет —
-// там честно откатываемся на скачивание
-function sysOpen(id) {{
-  fetch('/admin/doc/' + id + '/open', {{method: 'POST'}})
-    .then(function (r) {{ return r.json(); }})
-    .then(function (j) {{ if (!j.ok) location.href = '/admin/doc/' + id; }})
-    .catch(function () {{ location.href = '/admin/doc/' + id; }});
-}}
-document.getElementById('docdlg').addEventListener('close', function () {{
-  document.getElementById('dv_b').innerHTML = '';
-}});
-// какие статусы показывает вкладка — приезжает С СЕРВЕРА (tab_states), тем же
-// словарём, которым посчитаны скрытые строки при отрисовке. Раньше правило
-// жило здесь выражением «не finalizat», и появление отказа развело серверную
-// и браузерную версии одного фильтра
-const PLAN_TABS = {tabs_json};
-function planTab(btn) {{
-  document.querySelectorAll('.tabs button').forEach(function (b) {{
-    b.classList.toggle('on', b === btn);
-  }});
-  var f = btn.dataset.f;
-  document.querySelectorAll('.plan-row').forEach(function (r) {{
-    var show = f === 'all' || (PLAN_TABS[f] || []).indexOf(r.dataset.st) >= 0;
-    r.style.display = show ? '' : 'none';
-  }});
-}}
-// отказ — единственное действие плана, которому нужен ТЕКСТ: ст.13(5) требует
-// записать не только сам отказ, но и объяснённые пациенту последствия
-function openRefuz(btn) {{
-  const f = document.getElementById('refuzform');
-  f.action = {base_json} + '/plan/' + btn.dataset.id + '/status';
-  document.getElementById('rf_p').textContent = btn.dataset.p;
-  document.getElementById('rf_m').value = '';
-  document.getElementById('refuzdlg').showModal();
-  document.getElementById('rf_m').focus();
-}}
-function openNote() {{
-  var f = document.getElementById('pedit');
-  f.style.display = 'flex';
-  f.scrollIntoView({{behavior: 'smooth', block: 'center'}});
-  var t = f.querySelector('textarea[name=notes]');
-  if (t) t.focus();
-}}
-</script>"""
-    return _shell(body, f"fișa pacientului · #{pid}", active="pat")
+    # DentPilot 2.0 (C18): та же рамка, узел React с номером фиши и режимом
+    # ленты; данные и запись открытия в журнал доступа — у GET
+    # /api/patients/{pid}, который клиент зовёт сразу после монтирования.
+    # Форма зуба из куска одонтограммы по-прежнему возвращает сюда с
+    # ?msg= — плашку рисует msg_banner, как у любой React-страницы.
+    params = {"pid": str(pid), **({"views": "1"} if views == "1" else {})}
+    # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+    # подпись печатает сам экран (08.10): крошки «Pacienți › Nume»
+    return react_shell("patient_card", f"/admin/patient/{pid}",
+                       shell_model("pat", "", msg=msg, title=p["name"]),
+                       params)
 
 
-def _card_redirect(pid: int, msg: str = "") -> RedirectResponse:
-    url = f"/admin/patient/{pid}" + (f"?msg={msg}" if msg else "")
-    return RedirectResponse(url, status_code=303)
-
-
-def _erase_block(base: str, erasure: str) -> str:
-    """Свёрнутая опасная зона в фише. Свёрнутая — потому что стирание нужно
-    несколько раз в год, а стоять на виду рядом с «Editează» ему нельзя.
-    Какая ветка достанется пациенту, честно написано ДО нажатия: «удалю всё»
-    и «сотру личность, лечение останется» — разные обещания."""
-    if erasure == "delete":
-        what = ("Pacientul nu are înregistrări medicale — fișa va fi "
-                "<b>ștearsă definitiv</b>, împreună cu programările.")
-        btn = "Șterge definitiv"
-    else:
-        what = ("Pacientul are înregistrări medicale, pe care clinica e obligată "
-                "să le păstreze. Se șterg <b>datele de identitate</b> (nume, "
-                "telefon, IDNP, adresă…); tratamentul rămâne sub numărul fișei.")
-        btn = "Șterge datele personale"
-    return f"""<details style='margin-top:8px'>
-  <summary style='font-size:12px;color:var(--text3);cursor:pointer'>
-    Ștergerea datelor (Legea 195)</summary>
-  <div style='border:1px solid var(--red-t,#B91C1C);border-radius:var(--r-ctl);
-       padding:10px;margin-top:6px;font-size:12px;color:var(--text2)'>
-    <p style='margin:0 0 8px'>{what} Acțiunea este <b>ireversibilă</b>.</p>
-    <form method='post' action='{base}/erase'
-          onsubmit="return confirm('Acțiunea este ireversibilă. Continuați?')">
-      <input name='confirm' placeholder='scrieți STERG' required
-             autocomplete='off' style='width:120px;text-transform:uppercase'>
-      <button style='background:none;border:1px solid var(--red-t,#B91C1C);
-        color:var(--red-t,#B91C1C);border-radius:var(--r-ctl);height:32px;
-        padding:0 10px;cursor:pointer;font-size:12px'>{btn}</button>
-    </form>
-  </div></details>"""
-
-
-# ---- правила действий фиши: одни на старую форму (303 + ?msg=) и на JSON API ----
-# Каждая функция отвечает КОДОМ из MSG_BANNER (пустая строка — тихий успех);
-# обработчик формы превращает его в редирект, api.py — в конверт. Вынесены
-# 18.09 (C18) из обработчиков без единой переписанной проверки.
+# ---- правила действий фиши: их зовёт JSON API (api.py) ----
+# Каждая функция отвечает КОДОМ из MSG_BANNER (пустая строка — тихий успех),
+# api.py превращает его в конверт. Вынесены 18.09 (C18) из обработчиков
+# старых форм без единой переписанной проверки; формы сняты 13.10.
 
 async def _save_profile(pid: int, prev: dict, get) -> str:
     """Профиль: `get(поле)` отдаёт сырую строку формы или тела запроса."""
@@ -1036,7 +146,7 @@ async def _save_profile(pid: int, prev: dict, get) -> str:
         return "bad_idnp"
     await db.update_patient(pid, data)
     if bd_year:
-        # возраст в поиске/сетке/CSV считается по birth_year — держим в синке
+        # возраст в поиске/сетке/книге Excel считается по birth_year — держим в синке
         await db.set_birth_year(pid, bd_year)
     elif prev.get("birth_date"):
         # дату ОЧИСТИЛИ — год из неё больше не правда: несброшенный birth_year
@@ -1063,17 +173,6 @@ async def _save_profile(pid: int, prev: dict, get) -> str:
     return "ok_card"
 
 
-@router.post("/admin/patient/{pid}/save")
-async def patient_save(request: Request, pid: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    form = await request.form()
-    prev = await db.get_patient(pid)
-    if not prev:
-        return RedirectResponse("/admin/search", status_code=303)
-    return _card_redirect(pid, await _save_profile(pid, prev, lambda f: str(form.get(f) or "")))
-
-
 async def _free_slots(date_q: str, doctor: str, service: str) -> list[str]:
     """Свободные старты у врача на дату — для окна записи прямо из фиши.
     Тот же eng.free_starts, что у бота: одна правда о занятости на всех.
@@ -1089,15 +188,6 @@ async def _free_slots(date_q: str, doctor: str, service: str) -> list[str]:
         return []  # услугу этот врач не выполняет
     free = await eng.free_starts(doctor, d, eng.svc_duration(service), allowed)
     return [x.strftime("%H:%M") for x in free]
-
-
-@router.get("/admin/patient/{pid}/slots")
-async def patient_slots(request: Request, pid: int,
-                        date_q: str = Query("", alias="date"),
-                        doctor: str = "", service: str = ""):
-    if (deny := _guard(request)) is not None:
-        return deny
-    return JSONResponse({"slots": await _free_slots(date_q, doctor, service)})
 
 
 async def _appoint(pid: int, adate: str, atime: str, adoctor: str, aservice: str) -> str:
@@ -1130,43 +220,11 @@ async def _appoint(pid: int, adate: str, atime: str, adoctor: str, aservice: str
     return "ok" if isinstance(r, int) else ("dup" if r == "dup" else "conflict")
 
 
-@router.post("/admin/patient/{pid}/appoint")
-async def patient_appoint(request: Request, pid: int,
-                          adate: str = Form(...), atime: str = Form(...),
-                          adoctor: str = Form(...), aservice: str = Form(...)):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    return _card_redirect(pid, await _appoint(pid, adate, atime, adoctor, aservice))
-
-
-@router.post("/admin/patient/{pid}/archive")
-async def patient_archive(request: Request, pid: int, on: str = Form("1")):
-    """Архив = скрыть из списков; история и файлы остаются на месте."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    await db.set_archived(pid, on == "1")
-    return _card_redirect(pid, "ok_arh" if on == "1" else "ok_unarh")
-
-
 async def _add_alert(pid: int, kind: str, text: str) -> str:
     if kind not in ALERT_KINDS or not text.strip():
         return "bad_card"
     await db.add_alert(pid, kind, text.strip()[:120])
     return "ok_card"
-
-
-@router.post("/admin/patient/{pid}/alert")
-async def patient_alert_add(request: Request, pid: int,
-                            kind: str = Form(...), text: str = Form(...)):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    return _card_redirect(pid, await _add_alert(pid, kind, text))
 
 
 def _back_to_card(pid: int, back: str) -> str:
@@ -1213,25 +271,6 @@ async def _save_anamneza(pid: int, checked: set[str], fields: dict) -> str:
     return "ok_anam"
 
 
-@router.post("/admin/patient/{pid}/anamneza")
-async def patient_anamneza(request: Request, pid: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    form = await request.form()
-    return _card_redirect(pid, await _save_anamneza(
-        pid, {str(x) for x in form.getlist("fl")},
-        {k: str(form.get(k) or "") for k, *_ in ANAMNEZA_TEXTS}))
-
-
-@router.post("/admin/patient/{pid}/alert/{aid}/del")
-async def patient_alert_del(request: Request, pid: int, aid: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    return _card_redirect(pid, "" if await db.delete_alert(aid, pid) else "alert_gone")
-
-
 @router.get("/admin/patient/{pid}/odontograma", response_class=HTMLResponse)
 async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
                              msg: str = Query("")):
@@ -1247,58 +286,25 @@ async def patient_odontogram(request: Request, pid: int, t: str = Query(""),
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
-    if react_on(request, "odontogram"):
-        # DentPilot 2.0 (C21): та же рамка с узким сайдбаром, узел React с
-        # фишей и выбранным зубом; данные — GET /api/patients/{pid}/odontogram
-        params = {"pid": str(pid)}
-        if t.strip().isdecimal() and int(t) in _FDI_ALL:
-            params["t"] = t.strip()
-        # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
-        return react_shell("odontogram", f"/admin/patient/{pid}/odontograma",
-                           shell_model("pat", f"odontogramă · #{pid}",
-                                       rail=True, msg=msg, title=p["name"]),
-                           params)
-    tmap = await db.teeth_map(pid)
-    tooth_acts = await db.tooth_activity(pid)
-    # ⚠️ Врачи ВСЕ, как в фише, а не только активные: `doctor` у зуба —
-    # СНАПШОТ имени на момент записи, и если врача перевели в архив или в
-    # отпуск, его опции в списке не окажется. Тогда браузер отдаёт пустое, и
-    # правка поверхности молча стирает, кто поставил диагноз.
-    doc_opts = "".join(f"<option value='{html.escape(v)}'>{html.escape(v)}</option>"
-                       for v in eng.DOCTORS.values())
-    sel = int(t) if t.strip().isdecimal() and int(t) in _FDI_ALL else None
-    punti = await db.bridges(pid)
-    body = msg_banner(msg) + podo.page(p, tmap, tooth_acts, doc_opts,
-                                       f"/admin/patient/{pid}", sel, punti)
-    return _shell(body, f"odontogramă · #{pid}", active="pat", rail=True)
-
-
-@router.post("/admin/patient/{pid}/bridge")
-async def patient_bridge_add(request: Request, pid: int,
-                             teeth: str = Form(""), material: str = Form(""),
-                             material_alt: str = Form(""),
-                             doctor: str = Form("")):
-    """Мост (punte, 08-21, просьба пилота с готовым жестом: «selectezi 47-44
-    și meniu în care alegi punte»). `teeth` — «47:stalp,46:corp,…» одной
-    строкой: разбор по белым спискам в teeth_svg.parse_bridge, порядок и
-    правила дуги — в odontogram.bridge_norm (одна дуга, подряд, без молочных,
-    хотя бы одна опора). Материал — из пресетов формы либо свободный текст
-    («alt»): это подпись под скобкой, врач пишет туда и «metaloceramică»,
-    и марку."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    msg = await _add_bridge(pid, teeth, material, material_alt, doctor)
-    return RedirectResponse(f"/admin/patient/{pid}/odontograma?msg={msg}", status_code=303)
+    # DentPilot 2.0 (C21): та же рамка с узким сайдбаром, узел React с
+    # фишей и выбранным зубом; данные — GET /api/patients/{pid}/odontogram
+    params = {"pid": str(pid)}
+    if t.strip().isdecimal() and int(t) in _FDI_ALL:
+        params["t"] = t.strip()
+    # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
+    return react_shell("odontogram", f"/admin/patient/{pid}/odontograma",
+                       shell_model("pat", f"odontogramă · #{pid}",
+                                   rail=True, msg=msg, title=p["name"]),
+                       params)
 
 
 async def _add_bridge(pid: int, teeth, material: str, material_alt: str,
                       doctor: str) -> str:
-    """Мост — одно правило на форму и API. `teeth` — строка «47:stalp,…»
-    (форма) или список пар (JSON); обе идут через parse_bridge по белым
-    спискам, порядок и правила дуги — bridge_norm. bad_punte — набор мостом
-    быть не может; dup_punte — зуб уже в другом мосту."""
+    """Мост: `teeth` — список пар [[47, 'stalp'], …] из JSON (строкой
+    «47:stalp,…» его слала форма старой фиши; строка и сейчас то, что
+    разбирает parse_bridge по белым спискам), порядок и правила дуги —
+    bridge_norm. bad_punte — набор мостом быть не может; dup_punte — зуб уже
+    в другом мосту."""
     if not isinstance(teeth, str):
         teeth = ",".join(f"{t[0]}:{t[1]}" for t in teeth
                          if isinstance(t, (list, tuple)) and len(t) == 2)
@@ -1317,17 +323,6 @@ async def _add_bridge(pid: int, teeth, material: str, material_alt: str,
 
 async def _del_bridge(pid: int, bid: int) -> str:
     return "ok_punte_del" if await db.delete_bridge(bid, pid) else "bad"
-
-
-@router.post("/admin/patient/{pid}/bridge/{bid}/del")
-async def patient_bridge_del(request: Request, pid: int, bid: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    msg = await _del_bridge(pid, bid)
-    return RedirectResponse(f"/admin/patient/{pid}/odontograma?msg={msg}",
-                            status_code=303)
 
 
 # ---------- пародонтограмма ----------
@@ -1362,8 +357,8 @@ def _exam_id(value) -> int | None:
 
     ⛔ Не просто `isdecimal`: число больше 2^63−1 драйвер SQLite принять не
     может и бросает OverflowError уже внутри `db`. Маршрут отвечал бы голым
-    500 «Internal Server Error» вместо конверта с отказом, а старая форма —
-    страницей ошибки вместо «осмотр не найден» (нашло ревью C23 18.09).
+    500 «Internal Server Error» вместо конверта с отказом «осмотр не
+    найден» (нашло ревью C23 18.09).
     """
     v = str(value).strip()
     if not v.isdecimal() or len(v) > 19:
@@ -1396,8 +391,8 @@ def _perio_doctor(value: str | None, current: str = "") -> str | None:
 async def _save_perio(pid: int, exam: str, parsed: list, covers: set,
                       doctor: str | None, note: str | None,
                       rev: str = "") -> str:
-    """Записать измерения осмотра. Правила одни на форму и на JSON API.
-    `doctor` приходит СЫРЫМ (как его показала форма) — сверяет со справочником
+    """Записать измерения осмотра (зовёт `POST /api/patients/{pid}/perio/{eid}`).
+    `doctor` приходит СЫРЫМ (как его прислал экран) — сверяет со справочником
     и с прежней подписью `_perio_doctor`, ему для этого нужен сам осмотр.
 
     ⛔ `covers` — зубы, О КОТОРЫХ экран сообщает: те, что на нём тронули.
@@ -1446,98 +441,18 @@ async def patient_perio(request: Request, pid: int, exam: str = Query(""),
     p = await db.get_patient(pid)
     if not p:
         return RedirectResponse("/admin/search", status_code=303)
-    if react_on(request, "perio"):
-        # DentPilot 2.0 (C23): та же рамка с узким сайдбаром, узел React с
-        # фишей и выбранным осмотром; данные — GET /api/patients/{pid}/perio.
-        # ⚠️ Проверка id осмотра остаётся серверной (`_perio_ctx`): сюда едет
-        # только то, что пришло в адресе, а чужой номер клиент и не увидит.
-        params = {"pid": str(pid)}
-        if exam.strip().isdecimal():
-            params["exam"] = exam.strip()
-        # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
-        return react_shell("perio", f"/admin/patient/{pid}/parodontograma",
-                           shell_model("pat", f"parodontogramă · #{pid}",
-                                       rail=True, msg=msg, title=p["name"]),
-                           params)
-    base = f"/admin/patient/{pid}"
-    exams, cur = await _perio_ctx(pid, exam)
-    if cur is None:
-        body = msg_banner(msg) + f"""<div class='perio'>
-<div class='odop-top'>
-  <a class='odop-back' href='{base}'>{_ic('pat')} {html.escape(p['name'])}</a>
-  <h2>Parodontogramă <small>· 6 puncte pe dinte</small></h2>
-</div>
-<div class='fcard pempty'>
-  <p>Pentru acest pacient nu există încă niciun examen parodontal.</p>
-  <form method='post' action='{base}/perio/new'>
-    <button class='pl-btn primary'>{_ic('plus')} Începe primul examen</button>
-  </form>
-</div></div>"""
-        return _shell(body, f"parodontogramă · #{pid}", active="pat", rail=True)
-    rows = await db.perio_rows(cur["id"])
-    tmap = await db.teeth_map(pid)
-    # врачи ВСЕ, как в фише: `doctor` осмотра — снапшот имени, и врача могли
-    # отправить в архив уже после измерений
-    doc_opts = "".join(f"<option value='{html.escape(v)}'>{html.escape(v)}</option>"
-                       for v in eng.DOCTORS.values())
-    body = msg_banner(msg) + pperio.page(p, cur, exams, rows,
-                                         _perio_absent(tmap), doc_opts, base)
-    return _shell(body, f"parodontogramă · #{pid}", active="pat", rail=True)
-
-
-@router.post("/admin/patient/{pid}/perio/new")
-async def patient_perio_new(request: Request, pid: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    eid = await db.perio_new(pid)
-    return RedirectResponse(
-        f"/admin/patient/{pid}/parodontograma?exam={eid}&msg=ok_perio_new",
-        status_code=303)
-
-
-@router.post("/admin/patient/{pid}/perio")
-async def patient_perio_save(request: Request, pid: int,
-                             exam: str = Form(""), chart: str = Form(""),
-                             covers: str = Form(""), rev: str = Form(""),
-                             doctor: str | None = Form(None),
-                             note: str | None = Form(None)):
-    """Сохранить измерения осмотра.
-
-    ⛔ `covers` — зубы, о которых форма СООБЩАЕТ: те, что на ней тронули (лист
-    называет их сам, сравнивая себя со слепком при загрузке). Стираются только
-    они: пустой зуб, названный в `covers`, значит «измерений больше нет», зуб
-    вне `covers` — «не трогали», и это разные вещи (08-16, две потери данных
-    ровно на этом различии; 18.09 — потеря чужого зуба при двух местах).
-    ⚠️ Поля `covers` нет вовсе — не стирается ничего: так ведёт себя лист без
-    JS, и это правильный отказ в сторону сохранности.
-    ⚠️ Врач принимается только из справочника: в осмотре он снапшот ЛЕЧАЩЕГО,
-    а вошедшая учётка (нередко «Director») была бы там враньём.
-    """
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    back = f"/admin/patient/{pid}/parodontograma"
-    seen = {int(x) for x in re.findall(r"\d+", covers)} & set(pperio.PERIO_TEETH)
-    code = await _save_perio(pid, exam, tsvg.parse_perio(chart), seen,
-                             doctor, note, rev)
-    if not code.startswith("ok"):
-        return RedirectResponse(f"{back}?msg={code}", status_code=303)
-    return RedirectResponse(f"{back}?exam={exam.strip()}&msg={code}",
-                            status_code=303)
-
-
-@router.post("/admin/patient/{pid}/perio/{eid}/del")
-async def patient_perio_del(request: Request, pid: int, eid: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    msg = await _perio_del(pid, eid)
-    return RedirectResponse(f"/admin/patient/{pid}/parodontograma?msg={msg}",
-                            status_code=303)
+    # DentPilot 2.0 (C23): та же рамка с узким сайдбаром, узел React с
+    # фишей и выбранным осмотром; данные — GET /api/patients/{pid}/perio.
+    # ⚠️ Проверка id осмотра остаётся серверной (`_perio_ctx`): сюда едет
+    # только то, что пришло в адресе, а чужой номер клиент и не увидит.
+    params = {"pid": str(pid)}
+    if exam.strip().isdecimal():
+        params["exam"] = exam.strip()
+    # ⭐ B1: оболочку рисует React; узкий сайдбар — поле модели.
+    return react_shell("perio", f"/admin/patient/{pid}/parodontograma",
+                       shell_model("pat", f"parodontogramă · #{pid}",
+                                   rail=True, msg=msg, title=p["name"]),
+                       params)
 
 
 @router.get("/admin/patient/{pid}/parodontograma/print",
@@ -1563,63 +478,6 @@ async def patient_perio_print(request: Request, pid: int,
     return pperio.print_sheet(p, cur, rows)
 
 
-@router.post("/admin/patient/{pid}/tooth")
-async def patient_tooth(request: Request, pid: int, tooth: int = Form(...),
-                        state: str = Form(...), note: str = Form(""),
-                        doctor: str = Form(""), back: str = Form("")):
-    """⚠️ `back` — ТОЛЬКО выбор из двух известных экранов, а не адрес: принять
-    сюда чужую строку значит завести открытый редирект на маршруте, который
-    вызывается формой из браузера."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-
-    def done(msg: str) -> RedirectResponse:
-        if back == "odontograma":
-            return RedirectResponse(
-                f"/admin/patient/{pid}/odontograma?t={tooth}&msg={msg}",
-                status_code=303)
-        return _card_redirect(pid, msg)
-
-    form = await request.form()
-    # ⚠️ Совместимость с вкладкой, открытой ДО 08-17: там «tratament» ещё было
-    # значением списка состояний. Отказать ей («bad_card») значило бы потерять
-    # ввод врача на ровном месте; принять как есть нельзя — состояния с таким
-    # именем больше нет. Переводим в отметку — ровно то же, что сделала
-    # миграция 5 с уже записанными зубами.
-    legacy_mark = state == "tratament"
-    if legacy_mark:
-        state = "ok"
-    # ⚠️ Сюда шлют ДВЕ формы, и знают они РАЗНОЕ: диалог фиши — буквы флажками
-    # (`sf`), инспектор детальной страницы — карту состояний (`sfst`), букв у
-    # него нет вовсе. Поэтому «поля нет» ≠ «пусто»: пустой список от инспектора,
-    # принятый за «врач снял все галочки», стирал бы колонку surfaces, которую
-    # печатает 043/e. Не сообщённое едет как None — что с ним делать, знает
-    # db.set_tooth, там же, где согласуются все три колонки.
-    packed = form.get("sfst")
-    sf = None if packed is not None else _sf_letters(form.getlist("sf"))
-    sfmap = _sf_map(packed) if packed is not None else None
-    # ⚠️ Диалог фиши сообщает состояние, КАК ЕГО ПОКАЗАЛ (`state0`): по нему
-    # db отличает «врач сменил состояние» от «врач его не трогал». Признак —
-    # факт формы, а не догадка по базе. Белый список тот же, что у `state`;
-    # поля нет (старая вкладка) → None, и db ведёт себя как раньше.
-    st0 = form.get("state0")
-    if st0 == "tratament":      # та же вкладка из-до 08-17, см. legacy_mark
-        st0 = "ok"
-    # ⚠️ Отметки — тот же приём, но по другой причине: СНЯТАЯ галочка не шлёт
-    # ничего, и «поля нет» само по себе не отличает «сняли» от «форма не
-    # знает». Поэтому форма сообщает о факте отдельным полем `mk0`; без него
-    # сохранение из старой вкладки снимало бы «în tratament» молча.
-    marks = None
-    if form.get("mk0") is not None:
-        marks = [str(x) for x in form.getlist("mk")]
-    if legacy_mark:
-        marks = list(marks or []) + ["tratament"]
-    return done(await _save_tooth(pid, tooth, state, note, doctor, sf=sf, sfmap=sfmap,
-                                  state0=str(st0) if st0 is not None else None, marks=marks))
-
-
 def _sf_letters(raw) -> str:
     """Буквы поверхностей из списка или строки — только известные и в
     каноническом порядке MODVL: «OM» и «MO» это одно и то же, а в карте и на
@@ -1629,15 +487,14 @@ def _sf_letters(raw) -> str:
     return "".join(k for k in TOOTH_SURFACES if k in got)
 
 
-def _sf_map(raw) -> dict:
-    """Карта {поверхность: состояние} из строки «M:carie,O:obturatie» (форма)
-    или словаря (JSON) — по белым спискам: буквы из TOOTH_SURFACES, состояния
-    из tsvg.SURFACE_STATES. Одно место разбора на обе формы и API: пять
-    отдельных полей дали бы пять мест, где проверку можно забыть."""
-    pairs = (raw.items() if isinstance(raw, dict)
-             else (part.partition(":")[::2] for part in str(raw).split(",")))
+def _sf_map(raw: dict) -> dict:
+    """Карта {поверхность: состояние} из словаря тела запроса — по белым
+    спискам: буквы из TOOTH_SURFACES, состояния из tsvg.SURFACE_STATES. Одно
+    место разбора: пять отдельных полей дали бы пять мест, где проверку можно
+    забыть. (Строку «M:carie,O:obturatie» слала форма старой фиши, снятая
+    13.10.)"""
     out = {}
-    for k, v in pairs:
+    for k, v in raw.items():
         k, v = str(k).strip().upper(), str(v).strip()
         if k in TOOTH_SURFACES and v in tsvg.SURFACE_STATES:
             out[k] = v
@@ -1647,11 +504,12 @@ def _sf_map(raw) -> dict:
 async def _save_tooth(pid: int, tooth: int, state: str, note: str, doctor: str, *,
                       sf: str | None, sfmap: dict | None, state0: str | None,
                       marks: list | None) -> str:
-    """Запись зуба — одна на диалог фиши, инспектор детальной страницы и JSON
-    API. `sf`/`sfmap`/`marks` = None означает «форма не сообщала», а не
-    «пусто» (прайор 08-16, две потери данных); `state0` — состояние, как его
-    показала форма. Врач — только из справочника: свободный текст тут —
-    будущий «Иванов»/«Иванова» в истории зуба."""
+    """Запись зуба (зовёт `POST /api/patients/{pid}/teeth/{n}`; до 13.10 — и
+    диалог старой фиши с инспектором детальной страницы). `sf`/`sfmap`/`marks`
+    = None означает «экран не сообщал», а не «пусто» (прайор 08-16, две потери
+    данных); `state0` — состояние, как его показал экран. Врач — только из
+    справочника: свободный текст тут — будущий «Иванов»/«Иванова» в истории
+    зуба."""
     if tooth not in _FDI_ALL or state not in TOOTH_STATES:
         return "bad_card"
     doc = doctor.strip() if doctor.strip() in set(eng.DOCTORS.values()) else ""
@@ -1682,17 +540,6 @@ async def _add_plan(pid: int, tooth: str, procedure: str, doctor: str,
     return "ok_card"
 
 
-@router.post("/admin/patient/{pid}/plan")
-async def patient_plan_add(request: Request, pid: int, tooth: str = Form(""),
-                           procedure: str = Form(...), doctor: str = Form(""),
-                           price: str = Form(""), due_date: str = Form("")):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    return _card_redirect(pid, await _add_plan(pid, tooth, procedure, doctor, price, due_date))
-
-
 async def _add_pay(pid: int, amount: str, method: str, note: str) -> str:
     """Платёж записывает ЛЮБАЯ роль: деньги физически берёт рецепция (решение
     Олега 08-07). Минус — возврат. Удаление — только директор."""
@@ -1704,23 +551,6 @@ async def _add_pay(pid: int, amount: str, method: str, note: str) -> str:
         return "bad_pay"
     await db.add_payment(pid, amt, method, note.strip()[:120])
     return "ok_pay"
-
-
-@router.post("/admin/patient/{pid}/pay")
-async def patient_pay(request: Request, pid: int, amount: str = Form(...),
-                      method: str = Form("numerar"), note: str = Form("")):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    return _card_redirect(pid, await _add_pay(pid, amount, method, note))
-
-
-@router.post("/admin/patient/{pid}/pay/{pay_id}/del")
-async def patient_pay_del(request: Request, pid: int, pay_id: int):
-    if (deny := require(request, PERM_MONEY)) is not None:
-        return deny
-    return _card_redirect(pid, "pay_del" if await db.delete_payment(pay_id, pid) else "pay_gone")
 
 
 async def _plan_status(pid: int, item_id: int, to: str, motiv: str) -> str:
@@ -1741,14 +571,6 @@ async def _plan_status(pid: int, item_id: int, to: str, motiv: str) -> str:
     return "ok_refuz" if to == "refuzat" else ""
 
 
-@router.post("/admin/patient/{pid}/plan/{item_id}/status")
-async def patient_plan_status(request: Request, pid: int, item_id: int,
-                              to: str = Form(...), motiv: str = Form("")):
-    if (deny := _guard(request)) is not None:
-        return deny
-    return _card_redirect(pid, await _plan_status(pid, item_id, to, motiv))
-
-
 async def _plan_del(pid: int, item_id: int) -> str:
     """Удалить можно ТОЛЬКО нетронутую позицию.
 
@@ -1765,13 +587,6 @@ async def _plan_del(pid: int, item_id: int) -> str:
     if cur != "planificat":
         return "bad_pdel"
     return "" if await db.delete_plan_item(item_id, pid) else "plan_gone"
-
-
-@router.post("/admin/patient/{pid}/plan/{item_id}/del")
-async def patient_plan_del(request: Request, pid: int, item_id: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    return _card_redirect(pid, await _plan_del(pid, item_id))
 
 
 async def _store_doc(pid: int, file: UploadFile, category: str) -> str:
@@ -1828,16 +643,6 @@ async def _store_bytes(pid: int, filename: str, data: bytes, mime: str,
         return "bad_doc"
     await db.add_document(pid, name, str(stored), len(data), mime, category)
     return "ok_doc"
-
-
-@router.post("/admin/patient/{pid}/doc")
-async def patient_doc_upload(request: Request, pid: int, file: UploadFile = File(...),
-                             category: str = Form("alt")):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    return _card_redirect(pid, await _store_doc(pid, file, category))
 
 
 # Что отдавать inline (растр) и что смотреть своим просмотрщиком (PDF) —
@@ -1977,14 +782,6 @@ async def _open_doc(request: Request, doc_id: int) -> str:
     return ""
 
 
-@router.post("/admin/doc/{doc_id}/open")
-async def patient_doc_open(request: Request, doc_id: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    err = await _open_doc(request, doc_id)
-    return JSONResponse({"ok": True} if not err else {"ok": False, "err": err})
-
-
 async def _erase(pid: int, confirm: str) -> str:
     """Право на стирание. Ветку выбирает НЕ рецепция, а состояние фиши
     (db.erasure_kind): физическое удаление доступно только контакту без
@@ -2013,18 +810,6 @@ async def _erase(pid: int, confirm: str) -> str:
     # видно, что стирание состоялось и когда
     await db.log_event(pid, "erase", "Date personale șterse (anonimizare)")
     return "ok_anon"
-
-
-@router.post("/admin/patient/{pid}/erase")
-async def patient_erase(request: Request, pid: int, confirm: str = Form("")):
-    if (deny := _guard(request)) is not None:
-        return deny
-    if not (await db.get_patient(pid)):
-        return RedirectResponse("/admin/search", status_code=303)
-    code = await _erase(pid, confirm)
-    if code == "ok_del":
-        return RedirectResponse("/admin/search?msg=ok_del", status_code=303)
-    return _card_redirect(pid, code)
 
 
 def _doc_lang(p: dict, lang: str) -> str:
@@ -2085,7 +870,7 @@ async def patient_plan_acord(request: Request, pid: int, lang: str = "",
 
 # ---------- дневник визита (consultația) ----------
 
-# ---- дневник визита: контекст и правило сохранения, одни на страницу и API (C19) ----
+# ---- дневник визита: контекст и правило сохранения (C19; зовёт api.py) ----
 
 async def _visit_ctx(appt_id: int):
     """(визит, запись приёма, позиции плана пациента) или None — визита нет,
@@ -2144,31 +929,13 @@ async def visit_page(request: Request, appt_id: int, back: str = "",
         return RedirectResponse("/admin", status_code=303)
     a, rec, items = ctx
     back = _visit_back(back, a["patient_id"])
-    if react_on(request, "visit"):
-        # DentPilot 2.0 (C19): та же рамка, узел React с номером визита и
-        # адресом возврата; данные — у GET /api/visits/{aid}
-        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
-        return react_shell("visit", f"/admin/visit/{appt_id}",
-                           shell_model("pat", f"consultație · vizita #{appt_id}", msg=msg,
-                                       title=a.get("name") or ""),
-                           {"aid": str(appt_id), "back": back})
-    return HTMLResponse(pvisit.page(a, rec, items, back, msg))
-
-
-@router.post("/admin/visit/{appt_id}")
-async def visit_save(request: Request, appt_id: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    ctx = await _visit_ctx(appt_id)
-    if ctx is None:
-        return RedirectResponse("/admin", status_code=303)
-    a = ctx[0]
-    form = await request.form()
-    back = _visit_back(str(form.get("back") or ""), a["patient_id"])
-    dest = f"/admin/visit/{appt_id}?back={urllib.parse.quote(back)}"
-    code = await _save_visit(appt_id, a, {k: form.get(k) for k in db.VISIT_FIELDS},
-                             form.getlist("done"))
-    return RedirectResponse(dest + f"&msg={code}", status_code=303)
+    # DentPilot 2.0 (C19): та же рамка, узел React с номером визита и
+    # адресом возврата; данные — у GET /api/visits/{aid}
+    # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+    return react_shell("visit", f"/admin/visit/{appt_id}",
+                       shell_model("pat", f"consultație · vizita #{appt_id}", msg=msg,
+                                   title=a.get("name") or ""),
+                       {"aid": str(appt_id), "back": back})
 
 
 @router.get("/admin/patient/{pid}/fisa043", response_class=HTMLResponse)
@@ -2223,7 +990,7 @@ async def patient_export(request: Request, pid: int):
     except OSError as ex:                       # нет места, файл занят антивирусом
         log.warning("export pid=%s: %r", pid, ex)
         shutil.rmtree(tmp, ignore_errors=True)
-        return _card_redirect(pid, "bad_export")
+        return RedirectResponse(f"/admin/patient/{pid}?msg=bad_export", status_code=303)
     if data is None:
         shutil.rmtree(tmp, ignore_errors=True)
         return RedirectResponse("/admin/search", status_code=303)
@@ -2244,33 +1011,26 @@ async def _drop_doc(pid: int, doc_id: int) -> bool:
     return await db.delete_document(doc_id, pid)
 
 
-@router.post("/admin/patient/{pid}/doc/{doc_id}/del")
-async def patient_doc_del(request: Request, pid: int, doc_id: int):
-    if (deny := _guard(request)) is not None:
-        return deny
-    return _card_redirect(pid, "" if await _drop_doc(pid, doc_id) else "doc_gone")
-
-
 # ---------- раздел «Pacienți»: список клиники (макет Олега 08-06) ----------
 #
-# Раньше страница была поиском: пустой запрос показывал 20 последних, а по
-# запросу разворачивал КАЖДОМУ найденному всю историю визитов — двадцать
-# таблиц на экране. Теперь это рабочий список (фильтры, страницы, боковой
-# предпросмотр), а история осталась там, где ей место: в фише.
+# Экран — React (`GET /api/patients`): отбор, порядок и страницу считает база
+# (`db.patients_rows`). Здесь — общее у экрана и книги `.xlsx`: словари
+# статусов и каналов, разбор запроса, отбор словарём, подписи карточек.
+# ⭐ До 13.10 правило отбора жило ДВАЖДЫ — Python старой страницы и SQL API
+# (паритет держал набор). Старая страница снята, а с ней и копия: книга Excel
+# берёт ту же выборку, что экран, и разойтись им негде.
 
 _PL_PER = (10, 20, 50)
 
+_PL_SORTS = ("last", "name", "new", "debt")
 
 _PL_INACTIVE_DAYS = 365
-
-
-_PL_NEVER = datetime(1900, 1, 1, tzinfo=eng.TZ)   # «никогда не был» при сортировке
 
 
 # Статуса пациента в базе НЕТ — он выводится из того, что уже есть: архив,
 # медицинские предупреждения, незакрытый план, давность последнего визита.
 # Порядок словаря = приоритет бейджа: первым показываем то, ради чего список
-# вообще открывают. Фильтр по статусу, наоборот, ВКЛЮЧАЮЩИЙ (см. _pl_has_status):
+# вообще открывают. Фильтр по статусу, наоборот, ВКЛЮЧАЮЩИЙ (`db._PlQuery`):
 # пациент с аллергией и незакрытым планом обязан находиться под обоими, хотя
 # бейдж у него один.
 _PL_BADGE = {
@@ -2308,32 +1068,13 @@ def _pl_stale(p: dict, now: datetime) -> bool:
     return last is None or (now - last).days > _PL_INACTIVE_DAYS
 
 
-def _pl_has_status(p: dict, st: str, now: datetime) -> bool:
-    """Фильтр по статусу — включающий, а не «тот же приоритет, что у бейджа»."""
-    if st == "arhivat":
-        return bool(p.get("archived"))
-    if st == "atentie":
-        return bool(p["n_alerts"])
-    if st == "tratament":
-        return bool(p["n_plan"])
-    if st == "inactiv":
-        return _pl_stale(p, now)
-    if st == "activ":
-        return not _pl_stale(p, now)
-    return True
-
-
 def _pl_digits(s) -> str:
     return "".join(ch for ch in (s or "") if ch.isdigit())
 
 
-# метка безтелефонного в списке — иконкой, не прочерком (см. tel_row в фише)
-_PL_NOTEL = f"<span class='pl-notel' title='Fără telefon'>{_ic('phone-off')}</span>"
-
-
 def _pl_terms(q: str) -> dict:
-    """Что именно ищется по строке запроса — куски для `_pl_match_q` (старая
-    страница, в Python) и для `db.patients_rows` (API, в SQL): имя, e-mail и
+    """Что именно ищется по строке запроса — куски для `db.patients_rows`
+    (отбор пишется на SQL, `db._PlQuery`): имя, e-mail и
     номер дела без учёта диакритики (от двух знаков), дата рождения как её
     диктуют на стойке (01.01.2003, принимаем и без ведущих нулей — 1.1.2003),
     цифры телефона от трёх ('069 12' и '069-12' обязаны искать одинаково;
@@ -2359,55 +1100,25 @@ def _pl_stale_cut(now: datetime) -> datetime:
     return now - timedelta(days=_PL_INACTIVE_DAYS + 1)
 
 
-def _pl_match_q(p: dict, q: str) -> bool:
-    """Подходит ли строка под запрос — по кускам `_pl_terms`."""
-    t = _pl_terms(q)
-    qf = t.get("fold")
-    if qf and (qf in db.fold(p["name"]) or qf in db.fold(p["email"])
-               or qf in db.fold(p.get("file_no"))):
-        return True
-    # Сравнение через str()[:10]: SQLite отдаёт birth_date строкой, PG — датой,
-    # а голое == с датой молча не совпало бы никогда (класс болезни db._DT_COLS).
-    if t.get("birth") and str(p.get("birth_date") or "")[:10] == t["birth"]:
-        return True
-    digits = t.get("digits")
-    if not digits:
-        return False
-    if digits in _pl_digits(p["phone"]):
-        return True
-    # Номер ВТОРОГО человека на семейном телефоне живёт в notes (решение
-    # 08-18: у мужа номер в phone, у жены — в заметке, иначе запись из журнала
-    # уедет не тому). ⚠️ РАЗДЕЛЬНО от телефона, не общей строкой: на стыке
-    # «конец телефона + начало заметки» находились бы номера, которых нет.
-    return digits in _pl_digits(p.get("notes"))
-
-
-def _pl_doc(p: dict) -> str:
-    """Врач в строке списка. Выведенный из последнего визита — приглушённо и с
-    подсказкой: иначе он читается как «медик курант», которого никто не ставил."""
-    if not p["doctor"]:
-        return "—"
-    name = html.escape(p["doctor"])
-    if p["doctor_own"]:
-        return name
-    return (f"<span class='dim' title='Medicul ultimei vizite — în fișă nu este "
-            f"setat un medic curant'>{name}</span>")
+def _pl_select(now: datetime, q: str, med: str, st: str, ch: str, dat: str) -> dict:
+    """Отбор списка словарём для `db.patients_rows` — один на экран (`GET
+    /api/patients`) и на книгу `.xlsx`: кто виден в списке, тот и уезжает в
+    Excel. Неизвестные st/ch/dat откатываются к «все». Архивные скрыты, пока
+    их не спросили явно — поиском или фильтром: фишу с историей лечения
+    нельзя терять, её именно прячут."""
+    q = q.strip()[:60]
+    st = st if st in _PL_BADGE else ""
+    ch = ch if ch in _PL_CANAL else ""
+    dat = dat if dat in ("da", "avans") else ""
+    return {"q": q, "terms": _pl_terms(q), "med": med, "st": st, "ch": ch, "dat": dat,
+            "show_archived": bool(q) or st == "arhivat",
+            "stale_cut": _pl_stale_cut(now), "now": now}
 
 
 def _pl_money(n: int) -> str:
     """2550 → «2 550». Разделитель тысяч — просьба Олега: без него четырёх- и
     пятизначные суммы читаются с запинкой."""
     return f"{n:,}".replace(",", " ")
-
-
-def _pl_sold(debt: int) -> str:
-    """Ячейка «Sold»: долг красным, аванс зелёным, рассчитавшийся — прочерком.
-    Бейджи те же, что у статуса (bad/act) — своих классов не заводим."""
-    if not debt:
-        return "<span class='dim'>—</span>"
-    if debt > 0:
-        return f"<span class='pl-badge bad'>{_pl_money(debt)} MDL</span>"
-    return f"<span class='pl-badge act'>avans {_pl_money(-debt)}</span>"
 
 
 def _pl_dmy(v) -> str:
@@ -2420,75 +1131,6 @@ def _pl_dmy(v) -> str:
         return date.fromisoformat(str(v)[:10]).strftime("%d.%m.%Y")
     except ValueError:
         return "—"
-
-
-async def _pl_rows(now: datetime) -> list[dict]:
-    """Все пациенты клиники со сведёнными агрегатами. Шесть запросов на
-    страницу — независимо от того, десять в списке строк или тысяча."""
-    people = await db.all_patients(include_archived=True)
-    vis = {r["patient_id"]: r for r in await db.patients_visits(now)}
-    alerts = {r["patient_id"]: r["n"] for r in await db.patients_alert_counts()}
-    plans = {r["patient_id"]: r["n"] for r in await db.patients_plan_counts()}
-    docs = {r["patient_id"]: r["doctor"] for r in await db.patients_last_doctor()}
-    debts = await db.patients_debt()
-    out = []
-    for p in people:
-        v = vis.get(p["id"]) or {}
-        row = dict(p)
-        row.update({"last_at": v.get("last_at"), "next_at": v.get("next_at"),
-                    "n_visits": v.get("n_visits") or 0,
-                    "n_alerts": alerts.get(p["id"], 0),
-                    "n_plan": plans.get(p["id"], 0),
-                    # долг = финализированный план − оплачено, минус = аванс.
-                    # Та же формула, что в фише, и считается там же (db), чтобы
-                    # список и карточка не разошлись в цифре
-                    "debt": debts.get(p["id"], 0)})
-        # «Medic» = врач из фиши, а если его не проставили — тот, кто вёл
-        # последний визит. doctor_own отличает одно от другого: выведенного
-        # врача показываем приглушённо, чтобы он не читался как назначение.
-        row["doctor"] = p["primary_doctor"] or docs.get(p["id"], "")
-        row["doctor_own"] = bool(p["primary_doctor"])
-        row["status"] = _pl_status(row, now)
-        out.append(row)
-    return out
-
-
-def _pl_filter(rows: list[dict], now: datetime, q: str, med: str, st: str,
-               ch: str, sort: str, dat: str = "") -> list[dict]:
-    """Отбор и порядок. Архивные скрыты, пока их не спросили явно — поиском
-    или фильтром: фишу с историей лечения нельзя терять, её именно прячут."""
-    out = []
-    for p in rows:
-        if p["archived"] and not q and st != "arhivat":
-            continue
-        if q and not _pl_match_q(p, q):
-            continue
-        if med == "-" and p["doctor"]:
-            continue
-        if med and med != "-" and p["doctor"] != med:
-            continue
-        if st and not _pl_has_status(p, st, now):
-            continue
-        if ch and _pl_canal(p) != ch:
-            continue
-        # «Datorie» — только должники, «Avans» — только переплатившие. Ноль не
-        # попадает ни туда, ни туда: рассчитавшийся пациент не должен всплывать
-        # в списке, который регистратура открывает, чтобы кому-то позвонить.
-        if dat == "da" and p["debt"] <= 0:
-            continue
-        if dat == "avans" and p["debt"] >= 0:
-            continue
-        out.append(p)
-    if sort == "name":
-        out.sort(key=lambda p: db.fold(p["name"]))
-    elif sort == "new":
-        out.sort(key=lambda p: p["created_at"], reverse=True)
-    elif sort == "debt":    # самый крупный долг сверху, авансы в самом конце
-        out.sort(key=lambda p: p["debt"], reverse=True)
-    else:   # по последнему визиту, кто ещё не был — в конце
-        out.sort(key=lambda p: (p["last_at"] is not None, p["last_at"] or _PL_NEVER),
-                 reverse=True)
-    return out
 
 
 def _pl_new_foot(n_new: int) -> str:
@@ -2516,345 +1158,29 @@ async def admin_search(request: Request, q: str = "", med: str = "", st: str = "
                        per: int = 20, msg: str = "", dat: str = ""):
     if (deny := _guard(request)) is not None:
         return deny
-    if react_on(request, "patients_search"):
-        # React-экран (флаг в clinic.json): отбор из адреса уезжает
-        # параметрами узла, чтобы ссылки «?q=телефон» из фиши и журнала
-        # открывали тот же список; старая разметка ниже — по ?ui=legacy
-        params = {k: v for k, v in (("q", q.strip()[:60]), ("med", med),
-                                    ("st", st), ("ch", ch), ("dat", dat)) if v}
-        if sort != "last":
-            params["sort"] = sort
-        if page != 1:
-            params["page"] = str(page)
-        if per != 20:
-            params["per"] = str(per)
-        # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
-        # подпись печатает сам экран (08.10): «12 afișați din 19 · +9 luna
-        # aceasta» — числа списка, а не описание раздела
-        return react_shell("patients_search", request.url.path,
-                           shell_model("pat", "", msg=msg),
-                           params or None)
-    e = html.escape
-    q = q.strip()[:60]
-    sort = sort if sort in ("last", "name", "new", "debt") else "last"
-    dat = dat if dat in ("da", "avans") else ""
-    per = per if per in _PL_PER else 20
-    now = datetime.now(eng.TZ)
-
-    everyone = await _pl_rows(now)
-    rows = _pl_filter(everyone, now, q, med, st, ch, sort, dat)
-
-    # ---- три числа над списком (карточки макета; денежной среди них нет) ----
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    prev_start = (month_start - timedelta(days=1)).replace(day=1)
-    next_start = (month_start + timedelta(days=32)).replace(day=1)
-    appts = [r for r in await db.day_appointments(prev_start, next_start)
-             if r["source"] != "note" and r["status"] != "cancelled"]
-    n_appt = sum(1 for r in appts if r["starts_at"] >= month_start)
-    n_appt_prev = len(appts) - n_appt
-    n_total = sum(1 for p in everyone if not p["archived"])
-    n_arh = sum(1 for p in everyone if p["archived"])
-    n_new = sum(1 for p in everyone if p["created_at"] >= month_start)
-    n_new_prev = sum(1 for p in everyone if prev_start <= p["created_at"] < month_start)
-
-    def tile(ico: str, tone: str, val, label: str, foot: str, href: str = "") -> str:
-        inner = (f"<span class='ico {tone}'>{ico}</span><div class='pl-tv'>"
-                 f"<span>{label}</span><b>{val}</b><small>{foot}</small></div>")
-        return (f"<a class='pl-tile' href='{href}'>{inner}</a>" if href
-                else f"<div class='pl-tile'>{inner}</div>")
-
-    tiles = ("<div class='pl-tiles'>"
-             + tile(_ic("users"), "g", f"{n_total:,}".replace(",", " "), "Total pacienți",
-                    _pl_new_foot(n_new))
-             + tile(_ic("med"), "b", n_new, "Pacienți noi (luna aceasta)",
-                    _pl_trend(n_new, n_new_prev))
-             + tile(_ic("cal"), "v", n_appt, "Programări (luna aceasta)",
-                    _pl_trend(n_appt, n_appt_prev), href="/admin/stats")
-             + "</div>")
-
-    # ---- фильтры ----
-    doc_names = sorted(set(eng.DOCTORS.values())
-                       | {p["doctor"] for p in everyone if p["doctor"]})
-
-    def opts(items, cur: str, zero: str) -> str:
-        out = [f"<option value=''>{zero}</option>"]
-        for val, label in items:
-            sel = " selected" if val == cur else ""
-            out.append(f"<option value='{e(val)}'{sel}>{e(label)}</option>")
-        return "".join(out)
-
-    base = {"q": q, "med": med, "st": st, "ch": ch, "sort": sort, "per": per,
-            "dat": dat}
-
-    def url(**over) -> str:
-        d = {k: v for k, v in {**base, **over}.items()
-             if v not in ("", None, 0) and (k, v) != ("sort", "last")
-             and (k, v) != ("per", 20)}
-        qs = urllib.parse.urlencode(d)
-        # адрес уходит прямо в href: '&' между параметрами обязан быть '&amp;',
-        # иначе браузер вправе прочитать хвост как имя сущности
-        return "/admin/search" + (f"?{qs.replace('&', '&amp;')}" if qs else "")
-
-    dirty = any([q, med, st, ch, dat]) or sort != "last" or per != 20
-    reset = (f"<a class='pl-btn' href='/admin/search' title='Scoate toate filtrele'>"
-             f"{_ic('close')} Resetează</a>" if dirty else "")
-    xlsx_url = "/admin/patients.xlsx" + url()[len("/admin/search"):]
-    # Telegram заморожен (08-08), и опция канала здесь идёт ПО ДАННЫМ, а не по
-    # tg_configured(): у канарейки-демо токен настроен (grandfather), но
-    # пациентов из бота нет — и «Telegram» в фильтре продавал бы замороженный
-    # канал на каждом показе программы (08-13, увидел Олег). Клинике, у которой
-    # tg-пациенты ЕСТЬ, фильтр остаётся: происхождение пациента — данные, а
-    # данные заморозка не прячет (подпись канала в строке и в CSV — та же
-    # логика: появляются только у настоящих tg-пациентов).
-    canal_items = [(k, v) for k, v in _PL_CANAL.items()
-                   if k != "tg" or any(_pl_canal(x) == "tg" for x in everyone)]
-    bar = f"""<form class='pl-bar' method='get' action='/admin/search'>
-  <label class='pl-search'>{_ic('search')}
-    <input name='q' value="{e(q)}" placeholder='Caută pacient, telefon, e-mail…'></label>
-  <select name='med' onchange='this.form.submit()'>
-    {opts([("-", "— fără medic —")] + [(n, n) for n in doc_names], med, "Toți medicii")}</select>
-  <select name='st' onchange='this.form.submit()'>
-    {opts([(k, v[0]) for k, v in _PL_BADGE.items()], st, "Toate statusurile")}</select>
-  <select name='ch' onchange='this.form.submit()'>
-    {opts(canal_items, ch, "Toate canalele")}</select>
-  <select name='dat' onchange='this.form.submit()'>
-    {opts([("da", "Doar cu datorie"), ("avans", "Doar cu avans")], dat,
-          "Orice sold")}</select>
-  <input type='hidden' name='sort' value='{sort}'>
-  <input type='hidden' name='per' value='{per}'>
-  <button class='pl-btn'>Caută</button>{reset}
-  <span style='flex:1'></span>
-  <a class='pl-btn' href='{xlsx_url}' title='Lista filtrată, ca registru Excel'>
-    {_ic('download')} Exportă</a>
-  <button type='button' class='pl-btn primary' onclick='newPat()'>＋ Adaugă pacient</button>
-</form>"""
-
-    # ---- страница списка ----
-    total = len(rows)
-    pages = max(1, -(-total // per))
-    page = max(1, min(page, pages))
-    shown = rows[(page - 1) * per: page * per]
-
-    def head(key: str, label: str) -> str:
-        arrow = " " + _ic("caret-d") if sort == key else ""
-        return f"<th><a href='{url(sort=key, page=0)}'>{label}{arrow}</a></th>"
-
-    trs = []
-    for p in shown:
-        label, cls = _PL_BADGE[p["status"]]
-        age = _p_age(p)
-        mail = (f"<small>{e(p['email'])}</small>" if p["email"]
-                else f"<small class='dim'>{_PL_CANAL[_pl_canal(p)]}</small>")
-        nxt = (f"<small class='nx' title='Următoarea vizită'>› "
-               f"{p['next_at'].astimezone(eng.TZ).strftime('%d.%m %H:%M')}</small>"
-               if p["next_at"] else "")
-        trs.append(
-            f"<tr id='plr{p['id']}' onclick='peek({p['id']})'>"
-            f"<td><div class='pl-who'><span class='pl-av'>{e(_initials(p['name'] or '?'))}</span>"
-            f"<div class='pl-nm'><b>{e(p['name'] or '—')}</b>{mail}</div></div></td>"
-            f"<td>{e(p['phone']) if p['phone'] else _PL_NOTEL}</td>"
-            f"<td class='pl-hide'>{_pl_dmy(p['birth_date'])}"
-            f"{f'<small> · {age} ani</small>' if age else ''}</td>"
-            f"<td>{_pl_doc(p)}</td>"
-            f"<td>{_pl_dmy(p['last_at'])}{nxt}</td>"
-            f"<td>{_pl_sold(p['debt'])}</td>"
-            f"<td><span class='pl-badge {cls}'>{label}</span></td>"
-            f"<td class='pl-acts'>"
-            f"<button type='button' title='Previzualizare' "
-            f"onclick='event.stopPropagation();peek({p['id']})'>{_ic('eye')}</button>"
-            f"<a href='/admin/patient/{p['id']}' title='Deschide fișa' "
-            f"onclick='event.stopPropagation()'>{_ic('id')}</a></td></tr>")
-
-    if shown:
-        table = (f"<div class='pl-scroll'><table class='pl-tbl'><thead><tr>"
-                 f"{head('name', 'Pacient')}<th>Telefon</th>"
-                 f"<th class='pl-hide'>Data nașterii</th><th>Medic</th>"
-                 f"{head('last', 'Ultima vizită')}{head('debt', 'Sold')}"
-                 f"<th>Status</th><th></th>"
-                 f"</tr></thead><tbody>{''.join(trs)}</tbody></table></div>")
-    elif q or med or st or ch or dat:
-        table = (f"<div class='pl-empty'>{_ic('search')}<b>Nimic găsit</b>"
-                 "<span>Încercați alt nume, telefon sau scoateți filtrele.</span>"
-                 f"<a class='pl-btn' href='/admin/search'>Vezi toți pacienții</a></div>")
-    elif n_arh:
-        # все живые фиши в архиве. Без этой ветки экран говорил бы «Încă niciun
-        # pacient» — то есть «картотека пуста» там, где она просто спрятана
-        table = (f"<div class='pl-empty'>{_ic('box')}<b>Toți pacienții sunt în arhivă</b>"
-                 f"<span>În listă nu rămâne nimeni: {n_arh} "
-                 f"{'fișă arhivată' if n_arh == 1 else 'fișe arhivate'}.</span>"
-                 f"<a class='pl-btn' href='{url(st='arhivat', page=0)}'>"
-                 f"Arată arhiva</a></div>")
-    else:
-        table = (f"<div class='pl-empty'>{_ic('users')}<b>Încă niciun pacient</b>"
-                 "<span>Fișele apar aici odată cu prima programare — "
-                 "din registru sau din bot.</span>"
-                 "<button type='button' class='pl-btn primary' onclick='newPat()'>"
-                 "＋ Adaugă primul pacient</button></div>")
-
-    # Архивные скрыты из списка намеренно, но молча — и человек, только что
-    # отправивший фишу в архив, не находит её и решает, что потерял. Список
-    # обязан признаться, что кого-то прячет, и дать дверь.
-    hidden_arh = n_arh if not (q or st == "arhivat") else 0
-    arh_hint = (f" · {_ic('box')} {hidden_arh} "
-                f"{'arhivat' if hidden_arh == 1 else 'arhivați'} "
-                f"<a href='{url(st='arhivat', page=0)}'>arată</a>"
-                if hidden_arh else "")
-
-    first = (page - 1) * per + 1 if total else 0
-    nums = []
-    for n in range(1, pages + 1):
-        if n in (1, pages) or abs(n - page) <= 1:
-            cls = " on" if n == page else ""
-            nums.append(f"<a class='pl-pg{cls}' href='{url(page=n)}'>{n}</a>")
-        elif not nums or nums[-1] != "<span class='pl-gap'>…</span>":
-            nums.append("<span class='pl-gap'>…</span>")
-    prev_a = (f"<a class='pl-pg' href='{url(page=page - 1)}'>‹</a>" if page > 1
-              else "<span class='pl-pg off'>‹</span>")
-    next_a = (f"<a class='pl-pg' href='{url(page=page + 1)}'>›</a>" if page < pages
-              else "<span class='pl-pg off'>›</span>")
-    per_opts = "".join(f"<option value='{n}'{' selected' if n == per else ''}>"
-                       f"{n} / pagină</option>" for n in _PL_PER)
-    # у пустого списка «Afișare 0–0 din 0» и стрелки листания — только шум
-    pager = (f"<div class='pl-pag'><span>Afișare {first}–{min(page * per, total)} "
-             f"din {total} pacienți{arh_hint}</span>"
-             f"<div class='pl-pgs'>{prev_a}{''.join(nums)}{next_a}</div>"
-             f"<form method='get' action='/admin/search'>"
-             + "".join(f"<input type='hidden' name='{k}' value=\"{e(str(v))}\">"
-                       for k, v in base.items() if v and k != "per")
-             + f"<select name='per' onchange='this.form.submit()'>{per_opts}</select>"
-             f"</form></div>") if total else ""
-
-    banner = msg_banner(msg)
-
-    body = f"""{banner}
-{bar}
-{tiles}
-<div class='pl-grid'>
-  <div class='pl-card'>{table}{pager}</div>
-  <aside class='ppanel' id='ppanel'>
-    <button type='button' class='pp-x' onclick='peekOff()' title='Închide'>{_ic('close')}</button>
-    <div id='pp_body'><div class='pp-empty'>{_ic('eye')}<span>Alegeți un pacient din listă
-      pentru previzualizare — fără să părăsiți lista</span></div></div>
-  </aside>
-</div>
-<div class='pp-veil' id='pp_veil' onclick='peekOff()'></div>
-<dialog id='npdlg'>
-  <div class='dlg-head'><span>＋ Pacient nou</span>
-    <button type='button' onclick="document.getElementById('npdlg').close()">{_ic('close')}</button></div>
-  <form class='dlg-form' method='post' action='/admin/patients/new'>
-    <label class='dlab'>Nume și prenume
-      <input name='name' maxlength='120' required autofocus></label>
-    <label class='dlab'>Telefon
-      <input name='phone' maxlength='40' placeholder='ex. 069 123 456'></label>
-    <label class='nophone'><input type='checkbox' name='nophone' value='1'
-      data-for='phone' onchange='togglePhone(this)'> fără telefon</label>
-    <label class='dlab'>Data nașterii
-      <input type='date' name='birth_date'></label>
-    <label class='dlab'>E-mail
-      <input type='email' name='email' maxlength='120'></label>
-    <label class='dlab'>Medic curant
-      <select name='primary_doctor'><option value=''>—</option>
-        {"".join(f"<option>{e(n)}</option>" for n in eng.DOCTORS.values())}</select></label>
-    <p class='hint' style='margin:0'>Fișa se deschide imediat după salvare —
-      acolo completați dinții, planul și documentele. Pacientul cu același
-      telefon nu se dublează.</p>
-    <button>Adaugă pacientul</button>
-  </form>
-</dialog>
-<script>
-/* Предпросмотр обязан ПЕРЕЖИВАТЬ автоперезагрузку журнала (12 с, panel.js):
-   выбранный пациент лежит в sessionStorage, после обновления панель
-   открывается снова и тянет свежие данные, а кеш прошлой разметки убирает
-   мигание «Se încarcă…». Глушить само обновление было бы хуже: у панели на
-   широком экране нет кнопки «закрыть», и журнал протухал бы навсегда. */
-var PEEK = 0;
-function peekLoad(id) {{
-  var body = document.getElementById('pp_body');
-  var seq = ++PEEK;
-  fetch('/admin/patient/' + id + '/peek')
-    .then(function (r) {{ return r.text(); }})
-    .then(function (t) {{
-      if (seq !== PEEK) return;
-      body.innerHTML = t;
-      try {{ sessionStorage.setItem('dp_peek_html', t); }} catch (e) {{}}
-    }})
-    .catch(function () {{
-      if (seq === PEEK) body.innerHTML =
-        '<div class="pp-empty"><span>Nu am putut încărca fișa.</span></div>';
-    }});
-}}
-function peekShow(id) {{
-  document.querySelectorAll('.pl-tbl tr.on').forEach(function (r) {{
-    r.classList.remove('on');
-  }});
-  var row = document.getElementById('plr' + id);
-  if (row) row.classList.add('on');
-  document.getElementById('ppanel').classList.add('open');
-  document.getElementById('pp_veil').classList.add('on');
-}}
-function peek(id) {{
-  try {{ sessionStorage.setItem('dp_peek', String(id)); }} catch (e) {{}}
-  peekShow(id);
-  document.getElementById('pp_body').innerHTML =
-    '<div class="pp-empty"><span>Se încarcă…</span></div>';
-  peekLoad(id);
-}}
-function peekOff() {{
-  document.getElementById('ppanel').classList.remove('open');
-  document.getElementById('pp_veil').classList.remove('on');
-  document.querySelectorAll('.pl-tbl tr.on').forEach(function (r) {{
-    r.classList.remove('on');
-  }});
-  try {{
-    sessionStorage.removeItem('dp_peek');
-    sessionStorage.removeItem('dp_peek_html');
-  }} catch (e) {{}}
-}}
-(function () {{
-  var id = null, cached = null;
-  try {{
-    id = sessionStorage.getItem('dp_peek');
-    cached = sessionStorage.getItem('dp_peek_html');
-  }} catch (e) {{}}
-  if (!id) return;
-  /* скрипт стоит в конце body и выполняется ДО первой отрисовки, но выезд
-     панели на узком экране — transition, его глушим на один кадр: иначе
-     каждые 12 секунд панель заново выезжала бы сбоку */
-  var p = document.getElementById('ppanel');
-  p.style.transition = 'none';
-  peekShow(id);
-  requestAnimationFrame(function () {{ p.style.transition = ''; }});
-  if (cached) document.getElementById('pp_body').innerHTML = cached;
-  peekLoad(id);
-}})();
-function newPat() {{ document.getElementById('npdlg').showModal(); }}
-document.addEventListener('keydown', function (ev) {{
-  if (ev.key === 'Escape') peekOff();
-}});
-</script>"""
-    return _shell(body, "pacienții clinicii · filtre, previzualizare, export",
-                  active="pat")
-
-
-@router.get("/admin/patient/{pid}/peek", response_class=HTMLResponse)
-async def patient_peek(request: Request, pid: int):
-    """Боковой предпросмотр фиши: то, ради чего регистратура открывала карточку
-    и возвращалась назад — телефон, последний визит, план, аллергии, документы.
-    Отдаётся куском разметки: список уже нарисован, перерисовывать его незачем."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    frag = await _peek_html(pid)
-    if frag is None:
-        return HTMLResponse("<div class='pp-empty'><span>Fișa nu mai există.</span></div>",
-                            status_code=404)
-    return HTMLResponse(frag)
+    # отбор из адреса уезжает параметрами узла, чтобы ссылки «?q=телефон»
+    # из фиши и журнала открывали тот же список
+    params = {k: v for k, v in (("q", q.strip()[:60]), ("med", med),
+                                ("st", st), ("ch", ch), ("dat", dat)) if v}
+    if sort != "last":
+        params["sort"] = sort
+    if page != 1:
+        params["page"] = str(page)
+    if per != 20:
+        params["per"] = str(per)
+    # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
+    # подпись печатает сам экран (08.10): «12 afișați din 19 · +9 luna
+    # aceasta» — числа списка, а не описание раздела
+    return react_shell("patients_search", request.url.path,
+                       shell_model("pat", "", msg=msg),
+                       params or None)
 
 
 async def _peek_html(pid: int) -> str | None:
-    """Кусок предпросмотра — один на старую страницу и на
-    `GET /api/patients/{pid}/peek`: React вставляет его как есть. Это сводка
-    фиши словами сервера, все значения экранированы здесь, а до переезда
-    самой фиши (C18) второй рисовальщик ей ни к чему. None — фиши нет."""
+    """Кусок предпросмотра для `GET /api/patients/{pid}/peek`: экран списка
+    вставляет его как есть. Это сводка фиши словами сервера, все значения
+    экранированы здесь, поэтому второго рисовальщика у неё нет. None — фиши
+    нет."""
     p = await db.get_patient(pid)
     if not p:
         return None
@@ -2957,57 +1283,20 @@ async def _peek_html(pid: int) -> str | None:
   <a class='pl-btn primary' href='/admin/patient/{pid}'>Profil complet ›</a></div></div>"""
 
 
-@router.get("/admin/patients.csv")
-async def patients_csv(request: Request, q: str = "", med: str = "", st: str = "",
-                       ch: str = "", sort: str = "last", per: int = 20,
-                       page: int = 1, dat: str = ""):
-    """Тот же список, что на экране, теми же фильтрами — файлом для Excel.
-    Страницы намеренно игнорируются: выгружают ВЫБОРКУ, а не её первую сотню."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    now = datetime.now(eng.TZ)
-    rows = _pl_filter(await _pl_rows(now), now, q.strip()[:60], med, st, ch, sort,
-                      dat if dat in ("da", "avans") else "")
-
-    buf = io.StringIO()
-    w = csv.writer(buf, delimiter=";")
-    # «Sold» числом со знаком, а не «1 200 MDL»: файл открывают в Excel, и
-    # разделитель тысяч с валютой превратили бы колонку в текст — по ней не
-    # просуммировать и не отсортировать. Минус здесь означает аванс.
-    w.writerow(["Nume", "Telefon", "E-mail", "Data nașterii", "Vârstă", "Gen",
-                "Medic", "Nr. dosar", "Canal", "Status", "Ultima vizită",
-                "Următoarea vizită", "Vizite", "Sold (MDL)", "Înregistrat"])
-    for p in rows:
-        w.writerow([
-            p["name"] or "", p["phone"] or "", p["email"] or "",
-            _pl_dmy(p["birth_date"]).replace("—", ""), _p_age(p) or "",
-            (p["gender"] or "").upper(), p["doctor"],
-            p["file_no"] or "", _PL_CANAL[_pl_canal(p)].split()[-1],
-            _PL_BADGE[p["status"]][0], _pl_dmy(p["last_at"]).replace("—", ""),
-            _pl_dmy(p["next_at"]).replace("—", ""), p["n_visits"], p["debt"],
-            _pl_dmy(p["created_at"]),
-        ])
-    csv_text = "﻿" + buf.getvalue()   # BOM: иначе Excel ломает диакритику
-    fname = f"pacienti_{now.date().isoformat()}.csv"
-    return Response(csv_text.encode("utf-8"),
-                    media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
-
-
 @router.get("/admin/patients.xlsx")
 async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = "",
-                        ch: str = "", sort: str = "last", per: int = 20,
-                        page: int = 1, dat: str = ""):
-    """Тот же список — КНИГОЙ Excel; кнопка «Exportă» ведёт сюда. CSV не несёт
-    типов, и Excel съедал ведущий ноль телефона, а даты показывал решёткой —
-    та же беда, что у выгрузки дня до 1.19.23 (скриншот Олега 08-13, разбор в
-    хронике). CSV-маршрут жив: его читают интеграции, у которых типы свои.
-    Страницы намеренно игнорируются: выгружают ВЫБОРКУ, а не её первую сотню."""
+                        ch: str = "", sort: str = "last", dat: str = ""):
+    """Список КНИГОЙ Excel; кнопка «Exportă» экрана ведёт сюда с его отбором.
+    Выборка та же, что у экрана (`_pl_select` → `db.patients_rows`), только
+    целиком: выгружают ВЫБОРКУ, а не её страницу. Книга, а не CSV: CSV не
+    несёт типов, и Excel съедал ведущий ноль телефона, а даты показывал
+    решёткой — та же беда, что у выгрузки дня до 1.19.23 (скриншот Олега
+    08-13, разбор в хронике). CSV-маршрут снят 13.10 (слово Олега 12.10)."""
     if (deny := _guard(request)) is not None:
         return deny
     now = datetime.now(eng.TZ)
-    rows = _pl_filter(await _pl_rows(now), now, q.strip()[:60], med, st, ch, sort,
-                      dat if dat in ("da", "avans") else "")
+    rows = await db.patients_rows(_pl_select(now, q, med, st, ch, dat),
+                                  sort if sort in _PL_SORTS else "last", None, 0)
 
     def _d(v):
         """Дата для книги. ⚠️ Значение С поясом — в eng.TZ до взятия даты;
@@ -3023,8 +1312,10 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
     data = [[
         p["name"] or "", p["phone"] or "", p["email"] or "",
         _d(p["birth_date"]), _p_age(p) or "",
-        (p["gender"] or "").upper(), p["doctor"], p["file_no"] or "",
-        _PL_CANAL[_pl_canal(p)].split()[-1], _PL_BADGE[p["status"]][0],
+        # врач строки — как у экрана: медик курант, иначе врач последнего визита
+        (p["gender"] or "").upper(), p["primary_doctor"] or p["last_doctor"] or "",
+        p["file_no"] or "",
+        _PL_CANAL[_pl_canal(p)].split()[-1], _PL_BADGE[_pl_status(p, now)][0],
         _d(p["last_at"]), _d(p["next_at"]), p["n_visits"], p["debt"],
         _d(p["created_at"]),
     ] for p in rows]
@@ -3045,31 +1336,17 @@ async def patients_xlsx(request: Request, q: str = "", med: str = "", st: str = 
     )
 
 
-@router.post("/admin/patients/new")
-async def patient_new(request: Request, name: str = Form(""), phone: str = Form(""),
-                      birth_date: str = Form(""), email: str = Form(""),
-                      primary_doctor: str = Form("")):
-    """Карточка без визита: пациента завели заранее (звонок, первичный приём).
+async def _new_patient(name: str, phone: str, birth_date: str, email: str,
+                       primary_doctor: str) -> tuple[str, int | None]:
+    """Правило новой фиши (`POST /api/patients`, диалог «Pacient nou»): (код,
+    id фиши). bad_pat — без имени; dup_pat — фиша с таким телефоном уже есть,
+    и открывается ОНА; new_pat — заведена.
 
     ⚠️ Ключ `manual:{цифры}` СКЛЕИВАЕТ пациентов по телефону — на то он и
     заведён, чтобы бот и регистратура не плодили двойников. Поэтому при
-    совпадении мы открываем существующую фишу, а не создаём: `_upsert_patient`
+    совпадении открываем существующую фишу, а не создаём: `_upsert_patient`
     на конфликте перезаписал бы имя, и семейный номер тихо переименовал бы
     родителя в ребёнка."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    code, pid = await _new_patient(name, phone, birth_date, email, primary_doctor)
-    if code == "bad_pat":
-        return RedirectResponse("/admin/search?msg=bad_pat", status_code=303)
-    return _card_redirect(pid, code)
-
-
-async def _new_patient(name: str, phone: str, birth_date: str, email: str,
-                       primary_doctor: str) -> tuple[str, int | None]:
-    """Правило новой фиши — одно на форму и на `POST /api/patients`: (код,
-    id фиши). bad_pat — без имени; dup_pat — фиша с таким телефоном уже есть,
-    и открывается ОНА (почему не создаём — docstring формы); new_pat —
-    заведена."""
     name = name.strip()[:120]
     if not name:
         return "bad_pat", None

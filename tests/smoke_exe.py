@@ -319,8 +319,15 @@ def _pages(c: Client, check, password: str, *, grace: bool) -> None:
     r = c.get("/admin/patient/999999")
     check("маршруты модуля «пациенты» подключены",
           r.status in (200, 303), f"код {r.status} (404 = модуль не в сборке)")
-    r = c.get("/admin/patient/999999/slots?date=2026-01-01&doctor=d1&service=consult")
-    check("действия карточки подключены", r.status == 200, f"код {r.status}")
+    # экраны фиши — React (13.10), действия и данные — JSON API модуля
+    # (`patients/api.py`): у него свой роутер, и пропади он из сборки, адреса
+    # страниц выше ответили бы как ни в чём не бывало
+    r = c.get("/api/patients/summary")
+    try:
+        api_ok = r.status == 200 and json.loads(r.body).get("ok") is True
+    except ValueError:
+        api_ok = False
+    check("JSON API пациентов подключён", api_ok, f"код {r.status}")
     r = c.get("/admin/visit/999999")
     check("дневник визита (consultația) подключён", r.status in (200, 303),
           f"код {r.status} (404 = visit.py не попал в сборку)")

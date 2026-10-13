@@ -17,7 +17,7 @@ from app.core.visits import all_status_actions  # noqa: E402
 
 from datetime import datetime, time  # noqa: E402
 
-from harness import TZ, Client, Result, Server, clinic_today  # noqa: E402
+from harness import TZ, Client, Result, Server, clinic_today, new_patient  # noqa: E402
 
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
@@ -38,11 +38,6 @@ def _doc(s: Server, dk: str) -> dict:
 
 def _svc(s: Server, sid: str) -> dict:
     return next(x for x in _cfg(s)["services"] if x["id"] == sid)
-
-
-def _new_patient(c: Client, name: str, phone: str) -> int:
-    r = c.post("/admin/patients/new", name=name, phone=phone)
-    return int(r.location.split("/admin/patient/")[1].split("?")[0])
 
 
 def _insert_appt(s: Server, pid: int, doctor: str, dk, starts: str,
@@ -103,7 +98,7 @@ def suite_actions(res: Result) -> None:
                   _j(c.get("/api/doctors"))["data"]["same_color"], False)
 
         # перепривязка: сирота (старое имя, doctor_id NULL) → к врачу d2
-        pid = _new_patient(c, "Orfan Test", "060000111")
+        pid = new_patient(c, "Orfan Test", "060000111")
         _insert_appt(s, pid, "Dr. Vechi", None, "2026-12-01T08:00:00+00:00")
         r = c.post("/admin/relink", old_name="Dr. Vechi", dk="d2", back="/admin/all?date=2026-12-01")
         res.check("перепривязка — ok_set", r.msg, "ok_set")
@@ -307,7 +302,7 @@ def suite_api(res: Result) -> None:
                "Tratament lung" in card["warning"] and "nu pot fi programate" in card["warning"],
                card["warning"])
         c.post_json("/api/doctors/d2", {**body, "status": "activ"})
-        pid = _new_patient(c, "Viitor Test", "060000222")
+        pid = new_patient(c, "Viitor Test", "060000222")
         _insert_appt(s, pid, "Dr. Doi Nou", "d2", "2099-01-10T08:00:00+00:00")
         r = c.post_json("/api/doctors/d2", {**body, "status": "arhivat"})
         res.ok("в архив с будущей записью нельзя — 409 arch_busy",

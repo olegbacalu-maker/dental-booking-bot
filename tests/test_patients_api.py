@@ -1,51 +1,20 @@
-"""Список пациентов (Search): поведение старой страницы зафиксировано и
-сверено строка в строку с `GET /api/patients`, который считает отбор, порядок и
-страницу в базе, а не в памяти.
+"""Список пациентов (Search): `GET /api/patients` — отбор, порядок и страница
+считаются в базе (`db.patients_rows`), а не в памяти.
 
-Главное, что стережётся: у старой страницы (`_pl_rows` + `_pl_filter`, всё в
-Python) и у API (`db.patients_rows`, SQL) ОДНА выдача на одних данных — те же
-люди в том же порядке с теми же статусами, для каждого фильтра и порядка.
-Правило живёт в двух местах осознанно (старая страница не меняется до конца
-миграции), поэтому расхождение обязано краснеть здесь, а не у клиники.
+Главное, что стережётся: на засеве с каждой веткой статуса для каждого
+отбора и порядка — ТЕ люди в ТОМ порядке с ТЕМИ статусами. До 13.10 правило
+жило дважды (Python старой страницы и SQL API), и выдачи сверялись строка в
+строку (`suite_parity`); старая страница снята, а её выдача — снятая на
+последнем коде, где паритет держался, — записана здесь буквально. Ту же
+выборку отдаёт книга `/admin/patients.xlsx` (её держит `test_admin`).
 """
 import json
 import re
+import sqlite3
 
-from harness import Client, Result, Server
+from harness import Client, Result, Server, new_patient, pid_by_phone
 from test_admin import _d
 from test_settings_api import FLAGS, NO_KEY, _cfg, _j, _server_with_flags
-
-STATUS_WORDS = {"Arhivat", "Necesită atenție", "În tratament", "Inactiv", "Activ"}
-
-
-def _ids(page: str) -> list[int]:
-    """Порядок строк старой страницы — по id из `<tr id='plr…'>`."""
-    return [int(x) for x in re.findall(r"<tr id='plr(\d+)'", page)]
-
-
-def _statuses(page: str) -> dict[int, str]:
-    """Бейдж статуса каждой строки. У ячейки «Sold» тот же класс pl-badge,
-    поэтому берём ту подпись, что из словаря статусов."""
-    out = {}
-    for m in re.finditer(r"<tr id='plr(\d+)'.*?</tr>", page, re.S):
-        words = re.findall(r"<span class='pl-badge \w+'>([^<]+)</span>", m.group(0))
-        out[int(m.group(1))] = next((w for w in words if w in STATUS_WORDS), "")
-    return out
-
-
-def _total(page: str) -> int:
-    m = re.search(r"din (\d+) pacienți", page)
-    return int(m.group(1)) if m else 0
-
-
-def _hidden(page: str) -> int:
-    m = re.search(r"(\d+) arhiva(?:t|ți) <a", page)
-    return int(m.group(1)) if m else 0
-
-
-def _options(page: str, name: str) -> list[str]:
-    block = page.split(f"<select name='{name}'", 1)[1].split("</select>", 1)[0]
-    return re.findall(r"<option value='([^']*)'", block)
 
 
 def _seed(c: Client) -> dict[str, int]:
@@ -56,15 +25,14 @@ def _seed(c: Client) -> dict[str, int]:
     def add(name: str, phone: str, day: int, time: str, doc: str) -> int:
         c.post("/admin/add", adate=_d(day), atime=time, adoctor=doc,
                aservice="consult", aname=name, aphone=phone, back="/admin/all")
-        return int(c.get(f"/admin/search?q={phone}").body.split(
-            "<tr id='plr", 1)[1].split("'", 1)[0])
+        return pid_by_phone(c, phone)
 
     def charge(pid: int, price: int) -> None:
-        c.post(f"/admin/patient/{pid}/plan", procedure="Plombă", tooth="11",
-               price=str(price))
-        iid = re.findall(r"/plan/(\d+)/status", c.get(f"/admin/patient/{pid}").body)[-1]
-        c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="in_lucru")
-        c.post(f"/admin/patient/{pid}/plan/{iid}/status", to="finalizat")
+        r = c.post_json(f"/api/patients/{pid}/plan", {"procedure": "Plombă", "tooth": "11",
+                                                     "price": str(price)})
+        iid = _j(r)["data"]["plan"]["items"][0]["id"]
+        c.post_json(f"/api/patients/{pid}/plan/{iid}/status", {"to": "in_lucru"})
+        c.post_json(f"/api/patients/{pid}/plan/{iid}/status", {"to": "finalizat"})
 
     p = {}
     p["balan"] = add("Elena Bălan", "068111222", -400, "10:00", "d2")      # 1: год без визита
@@ -73,122 +41,124 @@ def _seed(c: Client) -> dict[str, int]:
     p["ciobanu"] = add("Svetlana Ciobanu", "078333555", -12, "13:00", "d4")  # 4: архив
     p["marin"] = add("Radu Marin", "079444666", 2, "14:00", "d2")          # 5: только будущий визит, долг
     p["popescu"] = add("Avans Popescu", "022220022", -3, "15:00", "d2")    # 6: аванс, активен
-    c.post(f"/admin/patient/{p['balan']}/save", name="Elena Bălan", phone="068111222",
-           email="elena@example.com")
-    c.post(f"/admin/patient/{p['ganea']}/save", name="Dumitru Ganea", phone="069222444",
-           file_no="D-77")
-    c.post(f"/admin/patient/{p['ganea']}/alert", kind="allergy", text="Penicilină")
-    c.post(f"/admin/patient/{p['ionescu']}/plan", procedure="Coroană", price="1200")
-    c.post(f"/admin/patient/{p['ciobanu']}/archive", on="1")
-    c.post(f"/admin/patient/{p['marin']}/save", name="Radu Marin", phone="079444666",
-           notes="soția: 069 555 444")
+    c.post_json(f"/api/patients/{p['balan']}/profile", {"name": "Elena Bălan",
+                                                       "phone": "068111222",
+                                                       "email": "elena@example.com"})
+    c.post_json(f"/api/patients/{p['ganea']}/profile", {"name": "Dumitru Ganea",
+                                                       "phone": "069222444", "file_no": "D-77"})
+    c.post_json(f"/api/patients/{p['ganea']}/alerts", {"kind": "allergy", "text": "Penicilină"})
+    c.post_json(f"/api/patients/{p['ionescu']}/plan", {"procedure": "Coroană", "price": "1200"})
+    c.post_json(f"/api/patients/{p['ciobanu']}/archive", {"on": True})
+    c.post_json(f"/api/patients/{p['marin']}/profile", {"name": "Radu Marin",
+                                                       "phone": "079444666",
+                                                       "notes": "soția: 069 555 444"})
     charge(p["marin"], 1200)
     charge(p["popescu"], 500)
-    c.post(f"/admin/patient/{p['popescu']}/pay", amount="800", method="card")
+    c.post_json(f"/api/patients/{p['popescu']}/payments", {"amount": "800", "method": "card"})
     # 7: без телефона, с датой рождения и медиком курантом из фиши
-    r = c.post("/admin/patients/new", name="Ion Țurcanu", birth_date="2003-01-01",
-               primary_doctor="Dr. Activ Trei")
-    p["turcanu"] = int(r.location.split("/admin/patient/")[1].split("?")[0])
+    p["turcanu"] = new_patient(c, "Ion Țurcanu", birth_date="2003-01-01",
+                               primary_doctor="Dr. Activ Trei")
     for i in range(8):                                                      # 8..15
-        c.post("/admin/patients/new", name=f"Pacient Masiv {i}", phone=f"0611000{i:02d}")
+        c.post_json("/api/patients", {"name": f"Pacient Masiv {i}", "phone": f"0611000{i:02d}"})
     return p
 
 
-# отборы, на которых сверяются обе выдачи: строка запроса как в адресе
-QUERIES = [
-    "", "sort=name", "sort=new", "sort=debt", "sort=zzz",
-    "q=balan", "q=elena@example", "q=444+666", "q=069555444", "q=d-77",
-    "q=01.01.2003", "q=1.1.2003", "q=02.01.2003", "q=x", "q=Pacient+Masiv",
-    "q=Svetlana", "q=svetlana&st=arhivat",
-    "st=atentie", "st=tratament", "st=arhivat", "st=activ", "st=inactiv",
-    "med=-", "med=Dr.+Activ+Trei", "med=Dr.+Activ+Doi&sort=name",
-    "ch=manual", "ch=tg", "ch=web", "dat=da", "dat=avans",
-    "per=10", "per=10&page=2", "per=10&page=99", "per=7", "per=50&sort=debt",
-    "q=Pacient&st=inactiv&sort=name", "st=inactiv&dat=da", "med=-&per=10&page=2",
-]
+# Выдача списка на засеве `_seed` — для каждого отбора (строка запроса как в
+# адресе): (люди по порядку, счёт всего, страница). До 13.10 её сверяли со
+# старой страницей; записана с последнего кода, где паритет держался.
+# Имена — ключи `_seed`, «mass» — восемь «Pacient Masiv» по порядку заведения.
+_DEFAULT = ["popescu", "ganea", "ionescu", "balan", "marin", "turcanu", "mass"]
+QUERIES = {
+    "": (_DEFAULT, 14, 1),
+    "sort=name": (["popescu", "ganea", "balan", "turcanu", "ionescu", "mass", "marin"], 14, 1),
+    # «новые первыми» — по created_at, а он у засева совпадает до секунды
+    # кусками: ничьи решает id, и порядок зависит от того, на какую секунду
+    # пришёлся засев. Ожидание считается из базы (см. suite_list)
+    "sort=new": (None, 14, 1),
+    "sort=debt": (["marin", "balan", "ganea", "ionescu", "turcanu", "mass", "popescu"], 14, 1),
+    "sort=zzz": (_DEFAULT, 14, 1),
+    "q=balan": (["balan"], 1, 1), "q=elena@example": (["balan"], 1, 1),
+    "q=444+666": (["marin"], 1, 1), "q=069555444": (["marin"], 1, 1),
+    "q=d-77": (["ganea"], 1, 1),
+    "q=01.01.2003": (["turcanu"], 1, 1), "q=1.1.2003": (["turcanu"], 1, 1),
+    "q=02.01.2003": ([], 0, 1), "q=x": ([], 0, 1),
+    "q=Pacient+Masiv": (["mass"], 8, 1),
+    "q=Svetlana": (["ciobanu"], 1, 1), "q=svetlana&st=arhivat": (["ciobanu"], 1, 1),
+    "st=atentie": (["ganea"], 1, 1), "st=tratament": (["ionescu"], 1, 1),
+    "st=arhivat": (["ciobanu"], 1, 1),
+    "st=activ": (["popescu", "ganea", "ionescu"], 3, 1),
+    "st=inactiv": (["balan", "marin", "turcanu", "mass"], 11, 1),
+    "med=-": (["mass"], 8, 1),
+    "med=Dr.+Activ+Trei": (["ganea", "turcanu"], 2, 1),
+    "med=Dr.+Activ+Doi&sort=name": (["popescu", "balan", "ionescu", "marin"], 4, 1),
+    "ch=manual": (_DEFAULT, 14, 1), "ch=tg": ([], 0, 1), "ch=web": ([], 0, 1),
+    "dat=da": (["marin"], 1, 1), "dat=avans": (["popescu"], 1, 1),
+    "per=10": (["popescu", "ganea", "ionescu", "balan", "marin", "turcanu", "mass[:4]"], 14, 1),
+    "per=10&page=2": (["mass[4:]"], 14, 2), "per=10&page=99": (["mass[4:]"], 14, 2),
+    "per=7": (_DEFAULT, 14, 1),
+    "per=50&sort=debt": (["marin", "balan", "ganea", "ionescu", "turcanu", "mass", "popescu"], 14, 1),
+    "q=Pacient&st=inactiv&sort=name": (["mass"], 8, 1),
+    "st=inactiv&dat=da": (["marin"], 1, 1),
+    "med=-&per=10&page=2": (["mass"], 8, 1),
+}
+# статус строки выводится из данных (`_pl_status`): архив, предупреждение, план,
+# давность визита; у восьми «Pacient Masiv» визитов нет — неактивны
+STATUSES = {"balan": "inactiv", "ganea": "atentie", "ionescu": "tratament", "ciobanu": "arhivat",
+            "marin": "inactiv", "popescu": "activ", "turcanu": "inactiv", "mass": "inactiv"}
 
 
-def suite_parity(res: Result) -> None:
-    """Старая страница — эталон: её порядок и статусы записаны руками, а API
-    обязан повторить их для каждого отбора из QUERIES."""
+def _expand(p: dict, names: list) -> list[int]:
+    """Имена таблицы → id засева; «mass» — восемь подряд, со срезом страницы."""
+    mass = list(range(p["turcanu"] + 1, p["turcanu"] + 9))
+    part = {"mass": mass, "mass[:4]": mass[:4], "mass[4:]": mass[4:]}
+    out: list[int] = []
+    for n in names:
+        out += part[n] if n in part else [p[n]]
+    return out
+
+
+def suite_list(res: Result) -> None:
+    """Выдача списка для каждого отбора и порядка — люди, порядок, статусы,
+    счёт и страница — на засеве с каждой веткой; карточки и фильтры над
+    списком; предпросмотр."""
     with Server() as s:
         c = Client(s.url).login()
         p = _seed(c)
-        b, g, i, cb, m, po, t = (p["balan"], p["ganea"], p["ionescu"], p["ciobanu"],
-                                 p["marin"], p["popescu"], p["turcanu"])
-        mass = list(range(t + 1, t + 9))
+        who = {v: k for k, v in p.items()}
+        con = sqlite3.connect(str(s.dir / "dental.db"))
+        try:
+            created = dict(con.execute("SELECT id, created_at FROM patients"))
+        finally:
+            con.close()
+        live = _expand(p, _DEFAULT)
+        for qs, (names, total, page) in QUERIES.items():
+            d = _j(c.get("/api/patients" + (f"?{qs}" if qs else "")))["data"]
+            # created_at — ISO одного вида: строкой сравнивается как временем;
+            # свежие первыми, при равенстве — по id
+            want = (_expand(p, names) if names is not None
+                    else sorted(live, key=lambda i: (created[i], -i), reverse=True))
+            res.check(f"[{qs or 'без фильтров'}] те люди в том порядке, счёт и страница",
+                      ([r["id"] for r in d["rows"]], d["total"], d["page"]), (want, total, page))
+            res.check(f"[{qs or 'без фильтров'}] статусы выведены из данных",
+                      {r["id"]: r["status"] for r in d["rows"]},
+                      {i: STATUSES[who.get(i, "mass")] for i in want})
+        res.check("архивный скрыт и посчитан, пока его не спросили",
+                  [_j(c.get("/api/patients" + q))["data"]["hidden_arh"]
+                   for q in ("", "?q=Svet", "?st=arhivat")], [1, 0, 0])
 
-        # ---- поведение `_pl_rows`/`_pl_filter`, записанное руками ----
-        page = c.get("/admin/search").body
-        res.check("порядок по умолчанию: последний визит, потом никогда не бывшие по id",
-                  _ids(page), [po, g, i, b, m, t] + mass)
-        res.check("статусы выведены из данных", {k: _statuses(page)[k] for k in (b, g, i, m, po, t)},
-                  {b: "Inactiv", g: "Necesită atenție", i: "În tratament",
-                   m: "Inactiv", po: "Activ", t: "Inactiv"})
-        res.check("архивный скрыт и посчитан", (cb in _ids(page), _hidden(page)), (False, 1))
-        res.check("архив: свой статус", _statuses(c.get("/admin/search?st=arhivat").body).get(cb),
-                  "Arhivat")
-        res.check("сортировка по имени — без диакритики, хвост по id",
-                  _ids(c.get("/admin/search?sort=name").body), [po, g, b, t, i] + mass + [m])
-        res.check("сортировка по долгу: должник, нули по id, аванс последним",
-                  _ids(c.get("/admin/search?sort=debt").body), [m, b, g, i, t] + mass + [po])
-        res.check("«активные» — визит за год, свежие первыми",
-                  _ids(c.get("/admin/search?st=activ").body), [po, g, i])
-        res.check("«неактивные» — давний визит, потом никогда не бывшие",
-                  _ids(c.get("/admin/search?st=inactiv").body), [b, m, t] + mass)
-        res.check("без врача — только заведённые без визита и без медика куранта",
-                  _ids(c.get("/admin/search?med=-").body), mass)
-        res.check("врач из фиши и врач последнего визита — под одним фильтром",
-                  _ids(c.get("/admin/search?med=Dr.+Activ+Trei").body), [g, t])
-        res.check("цифры ищутся и в заметке", _ids(c.get("/admin/search?q=069555444").body), [m])
-        res.check("номер дела ищется", _ids(c.get("/admin/search?q=d-77").body), [g])
-        res.check("одна буква не находит никого", _ids(c.get("/admin/search?q=x").body), [])
-        res.check("вторая страница — остаток", _ids(c.get("/admin/search?per=10&page=2").body),
-                  mass[-4:])
-        res.check("врачи в фильтре: каталог плюс те, кто есть в строках",
-                  _options(page, "med"),
-                  ["", "-", "Dr. Activ Doi", "Dr. Activ Patru", "Dr. Activ Trei", "Dr. Arhivat Unu"])
-        res.check("каналы в фильтре: без Telegram, пока таких пациентов нет",
-                  _options(page, "ch"), ["", "manual", "web"])
-
-        # ---- API повторяет страницу для каждого отбора ----
-        for qs in QUERIES:
-            old = c.get("/admin/search" + (f"?{qs}" if qs else "")).body
-            r = c.get("/api/patients" + (f"?{qs}" if qs else ""))
-            d = _j(r)["data"]
-            res.check(f"[{qs or 'без фильтров'}] те же люди в том же порядке",
-                      [row["id"] for row in d["rows"]], _ids(old))
-            res.check(f"[{qs or 'без фильтров'}] те же статусы",
-                      {row["id"]: row["status"] for row in d["rows"]},
-                      {k: {"Arhivat": "arhivat", "Necesită atenție": "atentie",
-                           "În tratament": "tratament", "Inactiv": "inactiv",
-                           "Activ": "activ"}[v] for k, v in _statuses(old).items()})
-            # подсказка «N arhivați» у старой страницы живёт в пагинаторе, а его
-            # у пустого списка нет — сверяем её только там, где она есть
-            res.check(f"[{qs or 'без фильтров'}] тот же счёт и скрытый архив",
-                      (d["total"], d["hidden_arh"] if _total(old) else 0),
-                      (_total(old), _hidden(old)))
-
-        # ---- то, что над списком ----
         sm = _j(c.get("/api/patients/summary"))["data"]
-        vals = re.findall(r"<div class='pl-tv'>\s*<span>[^<]*</span><b>([^<]*)</b>", page)
-        res.check("карточки: те же три числа", [t_["value"] for t_ in sm["tiles"]], vals)
-        feet = re.findall(r"<small>(.*?)</small></div>",
-                          page.split("<div class='pl-tiles'>", 1)[1].split("<div class='pl-grid'>", 1)[0],
-                          re.S)
-        res.check("карточки: те же подписи под числами",
-                  [t_["foot"] for t_ in sm["tiles"]][:len(feet)], feet)
-        res.check("врачи фильтра — те же", sm["doctors"], _options(page, "med")[2:])
-        res.check("каналы — те же", [x["id"] for x in sm["channels"]], _options(page, "ch")[1:])
-        res.check("статусы — тот же порядок словаря", [x["id"] for x in sm["statuses"]],
-                  _options(page, "st")[1:])
-        res.check("подписи статусов — те же слова",
-                  [x["label"] for x in sm["statuses"]],
-                  re.findall(r"<option value='\w+'>([^<]+)</option>",
-                             page.split("<select name='st'", 1)[1].split("</select>", 1)[0]))
-        peek_old = c.get(f"/admin/patient/{i}/peek").body
-        res.check("предпросмотр — тот же кусок разметки",
-                  _j(c.get(f"/api/patients/{i}/peek"))["data"]["html"], peek_old)
+        res.check("врачи в фильтре: каталог плюс те, кто есть в строках",
+                  sm["doctors"], ["Dr. Activ Doi", "Dr. Activ Patru", "Dr. Activ Trei", "Dr. Arhivat Unu"])
+        res.check("каналы в фильтре: без Telegram, пока таких пациентов нет",
+                  [x["id"] for x in sm["channels"]], ["manual", "web"])
+        res.check("статусы — порядок словаря и слова",
+                  [(x["id"], x["label"]) for x in sm["statuses"]],
+                  [("arhivat", "Arhivat"), ("atentie", "Necesită atenție"),
+                   ("tratament", "În tratament"), ("inactiv", "Inactiv"), ("activ", "Activ")])
+        peek = _j(c.get(f"/api/patients/{p['ionescu']}/peek"))["data"]["html"]
+        res.ok("предпросмотр — сводка фиши словами сервера: имя, статус, план",
+               "Maria Ionescu" in peek and "În tratament" in peek and "Plan de tratament" in peek,
+               peek[:200])
 
 
 def suite_api(res: Result) -> None:
@@ -262,17 +232,18 @@ def suite_api(res: Result) -> None:
         res.check("новая фиша: код и адрес фиши", (r.status, d["code"]), (200, "new_pat"))
         new_id = d["data"]["id"]
         res.check("адрес ведёт в фишу с плашкой", d["data"]["url"], f"/admin/patient/{new_id}?msg=new_pat")
-        res.ok("новый пациент виден и на старой странице",
-               "Grigore Nou" in c.get("/admin/search?q=060777888").body, "нет в списке")
-        card = c.get(f"/admin/patient/{new_id}").body
-        res.ok("дата рождения и врач сохранены", "1978-02-02" in card and "Dr. Activ Doi" in card,
-               "поля не легли")
+        res.check("новый пациент виден в списке",
+                  [x["name"] for x in _j(c.get("/api/patients?q=060777888"))["data"]["rows"]],
+                  ["Grigore Nou"])
+        prof = _j(c.get(f"/api/patients/{new_id}"))["data"]["profile"]
+        res.check("дата рождения и врач сохранены", (prof["birth"], prof["primary_doctor"]),
+                  ("02.02.1978", "Dr. Activ Doi"))
         r = c.post_json("/api/patients", {"name": "Alt Nume", "phone": "060777888"})
         d = _j(r)
         res.check("тот же телефон — та же фиша, не двойник",
                   (r.status, d["code"], d["data"]["id"], d["tone"]), (200, "dup_pat", new_id, "warn"))
-        res.ok("имя существующего не перезаписано", "Grigore Nou" in c.get(f"/admin/patient/{new_id}").body,
-               "имя затёрлось")
+        res.check("имя существующего не перезаписано",
+                  _j(c.get(f"/api/patients/{new_id}"))["data"]["name"], "Grigore Nou")
         r = c.post_json("/api/patients", {"name": "  "})
         res.check("без имени — 422 с полем", (r.status, _j(r)["code"], _j(r).get("field")),
                   (422, "bad_pat", "name"))
@@ -286,17 +257,18 @@ def suite_api(res: Result) -> None:
 
 
 def suite_switch(res: Result) -> None:
-    """Флаг patients_search: узел React с отбором из адреса, ?ui=legacy
-    возвращает старый список, старые адреса живут рядом."""
+    """Список — React при любом `ui.react` (старая страница снята 13.10): узел с
+    отбором из адреса, `?ui=legacy` отдаёт тот же React, экспорт отдаётся."""
     with Server() as s:
         c = Client(s.url).login()
-        res.ok("без флага — старый список", "pl-tbl" in c.get("/admin/search").body
-               and 'id="root"' not in c.get("/admin/search").body, "не старый")
+        res.ok("без флага — тоже React (старого списка нет)",
+               '<div id="root" data-screen="patients_search"' in c.get("/admin/search").body,
+               "узла нет")
 
     s = _server_with_flags()
     with s:
         c = Client(s.url).login()
-        c.post("/admin/patients/new", name="Flag Test", phone="060333444")
+        new_patient(c, "Flag Test", "060333444")
         page = c.get("/admin/search").body
         # подпись раздела печатает сам экран (08.10) — сервер отдаёт пустую
         res.ok("узел React в рамке раздела",
@@ -314,13 +286,12 @@ def suite_switch(res: Result) -> None:
                             .replace("&quot;", '"'))
         res.check("отбор из адреса — параметрами узла, без значений по умолчанию",
                   params, {"q": "balan", "st": "inactiv", "per": "10"})
-        res.ok("?ui=legacy — старый список",
-               "pl-tbl" in c.get("/admin/search?ui=legacy").body, "не вернулся")
+        res.ok("?ui=legacy — тот же React",
+               'data-screen="patients_search"' in c.get("/admin/search?ui=legacy").body,
+               "старый список вернулся")
         res.ok("?msg= на React-странице — плашка сервера",
                "dp_toast" in c.get("/admin/search?msg=new_pat").body, "плашки нет")
-        r = c.post("/admin/patients/new", name="Flag Doi", phone="060555666")
-        res.ok("старая форма при флаге работает", r.msg == "new_pat", f"{r!r}")
-        res.ok("экспорт при флаге отдаётся", c.get("/admin/patients.xlsx").status == 200, "нет")
+        res.ok("экспорт отдаётся", c.get("/admin/patients.xlsx").status == 200, "нет")
         res.ok("флаги пережили правку", _cfg(s).get("ui") == {"react": FLAGS}, f"{_cfg(s).get('ui')}")
         res.check("без входа React-страница закрыта", Client(s.url).get("/admin/search").status, 303)
 
