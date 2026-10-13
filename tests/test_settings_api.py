@@ -3,7 +3,7 @@
 Старые серверные страницы настроек сняты 12.10.2026 — экраны рисует только
 React, а данные (`_hub_tiles`, `faq.entries`, `lan.*_html`, `_val_hours`) и
 правила сохранения отдаёт сервер. Сверки «как на старой странице» ушли вместе
-с ней; адрес экрана с `?ui=legacy` обязан отдавать тот же React.
+с ней, а 13.10 (шаг 6) — и ключ `ui.react` с `?ui=legacy`.
 """
 import json
 import pathlib
@@ -13,10 +13,6 @@ import tempfile
 from harness import FIXTURES, TG_ON, Client, Result, Server, _rmtree_settled
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-FLAGS = ["settings_clinic", "doctors_list", "doctor_card", "settings_hub",
-         "settings_lan", "settings_faq", "settings_hours", "settings_services",
-         "settings_theme", "settings_security", "settings_backup",
-         "settings_crypt", "settings_system", "patients_search"]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 
@@ -31,14 +27,6 @@ def _rec(s: Server) -> dict:
 
 def _cfg(s: Server) -> dict:
     return json.loads(s.clinic.read_text(encoding="utf-8"))
-
-
-def _server_with_flags(env: dict | None = None) -> Server:
-    s = Server(env=env)
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": list(FLAGS)}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
 
 
 def suite_hub(res: Result) -> None:
@@ -256,7 +244,7 @@ def suite_system(res: Result) -> None:
         res.ok("у grandfather-клиники строка канала есть", bool(d["telegram"]),
                "строки нет")
 
-    s = _server_with_flags(env=NO_KEY)
+    s = Server(env=NO_KEY)
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
@@ -264,9 +252,6 @@ def suite_system(res: Result) -> None:
         page = boss.get("/admin/settings/system").body
         res.ok("узел React", 'data-screen="settings_system"' in page, "узла нет")
         res.ok("старой таблицы нет", "Stare sistem</h2>" not in page, "две разметки")
-        res.ok("?ui=legacy: тот же React (старая страница снята)",
-               'data-screen="settings_system"' in boss.get("/admin/settings/system?ui=legacy").body,
-               "старая страница вернулась")
         res.ok("вход по PIN виден как PIN",
                _j(boss.get("/api/settings/system"))["data"]["access"]["text"] == "PIN setat",
                "вход назван не так")
@@ -358,7 +343,7 @@ def suite_crypt(res: Result) -> None:
                (s.dir / "db-decrypt.request").exists(), "заказа на расшифровку нет")
 
     # ---- права: деньги и настройки закрыты не только в меню ----
-    s = _server_with_flags(env=NO_KEY)
+    s = Server(env=NO_KEY)
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
@@ -366,9 +351,6 @@ def suite_crypt(res: Result) -> None:
         page = boss.get("/admin/settings/crypt").body
         res.ok("узел React", 'data-screen="settings_crypt"' in page, "узла нет")
         res.ok("старой кнопки нет", "Pregătește criptarea" not in page, "две разметки")
-        res.ok("?ui=legacy: тот же React (старая страница снята)",
-               'data-screen="settings_crypt"' in boss.get("/admin/settings/crypt?ui=legacy").body,
-               "старая страница вернулась")
         # ⛔ Лист остаётся серверным: он обязан открываться, когда бандл не
         # загрузился, — иначе код, без которого база не откроется, показать нечем.
         boss.post_json("/api/settings/crypt/prepare", {})
@@ -759,9 +741,8 @@ def suite_backup(res: Result) -> None:
 
 def suite_switch(res: Result) -> None:
     """Экраны настроек — только React (старые страницы сняты 12.10): узел в
-    той же рамке, `?ui=legacy` отдаёт тот же React, старые формы сняты,
-    охрана — та же, что была у страниц."""
-    s = _server_with_flags()
+    той же рамке, старые формы сняты, охрана — та же, что была у страниц."""
+    s = Server()
     with s:
         c = Client(s.url).login()
         for path, screen, old in (("/admin/settings", "settings_hub", "class='pl-tile'"),
@@ -777,10 +758,6 @@ def suite_switch(res: Result) -> None:
             res.ok(f"{path}: узел React", f'data-screen="{screen}"' in page, "узла нет")
             res.ok(f"{path}: старой разметки нет", old not in page, "две разметки")
             res.ok(f"{path}: бандл подключён", "/static/js/bundle.js?v=" in page, "нет бандла")
-            legacy = c.get(f"{path}?ui=legacy").body
-            res.ok(f"{path}?ui=legacy: тот же React",
-                   f'data-screen="{screen}"' in legacy and old not in legacy,
-                   "старая страница вернулась")
         res.ok("хаб: рамка и плашка сервера",
                "setările clinicii" in c.get("/admin/settings").body
                and "dp_toast" in c.get("/admin/settings?msg=ok_set").body, "рамка потеряна")
@@ -806,24 +783,18 @@ def suite_switch(res: Result) -> None:
     env_path = tmp / "dental.env"
     env_path.write_text("TELEGRAM_TOKEN=\n", encoding="utf-8")
     try:
-        s = _server_with_flags(env={"DENTART_ENV_FILE": str(env_path)})
+        s = Server(env={"DENTART_ENV_FILE": str(env_path)})
         with s:
             c = Client(s.url).login()
             page = c.get("/admin/settings/lan").body
             res.ok("сеть: узел React", 'data-screen="settings_lan"' in page, "узла нет")
             res.ok("сеть: старой кнопки нет", "Activează accesul" not in page, "две разметки")
-            res.ok("сеть ?ui=legacy: тот же React",
-                   'data-screen="settings_lan"' in c.get("/admin/settings/lan?ui=legacy").body,
-                   "старая страница вернулась")
             r = c.post_json("/api/settings/lan", {"mode": "on"})
             res.check("сеть переключается API", r.msg, "ok_set")
-            res.ok("флаги пережили переключение (сеть живёт в env, профиль цел)",
-                   json.loads(s.clinic.read_text(encoding="utf-8")).get("ui") == {"react": FLAGS},
-                   "флаги потеряны")
     finally:
         _rmtree_settled(tmp)
 
-    s = _server_with_flags(env={"ADMIN_KEY": ""})
+    s = Server(env={"ADMIN_KEY": ""})
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
@@ -831,9 +802,6 @@ def suite_switch(res: Result) -> None:
         page = boss.get("/admin/settings/security").body
         res.ok("учётки: узел React", 'data-screen="settings_security"' in page, "узла нет")
         res.ok("учётки: старой формы нет", "name='old_pin'" not in page, "две разметки")
-        res.ok("учётки ?ui=legacy: тот же React",
-               'data-screen="settings_security"' in boss.get("/admin/settings/security?ui=legacy").body,
-               "старая страница вернулась")
         r = boss.post_json("/api/settings/pin", {"old_pin": "1111", "new1": "1234", "new2": "1234"})
         res.check("смена PIN — API", r.msg, "ok_pin")
         ana = Client(s.url)

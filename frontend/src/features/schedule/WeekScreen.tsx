@@ -27,7 +27,7 @@ const T = {
   free: '— liber —',
   counted: 'programări',
   hint: 'Click pe ziua din antet — deschide programul zilei.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Props {

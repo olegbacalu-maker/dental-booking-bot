@@ -4,7 +4,7 @@
     python scripts\\look_sweep.py --tag base                    снять эталон
     python scripts\\look_sweep.py --tag step1 --against base    снять и сравнить
     python scripts\\look_sweep.py --compare base step1          только сравнить
-    ключи: --styles modern,calm  --only settings_theme,visit  --no-legacy
+    ключи: --styles modern,calm  --only settings_theme,visit
 
 ⛔ Не в CI и не в `.\\dev test`: нужны Edge и пакеты websocket-client, Pillow,
 numpy в СИСТЕМНОМ Python (в .venv-desktop ничего не ставить — это окружение
@@ -14,8 +14,8 @@ numpy в СИСТЕМНОМ Python (в .venv-desktop ничего не став�
 переменные, наведение порядка в радиусах — недоказуема ни прогоном, ни
 глазами: прогон CSS не видит, а глаз по одному экрану в день пропускает
 пропавший фон и сдвиг на пиксель. Здесь берётся КАЖДЫЙ экран из карты
-(`parity_audit`, тот же список, что у монтажа), в React и в старой вёрстке
-(`?ui=legacy` — panel.css красит обе), в КАЖДОМ стиле темы, и снимок «после»
+(`parity_audit`, тот же список, что у монтажа), в КАЖДОМ стиле темы
+(старой вёрстки `?ui=legacy` нет с 13.10), и снимок «после»
 сверяется со снимком «до» попиксельно.
 
 Что считается. Размер кадра разошёлся — раскладка поехала, красное сразу.
@@ -126,7 +126,7 @@ def settle(page: Page, timeout: float = 8.0) -> None:
     page.cdp.drain(0.2)
 
 
-def shoot(tag: str, styles: list[str], only: set[str] | None, legacy: bool,
+def shoot(tag: str, styles: list[str], only: set[str] | None,
           menu: str = "brand", font: str = "inter") -> pathlib.Path:
     rows = [r for r in audit() if r["path"] and (not only or r["screen"] in only)]
     if not rows:
@@ -179,8 +179,6 @@ def shoot(tag: str, styles: list[str], only: set[str] | None, legacy: bool,
                 for row in rows:
                     path = fill(row["path"], ids)
                     variants = [("", path)]
-                    if legacy:
-                        variants.append(("-legacy", path + ("&" if "?" in path else "?") + "ui=legacy"))
                     for suffix, url in variants:
                         page.go(url)
                         settle(page)
@@ -261,14 +259,13 @@ def main() -> int:
     ap.add_argument("--menu", default="brand", help="вариант меню: brand | neutral")
     ap.add_argument("--font", default="inter", help="шрифт: inter | system")
     ap.add_argument("--only", default="", help="экраны через запятую")
-    ap.add_argument("--no-legacy", action="store_true")
     a = ap.parse_args()
     if a.compare:
         return compare(*a.compare)
     if not a.tag:
         ap.error("нужен --tag или --compare")
     only = {s for s in a.only.split(",") if s} or None
-    shoot(a.tag, [s for s in a.styles.split(",") if s], only, not a.no_legacy,
+    shoot(a.tag, [s for s in a.styles.split(",") if s], only,
           menu=a.menu, font=a.font)
     return compare(a.against, a.tag) if a.against else 0
 

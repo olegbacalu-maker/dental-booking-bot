@@ -14,7 +14,7 @@ import sqlite3
 
 from harness import Client, Result, Server, new_patient, pid_by_phone
 from test_admin import _d
-from test_settings_api import FLAGS, NO_KEY, _cfg, _j, _server_with_flags
+from test_settings_api import NO_KEY, _j
 
 
 def _seed(c: Client) -> dict[str, int]:
@@ -258,15 +258,15 @@ def suite_api(res: Result) -> None:
 
 
 def suite_switch(res: Result) -> None:
-    """Список — React при любом `ui.react` (старая страница снята 13.10): узел с
-    отбором из адреса, `?ui=legacy` отдаёт тот же React, экспорт отдаётся."""
+    """Список — узел React (старая страница снята 13.10): отбор из адреса,
+    экспорт отдаётся."""
     with Server() as s:
         c = Client(s.url).login()
         res.ok("без флага — тоже React (старого списка нет)",
                '<div id="root" data-screen="patients_search"' in c.get("/admin/search").body,
                "узла нет")
 
-    s = _server_with_flags()
+    s = Server()
     with s:
         c = Client(s.url).login()
         new_patient(c, "Flag Test", "060333444")
@@ -287,16 +287,12 @@ def suite_switch(res: Result) -> None:
                             .replace("&quot;", '"'))
         res.check("отбор из адреса — параметрами узла, без значений по умолчанию",
                   params, {"q": "balan", "st": "inactiv", "per": "10"})
-        res.ok("?ui=legacy — тот же React",
-               'data-screen="patients_search"' in c.get("/admin/search?ui=legacy").body,
-               "старый список вернулся")
         res.ok("?msg= на React-странице — плашка сервера",
                "dp_toast" in c.get("/admin/search?msg=new_pat").body, "плашки нет")
         res.ok("экспорт отдаётся", c.get("/admin/patients.xlsx").status == 200, "нет")
-        res.ok("флаги пережили правку", _cfg(s).get("ui") == {"react": FLAGS}, f"{_cfg(s).get('ui')}")
         res.check("без входа React-страница закрыта", Client(s.url).get("/admin/search").status, 303)
 
-    s = _server_with_flags()
+    s = Server()
     s.extra_env = dict(NO_KEY)
     with s:
         boss = Client(s.url)

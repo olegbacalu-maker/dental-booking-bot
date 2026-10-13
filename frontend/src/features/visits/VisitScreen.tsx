@@ -17,7 +17,7 @@ const T = {
   back: 'Înapoi',
   card: 'Fișa pacientului',
   notFound: 'Vizita nu există sau este o notă fără pacient.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Props {

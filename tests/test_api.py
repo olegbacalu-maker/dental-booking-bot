@@ -1,5 +1,4 @@
-"""JSON API (DentPilot 2.0): охрана, конверт, первый экран «Clinica» и
-рубильник React/старая форма.
+"""JSON API (DentPilot 2.0): охрана, конверт и первый экран «Clinica».
 
 Проверяется поведение НА ДАННЫХ, а не разметка: тот же clinic.json, что правит
 старая форма, и тот же результат в файле. Главное, что здесь стережётся:
@@ -7,9 +6,9 @@
     редиректом и вернул бы клиенту форму входа как «успех»);
   · текст для человека приезжает В КОНВЕРТЕ из MSG_BANNER — клиент кодов не
     переводит;
-  · старая форма и React-экран правят ОДИН файл и не затирают соседей;
-  · флаг в профиле переключает экран без сборки, `?ui=legacy` возвращает
-    старую форму, и React-узел никогда не лежит внутри #live.
+  · экран правит clinic.json, не затирая соседей.
+(Рубильник «флаг профиля / `?ui=legacy`» и правило «узел React не внутри
+#live» сняты шагом 6 снятия старого интерфейса, 13.10: старых страниц нет.)
 """
 import json
 
@@ -21,16 +20,6 @@ API = "/api/settings/clinic"
 
 def _j(r) -> dict:
     return json.loads(r.body)
-
-
-def _server_with_flag() -> Server:
-    """Сервер, у которого экран «Clinica» уже отдан React: флаг пишется в
-    копию профиля ДО старта — так профиль читается, как у клиники."""
-    s = Server()
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["settings_clinic"]}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
 
 
 def suite_guard(res: Result) -> None:
@@ -174,32 +163,26 @@ def suite_clinic(res: Result) -> None:
 
 
 def suite_switch(res: Result) -> None:
-    """Экран «Clinica» — только React (старая форма снята 12.10): узел в той же
-    рамке и без флага, и с `?ui=legacy`; флаг профиля переживает сохранение.
-    Старая оболочка (уголок, сайдбар) проверяется на странице, которая ещё
-    серверная, — статистике под пином харнесса."""
+    """Экран «Clinica» — узел React в оболочке из модели (старая форма снята
+    12.10, рубильник — 13.10). Старая оболочка (уголок, сайдбар) проверяется
+    на странице, которая ещё серверная: «QR pacienți» без бота."""
     with Server() as s:
         c = Client(s.url).login()
         page = c.get("/admin/settings/clinic").body
-        res.ok("и без флага — узел React (старой формы больше нет)",
-               'data-screen="settings_clinic"' in page and "name='name'" not in page,
-               "вернулась старая форма")
-        res.ok("бандл подключён", "/static/js/bundle.js?v=" in page, "нет бандла")
-
-    s = _server_with_flag()
-    with s:
-        c = Client(s.url).login()
-        page = c.get("/admin/settings/clinic").body
-        res.ok("с флагом — узел React с именем экрана",
-               '<div id="root" data-screen="settings_clinic"' in page, "узла нет")
+        res.ok("узел React с именем экрана, старой формы нет",
+               '<div id="root" data-screen="settings_clinic"' in page and "name='name'" not in page,
+               "узла нет или вернулась старая форма")
         # ⭐ B1: модель оболочки приезжает ИНЛАЙНОМ тем же узлом.
         shell = json.loads(page.split('data-shell="', 1)[1].split('"', 1)[0]
                            .replace("&quot;", '"'))
         res.ok("бандл и его стили подключены с версией",
                "/static/js/bundle.js?v=" in page and "/static/css/bundle.css?v=" in page,
                "нет ссылок на бандл")
+        # заглушка зовёт перезагрузить ТОТ ЖЕ адрес (старой страницы нет с 13.10)
         res.ok("серверная заглушка с объяснением, если бандл не загрузился",
-               "Interfața nouă nu s-a încărcat" in page, "пустой узел без объяснения")
+               "Interfața nu s-a încărcat" in page
+               and '<a href="/admin/settings/clinic">Reîncărcați pagina</a>' in page
+               and "ui=legacy" not in page, "пустой узел без объяснения или ссылка не та")
         # ⛔ Рамку больше не печатает сервер — она в модели. Проверяем ЗНАЧЕНИЯ,
         # а не литералы разметки: крошка, подпись раздела и активный пункт.
         res.ok("рамка на месте: крошка к хабу, подпись раздела, активный пункт",
@@ -209,6 +192,8 @@ def suite_switch(res: Result) -> None:
                and shell["frame"]["sub"] == "setări · clinica"
                and shell["nav"]["active"] == "set",
                f"{shell['frame']['crumbs']} {shell['frame']['sub']} {shell['nav']['active']}")
+        res.check("колокольчика в модели оболочки нет (снят 13.10 со старой панелью)",
+                  "bell" in shell["frame"], False)
         # Уголок (06.10): знак со словом — ссылка на сайт, почта — на домене
         # сайта. Знак — SVG сервера со СВОЕЙ приставкой id, не та, что у сайдбара.
         site, fb = shell["frame"].get("site") or {}, shell["frame"]["feedback"]
@@ -219,21 +204,16 @@ def suite_switch(res: Result) -> None:
                and fb["href"].startswith("mailto:contact@dentpilot.md?subject="),
                f"{site.get('href')!r} {fb}")
         res.ok("серверного каркаса на React-странице нет",
-               "<aside" not in page and 'class="top"' not in page, "две оболочки разом")
-        res.ok("узел React не внутри #live", 'id="live"' not in page,
-               "panel.js подменит innerHTML под смонтированным деревом")
+               "<aside" not in page and 'class="top"' not in page
+               and "/static/js/panel.js" not in page, "две оболочки разом")
         res.ok("?msg= на React-странице показывает плашку сервера",
                "dp_toast" in c.get("/admin/settings/clinic?msg=ok_set").body,
                "ответ на действие потерян")
-        legacy = c.get("/admin/settings/clinic?ui=legacy").body
-        res.ok("?ui=legacy — тот же React (старая форма снята)",
-               'data-screen="settings_clinic"' in legacy and "name='name'" not in legacy,
-               "старая форма вернулась")
         # ⛔ Сайт — только в системном браузере: без target=_blank окно
         # программы само ушло бы на сайт, и вернуться было бы нечем.
-        # Серверная оболочка (`_shell`) жива у страниц без React-экрана — QR
-        # без бота, раздвоение картотеки, Telegram; уходит шагом 6 снятия
-        # старого интерфейса (docs/dentpilot-2/legacy-removal.md).
+        # Серверная оболочка (`_shell`) жива у страниц замороженного бота —
+        # Setări › Telegram и «QR pacienți» без бота (Олег 13.10: бот заморожен,
+        # его страницы не трогаем).
         old = c.get("/admin/qr-print").body
         res.ok("старая оболочка: знак — ссылка на сайт с target=_blank, почта contact@",
                'class="bc-site" href="https://dentpilot.md" target="_blank" rel="noopener"' in old
@@ -242,25 +222,20 @@ def suite_switch(res: Result) -> None:
         res.ok("старая оболочка: под именем клиники нет подписи DentPilot (06.10)",
                "<small>DentPilot</small>" not in old and '<div class="txt"><b' in old,
                "подпись вернулась или сайдбар не тот")
+        res.ok("старая оболочка: ни живой обёртки, ни опроса, ни колокольчика (шаг 6)",
+               'id="live"' not in old and "data-reload" not in old
+               and "class='bell'" not in old, "каркас старой панели вернулся")
         res.ok("хаб настроек не изменился (плитка клиники на месте)",
                any(t["href"] == "/admin/settings/clinic"
                    for t in _j(c.get("/api/settings/hub"))["data"]["tiles"]), "плитки нет")
-        dash = c.get("/admin").body
-        res.ok("журнал — свой узел React при любом флаге, и не живой страницей",
-               'data-screen="schedule_dash"' in dash and 'id="live"' not in dash,
-               "флаг настроек задел журнал")
-
-        res.check("API сохраняет при флаге",
+        res.check("API сохраняет",
                   c.post_json(API, {"name": "Clinica Flag 2", "phone": "+373 2"}).status, 200)
         after = json.loads(s.clinic.read_text(encoding="utf-8"))
-        res.check("флаг пережил сохранение через API",
-                  after.get("ui"), {"react": ["settings_clinic"]})
         res.check("имя после API", after["name"], "Clinica Flag 2")
+        res.check("ключа ui.react в профиле нет (снят шагом 6)", "ui" in after, False)
 
     # право: React-страница закрыта той же require, что была у старой
-    s = _server_with_flag()
-    s.extra_env = dict(NO_KEY)
-    with s:
+    with Server(env=NO_KEY) as s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
         boss.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R", "role": "receptie", "pin": "3333"})
@@ -271,45 +246,17 @@ def suite_switch(res: Result) -> None:
                r.status == 303 and r.msg == "no_access", f"{r!r}")
 
 
-def suite_live_react(res: Result) -> None:
-    """⛔ React-узел НИКОГДА не внутри #live.
+def suite_live_envelope(res: Result) -> None:
+    """Конверт живого канала — без сервера, обе полярности (C26.5.2).
 
-    Правило старое, а держал его до 18.09 только комментарий: `react_on` про
-    `LIVE_RELOAD` не знает ни строчкой, а проверка «у /admin нет #root» зелена
-    просто потому, что журнала пока нет в `REACT_SCREENS`. Первая же строка
-    C24 сделала бы её ложью молча.
-
-    Теперь правило держит само место, где его можно нарушить: `_shell` не
-    объявляет страницу живой, если в теле есть узел React. Сервера здесь не
-    нужно — проверяется сборка страницы.
+    (До 13.10 здесь же держалось правило «узел React не внутри #live
+    серверного каркаса»: `_shell` не объявлял страницу живой при узле React.
+    Живых страниц у каркаса больше нет — `#live`, `LIVE_RELOAD` и
+    `react_mount` сняты шагом 6 снятия старого интерфейса.)
     """
     import pathlib
     import sys
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
-    from app.core import layout as L
-
-    plain = L._shell("<p>zi</p>", "x", active="dash")
-    res.check("обычная живая страница: обёртка #live и опрос на месте",
-              ('id="live"' in plain, 'data-reload="12"' in plain), (True, True))
-
-    node = L.react_mount("schedule_day", "/admin", {"d": "2026-09-18"})
-    react = L._shell(node, "x", active="dash")
-    res.check("узел React в живом разделе: ни обёртки, ни опроса",
-              ('id="live"' in react, "data-reload" in react), (False, False))
-    res.ok("сам узел при этом на месте и не тронут",
-           'data-screen="schedule_day"' in react and "bundle.js" in react,
-           "узел потерян вместе с обёрткой")
-    res.check("вторая живая секция закрыта тем же правилом",
-              'id="live"' in L._shell(node, "x", active="prog"), False)
-    res.ok("метка узла ОДНА на печать и на распознавание",
-           L.REACT_MOUNT_MARK in node and L._has_react_mount(node),
-           "печать и проверка разошлись — правило перестанет срабатывать молча")
-
-    # ⚠️ Ключи живых разделов — журнала. С 13.10 ни один его экран через
-    # `_shell` не идёт (журнал — только React), и список уходит шагом 6
-    # вместе с `_shell` и panel.js; до тех пор он не меняется молча.
-    res.check("живых разделов по-прежнему два, оба — журнал",
-              sorted(L.LIVE_RELOAD), ["dash", "prog"])
 
     # ---- конверт живого канала: обе полярности, без сервера (C26.5.2) ----
     # ⭐ Ветка «состояния нет» раньше включалась ФЛАГОМ React и потому не

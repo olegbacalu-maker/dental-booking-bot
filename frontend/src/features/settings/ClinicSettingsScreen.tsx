@@ -1,11 +1,9 @@
 import { useCallback, useState, type FormEvent } from 'react'
-import { AppLink } from '../../components/AppLink'
 import { Icon } from '../../components/Icon'
 import { Toast, type ToastState } from '../../components/Toast'
 import { defaultNavigate } from '../../hooks/useLoad'
 import { useRouteLoad, type RouteLoad } from '../../hooks/useRouteLoad'
 import { asApiError } from '../../services/api'
-import { legacyUrl } from '../../utils/legacy'
 import { clinicSettings, type ClinicForm, type ClinicSettings } from './clinicSettings'
 
 /*
@@ -34,9 +32,8 @@ const T = {
     'Denumirea juridică și IDNO — doar pe documentele semnate de pacient (acord, 043/e); ' +
     'necompletate — rămân un spațiu galben, de completat cu ștampila.',
   /* Единственный текст, которого сервер дать не может: его самого не было. */
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
   retry: 'Reîncearcă',
-  legacy: 'Varianta clasică',
 } as const
 
 const EMPTY: ClinicForm = { name: '', phone: '', address: { ro: '', ru: '' }, legal_name: '', idno: '' }
@@ -56,7 +53,7 @@ interface Props {
 /**
  * Данные грузит роутер (B2): был единственным экраном на своём `useEffect`
  * — со своим циклом загрузки, своим «уходим на вход» и своими копиями общих
- * `asApiError`/`legacyUrl`. Теперь цикл тот же, что у всех (`useRouteLoad`).
+ * `asApiError`. Теперь цикл тот же, что у всех (`useRouteLoad`).
  */
 export const loadClinicSettings: RouteLoad<ClinicSettings> = (signal) => clinicSettings.load(signal)
 
@@ -107,7 +104,6 @@ export function ClinicSettingsScreen({ navigate = defaultNavigate }: Props) {
               <Icon name="refresh" /> {T.retry}
             </button>
           )}
-          <AppLink href={legacyUrl()}>{T.legacy}</AppLink>
         </p>
       </section>
     )

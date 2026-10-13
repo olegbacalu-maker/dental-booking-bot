@@ -21,7 +21,7 @@ const T = {
     'Fișa se deschide imediat după salvare — acolo completați dinții, planul și ' +
     'documentele. Pacientul cu același telefon nu se dublează.',
   submit: 'Adaugă pacientul',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Props {

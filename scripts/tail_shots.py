@@ -52,8 +52,6 @@ WIDE = (1500, 950)
 # занятом молча подключился бы к ЧУЖОМУ браузеру.
 PORT = 9340
 
-FLAGS = ["settings_crypt", "settings_system", "stats", "doctor_card"]
-
 # Смонтировался ли React вообще. ⛔ Мало проверить, что текст на месте: его
 # может печатать сервер. Заглушка внутри узла — вот признак, что бандл НЕ
 # выполнился, и она обязана исчезнуть.
@@ -100,9 +98,6 @@ def run(out: pathlib.Path) -> int:
     s1 = Server(keep_dir=True)
     with s1:
         _seed(Client(s1.url).login(), day)
-    cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": FLAGS}
-    s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-tail-shots")
     s2 = Server(dir_=s1.dir)

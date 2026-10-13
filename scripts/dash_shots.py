@@ -285,9 +285,6 @@ def run(out: pathlib.Path) -> int:
     s1 = Server(keep_dir=True)
     with s1:
         _seed(Client(s1.url).login(), day)
-    cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["schedule_dash"]}
-    s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-dash-shots")
     s2 = Server(dir_=s1.dir)

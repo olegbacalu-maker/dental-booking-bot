@@ -19,7 +19,6 @@ const T = t('shell', {
   kbd: 'Ctrl K',
   newAppt: 'Programare nouă',
   logout: 'Ieșire din cont',
-  bell: 'Programări noi din bot',
   feedback: 'Feedback',
   fold: 'Restrânge meniul',
   unfold: 'Extinde meniul',
@@ -175,14 +174,6 @@ function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLE
       )}
       <div style={{ flex: 1 }} />
       <span className="dp-upd" onClick={prose} dangerouslySetInnerHTML={{ __html: frame.update }} />
-      {/* ⛔ Колокольчик заморожен вместе с ботом: сервер присылает `bell: null`,
-          пока `tg_configured()` ложно. Размораживать его здесь нельзя. */}
-      {frame.bell !== null && (
-        <AppLink className="bell" href="/admin#botnew" title={T.bell}>
-          <Icon name="bell" />
-          {frame.bell > 0 && <span className="n">{frame.bell}</span>}
-        </AppLink>
-      )}
       <AppLink className="newbtn" href={addHref}>
         <span className="plus">+</span><span className="nb-t">{T.newAppt}</span>
       </AppLink>

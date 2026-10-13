@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import hashlib
 import html
 import json
 import logging
@@ -418,6 +417,22 @@ def msg_banner(msg: str) -> str:
             f"<div class='banner {cls}'>{text}"
             f"<button class='t-x' type='button' aria-label='Închide'>"
             f"{_ic('close')}</button></div></div>")
+
+
+def msg_state(msg: str) -> str:
+    """Ответ на действие СТРОКОЙ СОСТОЯНИЯ — для страницы со своей вёрсткой
+    (`standalone()`: раздвоение картотеки, шаг 6 снятия старого интерфейса),
+    где нет ни стилей плавающей плашки (panel.css), ни её скрипта (panel.js).
+    Вид `.state.ok/.warn/.err` страница описывает в своём `<style>`.
+
+    ⭐ Тот же словарь и то же место, что у `msg_banner` и `msg_json`: ответ на
+    действие строит только layout (держит test_structure). Неизвестный код
+    молчит, а не печатает себя."""
+    if msg not in MSG_BANNER:
+        return ""
+    tone, text = MSG_BANNER[msg]
+    role = "alert" if tone == "err" else "status"
+    return f"<div class='state {tone}' role='{role}'>{html.escape(text)}</div>"
 
 
 def msg_json(ok: bool, code: str = "", *, data=None, field: str = "",
@@ -991,8 +1006,8 @@ def _slot_banner() -> str:
             f"{head}{how}{tail}{lst}</div>")
 
 
-# ⚠️ Узкий сайдбар — ПАРАМЕТР, а не набор страниц рядом с LIVE_RELOAD. Тот
-# ключуется по `active`, а `active` отвечает ещё и за подсветку пункта меню:
+# ⚠️ Узкий сайдбар — ПАРАМЕТР, а не набор страниц по ключу раздела: ключ
+# `active` отвечает ещё и за подсветку пункта меню:
 # детальная одонтограмма обязана держать «Pacienți» подсвеченным и при этом
 # идти с узким сайдбаром, и своим ключом она бы подсветку потеряла.
 def _sidebar(active: str, rail: bool = False) -> str:
@@ -1055,14 +1070,9 @@ def _sidebar(active: str, rail: bool = False) -> str:
 </aside>"""
 
 
-def _topbar(bell: int | None) -> str:
-    bell_html = ""
-    if bell is not None:
-        badge = f"<span class='n'>{bell}</span>" if bell else ""
-        # ведёт к блоку «Programări noi din bot» (по created_at) — а не к дневному
-        # фильтру: бронь на неделю вперёд должна быть в одном клике (урок демо 07-31)
-        bell_html = (f"<a class='bell' href='/admin#botnew' "
-                     f"title='Programări noi din bot'>{_ic('bell')}{badge}</a>")
+def _topbar() -> str:
+    # ⚠️ Колокольчика «Programări noi din bot» здесь больше нет: его считала
+    # старая панель (снята 13.10), и обе оболочки получали `bell: None`.
     today = datetime.now(eng.TZ).date().isoformat()
     # Логотип клиники по центру шапки — галочка в Setări › Aspect (08-21).
     # Центрируется абсолютом (CSS .tb-logo), поэтому в потоке стоит где
@@ -1081,7 +1091,6 @@ def _topbar(bell: int | None) -> str:
   {tb_logo}
   <div style="flex:1"></div>
   <span style="font-size:12px;color:var(--text3)">{_update_banner().removeprefix(' · ')}</span>
-  {bell_html}
   <a class="newbtn" href="/admin/all?date={today}#addform"><span class="plus">+</span><span class="nb-t">Programare nouă</span></a>
   {_who_chip()}
 </div>"""
@@ -1109,29 +1118,6 @@ def _who_chip() -> str:
             f"</div>")
 
 
-# ⚠️ С 13.10 ни одна страница с этими ключами через `_shell` не идёт: экраны
-# журнала рисует только React, и живой у него — панель, по каналу данных
-# (`/api/schedule/live`). Механизм ниже уходит шагом 6 снятия старого
-# интерфейса вместе с `_shell` и panel.js (docs/dentpilot-2/legacy-removal.md).
-# Кто живёт сам — СЕКУНДЫ опроса в data-reload на <body>, panel.js слушается
-# атрибута. Живым обязано было быть только расписание (панель, день, неделя,
-# день врача): бронь из бота должна появиться, пока журнал висит открытым.
-# Остальным страницам это не даёт НИЧЕГО (находка Олега 08-07: «вкладка
-# закрывается сама» — третий случай одной болезни после предпросмотра 1.13.2 и
-# анимаций). Новая страница расписания = её active сюда.
-# ⭐ С 08-20 «живой» значит ОПРОС, а не перезагрузка (жалоба пилота «обновление
-# каждые 12 сек, видно»): _shell оборачивает body живой страницы в
-# <div id="live" data-hash=md5>, panel.js раз в 12 с спрашивает ТОТ ЖЕ адрес с
-# заголовком X-DP-Live и подменяет содержимое обёртки ТОЛЬКО если отпечаток
-# изменился (`schedule/routes._live_fragment` отвечал 204 на совпавший). Экран
-# неподвижен, пока день не изменился по-настоящему. Отсюда два следствия:
-# страница живой раскладки обязана рендерить body ДЕТЕРМИНИРОВАННО (всё
-# непрерывно меняющееся — как линия «сейчас» — рисует panel.js, иначе отпечаток
-# «всегда другой» и подмена идёт каждый опрос), а инлайн-скрипт, несущий ДАННЫЕ
-# (CARDS, NOTE_ENDS), помечается data-live и объявляет var, не const — panel.js
-# исполняет такие скрипты заново после подмены, const упал бы на повторном
-# объявлении, и клик по свежеприехавшей записи молча перестал бы открываться.
-LIVE_RELOAD = {"dash", "prog"}
 
 # ---- React-экраны (DentPilot 2.0, 09-17; интерфейс продукта с 21.09) ----
 # ⭐ **REACT_SCREENS — это список РЕАЛИЗОВАННЫХ поверхностей, а не механизм
@@ -1145,13 +1131,10 @@ LIVE_RELOAD = {"dash", "prog"}
 # docs/dentpilot-2/legacy-removal.md; журнал — последним, 13.10): каждый из них
 # React при любом профиле. Вместе с журналом ушёл и сам рубильник — `react_on`
 # / `react_flag`, читавшие ключ `ui.react` профиля и `?ui=legacy` в адресе:
-# спрашивать их стало некому. Ключ в профиле и ссылки «varianta clasică»
-# (ведут на тот же React-экран) уходят шагом 6.
+# спрашивать их стало некому. Ключ в профилях и ссылки «varianta clasică»
+# ушли шагом 6 (13.10).
 # Имена остаются здесь как список реализованных поверхностей (карта экранов,
 # `parity_audit`, стенд монтажа `mount_sweep`).
-# ⛔ React-экран НИКОГДА не лежит внутри #live: panel.js подменил бы innerHTML
-# под смонтированным деревом, и клик по свежему узлу молча умер бы (держит
-# test_api).
 REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "settings_hub", "settings_lan", "settings_faq",
                            "settings_hours", "settings_services", "settings_theme",
@@ -1166,36 +1149,9 @@ REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "chair"})
 
 
-# Метка узла React в готовой странице. ⚠️ Одна строка на печать и на проверку:
-# разойдутся — и правило «узел не внутри #live» перестанет срабатывать молча.
+# Метка узла React в готовой странице (её печатает `react_shell`).
 REACT_MOUNT_MARK = '<div id="root" data-screen="'
 
-
-def _has_react_mount(body: str) -> bool:
-    return REACT_MOUNT_MARK in body
-
-
-def react_mount(screen: str, path: str, params: dict | None = None) -> str:
-    """Узел, в который монтируется бандл, и ссылки на него.
-
-    Внутри узла — серверный текст: если бандл не загрузился (потерян
-    --add-data, старый WebView, ошибка в скрипте), человек видит объяснение и
-    ссылку на старую страницу, а не пустой экран. main.tsx этот текст убирает
-    при монтировании. Имена файлов фиксированы (frontend/vite.config.ts):
-    маршрут статики пропускает только их; версия в адресе — как у panel.js."""
-    legacy = html.escape(f"{path}?ui=legacy")
-    # параметры экрана (id врача и т. п.) — атрибутом, а не разбором адреса
-    # на клиенте: адрес принадлежит серверу, и клиент не должен его угадывать
-    attrs = (f' data-params="{html.escape(json.dumps(params, ensure_ascii=False), quote=True)}"'
-             if params else "")
-    return (
-        f'<link rel="stylesheet" href="/static/css/bundle.css?v='
-        f'{_asset_ver("css", "bundle.css")}">'
-        f'{REACT_MOUNT_MARK}{html.escape(screen)}"{attrs}>'
-        f'<p class="hint">Interfața nouă nu s-a încărcat. '
-        f'<a href="{legacy}">Deschideți varianta clasică</a>.</p></div>'
-        f'<script type="module" src="/static/js/bundle.js?v='
-        f'{_asset_ver("js", "bundle.js")}"></script>')
 
 # ⭐ Списка «кому отдать ширину окна» здесь БОЛЬШЕ НЕТ (08-16). Он был — два
 # ключа, дневные виды, — и остальные разделы оставались с потолком 1500px без
@@ -1277,7 +1233,7 @@ def section_title(active: str) -> str:
 
 
 def shell_model(active: str, sub: str, rail: bool = False,
-                bell: int | None = None, msg: str = "",
+                msg: str = "",
                 crumbs: list | None = None, title: str = "") -> dict:
     """Оболочка ДАННЫМИ — одна модель на серверную страницу и на React (B1).
 
@@ -1356,7 +1312,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
                     "demo": _sig(_demo_banner())},
         # `title` — страница с собственным именем (фиша: имя пациента, 09.10 по
         # разбору: H1 «Pacienți» дублировал крошку); пустой — имя раздела
-        "frame": {"title": title or section_title(active), "sub": sub, "rail": rail, "bell": bell,
+        "frame": {"title": title or section_title(active), "sub": sub, "rail": rail,
                   "update": _update_banner().removeprefix(" · "),
                   "msg": msg_banner(msg) if msg else "",
                   # ⭐ Навигация раздела (сегодня её печатает `_sec_page`, одну
@@ -1405,38 +1361,28 @@ def react_shell(screen: str, path: str, model: dict,
 <link rel="stylesheet" href="/static/css/bundle.css?v={_asset_ver("css", "bundle.css")}">
 {REACT_MOUNT_MARK}{e(screen)}"{attrs}
  data-shell="{e(json.dumps(model, ensure_ascii=False), quote=True)}">
-<p class="hint">Interfața nouă nu s-a încărcat.
-<a href="{e(path)}?ui=legacy">Deschideți varianta clasică</a>.</p></div>
+<p class="hint">Interfața nu s-a încărcat.
+<a href="{e(path)}">Reîncărcați pagina</a>.</p></div>
 <script type="module" src="/static/js/bundle.js?v={_asset_ver("js", "bundle.js")}"></script>
 </body></html>'''
 
 
-def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
-           rail: bool = False) -> str:
+def _shell(body: str, sub: str, active: str = "dash", rail: bool = False) -> str:
+    """Серверный каркас: сайдбар, шапка, баннеры и `panel.js` вокруг тела.
+
+    ⭐ С 13.10 экраны программы рисует React (`react_shell`), и каркас остался
+    только у страниц ЗАМОРОЖЕННОГО бота — Setări › Telegram (`_sec_page`) и
+    «QR pacienți» без бота. Их не трогаем, пока бот заморожен (Олег 13.10:
+    «без Telegram, он пока заморожен»); каркас уйдёт вместе с ними. Живой
+    обёртки `#live` и колокольчика у него больше нет — их читала только
+    старая панель (шаг 6 снятия старого интерфейса).
+    ⛔ Баннер, который печатается здесь, обязан ехать и сигналом
+    `shell_model()` — держит `test_structure` («каждый баннер каркаса —
+    сигнал оболочки»)."""
     # Подзаголовок без версии (08.10, промпт 1: «версию из подзаголовка
     # убрать» — она в подвале меню); пустой не печатается вовсе и строки
     # сетки шапки не занимает.
-    sub_line = sub
-    sub_html = f'<div class="sub">{sub_line}</div>' if sub_line else ""
-    # ⛔ React-узел НИКОГДА не внутри #live, и держит это правило само место,
-    # где его можно нарушить, а не комментарий рядом. Раньше тут был только
-    # комментарий: выбор поверхности про LIVE_RELOAD не знал ни строчкой, а
-    # проверка «у /admin нет #root» была зелена просто потому, что журнала не
-    # было в REACT_SCREENS. Первая же строка C24 сделала бы её ложью молча: panel.js
-    # подменил бы innerHTML под смонтированным деревом, клик по свежему узлу
-    # умер бы, и увидеть это можно было бы только простояв на странице
-    # полминуты. Живой опрос и React несовместимы по устройству, поэтому
-    # страница с узлом живой не объявляется — ни обёрткой, ни атрибутом.
-    live = active in LIVE_RELOAD and not _has_react_mount(body)
-    reload_attr = ' data-reload="12"' if live else ""
-    # Обёртка живого куска. data-hash — отпечаток СОДЕРЖИМОГО: panel.js слал
-    # его с первым же опросом, и сервер отвечал 204 «ничего не менялось» без
-    # затравочной загрузки (`schedule/routes._live_fragment`, снят 13.10 со
-    # старым журналом: живых страниц через `_shell` не осталось, и обёртка
-    # уходит шагом 6 вместе с `_shell` и `LIVE_RELOAD`).
-    if live:
-        body = (f'<div id="live" data-hash="'
-                f'{hashlib.md5(body.encode("utf-8")).hexdigest()}">{body}</div>')
+    sub_html = f'<div class="sub">{sub}</div>' if sub else ""
     # Тема клиники приезжает СТРОКОЙ в шапке, а не переписывает panel.css:
     # таблица вшита в exe (только чтение), отдаётся с вечным кешем и одна на
     # все клиники. Порядок обязателен — <style> ПОСЛЕ ссылки, иначе он не
@@ -1455,10 +1401,10 @@ def _shell(body: str, sub: str, active: str = "dash", bell: int | None = None,
     # отдаёт такие ссылки системному браузеру, а обычная ссылка увела бы на
     # сайт само окно — кнопки «назад» в нём нет, вернуться можно лишь
     # перезапуском. Держит test_api (обе оболочки) и проверка клиента.
-    return _doc_head() + f"""<body{reload_attr} data-v="{eng.APP_VERSION}">
+    return _doc_head() + f"""<body data-v="{eng.APP_VERSION}">
 {_sidebar(active, rail)}
 <div class="main">
-{_topbar(bell)}
+{_topbar()}
 <div class="content">
 <h1>{section_title(active)}</h1>
 {sub_html}

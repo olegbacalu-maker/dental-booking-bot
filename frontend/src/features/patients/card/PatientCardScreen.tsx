@@ -49,7 +49,7 @@ const T = {
   note: 'Notiță',
   print: 'Printează fișa',
   notFound: 'Fișa nu există sau a fost ștearsă.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
   unsaved: 'Anamneză nesalvată',
   leaveUnsaved: 'Anamneza are modificări nesalvate. Părăsiți fișa fără să le salvați?',
   leave: 'Părăsește',

@@ -666,20 +666,10 @@ def suite_actions(res: Result) -> None:
         res.ok("регистратуре фиша открыта", _card(rec, pid)["name"] == "Bani Test", "закрыта")
 
 
-def _server_with_flag(env: dict | None = None) -> Server:
-    """Сервер, у которого фиша уже отдана React: флаг пишется в копию профиля
-    ДО старта — так профиль читается, как у клиники."""
-    s = Server(env=env)
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["patient_card"]}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
-
-
 def suite_switch(res: Result) -> None:
-    """Фиша — React при любом `ui.react` (старая страница снята 13.10): узел
-    с номером фиши и режимом ленты в той же рамке, `?ui=legacy` отдаёт тот же
-    React, плашка сервера по `?msg=`, право стоит и на странице."""
+    """Фиша — узел React (старая страница снята 13.10): номер фиши и режим
+    ленты в той же рамке, плашка сервера по `?msg=`, право стоит и на
+    странице."""
     with Server() as s:
         c = Client(s.url).login()
         pid = new_patient(c, "Flag Card", "069777000")
@@ -687,7 +677,7 @@ def suite_switch(res: Result) -> None:
                '<div id="root" data-screen="patient_card"' in c.get(f"/admin/patient/{pid}").body,
                "узла нет")
 
-    s = _server_with_flag()
+    s = Server()
     with s:
         c = Client(s.url).login()
         pid = new_patient(c, "Flag Card", "069777000")
@@ -707,9 +697,6 @@ def suite_switch(res: Result) -> None:
         res.ok("старой разметки нет", "class='hero'" not in page and "id='plan'" not in page
                and "apptdlg" not in page, "две разметки")
         res.ok("не внутри #live", 'id="live"' not in page, "живой кусок")
-        res.ok("?ui=legacy — та же React-фиша",
-               'data-screen="patient_card"' in c.get(f"/admin/patient/{pid}?ui=legacy").body,
-               "старая страница вернулась")
         res.ok("?msg= на React-странице — плашка сервера",
                "dp_toast" in c.get(f"/admin/patient/{pid}?msg=ok_card").body, "плашки нет")
         res.check("чужая фиша — на список", c.get("/admin/patient/9999").status, 303)
@@ -719,13 +706,11 @@ def suite_switch(res: Result) -> None:
                r.status == 200
                and _j(c.get(f"/api/patients/{pid}/odontogram"))["data"]["teeth"]["11"]["state"] == "carie",
                f"{r!r}")
-        res.ok("флаг пережил правку профиля через API",
-               _act(c, pid, "/profile", {"name": "Flag Card", "phone": "069777000"})[0] == 200
-               and json.loads(s.clinic.read_text(encoding="utf-8")).get("ui") == {"react": ["patient_card"]},
-               "флаг слетел")
+        res.check("профиль правится через API",
+                  _act(c, pid, "/profile", {"name": "Flag Card", "phone": "069777000"})[0], 200)
         res.check("без входа React-страница закрыта", Client(s.url).get(f"/admin/patient/{pid}").status, 303)
 
-    s = _server_with_flag(env={"ADMIN_KEY": ""})
+    s = Server(env={"ADMIN_KEY": ""})
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")

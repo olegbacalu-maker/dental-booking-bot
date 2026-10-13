@@ -56,7 +56,6 @@ export interface ShellModel {
      */
     crumbs: NavItem[]
     rail: boolean
-    bell: number | null
     /** Строка обновления в шапке, HTML сервера; пусто, когда обновляться нечем. */
     update: string
     /** Плашка ответа после 303 с `?msg=`. */

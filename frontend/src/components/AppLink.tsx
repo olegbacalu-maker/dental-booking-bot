@@ -9,8 +9,9 @@ const TABLE = ROUTES.map((r) => ({ path: r.path }))
 
 /**
  * Ведёт ли адрес на экран приложения — то есть можно ли перейти без
- * перезагрузки. ⛔ Не экран (выгрузка, печать, вход) и `?ui=legacy` — нет:
- * такой адрес открывает документ, как и раньше.
+ * перезагрузки. ⛔ Не экран (выгрузка, печать, вход) — нет: такой адрес
+ * открывает документ, как и раньше. (`?ui=legacy` был особым до 13.10 —
+ * просьбой к серверу отдать старую страницу; старых страниц больше нет.)
  */
 export function isAppHref(href: string): boolean {
   let u: URL
@@ -20,7 +21,6 @@ export function isAppHref(href: string): boolean {
     return false
   }
   if (u.origin !== window.location.origin) return false
-  if (u.searchParams.getAll('ui').includes('legacy')) return false
   return matchRoutes(TABLE, u.pathname) !== null
 }
 

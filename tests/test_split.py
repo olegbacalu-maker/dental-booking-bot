@@ -28,7 +28,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "bot"))
 
 from app import migstate  # noqa: E402
 from app.core import auth  # noqa: E402
-from harness import PIN, Client, Result, Server  # noqa: E402
+from harness import PIN, Client, Result, Server, shell_signal  # noqa: E402
 from test_srcpin import _diff, _root_v1, _root_v2, _snapshot  # noqa: E402
 
 
@@ -127,8 +127,9 @@ def suite_screen(res: Result) -> None:
 
             # Журнал при этом РАБОТАЕТ: экран не стена.
             res.check("журнал назначения открыт", c.login().get("/admin").status, 200)
+            sig = shell_signal(c.get("/admin").body, "split")
             res.ok("директор видит сигнал в каркасе",
-                   "/admin/migration" in c.get("/admin").body,
+                   sig["shown"] and "href='/admin/migration'" in sig["html"],
                    "баннера раздвоения нет на странице журнала")
 
             after = _snapshot(src)
@@ -147,6 +148,13 @@ def suite_screen(res: Result) -> None:
             res.ok("и это именно экран, а не «готово»",
                    r.location.startswith("/admin/migration"), r.location)
             res.ok("и называет причину", "msg=mig_bad" in r.location, r.location)
+            # страница на `standalone()` (шаг 6): отказ — строкой состояния,
+            # плавающей плашки каркаса (`dp_toast`) у неё нет
+            page = c.get(r.location).body
+            res.ok("экран показывает отказ строкой состояния, без каркаса",
+                   "<div class='state err' role='alert'>PIN greșit" in page
+                   and "dp_toast" not in page and "<aside" not in page
+                   and "/static/js/panel.js" not in page, page[:300])
             res.ok("источник по-прежнему побайтно тот же",
                    _snapshot(src) == before, _diff(before, _snapshot(src)))
             res.ok("migration.json так и не создан",
@@ -171,7 +179,7 @@ def suite_screen(res: Result) -> None:
             res.check("экран больше не открывается",
                       c.get("/admin/migration").status, 303)
             res.ok("и баннера в каркасе больше нет",
-                   "/admin/migration" not in c.get("/admin").body,
+                   not shell_signal(c.get("/admin").body, "split")["shown"],
                    "баннер вернулся после ответа — его перестанут читать")
 
 

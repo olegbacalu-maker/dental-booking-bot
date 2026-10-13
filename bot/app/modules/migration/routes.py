@@ -47,11 +47,59 @@ from ... import engine as eng
 from ... import install_info, migstate, paths, relocate
 from ...core.auth import (PERM_SETTINGS, SRC_OK, confirm_source, require,
                           same_origin_post, source_pin_closed_for)
-from ...core.layout import _ic, _shell, msg_banner
+from ...core.layout import _ic, msg_state, standalone
 
 router = APIRouter()
 
 PAGE = "/admin/migration"
+
+# ⭐ Своя вёрстка на `standalone()`, без каркаса журнала (шаг 6 снятия старого
+# интерфейса, 13.10, решение Олега 12.10): экран спрашивает БЕЗ входа и до
+# выбора, а React-оболочке здесь рисовать нечего. ⚠️ panel.css не
+# подключается, как у входа и лицензии: цвет и шрифт клиники приезжают
+# заполнителями `standalone()` (`__ACCENT__`, `__FONTS__`, `__FAMILY__`).
+# Ответ на отказ — строкой состояния `.state` (`layout.msg_state`): плавающей
+# плашке каркаса нужны его стили и скрипт.
+TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__CLINIC__ — două fișe de pacienți</title><style>__FONTS__
+ body{font-family:__FAMILY__;background:__BG__;margin:0;color:#162033;
+      padding:28px 16px;box-sizing:border-box;min-height:100vh}
+ .wrap{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+ h1{font-size:21px;margin:0;font-weight:600;letter-spacing:-.02em;color:__ACCENT_D__;
+    display:flex;align-items:center;gap:8px}
+ .box{background:#fff;padding:20px 22px;border-radius:16px;border:1px solid #E7EDF5;
+      box-shadow:0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10)}
+ .pair{display:flex;gap:14px;flex-wrap:wrap}
+ .pair .box{flex:1 1 320px;min-width:280px}
+ h3{font-size:16px;margin:0 0 4px;font-weight:600;display:flex;align-items:center;gap:6px}
+ p{margin:0;line-height:1.55;font-size:14.5px}
+ .muted{color:#5A6875;font-size:13.5px}
+ .lead{margin-bottom:8px}
+ table{border-collapse:collapse;font-size:14px}
+ td{padding:3px 12px 3px 0;vertical-align:top}
+ td.k{color:#5A6875}
+ form{margin-top:14px}
+ label{display:block;font-size:13px;margin-bottom:4px;color:#5A6875}
+ input{font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid #E7EDF5;
+       border-radius:10px;width:140px;outline:none;color:#162033}
+ input:focus{border-color:__ACCENT__;box-shadow:0 0 0 3px __RING__}
+ button{font-family:inherit;background:__ACCENT__;color:__ON__;border:none;border-radius:10px;
+        height:40px;padding:0 16px;font-size:14px;font-weight:600;cursor:pointer;margin-left:8px}
+ button.ghost{background:#fff;color:__ACCENT_D__;border:1px solid #E7EDF5;margin-left:0}
+ button:disabled{opacity:.5;cursor:default}
+ .state{padding:10px 12px;border-radius:10px;font-size:14px;line-height:1.5}
+ .state.ok{background:#ECFDF5;color:#065F46}.state.warn{background:#FFFBEB;color:#B45309}
+ .state.err{background:#FEF2F2;color:#B91C1C}
+ .late{color:#B91C1C;font-size:13px;margin-top:6px}
+ a{color:__ACCENT_D__}
+</style></head><body>
+<div class="wrap">
+<h1>__ICON__ Două fișe de pacienți</h1>
+__MSG__
+__BODY__
+<p class="muted"><a href="/admin">Înapoi la registru</a></p>
+</div></body></html>"""
 
 # Исход оракула → код баннера. ⛔ Таблицей, а не цепочкой `if` по месту: трём
 # остановкам контракт велит звучать ПО-РАЗНОМУ («PIN не ставили» и «файл
@@ -122,17 +170,15 @@ def _facts(root: pathlib.Path, fp: dict) -> str:
         ("Semne găsite", html.escape(", ".join(fp["markers"]) or "niciunul")),
         ("Instalare (install.json)", html.escape(_install_line(root))),
     ]
-    cells = "".join(
-        f"<tr><td style='padding:3px 12px 3px 0;color:var(--muted)'>{k}</td>"
-        f"<td style='padding:3px 0'><b>{v}</b></td></tr>" for k, v in rows)
-    return f"<table style='border-collapse:collapse;font-size:14px'>{cells}</table>"
+    cells = "".join(f"<tr><td class='k'>{k}</td><td><b>{v}</b></td></tr>"
+                    for k, v in rows)
+    return f"<table>{cells}</table>"
 
 
 def _card(title: str, note: str, root: pathlib.Path, fp: dict, form: str) -> str:
-    return (f"<div class='card' style='flex:1 1 320px;min-width:300px'>"
-            f"<h3 style='margin:0 0 4px'>{_ic('folder')} {title}</h3>"
-            f"<div style='color:var(--muted);font-size:13px;margin-bottom:10px'>"
-            f"{note}</div>{_facts(root, fp)}{form}</div>")
+    return (f"<div class='box'><h3>{_ic('folder')} {title}</h3>"
+            f"<p class='muted' style='margin-bottom:10px'>{note}</p>"
+            f"{_facts(root, fp)}{form}</div>")
 
 
 @router.get(PAGE, response_class=HTMLResponse)
@@ -150,37 +196,35 @@ async def migration_page(request: Request, msg: str = ""):
     left = _closed_note()
 
     pin_form = (
-        f"<form method='post' action='{PAGE}/confirm' style='margin-top:14px'>"
+        f"<form method='post' action='{PAGE}/confirm'>"
         f"<input type='hidden' name='choice' value='{migstate.CHOICE_OLD}'>"
-        f"<label style='display:block;font-size:13px;margin-bottom:4px'>"
-        f"PIN-ul fișei alese</label>"
-        f"<input name='pin' type='password' inputmode='numeric' autocomplete='off'"
-        f" style='width:140px' {'disabled' if left else ''}>"
-        f"<button class='btn' type='submit' {'disabled' if left else ''}"
-        f" style='margin-left:8px'>Aceasta este fișa reală</button>"
+        f"<label for='m-pin'>PIN-ul fișei alese</label>"
+        f"<input id='m-pin' name='pin' type='password' inputmode='numeric' autocomplete='off'"
+        f" {'disabled' if left else ''}>"
+        f"<button type='submit' {'disabled' if left else ''}>Aceasta este fișa reală</button>"
         f"{left}</form>")
     keep_form = (
-        f"<form method='post' action='{PAGE}/confirm' style='margin-top:14px'>"
+        f"<form method='post' action='{PAGE}/confirm'>"
         f"<input type='hidden' name='choice' value='{migstate.CHOICE_NEW}'>"
-        f"<button class='btn ghost' type='submit'>Rămân cu aceasta</button>"
-        f"<div style='color:var(--muted);font-size:13px;margin-top:6px'>"
-        f"Se cere dreptul de director al acestei fișe.</div></form>")
+        f"<button class='ghost' type='submit'>Rămân cu aceasta</button>"
+        f"<p class='muted' style='margin-top:6px'>"
+        f"Se cere dreptul de director al acestei fișe.</p></form>")
 
-    body = f"""{msg_banner(msg)}
-<div class='card' style='margin-bottom:14px'>
-<p style='margin:0 0 8px'>Pe acest calculator sunt <b>două fișe de pacienți</b>.
+    body = f"""<div class='box'>
+<p class='lead'>Pe acest calculator sunt <b>două fișe de pacienți</b>.
 Programul lucrează acum în cea de jos, iar lângă ea a fost găsită încă una.
 Care dintre ele este cea reală decide un om — programul nu alege singur, nici
 după dată, nici după mărime.</p>
-<p style='margin:0;color:var(--muted);font-size:14px'>{_ic('info')} Nicio fișă
+<p class='muted'>{_ic('info')} Nicio fișă
 nu este ștearsă și niciuna nu este redenumită. Numărul de pacienți nu este
 afișat: pentru a-l afla ar trebui deschisă baza, iar până la alegere baza nu se
 deschide.</p></div>
-<div style='display:flex;gap:14px;flex-wrap:wrap'>
+<div class='pair'>
 {_card("Instalarea găsită", "Fișa de lângă program", src, src_fp, pin_form)}
 {_card("Aici lucrați acum", "Fișa deschisă de program", dst, dst_fp, keep_form)}
 </div>"""
-    return _shell(body, "Două fișe de pacienți", active="migration")
+    return (standalone(TMPL).replace("__ICON__", _ic("folder"))
+            .replace("__MSG__", msg_state(msg)).replace("__BODY__", body))
 
 
 def _closed_note() -> str:
@@ -189,7 +233,7 @@ def _closed_note() -> str:
     left = source_pin_closed_for()
     if not left:
         return ""
-    return (f"<div style='color:var(--red);font-size:13px;margin-top:6px'>"
+    return (f"<div class='late'>"
             f"Prea multe încercări. Mai așteptați {left} s.</div>")
 
 

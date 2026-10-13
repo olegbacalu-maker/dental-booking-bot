@@ -16,7 +16,7 @@ const T = {
     '«—» = fără pauză. Medicul își poate îngusta orele în fișa lui, dar nu le poate lărgi ' +
     'peste programul clinicii.',
   save: 'Salvează programul',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 /** Строка редактора: как у старой таблицы, закрытый день помнит 9–18. */

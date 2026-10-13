@@ -197,13 +197,10 @@ def suite_api(res: Result) -> None:
 
 
 def suite_page(res: Result) -> None:
-    """Адрес экрана: у клиники — оболочка React с врачом в узле; без React
-    (аварийный выключатель) — день врача, старой страницы у кресла нет."""
-    s = Server()
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["chair"]}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    with s:
+    """Адрес экрана: оболочка React с врачом в узле. (Старой страницы у кресла
+    не было никогда; до 13.10 без React адрес уводил в день врача — рубильник
+    снят, экран один.)"""
+    with Server() as s:
         r = Client(s.url).get("/admin/cabinet")
         res.ok("без входа — на вход", r.status == 303 and "/admin/login" in r.location,
                f"{r.status} {r.location!r}")
@@ -217,14 +214,3 @@ def suite_page(res: Result) -> None:
         res.ok("без врача — узел без параметров (экран предложит выбор)",
                'data-screen="chair"' in page.body and "data-params" not in page.body.split('data-screen="chair"')[1][:200],
                "параметры есть")
-    with Server() as s2:                    # фикстура: ui.react = [] (пин харнесса)
-        c = Client(s2.url).login()
-        # старой страницы у кресла не было никогда; до 13.10 без React адрес
-        # уводил в день врача — теперь рубильника нет, и экран один
-        r = c.get("/admin/cabinet?doctor=d2")
-        res.ok("при любом профиле — тот же React-экран", r.status == 200
-               and 'data-screen="chair"' in r.body, f"{r.status} {r.location!r}")
-        r = c.get("/admin/cabinet")
-        res.ok("и без врача — тоже он, без редиректа",
-               r.status == 200 and 'data-screen="chair"' in r.body,
-               f"{r.status} {r.location!r}")

@@ -21,7 +21,7 @@ const T = {
   phRo: 'Serviciu',
   phRu: 'Услуга',
   phPrice: '500 MDL',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 const EMPTY: ServiceEntry = { id: '', ro: '', ru: '', price: '', duration: 60, color: '', urgent: false, docs: [] }

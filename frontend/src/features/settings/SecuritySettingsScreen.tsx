@@ -36,7 +36,7 @@ const T = {
   hintDirector: ' recomandăm un PIN de 6+ cifre — el vede banii și setările; intrările în ' +
     'program se văd în «Activitate recentă» (Statistici).',
   unavailable: 'Conturile există doar în ediția instalată pe calculatorul clinicii.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 const NEW_USER: UserForm = { uid: '', name: '', role: 'medic', doctor_id: '', pin: '' }

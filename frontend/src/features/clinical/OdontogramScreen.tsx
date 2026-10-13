@@ -16,7 +16,7 @@ import { chart, type Odontogram } from './chart'
    Здесь только загрузка, зуб из адреса и плашки. */
 const T = {
   notFound: 'Fișa nu există sau a fost ștearsă.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Props {

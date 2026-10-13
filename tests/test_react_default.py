@@ -175,15 +175,6 @@ def suite_fresh(res: Result) -> None:
             res.ok("нереализованные экраны остались серверными", not wrong,
                    "узел React там, где экрана нет: " + ", ".join(wrong))
 
-            # ⚠️ Старых страниц у реализованных поверхностей больше нет (сняты
-            # 12–13.10, docs/dentpilot-2/legacy-removal.md): `?ui=legacy` из
-            # закладки или ссылки «varianta clasică» обязан открыть ТОТ ЖЕ экран,
-            # а не отказ.
-            legacy = c.get("/admin/week?ui=legacy")
-            res.ok("?ui=legacy отдаёт тот же React-экран",
-                   legacy.status == 200 and f'{MOUNT}schedule_week"' in legacy.body,
-                   f"HTTP {legacy.status}, узел React {'есть' if MOUNT in legacy.body else 'нет'}")
-
 
 def suite_fresh_day_off(res: Result) -> None:
     """`suite_fresh` целиком — в выходной новой клиники (у неё это воскресенье).
@@ -208,33 +199,3 @@ def suite_fresh_day_off(res: Result) -> None:
     finally:
         res.passed += [f"выходной: {label}" for label in sub.passed]
         res.failed += [(f"выходной: {label}", why) for label, why in sub.failed]
-
-
-def suite_switch_off(res: Result) -> None:
-    """Ключ `ui.react` в профиле больше ничего не гасит — и ничего не роняет.
-
-    До 13.10 это был аварийный выключатель: пустой список возвращал старый
-    интерфейс везде, одной строкой в профиле, без сборки. Старые страницы сняты
-    по разделам, журнал — последним, и выключать стало некуда. Сам ключ
-    уходит из профилей шагом 6; до тех пор любое его значение обязано давать
-    тот же продукт.
-    """
-    with tempfile.TemporaryDirectory(prefix="dp_off_") as td:
-        dir_ = pathlib.Path(td)
-        _fresh(dir_)
-        cfg = json.loads((dir_ / "clinic.json").read_text(encoding="utf-8"))
-        for value in ([], False):
-            cfg["ui"] = {"react": value}
-            (dir_ / "clinic.json").write_text(json.dumps(cfg, ensure_ascii=False),
-                                              encoding="utf-8")
-            with Server(dir_=dir_) as s:
-                c = Client(s.url).login(PIN)
-                for path, screen in (("/admin", "schedule_dash"),
-                                     ("/admin/week", "schedule_week")):
-                    got = c.get(path)
-                    # ⚠️ `false` — понятная человеку запись, и падать на ней
-                    # нельзя: `screen in False` был бы отказом всей админки.
-                    res.ok(f"«react: {json.dumps(value)}»: {path} — React, без отказа",
-                           got.status == 200 and f'{MOUNT}{screen}"' in got.body,
-                           f"HTTP {got.status}, узел React "
-                           f"{'есть' if MOUNT in got.body else 'нет'}")

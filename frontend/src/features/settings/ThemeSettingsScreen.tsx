@@ -33,7 +33,7 @@ const T = {
     'PNG sau JPEG, cel mult {mb} MB. Apare pe ecranul de intrare și în antetul ' +
     'documentelor tipărite (043/e, acord, raport de casă). Logoul rămâne la actualizarea ' +
     'programului — se păstrează lângă profilul clinicii.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 function formOf(d: ThemeData): ThemeForm {

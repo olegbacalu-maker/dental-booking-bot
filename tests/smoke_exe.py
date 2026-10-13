@@ -271,13 +271,6 @@ def _pages(c: Client, check, password: str, *, grace: bool) -> None:
               bool(sig) and sig.get("shown") is True and "Licența lipsește" in sig.get("html", "")
               and "/admin/license" in sig.get("html", ""),
               "сигнала лицензии в модели оболочки нет — ключа в exe нет?" if not sig else repr(sig)[:200])
-        # старой панели в сборке нет (снята 13.10): адрес из закладки со
-        # `?ui=legacy` обязан открыть тот же экран, а не отказ
-        legacy = c.get("/admin?ui=legacy")
-        check("льгота: ?ui=legacy — тот же React-экран с тем же сигналом",
-              legacy.status == 200 and 'data-screen="schedule_dash"' in legacy.body
-              and bool(_shell_signal(legacy.body, "license")),
-              f"код {legacy.status}")
         check("льгота: стены нет, страница активации открывается",
               c.get("/admin/license").status == 200)
         # картотека живая: пациент из фазы wall виден списку (JSON API, ASCII-имя)

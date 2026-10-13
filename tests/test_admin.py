@@ -253,7 +253,7 @@ def suite_pages(res: Result) -> None:
         js = c.get("/static/js/panel.js")
         res.ok("скрипт отдаётся",
                js.status == 200 and "setInterval" in js.body
-               and "pickName" in js.body, f"код {js.status}, {len(js.body)} б")
+               and "dp_toast" in js.body, f"код {js.status}, {len(js.body)} б")
         res.ok("скрипт отдаётся как javascript",
                "javascript" in js.header("Content-Type"),
                f"Content-Type: {js.header('Content-Type')!r}")

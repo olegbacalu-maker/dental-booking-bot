@@ -60,8 +60,5 @@
       "price": "100 MDL"
     }
   ],
-  "seed_demo": false,
-  "ui": {
-    "react": []
-  }
+  "seed_demo": false
 }

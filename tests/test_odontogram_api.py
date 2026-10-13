@@ -309,18 +309,9 @@ def suite_api(res: Result) -> None:
                   ({"deep": 4, "severe": 6}, ["deep", "severe"], ["MV", "V", "DV", "ML", "L", "DL"]))
 
 
-def _server_with_flag(env: dict | None = None) -> Server:
-    s = Server(env=env)
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["odontogram"]}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
-
-
 def suite_switch(res: Result) -> None:
-    """Одонтограмма — React при любом `ui.react` (старая страница снята
-    13.10): узел в рамке с узким сайдбаром, номер зуба из адреса параметром,
-    `?ui=legacy` отдаёт тот же React."""
+    """Одонтограмма — узел React (старая страница снята 13.10): рамка с узким
+    сайдбаром, номер зуба из адреса параметром."""
     with Server() as s:
         c = Client(s.url).login()
         pid = _seed(c)["pid"]
@@ -333,7 +324,7 @@ def suite_switch(res: Result) -> None:
                bare["milk_open"] is False and bare["bridges"] == []
                and all(t["state"] == "ok" for t in bare["teeth"].values()), "не то")
 
-    s = _server_with_flag()
+    s = Server()
     with s:
         c = Client(s.url).login()
         pid = _seed(c)["pid"]
@@ -354,9 +345,6 @@ def suite_switch(res: Result) -> None:
                '&quot;t&quot;' not in c.get(f"/admin/patient/{pid}/odontograma?t=99").body,
                "зуб 99 уехал в узел")
         res.ok("старой разметки нет", "insp-pic" not in page and "selTooth" not in page, "две разметки")
-        res.ok("?ui=legacy — тот же React",
-               'data-screen="odontogram"' in c.get(f"/admin/patient/{pid}/odontograma?ui=legacy").body,
-               "старая страница вернулась")
         res.ok("?msg= — плашка сервера", "dp_toast" in c.get(f"/admin/patient/{pid}/odontograma?msg=ok_punte").body, "нет")
         res.check("чужая фиша — на список", c.get("/admin/patient/9999/odontograma").status, 303)
         res.check("без входа закрыта", Client(s.url).get(f"/admin/patient/{pid}/odontograma").status, 303)

@@ -193,18 +193,9 @@ def suite_api(res: Result) -> None:
                   (r.status, _j(r)["code"], _j(r)["data"]["record"]["author"]), (200, "ok_visit", "Ana"))
 
 
-def _server_with_flag(env: dict | None = None) -> Server:
-    s = Server(env=env)
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["visit"]}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
-
-
 def suite_switch(res: Result) -> None:
-    """Дневник визита — React при любом `ui.react` (старая страница снята
-    13.10): узел с номером визита и адресом возврата, `?ui=legacy` отдаёт тот
-    же React."""
+    """Дневник визита — узел React (старая страница снята 13.10): номер визита
+    и адрес возврата."""
     with Server() as s:
         c = Client(s.url).login()
         c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
@@ -214,7 +205,7 @@ def suite_switch(res: Result) -> None:
         res.ok("без флага — тоже React (старой страницы нет)",
                '<div id="root" data-screen="visit"' in c.get(f"/admin/visit/{aid}").body, "узла нет")
 
-    s = _server_with_flag()
+    s = Server()
     with s:
         c = Client(s.url).login()
         c.post_json("/api/schedule/appointments", {"date": _d(1), "time": "09:00",
@@ -236,9 +227,6 @@ def suite_switch(res: Result) -> None:
                             .split("data-params=\"", 1)[1].split("\"", 1)[0].replace("&quot;", '"'))
         res.check("чужой ?back — назад в фишу, а не наружу", params["back"], f"/admin/patient/{pid}")
         res.ok("старой формы нет", "vf_acuze" not in page and "applyTpl" not in page, "две разметки")
-        res.ok("?ui=legacy — тот же React",
-               'data-screen="visit"' in c.get(f"/admin/visit/{aid}?ui=legacy").body,
-               "старая страница вернулась")
         res.ok("?msg= — плашка сервера", "dp_toast" in c.get(f"/admin/visit/{aid}?msg=ok_visit").body, "нет")
         res.check("чужой визит — в журнал", c.get("/admin/visit/9999").status, 303)
         res.check("без входа React-страница закрыта", Client(s.url).get(f"/admin/visit/{aid}").status, 303)

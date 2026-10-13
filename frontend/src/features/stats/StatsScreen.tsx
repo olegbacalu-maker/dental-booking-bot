@@ -13,7 +13,7 @@ import { stats, type StatsData } from './stats'
 /* Здесь — владелец периода и данных; раскладка — `StatsBoard` (B8, 27.09).
    Всё, что несёт ЦИФРУ или её объяснение, приходит с сервера. */
 const T = t('stats', {
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const)
 
 interface Props {
@@ -47,8 +47,8 @@ export function StatsScreen({ navigate = defaultNavigate }: Props) {
   const closeToast = useCallback(() => setToast(null), [])
   const live = canAnimate()
 
-  /* Адрес повторяет отбор — как у старой страницы: перезагрузка, закладка и
-     `?ui=legacy` открывают ТОТ ЖЕ период. Пишет его РОУТЕР, и загрузчик читает
+  /* Адрес повторяет отбор — как у старой страницы: перезагрузка и закладка
+     открывают ТОТ ЖЕ период. Пишет его РОУТЕР, и загрузчик читает
      уже новый адрес. `replace`, как и было: смена периода не копит шагов
      «Назад». Пока ответа нет, на экране прежний период — так было и до
      роутера (экран только читает). */

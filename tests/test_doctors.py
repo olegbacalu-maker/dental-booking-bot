@@ -21,7 +21,6 @@ from harness import TZ, Client, Result, Server, clinic_today, new_patient  # noq
 
 NO_KEY = {"ADMIN_KEY": ""}      # ветка PIN-файла — то, что получает клиника
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
-FLAGS = ["settings_clinic", "doctors_list", "doctor_card"]
 
 
 def _j(r) -> dict:
@@ -54,14 +53,6 @@ def _insert_appt(s: Server, pid: int, doctor: str, dk, starts: str,
         con.commit()
     finally:
         con.close()
-
-
-def _server_with_flags() -> Server:
-    s = Server()
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": list(FLAGS)}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
 
 
 def suite_actions(res: Result) -> None:
@@ -387,9 +378,8 @@ def suite_api(res: Result) -> None:
 
 
 def suite_switch(res: Result) -> None:
-    """Экраны врачей — React при любом `ui.react` (старые страницы сняты 12.10):
-    узел в той же рамке, параметры экрана атрибутом, `?ui=legacy` отдаёт тот же
-    React, право стоит и на странице."""
+    """Экраны врачей — узел React (старые страницы сняты 12.10, рубильник —
+    13.10): параметры экрана атрибутом, право стоит и на странице."""
     with Server() as s:
         c = Client(s.url).login()
         res.ok("без флага — тоже React (старого списка нет)",
@@ -398,7 +388,7 @@ def suite_switch(res: Result) -> None:
         res.ok("без флага — тоже React (старой фиши нет)",
                'data-screen="doctor_card"' in c.get("/admin/doctor-card/d2").body, "узла нет")
 
-    s = _server_with_flags()
+    s = Server()
     with s:
         c = Client(s.url).login()
         page = c.get("/admin/medici").body
@@ -423,22 +413,14 @@ def suite_switch(res: Result) -> None:
         res.ok("фиша: подпись с именем врача", "fișa medicului · Dr. Activ Doi" in page, "подписи нет")
         res.ok("фиша: неизвестный врач по-прежнему ведёт в список",
                c.get("/admin/doctor-card/d9").location == "/admin/medici", "иначе")
-        res.ok("?ui=legacy — тот же React-список",
-               'data-screen="doctors_list"' in c.get("/admin/medici?ui=legacy").body,
-               "старая страница вернулась")
-        res.ok("?ui=legacy — та же React-фиша",
-               'data-screen="doctor_card"' in c.get("/admin/doctor-card/d2?ui=legacy").body,
-               "старая страница вернулась")
         res.ok("?msg= на React-странице — плашка сервера",
                "dp_toast" in c.get("/admin/medici?msg=ok_med").body, "плашки нет")
         r = c.post_json("/api/doctors", {"name": "Dr. Flag"})
-        res.ok("флаги пережили добавление врача", r.msg == "new_med"
-               and _cfg(s).get("ui") == {"react": FLAGS}, f"{r!r} {_cfg(s).get('ui')}")
+        res.check("врач добавляется через API", r.msg, "new_med")
         r = c.post_json("/api/doctors/d5", {"name": "Dr. Flag", "status": "activ"})
-        res.ok("флаги пережили правку через API", r.status == 200 and _cfg(s).get("ui") == {"react": FLAGS},
-               f"{_cfg(s).get('ui')}")
+        res.check("врач правится через API", r.status, 200)
 
-    s = _server_with_flags()
+    s = Server()
     s.extra_env = dict(NO_KEY)
     with s:
         boss = Client(s.url)

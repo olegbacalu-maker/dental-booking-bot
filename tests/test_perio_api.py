@@ -259,18 +259,9 @@ def suite_api(res: Result) -> None:
                   ("46" in _j(r)["data"]["rows"], _j(r)["code"]), (False, "ok_perio"))
 
 
-def _server_with_flag() -> Server:
-    s = Server()
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["perio"]}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
-
-
 def suite_switch(res: Result) -> None:
-    """Пародонтограмма — React при любом `ui.react` (старая страница снята
-    13.10): узел в рамке с узким сайдбаром, осмотр из адреса параметром,
-    `?ui=legacy` отдаёт тот же React, печать — серверная."""
+    """Пародонтограмма — узел React (старая страница снята 13.10): рамка с
+    узким сайдбаром, осмотр из адреса параметром, печать — серверная."""
     with Server() as s:
         c = Client(s.url).login()
         d = _seed(c)
@@ -281,7 +272,7 @@ def suite_switch(res: Result) -> None:
         res.check("пациент без осмотров: экран «начните» (осмотра в модели нет)",
                   _j(c.get(f"/api/patients/{_pid(c, '069400401')}/perio"))["data"]["exam"], None)
 
-    s = _server_with_flag()
+    s = Server()
     with s:
         c = Client(s.url).login()
         d = _seed(c)
@@ -306,9 +297,6 @@ def suite_switch(res: Result) -> None:
                "лишний параметр")
         res.ok("старой разметки нет",
                "class='pcell" not in page and "PERIO_DEEP" not in page, "две разметки")
-        res.ok("?ui=legacy — тот же React",
-               'data-screen="perio"' in c.get(f"{base}/parodontograma?ui=legacy").body,
-               "старая страница вернулась")
         res.ok("?msg= — плашка сервера",
                "dp_toast" in c.get(f"{base}/parodontograma?msg=ok_perio").body, "нет")
         res.ok("печатный лист остаётся серверным",

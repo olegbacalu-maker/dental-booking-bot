@@ -279,7 +279,6 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     /* 08.10 (макет): подсказки под сеткой нет; старую панель не зовёт нигде
        (Олег 06.10: «это не нужно»; с 13.10 её нет вовсе) */
     expect(document.querySelector('.dashmain .hint')).toBeNull()
-    expect(document.querySelector('.dp-react-root a[href="/admin?ui=legacy"]')).toBeNull()
   })
 
   it('⛔ класс anim снимается на ПЕРВОМ ОБНОВЛЕНИИ, и снять его больше некому', async () => {
@@ -310,8 +309,6 @@ describe('C26.5.2: панель дня — экран целиком', () => {
     await waitFor(() => expect(document.querySelector('.banner.err')).toBeTruthy())
     expect(document.querySelector('.banner.err')!.textContent).toMatch(/Reîncercăm automat/)
     expect(screen.getByRole('button', { name: /Reîncarcă/ })).toBeTruthy()
-    /* ⛔ Старой панели нет (13.10) — звать некуда */
-    expect(document.querySelector('a[href*="ui=legacy"]')).toBeNull()
   })
 
   it('⭐ отказ канала повторяется САМ: движок ожил — панель встала без человека', async () => {

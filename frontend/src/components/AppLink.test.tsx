@@ -20,9 +20,8 @@ describe('isAppHref', () => {
     expect(isAppHref('https://example.com/admin/week')).toBe(false)
   })
 
-  it('?ui=legacy — всегда документ: это просьба к СЕРВЕРУ отдать старую страницу', () => {
-    expect(isAppHref('/admin/week?date=2026-09-21&ui=legacy')).toBe(false)
-    expect(isAppHref('/admin?ui=react&ui=legacy')).toBe(false)
+  it('?ui=legacy больше не особый (старых страниц нет с 13.10): экран — переход', () => {
+    expect(isAppHref('/admin/week?date=2026-09-21&ui=legacy')).toBe(true)
   })
 })
 
@@ -67,22 +66,15 @@ describe('AppLink', () => {
     expect(router.state.location.pathname).toBe('/admin')
   })
 
-  it('?ui=legacy — обычная ссылка: старую страницу отдаёт сервер', async () => {
-    const router = mount('/admin/week?ui=legacy')
-    let native = false
-    await act(async () => { native = click(screen.getByRole('link')) })
-    expect(native).toBe(true)
-    expect(router.state.location.pathname).toBe('/admin')
-  })
 })
 
-/** Серверная проза с тремя ссылками: экран, старая страница, своя вкладка. */
+/** Серверная проза с тремя ссылками: экран, не экран (выгрузка), своя вкладка. */
 function Prose() {
   const prose = useProseLinks()
   return (
     <div onClick={prose} dangerouslySetInnerHTML={{ __html:
       "<a href='/admin/settings/system'>versiune nouă</a> "
-      + "<a href='/admin/settings/system?ui=legacy'>clasic</a> "
+      + "<a href='/admin/export.xlsx'>Excel</a> "
       + "<a href='/admin/week' target='_blank'>fereastră</a>" }} />
   )
 }
@@ -106,11 +98,11 @@ describe('useProseLinks — ссылки в серверной прозе', () =
     expect(router.state.location.pathname).toBe('/admin/settings/system')
   })
 
-  it('?ui=legacy и target=_blank в прозе — браузеру, как у обычной ссылки', async () => {
+  it('не экран и target=_blank в прозе — браузеру, как у обычной ссылки', async () => {
     const router = mountProse()
     let a = false
     let b = false
-    await act(async () => { a = click(screen.getByText('clasic')) })
+    await act(async () => { a = click(screen.getByText('Excel')) })
     await act(async () => { b = click(screen.getByText('fereastră')) })
     expect(a).toBe(true)
     expect(b).toBe(true)

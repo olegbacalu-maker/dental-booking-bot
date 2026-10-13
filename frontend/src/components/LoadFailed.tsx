@@ -1,6 +1,4 @@
 import { Icon } from './Icon'
-import { AppLink } from '../components/AppLink'
-import { legacyUrl } from '../utils/legacy'
 import type { ApiError } from '../types/api'
 
 /*
@@ -8,9 +6,8 @@ import type { ApiError } from '../types/api'
  * был, иначе единственная своя фраза — движок не ответил.
  */
 const T = {
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
   retry: 'Reîncearcă',
-  legacy: 'Varianta clasică',
 } as const
 
 interface Props {
@@ -20,7 +17,8 @@ interface Props {
   text?: string
 }
 
-/** Экран не загрузился: причина, повтор (кроме отказа в праве) и путь на старую страницу. */
+/** Экран не загрузился: причина и повтор (кроме отказа в праве). Старой
+ * страницы, куда раньше вела вторая ссылка, нет с 13.10. */
 export function LoadFailed({ error, onRetry, text }: Props) {
   const retryable = error.failure.kind !== 'forbidden'
   return (
@@ -32,7 +30,6 @@ export function LoadFailed({ error, onRetry, text }: Props) {
             <Icon name="refresh" /> {T.retry}
           </button>
         )}
-        <AppLink href={legacyUrl()}>{T.legacy}</AppLink>
       </p>
     </>
   )

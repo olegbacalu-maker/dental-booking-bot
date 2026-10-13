@@ -30,7 +30,7 @@ const T = {
   rows: { n: 'Programări', pct: 'Ocupare', noshow: 'Neprezentări', future: 'Programări viitoare' },
   statsLink: 'Statistica întregii clinici',
   notFound: 'Medicul nu există sau a fost șters din profilul clinicii.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Props {

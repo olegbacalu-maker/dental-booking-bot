@@ -45,7 +45,7 @@ const T = {
   schedule: 'Program ›',
   card: 'Fișa medicului',
   empty: 'Niciun medic încă. Adăugați primul medic mai jos.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 /** Класс плашки по состоянию — цвет смысла, не темы. */

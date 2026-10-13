@@ -18,7 +18,7 @@ const T = {
   confirm: 'Programul se va reporni pentru aplicare. Continuați?',
   firewall: 'Creează regula de firewall',
   unavailable: 'Secțiunea există doar în ediția instalată pe calculatorul clinicii.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Props {

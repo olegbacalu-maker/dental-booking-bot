@@ -122,15 +122,6 @@ def suite_api(res: Result) -> None:
                   (clinic_today() - timedelta(days=clinic_today().weekday())).isoformat())
 
 
-def _set_ui(s: Server, value) -> None:
-    """Ключ `ui.react` профиля ДО старта сервера: любым значением экраны
-    журнала остаются React (рубильник снят 13.10 вместе со старыми
-    страницами — снять его ключ из профиля предстоит шагом 6)."""
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": value}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-
-
 def _node_params(page: str) -> dict:
     if 'data-params="' not in page:
         return {}
@@ -139,38 +130,27 @@ def _node_params(page: str) -> dict:
 
 
 def suite_switch(res: Result) -> None:
-    """Неделя — React при любом профиле, и НИКАКОГО живого опроса.
+    """Неделя — узел React с датой параметром, раздел «Programări».
 
-    ⛔ Главная проверка C24: React-дерево внутри `#live` умирает при первой
-    подмене — panel.js переписывает innerHTML под смонтированным деревом, и
-    клик по свежему узлу молча перестаёт работать. С 13.10 старой недели нет
-    вовсе, и `?ui=legacy` возвращает тот же экран.
+    (До 13.10 здесь перебирались значения ключа `ui.react` и `?ui=legacy`:
+    старой недели нет, а шагом 6 сняты и ключ, и ссылка.)
     """
-    for ui in ([], ["schedule_week"]):
-        s = Server()
-        _set_ui(s, ui)
-        with s:
-            c = Client(s.url).login()
-            monday = clinic_today() + timedelta(days=7 - clinic_today().weekday())
-            for path in (f"/admin/week?date={monday.isoformat()}",
-                         f"/admin/week?date={monday.isoformat()}&ui=legacy"):
-                page = c.get(path).body
-                where = f"ui.react={ui}, {path.split('?')[1]}"
-                res.ok(f"{where}: узел React на месте",
-                       '<div id="root" data-screen="schedule_week"' in page
-                       and "/static/js/bundle.js?v=" in page, "узла нет")
-                res.check(f"{where}: дата экрана — параметром узла",
-                          _node_params(page), {"date": monday.isoformat()})
-                res.check(f"{where}: старой разметки нет, и неделя НЕ живая",
-                          ("class='wcol'" in page, 'id="live"' in page,
-                           'data-reload="12"' in page), (False, False, False))
-                # ⭐ (06.10, Олег) Неделя — раздел «Programări»: его пункт меню
-                # подсвечен, и страница называется его словом.
-                shell = shell_model(page)
-                res.check(f"{where}: неделя — раздел «Programări»",
-                          (shell["nav"]["active"], shell["frame"]["title"]),
-                          ("prog", "Programări"))
-            res.check("без входа закрыта", Client(s.url).get("/admin/week").status, 303)
+    with Server() as s:
+        c = Client(s.url).login()
+        monday = clinic_today() + timedelta(days=7 - clinic_today().weekday())
+        page = c.get(f"/admin/week?date={monday.isoformat()}").body
+        res.ok("узел React на месте",
+               '<div id="root" data-screen="schedule_week"' in page
+               and "/static/js/bundle.js?v=" in page, "узла нет")
+        res.check("дата экрана — параметром узла",
+                  _node_params(page), {"date": monday.isoformat()})
+        # ⭐ (06.10, Олег) Неделя — раздел «Programări»: его пункт меню
+        # подсвечен, и страница называется его словом.
+        shell = shell_model(page)
+        res.check("неделя — раздел «Programări»",
+                  (shell["nav"]["active"], shell["frame"]["title"]),
+                  ("prog", "Programări"))
+        res.check("без входа закрыта", Client(s.url).get("/admin/week").status, 303)
 
 
 # --- C25: день «Programări» данными -----------------------------------------
@@ -317,37 +297,29 @@ def suite_day_orphan(res: Result) -> None:
 
 
 def suite_day_switch(res: Result) -> None:
-    """Дневные экраны — React при любом профиле, без живого опроса.
+    """Дневные экраны — узел React с параметрами из адреса.
 
-    ⚠️ С 13.10 старой таблицы нет: `?ui=legacy` и `ui.react: []` отдают тот
-    же экран. Живой у журнала только канал панели (`/api/schedule/live`).
+    (До 13.10 — при любом значении `ui.react` и с `?ui=legacy`; шагом 6 ключ и
+    ссылка сняты.) Живой у журнала только канал панели (`/api/schedule/live`).
     """
-    for ui in ([], ["schedule_all", "schedule_doctor"]):
-        s = Server()
-        _set_ui(s, ui)
-        with s:
-            c = Client(s.url).login()
-            day = (clinic_today() + timedelta(days=2)).isoformat()
-            for path, screen, params in (
-                    (f"/admin/all?date={day}", "schedule_all", {"date": day}),
-                    (f"/admin/all?date={day}&ui=legacy", "schedule_all", {"date": day}),
-                    (f"/admin/doctor/d2?date={day}", "schedule_doctor",
-                     {"date": day, "dk": "d2"})):
-                page = c.get(path).body
-                where = f"ui.react={ui}, {path}"
-                res.ok(f"{where}: узел React",
-                       f'<div id="root" data-screen="{screen}"' in page, "узла нет")
-                res.check(f"{where}: параметры узла", _node_params(page), params)
-                res.check(f"{where}: старой таблицы нет, и экран НЕ живой",
-                          ("<table class='grid'>" in page, 'id="live"' in page,
-                           'data-reload="12"' in page), (False, False, False))
-            res.check("отбор «Lista zilei» — параметром узла, только известный",
-                      (_node_params(c.get(f"/admin/all?date={day}&f=urg").body).get("f"),
-                       "f" in _node_params(c.get(f"/admin/all?date={day}&f=nope").body)),
-                      ("urg", False))
-            res.check("чужой врач в адресе — на журнал",
-                      c.get("/admin/doctor/d999").status, 307)
-            res.check("без входа закрыта", Client(s.url).get("/admin/all").status, 303)
+    with Server() as s:
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=2)).isoformat()
+        for path, screen, params in (
+                (f"/admin/all?date={day}", "schedule_all", {"date": day}),
+                (f"/admin/doctor/d2?date={day}", "schedule_doctor",
+                 {"date": day, "dk": "d2"})):
+            page = c.get(path).body
+            res.ok(f"{path}: узел React",
+                   f'<div id="root" data-screen="{screen}"' in page, "узла нет")
+            res.check(f"{path}: параметры узла", _node_params(page), params)
+        res.check("отбор «Lista zilei» — параметром узла, только известный",
+                  (_node_params(c.get(f"/admin/all?date={day}&f=urg").body).get("f"),
+                   "f" in _node_params(c.get(f"/admin/all?date={day}&f=nope").body)),
+                  ("urg", False))
+        res.check("чужой врач в адресе — на журнал",
+                  c.get("/admin/doctor/d999").status, 307)
+        res.check("без входа закрыта", Client(s.url).get("/admin/all").status, 303)
 
 
 # ------------------------------------------- живой канал ДАННЫМИ (C27.1)
@@ -628,54 +600,44 @@ def suite_live_envelope(res: Result) -> None:
 
 
 def suite_dash_flag(res: Result) -> None:
-    """Панель дня — React при любом профиле; канал не спрашивает, кто рисует.
+    """Панель дня — узел React; канал не спрашивает, кто рисует.
 
     ⭐ До 13.10 здесь проверялись обе половины отката (C26.5.1–2): 205 старой
     вкладке на включение флага и заголовок `X-DP-Surface` React-вкладке на
-    выключение. Старой панели больше нет, и откатывать некуда: панель — React
-    при любом `ui.react`, а заголовка поверхности нет вовсе. ⛔ Это НЕ
-    послабление: с заголовком «legacy» у профиля `ui.react: []` React-панель
-    перезагружалась бы по кругу, поэтому его отсутствие и проверяется.
+    выключение. Старой панели больше нет, ключ `ui.react` снят шагом 6, а
+    заголовка поверхности нет вовсе. ⛔ Его отсутствие проверяется: с
+    заголовком «legacy» React-панель перезагружалась бы по кругу.
     """
     day = clinic_today().isoformat()
     keys = ["actions", "agenda", "canvas", "day_label", "day_long", "desk",
             "minical", "note_actions", "note_ends", "occupancy", "slotform"]
-    for ui in ([], ["schedule_dash"]):
-        s = Server()
-        _set_ui(s, ui)
-        with s:
-            c = Client(s.url).login()
-            page = c.get(f"/admin?date={day}").body
-            res.check(f"ui.react={ui}: узел React, и панель НЕ живая страницей",
-                      ('<div id="root" data-screen="schedule_dash"' in page,
-                       'id="live"' in page, 'data-reload="12"' in page),
-                      (True, False, False))
-            res.check(f"ui.react={ui}: ?ui=legacy отдаёт тот же экран",
-                      '<div id="root" data-screen="schedule_dash"'
-                      in c.get(f"/admin?date={day}&ui=legacy").body, True)
-            # ⛔ Дня в узле НЕТ — ни даты, ни подписи (24.09, решение Олега).
-            # Узел описывает ДОКУМЕНТ, то есть момент загрузки, и день из него
-            # застывал: вкладка, оставленная на ночь, утром показывала вчера.
-            # Экран берёт день из адреса, шапку — из эха канала.
-            res.check(f"ui.react={ui}: в узле панели нет дня — ни даты, ни подписи",
-                      ("date" in _node_params(page), "day_label" in _node_params(page)),
-                      (False, False))
-            r = c.get(f"/api/schedule/live?date={day}")
-            live = _j(r)["data"]
-            res.check(f"ui.react={ui}: канал везёт состояние ЦЕЛИКОМ",
-                      (live["live"], live["screen"], live["date"],
-                       sorted(k for k in live if k not in ("screen", "date", "live"))),
-                      (True, "panel", day, keys))
-            res.check(f"ui.react={ui}: и не называет поверхность",
-                      r.header("X-DP-Surface"), "")
-            # ⛔ А `?msg=` — НЕ параметром узла (C26.5.2): баннер едет моделью
-            # оболочки и виден при ПЕРВОЙ отрисовке, первого ответа канала не
-            # ждёт. На `/admin` приземляется отказ в правах со всей программы.
-            deny = c.get("/admin?msg=no_access").body
-            res.check(f"ui.react={ui}: отказ в правах виден СРАЗУ, его печатает сервер",
-                      ("rezervată directorului" in shell_model(deny)["frame"]["msg"],
-                       "msg" in _node_params(deny)),
-                      (True, False))
+    with Server() as s:
+        c = Client(s.url).login()
+        page = c.get(f"/admin?date={day}").body
+        res.check("узел React панели",
+                  '<div id="root" data-screen="schedule_dash"' in page, True)
+        # ⛔ Дня в узле НЕТ — ни даты, ни подписи (24.09, решение Олега).
+        # Узел описывает ДОКУМЕНТ, то есть момент загрузки, и день из него
+        # застывал: вкладка, оставленная на ночь, утром показывала вчера.
+        # Экран берёт день из адреса, шапку — из эха канала.
+        res.check("в узле панели нет дня — ни даты, ни подписи",
+                  ("date" in _node_params(page), "day_label" in _node_params(page)),
+                  (False, False))
+        r = c.get(f"/api/schedule/live?date={day}")
+        live = _j(r)["data"]
+        res.check("канал везёт состояние ЦЕЛИКОМ",
+                  (live["live"], live["screen"], live["date"],
+                   sorted(k for k in live if k not in ("screen", "date", "live"))),
+                  (True, "panel", day, keys))
+        res.check("и не называет поверхность", r.header("X-DP-Surface"), "")
+        # ⛔ А `?msg=` — НЕ параметром узла (C26.5.2): баннер едет моделью
+        # оболочки и виден при ПЕРВОЙ отрисовке, первого ответа канала не
+        # ждёт. На `/admin` приземляется отказ в правах со всей программы.
+        deny = c.get("/admin?msg=no_access").body
+        res.check("отказ в правах виден СРАЗУ, его печатает сервер",
+                  ("rezervată directorului" in shell_model(deny)["frame"]["msg"],
+                   "msg" in _node_params(deny)),
+                  (True, False))
     # Загрузка кресел — подзаголовок панели: одно число, без тренда к вчера
     # (тренд и мини-график жили на плитках «Azi», снятых со старой панелью).
     with Server() as s:

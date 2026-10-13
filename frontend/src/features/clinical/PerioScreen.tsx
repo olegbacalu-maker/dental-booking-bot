@@ -15,7 +15,7 @@ import { usePerio } from './usePerio'
    осмотр из адреса, «уход» к другому осмотру и плашки. */
 const T = {
   notFound: 'Fișa nu există sau a fost ștearsă.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Props {

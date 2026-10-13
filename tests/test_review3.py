@@ -107,10 +107,10 @@ def suite_css(res: Result) -> None:
 def suite_clock(res: Result) -> None:
     """Часы в подвале обновляются сами и идут по часам КЛИНИКИ."""
     js = JS.read_text(encoding="utf-8")
-    block = js.split("sf_clock", 1)[-1].split("data-reload", 1)[0]
+    block = js.split("sf_clock", 1)[-1].split("dp_pos", 1)[0]
     res.ok("часы пересчитываются по таймеру", "setInterval(" in block,
-           "sf_clock пишется один раз при загрузке, а автоперезагрузку "
-           "сервер выдаёт только живому расписанию (LIVE_RELOAD)")
+           "sf_clock пишется один раз при загрузке, а страница каркаса себя "
+           "не перезагружает — часы весь день показывали бы время открытия")
     res.ok("пояс берётся из разметки, а не у устройства",
            "data-tz" in block and "timeZone" in block,
            "часы считаются в поясе браузера — в облаке через туннель это "
@@ -118,7 +118,7 @@ def suite_clock(res: Result) -> None:
     with Server() as s:
         c = Client(s.url).login()
         # часы подвала живут в серверном каркасе (`_shell`): его страницы —
-        # QR без бота, раздвоение картотеки, Telegram (журнал и все разделы с
+        # замороженного бота, QR без бота и Telegram (журнал и все разделы с
         # 12–13.10 — React, там пояс едет в модели оболочки)
         page = c.get("/admin/qr-print").body
         res.ok("сервер отдаёт часовой пояс клиники",

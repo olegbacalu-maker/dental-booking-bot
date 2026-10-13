@@ -172,19 +172,8 @@ def main() -> int:
     s1 = Server(keep_dir=True)
     with s1:
         _seed(Client(s1.url).login(), day)
-    # ⛔ Харнесс пинит `ui.react = []` во ВСЕХ фикстурах (harness._pin_legacy):
-    # почти каждый набор разбирает старую разметку как эталон. Без явного
-    # включения замер снял бы ЛЕГАСИ-страницы — без узла #root вовсе, то есть
-    # доказывал бы отсутствие дефекта, которого на той поверхности и нет.
-    cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
-    # ⚠️ Список обязан покрывать ВСЕ замеряемые адреса. Пропущенный
-    # `doctors_list` отдавал `/admin/medici` старой страницей, и замер честно
-    # показывал серверный каркас на 59 мс без единого узла React — выглядело
-    # как дефект стенда, а было дефектом списка.
-    cfg["ui"] = {"react": ["schedule_dash", "patients_search", "stats",
-                           "doctors_list", "settings_hub", "doctor_card",
-                           "schedule_week", "schedule_all", "schedule_doctor"]}
-    s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    # (До 13.10 здесь включался React ключом `ui.react` профиля: харнесс пинил
+    # старый интерфейс. Старых страниц и ключа больше нет — шаг 6.)
 
     profile = os.path.join(os.environ["TEMP"], "dp-edge-baseline")
     s2 = Server(dir_=s1.dir)

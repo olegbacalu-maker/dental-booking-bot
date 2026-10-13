@@ -70,7 +70,7 @@ const T = {
   /* Слово своё — у сервера его нет (снятие блокировки отвечает пустым кодом);
      то же, что у панели дня. */
   noteGone: 'Notița nu mai există.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 /* Два разных периода, как и у панели дня: линия «сейчас» — раз в 30 с,
@@ -263,9 +263,6 @@ export function DayScreen({ doctor = '', navigate = defaultNavigate }: Props) {
             <Icon name="download" /> {T.excel}
           </AppLink>
         )}
-        {/* ⛔ «Varianta clasică» из шапки убрана (Олег 06.10: «это не нужно»):
-            старая страница осталась только аварийным выходом — на экране
-            отказа загрузки (`LoadFailed`). */}
       </div>
       <div className="sub dp-daysub">
         {docName ? <><b>{docName}</b> · </> : null}

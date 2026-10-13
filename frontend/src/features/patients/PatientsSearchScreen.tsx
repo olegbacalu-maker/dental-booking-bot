@@ -48,7 +48,7 @@ const T = {
   total: 'Total pacienți',
   peekGone: 'Fișa nu mai există.',
   peekFail: 'Nu am putut încărca fișa.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const
 
 interface Data {
@@ -116,8 +116,8 @@ export function PatientsSearchScreen({ navigate = defaultNavigate, debounceMs = 
     setToast({ tone: 'err', text: err.text || T.offline })
   }, [leaveIfSignedOut])
 
-  /* Отбор уходит в адрес РОУТЕРОМ: F5 и «varianta clasică» (?ui=legacy)
-     открывают тот же список — имена параметров те же. `replace`, как и было:
+  /* Отбор уходит в адрес РОУТЕРОМ: F5 и закладка открывают тот же список.
+     `replace`, как и было:
      буквы и фильтры не копят шагов «Назад»; query — заново (без ?msg=). */
   const go = useCallback((f: Filters) => {
     void to(`${pathname}${filtersToQuery(f)}`, { replace: true })

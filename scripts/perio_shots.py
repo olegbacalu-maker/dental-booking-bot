@@ -163,9 +163,6 @@ def run(out: pathlib.Path) -> int:
     with s1:
         c = Client(s1.url).login()
         d = _seed(c)
-    cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["perio"]}
-    s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
     profile = os.path.join(os.environ["TEMP"], "dp-edge-perio-shots")
     s2 = Server(dir_=s1.dir)
     proc = None

@@ -14,19 +14,10 @@ from datetime import timedelta
 
 from harness import TG_ON, Client, Result, Server, clinic_today
 
-FLAGS = ["stats"]
 
 
 def _j(r) -> dict:
     return json.loads(r.body)
-
-
-def _server_with_flags(env: dict | None = None) -> Server:
-    s = Server(env=env)
-    cfg = json.loads(s.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": list(FLAGS)}
-    s.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    return s
 
 
 def _seed(c: Client) -> str:
@@ -189,7 +180,7 @@ def suite_board(res: Result) -> None:
 
 def suite_switch(res: Result) -> None:
     """Страница — React при любом `ui.react` (старая снята 12.10); право PERM_MONEY."""
-    s = _server_with_flags(env={"ADMIN_KEY": ""})
+    s = Server(env={"ADMIN_KEY": ""})
     with s:
         boss = Client(s.url)
         boss.post("/admin/setup", pin1="1111", pin2="1111")
@@ -200,9 +191,6 @@ def suite_switch(res: Result) -> None:
         res.ok("период уезжает параметрами узла", "data-params=" in page
                and "from" in page, "параметров нет")
         res.ok("старой разметки нет", "class='tiles'" not in page, "две разметки")
-        res.ok("?ui=legacy: тот же React",
-               'data-screen="stats"' in boss.get("/admin/stats?ui=legacy").body,
-               "старая страница вернулась")
 
         # ⛔ Деньги закрыты не только в меню: адрес набирается руками.
         for who, pin in (("регистратуре", "3333"), ("врачу", "4444")):

@@ -33,7 +33,7 @@ const T = t('system', {
   uninstallWait: 'Se așteaptă confirmarea Windows…',
   uninstallWhy: 'Windows cere confirmare: intrarea aparține instalării, '
     + 'nu programului. Datele clinicii nu sunt atinse.',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const)
 
 interface Props {

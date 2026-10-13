@@ -196,11 +196,12 @@ describe('DoctorCardScreen', () => {
     expect(document.querySelector('.avatar img')).toBeNull()
   })
 
-  it('врач не найден: своя фраза и путь на старую страницу', async () => {
+  it('врач не найден: своя фраза и повтор, без пути на старую страницу (её нет с 13.10)', async () => {
     get.mockRejectedValueOnce(new ApiError({ kind: 'server', status: 404, code: '', text: '' }, 'nf'))
     open('d9')
     expect(await screen.findByText(/Medicul nu există/)).toBeTruthy()
-    expect((screen.getByRole('link', { name: 'Varianta clasică' }) as HTMLAnchorElement).getAttribute('href')).toContain('?ui=legacy')
+    expect(screen.getByRole('button', { name: /Reîncearcă/ })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Varianta clasică' })).toBeNull()
   })
 
   /* ---- C14+: кнопки исхода в списке сегодняшнего дня ---- */

@@ -20,7 +20,7 @@ const T = t('crypt', {
   sheetOpen: 'Deschide foaia de recuperare',
   stop: 'Oprește criptarea',
   confirm: 'Evidența va fi decriptată la următoarea pornire. Continuați?',
-  offline: 'Programul nu răspunde. Reîncercați sau deschideți varianta clasică.',
+  offline: 'Programul nu răspunde. Reîncercați.',
 } as const)
 
 interface Props {

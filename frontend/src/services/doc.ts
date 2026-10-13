@@ -28,8 +28,8 @@ export async function fetchDoc(url: string, signal: AbortSignal, here: Document 
     if (!res.ok) return { kind: 'leave', url }
     const doc = new DOMParser().parseFromString(await res.text(), 'text/html')
     const host = doc.getElementById('root')
-    // Узла нет — по адресу старая страница (`ui.react`, `?ui=legacy`) или не
-    // экран вовсе. Модели нет — оболочку печатает сервер. Обе рисует документ.
+    // Узла нет — по адресу не экран (печатный лист, серверная страница бота,
+    // вход). Модели нет — оболочку печатает сервер. Обе рисует документ.
     if (!host?.dataset.shell) return { kind: 'leave', url }
     // ⛔ Другой код: вклеить новую модель в старый бандл нельзя.
     if (assetsOf(doc) !== assetsOf(here)) return { kind: 'leave', url }

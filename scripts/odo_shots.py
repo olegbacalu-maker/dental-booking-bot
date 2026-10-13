@@ -332,9 +332,6 @@ def run(out: pathlib.Path) -> int:
     with s1:
         c = Client(s1.url).login()
         pid = _seed(c)["pid"]
-    cfg = json.loads(s1.clinic.read_text(encoding="utf-8"))
-    cfg["ui"] = {"react": ["odontogram", "patient_card"]}
-    s1.clinic.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
     profile = os.path.join(os.environ["TEMP"], "dp-edge-odo-shots")
     s2 = Server(dir_=s1.dir)
     proc = None

@@ -914,11 +914,6 @@ describe('адрес дня', () => {
   })
 
 
-  it('⛔ «Varianta clasică» в шапке нет (Олег 06.10: «это не нужно»)', async () => {
-    await show()
-    expect(document.querySelector('.nav a[href*="ui=legacy"]')).toBeNull()
-    expect(document.querySelector('.nav')?.textContent).not.toContain('clasic')
-  })
 
   it('открытие по адресу: день и отбор загрузчик берёт из адреса', async () => {
     await open('/admin/all?date=2026-09-20&f=noshow')

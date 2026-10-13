@@ -51,7 +51,7 @@ const SHELL: ShellModel = {
     demo: { shown: false, html: '' },
   },
   frame: {
-    title: 'Setări', sub: 'setări', crumbs: [], rail: false, bell: null, update: '', msg: '',
+    title: 'Setări', sub: 'setări', crumbs: [], rail: false, update: '', msg: '',
     site: { href: 'https://dentpilot.md', mark: '<svg class="bcmark"></svg>' },
     feedback: { email: 'x@y.md', href: 'mailto:x@y.md' }, today: '2026-09-24',
   },
@@ -136,10 +136,12 @@ describe('App', () => {
     expect(get).toHaveBeenCalledWith('/visits/42?back=%2Fadmin%2Fall', expect.anything())
   })
 
-  it('адрес, которого роутер не знает: экран называется по имени и ведёт на старую страницу', () => {
+  it('адрес, которого роутер не знает: экран называется по имени, выход — перезагрузка', () => {
     open('/admin/fisa', node('fisa'))
     expect(screen.getByRole('alert').textContent).toContain('«fisa»')
-    expect((screen.getByRole('link') as HTMLAnchorElement).getAttribute('href')).toContain('?ui=legacy')
+    /* старой страницы нет с 13.10 — ссылки «varianta clasică» тоже */
+    expect(screen.getByRole('button', { name: 'Reîncarcă' })).toBeTruthy()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('роутер и сервер разошлись: чужой экран НЕ рисуется, расхождение слышно', () => {
@@ -285,7 +287,7 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
         { key: 'home', href: '/admin', icon: 'home', label: 'Panou' },
       ],
       update: "<a href='/admin/settings/system'>versiune nouă 9.9.10</a>",
-      msg: "<div class='banner ok'>Salvat. <a href='/admin/settings/clinic?ui=legacy'>clasic</a></div>",
+      msg: "<div class='banner ok'>Salvat. <a href='/admin/export.xlsx'>Excel</a></div>",
     },
   }
   const CLINIC_URL = '/admin/settings/clinic'
@@ -371,12 +373,12 @@ describe('B4.2: оболочка — сайдбар, крошки, шапка, �
     await expectTransition(router, '/admin/search?q=Ion+Popescu')
   })
 
-  it('ссылка в серверной прозе (строка обновления) — переход; ?ui=legacy в плашке — документ', async () => {
+  it('ссылка в серверной прозе (строка обновления) — переход; выгрузка в плашке — документ', async () => {
     const { router } = openClinic()
     /* Сначала плашка: после перехода оболочка уже от другого документа, и
        плашки ответа в ней нет. */
     let native = false
-    await act(async () => { native = nativeClick(screen.getByText('clasic')) })
+    await act(async () => { native = nativeClick(screen.getByText('Excel')) })
     expect(native).toBe(true)
     expect(fetchDoc).not.toHaveBeenCalled()
     native = true

@@ -35,7 +35,6 @@ import { ConfirmHost } from '../components/ConfirmHost'
 import { defaultNavigate } from '../hooks/useLoad'
 import { screenRoute, type ScreenData } from '../hooks/useRouteLoad'
 import { fetchDoc } from '../services/doc'
-import { legacyUrl } from '../utils/legacy'
 import { applyHead, type MountNode } from './doc'
 import { ROUTES, type ScreenName } from './routes'
 
@@ -274,6 +273,17 @@ export function App({ router }: { router: DataRouter }) {
   )
 }
 
+/** Перезагрузка документа — единственный выход из экрана, который не
+ * нарисовался (кнопкой, как «Reîncarcă» главной, а не ссылкой: ссылка на тот
+ * же адрес с якорем перезагрузки не делает). */
+function ReloadButton() {
+  return (
+    <button type="button" className="savebtn" onClick={() => window.location.reload()}>
+      Reîncarcă
+    </button>
+  )
+}
+
 /** Адрес, которого роутер не знает: экран называется так, как его назвал сервер. */
 function UnknownHere() {
   return <UnknownScreen screen={useDoc().screen} />
@@ -282,14 +292,16 @@ function UnknownHere() {
 /**
  * Сервер отдал узел для экрана, которого в этом бандле нет (бандл старее
  * сервера, имя опечатано или адрес не знаком роутеру). Молчать нельзя — это
- * выглядело бы как пустая страница; называем экран и ведём на старую версию.
+ * выглядело бы как пустая страница; называем экран и предлагаем перезагрузку
+ * (свежий документ приносит и свежий бандл). Старой страницы, куда вела
+ * ссылка до 13.10, больше нет.
  */
 function UnknownScreen({ screen }: { screen: string }) {
   return (
     <section className="dp-react-root">
       <div className="banner err" role="alert">
-        Ecranul «{screen}» nu există în interfața nouă.{' '}
-        <a href={legacyUrl()}>Deschideți varianta clasică</a>.
+        Ecranul «{screen}» nu există în această versiune a programului.{' '}
+        <ReloadButton />
       </div>
     </section>
   )
@@ -307,7 +319,7 @@ function ScreenFailed() {
     <section className="dp-react-root">
       <div className="banner err" role="alert">
         Ecranul nu a putut fi afișat.{' '}
-        <a href={legacyUrl()}>Deschideți varianta clasică</a>.
+        <ReloadButton />
       </div>
     </section>
   )
