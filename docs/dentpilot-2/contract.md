@@ -58,7 +58,7 @@
 | новый файл программа забирает сама, раз в сутки | суточный запрос `renew.url` с токеном из файла, замена только на больший `seq`; сервера нет — строка в лог, ничего больше | `bot/app/core/license.py`, `license_renew.py`; `cloud/app/main.py` `/v1/license` |
 | картой — на странице maib, платёж признан по подтверждению maib | `payments.settle`: только `OK` из `pay-info` продлевает; callback — сигнал; данные карты сервер не получает | `cloud/app/maib.py`, `cloud/app/payments.py` |
 | данные пациентов серверу не передаются | сервер знает только claim: название, IDNO, план, сроки | `cloud/app/license.py` |
-| условия приняты активацией (п. 1) | галочка `terms` на `/admin/license` и в заявке из программы, иначе отказ `license_terms`; строка летописи с именем директора и `TERMS_VERSION` | `bot/app/main.py`, `bot/app/core/license.py` |
+| условия приняты активацией (п. 1) | галочка `terms` на `/admin/license` и в заявке из программы, иначе отказ `license_terms`; строка летописи с именем директора и `TERMS_VERSION` | `bot/app/modules/license/routes.py`, `bot/app/core/license.py` |
 | пробный из программы активирует её сама (п. 3) | `/v1/trial` → токен → `license.pending` → опрос раз в минуту → файл тем же `open_envelope` | `cloud/app/main.py`, `bot/app/core/license.py` |
 | декларация поставщика — клинике | подписанный PDF (`DP_DECLARATION`) вложением в каждое письмо с файлом | `cloud/app/mail.py`, `cloud/app/license.py` |
 | у поставщика нет копий данных клиники | база сервера — клиники, подписки, выдачи, платежи, письма; таблиц с данными пациентов нет | `cloud/app/db.py` |

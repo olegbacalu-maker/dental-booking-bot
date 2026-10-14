@@ -1,50 +1,40 @@
 """Точка входа приложения.
 
 Здесь осталось ровно то, что не принадлежит ни одному разделу: сборка
-приложения и подключение модулей, старт (миграции, демо-наполнение, адаптер
-Telegram), вход в журнал, отдача статики и эндпоинт веб-чата.
+приложения и подключение модулей, посредники (шлюз режимов, опознание, потолок
+тела), старт, `/health` для лаунчера и замороженная самозапись пациента
+(`/` и `/chat`, живут с ботом).
 
-Экраны живут в `modules/`, общее для них — в `core/`. Если сюда снова начнёт
-стекаться логика раздела, значит разделу пора в свой модуль.
+Экраны живут в `modules/`, общее для них — в `core/`; вход и восстановление —
+`modules/entry`, лицензия — `modules/license`, статика и значки —
+`modules/assets`. Если сюда снова начнёт стекаться логика раздела, значит
+разделу пора в свой модуль.
 """
 import asyncio
-import hmac
 import html
-import json
 import logging
 import os
 import pathlib
-import re
 import sys
-import urllib.parse
-from datetime import datetime
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import brand
 from . import db
 from . import engine as eng
 from . import paths
 from . import update as upd
-from .core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
-                        PIN_MIN, PERM_SETTINGS, _as_user, _guard, _pin_rec,
-                        _secret, _set_auth_cookie, _setup_allowed, _write_pin,
-                        auth_blocked, auth_file_fp, can, chat_session,
-                        client_is_local, current_user,
-                        fail_count, find_user, lock_left, note_fail, note_ok,
-                        pin_len_ok,
-                        remember_auth_file, request_user, require,
-                        same_origin_post, set_request_user, set_tamper_alert,
-                        verify_pin)
-from .core import dbkey, demo, theme
+from .core import dbkey, demo
 from .core import license as lic
-from .core.api import api_guard
-from .core.layout import (LOGIN_TMPL, RECOVER_TMPL, SETUP_TMPL, STATIC, _asset,
-                          fonts_css, license_page, license_pay_page, msg_json, standalone,
-                          tg_configured)
+from .core.auth import chat_session, current_user, request_user, set_request_user
+from .core.layout import STATIC, msg_json, tg_configured
+from .modules.assets import routes as assets
 from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
+from .modules.entry import recovery
+from .modules.entry import routes as entry
+from .modules.license import api as license_api
+from .modules.license import routes as license_routes
 from .modules.patients import api as patients_api
 from .modules.patients import routes as patients
 from .modules.migration import routes as migration
@@ -60,9 +50,6 @@ from .modules.stats import routes as stats
 app = FastAPI(title="DentPilot")
 log = logging.getLogger("web")
 
-# Ключ картотеки не читается — работает ОДИН экран (см. startup и _recovery_gate).
-RECOVERY = False
-
 # Модули подключаются здесь и только здесь. Модуль знает про core, db и engine,
 # но ничего не знает про main.py — иначе импорт замкнулся бы в круг.
 app.include_router(patients.router)
@@ -77,7 +64,21 @@ app.include_router(settings_api.router)   # JSON API раздела (DentPilot 2
 app.include_router(stats.router)
 app.include_router(stats_api.router)      # JSON API раздела (DentPilot 2.0)
 app.include_router(qr.router)
+app.include_router(entry.router)          # вход, установка PIN, выход
+app.include_router(recovery.router)       # режим восстановления ключа
+app.include_router(license_routes.router)
+app.include_router(license_api.router)    # JSON API раздела (DentPilot 2.0)
+app.include_router(assets.router)         # статика, значки, логотип
 
+
+# ---------- посредники ----------
+# ⚠️ Порядок исполнения ОБРАТЕН порядку объявления: Starlette ставит каждый
+# новый посредник СНАРУЖИ прежних (`user_middleware.insert(0, …)`), поэтому
+# запрос первым встречает объявленный последним. Шлюз режимов обязан быть
+# внешним: в восстановлении и при битом профиле база не открыта, и отказ
+# должен прозвучать раньше, чем кто-нибудь полезет в auth.json или в тело.
+# Держит `test_structure` («шлюз — внешний посредник»): новый посредник —
+# ВЫШЕ шлюза.
 
 @app.middleware("http")
 async def _limit_body_size(request: Request, call_next):
@@ -115,237 +116,13 @@ async def _identify(request: Request, call_next):
     return await call_next(request)
 
 
-# Логин НЕОБЯЗАТЕЛЕН: пароль у каждого свой (это стережёт pin_free), и
-# заставлять регистратуру набирать ещё и id — трение десятки раз в день. Поле
-# всё же есть: врачу с телефона вход по одному паролю неочевиден, а в клинике
-# с одинаковыми привычками кто-нибудь однажды захочет войти именно «как я».
-PIN_INPUT = ("<input type='text' name='uid' placeholder='ID (opțional)' "
-             "autocomplete='username' maxlength='20' "
-             "style='text-align:center;font-size:15px'>"
-             "<input type='password' name='password' placeholder='PIN' autofocus required "
-             f"inputmode='numeric' pattern='[0-9]*' maxlength='{PIN_MAX}' "
-             "style='text-align:center;font-size:28px;letter-spacing:12px'>")
-PASS_INPUT = "<input type='password' name='password' placeholder='Parola' autofocus required>"
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    # летопись подписывается ИМЕНЕМ вошедшего. Хук, а не импорт: db лежит ниже
-    # слоя доступа, и прямой импорт замкнул бы круг db → core.auth → db
-    db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
-    # ⛔ Профиль клиники не читается (и .bak тоже): поднимаемся ЭКРАНОМ ОШИБКИ,
-    # как в режиме восстановления, — база не открывается (ни миграций, ни
-    # сида), Telegram не стартует, все адреса ведут на объяснение. Работать на
-    # вшитой демо-клинике поверх настоящей картотеки нельзя: на «Dr. Elena
-    # Rusu», которой в клинике нет, запишут живого человека, а чужой прайс
-    # уйдёт пациенту как настоящий. Падать тоже нельзя (прайор 08-16): у
-    # клиники это «программа не открывается», и рассказать, что чинить, некому.
-    if eng.CONFIG_BROKEN:
-        logging.getLogger("startup").error(
-            "clinic.json не читается, запасного нет — экран ошибки: %s",
-            eng.CONFIG_BROKEN)
-        return
-    try:
-        seed_rows = eng.build_seed_rows()
-    except Exception as e:  # noqa: BLE001 — демо-наполнение НЕ должно валить старт
-        logging.getLogger("startup").warning("build_seed_rows failed: %r", e)
-        seed_rows = []
-    # ⭐ Ключ картотеки не читается (новый ПК, переустановка Windows, другая
-    # учётка). Падать нельзя: у клиники не осталось бы НИ ОДНОГО экрана, чтобы
-    # ввести код с листа восстановления, — программа просто не открывалась бы.
-    # Поэтому поднимаемся в режиме восстановления: база не тронута, работает
-    # ровно один экран, и все прочие адреса ведут на него.
-    if dbkey.state() == dbkey.UNREADABLE:
-        global RECOVERY
-        RECOVERY = True
-        logging.getLogger("startup").error(
-            "ключ базы не читается на этой учётке Windows — режим восстановления")
-        return
-    await db.init(seed_rows)
-    await _check_auth_file()
-    # Лицензия (L3): файл, память, состояние — до первого запроса к воротам
-    # (L4) и баннеру (L5). Облако и демо без ключа: внутри no-op.
-    await lic.startup()
-    # Автообновление файла (L13): суточный запрос к renew.url в фоне — как
-    # upd.check_async ниже: старт не ждёт, отказ молчит, без файла с renew — no-op.
-    lic.renew_async()
-    # v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
-    # идемпотентно (только NULL), на каждом старте — дёшево и самозалечивается
-    doc_map = {name: k for k, name in eng.DOCTORS.items()}
-    svc_map = {}
-    for k, v in eng.SERVICES.items():
-        svc_map[v["ro"]] = k
-        svc_map[v["ru"]] = k
-    await db.backfill_ids(doc_map, svc_map)
-    # ⭐ Прошлая версия убирается ЗДЕСЬ, а не батником обновления (08-10,
-    # находка аудита). Батник стирал `.old.exe`, как только новый файл ПОЯВЛЯЛСЯ
-    # на диске, — а появиться и запуститься разное: битая докачка, прошедшая
-    # проверку; антивирус, съевший exe после подмены; несовместимый бинарник. На
-    # диске не оставалось ни одной рабочей копии, и клиника получала мёртвые
-    # ярлыки в начале смены. Теперь удаление — доказательство работоспособности:
-    # сюда доходят, только когда модули загрузились и база ОТКРЫЛАСЬ.
-    # ⚠️ Именно в startup приложения, а не в лаунчере: у лаунчера две ветки
-    # (окно и браузерный режим), и уборка в одной из них не работала во второй —
-    # поймано проверкой на собранном exe, тесты исходников эту ветку не видят
-    # вовсе (`frozen` там ложь).
-    if paths.is_frozen():
-        try:
-            for old in pathlib.Path(sys.executable).resolve().parent.glob("*.old.exe"):
-                old.unlink(missing_ok=True)
-                log.warning("прошлая версия убрана: %s", old.name)
-        except OSError as e:  # noqa: BLE001 — уборка не имеет права ронять старт
-            log.warning("прошлая версия не убрана (%r)", e)
-        # копия exe, из которой шёл сторож перезапуска (11.10): убирается тем же
-        # доказательством работоспособности; ещё жив (окно гаснет через секунду
-        # после нашего старта) — не вышло, уберём при следующем старте
-        try:
-            watch = upd.work_dir() / upd._WATCH_EXE
-            if watch.exists():
-                watch.unlink()
-                log.warning("copia supraveghetorului убрана: %s", watch.name)
-        except OSError:
-            pass
-    # Демо (core/demo.py) живёт в контейнере без GitHub и без реестра: ни
-    # сверки версии, ни запроса релизов — обновление не его дело.
-    if not demo.on():
-        upd.sync_uninstall_version()   # версия в «Программах и компонентах»
-        # ⚠️ `DENTART_UPDATE_CHECK=off` — тест-хук харнесса (03.10): три сотни
-        # тестовых серверов за прогон спрашивали GitHub при каждом старте и
-        # выедали анонимную квоту 60 в час — у канарейки на той же машине
-        # проверка обновлений потом шла запасным путём (02.10: 0 из 60).
-        if os.environ.get("DENTART_UPDATE_CHECK", "").strip().lower() != "off":
-            upd.check_async()
-    # закон 195: диск с картотекой обязан быть зашифрован — программа
-    # проверяет сама, а не верит подписанному акту (core/bitlocker.py)
-    from .core import bitlocker
-    from .core.storage import _data_dir
-    bitlocker.check_async(_data_dir())
-    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
-    if token:
-        from . import telegram as tg
-
-        async def _tg_guard() -> None:
-            try:
-                await tg.run(token)
-            except Exception as e:  # noqa: BLE001 — веб-чат должен жить при любой ошибке TG
-                print(f"Telegram adapter FAILED: {e!r} — web chat keeps running")
-
-        asyncio.create_task(_tg_guard())
-        print("Telegram adapter: starting (token present)")
-    else:
-        print("TELEGRAM_TOKEN not set — Telegram adapter disabled (web chat only)")
-
-
-@app.get("/health")
-async def health() -> dict:
-    # "app" = отпечаток для single-instance guard в desktop.py:
-    # чужой сервис с {"ok":true} на нашем порту не должен сойти за нас
-    return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
-
-
-_ASSET_MIME = {"css": "text/css", "js": "application/javascript",
-               # ⚠️ woff2 читается БАЙТАМИ, а не текстом (см. ветку ниже):
-               # _asset() декодирует utf-8 и на шрифте падает
-               "fonts": "font/woff2"}
-
-
-@app.get("/static/{kind}/{name}")
-async def static_asset(kind: str, name: str) -> Response:
-    """Оформление и поведение журнала. Кеш вечный намеренно: адрес несёт версию
-    программы (?v=…), поэтому после обновления браузер запросит новый файл, а
-    между обновлениями не будет тянуть их на каждую автоперезагрузку страницы —
-    а она происходит раз в 12 секунд на каждом открытом экране.
-
-    Отдаём только css и js по строгому шаблону имени: каталог статики лежит
-    внутри сборки рядом с профилем клиники, и вытащить оттуда что-то ещё через
-    этот адрес быть не должно."""
-    mime = _ASSET_MIME.get(kind)
-    # шрифты лежат в fonts/ и называются .woff2, остальное — имя.<папка>
-    ext = "woff2" if kind == "fonts" else kind
-    if not mime or not re.fullmatch(rf"[a-z0-9_-]+\.{ext}", name):
-        return Response(status_code=404)
-    try:
-        # ⚠️ Шрифт — ДВОИЧНЫЙ файл. _asset() отдаёт текст (utf-8) и на woff2
-        # падает с UnicodeDecodeError, поэтому читаем байтами и мимо кеша
-        # текстов: класть 500 КБ шрифта в _CSS_CACHE незачем, его и так
-        # закеширует браузер на год.
-        text = (STATIC / kind / name).read_bytes() if kind == "fonts" \
-            else _asset(kind, name)
-    except OSError:
-        log.error("не читается %s/%s — страница останется без него", kind, name)
-        return Response(status_code=404)
-    cache = ("public, max-age=31536000, immutable" if paths.is_frozen()
-             else "no-cache")
-    return Response(text, media_type=mime,
-                    headers={"Cache-Control": cache})
-
-
-@app.get("/favicon.ico")
-async def favicon() -> Response:
-    """Тот же знак во вкладке браузера. Браузер сам просит /favicon.ico, поэтому
-    один роут закрывает все страницы, включая печатные."""
-    return Response(brand.mark_svg(None), media_type="image/svg+xml",
-                    headers={"Cache-Control": "public, max-age=86400"})
-
-
-ICON_PX = (180, 192, 512)  # apple-touch-icon; манифест просит 192 и 512
-
-
-@app.get("/icon-{px}.png")
-async def app_icon(px: int) -> Response:
-    """Знак значком приложения. Размеры перечислены намеренно: адрес открыт без
-    входа, а `brand.png` РИСУЕТ картинку — свободный размер дал бы любому в сети
-    клиники дешёвый способ занять процессор запросами вида /icon-9000.png."""
-    if px not in ICON_PX:
-        return Response(status_code=404)
-    # 180 — тот, что забирает iPhone (apple-touch-icon), и ему нужен знак БЕЗ
-    # прозрачности: см. brand.png. Остальные два берёт манифест, там прозрачные
-    # углы — норма, значок ложится на подложку системы.
-    return Response(brand.png(px, opaque=px == 180), media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=86400"})
-
-
-@app.get("/manifest.webmanifest")
-async def manifest() -> Response:
-    """Паспорт «приложения» для телефона: имя, значок, цвет, стартовый адрес.
-
-    Собирается на лету, а не лежит файлом, по двум причинам, и обе тихие:
-    ⛔ цвет и имя принадлежат КЛИНИКЕ (`theme.current`, `clinic.json`) — файл
-    в сборке заморозил бы зелёный DentPilot на синем интерфейсе;
-    ⛔ адреса внутри обязаны быть ОТНОСИТЕЛЬНЫМИ: одна и та же программа
-    открывается как 127.0.0.1, как 192.168.x.y из сети клиники и через будущий
-    туннель — записанный хост сделал бы значок нерабочим на всех адресах, кроме
-    одного.
-
-    `start_url` — журнал, а не «/»: «/» это витрина записи для пациента, и
-    установленное приложение обязано открываться там, где работают.
-    """
-    th = theme.current()
-    bg = theme.STYLES[th["style"]]["--bg"]  # тот же цвет, что <meta theme-color>
-    body = json.dumps({
-        "id": "/admin",
-        "name": f"{eng.CLINIC_NAME} — registru",
-        "short_name": eng.CLINIC_NAME,
-        "lang": "ro",
-        "start_url": "/admin",
-        "scope": "/",
-        "display": "standalone",
-        "background_color": bg,
-        "theme_color": bg,
-        "icons": [{"src": f"/icon-{px}.png", "sizes": f"{px}x{px}",
-                   "type": "image/png"} for px in (192, 512)],
-    }, ensure_ascii=False)
-    return Response(body, media_type="application/manifest+json",
-                    headers={"Cache-Control": "no-cache"})
-
-
 @app.middleware("http")
 async def _recovery_gate(request: Request, call_next):
-    """В режиме восстановления живёт ровно один экран.
+    """Шлюз режимов: битый профиль, восстановление, демо, лицензия.
 
     ⚠️ Отсекать надо ВСЕ адреса журнала, а не только главную: база не открыта
     вовсе, и любой маршрут упал бы пятисотой с невнятным следом в логе. Здесь
-    же он получает внятный экран с полем для кода.
+    же он получает внятный экран с полем для кода (`modules/entry/recovery`).
     ⚠️ `/health` намеренно НЕ трогаем: по нему лаунчер понимает, что сервер
     поднялся, — иначе окно программы не откроется и вводить код будет негде.
     Тот же шлюз держит и состояние «профиль клиники не читается»
@@ -356,21 +133,12 @@ async def _recovery_gate(request: Request, call_next):
     p = request.url.path
     if eng.CONFIG_BROKEN:
         if p.startswith("/admin"):
-            # ⛔ НЕ через standalone(): тот подставил бы имя и цвет клиники, а
-            # они в этом состоянии пришли бы из демо-каркаса («DentPilot Demo»
-            # в PWA-теге) — страница существует ровно затем, чтобы демо не
-            # показывалось как своё. Экран нарочно нейтральный, без
-            # фирменного цвета.
-            return HTMLResponse(
-                CONFIG_BROKEN_TMPL
-                .replace("__PATH__", html.escape(str(eng.config_path())))
-                .replace("__FONTS__", fonts_css()),
-                status_code=503)
+            return HTMLResponse(recovery.config_broken_page(), status_code=503)
         if p == "/" or p == "/chat":
             # каналу записи в этом состоянии отвечать нечем: конфиг (врачи,
             # услуги, часы) — это и есть то, из чего собирается диалог
             return Response(status_code=503)
-    if RECOVERY and p.startswith("/admin") and not p.startswith("/admin/recover"):
+    if recovery.active() and p.startswith("/admin") and not p.startswith("/admin/recover"):
         return RedirectResponse("/admin/recover", status_code=303)
     # Демо (core/demo.py): адресов, меняющих машину и учётки, нет — отказ
     # ЗДЕСЬ, до маршрута и разбора тела, одним кодом для страниц и JSON;
@@ -396,217 +164,147 @@ async def _recovery_gate(request: Request, call_next):
     return await call_next(request)
 
 
-CONFIG_BROKEN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<title>DentPilot — eroare</title><style>__FONTS__
- body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#f5f6f7;
-      color:#20262b;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
- p{max-width:560px;line-height:1.55}
- code{font-size:13px;opacity:.85;word-break:break-all}
-</style></head><body>
-<h1>Profilul clinicii nu poate fi citit</h1>
-<p>Fișierul cu profilul clinicii (<b>clinic.json</b>) este deteriorat, iar
-copia de rezervă (clinic.json.bak) nu a putut fi folosită. Programul s-a oprit
-aici ca să nu amestece evidența dvs. cu date demonstrative.</p>
-<p><b>Ce e de făcut:</b> restaurați fișierul clinic.json dintr-o copie de
-rezervă a clinicii sau contactați suportul, apoi reporniți programul.
-Evidența pacienților (baza de date) nu este afectată.</p>
-<p><code>__PATH__</code></p>
-</body></html>"""
+# ---------- старт ----------
+
+@app.on_event("startup")
+async def startup() -> None:
+    """Старт по шагам. Порядок значим: два ранних выхода (битый профиль,
+    нечитаемый ключ) оставляют базу НЕОТКРЫТОЙ, и всё, что ниже них, без базы
+    не живёт."""
+    # летопись подписывается ИМЕНЕМ вошедшего. Хук, а не импорт: db лежит ниже
+    # слоя доступа, и прямой импорт замкнул бы круг db → core.auth → db
+    db.ACTOR_HOOK = lambda: (request_user() or {}).get("name")
+    # ⛔ Профиль клиники не читается (и .bak тоже): поднимаемся ЭКРАНОМ ОШИБКИ,
+    # как в режиме восстановления, — база не открывается (ни миграций, ни
+    # сида), Telegram не стартует, все адреса ведут на объяснение. Работать на
+    # вшитой демо-клинике поверх настоящей картотеки нельзя: на «Dr. Elena
+    # Rusu», которой в клинике нет, запишут живого человека, а чужой прайс
+    # уйдёт пациенту как настоящий. Падать тоже нельзя (прайор 08-16): у
+    # клиники это «программа не открывается», и рассказать, что чинить, некому.
+    if eng.CONFIG_BROKEN:
+        logging.getLogger("startup").error(
+            "clinic.json не читается, запасного нет — экран ошибки: %s",
+            eng.CONFIG_BROKEN)
+        return
+    seed_rows = _seed_rows()
+    # ⭐ Ключ картотеки не читается (новый ПК, переустановка Windows, другая
+    # учётка). Падать нельзя: у клиники не осталось бы НИ ОДНОГО экрана, чтобы
+    # ввести код с листа восстановления, — программа просто не открывалась бы.
+    # Поэтому поднимаемся в режиме восстановления: база не тронута, работает
+    # ровно один экран, и все прочие адреса ведут на него.
+    if dbkey.state() == dbkey.UNREADABLE:
+        recovery.enter()
+        logging.getLogger("startup").error(
+            "ключ базы не читается на этой учётке Windows — режим восстановления")
+        return
+    await db.init(seed_rows)
+    await entry.check_auth_file()
+    # Лицензия (L3): файл, память, состояние — до первого запроса к воротам
+    # (L4) и баннеру (L5). Облако и демо без ключа: внутри no-op.
+    await lic.startup()
+    # Автообновление файла (L13): суточный запрос к renew.url в фоне — как
+    # upd.check_async ниже: старт не ждёт, отказ молчит, без файла с renew — no-op.
+    lic.renew_async()
+    await _backfill_ids()
+    if paths.is_frozen():
+        _sweep_previous_version()
+    # Демо (core/demo.py) живёт в контейнере без GitHub и без реестра: ни
+    # сверки версии, ни запроса релизов — обновление не его дело.
+    if not demo.on():
+        _watch_releases()
+    _check_disk_encryption()
+    _start_telegram()
 
 
-@app.get("/admin/recover", response_class=HTMLResponse)
-async def recover_page(err: str = "") -> Response:
-    if not RECOVERY:
-        return RedirectResponse("/admin", status_code=303)
-    # ⭐ ДВА исхода, а не один. Раньше оба вели сюда с `err=1`, и клиника,
-    # набравшая ПРАВИЛЬНЫЙ код с печатного листа, получала «код неверен» —
-    # тупик в самый плохой момент, потому что чинить она шла не то. Отказ
-    # записи `db.key` (нет прав на папку) не имеет отношения к коду.
-    msg = {
-        "1": "Codul nu este valid sau nu se potrivește cu această bază de date",
-        "2": ("Codul este corect, dar cheia nu a putut fi salvată în dosarul "
-              "cu date. Verificați drepturile pe dosar și încercați din nou."),
-    }.get(err, "")
-    return HTMLResponse(standalone(RECOVER_TMPL).replace(
-        "__ERR__", f"<div class='err'>{msg}</div>" if msg else ""))
-
-
-@app.get("/admin/license", response_class=HTMLResponse)
-async def license_view(request: Request, msg: str = "") -> Response:
-    """Страница активации (L5): состояние, импорт файла, контакты. Вход нужен,
-    право директора — только на импорт: регистратура видит состояние и
-    просьбу позвать директора, а не петлю no_access → стена → no_access."""
-    if (deny := _guard(request)) is not None:
-        return deny
-    me = current_user(request)
-    return HTMLResponse(license_page(msg, director=me is not None and can(me, PERM_SETTINGS),
-                                     walled=lic.walled("/admin", "GET")))
-
-
-@app.post("/admin/license")
-async def license_install(request: Request, file: UploadFile | None = File(None),
-                          text: str = Form(""), terms: str = Form("")) -> Response:
-    """Файл из поля или вставленный текст → проверка → license.json → перечитать.
-
-    Без галочки условий файл не принимается: активация и есть заключение
-    договора (п. 1 условий), и летопись пишет имя того, кто её поставил.
-    `required` у галочки держит браузер; этот отказ — для всего остального."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if terms != "1":
-        return RedirectResponse(f"/admin/license?msg={lic.TERMS_CODE}", status_code=303)
-    raw = b""
-    if file is not None and file.filename:
-        raw = await file.read()
-    if not raw.strip():
-        raw = text.encode("utf-8")
-    me = current_user(request)
-    code = await lic.install(raw.decode("utf-8", "replace"),
-                             actor=(me or {}).get("name") or "director")
-    if code:
-        return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
-    return RedirectResponse("/admin?msg=license_ok", status_code=303)
-
-
-@app.post("/admin/license/request")
-async def license_request(request: Request, name: str = Form(""), idno: str = Form(""),
-                          contact_name: str = Form(""), email: str = Form(""),
-                          phone: str = Form(""), terms: str = Form("")) -> Response:
-    """Активация без файла (26.09): заявка на пробный уходит на сервер лицензий,
-    и программа активируется сама, как только файл выдан. Галочка условий — та
-    же, что у импорта файла: без неё заявка не уходит, с ней летопись пишет,
-    кто принял условия. Поля проверяет сервер (одни правила с формой /proba);
-    его отказ страница показывает словами сервера."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    if terms != "1":
-        return RedirectResponse(f"/admin/license?msg={lic.TERMS_CODE}", status_code=303)
-    me = current_user(request)
-    code = await lic.request_trial(
-        {"name": name, "idno": idno, "contact_name": contact_name, "email": email, "phone": phone},
-        actor=(me or {}).get("name") or "director")
-    if code == "license_ok":
-        return RedirectResponse("/admin?msg=license_ok", status_code=303)
-    return RedirectResponse(f"/admin/license?msg={code}", status_code=303)
-
-
-@app.post("/admin/license/verify")
-async def license_verify(request: Request, code: str = Form("")) -> Response:
-    """Новый компьютер той же клиники (26.09): код, который сервер прислал на её
-    e-mail в ответ на повтор заявки. Галочки здесь нет: код бывает только у заявки,
-    а её маршрут выше без галочки не отправит — договор принят ею, и летопись
-    пишет, кто активировал этот компьютер."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    me = current_user(request)
-    result = await lic.verify_code(code, actor=(me or {}).get("name") or "director")
-    if result == "license_ok":
-        return RedirectResponse("/admin?msg=license_ok", status_code=303)
-    return RedirectResponse(f"/admin/license?msg={result}", status_code=303)
-
-
-@app.post("/admin/license/renew")
-async def license_renew(request: Request) -> Response:
-    """Кнопка «Verifică acum» (L13): тот же запрос к renew.url, что суточный, —
-    только сейчас и с ответом словами. Право директора, как у импорта; в
-    белом списке ворот: новый файл нужен именно в режиме чтения."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    outcome = await lic.renew_once()
-    if outcome == lic.RENEWED:
-        return RedirectResponse("/admin?msg=license_renewed", status_code=303)
-    return RedirectResponse(f"/admin/license?msg={lic.RENEW_CODES[outcome]}", status_code=303)
-
-
-@app.get("/plata/{ticket}")
-async def license_pay(ticket: str) -> Response:
-    """«Plătește acum» (02.10): ссылка из баннера и со страницы лицензии.
-
-    ⭐ Приходит СИСТЕМНЫМ браузером и без куки входа: окно программы отдаёт
-    target=_blank браузеру Windows, а вход у них разный. Поэтому маршрут вне
-    /admin и без `_guard` — пропуском служит ключ в адресе (`lic.pay_ticket`),
-    который рисуют только директору. Отсюда — запрос страницы оплаты у сервера,
-    выдавшего файл, и переход туда; неудача — страница словами в том же браузере.
-    ⚠️ GET меняет только частоту запроса файла, а у сервера заводит (или отдаёт
-    ту же) ссылку на сутки: ни денег, ни данных клиники он не трогает."""
-    if not lic.applies() or not lic.pay_ticket_ok(ticket):
-        return HTMLResponse(license_pay_page("ticket"), status_code=404)
-    outcome, url = await lic.pay_link()
-    if outcome == lic.PAY_OK:
-        return RedirectResponse(url, status_code=303)
-    return HTMLResponse(license_pay_page(outcome), status_code=503)
-
-
-@app.get("/api/license")
-async def license_api(request: Request) -> Response:
-    """Состояние лицензии для клиента: баннер рисует каркас страницы, а это —
-    для экранов, которым нужно знать «сегодня можно писать?» без перезагрузки."""
-    if (deny := api_guard(request)) is not None:
-        return deny
-    return msg_json(True, data=lic.as_json())
-
-
-@app.post("/admin/recover")
-async def recover_apply(request: Request, code: str = Form("")) -> Response:
-    """Код с бумаги → ключ → ПЕРЕЗАВОРАЧИВАНИЕ под текущую учётку Windows.
-
-    ⭐ Ключ проверяется НА САМОЙ БАЗЕ, а не «похож ли он на код»: иначе опечатка
-    сохранилась бы как рабочий ключ, и следующий запуск снова упал бы в
-    восстановление — уже без подсказки, что виноват ввод.
-    """
-    if not RECOVERY:
-        return RedirectResponse("/admin", status_code=303)
-    if not same_origin_post(request):     # третий POST без куки, тот же щит
-        return Response(status_code=403)
-    key = dbkey.parse_recovery(code)
-    path = paths.db_file()
-    if key is None or not dbkey.opens_with(path, key):
-        return RedirectResponse("/admin/recover?err=1", status_code=303)
-    # ⛔ Сюда мы попадаем, только если код ВЕРЕН: он открыл саму базу. Значит
-    # неудача записи — это про папку, а не про ввод, и путать их нельзя.
-    if not dbkey.store(key):
-        log.error("ключ с листа верен, но db.key записать не удалось")
-        return RedirectResponse("/admin/recover?err=2", status_code=303)
-    log.warning("ключ базы восстановлен с листа — требуется перезапуск")
-    return HTMLResponse(standalone(RECOVER_DONE))
-
-
-RECOVER_DONE = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<title>__CLINIC__ — recuperare</title><style>__FONTS__
- body{font-family:__FAMILY__;background:__ACCENT__;
-      color:__ON__;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
- p{max-width:520px;line-height:1.55}
-</style></head><body>
-<h1>Cheia a fost restabilită</h1>
-<p>Închideți programul și porniți-l din nou — evidența se va deschide normal.
-Cheia a fost legată din nou de acest calculator, așa că data viitoare codul nu
-va mai fi necesar. Păstrați foaia de recuperare mai departe.</p>
-</body></html>"""
-
-
-@app.get("/clinic-logo")
-async def clinic_logo() -> Response:
-    """Логотип клиники. Отдаётся БЕЗ входа намеренно: он нужен экрану входа,
-    а сам по себе это та же картинка, что висит у клиники на двери и печатается
-    на бланке, — скрывать в нём нечего.
-
-    ⭐ Имя файла не приходит из запроса ВООБЩЕ: путь собирает theme из двух
-    разрешённых имён. Поэтому здесь нет ни разбора имени, ни проверки на «..» —
-    подставить сюда чужой путь нечем."""
-    p = theme.logo_path()
-    if p is None:
-        return Response(status_code=404)
+def _seed_rows() -> list:
     try:
-        data = p.read_bytes()
+        return eng.build_seed_rows()
+    except Exception as e:  # noqa: BLE001 — демо-наполнение НЕ должно валить старт
+        logging.getLogger("startup").warning("build_seed_rows failed: %r", e)
+        return []
+
+
+async def _backfill_ids() -> None:
+    """v1.7.1: старым записям проставляются стабильные ключи по текущему конфигу;
+    идемпотентно (только NULL), на каждом старте — дёшево и самозалечивается."""
+    doc_map = {name: k for k, name in eng.DOCTORS.items()}
+    svc_map = {}
+    for k, v in eng.SERVICES.items():
+        svc_map[v["ro"]] = k
+        svc_map[v["ru"]] = k
+    await db.backfill_ids(doc_map, svc_map)
+
+
+def _sweep_previous_version() -> None:
+    """⭐ Прошлая версия убирается ЗДЕСЬ, а не батником обновления (08-10,
+    находка аудита). Батник стирал `.old.exe`, как только новый файл ПОЯВЛЯЛСЯ
+    на диске, — а появиться и запуститься разное: битая докачка, прошедшая
+    проверку; антивирус, съевший exe после подмены; несовместимый бинарник. На
+    диске не оставалось ни одной рабочей копии, и клиника получала мёртвые
+    ярлыки в начале смены. Теперь удаление — доказательство работоспособности:
+    сюда доходят, только когда модули загрузились и база ОТКРЫЛАСЬ.
+    ⚠️ Именно в startup приложения, а не в лаунчере: у лаунчера две ветки
+    (окно и браузерный режим), и уборка в одной из них не работала во второй —
+    поймано проверкой на собранном exe, тесты исходников эту ветку не видят
+    вовсе (`frozen` там ложь)."""
+    try:
+        for old in pathlib.Path(sys.executable).resolve().parent.glob("*.old.exe"):
+            old.unlink(missing_ok=True)
+            log.warning("прошлая версия убрана: %s", old.name)
+    except OSError as e:  # noqa: BLE001 — уборка не имеет права ронять старт
+        log.warning("прошлая версия не убрана (%r)", e)
+    # копия exe, из которой шёл сторож перезапуска (11.10): убирается тем же
+    # доказательством работоспособности; ещё жив (окно гаснет через секунду
+    # после нашего старта) — не вышло, уберём при следующем старте
+    try:
+        watch = upd.work_dir() / upd._WATCH_EXE
+        if watch.exists():
+            watch.unlink()
+            log.warning("копия сторожа перезапуска убрана: %s", watch.name)
     except OSError:
-        log.warning("логотип клиники не читается: %s", p)
-        return Response(status_code=404)
-    # адрес несёт отпечаток времени правки (theme.logo_url), поэтому кеш можно
-    # держать долго: замена логотипа меняет адрес и доезжает сразу
-    return Response(data, media_type=theme.logo_mime(p.name),
-                    headers={"Cache-Control": "public, max-age=86400"})
+        pass
+
+
+def _watch_releases() -> None:
+    upd.sync_uninstall_version()   # версия в «Программах и компонентах»
+    # ⚠️ `DENTART_UPDATE_CHECK=off` — тест-хук харнесса (03.10): три сотни
+    # тестовых серверов за прогон спрашивали GitHub при каждом старте и
+    # выедали анонимную квоту 60 в час — у канарейки на той же машине
+    # проверка обновлений потом шла запасным путём (02.10: 0 из 60).
+    if os.environ.get("DENTART_UPDATE_CHECK", "").strip().lower() != "off":
+        upd.check_async()
+
+
+def _check_disk_encryption() -> None:
+    # закон 195: диск с картотекой обязан быть зашифрован — программа
+    # проверяет сама, а не верит подписанному акту (core/bitlocker.py)
+    from .core import bitlocker
+    from .core.storage import _data_dir
+    bitlocker.check_async(_data_dir())
+
+
+def _start_telegram() -> None:
+    token = os.environ.get("TELEGRAM_TOKEN", "").strip()
+    if token:
+        from . import telegram as tg
+
+        async def _tg_guard() -> None:
+            try:
+                await tg.run(token)
+            except Exception as e:  # noqa: BLE001 — веб-чат должен жить при любой ошибке TG
+                print(f"Telegram adapter FAILED: {e!r} — web chat keeps running")
+
+        asyncio.create_task(_tg_guard())
+        print("Telegram adapter: starting (token present)")
+    else:
+        print("TELEGRAM_TOKEN not set — Telegram adapter disabled (web chat only)")
+
+
+@app.get("/health")
+async def health() -> dict:
+    # "app" = отпечаток для single-instance guard в desktop.py:
+    # чужой сервис с {"ok":true} на нашем порту не должен сойти за нас
+    return {"ok": True, "app": "dentpilot", "version": eng.APP_VERSION}
 
 
 # ---------- самозапись пациента (лендинг + веб-чат) ----------
@@ -639,251 +337,3 @@ async def chat(payload: dict):
     texts, buttons = await eng.handle(s, sid, msg)
     return {"messages": [{"text": x} for x in texts], "buttons": buttons,
             "session": token}
-
-
-# ---------- домашняя страница журнала: сводка + карточки врачей ----------
-
-@app.get("/admin/login", response_class=HTMLResponse)
-async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
-    # ⚠️ auth_blocked, а не _auth_broken: то же условие, что в _guard. При
-    # заполненном ADMIN_KEY вход по ключу исправен, и разговор про битый файл
-    # увёл бы человека чинить то, что его беде не мешает.
-    broken = auth_blocked()
-    if not _secret() and not broken:
-        return RedirectResponse("/admin", status_code=303)
-    pin_mode = _pin_rec() is not None
-    if broken:
-        # битый auth.json: состояние ошибки, а не «PIN не установлен» — setup
-        # закрыт (_setup_allowed), и человеку важно знать, ЧТО делать. Файл
-        # не трогаем: учётки восстановимы только из копии.
-        err_html = ("<div class='err'>Fișierul de acces e deteriorat — "
-                    "restaurați data\\auth.json din copia de rezervă.</div>")
-    elif err == "lock":
-        # `s` — срок из редиректа сразу после неудачи; lock_left() свежее, но
-        # к моменту перезагрузки страницы уже мог утечь до нуля
-        left = lock_left() or (int(s) if s.isdigit() else 0)
-        wait = f"{left} sec." if left < 60 else f"{(left + 59) // 60} min."
-        # вторая фраза — выход, а не упрёк: после смены пароля коллегой человек
-        # попадает сюда с ВЕРНЫМ по его памяти PIN-ом и не знает, что делать
-        err_html = ("<div class='err'>Prea multe încercări greșite. "
-                    f"Încercați peste {wait}<br><small>Ați uitat PIN-ul? "
-                    "Un director îl poate schimba din Setări › Securitate "
-                    "și utilizatori.</small></div>")
-    elif err:
-        err_html = ("<div class='err'>PIN greșit</div>" if pin_mode
-                    else "<div class='err'>Parolă greșită</div>")
-    else:
-        err_html = ""
-    nxt = next if next.startswith("/admin") else "/admin"
-    return (standalone(LOGIN_TMPL)
-            .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
-            .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT))
-
-
-@app.post("/admin/login")
-async def admin_login(request: Request, password: str = Form(...),
-                      uid: str = Form(""),
-                      next_url: str = Form("/admin", alias="next")):
-    # чужой сайт в браузере клиники не должен ни пробовать PIN-ы, ни
-    # накручивать счётчик подбора до блокировки (см. same_origin_post)
-    if not same_origin_post(request):
-        return Response(status_code=403)
-    target = next_url if next_url.startswith("/admin") else "/admin"
-    nxt = urllib.parse.quote(target, safe="")
-    if auth_blocked():
-        # проверять ввод не по чему — «PIN greșit» тут враньё, а счётчик
-        # неудач наказал бы человека за наш же битый файл. Вложенность та же,
-        # что в _guard: при заполненном ADMIN_KEY проверять ЕСТЬ по чему, и
-        # безусловный отказ запер бы исправный вход
-        return RedirectResponse(f"/admin/login?err=broken&next={nxt}",
-                                status_code=303)
-    if (left := lock_left()) > 0:
-        return RedirectResponse(
-            f"/admin/login?err=lock&s={left}&next={nxt}", status_code=303)
-    pw = password.strip()
-    who = None
-    if _pin_rec():
-        # логин необязателен: пароль у каждого свой (pin_free это стережёт), и
-        # заставлять регистратуру набирать ещё и id — трение на ровном месте.
-        # Указан явно — сверяем только с ним: так на телефоне у врача вход
-        # предсказуем, даже если однажды пароли всё-таки совпадут.
-        # ⚠️ .lower() — как в users/save: учётки заводятся ТОЛЬКО в нижнем
-        # регистре, а поле ID на телефоне получает автозаглавную букву. Без
-        # него врач с верным паролем видит «PIN greșit» и накручивает счётчик
-        # блокировки собственным телефоном.
-        who = verify_pin(pw, uid=uid.strip().lower()[:32])
-        ok = who is not None
-    else:
-        ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
-    if ok:
-        note_ok()
-        if who is not None:
-            # verify_pin мог молча переписать файл (миграция v1→v2, доливка
-            # sid) — обновляем отпечаток, иначе следующий старт увидит «взлом»
-            await remember_auth_file()
-            # Журнал входов (08-13): «кто входил вчера вечером» — вопрос, на
-            # который раньше отвечать было нечем: вход не оставлял следа
-            # нигде. Облачная ветка (ADMIN_KEY) не пишет: там нет людей, и
-            # строка «cineva a intrat» ничего бы не говорила.
-            await db.log_clinic_event("login", "A intrat în registru",
-                                      actor=_as_user(who)["name"])
-            await db.set_meta(f"last_login:{who.get('id', 'clinic')}",
-                              datetime.now(eng.TZ).isoformat())
-        # кука ставится ПОСЛЕ verify_pin: миграция v1→v2 меняет ключ подписи,
-        # а запись пользователя — свой sid
-        return _set_auth_cookie(RedirectResponse(target, status_code=303), who)
-    lock = note_fail()
-    if lock and fail_count() in LOCK_STEP_COUNTS:
-        # Всплеск подбора — строкой в ленту, на СТУПЕНЯХ лестницы, а не на
-        # каждой неудаче (иначе спам). Удачный вход обнулит счётчик, но строка
-        # останется: серия «кто-то тыкал PIN у стойки» перестаёт быть тихой.
-        wait = f"{lock // 60} min." if lock >= 60 else f"{lock} s"
-        await db.log_clinic_event(
-            "login_fail",
-            f"{fail_count()} încercări greșite la intrare — blocat {wait}",
-            actor="necunoscut")
-    # asyncio.sleep, а не time.sleep: у настольного издания один процесс на всю
-    # клинику, и блокирующая пауза заморозила бы журнал остальным
-    await asyncio.sleep(FAIL_DELAY)
-    q = f"err=lock&s={lock}" if lock else "err=1"
-    return RedirectResponse(f"/admin/login?{q}&next={nxt}", status_code=303)
-
-
-async def _check_auth_file() -> None:
-    """Сигнализация auth.json: файл переписали или удалили ВНЕ программы.
-
-    Это след, а не замок (см. пояснение в core/auth.py): отпечаток файла живёт
-    в базе, расхождение при старте попадает в ленту и висит баннером у
-    директора, пока тот не подтвердит. Ложная тревога недопустима — поэтому
-    каждый маршрут, пишущий файл сам, обязан звать remember_auth_file().
-    """
-    if (alert := await db.get_meta("auth_alert")):
-        set_tamper_alert(alert)      # непогашенное предупреждение живёт и после рестарта
-    now_fp = auth_file_fp()
-    stored = await db.get_meta("auth_fp")
-    if stored is None:
-        # первый запуск с этой проверкой: судить прошлое не по чему
-        await db.set_meta("auth_fp", now_fp)
-        return
-    if stored == now_fp:
-        return
-    when = datetime.now(eng.TZ).strftime("%d.%m.%Y %H:%M")
-    what = ("șters" if not now_fp else "modificat")
-    text = (f"Fișierul de acces (auth.json) a fost {what} în afara programului "
-            f"— sesizat la pornirea din {when}")
-    await db.log_clinic_event("auth_tamper", text)
-    await db.set_meta("auth_alert", text)
-    await db.set_meta("auth_fp", now_fp)   # один сигнал на одно вмешательство
-    set_tamper_alert(text)
-    logging.getLogger("auth").warning("auth.json tampered: %s", what)
-
-
-@app.post("/admin/security/ack")
-async def security_ack(request: Request):
-    """Погасить предупреждение. Только директор: остальные не могут ни оценить
-    «это был техник», ни сменить PIN-ы — им баннер и не показывается."""
-    if (deny := require(request, PERM_SETTINGS)) is not None:
-        return deny
-    await db.del_meta("auth_alert")
-    set_tamper_alert("")
-    return RedirectResponse("/admin", status_code=303)
-
-
-@app.get("/admin/logout")
-async def admin_logout():
-    """Выход. Кука снимается у браузера; серверных сессий у нас нет, поэтому
-    больше ничего гасить не нужно."""
-    resp = RedirectResponse("/admin/login", status_code=303)
-    resp.delete_cookie("admin_auth")
-    return resp
-
-
-# Пока PIN не установлен, журнал не защищён НИЧЕМ — и первичную установку
-# обязан делать тот, кто сидит за самим компьютером клиники. Из сети (второе
-# рабочее место, телефон) экран установки закрыт: при включённом «Acces din
-# rețea» любой в Wi-Fi клиники иначе назначил бы себе первый PIN и стал бы
-# единственным директором. После установки обычный вход из сети работает.
-SETUP_LOCAL_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
-<title>__CLINIC__ — configurare</title><style>__FONTS__
- body{font-family:__FAMILY__;background:__ACCENT__;
-      color:__ON__;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
- p{max-width:520px;line-height:1.55}
-</style></head><body>
-<h1>Prima configurare se face la calculatorul clinicii</h1>
-<p>Programul nu are încă un PIN. Din motive de siguranță, primul PIN se
-stabilește doar pe calculatorul pe care este instalat DentPilot — deschideți
-programul acolo și setați PIN-ul. După aceea, intrarea din rețea va funcționa
-ca de obicei, cu parola fiecărui utilizator.</p>
-</body></html>"""
-
-
-@app.get("/admin/setup", response_class=HTMLResponse)
-async def admin_setup_page(request: Request, err: str = ""):
-    if not _setup_allowed():
-        return RedirectResponse("/admin", status_code=303)
-    if not client_is_local(request):
-        # не редирект на /admin: _guard без PIN вернул бы сюда же, и сетевой
-        # клиент кружил бы в 303 — вместо этого внятная страница с причиной
-        return HTMLResponse(standalone(SETUP_LOCAL_TMPL), status_code=403)
-    # границы из констант: «4–6» здесь пережило подъём потолка до 8 (08-13),
-    # и экран установки противоречил собственному «4–8 cifre» строкой ниже
-    err_html = (f"<div class='err'>PIN-urile nu coincid sau nu au "
-                f"{PIN_MIN}–{PIN_MAX} cifre</div>" if err else "")
-    return standalone(SETUP_TMPL).replace("__ERR__", err_html)
-
-
-@app.post("/admin/setup")
-async def admin_setup(request: Request, pin1: str = Form(...),
-                      pin2: str = Form(...)):
-    if not _setup_allowed():
-        return RedirectResponse("/admin", status_code=303)
-    if not client_is_local(request):
-        return HTMLResponse(standalone(SETUP_LOCAL_TMPL), status_code=403)
-    # пока PIN не установлен, эту форму мог бы отправить чужой сайт из
-    # браузера НА САМОМ компьютере клиники — loopback его не отличает
-    if not same_origin_post(request):
-        return Response(status_code=403)
-    p1, p2 = pin1.strip(), pin2.strip()
-    if p1 != p2 or not pin_len_ok(p1):
-        return RedirectResponse("/admin/setup?err=1", status_code=303)
-    _write_pin(p1)
-    await remember_auth_file()
-    return _set_auth_cookie(RedirectResponse("/admin", status_code=303),
-                            find_user("clinic"))
-
-
-# ---------- настройки клиники ----------
-
-
-# ---------- статистика ----------
-
-
-# ---------- экспорт CSV ----------
-
-
-# ---------- поиск пациента ----------
-
-
-# ---------- общая сетка: все врачи ----------
-
-
-# ---------- страница одного врача ----------
-
-
-# ---------- раздел «Medici»: карточка врача (v1.9.0) ----------
-#
-# Каталог врачей живёт в clinic.json (Setări + hot-reload), в БД — только
-# doctor_id и снапшот имени (решение PLAN_DB_V17). Этот раздел = единственное
-# место правки врачей: таблица из Setări убрана, чтобы не было двух источников.
-
-
-# ---------- действия ----------
-
-
-# ---------- печатный QR для пациентов ----------
-
-
-# ---------- QR для демо ----------
-
-

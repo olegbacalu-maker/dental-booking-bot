@@ -5,7 +5,7 @@
 Пересобрать — `python scripts/screen_map.py`.
 
 
-Маршрутов **153** · наборов **64** · мест вызова `res.ok`/`res.check` в исходниках — **3888**.
+Маршрутов **153** · наборов **64** · мест вызова `res.ok`/`res.check` в исходниках — **3891**.
 
 
 ⚠️ Это статические МЕСТА ВЫЗОВА, а живой прогон даёт больше: часть
@@ -84,15 +84,15 @@
 | `GET /admin/doctor-card/{dk}` | HTML | 11 | doctors, pin | 218 | doctor_card |
 | `GET /admin/doctor-photo/{dk}` | FILE | 9 | doctors | 114 | — |
 | `GET /admin/medici` | HTML | 10 | admin, demo, doctors, pin, settings_api | 852 | doctors_list |
-| `POST /admin/relink` | 303 | 12 | admin_canvas, doctors, license_page | 243 | — |
-| `GET /api/doctors` | JSON | 9 | admin, admin_canvas, doctors | 547 | — |
-| `POST /api/doctors` | JSON | 10 | admin, admin_canvas, doctors | 547 | — |
+| `POST /admin/relink` | 303 | 12 | admin_canvas, doctors, license_page | 244 | — |
+| `GET /api/doctors` | JSON | 9 | admin, admin_canvas, doctors | 548 | — |
+| `POST /api/doctors` | JSON | 10 | admin, admin_canvas, doctors | 548 | — |
 | `POST /api/doctors/colors` | JSON | 4 | doctors | 114 | — |
-| `GET /api/doctors/{dk}` | JSON | 6 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 858 | — |
-| `POST /api/doctors/{dk}` | JSON | 19 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 858 | — |
-| `POST /api/doctors/{dk}/photo` | JSON | 8 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 858 | — |
-| `POST /api/doctors/{dk}/photo/delete` | JSON | 7 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 858 | — |
-| `POST /api/doctors/{dk}/services` | JSON | 11 | admin, admin_canvas, day_actions, day_forms, demo, doctors, perio_api, pin, review2, review3, settings_api | 1160 | — |
+| `GET /api/doctors/{dk}` | JSON | 6 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 859 | — |
+| `POST /api/doctors/{dk}` | JSON | 19 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 859 | — |
+| `POST /api/doctors/{dk}/photo` | JSON | 8 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 859 | — |
+| `POST /api/doctors/{dk}/photo/delete` | JSON | 7 | admin, admin_canvas, day_actions, day_forms, doctors, perio_api, pin, review3 | 859 | — |
+| `POST /api/doctors/{dk}/services` | JSON | 11 | admin, admin_canvas, day_actions, day_forms, demo, doctors, perio_api, pin, review2, review3, settings_api | 1161 | — |
 
 ## Статистика — группа 1
 
@@ -156,7 +156,7 @@
 | `POST /api/patients/{pid}/perio/{eid}/delete` | JSON | 14 | activity, admin, anamneza, booking, bot, day_forms, demo, desk, doctors, hardening, license_existing, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, settings_api, stats_api, teeth, theme, visit, visit_api | 2380 | — |
 | `POST /api/patients/{pid}/plan` | JSON | 11 | activity, admin, anamneza, booking, bot, day_forms, demo, desk, hardening, license_existing, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth, visit, visit_api | 1922 | — |
 | `POST /api/patients/{pid}/plan/{item_id}/delete` | JSON | 7 | activity, admin, anamneza, booking, bot, day_forms, demo, desk, doctors, hardening, license_existing, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, settings_api, stats_api, teeth, theme, visit, visit_api | 2380 | — |
-| `POST /api/patients/{pid}/plan/{item_id}/status` | JSON | 12 | activity, admin, admin_canvas, anamneza, booking, bot, chair, day_forms, demo, desk, doctors, hardening, license_existing, license_gate, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, schedule_api, stats_api, teeth, visit, visit_api | 2300 | — |
+| `POST /api/patients/{pid}/plan/{item_id}/status` | JSON | 12 | activity, admin, admin_canvas, anamneza, booking, bot, chair, day_forms, demo, desk, doctors, hardening, license_existing, license_gate, migrate, odontogram_api, panel_model, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, schedule_api, stats_api, teeth, visit, visit_api | 2301 | — |
 | `POST /api/patients/{pid}/profile` | JSON | 11 | activity, admin, anamneza, booking, bot, day_forms, demo, desk, hardening, license_existing, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth, visit, visit_api | 1922 | — |
 | `POST /api/patients/{pid}/scan/cancel` | JSON | 5 | activity, admin, anamneza, booking, bot, day_forms, demo, desk, hardening, license_existing, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth, visit, visit_api | 1922 | — |
 | `POST /api/patients/{pid}/scan/finish` | JSON | 25 | activity, admin, anamneza, booking, bot, day_forms, demo, desk, hardening, license_existing, license_gate, migrate, odontogram_api, patient_card, patients_api, perio, perio_api, pin, plan_acord, privacy, react_default, review2, scan, stats_api, teeth, visit, visit_api | 1922 | — |
@@ -172,22 +172,22 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin` | HTML | 28 | admin, admin_canvas, api, dbcrypt, demo, desk, doctors, hardening, license_existing, license_gate, license_page, license_renew, migrate, patient_card, patients_api, paylink, pin, react_default, review3_auth, schedule_api, settings_api, split, stats_api, structure, theme, update_server, visit_api | 2167 | schedule_dash |
-| `GET /admin/all` | HTML | 17 | admin, admin_canvas, demo, doctors, pin, schedule_api, visit_api | 823 | schedule_all |
+| `GET /admin` | HTML | 28 | admin, admin_canvas, api, dbcrypt, demo, desk, doctors, hardening, license_existing, license_gate, license_page, license_renew, migrate, patient_card, patients_api, paylink, pin, react_default, review3_auth, schedule_api, settings_api, split, stats_api, structure, theme, update_server, visit_api | 2170 | schedule_dash |
+| `GET /admin/all` | HTML | 17 | admin, admin_canvas, demo, doctors, pin, schedule_api, visit_api | 824 | schedule_all |
 | `GET /admin/cabinet` | HTML | 10 | chair | 45 | chair |
 | `GET /admin/doctor/{dk}` | HTML | 12 | admin, pin, schedule_api | 541 | schedule_doctor |
 | `GET /admin/export.xlsx` | FILE | 39 | admin | 348 | — |
 | `GET /admin/week` | HTML | 13 | admin, demo, schedule_api | 482 | schedule_week |
 | `GET /api/chair` | JSON | 29 | admin, chair | 393 | — |
-| `POST /api/schedule/appointments` | JSON | 22 | activity, admin, admin_canvas, bot, chair, day_actions, day_forms, desk, doctor_windows, doctors, hardening, patient_card, patients_api, plan_acord, privacy, react_default, review3_bot, schedule_api, stats_api, visit, visit_api | 1463 | — |
-| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 16 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_windows, doctors, panel_model, patient_card, privacy, schedule_api, visit, visit_api | 1306 | — |
-| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_windows, doctors, panel_model, patient_card, privacy, schedule_api, visit, visit_api | 1306 | — |
-| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_windows, doctors, panel_model, patient_card, patients_api, plan_acord, privacy, review2, scan, schedule_api, visit, visit_api | 1456 | — |
-| `GET /api/schedule/canvas` | JSON | 13 | admin_canvas, harness_clock, schedule_api | 188 | — |
+| `POST /api/schedule/appointments` | JSON | 22 | activity, admin, admin_canvas, bot, chair, day_actions, day_forms, desk, doctor_windows, doctors, hardening, patient_card, patients_api, plan_acord, privacy, react_default, review3_bot, schedule_api, stats_api, visit, visit_api | 1464 | — |
+| `POST /api/schedule/appointments/{appt_id}/comment` | JSON | 16 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_windows, doctors, panel_model, patient_card, privacy, schedule_api, visit, visit_api | 1307 | — |
+| `POST /api/schedule/appointments/{appt_id}/move` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_windows, doctors, panel_model, patient_card, privacy, schedule_api, visit, visit_api | 1307 | — |
+| `POST /api/schedule/appointments/{appt_id}/status` | JSON | 18 | activity, admin, admin_canvas, booking, chair, day_actions, day_forms, desk, doctor_windows, doctors, panel_model, patient_card, patients_api, plan_acord, privacy, review2, scan, schedule_api, visit, visit_api | 1457 | — |
+| `GET /api/schedule/canvas` | JSON | 13 | admin_canvas, harness_clock, schedule_api | 189 | — |
 | `GET /api/schedule/day` | JSON | 17 | admin, day_actions, desk, pin, schedule_api | 609 | — |
-| `POST /api/schedule/desk/call/{aid}` | JSON | 25 | admin_canvas, desk | 110 | — |
+| `POST /api/schedule/desk/call/{aid}` | JSON | 25 | admin_canvas, desk | 111 | — |
 | `GET /api/schedule/live` | JSON | 30 | admin, demo, desk, schedule_api | 507 | — |
-| `POST /api/schedule/notes` | JSON | 19 | admin, admin_canvas, booking, chair, day_actions, day_forms, schedule_api | 747 | — |
+| `POST /api/schedule/notes` | JSON | 19 | admin, admin_canvas, booking, chair, day_actions, day_forms, schedule_api | 748 | — |
 | `GET /api/schedule/week` | JSON | 14 | admin, schedule_api | 437 | — |
 
 ## Точка входа — не мигрирует
@@ -198,7 +198,7 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /` | HTML | 6 | admin, admin_canvas, anamneza, api, booking, bot, chair, dbcrypt, demo, desk, dev, doctor_windows, doctors, guards, hardening, harness_clock, harness_tmp, installer, launcher, legacy, license_existing, license_format, license_gate, license_page, license_renew, license_state, license_verify, migrate, netcheck, odontogram_api, panel_model, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, privileged, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, scan, schedule_api, settings_api, split, srcpin, structure, teeth, theme, update_server, update_setup, visit_api | 3666 | — |
+| `GET /` | HTML | 6 | admin, admin_canvas, anamneza, api, booking, bot, chair, dbcrypt, demo, desk, dev, doctor_windows, doctors, guards, hardening, harness_clock, harness_tmp, installer, launcher, legacy, license_existing, license_format, license_gate, license_page, license_renew, license_state, license_verify, migrate, netcheck, odontogram_api, panel_model, patient_card, patients_api, paylink, perio, perio_api, pin, plan_acord, privacy, privileged, react_default, relocate, restart, review2, review3, review3_auth, review3_bot, scan, schedule_api, settings_api, split, srcpin, structure, teeth, theme, update_server, update_setup, visit_api | 3669 | — |
 | `GET /admin/license` | HTML | 9 | demo, license_existing, license_page, license_renew, paylink | 251 | — |
 | `POST /admin/license` | 303 | 22 | demo, license_existing, license_page, license_renew, paylink | 251 | — |
 | `POST /admin/license/renew` | 303 | 10 | license_renew, paylink | 139 | — |
@@ -220,7 +220,7 @@
 | `GET /icon-{px}.png` | other | 11 | admin, demo | 393 | — |
 | `GET /manifest.webmanifest` | other | 31 | admin, demo | 393 | — |
 | `GET /plata/{ticket}` | HTML | 16 | paylink | 38 | — |
-| `GET /static/{kind}/{name}` | other | 28 | admin, api, demo, doctors, odontogram_api, patient_card, patients_api, perio_api, schedule_api, settings_api, structure, visit_api | 1316 | — |
+| `GET /static/{kind}/{name}` | other | 28 | admin, api, demo, doctors, odontogram_api, patient_card, patients_api, perio_api, schedule_api, settings_api, split, structure, visit_api | 1362 | — |
 
 ## Прочее — не мигрирует
 
@@ -230,8 +230,8 @@
 
 | Маршрут | Тип | стр | Наборы | Проверок | Экран React |
 |---|---|---|---|---|---|
-| `GET /admin/migration` | HTML | 43 | guards, split | 85 | — |
-| `POST /admin/migration/confirm` | 303 | 32 | split | 44 | — |
+| `GET /admin/migration` | HTML | 43 | guards, split | 86 | — |
+| `POST /admin/migration/confirm` | 303 | 32 | split | 45 | — |
 
 ## Колонки-состояния
 

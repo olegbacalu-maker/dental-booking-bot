@@ -167,7 +167,10 @@ def link(rs: list[dict]) -> dict[str, int]:
     return checks
 
 
-MODULES = [("main.py", "Точка входа"), ("schedule", "Журнал"),
+# Вход, лицензия и статика жили в main.py до 14.10 — группа та же.
+MODULES = [("main.py", "Точка входа"), ("modules/entry", "Точка входа"),
+           ("modules/license", "Точка входа"), ("modules/assets", "Точка входа"),
+           ("schedule", "Журнал"),
            ("patients", "Пациенты"), ("doctors", "Врачи"),
            ("settings", "Настройки"), ("stats", "Статистика"), ("qr", "QR")]
 # Группы переноса — §32 спецификации DentPilot 2.0. 0 = не мигрирует.

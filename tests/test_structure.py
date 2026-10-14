@@ -99,8 +99,9 @@ _AUTH_WRITERS = {"save_user", "delete_user", "_write_pin", "verify_pin"}
 # ПРОГРАММА, и все пишут в неё. Против чужого корня (экран раздвоения, P2) они
 # непригодны вовсе — там `verify_source_pin`, читающий по явному пути.
 _LOGIN_ORACLE = {"verify_pin", "note_fail", "note_ok", "lock_left", "fail_count"}
-# Где вход законен: сам модуль-владелец и форма входа в журнал.
-_LOGIN_OK = {"app/core/auth.py", "app/main.py"}
+# Где вход законен: сам модуль-владелец и форма входа в журнал (до 14.10 она
+# жила в main.py; переезд в modules/entry покраснел здесь, как и задумано).
+_LOGIN_OK = {"app/core/auth.py", "app/modules/entry/routes.py"}
 
 # Подтверждение ИСТОЧНИКА: функция и её счётчик. Оба имени — якорь правил ниже.
 _SRC_VERIFY = "verify_source_pin"
@@ -560,6 +561,60 @@ def suite(res: Result) -> None:
            "просит 'Inter', не объявив его (__FONTS__ в <style>): "
            + ", ".join(bad))
 
+    # ---- переприсваиваемое имя не импортируется по значению (14.10) ----
+    # `from ..engine import CLINIC_NAME` копирует ЗНАЧЕНИЕ на миг импорта, а
+    # `engine.apply_config` переприсваивает имя при сохранении настроек: модуль
+    # показывал бы прежнее имя клиники до перезапуска — ни ошибки, ни следа.
+    # С флагом режима хуже: `recovery._active` по значению — `False` навсегда,
+    # и шлюз не пустил бы клинику с нечитаемым ключом к полю для кода.
+    # ⭐ Какие имена переприсваиваются — считает разбор, а не список (список
+    # имён, ВКЛЮЧАЮЩИХ требование, гниёт молча): имя под `global` в функции
+    # модуля и имя, которому присваивают снаружи (`db.ACTOR_HOOK = …`).
+    # Функции и классы импортировать по имени можно — их никто не подменяет.
+    def _from_target(rel: str, n: ast.ImportFrom, name: str = "") -> str | None:
+        """Файл, на который указывает `from … import`: модуль, а с `name` —
+        модуль-имя внутри пакета. Чужие пакеты — None."""
+        if n.level:
+            base = rel.split("/")[:-1]
+            base = base[:len(base) - (n.level - 1)]
+        elif n.module and n.module.split(".")[0] == "app":
+            base = []
+        else:
+            return None
+        parts = base + (n.module.split(".") if n.module else []) + ([name] if name else [])
+        for cand in ("/".join(parts) + ".py", "/".join(parts) + "/__init__.py"):
+            if cand in by_path:
+                return cand
+        return None
+
+    rebound: dict[str, set[str]] = {}
+    for rel, tree in src:
+        for g in ast.walk(tree):
+            if isinstance(g, ast.Global):
+                rebound.setdefault(rel, set()).update(g.names)
+    for rel, tree in src:
+        alias = {a.asname or a.name: f for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+                 for a in n.names if (f := _from_target(rel, n, a.name))}
+        for n in ast.walk(tree):
+            targets = (n.targets if isinstance(n, ast.Assign)
+                       else [n.target] if isinstance(n, (ast.AugAssign, ast.AnnAssign)) else [])
+            for tgt in targets:
+                if (isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name)
+                        and tgt.value.id in alias):
+                    rebound.setdefault(alias[tgt.value.id], set()).add(tgt.attr)
+    # Якоря: оба пути разбора ещё видят то, ради чего написаны. Без них
+    # сломанный обход нашёл бы ноль переприсваиваемых имён и позеленел навсегда.
+    bad = [f"{f}: разбор не видит {name} — якорь правила пропал"
+           for f, name in (("app/engine.py", "CLINIC_NAME"), ("app/db.py", "ACTOR_HOOK"))
+           if name not in rebound.get(f, set())]
+    bad += [f"{rel}:{n.lineno} {', '.join(sorted(hit))} из {f}"
+            for rel, tree in src for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+            for f in [_from_target(rel, n)] if f
+            for hit in [{a.name for a in n.names} & rebound.get(f, set())] if hit]
+    res.ok("переприсваиваемое имя не импортируется по значению", not bad,
+           "имя переприсваивается на ходу, а импорт заморозил его значение "
+           "(читать как модуль.ИМЯ или функцией): " + "; ".join(bad))
+
 
     # ---- ничего графического от Windows (08-11) ----
     # Эмодзи, стрелки, галочки и геометрию рисует ОПЕРАЦИОННАЯ СИСТЕМА своим
@@ -571,9 +626,10 @@ def suite(res: Result) -> None:
     # docstring'и до экрана не доезжают, и запрещать их незачем.
     # ⛔ Тексты бота (engine.py, telegram.py) исключены намеренно: их рисует
     # Telegram на телефоне пациента, а не Windows на машине клиники.
-    # ⚠️ Область — ВЕСЬ bot/, а не только modules/ и core/: экраны живут и в
-    # main.py (вход, установка PIN, весь режим восстановления), а тексты для
-    # человека — ещё и в db.py (летопись пациента). Префиксный фильтр держался
+    # ⚠️ Область — ВЕСЬ bot/, а не только modules/ и core/: тексты для
+    # человека живут и в корне app/ — в db.py (летопись пациента), в update.py
+    # (экран и лог обновления), до 14.10 и в main.py (вход, установка PIN,
+    # весь режим восстановления). Префиксный фильтр держался
     # тут не по решению, и под ним пережили все релизы ✅ на экране
     # восстановления и две стрелки → в текстах db.py. Заодно в область попадают
     # строки лога: знак в них безвреден, но и не нужен, а исключение по «это
@@ -1150,7 +1206,8 @@ def suite(res: Result) -> None:
     # ЧУЖОГО корня (экран раздвоения, P2) значит записать в источник, который
     # ещё не решено копировать, — и copy-only ломается до того, как начнётся.
     # Для источника есть `verify_source_pin`: он читает по ЯВНОМУ пути.
-    # ⚠️ Белый список именной: вход в журнал живёт в main.py, и разрешение на
+    # ⚠️ Белый список именной: вход в журнал живёт в modules/entry/routes.py
+    # (до 14.10 — в main.py), и разрешение на
     # «любой модуль, где есть форма» спрятало бы в нём будущий экран миграции.
     # Переедет вход — правило покраснеет, и это правильно: повод посмотреть.
     bad = [f"{rel}:{n.lineno} → {name}" for rel, tree in src
@@ -1316,6 +1373,35 @@ def suite(res: Result) -> None:
     res.ok("ворота лицензии стоят в шлюзе, белый список — константа", not bad,
            "запись в readonly решается в двух местах или не решается вовсе: "
            + "; ".join(bad))
+
+    # ---- шлюз — внешний посредник (14.10) ----
+    # Starlette ставит каждый новый посредник СНАРУЖИ прежних, и запрос первым
+    # встречает объявленный последним. До 14.10 шлюз стоял внешним только
+    # потому, что был объявлен на 260 строк ниже двух других, — и ничто этого
+    # не держало. Посредник, дописанный под ним, исполнялся бы РАНЬШЕ шлюза: в
+    # восстановлении и при битом профиле база не открыта, и любое обращение к
+    # ней роняло бы пятисотой и экран с полем для кода. Шлюз — тот посредник,
+    # что зовёт `lic.refuses`; он обязан быть объявлен последним.
+    bad = []
+    regs, gate_at = [], None
+    for n in ast.walk(main_tree) if main_tree else ():
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                and d.func.attr == "middleware" for d in n.decorator_list):
+            regs.append(n.lineno)
+            if any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                   and c.func.attr == "refuses" and isinstance(c.func.value, ast.Name)
+                   and c.func.value.id == "lic" for c in ast.walk(n)):
+                gate_at = n.lineno
+        elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and n.func.attr == "add_middleware"):
+            regs.append(n.lineno)
+    if gate_at is None:
+        bad.append("app/main.py: нет посредника, зовущего lic.refuses — якорь правила пропал")
+    else:
+        bad += [f"app/main.py:{ln} — посредник объявлен ниже шлюза и исполнится раньше него"
+                for ln in regs if ln > gate_at]
+    res.ok("шлюз — внешний посредник", not bad, "; ".join(bad))
 
     # ---- договор согласован с программой дословно (L11) ----
     # Сайт обещает клинике то, что делает программа: режим чтения — теми же

@@ -108,9 +108,10 @@ def suite_glyph_scope(res: Result) -> None:
            not _red(clean, "знаки у Windows"),
            _why(clean, "знаки у Windows"))
 
-    # main.py: экран восстановления (жил с ✅ во всех релизах), вход, установка
-    # PIN. db.py: летопись пациента, её читает регистратура каждый день.
-    for rel, what in (("app/main.py", "вход, установка PIN, восстановление"),
+    # entry/pages.py: экран восстановления (жил с ✅ во всех релизах, пока
+    # лежал в main.py), вход, установка PIN. db.py: летопись пациента, её
+    # читает регистратура каждый день.
+    for rel, what in (("app/modules/entry/pages.py", "вход, установка PIN, восстановление"),
                       ("app/db.py", "тексты летописи пациента"),
                       ("app/update.py", "экран и лог обновления")):
         r = _run(rel, f'\n_MUT_GLYPH = "<h1>{GLYPH} Gata</h1>"\n')
