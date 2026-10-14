@@ -61,6 +61,29 @@ while not held.exists() and time.time() < deadline:
     time.sleep(0.05)
 print(harness.RUN_TMP if held.exists() else "no-child", flush=True)
 """
+# Поздний писатель СЕРВЕРА — sitecustomize в PYTHONPATH сервера: процесс
+# сервера заводит потомка, который ждёт, пока харнесс снесёт %TEMP% сервера,
+# и создаёт его заново. Ровно PowerShell проверки BitLocker (14.10,
+# `harness._start_in_own_job`): потомок сервера молча выходит из задания
+# venv-лаунчера и переживает гашение сервера. Не по таймингу PowerShell, а
+# по построению: потомок жив, пока его не погасят.
+_LATE_SITE = r"""
+import os, subprocess, sys
+if not os.environ.get("DP_LATE_WRITER"):
+    os.environ["DP_LATE_WRITER"] = "1"           # потомку — не заводить своего
+    subprocess.Popen(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, args=[sys.executable, "-c", '''
+import os, pathlib, time
+tmp = pathlib.Path(os.environ["TEMP"])
+pathlib.Path(os.environ["DP_LATE_READY"]).write_text("ready")
+end = time.time() + 30
+while tmp.is_dir() and time.time() < end:
+    time.sleep(0.02)
+if time.time() < end:
+    tmp.mkdir(parents=True, exist_ok=True)
+    (tmp / "late.txt").write_text("late")
+'''])
+"""
 
 
 def suite_run_tmp(res: Result) -> None:
@@ -201,5 +224,30 @@ def suite_run_tmp(res: Result) -> None:
                "No module named 'app'" in why, f"сообщение: {why[-300:]!r}")
         res.ok("и песочница не остаётся", not bad.dir.exists(),
                f"осталась {bad.dir} — `with` не зовёт __exit__ после отказа старта")
+
+        # 7. Потомок сервера, переживший гашение, не возвращает его %TEMP%:
+        # дерево сервера гаснет ДО сноса папок (14.10). Без своего задания у
+        # сервера писатель жил дальше и создавал папку заново — CI краснел
+        # «оставил временное: dp_srvtmp_…».
+        if os.name == "nt":
+            site = lab / "late-site"
+            site.mkdir()
+            (site / "sitecustomize.py").write_text(_LATE_SITE, encoding="utf-8")
+            ready = lab / "late.ready"
+            late = Server(env={"PYTHONPATH": str(site), "DP_LATE_READY": str(ready)})
+            with late:
+                late_tmp = late.tmp
+                deadline = time.time() + 20
+                while not ready.exists() and time.time() < deadline:
+                    time.sleep(0.05)
+            armed = ready.exists()
+            time.sleep(0.5)                  # живой писатель вернул бы папку за ~20 мс
+            back = late_tmp is not None and late_tmp.exists()
+            res.ok("потомок сервера, переживший гашение, не возвращает его %TEMP%",
+                   armed and late_tmp is not None and not back,
+                   f"писатель {'завёлся' if armed else 'НЕ завёлся — проверка не взведена'}; "
+                   f"%TEMP% сервера {'ВЕРНУЛСЯ: ' + str(late_tmp) if back else 'снесён'}")
+            if back:
+                _rmtree_settled(late_tmp)
     finally:
         _rmtree_settled(lab)

@@ -98,6 +98,8 @@ class Server:
             shutil.copy(FIXTURES / clinic, self.clinic)
         self.extra_env = env or {}
         self.proc: subprocess.Popen | None = None
+        # задание Windows всего дерева сервера (почему своё — _start_in_own_job)
+        self._job = None
         # %TEMP% самого сервера — заводится на старте, уходит вместе с ним
         # (почему свой — в __enter__)
         self.tmp: pathlib.Path | None = None
@@ -152,12 +154,16 @@ class Server:
         # потому что застряла в той же трубе. Нашло ревью C23 (18.09).
         self._log_path = self.dir / "server.log"
         self._log = self._log_path.open("wb")
-        self.proc = subprocess.Popen(
-            [str(PYTHON), "-m", "uvicorn", "app.main:app", "--port", str(self.port),
-             "--log-level", "warning"],
-            cwd=str(self.bot), env=env,
-            stdout=self._log, stderr=subprocess.STDOUT,
-        )
+        try:
+            self.proc, self._job = _start_in_own_job(
+                [str(PYTHON), "-m", "uvicorn", "app.main:app", "--port", str(self.port),
+                 "--log-level", "warning"],
+                cwd=str(self.bot), env=env,
+                stdout=self._log, stderr=subprocess.STDOUT,
+            )
+        except BaseException:
+            self.__exit__(None, None, None)     # `with` его после отказа не позовёт
+            raise
         deadline = time.time() + 40
         while time.time() < deadline:
             if self.proc.poll() is not None:
@@ -205,6 +211,13 @@ class Server:
             return ""
 
     def __exit__(self, *exc) -> None:
+        # ⛔ Сперва ВСЁ дерево сервера, и только потом его папки: потомок,
+        # переживший гашение, создаёт снесённый %TEMP% заново (14.10,
+        # `_start_in_own_job`). Задание гасит лаунчер, сервер и их потомков
+        # разом; ветка ниже — для сервера без задания (не Windows).
+        if self._job is not None:
+            _end_job(self._job)
+            self._job = None
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
@@ -519,6 +532,161 @@ def _end_children(budget: float = 5.0) -> None:
                     k32.CloseHandle(h)
     except (OSError, AttributeError):
         return
+
+
+def _start_in_own_job(args: list, **popen) -> tuple[subprocess.Popen, object]:
+    """Запустить процесс в СВОЁМ задании Windows — вложенном в задание прогона
+    и без права выхода. Возвращает (процесс, задание или None).
+
+    ⛔ `Server.__exit__` гасил ЛАУНЧЕР venv; сервер умирал вместе с заданием
+    лаунчера, а потомок, которого сервер успел завести, — нет: задание
+    лаунчера разрешает потомкам молча выйти (флаги 0x3000 — KILL_ON_JOB_CLOSE
+    | SILENT_BREAKAWAY_OK), и потомок жил дальше в одном задании прогона, до
+    `_end_children` на выходе. Так PowerShell проверки BitLocker, которую
+    старт приложения пускает в фоне, переживал гашение сервера и создавал
+    снесённый %TEMP% сервера ЗАНОВО (Windows PowerShell делает это сам) —
+    CI 13.10: «Сторожа: уборка временного прогона: оставил временное:
+    dp_srvtmp_…» (и 14.10 — «поддельные часы»). Замер 14.10, сервер гасится
+    сразу за `/health`, как в сторожах: под нагрузкой PowerShell пережил
+    `__exit__` 19 раз из 30 и вернул %TEMP% 4 раза; со своим заданием при той
+    же нагрузке — 0 и 0 из 30 (на гашении PowerShell был жив 25 раз).
+    Своё задание держит всё дерево: выход из задания лаунчера останавливается
+    на нём, и `_end_job` гасит лаунчер, сервер и потомков одним вызовом.
+    ⚠️ Процесс стартует ПРИОСТАНОВЛЕННЫМ и входит в задание до первой своей
+    инструкции: лаунчер, успевший завести сервер до назначения, увёл бы
+    сервер мимо задания. Не назначилось — процесс всё равно возобновляется
+    (иначе сервер висел бы до таймаута старта), и уборка идёт по-старому:
+    утечку тогда назовёт сторож прогона.
+    """
+    if os.name != "nt":
+        return subprocess.Popen(args, **popen), None
+    import ctypes
+    from ctypes import wintypes
+
+    class _Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class _Extended(ctypes.Structure):       # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        _fields_ = [("Basic", _Basic), ("Io", ctypes.c_ulonglong * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    class _Thread(ctypes.Structure):         # THREADENTRY32
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ThreadID", wintypes.DWORD),
+                    ("th32OwnerProcessID", wintypes.DWORD),
+                    ("tpBasePri", wintypes.LONG), ("tpDeltaPri", wintypes.LONG),
+                    ("dwFlags", wintypes.DWORD)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                            ctypes.c_void_p, wintypes.DWORD]
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Thread32First.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    k32.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    k32.OpenThread.restype = wintypes.HANDLE
+    k32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.ResumeThread.restype = wintypes.DWORD
+    k32.ResumeThread.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    job = k32.CreateJobObjectW(None, None)
+    info = _Extended()
+    info.Basic.LimitFlags = 0x2000           # KILL_ON_JOB_CLOSE; выхода нет
+    if job and not k32.SetInformationJobObject(job, 9, ctypes.byref(info),
+                                               ctypes.sizeof(info)):
+        k32.CloseHandle(job)
+        job = None
+    if not job:
+        return subprocess.Popen(args, **popen), None
+    try:
+        proc = subprocess.Popen(args, creationflags=0x4, **popen)   # CREATE_SUSPENDED
+    except BaseException:
+        k32.CloseHandle(job)
+        raise
+    # SET_QUOTA | TERMINATE — права, которых требует AssignProcessToJobObject.
+    # Номер не уйдёт чужому: Popen держит дескриптор процесса открытым.
+    h = k32.OpenProcess(0x0100 | 0x0001, False, proc.pid)
+    if not (h and k32.AssignProcessToJobObject(job, h)):
+        k32.CloseHandle(job)
+        job = None
+    if h:
+        k32.CloseHandle(h)
+    # Возобновить: у только что созданного процесса один поток — главный
+    resumed = False
+    snap = k32.CreateToolhelp32Snapshot(0x4, 0)          # TH32CS_SNAPTHREAD
+    if snap and snap != ctypes.c_void_p(-1).value:       # INVALID_HANDLE_VALUE
+        try:
+            t = _Thread()
+            t.dwSize = ctypes.sizeof(t)
+            more = k32.Thread32First(snap, ctypes.byref(t))
+            while more:
+                if t.th32OwnerProcessID == proc.pid:
+                    th = k32.OpenThread(0x0002, False, t.th32ThreadID)   # SUSPEND_RESUME
+                    if th:
+                        resumed = k32.ResumeThread(th) != 0xFFFFFFFF or resumed
+                        k32.CloseHandle(th)
+                more = k32.Thread32Next(snap, ctypes.byref(t))
+        finally:
+            k32.CloseHandle(snap)
+    if not resumed:
+        # приостановленный процесс никогда не ответит: гасим и говорим прямо
+        if job is not None:
+            _end_job(job)
+        proc.kill()
+        proc.wait()
+        raise RuntimeError(f"процесс {proc.pid} не возобновился после старта в задании "
+                           f"(ошибка Windows {ctypes.get_last_error()})")
+    return proc, job
+
+
+def _end_job(job, budget: float = 10.0) -> None:
+    """Погасить всё задание и ДОЖДАТЬСЯ, пока в нём не останется живых, —
+    потом закрыть его. Мёртвый процесс не создаёт файлов: после этого
+    папки дерева можно сносить. Не дождались за budget — выходим: оставшееся
+    назовёт сторож уборки в `run()`, это честнее, чем висеть."""
+    import ctypes
+    from ctypes import wintypes
+
+    class _Acct(ctypes.Structure):           # JOBOBJECT_BASIC_ACCOUNTING_INFORMATION
+        _fields_ = [("times", ctypes.c_int64 * 4),
+                    ("TotalPageFaultCount", wintypes.DWORD),
+                    ("TotalProcesses", wintypes.DWORD),
+                    ("ActiveProcesses", wintypes.DWORD),
+                    ("TotalTerminatedProcesses", wintypes.DWORD)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    k32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                              ctypes.c_void_p, wintypes.DWORD,
+                                              ctypes.c_void_p]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    try:
+        k32.TerminateJobObject(job, 1)
+        acct = _Acct()
+        deadline = time.time() + budget
+        while (k32.QueryInformationJobObject(job, 1, ctypes.byref(acct),
+                                             ctypes.sizeof(acct), None)
+               and acct.ActiveProcesses and time.time() < deadline):
+            time.sleep(0.01)
+    finally:
+        k32.CloseHandle(job)
 
 
 def _open_run_root() -> tuple[pathlib.Path, object]:
