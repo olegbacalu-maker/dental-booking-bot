@@ -198,7 +198,12 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [booking, setBooking] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
+  /* `?edit=1` («Editează» в предпросмотре списка, 14.10): фиша открывается
+     сразу с раскрытой формой профиля — как `?anamneza=1` с опросником */
+  const [editOpen, setEditOpen] = useState(() => queryParam(q, 'edit') === '1')
+  /* «Notiță»: курсор в заметки — разовая просьба, карточка гасит её сама */
+  const [noteFocus, setNoteFocus] = useState(false)
+  const noteFocused = useCallback(() => setNoteFocus(false), [])
   const closeToast = useCallback(() => setToast(null), [])
   /* ⭐ Черновик анамнеза — у экрана (01.10): вкладка «Date pacient»
      размонтируется при переходе, и набранное пропадало молча. Здесь он
@@ -382,7 +387,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
       {nav}
       <HeroKpi card={card} back={here} onBook={() => setBooking(true)} onPlan={() => goTab('plan')}
         onAnamneza={() => { setAnTick((t) => t + 1); goTab('date') }}
-        onDoctor={() => { setEditOpen(true); goTab('date') }} />
+        onDoctor={(name) => act(() => patientCard.setDoctor(pid, views, name))} busy={busy} />
       <div ref={strip} className="wtabs" role="tablist" aria-label={T.tabs} onKeyDown={onTabKey}>
         {TABS.map(([k, label]) => (
           <button key={k} id={`wtab-${k}`} type="button" role="tab" aria-selected={tab === k}
@@ -406,7 +411,7 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
                   <button type="button" onClick={() => setBooking(true)}><Icon name="plus" /> {T.newVisit}</button>
                   <button type="button" onClick={() => goTab('plan')}><Icon name="tooth" /> {T.plan}</button>
                   <button type="button" onClick={() => goTab('docs')}><Icon name="camera" /> {T.upload}</button>
-                  <button type="button" onClick={() => { setEditOpen(true); goTab('date') }}><Icon name="note" /> {T.note}</button>
+                  <button type="button" onClick={() => { setEditOpen(true); setNoteFocus(true); goTab('date') }}><Icon name="note" /> {T.note}</button>
                   <button type="button" onClick={() => window.print()}><Icon name="print" /> {T.print}</button>
                 </div>
               </div>
@@ -446,7 +451,8 @@ export function PatientCardScreen({ pid, navigate = defaultNavigate }: Props) {
         {tab === 'date' && (
           <div className="pv2">
             <div className="pv2-main">
-              <ProfileCard card={card} a={a} editOpen={editOpen} onEditOpen={setEditOpen} navigate={navigate} onFail={failCb} />
+              <ProfileCard card={card} a={a} editOpen={editOpen} onEditOpen={setEditOpen}
+                noteFocus={noteFocus} onNoteFocused={noteFocused} navigate={navigate} onFail={failCb} />
             </div>
             <div className="pv2-side">
               <AnamnezaCard card={card} a={a} draft={anDraft} onDraft={setAnDraft} focusTick={anTick} />

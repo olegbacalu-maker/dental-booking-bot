@@ -173,6 +173,22 @@ async def _save_profile(pid: int, prev: dict, get) -> str:
     return "ok_card"
 
 
+async def _set_doctor(pid: int, prev: dict, name: str) -> str:
+    """Медик курант ОДНИМ полем — выбор прямо в шапке фиши (14.10, слово
+    Олега: «Setează medicul» вёл на форму профиля ниже).
+
+    ⛔ Не через `_save_profile`: тот пишет ВСЕ поля, и поле, которого нет в
+    теле, стирается (прайор 08-16) — врач одним полем снёс бы профиль.
+    Имя — из врачей клиники (тот же список, что у формы профиля) или прежнее:
+    врача, которого клиника убрала, фиша хранит, и его повторный выбор —
+    пересохранение тождественное. Пусто — снять."""
+    name = name.strip()
+    if name and name not in eng.DOCTORS.values() and name != (prev.get("primary_doctor") or ""):
+        return "bad_card"
+    await db.set_primary_doctor(pid, name or None)
+    return "ok_card"
+
+
 async def _free_slots(date_q: str, doctor: str, service: str) -> list[str]:
     """Свободные старты у врача на дату — для окна записи прямо из фиши.
     Тот же eng.free_starts, что у бота: одна правда о занятости на всех.
@@ -1266,11 +1282,14 @@ async def _peek_html(pid: int) -> str | None:
             items.append(f"<a class='pp-doc' href='/admin/doc/{d['id']}'>"
                          f"<span>{_ic('file')}</span><div><b>{e(d['filename'])}</b>"
                          f"<small>{_pl_dmy(d['uploaded_at'])} · {size}</small></div></a>")
-        more = (f"<a class='pp-all' href='/admin/patient/{pid}#docs'>Vezi toate "
+        # вкладка — адресом (B6): якорь `#docs` открывал Rezumat, где списка нет
+        more = (f"<a class='pp-all' href='/admin/patient/{pid}?tab=docs'>Vezi toate "
                 f"({len(docs)})</a>" if len(docs) > 3 else "")
         docs_block = (f"<div class='pp-b'><div class='pp-t'>Documente{more}</div>"
                       + "".join(items) + "</div>")
 
+    # «Editează» — данные пациента с раскрытой формой (`?tab=date&edit=1`, 14.10,
+    # слово Олега: вела туда же, куда «Profil complet»)
     return f"""<div class='pp-head'>
   <span class='pp-av'>{e(_initials(p['name'] or '?'))}</span>
   <div class='pp-id'><b>{e(p['name'] or '—')}</b>
@@ -1279,7 +1298,7 @@ async def _peek_html(pid: int) -> str | None:
 <div class='pp-info'>{info}</div>
 {next_block}{last_block}{plan_block}{notes_block}{docs_block}
 <div class='pp-foot'><span>{len(live)} vizite în total</span>
-  <div class='pp-btns'><a class='pl-btn' href='/admin/patient/{pid}'>{_ic('pen')} Editează</a>
+  <div class='pp-btns'><a class='pl-btn' href='/admin/patient/{pid}?tab=date&amp;edit=1'>{_ic('pen')} Editează</a>
   <a class='pl-btn primary' href='/admin/patient/{pid}'>Profil complet ›</a></div></div>"""
 
 

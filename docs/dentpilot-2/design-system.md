@@ -114,14 +114,18 @@ săptămâna trecută» (`.stx-period b` остаётся — его читае�
   же числа стоят в подписи). Предпросмотр — разметка сервера (`_peek_html`):
   блок «Ultima vizită» получил класс `last` (серый фон), кнопки «Editează» и
   «Profil complet ›» — рядом в `.pp-btns` (легаси делит и слова, и ряд).
+  С 14.10 «Editează» ведёт в данные пациента с раскрытой формой
+  (`?tab=date&edit=1`), «Profil complet» — в фишу; «Vezi toate (N)» —
+  на вкладку `?tab=docs` (якорь `#docs` с вкладками B6 открывал Rezumat).
   Пустой отбор — «Niciun pacient găsit / Schimbă filtrele sau caută după alt
   nume.». Из таблицы ушёл e-mail (он в предпросмотре и в поиске) и две плитки
   (новые за месяц — в «+N luna aceasta», записи месяца — в Statistici).
 - **Fișa (Rezumat):** шапка `.hero` — аватар 80 (`--r-card`), имя h2 + плашки
   `.pill` в пропорциях чипа, «26 ani · canal: recepție · pacient din 2026 ·
   ID #18», кнопки «Sună» / «Programează» (`.pri`) / «Fișa 043/e» (/ «E-mail»),
-  справа `dl.hero-side` «Ultima vizită» и «Medic curant» («Setează medicul» →
-  Date pacient с раскрытой формой). Кнопка «Anamneză» из шапки СНЯТА: не
+  справа `dl.hero-side` «Ultima vizită» и «Medic curant» — с 14.10 выбор прямо
+  здесь: `select.dp-hero-doc` выглядит значением (не задан — «Setează medicul»
+  цветом ссылки), сохраняет одним полем `POST …/doctor`. Кнопка «Anamneză» из шапки СНЯТА: не
   собирали — баннер `.dp-abanner` (role=alert, янтарный) с «Completează
   anamneza»; есть риски — полоса `.hero-risk` с «Anamneză ›». KPI `.kpi` без
   значков: подпись / число 22·700 / пояснение; «Ultima vizită» — ДАТОЙ,

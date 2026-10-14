@@ -47,8 +47,8 @@ from .routes import (_PL_BADGE, _PL_CANAL, _PL_PER, _PL_SORTS, _add_alert,
                      _pl_canal, _pl_dmy, _pl_money, _pl_new_foot, _pl_select,
                      _pl_status, _pl_trend, _plan_del, _plan_status,
                      _save_anamneza, _save_perio, _save_profile, _save_tooth,
-                     _save_visit, _sf_letters, _sf_map, _store_bytes, _store_doc,
-                     _visit_back, _visit_ctx)
+                     _save_visit, _set_doctor, _sf_letters, _sf_map, _store_bytes,
+                     _store_doc, _visit_back, _visit_ctx)
 
 router = APIRouter()
 
@@ -463,6 +463,22 @@ async def api_patient_profile(request: Request, pid: int):
         return _reply("bad_card", field="name")
     code = await _save_profile(pid, p, lambda f: _s(body, f))
     return await _card_reply(request, pid, code, pcard.BAD_FIELD.get(code, ""))
+
+
+@router.post("/api/patients/{pid}/doctor")
+async def api_patient_doctor(request: Request, pid: int):
+    """{doctor: имя | ""} — медик курант из шапки фиши (14.10). Своим
+    маршрутом, а не `/profile`: тот пишет все поля (см. `_set_doctor`)."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return _reply("bad_card", field="primary_doctor")
+    code = await _set_doctor(pid, p, _s(body, "doctor"))
+    return await _card_reply(request, pid, code, "primary_doctor" if code == "bad_card" else "")
 
 
 @router.post("/api/patients/{pid}/archive")

@@ -274,6 +274,10 @@ export const patientCard = {
     api.get<Activity>(`${P(pid)}/activity${V(views)}`),
   saveProfile: (pid: number, views: boolean, form: ProfileForm) =>
     api.post<PatientCard>(`${P(pid)}/profile${V(views)}`, form),
+  /** Медик курант одним полем — из шапки (14.10). ⛔ Не `saveProfile`: тот
+   *  пишет все поля, и неприсланное сервер стирает. */
+  setDoctor: (pid: number, views: boolean, doctor: string) =>
+    api.post<PatientCard>(`${P(pid)}/doctor${V(views)}`, { doctor }),
   archive: (pid: number, views: boolean, on: boolean) =>
     api.post<PatientCard>(`${P(pid)}/archive${V(views)}`, { on }),
   erase: (pid: number, views: boolean, confirm: string) =>

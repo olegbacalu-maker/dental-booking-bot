@@ -58,9 +58,17 @@ function formOf(card: PatientCard): ProfileForm {
 interface Props {
   card: PatientCard
   a: CardActions
-  /** Форма раскрыта извне: отказ сервера с полем или «Notiță» из быстрых действий. */
+  /** Форма раскрыта извне: отказ сервера с полем, «Notiță» из быстрых действий,
+   *  «Editează» предпросмотра списка (`?edit=1`). */
   editOpen: boolean
   onEditOpen: (open: boolean) => void
+  /** Просьба «Notiță»: курсор в заметки — один раз, потом `onNoteFocused`.
+   *  ⚠️ Только по ней, а не при любом раскрытии (14.10): форма ниже края
+   *  экрана, и курсор в невидимом поле забирал бы пробел и клавиши прокрутки
+   *  у «Editează»; и не при каждом возврате на вкладку (карточка
+   *  монтируется заново). */
+  noteFocus: boolean
+  onNoteFocused: () => void
   /** Ушли из фиши после полного удаления (адрес — от сервера). */
   navigate: (url: string) => void
   onFail: (e: unknown) => void
@@ -74,7 +82,7 @@ interface Draft {
 
 const fresh = (card: PatientCard): Draft => ({ card, form: formOf(card), noPhone: !card.profile.phone })
 
-export function ProfileCard({ card, a, editOpen, onEditOpen, navigate, onFail }: Props) {
+export function ProfileCard({ card, a, editOpen, onEditOpen, noteFocus, onNoteFocused, navigate, onFail }: Props) {
   const goTo = useAppNavigate(navigate)
   const p = card.profile
   /* Черновик формы привязан к ФИШЕ, с которой начат: свежая фиша после
@@ -94,8 +102,10 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, navigate, onFail }:
     setDraft((d) => { const b = d.card === card ? d : fresh(card); return { ...b, noPhone: on, form: on ? { ...b.form, phone: '' } : b.form } })
 
   useEffect(() => {
-    if (editOpen) notesRef.current?.focus({ preventScroll: true })
-  }, [editOpen])
+    if (!noteFocus) return
+    notesRef.current?.focus({ preventScroll: true })
+    onNoteFocused()
+  }, [noteFocus, onNoteFocused])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()

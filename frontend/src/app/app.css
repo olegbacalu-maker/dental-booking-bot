@@ -2031,8 +2031,18 @@ dialog.dp-ask { width: 400px; }
 }
 .dp-react-root .hero-side dd { margin: 0; font-size: var(--fs-m); color: var(--text2); }
 .dp-react-root .hero-side dd.v { font-size: var(--fs-l); font-weight: 600; color: var(--text); }
-.dp-react-root .hero-side .dp-link { text-decoration: none; font-size: var(--fs-m); }
-.dp-react-root .hero-side .dp-link:hover { text-decoration: underline; }
+/* «Medic curant» — выбор прямо в шапке (14.10): список выглядит значением
+   (кегль и цвет строки `dd.v`), рамка — только под мышью и в фокусе; не
+   задан — слово-приглашение цветом ссылки, как прежняя «Setează medicul». */
+.dp-react-root .hero-side .dp-hero-doc {
+  max-width: 100%; margin: 0 0 0 -6px; padding: 0 2px 0 4px; font: inherit; color: inherit;
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-s); cursor: pointer;
+}
+.dp-react-root .hero-side .dp-hero-doc:hover { border-color: var(--line); }
+.dp-react-root .hero-side .dp-hero-doc:focus-visible { outline: none; border-color: var(--focus-line); box-shadow: var(--ring); }
+.dp-react-root .hero-side .dp-hero-doc:disabled { cursor: progress; }
+.dp-react-root .hero-side .dp-hero-doc.unset { font-size: var(--fs-m); color: var(--teal-d); }
+.dp-react-root .hero-side .dp-hero-doc option { font-size: var(--fs-m); font-weight: 400; color: var(--text); }
 /* баннер «Anamneza nu a fost completată» — янтарный, role=alert */
 .dp-react-root .dp-abanner {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 8px 8px 16px;

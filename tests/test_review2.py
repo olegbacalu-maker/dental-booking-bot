@@ -70,6 +70,13 @@ def suite_peek_plan(res: Result) -> None:
         res.ok("peek: отказанная процедура не в сумме плана",
                "1 000 MDL / 1 000 MDL" in peek,
                "peek считает цену отказанной процедуры в «X MDL / Y MDL»")
+        # 14.10: «Vezi toate» вела якорем `#docs` — с вкладками (B6) он
+        # открывал Rezumat, где списка документов нет
+        for i in range(4):
+            c.post_file(f"{api}/documents", "file", f"nota{i}.txt", b"x", category="alt")
+        peek = json.loads(c.get(f"{api}/peek").body)["data"]["html"]
+        res.ok("peek: «Vezi toate» ведёт на вкладку «Documente»",
+               f"href='/admin/patient/{pid}?tab=docs'>Vezi toate (4)" in peek, peek[-400:])
 
 
 def suite_birth_clear(res: Result) -> None:

@@ -1025,6 +1025,92 @@ describe('PatientCardScreen', () => {
     expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(true)
   })
 
+  it('14.10: «Completează anamneza» открывает вкладку на своём месте — экран не подводится', async () => {
+    /* Подвод ставил заголовок опросника ПОД липкую шапку программы, а вкладки
+       и шапка фиши уезжали за край (замер 1920×1000: заголовок на 19 px при
+       шапке до 72) — слово Олега: «просто переключиться на вкладку». */
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+    try {
+      serve({ ...CARD, alerts: [], anamneza: { ...CARD.anamneza, filled: false, state: 'none', n_risk: 0, marked: [], free: [] } })
+      open()
+      await settled()
+      fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Completează anamneza' }))
+      await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+      expect((document.querySelector('details.anform') as HTMLDetailsElement).open).toBe(true)
+      expect(scroll).not.toHaveBeenCalled()
+    } finally {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    }
+  })
+
+  it('14.10: ?tab=date&edit=1 («Editează» предпросмотра в списке) — Date pacient с раскрытой формой', async () => {
+    serve()
+    open('/admin/patient/5?tab=date&edit=1')
+    await settled()
+    expect(tabOn()).toBe('Date pacient')
+    expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('flex')
+    cleanup()
+    serve()
+    open('/admin/patient/5?tab=date')
+    await settled()
+    expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('none')
+  })
+
+  it('14.10: курсор в заметки — только по «Notiță» и один раз; «Editează» (?edit=1) курсор не ставит', async () => {
+    /* Форма ниже края экрана (1920×1000: с 1074 px): курсор в невидимых
+       заметках забирал бы пробел и клавиши прокрутки. И просьба разовая —
+       карточка на вкладке монтируется заново при каждом возврате. */
+    const notes = () => document.activeElement?.getAttribute('aria-label') === 'Notițe interne'
+    serve()
+    open('/admin/patient/5?tab=date&edit=1')
+    await settled()
+    expect(notes()).toBe(false)
+    cleanup()
+    serve()
+    open()
+    await settled()
+    fireEvent.click(screen.getByRole('button', { name: 'Notiță' }))
+    await strip().findByRole('tab', { name: 'Date pacient', selected: true })
+    await waitFor(() => expect(notes()).toBe(true))
+    await tabTo('Rezumat')
+    await tabTo('Date pacient')
+    expect((document.querySelector('.dp-pedit') as HTMLElement).style.display).toBe('flex')
+    expect(notes()).toBe(false)
+  })
+
+  it('14.10: «Medic curant» выбирается прямо в шапке — POST только врача, шапка из ответа, вкладка та же', async () => {
+    serve({ ...CARD, profile: { ...CARD.profile, primary_doctor: '' } })
+    post.mockResolvedValueOnce(ok({ ...CARD, profile: { ...CARD.profile, primary_doctor: 'Dr. Activ Trei' } },
+      'ok_card', 'Fișa pacientului a fost actualizată'))
+    open()
+    await settled()
+    const pick = () => screen.getByLabelText('Alege medicul curant') as HTMLSelectElement
+    expect(pick().value).toBe('')
+    expect(Array.from(pick().options).map((o) => o.text))
+      .toEqual(['Setează medicul', 'Dr. Activ Doi', 'Dr. Activ Trei'])
+    fireEvent.change(pick(), { target: { value: 'Dr. Activ Trei' } })
+    expect(await screen.findByText('Fișa pacientului a fost actualizată')).toBeTruthy()
+    expect(post).toHaveBeenCalledWith('/patients/5/doctor', { doctor: 'Dr. Activ Trei' })
+    expect(pick().value).toBe('Dr. Activ Trei')
+    expect(tabOn()).toBe('Rezumat')
+  })
+
+  it('14.10: врач не из списка клиники виден в шапке; «Fără medic curant» снимает; отказ возвращает прежнего', async () => {
+    serve({ ...CARD, profile: { ...CARD.profile, primary_doctor: 'Dr. Plecat' } })
+    post.mockRejectedValueOnce(new ApiError({ kind: 'network', detail: 'x' }, 'x'))
+    open()
+    await settled()
+    const pick = () => screen.getByLabelText('Alege medicul curant') as HTMLSelectElement
+    expect(pick().value).toBe('Dr. Plecat')
+    expect(Array.from(pick().options).map((o) => o.text))
+      .toEqual(['Dr. Plecat', 'Dr. Activ Doi', 'Dr. Activ Trei', 'Fără medic curant'])
+    fireEvent.change(pick(), { target: { value: '' } })
+    expect(post).toHaveBeenCalledWith('/patients/5/doctor', { doctor: '' })
+    await waitFor(() => expect(document.querySelector('.toastbox')).toBeTruthy())
+    expect(pick().value).toBe('Dr. Plecat')
+  })
+
   it('«Anamneză» в шапке открывает Date pacient; печатные листы несут «назад» на текущую вкладку', async () => {
     serve()
     open()

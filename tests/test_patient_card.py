@@ -13,6 +13,7 @@
 """
 import json
 import re
+import sqlite3
 from datetime import timedelta
 
 from harness import (Client, Result, Server, clinic_today, day_model, new_patient,
@@ -375,6 +376,42 @@ def suite_actions(res: Result) -> None:
         res.check("повторное сохранение того же — тождественно",
                   _act(c, pid, "/profile", {"name": "Act Test Nou", "phone": "069 555 111"})[1]["code"],
                   "ok_tel_dup")
+
+        # ---- медик курант из шапки фиши (14.10, слово Олега: выбор на месте) ----
+        # ⛔ Своим маршрутом: /profile пишет ВСЕ поля, и поле, которого нет в
+        # теле, стирается — врач одним полем через него снёс бы профиль
+        _act(c, pid, "/profile", {"name": "Act Test Nou", "phone": "069555000",
+                                  "birth_date": "1990-05-06", "insurance": "CNAM",
+                                  "notes": "n", "lang": "ru"})
+        keep = ("name", "phone", "birth", "insurance", "notes", "lang")
+        before = {k: _card(c, pid)["profile"][k] for k in keep}
+        doc = _card(c, pid)["options"]["doctors"][1]
+        st, j = _act(c, pid, "/doctor", {"doctor": "Dr. Nimeni"})
+        res.check("врач не из клиники — 422 bad_card, поле primary_doctor, без фиши",
+                  (st, j["code"], j.get("field"), "data" in j), (422, "bad_card", "primary_doctor", False))
+        st, j = _act(c, pid, "/doctor", {"doctor": doc})
+        res.check("врач сохранён одним полем — ok_card, остальной профиль цел",
+                  (st, j["code"], j["data"]["profile"]["primary_doctor"],
+                   {k: j["data"]["profile"][k] for k in keep}),
+                  (200, "ok_card", doc, before))
+        res.check("смена врача — строка летописи со своим текстом",
+                  [a["text"] for a in j["data"]["activity"]["items"] if a["kind"] == "profile"][:1],
+                  [f"Medic curant: {doc}"])
+        st, j = _act(c, pid, "/doctor", {"doctor": ""})
+        res.check("пусто — врач снят, остальное цело",
+                  (st, j["data"]["profile"]["primary_doctor"], {k: j["data"]["profile"][k] for k in keep}),
+                  (200, "", before))
+        # врача, которого клиника уже убрала из списка, фиша хранит; повторный
+        # выбор того же имени (стоит в шапке первым) не отбивается
+        con = sqlite3.connect(str(s.dir / "dental.db"))
+        try:
+            con.execute("UPDATE patients SET primary_doctor = 'Dr. Plecat' WHERE id = ?", (pid,))
+            con.commit()
+        finally:
+            con.close()
+        st, j = _act(c, pid, "/doctor", {"doctor": "Dr. Plecat"})
+        res.check("прежний врач не из списка — пересохранение тождественно",
+                  (st, j["data"]["profile"]["primary_doctor"]), (200, "Dr. Plecat"))
 
         # ---- архив ----
         st, j = _act(c, pid, "/archive", {"on": True})

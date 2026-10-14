@@ -160,6 +160,13 @@ def suite_list(res: Result) -> None:
         res.ok("предпросмотр — сводка фиши словами сервера: имя, статус, план",
                "Maria Ionescu" in peek and "În tratament" in peek and "Plan de tratament" in peek,
                peek[:200])
+        # 14.10 (слово Олега): «Editează» вела туда же, куда «Profil complet»
+        pid = p["ionescu"]
+        res.check("предпросмотр: «Editează» — в данные с раскрытой формой, «Profil complet» — в фишу",
+                  re.findall(r"href='([^']*)'[^>]*>[^<]*(?:<svg.*?</svg>)?\s*(Editează|Profil complet)",
+                             peek, re.S),
+                  [(f"/admin/patient/{pid}?tab=date&amp;edit=1", "Editează"),
+                   (f"/admin/patient/{pid}", "Profil complet")])
 
 
 def suite_api(res: Result) -> None:

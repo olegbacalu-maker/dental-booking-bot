@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { Icon, iconName } from '../../../components/Icon'
+import type { ApiError } from '../../../types/api'
 import { hideDialog, showDialog } from './dialog'
 import { mdl, type PatientCard, type PlanItem, type Visit } from './card'
 import { printHref } from './print'
@@ -8,7 +9,8 @@ import { printHref } from './print'
 /* Шапка фиши по макету Олега (08.10, промпт 2): карточка с аватаром 80px,
    имя и плашки, строка «41 ani · canal: recepție · pacient din 2026 · ID #5»,
    кнопки «Sună», «Programează», «Fișa 043/e»; справа «Ultima vizită» и
-   «Medic curant» («Setează medicul», когда не задан). Под шапкой — баннер
+   «Medic curant» — выбор прямо здесь (14.10, слово Олега: «Setează medicul»
+   вёл на форму профиля ниже). Под шапкой — баннер
    «Anamneza nu a fost completată…» (role=alert) или полоса рисков; ниже пять
    карточек-цифр без значков. Слова — те же, что на старой странице; сами
    цифры, пилюли, «последний» и «следующий» визит посчитаны на сервере. */
@@ -34,6 +36,8 @@ const T = {
   doctor: 'Medic curant',
   ownDoctor: 'din fișa pacientului',
   setDoctor: 'Setează medicul',
+  pickDoctor: 'Alege medicul curant',
+  noDoctor: 'Fără medic curant',
   kpi: {
     visits: ['Vizite în total', 'din'],
     active: ['Proceduri active', 'în planul de tratament'],
@@ -73,8 +77,10 @@ interface Props {
   onPlan: () => void
   /** «Completează anamneza» / «Anamneză ›»: вкладка «Date pacient», опросник раскрыт. */
   onAnamneza: () => void
-  /** «Setează medicul» — вкладка «Date pacient», форма профиля раскрыта. */
-  onDoctor: () => void
+  /** Медик курант выбран в шапке: действие фиши, отказ — ошибкой (выбор откатывается). */
+  onDoctor: (name: string) => Promise<ApiError | null>
+  /** Идёт действие фиши — выбор врача ждёт. */
+  busy: boolean
   /** Адрес фиши с текущей вкладкой — «назад» на печатном листе. */
   back: string
 }
@@ -111,7 +117,7 @@ function PlanRow({ it, labels }: { it: PlanItem; labels: Record<string, string> 
   )
 }
 
-export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, back }: Props) {
+export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, busy, back }: Props) {
   const { profile: p, hero, kpi, plan } = card
   /* ⭐ Риски — ОДНОЙ полосой под шапкой, на всех вкладках (01.10). До B6
      анамнез стоял под предупреждениями на одной длинной странице; с вкладками
@@ -127,6 +133,16 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, back }: Pr
   const dlg = useRef<HTMLDialogElement>(null)
   const [panel, setPanel] = useState<PanelKey | null>(null)
   const [copied, setCopied] = useState(false)
+  /* Выбор врача, ушедший на сервер, виден, пока не приехала свежая фиша:
+     привязан к фише, с которой начат (свежая показывает своё), отказ его
+     снимает — в шапке снова прежний врач. */
+  const [pick, setPick] = useState<{ card: PatientCard; v: string } | null>(null)
+  const doc = pick && pick.card === card ? pick.v : p.primary_doctor
+  const docs = card.options.doctors
+  async function chooseDoctor(v: string) {
+    setPick({ card, v })
+    if (await onDoctor(v)) setPick(null)
+  }
 
   function open(k: PanelKey) {
     setPanel(k)
@@ -238,12 +254,19 @@ export function HeroKpi({ card, onBook, onPlan, onAnamneza, onDoctor, back }: Pr
           </div>
           <div>
             <dt>{T.doctor}</dt>
-            <dd className="v">{p.primary_doctor || '—'}</dd>
-            <dd className="s">
-              {p.primary_doctor
-                ? T.ownDoctor
-                : <button type="button" className="dp-link" onClick={onDoctor}>{T.setDoctor}</button>}
+            {/* Список выглядит значением, а не полем: имя врача и есть выбор.
+                Врач, которого клиника убрала из списка, остаётся первым — иначе
+                шапка показала бы чужое имя или пустоту. */}
+            <dd className="v">
+              <select className={`dp-hero-doc${doc ? '' : ' unset'}`} aria-label={T.pickDoctor}
+                value={doc} disabled={busy} onChange={(e) => { void chooseDoctor(e.target.value) }}>
+                {!doc && <option value="">{T.setDoctor}</option>}
+                {doc && !docs.includes(doc) && <option value={doc}>{doc}</option>}
+                {docs.map((n) => <option key={n} value={n}>{n}</option>)}
+                {doc && <option value="">{T.noDoctor}</option>}
+              </select>
             </dd>
+            {doc && <dd className="s">{T.ownDoctor}</dd>}
           </div>
         </dl>
       </div>

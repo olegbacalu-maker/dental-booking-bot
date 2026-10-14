@@ -2007,6 +2007,13 @@ async def update_patient(pid: int, data: dict) -> None:
     )
 
 
+async def set_primary_doctor(pid: int, name: str | None) -> None:
+    """Медик курант одним полем (шапка фиши, 14.10) — мимо `update_patient`,
+    который пишет ВСЕ поля профиля и стёр бы остальные. None — снять."""
+    await log_event(pid, "profile", f"Medic curant: {name}" if name else "Medic curant scos")
+    await _execute("UPDATE patients SET primary_doctor = ? WHERE id = ?", name, pid)
+
+
 async def set_birth_year(pid: int, year: int | None) -> None:
     """Синк года из birth_date: возраст в поиске/сетке считается по birth_year.
     None стирает год — так очищенная дата рождения забирает с собой и возраст."""

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { AppLink } from '../../../components/AppLink'
 import { Icon } from '../../../components/Icon'
 import type { CardActions } from './actions'
@@ -47,7 +47,7 @@ interface Props {
   a: CardActions
   draft: AnDraft | null
   onDraft: (d: AnDraft) => void
-  /** Просьба показать опросник (кнопка «Anamneză» в шапке): раскрыть и подвести. */
+  /** Просьба показать опросник (кнопка «Anamneză» в шапке): раскрыть. */
   focusTick: number
 }
 
@@ -61,19 +61,17 @@ export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
   /* раскрыт, пока опросник не собран — или когда его попросили из шапки
      (карточка монтируется уже с просьбой: вкладка была другой) */
   const [open, setOpen] = useState(!an.filled || focusTick > 0)
-  const box = useRef<HTMLDivElement>(null)
   /* повторная просьба раскрывает опросник ПРИ ОТРИСОВКЕ (правило хуков:
-     состояние из пропа — без эффекта); эффект ниже только подводит экран */
+     состояние из пропа — без эффекта).
+     ⛔ Экран НЕ подводится (14.10, слово Олега: «просто переключиться на
+     вкладку»): `scrollIntoView` ставил заголовок опросника ПОД липкую шапку
+     программы, а вкладки и шапка фиши уезжали за край — вкладка и так
+     открывается с опросником сверху справа. */
   const [seenTick, setSeenTick] = useState(focusTick)
   if (focusTick !== seenTick) {
     setSeenTick(focusTick)
     setOpen(true)
   }
-  useEffect(() => {
-    if (!focusTick) return
-    const el = box.current
-    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' })
-  }, [focusTick])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -91,7 +89,7 @@ export function AnamnezaCard({ card, a, draft, onDraft, focusTick }: Props) {
   ]
 
   return (
-    <div className="fcard" id="anamneza" ref={box}>
+    <div className="fcard" id="anamneza">
       <h3>{T.title} {head}{dirty && <span className="pill orange dp-unsaved">{T.unsaved}</span>}</h3>
       {chips.length > 0 && (
         <div className="anlist">
