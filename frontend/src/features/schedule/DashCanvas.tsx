@@ -98,7 +98,8 @@ export function DashCanvas({ model, rail, waitTick, lineTick, onCard, onCardMenu
     (c) => c.blocks.some((b) => b.kind === 'appt' && b.wait_since))
   const view = useCardView()
   useFitGrid(body, rail, model.hours.length)
-  useFitAppts(body, waits ? waitTick : 0, model, view)
+  /* `fresh` меняет className блока без новой модели — и стёр бы ступени */
+  useFitAppts(body, waits ? waitTick : 0, model, view, fresh)
 
   if (model.empty) {
     return (

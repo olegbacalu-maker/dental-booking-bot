@@ -207,9 +207,15 @@ function onCardView(changed: () => void): () => void {
  * в журнале безымянным пятном.
  * ⚠️ Перемер зависит от минут ожидания: текст «așteaptă N min» вписывается
  * ПОСЛЕ замера, и блок на грани переполняется — поэтому `tick` в зависимостях.
+ * ⛔ Ступени ставятся МИМО React (classList), а React, меняя className блока,
+ * переписывает его целиком и стирает их. Всё, что меняет className без новой
+ * модели, — в зависимостях (`marks`): подсветка приехавшей записи `fresh`
+ * ставится и снимается таймером, и до 14.10 новая запись на открытом дне
+ * стояла в полном виде с обрезанной услугой — до перелистывания дня.
  */
 export function useFitAppts(
   body: React.RefObject<HTMLDivElement | null>, tick: number, deps: unknown, view = '',
+  marks: unknown = null,
 ): void {
   useLayoutEffect(() => {
     const gb = body.current
@@ -222,5 +228,5 @@ export function useFitAppts(
       if (over(a)) a.classList.add('tiny')
       if (over(a)) a.classList.add('bare')
     }
-  }, [body, tick, deps, view])
+  }, [body, tick, deps, view, marks])
 }

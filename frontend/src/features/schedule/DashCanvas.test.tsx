@@ -445,6 +445,34 @@ describe('C26.5.2: блок записи', () => {
     }
   })
 
+  it('⭐ подсветка приехавшей записи не стирает ступень сжатия (14.10)', () => {
+    /* Ступени ставятся мимо React, а `fresh` React ставит и снимает БЕЗ новой
+       модели — и, меняя className блока, переписывал его целиком: новая
+       запись на открытом дне стояла в полном виде с обрезанной услугой до
+       перелистывания дня. jsdom геометрию не считает — «не влез» подставлен:
+       полный вид переполнен, сжатый влезает. */
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get(this: HTMLElement) { return this.classList.contains('slim') ? 0 : 100 },
+    })
+    try {
+      const at = (fresh: ReadonlySet<number>) => (
+        <DashCanvas model={MODEL} rail={rail} waitTick={NOW} lineTick={NOW}
+          onCard={onCard} onSlot={onSlot} onNote={onNote}
+          drag={null} hover="" onDrag={onDrag} onHover={onHover} onDrop={onDrop}
+          fresh={fresh} />)
+      const { rerender } = render(at(new Set()))
+      const a = () => document.querySelector('[data-appt="1"]') as HTMLElement
+      expect(a().className).toBe('gappt slim duo')
+      rerender(at(new Set([1])))
+      expect(a().className).toBe('gappt fresh slim duo')
+      rerender(at(new Set()))
+      expect(a().className).toBe('gappt slim duo')
+    } finally {
+      delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight
+    }
+  })
+
   it('неявка помечена классом, а срочный подтверждённый — своим значком', () => {
     show()
     const col = cols()[0]!
