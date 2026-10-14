@@ -50,7 +50,8 @@ export interface VisitPage {
   templates: VisitTemplate[]
   plan: {
     linked: { id: number; text: string }[]
-    open: { id: number; text: string; in_lucru: boolean }[]
+    /** `price` — MDL, 0 без цены: отметка проводит её в сольд (вопрос перед записью). */
+    open: { id: number; text: string; in_lucru: boolean; price: number }[]
   }
   back: string
 }

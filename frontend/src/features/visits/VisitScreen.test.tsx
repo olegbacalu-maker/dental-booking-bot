@@ -34,7 +34,8 @@ const PAGE: VisitPage = {
   ],
   plan: {
     linked: [{ id: 1, text: 'dinte 26 · Obturație 26 · 500 MDL' }],
-    open: [{ id: 2, text: 'Detartraj · 300 MDL', in_lucru: true }, { id: 4, text: 'Consult gratuit', in_lucru: false }],
+    open: [{ id: 2, text: 'Detartraj · 300 MDL', in_lucru: true, price: 300 },
+      { id: 4, text: 'Consult gratuit', in_lucru: false, price: 0 }],
   },
   back: '/admin/all?date=2026-09-16',
 }
@@ -60,7 +61,12 @@ afterEach(() => {
   cleanup()
   get.mockReset()
   post.mockReset()
+  vi.restoreAllMocks()
 })
+
+/** Вопрос о сольде (14.10): хоста окон в проверке нет — `ask` спрашивает `window.confirm`. */
+const PRICE_ONE = 'Procedura bifată devine «Finalizat»: „Detartraj · 300 MDL". '
+  + 'Prețul de 300 MDL intră în soldul pacientului.'
 
 describe('VisitScreen', () => {
   it('успех: шапка с комментарием, графы с записью, шаблоны, выполненное и открытое, авторство', async () => {
@@ -98,12 +104,14 @@ describe('VisitScreen', () => {
     const after: VisitPage = { ...PAGE, record: { ...PAGE.record!, tratament: 'Detartraj efectuat', updated: '18.09.2026 12:30' },
       plan: { linked: [...PAGE.plan.linked, { id: 2, text: 'Detartraj · 300 MDL' }], open: [PAGE.plan.open[1]!] } }
     post.mockResolvedValueOnce(ok(after, 'ok_visit', 'Consultația a fost salvată'))
+    const asked = vi.spyOn(window, 'confirm').mockReturnValue(true)
     open(url(7, BACK))
     await screen.findByText(/vizita #7/)
     fireEvent.change(area('Tratament efectuat'), { target: { value: 'Detartraj efectuat' } })
     fireEvent.click(screen.getByLabelText(/Detartraj · 300 MDL/))
     fireEvent.click(screen.getByText('Salvează consultația'))
     expect(await screen.findByText('Consultația a fost salvată')).toBeTruthy()
+    expect(asked).toHaveBeenCalledWith(PRICE_ONE)
     expect(post).toHaveBeenCalledWith('/visits/7', {
       acuze: 'Durere la rece', examen: '', diagnostic: 'Pulpită 26', tratament: 'Detartraj efectuat', recomandari: '',
       done: [2], back: '/admin/all?date=2026-09-16',
@@ -111,6 +119,50 @@ describe('VisitScreen', () => {
     expect(screen.getByText(/actualizat: 18.09.2026 12:30/)).toBeTruthy()
     expect(screen.getAllByText('Detartraj · 300 MDL').length).toBe(1)
     expect(screen.queryByLabelText(/Detartraj · 300 MDL/)).toBeNull()
+  })
+
+  it('⭐ отмеченная позиция с ценой: вопрос о сольде; «нет» — ничего не ушло, отметка осталась (14.10)', async () => {
+    /* Отметка финализирует позицию, и цена входит в сольд без отдельной
+       записи платежа — то же следствие, что у «Finalizează» плана, где вопрос
+       был, а здесь его не было (слово Олега 14.10). */
+    get.mockResolvedValueOnce(ok(PAGE))
+    const asked = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    open(url(7))
+    await screen.findByText(/vizita #7/)
+    fireEvent.click(screen.getByLabelText(/Detartraj · 300 MDL/))
+    fireEvent.click(screen.getByText('Salvează consultația'))
+    await waitFor(() => expect(asked).toHaveBeenCalledWith(PRICE_ONE))
+    expect(post).not.toHaveBeenCalled()
+    expect((screen.getByLabelText(/Detartraj · 300 MDL/) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('позиция без цены — без вопроса; несколько — названы все отмеченные, сумма их цен', async () => {
+    const many: VisitPage = { ...PAGE, plan: { linked: [], open: [...PAGE.plan.open,
+      { id: 6, text: 'dinte 26 · Obturație 26 · 1500 MDL', in_lucru: false, price: 1500 }] } }
+    get.mockResolvedValue(ok(many))
+    post.mockResolvedValue(ok(many, 'ok_visit', 'Consultația a fost salvată'))
+    const asked = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    open(url(7))
+    await screen.findByText(/vizita #7/)
+    fireEvent.click(screen.getByLabelText(/Consult gratuit/))
+    fireEvent.click(screen.getByText('Salvează consultația'))
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(asked).not.toHaveBeenCalled()
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ done: [4] })
+
+    cleanup()
+    post.mockClear()
+    open(url(7))
+    await screen.findByText(/vizita #7/)
+    fireEvent.click(screen.getByLabelText(/Detartraj · 300 MDL/))
+    fireEvent.click(screen.getByLabelText(/Consult gratuit/))
+    fireEvent.click(screen.getByLabelText(/Obturație 26/))
+    fireEvent.click(screen.getByText('Salvează consultația'))
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(asked).toHaveBeenCalledWith('Procedurile bifate devin «Finalizat»: „Detartraj · 300 MDL", '
+      + '„Consult gratuit", „dinte 26 · Obturație 26 · 1500 MDL". '
+      + 'Suma de 1 800 MDL intră în soldul pacientului.')
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ done: [2, 4, 6] })
   })
 
   it('пустая запись — текст сервера, ввод остаётся', async () => {

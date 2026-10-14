@@ -120,10 +120,11 @@ def suite_api(res: Result) -> None:
                   (tpl["obturatie"]["diagnostic"], tpl["consult"]["diagnostic"], sorted(tpl["canal"])),
                   ("Carie dentară, dintele __.", "",
                    sorted(["acuze", "examen", "diagnostic", "tratament", "recomandari"])))
-        res.check("план: выполненное на визите словами; к отметке — только активные, «în lucru» помечено",
+        # цена отметки — числом (14.10): экран спрашивает о сольде, как «Finalizează» плана
+        res.check("план: выполненное на визите словами; к отметке — только активные, «în lucru» помечено, цена",
                   ([x["text"] for x in d["plan"]["linked"]],
-                   [(x["id"], x["text"], x["in_lucru"]) for x in d["plan"]["open"]]),
-                  (["dinte 26 · Obturație 26 · 500 MDL"], [(sd["p_lucru"], "Detartraj · 300 MDL", True)]))
+                   [(x["id"], x["text"], x["in_lucru"], x["price"]) for x in d["plan"]["open"]]),
+                  (["dinte 26 · Obturație 26 · 500 MDL"], [(sd["p_lucru"], "Detartraj · 300 MDL", True, 300)]))
         res.check("можно писать, предупреждения нет, адрес возврата принят",
                   (d["editable"], d["note"], d["back"]), (True, "", f"/admin/all?date={_d(-2)}"))
         res.check("чужой адрес возврата — фиша",

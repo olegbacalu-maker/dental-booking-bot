@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { AppLink } from '../../components/AppLink'
+import { ask } from '../../components/confirm'
 import { Icon } from '../../components/Icon'
+import { mdl } from '../patients/card/card'
 import type { VisitForm, VisitPage } from './visits'
 
 /* «Consultație» — дневник визита (C19; с 26.09 ОДИН на два места): те же
@@ -23,6 +25,9 @@ const T = {
   openTitle: 'Proceduri din plan efectuate la această vizită',
   openHint: '— bifate devin «Finalizat» în plan și se leagă de vizită',
   inLucru: '— în lucru',
+  finOne: 'Procedura bifată devine «Finalizat»: {list}. Prețul de {sum} MDL intră în soldul pacientului.',
+  finMany: 'Procedurile bifate devin «Finalizat»: {list}. Suma de {sum} MDL intră în soldul pacientului.',
+  finOk: 'Salvează',
   save: 'Salvează consultația',
   created: 'Înregistrat:',
   updated: 'actualizat:',
@@ -77,8 +82,21 @@ export function VisitWorkbench({ page, saving, onSave, embedded = false }: Props
     edit({ vals: next })
   }
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    /* ⭐ Отметка финализирует позицию, и её цена входит в сольд без отдельной
+       записи платежа — то же следствие, что у «Finalizează» плана, а вопрос
+       был только там (14.10, слово Олега). «Нет» — ничего не уходит, отметки
+       и графы остаются. Вопрос — когда отмеченное двигает деньги; называет он
+       ВСЕ отмеченные (без цены тоже станет «Finalizat»), сумма — их цен. */
+    const marked = page.plan.open.filter((it) => cur.done.includes(it.id))
+    const sum = marked.reduce((s, it) => s + it.price, 0)
+    if (sum > 0) {
+      const text = (marked.length === 1 ? T.finOne : T.finMany)
+        .replace('{list}', marked.map((it) => `„${it.text}"`).join(', '))
+        .replace('{sum}', mdl(sum))
+      if (!await ask({ text, ok: T.finOk })) return
+    }
     void onSave({ ...cur.vals, done: cur.done, back: page.back })
   }
 

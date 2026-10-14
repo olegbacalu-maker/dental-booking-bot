@@ -749,8 +749,11 @@ def _visit_payload(a: dict, rec: dict | None, items: list, back: str) -> dict:
         "plan": {
             "linked": [{"id": it["id"], "text": pvisit.item_text(it)}
                        for it in items if it.get("appointment_id") == a["id"]],
+            # цена — числом (14.10): отметка финализирует, и цена входит в
+            # сольд; экран спрашивает об этом так же, как «Finalizează» плана
             "open": [{"id": it["id"], "text": pvisit.item_text(it),
-                      "in_lucru": it["status"] == "in_lucru"}
+                      "in_lucru": it["status"] == "in_lucru",
+                      "price": it["price_mdl"] or 0}
                      for it in items if it["status"] in db.PLAN_ACTIVE],
         },
         "back": back,
