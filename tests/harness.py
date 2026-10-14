@@ -168,15 +168,7 @@ class Server:
         while time.time() < deadline:
             if self.proc.poll() is not None:
                 raise self._startup_failed("сервер упал при старте")
-            try:
-                with urllib.request.urlopen(self.url + "/health", timeout=1):
-                    pass
-            # «Ещё не поднялся» — это ТОЛЬКО сетевые ошибки (отказ соединения,
-            # обрыв, таймаут, 5xx). ⛔ Не `except Exception`: 13.10 у `url`
-            # пропал `@property`, `self.url + "/health"` падал TypeError, и
-            # каждый сервер 40 секунд «не отвечал на /health» — ошибка кода
-            # харнесса выглядела зависанием программы.
-            except (OSError, http.client.HTTPException):
+            if not _health(self.port, deadline):
                 time.sleep(0.3)
                 continue
             # ⛔ Часы, которые не встали, НЕ падают: PYTHONPATH не дошёл или
@@ -244,6 +236,46 @@ class Server:
         self.__exit__(None, None, None)
         if self._made_dir:
             _rmtree_settled(self.dir)
+
+
+def _health(port: int, deadline: float) -> bool:
+    """Один опрос `/health` на старте сервера: ответил ли он.
+
+    ⛔ Ответ читается ДО КОНЦА, и только потом сокет закрывается. 14.10
+    «лог: renew=offline, без трейсбека» (`test_license_renew`, шаг 6)
+    покраснел не ошибкой лицензии, а трейсбеком asyncio в логе сервера:
+    `_call_connection_lost` → `shutdown` → ConnectionResetError 10054.
+    Источник — этот опрос: `with urlopen(…): pass` закрывал сокет по одним
+    заголовкам, uvicorn пишет тело ОТДЕЛЬНОЙ записью, и закрытие, попавшее в
+    окно ~100–200 мкс вокруг неё, приходило серверу RST-ом прямо под его
+    `shutdown`. Сервер здоров, asyncio лишь печатает трейсбек. Замер на живом
+    сервере, одна и та же задержка клиента сразу за заголовками (40–160 мкс —
+    так его растягивает нагрузка): прежний опрос — 148 трейсбеков из 9600,
+    этот — 0 из 9600; без задержки прежний задел окно 2 раза из 13 200: на
+    тихой машине редко, нагрузка его открывает. `Client` дочитывает ответ по
+    Content-Length и в окно не попадает (0 из 4000 в том же замере).
+    ⚠️ Подключение — с таймаутом в секунду: пока сервер не слушает, отказ на
+    Windows приходит через 2 с повторов SYN. Но ПРИНЯТЫЙ запрос через секунду
+    не бросается: брошенный с ответом в пути — тот же обрыв; ответа ждём до
+    общего срока старта.
+    «Ещё не поднялся» — это ТОЛЬКО сетевые ошибки (отказ соединения, обрыв,
+    таймаут) и ответ 4xx/5xx. ⛔ Не `except Exception`: 13.10 у `url` пропал
+    `@property`, `self.url + "/health"` падал TypeError, и каждый сервер 40
+    секунд «не отвечал на /health» — ошибка кода харнесса выглядела
+    зависанием программы.
+    """
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+    try:
+        conn.connect()
+        conn.sock.settimeout(max(1.0, deadline - time.time()))
+        conn.request("GET", "/health", headers={"Connection": "close"})
+        r = conn.getresponse()
+        r.read()
+        return r.status < 400
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
 
 
 def _wait_released(log: pathlib.Path | None, budget: float = 10.0) -> None:
