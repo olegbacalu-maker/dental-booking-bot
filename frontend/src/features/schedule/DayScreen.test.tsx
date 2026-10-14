@@ -633,6 +633,18 @@ describe('карточка визита', () => {
     fireEvent.submit(document.querySelector('.dp-card-cmt') as HTMLFormElement)
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       '/schedule/appointments/1/comment', { comment: 'Nou' }))
+    /* сохранено — окно закрывается, как после исхода (14.10, слово Олега) */
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+  })
+
+  it('отказ сохранения комментария — окно и набранное остаются', async () => {
+    post.mockRejectedValueOnce(new Error('offline'))
+    await openCard(1)
+    fireEvent.change(document.querySelector('textarea') as HTMLElement,
+      { target: { value: 'Nou' } })
+    fireEvent.submit(document.querySelector('.dp-card-cmt') as HTMLFormElement)
+    await waitFor(() => expect(document.querySelector('.toastbox')).toBeTruthy())
+    expect((document.querySelector('dialog textarea') as HTMLTextAreaElement).value).toBe('Nou')
   })
 })
 

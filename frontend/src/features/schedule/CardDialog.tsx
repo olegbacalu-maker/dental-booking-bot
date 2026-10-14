@@ -43,6 +43,7 @@ interface Props {
   back: string
   busy: boolean
   onClose: () => void
+  /** `true` — сохранено, окно закрывается; `false` — отказ, набранное остаётся. */
   onComment: (text: string) => Promise<boolean>
   onStatus: (to: string) => Promise<boolean>
   /** Отметка звонка-подтверждения (12.10, слово Олега: «вчера не позвонил —
@@ -85,9 +86,12 @@ export function CardDialog({ open, id, card, actions, note = '', back, busy,
   const info = [card.service, card.doctor, card.phone,
     card.age ? `${card.age} ani` : ''].filter(Boolean).join(' · ')
 
+  /* Сохранённый комментарий закрывает окно, как исход визита (14.10, слово
+     Олега: «вкладка по идее должна закрыться»); отказ оставляет окно с
+     набранным. Отметка звонка окно держит — она часто идёт перед исходом. */
   async function save(e: FormEvent) {
     e.preventDefault()
-    await onComment(text)
+    if (await onComment(text)) onClose()
   }
 
   return (

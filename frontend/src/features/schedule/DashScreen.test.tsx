@@ -544,6 +544,26 @@ describe('C26.5.3-b: диалог визита', () => {
     expect(document.querySelector('dialog[open]')).toBeTruthy()
   })
 
+  it('14.10: сохранённый комментарий закрывает окно; отказ — окно и набранное остаются', async () => {
+    let refuse = true
+    const f = vi.fn(async (url: string) => (String(url).includes('/comment')
+      ? (refuse ? cmdReply('', 'Comentariul nu s-a salvat', 422) : cmdReply('ok_comment', 'Comentariu salvat'))
+      : reply(200, model())))
+    vi.stubGlobal('fetch', f as unknown as typeof fetch)
+    await openFirst()
+    const area = () => document.querySelector('dialog textarea') as HTMLTextAreaElement
+    fireEvent.change(area(), { target: { value: 'de sunat înainte' } })
+    fireEvent.submit(document.querySelector('dialog .dp-card-cmt') as HTMLFormElement)
+    await waitFor(() => expect(document.body.textContent).toContain('Comentariul nu s-a salvat'))
+    expect(document.querySelector('dialog[open]')).toBeTruthy()
+    expect(area().value).toBe('de sunat înainte')
+
+    refuse = false
+    fireEvent.submit(document.querySelector('dialog .dp-card-cmt') as HTMLFormElement)
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull())
+    expect(document.body.textContent).toContain('Comentariu salvat')
+  })
+
   it('12.10: где сервер сказал «нельзя» (callable false) — ни строки в карточке, ни пунктов в меню', async () => {
     const m = model()
     const b = m.canvas.columns[0]!.blocks[0]!
