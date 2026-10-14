@@ -117,6 +117,7 @@ SUITES = [
     ("Выпуск: версия одна у движка, клиента и exe", test_guards.suite_version_source),
     ("Выпуск: подпись — exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
     ("Выпуск: тесты клиента — не повод для релиза (dev check)", test_dev.suite_release_content),
+    ("Рутина: временное запусков dev — на диске проекта", test_dev.suite_child_temp),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
     ("Лицензия: формат файла и фикстуры", test_license_format.suite),
     ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),

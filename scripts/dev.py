@@ -68,10 +68,44 @@ def git(*args: str) -> str:
     return (r.stdout or "").rstrip("\n")
 
 
+def temp_dir() -> pathlib.Path:
+    """Куда ложится временное всего, что запускает dev (14.10).
+
+    Не в %TEMP%: диск C у Олега на 100 ГБ и вечно полон, а мутация держит до
+    конца около 110 копий дерева (под гигабайт), прогон — сотни песочниц
+    серверов, стенды — профили Edge. Папка — `sandbox\\temp` рядом с ГЛАВНЫМ
+    репозиторием (`D:\\DentProject`): у worktree свой корень, но общий `.git`,
+    и их прогоны ложатся туда же, а не в папку worktree. `DP_TEMP` перевешивает.
+    ⛔ Не внутри репозитория: `check` увидел бы грязное дерево."""
+    if os.environ.get("DP_TEMP"):
+        return pathlib.Path(os.environ["DP_TEMP"])
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    main = pathlib.Path(common).parent if common else ROOT
+    return main.parent / "sandbox" / "temp"
+
+
+def child_env(env: dict | None = None) -> dict:
+    """Окружение ребёнка: TEMP/TMP/TMPDIR — в `temp_dir()`.
+
+    Рычаг — TEMP ВЕРХНЕГО процесса, а не правка харнесса: харнесс берёт папку
+    прогона из TEMP и сам направляет детей в неё, поэтому рабочие
+    (`test_netcheck`) остаются вложенными в папку родителя, и уборка по замку
+    работает как прежде. CI зовёт наборы напрямую, мимо dev, со своим TEMP.
+    ⚠️ Программа пишет tmp РЯДОМ с целью (os.replace атомарен в пределах тома),
+    так что TEMP на другом диске ей не мешает; ошибка 18 «перенос на другой
+    диск» была у песочницы под пакетом Claude Desktop, не отсюда."""
+    out = dict(env or os.environ)
+    tmp = temp_dir()
+    tmp.mkdir(parents=True, exist_ok=True)
+    for key in ("TEMP", "TMP", "TMPDIR"):
+        out[key] = str(tmp)
+    return out
+
+
 def run(cmd: list, cwd: pathlib.Path = ROOT, env: dict | None = None) -> int:
     print(f"$ {' '.join(str(c) for c in cmd)}\n")
     return subprocess.run([str(c) for c in cmd], cwd=str(cwd),
-                          env=env or os.environ.copy()).returncode
+                          env=child_env(env)).returncode
 
 
 # ---------- test ----------
@@ -552,7 +586,8 @@ def cmd_bench(argv: list) -> int:
     for name, what in todo:
         t0 = time.time()
         r = subprocess.run([python, str(ROOT / "scripts" / f"{name}.py")], cwd=str(ROOT),
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           env=child_env())     # профили Edge — туда же, не на C
         lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
         last = lines[-1] if lines else (r.stderr or "").strip().splitlines()[-1:] or ["(пусто)"]
         last = last if isinstance(last, str) else last[0]

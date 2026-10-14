@@ -90,3 +90,38 @@ def suite_release_content(res: Result) -> None:
             res.check("в правке экрана тестов нет", tests, 0)
         finally:
             dev.ROOT = real
+
+
+def suite_child_temp(res: Result) -> None:
+    """Временное запусков dev — на диске проекта, а не в %TEMP% (14.10).
+
+    Диск C у Олега на 100 ГБ и вечно полон, а мутация держит до конца около 110
+    копий дерева, прогон — сотни песочниц серверов. Вернись TEMP детей на C —
+    заметно было бы только по заполняющемуся диску, а не по красному.
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    dev = importlib.import_module("dev")
+    was = os.environ.pop("DP_TEMP", None)
+    try:
+        default = dev.temp_dir()
+        res.ok("по умолчанию — sandbox/temp рядом с главным репозиторием",
+               default.parts[-2:] == ("sandbox", "temp"), str(default))
+        # внутри репозитория `check` увидел бы грязное дерево и отказал выпуску
+        res.ok("по умолчанию — вне репозитория",
+               not default.resolve().is_relative_to(ROOT.resolve()), str(default))
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["DP_TEMP"] = str(pathlib.Path(tmp) / "t")
+            env = dev.child_env({**os.environ, "DP_MARK": "1", "TEMP": r"C:\elsewhere"})
+            res.ok("TEMP, TMP и TMPDIR детей — в папке dev",
+                   all(env[k] == os.environ["DP_TEMP"] for k in ("TEMP", "TMP", "TMPDIR")),
+                   repr({k: env.get(k) for k in ("TEMP", "TMP", "TMPDIR")}))
+            res.ok("остальное окружение не тронуто", env.get("DP_MARK") == "1")
+            out = subprocess.run(
+                [sys.executable, "-c", "import tempfile; print(tempfile.gettempdir())"],
+                env=dev.child_env(), capture_output=True, text=True).stdout.strip()
+            res.ok("ребёнок видит её как tempfile.gettempdir()",
+                   pathlib.Path(out) == pathlib.Path(os.environ["DP_TEMP"]), out)
+    finally:
+        os.environ.pop("DP_TEMP", None)
+        if was is not None:
+            os.environ["DP_TEMP"] = was
