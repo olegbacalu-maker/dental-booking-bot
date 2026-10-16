@@ -121,6 +121,63 @@ def payment_letter(clinic: str, reference: str, amount: int, months: int,
     return subject, body
 
 
+def sms_pack_note_letter(clinic: str, reference: str, amount: int, units: int,
+                         pay_url: str | None = None) -> tuple[str, str]:
+    """Нота за пакет SMS (S3): та же форма, что у абонемента, другой предмет."""
+    ways = ways_to_pay(reference, amount, pay_url)
+    subject = f"DentPilot: nota de plată {reference} — pachet {units} SMS pentru {clinic}"
+    body = (f"Bună ziua,\n\n"
+            f"Pentru pachetul de {units} SMS (DentPilot, {clinic}) vă rugăm să achitați {amount} MDL:\n\n"
+            f"{ways}\n\n"
+            f"După confirmarea plății pachetul se activează automat și soldul apare în program, "
+            f"în Setări › SMS.\n\n{FOOTER}")
+    return subject, body
+
+
+def sms_name_note_letter(clinic: str, reference: str, amount: int, name: str,
+                         pay_url: str | None = None) -> tuple[str, str]:
+    """Нота за год своего имени отправителя (Олег 16.10: платно, годом)."""
+    ways = ways_to_pay(reference, amount, pay_url)
+    subject = f"DentPilot: nota de plată {reference} — numele de expeditor «{name}» pentru {clinic}"
+    body = (f"Bună ziua,\n\n"
+            f"Pentru numele propriu de expeditor «{name}» (un an, DentPilot, {clinic}) vă rugăm să "
+            f"achitați {amount} MDL:\n\n{ways}\n\n"
+            f"Anul se numără din ziua în care operatorii aprobă numele; până atunci SMS-urile pleacă de la "
+            f"«DentPilot».\n\n{FOOTER}")
+    return subject, body
+
+
+def sms_name_letter(clinic: str, name: str, until: str | None, reference: str) -> tuple[str, str]:
+    """Клинике: год имени оплачен — с датой, если имя уже одобрено, иначе «от одобрения»."""
+    subject = f"DentPilot: numele de expeditor «{name}» este plătit ({clinic})"
+    when = (f"SMS-urile pleacă de la «{name}» până la {until[:10]}." if until else
+            f"Anul începe din ziua în care operatorii aprobă numele «{name}» (1–2 zile lucrătoare după "
+            f"depunerea cererii); până atunci SMS-urile pleacă de la «DentPilot».")
+    body = (f"Bună ziua,\n\n"
+            f"Plata pentru numele de expeditor «{name}» (nota {reference}) a fost confirmată. {when}\n\n{FOOTER}")
+    return subject, body
+
+
+def sms_pack_letter(clinic: str, units: int, balance: int, reference: str) -> tuple[str, str]:
+    """Клинике: пакет начислен (после подтверждения платежа kind=sms)."""
+    subject = f"DentPilot: pachetul SMS a fost activat ({clinic})"
+    body = (f"Bună ziua,\n\n"
+            f"Pachetul de {units} SMS pentru {clinic} a fost activat (nota {reference}). "
+            f"Soldul actual: {balance} SMS. Programul îl preia singur — îl vedeți în Setări › SMS.\n\n"
+            f"{FOOTER}")
+    return subject, body
+
+
+def sms_low_letter(clinic: str, balance: int) -> tuple[str, str]:
+    """Клинике: остаток пакета на пороге (раз за пакет, jobs)."""
+    subject = f"DentPilot: au rămas {balance} SMS ({clinic})"
+    body = (f"Bună ziua,\n\n"
+            f"În pachetul SMS al clinicii {clinic} au rămas {balance} SMS. Când soldul ajunge la zero, "
+            f"reminderele SMS nu se mai trimit. Un pachet nou comandați din program, Setări › SMS "
+            f"(nota de plată vine pe e-mail), sau scrieți-ne.\n\n{FOOTER}")
+    return subject, body
+
+
 def how_to_pay(pay: dict | None, price: int) -> str:
     """Абзац «как продолжить»: ссылка на карту и/или реквизиты с reference
     (абонемент) или как оформить абонемент (пробный). Без ссылки и без

@@ -44,7 +44,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from . import account, auth, config, db, keys, license, mail, maib, trial
+from . import account, auth, config, db, keys, license, mail, maib, smsmd, trial
 
 OK, WARN, BAD = "ok", "⚠", "✗"
 PULL_MAX_DAYS = 3        # отметка вывоза копий старше — предупреждение (ПК выключен)
@@ -261,6 +261,23 @@ def check() -> list[tuple[str, str]]:
             out.append((BAD, f"maib не отвечает: {e}"))
     else:
         out.append((WARN, "DP_MAIB_* пусты: оплата картой выключена, платежи только переводом"))
+    # SMS-пакет (S3): токен sms.md живёт только здесь; баланс — проверка, что токен принят и с правом account:read
+    if smsmd.enabled():
+        try:
+            bal = smsmd.balance()
+            dlr = (f"уведомления {config.BASE_URL.rstrip('/')}/v1/smsmd/dlr/<секрет>" if config.SMSMD_DLR_SECRET
+                   else "DP_SMSMD_DLR_SECRET пуст — уведомлений нет, статусы собирает опрос")
+            out.append((OK, f"sms.md: токен принят, баланс {bal} MDL ({config.SMSMD_BASE_URL}); {dlr}"))
+        except (smsmd.Unanswered, smsmd.Refused) as e:
+            out.append((BAD, f"sms.md не отвечает или отказывает: {e}"))
+        out.append((OK, "пакет предложен всем клиникам (DP_SMS_OFFERED=1)") if config.SMS_OFFERED
+                   else (WARN, "DP_SMS_OFFERED пуст: пакет видят только клиники с отметкой «пилот» в карточке"))
+        if not config.SMS_PACKS:
+            out.append((WARN, "DP_SMS_PACKS пуст: пакеты SMS из программы не заказать (sms_no_packs)"))
+        else:
+            out.append((OK, "пакеты SMS: " + ", ".join(f"{u} за {p} MDL" for u, p in config.SMS_PACKS.items())))
+    else:
+        out.append((WARN, "DP_SMSMD_TOKEN пуст: SMS-пакет выключен, программы получают sms_unconfigured"))
     # оба режима — законный выбор (боевой с 26.09 — auto): предупреждать не о чем
     out.append((OK,
                 f"форма пробного {config.BASE_URL.rstrip('/')}/proba: режим {trial.mode()} "

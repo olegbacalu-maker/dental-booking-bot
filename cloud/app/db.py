@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -135,6 +135,43 @@ MIGRATIONS = {
         "ALTER TABLE subscriptions ADD COLUMN anchor_day INTEGER",
         "ALTER TABLE payments ADD COLUMN paid_via TEXT",
         "UPDATE payments SET paid_via='transfer' WHERE status='paid'",
+    ],
+    # SMS-пакет (S3, docs/dentpilot-2/sms.md › «Сервер»). Счёт клиники — `sms_accounts`
+    # (выключатель Олега, имя отправителя и его путь, потолок); остаток НЕ хранится —
+    # это SUM(delta) журнала `sms_ledger`. `sms_messages` — по строке на SMS ради
+    # повтора без дубля (UNIQUE клиника + ключ программы) и статуса: ⛔ колонок для
+    # номера и текста нет и не будет — они живут в памяти запроса к sms.md.
+    # `sender_live` — одобренное имя (прежнее работает, пока новая заявка не одобрена);
+    # SMS уходят от него, пока оплачен год — `sender_until` (отсчёт с одобрения;
+    # `sender_prepaid` — оплаченные годы, ещё не начавшиеся), иначе от общего имени.
+    # Платёж за пополнение или за имя — та же таблица payments с kind.
+    11: [
+        """CREATE TABLE IF NOT EXISTS sms_accounts(
+            clinic_id TEXT PRIMARY KEY REFERENCES clinics(id),
+            enabled INTEGER NOT NULL DEFAULT 1,
+            sender TEXT NOT NULL DEFAULT '', sender_state TEXT NOT NULL DEFAULT 'none',
+            sender_note TEXT NOT NULL DEFAULT '', sender_paper_at TEXT,
+            sender_live TEXT NOT NULL DEFAULT '', sender_until TEXT,
+            sender_prepaid INTEGER NOT NULL DEFAULT 0,
+            pilot INTEGER NOT NULL DEFAULT 0,
+            daily_cap INTEGER NOT NULL, updated_at TEXT NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS sms_messages(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            idem TEXT NOT NULL, provider_id TEXT UNIQUE, kind TEXT NOT NULL,
+            sender TEXT NOT NULL, segments INTEGER NOT NULL,
+            state TEXT NOT NULL, error TEXT NOT NULL DEFAULT '',
+            sent_at TEXT NOT NULL, state_at TEXT NOT NULL, checked_at TEXT,
+            UNIQUE(clinic_id, idem))""",
+        "CREATE INDEX IF NOT EXISTS ix_sms_messages_clinic ON sms_messages(clinic_id, sent_at)",
+        "CREATE INDEX IF NOT EXISTS ix_sms_messages_open ON sms_messages(state, sent_at)",
+        """CREATE TABLE IF NOT EXISTS sms_ledger(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            delta INTEGER NOT NULL, reason TEXT NOT NULL,
+            payment_id INTEGER REFERENCES payments(id), message_id INTEGER REFERENCES sms_messages(id),
+            at TEXT NOT NULL, who TEXT NOT NULL, note TEXT NOT NULL DEFAULT '')""",
+        "CREATE INDEX IF NOT EXISTS ix_sms_ledger_clinic ON sms_ledger(clinic_id, at)",
+        "ALTER TABLE payments ADD COLUMN kind TEXT NOT NULL DEFAULT 'license'",
+        "ALTER TABLE payments ADD COLUMN sms_units INTEGER",
     ],
 }
 

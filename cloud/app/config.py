@@ -70,9 +70,57 @@ RELEASES_TAG_API = env("DP_RELEASES_TAG_API",
 RELEASES_ATOM = env("DP_RELEASES_ATOM", "https://github.com/olegbacalu-maker/dental-booking-bot/releases.atom")
 RELEASES_DOWNLOAD = "https://github.com/olegbacalu-maker/dental-booking-bot/releases/download/"
 UPDATE_CACHE_S = int(env("DP_UPDATE_CACHE_S", "300"))   # как часто сервер обновлений спрашивает GitHub
+# SMS-пакет (S3, docs/dentpilot-2/sms.md › «Сервер»): провод к sms.md знает один
+# smsmd.py. Токен — с четырьмя правами (messages:send, messages:read, account:read,
+# senders:read), живёт только здесь, на VPS; пусто = SMS выключены целиком
+# (программе — 503 sms_unconfigured). Адрес API меняют только тесты (стенд в
+# процессе теста). Секрет — часть адреса уведомлений о доставке, который Олег
+# вписывает в кабинете sms.md (Settings → API): /v1/smsmd/dlr/<секрет>; пусто =
+# уведомлений нет, статусы собирает только опрос.
+SMSMD_TOKEN = env("DP_SMSMD_TOKEN")
+SMSMD_BASE_URL = env("DP_SMSMD_BASE_URL", "https://api.sms.md/v3")
+SMSMD_DLR_SECRET = env("DP_SMSMD_DLR_SECRET")
+# тихие часы «с-до» по Кишинёву, страховка поверх программы; одинаковые числа = выключены (только стенд)
+SMS_QUIET = env("DP_SMS_QUIET", "21-8")
+# Выключатель показа (S7): токен в cloud.env нужен раньше, чем пакет увидят все — сперва
+# SMS себе, потом пилотная клиника, через 30 дней уведомления — все. Пусто = предложен
+# только клиникам с `sms_accounts.pilot` (Олег ставит в карточке); 1 = всем.
+SMS_OFFERED = env("DP_SMS_OFFERED") == "1"
 SUPPORT_PHONE = "+373 60 508 048"
 # Прайс — тот же, что на сайте (dentpilot.md › #preturi, с 24.09.2026): месяц
 # 499 MDL, год — 11 месячных (5 489 MDL, «o lună gratuită»). Сроки и счёт
 # года — payments.MONTHS / payments.BILLED. Меняется цена — меняются сайт и
 # это число вместе; у заведённой подписки своя цена в subscriptions.price.
 PRICE_MONTH = 499
+
+
+def _packs(raw: str) -> dict[int, int]:
+    """«сегментов:лей,…» → {сегментов: лей}. Кривая пара пропускается, а не роняет старт."""
+    out: dict[int, int] = {}
+    for part in raw.replace(";", ",").split(","):
+        units, _, price = part.strip().partition(":")
+        if units.strip().isdigit() and price.strip().isdigit() and int(units) > 0 and int(price) > 0:
+            out[int(units)] = int(price)
+    return dict(sorted(out.items()))
+
+
+# SMS-пакет — решения S0 Олега 16.10 (sms.md › «Решения S0»), каждое константой;
+# правка решения = правка здесь и на сайте вместе, как у PRICE_MONTH.
+# ⛔ ЦЕН В РЕПОЗИТОРИИ НЕТ — он публичный. Пополнения и цена имени живут в cloud.env:
+# DP_SMS_PACKS=«штук:лей» через запятую (решение: 100/200/300/400/500, дешевле с
+# объёмом), DP_SMS_NAME_PRICE — лей за год своего имени. Пусто = не продаётся
+# (sms_no_packs / sms_no_name), программа говорит об этом словами.
+SMS_PACKS = _packs(env("DP_SMS_PACKS"))
+SMS_NAME_PRICE = int(env("DP_SMS_NAME_PRICE", "0") or "0")
+SMS_NAME_DAYS = 365        # своё имя оплачивается ГОДОМ (Олег 16.10), отсчёт — с одобрения sms.md
+SMS_PACK_DAYS = 0          # остаток бессрочный (Олег 16.10): 0 = не сгорает
+SMS_TRIAL = True           # пробный период: SMS есть…
+SMS_TRIAL_UNITS = 30       # …30 штук бесплатно, один раз (Олег 16.10)
+SMS_READONLY = False       # S0 не решён: в режиме чтения по оплаченному остатку — нет (423 sms_plan)
+SMS_COMMON_OK = True       # пока имя клиники не одобрено (или год не оплачен) — от общего имени (Олег 16.10)
+SMS_COMMON = "DentPilot"   # общее имя отправителя на нашем аккаунте sms.md
+SMS_DAILY_CAP = 300        # потолок сегментов в сутки у новой клиники; Олег меняет в карточке
+SMS_LOW = 50               # «Au rămas N SMS» — письмо клинике, когда остаток опустился до порога
+# Себестоимость сегмента у sms.md (их ответ 16.10, с НДС) — только для сверки
+# «продано и не потрачено» против их баланса в админке; это не наша цена.
+SMSMD_SEGMENT_COST = "0.30"

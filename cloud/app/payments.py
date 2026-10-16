@@ -32,10 +32,15 @@ import calendar
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from . import db, license, maib
+from . import db, license, maib, sms
 
 PENDING, PAID, REJECTED = "pending", "paid", "rejected"
 TRANSFER, CARD = "transfer", "card"
+# Вид платежа (S3): абонемент, пополнение SMS или год своего имени отправителя.
+# У пополнения `months` = 0, `sms_units` — сколько начислить при подтверждении; у
+# имени `months` = 0 и `sms_units` пуст. Открытый платёж каждого вида у клиники
+# один — запросы о «ожидающей ноте» всюду называют вид.
+LICENSE, SMS, SMS_NAME = "license", "sms", "sms_name"
 # Сроки — как на сайте: месяц или год (решение Олега 26.09; 3 и 6 месяцев нет).
 # Год стоит 11 месячных — «o lună gratuită» в карточке цены сайта.
 MONTHS = (1, 12)
@@ -97,6 +102,48 @@ def create(con: sqlite3.Connection, clinic: sqlite3.Row, months: int, amount: in
     return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
 
 
+def create_pack(con: sqlite3.Connection, clinic: sqlite3.Row, units: int, amount: int, who: str) -> sqlite3.Row:
+    """Нота за пакет SMS (kind=sms): тот же reference, тот же путь оплаты; при
+    подтверждении начисляется пакет, а не срок (confirm)."""
+    if units <= 0 or amount <= 0:
+        raise ValueError("amount")
+    ref = next_reference(con, datetime.now(timezone.utc))
+    con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, kind,
+                                        sms_units, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, 0, SMS, units, db.now_iso()))
+    db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за пакет {units} SMS, перевод")
+    return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
+
+
+def create_name(con: sqlite3.Connection, clinic: sqlite3.Row, amount: int, who: str) -> sqlite3.Row:
+    """Нота за год своего имени отправителя (kind=sms_name, Олег 16.10)."""
+    if amount <= 0:
+        raise ValueError("amount")
+    ref = next_reference(con, datetime.now(timezone.utc))
+    con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months, kind, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (clinic["id"], amount, "MDL", TRANSFER, PENDING, ref, 0, SMS_NAME, db.now_iso()))
+    db.audit(con, who, "payment_new", clinic["id"], f"{ref}: {amount} MDL за год имени отправителя, перевод")
+    return con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
+
+
+def open_of(con: sqlite3.Connection, clinic_id: str, kind: str = LICENSE) -> sqlite3.Row | None:
+    """Ожидающая нота клиники этого вида — одна на вид."""
+    return con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? AND kind=? ORDER BY id DESC LIMIT 1",
+                       (clinic_id, PENDING, kind)).fetchone()
+
+
+def notify_paid(con: sqlite3.Connection, payment: sqlite3.Row, who: str) -> str:
+    """Письмо после оплаты — по виду: пакет SMS → «pachetul a fost activat»,
+    абонемент → письмо о лицензии (license.mail_latest). Код для ?msg= или ''."""
+    clinic = con.execute("SELECT * FROM clinics WHERE id=?", (payment["clinic_id"],)).fetchone()
+    if payment["kind"] in (SMS, SMS_NAME):
+        fresh = con.execute("SELECT * FROM payments WHERE id=?", (payment["id"],)).fetchone()
+        return (sms.mail_pack if payment["kind"] == SMS else sms.mail_name)(con, clinic, fresh, who)
+    return license.mail_latest(con, clinic, who)
+
+
 def attach_card(con: sqlite3.Connection, payment: sqlite3.Row, clinic: sqlite3.Row, who: str,
                 client_ip: str = "127.0.0.1") -> sqlite3.Row:
     """Ссылка maib к ожидающему платежу (L12): новый платёж у maib, payId и адрес
@@ -152,6 +199,14 @@ def confirm(con: sqlite3.Connection, payment: sqlite3.Row, who: str,
     if payment["status"] != PENDING:
         raise ValueError("not_pending")
     clinic = con.execute("SELECT * FROM clinics WHERE id=?", (payment["clinic_id"],)).fetchone()
+    if payment["kind"] in (SMS, SMS_NAME):
+        # SMS (S3): начисление или год имени вместо продления и файла; один раз — по тому же AND status
+        con.execute("UPDATE payments SET status=?, paid_at=?, confirmed_by=?, paid_via=? WHERE id=? AND status=?",
+                    (PAID, db.now_iso(), who, via, payment["id"], PENDING))
+        what = f"пакет {payment['sms_units']} SMS" if payment["kind"] == SMS else "год имени отправителя"
+        db.audit(con, who, "payment_paid", clinic["id"], f"{payment['reference']}: {payment['amount']} MDL, {what}")
+        (sms.credit_pack if payment["kind"] == SMS else sms.credit_name)(con, payment, who)
+        return 0, ""
     sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (clinic["id"],)).fetchone()
     now = datetime.now(timezone.utc).replace(microsecond=0)
     current = db.parse_ts(sub["valid_until"]) if sub else None
@@ -186,10 +241,10 @@ def credit_again(con: sqlite3.Connection, payment: sqlite3.Row, via: str, who: s
     if provider_id:
         con.execute("UPDATE payments SET provider_id=NULL WHERE id=?", (payment["id"],))
     con.execute("""INSERT INTO payments(clinic_id, amount, currency, method, status, reference, months,
-                                        provider_id, pay_url, created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                                        provider_id, pay_url, created_at, kind, sms_units)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (payment["clinic_id"], payment["amount"], payment["currency"], via, PENDING, ref,
-                 payment["months"], provider_id, pay_url, db.now_iso()))
+                 payment["months"], provider_id, pay_url, db.now_iso(), payment["kind"], payment["sms_units"]))
     new = con.execute("SELECT * FROM payments WHERE reference=?", (ref,)).fetchone()
     db.audit(con, who, "payment_repeat", payment["clinic_id"],
              f"{payment['reference']} ({payment['status']}): второй платёж "

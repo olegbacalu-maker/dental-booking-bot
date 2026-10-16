@@ -17,11 +17,11 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Form, Request
+from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, robots, trial, updates, views
+from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, robots, sms, smsmd, trial, updates, views
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
@@ -48,6 +48,8 @@ def startup() -> None:
         log.error("ключ выдачи не прочитан: %r", e)
     if not config.SMTP_HOST and not config.MAIL_OUTBOX:
         log.warning("ни DP_SMTP_HOST, ни DP_MAIL_OUTBOX: письма отправлять некуда")
+    if not smsmd.enabled():
+        log.warning("DP_SMSMD_TOKEN пуст: SMS-пакет выключен, программы получают sms_unconfigured")
 
 
 @app.get("/health")
@@ -126,6 +128,189 @@ def pay_link_api(request: Request) -> Response:
     return JSONResponse({"ok": True, "url": paylink.url_for(link["id"]), "expires_at": link["expires_at"]})
 
 
+# ---------- SMS-пакет (S3): программа → сервер → sms.md (docs/dentpilot-2/sms.md › «Сервер») ----------
+#
+# Bearer — токен клиники, тот же, что у /v1/license; имя отправителя сервер берёт
+# из записи клиники, в запросе его нет. Номер и текст живут в памяти запроса:
+# ни одна строка ниже не пишет их в лог или базу.
+
+SMS_BODY_MAX = 8 * 1024
+
+
+def _sms_clinic(request: Request):
+    """(клиника, None) по токену программы или (None, ответ 401)."""
+    token = _bearer(request)
+    if not token:
+        return None, JSONResponse({"ok": False, "code": "token_missing"}, status_code=401)
+    with db.connect() as con:
+        c = con.execute("SELECT * FROM clinics WHERE renew_token=? AND renew_token<>''", (token,)).fetchone()
+        if c is None:
+            return None, JSONResponse({"ok": False, "code": "token_unknown"}, status_code=401)
+        fleet.touch(con, c["id"], fleet.from_request(request))
+    return c, None
+
+
+async def _sms_body(request: Request) -> dict | None:
+    try:
+        body = json.loads((await request.body())[:SMS_BODY_MAX] or b"{}")
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _sms_answer(code: str, **extra) -> Response:
+    status, data = sms.answer(code, **extra)
+    return JSONResponse(data, status_code=status)
+
+
+def _sms_view(cid: str) -> dict:
+    with db.connect(immediate=True) as con:
+        return sms.view(con, cid)
+
+
+@app.get("/v1/sms/account")
+async def sms_account(request: Request) -> Response:
+    """Что программа показывает в Setări › SMS: включено, имя и его состояние,
+    от какого имени уходят SMS, остаток, пакеты, потолок, почему нельзя сейчас."""
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    return JSONResponse(await run_in_threadpool(_sms_view, c["id"]))
+
+
+@app.post("/v1/sms/send")
+async def sms_send(request: Request) -> Response:
+    """{to, text, kind, idem} → 200 {id, segments, state, balance} или код отказа
+    (sms.CODES). Повтор с тем же idem — тот же ответ, без второй SMS и списания."""
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    body = await _sms_body(request)
+    if body is None:
+        return _sms_answer("bad_json")
+    status, data = await run_in_threadpool(sms.submit, c["id"], body.get("to"), body.get("text"),
+                                           body.get("kind"), body.get("idem"))
+    return JSONResponse(data, status_code=status)
+
+
+def _sms_states(cid: str, ids) -> list:
+    with db.connect() as con:
+        return sms.states(con, cid, ids)
+
+
+@app.post("/v1/sms/status")
+async def sms_status(request: Request) -> Response:
+    """{ids: […]} → {items: [{id, state, error}]} — только свои сообщения."""
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    body = await _sms_body(request)
+    if body is None:
+        return _sms_answer("bad_json")
+    return JSONResponse({"ok": True, "items": await run_in_threadpool(_sms_states, c["id"], body.get("ids"))})
+
+
+def _sms_sender(cid: str, name) -> Response:
+    with db.connect(immediate=True) as con:
+        code = sms.request_sender(con, cid, name if isinstance(name, str) else "", "program")
+        if code:
+            return _sms_answer(code)
+        return JSONResponse(sms.view(con, cid))
+
+
+@app.post("/v1/sms/sender")
+async def sms_sender(request: Request) -> Response:
+    """{name} → заявка на имя отправителя (requested); подача в sms.md — руками Олега."""
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    body = await _sms_body(request)
+    if body is None:
+        return _sms_answer("bad_json")
+    return await run_in_threadpool(_sms_sender, c["id"], body.get("name"))
+
+
+def _sms_order(c, body: dict, ip: str) -> Response:
+    """Нота из программы: {pack: N} — пополнение (kind=sms), {name: 1} — год своего
+    имени (kind=sms_name). Одна открытая нота каждого вида на клинику; карта — при
+    настроенном maib; письмо с нотой — на e-mail клиники. Цены — из cloud.env."""
+    name = bool(body.get("name"))
+    if name:
+        if not config.SMS_NAME_PRICE:
+            return _sms_answer("sms_no_name")
+        units, amount = None, config.SMS_NAME_PRICE
+    else:
+        if not config.SMS_PACKS:
+            return _sms_answer("sms_no_packs")
+        try:
+            units = int(body.get("pack"))
+        except (TypeError, ValueError):
+            units = 0
+        if units not in config.SMS_PACKS:
+            return _sms_answer("sms_pack", packs=sms.packs())
+        amount = config.SMS_PACKS[units]
+    if len(c["idno"] or "") != 13:
+        return _sms_answer("sms_need_idno")
+    kind = payments.SMS_NAME if name else payments.SMS
+    with db.connect(immediate=True) as con:
+        # выключенной клинике и без права по плану не продаётся; без имени пополнение продаётся
+        acc = sms.ensure(con, c["id"])
+        why = sms.blocked(con, c["id"], acc, datetime.now(timezone.utc))
+        if why in ("sms_unconfigured", "sms_not_offered", "sms_off", "sms_plan"):
+            return _sms_answer(why)
+        if name and acc["sender_state"] not in (sms.S_REQUESTED, sms.S_SUBMITTED, sms.S_ACTIVE):
+            return _sms_answer("sms_name_none")
+        p = payments.open_of(con, c["id"], kind)
+        created = p is None
+        if created:
+            p = (payments.create_name(con, c, amount, "program") if name
+                 else payments.create_pack(con, c, units, amount, "program"))
+        if maib.enabled() and not p["pay_url"]:
+            try:
+                p = payments.attach_card(con, p, c, "program", ip)
+            except maib.MaibError as e:
+                log.warning("ссылка maib для ноты SMS %s не создана: %s", p["reference"], e)
+        if created and c["email"]:
+            try:
+                if name:
+                    subject, text = mail.sms_name_note_letter(c["name"], p["reference"], int(p["amount"]),
+                                                              acc["sender"], p["pay_url"])
+                else:
+                    subject, text = mail.sms_pack_note_letter(c["name"], p["reference"], int(p["amount"]),
+                                                              int(p["sms_units"]), p["pay_url"])
+                where = mail.send(c["email"], subject, text)
+                db.audit(con, "program", "mail", c["id"], f"нота {kind} {p['reference']} на {c['email']} ({where})")
+            except (RuntimeError, OSError) as e:
+                log.error("письмо с нотой SMS %s не отправлено: %r", p["reference"], e)
+    return JSONResponse({"ok": True, "kind": kind, "reference": p["reference"], "amount": int(p["amount"]),
+                         "units": p["sms_units"], "pay_url": p["pay_url"], "created": created})
+
+
+@app.post("/v1/sms/order")
+async def sms_order(request: Request) -> Response:
+    c, deny = await run_in_threadpool(_sms_clinic, request)
+    if deny is not None:
+        return deny
+    body = await _sms_body(request)
+    if body is None:
+        return _sms_answer("bad_json")
+    return await run_in_threadpool(_sms_order, c, body, _ip(request))
+
+
+@app.post("/v1/smsmd/dlr/{secret}")
+async def smsmd_dlr(request: Request, secret: str, tasks: BackgroundTasks) -> Response:
+    """Уведомление sms.md о доставке — сигнал, не истина: 200 сразу (их повтор на
+    4xx/5xx не приходит), состояние перепроверяется запросом после ответа
+    (sms.recheck; дубли безвредны). Чужой или пустой секрет — 404. Тело не
+    логируется: в нём пока есть phone и text."""
+    if not config.SMSMD_DLR_SECRET or not secrets.compare_digest(secret, config.SMSMD_DLR_SECRET):
+        return Response(status_code=404)
+    parsed = smsmd.dlr((await request.body())[:SMS_BODY_MAX])
+    if parsed is not None:
+        tasks.add_task(sms.recheck, parsed[0], parsed[1])
+    return JSONResponse({"ok": True})
+
+
 @app.get(paylink.PATH + "/{pid}", response_class=HTMLResponse)
 def pay_link_page(pid: str, msg: str = "") -> Response:
     with db.connect() as con:
@@ -133,8 +318,7 @@ def pay_link_page(pid: str, msg: str = "") -> Response:
         if c is None:
             return HTMLResponse(views.pay_link_expired_page(), status_code=410)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
-        pending = con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
-                              (c["id"], payments.PENDING)).fetchone()
+        pending = payments.open_of(con, c["id"])
     return HTMLResponse(views.pay_link_page(c, sub, pending, pid, msg, card_on=maib.enabled()))
 
 
@@ -174,8 +358,7 @@ def pay_link_submit(request: Request, pid: str, months: str = Form("1"), method:
             return RedirectResponse(f"{back}?msg=pay_need_idno", status_code=303)
         sub = con.execute("SELECT * FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
         price = sub["price"] if sub else config.PRICE_MONTH
-        pending = con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
-                              (c["id"], payments.PENDING)).fetchone()
+        pending = payments.open_of(con, c["id"])
         created = pending is None
         p = pending or payments.create(con, c, m, payments.amount(m, price), "program")
         if card and not p["pay_url"]:
@@ -596,8 +779,7 @@ def payment_new(request: Request, cid: str, months: str = Form("1"), amount: str
                 return RedirectResponse(f"/admin/clinics/{cid}?msg=bad_amount", status_code=303)
             # вторая ожидающая нота не выставляется (03.10): кабинет, страница оплаты и
             # ежедневная задача её не плодят — админка тоже; письмо с прежней — по галочке
-            pending = con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
-                                  (cid, payments.PENDING)).fetchone()
+            pending = payments.open_of(con, cid)
             if pending is not None:
                 if card and not pending["pay_url"]:
                     # карта к УЖЕ ожидающей ноте: ссылка maib к ней, reference прежний; maib молчит — maib_failed ниже
@@ -651,7 +833,7 @@ def _settle_now(con, p, who: str) -> str:
     truth = maib.info(p["provider_id"])
     outcome = payments.settle(con, p, truth, who)
     if outcome == payments.SETTLED_PAID:
-        license.mail_latest(con, _clinic(con, p["clinic_id"]), who)
+        payments.notify_paid(con, p, who)
         return "card_paid"
     return {payments.SETTLED_ALREADY: "payment_not_pending", payments.SETTLED_WAITING: "card_waiting"
             }.get(outcome, "card_failed")
@@ -739,7 +921,7 @@ def _maib_callback(raw: bytes) -> Response:
         p = _payment(con, p["id"])
         outcome = payments.settle(con, p, truth, "maib")
         if outcome == payments.SETTLED_PAID:
-            license.mail_latest(con, _clinic(con, p["clinic_id"]), "maib")
+            payments.notify_paid(con, p, "maib")
     log.info("maib callback: %s → %s", p["reference"], outcome)
     return JSONResponse({"ok": True, "outcome": outcome})
 
@@ -789,8 +971,7 @@ def payment_confirm(request: Request, pid: int) -> Response:
             return RedirectResponse(f"{back}?msg=payment_not_pending", status_code=303)
         except RuntimeError:
             return RedirectResponse(f"{back}?msg=no_key", status_code=303)
-        c = _clinic(con, p["clinic_id"])
-        code = "payment_confirmed" if _send_latest(con, c, who) else "payment_confirmed_mailed"
+        code = "payment_confirmed" if payments.notify_paid(con, p, who) else "payment_confirmed_mailed"
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -814,14 +995,13 @@ def payment_repeat(request: Request, pid: int, sure: str = Form("")) -> Response
         if sure != "1":
             return RedirectResponse(f"{back}?msg=repeat_unsure", status_code=303)
         try:
-            payments.credit_again(con, p, payments.TRANSFER, who)
+            new = payments.credit_again(con, p, payments.TRANSFER, who)
         except ValueError as e:
             code = {"pending": "payment_is_pending", "idno": "bad_idno"}.get(str(e), "payment_not_pending")
             return RedirectResponse(f"{back}?msg={code}", status_code=303)
         except RuntimeError:
             return RedirectResponse(f"{back}?msg=no_key", status_code=303)
-        c = _clinic(con, p["clinic_id"])
-        code = "payment_repeat" if _send_latest(con, c, who) else "payment_repeat_mailed"
+        code = "payment_repeat" if payments.notify_paid(con, new, who) else "payment_repeat_mailed"
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
@@ -1262,7 +1442,7 @@ def cont_note(request: Request, months: str = Form("1"), method: str = Form(paym
                 return RedirectResponse("/cont?msg=bad_months", status_code=303)
             if len(c["idno"] or "") != 13:
                 return RedirectResponse("/cont?msg=need_idno", status_code=303)
-            if con.execute("SELECT 1 FROM payments WHERE clinic_id=? AND status='pending'", (c["id"],)).fetchone():
+            if payments.open_of(con, c["id"]) is not None:
                 return RedirectResponse("/cont?msg=note_exists", status_code=303)
             sub = con.execute("SELECT price FROM subscriptions WHERE clinic_id=?", (c["id"],)).fetchone()
             price = sub["price"] if sub else config.PRICE_MONTH

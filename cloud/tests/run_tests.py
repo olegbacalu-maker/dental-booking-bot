@@ -27,6 +27,7 @@ import test_update  # noqa: E402
 import test_pure  # noqa: E402
 import test_renew  # noqa: E402
 import test_robots  # noqa: E402
+import test_sms  # noqa: E402
 import test_sms_rule  # noqa: E402
 import test_trial  # noqa: E402
 from harness import run  # noqa: E402
@@ -69,6 +70,10 @@ SUITES = [
     ("Флот: чистые правила — заголовки, версии", test_fleet.suite_rules),
     ("Флот: компьютеры из запросов программы, страница, карточка, JSON, кабинет", test_fleet.suite_devices),
     ("Флот: активация из программы и кодом привязывает компьютер", test_fleet.suite_activation),
+    ("SMS-пакет: чистые правила — время Кишинёва, тихие часы, имя, уведомление", test_sms.suite_rules),
+    ("SMS-пакет: отправка — план, имя, нота за пакет, повтор без дубля, молчание, отказы, потолок", test_sms.suite_send),
+    ("SMS-пакет: уведомление о доставке — секрет, перепроверка, 9 без возврата, 10 с возвратом", test_sms.suite_dlr),
+    ("SMS-пакет: ежедневная задача — опрос, имена, остаток, баланс sms.md", test_sms.suite_daily),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

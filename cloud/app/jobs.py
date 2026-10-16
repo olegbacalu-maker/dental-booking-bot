@@ -31,7 +31,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from . import db, license, mail, maib, payments
+from . import db, license, mail, maib, payments, sms, smsmd
 
 log = logging.getLogger("cloud.jobs")
 
@@ -76,10 +76,11 @@ class Report:
     skipped: list[tuple[str, str]] = field(default_factory=list)   # (clinic_id, почему)
     failed: list[tuple[str, str]] = field(default_factory=list)    # (clinic_id, ошибка)
     cards: list[tuple[str, str]] = field(default_factory=list)     # (clinic_id, reference) — maib сказал OK
+    sms: str = ""                                                   # итог SMS-части (S3) словами
 
     def line(self) -> str:
         return (f"писем: {len(self.sent)}, пропущено: {len(self.skipped)}, ошибок: {len(self.failed)}, "
-                f"картой оплачено: {len(self.cards)}")
+                f"картой оплачено: {len(self.cards)}" + (f"; SMS: {self.sms}" if self.sms else ""))
 
 
 _SUBS = """SELECT c.*, s.plan, s.price, s.valid_until, s.grace_days
@@ -91,12 +92,11 @@ _SUBS = """SELECT c.*, s.plan, s.price, s.valid_until, s.grace_days
 def open_payment(con: sqlite3.Connection, clinic: sqlite3.Row, who: str = WHO) -> sqlite3.Row:
     """Открытый платёж клиники — или новый на тот же срок, что оплачивали в последний раз.
     Один reference на всю серию писем периода: второго ожидающего платежа задача не заводит."""
-    p = con.execute("SELECT * FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
-                    (clinic["id"], payments.PENDING)).fetchone()
+    p = payments.open_of(con, clinic["id"])
     if p is not None:
         return p
-    last = con.execute("SELECT months FROM payments WHERE clinic_id=? AND status=? ORDER BY id DESC LIMIT 1",
-                       (clinic["id"], payments.PAID)).fetchone()
+    last = con.execute("SELECT months FROM payments WHERE clinic_id=? AND status=? AND kind=? "
+                       "ORDER BY id DESC LIMIT 1", (clinic["id"], payments.PAID, payments.LICENSE)).fetchone()
     months = int(last["months"]) if last and int(last["months"]) in payments.MONTHS else 1
     return payments.create(con, clinic, months, payments.amount(months, int(clinic["price"] or 0)), who)
 
@@ -170,12 +170,44 @@ def settle_cards(who: str, rep: Report) -> None:
                 fresh = con.execute("SELECT * FROM payments WHERE id=?", (p["id"],)).fetchone()
                 outcome = payments.settle(con, fresh, truth, who)
                 if outcome == payments.SETTLED_PAID:
-                    clinic = con.execute("SELECT * FROM clinics WHERE id=?", (p["clinic_id"],)).fetchone()
-                    license.mail_latest(con, clinic, who)
+                    payments.notify_paid(con, fresh, who)
                     rep.cards.append((p["clinic_id"], p["reference"]))
         except Exception as e:  # noqa: BLE001 — один платёж не останавливает остальных
             log.error("платёж картой %s: %r", p["reference"], e)
             rep.failed.append((p["clinic_id"], repr(e)))
+
+
+def sms_daily(rep: Report, now: datetime, send, who: str) -> None:
+    """SMS-пакет (S3, sms.md › «Ежедневная задача»): сгорание пакетов (S0), опрос
+    статусов без уведомления, сверка имён с sms.md, «Au rămas N SMS» клиникам,
+    баланс sms.md против проданного. Каждая часть — своя; сбой одной записывается
+    и не останавливает ни остальные, ни письма о подписках."""
+    parts: list[str] = []
+    try:
+        burned = sms.expire(now, who)
+        polled = sms.poll(now, who)
+        parts.append(f"статусов {polled['checked']}"
+                     + (f" (не получено {polled['failed']})" if polled["failed"] else ""))
+        if smsmd.enabled():
+            try:
+                al = sms.sync_aliases(who)
+                parts.append(f"имён одобрено {al['active']}, отказано {al['rejected']}")
+            except (smsmd.Unanswered, smsmd.Refused) as e:
+                rep.skipped.append(("_sms", f"имена sms.md не сверены: {e}"))
+        low = sms.low_letters(send, who)
+        parts.append(f"писем об остатке {len(low)}")
+        fc = sms.float_check(now)
+        if fc["error"]:
+            rep.skipped.append(("_sms", f"баланс sms.md не получен: {fc['error']}"))
+        elif fc["balance"] is not None:
+            parts.append(f"баланс sms.md {fc['balance']} MDL против {fc['owed']} сегм. долга"
+                         + (" — тревога Олегу" if fc["alarm"] else ""))
+        if burned:
+            parts.append(f"сгорело {burned} сегм.")
+    except Exception as e:  # noqa: BLE001 — SMS-часть не останавливает письма о подписках
+        log.error("SMS-часть задачи: %r", e)
+        rep.failed.append(("_sms", repr(e)))
+    rep.sms = ", ".join(parts)
 
 
 def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report:
@@ -183,6 +215,7 @@ def daily(now: datetime | None = None, send=mail.send, who: str = WHO) -> Report
     now = now or datetime.now(timezone.utc)
     rep = Report(at=now.strftime(db.TS))
     settle_cards(who, rep)     # сперва оплаты: продлённая подписка сегодня писем не ждёт
+    sms_daily(rep, now, send, who)
     with db.connect() as con:
         subs = con.execute(_SUBS).fetchall()
     for row in subs:
