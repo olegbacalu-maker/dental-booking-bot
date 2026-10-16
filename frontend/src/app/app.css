@@ -144,9 +144,10 @@
 
 /* Справка: карточка вопроса — те же размеры, что инлайном на старой странице. */
 .dp-faq {
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-edge);
   border-radius: var(--r-card);
-  background: var(--panel);
+  background: var(--surface);
+  box-shadow: var(--surface-sh);
   padding: 12px 16px;
   margin: 10px 0;
   max-width: var(--measure);
@@ -227,7 +228,7 @@
 .dp-notes {
   font-size: var(--fs-s);
   color: var(--text2);
-  background: var(--bg);
+  background: var(--fill);
   border-radius: var(--r-s);
   padding: 8px 10px;
   margin-top: 8px;
@@ -318,7 +319,7 @@
 .dp-vnav { margin: 0 0 12px; }
 .dp-react-root .tplrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; }
 .dp-react-root .tplrow button {
-  background: var(--bg);
+  background: var(--fill);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   padding: 6px 12px;
@@ -387,8 +388,10 @@
 .dp-cmenu {
   position: fixed;
   z-index: 70;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--surface-live);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border-radius: var(--r-ctl);
   box-shadow: var(--sh3);
   padding: 6px;
@@ -601,7 +604,8 @@
   .dp-react-root .odop[data-sel] .odop-side {
     position: fixed; z-index: 40; left: 0; right: 0; top: auto; bottom: 0;
     max-height: 56vh; overflow: auto; overscroll-behavior: contain;
-    background: var(--panel); border-top: 1px solid var(--line);
+    background: var(--surface-live); border-top: 1px solid var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
     border-radius: var(--r-block) var(--r-block) 0 0; box-shadow: 0 -8px 24px rgba(15, 23, 42, .14);
     padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
   }
@@ -691,7 +695,9 @@
 .dp-qf-back {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, .38);
+  background: var(--backdrop);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  backdrop-filter: var(--backdrop-blur);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -700,8 +706,10 @@
 }
 .dp-qf {
   width: min(560px, 92vw);
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--surface-live);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border-radius: var(--r-card);
   box-shadow: 0 18px 50px rgba(15, 23, 42, .22);
   overflow: hidden;
@@ -784,9 +792,10 @@
 .chair-docs { display: flex; flex-wrap: wrap; gap: 10px; }
 .chair-docs .pl-btn { min-height: var(--h-ctl); font-size: var(--fs-l); }
 .chair-now {
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-edge);
   border-radius: var(--r-card);
-  background: var(--panel);
+  background: var(--surface);
+  box-shadow: var(--surface-sh);
   padding: 16px 18px;
   margin: 12px 0;
 }
@@ -913,8 +922,8 @@
   align-items: end;
   gap: 10px;
   padding: var(--pad-block);
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
   border-radius: var(--r-block);
   box-shadow: var(--sh);
   justify-self: start;
@@ -972,7 +981,7 @@
   height: 22px;
   padding: 0 8px;
   border-radius: var(--r-xs);
-  background: var(--bg);
+  background: var(--fill);
   color: var(--text2);
   font-size: var(--fs-s);
   font-weight: 600;
@@ -1127,7 +1136,7 @@
    — вместо карточки «Azi». Карточка — общий рецепт карточек (фон, кромка,
    --r-card, --sh). */
 .desk {
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-card);
   box-shadow: var(--sh); padding: 13px 15px;
 }
 .dk-h { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
@@ -1401,7 +1410,7 @@ dialog.dp-ask { width: 400px; }
   padding: 6px 4px; cursor: pointer; font: inherit; color: var(--text2);
   transition: background-color var(--dur) ease, border-color var(--dur) ease;
 }
-.fl-tab:hover { background: var(--bg); }
+.fl-tab:hover { background: var(--fill); }
 .fl-tab:focus-visible { outline: none; box-shadow: var(--ring); }
 .fl-tab span { font-size: var(--fs-s); font-weight: 500; white-space: nowrap; }
 .fl-tab b { font-size: var(--fs-h3); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 24px; }
@@ -1444,7 +1453,7 @@ dialog.dp-ask { width: 400px; }
 .dp-daynav .dp-ibtn { width: var(--h-ctl); padding: 0; justify-content: center; }
 .dp-daynav .dp-ibtn svg { width: 18px; height: 18px; }
 .dp-seg {
-  display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-ctl);
+  display: inline-flex; background: var(--fill); border: 1px solid var(--line); border-radius: var(--r-ctl);
   padding: 3px; gap: 2px;
 }
 .dp-seg a {
@@ -1500,7 +1509,7 @@ dialog.dp-ask { width: 400px; }
 
 /* «Primul loc liber»: врач, ближайший свободный час, кнопка-контур; внизу касса */
 .dp-free {
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-card);
   box-shadow: var(--sh); padding: 16px; display: flex; flex-direction: column; gap: 4px;
 }
 .dp-free h2 { margin: 0 0 8px; font-size: var(--fs-h3); font-weight: 600; }
@@ -1519,7 +1528,7 @@ dialog.dp-ask { width: 400px; }
   font: inherit; font-size: var(--fs-body); font-weight: 600; cursor: pointer; white-space: nowrap;
   transition: background-color var(--dur) ease;
 }
-.dp-free-btn:hover { background: var(--bg); }
+.dp-free-btn:hover { background: var(--fill); }
 .dp-free-btn:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-free-btn:disabled { opacity: .5; cursor: default; }
 .dp-free .dk-cash {
@@ -1537,7 +1546,7 @@ dialog.dp-ask { width: 400px; }
    (?ui=legacy) своих классов не теряет. */
 .dp-react-root .dp-odo { display: flex; flex-direction: column; gap: 16px; }
 .dp-react-root .dp-card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--sh);
+  background: var(--surface); border: 1px solid var(--glass-edge); border-radius: var(--r-card); box-shadow: var(--sh);
 }
 .dp-react-root .dp-lbl {
   display: block; font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em;
@@ -1564,7 +1573,7 @@ dialog.dp-ask { width: 400px; }
   border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text);
   font: inherit; font-size: var(--fs-m); font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap;
 }
-.dp-react-root .dp-odo-lnk:hover { background: var(--bg); }
+.dp-react-root .dp-odo-lnk:hover { background: var(--fill); }
 .dp-react-root .dp-odo-lnk:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-odo-lnk svg { width: 16px; height: 16px; }
 /* кнопка-иконка 44px (та же, что у стрелок дня на главной) */
@@ -1573,7 +1582,7 @@ dialog.dp-ask { width: 400px; }
   border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text2);
   padding: 0; font: inherit; cursor: pointer; text-decoration: none;
 }
-.dp-react-root .dp-ibtn:hover { background: var(--bg); color: var(--text); }
+.dp-react-root .dp-ibtn:hover { background: var(--fill); color: var(--text); }
 .dp-react-root .dp-ibtn:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-ibtn:disabled { opacity: .45; cursor: default; }
 .dp-react-root .dp-ibtn.on { background: var(--teal-soft); border-color: var(--teal); color: var(--teal-d); }
@@ -1640,7 +1649,7 @@ dialog.dp-ask { width: 400px; }
   border: 1px solid transparent; border-radius: var(--r-ctl); background: none; font: inherit; font-size: var(--fs-m);
   color: var(--text2); cursor: pointer;
 }
-.dp-react-root .dp-vp-legend button.lg:hover, .dp-react-root .dp-vp-legend button.lg:focus-visible { background: var(--bg); color: var(--text); outline: none; }
+.dp-react-root .dp-vp-legend button.lg:hover, .dp-react-root .dp-vp-legend button.lg:focus-visible { background: var(--fill); color: var(--text); outline: none; }
 .dp-react-root .dp-vp-legend button.lg.on { background: var(--teal-soft); border-color: var(--teal); color: var(--text); }
 .dp-react-root .dp-vp-legend .sw { width: 12px; height: 12px; border-radius: var(--r-xs); flex: none; }
 .dp-react-root .dp-vp-legend .lg-n { font-style: normal; font-weight: 600; color: var(--text); min-width: 8px; margin: 0; }
@@ -1699,7 +1708,7 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-tp-form { display: contents; }
 .dp-react-root .dp-tp-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dp-react-root .dp-tp-note { font-size: var(--fs-s); color: var(--text3); }
-.dp-react-root .dp-tp .i-bridge { margin: 0; border-radius: 0; background: var(--bg); flex-direction: row; align-items: center; }
+.dp-react-root .dp-tp .i-bridge { margin: 0; border-radius: 0; background: var(--fill); flex-direction: row; align-items: center; }
 /* крест поверхностей 3×3 (64×58) и подпись справа */
 .dp-react-root .dp-sfx { display: flex; gap: 16px; align-items: center; }
 .dp-react-root .dp-sfx-grid { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 58px); gap: 6px; flex: none; }
@@ -1708,10 +1717,10 @@ dialog.dp-ask { width: 400px; }
   border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); font: inherit; color: var(--text); cursor: pointer;
   padding: 0;
 }
-.dp-react-root .dp-sf:hover { background: var(--bg); }
+.dp-react-root .dp-sf:hover { background: var(--fill); }
 .dp-react-root .dp-sf:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-sf .l {
-  width: 22px; height: 22px; border-radius: var(--r-xs); background: var(--bg); display: inline-flex; align-items: center;
+  width: 22px; height: 22px; border-radius: var(--r-xs); background: var(--fill); display: inline-flex; align-items: center;
   justify-content: center; font-size: var(--fs-m); font-weight: 700;
 }
 .dp-react-root .dp-sf .n { font-size: var(--fs-xs); color: var(--text3); }
@@ -1735,7 +1744,7 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-odo[data-brush] .dp-sf:hover { border-color: var(--text); border-style: solid; }
 .dp-react-root .dp-tp-old {
   display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--r-ctl);
-  background: var(--bg); font-size: var(--fs-s); color: var(--text2);
+  background: var(--fill); font-size: var(--fs-s); color: var(--text2);
 }
 .dp-react-root .dp-tp-old-acts { display: flex; gap: 14px; }
 /* состояние сеткой 2 колонки; переключатели отметок */
@@ -1744,7 +1753,7 @@ dialog.dp-ask { width: 400px; }
   display: flex; align-items: center; gap: 8px; min-height: var(--h-ctl); padding: 0 10px; border: 1px solid var(--line);
   border-radius: var(--r-ctl); background: var(--panel); font: inherit; font-size: var(--fs-m); color: var(--text); text-align: left; cursor: pointer;
 }
-.dp-react-root .dp-stb:hover { background: var(--bg); }
+.dp-react-root .dp-stb:hover { background: var(--fill); }
 .dp-react-root .dp-stb:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-stb.on { background: var(--teal-soft); border: 2px solid var(--teal); padding: 0 9px; font-weight: 600; }
 .dp-react-root .dp-stb:disabled { opacity: .5; cursor: default; }
@@ -1771,7 +1780,7 @@ dialog.dp-ask { width: 400px; }
   border-radius: var(--r-ctl); font: inherit; font-size: var(--fs-body); font-weight: 600; border: 1px solid var(--line);
   background: var(--panel); color: var(--text); cursor: pointer; padding: 0 14px;
 }
-.dp-react-root .dp-btn:hover { background: var(--bg); }
+.dp-react-root .dp-btn:hover { background: var(--fill); }
 .dp-react-root .dp-btn:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-btn:disabled { opacity: .5; cursor: default; }
 .dp-react-root .dp-btn.pri { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
@@ -1817,7 +1826,7 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .chip.warn { background: var(--amber-soft); color: var(--amber-t); }
 .dp-react-root .chip.bad { background: var(--red-soft); color: var(--red-t); }
 .dp-react-root .chip.info { background: var(--blue-soft); color: #1F4F99; }
-.dp-react-root .chip.mute { background: var(--bg); color: var(--text2); }
+.dp-react-root .chip.mute { background: var(--fill); color: var(--text2); }
 
 /* ---- Programări: подзаголовок, подсказка, «Lista zilei» карточкой ---- */
 .dp-react-root .dp-dayhint { margin: -4px 0 0; font-size: var(--fs-m); color: var(--text2); }
@@ -1885,7 +1894,7 @@ dialog.dp-ask { width: 400px; }
   border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text);
   font-size: var(--fs-body); font-weight: 600; text-decoration: none;
 }
-.dp-react-root .dp-doc-lnk:hover { background: var(--bg); }
+.dp-react-root .dp-doc-lnk:hover { background: var(--fill); }
 .dp-react-root .dp-doc-lnk:focus-visible { outline: none; box-shadow: var(--ring); }
 .dp-react-root .dp-doc-add { padding: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
 .dp-react-root .dp-doc-add h2 { margin: 0; font-size: var(--fs-h3); font-weight: 600; }
@@ -1916,7 +1925,7 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-pl-tbl { width: 100%; border-collapse: collapse; min-width: 760px; }
 .dp-react-root .dp-pl-tbl th {
   text-align: left; padding: 12px 16px; font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--text3); background: var(--bg); border-bottom: 1px solid var(--line); white-space: nowrap;
+  text-transform: uppercase; color: var(--text3); background: var(--fill); border-bottom: 1px solid var(--line); white-space: nowrap;
 }
 .dp-react-root .dp-pl-tbl th a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
 .dp-react-root .dp-pl-tbl th a:hover { color: var(--teal-d); }
@@ -1925,7 +1934,7 @@ dialog.dp-ask { width: 400px; }
   padding: 6px 16px; border-bottom: 1px solid var(--line); font-size: var(--fs-body); color: var(--text); vertical-align: middle;
 }
 .dp-react-root .dp-pl-tbl tbody tr { cursor: pointer; transition: background-color var(--dur-fast) ease; }
-.dp-react-root .dp-pl-tbl tbody tr:hover { background: var(--bg); }
+.dp-react-root .dp-pl-tbl tbody tr:hover { background: var(--fill); }
 .dp-react-root .dp-pl-tbl tbody tr.on { background: var(--teal-soft); }
 .dp-react-root .dp-pl-tbl tbody tr:last-child td { border-bottom: 0; }
 .dp-react-root .dp-pl-tbl .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1971,7 +1980,7 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .ppanel .pp-info { margin-bottom: 16px; }
 .dp-react-root .ppanel .pp-row { padding: 5px 0; font-size: var(--fs-body); color: var(--text); }
 .dp-react-root .ppanel .pp-row a { color: inherit; }
-.dp-react-root .ppanel .pp-b.last { border: 0; background: var(--bg); border-radius: var(--r-block); padding: 14px; margin-bottom: 4px; }
+.dp-react-root .ppanel .pp-b.last { border: 0; background: var(--fill); border-radius: var(--r-block); padding: 14px; margin-bottom: 4px; }
 .dp-react-root .ppanel .pp-b.last .pp-t {
   font-size: var(--fs-xs); line-height: 16px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text3);
 }
@@ -2071,12 +2080,12 @@ dialog.dp-ask { width: 400px; }
   font-size: var(--fs-body); font-weight: 600;
 }
 .dp-react-root .qa a:hover,
-.dp-react-root .qa button:hover { background: var(--bg); border-color: var(--line); transform: none; }
+.dp-react-root .qa button:hover { background: var(--fill); border-color: var(--line); transform: none; }
 .dp-react-root .dp-actlist { list-style: none; margin: 0; padding: 0; }
 .dp-react-root .acti { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .dp-react-root .acti:hover { background: none; }
 .dp-react-root .acti .ai {
-  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; font-size: var(--fs-body); background: var(--bg); color: var(--text2);
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; font-size: var(--fs-body); background: var(--fill); color: var(--text2);
 }
 .dp-react-root .acti .ai svg { width: 18px; height: 18px; }
 .dp-react-root .acti .ai.ok { background: var(--green-soft); color: var(--green-t); }
@@ -2099,14 +2108,14 @@ dialog.dp-ask { width: 400px; }
 .dp-react-root .dp-alist .alert .dp-ibtn:hover { background: rgba(255, 255, 255, .5); }
 /* риски анамнеза в сводном блоке (09.10): серые, пунктиром — «не отсюда правится» */
 .dp-react-root .dp-anam-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text3); }
-.dp-react-root .dp-alist .alert.anam { background: var(--bg); color: var(--text2); border: 1px dashed var(--line); }
+.dp-react-root .dp-alist .alert.anam { background: var(--fill); color: var(--text2); border: 1px dashed var(--line); }
 .dp-react-root .dp-aform { display: flex; flex-direction: column; gap: 8px; }
 .dp-react-root .dp-aform-r { display: flex; gap: 8px; flex-wrap: wrap; }
 .dp-react-root .dp-aform-r .dp-sel { flex: 0 0 auto; }
 .dp-react-root .dp-aform-r .dp-fld { flex: 1 1 140px; min-width: 0; height: var(--h-ctl); }
 .dp-react-root .dp-vlist { display: flex; flex-direction: column; gap: 10px; }
 .dp-react-root .tline {
-  display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 12px 14px; background: var(--bg); border-radius: var(--r-block);
+  display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 12px 14px; background: var(--fill); border-radius: var(--r-block);
 }
 .dp-react-root .tline.next { background: var(--teal-soft); }
 .dp-react-root .tline .tl-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: var(--fs-m); color: var(--text2); }
@@ -2174,7 +2183,7 @@ dialog.dp-ask { width: 400px; }
 /* Карточка визита: строка подтверждения звонком (12.10) — те же кнопки, что у «De confirmat» */
 .dp-react-root .dp-card-call {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-block); background: var(--bg); font-size: var(--fs-m);
+  border: 1px solid var(--line); border-radius: var(--r-block); background: var(--fill); font-size: var(--fs-m);
 }
 .dp-react-root .dp-card-call-l { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text2); }
 .dp-react-root .dp-card-call-l svg, .dp-react-root .dp-card-call .dk-ok svg, .dp-react-root .dp-card-call .dk-no svg { width: 14px; height: 14px; }
@@ -2211,7 +2220,8 @@ dialog.dp-ask { width: 400px; }
 .dp-lock-card {
   position: relative; z-index: 1; width: min(340px, 100%); box-sizing: border-box;
   display: flex; flex-direction: column; gap: 12px; padding: 30px 32px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--sh3);
+  background: var(--surface-live); border: 1px solid var(--glass-edge); border-radius: var(--r-card); box-shadow: var(--sh3);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
 }
 .dp-lock-card .clogo { align-self: center; max-height: 64px; max-width: 220px; object-fit: contain; margin-bottom: 4px; }
 /* имя клиники — по центру, как логотип над ним (просьба Олега 08-21);

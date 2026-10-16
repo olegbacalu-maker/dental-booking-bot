@@ -359,6 +359,17 @@ MUTATIONS = [
      (".top form.searchf input{font-size:16px}", ".top form.searchf .q{font-size:16px}")),
     ("длительность перехода", "app/static/css/panel.css",
      "\n.mut{transition:color .2s ease}\n"),
+    # Размытие числом — в app.css: правило обязано читать и клиентский файл.
+    ("размытие берётся ступенью", "_frontend/app/app.css",
+     "\n.mut{backdrop-filter:blur(8px)}\n"),
+    # Размытие у карточки в потоке — ступенью, но не из списка «над прокруткой».
+    ("размытие только над прокруткой", "app/static/css/panel.css",
+     "\n.pcard{backdrop-filter:var(--glass-blur)}\n"),
+    # Якорь списка: сняли размытие с шапки — список сторожил бы пустоту.
+    ("якоря размытия не протухли", "app/static/css/panel.css",
+     ("   .top{background:var(--top-live);\n     -webkit-backdrop-filter:var(--top-blur);\n"
+      "     backdrop-filter:var(--top-blur)}",
+      "   .top{background:var(--top-live)}")),
     # ---- ворота лицензии (L4) ----
     # Шлюз перестал звать refuses: запись в readonly проходит везде. Замена,
     # а не дописывание: нарушение — исчезновение вызова.
@@ -495,6 +506,10 @@ LEGAL = [
     ("длительность перехода", "app/static/css/panel.css",
      "\n.m10{transition:color var(--dur) ease,transform var(--dur-fast)}"
      ".m11{animation:dp-in .3s ease}\n"),
+    # Размытие ступенью у висящего над прокруткой и blur(…) у обычного filter
+    # (не backdrop) — законны.
+    ("размытие берётся ступенью", "app/static/css/panel.css",
+     "\n.ppanel{backdrop-filter:var(--glass-blur)}.m12{filter:blur(2px)}\n"),
     # ⭐ Законно: функцию из engine импортировать по имени можно — её никто не
     # подменяет; правило про переприсваиваемые имена обязано молчать.
     ("переприсваиваемое имя не импортируется", "app/modules/qr/routes.py",

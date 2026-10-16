@@ -114,6 +114,39 @@ _MODERN: dict[str, str] = {
     "--nav-mark": "0px", "--nav-fw": "500", "--nav-fw-on": "600",
     "--sec-fs": "10.5px", "--sec-ls": ".08em", "--sec-tt": "uppercase",
     "--dur-fast": ".15s", "--dur": ".2s", "--dur-slow": ".25s",
+    # ---------- материал (Sticlă, 16.10) ----------
+    # У сплошных стилей всё это — псевдонимы того, что и так есть: фон окна —
+    # --bg, поверхность — --panel, кромка — --line, размытия нет. Стекло
+    # подставляет сюда свои значения; panel.css/app.css читают ТОЛЬКО эти
+    # имена (background:var(--surface) у названных поверхностей,
+    # backdrop-filter:var(--glass-blur) у висящих над прокруткой), поэтому
+    # предпросмотр в настройках, кладущий переменные инлайном, показывает
+    # стекло целиком. ⛔ --panel остаётся СПЛОШНЫМ у всех стилей: на него
+    # опираются цвет текста тоста, градиент плитки и кольцо фокуса Clar.
+    # --page-bg — фон ОКНА (body); --bg не трогается: он уходит в
+    # <meta theme-color> и на страницы входа/PIN через __BG__.
+    "--page-bg": "var(--bg)",
+    # две сущности, не три плотности: --surface — заливка в потоке (карточки,
+    # сетка, таблицы, формы), --surface-live — то же для висящего над
+    # прокруткой (диалог, меню, Ctrl K, выезжающая панель), и только оно
+    # получает размытие --glass-blur. --surface-sh — тень поверхностей, у
+    # которых своей тени нет (сетка, KPI); у кого есть — берут --sh.
+    "--surface": "var(--panel)", "--surface-live": "var(--panel)", "--surface-sh": "none",
+    "--glass-edge": "var(--line)", "--glass-blur": "none",
+    # шапка журнала: с 08-06 полупрозрачная с размытием у ВСЕХ стилей (блок
+    # «стекло» в конце panel.css) — значения те, что там стояли литералами
+    "--top-live": "rgba(255,255,255,.78)", "--top-blur": "blur(12px) saturate(1.5)",
+    "--backdrop": "rgba(15,23,42,.32)", "--backdrop-blur": "blur(4px)",
+    "--toast-bg": "var(--text)",
+    # зерно: плитка static/img/noise.png поверх фона окна (body::before) с
+    # прозрачностью --noise-a; у сплошных стилей плитки нет и прозрачность 0
+    "--noise": "none", "--noise-a": "0",
+    # доля заливки меню (color-mix с transparent): 100% — как было
+    "--side-a": "100%",
+    # внутренняя заливка ВНУТРИ поверхности (шапка таблицы, колонка часов,
+    # вкладка, наведение на строку): у сплошных стилей — фон окна, как и
+    # было; на стекле сплошной --bg лёг бы непрозрачной полосой
+    "--fill": "var(--bg)",
 }
 
 STYLES: dict[str, dict[str, str]] = {
@@ -203,12 +236,65 @@ STYLES: dict[str, dict[str, str]] = {
     },
 }
 
+# Sticlă — матовое стекло поверх Clar (задание Олега 16.10, принцип Microsoft
+# Mica/Acrylic): окно — СТАТИЧНЫЙ тонированный фон (градиент + мягкие пятна,
+# главное — фирменным цветом через color-mix: у синей клиники фон синеватый),
+# карточки и сетка — полупрозрачная заливка с светлой кромкой БЕЗ размытия
+# (за ними ровный фон, размывать нечего, а канва дня перерисовывается каждые
+# 12 с), размытие — только у висящего над прокруткой (--surface-live). Форма
+# — вся от Clar: радиусы, высоты, заголовки, фокус. ⛔ Цвета смысла не трогаются.
+# ⭐ Контраст — условие рецепта: --text3 здесь берётся от --on-glass, который
+# palette() считает против ХУДШЕГО фона (тонкая заливка шапки поверх самого
+# насыщенного места пятна — glass_worst), тем же циклом, что --teal-d.
+_GLASS_TINT = "color-mix(in srgb, var(--teal) 7%, transparent)"
+STYLES["sticla"] = {
+    **STYLES["clar"],
+    # сплошной средний тон фона — для <meta theme-color> и страниц входа
+    "--bg": "#E8F0F2",
+    "--page-bg": (
+        "radial-gradient(1100px 640px at 10% -10%, color-mix(in srgb, var(--teal) 30%, transparent), transparent 70%),"
+        "radial-gradient(900px 560px at 100% 100%, rgba(255,255,255,.6), transparent 70%),"
+        "radial-gradient(760px 480px at 82% 6%, rgba(199,214,240,.5), transparent 70%),"
+        "linear-gradient(160deg, #E1F3EE 0%, #EDF5F7 50%, #E7EDF8 100%)"),
+    # плотное стекло в потоке: под мелким текстом альфа не ниже ~.80
+    "--surface": f"linear-gradient(180deg, rgba(255,255,255,.88), rgba(255,255,255,.78)), {_GLASS_TINT}",
+    # над прокруткой размытие даёт плотность само — заливка тоньше
+    "--surface-live": f"linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,255,255,.68)), {_GLASS_TINT}",
+    "--glass-blur": "blur(20px) saturate(1.6)",
+    "--glass-edge": "rgba(255,255,255,.8)",
+    # кромка стекла: блик сверху и слева, тень снизу — одна и та же у --sh
+    # (поверхности со своей тенью) и у --surface-sh (поверхности без неё)
+    "--sh": ("inset 0 1px 0 #fff,inset 1px 0 0 rgba(255,255,255,.75),"
+             "inset -1px 0 0 rgba(255,255,255,.35),inset 0 -1px 0 rgba(23,36,44,.08),"
+             "0 1px 2px rgba(23,36,44,.06),0 10px 30px rgba(23,36,44,.10)"),
+    "--surface-sh": ("inset 0 1px 0 #fff,inset 1px 0 0 rgba(255,255,255,.75),"
+                     "inset -1px 0 0 rgba(255,255,255,.35),inset 0 -1px 0 rgba(23,36,44,.08),"
+                     "0 1px 2px rgba(23,36,44,.06),0 14px 40px rgba(23,36,44,.12)"),
+    "--sh2": "inset 0 1px 0 #fff,0 2px 6px rgba(23,36,44,.10)",
+    "--sh3": "inset 0 1px 0 rgba(255,255,255,.9),0 12px 40px rgba(23,36,44,.22)",
+    # тонкая заливка шапки — тоньше карточек: под ней едет содержимое, и
+    # плотность даёт размытие
+    "--top-live": f"linear-gradient(180deg, rgba(255,255,255,.52), rgba(255,255,255,.38)), {_GLASS_TINT}",
+    "--top-blur": "blur(24px) saturate(1.6)",
+    "--backdrop": "rgba(23,36,44,.22)", "--backdrop-blur": "blur(10px)",
+    "--toast-bg": "rgba(23,36,44,.84)",
+    "--noise": "url(/static/img/noise.png)", "--noise-a": ".12",
+    "--side-a": "58%",
+    # кромки внутри стекла — полупрозрачные тёмные, не светло-серые: сплошной
+    # #DDE3E8 на полупрозрачной заливке читался бы светлее фона
+    "--line": "rgba(23,36,44,.12)", "--line2": "rgba(23,36,44,.06)",
+    "--field": "rgba(255,255,255,.72)",
+    "--fill": "rgba(23,36,44,.05)",
+    "--text3": "var(--on-glass)",
+}
+
 STYLE_LABEL = {
     "modern": ("Modern", "Interfață luminoasă, colțuri rotunjite, umbre moi."),
     "elegant": ("Elegant", "Sobru, contururi fine, colțuri mici."),
     "calm": ("Calm", "Tonuri blânde, forme moi, umbre difuze."),
     "fluent": ("Fluent", "Ca în Windows 11: colțuri mici, linii în loc de umbre, comenzi compacte."),
     "clar": ("Clar", "Carduri rotunjite cu contur fin, fără umbre, comenzi mari — implicit."),
+    "sticla": ("Sticlă", "Panouri translucide, fundal colorat discret."),
 }
 
 # ---------- меню и шрифт: два выбора рядом со стилем (B5, 25.09) ----------
@@ -304,6 +390,17 @@ _WHITE = (0xFF, 0xFF, 0xFF)
 _BLACK = (0x00, 0x00, 0x00)
 
 _HEX_RE = re.compile(r"#?([0-9a-fA-F]{6})\Z")
+
+# Худший фон стекла (Sticlă): самое насыщенное место главного пятна — база
+# градиента с фирменным цветом в доле _GLASS_SPOT (та же, что в --page-bg
+# STYLES["sticla"]) — под ТОНКОЙ заливкой шапки (нижняя альфа --top-live).
+# Числа повторяют рецепт стиля намеренно: меняя пятно или заливку там,
+# менять и здесь — test_theme держит, что --on-glass читаем на этом фоне.
+_GLASS_BASE = (0xE1, 0xF3, 0xEE)
+_GLASS_SPOT = 0.30
+_GLASS_THIN = 0.38
+# подпись Clar (--text3): от неё стекло темнит до читаемости
+_GLASS_TEXT3 = (0x66, 0x74, 0x7E)
 
 
 # ---------- цвет: разбор, сборка, арифметика ----------
@@ -405,6 +502,19 @@ def palette(primary: str, style: str) -> dict[str, str]:
     # на случай, если правило подбора dark однажды смягчат.
     on_dark = _WHITE if contrast(_WHITE, dark) >= 4.5 else _TEXT_DARK
 
+    # ⭐ Подпись на стекле (Sticlă, 16.10): --text3 там берётся отсюда. Clar
+    # подобрал #66747E под #F4F6F8 впритык (4.5), а стекло светлее не бывает —
+    # тонкая заливка шапки поверх пятна фирменного цвета темнее основы окна, и
+    # у синей клиники иначе, чем у зелёной. Тот же цикл, что у --teal-d:
+    # темнить, пока не читается на ХУДШЕМ фоне. У сплошных стилей ключ есть
+    # тоже (один набор палитры на всех), но его никто не читает.
+    on_glass = _GLASS_TEXT3
+    worst = glass_worst(primary)
+    for _ in range(24):
+        if contrast(on_glass, worst) >= 4.5:
+            break
+        on_glass = _mix(on_glass, _BLACK, 0.08)
+
     return {
         "--teal": to_hex(rgb),
         "--teal-d": to_hex(dark),
@@ -414,7 +524,19 @@ def palette(primary: str, style: str) -> dict[str, str]:
         "--teal-glow": f"rgba({r},{g},{b},.26)",     # свечение фирменной кнопки
         "--on-teal": to_hex(on),
         "--on-teal-d": to_hex(on_dark),
+        "--on-glass": to_hex(on_glass),
     }
+
+
+def glass_worst(primary: str) -> tuple[int, int, int]:
+    """Самый тёмный фон, на который в Sticlă ложится подпись: пятно фирменного
+    цвета на базе градиента под тонкой заливкой шапки. Считается здесь, а не в
+    тесте: тест сверяет --on-glass с ЭТИМ фоном, а рецепт стиля — с константами
+    рядом (_GLASS_*), и разойтись они могут только вместе."""
+    rgb = parse_hex(primary) or parse_hex(DEFAULT_PRIMARY)
+    assert rgb is not None
+    spot = _mix(_GLASS_BASE, rgb, _GLASS_SPOT)
+    return _mix(spot, _WHITE, _GLASS_THIN)
 
 
 # ---------- что выбрала клиника ----------

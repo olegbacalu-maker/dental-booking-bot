@@ -1368,6 +1368,32 @@ def suite(res: Result) -> None:
            if re.search(r"transition\s*:[^;]*(?<![\w.])\.\d+s\b", body)]
     res.ok("длительность перехода берётся ступенью", not bad,
            "секунды числом вместо var(--dur*): " + "; ".join(bad[:8]))
+
+    # Размытие — ступень материала (Sticlă, 16.10): backdrop-filter берёт
+    # var(--glass-blur) / --top-blur / --backdrop-blur. Литерал blur(…) по
+    # месту — правило, до которого стиль не достаёт: у сплошного стиля оно
+    # размывало бы всегда, у стекла — не отвечало бы на prefers-reduced-
+    # transparency, когда тот появится ключом. Условие @supports (blur(1px))
+    # — не правило, разбор его не видит.
+    bad = [f"{name}: {sel[-50:]}" for name, sel, body in rules
+           if re.search(r"backdrop-filter\s*:[^;]*blur\(", body) and sel != ":root"]
+    res.ok("размытие берётся ступенью", not bad,
+           "blur(…) числом вместо var(--glass-blur): " + "; ".join(bad[:8]))
+    # ⛔ Карточки в потоке и ячейки сетки размывать нельзя: blur считается на
+    # каждом кадре прокрутки, а канва перерисовывается каждые 12 с. Размытие
+    # разрешено только тому, под чем содержимое едет (список здесь, он же в
+    # блоке «Sticlă» panel.css); новый селектор с размытием — в список осознанно.
+    live = {".top", "dialog", "dialog::backdrop", ".pp-veil", ".side", ".gridcard>.gridhead",
+            ".ppanel", ".toastbox .banner", ".dp-cmenu", ".dp-qf", ".dp-qf-back", ".dp-lock-card",
+            ".dp-react-root .odop[data-sel] .odop-side"}
+    blurred = {(name, s.strip()) for name, sel, body in rules
+               if "backdrop-filter" in body for s in sel.split(",")}
+    bad = [f"{name}: {s}" for name, s in sorted(blurred) if s not in live]
+    res.ok("размытие только над прокруткой", not bad,
+           "backdrop-filter у поверхности в потоке: " + "; ".join(bad[:8]))
+    gone = sorted(s for s in live if s not in {s2 for _n, s2 in blurred})
+    res.ok("якоря размытия не протухли", not gone,
+           "в таблицах больше нет размытия у " + ", ".join(gone))
     # ---- ворота лицензии стоят в шлюзе, белый список — константа (L4) ----
     # Ворота одни: шлюз в main.py зовёт lic.refuses(...) ДО маршрутизации, и
     # ни один маршрут не решает про readonly сам. Второе решение разошлось бы

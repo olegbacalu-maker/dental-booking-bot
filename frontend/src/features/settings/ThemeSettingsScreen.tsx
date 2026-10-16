@@ -200,8 +200,14 @@ export function ThemeSettingsScreen({ navigate = defaultNavigate }: Props) {
                 <label key={s.key} className="th-style">
                   <input type="radio" name="style" value={s.key} checked={f.style === s.key}
                     disabled={busy} onChange={() => change({ style: s.key })} />
+                  {/* образец — фон ОКНА стиля: у стекла это градиент --page-bg (его
+                      var(--teal) — цвет текущей страницы, как и у настоящего окна),
+                      у сплошных стилей --page-bg = var(--bg) и указывал бы на фон
+                      ТЕКУЩЕГО стиля, не свой — поэтому там берётся сам --bg */}
                   <span className="th-card" style={{
-                    borderRadius: s.vars['--r-card'], background: s.vars['--bg'],
+                    borderRadius: s.vars['--r-card'],
+                    background: s.vars['--page-bg'] && s.vars['--page-bg'] !== 'var(--bg)'
+                      ? s.vars['--page-bg'] : s.vars['--bg'],
                     borderColor: s.vars['--line'], boxShadow: s.vars['--sh'],
                   }}>
                     <i style={{ borderRadius: s.vars['--r-ctl'] }} /><u /><u className="sh" />

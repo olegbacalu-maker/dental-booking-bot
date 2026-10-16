@@ -18,9 +18,15 @@ router = APIRouter()
 log = logging.getLogger("web")
 
 _ASSET_MIME = {"css": "text/css", "js": "application/javascript",
-               # ⚠️ woff2 читается БАЙТАМИ, а не текстом (см. ветку ниже):
-               # _asset() декодирует utf-8 и на шрифте падает
-               "fonts": "font/woff2"}
+               # ⚠️ woff2 и png читаются БАЙТАМИ, а не текстом (см. ветку
+               # ниже): _asset() декодирует utf-8 и на двоичном файле падает
+               "fonts": "font/woff2",
+               # img/ — плитка зерна стиля Sticlă (16.10, scripts/make_noise.py);
+               # картинки клиники (логотип) живут НЕ здесь — рядом с clinic.json
+               "img": "image/png"}
+# расширение файла по папке; у остальных папок оно совпадает с её именем
+_ASSET_EXT = {"fonts": "woff2", "img": "png"}
+_ASSET_BINARY = {"fonts", "img"}
 
 
 @router.get("/static/{kind}/{name}")
@@ -34,8 +40,8 @@ async def static_asset(kind: str, name: str) -> Response:
     внутри сборки рядом с профилем клиники, и вытащить оттуда что-то ещё через
     этот адрес быть не должно."""
     mime = _ASSET_MIME.get(kind)
-    # шрифты лежат в fonts/ и называются .woff2, остальное — имя.<папка>
-    ext = "woff2" if kind == "fonts" else kind
+    # шрифты лежат в fonts/ (.woff2), картинки в img/ (.png), остальное — имя.<папка>
+    ext = _ASSET_EXT.get(kind, kind)
     if not mime or not re.fullmatch(rf"[a-z0-9_-]+\.{ext}", name):
         return Response(status_code=404)
     try:
@@ -43,7 +49,7 @@ async def static_asset(kind: str, name: str) -> Response:
         # падает с UnicodeDecodeError, поэтому читаем байтами и мимо кеша
         # текстов: класть 500 КБ шрифта в _CSS_CACHE незачем, его и так
         # закеширует браузер на год.
-        text = (STATIC / kind / name).read_bytes() if kind == "fonts" \
+        text = (STATIC / kind / name).read_bytes() if kind in _ASSET_BINARY \
             else _asset(kind, name)
     except OSError:
         log.error("не читается %s/%s — страница останется без него", kind, name)

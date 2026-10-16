@@ -105,6 +105,23 @@ for hexv in [h for h, _n in t.PRESETS] + ["#FFFFFF", "#F5D90A", "#A3E635", "#22D
             weak_h1.append([hexv, st, round(c, 2)])
 out["weak_h1"] = weak_h1
 
+# Подпись на стекле (Sticlă, 16.10): --text3 стиля берётся от --on-glass, а тот
+# считается против ХУДШЕГО фона — тонкая заливка шапки поверх пятна фирменного
+# цвета (t.glass_worst). Фон зависит от цвета клиники, поэтому все наборы и
+# крайние светлые. Порог 4.5: это подпись 12px, не кнопка.
+weak_glass = []
+for hexv in [h for h, _n in t.PRESETS] + ["#FFFFFF", "#F5D90A", "#A3E635", "#22D3EE", "#111111"]:
+    pal = t.palette(hexv, "sticla")
+    c = t.contrast(t.parse_hex(pal["--on-glass"]), t.glass_worst(hexv))
+    if c < 4.5:
+        weak_glass.append([hexv, round(c, 2)])
+out["weak_glass"] = weak_glass
+out["glass_text3"] = t.STYLES["sticla"]["--text3"]
+# худший фон стекла и впрямь темнее сплошной основы Clar — иначе расчёт
+# сторожил бы не то место, и подпись Clar прошла бы его даром
+out["glass_darker"] = [t.luminance(t.glass_worst(h)) < t.luminance(t.parse_hex(t.STYLES["clar"]["--bg"]))
+                       for h, _n in t.PRESETS]
+
 # наведение обязано ОТЛИЧАТЬСЯ от покоя, иначе кнопка не отзывается на мышь
 out["same_hover"] = [h for h, _ in t.PRESETS
                      if t.palette(h, "modern")["--teal-d"] == h]
@@ -184,6 +201,11 @@ def suite_palette(res: Result) -> None:
            f"контраст ниже 4.5: {out['weak']}")
     res.ok("заголовок входа читаем на белой карточке при любом выборе",
            not out["weak_h1"], f"контраст ниже 4.5: {out['weak_h1']}")
+    res.ok("подпись на стекле читаема на худшем фоне при любом цвете",
+           not out["weak_glass"], f"контраст --on-glass ниже 4.5: {out['weak_glass']}")
+    res.check("у Sticlă подпись берётся от --on-glass", out["glass_text3"], "var(--on-glass)")
+    res.ok("худший фон стекла темнее основы Clar — расчёт смотрит в нужное место",
+           all(out["glass_darker"]), f"{out['glass_darker']}")
     res.ok("наведение отличается от покоя", not out["same_hover"],
            f"совпало у {out['same_hover']}")
     res.check("на светлом фирменном цвете текст тёмный", out["on_light"], "#162033")
@@ -273,9 +295,25 @@ def suite_palette(res: Result) -> None:
     odd = [st for st, ks in keysets.items() if ks != keysets["modern"]]
     res.ok("все стили задают один и тот же набор переменных", not odd,
            f"набор ключей отличается у: {odd}")
-    res.check("стилей пять, у каждого подпись",
+    res.check("стилей шесть, у каждого подпись",
               [sorted(out["styles"]), out["labels"]],
-              [["calm", "clar", "elegant", "fluent", "modern"]] * 2)
+              [["calm", "clar", "elegant", "fluent", "modern", "sticla"]] * 2)
+    # ⛔ --panel остаётся сплошным у всех (решение Олега 16.10): на него
+    # опираются цвет текста тоста, градиент плитки и кольцо фокуса Clar
+    res.ok("--panel не отдан ни одному стилю",
+           not any("--panel" in v for v in out["styles"].values()),
+           "стиль переопределил --panel — стекло ставится через --surface")
+    # Выключенные «Эффекты прозрачности» Windows гасят материал у любого стиля:
+    # блок @media в panel.css обязан перебить строку темы (она печатается
+    # ПОЗЖЕ) — значит :root:root, и назвать каждый ключ, который делает стекло
+    # стеклом. Новый ключ материала — сюда и в блок.
+    m = re.search(r"@media \(prefers-reduced-transparency:reduce\)\{\s*:root:root\{([^}]*)\}", css)
+    solid = m.group(1) if m else ""
+    need = ["--page-bg:var(--bg)", "--surface:var(--panel)", "--surface-live:var(--panel)",
+            "--glass-blur:none", "--top-blur:none", "--noise-a:0", "--side-a:100%"]
+    res.ok("выключенная прозрачность Windows гасит стекло у любого стиля",
+           bool(m) and all(k in solid for k in need),
+           f"в блоке prefers-reduced-transparency нет :root:root или ключей: {solid!r}")
 
     # Меню и шрифт — те же два инварианта, что у стилей: умолчание повторяет
     # :root (фирменное меню = то, что клиника видит с 08-17; шрифт — вшитый
@@ -317,6 +355,9 @@ _MODERN = {
     "--sh": "0 1px 2px rgba(15,23,42,.05),0 6px 18px rgba(15,23,42,.05)",
     "--sh2": "0 2px 4px rgba(15,23,42,.05),0 10px 26px rgba(15,23,42,.07)",
     "--sh3": "0 3px 6px rgba(15,23,42,.06),0 18px 40px rgba(15,23,42,.10)",
+    # материал (Sticlă, 16.10): у сплошного стиля — псевдонимы, размытия нет
+    "--page-bg": "var(--bg)", "--surface": "var(--panel)", "--surface-live": "var(--panel)",
+    "--glass-blur": "none", "--noise-a": "0", "--side-a": "100%", "--fill": "var(--bg)",
 }
 
 
@@ -340,6 +381,15 @@ def suite_pages(res: Result) -> None:
                    if v in head]
         res.ok("цвета смысла тема не трогает", not painted,
                f"в теме оказались {painted} — «Urgențe» сменили бы цвет")
+
+        # плитка зерна Sticlă (16.10): маршрут статики отдаёт img/*.png байтами
+        tile = c.get("/static/img/noise.png")
+        res.ok("плитка зерна отдаётся как PNG",
+               tile.status == 200 and "image/png" in tile.header("Content-Type")
+               and tile.raw[:8] == b"\x89PNG\r\n\x1a\n",
+               f"код {tile.status}, {tile.header('Content-Type')!r}")
+        res.ok("из img/ отдаётся только png", c.get("/static/img/noise.svg").status == 404,
+               "отдал не png")
 
         hub = json.loads(c.get("/api/settings/hub").body)["data"]["tiles"]
         res.ok("вид клиники есть в хабе настроек",
