@@ -77,6 +77,7 @@ import test_patients_api  # noqa: E402
 import test_paylink  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
+import test_sms_rule  # noqa: E402
 import test_stats_api  # noqa: E402
 import test_structure  # noqa: E402
 import test_teeth  # noqa: E402
@@ -123,6 +124,12 @@ SUITES = [
     ("Выпуск: подпись — exe до дымового теста, мастер и деинсталлятор", test_guards.suite_signing),
     ("Выпуск: тесты клиента — не повод для релиза (dev check)", test_dev.suite_release_content),
     ("Рутина: временное запусков dev — на диске проекта", test_dev.suite_child_temp),
+    # Сервера нет, доли секунды: правило SMS по вектору, общему с прогоном
+    # сервера (S2) — сегменты, которые видит клиника, и сегменты, которые
+    # списывает сервер, считаются по одному файлу.
+    ("SMS: сегменты по общему вектору", test_sms_rule.suite_parts),
+    ("SMS: номер получателя по общему вектору", test_sms_rule.suite_phones),
+    ("SMS: модуль правила чистый", test_sms_rule.suite_pure),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
     ("Лицензия: формат файла и фикстуры", test_license_format.suite),
     ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),
