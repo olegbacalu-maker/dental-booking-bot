@@ -62,6 +62,24 @@ MSG = {
     "daily_failed": ("err", "Ежедневная задача: часть писем не ушла — смотрите журнал и лог сервера"),
     "login_bad": ("err", "Неверный логин или пароль"),
     "login_locked": ("err", "Слишком много попыток — подождите минуту"),
+    # модуль «SMS» (S4)
+    "sms_saved": ("ok", "Сохранено"),
+    "sms_credited": ("ok", "Начислено — строка в журнале SMS с причиной"),
+    "credit_no_note": ("err", "Начисление без причины не делается — впишите, за что"),
+    "credit_amount": ("err", "Начисление: целое число сегментов, не ноль"),
+    "credit_reason": ("err", "Начисление: вид — bonus или fix"),
+    "cap_bad": ("err", "Потолок — целое число сегментов в сутки от 0 до 100000"),
+    "sender_not_requested": ("err", "У клиники нет заявки на имя в этом состоянии"),
+    "sender_no_paper": ("err", "Сначала отметка «Заявление получено»: без подписанного заявления имя в sms.md не подаётся"),
+    "sender_no_reason": ("err", "Отказ — только с причиной: её увидит клиника"),
+    "sms_name": ("err", "Имя: до 11 знаков латиницы, цифр, пробел, точка или тире, хоть одна буква"),
+    "sms_synced": ("ok", "Имена сверены с sms.md — изменения в журнале"),
+    "sms_sync_failed": ("err", "sms.md не ответил на запрос имён — смотрите лог сервера"),
+    "sms_test_sent": ("ok", "Тестовая SMS принята sms.md — от общего имени, мимо пакетов клиник"),
+    "sms_test_failed": ("err", "sms.md не принял тестовую SMS — причина в журнале"),
+    "sms_test_phone": ("err", "Номер — мобильный Молдовы (8 цифр, 6x/7x)"),
+    "sms_unconfigured": ("err", "DP_SMSMD_TOKEN пуст — к sms.md не обратиться"),
+    "sms_action": ("err", "Неизвестное действие"),
 }
 
 STATE_RU = {"active": ("ok", "действует"), "grace": ("warn", "льгота"),
@@ -157,14 +175,16 @@ details[open] summary:before{transform:rotate(90deg)}
 
 
 def page(title: str, body: str, user: str | None = None, msg: str = "", pending: int = 0,
-         active: str = "", lead: str = "", plain: bool = False) -> str:
+         active: str = "", lead: str = "", plain: bool = False, names: int = 0) -> str:
     """Каркас админки: тёмная шапка с разделами (активный подсвечен), выход;
-    заголовок с подписью; баннер сообщения; тело. Без входа — только бренд."""
+    заголовок с подписью; баннер сообщения; тело. Без входа — только бренд.
+    `names` — имена отправителей, ждущие подачи: счётчик у раздела «SMS»."""
     banner = ""
     if msg in MSG:
         cls, text = MSG[msg]
         banner = f"<div class='banner {cls}'>{esc(text)}</div>"
     pend = f" ({pending})" if pending else ""
+    nm = f" ({names})" if names else ""
 
     def item(href: str, text: str, key: str) -> str:
         # ⚠️ порядок атрибутов: class, потом href — тест ищет «href='/admin/fleet'>Флот</a>»
@@ -174,6 +194,7 @@ def page(title: str, body: str, user: str | None = None, msg: str = "", pending:
            f"DentPilot Cloud <span class='sub'>· админка</span></a>"
            + ((f"<nav class='nav'>{item('/admin', 'Клиники', 'clinics')}"
                f"{item('/admin/payments', 'Платежи' + pend, 'payments')}{item('/admin/fleet', 'Флот', 'fleet')}"
+               f"{item('/admin/sms', 'SMS' + nm, 'sms')}"
                f"{item('/admin/audit', 'Журнал', 'audit')}</nav>"
                f"<form method='post' action='/admin/logout'><button>Выход · {esc(user)}</button></form>")
               if user else "") + "</div></div>")
@@ -379,6 +400,16 @@ def _card_cell(p) -> str:
             f" <span class='muted'>{words}</span>")
 
 
+def _term(p) -> str:
+    """Предмет ноты: срок абонемента, пакет SMS или год имени (payments.kind, S3)."""
+    kind = p["kind"] if "kind" in p.keys() else "license"
+    if kind == "sms":
+        return f"SMS ×{p['sms_units']}"
+    if kind == "sms_name":
+        return "имя SMS, год"
+    return f"{p['months']} мес."
+
+
 def _payment_rows(rows: list, with_clinic: bool = False) -> str:
     out = []
     for p in rows:
@@ -408,7 +439,7 @@ def _payment_rows(rows: list, with_clinic: bool = False) -> str:
         clinic_td = (f"<td><a href='/admin/clinics/{esc(p['clinic_id'])}'>{esc(p['clinic'])}</a></td>"
                      if with_clinic else "")
         out.append(f"<tr><td class='mono'>{esc(p['reference'])}</td>{clinic_td}"
-                   f"<td>{p['amount']} {esc(p['currency'])}</td><td>{p['months']} мес.</td>"
+                   f"<td>{p['amount']} {esc(p['currency'])}</td><td>{_term(p)}</td>"
                    f"<td>{esc(p['created_at'][:10])}</td><td>{_pay_tag(p['status'])}"
                    f"{(' · ' + esc(p['paid_at'][:10])) if p['paid_at'] else ''}"
                    f"{(' · ' + esc(p['confirmed_by'])) if p['confirmed_by'] and p['status'] == 'paid' else ''}"
@@ -480,7 +511,7 @@ def _device_rows(devices: list, latest: str = "") -> str:
     return "".join(out)
 
 
-def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0) -> str:
+def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0, names: int = 0) -> str:
     """Флот (02.10): компьютеры клиник, версии, кто отстал от выпуска, кто молчит."""
     c = rep["counts"]
     latest = rep["latest"]
@@ -505,13 +536,182 @@ def fleet_page(rep: dict, user: str, msg: str = "", pending: int = 0) -> str:
              f"<th>Windows</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
              f"{''.join(rows) or '<tr><td colspan=7 class=muted>Ни один компьютер ещё не выходил на связь</td></tr>'}"
              f"</table></div>")
-    return page("Флот", head + table, user, msg, pending=pending, active="fleet",
+    return page("Флот", head + table, user, msg, pending=pending, active="fleet", names=names,
                 lead="Кто на какой версии и когда программа выходила на связь в последний раз.")
+
+
+SENDER_RU = {"none": ("mute", "имени нет"), "requested": ("warn", "заявка"), "submitted": ("warn", "подано в sms.md"),
+             "active": ("ok", "одобрено"), "rejected": ("bad", "отказ")}
+SMS_STATE_RU = {"delivered": "доставлено", "undelivered": "не доставлено", "failed": "отказ оператора (10)",
+                "rejected": "отказ оператора (11)", "refused": "отказ sms.md", "retry": "sms.md: не сейчас",
+                "unanswered": "sms.md не ответил", "queued": "в очереди", "sent": "у оператора", "unknown": "неизвестно"}
+LEDGER_RU = {"pack": "пакет", "send": "отправка", "refund": "возврат", "bonus": "бонус", "fix": "правка", "expire": "сгорело"}
+
+
+def _sender_tag(state: str) -> str:
+    cls, text = SENDER_RU.get(state, ("mute", state))
+    return f"<span class='tag {cls}'>{esc(text)}</span>"
+
+
+def _period_links(rep: dict) -> str:
+    """Кнопки периода: сегодня / 7 дней / месяц / свой (форма GET)."""
+    p = rep["period"]
+    links = "".join(f"<a class='{'btn' if p['kind'] == k else 'tag mute'}' href='/admin/sms?period={k}'>{t}</a> "
+                    for k, t in (("today", "сегодня"), ("week", "7 дней"), ("month", "месяц")))
+    form = (f"<form method='get' action='/admin/sms' style='display:inline-flex;gap:6px;align-items:center;margin:0'>"
+            f"<input type='hidden' name='period' value='custom'>"
+            f"<input type='date' name='from' value='{esc(p['from'])}' style='width:150px;padding:6px 8px'>"
+            f"<input type='date' name='to' value='{esc(p['to'])}' style='width:150px;padding:6px 8px'>"
+            f"<button>Показать</button></form>")
+    return f"<div class='actions' style='margin:0 0 12px'>{links}{form}</div>"
+
+
+def _sender_actions(i: dict) -> str:
+    """Шаги Олега по имени: заявление → подано → отказ; новая заявка."""
+    cid = esc(i["clinic_id"])
+    out = []
+    if i["sender_state"] == "requested":
+        if not i["sender_paper"]:
+            out.append(f"<form method='post' action='/admin/clinics/{cid}/sms'><input type='hidden' name='action' value='paper'>"
+                       f"<button title='Подписанное заявление клиники у меня'>Заявление получено</button></form>")
+        else:
+            out.append(f"<form method='post' action='/admin/clinics/{cid}/sms'><input type='hidden' name='action' value='submitted'>"
+                       f"<button class='primary' title='Имя подано в кабинете sms.md'>Подано в sms.md</button></form>")
+    if i["sender_state"] in ("requested", "submitted", "active"):
+        out.append(f"<form method='post' action='/admin/clinics/{cid}/sms'><input type='hidden' name='action' value='rejected'>"
+                   f"<input name='note' placeholder='причина отказа' required><button>Отказ</button></form>")
+    return f"<div class='actions'>{''.join(out)}</div>" if out else ""
+
+
+def sms_page(rep: dict, user: str, msg: str = "", pending: int = 0) -> str:
+    """Модуль «SMS» (S4): сводка по клиникам за период, итоги против баланса sms.md,
+    очередь имён, сбои по причинам, выгрузка за месяц, тестовая SMS, сверка имён."""
+    t, c = rep["totals"], rep["counts"]
+    p = rep["period"]
+    bal = (f"<b>{esc(rep['smsmd_balance'])} MDL</b>" if rep["smsmd_balance"] is not None else
+           ("<span class='tag bad'>баланс не получен</span>" if rep["configured"] else "<span class='tag mute'>DP_SMSMD_TOKEN пуст</span>"))
+    offered = ("всем клиникам (DP_SMS_OFFERED=1)" if rep["offered_all"] else
+               f"только пилотам ({sum(1 for i in rep['clinics'] if i['pilot'])}) — DP_SMS_OFFERED пуст")
+    head = (f"<div class='card'>{_chead('message', 'SMS по клиникам', f'период {esc(p[chr(102) + chr(114) + chr(111) + chr(109)])} — {esc(p[chr(116) + chr(111)])}, сутки по Кишинёву; сортировка по расходу')}"
+            f"{_period_links(rep)}"
+            f"<p style='margin:0 0 8px'>Отправлено <b>{t['sent']}</b> · доставлено {t['delivered']} · не доставлено {t['undelivered']}"
+            f" · отказ {t['refused']} · в пути {t['pending']} · потрачено <b>{t['spent']}</b> сегм."
+            f" · куплено {t['packs']} пакетов на {t['pack_units']} SMS</p>"
+            f"<p style='margin:0 0 8px'>Продано и не потрачено (долг клиникам): <b>{rep['owed']}</b> сегм. ≈ {esc(rep['owed_mdl'])} MDL"
+            f" по {esc(rep['segment_cost'])} · баланс sms.md: {bal}</p>"
+            f"<p class='muted' style='margin:0'>Счетов {c['clinics']}, включено {c['enabled']}; пакет предложен {esc(offered)}. "
+            f"Номеров пациентов и текстов SMS на сервере нет — видно, сколько, а не кому. "
+            f"JSON того же: <a href='/admin/api/sms?period={esc(p['kind'])}&from={esc(p['from'])}&to={esc(p['to'])}'>/admin/api/sms</a>.</p></div>")
+    queue = ""
+    if rep["queue"]:
+        qrows = "".join(
+            f"<tr><td><a href='/admin/clinics/{esc(i['clinic_id'])}'>{esc(i['clinic'])}</a></td>"
+            f"<td><b>{esc(i['sender'])}</b> {_sender_tag(i['sender_state'])}"
+            f"{' <span class=tag>заявление есть</span>' if i['sender_paper'] else ' <span class=\"tag mute\">без заявления</span>'}"
+            f"{(' · оплачено лет: ' + str(i['sender_prepaid'])) if i['sender_prepaid'] else ' · <span class=muted>год имени не оплачен</span>'}</td>"
+            f"<td>{_sender_actions(i)}</td></tr>" for i in rep["queue"])
+        queue = (f"<div class='card alert'>{_chead('inbox', f'Имена на подачу ({len(rep[chr(113) + chr(117) + chr(101) + chr(117) + chr(101)])})', 'заявка → заявление получено → подано в кабинете sms.md → одобрение читает сервер сам (ежедневная задача или кнопка «Сверить»)', _sync_btn(rep))}"
+                 f"<table><tr><th>Клиника</th><th>Имя</th><th></th></tr>{qrows}</table></div>")
+    rows = []
+    for i in rep["clinics"]:
+        last = esc(i["last_sent_at"][:16].replace("T", " ")) if i["last_sent_at"] else "—"
+        flags = ("" if i["enabled"] else " <span class='tag bad'>выкл.</span>") + \
+                (" <span class='tag ok'>пилот</span>" if i["pilot"] and not rep["offered_all"] else "")
+        rows.append(f"<tr><td><a href='/admin/clinics/{esc(i['clinic_id'])}'>{esc(i['clinic'])}</a> {_tag(i['state'])}{flags}</td>"
+                    f"<td>{esc(i['from'] or '—')}{(' ' + _sender_tag(i['sender_state'])) if i['sender'] else ''}</td>"
+                    f"<td><b>{i['balance']}</b></td><td>{i['sent']}</td><td>{i['delivered']}</td><td>{i['undelivered']}</td>"
+                    f"<td>{i['refused']}</td><td>{i['pending']}</td><td>{i['spent']}</td>"
+                    f"<td>{i['packs']}{(' (' + str(i['pack_units']) + ')') if i['packs'] else ''}</td>"
+                    f"<td>{last}</td><td>{i['used_today']} / {i['daily_cap']}</td></tr>")
+    total = (f"<tr><td><b>Итого</b></td><td></td><td><b>{t['balance']}</b></td><td><b>{t['sent']}</b></td><td>{t['delivered']}</td>"
+             f"<td>{t['undelivered']}</td><td>{t['refused']}</td><td>{t['pending']}</td><td><b>{t['spent']}</b></td>"
+             f"<td>{t['packs']} ({t['pack_units']})</td><td></td><td></td></tr>") if rows else ""
+    table = (f"<div class='card'><table><tr><th>Клиника</th><th>От имени</th><th>Остаток</th><th>Отправлено</th>"
+             f"<th>Доставлено</th><th>Не доставлено</th><th>Отказ</th><th>В пути</th><th>Сегментов</th><th>Пакетов</th>"
+             f"<th>Последняя (UTC)</th><th>Сегодня / потолок</th></tr>"
+             f"{''.join(rows) or '<tr><td colspan=12 class=muted>Ни одна клиника ещё не спрашивала про SMS</td></tr>'}{total}</table></div>")
+    frows = "".join(f"<tr><td>{esc(SMS_STATE_RU.get(f['reason'].split(':')[0], f['reason'].split(':')[0]))}"
+                    f"{esc(f['reason'][len(f['reason'].split(':')[0]):])}</td><td>{f['count']}</td><td>{f['clinics']}</td></tr>"
+                    for f in rep["failures"])
+    fail = (f"<div class='card'>{_chead('bell', 'Сбои за период', 'по причинам: статус оператора или код отказа sms.md')}"
+            f"<table><tr><th>Причина</th><th>SMS</th><th>Клиник</th></tr>"
+            f"{frows or '<tr><td colspan=3 class=muted>Сбоев нет</td></tr>'}</table></div>")
+    month = p["from"][:7]
+    tools = (f"<div class='card'>{_chead('file', 'Выгрузка и проверка', 'Excel за месяц — для сверки с фактурой sms.md; тестовая SMS — от общего имени, мимо пакетов клиник')}"
+             f"<div class='actions'><form method='get' action='/admin/sms/export.xlsx'>"
+             f"<input type='month' name='month' value='{esc(month)}' style='width:160px'><button>Скачать Excel</button></form>"
+             f"<form method='post' action='/admin/sms/test'><input name='to' placeholder='069 123 456' required>"
+             f"<button title='Одна SMS от DentPilot на этот номер; номер на диск не пишется'>Тестовая SMS себе</button></form>"
+             f"{_sync_btn(rep) if not rep['queue'] else ''}</div></div>")
+    return page("SMS", head + queue + table + fail + tools, user, msg, pending=pending, active="sms",
+                names=c["queue"], lead="Кто сколько отправил, остатки, имена отправителей и сбои — по всем клиникам.")
+
+
+def _sync_btn(rep: dict) -> str:
+    return (f"<form method='post' action='/admin/sms/sync' style='margin:0'>"
+            f"<button title='GET /v3/sender-aliases: подано → одобрено или отказ'>Сверить имена с sms.md</button></form>"
+            if rep["configured"] else "")
+
+
+def sms_block(c, det: dict | None) -> str:
+    """Карточка клиники › SMS (S4): счёт, кнопки Олега, расход по дням за месяц, журнал."""
+    cid = esc(c["id"])
+    act = f"/admin/clinics/{cid}/sms"
+    if det is None:
+        return (f"<div class='card'>{_chead('message', 'SMS', 'счёта ещё нет: программа не спрашивала, пакет не трогали')}"
+                f"<div class='actions'><form method='post' action='{act}'><input type='hidden' name='action' value='pilot_on'>"
+                f"<button>Предложить пакет (пилот)</button></form>"
+                f"<form method='post' action='{act}'><input type='hidden' name='action' value='request'>"
+                f"<input name='name' value='{esc(sms_suggest(c['name']))}' maxlength='11'><button>Заявка на имя</button></form></div></div>")
+    until = f" до {esc(det['sender_until'][:10])}" if det["sender_until"] else ""
+    prepaid = f" · оплачено вперёд лет: {det['sender_prepaid']}" if det["sender_prepaid"] else ""
+    paper = (" · заявление получено" if det["sender_paper"] else " · <span class='muted'>без заявления</span>") if det["sender_state"] == "requested" else ""
+    kv = (f"<div class='kv'>"
+          f"<div><label>Остаток</label><div class='v'><b>{det['balance']}</b> сегм.</div></div>"
+          f"<div><label>Сегодня / потолок</label><div class='v'>{det['used_today']} / {det['daily_cap']}</div></div>"
+          f"<div><label>От имени</label><div class='v'>{esc(det['from'] or '—')}</div></div>"
+          f"<div><label>Имя клиники</label><div class='v'>{esc(det['sender'] or '—')} {_sender_tag(det['sender_state'])}{until}{prepaid}{paper}"
+          f"{(' · ' + esc(det['sender_note'])) if det['sender_note'] else ''}</div></div>"
+          f"<div><label>Состояние</label><div class='v'>{'включено' if det['enabled'] else '<span class=\"tag bad\">выключено</span>'}"
+          f"{' · <span class=tag>пилот</span>' if det['pilot'] else ''}{'' if det['offered'] else ' · <span class=\"tag mute\">программе не предложено</span>'}</div></div>"
+          f"<div><label>За месяц {esc(det['month'])}</label><div class='v'>отправлено {det['sent']}, доставлено {det['delivered']}, "
+          f"не доставлено {det['undelivered']}, отказ {det['refused']}; потрачено {det['spent']} сегм.</div></div></div>")
+    toggle = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'off' if det['enabled'] else 'on'}'>"
+              f"<button>{'Выключить' if det['enabled'] else 'Включить'}</button></form>"
+              f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'pilot_off' if det['pilot'] else 'pilot_on'}'>"
+              f"<button title='Пакет предложен этой клинике, пока DP_SMS_OFFERED пуст'>{'Снять пилот' if det['pilot'] else 'Пилот'}</button></form>"
+              f"<form method='post' action='{act}'><input type='hidden' name='action' value='cap'>"
+              f"<input name='value' type='number' value='{det['daily_cap']}' min='0' max='100000' style='width:100px'><button>Потолок</button></form>"
+              f"<form method='post' action='{act}'><input type='hidden' name='action' value='credit'>"
+              f"<select name='reason' style='width:auto;padding:7px'><option value='bonus'>bonus</option><option value='fix'>fix</option></select>"
+              f"<input name='value' type='number' placeholder='±сегм.' style='width:90px' required>"
+              f"<input name='note' placeholder='причина (обязательно)' required><button>Начислить</button></form>")
+    name_form = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='request'>"
+                 f"<input name='name' value='{esc(det['sender'] or det['suggest'])}' maxlength='11'><button>Заявка на имя</button></form>")
+    actions = f"<div class='actions' style='margin:12px 0'>{toggle}{name_form}</div>{_sender_actions(det)}"
+    drows = "".join(f"<tr><td>{esc(d['day'])}</td><td>{d['sent']}</td><td>{d['delivered']}</td><td>{d['undelivered']}</td>"
+                    f"<td>{d['refused']}</td><td>{d['pending']}</td><td>{d['segments']}</td></tr>" for d in det["by_day"])
+    days = (f"<details><summary>Расход по дням за {esc(det['month'])}</summary><table><tr><th>День</th><th>Отправлено</th><th>Доставлено</th>"
+            f"<th>Не доставлено</th><th>Отказ</th><th>В пути</th><th>Сегментов</th></tr>"
+            f"{drows or '<tr><td colspan=7 class=muted>В этом месяце SMS не было</td></tr>'}</table></details>")
+    lrows = "".join(f"<tr><td class='mono'>{esc(l['at'][:16].replace('T', ' '))}</td><td>{l['delta']:+d}</td>"
+                    f"<td>{esc(LEDGER_RU.get(l['reason'], l['reason']))}</td><td>{esc(l['who'])}</td>"
+                    f"<td>{esc(l['note'] or '')}{(' · ' + esc(l['reference'])) if l.get('reference') else ''}"
+                    f"{(' · SMS #' + str(l['message_id'])) if l.get('message_id') else ''}</td></tr>" for l in det["ledger"])
+    ledger = (f"<details><summary>Журнал SMS (последние {len(det['ledger'])})</summary><table><tr><th>Когда (UTC)</th><th>±</th><th>Что</th>"
+              f"<th>Кто</th><th>Примечание</th></tr>{lrows or '<tr><td colspan=5 class=muted>пусто</td></tr>'}</table></details>")
+    return (f"<div class='card'>{_chead('message', 'SMS', 'пакет клиники: остаток — сумма журнала; номеров и текстов на сервере нет')}"
+            f"{kv}{actions}{days}{ledger}</div>")
+
+
+def sms_suggest(name: str) -> str:
+    from . import sms
+    return sms.suggest(name)
 
 
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 payments: list = (), pending: int = 0, reminders: list = (), accounts: list = (),
-                devices: list = ()) -> str:
+                devices: list = (), smsinfo: dict | None = None, names: int = 0) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     head = (f"<div class='card'><div class='kv'>"
@@ -604,8 +804,9 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"{_device_rows(list(devices)) or '<tr><td colspan=7 class=muted>Программа этой клиники ещё не выходила на связь</td></tr>'}"
                 f"</table></div>")
     lead = f"{_tag(st)} <span class='muted'>{esc(sub['plan']) if sub else 'без файла'} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
-    return page(c["name"], head + edit + acc_html + dev_html + pay_form + issue_form + issues_html + rem_html
-                + audit_html, user, msg, pending=pending, active="clinics", lead=lead)
+    return page(c["name"], head + edit + acc_html + dev_html + sms_block(c, smsinfo) + pay_form + issue_form
+                + issues_html + rem_html + audit_html, user, msg, pending=pending, active="clinics", lead=lead,
+                names=names)
 
 
 # ---------- кабинет клиники (шаг 3, 01.10): страницы по-румынски ----------
@@ -790,6 +991,7 @@ _ICO = {
     "file": "<path d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/><path d='M14 3v5h5'/>",
     "bell": "<path d='M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3z'/><path d='M10 20a2 2 0 0 0 4 0'/>",
     "clock": "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/>",
+    "message": "<path d='M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z'/><path d='M8 10h8M8 13h5'/>",
 }
 
 

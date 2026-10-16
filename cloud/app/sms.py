@@ -202,6 +202,9 @@ def balance(con: sqlite3.Connection, clinic_id: str) -> int:
 
 
 LEDGER_REASONS = ("pack", "send", "refund", "bonus", "fix", "expire")
+# Строки журнала, которые считаются РАСХОДОМ: отправка, возврат и правка сегментов
+# по сообщению (fix с message_id). Ручная правка Олега (fix без сообщения) — нет.
+SPENT_SQL = "reason IN ('send', 'refund') OR (reason='fix' AND message_id IS NOT NULL)"
 
 
 def ledger(con: sqlite3.Connection, clinic_id: str, delta: int, reason: str, who: str,
@@ -786,8 +789,8 @@ def float_check(now: datetime | None = None) -> dict:
     cost = _cents(config.SMSMD_SEGMENT_COST) or 0
     with db.connect() as con:
         out["owed"] = owed(con)
-        out["week"] = con.execute("SELECT COALESCE(-SUM(delta), 0) FROM sms_ledger WHERE reason IN ('send', 'refund', 'fix') "
-                                  "AND at>=?", ((now - timedelta(days=7)).strftime(db.TS),)).fetchone()[0]
+        out["week"] = con.execute(f"SELECT COALESCE(-SUM(delta), 0) FROM sms_ledger WHERE ({SPENT_SQL}) AND at>=?",
+                                  ((now - timedelta(days=7)).strftime(db.TS),)).fetchone()[0]
     if not smsmd.enabled():
         return out
     try:

@@ -28,6 +28,7 @@ import test_pure  # noqa: E402
 import test_renew  # noqa: E402
 import test_robots  # noqa: E402
 import test_sms  # noqa: E402
+import test_sms_admin  # noqa: E402
 import test_sms_rule  # noqa: E402
 import test_trial  # noqa: E402
 from harness import run  # noqa: E402
@@ -74,6 +75,8 @@ SUITES = [
     ("SMS-пакет: отправка — план, имя, нота за пакет, повтор без дубля, молчание, отказы, потолок", test_sms.suite_send),
     ("SMS-пакет: уведомление о доставке — секрет, перепроверка, 9 без возврата, 10 с возвратом", test_sms.suite_dlr),
     ("SMS-пакет: ежедневная задача — опрос, имена, остаток, баланс sms.md", test_sms.suite_daily),
+    ("SMS-пакет: модуль админки — сводка за период, JSON, карточка, кнопки, имена, Excel, тестовая SMS",
+     test_sms_admin.suite_admin),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

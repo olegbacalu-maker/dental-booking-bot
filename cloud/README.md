@@ -100,6 +100,13 @@ python -m app.jobs daily --at 2026-10-17T06:00:00Z     # разбор: что у
 не проверяется намеренно: токен приходит прямым HTTPS-запросом сервера к
 Google с client_secret (`app/account.py`). Паролей клиник на сервере нет.
 
+**SMS-пакет (S3–S4, 16.10)** — `/v1/sms/account|send|status|sender|order` для
+программы (Bearer — токен клиники), `/v1/smsmd/dlr/<секрет>` для уведомлений
+sms.md, раздел «SMS» админки `GET /admin/sms` и JSON `GET /admin/api/sms` той же
+формы (`smsreport.report`), выгрузка за месяц `GET /admin/sms/export.xlsx`.
+Токен sms.md и цены — только в `cloud.env` (`DP_SMSMD_*`, `DP_SMS_*`); план и
+правила — `docs/dentpilot-2/sms.md`.
+
 **Флот (шаг 3, 02.10)** — `GET /admin/fleet` и JSON `GET /admin/api/fleet`
 (кука админа; без неё 401): компьютеры клиник, как они назвались серверу
 заголовками `X-DentPilot-Device` (личность машины из `device.json`

@@ -15,13 +15,14 @@ import json
 import logging
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, robots, sms, smsmd, trial, updates, views
+from . import (account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, robots, sms,
+               sms_rule, smsmd, smsreport, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
@@ -671,9 +672,11 @@ def clinic_card(request: Request, cid: str, msg: str = "") -> Response:
         pending = _pending_count(con)
         accounts = account.of_clinic(con, cid)
         devices = fleet.of_clinic(con, cid)
+        smsinfo = smsreport.clinic_detail(con, cid)
+        names = _names_count(con)
     return HTMLResponse(views.clinic_page(c, sub, issues, audit, auth.current_user(request), msg,
                                           payments=pays, pending=pending, reminders=rems, accounts=accounts,
-                                          devices=devices))
+                                          devices=devices, smsinfo=smsinfo, names=names))
 
 
 # ---------- флот (шаг 3, 02.10): компьютеры клиник и их версии ----------
@@ -686,7 +689,8 @@ def fleet_page(request: Request, msg: str = "") -> Response:
     with db.connect() as con:
         rep = fleet.report(con)
         pending = _pending_count(con)
-    return HTMLResponse(views.fleet_page(rep, auth.current_user(request), msg, pending))
+        names = _names_count(con)
+    return HTMLResponse(views.fleet_page(rep, auth.current_user(request), msg, pending, names))
 
 
 @app.get("/admin/api/fleet")
@@ -702,6 +706,142 @@ def fleet_api(request: Request) -> Response:
 
 def _pending_count(con) -> int:
     return con.execute("SELECT count(*) FROM payments WHERE status='pending'").fetchone()[0]
+
+
+def _names_count(con) -> int:
+    """Имена отправителей, ждущие Олега (заявка или подано): счётчик у раздела «SMS»."""
+    return con.execute("SELECT count(*) FROM sms_accounts WHERE sender_state IN (?, ?)",
+                       (sms.S_REQUESTED, sms.S_SUBMITTED)).fetchone()[0]
+
+
+# ---------- модуль «SMS» (S4): кто сколько отправил, имена, деньги ----------
+
+
+def _period_args(request: Request) -> tuple[str, date | None, date | None]:
+    q = request.query_params
+    kind = q.get("period") or "month"
+
+    def _d(s):
+        try:
+            return date.fromisoformat((s or "").strip()) if s else None
+        except ValueError:
+            return None
+    return kind, _d(q.get("from")), _d(q.get("to"))
+
+
+@app.get("/admin/sms", response_class=HTMLResponse)
+def sms_admin(request: Request, msg: str = "") -> Response:
+    if (deny := _guard(request)) is not None:
+        return deny
+    kind, frm, to = _period_args(request)
+    with db.connect() as con:
+        rep = smsreport.report(con, kind, frm, to)
+        pending = _pending_count(con)
+    return HTMLResponse(views.sms_page(rep, auth.current_user(request), msg, pending))
+
+
+@app.get("/admin/api/sms")
+def sms_api(request: Request) -> Response:
+    """Тот же отчёт JSON — для будущего интерфейса админки; без куки 401 JSON, не 303."""
+    if auth.current_user(request) is None:
+        return JSONResponse({"ok": False, "code": "login"}, status_code=401)
+    kind, frm, to = _period_args(request)
+    with db.connect() as con:
+        rep = smsreport.report(con, kind, frm, to)
+    return JSONResponse({"ok": True, "data": rep})
+
+
+@app.get("/admin/sms/export.xlsx")
+def sms_export(request: Request, month: str = "") -> Response:
+    """Excel за месяц по клиникам — для сверки с фактурой sms.md. Без номеров и текстов."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    with db.connect() as con:
+        name, data = smsreport.export(con, month)
+        db.audit(con, auth.current_user(request), "sms_export", None, name)
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/admin/sms/sync")
+def sms_sync(request: Request) -> Response:
+    """Сверить имена с sms.md сейчас — то же, что делает ежедневная задача."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    if not smsmd.enabled():
+        return RedirectResponse("/admin/sms?msg=sms_unconfigured", status_code=303)
+    try:
+        sms.sync_aliases(auth.current_user(request))
+    except (smsmd.Unanswered, smsmd.Refused) as e:
+        log.error("сверка имён с sms.md: %s", e)
+        return RedirectResponse("/admin/sms?msg=sms_sync_failed", status_code=303)
+    return RedirectResponse("/admin/sms?msg=sms_synced", status_code=303)
+
+
+@app.post("/admin/sms/test")
+def sms_test(request: Request, to: str = Form("")) -> Response:
+    """Тестовая SMS себе от общего имени, мимо пакетов клиник. Номер — только в
+    памяти запроса: в журнал идёт факт и исход, без цифр."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    if not smsmd.enabled():
+        return RedirectResponse("/admin/sms?msg=sms_unconfigured", status_code=303)
+    digits, why = sms_rule.phone(to)
+    if why:
+        return RedirectResponse("/admin/sms?msg=sms_test_phone", status_code=303)
+    who = auth.current_user(request)
+    try:
+        got = smsmd.send(config.SMS_COMMON, digits, "DentPilot: SMS de test. O zi buna!")
+    except (smsmd.Unanswered, smsmd.Refused) as e:
+        with db.connect() as con:
+            db.audit(con, who, "sms_test", None, f"не принято: {e}")
+        return RedirectResponse("/admin/sms?msg=sms_test_failed", status_code=303)
+    with db.connect() as con:
+        db.audit(con, who, "sms_test", None, f"принято sms.md, {got['segments']} сегм., id {got['id']}")
+    return RedirectResponse("/admin/sms?msg=sms_test_sent", status_code=303)
+
+
+@app.post("/admin/clinics/{cid}/sms")
+def clinic_sms_action(request: Request, cid: str, action: str = Form(""), value: str = Form(""),
+                      reason: str = Form(""), note: str = Form(""), name: str = Form("")) -> Response:
+    """Кнопки карточки › SMS: вкл/выкл, пилот, потолок, начисление с причиной, имя
+    (заявка; заявление получено → подано → отказ). Каждое — строка в журнале."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    who = auth.current_user(request)
+    back = f"/admin/clinics/{cid}"
+    with db.connect(immediate=True) as con:
+        if _clinic(con, cid) is None:
+            return Response(status_code=404)
+        code = "sms_saved"
+        if action in ("on", "off"):
+            sms.set_enabled(con, cid, action == "on", who)
+        elif action in ("pilot_on", "pilot_off"):
+            sms.set_pilot(con, cid, action == "pilot_on", who)
+        elif action == "cap":
+            try:
+                code = sms.set_cap(con, cid, int(value), who) or code
+            except ValueError:
+                code = "cap_bad"
+        elif action == "credit":
+            try:
+                delta = int(value)
+            except ValueError:
+                return RedirectResponse(f"{back}?msg=credit_amount", status_code=303)
+            code = sms.credit(con, cid, delta, reason, note, who) or "sms_credited"
+        elif action in ("paper", "submitted", "rejected"):
+            code = sms.sender_step(con, cid, action, who, note) or code
+        elif action == "request":
+            code = sms.request_sender(con, cid, name, who) or code
+        else:
+            code = "sms_action"
+    return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
 # ---------- ежедневная задача и журнал (L9) ----------
