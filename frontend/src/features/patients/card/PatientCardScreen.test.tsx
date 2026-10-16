@@ -77,7 +77,7 @@ const CARD: PatientCard = {
     name: 'Pin Test', phone: '069000111', birth_date: '1985-03-07', birth: '07.03.1985', gender: 'f',
     gender_label: 'F', idnp: '2000000000001', email: 'pin@example.com', address: 'str. Pin 1',
     insurance: 'CNAM activă', primary_doctor: 'Dr. Activ Doi', file_no: 'D-5', notes: 'nota internă',
-    lang: 'ro', age: 41, channel: 'recepție', created: '18.09.2026', year: '2026',
+    lang: 'ro', sms_off: false, age: 41, channel: 'recepție', created: '18.09.2026', year: '2026',
   },
   hero: {
     pills: [

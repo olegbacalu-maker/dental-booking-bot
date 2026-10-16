@@ -32,6 +32,7 @@ const T = {
   source: 'Sursă',
   more: 'Mai multe acțiuni',
   reminded: 'Reminder trimis',
+  remindedSms: 'SMS trimis',
   rec: 'Consultație completată',
   urgent: 'Urgent',
   noPhone: 'Fără telefon',
@@ -145,7 +146,7 @@ function Row({ row, actions, clickable, busy, source, onCard, onCardMenu, onStat
         {/* вид, а не код: «confirmată» даёт звонок-подтверждение (03.10) */}
         <span className={`stat s-${row.status_view}`}>{row.status_label}</span>
         {row.reminded ? (
-          <span className="rem-mark" title={T.reminded}><Icon name="bell" /></span>
+          <span className="rem-mark" title={row.reminded_sms ? T.remindedSms : T.reminded}><Icon name="bell" /></span>
         ) : null}
         {row.rec ? (
           <span className="rec-mark" title={T.rec}><Icon name="med" /></span>

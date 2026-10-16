@@ -26,16 +26,17 @@ from ... import db
 from ... import dpapi, envfile
 from ... import engine as eng
 from ... import update as upd
-from ...core.auth import (PERM_SETTINGS, ROLE_DIRECTOR, ROLE_LABEL, _pin_rec,
-                          all_users, delete_user, find_user,
+from ...core.auth import (PERM_SETTINGS, ROLE_DIRECTOR, ROLE_LABEL, _guard, _pin_rec,
+                          all_users, can, delete_user, find_user,
                           n_directors, pin_free, pin_len_ok,
-                          remember_auth_file, require, save_user)
+                          remember_auth_file, request_user, require, save_user)
 from ...core.layout import (_DOW_ORDER, _ic,
                             msg_banner,
                             react_shell, shell_model, _shell, standalone,
                             tg_configured, tg_status)
 from ...core import bitlocker, dbkey, demo, theme
 from ...core import license as lic
+from ...core import sms_loop
 from ...core.storage import _data_dir
 from ...core.visits import SVC_PALETTE
 from . import backup as bkp
@@ -128,7 +129,8 @@ HUB_GROUP_OF = {"/admin/settings/system": "general", "/admin/license": "general"
                 "/admin/settings/clinic": "general",
                 "/admin/settings/theme": "general", "/admin/settings/hours": "programari",
                 "/admin/settings/services": "programari",
-                "/admin/settings/telegram": "programari", "/admin/medici": "medici",
+                "/admin/settings/telegram": "programari", "/admin/settings/sms": "programari",
+                "/admin/medici": "medici",
                 "/admin/settings/lan": "date", "/admin/settings/crypt": "date",
                 "/admin/settings/backup": "date", "/admin/settings/security": "securitate",
                 "/admin/settings/faq": "ajutor"}
@@ -222,6 +224,13 @@ def _hub_tiles() -> list[dict]:
                           [{"icon": "check", "t": "activ în rețeaua clinicii"}]
                           if lan.enabled()
                           else [{"t": "al doilea calculator, telefon — oprit"}]))
+    # SMS-пакет (S6): плитка — только когда сервер предлагает пакет этой
+    # клинике (S0 › 7: выключатель на сервере, не выпуск программы)
+    if sms_loop.offered():
+        acc = sms_loop.account() or {}
+        tiles.append(tile("/admin/settings/sms", "chat", "v", "SMS pentru pacienți",
+                          [{"icon": "check", "t": f"{int(acc.get('balance') or 0)} SMS rămase"}]
+                          if sms_loop.active() else [{"icon": "ban", "t": "oprit", "tone": "amber"}]))
     _cs = dbkey.state()
     tiles.append(tile("/admin/settings/crypt", "lock", "g", "Criptarea evidenței",
                       {dbkey.OK: [{"icon": "check", "t": "activă"}],
@@ -251,6 +260,21 @@ async def admin_settings(request: Request, msg: str = ""):
     # ⭐ B1: оболочку рисует React, сервер печатает голову и модель.
     return react_shell("settings_hub", request.url.path,
                        shell_model("set", "setările clinicii · pe secțiuni", msg=msg))
+
+
+@router.get("/admin/settings/sms", response_class=HTMLResponse)
+async def settings_sms(request: Request, msg: str = ""):
+    """Setări › SMS (S6). Видит и регистратура (слово Олега 16.10): вход —
+    `_guard`, не `require(PERM_SETTINGS)`; что только директору («Comandă»,
+    тестовая SMS), решает JSON API. Крошка «Setări» — тому, кому она открыта."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    me = request_user()
+    crumbs = (_SEC_CRUMBS if me is None or can(me, PERM_SETTINGS)
+              else [{"href": "/admin", "icon": "home", "label": "Panou"}])
+    return react_shell("settings_sms", request.url.path,
+                       shell_model("sms" if sms_loop.offered() else "set",
+                                   "memento-uri SMS pentru pacienți", msg=msg, crumbs=crumbs))
 
 
 @router.get("/admin/settings/system", response_class=HTMLResponse)

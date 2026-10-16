@@ -29,6 +29,7 @@ import test_renew  # noqa: E402
 import test_robots  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_admin  # noqa: E402
+import test_sms_client  # noqa: E402
 import test_sms_rule  # noqa: E402
 import test_trial  # noqa: E402
 from harness import run  # noqa: E402
@@ -37,6 +38,7 @@ SUITES = [
     ("Сервер: без импортов движка, одни версии", test_pure.suite),
     ("SMS: сегменты и номер — общий вектор с программой", test_sms_rule.suite_vectors),
     ("SMS: копия сервера и копия программы отвечают одинаково", test_sms_rule.suite_twins),
+    ("SMS: белый список личного текста — копия сервера против sms_plan программы", test_sms_rule.suite_custom_twins),
     ("Сервер: вход, кука, выход, Origin", test_admin.suite_login),
     ("Сервер: лимит попыток входа", test_admin.suite_lock),
     ("Сервер: клиники", test_clinics.suite),
@@ -79,6 +81,8 @@ SUITES = [
     ("SMS-пакет: ежедневная задача — опрос, имена, остаток, баланс sms.md", test_sms.suite_daily),
     ("SMS-пакет: модуль админки — сводка за период, JSON, карточка, кнопки, имена, Excel, тестовая SMS",
      test_sms_admin.suite_admin),
+    ("SMS-пакет: личный текст клиники — карточка, проверки, счёт программы", test_sms_admin.suite_custom),
+    ("SMS-пакет: провод программы против этого сервера", test_sms_client.suite_client),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),
     ("Прод: файлы развёртывания согласованы", test_deploy.suite_files),

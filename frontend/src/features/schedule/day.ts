@@ -205,6 +205,8 @@ export interface DayListRow {
   status_view: string
   status_label: string
   reminded: boolean
+  /** Напомнили именно SMS (S5): подсказка колокольчика называет канал. */
+  reminded_sms: boolean
   rec: boolean
 }
 

@@ -22,6 +22,7 @@ export const ROUTES = [
   { path: "/admin/settings/lan", screen: "settings_lan" },
   { path: "/admin/settings/security", screen: "settings_security" },
   { path: "/admin/settings/services", screen: "settings_services" },
+  { path: "/admin/settings/sms", screen: "settings_sms" },
   { path: "/admin/settings/system", screen: "settings_system" },
   { path: "/admin/settings/theme", screen: "settings_theme" },
   { path: "/admin/visit/:appt_id", screen: "visit" },

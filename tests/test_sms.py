@@ -680,3 +680,158 @@ def suite_not_offered(res: Result) -> None:
         stand.close()
         _rmtree_settled(d)
 
+
+# ---------- экраны (S6) ----------
+
+
+def _j(r) -> dict:
+    return json.loads(r.body)
+
+
+def suite_screen(res: Result) -> None:
+    """Setări › SMS и его API, плитка и пункт меню, отказ пациента в фише,
+    лист acord по состоянию пакета, баннер остатка; затем «не предлагается»."""
+    stand = Stand()
+    renew = {"url": stand.url, "token": TOKEN}
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_sms4_"))
+    env = {**KEY_ENV, **TICK}
+    try:
+        _clinic_weekdays(d)
+        (d / "license.json").write_text(lr._file(5, renew), encoding="utf-8")
+        with Clock(_at(2026, 11, 6, 9, 0)) as clock:
+            with Server(dir_=d, env=env) as s:
+                c = Client(s.url).login()
+                res.check("без входа — 401", Client(s.url).get("/api/settings/sms").status, 401)
+                page = c.get("/admin/settings/sms")
+                res.ok("страница — React-экран settings_sms", page.status == 200
+                       and 'data-screen="settings_sms"' in page.body, page.body[:300])
+                data = _wait(lambda: (_j(c.get("/api/settings/sms"))["data"] or {}) if
+                             _j(c.get("/api/settings/sms"))["data"].get("offered") else None) or _j(c.get("/api/settings/sms"))["data"]
+                res.ok("экран: доступен, предложен, включён, остаток 100, от DentPilot, директору можно заказывать",
+                       data["available"] and data["offered"] and data["enabled"] and data["account"]["balance"] == 100
+                       and data["account"]["from"] == "DentPilot" and data["can_order"] and data["why"] == "", repr(data)[:600])
+                res.check("настройки — умолчания", data["settings"],
+                          {"day_before": {"on": True, "hour": 10, "variant": "standard"},
+                           "same_day": {"on": False, "hours": 2, "variant": "standard"}, "phone_line": False})
+                pv = data["previews"]["day_before"]["standard"]
+                res.ok("предпросмотр накануне: «maine», название клиники, один сегмент, RO и RU",
+                       "maine" in pv["ro"]["text"] and "Clinica Test" in pv["ro"]["text"] and pv["ro"]["segments"] == 1
+                       and "завтра" in pv["ru"]["text"] and pv["ru"]["segments"] == 1, repr(pv))
+                res.ok("предпросмотр в день визита: «astazi»",
+                       "astazi" in data["previews"]["same_day"]["scurt"]["ro"]["text"])
+                res.ok("варианты и часы — списком, личного текста нет",
+                       [v["key"] for v in data["options"]["variants"]] == ["standard", "scurt", "oficial", "cald"]
+                       and data["options"]["hours"][0] == 8 and data["options"]["leads"] == [1, 2, 3], repr(data["options"]))
+                res.ok("плитка хаба и пункт меню «SMS pacienți»",
+                       any(t["href"] == "/admin/settings/sms" and "100 SMS" in t["hint"][0]["t"]
+                           for t in _j(c.get("/api/settings/hub"))["data"]["tiles"])
+                       and any(i["key"] == "sms" and i["dot"] == "ok" for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
+                res.ok("баннера остатка нет: расхода ещё нет", not shell_signal(c.get("/admin").body, "sms")["shown"])
+
+                # переключатели — сохраняются сразу, цикл просыпается
+                r = c.post_json("/api/settings/sms", {"day_before": {"on": True, "hour": 11, "variant": "cald"},
+                                                      "same_day": {"on": True, "hours": 3, "variant": "scurt"},
+                                                      "phone_line": True})
+                res.ok("сохранение — ok_sms с данными", r.msg == "ok_sms" and _j(r)["data"]["settings"]["same_day"]["on"], r.body[:300])
+                cfg = json.loads((d / "clinic.json").read_text(encoding="utf-8"))
+                res.check("clinic.json › sms", cfg.get("sms"),
+                          {"day_before": {"on": True, "hour": 11, "variant": "cald"},
+                           "same_day": {"on": True, "hours": 3, "variant": "scurt"}, "phone_line": True})
+                data = _j(c.get("/api/settings/sms"))["data"]
+                res.ok("предпросмотр со строкой телефона клиники",
+                       data["previews"]["day_before"]["cald"]["ro"]["text"].endswith("\nAnulare: +373 60 000 000"))
+                r = c.post_json("/api/settings/sms", {"day_before": {"on": True, "hour": 99, "variant": "zzz"}})
+                res.check("кривые значения — умолчания, не отказ", _j(r)["data"]["settings"]["day_before"],
+                          {"on": True, "hour": 10, "variant": "standard"})
+                res.check("не JSON — 422 bad_sms", c.post("/api/settings/sms", x="1").msg, "bad_sms")
+
+                # директор: нота, имя, тест
+                r = c.post_json("/api/settings/sms/order", {"pack": 100})
+                res.ok("пополнение — sms_order_ok с нотой и ссылкой", r.msg == "sms_order_ok"
+                       and _j(r)["data"]["reference"] == "DP-77" and _j(r)["data"]["units"] == 100, r.body[:300])
+                res.check("стенд получил заказ",
+                          next((x["json"] for x in reversed(stand.requests) if x["path"] == "/v1/sms/order"), None),
+                          {"pack": 100})
+                r = c.post_json("/api/settings/sms/sender", {"name": "Clinica Tst"})
+                res.ok("заявка на имя — sms_sender_ok, в счёте requested", r.msg == "sms_sender_ok"
+                       and _j(r)["data"]["account"]["sender_state"] == "requested", r.body[:300])
+                r = c.post_json("/api/settings/sms/test", {"phone": "069000111"})
+                res.ok("тестовая SMS — sms_test_ok, ушла стендом видом test", r.msg == "sms_test_ok"
+                       and stand.sends[-1]["json"]["kind"] == "test" and stand.sends[-1]["json"]["to"] == "69000111", r.body[:200])
+                r = c.post_json("/api/settings/sms/test", {"phone": "12345"})
+                res.ok("кривой номер — 409 sms_denied с полем phone и словами",
+                       r.status == 409 and r.msg == "sms_denied" and _j(r).get("field") == "phone", r.body[:300])
+                stand.send_mode = "balance"
+                r = c.post_json("/api/settings/sms/test", {"phone": "069000111"})
+                res.ok("отказ сервера — его словами", r.msg == "sms_denied" and "terminat" in _j(r)["text"], r.body[:300])
+                stand.send_mode = "ok"
+
+                # фиша: отказ пациента одним полем; лист acord по состоянию пакета
+                pid = new_patient(c, "Sms Refuz", "069000777")
+                r = c.post_json(f"/api/patients/{pid}/sms-off", {"on": True})
+                j = _j(r)
+                res.ok("«Fără remindere SMS» — ok_card, профиль sms_off, летопись",
+                       r.msg == "ok_card" and j["data"]["profile"]["sms_off"] is True
+                       and any(a["kind"] == "sms_off" and a["text"].startswith("Remindere SMS oprite")
+                               for a in j["data"]["activity"]["items"]), r.body[:300])
+                res.check("остальной профиль цел", j["data"]["profile"]["phone"], "069000777")
+                r = c.post_json(f"/api/patients/{pid}/sms-off", {"on": False})
+                res.check("снято", _j(r)["data"]["profile"]["sms_off"], False)
+                sheet = c.get(f"/admin/patient/{pid}/acord").body
+                res.ok("acord при работающем пакете: SMS в основаниях и в разделе хранения",
+                       "(prin SMS)" in sheet and "operatorului SMS.MD" in sheet, sheet[-2500:])
+                sheet_ru = c.get(f"/admin/patient/{pid}/acord?lang=ru").body
+                res.ok("acord RU: то же", "(по SMS)" in sheet_ru and "оператору SMS.MD" in sheet_ru)
+                c.post_json("/api/settings/sms", {"day_before": {"on": False}, "same_day": {"on": False}})
+                sheet = c.get(f"/admin/patient/{pid}/acord").body
+                res.ok("события выключены — лист прежний, без SMS",
+                       "(prin SMS)" not in sheet and "operatorului SMS.MD" not in sheet)
+                res.ok("плитка: «oprit», пункт меню с точкой off",
+                       any(t["href"] == "/admin/settings/sms" and t["hint"][0]["t"] == "oprit"
+                           for t in _j(c.get("/api/settings/hub"))["data"]["tiles"])
+                       and any(i["key"] == "sms" and i["dot"] == "off" for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
+                c.post_json("/api/settings/sms", {"day_before": {"on": True}})
+
+                # баннер остатка: расход есть, остатка на считанные дни
+                for i in range(12):
+                    r = add_appt(c, "2026-10-30", f"{8 + i % 6:02d}:00", f"Sms Vechi {i}", f"0690001{i:02d}",
+                                 doctor="d2" if i < 6 else "d3")
+                    res.check(f"визит прошлого месяца {i} записан", r.msg, "ok_past")
+                stand.account["balance"] = 1
+                clock.set(_at(2026, 11, 6, 9, 30))
+                r = c.post_json("/api/settings/sms/refresh", {})
+                data = _wait(lambda: (lambda x: x if x["forecast"]["visits"] >= 12 else None)(_j(c.get("/api/settings/sms"))["data"]))
+                res.ok("прогноз: 12 визитов за 30 дней, остаток 1 — low",
+                       data and data["forecast"]["month"] == 12 and data["low"] and data["forecast"]["days_left"] == 2,
+                       repr(data and data["forecast"]) + repr(data and data["low"]))
+                sig = shell_signal(c.get("/admin").body, "sms")
+                res.ok("баннер остатка на всех экранах, со ссылкой в Setări › SMS",
+                       sig["shown"] and "Pachetul SMS se termină" in sig["html"] and "/admin/settings/sms" in sig["html"], repr(sig))
+
+                # не предлагается: плитка молчит, пункта нет, экран объясняет
+                stand.account_reply = (503, {"ok": False, "code": "sms_not_offered", "text": "nu"})
+                c.post_json("/api/settings/sms/refresh", {})
+                data = _j(c.get("/api/settings/sms"))["data"]
+                res.ok("не предлагается: offered=false, причина словами, счёта нет",
+                       data["available"] and not data["offered"] and data["account"] is None
+                       and "disponibil" in data["why"], repr(data)[:300])
+                res.ok("плитки и пункта меню нет, баннера нет",
+                       not any(t["href"] == "/admin/settings/sms" for t in _j(c.get("/api/settings/hub"))["data"]["tiles"])
+                       and not any(i["key"] == "sms" for i in shell_model(c.get("/admin").body)["nav"]["sync"])
+                       and not shell_signal(c.get("/admin").body, "sms")["shown"])
+                res.check("заказ без пакета — 409 sms_denied", c.post_json("/api/settings/sms/order", {"pack": 100}).status, 409)
+        # файл без renew: экран говорит «только в активированном программе»
+        d2 = pathlib.Path(tempfile.mkdtemp(prefix="dp_sms5_"))
+        try:
+            _clinic_weekdays(d2)
+            shutil.copy(FIX / "valid.json", d2 / "license.json")
+            with Server(dir_=d2, env=env) as s:
+                c = Client(s.url).login()
+                data = _j(c.get("/api/settings/sms"))["data"]
+                res.ok("без renew: available=false, предпросмотров нет", not data["available"] and data["previews"] == {})
+                res.check("заказ — 409 sms_unavailable", c.post_json("/api/settings/sms/order", {"pack": 100}).msg, "sms_unavailable")
+        finally:
+            _rmtree_settled(d2)
+    finally:
+        stand.close()
+        _rmtree_settled(d)

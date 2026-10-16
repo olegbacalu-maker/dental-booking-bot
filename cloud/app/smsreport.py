@@ -160,7 +160,9 @@ def clinic_detail(con: sqlite3.Connection, cid: str, now: datetime | None = None
         """SELECT l.*, p.reference FROM sms_ledger l LEFT JOIN payments p ON p.id = l.payment_id
            WHERE l.clinic_id=? ORDER BY l.id DESC LIMIT ?""", (cid, LEDGER_LAST)).fetchall()]
     return {**item, "month": first.isoformat()[:7], "by_day": sorted(days.values(), key=lambda x: x["day"]),
-            "ledger": ledger, "suggest": sms.suggest(a["name"])}
+            "ledger": ledger, "suggest": sms.suggest(a["name"]),
+            # личный текст клиники (S6) — форма карточки
+            "custom_ro": a["custom_ro"], "custom_ru": a["custom_ru"], "custom_on": bool(a["custom_on"])}
 
 
 EXPORT_HEADER = ["Clinica", "IDNO", "Nume expeditor", "SMS trimise", "Livrate", "Nelivrate", "Refuzate",

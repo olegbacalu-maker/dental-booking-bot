@@ -64,6 +64,11 @@ MSG = {
     "login_locked": ("err", "Слишком много попыток — подождите минуту"),
     # модуль «SMS» (S4)
     "sms_saved": ("ok", "Сохранено"),
+    "sms_custom_ro": ("err", "Текст RO не принят: подстановки только {clinica} {ziua} {data} {ora} {telefon} "
+                             "(обязательны clinica, data, ora), латиница без диакритики, один сегмент"),
+    "sms_custom_ru": ("err", "Текст RU не принят: подстановки только {clinica} {ziua} {data} {ora} {telefon} "
+                             "(обязательны clinica, data, ora), один сегмент — 70 знаков с названием клиники"),
+    "sms_custom_empty": ("err", "Личный текст включён, а текста нет — впишите хотя бы RO"),
     "sms_credited": ("ok", "Начислено — строка в журнале SMS с причиной"),
     "credit_no_note": ("err", "Начисление без причины не делается — впишите, за что"),
     "credit_amount": ("err", "Начисление: целое число сегментов, не ноль"),
@@ -707,6 +712,22 @@ def sms_block(c, det: dict | None) -> str:
     name_form = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='request'>"
                  f"<input name='name' value='{esc(det['sender'] or det['suggest'])}' maxlength='11'><button>Заявка на имя</button></form>")
     actions = f"<div class='actions' style='margin:12px 0'>{toggle}{name_form}</div>{_sender_actions(det)}"
+    # Личный текст клиники (S6, «Свой текст — по заявке»): программа предложит
+    # вариант «Textul clinicii». Подстановки — белый список sms_rule; тексты
+    # клиники — не данные пациентов, их показывать можно.
+    custom = (f"<details{' open' if det['custom_on'] else ''}><summary>Личный текст клиники (по заявке)"
+              f"{' · включён' if det['custom_on'] else ''}</summary>"
+              f"<form method='post' action='{act}'><input type='hidden' name='action' value='custom'>"
+              f"<p class='muted'>Подстановки только {{clinica}} {{ziua}} {{data}} {{ora}} {{telefon}}; обязательны "
+              f"clinica, data, ora. RO — латиница без диакритики, один сегмент GSM-7; RU — один сегмент (70 знаков). "
+              f"Без врача, услуги и имени пациента.</p>"
+              f"<label>RO<br><textarea name='custom_ro' rows='3' maxlength='400' style='width:100%'>"
+              f"{esc(det['custom_ro'])}</textarea></label>"
+              f"<label>RU<br><textarea name='custom_ru' rows='3' maxlength='400' style='width:100%'>"
+              f"{esc(det['custom_ru'])}</textarea></label>"
+              f"<label><input type='checkbox' name='custom_on' value='1'{' checked' if det['custom_on'] else ''}> "
+              f"включить — программа клиники получит вариант «Textul clinicii»</label> "
+              f"<button>Сохранить текст</button></form></details>")
     drows = "".join(f"<tr><td>{esc(d['day'])}</td><td>{d['sent']}</td><td>{d['delivered']}</td><td>{d['undelivered']}</td>"
                     f"<td>{d['refused']}</td><td>{d['pending']}</td><td>{d['segments']}</td></tr>" for d in det["by_day"])
     days = (f"<details><summary>Расход по дням за {esc(det['month'])}</summary><table><tr><th>День</th><th>Отправлено</th><th>Доставлено</th>"
@@ -719,7 +740,7 @@ def sms_block(c, det: dict | None) -> str:
     ledger = (f"<details><summary>Журнал SMS (последние {len(det['ledger'])})</summary><table><tr><th>Когда (UTC)</th><th>±</th><th>Что</th>"
               f"<th>Кто</th><th>Примечание</th></tr>{lrows or '<tr><td colspan=5 class=muted>пусто</td></tr>'}</table></details>")
     return (f"<div class='card'>{_chead('message', 'SMS', 'пакет клиники: остаток — сумма журнала; номеров и текстов на сервере нет')}"
-            f"{kv}{actions}{days}{ledger}</div>")
+            f"{kv}{actions}{custom}{days}{ledger}</div>")
 
 
 def sms_suggest(name: str) -> str:

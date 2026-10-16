@@ -30,6 +30,8 @@ export interface Profile {
   file_no: string
   notes: string
   lang: string
+  /** «Fără remindere SMS» (S5): отказ пациента от напоминаний — цикл SMS его обходит. */
+  sms_off: boolean
   age: number | null
   channel: string
   /** Дата заведения фиши dd.mm.yyyy и её год. */
@@ -280,6 +282,9 @@ export const patientCard = {
     api.post<PatientCard>(`${P(pid)}/doctor${V(views)}`, { doctor }),
   archive: (pid: number, views: boolean, on: boolean) =>
     api.post<PatientCard>(`${P(pid)}/archive${V(views)}`, { on }),
+  /** «Fără remindere SMS» одним полем — своим маршрутом, как врач (прайор 14.10). */
+  smsOff: (pid: number, views: boolean, on: boolean) =>
+    api.post<PatientCard>(`${P(pid)}/sms-off${V(views)}`, { on }),
   erase: (pid: number, views: boolean, confirm: string) =>
     api.post<EraseResult>(`${P(pid)}/erase${V(views)}`, { confirm }),
   addAlert: (pid: number, views: boolean, kind: string, text: string) =>

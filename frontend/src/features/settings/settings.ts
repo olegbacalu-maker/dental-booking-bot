@@ -244,7 +244,85 @@ export interface BackupData {
   filename: string
 }
 
+/* ---- SMS-пакет (S6): Setări › SMS — bot/app/modules/settings/api.py ---- */
+
+/** Переключатели клиники — те же ключи, что в clinic.json › sms (sms_plan.settings). */
+export interface SmsSettingsForm {
+  day_before: { on: boolean; hour: number; variant: string }
+  same_day: { on: boolean; hours: number; variant: string }
+  phone_line: boolean
+}
+
+export interface SmsPreview {
+  text: string
+  /** Сколько SMS стоит текст — счёт сервера (sms_rule.parts); больше одной — словами на экране. */
+  segments: number
+}
+
+export interface SmsAccount {
+  balance: number
+  /** От какого имени уходят SMS сейчас (общее DentPilot, пока своё не одобрено). */
+  from: string
+  sender: string
+  sender_state: string
+  sender_note: string
+  sender_until: string
+  packs: { units: number; price: number }[]
+  name_price: number
+  name_days: number
+  daily_cap: number
+  used_today: number
+}
+
+export interface SmsData {
+  /** Есть кого спрашивать: файл лицензии с `renew`. Нет — SMS взять неоткуда. */
+  available: boolean
+  /** Сервер предлагает пакет этой клинике (выключатель на сервере, S0 › 7). */
+  offered: boolean
+  /** Сервер пустит отправку: включён, план и имя в порядке. */
+  enabled: boolean
+  /** Пакет работает: сервер пускает и хоть одно событие включено. */
+  active: boolean
+  /** Почему нельзя сейчас — проза сервера; пусто, когда можно. */
+  why: string
+  account: SmsAccount | null
+  settings: SmsSettingsForm
+  options: { hours: number[]; leads: number[]; variants: { key: string; label: string }[] }
+  /** Предпросмотр: событие → вариант → язык → текст с данными клиники. */
+  previews: Record<string, Record<string, Record<string, SmsPreview>>>
+  forecast: { visits: number; month: number; daily: number; days_left: number | null }
+  low: boolean
+  counts: { queued: number; today: number; delivered: number; failed: number }
+  last: { at: string | null; outcome: string; error_text: string }
+  /** Директор: «Comandă» (пополнение, имя), тестовая SMS. */
+  can_order: boolean
+  clinic: { name: string; phone: string }
+}
+
+export interface SmsOrder {
+  kind: string
+  reference: string
+  amount: number
+  units: number | null
+  pay_url: string
+  created: boolean
+}
+
 export const settings = {
+  sms: (signal?: AbortSignal): Promise<ApiResult<SmsData>> =>
+    api.get<SmsData>('/settings/sms', signal ? { signal } : {}),
+  smsSave: (form: SmsSettingsForm): Promise<ApiResult<SmsData>> =>
+    api.post<SmsData>('/settings/sms', form),
+  smsRefresh: (): Promise<ApiResult<SmsData>> =>
+    api.post<SmsData>('/settings/sms/refresh', {}),
+  smsOrder: (pack: number): Promise<ApiResult<SmsOrder>> =>
+    api.post<SmsOrder>('/settings/sms/order', { pack }),
+  smsOrderName: (): Promise<ApiResult<SmsOrder>> =>
+    api.post<SmsOrder>('/settings/sms/order', { name: 1 }),
+  smsSender: (name: string): Promise<ApiResult<SmsData>> =>
+    api.post<SmsData>('/settings/sms/sender', { name }),
+  smsTest: (phone: string): Promise<ApiResult<undefined>> =>
+    api.post<undefined>('/settings/sms/test', { phone }),
   security: (signal?: AbortSignal): Promise<ApiResult<SecurityData>> =>
     api.get<SecurityData>('/settings/security', signal ? { signal } : {}),
   userSave: (form: UserForm): Promise<ApiResult<SecurityData>> =>

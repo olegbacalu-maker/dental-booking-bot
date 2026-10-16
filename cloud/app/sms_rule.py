@@ -132,3 +132,34 @@ def phone(raw: str | None) -> tuple[str, str]:
     if nat[0] in "25":
         return "", LANDLINE
     return "", NOT_MOBILE
+
+
+# ---- личный текст клиники (S6) ----
+#
+# Белый список подстановок — тот же, что у готовых текстов программы
+# (bot/app/core/sms_plan.py: PLACEHOLDERS, REQUIRED, CUSTOM_MAX, custom_ok,
+# placeholders, render); сверяет cloud/tests/test_sms_rule.py. ⛔ Врача, услуги
+# и имени пациента здесь нет и не будет: SMS читают с экрана блокировки, и
+# текст проходит через двух обработчиков.
+PLACEHOLDERS = ("clinica", "ziua", "data", "ora", "telefon")
+REQUIRED = ("clinica", "data", "ora")
+CUSTOM_MAX = 400
+_PH = re.compile(r"\{([A-Za-z_]+)\}")
+
+
+def placeholders(template: str) -> set[str]:
+    return set(_PH.findall(template or ""))
+
+
+def custom_ok(template) -> bool:
+    """Годен ли личный текст: строка, подстановки из белого списка, клиника,
+    дата и час на месте."""
+    if not isinstance(template, str) or not template.strip() or len(template) > CUSTOM_MAX:
+        return False
+    ph = placeholders(template)
+    return ph <= set(PLACEHOLDERS) and set(REQUIRED) <= ph
+
+
+def render(template: str, values: dict) -> str:
+    """Подстановка одним проходом; незнакомое имя остаётся как есть."""
+    return _PH.sub(lambda m: values.get(m.group(1), m.group(0)), template)

@@ -38,7 +38,7 @@ from datetime import datetime
 from urllib.parse import quote
 
 from ... import engine as eng
-from ...core import theme
+from ...core import sms_loop, theme
 from ...core.layout import _ic, dmy
 
 _CSS = """
@@ -197,6 +197,52 @@ _T = {
 LANGS = ("ro", "ru")
 
 
+# SMS-пакет (S6, docs/dentpilot-2/sms-legal.md § 4): у клиники с РАБОТАЮЩИМ
+# пакетом лист называет передачу номера и времени визита через поставщика
+# оператору SMS.MD — бумага на стойке совпадает с тем, что делает программа.
+# ⛔ Состояние ОДНО — то же, что решает отправку (`sms_loop.active`): «пакет
+# предложен, но события выключены» печатает прежний текст. Основания те же,
+# что в clinics\lege-195\1-informare-pacienti.html (SMS-раздел по галочке).
+_T_SMS = {
+    "ro": {
+        "li4": ("remindere despre vizita programată (prin SMS) — <b>interesul legitim</b> "
+                "al clinicii; puteți renunța oricând, la recepție."),
+        "store": ("Fișele electronice se păstrează <b>local, pe calculatorul "
+                  "clinicii</b> (programul DentPilot) și nu sunt transmise "
+                  "dezvoltatorului programului. Pentru memento-urile SMS se transmit "
+                  "doar numărul de telefon și data și ora vizitei, prin serverul "
+                  "dezvoltatorului (care nu le păstrează), operatorului SMS.MD "
+                  "(Rock Soft S.R.L.), care le păstrează 3 luni. Datele pot fi transmise "
+                  "doar instituțiilor abilitate, la cererea legală a acestora, sau "
+                  "altei instituții medicale, la solicitarea dvs. Documentația "
+                  "medicală se păstrează pe durata prevăzută de legislație."),
+    },
+    "ru": {
+        "li4": ("напоминания о назначенном визите (по SMS) — <b>законный интерес</b> "
+                "клиники; вы можете отказаться в любой момент на стойке."),
+        "store": ("Электронные карты хранятся <b>локально, на компьютере "
+                  "клиники</b> (программа DentPilot) и не передаются "
+                  "разработчику программы. Для SMS-напоминаний передаются только "
+                  "номер телефона, дата и время визита — через сервер разработчика "
+                  "(он их не хранит) оператору SMS.MD (Rock Soft S.R.L.), который "
+                  "хранит их 3 месяца. Данные могут быть переданы только "
+                  "уполномоченным органам по их законному запросу либо другому "
+                  "медицинскому учреждению по вашей просьбе. Медицинская "
+                  "документация хранится в течение срока, установленного "
+                  "законодательством."),
+    },
+}
+
+
+def texts(lang: str) -> dict:
+    """Словарь листа по состоянию SMS-пакета — одно место на страницу и проверки."""
+    lang = lang if lang in LANGS else "ro"
+    t = dict(_T[lang])
+    if sms_loop.active():
+        t.update(_T_SMS[lang])
+    return t
+
+
 def _fill(value: str | None, blank: str = "________________") -> str:
     """Значение из фиши или жёлтый пропуск — на бумаге видно, что вписать."""
     v = (value or "").strip()
@@ -215,7 +261,7 @@ def sheet_nav(pid: int, path: str, lang: str, back: str) -> tuple[str, str]:
 def render(p: dict, lang: str = "ro", back: str = "") -> str:
     e = html.escape
     lang = lang if lang in LANGS else "ro"
-    t = _T[lang]
+    t = texts(lang)
     other = "ru" if lang == "ro" else "ro"
     other_href, back_href = sheet_nav(p["id"], "acord", other, back)
     # оператор — юрлицо; вывесочное имя рядом в скобках, если отличается

@@ -157,3 +157,47 @@ def suite_admin(res: Result) -> None:
             res.ok("ни страница, ни JSON не несут цифр номера и текста", DIGITS not in allp and "reaminteste" not in allp)
     finally:
         fake.close()
+
+
+
+def suite_custom(res: Result) -> None:
+    """Карточка › SMS › «Личный текст клиники» (S6): проверка на белый список,
+    диакритику и один сегмент; включённый годный текст — в /v1/sms/account."""
+    fake = FakeSmsMd()
+    try:
+        with Server(env=fake.env()) as s:
+            admin = Client(s.url).login()
+            cid, token = _clinic_with_license(admin, s, "Zambet Dent", "zd@example.md")
+            prog = Program(s.url, token)
+            act = f"/admin/clinics/{cid}/sms"
+            card = admin.get(f"/admin/clinics/{cid}").body
+            res.ok("без счёта формы нет; после обращения программы — есть",
+                   "custom_ro" not in card and prog.get("/v1/sms/account")[0] == 200
+                   and "name='custom_ro'" in admin.get(f"/admin/clinics/{cid}").body)
+            res.check("в счёте личного текста нет", prog.get("/v1/sms/account")[1].get("custom"), {})
+            ok_ro = "{clinica}: {ziua} {data} la {ora}"
+            r = admin.post(act, action="custom", custom_ro="Dr {medic}: {clinica} {data} {ora}", custom_ru="", custom_on="1")
+            res.check("врач в тексте — sms_custom_ro", r.location, f"/admin/clinics/{cid}?msg=sms_custom_ro")
+            r = admin.post(act, action="custom", custom_ro="{clinica} vă așteaptă {ziua} {data} {ora}", custom_ru="", custom_on="1")
+            res.check("диакритика в RO — sms_custom_ro", r.location, f"/admin/clinics/{cid}?msg=sms_custom_ro")
+            r = admin.post(act, action="custom", custom_ro="{clinica}: " + "x" * 150 + " {data} {ora}", custom_ru="", custom_on="1")
+            res.check("второй сегмент в RO — sms_custom_ro", r.location, f"/admin/clinics/{cid}?msg=sms_custom_ro")
+            r = admin.post(act, action="custom", custom_ro=ok_ro, custom_ru="{clinica}: " + "ж" * 60 + " {data} {ora}", custom_on="1")
+            res.check("длинный RU — sms_custom_ru", r.location, f"/admin/clinics/{cid}?msg=sms_custom_ru")
+            r = admin.post(act, action="custom", custom_ro="", custom_ru="", custom_on="1")
+            res.check("включён без текста — sms_custom_empty", r.location, f"/admin/clinics/{cid}?msg=sms_custom_empty")
+            res.check("после отказов в счёте по-прежнему пусто", prog.get("/v1/sms/account")[1].get("custom"), {})
+            r = admin.post(act, action="custom", custom_ro=ok_ro, custom_ru="{clinica}: {ziua}, {data}, {ora}", custom_on="1")
+            res.check("годные тексты — sms_saved", r.location, f"/admin/clinics/{cid}?msg=sms_saved")
+            res.check("программа получает оба текста", prog.get("/v1/sms/account")[1].get("custom"),
+                      {"ro": ok_ro, "ru": "{clinica}: {ziua}, {data}, {ora}"})
+            card = admin.get(f"/admin/clinics/{cid}").body
+            res.ok("карточка показывает текст и галочку", ok_ro in card and "name='custom_on' value='1' checked" in card)
+            res.ok("журнал: sms_custom без самого текста",
+                   "личный текст включён" in _one(s, "SELECT detail FROM audit WHERE what='sms_custom' ORDER BY id DESC LIMIT 1"))
+            r = admin.post(act, action="custom", custom_ro=ok_ro, custom_ru="", custom_on="")
+            res.ok("выключили — текст остаётся в карточке, из счёта уходит",
+                   r.location.endswith("msg=sms_saved") and prog.get("/v1/sms/account")[1].get("custom") == {}
+                   and ok_ro in admin.get(f"/admin/clinics/{cid}").body)
+    finally:
+        fake.close()

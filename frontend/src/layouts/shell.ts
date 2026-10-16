@@ -49,7 +49,8 @@ export interface ShellModel {
    */
   entry: { pin: boolean; pin_max: number; backdrop: string }
   nav: { active: string; items: NavItem[]; sync: NavItem[]; foot_title: string }
-  signals: { license: Signal; tamper: Signal; split: Signal; slot: Signal; setup: Signal; demo: Signal }
+  /** `sms` — остаток пакета SMS на считанные дни расхода (S6): видит и регистратура. */
+  signals: { license: Signal; tamper: Signal; split: Signal; slot: Signal; setup: Signal; demo: Signal; sms: Signal }
   frame: {
     /** Заголовок страницы — имя РАЗДЕЛА (B5, шаг 10): «Pacienți», «Setări».
      *  Считает сервер по активному пункту меню; до 26.09 здесь стояло

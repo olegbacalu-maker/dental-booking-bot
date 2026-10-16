@@ -25,11 +25,12 @@ from fastapi import APIRouter, File, Request, UploadFile
 from ... import engine as eng
 from ... import privileged
 from ... import update as upd
-from ...core import theme
+from ...core import sms_loop, theme
+from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
 from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN, ROLE_LABEL,
-                          _pin_rec, _set_auth_cookie, all_users, change_pin,
-                          current_user)
+                          _pin_rec, _set_auth_cookie, all_users, can, change_pin,
+                          current_user, request_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT,
                             _DOW_FULL, _DOW_ORDER, msg_json, tg_refresh_meta)
 from ...core.storage import _data_dir
@@ -592,3 +593,121 @@ async def api_backup(request: Request):
     if not bkp.available():
         return msg_json(False, status=404)
     return msg_json(True, data={"min_pass": bkp.MIN_PASS, "filename": bkp.archive_name()})
+
+
+# ---------- SMS-пакет (S6): Setări › SMS ----------
+#
+# Видит и регистратура (Олег 16.10): чтение и переключатели — `api_guard`;
+# «Comandă» (пополнение, своё имя) и тестовая SMS — `api_require(PERM_SETTINGS)`.
+# Данные экрана собирает цикл (`sms_loop.screen`): счёт сервера, настройки
+# из clinic.json, предпросмотры с названием клиники, прогноз, остаток на дни.
+# Отказ сервера лицензий уезжает его словами (`text=`), код — `sms_denied`.
+
+_SMS_OUTCOME = {sms_loop.wire.OFFLINE: ("sms_offline", 503), sms_loop.wire.REFUSED: ("sms_token", 503)}
+
+
+def _sms_data() -> dict:
+    me = request_user()
+    return {**sms_loop.screen(), "can_order": me is None or can(me, PERM_SETTINGS)}
+
+
+def _sms_fail(outcome: str, body: dict, *, field: str = ""):
+    if outcome == sms_loop.wire.DENIED:
+        return msg_json(False, "sms_denied", status=409, field=field,
+                        text=str(body.get("text") or ""), data={"reason": body.get("code") or ""})
+    code, status = _SMS_OUTCOME.get(outcome, ("sms_offline", 503))
+    return msg_json(False, code, status=status)
+
+
+@router.get("/api/settings/sms")
+async def api_sms_get(request: Request):
+    if (deny := api_guard(request)) is not None:
+        return deny
+    return msg_json(True, data=_sms_data())
+
+
+@router.post("/api/settings/sms")
+async def api_sms_save(request: Request):
+    """Переключатели целиком ({day_before, same_day, phone_line}): кривое —
+    умолчание (`sms_plan.settings`); цикл будится сразу — включённое событие
+    может быть «уже пора»."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_sms", status=422)
+    try:
+        cfg = _finish_cfg(sms=splan.settings(body))
+    except (ValueError, KeyError, TypeError):
+        return msg_json(False, "bad_sms", status=422)
+    if eng.save_config(cfg) is not None:
+        return msg_json(False, "save_err", status=500)
+    sms_loop.wake()
+    return msg_json(True, "ok_sms", data=_sms_data())
+
+
+@router.post("/api/settings/sms/refresh")
+async def api_sms_refresh(request: Request):
+    """«Verifică acum»: счёт перечитывается у сервера, очередь — следующим тиком."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    if not sms_loop.available():
+        return msg_json(False, "sms_unavailable", status=409)
+    outcome = await sms_loop.refresh_account(force=True)
+    sms_loop.wake()
+    if outcome in (sms_loop.wire.OK, sms_loop.wire.DENIED):
+        return msg_json(True, data=_sms_data())
+    return _sms_fail(outcome, {})
+
+
+@router.post("/api/settings/sms/order")
+async def api_sms_order(request: Request):
+    """{pack: N} — пополнение, {name: 1} — год своего имени; директору. Нота
+    и ссылка maib — ответом сервера, письмо — на e-mail клиники."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_sms", status=422)
+    if not sms_loop.available():
+        return msg_json(False, "sms_unavailable", status=409)
+    try:
+        pack = int(body.get("pack") or 0)
+    except (TypeError, ValueError):
+        pack = 0
+    outcome, data = await sms_loop.order(pack=pack, name=bool(body.get("name")))
+    if outcome != sms_loop.wire.OK:
+        return _sms_fail(outcome, data)
+    return msg_json(True, "sms_order_ok",
+                    data={k: data.get(k) for k in ("kind", "reference", "amount", "units", "pay_url", "created")})
+
+
+@router.post("/api/settings/sms/sender")
+async def api_sms_sender(request: Request):
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_sms", status=422)
+    if not sms_loop.available():
+        return msg_json(False, "sms_unavailable", status=409)
+    outcome, data = await sms_loop.request_sender(str(body.get("name") or ""))
+    if outcome != sms_loop.wire.OK:
+        return _sms_fail(outcome, data, field="name")
+    return msg_json(True, "sms_sender_ok", data=_sms_data())
+
+
+@router.post("/api/settings/sms/test")
+async def api_sms_test(request: Request):
+    """Тестовая SMS на номер директора — из пакета клиники, мимо очереди."""
+    if (deny := api_require(request, PERM_SETTINGS)) is not None:
+        return deny
+    body = await api_body(request)
+    if body is None:
+        return msg_json(False, "bad_sms", status=422)
+    if not sms_loop.available():
+        return msg_json(False, "sms_unavailable", status=409)
+    outcome, data = await sms_loop.send_test(str(body.get("phone") or ""))
+    if outcome != sms_loop.wire.OK:
+        return _sms_fail(outcome, data, field="phone")
+    return msg_json(True, "sms_test_ok", data=_sms_data())

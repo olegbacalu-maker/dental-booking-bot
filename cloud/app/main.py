@@ -809,7 +809,8 @@ def sms_test(request: Request, to: str = Form("")) -> Response:
 
 @app.post("/admin/clinics/{cid}/sms")
 def clinic_sms_action(request: Request, cid: str, action: str = Form(""), value: str = Form(""),
-                      reason: str = Form(""), note: str = Form(""), name: str = Form("")) -> Response:
+                      reason: str = Form(""), note: str = Form(""), name: str = Form(""),
+                      custom_ro: str = Form(""), custom_ru: str = Form(""), custom_on: str = Form("")) -> Response:
     """Кнопки карточки › SMS: вкл/выкл, пилот, потолок, начисление с причиной, имя
     (заявка; заявление получено → подано → отказ). Каждое — строка в журнале."""
     if (deny := _guard(request)) is not None:
@@ -841,6 +842,8 @@ def clinic_sms_action(request: Request, cid: str, action: str = Form(""), value:
             code = sms.sender_step(con, cid, action, who, note) or code
         elif action == "request":
             code = sms.request_sender(con, cid, name, who) or code
+        elif action == "custom":
+            code = sms.set_custom(con, cid, custom_ro, custom_ru, custom_on == "1", who) or code
         else:
             code = "sms_action"
     return RedirectResponse(f"{back}?msg={code}", status_code=303)

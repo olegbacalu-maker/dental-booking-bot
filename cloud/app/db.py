@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -172,6 +172,14 @@ MIGRATIONS = {
         "CREATE INDEX IF NOT EXISTS ix_sms_ledger_clinic ON sms_ledger(clinic_id, at)",
         "ALTER TABLE payments ADD COLUMN kind TEXT NOT NULL DEFAULT 'license'",
         "ALTER TABLE payments ADD COLUMN sms_units INTEGER",
+    ],
+    # 12 (S6, 16.10): личный текст клиники — «свой текст по заявке» (sms.md ›
+    # «Шаблоны и сегменты»): Олег вписывает в карточке, программа получает в
+    # /v1/sms/account и предлагает вариант «Textul clinicii». Пусто = нет.
+    12: [
+        "ALTER TABLE sms_accounts ADD COLUMN custom_ro TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE sms_accounts ADD COLUMN custom_ru TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE sms_accounts ADD COLUMN custom_on INTEGER NOT NULL DEFAULT 0",
     ],
 }
 

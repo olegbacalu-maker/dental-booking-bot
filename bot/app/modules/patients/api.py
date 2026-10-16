@@ -313,6 +313,8 @@ async def _card(pid: int, p: dict, *, views: bool, log_view: bool) -> dict:
         "profile": {
             **{f: p.get(f) or "" for f in db.PATIENT_FIELDS},
             "lang": p.get("lang") or "ro",
+            # «Fără remindere SMS» (S5): отказ пациента — своим маршрутом, как врач
+            "sms_off": bool(p.get("sms_off")),
             # дата рождения человеку — dd.mm.yyyy, у пациента из бота только год
             "birth": (_pl_dmy(p["birth_date"]) if p.get("birth_date")
                       else str(p.get("birth_year") or "")),
@@ -479,6 +481,25 @@ async def api_patient_doctor(request: Request, pid: int):
         return _reply("bad_card", field="primary_doctor")
     code = await _set_doctor(pid, p, _s(body, "doctor"))
     return await _card_reply(request, pid, code, "primary_doctor" if code == "bad_card" else "")
+
+
+@router.post("/api/patients/{pid}/sms-off")
+async def api_patient_sms_off(request: Request, pid: int):
+    """{on: true|false} — «Fără remindere SMS» (S6): отказ пациента от
+    напоминаний одним полем, своим маршрутом (прайор 14.10: `/profile` пишет
+    все поля). Летопись пишет, кто поставил; цикл SMS обходит его с
+    ближайшего прохода, уже стоящие в очереди снимаются."""
+    if (deny := api_guard(request)) is not None:
+        return deny
+    deny, p = await _owned(pid)
+    if deny is not None:
+        return deny
+    body = await api_body(request)
+    on = bool((body or {}).get("on", True))
+    await db.set_sms_off(pid, on)
+    await db.log_event(pid, "sms_off", "Remindere SMS oprite — la cererea pacientului" if on
+                       else "Remindere SMS pornite din nou")
+    return await _card_reply(request, pid, "ok_card")
 
 
 @router.post("/api/patients/{pid}/archive")

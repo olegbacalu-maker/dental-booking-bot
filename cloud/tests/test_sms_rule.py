@@ -79,3 +79,25 @@ def suite_twins(res: Result) -> None:
     res.ok("случайные номера задели и приём, и все причины отказа",
            {sr.phone(r)[1] for r in raws} >= set(sr.REASONS) | {""},
            repr(sorted({sr.phone(r)[1] for r in raws})))
+
+
+plan = load_by_path("sms_plan_bot", ROOT / "bot" / "app" / "core" / "sms_plan.py")
+
+
+def suite_custom_twins(res: Result) -> None:
+    """Белый список личного текста (S6): копия сервера против sms_plan программы."""
+    for name in ("PLACEHOLDERS", "REQUIRED", "CUSTOM_MAX"):
+        res.check(f"{name} копий совпадают", getattr(sr, name), getattr(plan, name))
+    cases = ["{clinica}: {ziua} {data} la {ora}", "{clinica} {data} {ora}", "Dr {medic} {clinica} {data} {ora}",
+             "{clinica} {ziua}", "", "x" * 401 + " {clinica} {data} {ora}", "{clinica}{data}{ora}{telefon}{ziua}",
+             "{Clinica} {data} {ora}", "{clinica} {data} {ora} {nume}"]
+    diff = [c for c in cases if sr.custom_ok(c) != plan.custom_ok(c)]
+    res.check("custom_ok копий согласны", diff, [])
+    res.ok("custom_ok копий: годен с тремя обязательными, негоден с врачом и без клиники",
+           sr.custom_ok(cases[0]) and sr.custom_ok(cases[1]) and not sr.custom_ok(cases[2])
+           and not sr.custom_ok(cases[3]) and not sr.custom_ok(None) and not plan.custom_ok(None))
+    diff = [c for c in cases if sr.placeholders(c) != plan.placeholders(c)]
+    res.check("placeholders копий согласны", diff, [])
+    vals = {"clinica": "Clinica {ora}", "ziua": "luni", "data": "1.1", "ora": "9:00", "telefon": "0"}
+    diff = [c for c in cases if sr.render(c, vals) != plan.render(c, vals)]
+    res.check("render копий согласен (одним проходом)", diff, [])

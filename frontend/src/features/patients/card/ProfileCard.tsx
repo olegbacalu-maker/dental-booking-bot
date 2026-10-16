@@ -17,6 +17,10 @@ const T = {
     address: 'Adresă', insurance: 'Asigurare', doctor: 'Medic curant', since: 'Pacient din',
   },
   noPhone: 'fără telefon',
+  smsRow: 'Remindere SMS',
+  smsOff: 'Fără remindere SMS',
+  smsOn: 'se trimit',
+  smsOffTitle: 'Pacientul a renunțat la memento-urile SMS (Legea 195: dreptul la opoziție)',
   edit: 'Editează profilul',
   ph: {
     name: 'Nume', phone: 'Telefon', idnp: 'IDNP (opțional)', email: 'E-mail', address: 'Adresă',
@@ -155,6 +159,17 @@ export function ProfileCard({ card, a, editOpen, onEditOpen, noteFocus, onNoteFo
           <span className="ic"><Icon name="phone-off" /></span>
         </div>
       )}
+      {/* отказ от SMS — одним полем своим маршрутом (как врач): «puteți renunța
+          oricând, la recepție» обещает лист на стойке, и галочка — то самое место */}
+      <div className="frow dp-smsoff">
+        <span>{T.smsRow}</span>
+        <label className={`v${p.sms_off ? ' notel' : ''}`} title={T.smsOffTitle}>
+          <input type="checkbox" checked={p.sms_off} disabled={a.busy}
+            onChange={(e) => { void a.act(() => patientCard.smsOff(a.pid, a.views, e.target.checked)) }} />
+          {' '}{p.sms_off ? T.smsOff : T.smsOn}
+        </label>
+        <span className="ic"><Icon name={p.sms_off ? 'phone-off' : 'chat'} /></span>
+      </div>
       {row(T.rows.birth, p.birth, 'cal')}
       {row(T.rows.gender, p.gender_label, 'pat')}
       {row(T.rows.idnp, p.idnp, 'id')}

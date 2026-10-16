@@ -22,6 +22,7 @@ import { loadSecuritySettings, SecuritySettingsScreen } from '../features/settin
 import { loadServicesSettings, ServicesSettingsScreen } from '../features/settings/ServicesSettingsScreen'
 import { loadSystemSettings, SystemSettingsScreen } from '../features/settings/SystemSettingsScreen'
 import { loadSettingsHub, SettingsHubScreen } from '../features/settings/SettingsHubScreen'
+import { loadSmsSettings, SmsSettingsScreen } from '../features/settings/SmsSettingsScreen'
 import { loadThemeSettings, ThemeSettingsScreen } from '../features/settings/ThemeSettingsScreen'
 import { loadStats, StatsScreen } from '../features/stats/StatsScreen'
 import { loadVisit, VisitScreen } from '../features/visits/VisitScreen'
@@ -72,6 +73,7 @@ export const SCREENS: Record<ScreenName, Draw> = {
   settings_backup: () => <BackupSettingsScreen />,
   settings_crypt: () => <CryptSettingsScreen />,
   settings_system: () => <SystemSettingsScreen />,
+  settings_sms: () => <SmsSettingsScreen />,
   stats: () => <StatsScreen />,
   patients_search: () => <PatientsSearchScreen />,
   patient_card: (p) => <PatientCardScreen pid={Number(p.pid)} />,
@@ -108,6 +110,7 @@ const LOADS: Partial<Record<ScreenName, ScreenData>> = {
   settings_services: loadServicesSettings,
   settings_security: loadSecuritySettings,
   settings_system: loadSystemSettings,
+  settings_sms: loadSmsSettings,
   settings_theme: loadThemeSettings,
   doctors_list: loadDoctorsList,
   doctor_card: loadDoctorCard,

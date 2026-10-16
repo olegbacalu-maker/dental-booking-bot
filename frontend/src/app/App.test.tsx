@@ -48,6 +48,7 @@ const SHELL: ShellModel = {
     tamper: { shown: false, html: '' },
     split: { shown: false, html: '' },
     slot: { shown: false, html: '' },
+    sms: { shown: false, html: '' },
     setup: { shown: false, html: '' },
     demo: { shown: false, html: '' },
   },

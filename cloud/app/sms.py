@@ -282,7 +282,59 @@ def view(con: sqlite3.Connection, clinic_id: str, now: datetime | None = None) -
             "from": sender_now(acc, now), "balance": balance(con, clinic_id), "packs": packs(),
             "name_price": config.SMS_NAME_PRICE, "name_days": config.SMS_NAME_DAYS,
             "daily_cap": acc["daily_cap"], "used_today": used_today(con, clinic_id, now),
-            "blocked": blocked(con, clinic_id, acc, now)}
+            "blocked": blocked(con, clinic_id, acc, now), "custom": custom_texts(acc)}
+
+
+# ---------- личный текст клиники (S6, «Свой текст — по заявке») ----------
+#
+# Клиника присылает текст Олегу, он вписывает его в карточке; программа
+# получает годные тексты в /v1/sms/account и предлагает вариант «Textul
+# clinicii». Проверка здесь — та же, что держит готовые тексты программы:
+# подстановки из белого списка (sms_rule.custom_ok), RO — латиница без
+# диакритики, один сегмент; RU — один сегмент. Образец подстановок — верхняя
+# граница длины: самое длинное слово дня и «Clinica …» перед названием.
+
+CUSTOM_SAMPLE = {"ro": {"ziua": "miercuri", "data": "17.10", "ora": "12:00", "telefon": "+373 22 123 456"},
+                 "ru": {"ziua": "в воскресенье", "data": "17.10", "ora": "12:00", "telefon": "+373 22 123 456"}}
+
+
+def custom_texts(acc: sqlite3.Row | None) -> dict:
+    """Что программа получает: только включённые и годные тексты, по языкам."""
+    if acc is None or not acc["custom_on"]:
+        return {}
+    return {lang: acc[f"custom_{lang}"] for lang in ("ro", "ru") if sms_rule.custom_ok(acc[f"custom_{lang}"])}
+
+
+def custom_check(text: str, lang: str, clinic: str) -> str:
+    """'' — годен; иначе причина: holes (подстановки), diacritics (RO не GSM-7),
+    long (больше одного сегмента на образце)."""
+    if not sms_rule.custom_ok(text):
+        return "holes"
+    label = clinic if "clinic" in clinic.lower() or "клиник" in clinic.lower() else f"Clinica {clinic}"
+    sample = sms_rule.render(text, {"clinica": label, **CUSTOM_SAMPLE[lang]})
+    enc, _, segs = sms_rule.parts(sample)
+    if lang == "ro" and enc != sms_rule.GSM7:
+        return "diacritics"
+    return "" if segs == 1 else "long"
+
+
+def set_custom(con: sqlite3.Connection, clinic_id: str, ro: str, ru: str, on: bool, who: str) -> str:
+    """Карточка › SMS › «Личный текст клиники»: '' или код отказа (sms_custom_ro /
+    sms_custom_ru — какой язык негоден; sms_custom_empty — включён без текста)."""
+    texts = {lang: (t or "").replace("\r\n", "\n").strip()[:sms_rule.CUSTOM_MAX]
+             for lang, t in (("ro", ro), ("ru", ru))}
+    c = con.execute("SELECT name FROM clinics WHERE id=?", (clinic_id,)).fetchone()
+    for lang, text in texts.items():
+        if text and custom_check(text, lang, c["name"] if c else ""):
+            return f"sms_custom_{lang}"
+    if on and not any(texts.values()):
+        return "sms_custom_empty"
+    ensure(con, clinic_id)
+    con.execute("UPDATE sms_accounts SET custom_ro=?, custom_ru=?, custom_on=?, updated_at=? WHERE clinic_id=?",
+                (texts["ro"], texts["ru"], 1 if on else 0, db.now_iso(), clinic_id))
+    db.audit(con, who, "sms_custom", clinic_id,
+             f"личный текст {'включён' if on else 'выключен'}: ro {len(texts['ro'])} зн., ru {len(texts['ru'])} зн.")
+    return ""
 
 
 # ---------- отправка ----------

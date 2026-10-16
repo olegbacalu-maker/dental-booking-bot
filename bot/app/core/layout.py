@@ -23,6 +23,7 @@ from .. import engine as eng
 from .. import update as upd
 from . import demo
 from . import license as lic
+from . import sms_loop
 from . import theme
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
                    ROLE_LABEL, _pin_rec, can,
@@ -203,6 +204,18 @@ MSG_BANNER = {
                          "separat din Pacienți"),
     "ok_comment": ("ok", "Comentariu salvat"),
     "ok_set": ("ok", "Setări salvate"),
+    # SMS-пакет (S6): Setări › SMS — ответы JSON API; отказ сервера едет его же
+    # словами (`msg_json(text=…)`: словарь CODES облака — один на обе стороны)
+    "ok_sms": ("ok", "Setări SMS salvate"),
+    "bad_sms": ("err", "Setările SMS nu au putut fi citite"),
+    "sms_order_ok": ("ok", "Nota de plată a fost emisă și trimisă pe e-mailul clinicii"),
+    "sms_sender_ok": ("ok", "Cererea pentru numele expeditorului a fost trimisă — urmează cererea "
+                            "semnată pentru operatori"),
+    "sms_test_ok": ("ok", "SMS de test trimis"),
+    "sms_offline": ("err", "Serverul DentPilot nu a răspuns — încercați mai târziu"),
+    "sms_token": ("err", "Serverul nu a recunoscut licența programului — verificați licența"),
+    "sms_denied": ("err", "Serverul a refuzat cererea"),
+    "sms_unavailable": ("err", "Memento-urile SMS sunt disponibile doar în programul activat cu licență"),
     "ok_theme": ("ok", "Aspectul clinicii a fost salvat"),
     "bad_crypt": ("err", "Nu am putut pregăti criptarea — cheia nu a fost salvată. "
                          "Detalii în data\\dentpilot.log"),
@@ -451,7 +464,7 @@ def msg_text(code: str) -> str:
 
 
 def msg_json(ok: bool, code: str = "", *, data=None, field: str = "",
-             status: int = 200) -> JSONResponse:
+             status: int = 200, text: str = "") -> JSONResponse:
     """Конверт ответа JSON API (`/api/*`, DentPilot 2.0).
 
     Тот же код из MSG_BANNER, что уезжает страницам в `?msg=`, — и ЗДЕСЬ же он
@@ -464,8 +477,11 @@ def msg_json(ok: bool, code: str = "", *, data=None, field: str = "",
     кодом: иначе на экране появилось бы «bad_set». Клиент на пустой текст
     показывает свою общую фразу про недоступный движок.
     """
-    tone, text = MSG_BANNER.get(code, ("ok" if ok else "err", ""))
-    body: dict = {"ok": ok, "code": code, "tone": tone, "text": text}
+    # `text` — слова ДРУГОГО словаря, не второй перевод кода: отказ сервера
+    # лицензий (cloud sms.CODES) приходит по-румынски, и переписывать его
+    # здесь значило бы завести второй словарь тех же состояний (S6)
+    tone, word = MSG_BANNER.get(code, ("ok" if ok else "err", ""))
+    body: dict = {"ok": ok, "code": code, "tone": tone, "text": text or word}
     if field:
         body["field"] = field
     if data is not None:
@@ -709,6 +725,27 @@ def _update_banner() -> str:
                 f"style='color:#e8710a;font-weight:600'>{_ic('refresh')} versiune nouă "
                 f"{html.escape(upd.STATE['latest'])}</a>")
     return ""
+
+
+# Остаток SMS на считанные дни: две части фразы и подпись ссылки — источник
+# один на баннер и на проверки (как DEMO_HINT)
+SMS_LOW_HINT = ("Pachetul SMS se termină:", "au rămas __N__ SMS — la consumul actual ajung pentru "
+                "circa __D__ zile, apoi memento-urile nu mai pleacă.", "Comandă un pachet nou")
+
+
+def _sms_banner() -> str:
+    """Остаток пакета SMS меньше чем на несколько дней расхода (S6, S0 › 7):
+    видит и регистратура — ей звонить пациентам, когда напоминания перестанут
+    уходить; заказывает директор в Setări › SMS. Условие считает цикл SMS по
+    счёту сервера и прогнозу расхода (`sms_loop.low_balance`)."""
+    if not sms_loop.low_balance():
+        return ""
+    acc, fc = sms_loop.account() or {}, sms_loop.forecast()
+    left = int(acc.get("balance") or 0)
+    days = int(left // fc["daily"]) if fc["daily"] else 0
+    text = SMS_LOW_HINT[1].replace("__N__", str(left)).replace("__D__", str(days))
+    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('sos')} <b>{SMS_LOW_HINT[0]}</b> "
+            f"{text} <a href='/admin/settings/sms'><b>{SMS_LOW_HINT[2]}</b></a></div>")
 
 
 def _demo_banner() -> str:
@@ -1154,7 +1191,7 @@ REACT_SCREENS = frozenset({"settings_clinic", "doctors_list", "doctor_card",
                            "settings_hub", "settings_lan", "settings_faq",
                            "settings_hours", "settings_services", "settings_theme",
                            "settings_security", "settings_backup",
-                           "settings_crypt", "settings_system", "stats",
+                           "settings_crypt", "settings_system", "settings_sms", "stats",
                            "patients_search", "patient_card", "visit", "odontogram",
                            "perio", "schedule_week", "schedule_all",
                            "schedule_doctor",
@@ -1240,7 +1277,9 @@ else{{document.documentElement.classList.add('anim');}}}}catch(e){{document.docu
 # этого пункта) получает имя программы.
 # «Panoul principal», не «Dashboard» — слово Олега 26.09 при показе заголовков.
 SECTION_TITLE = {"dash": "Panoul principal", "prog": "Programări", "pat": "Pacienți",
-                 "med": "Medici", "stat": "Statistici", "set": "Setări"}
+                 "med": "Medici", "stat": "Statistici", "set": "Setări",
+                 # SMS-пакет (S6): пункт секции «Sincronizări», когда сервер предлагает пакет
+                 "sms": "SMS pacienți"}
 
 
 def section_title(active: str) -> str:
@@ -1295,6 +1334,12 @@ def shell_model(active: str, sub: str, rail: bool = False,
                  "dot": "ok" if tg_on else "off"},
                 {"key": "qr", "href": "/admin/qr-print", "icon": "qr",
                  "label": "QR pacienți"}]
+    # SMS-пакет (S6): пункт у ВСЕХ ролей, когда сервер предлагает пакет
+    # (видимость — выключателем на сервере, S0 › 7); регистратура меняет
+    # переключатели, директор платит — решает API, не меню
+    if sms_loop.offered():
+        sync.append({"key": "sms", "href": "/admin/settings/sms", "icon": "chat",
+                     "label": SECTION_TITLE["sms"], "dot": "ok" if sms_loop.active() else "off"})
 
     def _sig(html_: str) -> dict:
         return {"shown": bool(html_), "html": html_}
@@ -1335,7 +1380,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
         "signals": {"license": _sig(_license_banner()),
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
-                    "demo": _sig(_demo_banner())},
+                    "demo": _sig(_demo_banner()), "sms": _sig(_sms_banner())},
         # `title` — страница с собственным именем (фиша: имя пациента, 09.10 по
         # разбору: H1 «Pacienți» дублировал крошку); пустой — имя раздела
         "frame": {"title": title or section_title(active), "sub": sub, "rail": rail,
