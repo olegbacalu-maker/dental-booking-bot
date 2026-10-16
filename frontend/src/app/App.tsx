@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Outlet, ScrollRestoration, useLoaderData, useLocation, useNavigationType, useParams, useRouteError,
   useRouteLoaderData,
@@ -30,12 +30,16 @@ import { loadPerio, PerioScreen } from '../features/clinical/PerioScreen'
 import { DashScreen, loadDash } from '../features/schedule/DashScreen'
 import { DayScreen, loadDay } from '../features/schedule/DayScreen'
 import { loadWeek, WeekScreen } from '../features/schedule/WeekScreen'
+import { PinScreen } from '../features/entry/PinScreen'
 import { QuickFind } from '../features/quickfind/QuickFind'
 import { ConfirmHost } from '../components/ConfirmHost'
 import { defaultNavigate } from '../hooks/useLoad'
 import { screenRoute, type ScreenData } from '../hooks/useRouteLoad'
+import type { ShellModel } from '../layouts/shell'
+import { auth } from '../services/auth'
 import { fetchDoc } from '../services/doc'
 import { applyHead, type MountNode } from './doc'
+import { LockContext } from './lock'
 import { ROUTES, type ScreenName } from './routes'
 
 export type { MountNode } from './doc'
@@ -145,13 +149,29 @@ export function appHydration(node: MountNode): HydrationState {
 }
 
 /**
+ * Заказ перечитать документ на ближайшем переходе, КАКИМ БЫ ни был адрес
+ * (B4.4): сменился человек — оболочка другая (имя, меню по правам), а адрес
+ * панели мог остаться тем же, вплоть до `?date=`. Один на окно; снимает его
+ * загрузчик, когда пошёл за документом, — не правило: роутер вправе спросить
+ * правило не один раз за переход, и снятый первым ответом заказ второй ответ
+ * уже не увидел бы.
+ */
+let docOrdered = false
+
+export function orderDoc(): void {
+  docOrdered = true
+}
+
+/**
  * Когда перечитывать документ: сменился ПУТЬ — это другая страница со своей
- * оболочкой; сменилась плашка `?msg=` — она часть оболочки. ⛔ Листание,
- * отбор, период на том же пути — тот же документ: запрос ради прежней модели
- * был бы лишним на каждом щелчке, а повтор экрана оболочку не трогает.
+ * оболочкой; сменилась плашка `?msg=` — она часть оболочки; заказан
+ * (`orderDoc`) — сменился человек. ⛔ Листание, отбор, период на том же пути
+ * — тот же документ: запрос ради прежней модели был бы лишним на каждом
+ * щелчке, а повтор экрана оболочку не трогает.
  */
 export const docChanged: ShouldRevalidateFunction = ({ currentUrl, nextUrl }) =>
-  currentUrl.pathname !== nextUrl.pathname
+  docOrdered
+  || currentUrl.pathname !== nextUrl.pathname
   || currentUrl.searchParams.getAll('msg').join('|') !== nextUrl.searchParams.getAll('msg').join('|')
 
 /**
@@ -160,6 +180,7 @@ export const docChanged: ShouldRevalidateFunction = ({ currentUrl, nextUrl }) =>
  * покажет то, что сервер отдал бы по этому адресу при полной загрузке.
  */
 async function docLoader({ request }: LoaderFunctionArgs): Promise<MountNode> {
+  docOrdered = false
   const a = await fetchDoc(request.url, request.signal)
   if (a.kind === 'page') return a.node
   defaultNavigate(a.url)
@@ -256,20 +277,40 @@ export function appRoutes(): RouteObject[] {
   }]
 }
 
+/** Куда ведёт смена человека: панель, как после формы входа сервера. */
+export const HOME_URL = '/admin'
+
 export function App({ router }: { router: DataRouter }) {
   /* ⭐ Быстрый поиск живёт РЯДОМ с роутером, а не внутри экрана: Ctrl+K обязан
      работать откуда угодно, а накладка `position: fixed` накрывает окно
      независимо от того, где в разметке стоит узел React. Открывает фишу он
      ПЕРЕХОДОМ (B4.2) — роутером напрямую, раз вне его дерева. */
   const go = useCallback((url: string) => { void router.navigate(url) }, [router])
+  /* Замок (B4.4): модель оболочки на момент выхода — экран PIN рисует по ней
+     имя и логотип клиники. `null` — журнал открыт. */
+  const [locked, setLocked] = useState<ShellModel | null>(null)
+  const lock = useCallback((m: ShellModel) => setLocked(m), [])
+  /* Вход нового человека: кука уже выдана сервером — теперь ДОКУМЕНТ панели
+     заново (оболочка другая: имя, меню по правам) и сама панель её
+     загрузчиком; замок снимается, когда переход завершён, — так журнал
+     встаёт одним кадром, без пустого каркаса. Отказ (`ApiError`) бросается
+     экрану PIN, он покажет слово сервера. Пока замок стоит, дерева роутера
+     нет, но сам роутер жив: переход идёт в нём и ждёт провайдера. */
+  const enter = useCallback(async (pin: string, uid: string) => {
+    await auth.login(pin, uid)
+    orderDoc()
+    await router.navigate(HOME_URL, { replace: true })
+    setLocked(null)
+  }, [router])
+  if (locked) return <PinScreen m={locked} enter={enter} />
   /* ⭐ Окно подтверждения — тоже РЯДОМ с роутером, одно на все экраны:
      вопрос «Ștergeți…?» задаёт `ask()` из любого места (`components/confirm`). */
   return (
-    <>
+    <LockContext.Provider value={lock}>
       <RouterProvider router={router} />
       <QuickFind navigate={go} />
       <ConfirmHost />
-    </>
+    </LockContext.Provider>
   )
 }
 

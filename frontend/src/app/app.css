@@ -2192,3 +2192,44 @@ dialog.dp-ask { width: 400px; }
 /* меню правой кнопки: пункты звонка — цветом своего исхода при наведении */
 .dp-cmenu-call.ok:hover { background: var(--green-soft); color: var(--green-t); }
 .dp-cmenu-call.noanswer:hover { background: var(--amber-soft); color: var(--amber-t); }
+
+/* ---- экран PIN внутри программы (B4.4, 16.10): смена человека без перезагрузки ----
+   Та же карточка и тот же фон, что у страницы входа сервера (`LOGIN_TMPL`,
+   `layout._backdrop`), — слово Олега «окно с PIN-кодом оставить на том же
+   фоне». Только переменные темы: страница входа красится `standalone()` из
+   той же палитры, и здесь числа повторять нечего. `body` — flex (panel.css),
+   `#root` — display:contents: экран сам растягивается на окно. */
+.dp-lock {
+  --dp-c: var(--teal);
+  position: relative; flex: 1; min-height: 100vh; box-sizing: border-box; padding: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--teal) 6%, var(--panel));
+}
+/* те же два правила, что `brand.BACKDROP_CSS` у страниц со своей вёрсткой */
+.dp-lock .dp-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.dp-lock .dp-bg svg { width: 100%; height: 100%; }
+.dp-lock-card {
+  position: relative; z-index: 1; width: min(340px, 100%); box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 12px; padding: 30px 32px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--sh3);
+}
+.dp-lock-card .clogo { align-self: center; max-height: 64px; max-width: 220px; object-fit: contain; margin-bottom: 4px; }
+/* имя клиники — по центру, как логотип над ним (просьба Олега 08-21);
+   цвет --teal-d: чистый фирменный на белом не держит 4.5 */
+.dp-lock-card h1 { font-size: var(--fs-title); color: var(--teal-d); margin: 0 0 4px; font-weight: 600; letter-spacing: -.02em; text-align: center; line-height: 1.3; }
+.dp-lock-card input {
+  height: var(--h-ctl); padding: 0 14px; box-sizing: border-box; width: 100%;
+  border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel); color: var(--text);
+  font: inherit; font-size: var(--fs-l); text-align: center; outline: none;
+  transition: border-color var(--dur) ease, box-shadow var(--dur) ease;
+}
+.dp-lock-card input:focus { border-color: var(--teal); box-shadow: var(--ring); }
+.dp-lock-card .dp-lock-pin { font-size: var(--fs-num); letter-spacing: 12px; }
+.dp-lock-card .savebtn { width: 100%; }
+.dp-lock-card .err { color: var(--red-t); font-size: var(--fs-m); line-height: 1.4; }
+.dp-lock-card .err small { color: var(--text2); }
+.dp-lock .dp-by {
+  position: fixed; left: 0; right: 0; bottom: 18px; z-index: 1; pointer-events: none;
+  display: flex; justify-content: center; align-items: center; gap: 8px; font-size: var(--fs-s); color: var(--text2);
+}
+.dp-lock .dp-by svg { width: 30px; height: auto; }

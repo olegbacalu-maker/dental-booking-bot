@@ -245,6 +245,12 @@ MUTATIONS = [
      '\n@router.get("/api/mut")\nasync def _mut(request):\n'
      '    if (deny := require(request, PERM_SETTINGS)) is not None:\n'
      '        return deny\n'),
+    # Дверь JSON-входа без сверки Origin: чужой сайт в браузере клиники
+    # перебирал бы PIN-ы и накручивал счётчик до блокировки — молча, вход у
+    # разработчика при этом работает как ни в чём не бывало.
+    ("дверь /api/auth/login", "app/modules/entry/api.py",
+     ("    if not same_origin_post(request):\n        return msg_json(False, status=403)\n",
+      "")),
     # Обрезок, названный именем целого: ровно так жил `comment` до 19.09 —
     # 60 знаков под именем полного значения, и живой канал не замечал правки
     # за 60-м знаком (204 «день не менялся»), а диалог записал бы обрезок.

@@ -31,6 +31,7 @@ from .core.layout import STATIC, msg_json, tg_configured
 from .modules.assets import routes as assets
 from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
+from .modules.entry import api as entry_api
 from .modules.entry import recovery
 from .modules.entry import routes as entry
 from .modules.license import api as license_api
@@ -65,6 +66,7 @@ app.include_router(stats.router)
 app.include_router(stats_api.router)      # JSON API раздела (DentPilot 2.0)
 app.include_router(qr.router)
 app.include_router(entry.router)          # вход, установка PIN, выход
+app.include_router(entry_api.router)      # JSON-дверь: смена человека без перезагрузки
 app.include_router(recovery.router)       # режим восстановления ключа
 app.include_router(license_routes.router)
 app.include_router(license_api.router)    # JSON API раздела (DentPilot 2.0)

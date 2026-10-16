@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Form, useLocation } from 'react-router'
+import { useLock } from '../app/lock'
 import { AppLink, useProseLinks } from '../components/AppLink'
 import { Icon, iconName } from '../components/Icon'
+import { defaultNavigate } from '../hooks/useLoad'
+import { asApiError } from '../services/api'
+import { auth } from '../services/auth'
 import { t } from '../utils/i18n'
 import type { NavItem, ShellModel } from './shell'
 
@@ -149,6 +153,45 @@ function Sidebar({ m }: { m: ShellModel }) {
   )
 }
 
+/**
+ * «Ieșire din cont» (B4.4). Вход по PIN-файлу — выход ЗАПРОСОМ и замок на
+ * месте: сервер снимает куку, `App` показывает экран PIN вместо журнала, и
+ * окно не гаснет. 401 — кука уже мертва (коллега сменил пароль): запираем
+ * так же, снаружи мы и так. Любой другой отказ (движок не ответил, чужой
+ * Origin) — выход документом, как было до 16.10: окно обязано выйти.
+ * Без PIN-файла (облако, демо) — ссылка на `/admin/logout`: в демо тот адрес
+ * отдаёт слот посетителя, JSON-выход мимо шлюза его бы не вернул.
+ */
+function LeaveButton({ m }: { m: ShellModel }) {
+  const lock = useLock()
+  const [leaving, setLeaving] = useState(false)
+  if (!m.entry.pin || !lock) {
+    return (
+      <AppLink className="who-out" href="/admin/logout" title={T.logout}>
+        <Icon name="power" />
+      </AppLink>
+    )
+  }
+  const leave = async () => {
+    setLeaving(true)
+    try {
+      await auth.logout()
+    } catch (e) {
+      if (asApiError(e).failure.kind !== 'unauthenticated') {
+        defaultNavigate('/admin/logout')
+        return
+      }
+    }
+    lock(m)
+  }
+  return (
+    <button type="button" className="who-out" title={T.logout} aria-label={T.logout}
+      disabled={leaving} onClick={() => void leave()}>
+      <Icon name="power" />
+    </button>
+  )
+}
+
 function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLElement>) => void }) {
   const { identity, clinic, frame } = m
   const loc = useLocation()
@@ -184,10 +227,7 @@ function Topbar({ m, prose }: { m: ShellModel; prose: (e: React.MouseEvent<HTMLE
             <b>{identity.name}</b>
             <small>{identity.role_label} · {clinic.name}</small>
           </div>
-          {/* выход — не экран: обычная ссылка, сервер снимает куку и уводит на вход */}
-          <AppLink className="who-out" href="/admin/logout" title={T.logout}>
-            <Icon name="power" />
-          </AppLink>
+          <LeaveButton m={m} />
         </div>
       )}
     </div>

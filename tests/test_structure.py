@@ -95,13 +95,26 @@ _FILE_OK = {"app/paths.py", "desktop.py"}
 # это хуже настоящего — клиника перестанет верить баннеру.
 _AUTH_WRITERS = {"save_user", "delete_user", "_write_pin", "verify_pin"}
 
-# Оракул ВХОДА В ЖУРНАЛ. Все пятеро привязаны к папке, В КОТОРОЙ ИДЁТ
+# Оракул ВХОДА В ЖУРНАЛ. Все шестеро привязаны к папке, В КОТОРОЙ ИДЁТ
 # ПРОГРАММА, и все пишут в неё. Против чужого корня (экран раздвоения, P2) они
 # непригодны вовсе — там `verify_source_pin`, читающий по явному пути.
-_LOGIN_ORACLE = {"verify_pin", "note_fail", "note_ok", "lock_left", "fail_count"}
-# Где вход законен: сам модуль-владелец и форма входа в журнал (до 14.10 она
-# жила в main.py; переезд в modules/entry покраснел здесь, как и задумано).
-_LOGIN_OK = {"app/core/auth.py", "app/modules/entry/routes.py"}
+# `try_login` (16.10) — обёртка над пятью для формы и JSON-двери: зовёт их,
+# значит привязан так же.
+_LOGIN_ORACLE = {"verify_pin", "note_fail", "note_ok", "lock_left", "fail_count",
+                 "try_login"}
+# Где вход законен: сам модуль-владелец, форма входа в журнал (до 14.10 она
+# жила в main.py; переезд в modules/entry покраснел здесь, как и задумано) и
+# JSON-дверь смены человека рядом с ней (B4.4, 16.10).
+_LOGIN_OK = {"app/core/auth.py", "app/modules/entry/routes.py",
+             "app/modules/entry/api.py"}
+
+# Двери под `/api/`: маршруты, у которых куки ещё НЕТ, — охрана заперла бы
+# вход изнутри. Их защищает сверка Origin (`same_origin_post`), как у формы:
+# иначе чужой сайт в браузере клиники перебирал бы PIN-ы и накручивал счётчик.
+# ⚠️ Полярность опасная: список ВКЛЮЧАЕТ исключение — переименованная дверь
+# выпала бы из него и покраснела общим правилом (это хорошо), а строка под
+# несуществующий адрес зеленела бы молча (это ловит якорь ниже).
+_API_OPEN = {"/api/auth/login"}
 
 # Подтверждение ИСТОЧНИКА: функция и её счётчик. Оба имени — якорь правил ниже.
 _SRC_VERIFY = "verify_source_pin"
@@ -910,7 +923,7 @@ def suite(res: Result) -> None:
     # он отдал бы данные без входа.
     # ⚠️ Полярность опасная: правило ищет ИМЕНА. Якорей два — пара определена
     # в core/api.py, и хотя бы один маршрут /api/ существует.
-    bad, n_api = [], 0
+    bad, n_api, doors, door_bad = [], 0, set(), []
     api_tree = by_path.get("app/core/api.py")
     api_defs = {fn.name for fn in ast.walk(api_tree or ast.Module(body=[], type_ignores=[]))
                 if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))}
@@ -929,6 +942,16 @@ def suite(res: Result) -> None:
                 continue
             n_api += 1
             called = _calls(fn)
+            if any(p in _API_OPEN for p in routes):
+                # дверь: куки ещё нет, охрана заперла бы вход; защищает Origin
+                doors.update(p for p in routes if p in _API_OPEN)
+                if called & {"api_guard", "api_require"}:
+                    door_bad.append(f"{rel}:{fn.lineno} {fn.name}() под охраной — "
+                                    "войти через неё нельзя")
+                if "same_origin_post" not in called:
+                    door_bad.append(f"{rel}:{fn.lineno} {fn.name}() без same_origin_post "
+                                    "— чужой сайт переберёт PIN и запрёт вход")
+                continue
             if not called & {"api_guard", "api_require"}:
                 bad.append(f"{rel}:{fn.lineno} {fn.name}() без api_guard/api_require")
             if called & {"_guard", "require"}:
@@ -939,6 +962,14 @@ def suite(res: Result) -> None:
     res.ok("маршруты /api/ охраняет api_guard/api_require", not bad,
            "fetch получит 303 и покажет пустой экран вместо «сессия истекла»: "
            + "; ".join(bad))
+    # ---- дверь под /api/ (B4.4, 16.10): без охраны, но со сверкой Origin ----
+    # Вход JSON-ом (смена человека без перезагрузки) — единственный маршрут
+    # `/api/`, куда приходят БЕЗ куки. Якорь — каждая дверь из `_API_OPEN`
+    # нашлась среди маршрутов: иначе список прощал бы несуществующий адрес.
+    door_bad += [f"{p}: двери нет среди маршрутов — _API_OPEN протух"
+                 for p in sorted(_API_OPEN - doors)]
+    res.ok("дверь /api/auth/login: без охраны, но со сверкой Origin", not door_bad,
+           "; ".join(door_bad))
 
     # ---- обрезок не носит имени полного значения (C26.5.2) ----
     # Один и тот же текст живёт в нескольких длинах: комментарий — 80 в списке
@@ -1240,14 +1271,16 @@ def suite(res: Result) -> None:
     # Оба списка ВКЛЮЧАЮЩИЕ: переименуют `verify_pin` или `verify_source_pin` —
     # правила станут искать несуществующие имена, найдут ноль нарушителей и
     # позеленеют навсегда. Мутация этого не ловит: она ломает сторожа тем же
-    # устаревшим именем. Поэтому имена сверяются с ОПРЕДЕЛЕНИЯМИ в auth.py.
-    auth_defs = {fn.name for fn in ast.walk(auth_mod)
+    # устаревшим именем. Поэтому имена сверяются с ОПРЕДЕЛЕНИЯМИ — в auth.py
+    # и в файлах входа (`try_login` живёт у формы, в modules/entry/routes.py).
+    auth_defs = {fn.name for rel in _LOGIN_OK
+                 for fn in ast.walk(by_path.get(rel) or ast.Module(body=[], type_ignores=[]))
                  if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef,
                                     ast.ClassDef))}
     gone = sorted((_LOGIN_ORACLE | _PIN_MATH | _SRC_OWNS) - auth_defs)
     res.ok("имена обоих оракулов не протухли", not gone,
-           f"нет в {_AUTH_MODULE}: {', '.join(gone)} — правила про вход и про "
-           f"источник ищут то, чего больше нет, и молчат")
+           f"нет ни в {_AUTH_MODULE}, ни у входа: {', '.join(gone)} — правила "
+           f"про вход и про источник ищут то, чего больше нет, и молчат")
 
     # ---- проверку PIN считает ОДИН модуль -----------------------------------
     # ⚠️ Реальный ход мысли, от которого правило и защищает: автор экрана

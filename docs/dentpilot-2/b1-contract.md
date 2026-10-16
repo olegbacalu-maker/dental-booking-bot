@@ -30,6 +30,9 @@ ShellModel
 ├── identity   { name, role, initials, can: {money, settings, doctors, users} }
 ├── clinic     { name, logo_url }
 ├── runtime    { version, tz, edition, theme: {style, vars} }
+├── entry      { pin, pin_max, backdrop }   — дверь (B4.4, 16.10): вход по
+│              PIN-файлу → смена человека без перезагрузки, экран PIN клиента;
+│              иначе выход — ссылка на /admin/logout (демо отдаёт на нём слот)
 ├── nav        [ {key, href, label, icon, visible} ], active
 ├── signals    { tamper, split, slot, setup_hint }   — каждый: shown + данные
 └── frame      { sub, rail, bell }

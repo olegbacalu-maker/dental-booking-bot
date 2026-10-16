@@ -37,8 +37,17 @@ export interface ShellModel {
     initials: string
     can: { money: boolean; settings: boolean; doctors: boolean }
   } | null
-  clinic: { name: string; mark: string; logo_topbar: string }
+  /** `logo` — логотип карточки входа (экран PIN, B4.4): как у страницы входа,
+   *  если клиника его загрузила; `logo_topbar` — тот же файл по галочке шапки. */
+  clinic: { name: string; mark: string; logo_topbar: string; logo: string }
   runtime: { version: string; tz: string }
+  /**
+   * Дверь (B4.4): `pin` — вход по PIN-файлу, и смена человека идёт без
+   * перезагрузки (экран PIN клиента); иначе «Ieșire din cont» остаётся
+   * ссылкой на `/admin/logout` — в демо тот адрес отдаёт слот посетителя.
+   * `backdrop` — фон страниц входа, SVG сервера (как `clinic.mark`).
+   */
+  entry: { pin: boolean; pin_max: number; backdrop: string }
   nav: { active: string; items: NavItem[]; sync: NavItem[]; foot_title: string }
   signals: { license: Signal; tamper: Signal; split: Signal; slot: Signal; setup: Signal; demo: Signal }
   frame: {

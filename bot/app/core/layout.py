@@ -25,7 +25,7 @@ from . import demo
 from . import license as lic
 from . import theme
 from .auth import (PERM_DOCTORS, PERM_MONEY, PERM_SETTINGS, PIN_MAX, PIN_MIN,
-                   ROLE_LABEL, can,
+                   ROLE_LABEL, _pin_rec, can,
                    request_user, tamper_alert)
 
 # Адрес на домене сайта (06.10, слово Олега): Cloudflare пересылает его в
@@ -216,6 +216,12 @@ MSG_BANNER = {
     "bad_logo": ("err", "Logo neacceptat — doar PNG sau JPEG, cel mult 2 MB. "
                         "SVG nu se acceptă din motive de securitate."),
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
+    # Вход (форма и JSON-дверь смены человека, B4.4): одни слова на обе двери.
+    # Блокировка подбора на входе — тем же `lock_pin`, что у смены PIN: одно
+    # состояние, одно слово.
+    "login_bad": ("err", "PIN greșit"),
+    "auth_broken": ("err", "Fișierul de acces e deteriorat — restaurați "
+                           "data\\auth.json din copia de rezervă."),
     "ok_pin": ("ok", "PIN schimbat"),
     # ⚠️ границы — из констант, не числами: «4–6» пережило подъём потолка до 8
     # (08-13) и отговаривало от разрешённых 7–8 цифр
@@ -433,6 +439,15 @@ def msg_state(msg: str) -> str:
     tone, text = MSG_BANNER[msg]
     role = "alert" if tone == "err" else "status"
     return f"<div class='state {tone}' role='{role}'>{html.escape(text)}</div>"
+
+
+def msg_text(code: str) -> str:
+    """Слова кода — для страницы СО СВОЕЙ вёрсткой, которая печатает их в свой
+    узел (экран входа: `<div class='err'>`). Тот же словарь, что у трёх
+    конвертов выше: страница, повторившая «PIN greșit» литералом, стала бы
+    вторым владельцем слова — ровно то, чего держится `test_structure`.
+    Неизвестный код — пустая строка, как у `msg_json`."""
+    return MSG_BANNER.get(code, ("", ""))[1]
 
 
 def msg_json(ok: bool, code: str = "", *, data=None, field: str = "",
@@ -1295,8 +1310,19 @@ def shell_model(active: str, sub: str, rail: bool = False,
         # второго владельца одной картинки.
         "clinic": {"name": eng.CLINIC_NAME,
                    "mark": brand.mark_svg(28, "logo", flat=True),
-                   "logo_topbar": (theme.logo_url() or "") if th.get("logo_topbar") else ""},
+                   "logo_topbar": (theme.logo_url() or "") if th.get("logo_topbar") else "",
+                   # логотип карточки входа (экран PIN клиента, B4.4) — как у
+                   # страницы входа: если клиника его загрузила, без галочки
+                   "logo": theme.logo_url() or ""},
         "runtime": {"version": eng.APP_VERSION, "tz": eng.TZ.key},
+        # Дверь (B4.4): клиент меняет человека без перезагрузки ТОЛЬКО там, где
+        # вход по PIN-файлу. Без него (облако, демо, ADMIN_KEY) «Ieșire din
+        # cont» остаётся ссылкой на `/admin/logout`: шлюз демо на этом адресе
+        # отдаёт слот посетителя, и JSON-выход мимо него слот бы не вернул.
+        # Фон — тот же, что у страниц входа (`_backdrop`): слово Олега «окно
+        # с PIN-кодом оставить на том же фоне»; строкой сервера, как знак.
+        "entry": {"pin": _pin_rec() is not None, "pin_max": PIN_MAX,
+                  "backdrop": brand.backdrop_svg()},
         "nav": {"active": active, "items": items, "sync": sync,
                 "foot_title": (f"@{tg_user}" if tg_on else "neconectat")
                               if tg_configured() else ""},

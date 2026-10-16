@@ -308,6 +308,10 @@
    justify-content:center;color:var(--text3);text-decoration:none;font-size:var(--fs-body);
    transition:background-color var(--dur) ease,color var(--dur) ease}
  .who-out:hover{background:var(--red-soft);color:var(--red-t)}
+ /* у React-оболочки выход — кнопка (замок на месте, B4.4), у каркаса — ссылка:
+    вид один, кнопке только снимается своё */
+ button.who-out{background:none;border:0;padding:0;cursor:pointer;font:inherit}
+ button.who-out:focus-visible{outline:none;box-shadow:var(--ring)}
  @media (max-width:1100px){.who-n{display:none}}
  /* Ширина окна отдаётся ВСЕМ разделам (08-16, просьба Олега: «на каждом экране
     справа много места»). До этого широкими были только дневные виды (список

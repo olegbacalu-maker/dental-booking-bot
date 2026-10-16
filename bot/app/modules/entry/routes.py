@@ -1,9 +1,12 @@
 """Вход в журнал, первая установка PIN, выход и сигнализация auth.json.
 
-⚠️ Это одно из двух мест, где законно зовётся оракул входа (`verify_pin`,
+⚠️ Это одно из трёх мест, где законно зовётся оракул входа (`verify_pin`,
 `note_fail`, …): он привязан к папке, В КОТОРОЙ ИДЁТ ПРОГРАММА, и пишет в неё.
-Белый список в `test_structure` (`_LOGIN_OK`) называет этот файл поимённо —
+Белый список в `test_structure` (`_LOGIN_OK`) называет файлы поимённо —
 чтобы будущий экран миграции не спрятался под «любой модуль с формой входа».
+Сам оракул — `try_login` ниже, ОДИН на форму и на JSON-дверь смены человека
+(`api.py`, B4.4): второй, со своими ветками, разошёлся бы с первым в том, кого
+пускать и что считать неудачей.
 """
 from __future__ import annotations
 
@@ -26,69 +29,34 @@ from ...core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, PIN_MAX,
                           fail_count, find_user, lock_left, note_fail, note_ok,
                           pin_len_ok, remember_auth_file, require,
                           same_origin_post, set_tamper_alert, verify_pin)
-from ...core.layout import standalone
+from ...core.layout import msg_text, standalone
 from .pages import LOGIN_TMPL, PASS_INPUT, PIN_INPUT, SETUP_LOCAL_TMPL, SETUP_TMPL
 
 router = APIRouter()
 
-
-@router.get("/admin/login", response_class=HTMLResponse)
-async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
-    # ⚠️ auth_blocked, а не _auth_broken: то же условие, что в _guard. При
-    # заполненном ADMIN_KEY вход по ключу исправен, и разговор про битый файл
-    # увёл бы человека чинить то, что его беде не мешает.
-    broken = auth_blocked()
-    if not _secret() and not broken:
-        return RedirectResponse("/admin", status_code=303)
-    pin_mode = _pin_rec() is not None
-    if broken:
-        # битый auth.json: состояние ошибки, а не «PIN не установлен» — setup
-        # закрыт (_setup_allowed), и человеку важно знать, ЧТО делать. Файл
-        # не трогаем: учётки восстановимы только из копии.
-        err_html = ("<div class='err'>Fișierul de acces e deteriorat — "
-                    "restaurați data\\auth.json din copia de rezervă.</div>")
-    elif err == "lock":
-        # `s` — срок из редиректа сразу после неудачи; lock_left() свежее, но
-        # к моменту перезагрузки страницы уже мог утечь до нуля
-        left = lock_left() or (int(s) if s.isdigit() else 0)
-        wait = f"{left} sec." if left < 60 else f"{(left + 59) // 60} min."
-        # вторая фраза — выход, а не упрёк: после смены пароля коллегой человек
-        # попадает сюда с ВЕРНЫМ по его памяти PIN-ом и не знает, что делать
-        err_html = ("<div class='err'>Prea multe încercări greșite. "
-                    f"Încercați peste {wait}<br><small>Ați uitat PIN-ul? "
-                    "Un director îl poate schimba din Setări › Securitate "
-                    "și utilizatori.</small></div>")
-    elif err:
-        err_html = ("<div class='err'>PIN greșit</div>" if pin_mode
-                    else "<div class='err'>Parolă greșită</div>")
-    else:
-        err_html = ""
-    nxt = next if next.startswith("/admin") else "/admin"
-    return (standalone(LOGIN_TMPL)
-            .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
-            .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT))
+# Исходы входа — одни на форму (`?err=`) и на JSON (коды MSG_BANNER).
+LOGIN_OK, LOGIN_BAD, LOGIN_LOCK, LOGIN_BROKEN = "ok", "bad", "lock", "broken"
 
 
-@router.post("/admin/login")
-async def admin_login(request: Request, password: str = Form(...),
-                      uid: str = Form(""),
-                      next_url: str = Form("/admin", alias="next")):
-    # чужой сайт в браузере клиники не должен ни пробовать PIN-ы, ни
-    # накручивать счётчик подбора до блокировки (см. same_origin_post)
-    if not same_origin_post(request):
-        return Response(status_code=403)
-    target = next_url if next_url.startswith("/admin") else "/admin"
-    nxt = urllib.parse.quote(target, safe="")
+async def try_login(password: str, uid: str = "") -> tuple[str, dict | None, int]:
+    """Оракул входа: (исход, запись вошедшего, срок блокировки в секундах).
+
+    Один на форму входа и на `POST /api/auth/login`. Здесь всё, что решает,
+    пускать ли человека, и всё, что вход оставляет после себя: счётчик
+    неудач, пауза, строка в ленте, отпечаток auth.json, `last_login`.
+    ⚠️ Origin вызывающий сверяет САМ до вызова (`same_origin_post`): форма
+    отвечает на чужой POST пустым 403, JSON — конвертом; оракулу об этом знать
+    незачем. ⚠️ Куку тоже выдаёт вызывающий — ПОСЛЕ этого вызова: `verify_pin`
+    мог переписать файл v1→v2 и сменить ключ подписи (см. `verify_pin`).
+    """
     if auth_blocked():
         # проверять ввод не по чему — «PIN greșit» тут враньё, а счётчик
         # неудач наказал бы человека за наш же битый файл. Вложенность та же,
         # что в _guard: при заполненном ADMIN_KEY проверять ЕСТЬ по чему, и
         # безусловный отказ запер бы исправный вход
-        return RedirectResponse(f"/admin/login?err=broken&next={nxt}",
-                                status_code=303)
+        return LOGIN_BROKEN, None, 0
     if (left := lock_left()) > 0:
-        return RedirectResponse(
-            f"/admin/login?err=lock&s={left}&next={nxt}", status_code=303)
+        return LOGIN_LOCK, None, left
     pw = password.strip()
     who = None
     if _pin_rec():
@@ -118,9 +86,7 @@ async def admin_login(request: Request, password: str = Form(...),
                                       actor=_as_user(who)["name"])
             await db.set_meta(f"last_login:{who.get('id', 'clinic')}",
                               datetime.now(eng.TZ).isoformat())
-        # кука ставится ПОСЛЕ verify_pin: миграция v1→v2 меняет ключ подписи,
-        # а запись пользователя — свой sid
-        return _set_auth_cookie(RedirectResponse(target, status_code=303), who)
+        return LOGIN_OK, who, 0
     lock = note_fail()
     if lock and fail_count() in LOCK_STEP_COUNTS:
         # Всплеск подбора — строкой в ленту, на СТУПЕНЯХ лестницы, а не на
@@ -134,6 +100,66 @@ async def admin_login(request: Request, password: str = Form(...),
     # asyncio.sleep, а не time.sleep: у настольного издания один процесс на всю
     # клинику, и блокирующая пауза заморозила бы журнал остальным
     await asyncio.sleep(FAIL_DELAY)
+    return LOGIN_BAD, None, lock
+
+
+@router.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(next: str = "/admin", err: str = "", s: str = ""):
+    # ⚠️ auth_blocked, а не _auth_broken: то же условие, что в _guard. При
+    # заполненном ADMIN_KEY вход по ключу исправен, и разговор про битый файл
+    # увёл бы человека чинить то, что его беде не мешает.
+    broken = auth_blocked()
+    if not _secret() and not broken:
+        return RedirectResponse("/admin", status_code=303)
+    pin_mode = _pin_rec() is not None
+    if broken:
+        # битый auth.json: состояние ошибки, а не «PIN не установлен» — setup
+        # закрыт (_setup_allowed), и человеку важно знать, ЧТО делать. Файл
+        # не трогаем: учётки восстановимы только из копии. Слова — из
+        # MSG_BANNER: те же, что получает JSON-дверь (`api.py`).
+        err_html = f"<div class='err'>{html.escape(msg_text('auth_broken'))}</div>"
+    elif err == "lock":
+        # `s` — срок из редиректа сразу после неудачи; lock_left() свежее, но
+        # к моменту перезагрузки страницы уже мог утечь до нуля
+        left = lock_left() or (int(s) if s.isdigit() else 0)
+        wait = f"{left} sec." if left < 60 else f"{(left + 59) // 60} min."
+        # вторая фраза — выход, а не упрёк: после смены пароля коллегой человек
+        # попадает сюда с ВЕРНЫМ по его памяти PIN-ом и не знает, что делать
+        err_html = ("<div class='err'>Prea multe încercări greșite. "
+                    f"Încercați peste {wait}<br><small>Ați uitat PIN-ul? "
+                    "Un director îl poate schimba din Setări › Securitate "
+                    "și utilizatori.</small></div>")
+    elif err:
+        err_html = (f"<div class='err'>{html.escape(msg_text('login_bad'))}</div>"
+                    if pin_mode else "<div class='err'>Parolă greșită</div>")
+    else:
+        err_html = ""
+    nxt = next if next.startswith("/admin") else "/admin"
+    return (standalone(LOGIN_TMPL)
+            .replace("__ERR__", err_html).replace("__NEXT__", html.escape(nxt))
+            .replace("__INPUT__", PIN_INPUT if pin_mode else PASS_INPUT))
+
+
+@router.post("/admin/login")
+async def admin_login(request: Request, password: str = Form(...),
+                      uid: str = Form(""),
+                      next_url: str = Form("/admin", alias="next")):
+    # чужой сайт в браузере клиники не должен ни пробовать PIN-ы, ни
+    # накручивать счётчик подбора до блокировки (см. same_origin_post)
+    if not same_origin_post(request):
+        return Response(status_code=403)
+    target = next_url if next_url.startswith("/admin") else "/admin"
+    nxt = urllib.parse.quote(target, safe="")
+    outcome, who, lock = await try_login(password, uid)
+    if outcome == LOGIN_BROKEN:
+        return RedirectResponse(f"/admin/login?err=broken&next={nxt}",
+                                status_code=303)
+    if outcome == LOGIN_OK:
+        # кука ставится ПОСЛЕ try_login: миграция v1→v2 меняет ключ подписи,
+        # а запись пользователя — свой sid
+        return _set_auth_cookie(RedirectResponse(target, status_code=303), who)
+    # `s` — срок блокировки: и у запертого входа, и у неудачи, которая его
+    # заперла; страница входа подставит его в «Încercați peste …»
     q = f"err=lock&s={lock}" if lock else "err=1"
     return RedirectResponse(f"/admin/login?{q}&next={nxt}", status_code=303)
 

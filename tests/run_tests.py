@@ -170,6 +170,7 @@ SUITES = [
     ("PIN: клиника с прошлой версии", test_pin.suite_migrate),
     ("PIN: защита от подбора", test_pin.suite_throttle),
     ("PIN: смена", test_pin.suite_change),
+    ("PIN: JSON-дверь смены человека", test_pin.suite_api_login),
     ("Роли и права доступа", test_pin.suite_roles),
     ("PIN: битый auth.json", test_pin.suite_broken),
     ("Hardening: установка PIN только локально", test_hardening.suite_setup_local),

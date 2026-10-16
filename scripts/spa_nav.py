@@ -29,7 +29,12 @@
      якорем формы — каждый переходом, свидетель жив, экран нарисован;
   6. ссылки внутри экранов (B4.3): фиша → одонтограмма (сайдбар сужается в
      рельс по модели нового документа) → назад в фишу, день → панель, список
-     врачей → карточка врача — каждый переходом.
+     врачей → карточка врача — каждый переходом;
+  7. смена человека (B4.4, 16.10): «Ieșire din cont» директора → экран PIN
+     вместо журнала (оболочки и экрана нет, свидетель жив) → PIN регистратуры
+     → панель с её именем и меню, документ `/admin` запрошен fetch-ем, окно
+     не перезагружалось; пара — тот же путь документами (`/admin/logout`,
+     форма входа): свидетель ОБЯЗАН пропасть.
 
 ⛔ Пара (без неё стенд ничего не доказывает): та же ссылка, лишённая роутера
 (узел подменён клоном без обработчиков React), обязана перезагрузить документ
@@ -47,12 +52,19 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "bot"))
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from app.core import auth  # noqa: E402
 from harness import Client, Server, clinic_today  # noqa: E402
 from mount_sweep import PIN, pin_cookie, preconditions, seed  # noqa: E402
 from odo_shots import CDP, Page, start_edge  # noqa: E402
+
+# Второй человек для шага 7 (смена человека): регистратура со своим PIN.
+# Файл дописывается ПОВЕРХ `preconditions` до первого старта — иначе первый
+# запуск запомнит отпечаток без неё, второй увидит подмену и поднимет тревогу.
+PIN_ANA = "55117733"
 
 
 def section_title(key: str) -> str:
@@ -110,6 +122,10 @@ STATE = """(() => {
     /* (06.10) «Programare nouă» открывает ОКНО записи (`#addform` в адресе),
        а не прокручивает к форме внизу страницы: формы там больше нет. */
     addform: document.querySelector('dialog[open] form.dp-addform') ? true : null,
+    /* (16.10) смена человека: имя в шапке и экран PIN вместо журнала */
+    who: (document.querySelector('.who-n b') || {}).textContent || '',
+    lock: !!document.querySelector('.dp-lock'),
+    menu: [...document.querySelectorAll('aside nav a')].map(a => a.title).join('|'),
     docs: docs,
     y: window.scrollY,
     tall: document.documentElement.scrollHeight - window.innerHeight,
@@ -152,6 +168,10 @@ def main() -> int:
     day = clinic_today().isoformat()
     s1 = Server(keep_dir=True)
     preconditions(s1.dir)
+    rec = json.loads((s1.dir / "auth.json").read_text(encoding="utf-8"))
+    rec["users"].append({"id": "ana", "role": auth.ROLE_RECEPTIE, "name": "Ana Recepție",
+                         **auth._secret_fields(PIN_ANA)})
+    (s1.dir / "auth.json").write_text(json.dumps(rec, indent=1), encoding="utf-8")
     s1.extra_env["DENTART_ENV_FILE"] = str(s1.dir / "dental.env")
     with s1:
         ids = seed(Client(s1.url).login(PIN), day)
@@ -377,6 +397,71 @@ def main() -> int:
             errs = cdp.errors()
             if errs:
                 bad.append("ошибки консоли (экраны): " + "; ".join(errs[:3]))
+
+            # 7. смена человека (B4.4, 16.10): «Ieșire din cont» директора →
+            # экран PIN вместо журнала → PIN регистратуры → панель с её именем
+            # и меню. Свидетель жив на обоих шагах; документ панели запрошен
+            # fetch-ем; F5 подтверждает, что и у СЕРВЕРА человек сменился.
+            def enter(pin: str) -> None:
+                page.click("document.querySelector('input[name=password]')")
+                cdp.cmd("Input.insertText", text=pin)
+                cdp.cmd("Input.dispatchKeyEvent", type="keyDown", key="Enter", code="Enter",
+                        text="\r", windowsVirtualKeyCode=13)
+                cdp.cmd("Input.dispatchKeyEvent", type="keyUp", key="Enter", code="Enter",
+                        windowsVirtualKeyCode=13)
+
+            page.go("/admin")
+            s9 = settle(page, lambda st: st["dash"] and st["busy"] != "true")
+            if s9["who"] != "Director":
+                bad.append(f"смена человека: стенд начат не директором: «{s9['who']}»")
+            tok = page.js(MARK)
+            click_el(page, "document.querySelector('.who-out')")
+            s9 = settle(page, lambda st: st["lock"])
+            print(f"смена человека: выход → {'экран PIN' if s9['lock'] else 'НЕТ экрана PIN'}, "
+                  f"оболочка {'снята' if not s9['aside'] else 'ОСТАЛАСЬ'}")
+            if not s9["lock"]:
+                bad.append("смена человека: после «Ieșire din cont» нет экрана PIN")
+            elif s9["aside"] or s9["dash"] or s9["who"]:
+                bad.append("смена человека: журнал прошлого человека остался под экраном PIN")
+            if s9["tok"] != tok:
+                bad.append("смена человека: выход ПЕРЕЗАГРУЗИЛ документ")
+            enter(PIN_ANA)
+            s10 = settle(page, lambda st: st["dash"] and st["busy"] != "true" and not st["lock"])
+            print(f"смена человека: PIN → {s10['href']} «{s10['who']}» меню {s10['menu']}")
+            if not s10["dash"] or s10["lock"]:
+                bad.append(f"смена человека: после PIN панель не открылась: {s10['href']}")
+            if s10["who"] != "Ana Recepție":
+                bad.append(f"смена человека: в шапке «{s10['who']}», ждали «Ana Recepție» — "
+                           "оболочка не перечитана")
+            if s10["tok"] != tok:
+                bad.append("смена человека: вход ПЕРЕЗАГРУЗИЛ документ")
+            if section_title("set") in s10["menu"]:
+                bad.append("смена человека: меню директора осталось у регистратуры")
+            if not any(d == "/admin" or d.startswith("/admin?") for d in s10["docs"]):
+                bad.append(f"смена человека: документ панели не запрашивался: {s10['docs']}")
+            cdp.cmd("Page.reload", ignoreCache=True)
+            cdp.wait_event("Page.loadEventFired", timeout=15)
+            s11 = settle(page, lambda st: st["dash"] and st["busy"] != "true")
+            if s11["who"] != "Ana Recepție":
+                bad.append(f"смена человека: после F5 в шапке «{s11['who']}» — кука у сервера "
+                           "не сменилась")
+            errs = cdp.errors()
+            if errs:
+                bad.append("ошибки консоли (смена человека): " + "; ".join(errs[:3]))
+            # ⛔ Пара шага 7: тот же путь ДОКУМЕНТАМИ (`/admin/logout`, форма
+            # входа) — свидетель обязан пропасть, иначе стенд слеп к перезагрузке
+            tok = page.js(MARK)
+            page.go("/admin/logout")
+            settle(page, lambda st: st["href"].startswith("/admin/login"))
+            enter(PIN)
+            cdp.wait_event("Page.loadEventFired", timeout=15)
+            p2 = settle(page, lambda st: st["dash"] and st["busy"] != "true")
+            print(f"пара (смена человека документами): {p2['href']} «{p2['who']}» "
+                  f"свидетель {'ПРОПАЛ' if p2['tok'] != tok else 'уцелел'}")
+            if p2["tok"] == tok:
+                bad.append("пара: смена человека документами НЕ перезагрузила окно — стенд слеп")
+            if p2["who"] != "Director":
+                bad.append(f"пара: после формы входа в шапке «{p2['who']}», ждали директора")
 
             # ⛔ Пара: обычная ссылка перезагружает документ — свидетель пропадает
             page.go("/admin")

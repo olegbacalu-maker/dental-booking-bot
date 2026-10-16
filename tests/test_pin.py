@@ -13,7 +13,8 @@ import sys
 import tempfile
 import time
 
-from harness import BOT, Client, Result, Server, _rmtree_settled
+from harness import PIN as KEY  # ключ облачной ветки (ADMIN_KEY харнесса)
+from harness import BOT, Client, Result, Server, _rmtree_settled, shell_model
 
 NO_KEY = {"ADMIN_KEY": ""}          # без него издание уходит веткой ADMIN_KEY
 
@@ -548,6 +549,151 @@ def suite_change(res: Result) -> None:
         r = new.post_json("/api/settings/pin", {"old_pin": "5678", "new1": "4321", "new2": "4321"})
         res.check("во время блокировки форма смены не врёт про старый PIN",
                   r.msg, "lock_pin")
+
+
+def suite_api_login(res: Result) -> None:
+    """JSON-дверь смены человека (B4.4, 16.10): тот же оракул, что у формы.
+
+    Клиент меняет человека без перезагрузки: `POST /api/auth/logout` снимает
+    куку, `POST /api/auth/login` ставит куку вошедшего. Стережётся, что это
+    ОДНА дверь с формой, а не вторая: те же отказы (битый файл, блокировка,
+    неверный PIN), тот же счётчик (неудачи формы и JSON складываются), тот же
+    след в ленте, тот же переезд v1→v2 с отпечатком, та же сверка Origin.
+    ⛔ И что 401 здесь не бывает: на него клиент уходит документом на
+    страницу входа, а экран PIN обязан показать отказ на месте.
+    """
+    login, logout = "/api/auth/login", "/api/auth/logout"
+    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_apilogin_"))
+    try:
+        s = Server(env=NO_KEY, dir_=base)
+        _v1_file(s, "4321")
+        with s:
+            c = Client(s.url)
+            r = c.post_json(login, {"pin": "1111"})
+            res.ok("неверный PIN — 422 login_bad, а не 401",
+                   r.status == 422 and r.msg == "login_bad", f"{r!r} {r.body[:120]}")
+            res.check("отказ называет поле", json.loads(r.body).get("field"), "pin")
+            res.ok("текст отказа — слово формы входа",
+                   json.loads(r.body).get("text") == "PIN greșit", r.body[:120])
+            res.ok("и журнал закрыт", c.get("/admin").status == 303,
+                   "пустил по неверному PIN")
+            res.ok("неудача файл v1 не трогает", "v" not in _rec(s),
+                   "файл переписан при НЕверном PIN")
+
+            r = c.post_json(login, {"pin": "4321"})
+            sc = r.header("Set-Cookie")
+            res.ok("верный PIN — 200 с кукой вошедшего",
+                   r.status == 200 and "admin_auth=" in sc, f"{r!r} cookie {sc[:60]!r}")
+            res.check("ответ называет вошедшего", json.loads(r.body)["data"]["uid"], "clinic")
+            res.ok("журнал открыт по куке JSON-входа", c.get("/admin").status == 200,
+                   "кука JSON-входа не пускает")
+            # ⚠️ как у формы: переезд v1→v2 меняет ключ подписи, и кука,
+            # выданная ДО него, отвалилась бы на первой же странице
+            res.check("файл переехал в v2 тем же оракулом", _rec(s).get("v"), 2)
+            model = shell_model(c.get("/admin").body)
+            res.ok("оболочка называет дверь: вход по PIN, потолок из констант",
+                   model.get("entry", {}).get("pin") is True
+                   and model["entry"].get("pin_max") == 8, f"{model.get('entry')!r}")
+            res.ok("фон экрана PIN едет строкой сервера",
+                   "dp-bg" in model["entry"].get("backdrop", ""), "нет фона в модели")
+            res.ok("логотип карточки входа — в модели", "logo" in model.get("clinic", {}),
+                   f"{model.get('clinic')!r}")
+
+            r = c.post_json(logout, {})
+            sc = r.header("Set-Cookie")
+            res.ok("выход — 200, кука снята",
+                   r.status == 200 and "admin_auth=" in sc
+                   and ("Max-Age=0" in sc or 'admin_auth=""' in sc), f"{r!r} {sc[:80]!r}")
+            res.ok("после выхода журнал закрыт", c.get("/admin").status == 303,
+                   "кука пережила выход")
+            res.check("выход без куки — 401 (api_guard)", c.post_json(logout, {}).status, 401)
+
+            # явный id: сверка только с ним, без учёта регистра (телефон ставит
+            # заглавную) — как у формы
+            c.post_json(login, {"pin": "4321"})
+            res.check("регистратура заводится",
+                      c.post_json("/api/settings/users", {"uid": "ana", "name": "Ana R",
+                                                         "role": "receptie", "pin": "3333"}).msg,
+                      "ok_user")
+            a = Client(s.url)
+            r = a.post_json(login, {"pin": "3333", "uid": "clinic"})
+            res.ok("свой PIN с чужим id — отказ", r.status == 422 and r.msg == "login_bad", f"{r!r}")
+            r = a.post_json(login, {"pin": "3333", "uid": "ANA"})
+            res.ok("id — без учёта регистра",
+                   r.status == 200 and json.loads(r.body)["data"]["name"] == "Ana R",
+                   f"{r!r} {r.body[:120]}")
+            res.ok("регистратура вошла в журнал", a.get("/admin").status == 200,
+                   "кука регистратуры не пускает")
+
+            # CSRF: чужой сайт в браузере клиники — ни проверки PIN, ни счётчика
+            fails = lambda: json.loads((s.dir / "auth_fail.json").read_text(encoding="utf-8")).get("fails", 0)  # noqa: E731
+            r = Client(s.url).post_json(login, {"pin": "4321"},
+                                        headers={"Origin": "http://atacator.example"})
+            res.check("чужой Origin — 403", r.status, 403)
+            res.check("и счётчик неудач не тронут", fails(), 0)
+            r = Client(s.url).post_json(login, {"pin": "1111"},
+                                        headers={"Origin": f"http://127.0.0.1:{s.port}"})
+            res.ok("свой Origin (окно программы) проходит до оракула",
+                   r.status == 422 and fails() == 1, f"{r!r} fails={fails()}")
+
+            # один счётчик на обе двери: неудачи формы и JSON складываются
+            bad = Client(s.url)
+            for _ in range(3):
+                bad.post("/admin/login", password="1111", next="/admin")
+            r = bad.post_json(login, {"pin": "1111"})
+            res.ok("пятая неудача (через JSON) запирает: 423 lock_pin с секундами",
+                   r.status == 423 and r.msg == "lock_pin"
+                   and json.loads(r.body).get("data", {}).get("left", 0) > 0,
+                   f"{r!r} {r.body[:120]}")
+            r = bad.post_json(login, {"pin": "4321"})
+            res.ok("верный PIN при блокировке — 423, а не 200",
+                   r.status == 423 and r.msg == "lock_pin", f"{r!r}")
+            res.ok("форма заперта той же лестницей",
+                   "err=lock" in bad.post("/admin/login", password="4321", next="/admin").location,
+                   "у формы свой счётчик — лестница разошлась")
+            (s.dir / "auth_fail.json").write_text('{"fails": 0, "until": 0}', encoding="utf-8")
+            ok = Client(s.url)
+            ok.post_json(login, {"pin": "4321"})
+            feed = _feed(ok)
+            res.ok("вход JSON-ом и всплеск подбора — в ленте клиники",
+                   "A intrat în registru" in feed and "încercări greșite la intrare" in feed,
+                   "JSON-дверь не оставляет следа")
+        # рестарт: свой переезд v1→v2 через JSON-вход запомнен отпечатком
+        with Server(env=NO_KEY, dir_=base) as s:
+            c = Client(s.url)
+            c.post_json(login, {"pin": "4321"})
+            res.ok("переезд файла через JSON-вход — без ложной тревоги при рестарте",
+                   "în afara programului" not in c.get("/admin").body,
+                   "ложный «взлом» после JSON-входа")
+    finally:
+        _rmtree_settled(base)
+
+    # битый auth.json: отказ объясняет беду теми же словами, что и форма,
+    # файл не тронут
+    s = Server(env=NO_KEY)
+    broken = '{"v": 2, "cookie_key": "abc", "users": [{"id": "cl'
+    (s.dir / "auth.json").write_text(broken, encoding="utf-8")
+    with s:
+        r = Client(s.url).post_json(login, {"pin": "9999"})
+        res.ok("битый файл — 409 auth_broken",
+               r.status == 409 and r.msg == "auth_broken"
+               and "deteriorat" in json.loads(r.body).get("text", ""), f"{r!r} {r.body[:120]}")
+        res.check("файл цел", (s.dir / "auth.json").read_text(encoding="utf-8"), broken)
+        res.ok("форма входа — теми же словами",
+               "deteriorat" in Client(s.url).get("/admin/login").body,
+               "страница входа разошлась со словарём")
+
+    # облачная ветка (ADMIN_KEY): дверь работает ключом, а в оболочке сказано,
+    # что смены человека без перезагрузки здесь нет (демо отдаёт слот на
+    # /admin/logout)
+    with Server() as s:
+        c = Client(s.url)
+        res.check("чужой ключ — 422", c.post_json(login, {"pin": "nu"}).status, 422)
+        r = c.post_json(login, {"pin": KEY})
+        res.ok("ключ облака пускает", r.status == 200 and c.get("/admin").status == 200, f"{r!r}")
+        res.ok("оболочка: вход не по PIN-файлу",
+               shell_model(c.get("/admin").body).get("entry", {}).get("pin") is False,
+               "облако объявило вход по PIN")
 
 
 def suite_secret(res: Result) -> None:
