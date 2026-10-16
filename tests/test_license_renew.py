@@ -526,7 +526,7 @@ def suite_request(res: Result) -> None:
                 if (d / "license.pending").exists() else {}
             res.ok("license.pending: токен и адрес сервера, кто принял условия и какую версию",
                    pend.get("token") == TOKEN and pend.get("url") == stand.url
-                   and pend.get("actor") == "Director" and pend.get("terms") == "26.09.2026", repr(pend))
+                   and pend.get("actor") == "Director" and pend.get("terms") == "16.10.2026", repr(pend))
             res.ok("первый запрос по токену заявки — сразу",
                    any(q["auth"] == f"Bearer {TOKEN}" for q in stand.requests[asked:]))
             page = c.get("/admin/license").body
@@ -545,7 +545,7 @@ def suite_request(res: Result) -> None:
             ev = _actors(d)
             res.ok("летопись: заявка отправлена и активация — с версией условий и именем директора",
                    any("Cerere de perioadă de probă trimisă" in t and a == "Director" for t, a in ev)
-                   and any("Licența a fost activată" in t and "acceptați Termenii și condițiile din 26.09.2026"
+                   and any("Licența a fost activată" in t and "acceptați Termenii și condițiile din 16.10.2026"
                            in t and a == "Director" for t, a in ev), repr(ev))
 
         d = dirs[1]
@@ -634,7 +634,7 @@ def suite_code(res: Result) -> None:
             ev = _actors(d)
             res.ok("летопись: активация кодом и принятие условий — директором",
                    any("codul trimis pe e-mailul clinicii" in t and a == "Director" for t, a in ev)
-                   and any("Licența a fost activată" in t and "acceptați Termenii și condițiile din 26.09.2026"
+                   and any("Licența a fost activată" in t and "acceptați Termenii și condițiile din 16.10.2026"
                            in t and a == "Director" for t, a in ev), repr(ev))
 
         d = dirs[1]

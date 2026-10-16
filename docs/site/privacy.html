@@ -84,8 +84,15 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 
   <h2>4. Datele pacienților clinicilor</h2>
   <p>Programul DentPilot rulează local, pe computerul clinicii. Furnizorul
-  <b>nu are acces la datele pacienților</b>; operator de date pentru
-  pacienți este clinica. Prin acest site nu se prelucrează date ale
+  <b>nu are acces la fișele pacienților</b>; operator de date pentru
+  pacienți este clinica. Excepție: dacă clinica activează Pachetul SMS,
+  serverul furnizorului primește, pentru fiecare memento, numărul de
+  telefon mobil al pacientului și textul memento-ului (denumirea clinicii,
+  ziua, data și ora vizitei și, la alegerea clinicii, telefonul clinicii),
+  le transmite operatorului SMS Rock Soft S.R.L. (SMS.MD, servere în
+  Republica Moldova) și nu le păstrează. Pentru aceste date furnizorul este
+  persoană împuternicită a clinicii (<a href="termeni.html">Termeni și
+  condiții</a>, secțiunea 16). Prin acest site nu se prelucrează date ale
   pacienților.</p>
 
   <h2>5. Datele contului clinicii</h2>
@@ -98,7 +105,10 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   denumirea, IDNO, persoana de contact, e-mailul, telefonul, adresa,
   fișierele de licență emise, notele de plată, plățile confirmate și
   jurnalul e-mailurilor trimise clinicii (nota de plată, notificările de
-  expirare, confirmarea termenului licenței, codul de activare).</p>
+  expirare, confirmarea termenului licenței, codul de activare); pentru
+  clinicile cu Pachetul SMS și numele expeditorului, pachetele plătite și
+  evidența mesajelor fără număr și text (identificatorul, numărul de
+  segmente, starea livrării).</p>
   <ul>
     <li><b>Scopul și temeiul:</b> emiterea și reînnoirea licenței, facturarea
     și notificările privind expirarea — executarea contractului cu clinica
@@ -111,7 +121,9 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     <li><b>Cât timp:</b> pe durata contractului; documentele de plată — pe
     termenul cerut de legislația contabilă. La cererea clinicii, după încetarea
     contractului, celelalte date ale contului sunt șterse.</li>
-    <li><b>Ce nu conține:</b> date ale pacienților. Programul nu transmite
+    <li><b>Ce nu conține:</b> date ale pacienților — cu excepția
+    memento-urilor SMS de la punctul 4, care tranzitează serverul și nu rămân
+    pe el. În afara lor, programul nu transmite
     serverului nicio informație despre pacienți, programări sau tratamente;
     fișierul de licență conține doar denumirea clinicii, IDNO, tipul și
     termenul abonamentului.</li>
@@ -159,7 +171,10 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     <li><b>Cine le vede:</b> doar furnizorul. Datele nu se transmit terților,
     cu excepția furnizorului de găzduire a serverului (Contabo GmbH) și a
     furnizorului de e-mail prin care se trimit notificările (Google, serviciul
-    Gmail), care le prelucrează doar pentru a presta aceste servicii.</li>
+    Gmail), care le prelucrează doar pentru a presta aceste servicii, și,
+    pentru clinicile cu Pachetul SMS, a operatorului SMS Rock Soft S.R.L.
+    (SMS.MD), căruia furnizorul îi transmite cererea clinicii pentru numele
+    expeditorului (denumirea, IDNO, datele reprezentantului).</li>
   </ul>
 
   <h2 id="demo">6. Versiunea demonstrativă online (demo.dentpilot.md)</h2>

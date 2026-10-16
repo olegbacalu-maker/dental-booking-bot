@@ -75,14 +75,16 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     local, pe calculatoarele clinicii. Fișele pacienților, programările,
     documentele, jurnalele și copiile de rezervă se păstrează pe aceste
     calculatoare și pe suporturile alese de clinică.</li>
-    <li><b>Furnizorul nu are acces la datele pacienților.</b> Furnizorul nu
-    primește, nu stochează și nu prelucrează datele pacienților în numele
-    clinicii. În sensul Legii nr. 195/2024, operator pentru datele pacienților
-    este clinica, iar furnizorul nu este persoană împuternicită de
-    operator.</li>
-    <li><b>Ce primește furnizorul de la program.</b> Programul nu transmite
-    furnizorului nicio informație despre pacienți, programări sau tratamente.
-    Legăturile programului cu furnizorul sunt doar trei:
+    <li><b>Furnizorul nu are acces la fișele pacienților.</b> Furnizorul nu
+    are acces la fișele, programările, documentele și tratamentele pacienților
+    și nu le prelucrează. În sensul Legii nr. 195/2024, operator pentru datele
+    pacienților este clinica, iar furnizorul nu este persoană împuternicită
+    de operator. Singura excepție este Pachetul SMS (punctul 4), doar pentru
+    clinicile care îl activează.</li>
+    <li><b>Ce primește furnizorul de la program.</b> În afara memento-urilor
+    SMS, programul nu transmite furnizorului nicio informație despre
+    pacienți, programări sau tratamente. Legăturile programului cu
+    furnizorul sunt patru:
       <ul>
         <li>actualizările — programul descarcă fișierele programului publicate
         de furnizor;</li>
@@ -93,10 +95,26 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
         <li>verificarea licenței — programul trimite serverului furnizorului
         cheia și numărul de ordine al fișierului de licență, versiunea programului,
         canalul de actualizare, versiunea de Windows și un identificator tehnic al
-        calculatorului (fără nume de utilizator și fără date ale pacienților).</li>
+        calculatorului (fără nume de utilizator și fără date ale pacienților);</li>
+        <li>memento-urile SMS — doar dacă clinica activează Pachetul SMS:
+        pentru fiecare memento programul trimite serverului furnizorului
+        numărul de telefon mobil al pacientului și textul memento-ului
+        (denumirea clinicii, ziua, data și ora vizitei și, dacă clinica alege,
+        telefonul clinicii). Textul nu conține numele pacientului, medicul,
+        serviciul sau alte informații despre tratament.</li>
       </ul>
     Fișierul de licență conține doar denumirea clinicii, IDNO, tipul și
     termenul abonamentului.</li>
+    <li><b>Pachetul SMS.</b> Pentru datele de la punctul 3 care servesc
+    memento-urilor SMS furnizorul este persoană împuternicită a clinicii, în
+    condițiile secțiunii 16 din <a href="termeni.html">Termeni și
+    condiții</a>. Serverul furnizorului transmite numărul și textul
+    operatorului SMS Rock Soft S.R.L. (SMS.MD), altă persoană împuternicită,
+    și nu le păstrează: rămân doar identificatorul mesajului, numărul de
+    segmente și starea livrării. SMS.MD păstrează mesajele pe servere din
+    Republica Moldova timp de 3 luni și le șterge mai devreme la cerere.
+    Memento-urile se trimit doar pe numere mobile din Republica
+    Moldova.</li>
     <li><b>Datele contului clinicii.</b> Pentru datele contului clinicii —
     denumirea, IDNO, persoana de contact, e-mailul, telefonul, adresa,
     fișierele de licență emise, notele de plată și plățile — furnizorul este
@@ -113,7 +131,7 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
 
   <div class="sign">
     <div>
-      <p>Data: 02.10.2026</p>
+      <p>Data: 16.10.2026</p>
     </div>
     <div>
       <p>Oleg Bacalu, antreprenor independent</p>
