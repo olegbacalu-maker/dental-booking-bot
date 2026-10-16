@@ -123,6 +123,9 @@ ACT_ICON = {"appt_new": "cal", "appt_status": "check", "appt_cancel": "ban",
             "anamneza_print": "print",
             # звонок-подтверждение с главной (01.10)
             "call": "phone",
+            # SMS-напоминание (S5): ушло / доставлено / не дошло или не ушло;
+            # отказ пациента от SMS — отметка фиши
+            "sms": "chat", "sms_ok": "check", "sms_fail": "ban", "sms_off": "phone-off",
             # платёж (09.10, разбор: точка у «Plată 2000 MDL» ничего не говорила)
             "pay": "money", "pay_del": "minus",
             "view": "eye", "doc_view": "eye", "erase": "erase"}

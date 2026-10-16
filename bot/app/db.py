@@ -316,6 +316,30 @@ CREATE TABLE IF NOT EXISTS schema_meta(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+-- SMS-пакет (S5, 16.10; docs/dentpilot-2/sms.md › «Программа»): одно
+-- напоминание — одна строка. Номер и текст живут ЗДЕСЬ, у клиники, — сервер
+-- их не хранит. `idem` — ключ повтора `appt:{id}:{kind}:{starts_at}`: перенос
+-- даёт новый ключ, повтор после обрыва — тот же, и вторую SMS сервер не шлёт.
+-- `until_at` — конец окна отправки: текст «maine» после него стал бы неправдой.
+-- Флаги Telegram (`reminded_day`/`reminded_2h`) здесь не участвуют.
+CREATE TABLE IF NOT EXISTS sms_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appt_id INTEGER REFERENCES appointments(id),
+  patient_id INTEGER REFERENCES patients(id),
+  kind TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  text TEXT NOT NULL,
+  segments INTEGER NOT NULL DEFAULT 1,
+  idem TEXT NOT NULL UNIQUE,
+  cloud_id INTEGER,
+  state TEXT NOT NULL,
+  error TEXT NOT NULL DEFAULT '',
+  until_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  state_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sms_appt ON sms_log(appt_id);
+CREATE INDEX IF NOT EXISTS ix_sms_state ON sms_log(state, created_at);
 """
 
 # Аддитивные колонки SQLite (нет ADD COLUMN IF NOT EXISTS) — по одной с игнором
@@ -363,6 +387,10 @@ SQLITE_PATIENT_COLS = [
     "birth_date TEXT", "gender TEXT", "idnp TEXT", "email TEXT", "address TEXT",
     "insurance TEXT", "primary_doctor TEXT", "file_no TEXT", "notes TEXT",
     "archived INTEGER NOT NULL DEFAULT 0",
+    # SMS-пакет (S5, 16.10): «Fără remindere SMS» — отказ пациента от
+    # напоминаний. Лист на стойке обещает «puteți renunța oricând, la recepție»
+    # (acord.py, li4); цикл SMS такого пациента обходит (core/sms_loop.py).
+    "sms_off INTEGER NOT NULL DEFAULT 0",
 ]
 
 SQLITE_SCHEMA = """
@@ -416,7 +444,8 @@ def _parse_dt(value):
 # last_at/next_at — вычисляемые псевдонимы (MAX/MIN по starts_at) из
 # patients_visits: у выражения нет типа колонки, и SQLite отдаёт его строкой.
 _DT_COLS = {"starts_at", "created_at", "uploaded_at", "updated_at", "at",
-            "last_at", "next_at", "done_at", "waiting_at", "arrived_at"}
+            "last_at", "next_at", "done_at", "waiting_at", "arrived_at",
+            "state_at", "until_at", "visit_at"}
 
 
 def _rowdict(row) -> dict:
@@ -1551,10 +1580,167 @@ async def mark_reminded(appt_id: int, day: bool, soon: bool) -> None:
     )
 
 
+# ---------- SMS-пакет (S5): очередь напоминаний ----------
+#
+# Состояние напоминания живёт ЗДЕСЬ (`sms_log`), а не во флагах визита:
+# `reminded_day`/`reminded_2h` принадлежат Telegram (tg_due_reminders,
+# mark_reminded, сброс при переносе) — SMS их не читает и не пишет. Решения
+# «кому и когда» принимает core/sms_loop.py; здесь только выборки и записи.
+
+SMS_QUEUED, SMS_SENT, SMS_DELIVERED = "queued", "sent", "delivered"
+SMS_UNDELIVERED, SMS_FAILED, SMS_EXPIRED = "undelivered", "failed", "expired"
+SMS_STATES = (SMS_QUEUED, SMS_SENT, SMS_DELIVERED, SMS_UNDELIVERED, SMS_FAILED, SMS_EXPIRED)
+# «напомнили» для колокольчика журнала: SMS принята сервером или доставлена.
+# Недоставленная (телефон выключен сутки) колокольчик не зажигает: пациент её
+# не видел, и стойке лучше позвонить.
+_SMS_REMINDED_SQL = "('sent','delivered')"
+
+
+async def sms_candidates(now: datetime, horizon: datetime) -> list:
+    """Визиты, которым может понадобиться SMS: programată (`confirmed` — до
+    звонка и после, вид решает `status_view`), с пациентом, у которого есть
+    телефон, не архивным и без «Fără remindere SMS», начало в окне. Годность
+    номера (мобильный Молдовы) решает правило sms_rule у вызывающего."""
+    return await _fetch(
+        """SELECT a.id, a.starts_at, a.created_at, a.patient_id,
+                  p.phone, p.lang, p.session_key
+           FROM appointments a JOIN patients p ON p.id = a.patient_id
+           WHERE a.status = 'confirmed' AND a.source <> 'note'
+             AND a.starts_at > ? AND a.starts_at < ?
+             AND p.phone IS NOT NULL AND p.phone <> ''
+             AND COALESCE(p.archived, 0) = 0 AND COALESCE(p.sms_off, 0) = 0
+           ORDER BY a.starts_at, a.id""",
+        _iso(now), _iso(horizon))
+
+
+async def sms_known_idems(now: datetime, horizon: datetime) -> set:
+    """Ключи повтора, по которым строка уже есть, — для визитов окна."""
+    rows = await _fetch(
+        """SELECT s.idem FROM sms_log s JOIN appointments a ON a.id = s.appt_id
+           WHERE a.starts_at > ? AND a.starts_at < ?""", _iso(now), _iso(horizon))
+    return {r["idem"] for r in rows}
+
+
+async def sms_enqueue(appt_id: int, patient_id: int, kind: str, phone: str, text: str,
+                      segments: int, idem: str, until_at: datetime) -> bool:
+    """Поставить напоминание в очередь. Повтор ключа — молча нет: вторая копия
+    программы или второй проход цикла строку не удваивают."""
+    n = await _execute(
+        """INSERT OR IGNORE INTO sms_log(appt_id, patient_id, kind, phone, text, segments,
+                                       idem, state, until_at, created_at, state_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        appt_id, patient_id, kind, phone, text, segments, idem, SMS_QUEUED,
+        _iso(until_at), _utcnow_iso(), _utcnow_iso())
+    return n > 0
+
+
+async def sms_queue(limit: int = 50) -> list:
+    """Очередь на отправку — с визитом и пациентом, какими они стали к моменту
+    отправки: отменённый визит, перенос (другое начало — другой ключ) и
+    поставленная после постановки галочка отказа видны здесь, а не в момент
+    постановки."""
+    return await _fetch(
+        """SELECT s.*, a.status AS appt_status, a.starts_at AS visit_at,
+                  COALESCE(p.sms_off, 0) AS sms_off, COALESCE(p.archived, 0) AS archived
+           FROM sms_log s JOIN appointments a ON a.id = s.appt_id
+                JOIN patients p ON p.id = s.patient_id
+           WHERE s.state = ? ORDER BY s.created_at, s.id LIMIT ?""",
+        SMS_QUEUED, limit)
+
+
+async def sms_set(sms_id: int, **cols) -> None:
+    """Обновить строку: состояние, id сервера, ошибка. `state_at` — при смене
+    состояния; остальное как передано."""
+    if "state" in cols:
+        cols.setdefault("state_at", _utcnow_iso())
+    sets = ", ".join(f"{k} = ?" for k in cols)
+    await _execute(f"UPDATE sms_log SET {sets} WHERE id = ?", *cols.values(), sms_id)
+
+
+async def sms_delete(sms_id: int) -> None:
+    """Снять строку, которая ещё не уходила: отменённый визит, выключенное
+    событие, отказ пациента после постановки. Летописи у неё не было."""
+    await _execute("DELETE FROM sms_log WHERE id = ? AND state = ?", sms_id, SMS_QUEUED)
+
+
+async def sms_drop_kind(kind: str) -> int:
+    """Событие выключили в настройках — его очередь снимается целиком."""
+    return await _execute("DELETE FROM sms_log WHERE kind = ? AND state = ?", kind, SMS_QUEUED)
+
+
+async def sms_overdue(now: datetime) -> list:
+    """Строки, чьё окно отправки прошло, а SMS так и не ушла: сервер молчал,
+    пакет кончился, программа была выключена. Вызывающий переводит их в
+    `expired` и пишет летопись с причиной."""
+    return await _fetch(
+        """SELECT s.*, a.starts_at AS visit_at FROM sms_log s
+           LEFT JOIN appointments a ON a.id = s.appt_id
+           WHERE s.state = ? AND s.until_at <= ? ORDER BY s.id""",
+        SMS_QUEUED, _iso(now))
+
+
+async def sms_pending(since: datetime) -> list:
+    """Принятые сервером, но без конечного состояния — кого опрашивать."""
+    return await _fetch(
+        """SELECT s.*, a.starts_at AS visit_at FROM sms_log s
+           LEFT JOIN appointments a ON a.id = s.appt_id
+           WHERE s.state = ? AND s.cloud_id IS NOT NULL AND s.created_at >= ?
+           ORDER BY s.id""", SMS_SENT, _iso(since))
+
+
+async def sms_rows(appt_id: int) -> list:
+    """Строки SMS одного визита — карточке визита и проверкам."""
+    return await _fetch(
+        "SELECT * FROM sms_log WHERE appt_id = ? ORDER BY id", appt_id)
+
+
+async def sms_counts(day_start: datetime) -> dict:
+    """Цифры экрана Setări › SMS: в очереди; ушло и доставлено с начала дня."""
+    row = await _fetch(
+        """SELECT SUM(state = 'queued') AS queued,
+                  SUM(state IN ('sent','delivered','undelivered') AND created_at >= ?) AS today,
+                  SUM(state = 'delivered' AND created_at >= ?) AS delivered,
+                  SUM(state IN ('failed','expired') AND created_at >= ?) AS failed
+           FROM sms_log""", _iso(day_start), _iso(day_start), _iso(day_start))
+    r = row[0] if row else {}
+    return {k: int(r.get(k) or 0) for k in ("queued", "today", "delivered", "failed")}
+
+
+async def sms_spent(since: datetime) -> int:
+    """Сегменты, ушедшие оператору с `since` (списанные: sent, delivered,
+    undelivered) — расход для прогноза остатка."""
+    v = await _fetchval(
+        """SELECT COALESCE(SUM(segments), 0) FROM sms_log
+           WHERE state IN ('sent','delivered','undelivered') AND created_at >= ?""",
+        _iso(since))
+    return int(v or 0)
+
+
+async def sms_visits_month(start: datetime, end: datetime) -> int:
+    """Сколько визитов с телефоном пациента было в окне — основа прогноза
+    расхода в месяц: каждое включённое событие — по SMS на визит."""
+    v = await _fetchval(
+        """SELECT COUNT(*) FROM appointments a JOIN patients p ON p.id = a.patient_id
+           WHERE a.status <> 'cancelled' AND a.source <> 'note'
+             AND a.starts_at >= ? AND a.starts_at < ?
+             AND p.phone IS NOT NULL AND p.phone <> ''
+             AND COALESCE(p.archived, 0) = 0 AND COALESCE(p.sms_off, 0) = 0""",
+        _iso(start), _iso(end))
+    return int(v or 0)
+
+
+async def set_sms_off(pid: int, on: bool) -> None:
+    """«Fără remindere SMS» в фише. Летопись — вызывающий маршрут (он знает,
+    кто поставил)."""
+    await _execute("UPDATE patients SET sms_off = ? WHERE id = ?", int(bool(on)), pid)
+
+
 # ---------- журнал/поиск/статусы ----------
 
 async def day_appointments(day_start: datetime, day_end: datetime) -> list:
     # has_rec — «консультация записана»: не дата, в _DT_COLS ему не место
+    # sms_sent — SMS-напоминание принято сервером или доставлено (S5): второй
+    # источник колокольчика «Reminder trimis» рядом с reminded_day Telegram
     # call_result — отметка звонка-подтверждения (`appt_calls`, 03.10): по ней
     # «programată» становится «confirmată» в повестке и списке дня. Ключ
     # первичный — строк не размножает. ⚠️ Не `AS call`: в стандарте SQL это слово занято.
@@ -1573,7 +1759,9 @@ async def day_appointments(day_start: datetime, day_end: datetime) -> list:
                   a.starts_at, a.duration_min, a.status, a.source,
                   a.reminded_day, a.comment, a.waiting_at, a.arrived_at,
                   p.name, p.phone, p.birth_year,
-                  (vr.id IS NOT NULL) AS has_rec, ac.result AS call_result
+                  (vr.id IS NOT NULL) AS has_rec, ac.result AS call_result,
+                  EXISTS(SELECT 1 FROM sms_log s WHERE s.appt_id = a.id
+                         AND s.state IN """ + _SMS_REMINDED_SQL + """) AS sms_sent
            FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN visit_records vr ON vr.appointment_id = a.id
                 LEFT JOIN appt_calls ac ON ac.appointment_id = a.id
@@ -1989,7 +2177,7 @@ PATIENT_FIELDS = ["name", "phone", "birth_date", "gender", "idnp", "email",
 
 
 async def get_patient(pid: int) -> dict | None:
-    cols = ("id, session_key, name, phone, lang, birth_year, created_at, archived, "
+    cols = ("id, session_key, name, phone, lang, birth_year, created_at, archived, sms_off, "
             + ", ".join(PATIENT_FIELDS[2:]))
     rows = await _fetch(
         f"SELECT {cols} FROM patients WHERE id = ?", pid)
@@ -2954,7 +3142,7 @@ async def erasure_kind(pid: int) -> str:
 # с export.py — обе стороны отвечают «где в базе лежит этот человек».
 _PATIENT_CHILD_TABLES = ("payments", "activity", "patient_alerts", "teeth",
                          "plan_items", "documents", "anamneza", "bridges",
-                         "perio_exams", "visit_records", "appointments")
+                         "perio_exams", "visit_records", "sms_log", "appointments")
 
 # ⚠️ Внуки: таблицы, которые висят НЕ на пациенте, а на его записи. У
 # `perio_teeth` нет patient_id вовсе, и общий шаблон «DELETE ... WHERE
@@ -3036,6 +3224,9 @@ async def anonymize_patient(pid: int) -> None:
     # платёжные данные живут в payments и остаются. Событие «erase» пишет
     # вызывающий маршрут ПОСЛЕ — след стирания в летописи сохраняется.
     await _execute("DELETE FROM activity WHERE patient_id = ?", pid)
+    # журнал SMS — номер телефона и день визита, то есть личность и ничего из
+    # лечения: уходит целиком, как летопись (S5)
+    await _execute("DELETE FROM sms_log WHERE patient_id = ?", pid)
     # имя документа дал человек («radiografie-popescu.png») — это личность;
     # сам снимок остаётся (это ЧТО лечили), скрытое имя на диске и так hex.
     # Расширение сохраняем: по нему работает белый список открытия (_OPEN_EXT)

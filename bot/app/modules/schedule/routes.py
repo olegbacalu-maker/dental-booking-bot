@@ -185,7 +185,7 @@ async def admin_export_xlsx(
             r["name"] or ("— notiță —" if r["source"] == "note" else ""),
             int(r["birth_year"]) if r["birth_year"] else "",
             r["phone"] or "", r["service"], r["doctor"], r["source"], r["status"],
-            "da" if r["reminded_day"] else "", r["comment"] or "",
+            "da" if r["reminded_day"] or r.get("sms_sent") else "", r["comment"] or "",
         ])
     blob = xlsx.book(
         ["Data", "Ora", "Pacient", "An naștere", "Telefon", "Serviciu",

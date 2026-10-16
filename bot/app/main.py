@@ -26,6 +26,7 @@ from . import paths
 from . import update as upd
 from .core import dbkey, demo
 from .core import license as lic
+from .core import sms_loop as sms
 from .core.auth import chat_session, current_user, request_user, set_request_user
 from .core.layout import STATIC, msg_json, tg_configured
 from .modules.assets import routes as assets
@@ -207,6 +208,11 @@ async def startup() -> None:
     # Автообновление файла (L13): суточный запрос к renew.url в фоне — как
     # upd.check_async ниже: старт не ждёт, отказ молчит, без файла с renew — no-op.
     lic.renew_async()
+    # SMS-пакет (S5): очередь напоминаний — тот же приём, тик 60 с. Без файла
+    # лицензии с `renew` (исходники, демо) — no-op; счёт из прошлого запуска
+    # читается до первого тика, чтобы страницы знали, есть ли пакет.
+    await sms.startup()
+    sms.sms_async()
     await _backfill_ids()
     if paths.is_frozen():
         _sweep_previous_version()

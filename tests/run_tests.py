@@ -77,6 +77,7 @@ import test_patients_api  # noqa: E402
 import test_paylink  # noqa: E402
 import test_schedule_api  # noqa: E402
 import test_settings_api  # noqa: E402
+import test_sms  # noqa: E402
 import test_sms_rule  # noqa: E402
 import test_stats_api  # noqa: E402
 import test_structure  # noqa: E402
@@ -130,6 +131,10 @@ SUITES = [
     ("SMS: сегменты по общему вектору", test_sms_rule.suite_parts),
     ("SMS: номер получателя по общему вектору", test_sms_rule.suite_phones),
     ("SMS: модуль правила чистый", test_sms_rule.suite_pure),
+    ("SMS: тексты, подстановки, окно отправки, настройки", test_sms.suite_plan),
+    ("SMS: провод к серверу", test_sms.suite_wire),
+    ("SMS: живой цикл — накануне, в день визита, кому нет, без дубля", test_sms.suite_live),
+    ("SMS: пакет не предлагается, файл без renew", test_sms.suite_not_offered),
     # Сервера нет, доли секунды: фикстуры лицензии держатся схемы (L1).
     ("Лицензия: формат файла и фикстуры", test_license_format.suite),
     ("Лицензия: подпись RSA через pow", test_license_verify.suite_math),

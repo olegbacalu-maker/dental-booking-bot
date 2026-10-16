@@ -147,7 +147,11 @@ def list_rows(rows: list) -> list[dict]:
             "source_label": "notiță" if is_note else (
                 "bot" if r["source"] == "bot" else "manual"),
             "status": st, "status_view": view, "status_label": word,
-            "reminded": bool(r.get("reminded_day")),
+            # «напомнили» — из ОБОИХ каналов: флаг Telegram и строка SMS
+            # (`sms_sent` из day_appointments, S5); `reminded_sms` — чем именно,
+            # чтобы подсказка колокольчика назвала канал
+            "reminded": bool(r.get("reminded_day")) or bool(r.get("sms_sent")),
+            "reminded_sms": bool(r.get("sms_sent")),
             "rec": bool(r.get("has_rec")),
         })
     return out

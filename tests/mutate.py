@@ -466,6 +466,16 @@ MUTATIONS = [
     ("файл сборки клиента", "_build/frontend/vite.config.ts",
      ("writeFileSync(resolve(THREE_OUT_DIR, 'teeth.js'), ",
       "const out = resolve(THREE_OUT_DIR, 'teeth.js')\n      writeFileSync(out, ")),
+    # Врач в готовом тексте SMS — данные о здоровье мимо белого списка.
+    ("подстановки SMS — белый список", "app/core/sms_plan.py",
+     ("la ora {ora} aveti o programare la noi.", "la ora {ora} la {medic} aveti o programare la noi.")),
+    # Текст, дописанный МИМО словаря, — тот же текст.
+    ("подстановки SMS — белый список", "app/core/sms_plan.py",
+     "\nTEXTS[\"ro\"][\"mut\"] = \"{clinica}: {serviciu} {data} {ora}\"\n"),
+    # Список расширили врачом — первое правило довольно, второе краснеет.
+    ("белый список SMS без врача", "app/core/sms_plan.py",
+     ('PLACEHOLDERS = ("clinica", "ziua", "data", "ora", "telefon")',
+      'PLACEHOLDERS = ("clinica", "ziua", "data", "ora", "telefon", "medic")')),
 ]
 
 # Правки ЗАКОННЫЕ: нарушения в них нет, и правило обязано остаться

@@ -1742,3 +1742,48 @@ def suite(res: Result) -> None:
     res.ok("каждый файл сборки клиента — в образе демо и в обоих игнорах", not bad,
            "файл, который сборка пишет, а образ демо не везёт, ничего не роняет — "
            "экран молча работает без него (teeth.js, 07.10): " + "; ".join(bad))
+
+    # ---- подстановки SMS — белый список (S5, 16.10) ----
+    # SMS читают с экрана блокировки, и текст проходит через двух обработчиков
+    # (сервер лицензий, sms.md): «extracție la 10:30» или имя врача — уже данные
+    # о здоровье. Готовые тексты держат только `{clinica}`, `{ziua}`, `{data}`,
+    # `{ora}`, `{telefon}` — список PLACEHOLDERS в core/sms_plan.py, и каждая
+    # подстановка в текстах TEXTS / PHONE_LINE обязана быть из него.
+    # ⚠️ Полярность: список ВКЛЮЧАЮЩИЙ — отсюда вторая проверка: в нём самом нет
+    # врача, услуги и имени (иначе «{medic}» легализуется одной строкой).
+    bad, allowed, seen = [], set(), set()
+    plan_tree = by_path.get("app/core/sms_plan.py")
+
+    def _texts_of(node) -> set:
+        return {c.value for c in ast.walk(node)
+                if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+    for n in ast.walk(plan_tree) if plan_tree else ():
+        if not isinstance(n, ast.Assign):
+            continue
+        names = {t.id for t in n.targets if isinstance(t, ast.Name)}
+        # и `TEXTS["ro"][…] = …`: дописанный мимо словаря текст — тот же текст
+        names |= {t.value.id for t in n.targets if isinstance(t, ast.Subscript)
+                  and isinstance(t.value, ast.Name)}
+        names |= {t.value.value.id for t in n.targets if isinstance(t, ast.Subscript)
+                  and isinstance(t.value, ast.Subscript) and isinstance(t.value.value, ast.Name)}
+        if "PLACEHOLDERS" in names:
+            allowed = _texts_of(n.value)
+        if names & {"TEXTS", "PHONE_LINE"}:
+            for text in _texts_of(n.value):
+                for hole in re.findall(r"\{([a-z_]+)\}", text):
+                    seen.add(hole)
+                    if allowed and hole not in allowed:
+                        bad.append(f"app/core/sms_plan.py:{n.lineno} {{{hole}}}")
+    if not plan_tree:
+        bad.append("app/core/sms_plan.py не найден")
+    if not allowed:
+        bad.append("core/sms_plan.py: списка PLACEHOLDERS не найдено — якорь правила пропал")
+    if not seen & allowed:
+        bad.append("в текстах TEXTS/PHONE_LINE нет ни одной подстановки — якорь правила пропал")
+    res.ok("подстановки SMS — белый список", not bad,
+           "в тексте SMS появились данные, которых в нём быть не может: " + "; ".join(bad))
+    forbidden = {"medic", "doctor", "serviciu", "service", "nume", "name", "pacient",
+                 "patient", "procedura", "tratament", "dinte"}
+    hit = sorted(allowed & forbidden)
+    res.ok("белый список SMS без врача, услуги и имени", bool(allowed) and not hit,
+           "PLACEHOLDERS легализует данные о здоровье: " + ", ".join(hit))

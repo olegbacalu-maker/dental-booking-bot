@@ -192,6 +192,13 @@ def _log(s: Server) -> str:
     return s._log_path.read_text(encoding="utf-8", errors="replace")
 
 
+def _lic(stand: "Stand") -> list[dict]:
+    """Запросы к /v1/license. С S5 программа на том же сервере спрашивает и
+    /v1/sms/account (цикл SMS, тот же токен) — счёт «один запрос на старт»
+    относится к файлу лицензии, а не ко всему, что стенд услышал."""
+    return [r for r in stand.requests if r["path"].startswith("/v1/license")]
+
+
 # ---------- провод ----------
 
 
@@ -282,7 +289,7 @@ def suite_live(res: Result) -> None:
             res.check("файл на диске — тот, что прислал стенд", _sig((d / "license.json").read_text(encoding="utf-8")),
                       _sig(newer))
             res.check("память: принят seq 6", _mem(d).get("accepted_seq"), 6)
-            req = stand.requests[-1]
+            req = _lic(stand)[-1]
             res.ok("запрос программы: seq принятого, Bearer из файла, DentPilot в User-Agent",
                    req["path"] == "/v1/license?seq=5" and req["auth"] == f"Bearer {TOKEN}"
                    and req["agent"].startswith("DentPilot/"), repr(req))
@@ -300,7 +307,7 @@ def suite_live(res: Result) -> None:
                    and "action='/admin/license/renew'" in page, page[-1500:])
         res.ok("летопись клиники: «reînnoită automat … (fișier 6)»",
                any("reînnoită automat" in t and "(fișier 6)" in t for t in _events(d)), repr(_events(d)))
-        n = len(stand.requests)
+        n = len(_lic(stand))
 
         # 2. стенд прислал файл СТАРЕЕ принятого: диск не тронут
         older = _file(4, renew)
@@ -312,8 +319,8 @@ def suite_live(res: Result) -> None:
                    _renew(a).get("outcome") == "same" and a.get("seq") == 6, repr(a))
             res.check("на диске по-прежнему seq 6", _sig((d / "license.json").read_text(encoding="utf-8")), _sig(newer))
             res.ok("лог: «новее нет» — рутина, не предупреждение", "license: renew=" not in _log(s), _log(s)[-400:])
-        res.check("каждый старт — ровно один запрос", len(stand.requests), n + 1)
-        res.check("личность машины одна и та же на втором старте", stand.requests[-1]["device"], device_seen)
+        res.check("каждый старт — ровно один запрос", len(_lic(stand)), n + 1)
+        res.check("личность машины одна и та же на втором старте", _lic(stand)[-1]["device"], device_seen)
 
         # 3. тот же seq — тоже не замена (иначе летопись писала бы «активирована» на пустом месте)
         stand.serve(200, newer)
