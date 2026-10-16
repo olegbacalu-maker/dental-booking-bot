@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta, timezone
 from harness import CLOUD, Client, Result, Server, cid_from
 
 sys.path.insert(0, str(CLOUD))
-from app import sms, smsmd  # noqa: E402
+from app import logmask, sms, smsmd  # noqa: E402
 
 TOKEN, DLR_SECRET = "smsmd-token-test", "dlr-secret-test"
 BANK_ENV = {"DP_BANK_BENEFICIARY": "Oleg Bacalu", "DP_BANK_IBAN": "MD00TEST0000000000000001",
@@ -632,6 +632,28 @@ def suite_dlr(res: Result) -> None:
                    "69123456" not in dump and "37369123456" not in log and "69123456" not in log, log[-800:])
     finally:
         fake.close()
+
+
+def suite_dlr_log(res: Result) -> None:
+    """Секрет уведомлений — мимо журнала доступа (16.10: на живом сервере путь
+    `/v1/smsmd/dlr/<секрет>` лежал в `docker compose logs` целиком). Сервер — с
+    журналом доступа, как в проде (`--log-level info`); без фильтра набор красный."""
+    res.check("маска: секрет пути", logmask.mask('1.2.3.4:0 - "POST /v1/smsmd/dlr/abc123 HTTP/1.1" 200'),
+              '1.2.3.4:0 - "POST /v1/smsmd/dlr/<секрет> HTTP/1.1" 200')
+    res.check("маска: и с запросом после пути", logmask.mask("/v1/smsmd/dlr/abc?x=1"), "/v1/smsmd/dlr/<секрет>?x=1")
+    res.check("маска: чужие пути не трогает", logmask.mask("/v1/sms/send /admin/sms"), "/v1/sms/send /admin/sms")
+    with Server(env={"DP_SMSMD_DLR_SECRET": DLR_SECRET}, log_level="info") as s:
+        anon = Client(s.url)
+        res.check("верный секрет — 200", anon.post_raw(f"/v1/smsmd/dlr/{DLR_SECRET}", b"{}").status, 200)
+        res.check("с запросом в адресе — 200", anon.post_raw(f"/v1/smsmd/dlr/{DLR_SECRET}?t=1", b"{}").status, 200)
+        res.check("чужой — 404", anon.post_raw("/v1/smsmd/dlr/not-the-secret", b"{}").status, 404)
+        time.sleep(0.3)
+        log = s.log()
+        lines = [x for x in log.splitlines() if "POST /v1/smsmd/dlr/" in x]
+        # без строк доступа проверка «секрета нет» зеленела бы и на выключенном журнале
+        res.ok("журнал доступа пишет все три запроса", len(lines) == 3, log[-800:])
+        res.ok("в каждой строке — метка вместо секрета", all("/v1/smsmd/dlr/<секрет>" in x for x in lines), "\n".join(lines))
+        res.ok("секрета в журнале нет", DLR_SECRET not in log and "not-the-secret" not in log, "\n".join(lines))
 
 
 def suite_daily(res: Result) -> None:

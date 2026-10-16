@@ -21,12 +21,14 @@ from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import (account, auth, config, db, download, fleet, jobs, license, maib, mail, payments, paylink, robots, sms,
-               sms_rule, smsmd, smsreport, trial, updates, views)
+from . import (account, auth, config, db, download, fleet, jobs, license, logmask, maib, mail, payments, paylink, robots,
+               sms, sms_rule, smsmd, smsreport, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("cloud")
+# секрет уведомлений sms.md стоит в пути запроса — журнал доступа его не видит (logmask.py)
+logmask.install()
 app = FastAPI(title="DentPilot Cloud", docs_url=None, redoc_url=None)
 # каждый ответ облака — мимо поисковой выдачи; почему заголовком, а не robots.txt, — robots.py
 app.add_middleware(robots.NoIndex)

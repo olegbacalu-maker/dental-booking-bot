@@ -43,7 +43,10 @@ def free_port() -> int:
 
 
 class Server:
-    def __init__(self, env: dict | None = None):
+    def __init__(self, env: dict | None = None, log_level: str = "warning"):
+        # `info` — только набору, который читает журнал доступа (маска секрета
+        # уведомлений): у остальных строка на каждый запрос лишь раздувает лог
+        self.log_level = log_level
         self.port = free_port()
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix="dp_cloud_"))
         self.outbox = self.dir / "outbox"
@@ -71,7 +74,7 @@ class Server:
         self._log = (self.dir / "server.log").open("wb")
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(self.port),
-             "--log-level", "warning"],
+             "--log-level", self.log_level],
             cwd=str(CLOUD), env=env, stdout=self._log, stderr=subprocess.STDOUT)
         deadline = time.time() + 40
         while time.time() < deadline:
