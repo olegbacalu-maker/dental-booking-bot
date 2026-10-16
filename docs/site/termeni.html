@@ -94,10 +94,11 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
     <li>Perioada plătită începe de la data expirării perioadei curente sau de la
     data confirmării plății, oricare este mai târzie: o plată făcută din timp
     nu scurtează perioada rămasă, iar o plată întârziată nu o prelungește.</li>
-    <li>După confirmarea plății furnizorul emite un fișier de licență nou și îl
-    trimite pe e-mailul clinicii; clinica îl activează în program, pe pagina
-    „Licență”. Cu 14 zile înainte de expirare clinica primește nota de plată
-    pentru perioada următoare, iar cu 3 zile înainte — o notificare.</li>
+    <li>După confirmarea plății furnizorul emite un fișier de licență nou, iar
+    programul îl preia singur de pe serverul furnizorului (secțiunea 7); pe
+    e-mailul clinicii vine confirmarea noului termen.
+    Cu 14 zile înainte de expirare clinica primește nota de plată pentru
+    perioada următoare, iar cu 3 zile înainte — o notificare.</li>
   </ol>
 
   <h2>5. Expirarea și perioada de plată</h2>
@@ -119,24 +120,26 @@ footer{border-top:1px solid #E6EDEB;padding:20px 24px;text-align:center;font-siz
   <ol>
     <li>Fișierul este emis unei singure clinici, cu denumirea și IDNO-ul ei, și
     nu poate fi transmis altei clinici.</li>
-    <li>Pe alt calculator al aceleiași clinici programul se activează cu codul
-    de activare trimis pe e-mailul clinicii (pe pagina de activare, cu aceleași
-    date ale clinicii) sau cu același fișier.</li>
+    <li>Pe alt calculator al aceleiași clinici, inclusiv după înlocuirea
+    calculatorului, programul se activează cu codul de activare trimis pe
+    e-mailul clinicii (pe pagina de activare, cu aceleași date ale
+    clinicii).</li>
     <li>La fiecare prelungire se emite un fișier nou, cu număr de ordine mai
     mare; programul acceptă doar fișierele emise de furnizor și doar un fișier
     mai nou decât cel activat.</li>
-    <li>Dacă programul are acces la internet, verifică zilnic pe serverul
-    furnizorului dacă există un fișier mai nou și îl preia singur; fără
-    internet, fișierul nou se activează manual, cu fișierul primit pe
-    e-mail.</li>
-    <li>Fișierul pierdut se trimite din nou, la cerere, pe e-mailul clinicii.</li>
+    <li>Fișierul nu se trimite pe e-mail și nu se activează manual: programul
+    îl preia singur de pe serverul furnizorului, iar pentru asta are nevoie
+    de acces la internet. Programul verifică o dată pe zi dacă există un
+    fișier mai nou; după ce plata este deschisă din program (butonul
+    „Plătește acum”), verifică o dată pe minut timp de 2 ore, iar butonul
+    „Verifică acum” verifică imediat.</li>
   </ol>
 
   <h2>8. Actualizări și dispoziții tranzitorii</h2>
   <p>Actualizările programului sunt incluse în abonament. Clinicile care
   folosesc programul de dinaintea introducerii fișierului de licență au la
   dispoziție 14 zile de la prima pornire a versiunii noi pentru a activa
-  fișierul primit de la furnizor; în acest timp programul funcționează
+  programul, pe pagina de activare; în acest timp programul funcționează
   complet.</p>
 
   <h2>9. Datele clinicii și ale pacienților</h2>
