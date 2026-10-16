@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import config, license, maib, mail, trial
 from . import payments as pay  # ⚠️ не `payments`: так зовётся параметр карточки клиники (список строк)
@@ -156,6 +156,7 @@ button:not(.primary):hover{border-color:var(--teal);color:var(--teal-d)}
 .actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .actions form{display:inline-flex;gap:6px;align-items:center;margin:0}
 .actions input{width:150px;padding:7px 10px;font-size:13px}
+.actions input[type=checkbox]{width:auto;padding:0}td.mono{white-space:nowrap}
 details summary{cursor:pointer;color:var(--teal-d);font-weight:600;font-size:14px;margin:-4px 0 14px;list-style:none;display:inline-flex;align-items:center;gap:8px}
 details summary::-webkit-details-marker{display:none}
 details summary:before{content:'';width:0;height:0;border:5px solid transparent;border-left-color:currentColor;margin-left:4px;transition:transform .15s}
@@ -167,6 +168,23 @@ details[open] summary:before{transform:rotate(90deg)}
 .tag.ok{background:#ECFDF5;color:#065F46}.tag.warn{background:#FFFBEB;color:#B45309}
 .tag.bad{background:#FEF2F2;color:#B91C1C}.tag.mute{background:#EEF2F1;color:#5B6B72}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}.muted{color:#7C8B91;font-size:13px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 18px;overflow-x:auto}
+.tabs a{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;white-space:nowrap}
+.tabs a:hover{color:var(--ink)}.tabs a.on{color:var(--teal-d);border-bottom-color:var(--teal)}
+.tabs .n{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#FFF3D6;color:#B45309;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.tabbed:not(.js) .tabs{display:none}.tabbed.js .pane{display:none}.tabbed.js .pane.on{display:block}
+.todo{list-style:none;margin:0;padding:0}
+.todo li{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid #F3E6C4}
+.todo li:first-child{border-top:0;padding-top:2px}.todo .what{flex:1;min-width:260px}
+.todo .actions a{font-weight:600;font-size:13.5px;text-decoration:none}
+.calm{padding:11px 14px;border-radius:11px;margin:0 0 16px;font-size:14px;background:#ECFDF5;color:#065F46}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:0 0 16px}
+a.tile{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);color:var(--ink);text-decoration:none}
+a.tile:hover{border-color:var(--teal)}
+.tile .k{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tile .ico{width:26px;height:26px;border-radius:8px;background:var(--teal-soft);color:var(--teal-d);display:inline-flex;align-items:center;justify-content:center}
+.tile .big{font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.25;overflow-wrap:anywhere}
+.tile .s{font-size:13px;color:var(--muted);line-height:1.5}
 .login{max-width:400px;margin:40px auto 0}
 .login .mark{width:46px;height:46px;display:inline-flex;margin-bottom:12px}.login .mark svg{display:block}
 .login h1{font-size:22px;margin:0 0 4px}
@@ -674,7 +692,7 @@ def sms_block(c, det: dict | None) -> str:
           f"{(' · ' + esc(det['sender_note'])) if det['sender_note'] else ''}</div></div>"
           f"<div><label>Состояние</label><div class='v'>{'включено' if det['enabled'] else '<span class=\"tag bad\">выключено</span>'}"
           f"{' · <span class=tag>пилот</span>' if det['pilot'] else ''}{'' if det['offered'] else ' · <span class=\"tag mute\">программе не предложено</span>'}</div></div>"
-          f"<div><label>За месяц {esc(det['month'])}</label><div class='v'>отправлено {det['sent']}, доставлено {det['delivered']}, "
+          f"<div style='grid-column:1/-1'><label>За месяц {esc(det['month'])}</label><div class='v'>отправлено {det['sent']}, доставлено {det['delivered']}, "
           f"не доставлено {det['undelivered']}, отказ {det['refused']}; потрачено {det['spent']} сегм.</div></div></div>")
     toggle = (f"<form method='post' action='{act}'><input type='hidden' name='action' value='{'off' if det['enabled'] else 'on'}'>"
               f"<button>{'Выключить' if det['enabled'] else 'Включить'}</button></form>"
@@ -709,34 +727,141 @@ def sms_suggest(name: str) -> str:
     return sms.suggest(name)
 
 
+# Карточка клиники (16.10, слово Олега: «всё в одном месте и слишком много информации»):
+# обзор + вкладки. Обзор отвечает «всё ли в порядке и что ждёт меня» — ожидающая нота
+# с «Подтвердить», имя SMS без заявления, срок и льгота, файл не дошёл, нет e-mail — и
+# четырьмя плитками; подробности и редкие формы уходят во вкладки. Все вкладки в ОДНОЙ
+# странице, переключает метка адреса (#pay). ⚠️ Элемента с id, равным имени вкладки, в
+# странице нет намеренно: иначе браузер прокрутит к нему (Олег: «без прыжков»).
+# Форма уходит с меткой своей вкладки (скрипт дописывает её в action), а 303 без метки
+# наследует метку запроса — после действия Олег остаётся на той же вкладке. Без скрипта
+# видны все разделы подряд, как до 16.10. ⛔ Тексты карточки держат cloud/tests.
+CLINIC_TABS = (("overview", "Обзор"), ("pay", "Лицензия и оплата"), ("sms", "SMS"),
+               ("access", "Компьютеры и кабинет"), ("profile", "Реквизиты"), ("log", "Журнал"))
+_TABS_JS = ("(function(){var r=document.querySelector('.tabbed');if(!r)return;"
+            "var tabs=r.querySelectorAll('[data-tab]'),panes=r.querySelectorAll('[data-pane]');"
+            "function show(){var k=location.hash.slice(1),ok=false;"
+            "panes.forEach(function(p){if(p.getAttribute('data-pane')===k)ok=true});if(!ok)k='overview';"
+            "panes.forEach(function(p){p.classList.toggle('on',p.getAttribute('data-pane')===k)});"
+            "tabs.forEach(function(t){var on=t.getAttribute('data-tab')===k;t.classList.toggle('on',on);"
+            "t.setAttribute('aria-selected',on?'true':'false')})}"
+            "r.classList.add('js');window.addEventListener('hashchange',show);"
+            "r.addEventListener('submit',function(e){var p=e.target.closest('[data-pane]');if(!p)return;"
+            "var a=e.target.getAttribute('action')||'';"
+            "e.target.setAttribute('action',a.split('#')[0]+'#'+p.getAttribute('data-pane'))});show()})();")
+
+
+def _todo_li(what: str, act: str = "") -> str:
+    acts = f"<div class='actions'>{act}</div>" if act else ""
+    return f"<li><div class='what'>{what}</div>{acts}</li>"
+
+
+def _clinic_todo(c, sub, st: str, issues: list, payments: list, smsinfo: dict | None, now: datetime) -> list[str]:
+    """Обзор › «Ждёт вас»: то, что требует Олега или говорит, что что-то не так. Пусто — всё спокойно."""
+    out = []
+    pending = [p for p in payments if p["status"] == "pending"]
+    for p in pending:
+        out.append(_todo_li(
+            f"Нота <span class='mono'>{esc(p['reference'])}</span> ждёт перевода: {p['amount']} {esc(p['currency'])} "
+            f"за {_term(p)}, выставлена {esc(p['created_at'][:10])}",
+            f"<form method='post' action='/admin/payments/{p['id']}/confirm'><button class='primary'>Подтвердить</button></form>"
+            f"<a href='#pay'>Отклонить, письмо, карта</a>"))
+    vu = _ts(sub["valid_until"]) if sub else None
+    note = "" if pending else "<a href='#pay'>Выставить ноту</a>"
+    if st == "none":
+        out.append(_todo_li("Файл лицензии не выдан: программа клиники не активирована", "<a href='#pay'>Выдать</a>"))
+    elif st == "grace":
+        out.append(_todo_li(f"Срок кончился {_d(sub['valid_until'])}, идёт льгота до "
+                            f"{(vu + timedelta(days=sub['grace_days'])):%Y-%m-%d}", note))
+    elif st == "readonly":
+        out.append(_todo_li("Льгота кончилась: программа клиники в режиме только чтения", note))
+    elif vu is not None and (vu - now).days < 14 and not pending:
+        out.append(_todo_li(f"Срок кончается через {(vu - now).days} дн. ({_d(sub['valid_until'])})", note))
+    latest = max((i["seq"] for i in issues), default=0)
+    if c["renew_at"] and (c["renew_seq"] or 0) < latest:
+        out.append(_todo_li(f"Программа ещё не забрала новый файл: у неё {c['renew_seq'] or 0}, выдан {latest}",
+                            "<a href='#access'>Компьютеры</a>"))
+    if smsinfo:
+        name = f"Имя SMS «{esc(smsinfo['sender'] or '')}»"
+        if smsinfo["sender_state"] == "requested":
+            out.append(_todo_li(f"{name}: заявление получено, подать в sms.md" if smsinfo["sender_paper"]
+                                else f"{name}: ждём подписанное заявление клиники", "<a href='#sms'>SMS</a>"))
+        elif smsinfo["sender_state"] == "submitted":
+            out.append(_todo_li(f"{name} подано в sms.md, ждём одобрения", "<a href='#sms'>SMS</a>"))
+    if not c["email"]:
+        out.append(_todo_li("У клиники нет e-mail: ноты и письма о лицензии некуда отправлять",
+                            "<a href='#profile'>Вписать</a>"))
+    return out
+
+
+def _tile(tab: str, icon: str, label: str, big: str, sub: str) -> str:
+    return (f"<a class='tile' href='#{tab}'><span class='k'><span class='ico'>{_ic(icon, 16)}</span>{label}</span>"
+            f"<span class='big'>{big}</span><span class='s'>{sub}</span></a>")
+
+
+def _ver_key(v: str) -> list:
+    return [int(x) if x.isdigit() else 0 for x in v.split(".")]
+
+
+def _clinic_tiles(c, sub, st: str, issues: list, devices: list, accounts: list, smsinfo: dict | None,
+                  now: datetime) -> str:
+    """Обзор › четыре плитки: лицензия, программа, SMS, кабинет; каждая ведёт в свою вкладку."""
+    vu = _ts(sub["valid_until"]) if sub else None
+    left = f" · осталось {(vu - now).days} дн." if st == "active" and vu else ""
+    lic = _tile("pay", "key", "Лицензия", f"до {_d(sub['valid_until'])}" if sub else "файла нет",
+                f"{_tag(st)} {esc(sub['plan']) if sub else ''}"
+                f"{(' · льгота ' + str(sub['grace_days']) + ' дн.') if sub else ''}{left}")
+    vers = sorted({d["version"] for d in devices if d["version"]}, key=_ver_key, reverse=True)
+    many = f" · компьютеров: {len(devices)}" if devices else ""
+    prog = _tile("access", "monitor", "Программа", esc(", ".join(vers)) if vers else "не выходила на связь",
+                 f"Программа спрашивала {_renew_info(c, max((i['seq'] for i in issues), default=0))}{many}")
+    if smsinfo is None:
+        sms_t = _tile("sms", "message", "SMS", "не подключено", "счёта нет: программа не спрашивала, пакет не трогали")
+    else:
+        sms_t = _tile("sms", "message", "SMS", f"{smsinfo['balance']} сегм.",
+                      f"имя {esc(smsinfo['sender'] or '—')} {_sender_tag(smsinfo['sender_state'])} · "
+                      f"{'включено' if smsinfo['enabled'] else 'выключено'}{' · пилот' if smsinfo['pilot'] else ''}")
+    last = max(((a["last_login_at"] or "") for a in accounts), default="")
+    who = (esc(accounts[0]["email"]) if len(accounts) == 1
+           else (f"записей: {len(accounts)}" if accounts else "никто не входил"))
+    cab = _tile("access", "user", "Кабинет", who,
+                f"последний вход {esc(last[:16].replace('T', ' '))} UTC" if last
+                else "вход через Google или кодом на e-mail")
+    return f"<div class='tiles'>{lic}{prog}{sms_t}{cab}</div>"
+
+
 def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 payments: list = (), pending: int = 0, reminders: list = (), accounts: list = (),
                 devices: list = (), smsinfo: dict | None = None, names: int = 0) -> str:
     now = datetime.now(timezone.utc)
+    issues, payments, accounts, devices = list(issues), list(payments), list(accounts), list(devices)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
-    head = (f"<div class='card'><div class='kv'>"
-            f"<div><label>IDNO</label><div class='v mono'>{esc(c['idno'] or '—')}</div></div>"
-            f"<div><label>Контакт</label><div class='v'>{esc(c['contact_name'] or '—')}</div></div>"
-            f"<div><label>E-mail</label><div class='v'>{esc(c['email'] or '—')}</div></div>"
-            f"<div><label>Телефон</label><div class='v'>{esc(c['phone'] or '—')}</div></div>"
-            f"<div><label>Тариф</label><div class='v'>{esc(sub['plan']) if sub else '—'}</div></div>"
-            f"<div><label>Срок до</label><div class='v'>{_d(sub['valid_until']) if sub else '—'} {_tag(st)}</div></div>"
-            f"<div><label>Льгота</label><div class='v'>{sub['grace_days'] if sub else '—'} дн.</div></div>"
-            f"<div><label>Идентификатор</label><div class='v mono'>{esc(c['id'])}</div></div>"
-            f"<div><label>Программа спрашивала</label><div class='v'>"
-            f"{_renew_info(c, max((i['seq'] for i in issues), default=0))}</div></div>"
-            f"</div></div>")
-    edit = (f"<details><summary>Изменить реквизиты</summary><div class='card'>"
-            f"<form method='post' action='/admin/clinics/{esc(c['id'])}/edit'><div class='grid'>"
+    cid = esc(c["id"])
+    todo = _clinic_todo(c, sub, st, issues, payments, smsinfo, now)
+    todo_html = (f"<div class='card alert'>{_chead('bell', 'Ждёт вас', 'ожидающие ноты, заявки и то, что не так')}"
+                 f"<ul class='todo'>{''.join(todo)}</ul></div>" if todo
+                 else "<div class='calm'>Ничего не ждёт: ожидающих нот, заявок и тревог нет</div>")
+    contacts = (f"<div class='card'>{_chead('building', 'Клиника', '', '<a href=' + chr(39) + '#profile' + chr(39) + '>Изменить реквизиты</a>')}"
+                f"<div class='kv'>"
+                f"<div><label>Контакт</label><div class='v'>{esc(c['contact_name'] or '—')}</div></div>"
+                f"<div><label>Телефон</label><div class='v'>{esc(c['phone'] or '—')}</div></div>"
+                f"<div><label>E-mail</label><div class='v'>{esc(c['email'] or '—')}</div></div>"
+                f"<div><label>Адрес</label><div class='v'>{esc(c['address'] or '—')}</div></div>"
+                f"<div><label>IDNO</label><div class='v mono'>{esc(c['idno'] or '—')}</div></div>"
+                f"<div><label>Идентификатор</label><div class='v mono'>{cid}</div></div>"
+                f"</div></div>")
+    overview = todo_html + _clinic_tiles(c, sub, st, issues, devices, accounts, smsinfo, now) + contacts
+    edit = (f"<div class='card'>{_chead('building', 'Реквизиты', 'название, IDNO и контакты: на них уходят ноты и письма')}"
+            f"<form method='post' action='/admin/clinics/{cid}/edit'><div class='grid'>"
             f"<div><label>Название *</label><input name='name' value='{esc(c['name'])}' required></div>"
             f"<div><label>IDNO</label><input name='idno' value='{esc(c['idno'])}' maxlength='13'></div>"
             f"<div><label>Контакт</label><input name='contact_name' value='{esc(c['contact_name'])}'></div>"
             f"<div><label>E-mail</label><input name='email' value='{esc(c['email'])}'></div>"
             f"<div><label>Телефон</label><input name='phone' value='{esc(c['phone'])}'></div>"
             f"<div><label>Адрес</label><input name='address' value='{esc(c['address'])}'></div></div>"
-            f"<p style='margin:14px 0 0'><button class='primary'>Сохранить</button></p></form></div></details>")
+            f"<p style='margin:14px 0 0'><button class='primary'>Сохранить</button></p></form></div>")
     issue_form = (f"<div class='card'>{_chead('key', 'Лицензия вручную (без оплаты)', 'пробный, демонстрация, договорённость; оплаченный срок выдаётся САМ при подтверждении платежа — программа клиники заберёт файл сама')}"
-                  f"<form method='post' action='/admin/clinics/{esc(c['id'])}/issue'>"
+                  f"<form method='post' action='/admin/clinics/{cid}/issue'>"
                   f"<div class='grid'><div><label>Что выдать</label><select name='kind'>"
                   f"<option value='trial'>Пробный: {license.TRIAL_DAYS} дней + {license.TRIAL_GRACE_DAYS} льготы</option>"
                   f"<option value='dates'>Абонемент до даты</option></select></div>"
@@ -757,7 +882,7 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
         method = ("<div><label>Как платит клиника</label><div class='muted' style='padding:9px 0'>только переводом: "
                   "DP_MAIB_* не заданы, ссылки на карту нет</div></div>")
     pay_form = (f"<div class='card'>{_chead('card', 'Ноты и платежи', f'нота = счёт клинике с reference; «Подтвердить» = перевод пришёл → срок продлён, файл выдан сам · {price} MDL в месяц · {pay.amount(12, price)} MDL в год')}"
-                f"<form method='post' action='/admin/clinics/{esc(c['id'])}/payments'>"
+                f"<form method='post' action='/admin/clinics/{cid}/payments'>"
                 f"<div class='grid'><div><label>Срок</label><select name='months'>{opts}</select></div>"
                 f"<div><label>Сумма, MDL (пусто = по тарифу)</label><input name='amount' inputmode='numeric'></div>"
                 f"{method}</div>"
@@ -765,13 +890,13 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
                 f"на {esc(c['email'] or '— e-mail не указан')}</label>"
                 f"<p style='margin:12px 0 16px'><button class='primary'>Выставить ноту</button></p></form>"
                 f"<table><tr><th>Reference</th><th>Сумма</th><th>Срок</th><th>Создан</th><th>Состояние</th><th></th></tr>"
-                f"{_payment_rows(list(payments)) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table></div>")
+                f"{_payment_rows(payments) or '<tr><td colspan=6 class=muted>Платежей ещё нет</td></tr>'}</table></div>")
     trs = "".join(
         f"<tr><td>{i['seq']}</td><td class='mono'>{esc(i['issued_at'][:16].replace('T', ' '))}</td>"
         f"<td>{_d(i['valid_until'])}</td><td>{_d(i['grace_until'])}</td><td>{esc(i['reason'])}</td>"
-        f"<td><a href='/admin/clinics/{esc(c['id'])}/issues/{i['seq']}/license.json'>license.json</a></td></tr>"
+        f"<td><a href='/admin/clinics/{cid}/issues/{i['seq']}/license.json'>license.json</a></td></tr>"
         for i in issues) or "<tr><td colspan='6' class='muted'>Файлов ещё не выдавали</td></tr>"
-    mail_btn = (f"<form method='post' action='/admin/clinics/{esc(c['id'])}/email' style='margin:12px 0 0'>"
+    mail_btn = (f"<form method='post' action='/admin/clinics/{cid}/email' style='margin:12px 0 0'>"
                 f"<button class='primary' title='Письмо о сроке лицензии; файла в письме нет (02.10) — программа "
                 f"забирает его сама'>Отправить письмо о лицензии</button></form>" if issues else "")
     issues_html = (f"<div class='card'>{_chead('file', 'Выданные файлы', 'каждый следующий — с номером выше; программа берёт только новее принятого')}"
@@ -795,18 +920,26 @@ def clinic_page(c, sub, issues: list, audit: list, user: str, msg: str = "",
         f"Отвязать</button></form></td></tr>" for a in accounts)
     acc_html = (f"<div class='card'>{_chead('user', 'Кабинет клиники', f'кто входит в кабинет {esc(config.BASE_URL.rstrip(chr(47)))}/cont — через Google или кодом на e-mail')}"
                 f"<p class='muted' style='margin:0 0 10px'>Смена директора: впишите клинике новый "
-                f"e-mail (выше) и отвяжите старую запись — новый вход привяжется к клинике по ящику.</p>"
+                f"e-mail во вкладке «Реквизиты» и отвяжите старую запись — новый вход привяжется к клинике по ящику.</p>"
                 f"<table><tr><th>E-mail</th><th>Вход</th><th>Имя</th><th>С</th><th>Последний вход</th><th></th></tr>"
                 f"{acc_rows or '<tr><td colspan=6 class=muted>В кабинет ещё никто не входил</td></tr>'}</table></div>")
     dev_html = (f"<div class='card'>{_chead('monitor', 'Компьютеры', 'как программа этой клиники назвалась серверу')}"
                 f"<table><tr><th>Компьютер</th><th>Версия</th><th>Канал</th>"
                 f"<th>Windows</th><th>С</th><th>Последняя связь (UTC)</th><th>Файл у программы</th></tr>"
-                f"{_device_rows(list(devices)) or '<tr><td colspan=7 class=muted>Программа этой клиники ещё не выходила на связь</td></tr>'}"
+                f"{_device_rows(devices) or '<tr><td colspan=7 class=muted>Программа этой клиники ещё не выходила на связь</td></tr>'}"
                 f"</table></div>")
+    count = {"overview": len(todo), "pay": sum(1 for p in payments if p["status"] == "pending"),
+             "sms": 1 if smsinfo and smsinfo["sender_state"] in ("requested", "submitted") else 0}
+    panes = {"overview": overview, "pay": pay_form + issues_html + issue_form + rem_html,
+             "sms": sms_block(c, smsinfo), "access": dev_html + acc_html, "profile": edit, "log": audit_html}
+    tabs = "".join(f"<a href='#{k}' data-tab='{k}' role='tab'>{t}"
+                   f"{(chr(60) + 'span class=' + chr(39) + 'n' + chr(39) + '>' + str(count[k]) + '</span>') if count.get(k) else ''}</a>"
+                   for k, t in CLINIC_TABS)
+    body = (f"<div class='tabbed'><nav class='tabs' role='tablist'>{tabs}</nav>"
+            + "".join(f"<section class='pane' data-pane='{k}'>{panes[k]}</section>" for k, _ in CLINIC_TABS)
+            + f"</div><script>{_TABS_JS}</script>")
     lead = f"{_tag(st)} <span class='muted'>{esc(sub['plan']) if sub else 'без файла'} · срок до {_d(sub['valid_until']) if sub else '—'} · IDNO {esc(c['idno'] or '—')}</span>"
-    return page(c["name"], head + edit + acc_html + dev_html + sms_block(c, smsinfo) + pay_form + issue_form
-                + issues_html + rem_html + audit_html, user, msg, pending=pending, active="clinics", lead=lead,
-                names=names)
+    return page(c["name"], body, user, msg, pending=pending, active="clinics", lead=lead, names=names)
 
 
 # ---------- кабинет клиники (шаг 3, 01.10): страницы по-румынски ----------

@@ -40,6 +40,7 @@ SUITES = [
     ("Сервер: вход, кука, выход, Origin", test_admin.suite_login),
     ("Сервер: лимит попыток входа", test_admin.suite_lock),
     ("Сервер: клиники", test_clinics.suite),
+    ("Сервер: карточка клиники — обзор и вкладки", test_clinics.suite_tabs),
     ("Сервер: выдача файла — проходит проверку движка", test_issue.suite_issue),
     ("Сервер: письмо с файлом", test_issue.suite_mail),
     ("Сервер: декларация поставщика во вложении", test_issue.suite_declaration),
