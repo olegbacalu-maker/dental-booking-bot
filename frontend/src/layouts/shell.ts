@@ -19,8 +19,10 @@ export interface NavItem {
   href: string
   icon: string
   label: string
-  /** Индикатор «бот жив» у пункта Telegram: ok | off. */
+  /** Индикатор «бот жив» у пункта Telegram и «пакет работает» у SMS: ok | off. */
   dot?: 'ok' | 'off'
+  /** Предупреждение вместо точки — треугольник с подсказкой (SMS: остаток на считанные дни). */
+  alert?: string
 }
 
 export interface Signal {
@@ -49,8 +51,7 @@ export interface ShellModel {
    */
   entry: { pin: boolean; pin_max: number; backdrop: string }
   nav: { active: string; items: NavItem[]; sync: NavItem[]; foot_title: string }
-  /** `sms` — остаток пакета SMS на считанные дни расхода (S6): видит и регистратура. */
-  signals: { license: Signal; tamper: Signal; split: Signal; slot: Signal; setup: Signal; demo: Signal; sms: Signal }
+  signals: { license: Signal; tamper: Signal; split: Signal; slot: Signal; setup: Signal; demo: Signal }
   frame: {
     /** Заголовок страницы — имя РАЗДЕЛА (B5, шаг 10): «Pacienți», «Setări».
      *  Считает сервер по активному пункту меню; до 26.09 здесь стояло

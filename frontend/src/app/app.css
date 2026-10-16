@@ -2259,3 +2259,6 @@ dialog.dp-ask { width: 400px; }
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); max-width: var(--measure);
 }
 .dp-react-root .dp-smsoff label.v { cursor: pointer; }
+/* треугольник у пункта меню (остаток SMS): на месте точки, цветом смысла */
+.side nav a .nav-alert { margin-left: auto; display: inline-flex; color: var(--amber); }
+.side nav a .nav-alert svg { width: 16px; height: 16px; }

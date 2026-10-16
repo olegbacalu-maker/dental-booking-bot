@@ -727,25 +727,24 @@ def _update_banner() -> str:
     return ""
 
 
-# Остаток SMS на считанные дни: две части фразы и подпись ссылки — источник
-# один на баннер и на проверки (как DEMO_HINT)
-SMS_LOW_HINT = ("Pachetul SMS se termină:", "au rămas __N__ SMS — la consumul actual ajung pentru "
-                "circa __D__ zile, apoi memento-urile nu mai pleacă.", "Comandă un pachet nou")
+# Остаток SMS на считанные дни — подсказка треугольника у пункта меню «SMS
+# pacienți» (слово Олега 16.10 по кадру 1.43.0: баннер на каждом экране —
+# нет, «может человек не хочет продлевать»); полный текст — на экране SMS.
+SMS_LOW_HINT = ("Pachetul SMS se termină: au rămas __N__ SMS — la consumul actual ajung "
+                "pentru circa __D__ zile, apoi memento-urile nu mai pleacă. "
+                "Comandați un pachet nou în Setări › SMS.")
 
 
-def _sms_banner() -> str:
-    """Остаток пакета SMS меньше чем на несколько дней расхода (S6, S0 › 7):
-    видит и регистратура — ей звонить пациентам, когда напоминания перестанут
-    уходить; заказывает директор в Setări › SMS. Условие считает цикл SMS по
-    счёту сервера и прогнозу расхода (`sms_loop.low_balance`)."""
+def _sms_alert() -> str:
+    """Текст подсказки у пункта меню, когда остатка меньше чем на несколько
+    дней расхода (`sms_loop.low_balance`); пусто — всё в порядке. Видит и
+    регистратура — ей звонить пациентам, когда напоминания перестанут уходить."""
     if not sms_loop.low_balance():
         return ""
     acc, fc = sms_loop.account() or {}, sms_loop.forecast()
     left = int(acc.get("balance") or 0)
     days = int(left // fc["daily"]) if fc["daily"] else 0
-    text = SMS_LOW_HINT[1].replace("__N__", str(left)).replace("__D__", str(days))
-    return (f"<div class='banner warn' style='margin-bottom:14px'>{_ic('sos')} <b>{SMS_LOW_HINT[0]}</b> "
-            f"{text} <a href='/admin/settings/sms'><b>{SMS_LOW_HINT[2]}</b></a></div>")
+    return SMS_LOW_HINT.replace("__N__", str(left)).replace("__D__", str(days))
 
 
 def _demo_banner() -> str:
@@ -1338,8 +1337,12 @@ def shell_model(active: str, sub: str, rail: bool = False,
     # (видимость — выключателем на сервере, S0 › 7); регистратура меняет
     # переключатели, директор платит — решает API, не меню
     if sms_loop.offered():
-        sync.append({"key": "sms", "href": "/admin/settings/sms", "icon": "chat",
-                     "label": SECTION_TITLE["sms"], "dot": "ok" if sms_loop.active() else "off"})
+        item = {"key": "sms", "href": "/admin/settings/sms", "icon": "chat",
+                "label": SECTION_TITLE["sms"], "dot": "ok" if sms_loop.active() else "off"}
+        # остаток на считанные дни — треугольник с подсказкой вместо точки
+        if (alert := _sms_alert()):
+            item["alert"] = alert
+        sync.append(item)
 
     def _sig(html_: str) -> dict:
         return {"shown": bool(html_), "html": html_}
@@ -1380,7 +1383,7 @@ def shell_model(active: str, sub: str, rail: bool = False,
         "signals": {"license": _sig(_license_banner()),
                     "tamper": _sig(_tamper_banner()), "split": _sig(_split_banner()),
                     "slot": _sig(_slot_banner()), "setup": _sig(_setup_hint()),
-                    "demo": _sig(_demo_banner()), "sms": _sig(_sms_banner())},
+                    "demo": _sig(_demo_banner())},
         # `title` — страница с собственным именем (фиша: имя пациента, 09.10 по
         # разбору: H1 «Pacienți» дублировал крошку); пустой — имя раздела
         "frame": {"title": title or section_title(active), "sub": sub, "rail": rail,

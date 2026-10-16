@@ -48,7 +48,6 @@ const SHELL: ShellModel = {
     tamper: { shown: false, html: '' },
     split: { shown: false, html: '' },
     slot: { shown: false, html: '' },
-    sms: { shown: false, html: '' },
     setup: { shown: false, html: '' },
     demo: { shown: false, html: '' },
   },
@@ -130,6 +129,18 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Setări')
     expect(document.querySelector('section.dp-react-root')?.getAttribute('aria-busy')).toBe('true')
     expect(get).toHaveBeenCalledWith('/settings/hub', expect.anything())
+  })
+
+  it('пункт меню с предупреждением: треугольник с подсказкой вместо точки, баннера нет (SMS, 16.10)', () => {
+    get.mockReturnValueOnce(new Promise(() => {}))
+    const alert = 'Pachetul SMS se termină: au rămas 1 SMS — la consumul actual ajung pentru circa 2 zile.'
+    const sync = [{ key: 'sms', href: '/admin/settings/sms', icon: 'chat', label: 'SMS pacienți', dot: 'ok' as const, alert }]
+    open('/admin/settings', node('settings_hub', {}, { ...SHELL, nav: { ...SHELL.nav, sync } }))
+    const mark = screen.getByLabelText(alert)
+    expect(mark.className).toBe('nav-alert')
+    expect(mark.getAttribute('title')).toBe(alert)
+    expect(document.querySelector('.side nav .dot')).toBeNull()
+    expect(document.querySelector('.content .banner')).toBeNull()
   })
 
   it('визит: номер — из пути appt_id, back — из АДРЕСА, а не из узла (aid, back)', () => {

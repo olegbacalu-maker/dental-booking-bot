@@ -63,7 +63,11 @@ function Item({ it, active }: { it: NavItem; active: string }) {
     <>
       <Icon name={iconName(it.icon)} />
       <span>{it.label}</span>
-      {it.dot && <span className={`dot ${it.dot}`} />}
+      {/* предупреждение (остаток SMS) — треугольник с подсказкой вместо точки:
+          слово Олега 16.10 — не баннер на каждом экране */}
+      {it.alert
+        ? <span className="nav-alert" title={it.alert} aria-label={it.alert}><Icon name="sos" /></span>
+        : it.dot && <span className={`dot ${it.dot}`} />}
     </>
   )
   const cls = it.key === active ? 'on' : ''
@@ -256,7 +260,7 @@ export function AppShell({ m, children }: { m: ShellModel; children: React.React
               рисуется — у панели дня подпись печатает сам экран (`.sub` из
               конверта канала), и сервер отдаёт ему пустую строку. */}
           {m.frame.sub && <div className="sub">{m.frame.sub}</div>}
-          {[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup, sig.sms].map((s, i) =>
+          {[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup].map((s, i) =>
             s.shown ? <div key={i} onClick={prose} dangerouslySetInnerHTML={{ __html: s.html }} /> : null)}
           {/* ⚠️ Порядок тот же, что печатал сервер: системные баннеры, потом
               навигация раздела, потом плашка ответа, потом экран. Крошка идёт

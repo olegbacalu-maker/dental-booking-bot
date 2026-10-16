@@ -32,7 +32,7 @@ import time
 from datetime import date, datetime, timedelta
 
 from harness import (BOT, FIXTURES, ROOT, Client, Clock, Result, Server, TZ, _rmtree_settled,
-                     add_appt, appt_id, day_model, new_patient, pid_by_phone, shell_model, shell_signal)
+                     add_appt, appt_id, day_model, new_patient, pid_by_phone, shell_model)
 import test_license_renew as lr
 
 FIX = ROOT / "tests" / "fixtures" / "license"
@@ -726,7 +726,8 @@ def suite_screen(res: Result) -> None:
                        any(t["href"] == "/admin/settings/sms" and "100 SMS" in t["hint"][0]["t"]
                            for t in _j(c.get("/api/settings/hub"))["data"]["tiles"])
                        and any(i["key"] == "sms" and i["dot"] == "ok" for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
-                res.ok("баннера остатка нет: расхода ещё нет", not shell_signal(c.get("/admin").body, "sms")["shown"])
+                res.ok("предупреждения у пункта меню нет: расхода ещё нет",
+                       not any(i.get("alert") for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
 
                 # переключатели — сохраняются сразу, цикл просыпается
                 r = c.post_json("/api/settings/sms", {"day_before": {"on": True, "hour": 11, "variant": "cald"},
@@ -804,9 +805,11 @@ def suite_screen(res: Result) -> None:
                 res.ok("прогноз: 12 визитов за 30 дней, остаток 1 — low",
                        data and data["forecast"]["month"] == 12 and data["low"] and data["forecast"]["days_left"] == 2,
                        repr(data and data["forecast"]) + repr(data and data["low"]))
-                sig = shell_signal(c.get("/admin").body, "sms")
-                res.ok("баннер остатка на всех экранах, со ссылкой в Setări › SMS",
-                       sig["shown"] and "Pachetul SMS se termină" in sig["html"] and "/admin/settings/sms" in sig["html"], repr(sig))
+                item = next((i for i in shell_model(c.get("/admin").body)["nav"]["sync"] if i["key"] == "sms"), {})
+                res.ok("у пункта меню — предупреждение с остатком и днями, баннера в оболочке нет",
+                       item.get("alert", "").startswith("Pachetul SMS se termină: au rămas 1 SMS")
+                       and "circa 2 zile" in item.get("alert", "")
+                       and "sms" not in shell_model(c.get("/admin").body)["signals"], repr(item))
 
                 # не предлагается: плитка молчит, пункта нет, экран объясняет
                 stand.account_reply = (503, {"ok": False, "code": "sms_not_offered", "text": "nu"})
@@ -817,8 +820,7 @@ def suite_screen(res: Result) -> None:
                        and "disponibil" in data["why"], repr(data)[:300])
                 res.ok("плитки и пункта меню нет, баннера нет",
                        not any(t["href"] == "/admin/settings/sms" for t in _j(c.get("/api/settings/hub"))["data"]["tiles"])
-                       and not any(i["key"] == "sms" for i in shell_model(c.get("/admin").body)["nav"]["sync"])
-                       and not shell_signal(c.get("/admin").body, "sms")["shown"])
+                       and not any(i["key"] == "sms" for i in shell_model(c.get("/admin").body)["nav"]["sync"]))
                 res.check("заказ без пакета — 409 sms_denied", c.post_json("/api/settings/sms/order", {"pack": 100}).status, 409)
         # файл без renew: экран говорит «только в активированном программе»
         d2 = pathlib.Path(tempfile.mkdtemp(prefix="dp_sms5_"))
