@@ -363,11 +363,15 @@ def suite_actions(res: Result) -> None:
         st, j = _act(c, pid, "/profile", {"name": "Act Test Nou", "phone": "069555000",
                                           "birth_date": "1990-05-06", "lang": "ru",
                                           "notes": "n", "insurance": "CNAM"})
+        # ⚠️ Возраст — от «сегодня» клиники, а не числом: число 36 покраснело бы
+        # само 06.05.2027 без единой правки кода (посторонний разбор 17.10)
+        today = clinic_today()
+        age = today.year - 1990 - ((today.month, today.day) < (5, 6))
         res.check("профиль сохранён — ok_card и свежая фиша",
                   (st, j["code"], j["data"]["name"], j["data"]["profile"]["birth"],
                    j["data"]["profile"]["lang"], j["data"]["profile"]["age"],
                    [(pl["tone"], pl["text"]) for pl in j["data"]["hero"]["pills"]]),
-                  (200, "ok_card", "Act Test Nou", "06.05.1990", "ru", 36,
+                  (200, "ok_card", "Act Test Nou", "06.05.1990", "ru", age,
                    [("green", "Pacient activ"), ("green", "CNAM")]))
         res.check("правка видна и при новом открытии фиши", _card(c, pid)["name"], "Act Test Nou")
         st, j = _act(c, pid, "/profile", {"name": "Act Test Nou", "phone": "069 555 111"})
@@ -654,6 +658,13 @@ def suite_actions(res: Result) -> None:
         res.check("фиша с лечением — обезличена, ok_anon",
                   (st, j["code"], j["data"]["profile"]["phone"], j["data"]["profile"]["idnp"]),
                   (200, "ok_anon", "", ""))
+        # 17.10 (посторонний разбор): будущая запись обезличенного висела в
+        # «De confirmat — sunați» без телефона и держала час врача
+        row = next(r for r in day_model(c, _d(3))["list"]
+                   if r["time"] == "09:00" and not r["is_note"])
+        res.check("будущая запись обезличенного отменена: час свободен, звонить некому",
+                  (row["status"], j["data"]["visits"]["live"], j["data"]["hero"]["next"]),
+                  ("cancelled", [], None))
         c.post_json("/api/patients", {"name": "Doar Contact", "phone": "069555222"})
         pid2 = _pid(c, "069555222")
         st, j = _act(c, pid2, "/erase", {"confirm": "STERG"})

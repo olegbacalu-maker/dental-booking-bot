@@ -3218,6 +3218,14 @@ async def anonymize_patient(pid: int) -> None:
     await _execute("UPDATE payments SET note = '' WHERE patient_id = ?", pid)
     await _execute(
         "UPDATE appointments SET comment = '' WHERE patient_id = ?", pid)
+    # Будущие живые записи — отменяются (17.10, посторонний разбор): человека
+    # больше нет, звонить некому, а час у врача оставался занятым, и
+    # «Pacient anonimizat #N» без телефона висел в «De confirmat — sunați».
+    # Прошлое не трогаем: состоявшийся приём — медицинская история под номером.
+    await _execute(
+        f"""UPDATE appointments SET status = 'cancelled'
+            WHERE patient_id = ? AND status IN {_ACT_SQL} AND starts_at > ?""",
+        pid, _utcnow_iso())
     # летопись — тот же свободный текст ЭХОМ: log_event дублирует туда заметку
     # платежа («Plată 500 MDL — transfer de la fratele …») и имя загруженного
     # файла. Строки пациента удаляются целиком, как в delete_patient_fully;
