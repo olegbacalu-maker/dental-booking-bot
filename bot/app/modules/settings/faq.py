@@ -120,7 +120,18 @@ def entries() -> list[dict]:
            f"programul nu poate fi instalat; altfel folosiți butonul "
            f"<b>Restaurează din copie</b> (întrebarea de mai sus) — și "
            f"<b>CONTINUT.txt</b> — lista a tot ce conține arhiva: câți "
-           f"pacienți, câte programări, care fișier este care document.{end}"),
+           f"pacienți, câte programări, care fișier este care document.{end}"
+           f"{p}{_ic('ban')} La restaurarea <b>manuală</b> (dezarhivare peste "
+           f"folderul cu date, cu programul închis) ștergeți întâi "
+           f"<b>data\\dental.db-wal</b> și <b>data\\dental.db-shm</b> — rămase pe "
+           f"loc, se aplică peste baza restaurată și evidența revine la starea "
+           f"dinainte fără nicio eroare — iar dacă pe calculator este activată "
+           f"criptarea evidenței, și <b>data\\db.key</b>: baza din arhivă nu "
+           f"este criptată, iar cu cheia rămasă pe loc programul ar da eroare "
+           f"la pornire (după restaurare criptarea se activează din nou din "
+           f"Setări). Butonul <b>Restaurează din copie</b> face toate acestea "
+           f"singur și păstrează legăturile către documentele pacienților — de "
+           f"aceea este calea recomandată.{end}"),
 
         _q("home", "Mutăm programul pe alt calculator sau reinstalăm Windows — "
                   "ce se întâmplă cu datele?",

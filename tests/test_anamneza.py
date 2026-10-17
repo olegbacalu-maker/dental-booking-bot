@@ -377,7 +377,7 @@ def suite_review(res: Result) -> None:
     # хвост от прежней базы накатывается поверх восстановленной, и картотека
     # возвращается к состоянию «до» — БЕЗ ошибки, `integrity_check` говорит ok.
     # Воспроизведено: 500 пациентов превратились в 1.
-    readme = (BOT / "app" / "modules" / "settings" / "backup.py").read_text(
+    readme = (BOT / "app" / "core" / "backup.py").read_text(
         encoding="utf-8", errors="replace")
     res.ok("инструкция восстановления велит удалить -wal и -shm",
            "dental.db-wal" in readme and "dental.db-shm" in readme,

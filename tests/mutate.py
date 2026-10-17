@@ -551,8 +551,8 @@ LEGAL = [
       "exportTitle: 'Copia datelor, la cererea pacientului',")),
     # ⭐ Законно: порядок баннеров в оболочке — оформление, а не пропажа.
     ("каждый баннер каркаса — сигнал оболочки", "_frontend/layouts/AppShell.tsx",
-     ("[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup]",
-      "[sig.tamper, sig.split, sig.slot, sig.setup, sig.license, sig.demo]")),
+     ("[sig.demo, sig.license, sig.tamper, sig.split, sig.slot, sig.setup, sig.backup]",
+      "[sig.tamper, sig.split, sig.slot, sig.setup, sig.backup, sig.license, sig.demo]")),
     # ⭐ Законно: ещё один живой адрес в списке демо — правило сверяет строки
     # с маршрутами, а не судит, что закрывать.
     ("список демо-отказов не протух", "app/core/demo.py",
