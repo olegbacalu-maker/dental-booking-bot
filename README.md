@@ -366,6 +366,20 @@ LAN it would break login outright, and the clinic's Wi-Fi encrypts one layer bel
   read is a hostage, not a backup. The instruction on how to open it is stored *unencrypted*
   inside the archive, after the first version locked that note behind the very door it
   explains.
+- **Daily copy outside the computer** (`Setări › Copie de rezervă › Copie automată`) — the
+  same archive, once a day while the program runs, into a folder the clinic names: a second
+  disk, a USB stick left in the machine, the clinic's cloud folder. The last seven are kept,
+  the password lives in `dental.env` under DPAPI, and the program remembers the date of the
+  last successful copy and shows it as a fact on the page and in *Stare sistem*. A failed
+  copy is a line in the clinic's activity feed and an amber banner for the director on every
+  screen, until a copy succeeds.
+- **Restore from a copy** (`Restaurează din copie`) — a daily copy, an archive from that
+  folder or an archive by path (a USB stick) is unpacked into a staging folder, checked by
+  opening it (patients, appointments, documents are shown *before* the confirmation) and
+  ordered for the launcher: the swap happens on the next start, never under an open
+  connection. The current database is moved aside with a date, never deleted; document paths
+  are relinked to the new data folder, and a restored archive is moved under the clinic's
+  key when the card index is encrypted.
 
 ## Patient self-booking (optional, off by default)
 
@@ -457,8 +471,9 @@ starting a second copy over the same database. Build with `Build-Desktop.ps1`.
   is dead on another machine. The flip side is written down rather than discovered: a
   reinstalled Windows or a different account makes that ciphertext unreadable forever, so
   only values the clinic can re-enter are ever encrypted this way.
-- **Automatic backup on every start** into `data\backups\` through the SQLite backup API —
-  consistent even after a crash with WAL — keeping the last 14.
+- **Automatic backup on every start and once a day while running** into `data\backups\`
+  through the SQLite backup API — consistent even after a crash with WAL — keeping the
+  last 14. A clinic that never shuts the computer down used to go weeks without a fresh copy.
 - **One-click update** from GitHub Releases, with the release's own signed installer behind
   a UAC prompt, checked before that prompt ever appears — see *Design decisions*.
 
@@ -547,7 +562,8 @@ machine — and to give the clinic the operations the law expects it to be able 
   confirmation is a typed word, not an OK button.
 - **Access log** — who opened which card and when, by name, which is what the law asks for
   rather than "channel: reception".
-- **Encrypted backup** the clinic can open without this program.
+- **Encrypted backup** the clinic can open without this program, a daily copy of it outside
+  the computer, and a restore button that shows what is inside before anything is replaced.
 - **Printed information sheet** for signature, plus a document set for the reception desk
   (patient information, processing register, a supplier agreement, a disk-encryption record).
 
