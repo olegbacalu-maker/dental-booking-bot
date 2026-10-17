@@ -69,6 +69,23 @@ describe('SystemSettingsScreen', () => {
     expect(btn.closest('form')?.getAttribute('method')).toBe('post')
   })
 
+  it('после клика кнопка занята и говорит, что идёт: второй клик невозможен (17.10)', async () => {
+    get.mockResolvedValueOnce(ok({
+      ...FRESH,
+      update: { state: 'self', icon: 'refresh', text: 'disponibilă 1.29.0', latest: '1.29.0', url: '' },
+    }))
+    open(vi.fn())
+    const btn = await screen.findByRole('button', { name: /Actualizează acum/ })
+    /* Маршрут до ответа качает ~40 МБ: 20–60 секунд экран иначе молчит, и
+       регистратура жмёт ещё раз. jsdom форму не отправляет — проверяем
+       состояние после события submit. */
+    fireEvent.submit(btn.closest('form')!)
+    const busy = await screen.findByRole('button', { name: /Se pregătește actualizarea/ })
+    expect((busy as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/Nu apăsați din nou/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Actualizează acum/ })).toBeNull()
+  })
+
   it('файл не публикуется — только ссылка на релиз, без кнопки', async () => {
     get.mockResolvedValueOnce(ok({
       ...FRESH,

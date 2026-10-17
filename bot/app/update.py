@@ -1048,8 +1048,33 @@ def _update_by_setup() -> str | None:
             "funcționeze cu versiunea curentă")
 
 
+# Один запуск обновления за раз (17.10, канарейка 1.44.0). Маршрут синхронный
+# и до ответа качает ~40 МБ и проверяет подпись — у клиники это 20–60 секунд
+# «ничего не происходит», и второй клик по кнопке запускал бы вторую закачку
+# и второе окно UAC поверх первого. Замок берётся без ожидания: второму —
+# слово BUSY. ⚠️ На удаче замок НЕ отпускается: программа закрывается сама,
+# и до перезапуска никакого второго обновления быть не должно.
+_RUN_LOCK = threading.Lock()
+BUSY = "actualizarea este deja în curs"
+
+
 def self_update() -> str | None:
-    """Скачивает новый exe и перезапускает программу. None = пошло, str = ошибка."""
+    """Скачивает новый exe и перезапускает программу. None = пошло, str = ошибка.
+    Второй вызов, пока первый идёт, — BUSY без единого действия."""
+    if not _RUN_LOCK.acquire(blocking=False):
+        return BUSY
+    try:
+        err = _self_update()
+    except BaseException:
+        _RUN_LOCK.release()
+        raise
+    if err is not None:
+        _RUN_LOCK.release()
+    return err
+
+
+def _self_update() -> str | None:
+    """Тело обновления — под замком `self_update`."""
     if not is_desktop():
         return "self-update доступен только в desktop-версии"
     # ⛔ Гейт СЕРВЕРНЫЙ, а не «кнопки не видно»: кнопку рисует can_self_update,

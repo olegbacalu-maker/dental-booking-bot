@@ -233,6 +233,9 @@ MSG_BANNER = {
     "bad_logo": ("err", "Logo neacceptat — doar PNG sau JPEG, cel mult 2 MB. "
                         "SVG nu se acceptă din motive de securitate."),
     "upd_err": ("err", "Actualizarea a eșuat — vezi detalii în pagina de setări / log"),
+    # второй клик по «Actualizează acum», пока первый ещё качает (17.10)
+    "upd_busy": ("warn", "Actualizarea este deja în curs — așteptați: programul se "
+                         "închide și repornește singur"),
     # Вход (форма и JSON-дверь смены человека, B4.4): одни слова на обе двери.
     # Блокировка подбора на входе — тем же `lock_pin`, что у смены PIN: одно
     # состояние, одно слово.

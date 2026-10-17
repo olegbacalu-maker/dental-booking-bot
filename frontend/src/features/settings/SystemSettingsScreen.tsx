@@ -27,6 +27,12 @@ const T = t('system', {
   feedback: 'Feedback / suport',
   bitlocker: 'Criptare disc (BitLocker)',
   run: 'Actualizează acum',
+  /* кнопка после клика: маршрут до ответа качает ~40 МБ и проверяет
+     подпись — 20–60 секунд, в которые на экране иначе «ничего не происходит»
+     (Олег, канарейка 1.44.0) */
+  running: 'Se pregătește actualizarea…',
+  runningHint: 'Se descarcă fișierele (~40 MB) și se verifică semnătura — poate dura '
+    + 'până la un minut. Nu apăsați din nou și nu închideți programul.',
   check: 'Verifică acum',
   uninstallStale: 'În «Programe și caracteristici» scrie versiunea',
   uninstallFix: 'Corectează (necesită drepturi de administrator)',
@@ -53,6 +59,7 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
   const { state, retry, replace, leaveIfSignedOut } = useRouteLoad<SystemData>(navigate)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [busy, setBusy] = useState(false)
+  const [starting, setStarting] = useState(false)   // форма обновления отправлена
   /* Дозор за записью установщика: 0 — не идёт, иначе номер запуска. */
   const [watch, setWatch] = useState(0)
   const closeToast = useCallback(() => setToast(null), [])
@@ -211,10 +218,17 @@ export function SystemSettingsScreen({ navigate = defaultNavigate, pollMs = 1500
                        пришлось бы переписать в React — то есть завести
                        второй экран ровно для той минуты, когда бандла может
                        не быть. */
-                    <form method="post" action="/admin/update/run" className="dp-inline-form">
-                      <button className="dp-upd-btn"><Icon name="upload" /> {T.run}</button>
+                    <form method="post" action="/admin/update/run" className="dp-inline-form"
+                      onSubmit={() => setStarting(true)}>
+                      {/* после клика кнопка занята и говорит, что идёт: второй
+                          клик сервер и так отбивает (update.BUSY), но клинике
+                          нужно видеть, что первый принят */}
+                      <button className="dp-upd-btn" disabled={starting}>
+                        <Icon name={starting ? 'refresh' : 'upload'} /> {starting ? T.running : T.run}
+                      </button>
                     </form>
                   )}
+                  {starting && <p className="hint">{T.runningHint}</p>}
                   <button type="button" className="dp-check-btn" onClick={check} disabled={busy}>
                     <Icon name="refresh" /> {T.check}
                   </button>

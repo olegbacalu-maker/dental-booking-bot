@@ -207,6 +207,17 @@ try:
     out["same_err"] = upd.self_update()
     out["same_downloads"] = len(got)
     out["same_exits"] = len(exits)
+    # --- 3b. второй клик, пока первое обновление идёт (17.10) ---
+    # Маршрут синхронный и до ответа качает ~40 МБ; замок берётся без ожидания,
+    # второму вызову — слово BUSY, ни закачки, ни окна UAC.
+    upd.STATE.update(latest="v99.9.9")
+    upd._RUN_LOCK.acquire()
+    try:
+        out["busy_err"] = upd.self_update()
+        out["busy_downloads"] = len(got)
+    finally:
+        upd._RUN_LOCK.release()
+    out["busy_word"] = upd.BUSY
     # --- 4. пустой список релизов НЕ означает «обновлений нет» ---
     # Дефект, уехавший клиентам (08-17): на канале beta кандидаты берутся из
     # /releases?per_page=100, а у репозитория с девятью десятками релизов он
@@ -329,6 +340,8 @@ def suite_update(res: Result) -> None:
            f"новее установленной")
     res.check("и файл не скачивается", v["same_downloads"], 0)
     res.check("и журнал клиники не закрывается", v["same_exits"], 0)
+    res.check("второй клик, пока идёт первое обновление, — BUSY без закачки",
+              (v["busy_err"], v["busy_downloads"]), (v["busy_word"], 0))
 
     # ⛔ Сторож на класс «молчание принято за отсутствие». Ломается снятием
     # ветки атома в update._check: канарейка тут же остаётся на своей версии.

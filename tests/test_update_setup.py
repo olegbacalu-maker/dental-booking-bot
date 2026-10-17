@@ -62,6 +62,10 @@ def attempt(name, entries, *, digest=None, size=None):
                      setup_size=sz if size is None else size, setup_digest=dg if digest is None else digest)
     del watch[:], asked[:], exits[:]
     result.unlink(missing_ok=True)
+    # удача оставляет замок одного запуска взятым (программа закрывается
+    # сама, 17.10); здесь она не закрывается — следующий заход начинает заново
+    if upd._RUN_LOCK.locked():
+        upd._RUN_LOCK.release()
     err = upd.self_update()
     req = work / privileged.REQUEST_NAME
     out[name] = {"err": err, "asked": list(asked), "watch": list(watch), "exits": len(exits),

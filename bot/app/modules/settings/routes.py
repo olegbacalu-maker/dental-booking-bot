@@ -732,14 +732,26 @@ def admin_update_run(request: Request):
     if (deny := require(request, PERM_SETTINGS)) is not None:
         return deny
     err = upd.self_update()
+    if err == upd.BUSY:
+        # второй клик, пока первый качает: не вторая закачка и не второе окно
+        # UAC, а слово «уже идёт» (17.10, канарейка 1.44.0)
+        return RedirectResponse("/admin/settings/system?msg=upd_busy", status_code=303)
     if err:
         return RedirectResponse("/admin/settings/system?msg=upd_err", status_code=303)
+    # ⚠️ Цвет текста — ТЁМНЫЙ фирменный, не __ON__: `standalone()` кладёт под
+    # страницу фон заставки (`_backdrop`, светлая подложка цвета клиники с
+    # !important), и белый «on-teal» на нём был почти невидим — Олег увидел это
+    # на канарейке 1.44.0. Шрифт и фон — как у остальных страниц этого класса.
     return standalone(f"""<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="18;url=/admin/settings/system">
-<title>Actualizare…</title><style>
- body{{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100vh;margin:0;background:__ACCENT__;color:__ON__;text-align:center}}
- .sp{{font-size:44px;animation:r 1.2s linear infinite;display:inline-block}}
+<title>Actualizare…</title><style>__FONTS__
+ body{{font-family:'Inter','Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;height:100vh;margin:0;background:__BG__;
+      color:__ACCENT_D__;text-align:center;padding:16px;box-sizing:border-box}}
+ h1{{color:__ACCENT_D__;font-size:26px;margin:14px 0 8px}}
+ p{{color:#3b4a55;line-height:1.55;max-width:520px}}
+ .sp{{font-size:44px;color:__ACCENT__;animation:r 1.2s linear infinite;display:inline-block}}
+ .sp svg{{width:44px;height:44px}}
  @keyframes r{{to{{transform:rotate(360deg)}}}}
 </style></head><body>
 <div class="sp">{_ic('refresh')}</div>
