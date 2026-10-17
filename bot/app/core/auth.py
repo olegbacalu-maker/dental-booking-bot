@@ -217,8 +217,8 @@ def _secret() -> str:
     return ADMIN_KEY
 
 
-def _cookie_sig(uid: str = "", role: str = "", sid: str = "") -> str:
-    """Подпись сессии.
+def _cookie_sig(uid: str = "", role: str = "", sid: str = "", tok: str = "") -> str:
+    """Подпись сессии. С `tok` (метка сессии, 17.10) — текущая форма.
 
     Без аргументов — СТАРАЯ форма, одна на всю клинику (до ролей). Её мы больше
     не выдаём, но продолжаем принимать: обновление не должно выкидывать клинику
@@ -230,7 +230,44 @@ def _cookie_sig(uid: str = "", role: str = "", sid: str = "") -> str:
     либо она разлогинивает заодно всех остальных.
     """
     msg = f"{uid}|{role}|{sid}".encode() if uid else b"dentart-admin-v1"
+    if tok:
+        msg += f"|{tok}".encode()
     return hmac.new(_secret().encode(), msg, hashlib.sha256).hexdigest()
+
+
+# --- срок и отзыв сессии (17.10, посторонний разбор) ---
+# В сети клиники канал — http, и кука видна любому в том же Wi-Fi. До 17.10
+# она жила 30 дней, а «выход» лишь просил браузер её забыть: подсмотренное
+# значение работало до смены PIN. Теперь у куки есть МЕТКА СЕССИИ `tok`
+# (время выдачи + случайность), которую сервер:
+#   * проверяет на срок — 12 часов при включённой сети (смена, а не месяц) и
+#     прежние 30 дней без неё; срок считает СЕРВЕР по метке, max_age браузера
+#     — лишь вежливость: подсмотренную куку браузером не ограничить;
+#   * отзывает при выходе (`revoke_cookie`): метка ложится в
+#     auth_revoked.json до истечения своего срока, и подсмотренная кука
+#     умирает вместе с выходом человека.
+# ⚠️ Куки без метки (выданы до 17.10) при включённой сети не принимаются —
+# один повторный вход после обновления; без сети — как было, 30 дней.
+COOKIE_TTL = 60 * 60 * 24 * 30
+COOKIE_TTL_LAN = 60 * 60 * 12
+_TOK_NONCE = 8                      # hex-знаков случайности после времени
+
+
+def cookie_ttl() -> int:
+    return COOKIE_TTL_LAN if lan_on() else COOKIE_TTL
+
+
+def _new_tok() -> str:
+    return f"{int(time.time()):x}{secrets.token_hex(_TOK_NONCE // 2)}"
+
+
+def _tok_issued(tok: str) -> int | None:
+    """Время выдачи из метки; None — метка не нашей формы."""
+    head = tok[:-_TOK_NONCE]
+    try:
+        return int(head, 16) if head else None
+    except ValueError:
+        return None
 
 
 def _set_auth_cookie(resp: RedirectResponse,
@@ -239,9 +276,54 @@ def _set_auth_cookie(resp: RedirectResponse,
     uid = str(u.get("id") or "clinic")
     role = str(u.get("role") or ROLE_DIRECTOR)
     sid = str(u.get("sid") or "")
-    resp.set_cookie("admin_auth", f"{uid}.{role}.{sid}.{_cookie_sig(uid, role, sid)}",
-                    max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax")
+    tok = _new_tok()
+    resp.set_cookie("admin_auth",
+                    f"{uid}.{role}.{sid}.{tok}.{_cookie_sig(uid, role, sid, tok)}",
+                    max_age=cookie_ttl(), httponly=True, samesite="lax")
     return resp
+
+
+_revoked_mem: dict = {}        # без папки данных — в ОЗУ, как _fail_mem
+
+
+def _revoked_path() -> pathlib.Path | None:
+    d = _data_dir()
+    return d / "auth_revoked.json" if d else None
+
+
+def _revoked() -> dict:
+    p = _revoked_path()
+    return dict(_revoked_mem) if p is None else _state_read(p)
+
+
+def revoke_cookie(request: Request) -> None:
+    """Выход: метка сессии из куки запроса перестаёт приниматься — до конца
+    своего срока, дальше хранить незачем. Подпись сверяется: чужую строку в
+    список не кладём (он рос бы от любого мусора в куке)."""
+    parts = request.cookies.get("admin_auth", "").split(".")
+    if len(parts) != 5:
+        return                          # старой куке отзывать нечего
+    uid, role, sid, tok, sig = parts
+    if not (_secret() and hmac.compare_digest(sig, _cookie_sig(uid, role, sid, tok))):
+        return
+    now = time.time()
+    st = {k: v for k, v in _revoked().items()
+          if isinstance(v, (int, float)) and v > now}
+    st[tok] = (_tok_issued(tok) or int(now)) + COOKIE_TTL
+    p = _revoked_path()
+    if p is None:
+        _revoked_mem.clear()
+        _revoked_mem.update(st)
+    else:
+        _state_write(p, st)
+
+
+def _session_alive(tok: str) -> bool:
+    """Метка в сроке и не отозвана."""
+    issued = _tok_issued(tok)
+    if issued is None or time.time() - issued > cookie_ttl():
+        return False
+    return tok not in _revoked()
 
 
 # --- сессия веб-чата (/chat) ---
@@ -302,9 +384,21 @@ def current_user(request: Request) -> dict | None:
     rec = _pin_rec()
     users = _users(rec)
     parts = raw.split(".")
+    if len(parts) == 5:
+        uid, role, sid, tok, sig = parts
+        if not hmac.compare_digest(sig, _cookie_sig(uid, role, sid, tok)):
+            return None
+        if not _session_alive(tok):
+            return None            # срок вышел или человек вышел сам
+        parts = [uid, role, sid, sig]
+    elif lan_on():
+        # кука без метки сессии (до 17.10): в сети у неё нет ни срока, ни
+        # отзыва — один повторный вход после обновления
+        return None
     if len(parts) == 4:
         uid, role, sid, sig = parts
-        if not hmac.compare_digest(sig, _cookie_sig(uid, role, sid)):
+        if len(raw.split(".")) == 4 and not hmac.compare_digest(
+                sig, _cookie_sig(uid, role, sid)):
             return None
         if rec is None:
             return _as_user({"id": uid, "role": role})   # облако: людей нет

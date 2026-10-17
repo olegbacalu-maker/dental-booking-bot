@@ -902,3 +902,82 @@ def suite_lan_pin(res: Result) -> None:
         _rmtree_settled(tmp)
 
 
+def suite_session(res: Result) -> None:
+    """Срок и отзыв сессии (17.10): в сети клиники канал http, и
+    подсмотренная кука иначе жила бы 30 дней, переживая «выход». Теперь кука
+    несёт метку сессии: сервер считает по ней срок (12 ч при сети, 30 дней
+    без) и отзывает её при выходе обеими дверями. Куки без метки (до 17.10)
+    при сети не принимаются — один повторный вход; без сети — как было.
+    """
+    import hmac as _hmac
+
+    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_sess_"))
+
+    def raw_of(c: Client) -> str:
+        return next((k.value for k in c.jar if k.name == "admin_auth"), "")
+
+    def as_(c: Client, raw: str) -> int:
+        return c.get("/admin", headers={"Cookie": f"admin_auth={raw}"}).status
+
+    def signed(rec: dict, tok: str) -> str:
+        """Кука той же формы, что выдаёт сервер, — чтобы задать метке возраст."""
+        u = rec["users"][0]
+        head = f"{u['id']}|{u['role']}|{u['sid']}" + (f"|{tok}" if tok else "")
+        sig = _hmac.new(rec["cookie_key"].encode(), head.encode(), hashlib.sha256).hexdigest()
+        return (f"{u['id']}.{u['role']}.{u['sid']}.{tok}.{sig}" if tok
+                else f"{u['id']}.{u['role']}.{u['sid']}.{sig}")
+
+    def tok_at(age_s: int) -> str:
+        return f"{int(time.time()) - age_s:x}abcdef01"
+
+    try:
+        s = Server(env=NO_KEY, dir_=base)
+        _v1_file(s, "4321")
+        with s:
+            c = Client(s.url)
+            r = c.post("/admin/login", password="4321", next="/admin")
+            raw = raw_of(c)
+            res.ok("кука несёт метку сессии (пять частей)", raw.count(".") == 4, raw[:40])
+            res.ok("без сети срок куки у браузера — 30 дней",
+                   "Max-Age=2592000" in r.header("Set-Cookie"), r.header("Set-Cookie")[:120])
+            res.check("журнал открыт", c.get("/admin").status, 200)
+            spy = Client(s.url)
+            res.check("подсмотренная кука пускает, пока человек не вышел", as_(spy, raw), 200)
+            c.get("/admin/logout")
+            res.check("после выхода та же кука не пускает", as_(spy, raw), 303)
+            res.ok("отзыв записан рядом с базой", (s.dir / "auth_revoked.json").exists(),
+                   "auth_revoked.json нет — отзыв жил бы до перезапуска")
+            c2 = Client(s.url)
+            c2.post_json("/api/auth/login", {"pin": "4321"})
+            raw2 = raw_of(c2)
+            res.check("кука JSON-двери пускает", as_(spy, raw2), 200)
+            c2.post_json("/api/auth/logout", {})
+            res.check("выход JSON-дверью тоже отзывает", as_(spy, raw2), 303)
+            # срок считает СЕРВЕР по метке, а не браузер по max_age
+            rec = _rec(s)
+            res.check("без сети кука 13-часовой давности жива",
+                      as_(spy, signed(rec, tok_at(13 * 3600))), 200)
+            res.check("а 31-дневной — нет", as_(spy, signed(rec, tok_at(31 * 86400))), 303)
+            res.check("без сети кука прежней формы (без метки) принимается",
+                      as_(spy, signed(rec, "")), 200)
+        # рестарт: отзыв пережил перезапуск
+        with Server(env=NO_KEY, dir_=base) as s:
+            res.check("отозванная кука не ожила после перезапуска",
+                      as_(Client(s.url), raw), 303)
+        with Server(env={**NO_KEY, "DENTART_LAN": "1"}, dir_=base) as s:
+            c = Client(s.url)
+            r = c.post("/admin/login", password="4321", next="/admin")
+            res.ok("в сети срок куки у браузера — 12 часов",
+                   "Max-Age=43200" in r.header("Set-Cookie"), r.header("Set-Cookie")[:120])
+            res.check("свежая кука пускает", c.get("/admin").status, 200)
+            rec, spy = _rec(s), Client(s.url)
+            res.check("в сети кука часовой давности жива",
+                      as_(spy, signed(rec, tok_at(3600))), 200)
+            res.check("в сети кука 13-часовой давности не принимается",
+                      as_(spy, signed(rec, tok_at(13 * 3600))), 303)
+            res.check("в сети кука без метки (до 17.10) не принимается",
+                      as_(spy, signed(rec, "")), 303)
+    finally:
+        _rmtree_settled(base)
+
+

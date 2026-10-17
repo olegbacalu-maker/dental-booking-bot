@@ -27,8 +27,9 @@ from ...core.auth import (ADMIN_KEY, _as_user, auth_blocked, auth_file_fp,
                           find_user, lock_left, LOCK_STEP_COUNTS, NET_STEP_COUNTS,
                           note_fail, note_ok, peer_label, PEER_LOCAL, PERM_SETTINGS,
                           pin_len_ok, pin_range_text, _pin_rec, remember_auth_file,
-                          require, same_origin_post, _secret, _set_auth_cookie,
-                          set_tamper_alert, _setup_allowed, verify_pin, _write_pin)
+                          require, revoke_cookie, same_origin_post, _secret,
+                          _set_auth_cookie, set_tamper_alert, _setup_allowed,
+                          verify_pin, _write_pin)
 from ...core.layout import msg_text, standalone
 from .pages import LOGIN_TMPL, PASS_INPUT, PIN_INPUT, SETUP_LOCAL_TMPL, SETUP_TMPL
 
@@ -184,9 +185,11 @@ async def admin_login(request: Request, password: str = Form(...),
 
 
 @router.get("/admin/logout")
-async def admin_logout():
-    """Выход. Кука снимается у браузера; серверных сессий у нас нет, поэтому
-    больше ничего гасить не нужно."""
+async def admin_logout(request: Request):
+    """Выход. Кука снимается у браузера И отзывается на сервере (17.10): в
+    сети клиники канал http, и подсмотренная кука иначе жила бы до смены PIN
+    (`auth.revoke_cookie`). Та же пара действий у JSON-двери (`api.py`)."""
+    revoke_cookie(request)
     resp = RedirectResponse("/admin/login", status_code=303)
     resp.delete_cookie("admin_auth")
     return resp

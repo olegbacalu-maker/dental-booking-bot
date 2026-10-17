@@ -16,7 +16,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from ...core.api import api_body, api_guard
-from ...core.auth import _as_user, client_peer, same_origin_post, _set_auth_cookie
+from ...core.auth import (_as_user, client_peer, revoke_cookie, same_origin_post,
+                          _set_auth_cookie)
 from ...core.layout import msg_json
 from .routes import LOGIN_BROKEN, LOGIN_OK, try_login
 
@@ -57,11 +58,13 @@ async def api_login(request: Request):
 
 @router.post("/api/auth/logout")
 async def api_logout(request: Request):
-    """Выход: кука снимается у браузера, как у `GET /admin/logout`; серверных
-    сессий нет, гасить больше нечего. Под `api_guard`, как весь `/api/`: на
-    истёкшую куку — 401, и клиент запирает экран так же, он и так снаружи."""
+    """Выход: кука снимается у браузера и отзывается на сервере, как у
+    `GET /admin/logout` (`auth.revoke_cookie`, 17.10). Под `api_guard`, как
+    весь `/api/`: на истёкшую куку — 401, и клиент запирает экран так же, он
+    и так снаружи."""
     if (deny := api_guard(request)) is not None:
         return deny
+    revoke_cookie(request)
     resp = msg_json(True)
     resp.delete_cookie("admin_auth")
     return resp

@@ -190,6 +190,7 @@ SUITES = [
     ("Роли и права доступа", test_pin.suite_roles),
     ("PIN: битый auth.json", test_pin.suite_broken),
     ("PIN: не короче 6 при включённой сети", test_pin.suite_lan_pin),
+    ("PIN: срок и отзыв сессии", test_pin.suite_session),
     ("Hardening: установка PIN только локально", test_hardening.suite_setup_local),
     ("Hardening: битый clinic.json не подменяется демо",
      test_hardening.suite_config_fallback),
