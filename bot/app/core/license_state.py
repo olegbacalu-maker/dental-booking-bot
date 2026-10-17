@@ -195,8 +195,12 @@ def save(path: pathlib.Path, mem: Memory) -> None:
 # врачей, прайс и профиль клиники, здесь не значится — и потому отказывает.
 # ⛔ Список — константа, а не флаг у маршрута: сторож проверяет, что каждый
 # пишущий маршрут либо здесь, либо отказывает (tests/test_license_gate.py).
+# ⚠️ Дверь — ОБЕ её формы: `/admin/login` и JSON `/api/auth/login|logout`
+# (B4.4, 16.10): без второй клиент в readonly откатывался на документный
+# выход и вход — работало, но с миганием, которое B4 убрал (17.10).
 READONLY_ALLOW = (
     "/admin/login", "/admin/setup", "/admin/license", "/admin/recover",
+    "/api/auth/login", "/api/auth/logout",
     "/admin/license/renew", "/admin/license/request", "/admin/license/verify",
     "/admin/security/ack",
     "/admin/backup/export",

@@ -11,6 +11,7 @@
 намеренно: 422 разбора формы не должен опережать отказ, и таблица это
 проверяет заодно.
 """
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -104,6 +105,8 @@ def suite_readonly(res: Result) -> None:
                 if not template.startswith(("/admin", "/api/")):
                     continue
                 r = _send(c, method, _concrete(template))
+                if template == "/api/auth/logout":
+                    c = Client(s.url).login()   # разрешённый выход снял куку — вход заново
                 if template in lst.READONLY_ALLOW:
                     res.ok(f"разрешён: {method} {template}", not _refused(r),
                            f"код {r.status}, location {r.location!r}")
@@ -132,6 +135,38 @@ def suite_readonly(res: Result) -> None:
                 res.ok(f"чтение открыто: GET {template}", not _refused(c.get(template)))
     finally:
         _rmtree_settled(d)
+    _readonly_pin_door(res)
+
+
+def _readonly_pin_door(res: Result) -> None:
+    """JSON-дверь смены человека (B4.4) в readonly: ветка PIN-файла, а не
+    ADMIN_KEY — именно её получает клиника. ⚠️ 17.10: без `/api/auth/*` в
+    `READONLY_ALLOW` дверь отвечала 423 и клиент откатывался на документный
+    выход/вход; табличный тест этого не видел — отказ для него законен."""
+    d = pathlib.Path(tempfile.mkdtemp(prefix="dp_gate_pin_"))
+    try:
+        shutil.copy(FIX / "expired.json", d / "license.json")
+        salt = "0123456789abcdef"
+        (d / "auth.json").write_text(json.dumps(
+            {"salt": salt, "hash": hashlib.sha256(f"{salt}:4321".encode()).hexdigest()}),
+            encoding="utf-8")
+        with Server(dir_=d, env={**KEY_ENV, "ADMIN_KEY": ""}) as s:
+            res.ok("PIN-сервер в readonly", "license: state=readonly" in
+                   s._log_path.read_text(encoding="utf-8", errors="replace"))
+            c = Client(s.url)
+            r = c.post_json("/api/auth/login", {"pin": "4321"})
+            res.ok("readonly: JSON-вход по PIN пускает (200 с кукой), а не 423",
+                   r.status == 200 and "admin_auth=" in r.header("Set-Cookie"),
+                   f"{r!r} {r.body[:120]}")
+            res.check("readonly: журнал открыт по куке JSON-входа", c.get("/admin").status, 200)
+            r = c.post_json("/api/auth/logout", {})
+            res.ok("readonly: JSON-выход снимает куку, а не 423", r.status == 200, f"{r!r}")
+            res.ok("readonly: после выхода журнал закрыт", c.get("/admin").status == 303)
+            c.post_json("/api/auth/login", {"pin": "4321"})
+            res.ok("readonly: вошедший через JSON-дверь записи всё равно не получает",
+                   _refused(c.post_json("/api/patients", {})))
+    finally:
+        _rmtree_settled(d)
 
 
 def suite_active(res: Result) -> None:
@@ -147,6 +182,8 @@ def suite_active(res: Result) -> None:
                 if not template.startswith(("/admin", "/api/")):
                     continue
                 r = _send(c, method, _concrete(template))
+                if template == "/api/auth/logout":
+                    c = Client(s.url).login()   # выход снял куку — вход заново
                 res.ok(f"без отказа лицензии: {method} {template}", not _refused(r),
                        f"код {r.status}, location {r.location!r}")
     finally:
