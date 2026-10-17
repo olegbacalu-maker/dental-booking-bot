@@ -626,7 +626,8 @@ def suite_api_login(res: Result) -> None:
                    "кука регистратуры не пускает")
 
             # CSRF: чужой сайт в браузере клиники — ни проверки PIN, ни счётчика
-            fails = lambda: json.loads((s.dir / "auth_fail.json").read_text(encoding="utf-8")).get("fails", 0)  # noqa: E731
+            # счётчик устройства «local» (с 17.10 стойка считается отдельно)
+            fails = lambda: json.loads((s.dir / "auth_fail.json").read_text(encoding="utf-8")).get("peers", {}).get("local", {}).get("fails", 0)  # noqa: E731
             r = Client(s.url).post_json(login, {"pin": "4321"},
                                         headers={"Origin": "http://atacator.example"})
             res.check("чужой Origin — 403", r.status, 403)

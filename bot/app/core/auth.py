@@ -541,11 +541,13 @@ def verify_pin(pin: str, uid: str = "") -> dict | None:
     return None
 
 
-async def change_pin(old_pin: str, new1: str, new2: str) -> tuple[str, dict | None]:
+async def change_pin(old_pin: str, new1: str, new2: str,
+                     peer: str = "") -> tuple[str, dict | None]:
     """Смена СВОЕГО PIN: (код ответа, запись вошедшего для свежей куки).
 
     Зовёт JSON API (`settings/api.py`): старый PIN проверяется тем же
-    оракулом, что и вход, и считает те же неудачи; новый обязан быть уникальным
+    оракулом, что и вход, и считает те же неудачи (`peer` — устройство, как у
+    входа); новый обязан быть уникальным
     (вход идёт по одному лишь паролю — совпавший с чужим означал бы молчаливую
     смену роли); ключ подписи вращается, поэтому вызывающий ОБЯЗАН выдать
     свежую куку ответом, иначе первый же переход выкинет на вход.
@@ -555,14 +557,14 @@ async def change_pin(old_pin: str, new1: str, new2: str) -> tuple[str, dict | No
         return "bad_pin", None
     # своё сообщение, а не bad_pin: «старый PIN неверен» при блокировке — ровно
     # тот случай, когда экран врёт, и человек начинает перебирать верный PIN
-    if lock_left() > 0:
+    if lock_left(peer) > 0:
         return "lock_pin", None
     # форма смены — второй оракул для того же PIN, поэтому считает те же неудачи
     if (who := verify_pin(old_pin.strip())) is None:
-        note_fail()
+        note_fail(peer)
         await asyncio.sleep(FAIL_DELAY)
         return "bad_pin", None
-    note_ok()
+    note_ok(peer)
     n1, n2 = new1.strip(), new2.strip()
     if n1 != n2 or not pin_len_ok(n1):
         return "bad_pin", None
@@ -801,32 +803,128 @@ def _lock_for(n: int) -> int:
     return next((sec for cnt, sec in _LOCK_STEPS if n >= cnt), 0)
 
 
-def lock_left() -> int:
-    """Сколько секунд вход закрыт (0 — открыт)."""
-    return max(0, int(_fail_state().get("until", 0) - time.time()))
+# --- счётчик на устройство (17.10, посторонний разбор) ---
+# До 17.10 счётчик был один на клинику: телефон, перебирающий PIN из Wi-Fi,
+# запирал и стойку, а каждый удачный вход сотрудника обнулял счётчик
+# подборщику. Теперь ДВА слоя в одном auth_fail.json:
+#   * на устройство — ключ `client_peer`: loopback целиком = "local" (скрипт
+#     на самом ПК может слать с любого 127.x.x.x), иначе адрес. Та же лестница,
+#     обнуляет только удачный вход С ЭТОГО устройства;
+#   * общий по сети — прежние `fails/until` как заслон от смены адресов
+#     (подборщик с ноутбука берёт себе хоть 254 адреса). Та же лестница, но
+#     ступени втрое выше (`_NET_FACTOR`): промахи трёх телефонов за утро не
+#     должны запирать четвёртый. Стойку (local) он не запирает и удачным
+#     входом не обнуляется — распадается сам после 15 минут тишины
+#     (`_QUIET`), иначе клиника копила бы чужие промахи месяцами и каждая
+#     опечатка стоила бы 15 минут всем телефонам.
+# ⚠️ Пустой peer (за шлюзом демо все приходят с одного адреса; нет адреса) —
+# поведение до 17.10 целиком: один общий счётчик, обнуляется удачным входом.
+PEER_LOCAL = "local"
+_NET_FACTOR = 3
+# Ступени общего заслона — для ленты (как LOCK_STEP_COUNTS у устройства)
+NET_STEP_COUNTS = tuple(cnt * _NET_FACTOR for cnt in LOCK_STEP_COUNTS)
+_QUIET = max(sec for _n, sec in _LOCK_STEPS)      # распад общего счётчика
+_PEER_KEEP = 24 * 3600                              # забытые устройства уходят
+_PEER_CAP = 500                                     # потолок записей в файле
 
 
-def note_fail() -> int:
-    """Записать неудачу, вернуть срок блокировки в секундах (0 — ещё пускаем).
+def client_peer(request: Request) -> str:
+    """Ключ устройства для счётчика неудач по ПИРУ соединения (не по
+    заголовкам: X-Forwarded-* пишет кто угодно). '' — считать по-старому."""
+    from . import demo                 # core → core; у demo импортов auth нет
+    if demo.on():
+        return ""
+    host = (request.client.host or "") if request.client else ""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return ""
+    addr = getattr(addr, "ipv4_mapped", None) or addr
+    return PEER_LOCAL if addr.is_loopback else str(addr)
+
+
+def peer_label(peer: str) -> str:
+    """Как назвать устройство в ленте клиники."""
+    return "acest calculator" if peer == PEER_LOCAL else peer
+
+
+def _peer_of(st: dict, peer: str) -> dict:
+    p = (st.get("peers") or {}).get(peer)
+    return p if isinstance(p, dict) else {}
+
+
+def _global_fails(st: dict, now: float, decays: bool) -> int:
+    """Общий счётчик с распадом после тишины — только у слоя на устройство."""
+    if decays and now - float(st.get("at") or 0) > _QUIET:
+        return 0
+    return int(st.get("fails", 0))
+
+
+def lock_left(peer: str = "") -> int:
+    """Сколько секунд вход закрыт для этого устройства (0 — открыт):
+    своя блокировка и, кроме стойки, общая по сети."""
+    st, now = _fail_state(), time.time()
+    left = 0
+    if peer != PEER_LOCAL:
+        left = max(left, int(float(st.get("until") or 0) - now))
+    if peer:
+        left = max(left, int(float(_peer_of(st, peer).get("until") or 0) - now))
+    return max(0, left)
+
+
+def note_fail(peer: str = "") -> int:
+    """Записать неудачу, вернуть срок блокировки для ЭТОГО устройства в
+    секундах (0 — ещё пускаем).
 
     Счётчик после снятия блокировки НЕ обнуляется намеренно: иначе перебор
     продолжается пачками по пять, а так каждая следующая ошибка снова стоит
-    полминуты. Обнуляет только удачный вход.
+    полминуты. Обнуляет только удачный вход (с того же устройства).
     """
-    n = int(_fail_state().get("fails", 0)) + 1
-    lock = _lock_for(n)
-    _fail_save({"fails": n, "until": time.time() + lock if lock else 0})
-    return lock
+    st, now = _fail_state(), time.time()
+    if peer != PEER_LOCAL:
+        n = _global_fails(st, now, decays=bool(peer)) + 1
+        # с устройством общий слой — заслон, ступени втрое выше; без него
+        # (старый режим) — прежняя лестница как есть
+        lock = _lock_for(n // _NET_FACTOR if peer else n)
+        st.update({"fails": n, "until": now + lock if lock else 0, "at": now})
+    if peer:
+        peers = {k: v for k, v in (st.get("peers") or {}).items()
+                 if isinstance(v, dict) and now - float(v.get("at") or 0) <= _PEER_KEEP}
+        m = int(_peer_of(st, peer).get("fails", 0)) + 1
+        lock = _lock_for(m)
+        peers[peer] = {"fails": m, "until": now + lock if lock else 0, "at": now}
+        if len(peers) > _PEER_CAP:          # подборщик со сменой адресов не
+            for k in sorted(peers, key=lambda k: peers[k]["at"])[:-_PEER_CAP]:
+                peers.pop(k)                # раздует файл до бесконечности
+        st["peers"] = peers
+    _fail_save(st)
+    return lock_left(peer)
 
 
-def note_ok() -> None:
-    _fail_save({"fails": 0, "until": 0})
+def note_ok(peer: str = "") -> None:
+    """Удачный вход: своё устройство прощено. Общий счётчик — только в старом
+    режиме (без устройства): иначе каждый вход сотрудника с телефона давал бы
+    подборщику новые попытки — ровно то, что нашёл разбор 17.10."""
+    st = _fail_state()
+    if peer:
+        peers = dict(st.get("peers") or {})
+        peers.pop(peer, None)
+        st["peers"] = peers
+    else:
+        st.update({"fails": 0, "until": 0})
+    _fail_save(st)
 
 
-def fail_count() -> int:
-    """Сколько неудач подряд накоплено. Для журнала входов: сам счётчик
-    обнуляется удачным входом, и серия подбора иначе исчезала бы без следа."""
-    return int(_fail_state().get("fails", 0))
+def fail_count(peer: str = "") -> int:
+    """Сколько неудач подряд накоплено — у устройства (peer) или общих по сети.
+    Для журнала входов: сам счётчик обнуляется удачным входом, и серия подбора
+    иначе исчезала бы без следа."""
+    st = _fail_state()
+    if peer:
+        return int(_peer_of(st, peer).get("fails", 0))
+    # распад здесь безвреден и для старого режима: ленту спрашивают сразу
+    # после note_fail, когда `at` — только что
+    return _global_fails(st, time.time(), decays=True)
 
 
 # --- подтверждение ЧУЖОГО корня (P2, экран раздвоения) ---------------------

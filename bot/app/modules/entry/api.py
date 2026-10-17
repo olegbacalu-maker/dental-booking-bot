@@ -16,7 +16,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from ...core.api import api_body, api_guard
-from ...core.auth import _as_user, same_origin_post, _set_auth_cookie
+from ...core.auth import _as_user, client_peer, same_origin_post, _set_auth_cookie
 from ...core.layout import msg_json
 from .routes import LOGIN_BROKEN, LOGIN_OK, try_login
 
@@ -40,7 +40,8 @@ async def api_login(request: Request):
         return msg_json(False, status=403)
     body = await api_body(request) or {}
     outcome, who, lock = await try_login(str(body.get("pin") or "")[:64],
-                                         str(body.get("uid") or "")[:32])
+                                         str(body.get("uid") or "")[:32],
+                                         client_peer(request))
     if outcome == LOGIN_BROKEN:
         return msg_json(False, "auth_broken", status=409)
     if outcome != LOGIN_OK:

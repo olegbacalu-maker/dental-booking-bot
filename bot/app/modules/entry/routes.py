@@ -23,8 +23,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from ... import db
 from ... import engine as eng
 from ...core.auth import (ADMIN_KEY, _as_user, auth_blocked, auth_file_fp,
-                          client_is_local, fail_count, FAIL_DELAY, find_user, lock_left,
-                          LOCK_STEP_COUNTS, note_fail, note_ok, PERM_SETTINGS,
+                          client_is_local, client_peer, fail_count, FAIL_DELAY,
+                          find_user, lock_left, LOCK_STEP_COUNTS, NET_STEP_COUNTS,
+                          note_fail, note_ok, peer_label, PEER_LOCAL, PERM_SETTINGS,
                           pin_len_ok, pin_range_text, _pin_rec, remember_auth_file,
                           require, same_origin_post, _secret, _set_auth_cookie,
                           set_tamper_alert, _setup_allowed, verify_pin, _write_pin)
@@ -37,12 +38,15 @@ router = APIRouter()
 LOGIN_OK, LOGIN_BAD, LOGIN_LOCK, LOGIN_BROKEN = "ok", "bad", "lock", "broken"
 
 
-async def try_login(password: str, uid: str = "") -> tuple[str, dict | None, int]:
+async def try_login(password: str, uid: str = "",
+                    peer: str = "") -> tuple[str, dict | None, int]:
     """Оракул входа: (исход, запись вошедшего, срок блокировки в секундах).
 
     Один на форму входа и на `POST /api/auth/login`. Здесь всё, что решает,
     пускать ли человека, и всё, что вход оставляет после себя: счётчик
     неудач, пауза, строка в ленте, отпечаток auth.json, `last_login`.
+    `peer` — устройство (`auth.client_peer`): счётчик неудач и блокировка с
+    17.10 свои у каждого адреса, общий по сети — заслон от смены адресов.
     ⚠️ Origin вызывающий сверяет САМ до вызова (`same_origin_post`): форма
     отвечает на чужой POST пустым 403, JSON — конвертом; оракулу об этом знать
     незачем. ⚠️ Куку тоже выдаёт вызывающий — ПОСЛЕ этого вызова: `verify_pin`
@@ -54,7 +58,7 @@ async def try_login(password: str, uid: str = "") -> tuple[str, dict | None, int
         # что в _guard: при заполненном ADMIN_KEY проверять ЕСТЬ по чему, и
         # безусловный отказ запер бы исправный вход
         return LOGIN_BROKEN, None, 0
-    if (left := lock_left()) > 0:
+    if (left := lock_left(peer)) > 0:
         return LOGIN_LOCK, None, left
     pw = password.strip()
     who = None
@@ -72,7 +76,7 @@ async def try_login(password: str, uid: str = "") -> tuple[str, dict | None, int
     else:
         ok = bool(ADMIN_KEY) and hmac.compare_digest(pw, ADMIN_KEY)
     if ok:
-        note_ok()
+        note_ok(peer)
         if who is not None:
             # verify_pin мог молча переписать файл (миграция v1→v2, доливка
             # sid) — обновляем отпечаток, иначе следующий старт увидит «взлом»
@@ -86,20 +90,36 @@ async def try_login(password: str, uid: str = "") -> tuple[str, dict | None, int
             await db.set_meta(f"last_login:{who.get('id', 'clinic')}",
                               datetime.now(eng.TZ).isoformat())
         return LOGIN_OK, who, 0
-    lock = note_fail()
-    if lock and fail_count() in LOCK_STEP_COUNTS:
-        # Всплеск подбора — строкой в ленту, на СТУПЕНЯХ лестницы, а не на
-        # каждой неудаче (иначе спам). Удачный вход обнулит счётчик, но строка
-        # останется: серия «кто-то тыкал PIN у стойки» перестаёт быть тихой.
-        wait = f"{lock // 60} min." if lock >= 60 else f"{lock} s"
+    lock = note_fail(peer)
+    # Всплеск подбора — строкой в ленту, на СТУПЕНЯХ лестницы, а не на
+    # каждой неудаче (иначе спам). Удачный вход обнулит счётчик, но строка
+    # останется: серия «кто-то тыкал PIN у стойки» перестаёт быть тихой.
+    # С 17.10 строка называет УСТРОЙСТВО: телефон из Wi-Fi и стойка — разные
+    # истории. Общий счётчик пишет свою строку только когда в нём больше
+    # промахов, чем у этого устройства, — значит, адресов несколько.
+    n_dev, n_all = (fail_count(peer) if peer else 0), fail_count()
+    if lock and peer and n_dev in LOCK_STEP_COUNTS:
         await db.log_clinic_event(
             "login_fail",
-            f"{fail_count()} încercări greșite la intrare — blocat {wait}",
+            f"{n_dev} încercări greșite la intrare de la {peer_label(peer)} "
+            f"— blocat {_wait_text(lock)}",
+            actor="necunoscut")
+    net_steps = NET_STEP_COUNTS if peer else LOCK_STEP_COUNTS
+    if (lock and peer != PEER_LOCAL and n_all in net_steps
+            and (not peer or n_all > n_dev)):
+        where = " din rețea, de pe mai multe dispozitive" if peer else ""
+        await db.log_clinic_event(
+            "login_fail",
+            f"{n_all} încercări greșite la intrare{where} — blocat {_wait_text(lock)}",
             actor="necunoscut")
     # asyncio.sleep, а не time.sleep: у настольного издания один процесс на всю
     # клинику, и блокирующая пауза заморозила бы журнал остальным
     await asyncio.sleep(FAIL_DELAY)
     return LOGIN_BAD, None, lock
+
+
+def _wait_text(lock: int) -> str:
+    return f"{lock // 60} min." if lock >= 60 else f"{lock} s"
 
 
 @router.get("/admin/login", response_class=HTMLResponse)
@@ -149,7 +169,7 @@ async def admin_login(request: Request, password: str = Form(...),
         return Response(status_code=403)
     target = next_url if next_url.startswith("/admin") else "/admin"
     nxt = urllib.parse.quote(target, safe="")
-    outcome, who, lock = await try_login(password, uid)
+    outcome, who, lock = await try_login(password, uid, client_peer(request))
     if outcome == LOGIN_BROKEN:
         return RedirectResponse(f"/admin/login?err=broken&next={nxt}",
                                 status_code=303)

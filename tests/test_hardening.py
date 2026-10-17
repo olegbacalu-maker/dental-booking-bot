@@ -840,11 +840,167 @@ def suite_doc_ownership(res: Result) -> None:
                   303)
 
 
+# ---------- 17.10: счётчик неудач — на устройство ----------
+
+def _worker_peers(tmpdir: str) -> None:
+    """Живое приложение как ASGI: адрес клиента задаём сами. Телефон из
+    Wi-Fi, стойка (loopback) и второй телефон — три разных устройства."""
+    import asyncio
+    import hashlib
+    import json
+    import urllib.parse
+
+    base = pathlib.Path(tmpdir)
+    os.environ.update({
+        "CLINIC_CONFIG": str(base / "clinic.json"),
+        "DATABASE_URL": f"sqlite:///{base / 'dental.db'}",
+        "ADMIN_KEY": "",                 # ветка PIN-файла, как у клиники
+        "DENTART_NO_RESTART": "1",
+        "TELEGRAM_TOKEN": "",
+    })
+    salt = "0123456789abcdef"
+    (base / "auth.json").write_text(json.dumps(
+        {"salt": salt, "hash": hashlib.sha256(f"{salt}:4321".encode()).hexdigest()}),
+        encoding="utf-8")
+    sys.path.insert(0, str(BOT))
+    from app import db
+    from app.main import app
+
+    async def call(method, path, client_ip, form=None, headers=None):
+        body = urllib.parse.urlencode(form).encode() if form else b""
+        hdrs = [(b"host", b"127.0.0.1:8088")]
+        for k, v in (headers or {}).items():
+            hdrs.append((k.lower().encode(), v.encode()))
+        if body:
+            hdrs += [(b"content-type", b"application/x-www-form-urlencoded"),
+                     (b"content-length", str(len(body)).encode())]
+        scope = {"type": "http", "asgi": {"version": "3.0"},
+                 "http_version": "1.1", "method": method, "scheme": "http",
+                 "path": path, "raw_path": path.encode(), "query_string": b"",
+                 "root_path": "", "headers": hdrs,
+                 "client": (client_ip, 40000), "server": ("127.0.0.1", 8088)}
+        got = {"body": b"", "headers": {}}
+
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        async def send(msg):
+            if msg["type"] == "http.response.start":
+                got["status"] = msg["status"]
+                got["headers"] = {k.decode().lower(): v.decode()
+                                  for k, v in msg.get("headers", [])}
+            elif msg["type"] == "http.response.body":
+                got["body"] += msg.get("body", b"")
+
+        await app(scope, receive, send)
+        return got["status"], got["headers"].get("location", ""), got
+
+    async def login(ip, pin="4321"):
+        st, loc, got = await call("POST", "/admin/login", ip,
+                                  {"password": pin, "next": "/admin"})
+        return ("locked" if "err=lock" in loc else "bad" if "err=" in loc
+                else "ok" if loc == "/admin" else f"{st} {loc}"), got
+
+    def fails():
+        return json.loads((base / "auth_fail.json").read_text(encoding="utf-8"))
+
+    async def _probes() -> None:
+        phone, desk, other = "192.168.1.77", "127.0.0.1", "192.168.1.5"
+        for _ in range(5):
+            await login(phone, "1111")
+        print("phone_locked", (await login(phone))[0])
+        st = fails()
+        print("peer_counted", st.get("peers", {}).get(phone, {}).get("fails"))
+        print("desk_open", (await login(desk))[0])
+        print("other_open", (await login(other))[0])
+        # стойка вошла удачно — счётчик телефона цел
+        print("phone_still_locked", (await login(phone))[0])
+        # подборщик меняет адреса: по два промаха с каждого, ни один адрес не
+        # запирается сам — запирает общий заслон (ступени втрое выше: 15)
+        for i in range(5):
+            for _ in range(2):
+                await login(f"192.168.1.{100 + i}", "1111")
+        print("rotating_locked", (await login(other))[0])
+        print("desk_still_open", (await login(desk))[0])
+        # стойка с loopback другого вида — то же устройство «local»
+        await login("::ffff:127.0.0.1", "1111")
+        await login("127.0.0.2", "1111")
+        print("local_merged", fails().get("peers", {}).get("local", {}).get("fails"))
+        # лента: устройство названо адресом; общий заслон — «din rețea»
+        _st, _loc, got = await call("POST", "/admin/login", desk,
+                                    {"password": "4321", "next": "/admin"})
+        cookie = got["headers"].get("set-cookie", "").split(";")[0]
+        _st, _loc, got = await call("GET", "/api/stats", desk, headers={"cookie": cookie})
+        texts = [a["text"] for a in json.loads(got["body"])["data"]["activity"]]
+        print("feed_names_phone", any("de la 192.168.1.77" in t for t in texts))
+        print("feed_names_network", any("mai multe dispozitive" in t for t in texts))
+        # удачный вход телефона после снятия своей блокировки прощает ТОЛЬКО его
+        st = fails()
+        st["peers"][phone]["until"] = 0
+        (base / "auth_fail.json").write_text(json.dumps(st), encoding="utf-8")
+        print("phone_relogin", (await login(phone))[0])      # общий заслон ещё держит
+        st = fails()
+        st["until"] = 0
+        (base / "auth_fail.json").write_text(json.dumps(st), encoding="utf-8")
+        print("phone_relogin2", (await login(phone))[0])
+        print("phone_forgiven", phone not in fails().get("peers", {}))
+        print("global_kept", fails().get("fails"))
+
+    async def main() -> None:
+        async with app.router.lifespan_context(app):
+            try:
+                await _probes()
+            finally:
+                if db._CONN is not None:
+                    await db._CONN.close()
+
+    asyncio.run(main())
+
+
+def suite_fail_per_device(res: Result) -> None:
+    """Счётчик неудач на устройство (17.10, посторонний разбор): телефон,
+    перебирающий PIN из Wi-Fi, запирал всю клинику, а каждый удачный вход
+    сотрудника обнулял счётчик подборщику. Теперь у каждого адреса своя
+    лестница, loopback целиком — одно устройство «local», а общий счётчик по
+    сети — заслон от смены адресов, который стойку не запирает."""
+    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_peers_"))
+    try:
+        shutil.copy(FIXTURES / "clinic_test.json", base / "clinic.json")
+        got = _run_worker("worker-peers", base)
+        if not res.ok("проба поднялась", got["_rc"] == "0",
+                      f"rc={got['_rc']}: {got['_stderr']}"):
+            return
+        res.check("пять промахов запирают телефон", got.get("phone_locked"), "locked")
+        res.check("промахи записаны на адрес телефона", got.get("peer_counted"), "5")
+        res.check("стойка входит, пока телефон заперт", got.get("desk_open"), "ok")
+        res.check("второй телефон тоже входит (общий заслон ещё далеко)",
+                  got.get("other_open"), "ok")
+        res.check("удачный вход стойки не обнулил счётчик телефона",
+                  got.get("phone_still_locked"), "locked")
+        res.check("смена адресов упирается в общий заслон сети",
+                  got.get("rotating_locked"), "locked")
+        res.check("а стойку общий заслон не запирает", got.get("desk_still_open"), "ok")
+        res.check("все loopback-адреса — одно устройство", got.get("local_merged"), "2")
+        res.check("лента называет адрес телефона", got.get("feed_names_phone"), "True")
+        res.check("и отдельно — подбор с нескольких устройств",
+                  got.get("feed_names_network"), "True")
+        res.check("после своей блокировки телефон ждёт ещё и общий заслон",
+                  got.get("phone_relogin"), "locked")
+        res.check("без заслона верный PIN пускает", got.get("phone_relogin2"), "ok")
+        res.check("удачный вход прощает только своё устройство",
+                  got.get("phone_forgiven"), "True")
+        res.ok("общий счётчик сети удачным входом не обнуляется",
+               int(got.get("global_kept") or 0) >= 15, f"fails={got.get('global_kept')!r}")
+    finally:
+        _rmtree_settled(base)
+
+
 _WORKERS = {
     "worker-setup": _worker_setup,
     "worker-stale": _worker_stale,
     "worker-delete": _worker_delete,
     "worker-session": _worker_session,
+    "worker-peers": _worker_peers,
 }
 
 if __name__ == "__main__":

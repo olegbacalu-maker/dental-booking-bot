@@ -204,6 +204,7 @@ SUITES = [
     ("Hardening: чужое имя сервера (DNS rebinding) и карта адресов",
      test_hardening.suite_own_host),
     ("Hardening: auth_fail.json атомарен", test_hardening.suite_authfail_atomic),
+    ("Hardening: счётчик неудач на устройство", test_hardening.suite_fail_per_device),
     ("Hardening: документы — только своим", test_hardening.suite_doc_ownership),
     ("PIN: атомарная запись auth.json", test_pin.suite_atomic),
     ("Сигнализация auth.json", test_pin.suite_tamper),

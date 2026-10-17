@@ -33,9 +33,10 @@ from ... import update as upd
 from ...core import backup_loop, dbkey, restore, sms_loop, theme
 from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
-from ...core.auth import (all_users, can, change_pin, current_user, PERM_SETTINGS,
-                          PERM_USERS, PIN_MAX, pin_min, PIN_MIN_LAN, pin_readiness,
-                          _pin_rec, request_user, ROLE_LABEL, _set_auth_cookie)
+from ...core.auth import (all_users, can, change_pin, client_peer, current_user,
+                          PERM_SETTINGS, PERM_USERS, PIN_MAX, pin_min, PIN_MIN_LAN,
+                          pin_readiness, _pin_rec, request_user, ROLE_LABEL,
+                          _set_auth_cookie)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
                             _DOW_FULL, _DOW_ORDER, msg_json, msg_text, tg_refresh_meta)
 from ...core.storage import _data_dir
@@ -590,7 +591,8 @@ async def api_pin_change(request: Request):
     if body is None:
         return msg_json(False, "bad_pin", status=422)
     s = lambda k: str(body.get(k) or "")  # noqa: E731
-    code, who = await change_pin(s("old_pin"), s("new1"), s("new2"))
+    code, who = await change_pin(s("old_pin"), s("new1"), s("new2"),
+                                 client_peer(request))
     if code != "ok_pin":
         return msg_json(False, code, status=_USER_HTTP.get(code, 422))
     return _set_auth_cookie(msg_json(True, code), who)
