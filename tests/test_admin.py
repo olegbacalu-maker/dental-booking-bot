@@ -1872,7 +1872,10 @@ def suite_week(res: Result) -> None:
         res.check("неявка помечена", [x.get("noshow") for x in wed["items"]
                                       if x["kind"] == "appt"], [True, False])
 
-        # отменённая запись исчезает целиком
+        # отменённая запись исчезает целиком. ⚠️ Из «неявки» прямо в «отмену»
+        # ребра нет (17.10: переход только по матрице кнопок) — как и на
+        # экране: сперва «Redeschide», потом «Anulează»
+        c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "confirmed"})
         c.post_json(f"/api/schedule/appointments/{aid}/status", {"to": "cancelled"})
         wed = next(x for x in _week(c, d(2))["days"] if x["date"] == d(2))
         res.check("отменённая запись ушла из недели и из счётчика",

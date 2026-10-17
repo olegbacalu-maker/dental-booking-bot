@@ -597,7 +597,13 @@ async def _set_status(appt_id: int, to: str) -> str:
         return "mv_gone"
     if cur["status"] == to:
         return ""
-    if to not in {a["to"] for a in status_actions(cur["status"], cur["source"] == "note")}:
+    # ⚠️ Возврат в «programată» разрешён ИЗ ЛЮБОГО состояния, не только из
+    # закрытого: это исправление промаха («A venit» не тому, «În cabinet»
+    # раньше времени), и db.set_status на нём стирает оба штампа ожидания —
+    # иначе мусорная пара попала бы в среднее (08-13). Кнопки у живых
+    # состояний его не рисуют, но карточка и повестка им чинят промах.
+    allowed = {a["to"] for a in status_actions(cur["status"], cur["source"] == "note")}
+    if to != "confirmed" and to not in allowed:
         return "bad_step"
     # код отказа, а не «не получилось»: «занято у медика» и «у пациента уже
     # есть запись на этот час» чинятся по-разному, и регистратуре нужно

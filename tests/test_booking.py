@@ -306,7 +306,9 @@ def suite_status(res: Result) -> None:
         add(c, _d(1), "10:00", name="Status Test", phone="022555111")
         aid1 = appt_id(c, _d(1), "Status Test")
 
-        for status in ("arrived", "done", "cancelled"):
+        # ⚠️ С 17.10 переход — по ребру матрицы кнопок: из «finalizată» в
+        # «отмену» дороги нет, сперва «Redeschide» (confirmed), как на экране
+        for status in ("arrived", "done", "confirmed", "cancelled"):
             r = c.post_json(f"/api/schedule/appointments/{aid1}/status", {"to": status})
             res.check(f"статус → {status}", (r.status, r.msg), (200, ""))
 
