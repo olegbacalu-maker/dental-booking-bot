@@ -27,7 +27,7 @@ from ...core.auth import _guard, request_user
 from ...core import xlsx
 from ...core.layout import react_shell, shell_model
 from ...core.visits import (SVC_PALETTE, _collect_cards, _parse_date,
-                            all_status_actions)
+                            all_status_actions, status_actions)
 from . import canvas as pcanvas
 from . import chair as pchair
 from . import day as pday
@@ -575,14 +575,30 @@ async def _move_appt(appt_id: int, mdate: str, mtime: str, mdoctor: str) -> str:
 
 async def _set_status(appt_id: int, to: str) -> str:
     """Смена исхода визита: «» — сделано, «bad» — слово не из конвейера,
-    иначе код отказа.
+    «mv_gone» — визита нет, «bad_step» — переход, которого матрица кнопок из
+    текущего состояния не даёт, иначе код отказа занятого часа.
 
     ⚠️ На «bad» JSON API отвечает отказом 422: вкладка, приславшая статус,
     которого нет, обязана это услышать, а не считать, что сделано. (Старая
     страница, снятая 13.10, глотала такое слово молча.)
+    ⭐ Переход проверяется ПО РЕБРУ (откуда → куда), как у плана лечения
+    (`patients._plan_status`), и ТОЙ ЖЕ матрицей, что рисует кнопки
+    (`visits.status_actions`). До 17.10 сервер принимал любое слово конвейера
+    из любого состояния — «не пришёл» визиту на завтра, «ждёт в приёмной»
+    пациенту, который уже в кресле, — и ложь уезжала в статистику неявок и
+    загрузки врачей. Кнопки такого не дают; вторая вкладка, устаревшее окно
+    и ошибка клиента — дают. Повтор того же статуса — тихий успех: двойной
+    клик по «Finalizat» не ошибка, и штамп прихода при этом не двигается.
     """
     if to not in {"waiting", "arrived", "done", "noshow", "cancelled", "confirmed"}:
         return "bad"
+    cur = await db.appointment_brief(appt_id)
+    if cur is None:
+        return "mv_gone"
+    if cur["status"] == to:
+        return ""
+    if to not in {a["to"] for a in status_actions(cur["status"], cur["source"] == "note")}:
+        return "bad_step"
     # код отказа, а не «не получилось»: «занято у медика» и «у пациента уже
     # есть запись на этот час» чинятся по-разному, и регистратуре нужно
     # знать, ЧТО именно занято (см. db.set_status)

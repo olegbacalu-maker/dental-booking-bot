@@ -48,7 +48,7 @@ router = APIRouter()
 # ⚠️ Пустой код — это удача: так отвечает смена статуса, у которой баннера нет.
 _OK = {"", "ok", "ok_note", "part_note", "ok_move", "ok_comment", "ok_past",
        "ok_other"}
-_CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past"}
+_CONFLICT = {"conflict", "dup", "bad_off", "mv_gone", "mv_closed", "past", "bad_step"}
 # какое поле формы подсветить при 422; отказ без поля оставляет его пустым
 _FIELD = {"bad": "time", "bad_time": "time", "outside": "time",
           "outside_doc": "time", "bad_name": "name", "bad_phone": "phone",

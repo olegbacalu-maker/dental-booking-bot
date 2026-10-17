@@ -809,3 +809,63 @@ def suite_panel_cmds(res: Result) -> None:
                   (mv_busy.status, _j(mv_busy)["code"], "data" in _j(mv_busy),
                    _j(mv_busy)["ok"]),
                   (409, "conflict", False, False))
+
+
+def suite_status_edges(res: Result) -> None:
+    """17.10 (посторонний разбор). Сервер принимал любое слово конвейера из
+    любого состояния: «не пришёл» визиту на завтра, «ждёт в приёмной» тому, кто
+    уже в кресле, смена статуса несуществующего визита — «успех». Теперь
+    переход проверяется по ребру ТОЙ ЖЕ матрицы, что рисует кнопки
+    (`visits.status_actions`), как у плана лечения; повтор статуса — тихий
+    успех; визита нет — `mv_gone`."""
+    with Server() as s:
+        c = Client(s.url).login()
+        day = (clinic_today() + timedelta(days=2)).isoformat()
+        for hh, nm in (("09:00", "Edge Unu"), ("10:00", "Edge Doi"), ("11:00", "Edge Trei")):
+            c.post_json("/api/schedule/appointments",
+                        {"date": day, "time": hh, "doctor": "d2", "service": "consult",
+                         "name": nm, "phone": "0691" + hh.replace(":", "")})
+        a1, a2, a3 = (appt_id(c, day, nm) for nm in ("Edge Unu", "Edge Doi", "Edge Trei"))
+
+        def to(aid: int, st: str):
+            r = c.post_json(f"/api/schedule/appointments/{aid}/status?screen=panel", {"to": st})
+            return r.status, _j(r)["code"]
+
+        def status_of(aid: int) -> str:
+            return next(r["status"] for r in day_model(c, day)["list"] if r["id"] == aid)
+
+        # матрица — та, что отдаётся клиенту: проверяем против неё, а не копии
+        actions = day_model(c, day)["actions"]
+        res.ok("матрица кнопок приехала", set(actions) >= {"confirmed", "waiting", "arrived",
+                                                             "done", "noshow", "cancelled"},
+               str(sorted(actions)))
+
+        # programată → arrived (в кабинет) — есть ребро
+        res.check("confirmed → arrived: ребро есть", to(a1, "arrived"), (200, ""))
+        # из кресла назад в приёмную ребра нет; «не пришёл» тому, кто в кресле, — тоже
+        res.check("arrived → waiting: ребра нет — 409 bad_step", to(a1, "waiting"), (409, "bad_step"))
+        res.check("arrived → noshow: ребра нет", to(a1, "noshow"), (409, "bad_step"))
+        res.check("статус не тронут", status_of(a1), "arrived")
+        res.check("arrived → done: ребро есть", to(a1, "done"), (200, ""))
+        # у закрытого — только возврат в programată
+        res.check("done → noshow: ребра нет", to(a1, "noshow"), (409, "bad_step"))
+        res.check("done → cancelled: ребра нет", to(a1, "cancelled"), (409, "bad_step"))
+        res.check("done → confirmed (Redeschide): ребро есть", to(a1, "confirmed"), (200, ""))
+
+        # повтор того же статуса — тихий успех, штамп прихода не двигается
+        res.check("confirmed → waiting", to(a2, "waiting"), (200, ""))
+        res.check("waiting → waiting: повтор — тихий успех", to(a2, "waiting"), (200, ""))
+        res.check("повтор статус не переписал", status_of(a2), "waiting")
+
+        # слово не из конвейера — 422, визита нет — 409 mv_gone (не «успех»)
+        res.check("слово не из конвейера — 422 bad", to(a3, "nope"), (422, "bad"))
+        res.check("визита нет — 409 mv_gone, а не успех", to(999999, "done"), (409, "mv_gone"))
+        res.check("третий визит не тронут", status_of(a3), "confirmed")
+
+        # заметка стойки — своя матрица: убрать и вернуть, исхода у неё нет
+        c.post_json("/api/schedule/notes", {"date": day, "time": "14:00", "doctor": "d2",
+                                           "text": "Edge notă"})
+        nid = next(r["id"] for r in day_model(c, day)["list"] if r["is_note"])
+        res.check("заметка → done: ребра нет", to(nid, "done"), (409, "bad_step"))
+        res.check("заметка → cancelled (Șterge): ребро есть", to(nid, "cancelled"), (200, ""))
+        res.check("заметка → confirmed (Restabilește): ребро есть", to(nid, "confirmed"), (200, ""))

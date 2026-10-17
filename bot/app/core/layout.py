@@ -194,6 +194,10 @@ MSG_BANNER = {
     "mv_closed": ("err", "Se mută doar programările active — cea finalizată, "
                          "anulată sau neprezentată rămâne pe loc (redeschideți-o "
                          "dacă chiar trebuie mutată)"),
+    # переход статуса, которого из текущего состояния нет (17.10): вкладка
+    # смотрела на устаревшую карточку — соседняя уже отметила исход
+    "bad_step": ("err", "Starea programării s-a schimbat între timp — "
+                        "reîmprospătați pagina și alegeți din nou"),
     # ⚠️ Текст обязан сказать, ЧТО делать, а не только что случилось: иначе
     # регистратура прочтёт «добавлено» и пойдёт дальше, а визит останется в
     # чужой карточке.
