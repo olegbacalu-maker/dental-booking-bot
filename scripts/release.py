@@ -197,12 +197,60 @@ def cmd_prerelease(ver: str) -> int:
         print(f"   {n}  {s} б  {st}")
     print(f"   {got['html_url']}")
     if ok:
-        print(f"\nДальше: канарейка руками → python scripts/release.py publish {ver}")
+        # pre-release безопасен по построению (`latest` не двигается), поэтому
+        # проверка GitHub здесь только называется; остановит она publish
+        verdict, _lines = ci_state(tag)
+        print(f"\nПроверка GitHub у {tag}: {verdict}"
+              + ("" if verdict == "green" else " — publish её дождётся"))
+        print(f"Дальше: канарейка руками → python scripts/release.py publish {ver}")
     return 0 if ok else 1
 
 
-def cmd_publish(ver: str) -> int:
+def ci_verdict(check_runs: list[dict]) -> tuple[str, list[str]]:
+    """Что сказала автоматическая проверка (GitHub Actions) о коммите:
+    `green` — все работы завершились успехом; `red` — хоть одна упала;
+    `pending` — ещё идёт или отменена (то есть коммит НЕ проверен);
+    `none` — работ нет. Второе — строки для человека."""
+    lines, verdict = [], "none"
+    for r in check_runs:
+        st, concl = r.get("status"), (r.get("conclusion") or "")
+        lines.append(f"   {r.get('name')}: {concl or st}")
+        if st != "completed" or concl in ("cancelled", "timed_out", "action_required",
+                                          "stale", ""):
+            verdict = "pending" if verdict != "red" else verdict
+        elif concl in ("failure", "startup_failure"):
+            verdict = "red"
+        elif verdict == "none":
+            verdict = "green"
+    return verdict, lines
+
+
+def ci_state(ref: str) -> tuple[str, list[str]]:
+    """Проверка коммита `ref` (тег или SHA) по check-runs GitHub."""
+    data = call(f"{API}/commits/{ref}/check-runs?per_page=50")
+    return ci_verdict(data.get("check_runs", []))
+
+
+def cmd_publish(ver: str, allow_red: bool = False) -> int:
     tag = f"v{ver}"
+    # ⛔ Publish двигает `latest` ВСЕМ клиникам, и откатить его нельзя. С 7 по
+    # 14.10 проверка на GitHub не была зелёной ни разу, а клиникам ушли девять
+    # выпусков — лестница её не спрашивала (посторонний разбор 17.10). Теперь
+    # спрашивает: красный или непроверенный (отменённый, идущий) коммит тега
+    # не публикуется. `--allow-red` — осознанное «принимаем», словами в выводе.
+    verdict, lines = ci_state(tag)
+    print(f"Проверка GitHub у {tag}: {verdict}")
+    for ln in lines:
+        print(ln)
+    if verdict != "green" and not allow_red:
+        why = {"red": "проверка КРАСНАЯ", "pending": "проверка не завершена или отменена",
+               "none": "проверок у коммита нет"}[verdict]
+        print(f"✗ не публикую: {why}. Дождитесь зелёного (или перезапустите: "
+              f"gh workflow run tests.yml --ref {tag}); осознанно мимо — "
+              f"python scripts/release.py publish {ver} --allow-red")
+        return 1
+    if verdict != "green":
+        print("⚠️ публикую МИМО проверки по явному --allow-red")
     mine = [n for n in nodes_by_tag() if n["tagName"] == tag]
     if not mine:
         print(f"✗ релиза {tag} нет — сначала: python scripts/release.py prerelease {ver}")
@@ -255,6 +303,8 @@ def main() -> int:
         print("✗ Токен не найден (env / git credential / dental.env).")
         return 1
     args = sys.argv[1:]
+    allow_red = "--allow-red" in args
+    args = [a for a in args if a != "--allow-red"]
     if args[:1] == ["status"]:
         return cmd_status()
     if len(args) == 2 and args[0] in ("prerelease", "publish", "check"):
@@ -262,10 +312,11 @@ def main() -> int:
         if not all(p.isdigit() for p in ver.split(".")) or ver.count(".") != 2:
             print(f"✗ версия {args[1]!r} — нужно ровно X.Y.Z")
             return 1
-        return {"prerelease": cmd_prerelease, "publish": cmd_publish,
-                "check": cmd_check}[args[0]](ver)
+        if args[0] == "publish":
+            return cmd_publish(ver, allow_red)
+        return {"prerelease": cmd_prerelease, "check": cmd_check}[args[0]](ver)
     print(__doc__.split("\n\n")[0])
-    print("Команды: status | prerelease X.Y.Z | check X.Y.Z | publish X.Y.Z")
+    print("Команды: status | prerelease X.Y.Z | check X.Y.Z | publish X.Y.Z [--allow-red]")
     return 2
 
 

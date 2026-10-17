@@ -121,21 +121,17 @@ Returning a cancelled visit to an active status is refused if the interval has m
 been taken: the journal shows an "interval occupied" banner instead of silently
 double-booking.
 
-Only the pages that show a live schedule keep themselves current, and they no longer
-*reload*: the server wraps the live part in `<div id="live" data-hash=…>`, the browser asks
-the same URL every 12 seconds with an `X-DP-Live` header and gets **204 when the
-fingerprint has not changed**, swapping the fragment only when it has. The pilot clinic
-reported the reason: a whole page reloading every twelve seconds flickers all day, and it
-took the scroll position, an open dialog and a half-typed form with it.
+Only the dashboard keeps itself current, and it does not *reload*: the screen asks the
+data channel `/api/schedule/live` every 12 seconds and gets **204 when the fingerprint of
+the state has not changed**, redrawing only when it has. The pilot clinic reported the
+reason: a whole page reloading every twelve seconds flickers all day, and it took the
+scroll position, an open dialog and a half-typed form with it.
 
-Two consequences are load-bearing rather than cosmetic. Anything that changes continuously
-— the "now" line, the waiting minutes — is drawn by the browser, because a minute counter
-rendered by the server would make the fingerprint differ on every poll and bring the
-flicker back through the back door. And inline scripts that carry page data are marked
-`data-live` and declare `var`, not `const`: the swap re-executes them, and a repeated
-`const` is a silent `SyntaxError` that would stop a freshly arrived appointment from
-opening. The React screens of DentPilot 2.0 keep the same rule on a channel that carries
-data rather than an HTML fragment ([`docs/dentpilot-2/live-contract.md`](docs/dentpilot-2/live-contract.md)).
+One consequence is load-bearing rather than cosmetic. Anything that changes continuously
+— the "now" line, the waiting minutes — is drawn by the browser from timestamps, because a
+minute counter rendered by the server would make the fingerprint differ on every poll and
+bring the flicker back through the back door. The contract of the channel is in
+[`docs/dentpilot-2/live-contract.md`](docs/dentpilot-2/live-contract.md).
 
 ### Patient list
 
