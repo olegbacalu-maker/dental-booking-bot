@@ -33,10 +33,10 @@ from ... import update as upd
 from ...core import backup_loop, dbkey, restore, sms_loop, theme
 from ...core import sms_plan as splan
 from ...core.api import api_body, api_guard, api_require
-from ...core.auth import (all_users, can, change_pin, client_peer, current_user,
-                          PERM_SETTINGS, PERM_USERS, PIN_MAX, pin_min, PIN_MIN_LAN,
-                          pin_readiness, _pin_rec, request_user, ROLE_LABEL,
-                          _set_auth_cookie)
+from ...core.auth import (PERM_SETTINGS, PERM_USERS, PIN_MAX, PIN_MIN_LAN, ROLE_LABEL,
+                          _pin_rec, _set_auth_cookie, all_users, can, change_pin,
+                          client_peer, current_user, pin_min, pin_readiness,
+                          request_user)
 from ...core.layout import (FEEDBACK_EMAIL, HOUR_MAX, HOUR_MIN, SETUP_HINT, SUPPORT_PHONE,
                             _DOW_FULL, _DOW_ORDER, msg_json, msg_text, tg_refresh_meta)
 from ...core.storage import _data_dir

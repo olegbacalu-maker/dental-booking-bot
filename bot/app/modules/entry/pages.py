@@ -139,6 +139,34 @@ ca de obicei, cu parola fiecărui utilizator.</p>
 </body></html>"""
 
 
+# auth.json исчез, а база его помнит (17.10): это сброс, не первая установка.
+# Папка данных открыта всем учёткам машины намеренно (вторая смена), поэтому
+# «удалить файл и назначить себе PIN» мог любой, кто сел за компьютер; теперь
+# новый первый PIN — только с подтверждением администратора Windows
+# (`privileged._auth_reset`). Для забывшего PIN директора путь тот же, что в
+# FAQ: написать нам; ему и так понадобится эта кнопка.
+SETUP_ADMIN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<title>__CLINIC__ — configurare</title><style>__FONTS__
+ body{font-family:__FAMILY__;background:__ACCENT__;
+      color:__ON__;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
+ p{max-width:560px;line-height:1.55}
+ button{background:#fff;color:#162033;border:none;border-radius:12px;height:46px;
+        padding:0 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit}
+ .note{font-size:13.5px;opacity:.9}
+</style></head><body>
+<h1>Fișierul de acces lipsește</h1>
+<p>Programul a avut un PIN, dar fișierul de acces (data\\auth.json) nu mai
+există. Ca să nu-și poată seta oricine de la acest calculator un PIN nou și
+să devină director, un PIN nou se stabilește doar cu <b>confirmarea unui
+administrator Windows</b>. Vechile conturi ale clinicii nu se mai pot
+recupera din acest fișier; datele clinicii nu sunt afectate.</p>
+<form method="post" action="/admin/setup/ask">
+  <button>Confirmă ca administrator Windows</button>
+</form>
+<p class="note">__NOTE__</p>
+</body></html>"""
+
 RECOVER_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__CLINIC__ — recuperare</title><style>__FONTS__

@@ -981,3 +981,86 @@ def suite_session(res: Result) -> None:
         _rmtree_settled(base)
 
 
+def _reset_stamp(value: str | None) -> None:
+    """Метка разрешения администратора — как её кладёт `privileged._auth_reset`
+    (из исходников обе стороны ходят в HKCU). None — убрать."""
+    import winreg
+    sys.path.insert(0, str(BOT))
+    from app import privileged
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, privileged.RESET_KEY) as k:
+        for name in (privileged.RESET_VALUE, privileged.RESET_BY):
+            try:
+                winreg.DeleteValue(k, name)
+            except OSError:
+                pass
+        if value is not None:
+            winreg.SetValueEx(k, privileged.RESET_VALUE, 0, winreg.REG_SZ, value)
+            winreg.SetValueEx(k, privileged.RESET_BY, 0, winreg.REG_SZ, "admin-test")
+
+
+def suite_reset_gate(res: Result) -> None:
+    """Новый первый PIN поверх ИСЧЕЗНУВШЕГО auth.json — только с подтверждением
+    администратора Windows (17.10, посторонний разбор): папку данных пишут все
+    учётки машины намеренно, и «удалить файл → экран установки → свой PIN»
+    делало любую из них директором. Первая установка (файла не было) — без
+    изменений.
+    """
+    if sys.platform != "win32":
+        res.ok("не Windows — реестр не проверяется", True, "")
+        return
+    _reset_stamp(None)
+    base = pathlib.Path(tempfile.mkdtemp(prefix="dp_reset_"))
+    try:
+        with Server(env=NO_KEY, dir_=base) as s:
+            c = Client(s.url)
+            res.check("первая установка открыта без разрешений", c.get("/admin/setup").status, 200)
+            c.post("/admin/setup", pin1="4321", pin2="4321")
+            res.check("журнал открыт", c.get("/admin").status, 200)
+            (s.dir / "auth.json").unlink()
+            res.ok("без файла журнал ведёт на установку",
+                   "/admin/setup" in c.get("/admin").location, "не редирект на setup")
+            page = c.get("/admin/setup")
+            res.ok("экран установки закрыт: нужен администратор Windows",
+                   page.status == 403 and "administrator Windows" in page.body,
+                   f"код {page.status}")
+            r = c.post("/admin/setup", pin1="9999", pin2="9999")
+            res.ok("POST установки тоже закрыт, файла нет",
+                   r.status == 403 and not (s.dir / "auth.json").exists(), f"{r!r}")
+            r = c.post("/admin/setup/ask")
+            res.ok("кнопка из исходников: окна нет, страница объясняет",
+                   r.status == 303 and "asked=0" in r.location
+                   and "doar în programul instalat" in c.get("/admin/setup?asked=0").body,
+                   f"{r!r}")
+            res.check("чужой Origin на кнопку — 403",
+                      c.post("/admin/setup/ask",
+                             headers={"Origin": "http://atacator.example"}).status, 403)
+            # просроченное разрешение не считается
+            _reset_stamp(str(int(time.time()) - 20 * 60))
+            res.check("метка старше 15 минут не открывает", c.get("/admin/setup").status, 403)
+            # разрешение администратора — так его кладёт сама операция
+            sys.path.insert(0, str(BOT))
+            from app import privileged
+            res.ok("операция без аргументов — отвечает словами",
+                   "PIN" in privileged.run_op("auth-reset", [], lambda: None), "")
+            res.check("с разрешением экран открыт", c.get("/admin/setup").status, 200)
+            r = c.post("/admin/setup", pin1="5555", pin2="5555")
+            res.ok("новый PIN принят", r.status == 303 and r.location.endswith("/admin"), f"{r!r}")
+            res.check("вход по новому PIN", Client(s.url).post(
+                "/admin/login", password="5555", next="/admin").location, "/admin")
+            # след — в ленте клиники, с именем подтвердившей учётки (не только
+            # баннер отпечатка, который директор может погасить не читая)
+            import getpass
+            feed = _feed(Client(s.url).login("5555"))
+            res.ok("лента: PIN переустановлен с подтверждением администратора, кто",
+                   "confirmarea administratorului Windows" in feed and getpass.getuser() in feed,
+                   feed[:300])
+            # разрешение одноразовое: та же метка второй раз не годится
+            (s.dir / "auth.json").unlink()
+            res.check("повторное исчезновение — снова закрыто (метка потрачена)",
+                      c.get("/admin/setup").status, 403)
+        with Server(env=NO_KEY) as s:
+            res.check("у новой клиники (файла не было) установка открыта и при чужой метке",
+                      Client(s.url).get("/admin/setup").status, 200)
+    finally:
+        _reset_stamp(None)
+        _rmtree_settled(base)

@@ -20,18 +20,21 @@ from datetime import datetime
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from ... import db
+from ... import db, privileged
 from ... import engine as eng
-from ...core.auth import (ADMIN_KEY, _as_user, auth_blocked, auth_file_fp,
-                          client_is_local, client_peer, fail_count, FAIL_DELAY,
-                          find_user, lock_left, LOCK_STEP_COUNTS, NET_STEP_COUNTS,
-                          note_fail, note_ok, peer_label, PEER_LOCAL, PERM_SETTINGS,
-                          pin_len_ok, pin_range_text, _pin_rec, remember_auth_file,
-                          require, revoke_cookie, same_origin_post, _secret,
-                          _set_auth_cookie, set_tamper_alert, _setup_allowed,
-                          verify_pin, _write_pin)
+from ...core.auth import (ADMIN_KEY, FAIL_DELAY, LOCK_STEP_COUNTS, NET_STEP_COUNTS,
+                          PEER_LOCAL,
+                          PERM_SETTINGS, _as_user, _pin_rec, _secret,
+                          _set_auth_cookie, _setup_allowed, _write_pin,
+                          auth_blocked, auth_file_fp, client_is_local,
+                          client_peer, fail_count, find_user, lock_left,
+                          note_fail, note_ok, peer_label, pin_len_ok,
+                          pin_range_text, remember_auth_file, require,
+                          reset_grant, revoke_cookie, same_origin_post,
+                          set_tamper_alert, verify_pin)
 from ...core.layout import msg_text, standalone
-from .pages import LOGIN_TMPL, PASS_INPUT, PIN_INPUT, SETUP_LOCAL_TMPL, SETUP_TMPL
+from .pages import (LOGIN_TMPL, PASS_INPUT, PIN_INPUT, SETUP_ADMIN_TMPL,
+                    SETUP_LOCAL_TMPL, SETUP_TMPL)
 
 router = APIRouter()
 
@@ -195,6 +198,43 @@ async def admin_logout(request: Request):
     return resp
 
 
+# Что сказать под кнопкой после нажатия: окно UAC показано / из исходников
+# показать нечего (`privileged.request` вне собранной программы — False).
+_ASK_NOTE = {"1": "Confirmați în fereastra Windows care a apărut, apoi reîncărcați "
+                  "această pagină — veți putea seta PIN-ul nou.",
+             "0": "Confirmarea este disponibilă doar în programul instalat pe "
+                  "calculatorul clinicii."}
+
+
+async def _reset_block(request: Request) -> HTMLResponse | None:
+    """auth.json исчез, а база помнит его отпечаток — это сброс, не первая
+    установка (17.10): без разрешения администратора Windows
+    (`auth.reset_grant`) экран установки закрыт. None — можно ставить."""
+    if not await db.get_meta("auth_fp"):
+        return None                    # первая установка: файла не было
+    if reset_grant(await db.get_meta("auth_reset_used") or "")[0]:
+        return None
+    note = _ASK_NOTE.get(request.query_params.get("asked", ""), "")
+    return HTMLResponse(standalone(SETUP_ADMIN_TMPL).replace("__NOTE__", note),
+                        status_code=403)
+
+
+@router.post("/admin/setup/ask")
+async def admin_setup_ask(request: Request):
+    """Кнопка «Confirmă ca administrator Windows»: UAC на экране этого ПК.
+    Итог окна отсюда не виден — страница перечитает разрешение сама."""
+    if not _setup_allowed() or not client_is_local(request):
+        return RedirectResponse("/admin/setup", status_code=303)
+    if not same_origin_post(request):
+        return Response(status_code=403)
+    try:
+        asked = privileged.request("auth-reset")
+    except privileged.Refused:
+        asked = False
+    return RedirectResponse(f"/admin/setup?asked={'1' if asked else '0'}",
+                            status_code=303)
+
+
 @router.get("/admin/setup", response_class=HTMLResponse)
 async def admin_setup_page(request: Request, err: str = ""):
     if not _setup_allowed():
@@ -203,6 +243,8 @@ async def admin_setup_page(request: Request, err: str = ""):
         # не редирект на /admin: _guard без PIN вернул бы сюда же, и сетевой
         # клиент кружил бы в 303 — вместо этого внятная страница с причиной
         return HTMLResponse(standalone(SETUP_LOCAL_TMPL), status_code=403)
+    if (block := await _reset_block(request)) is not None:
+        return block
     # границы — одной функцией, по состоянию сети: «4–6» здесь пережило
     # подъём потолка до 8 (08-13), а с 17.10 минимум ещё и зависит от сети
     # (6 при включённом «Acces din rețea» — флаг переживает переустановку)
@@ -223,11 +265,23 @@ async def admin_setup(request: Request, pin1: str = Form(...),
     # браузера НА САМОМ компьютере клиники — loopback его не отличает
     if not same_origin_post(request):
         return Response(status_code=403)
+    if (block := await _reset_block(request)) is not None:
+        return block
     p1, p2 = pin1.strip(), pin2.strip()
     if p1 != p2 or not pin_len_ok(p1):
         return RedirectResponse("/admin/setup?err=1", status_code=303)
+    # разрешение администратора — одноразовое: метка тратится вместе с PIN;
+    # след — строкой в ленте клиники, а не только баннером отпечатка
+    used = await db.get_meta("auth_reset_used") or ""
+    stamp, who = reset_grant(used) if await db.get_meta("auth_fp") else ("", "")
     _write_pin(p1)
     await remember_auth_file()
+    if stamp:
+        await db.set_meta("auth_reset_used", stamp)
+        await db.log_clinic_event(
+            "auth_reset",
+            f"PIN de intrare setat din nou cu confirmarea administratorului "
+            f"Windows «{who or 'necunoscut'}» (fișierul de acces lipsea)")
     return _set_auth_cookie(RedirectResponse("/admin", status_code=303),
                             find_user("clinic"))
 

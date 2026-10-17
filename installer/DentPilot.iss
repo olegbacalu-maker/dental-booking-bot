@@ -155,6 +155,12 @@ Name: "demodata";    Description: "{cm:DemoDataTask}"; Flags: unchecked
 [Dirs]
 ; Данные клиники. ⛔ Право на запись нужно на КАТАЛОГ, а не только на файлы:
 ; SQLite в режиме WAL создаёт рядом с базой -wal и -shm.
+; ⛔ Файлы в ней НЕ сужать до Administrators (разбор 17.10): их пишет САМА
+; программа от обычной учётки — auth.json при каждом входе (tmp + replace,
+; нужен DELETE), clinic.json при сохранении настроек, dental.env при
+; переключении сети и перешифровке токена. Admin-only запись = у неадмина
+; программа перестаёт сохранять. «Удалил auth.json — поставил свой PIN»
+; закрывает программа (операция auth-reset за UAC), а не права.
 ; ⛔ У {app} параметра Permissions НЕТ ни на одной строке и быть не должно —
 ; см. шапку файла.
 Name: "{commonappdata}\{#AppName}";               Permissions: users-modify

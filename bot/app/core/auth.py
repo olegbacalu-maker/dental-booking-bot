@@ -37,7 +37,7 @@ import urllib.parse
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
-from .. import db, relocate
+from .. import db, privileged, relocate
 from .storage import _data_dir
 
 # --- защита журнала ---
@@ -691,6 +691,23 @@ def _setup_allowed() -> bool:
     # _auth_broken отдельно: для _pin_rec битый файл тоже None, но предлагать
     # первичную установку поверх него нельзя — она бы стёрла живые учётки
     return _pin_rec() is None and not ADMIN_KEY and not _auth_broken()
+
+
+def reset_grant(used: str) -> tuple[str, str]:
+    """Разрешение администратора Windows на новый первый PIN поверх
+    ИСЧЕЗНУВШЕГО auth.json (17.10): (метка, кто подтвердил), если метка
+    `privileged.auth_reset_mark` свежее `RESET_WINDOW` и ещё не потрачена
+    (`used` — meta `auth_reset_used`); ('', '') — разрешения нет. Зачем
+    вообще — у `privileged._auth_reset`: папку данных пишут все учётки
+    машины намеренно, и удаление файла было путём чужой учётки в директора.
+    Сброс отличают от первой установки по отпечатку в базе (`auth_fp`
+    непустой) — решает `entry/routes`; оно же пишет строку в ленту."""
+    stamp, who = privileged.auth_reset_mark()
+    if not stamp.isdigit() or stamp == used:
+        return "", ""
+    if time.time() - int(stamp) > privileged.RESET_WINDOW:
+        return "", ""
+    return stamp, who
 
 
 def same_origin_post(request: Request) -> bool:

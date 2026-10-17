@@ -69,6 +69,11 @@ def suite_contract(res: Result) -> None:
            "ищет общие: пути разошлись молча")
 
 
+def dirs_comment(s: str) -> str:
+    """Комментарий над [Dirs] — там живёт аудит писателей папки данных."""
+    return s[s.index("[Dirs]"):s.index("[Files]")]
+
+
 def suite_acl(res: Result) -> None:
     """Права на папку данных: кому, чем и как проверено."""
     s = _src()
@@ -114,6 +119,18 @@ def suite_acl(res: Result) -> None:
     res.ok("текст о правах не обещает остановку установки",
            bool(acl_text) and "a fost oprită" not in acl_text,
            "шаг прав идёт после установки — «oprită» неправда")
+    # Файлы данных пишет САМА программа от обычной учётки (auth.json при
+    # входе, clinic.json при сохранении настроек, dental.env при переключении
+    # сети): admin-only запись сломала бы их у неадмина. Атаку «удалил
+    # auth.json — поставил свой PIN» закрывает программа (auth-reset за UAC).
+    narrowed = [ln.strip()[:70] for ln in s.splitlines()
+                if "icacls" in ln and not ln.lstrip().startswith((";", "//", "{"))
+                and any(f in ln for f in ("dental.env", "auth.json", "clinic.json"))]
+    res.ok("файлы, которые пишет программа, icacls не сужает", not narrowed,
+           "admin-only запись = программа у неадмина перестаёт сохранять: "
+           + " | ".join(narrowed))
+    res.ok("причина записана в самом скрипте, у [Dirs]",
+           "auth-reset" in dirs_comment(s), "следующий сузит права и сломает вход")
     res.ok("отказ icacls пишется в журнал и повторяется",
            "ExecAndLogOutput(" in s and "for Attempt := 1 to 3" in s,
            "вывод icacls выбрасывается — отказ не назовёт файл")

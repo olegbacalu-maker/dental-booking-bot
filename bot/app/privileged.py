@@ -362,11 +362,65 @@ def _install_setup(args: list[str], data_root=None) -> str:
     return STARTED
 
 
+# --- новый PIN поверх исчезнувшего auth.json (17.10, посторонний разбор) ---
+# «Забыл PIN» у поддержки = удалить data\auth.json → экран первой установки.
+# Тем же путём чужая учётка Windows на компьютере клиники (папка данных общая
+# для всех учёток НАМЕРЕННО — вторая смена; права на файлы не сузить, их пишет
+# сама программа от обычной учётки) делала себя единственным директором.
+# Теперь, если база помнит отпечаток файла, новый первый PIN ставится только
+# с подтверждением администратора Windows: эта операция кладёт метку времени
+# в HKLM (неадмину туда не записать), экран установки принимает её 15 минут и
+# один раз (`core/auth.reset_grant`). Аргументов нет — проверять нечего.
+# ⚠️ Из исходников (прогон, песочница) и пишется, и читается HKCU: у прогона
+# нет повышения. У собранной программы HKCU не читается — иначе любая учётка
+# выписала бы разрешение себе сама.
+RESET_KEY = r"Software\DentPilot"
+RESET_VALUE = "AuthResetAt"
+RESET_BY = "AuthResetBy"        # учётка Windows, подтвердившая, — для ленты
+RESET_WINDOW = 15 * 60
+
+
+def _reset_hive():
+    import winreg
+    return (winreg.HKEY_LOCAL_MACHINE if getattr(sys, "frozen", False)
+            else winreg.HKEY_CURRENT_USER)
+
+
+def _auth_reset(args: list[str], data_root=None) -> str:
+    if args:
+        raise Refused(f"у операции нет аргументов, получено {args!r}")
+    import getpass
+    import winreg
+    with winreg.CreateKeyEx(_reset_hive(), RESET_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, RESET_VALUE, 0, winreg.REG_SZ, str(int(time.time())))
+        # кто подтвердил: процесс идёт от учётки, назвавшей себя в UAC
+        winreg.SetValueEx(k, RESET_BY, 0, winreg.REG_SZ, getpass.getuser()[:64])
+    return "un PIN nou se poate seta în următoarele 15 minute"
+
+
+def auth_reset_mark() -> tuple[str, str]:
+    """(метка времени как записана, учётка подтвердившего); ('', '') — нет.
+    Срок и однократность судит `core/auth.reset_grant`; здесь только чтение
+    — и только из улья, куда обычной учётке не записать (см. `_reset_hive`)."""
+    try:
+        import winreg
+        with winreg.OpenKey(_reset_hive(), RESET_KEY) as k:
+            stamp = str(winreg.QueryValueEx(k, RESET_VALUE)[0])
+            try:
+                who = str(winreg.QueryValueEx(k, RESET_BY)[0])
+            except OSError:
+                who = ""
+            return stamp, who
+    except (OSError, ImportError):
+        return "", ""
+
+
 # Закрытый список. Имя → обработчик. ⛔ Ни `getattr`, ни импорта по имени:
 # словарь и есть граница того, что вообще может случиться за UAC.
 OPS = {"uninstall-version": _set_uninstall_version,
        "install-update": _install_update,
-       "install-setup": _install_setup}
+       "install-setup": _install_setup,
+       "auth-reset": _auth_reset}
 
 
 def run_op(name: str, args: list[str], data_root=None) -> str:
@@ -423,6 +477,8 @@ def request(name: str, *args: str, _shell=None) -> bool:
     run_op_args = list(args)
     if name == "uninstall-version" and (len(run_op_args) != 1
                                         or not VERSION_RE.match(run_op_args[0])):
+        raise Refused(f"аргументы не годятся: {run_op_args!r}")
+    if name == "auth-reset" and run_op_args:
         raise Refused(f"аргументы не годятся: {run_op_args!r}")
     if not getattr(sys, "frozen", False):
         # Из исходников поднимать нечего: `sys.executable` — это python.exe,

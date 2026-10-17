@@ -857,3 +857,68 @@ def suite_contract(res: Result) -> None:
     gone = [rel for rel in sorted(allowed) if not (root / rel).exists()]
     res.ok("список исключений не протух", not gone,
            "нет файлов: " + ", ".join(gone))
+
+
+def suite_auth_reset(res: Result) -> None:
+    """Операция `auth-reset` (17.10): метка времени в реестре — разрешение на
+    новый первый PIN поверх исчезнувшего auth.json. Аргументов не принимает;
+    из исходников пишет и читает HKCU (прогон без повышения), в собранной
+    программе — HKLM, куда неадмину не записать."""
+    if sys.platform != "win32":
+        res.ok("не Windows — операции реестра не проверяются", True, "")
+        return
+    import time
+    import winreg
+
+    def drop():
+        for name in (privileged.RESET_VALUE, privileged.RESET_BY):
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, privileged.RESET_KEY, 0,
+                                    winreg.KEY_SET_VALUE) as k:
+                    winreg.DeleteValue(k, name)
+            except OSError:
+                pass
+
+    drop()
+    try:
+        res.check("без метки — пусто", privileged.auth_reset_mark(), ("", ""))
+        for bad in (["x"], ["1"], ["--force"]):
+            raised = ""
+            try:
+                privileged.run_op("auth-reset", bad, lambda: None)
+            except privileged.Refused as e:
+                raised = str(e)
+            res.ok(f"аргумент отвергнут: {bad!r}", bool(raised), "операция приняла аргумент")
+            raised = ""
+            try:
+                privileged.request("auth-reset", *bad)
+            except privileged.Refused as e:
+                raised = str(e)
+            res.ok(f"и просящий не покажет UAC ради {bad!r}", bool(raised), "")
+        res.check("метки всё ещё нет (отказ — до действия)", privileged.auth_reset_mark(), ("", ""))
+        before = int(time.time())
+        out = privileged.run_op("auth-reset", [], lambda: None)
+        res.ok("исход назван словами", "PIN" in out, out)
+        stamp, who = privileged.auth_reset_mark()
+        res.ok("метка — время записи, секундами",
+               stamp.isdigit() and before <= int(stamp) <= int(time.time()) + 1, stamp)
+        import getpass
+        res.check("записано, кто подтвердил (учётка процесса за UAC)", who, getpass.getuser())
+        res.ok("из исходников улей — HKCU (прогон без повышения)",
+               privileged._reset_hive() == winreg.HKEY_CURRENT_USER, "")
+        # подделка от обычной учётки: собранная программа читает ТОЛЬКО HKLM,
+        # и метка, положенная в HKCU, для неё не существует
+        sys.frozen = True
+        try:
+            res.ok("в собранной программе улей — HKLM",
+                   privileged._reset_hive() == winreg.HKEY_LOCAL_MACHINE, "")
+            seen = privileged.auth_reset_mark()
+            res.ok("метка из HKCU собранной программе не видна",
+                   seen[0] != stamp, f"прочитано {seen!r} — обычная учётка выписала бы "
+                   "разрешение себе сама")
+        finally:
+            del sys.frozen
+        res.ok("операция — в закрытом списке, другого пути к метке нет",
+               privileged.OPS.get("auth-reset") is privileged._auth_reset, "")
+    finally:
+        drop()
