@@ -125,3 +125,36 @@ def suite_child_temp(res: Result) -> None:
         os.environ.pop("DP_TEMP", None)
         if was is not None:
             os.environ["DP_TEMP"] = was
+
+
+def suite_sandbox_dir(res: Result) -> None:
+    """Песочница `up` — на диске проекта, а не в %LOCALAPPDATA% (17.10).
+
+    Claude Desktop (пакет MSIX) уводит запись своих процессов в AppData в свою
+    LocalCache: у окна Олега и у сессии Claude были РАЗНЫЕ `dental.db` при
+    общих `-wal`/`-shm`, и база ломалась то одной стороне («malformed»), то
+    другой («locked»). Вернись песочница туда — красного не будет нигде, только
+    «у меня не запускается» у человека в обычном окне.
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    dev = importlib.import_module("dev")
+    was = os.environ.pop("DP_SANDBOX", None)
+    try:
+        default = dev.sandbox_dir()
+        res.ok("по умолчанию — sandbox/dev-up рядом с главным репозиторием",
+               default.parts[-2:] == ("sandbox", "dev-up"), str(default))
+        res.ok("по умолчанию — вне репозитория",
+               not default.resolve().is_relative_to(ROOT.resolve()), str(default))
+        local = os.environ.get("LOCALAPPDATA")
+        res.ok("по умолчанию — не в %LOCALAPPDATA%",
+               not local or not default.resolve().is_relative_to(pathlib.Path(local).resolve()),
+               f"{default} / {local}")
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["DP_SANDBOX"] = str(pathlib.Path(tmp) / "box")
+            res.ok("DP_SANDBOX перевешивает",
+                   dev.sandbox_dir() == pathlib.Path(os.environ["DP_SANDBOX"]),
+                   str(dev.sandbox_dir()))
+    finally:
+        os.environ.pop("DP_SANDBOX", None)
+        if was is not None:
+            os.environ["DP_SANDBOX"] = was

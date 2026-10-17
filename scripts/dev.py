@@ -38,9 +38,7 @@ PYTHON = ROOT / ".venv-desktop" / "Scripts" / "python.exe"
 TESTS = ROOT / "tests"
 ENGINE = BOT / "app" / "engine.py"
 
-# Песочница живёт ВНЕ репозитория: не попадает в git, не мешает `check` увидеть
-# чистое дерево и переживает между запусками — накопленные данные не теряются.
-SANDBOX = pathlib.Path(os.environ.get("LOCALAPPDATA", str(ROOT))) / "DentPilot-sandbox"
+# Где живёт песочница `up` — `sandbox_dir()` ниже (17.10: уехала с %LOCALAPPDATA%).
 
 # Порт установленной у Олега программы. `up` гасит того, кто занял её порт, —
 # и на 8088 это была бы рабочая клиника с настоящей картотекой.
@@ -79,9 +77,32 @@ def temp_dir() -> pathlib.Path:
     ⛔ Не внутри репозитория: `check` увидел бы грязное дерево."""
     if os.environ.get("DP_TEMP"):
         return pathlib.Path(os.environ["DP_TEMP"])
+    return _main_parent() / "sandbox" / "temp"
+
+
+def sandbox_dir() -> pathlib.Path:
+    """Песочница `up`: база, профиль, файлы — `sandbox\\dev-up` рядом с главным
+    репозиторием (17.10). `DP_SANDBOX` перевешивает.
+
+    ⛔ Не в %LOCALAPPDATA%. Claude Desktop — пакет MSIX, и запись его процессов
+    туда Windows уводит в `Packages\\Claude_…\\LocalCache\\Local`: у окна
+    разработчика и у сессии Claude РАЗНЫЕ `dental.db`, а `-wal`/`-shm` общие.
+    Каждый запуск с одной стороны портил базу другой: у Олега «database disk
+    image is malformed», у сессии — «database is locked» (его упавший старт
+    висел и держал базу); до того — ошибка 18 «перенос на другой диск» на
+    `os.replace` при сохранении настроек из сессии (06.10). На D подмены нет —
+    файлы одни для всех. Вне репозитория: не попадает в git и не мешает
+    `check` увидеть чистое дерево; переживает между запусками."""
+    if os.environ.get("DP_SANDBOX"):
+        return pathlib.Path(os.environ["DP_SANDBOX"])
+    return _main_parent() / "sandbox" / "dev-up"
+
+
+def _main_parent() -> pathlib.Path:
+    """Папка ГЛАВНОГО репозитория (`D:\\DentProject`) — и из worktree тоже: у
+    него свой корень, но общий `.git`."""
     common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
-    main = pathlib.Path(common).parent if common else ROOT
-    return main.parent / "sandbox" / "temp"
+    return (pathlib.Path(common).parent if common else ROOT).parent
 
 
 def child_env(env: dict | None = None) -> dict:
@@ -163,21 +184,22 @@ def cmd_up(argv: list) -> int:
         subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True)
         print(f"Прошлый сервер на {port} погашен (PID {pid}).")
 
-    SANDBOX.mkdir(parents=True, exist_ok=True)
+    box = sandbox_dir()
+    box.mkdir(parents=True, exist_ok=True)
     # Демо-профиль — КОПИЕЙ в папке песочницы (25.09): настройки, сохранённые
     # в песочнице (стиль, цвет, часы), писались бы прямо в файл репозитория
     # и всплывали бы грязным деревом у `.\dev check`. Свежая копия — только
     # пока своей нет: песочница помнит выбор между запусками.
-    profile = SANDBOX / "clinic.json"
+    profile = box / "clinic.json"
     if not profile.exists():
         profile.write_bytes((BOT / "app" / "clinic.json").read_bytes())
     env = os.environ.copy()
     env.update({
         "CLINIC_CONFIG": str(profile),
-        "DATABASE_URL": f"sqlite:///{SANDBOX / 'dental.db'}",
+        "DATABASE_URL": f"sqlite:///{box / 'dental.db'}",
         "ADMIN_KEY": "test1234",   # иначе SQLite потребует экран установки PIN
     })
-    print(f"База песочницы: {SANDBOX / 'dental.db'}")
+    print(f"База песочницы: {box / 'dental.db'}")
     print(f"Журнал:         http://127.0.0.1:{port}/admin   (пароль test1234)")
     print("Гасить: Ctrl+C\n")
     return run([PYTHON, "-m", "uvicorn", "app.main:app", "--port", str(port)],
