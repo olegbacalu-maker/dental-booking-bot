@@ -469,6 +469,33 @@ def suite_window(res: Result) -> None:
            "buf.value == TITLE" in desk and 'f" · :{PORT}" if PORT != 8088' in desk,
            "по префиксу «DentPilot» второй запуск фокусировал бы чужое окно "
            "(установка клиники рядом со стендом)")
+    # 17.10, канарейка 1.45.0: сторож (onefile) запускал программу со СВОИМ
+    # `_MEIPASS2` в окружении — та жила в его распаковке, и выход сторожа
+    # убирал папку из-под неё («Not found _SHA1.pyd», хаб настроек 500).
+    launch_call = desk[desk.index("subprocess.Popen(plan.launch"):]
+    launch_call = launch_call[:launch_call.index(")\n")]
+    res.ok("сторож запускает программу БЕЗ своего _MEIPASS2 (env=_child_env())",
+           "env=_child_env()" in launch_call
+           and 'k != "_MEIPASS2"' in desk and 'k.startswith("_PYI_")' in desk,
+           "программа унаследует распаковку сторожа и потеряет её при его выходе")
+    sys.path.insert(0, str(BOT))
+    try:
+        import importlib
+        src = desk[desk.index("def _child_env()"):desk.index("def _watch_mode(")]
+        ns: dict = {"os": importlib.import_module("os")}
+        exec(src, ns)  # noqa: S102 — тело лаунчера прогоном не исполняется, функция — да
+        os_env = ns["os"].environ
+        os_env["_MEIPASS2"], os_env["_PYI_ARCHIVE_FILE"], os_env["DENTART_X"] = "a", "b", "c"
+        try:
+            env = ns["_child_env"]()
+        finally:
+            for k in ("_MEIPASS2", "_PYI_ARCHIVE_FILE", "DENTART_X"):
+                os_env.pop(k, None)
+        res.check("_child_env снимает только переменные загрузчика",
+                  ("_MEIPASS2" in env, "_PYI_ARCHIVE_FILE" in env, env.get("DENTART_X")),
+                  (False, False, "c"))
+    finally:
+        sys.path.remove(str(BOT))
 
 
 def suite_autobackup(res: Result) -> None:

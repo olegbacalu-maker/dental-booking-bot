@@ -28,6 +28,7 @@
 """
 from __future__ import annotations
 
+import logging
 import pathlib
 import sqlite3
 from datetime import datetime
@@ -38,11 +39,21 @@ MIN_PASS = 10   # 4–8 цифр PIN здесь не годятся: архив 
                 # то есть попадает ровно туда, где офлайн-перебор возможен
 
 
+def _load() -> None:
+    """Шов для проверок: сам импорт."""
+    import pyzipper  # noqa: F401
+
+
 def available() -> bool:
+    """Есть ли чем шифровать архив. ⚠️ Ловится и OSError, не только ImportError:
+    pycryptodome грузит `.pyd` руками и при битой распаковке onefile отвечает
+    `OSError: Cannot load native module` — так одна плитка клала весь хаб
+    настроек (17.10, канарейка 1.45.0). Плитки без копии лучше, чем 500."""
     try:
-        import pyzipper  # noqa: F401
+        _load()
         return True
-    except ImportError:
+    except (ImportError, OSError) as e:
+        logging.getLogger("backup").warning("pyzipper недоступен: %r", e)
         return False
 
 

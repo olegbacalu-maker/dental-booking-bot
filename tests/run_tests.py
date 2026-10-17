@@ -483,6 +483,7 @@ SUITES = [
     ("Копии: под шифрованием и чужие архивы", test_backup.suite_restore_edges),
     ("Копии: расписание под поддельными часами", test_backup.suite_schedule),
     ("Копии: неудача — лента и баннер директора", test_backup.suite_failure),
+    ("Копии: нет pyzipper или битый .pyd — плитки нет, хаб жив", test_backup.suite_available),
     ("Закон 195: уведомление в боте", test_privacy.suite_bot_notice),
 ]
 

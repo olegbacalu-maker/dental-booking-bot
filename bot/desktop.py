@@ -122,6 +122,20 @@ if (_code := privileged.handle_argv(sys.argv[1:], data_root)) is not None:
 from app import brand, restartwatch, splash  # noqa: E402 — предзагрузочный слой
 
 
+def _child_env() -> dict:
+    """Окружение для программы, которую запускает СТОРОЖ (17.10, канарейка
+    1.45.0). ⛔ Без `_MEIPASS2` и `_PYI_*`: сторож — тот же onefile-exe, и его
+    загрузчик держит в окружении адрес СВОЕЙ временной распаковки. Ребёнок с
+    этой переменной не распаковывается сам, а живёт в папке сторожа — и когда
+    сторож, сделав дело, выходит, он убирает «свою» папку из-под работающей
+    программы («Failed to remove temporary directory _MEI…»). Всё, что
+    программа импортирует лениво ПОСЛЕ этого (pyzipper у плитки «Copie de
+    rezervă»), падает «Not found _SHA1.pyd», и хаб настроек отвечает 500 —
+    так выглядело «Setări не отвечает» у Олега после выключения сети."""
+    return {k: v for k, v in os.environ.items()
+            if k != "_MEIPASS2" and not k.startswith("_PYI_")}
+
+
 def _watch_mode(argv: list[str]) -> int | None:
     """`None` — обычный запуск; число — код возврата сторожа."""
     try:
@@ -152,7 +166,7 @@ def _watch_mode(argv: list[str]) -> int | None:
             flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
                      | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
             subprocess.Popen(plan.launch, cwd=str(pathlib.Path(plan.launch[0]).parent),
-                             creationflags=flags, close_fds=True)
+                             creationflags=flags, close_fds=True, env=_child_env())
         except OSError as e:
             print(f"programul nu a pornit: {e}", file=sys.stderr)
 

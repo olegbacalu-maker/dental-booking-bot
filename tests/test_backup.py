@@ -514,3 +514,26 @@ def suite_failure(res: Result) -> None:
         _rmtree_settled(d)
         if dest.exists():
             _rmtree_settled(dest)
+
+
+def suite_available(res: Result) -> None:
+    """17.10 (канарейка 1.45.0): `backup.available()` отвечал исключением, а не
+    «нет», когда pycryptodome не нашёл свой `.pyd` (битая распаковка onefile:
+    OSError, не ImportError) — одна плитка клала весь хаб настроек пятисотой."""
+    from app.core import backup
+
+    real = backup._load
+    try:
+        res.ok("с pyzipper — доступно", backup.available(), "pyzipper в .venv-desktop нет")
+
+        def no_pyd():
+            raise OSError("Cannot load native module 'Cryptodome.Hash._SHA1'")
+        backup._load = no_pyd
+        res.check("битый .pyd — «недоступно», а не исключение", backup.available(), False)
+
+        def no_module():
+            raise ImportError("No module named 'pyzipper'")
+        backup._load = no_module
+        res.check("нет модуля — «недоступно»", backup.available(), False)
+    finally:
+        backup._load = real
