@@ -199,6 +199,31 @@ va mai fi necesar. Păstrați foaia de recuperare mai departe.</p>
 # состоянии пришли бы из демо-каркаса («DentPilot Demo» в PWA-теге) — страница
 # существует ровно затем, чтобы демо не показывалось как своё. Экран нарочно
 # нейтральный, без фирменного цвета.
+# Host не наш (`auth.host_allowed`, 17.10): запрос пришёл по чужому DNS-имени.
+# Та же нейтральная страница, что у битого профиля: имени клиники здесь нет
+# намеренно — отвечаем до того, как кому-либо что-либо показали.
+BAD_HOST_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
+<title>DentPilot — adresă neacceptată</title><style>__FONTS__
+ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#f5f6f7;
+      color:#20262b;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;margin:0;text-align:center;padding:16px}
+ p{max-width:560px;line-height:1.55}
+</style></head><body>
+<h1>Adresă neacceptată</h1>
+<p>Programul răspunde doar la adresa lui reală. Pe acest calculator deschideți
+<b>http://127.0.0.1:__PORT__/admin</b>; de pe alt dispozitiv din rețeaua clinicii
+folosiți adresa cu cifre afișată în <b>Setări › Acces din rețea</b>.</p>
+</body></html>"""
+
+def bad_host_page(request) -> str:
+    """Страница 421 для `main._own_host`. Порт — у СОКЕТА сервера (`scope.server`),
+    не из чужого Host: тот и есть то, чему мы не верим."""
+    from ...core.layout import fonts_css
+    server = request.scope.get("server") or ("", 0)
+    return (BAD_HOST_TMPL.replace("__PORT__", str(server[1] or 8088))
+            .replace("__FONTS__", fonts_css()))
+
+
 CONFIG_BROKEN_TMPL = """<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <title>DentPilot — eroare</title><style>__FONTS__
  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#f5f6f7;

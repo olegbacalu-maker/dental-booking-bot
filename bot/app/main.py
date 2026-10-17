@@ -27,12 +27,14 @@ from . import update as upd
 from .core import dbkey, demo
 from .core import license as lic
 from .core import sms_loop as sms
-from .core.auth import chat_session, current_user, request_user, set_request_user
+from .core.auth import (chat_session, current_user, host_allowed, request_user,
+                        set_request_user)
 from .core.layout import STATIC, msg_json, tg_configured
 from .modules.assets import routes as assets
 from .modules.doctors import api as doctors_api
 from .modules.doctors import routes as doctors
 from .modules.entry import api as entry_api
+from .modules.entry import pages as entry_pages
 from .modules.entry import recovery
 from .modules.entry import routes as entry
 from .modules.license import api as license_api
@@ -49,7 +51,10 @@ from .modules.settings import routes as settings
 from .modules.stats import api as stats_api
 from .modules.stats import routes as stats
 
-app = FastAPI(title="DentPilot")
+# ⛔ Без /docs, /redoc и /openapi.json (17.10): это карта всех адресов
+# программы, и отдавалась она без входа — в том числе любому в сети клиники.
+# Схему смотрят из исходников; в прогоне она никому не нужна.
+app = FastAPI(title="DentPilot", docs_url=None, redoc_url=None, openapi_url=None)
 log = logging.getLogger("web")
 
 # Модули подключаются здесь и только здесь. Модуль знает про core, db и engine,
@@ -116,6 +121,24 @@ async def _identify(request: Request, call_next):
         # запрос с ДРУГОГО устройства сети — строка «Verificarea legăturii»
         # на странице «Acces din rețea»; свой компьютер не записывается
         settings_lan.note_peer(request)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def _own_host(request: Request, call_next):
+    """Запрос пришёл по СВОЕМУ имени сервера, а не по чужому DNS (17.10).
+
+    Закрывает DNS rebinding — страницу чужого сайта, чьё имя стало указывать
+    на 127.0.0.1 и которая оттуда подбирала бы PIN или, на свежей установке,
+    ставила бы первый (разбор — `auth.host_allowed`). Отказ — 421 и
+    нейтральная страница с правильным адресом: до любого маршрута, куки и
+    тела. Демо за шлюзом открывают по его имени — там проверки нет.
+    ⚠️ Ниже шлюза режимов по правилу «шлюз — внешний посредник», и это не
+    мешает: шлюз базу не трогает, а 421 на чужое имя даёт и он — сюда запрос
+    доходит, если шлюз его пропустил.
+    """
+    if not (demo.on() or host_allowed(request)):
+        return HTMLResponse(entry_pages.bad_host_page(request), status_code=421)
     return await call_next(request)
 
 

@@ -447,7 +447,12 @@ def _schedule(delay: float) -> None:
 
 def _check() -> None:
     fake = os.environ.get("DENTART_FAKE_UPDATE_URL", "").strip()
-    if fake:
+    # ⛔ Тест-хук живёт только у исходников (17.10). В собранной программе его
+    # читала бы та же строка dental.env, которую пишет любая учётка Windows
+    # (папка данных открыта на запись всем), — и «обновлением» стал бы любой
+    # адрес, в том числе http. Подпись файла проверяется ниже по пути, но
+    # дверь, которая ведёт к этой проверке, у клиники закрыта вовсе.
+    if fake and not paths.is_frozen():
         # тест-хук: размера и контрольной суммы нет — проверка их пропускает
         STATE.update(latest="v9.9.9", asset_url=fake, asset_size=0, asset_digest="",
                      url=f"https://github.com/{REPO}/releases", checked=True, error="",
@@ -831,6 +836,14 @@ def _verify_download(path: pathlib.Path) -> str | None:
                 h.update(chunk)
         if h.hexdigest() != want:
             return "fișier descărcat corupt (sumă de control greșită)"
+    # ⭐ Подпись — ЗДЕСЬ тоже, а не только за UAC (17.10): окно прав ради
+    # заведомого отказа показывать незачем, и веб-путь без sha256 получает
+    # проверку, которой у него не было. Только у собранной программы: из
+    # исходников скачанный файл — учебный, подписи у него нет по построению.
+    if is_desktop():
+        from . import authenticode
+        if authenticode.signer_thumbprint(path) not in privileged.SIGNERS:
+            return "fișierul descărcat nu este semnat de DentPilot — actualizarea nu a fost pornită"
     return None
 
 

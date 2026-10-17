@@ -550,6 +550,50 @@ def same_origin_post(request: Request) -> bool:
     return bool(host) and host.lower() == request.headers.get("host", "").lower()
 
 
+# Имена сервера сверх своих: `DENTART_HOSTS=registru.clinica.md,…` в dental.env
+# (клиника, которая завела своё DNS-имя, или шлюз перед сервером). Читается
+# один раз — это настройка запуска, как ADMIN_KEY.
+_EXTRA_HOSTS = frozenset(
+    h.strip().lower() for h in os.environ.get("DENTART_HOSTS", "").split(",") if h.strip())
+
+
+def host_allowed(request: Request) -> bool:
+    """Заголовок Host называет ЭТОТ сервер, а не чужое DNS-имя (17.10).
+
+    Закрывает DNS rebinding: страница злоумышленника, открытая в браузере на
+    компьютере клиники, заводит имя `x.atacator.md`, которое через минуту
+    начинает указывать на 127.0.0.1, — и её скрипт шлёт запросы прямо в
+    программу, уже как «свой сайт»: `same_origin_post` их пропускал, потому
+    что Origin и Host совпадали — оба были этим чужим именем (проверено
+    посторонним разбором 17.10). Программа отвечает только на имена, которыми
+    её открывают по-настоящему:
+    - адрес числом (127.0.0.1, 192.168.1.10 с телефона, [::1]) — его в DNS не
+      подменить;
+    - `localhost` и `*.localhost`;
+    - имя без точки (`receptie:8088` — компьютер в сети клиники): такое
+      разрешается не публичным DNS, а самой сетью, снаружи его не завести;
+    - имена из `DENTART_HOSTS`.
+    Пустой Host — не браузер (HTTP/1.0, старые пробники): у браузера он есть
+    всегда, а rebinding приходит именно с ним. Демо за шлюзом снимает проверку
+    САМО (`demo.on()` в `main`): туда Host едет нетронутым (demo/gate.py).
+    """
+    raw = request.headers.get("host", "").strip().lower()
+    if not raw:
+        return True
+    if raw.startswith("["):                      # [::1]:8088
+        host = raw[1:raw.find("]")] if "]" in raw else raw
+    else:
+        host = raw.rsplit(":", 1)[0] if raw.count(":") == 1 else raw
+    if host == "localhost" or host.endswith(".localhost") or "." not in host:
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    return host in _EXTRA_HOSTS
+
+
 def client_is_local(request: Request) -> bool:
     """Запрос пришёл с ЭТОГО компьютера, а не из сети клиники.
 

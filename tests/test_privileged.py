@@ -364,7 +364,14 @@ def suite_install(res: Result) -> None:
     """P4.2: подмена программы за UAC — только перемещение, и по проверке."""
     import tempfile
 
+    from app import authenticode
+
     real = privileged._self_exe
+    # ⚠️ С 17.10 подмена требует подписи DentPilot (suite_install_signed);
+    # учебный файл лаборатории не подписан — здесь подпись отвечает «наша»,
+    # чтобы проверять механику перемещения, а не Authenticode
+    real_signer = authenticode.signer_thumbprint
+    authenticode.signer_thumbprint = lambda p: next(iter(privileged.SIGNERS))
     with tempfile.TemporaryDirectory(prefix="dp_inst_") as td:
         tmp = pathlib.Path(td)
         exe, work, new = _lab(tmp)
@@ -413,6 +420,7 @@ def suite_install(res: Result) -> None:
                           b"STARAYA PROGRAMMA")
             finally:
                 privileged._self_exe = real
+    authenticode.signer_thumbprint = real_signer
 
     # ⛔ И самое важное: операция НИЧЕГО не запускает. Запусти она новый файл —
     # тот пошёл бы от администратора, и подменённый кем-то exe получил бы
@@ -426,6 +434,49 @@ def suite_install(res: Result) -> None:
                   "ShellExecute", "exec(", "eval("):
         res.ok(f"подмена ничего не исполняет: нет {token}", token not in body,
                f"в операции появился запуск: {token}")
+
+
+def suite_install_signed(res: Result) -> None:
+    """17.10 (посторонний разбор): подмена exe за UAC — только файлом с подписью
+    DentPilot. Отпечаток и размер сверялись с описанием из ТОЙ ЖЕ папки
+    клиники, куда пишет любая учётка Windows (installer: users-modify), то есть
+    подменивший файл переписывал и описание — и директор своим UAC ставил
+    чужую программу в Program Files для всех. Подпись он подделать не может."""
+    import tempfile
+    from app import authenticode
+
+    real = privileged._self_exe
+    real_signer = authenticode.signer_thumbprint
+    cases = [
+        ("без подписи (учебный файл, настоящая проверка Windows)", real_signer,
+         "нет действительной подписи"),
+        ("подписан чужим сертификатом", lambda p: "9BA3C2E210C7E8296C5056515BFC0B0BBA78AC48",
+         "подписан не DentPilot"),
+    ]
+    for name, signer, want in cases:
+        with tempfile.TemporaryDirectory(prefix="dp_inst_sig_") as td:
+            tmp = pathlib.Path(td)
+            exe, work, new = _lab(tmp)
+            privileged._self_exe = lambda e=exe: e
+            authenticode.signer_thumbprint = signer
+            try:
+                out = privileged.run_op("install-update", [], lambda: tmp / "data")
+                res.ok(f"отказ: {name}", want in out, f"ответ: {out!r}")
+                res.check(f"программа цела: {name}", exe.read_bytes(), b"STARAYA PROGRAMMA")
+                res.ok(f"файл не тронул программу: {name}",
+                       not exe.with_name("DentPilot" + privileged.OLD_SUFFIX).exists(),
+                       "подмена началась до проверки подписи")
+            finally:
+                privileged._self_exe = real
+                authenticode.signer_thumbprint = real_signer
+    # проверка подписи стоит ДО перемещения — в теле операции, а не рядом
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "bot" / "app" / "privileged.py").read_text(encoding="utf-8")
+    body = src[src.index("def _install_update"):src.index("# ---------- обновление установщиком")]
+    res.ok("подпись проверяется в самой операции, до подмены",
+           "signer_thumbprint(new)" in body
+           and body.index("signer_thumbprint(new)") < body.index("OLD_SUFFIX"),
+           "в _install_update нет проверки подписи перед перемещением")
 
 
 def _signed_setup() -> pathlib.Path | None:

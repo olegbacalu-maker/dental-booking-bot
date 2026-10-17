@@ -741,6 +741,35 @@ def suite_csrf_origin(res: Result) -> None:
         res.check("Origin «null» отбит", r.status, 403)
 
 
+def suite_own_host(res: Result) -> None:
+    """17.10 (посторонний разбор). Программа отвечала на ЛЮБОЕ имя в Host, а
+    `same_origin_post` сравнивал Origin с ним же — страница чужого сайта, чьё
+    DNS-имя стало указывать на 127.0.0.1 (rebinding), входила как «своя»:
+    подбирала бы PIN, а на свежей установке ставила бы первый. Теперь чужое
+    имя — 421 до любого маршрута; числовой адрес, localhost, имя компьютера в
+    сети клиники и DENTART_HOSTS — работают. Здесь же: карты адресов (/docs,
+    /openapi.json) без входа больше нет."""
+    with Server(env={"DENTART_HOSTS": "registru.clinica.md"}) as s:
+        c = Client(s.url)
+        evil = {"Host": "x.atacator.example"}
+        r = c.get("/admin/login", headers=evil)
+        res.check("чужое DNS-имя — 421", r.status, 421)
+        res.ok("страница называет правильный адрес",
+               "Adresă neacceptată" in r.body and f"127.0.0.1:{s.port}" in r.body,
+               r.body[:200])
+        r = c.post_json("/api/auth/login", {"pin": "test1234"},
+                        headers={**evil, "Origin": "http://x.atacator.example"})
+        res.check("rebinding с совпадающим Origin — тоже 421, не вход", r.status, 421)
+        res.ok("куки не выдано", not any(ck.name == "admin_auth" for ck in c.jar),
+               "чужое имя получило куку")
+        for host in (f"127.0.0.1:{s.port}", f"[::1]:{s.port}", "localhost",
+                     f"receptie:{s.port}", f"registru.clinica.md:{s.port}"):
+            r = Client(s.url).get("/admin/login", headers={"Host": host})
+            res.check(f"своё имя проходит: {host}", r.status, 200)
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            res.check(f"карты адресов нет: {path}", Client(s.url).get(path).status, 404)
+
+
 def suite_authfail_atomic(res: Result) -> None:
     """P2 аудита 08-20: auth_fail.json писался напрямую, и рваная запись
     (питание, антивирус) молча обнуляла счётчик подбора — битый файл читается
