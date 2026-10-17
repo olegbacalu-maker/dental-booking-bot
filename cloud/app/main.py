@@ -22,7 +22,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from . import (account, auth, config, db, download, fleet, jobs, license, logmask, maib, mail, payments, paylink,
-               receipts, robots, sms, sms_rule, smsmd, smsreport, trial, updates, views)
+               receipts, robots, sms, sms_paper, sms_rule, smsmd, smsreport, trial, updates, views)
 from . import login as elogin  # ⚠️ не `login`: так зовётся маршрут входа админки ниже, он затенил бы модуль
 
 APP_VERSION = "0.1.0"
@@ -849,6 +849,22 @@ def clinic_sms_action(request: Request, cid: str, action: str = Form(""), value:
     return RedirectResponse(f"{back}?msg={code}", status_code=303)
 
 
+
+@app.get("/admin/clinics/{cid}/sms/cerere.pdf")
+def clinic_sms_paper(request: Request, cid: str) -> Response:
+    """Подписанное заявление клиники на имя (загружено в кабинете, sms_paper.py) —
+    файлом, для подачи в кабинете sms.md. ⚠️ Файл прислала клиника: отдаётся
+    вложением с nosniff, а не в окно админки. Нет файла у текущей заявки — 404."""
+    if (deny := _guard(request)) is not None:
+        return deny
+    with db.connect() as con:
+        p = sms_paper.current(con, cid, body=True)
+    if p is None:
+        return Response(status_code=404)
+    return Response(p["body"], media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{sms_paper.filename(p["sender"])[:-4]}-semnata.pdf"',
+                             "X-Content-Type-Options": "nosniff"})
+
 # ---------- ежедневная задача и журнал (L9) ----------
 
 
@@ -1352,8 +1368,15 @@ def cont_home(request: Request, msg: str = "") -> Response:
                             (c["id"],)).fetchone()
         pays = con.execute("SELECT * FROM payments WHERE clinic_id=? ORDER BY id DESC", (c["id"],)).fetchall()
         devices = fleet.of_clinic(con, c["id"])
+        sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (c["id"],)).fetchone()
+        smsinfo = None
+        if sms.offered(sa):
+            # строка счёта не заводится просмотром: без неё — «имени нет»
+            smsinfo = {"acc": sa, "from": sms.sender_now(sa), "suggest": sms.suggest(c["name"]),
+                       "paper": sms_paper.current(con, c["id"]), "missing": sms_paper.missing(c)}
     # последний выпуск — из памяти или одним запросом к API; вне транзакции
-    return HTMLResponse(views.cont_page(acc, c, sub, issue, pays, download.latest(), msg, devices=devices))
+    return HTMLResponse(views.cont_page(acc, c, sub, issue, pays, download.latest(), msg, devices=devices,
+                                        smsinfo=smsinfo))
 
 
 @app.get("/cont/login", response_class=HTMLResponse)
@@ -1635,6 +1658,115 @@ def cont_receipt(request: Request, number: str) -> Response:
         return Response(status_code=404)
     return _pdf(row)
 
+
+
+# ---------- кабинет › SMS: имя отправителя и заявление (17.10, sms_paper.py) ----------
+#
+# Раздел виден, только когда пакет предложен клинике (sms.offered): клиника без
+# пакета про SMS в кабинете не видит ничего, как и в программе.
+
+
+def _cont_sms(request: Request, con):
+    """(учётная запись, клиника, счёт SMS) кабинета; счёт None — пакет не предложен."""
+    acc, c = _cont_clinic(request, con)
+    if c is None:
+        return None, None, None
+    sa = con.execute("SELECT * FROM sms_accounts WHERE clinic_id=?", (c["id"],)).fetchone()
+    return acc, c, (sms.ensure(con, c["id"]) if sms.offered(sa) else None)
+
+
+@app.post("/cont/sms/nume")
+def cont_sms_name(request: Request, name: str = Form("")) -> Response:
+    """Заявка на имя из кабинета — та же sms.request_sender, что у программы и
+    админки (с отказом на чужое имя)."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect(immediate=True) as con:
+        acc, c, sa = _cont_sms(request, con)
+        if c is None:
+            return _cont_login_redirect()
+        if sa is None:
+            return RedirectResponse("/cont?msg=sms_not_offered", status_code=303)
+        code = sms.request_sender(con, c["id"], name, acc["email"])
+    return RedirectResponse(f"/cont?msg={code or 'sms_requested'}", status_code=303)
+
+
+@app.post("/cont/sms/cerere.pdf")
+def cont_sms_form(request: Request, rep: str = Form("")) -> Response:
+    """Заявление на имя, уже заполненное (PDF): реквизиты клиники, имя заявки,
+    представитель с формы. Без заявки или без реквизитов — назад с причиной."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    with db.connect() as con:
+        acc, c, sa = _cont_sms(request, con)
+        if c is None:
+            return _cont_login_redirect()
+        if sa is None:
+            return RedirectResponse("/cont?msg=sms_not_offered", status_code=303)
+        if sa["sender_state"] != sms.S_REQUESTED or not sa["sender"]:
+            return RedirectResponse("/cont?msg=sms_paper_state", status_code=303)
+        if sms_paper.missing(c):
+            return RedirectResponse("/cont?msg=sms_paper_data", status_code=303)
+        who = sms_paper.clean_rep(rep)
+        if not who:
+            return RedirectResponse("/cont?msg=sms_paper_rep", status_code=303)
+        body = sms_paper.render(c, sa["sender"], who)
+    return Response(body, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{sms_paper.filename(sa["sender"])}"'})
+
+
+def _cont_paper_save(request: Request, body: bytes, name: str) -> str:
+    with db.connect(immediate=True) as con:
+        acc, c, sa = _cont_sms(request, con)
+        if c is None:
+            return "login"
+        if sa is None:
+            return "sms_not_offered"
+        return sms_paper.attach(con, c["id"], body, name, acc["email"]) or "sms_paper_ok"
+
+
+@app.post("/cont/sms/cerere")
+async def cont_sms_upload(request: Request) -> Response:
+    """Подписанное заявление (PDF) в базу; ставит «Заявление получено».
+    ⛔ Тело читается здесь, с потолком, а не штатным разбором формы: тот кладёт
+    файл на диск целиком, и потолок после него ничего не сберёг бы. Лишнее сверх
+    потолка дочитывается вхолостую (до DRAIN), чтобы браузер получил ответ «файл
+    велик», а не обрыв: ранний ответ при непрочитанном теле Windows рвёт RST."""
+    if not auth.same_origin_post(request):
+        return Response(status_code=403)
+    limit, drain = sms_paper.MAX_BYTES + 64 * 1024, 32 * 1024 * 1024
+    try:
+        declared = int(request.headers.get("content-length") or "0")
+    except ValueError:
+        declared = 0
+    if declared > drain:
+        return RedirectResponse("/cont?msg=sms_paper_big", status_code=303)
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > drain:
+            break
+        if size <= limit:
+            chunks.append(chunk)
+    if size > limit:
+        return RedirectResponse("/cont?msg=sms_paper_big", status_code=303)
+    raw = b"".join(chunks)
+
+    async def replay() -> dict:
+        return {"type": "http.request", "body": raw, "more_body": False}
+
+    try:
+        form = await Request(request.scope, replay).form(max_files=1, max_fields=4)
+    except Exception:                         # кривой multipart: тот же ответ, что пустой файл
+        return RedirectResponse("/cont?msg=sms_paper_empty", status_code=303)
+    up = form.get("file")
+    if up is None or not hasattr(up, "read"):
+        return RedirectResponse("/cont?msg=sms_paper_empty", status_code=303)
+    body = await up.read(sms_paper.MAX_BYTES + 1)
+    code = await run_in_threadpool(_cont_paper_save, request, body, getattr(up, "filename", "") or "")
+    if code == "login":
+        return _cont_login_redirect()
+    return RedirectResponse(f"/cont?msg={code}", status_code=303)
 
 # ---------- скачивание с сайта (L15): /descarca ----------
 

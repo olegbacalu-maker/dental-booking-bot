@@ -30,6 +30,7 @@ import test_renew  # noqa: E402
 import test_robots  # noqa: E402
 import test_sms  # noqa: E402
 import test_sms_admin  # noqa: E402
+import test_sms_paper  # noqa: E402
 import test_sms_client  # noqa: E402
 import test_sms_rule  # noqa: E402
 import test_trial  # noqa: E402
@@ -87,6 +88,10 @@ SUITES = [
      test_sms_admin.suite_admin),
     ("SMS-пакет: личный текст клиники — карточка, проверки, счёт программы", test_sms_admin.suite_custom),
     ("SMS-пакет: одно имя отправителя — одна клиника, общее DentPilot не дают", test_sms_admin.suite_taken),
+    ("SMS-пакет: заявление на имя — бланк sms.md, заполнение, проверки", test_sms_paper.suite_render),
+    ("SMS-пакет: кабинет — заявка на имя, заполненное заявление, подписанное в базу, админка",
+     test_sms_paper.suite_cabinet),
+    ("SMS-пакет: кабинет без пакета — раздела SMS нет", test_sms_paper.suite_not_offered),
     ("SMS-пакет: провод программы против этого сервера", test_sms_client.suite_client),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),

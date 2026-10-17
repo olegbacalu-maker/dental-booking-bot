@@ -611,6 +611,7 @@ def request_sender(con: sqlite3.Connection, clinic_id: str, name: str, who: str)
     if name_holder(con, clinic_id, name):
         return "sms_name_taken"
     con.execute("UPDATE sms_accounts SET sender=?, sender_state=?, sender_note='', sender_paper_at=NULL, "
+                "sender_paper_id=NULL, "
                 "updated_at=? WHERE clinic_id=?", (name, S_REQUESTED, db.now_iso(), clinic_id))
     db.audit(con, who, "sms_sender", clinic_id, f"заявка на имя «{name}»")
     return ""

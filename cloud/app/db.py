@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 TS = "%Y-%m-%dT%H:%M:%SZ"
 
 MIGRATIONS = {
@@ -190,6 +190,19 @@ MIGRATIONS = {
             clinic_id TEXT NOT NULL REFERENCES clinics(id),
             number TEXT NOT NULL UNIQUE, issued_at TEXT NOT NULL, data TEXT NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS ix_receipts_clinic ON receipts(clinic_id, issued_at)",
+    ],
+    # 14 (17.10): подписанное заявление клиники на имя отправителя (бланк sms.md),
+    # загруженное в кабинете (sms_paper.py). Файл — в БАЗЕ, а не на диске: так он
+    # уезжает в ежедневную копию на ПК Олега вместе со всем остальным. Строки не
+    # удаляются — это бумага для sms.md; `sender_paper_id` — заявление ТЕКУЩЕЙ
+    # заявки (новая заявка на имя его обнуляет вместе с sender_paper_at).
+    14: [
+        """CREATE TABLE IF NOT EXISTS sms_papers(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+            sender TEXT NOT NULL, body BLOB NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
+            filename TEXT NOT NULL DEFAULT '', uploaded_at TEXT NOT NULL, who TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS ix_sms_papers_clinic ON sms_papers(clinic_id, id)",
+        "ALTER TABLE sms_accounts ADD COLUMN sender_paper_id INTEGER",
     ],
 }
 

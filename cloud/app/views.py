@@ -603,6 +603,9 @@ def _sender_actions(i: dict) -> str:
     """Шаги Олега по имени: заявление → подано → отказ; новая заявка."""
     cid = esc(i["clinic_id"])
     out = []
+    if i.get("sender_paper_file"):
+        out.append(f"<a class='btn' href='/admin/clinics/{cid}/sms/cerere.pdf' "
+                   f"title='Подписанное заявление, загруженное клиникой в кабинете'>Заявление клиники (PDF)</a>")
     if i["sender_state"] == "requested":
         if not i["sender_paper"]:
             out.append(f"<form method='post' action='/admin/clinics/{cid}/sms'><input type='hidden' name='action' value='paper'>"
@@ -698,7 +701,8 @@ def sms_block(c, det: dict | None) -> str:
                 f"<input name='name' value='{esc(sms_suggest(c['name']))}' maxlength='11'><button>Заявка на имя</button></form></div></div>")
     until = f" до {esc(det['sender_until'][:10])}" if det["sender_until"] else ""
     prepaid = f" · оплачено вперёд лет: {det['sender_prepaid']}" if det["sender_prepaid"] else ""
-    paper = (" · заявление получено" if det["sender_paper"] else " · <span class='muted'>без заявления</span>") if det["sender_state"] == "requested" else ""
+    paper = ((" · заявление загружено клиникой" if det["sender_paper_file"] else " · заявление получено")
+             if det["sender_paper"] else " · <span class='muted'>без заявления</span>") if det["sender_state"] == "requested" else ""
     kv = (f"<div class='kv'>"
           f"<div><label>Остаток</label><div class='v'><b>{det['balance']}</b> сегм.</div></div>"
           f"<div><label>Сегодня / потолок</label><div class='v'>{det['used_today']} / {det['daily_cap']}</div></div>"
@@ -1006,9 +1010,25 @@ CONT_MSG = {
     # страница оплаты из программы (02.10)
     "pay_need_idno": "Pentru abonament indicați IDNO-ul clinicii (13 cifre) — îl puteți completa chiar aici.",
     "mail_failed": "Nu am putut trimite e-mailul cu codul — încercați din nou peste un minut sau scrieți-ne.",
+    # SMS › numele expeditorului și cererea (17.10, sms_paper.py)
+    "sms_requested": "Cererea pentru numele expeditorului a fost înregistrată. Descărcați cererea completată, "
+                     "semnați-o și încărcați-o mai jos.",
+    "sms_name": "Numele expeditorului: până la 11 caractere — litere latine, cifre, spațiu, punct sau cratimă, "
+                "cel puțin o literă.",
+    "sms_name_taken": "Acest nume de expeditor este deja folosit sau cerut de altă clinică — alegeți alt nume.",
+    "sms_not_offered": "Pachetul SMS nu este disponibil încă pentru clinica dvs.",
+    "sms_paper_state": "Cererea se descarcă și se încarcă doar pentru un nume cerut și încă nedepus la SMS.MD.",
+    "sms_paper_data": "Pentru cerere completați mai întâi datele clinicii: IDNO, adresa, telefonul.",
+    "sms_paper_rep": "Scrieți numele și prenumele reprezentantului legal care semnează cererea.",
+    "sms_paper_ok": "Cererea semnată a fost primită. O depunem la SMS.MD; aprobarea durează 1–2 zile lucrătoare.",
+    "sms_paper_big": "Fișierul este prea mare: cererea semnată se încarcă PDF, până la 5 MB.",
+    "sms_paper_pdf": "Fișierul nu este PDF. Încărcați cererea semnată ca PDF (scanată sau semnată electronic).",
+    "sms_paper_empty": "Alegeți fișierul PDF al cererii semnate.",
 }
 _CONT_OK = {"logged_out", "registered_issued", "registered_requested", "saved", "note_created", "note_exists",
-            "linked"}
+            "linked", "sms_requested", "sms_paper_ok"}
+SENDER_RO = {"none": ("mute", "fără nume propriu"), "requested": ("warn", "cerere în lucru"),
+             "submitted": ("warn", "la operatori"), "active": ("ok", "aprobat"), "rejected": ("bad", "respins")}
 STATE_RO = {"active": ("ok", "activă"), "grace": ("warn", "expirată — perioada de plată"),
             "readonly": ("bad", "regim de citire"), "none": ("mute", "neactivată")}
 PAY_RO = {"pending": ("warn", "în așteptare"), "paid": ("ok", "plătită"), "rejected": ("bad", "respinsă")}
@@ -1555,7 +1575,68 @@ def pay_link_expired_page() -> str:
     return _cont_shell("Linkul a expirat", inner, eyebrow="DentPilot · plata din program")
 
 
-def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = ()) -> str:
+def _cont_sms(c, info: dict) -> str:
+    """Кабинет › SMS: имя отправителя клиники и заявление на него (бланк sms.md):
+    заявка на имя → заполненное заявление (PDF) → подписанное обратно → подача
+    Олегом → одобрение операторов. Только когда пакет клинике предложен."""
+    sa = info["acc"]
+    state = sa["sender_state"] if sa is not None else "none"
+    name = sa["sender"] if sa is not None else ""
+    cls, word = SENDER_RO.get(state, ("mute", state))
+    tag = f"<span class='tag {cls}'>{esc(word)}</span>"
+    sub = f"acum SMS-urile pleacă de la «{esc(info['from'] or 'DentPilot')}»"
+    hint = ("<p class='muted' style='margin:8px 0 0'>Până la 11 caractere: litere latine, cifre, spațiu, punct, "
+            "cratimă — denumirea juridică sau marca clinicii. Până la aprobare memento-urile pleacă de la "
+            "«DentPilot». Anul numelui propriu se comandă din program: Setări › SMS.</p>")
+
+    def ask(label: str) -> str:
+        return (f"<form method='post' action='/cont/sms/nume'><label>Numele expeditorului</label>"
+                f"<input name='name' value='{esc(name or info['suggest'])}' maxlength='11' required style='max-width:320px'>"
+                f"{hint}<p style='margin:14px 0 0'><button class='primary'>{label}</button></p></form>")
+
+    if state == "requested":
+        paper = info["paper"]
+        miss = info["missing"]
+        if miss:
+            step1 = (f"<p class='muted' style='margin:6px 0 0'>Lipsesc din <a href='#date'>datele clinicii</a>: "
+                     f"{esc(', '.join(miss))}. Completați-le și cererea se poate descărca.</p>")
+        else:
+            step1 = (f"<form method='post' action='/cont/sms/cerere.pdf' style='margin:6px 0 0'>"
+                     f"<label>Reprezentantul legal care semnează (nume, prenume)</label>"
+                     f"<input name='rep' value='{esc(c['contact_name'])}' maxlength='80' required style='max-width:420px'>"
+                     f"<p style='margin:10px 0 0'><button class='primary'>{_ic('download')} Descarcă cererea (PDF)</button></p></form>")
+        have = (f"<p class='muted' style='margin:6px 0 0'>Primită la {_ro(paper['uploaded_at'])}, "
+                f"{max(1, paper['size'] // 1024)} KB. O puteți înlocui cu alt fișier.</p>") if paper else ""
+        step3 = (f"<form method='post' action='/cont/sms/cerere' enctype='multipart/form-data' style='margin:6px 0 0'>"
+                 f"<input type='file' name='file' accept='application/pdf,.pdf' required style='max-width:420px'>"
+                 f"<p style='margin:10px 0 0'><button>Încarcă cererea semnată</button></p></form>{have}")
+        body = (f"<p style='margin:0 0 12px'>Numele cerut: <b>{esc(name)}</b> {tag}</p>"
+                f"<ol class='steps'>"
+                f"<li><b>Descărcați cererea completată</b>: formularul SMS.MD cu datele clinicii și numele cerut.{step1}</li>"
+                f"<li><b>Semnați-o</b>: de mână, apoi scanați-o, sau cu semnătura electronică (MSign).</li>"
+                f"<li><b>Încărcați cererea semnată</b>: PDF, până la 5 MB.{step3}</li>"
+                f"<li><b>O depunem la SMS.MD</b>: aprobarea operatorilor durează 1–2 zile lucrătoare.</li></ol>"
+                f"<details><summary>Alt nume</summary>{ask('Cere alt nume')}</details>")
+    elif state == "submitted":
+        body = (f"<p style='margin:0'>Numele <b>{esc(name)}</b> {tag}: cererea semnată a fost depusă la SMS.MD, "
+                f"aprobarea durează 1–2 zile lucrătoare. Starea se actualizează aici.</p>")
+    elif state == "active":
+        until = f", achitat până la {_ro(sa['sender_until'])}" if sa["sender_until"] else ""
+        body = (f"<p style='margin:0 0 12px'>Numele <b>{esc(name)}</b> {tag}{until}.</p>"
+                f"<details><summary>Alt nume</summary><p class='muted'>Numele aprobat rămâne până la aprobarea "
+                f"celui nou.</p>{ask('Cere alt nume')}</details>")
+    else:
+        note = (f"<p style='margin:0 0 12px'>Cererea pentru <b>{esc(name)}</b> {tag}"
+                f"{(': ' + esc(sa['sender_note'])) if sa is not None and sa['sender_note'] else ''}.</p>"
+                if state == "rejected" else
+                "<p style='margin:0 0 4px'>Clinica nu are încă nume propriu de expeditor: pacienții primesc "
+                "memento-urile de la «DentPilot».</p>")
+        body = note + ask("Cere numele")
+    return f"<div class='card' id='sms'>{_chead('message', 'SMS · numele expeditorului', sub)}{body}</div>"
+
+
+def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", devices: list = (),
+              smsinfo: dict | None = None) -> str:
     now = datetime.now(timezone.utc)
     st = license.state(_ts(sub["valid_until"]) if sub else None, sub["grace_days"] if sub else 0, now)
     site = config.SITE_URL.rstrip("/")
@@ -1599,7 +1680,7 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
     chip = f"<span class='price'>{price} MDL / lună · {pay.amount(12, price)} MDL / an</span>"
     pays = (f"<div class='card' id='plati'>{_chead('card', 'Abonament și plăți', 'un singur abonament pentru toată clinica', chip)}"
             f"{_cont_payments(c, sub, payments)}</div>")
-    data = (f"<div class='card'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
+    data = (f"<div class='card' id='date'>{_chead('building', 'Datele clinicii', 'apar în nota de plată și în licență')}"
             f"<form method='post' action='/cont/date'><div class='grid'>"
             f"<div><label>Denumirea clinicii *</label><input name='name' value='{esc(c['name'])}' required maxlength='{trial.NAME_MAX}'></div>"
             f"<div><label>IDNO (13 cifre)</label><input name='idno' value='{esc(c['idno'])}' maxlength='13' inputmode='numeric'></div>"
@@ -1609,4 +1690,5 @@ def cont_page(acc, c, sub, issue, payments: list, release, msg: str = "", device
             f"<div><label>E-mail</label><div class='mono' style='padding:8px 0'>{esc(c['email'] or '—')}</div>"
             f"<span class='muted'>pentru schimbare scrieți-ne</span></div></div>"
             f"<p style='margin:16px 0 0'><button class='primary'>Salvează</button></p></form></div>")
-    return _cont_shell(c["name"], hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + data, acc, msg)
+    sms_card = _cont_sms(c, smsinfo) if smsinfo is not None else ""
+    return _cont_shell(c["name"], hero + f"<div class='grid2'>{devs}{acct}</div>" + pays + sms_card + data, acc, msg)

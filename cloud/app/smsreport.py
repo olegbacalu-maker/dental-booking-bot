@@ -96,7 +96,7 @@ def _item(con: sqlite3.Connection, a: sqlite3.Row, start: datetime, end: datetim
             "state": license.state(db.parse_ts(a["valid_until"]), a["grace_days"] or 0, now),
             "enabled": bool(a["enabled"]), "pilot": bool(a["pilot"]), "offered": sms.offered(a),
             "sender": a["sender"], "sender_state": a["sender_state"], "sender_note": a["sender_note"],
-            "sender_paper": bool(a["sender_paper_at"]), "sender_until": a["sender_until"],
+            "sender_paper": bool(a["sender_paper_at"]), "sender_paper_file": bool(a["sender_paper_id"]), "sender_until": a["sender_until"],
             "sender_prepaid": a["sender_prepaid"], "from": sms.sender_now(a, now),
             "balance": sms.balance(con, cid), "daily_cap": a["daily_cap"],
             "used_today": sms.used_today(con, cid, now), "last_sent_at": last, **_counts(con, cid, start, end)}
