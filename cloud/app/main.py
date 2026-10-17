@@ -1715,6 +1715,12 @@ def cont_sms_form(request: Request, rep: str = Form("")) -> Response:
                     headers={"Content-Disposition": f'attachment; filename="{sms_paper.filename(sa["sender"])}"'})
 
 
+def _cont_known(request: Request) -> bool:
+    """Вошла ли клиника в кабинет (только чтение)."""
+    with db.connect() as con:
+        return _cont_clinic(request, con)[1] is not None
+
+
 def _cont_paper_save(request: Request, body: bytes, name: str) -> str:
     with db.connect(immediate=True) as con:
         acc, c, sa = _cont_sms(request, con)
@@ -1734,6 +1740,9 @@ async def cont_sms_upload(request: Request) -> Response:
     велик», а не обрыв: ранний ответ при непрочитанном теле Windows рвёт RST."""
     if not auth.same_origin_post(request):
         return Response(status_code=403)
+    # вход — ДО чтения тела: без него аноним заставлял бы сервер читать до 32 МБ
+    if not await run_in_threadpool(_cont_known, request):
+        return _cont_login_redirect()
     limit, drain = sms_paper.MAX_BYTES + 64 * 1024, 32 * 1024 * 1024
     try:
         declared = int(request.headers.get("content-length") or "0")

@@ -121,6 +121,9 @@ def suite_cabinet(res: Result) -> None:
             _sql(s, "UPDATE clinics SET idno='2234567890123' WHERE id=?", cid2)
             res.check("миграция 14: таблица sms_papers",
                       _one(s, "SELECT count(*) FROM sqlite_master WHERE name='sms_papers'"), 1)
+            anon = _upload(Client(s.url), b"%PDF-1.4\n%%EOF\n")
+            res.check("без входа загрузка — сразу на вход, тело не читается",
+                      (anon.status, anon.location), (303, "/cont/login"))
             cab = _cabinet(s, "zd@example.md")
             home = cab.get("/cont").body
             res.ok("кабинет: раздел SMS, имени нет, предложение из названия",
