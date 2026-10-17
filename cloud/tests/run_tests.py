@@ -86,6 +86,7 @@ SUITES = [
     ("SMS-пакет: модуль админки — сводка за период, JSON, карточка, кнопки, имена, Excel, тестовая SMS",
      test_sms_admin.suite_admin),
     ("SMS-пакет: личный текст клиники — карточка, проверки, счёт программы", test_sms_admin.suite_custom),
+    ("SMS-пакет: одно имя отправителя — одна клиника, общее DentPilot не дают", test_sms_admin.suite_taken),
     ("SMS-пакет: провод программы против этого сервера", test_sms_client.suite_client),
     ("Прод: копия базы, её проверка, учение по восстановлению", test_deploy.suite_backup),
     ("Прод: проверка окружения", test_deploy.suite_check),

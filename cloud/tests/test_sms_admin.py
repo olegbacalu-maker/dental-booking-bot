@@ -160,6 +160,57 @@ def suite_admin(res: Result) -> None:
 
 
 
+def suite_taken(res: Result) -> None:
+    """Одно имя — одна клиника (Олег 17.10): заявка на имя, которое другая клиника
+    держит или просит, — отказ sms_name_taken. Сверка с sms.md идёт по имени, и
+    дубль после одобрения включился бы у обеих. Регистр, пробел, точка и тире
+    имени не меняют; общее DentPilot клинике не дают; отказ имя освобождает,
+    одобренное держит, пока клиника ждёт новое."""
+    fake = FakeSmsMd()
+    try:
+        with Server(env=fake.env()) as s:
+            admin = Client(s.url).login()
+            cid, token = _clinic_with_license(admin, s, "Clinica Unu", "unu@example.md")
+            cid2, token2 = _clinic_with_license(admin, s, "Clinica Doi", "doi@example.md")
+            prog, prog2 = Program(s.url, token), Program(s.url, token2)
+            st, r = prog.post("/v1/sms/sender", name="Zambet Dent")
+            res.ok("Unu просит «Zambet Dent» — заявка принята", st == 200 and r["sender_state"] == "requested", r)
+            for name in ("Zambet Dent", "zambet-dent", "ZAMBETDENT", "Zambet.Dent"):
+                st, r = prog2.post("/v1/sms/sender", name=name)
+                res.ok(f"Doi просит «{name}» — 409 sms_name_taken с текстом для программы",
+                       st == 409 and r["code"] == "sms_name_taken" and "altă clinică" in r["text"], r)
+            st, acc = prog2.get("/v1/sms/account")
+            res.ok("у Doi заявки нет, SMS от DentPilot", acc["sender_state"] == "none" and acc["from"] == "DentPilot", acc)
+            res.check("в журнале одна заявка — от Unu",
+                      _one(s, "SELECT count(*) FROM audit WHERE what='sms_sender'"), 1)
+            st, r = prog.post("/v1/sms/sender", name="Zambet Dent")
+            res.ok("своя повторная заявка — не дубль", st == 200 and r["sender"] == "Zambet Dent", r)
+            r = admin.post(f"/admin/clinics/{cid2}/sms", action="request", name="Zambet Dent")
+            res.check("из админки — тот же отказ", r.location, f"/admin/clinics/{cid2}?msg=sms_name_taken")
+            res.ok("карточка говорит, почему", "другая клиника" in admin.get(r.location).body)
+            st, r = prog2.post("/v1/sms/sender", name="Dent Pilot")
+            res.ok("общее имя DentPilot клинике не дают", st == 409 and r["code"] == "sms_name_taken", r)
+            # одобрено → Unu просит новое: прежнее работает, его по-прежнему не дают
+            admin.post(f"/admin/clinics/{cid}/sms", action="paper")
+            admin.post(f"/admin/clinics/{cid}/sms", action="submitted")
+            fake.aliases["Zambet Dent"] = 1
+            admin.post("/admin/sms/sync")
+            res.check("имя Unu одобрено", _one(s, "SELECT sender_state FROM sms_accounts WHERE clinic_id=?", cid), "active")
+            prog.post("/v1/sms/sender", name="Unu Nou")
+            st, r = prog2.post("/v1/sms/sender", name="Zambet Dent")
+            res.ok("Unu ждёт новое, одобренное прежнее держит", st == 409 and r["code"] == "sms_name_taken", r)
+            st, r = prog2.post("/v1/sms/sender", name="Unu Nou")
+            res.ok("новое Unu, пока заявка, тоже держит", st == 409 and r["code"] == "sms_name_taken", r)
+            admin.post(f"/admin/clinics/{cid}/sms", action="rejected", note="nu este marca clinicii")
+            st, r = prog2.post("/v1/sms/sender", name="Unu Nou")
+            res.ok("отказ освобождает имя — заявка Doi принята",
+                   st == 200 and r["sender"] == "Unu Nou" and r["sender_state"] == "requested", r)
+            st, r = prog2.post("/v1/sms/sender", name="Zambet Dent")
+            res.ok("одобренное Unu и после отказа нового держит", st == 409 and r["code"] == "sms_name_taken", r)
+    finally:
+        fake.close()
+
+
 def suite_custom(res: Result) -> None:
     """Карточка › SMS › «Личный текст клиники» (S6): проверка на белый список,
     диакритику и один сегмент; включённый годный текст — в /v1/sms/account."""

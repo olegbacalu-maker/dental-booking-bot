@@ -148,6 +148,7 @@ CODES = {
     "sms_retry": (503, "Operatorul SMS nu a răspuns — încercăm din nou."),
     "sms_refused": (502, "Operatorul SMS a refuzat mesajul."),
     "sms_name": (400, "Numele expeditorului: până la 11 caractere latine, cifre, spațiu, punct sau cratimă."),
+    "sms_name_taken": (409, "Acest nume de expeditor este deja folosit sau cerut de altă clinică — alegeți alt nume."),
     "sms_no_packs": (503, "Pachetele SMS nu sunt disponibile încă."),
     "sms_pack": (400, "Pachetul ales nu există."),
     "sms_no_name": (503, "Numele propriu de expeditor nu este disponibil încă."),
@@ -574,15 +575,41 @@ def suggest(name: str) -> str:
     return " ".join(plain.split())[:11].strip()
 
 
+def name_key(name: str) -> str:
+    """Имя для сравнения: без регистра, пробелов, точек и тире — «Zambet Dent»,
+    «zambet-dent» и «ZAMBETDENT» пациент на экране читает одинаково."""
+    return re.sub(r"[ .\-]", "", name or "").casefold()
+
+
+def name_holder(con: sqlite3.Connection, clinic_id: str, name: str) -> str:
+    """Кто ещё держит или просит это имя: id другой клиники, '*' — общее имя
+    DentPilot, '' — свободно. Сверка с sms.md идёт по ИМЕНИ (sync_aliases), и
+    одно имя у двух клиник после одобрения включилось бы у обеих. Держит заявка
+    (requested, submitted, active) и одобренное имя в sender_live — оно работает
+    и пока клиника ждёт новое; отказ (rejected) имя не держит."""
+    key = name_key(name)
+    if key == name_key(config.SMS_COMMON):
+        return "*"
+    for r in con.execute("SELECT clinic_id, sender, sender_state, sender_live FROM sms_accounts "
+                         "WHERE clinic_id<>?", (clinic_id,)).fetchall():
+        asked = r["sender_state"] in (S_REQUESTED, S_SUBMITTED, S_ACTIVE) and name_key(r["sender"]) == key
+        if asked or (r["sender_live"] and name_key(r["sender_live"]) == key):
+            return r["clinic_id"]
+    return ""
+
+
 def request_sender(con: sqlite3.Connection, clinic_id: str, name: str, who: str) -> str:
     """Заявка на имя (клиника из программы или Олег): '' или код отказа. Прежнее
-    одобренное имя работает, пока новое не станет active."""
+    одобренное имя работает, пока новое не станет active. Имя, которое держит или
+    просит другая клиника (или общее DentPilot), — отказ sms_name_taken."""
     name = " ".join((name or "").split())
     if not SENDER_RE.match(name):
         return "sms_name"
     acc = ensure(con, clinic_id)
     if acc["sender"] == name and acc["sender_state"] in (S_REQUESTED, S_SUBMITTED, S_ACTIVE):
         return ""
+    if name_holder(con, clinic_id, name):
+        return "sms_name_taken"
     con.execute("UPDATE sms_accounts SET sender=?, sender_state=?, sender_note='', sender_paper_at=NULL, "
                 "updated_at=? WHERE clinic_id=?", (name, S_REQUESTED, db.now_iso(), clinic_id))
     db.audit(con, who, "sms_sender", clinic_id, f"заявка на имя «{name}»")
